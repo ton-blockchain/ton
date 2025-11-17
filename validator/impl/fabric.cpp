@@ -158,37 +158,39 @@ void run_hardfork_accept_block_query(BlockIdExt id, td::Ref<BlockData> data,
 void run_apply_block_query(BlockIdExt id, td::Ref<BlockData> block, BlockIdExt masterchain_block_id,
                            td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                            td::Promise<td::Unit> promise) {
-  td::actor::create_actor<ApplyBlock>(PSTRING() << "apply " << id, id, std::move(block), masterchain_block_id, manager,
-                                      timeout, std::move(promise))
+  td::actor::create_actor<ApplyBlock>(PSTRING() << "apply" << id.id.to_str(), id, std::move(block),
+                                      masterchain_block_id, manager, timeout, std::move(promise))
       .release();
 }
 
 void run_check_proof_query(BlockIdExt id, td::Ref<Proof> proof, td::actor::ActorId<ValidatorManager> manager,
                            td::Timestamp timeout, td::Promise<BlockHandle> promise, bool skip_check_signatures) {
-  td::actor::create_actor<CheckProof>("checkproof", id, std::move(proof), manager, timeout, std::move(promise),
-                                      skip_check_signatures)
+  td::actor::create_actor<CheckProof>(PSTRING() << "checkproof" << id.id.to_str(), id, std::move(proof), manager,
+                                      timeout, std::move(promise), skip_check_signatures)
       .release();
 }
 
 void run_check_proof_query(BlockIdExt id, td::Ref<Proof> proof, td::actor::ActorId<ValidatorManager> manager,
                            td::Timestamp timeout, td::Promise<BlockHandle> promise,
                            td::Ref<ProofLink> rel_key_block_proof, bool skip_check_signatures) {
-  td::actor::create_actor<CheckProof>("checkproof/key", id, std::move(proof), manager, timeout, std::move(promise),
-                                      skip_check_signatures, std::move(rel_key_block_proof))
+  td::actor::create_actor<CheckProof>(PSTRING() << "checkproof/key" << id.id.to_str(), id, std::move(proof), manager,
+                                      timeout, std::move(promise), skip_check_signatures,
+                                      std::move(rel_key_block_proof))
       .release();
 }
 
 void run_check_proof_query(BlockIdExt id, td::Ref<Proof> proof, td::actor::ActorId<ValidatorManager> manager,
                            td::Timestamp timeout, td::Promise<BlockHandle> promise,
                            td::Ref<MasterchainState> rel_mc_state, bool skip_check_signatures) {
-  td::actor::create_actor<CheckProof>("checkproof/st", id, std::move(proof), manager, timeout, std::move(promise),
-                                      skip_check_signatures, std::move(rel_mc_state))
+  td::actor::create_actor<CheckProof>(PSTRING() << "checkproof/st" << id.id.to_str(), id, std::move(proof), manager,
+                                      timeout, std::move(promise), skip_check_signatures, std::move(rel_mc_state))
       .release();
 }
 
 void run_check_proof_link_query(BlockIdExt id, td::Ref<ProofLink> proof, td::actor::ActorId<ValidatorManager> manager,
                                 td::Timestamp timeout, td::Promise<BlockHandle> promise) {
-  td::actor::create_actor<CheckProof>("checkprooflink", id, std::move(proof), manager, timeout, std::move(promise))
+  td::actor::create_actor<CheckProof>(PSTRING() << "checkprooflink" << id.id.to_str(), id, std::move(proof), manager,
+                                      timeout, std::move(promise))
       .release();
 }
 

@@ -4,15 +4,15 @@ const cc2 = address("EQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPrHF");
 fun verifyAddr(addr: address, workchain: int, number: int) {
     assert (addr == addr) throw 111;
     assert (!(addr != addr)) throw 111;
-    assert (addr.isInternal(), 111);
-    assert (!addr.isExternal(), 111);
-    assert (!addr.isNone(), 111);
+    assert (addr == (addr as any_address), 111);
+    assert ((addr as any_address).isInternal(), 111);
     assert (addr.bitsEqual(addr), 111);
 
     var (wc, h) = addr.getWorkchainAndHash();
     assert (wc == workchain) throw 111;
     assert (h == number) throw 111;
     assert (addr.getWorkchain() == workchain) throw 111;
+    assert (address.fromWorkchainAndHash(workchain, number) == addr) throw 113;
 
     var s = addr as slice;
     assert (s.remainingBitsCount() == 3 + 8 + 256) throw 112;
@@ -156,8 +156,7 @@ fun main() {
   check0() PROC:<{             	//  addr
     REWRITESTDADDR
     DROP                    	//  '2
-    0 EQINT                 	//  '4
-    111 THROWIFNOT          	//
+    111 THROWIF              	//
   }>
 """
 

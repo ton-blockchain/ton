@@ -15,7 +15,7 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "lexer.h"
-#include <cassert>
+#include "compilation-errors.h"
 #include <cstdint>
 #include <cstring>
 
@@ -74,7 +74,7 @@ public:
     }
 
 #ifdef TOLK_DEBUG
-    assert(!cur->val);
+    tolk_assert(!cur->val);
 #endif
     cur->val = val;
   }
@@ -181,9 +181,9 @@ struct ChunkString final : ChunkLexerBase {
     if (lex->char_at() != '"') {
       lex->error("string extends past end of line");
     }
-
-    std::string_view str_val(str_begin + 1, lex->c_str() - str_begin - 1);
     lex->skip_chars(1);
+
+    std::string_view str_val(str_begin, lex->c_str() - str_begin);    // with surrounding quotes
     lex->add_token(tok_string_const, str_val);
 
     return true;
@@ -205,9 +205,9 @@ struct ChunkMultilineString final : ChunkLexerBase {
     if (lex->is_eof()) {
       lex->error("string extends past end of file");
     }
-
-    std::string_view str_val(str_begin + 3, lex->c_str() - str_begin - 3);
     lex->skip_chars(3);
+
+    std::string_view str_val(str_begin, lex->c_str() - str_begin);    // with surrounding quotes
     lex->add_token(tok_string_const, str_val);
     return true;
   }
@@ -423,9 +423,6 @@ struct ChunkIdentifierInBackticks final : ChunkLexerBase {
     const char* str_begin = lex->c_str();
     lex->skip_chars(1);
     while (!lex->is_eof() && lex->char_at() != '`' && lex->char_at() != '\n') {
-      if (std::isspace(lex->char_at())) {
-        lex->error("an identifier can't have a space in its name (even inside backticks)");
-      }
       lex->skip_chars(1);
     }
     if (lex->char_at() != '`') {
@@ -458,7 +455,7 @@ struct TolkLanguageGrammar {
       case tok_semver:
         return ChunkSpecialParsing::parse_semver(lex);
       default:
-        assert(false);
+        tolk_assert(false);
         return false;
     }
   }
@@ -553,11 +550,10 @@ LexingTrie TolkLanguageGrammar::trie;
 //
 
 Lexer::Lexer(const SrcFile* file)
-  : file(file)
+  : file_id(file->file_id)
   , p_start(file->text.data())
   , p_end(p_start + file->text.size())
-  , p_next(p_start)
-  , location(file) {
+  , p_next(p_start) {
   next();
 }
 
@@ -575,7 +571,7 @@ void Lexer::next() {
 }
 
 void Lexer::next_special(TokenType parse_next_as, const char* str_expected) {
-  assert(cur_token_idx == last_token_idx);
+  tolk_assert(cur_token_idx == last_token_idx);
   skip_spaces();
   update_location();
   if (!TolkLanguageGrammar::parse_next_chunk_special(this, parse_next_as)) {
@@ -585,46 +581,33 @@ void Lexer::next_special(TokenType parse_next_as, const char* str_expected) {
 }
 
 Lexer::SavedPositionForLookahead Lexer::save_parsing_position() const {
-  return {p_next, cur_token_idx, cur_token, location};
+  return {p_next, cur_token_idx,  cur_token_offset, cur_token};
 }
 
 void Lexer::restore_position(SavedPositionForLookahead saved) {
   p_next = saved.p_next;
   cur_token_idx = last_token_idx = saved.cur_token_idx;
+  cur_token_offset = saved.cur_token_offset;
   cur_token = saved.cur_token;
-  location = saved.loc;
 }
 
 void Lexer::hack_replace_rshift_with_one_triangle() {
   // overcome the `>>` problem when parsing generics, leave only `>` here, see comments at usage
-  assert(cur_token.type == tok_rshift);
+  tolk_assert(cur_token.type == tok_rshift);
   cur_token = Token(tok_gt, ">");
+  cur_token_offset++;
 }
 
 void Lexer::error(const std::string& err_msg) const {
-  throw ParseError(cur_location(), err_msg);
+  err("{}", err_msg).fire(cur_range());
 }
 
 void Lexer::unexpected(const char* str_expected) const {
-  throw ParseError(cur_location(), "expected " + std::string(str_expected) + ", got `" + std::string(cur_str()) + "`");
+  err("expected {}, got `{}`", str_expected, cur_str()).fire(cur_range());
 }
 
 void lexer_init() {
   TolkLanguageGrammar::init();
-}
-
-// todo #ifdef TOLK_PROFILING
-// As told above, `next()` produces tokens on demand, while AST is being generated.
-// Hence, it's difficult to measure Lexer performance separately.
-// This function can be called just to tick Lexer performance, it just scans all input files.
-// There is no sense to use it in production, but when refactoring and optimizing Lexer, it's useful.
-void lexer_measure_performance(const AllRegisteredSrcFiles& files_to_just_parse) {
-  for (const SrcFile* file : files_to_just_parse) {
-    Lexer lex(file);
-    while (!lex.is_eof()) {
-      lex.next();
-    }
-  }
 }
 
 }  // namespace tolk

@@ -22,6 +22,21 @@ fun int.incrementTwoInPlace(mutate self, mutate y: int, byValue: int): int {
     return self + y;
 }
 
+struct A {
+    f1: int
+    f2: int
+}
+
+fun A.assign(mutate self, obj: A) {
+    self = obj;
+}
+
+fun A.assignWith(mutate self, mutate obj: A) {
+    self = obj;
+    obj.f2 = 0;
+}
+
+
 @method_id(101)
 fun testIncrement1() {
     var x = 50;
@@ -189,7 +204,7 @@ fun testStoreChaining() {
     b.storeUint(4, 32);
     b.myStoreUint(5, 32).storeUint(6, 32);
     storeUint(mutate b, 7, 32);
-    b = b.storeUint(8, 32);
+    builder.storeUint(mutate b, 8, 32);
     b = b.storeUint(9, 32).storeUint(10, 32);
 
     return b.bitsCount();
@@ -201,7 +216,7 @@ fun testStoreChainingCustom() {
     b.myStoreUint(4, 32);
     b.myStoreUint(5, 32).myStoreUint(6, 32);
     myStoreUint(mutate b, 7, 32);
-    b = b.myStoreUint(8, 32);
+    builder.myStoreUint(mutate b, 8, 32);
     b = b.myStoreUint(9, 32).myStoreUint(10, 32);
     val sum1 = getSumOfNumbersInCell(b.endCell());
 
@@ -306,6 +321,29 @@ fun testExplicitReturn() {
     );
 }
 
+fun int.add(mutate self, dx: int) { self += dx }
+fun int.del(mutate self) { self = 0; return self }
+
+@method_id(116)
+fun testUB() {
+    var x = 100;
+    var y = 100;
+    // x.add(x.del()) is disallowed by the borrow checker, but `!` operator allows bypassing
+    x.add(x!.del());
+    y.add(int.del(mutate y!));
+    return (x, y);
+}
+
+@method_id(117)
+fun testReceiverAndNot() {
+    var (a1: A, a2: A) = ({ f1: 10, f2: 20 }, { f1: 30, f2: 40 });
+    a1.assign(a1);
+    A.assign(mutate a1, a1);
+    a1.assignWith(mutate a2);
+    A.assignWith(mutate a2, mutate a1);
+    return (a1, a2);
+}
+
 
 fun main(){
     // mark used to codegen them
@@ -328,6 +366,8 @@ fun main(){
 @testcase | 113 |    | 320
 @testcase | 114 |    | 1 2 4
 @testcase | 115 |    | 13 2
+@testcase | 116 |    | 100 100
+@testcase | 117 |    | 30 0 30 40
 
 @fif_codegen
 """
@@ -370,6 +410,17 @@ fun main(){
     STIX	//  '2
     DROP	//
     0 PUSHINT	//  '11=0
+  }>
+"""
+
+@fif_codegen
+"""
+  testReceiverAndNot() PROC:<{  // 
+    30 PUSHINT                  //  '6=30
+    40 PUSHINT                  //  obj.f1=30 obj.f2=40
+    OVER
+    0 PUSHINT                   //  a1.f1=30 a2.f2=40 a2.f1=30 a1.f2=0
+    s0 s2 XCHG                  //  a1.f1=30 a1.f2=0 a2.f1=30 a2.f2=40
   }>
 """
 

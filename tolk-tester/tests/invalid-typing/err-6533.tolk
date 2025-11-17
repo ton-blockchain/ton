@@ -4,5 +4,5 @@ fun cantUseSelfAsType(mutate x: int) {
 
 /**
 @compilation_should_fail
-@stderr `self` type can be used only as a return type of a function (enforcing it to be chainable)
+@stderr `self` type can be used only as a return type of a method `fun T.methodForT(self)`
  */

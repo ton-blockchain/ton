@@ -12,5 +12,5 @@ fun main() {
 /**
 @compilation_should_fail
 @stderr field `item` missed in initialization of struct `Wrapper<int>`
-@stderr = Wrapper {
+@stderr };
  */

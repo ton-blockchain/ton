@@ -67,27 +67,29 @@ fun test2(bd: Body750Bits) {
 }
 
 struct Body3 {
-    bodyAddress: address;
+    bodyAddress: any_address;
     amount: coins;
     someRef: cell;
 }
 
 @method_id(103)
 fun test3(eventId: int) {
-    val bodyAddress = address("Ef9nzj6RBc4mQ6p3ng7mGJ7tp7MbzERhe7obkM9A0wnCCEcf");
+    val bodyAddress = address("Ef9nzj6RBc4mQ6p3ng7mGJ7tp7MbzERhe7obkM9A0wnCCEcf") as any_address;
     val someRef = MyBody { queryId: 800 }.toCell();
     var b = createExternalLogMessage({
-        body: Body3 { bodyAddress, someRef, amount: ton("0.05") },
+        body: UnsafeBodyNoRef { 
+            forceInline: Body3 { bodyAddress, someRef, amount: ton("0.05") } 
+        },
         dest: { topic: eventId },
     });
     return b.hash();
 }
 
 @noinline
-fun test4_manual(dest: address, body: cell) {
+fun test4_manual(dest: any_address, body: cell) {
     return beginCell()
         .storeUint(0b1100, 4)       // ext_out_msg_info$11 src:MsgAddressInt ()
-        .storeAddress(dest)            // dest (manually created external address)
+        .storeAddressAny(dest)            // dest (manually created external address)
         .storeUint(1, 64 + 32 + 2)  // created_lt, created_at, init:Maybe (0), body:Either right (ref)
         .storeRef(body)
         .endCell();
@@ -97,7 +99,7 @@ fun test4_manual(dest: address, body: cell) {
 fun test4() {
     val body: cell = Body3 { bodyAddress: createAddressNone(), amount: 0, someRef: createEmptyCell() }.toCell();
     val dest = beginCell().storeUint(0b01, 2).storeUint(12, 9).storeUint(88, 12).endCell()
-        .beginParse() as address;
+        .beginParse() as any_address;
     var b = createExternalLogMessage({
         body,
         dest,
@@ -117,7 +119,7 @@ fun test5(topic: int) {
 @method_id(106)
 fun test6() {
     val dest = beginCell().storeUint(0b01, 2).storeUint(12, 9).storeUint(88, 12).endCell()
-        .beginParse() as address;
+        .beginParse() as any_address;
     var b = createExternalLogMessage({
         dest,
     });

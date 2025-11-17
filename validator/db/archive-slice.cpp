@@ -385,7 +385,8 @@ void ArchiveSlice::get_file(ConstBlockHandle handle, FileReference ref_id, td::P
   auto R = kv_->get(ref_id.hash().to_hex(), value);
   R.ensure();
   if (R.move_as_ok() == td::KeyValue::GetStatus::NotFound) {
-    promise.set_error(td::Status::Error(ErrorCode::notready, "file not in archive slice"));
+    promise.set_error(td::Status::Error(
+        ErrorCode::notready, PSTRING() << "file " << ref_id.filename() << " not in archive slice " << get_name()));
     return;
   }
   auto offset = td::to_integer<td::uint64>(value);

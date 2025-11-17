@@ -44,8 +44,8 @@ void TmpVar::show(std::ostream& os) const {
     os << '_' << name;
   }
 #ifdef TOLK_DEBUG
-  if (desc) {
-    os << ' ' << desc;    // "origin" of implicitly created tmp var, like `'15 (binary-op) '16 (glob-var)`
+  if (purpose) {
+    os << ' ' << purpose;    // "purpose" of implicitly created tmp var, like `'15 (binary-op) '16 (glob-var)`
   }
 #endif
 }
@@ -175,9 +175,9 @@ void VarDescrList::show(std::ostream& os) const {
   os << " ]\n";
 }
 
-void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, std::string pfx, int mode) const {
+void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, const std::string& indent, int mode) const {
   if (mode & 2) {
-    os << pfx << " [";
+    os << indent << " [";
     for (const auto& v : var_info.list) {
       os << ' ';
       if (v.flags & VarDescr::_Last) {
@@ -203,10 +203,10 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, std::string pfx
   }
   switch (cl) {
     case _Nop:
-      os << pfx << dis << "NOP\n";
+      os << indent << dis << "NOP\n";
       break;
     case _Call:
-      os << pfx << dis << "CALL: ";
+      os << indent << dis << "CALL: ";
       show_var_list(os, left, vars);
       os << " := " << (f_sym ? f_sym->name : "(null)") << " ";
       if ((mode & 4) && args.size() == right.size()) {
@@ -217,105 +217,105 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, std::string pfx
       os << std::endl;
       break;
     case _CallInd:
-      os << pfx << dis << "CALLIND: ";
+      os << indent << dis << "CALLIND: ";
       show_var_list(os, left, vars);
       os << " := EXEC ";
       show_var_list(os, right, vars);
       os << std::endl;
       break;
     case _Let:
-      os << pfx << dis << "LET ";
+      os << indent << dis << "LET ";
       show_var_list(os, left, vars);
       os << " := ";
       show_var_list(os, right, vars);
       os << std::endl;
       break;
     case _Tuple:
-      os << pfx << dis << "MKTUPLE ";
+      os << indent << dis << "MKTUPLE ";
       show_var_list(os, left, vars);
       os << " := ";
       show_var_list(os, right, vars);
       os << std::endl;
       break;
     case _UnTuple:
-      os << pfx << dis << "UNTUPLE ";
+      os << indent << dis << "UNTUPLE ";
       show_var_list(os, left, vars);
       os << " := ";
       show_var_list(os, right, vars);
       os << std::endl;
       break;
     case _IntConst:
-      os << pfx << dis << "CONST ";
+      os << indent << dis << "CONST ";
       show_var_list(os, left, vars);
       os << " := " << int_const << std::endl;
       break;
     case _SliceConst:
-      os << pfx << dis << "SCONST ";
+      os << indent << dis << "SCONST ";
       show_var_list(os, left, vars);
       os << " := " << str_const << std::endl;
       break;
     case _Import:
-      os << pfx << dis << "IMPORT ";
+      os << indent << dis << "IMPORT ";
       show_var_list(os, left, vars);
       os << std::endl;
       break;
     case _Return:
-      os << pfx << dis << "RETURN ";
+      os << indent << dis << "RETURN ";
       show_var_list(os, left, vars);
       os << std::endl;
       break;
     case _GlobVar:
-      os << pfx << dis << "GLOBVAR ";
+      os << indent << dis << "GLOBVAR ";
       show_var_list(os, left, vars);
       os << " := " << (g_sym ? g_sym->name : "(null)") << std::endl;
       break;
     case _SetGlob:
-      os << pfx << dis << "SETGLOB ";
+      os << indent << dis << "SETGLOB ";
       os << (g_sym ? g_sym->name : "(null)") << " := ";
       show_var_list(os, right, vars);
       os << std::endl;
       break;
     case _Repeat:
-      os << pfx << dis << "REPEAT ";
+      os << indent << dis << "REPEAT ";
       show_var_list(os, left, vars);
       os << ' ';
-      show_block(os, block0.get(), vars, pfx, mode);
+      show_block(os, block0.get(), vars, indent, mode);
       os << std::endl;
       break;
     case _If:
-      os << pfx << dis << "IF ";
+      os << indent << dis << "IF ";
       show_var_list(os, left, vars);
       os << ' ';
-      show_block(os, block0.get(), vars, pfx, mode);
+      show_block(os, block0.get(), vars, indent, mode);
       os << " ELSE ";
-      show_block(os, block1.get(), vars, pfx, mode);
+      show_block(os, block1.get(), vars, indent, mode);
       os << std::endl;
       break;
     case _While:
-      os << pfx << dis << "WHILE ";
+      os << indent << dis << "WHILE ";
       show_var_list(os, left, vars);
       os << ' ';
-      show_block(os, block0.get(), vars, pfx, mode);
+      show_block(os, block0.get(), vars, indent, mode);
       os << " DO ";
-      show_block(os, block1.get(), vars, pfx, mode);
+      show_block(os, block1.get(), vars, indent, mode);
       os << std::endl;
       break;
     case _Until:
-      os << pfx << dis << "UNTIL ";
+      os << indent << dis << "UNTIL ";
       show_var_list(os, left, vars);
       os << ' ';
-      show_block(os, block0.get(), vars, pfx, mode);
+      show_block(os, block0.get(), vars, indent, mode);
       os << std::endl;
       break;
     case _Again:
-      os << pfx << dis << "AGAIN ";
+      os << indent << dis << "AGAIN ";
       show_var_list(os, left, vars);
       os << ' ';
-      show_block(os, block0.get(), vars, pfx, mode);
+      show_block(os, block0.get(), vars, indent, mode);
       os << std::endl;
       break;
     default:
-      os << pfx << dis << "<???" << cl << "> ";
+      os << indent << dis << "<???" << cl << "> ";
       show_var_list(os, left, vars);
       os << " -- ";
       show_var_list(os, right, vars);
@@ -359,13 +359,13 @@ void Op::show_var_list(std::ostream& os, const std::vector<VarDescr>& list, cons
   }
 }
 
-void Op::show_block(std::ostream& os, const Op* block, const std::vector<TmpVar>& vars, std::string pfx, int mode) {
+void Op::show_block(std::ostream& os, const Op* block, const std::vector<TmpVar>& vars, const std::string& indent, int mode) {
   os << "{" << std::endl;
-  std::string pfx2 = pfx + "  ";
+  std::string sub_indent = indent + "  ";
   for (const Op& op : block) {
-    op.show(os, vars, pfx2, mode);
+    op.show(os, vars, sub_indent, mode);
   }
-  os << pfx << "}";
+  os << indent << "}";
 }
 
 std::ostream& operator<<(std::ostream& os, const CodeBlob& code) {
@@ -379,12 +379,7 @@ void CodeBlob::print(std::ostream& os, int flags) const {
   if ((flags & 8) != 0) {
     for (const auto& var : vars) {
       var.show(os);
-      os << " : " << var.v_type << std::endl;
-      if (var.loc.is_defined() && (flags & 1) != 0) {
-        var.loc.show(os);
-        os << " defined here:\n";
-        var.loc.show_context(os);
-      }
+      os << " : " << var.v_type->as_human_readable() << std::endl;
     }
   }
   os << "------- BEGIN --------\n";
@@ -394,7 +389,7 @@ void CodeBlob::print(std::ostream& os, int flags) const {
   os << "-------- END ---------\n\n";
 }
 
-std::vector<var_idx_t> CodeBlob::create_var(TypePtr var_type, SrcLocation loc, std::string name) {
+std::vector<var_idx_t> CodeBlob::create_var(TypePtr var_type, AnyV origin, std::string name) {
   std::vector<var_idx_t> ir_idx;
   int stack_w = var_type->get_width_on_stack();
   ir_idx.reserve(stack_w);
@@ -402,33 +397,33 @@ std::vector<var_idx_t> CodeBlob::create_var(TypePtr var_type, SrcLocation loc, s
     for (int i = 0; i < t_struct->struct_ref->get_num_fields(); ++i) {
       StructFieldPtr field_ref = t_struct->struct_ref->get_field(i);
       std::string sub_name = name.empty() || t_struct->struct_ref->get_num_fields() == 1 ? name : name + "." + field_ref->name;
-      std::vector<var_idx_t> nested = create_var(field_ref->declared_type, loc, std::move(sub_name));
+      std::vector nested = create_var(field_ref->declared_type, origin, std::move(sub_name));
       ir_idx.insert(ir_idx.end(), nested.begin(), nested.end());
     }
   } else if (const TypeDataTensor* t_tensor = var_type->try_as<TypeDataTensor>()) {
     for (int i = 0; i < t_tensor->size(); ++i) {
       std::string sub_name = name.empty() ? name : name + "." + std::to_string(i);
-      std::vector<var_idx_t> nested = create_var(t_tensor->items[i], loc, std::move(sub_name));
+      std::vector nested = create_var(t_tensor->items[i], origin, std::move(sub_name));
       ir_idx.insert(ir_idx.end(), nested.begin(), nested.end());
     }
   } else if (const TypeDataAlias* t_alias = var_type->try_as<TypeDataAlias>()) {
-    ir_idx = create_var(t_alias->underlying_type, loc, std::move(name));
+    ir_idx = create_var(t_alias->underlying_type, origin, std::move(name));
   } else if (const TypeDataUnion* t_union = var_type->try_as<TypeDataUnion>(); t_union && stack_w != 1) {
     std::string utag_name = name.empty() ? "'UTag" : name + ".UTag";
     if (t_union->or_null) {   // in stack comments, `a:(int,int)?` will be "a.0 a.1 a.UTag"
-      ir_idx = create_var(t_union->or_null, loc, std::move(name));
+      ir_idx = create_var(t_union->or_null, origin, std::move(name));
     } else {                  // in stack comments, `a:int|slice` will be "a.USlot1 a.UTag"
       for (int i = 0; i < stack_w - 1; ++i) {
         std::string slot_name = name.empty() ? "'USlot" + std::to_string(i + 1) : name + ".USlot" + std::to_string(i + 1);
-        ir_idx.emplace_back(create_var(TypeDataUnknown::create(), loc, std::move(slot_name))[0]);
+        ir_idx.emplace_back(create_var(TypeDataUnknown::create(), origin, std::move(slot_name))[0]);
       }
     }
-    ir_idx.emplace_back(create_var(TypeDataInt::create(), loc, std::move(utag_name))[0]);
+    ir_idx.emplace_back(create_var(TypeDataInt::create(), origin, std::move(utag_name))[0]);
   } else if (var_type != TypeDataVoid::create() && var_type != TypeDataNever::create()) {
 #ifdef TOLK_DEBUG
     tolk_assert(stack_w == 1);
 #endif
-    vars.emplace_back(var_cnt, var_type, std::move(name), loc);
+    vars.emplace_back(var_cnt, var_type, std::move(name));
     ir_idx.emplace_back(var_cnt);
     var_cnt++;
   }
@@ -436,14 +431,14 @@ std::vector<var_idx_t> CodeBlob::create_var(TypePtr var_type, SrcLocation loc, s
   return ir_idx;
 }
 
-var_idx_t CodeBlob::create_int(SrcLocation loc, int64_t value, const char* desc) {
-  vars.emplace_back(var_cnt, TypeDataInt::create(), std::string{}, loc);
+var_idx_t CodeBlob::create_int(AnyV origin, int64_t value, const char* purpose) {
+  vars.emplace_back(var_cnt, TypeDataInt::create(), std::string{});
 #ifdef TOLK_DEBUG
-  vars.back().desc = desc;
+  vars.back().purpose = purpose;
 #endif
   var_idx_t ir_int = var_cnt;
   var_cnt++;
-  emplace_back(loc, Op::_IntConst, std::vector{ir_int}, td::make_refint(value));
+  emplace_back(origin, Op::_IntConst, std::vector{ir_int}, td::make_refint(value));
   return ir_int;
 }
 

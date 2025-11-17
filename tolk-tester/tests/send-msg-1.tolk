@@ -1,5 +1,4 @@
 import "@stdlib/tvm-dicts"
-import "@stdlib/tvm-lowlevel"
 
 /*
 int_msg_info$0                                                              1
@@ -9,7 +8,7 @@ int_msg_info$0                                                              1
     src:MsgAddress                      // always 00 on send                2
     dest:MsgAddressInt                  // parameter                        267
     value:CurrencyCollection            // parameter                        124 + 1
-    ihr_fee:Grams                       // always 0, not implemented        4
+    extra_flags:Grams                   // if new bounces enabled           12
     fwd_fee:Grams                       // always 0 on send                 4
     created_lt:uint64                   // always 0 on send                 64
     created_at:uint32                   // always 0 on send                 32
@@ -21,7 +20,7 @@ _   split_depth:(Maybe (## 5))                                              1 + 
     library:(Maybe ^Cell)                                                   1
     = StateInit;
 message$_ {X:Type}
-    info:CommonMsgInfoRelaxed                                               502
+    info:CommonMsgInfoRelaxed                                               510
     init:(Maybe (Either StateInit ^StateInit))                              12
     body:(Either X ^X)                  // body is either embedded or stored as ref
     = MessageRelaxed X;
@@ -79,7 +78,7 @@ fun test1() {
     val body: MyBody = { queryId: 800 };
     var b = createMessage({
         body: body,
-        bounce: true,
+        bounce: BounceMode.Only256BitsOfBody,
         dest: address("UQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPuwA"),
         value: 123,
     });
@@ -105,7 +104,7 @@ fun test2() {
     val body: MyBody = { queryId: 127493264572 };
     var b = createMessage({
         body,
-        bounce: false,
+        bounce: BounceMode.NoBounce,
         dest: address("1:527964d55cfa6eb731f4bfc07e9d025098097ef8505519e853986279bd8400d8"),
         value: 90,
     });
@@ -191,7 +190,7 @@ fun test5() {
     val body: MyBody = { queryId: 800 };
     var b = createMessage({
         body,
-        bounce: true,
+        bounce: BounceMode.Only256BitsOfBody,
         dest: address("UQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPuwA"),
         value: (123, ec_dict),
     });
@@ -348,7 +347,7 @@ fun test10_manual(bd: Body500Bits) {
 @method_id(110)
 fun test10(bd: Body500Bits) {
     var b = createMessage({
-        bounce: false,
+        bounce: BounceMode.NoBounce,
         body: bd,
         dest: address("Ef80FNJ5NJO4-0QwlVAWckUZXdk-PfYDexDZ1-ju9SxhF0A6"),
         value: 1 << 118,
@@ -374,7 +373,7 @@ fun test11_manual(bd: Body750Bits) {
 @method_id(111)
 fun test11(bd: Body750Bits) {
     var b = createMessage({
-        bounce: false,
+        bounce: BounceMode.NoBounce,
         body: bd,
         dest: address("Ef80FNJ5NJO4-0QwlVAWckUZXdk-PfYDexDZ1-ju9SxhF0A6"),
         value: 1 << 110,
@@ -651,7 +650,7 @@ fun test22(op: uint32, queryId: uint64) {
 }
 
 struct Body23Unlimited {
-    any1: (address, builder),
+    any1: (address?, builder),
     any2: RemainingBitsAndRefs;
 }
 
@@ -670,7 +669,7 @@ fun test23_manual(state32: uint32, body: Body23Unlimited) {
         .storeUint(0b10001100, 1 + 4 + 4 + 64 + 32 + (1 + 1 + 5 + 1))
         .storeRef(init.code)
         .storeRef(init.data)
-        .storeAddress(body.any1.0)
+        .storeAddressOpt(body.any1.0)
         .storeBuilder(body.any1.1)
         .storeSlice(body.any2)
         .endCell();
@@ -683,7 +682,7 @@ fun test23(state32: uint32) {
         code: beginCell().endCell(),
     };
     var bd: Body23Unlimited = {
-        any1: (createAddressNone(), beginCell().storeRef(init.code)),
+        any1: (null, beginCell().storeRef(init.code)),
         any2: beginCell().storeUint(80, 80).endCell().beginParse(),
     };
 
@@ -724,6 +723,35 @@ fun test24() {
     return b.hash();
 }
 
+@noinline
+fun test25_manual() {
+    return beginCell()
+        .storeUint(0x18, 6)            // bounce
+        .storeAddress(address("UQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPuwA"))
+        .storeCoins(123)   // value.grams
+        .storeUint(0, 1)    // no extra currencies
+        .storeCoins(3)      // extra_flags for bounces
+        .storeUint(0, 4 + 64 + 32 + 1 + 1)  // ... + 0 init + 0 body (not ref)
+        // MyBody: op + queryId
+        .storeUint(0x12345678, 32)
+        .storeUint(800, 64)
+        .endCell();
+}
+
+@method_id(125)
+fun test25() {
+    val body: MyBody = { queryId: 800 };
+    var b = createMessage({
+        body: body,
+        bounce: BounceMode.RichBounce,
+        dest: address("UQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPuwA"),
+        value: 123,
+    });
+    assert(b.hash() == test25_manual().hash(), 101);
+    return b.hash();
+}
+
+
 fun main() {
 }
 
@@ -752,4 +780,5 @@ fun main() {
 @testcase | 122 | 88 12892 | 104095783372529353117379287284649790470404208891518326338200063605256169961669
 @testcase | 123 | 999      | 93691386126134034953606952841435771108648354412078750046821446829279390964584
 @testcase | 124 |          | 21886688052816798288463190773103865772534937765373272039597499398551023701577
+@testcase | 125 |          | 12745496241890009334837209777890803918215266832624965751220009451486906344811
  */
