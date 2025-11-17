@@ -776,6 +776,20 @@ fun test61(i: int32 | int64 | int) {
     }
 }
 
+fun myFromTuple<T>(t: tuple): T {
+    return T.fromTuple(t)
+}
+
+@method_id(162)
+fun test62() {
+    return (
+        ((5 as int32) as int32 | int64).toTuple(),
+        ((5 as int64) as int32 | int64).toTuple(),
+        myFromTuple<int32 | int64>([10, 48] as tuple) is int64,
+        myFromTuple<int32 | int64>([10, 48] as tuple).typeNameOfObject().bitsEqual("int32 | int64"),
+    ) 
+}
+
 
 
 fun main() {
@@ -850,6 +864,7 @@ fun main() {
 @testcase | 159 | null 0    | 123
 @testcase | 160 |           | 10 0
 @testcase | 161 | 100 48    | 20
+@testcase | 162 |           | [ 5 46 ] [ 5 48 ] -1 -1
 
 
 @fif_codegen

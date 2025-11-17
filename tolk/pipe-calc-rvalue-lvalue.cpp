@@ -14,9 +14,9 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "tolk.h"
 #include "ast.h"
 #include "ast-visitor.h"
+#include "compilation-errors.h"
 
 /*
  *   This pipe assigns lvalue/rvalue flags for AST expressions.
@@ -257,6 +257,11 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     MarkingState saved = enter_state(MarkingState::RValue);
     parent::visit(v);
     restore_state(saved);
+  }
+
+  void visit(V<ast_lambda_fun> v) override {
+    mark_vertex(v);
+    // we do not traverse body of a lambda: it's traversed when that lambda is instantiated
   }
 
   void visit(V<ast_local_var_lhs> v) override {

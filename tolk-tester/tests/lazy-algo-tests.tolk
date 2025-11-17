@@ -148,7 +148,7 @@ struct NotFixedWidthStorage {
     f4: bool;
     f5: cell;
     f6: int8 | bool;
-    f7: address;
+    f7: address?;
     f8: int8;
     f9: bits200;
     f10: (bits400, ());
@@ -195,6 +195,12 @@ struct ItemState {
 struct HasIncrementEnd {
     a: int8;
     inc: CounterIncrement;
+}
+
+struct HasUnusedAddressInTensor {
+    f1: (int8, bits267, int8)           // can be safely skipped as bits283
+    f2: (int8, address, int8)           // can NOT (even fixed-size) since `address` needs validation
+    f3: int8
 }
 
 
@@ -663,7 +669,7 @@ fun algo49(forceLoad: bool) {
 
 fun algo50() {
     var st = lazy NotFixedWidthStorage.fromSlice("");
-    __expect_lazy("[st] skip (bits8) (int8?) (bits9) (int8 | bool) (address) (bits608), load f11");
+    __expect_lazy("[st] skip (bits8) (int8?) (bits9) (int8 | bool) (address?) (bits608), load f11");
     st.f11;
 }
 
@@ -1207,6 +1213,19 @@ fun algo153() {
     }
 }
 
+@method_id(154)
+fun algo154() {
+    val f1 = lazy Fields9.fromSlice(stringHexToSlice("010203040506070809"));
+    val f2 = lazy Fields9.fromSlice(stringHexToSlice("0102"));
+    val cb1 = fun(f: Fields9) { return f.f1 + f.f2 };
+    val cb2 = fun(f1: int, f2: int) { return f1 + f2 };
+    __expect_lazy("[f1] load f1 f2 f3 f4 f5 f6 f7 f8 f9");
+    val r1 = cb1(f1);
+    __expect_lazy("[f2] load f1 f2");
+    val r2 = cb2(f2.f1, f2.f2);
+    return (r1, r2);
+}
+
 fun algo224(): void {
     val o = lazy WithEitherABEnd.fromSlice("");
     __expect_lazy("[o] skip (bits32), load f2, skip (bits32), load f4 f5 ab");
@@ -1463,7 +1482,7 @@ fun algo311() {
 
 fun algo312() {
     var st = lazy NotFixedWidthStorage.fromSlice("");
-    __expect_lazy("[st] load (bits8) (int8?) (bits9) (cell) (int8 | bool) (address) f8, save immutable (tail)");
+    __expect_lazy("[st] load (bits8) (int8?) (bits9) (cell) (int8 | bool) (address?) f8, save immutable (tail)");
     if (rand()) {
         st.f8 += 1;
     }
@@ -1473,11 +1492,17 @@ fun algo312() {
 fun algo313() {
     var st = lazy NotFixedWidthStorage.fromSlice("");
     if (rand()) {
-        __expect_lazy("[st] load (bits8) (int8?) (bits9) f5, save immutable (tail), skip (int8 | bool) (address) (bits8), load f9");
+        __expect_lazy("[st] load (bits8) (int8?) (bits9) f5, save immutable (tail), skip (int8 | bool) (address?) (bits8), load f9");
         st.f5 = createEmptyCell();
         st.f9;
         st.toCell();
     }
+}
+
+fun algo314() {
+    var l = lazy HasUnusedAddressInTensor.fromSlice("");
+    __expect_lazy("[l] skip (bits283) ((int8, address, int8)), load f3");
+    l.f3;
 }
 
 
@@ -1487,6 +1512,7 @@ fun main() {
 /**
 @testcase | 140 |       | 2
 @testcase | 141 | -1    | 1
+@testcase | 154 |       | 3 3
 @testcase | 301 |       | 17
 @testcase | 303 |       | 1 2
 @testcase | 304 |       | 1 2

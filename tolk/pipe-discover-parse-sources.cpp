@@ -23,8 +23,8 @@
     exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 */
-#include "tolk.h"
 #include "ast.h"
+#include "compilation-errors.h"
 #include "compiler-state.h"
 
 /*
@@ -40,8 +40,8 @@ namespace tolk {
 AnyV parse_src_file_to_ast(const SrcFile* file);
 
 void pipeline_discover_and_parse_sources(const std::string& stdlib_filename, const std::string& entrypoint_filename) {
-  G.all_src_files.locate_and_register_source_file(stdlib_filename, {});
-  G.all_src_files.locate_and_register_source_file(entrypoint_filename, {});
+  G.all_src_files.locate_and_register_source_file(stdlib_filename, nullptr);
+  G.all_src_files.locate_and_register_source_file(entrypoint_filename, nullptr);
 
   while (SrcFile* file = G.all_src_files.get_next_unparsed_file()) {
     tolk_assert(!file->ast);
@@ -56,15 +56,12 @@ void pipeline_discover_and_parse_sources(const std::string& stdlib_filename, con
           ? std::move(imported_str)
           : file->extract_dirname() + imported_str;
 
-        const SrcFile* imported = G.all_src_files.locate_and_register_source_file(rel_filename, v_import->loc);
+        const SrcFile* imported = G.all_src_files.locate_and_register_source_file(rel_filename, v_import->get_file_leaf());
         file->imports.push_back(SrcFile::ImportDirective{imported});
         v_import->mutate()->assign_src_file(imported);
       }
     }
   }
-
-  // todo #ifdef TOLK_PROFILING
-  // lexer_measure_performance(G.all_src_files);
 }
 
 } // namespace tolk

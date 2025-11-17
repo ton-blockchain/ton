@@ -97,13 +97,13 @@ fun test_if_else(x: int): (int, int, int, int, int) {
 
 @method_id(21)
 fun test_assign_with_inner(x: int) {
-    var result = (x, x += 10, [x, x += 20, eq(x -= 50), x], eq2((x, x *= eq(x /= 2))));
+    var result = (x, x += 10, [x, x += 20, eq(x -= 50), x], eq2((x, x *= eq(x! /= 2))));
     return result;
 }
 
 @method_id(22)
 fun test_assign_with_mutate(x: int) {
-    var (result, _) = ((x, mul2(mutate x, x += 5), x.`~inc`(mul2(mutate x, x)), x), 0);
+    var (result, _) = ((x, mul2(mutate x, (x as int) += 5), x.`~inc`(mul2(mutate x!, x)), x), 0);
     return result;
 }
 
@@ -126,7 +126,7 @@ struct Point1D {
 
 @method_id(25)
 fun test_with_single_slot_struct(x: Point1D) {
-    var result = (x, x.c += 10, [x, x.c += 20, eq(x.c -= 50), x.c], eq2((x.c, x.c *= eq(x.c /= 2))));
+    var result = (x, x.c += 10, [x, x.c += 20, eq(x.c -= 50), x.c], eq2((x.c, x.c *= eq(x.c! /= 2))));
     return result;
 }
 

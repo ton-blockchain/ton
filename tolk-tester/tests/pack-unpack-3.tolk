@@ -4,8 +4,8 @@ struct EitherRight<T> { value: T }
 type Either<L, R> = EitherLeft<L> | EitherRight<R>;
 
 @inline
-fun makeExternalAddress(hash: int, len: int): address {
-    return beginCell().storeUint(0b01, 2).storeUint(len, 9).storeUint(hash, len).endCell().beginParse() as address;
+fun makeExternalAddress(hash: int, len: int): any_address {
+    return beginCell().storeUint(0b01, 2).storeUint(len, 9).storeUint(hash, len).endCell().beginParse() as any_address;
 }
 
 
@@ -184,7 +184,7 @@ transferParams1#794
 struct(0x794) TransferParams1 {
     dest_int: address;
     amount: coins;
-    dest_ext: address;
+    dest_ext: any_address;
 }
 
 /*
@@ -245,11 +245,11 @@ fun test_MsgCounter1() {
 
 @method_id(204)
 fun test_MsgExternal1() {
-    run<MsgExternal1>(SayHiAndGoodbye{ dest_addr: null, body: BodyPayload2 { master_id: 10, owner_address: address("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c") } }, stringHexToSlice("892150000000000000000000000000000000000000000000000000000000000000000002_"));
-    run<MsgExternal1>(SayHiAndGoodbye{ dest_addr: address("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"), body: BodyPayload1 { should_forward: false, n_times: 85, content: generateSlice_44_with_ref45() } }, stringHexToSlice("89C0000000000000000000000000000000000000000000000000000000000000000002000000550000002C").appendRef(stringHexToSlice("0000002D")));
-    run<MsgExternal1>(SayHiAndGoodbye{ dest_addr: address("Ef8o6AM9sUZ8rOqLFY8PYeaC3gbopZR1BMkE8fcD0r5NnmCi"), body: BodyPayload2 { master_id: -5, owner_address: address("Ef8o6AM9sUZ8rOqLFY8PYeaC3gbopZR1BMkE8fcD0r5NnmCi") } }, stringHexToSlice("89CFF28E8033DB1467CACEA8B158F0F61E682DE06E8A5947504C904F1F703D2BE4D9E7EE7F9474019ED8A33E5675458AC787B0F3416F037452CA3A82648278FB81E95F26CF4_"));
+    run<MsgExternal1>(SayHiAndGoodbye{ dest_addr: null, body: BodyPayload2 { master_id: 10, owner_address: address("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c") } }, stringHexToSlice("8910A8000000000000000000000000000000000000000000000000000000000000000001_"));
+    run<MsgExternal1>(SayHiAndGoodbye{ dest_addr: address("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"), body: BodyPayload1 { should_forward: false, n_times: 85, content: generateSlice_44_with_ref45() } }, stringHexToSlice("8980000000000000000000000000000000000000000000000000000000000000000004000000AA00000059_").appendRef(stringHexToSlice("0000002D")));
+    run<MsgExternal1>(SayHiAndGoodbye{ dest_addr: address("Ef8o6AM9sUZ8rOqLFY8PYeaC3gbopZR1BMkE8fcD0r5NnmCi"), body: BodyPayload2 { master_id: -5, owner_address: address("Ef8o6AM9sUZ8rOqLFY8PYeaC3gbopZR1BMkE8fcD0r5NnmCi") } }, stringHexToSlice("899FE51D0067B628CF959D5162B1E1EC3CD05BC0DD14B28EA099209E3EE07A57C9B3CFDCFF28E8033DB1467CACEA8B158F0F61E682DE06E8A5947504C904F1F703D2BE4D9E"));
     run<MsgExternal1>(SayStoreInChain{ in_masterchain: true, contents: BodyPayload1{ should_forward: true, n_times: 20, content: generateSlice_44_with_ref45() }.toCell() as cell as Cell<BodyPayload> }, stringHexToSlice("0013C_").appendRef(stringHexToSlice("3000000140000002C").appendRef(stringHexToSlice("0000002D"))));
-    run<MsgExternal1>(SayStoreInChain{ in_masterchain: false, contents: BodyPayload2{ master_id: 37, owner_address: address(("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c")) }.toCell() as cell as Cell<BodyPayload> }, stringHexToSlice("00134_").appendRef(stringHexToSlice("4960000000000000000000000000000000000000000000000000000000000000000004_")));
+    run<MsgExternal1>(SayStoreInChain{ in_masterchain: false, contents: BodyPayload2{ master_id: 37, owner_address: address("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c") }.toCell() as cell as Cell<BodyPayload> }, stringHexToSlice("00134_").appendRef(stringHexToSlice("4960000000000000000000000000000000000000000000000000000000000000000004_")));
 
     val o = MsgExternal1.fromSlice(stringHexToSlice("00134_").appendRef(stringHexToSlice("4960000000000000000000000000000000000000000000000000000000000000000004_")));
     assert(o is SayStoreInChain, 400);
