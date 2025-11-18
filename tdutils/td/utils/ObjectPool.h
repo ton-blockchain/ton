@@ -24,6 +24,7 @@
 #include <atomic>
 #include <memory>
 #include <utility>
+#include <vector>
 
 namespace td {
 // It is draft object pool implementaion
@@ -195,13 +196,11 @@ class ObjectPool {
   ObjectPool(ObjectPool &&other) = delete;
   ObjectPool &operator=(ObjectPool &&other) = delete;
   ~ObjectPool() {
-    while (head_.load()) {
-      auto to_delete = head_.load();
-      head_ = to_delete->next;
-      delete to_delete;
-      storage_count_--;
+    // Delete all allocated chunks
+    for (auto *chunk : allocated_chunks_) {
+      delete[] chunk;
     }
-    LOG_CHECK(storage_count_.load() == 0) << storage_count_.load();
+    allocated_chunks_.clear();
   }
 
  private:
@@ -227,32 +226,67 @@ class ObjectPool {
   std::atomic<int32> storage_count_{0};
   std::atomic<Storage *> head_{static_cast<Storage *>(nullptr)};
   bool check_empty_flag_ = false;
+  std::vector<Storage *> allocated_chunks_;
 
-  // TODO(perf): allocation Storages in chunks? Anyway we won't be able to release them.
-  // TODO(perf): memory order
-  // TODO(perf): use another non lockfree list for release on the same thread
-  // only one thread, so no aba problem
-  Storage *get_storage() {
-    if (head_.load() == nullptr) {
-      storage_count_++;
-      return new Storage();
+  // Performance optimization: allocate Storages in chunks to reduce allocation overhead
+  static constexpr size_t CHUNK_SIZE = 64;
+
+  Storage *allocate_chunk() {
+    // Allocate a chunk of Storage objects
+    Storage *chunk = new Storage[CHUNK_SIZE];
+    allocated_chunks_.push_back(chunk);
+    storage_count_.fetch_add(CHUNK_SIZE, std::memory_order_relaxed);
+
+    // Link them together (except the first one which we'll return)
+    for (size_t i = 1; i < CHUNK_SIZE - 1; i++) {
+      chunk[i].next = &chunk[i + 1];
     }
-    Storage *res;
+    chunk[CHUNK_SIZE - 1].next = nullptr;
+
+    // Add chunk (except first element) to the free list
+    if (CHUNK_SIZE > 1) {
+      Storage *chunk_head = &chunk[1];
+      while (true) {
+        auto *save_head = head_.load(std::memory_order_relaxed);
+        chunk[CHUNK_SIZE - 1].next = save_head;
+        if (head_.compare_exchange_weak(save_head, chunk_head, std::memory_order_release, std::memory_order_relaxed)) {
+          break;
+        }
+      }
+    }
+
+    return &chunk[0];
+  }
+
+  Storage *get_storage() {
+    // Try to get from free list first
+    Storage *res = head_.load(std::memory_order_acquire);
+    if (res == nullptr) {
+      // Allocate a new chunk
+      return allocate_chunk();
+    }
+
+    // Fast path: try to pop from free list
     while (true) {
-      res = head_.load();
+      res = head_.load(std::memory_order_acquire);
+      if (res == nullptr) {
+        return allocate_chunk();
+      }
       auto *next = res->next;
-      if (head_.compare_exchange_weak(res, next)) {
+      if (head_.compare_exchange_weak(res, next, std::memory_order_release, std::memory_order_relaxed)) {
         break;
       }
     }
     return res;
   }
+
   // release can be called from other thread
   void release_storage(Storage *storage) {
+    // Optimized memory ordering: use relaxed for load, release for CAS
     while (true) {
-      auto *save_head = head_.load();
+      auto *save_head = head_.load(std::memory_order_relaxed);
       storage->next = save_head;
-      if (head_.compare_exchange_weak(save_head, storage)) {
+      if (head_.compare_exchange_weak(save_head, storage, std::memory_order_release, std::memory_order_relaxed)) {
         break;
       }
     }

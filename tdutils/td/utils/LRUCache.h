@@ -16,7 +16,7 @@
 */
 #pragma once
 
-#include <set>
+#include <unordered_map>
 #include <memory>
 #include "List.h"
 #include "check.h"
@@ -27,6 +27,8 @@ template <typename K, typename V>
 class LRUCache {
  public:
   explicit LRUCache(uint64 max_size) : max_size_(max_size) {
+    // Reserve space to avoid rehashing during initial insertions
+    cache_.reserve(std::min(max_size, static_cast<uint64>(1024)));
   }
   LRUCache(const LRUCache&) = delete;
   LRUCache& operator=(const LRUCache&) = delete;
@@ -36,7 +38,7 @@ class LRUCache {
     if (it == cache_.end()) {
       return nullptr;
     }
-    Entry* entry = it->get();
+    Entry* entry = it->second.get();
     if (update) {
       entry->remove();
       lru_.put(entry);
@@ -45,7 +47,7 @@ class LRUCache {
   }
 
   bool contains(const K& key) const {
-    return cache_.contains(key);
+    return cache_.find(key) != cache_.end();
   }
 
   bool put(const K& key, V value, bool update = true, uint64 weight = 1) {
@@ -53,18 +55,22 @@ class LRUCache {
     auto it = cache_.find(key);
     if (it == cache_.end()) {
       update = true;
-      it = cache_.insert(std::make_unique<Entry>(key, std::move(value), weight)).first;
+      auto entry = std::make_unique<Entry>(key, std::move(value), weight);
+      Entry* entry_ptr = entry.get();
+      cache_.emplace(key, std::move(entry));
       added = true;
       total_weight_ += weight;
-    } else {
-      (*it)->value = std::move(value);
       if (update) {
-        (*it)->remove();
+        lru_.put(entry_ptr);
+        cleanup();
       }
-    }
-    if (update) {
-      lru_.put(it->get());
-      cleanup();
+    } else {
+      it->second->value = std::move(value);
+      if (update) {
+        it->second->remove();
+        lru_.put(it->second.get());
+        cleanup();
+      }
     }
     return added;
   }
@@ -73,17 +79,23 @@ class LRUCache {
     auto it = cache_.find(key);
     if (it == cache_.end()) {
       update = true;
-      it = cache_.insert(std::make_unique<Entry>(key, weight)).first;
+      auto entry = std::make_unique<Entry>(key, weight);
+      Entry* entry_ptr = entry.get();
+      auto [new_it, _] = cache_.emplace(key, std::move(entry));
       total_weight_ += weight;
-    } else if (update) {
-      (*it)->remove();
+      if (update) {
+        lru_.put(entry_ptr);
+        cleanup();
+      }
+      return new_it->second->value;
+    } else {
+      if (update) {
+        it->second->remove();
+        lru_.put(it->second.get());
+        cleanup();
+      }
+      return it->second->value;
     }
-    V& result = (*it)->value;
-    if (update) {
-      lru_.put(it->get());
-      cleanup();
-    }
-    return result;
   }
 
  private:
@@ -96,19 +108,9 @@ class LRUCache {
     V value;
     uint64 weight;
   };
-  struct Cmp {
-    using is_transparent = void;
-    bool operator()(const std::unique_ptr<Entry>& a, const std::unique_ptr<Entry>& b) const {
-      return a->key < b->key;
-    }
-    bool operator()(const std::unique_ptr<Entry>& a, const K& b) const {
-      return a->key < b;
-    }
-    bool operator()(const K& a, const std::unique_ptr<Entry>& b) const {
-      return a < b->key;
-    }
-  };
-  std::set<std::unique_ptr<Entry>, Cmp> cache_;
+
+  // Performance optimization: use unordered_map for O(1) lookup instead of set's O(log n)
+  std::unordered_map<K, std::unique_ptr<Entry>> cache_;
   ListNode lru_;
   uint64 max_size_;
   uint64 total_weight_ = 0;
@@ -119,7 +121,7 @@ class LRUCache {
       CHECK(to_remove);
       to_remove->remove();
       total_weight_ -= to_remove->weight;
-      cache_.erase(cache_.find(to_remove->key));
+      cache_.erase(to_remove->key);
     }
   }
 };
