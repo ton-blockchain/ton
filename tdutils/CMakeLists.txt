@@ -298,11 +298,14 @@ set(TDUTILS_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/json.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/List.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/log.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/LRUCache.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/misc.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/MpmcQueue.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/MpmcWaiter.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/MpscLinkQueue.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/ObjectPool.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/OptionParser.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/OptimizationBenchmarks.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/OrderedEventsProcessor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/port.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/pq.cpp
