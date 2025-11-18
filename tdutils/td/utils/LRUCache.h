@@ -20,6 +20,7 @@
 #include <memory>
 #include "List.h"
 #include "check.h"
+#include "common.h"
 
 namespace td {
 
@@ -35,11 +36,11 @@ class LRUCache {
 
   V* get_if_exists(const K& key, bool update = true) {
     auto it = cache_.find(key);
-    if (it == cache_.end()) {
+    if (unlikely(it == cache_.end())) {
       return nullptr;
     }
     Entry* entry = it->second.get();
-    if (update) {
+    if (likely(update)) {
       entry->remove();
       lru_.put(entry);
     }

@@ -339,6 +339,13 @@ if (GCC OR CLANG)
       add_compile_options(-flto)
       add_link_options(-flto)
     endif()
+    # Additional aggressive optimizations for Release builds
+    add_compile_options(-ffast-math)  # Aggressive floating-point optimizations
+    add_compile_options(-funroll-loops)  # Unroll loops for better performance
+    if (CLANG)
+      add_compile_options(-fvectorize)  # Enable auto-vectorization
+      add_compile_options(-fslp-vectorize)  # Enable SLP vectorization
+    endif()
   endif()
   # Add -mtune=native for better instruction scheduling (in addition to -march)
   if (TON_ARCH STREQUAL "native" AND NOT MSVC)

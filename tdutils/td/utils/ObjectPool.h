@@ -249,7 +249,7 @@ class ObjectPool {
       while (true) {
         auto *save_head = head_.load(std::memory_order_relaxed);
         chunk[CHUNK_SIZE - 1].next = save_head;
-        if (head_.compare_exchange_weak(save_head, chunk_head, std::memory_order_release, std::memory_order_relaxed)) {
+        if (likely(head_.compare_exchange_weak(save_head, chunk_head, std::memory_order_release, std::memory_order_relaxed))) {
           break;
         }
       }
@@ -259,21 +259,21 @@ class ObjectPool {
   }
 
   Storage *get_storage() {
-    // Try to get from free list first
+    // Try to get from free list first (fast path - likely case)
     Storage *res = head_.load(std::memory_order_acquire);
-    if (res == nullptr) {
-      // Allocate a new chunk
+    if (unlikely(res == nullptr)) {
+      // Allocate a new chunk (slow path - rare)
       return allocate_chunk();
     }
 
     // Fast path: try to pop from free list
     while (true) {
       res = head_.load(std::memory_order_acquire);
-      if (res == nullptr) {
+      if (unlikely(res == nullptr)) {
         return allocate_chunk();
       }
       auto *next = res->next;
-      if (head_.compare_exchange_weak(res, next, std::memory_order_release, std::memory_order_relaxed)) {
+      if (likely(head_.compare_exchange_weak(res, next, std::memory_order_release, std::memory_order_relaxed))) {
         break;
       }
     }
@@ -286,7 +286,7 @@ class ObjectPool {
     while (true) {
       auto *save_head = head_.load(std::memory_order_relaxed);
       storage->next = save_head;
-      if (head_.compare_exchange_weak(save_head, storage, std::memory_order_release, std::memory_order_relaxed)) {
+      if (likely(head_.compare_exchange_weak(save_head, storage, std::memory_order_release, std::memory_order_relaxed))) {
         break;
       }
     }

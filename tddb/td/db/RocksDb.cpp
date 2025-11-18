@@ -80,16 +80,20 @@ Result<RocksDb> RocksDb::open(std::string path, RocksDbOptions options) {
     table_options.no_block_cache = true;
   } else {
     table_options.block_cache = options.block_cache;
+    // Cache index and filter blocks for better read performance
+    table_options.cache_index_and_filter_blocks = true;
+    table_options.pin_l0_filter_and_index_blocks_in_cache = true;
   }
   if (options.enable_bloom_filter) {
     table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
     if (options.two_level_index_and_filter) {
       table_options.index_type = rocksdb::BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
       table_options.partition_filters = true;
-      table_options.cache_index_and_filter_blocks = true;
-      table_options.pin_l0_filter_and_index_blocks_in_cache = true;
     }
   }
+  // Optimize block size for better compression and cache efficiency
+  table_options.block_size = 16 << 10;  // 16KB blocks (good balance)
+  table_options.format_version = 5;  // Use latest table format
   db_options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
 
   // table_options.block_align = true;
@@ -110,6 +114,18 @@ Result<RocksDb> RocksDb::open(std::string path, RocksDbOptions options) {
   db_options.statistics = options.statistics;
   db_options.max_log_file_size = 100 << 20;
   db_options.keep_log_file_num = 1;
+
+  // Additional performance optimizations
+  db_options.level0_file_num_compaction_trigger = 4;  // Start compaction earlier
+  db_options.max_bytes_for_level_base = 256 << 20;  // 256MB
+  db_options.target_file_size_base = 64 << 20;  // 64MB
+  db_options.write_buffer_size = 64 << 20;  // 64MB memtable
+  db_options.max_write_buffer_number = 3;  // Allow 3 memtables
+  db_options.min_write_buffer_number_to_merge = 2;  // Merge 2 memtables
+
+  // Compression for better space efficiency (minimal CPU cost with LZ4)
+  db_options.compression = rocksdb::kLZ4Compression;
+  db_options.bottommost_compression = rocksdb::kZSTD;  // ZSTD for L6 (better compression)
 
   if (options.experimental) {
     // Place your experimental options here
