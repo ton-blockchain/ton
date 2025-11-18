@@ -65,7 +65,10 @@ COPY --from=builder /ton/crypto/smartcont/auto/* /usr/share/ton/smartcont/auto/
 COPY --from=builder /ton/crypto/fift/lib/* /usr/lib/fift/
 
 WORKDIR /var/ton-work/db
-COPY ./docker/init.sh ./docker/control.template /var/ton-work/scripts/
-RUN chmod +x /var/ton-work/scripts/init.sh
+COPY ./docker/init.sh ./docker/control.template ./docker/healthcheck.sh /var/ton-work/scripts/
+RUN chmod +x /var/ton-work/scripts/init.sh /var/ton-work/scripts/healthcheck.sh
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD /var/ton-work/scripts/healthcheck.sh || exit 1
 
 ENTRYPOINT ["/var/ton-work/scripts/init.sh"]
