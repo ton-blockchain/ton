@@ -58,7 +58,8 @@ else()
 endif()
 option(TON_USE_ROCKSDB "Use \"ON\" to enable RocksDb." ${NOT_TON_ONLY_TONLIB})
 option(TON_USE_ABSEIL "Use \"ON\" to enable Abseil." ${NOT_TON_ONLY_TONLIB})
-option(TON_USE_JEMALLOC "Use \"ON\" to enable JeMalloc." OFF)
+# Enable JeMalloc by default for better memory allocation performance
+option(TON_USE_JEMALLOC "Use \"ON\" to enable JeMalloc." ${NOT_TON_ONLY_TONLIB})
 #END internal
 
 option(TONLIB_ENABLE_JNI "Use \"ON\" to enable JNI-compatible TonLib API.")
@@ -330,10 +331,18 @@ if (GCC OR CLANG)
 endif()
 
 if (GCC OR CLANG)
-  if (CMAKE_BUILD_TYPE MATCHES "RelWithDebInfo")
-    # For historical reasons, CMake falls back to -O2 optimization level when CMAKE_BUILD_TYPE is
-    # set to RelWithDebInfo.
+  # Enable -O3 optimization for all Release and RelWithDebInfo builds
+  if (CMAKE_BUILD_TYPE MATCHES "Release|RelWithDebInfo")
     add_compile_options(-O3)
+    # Enable Link-Time Optimization for better performance
+    if (NOT TON_USE_ASAN AND NOT TON_USE_TSAN AND NOT TON_USE_UBSAN)
+      add_compile_options(-flto)
+      add_link_options(-flto)
+    endif()
+  endif()
+  # Add -mtune=native for better instruction scheduling (in addition to -march)
+  if (TON_ARCH STREQUAL "native" AND NOT MSVC)
+    add_compile_options(-mtune=native)
   endif()
 endif()
 

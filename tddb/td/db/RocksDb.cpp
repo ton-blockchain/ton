@@ -69,7 +69,8 @@ Result<RocksDb> RocksDb::open(std::string path, RocksDbOptions options) {
   db_options.merge_operator = options.merge_operator;
   db_options.compaction_filter = options.compaction_filter;
 
-  static auto default_cache = rocksdb::NewLRUCache(1 << 30);
+  // Increased default cache from 1GB to 4GB for better performance
+  static auto default_cache = rocksdb::NewLRUCache(static_cast<size_t>(4) << 30);
   if (!options.no_block_cache && options.block_cache == nullptr) {
     options.block_cache = default_cache;
   }
@@ -101,8 +102,9 @@ Result<RocksDb> RocksDb::open(std::string path, RocksDbOptions options) {
   db_options.use_direct_reads = options.use_direct_reads;
   db_options.manual_wal_flush = true;
   db_options.create_if_missing = true;
-  db_options.max_background_compactions = 4;
-  db_options.max_background_flushes = 2;
+  // Increased background threads for better I/O performance
+  db_options.max_background_compactions = 8;
+  db_options.max_background_flushes = 4;
   db_options.bytes_per_sync = 1 << 20;
   db_options.writable_file_max_buffer_size = 2 << 14;
   db_options.statistics = options.statistics;
