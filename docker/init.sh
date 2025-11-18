@@ -9,11 +9,19 @@ fi
 
 # global config
 if [ ! -z "$GLOBAL_CONFIG_URL" ]; then
-    echo -e "\e[1;32m[+]\e[0m Downloading provided global config."
-    wget -q $GLOBAL_CONFIG_URL -O /var/ton-work/db/ton-global.config
+    echo -e "\e[1;32m[+]\e[0m Downloading provided global config from $GLOBAL_CONFIG_URL"
+    wget -q $GLOBAL_CONFIG_URL -O /var/ton-work/db/ton-global.config || {
+        echo -e "\e[1;31m[!]\e[0m Failed to download global config from $GLOBAL_CONFIG_URL"
+        exit 1
+    }
 else
-    echo -e "\e[1;33m[=]\e[0m No global config provided, downloading mainnet default."
-    wget -q https://api.tontech.io/ton/wallet-mainnet.autoconf.json -O /var/ton-work/db/ton-global.config
+    # Use default mainnet config URL if not provided
+    DEFAULT_GLOBAL_CONFIG_URL="${DEFAULT_GLOBAL_CONFIG_URL:-https://api.tontech.io/ton/wallet-mainnet.autoconf.json}"
+    echo -e "\e[1;33m[=]\e[0m No global config provided, downloading mainnet default from $DEFAULT_GLOBAL_CONFIG_URL"
+    wget -q $DEFAULT_GLOBAL_CONFIG_URL -O /var/ton-work/db/ton-global.config || {
+        echo -e "\e[1;31m[!]\e[0m Failed to download global config from $DEFAULT_GLOBAL_CONFIG_URL"
+        exit 1
+    }
 fi
 
 if [ -z "$VALIDATOR_PORT" ]; then
@@ -42,7 +50,10 @@ if [ ! -z "$DUMP_URL" ]; then
     echo -e "\e[1;32m[+]\e[0m Using provided dump $DUMP_URL"
     if [ ! -f "dump_downloaded" ]; then
       echo -e "\e[1;32m[+]\e[0m Downloading dump..."
-      curl --retry 10 --retry-delay 30 -Ls $DUMP_URL | pv | plzip -d -n8 | tar -xC /var/ton-work/db
+      curl --retry 10 --retry-delay 30 -Ls $DUMP_URL | pv | plzip -d -n8 | tar -xC /var/ton-work/db || {
+        echo -e "\e[1;31m[!]\e[0m Failed to download or extract dump from $DUMP_URL"
+        exit 1
+      }
       touch dump_downloaded
     else
       echo -e "\e[1;32m[+]\e[0m Dump has been already used."
