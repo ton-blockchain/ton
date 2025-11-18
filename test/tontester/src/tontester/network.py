@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from enum import IntEnum, auto
 from ipaddress import IPv4Address
 from pathlib import Path
-from typing import cast, final, override
+from typing import Literal, cast, final, override
 
 from pytonlib import TonlibClient, TonlibError  # pyright: ignore[reportMissingTypeStubs]
 
@@ -37,6 +37,9 @@ class _Status(IntEnum):
 
 def _write_model(file: Path, model: TLObject):
     _ = file.write_text(model.to_json())
+
+
+type DebugType = None | Literal["rr"]
 
 
 @final
@@ -88,6 +91,8 @@ class Network:
             local_config: ton_api.Engine_validator_config,
             validator_config: ton_api.Validator_config_global | None,
             additional_args: list[str],
+            *,
+            debug: DebugType = None,
         ):
             async def process_watcher():
                 assert self.__process is not None
@@ -121,8 +126,7 @@ class Network:
             log_path = self._directory / "log"
             l.info(f"Running {self.name} and saving its raw log to {log_path}")
 
-            self.__process = await asyncio.create_subprocess_exec(
-                executable,
+            cmd_flags = [
                 "--global-config",
                 global_config_file,
                 "--local-config",
@@ -130,9 +134,27 @@ class Network:
                 "--db",
                 ".",
                 *additional_args,
-                cwd=self._directory,
-                stderr=asyncio.subprocess.PIPE,
-            )
+            ]
+
+            match debug:
+                case None:
+                    self.__process = await asyncio.create_subprocess_exec(
+                        executable,
+                        *cmd_flags,
+                        cwd=self._directory,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                case "rr":
+                    l.info(f"Recording {self.name} with rr")
+                    self.__process = await asyncio.create_subprocess_exec(
+                        "rr",
+                        "record",
+                        executable,
+                        *cmd_flags,
+                        cwd=self._directory,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+
             assert self.__process.stderr is not None  # to placate pyright
             self.__process_watcher = asyncio.create_task(process_watcher())
 
@@ -146,7 +168,7 @@ class Network:
             self._static_nodes.append(dht)
 
         @abstractmethod
-        async def run(self):
+        async def run(self, *, debug: DebugType = None):
             pass
 
         async def stop(self):
@@ -321,8 +343,8 @@ class DHTNode(Network.Node):
         return self._signed_address
 
     @override
-    async def run(self):
-        await self._run(self._install.dht_server_exe, self._local_config, None, [])
+    async def run(self, *, debug: DebugType = None):
+        await self._run(self._install.dht_server_exe, self._local_config, None, [], debug=debug)
 
 
 @final
@@ -399,7 +421,7 @@ class FullNode(Network.Node):
         return self._validator_key
 
     @override
-    async def run(self):
+    async def run(self, *, debug: DebugType = None):
         zerostate = self._get_or_generate_zerostate()
 
         static_dir = self._directory / "static"
@@ -412,6 +434,7 @@ class FullNode(Network.Node):
             self._local_config,
             zerostate.as_validator_config(),
             ["--initial-sync-delay", "5"],
+            debug=debug,
         )
 
     async def tonlib_client(self) -> TonlibClient:
