@@ -15,6 +15,7 @@ set(RLDP_SOURCE
   LossStats.cpp
   OutboundTransfer.cpp
   Pacer.cpp
+  PacketPool.cpp
   rldp.cpp
   RldpReceiver.cpp
   RldpSender.cpp
@@ -31,6 +32,8 @@ set(RLDP_SOURCE
   LossStats.h
   OutboundTransfer.h
   Pacer.h
+  PacketPool.h
+  PoolMonitor.h
   rldp.h
   rldp.hpp
   RldpReceiver.h

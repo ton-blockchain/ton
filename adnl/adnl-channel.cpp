@@ -19,6 +19,7 @@
 #include "adnl-channel.hpp"
 #include "adnl-peer.h"
 #include "adnl-peer-table.h"
+#include "adnl-packet-compression.h"
 
 #include "td/utils/crypto.h"
 #include "crypto/Ed25519.h"
@@ -85,7 +86,10 @@ AdnlChannelImpl::AdnlChannelImpl(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_
 void AdnlChannelImpl::decrypt(td::BufferSlice raw_data, td::Promise<AdnlPacket> promise) {
   TRY_RESULT_PROMISE_PREFIX(promise, data, decryptor_->decrypt(raw_data.as_slice()),
                             "failed to decrypt channel message: ");
-  TRY_RESULT_PROMISE_PREFIX(promise, tl_packet, fetch_tl_object<ton_api::adnl_packetContents>(std::move(data), true),
+  // Decompress packet if it was compressed
+  TRY_RESULT_PROMISE_PREFIX(promise, decompressed_data, maybe_decompress_packet(std::move(data)),
+                            "failed to decompress channel packet: ");
+  TRY_RESULT_PROMISE_PREFIX(promise, tl_packet, fetch_tl_object<ton_api::adnl_packetContents>(std::move(decompressed_data), true),
                             "decrypted channel packet contains invalid TL scheme: ");
   TRY_RESULT_PROMISE_PREFIX(promise, packet, AdnlPacket::create(std::move(tl_packet)), "received bad packet: ");
   if (packet.inited_from_short() && packet.from_short() != peer_id_) {

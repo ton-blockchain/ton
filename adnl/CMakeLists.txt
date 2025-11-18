@@ -18,6 +18,7 @@ set(ADNL_HEADERS
   adnl-network-manager.hpp
   adnl-node.h
   adnl-packet.h
+  adnl-packet-compression.h
   adnl-peer-table.h
   adnl-peer-table.hpp
   adnl-peer.h
@@ -40,6 +41,7 @@ set(ADNL_SOURCE
   adnl-node.cpp
   adnl-node-id.cpp
   adnl-packet.cpp
+  adnl-packet-compression.cpp
   adnl-peer-table.cpp
   adnl-peer.cpp
   adnl-query.cpp

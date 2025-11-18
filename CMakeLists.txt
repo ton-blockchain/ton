@@ -330,10 +330,19 @@ if (GCC OR CLANG)
 endif()
 
 if (GCC OR CLANG)
-  if (CMAKE_BUILD_TYPE MATCHES "RelWithDebInfo")
-    # For historical reasons, CMake falls back to -O2 optimization level when CMAKE_BUILD_TYPE is
-    # set to RelWithDebInfo.
+  # Enable -O3 optimization for all Release and RelWithDebInfo builds
+  if (CMAKE_BUILD_TYPE MATCHES "Release|RelWithDebInfo")
     add_compile_options(-O3)
+    # Additional optimizations for Release builds
+    add_compile_options(-funroll-loops)  # Unroll loops for better performance
+    if (CLANG)
+      add_compile_options(-fvectorize)  # Enable auto-vectorization
+      add_compile_options(-fslp-vectorize)  # Enable SLP vectorization
+    endif()
+  endif()
+  # Add -mtune=native for better instruction scheduling (in addition to -march)
+  if (TON_ARCH STREQUAL "native" AND NOT MSVC)
+    add_compile_options(-mtune=native)
   endif()
 endif()
 

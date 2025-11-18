@@ -22,6 +22,7 @@
 
 #include "td/utils/Random.h"
 #include "td/utils/Status.h"
+#include "td/utils/HashMap.h"
 
 namespace ton {
 struct PartsHelper {
@@ -244,7 +245,7 @@ struct PartsHelper {
   std::vector<Part> parts_;
   std::vector<Peer> peers_;
   td::uint32 next_peer_token_{1};
-  std::map<PeerId, PeerToken> peer_id_to_token_;
+  td::HashMap<PeerId, PeerToken> peer_id_to_token_;  // Optimized: O(log n) → O(1) lookups
   std::vector<PeerToken> free_peer_tokens_;
 
   Part *get_part(PartId part_id) {

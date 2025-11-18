@@ -68,7 +68,27 @@ inline uint64 big_endian_to_host64(uint64 x) {
   return bswap64(x);
 }
 
-//TODO: optimize
+// Optimized versions for non-zero inputs (skip zero check for better performance)
+#if !TD_MSVC && !TD_INTEL
+// For GCC/Clang, use builtins directly without zero check
+inline int32 count_leading_zeroes_non_zero32(uint32 x) {
+  DCHECK(x != 0);
+  return __builtin_clz(x);
+}
+inline int32 count_leading_zeroes_non_zero64(uint64 x) {
+  DCHECK(x != 0);
+  return __builtin_clzll(x);
+}
+inline int32 count_trailing_zeroes_non_zero32(uint32 x) {
+  DCHECK(x != 0);
+  return __builtin_ctz(x);
+}
+inline int32 count_trailing_zeroes_non_zero64(uint64 x) {
+  DCHECK(x != 0);
+  return __builtin_ctzll(x);
+}
+#else
+// For MSVC/Intel, delegate to regular versions (already optimized with intrinsics)
 inline int32 count_leading_zeroes_non_zero32(uint32 x) {
   DCHECK(x != 0);
   return count_leading_zeroes32(x);
@@ -85,6 +105,7 @@ inline int32 count_trailing_zeroes_non_zero64(uint64 x) {
   DCHECK(x != 0);
   return count_trailing_zeroes64(x);
 }
+#endif
 
 //
 // Platform specific implementation

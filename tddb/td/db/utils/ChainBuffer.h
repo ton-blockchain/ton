@@ -27,8 +27,11 @@ class ChainBuffer {
   struct Options {
     Options() {
     }
-    size_t chunk_size{1024 * 1024 / 8};  // default size of one chunk in chain buffer
-    size_t max_io_slices{128};           // size of buffer for writev
+    // Optimized: 256KB chunks (was 128KB) for better throughput with modern CPUs
+    // Larger chunks reduce system call overhead and improve cache utilization
+    size_t chunk_size{256 * 1024};  // default size of one chunk in chain buffer
+    // Optimized: 256 slices (was 128) for more efficient vectored I/O operations
+    size_t max_io_slices{256};      // size of buffer for writev
   };
   using Reader = StreamReader;
   using Writer = StreamWriter;
