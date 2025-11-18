@@ -17,7 +17,7 @@
 
 #pragma once
 #include "td/actor/actor.h"
-#include <queue>
+#include "td/utils/VectorQueue.h"
 
 namespace ton {
 
@@ -40,7 +40,8 @@ class SpeedLimiter : public td::actor::Actor {
     td::Timestamp timeout_;
     td::Promise<td::Unit> promise_;
   };
-  std::queue<Event> queue_;
+  // Optimized: std::queue → VectorQueue for better cache locality and no per-op allocation
+  td::VectorQueue<Event> queue_;
 
   void process_queue();
 };

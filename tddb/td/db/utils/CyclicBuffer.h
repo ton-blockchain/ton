@@ -29,9 +29,12 @@ class CyclicBuffer {
   struct Options {
     Options() {
     }
-    size_t chunk_size{1024 * 1024 / 8};
-    size_t count{16};
-    size_t alignment{1024};
+    // Optimized: 256KB chunks (was 128KB) for better I/O performance
+    size_t chunk_size{256 * 1024};
+    // Optimized: 32 chunks (was 16) = 8MB total buffer (fits in modern L3 cache)
+    size_t count{32};
+    // Optimized: 4KB alignment (was 1KB) for page-aligned access and better TLB performance
+    size_t alignment{4096};
 
     size_t size() const {
       return chunk_size * count;

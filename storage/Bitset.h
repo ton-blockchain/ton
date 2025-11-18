@@ -83,10 +83,28 @@ struct Bitset {
     bits_ = std::move(bits);
     bits_size_ = 0;
     count_ = 0;
-    for (size_t n = size(), i = 0; i < n; i++) {
-      if (get(i)) {
-        count_++;
-        bits_size_ = i + 1;
+
+    // Fast path: Use __builtin_popcountll for efficient bit counting
+    // Process 8 bytes (64 bits) at a time using hardware popcount instruction
+    const size_t num_full_words = bits_.size() / 8;
+    const uint64_t* words = reinterpret_cast<const uint64_t*>(bits_.data());
+
+    for (size_t i = 0; i < num_full_words; i++) {
+      uint64_t word = words[i];
+      if (word != 0) {
+        count_ += __builtin_popcountll(word);
+        // Update bits_size_ to the last set bit in this word
+        bits_size_ = i * 64 + 64 - __builtin_clzll(word);
+      }
+    }
+
+    // Handle remaining bytes (< 8 bytes)
+    for (size_t i = num_full_words * 8; i < bits_.size(); i++) {
+      unsigned char byte = static_cast<unsigned char>(bits_[i]);
+      if (byte != 0) {
+        count_ += __builtin_popcount(byte);
+        // Find the highest set bit in this byte
+        bits_size_ = i * 8 + 8 - __builtin_clz(byte << 24);
       }
     }
   }

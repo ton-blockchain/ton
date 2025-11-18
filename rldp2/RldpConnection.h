@@ -31,6 +31,8 @@
 #include "td/utils/buffer.h"
 #include "td/utils/Heap.h"
 #include "td/utils/VectorQueue.h"
+#include "td/utils/HashMap.h"
+#include "td/utils/HashSet.h"
 
 #include <set>
 
@@ -68,9 +70,10 @@ class RldpConnection {
  private:
   td::uint64 default_mtu_ = 7680;
 
-  std::map<TransferId, OutboundTransfer> outbound_transfers_;
+  // Optimized: std::map → HashMap for O(1) transfer lookups (critical path)
+  td::HashMap<TransferId, OutboundTransfer> outbound_transfers_;
   td::uint32 in_flight_count_{0};
-  std::map<TransferId, InboundTransfer> inbound_transfers_;
+  td::HashMap<TransferId, InboundTransfer> inbound_transfers_;
 
   struct Limit : public td::HeapNode {
     TransferId transfer_id;
@@ -81,14 +84,15 @@ class RldpConnection {
     }
   };
   td::KHeap<double> limits_heap_;
-  std::set<Limit> limits_set_;
+  std::set<Limit> limits_set_;  // Keep std::set: needs ordering for HeapNode
 
   struct CompletedId {
     TransferId transfer_id;
     td::Timestamp timeout;
   };
   td::VectorQueue<CompletedId> completed_queue_;
-  std::set<TransferId> completed_set_;
+  // Optimized: std::set → HashSet for O(1) completed ID checks
+  td::HashSet<TransferId> completed_set_;
 
   void add_limit(td::Timestamp timeout, Limit limit);
   td::Timestamp next_limit_expires_at();
