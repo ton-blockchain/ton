@@ -70,7 +70,7 @@ class Network:
         def _new_network_address(self) -> _IPv4AddressAndPort:
             self._network._port += 1
             return _IPv4AddressAndPort(
-                IPv4Address("127.0.42.239"),
+                IPv4Address("127.0.0.1"),
                 self._network._port,
             )
 
