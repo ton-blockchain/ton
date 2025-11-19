@@ -1420,9 +1420,9 @@ void ValidatorManagerImpl::set_block_state_from_data(BlockHandle handle, td::Ref
   td::actor::send_closure(db_, &Db::store_block_state_from_data, handle, block, std::move(promise));
 }
 
-void ValidatorManagerImpl::set_block_state_from_data_preliminary(std::vector<td::Ref<BlockData>> blocks,
-                                                                 td::Promise<td::Unit> promise) {
-  td::actor::send_closure(db_, &Db::store_block_state_from_data_preliminary, std::move(blocks), std::move(promise));
+void ValidatorManagerImpl::set_block_state_from_data_bulk(std::vector<td::Ref<BlockData>> blocks,
+                                                          td::Promise<td::Unit> promise) {
+  td::actor::send_closure(db_, &Db::store_block_state_from_data_bulk, std::move(blocks), std::move(promise));
 }
 
 void ValidatorManagerImpl::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
@@ -2167,7 +2167,7 @@ void ValidatorManagerImpl::prestart_sync() {
     R.ensure();
     td::actor::send_closure(SelfId, &ValidatorManagerImpl::download_next_archive);
   });
-  td::actor::send_closure(db_, &Db::set_async_mode, false, std::move(P));
+  td::actor::send_closure(db_, &Db::set_async_mode, true, std::move(P));
 }
 
 void ValidatorManagerImpl::download_next_archive() {
@@ -2194,12 +2194,13 @@ void ValidatorManagerImpl::download_next_archive() {
     }
   });
   if (to_import_files.empty()) {
-    td::actor::create_actor<ArchiveImporter>("archiveimport", db_root_, last_masterchain_state_, seqno, opts_,
-                                             actor_id(this), std::move(to_import_files), std::move(P))
+    td::actor::create_actor<ArchiveImporter>(PSTRING() << "archiveimport." << seqno, db_root_, last_masterchain_state_,
+                                             seqno, opts_, actor_id(this), std::move(to_import_files), std::move(P))
         .release();
   } else {
-    td::actor::create_actor<ArchiveImporterLocal>("archiveimport", db_root_, last_masterchain_state_, seqno, opts_,
-                                                  actor_id(this), std::move(to_import_files), std::move(P))
+    td::actor::create_actor<ArchiveImporterLocal>(PSTRING() << "archiveimport." << seqno, db_root_,
+                                                  last_masterchain_state_, seqno, opts_, actor_id(this), db_.get(),
+                                                  std::move(to_import_files), std::move(P))
         .release();
   }
 }

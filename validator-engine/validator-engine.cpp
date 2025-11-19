@@ -1596,7 +1596,7 @@ td::Status ValidatorEngine::load_global_config() {
   }
   validator_options_.write().set_celldb_compress_depth(celldb_compress_depth_);
   validator_options_.write().set_celldb_in_memory(celldb_in_memory_);
-  validator_options_.write().set_celldb_v2(!celldb_in_memory_);
+  validator_options_.write().set_celldb_v2(!celldb_in_memory_ && !permanent_celldb_);
   validator_options_.write().set_celldb_disable_bloom_filter(celldb_disable_bloom_filter_);
   validator_options_.write().set_max_open_archive_files(max_open_archive_files_);
   validator_options_.write().set_archive_preload_period(archive_preload_period_);
