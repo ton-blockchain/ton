@@ -11,11 +11,6 @@ permissions:
   issues: write
   pull-requests: write
 
-permissions:
-  contents: read
-  issues: write
-  pull-requests: write
-
 jobs:
   # 1) Auto-trigger Codex when PR is opened/reopened/synchronized
   codex-on-pr:
