@@ -1,4 +1,4 @@
-name: Codex PR auto review
+name: Codex auto review
 on:
   pull_request:
     types: [opened]
