@@ -31,7 +31,7 @@ jobs:
       contents: read
       pull-requests: write
     outputs:
-      final_message: ${{ steps.run_codex.outputs.final-message }}
+      final_message: ${{ steps.run_codex.outputs['final-message'] }}
 
     steps:
       # 1. Checkout the trusted base commit
