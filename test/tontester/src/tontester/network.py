@@ -8,16 +8,15 @@ from dataclasses import dataclass
 from enum import IntEnum, auto
 from ipaddress import IPv4Address
 from pathlib import Path
-from typing import Literal, cast, final, override
+from typing import Literal, final, override
 
-from pytonlib import TonlibClient, TonlibError  # pyright: ignore[reportMissingTypeStubs]
-
-from tl import JSONSerializable, TLObject
+from tl import TLObject
+from tonlib import TonlibClient, TonlibError
 
 from .install import Install
 from .key import Key
 from .log_streamer import LogStreamer
-from .tl import ton_api, tonlib_api
+from .tl import ton_api
 from .zerostate import NetworkConfig, Zerostate, create_zerostate
 
 l = logging.getLogger(__name__)
@@ -262,16 +261,16 @@ class Network:
 
         while True:
             try:
-                raw_result = cast(JSONSerializable, await client.get_masterchain_info())  # pyright: ignore[reportUnknownMemberType]
+                mc_info = await client.get_masterchain_info()
             except TonlibError as e:
                 # FIXME: We should really let node notify us that it is ready.
                 try:
                     if (
-                        e.result["code"] == 500
+                        e.result.code == 500
                         and (
-                            e.result["message"]
+                            e.result.message
                             == "LITE_SERVER_NETWORKtimeout for adnl query query"  # node is not synced yet
-                            or e.result["message"]
+                            or e.result.message
                             == "LITE_SERVER_NETWORK"  # node is not listening the socket
                         )
                     ):
@@ -281,7 +280,6 @@ class Network:
                     pass
                 raise
 
-            mc_info = tonlib_api.Blocks_masterchainInfo.from_dict(raw_result)
             assert mc_info.last is not None
 
             if mc_info.last.seqno >= seqno:
@@ -452,14 +450,10 @@ class FullNode(Network.Node):
             validator=self._get_or_generate_zerostate().as_validator_config(),
         )
 
-        keystore_dir = self._directory / "lc-keystore"
-        keystore_dir.mkdir()
-
         self._client = TonlibClient(
             ls_index=0,
-            config=config.to_dict(),
-            keystore=str(keystore_dir),
-            cdll_path=str(self._install.tonlibjson),
+            config=config,
+            cdll_path=self._install.tonlibjson,
             verbosity_level=3,
         )
         await self._client.init()
@@ -469,5 +463,5 @@ class FullNode(Network.Node):
     @override
     async def stop(self):
         if self._client:
-            await self._client.close()
+            await self._client.aclose()
         await super().stop()
