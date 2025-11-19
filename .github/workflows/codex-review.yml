@@ -1,99 +1,68 @@
-name: Codex auto review
-
+name: Codex PR auto review
 on:
   pull_request:
-    types: [opened, reopened, synchronize]
-  pull_request_review:
-    types: [submitted]
-
-permissions:
-  contents: read
-  issues: write
-  pull-requests: write
+    types: [opened]
 
 jobs:
-  # 1) Auto-trigger Codex when PR is opened/reopened/synchronized
-  codex-on-pr:
-    if: >
-      github.event_name == 'pull_request' &&
-      (
-        github.event.pull_request.user.login == 'EmelyanenkoK' ||
-        github.event.pull_request.user.login == 'tolya-yanot' ||
-        github.event.pull_request.user.login == 'SpyCheese' ||
-        github.event.pull_request.user.login == 'neodix42' ||
-        github.event.pull_request.user.login == 'dungeon-master-666' ||
-        github.event.pull_request.user.login == 'igroman787' ||
-        github.event.pull_request.user.login == 'kdimentionaltree' ||
-        github.event.pull_request.user.login == 'sonofmom' ||
-        github.event.pull_request.user.login == 'Trinketer22' ||
-        github.event.pull_request.user.login == 'xssnick' ||
-        github.event.pull_request.user.login == 'tolk-vm' ||
-        github.event.pull_request.user.login == 'DanShaders' ||
-        github.event.pull_request.user.login == 'birydrad' ||
-        github.event.pull_request.user.login == 'abacabadabacaba' ||
-        github.event.pull_request.user.login == 'Mustang98' ||
-        github.event.pull_request.user.login == 'avevad' ||
-        github.event.pull_request.user.login == 'tvorogme' ||
-        github.event.pull_request.user.login == 'krigga'
-      )
+  codex:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      final_message: ${{ steps.run_codex.outputs.final-message }}
     steps:
-      - name: Comment to trigger Codex (on PR event)
-        uses: actions/github-script@v7
+      - uses: actions/checkout@v5
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Explicitly check out the PR's merge commit.
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+
+      - name: Pre-fetch base and head refs for the PR
+        run: |
+          git fetch --no-tags origin \
+            ${{ github.event.pull_request.base.ref }} \
+            +refs/pull/${{ github.event.pull_request.number }}/head
+
+      # If you want Codex to build and run code, install any dependencies that
+      # need to be downloaded before the "Run Codex" step because Codex's
+      # default sandbox disables network access.
+
+      - name: Run Codex
+        id: run_codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt: |
+            This is PR #${{ github.event.pull_request.number }} for ${{ github.repository }}.
+
+            Review ONLY the changes introduced by the PR, so consider:
+               git log --oneline ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}
+
+            Suggest any improvements, potential bugs, or issues.
+            Be concise and specific in your feedback.
+
+            Pull request title and body:
+            ----
+            ${{ github.event.pull_request.title }}
+            ${{ github.event.pull_request.body }}
+
+  post_feedback:
+    runs-on: ubuntu-latest
+    needs: codex
+    if: needs.codex.outputs.final_message != ''
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Report Codex feedback
+        uses: actions/github-script@v7
+        env:
+          CODEX_FINAL_MESSAGE: ${{ needs.codex.outputs.final_message }}
+        with:
+          github-token: ${{ github.token }}
           script: |
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: "@codex review"
-            });
-
-  # 2) Auto-trigger Codex when certain reviewers submit a review
-  codex-on-review:
-    if: >
-      github.event_name == 'pull_request_review' &&
-      (
-        github.event.review.user.login == 'EmelyanenkoK' ||
-        github.event.review.user.login == 'tolya-yanot' ||
-        github.event.review.user.login == 'SpyCheese' ||
-        github.event.review.user.login == 'neodix42' ||
-        github.event.review.user.login == 'dungeon-master-666' ||
-        github.event.review.user.login == 'igroman787' ||
-        github.event.review.user.login == 'kdimentionaltree' ||
-        github.event.review.user.login == 'sonofmom' ||
-        github.event.review.user.login == 'Trinketer22' ||
-        github.event.review.user.login == 'xssnick' ||
-        github.event.review.user.login == 'tolk-vm' ||
-        github.event.review.user.login == 'DanShaders' ||
-        github.event.review.user.login == 'birydrad' ||
-        github.event.review.user.login == 'abacabadabacaba' ||
-        github.event.review.user.login == 'Mustang98' ||
-        github.event.review.user.login == 'avevad' ||
-        github.event.review.user.login == 'tvorogme' ||
-        github.event.review.user.login == 'krigga'
-      )
-    runs-on: ubuntu-latest
-    steps:
-      - name: Comment to trigger Codex (on review)
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const reviewer = context.payload.review.user.login;
-            const state = context.payload.review.state; // approved | changes_requested | commented | dismissed
-            core.info(`Review by ${reviewer} with state: ${state}`);
-
-            // Optional: restrict to certain review states
-            if (state !== 'approved' && state !== 'changes_requested') {
-              core.info('Skipping Codex trigger – review state not allowed');
-              return;
-            }
-
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: "@codex review"
+              issue_number: context.payload.pull_request.number,
+              body: process.env.CODEX_FINAL_MESSAGE,
             });
