@@ -1,4 +1,4 @@
-fun cantReturnNothingFromSelf(mutate self: int): self {
+fun int.cantReturnNothingFromSelf(mutate self): self {
     self = self + 1;
 }
 

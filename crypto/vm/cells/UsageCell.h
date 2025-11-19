@@ -36,10 +36,13 @@ class UsageCell : public Cell {
     return Ref<UsageCell>{true, std::move(cell), std::move(tree_node), PrivateTag{}};
   }
 
+  td::Status set_data_cell(Ref<DataCell> &&data_cell) const override {
+    return cell_->set_data_cell(std::move(data_cell));
+  }
   // load interface
   td::Result<LoadedCell> load_cell() const override {
     TRY_RESULT(loaded_cell, cell_->load_cell());
-    if (tree_node_.on_load(loaded_cell.data_cell)) {
+    if (tree_node_.on_load(loaded_cell)) {
       CHECK(loaded_cell.tree_node.empty());
       loaded_cell.tree_node = tree_node_;
     }

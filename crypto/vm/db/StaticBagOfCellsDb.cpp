@@ -18,7 +18,6 @@
 */
 #include "vm/db/StaticBagOfCellsDb.h"
 
-#include "vm/cells/CellWithStorage.h"
 #include "vm/boc.h"
 
 #include "vm/cells/ExtCell.h"
@@ -40,6 +39,9 @@ class RootCell : public Cell {
   struct PrivateTag {};
 
  public:
+  td::Status set_data_cell(Ref<DataCell> &&data_cell) const override {
+    return cell_->set_data_cell(std::move(data_cell));
+  }
   td::Result<LoadedCell> load_cell() const override {
     return cell_->load_cell();
   }
@@ -94,11 +96,11 @@ class DataCellCacheNoop {
 class DataCellCacheMutex {
  public:
   Ref<DataCell> store(int idx, Ref<DataCell> cell) {
-    auto lock = cells_rw_mutex_.lock_write();
+    std::lock_guard lock(mutex_);
     return cells_.emplace(idx, std::move(cell)).first->second;
   }
   Ref<DataCell> load(int idx) {
-    auto lock = cells_rw_mutex_.lock_read();
+    std::lock_guard lock(mutex_);
     auto it = cells_.find(idx);
     if (it != cells_.end()) {
       return it->second;
@@ -106,12 +108,13 @@ class DataCellCacheMutex {
     return {};
   }
   void clear() {
-    auto guard = cells_rw_mutex_.lock_write();
+    std::lock_guard lock(mutex_);
     cells_.clear();
   }
 
  private:
-  td::RwMutex cells_rw_mutex_;
+  std::mutex mutex_;
+  // NB: in case of high contention, one should use multiple buckets with per bucket mutexes
   td::HashMap<int, Ref<DataCell>> cells_;
 };
 
@@ -246,7 +249,7 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
   BagOfCells::Info info_;
 
   std::mutex index_i_mutex_;
-  td::RwMutex index_data_rw_mutex_;
+  std::mutex index_mutex_;
   std::string index_data_;
   std::atomic<int> index_i_{0};
   size_t index_offset_{0};
@@ -319,7 +322,7 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
                                              info_.index_offset + (td::int64)idx * info_.offset_byte_size));
       offset_view = new_offset_view;
     } else {
-      guard = index_data_rw_mutex_.lock_read().move_as_ok();
+      std::lock_guard guard(index_mutex_);
       offset_view = td::Slice(index_data_).substr((td::int64)idx * info_.offset_byte_size, info_.offset_byte_size);
     }
 
@@ -432,7 +435,7 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
       }
       td::uint8 tmp[8];
       info_.write_offset(tmp, index_offset_);
-      auto guard = index_data_rw_mutex_.lock_write();
+      std::lock_guard guard(index_mutex_);
       index_data_.append(reinterpret_cast<const char*>(tmp), info_.offset_byte_size);
     }
     return td::Status::OK();

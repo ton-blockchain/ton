@@ -94,6 +94,42 @@ fun test9(s: int) {
     return ~ t;
 }
 
+@method_id(110)
+fun test10(x: int) {
+    var t = createEmptyTuple();
+
+    do {
+        t.push(x);
+        x += 1;
+    } while (x < -4);
+
+    var y = x;
+    do {
+        t.push(y);
+        y -= 1;
+    } while (y > -8);
+
+    y = 804;
+    do {
+        y -= 1;
+        t.push(y);
+    } while (y > 800);
+
+    y = -804;
+    do {
+        y += 1;
+        t.push(y);
+    } while (y < -800);
+
+    y = 130;
+    do {
+        y -= 1;
+        t.push(y);
+    } while (y > 127);
+
+    return t;
+}
+
 
 /**
     method_id   | in            | out
@@ -124,4 +160,12 @@ fun test9(s: int) {
 @testcase | 108 | -5  | 2
 @testcase | 109 | 1   | -2
 @testcase | 109 | 5   | -6
+@testcase | 110 | -6  | [ -6 -5 -4 -5 -6 -7 803 802 801 800 -803 -802 -801 -800 129 128 127 ]
+
+Check that it's not replaced to `128 LESSINT`
+@fif_codegen
+"""
+      127 GTINT
+      NOT
+"""
 */

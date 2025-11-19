@@ -9,6 +9,13 @@ fun eq<T>(x: T) { return x }
 fun unwrap<T>(x: T?): T { return x!; }
 fun intOr0(x: int?): int { return null == x ? 0 : x!; }
 
+@pure
+fun storeInt(mutate b: builder, x: int, len: int): void
+    asm(x b len) "STIX";
+@pure
+fun tuplePush<T>(mutate t: tuple, value: T): void
+    asm "TPUSH";
+
 @method_id(101)
 fun test101(x: int) {
     var re = x == 0 ? null : 100;
@@ -61,8 +68,8 @@ fun test106() {
     gInt106! += 5;
     var int106: int? = 0;
     var gTup106 = createEmptyTuple();
-    gTup106!.tuplePush(createEmptyTuple());
-    (gTup106!.0 as tuple?)!.tuplePush(0 as int?);
+    gTup106!.push(createEmptyTuple());
+    (gTup106!.0 as tuple?)!.push(0 as int?);
     tuplePush(mutate gTup106!, gInt106);
     tuplePush(mutate gTup106!.0, int106! += 1);
     return (gTup106 == null, null != gTup106, gTup106, gTup106!.0 as tuple?);
@@ -75,7 +82,7 @@ fun test107() {
     b = b!.storeInt(3, 32);
     storeInt(mutate b!, 4, 32);
     (b! as builder).storeInt(5, 32);
-    return b!.getBuilderBitsCount();
+    return b!.bitsCount();
 }
 
 @method_id(108)

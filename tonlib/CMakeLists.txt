@@ -1,9 +1,5 @@
 option(TONLIBJSON_STATIC "Build tonlibjson as static library" OFF)
 
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 set(TONLIB_SOURCE
   tonlib/Client.cpp
   tonlib/Config.cpp
@@ -72,14 +68,14 @@ if (TONLIB_ENABLE_JNI AND NOT ANDROID) # jni is available by default on Android
 endif()
 
 add_executable(tonlib-cli tonlib/tonlib-cli.cpp)
-target_link_libraries(tonlib-cli tonlib tdactor tdutils terminal pow-miner-lib git)
+target_link_libraries(tonlib-cli tonlib tdactor tdutils terminal ton_crypto git)
 
 if (NOT CMAKE_CROSSCOMPILING)
   if (TONLIB_ENABLE_JNI)
 	  #FIXME
 	  #add_dependencies(tonlib tonlib_generate_java_api)
   endif()
-endif() 
+endif()
 add_library(tonlibjson_private STATIC tonlib/ClientJson.cpp tonlib/ClientJson.h)
 target_include_directories(tonlibjson_private PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
@@ -100,6 +96,17 @@ if (PORTABLE AND NOT APPLE)
   target_link_libraries(tonlibjson PRIVATE tonlibjson_private -static-libgcc -static-libstdc++)
 else()
   target_link_libraries(tonlibjson PRIVATE tonlibjson_private)
+endif()
+
+if (APPLE)
+  set(CMAKE_MACOSX_RPATH ON)
+  set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+  set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
+endif()
+
+if (APPLE AND PORTABLE)
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libstdc++")
+  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -static-libstdc++")
 endif()
 
 generate_export_header(tonlibjson EXPORT_FILE_NAME ${CMAKE_CURRENT_BINARY_DIR}/tonlib/tonlibjson_export.h)

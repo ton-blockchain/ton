@@ -2,8 +2,19 @@ type Tup2Int = [int, MInt];
 type Tensor2Int = (int, MInt);
 type MInt = int;
 
-fun increment(mutate self: MInt) {
+@pure
+fun tuplePush<T>(mutate t: tuple, value: T): void
+    asm "TPUSH";
+@pure
+fun getBuilderBitsCount(b: builder): int
+    asm "BBITS";
+
+fun MInt.increment(mutate self) {
     self += 1;
+}
+
+fun increment(mutate v: MInt) {
+    v += 1;
 }
 
 fun increment2(mutate a: int, mutate b: int) {
@@ -16,31 +27,37 @@ fun assign1020(mutate a: int, mutate b: MInt) {
     b = 20;
 }
 
-fun plus(mutate self: int, y: int): int {
+fun int.plus(mutate self, y: int): int {
     val newVals = (self + y, y * 10);
     self = newVals.0;
     return newVals.1;
 }
 
+fun plus(mutate x: int, y: int): int {
+    val newVals = (x + y, y * 10);
+    x = newVals.0;
+    return newVals.1;
+}
+
 fun eq<X>(v: X): X { return v; }
 
-global gTup: [int];
-global gTens: (int, int);
+global gTup: [int]
+global gTens: (int, int)
 
 @method_id(100)
 fun testCodegenSimple() {
     var t1 = [1];
     t1.0 = 2;
-    debugPrintString("");
+    debug.printString("");
     var t2 = [[1]];
     t2.0.0 = 2;
-    debugPrintString("");
+    debug.printString("");
     gTup = [1];
     gTup.0 = 2;
-    debugPrintString("");
+    debug.printString("");
     gTens = (1,2);
     gTens.1 = 4;
-    debugPrintString("");
+    debug.printString("");
     return (t1, t2, gTup, gTens);
 }
 
@@ -90,8 +107,8 @@ fun test104() {
 
 @method_id(105)
 fun test105(x: int, y: int): (tuple, int, (int?, int), int, int) {
-    var ab = (createEmptyTuple(), (x as int?, y), tupleSize);
-    ab.0.tuplePush(1);
+    var ab = (createEmptyTuple(), (x as int?, y), tuple.size);
+    ab.0.push(1);
     tuplePush(mutate ab.0, 2);
     ab.1.0 = null;
     ab.1.1 += 10;
@@ -101,8 +118,8 @@ fun test105(x: int, y: int): (tuple, int, (int?, int), int, int) {
 
 @method_id(106)
 fun test106(x: int, y: int) {
-    var ab = [createEmptyTuple(), [x as int?, y], tupleSize];
-    ab.0.tuplePush(1);
+    var ab = [createEmptyTuple(), [x as int?, y], tuple.size];
+    ab.0.push(1);
     tuplePush(mutate ab.0, 2);
     ab.1.0 = null;
     ab.1.1 += 10;
@@ -113,8 +130,8 @@ fun test106(x: int, y: int) {
 @method_id(107)
 fun test107() {
     var ab = createEmptyTuple();
-    ab.tuplePush(1);
-    ab.tuplePush(beginCell().storeInt(1, 32));
+    ab.push(1);
+    ab.push(beginCell().storeInt(1, 32));
     return (ab.0 as int, getBuilderBitsCount(ab.1));
 }
 
@@ -157,10 +174,12 @@ fun test112(f: int, s: int) {
 }
 
 @pure
+@noinline
 fun getConstTuple(): Tup2Int {
     return [1,2];
 }
 
+@noinline
 fun testCodegenNoPureIndexedAccess() {
     (getConstTuple().1, getConstTuple().0) = (3, 4);
     return 0;
@@ -187,7 +206,7 @@ fun test115() {
 @method_id(116)
 fun test116() {
     var t = createEmptyTuple();
-    t.tuplePush(1);
+    t.push(1);
     try {
         return t.100500 as int;
     } catch(excNo) {
@@ -198,7 +217,7 @@ fun test116() {
 @method_id(117)
 fun test117() {
     var t = createEmptyTuple();
-    t.tuplePush(1);
+    t.push(1);
     try {
         return (t.0 as tuple).0 as MInt;
     } catch(excNo) {
@@ -222,18 +241,22 @@ fun getT() { return (1, 2); }
 
 @method_id(120)
 fun test120() {
-    return (getT().0 = 3, getT().0 = 4, [getT().0 = 5, getT().0 = 6]);
+    return (getT().0 = 3, getT().0 = sizeof(getT()) * 2, [getT().0 = 5, getT().0 = 6]);
 }
 
 @method_id(121)
 fun test121(zero: int) {
     var t = createEmptyTuple();
-    t.tuplePush(-100);
-    t.tupleSetAt(0, zero);
+    t.push(-100);
+    t.set(0, zero);
     (t.0 as int).increment();
     (((t.0) as int) as int).increment();
     increment(mutate t.0 as int);
     return t;
+}
+
+fun (T1, T2).isFirstComponentGt0(self): bool {
+    return self.0 > 0;
 }
 
 fun isFirstComponentGt0<T1,T2>(t: (T1, T2)): bool {
@@ -244,7 +267,7 @@ fun isFirstComponentGt0<T1,T2>(t: (T1, T2)): bool {
 fun test122(x: (int, int)) {
     return (
         isFirstComponentGt0(x), isFirstComponentGt0((2, beginCell())), isFirstComponentGt0<int,slice?>((0, null)),
-        x.isFirstComponentGt0(), (2, beginCell()).isFirstComponentGt0(), (0, null).isFirstComponentGt0<int,slice?>()
+        x.isFirstComponentGt0(), (2, beginCell()).isFirstComponentGt0(), (0, null as slice?).isFirstComponentGt0()
     );
 }
 
@@ -255,7 +278,9 @@ fun test123() {
     return t;
 }
 
-fun main(){}
+fun main(){
+    testCodegenNoPureIndexedAccess();
+}
 
 
 /**
@@ -285,8 +310,7 @@ fun main(){}
 
 @fif_codegen
 """
-  testCodegenSimple PROC:<{
-    //
+  testCodegenSimple() PROC:<{
     1 PUSHINT	    //  '2=1
     SINGLE	        //  t1
     2 PUSHINT	    //  t1 '3=2
@@ -306,45 +330,43 @@ fun main(){}
     STRDUMP DROP
     1 PUSHINT	//  t1 t2 '20=1
     SINGLE	    //  t1 t2 '18
-    gTup SETGLOB
+    $gTup SETGLOB
     2 PUSHINT	    //  t1 t2 '21=2
-    gTup GETGLOB	//  t1 t2 '21=2 g_gTup
+    $gTup GETGLOB	//  t1 t2 '21=2 g_gTup
     SWAP	        //  t1 t2 g_gTup '21=2
     0 SETINDEX	    //  t1 t2 g_gTup
-    gTup SETGLOB
+    $gTup SETGLOB
     x{} PUSHSLICE	//  t1 t2 '25
     STRDUMP DROP
     1 PUSHINT	//  t1 t2 '28=1
     2 PUSHINT	//  t1 t2 '26=1 '27=2
     PAIR
-    gTens SETGLOB
+    $gTens SETGLOB
     4 PUSHINT	//  t1 t2 g_gTens.1=4
-    gTens GETGLOB
+    $gTens GETGLOB
     UNPAIR	    //  t1 t2 g_gTens.1=4 g_gTens.0 g_gTens.1
     DROP	    //  t1 t2 g_gTens.1=4 g_gTens.0
     SWAP	    //  t1 t2 g_gTens.0 g_gTens.1=4
     PAIR
-    gTens SETGLOB
+    $gTens SETGLOB
     x{} PUSHSLICE	//  t1 t2 '36
     STRDUMP DROP
-    gTup GETGLOB	//  t1 t2 g_gTup
-    gTens GETGLOB
+    $gTup GETGLOB	//  t1 t2 g_gTup
+    $gTens GETGLOB
     UNPAIR	    //  t1 t2 g_gTup g_gTens.0 g_gTens.1
   }>
 """
 
 @fif_codegen
 """
-  testCodegenNoPureIndexedAccess PROC:<{
-    //
+  testCodegenNoPureIndexedAccess() PROC:<{
     0 PUSHINT  // '8=0
   }>
 """
 
 @fif_codegen
 """
-  testCodegenIndexPostfix1 PROC:<{
-    //  x.0 x.1
+  testCodegenIndexPostfix1() PROC:<{   //  x.0 x.1
     //  ab.1 ab.0
     SWAP	//  ab.0 ab.1
   }>
@@ -352,8 +374,7 @@ fun main(){}
 
 @fif_codegen
 """
-  testCodegenIndexPostfix2 PROC:<{
-    //  x.0 x.1.0 x.1.1 x.2
+  testCodegenIndexPostfix2() PROC:<{   //  x.0 x.1.0 x.1.1 x.2
     s2 POP	//  y.0 y.2 y.1.1
     s1 s2 XCHG	//  y.2 y.0 y.1.1
   }>

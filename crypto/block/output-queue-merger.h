@@ -32,6 +32,7 @@ struct OutputQueueMerger {
     int source;
     int key_len{0};
     td::BitArray<max_key_len> key;
+    bool limit_exceeded{false};
     MsgKeyValue() = default;
     MsgKeyValue(int src, Ref<vm::Cell> node);
     MsgKeyValue(td::ConstBitPtr key_pfx, int key_pfx_len, int src, Ref<vm::Cell> node);
@@ -51,23 +52,22 @@ struct OutputQueueMerger {
     bool unpack_node(td::ConstBitPtr key_pfx, int key_pfx_len, Ref<vm::Cell> node);
     bool split(MsgKeyValue& second);
   };
+  //
+  std::vector<std::unique_ptr<MsgKeyValue>> msg_list;
+
+ public:
   struct Neighbor {
     ton::BlockIdExt block_id_;
     td::Ref<vm::Cell> outmsg_root_;
     bool disabled_;
+    td::int32 msg_limit_;  // -1 - unlimited
     Neighbor() = default;
-    Neighbor(ton::BlockIdExt block_id, td::Ref<vm::Cell> outmsg_root, bool disabled = false)
-        : block_id_(block_id), outmsg_root_(std::move(outmsg_root)), disabled_(disabled) {
+    Neighbor(ton::BlockIdExt block_id, td::Ref<vm::Cell> outmsg_root, bool disabled = false, td::int32 msg_limit = -1)
+        : block_id_(block_id), outmsg_root_(std::move(outmsg_root)), disabled_(disabled), msg_limit_(msg_limit) {
     }
   };
-  //
-  ton::ShardIdFull queue_for;
-  std::vector<std::unique_ptr<MsgKeyValue>> msg_list;
-  std::vector<Neighbor> neighbors;
 
- public:
-  OutputQueueMerger(ton::ShardIdFull _queue_for, std::vector<Neighbor> _neighbors);
-  OutputQueueMerger(ton::ShardIdFull _queue_for, std::vector<block::McShardDescr> _neighbors);
+  OutputQueueMerger(ton::ShardIdFull queue_for, std::vector<Neighbor> neighbors);
   bool is_eof() const {
     return eof;
   }
@@ -80,10 +80,11 @@ struct OutputQueueMerger {
   int common_pfx_len;
   std::vector<std::unique_ptr<MsgKeyValue>> heap;
   std::size_t pos{0};
+  std::vector<td::int32> src_remaining_msgs_;
   bool eof;
   bool failed;
-  void init();
-  bool add_root(int src, Ref<vm::Cell> outmsg_root);
+  bool limit_exceeded{false};
+  void add_root(int src, Ref<vm::Cell> outmsg_root, td::int32 msg_limit);
   bool load();
 };
 

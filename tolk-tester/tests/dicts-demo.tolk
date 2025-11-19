@@ -1,6 +1,6 @@
 import "@stdlib/tvm-dicts"
 
-fun addIntToIDict(mutate self: cell?, key: int, number: int): void {
+fun cell?.addIntToIDict(mutate self, key: int, number: int): void {
     return self.iDictSetBuilder(32, key, beginCell().storeInt(number, 32));
 }
 
@@ -14,7 +14,7 @@ fun calculateDictLen(d: cell?) {
     return len;
 }
 
-fun loadTwoDigitNumberFromSlice(mutate self: slice): int {
+fun slice.loadTwoDigitNumberFromSlice(mutate self): int {
     var n1 = self.loadInt(8);
     var n2 = self.loadInt(8);
     return (n1 - 48) * 10 + (n2 - 48);
@@ -47,7 +47,7 @@ fun test102() {
     while (!shouldBreak) {
         var (kDel, kVal, wasDel) = dict.iDictDeleteLastAndGet(32);
         if (wasDel) {
-            deleted.tuplePush([kDel, kVal!.loadInt(32)]);
+            deleted.push([kDel, kVal!.loadInt(32)]);
         } else {
             shouldBreak = true;
         }
@@ -82,8 +82,8 @@ fun test104() {
     var (old2, _) = dict.sDictDeleteAndGet(32, "key1");
     var (restK, restV, _) = dict.sDictGetFirst(32);
     var (restK1, restV1, _) = dict.sDictDeleteLastAndGet(32);
-    assert (restK!.isSliceBitsEqual(restK1!)) throw 123;
-    assert (restV!.isSliceBitsEqual(restV1!)) throw 123;
+    assert (restK!.bitsEqual(restK1!)) throw 123;
+    assert (restV!.bitsEqual(restV1!)) throw 123;
     return (
         old1!.loadTwoDigitNumberFromSlice(),
         old2!.loadTwoDigitNumberFromSlice(),
@@ -91,6 +91,37 @@ fun test104() {
         restK!.loadTwoDigitNumberFromSlice(),
         restK!.loadTwoDigitNumberFromSlice()
     );
+}
+
+@method_id(105)
+fun test105(takeNext: bool) {
+    var dict = createEmptyDict();
+    dict.uDictSet(32, 0, stringHexToSlice("01"));
+    dict.uDictSet(32, 8, stringHexToSlice("02"));
+    var (next, data, found) = takeNext ? dict.uDictGetNext(32, -1) : dict.uDictGetPrev(32, 9);
+    __expect_type(found, "bool");
+    assert(found, 10);
+    return data!.loadUint(8);
+}
+
+@method_id(106)
+fun test106() {
+    var dict = createEmptyDict();
+    dict.addIntToIDict(2, 102);
+    dict.addIntToIDict(-1, 101);
+    dict.addIntToIDict(-4, 104);
+    dict.addIntToIDict(3, 103);
+
+    var m = createMapFromLowLevelDict<int32, int32>(dict);
+    val fk = m.findFirst().getKey();
+    val fv = m.findFirst().loadValue();
+    var t = createEmptyTuple();
+    var r = m.findKeyLess(3);
+    while (r.isFound) {
+        t.push(r.loadValue());
+        r = m.iteratePrev(r);
+    }
+    return (fk, fv, t);
 }
 
 fun main() {}
@@ -102,4 +133,7 @@ fun main() {}
 @testcase | 102 |       | [ [ 4 104 ] [ 3 103 ] [ 2 102 ] [ 1 101 ] ] 
 @testcase | 103 |       | 1 1 2 1 3 (null)
 @testcase | 104 |       | 12 34 56 78 0
+@testcase | 105 | -1    | 1
+@testcase | 105 | 0     | 2
+@testcase | 106 |       | -4 104 [ 102 101 104 ]
  */

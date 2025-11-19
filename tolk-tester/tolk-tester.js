@@ -130,9 +130,12 @@ class TolkTestCaseInputOutput {
         this.expected_output = output_str
     }
 
-    check(/**string[]*/ stdout_lines, /**number*/ line_idx) {
-        if (stdout_lines[line_idx] !== this.expected_output)
-            throw new CompareOutputError(`error on case #${line_idx + 1} (${this.method_id} | ${this.input}):\n    expect: ${this.expected_output}\n    actual: ${stdout_lines[line_idx]}`, stdout_lines.join("\n"))
+    check(/**string[]*/ stdout_lines, /**number*/ line_idx, /**number*/ pivot_typeid) {
+        let expected_str = this.expected_output
+        if (expected_str.includes("typeid"))
+            expected_str = expected_str.replace(/typeid-(\d+)/g, (match, p1) => pivot_typeid + (+p1))
+        if (stdout_lines[line_idx] !== expected_str)
+            throw new CompareOutputError(`error on case #${line_idx + 1} (${this.method_id} | ${this.input}):\n    expect: ${expected_str}\n    actual: ${stdout_lines[line_idx]}`, stdout_lines.join("\n"))
     }
 }
 
@@ -273,6 +276,10 @@ class TolkTestFile {
         this.expected_hash = null
         /** @type {string | null} */
         this.experimental_options = null
+        /** @type {boolean} */
+        this.enable_tolk_lines_comments = false
+        /** @type {number} */
+        this.pivot_typeid = 128
     }
 
     parse_input_from_tolk_file() {
@@ -292,6 +299,8 @@ class TolkTestFile {
                 this.stderr_includes.push(new TolkTestCaseStderr(this.parse_string_value(lines), false))
             } else if (line.startsWith("@fif_codegen_avoid")) {
                 this.fif_codegen.push(new TolkTestCaseFifCodegen(this.parse_string_value(lines), true))
+            } else if (line.startsWith("@fif_codegen_enable_comments")) {
+                this.enable_tolk_lines_comments = true
             } else if (line.startsWith("@fif_codegen")) {
                 this.fif_codegen.push(new TolkTestCaseFifCodegen(this.parse_string_value(lines), false))
             } else if (line.startsWith("@code_hash")) {
@@ -345,9 +354,9 @@ class TolkTestFile {
 
     async run_and_check() {
         const wasmModule = await compileWasm(TOLKFIFTLIB_MODULE, TOLKFIFTLIB_WASM)
-        let res = compileFile(wasmModule, this.tolk_filename, this.experimental_options)
+        let res = compileFile(wasmModule, this.tolk_filename, this.experimental_options, this.enable_tolk_lines_comments)
         let exit_code = res.status === 'ok' ? 0 : 1
-        let stderr = res.message
+        let stderr = res.message || res.stderr
         let stdout = ''
 
         if (exit_code === 0 && this.compilation_should_fail)
@@ -390,7 +399,7 @@ class TolkTestFile {
             throw new CompareOutputError(`unexpected number of fift output: ${stdout_lines.length} lines, but ${this.input_output.length} testcases`, stdout)
 
         for (let i = 0; i < stdout_lines.length; ++i)
-            this.input_output[i].check(stdout_lines, i)
+            this.input_output[i].check(stdout_lines, i, this.pivot_typeid)
 
         if (this.fif_codegen.length) {
             const fif_output = fs.readFileSync(this.get_compiled_fif_filename(), 'utf-8').split(/\r?\n/)
@@ -488,38 +497,41 @@ function copyFromCString(mod, ptr) {
 }
 
 /** @return {{status: string, message: string, fiftCode: string, codeBoc: string, codeHashHex: string}} */
-function compileFile(mod, filename, experimentalOptions) {
+function compileFile(mod, filename, experimentalOptions, withSrcLineComments) {
     // see tolk-wasm.cpp: typedef void (*WasmFsReadCallback)(int, char const*, char**, char**)
     const callbackPtr = mod.addFunction((kind, dataPtr, destContents, destError) => {
-        if (kind === 0) { // realpath
-            try {
-                let relative = copyFromCString(mod, dataPtr)
-                if (relative.startsWith('@stdlib/')) {
-                    // import "@stdlib/filename" or import "@stdlib/filename.tolk"
-                    relative = STDLIB_FOLDER + '/' + relative.substring(7)
-                    if (!relative.endsWith('.tolk')) {
-                        relative += '.tolk'
-                    }
+        switch (kind) {   // enum ReadCallback::Kind in C++
+            case 0:       // realpath
+                let relativeFilename = copyFromCString(mod, dataPtr)  // from `import` statement, relative to cur file
+                if (!relativeFilename.endsWith('.tolk')) {
+                    relativeFilename += '.tolk'
                 }
-                copyToCStringPtr(mod, fs.realpathSync(relative), destContents);
-            } catch (err) {
-                copyToCStringPtr(mod, 'cannot find file', destError);
-            }
-        } else if (kind === 1) { // read file
-            try {
-                const absolute = copyFromCString(mod, dataPtr) // already normalized (as returned above)
-                copyToCStringPtr(mod, fs.readFileSync(absolute).toString('utf-8'), destContents);
-            } catch (err) {
-                copyToCStringPtr(mod, err.message || err.toString(), destError);
-            }
-        } else {
-            copyToCStringPtr(mod, 'Unknown callback kind=' + kind, destError);
+                copyToCStringPtr(mod, path.normalize(relativeFilename), destContents)
+                break
+            case 1:       // read file
+                try {
+                    const filename = copyFromCString(mod, dataPtr) // already normalized (as returned above)
+                    if (filename.startsWith('@stdlib/')) {
+                        const contents = fs.readFileSync(STDLIB_FOLDER + '/' + filename.substring(8)).toString('utf-8');
+                        copyToCStringPtr(mod, contents, destContents)
+                    } else {
+                        const contents = fs.readFileSync(filename).toString('utf-8');
+                        copyToCStringPtr(mod, contents, destContents)
+                    }
+                } catch (err) {
+                    copyToCStringPtr(mod, err.message || err.toString(), destError)
+                }
+                break
+            default:
+                copyToCStringPtr(mod, 'Unknown callback kind=' + kind, destError)
+                break
         }
     }, 'viiii');
 
     const config = {
         optimizationLevel: 2,
         withStackComments: true,
+        withSrcLineComments: withSrcLineComments,
         experimentalOptions: experimentalOptions || undefined,
         entrypointFileName: filename
     };

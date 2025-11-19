@@ -665,7 +665,7 @@ bool CommonMsgInfo::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const 
              && t_MsgAddressInt.validate_skip(ops, cs, weak)       // src
              && t_MsgAddressInt.validate_skip(ops, cs, weak)       // dest
              && t_CurrencyCollection.validate_skip(ops, cs, weak)  // value
-             && t_Grams.validate_skip(ops, cs, weak)               // ihr_fee
+             && t_Grams.validate_skip(ops, cs, weak)               // extra_flags
              && t_Grams.validate_skip(ops, cs, weak)               // fwd_fee
              && cs.advance(64 + 32);                               // created_lt:uint64 created_at:uint32
     case ext_in_msg_info:
@@ -684,7 +684,7 @@ bool CommonMsgInfo::unpack(vm::CellSlice& cs, CommonMsgInfo::Record_int_msg_info
   return get_tag(cs) == int_msg_info && cs.advance(1) && cs.fetch_bool_to(data.ihr_disabled) &&
          cs.fetch_bool_to(data.bounce) && cs.fetch_bool_to(data.bounced) && t_MsgAddressInt.fetch_to(cs, data.src) &&
          t_MsgAddressInt.fetch_to(cs, data.dest) && t_CurrencyCollection.fetch_to(cs, data.value) &&
-         t_Grams.fetch_to(cs, data.ihr_fee) && t_Grams.fetch_to(cs, data.fwd_fee) &&
+         t_Grams.fetch_to(cs, data.extra_flags) && t_Grams.fetch_to(cs, data.fwd_fee) &&
          cs.fetch_uint_to(64, data.created_lt) && cs.fetch_uint_to(32, data.created_at);
 }
 
@@ -696,7 +696,7 @@ bool CommonMsgInfo::skip(vm::CellSlice& cs) const {
              && t_MsgAddressInt.skip(cs)       // src
              && t_MsgAddressInt.skip(cs)       // dest
              && t_CurrencyCollection.skip(cs)  // value
-             && t_Grams.skip(cs)               // ihr_fee
+             && t_Grams.skip(cs)               // extra_flags
              && t_Grams.skip(cs)               // fwd_fee
              && cs.advance(64 + 32);           // created_lt:uint64 created_at:uint32
     case ext_in_msg_info:
@@ -718,7 +718,7 @@ bool CommonMsgInfo::get_created_lt(vm::CellSlice& cs, unsigned long long& create
              && t_MsgAddressInt.skip(cs)             // src
              && t_MsgAddressInt.skip(cs)             // dest
              && t_CurrencyCollection.skip(cs)        // value
-             && t_Grams.skip(cs)                     // ihr_fee
+             && t_Grams.skip(cs)                     // extra_flags
              && t_Grams.skip(cs)                     // fwd_fee
              && cs.fetch_ulong_bool(64, created_lt)  // created_lt:uint64
              && cs.advance(32);                      // created_at:uint32
@@ -738,7 +738,7 @@ const TickTock t_TickTock;
 const RefAnything t_RefCell;
 
 bool StateInit::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
-  return Maybe<UInt>{5}.validate_skip(ops, cs, weak)            // split_depth:(Maybe (## 5))
+  return Maybe<UInt>{5}.validate_skip(ops, cs, weak)            // fixed_prefix_length:(Maybe (## 5))
          && Maybe<TickTock>{}.validate_skip(ops, cs, weak)      // special:(Maybe TickTock)
          && Maybe<RefAnything>{}.validate_skip(ops, cs, weak)   // code:(Maybe ^Cell)
          && Maybe<RefAnything>{}.validate_skip(ops, cs, weak)   // data:(Maybe ^Cell)
@@ -961,40 +961,33 @@ const RefTo<MsgEnvelope> t_Ref_MsgEnvelope;
 
 bool StorageUsed::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
   return t_VarUInteger_7.validate_skip(ops, cs, weak)      // cells:(VarUInteger 7)
-         && t_VarUInteger_7.validate_skip(ops, cs, weak)   // bits:(VarUInteger 7)
-         && t_VarUInteger_7.validate_skip(ops, cs, weak);  // public_cells:(VarUInteger 7)
+         && t_VarUInteger_7.validate_skip(ops, cs, weak);  // bits:(VarUInteger 7)
 }
 
 bool StorageUsed::skip(vm::CellSlice& cs) const {
   return t_VarUInteger_7.skip(cs)      // cells:(VarUInteger 7)
-         && t_VarUInteger_7.skip(cs)   // bits:(VarUInteger 7)
-         && t_VarUInteger_7.skip(cs);  // public_cells:(VarUInteger 7)
+         && t_VarUInteger_7.skip(cs);  // bits:(VarUInteger 7)
 }
 
 const StorageUsed t_StorageUsed;
 
-bool StorageUsedShort::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
-  return t_VarUInteger_7.validate_skip(ops, cs, weak)      // cells:(VarUInteger 7)
-         && t_VarUInteger_7.validate_skip(ops, cs, weak);  // bits:(VarUInteger 7)
-}
-
-bool StorageUsedShort::skip(vm::CellSlice& cs) const {
-  return t_VarUInteger_7.skip(cs)      // cells:(VarUInteger 7)
-         && t_VarUInteger_7.skip(cs);  // bits:(VarUInteger 7)
-}
-
-const StorageUsedShort t_StorageUsedShort;
-
 const Maybe<Grams> t_Maybe_Grams;
 
 bool StorageInfo::skip(vm::CellSlice& cs) const {
-  return t_StorageUsed.skip(cs)      // used:StorageUsed
-         && cs.advance(32)           // last_paid:uint32
-         && t_Maybe_Grams.skip(cs);  // due_payment:(Maybe Grams)
+  int extra_tag = 0;
+  return t_StorageUsed.skip(cs)                  // used:StorageUsed
+         && cs.fetch_uint_to(3, extra_tag)       // storage_extra:StorageExtraInfo
+         && (extra_tag == 0 || cs.advance(256))  // storage_extra_info$001 dict_hash:uint256 = StorageExtraInfo;
+         && cs.advance(32)                       // last_paid:uint32
+         && t_Maybe_Grams.skip(cs);              // due_payment:(Maybe Grams)
 }
 
 bool StorageInfo::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
-  return t_StorageUsed.validate_skip(ops, cs, weak)      // used:StorageUsed
+  int extra_tag = 0;
+  return t_StorageUsed.validate_skip(ops, cs, weak)  // used:StorageUsed
+         && cs.fetch_uint_to(3, extra_tag)           // storage_extra:StorageExtraInfo
+         && (extra_tag == 0 ||
+             (extra_tag == 1 && cs.advance(256)))        // storage_extra_info$001 dict_hash:uint256 = StorageExtraInfo;
          && cs.advance(32)                               // last_paid:uint32
          && t_Maybe_Grams.validate_skip(ops, cs, weak);  // due_payment:(Maybe Grams)
 }
@@ -1085,7 +1078,7 @@ bool Account::skip_copy_depth_balance(vm::CellBuilder& cb, vm::CellSlice& cs) co
     case account:
       return cs.advance(1)                                   // account$1
              && t_MsgAddressInt.skip_get_depth(cs, depth)    // addr:MsgAddressInt
-             && cb.store_uint_leq(30, depth)                 // -> store split_depth:(#<= 30)
+             && cb.store_uint_leq(30, depth)                 // -> store fixed_prefix_length:(#<= 30)
              && t_StorageInfo.skip(cs)                       // storage_stat:StorageInfo
              && t_AccountStorage.skip_copy_balance(cb, cs);  // storage:AccountStorage
   }
@@ -1230,13 +1223,14 @@ bool HashmapAugE::extract_extra(vm::CellSlice& cs) const {
 bool DepthBalanceInfo::skip(vm::CellSlice& cs) const {
   return cs.advance(5) &&
          t_CurrencyCollection.skip(
-             cs);  // depth_balance$_ split_depth:(#<= 30) balance:CurrencyCollection = DepthBalanceInfo;
+             cs);  // depth_balance$_ fixed_prefix_length:(#<= 30) balance:CurrencyCollection = DepthBalanceInfo;
 }
 
 bool DepthBalanceInfo::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
   return cs.fetch_ulong(5) <= 30 &&
-         t_CurrencyCollection.validate_skip(ops, cs,
-                                            weak);  // depth_balance$_ split_depth:(#<= 30) balance:CurrencyCollection
+         t_CurrencyCollection.validate_skip(
+             ops, cs,
+             weak);  // depth_balance$_ fixed_prefix_length:(#<= 30) balance:CurrencyCollection
 }
 
 bool DepthBalanceInfo::null_value(vm::CellBuilder& cb) const {
@@ -1368,7 +1362,7 @@ bool TrActionPhase::skip(vm::CellSlice& cs) const {
          && cs.advance(16 * 4 + 256)      // tot_actions:uint16 spec_actions:uint16
                                           // skipped_actions:uint16 msgs_created:uint16
                                           // action_list_hash:uint256
-         && t_StorageUsedShort.skip(cs);  // tot_msg_size:StorageUsedShort
+         && t_StorageUsed.skip(cs);  // tot_msg_size:StorageUsed
 }
 
 bool TrActionPhase::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
@@ -1381,7 +1375,7 @@ bool TrActionPhase::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const 
          && cs.advance(16 * 4 + 256)                          // tot_actions:uint16 spec_actions:uint16
                                                               // skipped_actions:uint16 msgs_created:uint16
                                                               // action_list_hash:uint256
-         && t_StorageUsedShort.validate_skip(ops, cs, weak);  // tot_msg_size:StorageUsed
+         && t_StorageUsed.validate_skip(ops, cs, weak);  // tot_msg_size:StorageUsed
 }
 
 const TrActionPhase t_TrActionPhase;
@@ -1392,11 +1386,11 @@ bool TrBouncePhase::skip(vm::CellSlice& cs) const {
       return cs.advance(2);  // tr_phase_bounce_negfunds$00
     case tr_phase_bounce_nofunds:
       return cs.advance(2)                   // tr_phase_bounce_nofunds$01
-             && t_StorageUsedShort.skip(cs)  // msg_size:StorageUsedShort
+             && t_StorageUsed.skip(cs)  // msg_size:StorageUsed
              && t_Grams.skip(cs);            // req_fwd_fees:Grams
     case tr_phase_bounce_ok:
       return cs.advance(1)                   // tr_phase_bounce_ok$1
-             && t_StorageUsedShort.skip(cs)  // msg_size:StorageUsedShort
+             && t_StorageUsed.skip(cs)  // msg_size:StorageUsed
              && t_Grams.skip(cs)             // msg_fees:Grams
              && t_Grams.skip(cs);            // fwd_fees:Grams
   }
@@ -1409,11 +1403,11 @@ bool TrBouncePhase::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const 
       return cs.advance(2);  // tr_phase_bounce_negfunds$00
     case tr_phase_bounce_nofunds:
       return cs.advance(2)                                       // tr_phase_bounce_nofunds$01
-             && t_StorageUsedShort.validate_skip(ops, cs, weak)  // msg_size:StorageUsedShort
+             && t_StorageUsed.validate_skip(ops, cs, weak)  // msg_size:StorageUsed
              && t_Grams.validate_skip(ops, cs, weak);            // req_fwd_fees:Grams
     case tr_phase_bounce_ok:
       return cs.advance(1)                                       // tr_phase_bounce_ok$1
-             && t_StorageUsedShort.validate_skip(ops, cs, weak)  // msg_size:StorageUsedShort
+             && t_StorageUsed.validate_skip(ops, cs, weak)  // msg_size:StorageUsed
              && t_Grams.validate_skip(ops, cs, weak)             // msg_fees:Grams
              && t_Grams.validate_skip(ops, cs, weak);            // fwd_fees:Grams
   }
@@ -1849,26 +1843,18 @@ bool InMsg::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
   return false;
 }
 
-bool InMsg::get_import_fees(vm::CellBuilder& cb, vm::CellSlice& cs) const {
+static td::RefInt256 get_ihr_fee(const CommonMsgInfo::Record_int_msg_info &info, int global_version) {
+  // Legacy: extra_flags was previously ihr_fee
+  return global_version >= 12 ? td::zero_refint() : t_Grams.as_integer(std::move(info.extra_flags));
+}
+
+bool InMsg::get_import_fees(vm::CellBuilder& cb, vm::CellSlice& cs, int global_version) const {
   int tag = get_tag(cs);
   switch (tag) {
     case msg_import_ext:                   // inbound external message
       return t_ImportFees.null_value(cb);  // external messages have no value and no import fees
     case msg_import_ihr:                   // IHR-forwarded internal message to its final destination
-      if (cs.advance(3) && cs.size_refs() >= 3) {
-        auto msg_cs = load_cell_slice(cs.fetch_ref());
-        CommonMsgInfo::Record_int_msg_info msg_info;
-        td::RefInt256 ihr_fee;
-        vm::CellBuilder aux;
-        // sort of Prolog-style in C++
-        return t_Message.extract_info(msg_cs) && t_CommonMsgInfo.unpack(msg_cs, msg_info) &&
-               cs.fetch_ref().not_null() && (ihr_fee = t_Grams.as_integer_skip(cs)).not_null() &&
-               cs.fetch_ref().not_null() && !cmp(ihr_fee, t_Grams.as_integer(*msg_info.ihr_fee)) &&
-               cb.append_cellslice_bool(msg_info.ihr_fee)  // fees_collected := ihr_fee
-               && aux.append_cellslice_bool(msg_info.ihr_fee) && t_ExtraCurrencyCollection.null_value(aux) &&
-               t_CurrencyCollection.add_values(cb, aux.as_cellslice_ref().write(),
-                                               msg_info.value.write());  // value_imported := ihr_fee + value
-      }
+      // IHR is not implemented
       return false;
     case msg_import_imm:  // internal message re-imported from this very block
       if (cs.advance(3) && cs.size_refs() >= 2) {
@@ -1894,7 +1880,7 @@ bool InMsg::get_import_fees(vm::CellBuilder& cb, vm::CellSlice& cs) const {
         return t_Message.extract_info(msg_cs) && t_CommonMsgInfo.unpack(msg_cs, msg_info) &&
                cb.append_cellslice_bool(in_msg.fwd_fee_remaining)  // fees_collected := fwd_fee_remaining
                && t_Grams.as_integer_skip_to(msg_info.value.write(), value_grams) &&
-               (ihr_fee = t_Grams.as_integer(std::move(msg_info.ihr_fee))).not_null() &&
+               (ihr_fee = get_ihr_fee(msg_info, global_version)).not_null() &&
                t_Grams.store_integer_ref(cb, value_grams + ihr_fee + fwd_fee_remaining) &&
                cb.append_cellslice_bool(
                    msg_info.value.write());  // value_imported = msg.value + msg.ihr_fee + fwd_fee_remaining
@@ -1917,7 +1903,7 @@ bool InMsg::get_import_fees(vm::CellBuilder& cb, vm::CellSlice& cs) const {
         return t_Message.extract_info(msg_cs) && t_CommonMsgInfo.unpack(msg_cs, msg_info) &&
                t_Grams.store_integer_ref(cb, std::move(transit_fee))  // fees_collected := transit_fees
                && t_Grams.as_integer_skip_to(msg_info.value.write(), value_grams) &&
-               (ihr_fee = t_Grams.as_integer(std::move(msg_info.ihr_fee))).not_null() &&
+               (ihr_fee = get_ihr_fee(msg_info, global_version)).not_null() &&
                t_Grams.store_integer_ref(cb, value_grams + ihr_fee + fwd_fee_remaining) &&
                cb.append_cellslice_bool(
                    msg_info.value.write());  // value_imported = msg.value + msg.ihr_fee + fwd_fee_remaining
@@ -1947,8 +1933,8 @@ bool InMsg::get_import_fees(vm::CellBuilder& cb, vm::CellSlice& cs) const {
 
 const InMsg t_InMsg;
 
-const Aug_InMsgDescr aug_InMsgDescr;
-const InMsgDescr t_InMsgDescr;
+const Aug_InMsgDescr aug_InMsgDescrDefault(ton::SUPPORTED_VERSION);
+const InMsgDescr t_InMsgDescrDefault(ton::SUPPORTED_VERSION);
 
 bool OutMsg::skip(vm::CellSlice& cs) const {
   switch (get_tag(cs)) {
@@ -2044,7 +2030,7 @@ bool OutMsg::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
   return false;
 }
 
-bool OutMsg::get_export_value(vm::CellBuilder& cb, vm::CellSlice& cs) const {
+bool OutMsg::get_export_value(vm::CellBuilder& cb, vm::CellSlice& cs, int global_version) const {
   auto tag = get_tag(cs);
   switch (tag) {
     case msg_export_ext:  // external outbound message carries no value
@@ -2077,7 +2063,7 @@ bool OutMsg::get_export_value(vm::CellBuilder& cb, vm::CellSlice& cs) const {
         td::RefInt256 value_grams, ihr_fee, fwd_fee_remaining;
         return t_Message.extract_info(msg_cs) && t_CommonMsgInfo.unpack(msg_cs, msg_info) &&
                (value_grams = t_Grams.as_integer_skip(msg_info.value.write())).not_null() &&
-               (ihr_fee = t_Grams.as_integer(std::move(msg_info.ihr_fee))).not_null() &&
+               (ihr_fee = get_ihr_fee(msg_info, global_version)).not_null() &&
                (fwd_fee_remaining = t_Grams.as_integer(out_msg.fwd_fee_remaining)).not_null() &&
                t_Grams.store_integer_ref(cb, value_grams + ihr_fee + fwd_fee_remaining) &&
                cb.append_cellslice_bool(std::move(msg_info.value));
@@ -2118,8 +2104,8 @@ bool OutMsg::get_emitted_lt(vm::CellSlice& cs, unsigned long long& emitted_lt) c
 
 const OutMsg t_OutMsg;
 
-const Aug_OutMsgDescr aug_OutMsgDescr;
-const OutMsgDescr t_OutMsgDescr;
+const Aug_OutMsgDescr aug_OutMsgDescrDefault(ton::SUPPORTED_VERSION);
+const OutMsgDescr t_OutMsgDescrDefault(ton::SUPPORTED_VERSION);
 
 bool EnqueuedMsg::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
   return cs.advance(64) && t_Ref_MsgEnvelope.validate_skip(ops, cs, weak);

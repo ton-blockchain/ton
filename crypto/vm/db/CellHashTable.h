@@ -40,6 +40,17 @@ class CellHashTable {
     return res;
   }
 
+  template <class... ArgsT>
+  std::pair<InfoT &, bool> emplace(td::Slice hash, ArgsT &&...args) {
+    auto it = set_.find(hash);
+    if (it != set_.end()) {
+      return std::pair<InfoT &, bool>(const_cast<InfoT &>(*it), false);
+    }
+    auto res = set_.emplace(std::forward<ArgsT>(args)...);
+    CHECK(res.second);
+    return std::pair<InfoT &, bool>(const_cast<InfoT &>(*res.first), res.second);
+  }
+
   template <class F>
   void for_each(F &&f) {
     for (auto &info : set_) {
@@ -64,7 +75,7 @@ class CellHashTable {
   size_t size() const {
     return set_.size();
   }
-  InfoT* get_if_exists(td::Slice hash) {
+  InfoT *get_if_exists(td::Slice hash) {
     auto it = set_.find(hash);
     if (it != set_.end()) {
       return &const_cast<InfoT &>(*it);

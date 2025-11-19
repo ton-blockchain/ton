@@ -1,6 +1,6 @@
 name: Windows TON build (portable, x86-64)
 
-on: [push,workflow_dispatch,workflow_call]
+on: [push, pull_request, workflow_dispatch, workflow_call]
 
 defaults:
   run:
@@ -9,7 +9,7 @@ defaults:
 jobs:
   build:
 
-    runs-on: windows-2019
+    runs-on: windows-2022
 
     steps:
       - name: Get Current OS version
@@ -21,13 +21,30 @@ jobs:
         with:
           submodules: 'recursive'
 
+      - name: Create directories
+        run: |
+          mkdir third_libs
+
+      - name: Cache 3pp
+        id: cache-3pp
+        uses: actions/cache@v4
+        with:
+          path: third_libs
+          key: ${{ runner.os }}-${{ runner.arch }}-windows-2022-3pp-${{ hashFiles('**/assembly/native/build-windows-2022.bat') }}
+
       - name: Build TON
         run: |
           git submodule sync --recursive
           git submodule update
-          copy assembly\native\build-windows-github-2019.bat .
-          copy assembly\native\build-windows-2019.bat .
-          build-windows-github-2019.bat Enterprise
+          copy assembly\native\build-windows-github-2022.bat .
+          copy assembly\native\build-windows-2022.bat .
+          build-windows-github-2022.bat Enterprise
+          ccache -sp
+
+#      - name: Run Tests
+#        run: |
+#          cd build
+#          ctest -C Release --output-on-failure -E "test-bigint" --timeout 1800
 
       - name: Upload artifacts
         uses: actions/upload-artifact@master

@@ -81,12 +81,16 @@ struct Type {
 struct Arg {
   const Type *type;
   std::string name;
+  int var_num = -1;
+  int exist_var_num = -1;
+  int exist_var_bit = -1;
 };
 
 struct Constructor {
   std::string name;
   std::int32_t id;
   std::vector<Arg> args;
+  int var_count = 0;
   const CustomType *type;
 };
 
@@ -100,6 +104,7 @@ struct CustomType {
 
 struct Function {
   std::string name;
+  int var_count = 0;
   std::int32_t id;
   std::vector<Arg> args;
   const Type *type;
@@ -248,11 +253,15 @@ class Schema {
       constructor = constructors_.back().get();
       constructor->id = from->id;
       constructor->name = from->name;
+      constructor->var_count = from->var_count;
       constructor->type = get_custom_type(config_->get_type(from->type_id));
       for (auto &from_arg : from->args) {
         Arg arg;
         arg.name = from_arg.name;
         arg.type = get_type(from_arg.type);
+        arg.var_num = from_arg.var_num;
+        arg.exist_var_num = from_arg.exist_var_num;
+        arg.exist_var_bit = from_arg.exist_var_bit;
         constructor->args.push_back(std::move(arg));
       }
     }
@@ -266,11 +275,15 @@ class Schema {
       function = functions_.back().get();
       function->id = from->id;
       function->name = from->name;
+      function->var_count = from->var_count;
       function->type = get_type(config_->get_type(from->type_id));
       for (auto &from_arg : from->args) {
         Arg arg;
         arg.name = from_arg.name;
         arg.type = get_type(from_arg.type);
+        arg.var_num = from_arg.var_num;
+        arg.exist_var_num = from_arg.exist_var_num;
+        arg.exist_var_bit = from_arg.exist_var_bit;
         function->args.push_back(std::move(arg));
       }
     }

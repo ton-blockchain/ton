@@ -50,6 +50,7 @@ void usage(const char* progname) {
          "-O<level>\tSets optimization level (2 by default)\n"
          "-x<option-names>\tEnables experimental options, comma-separated\n"
          "-S\tDon't include stack layout comments into Fift output\n"
+         "-L\tDon't include original lines from Tolk src into Fift output\n"
          "-e\tIncreases verbosity level (extra output into stderr)\n"
          "-v\tOutput version of Tolk and exit\n";
   std::exit(2);
@@ -148,19 +149,15 @@ static std::string auto_discover_stdlib_folder() {
 td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind kind, const char* query) {
   switch (kind) {
     case CompilerSettings::FsReadCallbackKind::Realpath: {
-      td::Result<std::string> res_realpath;
-      if (query[0] == '@' && strlen(query) > 8 && !strncmp(query, "@stdlib/", 8)) {
-        // import "@stdlib/filename" or import "@stdlib/filename.tolk"
-        std::string path = G.settings.stdlib_folder + static_cast<std::string>(query + 7);
-        if (strncmp(path.c_str() + path.size() - 5, ".tolk", 5) != 0) {
-          path += ".tolk";
-        }
-        res_realpath = td::realpath(td::CSlice(path.c_str()));
-      } else {
-        // import "relative/to/cwd/path.tolk"
-        res_realpath = td::realpath(td::CSlice(query));
-      }
+      bool is_stdlib = query[0] == '@' && strlen(query) > 8 && !strncmp(query, "@stdlib/", 8);
+      std::string path = is_stdlib
+            ? G.settings.stdlib_folder + static_cast<std::string>(query + 7)
+            : static_cast<std::string>(query);
 
+      if (strncmp(path.c_str() + path.size() - 5, ".tolk", 5) != 0) {
+        path += ".tolk";
+      }
+      td::Result<std::string> res_realpath = td::realpath(td::CSlice(path.c_str()));
       if (res_realpath.is_error()) {
         // note, that for non-existing files, `realpath()` on Linux/Mac returns an error,
         // whereas on Windows, it returns okay, but fails after, on reading, with a message "cannot open file"
@@ -214,7 +211,7 @@ public:
 
 int main(int argc, char* const argv[]) {
   int i;
-  while ((i = getopt(argc, argv, "o:b:O:x:Sevh")) != -1) {
+  while ((i = getopt(argc, argv, "o:b:O:x:SLevh")) != -1) {
     switch (i) {
       case 'o':
         G.settings.output_filename = optarg;
@@ -230,6 +227,9 @@ int main(int argc, char* const argv[]) {
         break;
       case 'S':
         G.settings.stack_layout_comments = false;
+        break;
+      case 'L':
+        G.settings.tolk_src_as_line_comments = false;
         break;
       case 'e':
         G.settings.verbosity++;

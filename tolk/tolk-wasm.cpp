@@ -40,12 +40,14 @@ static td::Result<std::string> compile_internal(char *config_json) {
 
   TRY_RESULT(opt_level, td::get_json_object_int_field(config, "optimizationLevel", true, 2));
   TRY_RESULT(stack_comments, td::get_json_object_bool_field(config, "withStackComments", true, false));
+  TRY_RESULT(src_line_comments, td::get_json_object_bool_field(config, "withSrcLineComments", true, false));
   TRY_RESULT(entrypoint_filename, td::get_json_object_string_field(config, "entrypointFileName", false));
   TRY_RESULT(experimental_options, td::get_json_object_string_field(config, "experimentalOptions", true));
 
   G.settings.verbosity = 0;
   G.settings.optimization_level = std::max(0, opt_level);
   G.settings.stack_layout_comments = stack_comments;
+  G.settings.tolk_src_as_line_comments = src_line_comments;
   if (!experimental_options.empty()) {
     G.settings.parse_experimental_options_cmd_arg(experimental_options.c_str());
   }
@@ -55,7 +57,7 @@ static td::Result<std::string> compile_internal(char *config_json) {
   std::cerr.rdbuf(errs.rdbuf());
   int exit_code = tolk_proceed(entrypoint_filename);
   if (exit_code != 0) {
-    return td::Status::Error("Tolk compilation error: " + errs.str());
+    return td::Status::Error(errs.str());
   }
 
   TRY_RESULT(fift_res, fift::compile_asm_program(outs.str(), "/fiftlib/"));

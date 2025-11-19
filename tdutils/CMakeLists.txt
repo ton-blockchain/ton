@@ -1,5 +1,7 @@
 option(TDUTILS_MIME_TYPE "Generate mime types conversion (gperf is required)" ON)
 
+set(TD_HAVE_OPENSSL 1)
+
 if (WIN32)
   if (WINGETOPT_FOUND)
     set(TD_HAVE_GETOPT 1)
@@ -19,14 +21,6 @@ endif()
 if (ZLIB_FOUND)
   set(TD_HAVE_ZLIB 1)
   message(STATUS "Found ZLIB: ${ZLIB_INCLUDE_DIR} ${ZLIB_LIBRARIES}")
-
-  # OpenSSL internally depends on zlib
-  if (NOT OPENSSL_FOUND)
-    find_package(OpenSSL)
-  endif()
-  if (OPENSSL_FOUND)
-    set(TD_HAVE_OPENSSL 1)
-  endif()
 endif()
 
 if (CRC32C_FOUND)
@@ -214,6 +208,7 @@ set(TDUTILS_SOURCE
   td/utils/invoke.h
   td/utils/JsonBuilder.h
   td/utils/List.h
+  td/utils/LRUCache.h
   td/utils/logging.h
   td/utils/MemoryLog.h
   td/utils/misc.h
@@ -317,6 +312,10 @@ set(TDUTILS_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/variant.cpp
   PARENT_SCOPE
 )
+
+if (NOT TON_PRINT_BACKTRACE_ON_CRASH)
+  set_source_files_properties(td/utils/port/signals.cpp PROPERTIES COMPILE_DEFINITIONS TON_DISABLE_BACKTRACE)
+endif()
 
 #RULES
 #LIBRARIES

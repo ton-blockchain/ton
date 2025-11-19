@@ -143,7 +143,7 @@ class TestNode : public td::actor::Actor {
     ton::LogicalTime end_lt{0};
     ton::Bits256 vset_hash;
     Ref<vm::Cell> vset_root;
-    std::unique_ptr<block::ValidatorSet> vset;
+    std::shared_ptr<block::ValidatorSet> vset;
     std::map<ton::Bits256, int> vset_map;
     int special_idx{-1};
     std::pair<td::int64, td::int64> created_total, created_special;
@@ -324,7 +324,8 @@ class TestNode : public td::actor::Actor {
   void send_compute_complaint_price_query(ton::StdSmcAddress elector_addr, unsigned expires_in, unsigned bits,
                                           unsigned refs, td::Bits256 chash, std::string filename);
   bool get_msg_queue_sizes();
-  void got_msg_queue_sizes(ton::tl_object_ptr<ton::lite_api::liteServer_outMsgQueueSizes> f);
+  void get_msg_queue_sizes_cont(ton::BlockIdExt mc_blkid, td::BufferSlice data);
+  void get_msg_queue_sizes_finish(std::vector<ton::BlockIdExt> blocks, std::vector<td::uint64> sizes);
   bool get_dispatch_queue_info(ton::BlockIdExt block_id);
   bool get_dispatch_queue_info_cont(ton::BlockIdExt block_id, bool first, td::Bits256 after_addr);
   void got_dispatch_queue_info(ton::BlockIdExt block_id,

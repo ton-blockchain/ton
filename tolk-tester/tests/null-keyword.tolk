@@ -14,8 +14,8 @@ fun test1() {
     (_, _) = (null, null);
     var t = createEmptyTuple();
     do {
-        var num: int = numbers.listNext();
-        t.tuplePush(num);
+        var (num: int, numbers redef) = listSplit(numbers!);
+        t.push(num);
     } while (numbers != null);
 
     return (h, numbers == null, t);
@@ -89,10 +89,10 @@ fun main() {
 @testcase | 103 | 15   | -1
 @testcase | 104 |      | (null)
 @testcase | 107 |      | -11
+
 @fif_codegen
 """
-  test1 PROC:<{
-    //
+  test1() PROC:<{
     PUSHNULL	//  numbers
     1 PUSHINT	//  numbers '2=1
     SWAP	//  '2=1 numbers
@@ -113,18 +113,28 @@ fun main() {
 
 @fif_codegen
 """
-  main PROC:<{
-    //
+   UNTIL:<{
+      s0 s2 XCHG                //  t h numbers
+      UNCONS                    //  t h num numbers
+      s3 s3 XCHG2               //  numbers h t num
+      TPUSH                     //  numbers h t
+      s2 PUSH                   //  numbers h t numbers
+      ISNULL                    //  numbers h t '28
+    }>                          //  numbers h t
+"""
+
+@fif_codegen
+"""
+  main() PROC:<{
     1 PUSHINT   // '3=1
   }>
 """
 
 @fif_codegen
 """
-  test7 PROC:<{
+  test7() PROC:<{
     ...
-    LDOPTREF	//  b '9 '8
-    DROP	    //  b c
+    PLDOPTREF	//  b c
     ISNULL	    //  b '11
     10 MULCONST	//  b '13
     SWAP	    //  '13 b

@@ -180,7 +180,7 @@ struct RawAccountState {
   td::Ref<vm::Cell> extra_currencies;
 
   ton::UnixTime storage_last_paid{0};
-  vm::CellStorageStat storage_stat;
+  block::StorageUsed storage_used;
 
   td::Ref<vm::Cell> code;
   td::Ref<vm::Cell> data;
@@ -268,7 +268,7 @@ td::Result<td::Ref<vm::Cell>> add_extra_currencies(const td::Ref<vm::Cell> &e1, 
   block::CurrencyCollection c1{td::zero_refint(), e1};
   block::CurrencyCollection c2{td::zero_refint(), e2};
   TRY_RESULT_ASSIGN(c1, TRY_VM(td::Result<block::CurrencyCollection>{c1 + c2}));
-  if (c1.is_valid()) {
+  if (!c1.is_valid()) {
     return td::Status::Error("Failed to add extra currencies");
   }
   return c1.extra;
@@ -1036,7 +1036,7 @@ class Query {
     TRY_RESULT(basechain_msg_prices, cfg->get_msg_prices(false));
     block::MsgPrices* msg_prices[2] = {&basechain_msg_prices, &masterchain_msg_prices};
     auto storage_fee_256 = block::StoragePrices::compute_storage_fees(
-        raw_.source->get_sync_time(), storage_prices, raw_.source->raw().storage_stat,
+        raw_.source->get_sync_time(), storage_prices, raw_.source->raw().storage_used,
         raw_.source->raw().storage_last_paid, false, is_masterchain);
     auto storage_fee = storage_fee_256.is_null() ? 0 : storage_fee_256->to_long();
 
@@ -1085,7 +1085,7 @@ class Query {
       TRY_RESULT(dest_gas_limits_prices, cfg->get_gas_limits_prices(dest_is_masterchain));
       auto dest_storage_fee_256 =
           destination ? block::StoragePrices::compute_storage_fees(
-                            destination->get_sync_time(), storage_prices, destination->raw().storage_stat,
+                            destination->get_sync_time(), storage_prices, destination->raw().storage_used,
                             destination->raw().storage_last_paid, false, is_masterchain)
                       : td::make_refint(0);
       Fee dst_fee;
@@ -1399,17 +1399,16 @@ class GetRawAccountState : public td::actor::Actor {
         return td::Status::Error("Failed to unpack StorageInfo");
       }
       unsigned long long u = 0;
-      vm::CellStorageStat storage_stat;
+      block::StorageUsed storage_stat;
       u |= storage_stat.cells = block::tlb::t_VarUInteger_7.as_uint(*storage_used.cells);
       u |= storage_stat.bits = block::tlb::t_VarUInteger_7.as_uint(*storage_used.bits);
-      u |= storage_stat.public_cells = block::tlb::t_VarUInteger_7.as_uint(*storage_used.public_cells);
       //LOG(DEBUG) << "last_paid=" << res.storage_last_paid << "; cells=" << storage_stat.cells
-      //<< " bits=" << storage_stat.bits << " public_cells=" << storage_stat.public_cells;
+      //<< " bits=" << storage_stat.bits;
       if (u == std::numeric_limits<td::uint64>::max()) {
         return td::Status::Error("Failed to unpack StorageStat");
       }
 
-      res.storage_stat = storage_stat;
+      res.storage_used = storage_stat;
     }
 
     block::gen::AccountStorage::Record storage;
@@ -1802,6 +1801,132 @@ class GetShardBlockProof : public td::actor::Actor {
   std::vector<std::pair<ton::BlockIdExt, td::BufferSlice>> links_;
 };
 
+class GetOutMsgQueueSizes : public td::actor::Actor {
+ public:
+  GetOutMsgQueueSizes(ExtClientRef ext_client_ref, std::vector<ton::BlockIdExt> blocks,
+                     td::actor::ActorShared<> parent,
+                     td::Promise<tonlib_api_ptr<tonlib_api::blocks_outMsgQueueSizes>>&& promise)
+      : blocks_(std::move(blocks)), parent_(std::move(parent)), promise_(std::move(promise)) {
+    client_.set_client(ext_client_ref);
+  }
+
+  void start_up() override {
+    sizes_.resize(blocks_.size());
+    pending_ = blocks_.size() + 1;
+
+    for (size_t i = 0; i < blocks_.size(); ++i) {
+      client_.send_query(
+          ton::lite_api::liteServer_getBlockOutMsgQueueSize(1, ton::create_tl_lite_block_id(blocks_[i]), true),
+          [SelfId = actor_id(this), i](td::Result<lite_api_ptr<ton::lite_api::liteServer_blockOutMsgQueueSize>> R) {
+            if (R.is_error()) {
+              td::actor::send_closure(SelfId, &GetOutMsgQueueSizes::abort, R.move_as_error());
+            } else {
+              td::actor::send_closure(SelfId, &GetOutMsgQueueSizes::got_block_queue_size, i, R.move_as_ok());
+            }
+          });
+    }
+
+    client_.send_query(
+        ton::lite_api::liteServer_getOutMsgQueueSizes(1, ton::masterchainId, ton::shardIdAll),
+        [SelfId = actor_id(this)](td::Result<lite_api_ptr<ton::lite_api::liteServer_outMsgQueueSizes>> R) {
+          if (R.is_error()) {
+            td::actor::send_closure(SelfId, &GetOutMsgQueueSizes::abort, R.move_as_error());
+          } else {
+            td::actor::send_closure(SelfId, &GetOutMsgQueueSizes::got_ext_msg_queue_size_limit,
+                                    R.ok()->ext_msg_queue_size_limit_);
+          }
+        });
+  }
+
+  void got_block_queue_size(size_t i, lite_api_ptr<ton::lite_api::liteServer_blockOutMsgQueueSize> f) {
+    try {
+      auto S = [&, this]() -> td::Status {
+        TRY_RESULT_PREFIX(roots, vm::std_boc_deserialize_multi(f->proof_), "cannot deserialize proof: ");
+        if (roots.size() != 2) {
+          return td::Status::Error("expected 2 roots in proof");
+        }
+        auto state_root = vm::MerkleProof::virtualize(std::move(roots[1]), 1);
+        if (state_root.is_null()) {
+          return td::Status::Error("state proof is invalid");
+        }
+        ton::Bits256 state_hash = state_root->get_hash().bits();
+        TRY_STATUS_PREFIX(block::check_block_header_proof(vm::MerkleProof::virtualize(std::move(roots[0]), 1),
+                                                          blocks_[i], &state_hash, true, nullptr, nullptr),
+                          "error in block header proof: ");
+
+        block::gen::ShardStateUnsplit::Record sstate;
+        block::gen::OutMsgQueueInfo::Record out_msg_queue_info;
+        if (!tlb::unpack_cell(state_root, sstate) || !tlb::unpack_cell(sstate.out_msg_queue_info, out_msg_queue_info)) {
+          return td::Status::Error("cannot unpack shard state");
+        }
+        vm::CellSlice& extra_slice = out_msg_queue_info.extra.write();
+        if (extra_slice.fetch_long(1) == 0) {
+          return td::Status::Error("no out_msg_queue_size in shard state");
+        }
+        block::gen::OutMsgQueueExtra::Record out_msg_queue_extra;
+        if (!tlb::unpack(extra_slice, out_msg_queue_extra)) {
+          return td::Status::Error("cannot unpack OutMsgQueueExtra");
+        }
+        vm::CellSlice& size_slice = out_msg_queue_extra.out_queue_size.write();
+        if (size_slice.fetch_long(1) == 0) {
+          return td::Status::Error("no out_msg_queue_size in shard state");
+        }
+        td::uint64 size = size_slice.prefetch_ulong(48);
+        if (size != f->size_) {
+          return td::Status::Error("queue size mismatch");
+        }
+        return td::Status::OK();
+      }();
+      if (S.is_error()) {
+        abort(std::move(S));
+        return;
+      }
+    } catch (vm::VmError& err) {
+      abort(err.as_status());
+      return;
+    } catch (vm::VmVirtError& err) {
+      abort(err.as_status());
+      return;
+    }
+
+    sizes_[i] = f->size_;
+    dec_pending();
+  }
+
+  void got_ext_msg_queue_size_limit(td::uint32 value) {
+    ext_msg_queue_size_limit_ = value;
+    dec_pending();
+  }
+
+  void dec_pending() {
+    if (--pending_ == 0) {
+      std::vector<tonlib_api::object_ptr<tonlib_api::blocks_outMsgQueueSize>> shards;
+      for (size_t i = 0; i < blocks_.size(); ++i) {
+        shards.push_back(
+            tonlib_api::make_object<tonlib_api::blocks_outMsgQueueSize>(to_tonlib_api(blocks_[i]), sizes_[i]));
+      }
+      promise_.set_result(
+          tonlib_api::make_object<tonlib_api::blocks_outMsgQueueSizes>(std::move(shards), ext_msg_queue_size_limit_));
+      stop();
+    }
+  }
+
+  void abort(td::Status error) {
+    promise_.set_error(std::move(error));
+    stop();
+  }
+
+ private:
+  std::vector<ton::BlockIdExt> blocks_;
+  td::actor::ActorShared<> parent_;
+  td::Promise<tonlib_api_ptr<tonlib_api::blocks_outMsgQueueSizes>> promise_;
+  ExtClient client_;
+
+  std::vector<td::uint64> sizes_;
+  td::uint32 ext_msg_queue_size_limit_ = 0;
+  size_t pending_ = 0;
+};
+
 auto to_lite_api(const tonlib_api::ton_blockIdExt& blk) -> td::Result<lite_api_ptr<ton::lite_api::tonNode_blockIdExt>>;
 auto to_tonlib_api(const ton::lite_api::liteServer_transactionId& txid) -> tonlib_api_ptr<tonlib_api::blocks_shortTxId>;
 
@@ -2043,7 +2168,7 @@ class RunEmulator : public TonlibQueryActor {
     }
 
     try {
-      auto r_config = block::ConfigInfo::extract_config(mc_state_root_, 0b11'11111111);
+      auto r_config = block::ConfigInfo::extract_config(mc_state_root_, block_id_.mc, 0b11'11111111);
       if (r_config.is_error()) {
         check(r_config.move_as_error());
         return;
@@ -2089,7 +2214,7 @@ class RunEmulator : public TonlibQueryActor {
         raw.balance = balance.grams->to_long();
         raw.extra_currencies = balance.extra;
         raw.storage_last_paid = std::move(account.last_paid);
-        raw.storage_stat = std::move(account.storage_stat);
+        raw.storage_used = account.storage_used;
         raw.code = std::move(account.code);
         raw.data = std::move(account.data);
         raw.state = std::move(account.total_state);
@@ -3100,15 +3225,12 @@ struct ToRawTransactions {
         TRY_RESULT(src, to_std_address(msg_info.src));
         TRY_RESULT(dest, to_std_address(msg_info.dest));
         TRY_RESULT(fwd_fee, to_balance(msg_info.fwd_fee));
-        TRY_RESULT(ihr_fee, to_balance(msg_info.ihr_fee));
         auto created_lt = static_cast<td::int64>(msg_info.created_lt);
 
         return tonlib_api::make_object<tonlib_api::raw_message>(
-            msg_hash,
-            tonlib_api::make_object<tonlib_api::accountAddress>(src),
-            tonlib_api::make_object<tonlib_api::accountAddress>(std::move(dest)), balance,
-            std::move(extra_currencies), fwd_fee, ihr_fee, created_lt, std::move(body_hash),
-            get_data(src));
+            msg_hash, tonlib_api::make_object<tonlib_api::accountAddress>(src),
+            tonlib_api::make_object<tonlib_api::accountAddress>(std::move(dest)), balance, std::move(extra_currencies),
+            fwd_fee, /* ihr_fee = */ 0, created_lt, std::move(body_hash), get_data(src));
       }
       case block::gen::CommonMsgInfo::ext_in_msg_info: {
         block::gen::CommonMsgInfo::Record_ext_in_msg_info msg_info;
@@ -3308,13 +3430,53 @@ td::Status TonlibClient::do_request(const tonlib_api::raw_sendMessage& request,
   return td::Status::OK();
 }
 
+td::Result<td::Bits256> get_ext_in_msg_hash_norm(td::Ref<vm::Cell> ext_in_msg_cell) {
+  block::gen::Message::Record message;
+  if (!tlb::type_unpack_cell(ext_in_msg_cell, block::gen::t_Message_Any, message)) {
+    return td::Status::Error("Failed to unpack Message");
+  }
+  auto tag = block::gen::CommonMsgInfo().get_tag(*message.info);
+  if (tag != block::gen::CommonMsgInfo::ext_in_msg_info) {
+    return td::Status::Error("CommonMsgInfo tag is not ext_in_msg_info");
+  }
+  block::gen::CommonMsgInfo::Record_ext_in_msg_info msg_info;
+  if (!tlb::csr_unpack(message.info, msg_info)) {
+    return td::Status::Error("Failed to unpack CommonMsgInfo::ext_in_msg_info");
+  }
+
+  td::Ref<vm::Cell> body;
+  auto body_cs = message.body.write();
+  if (body_cs.fetch_ulong(1) == 1) {
+    body = body_cs.fetch_ref();
+  } else {
+    body = vm::CellBuilder().append_cellslice(body_cs).finalize();
+  }
+
+  auto cb = vm::CellBuilder();
+  bool status = 
+    cb.store_long_bool(2, 2) &&                 // message$_ -> info:CommonMsgInfo -> ext_in_msg_info$10
+    cb.store_long_bool(0, 2) &&                 // message$_ -> info:CommonMsgInfo -> src:MsgAddressExt -> addr_none$00
+    cb.append_cellslice_bool(msg_info.dest) &&  // message$_ -> info:CommonMsgInfo -> dest:MsgAddressInt
+    cb.store_long_bool(0, 4) &&                 // message$_ -> info:CommonMsgInfo -> import_fee:Grams -> 0
+    cb.store_long_bool(0, 1) &&                 // message$_ -> init:(Maybe (Either StateInit ^StateInit)) -> nothing$0
+    cb.store_long_bool(1, 1) &&                 // message$_ -> body:(Either X ^X) -> right$1
+    cb.store_ref_bool(body);
+
+  if (!status) {
+    return td::Status::Error("Failed to build normalized message");
+  }
+  return cb.finalize()->get_hash().bits();
+}
+
 td::Status TonlibClient::do_request(const tonlib_api::raw_sendMessageReturnHash& request,
                                     td::Promise<object_ptr<tonlib_api::raw_extMessageInfo>>&& promise) {
   TRY_RESULT_PREFIX(body, vm::std_boc_deserialize(request.body_), TonlibError::InvalidBagOfCells("body"));
   auto hash = body->get_hash().as_slice().str();
+  TRY_RESULT(hash_norm, get_ext_in_msg_hash_norm(body));
+
   make_request(int_api::SendMessage{std::move(body)},
-    promise.wrap([hash = std::move(hash)](auto res) {
-      return tonlib_api::make_object<tonlib_api::raw_extMessageInfo>(std::move(hash));
+    promise.wrap([hash = std::move(hash), hash_norm = std::move(hash_norm)](auto res) {
+      return tonlib_api::make_object<tonlib_api::raw_extMessageInfo>(std::move(hash), hash_norm.as_slice().str());
     }));
   return td::Status::OK();
 }
@@ -4510,7 +4672,7 @@ auto to_tonlib_api(const vm::StackEntry& entry, int& limit) -> td::Result<tonlib
 };
 
 auto to_tonlib_api(const td::Ref<vm::Stack>& stack) -> td::Result<std::vector<tonlib_api::object_ptr<tonlib_api::tvm_StackEntry>>> {
-  int stack_limit = 1000;
+  int stack_limit = 8000;
   std::vector<tonlib_api::object_ptr<tonlib_api::tvm_StackEntry>> tl_stack;
   for (auto& entry: stack->as_span()) {
     TRY_RESULT(tl_entry, to_tonlib_api(entry, --stack_limit));
@@ -5004,7 +5166,7 @@ void TonlibClient::do_dns_request(std::string name, td::Bits256 category, td::in
     return;
   }
 
-  TRY_RESULT_PROMISE(promise, args, ton::DnsInterface::resolve_args(name, category, address));
+  TRY_RESULT_PROMISE(new_promise, args, ton::DnsInterface::resolve_args(name, category, address));
   int_api::RemoteRunSmcMethod query;
   query.address = std::move(address);
   query.args = std::move(args);
@@ -5821,10 +5983,10 @@ td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_looku
         }
       } else if (mode & 4) {
         if (prev_info.gen_utime > utime) {
-          return td::Status::Error("prev header end_lt > lt");
+          return td::Status::Error("prev header gen_utime > utime");
         }
         if (info.gen_utime < utime) {
-          return td::Status::Error("header end_lt < lt");
+          return td::Status::Error("header gen_utime < utime");
         }
       }
     }
@@ -6138,19 +6300,34 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getShardBlockProof&
 
 td::Status TonlibClient::do_request(const tonlib_api::blocks_getOutMsgQueueSizes& request,
                                     td::Promise<object_ptr<tonlib_api::blocks_outMsgQueueSizes>>&& promise) {
-  client_.send_query(ton::lite_api::liteServer_getOutMsgQueueSizes(request.mode_, request.wc_, request.shard_),
-                     promise.wrap([](lite_api_ptr<ton::lite_api::liteServer_outMsgQueueSizes>&& queue_sizes) {
-    tonlib_api::blocks_outMsgQueueSizes result;
-    result.ext_msg_queue_size_limit_ = queue_sizes->ext_msg_queue_size_limit_;
-    for (auto &x : queue_sizes->shards_) {
-      tonlib_api::blocks_outMsgQueueSize shard;
-      shard.id_ = to_tonlib_api(*x->id_);
-      shard.size_ = x->size_;
-      result.shards_.push_back(tonlib_api::make_object<tonlib_api::blocks_outMsgQueueSize>(std::move(shard)));
-    }
-    return tonlib_api::make_object<tonlib_api::blocks_outMsgQueueSizes>(std::move(result));
-  }));
-
+  auto req_mode = request.mode_;
+  auto req_shard = ton::ShardIdFull{request.wc_, (ton::ShardId)request.shard_};
+  if ((req_mode & 1) && !req_shard.is_valid_ext()) {
+    return td::Status::Error("invalid shard");
+  }
+  client_.with_last_block(
+      [=, self = this, promise = std::move(promise)](td::Result<LastBlockState> r_last_block) mutable {
+        TRY_RESULT_PROMISE_PREFIX(promise, last_block, std::move(r_last_block), "get last block failed: ");
+        do_request(tonlib_api::blocks_getShards(to_tonlib_api(last_block.last_block_id)),
+                   [=, mc_blkid = last_block.last_block_id,
+                    promise = std::move(promise)](td::Result<object_ptr<tonlib_api::blocks_shards>> R) mutable {
+                     TRY_RESULT_PROMISE_PREFIX(promise, shards, std::move(R), "get shards failed: ");
+                     std::vector<ton::BlockIdExt> blocks;
+                     if (!(req_mode & 1) || ton::shard_intersects(mc_blkid.shard_full(), req_shard)) {
+                       blocks.push_back(mc_blkid);
+                     }
+                     for (const auto& shard : shards->shards_) {
+                       TRY_RESULT_PROMISE(promise, block_id, to_block_id(*shard));
+                       if (!(req_mode & 1) || ton::shard_intersects(block_id.shard_full(), req_shard)) {
+                         blocks.push_back(block_id);
+                       }
+                     }
+                     auto actor_id = self->actor_id_++;
+                     self->actors_[actor_id] = td::actor::create_actor<GetOutMsgQueueSizes>(
+                         "GetOutMsgQueueSizes", self->client_.get_client(), std::move(blocks),
+                         actor_shared(this, actor_id), std::move(promise));
+                   });
+      });
   return td::Status::OK();
 }
 

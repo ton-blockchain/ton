@@ -1,9 +1,12 @@
 // A part of standard library for Tolk
-tolk 0.11
+tolk 1.2
 
 /**
-    Dictionaries are represented as `cell` data type (cells can store anything, dicts in particular).
-    Currently, they have very low-level API very close to TVM internals.
+    Low-level API working with TVM dictionaries.
+    Not recommended to use, since it's very complicated and error-prone.
+    Use `map<K, V>` instead, it's even more efficient then low-level dict API.
+
+    Dictionaries are represented as `cell` data type.
     Most of functions are duplicated for three common cases:
     - iDict* - dicts with signed integer keys
     - uDict* - dicts with unsigned integer keys
@@ -14,303 +17,321 @@ tolk 0.11
  */
 
 /// In @stdlib/common.tolk, there is a type alias:
-/// `type dict = cell?;`
+/// ```
+/// type dict = cell?
+/// ```
 /// For clarity, we use "dict" instead of a "cell?" where a cell-dictionary is assumed.
 
-/// Creates an empty dictionary, which is actually a null value. Equivalent to PUSHNULL
+/// Creates an empty dictionary, which is actually a null value. Equivalent to `PUSHNULL`
 @pure
 fun createEmptyDict(): dict
-    asm "NEWDICT";
+    asm "NEWDICT"
 
 /// Checks whether a dictionary is empty.
 @pure
-fun dictIsEmpty(self: dict): bool
-    asm "DICTEMPTY";
+fun dict.dictIsEmpty(self): bool
+    asm "DICTEMPTY"
 
 
 @pure
-fun iDictGet(self: dict, keyLen: int, key: int): (slice?, bool)
-    asm(key self keyLen) "DICTIGET" "NULLSWAPIFNOT";
+fun dict.iDictGet(self, keyLen: int, key: int): (slice?, bool)
+    asm(key self keyLen) "DICTIGET" "NULLSWAPIFNOT"
 
 @pure
-fun uDictGet(self: dict, keyLen: int, key: int): (slice?, bool)
-    asm(key self keyLen) "DICTUGET" "NULLSWAPIFNOT";
+fun dict.uDictGet(self, keyLen: int, key: int): (slice?, bool)
+    asm(key self keyLen) "DICTUGET" "NULLSWAPIFNOT"
 
 @pure
-fun sDictGet(self: dict, keyLen: int, key: slice): (slice?, bool)
-    asm(key self keyLen) "DICTGET" "NULLSWAPIFNOT";
-
-
-@pure
-fun iDictSet(mutate self: dict, keyLen: int, key: int, value: slice): void
-    asm(value key self keyLen) "DICTISET";
-
-@pure
-fun uDictSet(mutate self: dict, keyLen: int, key: int, value: slice): void
-    asm(value key self keyLen) "DICTUSET";
-
-@pure
-fun sDictSet(mutate self: dict, keyLen: int, key: slice, value: slice): void
-    asm(value key self keyLen) "DICTSET";
+fun dict.sDictGet(self, keyLen: int, key: slice): (slice?, bool)
+    asm(key self keyLen) "DICTGET" "NULLSWAPIFNOT"
 
 
 @pure
-fun iDictSetRef(mutate self: dict, keyLen: int, key: int, value: cell): void
-    asm(value key self keyLen) "DICTISETREF";
+fun dict.iDictSet(mutate self, keyLen: int, key: int, value: slice): void
+    asm(value key self keyLen) "DICTISET"
 
 @pure
-fun uDictSetRef(mutate self: dict, keyLen: int, key: int, value: cell): void
-    asm(value key self keyLen) "DICTUSETREF";
+fun dict.uDictSet(mutate self, keyLen: int, key: int, value: slice): void
+    asm(value key self keyLen) "DICTUSET"
 
 @pure
-fun sDictSetRef(mutate self: dict, keyLen: int, key: slice, value: cell): void
-    asm(value key self keyLen) "DICTSETREF";
-
-
-@pure
-fun iDictSetIfNotExists(mutate self: dict, keyLen: int, key: int, value: slice): bool
-    asm(value key self keyLen) "DICTIADD";
-
-@pure
-fun uDictSetIfNotExists(mutate self: dict, keyLen: int, key: int, value: slice): bool
-    asm(value key self keyLen) "DICTUADD";
+fun dict.sDictSet(mutate self, keyLen: int, key: slice, value: slice): void
+    asm(value key self keyLen) "DICTSET"
 
 
 @pure
-fun iDictSetIfExists(mutate self: dict, keyLen: int, key: int, value: slice): bool
-    asm(value key self keyLen) "DICTIREPLACE";
+fun dict.iDictSetRef(mutate self, keyLen: int, key: int, value: cell): void
+    asm(value key self keyLen) "DICTISETREF"
 
 @pure
-fun uDictSetIfExists(mutate self: dict, keyLen: int, key: int, value: slice): bool
-    asm(value key self keyLen) "DICTUREPLACE";
-
-
-@pure
-fun iDictGetRef(self: dict, keyLen: int, key: int): (dict, bool)
-    asm(key self keyLen) "DICTIGETREF" "NULLSWAPIFNOT";
+fun dict.uDictSetRef(mutate self, keyLen: int, key: int, value: cell): void
+    asm(value key self keyLen) "DICTUSETREF"
 
 @pure
-fun uDictGetRef(self: dict, keyLen: int, key: int): (dict, bool)
-    asm(key self keyLen) "DICTUGETREF" "NULLSWAPIFNOT";
-
-@pure
-fun sDictGetRef(self: dict, keyLen: int, key: slice): (dict, bool)
-    asm(key self keyLen) "DICTGETREF" "NULLSWAPIFNOT";
+fun dict.sDictSetRef(mutate self, keyLen: int, key: slice, value: cell): void
+    asm(value key self keyLen) "DICTSETREF"
 
 
 @pure
-fun iDictGetRefOrNull(self: dict, keyLen: int, key: int): dict
-    asm(key self keyLen) "DICTIGETOPTREF";
+fun dict.iDictSetIfNotExists(mutate self, keyLen: int, key: int, value: slice): bool
+    asm(value key self keyLen) "DICTIADD"
 
 @pure
-fun uDictGetRefOrNull(self: dict, keyLen: int, key: int): dict
-    asm(key self keyLen) "DICTUGETOPTREF";
-
-@pure
-fun sDictGetRefOrNull(self: dict, keyLen: int, key: slice): dict
-    asm(key self keyLen) "DICTGETOPTREF";
+fun dict.uDictSetIfNotExists(mutate self, keyLen: int, key: int, value: slice): bool
+    asm(value key self keyLen) "DICTUADD"
 
 
 @pure
-fun iDictDelete(mutate self: dict, keyLen: int, key: int): bool
-    asm(key self keyLen) "DICTIDEL";
+fun dict.iDictSetIfExists(mutate self, keyLen: int, key: int, value: slice): bool
+    asm(value key self keyLen) "DICTIREPLACE"
 
 @pure
-fun uDictDelete(mutate self: dict, keyLen: int, key: int): bool
-    asm(key self keyLen) "DICTUDEL";
-
-@pure
-fun sDictDelete(mutate self: dict, keyLen: int, key: slice): bool
-    asm(key self keyLen) "DICTDEL";
+fun dict.uDictSetIfExists(mutate self, keyLen: int, key: int, value: slice): bool
+    asm(value key self keyLen) "DICTUREPLACE"
 
 
 @pure
-fun iDictSetAndGet(mutate self: dict, keyLen: int, key: int, value: slice): (slice?, bool)
-    asm(value key self keyLen) "DICTISETGET" "NULLSWAPIFNOT";
+fun dict.iDictGetRef(self, keyLen: int, key: int): (cell?, bool)
+    asm(key self keyLen) "DICTIGETREF" "NULLSWAPIFNOT"
 
 @pure
-fun uDictSetAndGet(mutate self: dict, keyLen: int, key: int, value: slice): (slice?, bool)
-    asm(value key self keyLen) "DICTUSETGET" "NULLSWAPIFNOT";
+fun dict.uDictGetRef(self, keyLen: int, key: int): (cell?, bool)
+    asm(key self keyLen) "DICTUGETREF" "NULLSWAPIFNOT"
 
 @pure
-fun sDictSetAndGet(mutate self: dict, keyLen: int, key: slice, value: slice): (slice?, bool)
-    asm(value key self keyLen) "DICTSETGET" "NULLSWAPIFNOT";
-
-
-@pure
-fun iDictSetAndGetRefOrNull(mutate self: dict, keyLen: int, key: int, value: cell): dict
-    asm(value key self keyLen) "DICTISETGETOPTREF";
-
-@pure
-fun uDictSetAndGetRefOrNull(mutate self: dict, keyLen: int, key: int, value: cell): dict
-    asm(value key self keyLen) "DICTUSETGETOPTREF";
+fun dict.sDictGetRef(self, keyLen: int, key: slice): (cell?, bool)
+    asm(key self keyLen) "DICTGETREF" "NULLSWAPIFNOT"
 
 
 @pure
-fun iDictDeleteAndGet(mutate self: dict, keyLen: int, key: int): (slice?, bool)
-    asm(key self keyLen) "DICTIDELGET" "NULLSWAPIFNOT";
+fun dict.iDictGetRefOrNull(self, keyLen: int, key: int): cell?
+    asm(key self keyLen) "DICTIGETOPTREF"
 
 @pure
-fun uDictDeleteAndGet(mutate self: dict, keyLen: int, key: int): (slice?, bool)
-    asm(key self keyLen) "DICTUDELGET" "NULLSWAPIFNOT";
+fun dict.uDictGetRefOrNull(self, keyLen: int, key: int): cell?
+    asm(key self keyLen) "DICTUGETOPTREF"
 
 @pure
-fun sDictDeleteAndGet(mutate self: dict, keyLen: int, key: slice): (slice?, bool)
-    asm(key self keyLen) "DICTDELGET" "NULLSWAPIFNOT";
-
-
-@pure
-fun iDictSetBuilder(mutate self: dict, keyLen: int, key: int, value: builder): void
-    asm(value key self keyLen) "DICTISETB";
-
-@pure
-fun uDictSetBuilder(mutate self: dict, keyLen: int, key: int, value: builder): void
-    asm(value key self keyLen) "DICTUSETB";
-
-@pure
-fun sDictSetBuilder(mutate self: dict, keyLen: int, key: slice, value: builder): void
-    asm(value key self keyLen) "DICTSETB";
+fun dict.sDictGetRefOrNull(self, keyLen: int, key: slice): cell?
+    asm(key self keyLen) "DICTGETOPTREF"
 
 
 @pure
-fun iDictSetBuilderIfNotExists(mutate self: dict, keyLen: int, key: int, value: builder): bool
-    asm(value key self keyLen) "DICTIADDB";
+fun dict.iDictDelete(mutate self, keyLen: int, key: int): bool
+    asm(key self keyLen) "DICTIDEL"
 
 @pure
-fun uDictSetBuilderIfNotExists(mutate self: dict, keyLen: int, key: int, value: builder): bool
-    asm(value key self keyLen) "DICTUADDB";
+fun dict.uDictDelete(mutate self, keyLen: int, key: int): bool
+    asm(key self keyLen) "DICTUDEL"
 
 @pure
-fun iDictSetBuilderIfExists(mutate self: dict, keyLen: int, key: int, value: builder): bool
-    asm(value key self keyLen) "DICTIREPLACEB";
-
-@pure
-fun uDictSetBuilderIfExists(mutate self: dict, keyLen: int, key: int, value: builder): bool
-    asm(value key self keyLen) "DICTUREPLACEB";
+fun dict.sDictDelete(mutate self, keyLen: int, key: slice): bool
+    asm(key self keyLen) "DICTDEL"
 
 
 @pure
-fun iDictDeleteFirstAndGet(mutate self: dict, keyLen: int): (int?, slice?, bool)
-    asm(-> 0 2 1 3) "DICTIREMMIN" "NULLSWAPIFNOT2";
+fun dict.iDictSetAndGet(mutate self, keyLen: int, key: int, value: slice): (slice?, bool)
+    asm(value key self keyLen) "DICTISETGET" "NULLSWAPIFNOT"
 
 @pure
-fun uDictDeleteFirstAndGet(mutate self: dict, keyLen: int): (int?, slice?, bool)
-    asm(-> 0 2 1 3) "DICTUREMMIN" "NULLSWAPIFNOT2";
+fun dict.uDictSetAndGet(mutate self, keyLen: int, key: int, value: slice): (slice?, bool)
+    asm(value key self keyLen) "DICTUSETGET" "NULLSWAPIFNOT"
 
 @pure
-fun sDictDeleteFirstAndGet(mutate self: dict, keyLen: int): (slice?, slice?, bool)
-    asm(-> 0 2 1 3) "DICTREMMIN" "NULLSWAPIFNOT2";
-
-
-@pure
-fun iDictDeleteLastAndGet(mutate self: dict, keyLen: int): (int?, slice?, bool)
-    asm(-> 0 2 1 3) "DICTIREMMAX" "NULLSWAPIFNOT2";
-
-@pure
-fun uDictDeleteLastAndGet(mutate self: dict, keyLen: int): (int?, slice?, bool)
-    asm(-> 0 2 1 3) "DICTUREMMAX" "NULLSWAPIFNOT2";
-
-@pure
-fun sDictDeleteLastAndGet(mutate self: dict, keyLen: int): (slice?, slice?, bool)
-    asm(-> 0 2 1 3) "DICTREMMAX" "NULLSWAPIFNOT2";
+fun dict.sDictSetAndGet(mutate self, keyLen: int, key: slice, value: slice): (slice?, bool)
+    asm(value key self keyLen) "DICTSETGET" "NULLSWAPIFNOT"
 
 
 @pure
-fun iDictGetFirst(self: dict, keyLen: int): (int?, slice?, bool)
-    asm (-> 1 0 2) "DICTIMIN" "NULLSWAPIFNOT2";
+fun dict.iDictSetAndGetRefOrNull(mutate self, keyLen: int, key: int, value: cell): cell?
+    asm(value key self keyLen) "DICTISETGETOPTREF"
 
 @pure
-fun uDictGetFirst(self: dict, keyLen: int): (int?, slice?, bool)
-    asm (-> 1 0 2) "DICTUMIN" "NULLSWAPIFNOT2";
-
-@pure
-fun sDictGetFirst(self: dict, keyLen: int): (slice?, slice?, bool)
-    asm (-> 1 0 2) "DICTMIN" "NULLSWAPIFNOT2";
-
-@pure
-fun iDictGetFirstAsRef(self: dict, keyLen: int): (int?, dict, bool)
-    asm (-> 1 0 2) "DICTIMINREF" "NULLSWAPIFNOT2";
-
-@pure
-fun uDictGetFirstAsRef(self: dict, keyLen: int): (int?, dict, bool)
-    asm (-> 1 0 2) "DICTUMINREF" "NULLSWAPIFNOT2";
-
-@pure
-fun sDictGetFirstAsRef(self: dict, keyLen: int): (slice?, dict, bool)
-    asm (-> 1 0 2) "DICTMINREF" "NULLSWAPIFNOT2";
+fun dict.uDictSetAndGetRefOrNull(mutate self, keyLen: int, key: int, value: cell): cell?
+    asm(value key self keyLen) "DICTUSETGETOPTREF"
 
 
 @pure
-fun iDictGetLast(self: dict, keyLen: int): (int?, slice?, bool)
-    asm (-> 1 0 2) "DICTIMAX" "NULLSWAPIFNOT2";
+fun dict.iDictDeleteAndGet(mutate self, keyLen: int, key: int): (slice?, bool)
+    asm(key self keyLen) "DICTIDELGET" "NULLSWAPIFNOT"
 
 @pure
-fun uDictGetLast(self: dict, keyLen: int): (int?, slice?, bool)
-    asm (-> 1 0 2) "DICTUMAX" "NULLSWAPIFNOT2";
+fun dict.uDictDeleteAndGet(mutate self, keyLen: int, key: int): (slice?, bool)
+    asm(key self keyLen) "DICTUDELGET" "NULLSWAPIFNOT"
 
 @pure
-fun sDictGetLast(self: dict, keyLen: int): (slice?, slice?, bool)
-    asm (-> 1 0 2) "DICTMAX" "NULLSWAPIFNOT2";
-
-@pure
-fun iDictGetLastAsRef(self: dict, keyLen: int): (int?, dict, bool)
-    asm (-> 1 0 2) "DICTIMAXREF" "NULLSWAPIFNOT2";
-
-@pure
-fun uDictGetLastAsRef(self: dict, keyLen: int): (int?, dict, bool)
-    asm (-> 1 0 2) "DICTUMAXREF" "NULLSWAPIFNOT2";
-
-@pure
-fun sDictGetLastAsRef(self: dict, keyLen: int): (slice?, dict, bool)
-    asm (-> 1 0 2) "DICTMAXREF" "NULLSWAPIFNOT2";
+fun dict.sDictDeleteAndGet(mutate self, keyLen: int, key: slice): (slice?, bool)
+    asm(key self keyLen) "DICTDELGET" "NULLSWAPIFNOT"
 
 
 @pure
-fun iDictGetNext(self: dict, keyLen: int, pivot: int): (int?, slice?, bool)
-    asm(pivot self keyLen -> 1 0 2) "DICTIGETNEXT" "NULLSWAPIFNOT2";
+fun dict.iDictSetBuilder(mutate self, keyLen: int, key: int, value: builder): void
+    asm(value key self keyLen) "DICTISETB"
 
 @pure
-fun uDictGetNext(self: dict, keyLen: int, pivot: int): (int?, slice?, bool)
-    asm(pivot self keyLen -> 1 0 2) "DICTUGETNEXT" "NULLSWAPIFNOT2";
+fun dict.uDictSetBuilder(mutate self, keyLen: int, key: int, value: builder): void
+    asm(value key self keyLen) "DICTUSETB"
 
 @pure
-fun iDictGetNextOrEqual(self: dict, keyLen: int, pivot: int): (int?, slice?, bool)
-    asm(pivot self keyLen -> 1 0 2) "DICTIGETNEXTEQ" "NULLSWAPIFNOT2";
-
-@pure
-fun uDictGetNextOrEqual(self: dict, keyLen: int, pivot: int): (int?, slice?, bool)
-    asm(pivot self keyLen -> 1 0 2) "DICTUGETNEXTEQ" "NULLSWAPIFNOT2";
+fun dict.sDictSetBuilder(mutate self, keyLen: int, key: slice, value: builder): void
+    asm(value key self keyLen) "DICTSETB"
 
 
 @pure
-fun iDictGetPrev(self: dict, keyLen: int, pivot: int): (int?, slice?, bool)
-    asm(pivot self keyLen -> 1 0 2) "DICTIGETPREV" "NULLSWAPIFNOT2";
+fun dict.iDictSetBuilderIfNotExists(mutate self, keyLen: int, key: int, value: builder): bool
+    asm(value key self keyLen) "DICTIADDB"
 
 @pure
-fun uDictGetPrev(self: dict, keyLen: int, pivot: int): (int?, slice?, bool)
-    asm(pivot self keyLen -> 1 0 2) "DICTUGETPREV" "NULLSWAPIFNOT2";
+fun dict.uDictSetBuilderIfNotExists(mutate self, keyLen: int, key: int, value: builder): bool
+    asm(value key self keyLen) "DICTUADDB"
 
 @pure
-fun iDictGetPrevOrEqual(self: dict, keyLen: int, pivot: int): (int?, slice?, bool)
-    asm(pivot self keyLen -> 1 0 2) "DICTIGETPREVEQ" "NULLSWAPIFNOT2";
+fun dict.iDictSetBuilderIfExists(mutate self, keyLen: int, key: int, value: builder): bool
+    asm(value key self keyLen) "DICTIREPLACEB"
 
 @pure
-fun uDictGetPrevOrEqual(self: dict, keyLen: int, pivot: int): (int?, slice?, bool)
-    asm(pivot self keyLen -> 1 0 2) "DICTUGETPREVEQ" "NULLSWAPIFNOT2";
+fun dict.uDictSetBuilderIfExists(mutate self, keyLen: int, key: int, value: builder): bool
+    asm(value key self keyLen) "DICTUREPLACEB"
+
+
+@pure
+fun dict.iDictDeleteFirstAndGet(mutate self, keyLen: int): (int?, slice?, bool)
+    asm(-> 0 2 1 3) "DICTIREMMIN" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.uDictDeleteFirstAndGet(mutate self, keyLen: int): (int?, slice?, bool)
+    asm(-> 0 2 1 3) "DICTUREMMIN" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.sDictDeleteFirstAndGet(mutate self, keyLen: int): (slice?, slice?, bool)
+    asm(-> 0 2 1 3) "DICTREMMIN" "NULLSWAPIFNOT2"
+
+
+@pure
+fun dict.iDictDeleteLastAndGet(mutate self, keyLen: int): (int?, slice?, bool)
+    asm(-> 0 2 1 3) "DICTIREMMAX" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.uDictDeleteLastAndGet(mutate self, keyLen: int): (int?, slice?, bool)
+    asm(-> 0 2 1 3) "DICTUREMMAX" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.sDictDeleteLastAndGet(mutate self, keyLen: int): (slice?, slice?, bool)
+    asm(-> 0 2 1 3) "DICTREMMAX" "NULLSWAPIFNOT2"
+
+
+@pure
+fun dict.iDictGetFirst(self, keyLen: int): (int?, slice?, bool)
+    asm (-> 1 0 2) "DICTIMIN" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.uDictGetFirst(self, keyLen: int): (int?, slice?, bool)
+    asm (-> 1 0 2) "DICTUMIN" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.sDictGetFirst(self, keyLen: int): (slice?, slice?, bool)
+    asm (-> 1 0 2) "DICTMIN" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.iDictGetFirstAsRef(self, keyLen: int): (int?, cell?, bool)
+    asm (-> 1 0 2) "DICTIMINREF" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.uDictGetFirstAsRef(self, keyLen: int): (int?, cell?, bool)
+    asm (-> 1 0 2) "DICTUMINREF" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.sDictGetFirstAsRef(self, keyLen: int): (slice?, cell?, bool)
+    asm (-> 1 0 2) "DICTMINREF" "NULLSWAPIFNOT2"
+
+
+@pure
+fun dict.iDictGetLast(self, keyLen: int): (int?, slice?, bool)
+    asm (-> 1 0 2) "DICTIMAX" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.uDictGetLast(self, keyLen: int): (int?, slice?, bool)
+    asm (-> 1 0 2) "DICTUMAX" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.sDictGetLast(self, keyLen: int): (slice?, slice?, bool)
+    asm (-> 1 0 2) "DICTMAX" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.iDictGetLastAsRef(self, keyLen: int): (int?, cell?, bool)
+    asm (-> 1 0 2) "DICTIMAXREF" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.uDictGetLastAsRef(self, keyLen: int): (int?, cell?, bool)
+    asm (-> 1 0 2) "DICTUMAXREF" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.sDictGetLastAsRef(self, keyLen: int): (slice?, cell?, bool)
+    asm (-> 1 0 2) "DICTMAXREF" "NULLSWAPIFNOT2"
+
+
+@pure
+fun dict.iDictGetNext(self, keyLen: int, pivot: int): (int?, slice?, bool)
+    asm(pivot self keyLen -> 1 0 2) "DICTIGETNEXT" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.uDictGetNext(self, keyLen: int, pivot: int): (int?, slice?, bool)
+    asm(pivot self keyLen -> 1 0 2) "DICTUGETNEXT" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.sDictGetNext(self, keyLen: int, pivot: slice): (slice?, slice?, bool)
+    asm(pivot self keyLen -> 1 0 2) "DICTGETNEXT" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.iDictGetNextOrEqual(self, keyLen: int, pivot: int): (int?, slice?, bool)
+    asm(pivot self keyLen -> 1 0 2) "DICTIGETNEXTEQ" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.uDictGetNextOrEqual(self, keyLen: int, pivot: int): (int?, slice?, bool)
+    asm(pivot self keyLen -> 1 0 2) "DICTUGETNEXTEQ" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.sDictGetNextOrEqual(self, keyLen: int, pivot: slice): (slice?, slice?, bool)
+    asm(pivot self keyLen -> 1 0 2) "DICTGETNEXTEQ" "NULLSWAPIFNOT2"
+
+
+@pure
+fun dict.iDictGetPrev(self, keyLen: int, pivot: int): (int?, slice?, bool)
+    asm(pivot self keyLen -> 1 0 2) "DICTIGETPREV" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.uDictGetPrev(self, keyLen: int, pivot: int): (int?, slice?, bool)
+    asm(pivot self keyLen -> 1 0 2) "DICTUGETPREV" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.sDictGetPrev(self, keyLen: int, pivot: slice): (slice?, slice?, bool)
+    asm(pivot self keyLen -> 1 0 2) "DICTGETPREV" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.iDictGetPrevOrEqual(self, keyLen: int, pivot: int): (int?, slice?, bool)
+    asm(pivot self keyLen -> 1 0 2) "DICTIGETPREVEQ" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.uDictGetPrevOrEqual(self, keyLen: int, pivot: int): (int?, slice?, bool)
+    asm(pivot self keyLen -> 1 0 2) "DICTUGETPREVEQ" "NULLSWAPIFNOT2"
+
+@pure
+fun dict.sDictGetPrevOrEqual(self, keyLen: int, pivot: slice): (slice?, slice?, bool)
+    asm(pivot self keyLen -> 1 0 2) "DICTGETPREVEQ" "NULLSWAPIFNOT2"
 
 
 /**
- Prefix dictionary primitives.
+    Prefix dictionary primitives.
  */
 
 @pure
-fun prefixDictGet(self: dict, keyLen: int, key: slice): (slice, slice?, slice?, bool)
-    asm(key self keyLen) "PFXDICTGETQ" "NULLSWAPIFNOT2";
+fun dict.prefixDictGet(self, keyLen: int, key: slice): (slice, slice?, slice?, bool)
+    asm(key self keyLen) "PFXDICTGETQ" "NULLSWAPIFNOT2"
 
 @pure
-fun prefixDictSet(mutate self: dict, keyLen: int, key: slice, value: slice): bool
-    asm(value key self keyLen) "PFXDICTSET";
+fun dict.prefixDictSet(mutate self, keyLen: int, key: slice, value: slice): bool
+    asm(value key self keyLen) "PFXDICTSET"
 
 @pure
-fun prefixDictDelete(mutate self: dict, keyLen: int, key: slice): bool
-    asm(key self keyLen) "PFXDICTDEL";
+fun dict.prefixDictDelete(mutate self, keyLen: int, key: slice): bool
+    asm(key self keyLen) "PFXDICTDEL"

@@ -2,23 +2,36 @@ type MInt = int;
 type Tensor2Int = (int, int);
 type Tensor2IntN = (int, int)?;
 
+@noinline
 fun eq1<X>(value: X): X { return value; }
 fun eq2<X>(value: X)    { return value; }
 fun eq3<X>(value: X): X { var cp: [X] = [eq1(value)]; var ((([v: X]))) = cp; return v; }
 fun eq4<X>(value: X)    { return eq1<X>(value); }
 
+@pure
+fun tuplePush<T>(mutate t: tuple, value: T): void
+    asm "TPUSH";
+
 @method_id(101)
 fun test101(x: int) {
     var (a, b, c) = (x, (x,x), [x,x]);
-    return (eq1(a), eq1(b), eq1(c), eq2(a), eq2(b), eq2(c), eq3(a), eq4(b), eq3(createEmptyTuple()));
+    return (eq1(a), eq1(b), eq1(c), eq2(a), eq2(b), eq2(c), eq3(a), eq4(b), eq3(createEmptyTuple()), eq1(Color.Red));
 }
 
 fun getTwo<X>(): X { return 2 as X; }
 
 fun takeInt(a: int) { return a; }
 
+struct Wrapper<T> {
+    value: T;
+}
+struct Err<T> {
+    errPayload: T
+}
+enum Color { Red, Green, Blue }
+
 @method_id(102)
-fun test102(): (int, int, int, [int, int]) {
+fun test102(): (int, int, int, [int, int], Wrapper< Wrapper<int8> >) {
     var a: int = getTwo();
     var _: int = getTwo();
     var b = getTwo() as int;
@@ -32,19 +45,22 @@ fun test102(): (int, int, int, [int, int]) {
     ab_tup.0 = getTwo();
     ab_tup.1.1 = getTwo();
     var ab_tens_al: Tensor2Int = (getTwo(), getTwo());
-    return (eq1<int>(a), eq2<int>(b), takeInt(getTwo()), [getTwo(), ab_tens.1.1]);
+    var cint: Wrapper<int> = { value: getTwo() };
+    var cuni: Wrapper<int> | Err<int> = Wrapper { value: getTwo() };
+    cuni = Err { errPayload: getTwo() };
+    return (eq1<int>(a), eq2<int>(b), takeInt(getTwo()), [getTwo(), ab_tens.1.1], eq1({ value: { value: getTwo() } } as Wrapper< Wrapper<int8> >));
 }
 
 @method_id(103)
 fun test103(first: int): (int, int, int) {
     var t = createEmptyTuple();
     var cs = beginCell().storeInt(100, 32).endCell().beginParse();
-    t.tuplePush(first);
-    t.tuplePush(2);
-    t.tuplePush(cs);
-    cs = t.tupleAt(2);
-    cs = t.tupleAt(2) as slice;
-    return (t.tupleAt(0), cs.loadInt(32), t.tupleAt<slice>(2).loadInt(32));
+    t.push(first);
+    t.push(2);
+    t.push(cs);
+    cs = t.get(2);
+    cs = t.get(2) as slice;
+    return (t.get(0), cs.loadInt(32), t.get<slice>(2).loadInt(32));
 }
 
 fun manyEq<T1, T2, T3>(a: T1, b: T2, c: T3): [T1, T2, T3] {
@@ -91,10 +107,11 @@ fun test106() {
     ];
 }
 
-fun callTupleFirst<X, Y>(t: X): Y { return t.tupleFirst(); }
-fun callTuplePush<T, V>(mutate self: T, v1: V, v2: V): self { self.tuplePush(v1); tuplePush(mutate self, v2); return self; }
-fun getTupleLastInt(t: tuple) { return t.tupleLast<int>(); }
-fun getTupleSize(t: MTuple) { return t.tupleSize(); }
+fun X.callTupleFirst<Y>(self): Y { return self.first(); }
+fun callTupleFirst<X, Y>(t: X): Y { return t.first(); }
+fun T.callTuplePush<V>(mutate self, v1: V, v2: V): self { self.push(v1); tuplePush(mutate self, v2); return self; }
+fun getTupleLastInt(t: tuple) { return t.last<int>(); }
+fun getTupleSize(t: MTuple) { return t.size(); }
 fun callAnyFn<TObj, TResult>(f: (TObj) -> TResult, arg: TObj) { return f(arg); }
 fun callAnyFn2<TCallback>(f: TCallback, arg: tuple) { return f(arg); }
 
@@ -104,7 +121,7 @@ type MTuple = tuple;
 @method_id(107)
 fun test107() {
     t107 = createEmptyTuple();
-    callTuplePush(mutate t107, 1, 2);
+    t107.callTuplePush(1, 2);
     t107.callTuplePush(3, 4).callTuplePush(5, 6);
     var first: int = t107.callTupleFirst();
     return (
@@ -195,6 +212,7 @@ fun test113(a: int | slice) {
 
 fun main(x: int): (int, [Tup2Int]) {
     __expect_type(test110, "() -> (Tensor2Int, Tensor2Int)");
+    __expect_type(eq2(10 as Color), "Color");
 
     try { if(x) { throw (1, x); } }
     catch (excNo, arg) { return (arg as int, [[eq2(arg as int), getTwo()]]); }
@@ -203,8 +221,8 @@ fun main(x: int): (int, [Tup2Int]) {
 
 /**
 @testcase | 0   | 1 | 1 [ [ 1 2 ] ]
-@testcase | 101 | 0 | 0 0 0 [ 0 0 ] 0 0 0 [ 0 0 ] 0 0 0 []
-@testcase | 102 |   | 2 2 2 [ 2 2 ]
+@testcase | 101 | 0 | 0 0 0 [ 0 0 ] 0 0 0 [ 0 0 ] 0 0 0 [] 0
+@testcase | 102 |   | 2 2 2 [ 2 2 ] 2
 @testcase | 103 | 0 | 0 100 100
 @testcase | 104 | 0 | [ 1 (null) 2 ] [ 2 -1 0 ]
 @testcase | 105 |   | 3
@@ -218,15 +236,20 @@ fun main(x: int): (int, [Tup2Int]) {
 @testcase | 112 | 0 0 | 0 0 -1
 @testcase | 113 | 5 1 | 5 1 -100 (null) 5 1 -100 9 -100 (null) -100 (null) 5 1 -100 (null) (null) (null) 0
 
-@fif_codegen DECLPROC eq1<int>
-@fif_codegen DECLPROC eq1<tuple>
-@fif_codegen DECLPROC eq1<(int,int)>
-@fif_codegen DECLPROC eq1<[int,int]>
-@fif_codegen DECLPROC eq1<MInt?>
-@fif_codegen DECLPROC eq1<int|slice|null>
-@fif_codegen DECLPROC getTwo<int>
+@fif_codegen DECLPROC eq1<int>()
+@fif_codegen DECLPROC eq1<tuple>()
+@fif_codegen DECLPROC eq1<(int,int)>()
+@fif_codegen DECLPROC eq1<[int,int]>()
+@fif_codegen DECLPROC eq1<MInt?>()
+@fif_codegen DECLPROC eq1<int|slice|null>()
+@fif_codegen DECLPROC eq1<Wrapper<Wrapper<int8>>>()
+@fif_codegen DECLPROC eq1<Color>()
 
-@fif_codegen_avoid DECLPROC eq1
-@fif_codegen_avoid DECLPROC eq2
-@fif_codegen_avoid DECLPROC eq3
+// was inlined
+@fif_codegen_avoid DECLPROC getTwo<int>()
+@fif_codegen_avoid getTwo
+
+@fif_codegen_avoid DECLPROC eq1()
+@fif_codegen_avoid DECLPROC eq2()
+@fif_codegen_avoid DECLPROC eq3()
  */

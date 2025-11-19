@@ -1,7 +1,3 @@
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 set(VALIDATOR_SESSION_SOURCE
   candidate-serializer.cpp
   persistent-vector.cpp
@@ -26,4 +22,4 @@ target_include_directories(validatorsession PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
   ${OPENSSL_INCLUDE_DIR}
 )
-target_link_libraries(validatorsession PRIVATE tdutils tdactor adnl rldp tl_api dht tdfec overlay catchain)
+target_link_libraries(validatorsession PRIVATE tdutils tdactor adnl rldp2 tl_api dht tdfec overlay catchain)

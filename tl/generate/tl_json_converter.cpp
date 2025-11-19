@@ -48,13 +48,30 @@ void gen_to_json_constructor(StringBuilder &sb, const T *constructor, bool is_he
   sb << " {\n";
   sb << "  auto jo = jv.enter_object();\n";
   sb << "  jo(\"@type\", \"" << constructor->name << "\");\n";
+  std::vector<std::string> var_names(constructor->var_count);
+  for (auto &arg : constructor->args) {
+    if (arg.var_num >= 0) {
+      CHECK(arg.var_num < (int)var_names.size());
+      var_names[arg.var_num] = tl::simple::gen_cpp_field_name(arg.name);
+    }
+  }
   for (auto &arg : constructor->args) {
     auto field_name = tl::simple::gen_cpp_field_name(arg.name);
-    // TODO: or as null
-    bool is_custom = arg.type->type == tl::simple::Type::Custom;
+    bool is_optional = arg.type->type == tl::simple::Type::Custom || arg.exist_var_num >= 0;
 
-    if (is_custom) {
-      sb << "  if (object." << field_name << ") {\n  ";
+    if (is_optional) {
+      sb << "  if (";
+      if (arg.type->type == tl::simple::Type::Custom) {
+        sb << "object." << field_name;
+        if (arg.exist_var_num >= 0) {
+          sb << " && ";
+        }
+      }
+      if (arg.exist_var_num >= 0) {
+        CHECK(arg.exist_var_num < (int)var_names.size());
+        sb << "(object." << var_names[arg.exist_var_num] << " & " << (1 << arg.exist_var_bit) << ")";
+      }
+      sb << ") {\n  ";
     }
     auto object = PSTRING() << "object." << tl::simple::gen_cpp_field_name(arg.name);
     if (arg.type->type == tl::simple::Type::Bytes || arg.type->type == tl::simple::Type::SecureBytes) {
@@ -72,7 +89,7 @@ void gen_to_json_constructor(StringBuilder &sb, const T *constructor, bool is_he
       object = PSTRING() << "JsonVectorInt64{" << object << "}";
     }
     sb << "  jo(\"" << arg.name << "\", ToJson(" << object << "));\n";
-    if (is_custom) {
+    if (is_optional) {
       sb << "  }\n";
     }
   }

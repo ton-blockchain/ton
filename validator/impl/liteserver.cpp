@@ -917,7 +917,8 @@ void LiteQuery::continue_getLibraries(Ref<ton::validator::MasterchainState> mc_s
   mc_state_ = Ref<MasterchainStateQ>(std::move(mc_state));
   CHECK(mc_state_.not_null());
 
-  auto rconfig = block::ConfigInfo::extract_config(mc_state_->root_cell(), block::ConfigInfo::needLibraries);
+  auto rconfig = block::ConfigInfo::extract_config(mc_state_->root_cell(), mc_state_->get_block_id(),
+                                                   block::ConfigInfo::needLibraries);
   if (rconfig.is_error()) {
     fatal_error("cannot extract library list block configuration from masterchain state");
     return;
@@ -1251,9 +1252,10 @@ bool LiteQuery::make_shard_info_proof(Ref<vm::Cell>& proof, BlockIdExt& blkid, A
   return true;
 }
 
-bool LiteQuery::make_ancestor_block_proof(Ref<vm::Cell>& proof, Ref<vm::Cell> state_root, const BlockIdExt& old_blkid) {
-  vm::MerkleProofBuilder mpb{std::move(state_root)};
-  auto rconfig = block::ConfigInfo::extract_config(mpb.root(), block::ConfigInfo::needPrevBlocks);
+bool LiteQuery::make_ancestor_block_proof(Ref<vm::Cell>& proof, Ref<MasterchainState> mc_state, const BlockIdExt& old_blkid) {
+  vm::MerkleProofBuilder mpb{mc_state->root_cell()};
+  auto rconfig =
+      block::ConfigInfo::extract_config(mpb.root(), mc_state->get_block_id(), block::ConfigInfo::needPrevBlocks);
   if (rconfig.is_error()) {
     return fatal_error(
         "cannot extract previous block configuration from masterchain state while constructing Merkle proof for "s +
@@ -1319,13 +1321,12 @@ void LiteQuery::finish_getAccountState(td::BufferSlice shard_proof) {
   vm::AugmentedDictionary accounts_dict{vm::load_cell_slice_ref(sstate.accounts), 256, block::tlb::aug_ShardAccounts};
   auto acc_csr = accounts_dict.lookup(acc_addr_);
   if (mode_ & 0x80000000) {
-    auto config = block::ConfigInfo::extract_config(mc_state_->root_cell(), 0xFFFF);
+    auto config = block::ConfigInfo::extract_config(mc_state_->root_cell(), mc_state_->get_block_id(), 0xFFFF);
     if (config.is_error()) {
       fatal_error(config.move_as_error());
       return;
     }
     auto rconfig = config.move_as_ok();
-    rconfig->set_block_id_ext(mc_state_->get_block_id());
     acc_state_promise_.set_value(std::make_tuple(
                                   std::move(acc_csr), sstate.gen_utime, sstate.gen_lt, std::move(rconfig)
                                  ));
@@ -1432,12 +1433,15 @@ static td::Ref<vm::Tuple> prepare_vm_c7(ton::UnixTime now, ton::LogicalTime lt, 
   if (config && config->get_global_version() >= 6) {
     tuple.push_back(vm::StackEntry::maybe(config->get_unpacked_config_tuple(now)));  // unpacked_config_tuple:[...]
     tuple.push_back(due_payment);                                                    // due_payment:Integer
-    // precomiled_gas_usage:(Maybe Integer)
+    // precompiled_gas_usage:(Maybe Integer)
     td::optional<block::PrecompiledContractsConfig::Contract> precompiled;
     if (my_code.not_null()) {
       precompiled = config->get_precompiled_contracts_config().get_contract(my_code->get_hash().bits());
     }
     tuple.push_back(precompiled ? td::make_refint(precompiled.value().gas_usage) : vm::StackEntry());
+  }
+  if (config && config->get_global_version() >= 11) {
+    tuple.push_back(block::transaction::Transaction::prepare_in_msg_params_tuple(nullptr, {}, {}));
   }
   auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
   LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple_ref).to_string();
@@ -1499,7 +1503,7 @@ void LiteQuery::finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice
   LOG(DEBUG) << "creating VM with gas limit " << gas_limit;
   // **** INIT VM ****
   auto r_config = block::ConfigInfo::extract_config(
-      mc_state_->root_cell(),
+      mc_state_->root_cell(), mc_state_->get_block_id(),
       block::ConfigInfo::needLibraries | block::ConfigInfo::needCapabilities | block::ConfigInfo::needPrevBlocks);
   if (r_config.is_error()) {
     fatal_error(r_config.move_as_error());
@@ -1902,7 +1906,7 @@ void LiteQuery::continue_getConfigParams(int mode, std::vector<int> param_list) 
     if (mode & block::ConfigInfo::needPrevBlocks) {
       mode |= block::ConfigInfo::needCapabilities;
     }
-    auto res = block::ConfigInfo::extract_config(mpb.root(), mode);
+    auto res = block::ConfigInfo::extract_config(mpb.root(), keyblk ? base_blk_id_ : mc_state_->get_block_id(), mode);
     if (res.is_error()) {
       fatal_error(res.move_as_error());
       return;
@@ -2387,7 +2391,8 @@ void LiteQuery::perform_listBlockTransactions(BlockIdExt blkid, int mode, int co
 
 static td::Result<tl_object_ptr<lite_api::liteServer_transactionMetadata>> get_in_msg_metadata(
     const Ref<vm::Cell>& in_msg_descr_root, const Ref<vm::Cell>& trans_root) {
-  vm::AugmentedDictionary in_msg_descr{vm::load_cell_slice_ref(in_msg_descr_root), 256, block::tlb::aug_InMsgDescr};
+  vm::AugmentedDictionary in_msg_descr{vm::load_cell_slice_ref(in_msg_descr_root), 256,
+                                       block::tlb::aug_InMsgDescrDefault};
   block::gen::Transaction::Record transaction;
   if (!block::tlb::unpack_cell(trans_root, transaction)) {
     return td::Status::Error("invalid Transaction in block");
@@ -2546,7 +2551,8 @@ void LiteQuery::perform_listBlockTransactionsExt(BlockIdExt blkid, int mode, int
 
 static td::Status process_all_in_msg_metadata(const Ref<vm::Cell>& in_msg_descr_root,
                                               const std::vector<Ref<vm::Cell>>& trans_roots) {
-  vm::AugmentedDictionary in_msg_descr{vm::load_cell_slice_ref(in_msg_descr_root), 256, block::tlb::aug_InMsgDescr};
+  vm::AugmentedDictionary in_msg_descr{vm::load_cell_slice_ref(in_msg_descr_root), 256,
+                                       block::tlb::aug_InMsgDescrDefault};
   for (const Ref<vm::Cell>& trans_root : trans_roots) {
     block::gen::Transaction::Record transaction;
     if (!block::tlb::unpack_cell(trans_root, transaction)) {
@@ -3042,7 +3048,7 @@ bool LiteQuery::construct_proof_link_back_cont(ton::BlockIdExt cur, ton::BlockId
       return fatal_error("cannot construct proof for state of masterchain block "s + cur.to_str());
     }
     // construct proof that `next` is listed in OldMcBlocksInfo of `mc_state_`
-    if (!make_ancestor_block_proof(state_proof, mc_state_->root_cell(), next)) {
+    if (!make_ancestor_block_proof(state_proof, mc_state_, next)) {
       return fatal_error("cannot prove that "s + next.to_str() +
                          " is in the previous block set of the masterchain state of " + cur.to_str());
     }
@@ -3672,7 +3678,7 @@ void LiteQuery::finish_getDispatchQueueMessages(StdSmcAddress addr, LogicalTime 
       fatal_error(r_messages_boc.move_as_error());
       return;
     }
-    messages_boc = std::move(messages_boc);
+    messages_boc = r_messages_boc.move_as_ok();
   }
   LOG(INFO) << "getDispatchQueueMessages(" << blk_id_.to_str() << ", " << mode_ << ") query completed";
   auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_dispatchQueueMessages>(

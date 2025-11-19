@@ -134,6 +134,11 @@ void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getR
   }
 }
 
+void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_ping &query,
+                                td::Promise<td::BufferSlice> promise) {
+  promise.set_value(create_serialize_tl_object<ton_api::overlay_pong>());
+}
+
 void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getBroadcast &query,
                                 td::Promise<td::BufferSlice> promise) {
   auto it = broadcasts_.find(query.hash_);
@@ -319,7 +324,7 @@ void OverlayImpl::alarm() {
         }
       }
     } else {
-      VLOG(OVERLAY_WARNING) << "meber certificate ist invalid, valid_until="
+      VLOG(OVERLAY_WARNING) << "member certificate ist invalid, valid_until="
                             << peer_list_.local_cert_is_valid_until_.at_unix();
     }
     if (next_dht_query_ && next_dht_query_.is_in_past() && overlay_type_ == OverlayType::Public) {
@@ -356,8 +361,19 @@ void OverlayImpl::alarm() {
     }
     alarm_timestamp() = td::Timestamp::in(1.0);
   } else {
-    update_neighbours(0);
-    alarm_timestamp() = td::Timestamp::in(60.0 + td::Random::fast(0, 100) * 0.6);
+    if (update_neighbours_at_.is_in_past()) {
+      update_neighbours(0);
+      update_neighbours_at_ = td::Timestamp::in(60.0 + td::Random::fast(0, 100) * 0.6);
+    }
+    if (opts_.private_ping_peers_) {
+      if (private_ping_peers_at_.is_in_past()) {
+        ping_random_peers();
+        private_ping_peers_at_ = td::Timestamp::in(td::Random::fast(30.0, 50.0));
+      }
+      alarm_timestamp().relax(private_ping_peers_at_);
+    }
+    alarm_timestamp().relax(update_neighbours_at_);
+    alarm_timestamp().relax(update_throughput_at_);
   }
 }
 
@@ -483,7 +499,7 @@ void OverlayImpl::send_broadcast(PublicKeyHash send_as, td::uint32 flags, td::Bu
 
 void OverlayImpl::send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) {
   if (!has_valid_membership_certificate()) {
-    VLOG(OVERLAY_WARNING) << "meber certificate is invalid, valid_until="
+    VLOG(OVERLAY_WARNING) << "member certificate is invalid, valid_until="
                           << peer_list_.local_cert_is_valid_until_.at_unix();
     return;
   }
@@ -720,6 +736,9 @@ void OverlayImpl::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_
     node_obj->is_neighbour_ = peer.is_neighbour();
     node_obj->is_alive_ = peer.is_alive();
     node_obj->node_flags_ = peer.get_node()->flags();
+
+    node_obj->last_ping_at_ = (peer.last_ping_at ? peer.last_ping_at.at_unix() : -1.0);
+    node_obj->last_ping_time_ = peer.last_ping_time;
 
     res->nodes_.push_back(std::move(node_obj));
   });

@@ -84,7 +84,7 @@ td::Result<td::Ref<ShardState>> create_shard_state(BlockIdExt block_id, td::Buff
   }
 }
 
-td::Result<td::Ref<ShardState>> create_shard_state(BlockIdExt block_id, td::Ref<vm::DataCell> root_cell) {
+td::Result<td::Ref<ShardState>> create_shard_state(BlockIdExt block_id, td::Ref<vm::Cell> root_cell) {
   auto res = ShardStateQ::fetch(block_id, {}, std::move(root_cell));
   if (res.is_error()) {
     return res.move_as_error();
@@ -131,11 +131,11 @@ td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data) {
 
 void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                             td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
-                            td::Ref<BlockSignatureSet> approve_signatures, int send_broadcast_mode,
+                            td::Ref<BlockSignatureSet> approve_signatures, int send_broadcast_mode, bool apply,
                             td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise) {
   td::actor::create_actor<AcceptBlockQuery>(
       PSTRING() << "accept" << id.id.to_str(), id, std::move(data), prev, std::move(validator_set),
-      std::move(signatures), std::move(approve_signatures), send_broadcast_mode, manager, std::move(promise))
+      std::move(signatures), std::move(approve_signatures), send_broadcast_mode, apply, manager, std::move(promise))
       .release();
 }
 
@@ -158,91 +158,70 @@ void run_hardfork_accept_block_query(BlockIdExt id, td::Ref<BlockData> data,
 void run_apply_block_query(BlockIdExt id, td::Ref<BlockData> block, BlockIdExt masterchain_block_id,
                            td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                            td::Promise<td::Unit> promise) {
-  td::actor::create_actor<ApplyBlock>(PSTRING() << "apply " << id, id, std::move(block), masterchain_block_id, manager,
-                                      timeout, std::move(promise))
+  td::actor::create_actor<ApplyBlock>(PSTRING() << "apply" << id.id.to_str(), id, std::move(block),
+                                      masterchain_block_id, manager, timeout, std::move(promise))
       .release();
 }
 
 void run_check_proof_query(BlockIdExt id, td::Ref<Proof> proof, td::actor::ActorId<ValidatorManager> manager,
                            td::Timestamp timeout, td::Promise<BlockHandle> promise, bool skip_check_signatures) {
-  td::actor::create_actor<CheckProof>("checkproof", id, std::move(proof), manager, timeout, std::move(promise),
-                                      skip_check_signatures)
+  td::actor::create_actor<CheckProof>(PSTRING() << "checkproof" << id.id.to_str(), id, std::move(proof), manager,
+                                      timeout, std::move(promise), skip_check_signatures)
       .release();
 }
 
 void run_check_proof_query(BlockIdExt id, td::Ref<Proof> proof, td::actor::ActorId<ValidatorManager> manager,
                            td::Timestamp timeout, td::Promise<BlockHandle> promise,
                            td::Ref<ProofLink> rel_key_block_proof, bool skip_check_signatures) {
-  td::actor::create_actor<CheckProof>("checkproof/key", id, std::move(proof), manager, timeout, std::move(promise),
-                                      skip_check_signatures, std::move(rel_key_block_proof))
+  td::actor::create_actor<CheckProof>(PSTRING() << "checkproof/key" << id.id.to_str(), id, std::move(proof), manager,
+                                      timeout, std::move(promise), skip_check_signatures,
+                                      std::move(rel_key_block_proof))
       .release();
 }
 
 void run_check_proof_query(BlockIdExt id, td::Ref<Proof> proof, td::actor::ActorId<ValidatorManager> manager,
                            td::Timestamp timeout, td::Promise<BlockHandle> promise,
                            td::Ref<MasterchainState> rel_mc_state, bool skip_check_signatures) {
-  td::actor::create_actor<CheckProof>("checkproof/st", id, std::move(proof), manager, timeout, std::move(promise),
-                                      skip_check_signatures, std::move(rel_mc_state))
+  td::actor::create_actor<CheckProof>(PSTRING() << "checkproof/st" << id.id.to_str(), id, std::move(proof), manager,
+                                      timeout, std::move(promise), skip_check_signatures, std::move(rel_mc_state))
       .release();
 }
 
 void run_check_proof_link_query(BlockIdExt id, td::Ref<ProofLink> proof, td::actor::ActorId<ValidatorManager> manager,
                                 td::Timestamp timeout, td::Promise<BlockHandle> promise) {
-  td::actor::create_actor<CheckProof>("checkprooflink", id, std::move(proof), manager, timeout, std::move(promise))
+  td::actor::create_actor<CheckProof>(PSTRING() << "checkprooflink" << id.id.to_str(), id, std::move(proof), manager,
+                                      timeout, std::move(promise))
       .release();
 }
 
-void run_validate_query(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
-                        std::vector<BlockIdExt> prev, BlockCandidate candidate, td::Ref<ValidatorSet> validator_set,
-                        td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-                        td::Promise<ValidateCandidateResult> promise, bool is_fake) {
+void run_validate_query(BlockCandidate candidate, ValidateParams params, td::actor::ActorId<ValidatorManager> manager,
+                        td::Timestamp timeout, td::Promise<ValidateCandidateResult> promise) {
   BlockSeqno seqno = 0;
-  for (auto& p : prev) {
+  for (auto& p : params.prev) {
     if (p.seqno() > seqno) {
       seqno = p.seqno();
     }
   }
   static std::atomic<size_t> idx;
-  td::actor::create_actor<ValidateQuery>(PSTRING() << (is_fake ? "fakevalidate" : "validateblock") << shard.to_str()
-                                                   << ":" << (seqno + 1) << "#" << idx.fetch_add(1),
-                                         shard, min_masterchain_block_id, std::move(prev), std::move(candidate),
-                                         std::move(validator_set), std::move(manager), timeout, std::move(promise),
-                                         is_fake)
+  td::actor::create_actor<ValidateQuery>(
+      PSTRING() << (params.is_fake ? "fakevalidate" : "validateblock") << params.shard.to_str() << ":" << (seqno + 1)
+                << "#" << idx.fetch_add(1),
+      std::move(candidate), std::move(params), std::move(manager), timeout, std::move(promise))
       .release();
 }
 
-void run_collate_query(ShardIdFull shard, const BlockIdExt& min_masterchain_block_id, std::vector<BlockIdExt> prev,
-                       Ed25519_PublicKey creator, td::Ref<ValidatorSet> validator_set,
-                       td::Ref<CollatorOptions> collator_opts, td::actor::ActorId<ValidatorManager> manager,
-                       td::Timestamp timeout, td::Promise<BlockCandidate> promise,
-                       td::CancellationToken cancellation_token, unsigned mode, int attempt_idx) {
+void run_collate_query(CollateParams params, td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
+                       td::CancellationToken cancellation_token, td::Promise<BlockCandidate> promise) {
   BlockSeqno seqno = 0;
-  for (auto& p : prev) {
+  for (auto& p : params.prev) {
     if (p.seqno() > seqno) {
       seqno = p.seqno();
     }
   }
-  td::actor::create_actor<Collator>(PSTRING() << "collate" << shard.to_str() << ":" << (seqno + 1)
-                                              << (attempt_idx ? "_" + td::to_string(attempt_idx) : ""),
-                                    shard, false, min_masterchain_block_id, std::move(prev), std::move(validator_set),
-                                    creator, std::move(collator_opts), std::move(manager), timeout, std::move(promise),
-                                    std::move(cancellation_token), mode, attempt_idx)
-      .release();
-}
-
-void run_collate_hardfork(ShardIdFull shard, const BlockIdExt& min_masterchain_block_id, std::vector<BlockIdExt> prev,
-                          td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-                          td::Promise<BlockCandidate> promise) {
-  BlockSeqno seqno = 0;
-  for (auto& p : prev) {
-    if (p.seqno() > seqno) {
-      seqno = p.seqno();
-    }
-  }
-  td::actor::create_actor<Collator>(PSTRING() << "collate" << shard.to_str() << ":" << (seqno + 1), shard, true,
-                                    min_masterchain_block_id, std::move(prev), td::Ref<ValidatorSet>{},
-                                    Ed25519_PublicKey{Bits256::zero()}, td::Ref<CollatorOptions>{true},
-                                    std::move(manager), timeout, std::move(promise), td::CancellationToken{}, 0, 0)
+  td::actor::create_actor<Collator>(PSTRING() << "collate" << params.shard.to_str() << ":" << (seqno + 1)
+                                              << (params.attempt_idx ? "_" + td::to_string(params.attempt_idx) : ""),
+                                    std::move(params), std::move(manager), timeout, std::move(cancellation_token),
+                                    std::move(promise))
       .release();
 }
 

@@ -14,9 +14,9 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "tolk.h"
 #include "ast.h"
 #include "ast-visitor.h"
+#include "compilation-errors.h"
 
 /*
  *   This pipe assigns lvalue/rvalue flags for AST expressions.
@@ -88,6 +88,13 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     restore_state(saved);
   }
 
+  void visit(V<ast_braced_yield_result> v) override {
+    mark_vertex(v);
+    MarkingState saved = enter_rvalue_if_none();
+    parent::visit(v);
+    restore_state(saved);
+  }
+
   void visit(V<ast_tensor> v) override {
     mark_vertex(v);
     MarkingState saved = enter_rvalue_if_none();
@@ -95,7 +102,7 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     restore_state(saved);
   }
   
-  void visit(V<ast_typed_tuple> v) override {
+  void visit(V<ast_bracket_tuple> v) override {
     mark_vertex(v);
     MarkingState saved = enter_rvalue_if_none();
     parent::visit(v);
@@ -213,6 +220,13 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v->get_expr());   // leave lvalue state unchanged, for `mutate x!` both `x!` and `x` are lvalue
   }
 
+  void visit(V<ast_lazy_operator> v) override {
+    mark_vertex(v);
+    MarkingState saved = enter_state(MarkingState::RValue);
+    parent::visit(v);
+    restore_state(saved);
+  }
+
   void visit(V<ast_match_expression> v) override {
     mark_vertex(v);
     MarkingState saved = enter_state(MarkingState::RValue);
@@ -226,8 +240,32 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v);
   }
 
+  void visit(V<ast_object_field> v) override {
+    tolk_assert(cur_state == MarkingState::RValue);
+    mark_vertex(v);
+    parent::visit(v);
+  }
+
+  void visit(V<ast_object_body> v) override {
+    tolk_assert(cur_state == MarkingState::RValue);
+    mark_vertex(v);
+    parent::visit(v);
+  }
+
+  void visit(V<ast_object_literal> v) override {
+    mark_vertex(v);
+    MarkingState saved = enter_state(MarkingState::RValue);
+    parent::visit(v);
+    restore_state(saved);
+  }
+
+  void visit(V<ast_lambda_fun> v) override {
+    mark_vertex(v);
+    // we do not traverse body of a lambda: it's traversed when that lambda is instantiated
+  }
+
   void visit(V<ast_local_var_lhs> v) override {
-    tolk_assert(cur_state == MarkingState::LValue);
+    tolk_assert(cur_state == MarkingState::LValue || v->is_lateinit);
     mark_vertex(v);
     parent::visit(v);
   }

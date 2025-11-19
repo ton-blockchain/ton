@@ -27,6 +27,15 @@
 #include "ton/ton-tl.hpp"
 #include "ton/ton-io.hpp"
 #include "common/delay.h"
+#include "block/block-auto.h"
+#include "permanent-celldb/permanent-celldb-utils.h"
+#include "td/actor/MultiPromise.h"
+
+#include <block-auto.h>
+#include <rocksdb/merge_operator.h>
+
+#include <block-auto.h>
+#include <rocksdb/merge_operator.h>
 
 namespace ton {
 
@@ -73,6 +82,101 @@ CellDbIn::CellDbIn(td::actor::ActorId<RootDb> root_db, td::actor::ActorId<CellDb
     : root_db_(root_db), parent_(parent), path_(std::move(path)), opts_(opts) {
 }
 
+struct MergeOperatorAddCellRefcnt : public rocksdb::MergeOperator {
+  const char* Name() const override {
+    return "MergeOperatorAddCellRefcnt";
+  }
+  static auto to_td(rocksdb::Slice value) -> td::Slice {
+    return td::Slice(value.data(), value.size());
+  }
+  bool FullMergeV2(const MergeOperationInput& merge_in, MergeOperationOutput* merge_out) const override {
+    CHECK(merge_in.existing_value);
+    auto& value = *merge_in.existing_value;
+    CHECK(merge_in.operand_list.size() >= 1);
+    td::Slice diff;
+    std::string diff_buf;
+    if (merge_in.operand_list.size() == 1) {
+      diff = to_td(merge_in.operand_list[0]);
+    } else {
+      diff_buf = merge_in.operand_list[0].ToString();
+      for (size_t i = 1; i < merge_in.operand_list.size(); ++i) {
+        vm::CellStorer::merge_refcnt_diffs(diff_buf, to_td(merge_in.operand_list[i]));
+      }
+      diff = diff_buf;
+    }
+
+    merge_out->new_value = value.ToString();
+    vm::CellStorer::merge_value_and_refcnt_diff(merge_out->new_value, diff);
+    return true;
+  }
+  bool PartialMerge(const rocksdb::Slice& /*key*/, const rocksdb::Slice& left, const rocksdb::Slice& right,
+                    std::string* new_value, rocksdb::Logger* logger) const override {
+    *new_value = left.ToString();
+    vm::CellStorer::merge_refcnt_diffs(*new_value, to_td(right));
+    return true;
+  }
+};
+
+void CellDbIn::validate_meta() {
+  LOG(INFO) << "Validating metadata\n";
+  size_t max_meta_keys_loaded = opts_->get_celldb_in_memory() ? std::numeric_limits<std::size_t>::max() : 10000;
+  auto meta = boc_->meta_get_all(max_meta_keys_loaded).move_as_ok();
+  bool partial_check = meta.size() == max_meta_keys_loaded;
+  if (partial_check) {
+    LOG(ERROR) << "Too much metadata in the database, do only partial check";
+  }
+  size_t missing_roots = 0;
+  size_t unknown_roots = 0;
+  std::set<vm::CellHash> root_hashes;
+  for (auto [k, v] : meta) {
+    if (k == "desczero") {
+      continue;
+    }
+    auto obj = fetch_tl_object<ton_api::db_celldb_value>(td::BufferSlice{v}, true);
+    obj.ensure();
+    auto entry = DbEntry{obj.move_as_ok()};
+    root_hashes.insert(vm::CellHash::from_slice(entry.root_hash.as_slice()));
+    auto cell = boc_->load_cell(entry.root_hash.as_slice());
+    missing_roots += cell.is_error();
+    LOG_IF(ERROR, cell.is_error()) << "Cannot load root from meta: " << entry.block_id.to_str() << " " << cell.error();
+  }
+
+  // load_known_roots is only supported by InMemory database, so it is ok to check all known roots here
+  auto known_roots = boc_->load_known_roots().move_as_ok();
+  for (auto& root : known_roots) {
+    block::gen::ShardStateUnsplit::Record info;
+    block::gen::OutMsgQueueInfo::Record qinfo;
+    block::ShardId shard;
+    if (!(tlb::unpack_cell(root, info) && shard.deserialize(info.shard_id.write()) &&
+          tlb::unpack_cell(info.out_msg_queue_info, qinfo))) {
+      LOG(FATAL) << "cannot create ShardDescr from a root in celldb";
+    }
+    if (!partial_check && !root_hashes.contains(root->get_hash())) {
+      unknown_roots++;
+      LOG(ERROR) << "Unknown root" << ShardIdFull(shard).to_str() << ":" << info.seq_no;
+      constexpr bool delete_unknown_roots = false;
+      if (delete_unknown_roots) {
+        vm::CellStorer stor{*cell_db_};
+        cell_db_->begin_write_batch().ensure();
+        boc_->dec(root);
+        boc_->commit(stor).ensure();
+        cell_db_->commit_write_batch().ensure();
+        if (!opts_->get_celldb_in_memory()) {
+          boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot(), on_load_callback_)).ensure();
+        }
+        LOG(ERROR) << "Unknown root" << ShardIdFull(shard).to_str() << ":" << info.seq_no << " REMOVED";
+      }
+    }
+  }
+
+  LOG_IF(ERROR, missing_roots != 0) << "Missing root hashes: " << missing_roots;
+  LOG_IF(ERROR, unknown_roots != 0) << "Unknown roots: " << unknown_roots;
+
+  LOG_IF(FATAL, missing_roots != 0) << "Missing root hashes: " << missing_roots;
+  LOG_IF(FATAL, unknown_roots != 0) << "Unknown roots: " << unknown_roots;
+  LOG(INFO) << "Validating metadata: OK\n";
+}
+
 void CellDbIn::start_up() {
   on_load_callback_ = [actor = std::make_shared<td::actor::ActorOwn<MigrationProxy>>(
                            td::actor::create_actor<MigrationProxy>("celldbmigration", actor_id(this))),
@@ -96,44 +200,108 @@ void CellDbIn::start_up() {
     db_options.snapshot_statistics = snapshot_statistics_;
   }
   db_options.statistics = statistics_;
-  if (opts_->get_celldb_cache_size()) {
-    db_options.block_cache = td::RocksDb::create_cache(opts_->get_celldb_cache_size().value());
-    LOG(WARNING) << "Set CellDb block cache size to " << td::format::as_size(opts_->get_celldb_cache_size().value());
+  auto o_celldb_cache_size = opts_->get_celldb_cache_size();
+
+  std::optional<vm::DynamicBagOfCellsDb::CreateInMemoryOptions> boc_in_memory_options;
+  std::optional<vm::DynamicBagOfCellsDb::CreateV1Options> boc_v1_options;
+  std::optional<vm::DynamicBagOfCellsDb::CreateV2Options> boc_v2_options;
+
+  if (opts_->get_celldb_v2()) {
+    boc_v2_options = vm::DynamicBagOfCellsDb::CreateV2Options{
+        .extra_threads = std::clamp(std::thread::hardware_concurrency() / 2, 1u, 8u),
+        .executor = {},
+        .cache_ttl_max = 2000,
+        .cache_size_max = 1000000};
+    size_t min_rocksdb_cache = std::max(size_t{1} << 30, boc_v2_options->cache_size_max * 5000);
+    if (!o_celldb_cache_size || o_celldb_cache_size.value() < min_rocksdb_cache) {
+      LOG(WARNING) << "Increase CellDb block cache size to " << td::format::as_size(min_rocksdb_cache) << " from "
+                   << td::format::as_size(o_celldb_cache_size.value());
+      o_celldb_cache_size = min_rocksdb_cache;
+    }
+    LOG(WARNING) << "Using V2 DynamicBagOfCells with options " << *boc_v2_options;
+  } else if (opts_->get_celldb_in_memory()) {
+    // default options
+    boc_in_memory_options = vm::DynamicBagOfCellsDb::CreateInMemoryOptions{
+        .extra_threads = std::thread::hardware_concurrency(),
+        .verbose = true,
+        .use_arena = false,
+        .use_less_memory_during_creation = true,
+    };
+    LOG(WARNING) << "Using InMemory DynamicBagOfCells with options " << *boc_v2_options;
+  } else {
+    boc_v1_options = vm::DynamicBagOfCellsDb::CreateV1Options{};
+    LOG(WARNING) << "Using V1 DynamicBagOfCells with options " << *boc_v1_options;
+  }
+
+  db_options.enable_bloom_filter = !opts_->get_celldb_disable_bloom_filter();
+  db_options.two_level_index_and_filter = db_options.enable_bloom_filter 
+                                && opts_->state_ttl() >= 60 * 60 * 24 * 30; // 30 days
+  if (db_options.two_level_index_and_filter && !opts_->get_celldb_in_memory()) {
+    o_celldb_cache_size = std::max<td::uint64>(o_celldb_cache_size ? o_celldb_cache_size.value() : 0UL, 16UL << 30);
+  }
+
+  if (o_celldb_cache_size) {
+    db_options.block_cache = td::RocksDb::create_cache(o_celldb_cache_size.value());
+    LOG(WARNING) << "Set CellDb block cache size to " << td::format::as_size(o_celldb_cache_size.value());
   }
   db_options.use_direct_reads = opts_->get_celldb_direct_io();
+
+  // NB: from now on we MUST use this merge operator
+  // Only V2 and InMemory BoC actually use them, but it still should be kept for V1,
+  // to handle updates written by V2 or InMemory BoCs
+  db_options.merge_operator = std::make_shared<MergeOperatorAddCellRefcnt>();
 
   if (opts_->get_celldb_in_memory()) {
     td::RocksDbOptions read_db_options;
     read_db_options.use_direct_reads = true;
     read_db_options.no_block_cache = true;
     read_db_options.block_cache = {};
+    read_db_options.merge_operator = std::make_shared<MergeOperatorAddCellRefcnt>();
     LOG(WARNING) << "Loading all cells in memory (because of --celldb-in-memory)";
     td::Timer timer;
     auto read_cell_db =
         std::make_shared<td::RocksDb>(td::RocksDb::open(path_, std::move(read_db_options)).move_as_ok());
-    boc_ = vm::DynamicBagOfCellsDb::create_in_memory(read_cell_db.get(), {});
+    boc_ = vm::DynamicBagOfCellsDb::create_in_memory(read_cell_db.get(), *boc_in_memory_options);
     in_memory_load_time_ = timer.elapsed();
-    td::actor::send_closure(parent_, &CellDb::set_in_memory_boc, boc_);
+
+    // no reads will be allowed from rocksdb, only writes
+    db_options.no_reads = true;
   }
 
   auto rocks_db = std::make_shared<td::RocksDb>(td::RocksDb::open(path_, std::move(db_options)).move_as_ok());
   rocks_db_ = rocks_db->raw_db();
   cell_db_ = std::move(rocks_db);
   if (!opts_->get_celldb_in_memory()) {
-    boc_ = vm::DynamicBagOfCellsDb::create();
+    if (opts_->get_celldb_v2()) {
+      boc_ = vm::DynamicBagOfCellsDb::create_v2(*boc_v2_options);
+    } else {
+      boc_ = vm::DynamicBagOfCellsDb::create(*boc_v1_options);
+    }
     boc_->set_celldb_compress_depth(opts_->get_celldb_compress_depth());
     boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot(), on_load_callback_)).ensure();
-    td::actor::send_closure(parent_, &CellDb::update_snapshot, cell_db_->snapshot());
   }
+
+  validate_meta();
 
   alarm_timestamp() = td::Timestamp::in(10.0);
 
   auto empty = get_empty_key_hash();
   if (get_block(empty).is_error()) {
     DbEntry e{get_empty_key(), empty, empty, RootHash::zero()};
+    vm::CellStorer stor{*cell_db_};
     cell_db_->begin_write_batch().ensure();
     set_block(empty, std::move(e));
+    boc_->commit(stor);
     cell_db_->commit_write_batch().ensure();
+    if (!opts_->get_celldb_in_memory()) {
+      boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot(), on_load_callback_)).ensure();
+    }
+  }
+
+  if (opts_->get_celldb_v2() || opts_->get_celldb_in_memory()) {
+    send_closure(parent_, &CellDb::set_thread_safe_boc, boc_);
+  } else {
+    send_closure(parent_, &CellDb::update_snapshot, cell_db_->snapshot());
   }
 
   if (opts_->get_celldb_preload_all()) {
@@ -161,13 +329,37 @@ void CellDbIn::start_up() {
 
   {
     std::string key = "stats.last_deleted_mc_seqno", value;
-    auto R = cell_db_->get(td::as_slice(key), value);
+    auto R = boc_->meta_get(td::as_slice(key), value);
     R.ensure();
     if (R.ok() == td::KeyValue::GetStatus::Ok) {
       auto r_value = td::to_integer_safe<BlockSeqno>(value);
       r_value.ensure();
       last_deleted_mc_state_ = r_value.move_as_ok();
     }
+  }
+  {
+    std::string key = "opts.permanent_mode", value;
+    auto R = boc_->meta_get(td::as_slice(key), value);
+    R.ensure();
+    bool stored_permanent_mode = R.ok() == td::KeyValue::GetStatus::Ok;
+    permanent_mode_ = stored_permanent_mode || opts_->get_permanent_celldb();
+    if (permanent_mode_) {
+      LOG(WARNING) << "Celldb is in permanent mode";
+      if (!stored_permanent_mode) {
+        cell_db_->begin_write_batch().ensure();
+        value = "1";
+        vm::CellStorer stor{*cell_db_};
+        boc_->meta_set(td::as_slice(key), td::as_slice(value));
+        boc_->commit(stor).ensure();
+        cell_db_->commit_write_batch().ensure();
+        if (!opts_->get_celldb_in_memory()) {
+          boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot(), on_load_callback_)).ensure();
+        }
+      }
+    }
+    cell_db_statistics_.permanent_mode_ = permanent_mode_;
+    LOG_IF(FATAL, permanent_mode_ && opts_->get_celldb_in_memory())
+        << "celldb permanent_mode and in_memory_mode are not compatible";
   }
 }
 
@@ -204,7 +396,9 @@ void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promi
   auto R = get_block(key_hash);
   // duplicate
   if (R.is_ok()) {
-    promise.set_result(boc_->load_cell(cell->get_hash().as_slice()));
+    delay_action([cell = boc_->load_cell(cell->get_hash().as_slice()),
+                  promise = std::move(promise)]() mutable { promise.set_result(std::move(cell)); },
+                 td::Timestamp::now());
     return;
   }
 
@@ -215,7 +409,7 @@ void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promi
                                               cell = std::move(cell)](td::Result<td::Unit> Res) mutable {
     Res.ensure();
     timer_prepare.pause();
-    td::actor::send_lambda(
+    td::actor::send_lambda_later(
         SelfId, [=, this, timer = std::move(timer), promise = std::move(promise), cell = std::move(cell)]() mutable {
           TD_PERF_COUNTER(celldb_store_cell);
           auto empty = get_empty_key_hash();
@@ -240,10 +434,10 @@ void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promi
           td::Timer timer_write;
           vm::CellStorer stor{*cell_db_};
           cell_db_->begin_write_batch().ensure();
-          boc_->commit(stor).ensure();
           set_block(get_empty_key_hash(), std::move(E));
           set_block(D.prev, std::move(P));
           set_block(key_hash, std::move(D));
+          boc_->commit(stor).ensure();
           cell_db_->commit_write_batch().ensure();
           timer_write.pause();
 
@@ -252,7 +446,9 @@ void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promi
             td::actor::send_closure(parent_, &CellDb::update_snapshot, cell_db_->snapshot());
           }
 
-          promise.set_result(boc_->load_cell(cell->get_hash().as_slice()));
+          delay_action([cell = boc_->load_cell(cell->get_hash().as_slice()),
+                        promise = std::move(promise)]() mutable { promise.set_result(std::move(cell)); },
+                       td::Timestamp::now());
           if (!opts_->get_disable_rocksdb_stats()) {
             cell_db_statistics_.store_cell_time_.insert(timer.elapsed() * 1e6);
             cell_db_statistics_.store_cell_prepare_time_.insert(timer_prepare.elapsed() * 1e6);
@@ -266,14 +462,158 @@ void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promi
 
 void CellDbIn::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
   if (db_busy_) {
-    action_queue_.push(
-        [self = this, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-          R.ensure();
-          self->get_cell_db_reader(std::move(promise));
-        });
+    action_queue_.push([self = this, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+      R.ensure();
+      self->get_cell_db_reader(std::move(promise));
+    });
     return;
   }
   promise.set_result(boc_->get_cell_db_reader());
+}
+
+void CellDbIn::store_block_state_permanent(td::Ref<BlockData> block, td::Promise<td::Ref<vm::DataCell>> promise) {
+  if (!permanent_mode_) {
+    promise.set_error(td::Status::Error("celldb is not in permanent mode"));
+    return;
+  }
+  if (db_busy_) {
+    action_queue_.push(
+        [self = this, block = std::move(block), promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+          R.ensure();
+          self->store_block_state_permanent(std::move(block), std::move(promise));
+        });
+    return;
+  }
+  auto key_hash = get_key_hash(block->block_id());
+  auto R = get_block(key_hash);
+  // duplicate
+  if (R.is_ok()) {
+    delay_action([cell = boc_->load_cell(R.ok().root_hash.as_slice()),
+                  promise = std::move(promise)]() mutable { promise.set_result(std::move(cell)); },
+                 td::Timestamp::now());
+    return;
+  }
+  store_block_state_permanent_bulk(
+      {block}, [=, SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+        TRY_STATUS_PROMISE(promise, R.move_as_status());
+        block::gen::Block::Record rec;
+        if (!block::gen::unpack_cell(block->root_cell(), rec)) {
+          promise.set_error(td::Status::Error("cannot unpack Block record"));
+          return;
+        }
+        bool spec;
+        vm::CellSlice update_cs = vm::load_cell_slice_special(rec.state_update, spec);
+        if (update_cs.special_type() != vm::CellTraits::SpecialType::MerkleUpdate) {
+          promise.set_error(td::Status::Error("invalid Merkle update in block"));
+          return;
+        }
+        td::Ref<vm::Cell> new_state_root = update_cs.prefetch_ref(1);
+        RootHash state_root_hash = new_state_root->get_hash(0).bits();
+        td::actor::send_closure(SelfId, &CellDbIn::load_cell, state_root_hash, std::move(promise));
+      });
+}
+
+void CellDbIn::store_block_state_permanent_bulk(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise) {
+  if (!permanent_mode_) {
+    promise.set_error(td::Status::Error("celldb is not in permanent mode"));
+    return;
+  }
+  if (db_busy_) {
+    action_queue_.push(
+        [self = this, blocks = std::move(blocks), promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+          R.ensure();
+          self->store_block_state_permanent_bulk(std::move(blocks), std::move(promise));
+        });
+    return;
+  }
+  td::PerfWarningTimer timer{"storecellbulk", 0.1};
+  td::Timer timer_prepare;
+  std::map<BlockIdExt, td::Ref<BlockData>> new_blocks;
+  for (auto& block : blocks) {
+    BlockIdExt block_id = block->block_id();
+    if (new_blocks.contains(block_id)) {
+      continue;
+    }
+    if (get_block(get_key_hash(block_id)).is_ok()) {
+      continue;
+    }
+    new_blocks[block_id] = std::move(block);
+  }
+  if (new_blocks.empty()) {
+    promise.set_value(td::Unit{});
+    return;
+  }
+  for (auto& [block_id, block] : new_blocks) {
+    std::vector<BlockIdExt> prev;
+    BlockIdExt mc_blkid;
+    bool after_split;
+    TRY_STATUS_PROMISE(promise,
+                       block::unpack_block_prev_blk_try(block->root_cell(), block_id, prev, mc_blkid, after_split));
+    for (const BlockIdExt& prev_id : prev) {
+      if (!new_blocks.contains(prev_id) && get_block(get_key_hash(prev_id)).is_error()) {
+        promise.set_error(td::Status::Error("cannot store block state: previous block is not in db"));
+        return;
+      }
+    }
+  }
+  db_busy_ = true;
+  calculate_permanent_celldb_update(
+      new_blocks, async_executor,
+      [this, SelfId = actor_id(this), timer = std::move(timer), timer_prepare = std::move(timer_prepare),
+       promise = std::move(promise)](td::Result<std::vector<PermanentCellDbUpdate>> R) mutable {
+        td::actor::send_lambda_later(
+            SelfId, [=, this, timer = std::move(timer), timer_prepare = std::move(timer_prepare), R = std::move(R),
+                     promise = std::move(promise)]() mutable {
+              SCOPE_EXIT {
+                release_db();
+              };
+              TRY_RESULT_PROMISE(promise, updates, std::move(R));
+              TD_PERF_COUNTER(celldb_store_cell_multi);
+              timer_prepare.pause();
+              td::Timer timer_write;
+              vm::CellStorer stor{*cell_db_};
+              cell_db_->begin_write_batch().ensure();
+
+              for (auto& update : updates) {
+                for (auto& [k, v] : update.to_store) {
+                  cell_db_->set(k.as_slice(), v).ensure();
+                }
+              }
+
+              CHECK(!updates.empty());
+              auto empty = get_empty_key_hash();
+              auto E = get_block(empty).move_as_ok();
+              for (size_t i = 0; i < updates.size(); ++i) {
+                KeyHash prev = i == 0 ? empty : get_key_hash(updates[i - 1].block_id);
+                KeyHash next = i + 1 == updates.size() ? E.next : get_key_hash(updates[i + 1].block_id);
+                DbEntry entry{updates[i].block_id, prev, next, updates[i].state_root_hash};
+                set_block(get_key_hash(updates[i].block_id), std::move(entry));
+              }
+              E.next = get_key_hash(updates[0].block_id);
+              if (E.prev == empty) {
+                E.prev = get_key_hash(updates.back().block_id);
+              }
+              set_block(empty, std::move(E));
+
+              boc_->commit(stor).ensure();  // Save meta
+              cell_db_->commit_write_batch().ensure();
+              timer_write.pause();
+
+              if (!opts_->get_celldb_in_memory()) {
+                boc_->set_loader(std::make_unique<vm::CellLoader>(cell_db_->snapshot(), on_load_callback_)).ensure();
+                td::actor::send_closure(parent_, &CellDb::update_snapshot, cell_db_->snapshot());
+              }
+
+              if (!opts_->get_disable_rocksdb_stats()) {
+                cell_db_statistics_.store_cell_time_.insert(timer.elapsed() * 1e6);
+                cell_db_statistics_.store_cell_prepare_time_.insert(timer_prepare.elapsed() * 1e6);
+                cell_db_statistics_.store_cell_write_time_.insert(timer_write.elapsed() * 1e6);
+                cell_db_statistics_.store_cell_bulk_queries_++;
+                cell_db_statistics_.store_cell_bulk_total_blocks_ += updates.size();
+              }
+              promise.set_result(td::Unit());
+            });
+      });
 }
 
 std::vector<std::pair<std::string, std::string>> CellDbIn::prepare_stats() {
@@ -343,6 +683,7 @@ void CellDbIn::flush_db_stats() {
   }
   td::RocksDb::reset_statistics(statistics_);
   cell_db_statistics_.clear();
+  cell_db_statistics_.permanent_mode_ = permanent_mode_;
 }
 
 void CellDbIn::alarm() {
@@ -360,6 +701,10 @@ void CellDbIn::alarm() {
               << " checked=" << migration_stats_->checked_cells_ << " time=" << migration_stats_->total_time_
               << " queue_size=" << cells_to_migrate_.size();
     migration_stats_ = {};
+  }
+  if (permanent_mode_) {
+    skip_gc();
+    return;
   }
   auto E = get_block(get_empty_key_hash()).move_as_ok();
   auto N = get_block(E.next).move_as_ok();
@@ -414,6 +759,7 @@ void CellDbIn::gc_cont2(BlockHandle handle) {
     });
     return;
   }
+  CHECK(!permanent_mode_);
 
   td::PerfWarningTimer timer{"gccell", 0.1};
   td::PerfWarningTimer timer_all{"gccell_all", 0.05};
@@ -440,16 +786,20 @@ void CellDbIn::gc_cont2(BlockHandle handle) {
   timer_get_keys.reset();
 
   td::PerfWarningTimer timer_boc{"gccell_boc", 0.05};
-  auto cell = boc_->load_cell(F.root_hash.as_slice()).move_as_ok();
+  auto r_cell = boc_->load_cell(F.root_hash.as_slice());
+  td::Ref<vm::Cell> cell;
+  if (r_cell.is_ok()) {
+    cell = r_cell.move_as_ok();
+    boc_->dec(cell);
+  }
 
-  boc_->dec(cell);
   db_busy_ = true;
   boc_->prepare_commit_async(
       async_executor, [this, SelfId = actor_id(this), timer_boc = std::move(timer_boc), F = std::move(F), key_hash,
                        P = std::move(P), N = std::move(N), cell = std::move(cell), timer = std::move(timer),
                        timer_all = std::move(timer_all), handle](td::Result<td::Unit> R) mutable {
         R.ensure();
-        td::actor::send_lambda(SelfId, [this, timer_boc = std::move(timer_boc), F = std::move(F), key_hash,
+        td::actor::send_lambda_later(SelfId, [this, timer_boc = std::move(timer_boc), F = std::move(F), key_hash,
                                         P = std::move(P), N = std::move(N), cell = std::move(cell),
                                         timer = std::move(timer), timer_all = std::move(timer_all), handle]() mutable {
           TD_PERF_COUNTER(celldb_gc_cell);
@@ -458,17 +808,19 @@ void CellDbIn::gc_cont2(BlockHandle handle) {
 
           td::PerfWarningTimer timer_write_batch{"gccell_write_batch", 0.05};
           cell_db_->begin_write_batch().ensure();
-          boc_->commit(stor).ensure();
 
-          cell_db_->erase(get_key(key_hash)).ensure();
+          boc_->meta_erase(get_key(key_hash)).ensure();
           set_block(F.prev, std::move(P));
           set_block(F.next, std::move(N));
           if (handle->id().is_masterchain()) {
             last_deleted_mc_state_ = handle->id().seqno();
             std::string key = "stats.last_deleted_mc_seqno", value = td::to_string(last_deleted_mc_state_);
-            cell_db_->set(td::as_slice(key), td::as_slice(value));
+            boc_->meta_set(td::as_slice(key), td::as_slice(value));
           }
+
+          boc_->commit(stor).ensure();
           cell_db_->commit_write_batch().ensure();
+
           alarm_timestamp() = td::Timestamp::now();
           timer_write_batch.reset();
 
@@ -530,7 +882,7 @@ CellDbIn::KeyHash CellDbIn::get_empty_key_hash() {
 td::Result<CellDbIn::DbEntry> CellDbIn::get_block(KeyHash key_hash) {
   const auto key = get_key(key_hash);
   std::string value;
-  auto R = cell_db_->get(td::as_slice(key), value);
+  auto R = boc_->meta_get(td::as_slice(key), value);
   R.ensure();
   auto S = R.move_as_ok();
   if (S == td::KeyValue::GetStatus::NotFound) {
@@ -543,10 +895,13 @@ td::Result<CellDbIn::DbEntry> CellDbIn::get_block(KeyHash key_hash) {
 
 void CellDbIn::set_block(KeyHash key_hash, DbEntry e) {
   const auto key = get_key(key_hash);
-  cell_db_->set(td::as_slice(key), e.release()).ensure();
+  boc_->meta_set(td::as_slice(key), e.release());
 }
 
 void CellDbIn::migrate_cell(td::Bits256 hash) {
+  if (permanent_mode_) {
+    return;
+  }
   cells_to_migrate_.insert(hash);
   if (!migration_active_) {
     migration_active_ = true;
@@ -631,12 +986,13 @@ void CellDb::alarm() {
 }
 
 void CellDb::load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise) {
-  if (in_memory_boc_) {
-    auto result = in_memory_boc_->load_root_thread_safe(hash.as_slice());
+  if (thread_safe_boc_) {
+    auto result = thread_safe_boc_->load_root_thread_safe(hash.as_slice());
     if (result.is_ok()) {
       return async_apply("load_cell_result", std::move(promise), std::move(result));
     } else {
-      LOG(ERROR) << "load_root_thread_safe failed - this is suspicious";
+      send_closure(cell_db_, &CellDbIn::load_cell, hash, std::move(promise));
+      return;
     }
   }
   if (!started_) {
@@ -656,6 +1012,14 @@ void CellDb::load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise
 
 void CellDb::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise<td::Ref<vm::DataCell>> promise) {
   td::actor::send_closure(cell_db_, &CellDbIn::store_cell, block_id, std::move(cell), std::move(promise));
+}
+
+void CellDb::store_block_state_permanent(td::Ref<BlockData> block, td::Promise<td::Ref<vm::DataCell>> promise) {
+  td::actor::send_closure(cell_db_, &CellDbIn::store_block_state_permanent, std::move(block), std::move(promise));
+}
+
+void CellDb::store_block_state_permanent_bulk(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise) {
+  td::actor::send_closure(cell_db_, &CellDbIn::store_block_state_permanent_bulk, std::move(blocks), std::move(promise));
 }
 
 void CellDb::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
@@ -694,9 +1058,14 @@ td::BufferSlice CellDbIn::DbEntry::release() {
 
 std::vector<std::pair<std::string, std::string>> CellDbIn::CellDbStatistics::prepare_stats() {
   std::vector<std::pair<std::string, std::string>> stats;
+  stats.emplace_back("permanent_mode", PSTRING() << permanent_mode_);
   stats.emplace_back("store_cell.micros", PSTRING() << store_cell_time_.to_string());
   stats.emplace_back("store_cell.prepare.micros", PSTRING() << store_cell_prepare_time_.to_string());
   stats.emplace_back("store_cell.write.micros", PSTRING() << store_cell_write_time_.to_string());
+  if (permanent_mode_) {
+    stats.emplace_back("store_cell.bulk.queries", PSTRING() << store_cell_bulk_queries_);
+    stats.emplace_back("store_cell.bulk.total_blocks", PSTRING() << store_cell_bulk_total_blocks_);
+  }
   stats.emplace_back("gc_cell.micros", PSTRING() << gc_cell_time_.to_string());
   stats.emplace_back("total_time.micros", PSTRING() << (td::Timestamp::now().at() - stats_start_time_.at()) * 1e6);
   stats.emplace_back("in_memory", PSTRING() << bool(in_memory_load_time_));
@@ -709,6 +1078,13 @@ std::vector<std::pair<std::string, std::string>> CellDbIn::CellDbStatistics::pre
     stats.emplace_back("roots_count", PSTRING() << boc_stats_->roots_total_count);
     for (auto& [key, value] : boc_stats_->custom_stats) {
       stats.emplace_back(key, value);
+    }
+
+    for (auto& [key, value] : boc_stats_->named_stats.stats_str) {
+      stats.emplace_back(key, value);
+    }
+    for (auto& [key, value] : boc_stats_->named_stats.stats_int) {
+      stats.emplace_back(key, td::to_string(value));
     }
   }
   return stats;

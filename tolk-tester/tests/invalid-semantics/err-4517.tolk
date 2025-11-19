@@ -10,5 +10,5 @@ fun f(x: int): int {
 
 /**
 @compilation_should_fail
-@stderr symbol `g` is not a constant
+@stderr unknown type name `g`
  */

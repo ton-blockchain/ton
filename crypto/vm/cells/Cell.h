@@ -35,15 +35,17 @@ namespace vm {
 using td::Ref;
 class DataCell;
 
+struct LoadedCell {
+  Ref<DataCell> data_cell;
+  detail::VirtualizationParameters virt;
+  CellUsageTree::NodePtr tree_node;  // TODO: inline_vector?
+};
+
 class Cell : public CellTraits {
  public:
   using LevelMask = detail::LevelMask;
   using VirtualizationParameters = detail::VirtualizationParameters;
-  struct LoadedCell {
-    Ref<DataCell> data_cell;
-    VirtualizationParameters virt;
-    CellUsageTree::NodePtr tree_node;  // TODO: inline_vector?
-  };
+  using LoadedCell = vm::LoadedCell;
 
   using Hash = CellHash;
   static_assert(std::is_standard_layout<Hash>::value, "Cell::Hash is not a standard layout type");
@@ -55,6 +57,7 @@ class Cell : public CellTraits {
   }
 
   // load interface
+  virtual td::Status set_data_cell(Ref<DataCell> &&data_cell) const = 0;
   virtual td::Result<LoadedCell> load_cell() const = 0;
   virtual Ref<Cell> virtualize(VirtualizationParameters virt) const;
   virtual td::uint32 get_virtualization() const = 0;

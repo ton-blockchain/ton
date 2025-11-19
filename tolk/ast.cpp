@@ -21,7 +21,7 @@
 
 namespace tolk {
 
-static_assert(sizeof(ASTNodeBase) == 12);
+static_assert(sizeof(ASTNodeBase) == 16);
 
 #ifdef TOLK_DEBUG
 
@@ -36,18 +36,14 @@ void ASTNodeBase::debug_print() const {
 
 #endif  // TOLK_DEBUG
 
-UnexpectedASTNodeType::UnexpectedASTNodeType(AnyV v_unexpected, const char* place_where): v_unexpected(v_unexpected) {
-  message = "Unexpected ASTNodeType ";
+UnexpectedASTNodeKind::UnexpectedASTNodeKind(AnyV v_unexpected, const char* place_where): v_unexpected(v_unexpected) {
+  message = "Unexpected ASTNodeKind ";
 #ifdef TOLK_DEBUG
-  message += ASTStringifier::ast_node_type_to_string(v_unexpected->type);
+  message += ASTStringifier::ast_node_kind_to_string(v_unexpected->kind);
   message += " ";
 #endif
   message += "in ";
   message += place_where;
-}
-
-void ASTNodeBase::error(const std::string& err_msg) const {
-  throw ParseError(loc, err_msg);
 }
 
 AnnotationKind Vertex<ast_annotation>::parse_kind(std::string_view name) {
@@ -60,11 +56,23 @@ AnnotationKind Vertex<ast_annotation>::parse_kind(std::string_view name) {
   if (name == "@inline_ref") {
     return AnnotationKind::inline_ref;
   }
+  if (name == "@noinline") {
+    return AnnotationKind::noinline;
+  }
   if (name == "@method_id") {
     return AnnotationKind::method_id;
   }
   if (name == "@deprecated") {
     return AnnotationKind::deprecated;
+  }
+  if (name == "@custom") {
+    return AnnotationKind::custom;
+  }
+  if (name == "@overflow1023_policy") {
+    return AnnotationKind::overflow1023_policy;
+  }
+  if (name == "@on_bounced_policy") {
+    return AnnotationKind::on_bounced_policy;
   }
   return AnnotationKind::unknown;
 }
@@ -80,7 +88,7 @@ int Vertex<ast_genericsT_list>::lookup_idx(std::string_view nameT) const {
 
 int Vertex<ast_parameter_list>::lookup_idx(std::string_view param_name) const {
   for (size_t idx = 0; idx < children.size(); ++idx) {
-    if (children[idx] && children[idx]->as<ast_parameter>()->param_name == param_name) {
+    if (children[idx] && children[idx]->as<ast_parameter>()->get_name() == param_name) {
       return static_cast<int>(idx);
     }
   }
@@ -105,6 +113,10 @@ int Vertex<ast_parameter_list>::get_mutate_params_count() const {
 // Therefore, there is a guarantee, that all AST mutations are done via these methods,
 // easily searched by usages, and there is no another way to modify any other field.
 
+void ASTNodeDeclaredTypeBase::assign_resolved_type(TypePtr resolved_type) {
+  this->resolved_type = resolved_type;
+}
+
 void ASTNodeExpressionBase::assign_inferred_type(TypePtr type) {
   this->inferred_type = type;
 }
@@ -126,66 +138,47 @@ void Vertex<ast_reference>::assign_sym(const Symbol* sym) {
   this->sym = sym;
 }
 
-void Vertex<ast_string_const>::assign_literal_value(ConstantValue&& literal_value) {
-  this->literal_value = std::move(literal_value);
-}
-
-void Vertex<ast_function_call>::assign_fun_ref(FunctionPtr fun_ref) {
+void Vertex<ast_function_call>::assign_fun_ref(FunctionPtr fun_ref, bool dot_obj_is_self) {
   this->fun_maybe = fun_ref;
-}
-
-void Vertex<ast_cast_as_operator>::assign_resolved_type(TypePtr cast_to_type) {
-  this->cast_to_type = cast_to_type;
-}
-
-void Vertex<ast_is_type_operator>::assign_resolved_type(TypePtr rhs_type) {
-  this->rhs_type = rhs_type;
+  this->dot_obj_is_self = dot_obj_is_self;
 }
 
 void Vertex<ast_is_type_operator>::assign_is_negated(bool is_negated) {
   this->is_negated = is_negated;
 }
 
-void Vertex<ast_match_arm>::assign_resolved_pattern(MatchArmKind pattern_kind, TypePtr exact_type, AnyExprV pattern_expr) {
+void Vertex<ast_lazy_operator>::assign_dest_var_ref(LocalVarPtr dest_var_ref) {
+  this->dest_var_ref = dest_var_ref;
+}
+
+void Vertex<ast_match_expression>::assign_is_exhaustive(bool is_exhaustive) {
+  this->is_exhaustive = is_exhaustive;
+}
+
+void Vertex<ast_match_arm>::assign_resolved_pattern(MatchArmKind pattern_kind, AnyExprV pattern_expr) {
+  this->pattern_type_node = nullptr;
   this->pattern_kind = pattern_kind;
-  this->exact_type = exact_type;
   this->lhs = pattern_expr;
 }
 
-void Vertex<ast_global_var_declaration>::assign_var_ref(GlobalVarPtr var_ref) {
-  this->var_ref = var_ref;
-}
-
-void Vertex<ast_global_var_declaration>::assign_resolved_type(TypePtr declared_type) {
-  this->declared_type = declared_type;
+void Vertex<ast_global_var_declaration>::assign_glob_ref(GlobalVarPtr glob_ref) {
+  this->glob_ref = glob_ref;
 }
 
 void Vertex<ast_constant_declaration>::assign_const_ref(GlobalConstPtr const_ref) {
   this->const_ref = const_ref;
 }
 
-void Vertex<ast_constant_declaration>::assign_resolved_type(TypePtr declared_type) {
-  this->declared_type = declared_type;
-}
-
 void Vertex<ast_type_alias_declaration>::assign_alias_ref(AliasDefPtr alias_ref) {
   this->alias_ref = alias_ref;
 }
 
-void Vertex<ast_type_alias_declaration>::assign_resolved_type(TypePtr underlying_type) {
-  this->underlying_type = underlying_type;
+void Vertex<ast_enum_declaration>::assign_enum_ref(EnumDefPtr enum_ref) {
+  this->enum_ref = enum_ref;
 }
 
-void Vertex<ast_instantiationT_item>::assign_resolved_type(TypePtr substituted_type) {
-  this->substituted_type = substituted_type;
-}
-
-void Vertex<ast_parameter>::assign_param_ref(LocalVarPtr param_ref) {
-  this->param_ref = param_ref;
-}
-
-void Vertex<ast_parameter>::assign_resolved_type(TypePtr declared_type) {
-  this->declared_type = declared_type;
+void Vertex<ast_struct_declaration>::assign_struct_ref(StructPtr struct_ref) {
+  this->struct_ref = struct_ref;
 }
 
 void Vertex<ast_set_assign>::assign_fun_ref(FunctionPtr fun_ref) {
@@ -204,24 +197,32 @@ void Vertex<ast_block_statement>::assign_first_unreachable(AnyV first_unreachabl
   this->first_unreachable = first_unreachable;
 }
 
+void Vertex<ast_block_statement>::assign_new_children(std::vector<AnyV>&& children) {
+  this->children = std::move(children);
+}
+
 void Vertex<ast_dot_access>::assign_target(const DotTarget& target) {
   this->target = target;
+}
+
+void Vertex<ast_object_field>::assign_field_ref(StructFieldPtr field_ref) {
+  this->field_ref = field_ref;
+}
+
+void Vertex<ast_object_literal>::assign_struct_ref(StructPtr struct_ref) {
+  this->struct_ref = struct_ref;
+}
+
+void Vertex<ast_lambda_fun>::assign_lambda_ref(FunctionPtr lambda_ref) {
+  this->lambda_ref = lambda_ref;
 }
 
 void Vertex<ast_function_declaration>::assign_fun_ref(FunctionPtr fun_ref) {
   this->fun_ref = fun_ref;
 }
 
-void Vertex<ast_function_declaration>::assign_resolved_type(TypePtr declared_return_type) {
-  this->declared_return_type = declared_return_type;
-}
-
 void Vertex<ast_local_var_lhs>::assign_var_ref(LocalVarPtr var_ref) {
   this->var_ref = var_ref;
-}
-
-void Vertex<ast_local_var_lhs>::assign_resolved_type(TypePtr declared_type) {
-  this->declared_type = declared_type;
 }
 
 void Vertex<ast_import_directive>::assign_src_file(const SrcFile* file) {

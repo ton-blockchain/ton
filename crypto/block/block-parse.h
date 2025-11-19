@@ -405,7 +405,7 @@ struct CommonMsgInfo final : TLB_Complex {
 
 struct CommonMsgInfo::Record_int_msg_info {
   bool ihr_disabled, bounce, bounced;
-  Ref<vm::CellSlice> src, dest, value, ihr_fee, fwd_fee;
+  Ref<vm::CellSlice> src, dest, value, extra_flags, fwd_fee;
   unsigned long long created_lt;
   unsigned created_at;
 };
@@ -492,13 +492,6 @@ struct StorageUsed final : TLB_Complex {
 };
 
 extern const StorageUsed t_StorageUsed;
-
-struct StorageUsedShort final : TLB_Complex {
-  bool skip(vm::CellSlice& cs) const override;
-  bool validate_skip(int* ops, vm::CellSlice& cs, bool weak = false) const override;
-};
-
-extern const StorageUsedShort t_StorageUsedShort;
 
 struct StorageInfo final : TLB_Complex {
   bool skip(vm::CellSlice& cs) const override;
@@ -611,7 +604,7 @@ extern const Aug_ShardAccounts aug_ShardAccounts;
 
 struct ShardAccounts final : TLB_Complex {
   HashmapAugE dict_type;
-  ShardAccounts() : dict_type(256, aug_ShardAccounts){};
+  ShardAccounts() : dict_type(256, aug_ShardAccounts) {};
   bool skip(vm::CellSlice& cs) const override {
     return dict_type.skip(cs);
   }
@@ -821,7 +814,7 @@ struct InMsg final : TLB_Complex {
     }
     return (int)cs.prefetch_ulong(5) - 0b00100 + 8;
   }
-  bool get_import_fees(vm::CellBuilder& cb, vm::CellSlice& cs) const;
+  bool get_import_fees(vm::CellBuilder& cb, vm::CellSlice& cs, int global_version) const;
 };
 
 extern const InMsg t_InMsg;
@@ -851,7 +844,7 @@ struct OutMsg final : TLB_Complex {
     }
     return t;
   }
-  bool get_export_value(vm::CellBuilder& cb, vm::CellSlice& cs) const;
+  bool get_export_value(vm::CellBuilder& cb, vm::CellSlice& cs, int global_version) const;
   bool get_emitted_lt(vm::CellSlice& cs, unsigned long long& emitted_lt) const;
 };
 
@@ -860,18 +853,22 @@ extern const OutMsg t_OutMsg;
 // next: InMsgDescr, OutMsgDescr, OutMsgQueue, and their augmentations
 
 struct Aug_InMsgDescr final : AugmentationCheckData {
-  Aug_InMsgDescr() : AugmentationCheckData(t_InMsg, t_ImportFees) {
+  explicit Aug_InMsgDescr(int global_version)
+      : AugmentationCheckData(t_InMsg, t_ImportFees), global_version(global_version) {
   }
   bool eval_leaf(vm::CellBuilder& cb, vm::CellSlice& cs) const override {
-    return t_InMsg.get_import_fees(cb, cs);
+    return t_InMsg.get_import_fees(cb, cs, global_version);
   }
+  int global_version;
 };
 
-extern const Aug_InMsgDescr aug_InMsgDescr;
+extern const Aug_InMsgDescr aug_InMsgDescrDefault;
 
 struct InMsgDescr final : TLB_Complex {
+  Aug_InMsgDescr aug;
   HashmapAugE dict_type;
-  InMsgDescr() : dict_type(256, aug_InMsgDescr){};
+  explicit InMsgDescr(int global_version) : aug(global_version), dict_type(256, aug) {
+  }
   bool skip(vm::CellSlice& cs) const override {
     return dict_type.skip(cs);
   }
@@ -880,21 +877,25 @@ struct InMsgDescr final : TLB_Complex {
   }
 };
 
-extern const InMsgDescr t_InMsgDescr;
+extern const InMsgDescr t_InMsgDescrDefault;
 
 struct Aug_OutMsgDescr final : AugmentationCheckData {
-  Aug_OutMsgDescr() : AugmentationCheckData(t_OutMsg, t_CurrencyCollection) {
+  explicit Aug_OutMsgDescr(int global_version)
+      : AugmentationCheckData(t_OutMsg, t_CurrencyCollection), global_version(global_version) {
   }
   bool eval_leaf(vm::CellBuilder& cb, vm::CellSlice& cs) const override {
-    return t_OutMsg.get_export_value(cb, cs);
+    return t_OutMsg.get_export_value(cb, cs, global_version);
   }
+  int global_version;
 };
 
-extern const Aug_OutMsgDescr aug_OutMsgDescr;
+extern const Aug_OutMsgDescr aug_OutMsgDescrDefault;
 
 struct OutMsgDescr final : TLB_Complex {
+  Aug_OutMsgDescr aug;
   HashmapAugE dict_type;
-  OutMsgDescr() : dict_type(256, aug_OutMsgDescr){};
+  explicit OutMsgDescr(int global_version) : aug(global_version), dict_type(256, aug) {
+  }
   bool skip(vm::CellSlice& cs) const override {
     return dict_type.skip(cs);
   }
@@ -903,7 +904,7 @@ struct OutMsgDescr final : TLB_Complex {
   }
 };
 
-extern const OutMsgDescr t_OutMsgDescr;
+extern const OutMsgDescr t_OutMsgDescrDefault;
 
 struct EnqueuedMsg final : TLB_Complex {
   int get_size(const vm::CellSlice& cs) const override {
@@ -942,7 +943,7 @@ extern const Aug_DispatchQueue aug_DispatchQueue;
 
 struct OutMsgQueue final : TLB_Complex {
   HashmapAugE dict_type;
-  OutMsgQueue() : dict_type(32 + 64 + 256, aug_OutMsgQueue){};
+  OutMsgQueue() : dict_type(32 + 64 + 256, aug_OutMsgQueue) {};
   bool skip(vm::CellSlice& cs) const override {
     return dict_type.skip(cs);
   }
@@ -1145,8 +1146,8 @@ struct Aug_ShardFees final : AugmentationCheckData {
 extern const Aug_ShardFees aug_ShardFees;
 
 // Validate dict of libraries in message: used when sending and receiving message
-bool validate_message_libs(const td::Ref<vm::Cell> &cell);
-bool validate_message_relaxed_libs(const td::Ref<vm::Cell> &cell);
+bool validate_message_libs(const td::Ref<vm::Cell>& cell);
+bool validate_message_relaxed_libs(const td::Ref<vm::Cell>& cell);
 
 }  // namespace tlb
 }  // namespace block

@@ -1,3 +1,53 @@
+## 2025.11 Update
+
+1. [TVM version v12](./doc/GlobalVersions.md) update: [forbid unused high bits in extra_flags](https://github.com/ton-blockchain/TEPs/pull/503/commits/d949d70d5a69026d273cbbc07653d12c4373117a), [bounce extra_flags equal to initial message extra_flags](https://github.com/ton-blockchain/TEPs/pull/503/commits/d33ff342d69de04f1c33d11360dcf06b63a6c21e), [new TVM opcodes](https://github.com/ton-blockchain/ton/commit/ecd8fbb833c408eb34ec1aa4516e9e4344b54a22).
+2. Abseil upgrade
+3. Improvements in node synchronisation
+4. Fixing rare ArchiveManager issues
+5. Various improvements in logging, builds, DHT node behavior, private net launching, failure handlers.
+
+Besides the work of the core team, this update is based on the efforts of the @Lapo4kaKek and [Vahagn x.com/vah_13](https://x.com/vah_13).
+
+## 2025.10 Update
+
+1. [TVM version v12](./doc/GlobalVersions.md): full bounces, new `BTOS` and `HASHBU` instuctions, limit on contract size in masterchain.
+2. Optimistic collation/validation: allow nodes to generate and check block candidates before previous block is fully signed (not fully activated yet).
+3. Introduced custom block compression algorithm.
+4. Overlay improvements: improved overlay discovery on shard configuration update, private externals in custom overlays.
+5. Various improvements: session stats, telemetry in fast-sync overlay, earlier block broadcasts, limiting ttl for values in DHT, fixing search by utime in native blockexplorer, faster downloading candidates in validator session, parallelization of storing to cell_db, avoiding touching packfiles on startup.
+
+Besides the work of the core team, this update is based on the efforts of the Tonstudio team: @hacker-volodya @Shvandre; and @mkiesel (avoiding touching packfiles on startup).
+
+
+
+## 2025.07 Accelerator Update
+
+Separation of validation and collation processes that allows to host them on independent machines and achieve full horizontal scaling. [More details in documentation](https://docs.ton.org/v3/documentation/infra/nodes/validation/collators)
+
+## 2025.06 Update
+
+1. ADNL and candidate broadcast optimization
+2. [TVM version v11](./doc/GlobalVersions.md): new opcodes, and `c7` entry to improve developer experience. It also activates storage stats and `ihr_fee`  nullification.
+3. Fixed `start_lt` of tick transactions [see details on 01.06.2025 incident](https://telegra.ph/Report-on-June-1-2025-Operation-Incident-06-02).
+4. Introduction of persistent state sharding, as well as making serialization of large BOCs more deterministic
+5. Emulator improvements: in get methods, set config from provided `c7`; allow retrieval of logs from emulator runs for get methods
+6. Optimized package import for archive nodes
+
+Besides the work of the core team, this update is based on the efforts of the RSquad team (deterministic large BOC serialization); AArayz, wy666444, Robinlzw, Lucian-code233 from TonBit (early discovery of the TVM 11 bug); @Skydev0h (uninitialized `BLOCKLT` in get methods); and @yma-het from TONWhales (emulator improvements).
+
+
+## 2025.04 Update
+
+1. Introduced substantial improvements of CellDB performance: celldb-v2, bloom filters.
+2. Accelerated a number of intrinsic node operations: SHA256, cell operations, large boc serialization, validator set checks.
+3. [TVM version v10](./doc/GlobalVersions.md)
+4. Overlay broadcast speed up and improved network stats.
+5. Fixed some issues in tonlib
+6. [Added normalized hash](https://github.com/ton-blockchain/TEPs/pull/467)
+7. Fix SDBEGINS(Q) in Asm.fif
+
+Besides the work of the core team, this update is based on the efforts of  @Stanislav-Povolotsky (tonlib fixes); @ice-charon (tonlib fixes); RSquad team (due payments improvements in v10); Arayz, Robinlzw, @wy666444 @Lucian-code233 from TonBit (improvements in RUNVM); @Skydev0h and @pyAndr3w (Asm.fif).
+
 ## 2025.03 Update
 1. New extracurrency behavior introduced, check [GlobalVersions.md](./doc/GlobalVersions.md#version-10)
 2. Optmization of validation process, in particular CellStorageStat.

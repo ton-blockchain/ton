@@ -1,8 +1,3 @@
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
-
 set(VALIDATOR_ENGINE_SOURCE
   validator-engine.hpp
   validator-engine.cpp

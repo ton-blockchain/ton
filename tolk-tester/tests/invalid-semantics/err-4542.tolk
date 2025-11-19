@@ -1,5 +1,5 @@
 @pure
-fun tupleMut(mutate self: tuple): int
+fun tuple.tupleMut(mutate self): int
     asm "TLEN";
 
 fun main() {
@@ -9,5 +9,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr saving `tupleMut` into a variable is impossible, since it has `mutate` parameters
+@stderr saving `tuple.tupleMut` into a variable is impossible, since it has `mutate` parameters
  */

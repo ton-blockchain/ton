@@ -66,6 +66,8 @@ class CellDbIn : public CellDbBase {
   void load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise);
   void store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise<td::Ref<vm::DataCell>> promise);
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise);
+  void store_block_state_permanent(td::Ref<BlockData> block, td::Promise<td::Ref<vm::DataCell>> promise);
+  void store_block_state_permanent_bulk(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise);
 
   void migrate_cell(td::Bits256 hash);
 
@@ -74,6 +76,7 @@ class CellDbIn : public CellDbBase {
   CellDbIn(td::actor::ActorId<RootDb> root_db, td::actor::ActorId<CellDb> parent, std::string path,
            td::Ref<ValidatorManagerOptions> opts);
 
+  void validate_meta();
   void start_up() override;
   void alarm() override;
 
@@ -136,9 +139,12 @@ class CellDbIn : public CellDbBase {
   std::unique_ptr<MigrationStats> migration_stats_;
 
   struct CellDbStatistics {
+    bool permanent_mode_;
     PercentileStats store_cell_time_;
     PercentileStats store_cell_prepare_time_;
     PercentileStats store_cell_write_time_;
+    size_t store_cell_bulk_queries_ = 0;
+    size_t store_cell_bulk_total_blocks_ = 0;
     PercentileStats gc_cell_time_;
     td::Timestamp stats_start_time_ = td::Timestamp::now();
     std::optional<double> in_memory_load_time_;
@@ -155,6 +161,7 @@ class CellDbIn : public CellDbBase {
   CellDbStatistics cell_db_statistics_;
   td::Timestamp statistics_flush_at_ = td::Timestamp::never();
   BlockSeqno last_deleted_mc_state_ = 0;
+  bool permanent_mode_ = false;
 
   bool db_busy_ = false;
   std::queue<td::Promise<td::Unit>> action_queue_;
@@ -187,6 +194,8 @@ class CellDb : public CellDbBase {
   void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise);
   void load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise);
   void store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise<td::Ref<vm::DataCell>> promise);
+  void store_block_state_permanent(td::Ref<BlockData> block, td::Promise<td::Ref<vm::DataCell>> promise);
+  void store_block_state_permanent_bulk(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise);
   void update_snapshot(std::unique_ptr<td::KeyValueReader> snapshot) {
     CHECK(!opts_->get_celldb_in_memory());
     if (!started_) {
@@ -195,13 +204,13 @@ class CellDb : public CellDbBase {
     started_ = true;
     boc_->set_loader(std::make_unique<vm::CellLoader>(std::move(snapshot), on_load_callback_)).ensure();
   }
-  void set_in_memory_boc(std::shared_ptr<const vm::DynamicBagOfCellsDb> in_memory_boc) {
-    CHECK(opts_->get_celldb_in_memory());
+  void set_thread_safe_boc(std::shared_ptr<const vm::DynamicBagOfCellsDb> thread_safe_boc) {
+    CHECK(opts_->get_celldb_in_memory() || opts_->get_celldb_v2());
     if (!started_) {
       alarm();
     }
     started_ = true;
-    in_memory_boc_ = std::move(in_memory_boc);
+    thread_safe_boc_ = std::move(thread_safe_boc);
   }
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise);
 
@@ -219,7 +228,7 @@ class CellDb : public CellDbBase {
   td::actor::ActorOwn<CellDbIn> cell_db_;
 
   std::unique_ptr<vm::DynamicBagOfCellsDb> boc_;
-  std::shared_ptr<const vm::DynamicBagOfCellsDb> in_memory_boc_;
+  std::shared_ptr<const vm::DynamicBagOfCellsDb> thread_safe_boc_;
   bool started_ = false;
   std::vector<std::pair<std::string, std::string>> prepared_stats_{{"started", "false"}};
 

@@ -1,6 +1,6 @@
 
 fun autoGetIntOrNull() {
-    if (random()) { return 1; }
+    if (random.uint256()) { return 1; }
     return null;
 }
 

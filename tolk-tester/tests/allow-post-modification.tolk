@@ -1,19 +1,25 @@
 fun unsafe_tuple<X>(x: X): tuple
     asm "NOP";
 
+@noinline
 fun inc(x: int, y: int): (int, int) {
     return (x + y, y * 10);
 }
-fun `~inc`(mutate self: int, y: int): int {
+@noinline
+fun int.`~inc`(mutate self, y: int): int {
     val (newX, newY) = inc(self, y);
     self = newX;
     return newY;
 }
 
+@noinline
 fun eq<X>(v: X): X { return v; }
+@noinline
 fun eq2(v: (int, int)) { return v; }
+@noinline
 fun mul2(mutate dest: int, v: int): int { dest = v*2; return dest; }
-fun multens(mutate self: (int, int), v: (int, int)): (int, int) { var (f, s) = self; var (m1, m2) = v; self = (f*m1, s*m2); return self; }
+@noinline
+fun (int, int).multens(mutate self, v: (int, int)): (int, int) { var (f, s) = self; var (m1, m2) = v; self = (f*m1, s*m2); return self; }
 
 @method_id(11)
 fun test_return(x: int): (int, int, int, int, int, int, int) {
@@ -38,6 +44,7 @@ fun test_tuple_assign(x: int): (int, int, int, int, int, int, int) {
     return (x1, x2, x3, x4, x5, x6, x7);
 }
 
+@noinline
 fun foo1(x1: int, x2: int, x3: int, x4: int, x5: int, x6: int, x7: int): (int, int, int, int, int, int, int) {
     return (x1, x2, x3, x4, x5, x6, x7);
 }
@@ -47,6 +54,7 @@ fun test_call_1(x: int): (int, int, int, int, int, int, int) {
     return foo1(x, x.`~inc`(x / 20), x, x = x * 2, x, x += 1, x);
 }
 
+@noinline
 fun foo2(x1: int, x2: int, x3456: (int, int, int, int), x7: int, ): (int, int, int, int, int, int, int) {
     var (x3: int, x4: int, x5: int, x6: int) = x3456;
     return (x1, x2, x3, x4, x5, x6, x7);
@@ -89,27 +97,37 @@ fun test_if_else(x: int): (int, int, int, int, int) {
 
 @method_id(21)
 fun test_assign_with_inner(x: int) {
-    var result = (x, x += 10, [x, x += 20, eq(x -= 50), x], eq2((x, x *= eq(x /= 2))));
+    var result = (x, x += 10, [x, x += 20, eq(x -= 50), x], eq2((x, x *= eq(x! /= 2))));
     return result;
 }
 
 @method_id(22)
 fun test_assign_with_mutate(x: int) {
-    var (result, _) = ((x, mul2(mutate x, x += 5), x.`~inc`(mul2(mutate x, x)), x), 0);
+    var (result, _) = ((x, mul2(mutate x, (x as int) += 5), x.`~inc`(mul2(mutate x!, x)), x), 0);
     return result;
 }
 
 @method_id(23)
 fun test_assign_tensor(x: (int, int)) {
     var fs = (0, 0);
-    return (x, x = (20, 30), fs = x.multens((1, 2)), fs.multens(multens(mutate x, (-1, -1))), x, fs);
+    return (x, x = (20, 30), fs = x.multens((1, 2)), fs.multens(x.multens((-1, -1))), x, fs);
 }
 
 global fs: (int, int);
 @method_id(24)
 fun test_assign_tensor_global(x: (int, int)) {
     fs = (0, 0);
-    return (x, x = (20, 30), fs = x.multens((1, 2)), fs.multens(multens(mutate x, (-1, -1))), x, fs);
+    return (x, x = (20, 30), fs = x.multens((1, 2)), fs.multens(x.multens((-1, -1))), x, fs);
+}
+
+struct Point1D {
+    c: int;
+}
+
+@method_id(25)
+fun test_with_single_slot_struct(x: Point1D) {
+    var result = (x, x.c += 10, [x, x.c += 20, eq(x.c -= 50), x.c], eq2((x.c, x.c *= eq(x.c! /= 2))));
+    return result;
 }
 
 fun main() {
@@ -132,20 +150,19 @@ fun main() {
 @testcase | 22 | 100 | 100 210 4200 630
 @testcase | 23 | 1 1 | 1 1 20 30 20 60 -400 -3600 -20 -60 -400 -3600
 @testcase | 24 | 1 1 | 1 1 20 30 20 60 -400 -3600 -20 -60 -400 -3600
+@testcase | 25 | 100 | 100 110 [ 110 130 80 80 ] 80 3200
 
 @fif_codegen
 """
-  ~inc PROC:<{
-    //  self y
-    inc CALLDICT // self newY
+  int.~inc() PROC:<{      //  self y
+    inc() CALLDICT    //  self newY
   }>
 """
 
 @fif_codegen
 """
-  test_assign_tensor_global PROC:<{
-    // x.0 x.1
+  test_assign_tensor_global() PROC:<{   // x.0 x.1
 """
 
-@code_hash 61280273714870328160131559159866470128402169974050439159015534193532598351244
+@code_hash 77620375659834063567341916666636335765114427483375544778177892407598637223147
 */
