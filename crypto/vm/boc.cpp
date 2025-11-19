@@ -20,6 +20,8 @@
 #include <iomanip>
 #include <iostream>
 
+#include "cells/MerkleProof.h"
+#include "cells/PrunnedCell.h"
 #include "td/utils/Slice-decl.h"
 #include "td/utils/bits.h"
 #include "td/utils/crypto.h"
@@ -974,7 +976,7 @@ td::Result<Ref<Cell>> std_boc_deserialize(td::Slice data, bool can_be_empty, boo
   return std::move(root);
 }
 
-td::Result<std::vector<Ref<Cell>>> std_boc_deserialize_multi(td::Slice data, int max_roots) {
+td::Result<std::vector<Ref<Cell>>> std_boc_deserialize_multi(td::Slice data, int max_roots, bool allow_nonzero_level) {
   if (data.empty()) {
     return std::vector<Ref<Cell>>{};
   }
@@ -990,7 +992,7 @@ td::Result<std::vector<Ref<Cell>>> std_boc_deserialize_multi(td::Slice data, int
     if (root.is_null()) {
       return td::Status::Error("bag of cells has a null root cell (?)");
     }
-    if (root->get_level() != 0) {
+    if (!allow_nonzero_level && root->get_level() != 0) {
       return td::Status::Error("bag of cells has a root with non-zero level");
     }
     roots.emplace_back(std::move(root));
@@ -1266,35 +1268,36 @@ bool VmStorageStat::add_storage(const CellSlice& cs) {
 }
 
 void ProofStorageStat::add_loaded_cell(const Ref<DataCell>& cell, td::uint8 max_level) {
-  max_level = std::min<td::uint32>(max_level, Cell::max_level);
-  auto& [status, size] = cells_[cell->get_hash(max_level)];
-  if (status == c_loaded) {
+  max_level = std::min<td::uint8>(max_level, Cell::max_level);
+  auto& info = cells_[cell->get_hash(max_level)];
+  if (info.status == c_loaded) {
     return;
   }
-  proof_size_ -= size;
-  status = c_loaded;
-  proof_size_ += size = estimate_serialized_size(cell);
+  proof_size_ -= info.serialized_size;
+  info.status = c_loaded;
+  info.cell = cell;
+  info.cell_max_level = max_level;
+  proof_size_ += info.serialized_size = estimate_serialized_size(cell);
   max_level += (cell->special_type() == CellTraits::SpecialType::MerkleProof ||
                 cell->special_type() == CellTraits::SpecialType::MerkleUpdate);
   for (unsigned i = 0; i < cell->size_refs(); ++i) {
-    auto& [child_status, child_size] = cells_[cell->get_ref(i)->get_hash(max_level)];
-    if (child_status == c_none) {
-      child_status = c_prunned;
-      proof_size_ += child_size = estimate_prunned_size();
+    auto& child = cells_[cell->get_ref(i)->get_hash(max_level)];
+    if (child.status == c_none) {
+      child.status = c_prunned;
+      proof_size_ += child.serialized_size = estimate_prunned_size();
     }
   }
 }
 
 void ProofStorageStat::add_loaded_cells(const ProofStorageStat& other) {
-  for (const auto& [hash, x] : other.cells_) {
-    const auto& [new_status, new_size] = x;
-    auto& [old_status, old_size] = cells_[hash];
-    if (old_status >= new_status) {
+  for (const auto& [hash, new_info] : other.cells_) {
+    auto& old_info = cells_[hash];
+    if (old_info.status >= new_info.status) {
       continue;
     }
-    proof_size_ -= old_size;
-    old_status = new_status;
-    proof_size_ += old_size = new_size;
+    proof_size_ -= old_info.serialized_size;
+    old_info = new_info;
+    proof_size_ += old_info.serialized_size;
   }
 }
 
@@ -1304,7 +1307,83 @@ td::uint64 ProofStorageStat::estimate_proof_size() const {
 
 ProofStorageStat::CellStatus ProofStorageStat::get_cell_status(const Cell::Hash& hash) const {
   auto it = cells_.find(hash);
-  return it == cells_.end() ? c_none : it->second.first;
+  return it == cells_.end() ? c_none : it->second.status;
+}
+
+std::vector<Ref<Cell>> ProofStorageStat::build_collated_data(std::vector<Ref<Cell>> skip_roots) const {
+  struct Cache {
+    Ref<Cell> result;
+    bool is_root = true;
+    bool skip = false;
+    bool skip_visited = false;
+  };
+  std::map<Cell::Hash, Cache> cache;
+
+  std::function<void(const Ref<Cell>&)> dfs_skip = [&](const Ref<Cell>& cell) {
+    Cell::Hash hash = cell->get_hash();
+    Cache& entry = cache[hash];
+    if (entry.skip_visited) {
+      return;
+    }
+    entry.skip_visited = entry.skip = true;
+    CellSlice cs{NoVm{}, cell};
+    if (cs.special_type() != CellTraits::SpecialType::PrunnedBranch) {
+      for (unsigned i = 0; i < cell->get_level(); ++i) {
+        cache[cell->get_hash(i)].skip = true;
+      }
+    }
+    for (unsigned i = 0; i < cs.size_refs(); ++i) {
+      dfs_skip(cs.prefetch_ref(i));
+    }
+  };
+  for (const auto& cell : skip_roots) {
+    if (cell.not_null()) {
+      dfs_skip(cell);
+    }
+  }
+
+  std::function<Cache&(const CellInfo&)> dfs = [&](const CellInfo& info) -> Cache& {
+    Cell::Hash hash = info.cell->get_hash(info.cell_max_level);
+    Cache& entry = cache[hash];
+    if (entry.result.not_null()) {
+      return entry;
+    }
+    CellBuilder cb;
+    cb.store_bits(info.cell->get_data(), info.cell->size());
+    td::uint8 child_max_level = info.cell_max_level;
+    if (info.cell->special_type() == CellTraits::SpecialType::MerkleProof ||
+        info.cell->special_type() == CellTraits::SpecialType::MerkleUpdate) {
+      ++child_max_level;
+    }
+    for (unsigned i = 0; i < info.cell->size_refs(); ++i) {
+      Ref<Cell> child = info.cell->get_ref(i);
+      Cell::Hash child_hash = child->get_hash(child_max_level);
+      auto it = cells_.find(child_hash);
+      if (it == cells_.end() || it->second.status != c_loaded || cache[child_hash].skip) {
+        cb.store_ref(CellBuilder::create_pruned_branch(child, Cell::max_level, child_max_level));
+      } else {
+        Cache& child_result = dfs(it->second);
+        child_result.is_root = false;
+        cb.store_ref(child_result.result);
+      }
+    }
+    Cache& entry2 = cache[hash];
+    entry2.result = cb.finalize(info.cell->is_special());
+    CHECK(entry2.result->get_hash(std::min<int>(info.cell->get_level(), info.cell_max_level)) == hash);
+    return entry2;
+  };
+  for (auto& [hash, info] : cells_) {
+    if (info.status == c_loaded && !cache[hash].skip) {
+      dfs(info);
+    }
+  }
+  std::vector<Ref<Cell>> result;
+  for (auto& [_, entry] : cache) {
+    if (entry.result.not_null() && entry.is_root) {
+      result.push_back(std::move(entry.result));
+    }
+  }
+  return result;
 }
 
 td::uint64 ProofStorageStat::estimate_prunned_size() {

@@ -32,6 +32,7 @@
 #include "vm/dict.h"
 
 #include "block-parse.h"
+#include "collated-data-merger.h"
 #include "fabric.h"
 #include "shard.hpp"
 #include "signature-set.hpp"
@@ -160,11 +161,13 @@ class ValidateQuery : public td::actor::Actor {
   std::optional<std::string> check_account_reject_error_ = std::nullopt;
   std::optional<td::BufferSlice> check_account_reject_reason_ = std::nullopt;
   BlockSeqno prev_key_seqno_{~0u};
+  td::optional<FileHash> stored_collated_data_hash_;
   int stage_{0};
   td::BitArray<64> shard_pfx_;
   int shard_pfx_len_;
   td::Bits256 created_by_;
   Ref<BlockData> optimistic_prev_block_;
+  td::BufferSlice optimistic_prev_collated_data_;
 
   Ref<vm::Cell> prev_state_root_;
   Ref<vm::Cell> state_root_;
@@ -183,6 +186,11 @@ class ValidateQuery : public td::actor::Actor {
   std::map<RootHash, Ref<vm::Cell>> virt_roots_;
   std::unique_ptr<vm::Dictionary> top_shard_descr_dict_;
   std::map<td::Bits256, Ref<vm::Cell>> virt_account_storage_dicts_;
+
+  td::actor::ActorId<CollatedDataMerger> collated_data_merger_;
+  std::vector<vm::CellHash> collated_data_root_state_hashes_;
+  std::vector<vm::CellHash> collated_data_root_dict_hashes_;
+  bool merge_collated_data_enabled_{false};
 
   Ref<vm::CellSlice> shard_hashes_;              // from McBlockExtra
   Ref<vm::CellSlice> blk_config_params_;         // from McBlockExtra
@@ -283,6 +291,7 @@ class ValidateQuery : public td::actor::Actor {
   bool soft_reject_query(std::string error, td::BufferSlice reason = {});
   void alarm() override;
   void start_up() override;
+  void start_up_cont();
 
   void load_prev_states();
   bool process_optimistic_prev_block();
@@ -335,9 +344,12 @@ class ValidateQuery : public td::actor::Actor {
   bool check_prev_block_exact(const BlockIdExt& listed, const BlockIdExt& prev);
   bool check_this_shard_mc_info();
   bool init_parse();
+
   bool unpack_block_candidate();
-  bool extract_collated_data_from(Ref<vm::Cell> croot, int idx);
+  bool extract_collated_data_from(Ref<vm::Cell> croot, int idx, bool& end);
   bool extract_collated_data();
+  void process_merged_collated_roots(td::Result<td::HashMap<vm::CellHash, Ref<vm::Cell>>> res, td::PerfLogAction token);
+
   bool check_account_failures();
   bool try_validate();
   bool compute_prev_state();

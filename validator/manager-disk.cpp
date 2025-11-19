@@ -606,6 +606,10 @@ void ValidatorManagerImpl::get_candidate_data_by_block_id_from_db(BlockIdExt id,
                           promise.wrap([](BlockCandidate &&b) { return std::move(b.data); }));
 }
 
+void ValidatorManagerImpl::get_block_candidate_by_block_id_from_db(BlockIdExt id, td::Promise<BlockCandidate> promise) {
+  td::actor::send_closure(db_, &Db::get_block_candidate_by_block_id, id, std::move(promise));
+}
+
 void ValidatorManagerImpl::get_block_proof_from_db(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) {
   td::actor::send_closure(db_, &Db::get_block_proof, std::move(handle), std::move(promise));
 }
@@ -809,15 +813,15 @@ void ValidatorManagerImpl::set_next_block(BlockIdExt block_id, BlockIdExt next, 
   get_block_handle(block_id, true, std::move(P));
 }
 
-void ValidatorManagerImpl::set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
-                                               td::uint32 validator_set_hash, td::Promise<td::Unit> promise) {
+void ValidatorManagerImpl::set_block_candidate(BlockCandidate candidate, td::Promise<td::Unit> promise) {
   td::actor::send_closure(db_, &Db::store_block_candidate, std::move(candidate), std::move(promise));
 }
 
 void ValidatorManagerImpl::send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno,
                                                           td::uint32 validator_set_hash, td::BufferSlice data,
-                                                          int mode) {
-  callback_->send_block_candidate(id, cc_seqno, validator_set_hash, std::move(data), mode);
+                                                          td::optional<td::BufferSlice> collated_data, int mode) {
+  callback_->send_block_candidate_broadcast(id, cc_seqno, validator_set_hash, std::move(data), std::move(collated_data),
+                                            mode);
 }
 
 void ValidatorManagerImpl::write_handle(BlockHandle handle, td::Promise<td::Unit> promise) {

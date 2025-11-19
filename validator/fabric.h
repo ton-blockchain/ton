@@ -18,8 +18,10 @@
 */
 #pragma once
 
+#include "impl/collated-data-merger.h"
 #include "interfaces/db.h"
 #include "interfaces/validator-manager.h"
+#include "vm/fmt.hpp"
 
 #include "validator.h"
 
@@ -41,6 +43,25 @@ struct CollateParams {
 
   // Optional - used for optimistic collation
   Ref<BlockData> optimistic_prev_block = {};
+  td::BufferSlice optimistic_prev_collated_data = {};
+
+  std::shared_ptr<CollatedDataDeduplicator> collated_data_deduplicator = {};
+
+  CollateParams clone() const {
+    return {.shard = shard,
+            .min_masterchain_block_id = min_masterchain_block_id,
+            .prev = prev,
+            .is_hardfork = is_hardfork,
+            .creator = creator,
+            .validator_set = validator_set,
+            .collator_opts = collator_opts,
+            .collator_node_id = collator_node_id,
+            .skip_store_candidate = skip_store_candidate,
+            .attempt_idx = attempt_idx,
+            .optimistic_prev_block = optimistic_prev_block,
+            .optimistic_prev_collated_data = optimistic_prev_collated_data.clone(),
+            .collated_data_deduplicator = collated_data_deduplicator};
+  }
 };
 
 struct ValidateParams {
@@ -49,11 +70,13 @@ struct ValidateParams {
   std::vector<BlockIdExt> prev;
   td::Ref<ValidatorSet> validator_set = {};
   PublicKeyHash local_validator_id = PublicKeyHash::zero();
-  ;
   bool is_fake = false;
 
   // Optional - used for validation of optimistic candidates
   Ref<BlockData> optimistic_prev_block = {};
+  td::BufferSlice optimistic_prev_collated_data = {};
+
+  td::actor::ActorId<CollatedDataMerger> collated_data_merger = {};
 
   bool parallel_validation = false;
 };

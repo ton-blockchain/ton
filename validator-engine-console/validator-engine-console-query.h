@@ -1737,7 +1737,7 @@ class DelFastSyncOverlayClientQuery : public Query {
     return "del-fast-sync-overlay-client";
   }
   static std::string get_help() {
-    return "del-fast-sync-overlay-client <adnl_id> <slot>\tstops issuing member certificates to <adnl_id> (hex)";
+    return "del-fast-sync-overlay-client <adnl_id>\tstops issuing member certificates to <adnl_id> (hex)";
   }
   std::string name() const override {
     return get_name();

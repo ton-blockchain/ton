@@ -89,17 +89,13 @@ void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonN
                           block_id, query.block_->cc_seqno_, std::move(query.block_->data_));
 }
 
-void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query) {
+void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src,
+                                                ton_api::tonNode_blockCandidateBroadcastCompressed &query) {
   process_block_candidate_broadcast(src, query);
 }
 
 void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src,
-                                                ton_api::tonNode_newBlockCandidateBroadcastCompressed &query) {
-  process_block_candidate_broadcast(src, query);
-}
-
-void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src,
-                                                ton_api::tonNode_newBlockCandidateBroadcastCompressedV2 &query) {
+                                                ton_api::tonNode_blockCandidateBroadcastCompressedV2 &query) {
   process_block_candidate_broadcast(src, query);
 }
 
@@ -108,7 +104,8 @@ void FullNodeFastSyncOverlay::process_block_candidate_broadcast(PublicKeyHash sr
   CatchainSeqno cc_seqno;
   td::uint32 validator_set_hash;
   td::BufferSlice data;
-  auto S = deserialize_block_candidate_broadcast(query, block_id, cc_seqno, validator_set_hash, data,
+  td::optional<td::BufferSlice> collated_data;
+  auto S = deserialize_block_candidate_broadcast(query, block_id, cc_seqno, validator_set_hash, data, collated_data,
                                                  overlay::Overlays::max_fec_broadcast_size());
   if (S.is_error()) {
     LOG(DEBUG) << "dropped broadcast: " << S;
@@ -122,9 +119,10 @@ void FullNodeFastSyncOverlay::process_block_candidate_broadcast(PublicKeyHash sr
     VLOG(FULL_NODE_WARNING) << "received block candidate with incorrect file hash from " << src;
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Received newBlockCandidate in fast sync overlay from " << src << ": " << block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Received block candidate broadcast (" << (collated_data ? "with" : "no")
+                        << " cdata) in fast sync overlay from " << src << ": " << block_id.to_str();
   td::actor::send_closure(full_node_, &FullNode::process_block_candidate_broadcast, block_id, cc_seqno,
-                          validator_set_hash, std::move(data));
+                          validator_set_hash, std::move(data), std::move(collated_data));
 }
 
 void FullNodeFastSyncOverlay::process_telemetry_broadcast(
@@ -169,6 +167,34 @@ void FullNodeFastSyncOverlay::receive_broadcast(PublicKeyHash src, td::BufferSli
   ton_api::downcast_call(*B.move_as_ok(), [src, Self = this](auto &obj) { Self->process_broadcast(src, obj); });
 }
 
+void FullNodeFastSyncOverlay::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlockCandidate &query,
+                                            td::Promise<td::BufferSlice> promise) {
+  auto P = td::PromiseCreator::lambda([only_collated_data = query.only_collated_data_,
+                                       promise = std::move(promise)](td::Result<BlockCandidate> R) mutable {
+    if (R.is_error()) {
+      promise.set_value(create_serialize_tl_object<ton_api::tonNode_blockCandidateDataEmpty>());
+      return;
+    }
+    auto candidate = R.move_as_ok();
+    promise.set_result(serialize_block_candidate_data(std::move(candidate), only_collated_data, true));
+  });
+  BlockIdExt block_id = create_block_id(query.block_);
+  VLOG(FULL_NODE_DEBUG) << "Got query downloadBlockCandidate " << block_id.to_str() << " "
+                        << (query.only_collated_data_ ? "(only cdata)" : "(full)") << " from " << src;
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_block_candidate_by_block_id_from_db,
+                          block_id, std::move(P));
+}
+
+void FullNodeFastSyncOverlay::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query,
+                                            td::Promise<td::BufferSlice> promise) {
+  auto B = fetch_tl_object<ton_api::Function>(std::move(query), true);
+  if (B.is_error()) {
+    promise.set_error(td::Status::Error(ErrorCode::protoviolation, "cannot parse tonnode query"));
+    return;
+  }
+  ton_api::downcast_call(*B.move_as_ok().get(), [&](auto &obj) { this->process_query(src, obj, std::move(promise)); });
+}
+
 void FullNodeFastSyncOverlay::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
   if (!inited_) {
     return;
@@ -200,18 +226,20 @@ void FullNodeFastSyncOverlay::send_broadcast(BlockBroadcast broadcast) {
                           local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
 }
 
-void FullNodeFastSyncOverlay::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno,
-                                                   td::uint32 validator_set_hash, td::BufferSlice data) {
+void FullNodeFastSyncOverlay::send_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
+                                                             td::uint32 validator_set_hash, td::BufferSlice data,
+                                                             td::optional<td::BufferSlice> collated_data) {
   if (!inited_) {
     return;
   }
-  auto B =
-      serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true);  // compression enabled
+  auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data,
+                                               collated_data ? collated_data.value() : td::optional<td::Slice>{});
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Sending newBlockCandidate in fast sync overlay (with compression): " << block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Sending blockDataBroadcast in fast sync overlay (" << (collated_data ? "with" : "no")
+                        << " cdata): " << block_id.to_str();
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
                           local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
 }
@@ -228,6 +256,53 @@ void FullNodeFastSyncOverlay::send_validator_telemetry(tl_object_ptr<ton_api::va
     td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
                             local_id_.pubkey_hash(), 0, std::move(data));
   }
+}
+
+void FullNodeFastSyncOverlay::download_block_candidate(
+    BlockIdExt block_id, bool only_collated_data, td::Timestamp timeout,
+    td::Promise<std::pair<td::BufferSlice, td::BufferSlice>> promise) {
+  if (!inited_) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "not inited"));
+    return;
+  }
+  td::actor::send_closure(
+      overlays_, &overlay::Overlays::get_overlay_random_peers, local_id_, overlay_id_, 1,
+      [=, overlays = overlays_, rldp2 = rldp2_, local_id = local_id_, overlay_id = overlay_id_,
+       promise = std::move(promise)](td::Result<std::vector<adnl::AdnlNodeIdShort>> R) mutable {
+        TRY_RESULT_PROMISE(promise, peers, std::move(R));
+        if (peers.empty()) {
+          promise.set_error(td::Status::Error(ErrorCode::notready, "no nodes"));
+          return;
+        }
+        td::BufferSlice query = create_serialize_tl_object<ton_api::tonNode_downloadBlockCandidate>(
+            create_tl_block_id(block_id), only_collated_data);
+
+        td::Promise<td::BufferSlice> P = [=, promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+          TRY_RESULT_PROMISE(promise, response, std::move(R));
+          delay_action(
+              [=, promise = std::move(promise), response = std::move(response)]() mutable {
+                TRY_RESULT_PROMISE(promise, obj, fetch_tl_object<ton_api::tonNode_BlockCandidateData>(response, true));
+                if (obj->get_id() == ton_api::tonNode_blockCandidateDataEmpty::ID) {
+                  promise.set_error(td::Status::Error(ErrorCode::notready, "node doesn't have this block"));
+                  return;
+                }
+                BlockIdExt response_block_id;
+                std::pair<td::BufferSlice, td::BufferSlice> result;
+                TRY_STATUS_PROMISE(
+                    promise, deserialize_block_candidate_data(*obj, only_collated_data, response_block_id, result.first,
+                                                              result.second, FullNode::max_block_size() * 2 + 128));
+                if (response_block_id != block_id) {
+                  promise.set_error(td::Status::Error(ErrorCode::notready, "wrong block id in response"));
+                  return;
+                }
+                promise.set_value(std::move(result));
+              },
+              td::Timestamp::now());
+        };
+        td::actor::send_closure(overlays, &overlay::Overlays::send_query_via, peers[0], local_id, overlay_id,
+                                "get_block_candidate", std::move(P), timeout, std::move(query),
+                                FullNode::max_block_size() * 2 + 128, rldp2);
+      });
 }
 
 void FullNodeFastSyncOverlay::collect_validator_telemetry(std::string filename) {
@@ -290,6 +365,7 @@ void FullNodeFastSyncOverlay::init() {
     }
     void receive_query(adnl::AdnlNodeIdShort src, overlay::OverlayIdShort overlay_id, td::BufferSlice data,
                        td::Promise<td::BufferSlice> promise) override {
+      td::actor::send_closure(node_, &FullNodeFastSyncOverlay::receive_query, src, std::move(data), std::move(promise));
     }
     void receive_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data) override {
       td::actor::send_closure(node_, &FullNodeFastSyncOverlay::receive_broadcast, src, std::move(data));
@@ -323,6 +399,7 @@ void FullNodeFastSyncOverlay::init() {
   td::actor::send_closure(overlays_, &overlay::Overlays::create_semiprivate_overlay, local_id_,
                           overlay_id_full_.clone(), current_validators_adnl_, root_public_keys_, member_certificate_,
                           std::make_unique<Callback>(actor_id(this)), rules, std::move(scope), options);
+  td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_id_);
 
   inited_ = true;
   if (shard_.is_masterchain()) {
@@ -425,15 +502,13 @@ td::actor::ActorId<FullNodeFastSyncOverlay> FullNodeFastSyncOverlays::get_master
   return it2->second.get();
 }
 
-void FullNodeFastSyncOverlays::update_overlays(td::Ref<MasterchainState> state,
-                                               std::set<adnl::AdnlNodeIdShort> my_adnl_ids,
-                                               std::set<ShardIdFull> monitoring_shards,
-                                               const FileHash &zero_state_file_hash,
-                                               const td::actor::ActorId<keyring::Keyring> &keyring,
-                                               const td::actor::ActorId<adnl::Adnl> &adnl,
-                                               const td::actor::ActorId<overlay::Overlays> &overlays,
-                                               const td::actor::ActorId<ValidatorManagerInterface> &validator_manager,
-                                               const td::actor::ActorId<FullNode> &full_node) {
+void FullNodeFastSyncOverlays::update_overlays(
+    td::Ref<MasterchainState> state, std::set<adnl::AdnlNodeIdShort> my_adnl_ids,
+    std::set<ShardIdFull> monitoring_shards, const FileHash &zero_state_file_hash,
+    const td::actor::ActorId<keyring::Keyring> &keyring, const td::actor::ActorId<adnl::Adnl> &adnl,
+    const td::actor::ActorId<rldp2::Rldp> &rldp2, const td::actor::ActorId<overlay::Overlays> &overlays,
+    const td::actor::ActorId<ValidatorManagerInterface> &validator_manager,
+    const td::actor::ActorId<FullNode> &full_node) {
   monitoring_shards.insert(ShardIdFull{masterchainId});
   std::set<ShardIdFull> all_shards;
   all_shards.insert(ShardIdFull{masterchainId});
@@ -555,8 +630,8 @@ void FullNodeFastSyncOverlays::update_overlays(td::Ref<MasterchainState> state,
       if (overlay.empty()) {
         overlay = td::actor::create_actor<FullNodeFastSyncOverlay>(
             PSTRING() << "FastSyncOv" << shard.to_str(), local_id, shard, zero_state_file_hash, root_public_keys_,
-            current_validators_adnl_, overlays_info.current_certificate_, receive_broadcasts, keyring, adnl, overlays,
-            validator_manager, full_node);
+            current_validators_adnl_, overlays_info.current_certificate_, receive_broadcasts, keyring, adnl, rldp2,
+            overlays, validator_manager, full_node);
       } else {
         td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_receive_broadcasts, receive_broadcasts);
         if (changed_certificate) {

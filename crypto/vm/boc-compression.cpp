@@ -21,6 +21,7 @@
 
 #include "td/utils/Slice-decl.h"
 #include "td/utils/lz4.h"
+#include "ton/ton-types.h"
 #include "vm/boc-writers.h"
 #include "vm/boc.h"
 #include "vm/cells.h"
@@ -59,7 +60,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice
   }
 
   TRY_RESULT(decompressed, td::lz4_decompress(compressed, decompressed_size));
-  TRY_RESULT(roots, vm::std_boc_deserialize_multi(decompressed));
+  TRY_RESULT(roots, vm::std_boc_deserialize_multi(decompressed, ton::max_collated_data_roots + 1, true));
   return roots;
 }
 

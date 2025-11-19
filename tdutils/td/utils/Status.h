@@ -74,7 +74,7 @@
 #define TRY_RESULT_ASSIGN(name, result) TRY_RESULT_IMPL(TD_CONCAT(r_response, __LINE__), name, result)
 
 #define TRY_RESULT_PROMISE_ASSIGN(promise_name, name, result) \
-  TRY_RESULT_PROMISE_IMPL(promise_name, TD_CONCAT(TD_CONCAT(r_, name), __LINE__), name, result)
+  TRY_RESULT_PROMISE_IMPL(promise_name, TD_CONCAT(r_response, __LINE__), name, result)
 
 #define TRY_RESULT_PREFIX(name, result, prefix) \
   TRY_RESULT_PREFIX_IMPL(TD_CONCAT(TD_CONCAT(r_, name), __LINE__), auto name, result, prefix)
@@ -86,7 +86,7 @@
   TRY_RESULT_PROMISE_PREFIX_IMPL(promise_name, TD_CONCAT(TD_CONCAT(r_, name), __LINE__), auto name, result, prefix)
 
 #define TRY_RESULT_PROMISE_PREFIX_ASSIGN(promise_name, name, result, prefix) \
-  TRY_RESULT_PROMISE_PREFIX_IMPL(promise_name, TD_CONCAT(TD_CONCAT(r_, name), __LINE__), name, result, prefix)
+  TRY_RESULT_PROMISE_PREFIX_IMPL(promise_name, TD_CONCAT(r_response, __LINE__), name, result, prefix)
 
 #define TRY_RESULT_IMPL(r_name, name, result) \
   auto r_name = (result);                     \

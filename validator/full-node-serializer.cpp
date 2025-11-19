@@ -154,7 +154,7 @@ static td::Status deserialize_block_full(ton_api::tonNode_dataFull& f, BlockIdEx
 static td::Status deserialize_block_full(ton_api::tonNode_dataFullCompressed& f, BlockIdExt& id, td::BufferSlice& proof,
                                          td::BufferSlice& data, bool& is_proof_link, int max_decompressed_size) {
   TRY_RESULT(decompressed, td::lz4_decompress(f.compressed_, max_decompressed_size));
-  TRY_RESULT(roots, vm::std_boc_deserialize_multi(decompressed, 2));
+  TRY_RESULT(roots, vm::std_boc_deserialize_multi(decompressed, max_collated_data_roots + 1, true));
   if (roots.size() != 2) {
     return td::Status::Error("expected 2 roots in boc");
   }
@@ -200,80 +200,181 @@ td::Status deserialize_block_full(ton_api::tonNode_DataFull& obj, BlockIdExt& id
 
 td::Result<td::BufferSlice> serialize_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                                 td::uint32 validator_set_hash, td::Slice data,
-                                                                bool compression_enabled) {
-  if (!compression_enabled) {
-    return create_serialize_tl_object<ton_api::tonNode_newBlockCandidateBroadcast>(
-        create_tl_block_id(block_id), cc_seqno, validator_set_hash,
-        create_tl_object<ton_api::tonNode_blockSignature>(Bits256::zero(), td::BufferSlice()), td::BufferSlice(data));
-  }
+                                                                td::optional<td::Slice> collated_data) {
   TRY_RESULT(root, vm::std_boc_deserialize(data));
-  TRY_RESULT(data_new, vm::std_boc_serialize(root, 2));
+  std::vector<Ref<vm::Cell>> roots = {root};
+  if (collated_data) {
+    TRY_RESULT(collated_data_roots,
+               vm::std_boc_deserialize_multi(collated_data.value(), max_collated_data_roots, true));
+    roots.insert(roots.end(), collated_data_roots.begin(), collated_data_roots.end());
+  }
+  TRY_RESULT(data_new, vm::std_boc_serialize_multi(std::move(roots), 2));
   td::BufferSlice compressed = td::lz4_compress(data_new);
-  VLOG(FULL_NODE_DEBUG) << "Compressing block candidate broadcast: " << data.size() << " -> " << compressed.size();
-  return create_serialize_tl_object<ton_api::tonNode_newBlockCandidateBroadcastCompressed>(
+  VLOG(FULL_NODE_DEBUG) << "Compressing block candidate broadcast " << (collated_data ? "(with cdata)" : "(no cdata)")
+                        << ": " << data.size() + (collated_data ? collated_data.value().size() : 0) << " -> "
+                        << compressed.size();
+  bool with_collated_data = (bool)collated_data;
+  return create_serialize_tl_object<ton_api::tonNode_blockCandidateBroadcastCompressed>(
       create_tl_block_id(block_id), cc_seqno, validator_set_hash,
-      create_tl_object<ton_api::tonNode_blockSignature>(Bits256::zero(), td::BufferSlice()), 0, std::move(compressed));
+      create_tl_object<ton_api::tonNode_blockSignature>(Bits256::zero(), td::BufferSlice()), with_collated_data ? 1 : 0,
+      std::move(compressed));
 }
 
-static td::Status deserialize_block_candidate_broadcast(ton_api::tonNode_newBlockCandidateBroadcast& obj,
-                                                        BlockIdExt& block_id, CatchainSeqno& cc_seqno,
-                                                        td::uint32& validator_set_hash, td::BufferSlice& data) {
-  block_id = create_block_id(obj.id_);
-  cc_seqno = obj.catchain_seqno_;
-  validator_set_hash = obj.validator_set_hash_;
-  data = std::move(obj.data_);
-  return td::Status::OK();
-}
-
-static td::Status deserialize_block_candidate_broadcast(ton_api::tonNode_newBlockCandidateBroadcastCompressed& obj,
+static td::Status deserialize_block_candidate_broadcast(ton_api::tonNode_blockCandidateBroadcastCompressed& obj,
                                                         BlockIdExt& block_id, CatchainSeqno& cc_seqno,
                                                         td::uint32& validator_set_hash, td::BufferSlice& data,
+                                                        td::optional<td::BufferSlice>& collated_data,
                                                         int max_decompressed_data_size) {
   block_id = create_block_id(obj.id_);
   cc_seqno = obj.catchain_seqno_;
   validator_set_hash = obj.validator_set_hash_;
   TRY_RESULT(decompressed, td::lz4_decompress(obj.compressed_, max_decompressed_data_size));
-  TRY_RESULT(root, vm::std_boc_deserialize(decompressed));
-  TRY_RESULT_ASSIGN(data, vm::std_boc_serialize(root, 31));
-  VLOG(FULL_NODE_DEBUG) << "Decompressing block candidate broadcast: " << obj.compressed_.size() << " -> "
-                        << data.size();
+  TRY_RESULT(roots, vm::std_boc_deserialize_multi(decompressed, max_collated_data_roots + 1, true));
+  if (roots.empty()) {
+    return td::Status::Error("expected at least 1 root in boc");
+  }
+  if (!(obj.flags_ & 1) && roots.size() != 1) {
+    return td::Status::Error("expected 1 root in boc");
+  }
+  TRY_RESULT_ASSIGN(data, vm::std_boc_serialize(roots[0], 31));
+  if (obj.flags_ & 1) {
+    roots.erase(roots.begin());
+    TRY_RESULT_ASSIGN(collated_data, vm::std_boc_serialize_multi(std::move(roots), 2));
+  } else {
+    collated_data = {};
+  }
+  VLOG(FULL_NODE_DEBUG) << "Decompressing block candidate broadcast " << (collated_data ? "(with cdata)" : "(no cdata)")
+                        << ": " << obj.compressed_.size() << " -> "
+                        << data.size() + (collated_data ? collated_data.value().size() : 0);
   return td::Status::OK();
 }
 
-static td::Status deserialize_block_candidate_broadcast(ton_api::tonNode_newBlockCandidateBroadcastCompressedV2& obj,
+static td::Status deserialize_block_candidate_broadcast(ton_api::tonNode_blockCandidateBroadcastCompressedV2& obj,
                                                         BlockIdExt& block_id, CatchainSeqno& cc_seqno,
                                                         td::uint32& validator_set_hash, td::BufferSlice& data,
+                                                        td::optional<td::BufferSlice>& collated_data,
                                                         int max_decompressed_data_size) {
   block_id = create_block_id(obj.id_);
   cc_seqno = obj.catchain_seqno_;
   validator_set_hash = obj.validator_set_hash_;
   TRY_RESULT(roots, vm::boc_decompress(obj.compressed_, max_decompressed_data_size));
-  if (roots.size() != 1) {
+  if (roots.empty()) {
+    return td::Status::Error("expected at least 1 root in boc");
+  }
+  if (!(obj.flags_ & 1) && roots.size() != 1) {
     return td::Status::Error("expected 1 root in boc");
   }
-  auto root = std::move(roots[0]);
-  TRY_RESULT_ASSIGN(data, vm::std_boc_serialize(root, 31));
-  VLOG(FULL_NODE_DEBUG) << "Decompressing block candidate broadcast V2: " << obj.compressed_.size() << " -> "
-                        << data.size();
+  TRY_RESULT_ASSIGN(data, vm::std_boc_serialize(roots[0], 31));
+  if (obj.flags_ & 1) {
+    roots.erase(roots.begin());
+    TRY_RESULT_ASSIGN(collated_data, vm::std_boc_serialize_multi(std::move(roots), 2));
+  } else {
+    collated_data = {};
+  }
+  VLOG(FULL_NODE_DEBUG) << "Decompressing block candidate broadcast V2 "
+                        << (collated_data ? "(with cdata)" : "(no cdata)") << ": " << obj.compressed_.size() << " -> "
+                        << data.size() + (collated_data ? collated_data.value().size() : 0);
   return td::Status::OK();
 }
 
 td::Status deserialize_block_candidate_broadcast(ton_api::tonNode_Broadcast& obj, BlockIdExt& block_id,
                                                  CatchainSeqno& cc_seqno, td::uint32& validator_set_hash,
-                                                 td::BufferSlice& data, int max_decompressed_data_size) {
+                                                 td::BufferSlice& data, td::optional<td::BufferSlice>& collated_data,
+                                                 int max_decompressed_data_size) {
+  td::Status S;
+  ton_api::downcast_call(
+      obj, td::overloaded(
+               [&](ton_api::tonNode_blockCandidateBroadcastCompressed& f) {
+                 S = deserialize_block_candidate_broadcast(f, block_id, cc_seqno, validator_set_hash, data,
+                                                           collated_data, max_decompressed_data_size);
+               },
+               [&](ton_api::tonNode_blockCandidateBroadcastCompressedV2& f) {
+                 S = deserialize_block_candidate_broadcast(f, block_id, cc_seqno, validator_set_hash, data,
+                                                           collated_data, max_decompressed_data_size);
+               },
+               [&](auto&) { S = td::Status::Error("unknown data type"); }));
+  return S;
+}
+
+td::Result<td::BufferSlice> serialize_block_candidate_data(BlockCandidate candidate, bool only_collated_data,
+                                                           bool compression_enabled) {
+  if (!compression_enabled) {
+    return create_serialize_tl_object<ton_api::tonNode_blockCandidateData>(
+        create_tl_block_id(candidate.id), only_collated_data ? td::BufferSlice{} : std::move(candidate.data),
+        std::move(candidate.collated_data));
+  }
+
+  std::vector<Ref<vm::Cell>> roots;
+  vm::BagOfCells boc1, boc2;
+  if (!only_collated_data) {
+    TRY_STATUS(boc1.deserialize(candidate.data));
+    if (boc1.get_root_count() != 1) {
+      return td::Status::Error("block should have exactly one root");
+    }
+    roots.push_back(boc1.get_root_cell());
+  }
+  TRY_STATUS(boc2.deserialize(candidate.collated_data));
+  for (int i = 0; i < boc2.get_root_count(); ++i) {
+    roots.push_back(boc2.get_root_cell(i));
+  }
+  td::BufferSlice compressed;
+  if (!roots.empty()) {
+    TRY_RESULT_ASSIGN(compressed, vm::boc_compress(roots, vm::CompressionAlgorithm::ImprovedStructureLZ4));
+  }
+  if (only_collated_data) {
+    LOG(DEBUG) << "Compressing block candidate (only cdata): " << candidate.collated_data.size() << " -> "
+               << compressed.size();
+  } else {
+    LOG(DEBUG) << "Compressing block candidate (full): " << candidate.data.size() + candidate.collated_data.size()
+               << " -> " << compressed.size();
+  }
+  return create_serialize_tl_object<ton_api::tonNode_blockCandidateDataCompressedV2>(create_tl_block_id(candidate.id),
+                                                                                     0, std::move(compressed));
+}
+
+td::Status deserialize_block_candidate_data(ton_api::tonNode_blockCandidateData& obj, bool only_collated_data,
+                                            BlockIdExt& id, td::BufferSlice& data, td::BufferSlice& collated_data) {
+  id = create_block_id(obj.block_id_);
+  data = only_collated_data ? td::BufferSlice{} : std::move(obj.data_);
+  collated_data = std::move(obj.collated_data_);
+  return td::Status::OK();
+}
+
+td::Status deserialize_block_candidate_data(ton_api::tonNode_blockCandidateDataCompressedV2& obj,
+                                            bool only_collated_data, BlockIdExt& id, td::BufferSlice& data,
+                                            td::BufferSlice& collated_data, int max_decompressed_size) {
+  std::vector<Ref<vm::Cell>> roots;
+  if (!obj.compressed_.empty()) {
+    TRY_RESULT_ASSIGN(roots, vm::boc_decompress(obj.compressed_, max_decompressed_size));
+  }
+  if (only_collated_data) {
+    data = td::BufferSlice{};
+  } else {
+    if (roots.empty()) {
+      return td::Status::Error("expected at least one root");
+    }
+    TRY_RESULT_ASSIGN(data, vm::std_boc_serialize(roots[0], 31));
+    roots.erase(roots.begin());
+  }
+  TRY_RESULT_ASSIGN(collated_data, vm::std_boc_serialize_multi(roots, 2));
+  VLOG(FULL_NODE_DEBUG) << "Decompressing block candidate V2 " << (only_collated_data ? "(only cdata)" : "(full)")
+                        << ": " << obj.compressed_.size() << " -> " << data.size() + collated_data.size();
+  id = create_block_id(obj.block_id_);
+  return td::Status::OK();
+}
+
+td::Status deserialize_block_candidate_data(ton_api::tonNode_BlockCandidateData& obj, bool only_collated_data,
+                                            BlockIdExt& id, td::BufferSlice& data, td::BufferSlice& collated_data,
+                                            int max_decompressed_data_size) {
   td::Status S;
   ton_api::downcast_call(obj, td::overloaded(
-                                  [&](ton_api::tonNode_newBlockCandidateBroadcast& f) {
-                                    S = deserialize_block_candidate_broadcast(f, block_id, cc_seqno, validator_set_hash,
-                                                                              data);
+                                  [&](ton_api::tonNode_blockCandidateData& f) {
+                                    S = deserialize_block_candidate_data(f, only_collated_data, id, data,
+                                                                         collated_data);
                                   },
-                                  [&](ton_api::tonNode_newBlockCandidateBroadcastCompressed& f) {
-                                    S = deserialize_block_candidate_broadcast(f, block_id, cc_seqno, validator_set_hash,
-                                                                              data, max_decompressed_data_size);
-                                  },
-                                  [&](ton_api::tonNode_newBlockCandidateBroadcastCompressedV2& f) {
-                                    S = deserialize_block_candidate_broadcast(f, block_id, cc_seqno, validator_set_hash,
-                                                                              data, max_decompressed_data_size);
+                                  [&](ton_api::tonNode_blockCandidateDataCompressedV2& f) {
+                                    S = deserialize_block_candidate_data(f, only_collated_data, id, data, collated_data,
+                                                                         max_decompressed_data_size);
                                   },
                                   [&](auto&) { S = td::Status::Error("unknown data type"); }));
   return S;
