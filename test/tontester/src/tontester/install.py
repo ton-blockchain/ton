@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import final
 
@@ -43,7 +44,14 @@ class Install:
 
     @property
     def tonlibjson(self):
-        return self.build_dir / "tonlib/libtonlibjson.so"
+        if sys.platform.startswith("linux"):
+            name = "tonlib/libtonlibjson.so"
+        elif sys.platform == "darwin":
+            name = "tonlib/libtonlibjson.dylib"
+        else:
+            raise RuntimeError(f"Unsupported platform: {sys.platform}")
+
+        return self.build_dir / name
 
 
 def run_fift(install: Install, code: str, working_dir: Path):
