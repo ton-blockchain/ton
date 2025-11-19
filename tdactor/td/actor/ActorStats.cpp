@@ -1,6 +1,6 @@
-#include "ActorStats.h"
-
 #include "td/utils/ThreadSafeCounter.h"
+
+#include "ActorStats.h"
 namespace td {
 namespace actor {
 void td::actor::ActorStats::start_up() {

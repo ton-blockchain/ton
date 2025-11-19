@@ -15,13 +15,14 @@
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "common/refcnt.hpp"
-#include "vm/dict.h"
-#include "ton/ton-types.h"
-#include "ton/ton-shard.h"
 #include "common/bitstring.h"
-#include "block.h"
+#include "common/refcnt.hpp"
+#include "ton/ton-shard.h"
+#include "ton/ton-types.h"
 #include "vm/db/CellHashTable.h"
+#include "vm/dict.h"
+
+#include "block.h"
 
 namespace block {
 using td::Ref;

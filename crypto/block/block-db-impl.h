@@ -17,12 +17,13 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include <string>
 #include <map>
-#include "vm/cells.h"
+#include <string>
+
 #include "block/Binlog.h"
-#include "block/block-db.h"
 #include "block/block-binlog.h"
+#include "block/block-db.h"
+#include "vm/cells.h"
 
 namespace block {
 using td::Ref;

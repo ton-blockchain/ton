@@ -25,17 +25,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/benchmark.h"
-#include "td/utils/format.h"
+#include <cstdio>
+
+#include "td/fec/algebra/GaussianElimination.h"
+#include "td/fec/algebra/Octet.h"
+#include "td/fec/algebra/Simd.h"
+#include "td/fec/fec.h"
 #include "td/utils/Random.h"
 #include "td/utils/Time.h"
+#include "td/utils/benchmark.h"
+#include "td/utils/format.h"
 #include "td/utils/tests.h"
-
-#include "td/fec/fec.h"
-#include "td/fec/algebra/Octet.h"
-#include "td/fec/algebra/GaussianElimination.h"
-#include "td/fec/algebra/Simd.h"
-#include <cstdio>
 
 template <class Simd, size_t size = 256>
 class Simd_gf256_from_gf2 : public td::Benchmark {

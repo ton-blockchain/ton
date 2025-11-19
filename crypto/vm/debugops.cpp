@@ -17,11 +17,12 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include <functional>
+
 #include "vm/debugops.h"
+#include "vm/excno.hpp"
 #include "vm/log.h"
 #include "vm/opctable.h"
 #include "vm/stack.hpp"
-#include "vm/excno.hpp"
 #include "vm/vm.h"
 
 namespace vm {
@@ -113,7 +114,7 @@ int exec_dump_string(VmState* st) {
 
   Stack& stack = st->get_stack();
 
-  if (stack.depth() > 0){
+  if (stack.depth() > 0) {
     auto cs = stack[0].as_slice();
 
     if (cs.not_null()) {  // wanted t_slice
@@ -127,8 +128,7 @@ int exec_dump_string(VmState* st) {
         std::string s{tmp, tmp + cnt};
 
         std::cerr << "#DEBUG#: " << s << std::endl;
-      }
-      else {
+      } else {
         std::cerr << "#DEBUG#: slice contains not valid bits count" << std::endl;
       }
 
@@ -151,7 +151,7 @@ void register_debug_ops(OpcodeTable& cp0) {
     // NB: all non-redefined opcodes in fe00..feff should be redirected to dummy debug definitions
     cp0.insert(OpcodeInstr::mksimple(0xfe00, 16, "DUMPSTK", exec_dump_stack))
         .insert(OpcodeInstr::mkfixedrange(0xfe01, 0xfe14, 16, 8, instr::dump_1c_and(0xff, "DEBUG "), exec_dummy_debug))
-        .insert(OpcodeInstr::mksimple(0xfe14, 16,"STRDUMP", exec_dump_string))
+        .insert(OpcodeInstr::mksimple(0xfe14, 16, "STRDUMP", exec_dump_string))
         .insert(OpcodeInstr::mkfixedrange(0xfe15, 0xfe20, 16, 8, instr::dump_1c_and(0xff, "DEBUG "), exec_dummy_debug))
         .insert(OpcodeInstr::mkfixed(0xfe2, 12, 4, instr::dump_1sr("DUMP"), exec_dump_value))
         .insert(OpcodeInstr::mkfixedrange(0xfe30, 0xfef0, 16, 8, instr::dump_1c_and(0xff, "DEBUG "), exec_dummy_debug))

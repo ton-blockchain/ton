@@ -14,16 +14,17 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "full-node-serializer.hpp"
-#include "ton/ton-tl.hpp"
-#include "tl-utils/common-utils.hpp"
 #include "auto/tl/ton_api.hpp"
-#include "tl-utils/tl-utils.hpp"
-#include "vm/boc.h"
-#include "vm/boc-compression.h"
 #include "td/utils/lz4.h"
-#include "full-node.h"
 #include "td/utils/overloaded.h"
+#include "tl-utils/common-utils.hpp"
+#include "tl-utils/tl-utils.hpp"
+#include "ton/ton-tl.hpp"
+#include "vm/boc-compression.h"
+#include "vm/boc.h"
+
+#include "full-node-serializer.hpp"
+#include "full-node.h"
 
 namespace ton::validator::fullnode {
 
@@ -59,7 +60,7 @@ static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_b
   }
   return BlockBroadcast{create_block_id(f.id_),
                         std::move(signatures),
-                        static_cast<UnixTime>(f.catchain_seqno_),
+                        static_cast<CatchainSeqno>(f.catchain_seqno_),
                         static_cast<td::uint32>(f.validator_set_hash_),
                         std::move(f.data_),
                         std::move(f.proof_)};
@@ -83,7 +84,7 @@ static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_b
                         << data.size() + proof.size() + signatures.size() * 96;
   return BlockBroadcast{create_block_id(f.id_),
                         std::move(signatures),
-                        static_cast<UnixTime>(f.catchain_seqno_),
+                        static_cast<CatchainSeqno>(f.catchain_seqno_),
                         static_cast<td::uint32>(f.validator_set_hash_),
                         std::move(data),
                         std::move(proof)};
@@ -105,7 +106,7 @@ static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_b
                         << data.size() + proof.size() + signatures.size() * 96;
   return BlockBroadcast{create_block_id(f.id_),
                         std::move(signatures),
-                        static_cast<UnixTime>(f.catchain_seqno_),
+                        static_cast<CatchainSeqno>(f.catchain_seqno_),
                         static_cast<td::uint32>(f.validator_set_hash_),
                         std::move(data),
                         std::move(proof)};
@@ -165,15 +166,17 @@ static td::Status deserialize_block_full(ton_api::tonNode_dataFullCompressed& f,
   return td::Status::OK();
 }
 
-static td::Status deserialize_block_full(ton_api::tonNode_dataFullCompressedV2& f, BlockIdExt& id, td::BufferSlice& proof,
-                                         td::BufferSlice& data, bool& is_proof_link, int max_decompressed_size) {
+static td::Status deserialize_block_full(ton_api::tonNode_dataFullCompressedV2& f, BlockIdExt& id,
+                                         td::BufferSlice& proof, td::BufferSlice& data, bool& is_proof_link,
+                                         int max_decompressed_size) {
   TRY_RESULT(roots, vm::boc_decompress(f.compressed_, max_decompressed_size));
   if (roots.size() != 2) {
     return td::Status::Error("expected 2 roots in boc");
   }
   TRY_RESULT_ASSIGN(proof, vm::std_boc_serialize(roots[0], 0));
   TRY_RESULT_ASSIGN(data, vm::std_boc_serialize(roots[1], 31));
-  VLOG(FULL_NODE_DEBUG) << "Decompressing block full V2: " << f.compressed_.size() << " -> " << data.size() + proof.size();
+  VLOG(FULL_NODE_DEBUG) << "Decompressing block full V2: " << f.compressed_.size() << " -> "
+                        << data.size() + proof.size();
   id = create_block_id(f.id_);
   is_proof_link = f.is_link_;
   return td::Status::OK();

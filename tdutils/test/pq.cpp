@@ -16,7 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/tests.h"
+#include <algorithm>
+#include <limits>
+#include <utility>
 
 #include "td/utils/BigNum.h"
 #include "td/utils/common.h"
@@ -24,10 +26,7 @@
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
-
-#include <algorithm>
-#include <limits>
-#include <utility>
+#include "td/utils/tests.h"
 
 REGISTER_TESTS(pq)
 

@@ -17,10 +17,10 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include "block/block-db.h"
 #include "td/actor/actor.h"
 #include "ton/ton-types.h"
 #include "validator/validator.h"
-#include "block/block-db.h"
 #include "vm/cells.h"
 
 namespace ton {

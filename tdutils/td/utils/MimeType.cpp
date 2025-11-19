@@ -17,7 +17,6 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/MimeType.h"
-
 #include "td/utils/logging.h"
 
 const char *extension_to_mime_type(const char *extension, size_t extension_len);  // auto-generated

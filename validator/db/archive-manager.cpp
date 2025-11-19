@@ -16,12 +16,13 @@
 
     Copyright 2019-2020 Telegram Systems LLP
 */
-#include "archive-manager.hpp"
-#include "td/actor/MultiPromise.h"
-#include "td/utils/overloaded.h"
-#include "files-async.hpp"
-#include "td/db/RocksDb.h"
 #include "common/delay.h"
+#include "td/actor/MultiPromise.h"
+#include "td/db/RocksDb.h"
+#include "td/utils/overloaded.h"
+
+#include "archive-manager.hpp"
+#include "files-async.hpp"
 
 namespace ton {
 
@@ -927,7 +928,7 @@ void ArchiveManager::start_up() {
   }
 
   td::WalkPath::run(db_root_ + "/archive/states/", [&](td::CSlice fname, td::WalkPath::Type t) -> void {
-    if (t == td::WalkPath::Type::NotDir) {
+    if (t == td::WalkPath::Type::RegularFile) {
       LOG(ERROR) << "checking file " << fname;
       auto pos = fname.rfind(TD_DIR_SLASH);
       if (pos != td::Slice::npos) {

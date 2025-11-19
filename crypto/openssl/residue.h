@@ -17,8 +17,9 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "bignum.h"
 #include "common/refcnt.hpp"
+
+#include "bignum.h"
 
 namespace arith {
 class Residue;

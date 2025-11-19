@@ -16,11 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "vm/cells/Cell.h"
-#include "vm/cells/VirtualCell.h"
-#include "vm/cells/DataCell.h"
-
 #include <iostream>
+
+#include "vm/cells/Cell.h"
+#include "vm/cells/DataCell.h"
+#include "vm/cells/VirtualCell.h"
 
 namespace vm {
 td::Status Cell::check_equals_unloaded(const Ref<Cell>& other) const {
@@ -48,8 +48,8 @@ td::Status Cell::check_equals_unloaded(const Ref<Cell>& other) const {
   return td::Status::OK();
 }
 
-Ref<Cell> Cell::virtualize(VirtualizationParameters virt) const {
-  return VirtualCell::create(virt, Ref<Cell>(this));
+Ref<Cell> Cell::virtualize(td::uint32 effective_level) const {
+  return VirtualCell::create(effective_level, Ref<Cell>(this));
 }
 
 std::ostream& operator<<(std::ostream& os, const Cell& c) {

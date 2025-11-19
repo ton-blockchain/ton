@@ -16,12 +16,6 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/StringBuilder.h"
-
-#include "td/utils/misc.h"
-#include "td/utils/port/thread_local.h"
-#include "td/utils/Slice.h"
-
 #include <cstdio>
 #include <cstring>
 #include <limits>
@@ -29,6 +23,11 @@
 #include <memory>
 #include <sstream>
 #include <utility>
+
+#include "td/utils/Slice.h"
+#include "td/utils/StringBuilder.h"
+#include "td/utils/misc.h"
+#include "td/utils/port/thread_local.h"
 
 namespace td {
 

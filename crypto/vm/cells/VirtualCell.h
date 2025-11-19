@@ -25,15 +25,15 @@ class VirtualCell : public Cell {
   struct PrivateTag {};
 
  public:
-  static Ref<Cell> create(VirtualizationParameters virt, Ref<Cell> cell) {
-    if (cell->get_level() <= virt.get_level()) {
+  static Ref<Cell> create(td::uint32 effective_level, Ref<Cell> cell) {
+    if (cell->get_level() <= effective_level) {
       return cell;
     }
-    return Ref<VirtualCell>{true, virt, std::move(cell), PrivateTag{}};
+    return Ref<VirtualCell>{true, effective_level, std::move(cell), PrivateTag{}};
   }
 
-  VirtualCell(VirtualizationParameters virt, Ref<Cell> cell, PrivateTag) : virt_(virt), cell_(std::move(cell)) {
-    CHECK(cell_->get_virtualization() <= virt_.get_virtualization());
+  VirtualCell(td::uint32 effective_level, Ref<Cell> cell, PrivateTag)
+      : effective_level_(effective_level), cell_(std::move(cell)) {
   }
 
   // load interface
@@ -42,20 +42,19 @@ class VirtualCell : public Cell {
   }
   td::Result<LoadedCell> load_cell() const override {
     TRY_RESULT(loaded_cell, cell_->load_cell());
-    loaded_cell.virt = loaded_cell.virt.apply(virt_);
+    loaded_cell.effective_level = std::min(loaded_cell.effective_level, effective_level_);
     return std::move(loaded_cell);
   }
 
-  Ref<Cell> virtualize(VirtualizationParameters virt) const override {
-    auto new_virt = virt_.apply(virt);
-    if (new_virt == virt_) {
+  Ref<Cell> virtualize(td::uint32 new_effective_level) const override {
+    if (effective_level_ <= new_effective_level) {
       return Ref<Cell>(this);
     }
-    return create(new_virt, cell_);
+    return create(new_effective_level, cell_);
   }
 
-  td::uint32 get_virtualization() const override {
-    return virt_.get_virtualization();
+  bool is_virtualized() const override {
+    return true;
   }
 
   CellUsageTree::NodePtr get_tree_node() const override {
@@ -68,23 +67,19 @@ class VirtualCell : public Cell {
 
   // hash and level
   LevelMask get_level_mask() const override {
-    return cell_->get_level_mask().apply(virt_.get_level());
+    return cell_->get_level_mask().apply(effective_level_);
   }
 
  protected:
   const Hash do_get_hash(td::uint32 level) const override {
-    return cell_->get_hash(fix_level(level));
+    return cell_->get_hash(std::min(effective_level_, level));
   }
   td::uint16 do_get_depth(td::uint32 level) const override {
-    return cell_->get_depth(fix_level(level));
+    return cell_->get_depth(std::min(effective_level_, level));
   }
 
  private:
-  VirtualizationParameters virt_;
+  td::uint32 effective_level_;
   Ref<Cell> cell_;
-
-  int fix_level(int level) const {
-    return get_level_mask().apply(level).get_level();
-  }
 };
 }  // namespace vm

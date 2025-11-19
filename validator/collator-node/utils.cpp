@@ -14,11 +14,12 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "utils.hpp"
-#include "checksum.h"
 #include "keys/keys.hpp"
 #include "ton/ton-tl.hpp"
 #include "validator-session/candidate-serializer.h"
+
+#include "checksum.h"
+#include "utils.hpp"
 
 namespace ton::validator {
 

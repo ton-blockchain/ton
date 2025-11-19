@@ -17,37 +17,34 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
+#include <iostream>
+#include <limits>
+#include <map>
+#include <set>
+
 #include "adnl/adnl.h"
+#include "auto/tl/ton_api_json.h"
 #include "common/bigint.hpp"
 #include "common/bitstring.h"
 #include "dht/dht.h"
 #include "keys/encryptor.h"
 #include "overlay/overlay.h"
-
+#include "td/actor/MultiPromise.h"
 #include "td/utils/JsonBuilder.h"
-#include "td/utils/port/signals.h"
-#include "td/utils/Parser.h"
-#include "td/utils/overloaded.h"
 #include "td/utils/OptionParser.h"
+#include "td/utils/Parser.h"
 #include "td/utils/PathView.h"
 #include "td/utils/Random.h"
-#include "td/utils/misc.h"
 #include "td/utils/filesystem.h"
+#include "td/utils/misc.h"
+#include "td/utils/overloaded.h"
 #include "td/utils/port/path.h"
-
-#include "td/actor/MultiPromise.h"
+#include "td/utils/port/signals.h"
 #include "terminal/terminal.h"
 
+#include "PeerManager.h"
 #include "Torrent.h"
 #include "TorrentCreator.h"
-#include "PeerManager.h"
-
-#include "auto/tl/ton_api_json.h"
-
-#include <iostream>
-#include <limits>
-#include <map>
-#include <set>
 #include "git.h"
 
 struct StorageCliOptions {

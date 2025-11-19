@@ -16,27 +16,29 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <algorithm>
+#include <cassert>
+#include <ctime>
+
+#include "adnl/utils.hpp"
+#include "block/block-auto.h"
+#include "block/block-parse.h"
+#include "block/block.h"
+#include "block/mc-config.h"
+#include "crypto/openssl/rand.hpp"
+#include "td/db/utils/BlobView.h"
+#include "td/utils/Random.h"
+#include "ton/ton-shard.h"
+#include "vm/boc.h"
+#include "vm/db/StaticBagOfCellsDb.h"
+#include "vm/dict.h"
+
 #include "candidate-serializer.h"
 #include "collator-impl.h"
-#include "vm/boc.h"
-#include "td/db/utils/BlobView.h"
-#include "vm/db/StaticBagOfCellsDb.h"
-#include "block/mc-config.h"
-#include "block/block.h"
-#include "block/block-parse.h"
-#include "block/block-auto.h"
-#include "vm/dict.h"
-#include "crypto/openssl/rand.hpp"
-#include "ton/ton-shard.h"
-#include "adnl/utils.hpp"
-#include <cassert>
-#include <algorithm>
 #include "fabric.h"
 #include "storage-stat-cache.hpp"
-#include "validator-set.hpp"
 #include "top-shard-descr.hpp"
-#include <ctime>
-#include "td/utils/Random.h"
+#include "validator-set.hpp"
 
 namespace ton {
 
@@ -65,7 +67,7 @@ static constexpr int MAX_ATTEMPTS = 5;
  * @param promise The promise to return the result.
  */
 Collator::Collator(CollateParams params, td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-         td::CancellationToken cancellation_token, td::Promise<BlockCandidate> promise)
+                   td::CancellationToken cancellation_token, td::Promise<BlockCandidate> promise)
     : shard_(params.shard)
     , is_hardfork_(params.is_hardfork)
     , min_mc_block_id{params.min_masterchain_block_id}
@@ -1067,7 +1069,7 @@ void Collator::got_neighbor_msg_queue(unsigned i, Ref<OutMsgQueueProof> res) {
     block_state_proofs_.emplace(block_id.root_hash, res->block_state_proof_);
   }
 
-  auto &neighbor_stats = stats_.neighbors.at(i);
+  auto& neighbor_stats = stats_.neighbors.at(i);
   neighbor_stats.shard = block_id.shard_full();
   neighbor_stats.is_trivial = shard_intersects(block_id.shard_full(), shard_);
   neighbor_stats.is_local = res->is_local_;
@@ -1080,9 +1082,7 @@ void Collator::got_neighbor_msg_queue(unsigned i, Ref<OutMsgQueueProof> res) {
     neighbor_proof_builders_.push_back(vm::MerkleProofBuilder{res->state_root_});
     state_root = neighbor_proof_builders_.back().root();
     if (full_collated_data_ && !block_id.is_masterchain()) {
-      neighbor_proof_builders_.back().set_cell_load_callback([&](const vm::LoadedCell& cell) {
-        on_cell_loaded(cell);
-      });
+      neighbor_proof_builders_.back().set_cell_load_callback([&](const vm::LoadedCell& cell) { on_cell_loaded(cell); });
     }
   }
   auto state = ShardStateQ::fetch(block_id, {}, state_root);
@@ -1188,9 +1188,7 @@ bool Collator::unpack_merge_last_state() {
   // 1. prepare for creating a MerkleUpdate based on previous state
   state_usage_tree_ = std::make_shared<vm::CellUsageTree>();
   if (full_collated_data_ && !is_masterchain()) {
-    state_usage_tree_->set_cell_load_callback([&](const vm::LoadedCell& cell) {
-      on_cell_loaded(cell);
-    });
+    state_usage_tree_->set_cell_load_callback([&](const vm::LoadedCell& cell) { on_cell_loaded(cell); });
   }
   prev_state_root_ = vm::UsageCell::create(prev_state_root_pure_, state_usage_tree_->root_ptr());
   // 2. extract back slightly virtualized roots of the two original states
@@ -1237,9 +1235,7 @@ bool Collator::unpack_last_state() {
   // prepare for creating a MerkleUpdate based on previous state
   state_usage_tree_ = std::make_shared<vm::CellUsageTree>();
   if (full_collated_data_ && !is_masterchain()) {
-    state_usage_tree_->set_cell_load_callback([&](const vm::LoadedCell& cell) {
-      on_cell_loaded(cell);
-    });
+    state_usage_tree_->set_cell_load_callback([&](const vm::LoadedCell& cell) { on_cell_loaded(cell); });
   }
   prev_state_root_ = vm::UsageCell::create(prev_state_root_pure_, state_usage_tree_->root_ptr());
   // unpack previous state
@@ -2829,9 +2825,7 @@ bool Collator::init_account_storage_dict(block::Account& account) {
       }
     }
     dict.mpb = vm::MerkleProofBuilder(std::move(dict_root));
-    dict.mpb.set_cell_load_callback([&](const vm::LoadedCell& cell) {
-      on_cell_loaded(cell);
-    });
+    dict.mpb.set_cell_load_callback([&](const vm::LoadedCell& cell) { on_cell_loaded(cell); });
   }
   auto S = account.init_account_storage_stat(dict.mpb.root());
   if (S.is_error()) {
@@ -2840,7 +2834,6 @@ bool Collator::init_account_storage_dict(block::Account& account) {
   }
   return true;
 }
-
 
 /**
  * Looks up an account in the Collator's account map.
@@ -2928,7 +2921,7 @@ static td::Ref<vm::Cell> clean_usage_cells(td::Ref<vm::Cell> old_root, td::Ref<v
       return it->second;
     }
     auto loaded_cell = cell->load_cell().move_as_ok();
-    CHECK(loaded_cell.virt.get_virtualization() == 0);
+    CHECK(loaded_cell.effective_level >= loaded_cell.data_cell->get_level());
     td::Ref<vm::DataCell> data_cell = std::move(loaded_cell.data_cell);
     td::Ref<vm::Cell> children[vm::Cell::max_refs];
     bool changed = false;
@@ -3012,11 +3005,11 @@ bool Collator::process_account_storage_dict(block::Account& account) {
         switch (collated_data_stat.get_cell_status(cell->get_hash())) {
           case vm::ProofStorageStat::c_none:
             proof_size_diff += vm::ProofStorageStat::estimate_serialized_size(loaded_cell.data_cell);
-          break;
+            break;
           case vm::ProofStorageStat::c_prunned:
             proof_size_diff -= vm::ProofStorageStat::estimate_prunned_size();
-          proof_size_diff += vm::ProofStorageStat::estimate_serialized_size(loaded_cell.data_cell);
-          break;
+            proof_size_diff += vm::ProofStorageStat::estimate_serialized_size(loaded_cell.data_cell);
+            break;
           case vm::ProofStorageStat::c_loaded:
             break;
         }
@@ -3024,7 +3017,7 @@ bool Collator::process_account_storage_dict(block::Account& account) {
           return false;
         }
       } else {
-        collated_data_stat.add_loaded_cell(loaded_cell.data_cell, loaded_cell.virt.get_level());
+        collated_data_stat.add_loaded_cell(loaded_cell.data_cell, static_cast<td::uint8>(loaded_cell.effective_level));
       }
     }
     vm::CellSlice cs{std::move(loaded_cell.data_cell)};
@@ -3729,7 +3722,7 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
       defer = true;
     }
   } else {
-    auto &x = unprocessed_deferred_messages_[src_addr];
+    auto& x = unprocessed_deferred_messages_[src_addr];
     CHECK(x > 0);
     if (--x == 0) {
       unprocessed_deferred_messages_.erase(src_addr);
@@ -4105,7 +4098,7 @@ bool Collator::process_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalT
                << " enqueued_lt=" << enq_msg_descr.enqueued_lt_ << " has been already processed by us before, skipping";
     // should we dequeue the message if it is ours (after a merge?)
     // (it should have been dequeued by out_msg_queue_cleanup() before)
-    auto &neighbor_stats = stats_.neighbors.at(src_nb_idx);
+    auto& neighbor_stats = stats_.neighbors.at(src_nb_idx);
     ++neighbor_stats.skipped_msgs;
     return true;
   }
@@ -4200,7 +4193,7 @@ bool Collator::process_inbound_internal_messages() {
     block_full_ = !block_limit_status_->fits(block::ParamLimits::cl_normal);
     auto kv = nb_out_msgs_->extract_cur();
     CHECK(kv && kv->msg.not_null());
-    auto &neighbor_stats = stats_.neighbors.at(kv->source);
+    auto& neighbor_stats = stats_.neighbors.at(kv->source);
     if (kv->limit_exceeded) {
       LOG(INFO) << "limit for imported messages is reached, stop processing inbound internal messages";
       neighbor_stats.limit_reached = true;
@@ -4249,7 +4242,7 @@ bool Collator::process_inbound_internal_messages() {
       if (verbosity > 1) {
         FLOG(INFO) {
           sb << "invalid inbound message: lt=" << kv->lt << " from=" << kv->source << " key=" << kv->key.to_hex()
-                    << " msg=";
+             << " msg=";
           block::gen::t_EnqueuedMsg.print(sb, kv->msg);
         };
       }
@@ -6317,9 +6310,8 @@ bool Collator::create_collated_data() {
     }
 
     state_usage_tree_->set_use_mark_for_is_loaded(false);
-    Ref<vm::Cell> state_proof = vm::MerkleProof::generate(prev_state_root_, [&](const Ref<vm::Cell>& c) {
-      return !collated_data_stat.is_loaded(c->get_hash());
-    });
+    Ref<vm::Cell> state_proof = vm::MerkleProof::generate(
+        prev_state_root_, [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
     if (state_proof.is_null()) {
       return fatal_error("cannot generate Merkle proof for previous state");
     }
@@ -6338,10 +6330,9 @@ bool Collator::create_collated_data() {
     }
   }
   // 4. Proofs for message queues
-  for (vm::MerkleProofBuilder &mpb : neighbor_proof_builders_) {
-    Ref<vm::Cell> proof = vm::MerkleProof::generate(mpb.original_root(), [&](const Ref<vm::Cell>& c) {
-      return !collated_data_stat.is_loaded(c->get_hash());
-    });
+  for (vm::MerkleProofBuilder& mpb : neighbor_proof_builders_) {
+    Ref<vm::Cell> proof = vm::MerkleProof::generate(
+        mpb.original_root(), [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
     if (proof.is_null()) {
       return fatal_error("cannot generate Merkle proof for neighbor");
     }
@@ -6731,7 +6722,7 @@ void Collator::on_cell_loaded(const vm::LoadedCell& loaded_cell) {
   if (block_limit_status_) {
     block_limit_status_->collated_data_size_estimate -= stat->estimate_proof_size();
   }
-  stat->add_loaded_cell(loaded_cell.data_cell, loaded_cell.virt.get_level());
+  stat->add_loaded_cell(loaded_cell.data_cell, static_cast<td::uint8>(loaded_cell.effective_level));
   if (block_limit_status_) {
     block_limit_status_->collated_data_size_estimate += stat->estimate_proof_size();
   }

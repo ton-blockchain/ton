@@ -16,11 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/crypto.h"
+#include "keys/encryptor.h"
 #include "td/utils/Random.h"
+#include "td/utils/crypto.h"
 
 #include "adnl-local-id.h"
-#include "keys/encryptor.h"
 #include "utils.hpp"
 
 namespace ton {
@@ -41,7 +41,7 @@ AdnlAddressList AdnlLocalId::get_addr_list() const {
 }
 
 void AdnlLocalId::receive(td::IPAddress addr, td::BufferSlice data) {
-  InboundRateLimiter& rate_limiter = inbound_rate_limiter_[addr];
+  InboundRateLimiter &rate_limiter = inbound_rate_limiter_[addr];
   if (!rate_limiter.rate_limiter.take()) {
     VLOG(ADNL_NOTICE) << this << ": dropping IN message: rate limit exceeded";
     add_dropped_packet_stats(addr);
@@ -370,7 +370,6 @@ tl_object_ptr<ton_api::adnl_stats_localIdPackets> AdnlLocalId::PacketStats::tl(b
   }
   return obj;
 }
-
 
 }  // namespace adnl
 

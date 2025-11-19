@@ -16,45 +16,41 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "vm/dict.h"
-#include "common/bigint.hpp"
-
-#include "Ed25519.h"
+#include <bitset>
+#include <set>
+#include <tuple>
 
 #include "block/block-auto.h"
-#include "block/block.h"
 #include "block/block-parse.h"
-
+#include "block/block.h"
+#include "common/bigint.hpp"
 #include "fift/Fift.h"
-#include "fift/words.h"
 #include "fift/utils.h"
-
+#include "fift/words.h"
 #include "smc-envelope/GenericAccount.h"
+#include "smc-envelope/HighloadWallet.h"
+#include "smc-envelope/HighloadWalletV2.h"
 #include "smc-envelope/ManualDns.h"
 #include "smc-envelope/MultisigWallet.h"
+#include "smc-envelope/PaymentChannel.h"
 #include "smc-envelope/SmartContract.h"
 #include "smc-envelope/SmartContractCode.h"
 #include "smc-envelope/WalletV3.h"
 #include "smc-envelope/WalletV4.h"
-#include "smc-envelope/HighloadWallet.h"
-#include "smc-envelope/HighloadWalletV2.h"
-#include "smc-envelope/PaymentChannel.h"
-
-#include "td/utils/base64.h"
-#include "td/utils/crypto.h"
+#include "td/utils/PathView.h"
 #include "td/utils/Random.h"
-#include "td/utils/tests.h"
 #include "td/utils/ScopeGuard.h"
 #include "td/utils/StringBuilder.h"
 #include "td/utils/Timer.h"
-#include "td/utils/PathView.h"
+#include "td/utils/Variant.h"
+#include "td/utils/base64.h"
+#include "td/utils/crypto.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/port/path.h"
-#include "td/utils/Variant.h"
+#include "td/utils/tests.h"
+#include "vm/dict.h"
 
-#include <bitset>
-#include <set>
-#include <tuple>
+#include "Ed25519.h"
 
 std::string current_dir() {
   return td::PathView(td::realpath(__FILE__).move_as_ok()).parent_dir().str();

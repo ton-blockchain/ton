@@ -18,8 +18,8 @@
 */
 #pragma once
 
-#include "td/fec/raptorq/Rfc.h"
 #include "td/fec/algebra/MatrixGF256.h"
+#include "td/fec/raptorq/Rfc.h"
 
 namespace td {
 namespace raptorq {

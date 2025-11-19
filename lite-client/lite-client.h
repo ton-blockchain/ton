@@ -26,17 +26,18 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "ext-client.h"
 #include "adnl/adnl-ext-client.h"
-#include "tl-utils/tl-utils.hpp"
-#include "ton/ton-types.h"
-#include "terminal/terminal.h"
-#include "vm/cells.h"
-#include "vm/stack.hpp"
+#include "auto/tl/lite_api.h"
 #include "block/block.h"
 #include "block/mc-config.h"
 #include "td/utils/filesystem.h"
-#include "auto/tl/lite_api.h"
+#include "terminal/terminal.h"
+#include "tl-utils/tl-utils.hpp"
+#include "ton/ton-types.h"
+#include "vm/cells.h"
+#include "vm/stack.hpp"
+
+#include "ext-client.h"
 
 using td::Ref;
 

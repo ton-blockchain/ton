@@ -19,11 +19,10 @@
 #pragma once
 
 #include "crypto/Ed25519.h"
-
-#include "td/utils/int_types.h"
 #include "td/utils/Span.h"
 #include "td/utils/Status.h"
 #include "td/utils/UInt.h"
+#include "td/utils/int_types.h"
 
 namespace tonlib {
 class Mnemonic {

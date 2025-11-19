@@ -14,11 +14,12 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "candidate-serializer.h"
-#include "tl-utils/tl-utils.hpp"
-#include "vm/boc.h"
 #include "td/utils/lz4.h"
+#include "tl-utils/tl-utils.hpp"
 #include "vm/boc-compression.h"
+#include "vm/boc.h"
+
+#include "candidate-serializer.h"
 #include "validator-session-types.h"
 
 namespace ton::validatorsession {
@@ -43,32 +44,32 @@ td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candi
   }
   TRY_RESULT(f, fetch_tl_object<ton_api::validatorSession_Candidate>(data, true));
   td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> res;
-  ton_api::downcast_call(*f, td::overloaded(
-                                 [&](ton_api::validatorSession_candidate& c) {
-                                   res = td::Status::Error("Received decompressed tl object, while compression_enabled=true");
-                                 },
-                                 [&](ton_api::validatorSession_compressedCandidate& c) {
-                                   res = [&]() -> td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> {
-                                     if (c.decompressed_size_ > max_decompressed_data_size) {
-                                       return td::Status::Error("decompressed size is too big");
-                                     }
-                                     TRY_RESULT(p, decompress_candidate_data(c.data_, false, c.decompressed_size_,
-                                                                             max_decompressed_data_size, proto_version));
-                                     return create_tl_object<ton_api::validatorSession_candidate>(c.src_, c.round_, c.root_hash_, std::move(p.first),
-                                                                                                     std::move(p.second));
-                                   }();
-                                 },
-                                 [&](ton_api::validatorSession_compressedCandidateV2& c) {
-                                   res = [&]() -> td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> {
-                                     if (c.data_.size() > max_decompressed_data_size) {
-                                       return td::Status::Error("Compressed data is too big");
-                                     }
-                                     TRY_RESULT(p, decompress_candidate_data(c.data_, true, 0,
-                                                                             max_decompressed_data_size, proto_version));
-                                     return create_tl_object<ton_api::validatorSession_candidate>(c.src_, c.round_, c.root_hash_, std::move(p.first),
-                                                                                                     std::move(p.second));
-                                   }();
-                                 }));
+  ton_api::downcast_call(
+      *f, td::overloaded(
+              [&](ton_api::validatorSession_candidate& c) {
+                res = td::Status::Error("Received decompressed tl object, while compression_enabled=true");
+              },
+              [&](ton_api::validatorSession_compressedCandidate& c) {
+                res = [&]() -> td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> {
+                  if (c.decompressed_size_ > max_decompressed_data_size) {
+                    return td::Status::Error("decompressed size is too big");
+                  }
+                  TRY_RESULT(p, decompress_candidate_data(c.data_, false, c.decompressed_size_,
+                                                          max_decompressed_data_size, proto_version));
+                  return create_tl_object<ton_api::validatorSession_candidate>(c.src_, c.round_, c.root_hash_,
+                                                                               std::move(p.first), std::move(p.second));
+                }();
+              },
+              [&](ton_api::validatorSession_compressedCandidateV2& c) {
+                res = [&]() -> td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> {
+                  if (c.data_.size() > max_decompressed_data_size) {
+                    return td::Status::Error("Compressed data is too big");
+                  }
+                  TRY_RESULT(p, decompress_candidate_data(c.data_, true, 0, max_decompressed_data_size, proto_version));
+                  return create_tl_object<ton_api::validatorSession_candidate>(c.src_, c.round_, c.root_hash_,
+                                                                               std::move(p.first), std::move(p.second));
+                }();
+              }));
   return res;
 }
 

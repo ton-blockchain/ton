@@ -17,14 +17,13 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "td/db/KeyValue.h"
-#include "vm/cells.h"
+#include <thread>
 
+#include "td/actor/PromiseFuture.h"
+#include "td/db/KeyValue.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
-#include "td/actor/PromiseFuture.h"
-
-#include <thread>
+#include "vm/cells.h"
 
 namespace td {
 class KeyValueReader;

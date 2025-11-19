@@ -1,18 +1,15 @@
-#include "vm/db/DynamicBagOfCellsDb.h"
-#include "vm/db/CellStorage.h"
-#include "vm/db/CellHashTable.h"
+#include <optional>
 
-#include "vm/cells/ExtCell.h"
-
+#include "td/utils/ThreadSafeCounter.h"
 #include "td/utils/base64.h"
 #include "td/utils/format.h"
-#include "td/utils/ThreadSafeCounter.h"
 #include "td/utils/misc.h"
 #include "validator/validator.h"
-
+#include "vm/cells/ExtCell.h"
 #include "vm/cellslice.h"
-
-#include <optional>
+#include "vm/db/CellHashTable.h"
+#include "vm/db/CellStorage.h"
+#include "vm/db/DynamicBagOfCellsDb.h"
 
 namespace vm {
 namespace {
@@ -770,9 +767,9 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
     std::vector<std::pair<std::string, std::string>> result;
     auto s = cell_db_reader_->key_value_reader().for_each_in_range(
         "desc", "desd", [&](const td::Slice &key, const td::Slice &value) {
-           if (result.size() >= max_count) {
-             return td::Status::Error("COUNT_LIMIT");
-           }
+          if (result.size() >= max_count) {
+            return td::Status::Error("COUNT_LIMIT");
+          }
           if (td::begins_with(key, "desc") && key.size() != 32) {
             result.emplace_back(key.str(), value.str());
           }
@@ -844,7 +841,7 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
     if (cell.is_null()) {
       return;
     }
-    if (cell->get_virtualization() != 0) {
+    if (cell->is_virtualized()) {
       return;
     }
     to_inc_.push_back(cell);
@@ -853,7 +850,7 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
     if (cell.is_null()) {
       return;
     }
-    if (cell->get_virtualization() != 0) {
+    if (cell->is_virtualized()) {
       return;
     }
     to_dec_.push_back(cell);
@@ -1443,9 +1440,10 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
           CHECK(state.sync_with_db);
           auto data_cell = info->cell->load_cell().move_as_ok().data_cell;
           stats_.diff_full.inc();
-          worker.add_result({.type = CellStorer::Diff::Set,
-                             .key = info->cell->get_hash(),
-                             .value = CellStorer::serialize_value(ref_cnt_diff + state.db_ref_cnt, data_cell, should_compress)});
+          worker.add_result(
+              {.type = CellStorer::Diff::Set,
+               .key = info->cell->get_hash(),
+               .value = CellStorer::serialize_value(ref_cnt_diff + state.db_ref_cnt, data_cell, should_compress)});
         } else {
           stats_.diff_ref_cnt.inc();
           worker.add_result({.type = CellStorer::Diff::Merge,
@@ -1478,10 +1476,10 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
 
         LOG_IF(ERROR, dbg) << "DEC REFCNT " << *info;
         CHECK(info->cell->is_loaded());
-        worker.add_result(
-            {.type = CellStorer::Diff::Set,
-             .key = info->cell->get_hash(),
-             .value = CellStorer::serialize_value(new_ref_cnt, info->cell->load_cell().move_as_ok().data_cell, should_compress)});
+        worker.add_result({.type = CellStorer::Diff::Set,
+                           .key = info->cell->get_hash(),
+                           .value = CellStorer::serialize_value(
+                               new_ref_cnt, info->cell->load_cell().move_as_ok().data_cell, should_compress)});
         stats_.dec_save_full.inc();
       }
     } else {
@@ -1495,10 +1493,10 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
         LOG_IF(ERROR, dbg) << "INC REFCNT " << *info;
       }
 
-      worker.add_result(
-          {.type = CellStorer::Diff::Set,
-           .key = info->cell->get_hash(),
-           .value = CellStorer::serialize_value(new_ref_cnt, info->cell->load_cell().move_as_ok().data_cell, should_compress)});
+      worker.add_result({.type = CellStorer::Diff::Set,
+                         .key = info->cell->get_hash(),
+                         .value = CellStorer::serialize_value(
+                             new_ref_cnt, info->cell->load_cell().move_as_ok().data_cell, should_compress)});
       stats_.inc_save_full.inc();
     }
   }

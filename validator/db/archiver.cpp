@@ -16,9 +16,10 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "ton/ton-tl.hpp"
+
 #include "archiver.hpp"
 #include "rootdb.hpp"
-#include "ton/ton-tl.hpp"
 
 namespace ton {
 

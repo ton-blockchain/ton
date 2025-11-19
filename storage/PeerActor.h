@@ -19,12 +19,11 @@
 
 #pragma once
 
-#include "Bitset.h"
-#include "PeerState.h"
-
+#include "auto/tl/ton_api.h"
 #include "td/utils/optional.h"
 
-#include "auto/tl/ton_api.h"
+#include "Bitset.h"
+#include "PeerState.h"
 
 namespace ton {
 class PeerActor : public td::actor::Actor {
@@ -131,7 +130,7 @@ class PeerActor : public td::actor::Actor {
   void on_get_info_result(td::Result<td::BufferSlice> r_answer);
 
   template <class T, class... ArgsT>
-  td::uint64 create_and_send_query(ArgsT &&... args);
+  td::uint64 create_and_send_query(ArgsT &&...args);
   td::uint64 send_query(td::BufferSlice query);
 
   void schedule_loop();

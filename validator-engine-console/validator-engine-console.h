@@ -26,14 +26,15 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include <map>
+
 #include "adnl/adnl-ext-client.h"
+#include "terminal/terminal.h"
 #include "tl-utils/tl-utils.hpp"
 #include "ton/ton-types.h"
-#include "terminal/terminal.h"
 #include "vm/cells.h"
-#include "validator-engine-console-query.h"
 
-#include <map>
+#include "validator-engine-console-query.h"
 
 class ValidatorEngineConsole : public td::actor::Actor {
  private:

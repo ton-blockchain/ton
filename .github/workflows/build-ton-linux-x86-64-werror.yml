@@ -1,9 +1,9 @@
-name: Ubuntu TON -Werror build (shared, x86-64)
+name: Lint
 
 on: [push, pull_request, workflow_dispatch, workflow_call]
 
 jobs:
-  build:
+  lint:
     runs-on: ubuntu-24.04
 
     steps:
@@ -27,7 +27,7 @@ jobs:
       run: |
         wget https://apt.llvm.org/llvm.sh
         chmod +x llvm.sh
-        sudo ./llvm.sh 21 clang
+        sudo ./llvm.sh 21 all
 
     # TODO: Preserve ccache cache between runs once we get rid of warning suppression mappings.
 
@@ -41,3 +41,21 @@ jobs:
           -DTON_USE_LLD=On \
           -DTON_WERROR_BUILD=On
         ninja -C build
+
+    - name: Check C++ formatting
+      run: |
+        # TODO: Run clang-format only on changed files.
+        clang-format-21 -i $(git ls-files '*.h' '*.hpp' '*.cpp' ':!^example/android/third_party' ':!^tolk/')
+        git diff --exit-code
+
+    - name: Prepare Python environment
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        uv sync
+        uv run test/tontester/generate_tl.py
+
+    - name: Lint Python
+      run: |
+        uv run ruff check
+        uv run ruff format
+        uv run basedpyright

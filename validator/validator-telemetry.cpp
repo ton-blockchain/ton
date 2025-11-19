@@ -23,11 +23,12 @@
     exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 */
-#include "validator-telemetry.hpp"
-#include "git.h"
+#include "interfaces/validator-manager.h"
 #include "td/utils/Random.h"
 #include "td/utils/port/uname.h"
-#include "interfaces/validator-manager.h"
+
+#include "git.h"
+#include "validator-telemetry.hpp"
 
 namespace ton::validator {
 

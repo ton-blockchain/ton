@@ -16,14 +16,15 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/port/detail/NativeFd.h"
-
+#include "td/utils/Status.h"
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
-#include "td/utils/Status.h"
+#include "td/utils/port/detail/NativeFd.h"
 
 #if TD_PORT_POSIX
 #include <fcntl.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 #include <unistd.h>
 #endif
 
@@ -46,7 +47,7 @@ class FdSet {
     }
     std::unique_lock<std::mutex> guard(mutex_);
     if (fds_.count(fd) >= 1) {
-      LOG(FATAL) << "Create duplicated fd: " << fd;
+      LOG(FATAL) << "Create duplicate fd: " << fd;
     }
     fds_.insert(fd);
   }
@@ -144,14 +145,14 @@ NativeFd::NativeFd(Socket socket) : fd_(reinterpret_cast<Fd>(socket)), is_socket
 }
 #endif
 
-NativeFd::NativeFd(NativeFd &&other) : fd_(other.fd_) {
+NativeFd::NativeFd(NativeFd &&other) noexcept : fd_(other.fd_) {
 #if TD_PORT_WINDOWS
   is_socket_ = other.is_socket_;
 #endif
   other.fd_ = empty_fd();
 }
 
-NativeFd &NativeFd::operator=(NativeFd &&other) {
+NativeFd &NativeFd::operator=(NativeFd &&other) noexcept {
   CHECK(this != &other);
   close();
   fd_ = other.fd_;
@@ -166,7 +167,7 @@ NativeFd::~NativeFd() {
   close();
 }
 
-NativeFd::operator bool() const {
+NativeFd::operator bool() const noexcept {
   return fd_ != empty_fd();
 }
 
@@ -231,6 +232,45 @@ Status NativeFd::duplicate(const NativeFd &to) const {
 #elif TD_PORT_WINDOWS
   return Status::Error("Not supported");
 #endif
+}
+
+static Result<uint32> maximize_buffer(const NativeFd::Socket &socket, int optname, uint32 max_size) {
+  if (setsockopt(socket, SOL_SOCKET, optname, reinterpret_cast<const char *>(&max_size), sizeof(max_size)) == 0) {
+    // fast path
+    return max_size;
+  }
+
+  /* Start with the default size. */
+  uint32 old_size = 0;
+  socklen_t intsize = sizeof(old_size);
+  if (getsockopt(socket, SOL_SOCKET, optname, reinterpret_cast<char *>(&old_size), &intsize)) {
+    return OS_SOCKET_ERROR("getsockopt() failed");
+  }
+#if TD_LINUX
+  old_size /= 2;
+#endif
+
+  /* Binary-search for the real maximum. */
+  uint32 last_good_size = old_size;
+  uint32 min_size = old_size;
+  while (min_size <= max_size) {
+    uint32 avg_size = min_size + (max_size - min_size) / 2;
+    if (setsockopt(socket, SOL_SOCKET, optname, reinterpret_cast<const char *>(&avg_size), sizeof(avg_size)) == 0) {
+      last_good_size = avg_size;
+      min_size = avg_size + 1;
+    } else {
+      max_size = avg_size - 1;
+    }
+  }
+  return last_good_size;
+}
+
+Result<uint32> NativeFd::maximize_snd_buffer(uint32 max_size) const {
+  return maximize_buffer(socket(), SO_SNDBUF, max_size == 0 ? DEFAULT_MAX_SND_BUFFER_SIZE : max_size);
+}
+
+Result<uint32> NativeFd::maximize_rcv_buffer(uint32 max_size) const {
+  return maximize_buffer(socket(), SO_RCVBUF, max_size == 0 ? DEFAULT_MAX_RCV_BUFFER_SIZE : max_size);
 }
 
 void NativeFd::close() {

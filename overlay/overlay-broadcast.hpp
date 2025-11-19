@@ -101,7 +101,8 @@ class BroadcastSimple : public td::ListNode {
   void update_overlay(OverlayImpl *overlay);
   void broadcast_checked(td::Result<td::Unit> R);
 
-  static td::Status create(OverlayImpl *overlay, adnl::AdnlNodeIdShort src_peer_id, tl_object_ptr<ton_api::overlay_broadcast> broadcast);
+  static td::Status create(OverlayImpl *overlay, adnl::AdnlNodeIdShort src_peer_id,
+                           tl_object_ptr<ton_api::overlay_broadcast> broadcast);
   static td::Status create_new(td::actor::ActorId<OverlayImpl> overlay, td::actor::ActorId<keyring::Keyring> keyring,
                                PublicKeyHash local_id, td::BufferSlice data, td::uint32 flags);
 

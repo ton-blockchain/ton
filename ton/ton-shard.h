@@ -18,9 +18,10 @@
 */
 #pragma once
 
-#include "ton-types.h"
-#include "td/utils/bits.h"
 #include "crypto/common/bitstring.h"
+#include "td/utils/bits.h"
+
+#include "ton-types.h"
 
 namespace ton {
 

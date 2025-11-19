@@ -18,11 +18,10 @@
 */
 #pragma once
 
-#include "td/utils/buffer.h"
 #include "td/utils/SharedSlice.h"
 #include "td/utils/Slice.h"
-#include "td/utils/SharedSlice.h"
 #include "td/utils/Status.h"
+#include "td/utils/buffer.h"
 
 namespace td {
 

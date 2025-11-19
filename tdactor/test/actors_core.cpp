@@ -16,28 +16,26 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/actor/core/ActorLocker.h"
-#include "td/actor/actor.h"
-#include "td/actor/PromiseFuture.h"
-#include "td/actor/ActorStats.h"
-
-#include "td/utils/format.h"
-#include "td/utils/logging.h"
-#include "td/utils/misc.h"
-#include "td/utils/port/thread.h"
-#include "td/utils/port/thread.h"
-#include "td/utils/Random.h"
-#include "td/utils/Slice.h"
-#include "td/utils/StringBuilder.h"
-#include "td/utils/tests.h"
-#include "td/utils/Time.h"
-#include "td/utils/TimedStat.h"
-#include "td/utils/port/sleep.h"
-
 #include <array>
 #include <atomic>
 #include <deque>
 #include <memory>
+
+#include "td/actor/ActorStats.h"
+#include "td/actor/PromiseFuture.h"
+#include "td/actor/actor.h"
+#include "td/actor/core/ActorLocker.h"
+#include "td/utils/Random.h"
+#include "td/utils/Slice.h"
+#include "td/utils/StringBuilder.h"
+#include "td/utils/Time.h"
+#include "td/utils/TimedStat.h"
+#include "td/utils/format.h"
+#include "td/utils/logging.h"
+#include "td/utils/misc.h"
+#include "td/utils/port/sleep.h"
+#include "td/utils/port/thread.h"
+#include "td/utils/tests.h"
 
 TEST(Actor2, signals) {
   using td::actor::core::ActorSignals;
@@ -279,6 +277,9 @@ TEST(Actor2, executor_simple) {
     void add_to_queue(ActorInfoPtr ptr, SchedulerId scheduler_id, bool need_poll) override {
       queue.push_back(std::move(ptr));
     }
+    void add_token_to_cpu_queue(SchedulerToken token, SchedulerId scheduler_id) override {
+      UNREACHABLE();
+    }
     void set_alarm_timestamp(const ActorInfoPtr &actor_info_ptr) override {
       UNREACHABLE();
     }
@@ -326,7 +327,9 @@ TEST(Actor2, executor_simple) {
       LOG_CHECK(sb.as_cslice() == "") << sb.as_cslice();
     }
     CHECK(dispatcher.queue.size() == 1);
-    { ActorExecutor executor(*actor, dispatcher, ActorExecutor::Options().with_from_queue()); }
+    {
+      ActorExecutor executor(*actor, dispatcher, ActorExecutor::Options().with_from_queue());
+    }
     CHECK(dispatcher.queue.size() == 1);
     dispatcher.queue.clear();
     LOG_CHECK(sb.as_cslice() == "bigB") << sb.as_cslice();
@@ -1142,7 +1145,8 @@ TEST(Actor2, test_stats) {
         td::actor::create_actor<QueueWorker>("queue_worker").release();
       }
       void alarm() override {
-        td::actor::send_closure(stats_, &ActorStats::prepare_stats, td::promise_send_closure(actor_id(this), &Master::on_stats));
+        td::actor::send_closure(stats_, &ActorStats::prepare_stats,
+                                td::promise_send_closure(actor_id(this), &Master::on_stats));
         alarm_timestamp() = td::Timestamp::in(5);
       }
       void on_stats(td::Result<std::string> r_stats) {
@@ -1155,7 +1159,7 @@ TEST(Actor2, test_stats) {
      private:
       std::shared_ptr<td::Destructor> watcher_;
       td::actor::ActorOwn<ActorStats> stats_;
-      int cnt_={2};
+      int cnt_ = {2};
     };
     td::actor::create_actor<Master>("Master", watcher).release();
   });

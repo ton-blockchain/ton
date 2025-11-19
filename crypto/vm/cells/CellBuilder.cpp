@@ -16,15 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "openssl/digest.hpp"
+#include "td/utils/format.h"
+#include "td/utils/misc.h"
 #include "vm/cells/CellBuilder.h"
-
 #include "vm/cells/CellSlice.h"
 #include "vm/cells/DataCell.h"
-
-#include "td/utils/misc.h"
-#include "td/utils/format.h"
-
-#include "openssl/digest.hpp"
 
 namespace vm {
 
@@ -100,7 +97,7 @@ Ref<DataCell> CellBuilder::finalize(bool special) {
 }
 
 Ref<Cell> CellBuilder::create_pruned_branch(Ref<Cell> cell, td::uint32 new_level, td::uint32 virt_level) {
-  if (cell->is_loaded() && cell->get_level() <= virt_level && cell->get_virtualization() == 0) {
+  if (cell->is_loaded() && cell->get_level() <= virt_level && !cell->is_virtualized()) {
     CellSlice cs(NoVm{}, cell);
     if (cs.size_refs() == 0) {
       return cell;

@@ -35,15 +35,15 @@
  * CHECK(condition) <===> LOG_IF(FATAL, !(condition))
  */
 
-#include "td/utils/common.h"
-#include "td/utils/port/thread_local.h"
+#include <atomic>
+#include <type_traits>
+
 #include "td/utils/Slice.h"
 #include "td/utils/StackAllocator.h"
 #include "td/utils/StringBuilder.h"
+#include "td/utils/common.h"
 #include "td/utils/port/Clocks.h"
-
-#include <atomic>
-#include <type_traits>
+#include "td/utils/port/thread_local.h"
 
 #define PSTR_IMPL() ::td::Logger(::td::NullLog().ref(), ::td::LogOptions::plain(), 0)
 #define PSLICE() ::td::detail::Slicify() & PSTR_IMPL()

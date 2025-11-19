@@ -507,7 +507,6 @@ tonNode.getArchiveSlice archive_id:long offset:long max_size:int = tonNode.Data;
 tonNode.getOutMsgQueueProof dst_shard:tonNode.shardId blocks:(vector tonNode.blockIdExt)
     limits:tonNode.importedMsgQueueLimits = tonNode.OutMsgQueueProof;
 
-tonNode.downloadPersistentState block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.Data;
 tonNode.downloadPersistentStateSlice block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt offset:long max_size:long = tonNode.Data;
 tonNode.getPersistentStateSize block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.PersistentStateSize;
 tonNode.preparePersistentState block:tonNode.blockIdExt masterchain_block:tonNode.blockIdExt = tonNode.PreparedState;
@@ -981,10 +980,11 @@ validatorStats.validatedBlock
     self:int256
     valid:Bool comment:string
     bytes:int collated_data_bytes:int
-    total_time:double work_time:double cpu_work_time:double time_stats:string
+    total_time:double work_time:double actual_time:double cpu_work_time:double time_stats:string
     work_time_real_stats:string
     work_time_cpu_stats:string
-    storage_stat_cache:validatorStats.storageStatCacheStats = validatorStats.ValidatedBlock;
+    storage_stat_cache:validatorStats.storageStatCacheStats
+    parallel_accounts_validation:Bool = validatorStats.ValidatedBlock;
 
 validatorStats.newValidatorGroup.node id:int256 pubkey:PublicKey adnl_id:int256 weight:long = validatorStats.newValidatorGroup.Node;
 validatorStats.newValidatorGroup session_id:int256 shard:tonNode.shardId cc_seqno:int
