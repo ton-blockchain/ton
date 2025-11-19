@@ -1,44 +1,75 @@
 name: Codex auto review
+
 on:
-  pull_request:
-    types: [opened]
+  pull_request_target:
+    types: [opened, reopened, synchronize]
 
 jobs:
   codex:
+    # Only run Codex for PRs authored by allowed users
+    if: |
+      github.event.pull_request.user.login == 'EmelyanenkoK' ||
+      github.event.pull_request.user.login == 'tolya-yanot' ||
+      github.event.pull_request.user.login == 'SpyCheese' ||
+      github.event.pull_request.user.login == 'neodix42' ||
+      github.event.pull_request.user.login == 'dungeon-master-666' ||
+      github.event.pull_request.user.login == 'igroman787' ||
+      github.event.pull_request.user.login == 'kdimentionaltree' ||
+      github.event.pull_request.user.login == 'sonofmom' ||
+      github.event.pull_request.user.login == 'Trinketer22' ||
+      github.event.pull_request.user.login == 'xssnick' ||
+      github.event.pull_request.user.login == 'tolk-vm' ||
+      github.event.pull_request.user.login == 'DanShaders' ||
+      github.event.pull_request.user.login == 'birydrad' ||
+      github.event.pull_request.user.login == 'abacabadabacaba' ||
+      github.event.pull_request.user.login == 'Mustang98' ||
+      github.event.pull_request.user.login == 'avevad' ||
+      github.event.pull_request.user.login == 'tvorogme' ||
+      github.event.pull_request.user.login == 'krigga'
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: write
     outputs:
       final_message: ${{ steps.run_codex.outputs.final-message }}
+
     steps:
-      - uses: actions/checkout@v5
+      # 1. Checkout the trusted base commit
+      - name: Checkout base branch (trusted)
+        uses: actions/checkout@v5
         with:
-          # Explicitly check out the PR's merge commit.
-          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Pre-fetch base and head refs for the PR
+      # 2. Fetch PR head as a separate local branch, without checking it out
+      - name: Fetch PR head
         run: |
-          git fetch --no-tags origin \
-            ${{ github.event.pull_request.base.ref }} \
-            +refs/pull/${{ github.event.pull_request.number }}/head
+          git fetch origin \
+            pull/${{ github.event.pull_request.number }}/head:pr-${{ github.event.pull_request.number }}
 
-      # If you want Codex to build and run code, install any dependencies that
-      # need to be downloaded before the "Run Codex" step because Codex's
-      # default sandbox disables network access.
+      # Optional diagnostics
+      - name: Show diff summary
+        run: |
+          git diff --stat \
+            ${{ github.event.pull_request.base.sha }} pr-${{ github.event.pull_request.number }}
 
+      # 3. Run Codex safely
       - name: Run Codex
         id: run_codex
-        uses: openai/codex-action@v1
+        uses: openai/codex-action@02e7b2943818fbac9f077c3d1249a198ab358352
         with:
+          # IMPORTANT: this is safe only because:
+          # - workflow file lives in base repo (attacker cannot change it)
+          # - we do not run arbitrary PR code, only git commands
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt: |
             This is PR #${{ github.event.pull_request.number }} for ${{ github.repository }}.
 
-            Review ONLY the changes introduced by the PR, so consider:
-               git log --oneline ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}
+            Review ONLY the changes introduced by this PR.
 
-            Suggest any improvements, potential bugs, or issues.
-            Be concise and specific in your feedback.
+            Diff range:
+              ${{ github.event.pull_request.base.sha }}...pr-${{ github.event.pull_request.number }}
 
             Pull request title and body:
             ----
