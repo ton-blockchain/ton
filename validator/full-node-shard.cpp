@@ -810,7 +810,7 @@ void FullNodeShardImpl::process_block_candidate_broadcast(PublicKeyHash src, ton
   td::uint32 validator_set_hash;
   td::BufferSlice data;
   auto S = deserialize_block_candidate_broadcast(query, block_id, cc_seqno, validator_set_hash, data,
-                                                 overlay::Overlays::max_fec_broadcast_size());
+                                                 overlay::Overlays::max_fec_broadcast_size(), "public");
   if (data.size() > FullNode::max_block_size()) {
     VLOG(FULL_NODE_WARNING) << "received block candidate with too big size from " << src;
     return;
@@ -837,7 +837,7 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_bl
 }
 
 void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
-  auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size());
+  auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), "public");
   if (B.is_error()) {
     LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
     return;
@@ -935,7 +935,7 @@ void FullNodeShardImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno 
     return;
   }
   auto B =
-      serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true);  // compression enabled
+      serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true, "public");  // compression enabled
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
     return;
@@ -951,7 +951,7 @@ void FullNodeShardImpl::send_broadcast(BlockBroadcast broadcast) {
     return;
   }
   VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in private overlay: " << broadcast.block_id.to_str();
-  auto B = serialize_block_broadcast(broadcast, false);  // compression_enabled = false
+  auto B = serialize_block_broadcast(broadcast, false, "public");  // compression_enabled = false
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
     return;
