@@ -134,7 +134,7 @@ async def test_timeout(tonlib_client: TonlibClient, monkeypatch: pytest.MonkeyPa
             lambda *_: None,  # pyright: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
         )
         with pytest.raises(TimeoutError):
-            _ = await asyncio.wait_for(tonlib_client.get_masterchain_info(), timeout=2)
+            _ = await asyncio.wait_for(tonlib_client.get_masterchain_info(), timeout=0.1)
         assert tonlib_client._tonlib_wrapper is not None
         assert not tonlib_client._tonlib_wrapper._futures
 
