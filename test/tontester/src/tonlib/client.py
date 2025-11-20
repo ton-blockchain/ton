@@ -18,7 +18,6 @@ class TonlibClient:
         cdll_path: Path,
         loop: asyncio.AbstractEventLoop | None = None,
         verbosity_level: int = 0,
-        tonlib_cancel_check_interval: int = 1,
     ):
         self.ls_index: int = ls_index
         self._config: ton_api.Liteclient_config_global = config
@@ -26,7 +25,6 @@ class TonlibClient:
         self._loop: asyncio.AbstractEventLoop | None = loop
         self._verbosity_level: int = verbosity_level
         self._tonlib_wrapper: TonLib | None = None
-        self._tonlib_cancel_check_interval: int = tonlib_cancel_check_interval
 
     @property
     def local_config(self) -> ton_api.Liteclient_config_global:
@@ -43,7 +41,6 @@ class TonlibClient:
             event_loop,
             self.ls_index,
             self._cdll_path,
-            self._tonlib_cancel_check_interval,
             self._verbosity_level,
         )
 

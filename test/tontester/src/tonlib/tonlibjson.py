@@ -53,7 +53,6 @@ class TonLib:
         loop: asyncio.AbstractEventLoop,
         ls_index: int,
         cdll_path: Path,
-        tonlib_cancel_check_interval: int,
         verbosity_level: int = 0,
     ):
         tonlib = ctypes.CDLL(cdll_path)
@@ -63,11 +62,6 @@ class TonLib:
         tonlib_client_set_verbosity_level.argtypes = [ctypes.c_int]
 
         tonlib_client_set_verbosity_level(verbosity_level)
-
-        tonlib_json_client_create = tonlib.tonlib_client_json_create
-        tonlib_json_client_create.restype = ctypes.c_void_p
-        tonlib_json_client_create.argtypes = []
-        self._client: int = tonlib_json_client_create()
 
         tonlib_json_client_receive = tonlib.tonlib_client_json_receive
         tonlib_json_client_receive.restype = ctypes.c_char_p
@@ -86,8 +80,12 @@ class TonLib:
         tonlib_json_client_destroy.argtypes = [ctypes.c_void_p]
         self._tonlib_json_client_destroy: typing.Callable[[int], None] = tonlib_json_client_destroy
 
-        # FIXME: This only exists because we cannot cancel running `tonlib_json_client_receive`.
-        self._tonlib_cancel_check_interval: int = tonlib_cancel_check_interval
+        tonlib_json_client_cancel_requests = tonlib.tonlib_client_json_cancel_requests
+        tonlib_json_client_cancel_requests.restype = None
+        tonlib_json_client_cancel_requests.argtypes = [ctypes.c_void_p]
+        self._tonlib_json_client_cancel_requests: typing.Callable[[int], None] = (
+            tonlib_json_client_cancel_requests
+        )
 
         self._request_id: int = 0
         self._futures: dict[str, asyncio.Future[JSONSerializable]] = {}
@@ -97,6 +95,11 @@ class TonLib:
 
         self._work_notification: asyncio.Event = asyncio.Event()
         self._read_results_task: asyncio.Task[None] = self._loop.create_task(self._read_results())
+
+        tonlib_json_client_create = tonlib.tonlib_client_json_create
+        tonlib_json_client_create.restype = ctypes.c_void_p
+        tonlib_json_client_create.argtypes = []
+        self._client: int = tonlib_json_client_create()
 
     def __del__(self):
         assert self._client == 0, (
@@ -135,13 +138,15 @@ class TonLib:
         return self._state == _Status.NONE
 
     def _receive(self) -> _Payload[JSONSerializable] | None:
-        result = self._tonlib_json_client_receive(self._client, self._tonlib_cancel_check_interval)
+        # Make it painfully obvious (and non-optionated) if request cancelling fails.
+        result = self._tonlib_json_client_receive(self._client, 60)
         if result is None:
             return None
         return _Payload(typing.cast(JSONSerializable, json.loads(result.decode("utf-8"))))
 
     async def aclose(self):
         try:
+            self._tonlib_json_client_cancel_requests(self._client)
             self._state = _Status.FINISHED
             self._work_notification.set()
             await self._read_results_task
