@@ -656,167 +656,142 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
     bit_reader.advance(remaining_data_bits);
   }
 
-  // Build cell tree
-  std::vector<td::Ref<vm::Cell>> nodes(node_count);
+    // Build cell tree
+    std::vector<td::Ref<vm::Cell>> nodes(node_count);
 
-  // Helper: write ShardAccounts augmentation (DepthBalanceInfo with grams) into builder
-  auto write_depth_balance_grams = [&](vm::CellBuilder& cb, const td::RefInt256& grams) -> bool {
-    if (!cb.store_zeroes_bool(2)) {  // empty HmLabel
-      return false;
-    }
-    if (!cb.store_zeroes_bool(5)) {  // split_depth = 0 (<= 30)
-      return false;
-    }
-    if (!block::tlb::t_CurrencyCollection.pack_special(cb, grams, td::Ref<vm::Cell>())) {
-      return false;
-    }
-    return true;
-  };
-
-  // Helper: detect MerkleUpdate (is_special AND first byte == 0x04) without finalizing
-  auto is_merkle_update_node = [&](size_t idx) -> bool {
-    if (!is_special[idx]) {
-      return false;
-    }
-    // Need at least one full byte in data to read the tag
-    if (cell_builders[idx].get_bits() < 8) {
-      return false;
-    }
-    unsigned first_byte = cell_builders[idx].get_data()[0];
-    return first_byte == 0x04;
-  };
-
-  // Recursively build RIGHT subtree under MerkleUpdate, pairing with LEFT subtree, computing sum diffs.
-  // Note: left_idx can be SIZE_MAX (as -1 sentinel) when the left subtree has no corresponding child.
-  // Sum is accumulated into sum_diff_out (if non-null), similar to compression flow.
-  std::function<td::Status(size_t, size_t, td::RefInt256*)> build_right_under_mu =
-      [&](size_t right_idx, size_t left_idx, td::RefInt256* sum_diff_out) -> td::Status {
-    if (nodes[right_idx].not_null()) {
-      if (left_idx != std::numeric_limits<size_t>::max() && sum_diff_out) {
-        vm::CellSlice cs_left(NoVm(), nodes[left_idx]);
-        vm::CellSlice cs_right(NoVm(), nodes[right_idx]);
-        td::RefInt256 vertex_diff = process_shard_accounts_vertex(cs_left, cs_right);
-        if (vertex_diff.not_null()) {
-          *sum_diff_out += vertex_diff;
-        }
+    // Helper: write ShardAccounts augmentation (DepthBalanceInfo with grams) into builder
+    auto write_depth_balance_grams = [&](vm::CellBuilder& cb, const td::RefInt256& grams) -> bool {
+      if (!cb.store_zeroes_bool(7)) {  // empty HmLabel and split_depth
+        return false;
       }
-      return td::Status::OK();
-    }
-    // Build children first
-    td::RefInt256 sum_child_diff = td::make_refint(0);
-    for (int j = 0; j < cell_refs_cnt[right_idx]; ++j) {
-      size_t right_child = boc_graph[right_idx][j];
-      size_t left_child = (left_idx != std::numeric_limits<size_t>::max() && j < cell_refs_cnt[left_idx])
-                            ? boc_graph[left_idx][j]
-                            : std::numeric_limits<size_t>::max();
-      TRY_STATUS(build_right_under_mu(right_child, left_child, &sum_child_diff));
-    }
-    // If this vertex was depth-balance-compressed, reconstruct its data from left + children sum
-    if (is_depth_balance[right_idx] && left_idx != std::numeric_limits<size_t>::max()) {
-      // Extract left grams
-      vm::CellSlice cs_left(NoVm(), nodes[left_idx]);
-      td::RefInt256 left_grams = extract_balance_from_depth_balance_info(cs_left);
-      if (left_grams.is_null()) {
-        return td::Status::Error("BOC decompression failed: depth-balance left vertex has no grams");
+      if (!block::tlb::t_CurrencyCollection.pack_special(cb, grams, td::Ref<vm::Cell>())) {
+        return false;
       }
-      td::RefInt256 expected_right_grams = left_grams;
-      expected_right_grams += sum_child_diff;
-      // Write reconstructed augmentation into builder
-      if (!write_depth_balance_grams(cell_builders[right_idx], expected_right_grams)) {
-        return td::Status::Error("BOC decompression failed: failed to write depth-balance grams");
+      return true;
+    };
+  
+    // Helper: detect MerkleUpdate (is_special AND first byte == 0x04) without finalizing
+    auto is_merkle_update_node = [&](size_t idx) -> bool {
+      if (!is_special[idx]) {
+        return false;
       }
-    }
-
-    // Store children refs and finalize this right node
-    try {
-      for (int j = 0; j < cell_refs_cnt[right_idx]; ++j) {
-        cell_builders[right_idx].store_ref(nodes[boc_graph[right_idx][j]]);
+      // Need at least one full byte in data to read the tag
+      if (cell_builders[idx].get_bits() < 8) {
+        return false;
       }
+      unsigned first_byte = cell_builders[idx].get_data()[0];
+      return first_byte == 0x04;
+    };
+  
+    // Helper: finalize a node by storing refs and finalizing the builder
+    auto finalize_node = [&](size_t idx) -> td::Status {
       try {
-        nodes[right_idx] = cell_builders[right_idx].finalize(is_special[right_idx]);
-      } catch (vm::CellBuilder::CellWriteError& e) {
-        return td::Status::Error("BOC decompression failed: failed to finalize right vertex (CellWriteError)");
-      }
-    } catch (vm::VmError& e) {
-      return td::Status::Error("BOC decompression failed: failed to finalize right vertex (VmError)");
-    }
-
-    // Compute this vertex diff (right - left) to propagate upward
-    if (left_idx != std::numeric_limits<size_t>::max()) {
-      vm::CellSlice cs_left(NoVm(), nodes[left_idx]);
-      vm::CellSlice cs_right(NoVm(), nodes[right_idx]);
-      td::RefInt256 vertex_diff = process_shard_accounts_vertex(cs_left, cs_right);
-      if (sum_diff_out && vertex_diff.not_null()) {
-        *sum_diff_out += vertex_diff;
-      }
-    }
-    return td::Status::OK();
-  };
-
-  // General recursive build that handles MerkleUpdate by pairing left/right subtrees
-  std::function<td::Status(size_t)> build_node = [&](size_t idx) -> td::Status {
-    if (nodes[idx].not_null()) {
-      return td::Status::OK();
-    }
-    // If this node is a MerkleUpdate (special and first byte == 0x04),
-    // build left subtree normally first, then right subtree paired with left
-    if (cell_refs_cnt[idx] >= 2) {
-      size_t left_idx = boc_graph[idx][0];
-      size_t right_idx = boc_graph[idx][1];
-      if (is_merkle_update_node(idx)) {
-        // Build left subtree
-        TRY_STATUS(build_node(left_idx));
-        // Build right subtree under MU pairing with left
-        td::RefInt256 right_sum_diff = td::make_refint(0);
-        TRY_STATUS(build_right_under_mu(right_idx, left_idx, &right_sum_diff));
-        // Finalize current MU node with built children
+        for (int j = 0; j < cell_refs_cnt[idx]; ++j) {
+          cell_builders[idx].store_ref(nodes[boc_graph[idx][j]]);
+        }
         try {
-          for (int j = 0; j < cell_refs_cnt[idx]; ++j) {
-            cell_builders[idx].store_ref(nodes[boc_graph[idx][j]]);
+          nodes[idx] = cell_builders[idx].finalize(is_special[idx]);
+        } catch (vm::CellBuilder::CellWriteError& e) {
+          return td::Status::Error(PSTRING() << "BOC decompression failed: failed to finalize node (CellWriteError)");
+        }
+      } catch (vm::VmError& e) {
+        return td::Status::Error(PSTRING() << "BOC decompression failed: failed to finalize node (VmError)");
+      }
+      return td::Status::OK();
+    };
+  
+    // Recursively build right subtree under MerkleUpdate, pairing with left subtree, computing sum diffs.
+    // Sum is accumulated into sum_diff_out (if non-null), similar to compression flow.
+    std::function<td::Status(size_t, size_t, td::RefInt256*)> build_right_under_mu =
+        [&](size_t right_idx, size_t left_idx, td::RefInt256* sum_diff_out) -> td::Status {
+      if (nodes[right_idx].not_null()) {
+        if (left_idx != std::numeric_limits<size_t>::max() && sum_diff_out) {
+          vm::CellSlice cs_left(NoVm(), nodes[left_idx]);
+          vm::CellSlice cs_right(NoVm(), nodes[right_idx]);
+          td::RefInt256 vertex_diff = process_shard_accounts_vertex(cs_left, cs_right);
+          if (vertex_diff.not_null()) {
+            *sum_diff_out += vertex_diff;
           }
-          try {
-            nodes[idx] = cell_builders[idx].finalize(is_special[idx]);
-          } catch (vm::CellBuilder::CellWriteError& e) {
-            return td::Status::Error("BOC decompression failed: failed to finalize MU node (CellWriteError)");
-          }
-        } catch (vm::VmError& e) {
-          return td::Status::Error("BOC decompression failed: failed to finalize MU node (VmError)");
         }
         return td::Status::OK();
       }
-    }
-    // Default: build children normally then finalize
-    for (int j = 0; j < cell_refs_cnt[idx]; ++j) {
-      TRY_STATUS(build_node(boc_graph[idx][j]));
-    }
-    try {
-      for (int j = 0; j < cell_refs_cnt[idx]; ++j) {
-        cell_builders[idx].store_ref(nodes[boc_graph[idx][j]]);
+      td::RefInt256 cur_right_left_diff;
+      // Build children first
+      td::RefInt256 sum_child_diff = td::make_refint(0);
+      for (int j = 0; j < cell_refs_cnt[right_idx]; ++j) {
+        size_t right_child = boc_graph[right_idx][j];
+        size_t left_child = (left_idx != std::numeric_limits<size_t>::max() && j < cell_refs_cnt[left_idx])
+                              ? boc_graph[left_idx][j]
+                              : std::numeric_limits<size_t>::max();
+        TRY_STATUS(build_right_under_mu(right_child, left_child, &sum_child_diff));
       }
-      try {
-        nodes[idx] = cell_builders[idx].finalize(is_special[idx]);
-      } catch (vm::CellBuilder::CellWriteError& e) {
-        return td::Status::Error("BOC decompression failed: failed to finalize node (CellWriteError)");
+      // If this vertex was depth-balance-compressed, reconstruct its data from left + children sum
+      if (is_depth_balance[right_idx]) {
+        vm::CellSlice cs_left(NoVm(), nodes[left_idx]);
+        td::RefInt256 left_grams = extract_balance_from_depth_balance_info(cs_left);
+        if (left_grams.is_null()) {
+          return td::Status::Error("BOC decompression failed: depth-balance left vertex has no grams");
+        }
+        td::RefInt256 expected_right_grams = left_grams;
+        expected_right_grams += sum_child_diff;
+        if (!write_depth_balance_grams(cell_builders[right_idx], expected_right_grams)) {
+          return td::Status::Error("BOC decompression failed: failed to write depth-balance grams");
+        }
+        cur_right_left_diff = sum_child_diff;
       }
-    } catch (vm::VmError& e) {
-      return td::Status::Error("BOC decompression failed: failed to finalize node (VmError)");
+  
+      // Store children refs and finalize this right node
+      TRY_STATUS(finalize_node(right_idx));
+  
+      // Compute this vertex diff (right - left) to propagate upward
+      if (cur_right_left_diff.is_null() &&left_idx != std::numeric_limits<size_t>::max()) {
+        vm::CellSlice cs_left(NoVm(), nodes[left_idx]);
+        vm::CellSlice cs_right(NoVm(), nodes[right_idx]);
+        cur_right_left_diff = process_shard_accounts_vertex(cs_left, cs_right);
+      }
+      if (sum_diff_out && cur_right_left_diff.not_null()) {
+        *sum_diff_out += cur_right_left_diff;
+      }
+      return td::Status::OK();
+    };
+  
+    // General recursive build that handles MerkleUpdate by pairing left/right subtrees
+    std::function<td::Status(size_t)> build_node = [&](size_t idx) -> td::Status {
+      if (nodes[idx].not_null()) {
+        return td::Status::OK();
+      }
+      // If this node is a MerkleUpdate, build left subtree normally first, then right subtree paired with left
+      if (is_merkle_update_node(idx)) {
+        size_t left_idx = boc_graph[idx][0];
+        size_t right_idx = boc_graph[idx][1];
+        TRY_STATUS(build_node(left_idx));
+        TRY_STATUS(build_right_under_mu(right_idx, left_idx, nullptr));
+        TRY_STATUS(finalize_node(idx));
+        return td::Status::OK();
+      } else {
+      // Default: build children normally then finalize
+        for (int j = 0; j < cell_refs_cnt[idx]; ++j) {
+          TRY_STATUS(build_node(boc_graph[idx][j]));
+        } 
+      }
+      
+      TRY_STATUS(finalize_node(idx));
+      return td::Status::OK();
+    };
+  
+    // Build from roots using DFS
+    for (size_t index : root_indexes) {
+      TRY_STATUS(build_node(index));
     }
-    return td::Status::OK();
-  };
-
-  // Build from roots using DFS
-  for (size_t index : root_indexes) {
-    TRY_STATUS(build_node(index));
+  
+    std::vector<td::Ref<vm::Cell>> root_nodes;
+    root_nodes.reserve(root_count);
+    for (size_t index : root_indexes) {
+      root_nodes.push_back(nodes[index]);
+    }
+  
+    return root_nodes;
   }
-
-  std::vector<td::Ref<vm::Cell>> root_nodes;
-  root_nodes.reserve(root_count);
-  for (size_t index : root_indexes) {
-    root_nodes.push_back(nodes[index]);
-  }
-
-  return root_nodes;
-}
 
 td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& boc_roots, CompressionAlgorithm algo) {
   // Check for empty input
