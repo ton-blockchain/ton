@@ -58,3 +58,7 @@ const char *tonlib_client_json_execute(void *client, const char *request) {
     return slice.c_str();
   }
 }
+
+void tonlib_client_json_cancel_requests(void *client) {
+  static_cast<tonlib::ClientJson *>(client)->cancel_requests();
+}

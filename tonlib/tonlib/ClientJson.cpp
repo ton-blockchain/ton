@@ -113,4 +113,8 @@ td::CSlice ClientJson::execute(td::Slice request) {
                                     r_request.ok().second));
 }
 
+void ClientJson::cancel_requests() {
+  client_.cancel_requests();
+}
+
 }  // namespace tonlib
