@@ -83,6 +83,11 @@ inline td::Result<unsigned> read_uint(td::BitSlice& bs, int bits) {
 
 // Decode DepthBalanceInfo and extract grams using TLB methods
 td::RefInt256 extract_balance_from_depth_balance_info(vm::CellSlice& cs) {
+  // Check hashmap label is empty ('00')
+  if (cs.size() < 2 || cs.fetch_ulong(2) != 0) {
+    return td::RefInt256{};
+  }
+
   int split_depth;
   Ref<vm::CellSlice> balance_cs_ref;
   if (!block::gen::t_DepthBalanceInfo.unpack_depth_balance(cs, split_depth, balance_cs_ref)) {
@@ -96,69 +101,22 @@ td::RefInt256 extract_balance_from_depth_balance_info(vm::CellSlice& cs) {
   }
   auto balance_cs = balance_cs_ref.write();
   auto res = block::tlb::t_Grams.as_integer_skip(balance_cs);
-  if (balance_cs.size() != 1) {
-    return td::RefInt256{};
-  }
-  int last_bit = balance_cs.fetch_ulong(1);
-  if (last_bit != 0) {
+  if (balance_cs.size() != 1 || balance_cs.fetch_ulong(1) != 0) {
     return td::RefInt256{};
   }
   return res;
 }
 
-// Skip Hashmap label for ShardAccounts (expecting '00' for empty label at root)
-bool skip_hashmap_label(vm::CellSlice& cs, int /*max_bits*/) {
-  int k = cs.fetch_ulong(2);
-  if (k != 0) {
-    return false;
-  }
-  return true;
-}
-
 // Process ShardAccounts vertex and compute balance difference (right - left)
 td::RefInt256 process_shard_accounts_vertex(vm::CellSlice& cs_left, vm::CellSlice& cs_right) {
-  if (skip_hashmap_label(cs_left, 256) && skip_hashmap_label(cs_right, 256)) {
-    auto balance_left = extract_balance_from_depth_balance_info(cs_left);
-    auto balance_right = extract_balance_from_depth_balance_info(cs_right);
-    if (balance_left.not_null() && balance_right.not_null()) {
-      td::RefInt256 diff = balance_right;
-      diff -= balance_left;
-      return diff;
-    }
+  auto balance_left = extract_balance_from_depth_balance_info(cs_left);
+  auto balance_right = extract_balance_from_depth_balance_info(cs_right);
+  if (balance_left.not_null() && balance_right.not_null()) {
+    td::RefInt256 diff = balance_right;
+    diff -= balance_left;
+    return diff;
   }
   return td::RefInt256{};
-}
-
-// Rebuild the ShardAccounts vertex from left + children diffs and compare with right
-bool reconstruct_shard_vertex_and_compare(vm::CellSlice cs_left, vm::CellSlice cs_right, const td::RefInt256& sum_child_diff) {
-  if (!skip_hashmap_label(cs_left, 256)) {
-    return false;
-  }
-  auto left_grams = extract_balance_from_depth_balance_info(cs_left);
-  if (left_grams.is_null()) {
-    return false;
-  }
-  td::RefInt256 expected_right_grams = left_grams;
-  expected_right_grams += sum_child_diff;
-
-  vm::CellBuilder cb;
-  if (!cb.store_zeroes_bool(2)) {
-    return false;
-  }
-  if (!cb.store_zeroes_bool(5)) {
-    return false;
-  }
-  if (!block::tlb::t_CurrencyCollection.pack_special(cb, expected_right_grams, td::Ref<vm::Cell>())) {
-    return false;
-  }
-  td::Ref<vm::Cell> built_cell;
-  try {
-    built_cell = cb.finalize(false);
-  } catch (vm::CellBuilder::CellWriteError&) {
-    return false;
-  }
-  vm::CellSlice built_cs(NoVm(), built_cell);
-  return built_cs.as_bitslice().to_hex() == cs_right.as_bitslice().to_hex();
 }
 
 td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vector<td::Ref<vm::Cell>>& boc_roots) {
@@ -234,18 +192,11 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
       TRY_RESULT(child_left_id, self(self, cell_slice.prefetch_ref(0)));
       boc_graph[current_cell_id][0] = child_left_id;
       // Right branch: traverse paired with left and compute diffs inline
-      td::RefInt256 right_sum_diff = td::make_refint(0);
       TRY_RESULT(child_right_id, self(self,
                                       cell_slice.prefetch_ref(1),
                                       cell_slice.prefetch_ref(0),
-                                      true,
-                                      &right_sum_diff));
+                                      true));
       boc_graph[current_cell_id][1] = child_right_id;
-      // Any extra refs if present
-      for (int i = 2; i < cell_slice.size_refs(); ++i) {
-        TRY_RESULT(child_id, self(self, cell_slice.prefetch_ref(i)));
-        boc_graph[current_cell_id][i] = child_id;
-      }
     } else if (under_mu_right && left_cell.not_null()) {
       // Inline computation for RIGHT subtree nodes under MerkleUpdate
       vm::CellSlice cs_left(NoVm(), left_cell);
@@ -764,9 +715,6 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
     if (is_depth_balance[right_idx] && left_idx != std::numeric_limits<size_t>::max()) {
       // Extract left grams
       vm::CellSlice cs_left(NoVm(), nodes[left_idx]);
-      if (!skip_hashmap_label(cs_left, 256)) {
-        return td::Status::Error("BOC decompression failed: failed to skip hashmap label");
-      }
       td::RefInt256 left_grams = extract_balance_from_depth_balance_info(cs_left);
       if (left_grams.is_null()) {
         return td::Status::Error("BOC decompression failed: depth-balance left vertex has no grams");
