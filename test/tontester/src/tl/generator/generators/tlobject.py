@@ -70,8 +70,6 @@ def _write_modules(
 
         # Generate the class for every TLObject
         for t in tlobjects:
-            if t.name in BASE_TYPES:
-                continue
             _write_source_code(t, t.is_function, builder, type_constructors, ctx)
             builder.current_indent = 0
 
@@ -110,6 +108,7 @@ def _write_source_code(
     _write_class_init(tlobject, is_function, builder, ctx)
     _write_to_dict(tlobject, builder, ctx)
     _write_from_dict(tlobject, type_constructors, builder)
+    _write_parse_result(tlobject, type_constructors, builder)
 
 
 def _write_class_init(
@@ -247,10 +246,46 @@ def _write_from_dict(
     builder.end_block()
 
 
+def _write_parse_result(
+    tlobject: ParsedTLObject,
+    type_constructors: dict[str, list[ParsedTLObject]],
+    builder: SourceBuilder,
+):
+    if not tlobject.is_function:
+        return
+    result_defined = tlobject.result.split(".")[-1][0].islower()
+
+    return_result = ("Type" if not result_defined else "") + get_class_name(tlobject.result)
+    builder.writeln("@staticmethod")
+    builder.writeln("@override")
+    builder.writeln(f"def parse_result(d: tl.JSONSerializable) -> '{return_result}':")
+
+    builder.writeln("if not isinstance(d, dict):")
+    builder.writeln('raise tl.ModelError(f"Expected dict, got {type(d)}")')
+    builder.current_indent -= 1
+
+    if result_defined:
+        name = get_class_name(tlobject.result)
+        builder.writeln(f"{name}.from_dict(d)")
+    else:
+        constructors = type_constructors.get(tlobject.result, [])
+        for c in constructors:
+            builder.writeln(
+                f'if d.get("@type") == "{c.fullname}": return {c.class_name}.from_dict(d)'
+            )
+        builder.writeln(
+            f'raise tl.ModelError(f"Unknown constructor for {tlobject.result}: {{d.get("@type")}}")'
+        )
+        builder.current_indent -= 1
+    builder.end_block()
+
+
 def sort_tlobjects(tlobjects: list[ParsedTLObject]):
     types: list[ParsedTLObject] = []
     type_constructors: dict[str, list[ParsedTLObject]] = defaultdict(list)
     for tlobject in tlobjects:
+        if tlobject.name in BASE_TYPES:
+            tlobject.class_name = f"Type{tlobject.class_name}"
         types.append(tlobject)
         if not tlobject.is_function:
             type_constructors[tlobject.result].append(tlobject)

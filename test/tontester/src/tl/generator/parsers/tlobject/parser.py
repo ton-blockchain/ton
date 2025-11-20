@@ -8,7 +8,7 @@ from .tlarg import TLArg
 CORE_TYPES = {
     0xBC799737,  # boolFalse#bc799737 = Bool;
     0x997275B5,  # boolTrue#997275b5 = Bool;
-    0x3FEDD339,  # true#3fedd339 = True;
+    # 0x3FEDD339,  # true#3fedd339 = True;
     0xC4B9F9BB,  # error#c4b9f9bb code:int text:string = Error;
     0x56730BCC,  # null#56730bcc = Null;
 }

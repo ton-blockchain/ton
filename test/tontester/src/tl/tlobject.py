@@ -100,7 +100,10 @@ class TLObject(ABC):
 
 
 class TLRequest(TLObject, ABC):
-    pass
+    @staticmethod
+    @abstractmethod
+    def parse_result(d: JSONSerializable) -> TLObject:
+        pass
 
 
 class ModelError(Exception):
