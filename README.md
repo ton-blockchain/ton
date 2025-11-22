@@ -70,6 +70,10 @@ Usually, the response to your pull request will indicate which section it falls 
 * Thou shall make sure that workflows are cleanly completed for your PR before considering merge
 
 ## Build TON blockchain
+Make sure to have loaded relevant submodules before: 
+```bash
+git submodule update --init --recursive
+```
 
 ### Ubuntu 20.4, 22.04, 24.04 (x86-64, aarch64)
 Install additional system libraries
