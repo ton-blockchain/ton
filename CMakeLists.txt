@@ -678,5 +678,7 @@ ton_test(test-emulator)
 ton_test(test-fec)
 ton_test(test-tddb ${TEST_OPTIONS})
 ton_test(test-db ${TEST_OPTIONS})
+
+add_subdirectory(test)
 endif()
 #END internal
