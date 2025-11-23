@@ -67,7 +67,11 @@ void EventFdWindows::acquire() {
 }
 
 void EventFdWindows::wait(int timeout_ms) {
-  WaitForSingleObject(event_.fd(), timeout_ms);
+  if (timeout_ms == -1) {
+    WaitForSingleObject(event_.fd(), INFINITE);
+  } else {
+    WaitForSingleObject(event_.fd(), timeout_ms);
+  }
   if (ResetEvent(event_.fd()) == 0) {
     auto error = OS_ERROR("ResetEvent failed");
     LOG(FATAL) << error;
