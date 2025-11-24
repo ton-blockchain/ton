@@ -864,17 +864,16 @@ td::actor::ActorOwn<FullNode> FullNode::create(
 }
 
 FullNodeConfig::FullNodeConfig(const tl_object_ptr<ton_api::engine_validator_fullNodeConfig> &obj)
-    : ext_messages_broadcast_disabled_(obj->ext_messages_broadcast_disabled_) {
+    : ext_messages_broadcast_disabled_(obj->ext_messages_broadcast_disabled_)
+    , ratelimit_window_size_(obj->ratelimit_window_size_)
+    , ratelimit_global_(obj->ratelimit_global_)
+    , ratelimit_heavy_(obj->ratelimit_heavy_)
+    , ratelimit_medium_(obj->ratelimit_medium_) {
 }
 
 tl_object_ptr<ton_api::engine_validator_fullNodeConfig> FullNodeConfig::tl() const {
-  return create_tl_object<ton_api::engine_validator_fullNodeConfig>(ext_messages_broadcast_disabled_);
-}
-bool FullNodeConfig::operator==(const FullNodeConfig &rhs) const {
-  return ext_messages_broadcast_disabled_ == rhs.ext_messages_broadcast_disabled_;
-}
-bool FullNodeConfig::operator!=(const FullNodeConfig &rhs) const {
-  return !(*this == rhs);
+  return create_tl_object<ton_api::engine_validator_fullNodeConfig>(
+      ext_messages_broadcast_disabled_, ratelimit_window_size_, ratelimit_heavy_, ratelimit_medium_, ratelimit_global_);
 }
 
 bool CustomOverlayParams::send_shard(const ShardIdFull &shard) const {

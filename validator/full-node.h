@@ -47,10 +47,11 @@ struct FullNodeConfig {
   FullNodeConfig() = default;
   FullNodeConfig(const tl_object_ptr<ton_api::engine_validator_fullNodeConfig>& obj);
   tl_object_ptr<ton_api::engine_validator_fullNodeConfig> tl() const;
-  bool operator==(const FullNodeConfig& rhs) const;
-  bool operator!=(const FullNodeConfig& rhs) const;
+  bool operator==(const FullNodeConfig& rhs) const = default;
 
   bool ext_messages_broadcast_disabled_ = false;
+  double ratelimit_window_size_ = 0;
+  size_t ratelimit_global_ = 0, ratelimit_heavy_ = 0, ratelimit_medium_ = 0;
 };
 
 struct FullNodeOptions {

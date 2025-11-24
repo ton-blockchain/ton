@@ -23,6 +23,7 @@
 #include "auto/tl/ton_api.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/utils/port/Poll.h"
+#include "rate-limiter.h"
 
 #include "full-node-shard.h"
 
@@ -288,6 +289,9 @@ class FullNodeShardImpl : public FullNodeShard {
   std::set<td::Bits256> my_ext_msg_broadcasts_;
   std::set<td::Bits256> processed_ext_msg_broadcasts_;
   td::Timestamp cleanup_processed_ext_msg_at_;
+
+  RateLimiter<adnl::AdnlNodeIdShort, int32_t /*Function::get_id()*/> limiter_;
+  static decltype(limiter_) make_limiter(const FullNodeOptions &opts);
 };
 
 }  // namespace fullnode

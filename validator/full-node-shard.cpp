@@ -736,7 +736,12 @@ void FullNodeShardImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, "cannot parse tonnode query"));
     return;
   }
-  ton_api::downcast_call(*B.move_as_ok().get(), [&](auto &obj) { this->process_query(src, obj, std::move(promise)); });
+  auto fun_ptr = B.move_as_ok();
+  if (!limiter_.check_in(src, fun_ptr->get_id())) {
+    promise.set_error(td::Status::Error(ErrorCode::failure, "too many requests"));
+    return;
+  }
+  ton_api::downcast_call(*fun_ptr.get(), [&](auto &obj) { this->process_query(src, obj, std::move(promise)); });
 }
 
 void FullNodeShardImpl::receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice data) {
@@ -1412,8 +1417,18 @@ FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, 
     , client_(client)
     , full_node_(full_node)
     , active_(active)
-    , opts_(opts) {
+    , opts_(opts)
+    , limiter_(make_limiter(opts))
+{
 }
+
+decltype(FullNodeShardImpl::limiter_) FullNodeShardImpl::make_limiter(const FullNodeOptions &opts) {
+  return decltype(limiter_){
+    RateLimit{opts.config_.ratelimit_window_size_, opts.config_.ratelimit_global_},
+    {}
+  };
+}
+
 
 td::actor::ActorOwn<FullNodeShard> FullNodeShard::create(
     ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
