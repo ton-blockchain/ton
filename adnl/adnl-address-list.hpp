@@ -53,6 +53,11 @@ class AdnlAddressUdp : public AdnlAddressImpl {
   td::actor::ActorOwn<AdnlNetworkConnection> create_connection(
       td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
       std::unique_ptr<AdnlNetworkConnection::Callback> callback) const override;
+  td::Result<td::IPAddress> to_ip_address() const override{
+    td::IPAddress ip;
+    TRY_STATUS(ip.init_host_port(td::IPAddress::ipv4_to_str(ip_), port_));
+    return ip;
+  }
 };
 
 class AdnlAddressUdp6 : public AdnlAddressImpl {
@@ -83,6 +88,11 @@ class AdnlAddressUdp6 : public AdnlAddressImpl {
   td::actor::ActorOwn<AdnlNetworkConnection> create_connection(
       td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
       std::unique_ptr<AdnlNetworkConnection::Callback> callback) const override;
+  td::Result<td::IPAddress> to_ip_address() const override{
+    td::IPAddress ip;
+    TRY_STATUS(ip.init_host_port(td::IPAddress::ipv6_to_str(ip_.as_slice()), port_));
+    return ip;
+  }
 };
 
 class AdnlAddressTunnel : public AdnlAddressImpl {
