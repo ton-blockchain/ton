@@ -43,6 +43,9 @@ class AdnlAddressImpl : public td::CntObject {
   virtual bool is_reverse() const {
     return false;
   }
+  virtual td::Result<td::IPAddress> to_ip_address() const {
+    return td::Status::Error("not an ip");
+  }
 
   static td::Ref<AdnlAddressImpl> create(const tl_object_ptr<ton_api::adnl_Address> &addr);
 };

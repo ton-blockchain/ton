@@ -78,6 +78,8 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
 
   void alarm_query(AdnlQueryId id) override;
 
+  void get_peer_node(td::Promise<AdnlNode> promise) override;
+
   void discover_query_result(td::Result<dht::DhtValue> B, bool dummy);
 
   void update_dht_node(td::actor::ActorId<dht::Dht> dht_node) override {
@@ -203,6 +205,7 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   bool disable_dht_query_ = false;
   bool skip_init_packet_ = false;
   double message_in_queue_ttl_ = 10.0;
+  std::queue<std::pair<td::Promise<AdnlNode>, td::Timestamp>> peer_node_waiters_;
 
   td::actor::ActorId<AdnlNetworkManager> network_manager_;
   td::actor::ActorId<AdnlPeerTable> peer_table_;
