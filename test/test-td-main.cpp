@@ -35,6 +35,7 @@ int main(int argc, char **argv) {
   td::set_default_failure_signal_handler().ensure();
   // TODO port OptionParser to Windows
   auto &runner = td::TestsRunner::get_default();
+  runner.set_pretty_output(true);
   for (int i = 1; i < argc; i++) {
     if (!std::strcmp(argv[i], "--filter")) {
       CHECK(i + 1 < argc);

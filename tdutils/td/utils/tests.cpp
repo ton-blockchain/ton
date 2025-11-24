@@ -16,6 +16,7 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <iostream>
 #include <map>
 
 #include "td/utils/Parser.h"
@@ -173,6 +174,14 @@ void TestsRunner::set_stress_flag(bool flag) {
   stress_flag_ = flag;
 }
 
+void TestsRunner::set_pretty_output(bool flag) {
+  pretty_output_ = flag;
+}
+
+bool TestsRunner::use_pretty_output() const {
+  return pretty_output_;
+}
+
 void TestsRunner::run_all() {
   while (run_all_step()) {
   }
@@ -201,7 +210,11 @@ bool TestsRunner::run_all_step() {
         ++state_.it;
         continue;
       }
-      LOG(ERROR) << "Run test " << tag("name", name);
+      if (pretty_output_) {
+        std::cerr << "Running test " << name << "..." << std::endl;
+      } else {
+        LOG(ERROR) << "Run test " << tag("name", name);
+      }
       state_.start = Time::now();
       state_.start_unadjusted = Time::now_unadjusted();
       state_.is_running = true;
@@ -214,12 +227,22 @@ bool TestsRunner::run_all_step() {
     auto passed = Time::now() - state_.start;
     auto real_passed = Time::now_unadjusted() - state_.start_unadjusted;
     if (test_failed_) {
-      LOG(ERROR) << "FAILED in " << format::as_time(passed);
+      if (pretty_output_) {
+        std::cerr << "FAIL" << std::endl;
+        failed_tests_.push_back(name);
+      } else {
+        LOG(ERROR) << "FAILED in " << format::as_time(passed);
+      }
       any_test_failed_ = true;
-    } else if (real_passed + 1e-9 > passed) {
-      LOG(ERROR) << format::as_time(passed);
     } else {
-      LOG(ERROR) << format::as_time(passed) << " real[" << format::as_time(real_passed) << "]";
+      if (pretty_output_) {
+        std::cerr << "PASS in " << (PSTRING() << format::as_time(passed)) << std::endl;
+        ++passed_tests_;
+      } else if (real_passed + 1e-9 > passed) {
+        LOG(ERROR) << format::as_time(passed);
+      } else {
+        LOG(ERROR) << format::as_time(passed) << " real[" << format::as_time(real_passed) << "]";
+      }
     }
     if (regression_tester_) {
       regression_tester_->save_db();
@@ -231,6 +254,16 @@ bool TestsRunner::run_all_step() {
 
   auto ret = state_.it != state_.end;
   if (!ret) {
+    if (pretty_output_) {
+      if (failed_tests_.empty()) {
+        std::cerr << passed_tests_ << " test(s) passed" << std::endl;
+      } else {
+        std::cerr << failed_tests_.size() << " test(s) failed:" << std::endl;
+        for (auto &failed_name : failed_tests_) {
+          std::cerr << " - " << failed_name << std::endl;
+        }
+      }
+    }
     state_ = State();
     test_failed_ = false;
   }

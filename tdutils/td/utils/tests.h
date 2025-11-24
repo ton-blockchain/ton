@@ -113,10 +113,12 @@ class TestsRunner : public TestContext {
   void add_test(string name, unique_ptr<Test> test);
   void add_substr_filter(string str);
   void set_stress_flag(bool flag);
+  void set_pretty_output(bool flag);
   void run_all();
   bool run_all_step();
   void set_regression_tester(unique_ptr<RegressionTester> regression_tester);
   bool any_test_failed() const;
+  bool use_pretty_output() const;
 
  private:
   struct State {
@@ -127,8 +129,11 @@ class TestsRunner : public TestContext {
     size_t end{0};
   };
   bool stress_flag_{false};
+  bool pretty_output_{false};
   vector<string> substr_filters_;
   vector<std::pair<string, unique_ptr<Test>>> tests_;
+  vector<string> failed_tests_;
+  size_t passed_tests_{0};
   State state_;
   std::atomic<bool> test_failed_ = false;
   unique_ptr<RegressionTester> regression_tester_;
