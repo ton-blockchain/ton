@@ -20,6 +20,8 @@
 
 #include <atomic>
 #include <functional>
+#include <optional>
+#include <sstream>
 #include <utility>
 
 #include "td/utils/Context.h"
@@ -177,24 +179,64 @@ inline vector<string> rand_split(Slice str) {
   return res;
 }
 
-template <class T1, class T2>
-void assert_eq_impl(const T1 &expected, const T2 &got, const char *file, int line) {
-  LOG_CHECK(expected == got) << tag("expected", expected) << tag("got", got) << " in " << file << " at line " << line;
+namespace detail {
+
+std::optional<std::string> stringify(auto const &value) {
+  if constexpr (requires(std::ostringstream builder) { builder << value; }) {
+    std::ostringstream builder;
+    builder << value;
+    return builder.str();
+  } else if constexpr (requires { PSTRING() << value; }) {
+    return PSTRING() << value;
+  }
+  return std::nullopt;
 }
 
-template <class T>
-void assert_true_impl(const T &got, const char *file, int line) {
-  LOG_CHECK(got) << "Expected true in " << file << " at line " << line;
+inline std::optional<std::string> check(bool condition, char const *msg) {
+  if (condition) {
+    return std::nullopt;
+  }
+
+  return PSTRING() << "Expectation failed: " << msg << "!";
 }
+
+std::optional<std::string> check_eq(auto const &a_value, auto const &b_value, char const *a_expr, char const *b_expr) {
+  if (a_value == b_value) {
+    return std::nullopt;
+  }
+
+  std::ostringstream builder;
+  builder << "Expectation failed: " << a_expr << " is not equal to " << b_expr;
+  if (auto a_str = stringify(a_value), b_str = stringify(b_value); a_str.has_value() && b_str.has_value()) {
+    builder << " (" << *a_str << " != " << *b_str << ")";
+  }
+  return builder.str();
+}
+
+}  // namespace detail
 
 }  // namespace td
 
-#define ASSERT_EQ(expected, got) ::td::assert_eq_impl((expected), (got), __FILE__, __LINE__)
+#define ASSERT_EQ(a, b)                                              \
+  do {                                                               \
+    if (auto error_message = ::td::detail::check_eq(a, b, #a, #b)) { \
+      LOG(FATAL) << *error_message;                                  \
+    }                                                                \
+  } while (0)
 
-#define ASSERT_TRUE(got) ::td::assert_true_impl((got), __FILE__, __LINE__)
+#define ASSERT_TRUE(cond)                                                           \
+  do {                                                                              \
+    if (auto error_message = ::td::detail::check(static_cast<bool>(cond), #cond)) { \
+      LOG(FATAL) << *error_message;                                                 \
+    }                                                                               \
+  } while (0)
 
-#define ASSERT_STREQ(expected, got) \
-  ::td::assert_eq_impl(::td::Slice((expected)), ::td::Slice((got)), __FILE__, __LINE__)
+#define ASSERT_STREQ(a, b)                                                                         \
+  do {                                                                                             \
+    if (auto error_message = ::td::detail::check_eq(::td::Slice((a)), ::td::Slice((b)), #a, #b)) { \
+      LOG(FATAL) << *error_message;                                                                \
+    }                                                                                              \
+  } while (0)
 
 #define REGRESSION_VERIFY(data) ::td::TestContext::get()->verify(data).ensure()
 
