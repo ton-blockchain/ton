@@ -103,6 +103,7 @@ class TestContext : public Context<TestContext> {
   virtual ~TestContext() = default;
   virtual Slice name() = 0;
   virtual Status verify(Slice data) = 0;
+  virtual void register_test_failure() = 0;
 };
 
 class TestsRunner : public TestContext {
@@ -115,6 +116,7 @@ class TestsRunner : public TestContext {
   void run_all();
   bool run_all_step();
   void set_regression_tester(unique_ptr<RegressionTester> regression_tester);
+  bool any_test_failed() const;
 
  private:
   struct State {
@@ -128,10 +130,13 @@ class TestsRunner : public TestContext {
   vector<string> substr_filters_;
   vector<std::pair<string, unique_ptr<Test>>> tests_;
   State state_;
+  std::atomic<bool> test_failed_ = false;
   unique_ptr<RegressionTester> regression_tester_;
+  bool any_test_failed_{false};
 
   Slice name() override;
   Status verify(Slice data) override;
+  void register_test_failure() override;
 };
 
 template <class T>
@@ -236,6 +241,22 @@ std::optional<std::string> check_eq(auto const &a_value, auto const &b_value, ch
     if (auto error_message = ::td::detail::check_eq(::td::Slice((a)), ::td::Slice((b)), #a, #b)) { \
       LOG(FATAL) << *error_message;                                                                \
     }                                                                                              \
+  } while (0)
+
+#define EXPECT(cond)                                                                \
+  do {                                                                              \
+    if (auto error_message = ::td::detail::check(static_cast<bool>(cond), #cond)) { \
+      LOG(ERROR) << *error_message;                                                 \
+      ::td::TestContext::get()->register_test_failure();                            \
+    }                                                                               \
+  } while (0)
+
+#define EXPECT_EQ(a, b)                                              \
+  do {                                                               \
+    if (auto error_message = ::td::detail::check_eq(a, b, #a, #b)) { \
+      LOG(ERROR) << *error_message;                                  \
+      ::td::TestContext::get()->register_test_failure();             \
+    }                                                                \
   } while (0)
 
 #define REGRESSION_VERIFY(data) ::td::TestContext::get()->verify(data).ensure()

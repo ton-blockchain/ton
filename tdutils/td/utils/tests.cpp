@@ -213,7 +213,10 @@ bool TestsRunner::run_all_step() {
 
     auto passed = Time::now() - state_.start;
     auto real_passed = Time::now_unadjusted() - state_.start_unadjusted;
-    if (real_passed + 1e-9 > passed) {
+    if (test_failed_) {
+      LOG(ERROR) << "FAILED in " << format::as_time(passed);
+      any_test_failed_ = true;
+    } else if (real_passed + 1e-9 > passed) {
       LOG(ERROR) << format::as_time(passed);
     } else {
       LOG(ERROR) << format::as_time(passed) << " real[" << format::as_time(real_passed) << "]";
@@ -222,12 +225,14 @@ bool TestsRunner::run_all_step() {
       regression_tester_->save_db();
     }
     state_.is_running = false;
+    test_failed_ = false;
     ++state_.it;
   }
 
   auto ret = state_.it != state_.end;
   if (!ret) {
     state_ = State();
+    test_failed_ = false;
   }
   return ret || stress_flag_;
 }
@@ -244,6 +249,15 @@ Status TestsRunner::verify(Slice data) {
     return Status::OK();
   }
   return regression_tester_->verify_test(PSLICE() << name() << "_default", data);
+}
+
+void TestsRunner::register_test_failure() {
+  CHECK(state_.is_running);
+  test_failed_ = true;
+}
+
+bool TestsRunner::any_test_failed() const {
+  return any_test_failed_;
 }
 
 }  // namespace td
