@@ -1418,17 +1418,26 @@ FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, 
     , full_node_(full_node)
     , active_(active)
     , opts_(opts)
-    , limiter_(make_limiter(opts))
-{
+    , limiter_(make_limiter(opts)) {
 }
 
 decltype(FullNodeShardImpl::limiter_) FullNodeShardImpl::make_limiter(const FullNodeOptions &opts) {
-  return decltype(limiter_){
-    RateLimit{opts.config_.ratelimit_window_size_, opts.config_.ratelimit_global_},
-    {}
-  };
-}
+  double w_size = opts.config_.ratelimit_window_size_;
+  size_t h_limit = opts.config_.ratelimit_heavy_;
+  size_t m_limit = opts.config_.ratelimit_medium_;
+  size_t g_limit = opts.config_.ratelimit_global_;
+  return decltype(limiter_){{w_size, g_limit},
+                            {
+                                {ton_api::tonNode_getArchiveSlice::ID, {w_size, h_limit}},
+                                {ton_api::tonNode_downloadPersistentStateSliceV2::ID, {w_size, h_limit}},
+                                {ton_api::tonNode_downloadPersistentStateSlice::ID, {w_size, h_limit}},
+                                {ton_api::tonNode_downloadZeroState::ID, {w_size, h_limit}},
 
+                                {ton_api::tonNode_downloadBlockFull::ID, {w_size, m_limit}},
+                                {ton_api::tonNode_downloadNextBlockFull::ID, {w_size, m_limit}},
+                                {ton_api::tonNode_downloadBlockProofLink::ID, {w_size, m_limit}},
+                            }};
+}
 
 td::actor::ActorOwn<FullNodeShard> FullNodeShard::create(
     ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
