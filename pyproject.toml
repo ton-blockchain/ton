@@ -6,6 +6,7 @@ dependencies = [
     "pytest>=9.0.1",
     "pytest-asyncio",
     "tontester",
+    "types-gdb>=16.3.0.20250920",
 ]
 
 [dependency-groups]
