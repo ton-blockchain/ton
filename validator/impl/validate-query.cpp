@@ -2440,11 +2440,11 @@ bool ValidateQuery::check_utime_lt() {
     return reject_query(PSTRING() << "block has start_lt " << start_lt_ << " less than or equal to lt " << ps_.lt_
                                   << " of the previous state");
   }
-  if (now_ <= ps_.utime_) {
+  if (now_ < ps_.utime_) {
     return reject_query(PSTRING() << "block has creation time " << now_
                                   << " less than or equal to that of the previous state (" << ps_.utime_ << ")");
   }
-  if (now_ <= config_->utime) {
+  if (now_ < config_->utime) {
     return reject_query(PSTRING() << "block has creation time " << now_
                                   << " less than or equal to that of the reference masterchain state ("
                                   << config_->utime << ")");

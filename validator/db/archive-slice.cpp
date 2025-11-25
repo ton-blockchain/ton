@@ -202,8 +202,7 @@ void ArchiveSlice::add_handle(BlockHandle handle, td::Promise<td::Unit> promise)
     add_shard = true;
   }
   if (handle->id().seqno() <= static_cast<td::uint32>(v->last_seqno_) ||
-      handle->logical_time() <= static_cast<LogicalTime>(v->last_lt_) ||
-      handle->unix_time() <= static_cast<UnixTime>(v->last_ts_)) {
+      handle->logical_time() <= static_cast<LogicalTime>(v->last_lt_)) {
     update_handle(std::move(handle), std::move(promise));
     return;
   }
