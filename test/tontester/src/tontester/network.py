@@ -445,6 +445,7 @@ class FullNode(Network.Node):
 
         self._client: TonlibClient | None = None
         self._engine_console: EngineConsoleClient | None = None
+        self._blockchain_explorer: asyncio.Task[None] | None = None
 
     def make_initial_validator(self):
         self._ensure_no_zerostate_yet()
@@ -475,11 +476,9 @@ class FullNode(Network.Node):
             debug=debug,
         )
 
-    async def tonlib_client(self) -> TonlibClient:
-        if self._client:
-            return self._client
-
-        config = ton_api.Liteclient_config_global(
+    @property
+    def _liteserver_config(self):
+        return ton_api.Liteclient_config_global(
             liteservers=[
                 ton_api.Liteserver_desc(
                     id=self._liteserver_key.public_key,
@@ -490,9 +489,13 @@ class FullNode(Network.Node):
             validator=self._get_or_generate_zerostate().as_validator_config(),
         )
 
+    async def tonlib_client(self) -> TonlibClient:
+        if self._client:
+            return self._client
+
         self._client = TonlibClient(
             ls_index=0,
-            config=config,
+            config=self._liteserver_config,
             cdll_path=self._install.tonlibjson,
             verbosity_level=3,
         )
@@ -514,10 +517,52 @@ class FullNode(Network.Node):
             )
         return self._engine_console
 
+    def enable_blockchain_explorer(self):
+        if self._blockchain_explorer is not None:
+            return
+
+        address = self._new_network_address()
+        config_file = self._directory / "explorer_config.json"
+        _write_model(config_file, self._liteserver_config)
+
+        async def explorer():
+            cmd = [
+                str(self._install.blockchain_explorer_exe),
+                "-C",
+                str(config_file),
+                # FIXME: IP?
+                "-H",
+                str(address.port),
+            ]
+            l.info(
+                f"Running blockchain explorer using node '{self.name}' on http://{address.address}/last"
+            )
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=self._directory,
+            )
+            try:
+                _ = await process.wait()
+            except asyncio.CancelledError:
+                try:
+                    process.terminate()
+                except ProcessLookupError:
+                    pass
+                _ = await asyncio.shield(process.wait())
+                raise
+
+        self._blockchain_explorer = asyncio.create_task(explorer())
+
     @override
     async def stop(self):
         if self._client:
             await self._client.aclose()
         if self._engine_console:
             await self._engine_console.aclose()
+        if self._blockchain_explorer:
+            _ = self._blockchain_explorer.cancel()
+            try:
+                await self._blockchain_explorer
+            except asyncio.CancelledError:
+                pass
         await super().stop()
