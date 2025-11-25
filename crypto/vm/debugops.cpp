@@ -76,16 +76,24 @@ int exec_dump_stack(VmState* st) {
   }
   Stack& stack = st->get_stack();
   int d = stack.depth();
-  std::cerr << "#DEBUG#: stack(" << d << " values) : ";
+
+  // Build the output string in one line
+  std::ostringstream os;
+  os << "#DEBUG#: stack(" << d << " values) : ";
   if (d > 255) {
-    std::cerr << "... ";
+    os << "... ";
     d = 255;
   }
   for (int i = d; i > 0; i--) {
-    stack[i - 1].print_list(std::cerr);
-    std::cerr << ' ';
+    stack[i - 1].print_list(os);
+    os << ' ';
   }
-  std::cerr << std::endl;
+
+  // Output to both console and VM log (single line)
+  std::string output = os.str();
+  std::cerr << output << std::endl;
+  VM_LOG(st) << output;
+
   return 0;
 }
 
@@ -97,11 +105,18 @@ int exec_dump_value(VmState* st, unsigned arg) {
   }
   Stack& stack = st->get_stack();
   if ((int)arg < stack.depth()) {
-    std::cerr << "#DEBUG#: s" << arg << " = ";
-    stack[arg].print_list(std::cerr);
-    std::cerr << std::endl;
+    // Build output in one line
+    std::ostringstream os;
+    os << "#DEBUG#: s" << arg << " = ";
+    stack[arg].print_list(os);
+
+    std::string output = os.str();
+    std::cerr << output << std::endl;
+    VM_LOG(st) << output;
   } else {
-    std::cerr << "#DEBUG#: s" << arg << " is absent" << std::endl;
+    std::string output = "#DEBUG#: s" + std::to_string(arg) + " is absent";
+    std::cerr << output << std::endl;
+    VM_LOG(st) << output;
   }
   return 0;
 }
@@ -127,16 +142,25 @@ int exec_dump_string(VmState* st) {
         cs.write().fetch_bytes(tmp, cnt);
         std::string s{tmp, tmp + cnt};
 
-        std::cerr << "#DEBUG#: " << s << std::endl;
+        // Output to both console and VM log (single line)
+        std::string output = "#DEBUG#: " + s;
+        std::cerr << output << std::endl;
+        VM_LOG(st) << output;
       } else {
-        std::cerr << "#DEBUG#: slice contains not valid bits count" << std::endl;
+        std::string output = "#DEBUG#: slice contains not valid bits count";
+        std::cerr << output << std::endl;
+        VM_LOG(st) << output;
       }
 
     } else {
-      std::cerr << "#DEBUG#: is not a slice" << std::endl;
+      std::string output = "#DEBUG#: is not a slice";
+      std::cerr << output << std::endl;
+      VM_LOG(st) << output;
     }
   } else {
-    std::cerr << "#DEBUG#: s0 is absent" << std::endl;
+    std::string output = "#DEBUG#: s0 is absent";
+    std::cerr << output << std::endl;
+    VM_LOG(st) << output;
   }
 
   return 0;
