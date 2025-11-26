@@ -23,9 +23,9 @@
 #include "auto/tl/ton_api.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/utils/port/Poll.h"
-#include "rate-limiter.h"
 
 #include "full-node-shard.h"
+#include "rate-limiter.h"
 
 namespace ton {
 
