@@ -89,10 +89,8 @@ int exec_dump_stack(VmState* st) {
     os << ' ';
   }
 
-  // Output to both console and VM log (single line)
-  std::string output = os.str();
-  std::cerr << output << std::endl;
-  VM_LOG(st) << output;
+  // Output to VM log only
+  VM_LOG(st) << os.str();
 
   return 0;
 }
@@ -110,13 +108,9 @@ int exec_dump_value(VmState* st, unsigned arg) {
     os << "#DEBUG#: s" << arg << " = ";
     stack[arg].print_list(os);
 
-    std::string output = os.str();
-    std::cerr << output << std::endl;
-    VM_LOG(st) << output;
+    VM_LOG(st) << os.str();
   } else {
-    std::string output = "#DEBUG#: s" + std::to_string(arg) + " is absent";
-    std::cerr << output << std::endl;
-    VM_LOG(st) << output;
+    VM_LOG(st) << "#DEBUG#: s" << arg << " is absent";
   }
   return 0;
 }
@@ -142,25 +136,16 @@ int exec_dump_string(VmState* st) {
         cs.write().fetch_bytes(tmp, cnt);
         std::string s{tmp, tmp + cnt};
 
-        // Output to both console and VM log (single line)
-        std::string output = "#DEBUG#: " + s;
-        std::cerr << output << std::endl;
-        VM_LOG(st) << output;
+        VM_LOG(st) << "#DEBUG#: " << s;
       } else {
-        std::string output = "#DEBUG#: slice contains not valid bits count";
-        std::cerr << output << std::endl;
-        VM_LOG(st) << output;
+        VM_LOG(st) << "#DEBUG#: slice contains not valid bits count";
       }
 
     } else {
-      std::string output = "#DEBUG#: is not a slice";
-      std::cerr << output << std::endl;
-      VM_LOG(st) << output;
+      VM_LOG(st) << "#DEBUG#: is not a slice";
     }
   } else {
-    std::string output = "#DEBUG#: s0 is absent";
-    std::cerr << output << std::endl;
-    VM_LOG(st) << output;
+    VM_LOG(st) << "#DEBUG#: s0 is absent";
   }
 
   return 0;
