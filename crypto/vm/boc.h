@@ -227,6 +227,7 @@ class BagOfCellsLogger {
     log_speed_at_ = td::Timestamp::in(LOG_SPEED_PERIOD);
     last_speed_log_ = td::Timestamp::now();
     processed_cells_ = 0;
+    last_token_check_ = 0;
     timer_ = {};
     stage_ = std::move(stage);
   }
@@ -243,7 +244,9 @@ class BagOfCellsLogger {
       double period = td::Timestamp::now().at() - last_speed_log_.at();
 
       LOG(WARNING) << "serializer: " << stage_ << " " << (double)processed_cells_ / period << " cells/s";
+      TRY_STATUS(cancellation_token_.check());
       processed_cells_ = 0;
+      last_token_check_ = 0;
       last_speed_log_ = td::Timestamp::now();
       log_speed_at_ = td::Timestamp::in(LOG_SPEED_PERIOD);
     }

@@ -232,31 +232,31 @@ class Promise {
     if (!promise_) {
       return;
     }
-    promise_->set_value(std::move(value));
-    promise_.reset();
+    auto promise = std::exchange(promise_, nullptr);
+    promise->set_value(std::move(value));
   }
   void set_error(Status &&error) {
     if (!promise_) {
       return;
     }
-    promise_->set_error(std::move(error));
-    promise_.reset();
+    auto promise = std::exchange(promise_, nullptr);
+    promise->set_error(std::move(error));
   }
 
   void set_result(Result<T> &&result) {
     if (!promise_) {
       return;
     }
-    promise_->set_result(std::move(result));
-    promise_.reset();
+    auto promise = std::exchange(promise_, nullptr);
+    promise->set_result(std::move(result));
   }
   template <class S>
   void operator()(S &&result) {
     if (!promise_) {
       return;
     }
-    promise_->operator()(std::forward<S>(result));
-    promise_.reset();
+    auto promise = std::exchange(promise_, nullptr);
+    promise->operator()(std::forward<S>(result));
   }
   void reset() {
     promise_.reset();

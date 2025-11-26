@@ -74,7 +74,7 @@ CellSlice::CellSlice(NoVmOrd, Ref<Cell> ref) : CellSlice(load_cell_nothrow(std::
 }
 CellSlice::CellSlice(NoVmSpec, Ref<Cell> ref) : CellSlice(load_cell_nothrow(std::move(ref), 2)) {
 }
-CellSlice::CellSlice(Ref<DataCell> ref) : CellSlice(VirtualCell::LoadedCell{std::move(ref), {}, {}}) {
+CellSlice::CellSlice(Ref<DataCell> ref) : CellSlice(VirtualCell::LoadedCell{std::move(ref), Cell::max_level, {}}) {
 }
 CellSlice::CellSlice(const CellSlice& cs) = default;
 
@@ -100,7 +100,7 @@ bool CellSlice::load(NoVmSpec, Ref<Cell> cell_ref) {
   return load(load_cell_nothrow(std::move(cell_ref), 2));
 }
 bool CellSlice::load(Ref<DataCell> dc_ref) {
-  return load(VirtualCell::LoadedCell{std::move(dc_ref), {}, {}});
+  return load(VirtualCell::LoadedCell{std::move(dc_ref), Cell::max_level, {}});
 }
 
 /*

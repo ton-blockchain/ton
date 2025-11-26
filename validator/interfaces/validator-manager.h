@@ -121,6 +121,7 @@ struct CollationStats {
     }
   };
   std::vector<NeighborStats> neighbors;
+  BlockIdExt mc_block_id;
 
   double load_fraction_queue_cleanup = -1.0;
   double load_fraction_dispatch = -1.0;
@@ -172,7 +173,7 @@ struct CollationStats {
         create_tl_object<ton_api::validatorStats_blockStats_extMsgsStats>(ext_msgs_total, ext_msgs_filtered,
                                                                           ext_msgs_accepted, ext_msgs_rejected),
         transactions, std::move(shards_obj), old_out_msg_queue_size, new_out_msg_queue_size, msg_queue_cleaned,
-        std::move(neighbors_obj));
+        std::move(neighbors_obj), create_tl_block_id(mc_block_id));
     return create_tl_object<ton_api::validatorStats_collatedBlock>(
         create_tl_block_id(block_id), collated_data_hash, cc_seqno, collated_at, actual_bytes,
         actual_collated_data_bytes, attempt, self.bits256_value(), is_validator, total_time, work_time.total.real,
