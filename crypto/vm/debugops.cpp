@@ -76,16 +76,20 @@ int exec_dump_stack(VmState* st) {
   }
   Stack& stack = st->get_stack();
   int d = stack.depth();
-  std::cerr << "#DEBUG#: stack(" << d << " values) : ";
+
+  std::ostringstream os;
+  os << "#DEBUG#: stack(" << d << " values) : ";
   if (d > 255) {
-    std::cerr << "... ";
+    os << "... ";
     d = 255;
   }
   for (int i = d; i > 0; i--) {
-    stack[i - 1].print_list(std::cerr);
-    std::cerr << ' ';
+    stack[i - 1].print_list(os);
+    os << ' ';
   }
-  std::cerr << std::endl;
+
+  VM_LOG(st) << os.str();
+
   return 0;
 }
 
@@ -97,11 +101,13 @@ int exec_dump_value(VmState* st, unsigned arg) {
   }
   Stack& stack = st->get_stack();
   if ((int)arg < stack.depth()) {
-    std::cerr << "#DEBUG#: s" << arg << " = ";
-    stack[arg].print_list(std::cerr);
-    std::cerr << std::endl;
+    std::ostringstream os;
+    os << "#DEBUG#: s" << arg << " = ";
+    stack[arg].print_list(os);
+
+    VM_LOG(st) << os.str();
   } else {
-    std::cerr << "#DEBUG#: s" << arg << " is absent" << std::endl;
+    VM_LOG(st) << "#DEBUG#: s" << arg << " is absent";
   }
   return 0;
 }
@@ -127,16 +133,16 @@ int exec_dump_string(VmState* st) {
         cs.write().fetch_bytes(tmp, cnt);
         std::string s{tmp, tmp + cnt};
 
-        std::cerr << "#DEBUG#: " << s << std::endl;
+        VM_LOG(st) << "#DEBUG#: " << s;
       } else {
-        std::cerr << "#DEBUG#: slice contains not valid bits count" << std::endl;
+        VM_LOG(st) << "#DEBUG#: slice contains not valid bits count";
       }
 
     } else {
-      std::cerr << "#DEBUG#: is not a slice" << std::endl;
+      VM_LOG(st) << "#DEBUG#: is not a slice";
     }
   } else {
-    std::cerr << "#DEBUG#: s0 is absent" << std::endl;
+    VM_LOG(st) << "#DEBUG#: s0 is absent";
   }
 
   return 0;
