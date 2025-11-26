@@ -3,6 +3,8 @@ import logging
 import traceback
 from pathlib import Path
 
+from contract import SMCAddress
+from pytoniq_core import MessageAny
 from tonapi import ton_api, tonlib_api
 
 from .tonlibjson import TonLib
@@ -95,32 +97,62 @@ class TonlibClient:
         request = tonlib_api.Raw_sendMessageRequest(body=serialized_boc)
         return request.parse_result(await self._tonlib_wrapper.execute(request))
 
+    async def send_message(self, message: MessageAny) -> tonlib_api.TypeOk:
+        assert self._tonlib_wrapper is not None
+        serialized_boc = message.serialize().to_boc()
+        return await self.raw_send_message(serialized_boc)
+
     async def get_libraries(self, library_list: list[bytes]) -> tonlib_api.Smc_libraryResult:
         assert self._tonlib_wrapper is not None
         request = tonlib_api.Smc_getLibrariesRequest(library_list)
         return request.parse_result(await self._tonlib_wrapper.execute(request))
 
-    async def raw_get_transactions(
-        self, account_address: str, from_transaction_lt: int, from_transaction_hash: bytes
-    ) -> tonlib_api.Raw_transactions:
+    async def lookup_block(
+        self,
+        workchain: int,
+        shard: int,
+        seqno: int | None = None,
+        lt: int | None = None,
+        utime: int | None = None,
+    ):
         assert self._tonlib_wrapper is not None
-        # FIXME: Replace these with proper classes for TransactionId and Address.
-        assert len(account_address) == 48, "account address must be serialized"
-        assert len(from_transaction_hash) == 32
-        request = tonlib_api.Raw_getTransactionsRequest(
-            account_address=tonlib_api.AccountAddress(account_address),
-            from_transaction_id=tonlib_api.Internal_transactionId(
-                lt=from_transaction_lt,
-                hash=from_transaction_hash,
+        assert any((seqno, lt, utime)), "seqno, lt or unixtime must be provided"
+        mode = 0
+        if seqno is not None:
+            mode += 1
+        if lt is not None:
+            mode += 2
+        if utime is not None:
+            mode += 4
+        request = tonlib_api.Blocks_lookupBlockRequest(
+            mode=mode,
+            id=tonlib_api.Ton_blockId(
+                workchain=workchain,
+                shard=shard,
+                seqno=seqno or 0,
             ),
+            lt=lt or 0,
+            utime=utime or 0,
         )
         return request.parse_result(await self._tonlib_wrapper.execute(request))
 
-    async def raw_get_account_state(self, account_address: str) -> tonlib_api.Raw_fullAccountState:
+    async def raw_get_transactions(
+        self, account_address: SMCAddress, from_transaction_id: tonlib_api.Internal_transactionId
+    ) -> tonlib_api.Raw_transactions:
         assert self._tonlib_wrapper is not None
-        # FIXME: Replace these with proper class for Address.
-        assert len(account_address) == 48, "account address must be serialized"
+        request = tonlib_api.Raw_getTransactionsRequest(
+            account_address=tonlib_api.AccountAddress(
+                account_address.to_str(is_user_friendly=True)
+            ),
+            from_transaction_id=from_transaction_id,
+        )
+        return request.parse_result(await self._tonlib_wrapper.execute(request))
+
+    async def raw_get_account_state(
+        self, account_address: SMCAddress
+    ) -> tonlib_api.Raw_fullAccountState:
+        assert self._tonlib_wrapper is not None
         request = tonlib_api.Raw_getAccountStateRequest(
-            account_address=tonlib_api.AccountAddress(account_address)
+            account_address=tonlib_api.AccountAddress(account_address.to_str(is_user_friendly=True))
         )
         return request.parse_result(await self._tonlib_wrapper.execute(request))

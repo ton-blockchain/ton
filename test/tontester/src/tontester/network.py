@@ -11,6 +11,7 @@ from ipaddress import IPv4Address
 from pathlib import Path
 from typing import Literal, final, override
 
+from contract import SMCAddress
 from tonapi import ton_api
 
 from tl import TLObject
@@ -96,7 +97,7 @@ class Network:
             assert self._network._status < _Status.ZEROSTATE_GENERATED
 
         def _get_or_generate_zerostate(self):
-            return self._network._get_or_generate_zerostate()
+            return self._network.get_or_generate_zerostate()
 
         @property
         def _tonlib(self):
@@ -248,6 +249,10 @@ class Network:
         self.__zerostate: Zerostate | None = None
 
     @property
+    def zerostate(self) -> Zerostate | None:
+        return self.__zerostate
+
+    @property
     def config(self):
         assert self._status < _Status.ZEROSTATE_GENERATED
         return self.__network_config
@@ -271,7 +276,7 @@ class Network:
         self.__full_nodes.append(node)
         return node
 
-    def _get_or_generate_zerostate(self) -> Zerostate:
+    def get_or_generate_zerostate(self) -> Zerostate:
         if self.__zerostate is not None:
             return self.__zerostate
 
@@ -309,8 +314,13 @@ class Network:
     ) -> bool | None:
         await asyncio.shield(self.aclose())
 
+    async def get_tonlib_client(self) -> TonlibClient:
+        assert len(self.__full_nodes) > 0, "No known full nodes in the network"
+        # return await random.choice(self.__full_nodes).tonlib_client()
+        return await self.__full_nodes[0].tonlib_client()
+
     async def wait_mc_block(self, seqno: int):
-        client = await self.__full_nodes[0].tonlib_client()
+        client = await self.get_tonlib_client()
 
         while True:
             try:
@@ -339,6 +349,40 @@ class Network:
                 break
             else:
                 await asyncio.sleep(0.2)
+
+    async def wait_block(self, workchain: int, shard: int, seqno: int):
+        client = await self.get_tonlib_client()
+
+        while True:
+            try:
+                return await client.lookup_block(workchain=workchain, shard=shard, seqno=seqno)
+            except TonlibError as e:
+                try:
+                    if e.result.code == 500 and (
+                        "LITE_SERVER_UNKNOWN:" in e.result.message
+                        or "LITE_SERVER_NOTREADY:" in e.result.message
+                    ):
+                        await asyncio.sleep(0.2)
+                        continue
+                except Exception:
+                    pass
+                raise
+
+    async def wait_contract_balance_changed(
+        self, address: SMCAddress, start_balance: int | None = None
+    ) -> int:
+        client = await self.get_tonlib_client()
+
+        if start_balance is None:
+            state = await client.raw_get_account_state(address)
+            start_balance = state.balance
+
+        while True:
+            state = await client.raw_get_account_state(address)
+            if state.balance != start_balance:
+                return state.balance
+            else:
+                await asyncio.sleep(1)
 
 
 def _ip_to_tl(ip: IPv4Address) -> int:

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from contract import WalletV1
 from tonapi import ton_api
 
 from .install import Install, run_fift
@@ -50,6 +51,7 @@ class WorkchainState:
 class Zerostate:
     masterchain: WorkchainState
     shardchain: WorkchainState
+    main_wallet: WalletV1
 
     def as_block(self):
         return ton_api.TonNode_blockIdExt(
@@ -114,7 +116,7 @@ config.workchains!
 }}>c
 // code
 <b 0 32 u,
-   "main-wallet.pk" load-generate-keypair drop
+   "{wallet_name}.pk" load-generate-keypair drop
    B,
 b> // data
 Libs{{
@@ -130,7 +132,7 @@ register_smc
 dup make_special dup constant smc1_addr
 Masterchain over
 2dup ."wallet address = " .addr cr 2dup 6 .Addr cr
-"main-wallet.addr" save-address-verbose
+"{wallet_name}.addr" save-address-verbose
 
 // SmartContract #3
 PROGRAM{{
@@ -339,6 +341,8 @@ def create_zerostate(
         else:
             new_consensus_config += "null\n"
 
+    main_wallet_name = "main-wallet"
+
     run_fift(
         install,
         _TEMPLATE.format(
@@ -352,9 +356,17 @@ def create_zerostate(
             mc_valgroup_lifetime=config.mc_valgroup_lifetime,
             shard_valgroup_lifetime=config.shard_valgroup_lifetime,
             new_consensus_config=new_consensus_config,
+            wallet_name=main_wallet_name,
         ),
         state_dir,
     )
+
+    with open(state_dir / f"{main_wallet_name}.pk", "rb") as f:
+        pk = f.read()
+    with open(state_dir / f"{main_wallet_name}.addr", "rb") as f:
+        addr = f.read()[:32]
+    main_wallet = WalletV1.from_private_key(pk, wc=-1)
+    main_wallet.address.hash_part = addr
 
     return Zerostate(
         masterchain=WorkchainState(
@@ -367,4 +379,5 @@ def create_zerostate(
             file_hash=(state_dir / "basestate0.fhash").read_bytes(),
             root_hash=(state_dir / "basestate0.rhash").read_bytes(),
         ),
+        main_wallet=main_wallet,
     )
