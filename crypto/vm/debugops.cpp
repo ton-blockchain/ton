@@ -77,7 +77,6 @@ int exec_dump_stack(VmState* st) {
   Stack& stack = st->get_stack();
   int d = stack.depth();
 
-  // Build the output string in one line
   std::ostringstream os;
   os << "#DEBUG#: stack(" << d << " values) : ";
   if (d > 255) {
@@ -89,7 +88,6 @@ int exec_dump_stack(VmState* st) {
     os << ' ';
   }
 
-  // Output to VM log only
   VM_LOG(st) << os.str();
 
   return 0;
@@ -103,7 +101,6 @@ int exec_dump_value(VmState* st, unsigned arg) {
   }
   Stack& stack = st->get_stack();
   if ((int)arg < stack.depth()) {
-    // Build output in one line
     std::ostringstream os;
     os << "#DEBUG#: s" << arg << " = ";
     stack[arg].print_list(os);
