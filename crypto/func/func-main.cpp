@@ -35,6 +35,10 @@
 #include "func.h"
 #include "git.h"
 
+extern "C" const char* __asan_default_options() {
+  return "detect_leaks=0";
+}
+
 void usage(const char* progname) {
   std::cerr
       << "usage: " << progname

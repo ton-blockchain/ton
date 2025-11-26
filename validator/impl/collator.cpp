@@ -6704,6 +6704,7 @@ void Collator::finalize_stats() {
       stats_.neighbors.push_back(std::move(neighbors_stats[i]));
     }
   }
+  stats_.mc_block_id = mc_block_id_;
 }
 
 /**

@@ -52,6 +52,10 @@
 #include "git.h"
 #include "words.h"
 
+extern "C" const char* __asan_default_options() {
+  return "detect_leaks=0";
+}
+
 void usage(const char* progname) {
   std::cerr << "A simple Fift interpreter. Type `bye` to quit, or `words` to get a list of all commands\n";
   std::cerr
