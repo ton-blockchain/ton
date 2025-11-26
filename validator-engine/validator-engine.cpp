@@ -1458,7 +1458,7 @@ void ValidatorEngine::alarm() {
           need_write = true;
           std::erase_if(config_.fast_sync_member_certificates,
                         [&](const std::pair<ton::adnl::AdnlNodeIdShort, ton::overlay::OverlayMemberCertificate> &e) {
-                          return !fs_to_del.contains(e.first);
+                          return fs_to_del.contains(e.first);
                         });
         }
       }

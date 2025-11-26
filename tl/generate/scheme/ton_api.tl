@@ -960,7 +960,8 @@ validatorStats.blockStats.neighborStats shard:tonNode.shardId is_trivial:Bool is
 validatorStats.blockStats
     ext_msgs:validatorStats.blockStats.extMsgsStats transactions:int shard_configuration:(vector tonNode.blockIdExt)
     old_out_msg_queue_size:long new_out_msg_queue_size:long msg_queue_cleaned:int
-    neighbors:(vector validatorStats.blockStats.neighborStats) = validatorStats.BlockStats;
+    neighbors:(vector validatorStats.blockStats.neighborStats)
+    mc_block_id:tonNode.blockIdExt = validatorStats.BlockStats;
 validatorStats.storageStatCacheStats
     small_cnt:long small_cells:long hit_cnt:long hit_cells:long miss_cnt:long miss_cells:long = validatorStats.StorageStatCacheStats;
 
