@@ -35,7 +35,8 @@ td::Result<td::BufferSlice> serialize_block_broadcast(const BlockBroadcast& broa
     sigs.emplace_back(create_tl_object<ton_api::tonNode_blockSignature>(sig.node, sig.signature.clone()));
   }
   if (!compression_enabled) {
-    LOG(INFO) << "COMPR_BENCHMARK serialize_block_broadcast START_COMPRESS block_id=" << broadcast.block_id.to_str();
+    LOG(INFO) << "COMPR_BENCHMARK serialize_block_broadcast START_COMPRESS block_id=" << broadcast.block_id.to_str()
+              << " overlay=" << overlay;
 
     auto res = create_serialize_tl_object<ton_api::tonNode_blockBroadcast>(
         create_tl_block_id(broadcast.block_id), broadcast.catchain_seqno, broadcast.validator_set_hash, std::move(sigs),
@@ -51,7 +52,8 @@ td::Result<td::BufferSlice> serialize_block_broadcast(const BlockBroadcast& broa
   TRY_RESULT(proof_root, vm::std_boc_deserialize(broadcast.proof));
   TRY_RESULT(data_root, vm::std_boc_deserialize(broadcast.data));
 
-  LOG(INFO) << "COMPR_BENCHMARK serialize_block_broadcast START_COMPRESS block_id=" << broadcast.block_id.to_str();
+  LOG(INFO) << "COMPR_BENCHMARK serialize_block_broadcast START_COMPRESS block_id=" << broadcast.block_id.to_str()
+            << " overlay=" << overlay;
   TRY_RESULT(boc, vm::std_boc_serialize_multi({proof_root, data_root}, 2));
   td::BufferSlice data =
       create_serialize_tl_object<ton_api::tonNode_blockBroadcastCompressed_data>(std::move(sigs), std::move(boc));
@@ -72,7 +74,8 @@ td::Result<td::BufferSlice> serialize_block_broadcast(const BlockBroadcast& broa
 
 static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_blockBroadcast& f, std::string overlay) {
   auto block_id = create_block_id(f.id_);
-  LOG(INFO) << "COMPR_BENCHMARK deserialize_block_broadcast START_DECOMPRESS block_id=" << block_id.to_str();
+  LOG(INFO) << "COMPR_BENCHMARK deserialize_block_broadcast START_DECOMPRESS block_id=" << block_id.to_str()
+            << " overlay=" << overlay;
 
   std::vector<BlockSignature> signatures;
   for (auto& sig : f.signatures_) {
@@ -87,14 +90,15 @@ static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_b
   LOG(INFO) << "COMPR_BENCHMARK deserialize_block_broadcast END_DECOMPRESS block_id=" << block_id.to_str()
             << " overlay=" << overlay
             << " compression_enabled=" << false
-            << " received_size=" << f.data_.size() + f.proof_.size();
+            << " received_size=" << result.data.size() + result.proof.size();
   return result;
 }
 
 static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_blockBroadcastCompressed& f,
                                                               int max_decompressed_size, std::string overlay) {
   auto block_id = create_block_id(f.id_);
-  LOG(INFO) << "COMPR_BENCHMARK deserialize_block_broadcast START_DECOMPRESS block_id=" << block_id.to_str();
+  LOG(INFO) << "COMPR_BENCHMARK deserialize_block_broadcast START_DECOMPRESS block_id=" << block_id.to_str()
+            << " overlay=" << overlay;
 
   TRY_RESULT(decompressed, td::lz4_decompress(f.compressed_, max_decompressed_size));
   TRY_RESULT(f2, fetch_tl_object<ton_api::tonNode_blockBroadcastCompressed_data>(decompressed, true));
@@ -125,7 +129,8 @@ static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_b
 static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_blockBroadcastCompressedV2& f,
                                                               int max_decompressed_size, std::string overlay) {
   auto block_id = create_block_id(f.id_);
-  LOG(INFO) << "COMPR_BENCHMARK2 deserialize_block_broadcast START_DECOMPRESS block_id=" << block_id.to_str();
+  LOG(INFO) << "COMPR_BENCHMARK2 deserialize_block_broadcast START_DECOMPRESS block_id=" << block_id.to_str()
+            << " overlay=" << overlay;
 
   std::vector<BlockSignature> signatures;
   for (auto& sig : f.signatures_) {
@@ -183,13 +188,14 @@ td::Result<td::BufferSlice> serialize_block_full(const BlockIdExt& id, td::Slice
   LOG(INFO) << "COMPR_BENCHMARK serialize_block_full START_COMPRESS block_id=" << id.to_str();
   TRY_RESULT(boc, vm::std_boc_serialize_multi({proof_root, data_root}, 2));
   td::BufferSlice compressed = td::lz4_compress(boc);
+  size_t compressed_size = compressed.size();
   VLOG(FULL_NODE_DEBUG) << "Compressing block full: " << data.size() + proof.size() << " -> " << compressed.size();
   auto res = create_serialize_tl_object<ton_api::tonNode_dataFullCompressed>(create_tl_block_id(id), 0,
                                                                          std::move(compressed), is_proof_link);
   LOG(INFO) << "COMPR_BENCHMARK serialize_block_full END_COMPRESS block_id=" << id.to_str()
             << " compression_enabled=" << compression_enabled
             << " data_size_bytes=" << data.size() + proof.size()
-            << " res_size=" << compressed.size();
+            << " res_size=" << compressed_size;
   return res;
 }
 
@@ -269,7 +275,8 @@ td::Result<td::BufferSlice> serialize_block_candidate_broadcast(BlockIdExt block
                                                                 td::uint32 validator_set_hash, td::Slice data,
                                                                 bool compression_enabled, std::string overlay) {
   if (!compression_enabled) {
-    LOG(INFO) << "COMPR_BENCHMARK serialize_block_candidate_broadcast START_COMPRESS block_id=" << block_id.to_str();
+    LOG(INFO) << "COMPR_BENCHMARK serialize_block_candidate_broadcast START_COMPRESS block_id=" << block_id.to_str()
+              << " overlay=" << overlay;
     auto res = create_serialize_tl_object<ton_api::tonNode_newBlockCandidateBroadcast>(
         create_tl_block_id(block_id), cc_seqno, validator_set_hash,
         create_tl_object<ton_api::tonNode_blockSignature>(Bits256::zero(), td::BufferSlice()), td::BufferSlice(data));
@@ -281,7 +288,8 @@ td::Result<td::BufferSlice> serialize_block_candidate_broadcast(BlockIdExt block
     return res;
   }
   TRY_RESULT(root, vm::std_boc_deserialize(data));
-  LOG(INFO) << "COMPR_BENCHMARK serialize_block_candidate_broadcast START_COMPRESS block_id=" << block_id.to_str();
+  LOG(INFO) << "COMPR_BENCHMARK serialize_block_candidate_broadcast START_COMPRESS block_id=" << block_id.to_str()
+            << " overlay=" << overlay;
   TRY_RESULT(data_new, vm::std_boc_serialize(root, 2));
   td::BufferSlice compressed = td::lz4_compress(data_new);
   auto compressed_size = compressed.size();
@@ -299,13 +307,16 @@ td::Result<td::BufferSlice> serialize_block_candidate_broadcast(BlockIdExt block
 
 static td::Status deserialize_block_candidate_broadcast(ton_api::tonNode_newBlockCandidateBroadcast& obj,
                                                         BlockIdExt& block_id, CatchainSeqno& cc_seqno,
-                                                        td::uint32& validator_set_hash, td::BufferSlice& data) {
-  LOG(INFO) << "COMPR_BENCHMARK deserialize_block_candidate_broadcast START_DECOMPRESS block_id=" << block_id.to_str();                                                        
+                                                        td::uint32& validator_set_hash, td::BufferSlice& data,
+                                                        std::string overlay) {
+  LOG(INFO) << "COMPR_BENCHMARK deserialize_block_candidate_broadcast START_DECOMPRESS block_id=" << block_id.to_str()
+            << " overlay=" << overlay;
   block_id = create_block_id(obj.id_);
   cc_seqno = obj.catchain_seqno_;
   validator_set_hash = obj.validator_set_hash_;
   data = std::move(obj.data_);
   LOG(INFO) << "COMPR_BENCHMARK deserialize_block_candidate_broadcast END_DECOMPRESS block_id=" << block_id.to_str()
+            << " overlay=" << overlay
             << " compression_enabled=" << false
             << " received_size=" << data.size();
   return td::Status::OK();
@@ -318,7 +329,8 @@ static td::Status deserialize_block_candidate_broadcast(ton_api::tonNode_newBloc
   block_id = create_block_id(obj.id_);
   cc_seqno = obj.catchain_seqno_;
   validator_set_hash = obj.validator_set_hash_;
-  LOG(INFO) << "COMPR_BENCHMARK deserialize_block_candidate_broadcast START_DECOMPRESS block_id=" << block_id.to_str();
+  LOG(INFO) << "COMPR_BENCHMARK deserialize_block_candidate_broadcast START_DECOMPRESS block_id=" << block_id.to_str()
+            << " overlay=" << overlay;
   TRY_RESULT(decompressed, td::lz4_decompress(obj.compressed_, max_decompressed_data_size));
   TRY_RESULT(root, vm::std_boc_deserialize(decompressed));
   LOG(INFO) << "COMPR_BENCHMARK deserialize_block_candidate_broadcast END_DECOMPRESS block_id=" << block_id.to_str()
@@ -336,7 +348,8 @@ static td::Status deserialize_block_candidate_broadcast(ton_api::tonNode_newBloc
                                                         td::uint32& validator_set_hash, td::BufferSlice& data,
                                                         int max_decompressed_data_size, std::string overlay) {
   block_id = create_block_id(obj.id_);
-  LOG(INFO) << "COMPR_BENCHMARK2 deserialize_block_candidate_broadcast START_DECOMPRESS block_id=" << block_id.to_str();
+  LOG(INFO) << "COMPR_BENCHMARK2 deserialize_block_candidate_broadcast START_DECOMPRESS block_id=" << block_id.to_str()
+            << " overlay=" << overlay;
   cc_seqno = obj.catchain_seqno_;
   validator_set_hash = obj.validator_set_hash_;
   TRY_RESULT(roots, vm::boc_decompress(obj.compressed_, max_decompressed_data_size));
@@ -362,7 +375,7 @@ td::Status deserialize_block_candidate_broadcast(ton_api::tonNode_Broadcast& obj
   ton_api::downcast_call(obj, td::overloaded(
                                   [&](ton_api::tonNode_newBlockCandidateBroadcast& f) {
                                     S = deserialize_block_candidate_broadcast(f, block_id, cc_seqno, validator_set_hash,
-                                                                              data);
+                                                                              data, overlay);
                                   },
                                   [&](ton_api::tonNode_newBlockCandidateBroadcastCompressed& f) {
                                     S = deserialize_block_candidate_broadcast(f, block_id, cc_seqno, validator_set_hash,
