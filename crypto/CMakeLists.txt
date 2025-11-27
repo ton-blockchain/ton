@@ -14,7 +14,6 @@ set(TON_CRYPTO_CORE_SOURCE
   openssl/residue.cpp
   openssl/rand.cpp
   vm/boc.cpp
-  vm/boc-compression.cpp
   vm/large-boc-serializer.cpp
   tl/tlblib.cpp
 
@@ -87,6 +86,7 @@ set(TON_CRYPTO_CORE_SOURCE
   ellcurve/p256.cpp)
 
 set(TON_CRYPTO_SOURCE
+  vm/boc-compression.cpp
   vm/stack.cpp
   vm/atom.cpp
   vm/continuation.cpp
