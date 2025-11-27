@@ -146,6 +146,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool get_celldb_disable_bloom_filter() const override {
     return celldb_disable_bloom_filter_;
   }
+  bool get_unsynced_liteserver() const override {
+    return unsynced_liteserver_;
+  }
   td::optional<double> get_catchain_max_block_delay() const override {
     return catchain_max_block_delay_;
   }
@@ -263,6 +266,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_celldb_disable_bloom_filter(bool value) override {
     celldb_disable_bloom_filter_ = value;
   }
+  void set_unsynced_liteserver(bool value) override {
+    unsynced_liteserver_ = value;
+  }
   void set_catchain_max_block_delay(double value) override {
     catchain_max_block_delay_ = value;
   }
@@ -350,6 +356,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool celldb_in_memory_ = false;
   bool celldb_v2_ = false;
   bool celldb_disable_bloom_filter_ = false;
+  bool unsynced_liteserver_ = false;
   td::optional<double> catchain_max_block_delay_, catchain_max_block_delay_slow_;
   bool state_serializer_enabled_ = true;
   td::Ref<CollatorOptions> collator_options_{true};
