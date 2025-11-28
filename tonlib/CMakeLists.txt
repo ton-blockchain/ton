@@ -70,32 +70,50 @@ endif()
 add_executable(tonlib-cli tonlib/tonlib-cli.cpp)
 target_link_libraries(tonlib-cli tonlib tdactor tdutils terminal ton_crypto git)
 
-if (NOT CMAKE_CROSSCOMPILING)
-  if (TONLIB_ENABLE_JNI)
-	  #FIXME
-	  #add_dependencies(tonlib tonlib_generate_java_api)
-  endif()
+# ===== tonlibjson =====
+if (USE_EMSCRIPTEN)
+  set(TONLIBJSON_STATIC ON)
 endif()
-add_library(tonlibjson_private STATIC tonlib/ClientJson.cpp tonlib/ClientJson.h)
-target_include_directories(tonlibjson_private PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-  $<BUILD_INTERFACE:${TL_TD_AUTO_INCLUDES}>)
-target_link_libraries(tonlibjson_private PUBLIC tonlib PRIVATE tl_tonlib_api_json)
 
-set(TONLIB_JSON_HEADERS tonlib/tonlib_client_json.h)
-set(TONLIB_JSON_SOURCE tonlib/tonlib_client_json.cpp)
+add_library(tonlibjson_public_interface INTERFACE)
+target_include_directories(tonlibjson_public_interface INTERFACE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+)
+
+add_library(tonlibjson_private_interface INTERFACE)
+target_link_libraries(tonlibjson_private_interface INTERFACE
+  tonlib tl_tonlib_api_json tonlibjson_public_interface
+)
+
+add_library(tonlibjson_objects OBJECT
+  tonlib/ClientJson.cpp
+  tonlib/tonlib_client_json.cpp
+)
+target_link_libraries(tonlibjson_objects
+  PRIVATE tonlibjson_private_interface
+  PUBLIC tonlibjson_public_interface
+)
+
+if (TONLIBJSON_STATIC)
+  add_library(tonlibjson STATIC $<TARGET_OBJECTS:tonlibjson_objects>)
+else()
+  add_library(tonlibjson SHARED $<TARGET_OBJECTS:tonlibjson_objects>)
+endif()
+
+target_link_libraries(tonlibjson
+  PRIVATE tonlibjson_private_interface
+  PUBLIC tonlibjson_public_interface
+)
 
 include(GenerateExportHeader)
-if (TONLIBJSON_STATIC OR USE_EMSCRIPTEN)
-  add_library(tonlibjson STATIC ${TONLIB_JSON_SOURCE})
-else()
-  add_library(tonlibjson SHARED ${TONLIB_JSON_SOURCE})
+generate_export_header(tonlibjson EXPORT_FILE_NAME ${CMAKE_CURRENT_BINARY_DIR}/tonlib/tonlibjson_export.h)
+if (TONLIBJSON_STATIC)
+  target_compile_definitions(tonlibjson_public_interface INTERFACE TONLIBJSON_STATIC_DEFINE)
 endif()
 
-if (PORTABLE AND NOT APPLE)
-  target_link_libraries(tonlibjson PRIVATE tonlibjson_private -static-libgcc -static-libstdc++)
-else()
-  target_link_libraries(tonlibjson PRIVATE tonlibjson_private)
+if (NOT TONLIBJSON_STATIC AND PORTABLE AND NOT APPLE)
+  target_link_options(tonlibjson PRIVATE -static-libgcc -static-libstdc++)
 endif()
 
 if (APPLE)
@@ -109,13 +127,6 @@ if (APPLE AND PORTABLE)
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -static-libstdc++")
 endif()
 
-generate_export_header(tonlibjson EXPORT_FILE_NAME ${CMAKE_CURRENT_BINARY_DIR}/tonlib/tonlibjson_export.h)
-if (TONLIBJSON_STATIC OR USE_EMSCRIPTEN)
-  target_compile_definitions(tonlibjson PUBLIC TONLIBJSON_STATIC_DEFINE)
-endif()
-target_include_directories(tonlibjson PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 if (APPLE)
   set_target_properties(tonlibjson PROPERTIES LINK_FLAGS "-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/tonlibclientjson_export_list")
 endif()
@@ -130,7 +141,7 @@ target_link_libraries(Tonlib INTERFACE tonlib)
 
 add_library(Tonlib::Tonlib ALIAS Tonlib)
 
-install(TARGETS tonlibjson TonlibJson EXPORT Tonlib
+install(TARGETS tonlibjson_public_interface tonlibjson TonlibJson EXPORT Tonlib
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
   RUNTIME DESTINATION bin
@@ -161,6 +172,10 @@ install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../tdutils/td/utils/SharedSlice.h DEST
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../tdutils/td/utils/port/platform.h DESTINATION include/td/utils/port)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/../tdutils/td/utils/config.h DESTINATION include/td/utils/)
 endif()
+
+set(TONLIB_JSON_HEADERS
+  tonlib/tonlib_client_json.h
+)
 
 install(FILES ${TONLIB_JSON_HEADERS} ${CMAKE_CURRENT_BINARY_DIR}/tonlib/tonlibjson_export.h DESTINATION include/tonlib/)
 
