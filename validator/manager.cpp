@@ -2156,6 +2156,15 @@ void ValidatorManagerImpl::new_masterchain_block() {
     td::actor::send_closure(shard_client_, &ShardClient::new_masterchain_block_notification,
                             last_masterchain_block_handle_, last_masterchain_state_);
   }
+
+  for (const auto &[_, validator_group] : validator_groups_) {
+    auto shard_config = last_masterchain_state_->get_shard_from_config(validator_group.shard);
+    if (!shard_config.is_null()) {
+      td::actor::send_closure(validator_group.actor, &IValidatorGroup::notify_mc_finalized,
+                              shard_config->top_block_id());
+    }
+  }
+
   if (validating_masterchain() || !collator_nodes_.empty()) {
     std::set<ShardIdFull> collating_shards;
     if (validating_masterchain()) {

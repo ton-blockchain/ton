@@ -76,6 +76,9 @@ class ValidatorGroup : public IValidatorGroup {
   void get_validator_group_info_for_litequery(
       td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroupInfo>> promise) override;
 
+  void notify_mc_finalized(BlockIdExt block) override {
+  }
+
   void update_options(td::Ref<ValidatorManagerOptions> opts, bool apply_blocks) override {
     opts_ = std::move(opts);
     monitoring_shard_ = apply_blocks;
