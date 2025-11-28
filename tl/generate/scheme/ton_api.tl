@@ -1167,3 +1167,19 @@ storage.daemon.removeStorageProvider = storage.daemon.Success;
 ---types---
 proxyLiteserver.config port:int id:PublicKey = proxyLiteserver.Config;
 engineConsoleClient.config address:string server_public_key:PublicKey client_private_key:PrivateKey = engineConsoleClient.Config;
+
+consensus.overlayId session_id:int256 nodes:(vector int256) = consensus.OverlayId;
+consensus.dataToSign session_id:int256 data:bytes = consensus.DataToSign;
+
+consensus.candidateId slot:int hash:int256 = consensus.CandidateId;
+consensus.candidateParent id:consensus.CandidateId = consensus.CandidateParent;
+consensus.candidateWithoutParents = consensus.CandidateParent;
+
+consensus.candidateHashDataOrdinary block:tonNode.blockIdExt collated_file_hash:int256 parent:consensus.CandidateParent = consensus.CandidateHashData;
+consensus.candidateHashDataEmpty block:tonNode.blockIdExt parent:consensus.candidateId = consensus.CandidateHashData;
+
+consensus.block slot:int parent:consensus.CandidateParent candidate:bytes signature:bytes = consensus.CandidateData;
+consensus.empty slot:int parent:consensus.CandidateId block:tonNode.blockIdExt signature:bytes = consensus.CandidateData;
+
+consensus.null.signature slot:int signature:bytes = consensus.null.Message;
+consensus.null.handshake = consensus.null.Message;
