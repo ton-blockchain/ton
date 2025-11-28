@@ -72,7 +72,7 @@ class TonLib:
         tonlib_json_client_receive = tonlib.tonlib_client_json_receive
         tonlib_json_client_receive.restype = ctypes.c_char_p
         tonlib_json_client_receive.argtypes = [ctypes.c_void_p, ctypes.c_double]
-        self._tonlib_json_client_receive: typing.Callable[[int, int], bytes | None] = (
+        self._tonlib_json_client_receive: typing.Callable[[int, float], bytes | None] = (
             tonlib_json_client_receive
         )
 
