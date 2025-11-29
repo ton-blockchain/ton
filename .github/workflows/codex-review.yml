@@ -52,7 +52,7 @@ jobs:
       - name: Show diff summary
         run: |
           git diff --stat \
-            ${{ github.event.pull_request.base.sha }} pr-${{ github.event.pull_request.number }}
+            ${{ github.event.pull_request.base.sha }}...pr-${{ github.event.pull_request.number }}
 
       # 3. Run Codex safely
       - name: Run Codex
