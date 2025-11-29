@@ -31,8 +31,8 @@ else
   rm -rf .ninja* CMakeCache.txt
 fi
 
-export CC=$(which clang-16)
-export CXX=$(which clang++-16)
+export CC=$(which clang-21)
+export CXX=$(which clang++-21)
 
 if [ ! -d "../openssl_3" ]; then
   git clone https://github.com/openssl/openssl ../openssl_3

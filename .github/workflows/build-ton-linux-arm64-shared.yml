@@ -35,7 +35,7 @@ jobs:
         wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
         echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-16 main" | sudo tee /etc/apt/sources.list.d/llvm.list
         sudo apt-get -y update
-        sudo apt-get install -y clang-16
+        sudo apt-get install -y clang-21
 
     - name: Cache OpenSSL
       id: cache-openssl

@@ -6,7 +6,7 @@
 
 # wget https://apt.llvm.org/llvm.sh
 # chmod +x llvm.sh
-# sudo ./llvm.sh 16 all
+# sudo ./llvm.sh 21 clang
 
 with_artifacts=false
 scratch_new=false
@@ -20,8 +20,8 @@ while getopts 'af' flag; do
   esac
 done
 
-export CC=$(which clang-16)
-export CXX=$(which clang++-16)
+export CC=$(which clang-21)
+export CXX=$(which clang++-21)
 export CCACHE_DISABLE=1
 
 echo `pwd`
