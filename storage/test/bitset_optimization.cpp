@@ -131,7 +131,7 @@ TEST(BitsetOptimization, SetRawBenchmark) {
     }
 
     auto elapsed = (td::Timestamp::now().at() - start.at()) / iterations;
-    double throughput_mbps = (size * 8.0) / (elapsed * 1000000.0);
+    double throughput_mbps = (static_cast<double>(size) * 8.0) / (elapsed * 1000000.0);
 
     LOG(INFO) << "Bitset set_raw() for " << size << " bytes: "
               << (elapsed * 1000.0) << "ms, throughput=" << throughput_mbps << " Mbit/s";
@@ -164,6 +164,6 @@ TEST(BitsetOptimization, SetRawConsistency) {
       }
     }
 
-    ASSERT_EQ(bitset.ones_count(), expected) << "Mismatch at test " << test << ", size " << size;
+    LOG_CHECK(bitset.ones_count() == expected) << "Mismatch at test " << test << ", size " << size;
   }
 }

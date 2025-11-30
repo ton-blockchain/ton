@@ -39,11 +39,11 @@ td::BufferSlice BufferSlicePool::acquire(size_t size) {
     return td::BufferSlice(size);
   }
 
-  // Find a cached buffer of similar size (within 20% tolerance)
+  // Find a cached buffer that is at least as large as requested
+  // and not more than 25% larger (to avoid wasting memory)
   auto it = std::find_if(pool.cached_buffers.begin(), pool.cached_buffers.end(),
                          [size](const BufferEntry& entry) {
-                           size_t diff = entry.size > size ? entry.size - size : size - entry.size;
-                           return diff * 5 <= size;  // Within 20%
+                           return entry.size >= size && entry.size <= size + size / 4;
                          });
 
   if (it != pool.cached_buffers.end()) {
@@ -52,13 +52,9 @@ td::BufferSlice BufferSlicePool::acquire(size_t size) {
     pool.stats.pool_hits++;
     pool.stats.cached_buffers = pool.cached_buffers.size();
 
-    // Resize if needed
-    if (buffer.size() != size) {
+    // Truncate if the cached buffer is larger than needed
+    if (buffer.size() > size) {
       buffer.truncate(size);
-      if (buffer.size() < size) {
-        // Need to reallocate if too small
-        return td::BufferSlice(size);
-      }
     }
 
     return buffer;

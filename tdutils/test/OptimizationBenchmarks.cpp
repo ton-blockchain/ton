@@ -171,8 +171,8 @@ TEST(OptimizationBenchmarks, ObjectPool_concurrent) {
 
   std::vector<td::thread> threads;
   for (int t = 0; t < num_threads; t++) {
-    threads.emplace_back([&pool, operations_per_thread]() {
-      for (int i = 0; i < operations_per_thread; i++) {
+    threads.emplace_back([&pool, num_ops = operations_per_thread]() {
+      for (int i = 0; i < num_ops; i++) {
         auto obj = pool.create();
         obj->value = i;
         pool.release(std::move(obj));

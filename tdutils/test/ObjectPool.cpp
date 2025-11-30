@@ -90,8 +90,10 @@ TEST(ObjectPool, chunked_allocation) {
     }
 
     // Should have reused objects, not allocated many new ones
-    // With chunked allocation, we allocate in multiples of 64
-    CHECK(Counter::construction_count < 300);
+    // With chunked allocation (CHUNK_SIZE=64), default construction happens for all
+    // objects in each chunk. For 200 objects: ceil(200/64) = 4 chunks = 256 pre-constructions
+    // Plus init_data() creates a temporary for each create() call.
+    CHECK(Counter::construction_count < 600);
   }
 
   // All objects should be destroyed when pool is destroyed

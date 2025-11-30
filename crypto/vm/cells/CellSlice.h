@@ -21,6 +21,7 @@
 #include "common/refcnt.hpp"
 #include "common/refint.h"
 #include "vm/cells.h"
+#include "td/utils/common.h"
 
 namespace td {
 class StringBuilder;
@@ -38,8 +39,10 @@ class CellSlice : public td::CntObject {
   unsigned bits_st, refs_st;
   unsigned bits_en, refs_en;
   mutable const unsigned char* ptr{nullptr};
-  mutable unsigned long long z;
-  mutable unsigned zd;
+  mutable unsigned long long z;   // Primary 64-bit preload buffer
+  mutable unsigned long long z2;  // Secondary 64-bit buffer for 128-bit total window
+  mutable unsigned zd;            // Bits valid in primary buffer z
+  mutable unsigned z2d;           // Bits valid in secondary buffer z2
 
  public:
   static constexpr long long fetch_long_eof = (static_cast<unsigned long long>(-1LL) << 63);
@@ -288,7 +291,14 @@ class CellSlice : public td::CntObject {
  private:
   void init_bits_refs();
   void init_preload() const;
-  void preload_at_least(unsigned req_bits) const;
+  void preload_at_least_slow(unsigned req_bits) const;
+  // Inline fast-path for preload check - avoids function call when buffer is already filled
+  void ensure_preloaded(unsigned req_bits) const {
+    if (td::likely(req_bits <= zd)) {
+      return;
+    }
+    preload_at_least_slow(req_bits);
+  }
   Cell::VirtualizationParameters child_virt() const {
     return Cell::VirtualizationParameters(static_cast<td::uint8>(child_merkle_depth(virt.get_level())),
                                           virt.get_virtualization());

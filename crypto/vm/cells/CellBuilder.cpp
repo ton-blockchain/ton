@@ -23,6 +23,8 @@
 
 #include "td/utils/misc.h"
 #include "td/utils/format.h"
+#include "td/utils/bits.h"
+#include "td/utils/as.h"
 
 #include "openssl/digest.hpp"
 
@@ -343,6 +345,26 @@ CellBuilder& CellBuilder::store_long_top(unsigned long long val, unsigned top_bi
   unsigned pos = bits;
   auto reserve_ok = prepare_reserve(top_bits);
   ensure_throw(reserve_ok);
+  // Fast path for byte-aligned stores of common sizes
+  if ((pos & 7) == 0) {
+    unsigned byte_pos = pos >> 3;
+    switch (top_bits) {
+      case 8:
+        data[byte_pos] = static_cast<unsigned char>(val >> 56);
+        return *this;
+      case 16:
+        data[byte_pos] = static_cast<unsigned char>(val >> 56);
+        data[byte_pos + 1] = static_cast<unsigned char>(val >> 48);
+        return *this;
+      case 32:
+        td::as<td::uint32>(data + byte_pos) = td::bswap32(static_cast<td::uint32>(val >> 32));
+        return *this;
+      case 64:
+        td::as<td::uint64>(data + byte_pos) = td::bswap64(val);
+        return *this;
+    }
+  }
+  // Fall through to general path for non-aligned or unusual sizes
   td::bitstring::bits_store_long_top(data, pos, val, top_bits);
   return *this;
 }

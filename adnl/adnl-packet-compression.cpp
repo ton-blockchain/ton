@@ -15,15 +15,19 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "adnl-packet-compression.h"
+#include "td/utils/config.h"
+
+#if TD_HAVE_LZ4
 #include "td/utils/lz4.h"
-#include "td/utils/misc.h"
 #include "td/utils/logging.h"
 #include <cstring>
+#endif
 
 namespace ton {
 namespace adnl {
 
 td::BufferSlice maybe_compress_packet(td::BufferSlice data) {
+#if TD_HAVE_LZ4
   // Don't compress if below threshold
   if (data.size() < kCompressionThreshold) {
     return data;
@@ -57,9 +61,14 @@ td::BufferSlice maybe_compress_packet(td::BufferSlice data) {
              << " bytes (" << (100 * result.size() / data.size()) << "%)";
 
   return result;
+#else
+  // LZ4 not available, return uncompressed
+  return data;
+#endif
 }
 
 td::Result<td::BufferSlice> maybe_decompress_packet(td::BufferSlice data) {
+#if TD_HAVE_LZ4
   // Check if data has compression header
   if (data.size() < kCompressionHeaderSize) {
     return std::move(data);  // Too small to be compressed
@@ -93,6 +102,10 @@ td::Result<td::BufferSlice> maybe_decompress_packet(td::BufferSlice data) {
   LOG(DEBUG) << "Decompressed packet: " << data.size() << " -> " << decompressed.size() << " bytes";
 
   return std::move(decompressed);
+#else
+  // LZ4 not available, return as-is
+  return std::move(data);
+#endif
 }
 
 }  // namespace adnl

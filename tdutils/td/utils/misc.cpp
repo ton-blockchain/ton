@@ -21,7 +21,10 @@
 #include "td/utils/port/thread_local.h"
 
 #include <algorithm>
+#include <cctype>
+#include <cmath>
 #include <cstdlib>
+#include <limits>
 #include <locale>
 #include <sstream>
 
@@ -80,6 +83,36 @@ string oneline(Slice str) {
 }
 
 double to_double(Slice str) {
+  // Skip leading whitespace
+  size_t pos = 0;
+  while (pos < str.size() && (str[pos] == ' ' || str[pos] == '\t')) {
+    pos++;
+  }
+
+  // Check for inf/nan (case-insensitive) - needed for cross-platform consistency
+  // macOS libc++ handles these differently than Linux libstdc++
+  if (pos < str.size()) {
+    Slice remaining = str.substr(pos);
+    if (remaining.size() >= 3) {
+      char c0 = static_cast<char>(std::tolower(static_cast<unsigned char>(remaining[0])));
+      char c1 = static_cast<char>(std::tolower(static_cast<unsigned char>(remaining[1])));
+      char c2 = static_cast<char>(std::tolower(static_cast<unsigned char>(remaining[2])));
+
+      if (c0 == 'i' && c1 == 'n' && c2 == 'f') {
+        // Check next char is not alphanumeric (allows "inf  asdasd" but not "inFasdasd")
+        if (remaining.size() == 3 || !std::isalnum(static_cast<unsigned char>(remaining[3]))) {
+          return std::numeric_limits<double>::infinity();
+        }
+      }
+      if (c0 == 'n' && c1 == 'a' && c2 == 'n') {
+        if (remaining.size() == 3 || !std::isalnum(static_cast<unsigned char>(remaining[3]))) {
+          return std::nan("");
+        }
+      }
+    }
+  }
+
+  // Fall back to stringstream for regular numbers
   static TD_THREAD_LOCAL std::stringstream *ss;
   if (init_thread_local<std::stringstream>(ss)) {
     auto previous_locale = ss->imbue(std::locale::classic());

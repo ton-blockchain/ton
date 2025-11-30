@@ -25,6 +25,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <cmath>
+#include <chrono>
 #include "common/refcnt.hpp"
 #include "common/bigint.hpp"
 #include "common/refint.h"
@@ -652,5 +653,187 @@ TEST(uint64_exp, main) {
   } else {
     os << "uint64_exp test FAILED\n";
   }
+  REGRESSION_VERIFY(os.str());
+}
+
+// Benchmarks for TL-B encoding/decoding optimizations
+
+TEST(Cells, benchmark_fetch_ulong) {
+  // Benchmark CellSlice fetch operations (tests 128-bit buffer and inline preload)
+  os = create_ss();
+  const int iterations = 10000;
+  const int cells_per_iter = 100;
+
+  // Create cells with various data sizes
+  std::vector<td::Ref<vm::DataCell>> cells;
+  for (int i = 0; i < cells_per_iter; i++) {
+    vm::CellBuilder cb;
+    cb.store_long(0x123456789ABCDEF0ULL, 64);
+    cb.store_long(0xFEDCBA9876543210ULL, 64);
+    cb.store_long(0xAAAABBBBCCCCDDDDULL, 64);
+    cb.store_long(0x1111222233334444ULL, 64);
+    cells.push_back(cb.finalize());
+  }
+
+  volatile unsigned long long sink = 0;
+  auto start = std::chrono::high_resolution_clock::now();
+
+  for (int iter = 0; iter < iterations; iter++) {
+    for (const auto& cell : cells) {
+      vm::CellSlice cs(vm::NoVm(), cell);
+      sink += cs.fetch_ulong(64);
+      sink += cs.fetch_ulong(32);
+      sink += cs.fetch_ulong(32);
+      sink += cs.fetch_ulong(64);
+      sink += cs.fetch_ulong(56);
+      sink += cs.fetch_ulong(8);
+    }
+  }
+
+  auto end = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+
+  os << "fetch_ulong benchmark: " << iterations * cells_per_iter << " cells, "
+     << duration.count() << " us, sink=" << sink << std::endl;
+
+  // Ensure optimized path is working (should complete reasonably fast)
+  ASSERT_TRUE(duration.count() < 1000000);  // Should complete in < 1 second
+  REGRESSION_VERIFY(os.str());
+}
+
+TEST(Cells, benchmark_store_long) {
+  // Benchmark CellBuilder store operations (tests fast path optimization)
+  os = create_ss();
+  const int iterations = 10000;
+  const int stores_per_iter = 100;
+
+  volatile unsigned long long sink = 0;
+  auto start = std::chrono::high_resolution_clock::now();
+
+  for (int iter = 0; iter < iterations; iter++) {
+    for (int i = 0; i < stores_per_iter; i++) {
+      vm::CellBuilder cb;
+      cb.store_long(0x123456789ABCDEF0ULL, 64);  // Should use 64-bit fast path
+      cb.store_long(0xDEADBEEF, 32);              // Should use 32-bit fast path
+      cb.store_long(0x1234, 16);                  // Should use 16-bit fast path
+      cb.store_long(0xAB, 8);                     // Should use 8-bit fast path
+      cb.store_long(0x123, 12);                   // Uses general path (non-byte-aligned after this)
+      auto cell = cb.finalize();
+      sink += cell->get_hash().as_array()[0];
+    }
+  }
+
+  auto end = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+
+  os << "store_long benchmark: " << iterations * stores_per_iter << " cells, "
+     << duration.count() << " us, sink=" << sink << std::endl;
+
+  ASSERT_TRUE(duration.count() < 2000000);  // Should complete in < 2 seconds
+  REGRESSION_VERIFY(os.str());
+}
+
+TEST(Cells, benchmark_bits_memcpy) {
+  // Benchmark bit copy operations (tests 64-bit optimization)
+  os = create_ss();
+  const int iterations = 10000;
+
+  // Create source data - 256 bits (32 bytes) like a hash
+  unsigned char src_data[64];
+  unsigned char dst_data[64];
+  for (int i = 0; i < 64; i++) {
+    src_data[i] = (unsigned char)(i * 17 + 3);
+  }
+
+  volatile int sink = 0;
+  auto start = std::chrono::high_resolution_clock::now();
+
+  for (int iter = 0; iter < iterations; iter++) {
+    // Test various alignments and sizes
+    for (int src_off = 0; src_off < 8; src_off++) {
+      for (int dst_off = 0; dst_off < 8; dst_off++) {
+        // 256-bit copy (hash-sized)
+        td::bitstring::bits_memcpy(dst_data, dst_off, src_data, src_off, 256);
+        sink += dst_data[0];
+
+        // 160-bit copy (address-sized)
+        td::bitstring::bits_memcpy(dst_data, dst_off, src_data, src_off, 160);
+        sink += dst_data[0];
+
+        // 64-bit copy
+        td::bitstring::bits_memcpy(dst_data, dst_off, src_data, src_off, 64);
+        sink += dst_data[0];
+      }
+    }
+  }
+
+  auto end = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+
+  os << "bits_memcpy benchmark: " << iterations << " iterations, "
+     << duration.count() << " us, sink=" << sink << std::endl;
+
+  ASSERT_TRUE(duration.count() < 2000000);  // Should complete in < 2 seconds
+  REGRESSION_VERIFY(os.str());
+}
+
+TEST(Cells, benchmark_sequential_fetch) {
+  // Benchmark sequential fetch of many small values (tests 128-bit buffer benefit)
+  os = create_ss();
+  const int iterations = 5000;
+  const int cells_per_iter = 100;
+
+  // Create cells with many small fields (simulating typical TL-B structures)
+  std::vector<td::Ref<vm::DataCell>> cells;
+  for (int i = 0; i < cells_per_iter; i++) {
+    vm::CellBuilder cb;
+    // Store 16 x 4-bit values = 64 bits
+    for (int j = 0; j < 16; j++) {
+      cb.store_long(j & 0xF, 4);
+    }
+    // Store 8 x 8-bit values = 64 bits
+    for (int j = 0; j < 8; j++) {
+      cb.store_long(j * 17, 8);
+    }
+    // Store mixed sizes
+    cb.store_long(1, 1);   // bool
+    cb.store_long(7, 3);   // 3-bit tag
+    cb.store_long(255, 8); // byte
+    cb.store_long(0xFFFF, 16);  // short
+    cb.store_long(0xFFFFFFFF, 32);  // int
+    cells.push_back(cb.finalize());
+  }
+
+  volatile unsigned long long sink = 0;
+  auto start = std::chrono::high_resolution_clock::now();
+
+  for (int iter = 0; iter < iterations; iter++) {
+    for (const auto& cell : cells) {
+      vm::CellSlice cs(vm::NoVm(), cell);
+
+      // Fetch 16 x 4-bit values
+      for (int j = 0; j < 16; j++) {
+        sink += cs.fetch_ulong(4);
+      }
+      // Fetch 8 x 8-bit values
+      for (int j = 0; j < 8; j++) {
+        sink += cs.fetch_ulong(8);
+      }
+      // Fetch mixed sizes
+      sink += cs.fetch_ulong(1);
+      sink += cs.fetch_ulong(3);
+      sink += cs.fetch_ulong(8);
+      sink += cs.fetch_ulong(16);
+      sink += cs.fetch_ulong(32);
+    }
+  }
+
+  auto end = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+
+  os << "sequential_fetch benchmark: " << iterations * cells_per_iter << " cells, "
+     << duration.count() << " us, sink=" << sink << std::endl;
+
+  ASSERT_TRUE(duration.count() < 3000000);  // Should complete in < 3 seconds
   REGRESSION_VERIFY(os.str());
 }

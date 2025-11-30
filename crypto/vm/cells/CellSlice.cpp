@@ -86,6 +86,7 @@ bool CellSlice::load(VirtualCell::LoadedCell loaded_cell) {
   refs_st = 0;
   ptr = 0;
   zd = 0;
+  z2d = 0;
   init_bits_refs();
   return cell.not_null();
 }
@@ -177,6 +178,8 @@ void CellSlice::init_bits_refs() {
 }
 
 void CellSlice::init_preload() const {
+  z2 = 0;
+  z2d = 0;
   if (bits_st >= bits_en) {
     zd = 0;
     return;
@@ -189,6 +192,7 @@ void CellSlice::init_preload() const {
 
 void CellSlice::clear() {
   zd = 0;
+  z2d = 0;
   bits_en = bits_st = 0;
   refs_st = refs_en = 0;
   ptr = 0;
@@ -233,11 +237,33 @@ Ref<Cell> CellSlice::get_base_cell() const {
 bool CellSlice::advance(unsigned bits) {
   if (have(bits)) {
     bits_st += bits;
-    if (zd <= bits) {  // NB: if we write here zd < bits, we obtain bug with z <<= 64
-      init_preload();
-    } else {
+    if (bits < zd) {
+      // Fast path: just consume from z
       zd -= bits;
       z <<= bits;
+    } else if (bits == zd) {
+      // Consumed exactly z, try to use z2
+      if (z2d > 0) {
+        z = z2;
+        zd = z2d;
+        z2 = 0;
+        z2d = 0;
+      } else {
+        init_preload();
+      }
+    } else {
+      // bits > zd: consumed all of z and some of z2
+      // NB: This can happen after preload_at_least filled both z and z2
+      unsigned z2_consume = bits - zd;
+      if (z2_consume < z2d) {
+        z = z2 << z2_consume;
+        zd = z2d - z2_consume;
+        z2 = 0;
+        z2d = 0;
+      } else {
+        // Consumed all of both buffers
+        init_preload();
+      }
     }
     return true;
   } else {
@@ -267,14 +293,48 @@ bool CellSlice::advance_ext(unsigned bits_refs) {
   return advance_ext(bits_refs & 0xffff, bits_refs >> 16);
 }
 
-// (PRIVATE)
-// assume: at least `req_bits` bits can be preloaded
-void CellSlice::preload_at_least(unsigned req_bits) const {
-  assert(req_bits <= 64 && have(req_bits) && ptr);
-  if (req_bits <= zd) {
-    return;
+// (PRIVATE) - slow path for preloading bits into buffer
+// Called from inline ensure_preloaded() when buffer needs refilling
+// Uses secondary z2 buffer for 128-bit effective window
+// assume: at least `req_bits` bits can be preloaded, and req_bits > zd
+void CellSlice::preload_at_least_slow(unsigned req_bits) const {
+  assert(req_bits <= 64 && have(req_bits) && ptr && req_bits > zd);
+
+  // First, transfer bits from z2 to z if available
+  if (z2d > 0) {
+    unsigned space = 64 - zd;  // Space available in z
+    unsigned transfer = std::min(z2d, space);
+    // z2's top bits go into z's lower part
+    z |= (z2 >> zd);
+    z2 <<= transfer;
+    z2d -= transfer;
+    zd += transfer;
+    if (zd >= req_bits) {
+      return;
+    }
   }
-  int remain = bits_en - bits_st - zd;
+
+  int remain = bits_en - bits_st - zd - z2d;
+
+  // Try to load 64 bits into z2 when it's empty and enough data remains
+  if (z2d == 0 && remain >= 64) {
+    z2 = td::bswap64(td::as<td::uint64>(ptr));
+    ptr += 8;
+    z2d = 64;
+    remain -= 64;
+    // Transfer immediately to z
+    unsigned space = 64 - zd;
+    unsigned transfer = std::min(z2d, space);
+    z |= (z2 >> zd);
+    z2 <<= transfer;
+    z2d -= transfer;
+    zd += transfer;
+    if (zd >= req_bits) {
+      return;
+    }
+  }
+
+  // 32-bit loads when beneficial
   if (zd <= 32 && remain > 24) {
     z |= (((unsigned long long)td::bswap32(td::as<unsigned>(ptr))) << (32 - zd));
     ptr += 4;
@@ -285,6 +345,8 @@ void CellSlice::preload_at_least(unsigned req_bits) const {
     zd += 32;
     remain -= 32;
   }
+
+  // Fall back to byte-by-byte for remaining bits
   while (zd < req_bits && remain > 0) {
     if (zd > 56) {
       z |= (*ptr >> (zd - 56));
@@ -304,7 +366,7 @@ int CellSlice::prefetch_octet() const {
   if (!have(8)) {
     return -1;
   } else {
-    preload_at_least(8);
+    ensure_preloaded(8);
     return (int)(z >> 56);
   }
 }
@@ -313,7 +375,7 @@ int CellSlice::fetch_octet() {
   if (!have(8)) {
     return -1;
   } else {
-    preload_at_least(8);
+    ensure_preloaded(8);
     int res = (int)(z >> 56);
     z <<= 8;
     zd -= 8;
@@ -327,7 +389,7 @@ unsigned long long CellSlice::fetch_ulong(unsigned bits) {
   } else if (!bits) {
     return 0;
   } else if (bits <= 56) {
-    preload_at_least(bits);
+    ensure_preloaded(bits);
     unsigned long long res = (z >> (64 - bits));
     z <<= bits;
     assert(zd >= bits);
@@ -335,7 +397,7 @@ unsigned long long CellSlice::fetch_ulong(unsigned bits) {
     bits_st += bits;
     return res;
   } else {
-    preload_at_least(bits);
+    ensure_preloaded(bits);
     unsigned long long res = (z >> (64 - bits));
     advance(bits);
     return res;
@@ -348,7 +410,7 @@ unsigned long long CellSlice::prefetch_ulong(unsigned bits) const {
   } else if (!bits) {
     return 0;
   } else {
-    preload_at_least(bits);
+    ensure_preloaded(bits);
     return (z >> (64 - bits));
   }
 }
@@ -360,7 +422,7 @@ unsigned long long CellSlice::prefetch_ulong_top(unsigned& bits) const {
   if (!bits) {
     return 0;
   }
-  preload_at_least(bits);
+  ensure_preloaded(bits);
   return z;
 }
 
@@ -370,7 +432,7 @@ long long CellSlice::fetch_long(unsigned bits) {
   } else if (!bits) {
     return 0;
   } else if (bits <= 56) {
-    preload_at_least(bits);
+    ensure_preloaded(bits);
     long long res = ((long long)z >> (64 - bits));
     z <<= bits;
     assert(zd >= bits);
@@ -378,7 +440,7 @@ long long CellSlice::fetch_long(unsigned bits) {
     bits_st += bits;
     return res;
   } else {
-    preload_at_least(bits);
+    ensure_preloaded(bits);
     long long res = ((long long)z >> (64 - bits));
     advance(bits);
     return res;
@@ -391,7 +453,7 @@ long long CellSlice::prefetch_long(unsigned bits) const {
   } else if (!bits) {
     return 0;
   } else {
-    preload_at_least(bits);
+    ensure_preloaded(bits);
     return ((long long)z >> (64 - bits));
   }
 }
