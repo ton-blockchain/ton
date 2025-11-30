@@ -288,9 +288,11 @@ void CatChainReceiverImpl::add_block_cont_3(tl_object_ptr<ton_api::catchain_bloc
   last_sent_block_->written();
 
   run_scheduler();
-  if (!intentional_fork_) {
+  // Skip assertion if intentional_fork_ is set (node created the fork)
+  // or if block became ill (detected fork from another node in the network)
+  if (!intentional_fork_ && !last_sent_block_->is_ill()) {
     LOG_CHECK(last_sent_block_->delivered())
-        << "source=" << last_sent_block_->get_source_id() << " ill=" << last_sent_block_->is_ill()
+        << "source=" << last_sent_block_->get_source_id()
         << " height=" << last_sent_block_->get_height();
   }
 

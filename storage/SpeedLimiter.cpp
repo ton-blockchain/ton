@@ -53,7 +53,7 @@ void SpeedLimiter::enqueue(double size, td::Timestamp timeout, td::Promise<td::U
     unlock_at_ = td::Timestamp::now();
     promise.set_result(td::Unit());
   } else {
-    queue_.push({unlock_at_, size, timeout, std::move(promise)});
+    queue_.emplace(unlock_at_, size, timeout, std::move(promise));
   }
   unlock_at_ = td::Timestamp::in(size / max_speed_, unlock_at_);
   if (!queue_.empty()) {

@@ -274,7 +274,42 @@ if (TDUTILS_MIME_TYPE)
 endif()
 
 if (NOT LZ4_FOUND)
-  pkg_check_modules(LZ4 REQUIRED liblz4)
+  # Try to find LZ4 - optional on Windows, required on other platforms
+  find_package(PkgConfig QUIET)
+  if (PkgConfig_FOUND)
+    # Skip pkg_check_modules on Windows - it finds NuGet with malformed paths
+    if (NOT WIN32)
+      pkg_check_modules(LZ4 REQUIRED liblz4)
+    endif()
+  endif()
+  # Fallback: try find_library if pkg-config failed (skip on Windows - finds NuGet with malformed paths)
+  if (NOT LZ4_FOUND AND NOT WIN32)
+    find_library(LZ4_LIBRARY NAMES lz4 liblz4)
+    find_path(LZ4_INCLUDE_DIR NAMES lz4.h)
+    if (LZ4_LIBRARY AND LZ4_INCLUDE_DIR)
+      set(LZ4_FOUND TRUE)
+      set(LZ4_LIBRARIES ${LZ4_LIBRARY})
+      set(LZ4_INCLUDE_DIRS ${LZ4_INCLUDE_DIR})
+    elseif (NOT WIN32)
+      message(FATAL_ERROR "LZ4 not found - required for non-Windows builds")
+    else()
+      message(WARNING "LZ4 not found - ADNL compression will be disabled on Windows")
+    endif()
+  endif()
+endif()
+
+# Resolve library path - pkg-config may return just library name, not full path
+# target_link_libraries requires a file path or valid target, not a library name
+if (LZ4_FOUND AND NOT WIN32)
+  if (NOT IS_ABSOLUTE "${LZ4_LIBRARIES}" OR NOT EXISTS "${LZ4_LIBRARIES}")
+    find_library(LZ4_LIBRARY_PATH NAMES lz4 liblz4
+      HINTS ${LZ4_LIBRARY_DIRS}
+      PATHS /usr/lib /usr/local/lib /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu)
+    if (LZ4_LIBRARY_PATH)
+      set(LZ4_LIBRARIES "${LZ4_LIBRARY_PATH}")
+      message(STATUS "LZ4 library resolved to: ${LZ4_LIBRARIES}")
+    endif()
+  endif()
 endif()
 
 if (LZ4_FOUND)
@@ -298,12 +333,16 @@ set(TDUTILS_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/json.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/List.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/log.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/LRUCache.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/misc.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/MpmcQueue.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/MpmcWaiter.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/MpscLinkQueue.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/ObjectPool.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/OptionParser.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/OptimizationBenchmarks.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/OrderedEventsProcessor.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/Phase5Benchmarks.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/port.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/pq.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/SharedObjectPool.cpp

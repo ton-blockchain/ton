@@ -20,6 +20,7 @@
 #include "td/utils/Random.h"
 
 #include "adnl-local-id.h"
+#include "adnl-packet-compression.h"
 #include "keys/encryptor.h"
 #include "utils.hpp"
 
@@ -244,7 +245,14 @@ void AdnlLocalId::decrypt(td::BufferSlice data, td::Promise<AdnlPacket> promise)
 }
 
 void AdnlLocalId::decrypt_continue(td::BufferSlice data, td::Promise<AdnlPacket> promise) {
-  auto R = fetch_tl_object<ton_api::adnl_packetContents>(std::move(data), true);
+  // Decompress packet if it was compressed
+  auto decompressed_result = maybe_decompress_packet(std::move(data));
+  if (decompressed_result.is_error()) {
+    promise.set_error(decompressed_result.move_as_error_prefix("failed to decompress packet: "));
+    return;
+  }
+
+  auto R = fetch_tl_object<ton_api::adnl_packetContents>(decompressed_result.move_as_ok(), true);
   if (R.is_error()) {
     promise.set_error(R.move_as_error());
     return;

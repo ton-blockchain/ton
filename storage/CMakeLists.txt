@@ -42,6 +42,7 @@ target_link_libraries(storage-cli storage overlay tdutils tdactor adnl tl_api dh
 
 set(STORAGE_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/storage.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/bitset_optimization.cpp
   PARENT_SCOPE
 )
 

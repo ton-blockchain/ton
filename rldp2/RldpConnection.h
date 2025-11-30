@@ -32,6 +32,7 @@
 #include "td/utils/Heap.h"
 #include "td/utils/VectorQueue.h"
 
+#include <map>
 #include <set>
 
 namespace ton {

@@ -144,6 +144,84 @@ if (TON_USE_ROCKSDB)
   set(WITH_TOOLS OFF CACHE BOOL "build with tools")
   set(USE_RTTI ON CACHE BOOL "use rtti")
   set(FAIL_ON_WARNINGS OFF CACHE BOOL "fail on warnings")
+
+  # Detect LZ4 and pass to RocksDB for compression support
+  if (NOT LZ4_FOUND)
+    find_package(PkgConfig QUIET)
+    if (PkgConfig_FOUND)
+      pkg_check_modules(LZ4 liblz4)
+    endif()
+    if (NOT LZ4_FOUND)
+      # Try find_library as fallback (skip on Windows to avoid NuGet interference)
+      if (NOT WIN32)
+        find_library(LZ4_LIBRARY NAMES lz4 liblz4)
+        find_path(LZ4_INCLUDE_DIR NAMES lz4.h)
+        if (LZ4_LIBRARY AND LZ4_INCLUDE_DIR)
+          set(LZ4_FOUND TRUE)
+          set(LZ4_LIBRARIES ${LZ4_LIBRARY})
+          set(LZ4_INCLUDE_DIRS ${LZ4_INCLUDE_DIR})
+        endif()
+      endif()
+    endif()
+  endif()
+
+  # Pass LZ4 configuration to RocksDB (handles both detected and user-provided LZ4)
+  if (LZ4_FOUND)
+    message(STATUS "LZ4 found for RocksDB: ${LZ4_LIBRARIES}")
+    set(WITH_LZ4 ON CACHE BOOL "build with lz4" FORCE)
+
+    # Resolve library path on non-Windows platforms only
+    # - On Windows: Build script provides full path; find_library finds NuGet with malformed paths
+    # - On Linux: pkg-config may return just "lz4" (library name, not path)
+    # - On macOS: Build script provides full path
+    if (NOT WIN32)
+      if (NOT IS_ABSOLUTE "${LZ4_LIBRARIES}" OR NOT EXISTS "${LZ4_LIBRARIES}")
+        # LZ4_LIBRARIES is not a valid file path, find the actual library
+        find_library(LZ4_LIBRARY_PATH NAMES lz4 liblz4
+          HINTS ${LZ4_LIBRARY_DIRS}
+          PATHS /usr/lib /usr/local/lib /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu)
+        if (LZ4_LIBRARY_PATH)
+          set(LZ4_LIBRARIES "${LZ4_LIBRARY_PATH}")
+          message(STATUS "LZ4 library resolved to: ${LZ4_LIBRARIES}")
+        endif()
+      endif()
+    endif()
+
+    # Pass library paths to prevent RocksDB from doing its own detection
+    if (LZ4_INCLUDE_DIRS)
+      set(LZ4_INCLUDE_DIR "${LZ4_INCLUDE_DIRS}" CACHE PATH "lz4 include dir" FORCE)
+    endif()
+    if (LZ4_LIBRARIES)
+      set(lz4_LIBRARY "${LZ4_LIBRARIES}" CACHE FILEPATH "lz4 library" FORCE)
+      # Also set uppercase variant for find_package compatibility
+      set(LZ4_LIBRARY "${LZ4_LIBRARIES}" CACHE FILEPATH "lz4 library" FORCE)
+    endif()
+
+    # Set lowercase variables that RocksDB's Findlz4.cmake expects
+    set(lz4_FOUND TRUE CACHE BOOL "lz4 found" FORCE)
+    set(lz4_LIBRARIES "${LZ4_LIBRARIES}" CACHE FILEPATH "lz4 library" FORCE)
+    set(lz4_INCLUDE_DIRS "${LZ4_INCLUDE_DIRS}" CACHE PATH "lz4 include dir" FORCE)
+
+    # Create the lz4::lz4 imported target that RocksDB expects
+    # GLOBAL makes it visible to find_package calls from subdirectories
+    if (NOT TARGET lz4::lz4)
+      add_library(lz4::lz4 UNKNOWN IMPORTED GLOBAL)
+      set_target_properties(lz4::lz4 PROPERTIES
+        IMPORTED_LOCATION "${LZ4_LIBRARIES}"
+        INTERFACE_INCLUDE_DIRECTORIES "${LZ4_INCLUDE_DIRS}")
+    endif()
+  else()
+    message(WARNING "LZ4 not found - RocksDB will be built without LZ4 compression support")
+    set(WITH_LZ4 OFF CACHE BOOL "build with lz4" FORCE)
+  endif()
+
+  # Use our custom Findlz4.cmake to prevent RocksDB from finding NuGet package
+  list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
+
+  # Skip thirdparty.inc on Windows - it overwrites LZ4 paths with NuGet patterns
+  # TON handles LZ4 detection above, so thirdparty.inc is not needed
+  set(ROCKSDB_SKIP_THIRDPARTY ON CACHE BOOL "skip thirdparty.inc" FORCE)
+
   message("Add rocksdb")
   add_subdirectory(third-party/rocksdb EXCLUDE_FROM_ALL)
   # Broken CMake in rocksdb alters properties it has no business changing.
@@ -330,10 +408,19 @@ if (GCC OR CLANG)
 endif()
 
 if (GCC OR CLANG)
-  if (CMAKE_BUILD_TYPE MATCHES "RelWithDebInfo")
-    # For historical reasons, CMake falls back to -O2 optimization level when CMAKE_BUILD_TYPE is
-    # set to RelWithDebInfo.
+  # Enable -O3 optimization for all Release and RelWithDebInfo builds
+  if (CMAKE_BUILD_TYPE MATCHES "Release|RelWithDebInfo")
     add_compile_options(-O3)
+    # Additional optimizations for Release builds
+    add_compile_options(-funroll-loops)  # Unroll loops for better performance
+    if (CLANG)
+      add_compile_options(-fvectorize)  # Enable auto-vectorization
+      add_compile_options(-fslp-vectorize)  # Enable SLP vectorization
+    endif()
+  endif()
+  # Add -mtune=native for better instruction scheduling (in addition to -march)
+  if (TON_ARCH STREQUAL "native" AND NOT MSVC)
+    add_compile_options(-mtune=native)
   endif()
 endif()
 

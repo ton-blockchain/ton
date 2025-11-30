@@ -164,6 +164,25 @@ void bits_memcpy(unsigned char* to, int to_offs, const unsigned char* from, int 
       b += ld;
       bit_count -= 8;
       // b <= 15 here
+      // 64-bit optimization: when b <= 8, we can process 64 bits at a time
+      // This is particularly beneficial for large copies (hashes, addresses)
+      if (b <= 8) {
+        while (bit_count >= 64) {
+          td::uint64 chunk = td::bswap64(as<td::uint64>(from));
+          from += 8;
+          td::uint64 output;
+          if (b == 0) {
+            output = chunk;
+          } else {
+            output = (acc << (64 - b)) | (chunk >> b);
+          }
+          as<td::uint64>(to) = td::bswap64(output);
+          to += 8;
+          acc = chunk;
+          bit_count -= 64;
+        }
+      }
+      // Fall back to 32-bit loop for remaining or when b > 8
       while (bit_count >= 32) {
         acc <<= 32;
         acc |= td::bswap32(as<unsigned>(from));

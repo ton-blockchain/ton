@@ -63,7 +63,7 @@ struct RocksDbSnapshotStatistics {
 
 struct RocksDbOptions {
   std::shared_ptr<rocksdb::Statistics> statistics = nullptr;
-  std::shared_ptr<rocksdb::Cache> block_cache;  // Default - one 1G cache for all RocksDb
+  std::shared_ptr<rocksdb::Cache> block_cache;  // Default - one 4GB cache for all RocksDb
   std::shared_ptr<RocksDbSnapshotStatistics> snapshot_statistics = nullptr;
 
   std::shared_ptr<rocksdb::MergeOperator> merge_operator = nullptr;
@@ -75,7 +75,8 @@ struct RocksDbOptions {
 
   bool use_direct_reads = false;
   bool no_block_cache = false;
-  bool enable_bloom_filter = false;
+  // Enable bloom filter by default for 10-100x better read performance
+  bool enable_bloom_filter = true;
   bool two_level_index_and_filter = false;
 };
 

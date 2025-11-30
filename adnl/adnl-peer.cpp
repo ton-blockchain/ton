@@ -21,6 +21,7 @@
 #include "adnl-local-id.h"
 
 #include "utils.hpp"
+#include "adnl-packet-compression.h"
 
 #include "td/actor/PromiseFuture.h"
 #include "td/utils/base64.h"
@@ -421,6 +422,10 @@ void AdnlPeerPairImpl::send_packet_continue(AdnlPacket packet, td::actor::ActorI
   }
   packet.run_basic_checks().ensure();
   auto B = serialize_tl_object(packet.tl(), true);
+
+  // Apply LZ4 compression for packets > 4KB
+  B = maybe_compress_packet(std::move(B));
+
   if (via_channel) {
     if (channel_ready_) {
       add_packet_stats(B.size(), /* in = */ false, /* channel = */ true);

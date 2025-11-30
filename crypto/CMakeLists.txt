@@ -40,6 +40,7 @@ set(TON_CRYPTO_CORE_SOURCE
   vm/dict.cpp
   vm/cells/Cell.cpp
   vm/cells/CellBuilder.cpp
+  vm/cells/CellBuilderPool.cpp
   vm/cells/CellHash.cpp
   vm/cells/CellSlice.cpp
   vm/cells/CellString.cpp
@@ -53,6 +54,7 @@ set(TON_CRYPTO_CORE_SOURCE
   vm/dict.h
   vm/cells/Cell.h
   vm/cells/CellBuilder.h
+  vm/cells/CellBuilderPool.h
   vm/cells/CellHash.h
   vm/cells/CellSlice.h
   vm/cells/CellString.h
@@ -63,6 +65,7 @@ set(TON_CRYPTO_CORE_SOURCE
   vm/cells/LevelMask.h
   vm/cells/MerkleProof.h
   vm/cells/MerkleUpdate.h
+  vm/cells/PoolMonitor.h
   vm/cells/PrunnedCell.h
   vm/cells/UsageCell.h
   vm/cells/VirtualCell.h

@@ -21,6 +21,7 @@
 
 #include "td/utils/Slice.h"
 #include "td/utils/logging.h"
+#include "td/utils/bits.h"
 
 namespace td {
 struct Bitset {
@@ -83,10 +84,28 @@ struct Bitset {
     bits_ = std::move(bits);
     bits_size_ = 0;
     count_ = 0;
-    for (size_t n = size(), i = 0; i < n; i++) {
-      if (get(i)) {
-        count_++;
-        bits_size_ = i + 1;
+
+    // Fast path: Use hardware popcount for efficient bit counting
+    // Process 8 bytes (64 bits) at a time
+    const size_t num_full_words = bits_.size() / 8;
+    const uint64_t* words = reinterpret_cast<const uint64_t*>(bits_.data());
+
+    for (size_t i = 0; i < num_full_words; i++) {
+      uint64_t word = words[i];
+      if (word != 0) {
+        count_ += td::count_bits64(word);
+        // Update bits_size_ to the last set bit in this word
+        bits_size_ = i * 64 + 64 - td::count_leading_zeroes_non_zero64(word);
+      }
+    }
+
+    // Handle remaining bytes (< 8 bytes)
+    for (size_t i = num_full_words * 8; i < bits_.size(); i++) {
+      unsigned char byte = static_cast<unsigned char>(bits_[i]);
+      if (byte != 0) {
+        count_ += td::count_bits32(byte);
+        // Find the highest set bit in this byte
+        bits_size_ = i * 8 + 8 - td::count_leading_zeroes_non_zero32(static_cast<uint32>(byte) << 24);
       }
     }
   }
