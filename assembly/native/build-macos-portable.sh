@@ -30,6 +30,7 @@ brew install ninja pkg-config automake libtool autoconf texinfo
 export PATH=/usr/local/opt/ccache/libexec:$PATH
 
 brew install llvm@21
+export LDFLAGS="-L/opt/homebrew/opt/llvm/lib/c++"
 
 if [ "$with_ccache" = true ]; then
   brew install ccache
