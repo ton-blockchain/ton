@@ -125,11 +125,13 @@ else
   echo "Using compiled libmicrohttpd"
 fi
 
+SDKROOT=$(xcrun --show-sdk-path)
+
 cmake -GNinja .. \
 -DPORTABLE=1 \
 -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=$OSX_TARGET \
--DCMAKE_CXX_FLAGS="-stdlib=libc++" \
--DCMAKE_SYSROOT=$(xcrun --show-sdk-path) \
+-DCMAKE_CXX_FLAGS="-nostdinc++ -isystem ${SDKROOT}/usr/include/c++/v1 -isystem ${SDKROOT}/usr/include" \
+-DCMAKE_OSX_SYSROOT="${SDKROOT}" \
 -DCMAKE_BUILD_TYPE=Release \
 -DOPENSSL_FOUND=1 \
 -DOPENSSL_INCLUDE_DIR=$opensslPath/include \

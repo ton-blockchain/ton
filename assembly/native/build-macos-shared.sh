@@ -79,13 +79,16 @@ brew unlink openssl@1.1
 brew install openssl@3
 brew unlink openssl@3 &&  brew link --overwrite openssl@3
 
+SDKROOT=$(xcrun --show-sdk-path)
+
 cmake -GNinja -DCMAKE_BUILD_TYPE=Release .. \
--DCMAKE_CXX_FLAGS="-stdlib=libc++" \
--DCMAKE_SYSROOT=$(xcrun --show-sdk-path) \
--DLZ4_FOUND=1 \
--DLZ4_LIBRARIES=$lz4Path/lib/liblz4.a \
--DLZ4_INCLUDE_DIRS=$lz4Path/lib \
--DCMAKE_INSTALL_PREFIX="$(pwd)/install"
+  -DCMAKE_OSX_DEPLOYMENT_TARGET="${OSX_TARGET}" \
+  -DCMAKE_OSX_SYSROOT="${SDKROOT}" \
+  -DCMAKE_CXX_FLAGS="-nostdinc++ -isystem ${SDKROOT}/usr/include/c++/v1 -isystem ${SDKROOT}/usr/include" \
+  -DLZ4_FOUND=1 \
+  -DLZ4_LIBRARIES=$lz4Path/lib/liblz4.a \
+  -DLZ4_INCLUDE_DIRS=$lz4Path/lib \
+  -DCMAKE_INSTALL_PREFIX="$(pwd)/install"
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 
