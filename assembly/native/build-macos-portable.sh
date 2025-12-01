@@ -28,7 +28,8 @@ fi
 export NONINTERACTIVE=1
 brew install ninja pkg-config automake libtool autoconf texinfo
 export PATH=/usr/local/opt/ccache/libexec:$PATH
-brew install llvm@16
+
+brew install llvm@21
 
 if [ "$with_ccache" = true ]; then
   brew install ccache
@@ -41,23 +42,23 @@ else
 fi
 
 
-if [ -f /opt/homebrew/opt/llvm@16/bin/clang ]; then
-  export CC=/opt/homebrew/opt/llvm@16/bin/clang
-  export CXX=/opt/homebrew/opt/llvm@16/bin/clang++
+if [ -f /opt/homebrew/opt/llvm@21/bin/clang ]; then
+  export CC=/opt/homebrew/opt/llvm@21/bin/clang
+  export CXX=/opt/homebrew/opt/llvm@21/bin/clang++
 else
-  export CC=/usr/local/opt/llvm@16/bin/clang
-  export CXX=/usr/local/opt/llvm@16/bin/clang++
+  export CC=/usr/local/opt/llvm@21/bin/clang
+  export CXX=/usr/local/opt/llvm@21/bin/clang++
 fi
 
 if [ ! -d "../3pp/lz4" ]; then
 mkdir -p ../3pp
 git clone https://github.com/lz4/lz4.git ../3pp/lz4
-cd ../3pp/lz4
+cd ../3pp/lz4 || exit
 lz4Path=`pwd`
 git checkout v1.9.4
 make -j4
 test $? -eq 0 || { echo "Can't compile lz4"; exit 1; }
-cd ../../build
+cd ../../build  || exit
 # ./lib/liblz4.a
 # ./lib
 else
@@ -67,15 +68,15 @@ fi
 
 if [ ! -d "../3pp/libsodium-1.0.18" ]; then
   export LIBSODIUM_FULL_BUILD=1
-  cd ../3pp
+  cd ../3pp || exit
   curl -LO https://download.libsodium.org/libsodium/releases/libsodium-1.0.18.tar.gz
   tar -xzf libsodium-1.0.18.tar.gz
-  cd libsodium-1.0.18
+  cd libsodium-1.0.18  || exit
   sodiumPath=`pwd`
   ./configure --with-pic --enable-static
   make -j4
   test $? -eq 0 || { echo "Can't compile libsodium"; exit 1; }
-  cd ../../build
+  cd ../../build || exit
 else
   sodiumPath=$(pwd)/../3pp/libsodium-1.0.18
   echo "Using compiled libsodium"
@@ -83,13 +84,13 @@ fi
 
 if [ ! -d "../3pp/openssl_3" ]; then
   git clone https://github.com/openssl/openssl ../3pp/openssl_3
-  cd ../3pp/openssl_3
+  cd ../3pp/openssl_3 || exit
   opensslPath=`pwd`
   git checkout openssl-3.1.4
   ./config
   make build_libs -j4
   test $? -eq 0 || { echo "Can't compile openssl_3"; exit 1; }
-  cd ../../build
+  cd ../../build || exit
 else
   opensslPath=$(pwd)/../3pp/openssl_3
   echo "Using compiled openssl_3"
@@ -97,12 +98,12 @@ fi
 
 if [ ! -d "../3pp/zlib" ]; then
   git clone https://github.com/madler/zlib.git ../3pp/zlib
-  cd ../3pp/zlib
+  cd ../3pp/zlib || exit
   zlibPath=`pwd`
   ./configure --static
   make -j4
   test $? -eq 0 || { echo "Can't compile zlib"; exit 1; }
-  cd ../../build
+  cd ../../build || exit
 else
   zlibPath=$(pwd)/../3pp/zlib
   echo "Using compiled zlib"
@@ -111,14 +112,14 @@ fi
 if [ ! -d "../3pp/libmicrohttpd" ]; then
   mkdir -p ../3pp/libmicrohttpd
   wget -O ../3pp/libmicrohttpd/libmicrohttpd-1.0.1.tar.gz https://ftpmirror.gnu.org/libmicrohttpd/libmicrohttpd-1.0.1.tar.gz
-  cd ../3pp/libmicrohttpd/
+  cd ../3pp/libmicrohttpd/ || exit
   tar xf libmicrohttpd-1.0.1.tar.gz
-  cd libmicrohttpd-1.0.1
+  cd libmicrohttpd-1.0.1 || exit
   libmicrohttpdPath=`pwd`
   ./configure --enable-static --disable-tests --disable-benchmark --disable-shared --disable-https --with-pic
   make -j4
   test $? -eq 0 || { echo "Can't compile libmicrohttpd"; exit 1; }
-  cd ../../../build
+  cd ../../../build || exit
 else
   libmicrohttpdPath=$(pwd)/../3pp/libmicrohttpd/libmicrohttpd-1.0.1
   echo "Using compiled libmicrohttpd"

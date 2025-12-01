@@ -28,7 +28,8 @@ fi
 export NONINTERACTIVE=1
 brew install ninja libsodium libmicrohttpd pkg-config automake libtool autoconf gnutls
 export PATH=/usr/local/opt/ccache/libexec:$PATH
-brew install llvm@16
+
+brew install llvm@21
 
 if [ "$with_ccache" = true ]; then
   brew install ccache
@@ -40,17 +41,17 @@ else
   export CCACHE_DISABLE=1
 fi
 
-if [ -f /opt/homebrew/opt/llvm@16/bin/clang ]; then
-  export CC=/opt/homebrew/opt/llvm@16/bin/clang
-  export CXX=/opt/homebrew/opt/llvm@16/bin/clang++
+if [ -f /opt/homebrew/opt/llvm@21/bin/clang ]; then
+  export CC=/opt/homebrew/opt/llvm@21/bin/clang
+  export CXX=/opt/homebrew/opt/llvm@21/bin/clang++
 else
-  export CC=/usr/local/opt/llvm@16/bin/clang
-  export CXX=/usr/local/opt/llvm@16/bin/clang++
+  export CC=/usr/local/opt/llvm@21/bin/clang
+  export CXX=/usr/local/opt/llvm@21/bin/clang++
 fi
 
 if [ ! -d "lz4" ]; then
   git clone https://github.com/lz4/lz4
-  cd lz4
+  cd lz4 || exit
   lz4Path=`pwd`
   git checkout v1.9.4
   make -j4
@@ -63,7 +64,7 @@ fi
 
 if [ ! -d "zlib" ]; then
   git clone https://github.com/madler/zlib.git
-  cd zlib
+  cd zlib || exit
   zlibPath=`pwd`
   ./configure --static
   make -j4

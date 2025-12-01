@@ -40,12 +40,12 @@ export CXX=$(which clang++-21)
 if [ ! -d "../3pp/lz4" ]; then
 mkdir -p ../3pp
 git clone https://github.com/lz4/lz4.git ../3pp/lz4
-cd ../3pp/lz4
+cd ../3pp/lz4 || exit
 lz4Path=`pwd`
 git checkout v1.9.4
 CFLAGS="-fPIC" make -j$(nproc)
 test $? -eq 0 || { echo "Can't compile lz4"; exit 1; }
-cd ../../build
+cd ../../build || exit
 else
   lz4Path=$(pwd)/../3pp/lz4
   echo "Using compiled lz4"
@@ -54,14 +54,14 @@ fi
 if [ ! -d "../3pp/libsodium" ]; then
   export LIBSODIUM_FULL_BUILD=1
   git clone https://github.com/jedisct1/libsodium.git ../3pp/libsodium
-  cd ../3pp/libsodium
+  cd ../3pp/libsodium || exit
   sodiumPath=`pwd`
   git checkout 1.0.18
   ./autogen.sh
   ./configure --with-pic --enable-static
   make -j$(nproc)
   test $? -eq 0 || { echo "Can't compile libsodium"; exit 1; }
-  cd ../../build
+  cd ../../build || exit
 else
   sodiumPath=$(pwd)/../3pp/libsodium
   echo "Using compiled libsodium"
@@ -69,13 +69,13 @@ fi
 
 if [ ! -d "../3pp/openssl_3" ]; then
   git clone https://github.com/openssl/openssl ../3pp/openssl_3
-  cd ../3pp/openssl_3
+  cd ../3pp/openssl_3 || exit
   opensslPath=`pwd`
   git checkout openssl-3.1.4
   ./config
   make build_libs -j$(nproc)
   test $? -eq 0 || { echo "Can't compile openssl_3"; exit 1; }
-  cd ../../build
+  cd ../../build || exit
 else
   opensslPath=$(pwd)/../3pp/openssl_3
   echo "Using compiled openssl_3"
@@ -83,12 +83,12 @@ fi
 
 if [ ! -d "../3pp/zlib" ]; then
   git clone https://github.com/madler/zlib.git ../3pp/zlib
-  cd ../3pp/zlib
+  cd ../3pp/zlib || exit
   zlibPath=`pwd`
   ./configure --static
   make -j$(nproc)
   test $? -eq 0 || { echo "Can't compile zlib"; exit 1; }
-  cd ../../build
+  cd ../../build || exit
 else
   zlibPath=$(pwd)/../3pp/zlib
   echo "Using compiled zlib"
@@ -97,14 +97,14 @@ fi
 if [ ! -d "../3pp/libmicrohttpd" ]; then
   mkdir -p ../3pp/libmicrohttpd
   wget -O ../3pp/libmicrohttpd/libmicrohttpd-1.0.1.tar.gz https://ftpmirror.gnu.org/libmicrohttpd/libmicrohttpd-1.0.1.tar.gz
-  cd ../3pp/libmicrohttpd/
+  cd ../3pp/libmicrohttpd/ || exit
   tar xf libmicrohttpd-1.0.1.tar.gz
-  cd libmicrohttpd-1.0.1
+  cd libmicrohttpd-1.0.1 || exit
   libmicrohttpdPath=`pwd`
   ./configure --enable-static --disable-tests --disable-benchmark --disable-shared --disable-https --with-pic
   make -j$(nproc)
   test $? -eq 0 || { echo "Can't compile libmicrohttpd"; exit 1; }
-  cd ../../../build
+  cd ../../../build || exit
 else
   libmicrohttpdPath=$(pwd)/../3pp/libmicrohttpd/libmicrohttpd-1.0.1
   echo "Using compiled libmicrohttpd"
@@ -173,7 +173,7 @@ if [ "$with_artifacts" = true ]; then
 fi
 
 if [ "$with_tests" = true ]; then
-  cd build
+  cd build || exit
 #  ctest --output-on-failure -E "test-catchain|test-actors|test-smartcont|test-adnl|test-validator-session-state|test-dht|test-rldp"
   ctest --output-on-failure -E "test-adnl"
 fi
