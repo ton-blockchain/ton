@@ -6,13 +6,6 @@ with_ccache=false
 
 OSX_TARGET=11.0
 
-MACOS_MAJOR=0
-if [ "$(uname)" = "Darwin" ]; then
-  MACOS_MAJOR=$(sw_vers -productVersion | cut -d. -f1)
-  export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
-  echo "Using SDKROOT=$SDKROOT"
-fi
-
 while getopts 'taco:' flag; do
   case "${flag}" in
     t) with_tests=true ;;
@@ -36,23 +29,7 @@ export NONINTERACTIVE=1
 brew install ninja pkg-config automake libtool autoconf texinfo
 export PATH=/usr/local/opt/ccache/libexec:$PATH
 
-if [ "$(uname)" = "Darwin" ]; then
-  if [ "$MACOS_MAJOR" -ge 15 ]; then
-    echo "macOS $MACOS_MAJOR detected -> using AppleClang (Xcode toolchain), NOT llvm@21"
-    export CC="$(xcrun --find clang)"
-    export CXX="$(xcrun --find clang++)"
-  else
-    echo "macOS $MACOS_MAJOR detected -> using Homebrew llvm@21"
-    brew install llvm@21
-    if [ -f /opt/homebrew/opt/llvm@21/bin/clang ]; then
-      export CC=/opt/homebrew/opt/llvm@21/bin/clang
-      export CXX=/opt/homebrew/opt/llvm@21/bin/clang++
-    else
-      export CC=/usr/local/opt/llvm@21/bin/clang
-      export CXX=/usr/local/opt/llvm@21/bin/clang++
-    fi
-  fi
-fi
+brew install llvm@20
 
 if [ "$with_ccache" = true ]; then
   brew install ccache
@@ -65,12 +42,12 @@ else
 fi
 
 
-if [ -f /opt/homebrew/opt/llvm@21/bin/clang ]; then
-  export CC=/opt/homebrew/opt/llvm@21/bin/clang
-  export CXX=/opt/homebrew/opt/llvm@21/bin/clang++
+if [ -f /opt/homebrew/opt/llvm@20/bin/clang ]; then
+  export CC=/opt/homebrew/opt/llvm@20/bin/clang
+  export CXX=/opt/homebrew/opt/llvm@20/bin/clang++
 else
-  export CC=/usr/local/opt/llvm@21/bin/clang
-  export CXX=/usr/local/opt/llvm@21/bin/clang++
+  export CC=/usr/local/opt/llvm@20/bin/clang
+  export CXX=/usr/local/opt/llvm@20/bin/clang++
 fi
 
 if [ ! -d "../3pp/lz4" ]; then
@@ -79,7 +56,7 @@ git clone https://github.com/lz4/lz4.git ../3pp/lz4
 cd ../3pp/lz4 || exit
 lz4Path=`pwd`
 git checkout v1.9.4
-make -j4 CC="$CC" CFLAGS="--sysroot=$SDKROOT"
+make -j4
 test $? -eq 0 || { echo "Can't compile lz4"; exit 1; }
 cd ../../build  || exit
 # ./lib/liblz4.a
@@ -97,7 +74,7 @@ if [ ! -d "../3pp/libsodium-1.0.18" ]; then
   cd libsodium-1.0.18  || exit
   sodiumPath=`pwd`
   ./configure --with-pic --enable-static
-  make -j4 CC="$CC" CFLAGS="--sysroot=$SDKROOT"
+  make -j4
   test $? -eq 0 || { echo "Can't compile libsodium"; exit 1; }
   cd ../../build || exit
 else
@@ -111,7 +88,7 @@ if [ ! -d "../3pp/openssl_3" ]; then
   opensslPath=`pwd`
   git checkout openssl-3.1.4
   ./config
-  make build_libs -j4 CC="$CC" CFLAGS="--sysroot=$SDKROOT"
+  make build_libs -j4
   test $? -eq 0 || { echo "Can't compile openssl_3"; exit 1; }
   cd ../../build || exit
 else
@@ -124,12 +101,12 @@ if [ ! -d "../3pp/zlib" ]; then
   cd ../3pp/zlib || exit
   zlibPath=`pwd`
   ./configure --static
-  make -j4 CC="$CC" CFLAGS="--sysroot=$SDKROOT"
+  make -j4
   test $? -eq 0 || { echo "Can't compile zlib"; exit 1; }
   cd ../../build || exit
 else
   zlibPath=$(pwd)/../3pp/zlib
-  echo "Using compile(sw_vers -productVersion | cut -d. -f1d zlib"
+  echo "Using compiled zlib"
 fi
 
 if [ ! -d "../3pp/libmicrohttpd" ]; then
@@ -140,7 +117,7 @@ if [ ! -d "../3pp/libmicrohttpd" ]; then
   cd libmicrohttpd-1.0.1 || exit
   libmicrohttpdPath=`pwd`
   ./configure --enable-static --disable-tests --disable-benchmark --disable-shared --disable-https --with-pic
-  make -j4 CC="$CC" CFLAGS="--sysroot=$SDKROOT"
+  make -j4
   test $? -eq 0 || { echo "Can't compile libmicrohttpd"; exit 1; }
   cd ../../../build || exit
 else
