@@ -6,6 +6,11 @@ with_ccache=false
 
 OSX_TARGET=11.0
 
+MACOS_MAJOR=0
+if [ "$(uname)" = "Darwin" ]; then
+  MACOS_MAJOR=$(sw_vers -productVersion | cut -d. -f1)
+fi
+
 while getopts 'taco:' flag; do
   case "${flag}" in
     t) with_tests=true ;;
@@ -29,7 +34,23 @@ export NONINTERACTIVE=1
 brew install ninja pkg-config automake libtool autoconf texinfo
 export PATH=/usr/local/opt/ccache/libexec:$PATH
 
-brew install llvm@21
+if [ "$(uname)" = "Darwin" ]; then
+  if [ "$MACOS_MAJOR" -ge 15 ]; then
+    echo "macOS $MACOS_MAJOR detected -> using AppleClang (Xcode toolchain), NOT llvm@21"
+    export CC="$(xcrun --find clang)"
+    export CXX="$(xcrun --find clang++)"
+  else
+    echo "macOS $MACOS_MAJOR detected -> using Homebrew llvm@21"
+    brew install llvm@21
+    if [ -f /opt/homebrew/opt/llvm@21/bin/clang ]; then
+      export CC=/opt/homebrew/opt/llvm@21/bin/clang
+      export CXX=/opt/homebrew/opt/llvm@21/bin/clang++
+    else
+      export CC=/usr/local/opt/llvm@21/bin/clang
+      export CXX=/usr/local/opt/llvm@21/bin/clang++
+    fi
+  fi
+fi
 
 if [ "$with_ccache" = true ]; then
   brew install ccache
@@ -106,7 +127,7 @@ if [ ! -d "../3pp/zlib" ]; then
   cd ../../build || exit
 else
   zlibPath=$(pwd)/../3pp/zlib
-  echo "Using compiled zlib"
+  echo "Using compile(sw_vers -productVersion | cut -d. -f1d zlib"
 fi
 
 if [ ! -d "../3pp/libmicrohttpd" ]; then
@@ -125,13 +146,11 @@ else
   echo "Using compiled libmicrohttpd"
 fi
 
-SDKROOT=$(xcrun --show-sdk-path)
-
 cmake -GNinja .. \
 -DPORTABLE=1 \
 -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=$OSX_TARGET \
--DCMAKE_CXX_FLAGS="-nostdinc++ -isystem ${SDKROOT}/usr/include/c++/v1 -isystem ${SDKROOT}/usr/include" \
--DCMAKE_OSX_SYSROOT="${SDKROOT}" \
+-DCMAKE_CXX_FLAGS="-stdlib=libc++" \
+-DCMAKE_SYSROOT=$(xcrun --show-sdk-path) \
 -DCMAKE_BUILD_TYPE=Release \
 -DOPENSSL_FOUND=1 \
 -DOPENSSL_INCLUDE_DIR=$opensslPath/include \

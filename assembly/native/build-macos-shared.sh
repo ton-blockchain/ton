@@ -6,6 +6,11 @@ with_ccache=false
 
 OSX_TARGET=11.0
 
+MACOS_MAJOR=0
+if [ "$(uname)" = "Darwin" ]; then
+  MACOS_MAJOR=$(sw_vers -productVersion | cut -d. -f1)
+fi
+
 while getopts 'taco:' flag; do
   case "${flag}" in
     t) with_tests=true ;;
@@ -29,7 +34,23 @@ export NONINTERACTIVE=1
 brew install ninja libsodium libmicrohttpd pkg-config automake libtool autoconf gnutls
 export PATH=/usr/local/opt/ccache/libexec:$PATH
 
-brew install llvm@21
+if [ "$(uname)" = "Darwin" ]; then
+  if [ "$MACOS_MAJOR" -ge 15 ]; then
+    echo "macOS $MACOS_MAJOR detected -> using AppleClang (Xcode toolchain), NOT llvm@21"
+    export CC="$(xcrun --find clang)"
+    export CXX="$(xcrun --find clang++)"
+  else
+    echo "macOS $MACOS_MAJOR detected -> using Homebrew llvm@21"
+    brew install llvm@21
+    if [ -f /opt/homebrew/opt/llvm@21/bin/clang ]; then
+      export CC=/opt/homebrew/opt/llvm@21/bin/clang
+      export CXX=/opt/homebrew/opt/llvm@21/bin/clang++
+    else
+      export CC=/usr/local/opt/llvm@21/bin/clang
+      export CXX=/usr/local/opt/llvm@21/bin/clang++
+    fi
+  fi
+fi
 
 if [ "$with_ccache" = true ]; then
   brew install ccache
@@ -39,14 +60,6 @@ if [ "$with_ccache" = true ]; then
   test $? -eq 0 || { echo "ccache not installed"; exit 1; }
 else
   export CCACHE_DISABLE=1
-fi
-
-if [ -f /opt/homebrew/opt/llvm@21/bin/clang ]; then
-  export CC=/opt/homebrew/opt/llvm@21/bin/clang
-  export CXX=/opt/homebrew/opt/llvm@21/bin/clang++
-else
-  export CC=/usr/local/opt/llvm@21/bin/clang
-  export CXX=/usr/local/opt/llvm@21/bin/clang++
 fi
 
 if [ ! -d "lz4" ]; then
@@ -79,16 +92,13 @@ brew unlink openssl@1.1
 brew install openssl@3
 brew unlink openssl@3 &&  brew link --overwrite openssl@3
 
-SDKROOT=$(xcrun --show-sdk-path)
-
 cmake -GNinja -DCMAKE_BUILD_TYPE=Release .. \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET="${OSX_TARGET}" \
-  -DCMAKE_OSX_SYSROOT="${SDKROOT}" \
-  -DCMAKE_CXX_FLAGS="-nostdinc++ -isystem ${SDKROOT}/usr/include/c++/v1 -isystem ${SDKROOT}/usr/include" \
-  -DLZ4_FOUND=1 \
-  -DLZ4_LIBRARIES=$lz4Path/lib/liblz4.a \
-  -DLZ4_INCLUDE_DIRS=$lz4Path/lib \
-  -DCMAKE_INSTALL_PREFIX="$(pwd)/install"
+-DCMAKE_CXX_FLAGS="-stdlib=libc++" \
+-DCMAKE_SYSROOT=$(xcrun --show-sdk-path) \
+-DLZ4_FOUND=1 \
+-DLZ4_LIBRARIES=$lz4Path/lib/liblz4.a \
+-DLZ4_INCLUDE_DIRS=$lz4Path/lib \
+-DCMAKE_INSTALL_PREFIX="$(pwd)/install"
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 
