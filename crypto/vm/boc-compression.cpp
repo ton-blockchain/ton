@@ -191,9 +191,9 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(
       cell_data.emplace_back(cell_bitslice);
     }
 
-    // if (compress_merkle_update && under_mu_left) {
-    //   cell_data.back() = td::BitSlice();
-    // }
+    if (compress_merkle_update && under_mu_left) {
+      cell_data.back() = td::BitSlice();
+    }
     total_size_estimate += cell_bitslice.size();
 
     // Process cell references
@@ -225,7 +225,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(
       }
     } else {
       for (int i = 0; i < cell_slice.size_refs(); ++i) {
-        TRY_RESULT(child_id, self(self, cell_slice.prefetch_ref(i)));
+        TRY_RESULT(child_id, self(self, cell_slice.prefetch_ref(i), under_mu_left, under_mu_right));
         boc_graph[current_cell_id][i] = child_id;
       }
     }
@@ -717,8 +717,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
       return td::Status::OK();
     };
   
-    auto build_prunned_branch_from_state =
-        [&](size_t idx, td::Ref<vm::Cell> source_cell) -> td::Result<td::Ref<vm::Cell>> {
+    auto build_prunned_branch_from_state = [&](size_t idx, td::Ref<vm::Cell> source_cell) -> td::Status {
       size_t mask_value = prunned_branch_level[idx];
       if (!mask_value) {
         return td::Status::Error(
@@ -745,31 +744,24 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
             "BOC decompression failed: state subtree level is too small for requested prunned branch");
       }
 
-      vm::CellBuilder cb;
-      cb.store_long(static_cast<td::uint8>(vm::CellTraits::SpecialType::PrunnedBranch), 8);
-      cb.store_long(mask, 8);
+      cell_builders[idx].reset();
+      cell_builders[idx].store_long(static_cast<td::uint8>(vm::CellTraits::SpecialType::PrunnedBranch), 8);
+      cell_builders[idx].store_long(mask, 8);
 
       for (td::uint32 lvl = 0; lvl <= max_level; ++lvl) {
         if (!level_mask.is_significant(lvl)) {
           continue;
         }
-        cb.store_bytes(source_cell->get_hash(lvl).as_slice());
+        cell_builders[idx].store_bytes(source_cell->get_hash(lvl).as_slice());
       }
       for (td::uint32 lvl = 0; lvl <= max_level; ++lvl) {
         if (!level_mask.is_significant(lvl)) {
           continue;
         }
-        cb.store_long(source_cell->get_depth(lvl), 16);
+        cell_builders[idx].store_long(source_cell->get_depth(lvl), 16);
       }
 
-      try {
-        return cb.finalize(true);
-      } catch (vm::CellBuilder::CellWriteError& e) {
-        return td::Status::Error(
-            "BOC decompression failed: failed to finalize prunned branch node (CellWriteError)");
-      } catch (vm::VmError& e) {
-        return td::Status::Error("BOC decompression failed: failed to finalize prunned branch node (VmError)");
-      }
+      return finalize_node(idx);
     };
 
     // Recursively rebuild the left subtree of a MerkleUpdate by mirroring the provided state tree.
@@ -794,44 +786,27 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
             "BOC decompression failed: invalid state cell while restoring MerkleUpdate left subtree");
       }
       if (is_prunned_branch) {
-        TRY_RESULT(prunned_cell, build_prunned_branch_from_state(left_idx, state_cell));
-        vm::CellSlice cs_result(NoVm(), prunned_cell);
-        td::BitSlice result_bitslice = cs_result.as_bitslice();
-        // std::cerr << "build_left_under_mu prunned: " << result_bitslice.to_hex() << std::endl;
-        TRY_STATUS(finalize_node(left_idx));
-
-        vm::CellSlice left_slice(NoVm(), nodes[left_idx]);
-        td::BitSlice left_bitslice = left_slice.as_bitslice();
-        LOG(INFO) << "OLEGMU prunned left state: " << left_bitslice.to_hex() << ' ' << result_bitslice.to_hex();
+        TRY_STATUS(build_prunned_branch_from_state(left_idx, state_cell));
         return td::Status::OK();
       } 
       
-      // if (state_slice.size_refs() != cell_refs_cnt[left_idx]) {
-      //   return td::Status::Error(
-      //       "BOC decompression failed: state subtree refs mismatch while restoring MerkleUpdate left subtree");
-      // }
-      // if (static_cast<bool>(is_special[left_idx]) != state_is_special) {
-      //   return td::Status::Error(
-      //       "BOC decompression failed: state subtree special flag mismatch while restoring MerkleUpdate left subtree");
-      // }
+      if (state_slice.size_refs() != cell_refs_cnt[left_idx]) {
+        return td::Status::Error(
+            "BOC decompression failed: state subtree refs mismatch while restoring MerkleUpdate left subtree");
+      }
+      if (static_cast<bool>(is_special[left_idx]) != state_is_special) {
+        return td::Status::Error(
+            "BOC decompression failed: state subtree special flag mismatch while restoring MerkleUpdate left subtree");
+      }
 
       for (size_t j = 0; j < cell_refs_cnt[left_idx]; ++j) {
         td::Ref<vm::Cell> child_state = state_slice.prefetch_ref(j);
         TRY_STATUS(build_left_under_mu(boc_graph[left_idx][j], child_state));
       }
 
-      // cell_builders[left_idx].reset();
-      // cell_builders[left_idx].store_bits(state_slice.as_bitslice());
+      cell_builders[left_idx].reset();
+      cell_builders[left_idx].store_bits(state_slice.as_bitslice());
       TRY_STATUS(finalize_node(left_idx));
-
-      vm::CellSlice left_slice(NoVm(), nodes[left_idx]);
-      td::BitSlice left_bitslice = left_slice.as_bitslice();
-      td::BitSlice state_bitslice = state_slice.as_bitslice();
-      LOG(INFO) << "OLEGMU normal left state: " << left_bitslice.to_hex() << ' ' << state_bitslice.to_hex();
-
-      // if (nodes[left_idx]->get_hash() != state_cell->get_hash()) {
-      //   return td::Status::Error("BOC decompression failed: restored left subtree hash mismatch");
-      // }
 
       return td::Status::OK();
     };

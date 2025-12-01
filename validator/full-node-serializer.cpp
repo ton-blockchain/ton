@@ -18,9 +18,11 @@
 #include "ton/ton-tl.hpp"
 #include "tl-utils/common-utils.hpp"
 #include "auto/tl/ton_api.hpp"
-#include "tl-utils/tl-utils.hpp"
 #include "vm/boc.h"
 #include "vm/boc-compression.h"
+#include "vm/cells/MerkleProof.h"
+#include "block/block-auto.h"
+#include "block/block-parse.h"
 #include "td/utils/lz4.h"
 #include "full-node.h"
 #include "td/utils/overloaded.h"
@@ -106,10 +108,23 @@ static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_b
 // Helper function to extract previous block IDs from proof
 td::Result<std::vector<BlockIdExt>> extract_prev_blocks_from_proof(td::Slice proof, const BlockIdExt& block_id) {
   TRY_RESULT(proof_root, vm::std_boc_deserialize(proof));
+  block::gen::BlockProof::Record proof_rec;
+  BlockIdExt proof_blk_id;
+  if (!(tlb::unpack_cell(proof_root, proof_rec) &&
+        block::tlb::t_BlockIdExt.unpack(proof_rec.proof_for.write(), proof_blk_id))) {
+    return td::Status::Error("invalid block proof in broadcast");
+  }
+  if (proof_blk_id != block_id) {
+    return td::Status::Error("block proof is for different block than broadcast id");
+  }
+  auto header_root = vm::MerkleProof::virtualize(proof_rec.root, 1);
+  if (header_root.is_null()) {
+    return td::Status::Error("block proof does not contain a valid Merkle header proof");
+  }
   std::vector<BlockIdExt> prev_blocks;
   BlockIdExt mc_blkid;
   bool after_split;
-  TRY_STATUS_PREFIX(block::unpack_block_prev_blk_try(proof_root, block_id, prev_blocks, mc_blkid, after_split),
+  TRY_STATUS_PREFIX(block::unpack_block_prev_blk_try(header_root, block_id, prev_blocks, mc_blkid, after_split),
                     "failed to unpack previous block IDs from proof: ");
   
   if (prev_blocks.empty()) {

@@ -458,7 +458,7 @@ void FullNodeCustomOverlay::send_broadcast(BlockBroadcast broadcast) {
   VLOG(FULL_NODE_DEBUG) << "Sending block broadcast to custom overlay \"" << name_
                         << "\": " << broadcast.block_id.to_str();
   LOG(INFO) << "OLEG send_broadcast custom overlay";
-  auto B = serialize_block_broadcast(broadcast, true, StateUsage::None);//DecompressOnly);  // compression_enabled = true
+  auto B = serialize_block_broadcast(broadcast, true, StateUsage::DecompressOnly);
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
     return;
