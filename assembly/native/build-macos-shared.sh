@@ -28,7 +28,7 @@ if [ ! -d "build" ]; then
   mkdir build
   cd build
 else
-  cd build
+  cd build || exit
   rm -rf .ninja* CMakeCache.txt
 fi
 
@@ -77,26 +77,13 @@ else
   echo "Using compiled lz4"
 fi
 
-if [ ! -d "zlib" ]; then
-  git clone https://github.com/madler/zlib.git
-  cd zlib || exit
-  zlibPath=`pwd`
-  ./configure --static
-  make -j4 CC="$CC" CFLAGS="--sysroot=$SDKROOT"
-  test $? -eq 0 || { echo "Can't compile zlib"; exit 1; }
-  cd ..
-else
-  zlibPath=$(pwd)/zlib
-  echo "Using compiled zlib"
-fi
-
 brew unlink openssl@1.1
 brew install openssl@3
 brew unlink openssl@3 &&  brew link --overwrite openssl@3
 
 cmake -GNinja -DCMAKE_BUILD_TYPE=Release .. \
 -DCMAKE_CXX_FLAGS="-nostdinc++ -isystem ${SDKROOT}/usr/include/c++/v1 -isystem ${SDKROOT}/usr/include" \
--DCMAKE_SYSROOT=$(xcrun --show-sdk-path) \
+-DCMAKE_SYSROOT="$(xcrun --show-sdk-path)" \
 -DLZ4_FOUND=1 \
 -DLZ4_LIBRARIES=$lz4Path/lib/liblz4.a \
 -DLZ4_INCLUDE_DIRS=$lz4Path/lib \

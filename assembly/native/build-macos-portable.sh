@@ -28,7 +28,7 @@ if [ ! -d "build" ]; then
   mkdir build
   cd build
 else
-  cd build
+  cd build || exit
   rm -rf .ninja* CMakeCache.txt
 fi
 
@@ -62,15 +62,6 @@ if [ "$with_ccache" = true ]; then
   test $? -eq 0 || { echo "ccache not installed"; exit 1; }
 else
   export CCACHE_DISABLE=1
-fi
-
-
-if [ -f /opt/homebrew/opt/llvm@21/bin/clang ]; then
-  export CC=/opt/homebrew/opt/llvm@21/bin/clang
-  export CXX=/opt/homebrew/opt/llvm@21/bin/clang++
-else
-  export CC=/usr/local/opt/llvm@21/bin/clang
-  export CXX=/usr/local/opt/llvm@21/bin/clang++
 fi
 
 if [ ! -d "../3pp/lz4" ]; then
@@ -152,7 +143,7 @@ cmake -GNinja .. \
 -DPORTABLE=1 \
 -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=$OSX_TARGET \
 -DCMAKE_CXX_FLAGS="-nostdinc++ -isystem ${SDKROOT}/usr/include/c++/v1 -isystem ${SDKROOT}/usr/include" \
--DCMAKE_SYSROOT=$(xcrun --show-sdk-path) \
+-DCMAKE_SYSROOT="$(xcrun --show-sdk-path)" \
 -DCMAKE_BUILD_TYPE=Release \
 -DOPENSSL_FOUND=1 \
 -DOPENSSL_INCLUDE_DIR=$opensslPath/include \
