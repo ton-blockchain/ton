@@ -6,6 +6,13 @@ with_ccache=false
 
 OSX_TARGET=11.0
 
+MACOS_MAJOR=0
+if [ "$(uname)" = "Darwin" ]; then
+  MACOS_MAJOR=$(sw_vers -productVersion | cut -d. -f1)
+  export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+  echo "Using SDKROOT=$SDKROOT"
+fi
+
 while getopts 'taco:' flag; do
   case "${flag}" in
     t) with_tests=true ;;
@@ -29,7 +36,23 @@ export NONINTERACTIVE=1
 brew install ninja libsodium libmicrohttpd pkg-config automake libtool autoconf gnutls
 export PATH=/usr/local/opt/ccache/libexec:$PATH
 
-brew install llvm@20
+if [ "$(uname)" = "Darwin" ]; then
+  if [ "$MACOS_MAJOR" -ge 15 ]; then
+    echo "macOS $MACOS_MAJOR detected -> using AppleClang (Xcode toolchain), NOT llvm@21"
+    export CC="$(xcrun --find clang)"
+    export CXX="$(xcrun --find clang++)"
+  else
+    echo "macOS $MACOS_MAJOR detected -> using Homebrew llvm@21"
+    brew install llvm@21
+    if [ -f /opt/homebrew/opt/llvm@21/bin/clang ]; then
+      export CC=/opt/homebrew/opt/llvm@21/bin/clang
+      export CXX=/opt/homebrew/opt/llvm@21/bin/clang++
+    else
+      export CC=/usr/local/opt/llvm@21/bin/clang
+      export CXX=/usr/local/opt/llvm@21/bin/clang++
+    fi
+  fi
+fi
 
 if [ "$with_ccache" = true ]; then
   brew install ccache
@@ -41,20 +64,12 @@ else
   export CCACHE_DISABLE=1
 fi
 
-if [ -f /opt/homebrew/opt/llvm@20/bin/clang ]; then
-  export CC=/opt/homebrew/opt/llvm@20/bin/clang
-  export CXX=/opt/homebrew/opt/llvm@20/bin/clang++
-else
-  export CC=/usr/local/opt/llvm@20/bin/clang
-  export CXX=/usr/local/opt/llvm@20/bin/clang++
-fi
-
 if [ ! -d "lz4" ]; then
   git clone https://github.com/lz4/lz4
   cd lz4 || exit
   lz4Path=`pwd`
   git checkout v1.9.4
-  make -j4
+  make -j4 CC="$CC" CFLAGS="--sysroot=$SDKROOT"
   test $? -eq 0 || { echo "Can't compile lz4"; exit 1; }
   cd ..
 else
@@ -67,7 +82,7 @@ if [ ! -d "zlib" ]; then
   cd zlib || exit
   zlibPath=`pwd`
   ./configure --static
-  make -j4
+  make -j4 CC="$CC" CFLAGS="--sysroot=$SDKROOT"
   test $? -eq 0 || { echo "Can't compile zlib"; exit 1; }
   cd ..
 else
