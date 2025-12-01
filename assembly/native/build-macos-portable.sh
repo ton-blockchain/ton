@@ -151,7 +151,7 @@ fi
 cmake -GNinja .. \
 -DPORTABLE=1 \
 -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=$OSX_TARGET \
--DCMAKE_CXX_FLAGS="-stdlib=libc++" \
+-DCMAKE_CXX_FLAGS="-nostdinc++ -isystem ${SDKROOT}/usr/include/c++/v1 -isystem ${SDKROOT}/usr/include" \
 -DCMAKE_SYSROOT=$(xcrun --show-sdk-path) \
 -DCMAKE_BUILD_TYPE=Release \
 -DOPENSSL_FOUND=1 \
