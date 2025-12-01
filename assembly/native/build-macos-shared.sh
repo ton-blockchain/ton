@@ -9,6 +9,8 @@ OSX_TARGET=11.0
 MACOS_MAJOR=0
 if [ "$(uname)" = "Darwin" ]; then
   MACOS_MAJOR=$(sw_vers -productVersion | cut -d. -f1)
+  export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+  echo "Using SDKROOT=$SDKROOT"
 fi
 
 while getopts 'taco:' flag; do
@@ -67,7 +69,7 @@ if [ ! -d "lz4" ]; then
   cd lz4 || exit
   lz4Path=`pwd`
   git checkout v1.9.4
-  make -j4
+  make -j4 CC="$CC" CFLAGS="--sysroot=$SDKROOT"
   test $? -eq 0 || { echo "Can't compile lz4"; exit 1; }
   cd ..
 else
@@ -80,7 +82,7 @@ if [ ! -d "zlib" ]; then
   cd zlib || exit
   zlibPath=`pwd`
   ./configure --static
-  make -j4
+  make -j4 CC="$CC" CFLAGS="--sysroot=$SDKROOT"
   test $? -eq 0 || { echo "Can't compile zlib"; exit 1; }
   cd ..
 else
