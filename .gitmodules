@@ -14,6 +14,7 @@
 [submodule "third-party/blst"]
 	path = third-party/blst
 	url = https://github.com/supranational/blst.git
+	branch = v0.3.15
 [submodule "third-party/secp256k1"]
 	path = third-party/secp256k1
 	url = https://github.com/bitcoin-core/secp256k1
