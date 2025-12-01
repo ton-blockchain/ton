@@ -80,6 +80,10 @@
 
 using td::Ref;
 
+extern "C" const char* __asan_default_options() {
+  return "detect_leaks=0";
+}
+
 int verbosity;
 
 enum { wc_master = -1, wc_base = 0 };

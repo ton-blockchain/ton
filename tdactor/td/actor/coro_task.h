@@ -240,6 +240,15 @@ struct promise_type : promise_value<td::Result<T>> {
   auto await_transform(td::Result<U>&& result) noexcept {
     return result_awaiter_unwrap(std::move(result));
   }
+  auto await_transform(td::Status&& status) noexcept {
+    td::Result<td::Unit> res;
+    if (status.is_ok()) {
+      res = td::Result<td::Unit>{td::Unit{}};
+    } else {
+      res = std::move(status);
+    }
+    return await_transform(std::move(res));
+  }
 
   template <class U>
   auto await_transform(Task<U>&& task) noexcept {

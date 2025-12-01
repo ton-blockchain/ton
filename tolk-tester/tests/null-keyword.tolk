@@ -113,6 +113,18 @@ fun main() {
 
 @fif_codegen
 """
+   UNTIL:<{
+      s0 s2 XCHG                //  t h numbers
+      UNCONS                    //  t h num numbers
+      s3 s3 XCHG2               //  numbers h t num
+      TPUSH                     //  numbers h t
+      s2 PUSH                   //  numbers h t numbers
+      ISNULL                    //  numbers h t '28
+    }>                          //  numbers h t
+"""
+
+@fif_codegen
+"""
   main() PROC:<{
     1 PUSHINT   // '3=1
   }>

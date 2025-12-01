@@ -186,6 +186,7 @@ struct ActionPhaseConfig {
 };
 
 struct SerializeConfig {
+  int global_version = 0;
   bool extra_currency_v2{false};
   bool disable_anycast{false};
   bool store_storage_dict_hash{false};

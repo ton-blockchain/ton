@@ -1458,7 +1458,7 @@ void ValidatorEngine::alarm() {
           need_write = true;
           std::erase_if(config_.fast_sync_member_certificates,
                         [&](const std::pair<ton::adnl::AdnlNodeIdShort, ton::overlay::OverlayMemberCertificate> &e) {
-                          return !fs_to_del.contains(e.first);
+                          return fs_to_del.contains(e.first);
                         });
         }
       }
@@ -1544,9 +1544,6 @@ td::Status ValidatorEngine::load_global_config() {
   if (zero_state.root_hash.is_zero() || zero_state.file_hash.is_zero()) {
     return td::Status::Error(ton::ErrorCode::error, "[validator] section contains incomplete [zero_state]");
   }
-  if (celldb_in_memory_ && celldb_v2_) {
-    return td::Status::Error(ton::ErrorCode::error, "at most one of --celldb-in-memory --celldb-v2 could be used");
-  }
 
   ton::BlockIdExt init_block;
   if (!conf.validator_->init_block_) {
@@ -1599,7 +1596,7 @@ td::Status ValidatorEngine::load_global_config() {
   }
   validator_options_.write().set_celldb_compress_depth(celldb_compress_depth_);
   validator_options_.write().set_celldb_in_memory(celldb_in_memory_);
-  validator_options_.write().set_celldb_v2(celldb_v2_);
+  validator_options_.write().set_celldb_v2(!celldb_in_memory_);
   validator_options_.write().set_celldb_disable_bloom_filter(celldb_disable_bloom_filter_);
   validator_options_.write().set_max_open_archive_files(max_open_archive_files_);
   validator_options_.write().set_archive_preload_period(archive_preload_period_);
@@ -1640,8 +1637,8 @@ td::Status ValidatorEngine::load_global_config() {
     h.push_back(b);
   }
   validator_options_.write().set_hardforks(std::move(h));
-  validator_options_.write().set_fast_state_serializer_enabled(fast_state_serializer_enabled_);
   validator_options_.write().set_catchain_broadcast_speed_multiplier(broadcast_speed_multiplier_catchain_);
+  validator_options_.write().set_parallel_validation(parallel_validation_);
 
   for (auto &id : config_.collator_node_whitelist) {
     validator_options_.write().set_collator_node_whitelisted_validator(id, true);
@@ -5459,9 +5456,7 @@ int main(int argc, char *argv[]) {
       '\0', "celldb-in-memory",
       "store all cells in-memory, much faster but requires a lot of RAM. RocksDb is still used as persistent storage",
       [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_in_memory, true); }); });
-  p.add_option('\0', "celldb-v2", "use new version off celldb", [&]() {
-    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_v2, true); });
-  });
+  p.add_option('\0', "celldb-v2", "deprecated option (enabled by default)", [&]() {});
   p.add_option(
       '\0', "celldb-disable-bloom-filter",
       "disable using bloom filter in CellDb. Enabled bloom filter reduces read latency, but increases memory usage",
@@ -5490,9 +5485,7 @@ int main(int argc, char *argv[]) {
                          });
                          return td::Status::OK();
                        });
-  p.add_option('\0', "fast-state-serializer", "faster persistent state serializer, but requires more RAM", [&]() {
-    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_fast_state_serializer_enabled, true); });
-  });
+  p.add_option('\0', "fast-state-serializer", "deprecated option (enabled by default)", [&]() {});
   p.add_option('\0', "collect-validator-telemetry",
                "store validator telemetry from fast sync overlay to a given file (json format)", [&](td::Slice s) {
                  acts.push_back([&x, s = s.str()]() {
@@ -5584,6 +5577,9 @@ int main(int argc, char *argv[]) {
                          }
                          return td::Status::OK();
                        });
+  p.add_option('\0', "parallel-validation", "parallel validation over different accounts", [&]() {
+    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_parallel_validation, true); });
+  });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();

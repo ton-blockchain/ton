@@ -6,7 +6,7 @@ int_msg_info$0                                                              1
     src:MsgAddress                      // always 00 on send                2
     dest:MsgAddressInt                  // parameter                        267
     value:CurrencyCollection            // parameter                        124 + 1
-    ihr_fee:Grams                       // always 0, not implemented        4
+    extra_flags:Grams                   // if new bounces enabled           12
     fwd_fee:Grams                       // always 0 on send                 4
     created_lt:uint64                   // always 0 on send                 64
     created_at:uint32                   // always 0 on send                 32
@@ -18,7 +18,7 @@ _   split_depth:(Maybe (## 5))                                              1 + 
     library:(Maybe ^Cell)                                                   1
     = StateInit;
 message$_ {X:Type}
-    info:CommonMsgInfoRelaxed                                               502
+    info:CommonMsgInfoRelaxed                                               510
     init:(Maybe (Either StateInit ^StateInit))                              12
     body:(Either X ^X)                  // body is either embedded or stored as ref
     = MessageRelaxed X;
@@ -132,7 +132,7 @@ fun test1() {
     val jettonWalletCode = beginCell().storeInt(0x273849723892, 94).endCell();
 
     var b = createMessage({
-        bounce: true,
+        bounce: BounceMode.Only256BitsOfBody,
         dest: {
             stateInit: {
                 code: jettonWalletCode,
@@ -157,10 +157,12 @@ fun test2_manual(toAddress: address, masterMsg: cell, jettonWalletCode: cell) {
     var toWalletAddress = calculateJettonWalletAddress(shardPrefix, stateInit);
 
     return beginCell()
-        .storeUint(0x10, 6)     // not bounceable
+        .storeUint(0x18, 6)     // bounceable
         .storeAddress(toWalletAddress) // dest
         .storeCoins(ton("0.05"))
-        .storeUint(0b111, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 1)  // 1 state init exists + 1 state init ref + 1 body ref
+        .storeUint(0, 1)    // no extra currencies
+        .storeCoins(1)          // extra_flags for bounces
+        .storeUint(0b111, 4 + 64 + 32 + 1 + 1 + 1)  // 1 state init exists + 1 state init ref + 1 body ref
         .storeRef(stateInit)
         .storeRef(masterMsg)
         .endCell();
@@ -174,7 +176,7 @@ fun test2() {
     var stateInitCell = calculateJettonWalletStateInitWithShard(toAddress, getMyAddressDev(), jettonWalletCode);
 
     var b = createMessage({
-        bounce: false,
+        bounce: BounceMode.RichBounceOnlyRootCell,
         dest: {
             workchain: BASECHAIN,
             stateInit: stateInitCell,
@@ -202,7 +204,9 @@ fun test3_manual(myCode: cell, myData: cell, msgBody: Test3Body) {
         .storeUint(0x18, 6)     // bounceable
         .storeBuilder(addrInShard) // dest
         .storeCoins(ton("0.001"))
-        .storeUint(0b10, 1 + 4 + 4 + 64 + 32 + 1 + 1)  // 1 state init exists + 1 state init inline
+        .storeUint(0, 1)    // no extra currencies
+        .storeCoins(3)          // extra_flags for bounces
+        .storeUint(0b10, 4 + 64 + 32 + 1 + 1)  // 1 state init exists + 1 state init inline
             .storeUint(1, 1)
             .storeUint(20, 5)   // shard depth
             .storeUint(0b0110, 4) // code + data exist
@@ -221,7 +225,7 @@ fun test3() {
     val body: Test3Body = { bigData: builder800.endCell().beginParse() as bits800 };
 
     var b = createMessage({
-        bounce: true,
+        bounce: BounceMode.RichBounce,
         dest: {
             stateInit: {
                 code: myCode,
@@ -331,8 +335,8 @@ fun main() {}
 
 /**
 @testcase | 101 |   | 114692697425779687591180352274328586758984823673144676907237399062035787598876
-@testcase | 102 |   | 19141316219057792078125032524380927286847294424548966584483011017258286475706
-@testcase | 103 |   | 33184074158306258754479533493449661031201063538320283251640171344508567641003
+@testcase | 102 |   | 92833870282045340164651591875742409601508873505925232125500574773472682371231
+@testcase | 103 |   | 56762665750429421964960025520433779418560428561961050303426782106579738725679
 @testcase | 104 |   | 52060388210984960140400107426752119783720473036191582802152450095687953630545
 @testcase | 105 |   | 18248582963085351579261363895401647616194364201057112283341027605548475235397
 @testcase | 106 | 2 | 73367500160949078368695742399322272058735198813159066885436981754975296689213

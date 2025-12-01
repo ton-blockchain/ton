@@ -41,7 +41,7 @@ fun entrypoint1() {
 
 @method_id(102)
 fun handle2(in: InMessage) {
-    return (in.valueCoins, in.senderAddress.isInternal());
+    return (in.valueCoins, (in.senderAddress as any_address).isInternal());
 }
 
 @method_id(202)
@@ -51,14 +51,14 @@ fun entrypoint2() {
 }
 
 @method_id(103)
-fun handle3(`in()`: InMessage) {
+fun handle3(`in ()`: InMessage) {
     return (
-        `in()`.senderAddress.getWorkchainAndHash(),
-        `in()`.valueCoins,
-        `in()`.valueExtra,
-        `in()`.createdLt,
-        `in()`.createdAt,
-        `in()`.body.isEmpty(),
+        `in ()`.senderAddress.getWorkchainAndHash(),
+        `in ()`.valueCoins,
+        `in ()`.valueExtra,
+        `in ()`.createdLt,
+        `in ()`.createdAt,
+        `in ()`.body.isEmpty(),
     )
 }
 

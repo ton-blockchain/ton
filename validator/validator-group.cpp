@@ -248,7 +248,8 @@ void ValidatorGroup::validate_block_candidate(validatorsession::BlockSourceInfo 
                                     .prev = std::move(prev),
                                     .validator_set = validator_set_,
                                     .local_validator_id = local_id_,
-                                    .optimistic_prev_block = optimistic_prev_block_data},
+                                    .optimistic_prev_block = optimistic_prev_block_data,
+                                    .parallel_validation = opts_.get()->get_parallel_validation()},
                      manager_, td::Timestamp::in(15.0), std::move(P));
 }
 
@@ -291,7 +292,7 @@ void ValidatorGroup::accept_block_candidate(validatorsession::BlockSourceInfo so
   if (source_info.source.compute_short_id() == local_id_) {
     send_broadcast_mode |= fullnode::FullNode::broadcast_mode_public;
     if (!sent_candidate) {
-      send_broadcast_mode |= fullnode::FullNode::broadcast_mode_private_block;
+      send_broadcast_mode |= fullnode::FullNode::broadcast_mode_fast_sync;
     }
   }
   if (!sent_candidate) {
@@ -307,7 +308,7 @@ void ValidatorGroup::accept_block_candidate(validatorsession::BlockSourceInfo so
   if (!shard_.is_masterchain() || source_info.source.compute_short_id() == local_id_) {
     send_broadcast_mode |= fullnode::FullNode::broadcast_mode_public;
     if (!sent_candidate) {
-      send_broadcast_mode |= fullnode::FullNode::broadcast_mode_private_block;
+      send_broadcast_mode |= fullnode::FullNode::broadcast_mode_fast_sync;
     }
   }
   if (!sent_candidate) {
@@ -726,10 +727,10 @@ void ValidatorGroup::get_validator_group_info_for_litequery_cont(
 
 void ValidatorGroup::send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data) {
   if (sent_candidate_broadcasts_.insert(id).second) {
-    td::actor::send_closure(
-        manager_, &ValidatorManager::send_block_candidate_broadcast, id, validator_set_->get_catchain_seqno(),
-        validator_set_->get_validator_set_hash(), std::move(data),
-        fullnode::FullNode::broadcast_mode_private_block | fullnode::FullNode::broadcast_mode_custom);
+    td::actor::send_closure(manager_, &ValidatorManager::send_block_candidate_broadcast, id,
+                            validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
+                            std::move(data),
+                            fullnode::FullNode::broadcast_mode_fast_sync | fullnode::FullNode::broadcast_mode_custom);
   }
 }
 

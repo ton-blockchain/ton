@@ -10,6 +10,6 @@ fun f() {
 
 /**
 @compilation_should_fail
-@stderr `lazy` will not work here, because variable `o` it's used in a non-lazy manner
+@stderr `lazy` will not work here, because variable `o` is used in a non-lazy manner
 @stderr hint: lazy union may be used only in `match` statement
  */

@@ -144,7 +144,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual td::optional<double> get_catchain_max_block_delay_slow() const = 0;
   virtual bool get_state_serializer_enabled() const = 0;
   virtual td::Ref<CollatorOptions> get_collator_options() const = 0;
-  virtual bool get_fast_state_serializer_enabled() const = 0;
+  virtual bool get_parallel_validation() const = 0;
   virtual double get_catchain_broadcast_speed_multiplier() const = 0;
   virtual bool get_permanent_celldb() const = 0;
   virtual td::Ref<CollatorsList> get_collators_list() const = 0;
@@ -183,13 +183,13 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_catchain_max_block_delay_slow(double value) = 0;
   virtual void set_state_serializer_enabled(bool value) = 0;
   virtual void set_collator_options(td::Ref<CollatorOptions> value) = 0;
-  virtual void set_fast_state_serializer_enabled(bool value) = 0;
   virtual void set_catchain_broadcast_speed_multiplier(double value) = 0;
   virtual void set_permanent_celldb(bool value) = 0;
   virtual void set_collators_list(td::Ref<CollatorsList> list) = 0;
   virtual void set_collator_node_whitelisted_validator(adnl::AdnlNodeIdShort id, bool add) = 0;
   virtual void set_collator_node_whitelist_enabled(bool enabled) = 0;
   virtual void set_shard_block_verifier_config(td::Ref<ShardBlockVerifierConfig> config) = 0;
+  virtual void set_parallel_validation(bool value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(BlockIdExt zero_block_id, BlockIdExt init_block_id,
                                                  bool allow_blockchain_init = false, double sync_blocks_before = 3600,
@@ -204,39 +204,53 @@ class ValidatorManagerInterface : public td::actor::Actor {
    public:
     virtual ~Callback() = default;
 
-    virtual void initial_read_complete(BlockHandle top_masterchain_blocks) = 0;
+    virtual void initial_read_complete(BlockHandle top_masterchain_blocks) {
+    }
     virtual void on_new_masterchain_block(td::Ref<ton::validator::MasterchainState> state,
-                                          std::set<ShardIdFull> shards_to_monitor) = 0;
+                                          std::set<ShardIdFull> shards_to_monitor) {
+    }
 
-    virtual void send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data) = 0;
-    virtual void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) = 0;
-    virtual void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) = 0;
+    virtual void send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data) {
+    }
+    virtual void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) {
+    }
+    virtual void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
+    }
     virtual void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                      td::BufferSlice data, int mode) = 0;
-    virtual void send_broadcast(BlockBroadcast broadcast, int mode) = 0;
+                                      td::BufferSlice data, int mode) {
+    }
+    virtual void send_broadcast(BlockBroadcast broadcast, int mode) {
+    }
     virtual void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcats) {
-      LOG(ERROR) << "Unimplemented send_out_msg_queue_proof_broadcast - ignore broadcast";
     }
     virtual void download_block(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                                td::Promise<ReceivedBlock> promise) = 0;
+                                td::Promise<ReceivedBlock> promise) {
+    }
     virtual void download_zero_state(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                                     td::Promise<td::BufferSlice> promise) = 0;
+                                     td::Promise<td::BufferSlice> promise) {
+    }
     virtual void download_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                            PersistentStateType type, td::uint32 priority, td::Timestamp timeout,
-                                           td::Promise<td::BufferSlice> promise) = 0;
+                                           td::Promise<td::BufferSlice> promise) {
+    }
     virtual void download_block_proof(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                                      td::Promise<td::BufferSlice> promise) = 0;
+                                      td::Promise<td::BufferSlice> promise) {
+    }
     virtual void download_block_proof_link(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                                           td::Promise<td::BufferSlice> promise) = 0;
+                                           td::Promise<td::BufferSlice> promise) {
+    }
     virtual void get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeout,
-                                     td::Promise<std::vector<BlockIdExt>> promise) = 0;
+                                     td::Promise<std::vector<BlockIdExt>> promise) {
+    }
     virtual void download_archive(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
-                                  td::Timestamp timeout, td::Promise<std::string> promise) = 0;
+                                  td::Timestamp timeout, td::Promise<std::string> promise) {
+    }
     virtual void download_out_msg_queue_proof(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                               block::ImportedMsgQueueLimits limits, td::Timestamp timeout,
-                                              td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) = 0;
-
-    virtual void new_key_block(BlockHandle handle) = 0;
+                                              td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) {
+    }
+    virtual void new_key_block(BlockHandle handle) {
+    }
   };
 
   virtual ~ValidatorManagerInterface() = default;
