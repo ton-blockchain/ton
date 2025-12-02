@@ -237,8 +237,7 @@ class FullNodeShardImpl : public FullNodeShard {
   }
 
   FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,
-                    FileHash zero_state_file_hash, FullNodeOptions opts,
-                    std::shared_ptr<RateLimiter<adnl::AdnlNodeIdShort, int32_t>> limiter,
+                    FileHash zero_state_file_hash, FullNodeOptions opts, std::shared_ptr<RateLimiter<>> limiter,
                     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                     td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
                     td::actor::ActorId<overlay::Overlays> overlays,
@@ -292,7 +291,7 @@ class FullNodeShardImpl : public FullNodeShard {
   std::set<td::Bits256> processed_ext_msg_broadcasts_;
   td::Timestamp cleanup_processed_ext_msg_at_;
 
-  std::shared_ptr<RateLimiter<adnl::AdnlNodeIdShort, int32_t>> limiter_;
+  std::shared_ptr<RateLimiter<>> limiter_;
 };
 
 }  // namespace fullnode

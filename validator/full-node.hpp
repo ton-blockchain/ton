@@ -181,7 +181,7 @@ class FullNodeImpl : public FullNode {
   td::actor::ActorOwn<TokenManager> out_msg_queue_query_token_manager_ =
       td::actor::create_actor<TokenManager>("tokens", /* max_tokens = */ 1);
 
-  std::shared_ptr<RateLimiter<adnl::AdnlNodeIdShort, int32_t>> limiter_;
+  std::shared_ptr<RateLimiter<>> limiter_;
 
   decltype(limiter_) make_limiter(const FullNodeOptions& opts);
 };
