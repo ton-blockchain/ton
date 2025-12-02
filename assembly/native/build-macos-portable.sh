@@ -124,18 +124,15 @@ else
 fi
 
 if [ ! -d "../3pp/libmicrohttpd" ]; then
-  mkdir -p ../3pp/libmicrohttpd
-  wget -O ../3pp/libmicrohttpd/libmicrohttpd-1.0.1.tar.gz https://ftpmirror.gnu.org/libmicrohttpd/libmicrohttpd-1.0.1.tar.gz
-  cd ../3pp/libmicrohttpd/ || exit
-  tar xf libmicrohttpd-1.0.1.tar.gz
-  cd libmicrohttpd-1.0.1 || exit
+  git clone https://github.com/neodix42/libmicrohttpd.git ../3pp/libmicrohttpd
+  cd ../3pp/libmicrohttpd
   libmicrohttpdPath=`pwd`
   ./configure --enable-static --disable-tests --disable-benchmark --disable-shared --disable-https --with-pic
   make -j4 CC="$CC" CFLAGS="--sysroot=$SDKROOT"
   test $? -eq 0 || { echo "Can't compile libmicrohttpd"; exit 1; }
-  cd ../../../build || exit
+  cd ../../build
 else
-  libmicrohttpdPath=$(pwd)/../3pp/libmicrohttpd/libmicrohttpd-1.0.1
+  libmicrohttpdPath=$(pwd)/../3pp/libmicrohttpd
   echo "Using compiled libmicrohttpd"
 fi
 
