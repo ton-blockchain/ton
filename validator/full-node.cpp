@@ -866,16 +866,12 @@ td::actor::ActorOwn<FullNode> FullNode::create(
 }
 
 FullNodeConfig::FullNodeConfig(const tl_object_ptr<ton_api::engine_validator_fullNodeConfig> &obj)
-    : ext_messages_broadcast_disabled_(obj->ext_messages_broadcast_disabled_)
-    , ratelimit_window_size_(obj->ratelimit_window_size_)
-    , ratelimit_global_(obj->ratelimit_global_)
-    , ratelimit_heavy_(obj->ratelimit_heavy_)
-    , ratelimit_medium_(obj->ratelimit_medium_) {
+    : ext_messages_broadcast_disabled_(obj->ext_messages_broadcast_disabled_) {
 }
 
 tl_object_ptr<ton_api::engine_validator_fullNodeConfig> FullNodeConfig::tl() const {
   return create_tl_object<ton_api::engine_validator_fullNodeConfig>(
-      ext_messages_broadcast_disabled_, ratelimit_window_size_, ratelimit_heavy_, ratelimit_medium_, ratelimit_global_);
+      ext_messages_broadcast_disabled_);
 }
 
 bool CustomOverlayParams::send_shard(const ShardIdFull &shard) const {
@@ -904,10 +900,10 @@ CustomOverlayParams CustomOverlayParams::fetch(const ton_api::engine_validator_c
 }
 
 decltype(FullNodeImpl::limiter_) FullNodeImpl::make_limiter(const FullNodeOptions &opts) {
-  double w_size = opts.config_.ratelimit_window_size_;
-  size_t h_limit = opts.config_.ratelimit_heavy_;
-  size_t m_limit = opts.config_.ratelimit_medium_;
-  size_t g_limit = opts.config_.ratelimit_global_;
+  double w_size = opts.ratelimit_window_size_;
+  size_t h_limit = opts.ratelimit_heavy_;
+  size_t m_limit = opts.ratelimit_medium_;
+  size_t g_limit = opts.ratelimit_global_;
   return std::make_shared<RateLimiter<adnl::AdnlNodeIdShort, int32_t>>(
       RateLimit{w_size, g_limit}, std::map<int32_t, RateLimit>{
                                       {ton_api::tonNode_getArchiveSlice::ID, {w_size, h_limit}},
