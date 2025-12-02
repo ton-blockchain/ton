@@ -83,6 +83,7 @@ class ValidatorSession : public td::actor::Actor {
     virtual void on_generate_slot(BlockSourceInfo source_info, td::Promise<GeneratedCandidate> promise) = 0;
     virtual void on_block_committed(BlockSourceInfo source_info, ValidatorSessionRootHash root_hash,
                                     ValidatorSessionFileHash file_hash, td::BufferSlice data,
+                                    td::BufferSlice collated_data, FileHash collated_data_hash,
                                     std::vector<std::pair<PublicKeyHash, td::BufferSlice>> signatures,
                                     std::vector<std::pair<PublicKeyHash, td::BufferSlice>> approve_signatures,
                                     ValidatorSessionStats stats) = 0;
@@ -92,8 +93,8 @@ class ValidatorSession : public td::actor::Actor {
                                         ValidatorSessionCollatedDataFileHash collated_data_file_hash,
                                         td::Promise<BlockCandidate> promise) = 0;
     virtual void generate_block_optimistic(BlockSourceInfo source_info, td::BufferSlice prev_block,
-                                           RootHash prev_root_hash, FileHash prev_file_hash,
-                                           td::Promise<GeneratedCandidate> promise) {
+                                           td::BufferSlice prev_collated_data, RootHash prev_root_hash,
+                                           FileHash prev_file_hash, td::Promise<GeneratedCandidate> promise) {
     }
     virtual void on_optimistic_candidate(BlockSourceInfo source_info, ValidatorSessionRootHash root_hash,
                                          td::BufferSlice data, td::BufferSlice collated_data, PublicKey prev_source,
@@ -111,6 +112,9 @@ class ValidatorSession : public td::actor::Actor {
       td::uint32 cur_round,
       td::Promise<std::vector<tl_object_ptr<lite_api::liteServer_nonfinal_candidateInfo>>> promise) = 0;
   virtual void set_catchain_max_block_delay(double delay, double delay_slow) = 0;
+  virtual void get_accepted_candidate(PublicKey source, BlockIdExt block_id,
+                                      ValidatorSessionCollatedDataFileHash collated_data_file_hash,
+                                      td::Promise<BlockCandidate> promise) = 0;
 
   static td::actor::ActorOwn<ValidatorSession> create(
       catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,

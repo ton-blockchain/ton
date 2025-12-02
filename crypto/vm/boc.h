@@ -176,11 +176,19 @@ class ProofStorageStat {
     return get_cell_status(hash) == c_loaded;
   }
 
+  std::vector<Ref<Cell>> build_collated_data(std::vector<Ref<Cell>> skip_roots = {}) const;
+
   static td::uint64 estimate_prunned_size();
   static td::uint64 estimate_serialized_size(const Ref<DataCell>& cell);
 
  private:
-  td::HashMap<Cell::Hash, std::pair<CellStatus, td::uint64>> cells_;
+  struct CellInfo {
+    Ref<DataCell> cell;                          // only for c_loaded
+    td::uint8 cell_max_level = Cell::max_level;  // only for c_loaded
+    CellStatus status = c_none;
+    td::uint64 serialized_size = 0;
+  };
+  td::HashMap<Cell::Hash, CellInfo> cells_;
   td::uint64 proof_size_ = 0;
 };
 
@@ -402,7 +410,8 @@ td::Result<Ref<Cell>> std_boc_deserialize(td::Slice data, bool can_be_empty = fa
 td::Result<td::BufferSlice> std_boc_serialize(Ref<Cell> root, int mode = 0);
 
 td::Result<std::vector<Ref<Cell>>> std_boc_deserialize_multi(td::Slice data,
-                                                             int max_roots = BagOfCells::default_max_roots);
+                                                             int max_roots = BagOfCells::default_max_roots,
+                                                             bool allow_nonzero_level = false);
 td::Result<td::BufferSlice> std_boc_serialize_multi(std::vector<Ref<Cell>> root, int mode = 0);
 
 td::Status std_boc_serialize_to_file(Ref<Cell> root, td::FileFd& fd, int mode = 0,

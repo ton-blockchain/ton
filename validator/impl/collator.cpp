@@ -85,6 +85,8 @@ Collator::Collator(CollateParams params, td::actor::ActorId<ValidatorManager> ma
     , collator_node_id_(params.collator_node_id)
     , skip_store_candidate_(params.skip_store_candidate)
     , optimistic_prev_block_(std::move(params.optimistic_prev_block))
+    , optimistic_prev_collated_data_(std::move(params.optimistic_prev_collated_data))
+    , collated_data_deduplicator_(std::move(params.collated_data_deduplicator))
     , attempt_idx_(params.attempt_idx)
     , perf_timer_("collate", 0.1,
                   [manager](double duration) {
@@ -447,7 +449,8 @@ bool Collator::fatal_error(td::Status error) {
                                       .collator_node_id = collator_node_id_,
                                       .skip_store_candidate = skip_store_candidate_,
                                       .attempt_idx = attempt_idx_ + 1,
-                                      .optimistic_prev_block = optimistic_prev_block_},
+                                      .optimistic_prev_block = optimistic_prev_block_,
+                                      .collated_data_deduplicator = collated_data_deduplicator_},
                         manager, td::Timestamp::in(10.0), std::move(cancellation_token_), std::move(main_promise));
     } else {
       LOG(INFO) << "collation failed in " << perf_timer_.elapsed() << " s " << error;
@@ -846,6 +849,11 @@ void Collator::after_get_shard_state_optimistic(td::Result<Ref<ShardState>> res,
     fatal_error(S.move_as_error_prefix("apply error: "));
     return;
   }
+  if (collated_data_deduplicator_) {
+    collated_data_deduplicator_local_ = std::make_shared<CollatedDataDeduplicator>();
+    collated_data_deduplicator_local_->add_block_candidate(
+        optimistic_prev_block_->block_id().seqno(), optimistic_prev_block_->data(), optimistic_prev_collated_data_);
+  }
   work_timer_.pause();
   stats_.work_time.optimistic_apply = timer.elapsed_both();
   after_get_shard_state(0, std::move(state), {});
@@ -880,7 +888,9 @@ bool Collator::unpack_last_mc_state() {
   msg_metadata_enabled_ = config_->has_capability(ton::capMsgMetadata);
   deferring_messages_enabled_ = config_->has_capability(ton::capDeferMessages);
   full_collated_data_ = config_->has_capability(capFullCollatedData) || collator_opts_->force_full_collated_data;
+  merge_collated_data_enabled_ = config_->get_consensus_config().merge_collated_data && !is_masterchain();
   LOG(DEBUG) << "full_collated_data is " << full_collated_data_;
+  LOG(DEBUG) << "merge_collated_data is " << merge_collated_data_enabled_;
   shard_conf_ = std::make_unique<block::ShardConfig>(*config_);
   prev_key_block_exists_ = config_->get_last_key_block(prev_key_block_, prev_key_block_lt_);
   if (prev_key_block_exists_) {
@@ -2490,14 +2500,14 @@ bool Collator::do_collate() {
   if (!create_shard_state()) {
     return fatal_error("cannot create new ShardState");
   }
-  // D. serialize Block
+  // D. create collated data
+  if (!create_collated_data()) {
+    return fatal_error("cannot create collated data for new Block candidate");
+  }
+  // E. serialize Block
   LOG(DEBUG) << "serialize Block";
   if (!create_block()) {
     return fatal_error("cannot create new Block");
-  }
-  // E. create collated data
-  if (!create_collated_data()) {
-    return fatal_error("cannot create collated data for new Block candidate");
   }
   // F. create a block candidate
   LOG(DEBUG) << "create a Block candidate";
@@ -5979,23 +5989,24 @@ bool Collator::create_block_info(Ref<vm::Cell>& block_info) {
   bool mc = is_masterchain();
   td::uint32 val_hash = is_hardfork_ ? 0 : validator_set_->get_validator_set_hash();
   CatchainSeqno cc_seqno = is_hardfork_ ? 0 : validator_set_->get_catchain_seqno();
-  return cb.store_long_bool(0x9bc7a987, 32)                         // block_info#9bc7a987
-         && cb.store_long_bool(0, 32)                               // version:uint32
-         && cb.store_bool_bool(!mc)                                 // not_master:(## 1)
-         && cb.store_bool_bool(after_merge_)                        // after_merge:(## 1)
-         && cb.store_bool_bool(before_split_)                       // before_split:Bool
-         && cb.store_bool_bool(after_split_)                        // after_split:Bool
-         && cb.store_bool_bool(want_split_)                         // want_split:Bool
-         && cb.store_bool_bool(want_merge_)                         // want_merge:Bool
-         && cb.store_bool_bool(is_key_block_)                       // key_block:Bool
-         && cb.store_bool_bool(is_hardfork_)                        // vert_seqno_incr:(## 1)
-         && cb.store_long_bool((int)report_version_, 8)             // flags:(## 8)
-         && cb.store_long_bool(new_block_seqno, 32)                 // seq_no:#
-         && cb.store_long_bool(vert_seqno_, 32)                     // vert_seq_no:#
-         && block::ShardId{shard_}.serialize(cb)                    // shard:ShardIdent
-         && cb.store_long_bool(now_, 32)                            // gen_utime:uint32
-         && cb.store_long_bool(start_lt, 64)                        // start_lt:uint64
-         && cb.store_long_bool(max_lt, 64)                          // end_lt:uint64
+  bool store_collated_data_hash = config_->get_consensus_config().merge_collated_data;
+  return cb.store_long_bool(0x9bc7a987, 32)                                                   // block_info#9bc7a987
+         && cb.store_long_bool(0, 32)                                                         // version:uint32
+         && cb.store_bool_bool(!mc)                                                           // not_master:(## 1)
+         && cb.store_bool_bool(after_merge_)                                                  // after_merge:(## 1)
+         && cb.store_bool_bool(before_split_)                                                 // before_split:Bool
+         && cb.store_bool_bool(after_split_)                                                  // after_split:Bool
+         && cb.store_bool_bool(want_split_)                                                   // want_split:Bool
+         && cb.store_bool_bool(want_merge_)                                                   // want_merge:Bool
+         && cb.store_bool_bool(is_key_block_)                                                 // key_block:Bool
+         && cb.store_bool_bool(is_hardfork_)                                                  // vert_seqno_incr:(## 1)
+         && cb.store_long_bool((int)report_version_ + (store_collated_data_hash ? 2 : 0), 8)  // flags:(## 8)
+         && cb.store_long_bool(new_block_seqno, 32)                                           // seq_no:#
+         && cb.store_long_bool(vert_seqno_, 32)                                               // vert_seq_no:#
+         && block::ShardId{shard_}.serialize(cb)                                              // shard:ShardIdent
+         && cb.store_long_bool(now_, 32)                                                      // gen_utime:uint32
+         && cb.store_long_bool(start_lt, 64)                                                  // start_lt:uint64
+         && cb.store_long_bool(max_lt, 64)                                                    // end_lt:uint64
          && cb.store_long_bool(val_hash, 32)                        // gen_validator_list_hash_short:uint32
          && cb.store_long_bool(cc_seqno, 32)                        // gen_catchain_seqno:uint32
          && cb.store_long_bool(min_ref_mc_seqno_, 32)               // min_ref_mc_seqno:uint32
@@ -6008,6 +6019,8 @@ bool Collator::create_block_info(Ref<vm::Cell>& block_info) {
          && (!is_hardfork_ ||                                       // prev_vert_ref:vert_seqno_incr?..
              (store_master_ref(cb2)                                 //
               && cb.store_builder_ref_bool(std::move(cb2))))        // .. ^(BlkPrevInfo 0)
+         &&
+         (!store_collated_data_hash || cb.store_bits_bool(collated_data_hash_))  // collated_data_hash:flags . 1?bits256
          && cb.finalize_to(block_info);
 }
 
@@ -6289,82 +6302,146 @@ bool Collator::create_collated_data() {
   // 1. store the set of used shard block descriptions
   if (!used_shard_block_descr_.empty()) {
     auto cell = collate_shard_block_descr_set();
-    if (cell.is_null()) {
-      return true;
-      // return fatal_error("cannot collate the collection of used shard block descriptions");
+    if (!cell.is_null()) {
+      collated_roots_.push_back(std::move(cell));
     }
-    collated_roots_.push_back(std::move(cell));
   }
-  if (!full_collated_data_) {
-    return true;
-  }
-  // 2. Proofs for hashes of states: previous states + neighbors
-  for (const auto& p : block_state_proofs_) {
-    collated_roots_.push_back(p.second);
-  }
-  // 3. Previous state proof (only shadchains)
-  std::map<td::Bits256, Ref<vm::Cell>> proofs;
-  if (!is_masterchain()) {
-    if (!prepare_msg_queue_proof()) {
-      return fatal_error("cannot prepare message queue proof");
+  if (full_collated_data_) {
+    // 2. Proofs for hashes of states: previous states + neighbors
+    for (const auto& p : block_state_proofs_) {
+      collated_roots_.push_back(p.second);
+    }
+    // 3. Prepare msg queue proof (only shardchains)
+    if (!is_masterchain()) {
+      if (!prepare_msg_queue_proof()) {
+        return fatal_error("cannot prepare message queue proof");
+      }
     }
 
-    state_usage_tree_->set_use_mark_for_is_loaded(false);
-    Ref<vm::Cell> state_proof = vm::MerkleProof::generate(
-        prev_state_root_, [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
-    if (state_proof.is_null()) {
-      return fatal_error("cannot generate Merkle proof for previous state");
-    }
-    if (after_merge_) {
-      bool special;
-      auto cs = vm::load_cell_slice_special(state_proof, special);
-      CHECK(cs.special_type() == vm::CellTraits::SpecialType::MerkleProof);
-      cs = vm::load_cell_slice(cs.prefetch_ref(0));
-      CHECK(cs.size_refs() == 2);
-      CHECK(cs.size() == 32);
-      CHECK(cs.prefetch_ulong(32) == 0x5f327da5U);
-      proofs[cs.prefetch_ref(0)->get_hash(0).bits()] = vm::CellBuilder::create_merkle_proof(cs.prefetch_ref(0));
-      proofs[cs.prefetch_ref(1)->get_hash(0).bits()] = vm::CellBuilder::create_merkle_proof(cs.prefetch_ref(1));
+    if (merge_collated_data_enabled_) {
+      // 4. Previous states proofs (only shardchains)
+      if (!is_masterchain()) {
+        for (auto& prev_state : prev_states) {
+          collated_roots_.push_back(vm::CellBuilder()
+                                        .store_long(block::gen::CollatedDataRootState::cons_tag[0], 32)
+                                        .store_bits(prev_state->root_cell()->get_hash().as_bitslice())
+                                        .finalize_novm());
+        }
+      }
+      stop_cell_load_processing_ = true;
+
+      // 5. Proofs for message queues
+      for (vm::MerkleProofBuilder& mpb : neighbor_proof_builders_) {
+        collated_roots_.push_back(vm::CellBuilder()
+                                      .store_long(block::gen::CollatedDataRootState::cons_tag[0], 32)
+                                      .store_bits(mpb.original_root()->get_hash().as_bitslice())
+                                      .finalize_novm());
+      }
+
+      // 6. Proofs for account storage dicts
+      for (auto& [hash, dict] : account_storage_dicts_) {
+        if (!dict.add_to_collated_data) {
+          continue;
+        }
+        // collated_data_root_storage_dict#b70eedd2 hash:bits256 = CollatedDataRootStorageDict;
+        collated_roots_.push_back(vm::CellBuilder()
+                                      .store_long(block::gen::CollatedDataRootStorageDict::cons_tag[0], 32)
+                                      .store_bits(hash.as_bitslice())
+                                      .finalize_novm());
+      }
+      // 7. Collated data proofs
+      collated_roots_.push_back(
+          vm::CellBuilder().store_long(block::gen::CollatedDataSeparator::cons_tag[0], 32).finalize_novm());
+      std::vector<Ref<vm::Cell>> block_data_parts = {shard_account_blocks_, in_msg_dict->get_root_cell(),
+                                                     out_msg_dict->get_root_cell(), state_update};
+      std::vector<Ref<vm::Cell>> proofs =
+          collated_data_stat.build_collated_data(/* skip_roots = */ std::move(block_data_parts));
+      collated_roots_.insert(collated_roots_.end(), proofs.begin(), proofs.end());
     } else {
-      proofs[prev_state_root_->get_hash().bits()] = std::move(state_proof);
-    }
-  }
-  // 4. Proofs for message queues
-  for (vm::MerkleProofBuilder& mpb : neighbor_proof_builders_) {
-    Ref<vm::Cell> proof = vm::MerkleProof::generate(
-        mpb.original_root(), [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
-    if (proof.is_null()) {
-      return fatal_error("cannot generate Merkle proof for neighbor");
-    }
-    auto it = proofs.emplace(mpb.root()->get_hash().bits(), proof);
-    if (!it.second) {
-      it.first->second = vm::MerkleProof::combine(it.first->second, std::move(proof));
-      if (it.first->second.is_null()) {
-        return fatal_error("cannot combine merkle proofs");
+      std::map<td::Bits256, Ref<vm::Cell>> proofs;
+      // 4. Previous states proofs (only shardchains)
+      if (!is_masterchain()) {
+        state_usage_tree_->set_use_mark_for_is_loaded(false);
+        Ref<vm::Cell> state_proof = vm::MerkleProof::generate(
+            prev_state_root_, [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
+        if (state_proof.is_null()) {
+          return fatal_error("cannot generate Merkle proof for previous state");
+        }
+        if (after_merge_) {
+          bool special;
+          auto cs = vm::load_cell_slice_special(state_proof, special);
+          CHECK(cs.special_type() == vm::CellTraits::SpecialType::MerkleProof);
+          cs = vm::load_cell_slice(cs.prefetch_ref(0));
+          CHECK(cs.size_refs() == 2);
+          CHECK(cs.size() == 32);
+          CHECK(cs.prefetch_ulong(32) == 0x5f327da5U);
+          proofs[cs.prefetch_ref(0)->get_hash(0).bits()] = vm::CellBuilder::create_merkle_proof(cs.prefetch_ref(0));
+          proofs[cs.prefetch_ref(1)->get_hash(0).bits()] = vm::CellBuilder::create_merkle_proof(cs.prefetch_ref(1));
+        } else {
+          proofs[prev_state_root_->get_hash().bits()] = std::move(state_proof);
+        }
+      }
+      // 5. Proofs for message queues
+      for (vm::MerkleProofBuilder& mpb : neighbor_proof_builders_) {
+        Ref<vm::Cell> proof = vm::MerkleProof::generate(
+            mpb.original_root(), [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
+        if (proof.is_null()) {
+          return fatal_error("cannot generate Merkle proof for neighbor");
+        }
+        auto it = proofs.emplace(mpb.root()->get_hash().bits(), proof);
+        if (!it.second) {
+          it.first->second = vm::MerkleProof::combine(it.first->second, std::move(proof));
+          if (it.first->second.is_null()) {
+            return fatal_error("cannot combine merkle proofs");
+          }
+        }
+      }
+
+      for (auto& p : proofs) {
+        collated_roots_.push_back(std::move(p.second));
+      }
+
+      // 6. Proofs for account storage dicts
+      for (auto& [_, dict] : account_storage_dicts_) {
+        if (!dict.add_to_collated_data) {
+          continue;
+        }
+        Ref<vm::Cell> proof = vm::MerkleProof::generate(dict.mpb.original_root(), [&](const Ref<vm::Cell>& c) {
+          return !collated_data_stat.is_loaded(c->get_hash());
+        });
+        if (proof.is_null()) {
+          return fatal_error("cannot generate Merkle proof for neighbor");
+        }
+        // account_storage_dict_proof#37c1e3fc proof:^Cell = AccountStorageDictProof;
+        collated_roots_.push_back(vm::CellBuilder()
+                                      .store_long(block::gen::AccountStorageDictProof::cons_tag[0], 32)
+                                      .store_ref(proof)
+                                      .finalize_novm());
       }
     }
   }
 
-  for (auto& p : proofs) {
-    collated_roots_.push_back(std::move(p.second));
+  // 8. serialize collated data
+  if (collated_roots_.size() > max_collated_data_roots) {
+    return fatal_error(PSTRING() << "too many collated data roots: " << collated_roots_.size());
   }
-
-  // 5. Proofs for account storage dicts
-  for (auto& [_, dict] : account_storage_dicts_) {
-    if (!dict.add_to_collated_data) {
-      continue;
+  if (collated_roots_.empty()) {
+    collated_data_ = td::BufferSlice{0};
+  } else {
+    vm::BagOfCells boc_collated;
+    boc_collated.set_roots(collated_roots_);
+    td::Status S = boc_collated.import_cells();
+    if (S.is_error()) {
+      return fatal_error(S.move_as_error());
     }
-    Ref<vm::Cell> proof = vm::MerkleProof::generate(
-        dict.mpb.original_root(), [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
-    if (proof.is_null()) {
-      return fatal_error("cannot generate Merkle proof for neighbor");
+    auto cdata_res = boc_collated.serialize_to_slice(2);
+    if (cdata_res.is_error()) {
+      LOG(ERROR) << "cannot serialize collated data";
+      return fatal_error(cdata_res.move_as_error());
     }
-    // account_storage_dict_proof#37c1e3fc proof:^Cell = AccountStorageDictProof;
-    collated_roots_.push_back(vm::CellBuilder()
-                                  .store_long(block::gen::AccountStorageDictProof::cons_tag[0], 32)
-                                  .store_ref(proof)
-                                  .finalize_novm());
+    collated_data_ = cdata_res.move_as_ok();
   }
+  collated_data_hash_ = block::compute_file_hash(collated_data_.as_slice());
   return true;
 }
 
@@ -6400,39 +6477,20 @@ bool Collator::create_block_candidate() {
     return fatal_error(blk_res.move_as_error());
   }
   auto blk_slice = blk_res.move_as_ok();
-  // 2. serialize collated data
-  td::BufferSlice cdata_slice;
-  if (collated_roots_.empty()) {
-    cdata_slice = td::BufferSlice{0};
-  } else {
-    vm::BagOfCells boc_collated;
-    boc_collated.set_roots(collated_roots_);
-    res = boc_collated.import_cells();
-    if (res.is_error()) {
-      return fatal_error(res.move_as_error());
-    }
-    int cdata_serialize_mode = consensus_config.proto_version >= 5 ? 2 : 31;
-    auto cdata_res = boc_collated.serialize_to_slice(cdata_serialize_mode);
-    if (cdata_res.is_error()) {
-      LOG(ERROR) << "cannot serialize collated data";
-      return fatal_error(cdata_res.move_as_error());
-    }
-    cdata_slice = cdata_res.move_as_ok();
-  }
+  // 2. collated data is already serialized in create_collated_data
   LOG(INFO) << "serialized block size " << blk_slice.size() << " bytes (preliminary estimate was "
             << block_size_estimate_ << ")";
   auto st = block_limit_status_->st_stat.get_total_stat();
   LOG(INFO) << "size regression stats: " << blk_slice.size() << " " << st.cells << " " << st.bits << " "
             << st.internal_refs << " " << st.external_refs << " " << block_limit_status_->accounts << " "
             << block_limit_status_->transactions;
-  LOG(INFO) << "serialized collated data size " << cdata_slice.size() << " bytes (preliminary estimate was "
+  LOG(INFO) << "serialized collated data size " << collated_data_.size() << " bytes (preliminary estimate was "
             << block_limit_status_->collated_data_size_estimate << ")";
   auto new_block_id_ext = ton::BlockIdExt{ton::BlockId{shard_, new_block_seqno}, new_block->get_hash().bits(),
                                           block::compute_file_hash(blk_slice.as_slice())};
   // 3. create a BlockCandidate
-  block_candidate =
-      std::make_unique<BlockCandidate>(created_by_, new_block_id_ext, block::compute_file_hash(cdata_slice.as_slice()),
-                                       blk_slice.clone(), cdata_slice.clone());
+  block_candidate = std::make_unique<BlockCandidate>(created_by_, new_block_id_ext, collated_data_hash_,
+                                                     blk_slice.clone(), collated_data_.clone());
   const bool need_out_msg_queue_broadcasts = !is_masterchain();
   if (need_out_msg_queue_broadcasts) {
     // we can't generate two proofs at the same time for the same root (it is not currently supported by cells)
@@ -6488,9 +6546,7 @@ bool Collator::create_block_candidate() {
   } else {
     LOG(INFO) << "saving new BlockCandidate";
     auto token = perf_log_.start_action("set_block_candidate");
-    td::actor::send_closure_later(manager, &ValidatorManager::set_block_candidate, block_candidate->id,
-                                  block_candidate->clone(), validator_set_->get_catchain_seqno(),
-                                  validator_set_->get_validator_set_hash(),
+    td::actor::send_closure_later(manager, &ValidatorManager::set_block_candidate, block_candidate->clone(),
                                   [self = get_self(), token = std::move(token)](td::Result<td::Unit> saved) mutable {
                                     LOG(DEBUG) << "got answer to set_block_candidate";
                                     td::actor::send_closure_later(std::move(self), &Collator::return_block_candidate,
@@ -6716,6 +6772,23 @@ void Collator::finalize_stats() {
  * @param loaded_cell Loaded cell
  */
 void Collator::on_cell_loaded(const vm::LoadedCell& loaded_cell) {
+  if (stop_cell_load_processing_) {
+    return;
+  }
+  td::RealCpuTimer timer;
+  SCOPE_EXIT {
+    stats_.work_time.total_on_cell_loaded += timer.elapsed_both();
+  };
+  if (merge_collated_data_enabled_) {
+    vm::CellHash hash = loaded_cell.data_cell->get_hash(loaded_cell.effective_level);
+    if (collated_data_deduplicator_ &&
+        collated_data_deduplicator_->cell_exists(hash, new_block_seqno - (optimistic_prev_block_.is_null() ? 0 : 1))) {
+      return;
+    }
+    if (collated_data_deduplicator_local_ && collated_data_deduplicator_local_->cell_exists(hash, new_block_seqno)) {
+      return;
+    }
+  }
   auto context = block::StorageStatCalculationContext::get();
   vm::ProofStorageStat* stat = (context && context->calculating_storage_stat() && current_tx_storage_dict_
                                     ? &current_tx_storage_dict_->proof_stat

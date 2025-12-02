@@ -37,6 +37,7 @@
 #include "ton/ton-tl.hpp"
 #include "validator/stats-merger.h"
 
+#include "block-auto.h"
 #include "checksum.h"
 #include "fabric.h"
 #include "get-next-key-blocks.h"
@@ -525,16 +526,17 @@ void ValidatorManagerImpl::new_shard_block_description_broadcast(BlockIdExt bloc
                                        actor_id(this), td::Timestamp::in(2.0), std::move(P));
 }
 
-void ValidatorManagerImpl::new_block_candidate_broadcast(BlockIdExt block_id, td::BufferSlice data) {
+void ValidatorManagerImpl::new_block_candidate_broadcast(BlockIdExt block_id, td::BufferSlice data,
+                                                         td::optional<td::BufferSlice> collated_data) {
   if (!last_masterchain_block_handle_ || !started_) {
-    VLOG(VALIDATOR_DEBUG) << "dropping top shard block broadcast: not inited";
+    VLOG(VALIDATOR_DEBUG) << "dropping block candidate broadcast: not inited";
     return;
   }
   if (!need_monitor(block_id.shard_full())) {
     VLOG(VALIDATOR_DEBUG) << "dropping block candidate broadcast: not monitoring shard";
     return;
   }
-  add_cached_block_data(block_id, std::move(data));
+  add_cached_block_data(block_id, std::move(data), std::move(collated_data), true);
 }
 
 void ValidatorManagerImpl::add_shard_block_description(td::Ref<ShardTopBlockDescription> desc) {
@@ -657,41 +659,83 @@ void ValidatorManagerImpl::set_shard_block_description_ready(td::Ref<ShardTopBlo
   }
 }
 
-void ValidatorManagerImpl::add_cached_block_data(BlockIdExt block_id, td::BufferSlice data) {
+void ValidatorManagerImpl::add_cached_block_data(BlockIdExt block_id, td::BufferSlice data,
+                                                 td::optional<td::BufferSlice> collated_data, bool is_broadcast) {
   if (block_id.is_masterchain()) {
     return;
   }
-  td::BufferSlice &block_data = cached_block_data_.get(block_id);
-  if (!block_data.empty()) {
-    return;
-  }
-  block_data = std::move(data);
-  {
-    auto it = wait_block_data_.find(block_id);
-    if (it != wait_block_data_.end()) {
-      auto r_block = create_block(ReceivedBlock{block_id, block_data.clone()});
-      if (r_block.is_ok()) {
-        td::actor::send_closure(it->second.actor_, &WaitBlockData::loaded_block_data, r_block.move_as_ok());
-      } else {
-        LOG(WARNING) << "Failed to parse cached block " << block_id.to_str() << " : " << r_block.move_as_error();
+  auto &entry = cached_block_data_.get(block_id);
+  if (entry.data.empty()) {
+    // sha256 hash of data is equal to block_id.file_hash (this is checked elsewhere)
+    auto r_block = create_block(block_id, data.clone());
+    if (r_block.is_error()) {
+      VLOG(VALIDATOR_WARNING) << "dropping invalid block candidate broadcast: " << r_block.error();
+      cached_block_data_.remove(block_id);
+      return;
+    }
+    auto block = r_block.move_as_ok();
+    block::gen::Block::Record rec;
+    block::gen::BlockInfo::Record info;
+    block::gen::BlockExtra::Record extra;
+    if (!block::gen::unpack_cell(block->root_cell(), rec) || !block::gen::unpack_cell(rec.info, info) ||
+        !block::gen::unpack_cell(rec.extra, extra)) {
+      VLOG(VALIDATOR_WARNING) << "dropping invalid block candidate broadcast: cannot unpack block";
+      cached_block_data_.remove(block_id);
+      return;
+    }
+    entry.data = std::move(data);
+    entry.creator = Ed25519_PublicKey{extra.created_by};
+    if (info.flags & 2) {
+      info.collated_data_hash->prefetch_bits_to(entry.collated_data_hash.value_force());
+    }
+    entry.cc_seqno = info.gen_catchain_seqno;
+
+    {
+      auto it = wait_block_data_.find(block_id);
+      if (it != wait_block_data_.end()) {
+        td::actor::send_closure(it->second.actor_, &WaitBlockData::loaded_block_data, block);
       }
     }
-  }
-  {
-    auto it = wait_state_.find(block_id);
-    if (it != wait_state_.end()) {
-      // Proof link is not ready at this point, but this will force WaitBlockState to redo send_get_proof_link_request
-      td::actor::send_closure(it->second.actor_, &WaitBlockState::after_get_proof_link);
+    {
+      auto it = wait_state_.find(block_id);
+      if (it != wait_state_.end()) {
+        // Proof link is not ready at this point, but this will force WaitBlockState to redo send_get_proof_link_request
+        td::actor::send_closure(it->second.actor_, &WaitBlockState::after_get_proof_link);
+      }
+    }
+
+    if (cached_checked_shard_block_descriptions_.contains(block_id)) {
+      wait_block_data_short(block_id, 0, td::Timestamp::in(60.0), [id = block_id](td::Result<td::Ref<BlockData>> R) {
+        if (R.is_error()) {
+          LOG(WARNING) << "Failed to store block data from cache for checked shard block description " << id.to_str()
+                       << " : " << R.move_as_error();
+        }
+      });
     }
   }
 
-  if (cached_checked_shard_block_descriptions_.contains(block_id)) {
-    wait_block_data_short(block_id, 0, td::Timestamp::in(60.0), [id = block_id](td::Result<td::Ref<BlockData>> R) {
-      if (R.is_error()) {
-        LOG(WARNING) << "Failed to store block data from cache for checked shard block description " << id.to_str()
-                     << " : " << R.move_as_error();
+  if (!entry.collated_data && collated_data) {
+    FileHash collated_data_hash = td::sha256_bits256(collated_data.value());
+    if (entry.collated_data_hash && collated_data_hash != entry.collated_data_hash.value()) {
+      VLOG(VALIDATOR_WARNING) << "invalid block candidate broadcast: collated data hash mismatch for block "
+                              << block_id.to_str() << " - expected " << entry.collated_data_hash.value().to_hex()
+                              << ", got " << collated_data_hash.to_hex();
+      return;
+    }
+    entry.collated_data_hash = collated_data_hash;
+    entry.collated_data = std::move(collated_data);
+
+    if (is_broadcast) {
+      for (auto &[_, collator] : collator_nodes_) {
+        if (collator.can_collate_shard(block_id.shard_full())) {
+          td::actor::send_closure(
+              collator.actor, &CollatorNode::on_block_candidate_broadcast,
+              BlockCandidate(Ed25519_PublicKey(entry.creator), block_id, entry.collated_data_hash.value(),
+                             entry.data.clone(), entry.collated_data.value().clone()),
+              entry.cc_seqno);
+        }
       }
-    });
+    }
   }
 }
 
@@ -1245,11 +1289,20 @@ void ValidatorManagerImpl::get_block_candidate_from_db(PublicKey source, BlockId
 
 void ValidatorManagerImpl::get_candidate_data_by_block_id_from_db(BlockIdExt id, td::Promise<td::BufferSlice> promise) {
   if (auto cached = cached_block_data_.get_if_exists(id, false)) {
-    promise.set_result(cached->clone());
+    promise.set_result(cached->data.clone());
     return;
   }
   td::actor::send_closure(db_, &Db::get_block_candidate_by_block_id, id,
                           promise.wrap([](BlockCandidate &&b) { return std::move(b.data); }));
+}
+
+void ValidatorManagerImpl::get_block_candidate_by_block_id_from_db(BlockIdExt id, td::Promise<BlockCandidate> promise) {
+  if (auto cached = cached_block_data_.get_if_exists(id, false); cached && cached->collated_data) {
+    promise.set_result(BlockCandidate(cached->creator, id, cached->collated_data_hash.value(), cached->data.clone(),
+                                      cached->collated_data.value().clone()));
+    return;
+  }
+  td::actor::send_closure(db_, &Db::get_block_candidate_by_block_id, id, std::move(promise));
 }
 
 void ValidatorManagerImpl::get_block_proof_from_db(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) {
@@ -1516,14 +1569,14 @@ void ValidatorManagerImpl::set_next_block(BlockIdExt block_id, BlockIdExt next, 
   get_block_handle(block_id, true, std::move(P));
 }
 
-void ValidatorManagerImpl::set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
-                                               td::uint32 validator_set_hash, td::Promise<td::Unit> promise) {
+void ValidatorManagerImpl::set_block_candidate(BlockCandidate candidate, td::Promise<td::Unit> promise) {
+  BlockIdExt id = candidate.id;
   if (!candidates_buffer_.empty()) {
     td::actor::send_closure(candidates_buffer_, &CandidatesBuffer::add_new_candidate, id,
                             PublicKey{pubkeys::Ed25519{candidate.pubkey.as_bits256()}}, candidate.collated_file_hash);
   }
   if (!id.is_masterchain()) {
-    add_cached_block_data(id, candidate.data.clone());
+    add_cached_block_data(id, candidate.data.clone(), candidate.collated_data.clone(), false);
   }
   LOG(INFO) << "Got candidate " << id.to_str() << " with " << candidate.out_msg_queue_proof_broadcasts.size()
             << " out msg queue proof broadcasts";
@@ -1535,8 +1588,9 @@ void ValidatorManagerImpl::set_block_candidate(BlockIdExt id, BlockCandidate can
 
 void ValidatorManagerImpl::send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno,
                                                           td::uint32 validator_set_hash, td::BufferSlice data,
-                                                          int mode) {
-  callback_->send_block_candidate(id, cc_seqno, validator_set_hash, std::move(data), mode);
+                                                          td::optional<td::BufferSlice> collated_data, int mode) {
+  callback_->send_block_candidate_broadcast(id, cc_seqno, validator_set_hash, std::move(data), std::move(collated_data),
+                                            mode);
 }
 
 void ValidatorManagerImpl::write_handle(BlockHandle handle, td::Promise<td::Unit> promise) {
@@ -1799,7 +1853,7 @@ void ValidatorManagerImpl::send_get_block_request(BlockIdExt id, td::uint32 prio
                                                   td::Promise<ReceivedBlock> promise) {
   if (auto cached = cached_block_data_.get_if_exists(id, false)) {
     LOG(DEBUG) << "send_get_block_request: got result from block data cache for " << id.to_str();
-    return promise.set_value(ReceivedBlock{id, cached->clone()});
+    return promise.set_value(ReceivedBlock{id, cached->data.clone()});
   }
   callback_->download_block(id, priority, td::Timestamp::in(10.0), std::move(promise));
 }
@@ -1828,8 +1882,9 @@ void ValidatorManagerImpl::send_get_block_proof_link_request(BlockIdExt block_id
       // Proof link can be created from the cached block data
       LOG(DEBUG) << "send_get_block_proof_link_request: creating proof link from cached block data for "
                  << block_id.to_str();
-      TRY_RESULT_PROMISE_PREFIX(promise, block_root, vm::std_boc_deserialize(*cached), "failed to create proof link: ");
-      TRY_RESULT_PROMISE_PREFIX(promise, proof_link, WaitBlockData::generate_proof_link(block_id, block_root),
+      TRY_RESULT_PROMISE_PREFIX(promise, block, create_block(block_id, cached->data.clone()),
+                                "failed to create proof link: ");
+      TRY_RESULT_PROMISE_PREFIX(promise, proof_link, WaitBlockData::generate_proof_link(block_id, block->root_cell()),
                                 "failed to create proof link: ");
       promise.set_result(std::move(proof_link));
       return;
@@ -1882,6 +1937,12 @@ void ValidatorManagerImpl::send_download_archive_request(BlockSeqno mc_seqno, Sh
                                                          std::string tmp_dir, td::Timestamp timeout,
                                                          td::Promise<std::string> promise) {
   callback_->download_archive(mc_seqno, shard_prefix, std::move(tmp_dir), timeout, std::move(promise));
+}
+
+void ValidatorManagerImpl::send_get_block_candidate_request(
+    BlockIdExt block_id, bool only_collated_data, td::Timestamp timeout,
+    td::Promise<std::pair<td::BufferSlice, td::BufferSlice>> promise) {
+  callback_->download_block_candidate(block_id, only_collated_data, timeout, std::move(promise));
 }
 
 void ValidatorManagerImpl::get_block_proof_link_from_import(BlockIdExt block_id, BlockIdExt masterchain_block_id,

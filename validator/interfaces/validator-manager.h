@@ -142,6 +142,8 @@ struct CollationStats {
     td::RealCpuTimer::Time create_collated_data;
     td::RealCpuTimer::Time create_block_candidate;
 
+    td::RealCpuTimer::Time total_on_cell_loaded;
+
     std::string to_str(bool is_cpu) const {
       return PSTRING() << "total=" << total.get(is_cpu) << " optimistic_apply=" << optimistic_apply.get(is_cpu)
                        << " queue_cleanup=" << queue_cleanup.get(is_cpu)
@@ -151,7 +153,8 @@ struct CollationStats {
                        << " final_storage_stat=" << final_storage_stat.get(is_cpu)
                        << " create_block=" << create_block.get(is_cpu)
                        << " create_collated_data=" << create_collated_data.get(is_cpu)
-                       << " create_block_candidate=" << create_block_candidate.get(is_cpu);
+                       << " create_block_candidate=" << create_block_candidate.get(is_cpu)
+                       << " *total_on_cell_loaded=" << total_on_cell_loaded.get(is_cpu);
     }
   };
   WorkTimeStats work_time;
@@ -203,10 +206,13 @@ struct ValidationStats {
     td::RealCpuTimer::Time trx_storage_stat;
     td::RealCpuTimer::Time trx_other;
 
+    td::RealCpuTimer::Time ext_collated_data_merge;
+
     std::string to_str(bool is_cpu) const {
       return PSTRING() << "total=" << total.get(is_cpu) << " optimistic_apply=" << optimistic_apply.get(is_cpu)
                        << " trx_tvm=" << trx_tvm.get(is_cpu) << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
-                       << " trx_other=" << trx_other.get(is_cpu);
+                       << " trx_other=" << trx_other.get(is_cpu)
+                       << " *ext_collated_data_merge=" << ext_collated_data_merge.get(is_cpu);
     }
   };
   WorkTimeStats work_time;
@@ -283,10 +289,10 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void wait_block_signatures_short(BlockIdExt id, td::Timestamp timeout,
                                            td::Promise<td::Ref<BlockSignatureSet>> promise) = 0;
 
-  virtual void set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
-                                   td::uint32 validator_set_hash, td::Promise<td::Unit> promise) = 0;
+  virtual void set_block_candidate(BlockCandidate candidate, td::Promise<td::Unit> promise) = 0;
   virtual void send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                              td::BufferSlice data, int mode) = 0;
+                                              td::BufferSlice data, td::optional<td::BufferSlice> collated_data,
+                                              int mode) = 0;
 
   virtual void wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority,
                                       td::Timestamp timeout, td::Promise<td::Ref<ShardState>> promise) = 0;
@@ -333,6 +339,10 @@ class ValidatorManager : public ValidatorManagerInterface {
                                                     td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) = 0;
   virtual void send_download_archive_request(BlockSeqno mc_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
                                              td::Timestamp timeout, td::Promise<std::string> promise) = 0;
+  virtual void send_get_block_candidate_request(BlockIdExt block_id, bool only_collated_data, td::Timestamp timeout,
+                                                td::Promise<std::pair<td::BufferSlice, td::BufferSlice>> promise) {
+    promise.set_error(td::Status::Error("not supported"));
+  }
 
   virtual void get_block_proof_link_from_import(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                                 td::Promise<td::BufferSlice> promise) {

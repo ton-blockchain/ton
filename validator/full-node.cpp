@@ -274,7 +274,7 @@ void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std
     monitoring_shards.insert(cut_shard(shard));
   }
   fast_sync_overlays_.update_overlays(state, std::move(my_adnl_ids), std::move(monitoring_shards),
-                                      zero_state_file_hash_, keyring_, adnl_, overlays_, validator_manager_,
+                                      zero_state_file_hash_, keyring_, adnl_, rldp2_, overlays_, validator_manager_,
                                       actor_id(this));
   update_validator_telemetry_collector();
 }
@@ -346,16 +346,17 @@ void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_s
   td::actor::send_closure(shard, &FullNodeShard::send_shard_block_info, block_id, cc_seqno, std::move(data));
 }
 
-void FullNodeImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                        td::BufferSlice data, int mode) {
+void FullNodeImpl::send_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
+                                                  td::uint32 validator_set_hash, td::BufferSlice data,
+                                                  td::optional<td::BufferSlice> collated_data, int mode) {
   if (mode & broadcast_mode_custom) {
-    send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
+    send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data, collated_data);
   }
   if (mode & broadcast_mode_fast_sync) {
     auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(block_id.shard_full()).first;
     if (!fast_sync_overlay.empty()) {
-      td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_block_candidate, block_id, cc_seqno,
-                              validator_set_hash, data.clone());
+      td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_block_candidate_broadcast, block_id,
+                              cc_seqno, validator_set_hash, data.clone(), collated_data.clone());
     }
   }
   if (mode & broadcast_mode_public) {
@@ -364,8 +365,8 @@ void FullNodeImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_se
       VLOG(FULL_NODE_WARNING) << "dropping OUT shard block info message to unknown shard";
       return;
     }
-    td::actor::send_closure(shard, &FullNodeShard::send_block_candidate, block_id, cc_seqno, validator_set_hash,
-                            std::move(data));
+    td::actor::send_closure(shard, &FullNodeShard::send_block_candidate_broadcast, block_id, cc_seqno,
+                            validator_set_hash, std::move(data), std::move(collated_data));
   }
 }
 
@@ -497,6 +498,18 @@ void FullNodeImpl::download_out_msg_queue_proof(ShardIdFull dst_shard, std::vect
                           timeout, std::move(promise));
 }
 
+void FullNodeImpl::download_block_candidate(BlockIdExt block_id, bool only_collated_data, td::Timestamp timeout,
+                                            td::Promise<std::pair<td::BufferSlice, td::BufferSlice>> promise) {
+  auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(block_id.shard_full()).first;
+  if (fast_sync_overlay.empty()) {
+    promise.set_error(td::Status::Error(errorcode_not_in_fast_sync_overlay,
+                                        "no fast-sync overlays for download block candidate query"));
+    return;
+  }
+  td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::download_block_candidate, block_id,
+                          only_collated_data, timeout, std::move(promise));
+}
+
 td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard, bool historical) {
   if (shard.is_masterchain()) {
     return shards_[ShardIdFull{masterchainId}].actor.get();
@@ -618,11 +631,12 @@ void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast) {
 }
 
 void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
-                                                     td::uint32 validator_set_hash, td::BufferSlice data) {
-  send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
+                                                     td::uint32 validator_set_hash, td::BufferSlice data,
+                                                     td::optional<td::BufferSlice> collated_data) {
+  send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data, collated_data);
   // ignore cc_seqno and validator_hash for now
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_candidate_broadcast, block_id,
-                          std::move(data));
+                          std::move(data), std::move(collated_data));
 }
 
 void FullNodeImpl::get_out_msg_queue_query_token(td::Promise<std::unique_ptr<ActionToken>> promise) {
@@ -681,10 +695,11 @@ void FullNodeImpl::start_up() {
     void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_shard_block_info, block_id, cc_seqno, std::move(data));
     }
-    void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                              td::BufferSlice data, int mode) override {
-      td::actor::send_closure(id_, &FullNodeImpl::send_block_candidate, block_id, cc_seqno, validator_set_hash,
-                              std::move(data), mode);
+    void send_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                                        td::BufferSlice data, td::optional<td::BufferSlice> collated_data,
+                                        int mode) override {
+      td::actor::send_closure(id_, &FullNodeImpl::send_block_candidate_broadcast, block_id, cc_seqno,
+                              validator_set_hash, std::move(data), std::move(collated_data), mode);
     }
     void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcast) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_out_msg_queue_proof_broadcast, std::move(broadcast));
@@ -730,6 +745,11 @@ void FullNodeImpl::start_up() {
                                       td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) override {
       td::actor::send_closure(id_, &FullNodeImpl::download_out_msg_queue_proof, dst_shard, std::move(blocks), limits,
                               timeout, std::move(promise));
+    }
+    void download_block_candidate(BlockIdExt block_id, bool only_collated_data, td::Timestamp timeout,
+                                  td::Promise<std::pair<td::BufferSlice, td::BufferSlice>> promise) override {
+      td::actor::send_closure(id_, &FullNodeImpl::download_block_candidate, block_id, only_collated_data, timeout,
+                              std::move(promise));
     }
 
     void new_key_block(BlockHandle handle) override {
@@ -804,9 +824,9 @@ void FullNodeImpl::send_block_broadcast_to_custom_overlays(const BlockBroadcast 
   }
 }
 
-void FullNodeImpl::send_block_candidate_broadcast_to_custom_overlays(const BlockIdExt &block_id, CatchainSeqno cc_seqno,
-                                                                     td::uint32 validator_set_hash,
-                                                                     const td::BufferSlice &data) {
+void FullNodeImpl::send_block_candidate_broadcast_to_custom_overlays(
+    const BlockIdExt &block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash, const td::BufferSlice &data,
+    const td::optional<td::BufferSlice> &collated_data) {
   // Same cache of sent broadcasts as in send_block_broadcast_to_custom_overlays
   if (!custom_overlays_sent_broadcasts_.insert(block_id).second) {
     return;
@@ -820,8 +840,9 @@ void FullNodeImpl::send_block_candidate_broadcast_to_custom_overlays(const Block
     if (private_overlay.params_.send_shard(block_id.shard_full())) {
       for (auto &[local_id, actor] : private_overlay.actors_) {
         if (private_overlay.params_.block_senders_.contains(local_id)) {
-          td::actor::send_closure(actor, &FullNodeCustomOverlay::send_block_candidate, block_id, cc_seqno,
-                                  validator_set_hash, data.clone());
+          // Don't send collated data here
+          td::actor::send_closure(actor, &FullNodeCustomOverlay::send_block_candidate_broadcast, block_id, cc_seqno,
+                                  validator_set_hash, data.clone(), td::optional<td::BufferSlice>{});
         }
       }
     }

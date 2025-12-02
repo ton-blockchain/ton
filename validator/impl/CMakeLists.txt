@@ -4,6 +4,7 @@ set(TON_VALIDATOR_SOURCE
   candidates-buffer.cpp
   check-proof.cpp
   collator.cpp
+  collated-data-merger.cpp
   config.cpp
   external-message.cpp
   fabric.cpp
@@ -24,6 +25,7 @@ set(TON_VALIDATOR_SOURCE
   check-proof.hpp
   collator-impl.h
   collator.h
+  collated-data-merger.h
   config.hpp
   external-message.hpp
   ihr-message.hpp

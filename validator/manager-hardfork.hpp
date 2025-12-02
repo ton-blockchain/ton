@@ -160,9 +160,6 @@ class ValidatorManagerImpl : public ValidatorManager {
                                              td::BufferSlice data) override {
     UNREACHABLE();
   }
-  void new_block_candidate_broadcast(BlockIdExt block_id, td::BufferSlice data) override {
-    UNREACHABLE();
-  }
 
   void add_ext_server_id(adnl::AdnlNodeIdShort id) override {
     UNREACHABLE();
@@ -243,13 +240,14 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_block_signatures_short(BlockIdExt id, td::Timestamp timeout,
                                    td::Promise<td::Ref<BlockSignatureSet>> promise) override;
 
-  void set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
-                           td::uint32 validator_set_hash, td::Promise<td::Unit> promise) override {
+  void set_block_candidate(BlockCandidate candidate, td::Promise<td::Unit> promise) override {
     promise.set_value(td::Unit());
   }
   void send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                      td::BufferSlice data, int mode) override {
-    callback_->send_block_candidate(id, cc_seqno, validator_set_hash, std::move(data), mode);
+                                      td::BufferSlice data, td::optional<td::BufferSlice> collated_data,
+                                      int mode) override {
+    callback_->send_block_candidate_broadcast(id, cc_seqno, validator_set_hash, std::move(data),
+                                              std::move(collated_data), mode);
   }
 
   void wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority, td::Timestamp timeout,
@@ -284,6 +282,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_block_candidate_from_db(PublicKey source, BlockIdExt id, FileHash collated_data_file_hash,
                                    td::Promise<BlockCandidate> promise) override;
   void get_candidate_data_by_block_id_from_db(BlockIdExt id, td::Promise<td::BufferSlice> promise) override;
+  void get_block_candidate_by_block_id_from_db(BlockIdExt id, td::Promise<BlockCandidate> promise) override;
   void get_block_proof_from_db(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) override;
   void get_block_proof_from_db_short(BlockIdExt id, td::Promise<td::Ref<Proof>> promise) override;
   void get_block_proof_link_from_db(ConstBlockHandle handle, td::Promise<td::Ref<ProofLink>> promise) override;

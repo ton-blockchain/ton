@@ -21,6 +21,8 @@
 #include "interfaces/validator-manager.h"
 #include "rldp2/rldp.h"
 
+#include "fabric.h"
+
 namespace ton::validator {
 
 class ValidatorManager;
@@ -37,16 +39,8 @@ class CollationManager : public td::actor::Actor {
   void tear_down() override;
   void alarm() override;
 
-  void collate_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
-                     Ed25519_PublicKey creator, BlockCandidatePriority priority, td::Ref<ValidatorSet> validator_set,
-                     td::uint64 max_answer_size, td::CancellationToken cancellation_token,
-                     td::Promise<GeneratedCandidate> promise, int proto_version);
-
-  void collate_block_optimistic(ShardIdFull shard, BlockIdExt min_masterchain_block_id, BlockIdExt prev_block_id,
-                                td::BufferSlice prev_block, Ed25519_PublicKey creator, BlockCandidatePriority priority,
-                                td::Ref<ValidatorSet> validator_set, td::uint64 max_answer_size,
-                                td::CancellationToken cancellation_token, td::Promise<GeneratedCandidate> promise,
-                                int proto_version);
+  void collate_block(CollateParams params, BlockCandidatePriority priority, td::uint64 max_answer_size,
+                     td::CancellationToken cancellation_token, td::Promise<GeneratedCandidate> promise);
 
   void update_options(td::Ref<ValidatorManagerOptions> opts);
 
@@ -64,11 +58,9 @@ class CollationManager : public td::actor::Actor {
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<rldp2::Rldp> rldp_;
 
-  void collate_shard_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
-                           Ed25519_PublicKey creator, BlockCandidatePriority priority,
-                           td::Ref<ValidatorSet> validator_set, td::uint64 max_answer_size,
+  void collate_shard_block(CollateParams params, BlockCandidatePriority priority, td::uint64 max_answer_size,
                            td::CancellationToken cancellation_token, td::Promise<GeneratedCandidate> promise,
-                           td::Timestamp timeout, int proto_version, bool is_optimistic = false);
+                           td::Timestamp timeout);
 
   void update_collators_list(const CollatorsList& collators_list);
 
@@ -106,6 +98,7 @@ class CollationManager : public td::actor::Actor {
 
   struct OptimisticPrevCache {
     td::BufferSlice block_data;
+    td::BufferSlice collated_data;
     size_t refcnt = 0;
   };
   std::map<BlockIdExt, OptimisticPrevCache> optimistic_prev_cache_;

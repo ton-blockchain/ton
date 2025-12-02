@@ -44,6 +44,7 @@ class CollatorNode : public td::actor::Actor {
   void new_masterchain_block_notification(td::Ref<MasterchainState> state);
   void update_shard_client_handle(BlockHandle shard_client_handle);
   void new_shard_block_accepted(BlockIdExt block_id, CatchainSeqno cc_seqno);
+  void on_block_candidate_broadcast(BlockCandidate candidate, CatchainSeqno cc_seqno);
 
  private:
   void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
@@ -69,6 +70,7 @@ class CollatorNode : public td::actor::Actor {
   };
   struct FutureValidatorGroup {
     std::vector<BlockIdExt> pending_blocks;
+    std::vector<BlockCandidate> pending_candidate_broadcasts;
     std::vector<td::Promise<td::Unit>> promises;
   };
   std::map<ShardIdFull, ValidatorGroupInfo> validator_groups_;

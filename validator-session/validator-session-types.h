@@ -59,6 +59,7 @@ struct ValidatorSessionOptions {
   td::uint32 max_collated_data_size = 4 << 20;
 
   bool new_catchain_ids = false;
+  bool merge_collated_data = false;
 
   td::uint32 proto_version = 0;
 

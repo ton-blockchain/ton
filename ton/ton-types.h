@@ -52,6 +52,7 @@ constexpr WorkchainId masterchainId = -1, basechainId = 0, workchainInvalid = 0x
 constexpr ShardId shardIdAll = (1ULL << 63);
 
 constexpr int max_shard_pfx_len = 60;
+constexpr int max_collated_data_roots = 1000000;
 
 enum GlobalCapabilities {
   capIhrEnabled = 1,
@@ -566,6 +567,7 @@ struct ValidatorSessionConfig {
   td::uint32 max_collated_data_size = (4 << 20);
 
   bool new_catchain_ids = false;
+  bool merge_collated_data = false;
 
   static const td::uint32 BLOCK_HASH_COVERS_DATA_FROM_VERSION = 2;
 };

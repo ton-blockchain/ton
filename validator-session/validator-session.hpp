@@ -76,6 +76,7 @@ class ValidatorSessionImpl : public ValidatorSession {
   // src_round_candidate_[src_id][round] -> candidate id
   std::vector<std::map<td::uint32, ValidatorSessionCandidateId>> src_round_candidate_;
   std::map<ValidatorSessionCandidateId, std::vector<td::Promise<td::Unit>>> block_waiters_;
+  std::set<ValidatorSessionCandidateId> accepted_block_candidates_;
 
   catchain::CatChainSessionId unique_hash_;
 
@@ -101,6 +102,11 @@ class ValidatorSessionImpl : public ValidatorSession {
   void check_approve();
   void check_action(td::uint32 att);
   void check_all();
+
+  void download_accepted_candidate(td::uint32 round, const SentBlock *candidate, bool try_local);
+  void downloaded_accepted_candidate(td::uint32 round, const SentBlock *candidate, td::BufferSlice result);
+  void store_block_candidate(ValidatorSessionCandidateId candidate_id,
+                             tl_object_ptr<ton_api::validatorSession_candidate> f);
 
   std::unique_ptr<catchain::CatChain::Callback> make_catchain_callback() {
     class cb : public catchain::CatChain::Callback {
@@ -227,6 +233,9 @@ class ValidatorSessionImpl : public ValidatorSession {
     catchain_max_block_delay_ = delay;
     catchain_max_block_delay_slow_ = delay_slow;
   }
+  void get_accepted_candidate(PublicKey source, BlockIdExt block_id,
+                              ValidatorSessionCollatedDataFileHash collated_data_file_hash,
+                              td::Promise<BlockCandidate> promise) override;
 
   void process_blocks(std::vector<catchain::CatChainBlock *> blocks);
   void finished_processing();

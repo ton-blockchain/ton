@@ -82,8 +82,11 @@ ValidateQuery::ValidateQuery(BlockCandidate candidate, ValidateParams params,
     , is_fake_(params.is_fake)
     , parallel_accounts_validation_(params.parallel_validation)
     , shard_pfx_(shard_.shard)
-    , shard_pfx_len_(ton::shard_prefix_length(shard_))
+    , shard_pfx_len_(shard_prefix_length(shard_))
     , optimistic_prev_block_(std::move(params.optimistic_prev_block))
+    , optimistic_prev_collated_data_(std::move(params.optimistic_prev_collated_data))
+    , collated_data_merger_(std::move(params.collated_data_merger))
+    , merge_collated_data_enabled_(!collated_data_merger_.empty())
     , perf_timer_("validateblock", 0.1, [manager](double duration) {
       send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
     }) {
@@ -365,7 +368,18 @@ void ValidateQuery::start_up() {
     }
     LOG(WARNING) << "Optimistic prev block id = " << optimistic_prev_block_->block_id().to_str();
   }
-  // 2. learn latest masterchain state and block id
+  // 2. unpack block candidate
+  if (!unpack_block_candidate()) {
+    reject_query("error unpacking block candidate");
+    return;
+  }
+  if (pending == 0) {
+    start_up_cont();
+  }
+}
+
+void ValidateQuery::start_up_cont() {
+  // 3. learn latest masterchain state and block id
   LOG(DEBUG) << "sending get_top_masterchain_state_block() to Manager";
   ++pending;
   td::actor::send_closure_later(manager, &ValidatorManager::get_top_masterchain_state_block,
@@ -376,11 +390,6 @@ void ValidateQuery::start_up() {
                                                                 &ValidateQuery::after_get_latest_mc_state,
                                                                 std::move(res), std::move(token));
                                 });
-  // 3. unpack block candidate (while necessary data is being loaded)
-  if (!unpack_block_candidate()) {
-    reject_query("error unpacking block candidate");
-    return;
-  }
   // 4. load state(s) corresponding to previous block(s) (not full-collated-data or masterchain)
   prev_states.resize(prev_blocks.size());
   if (is_masterchain() || !full_collated_data_) {
@@ -634,6 +643,11 @@ bool ValidateQuery::init_parse() {
   want_split_ = info.want_split;
   is_key_block_ = info.key_block;
   prev_key_seqno_ = info.prev_key_block_seqno;
+  if (info.flags & 2) {
+    CHECK(info.collated_data_hash->prefetch_bits_to(stored_collated_data_hash_.value_force()));
+  } else {
+    stored_collated_data_hash_ = {};
+  }
   CHECK(after_split_ == info.after_split);
   if (is_key_block_) {
     LOG(INFO) << "validating key block " << id_.to_str();
@@ -708,10 +722,12 @@ bool ValidateQuery::init_parse() {
  *
  * @param croot The root cell containing the collated data.
  * @param idx The index of the root.
+ * @param end Set to true if the datum is collated_data_separator
  *
  * @returns True if the extraction is successful, false otherwise.
  */
-bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
+bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx, bool& end) {
+  end = false;
   bool is_special = false;
   auto cs = vm::load_cell_slice_special(croot, is_special);
   if (!cs.is_valid()) {
@@ -745,6 +761,11 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     top_shard_descr_dict_ = std::make_unique<vm::Dictionary>(cs.prefetch_ref(), 96);
     return true;
   }
+  if (block::gen::t_CollatedDataSeparator.has_valid_tag(cs)) {
+    LOG(DEBUG) << "collated datum # " << idx << " is a CollatedDataSeparator";
+    end = true;
+    return true;
+  }
   if (block::gen::t_AccountStorageDictProof.has_valid_tag(cs)) {
     if (!block::gen::t_AccountStorageDictProof.validate_upto(10000, cs)) {
       return reject_query("invalid AccountStorageDictProof");
@@ -763,6 +784,30 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     full_collated_data_ = true;
     return true;
   }
+  if (block::gen::t_CollatedDataRootState.has_valid_tag(cs)) {
+    if (!block::gen::t_CollatedDataRootState.validate_upto(10000, cs)) {
+      return reject_query("invalid CollatedDataRootState");
+    }
+    cs.advance(32);
+    vm::CellHash hash;
+    cs.fetch_bytes(hash.as_slice());
+    LOG(DEBUG) << "collated datum # " << idx << " is an CollatedDataRootState with hash " << hash.to_hex();
+    collated_data_root_state_hashes_.push_back(hash);
+    full_collated_data_ = true;
+    return true;
+  }
+  if (block::gen::t_CollatedDataRootStorageDict.has_valid_tag(cs)) {
+    if (!block::gen::t_CollatedDataRootStorageDict.validate_upto(10000, cs)) {
+      return reject_query("invalid CollatedDataRootStorageDict");
+    }
+    cs.advance(32);
+    vm::CellHash hash;
+    cs.fetch_bytes(hash.as_slice());
+    LOG(DEBUG) << "collated datum # " << idx << " is an CollatedDataRootStorageDict with hash " << hash.to_hex();
+    collated_data_root_dict_hashes_.push_back(hash);
+    full_collated_data_ = true;
+    return true;
+  }
   LOG(WARNING) << "collated datum # " << idx << " has unknown type (magic " << cs.prefetch_ulong(32) << "), ignoring";
   return true;
 }
@@ -778,8 +823,12 @@ bool ValidateQuery::extract_collated_data() {
     ++i;
     auto guard = error_ctx_add_guard(PSTRING() << "collated datum #" << i);
     try {
-      if (!extract_collated_data_from(croot, i)) {
+      bool end = false;
+      if (!extract_collated_data_from(croot, i, end)) {
         return reject_query("cannot unpack collated datum");
+      }
+      if (end) {
+        break;
       }
     } catch (vm::VmError& err) {
       return reject_query(PSTRING() << "vm error " << err.get_msg());
@@ -790,7 +839,69 @@ bool ValidateQuery::extract_collated_data() {
   if (full_collated_data_) {
     LOG(INFO) << "full_collated_data = true";
   }
+  if (merge_collated_data_enabled_) {
+    LOG(INFO) << "merge_collated_data = true";
+    if (optimistic_prev_block_.not_null()) {
+      LOG(DEBUG) << "sending add_block_candidate() for optimistic prev block to CollatedDataMerger";
+      td::actor::send_closure(collated_data_merger_, &CollatedDataMerger::add_block_candidate_data,
+                              optimistic_prev_block_->block_id(), optimistic_prev_block_->data(),
+                              optimistic_prev_collated_data_.clone(), [](td::Result<td::RealCpuTimer::Time>) {});
+    }
+    LOG(DEBUG) << "sending add_block_candidate() to CollatedDataMerger";
+    td::actor::send_closure(collated_data_merger_, &CollatedDataMerger::add_block_candidate, id_, block_root_,
+                            collated_roots_, [SelfId = actor_id(this), this](td::Result<td::RealCpuTimer::Time> R) {
+                              if (R.is_error()) {
+                                return;
+                              }
+                              td::actor::send_lambda(SelfId, [this, time = R.move_as_ok()]() {
+                                stats_.work_time.ext_collated_data_merge += time;
+                              });
+                            });
+    std::vector<vm::CellHash> hashes = collated_data_root_state_hashes_;
+    hashes.insert(hashes.end(), collated_data_root_dict_hashes_.begin(), collated_data_root_dict_hashes_.end());
+    LOG(DEBUG) << "sending get_cells to CollatedDataMerger";
+    ++pending;
+    td::actor::send_closure_later(collated_data_merger_, &CollatedDataMerger::get_cells, std::move(hashes),
+                                  [self = get_self(), token = perf_log_.start_action("CollatedDataMerger::get_cells")](
+                                      td::Result<td::HashMap<vm::CellHash, Ref<vm::Cell>>> res) mutable {
+                                    LOG(DEBUG) << "got answer to CollatedDataMerger::get_cells";
+                                    td::actor::send_closure_later(std::move(self),
+                                                                  &ValidateQuery::process_merged_collated_roots,
+                                                                  std::move(res), std::move(token));
+                                  });
+  }
   return true;
+}
+
+/**
+ * Process roots returned from CollatedDataMerger
+ *
+ * @param res List of returned roots
+ */
+void ValidateQuery::process_merged_collated_roots(td::Result<td::HashMap<vm::CellHash, Ref<vm::Cell>>> res,
+                                                  td::PerfLogAction token) {
+  token.finish(res);
+  --pending;
+  if (res.is_error()) {
+    fatal_error(res.move_as_error());
+    return;
+  }
+  auto roots = res.move_as_ok();
+  for (const vm::CellHash& hash : collated_data_root_state_hashes_) {
+    auto it = roots.find(hash);
+    if (it != roots.end()) {
+      virt_roots_[td::Bits256{hash.bits()}] = it->second;
+    }
+  }
+  for (const vm::CellHash& hash : collated_data_root_dict_hashes_) {
+    auto it = roots.find(hash);
+    if (it != roots.end()) {
+      virt_account_storage_dicts_[td::Bits256{hash.bits()}] = it->second;
+    }
+  }
+  if (pending == 0) {
+    start_up_cont();
+  }
 }
 
 /**
@@ -2862,7 +2973,26 @@ bool ValidateQuery::unpack_block_data() {
   if (!account_blocks_dict_->validate_all()) {
     return reject_query("ShardAccountBlocks dictionary is invalid");
   }
-  return unpack_precheck_value_flow(std::move(blk.value_flow));
+  if (!unpack_precheck_value_flow(std::move(blk.value_flow))) {
+    return reject_query("failed to precheck value flow");
+  }
+
+  if (!is_fake_) {
+    if (config_->get_consensus_config().merge_collated_data) {
+      if (!stored_collated_data_hash_) {
+        return reject_query("no collated data hash in BlockInfo");
+      }
+      if (stored_collated_data_hash_.value() != block_candidate.collated_file_hash) {
+        return reject_query(PSTRING() << "collated data hash is " << block_candidate.collated_file_hash.to_hex()
+                                      << ", but BlockInfo has " << stored_collated_data_hash_.value().to_hex());
+      }
+    } else {
+      if (stored_collated_data_hash_) {
+        return reject_query("unexpected collated data hash in BlockInfo");
+      }
+    }
+  }
+  return true;
 }
 
 /**
@@ -7494,8 +7624,7 @@ bool ValidateQuery::save_candidate() {
         }
       });
 
-  td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, id_, block_candidate.clone(),
-                          validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(), std::move(P));
+  td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, block_candidate.clone(), std::move(P));
   if (!storage_stat_cache_update_.empty()) {
     td::actor::send_closure(manager, &ValidatorManager::update_storage_stat_cache,
                             std::move(storage_stat_cache_update_));
