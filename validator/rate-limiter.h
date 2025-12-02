@@ -1,6 +1,7 @@
 #pragma once
 #include <deque>
 #include <map>
+#include <mutex>
 
 #include "td/utils/Time.h"
 
@@ -17,6 +18,9 @@ struct LimiterWindow {
 inline bool LimiterWindow::check(td::Timestamp time) {
   if (size == 0) {
     return true;
+  }
+  if (limit == 0) {
+    return false;
   }
   return timestamps.size() < limit || time - timestamps.back() > size;
 }
