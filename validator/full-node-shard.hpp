@@ -237,9 +237,11 @@ class FullNodeShardImpl : public FullNodeShard {
   }
 
   FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,
-                    FileHash zero_state_file_hash, FullNodeOptions opts, td::actor::ActorId<keyring::Keyring> keyring,
-                    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
-                    td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<overlay::Overlays> overlays,
+                    FileHash zero_state_file_hash, FullNodeOptions opts,
+                    std::shared_ptr<RateLimiter<adnl::AdnlNodeIdShort, int32_t>> limiter,
+                    td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+                    td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
+                    td::actor::ActorId<overlay::Overlays> overlays,
                     td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                     td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node,
                     bool active);
@@ -290,8 +292,7 @@ class FullNodeShardImpl : public FullNodeShard {
   std::set<td::Bits256> processed_ext_msg_broadcasts_;
   td::Timestamp cleanup_processed_ext_msg_at_;
 
-  RateLimiter<adnl::AdnlNodeIdShort, int32_t /*Function::get_id()*/> limiter_;
-  static decltype(limiter_) make_limiter(const FullNodeOptions &opts);
+  std::shared_ptr<RateLimiter<adnl::AdnlNodeIdShort, int32_t>> limiter_;
 };
 
 }  // namespace fullnode

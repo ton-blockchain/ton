@@ -737,7 +737,7 @@ void FullNodeShardImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice
     return;
   }
   auto fun_ptr = B.move_as_ok();
-  if (!limiter_.check_in(src, fun_ptr->get_id())) {
+  if (!limiter_->check_in(src, fun_ptr->get_id())) {
     promise.set_error(td::Status::Error(ErrorCode::failure, "too many requests"));
     return;
   }
@@ -1398,6 +1398,7 @@ void FullNodeShardImpl::get_stats_extra(td::Promise<std::string> promise) {
 
 FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,
                                      FileHash zero_state_file_hash, FullNodeOptions opts,
+                                     std::shared_ptr<RateLimiter<adnl::AdnlNodeIdShort, int32_t>> limiter,
                                      td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                                      td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
                                      td::actor::ActorId<overlay::Overlays> overlays,
@@ -1418,36 +1419,19 @@ FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, 
     , full_node_(full_node)
     , active_(active)
     , opts_(opts)
-    , limiter_(make_limiter(opts)) {
-}
-
-decltype(FullNodeShardImpl::limiter_) FullNodeShardImpl::make_limiter(const FullNodeOptions &opts) {
-  double w_size = opts.config_.ratelimit_window_size_;
-  size_t h_limit = opts.config_.ratelimit_heavy_;
-  size_t m_limit = opts.config_.ratelimit_medium_;
-  size_t g_limit = opts.config_.ratelimit_global_;
-  return decltype(limiter_){{w_size, g_limit},
-                            {
-                                {ton_api::tonNode_getArchiveSlice::ID, {w_size, h_limit}},
-                                {ton_api::tonNode_downloadPersistentStateSliceV2::ID, {w_size, h_limit}},
-                                {ton_api::tonNode_downloadPersistentStateSlice::ID, {w_size, h_limit}},
-                                {ton_api::tonNode_downloadZeroState::ID, {w_size, h_limit}},
-
-                                {ton_api::tonNode_downloadBlockFull::ID, {w_size, m_limit}},
-                                {ton_api::tonNode_downloadNextBlockFull::ID, {w_size, m_limit}},
-                                {ton_api::tonNode_downloadBlockProofLink::ID, {w_size, m_limit}},
-                            }};
+    , limiter_(std::move(limiter)) {
 }
 
 td::actor::ActorOwn<FullNodeShard> FullNodeShard::create(
     ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
-    FullNodeOptions opts, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+    FullNodeOptions opts, std::shared_ptr<RateLimiter<adnl::AdnlNodeIdShort, int32_t>> limiter,
+    td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
     td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
     td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
     td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node, bool active) {
   return td::actor::create_actor<FullNodeShardImpl>(PSTRING() << "tonnode" << shard.to_str(), shard, local_id, adnl_id,
-                                                    zero_state_file_hash, opts, keyring, adnl, rldp, rldp2, overlays,
-                                                    validator_manager, client, full_node, active);
+                                                    zero_state_file_hash, opts, std::move(limiter), keyring, adnl, rldp,
+                                                    rldp2, overlays, validator_manager, client, full_node, active);
 }
 
 }  // namespace fullnode
