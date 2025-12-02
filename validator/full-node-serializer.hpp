@@ -21,9 +21,9 @@
 namespace ton::validator::fullnode {
 
 td::Result<td::BufferSlice> serialize_block_broadcast(const BlockBroadcast& broadcast, bool compression_enabled,
-                                                      std::string overlay);
+                                                      std::string called_from);
 td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_Broadcast& obj, int max_decompressed_data_size,
-                                                       std::string overlay);
+                                                       std::string called_from);
 
 td::Result<td::BufferSlice> serialize_block_full(const BlockIdExt& id, td::Slice proof, td::Slice data,
                                                  bool is_proof_link, bool compression_enabled);
@@ -32,10 +32,10 @@ td::Status deserialize_block_full(ton_api::tonNode_DataFull& obj, BlockIdExt& id
 
 td::Result<td::BufferSlice> serialize_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                                 td::uint32 validator_set_hash, td::Slice data,
-                                                                bool compression_enabled, std::string overlay);
+                                                                bool compression_enabled, std::string called_from);
 td::Status deserialize_block_candidate_broadcast(ton_api::tonNode_Broadcast& obj, BlockIdExt& block_id,
                                                  CatchainSeqno& cc_seqno, td::uint32& validator_set_hash,
                                                  td::BufferSlice& data, int max_decompressed_data_size,
-                                                 std::string overlay);
+                                                 std::string called_from);
 
 }  // namespace ton::validator::fullnode

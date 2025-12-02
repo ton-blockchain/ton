@@ -31,7 +31,7 @@ tl_object_ptr<ton_api::collatorNode_Candidate> serialize_candidate(const BlockCa
   }
   size_t decompressed_size;
   td::BufferSlice compressed =
-      validatorsession::compress_candidate_data(block.data, block.collated_data, decompressed_size, block.id.to_str()).move_as_ok();
+      validatorsession::compress_candidate_data(block.data, block.collated_data, decompressed_size, block.id.root_hash).move_as_ok();
   return create_tl_object<ton_api::collatorNode_compressedCandidate>(
       0, PublicKey{pubkeys::Ed25519{block.pubkey.as_bits256()}}.tl(), create_tl_block_id(block.id),
       (int)decompressed_size, std::move(compressed));
@@ -64,7 +64,7 @@ td::Result<BlockCandidate> deserialize_candidate(tl_object_ptr<ton_api::collator
                   }
                   TRY_RESULT(p, validatorsession::decompress_candidate_data(c.data_, false, c.decompressed_size_,
                                                                             max_decompressed_data_size, proto_version,
-                                                                            create_block_id(c.id_).to_str()));
+                                                                            create_block_id(c.id_).root_hash));
                   auto collated_data_hash = td::sha256_bits256(p.second);
                   auto key = PublicKey{c.source_};
                   if (!key.is_ed25519()) {
@@ -79,7 +79,7 @@ td::Result<BlockCandidate> deserialize_candidate(tl_object_ptr<ton_api::collator
                 res = [&]() -> td::Result<BlockCandidate> {
                   TRY_RESULT(p, validatorsession::decompress_candidate_data(c.data_, true, 0,
                                                                             max_decompressed_data_size, proto_version,
-                                                                            create_block_id(c.id_).to_str()));
+                                                                            create_block_id(c.id_).root_hash));
                   auto collated_data_hash = td::sha256_bits256(p.second);
                   auto key = PublicKey{c.source_};
                   if (!key.is_ed25519()) {

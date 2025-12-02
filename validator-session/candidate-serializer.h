@@ -28,12 +28,12 @@ td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candi
                                                                                      int proto_version);
 
 td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice collated_data,
-                                                    size_t& decompressed_size, std::string root_hash);
+                                                    size_t& decompressed_size, td::Bits256 root_hash);
 td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_data(td::Slice compressed,
                                                                                   bool improved_compression,
                                                                                   int decompressed_size,
                                                                                   int max_decompressed_size,
                                                                                   int proto_version,
-                                                                                  std::string root_hash);
+                                                                                  td::Bits256 root_hash);
 
 }  // namespace ton::validatorsession

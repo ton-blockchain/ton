@@ -99,6 +99,13 @@ class ValidatorSessionDescriptionImpl : public ValidatorSessionDescription {
     CHECK(it != rev_sources_.end());
     return it->second;
   }
+  td::Result<td::uint32> get_source_idx_safe(PublicKeyHash id) const override {
+    auto it = rev_sources_.find(id);
+    if (it == rev_sources_.end()) {
+      return td::Status::Error("unknown source id");
+    }
+    return it->second;
+  }
   ValidatorWeight get_node_weight(td::uint32 idx) const override {
     CHECK(idx < sources_.size());
     return sources_[idx].weight;

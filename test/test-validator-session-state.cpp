@@ -74,6 +74,9 @@ class Description : public ton::validatorsession::ValidatorSessionDescription {
     auto y = x.as_array();
     return y[0];
   }
+  td::Result<td::uint32> get_source_idx_safe(ton::PublicKeyHash id) const override {
+    return get_source_idx(id);
+  }
   ton::ValidatorWeight get_node_weight(td::uint32 idx) const override {
     return 1;
   }
