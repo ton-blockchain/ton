@@ -45,6 +45,7 @@ class RateLimiter {
  public:
   RateLimiter(RateLimit global_limit, std::map<RequestID, RateLimit> request_limits)
       : global_limit_(global_limit), request_limits_(std::move(request_limits)) {
+    global_window_ = {.size = global_limit.window_size, .limit = global_limit.window_limit};
   }
 
   bool check_in(RequestID request, td::Timestamp time = td::Timestamp::now());
