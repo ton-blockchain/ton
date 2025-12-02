@@ -103,7 +103,7 @@ if [ ! -d "../3pp/libmicrohttpd" ]; then
   test $? -eq 0 || { echo "Can't compile libmicrohttpd"; exit 1; }
   cd ../../build
 else
-  libmicrohttpdPath=$(pwd)/../3pp/libmicrohttpd/libmicrohttpd-1.0.1
+  libmicrohttpdPath=$(pwd)/../3pp/libmicrohttpd
   echo "Using compiled libmicrohttpd"
 fi
 
