@@ -1,4 +1,7 @@
 #pragma once
+#include <deque>
+#include <map>
+
 #include "td/utils/Time.h"
 
 namespace ton::validator::fullnode {
