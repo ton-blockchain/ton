@@ -56,10 +56,13 @@ class RateLimiter {
 
   std::map<PeerID, LimiterWindow> global_windows_;
   std::map<std::pair<PeerID, RequestID>, LimiterWindow> request_windows_;
+
+  std::mutex mutex_;
 };
 
 template <typename PeerID, typename RequestID>
 bool RateLimiter<PeerID, RequestID>::check_in(PeerID peer, RequestID request, td::Timestamp time) {
+  std::unique_lock lock(mutex_);
   if (check(peer, time) && check(peer, request, time)) {
     insert(peer, time);
     insert(peer, request, time);
