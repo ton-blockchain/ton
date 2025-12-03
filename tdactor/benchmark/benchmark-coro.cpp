@@ -17,7 +17,7 @@ class CoroBenchmark final : public td::actor::Actor {
  public:
   void start_up() override {
     db_ = td::actor::create_actor<BenchmarkDatabase>("BenchmarkDatabase").release();
-    flow().start_immediate().detach();
+    flow().start_immediate().detach("BenchmakrDatabase");
   }
 
   Task<td::Unit> run_benchmarks() {

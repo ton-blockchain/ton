@@ -383,9 +383,20 @@ struct [[nodiscard]] StartedTask {
   StartedTask& operator=(const StartedTask&) = delete;
 
   ~StartedTask() noexcept {
-    detach();
+    detach_silent();
   }
-  void detach() {
+  void detach(std::string description = "UnknownTask") && {
+    if (!h) {
+      return;
+    }
+    [](auto self, std::string description) -> Task<Unit> {
+      co_await become_lightweight();
+      auto r = co_await std::move(self).wrap();
+      LOG_IF(ERROR, r.is_error()) << "Detached task <" << description << "> failed: " << r.error();
+      co_return td::Unit{};
+    }(std::move(*this), std::move(description)).start_immediate().detach_silent();
+  }
+  void detach_silent() {
     if (!h) {
       return;
     }

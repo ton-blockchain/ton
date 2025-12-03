@@ -164,7 +164,7 @@ class CoroSpec final : public td::actor::Actor {
       co_return td::Unit{};
     }(run_all())
                                    .start_immediate()
-                                   .detach();
+                                   .detach("CoroSpec");
   }
 
   Task<td::Unit> unified_queries() {
@@ -473,7 +473,7 @@ class CoroSpec final : public td::actor::Actor {
       }(round)
                                        .start();
       td::usleep_for(td::Random::fast(0, 1000));
-      task.detach();
+      task.detach_silent();
       td::usleep_for(100);
     }
 
