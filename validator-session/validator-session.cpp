@@ -452,8 +452,9 @@ void ValidatorSessionImpl::process_query(PublicKeyHash src, td::BufferSlice data
     return;
   }
   const SentBlock *block = nullptr;
-  auto id = description().candidate_id(description().get_source_idx(PublicKeyHash{f->id_->src_}), f->id_->root_hash_,
-                                       f->id_->file_hash_, f->id_->collated_data_file_hash_);
+  TRY_RESULT_PROMISE(promise, source_idx, description().get_source_idx_safe(PublicKeyHash{f->id_->src_}));
+  auto id =
+      description().candidate_id(source_idx, f->id_->root_hash_, f->id_->file_hash_, f->id_->collated_data_file_hash_);
   if (round_id < real_state_->cur_round_seqno()) {
     block = real_state_->get_committed_block(description(), round_id);
     if (!block || SentBlock::get_block_id(block) != id) {
