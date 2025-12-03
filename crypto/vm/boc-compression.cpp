@@ -20,6 +20,9 @@
 #include <bitset>
 #include <set>
 
+#include "common/refint.h"
+#include "crypto/block/block-auto.h"
+#include "crypto/block/block-parse.h"
 #include "td/utils/Slice-decl.h"
 #include "td/utils/lz4.h"
 #include "vm/boc-writers.h"
@@ -28,9 +31,6 @@
 #include "vm/cellslice.h"
 
 #include "boc-compression.h"
-#include "common/refint.h"
-#include "crypto/block/block-auto.h"
-#include "crypto/block/block-parse.h"
 
 namespace vm {
 
@@ -142,9 +142,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
   size_t total_size_estimate = 0;
 
   // Build graph representation using recursive lambda
-  const auto build_graph = [&](auto&& self,
-                               td::Ref<vm::Cell> cell,
-                               td::Ref<vm::Cell> left_cell = td::Ref<vm::Cell>(),
+  const auto build_graph = [&](auto&& self, td::Ref<vm::Cell> cell, td::Ref<vm::Cell> left_cell = td::Ref<vm::Cell>(),
                                bool under_mu_right = false,
                                td::RefInt256* sum_diff_out = nullptr) -> td::Result<size_t> {
     if (cell.is_null()) {
@@ -191,10 +189,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
       TRY_RESULT(child_left_id, self(self, cell_slice.prefetch_ref(0)));
       boc_graph[current_cell_id][0] = child_left_id;
       // Right branch: traverse paired with left and compute diffs inline
-      TRY_RESULT(child_right_id, self(self,
-                                      cell_slice.prefetch_ref(1),
-                                      cell_slice.prefetch_ref(0),
-                                      true));
+      TRY_RESULT(child_right_id, self(self, cell_slice.prefetch_ref(1), cell_slice.prefetch_ref(0), true));
       boc_graph[current_cell_id][1] = child_right_id;
     } else if (under_mu_right && left_cell.not_null()) {
       // Inline computation for RIGHT subtree nodes under MerkleUpdate
@@ -202,19 +197,15 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
       td::RefInt256 sum_child_diff = td::make_refint(0);
       // Recurse children first
       for (int i = 0; i < cell_slice.size_refs(); ++i) {
-        TRY_RESULT(child_id, self(self,
-                                  cell_slice.prefetch_ref(i),
-                                  cs_left.prefetch_ref(i),
-                                  true,
-                                  &sum_child_diff));
+        TRY_RESULT(child_id, self(self, cell_slice.prefetch_ref(i), cs_left.prefetch_ref(i), true, &sum_child_diff));
         boc_graph[current_cell_id][i] = child_id;
       }
-    
+
       // Compute this vertex diff and check skippable condition
       td::RefInt256 vertex_diff = process_shard_accounts_vertex(cs_left, cell_slice);
       if (!is_special && vertex_diff.not_null() && sum_child_diff.not_null() && cmp(sum_child_diff, vertex_diff) == 0) {
-          cell_data[current_cell_id] = td::BitSlice();
-          prunned_branch_level[current_cell_id] = 9;
+        cell_data[current_cell_id] = td::BitSlice();
+        prunned_branch_level[current_cell_id] = 9;
       }
       if (sum_diff_out && vertex_diff.not_null()) {
         *sum_diff_out += vertex_diff;
@@ -720,8 +711,8 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
     for (int j = 0; j < cell_refs_cnt[right_idx]; ++j) {
       size_t right_child = boc_graph[right_idx][j];
       size_t left_child = (left_idx != std::numeric_limits<size_t>::max() && j < cell_refs_cnt[left_idx])
-                            ? boc_graph[left_idx][j]
-                            : std::numeric_limits<size_t>::max();
+                              ? boc_graph[left_idx][j]
+                              : std::numeric_limits<size_t>::max();
       TRY_STATUS(build_right_under_mu(right_child, left_child, &sum_child_diff));
     }
     // If this vertex was depth-balance-compressed, reconstruct its data from left + children sum
@@ -743,7 +734,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
     TRY_STATUS(finalize_node(right_idx));
 
     // Compute this vertex diff (right - left) to propagate upward
-    if (cur_right_left_diff.is_null() &&left_idx != std::numeric_limits<size_t>::max()) {
+    if (cur_right_left_diff.is_null() && left_idx != std::numeric_limits<size_t>::max()) {
       vm::CellSlice cs_left(NoVm(), nodes[left_idx]);
       vm::CellSlice cs_right(NoVm(), nodes[right_idx]);
       cur_right_left_diff = process_shard_accounts_vertex(cs_left, cs_right);
@@ -768,12 +759,12 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
       TRY_STATUS(finalize_node(idx));
       return td::Status::OK();
     } else {
-    // Default: build children normally then finalize
+      // Default: build children normally then finalize
       for (int j = 0; j < cell_refs_cnt[idx]; ++j) {
         TRY_STATUS(build_node(boc_graph[idx][j]));
-      } 
+      }
     }
-    
+
     TRY_STATUS(finalize_node(idx));
     return td::Status::OK();
   };
