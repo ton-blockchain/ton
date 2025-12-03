@@ -95,7 +95,7 @@ else
 fi
 
 if [ ! -d "../3pp/libmicrohttpd" ]; then
-  git clone https://github.com/neodix42/libmicrohttpd.git ../3pp/libmicrohttpd
+  git clone https://github.com/ton-blockchain/libmicrohttpd.git ../3pp/libmicrohttpd
   cd ../3pp/libmicrohttpd || exit
   libmicrohttpdPath=`pwd`
   ./configure --enable-static --disable-tests --disable-benchmark --disable-shared --disable-https --with-pic
