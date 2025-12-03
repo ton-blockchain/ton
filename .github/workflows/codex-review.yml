@@ -8,24 +8,26 @@ jobs:
   codex:
     # Only run Codex for PRs authored by allowed users
     if: |
-      github.event.pull_request.user.login == 'EmelyanenkoK' ||
-      github.event.pull_request.user.login == 'tolya-yanot' ||
-      github.event.pull_request.user.login == 'SpyCheese' ||
-      github.event.pull_request.user.login == 'neodix42' ||
-      github.event.pull_request.user.login == 'dungeon-master-666' ||
-      github.event.pull_request.user.login == 'igroman787' ||
-      github.event.pull_request.user.login == 'kdimentionaltree' ||
-      github.event.pull_request.user.login == 'sonofmom' ||
-      github.event.pull_request.user.login == 'Trinketer22' ||
-      github.event.pull_request.user.login == 'xssnick' ||
-      github.event.pull_request.user.login == 'tolk-vm' ||
-      github.event.pull_request.user.login == 'DanShaders' ||
-      github.event.pull_request.user.login == 'birydrad' ||
-      github.event.pull_request.user.login == 'abacabadabacaba' ||
-      github.event.pull_request.user.login == 'Mustang98' ||
-      github.event.pull_request.user.login == 'avevad' ||
-      github.event.pull_request.user.login == 'tvorogme' ||
-      github.event.pull_request.user.login == 'krigga'
+      github.event.pull_request.draft == false && (
+        github.event.pull_request.user.login == 'EmelyanenkoK' ||
+        github.event.pull_request.user.login == 'tolya-yanot' ||
+        github.event.pull_request.user.login == 'SpyCheese' ||
+        github.event.pull_request.user.login == 'neodix42' ||
+        github.event.pull_request.user.login == 'dungeon-master-666' ||
+        github.event.pull_request.user.login == 'igroman787' ||
+        github.event.pull_request.user.login == 'kdimentionaltree' ||
+        github.event.pull_request.user.login == 'sonofmom' ||
+        github.event.pull_request.user.login == 'Trinketer22' ||
+        github.event.pull_request.user.login == 'xssnick' ||
+        github.event.pull_request.user.login == 'tolk-vm' ||
+        github.event.pull_request.user.login == 'DanShaders' ||
+        github.event.pull_request.user.login == 'birydrad' ||
+        github.event.pull_request.user.login == 'abacabadabacaba' ||
+        github.event.pull_request.user.login == 'Mustang98' ||
+        github.event.pull_request.user.login == 'avevad' ||
+        github.event.pull_request.user.login == 'tvorogme' ||
+        github.event.pull_request.user.login == 'krigga'
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: read
