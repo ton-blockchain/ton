@@ -55,8 +55,8 @@ void FullNodeCustomOverlay::process_block_broadcast(PublicKeyHash src, ton_api::
     LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Received block broadcast in custom overlay \"" << name_ << "\" from " << src << ": "
-                        << B.ok().block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Received block broadcast " << (B.ok().signatures.empty() ? "(no signatures) " : "")
+                        << "in custom overlay \"" << name_ << "\" from " << src << ": " << B.ok().block_id.to_str();
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok());
 }
 

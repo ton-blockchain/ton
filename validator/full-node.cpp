@@ -608,16 +608,22 @@ void FullNodeImpl::new_key_block(BlockHandle handle) {
 
 void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast) {
   send_block_broadcast_to_custom_overlays(broadcast);
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_broadcast, std::move(broadcast),
-                          [](td::Result<td::Unit> R) {
-                            if (R.is_error()) {
-                              if (R.error().code() == ErrorCode::notready) {
-                                LOG(DEBUG) << "dropped broadcast: " << R.move_as_error();
-                              } else {
-                                LOG(INFO) << "dropped broadcast: " << R.move_as_error();
+  if (broadcast.signatures.empty() && !broadcast.block_id.is_masterchain()) {
+    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_candidate_broadcast,
+                            broadcast.block_id, broadcast.catchain_seqno, std::move(broadcast.data),
+                            td::PromiseCreator::lambda([](td::Result<td::Unit>) {}));
+  } else {
+    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_broadcast, std::move(broadcast),
+                            [](td::Result<td::Unit> R) {
+                              if (R.is_error()) {
+                                if (R.error().code() == ErrorCode::notready) {
+                                  LOG(DEBUG) << "dropped broadcast: " << R.move_as_error();
+                                } else {
+                                  LOG(INFO) << "dropped broadcast: " << R.move_as_error();
+                                }
                               }
-                            }
-                          });
+                            });
+  }
 }
 
 void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,

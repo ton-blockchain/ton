@@ -68,6 +68,7 @@ AcceptBlockQuery::AcceptBlockQuery(AcceptBlockQuery::IsFake fake, BlockIdExt id,
     , data_(std::move(data))
     , prev_(std::move(prev))
     , validator_set_(std::move(validator_set))
+    , signatures_(create_signature_set(std::vector<BlockSignature>{}))
     , is_fake_(true)
     , is_fork_(false)
     , manager_(manager)
@@ -85,6 +86,7 @@ AcceptBlockQuery::AcceptBlockQuery(ForceFork ffork, BlockIdExt id, td::Ref<Block
                                    td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
+    , signatures_(create_signature_set(std::vector<BlockSignature>{}))
     , is_fake_(true)
     , is_fork_(true)
     , manager_(manager)
@@ -242,44 +244,46 @@ bool AcceptBlockQuery::create_new_proof() {
                          " is invalid or contains extra information reserved for key blocks only");
     }
   }
-  // 7. check signatures
-  td::Result<td::uint64> sign_chk;
-  if (!is_fake_) {
-    sign_chk = validator_set_->check_signatures(id_.root_hash, id_.file_hash, signatures_);
-    if (sign_chk.is_error()) {
-      auto err = sign_chk.move_as_error();
-      VLOG(VALIDATOR_WARNING) << "signature check failed : " << err.to_string();
-      abort_query(std::move(err));
-      return false;
+  if (signatures_.not_null()) {
+    // 7. check signatures
+    td::Result<td::uint64> sign_chk;
+    if (!is_fake_) {
+      sign_chk = validator_set_->check_signatures(id_.root_hash, id_.file_hash, signatures_);
+      if (sign_chk.is_error()) {
+        auto err = sign_chk.move_as_error();
+        VLOG(VALIDATOR_WARNING) << "signature check failed : " << err.to_string();
+        abort_query(std::move(err));
+        return false;
+      }
     }
-  }
-  // 8. serialize signatures
-  if (!is_fake_) {
-    vm::CellBuilder cb2;
-    Ref<vm::Cell> sign_cell;
-    if (!(cb2.store_long_bool(0x11, 8)  // block_signatures#11
-          && cb2.store_long_bool(validator_set_->get_validator_set_hash(),
-                                 32)  // validator_info$_ validator_set_hash_short:uint32
-          && cb2.store_long_bool(validator_set_->get_catchain_seqno(),
-                                 32)                         //   validator_set_ts:uint32 = ValidatorInfo
-          && cb2.store_long_bool(signatures_->size(), 32)    // sig_count:uint32
-          && cb2.store_long_bool(sign_chk.move_as_ok(), 64)  // sig_weight:uint32
-          && signatures_->serialize_to(sign_cell)            // (HashmapE 16 CryptoSignaturePair)
-          && cb2.store_maybe_ref(std::move(sign_cell)) && cb2.finalize_to(signatures_cell_))) {
-      return fatal_error("cannot serialize BlockSignatures for the newly-accepted block");
-    }
-  } else {  // FAKE
-    vm::CellBuilder cb2;
-    if (!(cb2.store_long_bool(0x11, 8)  // block_signatures#11
-          && cb2.store_long_bool(validator_set_.not_null() ? validator_set_->get_validator_set_hash() : 0,
-                                 32)  // validator_info$_ validator_set_hash_short:uint32
-          && cb2.store_long_bool(validator_set_.not_null() ? validator_set_->get_catchain_seqno() : 0,
-                                 32)     //   validator_set_ts:uint32 = ValidatorInfo
-          && cb2.store_long_bool(0, 32)  // sig_count:uint32
-          && cb2.store_long_bool(0, 64)  // sig_weight:uint32
-          && cb2.store_bool_bool(false)  // (HashmapE 16 CryptoSignaturePair)
-          && cb2.finalize_to(signatures_cell_))) {
-      return fatal_error("cannot serialize fake BlockSignatures for the newly-accepted block");
+    // 8. serialize signatures
+    if (!is_fake_) {
+      vm::CellBuilder cb2;
+      Ref<vm::Cell> sign_cell;
+      if (!(cb2.store_long_bool(0x11, 8)  // block_signatures#11
+            && cb2.store_long_bool(validator_set_->get_validator_set_hash(),
+                                   32)  // validator_info$_ validator_set_hash_short:uint32
+            && cb2.store_long_bool(validator_set_->get_catchain_seqno(),
+                                   32)                         //   validator_set_ts:uint32 = ValidatorInfo
+            && cb2.store_long_bool(signatures_->size(), 32)    // sig_count:uint32
+            && cb2.store_long_bool(sign_chk.move_as_ok(), 64)  // sig_weight:uint32
+            && signatures_->serialize_to(sign_cell)            // (HashmapE 16 CryptoSignaturePair)
+            && cb2.store_maybe_ref(std::move(sign_cell)) && cb2.finalize_to(signatures_cell_))) {
+        return fatal_error("cannot serialize BlockSignatures for the newly-accepted block");
+      }
+    } else {  // FAKE
+      vm::CellBuilder cb2;
+      if (!(cb2.store_long_bool(0x11, 8)  // block_signatures#11
+            && cb2.store_long_bool(validator_set_.not_null() ? validator_set_->get_validator_set_hash() : 0,
+                                   32)  // validator_info$_ validator_set_hash_short:uint32
+            && cb2.store_long_bool(validator_set_.not_null() ? validator_set_->get_catchain_seqno() : 0,
+                                   32)     //   validator_set_ts:uint32 = ValidatorInfo
+            && cb2.store_long_bool(0, 32)  // sig_count:uint32
+            && cb2.store_long_bool(0, 64)  // sig_weight:uint32
+            && cb2.store_bool_bool(false)  // (HashmapE 16 CryptoSignaturePair)
+            && cb2.finalize_to(signatures_cell_))) {
+        return fatal_error("cannot serialize fake BlockSignatures for the newly-accepted block");
+      }
     }
   }
   Ref<vm::Cell> bs_cell;
@@ -374,8 +378,8 @@ void AcceptBlockQuery::start_up() {
     fatal_error("no real ValidatorSet passed to AcceptBlockQuery");
     return;
   }
-  if (!is_fake_ && signatures_.is_null()) {
-    fatal_error("no real SignatureSet passed to AcceptBlockQuery");
+  if (!is_fake_ && signatures_.is_null() && is_masterchain()) {
+    fatal_error("no real SignatureSet passed to AcceptBlockQuery for masterchain");
     return;
   }
   if (!is_fake_ && is_fork_) {
@@ -409,11 +413,12 @@ void AcceptBlockQuery::start_up() {
 void AcceptBlockQuery::got_block_handle(BlockHandle handle) {
   VLOG(VALIDATOR_DEBUG) << "got_block_handle()";
   handle_ = std::move(handle);
-  if (handle_->received() && handle_->received_state() && handle_->inited_signatures() &&
+  if (handle_->received() && handle_->received_state() && (handle_->inited_signatures() || signatures_.is_null()) &&
       handle_->inited_split_after() && handle_->inited_merge_before() && handle_->inited_prev() &&
       handle_->inited_logical_time() && handle_->inited_state_root_hash() &&
       (is_masterchain() ? handle_->inited_proof() && handle_->is_applied() && handle_->inited_is_key_block()
-                        : handle_->inited_proof_link())) {
+                        : handle_->inited_proof_link()) &&
+      send_broadcast_mode_ == 0) {
     finish_query();
     return;
   }
@@ -461,12 +466,9 @@ void AcceptBlockQuery::got_block_handle_cont() {
 
 void AcceptBlockQuery::written_block_data() {
   VLOG(VALIDATOR_DEBUG) << "written_block_data()";
-  if (handle_->inited_signatures()) {
+  if (handle_->inited_signatures() || signatures_.is_null()) {
     written_block_signatures();
     return;
-  }
-  if (is_fake_) {
-    signatures_ = Ref<BlockSignatureSetQ>(create_signature_set(std::vector<BlockSignature>{}));
   }
   td::actor::send_closure(manager_, &ValidatorManager::set_block_signatures, handle_, signatures_,
                           [SelfId = actor_id(this)](td::Result<td::Unit> R) {
@@ -603,6 +605,10 @@ void AcceptBlockQuery::written_state(td::Ref<ShardState> upd_state) {
 
 void AcceptBlockQuery::written_block_proof() {
   VLOG(VALIDATOR_DEBUG) << "written_block_proof()";
+  if (signatures_.is_null()) {
+    written_block_next();
+    return;
+  }
   if (!is_masterchain()) {
     td::actor::send_closure(manager_, &ValidatorManager::get_top_masterchain_state_block,
                             [SelfId = actor_id(this)](td::Result<std::pair<td::Ref<MasterchainState>, BlockIdExt>> R) {
@@ -945,11 +951,12 @@ void AcceptBlockQuery::send_broadcasts() {
   if (send_broadcast_mode_ == 0) {
     return;
   }
+  VLOG(VALIDATOR_DEBUG) << "send_broadcasts mode=" << send_broadcast_mode_;
   BlockBroadcast b;
   b.data = data_->data();
   b.block_id = id_;
   std::vector<BlockSignature> sigs;
-  if (!is_fake_) {
+  if (!is_fake_ && signatures_.not_null()) {
     for (auto& v : signatures_->signatures()) {
       sigs.emplace_back(BlockSignature{v.node, v.signature.clone()});
     }

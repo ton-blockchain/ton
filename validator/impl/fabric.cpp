@@ -128,9 +128,9 @@ void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<
                             td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
                             int send_broadcast_mode, bool apply, td::actor::ActorId<ValidatorManager> manager,
                             td::Promise<td::Unit> promise) {
-  td::actor::create_actor<AcceptBlockQuery>(PSTRING() << "accept" << id.id.to_str(), id, std::move(data), prev,
-                                            std::move(validator_set), std::move(signatures), send_broadcast_mode, apply,
-                                            manager, std::move(promise))
+  td::actor::create_actor<AcceptBlockQuery>(
+      PSTRING() << "accept" << (signatures.is_null() ? "-nosign" : "") << id.id.to_str(), id, std::move(data), prev,
+      std::move(validator_set), std::move(signatures), send_broadcast_mode, apply, manager, std::move(promise))
       .release();
 }
 
