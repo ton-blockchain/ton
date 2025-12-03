@@ -903,17 +903,21 @@ decltype(FullNodeImpl::limiter_) FullNodeImpl::make_limiter(const FullNodeOption
   size_t h_limit = opts.ratelimit_heavy_;
   size_t m_limit = opts.ratelimit_medium_;
   size_t g_limit = opts.ratelimit_global_;
-  return std::make_shared<RateLimiter<>>(RateLimit{w_size, g_limit},
-                                         std::map<int32_t, RateLimit>{
-                                             {ton_api::tonNode_getArchiveSlice::ID, {w_size, h_limit}},
-                                             {ton_api::tonNode_downloadPersistentStateSliceV2::ID, {w_size, h_limit}},
-                                             {ton_api::tonNode_downloadPersistentStateSlice::ID, {w_size, h_limit}},
-                                             {ton_api::tonNode_downloadZeroState::ID, {w_size, h_limit}},
+  return std::make_shared<RateLimiter<>>(
+      RateLimit{w_size, g_limit},
+      std::map<int32_t, RateLimit>{{ton_api::tonNode_getArchiveSlice::ID, {w_size, h_limit}},
+                                   {ton_api::tonNode_downloadPersistentStateSliceV2::ID, {w_size, h_limit}},
+                                   {ton_api::tonNode_downloadPersistentStateSlice::ID, {w_size, h_limit}},
+                                   {ton_api::tonNode_downloadZeroState::ID, {w_size, h_limit}},
 
-                                             {ton_api::tonNode_downloadBlockFull::ID, {w_size, m_limit}},
-                                             {ton_api::tonNode_downloadNextBlockFull::ID, {w_size, m_limit}},
-                                             {ton_api::tonNode_downloadBlockProofLink::ID, {w_size, m_limit}},
-                                         });
+                                   {ton_api::tonNode_downloadBlock::ID, {w_size, m_limit}},
+                                   {ton_api::tonNode_downloadBlockFull::ID, {w_size, m_limit}},
+                                   {ton_api::tonNode_downloadNextBlockFull::ID, {w_size, m_limit}},
+                                   {ton_api::tonNode_downloadBlockProof::ID, {w_size, m_limit}},
+                                   {ton_api::tonNode_downloadBlockProofLink::ID, {w_size, m_limit}},
+                                   {ton_api::tonNode_downloadKeyBlockProof::ID, {w_size, m_limit}},
+                                   {ton_api::tonNode_downloadKeyBlockProofLink::ID, {w_size, m_limit}},
+                                   {ton_api::tonNode_getOutMsgQueueProof::ID, {w_size, m_limit}}});
 }
 
 }  // namespace fullnode

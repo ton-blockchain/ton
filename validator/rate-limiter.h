@@ -67,6 +67,9 @@ class RateLimiter {
 
 template <typename RequestID>
 bool RateLimiter<RequestID>::check_in(RequestID request, td::Timestamp time) {
+  if (!request_limits_.contains(request)) {
+    return true;
+  }
   std::unique_lock lock(mutex_);
   if (check(time) && check(request, time)) {
     insert(time);
