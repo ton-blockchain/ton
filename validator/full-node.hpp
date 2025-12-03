@@ -31,6 +31,7 @@
 
 #include "full-node-custom-overlays.hpp"
 #include "full-node-fast-sync-overlays.hpp"
+#include "rate-limiter.h"
 
 namespace ton {
 
@@ -179,6 +180,10 @@ class FullNodeImpl : public FullNode {
 
   td::actor::ActorOwn<TokenManager> out_msg_queue_query_token_manager_ =
       td::actor::create_actor<TokenManager>("tokens", /* max_tokens = */ 1);
+
+  std::shared_ptr<RateLimiter<>> limiter_;
+
+  decltype(limiter_) make_limiter(const FullNodeOptions& opts);
 };
 
 }  // namespace fullnode

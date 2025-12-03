@@ -47,8 +47,7 @@ struct FullNodeConfig {
   FullNodeConfig() = default;
   FullNodeConfig(const tl_object_ptr<ton_api::engine_validator_fullNodeConfig>& obj);
   tl_object_ptr<ton_api::engine_validator_fullNodeConfig> tl() const;
-  bool operator==(const FullNodeConfig& rhs) const;
-  bool operator!=(const FullNodeConfig& rhs) const;
+  bool operator==(const FullNodeConfig& rhs) const = default;
 
   bool ext_messages_broadcast_disabled_ = false;
 };
@@ -58,6 +57,8 @@ struct FullNodeOptions {
   double public_broadcast_speed_multiplier_ = 1.0;
   double private_broadcast_speed_multiplier_ = 1.0;
   double initial_sync_delay_ = 60.0;
+  double ratelimit_window_size_ = 0;
+  size_t ratelimit_global_ = 0, ratelimit_heavy_ = 0, ratelimit_medium_ = 0;
 };
 
 struct CustomOverlayParams {
