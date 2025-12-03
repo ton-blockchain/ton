@@ -23,6 +23,7 @@
 #include "crypto/common/bitstring.h"
 #include "td/utils/Slice.h"
 #include "td/utils/UInt.h"
+#include "td/utils/Variant.h"
 #include "td/utils/bits.h"
 #include "td/utils/buffer.h"
 #include "td/utils/misc.h"
@@ -539,6 +540,20 @@ struct ValidatorSessionConfig {
   bool new_catchain_ids = false;
 
   static const td::uint32 BLOCK_HASH_COVERS_DATA_FROM_VERSION = 2;
+};
+
+struct NewConsensusConfig {
+  td::uint32 target_rate_ms = 1000;
+  td::uint32 max_block_size = (4 << 20);
+  td::uint32 max_collated_data_size = (4 << 20);
+
+  struct NullConsensus {};
+  struct Simplex {
+    td::uint32 slots_per_leader_window = 4;
+    td::uint32 first_block_timeout_ms = 1000;
+    td::uint32 max_leader_window_desync = 2;
+  };
+  td::Variant<NullConsensus, Simplex> consensus = NullConsensus{};
 };
 
 struct PersistentStateDescription : public td::CntObject {

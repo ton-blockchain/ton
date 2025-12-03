@@ -138,6 +138,9 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
   ValidatorSessionConfig get_consensus_config() const override {
     return config_->get_consensus_config();
   }
+  td::optional<ton::NewConsensusConfig> get_new_consensus_config(WorkchainId wc) const override {
+    return config_->get_new_consensus_config(wc);
+  }
   block::SizeLimitsConfig::ExtMsgLimits get_ext_msg_limits() const override {
     auto R = config_->get_size_limits_config();
     return R.is_error() ? block::SizeLimitsConfig::ExtMsgLimits() : R.ok_ref().ext_msg_limits;

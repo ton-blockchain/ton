@@ -779,6 +779,13 @@ consensus_config_v4#d9 flags:(## 7) { flags = 0 } new_catchain_ids:Bool
 _ CatchainConfig = ConfigParam 28;
 _ ConsensusConfig = ConfigParam 29;
 
+null_consensus_config#20 flags:(## 8) target_rate_ms:uint32 = NewConsensusConfig;
+simplex_config#21 flags:(## 8)
+  target_rate_ms:uint32 slots_per_leader_window:uint32
+  first_block_timeout_ms:uint32 max_leader_window_desync:uint32 = NewConsensusConfig;
+new_consensus_config_all#10 mc:(Maybe ^NewConsensusConfig) shard:(Maybe ^NewConsensusConfig) = NewConsensusConfigAll;
+_ NewConsensusConfigAll = ConfigParam 30;
+
 _ fundamental_smc_addr:(HashmapE 256 True) = ConfigParam 31;
 _ prev_validators:ValidatorSet = ConfigParam 32;
 _ prev_temp_validators:ValidatorSet = ConfigParam 33;

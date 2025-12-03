@@ -80,6 +80,7 @@ class MasterchainState : virtual public ShardState {
   virtual BlockSeqno min_ref_masterchain_seqno() const = 0;
   virtual bool ancestor_is_valid(BlockIdExt id) const = 0;
   virtual ValidatorSessionConfig get_consensus_config() const = 0;
+  virtual td::optional<NewConsensusConfig> get_new_consensus_config(WorkchainId wc) const = 0;
   virtual BlockIdExt last_key_block_id() const = 0;
   virtual BlockIdExt next_key_block_id(BlockSeqno seqno) const = 0;
   virtual BlockIdExt prev_key_block_id(BlockSeqno seqno) const = 0;

@@ -360,6 +360,40 @@ ton::ValidatorSessionConfig Config::get_consensus_config() const {
   return c;
 }
 
+td::optional<ton::NewConsensusConfig> Config::get_new_consensus_config(ton::WorkchainId wc) const {
+  auto c1 = get_config_param(30);
+  if (c1.is_null()) {
+    return {};
+  }
+  gen::NewConsensusConfigAll::Record rec;
+  if (!gen::unpack_cell(c1, rec)) {
+    return {};
+  }
+  auto c2 = (wc == ton::masterchainId ? rec.mc : rec.shard)->prefetch_ref();
+  if (c2.is_null()) {
+    return {};
+  }
+  auto consensus_config = get_consensus_config();
+  gen::NewConsensusConfig::Record_null_consensus_config r1;
+  if (gen::unpack_cell(c2, r1)) {
+    return ton::NewConsensusConfig{.target_rate_ms = r1.target_rate_ms,
+                                   .max_block_size = consensus_config.max_block_size,
+                                   .max_collated_data_size = consensus_config.max_collated_data_size,
+                                   .consensus = ton::NewConsensusConfig::NullConsensus{}};
+  }
+  gen::NewConsensusConfig::Record_simplex_config r2;
+  if (gen::unpack_cell(c2, r2)) {
+    return ton::NewConsensusConfig{
+        .target_rate_ms = r2.target_rate_ms,
+        .max_block_size = consensus_config.max_block_size,
+        .max_collated_data_size = consensus_config.max_collated_data_size,
+        .consensus = ton::NewConsensusConfig::Simplex{.slots_per_leader_window = r2.slots_per_leader_window,
+                                                      .first_block_timeout_ms = r2.first_block_timeout_ms,
+                                                      .max_leader_window_desync = r2.max_leader_window_desync}};
+  }
+  return {};
+}
+
 bool Config::foreach_config_param(std::function<bool(int, Ref<vm::Cell>)> scan_func) const {
   if (!config_dict) {
     return false;
