@@ -48,6 +48,12 @@ jobs:
         key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-shared-ccache-${{ steps.date-stamp.outputs.timestamp }}
         restore-keys: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-shared-ccache
 
+    - name: Clean third-party build artifacts
+      run: |
+        cd third-party/secp256k1
+        git clean -fdx
+        git checkout .
+
     - name: Build TON
       run: |
         git submodule sync --recursive
