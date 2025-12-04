@@ -66,7 +66,8 @@ option(TON_USE_ASAN "Use \"ON\" to enable AddressSanitizer." OFF)
 option(TON_USE_TSAN "Use \"ON\" to enable ThreadSanitizer." OFF)
 option(TON_USE_UBSAN "Use \"ON\" to enable UndefinedBehaviorSanitizer." OFF)
 option(TON_USE_COVERAGE "Use \"ON\" to enable code coverage with gcov." OFF)
-set(TON_ARCH "native" CACHE STRING "Architecture, will be passed to -march=")
+option(TON_USE_CI_BASELINE_CPU "Use baseline CPU for artifacts produced in CI" OFF)
+set(TON_ARCH "native" CACHE STRING "Architecture that will be passed to -march=. The setting is ignored if TON_USE_CI_BASELINE_CPU is set.")
 
 option(TON_PRINT_BACKTRACE_ON_CRASH "Attempt to print a backtrace when a fatal signal is caught" ON)
 option(TON_INSERT_GDB_HOOKS "Insert GDB hooks" OFF)
@@ -79,14 +80,25 @@ if (TON_USE_LLD)
     set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -fuse-ld=lld")
 endif()
 
-#BEGIN M1 support
-EXECUTE_PROCESS( COMMAND uname -m COMMAND tr -d '\n' OUTPUT_VARIABLE ARCHITECTURE )
-
-if ((ARCHITECTURE MATCHES "arm64") AND (CMAKE_SYSTEM_NAME STREQUAL "Darwin") AND
-    (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 13.0)) # only clang 13+ supports cpu=apple-m1
-    set(TON_ARCH "apple-m1")
+if (NOT MSVC)
+  if (TON_USE_CI_BASELINE_CPU)
+    if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+        add_compile_options(-march=x86-64-v3) # AVX2; broadly supported from 2015
+    elseif (APPLE AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+        add_compile_options(-mcpu=apple-m1)
+    elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+        add_compile_options(-march=armv8-a) # 64-bit AArch; broadly supported from 2014
+    else()
+        message(FATAL_ERROR "TON_USE_CI_BASELINE_CPU is not supported on ${CMAKE_SYSTEM_PROCESSOR}")
+    endif()
+  else()
+    add_compile_options(-march=${TON_ARCH})
+  endif()
+else()
+  if (TON_USE_CI_BASELINE_CPU OR NOT TON_ARCH STREQUAL "native")
+    message(FATAL_ERROR "TON_ARCH is not supported with MSVC")
+  endif()
 endif()
-#END M1 support
 
 if (CLANG AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "20")
   add_compile_options(--warning-suppression-mappings=${CMAKE_SOURCE_DIR}/suppression_mappings.txt)
@@ -221,16 +233,6 @@ else()
 endif()
 
 
-if (TON_ARCH AND NOT MSVC)
-  CHECK_CXX_COMPILER_FLAG( "-march=${TON_ARCH}" COMPILER_OPT_ARCH_SUPPORTED )
-  if (TON_ARCH STREQUAL "apple-m1")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=${TON_ARCH}")
-  elseif(COMPILER_OPT_ARCH_SUPPORTED)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=${TON_ARCH}")
-  elseif(NOT TON_ARCH STREQUAL "native")
-    message(FATAL_ERROR "Compiler doesn't support arch ${TON_ARCH}")
-  endif()
-endif()
 if (THREADS_HAVE_PTHREAD_ARG)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 endif()
