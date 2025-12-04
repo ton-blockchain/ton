@@ -69,6 +69,7 @@ option(TON_USE_COVERAGE "Use \"ON\" to enable code coverage with gcov." OFF)
 set(TON_ARCH "native" CACHE STRING "Architecture, will be passed to -march=")
 
 option(TON_PRINT_BACKTRACE_ON_CRASH "Attempt to print a backtrace when a fatal signal is caught" ON)
+option(TON_INSERT_GDB_HOOKS "Insert GDB hooks" OFF)
 
 option(TON_USE_LLD "Use LLD for linking" OFF)
 
@@ -298,6 +299,10 @@ endif()
 
 if (NOT ANDROID) # _FILE_OFFSET_BITS is broken in ndk r15 and r15b and doesn't work prior to Android 7.0
   add_definitions(-D_FILE_OFFSET_BITS=64)
+endif()
+
+if (TON_INSERT_GDB_HOOKS)
+  add_compile_definitions(-DTON_INSERT_GDB_HOOKS=1)
 endif()
 
 set(INTERNAL_COMPILE "0")

@@ -143,6 +143,7 @@ dependencies = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "tontester" },
+    { name = "types-gdb" },
 ]
 
 [package.dev-dependencies]
@@ -156,6 +157,7 @@ requires-dist = [
     { name = "pytest", specifier = ">=9.0.1" },
     { name = "pytest-asyncio" },
     { name = "tontester", editable = "test/tontester" },
+    { name = "types-gdb", specifier = ">=16.3.0.20250920" },
 ]
 
 [package.metadata.requires-dev]
@@ -168,3 +170,12 @@ dev = [
 name = "tontester"
 version = "0.1.0"
 source = { editable = "test/tontester" }
+
+[[package]]
+name = "types-gdb"
+version = "16.3.0.20250920"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0b/9c/f1fbeedd534f7228c04cfb11281a47a1f4338238d27635199958c247b0e5/types_gdb-16.3.0.20250920.tar.gz", hash = "sha256:4c16cd289428ff6c0cb2fac26e1913d5eab2d890da9951091a11133d5d0a589c", size = 25335, upload-time = "2025-09-20T02:45:11.072Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a8/a5/e0246aece6b052e4b8251fbb0c80f490b6b7bae9a9c3d92978d04dfc930d/types_gdb-16.3.0.20250920-py3-none-any.whl", hash = "sha256:10873fd469cdccb0b7e5ad2321eeb751cb6676cb05a67f3589e753d5f4482ae7", size = 31308, upload-time = "2025-09-20T02:45:10.034Z" },
+]

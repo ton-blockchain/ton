@@ -292,7 +292,7 @@ template <class T>
 struct [[nodiscard]] Task {
   using value_type = T;
 
-  using promise_type = promise_type<T>;
+  using promise_type = td::actor::promise_type<T>;
   using Handle = std::coroutine_handle<promise_type>;
   Handle h{};
 
@@ -364,7 +364,7 @@ template <class T>
 struct [[nodiscard]] StartedTask {
   using value_type = T;
 
-  using promise_type = promise_type<T>;
+  using promise_type = td::actor::promise_type<T>;
   using Handle = std::coroutine_handle<promise_type>;
   Handle h{};
 
