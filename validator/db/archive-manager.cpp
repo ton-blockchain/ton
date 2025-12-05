@@ -662,11 +662,21 @@ void ArchiveManager::load_package(PackageId id) {
     }
   }
 
-  desc.file = td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false, 0, db_root_,
-                                                    archive_lru_.get(), statistics_);
+  desc.file = create_archive_slice(id, 0);
 
   m.emplace(id, std::move(desc));
   update_permanent_slices();
+}
+
+td::actor::ActorOwn<ArchiveSlice> ArchiveManager::create_archive_slice(const PackageId &id,
+                                                                       td::uint32 shard_split_depth) {
+  auto actor = td::actor::create_actor<ArchiveSlice>(
+      PSTRING() << "slice." << (id.temp ? "temp." : (id.key ? "key." : "")) << id.id, id.id, id.key, id.temp, false,
+      shard_split_depth, db_root_, archive_lru_.get(), statistics_);
+  if (async_mode_) {
+    td::actor::send_closure(actor, &ArchiveSlice::set_async_mode, true, [](td::Result<td::Unit>) {});
+  }
+  return actor;
 }
 
 td::Result<const ArchiveManager::FileDescription *> ArchiveManager::get_file_desc(ShardIdFull shard, PackageId id,
@@ -698,9 +708,7 @@ const ArchiveManager::FileDescription *ArchiveManager::add_file_desc(ShardIdFull
   FileDescription new_desc{id, false};
   td::mkdir(db_root_ + id.path()).ensure();
   std::string prefix = PSTRING() << db_root_ << id.path() << id.name();
-  new_desc.file = td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false,
-                                                        id.key || id.temp ? 0 : cur_shard_split_depth_, db_root_,
-                                                        archive_lru_.get(), statistics_);
+  new_desc.file = create_archive_slice(id, id.key || id.temp ? 0 : cur_shard_split_depth_);
   const FileDescription &desc = f.emplace(id, std::move(new_desc));
   if (!id.temp) {
     update_desc(f, desc, shard, seqno, ts, lt);
@@ -1205,23 +1213,8 @@ void ArchiveManager::get_archive_slice(td::uint64 archive_id, td::uint64 offset,
   td::actor::send_closure(f->file_actor_id(), &ArchiveSlice::get_slice, archive_id, offset, limit, std::move(promise));
 }
 
-void ArchiveManager::commit_transaction() {
-  if (!async_mode_ || huge_transaction_size_++ >= 100) {
-    index_->commit_transaction().ensure();
-    if (async_mode_) {
-      huge_transaction_size_ = 0;
-      huge_transaction_started_ = false;
-    }
-  }
-}
-
 void ArchiveManager::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
   async_mode_ = mode;
-  if (!async_mode_ && huge_transaction_started_) {
-    index_->commit_transaction().ensure();
-    huge_transaction_size_ = 0;
-    huge_transaction_started_ = false;
-  }
 
   td::MultiPromise mp;
   auto ig = mp.init_guard();

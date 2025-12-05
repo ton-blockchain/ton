@@ -289,9 +289,26 @@ void RootDb::store_block_state_from_data(BlockHandle handle, td::Ref<BlockData> 
   td::actor::send_closure(cell_db_, &CellDb::store_block_state_permanent, std::move(block), std::move(P));
 }
 
-void RootDb::store_block_state_from_data_preliminary(std::vector<td::Ref<BlockData>> blocks,
-                                                     td::Promise<td::Unit> promise) {
-  td::actor::send_closure(cell_db_, &CellDb::store_block_state_permanent_bulk, std::move(blocks), std::move(promise));
+void RootDb::store_block_state_from_data_bulk(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise) {
+  td::actor::send_closure(
+      cell_db_, &CellDb::store_block_state_permanent_bulk, std::move(blocks),
+      [SelfId = actor_id(this), b = archive_db_.get(),
+       promise = std::move(promise)](td::Result<std::map<BlockIdExt, RootHash>> R) mutable {
+        TRY_RESULT_PROMISE(promise, state_root_hashes, std::move(R));
+        td::MultiPromise mp;
+        auto ig = mp.init_guard();
+        ig.add_promise(std::move(promise));
+        for (auto &[block_id, state_root_hash] : state_root_hashes) {
+          td::actor::send_closure(
+              SelfId, &RootDb::get_block_handle_external, block_id, true,
+              [b, root_hash = state_root_hash, p = ig.get_promise()](td::Result<BlockHandle> R) mutable {
+                TRY_RESULT_PROMISE(p, handle, std::move(R));
+                handle->set_state_root_hash(root_hash);
+                handle->set_state_boc();
+                td::actor::send_closure(b, &ArchiveManager::update_handle, std::move(handle), std::move(p));
+              });
+        }
+      });
 }
 
 void RootDb::get_block_state(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) {
@@ -567,6 +584,14 @@ void RootDb::get_archive_slice(td::uint64 archive_id, td::uint64 offset, td::uin
 
 void RootDb::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
   td::actor::send_closure(archive_db_, &ArchiveManager::set_async_mode, mode, std::move(promise));
+}
+
+void RootDb::add_handle_to_archive(BlockHandle handle, td::Promise<td::Unit> promise) {
+  td::actor::send_closure(archive_db_, &ArchiveManager::add_handle, std::move(handle), std::move(promise));
+}
+
+void RootDb::set_archive_current_shard_split_depth(td::uint32 value) {
+  td::actor::send_closure(archive_db_, &ArchiveManager::set_current_shard_split_depth, value);
 }
 
 void RootDb::run_gc(UnixTime mc_ts, UnixTime gc_ts, double archive_ttl) {
