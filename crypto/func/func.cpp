@@ -35,7 +35,7 @@
 
 namespace funC {
 
-int verbosity, indent, opt_level = 2;
+int verbosity, indent, opt_level = 2, warn_unused;
 bool stack_layout_comments, op_rewrite_comments, program_envelope, asm_preamble;
 bool interactive = false;
 GlobalPragma pragma_allow_post_modification{"allow-post-modification"};
