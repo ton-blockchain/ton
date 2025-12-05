@@ -42,7 +42,7 @@ class MpscPollableQueue {
     }
 
     for (int i = 0; i < 2; i++) {
-      auto guard = lock_.lock();
+      std::lock_guard guard(lock_);
       if (writer_vector_.empty()) {
         if (i == 1) {
           wait_event_fd_ = true;
@@ -65,11 +65,16 @@ class MpscPollableQueue {
     //nop
   }
   void writer_put(ValueType value) {
-    auto guard = lock_.lock();
-    writer_vector_.push_back(std::move(value));
-    if (wait_event_fd_) {
-      wait_event_fd_ = false;
-      guard.reset();
+    bool should_release_event_fd = false;
+    {
+      std::lock_guard guard(lock_);
+      writer_vector_.push_back(std::move(value));
+      if (wait_event_fd_) {
+        wait_event_fd_ = false;
+        should_release_event_fd = true;
+      }
+    }
+    if (should_release_event_fd) {
       event_fd_.release();
     }
   }
@@ -103,7 +108,7 @@ class MpscPollableQueue {
   }
 
  private:
-  SpinLock lock_;
+  std::mutex lock_;
   bool wait_event_fd_{false};
   EventFd event_fd_;
   std::vector<ValueType> writer_vector_;
