@@ -19,6 +19,7 @@
 #include "common/delay.h"
 #include "impl/out-msg-queue-proof.hpp"
 #include "td/actor/MultiPromise.h"
+#include "td/actor/coro_utils.h"
 #include "td/utils/Random.h"
 #include "ton/ton-io.hpp"
 #include "ton/ton-tl.hpp"
@@ -621,9 +622,9 @@ void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast) {
 void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                      td::uint32 validator_set_hash, td::BufferSlice data) {
   send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
-  // ignore cc_seqno and validator_hash for now
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_candidate_broadcast, block_id,
-                          std::move(data));
+  td::actor::ask(validator_manager_, &ValidatorManagerInterface::new_block_candidate_broadcast, block_id, cc_seqno,
+                 std::move(data))
+      .detach();
 }
 
 void FullNodeImpl::get_out_msg_queue_query_token(td::Promise<std::unique_ptr<ActionToken>> promise) {

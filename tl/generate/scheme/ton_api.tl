@@ -613,7 +613,11 @@ db.files.package.key package_id:int key:Bool temp:Bool = db.files.Key;
 db.files.index.value packages:(vector int) key_packages:(vector int) temp_packages:(vector int) = db.files.index.Value;
 db.files.package.firstBlock workchain:int shard:long seqno:int unixtime:int lt:long = db.files.package.FirstBlock;
 db.files.package.value package_id:int key:Bool temp:Bool firstblocks:(vector db.files.package.firstBlock) deleted:Bool 
-                   = db.files.package.Value; 
+                   = db.files.package.Value;
+
+db.event.blockApplied block_id:tonNode.blockIdExt = db.Event;
+db.event.blockSigned block_id:tonNode.blockIdExt = db.Event;
+db.event.blockCandidateReceived block_id:tonNode.blockIdExt = db.Event;
 
 ---functions---
 
