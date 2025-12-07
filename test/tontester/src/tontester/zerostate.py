@@ -14,14 +14,29 @@ def _shard_json_repr(shard: int):
 
 
 @dataclass
+class NullConsensusConfig:
+    target_block_rate_ms: int = 1000
+
+
+@dataclass
+class SimplexConsensusConfig:
+    target_block_rate_ms: int = 1000
+    slots_per_leader_window: int = 4
+    first_block_timeout_ms: int = 1000
+    max_leader_window_desync: int = 2
+
+
+@dataclass
 class NetworkConfig:
     monitor_min_split: int = 0
     split: int = 0
     global_version: int = 11
     shard_validators: int = 1
     block_limit_mul: int = 1
-    mc_catchain_lifetime: int = 250
-    shard_catchain_lifetime: int = 250
+    mc_valgroup_lifetime: int = 250
+    mc_consensus: SimplexConsensusConfig | NullConsensusConfig | None = None
+    shard_valgroup_lifetime: int = 250
+    shard_consensus: SimplexConsensusConfig | NullConsensusConfig | None = None
 
 
 @dataclass
@@ -208,7 +223,7 @@ config.special!
 100 10 sg* 10 sg* 3/2 sg*/ 1/3 sg*/ 1/3 sg*/ config.fwd_prices!
 100 10 sg* 10 sg* 3/2 sg*/ 1/3 sg*/ 1/3 sg*/ config.mc_fwd_prices!
 // mc-cc-lifetime sh-cc-lifetime sh-val-lifetime sh-val-num mc-shuffle
-{mc_catchain_lifetime} {shard_catchain_lifetime} 1000 {shard_val} true config.catchain_params!
+{mc_valgroup_lifetime} {shard_valgroup_lifetime} 1000 {shard_val} true config.catchain_params!
 
 // round-candidates next-cand-delay-ms consensus-timeout-ms fast-attempts attempt-duration cc-max-deps max-block-size max-collated-size new-cc-ids
 // proto-version catchain-max-blocks-coeff
@@ -249,6 +264,9 @@ GR$100 1 500 config.complaint_prices!
 
 {validators}
 now dup 3600 + {mc_validators} config.validators!
+
+{new_consensus_config}
+config.new_consensus_params_all!
 
 {{
   =: data
@@ -299,6 +317,28 @@ def create_zerostate(
     for key in validator_keys:
         keys.append(f"B{{{key.public_key.key.hex()}}} 17 add-validator")
 
+    new_consensus_config = ""
+    for consensus_config in (config.mc_consensus, config.shard_consensus):
+        if isinstance(consensus_config, SimplexConsensusConfig):
+            params = " ".join(
+                map(
+                    str,
+                    [
+                        consensus_config.target_block_rate_ms,
+                        consensus_config.slots_per_leader_window,
+                        consensus_config.first_block_timeout_ms,
+                        consensus_config.max_leader_window_desync,
+                    ],
+                )
+            )
+            new_consensus_config += f"{params} make-simplex-params\n"
+        elif isinstance(consensus_config, NullConsensusConfig):
+            new_consensus_config += (
+                f"{consensus_config.target_block_rate_ms} make-null-consensus-params\n"
+            )
+        else:
+            new_consensus_config += "null\n"
+
     run_fift(
         install,
         _TEMPLATE.format(
@@ -309,8 +349,9 @@ def create_zerostate(
             block_limit_mul=config.block_limit_mul,
             validators="\n".join(keys),
             mc_validators=len(keys),
-            mc_catchain_lifetime=config.mc_catchain_lifetime,
-            shard_catchain_lifetime=config.shard_catchain_lifetime,
+            mc_valgroup_lifetime=config.mc_valgroup_lifetime,
+            shard_valgroup_lifetime=config.shard_valgroup_lifetime,
+            new_consensus_config=new_consensus_config,
         ),
         state_dir,
     )
