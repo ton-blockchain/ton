@@ -52,10 +52,23 @@ jobs:
           prompt: |
             This is PR #${{ github.event.pull_request.number }} for ${{ github.repository }}.
 
-            Review ONLY the changes introduced by this PR.
+            Review ONLY the changes introduced by the PR, so consider:
+               git log --oneline ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}
 
-            Diff range:
-              ${{ github.event.pull_request.base.sha }}...pr-${{ github.event.pull_request.number }}
+            ${{ github.event.pull_request.user.login == 'DanShaders' && 'Commits are supposed to be atomic, so review them one-by-one. Commit descriptions might contain some helpful context.' || '' }}
+
+            CI automatically compiles C++ code and builds, lints, and typechecks all Python code, so
+            disregard any issues that will be found by these checks (this includes presumed
+            compilation errors, wrong Python package/Git submodule versions, or issues that will
+            fail the build in any other way). Even though CI runs unit and integration tests, do not
+            disregard issues that will potentially be found by the tests, as this may help PR
+            author with debugging and test coverage is far from perfect.
+
+            Suggest any improvements, potential bugs, or issues.
+
+            Be concise and specific in your feedback. Do not summarize changes in any way unless the
+            issue is not localized to a single line/function and adding context will help
+            understanding the issue. if no issues are found, output only "No issues found."
 
             Pull request title and body:
             ----
