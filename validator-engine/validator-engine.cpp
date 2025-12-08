@@ -5609,10 +5609,9 @@ int main(int argc, char *argv[]) {
   p.add_option('\0', "parallel-validation", "parallel validation over different accounts", [&]() {
     acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_parallel_validation, true); });
   });
-  p.add_option(
-      '\0', "db-event-fifo", "path to FIFO pipe for publishing DB events", [&](td::Slice s) {
-        acts.push_back([&x, s = s.str()]() { td::actor::send_closure(x, &ValidatorEngine::set_db_event_fifo_path, s); });
-      });
+  p.add_option('\0', "db-event-fifo", "path to FIFO pipe for publishing DB events", [&](td::Slice s) {
+    acts.push_back([&x, s = s.str()]() { td::actor::send_closure(x, &ValidatorEngine::set_db_event_fifo_path, s); });
+  });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();
