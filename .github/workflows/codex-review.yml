@@ -34,34 +34,20 @@ jobs:
       final_message: ${{ steps.run_codex.outputs['final-message'] }}
 
     steps:
-      # 1. Checkout the trusted base commit
-      - name: Checkout base branch (trusted)
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          fetch-depth: 0
-          persist-credentials: false
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
 
-      # 2. Fetch PR head as a separate local branch, without checking it out
-      - name: Fetch PR head
+      - name: Pre-fetch base and head refs for the PR
         run: |
-          git fetch origin \
-            pull/${{ github.event.pull_request.number }}/head:pr-${{ github.event.pull_request.number }}
+          git fetch --no-tags origin \
+            ${{ github.event.pull_request.base.ref }} \
+            +refs/pull/${{ github.event.pull_request.number }}/head
 
-      # Optional diagnostics
-      - name: Show diff summary
-        run: |
-          git diff --stat \
-            ${{ github.event.pull_request.base.sha }}...pr-${{ github.event.pull_request.number }}
-
-      # 3. Run Codex safely
       - name: Run Codex
         id: run_codex
-        uses: openai/codex-action@02e7b2943818fbac9f077c3d1249a198ab358352
+        uses: openai/codex-action@02e7b2943818fbac9f077c3d1249a198ab358352 # v1.2
         with:
-          # IMPORTANT: this is safe only because:
-          # - workflow file lives in base repo (attacker cannot change it)
-          # - we do not run arbitrary PR code, only git commands
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt: |
             This is PR #${{ github.event.pull_request.number }} for ${{ github.repository }}.
