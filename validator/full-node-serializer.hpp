@@ -37,6 +37,7 @@ td::Result<td::BufferSlice> serialize_block_broadcast(const BlockBroadcast& broa
                                                       td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
 td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_Broadcast& obj, int max_decompressed_data_size, 
                                                        td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
+BlockBroadcast get_block_broadcast_without_data(const ton_api::tonNode_blockBroadcastCompressedV2& obj);
 
 td::Result<std::vector<BlockIdExt>> extract_prev_blocks_from_proof(td::Slice proof, const BlockIdExt& block_id);
 
@@ -57,55 +58,5 @@ td::Result<td::BufferSlice> serialize_block_candidate_broadcast(BlockIdExt block
 td::Status deserialize_block_candidate_broadcast(ton_api::tonNode_Broadcast& obj, BlockIdExt& block_id,
                                                  CatchainSeqno& cc_seqno, td::uint32& validator_set_hash,
                                                  td::BufferSlice& data, int max_decompressed_data_size);
-
-// Template method that asyncroniously obtains state and decompresses broadcast with it
-// Should be called only for broadcasts that require state for decompression
-template<typename ActorT>
-void process_broadcast_with_async_state(
-    ton_api::tonNode_Broadcast& query,
-    PublicKeyHash src,
-    td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-    td::actor::ActorId<ActorT> self_actor,
-    void (ActorT::*callback)(PublicKeyHash, ton_api::tonNode_blockBroadcastCompressedV2, td::Result<td::Ref<ShardState>>)
-) {
-  ton_api::downcast_call(
-    query,
-    td::overloaded(
-      [&](ton_api::tonNode_blockBroadcastCompressedV2 &f) {
-        auto R_prev_blocks = extract_prev_blocks_from_proof(f.proof_, create_block_id(f.id_));
-        if (R_prev_blocks.is_error()) {
-          LOG(DEBUG) << "Failed to extract prev block IDs from V2 broadcast: " << R_prev_blocks.move_as_error();
-          return;
-        }
-        auto prev_blocks = R_prev_blocks.move_as_ok();
-        
-        // Request previous block state(s) asynchronously
-        if (prev_blocks.size() == 1) {
-          LOG(DEBUG) << "Requesting state for single prev block " << prev_blocks[0].to_str();
-          td::actor::send_closure(validator_manager, &ValidatorManagerInterface::wait_block_state_short,
-                                 prev_blocks[0], 0, td::Timestamp::in(10.0), false,
-                                 [self_actor, src, callback, query_moved = std::move(f)](
-                                   td::Result<td::Ref<ShardState>> R) mutable {
-                                   td::actor::send_closure(self_actor, callback, src, std::move(query_moved), std::move(R));
-                                 });
-        } else {
-          CHECK(prev_blocks.size() == 2);
-          LOG(DEBUG) << "Requesting merged state for prev blocks " << prev_blocks[0].to_str() 
-                     << " and " << prev_blocks[1].to_str();
-          td::actor::send_closure(validator_manager, &ValidatorManagerInterface::wait_block_state_merge,
-                                 prev_blocks[0], prev_blocks[1], 0, td::Timestamp::in(10.0),
-                                 [self_actor, src, callback, query_moved = std::move(f)](
-                                   td::Result<td::Ref<ShardState>> R) mutable {
-                                   td::actor::send_closure(self_actor, callback, src, std::move(query_moved), std::move(R));
-                                 });
-        }
-      },
-      [&](auto &) {
-        // Other broadcast types don't need state
-        UNREACHABLE();
-      }
-    )
-  );
-}
 
 }  // namespace ton::validator::fullnode

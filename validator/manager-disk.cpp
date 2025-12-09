@@ -68,6 +68,28 @@ void ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broadcast, td::Pro
   UNREACHABLE();
 }
 
+void ValidatorManagerImpl::validate_block_broadcast_signatures(BlockBroadcast broadcast, td::Promise<td::Unit> promise) {
+  UNREACHABLE();
+}
+
+void ValidatorManagerImpl::wait_state_by_prev_blocks(BlockIdExt block_id, std::vector<BlockIdExt> prev_blocks,
+                                                     td::Promise<td::Ref<ShardState>> promise) {
+  if (prev_blocks.empty() || prev_blocks.size() > 2) {
+    promise.set_error(td::Status::Error("invalid prev blocks count for state request"));
+    return;
+  }
+
+  if (prev_blocks.size() == 1) {
+    LOG(DEBUG) << "Requesting state for single prev block " << prev_blocks[0].to_str() << " for " << block_id.to_str();
+    wait_block_state_short(prev_blocks[0], 0, td::Timestamp::in(10.0), false, std::move(promise));
+    return;
+  }
+
+  LOG(DEBUG) << "Requesting merged state for prev blocks " << prev_blocks[0].to_str() << " and "
+             << prev_blocks[1].to_str() << " for " << block_id.to_str();
+  wait_block_state_merge(prev_blocks[0], prev_blocks[1], 0, td::Timestamp::in(10.0), std::move(promise));
+}
+
 void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
   started_ = true;
 

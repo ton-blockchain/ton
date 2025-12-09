@@ -105,7 +105,6 @@ static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_b
                         std::move(proof)};
 }
 
-// Helper function to extract previous block IDs from proof
 td::Result<std::vector<BlockIdExt>> extract_prev_blocks_from_proof(td::Slice proof, const BlockIdExt& block_id) {
   TRY_RESULT(proof_root, vm::std_boc_deserialize(proof));
   block::gen::BlockProof::Record proof_rec;
@@ -126,15 +125,12 @@ td::Result<std::vector<BlockIdExt>> extract_prev_blocks_from_proof(td::Slice pro
   bool after_split;
   TRY_STATUS_PREFIX(block::unpack_block_prev_blk_try(header_root, block_id, prev_blocks, mc_blkid, after_split),
                     "failed to unpack previous block IDs from proof: ");
-  
   if (prev_blocks.empty()) {
     return td::Status::Error("no previous blocks found in proof");
   }
-  
   if (prev_blocks.size() > 2) {
     return td::Status::Error("invalid number of previous blocks in proof");
   }
-  
   return prev_blocks;
 }
 
@@ -168,6 +164,20 @@ td::Result<bool> need_state_for_decompression(ton_api::tonNode_DataFull& data_fu
     )
   );
   return result;
+}
+
+BlockBroadcast get_block_broadcast_without_data(const ton_api::tonNode_blockBroadcastCompressedV2& f) {
+  std::vector<BlockSignature> signatures;
+  signatures.reserve(f.signatures_.size());
+  for (auto& sig : f.signatures_) {
+    signatures.emplace_back(BlockSignature{sig->who_, sig->signature_.clone()});
+  }
+  return BlockBroadcast{create_block_id(f.id_),
+                        std::move(signatures),
+                        static_cast<UnixTime>(f.catchain_seqno_),
+                        static_cast<td::uint32>(f.validator_set_hash_),
+                        td::BufferSlice(),
+                        f.proof_.clone()};
 }
 
 static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_blockBroadcastCompressedV2& f,

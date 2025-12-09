@@ -235,6 +235,23 @@ void ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broadcast, td::Pro
       .release();
 }
 
+void ValidatorManagerImpl::validate_block_broadcast_signatures(BlockBroadcast broadcast,
+                                                               td::Promise<td::Unit> promise) {
+  if (!started_) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "node not started"));
+    return;
+  }
+  if (!need_monitor(broadcast.block_id.shard_full())) {
+    promise.set_error(td::Status::Error("not monitoring shard"));
+    return;
+  }
+  td::actor::create_actor<ValidateBroadcast>("broadcast-sigcheck", std::move(broadcast),
+                                             last_masterchain_block_handle_, last_masterchain_state_,
+                                             last_known_key_block_handle_, actor_id(this), td::Timestamp::in(2.0),
+                                             std::move(promise), true)
+      .release();
+}
+
 void ValidatorManagerImpl::validated_block_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno) {
   for (auto &[_, collator_node] : collator_nodes_) {
     if (collator_node.can_collate_shard(block_id.shard_full())) {
@@ -953,6 +970,24 @@ void ValidatorManagerImpl::wait_block_state_merge(BlockIdExt left_id, BlockIdExt
   td::actor::create_actor<WaitBlockStateMerge>("merge", left_id, right_id, priority, actor_id(this), timeout,
                                                std::move(promise))
       .release();
+}
+
+void ValidatorManagerImpl::wait_state_by_prev_blocks(BlockIdExt block_id, std::vector<BlockIdExt> prev_blocks,
+                                                     td::Promise<td::Ref<ShardState>> promise) {
+  if (prev_blocks.empty() || prev_blocks.size() > 2) {
+    promise.set_error(td::Status::Error("invalid prev blocks count for state request"));
+    return;
+  }
+
+  if (prev_blocks.size() == 1) {
+    LOG(DEBUG) << "Requesting state for single prev block " << prev_blocks[0].to_str() << " for " << block_id.to_str();
+    wait_block_state_short(prev_blocks[0], 0, td::Timestamp::in(10.0), false, std::move(promise));
+    return;
+  }
+
+  LOG(DEBUG) << "Requesting merged state for prev blocks " << prev_blocks[0].to_str() << " and "
+             << prev_blocks[1].to_str() << " for " << block_id.to_str();
+  wait_block_state_merge(prev_blocks[0], prev_blocks[1], 0, td::Timestamp::in(10.0), std::move(promise));
 }
 
 void ValidatorManagerImpl::wait_prev_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,

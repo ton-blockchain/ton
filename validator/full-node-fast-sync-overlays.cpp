@@ -24,6 +24,8 @@
 #include "tl/tl_json.h"
 #include "auto/tl/ton_api_json.h"
 #include "full-node-serializer.hpp"
+#include "manager.hpp"
+#include <memory>
 
 namespace ton::validator::fullnode {
 
@@ -36,22 +38,33 @@ void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonN
 }
 
 void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query) {
-  process_block_broadcast(src, query);
-}
-
-void FullNodeFastSyncOverlay::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
   auto R_requires_state = need_state_for_decompression(query);
   if (R_requires_state.is_error()) {
     LOG(DEBUG) << "Failed to check if state is required for broadcast: " << R_requires_state.move_as_error();
     return;
   }
-  
+
   if (R_requires_state.move_as_ok()) {
-    process_broadcast_with_async_state(query, src, validator_manager_, actor_id(this),
-                                       &FullNodeFastSyncOverlay::got_state_for_v2_broadcast);
+    auto block_wo_data = get_block_broadcast_without_data(query);
+    auto P = td::PromiseCreator::lambda(
+        [SelfId = actor_id(this), src, query = std::move(query)](td::Result<td::Unit> R) mutable {
+          if (R.is_error()) {
+            LOG(WARNING) << "Dropped V2 broadcast because of signatures validation error: " << R.move_as_error();
+            return;
+          }
+
+          td::actor::send_closure(SelfId, &FullNodeFastSyncOverlay::obtain_state_for_decompression, src,
+                                  std::move(query));
+        });
+    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::validate_block_broadcast_signatures,
+                            std::move(block_wo_data), std::move(P));
     return;
   }
-  
+
+  process_block_broadcast(src, query);
+}
+
+void FullNodeFastSyncOverlay::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
   auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size());
   if (B.is_error()) {
     LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
@@ -62,16 +75,31 @@ void FullNodeFastSyncOverlay::process_block_broadcast(PublicKeyHash src, ton_api
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok());
 }
 
-void FullNodeFastSyncOverlay::got_state_for_v2_broadcast(PublicKeyHash src,
-                                                         ton_api::tonNode_blockBroadcastCompressedV2 query,
-                                                         td::Result<td::Ref<ShardState>> R) {
-  if (R.is_error()) {
-    LOG(DEBUG) << "Failed to get state for V2 broadcast: " << R.move_as_error();
+void FullNodeFastSyncOverlay::obtain_state_for_decompression(PublicKeyHash src,
+                                                             ton_api::tonNode_blockBroadcastCompressedV2 query) {
+  auto id = create_block_id(query.id_);
+  auto R_prev = extract_prev_blocks_from_proof(query.proof_.as_slice(), id);
+  if (R_prev.is_error()) {
+    LOG(DEBUG) << "Failed to extract prev blocks for V2 broadcast: " << R_prev.move_as_error();
     return;
   }
-  
-  auto state = R.move_as_ok();
-  
+  auto prev_blocks = R_prev.move_as_ok();
+  auto P_state = td::PromiseCreator::lambda(
+      [SelfId = actor_id(this), src, query = std::move(query)](td::Result<td::Ref<ShardState>> R_state) mutable {
+        if (R_state.is_error()) {
+          LOG(DEBUG) << "Failed to get state for V2 broadcast: " << R_state.move_as_error();
+          return;
+        }
+        td::actor::send_closure(SelfId, &FullNodeFastSyncOverlay::process_block_broadcast_with_state, src,
+                                std::move(query), R_state.move_as_ok());
+      });
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::wait_state_by_prev_blocks, id,
+                          std::move(prev_blocks), std::move(P_state));
+}
+
+void FullNodeFastSyncOverlay::process_block_broadcast_with_state(PublicKeyHash src,
+                                                                 ton_api::tonNode_blockBroadcastCompressedV2 query,
+                                                                 td::Ref<ShardState> state) {
   auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), state->root_cell());
   if (B.is_error()) {
     LOG(DEBUG) << "Failed to deserialize V2 broadcast: " << B.move_as_error();
@@ -223,7 +251,6 @@ void FullNodeFastSyncOverlay::send_broadcast(BlockBroadcast broadcast) {
   }
   VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in fast sync overlay (with compression): "
                         << broadcast.block_id.to_str();
-  LOG(INFO) << "OLEG send_broadcast fast sync";
   auto B = serialize_block_broadcast(broadcast, true, StateUsage::DecompressOnly);
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();

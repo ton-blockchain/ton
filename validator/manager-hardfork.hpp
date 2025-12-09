@@ -110,6 +110,11 @@ class ValidatorManagerImpl : public ValidatorManager {
   void new_block_broadcast(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override {
     UNREACHABLE();
   }
+  void wait_state_by_prev_blocks(BlockIdExt block_id, std::vector<BlockIdExt> prev_blocks,
+                                 td::Promise<td::Ref<ShardState>> promise) override;
+  void validate_block_broadcast_signatures(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override {
+    UNREACHABLE();
+  }
 
   //void create_validate_block(BlockId block, td::BufferSlice data, td::Promise<Block> promise) = 0;
   void sync_complete(td::Promise<td::Unit> promise) override;

@@ -19,9 +19,11 @@
 #include "common/delay.h"
 #include "common/checksum.h"
 #include "full-node-serializer.hpp"
+#include "manager.hpp"
 #include "auto/tl/ton_api_json.h"
 #include "td/utils/JsonBuilder.h"
 #include "tl/tl_json.h"
+#include <memory>
 
 namespace ton::validator::fullnode {
 
@@ -181,7 +183,6 @@ void FullNodePrivateBlockOverlay::send_broadcast(BlockBroadcast broadcast) {
   }
   VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in private overlay"
                         << (enable_compression_ ? " (with compression)" : "") << ": " << broadcast.block_id.to_str();
-  LOG(INFO) << "OLEG send_broadcast private overlay compression: " << enable_compression_;
   auto B = serialize_block_broadcast(broadcast, enable_compression_);
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
@@ -331,8 +332,27 @@ void FullNodeCustomOverlay::process_block_broadcast(PublicKeyHash src, ton_api::
   }
   
   if (R_requires_state.move_as_ok()) {
-    process_broadcast_with_async_state(query, src, validator_manager_, actor_id(this),
-                                       &FullNodeCustomOverlay::got_state_for_v2_broadcast);
+    ton_api::downcast_call(
+        query, td::overloaded([&](ton_api::tonNode_blockBroadcastCompressedV2 &f) {
+          auto q = std::make_shared<ton_api::tonNode_blockBroadcastCompressedV2>(std::move(f));
+          auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), src, q](
+                                                  td::Result<td::Ref<ShardState>> R) mutable {
+            td::actor::send_closure(SelfId, &FullNodeCustomOverlay::got_state_for_v2_broadcast, src, std::move(*q),
+                                    std::move(R));
+          });
+          auto id = create_block_id(q->id_);
+          auto R_prev = extract_prev_blocks_from_proof(q->proof_.as_slice(), id);
+          if (R_prev.is_error()) {
+            LOG(DEBUG) << "Failed to extract prev blocks for V2 broadcast: " << R_prev.move_as_error();
+            return;
+          }
+          td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::wait_state_by_prev_blocks, id,
+                                  R_prev.move_as_ok(), std::move(P));
+        },
+                                [&](auto &) {
+                                  // Only V2 broadcast can require state
+                                  UNREACHABLE();
+                                }));
     return;
   }
   
@@ -457,7 +477,6 @@ void FullNodeCustomOverlay::send_broadcast(BlockBroadcast broadcast) {
   }
   VLOG(FULL_NODE_DEBUG) << "Sending block broadcast to custom overlay \"" << name_
                         << "\": " << broadcast.block_id.to_str();
-  LOG(INFO) << "OLEG send_broadcast custom overlay";
   auto B = serialize_block_broadcast(broadcast, true, StateUsage::DecompressOnly);
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();

@@ -21,7 +21,6 @@
 #include "auto/tl/ton_api.h"
 #include "full-node-shard.h"
 #include "td/actor/PromiseFuture.h"
-#include "td/utils/port/Poll.h"
 #include <set>
 
 namespace ton {
@@ -154,9 +153,9 @@ class FullNodeShardImpl : public FullNodeShard {
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query);
   void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
-  
-  void got_state_for_v2_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query,
-                                  td::Result<td::Ref<ShardState>> R);
+  void obtain_state_for_decompression(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query);
+  void process_block_broadcast_with_state(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query,
+                                          td::Ref<ShardState> state);
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_ihrMessageBroadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query);
