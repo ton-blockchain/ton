@@ -124,6 +124,13 @@ void run_check_external_message(Ref<ExtMessage> message, td::actor::ActorId<Vali
   ExtMessageQ::run_message(std::move(message), std::move(manager), std::move(promise));
 }
 
+td::actor::Task<td::Ref<ExtMessage>> run_check_external_message(Ref<ExtMessage> message,
+                                                                td::actor::ActorId<ValidatorManager> manager) {
+  auto [task, promise] = td::actor::StartedTask<td::Ref<ExtMessage>>::make_bridge();
+  run_check_external_message(std::move(message), std::move(manager), std::move(promise));
+  co_return co_await std::move(task);
+}
+
 td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data) {
   TRY_RESULT(res, IhrMessageQ::create_ihr_message(std::move(data)));
   return std::move(res);

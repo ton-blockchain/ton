@@ -20,6 +20,7 @@
 
 #include "interfaces/db.h"
 #include "interfaces/validator-manager.h"
+#include "td/actor/coro_utils.h"
 
 #include "validator.h"
 
@@ -82,6 +83,8 @@ td::Ref<BlockSignatureSet> create_signature_set(std::vector<BlockSignature> sig_
 
 void run_check_external_message(td::Ref<ExtMessage> message, td::actor::ActorId<ValidatorManager> manager,
                                 td::Promise<td::Ref<ExtMessage>> promise);
+td::actor::Task<td::Ref<ExtMessage>> run_check_external_message(Ref<ExtMessage> message,
+                                                                td::actor::ActorId<ValidatorManager> manager);
 
 void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                             td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
