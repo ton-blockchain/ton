@@ -246,29 +246,17 @@ void DownloadBlockNew::got_data(td::BufferSlice data) {
             return;
           }
           auto prev_blocks = R_prev_blocks.move_as_ok();
-          
-          // Request previous block state(s) asynchronously
-          if (prev_blocks.size() == 1) {
-            LOG(DEBUG) << "Requesting state for single prev block " << prev_blocks[0].to_str() << " to decompress block full";
-            td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::wait_block_state_short,
-                                   prev_blocks[0], 0, td::Timestamp::in(10.0), false,
-                                   [SelfId = actor_id(this), data_full = std::move(f)](
-                                     td::Result<td::Ref<ShardState>> R) mutable {
-                                     td::actor::send_closure(SelfId, &DownloadBlockNew::got_ready_to_deserialize,
-                                                            std::move(data_full), std::move(R));
-                                   });
-          } else {
-            CHECK(prev_blocks.size() == 2);
-            LOG(DEBUG) << "Requesting merged state for prev blocks " << prev_blocks[0].to_str() 
-                       << " and " << prev_blocks[1].to_str() << " to decompress block full";
-            td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::wait_block_state_merge,
-                                   prev_blocks[0], prev_blocks[1], 0, td::Timestamp::in(10.0),
-                                   [SelfId = actor_id(this), data_full = std::move(f)](
-                                     td::Result<td::Ref<ShardState>> R) mutable {
-                                     td::actor::send_closure(SelfId, &DownloadBlockNew::got_ready_to_deserialize,
-                                                            std::move(data_full), std::move(R));
-                                   });
-          }
+          auto P_state = td::PromiseCreator::lambda(
+              [SelfId = actor_id(this), data_full = std::move(f)](td::Result<td::Ref<ShardState>> R_state) mutable {
+                if (R_state.is_error()) {
+                  td::actor::send_closure(SelfId, &DownloadBlockNew::abort_query, R_state.move_as_error_prefix("failed to get state for block full decompression: "));
+                  return;
+                }
+                td::actor::send_closure(SelfId, &DownloadBlockNew::got_ready_to_deserialize, std::move(data_full),
+                                        R_state.move_as_ok());
+              });
+          td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::wait_state_by_prev_blocks, id,
+                                  std::move(prev_blocks), std::move(P_state));
         },
         [&](auto &) {
           UNREACHABLE();
@@ -283,14 +271,10 @@ void DownloadBlockNew::got_data(td::BufferSlice data) {
 }
 
 void DownloadBlockNew::got_ready_to_deserialize(tl_object_ptr<ton_api::tonNode_DataFull> data_full,
-                                                 td::Result<td::Ref<ShardState>> R) {
-  // Get state if provided
+                                                 td::Ref<ShardState> state) {
   td::Ref<vm::Cell> state_root;
-  if (R.is_error()) {
-    abort_query(R.move_as_error_prefix("failed to get state for block full decompression: "));
-    return;
-  } else if (R.ok().not_null()) {
-    state_root = R.move_as_ok()->root_cell();
+  if (state.not_null()) {
+    state_root = state->root_cell();
   }
 
   BlockIdExt id;
@@ -302,7 +286,7 @@ void DownloadBlockNew::got_ready_to_deserialize(tl_object_ptr<ton_api::tonNode_D
     abort_query(S.move_as_error_prefix("cannot deserialize block: "));
     return;
   }
-
+  
   if (!allow_partial_proof_ && is_link) {
     abort_query(td::Status::Error(ErrorCode::notready, "node doesn't have proof for this block"));
     return;
