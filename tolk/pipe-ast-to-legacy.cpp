@@ -2123,7 +2123,7 @@ static void convert_asm_body_to_AsmOp(FunctionPtr fun_ref, FunctionBodyAsm* asm_
     for (char c : ops) {
       if (c == '\n' || c == '\r') {
         if (!op.empty()) {
-          asm_ops.push_back(AsmOp::Parse(nullptr, op, cnt, width));
+          asm_ops.push_back(AsmOp::Parse(v_child, op, cnt, width));
           if (asm_ops.back().is_custom()) {
             cnt = width;
           }
@@ -2134,7 +2134,7 @@ static void convert_asm_body_to_AsmOp(FunctionPtr fun_ref, FunctionBodyAsm* asm_
       }
     }
     if (!op.empty()) {
-      asm_ops.push_back(AsmOp::Parse(nullptr, op, cnt, width));
+      asm_ops.push_back(AsmOp::Parse(v_child, op, cnt, width));
       if (asm_ops.back().is_custom()) {
         cnt = width;
       }

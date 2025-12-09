@@ -1978,7 +1978,6 @@ fun main() {
 @fif_codegen
 """
   demo106() PROC:<{             //  s
-                                //  lazyS
     PUSHNULL                    //  lazyS x
     SWAP                        //  x lazyS
     8 LDU
@@ -1999,7 +1998,6 @@ fun main() {
 @fif_codegen
 """
   demo113() PROC:<{
-  //  lazyS
     x{01} SDBEGINSQ
     IF:<{
       8 PLDI
@@ -2157,7 +2155,6 @@ fun main() {
 @fif_codegen
 """
   demo404() PROC:<{
-    //  lazyS
     x{12345678} SDBEGINSQ
     IF:<{
       32 PLDI
@@ -2195,7 +2192,6 @@ fun main() {
 @fif_codegen
 """
   demo410() PROC:<{
-    // lazyS
     x{01} SDBEGINSQ
     IFJMP:<{
       ...
@@ -2221,7 +2217,6 @@ fun main() {
 @fif_codegen
 """
   demo411() PROC:<{             //  s
-                                //  lazyS
     1 PLDU                      //  '10
     IFJMP:<{                    //
       DUMPSTK                   //

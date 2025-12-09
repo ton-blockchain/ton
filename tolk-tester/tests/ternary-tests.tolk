@@ -322,21 +322,20 @@ fun main() {}
 
 @fif_codegen
 """
-  test201() PROC:<{
-    // '2
+  test201() PROC:<{     // x
   }>
 """
 
 @fif_codegen
 """
-  test202() PROC:<{
+  test202() PROC:<{     // x
   }>
 """
 
 @fif_codegen
 """
   test203() PROC:<{
-    200 PUSHINT
+    200 PUSHINT         // '2
   }>
 """
 

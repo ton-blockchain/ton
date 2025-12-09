@@ -38,8 +38,6 @@ namespace tolk {
  * 
  */
 
-typedef int const_idx_t;
-
 struct TmpVar {
   var_idx_t ir_idx;   // every var in IR represents 1 stack slot
   TypePtr v_type;     // get_width_on_stack() is 1
@@ -53,9 +51,6 @@ struct TmpVar {
     , v_type(v_type)
     , name(std::move(name)) {
   }
-
-  void show_as_stack_comment(std::ostream& os) const;
-  void show(std::ostream& os) const;
 };
 
 struct VarDescr {
@@ -226,38 +221,6 @@ inline std::ostream& operator<<(std::ostream& os, const VarDescrList& values) {
 
 struct CodeBlob;
 
-template <typename T>
-class ListIterator {
-  T* ptr;
-
- public:
-  ListIterator() : ptr(nullptr) {
-  }
-  explicit ListIterator(T* _ptr) : ptr(_ptr) {
-  }
-  ListIterator& operator++() {
-    ptr = ptr->next.get();
-    return *this;
-  }
-  ListIterator operator++(int) {
-    T* z = ptr;
-    ptr = ptr->next.get();
-    return ListIterator{z};
-  }
-  T& operator*() const {
-    return *ptr;
-  }
-  T* operator->() const {
-    return ptr;
-  }
-  bool operator==(const ListIterator& y) const {
-    return ptr == y.ptr;
-  }
-  bool operator!=(const ListIterator& y) const {
-    return ptr != y.ptr;
-  }
-};
-
 struct Stack;
 
 struct Op {
@@ -373,24 +336,6 @@ struct Op {
   }
 };
 
-inline ListIterator<Op> begin(const std::unique_ptr<Op>& op_list) {
-  return ListIterator<Op>{op_list.get()};
-}
-
-inline ListIterator<Op> end(const std::unique_ptr<Op>& op_list) {
-  return ListIterator<Op>{};
-}
-
-inline ListIterator<const Op> begin(const Op* op_list) {
-  return ListIterator<const Op>{op_list};
-}
-
-inline ListIterator<const Op> end(const Op* op_list) {
-  return ListIterator<const Op>{};
-}
-
-struct AsmOpList;
-
 struct FunctionBodyCode {
   CodeBlob* code = nullptr;
   void set_code(CodeBlob* code);
@@ -402,16 +347,10 @@ struct FunctionBodyCode {
  * 
  */
 
-typedef std::vector<var_idx_t> StackLayout;
-typedef std::pair<var_idx_t, const_idx_t> var_const_idx_t;
-typedef std::vector<var_const_idx_t> StackLayoutExt;
-constexpr const_idx_t not_const = -1;
-
 struct AsmOp {
-  enum Type { a_nop, a_comment, a_xchg, a_push, a_pop, a_const, a_custom };
+  enum Type { a_nop, a_xchg, a_push, a_pop, a_const, a_comment, a_custom };
   Type t;
   AnyV origin;
-  int indent{0};
   int a, b;
   bool gconst{false};
   std::string op;
@@ -436,21 +375,21 @@ struct AsmOp {
     compute_gconst();
   }
   int out(std::ostream& os) const;
-  int out_indented(std::ostream& os, bool print_src_line_above) const;
+  void output_to_fif(std::ostream& os, int indent, bool print_comment_slashes) const;
   void compute_gconst() {
     gconst = (is_custom() && (op == "PUSHNULL" || op == "NEWC" || op == "NEWB" || op == "TRUE" || op == "FALSE" || op == "NOW"));
   }
   bool is_nop() const {
     return t == a_nop;
   }
-  bool is_comment() const {
-    return t == a_comment;
-  }
   bool is_custom() const {
     return t == a_custom;
   }
   bool is_very_custom() const {
     return is_custom() && a >= 255;
+  }
+  bool is_comment() const {
+    return t == a_comment;
   }
   bool is_push() const {
     return t == a_push;
@@ -552,85 +491,36 @@ struct AsmOp {
     return AsmOp(a_const, origin, 0, 1, std::move(push_op));
   }
   static AsmOp Const(AnyV origin, int arg, const std::string& push_op);
-  static AsmOp Comment(AnyV origin, const std::string& comment) {
-    return AsmOp(a_comment, origin, std::string{"// "} + comment);
+  static AsmOp Custom(AnyV origin, std::string custom_op) {
+    return AsmOp(a_custom, origin, 255, 255, std::move(custom_op));
   }
-  static AsmOp Custom(AnyV origin, const std::string& custom_op) {
-    return AsmOp(a_custom, origin, 255, 255, custom_op);
+  static AsmOp Custom(AnyV origin, std::string custom_op, int args, int retv = 1) {
+    return AsmOp(a_custom, origin, args, retv, std::move(custom_op));
   }
   static AsmOp Parse(AnyV origin, const std::string& custom_op);
-  static AsmOp Custom(AnyV origin, const std::string& custom_op, int args, int retv = 1) {
-    return AsmOp(a_custom, origin, args, retv, custom_op);
-  }
   static AsmOp Parse(AnyV origin, std::string custom_op, int args, int retv = 1);
   static AsmOp Tuple(AnyV origin, int a);
   static AsmOp UnTuple(AnyV origin, int a);
+  static AsmOp Comment(AnyV origin, std::string comment) {
+    return AsmOp(a_comment, origin, 255, 255, std::move(comment));
+  }
 };
-
-inline std::ostream& operator<<(std::ostream& os, const AsmOp& op) {
-  op.out(os);
-  return os;
-}
 
 std::ostream& operator<<(std::ostream& os, AsmOp::SReg stack_reg);
 
 struct AsmOpList {
   std::vector<AsmOp> list_;
-  int indent_{0};
-  const std::vector<TmpVar>* var_names_{nullptr};
-  std::vector<td::RefInt256> constants_;
   bool retalt_{false};
   bool retalt_inserted_{false};
-  void out(std::ostream& os, int mode = 0) const;
-  AsmOpList(int indent = 0, const std::vector<TmpVar>* var_names = nullptr) : indent_(indent), var_names_(var_names) {
-  }
-  AsmOpList& operator<<(AsmOp&& op) {
-    list_.emplace_back(op);
-    adjust_last();
-    return *this;
-  }
-  const_idx_t register_const(td::RefInt256 new_const);
-  td::RefInt256 get_const(const_idx_t idx);
-  void show_var_ext(std::ostream& os, std::pair<var_idx_t, const_idx_t> idx_pair) const;
-  void adjust_last() {
-    if (list_.back().is_nop()) {
-      list_.pop_back();
-    } else {
-      list_.back().indent = indent_;
+  void operator<<(AsmOp&& op) {
+    if (!op.is_nop()) {
+      list_.emplace_back(op);
     }
-  }
-  void indent() {
-    ++indent_;
-  }
-  void undent() {
-    --indent_;
   }
   void insert(size_t pos, AnyV origin, std::string str) {
-    insert(pos, AsmOp(AsmOp::a_custom, origin, 255, 255, std::move(str)));
-  }
-  void insert(size_t pos, const AsmOp& op) {
-    auto ip = list_.begin() + pos;
-    ip = list_.insert(ip, op);
-    ip->indent = (ip == list_.begin()) ? indent_ : (ip - 1)->indent;
-  }
-  void indent_all() {
-    for (auto &op : list_) {
-      ++op.indent;
-    }
+    list_.insert(list_.begin() + pos, AsmOp::Custom(origin, std::move(str)));
   }
 };
-
-struct AsmOpCons {
-  std::unique_ptr<AsmOp> car;
-  std::unique_ptr<AsmOpCons> cdr;
-  AsmOpCons(std::unique_ptr<AsmOp> head, std::unique_ptr<AsmOpCons> tail) : car(std::move(head)), cdr(std::move(tail)) {
-  }
-  static std::unique_ptr<AsmOpCons> cons(std::unique_ptr<AsmOp> head, std::unique_ptr<AsmOpCons> tail) {
-    return std::make_unique<AsmOpCons>(std::move(head), std::move(tail));
-  }
-};
-
-using AsmOpConsList = std::unique_ptr<AsmOpCons>;
 
 int is_pos_pow2(td::RefInt256 x);
 int is_neg_pow2(td::RefInt256 x);
@@ -803,34 +693,24 @@ bool apply_op(StackTransform& trans, const AsmOp& op);
  */
 
 struct Optimizer {
-  static constexpr int optimize_depth = 30;
-  AsmOpConsList code_;
-  int l_{0}, l2_{0}, p_, pb_, q_, indent_;
-  bool debug_{false};
-  std::unique_ptr<AsmOp> op_[optimize_depth], oq_[optimize_depth];
-  AsmOpCons* op_cons_[optimize_depth];
-  int offs_[optimize_depth];
+  static constexpr int optimize_depth = 20;
+  std::vector<AsmOp> asm_code;
+  int start_offset = 0;
+  const AsmOp* op_[optimize_depth]{};
+  AsmOp oq_[optimize_depth]{};
+  int l_{0}, l2_{0}, p_{0}, pb_{0}, q_{0};
   StackTransform tr_[optimize_depth];
   int mode_{0};
-  Optimizer() {
+
+  Optimizer(std::vector<AsmOp>&& asm_code, int start_offset, int mode)
+    : asm_code(std::move(asm_code)), start_offset(start_offset), mode_(mode) {
+    unpack();
   }
-  Optimizer(bool debug, int mode = 0) : debug_(debug), mode_(mode) {
-  }
-  Optimizer(AsmOpConsList code, bool debug = false, int mode = 0) : Optimizer(debug, mode) {
-    set_code(std::move(code));
-  }
-  void set_code(AsmOpConsList code_);
   void unpack();
-  void pack();
   void apply();
   bool find_at_least(int pb);
   bool find();
-  bool optimize();
-  bool compute_stack_transforms();
-  bool show_stack_transforms() const;
-  void show_head() const;
-  void show_left() const;
-  void show_right() const;
+  void compute_stack_transforms();
   bool find_const_op(int* op_idx, int cst);
   bool is_push_const(int* i, int* c) const;
   bool rewrite_push_const(int i, int c);
@@ -915,62 +795,56 @@ struct Optimizer {
   bool detect_rewrite_PUSHREF_CTOS();
   bool detect_rewrite_xxx_NOT();
   bool replace_BOOLNOT_to_NOT();
-
-  AsmOpConsList extract_code();
 };
 
-AsmOpConsList optimize_code_head(AsmOpConsList op_list, int mode = 0);
-AsmOpConsList optimize_code(AsmOpConsList op_list, int mode);
-void optimize_code(AsmOpList& ops);
+std::vector<AsmOp> optimize_asm_code(std::vector<AsmOp>&& asm_code);
+
+typedef int const_idx_t;
+
+struct StackItemInfo {
+  var_idx_t var_idx = 0;
+  const_idx_t const_idx = -1;
+
+  StackItemInfo() = default;
+  StackItemInfo(var_idx_t var_idx, const_idx_t const_idx)
+    : var_idx(var_idx), const_idx(const_idx) {}
+  bool operator==(const StackItemInfo& rhs) const = default;
+};
+typedef std::vector<var_idx_t> StackLayoutVars;
 
 struct Stack {
-  StackLayoutExt s;
+  std::vector<StackItemInfo> s;
   AsmOpList& o;
-  enum {
-    _StackComments = 1, _LineComments = 2, _DisableOut = 128, _Shown = 256,
-    _InlineFunc = 512, _NeedRetAlt = 1024, _InlineAny = 2048,
-    _ModeSave = _InlineFunc | _NeedRetAlt | _InlineAny,
-    _Garbage = -0x10000
-  };
+  std::vector<td::RefInt256>& unique_constants;
+  const std::vector<TmpVar>& named_vars;
+  enum { _DisableOut = 128, _InsideLet = 256, _InlineFunc = 512, _InlineAny = 1024, _NeedRetAlt = 2048 };
   int mode;
-  Stack(AsmOpList& _o, int _mode) : o(_o), mode(_mode) {
-  }
-  Stack(AsmOpList& _o, const StackLayoutExt& _s, int _mode) : s(_s), o(_o), mode(_mode) {
-  }
-  Stack(AsmOpList& _o, StackLayoutExt&& _s, int _mode) : s(std::move(_s)), o(_o), mode(_mode) {
+  Stack(AsmOpList& _o, std::vector<td::RefInt256>& constants, const std::vector<TmpVar>& named_vars, int _mode)
+    : o(_o), unique_constants(constants), named_vars(named_vars), mode(_mode) {
   }
   int depth() const {
     return (int)s.size();
   }
-  var_idx_t operator[](int i) const {
-    validate(i);
-    return s[depth() - i - 1].first;
-  }
-  var_const_idx_t& at(int i) {
+  StackItemInfo& at(int i) {
     validate(i);
     return s[depth() - i - 1];
   }
-  var_const_idx_t at(int i) const {
+  StackItemInfo get(int i) const {
     validate(i);
     return s[depth() - i - 1];
-  }
-  var_const_idx_t get(int i) const {
-    return at(i);
-  }
-  bool output_disabled() const {
-    return mode & _DisableOut;
   }
   bool output_enabled() const {
-    return !output_disabled();
+    return !(mode & _DisableOut);
   }
   void disable_output() {
     mode |= _DisableOut;
   }
-  StackLayout vars() const;
-  int find(var_idx_t var, int from = 0) const;
-  int find(var_idx_t var, int from, int to) const;
-  int find_const(const_idx_t cst, int from = 0) const;
+  StackLayoutVars vars() const;
+  int find(var_idx_t var_idx, int from = 0) const;
+  int find(var_idx_t var_idx, int from, int to) const;
+  int find_const(const_idx_t const_idx, int from = 0) const;
   int find_outside(var_idx_t var, int from, int to) const;
+  const_idx_t register_const(td::RefInt256 new_const);
   void forget_const();
   void validate(int i) const {
     if (i > 255) {
@@ -978,55 +852,21 @@ struct Stack {
     }
     tolk_assert(i >= 0 && i < depth() && "invalid stack reference");
   }
-  void modified() {
-    mode &= ~_Shown;
-  }
   void issue_pop(AnyV origin, int i);
   void issue_push(AnyV origin, int i);
   void issue_xchg(AnyV origin, int i, int j);
-  int drop_vars_except(AnyV origin, const VarDescrList& var_info, int excl_var = 0x80000000);
-  void forget_var(var_idx_t idx);
-  void push_new_var(var_idx_t idx);
-  void push_new_const(var_idx_t idx, const_idx_t cidx);
+  void drop_vars_except(AnyV origin, const VarDescrList& var_info);
+  void push_new_var(var_idx_t var_idx);
+  void push_new_const(var_idx_t var_idx, const_idx_t const_idx);
   void assign_var(var_idx_t new_idx, var_idx_t old_idx);
   void do_copy_var(AnyV origin, var_idx_t new_idx, var_idx_t old_idx);
-  void enforce_state(AnyV origin, const StackLayout& req_stack);
-  void rearrange_top(AnyV origin, const StackLayout& top, std::vector<bool> last);
-  void rearrange_top(AnyV origin, var_idx_t top, bool last);
+  void enforce_state(AnyV origin, const StackLayoutVars& req_stack);
+  void rearrange_top(AnyV origin, const StackLayoutVars& top, std::vector<bool> last);
+  void rearrange_top(AnyV origin, var_idx_t top_var_idx, bool last);
   void merge_const(const Stack& req_stack);
   void merge_state(AnyV origin, const Stack& req_stack);
-  void show();
-  void opt_show() {
-    if ((mode & (_StackComments | _Shown)) == _StackComments) {
-      show();
-    }
-  }
-  bool operator==(const Stack& y) const & {
-    return s == y.s;
-  }
-  void apply_wrappers(AnyV origin, int callxargs_count) {
-    int pos0 = (mode & _StackComments && !o.list_.empty() && o.list_[0].is_comment()) ? 1 : 0;
-    bool is_inline = mode & _InlineFunc;
-    if (o.retalt_inserted_) {
-      o.insert(pos0, origin, "SAMEALTSAVE");
-      o.insert(pos0, origin, "c2 SAVE");
-    }
-    if (callxargs_count != -1 || (is_inline && o.retalt_)) {
-      o.indent_all();
-      o.insert(pos0, origin, "CONT:<{");
-      o << AsmOp::Custom(origin, "}>");
-      if (callxargs_count != -1) {
-        if (callxargs_count <= 15) {
-          o << AsmOp::Custom(origin, PSTRING() << callxargs_count << " -1 CALLXARGS");
-        } else {
-          tolk_assert(callxargs_count <= 254);
-          o << AsmOp::Custom(origin, PSTRING() << callxargs_count << " PUSHINT -1 PUSHINT CALLXVARARGS");
-        }
-      } else {
-        o << AsmOp::Custom(origin, "EXECUTE");
-      }
-    }
-  }
+  void save_stack_comment(AnyV origin) const;
+  void apply_wrappers_if_retalt(AnyV origin, int callxargs_count);
 };
 
 /*
@@ -1136,28 +976,11 @@ struct CodeBlob {
   void prune_unreachable_code();
   void fwd_analyze();
   void mark_noreturn();
-  void generate_code(std::ostream& os, int mode = 0, int indent = 0) const;
+
+  std::vector<AsmOp> generate_asm_code(int mode) const;
 
   static std::string fift_name(FunctionPtr fun_ref);
   static std::string fift_name(GlobalVarPtr var_ref);
 };
 
-// defined in builtins.cpp
-AsmOp exec_arg_op(AnyV origin, std::string op, long long arg, int args, int retv = 1);
-AsmOp exec_arg_op(AnyV origin, std::string op, td::RefInt256 arg, int args, int retv = 1);
-AsmOp exec_arg2_op(AnyV origin, std::string op, long long imm1, long long imm2, int args, int retv = 1);
-AsmOp push_const(AnyV origin, td::RefInt256 x);
-
-
-
-/*
- *
- *   OUTPUT CODE GENERATOR
- *
- */
-
-int tolk_proceed(const std::string &entrypoint_filename);
-
 }  // namespace tolk
-
-

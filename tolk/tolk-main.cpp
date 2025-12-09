@@ -23,7 +23,6 @@
     exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 */
-#include "tolk.h"
 #include "tolk-version.h"
 #include "compiler-state.h"
 #include "td/utils/port/path.h"

@@ -405,7 +405,6 @@ fun main(){
 @fif_codegen
 """
   testCodegenIndexPostfix1() PROC:<{   //  x.0 x.1
-    //  ab.1 ab.0
     SWAP	//  ab.0 ab.1
   }>
 """

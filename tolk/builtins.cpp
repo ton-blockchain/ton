@@ -397,29 +397,19 @@ bool VarDescr::always_neq(const VarDescr& other) const {
          (always_odd() && other.always_even());
 }
 
-AsmOp exec_op(AnyV origin, std::string op) {
-  return AsmOp::Custom(origin, op);
-}
-
-AsmOp exec_op(AnyV origin, std::string op, int args, int retv = 1) {
+static AsmOp exec_op(AnyV origin, std::string op, int args, int retv = 1) {
   return AsmOp::Custom(origin, op, args, retv);
 }
 
-AsmOp exec_arg_op(AnyV origin, std::string op, long long arg, int args, int retv) {
+static AsmOp exec_arg_op(AnyV origin, std::string op, long long arg, int args, int retv = 1) {
   std::ostringstream os;
   os << arg << ' ' << op;
   return AsmOp::Custom(origin, os.str(), args, retv);
 }
 
-AsmOp exec_arg_op(AnyV origin, std::string op, td::RefInt256 arg, int args, int retv) {
+static AsmOp exec_arg_op(AnyV origin, std::string op, td::RefInt256 arg, int args, int retv = 1) {
   std::ostringstream os;
   os << arg << ' ' << op;
-  return AsmOp::Custom(origin, os.str(), args, retv);
-}
-
-AsmOp exec_arg2_op(AnyV origin, std::string op, long long imm1, long long imm2, int args, int retv) {
-  std::ostringstream os;
-  os << imm1 << ' ' << imm2 << ' ' << op;
   return AsmOp::Custom(origin, os.str(), args, retv);
 }
 

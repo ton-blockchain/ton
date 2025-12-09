@@ -134,8 +134,20 @@ public:
   const SrcFile* get_src_file() const;
   std::string stringify_start_location(bool output_char_no) const;
 
-  void output_first_line_to_fif(std::ostream& os, int indent) const;
   void output_underlined(std::ostream& os) const;
+
+
+  struct DecodedRange {
+    int file_id;
+    int start_line_no;
+    int start_char_no;
+    int end_line_no;
+    int end_char_no;
+    std::string_view start_line_str;
+    std::string_view end_line_str;
+    std::string_view text_inside;
+  };
+  DecodedRange decode_offsets() const;
 };
 
 }  // namespace tolk

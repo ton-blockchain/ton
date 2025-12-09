@@ -242,7 +242,6 @@ fun main() {
 @fif_codegen
 """
   test5() PROC:<{
-    // s
     3 PLDI
     DUP
     -2 LESSINT

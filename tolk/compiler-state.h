@@ -124,4 +124,6 @@ struct CompilerState {
 
 extern CompilerState G;
 
+int tolk_proceed(const std::string &entrypoint_filename);
+
 }  // namespace tolk

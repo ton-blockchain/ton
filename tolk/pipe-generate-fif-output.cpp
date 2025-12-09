@@ -39,8 +39,119 @@ void FunctionBodyAsm::set_code(std::vector<AsmOp>&& code) {
   this->ops = std::move(code);
 }
 
+// If "print line comments" is true in settings, every asm instruction is preceded by an original line from Tolk sources.
+// This helper prints the first line of SrcRange and tracks last line printed to avoid duplicates.
+struct LineCommentsOutput {
+  int last_start_line_no = 0;
+  int last_end_line_no = 0;
 
-static void generate_output_func(FunctionPtr fun_ref) {
+  static void output_line(std::ostream& os, int indent, std::string_view line_str, int line_no, bool dots = false) {
+    // trim some characters from start and end to see `else if (x)` not `} else if (x) {`
+    int b = 0, e = static_cast<int>(line_str.size() - 1);
+    while (std::isspace(line_str[b]) || line_str[b] == '}') {
+      if (b < e) b++;
+      else break;
+    }
+    while (std::isspace(line_str[e]) || line_str[e] == '{' || line_str[e] == ';' || line_str[e] == ',') {
+      if (e > b) e--;
+      else break;
+    }
+
+    if (b < e) {
+      for (int i = 0; i < indent * 2; ++i) {
+        os << ' ';
+      }
+      os << "// " << (dots ? "..." : "") << line_no << ": " << line_str.substr(b, e - b + 1) << std::endl;
+    }
+  }
+
+  void output_first_line(std::ostream& os, int indent, SrcRange range) {
+    SrcRange::DecodedRange d = range.decode_offsets();
+
+    bool just_printed_start_line = false;
+    if (d.start_line_no != last_start_line_no) {
+      output_line(os, indent, d.start_line_str, d.start_line_no);
+      just_printed_start_line = true;
+    }
+    last_start_line_no = d.start_line_no;
+    last_end_line_no = std::max(last_end_line_no, d.start_line_no);
+
+    if (d.end_line_no > last_end_line_no) {
+      std::string_view end_text = d.end_line_str.substr(0, d.end_char_no - 1);
+      output_line(os, indent, end_text, d.end_line_no, just_printed_start_line);
+    }
+    last_end_line_no = std::max(last_end_line_no, d.end_line_no);
+  }
+};
+
+static void output_asm_code_for_fun(std::ostream& os, FunctionPtr fun_ref, std::vector<AsmOp>&& asm_code, bool print_stack_comments, bool print_line_comments) {
+  tolk_assert(!asm_code.empty());
+  const AsmOp& enter_comment = asm_code.front();    // a comment with stack layout when entering a function
+  tolk_assert(enter_comment.is_comment());
+
+  const char* modifier = "PROC";
+  if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif) {
+    modifier = "PROCINLINE";
+  } else if (fun_ref->inline_mode == FunctionInlineMode::inlineRef) {
+    modifier = "PROCREF";
+  }
+  if (print_line_comments) {
+    os << "  // " << fun_ref->ident_anchor->range.stringify_start_location(false) << std::endl;
+  }
+  std::string fun_fift_name = CodeBlob::fift_name(fun_ref);
+  os << "  " << fun_fift_name << " " << modifier << ":<{";
+  if (print_stack_comments) {
+    size_t len = 2 + fun_fift_name.size() + 1 + std::strlen(modifier) + 3;
+    while (len < 28) {      // align "// stack state"
+      os << ' ';
+      len++;
+    }
+    os << "\t// " << enter_comment.op;
+  }
+  os << std::endl;
+
+  int len = static_cast<int>(asm_code.size());
+  int indent = 2;
+  LineCommentsOutput line_output;
+
+  for (int i = 0; i < len; ++i) {
+    const AsmOp& op = asm_code[i];
+    if (op.is_comment()) {
+      continue;
+    }
+
+    tolk_assert(op.origin);
+    SrcRange range = op.origin->range;
+    // it's `}>ELSE<{` or similar, not actually an asm instruction
+    bool need_line_comment = range.is_valid() && !op.op.starts_with("}>");
+
+    if (need_line_comment && print_line_comments) {
+      line_output.output_first_line(os, indent, range);
+    }
+
+    // there may be several consecutive stack comments reflecting permutations, e.g.
+    // [ "10 PUSHINT", "// '1=10", "// a=10", "// b=10" ]
+    // take the last one
+    const AsmOp* fwd_comment_op = nullptr;
+    for (int j = i + 1; j < len && asm_code[j].is_comment(); ++j) {
+      fwd_comment_op = &asm_code[j];
+    }
+
+    bool show_comment = print_stack_comments && fwd_comment_op;
+    indent -= op.op.starts_with("}>");
+    op.output_to_fif(os, indent, show_comment);
+    indent += op.op.ends_with("<{");
+
+    if (show_comment) {   // leading slashes already printed with proper indentation
+      os << fwd_comment_op->op;
+    }
+    os << std::endl;
+  }
+  tolk_assert(indent == 2);
+  os << "  " << "}>\n";
+}
+
+static void generate_output_func(std::ostream& os, FunctionPtr fun_ref) {
   tolk_assert(fun_ref->is_code_function());
   if (G.is_verbosity(2)) {
     std::cerr << "\n\n=========================\nfunction " << fun_ref->name << " : " << fun_ref->inferred_return_type->as_human_readable() << std::endl;
@@ -79,39 +190,26 @@ static void generate_output_func(FunctionPtr fun_ref) {
   if (G.is_verbosity(2)) {
     std::cerr << "\n---------- resulting code for " << fun_ref->name << " -------------\n";
   }
-  const char* modifier = "";
-  if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif) {
-    modifier = "INLINE";
-  } else if (fun_ref->inline_mode == FunctionInlineMode::inlineRef) {
-    modifier = "REF";
-  }
-  if (G.settings.tolk_src_as_line_comments) {
-    std::cout << "  // " << fun_ref->ident_anchor->range.stringify_start_location(false) << std::endl;
-  }
-  std::cout << "  " << CodeBlob::fift_name(fun_ref) << " PROC" << modifier << ":<{";
   int mode = 0;
-  if (G.settings.stack_layout_comments) {
-    mode |= Stack::_StackComments;
-    size_t len = 2 + fun_ref->name.size() + 5 + std::strlen(modifier) + 3;
-    while (len < 28) {      // a bit weird, but okay for now:
-      std::cout << ' ';     // insert space after "xxx() PROC" before `// stack state`
-      len++;                // (the first AsmOp-comment that will be code generated)
-    }                       // space is the same as used to align comments in asmops.cpp
-    std::cout << '\t';
-  } else {
-    std::cout << std::endl;
-  }
-  if (G.settings.tolk_src_as_line_comments) {
-    mode |= Stack::_LineComments;
-  }
   if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif && code->ops->noreturn()) {
     mode |= Stack::_InlineFunc;
   }
   if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif || fun_ref->inline_mode == FunctionInlineMode::inlineRef) {
     mode |= Stack::_InlineAny;
   }
-  code->generate_code(std::cout, mode, 2);
-  std::cout << "  " << "}>\n";
+
+  std::vector<AsmOp> asm_code = code->generate_asm_code(mode);
+  if (G.settings.optimization_level >= 2) {
+    asm_code = optimize_asm_code(std::move(asm_code));
+  }
+  output_asm_code_for_fun(
+    os,
+    fun_ref,
+    std::move(asm_code),
+    G.settings.stack_layout_comments,
+    G.settings.tolk_src_as_line_comments
+  );
+
   if (G.is_verbosity(2)) {
     std::cerr << "--------------\n";
   }
@@ -184,7 +282,7 @@ void pipeline_generate_fif_output_to_std_cout() {
     if (fun_ref->is_asm_function() || !fun_ref->does_need_codegen()) {
       continue;
     }
-    generate_output_func(fun_ref);
+    generate_output_func(std::cout, fun_ref);
   }
 
   std::cout << "}END>c\n";

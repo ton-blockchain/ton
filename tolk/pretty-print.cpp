@@ -233,20 +233,12 @@ std::string debug_print(const AsmOp* op) {
 }
 
 std::string debug_print(const AsmOpList* op_list) {
-  int n_stmt = 0, n_comments = 0;
+  int n_stmt = 0;
   for (const AsmOp& cur : op_list->list_) {
-    if (cur.is_comment()) {
-      n_comments++;
-    } else {
-      n_stmt++;
-    }
+    n_stmt += !cur.is_comment();
   }
 
-  std::ostringstream os;
-
-  os << "n_stmt=" << n_stmt << ", "
-     << "n_comments=" << n_comments;
-  return os.str();
+  return "n_stmt=" + std::to_string(n_stmt);
 }
 
 std::string debug_print(const Stack* stack) {
@@ -256,10 +248,10 @@ std::string debug_print(const Stack* stack) {
     os << "(empty) ";
   } else {
     os << stack->s.size() << ": ";
-    for (const auto &[var_idx, const_idx] : stack->s) {
-      if (var_idx != -1) {
-        const TmpVar& v = stack->o.var_names_->at(var_idx);
-        os << '\'' << v.ir_idx;
+    for (auto [var_idx, const_idx] : stack->s) {
+      os << '\'' << var_idx;
+      if (var_idx >= 0) {
+        const TmpVar& v = stack->named_vars.at(var_idx);
         if (!v.name.empty()) {
           os << ' ' << v.name;
         }
@@ -268,15 +260,12 @@ std::string debug_print(const Stack* stack) {
         }
       }
       if (const_idx != -1) {
-        os << '=' << stack->o.constants_[const_idx]->to_dec_string();
+        os << '=' << stack->unique_constants[const_idx]->to_dec_string();
       }
       os << ' ';
     }
   }
 
-  if (!(stack->mode & Stack::_Shown)) {
-    os << " !_Shown";
-  }
   return os.str();
 }
 

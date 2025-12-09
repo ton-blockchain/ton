@@ -26,32 +26,16 @@ namespace tolk {
  * 
  */
 
-void TmpVar::show_as_stack_comment(std::ostream& os) const {
-  if (!name.empty()) {
-    os << name;
-  } else {
-    os << '\'' << ir_idx;
-  }
-#ifdef TOLK_DEBUG
-  // uncomment for detailed stack output, like `'15(binary-op) '16(glob-var)`
-  // if (desc) os << desc;
-#endif
-}
-
-void TmpVar::show(std::ostream& os) const {
-  os << '\'' << ir_idx;   // vars are printed out as `'1 '2` (in stack comments, debug info, etc.)
-  if (!name.empty()) {
-    os << '_' << name;
-  }
-#ifdef TOLK_DEBUG
-  if (purpose) {
-    os << ' ' << purpose;    // "purpose" of implicitly created tmp var, like `'15 (binary-op) '16 (glob-var)`
-  }
-#endif
-}
-
 std::ostream& operator<<(std::ostream& os, const TmpVar& var) {
-  var.show(os);
+  os << '\'' << var.ir_idx;   // vars are printed out as `'1 '2` (in stack comments, debug info, etc.)
+  if (!var.name.empty()) {
+    os << '_' << var.name;
+  }
+#ifdef TOLK_DEBUG
+  if (var.purpose) {
+    os << ' ' << var.purpose;    // "purpose" of implicitly created tmp var, like `'15 (binary-op) '16 (glob-var)`
+  }
+#endif
   return os;
 }
 
@@ -382,8 +366,8 @@ void Op::show_var_list(std::ostream& os, const std::vector<VarDescr>& list, cons
 void Op::show_block(std::ostream& os, const Op* block, const std::vector<TmpVar>& vars, const std::string& indent, int mode) {
   os << "{" << std::endl;
   std::string sub_indent = indent + "  ";
-  for (const Op& op : block) {
-    op.show(os, vars, sub_indent, mode);
+  for (const Op* op = block; op; op = op->next.get()) {
+    op->show(os, vars, sub_indent, mode);
   }
   os << indent << "}";
 }
@@ -397,14 +381,13 @@ std::ostream& operator<<(std::ostream& os, const CodeBlob& code) {
 void CodeBlob::print(std::ostream& os, int flags) const {
   os << "CODE BLOB: " << var_cnt << " variables, " << in_var_cnt << " input\n";
   if ((flags & 8) != 0) {
-    for (const auto& var : vars) {
-      var.show(os);
-      os << " : " << var.v_type->as_human_readable() << std::endl;
+    for (const TmpVar& var : vars) {
+      os << var << " : " << var.v_type->as_human_readable() << std::endl;
     }
   }
   os << "------- BEGIN --------\n";
-  for (const auto& op : ops) {
-    op.show(os, vars, "", flags);
+  for (const Op* op = ops.get(); op; op = op->next.get()) {
+    op->show(os, vars, "", flags);
   }
   os << "-------- END ---------\n\n";
 }

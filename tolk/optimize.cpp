@@ -24,105 +24,49 @@ namespace tolk {
  * 
  */
 
-void Optimizer::set_code(AsmOpConsList code) {
-  code_ = std::move(code);
-  unpack();
-}
-
 void Optimizer::unpack() {
-  int i = 0, j = 0;
-  for (AsmOpCons *p = code_.get(); p && i < optimize_depth; p = p->cdr.get(), ++j) {
-    if (p->car->is_very_custom()) {
+  int len = static_cast<int>(asm_code.size());
+  int i = 0;
+  for (int cur_offset = start_offset; i < optimize_depth && cur_offset < len; ++cur_offset) {
+    const AsmOp* cur = &asm_code[cur_offset];
+    if (cur->is_very_custom()) {
       break;
     }
-    if (p->car->is_comment()) {
+    if (cur->is_comment()) {
       continue;
     }
-    op_cons_[i] = p;
-    op_[i] = std::move(p->car);
-    offs_[i] = j;
-    ++i;
+    op_[i++] = cur;
   }
   l_ = i;
-  indent_ = (i ? op_[0]->indent : 0);
-}
-
-void Optimizer::pack() {
-  for (int i = 0; i < l_; i++) {
-    op_cons_[i]->car = std::move(op_[i]);
-    op_cons_[i] = nullptr;
-  }
-  l_ = 0;
 }
 
 void Optimizer::apply() {
-  if (!p_ && !q_) {
-    return;
-  }
   tolk_assert(p_ > 0 && p_ <= l_ && q_ >= 0 && q_ <= optimize_depth && l_ <= optimize_depth);
-  for (int i = p_; i < l_; i++) {
-    tolk_assert(op_[i]);
-    op_cons_[i]->car = std::move(op_[i]);
-    op_cons_[i] = nullptr;
-  }
-  for (int c = offs_[p_ - 1]; c >= 0; --c) {
-    code_ = std::move(code_->cdr);
-  }
-  for (int j = q_ - 1; j >= 0; j--) {
-    tolk_assert(oq_[j]);
-    oq_[j]->indent = indent_;
-    code_ = AsmOpCons::cons(std::move(oq_[j]), std::move(code_));
-  }
-  l_ = 0;
-}
 
-AsmOpConsList Optimizer::extract_code() {
-  pack();
-  return std::move(code_);
-}
+  int insert_count = q_;
 
-void Optimizer::show_head() const {
-  if (!debug_) {
-    return;
-  }
-  std::cerr << "optimizing";
-  for (int i = 0; i < l_; i++) {
-    if (op_[i]) {
-      std::cerr << ' ' << *op_[i] << ' ';
-    } else {
-      std::cerr << " (null) ";
+  // we have optimized P instructions (say, P=2, op = ["PUSH", "PUSH"]) to Q ones (say, Q=1, oq = ["2DUP"]);
+  // but in asm_code there are stack comments between them:
+  // asm_code = [ ... "a b", "PUSH", "a b a", "PUSH", "a b a b" ... ]
+  // so we need to erase Q + all comments between, calculate that in a loop, resulting in
+  // asm_code = [ ... "a b", "2DUP", "a b a b" ... ]
+  // (the forwarding comment "a b a b" remains the layout after Q operations, since the replacement is identical,
+  //  but if Q>1, we have no stack info between them)
+  int delete_count = 0;
+  for (int i = 0, end_offset = start_offset; i < p_; ++i) {
+    tolk_assert(end_offset < static_cast<int>(asm_code.size()));
+    while (asm_code[end_offset].is_comment()) {
+      delete_count++;
+      end_offset++;
     }
+    delete_count++;
+    end_offset++;
   }
-  std::cerr << std::endl;
-}
 
-void Optimizer::show_left() const {
-  if (!debug_) {
-    return;
-  }
-  std::cerr << "// *** rewriting";
-  for (int i = 0; i < p_; i++) {
-    if (op_[i]) {
-      std::cerr << ' ' << *op_[i] << ' ';
-    } else {
-      std::cerr << " (null) ";
-    }
-  }
-}
+  asm_code.erase(asm_code.begin() + start_offset, asm_code.begin() + start_offset + delete_count);
+  asm_code.insert(asm_code.begin() + start_offset, oq_, oq_ + insert_count);
 
-void Optimizer::show_right() const {
-  if (!debug_) {
-    return;
-  }
-  std::cerr << "->";
-  for (int i = 0; i < q_; i++) {
-    if (oq_[i]) {
-      std::cerr << ' ' << *oq_[i] << ' ';
-    } else {
-      std::cerr << " (null) ";
-    }
-  }
-  std::cerr << std::endl;
+  unpack();
 }
 
 bool Optimizer::find_const_op(int* op_idx, int cst) {
@@ -161,8 +105,8 @@ bool Optimizer::detect_rewrite_big_THROW() {
 
   p_ = 1;
   q_ = 2;
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::IntConst(op_[0]->origin, excno));
-  oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, "THROWANY", 1, 0));
+  oq_[0] = AsmOp::IntConst(op_[0]->origin, excno);
+  oq_[1] = AsmOp::Custom(op_[0]->origin, "THROWANY", 1, 0);
   return true;
 }
 
@@ -206,8 +150,8 @@ bool Optimizer::detect_rewrite_MY_store_int() {
   if (!use_stsliceconst) {
     p_ = n_merged;
     q_ = 2;
-    oq_[0] = std::make_unique<AsmOp>(AsmOp::IntConst(op_[0]->origin, total_number));
-    oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, std::to_string(total_len) + (first_unsigned ? " STUR" : " STIR"), 1, 1));
+    oq_[0] = AsmOp::IntConst(op_[0]->origin, total_number);
+    oq_[1] = AsmOp::Custom(op_[0]->origin, std::to_string(total_len) + (first_unsigned ? " STUR" : " STIR"), 1, 1);
     return true;
   }
 
@@ -229,7 +173,7 @@ bool Optimizer::detect_rewrite_MY_store_int() {
   }
 
   result += " STSLICECONST";
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, result, 0, 1));
+  oq_[0] = AsmOp::Custom(op_[0]->origin, result, 0, 1);
   return true;
 }
 
@@ -258,12 +202,12 @@ bool Optimizer::detect_rewrite_MY_skip_bits() {
     q_ = 0;
   } else if (total_skip_bits <= 256) {
     q_ = 2;
-    oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, std::to_string(total_skip_bits) + " LDU"));
-    oq_[1] = std::make_unique<AsmOp>(AsmOp::Pop(op_[0]->origin, 1));
+    oq_[0] = AsmOp::Custom(op_[0]->origin, std::to_string(total_skip_bits) + " LDU");
+    oq_[1] = AsmOp::Pop(op_[0]->origin, 1);
   } else {
     q_ = 2;
-    oq_[0] = std::make_unique<AsmOp>(AsmOp::IntConst(op_[0]->origin, td::make_refint(total_skip_bits)));
-    oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, "SDSKIPFIRST"));
+    oq_[0] = AsmOp::IntConst(op_[0]->origin, td::make_refint(total_skip_bits));
+    oq_[1] = AsmOp::Custom(op_[0]->origin, "SDSKIPFIRST");
   }
   return true;
 }
@@ -285,9 +229,9 @@ bool Optimizer::detect_rewrite_NEWC_PUSH_STUR() {
 
   p_ = 3;
   q_ = 3;
-  oq_[0] = std::move(op_[1]);
-  oq_[1] = std::move(op_[0]);
-  oq_[2] = std::make_unique<AsmOp>(AsmOp::Custom(oq_[0]->origin, op_[2]->op.substr(0, op_[2]->op.size() - 1), 1, 1));
+  oq_[0] = *op_[1];
+  oq_[1] = *op_[0];
+  oq_[2] = AsmOp::Custom(op_[0]->origin, op_[2]->op.substr(0, op_[2]->op.size() - 1), 1, 1);
   return true;
 }
 
@@ -309,7 +253,7 @@ bool Optimizer::detect_rewrite_LDxx_DROP() {
     if (f.ends_with(ends_with[i])) {
       p_ = 2;
       q_ = 1;
-      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, op_[0]->op.substr(0, f.rfind(' ')) + repl_with[i], 0, 1));
+      oq_[0] = AsmOp::Custom(op_[0]->origin, op_[0]->op.substr(0, f.rfind(' ')) + repl_with[i], 0, 1);
       return true;
     }
   }
@@ -317,7 +261,7 @@ bool Optimizer::detect_rewrite_LDxx_DROP() {
     if (f == equl_to[i]) {
       p_ = 2;
       q_ = 1;
-      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, repl_to[i], 0, 1));
+      oq_[0] = AsmOp::Custom(op_[0]->origin, repl_to[i], 0, 1);
       return true;
     }
   }
@@ -341,7 +285,7 @@ bool Optimizer::detect_rewrite_SWAP_symmetric() {
 
   p_ = 2;
   q_ = 1;
-  oq_[0] = std::move(op_[1]);
+  oq_[0] = *op_[1];
   return true;
 }
 
@@ -362,9 +306,9 @@ bool Optimizer::detect_rewrite_SWAP_PUSH_STUR() {
 
   p_ = 3;
   q_ = 3;
-  oq_[0] = std::move(op_[1]);
-  oq_[1] = std::make_unique<AsmOp>(AsmOp::BlkSwap(oq_[0]->origin, 1, 2));     // ROT
-  oq_[2] = std::make_unique<AsmOp>(AsmOp::Custom(oq_[0]->origin,  op_[2]->op.substr(0, op_[2]->op.size() - 1), 1, 1));
+  oq_[0] = *op_[1];
+  oq_[1] = AsmOp::BlkSwap(op_[0]->origin, 1, 2);     // ROT
+  oq_[2] = AsmOp::Custom(op_[0]->origin,  op_[2]->op.substr(0, op_[2]->op.size() - 1), 1, 1);
   return true;
 }
 
@@ -386,7 +330,7 @@ bool Optimizer::detect_rewrite_SWAP_STxxxR() {
     if (f.ends_with(ends_with[i])) {
       p_ = 2;
       q_ = 1;
-      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, op_[1]->op.substr(0, f.rfind(' ')) + repl_with[i], 1, 1));
+      oq_[0] = AsmOp::Custom(op_[0]->origin, op_[1]->op.substr(0, f.rfind(' ')) + repl_with[i], 1, 1);
       return true;
     }
   }
@@ -394,7 +338,7 @@ bool Optimizer::detect_rewrite_SWAP_STxxxR() {
     if (f == equl_to[i]) {
       p_ = 2;
       q_ = 1;
-      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, repl_to[i], 0, 1));
+      oq_[0] = AsmOp::Custom(op_[0]->origin, repl_to[i], 0, 1);
       return true;
     }
   }
@@ -420,7 +364,7 @@ bool Optimizer::detect_rewrite_BOOLNOT_THROWIF() {
       p_ = 2;
       q_ = 1;
       std::string new_op = op_[1]->op.substr(0, f.rfind(' ')) + repl_with[i];
-      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, new_op, 1, 0));
+      oq_[0] = AsmOp::Custom(op_[0]->origin, new_op, 1, 0);
       return true;
     }
   }
@@ -447,10 +391,10 @@ bool Optimizer::detect_rewrite_0EQINT_THROWIF() {
       p_ = 2;
       q_ = 1;
       if (drop_cond) {
-        oq_[0] = std::move(op_[1]);
+        oq_[0] = *op_[1];
       } else {
         std::string new_op = op_[1]->op.substr(0, f.rfind(' ')) + repl_with[i];
-        oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, new_op, 1, 0));
+        oq_[0] = AsmOp::Custom(op_[0]->origin, new_op, 1, 0);
       }
       return true;
     }
@@ -484,10 +428,10 @@ bool Optimizer::detect_rewrite_DICTSETB_DICTSET() {
       new_op.replace(pos, std::strlen(contains_b[i]), repl_with[i]); 
       p_ = 5;
       q_ = 4;
-      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[1]->origin, op_[1]->op.substr(0, op_[1]->op.rfind(' ')) + " PUSHSLICE", 0, 1));
-      oq_[1] = std::move(op_[2]);
-      oq_[2] = std::move(op_[3]);
-      oq_[3] = std::make_unique<AsmOp>(AsmOp::Custom(op_[4]->origin, new_op));
+      oq_[0] = AsmOp::Custom(op_[1]->origin, op_[1]->op.substr(0, op_[1]->op.rfind(' ')) + " PUSHSLICE", 0, 1);
+      oq_[1] = *op_[2];
+      oq_[2] = *op_[3];
+      oq_[3] = AsmOp::Custom(op_[4]->origin, new_op);
       return true;
     } 
   }
@@ -512,8 +456,8 @@ bool Optimizer::detect_rewrite_DICTGET_NULLSWAPIFNOT_THROWIFNOT() {
   p_ = 2;
   q_ = 2;
   std::string new_op = op0.substr(0, op0.rfind(' '));
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, new_op, 3, 2));
-  oq_[1] = std::move(op_[1]);
+  oq_[0] = AsmOp::Custom(op_[0]->origin, new_op, 3, 2);
+  oq_[1] = *op_[1];
   return true;
 }
 
@@ -531,7 +475,7 @@ bool Optimizer::detect_rewrite_ENDC_CTOS() {
 
   p_ = 2;
   q_ = 1;
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, "BTOS", 1, 1));
+  oq_[0] = AsmOp::Custom(op_[0]->origin, "BTOS", 1, 1);
   return true;
 }
 
@@ -549,7 +493,7 @@ bool Optimizer::detect_rewrite_ENDC_HASHCU() {
 
   p_ = 2;
   q_ = 1;
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, "HASHBU", 1, 1));
+  oq_[0] = AsmOp::Custom(op_[0]->origin, "HASHBU", 1, 1);
   return true;
 }
 
@@ -567,7 +511,7 @@ bool Optimizer::detect_rewrite_NEWC_BTOS() {
 
   p_ = 2;
   q_ = 1;
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, "x{} PUSHSLICE", 0, 1));
+  oq_[0] = AsmOp::Custom(op_[0]->origin, "x{} PUSHSLICE", 0, 1);
   return true;
 }
 
@@ -587,7 +531,7 @@ bool Optimizer::detect_rewrite_NEWC_STSLICECONST_BTOS() {
   std::string op_pushslice = op_[1]->op.substr(0, op_[1]->op.rfind(' ')) + " PUSHSLICE";
   p_ = 3;
   q_ = 1;
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, op_pushslice, 0, 1));
+  oq_[0] = AsmOp::Custom(op_[0]->origin, op_pushslice, 0, 1);
   return true;
 }
 
@@ -607,7 +551,7 @@ bool Optimizer::detect_rewrite_NEWC_ENDC_CTOS() {
 
   p_ = 3;
   q_ = 1;
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, "x{} PUSHSLICE", 0, 1));
+  oq_[0] = AsmOp::Custom(op_[0]->origin, "x{} PUSHSLICE", 0, 1);
   return true;
 }
 
@@ -625,7 +569,7 @@ bool Optimizer::detect_rewrite_NEWC_ENDC() {
 
   p_ = 2;
   q_ = 1;
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, "<b b> PUSHREF", 0, 1));
+  oq_[0] = AsmOp::Custom(op_[0]->origin, "<b b> PUSHREF", 0, 1);
   return true;
 }
 
@@ -695,10 +639,10 @@ bool Optimizer::detect_rewrite_PUSHREF_CTOS() {
   p_ = 2;
   q_ = 1;
   std::string op = "x{" + std::string(hex) + "} PUSHSLICE";
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, op, 0, 1));
+  oq_[0] = AsmOp::Custom(op_[0]->origin, op, 0, 1);
   if (op_[1]->op == "CTOS STRDUMP DROP") {    // debug.printString("str")
     q_ = 2;
-    oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[1]->origin, "STRDUMP DROP", 1, 0));
+    oq_[1] = AsmOp::Custom(op_[1]->origin, "STRDUMP DROP", 1, 0);
   }
   return true;
 }
@@ -723,7 +667,7 @@ bool Optimizer::detect_rewrite_xxx_NOT() {
       p_ = 2;
       q_ = 1;
       std::string new_op = op_[0]->op.substr(0, f.rfind(' ')) + repl_with[i];
-      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, new_op, 0, 1));
+      oq_[0] = AsmOp::Custom(op_[0]->origin, new_op, 0, 1);
       return true;
     }
   }
@@ -731,7 +675,7 @@ bool Optimizer::detect_rewrite_xxx_NOT() {
     if (f == equl_to[i]) {
       p_ = 2;
       q_ = 1;
-      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, repl_to[i], 2, 1));
+      oq_[0] = AsmOp::Custom(op_[0]->origin, repl_to[i], 2, 1);
       return true;
     }
   }
@@ -750,7 +694,7 @@ bool Optimizer::detect_rewrite_xxx_NOT() {
       p_ = 2;
       q_ = 1;
       std::string new_op = number->to_dec_string() + (is_gtint ? " LESSINT" : " GTINT");
-      oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, new_op, 2, 1));
+      oq_[0] = AsmOp::Custom(op_[0]->origin, new_op, 2, 1);
       return true;
     }
   }
@@ -775,7 +719,7 @@ bool Optimizer::replace_BOOLNOT_to_NOT() {
 
   p_ = 1;
   q_ = 1;
-  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, "NOT", 1, 1));
+  oq_[0] = AsmOp::Custom(op_[0]->origin, "NOT", 1, 1);
   return true;
 }
 
@@ -791,11 +735,8 @@ bool Optimizer::rewrite_push_const(int i, int c) {
   if (!(p_ >= 2 && find_const_op(&idx, c) && idx < p_)) {
     return false;
   }
-  show_left();
-  oq_[1] = std::move(op_[idx]);
-  oq_[0] = std::move(op_[!idx]);
-  *oq_[0] = AsmOp::Push(oq_[0]->origin, i);
-  show_right();
+  oq_[0] = AsmOp::Push(op_[0]->origin, i);
+  oq_[1] = *op_[idx];
   return true;
 }
 
@@ -810,11 +751,8 @@ bool Optimizer::rewrite_const_rot(int c) {
   if (!(p_ >= 2 && find_const_op(&idx, c) && idx < p_)) {
     return false;
   }
-  show_left();
-  oq_[0] = std::move(op_[idx]);
-  oq_[1] = std::move(op_[!idx]);
-  *oq_[1] = AsmOp::Custom(oq_[0]->origin, "ROT", 3, 3);
-  show_right();
+  oq_[0] = *op_[idx];
+  oq_[1] = AsmOp::Custom(oq_[0].origin, "ROT", 3, 3);
   return true;
 }
 
@@ -829,11 +767,8 @@ bool Optimizer::rewrite_const_pop(int c, int i) {
   if (!(p_ >= 2 && find_const_op(&idx, c) && idx < p_)) {
     return false;
   }
-  show_left();
-  oq_[0] = std::move(op_[idx]);
-  oq_[1] = std::move(op_[!idx]);
-  *oq_[1] = AsmOp::Pop(oq_[0]->origin, i);
-  show_right();
+  oq_[0] = *op_[idx];
+  oq_[1] = AsmOp::Pop(oq_[0].origin, i);
   return true;
 }
 
@@ -879,9 +814,6 @@ bool Optimizer::rewrite_const_push_xchgs() {
   if (!p_) {
     return false;
   }
-  show_left();
-  auto c_op = std::move(op_[0]);
-  tolk_assert(c_op->is_gconst());
   StackTransform t;
   q_ = 0;
   int pos = 0;
@@ -893,24 +825,24 @@ bool Optimizer::rewrite_const_push_xchgs() {
       } else if (b == pos) {
         pos = a;
       } else {
-        oq_[q_] = std::move(op_[i]);
+        oq_[q_] = *op_[i];
         if (a > pos) {
-          oq_[q_]->a = a - 1;
+          oq_[q_].a = a - 1;
         }
         if (b > pos) {
-          oq_[q_]->b = b - 1;
+          oq_[q_].b = b - 1;
         }
-        tolk_assert(apply_op(t, *oq_[q_]));
+        tolk_assert(apply_op(t, oq_[q_]));
         ++q_;
       }
     } else {
       tolk_assert(op_[i]->is_push(&a));
       tolk_assert(a != pos);
-      oq_[q_] = std::move(op_[i]);
+      oq_[q_] = *op_[i];
       if (a > pos) {
-        oq_[q_]->a = a - 1;
+        oq_[q_].a = a - 1;
       }
-      tolk_assert(apply_op(t, *oq_[q_]));
+      tolk_assert(apply_op(t, oq_[q_]));
       ++q_;
       ++pos;
     }
@@ -918,8 +850,8 @@ bool Optimizer::rewrite_const_push_xchgs() {
   tolk_assert(!pos);
   t.apply_push_newconst();
   tolk_assert(t <= tr_[p_ - 1]);
-  oq_[q_++] = std::move(c_op);
-  show_right();
+  tolk_assert(op_[0]->is_gconst());
+  oq_[q_++] = *op_[0];
   return true;
 }
 
@@ -927,10 +859,7 @@ bool Optimizer::rewrite(int p, AsmOp&& new_op) {
   tolk_assert(p > 0 && p <= l_);
   p_ = p;
   q_ = 1;
-  show_left();
-  oq_[0] = std::move(op_[0]);
-  *oq_[0] = new_op;
-  show_right();
+  oq_[0] = std::move(new_op);
   return true;
 }
 
@@ -938,12 +867,8 @@ bool Optimizer::rewrite(int p, AsmOp&& new_op1, AsmOp&& new_op2) {
   tolk_assert(p > 1 && p <= l_);
   p_ = p;
   q_ = 2;
-  show_left();
-  oq_[0] = std::move(op_[0]);
-  *oq_[0] = new_op1;
-  oq_[1] = std::move(op_[1]);
-  *oq_[1] = new_op2;
-  show_right();
+  oq_[0] = std::move(new_op1);
+  oq_[1] = std::move(new_op2);
   return true;
 }
 
@@ -951,22 +876,15 @@ bool Optimizer::rewrite(int p, AsmOp&& new_op1, AsmOp&& new_op2, AsmOp&& new_op3
   tolk_assert(p > 2 && p <= l_);
   p_ = p;
   q_ = 3;
-  show_left();
-  oq_[0] = std::move(op_[0]);
-  *oq_[0] = new_op1;
-  oq_[1] = std::move(op_[1]);
-  *oq_[1] = new_op2;
-  oq_[2] = std::move(op_[2]);
-  *oq_[2] = new_op3;
-  show_right();
+  oq_[0] = std::move(new_op1);
+  oq_[1] = std::move(new_op2);
+  oq_[2] = std::move(new_op3);
   return true;
 }
 
 bool Optimizer::rewrite_nop() {
   tolk_assert(p_ > 0 && p_ <= l_);
   q_ = 0;
-  show_left();
-  show_right();
   return true;
 }
 
@@ -1143,46 +1061,16 @@ bool Optimizer::is_2pop_blkdrop(int* i, int* j, int* k) {
       3);
 }
 
-bool Optimizer::compute_stack_transforms() {
+void Optimizer::compute_stack_transforms() {
   StackTransform trans;
   for (int i = 0; i < l_; i++) {
     if (!apply_op(trans, *op_[i])) {
       l2_ = i;
-      return true;
+      return;
     }
     tr_[i] = trans;
   }
   l2_ = l_;
-  return true;
-}
-
-bool Optimizer::show_stack_transforms() const {
-  show_head();
-  // slow version
-  /*
-  StackTransform trans2;
-  std::cerr << "id = " << trans2 << std::endl;
-  for (int i = 0; i < l_; i++) {
-    StackTransform op;
-    if (!apply_op(op, *op_[i])) {
-      std::cerr << "* (" << *op_[i] << " = invalid)\n";
-      break;
-    }
-    trans2 *= op;
-    std::cerr << "* " << *op_[i] << " = " << op << " -> " << trans2 << std::endl;
-  }
-  */
-  // fast version
-  StackTransform trans;
-  for (int i = 0; i < l_; i++) {
-    std::cerr << trans << std::endl << *op_[i] << " -> ";
-    if (!apply_op(trans, *op_[i])) {
-      std::cerr << " <not-applicable>" << std::endl;
-      return true;
-    }
-  }
-  std::cerr << trans << std::endl;
-  return true;
 }
 
 bool Optimizer::find_at_least(int pb) {
@@ -1190,7 +1078,7 @@ bool Optimizer::find_at_least(int pb) {
   pb_ = pb;
   // show_stack_transforms();
   int i, j, k, l, c;
-  AnyV origin = nullptr;      // for asm ops inserted by optimizer, leave location empty (in fift output, it'll be attached to above)
+  AnyV origin = op_[0]->origin;
   return (is_push_const(&i, &c) && rewrite_push_const(i, c)) || (is_nop() && rewrite_nop()) ||
          (!(mode_ & 1) && is_const_rot(&c) && rewrite_const_rot(c)) ||
          (is_const_push_xchgs() && rewrite_const_push_xchgs()) || (is_const_pop(&c, &i) && rewrite_const_pop(c, i)) ||
@@ -1242,9 +1130,7 @@ bool Optimizer::find_at_least(int pb) {
 }
 
 bool Optimizer::find() {
-  if (!compute_stack_transforms()) {
-    return false;
-  }
+  compute_stack_transforms();
   for (int pb = l_; pb > 0; --pb) {
     if (find_at_least(pb)) {
       return true;
@@ -1253,52 +1139,36 @@ bool Optimizer::find() {
   return false;
 }
 
-bool Optimizer::optimize() {
-  bool f = false;
-  while (find()) {
-    f = true;
-    apply();
-    unpack();
+static std::vector<AsmOp> optimize_code_head(std::vector<AsmOp>&& asm_code, int start_offset, int mode, bool& any_changed) {
+  Optimizer opt(std::move(asm_code), start_offset, mode);
+  while (opt.find()) {
+    any_changed = true;
+    opt.apply();
   }
-  return f;
+  return std::move(opt.asm_code);
 }
 
-AsmOpConsList optimize_code_head(AsmOpConsList op_list, int mode) {
-  Optimizer opt(std::move(op_list), false, mode);
-  opt.optimize();
-  return opt.extract_code();
-}
-
-AsmOpConsList optimize_code(AsmOpConsList op_list, int mode) {
-  std::vector<std::unique_ptr<AsmOp>> v;
-  while (op_list) {
-    if (!op_list->car->is_comment()) {
-      op_list = optimize_code_head(std::move(op_list), mode);
-    }
-    if (op_list) {
-      v.push_back(std::move(op_list->car));
-      op_list = std::move(op_list->cdr);
+static std::vector<AsmOp> optimize_asm_code(std::vector<AsmOp>&& asm_code, int mode, bool& any_changed) {
+  for (int i = 0; i < static_cast<int>(asm_code.size()); ++i) {
+    if (!asm_code[i].is_comment()) {
+      asm_code = optimize_code_head(std::move(asm_code), i, mode, any_changed);
     }
   }
-  for (auto it = v.rbegin(); it < v.rend(); ++it) {
-    op_list = AsmOpCons::cons(std::move(*it), std::move(op_list));
-  }
-  return std::move(op_list);
+  return asm_code;
 }
 
-void optimize_code(AsmOpList& ops) {
-  AsmOpConsList op_list;
-  for (auto it = ops.list_.rbegin(); it < ops.list_.rend(); ++it) {
-    op_list = AsmOpCons::cons(std::make_unique<AsmOp>(std::move(*it)), std::move(op_list));
-  }
-  for (int mode : {1, 1, 1, 1, 0, 0, 0, 0}) {
-    op_list = optimize_code(std::move(op_list), mode);
-  }
-  ops.list_.clear();
-  while (op_list) {
-    ops.list_.push_back(std::move(*(op_list->car)));
-    op_list = std::move(op_list->cdr);
-  }
+std::vector<AsmOp> optimize_asm_code(std::vector<AsmOp>&& asm_code) {
+  bool any_changed = false;
+  do {
+    any_changed = false;
+    asm_code = optimize_asm_code(std::move(asm_code), 1, any_changed);
+  } while (any_changed);
+  do {
+    any_changed = false;
+    asm_code = optimize_asm_code(std::move(asm_code), 0, any_changed);
+  } while (any_changed);
+
+  return asm_code;
 }
 
 }  // namespace tolk
