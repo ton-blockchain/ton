@@ -225,54 +225,51 @@ void DownloadBlockNew::got_data(td::BufferSlice data) {
     abort_query(td::Status::Error(ErrorCode::notready, "node doesn't have this block"));
     return;
   }
-  
+
   // Check if state is needed for decompression
   auto R_requires_state = need_state_for_decompression(*f);
   if (R_requires_state.is_error()) {
     abort_query(R_requires_state.move_as_error_prefix("failed to check if state is required: "));
     return;
   }
-  
+
   if (R_requires_state.move_as_ok()) {
     // Only tonNode_dataFullCompressedV2 may require state
     ton_api::downcast_call(
-      *f,
-      td::overloaded(
-        [&](ton_api::tonNode_dataFullCompressedV2 &compressed_v2) {
-          BlockIdExt id = create_block_id(compressed_v2.id_);
-          
-          auto R_prev_blocks = extract_prev_blocks_from_proof(compressed_v2.proof_.as_slice(), id);
-          if (R_prev_blocks.is_error()) {
-            abort_query(R_prev_blocks.move_as_error_prefix("failed to extract prev block IDs: "));
-            return;
-          }
-          auto prev_blocks = R_prev_blocks.move_as_ok();
-          auto P_state = td::PromiseCreator::lambda(
-              [SelfId = actor_id(this), data_full = std::move(f)](td::Result<td::Ref<ShardState>> R_state) mutable {
-                if (R_state.is_error()) {
-                  td::actor::send_closure(SelfId, &DownloadBlockNew::abort_query, R_state.move_as_error_prefix("failed to get state for block full decompression: "));
-                  return;
-                }
-                td::actor::send_closure(SelfId, &DownloadBlockNew::got_ready_to_deserialize, std::move(data_full),
-                                        R_state.move_as_ok());
-              });
-          td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::wait_state_by_prev_blocks, id,
-                                  std::move(prev_blocks), std::move(P_state));
-        },
-        [&](auto &) {
-          UNREACHABLE();
-        }
-      )
-    );
+        *f, td::overloaded(
+                [&](ton_api::tonNode_dataFullCompressedV2 &compressed_v2) {
+                  BlockIdExt id = create_block_id(compressed_v2.id_);
+
+                  auto R_prev_blocks = extract_prev_blocks_from_proof(compressed_v2.proof_.as_slice(), id);
+                  if (R_prev_blocks.is_error()) {
+                    abort_query(R_prev_blocks.move_as_error_prefix("failed to extract prev block IDs: "));
+                    return;
+                  }
+                  auto prev_blocks = R_prev_blocks.move_as_ok();
+                  auto P_state = td::PromiseCreator::lambda([SelfId = actor_id(this), data_full = std::move(f)](
+                                                                td::Result<td::Ref<ShardState>> R_state) mutable {
+                    if (R_state.is_error()) {
+                      td::actor::send_closure(
+                          SelfId, &DownloadBlockNew::abort_query,
+                          R_state.move_as_error_prefix("failed to get state for block full decompression: "));
+                      return;
+                    }
+                    td::actor::send_closure(SelfId, &DownloadBlockNew::got_ready_to_deserialize, std::move(data_full),
+                                            R_state.move_as_ok());
+                  });
+                  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::wait_state_by_prev_blocks, id,
+                                          std::move(prev_blocks), std::move(P_state));
+                },
+                [&](auto &) { UNREACHABLE(); }));
     return;
   }
-  
+
   // Call got_state_for_block_full with null state
   got_ready_to_deserialize(std::move(f), td::Ref<ShardState>());
 }
 
 void DownloadBlockNew::got_ready_to_deserialize(tl_object_ptr<ton_api::tonNode_DataFull> data_full,
-                                                 td::Ref<ShardState> state) {
+                                                td::Ref<ShardState> state) {
   td::Ref<vm::Cell> state_root;
   if (state.not_null()) {
     state_root = state->root_cell();
@@ -281,13 +278,13 @@ void DownloadBlockNew::got_ready_to_deserialize(tl_object_ptr<ton_api::tonNode_D
   BlockIdExt id;
   td::BufferSlice proof, block_data;
   bool is_link;
-  td::Status S = deserialize_block_full(*data_full, id, proof, block_data, is_link, 
+  td::Status S = deserialize_block_full(*data_full, id, proof, block_data, is_link,
                                         overlay::Overlays::max_fec_broadcast_size(), state_root);
   if (S.is_error()) {
     abort_query(S.move_as_error_prefix("cannot deserialize block: "));
     return;
   }
-  
+
   if (!allow_partial_proof_ && is_link) {
     abort_query(td::Status::Error(ErrorCode::notready, "node doesn't have proof for this block"));
     return;

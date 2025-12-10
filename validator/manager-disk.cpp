@@ -68,7 +68,8 @@ void ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broadcast, td::Pro
   UNREACHABLE();
 }
 
-void ValidatorManagerImpl::validate_block_broadcast_signatures(BlockBroadcast broadcast, td::Promise<td::Unit> promise) {
+void ValidatorManagerImpl::validate_block_broadcast_signatures(BlockBroadcast broadcast,
+                                                               td::Promise<td::Unit> promise) {
   UNREACHABLE();
 }
 

@@ -15,16 +15,17 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "auto/tl/ton_api.hpp"
+#include "block/block-auto.h"
+#include "block/block-parse.h"
 #include "td/utils/Time.h"
 #include "td/utils/lz4.h"
 #include "td/utils/overloaded.h"
 #include "tl-utils/common-utils.hpp"
 #include "ton/ton-tl.hpp"
 #include "vm/boc-compression.h"
-#include "vm/cells/MerkleProof.h"
-#include "block/block-auto.h"
-#include "block/block-parse.h"
 #include "vm/boc.h"
+#include "vm/cells/MerkleProof.h"
+
 #include "full-node-serializer.hpp"
 #include "full-node.h"
 
@@ -160,33 +161,21 @@ td::Result<std::vector<BlockIdExt>> extract_prev_blocks_from_proof(td::Slice pro
 
 td::Result<bool> need_state_for_decompression(ton_api::tonNode_Broadcast& broadcast) {
   td::Result<bool> result = false;
-  ton_api::downcast_call(
-    broadcast,
-    td::overloaded(
-      [&](ton_api::tonNode_blockBroadcastCompressedV2& f) {
-        result = vm::boc_need_state_for_decompression(f.data_compressed_);
-      },
-      [&](auto&) {
-        result = false;
-      }
-    )
-  );
+  ton_api::downcast_call(broadcast, td::overloaded(
+                                        [&](ton_api::tonNode_blockBroadcastCompressedV2& f) {
+                                          result = vm::boc_need_state_for_decompression(f.data_compressed_);
+                                        },
+                                        [&](auto&) { result = false; }));
   return result;
 }
 
 td::Result<bool> need_state_for_decompression(ton_api::tonNode_DataFull& data_full) {
   td::Result<bool> result = false;
-  ton_api::downcast_call(
-    data_full,
-    td::overloaded(
-      [&](ton_api::tonNode_dataFullCompressedV2& f) {
-        result = vm::boc_need_state_for_decompression(f.block_compressed_);
-      },
-      [&](auto&) {
-        result = false;
-      }
-    )
-  );
+  ton_api::downcast_call(data_full, td::overloaded(
+                                        [&](ton_api::tonNode_dataFullCompressedV2& f) {
+                                          result = vm::boc_need_state_for_decompression(f.block_compressed_);
+                                        },
+                                        [&](auto&) { result = false; }));
   return result;
 }
 
@@ -205,7 +194,7 @@ BlockBroadcast get_block_broadcast_without_data(const ton_api::tonNode_blockBroa
 }
 
 static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_blockBroadcastCompressedV2& f,
-                                                              int max_decompressed_size, std::string called_from, 
+                                                              int max_decompressed_size, std::string called_from,
                                                               td::Ref<vm::Cell> state) {
   auto block_id = create_block_id(f.id_);
   auto t_decompression_start = td::Time::now();
@@ -234,7 +223,7 @@ static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_b
 }
 
 td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_Broadcast& obj, int max_decompressed_data_size,
-                                                      std::string called_from, td::Ref<vm::Cell> state) {
+                                                       std::string called_from, td::Ref<vm::Cell> state) {
   td::Result<BlockBroadcast> B;
   ton_api::downcast_call(
       obj, td::overloaded([&](ton_api::tonNode_blockBroadcast& f) { B = deserialize_block_broadcast(f, called_from); },
@@ -307,9 +296,9 @@ static td::Status deserialize_block_full(ton_api::tonNode_dataFullCompressed& f,
   return td::Status::OK();
 }
 
-static td::Status deserialize_block_full(ton_api::tonNode_dataFullCompressedV2& f, BlockIdExt& id, td::BufferSlice& proof, 
-                                         td::BufferSlice& data, bool& is_proof_link, int max_decompressed_size, 
-                                         td::Ref<vm::Cell> state) {
+static td::Status deserialize_block_full(ton_api::tonNode_dataFullCompressedV2& f, BlockIdExt& id,
+                                         td::BufferSlice& proof, td::BufferSlice& data, bool& is_proof_link,
+                                         int max_decompressed_size, td::Ref<vm::Cell> state) {
   id = create_block_id(f.id_);
   auto t_decompression_start = td::Time::now();
 

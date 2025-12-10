@@ -28,24 +28,27 @@ namespace vm {
 
 constexpr size_t kDecompressedSizeBytes = 4;
 
-enum class CompressionAlgorithm : int { 
-    BaselineLZ4 = 0, 
-    ImprovedStructureLZ4 = 1,
-    ImprovedStructureLZ4WithMU = 2,
+enum class CompressionAlgorithm : int {
+  BaselineLZ4 = 0,
+  ImprovedStructureLZ4 = 1,
+  ImprovedStructureLZ4WithMU = 2,
 };
 
 td::Result<td::BufferSlice> boc_compress_baseline_lz4(const std::vector<td::Ref<vm::Cell>>& boc_roots);
 td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice compressed, int max_decompressed_size);
 
 td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vector<td::Ref<vm::Cell>>& boc_roots,
-    bool compress_merkle_update = false, td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
-td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4(td::Slice compressed, int max_decompressed_size,
-    bool decompress_merkle_update = false, td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
-
-td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& boc_roots, 
-    CompressionAlgorithm algo = CompressionAlgorithm::BaselineLZ4, td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
-td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed, int max_decompressed_size,
+                                                                bool compress_merkle_update = false,
+                                                                td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
+td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4(
+    td::Slice compressed, int max_decompressed_size, bool decompress_merkle_update = false,
     td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
+
+td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& boc_roots,
+                                         CompressionAlgorithm algo = CompressionAlgorithm::BaselineLZ4,
+                                         td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
+td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed, int max_decompressed_size,
+                                                          td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
 
 td::Result<bool> boc_need_state_for_decompression(td::Slice compressed);
 

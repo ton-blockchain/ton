@@ -16,6 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <memory>
+
 #include "adnl/utils.hpp"
 #include "auto/tl/ton_api.h"
 #include "auto/tl/ton_api_json.h"
@@ -30,9 +32,9 @@
 #include "net/get-next-key-blocks.hpp"
 #include "td/utils/JsonBuilder.h"
 #include "td/utils/Random.h"
-#include "td/utils/check.h"
 #include "td/utils/SharedSlice.h"
 #include "td/utils/buffer.h"
+#include "td/utils/check.h"
 #include "td/utils/overloaded.h"
 #include "tl/tl_json.h"
 #include "ton/ton-shard.h"
@@ -43,7 +45,6 @@
 #include "full-node-shard-queries.hpp"
 #include "full-node-shard.hpp"
 #include "overlays.h"
-#include <memory>
 
 namespace ton {
 
@@ -830,14 +831,15 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_bl
 
   if (R_requires_state.move_as_ok()) {
     auto block_wo_data = get_block_broadcast_without_data(query);
-    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), src, query = std::move(query)](td::Result<td::Unit> R) mutable {
-      if (R.is_error()) {
-        LOG(WARNING) << "Dropped V2 broadcast because of signatures validation error: " << R.move_as_error();
-        return;
-      }
+    auto P = td::PromiseCreator::lambda(
+        [SelfId = actor_id(this), src, query = std::move(query)](td::Result<td::Unit> R) mutable {
+          if (R.is_error()) {
+            LOG(WARNING) << "Dropped V2 broadcast because of signatures validation error: " << R.move_as_error();
+            return;
+          }
 
-      td::actor::send_closure(SelfId, &FullNodeShardImpl::obtain_state_for_decompression, src, std::move(query));
-    });
+          td::actor::send_closure(SelfId, &FullNodeShardImpl::obtain_state_for_decompression, src, std::move(query));
+        });
     td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::validate_block_broadcast_signatures,
                             std::move(block_wo_data), std::move(P));
     return;
@@ -856,7 +858,8 @@ void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonN
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok());
 }
 
-void FullNodeShardImpl::obtain_state_for_decompression(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query) {
+void FullNodeShardImpl::obtain_state_for_decompression(PublicKeyHash src,
+                                                       ton_api::tonNode_blockBroadcastCompressedV2 query) {
   auto id = create_block_id(query.id_);
   auto R_prev = extract_prev_blocks_from_proof(query.proof_.as_slice(), id);
   if (R_prev.is_error()) {

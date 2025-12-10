@@ -244,10 +244,9 @@ void ValidatorManagerImpl::validate_block_broadcast_signatures(BlockBroadcast br
     promise.set_error(td::Status::Error("not monitoring shard"));
     return;
   }
-  td::actor::create_actor<ValidateBroadcast>("broadcast-sigcheck", std::move(broadcast),
-                                             last_masterchain_block_handle_, last_masterchain_state_,
-                                             last_known_key_block_handle_, actor_id(this), td::Timestamp::in(2.0),
-                                             std::move(promise), true)
+  td::actor::create_actor<ValidateBroadcast>("broadcast-sigcheck", std::move(broadcast), last_masterchain_block_handle_,
+                                             last_masterchain_state_, last_known_key_block_handle_, actor_id(this),
+                                             td::Timestamp::in(2.0), std::move(promise), true)
       .release();
 }
 

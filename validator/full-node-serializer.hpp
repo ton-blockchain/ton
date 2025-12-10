@@ -16,26 +16,23 @@
 */
 #pragma once
 #include "auto/tl/ton_api.h"
-#include "ton/ton-types.h"
-#include "vm/cells.h"
+#include "interfaces/shard.h"
 #include "td/actor/actor.h"
 #include "td/utils/overloaded.h"
-#include "validator/validator.h"
-#include "interfaces/shard.h"
 #include "ton/ton-tl.hpp"
+#include "ton/ton-types.h"
+#include "validator/validator.h"
+#include "vm/cells.h"
 
 namespace ton::validator::fullnode {
 
-enum class StateUsage {
-  None,
-  DecompressOnly,
-  CompressAndDecompress
-};
+enum class StateUsage { None, DecompressOnly, CompressAndDecompress };
 
 td::Result<td::BufferSlice> serialize_block_broadcast(const BlockBroadcast& broadcast, bool compression_enabled,
                                                       std::string called_from);
 td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_Broadcast& obj, int max_decompressed_data_size,
-                                                       std::string called_from, td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
+                                                       std::string called_from,
+                                                       td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
 BlockBroadcast get_block_broadcast_without_data(const ton_api::tonNode_blockBroadcastCompressedV2& obj);
 
 td::Result<std::vector<BlockIdExt>> extract_prev_blocks_from_proof(td::Slice proof, const BlockIdExt& block_id);

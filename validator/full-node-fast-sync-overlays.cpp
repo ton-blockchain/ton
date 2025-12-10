@@ -15,6 +15,8 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <memory>
+
 #include "auto/tl/ton_api_json.h"
 #include "common/delay.h"
 #include "td/utils/JsonBuilder.h"
@@ -25,7 +27,6 @@
 #include "full-node-fast-sync-overlays.hpp"
 #include "full-node-serializer.hpp"
 #include "manager.hpp"
-#include <memory>
 
 namespace ton::validator::fullnode {
 
@@ -52,16 +53,15 @@ void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonN
 
   if (R_requires_state.move_as_ok()) {
     auto block_wo_data = get_block_broadcast_without_data(query);
-    auto P = td::PromiseCreator::lambda(
-        [SelfId = actor_id(this), src, query = std::move(query)](td::Result<td::Unit> R) mutable {
-          if (R.is_error()) {
-            LOG(WARNING) << "Dropped V2 broadcast because of signatures validation error: " << R.move_as_error();
-            return;
-          }
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), src,
+                                         query = std::move(query)](td::Result<td::Unit> R) mutable {
+      if (R.is_error()) {
+        LOG(WARNING) << "Dropped V2 broadcast because of signatures validation error: " << R.move_as_error();
+        return;
+      }
 
-          td::actor::send_closure(SelfId, &FullNodeFastSyncOverlay::obtain_state_for_decompression, src,
-                                  std::move(query));
-        });
+      td::actor::send_closure(SelfId, &FullNodeFastSyncOverlay::obtain_state_for_decompression, src, std::move(query));
+    });
     td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::validate_block_broadcast_signatures,
                             std::move(block_wo_data), std::move(P));
     return;
@@ -111,8 +111,9 @@ void FullNodeFastSyncOverlay::process_block_broadcast_with_state(PublicKeyHash s
     LOG(DEBUG) << "Failed to deserialize V2 broadcast: " << B.move_as_error();
     return;
   }
-  
-  VLOG(FULL_NODE_DEBUG) << "Received V2 block broadcast in fast sync overlay from " << src << ": " << B.ok().block_id.to_str();
+
+  VLOG(FULL_NODE_DEBUG) << "Received V2 block broadcast in fast sync overlay from " << src << ": "
+                        << B.ok().block_id.to_str();
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok());
 }
 

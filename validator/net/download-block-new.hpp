@@ -54,7 +54,7 @@ class DownloadBlockNew : public td::actor::Actor {
   void got_data(td::BufferSlice data);
   void got_data_from_db(td::BufferSlice data);
   void got_ready_to_deserialize(tl_object_ptr<ton_api::tonNode_DataFull> data_full,
-    td::Ref<ShardState> state = td::Ref<ShardState>());
+                                td::Ref<ShardState> state = td::Ref<ShardState>());
   void checked_block_proof();
 
  private:
