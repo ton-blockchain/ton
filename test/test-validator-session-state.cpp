@@ -25,20 +25,18 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "adnl/adnl.h"
-
-#include "td/utils/misc.h"
-#include "td/utils/port/signals.h"
-#include "td/utils/port/path.h"
-#include "td/utils/Random.h"
-
-#include "validator-session/validator-session-description.h"
-#include "validator-session/validator-session-state.h"
-#include "validator-session/validator-session-description.hpp"
-
 #include <limits>
 #include <memory>
 #include <set>
+
+#include "adnl/adnl.h"
+#include "td/utils/Random.h"
+#include "td/utils/misc.h"
+#include "td/utils/port/path.h"
+#include "td/utils/port/signals.h"
+#include "validator-session/validator-session-description.h"
+#include "validator-session/validator-session-description.hpp"
+#include "validator-session/validator-session-state.h"
 
 class Description : public ton::validatorsession::ValidatorSessionDescription {
  public:
@@ -75,6 +73,9 @@ class Description : public ton::validatorsession::ValidatorSessionDescription {
     auto x = id.bits256_value();
     auto y = x.as_array();
     return y[0];
+  }
+  td::Result<td::uint32> get_source_idx_safe(ton::PublicKeyHash id) const override {
+    return get_source_idx(id);
   }
   ton::ValidatorWeight get_node_weight(td::uint32 idx) const override {
     return 1;

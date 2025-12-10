@@ -1,7 +1,7 @@
 // Standard library for Tolk (LGPL licence).
 // It contains common functions that are available out of the box, the user doesn't have to import anything.
 // More specific functions are required to be imported explicitly, like "@stdlib/gas-payments".
-tolk 1.1
+tolk 1.2
 
 /**
     Built-in types.
@@ -41,11 +41,23 @@ type continuation = builtin
 /// A tuple occupies one stack slot regardless of its size.
 type tuple = builtin
 
-/// `address` represents an internal/external/none address.
-/// Most likely, you'll use it for internal addresses — "an address of a smart contract".
-/// It's `slice` under the hood. `someAddress as slice` is also possible.
+/// `address` represents a standard (internal) address: workchain + hash.
+/// Addresses are comparable with `==` operator, they have methods like [address.getWorkchain].
+/// In binary, it's 267 bits: '10' (addr_std) + '0' (no anycast) + workchain (int8) + hash (uint256).
+/// If you wish to describe "a potentially missing address", use `address?` (nullable).
+/// When set to `null`, `address?` will be serialized as '00' ("none address"):
+/// '00' (two zero bits) is a standard representation of a "missing" ("none") address.
+/// At the TVM level, addresses are slices, so it's possible to  `someAddress as slice`.
 /// [See docs](https://docs.ton.org/learn/overviews/addresses#address-of-smart-contract)
 type address = builtin
+
+/// `any_address` represents an internal/external/none address.
+/// You can test it with [any_address.isExternal] and similar methods.
+/// If you wish to describe "internal or none address", use `address?` (nullable)
+/// instead of "any". That's why `any_address` is used in practice extremely rarely.
+/// At the TVM level, addresses are slices, so it's possible to  `anyAddress as slice`.
+/// [See docs](https://docs.ton.org/learn/overviews/addresses#address-of-smart-contract)
+type any_address = builtin
 
 /// `never` is a special type that represents computations that never complete normally.
 /// A function that always throws an exception returns `never`, and the compiler knows
@@ -126,6 +138,23 @@ struct Cell<T> {
     private readonly tvmCell: cell
 }
 
+/// Get human-readable type name of any T for logging or low-level purposes.
+/// Example:
+/// ```
+/// debug.printString(int.typeName());  // "int"
+/// ```
+@pure
+fun T.typeName(): slice
+    builtin
+
+/// Get human-readable type name of any object for logging or low-level purposes.
+/// Example:
+/// ```
+/// debug.printString(42.typeNameOfObject());   // "int"
+/// ```
+@pure
+fun T.typeNameOfObject(self): slice
+    builtin
 
 /**
     Tuple manipulation primitives.
@@ -178,6 +207,28 @@ fun tuple.last<T>(self): T
 fun tuple.pop<T>(mutate self): T
     asm "TPOP"
 
+/// Packs any object from a stack to a tuple. 
+/// An object occupies N slots on a stack — the tuple will be of size N.
+/// Example:
+/// ```
+/// struct Point { x: int, y: int }
+/// 
+/// var p: Point = { x: 1, y: 2 };
+/// var t = p.toTuple();     // [ 1 2 ]
+/// p = Point.fromTuple(t);  // back
+/// t.get<int>(0);           // 1
+/// ```
+/// It can be used for logging or low-level purposes like running a child VM or custom "equals".
+/// See [T.fromTuple] counterpart.
+@pure
+fun T.toTuple(self): tuple
+    builtin
+
+/// Unpacks a tuple back to an object on a stack.
+/// See [T.toTuple] for explanation and examples.
+@pure
+fun T.fromTuple(packedObject: tuple): T
+    builtin
 
 /**
     Mathematical primitives.
@@ -562,6 +613,12 @@ fun cell.hash(self): uint256
 @pure
 fun slice.hash(self): uint256
     asm "HASHSU"
+
+/// Computes the hash of a builder and returns it as a 256-bit unsigned integer.
+/// The same as "transform builder to cell + calc hash of that cell", but without cell creation.
+@pure
+fun builder.hash(self): uint256
+    asm "HASHBU"
 
 /// Computes sha256 of the data bits of a slice (without refs). 
 /// If the bit length is not divisible by eight, throws a cell underflow exception.
@@ -1114,6 +1171,12 @@ fun beginCell(): builder
 fun builder.endCell(self): cell
     asm "ENDC"
 
+/// Converts a builder into a slice.
+/// The same as `b.endCell().beginParse()`
+@pure
+fun builder.toSlice(self): slice
+    asm "BTOS"
+
 /// Stores a reference to a cell into a builder.
 @pure
 fun builder.storeRef(mutate self, c: cell): self
@@ -1134,10 +1197,26 @@ fun builder.storeUint(mutate self, x: int, len: int): self
 fun builder.storeSlice(mutate self, s: slice): self
     asm(s self) "STSLICE"
 
-/// Stores an address into a builder.
+/// Stores an internal address into a builder.
 @pure
 fun builder.storeAddress(mutate self, addr: address): self
-    asm(addr self) "STSLICE"
+    asm(addr self) "STSTDADDR"
+
+/// Stores an internal address or '00' if the parameter is `null`.
+/// '00' (two zero bits) is a standard representation of a "missing" ("none") address.
+@pure
+fun builder.storeAddressOpt(mutate self, addrOrNull: address?): self
+    asm(addrOrNull self) "STOPTSTDADDR"
+
+/// Stores "any address" (internal/external/none) into a builder.
+@pure
+fun builder.storeAddressAny(mutate self, addrAny: any_address): self
+    asm(addrAny self) "STSLICE"
+
+/// Stores a "none address": '00' (two zero bits) is TL addr_none$00.
+@pure
+fun builder.storeAddressNone(mutate self): self
+    asm "b{00} STSLICECONST"
 
 /// Stores the amount of nanotoncoins into a builder.
 @pure
@@ -1165,11 +1244,6 @@ fun builder.storeMaybeRef(mutate self, c: cell?): self
 @pure
 fun builder.storeBuilder(mutate self, from: builder): self
     asm(from self) "STB"
-
-/// Stores a slice representing "none address" (TL addr_none$00 — two zero bits).
-@pure
-fun builder.storeAddressNone(mutate self): self
-    asm "b{00} STSLICECONST"
 
 
 /**
@@ -1231,47 +1305,66 @@ fun builder.bitsCount(self): int
 /// address("EQCRDM9h4k3UJdOePPuyX40mCgA4vxge5Dc5vjBR8djbEKC5")
 /// address("0:527964d55cfa6eb731f4bfc07e9d025098097ef8505519e853986279bd8400d8")
 /// ```
-/// Returns `address`, which can be stored in a builder, compared with `==`, etc.
+/// Returns `address`, which can be stored in a struct, compared with `==`, etc.
 @pure
 fun address(stdAddress: slice): address
     builtin
 
-/// Creates a slice representing "none address" (TL addr_none$00 — two zero bits).
-@pure
-fun createAddressNone(): address
-    asm "b{00} PUSHSLICE"
-
-/// Returns if it's an empty address (= "none address").
-/// Don't confuse it with null! An empty address is a slice "00" (two zero bits).
-@pure
-fun address.isNone(self): bool
-    asm "b{00} SDBEGINSQ" "NIP"
-
-/// Returns if it's a standard (internal) address. Such addresses contain workchain (8 bits) and hash (256 bits).
-/// All contract addresses are internal, so it's the most practical use case.
-/// In TL/B it's addr_std$10.
-/// For internal addresses, you can call [address.getWorkchain] and [address.getWorkchainAndHash].
-@pure
-fun address.isInternal(self): bool
-    asm "b{10} SDBEGINSQ" "NIP"
-
-/// Returns if it's an external address, used to communication with the outside world.
-/// In TL/B it's addr_extern$01.
-@pure
-fun address.isExternal(self): bool
-    asm "b{01} SDBEGINSQ" "NIP"
-
 /// Extracts workchain and hash from a standard (internal) address.
-/// If the address is not internal, throws a cell deserialization exception.
 @pure
 fun address.getWorkchainAndHash(self): (int8, uint256)
     asm "REWRITESTDADDR"
 
 /// Extracts workchain from a standard (internal) address.
-/// If the address is not internal, throws a cell deserialization exception.
 @pure
 fun address.getWorkchain(self): int8
     asm "REWRITESTDADDR" "DROP"
+
+/// Creates a slice representing "none external address" (TL addr_none$00 — two zero bits).
+/// Note! Use this in combination with EXTERNAL addresses (e.g. for [createExternalLogMessage]).
+/// To represent "internal or none" address (which you most likely need to), 
+/// use `address?` (nullable) and `null` accordingly.
+@pure
+fun createAddressNone(): any_address
+    asm "b{00} PUSHSLICE"
+
+/// Returns if "any address" is "none".
+/// In TL/B, it's addr_none$00.
+@pure
+fun any_address.isNone(self): bool
+    asm "b{00} SDBEGINSQ" "NIP"
+
+/// Returns if "any address" is a standard (internal) address: workchain + hash.
+/// Then it can be safely cast to `address`. 
+/// In TL/B, it's addr_std$10.
+@pure
+fun any_address.isInternal(self): bool
+    asm "b{10} SDBEGINSQ" "NIP"
+
+/// Returns if "any address" is an external address, used to communication with the outside world.
+/// In TL/B, it's addr_extern$01.
+@pure
+fun any_address.isExternal(self): bool
+    asm "b{01} SDBEGINSQ" "NIP"
+
+/// Extracts workchain and hash from a standard (internal) address.
+/// If the address is not internal, throws a cell deserialization exception.
+@pure
+fun any_address.getWorkchainAndHash(self): (int8, uint256)
+    asm "REWRITESTDADDR"
+
+/// Extracts workchain from a standard (internal) address.
+/// If the address is not internal, throws a cell deserialization exception.
+@pure
+fun any_address.getWorkchain(self): int8
+    asm "REWRITESTDADDR" "DROP"
+
+/// Casts `any_address` to `address` checking that "any" is actually "internal".
+/// E.g., `addr = myAny.castToInternal()` does the check and returns `address`.
+/// To skip the runtime check, use unsafe type casting instead: `addr = myAny as address`.
+@pure
+fun any_address.castToInternal(self): address
+    asm "DUP" "b{10} SDBEGINSQ" "NIP" "9 THROWIFNOT"
 
 /// Checks whether two addresses are equal. Equivalent to `a == b`.
 /// Deprecated! Left for smoother transition from FunC, where you used `slice` everywhere.
@@ -1281,9 +1374,23 @@ fun address.getWorkchain(self): int8
 fun address.bitsEqual(self, b: address): bool
     asm "SDEQ"
 
-/// Loads a valid address (internal/external/none). In TL/B, it's `MsgAddress`.
+/// Loads a standard (internal) address (containing workchain + hash). In TL/B, it's `MsgAddressInt`.
+/// If an address is incorrect or is not internal, throws a deserialization exception (code 9).
 @pure
 fun slice.loadAddress(mutate self): address
+    asm( -> 1 0) "LDSTDADDR"
+
+/// Loads a standard (internal) address or returns `null` if the input is "none address".
+/// If an address is incorrect or is not internal/none, throws a deserialization exception (code 9).
+/// '00' (two zero bits) is a standard representation of a "missing" ("none") address.
+/// As a result, you get either `address` (for internal) or `null` (for none).
+@pure
+fun slice.loadAddressOpt(mutate self): address?
+    asm( -> 1 0) "LDOPTSTDADDR"
+
+/// Loads a valid "any address" (internal/external/none). In TL/B, it's `MsgAddress`.
+@pure
+fun slice.loadAddressAny(mutate self): any_address
     asm( -> 1 0) "LDMSGADDR"
 
 
@@ -1357,7 +1464,7 @@ struct ContractState {
 }
 
 /// `AddressShardingOptions` provides settings to calculate an address in another shard.
-/// Consider [createMessage] and [address.buildSameAddressInAnotherShard] for usage.
+/// Consider [createMessage] and [address.calculateSameAddressInAnotherShard] for usage.
 struct AddressShardingOptions {
     fixedPrefixLength: uint5        // shard depth, formerly splitDepth
     closeTo: address
@@ -1379,24 +1486,31 @@ struct AddressShardingOptions {
 /// You just provide code+data, and the compiler automatically calculates the destination address,
 /// because in TON, the address of a contract, by definition, is a hash of its initial state.
 /// You can also use it without sending a message. 
-/// See [AutoDeployAddress.buildAddress] and [AutoDeployAddress.addressMatches].
+/// See [AutoDeployAddress.calculateAddress].
 struct AutoDeployAddress {
     workchain: int8 = BASECHAIN
     stateInit: ContractState | cell
     toShard: AddressShardingOptions? = null
 }
 
+/// Deprecated, use [AutoDeployAddress.calculateAddress] instead.
+/// Since late 2025 (TVM 12 has a cheap "builder-to-slice" instruction),
+/// there is no need to use this function.
+/// Historically its purpose was to avoid creating a cell and to return `builder` with a valid address.
+@pure
+@deprecated("use calculateAddress instead")
+fun AutoDeployAddress.buildAddress(self): builder
+    builtin
+
 /// Constructs an address that a deployed contract will have.
 /// For example, from a jetton minter, you want to calculate an address of a jetton wallet:
 /// ```
 /// val jwDeployed = calcDeployedJettonWallet(...);
-/// val jwAddrBuilt = jwDeployed.buildAddress();
+/// val jwAddress = jwDeployed.calculateAddress();
 /// ```
 /// Just instead of `dest` for [createMessage], you use it is to calculate a jetton/nft address.
-/// Note: returns `builder`, not `address`! It's cheap.
-/// If you really need `address`, use `address.fromValidBuilder(res)`.
 @pure
-fun AutoDeployAddress.buildAddress(self): builder
+fun AutoDeployAddress.calculateAddress(self): address
     builtin
 
 /// Checks that an address matches a deployed contract.
@@ -1406,15 +1520,46 @@ fun AutoDeployAddress.buildAddress(self): builder
 /// val fromJW = jwDeployed.addressMatches(senderAddress);
 /// ```
 /// Just instead of `dest` for [createMessage], you use it is to check whether a sender is a jetton/nft.
+/// Deprecated since late 2025 (TVM 12 with a cheap "builder-to-slice" instruction), to be removed later.
 @pure
+@deprecated("Use `a == jwDeployed.calculateAddress()` instead of `jwDeployed.addressMatches(a)")
 fun AutoDeployAddress.addressMatches(self, addr: address): bool
     builtin
 
+/// `BounceMode` represents behavior of an outgoing message when a receiver failed to handle it.
+/// If you specify to bounce a message, don't forget about the `onBouncedMessage` entrypoint.
+/// ```
+/// val outMsg = createMessage({
+///     bounce: BounceMode.Only256BitsOfBody,
+///     ...
+/// });
+/// 
+/// fun onBouncedMessage(in: InMessageBounced) {
+///     // in.bouncedBody is populated depending on BounceMode
+///     // for instance, "Only256BitsOfBody" means 
+///     // "bounced prefix 0xFFFFFFFF" and 256 bits of data
+///     in.bouncedBody.skipBouncedPrefix();
+///     val originalOpcode = in.bouncedBody.loadUint(32);
+///     ...
+/// }
+/// ```
+enum BounceMode {
+    NoBounce                // a message will just disappear on error
+    Only256BitsOfBody       // `in.bouncedBody` will be "0xFFFFFFFF" and the first 256 bits of outgoing body (most cheap)
+    RichBounce              // `in.bouncedBody` will be struct RichBounceBody (most expensive, but allows accessing all data sent)
+    RichBounceOnlyRootCell  // `in.bouncedBody` will be struct RichBounceBody without refs in `originalBody`
+}
+
+/// Before TVM-12, `bounce` was only true or false.
+/// Now, use `enum BounceMode` instead. "true" behaves like `Only256BitsOfBody`.
+@deprecated("use `BounceMode.NoBounce` instead of `false`")
+type OldBounceMode = bool
+
 /// Options for creating an outgoing message.
 /// Consider [createMessage] for examples.
-struct CreateMessageOptions<TBody = never> {
-    /// whether a message will bounce back on error
-    bounce: bool
+struct CreateMessageOptions<TBody = void> {
+    /// whether a message will bounce back on error, and what piece of outgoing `body` it will contain
+    bounce: BounceMode | OldBounceMode
     /// message value: attached tons (or tons + extra currencies)
     value: coins | (coins, ExtraCurrenciesMap)
     /// destination is either a provided address, or is auto-calculated by stateInit
@@ -1430,7 +1575,7 @@ struct CreateMessageOptions<TBody = never> {
 /// Typically, you just send it. In advanced scenarios, you can estimate fees or even postpone sending.
 /// ```
 /// val reply = createMessage({
-///     bounce: false,
+///     bounce: BounceMode.NoBounce,
 ///     value: ton("0.05"),
 ///     dest: senderAddress,
 ///     body: RequestedInfo { ... }    // note: no toCell! just pass an object
@@ -1462,9 +1607,9 @@ struct (0x00) ExtOutLogBucket {
 
 /// Options for creating an external outgoing message.
 /// Consider [createExternalLogMessage] for examples.
-struct CreateExternalLogMessageOptions<TBody = never> {
+struct CreateExternalLogMessageOptions<TBody = void> {
     /// destination is either an external address or a pattern to calculate it
-    dest: address           // either some valid external/none address (not internal!)
+    dest: any_address       // either some valid external/none address (not internal!)
         | builder           // ... or a manually constructed builder with a valid external address
         | ExtOutLogBucket   // ... or encode topic/eventID in destination
     /// body is any serializable object (or just miss this field for empty body)
@@ -1550,56 +1695,33 @@ struct StateInit {
 ///     ...
 /// ```
 @pure
-fun StateInit.calcHashCodeData(code: cell, data: cell): uint256 asm
-"""                 // code data
-    DUP2            // code data code data
-    HASHCU
-    SWAP
-    HASHCU          // code data dataHash codeHash
-    SWAP2           // dataHash codeHash code data
-    CDEPTH
-    SWAP
-    CDEPTH          // dataHash codeHash dataDepth codeDepth
-
-    NEWC
-    x{020134} STSLICECONST // store refs_descriptor | bits_descriptor | data
-    16 STU                 // store codeDepth
-    16 STU                 // store dataDepth
-    256 STU                // store codeHash
-    256 STU                // store dataHash
-
-    ONE HASHEXT_SHA256
-"""
+fun StateInit.calcHashCodeData(code: cell, data: cell): uint256 asm (data code)
+    "NEWC"
+    "b{00110} STSLICECONST"
+    "STREF"
+    "STREF"
+    "HASHBU"
 
 /// Calculates a hash of StateInit if fixedPrefixLength+code+data are set.
 @pure
-fun StateInit.calcHashPrefixCodeData(fixedPrefixLength: uint5, code: cell, data: cell): uint256 asm
-"""                 // pDepth code data
-    DUP2            // pDepth code data code data
-    HASHCU
-    SWAP
-    HASHCU          // pDepth code data dataHash codeHash
-    SWAP2           // pDepth dataHash codeHash code data
-    CDEPTH
-    SWAP
-    CDEPTH          // pDepth dataHash codeHash dataDepth codeDepth
+fun StateInit.calcHashPrefixCodeData(fixedPrefixLength: uint5, code: cell, data: cell): uint256 asm (data code fixedPrefixLength)
+    "NEWC"
+    "b{1} STSLICECONST"
+    "5 STU"
+    "b{0110} STSLICECONST"
+    "STREF"
+    "STREF"
+    "HASHBU"
 
-    s4 PUSH         // pDepth dataHash codeHash dataDepth codeDepth pDepth
-    10 LSHIFT#
-    0x020381A0 PUSHINT
-    ADD             // calc refs_descriptor | bits_descriptor | data
 
-    NEWC
-    32 STU
-    16 STU
-    16 STU
-    256 STU
-    256 STU
-
-    ONE HASHEXT_SHA256     // pDepth hash
-    NIP
-"""
-
+/// Deprecated, use [address.calculateSameAddressInAnotherShard] instead.
+/// Since late 2025 (TVM 12 has a cheap "builder-to-slice" instruction),
+/// there is no need to use this function.
+/// Historically its purpose was to avoid creating a cell and to return `builder` with a valid address.
+@pure
+@deprecated("use calculateSameAddressInAnotherShard instead")
+fun address.buildSameAddressInAnotherShard(self, options: AddressShardingOptions): builder
+    builtin
 
 /// Given an internal address A="aaaa...a" returns "bbaa...a" (D bits from address B, 256-D from A).
 ///
@@ -1611,37 +1733,32 @@ fun StateInit.calcHashPrefixCodeData(fixedPrefixLength: uint5, code: cell, data:
 /// ```
 /// More precisely, self (input) is 267 bits: '100' (std addr no anycast) + workchainA + "aaaa...a".
 /// The result is also 267 bits: '100' + workchainB + "bb" (D bits) + "aa...a" (256-D bits).
-/// 
-/// Note: returns `builder`, not `address`! Because builder is cheap, and you can send a message to it:
-/// ```
-/// createMessage({
-///     dest: resBuilder, // a builder containing a valid address can be passed to createMessage()
-///     ...
-/// ```
-/// If you really need `address`, use `address.fromValidBuilder(resBuilder)`.
 @pure
-fun address.buildSameAddressInAnotherShard(self, options: AddressShardingOptions): builder
+fun address.calculateSameAddressInAnotherShard(self, options: AddressShardingOptions): address
     builtin
 
-/// Converts a builder containing a valid address (internal/external/none) to `address` (slice under the hood).
-/// Gas-expensive! Because or a cell creation: essentially, it's `b.endCell().beginParse()`.
-/// Example: you've manually built a 267-bit address: '100' (std addr no anycast) + workchain + hash
-///          and you want to return `address` (TVM slice) from a contract getter:
-/// ```
-/// get calcWalletAddress(ownerAddress: address): address {
-///     val b = calculate(...);             // manually calculate into builder
-///     return address.fromValidBuilder(b)  // but really need address
-/// }
-/// ```
-/// Hint: if you want just to send a message, don't call this function, use a builder directly:
-/// ```
-/// createMessage({
-///     dest: someBuilder,   // a builder containing a valid address can be passed to createMessage()
-///     ...                  // so, don't call this expensive function in this case
-/// ```
+/// Converts a builder containing a valid address to `address` (slice under the hood).
+/// Deprecated! Since late 2025 (TVM 12 has a cheap "builder-to-slice" instruction),
+/// all compiler built-ins return `address` directly, not `builder`.
 @pure
+@deprecated("prefer using `address` everywhere, avoid using `builder` and manual address construction")
 fun address.fromValidBuilder(b: builder): address
     asm "ENDC" "CTOS"
+
+/// Constructs an internal address (267 bits) from workchain and hash.
+/// Hint: if you just want to send a message, don't call this function, pass workchain+hash directly:
+/// ```
+/// createMessage({
+///     dest: (workchain, hash),   // a pair can be passed instead of `address`
+///     ...                        // so, don't call this function in such a case
+/// ```
+fun address.fromWorkchainAndHash(workchain: int8, hash: uint256): address 
+    asm (hash workchain)
+    "NEWC"
+    "b{100} STSLICECONST"       // addr_std$10 + 0 (no anycast)
+    "8 STI"
+    "256 STU"
+    "BTOS"
 
 
 /// Sends a raw message — a correctly serialized TL object `Message X`.
@@ -1675,10 +1792,12 @@ struct InMessage {
 
 /// `InMessageBounced` is an input for `onBouncedMessage`.
 /// Very similar to a non-bounced input [InMessage].
-/// Note, that `bouncedBody` is currently 256 bits: 0xFFFFFFFF + 224 bits from the originally sent message.
-/// Parse it with care!
+/// Note that `bouncedBody` is populated depending on [BounceMode] specified for [createMessage].
 /// ```
 /// fun onBouncedMessage(in: InMessageBounced) {
+///     // in.bouncedBody is populated depending on BounceMode
+///     // for instance, "Only256BitsOfBody" means 
+///     // "bounced prefix 0xFFFFFFFF" and 256 bits of data
 ///     in.bouncedBody.skipBouncedPrefix();
 ///     val originalOpcode = in.bouncedBody.loadUint(32);
 /// ```
@@ -1689,10 +1808,48 @@ struct InMessageBounced {
     originalForwardFee: coins       // comission that the sender has payed to send this message
     createdLt: uint64               // logical time when a message was created (and bounced)
     createdAt: uint32               // unixtime when a message was created (and bounced)
-    bouncedBody: slice              // currently 256 bits: 0xFFFFFFFF + 224 bits sent originally
+    bouncedBody: slice              // populated depending on `BounceMode` for `createMessage`
+}
+
+/// When you use [createMessage] with "rich bounce mode", and a message is bounced,
+/// then `in.bouncedBody` inside `onBouncedMessage` has this format.
+/// ```
+/// fun onBouncedMessage(in: InMessageBounced) {
+///     // suppose you ALWAYS use BounceMode.RichBounce in createMessage
+///     // so you parse ALL bounces as follows
+///     val rich = lazy RichBounceBody.fromSlice(in.bouncedBody);
+///     // handle rich.originalBody, probably with lazy match
+///     // use rich.xxx to get exitCode, gasUsed, and so on
+/// ```
+struct (0xfffffffe) RichBounceBody {
+    originalBody: cell                              // a cell with original body, but for `RichBounceOnlyRootCell` without refs (cheaper)
+    originalInfo: Cell<RichBounceOriginalMsgInfo>   // some fields of an original (outgoing) message
+    bouncedByPhase: uint8                           // see docs
+    exitCode: int32                                 // exception code from `throw` or TVM internals
+    computePhase: RichBounceComputePhaseInfo?       // filled if compute phase executed
+}
+
+/// Describes compute phase details of a bounced message. 
+struct RichBounceComputePhaseInfo {
+    gasUsed: uint32
+    vmSteps: uint32
+}
+
+/// Describes original outgoing message fields (besides body) of a bounced message.
+/// ```
+/// createMessage({
+///     bounce: BounceMode.RichBounce,
+///     value: ton("0.05")   // it will be `valueCoins` if this message is bounced
+/// ```
+struct RichBounceOriginalMsgInfo {
+    valueCoins: coins
+    valueExtra: ExtraCurrenciesMap
+    createdLt: uint64
+    createdAt: uint32
 }
 
 /// Skip 0xFFFFFFFF prefix (when a message is bounced).
+/// Used when parsing `in.bounceBody` for "not rich" `BounceMode.Only256BitsOfBody` bounces.
 @pure
 fun slice.skipBouncedPrefix(mutate self): self
     asm "32 LDU" "NIP"

@@ -16,9 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/port/stacktrace.h"
-
 #include "td/utils/port/signals.h"
+#include "td/utils/port/stacktrace.h"
 
 #if TD_WINDOWS
 #include <DbgHelp.h>
@@ -58,7 +57,7 @@ void print_backtrace(void) {
     SymFromAddr(process, (DWORD64)(stack[i]), nullptr, symbol);
     // Don't use sprintf here because it is not signal-safe
     char buf[256 + 32];
-    char* buf_ptr = buf;
+    char *buf_ptr = buf;
     if (frames - i - 1 < 10) {
       strcpy(buf_ptr, " ");
       buf_ptr += strlen(buf_ptr);

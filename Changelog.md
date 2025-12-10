@@ -1,3 +1,33 @@
+## 2025.12 Update
+
+1. `celldb-v2` enabled by default.
+2. Fast state serializer (sharded serialization) enabled by default.
+3. Using `_` instead of `:` in package filenames for better compatibility with Windows and network protocols.
+4. Introduced parallelism in the validator engine.
+5. Added Python-based testing framework.
+6. Various fixes in emulator, node, TVM, `Asm.fif`.
+7. Introduced improved network traffic compression.
+8. BLST updated.
+
+Internal code changes:
+
+1. Introduced support for coroutines in actors.
+2. Enabled `clang-format` 21.
+3. Removed the virtualization level concept.
+4. Minor code style and cleanliness improvements.
+
+Besides the work of the core team, this update also includes contributions from Tonstudio team members: @pyAndr3w (`Asm.fif`), @Gusarich (TVM fixes in `arithops`), @Kaladin13 (node fixes).
+
+## 2025.11 Update
+
+1. [TVM version v12](./doc/GlobalVersions.md) update: [forbid unused high bits in extra_flags](https://github.com/ton-blockchain/TEPs/pull/503/commits/d949d70d5a69026d273cbbc07653d12c4373117a), [bounce extra_flags equal to initial message extra_flags](https://github.com/ton-blockchain/TEPs/pull/503/commits/d33ff342d69de04f1c33d11360dcf06b63a6c21e), [new TVM opcodes](https://github.com/ton-blockchain/ton/commit/ecd8fbb833c408eb34ec1aa4516e9e4344b54a22).
+2. Abseil upgrade
+3. Improvements in node synchronisation
+4. Fixing rare ArchiveManager issues
+5. Various improvements in logging, builds, DHT node behavior, private net launching, failure handlers.
+
+Besides the work of the core team, this update is based on the efforts of the @Lapo4kaKek and [Vahagn x.com/vah_13](https://x.com/vah_13).
+
 ## 2025.10 Update
 
 1. [TVM version v12](./doc/GlobalVersions.md): full bounces, new `BTOS` and `HASHBU` instuctions, limit on contract size in masterchain.

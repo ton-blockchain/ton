@@ -17,12 +17,10 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/fec/fec.h"
-
-#include "td/fec/raptorq/Encoder.h"
-#include "td/fec/raptorq/Decoder.h"
-
-#include "td/fec/online/Encoder.h"
 #include "td/fec/online/Decoder.h"
+#include "td/fec/online/Encoder.h"
+#include "td/fec/raptorq/Decoder.h"
+#include "td/fec/raptorq/Encoder.h"
 
 namespace td {
 namespace fec {

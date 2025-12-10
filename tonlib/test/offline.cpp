@@ -17,35 +17,31 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "block/block.h"
-#include "block/block-auto.h"
-#include "block/mc-config.h"
-
-#include "vm/cells.h"
-#include "vm/boc.h"
-#include "vm/cells/CellString.h"
-
-#include "tonlib/utils.h"
-#include "tonlib/TonlibClient.h"
-#include "tonlib/Client.h"
-
 #include "auto/tl/ton_api_json.h"
 #include "auto/tl/tonlib_api_json.h"
-
+#include "block/block-auto.h"
+#include "block/block.h"
+#include "block/mc-config.h"
+#include "td/utils/PathView.h"
 #include "td/utils/benchmark.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/optional.h"
 #include "td/utils/overloaded.h"
 #include "td/utils/port/path.h"
-#include "td/utils/PathView.h"
 #include "td/utils/tests.h"
+#include "tonlib/Client.h"
+#include "tonlib/TonlibClient.h"
+#include "tonlib/utils.h"
+#include "vm/boc.h"
+#include "vm/cells.h"
+#include "vm/cells/CellString.h"
 
 // KeyManager
-#include "tonlib/keys/bip39.h"
 #include "tonlib/keys/DecryptedKey.h"
 #include "tonlib/keys/EncryptedKey.h"
 #include "tonlib/keys/Mnemonic.h"
 #include "tonlib/keys/SimpleEncryption.h"
+#include "tonlib/keys/bip39.h"
 
 TEST(Tonlib, CellString) {
   for (unsigned size :
@@ -689,7 +685,7 @@ TEST(Tonlib, ConfigCache) {
   sync_send(client, make_object<tonlib_api::options_setConfig>(
                         make_object<tonlib_api::config>(testnet, "testnet", true, false)))
       .ensure();
-  sync_send(client, make_object<tonlib_api::options_setConfig>(
-                        make_object<tonlib_api::config>(custom, "testnet", true, false)))
+  sync_send(client,
+            make_object<tonlib_api::options_setConfig>(make_object<tonlib_api::config>(custom, "testnet", true, false)))
       .ensure_error();
 }

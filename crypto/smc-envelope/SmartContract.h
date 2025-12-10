@@ -18,15 +18,13 @@
 */
 #pragma once
 
+#include "block/block.h"
+#include "block/mc-config.h"
+#include "td/utils/crypto.h"
+#include "td/utils/optional.h"
 #include "vm/cells.h"
 #include "vm/stack.hpp"
 #include "vm/vm.h"
-
-#include "td/utils/optional.h"
-#include "td/utils/crypto.h"
-
-#include "block/block.h"
-#include "block/mc-config.h"
 
 namespace ton {
 class SmartContract : public td::CntObject {

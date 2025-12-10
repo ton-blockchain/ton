@@ -18,10 +18,11 @@
 */
 #pragma once
 
-#include "validator-full-id.h"
-#include "signature-set.h"
-#include "ton/ton-types.h"
 #include "adnl/adnl-node-id.hpp"
+#include "ton/ton-types.h"
+
+#include "signature-set.h"
+#include "validator-full-id.h"
 
 namespace ton {
 

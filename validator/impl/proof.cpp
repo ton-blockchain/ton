@@ -16,11 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "proof.hpp"
-#include "block/block-parse.h"
 #include "block/block-auto.h"
+#include "block/block-parse.h"
 #include "vm/boc.h"
 #include "vm/cells/MerkleProof.h"
+
+#include "proof.hpp"
 #include "validator-set.hpp"
 
 namespace ton {
@@ -132,7 +133,7 @@ td::Result<ProofLinkQ::VirtualizedProof> ProofLinkQ::get_virtual_root(bool lazy)
   if (proof_blk_id != id_) {
     return td::Status::Error(-668, "masterchain block proof is for another block");
   }
-  auto virt_root = vm::MerkleProof::virtualize(proof.root, 1);
+  auto virt_root = vm::MerkleProof::virtualize(proof.root);
   if (virt_root.is_null()) {
     return td::Status::Error(-668, "block proof for block "s + proof_blk_id.to_str() +
                                        " does not contain a valid Merkle proof for the block header");
@@ -179,7 +180,7 @@ td::Result<td::Ref<vm::Cell>> create_block_state_proof(td::Ref<vm::Cell> root) {
 }
 
 td::Result<RootHash> unpack_block_state_proof(BlockIdExt block_id, td::Ref<vm::Cell> proof) {
-  auto virt_root = vm::MerkleProof::virtualize(proof, 1);
+  auto virt_root = vm::MerkleProof::virtualize(proof);
   if (virt_root.is_null()) {
     return td::Status::Error("invalid Merkle proof");
   }

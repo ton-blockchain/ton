@@ -16,14 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "fift/words.h"
 #include "fift/Fift.h"
 #include "fift/utils.h"
-
-#include "td/utils/tests.h"
+#include "fift/words.h"
 #include "td/utils/PathView.h"
-#include "td/utils/port/path.h"
 #include "td/utils/filesystem.h"
+#include "td/utils/port/path.h"
+#include "td/utils/tests.h"
 
 std::string current_dir() {
   return td::PathView(td::realpath(__FILE__).move_as_ok()).parent_dir().str();
@@ -178,4 +177,8 @@ TEST(Fift, test_get_extra_balance) {
 
 TEST(Fift, test_p256) {
   run_fift("p256.fif");
+}
+
+TEST(Fift, test_load_store_std_addr) {
+  run_fift("load-store-std-addr.fif");
 }

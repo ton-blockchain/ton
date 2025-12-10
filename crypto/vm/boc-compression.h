@@ -20,8 +20,8 @@ This file is part of TON Blockchain Library.
 
 #include "td/utils/Status.h"
 #include "td/utils/buffer.h"
-#include "vm/cells/CellSlice.h"
 #include "vm/cells/CellBuilder.h"
+#include "vm/cells/CellSlice.h"
 #include "vm/excno.hpp"
 
 namespace vm {

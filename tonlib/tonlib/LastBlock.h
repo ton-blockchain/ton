@@ -18,12 +18,10 @@
 */
 #pragma once
 #include "td/actor/actor.h"
-
-#include "tonlib/Config.h"
-#include "tonlib/ExtClient.h"
-
 #include "td/utils/CancellationToken.h"
 #include "td/utils/tl_helpers.h"
+#include "tonlib/Config.h"
+#include "tonlib/ExtClient.h"
 
 namespace block {
 struct BlockProofChain;

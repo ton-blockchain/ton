@@ -16,16 +16,16 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "rootdb.hpp"
-#include "validator/fabric.h"
-#include "archiver.hpp"
-
-#include "td/db/RocksDb.h"
-#include "ton/ton-tl.hpp"
-#include "td/utils/overloaded.h"
 #include "common/checksum.h"
-#include "validator/stats-merger.h"
 #include "td/actor/MultiPromise.h"
+#include "td/db/RocksDb.h"
+#include "td/utils/overloaded.h"
+#include "ton/ton-tl.hpp"
+#include "validator/fabric.h"
+#include "validator/stats-merger.h"
+
+#include "archiver.hpp"
+#include "rootdb.hpp"
 
 namespace ton {
 
@@ -333,7 +333,7 @@ void RootDb::store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterc
 
 void RootDb::store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                              PersistentStateType type,
-                                             std::function<td::Status(td::FileFd&)> write_data,
+                                             std::function<td::Status(td::FileFd &)> write_data,
                                              td::Promise<td::Unit> promise) {
   td::actor::send_closure(archive_db_, &ArchiveManager::add_persistent_state_gen, block_id, masterchain_block_id, type,
                           std::move(write_data), std::move(promise));
@@ -386,12 +386,6 @@ void RootDb::get_block_handle(BlockIdExt id, td::Promise<BlockHandle> promise) {
 
 void RootDb::try_get_static_file(FileHash file_hash, td::Promise<td::BufferSlice> promise) {
   td::actor::send_closure(static_files_db_, &StaticFilesDb::load_file, file_hash, std::move(promise));
-}
-
-void RootDb::apply_block(BlockHandle handle, td::Promise<td::Unit> promise) {
-  td::actor::create_actor<BlockArchiver>("archiver", std::move(handle), archive_db_.get(), actor_id(this),
-                                         std::move(promise))
-      .release();
 }
 
 void RootDb::get_block_by_lt(AccountIdPrefixFull account, LogicalTime lt, td::Promise<ConstBlockHandle> promise) {
@@ -464,8 +458,26 @@ void RootDb::start_up() {
 }
 
 void RootDb::archive(BlockHandle handle, td::Promise<td::Unit> promise) {
-  td::actor::create_actor<BlockArchiver>("archiveblock", std::move(handle), archive_db_.get(), actor_id(this),
-                                         std::move(promise))
+  auto [it, inserted] = archive_block_waiters_.emplace(handle->id(), std::vector<td::Promise<td::Unit>>{});
+  it->second.push_back(std::move(promise));
+  if (!inserted) {
+    VLOG(VALIDATOR_DEBUG) << "archive block " << handle->id().id.to_str() << " : already in progress";
+    return;
+  }
+  td::actor::create_actor<BlockArchiver>(
+      PSTRING() << "archiver" << handle->id().id.to_str(), handle, archive_db_.get(), actor_id(this),
+      [this, SelfId = actor_id(this), block_id = handle->id()](td::Result<td::Unit> R) {
+        td::actor::send_lambda(SelfId, [this, R = std::move(R), block_id]() {
+          auto it2 = archive_block_waiters_.find(block_id);
+          if (it2 == archive_block_waiters_.end()) {
+            return;
+          }
+          for (auto &promise : it2->second) {
+            promise.set_result(R.clone());
+          }
+          archive_block_waiters_.erase(it2);
+        });
+      })
       .release();
 }
 

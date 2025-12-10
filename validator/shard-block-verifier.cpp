@@ -14,9 +14,9 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "shard-block-verifier.hpp"
-
 #include "td/actor/MultiPromise.h"
+
+#include "shard-block-verifier.hpp"
 
 namespace ton::validator {
 

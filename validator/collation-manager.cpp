@@ -14,16 +14,16 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "collation-manager.hpp"
-
-#include "collator-node/collator-node.hpp"
-#include "collator-node/utils.hpp"
-#include "fabric.h"
-#include "td/utils/Random.h"
-
 #include <delay.h>
 #include <openssl/lhash.h>
 #include <ton/ton-tl.hpp>
+
+#include "collator-node/collator-node.hpp"
+#include "collator-node/utils.hpp"
+#include "td/utils/Random.h"
+
+#include "collation-manager.hpp"
+#include "fabric.h"
 
 namespace ton::validator {
 

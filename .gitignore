@@ -4,6 +4,7 @@ parsetab.py
 parsetab.pyc
 tdutils/generate/auto/
 tl/generate/auto/
+tl/generate/scheme/*.tlo
 compile_commands.json
 crypto/block/block-auto.cpp
 crypto/block/block-auto.h
@@ -25,3 +26,14 @@ libsodium-1.0.18-stable-msvc.zip
 libmicrohttpd-0.9.77-w32-bin.zip
 openssl-3.1.4.zip
 readline-5.0-1-lib.zip
+
+# Python files
+.venv
+.ruff_cache
+*.egg-info
+
+# Work directory for integration tests
+test/integration/.network
+
+test/tontester/tests/tl/generated
+test/tontester/src/tontester/tl

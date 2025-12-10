@@ -25,7 +25,7 @@ void StorageStatCache::get_cache(td::Promise<std::function<td::Ref<vm::Cell>(con
 }
 
 void StorageStatCache::update(std::vector<std::pair<td::Ref<vm::Cell>, td::uint32>> data) {
-  for (auto &[cell, size] : data) {
+  for (auto& [cell, size] : data) {
     if (size < MIN_ACCOUNT_CELLS) {
       continue;
     }

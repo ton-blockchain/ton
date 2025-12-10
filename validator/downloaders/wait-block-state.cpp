@@ -16,12 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "wait-block-state.hpp"
-#include "validator/fabric.h"
-#include "ton/ton-io.hpp"
 #include "common/checksum.h"
 #include "common/delay.h"
+#include "ton/ton-io.hpp"
 #include "validator/downloaders/download-state.hpp"
+#include "validator/fabric.h"
+
+#include "wait-block-state.hpp"
 
 namespace ton {
 

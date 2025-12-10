@@ -16,24 +16,22 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "overlay-manager.h"
-#include "auto/tl/ton_api.h"
-#include "auto/tl/ton_api.hpp"
-#include "overlay.h"
+#include <vector>
 
 #include "adnl/utils.hpp"
+#include "auto/tl/ton_api.h"
+#include "auto/tl/ton_api.hpp"
 #include "td/actor/actor.h"
 #include "td/actor/common.h"
-#include "td/utils/Random.h"
-
 #include "td/db/RocksDb.h"
-
+#include "td/utils/Random.h"
 #include "td/utils/Status.h"
 #include "td/utils/buffer.h"
 #include "td/utils/overloaded.h"
-
 #include "td/utils/port/Poll.h"
-#include <vector>
+
+#include "overlay-manager.h"
+#include "overlay.h"
 
 namespace ton {
 
@@ -600,8 +598,12 @@ BroadcastCheckResult Certificate::check(PublicKeyHash node, OverlayIdShort overl
 }
 
 tl_object_ptr<ton_api::overlay_Certificate> Certificate::tl() const {
-  return create_tl_object<ton_api::overlay_certificate>(issued_by_.get<PublicKey>().tl(), expire_at_, max_size_,
-                                                        signature_.clone_as_buffer_slice());
+  if (flags_ == cert_default_flags(max_size_)) {
+    return create_tl_object<ton_api::overlay_certificate>(issued_by_.get<PublicKey>().tl(), expire_at_, max_size_,
+                                                          signature_.clone_as_buffer_slice());
+  }
+  return create_tl_object<ton_api::overlay_certificateV2>(issued_by_.get<PublicKey>().tl(), expire_at_, max_size_,
+                                                          flags_, signature_.clone_as_buffer_slice());
 }
 
 tl_object_ptr<ton_api::overlay_Certificate> Certificate::empty_tl() {

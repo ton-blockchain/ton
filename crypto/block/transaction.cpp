@@ -16,16 +16,16 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "block/transaction.h"
-#include "block/block.h"
-#include "block/block-parse.h"
 #include "block/block-auto.h"
+#include "block/block-parse.h"
+#include "block/block.h"
+#include "block/transaction.h"
 #include "crypto/openssl/rand.hpp"
+#include "td/utils/Timer.h"
 #include "td/utils/bits.h"
 #include "td/utils/uint128.h"
 #include "ton/ton-shard.h"
 #include "vm/vm.h"
-#include "td/utils/Timer.h"
 
 namespace {
 /**
@@ -35,7 +35,8 @@ namespace {
  */
 class StringLoggerTail : public td::LogInterface {
  public:
-  explicit StringLoggerTail(size_t max_size = 256) : buf(max_size, '\0') {}
+  explicit StringLoggerTail(size_t max_size = 256) : buf(max_size, '\0') {
+  }
 
   /**
    * Appends a slice of data to the buffer.
@@ -78,7 +79,7 @@ class StringLoggerTail : public td::LogInterface {
   size_t pos = 0;
   bool truncated = false;
 };
-}
+}  // namespace
 
 namespace block {
 using td::Ref;
@@ -179,7 +180,7 @@ bool Account::store_maybe_anycast(vm::CellBuilder& cb) const {
   if (!addr_rewrite_length_set || !addr_rewrite_length) {
     return cb.store_bool_bool(false);
   }
-  return cb.store_bool_bool(true)                                    // just$1
+  return cb.store_bool_bool(true)                                           // just$1
          && cb.store_uint_leq(30, addr_rewrite_length)                      // depth:(#<= 30)
          && cb.store_bits_bool(addr_rewrite.cbits(), addr_rewrite_length);  // rewrite_pfx:(bits depth)
 }
@@ -394,7 +395,7 @@ bool Account::recompute_tmp_addr(Ref<vm::CellSlice>& tmp_addr, int fixed_prefix_
     if (!cb.store_bool_bool(false)) {  // anycast:(Maybe Anycast)
       return false;
     }
-  } else if (!(cb.store_bool_bool(true)                             // just$1
+  } else if (!(cb.store_bool_bool(true)                                     // just$1
                && cb.store_long_bool(fixed_prefix_length, 5)                // depth:(#<= 30)
                && cb.store_bits_bool(addr.bits(), fixed_prefix_length))) {  // rewrite_pfx:(bits depth)
     return false;
@@ -875,9 +876,9 @@ bool Transaction::unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* 
       td::RefInt256 ihr_fee;
       if (cfg->global_version >= 12) {
         ihr_fee = td::zero_refint();
-        td::RefInt256 extra_flags = tlb::t_Grams.as_integer(in_msg_info.extra_flags);
-        new_bounce_format = extra_flags->get_bit(0);
-        new_bounce_format_full_body = extra_flags->get_bit(1);
+        in_msg_extra_flags = tlb::t_Grams.as_integer(in_msg_info.extra_flags);
+        new_bounce_format = in_msg_extra_flags->get_bit(0);
+        new_bounce_format_full_body = in_msg_extra_flags->get_bit(1);
       } else {
         // Legacy: extra_flags was previously ihr_fee
         ihr_fee = tlb::t_Grams.as_integer(in_msg_info.extra_flags);
@@ -1488,16 +1489,16 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
     return {};
   }
   std::vector<vm::StackEntry> tuple = {
-      td::make_refint(0x076ef1ea),                // [ magic:0x076ef1ea
-      td::zero_refint(),                          //   actions:Integer
-      td::zero_refint(),                          //   msgs_sent:Integer
-      td::make_refint(now),                       //   unixtime:Integer
-      td::make_refint(account.block_lt),          //   block_lt:Integer
-      td::make_refint(start_lt),                  //   trans_lt:Integer
-      std::move(rand_seed_int),                   //   rand_seed:Integer
-      balance.as_vm_tuple(),                      //   balance_remaining:[Integer (Maybe Cell)]
-      my_addr,                                    //   myself:MsgAddressInt
-      vm::StackEntry::maybe(cfg.global_config)    //   global_config:(Maybe Cell) ] = SmartContractInfo;
+      td::make_refint(0x076ef1ea),              // [ magic:0x076ef1ea
+      td::zero_refint(),                        //   actions:Integer
+      td::zero_refint(),                        //   msgs_sent:Integer
+      td::make_refint(now),                     //   unixtime:Integer
+      td::make_refint(account.block_lt),        //   block_lt:Integer
+      td::make_refint(start_lt),                //   trans_lt:Integer
+      std::move(rand_seed_int),                 //   rand_seed:Integer
+      balance.as_vm_tuple(),                    //   balance_remaining:[Integer (Maybe Cell)]
+      my_addr,                                  //   myself:MsgAddressInt
+      vm::StackEntry::maybe(cfg.global_config)  //   global_config:(Maybe Cell) ] = SmartContractInfo;
   };
   if (cfg.global_version >= 4) {
     tuple.push_back(vm::StackEntry::maybe(new_code));  // code:Cell
@@ -1506,7 +1507,7 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
     } else {
       tuple.push_back(block::CurrencyCollection::zero().as_vm_tuple());
     }
-    tuple.push_back(storage_phase->fees_collected);       // storage_fees:Integer
+    tuple.push_back(storage_phase->fees_collected);  // storage_fees:Integer
 
     // See crypto/block/mc-config.cpp#2223 (get_prev_blocks_info)
     // [ wc:Integer shard:Integer seqno:Integer root_hash:Integer file_hash:Integer] = BlockId;
@@ -2141,7 +2142,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
   }
   ap.valid = true;
   for (int i = n - 1; i >= 0; --i) {
-    if(ap.action_list[i].is_null()) {
+    if (ap.action_list[i].is_null()) {
       continue;
     }
     ap.result_arg = n - 1 - i;
@@ -2471,8 +2472,8 @@ bool Transaction::check_replace_src_addr(Ref<vm::CellSlice>& src_addr) const {
  *
  * @returns True if the destination address is valid, false otherwise.
  */
-bool Transaction::check_rewrite_dest_addr(Ref<vm::CellSlice>& dest_addr, const ActionPhaseConfig& cfg,
-                                          bool* is_mc, bool allow_anycast) const {
+bool Transaction::check_rewrite_dest_addr(Ref<vm::CellSlice>& dest_addr, const ActionPhaseConfig& cfg, bool* is_mc,
+                                          bool allow_anycast) const {
   if (!dest_addr->prefetch_ulong(1)) {
     // all external addresses allowed
     if (is_mc) {
@@ -2691,6 +2692,13 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     }
     if (cfg.disable_ihr_flag) {
       info.ihr_disabled = true;
+    }
+    if (cfg.global_version >= 12) {
+      td::RefInt256 extra_flags = tlb::t_Grams.as_integer(info.extra_flags);
+      if (td::cmp(extra_flags & td::make_refint(3), extra_flags) != 0) {
+        LOG(DEBUG) << "invalid extra_flags in a proposed outbound message";
+        return check_skip_invalid(45);
+      }
     }
   }
   // set created_at and created_lt to correct values
@@ -3361,15 +3369,16 @@ bool Transaction::prepare_bounce_phase(const ActionPhaseConfig& cfg) {
   end_lt++;
   info.created_at = now;
   vm::CellBuilder cb;
-  CHECK(cb.store_long_bool(5, 4)                            // int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
-        && cb.append_cellslice_bool(info.src)               // src:MsgAddressInt
-        && cb.append_cellslice_bool(info.dest)              // dest:MsgAddressInt
-        && msg_balance.store(cb)                            // value:CurrencyCollection
-        && block::tlb::t_Grams.store_long(cb, 0)            // extra_flags:(VarUInteger 16)
-        && block::tlb::t_Grams.store_long(cb, bp.fwd_fees)  // fwd_fee:Grams
-        && cb.store_long_bool(info.created_lt, 64)          // created_lt:uint64
-        && cb.store_long_bool(info.created_at, 32)          // created_at:uint32
-        && cb.store_bool_bool(false));                      // init:(Maybe ...)
+  CHECK(cb.store_long_bool(5, 4)                // int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
+        && cb.append_cellslice_bool(info.src)   // src:MsgAddressInt
+        && cb.append_cellslice_bool(info.dest)  // dest:MsgAddressInt
+        && msg_balance.store(cb)                // value:CurrencyCollection
+        && block::tlb::t_Grams.store_integer_ref(
+               cb, in_msg_extra_flags & td::make_refint(3))  // extra_flags:(VarUInteger 16)
+        && block::tlb::t_Grams.store_long(cb, bp.fwd_fees)   // fwd_fee:Grams
+        && cb.store_long_bool(info.created_lt, 64)           // created_lt:uint64
+        && cb.store_long_bool(info.created_at, 32)           // created_at:uint32
+        && cb.store_bool_bool(false));                       // init:(Maybe ...)
   if (cb.can_extend_by(1 + body.size(), body.size_refs())) {
     // body:(Either X ^X) -> left X
     CHECK(cb.store_bool_bool(false) && cb.append_builder_bool(body));
@@ -3487,6 +3496,9 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     if (frozen_hash == account.addr_orig) {
       // if frozen_hash equals account's "original" address (before rewriting), do not need storing hash
       CHECK(cb.store_long_bool(0, 2));  // account_uninit$00 = AccountState
+      if (cfg.global_version >= 13) {
+        acc_status = Account::acc_uninit;
+      }
     } else {
       CHECK(cb.store_long_bool(1, 2)              // account_frozen$01
             && cb.store_bits_bool(frozen_hash));  // state_hash:bits256
@@ -3562,7 +3574,8 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
       td::Status S = stats.replace_roots(roots);
       time_storage_stat += timer.elapsed_both();
       if (S.is_error()) {
-        LOG(ERROR) << "Cannot recompute storage stats for account " << account.addr.to_hex() << ": " << S.move_as_error();
+        LOG(ERROR) << "Cannot recompute storage stats for account " << account.addr.to_hex() << ": "
+                   << S.move_as_error();
         return false;
       }
     }
@@ -3957,7 +3970,7 @@ Ref<vm::Cell> Transaction::commit(Account& acc) {
   if (force_remove_anycast_address) {
     CHECK(acc.forget_addr_rewrite_length());
   } else if (orig_addr_rewrite_set && new_addr_rewrite_length >= 0 && acc.status != Account::acc_active &&
-      acc_status == Account::acc_active) {
+             acc_status == Account::acc_active) {
     LOG(DEBUG) << "setting address rewriting info for newly-activated account " << acc.addr.to_hex()
                << " with addr_rewrite_length=" << new_addr_rewrite_length
                << ", orig_addr_rewrite=" << orig_addr_rewrite.bits().to_hex(new_addr_rewrite_length);
@@ -4228,6 +4241,7 @@ td::Status FetchConfigParams::fetch_config_params(
     action_phase_cfg->global_version = config.get_global_version();
   }
   {
+    serialize_cfg->global_version = config.get_global_version();
     serialize_cfg->extra_currency_v2 = config.get_global_version() >= 10;
     serialize_cfg->disable_anycast = config.get_global_version() >= 10;
     serialize_cfg->store_storage_dict_hash = config.get_global_version() >= 11;

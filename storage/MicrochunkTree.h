@@ -17,12 +17,13 @@
 
 #pragma once
 
-#include "td/utils/optional.h"
+#include <map>
+
 #include "td/utils/Slice.h"
+#include "td/utils/optional.h"
 #include "vm/cells.h"
 
 #include "Bitset.h"
-#include <map>
 
 namespace ton {
 
@@ -39,6 +40,7 @@ class MicrochunkTree {
     MicrochunkTree finalize();
 
     static td::Result<MicrochunkTree> build_for_torrent(Torrent &torrent, td::uint64 prun_size = 1 << 17);
+
    private:
     td::uint64 file_size_;
     td::uint64 prun_size_;

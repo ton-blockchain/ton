@@ -17,8 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "ton/ton-types.h"
 #include "interfaces/block.h"
+#include "ton/ton-types.h"
 #include "vm/db/StaticBagOfCellsDb.h"
 
 namespace ton {

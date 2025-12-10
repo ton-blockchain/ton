@@ -18,16 +18,15 @@
 */
 #pragma once
 
+#include <stats-provider.h>
+
+#include "interfaces/db.h"
+#include "interfaces/validator-manager.h"
 #include "td/actor/actor.h"
 #include "ton/ton-types.h"
 
-#include "interfaces/validator-manager.h"
-#include "interfaces/db.h"
-#include "shard-client.hpp"
-
 #include "manager-init.h"
-
-#include <stats-provider.h>
+#include "shard-client.hpp"
 
 namespace ton {
 

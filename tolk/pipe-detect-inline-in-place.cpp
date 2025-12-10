@@ -14,9 +14,10 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "tolk.h"
 #include "ast.h"
 #include "ast-visitor.h"
+#include "compilation-errors.h"
+#include <functional>
 #include <unordered_set>
 
 /*
@@ -110,14 +111,13 @@ struct StateWhileTraversingFunction {
 };
 
 // traverse the AST, collect metrics, and in the end, probably set the inline flag
-class DetectIfToInlineFunctionInPlaceVisitor final : ASTVisitorFunctionBody {
+class DetectIfToInlineFunctionInPlaceVisitor final : public ASTVisitorFunctionBody {
   StateWhileTraversingFunction cur_state{nullptr};
   int block_depth = 0;
   std::vector<V<ast_function_call>> collected_expect_inline;    // `__expect_inline()` compiler assertions
 
-protected:
   void visit(V<ast_function_call> v) override {
-    if (v->fun_maybe && v->fun_maybe->is_builtin_function() && v->fun_maybe->name == "__expect_inline") {
+    if (v->fun_maybe && v->fun_maybe->is_builtin() && v->fun_maybe->name == "__expect_inline") {
       collected_expect_inline.push_back(v);
     } else {
       cur_state.n_function_calls++;
@@ -197,10 +197,10 @@ protected:
     parent::visit(v);
   }
 
- public:
+public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     // unsupported or no-sense cases
-    if (fun_ref->is_builtin_function() || fun_ref->is_asm_function() || fun_ref->is_generic_function() ||
+    if (fun_ref->is_builtin() || fun_ref->is_asm_function() || fun_ref->is_generic_function() ||
         fun_ref->has_tvm_method_id() || !fun_ref->arg_order.empty() || !fun_ref->ret_order.empty() ||
         fun_ref->is_used_as_noncall()) {
       return false;
@@ -214,14 +214,15 @@ protected:
     return true;
   }
 
-  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) override {
-    cur_state = StateWhileTraversingFunction(fun_ref);
+  void on_enter_function(V<ast_function_declaration> v_function) override {
+    cur_state = StateWhileTraversingFunction(cur_f);
     collected_expect_inline.clear();
-    parent::visit(v_function->get_body());
+  }
 
+  void on_exit_function(V<ast_function_declaration> v_function) override {
     bool prevented_anyway = cur_state.is_inlining_prevented_even_if_annotated();
     bool will_inline = false;
-    if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif) {
+    if (cur_f->inline_mode == FunctionInlineMode::inlineViaFif) {
       // if a function is marked `@inline`, so the user requested in to be inlined;
       // if it's possible, do it; otherwise, leave it as `PROCINLINE` to Fift
       will_inline = !prevented_anyway;
@@ -235,14 +236,14 @@ protected:
       tolk_assert(v_expect->get_num_args() == 1 && v_expect->get_arg(0)->get_expr()->kind == ast_bool_const);
       bool expected = v_expect->get_arg(0)->get_expr()->as<ast_bool_const>()->bool_val;
       if (expected != will_inline) {
-        fire(fun_ref, v_expect->loc, "__expect_inline failed");
+        err("__expect_inline failed").fire(v_expect, cur_f);
       }
     }
 
     // okay, this function will be inlined, mark the flag
-    bool is_called = fun_ref->n_times_called || is_called_implicitly_by_compiler(fun_ref);
+    bool is_called = cur_f->n_times_called || is_called_implicitly_by_compiler(cur_f);
     if (will_inline && is_called) {
-      fun_ref->mutate()->assign_inline_mode_in_place();
+      cur_f->mutate()->assign_inline_mode_in_place();
     }
   }
 };
@@ -252,10 +253,8 @@ protected:
 // 2) increments n_times_called
 // as a result of applying it to every function, we get a full call graph and how many times each function was called;
 // we'll use this call graph to detect recursive components (functions within recursions can not be inlined)
-class CallGraphBuilderVisitor final : ASTVisitorFunctionBody {
-  FunctionPtr cur_f{nullptr};
+class CallGraphBuilderVisitor final : public ASTVisitorFunctionBody {
 
-protected:
   void visit(V<ast_function_call> v) override {
     if (FunctionPtr called_f = v->fun_maybe) {
       if (called_f->is_code_function()) {
@@ -266,16 +265,14 @@ protected:
     parent::visit(v);
   }
 
- public:
+public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     // don't include asm functions, we don't need them in calculations
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
   }
 
-  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) override {
-    cur_f = fun_ref;
+  void on_enter_function(V<ast_function_declaration> v_function) override {
     call_graph[cur_f] = std::vector<FunctionPtr>{};
-    parent::visit(v_function->get_body());
   }
 };
 

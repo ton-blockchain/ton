@@ -18,20 +18,20 @@
 */
 #pragma once
 
-#include "td/utils/buffer.h"
-#include "td/utils/common.h"
-#include "td/utils/format.h"
-#include "td/utils/logging.h"
-#include "td/utils/Slice.h"
-#include "td/utils/Status.h"
-#include "td/utils/UInt.h"
-#include "td/utils/utf8.h"
-
 #include <array>
 #include <cstring>
 #include <limits>
 #include <memory>
 #include <string>
+
+#include "td/utils/Slice.h"
+#include "td/utils/Status.h"
+#include "td/utils/UInt.h"
+#include "td/utils/buffer.h"
+#include "td/utils/common.h"
+#include "td/utils/format.h"
+#include "td/utils/logging.h"
+#include "td/utils/utf8.h"
 
 namespace td {
 
@@ -46,7 +46,7 @@ class TlParser {
   static constexpr size_t SMALL_DATA_ARRAY_SIZE = 6;
   std::array<int32, SMALL_DATA_ARRAY_SIZE> small_data_array;
 
-  alignas(4) static const unsigned char empty_data[sizeof(UInt256)];
+  alignas(4) static const unsigned char empty_data[sizeof(UInt512)];
 
  public:
   explicit TlParser(Slice slice);

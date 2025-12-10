@@ -1,5 +1,7 @@
-#include "CellStorage.h"
-#include "DynamicBagOfCellsDb.h"
+#include <optional>
+
+#include "td/utils/HashMap.h"
+#include "td/utils/HashSet.h"
 #include "td/utils/Timer.h"
 #include "td/utils/base64.h"
 #include "td/utils/format.h"
@@ -11,10 +13,8 @@
 #include "vm/cells/DataCell.h"
 #include "vm/cells/ExtCell.h"
 
-#include "td/utils/HashMap.h"
-#include "td/utils/HashSet.h"
-
-#include <optional>
+#include "CellStorage.h"
+#include "DynamicBagOfCellsDb.h"
 
 #if TD_PORT_POSIX
 #include <sys/mman.h>
@@ -860,7 +860,7 @@ class InMemoryBagOfCellsDb : public DynamicBagOfCellsDb {
     if (cell.is_null()) {
       return;
     }
-    if (cell->get_virtualization() != 0) {
+    if (cell->is_virtualized()) {
       return;
     }
     to_inc_.push_back(cell);
@@ -870,7 +870,7 @@ class InMemoryBagOfCellsDb : public DynamicBagOfCellsDb {
     if (cell.is_null()) {
       return;
     }
-    if (cell->get_virtualization() != 0) {
+    if (cell->is_virtualized()) {
       return;
     }
     to_dec_.push_back(cell);

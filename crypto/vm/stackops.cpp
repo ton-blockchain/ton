@@ -16,11 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "vm/excno.hpp"
 #include "vm/log.h"
-#include "vm/stackops.h"
 #include "vm/opctable.h"
 #include "vm/stack.hpp"
-#include "vm/excno.hpp"
+#include "vm/stackops.h"
 #include "vm/vm.h"
 
 namespace vm {

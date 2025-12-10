@@ -16,7 +16,6 @@
 */
 #pragma once
 
-#include "src-file.h"
 #include "fwd-declarations.h"
 #include "crypto/common/refint.h"
 #include <unordered_map>
@@ -27,11 +26,11 @@ namespace tolk {
 
 struct Symbol {
   std::string name;
-  SrcLocation loc;
+  AnyV ident_anchor;    // "identifier node", e.g. for `struct Demo { ... }` will be `Demo`; nullptr for builtin
 
-  Symbol(std::string name, SrcLocation loc)
+  Symbol(std::string name, AnyV ident_anchor)
     : name(std::move(name))
-    , loc(loc) {
+    , ident_anchor(ident_anchor) {
   }
 
   virtual ~Symbol() = default;
@@ -44,7 +43,8 @@ struct Symbol {
     return dynamic_cast<ConstTPtr>(this);
   }
 
-  void check_import_exists_when_used_from(FunctionPtr cur_f, SrcLocation used_loc) const;
+  bool is_builtin() const { return ident_anchor == nullptr; }
+  void check_import_exists_when_used_from(FunctionPtr cur_f, AnyV usage) const;
 };
 
 struct LocalVarData final : Symbol {
@@ -62,15 +62,15 @@ struct LocalVarData final : Symbol {
   int param_idx;                    // 0...N for function parameters, -1 for local vars
   std::vector<int> ir_idx;
 
-  LocalVarData(std::string name, SrcLocation loc, AnyTypeV type_node, AnyExprV default_value, int flags, int param_idx)
-    : Symbol(std::move(name), loc)
+  LocalVarData(std::string name, AnyV ident_anchor, AnyTypeV type_node, AnyExprV default_value, int flags, int param_idx)
+    : Symbol(std::move(name), ident_anchor)
     , type_node(type_node)
     , default_value(default_value)
     , flags(flags)
     , param_idx(param_idx) {
   }
-  LocalVarData(std::string name, SrcLocation loc, TypePtr declared_type, AnyExprV default_value, int flags, int param_idx)
-    : Symbol(std::move(name), loc)
+  LocalVarData(std::string name, AnyV ident_anchor, TypePtr declared_type, AnyExprV default_value, int flags, int param_idx)
+    : Symbol(std::move(name), ident_anchor)
     , type_node(nullptr)         // for built-in functions (their parameters)
     , declared_type(declared_type)
     , default_value(default_value)
@@ -111,6 +111,7 @@ struct FunctionData final : Symbol {
   static constexpr int EMPTY_TVM_METHOD_ID = -10;
 
   enum {
+    flagIsLambda = 2,           // it's an anonymous function (instantiated from a function expression, a lambda)
     flagTypeInferringDone = 4,  // type inferring step of function's body (all AST nodes assigning v->inferred_type) is done
     flagUsedAsNonCall = 8,      // used not only as `f()`, but as a 1-st class function (assigned to var, pushed to tuple, etc.)
     flagMarkedAsPure = 16,      // declared as `pure`, can't call impure and access globals, unused invocations are optimized out
@@ -144,12 +145,12 @@ struct FunctionData final : Symbol {
 
   const GenericsDeclaration* genericTs;
   const GenericsSubstitutions* substitutedTs;
-  FunctionPtr base_fun_ref = nullptr;             // for `f<int>`, here is `f<T>`
+  FunctionPtr base_fun_ref = nullptr;             // for `f<int>`, here is `f<T>`; for a lambda, a containing function
   FunctionBody body;
   AnyV ast_root;                                  // V<ast_function_declaration> for user-defined (not builtin)
 
-  FunctionData(std::string name, SrcLocation loc, std::string method_name, AnyTypeV receiver_type_node, AnyTypeV return_type_node, std::vector<LocalVarData> parameters, int initial_flags, FunctionInlineMode inline_mode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
-    : Symbol(std::move(name), loc)
+  FunctionData(std::string name, AnyV ident_anchor, std::string method_name, AnyTypeV receiver_type_node, AnyTypeV return_type_node, std::vector<LocalVarData> parameters, int initial_flags, FunctionInlineMode inline_mode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
+    : Symbol(std::move(name), ident_anchor)
     , flags(initial_flags)
     , inline_mode(inline_mode)
     , method_name(std::move(method_name))
@@ -161,8 +162,8 @@ struct FunctionData final : Symbol {
     , body(body)
     , ast_root(ast_root) {
   }
-  FunctionData(std::string name, SrcLocation loc, std::string method_name, TypePtr receiver_type, TypePtr declared_return_type, std::vector<LocalVarData> parameters, int initial_flags, FunctionInlineMode inline_mode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
-    : Symbol(std::move(name), loc)
+  FunctionData(std::string name, AnyV ident_anchor, std::string method_name, TypePtr receiver_type, TypePtr declared_return_type, std::vector<LocalVarData> parameters, int initial_flags, FunctionInlineMode inline_mode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
+    : Symbol(std::move(name), ident_anchor)
     , flags(initial_flags)
     , inline_mode(inline_mode)
     , method_name(std::move(method_name))
@@ -192,12 +193,12 @@ struct FunctionData final : Symbol {
 
   bool is_code_function() const { return std::holds_alternative<FunctionBodyCode*>(body); }
   bool is_asm_function() const { return std::holds_alternative<FunctionBodyAsm*>(body); }
-  bool is_builtin_function() const { return ast_root == nullptr; }
   bool is_method() const { return !method_name.empty(); }
   bool is_static_method() const { return is_method() && !does_accept_self(); }
 
   bool is_generic_function() const { return genericTs != nullptr; }
   bool is_instantiation_of_generic_function() const { return substitutedTs != nullptr; }
+  bool is_lambda() const { return flags & flagIsLambda; }
 
   bool is_inlined_in_place() const { return inline_mode == FunctionInlineMode::inlineInPlace; }
   bool is_type_inferring_done() const { return flags & flagTypeInferringDone; }
@@ -241,8 +242,8 @@ struct GlobalVarData final : Symbol {
   TypePtr declared_type = nullptr;    // = resolved type_node
   int flags = 0;
 
-  GlobalVarData(std::string name, SrcLocation loc, AnyTypeV type_node)
-    : Symbol(std::move(name), loc)
+  GlobalVarData(std::string name, AnyV ident_anchor, AnyTypeV type_node)
+    : Symbol(std::move(name), ident_anchor)
     , type_node(type_node) {
   }
 
@@ -259,8 +260,8 @@ struct GlobalConstData final : Symbol {
   TypePtr inferred_type = nullptr;
   AnyExprV init_value;
 
-  GlobalConstData(std::string name, SrcLocation loc, AnyTypeV type_node, AnyExprV init_value)
-    : Symbol(std::move(name), loc)
+  GlobalConstData(std::string name, AnyV ident_anchor, AnyTypeV type_node, AnyExprV init_value)
+    : Symbol(std::move(name), ident_anchor)
     , type_node(type_node)
     , init_value(init_value) {
   }
@@ -280,8 +281,8 @@ struct AliasDefData final : Symbol {
   AliasDefPtr base_alias_ref = nullptr;           // for `Response<int>`, here is `Response<T>`
   AnyV ast_root;                                  // V<ast_type_alias_declaration>
 
-  AliasDefData(std::string name, SrcLocation loc, AnyTypeV underlying_type_node, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
-    : Symbol(std::move(name), loc)
+  AliasDefData(std::string name, AnyV ident_anchor, AnyTypeV underlying_type_node, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
+    : Symbol(std::move(name), ident_anchor)
     , underlying_type_node(underlying_type_node)
     , genericTs(genericTs)
     , substitutedTs(substitutedTs)
@@ -312,8 +313,8 @@ struct StructFieldData final : Symbol {
   void assign_resolved_type(TypePtr declared_type);
   void assign_default_value(AnyExprV default_value);
 
-  StructFieldData(std::string name, SrcLocation loc, int field_idx, bool is_private, bool is_readonly, AnyTypeV type_node, AnyExprV default_value)
-    : Symbol(std::move(name), loc)
+  StructFieldData(std::string name, AnyV ident_anchor, int field_idx, bool is_private, bool is_readonly, AnyTypeV type_node, AnyExprV default_value)
+    : Symbol(std::move(name), ident_anchor)
     , field_idx(field_idx)
     , is_private(is_private)
     , is_readonly(is_readonly)
@@ -359,8 +360,8 @@ struct StructData final : Symbol {
   StructData* mutate() const { return const_cast<StructData*>(this); }
   void assign_resolved_genericTs(const GenericsDeclaration* genericTs);
 
-  StructData(std::string name, SrcLocation loc, std::vector<StructFieldPtr>&& fields, PackOpcode opcode, Overflow1023Policy overflow1023_policy, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
-    : Symbol(std::move(name), loc)
+  StructData(std::string name, AnyV ident_anchor, std::vector<StructFieldPtr>&& fields, PackOpcode opcode, Overflow1023Policy overflow1023_policy, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
+    : Symbol(std::move(name), ident_anchor)
     , fields(std::move(fields))
     , opcode(opcode)
     , overflow1023_policy(overflow1023_policy)
@@ -373,13 +374,15 @@ struct StructData final : Symbol {
 };
 
 struct EnumMemberData final : Symbol {
+  int member_idx;
   AnyExprV init_value;                // nullptr if no init (`Red`, not `Red = 1`)
   td::RefInt256 computed_value;       // auto-calculated or assigned from init if integer
 
   bool has_init_value() const { return init_value != nullptr; }
 
-  EnumMemberData(std::string name, SrcLocation loc, AnyExprV init_value)
-    : Symbol(std::move(name), loc)
+  EnumMemberData(std::string name, AnyV ident_anchor, int member_idx, AnyExprV init_value)
+    : Symbol(std::move(name), ident_anchor)
+    , member_idx(member_idx)
     , init_value(init_value) {
   }
 
@@ -395,8 +398,8 @@ struct EnumDefData final : Symbol {
 
   EnumMemberPtr find_member(std::string_view member_name) const;
 
-  EnumDefData(std::string name, SrcLocation loc, AnyTypeV colon_type_node, std::vector<EnumMemberPtr>&& members)
-    : Symbol(std::move(name), loc)
+  EnumDefData(std::string name, AnyV ident_anchor, AnyTypeV colon_type_node, std::vector<EnumMemberPtr>&& members)
+    : Symbol(std::move(name), ident_anchor)
     , colon_type_node(colon_type_node)
     , members(std::move(members)) {
   }
@@ -410,8 +413,8 @@ struct EnumDefData final : Symbol {
 struct TypeReferenceUsedAsSymbol final : Symbol {
   TypePtr resolved_type;
 
-  TypeReferenceUsedAsSymbol(std::string name, SrcLocation loc, TypePtr resolved_type)
-    : Symbol(std::move(name), loc)
+  TypeReferenceUsedAsSymbol(std::string name, AnyV ident_anchor, TypePtr resolved_type)
+    : Symbol(std::move(name), ident_anchor)
     , resolved_type(resolved_type) {
   }
 };

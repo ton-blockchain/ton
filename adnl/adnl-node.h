@@ -19,8 +19,9 @@
 #pragma once
 
 #include "auto/tl/ton_api.h"
-#include "adnl-node-id.hpp"
+
 #include "adnl-address-list.h"
+#include "adnl-node-id.hpp"
 
 namespace ton {
 

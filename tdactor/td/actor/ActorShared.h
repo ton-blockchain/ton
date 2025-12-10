@@ -17,8 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "td/actor/common.h"
 #include "td/actor/ActorId.h"
+#include "td/actor/common.h"
 
 namespace td {
 namespace actor {

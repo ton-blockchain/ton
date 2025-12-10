@@ -17,9 +17,9 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include <utility>
-#include <memory>
 #include <atomic>
+#include <memory>
+#include <utility>
 
 #include "td/utils/common.h"
 

@@ -15,15 +15,17 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "td/utils/port/FileFd.h"
-#include "td/utils/crypto.h"
 #include <vector>
+
+#include "td/utils/crypto.h"
+#include "td/utils/port/FileFd.h"
 
 namespace vm {
 namespace boc_writers {
 struct BufferWriter {
   BufferWriter(unsigned char* store_start, unsigned char* store_end)
-      : store_start(store_start), store_ptr(store_start), store_end(store_end) {}
+      : store_start(store_start), store_ptr(store_start), store_end(store_end) {
+  }
 
   size_t position() const {
     return store_ptr - store_start;
@@ -63,8 +65,8 @@ struct BufferWriter {
 };
 
 struct FileWriter {
-  FileWriter(td::FileFd& fd, size_t expected_size)
-      : fd(fd), expected_size(expected_size) {}
+  FileWriter(td::FileFd& fd, size_t expected_size) : fd(fd), expected_size(expected_size) {
+  }
 
   ~FileWriter() {
     flush();
@@ -142,5 +144,5 @@ struct FileWriter {
   BufferWriter writer = BufferWriter(buf.data(), buf.data() + buf.size());
   td::Status res = td::Status::OK();
 };
-}
-}
+}  // namespace boc_writers
+}  // namespace vm

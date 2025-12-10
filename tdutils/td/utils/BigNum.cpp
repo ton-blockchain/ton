@@ -22,13 +22,12 @@ char disable_linker_warning_about_empty_file_bignum_cpp TD_UNUSED;
 
 #if TD_HAVE_OPENSSL
 
-#include "td/utils/logging.h"
-#include "td/utils/misc.h"
-
+#include <algorithm>
 #include <openssl/bn.h>
 #include <openssl/crypto.h>
 
-#include <algorithm>
+#include "td/utils/logging.h"
+#include "td/utils/misc.h"
 
 namespace td {
 

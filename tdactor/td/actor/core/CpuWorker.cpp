@@ -16,12 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/actor/core/CpuWorker.h"
+#include <coroutine>
 
 #include "td/actor/core/ActorExecutor.h"
-#include "td/actor/core/SchedulerContext.h"
-
+#include "td/actor/core/CpuWorker.h"
 #include "td/actor/core/Scheduler.h"  // FIXME: afer LocalQueue is in a separate file
+#include "td/actor/core/SchedulerContext.h"
 
 namespace td {
 namespace actor {
@@ -34,55 +34,54 @@ void CpuWorker::run() {
   waiter_.init_slot(slot, thread_id);
   auto &debug = dispatcher.get_debug();
   while (true) {
-    SchedulerMessage message;
-    if (try_pop(message, thread_id)) {
+    SchedulerToken token = nullptr;
+    if (try_pop(token, thread_id)) {
       waiter_.stop_wait(slot);
-      if (!message) {
+      if (!token) {
         return;
       }
-      auto lock = debug.start(message->get_name());
-      ActorExecutor executor(*message, dispatcher, ActorExecutor::Options().with_from_queue());
+      auto encoded = reinterpret_cast<uintptr_t>(token);
+      if ((encoded & 1u) == 0u) {
+        // Regular actor message
+        auto raw_message = reinterpret_cast<SchedulerMessage::Raw *>(token);
+        SchedulerMessage message(SchedulerMessage::acquire_t{}, raw_message);
+        auto lock = debug.start(message->get_name());
+        ActorExecutor executor(*message, dispatcher, ActorExecutor::Options().with_from_queue());
+      } else {
+        // Coroutine continuation
+        auto h = std::coroutine_handle<>::from_address(reinterpret_cast<void *>(encoded & ~uintptr_t(1)));
+        auto lock = debug.start("coro");
+        h.resume();
+      }
     } else {
       waiter_.wait(slot);
     }
   }
 }
 
-bool CpuWorker::try_pop_local(SchedulerMessage &message) {
-  SchedulerMessage::Raw *raw_message;
-  if (local_queues_[id_].try_pop(raw_message)) {
-    message = SchedulerMessage(SchedulerMessage::acquire_t{}, raw_message);
-    return true;
-  }
-  return false;
+bool CpuWorker::try_pop_local(SchedulerToken &token) {
+  return local_queues_[id_].try_pop(token);
 }
 
-bool CpuWorker::try_pop_global(SchedulerMessage &message, size_t thread_id) {
-  SchedulerMessage::Raw *raw_message;
-  if (queue_.try_pop(raw_message, thread_id)) {
-    message = SchedulerMessage(SchedulerMessage::acquire_t{}, raw_message);
-    return true;
-  }
-  return false;
+bool CpuWorker::try_pop_global(SchedulerToken &token, size_t thread_id) {
+  return queue_.try_pop(token, thread_id);
 }
 
-bool CpuWorker::try_pop(SchedulerMessage &message, size_t thread_id) {
+bool CpuWorker::try_pop(SchedulerToken &token, size_t thread_id) {
   if (++cnt_ == 51) {
     cnt_ = 0;
-    if (try_pop_global(message, thread_id) || try_pop_local(message)) {
+    if (try_pop_global(token, thread_id) || try_pop_local(token)) {
       return true;
     }
   } else {
-    if (try_pop_local(message) || try_pop_global(message, thread_id)) {
+    if (try_pop_local(token) || try_pop_global(token, thread_id)) {
       return true;
     }
   }
 
   for (size_t i = 1; i < local_queues_.size(); i++) {
     size_t pos = (i + id_) % local_queues_.size();
-    SchedulerMessage::Raw *raw_message;
-    if (local_queues_[id_].steal(raw_message, local_queues_[pos])) {
-      message = SchedulerMessage(SchedulerMessage::acquire_t{}, raw_message);
+    if (local_queues_[id_].steal(token, local_queues_[pos])) {
       return true;
     }
   }

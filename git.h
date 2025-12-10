@@ -2,7 +2,7 @@
 #include <string>
 
 class GitMetadata {
-public:
+ public:
   // Is the metadata populated? We may not have metadata if
   // there wasn't a .git directory (e.g. downloaded source
   // code without revision history).

@@ -16,10 +16,10 @@
 
     Copyright 2019-2020 Telegram Systems LLP
 */
-#include "CellString.h"
 #include "td/utils/misc.h"
-
 #include "vm/cells/CellSlice.h"
+
+#include "CellString.h"
 
 namespace vm {
 td::Status CellString::store(CellBuilder &cb, td::Slice slice, unsigned int top_bits) {

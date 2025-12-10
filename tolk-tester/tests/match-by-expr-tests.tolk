@@ -1,6 +1,13 @@
 const C1 = 1;
 const C2 = C1 + 1;
 
+const zero_addr = address("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c");
+
+enum Role {
+    User,
+    Admin,
+}
+
 @method_id(101)
 fun test1(x: int) {
     return match (x) {
@@ -137,6 +144,74 @@ fun test12(x: int) {
     return g12
 }
 
+fun invalidAsmRole(): Role asm "99 PUSHINT"
+fun invalidAsmBool(): bool asm "99 PUSHINT"
+
+@noinline
+fun mapRole(r: Role): int {
+    return match (r) {
+        Role.User => 100,
+        Role.Admin => 200,
+    }
+    // no "missing return", match is exhaustive
+}
+
+@noinline
+fun mapBool(b: bool): int {
+    return match (b) {
+        true => 100,
+        false => 200,
+    }
+    // no "missing return", match is exhaustive
+}
+
+@method_id(113)
+fun test13() {
+    var ex1 = 0;
+    var ex2 = 0;
+
+    // will throw (the compiler generates "else" implicitly for enums)
+    try { ex1 = mapRole(invalidAsmRole()); }        
+    catch (ex) { ex1 = ex }
+
+    // will not throw (the compiler compiles "match" for bool as true => else =>)
+    try { ex2 = mapBool(invalidAsmBool()); }
+    catch (ex) { ex2 = ex }
+    
+    return (ex1, ex2);
+}
+
+@method_id(114)
+fun test14(case: int) {
+    return match (match (case) {
+        1 => address("Ef9nzj6RBc4mQ6p3ng7mGJ7tp7MbzERhe7obkM9A0wnCCEcf"),
+        2 => address("Ef89xh-uy860-mCcvS8zcAUs8bApmxLGygDLEKjUk5RL-311"),
+        else => zero_addr,
+    }) {
+        address("Ef9nzj6RBc4mQ6p3ng7mGJ7tp7MbzERhe7obkM9A0wnCCEcf") => 10,
+        address("Ef89xh-uy860-mCcvS8zcAUs8bApmxLGygDLEKjUk5RL-311") => 20,
+        zero_addr => 30,
+        else => throw 123,
+    }
+}
+
+@method_id(115)
+fun test15(useNone: bool) {
+    var addr = (address("Ef9nzj6RBc4mQ6p3ng7mGJ7tp7MbzERhe7obkM9A0wnCCEcf") as any_address).toCell().load();
+    if (useNone) {
+        addr = createAddressNone();
+    }
+    match (addr) {
+        address("Ef9nzj6RBc4mQ6p3ng7mGJ7tp7MbzERhe7obkM9A0wnCCEcf") =>
+            return match (addr) {
+                address("Ef9nzj6RBc4mQ6p3ng7mGJ7tp7MbzERhe7obkM9A0wnCCEcf") => 1,
+                else => 2
+            }
+    }
+    return createAddressNone() == addr ? null : 100;
+}
+
+
 
 type asdf = int;
 
@@ -178,6 +253,11 @@ fun main() {
 @testcase | 111 | -1       | 0
 @testcase | 112 | 2        | 2
 @testcase | 112 | 20       | 20
+@testcase | 113 |          | 5 200
+@testcase | 114 | 2        | 20
+@testcase | 114 | 8        | 30
+@testcase | 115 | 0        | 1
+@testcase | 115 | -1       | (null)
 
 @fif_codegen
 """
@@ -189,12 +269,12 @@ fun main() {
       100 PUSHINT       //  '1=100
     }>ELSE<{    //  x
       DUP       //  x x
-      2 EQINT   //  x '8
+      2 EQINT   //  x '6
       IF:<{     //  x
         DROP    //
         200 PUSHINT     //  '1=200
       }>ELSE<{  //  x
-        3 EQINT //  '13
+        3 EQINT //  '11
         IF:<{   //
           300 PUSHINT   //  '1=300
         }>ELSE<{        //
@@ -259,6 +339,15 @@ fun main() {
     }>
     $g12 SETGLOB
   }>
+"""
+
+@fif_codegen
+"""
+      1 EQINT                   //  '6
+      IFNOTJMP:<{               // 
+        5 THROW
+      }>                        // 
+      200 PUSHINT               //  '1=200
 """
 
  */

@@ -100,6 +100,8 @@ class ASTVisitorFunctionBody : public ASTVisitor {
 protected:
   using parent = ASTVisitorFunctionBody;
 
+  FunctionPtr cur_f = nullptr;
+
   // expressions
   virtual void visit(V<ast_empty_expression> v)          { return visit_children(v); }
   virtual void visit(V<ast_parenthesized_expression> v)  { return visit_children(v); }
@@ -134,6 +136,7 @@ protected:
   virtual void visit(V<ast_object_field> v)              { return visit_children(v); }
   virtual void visit(V<ast_object_body> v)               { return visit_children(v); }
   virtual void visit(V<ast_object_literal> v)            { return visit_children(v); }
+  virtual void visit(V<ast_lambda_fun> v)                { return visit_children(v); }
   // statements
   virtual void visit(V<ast_empty_statement> v)           { return visit_children(v); }
   virtual void visit(V<ast_block_statement> v)           { return visit_children(v); }
@@ -182,6 +185,7 @@ protected:
       case ast_object_field:                    return visit(v->as<ast_object_field>());
       case ast_object_body:                     return visit(v->as<ast_object_body>());
       case ast_object_literal:                  return visit(v->as<ast_object_literal>());
+      case ast_lambda_fun:                      return visit(v->as<ast_lambda_fun>());
       // statements
       case ast_empty_statement:                 return visit(v->as<ast_empty_statement>());
       case ast_block_statement:                 return visit(v->as<ast_block_statement>());
@@ -205,8 +209,17 @@ protected:
 public:
   virtual bool should_visit_function(FunctionPtr fun_ref) = 0;
 
-  virtual void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) {
-    visit(v_function->get_body());
+  virtual void on_enter_function(V<ast_function_declaration> v_function) {}
+  virtual void on_exit_function(V<ast_function_declaration> v_function) {}
+
+  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) {
+    cur_f = fun_ref;
+    on_enter_function(v_function);
+    if (V<ast_block_statement> v_body_block = v_function->get_body()->try_as<ast_block_statement>()) {
+      visit(v_body_block);
+    }
+    on_exit_function(v_function);
+    cur_f = nullptr;
   }
 };
 

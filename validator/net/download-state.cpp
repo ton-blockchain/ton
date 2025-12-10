@@ -16,10 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "download-state.hpp"
-#include "ton/ton-tl.hpp"
-#include "ton/ton-io.hpp"
 #include "td/utils/overloaded.h"
+#include "ton/ton-io.hpp"
+#include "ton/ton-tl.hpp"
+
+#include "download-state.hpp"
 #include "full-node.h"
 
 namespace ton {
@@ -250,15 +251,9 @@ void DownloadState::request_total_size() {
     td::actor::send_closure(SelfId, &DownloadState::got_total_size, res.ok()->size_);
   });
 
-  td::BufferSlice query;
-  if (effective_shard_ == 0) {
-    query = create_serialize_tl_object<ton_api::tonNode_getPersistentStateSize>(
-        create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_));
-  } else {
-    query = create_serialize_tl_object<ton_api::tonNode_getPersistentStateSizeV2>(
-        create_tl_object<ton_api::tonNode_persistentStateIdV2>(
-            create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_), effective_shard_));
-  }
+  td::BufferSlice query = create_serialize_tl_object<ton_api::tonNode_getPersistentStateSizeV2>(
+      create_tl_object<ton_api::tonNode_persistentStateIdV2>(
+          create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_), effective_shard_));
   if (client_.empty()) {
     td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_, overlay_id_,
                             "get size", std::move(P), td::Timestamp::in(3.0), std::move(query),
@@ -325,16 +320,10 @@ void DownloadState::got_block_state_part(td::BufferSlice data, td::uint32 reques
     }
   });
 
-  td::BufferSlice query;
-  if (effective_shard_ == 0) {
-    query = create_serialize_tl_object<ton_api::tonNode_downloadPersistentStateSlice>(
-        create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_), sum_, part_size);
-  } else {
-    query = create_serialize_tl_object<ton_api::tonNode_downloadPersistentStateSliceV2>(
-        create_tl_object<ton_api::tonNode_persistentStateIdV2>(
-            create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_), effective_shard_),
-        sum_, part_size);
-  }
+  td::BufferSlice query = create_serialize_tl_object<ton_api::tonNode_downloadPersistentStateSliceV2>(
+      create_tl_object<ton_api::tonNode_persistentStateIdV2>(
+          create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_), effective_shard_),
+      sum_, part_size);
   if (client_.empty()) {
     td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_, overlay_id_,
                             "download state", std::move(P), td::Timestamp::in(20.0), std::move(query),

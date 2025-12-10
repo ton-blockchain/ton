@@ -58,7 +58,6 @@ if (TDDB_USE_ROCKSDB)
   target_sources(tddb PRIVATE ${TDDB_ROCKSDB_SOURCE})
   target_compile_definitions(tddb PUBLIC -DTDDB_USE_ROCKSDB)
   target_link_libraries(tddb PUBLIC rocksdb)
-  target_include_directories(tddb PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../third-party/rocksdb/include>)
 endif()
 
 add_executable(io-bench test/io-bench.cpp)

@@ -18,18 +18,16 @@
 */
 #pragma once
 
+#include "adnl/adnl-db.h"
+#include "adnl/adnl-query.h"
+#include "auto/tl/ton_api.h"
+#include "common/io.hpp"
 #include "td/actor/actor.h"
 #include "td/utils/BufferedUdp.h"
 
+#include "adnl-packet.h"
 #include "adnl.h"
 #include "utils.hpp"
-#include "adnl/adnl-query.h"
-#include "adnl/adnl-db.h"
-#include "common/io.hpp"
-
-#include "adnl-packet.h"
-
-#include "auto/tl/ton_api.h"
 
 namespace ton {
 

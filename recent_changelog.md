@@ -1,9 +1,19 @@
-## 2025.10 Update
+## 2025.12 Update
 
-1. [TVM version v12](./doc/GlobalVersions.md): full bounces, new `BTOS` and `HASHBU` instuctions, limit on contract size in masterchain.
-2. Optimistic collation/validation: allow nodes to generate and check block candidates before previous block is fully signed (not fully activated yet).
-3. Introduced custom block compression algorithm.
-4. Overlay improvements: improved overlay discovery on shard configuration update, private externals in custom overlays.
-5. Various improvements: session stats, telemetry in fast-sync overlay, earlier block broadcasts, limiting ttl for values in DHT, fixing search by utime in native blockexplorer, faster downloading candidates in validator session, parallelization of storing to cell_db, avoiding touching packfiles on startup.
+1. `celldb-v2` enabled by default.
+2. Fast state serializer (sharded serialization) enabled by default.
+3. Using `_` instead of `:` in package filenames for better compatibility with Windows and network protocols.
+4. Introduced parallelism in the validator engine.
+5. Added Python-based testing framework.
+6. Various fixes in emulator, node, TVM, `Asm.fif`.
+7. Introduced improved network traffic compression.
+8. BLST updated.
 
-Besides the work of the core team, this update is based on the efforts of the Tonstudio team: @hacker-volodya @Shvandre; and @mkiesel (avoiding touching packfiles on startup).
+Internal code changes:
+
+1. Introduced support for coroutines in actors.
+2. Enabled `clang-format` 21.
+3. Removed the virtualization level concept.
+4. Minor code style and cleanliness improvements.
+
+Besides the work of the core team, this update also includes contributions from: @pyAndr3w (`Asm.fif`), @Gusarich (TVM fixes in `arithops`), @Kaladin13 (node fixes).

@@ -16,16 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "lite-client/lite-client-common.h"
+#include "td/utils/JsonBuilder.h"
+#include "ton/lite-tl.hpp"
 #include "tonlib/LastBlock.h"
 #include "tonlib/LastConfig.h"
-
 #include "tonlib/utils.h"
-
-#include "ton/lite-tl.hpp"
-
-#include "lite-client/lite-client-common.h"
-
-#include "td/utils/JsonBuilder.h"
 
 namespace tonlib {
 
@@ -210,6 +206,13 @@ void LastBlock::on_block_proof(
   CHECK(chain);
   update_state(*chain);
   if (chain->complete) {
+    if (chain->to.seqno() + 100 < max_seqno_ && max_seqno_ != 0) {
+      get_last_block_state_ = QueryState::Empty;
+      on_sync_error(TonlibError::LiteServerNetwork().move_as_error_suffix(
+          PSLICE() << "chain->to=" << chain->to.seqno() << " " << min_seqno_ << "/" << current_seqno_ << "/"
+                   << max_seqno_));
+      return;
+    }
     VLOG(last_block) << "get_last_block: done\n" << get_last_block_stats_;
     get_last_block_state_ = QueryState::Done;
   } else {
@@ -389,6 +392,7 @@ bool LastBlock::has_fatal_error() const {
 LastBlockSyncState LastBlock::get_sync_state() {
   LastBlockSyncState state;
   if (promises_.empty()) {
+    LOG_IF(ERROR, current_seqno_ + 1000 < max_seqno_) << min_seqno_ << "->" << current_seqno_ << "/" << max_seqno_;
     state.type = LastBlockSyncState::Done;
     return state;
   }

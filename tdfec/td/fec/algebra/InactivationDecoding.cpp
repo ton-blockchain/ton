@@ -16,11 +16,10 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/fec/algebra/InactivationDecoding.h"
-
-#include "td/utils/logging.h"
-
 #include <algorithm>
+
+#include "td/fec/algebra/InactivationDecoding.h"
+#include "td/utils/logging.h"
 
 namespace td {
 InactivationDecodingResult InactivationDecoding::run() {

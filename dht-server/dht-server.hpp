@@ -25,18 +25,15 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "adnl/adnl.h"
-#include "dht/dht.h"
-
-#include "td/actor/MultiPromise.h"
-
-#include "ton/ton-types.h"
-
-#include "auto/tl/ton_api_json.h"
-#include "auto/tl/ton_api.hpp"
-
-#include <set>
 #include <map>
+#include <set>
+
+#include "adnl/adnl.h"
+#include "auto/tl/ton_api.hpp"
+#include "auto/tl/ton_api_json.h"
+#include "dht/dht.h"
+#include "td/actor/MultiPromise.h"
+#include "ton/ton-types.h"
 
 enum DhtServerPermissions : td::uint32 { vep_default = 1, vep_modify = 2, vep_unsafe = 4 };
 

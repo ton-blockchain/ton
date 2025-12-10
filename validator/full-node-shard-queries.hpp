@@ -18,8 +18,9 @@
 */
 #pragma once
 
-#include "validator/validator.h"
 #include "ton/ton-tl.hpp"
+#include "validator/validator.h"
+
 #include "full-node-serializer.hpp"
 
 namespace ton {

@@ -51,41 +51,39 @@ static bool is_onBouncedMessage(FunctionPtr fun_ref) {
 }
 
 
-struct TransformOnInternalMessageReplacer final : ASTReplacerInFunctionBody {
-  FunctionPtr cur_f = nullptr;
+class TransformOnInternalMessageReplacer final : public ASTReplacerInFunctionBody {
   LocalVarPtr param_ref = nullptr;         // `in` for `fun onInternalMessage(in: InMessage)`
 
   static void validate_onBouncedMessage(FunctionPtr f) {
     if (f->inferred_return_type != TypeDataVoid::create() && f->inferred_return_type != TypeDataNever::create()) {
-      fire(f, f->loc, "`onBouncedMessage` should return `void`");
+      err("`onBouncedMessage` should return `void`").fire(f->ident_anchor, f);
     }
     if (f->get_num_params() != 1) {
-      fire(f, f->loc, "`onBouncedMessage` should have one parameter `InMessageBounced`");
+      err("`onBouncedMessage` should have one parameter `InMessageBounced`").fire(f->ident_anchor, f);
     }
     const auto* t_struct = f->get_param(0).declared_type->try_as<TypeDataStruct>();
     if (!t_struct || t_struct->struct_ref->name != "InMessageBounced") {
-      fire(f, f->loc, "`onBouncedMessage` should have one parameter `InMessageBounced`");
+      err("`onBouncedMessage` should have one parameter `InMessageBounced`").fire(f->ident_anchor, f);
     }
   }
 
-protected:
   AnyExprV replace(V<ast_reference> v) override {
     // don't allow `var v = in` or passing `in` to another function (only `in.someField` is allowed)
     if (v->sym == param_ref) {
-      fire(cur_f, v->loc, "using `" + param_ref->name + "` as an object is prohibited, because `InMessage` is a built-in struct, its fields are mapped to TVM instructions\nhint: use `" + param_ref->name + ".senderAddress` and other fields directly");
+      err("using `{}` as an object is prohibited, because `InMessage` is a built-in struct, its fields are mapped to TVM instructions\n""hint: use `{}.senderAddress` and other fields directly", param_ref->name, param_ref->name).fire(v, cur_f);
     }
     return parent::replace(v);
   }
 
   AnyExprV replace(V<ast_dot_access> v) override {
     // replace `in.senderAddress` / `in.valueCoins` with an aux vertex
-    if (v->get_obj()->kind == ast_reference && v->get_obj()->as<ast_reference>()->sym == param_ref) {
+    if (v->get_obj()->kind == ast_reference && v->get_obj()->as<ast_reference>()->sym == param_ref && v->is_target_struct_field()) {
       if (v->is_lvalue && v->get_field_name() != "body" && v->get_field_name() != "bouncedBody") {
-        fire(cur_f, v->loc, "modifying an immutable variable\nhint: fields of InMessage can be used for reading only");
+        err("modifying an immutable variable\n""hint: fields of InMessage can be used for reading only").fire(v, cur_f);
       }
 
       ASTAuxData* aux_getField = new AuxData_OnInternalMessage_getField(cur_f, v->get_field_name());
-      return createV<ast_artificial_aux_vertex>(v->loc, v, aux_getField, v->inferred_type);
+      return createV<ast_artificial_aux_vertex>(v, aux_getField, v->inferred_type);
     }
 
     return parent::replace(v);
@@ -96,19 +94,17 @@ public:
     return is_onInternalMessage(fun_ref) || is_onBouncedMessage(fun_ref);
   }
 
-  void start_replacing_in_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) override {
-    if (fun_ref->name == "onBouncedMessage") {
-      validate_onBouncedMessage(fun_ref);
+  void on_enter_function(V<ast_function_declaration> v_function) override {
+    if (cur_f->name == "onBouncedMessage") {
+      validate_onBouncedMessage(cur_f);
     }
+    param_ref = &cur_f->parameters[0];
+  }
 
-    cur_f = fun_ref;
-    param_ref = &fun_ref->parameters[0];
-
-    parent::replace(v_function->get_body());
-
+  void on_exit_function(V<ast_function_declaration> v_function) override {
     std::vector<LocalVarData> new_parameters;
-    new_parameters.emplace_back("in.body", fun_ref->loc, TypeDataSlice::create(), nullptr, 0, 0);
-    fun_ref->mutate()->parameters = std::move(new_parameters);
+    new_parameters.emplace_back("in.body", cur_f->ident_anchor, TypeDataSlice::create(), nullptr, 0, 0);
+    cur_f->mutate()->parameters = std::move(new_parameters);
   }
 };
 

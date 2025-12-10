@@ -136,7 +136,7 @@ fun test7() {
 }
 
 struct(0x10) Inner8_1 {
-    ea: address;
+    ea: any_address;
 }
 struct(0b1) CellInner8_1 {
     ref: Cell<Inner8_1>;
@@ -222,6 +222,22 @@ fun test21() {
     )
 }
 
+struct JustAddress {
+    a: address
+}
+type Nullable<T> = T | null
+type OwnerAddress = address
+
+@method_id(122)
+fun test22() {
+    return (
+        address.estimate(), Nullable<address>.estimate(),
+        JustAddress.estimate(), Nullable<JustAddress>.estimate(),
+        OwnerAddress.estimate(), Nullable<OwnerAddress>.estimate(),
+        any_address.estimate(), Nullable<any_address>.estimate(),
+    )
+}
+
 fun main() {
     __expect_type(int8.estimatePackSize(), "(int, int, int, int)");
 }
@@ -230,14 +246,15 @@ fun main() {
 @testcase | 101 | | [ 32 32 0 0 ] [ 64 64 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 0 9999 0 4 ] [ 4 124 0 0 ] [ 6 6 0 0 ] [ 64 64 0 0 ] [ 5 253 0 0 ]
 @testcase | 102 | | [ 32 32 0 0 ] [ 1 33 0 0 ] [ 1 33 0 0 ] [ 17 33 0 0 ]
 @testcase | 103 | | [ 67 199 0 0 ] [ 69 599 0 0 ]
-@testcase | 104 | | [ 4 534 0 0 ] [ 2 536 0 0 ] [ 6 1070 0 0 ]
+@testcase | 104 | | [ 534 534 0 0 ] [ 4 534 0 0 ] [ 538 1068 0 0 ]
 @testcase | 105 | | [ 2 2 2 4 ] [ 5 9999 0 9 ] [ 4 152 1 4 ]
 @testcase | 106 | | [ 64 64 0 0 ] [ 5 37 1 1 ] [ 5 65 0 1 ]
 @testcase | 107 | | [ 16 16 0 0 ] [ 16 16 0 0 ]
-@testcase | 108 | | [ 10 275 0 0 ] [ 34 158 0 0 ] [ 47 1143 0 1 ]
+@testcase | 108 | | [ 10 531 0 0 ] [ 34 158 0 0 ] [ 47 1911 0 1 ]
 @testcase | 109 | | [ 34 130 0 0 ] [ 33 159 0 0 ] [ 4 8 0 0 ] [ 1 7 0 0 ]
 @testcase | 110 | | [ 32 9999 0 4 ] [ 33 9999 0 8 ]
 @testcase | 111 | | [ 1023 1023 0 1 ] [ 0 0 2 2 ]
 @testcase | 120 | | 16 4128 1 1
 @testcase | 121 | | [ 2 2 0 0 ] [ 9 9 0 0 ] [ 6 6 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 123 123 0 0 ] [ 123 123 0 0 ] 
+@testcase | 122 | | [ 267 267 0 0 ] [ 2 267 0 0 ] [ 267 267 0 0 ] [ 1 268 0 0 ] [ 267 267 0 0 ] [ 2 267 0 0 ] [ 2 523 0 0 ] [ 1 524 0 0 ] 
  */
