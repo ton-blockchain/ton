@@ -31,7 +31,7 @@ constexpr size_t kDecompressedSizeBytes = 4;
 enum class CompressionAlgorithm : int {
   BaselineLZ4 = 0,
   ImprovedStructureLZ4 = 1,
-  ImprovedStructureLZ4WithMU = 2,
+  ImprovedStructureLZ4WithState = 2,
 };
 
 td::Result<td::BufferSlice> boc_compress_baseline_lz4(const std::vector<td::Ref<vm::Cell>>& boc_roots);

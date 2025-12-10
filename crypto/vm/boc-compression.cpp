@@ -916,7 +916,7 @@ td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& b
     TRY_RESULT_ASSIGN(compressed, boc_compress_baseline_lz4(boc_roots));
   } else if (algo == CompressionAlgorithm::ImprovedStructureLZ4) {
     TRY_RESULT_ASSIGN(compressed, boc_compress_improved_structure_lz4(boc_roots, false));
-  } else if (algo == CompressionAlgorithm::ImprovedStructureLZ4WithMU) {
+  } else if (algo == CompressionAlgorithm::ImprovedStructureLZ4WithState) {
     TRY_RESULT_ASSIGN(compressed, boc_compress_improved_structure_lz4(boc_roots, true, state));
   } else {
     return td::Status::Error("Unknown compression algorithm");
@@ -942,7 +942,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed, 
       return boc_decompress_baseline_lz4(compressed, max_decompressed_size);
     case CompressionAlgorithm::ImprovedStructureLZ4:
       return boc_decompress_improved_structure_lz4(compressed, max_decompressed_size, false);
-    case CompressionAlgorithm::ImprovedStructureLZ4WithMU:
+    case CompressionAlgorithm::ImprovedStructureLZ4WithState:
       return boc_decompress_improved_structure_lz4(compressed, max_decompressed_size, true, state);
   }
   return td::Status::Error("Unknown compression algorithm");
@@ -959,7 +959,7 @@ td::Result<bool> boc_need_state_for_decompression(td::Slice compressed) {
     case CompressionAlgorithm::BaselineLZ4:
     case CompressionAlgorithm::ImprovedStructureLZ4:
       return false;
-    case CompressionAlgorithm::ImprovedStructureLZ4WithMU:
+    case CompressionAlgorithm::ImprovedStructureLZ4WithState:
       return true;
     default:
       return td::Status::Error("Unknown compression algorithm");
