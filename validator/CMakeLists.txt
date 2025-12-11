@@ -23,6 +23,8 @@ set(VALIDATOR_DB_SOURCE
   db/staticfilesdb.hpp
   db/db-utils.cpp
   db/db-utils.h
+  db/db-event-publisher.cpp
+  db/db-event-publisher.hpp
 
   db/package.hpp
   db/package.cpp

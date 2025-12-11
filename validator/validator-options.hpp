@@ -176,6 +176,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool get_parallel_validation() const override {
     return parallel_validation;
   }
+  std::string get_db_event_fifo_path() const override {
+    return db_event_fifo_path_;
+  }
 
   void set_zero_block_id(BlockIdExt block_id) override {
     zero_block_id_ = block_id;
@@ -301,6 +304,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_parallel_validation(bool value) override {
     parallel_validation = value;
   }
+  void set_db_event_fifo_path(std::string value) override {
+    db_event_fifo_path_ = std::move(value);
+  }
 
   ValidatorManagerOptionsImpl* make_copy() const override {
     return new ValidatorManagerOptionsImpl(*this);
@@ -360,6 +366,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool collator_node_whitelist_enabled_ = false;
   td::Ref<ShardBlockVerifierConfig> shard_block_verifier_config_{true};
   bool parallel_validation = false;
+  std::string db_event_fifo_path_;
 };
 
 }  // namespace validator

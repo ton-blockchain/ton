@@ -288,7 +288,7 @@ struct promise_type : promise_value<td::Result<T>> {
   }
 };
 
-template <class T>
+template <class T = Unit>
 struct [[nodiscard]] Task {
   using value_type = T;
 
@@ -360,7 +360,7 @@ struct [[nodiscard]] Task {
   }
 };
 
-template <class T>
+template <class T = Unit>
 struct [[nodiscard]] StartedTask {
   using value_type = T;
 

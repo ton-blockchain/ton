@@ -210,6 +210,7 @@ QueryInfo get_query_info(const lite_api::Function& f) {
                      [&](const lite_api::liteServer_getShardBlockProof& q) { from_block_id(q.id_); },
                      [&](const lite_api::liteServer_nonfinal_getCandidate& q) { /* t_simple */ },
                      [&](const lite_api::liteServer_nonfinal_getValidatorGroups& q) { /* t_simple */ },
+                     [&](const lite_api::liteServer_nonfinal_getPendingShardBlocks& q) { /* t_simple */ },
                      [&](const lite_api::liteServer_getOutMsgQueueSizes& q) {
                        // This query is expected to be removed, as it is not fully compatible with separated liteservers
                        /* t_simple */

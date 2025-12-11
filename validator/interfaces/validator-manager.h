@@ -385,6 +385,11 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void get_validator_groups_info_for_litequery(
       td::optional<ShardIdFull> shard,
       td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise) = 0;
+  virtual void get_pending_shard_blocks_for_litequery(
+      td::optional<ShardIdFull> shard,
+      td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_pendingShardBlocks>> promise) {
+    promise.set_error(td::Status::Error("not implemented"));
+  }
 
   virtual void add_lite_query_stats(int lite_query_id, bool success) {
   }

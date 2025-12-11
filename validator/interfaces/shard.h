@@ -71,6 +71,7 @@ class MasterchainState : virtual public ShardState {
   virtual bool rotated_all_shards() const = 0;
   virtual std::vector<td::Ref<McShardHash>> get_shards() const = 0;
   virtual td::Ref<McShardHash> get_shard_from_config(ShardIdFull shard, bool exact = true) const = 0;
+  virtual CatchainSeqno get_shard_cc_seqno(ShardIdFull shard) const = 0;
   virtual bool workchain_is_active(WorkchainId workchain_id) const = 0;
   virtual td::uint32 persistent_state_split_depth(WorkchainId workchain_id) const = 0;
   virtual td::uint32 monitor_min_split_depth(WorkchainId workchain_id) const = 0;
