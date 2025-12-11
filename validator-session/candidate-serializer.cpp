@@ -36,11 +36,9 @@ td::Result<td::BufferSlice> serialize_candidate(const tl_object_ptr<ton_api::val
                << " compressed_size=" << block->data_.size() + block->collated_data_.size();
     return res;
   }
-  size_t decompressed_size;
-  TRY_RESULT(compressed,
-             compress_candidate_data(block->data_, block->collated_data_, decompressed_size, block->root_hash_))
-  return create_serialize_tl_object<ton_api::validatorSession_compressedCandidate>(
-      0, block->src_, block->round_, block->root_hash_, (int)decompressed_size, std::move(compressed));
+  TRY_RESULT(compressed, compress_candidate_data(block->data_, block->collated_data_, block->root_hash_))
+  return create_serialize_tl_object<ton_api::validatorSession_compressedCandidateV2>(
+      0, block->src_, block->round_, block->root_hash_, std::move(compressed));
 }
 
 td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candidate(td::Slice data,
@@ -87,8 +85,7 @@ td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candi
   return res;
 }
 
-td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice collated_data, size_t& decompressed_size,
-                                                    td::Bits256 root_hash) {
+td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice collated_data, td::Bits256 root_hash) {
   vm::BagOfCells boc1, boc2;
   TRY_STATUS(boc1.deserialize(block));
   if (boc1.get_root_count() != 1) {
@@ -100,9 +97,7 @@ td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice c
     roots.push_back(boc2.get_root_cell(i));
   }
   auto t_compression_start = td::Time::now();
-  TRY_RESULT(data, vm::std_boc_serialize_multi(std::move(roots), 2));
-  decompressed_size = data.size();
-  td::BufferSlice compressed = td::lz4_compress(data);
+  TRY_RESULT(compressed, vm::boc_compress(roots, vm::CompressionAlgorithm::ImprovedStructureLZ4));
   LOG(DEBUG) << "Compressing block candidate: " << block.size() + collated_data.size() << " -> " << compressed.size();
   LOG(DEBUG) << "Broadcast_benchmark compress_candidate_data block_id=" << root_hash.to_hex()
              << " time_sec=" << (td::Time::now() - t_compression_start) << " compression=" << "compressed"
