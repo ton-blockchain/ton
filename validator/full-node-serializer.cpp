@@ -160,7 +160,7 @@ td::Result<std::vector<BlockIdExt>> extract_prev_blocks_from_proof(td::Slice pro
 }
 
 td::Result<bool> need_state_for_decompression(ton_api::tonNode_Broadcast& broadcast) {
-  td::Result<bool> result = false;
+  td::Result<bool> result;
   ton_api::downcast_call(broadcast, td::overloaded(
                                         [&](ton_api::tonNode_blockBroadcastCompressedV2& f) {
                                           result = vm::boc_need_state_for_decompression(f.data_compressed_);
@@ -170,7 +170,7 @@ td::Result<bool> need_state_for_decompression(ton_api::tonNode_Broadcast& broadc
 }
 
 td::Result<bool> need_state_for_decompression(ton_api::tonNode_DataFull& data_full) {
-  td::Result<bool> result = false;
+  td::Result<bool> result;
   ton_api::downcast_call(data_full, td::overloaded(
                                         [&](ton_api::tonNode_dataFullCompressedV2& f) {
                                           result = vm::boc_need_state_for_decompression(f.block_compressed_);

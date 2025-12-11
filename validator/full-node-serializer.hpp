@@ -16,12 +16,7 @@
 */
 #pragma once
 #include "auto/tl/ton_api.h"
-#include "interfaces/shard.h"
-#include "td/actor/actor.h"
-#include "td/utils/overloaded.h"
-#include "ton/ton-tl.hpp"
 #include "ton/ton-types.h"
-#include "validator/validator.h"
 #include "vm/cells.h"
 
 namespace ton::validator::fullnode {
