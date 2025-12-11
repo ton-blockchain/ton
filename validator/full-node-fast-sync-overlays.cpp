@@ -15,8 +15,6 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <memory>
-
 #include "auto/tl/ton_api_json.h"
 #include "common/delay.h"
 #include "td/utils/JsonBuilder.h"
@@ -26,7 +24,6 @@
 #include "checksum.h"
 #include "full-node-fast-sync-overlays.hpp"
 #include "full-node-serializer.hpp"
-#include "manager.hpp"
 
 namespace ton::validator::fullnode {
 
