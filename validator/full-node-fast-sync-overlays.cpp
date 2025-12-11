@@ -106,7 +106,8 @@ void FullNodeFastSyncOverlay::obtain_state_for_decompression(PublicKeyHash src,
 void FullNodeFastSyncOverlay::process_block_broadcast_with_state(PublicKeyHash src,
                                                                  ton_api::tonNode_blockBroadcastCompressedV2 query,
                                                                  td::Ref<ShardState> state) {
-  auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), state->root_cell());
+  auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), k_called_from_fast_sync,
+                                       state->root_cell());
   if (B.is_error()) {
     LOG(DEBUG) << "Failed to deserialize V2 broadcast: " << B.move_as_error();
     return;

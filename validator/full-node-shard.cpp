@@ -884,7 +884,8 @@ void FullNodeShardImpl::process_block_broadcast_with_state(PublicKeyHash src,
                                                            ton_api::tonNode_blockBroadcastCompressedV2 query,
                                                            td::Ref<ShardState> state) {
   td::Ref<vm::Cell> state_root = state->root_cell();
-  auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), state_root);
+  auto B =
+      deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), k_called_from_public, state_root);
   if (B.is_error()) {
     LOG(DEBUG) << "Failed to deserialize block broadcast: " << B.move_as_error();
     return;
