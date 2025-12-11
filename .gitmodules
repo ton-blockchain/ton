@@ -21,3 +21,6 @@
 [submodule "third-party/tl-parser"]
 	path = third-party/tl-parser
 	url = https://github.com/ton-blockchain/tl-parser.git
+[submodule "third-party/ngtcp2"]
+	path = third-party/ngtcp2
+	url = https://github.com/ngtcp2/ngtcp2.git

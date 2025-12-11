@@ -64,6 +64,7 @@ class UdpSocketFd {
   PollableFdInfo &get_poll_info();
   const PollableFdInfo &get_poll_info() const;
   const NativeFd &get_native_fd() const;
+  [[nodiscard]] td::Result<IPAddress> get_local_address() const;
 
   void close();
   bool empty() const;
