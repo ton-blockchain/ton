@@ -26,14 +26,12 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/actor/actor.h"
-
-#include "td/utils/BufferedFd.h"
-#include "td/utils/OptionParser.h"
-#include "td/utils/port/SocketFd.h"
-#include "td/utils/port/ServerSocketFd.h"
-#include "td/utils/Observer.h"
-
 #include "td/net/TcpListener.h"
+#include "td/utils/BufferedFd.h"
+#include "td/utils/Observer.h"
+#include "td/utils/OptionParser.h"
+#include "td/utils/port/ServerSocketFd.h"
+#include "td/utils/port/SocketFd.h"
 
 class PingClient : public td::actor::Actor, td::ObserverBase {
  public:

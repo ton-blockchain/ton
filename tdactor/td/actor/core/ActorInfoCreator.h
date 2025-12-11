@@ -17,8 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "td/actor/core/ActorInfo.h"
 #include "td/actor/core/Actor.h"
+#include "td/actor/core/ActorInfo.h"
 
 namespace td {
 namespace actor {
@@ -46,7 +46,7 @@ class ActorInfoCreator {
       return *this;
     }
 
-    Options& with_actor_stat_id(td::uint32 new_id) {
+    Options &with_actor_stat_id(td::uint32 new_id) {
       actor_stat_id = new_id;
       return *this;
     }

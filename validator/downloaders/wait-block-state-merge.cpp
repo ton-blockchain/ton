@@ -16,9 +16,10 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "ton/ton-io.hpp"
+
 #include "wait-block-state-merge.hpp"
 #include "wait-block-state.hpp"
-#include "ton/ton-io.hpp"
 
 namespace ton {
 

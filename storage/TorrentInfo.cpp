@@ -17,12 +17,11 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "TorrentInfo.h"
-
+#include "td/utils/misc.h"
 #include "vm/cells/CellString.h"
 #include "vm/cellslice.h"
 
-#include "td/utils/misc.h"
+#include "TorrentInfo.h"
 
 namespace ton {
 bool TorrentInfo::pack(vm::CellBuilder &cb) const {

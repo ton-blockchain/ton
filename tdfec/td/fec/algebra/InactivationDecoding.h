@@ -18,8 +18,8 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
 #include "td/fec/algebra/SparseMatrixGF2.h"
+#include "td/utils/common.h"
 
 namespace td {
 struct InactivationDecodingResult {

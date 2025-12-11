@@ -18,17 +18,16 @@
 */
 #pragma once
 
-#include <set>
-#include <map>
-#include <list>
 #include <atomic>
-
-#include "validator-session.h"
-#include "validator-session-state.h"
-
-#include "keys/encryptor.h"
+#include <list>
+#include <map>
+#include <set>
 
 #include "catchain/catchain.h"
+#include "keys/encryptor.h"
+
+#include "validator-session-state.h"
+#include "validator-session.h"
 
 namespace ton {
 

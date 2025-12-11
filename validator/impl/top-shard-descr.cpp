@@ -16,17 +16,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "top-shard-descr.hpp"
+#include "block/block-auto.h"
+#include "block/block-parse.h"
 #include "common/errorcode.h"
-#include "shard.hpp"
-#include "signature-set.hpp"
-#include "validator-set.hpp"
-
+#include "vm/boc.h"
 #include "vm/cells.h"
 #include "vm/cells/MerkleProof.h"
-#include "vm/boc.h"
-#include "block/block-parse.h"
-#include "block/block-auto.h"
+
+#include "shard.hpp"
+#include "signature-set.hpp"
+#include "top-shard-descr.hpp"
+#include "validator-set.hpp"
 
 namespace ton {
 
@@ -39,7 +39,7 @@ ShardTopBlockDescrQ* ShardTopBlockDescrQ::make_copy() const {
 }
 
 td::Status ShardTopBlockDescrQ::unpack_one_proof(BlockIdExt& cur_id, Ref<vm::Cell> proof_root, bool is_head) {
-  auto virt_root = vm::MerkleProof::virtualize(proof_root, 1);
+  auto virt_root = vm::MerkleProof::virtualize(proof_root);
   if (virt_root.is_null()) {
     return td::Status::Error(-666, "link for block "s + cur_id.to_str() + " inside ShardTopBlockDescr of " +
                                        block_id_.to_str() +
@@ -508,7 +508,7 @@ Ref<block::McShardHash> ShardTopBlockDescrQ::get_prev_descr(int pos, int sum_cnt
       (unsigned)(pos + sum_cnt) > size()) {
     return {};
   }
-  auto virt_root = vm::MerkleProof::virtualize(proof_roots_.at(pos), 1);
+  auto virt_root = vm::MerkleProof::virtualize(proof_roots_.at(pos));
   auto res = block::McShardHash::from_block(std::move(virt_root), chain_blk_ids_.at(pos).file_hash);
   if (res.not_null()) {
     auto& total_fees = res.write().fees_collected_;

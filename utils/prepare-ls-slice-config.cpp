@@ -14,34 +14,33 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "td/utils/filesystem.h"
-#include "td/actor/actor.h"
+#include <iostream>
+#include <ton/ton-tl.hpp>
+
+#include "adnl/adnl.h"
+#include "auto/tl/lite_api.h"
+#include "auto/tl/ton_api.h"
+#include "auto/tl/ton_api_json.h"
+#include "block/block-auto.h"
+#include "block/mc-config.h"
+#include "lite-client/ext-client.h"
 #include "td/actor/MultiPromise.h"
+#include "td/actor/actor.h"
+#include "td/utils/FileLog.h"
 #include "td/utils/OptionParser.h"
+#include "td/utils/Random.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/overloaded.h"
+#include "td/utils/port/IPAddress.h"
 #include "td/utils/port/path.h"
 #include "td/utils/port/signals.h"
-#include "td/utils/port/IPAddress.h"
-#include "td/utils/Random.h"
-#include "td/utils/FileLog.h"
-#include "git.h"
-#include "auto/tl/ton_api.h"
-#include "auto/tl/lite_api.h"
-#include "tl-utils/lite-utils.hpp"
-#include "auto/tl/ton_api_json.h"
-#include "adnl/adnl.h"
-#include "lite-client/ext-client.h"
-#include "ton/lite-tl.hpp"
-
-#include "td/utils/overloaded.h"
-
-#include <iostream>
 #include "td/utils/tl_storers.h"
+#include "tl-utils/lite-utils.hpp"
+#include "ton/lite-tl.hpp"
 #include "vm/boc.h"
 #include "vm/cells/MerkleProof.h"
 
-#include <ton/ton-tl.hpp>
-#include "block/block-auto.h"
-#include "block/mc-config.h"
+#include "git.h"
 
 using namespace ton;
 
@@ -136,7 +135,7 @@ class PrepareLsSliceConfig : public td::actor::Actor {
     res->seqno_ = block_id.seqno();
 
     auto root = vm::std_boc_deserialize(obj.header_proof_).move_as_ok();
-    root = vm::MerkleProof::virtualize(root, 1);
+    root = vm::MerkleProof::virtualize(root);
     block::gen::Block::Record blk;
     block::gen::BlockInfo::Record info;
     CHECK(tlb::unpack_cell(root, blk) && tlb::unpack_cell(blk.info, info));

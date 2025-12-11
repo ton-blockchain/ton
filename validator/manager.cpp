@@ -16,40 +16,37 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "manager.hpp"
-#include "checksum.h"
-#include "td/utils/buffer.h"
-#include "validator-group.hpp"
-#include "downloaders/wait-block-state.hpp"
-#include "downloaders/wait-block-state-merge.hpp"
-#include "downloaders/wait-block-data.hpp"
-#include "fabric.h"
-#include "manager.h"
-#include "validate-broadcast.hpp"
-#include "ton/ton-tl.hpp"
-#include "ton/ton-io.hpp"
-#include "state-serializer.hpp"
-#include "get-next-key-blocks.h"
-#include "import-db-slice.hpp"
-#include "import-db-slice-local.hpp"
+#include <fstream>
 
 #include "auto/tl/lite_api.h"
-#include "tl-utils/lite-utils.hpp"
 #include "auto/tl/ton_api_json.h"
-#include "tl/tl_json.h"
-
-#include "td/utils/Random.h"
-#include "td/utils/port/path.h"
-#include "td/utils/JsonBuilder.h"
-
 #include "common/delay.h"
 #include "db/fileref.hpp"
+#include "downloaders/wait-block-data.hpp"
+#include "downloaders/wait-block-state-merge.hpp"
+#include "downloaders/wait-block-state.hpp"
 #include "td/actor/MultiPromise.h"
+#include "td/utils/JsonBuilder.h"
+#include "td/utils/Random.h"
+#include "td/utils/buffer.h"
 #include "td/utils/filesystem.h"
-
+#include "td/utils/port/path.h"
+#include "tl-utils/lite-utils.hpp"
+#include "tl/tl_json.h"
+#include "ton/ton-io.hpp"
+#include "ton/ton-tl.hpp"
 #include "validator/stats-merger.h"
 
-#include <fstream>
+#include "checksum.h"
+#include "fabric.h"
+#include "get-next-key-blocks.h"
+#include "import-db-slice-local.hpp"
+#include "import-db-slice.hpp"
+#include "manager.h"
+#include "manager.hpp"
+#include "state-serializer.hpp"
+#include "validate-broadcast.hpp"
+#include "validator-group.hpp"
 
 namespace ton {
 
@@ -664,7 +661,7 @@ void ValidatorManagerImpl::add_cached_block_data(BlockIdExt block_id, td::Buffer
   if (block_id.is_masterchain()) {
     return;
   }
-  td::BufferSlice& block_data = cached_block_data_.get(block_id);
+  td::BufferSlice &block_data = cached_block_data_.get(block_id);
   if (!block_data.empty()) {
     return;
   }
@@ -1831,8 +1828,7 @@ void ValidatorManagerImpl::send_get_block_proof_link_request(BlockIdExt block_id
       // Proof link can be created from the cached block data
       LOG(DEBUG) << "send_get_block_proof_link_request: creating proof link from cached block data for "
                  << block_id.to_str();
-      TRY_RESULT_PROMISE_PREFIX(promise, block_root, vm::std_boc_deserialize(*cached),
-                                "failed to create proof link: ");
+      TRY_RESULT_PROMISE_PREFIX(promise, block_root, vm::std_boc_deserialize(*cached), "failed to create proof link: ");
       TRY_RESULT_PROMISE_PREFIX(promise, proof_link, WaitBlockData::generate_proof_link(block_id, block_root),
                                 "failed to create proof link: ");
       promise.set_result(std::move(proof_link));
@@ -1975,7 +1971,7 @@ void ValidatorManagerImpl::start_up() {
   auto to_import_dir = db_root_ + "/import";
   auto S = td::WalkPath::run(to_import_dir, [&](td::CSlice cfname, td::WalkPath::Type t) -> void {
     auto fname = td::Slice(cfname);
-    if (t == td::WalkPath::Type::NotDir) {
+    if (t == td::WalkPath::Type::RegularFile) {
       auto d = fname.rfind(TD_DIR_SLASH);
       if (d != td::Slice::npos) {
         fname = fname.substr(d + 1);

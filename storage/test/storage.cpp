@@ -17,54 +17,44 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
+#include "auto/tl/ton_api.h"
+#include "auto/tl/ton_api.hpp"
+#include "fec/fec.h"
+#include "rldp2/LossSender.h"
+#include "rldp2/RldpConnection.h"
+#include "td/actor/actor.h"
+#include "td/db/utils/CyclicBuffer.h"
+#include "td/utils/Container.h"
+#include "td/utils/Span.h"
+#include "td/utils/Status.h"
+#include "td/utils/ThreadSafeCounter.h"
+#include "td/utils/Time.h"
+#include "td/utils/Timer.h"
+#include "td/utils/UInt.h"
+#include "td/utils/VectorQueue.h"
 #include "td/utils/benchmark.h"
 #include "td/utils/crypto.h"
-#include "td/utils/Container.h"
+#include "td/utils/filesystem.h"
 #include "td/utils/misc.h"
 #include "td/utils/optional.h"
 #include "td/utils/overloaded.h"
-#include "td/utils/Status.h"
-#include "td/utils/Span.h"
-#include "td/utils/tests.h"
-#include "td/utils/Timer.h"
-#include "td/utils/Time.h"
-#include "td/utils/tl_helpers.h"
-#include "td/utils/UInt.h"
-#include "td/utils/VectorQueue.h"
-#include "td/utils/ThreadSafeCounter.h"
-
-#include "td/utils/filesystem.h"
 #include "td/utils/port/path.h"
-
+#include "td/utils/tests.h"
+#include "td/utils/tl_helpers.h"
 #include "tl-utils/tl-utils.hpp"
-
-#include "auto/tl/ton_api.h"
-#include "auto/tl/ton_api.hpp"
-
-#include "td/actor/actor.h"
-
-#include "td/db/utils/CyclicBuffer.h"
-
 #include "vm/boc.h"
 #include "vm/cells.h"
-#include "vm/cellslice.h"
-#include "vm/cells/MerkleProof.h"
 #include "vm/cells/CellString.h"
-
-#include "fec/fec.h"
-
-#include "rldp2/RldpConnection.h"
-#include "rldp2/LossSender.h"
+#include "vm/cells/MerkleProof.h"
+#include "vm/cellslice.h"
 
 #include "Bitset.h"
+#include "MerkleTree.h"
+#include "NodeActor.h"
+#include "PeerActor.h"
 #include "PeerState.h"
 #include "Torrent.h"
 #include "TorrentCreator.h"
-
-#include "NodeActor.h"
-#include "PeerActor.h"
-
-#include "MerkleTree.h"
 
 constexpr td::uint64 Byte = 1;
 constexpr td::uint64 KiloByte = (1 << 10) * Byte;
@@ -1337,8 +1327,7 @@ TEST(Torrent, Peer) {
   scheduler.run_in_context([&] {
     auto peer_manager = td::actor::create_actor<PeerManager>("PeerManager");
     guard->push_back(td::actor::create_actor<ton::NodeActor>(
-        "Node#1", 1, std::move(torrent),
-        td::make_unique<TorrentCallback>(stop_watcher, complete_watcher),
+        "Node#1", 1, std::move(torrent), td::make_unique<TorrentCallback>(stop_watcher, complete_watcher),
         td::make_unique<PeerCreator>(peer_manager.get(), 1, gen_peers(1, 2)), nullptr, ton::SpeedLimiters{}));
     for (size_t i = 2; i <= peers_n; i++) {
       ton::Torrent::Options options;
@@ -1347,8 +1336,7 @@ TEST(Torrent, Peer) {
       auto node_actor = td::actor::create_actor<ton::NodeActor>(
           PSLICE() << "Node#" << i, i, std::move(other_torrent),
           td::make_unique<TorrentCallback>(stop_watcher, complete_watcher),
-          td::make_unique<PeerCreator>(peer_manager.get(), i, gen_peers(i, 2)),
-          nullptr, ton::SpeedLimiters{});
+          td::make_unique<PeerCreator>(peer_manager.get(), i, gen_peers(i, 2)), nullptr, ton::SpeedLimiters{});
 
       if (i == 3) {
         td::actor::create_actor<StatsActor>("StatsActor", node_actor.get()).release();

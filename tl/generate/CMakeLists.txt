@@ -63,7 +63,9 @@ if (NOT CMAKE_CROSSCOMPILING)
   foreach(tl_scheme lite_api ton_api tonlib_api)
     add_custom_command(
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/scheme
-      COMMAND $<TARGET_FILE:tl-parser> -e "${tl_scheme}.tlo" "${tl_scheme}.tl"
+      COMMAND
+        ${CMAKE_COMMAND} -E env ASAN_OPTIONS=detect_leaks=0
+        $<TARGET_FILE:tl-parser> -e "${tl_scheme}.tlo" "${tl_scheme}.tl"
       DEPENDS tl-parser "scheme/${tl_scheme}.tl"
       OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/scheme/${tl_scheme}.tlo"
     )

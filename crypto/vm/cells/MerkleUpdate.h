@@ -17,13 +17,12 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "vm/cells/Cell.h"
-#include "vm/cells/CellSlice.h"
-#include "vm/cells/CellBuilder.h"
+#include <utility>
 
 #include "td/utils/Status.h"
-
-#include <utility>
+#include "vm/cells/Cell.h"
+#include "vm/cells/CellBuilder.h"
+#include "vm/cells/CellSlice.h"
 
 namespace vm {
 class MerkleUpdate {

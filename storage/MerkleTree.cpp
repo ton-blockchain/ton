@@ -17,15 +17,14 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "MerkleTree.h"
-
 #include "common/bitstring.h"
 #include "td/utils/UInt.h"
-
 #include "vm/cells/CellSlice.h"
 #include "vm/cells/MerkleProof.h"
 #include "vm/cellslice.h"
 #include "vm/excno.hpp"
+
+#include "MerkleTree.h"
 
 namespace ton {
 static td::Result<td::Ref<vm::Cell>> unpack_proof(td::Ref<vm::Cell> root) {
@@ -174,7 +173,7 @@ td::Result<td::Ref<vm::Cell>> MerkleTree::gen_proof(size_t l, size_t r) const {
     return td::Status::Error("Got no proofs yet");
   }
   auto usage_tree = std::make_shared<vm::CellUsageTree>();
-  auto root_raw = vm::MerkleProof::virtualize(root_proof_, 1);
+  auto root_raw = vm::MerkleProof::virtualize(root_proof_);
   auto usage_cell = vm::UsageCell::create(root_raw, usage_tree->root_ptr());
   TRY_STATUS(TRY_VM(do_gen_proof(std::move(usage_cell), 0, n_ - 1, l, r)));
   auto res = vm::MerkleProof::generate(root_raw, usage_tree.get());
@@ -202,7 +201,7 @@ td::Ref<vm::Cell> MerkleTree::get_root(size_t depth_limit) const {
     return root_proof_;
   }
   auto usage_tree = std::make_shared<vm::CellUsageTree>();
-  auto root_raw = vm::MerkleProof::virtualize(root_proof_, 1);
+  auto root_raw = vm::MerkleProof::virtualize(root_proof_);
   auto usage_cell = vm::UsageCell::create(root_raw, usage_tree->root_ptr());
   do_gen_proof(std::move(usage_cell), unpack_proof(root_proof_).move_as_ok(), depth_limit);
   auto res = vm::MerkleProof::generate(root_raw, usage_tree.get());

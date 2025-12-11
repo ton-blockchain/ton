@@ -16,14 +16,15 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "download-state.hpp"
-#include "validator/fabric.h"
 #include "common/checksum.h"
 #include "common/delay.h"
-#include "ton/ton-io.hpp"
-#include "vm/cells/MerkleProof.h"
 #include "crypto/block/block-auto.h"
 #include "crypto/block/block-parse.h"
+#include "ton/ton-io.hpp"
+#include "validator/fabric.h"
+#include "vm/cells/MerkleProof.h"
+
+#include "download-state.hpp"
 
 namespace ton {
 
@@ -80,7 +81,7 @@ class SplitStateDeserializer {
 
       vm::CellBuilder cb;
       block::gen::t_ShardStateUnsplit.pack(cb, shard_state_);
-      if (cb.finalize()->get_virtualization() > 0) {
+      if (cb.finalize()->is_virtualized()) {
         return td::Status::Error("State headers is pruned outside of account dict");
       }
 
@@ -110,7 +111,7 @@ class SplitStateDeserializer {
     vm::CellBuilder cb;
     block::gen::t_ShardStateUnsplit.pack(cb, shard_state_);
     auto state_root = cb.finalize();
-    CHECK(state_root->get_virtualization() == 0);
+    CHECK(!state_root->is_virtualized());
     return state_root;
   }
 

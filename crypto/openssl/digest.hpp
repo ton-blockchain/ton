@@ -18,7 +18,6 @@
 */
 #pragma once
 #include <assert.h>
-
 #include <openssl/evp.h>
 #include <openssl/opensslv.h>
 #include <openssl/sha.h>

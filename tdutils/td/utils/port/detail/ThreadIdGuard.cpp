@@ -16,13 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/port/detail/ThreadIdGuard.h"
-
-#include "td/utils/common.h"
-#include "td/utils/port/thread_local.h"
-
 #include <mutex>
 #include <set>
+
+#include "td/utils/common.h"
+#include "td/utils/port/detail/ThreadIdGuard.h"
+#include "td/utils/port/thread_local.h"
 
 namespace td {
 namespace detail {

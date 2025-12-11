@@ -18,7 +18,6 @@
 */
 
 #include "td/utils/PathView.h"
-
 #include "td/utils/misc.h"
 
 namespace td {

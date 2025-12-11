@@ -20,10 +20,9 @@
 
 #include <functional>
 
-#include "td/utils/int_types.h"
-#include "td/utils/buffer.h"
-
 #include "adnl/utils.hpp"
+#include "td/utils/buffer.h"
+#include "td/utils/int_types.h"
 
 #include "validator-session-description.h"
 

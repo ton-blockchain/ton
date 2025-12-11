@@ -17,14 +17,15 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include <functional>
+
+#include "common/bigint.hpp"
+#include "common/refint.h"
 #include "vm/arithops.h"
+#include "vm/excno.hpp"
 #include "vm/log.h"
 #include "vm/opctable.h"
 #include "vm/stack.hpp"
-#include "vm/excno.hpp"
 #include "vm/vm.h"
-#include "common/bigint.hpp"
-#include "common/refint.h"
 
 namespace vm {
 
@@ -282,7 +283,7 @@ int exec_divmod(VmState* st, unsigned args, int quiet) {
   auto x = stack.pop_int();
   if (add) {
     CHECK(d == 3);
-    typename td::BigInt256::DoubleInt tmp{*x}, quot;
+    td::BigInt256::DoubleInt tmp{*x}, quot;
     tmp += *w;
     tmp.mod_div(*y, quot, round_mode);
     auto q = td::make_refint(quot), r = td::make_refint(tmp);
@@ -364,9 +365,9 @@ int exec_shrmod(VmState* st, unsigned args, int mode) {
   auto x = stack.pop_int();
   if (add) {
     CHECK(d == 3);
-    typename td::BigInt256::DoubleInt tmp{*x}, quot;
+    td::BigInt256::DoubleInt tmp{*x};
     tmp += *w;
-    typename td::BigInt256::DoubleInt tmp2{tmp};
+    td::BigInt256::DoubleInt tmp2{tmp};
     tmp2.rshift(y, round_mode).normalize();
     stack.push_int_quiet(td::make_refint(tmp2), mode & 1);
     tmp.normalize().mod_pow2(y, round_mode).normalize();
@@ -449,7 +450,7 @@ int exec_muldivmod(VmState* st, unsigned args, int quiet) {
   auto w = add ? stack.pop_int() : td::RefInt256{};
   auto y = stack.pop_int();
   auto x = stack.pop_int();
-  typename td::BigInt256::DoubleInt tmp{0}, quot;
+  td::BigInt256::DoubleInt tmp{0}, quot;
   if (add) {
     tmp = *w;
   }
@@ -495,8 +496,9 @@ std::string dump_muldivmod(CellSlice&, unsigned args, bool quiet) {
 }
 
 int exec_mulshrmod(VmState* st, unsigned args, int mode) {
-  int z = -1;
-  if (mode & 2) {
+  bool quiet = mode & 1, z_in_args = mode & 2;
+  long long z = -1;
+  if (z_in_args) {
     z = (args & 0xff) + 1;
     args >>= 8;
   }
@@ -512,9 +514,12 @@ int exec_mulshrmod(VmState* st, unsigned args, int mode) {
   }
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute MULSHR/MOD " << (args & 15) << ',' << z;
-  if (!(mode & 2)) {
+  if (!z_in_args) {
     stack.check_underflow(add ? 4 : 3);
-    z = stack.pop_smallint_range(256);
+    z = stack.pop_long();
+    if ((st->get_global_version() < 13 || !quiet) && (z < 0 || z > 256)) {
+      throw VmError{Excno::range_chk};
+    }
   } else {
     stack.check_underflow(add ? 3 : 2);
   }
@@ -524,26 +529,37 @@ int exec_mulshrmod(VmState* st, unsigned args, int mode) {
   auto w = add ? stack.pop_int() : td::RefInt256{};
   auto y = stack.pop_int();
   auto x = stack.pop_int();
-  typename td::BigInt256::DoubleInt tmp{0};
+  if (st->get_global_version() >= 13) {
+    if (!x->is_valid() || !y->is_valid() || (w.not_null() && !w->is_valid()) || z < 0 || z > 256) {
+      stack.push_int_quiet(td::nan_refint(), quiet);
+      if (d == 3) {
+        stack.push_int_quiet(td::nan_refint(), quiet);
+      }
+      return 0;
+    }
+  }
+  td::BigInt256::DoubleInt tmp{0};
   if (add) {
     tmp = *w;
   }
   tmp.add_mul(*x, *y).normalize();
   switch (d) {
     case 1:
-      tmp.rshift(z, round_mode).normalize();
-      stack.push_int_quiet(td::make_refint(tmp), mode & 1);
+      tmp.rshift((int)z, round_mode).normalize();
+      stack.push_int_quiet(td::make_refint(tmp), quiet);
       break;
     case 3: {
-      typename td::BigInt256::DoubleInt tmp2{tmp};
-      tmp2.rshift(z, round_mode).normalize();
-      stack.push_int_quiet(td::make_refint(tmp2), mode & 1);
+      td::BigInt256::DoubleInt tmp2{tmp};
+      tmp2.rshift((int)z, round_mode).normalize();
+      stack.push_int_quiet(td::make_refint(tmp2), quiet);
     }
       // fallthrough
     case 2:
-      tmp.normalize().mod_pow2(z, round_mode).normalize();
-      stack.push_int_quiet(td::make_refint(tmp), mode & 1);
+      tmp.normalize().mod_pow2((int)z, round_mode).normalize();
+      stack.push_int_quiet(td::make_refint(tmp), quiet);
       break;
+    default:
+      UNREACHABLE();
   }
   return 0;
 }
@@ -593,8 +609,9 @@ std::string dump_mulshrmod(CellSlice&, unsigned args, int mode) {
 }
 
 int exec_shldivmod(VmState* st, unsigned args, int mode) {
-  int y = -1;
-  if (mode & 2) {
+  bool quiet = mode & 1, y_in_args = mode & 2;
+  long y = -1;
+  if (y_in_args) {
     y = (args & 0xff) + 1;
     args >>= 8;
   }
@@ -610,38 +627,52 @@ int exec_shldivmod(VmState* st, unsigned args, int mode) {
   }
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute SHLDIV/MOD " << (args & 15) << ',' << y;
-  if (!(mode & 2)) {
+  if (!y_in_args) {
     stack.check_underflow(add ? 4 : 3);
-    y = stack.pop_smallint_range(256);
+    y = stack.pop_long();
+    if ((st->get_global_version() < 13 || !quiet) && (y < 0 || y > 256)) {
+      throw VmError{Excno::range_chk};
+    }
   } else {
     stack.check_underflow(add ? 3 : 2);
   }
   auto z = stack.pop_int();
   auto w = add ? stack.pop_int() : td::RefInt256{};
   auto x = stack.pop_int();
-  typename td::BigInt256::DoubleInt tmp{*x}, quot;
-  tmp <<= y;
+  if (st->get_global_version() >= 13) {
+    if (!z->is_valid() || !x->is_valid() || (w.not_null() && !w->is_valid()) || y < 0 || y > 256) {
+      stack.push_int_quiet(td::nan_refint(), quiet);
+      if (d == 3) {
+        stack.push_int_quiet(td::nan_refint(), quiet);
+      }
+      return 0;
+    }
+  }
+  td::BigInt256::DoubleInt tmp{*x}, quot;
+  tmp <<= (int)y;
   if (add) {
     tmp += *w;
   }
   switch (d) {
     case 1: {
       tmp.mod_div(*z, quot, round_mode);
-      stack.push_int_quiet(td::make_refint(quot.normalize()), mode & 1);
+      stack.push_int_quiet(td::make_refint(quot.normalize()), quiet);
       break;
     }
     case 3: {
       tmp.mod_div(*z, quot, round_mode);
-      stack.push_int_quiet(td::make_refint(quot.normalize()), mode & 1);
-      stack.push_int_quiet(td::make_refint(tmp), mode & 1);
+      stack.push_int_quiet(td::make_refint(quot.normalize()), quiet);
+      stack.push_int_quiet(td::make_refint(tmp), quiet);
       break;
     }
     case 2: {
-      typename td::BigInt256::DoubleInt tmp2;
+      td::BigInt256::DoubleInt tmp2;
       tmp.mod_div(*z, tmp2, round_mode);
-      stack.push_int_quiet(td::make_refint(tmp), mode & 1);
+      stack.push_int_quiet(td::make_refint(tmp), quiet);
       break;
     }
+    default:
+      UNREACHABLE();
   }
   return 0;
 }
@@ -741,8 +772,18 @@ int exec_lshift(VmState* st, bool quiet) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute LSHIFT";
   stack.check_underflow(2);
-  int x = stack.pop_smallint_range(1023);
-  stack.push_int_quiet(stack.pop_int() << x, quiet);
+  long long shift = stack.pop_long();
+  if ((st->get_global_version() < 13 || !quiet) && (shift < 0 || shift > 1023)) {
+    throw VmError{Excno::range_chk};
+  }
+  auto a = stack.pop_int();
+  td::RefInt256 result;
+  if (st->get_global_version() >= 13 && (shift < 0 || shift > 1023 || !a->is_valid())) {
+    result = td::nan_refint();
+  } else {
+    result = std::move(a) << (int)shift;
+  }
+  stack.push_int_quiet(std::move(result), quiet);
   return 0;
 }
 
@@ -750,8 +791,18 @@ int exec_rshift(VmState* st, bool quiet) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute RSHIFT";
   stack.check_underflow(2);
-  int x = stack.pop_smallint_range(1023);
-  stack.push_int_quiet(stack.pop_int() >> x, quiet);
+  long long shift = stack.pop_long();
+  if ((st->get_global_version() < 13 || !quiet) && (shift < 0 || shift > 1023)) {
+    throw VmError{Excno::range_chk};
+  }
+  auto a = stack.pop_int();
+  td::RefInt256 result;
+  if (st->get_global_version() >= 13 && (shift < 0 || shift > 1023 || !a->is_valid())) {
+    result = td::nan_refint();
+  } else {
+    result = std::move(a) >> (int)shift;
+  }
+  stack.push_int_quiet(std::move(result), quiet);
   return 0;
 }
 
@@ -771,7 +822,14 @@ int exec_and(VmState* st, bool quiet) {
   VM_LOG(st) << "execute AND";
   stack.check_underflow(2);
   auto y = stack.pop_int();
-  stack.push_int_quiet(stack.pop_int() & std::move(y), quiet);
+  auto x = stack.pop_int();
+  td::RefInt256 result;
+  if (st->get_global_version() >= 13 && (!x->is_valid() || !y->is_valid())) {
+    result = td::nan_refint();
+  } else {
+    result = std::move(x) & std::move(y);
+  }
+  stack.push_int_quiet(std::move(result), quiet);
   return 0;
 }
 
@@ -780,7 +838,14 @@ int exec_or(VmState* st, bool quiet) {
   VM_LOG(st) << "execute OR";
   stack.check_underflow(2);
   auto y = stack.pop_int();
-  stack.push_int_quiet(stack.pop_int() | std::move(y), quiet);
+  auto x = stack.pop_int();
+  td::RefInt256 result;
+  if (st->get_global_version() >= 13 && (!x->is_valid() || !y->is_valid())) {
+    result = td::nan_refint();
+  } else {
+    result = std::move(x) | std::move(y);
+  }
+  stack.push_int_quiet(std::move(result), quiet);
   return 0;
 }
 

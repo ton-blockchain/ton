@@ -18,10 +18,10 @@
 */
 #include <set>
 
+#include "auto/tl/ton_api.hpp"
+
 #include "catchain-received-block.hpp"
 #include "catchain-receiver-source.h"
-
-#include "auto/tl/ton_api.hpp"
 
 namespace ton {
 

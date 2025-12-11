@@ -18,16 +18,16 @@
 */
 
 #pragma once
+#include <atomic>
+#include <map>
+
+#include "td/actor/actor.h"
 #include "td/utils/buffer.h"
 #include "td/utils/common.h"
 #include "td/utils/optional.h"
 
-#include "td/actor/actor.h"
-#include "TorrentInfo.h"
 #include "SpeedLimiter.h"
-
-#include <map>
-#include <atomic>
+#include "TorrentInfo.h"
 
 namespace ton {
 using PeerId = td::uint64;
@@ -79,6 +79,7 @@ class MessageBuffer {
     }
     return result;
   }
+
  private:
   std::atomic<std::vector<T>*> ptr_{nullptr};
 };
@@ -93,7 +94,7 @@ struct PeerState {
     auto key() const {
       return std::tie(will_upload, want_download);
     }
-    bool operator==(const State &other) const {
+    bool operator==(const State& other) const {
       return key() == other.key();
     }
   };
@@ -110,13 +111,13 @@ struct PeerState {
     td::BufferSlice data;
   };
 
-  std::set<PartId> node_queries_active_; // Node only
-  MessageBuffer<PartId> node_queries_; // Node -> Peer
-  MessageBuffer<std::pair<PartId, td::Result<Part>>> node_queries_results_; // Peer -> Node
+  std::set<PartId> node_queries_active_;                                     // Node only
+  MessageBuffer<PartId> node_queries_;                                       // Node -> Peer
+  MessageBuffer<std::pair<PartId, td::Result<Part>>> node_queries_results_;  // Peer -> Node
 
-  std::set<PartId> peer_queries_active_; // Peer only
-  MessageBuffer<PartId> peer_queries_; // Peer -> Node
-  MessageBuffer<std::pair<PartId, td::Result<Part>>> peer_queries_results_; // Node -> Peer
+  std::set<PartId> peer_queries_active_;                                     // Peer only
+  MessageBuffer<PartId> peer_queries_;                                       // Peer -> Node
+  MessageBuffer<std::pair<PartId, td::Result<Part>>> peer_queries_results_;  // Node -> Peer
 
   // Peer -> Node
   MessageBuffer<PartId> peer_ready_parts_;

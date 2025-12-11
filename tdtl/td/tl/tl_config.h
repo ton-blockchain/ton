@@ -18,14 +18,14 @@
 */
 #pragma once
 
-#include "tl_core.h"
-#include "tl_simple_parser.h"
-
 #include <cstddef>
 #include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
+
+#include "tl_core.h"
+#include "tl_simple_parser.h"
 
 namespace td {
 namespace tl {

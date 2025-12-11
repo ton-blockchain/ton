@@ -17,6 +17,7 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include <numeric>
+
 #include "func.h"
 
 using namespace std::literals::string_literals;
@@ -228,7 +229,8 @@ var_idx_t Expr::new_tmp(CodeBlob& code) const {
 
 void add_set_globs(CodeBlob& code, std::vector<std::pair<SymDef*, var_idx_t>>& globs, const SrcLocation& here) {
   for (const auto& p : globs) {
-    auto& op = code.emplace_back(here, Op::_SetGlob, std::vector<var_idx_t>{}, std::vector<var_idx_t>{ p.second }, p.first);
+    auto& op =
+        code.emplace_back(here, Op::_SetGlob, std::vector<var_idx_t>{}, std::vector<var_idx_t>{p.second}, p.first);
     op.flags |= Op::_Impure;
   }
 }
@@ -267,8 +269,8 @@ std::vector<var_idx_t> Expr::pre_compile_let(CodeBlob& code, Expr* lhs, Expr* rh
   return right;
 }
 
-std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *> args, CodeBlob &code,
-                                          std::vector<std::pair<SymDef*, var_idx_t>> *lval_globs,
+std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr*> args, CodeBlob& code,
+                                          std::vector<std::pair<SymDef*, var_idx_t>>* lval_globs,
                                           std::vector<int> arg_order) {
   if (arg_order.empty()) {
     arg_order.resize(args.size());
@@ -288,22 +290,21 @@ std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *> args, CodeBl
       TmpVar& var = code.vars.at(res_lists[i][j]);
       if (code.flags & CodeBlob::_AllowPostModification) {
         if (!lval_globs && (var.cls & TmpVar::_Named)) {
-          Op *op = &code.emplace_back(nullptr, Op::_Let, std::vector<var_idx_t>(), std::vector<var_idx_t>());
+          Op* op = &code.emplace_back(nullptr, Op::_Let, std::vector<var_idx_t>(), std::vector<var_idx_t>());
           op->flags |= Op::_Disabled;
-          var.on_modification.push_back([modified_vars, i, j, op, done = false](const SrcLocation &here) mutable {
+          var.on_modification.push_back([modified_vars, i, j, op, done = false](const SrcLocation& here) mutable {
             if (!done) {
               done = true;
               modified_vars->push_back({i, j, op});
             }
           });
         } else {
-          var.on_modification.push_back([](const SrcLocation &) {
-          });
+          var.on_modification.push_back([](const SrcLocation&) {});
         }
       } else {
-        var.on_modification.push_back([name = var.to_string()](const SrcLocation &here) {
-            throw src::ParseError{here, PSTRING() << "Modifying local variable " << name
-                                                  << " after using it in the same expression"};
+        var.on_modification.push_back([name = var.to_string()](const SrcLocation& here) {
+          throw src::ParseError{
+              here, PSTRING() << "Modifying local variable " << name << " after using it in the same expression"};
         });
       }
     }
@@ -314,7 +315,7 @@ std::vector<var_idx_t> pre_compile_tensor(const std::vector<Expr *> args, CodeBl
       code.vars.at(v).on_modification.pop_back();
     }
   }
-  for (const ModifiedVar &m : *modified_vars) {
+  for (const ModifiedVar& m : *modified_vars) {
     var_idx_t& v = res_lists[m.i][m.j];
     var_idx_t v2 = code.create_tmp_var(code.vars[v].v_type, code.vars[v].where.get());
     m.op->left = {v2};
@@ -395,7 +396,7 @@ std::vector<var_idx_t> Expr::pre_compile(CodeBlob& code, std::vector<std::pair<S
     case _GlobVar: {
       auto rvect = new_tmp_vect(code);
       if (lval_globs) {
-        lval_globs->push_back({ sym, rvect[0] });
+        lval_globs->push_back({sym, rvect[0]});
         return rvect;
       } else {
         code.emplace_back(here, Op::_GlobVar, rvect, std::vector<var_idx_t>{}, sym);

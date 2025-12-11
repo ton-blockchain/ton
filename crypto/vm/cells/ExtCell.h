@@ -17,14 +17,14 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "vm/cells/Cell.h"
-#include "vm/cells/PrunnedCell.h"
-#include "common/AtomicRef.h"
-
 #include <mutex>
-#include "td/utils/port/thread_local.h"
+
+#include "common/AtomicRef.h"
 #include "td/utils/HazardPointers.h"
 #include "td/utils/optional.h"
+#include "td/utils/port/thread_local.h"
+#include "vm/cells/Cell.h"
+#include "vm/cells/PrunnedCell.h"
 
 namespace vm {
 
@@ -54,10 +54,11 @@ class ExtCell : public Cell {
 
   td::Result<LoadedCell> load_cell() const override {
     TRY_RESULT(data_cell, load_data_cell());
-    return LoadedCell{std::move(data_cell), {}, {}};
+    auto level = data_cell->get_level();
+    return LoadedCell{std::move(data_cell), level, {}};
   }
-  td::uint32 get_virtualization() const override {
-    return 0;
+  bool is_virtualized() const override {
+    return false;
   }
   CellUsageTree::NodePtr get_tree_node() const override {
     return {};

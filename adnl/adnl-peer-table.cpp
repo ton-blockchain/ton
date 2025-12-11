@@ -16,21 +16,19 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "adnl-peer-table.hpp"
-#include "adnl-peer.h"
-#include "adnl-channel.h"
-#include "utils.hpp"
-
-#include "td/utils/tl_storers.h"
+#include "td/db/RocksDb.h"
+#include "td/utils/Random.h"
 #include "td/utils/crypto.h"
 #include "td/utils/tl_parsers.h"
-#include "td/utils/Random.h"
-#include "td/db/RocksDb.h"
+#include "td/utils/tl_storers.h"
 
-#include "utils.hpp"
-#include "adnl-query.h"
+#include "adnl-channel.h"
 #include "adnl-ext-client.h"
+#include "adnl-peer-table.hpp"
+#include "adnl-peer.h"
+#include "adnl-query.h"
 #include "adnl-tunnel.h"
+#include "utils.hpp"
 
 namespace ton {
 
@@ -87,22 +85,22 @@ void AdnlPeerTableImpl::receive_packet(td::IPAddress addr, AdnlCategoryMask cat_
 void AdnlPeerTableImpl::update_id(AdnlPeerTableImpl::PeerInfo &peer_info, AdnlNodeIdFull &&peer_id) {
   if (peer_info.peer_id.empty()) {
     peer_info.peer_id = std::move(peer_id);
-    for (auto &e: peer_info.peers) {
+    for (auto &e : peer_info.peers) {
       td::actor::send_closure(e.second, &AdnlPeerPair::update_peer_id, peer_info.peer_id);
     }
   }
 }
 
-td::actor::ActorOwn<AdnlPeerPair> &AdnlPeerTableImpl::get_peer_pair(
-    AdnlNodeIdShort peer_id, AdnlPeerTableImpl::PeerInfo &peer_info,
-    AdnlNodeIdShort local_id, AdnlPeerTableImpl::LocalIdInfo &local_id_info) {
+td::actor::ActorOwn<AdnlPeerPair> &AdnlPeerTableImpl::get_peer_pair(AdnlNodeIdShort peer_id,
+                                                                    AdnlPeerTableImpl::PeerInfo &peer_info,
+                                                                    AdnlNodeIdShort local_id,
+                                                                    AdnlPeerTableImpl::LocalIdInfo &local_id_info) {
   auto it = peer_info.peers.find(local_id);
   if (it == peer_info.peers.end()) {
-    it = peer_info.peers.emplace(local_id,
-                                 AdnlPeerPair::create(network_manager_, actor_id(this),
-                                                      local_id_info.mode, local_id_info.local_id.get(),
-                                                      dht_node_, local_id, peer_id))
-                        .first;
+    it = peer_info.peers
+             .emplace(local_id, AdnlPeerPair::create(network_manager_, actor_id(this), local_id_info.mode,
+                                                     local_id_info.local_id.get(), dht_node_, local_id, peer_id))
+             .first;
     if (!peer_info.peer_id.empty()) {
       td::actor::send_closure(it->second, &AdnlPeerPair::update_peer_id, peer_info.peer_id);
     }
@@ -146,8 +144,8 @@ void AdnlPeerTableImpl::receive_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket
     update_id(it->second, packet.from());
   }
 
-  td::actor::send_closure(get_peer_pair(src, it->second, dst, it2->second),
-                          &AdnlPeerPair::receive_packet, std::move(packet), serialized_size);
+  td::actor::send_closure(get_peer_pair(src, it->second, dst, it2->second), &AdnlPeerPair::receive_packet,
+                          std::move(packet), serialized_size);
 }
 
 void AdnlPeerTableImpl::add_peer(AdnlNodeIdShort local_id, AdnlNodeIdFull id, AdnlAddressList addr_list) {
@@ -160,8 +158,8 @@ void AdnlPeerTableImpl::add_peer(AdnlNodeIdShort local_id, AdnlNodeIdFull id, Ad
   auto &peer_info = peers_[id_short];
   update_id(peer_info, std::move(id));
   if (!addr_list.empty()) {
-    td::actor::send_closure(get_peer_pair(id_short, peer_info, local_id, it2->second),
-                            &AdnlPeerPair::update_addr_list, std::move(addr_list));
+    td::actor::send_closure(get_peer_pair(id_short, peer_info, local_id, it2->second), &AdnlPeerPair::update_addr_list,
+                            std::move(addr_list));
   }
 }
 
@@ -185,8 +183,8 @@ void AdnlPeerTableImpl::send_message_in(AdnlNodeIdShort src, AdnlNodeIdShort dst
 
   std::vector<OutboundAdnlMessage> messages;
   messages.push_back(OutboundAdnlMessage{std::move(message), flags});
-  td::actor::send_closure(get_peer_pair(dst, peer_info, src, it2->second),
-                          &AdnlPeerPair::send_messages, std::move(messages));
+  td::actor::send_closure(get_peer_pair(dst, peer_info, src, it2->second), &AdnlPeerPair::send_messages,
+                          std::move(messages));
 }
 
 void AdnlPeerTableImpl::answer_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlQueryId query_id,
@@ -214,8 +212,8 @@ void AdnlPeerTableImpl::send_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, std
     return;
   }
 
-  td::actor::send_closure(get_peer_pair(dst, peer_info, src, it2->second),
-                          &AdnlPeerPair::send_query, name, std::move(promise), timeout, std::move(data), 0);
+  td::actor::send_closure(get_peer_pair(dst, peer_info, src, it2->second), &AdnlPeerPair::send_query, name,
+                          std::move(promise), timeout, std::move(data), 0);
 }
 
 void AdnlPeerTableImpl::add_id_ex(AdnlNodeIdFull id, AdnlAddressList addr_list, td::uint8 cat, td::uint32 mode) {
@@ -411,7 +409,7 @@ void AdnlPeerTableImpl::get_conn_ip_str(AdnlNodeIdShort l_id, AdnlNodeIdShort p_
 }
 
 void AdnlPeerTableImpl::get_stats_peer(AdnlNodeIdShort peer_id, AdnlPeerTableImpl::PeerInfo &peer_info, bool all,
-    td::Promise<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> promise) {
+                                       td::Promise<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> promise) {
   class Cb : public td::actor::Actor {
    public:
     explicit Cb(td::Promise<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> promise)
@@ -447,17 +445,17 @@ void AdnlPeerTableImpl::get_stats_peer(AdnlNodeIdShort peer_id, AdnlPeerTableImp
 
   for (auto &[local_id, peer_pair] : peer_info.peers) {
     td::actor::send_closure(callback, &Cb::inc_pending);
-    td::actor::send_closure(peer_pair, &AdnlPeerPair::get_stats, all,
-                            [local_id = local_id, peer_id = peer_id,
-                             callback](td::Result<tl_object_ptr<ton_api::adnl_stats_peerPair>> R) {
-                              if (R.is_error()) {
-                                VLOG(ADNL_NOTICE) << "failed to get stats for peer pair " << peer_id << "->" << local_id
-                                                  << " : " << R.move_as_error();
-                                td::actor::send_closure(callback, &Cb::dec_pending);
-                              } else {
-                                td::actor::send_closure(callback, &Cb::got_peer_pair_stats, R.move_as_ok());
-                              }
-                            });
+    td::actor::send_closure(
+        peer_pair, &AdnlPeerPair::get_stats, all,
+        [local_id = local_id, peer_id = peer_id, callback](td::Result<tl_object_ptr<ton_api::adnl_stats_peerPair>> R) {
+          if (R.is_error()) {
+            VLOG(ADNL_NOTICE) << "failed to get stats for peer pair " << peer_id << "->" << local_id << " : "
+                              << R.move_as_error();
+            td::actor::send_closure(callback, &Cb::dec_pending);
+          } else {
+            td::actor::send_closure(callback, &Cb::got_peer_pair_stats, R.move_as_ok());
+          }
+        });
   }
   td::actor::send_closure(callback, &Cb::dec_pending);
 }
@@ -530,16 +528,15 @@ void AdnlPeerTableImpl::get_stats(bool all, td::Promise<tl_object_ptr<ton_api::a
   }
   for (auto &[id, peer] : peers_) {
     td::actor::send_closure(callback, &Cb::inc_pending);
-    get_stats_peer(
-        id, peer, all,
-        [id = id, callback](td::Result<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> R) {
-          if (R.is_error()) {
-            VLOG(ADNL_NOTICE) << "failed to get stats for peer " << id << " : " << R.move_as_error();
-            td::actor::send_closure(callback, &Cb::dec_pending);
-          } else {
-            td::actor::send_closure(callback, &Cb::got_peer_stats, R.move_as_ok());
-          }
-        });
+    get_stats_peer(id, peer, all,
+                   [id = id, callback](td::Result<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> R) {
+                     if (R.is_error()) {
+                       VLOG(ADNL_NOTICE) << "failed to get stats for peer " << id << " : " << R.move_as_error();
+                       td::actor::send_closure(callback, &Cb::dec_pending);
+                     } else {
+                       td::actor::send_closure(callback, &Cb::got_peer_stats, R.move_as_ok());
+                     }
+                   });
   }
   td::actor::send_closure(callback, &Cb::dec_pending);
 }

@@ -17,9 +17,9 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "LossSender.h"
-
 #include "td/utils/logging.h"
+
+#include "LossSender.h"
 
 #if TON_HAVE_GSL
 #include <gsl/gsl_cdf.h>

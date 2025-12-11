@@ -16,14 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/port/signals.h"
-
-#include "td/utils/port/config.h"
-#include "td/utils/port/stacktrace.h"
-#include "td/utils/port/StdStreams.h"
-
 #include "td/utils/common.h"
 #include "td/utils/format.h"
+#include "td/utils/port/StdStreams.h"
+#include "td/utils/port/config.h"
+#include "td/utils/port/signals.h"
+#include "td/utils/port/stacktrace.h"
 
 #if TD_PORT_POSIX
 #include <signal.h>

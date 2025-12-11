@@ -57,7 +57,28 @@ jobs:
         ./build-ubuntu-shared.sh -t -c
         ccache -sp
 
-    - name: Run Tests
+    - name: Run unit tests
       run: |
         cd build
         ctest --output-on-failure --timeout 1800
+
+    - name: Prepare Python environment
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        uv sync --no-dev
+        uv run test/tontester/generate_tl.py
+
+    - name: Run tontester tests
+      run: |
+        uv run pytest
+
+    - name: Run integration tests
+      run: |
+        for script in test/integration/*.py; do
+          echo $script
+          uv run $script
+        done
+
+    - name: Run tonlib integration test
+      run: |
+        ./test/tonlib/integration/test_integration.sh

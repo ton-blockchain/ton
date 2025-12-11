@@ -16,17 +16,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <limits>
+
+#include "td/utils/Random.h"
+#include "td/utils/Slice.h"
+#include "td/utils/UInt.h"
 #include "td/utils/base64.h"
 #include "td/utils/benchmark.h"
 #include "td/utils/common.h"
 #include "td/utils/crypto.h"
 #include "td/utils/logging.h"
-#include "td/utils/Random.h"
-#include "td/utils/Slice.h"
 #include "td/utils/tests.h"
-#include "td/utils/UInt.h"
-
-#include <limits>
 
 static td::vector<td::string> strings{"", "1", "short test string", td::string(1000000, 'a')};
 
@@ -35,7 +35,7 @@ static td::vector<td::string> strings{"", "1", "short test string", td::string(1
 TEST(Crypto, Aes) {
   td::Random::Xorshift128plus rnd(123);
   td::UInt256 key;
-  rnd.bytes(as_slice(key));
+  rnd.bytes(as_mutable_slice(key));
   td::string plaintext(16, '\0');
   td::string encrypted(16, '\0');
   td::string decrypted(16, '\0');
@@ -180,7 +180,7 @@ TEST(Crypto, Sha256State) {
   for (auto length : {0, 1, 31, 32, 33, 9999, 10000, 10001, 999999, 1000001}) {
     auto s = td::rand_string(std::numeric_limits<char>::min(), std::numeric_limits<char>::max(), length);
     td::UInt256 baseline;
-    td::sha256(s, as_slice(baseline));
+    td::sha256(s, as_mutable_slice(baseline));
 
     td::Sha256State state;
     state.init();
@@ -191,7 +191,7 @@ TEST(Crypto, Sha256State) {
     }
     state = std::move(state2);
     td::UInt256 result;
-    state.extract(as_slice(result));
+    state.extract(as_mutable_slice(result));
     ASSERT_TRUE(baseline == result);
   }
 }

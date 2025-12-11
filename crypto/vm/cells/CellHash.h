@@ -17,12 +17,11 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "vm/cells/CellTraits.h"
-#include "common/bitstring.h"
-
-#include "td/utils/as.h"
-
 #include <array>
+
+#include "common/bitstring.h"
+#include "td/utils/as.h"
+#include "vm/cells/CellTraits.h"
 namespace td {
 class StringBuilder;
 }

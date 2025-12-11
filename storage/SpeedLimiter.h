@@ -16,8 +16,9 @@
 */
 
 #pragma once
-#include "td/actor/actor.h"
 #include <queue>
+
+#include "td/actor/actor.h"
 
 namespace ton {
 

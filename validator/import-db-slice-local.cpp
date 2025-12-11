@@ -14,19 +14,19 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "import-db-slice-local.hpp"
+#include <delay.h>
 
-#include "validator/db/fileref.hpp"
-#include "td/utils/overloaded.h"
-#include "validator/fabric.h"
-#include "td/actor/MultiPromise.h"
+#include "block/block-auto.h"
 #include "common/checksum.h"
+#include "downloaders/download-state.hpp"
+#include "td/actor/MultiPromise.h"
+#include "td/utils/overloaded.h"
 #include "td/utils/port/path.h"
 #include "ton/ton-io.hpp"
-#include "downloaders/download-state.hpp"
-#include "block/block-auto.h"
+#include "validator/db/fileref.hpp"
+#include "validator/fabric.h"
 
-#include <delay.h>
+#include "import-db-slice-local.hpp"
 
 namespace ton {
 
@@ -155,8 +155,7 @@ void ArchiveImporterLocal::process_masterchain_blocks() {
     BlockSeqno expected_seqno = last_masterchain_state_->get_seqno() + 1;
     for (auto &[seqno, _] : masterchain_blocks_) {
       if (seqno != expected_seqno) {
-        abort_query(
-            td::Status::Error(ErrorCode::protoviolation, "non-consecutive masterchain blocks in the archive"));
+        abort_query(td::Status::Error(ErrorCode::protoviolation, "non-consecutive masterchain blocks in the archive"));
         return;
       }
       ++expected_seqno;

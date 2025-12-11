@@ -1004,7 +1004,7 @@ AsmOp compile_cond_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args
 
 AsmOp compile_throw_arg(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation&) {
   func_assert(res.empty() && args.size() == 2);
-  VarDescr &x = args[1];
+  VarDescr& x = args[1];
   if (x.is_int_const() && x.int_const->unsigned_fits_bits(11)) {
     x.unused();
     return exec_arg_op("THROWARG", x.int_const, 1, 0);

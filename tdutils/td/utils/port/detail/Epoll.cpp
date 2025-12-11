@@ -22,13 +22,12 @@ char disable_linker_warning_about_empty_file_epoll_cpp TD_UNUSED;
 
 #ifdef TD_POLL_EPOLL
 
+#include <cerrno>
+#include <unistd.h>
+
+#include "td/utils/Status.h"
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
-#include "td/utils/Status.h"
-
-#include <cerrno>
-
-#include <unistd.h>
 
 namespace td {
 namespace detail {

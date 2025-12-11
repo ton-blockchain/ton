@@ -263,6 +263,24 @@ fun testBigExcno() {
   }
 }
 
+get fun some_foo() {
+  throw 10;
+}
+
+get fun some_bar() {
+  try {
+    some_foo();
+    return 12;
+  } catch (e) {
+    return e;
+  }
+}
+
+@method_id(114)
+fun test14() {
+  return some_bar();
+}
+
 fun main() {
   // mark used to codegen them
   testCodegen3;
@@ -295,8 +313,9 @@ fun main() {
 @testcase | 111 | 0     | 456
 @testcase | 112 | 5     | 138
 @testcase | 113 |       | 2048
+@testcase | 114 |       | 10
 
-@code_hash 3924051084946061509165180039638830343498397714643311802900659572522552334228
+@code_hash 105700914149701825712120559735822502361524607376304099295017516715667768165035
 
 @fif_codegen
 """

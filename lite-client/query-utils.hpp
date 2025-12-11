@@ -15,10 +15,10 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "ton/ton-types.h"
+#include "adnl/adnl-node-id.hpp"
 #include "auto/tl/lite_api.h"
 #include "td/utils/port/IPAddress.h"
-#include "adnl/adnl-node-id.hpp"
+#include "ton/ton-types.h"
 
 namespace liteclient {
 

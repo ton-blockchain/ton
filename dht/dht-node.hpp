@@ -18,12 +18,12 @@
 */
 #pragma once
 
-#include "adnl/adnl-node-id.hpp"
 #include "adnl/adnl-address-list.hpp"
-
-#include "dht-types.h"
+#include "adnl/adnl-node-id.hpp"
 #include "auto/tl/ton_api.hpp"
 #include "td/utils/overloaded.h"
+
+#include "dht-types.h"
 
 namespace ton {
 
@@ -39,10 +39,12 @@ class DhtNode {
 
  public:
   DhtNode() = default;
-  DhtNode(adnl::AdnlNodeIdFull id, adnl::AdnlAddressList addr_list, td::int32 version, td::int32 network_id, td::BufferSlice signature)
+  DhtNode(adnl::AdnlNodeIdFull id, adnl::AdnlAddressList addr_list, td::int32 version, td::int32 network_id,
+          td::BufferSlice signature)
       : id_(id), addr_list_(addr_list), version_(version), network_id_(network_id), signature_(signature.as_slice()) {
   }
-  DhtNode(adnl::AdnlNodeIdFull id, adnl::AdnlAddressList addr_list, td::int32 version, td::int32 network_id, td::SharedSlice signature)
+  DhtNode(adnl::AdnlNodeIdFull id, adnl::AdnlAddressList addr_list, td::int32 version, td::int32 network_id,
+          td::SharedSlice signature)
       : id_(id), addr_list_(addr_list), version_(version), network_id_(network_id), signature_(std::move(signature)) {
   }
   static td::Result<DhtNode> create(tl_object_ptr<ton_api::dht_node> obj, td::int32 our_network_id) {

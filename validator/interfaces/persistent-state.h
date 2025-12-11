@@ -19,8 +19,8 @@
 #include "auto/tl/ton_api.h"
 #include "td/utils/Variant.h"
 #include "td/utils/overloaded.h"
-#include "ton/ton-types.h"
 #include "ton/ton-shard.h"
+#include "ton/ton-types.h"
 
 namespace ton {
 

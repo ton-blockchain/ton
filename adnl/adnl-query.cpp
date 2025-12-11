@@ -16,9 +16,10 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "adnl-query.h"
 #include "common/errorcode.h"
 #include "td/utils/Random.h"
+
+#include "adnl-query.h"
 
 namespace ton {
 

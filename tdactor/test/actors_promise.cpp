@@ -16,9 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/actor/actor.h"
-#include "td/actor/PromiseFuture.h"
 #include "td/actor/MultiPromise.h"
+#include "td/actor/PromiseFuture.h"
+#include "td/actor/actor.h"
 #include "td/utils/MovableValue.h"
 #include "td/utils/tests.h"
 
@@ -93,23 +93,24 @@ TEST(Actor, promise) {
     CHECK(*res == 5);
   }
 
-  {//{
-   //Promise<Int> promise;
-   //std::tuple<Promise<Int> &&> f(std::move(promise));
-   //std::tuple<Promise<Int>> x = std::move(f);
-   //}
+  {  //{
+    //Promise<Int> promise;
+    //std::tuple<Promise<Int> &&> f(std::move(promise));
+    //std::tuple<Promise<Int>> x = std::move(f);
+    //}
 
-   {
-       //using T = Result<int>;
-       //using T = std::unique_ptr<int>;
-       //using T = std::function<int()>;
-       //using T = std::vector<int>;
-       //using T = X<int>;
-       ////using T = Promise<Int>;
-       //T f;
-       //std::tuple<T &&> g(std::move(f));
-       //std::tuple<T> h = std::move(g);
-   }}
+    {
+      //using T = Result<int>;
+      //using T = std::unique_ptr<int>;
+      //using T = std::function<int()>;
+      //using T = std::vector<int>;
+      //using T = X<int>;
+      ////using T = Promise<Int>;
+      //T f;
+      //std::tuple<T &&> g(std::move(f));
+      //std::tuple<T> h = std::move(g);
+    }
+  }
 
   {
     int result = 0;

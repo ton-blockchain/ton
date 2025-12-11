@@ -15,11 +15,11 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
+#include <functional>
+
 #include "interfaces/validator-manager.h"
 #include "td/utils/ConcurrentHashTable.h"
 #include "td/utils/LRUCache.h"
-
-#include <functional>
 
 namespace ton::validator {
 

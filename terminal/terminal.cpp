@@ -16,12 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "terminal.hpp"
 #include "td/utils/port/StdStreams.h"
 
+#include "terminal.hpp"
+
 #ifdef USE_READLINE
-#include <readline/readline.h>
 #include <readline/history.h>
+#include <readline/readline.h>
 #endif
 
 #include "td/utils/find_boundary.h"

@@ -15,11 +15,12 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "StorageManager.h"
+#include "td/actor/MultiPromise.h"
+#include "td/db/RocksDb.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/port/path.h"
-#include "td/db/RocksDb.h"
-#include "td/actor/MultiPromise.h"
+
+#include "StorageManager.h"
 
 namespace ton {
 

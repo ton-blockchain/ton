@@ -18,14 +18,13 @@
 */
 
 #pragma once
-#include "vm/cells.h"
-#include "vm/cellslice.h"
-#include "Ed25519.h"
 #include "block/block-auto.h"
 #include "block/block-parse.h"
-
 #include "td/utils/Variant.h"
+#include "vm/cells.h"
+#include "vm/cellslice.h"
 
+#include "Ed25519.h"
 #include "SmartContract.h"
 #include "SmartContractCode.h"
 
