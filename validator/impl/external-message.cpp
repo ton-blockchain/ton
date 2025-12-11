@@ -163,7 +163,7 @@ class WalletMessageProcessorImpl : public WalletMessageProcessor {
     if (cs.size() < 32) {
       return td::Status::Error("invalid data");
     }
-    return cs.prefetch_ulong(32);
+    return (td::uint32)cs.prefetch_ulong(32);
   }
 
   td::Result<td::Ref<vm::Cell>> set_wallet_seqno(td::Ref<vm::Cell> data_root, td::uint32 new_seqno) const override {
@@ -279,7 +279,7 @@ class WalletV5 : public WalletMessageProcessorImpl {
       return td::Status::Error("invalid data");
     }
     cs.skip_first(1);
-    return cs.prefetch_ulong(32);
+    return (td::uint32)cs.prefetch_ulong(32);
   }
 
   td::Result<td::Ref<vm::Cell>> set_wallet_seqno(td::Ref<vm::Cell> data_root, td::uint32 new_seqno) const override {
