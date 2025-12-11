@@ -19,6 +19,8 @@
 #include "interfaces/validator-manager.h"
 #include "td/actor/coro_utils.h"
 
+#include "external-message.hpp"
+
 namespace ton::validator {
 
 class ExtMessagePool : public td::actor::Actor {
@@ -27,8 +29,11 @@ class ExtMessagePool : public td::actor::Actor {
       : opts_(opts), manager_(manager) {
   }
 
-  td::actor::Task<td::Ref<ExtMessage>> check_add_external_message(td::BufferSlice data, int priority,
-                                                                  bool add_to_mempool);
+  struct CheckResult {
+    td::Ref<ExtMessage> message;
+    td::actor::StartedTask<> wait_allow_broadcast;
+  };
+  td::actor::Task<CheckResult> check_add_external_message(td::BufferSlice data, int priority, bool add_to_mempool);
   std::vector<std::pair<td::Ref<ExtMessage>, int>> get_external_messages_for_collator(ShardIdFull shard);
   void cleanup_external_messages(ShardIdFull shard);
   void complete_external_messages(std::vector<ExtMessage::Hash> to_delay, std::vector<ExtMessage::Hash> to_delete);
@@ -58,56 +63,42 @@ class ExtMessagePool : public td::actor::Actor {
       return hash < msg.hash;
     }
   };
-  class MessageExt {
-   public:
-    auto shard() const {
-      return message_->shard();
-    }
-    auto ext_id() const {
-      auto shard = message_->shard();
-      return MessageId{shard, message_->hash()};
-    }
-    auto message() const {
-      return message_;
-    }
-    auto hash() const {
-      return message_->hash();
-    }
+  struct MempoolMsg {
+    td::Ref<ExtMessage> message;
+    td::uint32 generation = 0;
+    bool active = true;
+    td::Timestamp reactivate_at;
+    td::Timestamp delete_at;
+    td::optional<td::uint32> msg_seqno;
+
     auto address() const {
-      return std::make_pair(message_->wc(), message_->addr());
+      return std::make_pair(message->wc(), message->addr());
     }
     bool is_active() {
-      if (!active_) {
-        if (reactivate_at_.is_in_past()) {
-          active_ = true;
-          generation_++;
+      if (!active) {
+        if (reactivate_at.is_in_past()) {
+          active = true;
+          generation++;
         }
       }
-      return active_;
+      return active;
     }
     bool can_postpone() const {
-      return generation_ <= 2;
+      return generation <= 2;
     }
     void postpone() {
-      if (!active_) {
+      if (!active) {
         return;
       }
-      active_ = false;
-      reactivate_at_ = td::Timestamp::in(generation_ * 5.0);
+      active = false;
+      reactivate_at = td::Timestamp::in(generation * 5.0);
     }
     bool expired() const {
-      return delete_at_.is_in_past();
+      return delete_at.is_in_past();
     }
-    explicit MessageExt(td::Ref<ExtMessage> msg) : message_(std::move(msg)) {
-      delete_at_ = td::Timestamp::in(600);
+    explicit MempoolMsg(td::Ref<ExtMessage> msg) : message(std::move(msg)) {
+      delete_at = td::Timestamp::in(600);
     }
-
-   private:
-    td::Ref<ExtMessage> message_;
-    td::uint32 generation_ = 0;
-    bool active_ = true;
-    td::Timestamp reactivate_at_;
-    td::Timestamp delete_at_;
   };
 
   td::Ref<ValidatorManagerOptions> opts_;
@@ -115,7 +106,7 @@ class ExtMessagePool : public td::actor::Actor {
   td::Ref<MasterchainState> last_masterchain_state_;
 
   struct ExtMessages {
-    std::map<MessageId, std::unique_ptr<MessageExt>> ext_messages_;
+    std::map<MessageId, std::unique_ptr<MempoolMsg>> ext_messages_;
     std::map<std::pair<WorkchainId, StdSmcAddress>, std::map<ExtMessage::Hash, MessageId>> ext_addr_messages_;
     void erase(const MessageId &id) {
       auto it = ext_messages_.find(id);
@@ -139,9 +130,36 @@ class ExtMessagePool : public td::actor::Actor {
 
   td::Timestamp cleanup_mempool_at_ = td::Timestamp::now();
 
+  void add_message_to_mempool(td::Ref<ExtMessage> message, int priority, td::optional<td::uint32> msg_seqno);
+
+  struct WalletMessageInfo {
+    td::uint32 valid_until;
+    td::Promise<td::Unit> allow_broadcast_promise;
+  };
+  struct WalletInfo {
+    std::map<td::uint32, WalletMessageInfo> messages;
+    ~WalletInfo() {
+      for (auto &[_, message] : messages) {
+        if (message.allow_broadcast_promise) {
+          message.allow_broadcast_promise.set_error(td::Status::Error("wallet is no longer valid"));
+        }
+      }
+    }
+    void process_messages(td::uint32 wallet_seqno, UnixTime utime);
+  };
+  std::map<std::pair<WorkchainId, StdSmcAddress>, WalletInfo> wallets_;
+
+  td::actor::Task<CheckResult> check_message(td::Ref<ExtMessage> message, td::optional<td::uint32> &msg_seqno);
+  td::Result<td::uint32> check_message_to_wallet(td::Ref<ExtMessage> message, const WalletMessageProcessor *wallet,
+                                                 block::Account acc, UnixTime utime, LogicalTime lt,
+                                                 std::unique_ptr<block::ConfigInfo> config,
+                                                 td::Promise<td::Unit> allow_broadcast_promise);
+
   static constexpr double MAX_EXT_MSG_PER_ADDR_TIME_WINDOW = 10.0;
   static constexpr size_t MAX_EXT_MSG_PER_ADDR = 3 * 10;
   static constexpr size_t PER_ADDRESS_LIMIT = 256;
+  static constexpr size_t SOFT_MEMPOOL_LIMIT = 1024;
+  static constexpr td::uint32 MAX_WALLET_SEQNO_DIFF = 16;
 };
 
 }  // namespace ton::validator

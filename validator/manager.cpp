@@ -397,24 +397,45 @@ void ValidatorManagerImpl::get_key_block_proof_link(BlockIdExt block_id, td::Pro
 }
 
 td::actor::Task<> ValidatorManagerImpl::new_external_message_broadcast(td::BufferSlice data, int priority) {
-  auto result = co_await td::actor::ask(ext_message_pool_, &ExtMessagePool::check_add_external_message, std::move(data),
-                                        priority, /* add_to_mempool = */ is_validator() || !collator_nodes_.empty())
-                    .wrap();
-  if (result.is_error()) {
-    VLOG(VALIDATOR_DEBUG) << "Dropping external message broadcast (prio=" << priority << ") : " << result.error();
-  } else {
-    VLOG(VALIDATOR_DEBUG) << "Checked external message broadcast (prio=" << priority << ")";
+  auto r_check_result =
+      co_await td::actor::ask(ext_message_pool_, &ExtMessagePool::check_add_external_message, std::move(data), priority,
+                              /* add_to_mempool = */ is_validator() || !collator_nodes_.empty())
+          .wrap();
+  if (r_check_result.is_error()) {
+    VLOG(VALIDATOR_DEBUG) << "Dropping external message broadcast (prio=" << priority
+                          << ") : " << r_check_result.error();
+    co_return r_check_result.move_as_error();
   }
-  co_await std::move(result);
+  auto check_result = r_check_result.move_as_ok();
+  auto allow_broadcast = co_await std::move(check_result.wait_allow_broadcast).wrap();
+  if (allow_broadcast.is_error()) {
+    VLOG(VALIDATOR_DEBUG) << "Dropping external message broadcast (prio=" << priority
+                          << ") : " << allow_broadcast.error();
+    co_return allow_broadcast.move_as_error();
+  }
+  VLOG(VALIDATOR_DEBUG) << "Checked external message broadcast to " << check_result.message->wc() << ":"
+                        << check_result.message->addr().to_hex() << " (prio=" << priority << ")";
   co_return td::Unit{};
 }
 
 td::actor::Task<> ValidatorManagerImpl::new_external_message_query(td::BufferSlice data) {
-  auto message =
+  auto [message, wait_allow_broadcast] =
       co_await td::actor::ask(ext_message_pool_, &ExtMessagePool::check_add_external_message, std::move(data), 0,
                               /* add_to_mempool = */ is_validator() || !collator_nodes_.empty());
-  LOG(INFO) << "Sending external message to " << message->wc() << ":" << message->addr().to_hex();
-  callback_->send_ext_message(message->shard(), message->serialize());
+  new_external_message_query_cont(std::move(message), std::move(wait_allow_broadcast)).start().detach();
+  co_return td::Unit{};
+}
+
+td::actor::Task<> ValidatorManagerImpl::new_external_message_query_cont(td::Ref<ExtMessage> message,
+                                                                        td::actor::StartedTask<> wait_allow_broadcast) {
+  auto result = co_await std::move(wait_allow_broadcast).wrap();
+  if (result.is_error()) {
+    LOG(INFO) << "Cannot send external message to " << message->wc() << ":" << message->addr().to_hex() << " : "
+              << result.error();
+  } else {
+    LOG(INFO) << "Sending external message to " << message->wc() << ":" << message->addr().to_hex();
+    callback_->send_ext_message(message->shard(), message->serialize());
+  }
   co_return td::Unit{};
 }
 

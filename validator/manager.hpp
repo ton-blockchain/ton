@@ -337,6 +337,8 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   td::actor::Task<> new_external_message_broadcast(td::BufferSlice data, int priority) override;
   td::actor::Task<> new_external_message_query(td::BufferSlice data) override;
+  td::actor::Task<> new_external_message_query_cont(td::Ref<ExtMessage> message,
+                                                    td::actor::StartedTask<> wait_allow_broadcast);
 
   void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
