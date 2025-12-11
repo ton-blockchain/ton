@@ -1680,7 +1680,7 @@ void ValidatorManagerImpl::new_block_cont(BlockHandle handle, td::Ref<ShardState
     handle->set_processed();
     promise.set_value(td::Unit());
   }
-  if (!db_event_publisher_.empty()) {
+  if (!db_event_publisher_.empty() && !handle->id().is_masterchain()) {
     VLOG(VALIDATOR_DEBUG) << "DB Event: blockApplied " << handle->id().to_str();
     td::actor::ask(db_event_publisher_, &DbEventPublisher::publish,
                    create_tl_object<ton_api::db_event_blockApplied>(create_tl_block_id(handle->id())))
@@ -2849,6 +2849,12 @@ void ValidatorManagerImpl::update_shard_client_block_handle(BlockHandle handle, 
     if (last_liteserver_state_.is_null() || last_liteserver_state_->get_block_id().seqno() < seqno) {
       last_liteserver_state_ = std::move(state);
     }
+  }
+  if (!db_event_publisher_.empty()) {
+    VLOG(VALIDATOR_DEBUG) << "DB Event: blockApplied " << shard_client_handle_->id().to_str();
+    td::actor::ask(db_event_publisher_, &DbEventPublisher::publish,
+                   create_tl_object<ton_api::db_event_blockApplied>(create_tl_block_id(shard_client_handle_->id())))
+        .detach();
   }
   for (auto &c : collator_nodes_) {
     td::actor::send_closure(c.second.actor, &CollatorNode::update_shard_client_handle, shard_client_handle_);
