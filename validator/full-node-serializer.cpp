@@ -377,11 +377,10 @@ td::Result<td::BufferSlice> serialize_block_candidate_broadcast(BlockIdExt block
   }
   TRY_RESULT(root, vm::std_boc_deserialize(data));
   auto t_compression_start = td::Time::now();
-  TRY_RESULT(data_new, vm::std_boc_serialize(root, 2));
-  td::BufferSlice compressed = td::lz4_compress(data_new);
+  TRY_RESULT(compressed, vm::boc_compress({root}, vm::CompressionAlgorithm::ImprovedStructureLZ4));
   auto compressed_size = compressed.size();
   VLOG(FULL_NODE_DEBUG) << "Compressing block candidate broadcast: " << data.size() << " -> " << compressed_size;
-  auto res = create_serialize_tl_object<ton_api::tonNode_newBlockCandidateBroadcastCompressed>(
+  auto res = create_serialize_tl_object<ton_api::tonNode_newBlockCandidateBroadcastCompressedV2>(
       create_tl_block_id(block_id), cc_seqno, validator_set_hash,
       create_tl_object<ton_api::tonNode_blockSignature>(Bits256::zero(), td::BufferSlice()), 0, std::move(compressed));
   LOG(DEBUG) << "Broadcast_benchmark serialize_block_candidate_broadcast block_id=" << block_id.to_str()

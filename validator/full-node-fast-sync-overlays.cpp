@@ -271,7 +271,7 @@ void FullNodeFastSyncOverlay::send_block_candidate(BlockIdExt block_id, Catchain
     return;
   }
   auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true,
-                                               k_called_from_fast_sync);  // compression enabled
+                                               k_called_from_fast_sync);
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
     return;
