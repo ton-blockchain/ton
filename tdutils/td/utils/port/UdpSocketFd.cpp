@@ -799,6 +799,18 @@ const NativeFd &UdpSocketFd::get_native_fd() const {
   return get_poll_info().native_fd();
 }
 
+Result<IPAddress> UdpSocketFd::get_local_address() const {
+  IPAddress result;
+
+  sockaddr_storage addr{};
+  socklen_t len = sizeof addr;
+  if (getsockname(get_native_fd().fd(), reinterpret_cast<sockaddr *>(&addr), &len) != 0)
+    return Status::Error("getsockname failed");
+
+  TRY_STATUS(result.init_sockaddr(reinterpret_cast<sockaddr *>(&addr), len));
+  return result;
+}
+
 #if TD_PORT_POSIX
 static Result<uint32> maximize_buffer(int socket_fd, int optname, uint32 max) {
   /* Start with the default size. */

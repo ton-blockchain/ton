@@ -11,19 +11,19 @@ class QuicConnection : public td::actor::Actor, public td::ObserverBase {
  public:
   class Callback {
    public:
-    virtual void on_connected();
-    virtual void on_data(td::CSlice data) = 0;
-    virtual void on_disconnected();
-    virtual ~Callback();
+    virtual void on_connected() = 0;
+    virtual void on_data(td::Slice data) = 0;
+    virtual void on_disconnected() = 0;
+    virtual ~Callback() = default;
   };
 
-  void send_data(td::CSlice data);
+  void send_data(td::Slice data);
   void send_disconnect();
 
   QuicConnection(std::unique_ptr<QuicConnectionPImpl> p_impl, std::unique_ptr<Callback> callback);
-  static td::Result<td::actor::ActorOwn<QuicConnection>> open(td::CSlice host, int port,
+  static td::Result<td::actor::ActorOwn<QuicConnection>> open(td::Slice host, int port,
                                                               std::unique_ptr<Callback> callback,
-                                                              td::CSlice alpn = "ton");
+                                                              td::Slice alpn = "ton");
 
  protected:
   void start_up() override;
@@ -45,5 +45,6 @@ class QuicConnection : public td::actor::Actor, public td::ObserverBase {
 
   std::unique_ptr<QuicConnectionPImpl> p_impl_;
   std::unique_ptr<Callback> callback_;
+  td::actor::ActorId<QuicConnection> self_id_;
 };
 }  // namespace ton::quic

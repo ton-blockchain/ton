@@ -15,7 +15,7 @@ struct QuicConnectionPImpl {
    public:
     struct HandshakeCompletedEvent {};
     struct StreamDataEvent {
-      td::CSlice data;
+      td::Slice data;
       bool fin = false;
     };
 
@@ -43,13 +43,13 @@ struct QuicConnectionPImpl {
 
   std::unique_ptr<Callback> callback = nullptr;
 
-  [[nodiscard]] td::Status init_tls(td::CSlice host, td::CSlice alpn);
+  [[nodiscard]] td::Status init_tls(td::Slice host, td::Slice alpn);
   [[nodiscard]] td::Status init_quic();
 
   [[nodiscard]] td::Status flush_egress();
   [[nodiscard]] td::Status handle_ingress();
 
-  [[nodiscard]] td::Status write_stream(td::CSlice data, bool fin);
+  [[nodiscard]] td::Status write_stream(td::Slice data, bool fin);
 
   ~QuicConnectionPImpl() {
     if (conn) {
