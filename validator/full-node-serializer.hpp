@@ -24,7 +24,8 @@ namespace ton::validator::fullnode {
 enum class StateUsage { None, DecompressOnly, CompressAndDecompress };
 
 td::Result<td::BufferSlice> serialize_block_broadcast(const BlockBroadcast& broadcast, bool compression_enabled,
-                                                      std::string called_from);
+                                                      std::string called_from, StateUsage state_usage = StateUsage::None,
+                                                      td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
 td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_Broadcast& obj, int max_decompressed_data_size,
                                                        std::string called_from,
                                                        td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
@@ -36,7 +37,9 @@ td::Result<bool> need_state_for_decompression(ton_api::tonNode_Broadcast& broadc
 td::Result<bool> need_state_for_decompression(ton_api::tonNode_DataFull& data_full);
 
 td::Result<td::BufferSlice> serialize_block_full(const BlockIdExt& id, td::Slice proof, td::Slice data,
-                                                 bool is_proof_link, bool compression_enabled);
+                                                 bool is_proof_link, bool compression_enabled,
+                                                 StateUsage state_usage = StateUsage::None,
+                                                 td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
 td::Status deserialize_block_full(ton_api::tonNode_DataFull& obj, BlockIdExt& id, td::BufferSlice& proof,
                                   td::BufferSlice& data, bool& is_proof_link, int max_decompressed_data_size,
                                   td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
