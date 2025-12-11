@@ -1,7 +1,7 @@
 #include <quic-pimpl.h>
 
 namespace ton::quic {
-td::Status QuicConnectionPImpl::init_tls(td::CSlice host, td::CSlice alpn) {
+td::Status QuicConnectionPImpl::init_tls(td::Slice host, td::Slice alpn) {
   ssl_ctx = SSL_CTX_new(TLS_client_method());
   if (!ssl_ctx)
     return td::Status::Error("SSL_CTX_new failed");
@@ -14,11 +14,12 @@ td::Status QuicConnectionPImpl::init_tls(td::CSlice host, td::CSlice alpn) {
 
   SSL_set_connect_state(ssl);
 
-  SSL_set_tlsext_host_name(ssl, host.c_str());
+  std::string host_c(host.begin(), host.end());
+  SSL_set_tlsext_host_name(ssl, host_c.c_str());
 
   std::string alpn_data(alpn.size() + 1, '\0');
   alpn_data[0] = static_cast<int8_t>(alpn.size());
-  std::copy_n(alpn.c_str(), alpn.size(), alpn_data.begin());
+  std::copy_n(alpn.data(), alpn.size(), alpn_data.begin() + 1);
   SSL_set_alpn_protos(ssl, reinterpret_cast<const unsigned char*>(alpn_data.c_str()),
                       static_cast<unsigned int>(alpn_data.size()));
 
@@ -91,58 +92,68 @@ td::Status QuicConnectionPImpl::init_quic() {
 }
 
 td::Status QuicConnectionPImpl::flush_egress() {
-  uint8_t out[QUIC_MTU];
+  while (true) {
+    uint8_t out[QUIC_MTU];
 
-  ngtcp2_path path{};
-  path.local.addr = const_cast<ngtcp2_sockaddr*>(local_address.get_sockaddr());
-  path.local.addrlen = static_cast<ngtcp2_socklen>(local_address.get_sockaddr_len());
-  path.remote.addr = const_cast<ngtcp2_sockaddr*>(remote_address.get_sockaddr());
-  path.remote.addrlen = static_cast<ngtcp2_socklen>(remote_address.get_sockaddr_len());
+    ngtcp2_path path{};
+    path.local.addr = const_cast<ngtcp2_sockaddr*>(local_address.get_sockaddr());
+    path.local.addrlen = static_cast<ngtcp2_socklen>(local_address.get_sockaddr_len());
+    path.remote.addr = const_cast<ngtcp2_sockaddr*>(remote_address.get_sockaddr());
+    path.remote.addrlen = static_cast<ngtcp2_socklen>(remote_address.get_sockaddr_len());
 
-  ngtcp2_pkt_info pi{};
+    ngtcp2_pkt_info pi{};
 
-  ngtcp2_ssize n_write = ngtcp2_conn_write_pkt(conn, &path, &pi, out, sizeof(out), now_ts());
+    ngtcp2_ssize n_write = ngtcp2_conn_write_pkt(conn, &path, &pi, out, sizeof(out), now_ts());
 
-  if (n_write < 0) {
-    if (n_write == NGTCP2_ERR_WRITE_MORE)
-      return td::Status::OK();
-    return td::Status::Error("ngtcp2_conn_write_pkt failed");
+    if (n_write < 0) {
+      if (n_write == NGTCP2_ERR_WRITE_MORE)
+        return td::Status::OK();
+      return td::Status::Error("ngtcp2_conn_write_pkt failed");
+    }
+    if (n_write == 0)
+      break;
+
+    bool is_sent;
+    td::Slice out_slice(reinterpret_cast<const char*>(out), reinterpret_cast<const char*>(out) + n_write);
+    td::UdpSocketFd::OutboundMessage msg{.to = &remote_address, .data = out_slice};
+    TRY_STATUS(fd.send_message(msg, is_sent));
+
+    if (!is_sent)
+      break;
   }
-  if (n_write == 0)
-    return td::Status::OK();
-
-  bool is_sent;
-  td::Slice out_slice(reinterpret_cast<const char*>(out), reinterpret_cast<const char*>(out) + n_write);
-  td::UdpSocketFd::OutboundMessage msg{.to = &remote_address, .data = out_slice};
-  TRY_STATUS(fd.send_message(msg, is_sent));
 
   return td::Status::OK();
 }
 
 td::Status QuicConnectionPImpl::handle_ingress() {
-  uint8_t buf[UDP_MTU];
+  while (true) {
+    uint8_t buf[UDP_MTU];
 
-  bool is_received;
-  td::MutableSlice buf_slice(reinterpret_cast<char*>(buf), reinterpret_cast<char *>(buf) + UDP_MTU);
-  td::UdpSocketFd::InboundMessage msg{.from = &remote_address, .data = buf_slice, .error = nullptr};
-  TRY_STATUS(fd.receive_message(msg, is_received));
+    bool is_received;
+    td::MutableSlice buf_slice(reinterpret_cast<char*>(buf), reinterpret_cast<char*>(buf) + UDP_MTU);
+    td::UdpSocketFd::InboundMessage msg{.from = &remote_address, .data = buf_slice, .error = nullptr};
+    TRY_STATUS(fd.receive_message(msg, is_received));
 
-  ngtcp2_path path{};
-  path.local.addr = const_cast<ngtcp2_sockaddr*>(local_address.get_sockaddr());
-  path.local.addrlen = static_cast<ngtcp2_socklen>(local_address.get_sockaddr_len());
-  path.remote.addr = const_cast<ngtcp2_sockaddr*>(remote_address.get_sockaddr());
-  path.remote.addrlen = static_cast<ngtcp2_socklen>(remote_address.get_sockaddr_len());
+    if (!is_received)
+      break;
 
-  ngtcp2_pkt_info pi{};
-  int rv = ngtcp2_conn_read_pkt(conn, &path, &pi, buf, msg.data.size(), now_ts());
+    ngtcp2_path path{};
+    path.local.addr = const_cast<ngtcp2_sockaddr*>(local_address.get_sockaddr());
+    path.local.addrlen = static_cast<ngtcp2_socklen>(local_address.get_sockaddr_len());
+    path.remote.addr = const_cast<ngtcp2_sockaddr*>(remote_address.get_sockaddr());
+    path.remote.addrlen = static_cast<ngtcp2_socklen>(remote_address.get_sockaddr_len());
 
-  if (rv != 0)
-    return td::Status::Error("ngtcp2_conn_read_pkt failed");
+    ngtcp2_pkt_info pi{};
+    int rv = ngtcp2_conn_read_pkt(conn, &path, &pi, buf, msg.data.size(), now_ts());
+
+    if (rv != 0)
+      return td::Status::Error("ngtcp2_conn_read_pkt failed");
+  }
 
   return td::Status::OK();
 }
 
-td::Status QuicConnectionPImpl::write_stream(td::CSlice data, bool fin) {
+td::Status QuicConnectionPImpl::write_stream(td::Slice data, bool fin) {
   if (out_sid == -1) {
     int rv = ngtcp2_conn_open_bidi_stream(conn, &out_sid, nullptr);
     if (rv != 0)
@@ -150,7 +161,7 @@ td::Status QuicConnectionPImpl::write_stream(td::CSlice data, bool fin) {
   }
 
   ngtcp2_vec vec{};
-  vec.base = const_cast<uint8_t *>(reinterpret_cast<const uint8_t*>(data.c_str()));
+  vec.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(data.data()));
   vec.len = data.size();
 
   uint8_t out[QUIC_MTU];
@@ -162,12 +173,11 @@ td::Status QuicConnectionPImpl::write_stream(td::CSlice data, bool fin) {
 
   ngtcp2_pkt_info pi{};
 
-  ngtcp2_ssize n_write =
-      ngtcp2_conn_writev_stream(conn, &path, &pi, out, sizeof(out),
-                                nullptr, NGTCP2_WRITE_STREAM_FLAG_FIN, out_sid, &vec, 1, now_ts());
+  ngtcp2_ssize n_write = ngtcp2_conn_writev_stream(conn, &path, &pi, out, sizeof(out), nullptr,
+                                                   NGTCP2_WRITE_STREAM_FLAG_FIN, out_sid, &vec, 1, now_ts());
 
   if (n_write < 0)
-      return td::Status::Error("ngtcp2_conn_writev_stream failed");
+    return td::Status::Error("ngtcp2_conn_writev_stream failed");
 
   bool is_sent;
   td::Slice out_slice(reinterpret_cast<const char*>(out), reinterpret_cast<const char*>(out) + n_write);
@@ -213,7 +223,7 @@ int QuicConnectionPImpl::handshake_completed_cb(ngtcp2_conn* conn, void* user_da
 int QuicConnectionPImpl::recv_stream_data_cb(ngtcp2_conn*, uint32_t flags, int64_t stream_id, uint64_t offset,
                                              const uint8_t* data, size_t datalen, void* user_data,
                                              void* stream_user_data) {
-  td::CSlice data_slice(reinterpret_cast<const char*>(data), reinterpret_cast<const char*>(data) + datalen);
+  td::Slice data_slice(reinterpret_cast<const char*>(data), reinterpret_cast<const char*>(data) + datalen);
   Callback::StreamDataEvent event{.data = data_slice, .fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0};
   static_cast<QuicConnectionPImpl*>(user_data)->callback->on_stream_data(event);
   return 0;

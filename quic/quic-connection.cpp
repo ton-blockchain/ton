@@ -4,25 +4,30 @@
 #include "quic-pimpl.h"
 
 namespace ton::quic {
-td::Result<td::actor::ActorOwn<QuicConnection>> QuicConnection::open(td::CSlice host, int port,
+td::Result<td::actor::ActorOwn<QuicConnection>> QuicConnection::open(td::Slice host, int port,
                                                                      std::unique_ptr<Callback> callback,
-                                                                     td::CSlice alpn) {
+                                                                     td::Slice alpn) {
   auto p_impl = std::make_unique<QuicConnectionPImpl>();
-  TRY_STATUS(p_impl->remote_address.init_host_port(host, port));
+  std::string host_c(host.begin(), host.end());
+  TRY_STATUS(p_impl->remote_address.init_host_port(td::CSlice(host_c.c_str()), port));
   TRY_RESULT_ASSIGN(p_impl->fd, td::UdpSocketFd::open(p_impl->remote_address));
   TRY_RESULT_ASSIGN(p_impl->local_address, p_impl->fd.get_local_address());
 
   TRY_STATUS(p_impl->init_tls(host, alpn));
   TRY_STATUS(p_impl->init_quic());
 
-  auto name = PSTRING() << "QUIC[" << p_impl->local_address << ">" << host << ':' << port << ']';
-  return td::actor::create_actor<QuicConnection>(name, std::move(p_impl), std::move(callback));
+  auto name = PSTRING() << "QUIC:" << p_impl->local_address << ">[" << host << ':' << port << ']';
+  return td::actor::create_actor<QuicConnection>(td::actor::ActorOptions().with_name(name).with_poll(true),
+                                                 std::move(p_impl), std::move(callback));
 }
 
 void QuicConnection::start_up() {
+  LOG(INFO) << "starting up";
+  self_id_ = actor_id(this);
   td::actor::SchedulerContext::get()->get_poll().subscribe(p_impl_->fd.get_poll_info().extract_pollable_fd(this),
                                                            td::PollFlags::ReadWrite());
   process_operation_status(p_impl_->flush_egress());
+  LOG(INFO) << "startup completed";
 }
 
 void QuicConnection::tear_down() {
@@ -54,7 +59,7 @@ void QuicConnection::loop() {
 }
 
 void QuicConnection::notify() {
-  td::actor::send_closure(actor_id(this), &QuicConnection::on_fd_notify);
+  td::actor::send_closure(self_id_, &QuicConnection::on_fd_notify);
 }
 
 void QuicConnection::on_fd_notify() {
@@ -62,7 +67,7 @@ void QuicConnection::on_fd_notify() {
   process_operation_status(p_impl_->flush_egress());
 }
 
-void QuicConnection::send_data(td::CSlice data) {
+void QuicConnection::send_data(td::Slice data) {
   process_operation_status(p_impl_->write_stream(data, false));
   process_operation_status(p_impl_->flush_egress());
 }
@@ -74,7 +79,7 @@ void QuicConnection::send_disconnect() {
 
 void QuicConnection::process_operation_status(td::Status status) {
   if (status.is_error()) {
-    LOG(ERROR) << status;
+    LOG(ERROR) << "connection aborted: " << status;
     stop();
   }
 }
