@@ -159,6 +159,8 @@ message$_ {X:Type} info:CommonMsgInfo
 message$_ {X:Type} info:CommonMsgInfoRelaxed
   init:(Maybe (Either StateInit ^StateInit))
   body:(Either X ^X) = MessageRelaxed X;
+
+_ init:(Maybe (Either StateInit ^StateInit)) = EitherStateInit;
   
 _ (Message Any) = MessageAny;
 

@@ -547,23 +547,20 @@ void LiteQuery::continue_getZeroState(BlockIdExt blkid, td::BufferSlice state) {
 
 void LiteQuery::perform_sendMessage(td::BufferSlice data) {
   LOG(INFO) << "started a sendMessage(<" << data.size() << " bytes>) liteserver query";
-  auto copy = data.clone();
-  td::actor::send_closure_later(
-      manager_, &ValidatorManager::check_external_message, std::move(copy),
-      [Self = actor_id(this), data = std::move(data), manager = manager_, cache = cache_,
-       cache_key = cache_key_](td::Result<td::Ref<ExtMessage>> res) mutable {
-        if (res.is_error()) {
-          // Don't cache errors
-          td::actor::send_closure(cache, &LiteServerCache::drop_send_message_from_cache, cache_key);
-          td::actor::send_closure(Self, &LiteQuery::abort_query,
-                                  res.move_as_error_prefix("cannot apply external message to current state : "s));
-        } else {
-          LOG(INFO) << "sending an external message to validator manager";
-          td::actor::send_closure_later(manager, &ValidatorManager::send_external_message, res.move_as_ok());
-          auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_sendMsgStatus>(1);
-          td::actor::send_closure(Self, &LiteQuery::finish_query, std::move(b), false);
-        }
-      });
+  td::actor::send_closure(
+      manager_, &ValidatorManager::new_external_message_query, std::move(data),
+      td::PromiseCreator::lambda(
+          [Self = actor_id(this), cache = cache_, cache_key = cache_key_](td::Result<td::Unit> res) mutable {
+            if (res.is_error()) {
+              // Don't cache errors
+              td::actor::send_closure(cache, &LiteServerCache::drop_send_message_from_cache, cache_key);
+              td::actor::send_closure(Self, &LiteQuery::abort_query,
+                                      res.move_as_error_prefix("cannot apply external message to current state : "s));
+            } else {
+              auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_sendMsgStatus>(1);
+              td::actor::send_closure(Self, &LiteQuery::finish_query, std::move(b), false);
+            }
+          }));
 }
 
 void LiteQuery::get_block_handle_checked(BlockIdExt blkid, td::Promise<ConstBlockHandle> promise) {

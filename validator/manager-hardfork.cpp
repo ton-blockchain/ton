@@ -152,11 +152,10 @@ void ValidatorManagerImpl::get_key_block_proof_link(BlockIdExt block_id, td::Pro
   td::actor::send_closure(db_, &Db::get_key_block_proof_link, block_id, std::move(P));
 }
 
-void ValidatorManagerImpl::new_external_message(td::BufferSlice data, int priority) {
-  auto R = create_ext_message(std::move(data), block::SizeLimitsConfig::ExtMsgLimits());
-  if (R.is_ok()) {
-    ext_messages_.emplace_back(R.move_as_ok());
-  }
+td::actor::Task<> ValidatorManagerImpl::new_external_message_broadcast(td::BufferSlice data, int priority) {
+  auto msg = co_await create_ext_message(std::move(data), block::SizeLimitsConfig::ExtMsgLimits());
+  ext_messages_.emplace_back(std::move(msg));
+  co_return td::Unit{};
 }
 
 void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
