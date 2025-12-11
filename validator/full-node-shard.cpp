@@ -16,8 +16,6 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include <memory>
-
 #include "adnl/utils.hpp"
 #include "auto/tl/ton_api.h"
 #include "auto/tl/ton_api_json.h"
@@ -34,7 +32,6 @@
 #include "td/utils/Random.h"
 #include "td/utils/SharedSlice.h"
 #include "td/utils/buffer.h"
-#include "td/utils/check.h"
 #include "td/utils/overloaded.h"
 #include "tl/tl_json.h"
 #include "ton/ton-shard.h"
@@ -854,6 +851,11 @@ void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonN
     LOG(DEBUG) << "Failed to deserialize block broadcast: " << B.move_as_error();
     return;
   }
+  //if (!shard_is_ancestor(shard_, block_id.shard_full())) {
+  //  LOG(FULL_NODE_WARNING) << "dropping block broadcast: shard mismatch. overlay=" << shard_.to_str()
+  //                         << " block=" << block_id.to_str();
+  //  return;
+  //}
   VLOG(FULL_NODE_DEBUG) << "Received block broadcast from " << src << ": " << B.ok().block_id.to_str();
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok());
 }

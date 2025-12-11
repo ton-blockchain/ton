@@ -264,8 +264,8 @@ void DownloadBlockNew::got_data(td::BufferSlice data) {
     return;
   }
 
-  // Call got_state_for_block_full with null state
-  got_ready_to_deserialize(std::move(f), td::Ref<ShardState>());
+  // Call got_state_for_block_full without state
+  got_ready_to_deserialize(std::move(f));
 }
 
 void DownloadBlockNew::got_ready_to_deserialize(tl_object_ptr<ton_api::tonNode_DataFull> data_full,
