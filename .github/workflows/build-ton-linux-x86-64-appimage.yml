@@ -24,11 +24,11 @@ jobs:
         sudo apt install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev ccache libgsl-dev libblas-dev libgslcblas0       
         mkdir ~/.ccache 3pp
 
-    - name: Install clang-16
+    - name: Install clang-21
       run: |
         wget https://apt.llvm.org/llvm.sh
         chmod +x llvm.sh
-        sudo ./llvm.sh 16 clang
+        sudo ./llvm.sh 21 clang
 
     - name: Cache 3pp
       id: cache-3pp
