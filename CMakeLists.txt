@@ -186,6 +186,14 @@ if (USE_LIBRAPTORQ)
   add_subdirectory(third-party/libraptorq EXCLUDE_FROM_ALL)
 endif()
 
+option(USE_QUIC "use ngtcp2 QUIC library" OFF)
+if (USE_QUIC)
+  find_package(OpenSSL 3.2 REQUIRED COMPONENTS SSL Crypto)
+  message("Add ngtcp2")
+  add_subdirectory(third-party/ngtcp2 EXCLUDE_FROM_ALL)
+  set(NGTCP2_ROOT ${CMAKE_SOURCE_DIR}/third-party/ngtcp2)
+endif ()
+
 message("Add tl-parser")
 add_subdirectory(third-party/tl-parser EXCLUDE_FROM_ALL)
 
@@ -463,6 +471,10 @@ add_subdirectory(utils)
 add_subdirectory(rldp-http-proxy)
 endif()
 #END internal
+
+if (USE_QUIC)
+  add_subdirectory(quic)
+endif ()
 
 if (NOT CMAKE_CROSSCOMPILING)
   if (TDUTILS_MIME_TYPE)
