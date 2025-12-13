@@ -3528,7 +3528,7 @@ td::Result<std::unique_ptr<block::transaction::Transaction>> Collator::impl_crea
     if (!trans->compute_phase->accepted) {
       if (external) {
         // inbound external message was not accepted
-        auto const& cp = *trans->compute_phase;
+        const auto& cp = *trans->compute_phase;
         return td::Status::Error(
             -701, PSLICE() << "inbound external message rejected by transaction " << acc->addr.to_hex() << ":\n"
                            << "exitcode=" << cp.exit_code << ", steps=" << cp.vm_steps << ", gas_used=" << cp.gas_used

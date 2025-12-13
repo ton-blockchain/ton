@@ -18,4 +18,5 @@ IncludeCategories:
     Priority:        0
 InsertNewlineAtEOF: true
 ReflowComments: Never
+QualifierAlignment: Left
 ...
