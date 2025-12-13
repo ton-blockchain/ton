@@ -907,7 +907,6 @@ decltype(FullNodeImpl::limiter_) FullNodeImpl::make_limiter(const FullNodeOption
       RateLimit{w_size, g_limit},
       std::map<int32_t, RateLimit>{{ton_api::tonNode_getArchiveSlice::ID, {w_size, h_limit}},
                                    {ton_api::tonNode_downloadPersistentStateSliceV2::ID, {w_size, h_limit}},
-                                   {ton_api::tonNode_downloadPersistentStateSlice::ID, {w_size, h_limit}},
                                    {ton_api::tonNode_downloadZeroState::ID, {w_size, h_limit}},
 
                                    {ton_api::tonNode_downloadBlock::ID, {w_size, m_limit}},
