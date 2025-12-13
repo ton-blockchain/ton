@@ -16,5 +16,6 @@ IncludeCategories:
     Priority:        -1
   - Regex:           '^\"[^/]*\"$'
     Priority:        0
+InsertNewlineAtEOF: true
 ReflowComments: Never
 ...
