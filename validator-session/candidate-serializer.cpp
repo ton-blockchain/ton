@@ -45,8 +45,7 @@ td::Result<td::BufferSlice> serialize_candidate(const tl_object_ptr<ton_api::val
 
 td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candidate(td::Slice data,
                                                                                      bool compression_enabled,
-                                                                                     int max_decompressed_data_size,
-                                                                                     int proto_version) {
+                                                                                     int max_decompressed_data_size) {
   if (!compression_enabled) {
     auto t_decompression_start = td::Time::now();
     TRY_RESULT(res, fetch_tl_object<ton_api::validatorSession_candidate>(data, true));
@@ -68,7 +67,7 @@ td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candi
                     return td::Status::Error("decompressed size is too big");
                   }
                   TRY_RESULT(p, decompress_candidate_data(c.data_, false, c.decompressed_size_,
-                                                          max_decompressed_data_size, proto_version, c.root_hash_));
+                                                          max_decompressed_data_size, c.root_hash_));
                   return create_tl_object<ton_api::validatorSession_candidate>(c.src_, c.round_, c.root_hash_,
                                                                                std::move(p.first), std::move(p.second));
                 }();
@@ -78,8 +77,7 @@ td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candi
                   if (c.data_.size() > max_decompressed_data_size) {
                     return td::Status::Error("Compressed data is too big");
                   }
-                  TRY_RESULT(p, decompress_candidate_data(c.data_, true, 0, max_decompressed_data_size, proto_version,
-                                                          c.root_hash_));
+                  TRY_RESULT(p, decompress_candidate_data(c.data_, true, 0, max_decompressed_data_size, c.root_hash_));
                   return create_tl_object<ton_api::validatorSession_candidate>(c.src_, c.round_, c.root_hash_,
                                                                                std::move(p.first), std::move(p.second));
                 }();
@@ -110,9 +108,11 @@ td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice c
   return compressed;
 }
 
-td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_data(
-    td::Slice compressed, bool improved_compression, int decompressed_size, int max_decompressed_size,
-    int proto_version, td::Bits256 root_hash) {
+td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_data(td::Slice compressed,
+                                                                                  bool improved_compression,
+                                                                                  int decompressed_size,
+                                                                                  int max_decompressed_size,
+                                                                                  td::Bits256 root_hash) {
   std::vector<td::Ref<vm::Cell>> roots;
   auto t_decompression_start = td::Time::now();
   if (!improved_compression) {
@@ -135,8 +135,7 @@ td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_dat
   }
   TRY_RESULT(block_data, vm::std_boc_serialize(roots[0], 31));
   roots.erase(roots.begin());
-  int collated_data_mode = proto_version >= 5 ? 2 : 31;
-  TRY_RESULT(collated_data, vm::std_boc_serialize_multi(std::move(roots), collated_data_mode));
+  TRY_RESULT(collated_data, vm::std_boc_serialize_multi(std::move(roots), 2));
   LOG(DEBUG) << "Decompressing block candidate " << (improved_compression ? "V2:" : ":") << compressed.size() << " -> "
              << block_data.size() + collated_data.size();
   return std::make_pair(std::move(block_data), std::move(collated_data));
