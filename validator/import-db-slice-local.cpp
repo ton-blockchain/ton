@@ -64,7 +64,8 @@ td::actor::Task<td::Unit> ArchiveImporterLocal::run() {
     }
   }
   LOG(WARNING) << "Imported archive in " << perf_timer_.elapsed() << "s : mc_seqno=" << final_masterchain_state_seqno_
-               << " shard_seqno=" << final_shard_client_seqno_;
+               << " shard_seqno=" << final_shard_client_seqno_ << " total_blocks=" << total_imported_blocks_
+               << " total_size=" << td::format::as_size(total_imported_size_);
   promise_.set_value({final_masterchain_state_seqno_,
                       std::min<BlockSeqno>(final_masterchain_state_seqno_, final_shard_client_seqno_)});
   stop();
@@ -150,12 +151,13 @@ td::Status ArchiveImporterLocal::process_package(std::string path) {
         S = td::Status::Error(ErrorCode::protoviolation, "bad block file hash");
         return false;
       }
-      auto R = create_block(block_id, std::move(data));
+      auto R = create_block(block_id, data.clone());
       if (R.is_error()) {
         S = R.move_as_error();
         return false;
       }
       blocks_[block_id].block = R.move_as_ok();
+      blocks_[block_id].data_size = data.size();
     }
     if (block_id.is_masterchain()) {
       masterchain_blocks_[block_id.seqno()] = block_id;
@@ -464,6 +466,8 @@ td::actor::Task<td::Unit> ArchiveImporterLocal::apply_blocks() {
       co_await std::move(task);
       imported_any_ = true;
       final_masterchain_state_seqno_ = block_id.seqno();
+      ++total_imported_blocks_;
+      total_imported_size_ += it->second.data_size;
     }
     for (const auto &[block_id, mc_block_id] : blocks_to_apply_shards_) {
       auto it = blocks_.find(block_id);
@@ -474,6 +478,8 @@ td::actor::Task<td::Unit> ArchiveImporterLocal::apply_blocks() {
       run_apply_block_query(block_id, block, mc_block_id, manager_, td::Timestamp::in(600.0), std::move(promise));
       co_await std::move(task);
       imported_any_ = true;
+      ++total_imported_blocks_;
+      total_imported_size_ += it->second.data_size;
     }
   }
   final_shard_client_seqno_ = new_shard_client_seqno_;
@@ -505,6 +511,10 @@ td::actor::Task<td::Unit> ArchiveImporterLocal::apply_blocks_async(
     tasks_4.push_back(apply_block_async_4(handle).start());
   }
   co_await td::actor::all(std::move(tasks_4));
+  for (const auto &[block_id, _] : blocks) {
+    ++total_imported_blocks_;
+    total_imported_size_ += blocks_[block_id].data_size;
+  }
 
   co_return td::Unit{};
 }

@@ -75,6 +75,7 @@ class ArchiveImporterLocal : public td::actor::Actor {
     td::Ref<BlockData> block;
     td::Ref<Proof> proof;
     td::Ref<ProofLink> proof_link;
+    size_t data_size = 0;
     bool import = false;
   };
   std::map<BlockIdExt, BlockInfo> blocks_;
@@ -90,6 +91,8 @@ class ArchiveImporterLocal : public td::actor::Actor {
   std::map<BlockSeqno, std::pair<BlockIdExt, std::vector<BlockIdExt>>> shard_configs_;
 
   bool imported_any_ = false;
+  size_t total_imported_blocks_ = 0;
+  td::uint64 total_imported_size_ = 0;
 
   td::PerfWarningTimer perf_timer_;
 };
