@@ -391,7 +391,7 @@ void AsyncStateSerializer::PreviousStateCache::prepare_cache(ShardIdFull shard, 
   cache = std::make_shared<vm::CellHashSet>(std::move(cells));
 }
 
-void AsyncStateSerializer::PreviousStateCache::add_new_cells(vm::CellDbReader& reader, Ref<vm::Cell> const& cell) {
+void AsyncStateSerializer::PreviousStateCache::add_new_cells(vm::CellDbReader& reader, const Ref<vm::Cell>& cell) {
   if (!cell->is_loaded()) {
     return;
   }
