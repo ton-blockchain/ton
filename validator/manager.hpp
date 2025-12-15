@@ -26,7 +26,6 @@
 #include "collator-node/collator-node.hpp"
 #include "common/refcnt.hpp"
 #include "db/db-event-publisher.hpp"
-#include "impl/candidates-buffer.hpp"
 #include "impl/ext-message-pool.hpp"
 #include "interfaces/db.h"
 #include "interfaces/validator-manager.h"
