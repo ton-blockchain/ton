@@ -170,6 +170,8 @@ class FullNodeShardImpl : public FullNodeShard {
 
   void receive_broadcast(PublicKeyHash src, td::BufferSlice query);
   void check_broadcast(PublicKeyHash src, td::BufferSlice query, td::Promise<td::Unit> promise);
+  void process_external_message_broadcast(ton_api::tonNode_externalMessageBroadcast &message,
+                                          td::Promise<td::Unit> promise);
   void get_stats_extra(td::Promise<std::string> promise);
   void remove_neighbour(adnl::AdnlNodeIdShort id);
 
