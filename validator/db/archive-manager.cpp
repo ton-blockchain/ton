@@ -362,11 +362,11 @@ namespace {
 FileReferenceShort create_persistent_state_id(BlockIdExt block_id, BlockIdExt mc_block_id, PersistentStateType type) {
   FileReferenceShort result;
   type.visit(td::overloaded(
-      [&](UnsplitStateType const &) { result = fileref::PersistentStateShort::create(block_id, mc_block_id); },
-      [&](SplitAccountStateType const &account_state) {
+      [&](const UnsplitStateType &) { result = fileref::PersistentStateShort::create(block_id, mc_block_id); },
+      [&](const SplitAccountStateType &account_state) {
         result = fileref::SplitAccountState::create(block_id, mc_block_id, account_state.effective_shard_id);
       },
-      [&](SplitPersistentStateType const &persistent_state) {
+      [&](const SplitPersistentStateType &persistent_state) {
         result = fileref::SplitPersistentState::create(block_id, mc_block_id);
       }));
   return result;
@@ -400,7 +400,7 @@ void ArchiveManager::add_persistent_state_gen(BlockIdExt block_id, BlockIdExt ma
 }
 
 void ArchiveManager::add_persistent_state_impl(
-    FileReferenceShort const &id, td::Promise<td::Unit> promise,
+    const FileReferenceShort &id, td::Promise<td::Unit> promise,
     std::function<void(std::string, td::Promise<std::string>)> create_writer) {
   if (perm_states_.find({id.seqno_of_persistent_state(), id.hash()}) != perm_states_.end()) {
     promise.set_value(td::Unit());

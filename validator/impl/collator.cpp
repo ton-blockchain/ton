@@ -3528,7 +3528,7 @@ td::Result<std::unique_ptr<block::transaction::Transaction>> Collator::impl_crea
     if (!trans->compute_phase->accepted) {
       if (external) {
         // inbound external message was not accepted
-        auto const& cp = *trans->compute_phase;
+        const auto& cp = *trans->compute_phase;
         return td::Status::Error(
             -701, PSLICE() << "inbound external message rejected by transaction " << acc->addr.to_hex() << ":\n"
                            << "exitcode=" << cp.exit_code << ", steps=" << cp.vm_steps << ", gas_used=" << cp.gas_used
@@ -6411,8 +6411,7 @@ bool Collator::create_block_candidate() {
     if (res.is_error()) {
       return fatal_error(res.move_as_error());
     }
-    int cdata_serialize_mode = consensus_config.proto_version >= 5 ? 2 : 31;
-    auto cdata_res = boc_collated.serialize_to_slice(cdata_serialize_mode);
+    auto cdata_res = boc_collated.serialize_to_slice(2);
     if (cdata_res.is_error()) {
       LOG(ERROR) << "cannot serialize collated data";
       return fatal_error(cdata_res.move_as_error());

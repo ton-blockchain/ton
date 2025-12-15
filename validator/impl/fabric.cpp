@@ -119,11 +119,6 @@ td::Result<td::Ref<ExtMessage>> create_ext_message(td::BufferSlice data, block::
   return std::move(res);
 }
 
-void run_check_external_message(Ref<ExtMessage> message, td::actor::ActorId<ValidatorManager> manager,
-                                td::Promise<td::Ref<ExtMessage>> promise) {
-  ExtMessageQ::run_message(std::move(message), std::move(manager), std::move(promise));
-}
-
 td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data) {
   TRY_RESULT(res, IhrMessageQ::create_ihr_message(std::move(data)));
   return std::move(res);
@@ -131,11 +126,11 @@ td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data) {
 
 void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                             td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
-                            td::Ref<BlockSignatureSet> approve_signatures, int send_broadcast_mode, bool apply,
-                            td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise) {
-  td::actor::create_actor<AcceptBlockQuery>(
-      PSTRING() << "accept" << id.id.to_str(), id, std::move(data), prev, std::move(validator_set),
-      std::move(signatures), std::move(approve_signatures), send_broadcast_mode, apply, manager, std::move(promise))
+                            int send_broadcast_mode, bool apply, td::actor::ActorId<ValidatorManager> manager,
+                            td::Promise<td::Unit> promise) {
+  td::actor::create_actor<AcceptBlockQuery>(PSTRING() << "accept" << id.id.to_str(), id, std::move(data), prev,
+                                            std::move(validator_set), std::move(signatures), send_broadcast_mode, apply,
+                                            manager, std::move(promise))
       .release();
 }
 
@@ -235,6 +230,14 @@ void run_fetch_account_state(
     td::Promise<std::tuple<td::Ref<vm::CellSlice>, UnixTime, LogicalTime, std::unique_ptr<block::ConfigInfo>>>
         promise) {
   LiteQuery::fetch_account_state(wc, addr, std::move(manager), std::move(promise));
+}
+
+td::actor::Task<std::tuple<td::Ref<vm::CellSlice>, UnixTime, LogicalTime, std::unique_ptr<block::ConfigInfo>>>
+run_fetch_account_state(WorkchainId wc, StdSmcAddress addr, td::actor::ActorId<ValidatorManager> manager) {
+  auto [task, promise] = td::actor::StartedTask<
+      std::tuple<td::Ref<vm::CellSlice>, UnixTime, LogicalTime, std::unique_ptr<block::ConfigInfo>>>::make_bridge();
+  run_fetch_account_state(wc, addr, std::move(manager), std::move(promise));
+  co_return co_await std::move(task);
 }
 
 void run_validate_shard_block_description(td::BufferSlice data, BlockHandle masterchain_block,

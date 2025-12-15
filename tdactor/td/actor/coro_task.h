@@ -288,11 +288,11 @@ struct promise_type : promise_value<td::Result<T>> {
   }
 };
 
-template <class T>
+template <class T = Unit>
 struct [[nodiscard]] Task {
   using value_type = T;
 
-  using promise_type = promise_type<T>;
+  using promise_type = td::actor::promise_type<T>;
   using Handle = std::coroutine_handle<promise_type>;
   Handle h{};
 
@@ -360,11 +360,11 @@ struct [[nodiscard]] Task {
   }
 };
 
-template <class T>
+template <class T = Unit>
 struct [[nodiscard]] StartedTask {
   using value_type = T;
 
-  using promise_type = promise_type<T>;
+  using promise_type = td::actor::promise_type<T>;
   using Handle = std::coroutine_handle<promise_type>;
   Handle h{};
 

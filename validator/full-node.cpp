@@ -282,8 +282,9 @@ void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std
 void FullNodeImpl::update_shard_actor(ShardIdFull shard, bool active) {
   ShardInfo &info = shards_[shard];
   if (info.actor.empty()) {
-    info.actor = FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, opts_, keyring_, adnl_, rldp_,
-                                       rldp2_, overlays_, validator_manager_, client_, actor_id(this), active);
+    info.actor =
+        FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, opts_, limiter_, keyring_, adnl_,
+                              rldp_, rldp2_, overlays_, validator_manager_, client_, actor_id(this), active);
     if (!all_validators_.empty()) {
       td::actor::send_closure(info.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
     }
@@ -849,7 +850,8 @@ FullNodeImpl::FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id
     , client_(client)
     , db_root_(db_root)
     , started_promise_(std::move(started_promise))
-    , opts_(opts) {
+    , opts_(opts)
+    , limiter_(make_limiter(opts)) {
 }
 
 td::actor::ActorOwn<FullNode> FullNode::create(
@@ -869,12 +871,6 @@ FullNodeConfig::FullNodeConfig(const tl_object_ptr<ton_api::engine_validator_ful
 
 tl_object_ptr<ton_api::engine_validator_fullNodeConfig> FullNodeConfig::tl() const {
   return create_tl_object<ton_api::engine_validator_fullNodeConfig>(ext_messages_broadcast_disabled_);
-}
-bool FullNodeConfig::operator==(const FullNodeConfig &rhs) const {
-  return ext_messages_broadcast_disabled_ == rhs.ext_messages_broadcast_disabled_;
-}
-bool FullNodeConfig::operator!=(const FullNodeConfig &rhs) const {
-  return !(*this == rhs);
 }
 
 bool CustomOverlayParams::send_shard(const ShardIdFull &shard) const {
@@ -900,6 +896,27 @@ CustomOverlayParams CustomOverlayParams::fetch(const ton_api::engine_validator_c
   }
   c.skip_public_msg_send_ = f.skip_public_msg_send_;
   return c;
+}
+
+decltype(FullNodeImpl::limiter_) FullNodeImpl::make_limiter(const FullNodeOptions &opts) {
+  double w_size = opts.ratelimit_window_size_;
+  size_t h_limit = opts.ratelimit_heavy_;
+  size_t m_limit = opts.ratelimit_medium_;
+  size_t g_limit = opts.ratelimit_global_;
+  return std::make_shared<RateLimiter<>>(
+      RateLimit{w_size, g_limit},
+      std::map<int32_t, RateLimit>{{ton_api::tonNode_getArchiveSlice::ID, {w_size, h_limit}},
+                                   {ton_api::tonNode_downloadPersistentStateSliceV2::ID, {w_size, h_limit}},
+                                   {ton_api::tonNode_downloadZeroState::ID, {w_size, h_limit}},
+
+                                   {ton_api::tonNode_downloadBlock::ID, {w_size, m_limit}},
+                                   {ton_api::tonNode_downloadBlockFull::ID, {w_size, m_limit}},
+                                   {ton_api::tonNode_downloadNextBlockFull::ID, {w_size, m_limit}},
+                                   {ton_api::tonNode_downloadBlockProof::ID, {w_size, m_limit}},
+                                   {ton_api::tonNode_downloadBlockProofLink::ID, {w_size, m_limit}},
+                                   {ton_api::tonNode_downloadKeyBlockProof::ID, {w_size, m_limit}},
+                                   {ton_api::tonNode_downloadKeyBlockProofLink::ID, {w_size, m_limit}},
+                                   {ton_api::tonNode_getOutMsgQueueProof::ID, {w_size, m_limit}}});
 }
 
 }  // namespace fullnode

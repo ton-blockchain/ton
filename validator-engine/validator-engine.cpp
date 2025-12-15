@@ -2232,11 +2232,8 @@ void ValidatorEngine::start_full_node() {
       R.ensure();
       td::actor::send_closure(SelfId, &ValidatorEngine::started_full_node);
     });
-    ton::validator::fullnode::FullNodeOptions full_node_options{
-        .config_ = config_.full_node_config,
-        .public_broadcast_speed_multiplier_ = broadcast_speed_multiplier_public_,
-        .private_broadcast_speed_multiplier_ = broadcast_speed_multiplier_private_,
-        .initial_sync_delay_ = initial_sync_delay_};
+    ton::validator::fullnode::FullNodeOptions full_node_options = full_node_options_;
+    full_node_options.config_ = config_.full_node_config;
     full_node_ = ton::validator::fullnode::FullNode::create(
         short_id, full_node_id_, validator_options_->zero_block_id().file_hash, full_node_options, keyring_.get(),
         adnl_.get(), rldp_.get(), rldp2_.get(),
@@ -5282,11 +5279,8 @@ int main(int argc, char *argv[]) {
                          acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_state_ttl, v); });
                          return td::Status::OK();
                        });
-  p.add_checked_option('m', "mempool-num", "Maximal number of mempool external message", [&](td::Slice fname) {
-    auto v = td::to_double(fname);
-    if (v < 0) {
-      return td::Status::Error("mempool-num should be non-negative");
-    }
+  p.add_checked_option('m', "mempool-num", "Maximal number of mempool external message", [&](td::Slice s) {
+    TRY_RESULT(v, td::to_integer_safe<size_t>(s));
     acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_max_mempool_num, v); });
     return td::Status::OK();
   });
@@ -5555,6 +5549,37 @@ int main(int argc, char *argv[]) {
           return td::Status::Error("initial-sync-delay should be non-negative");
         }
         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_initial_sync_delay, v); });
+        return td::Status::OK();
+      });
+  p.add_checked_option(
+      0, "fullnode-ratelimit-window-size", "ratelimit tracking window size (in seconds)",
+      [&](td::Slice s) -> td::Status {
+        auto v = td::to_double(s);
+        if (v < 0) {
+          return td::Status::Error("ratelimit-window-size should be non-negative");
+        }
+        acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_ratelimit_window_size, v); });
+        return td::Status::OK();
+      });
+  p.add_checked_option(
+      0, "fullnode-ratelimit-global", "ratelimit for all kind of requests (in counts per window)",
+      [&](td::Slice s) -> td::Status {
+        TRY_RESULT(v, td::to_integer_safe<size_t>(s));
+        acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_ratelimit_global, v); });
+        return td::Status::OK();
+      });
+  p.add_checked_option(
+      0, "fullnode-ratelimit-heavy", "ratelimit for heavy requests (in counts per window)",
+      [&](td::Slice s) -> td::Status {
+        TRY_RESULT(v, td::to_integer_safe<size_t>(s));
+        acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_ratelimit_heavy, v); });
+        return td::Status::OK();
+      });
+  p.add_checked_option(
+      0, "fullnode-ratelimit-medium", "ratelimit for medium requests (in counts per window)",
+      [&](td::Slice s) -> td::Status {
+        TRY_RESULT(v, td::to_integer_safe<size_t>(s));
+        acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_ratelimit_medium, v); });
         return td::Status::OK();
       });
   p.add_checked_option(

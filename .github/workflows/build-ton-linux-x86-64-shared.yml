@@ -78,3 +78,7 @@ jobs:
           echo $script
           uv run $script
         done
+
+    - name: Run tonlib integration test
+      run: |
+        ./test/tonlib/integration/test_integration.sh

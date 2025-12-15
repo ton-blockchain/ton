@@ -224,7 +224,7 @@ class ValidatorEngine : public td::actor::Actor {
   std::map<CI_key, td::uint32> control_permissions_;
 
   double state_ttl_ = 0;
-  double max_mempool_num_ = 0;
+  size_t max_mempool_num_ = 0;
   double block_ttl_ = 0;
   double sync_ttl_ = 0;
   double archive_ttl_ = 0;
@@ -251,15 +251,20 @@ class ValidatorEngine : public td::actor::Actor {
   std::vector<ton::ShardIdFull> add_shard_cmds_;
   bool state_serializer_disabled_flag_ = false;
   double broadcast_speed_multiplier_catchain_ = 3.33;
-  double broadcast_speed_multiplier_public_ = 3.33;
-  double broadcast_speed_multiplier_private_ = 3.33;
   bool permanent_celldb_ = false;
   bool skip_key_sync_ = false;
   td::optional<ton::BlockSeqno> sync_shards_upto_;
   ton::adnl::AdnlNodeIdShort shard_block_retainer_adnl_id_ = ton::adnl::AdnlNodeIdShort::zero();
   bool shard_block_retainer_adnl_id_fullnode_ = false;
   bool parallel_validation_ = false;
-  double initial_sync_delay_ = 60.0;
+  ton::validator::fullnode::FullNodeOptions full_node_options_ = {.config_ = {},
+                                                                  .public_broadcast_speed_multiplier_ = 3.33,
+                                                                  .private_broadcast_speed_multiplier_ = 3.33,
+                                                                  .initial_sync_delay_ = 60.0,
+                                                                  .ratelimit_window_size_ = 0,
+                                                                  .ratelimit_global_ = 0,
+                                                                  .ratelimit_heavy_ = 0,
+                                                                  .ratelimit_medium_ = 0};
 
   std::set<ton::CatchainSeqno> unsafe_catchains_;
   std::map<ton::BlockSeqno, std::pair<ton::CatchainSeqno, td::uint32>> unsafe_catchain_rotations_;
@@ -284,7 +289,7 @@ class ValidatorEngine : public td::actor::Actor {
   void set_state_ttl(double t) {
     state_ttl_ = t;
   }
-  void set_max_mempool_num(double t) {
+  void set_max_mempool_num(size_t t) {
     max_mempool_num_ = t;
   }
   void set_block_ttl(double t) {
@@ -367,10 +372,10 @@ class ValidatorEngine : public td::actor::Actor {
     broadcast_speed_multiplier_catchain_ = value;
   }
   void set_broadcast_speed_multiplier_public(double value) {
-    broadcast_speed_multiplier_public_ = value;
+    full_node_options_.public_broadcast_speed_multiplier_ = value;
   }
   void set_broadcast_speed_multiplier_private(double value) {
-    broadcast_speed_multiplier_private_ = value;
+    full_node_options_.private_broadcast_speed_multiplier_ = value;
   }
   void set_permanent_celldb(bool value) {
     permanent_celldb_ = value;
@@ -391,7 +396,19 @@ class ValidatorEngine : public td::actor::Actor {
     parallel_validation_ = value;
   }
   void set_initial_sync_delay(double value) {
-    initial_sync_delay_ = value;
+    full_node_options_.initial_sync_delay_ = value;
+  }
+  void set_ratelimit_window_size(double seconds) {
+    full_node_options_.ratelimit_window_size_ = seconds;
+  }
+  void set_ratelimit_global(size_t count) {
+    full_node_options_.ratelimit_global_ = count;
+  }
+  void set_ratelimit_heavy(size_t count) {
+    full_node_options_.ratelimit_heavy_ = count;
+  }
+  void set_ratelimit_medium(size_t count) {
+    full_node_options_.ratelimit_medium_ = count;
   }
 
   void start_up() override;

@@ -22,13 +22,41 @@
 namespace td {
 namespace actor {
 namespace core {
+
+namespace gdb {
+
+#ifdef TON_INSERT_GDB_HOOKS
+[[gnu::noinline]] void hook_message_delayed(ActorMailbox& mailbox, ActorMessage& message, auto&& continuation) {
+  asm volatile("" : : "r"(&message) : "memory");
+  asm volatile("" : : "r"(&mailbox) : "memory");
+  continuation();
+}
+
+[[gnu::noinline]] void hook_message_run(ActorMailbox& mailbox, ActorMessage& message, auto&& continuation) {
+  asm volatile("" : : "r"(&message) : "memory");
+  asm volatile("" : : "r"(&mailbox) : "memory");
+  continuation();
+}
+#else
+void hook_message_delayed(ActorMailbox&, ActorMessage&, auto&& continuation) {
+  continuation();
+}
+
+void hook_message_run(ActorMailbox&, ActorMessage&, auto&& continuation) {
+  continuation();
+}
+#endif
+
+}  // namespace gdb
+
 void ActorExecutor::send_immediate(ActorMessage message) {
   CHECK(can_send_immediate());
   if (is_closed()) {
     return;
   }
   if (message.is_big()) {
-    actor_info_.mailbox().reader().delay(std::move(message));
+    gdb::hook_message_delayed(actor_info_.mailbox(), message,
+                              [&]() { actor_info_.mailbox().reader().delay(std::move(message)); });
     pending_signals_.add_signal(ActorSignals::Message);
     actor_execute_context_.set_pause();
     return;
@@ -192,7 +220,7 @@ void ActorExecutor::finish() noexcept {
   //LOG(ERROR) << "DO FINISH " << actor_info_.get_name() << " " << flags();
 }
 
-bool ActorExecutor::flush_one_signal(ActorSignals &signals) {
+bool ActorExecutor::flush_one_signal(ActorSignals& signals) {
   auto signal = signals.first_signal();
   if (!signal) {
     return false;
@@ -260,7 +288,7 @@ bool ActorExecutor::flush_one_message() {
 
   actor_execute_context_.set_link_token(message.get_link_token());
   auto message_timer = actor_stats_.create_message_timer();
-  message.run();
+  gdb::hook_message_run(actor_info_.mailbox(), message, [&] { message.run(); });
   return true;
 }
 

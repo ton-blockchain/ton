@@ -27,6 +27,12 @@
 
 namespace ton::validator::fullnode {
 
+namespace {
+
+constexpr const char *k_called_from_fast_sync = "fast-sync";
+
+}  // namespace
+
 void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query) {
   process_block_broadcast(src, query);
 }
@@ -40,7 +46,7 @@ void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonN
 }
 
 void FullNodeFastSyncOverlay::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
-  auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size());
+  auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), k_called_from_fast_sync);
   if (B.is_error()) {
     LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
     return;
@@ -109,7 +115,7 @@ void FullNodeFastSyncOverlay::process_block_candidate_broadcast(PublicKeyHash sr
   td::uint32 validator_set_hash;
   td::BufferSlice data;
   auto S = deserialize_block_candidate_broadcast(query, block_id, cc_seqno, validator_set_hash, data,
-                                                 overlay::Overlays::max_fec_broadcast_size());
+                                                 overlay::Overlays::max_fec_broadcast_size(), k_called_from_fast_sync);
   if (S.is_error()) {
     LOG(DEBUG) << "dropped broadcast: " << S;
     return;
@@ -191,7 +197,7 @@ void FullNodeFastSyncOverlay::send_broadcast(BlockBroadcast broadcast) {
   }
   VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in fast sync overlay (with compression): "
                         << broadcast.block_id.to_str();
-  auto B = serialize_block_broadcast(broadcast, true);  // compression_enabled = true
+  auto B = serialize_block_broadcast(broadcast, true, k_called_from_fast_sync);  // compression_enabled = true
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
     return;
@@ -205,8 +211,8 @@ void FullNodeFastSyncOverlay::send_block_candidate(BlockIdExt block_id, Catchain
   if (!inited_) {
     return;
   }
-  auto B =
-      serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true);  // compression enabled
+  auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true,
+                                               k_called_from_fast_sync);  // compression enabled
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
     return;
