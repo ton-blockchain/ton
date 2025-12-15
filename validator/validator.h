@@ -36,6 +36,7 @@
 #include "overlay/overlays.h"
 #include "td/actor/actor.h"
 #include "td/actor/coro_task.h"
+#include "td/actor/coro_utils.h"
 #include "ton/ton-types.h"
 
 namespace ton {
@@ -112,7 +113,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual double sync_blocks_before() const = 0;
   virtual double block_ttl() const = 0;
   virtual double state_ttl() const = 0;
-  virtual double max_mempool_num() const = 0;
+  virtual size_t max_mempool_num() const = 0;
   virtual double archive_ttl() const = 0;
   virtual double key_proof_ttl() const = 0;
   virtual bool initial_sync_disabled() const = 0;
@@ -160,7 +161,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_sync_blocks_before(double value) = 0;
   virtual void set_block_ttl(double value) = 0;
   virtual void set_state_ttl(double value) = 0;
-  virtual void set_max_mempool_num(double value) = 0;
+  virtual void set_max_mempool_num(size_t value) = 0;
   virtual void set_archive_ttl(double value) = 0;
   virtual void set_key_proof_ttl(double value) = 0;
   virtual void set_initial_sync_disabled(bool value) = 0;
@@ -198,7 +199,7 @@ struct ValidatorManagerOptions : public td::CntObject {
                                                  bool allow_blockchain_init = false, double sync_blocks_before = 3600,
                                                  double block_ttl = 86400, double state_ttl = 86400,
                                                  double archive_ttl = 86400 * 7, double key_proof_ttl = 86400 * 3650,
-                                                 double max_mempool_num = 999999, bool initial_sync_disabled = false);
+                                                 size_t max_mempool_num = 999999, bool initial_sync_disabled = false);
 };
 
 class ValidatorManagerInterface : public td::actor::Actor {
@@ -304,8 +305,10 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void get_next_block(BlockIdExt block_id, td::Promise<BlockHandle> promise) = 0;
   virtual void write_handle(BlockHandle handle, td::Promise<td::Unit> promise) = 0;
 
-  virtual void new_external_message(td::BufferSlice data, int priority) = 0;
-  virtual void check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) = 0;
+  virtual td::actor::Task<> new_external_message_broadcast(td::BufferSlice data, int priority) = 0;
+  virtual td::actor::Task<> new_external_message_query(td::BufferSlice data) {
+    co_return td::Status::Error("not implemented");
+  }
   virtual void new_ihr_message(td::BufferSlice data) = 0;
   virtual void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                      td::BufferSlice data) = 0;

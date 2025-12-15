@@ -5,6 +5,7 @@ set(TON_VALIDATOR_SOURCE
   collator.cpp
   config.cpp
   external-message.cpp
+  ext-message-pool.cpp
   fabric.cpp
   ihr-message.cpp
   liteserver.cpp
@@ -24,6 +25,7 @@ set(TON_VALIDATOR_SOURCE
   collator.h
   config.hpp
   external-message.hpp
+  ext-message-pool.hpp
   ihr-message.hpp
   liteserver.hpp
   liteserver-cache.hpp

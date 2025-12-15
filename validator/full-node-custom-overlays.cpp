@@ -69,8 +69,9 @@ void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNod
   }
   VLOG(FULL_NODE_DEBUG) << "Got external message in custom overlay \"" << name_ << "\" from " << src
                         << " (priority=" << it->second << ")";
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_external_message,
-                          std::move(query.message_->data_), it->second);
+  td::actor::ask(validator_manager_, &ValidatorManagerInterface::new_external_message_broadcast,
+                 std::move(query.message_->data_), it->second)
+      .detach();
 }
 
 void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query) {

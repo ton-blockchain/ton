@@ -122,34 +122,31 @@ void FullNodeShardImpl::create_overlay() {
 }
 
 void FullNodeShardImpl::check_broadcast(PublicKeyHash src, td::BufferSlice broadcast, td::Promise<td::Unit> promise) {
-  if (!active_) {
-    return promise.set_error(td::Status::Error("cannot check broadcast: shard is not active"));
+  TRY_RESULT_PROMISE(promise, message,
+                     fetch_tl_object<ton_api::tonNode_externalMessageBroadcast>(std::move(broadcast), true));
+  if (opts_.config_.ext_messages_broadcast_disabled_) {
+    promise.set_error(td::Status::Error("rebroadcasting external messages is disabled"));
+    promise = [](td::Result<td::Unit>) {};
   }
-  auto B = fetch_tl_object<ton_api::tonNode_externalMessageBroadcast>(std::move(broadcast), true);
-  if (B.is_error()) {
-    return promise.set_error(B.move_as_error_prefix("failed to parse external message broadcast: "));
-  }
+  process_external_message_broadcast(*message, std::move(promise));
+}
 
-  auto q = B.move_as_ok();
-  auto hash = td::sha256_bits256(q->message_->data_);
+void FullNodeShardImpl::process_external_message_broadcast(ton_api::tonNode_externalMessageBroadcast &message,
+                                                           td::Promise<td::Unit> promise) {
+  if (!active_) {
+    return promise.set_error(td::Status::Error("cannot process broadcast: shard is not active"));
+  }
+  auto hash = td::sha256_bits256(message.message_->data_);
   if (!processed_ext_msg_broadcasts_.insert(hash).second) {
     return promise.set_error(td::Status::Error("duplicate external message broadcast"));
   }
-  if (opts_.config_.ext_messages_broadcast_disabled_) {
-    promise.set_error(td::Status::Error("rebroadcasting external messages is disabled"));
-    promise = [manager = validator_manager_, message = q->message_->data_.clone()](td::Result<td::Unit> R) mutable {
-      if (R.is_ok()) {
-        td::actor::send_closure(manager, &ValidatorManagerInterface::new_external_message, std::move(message), 0);
-      }
-    };
-  }
-  if (my_ext_msg_broadcasts_.count(hash)) {
-    // Don't re-check messages that were sent by us
+  if (my_ext_msg_broadcasts_.contains(hash)) {
+    // Don't process messages that were sent by us
     promise.set_result(td::Unit());
     return;
   }
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::check_external_message,
-                          std::move(q->message_->data_), promise.wrap([](td::Ref<ExtMessage>) { return td::Unit(); }));
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_external_message_broadcast,
+                          std::move(message.message_->data_), 0, std::move(promise));
 }
 
 void FullNodeShardImpl::remove_neighbour(adnl::AdnlNodeIdShort id) {
@@ -527,12 +524,6 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
                           masterchain_block_id, UnsplitStateType{}, std::move(P));
 }
 
-void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getPersistentStateSize &query,
-                                      td::Promise<td::BufferSlice> promise) {
-  auto query_v2 = create_tl_object<ton_api::tonNode_getPersistentStateSizeV2>(persistent_state_id_from_v1_query(query));
-  return process_query(src, *query_v2, std::move(promise));
-}
-
 void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getNextKeyBlockIds &query,
                                       td::Promise<td::BufferSlice> promise) {
   auto cnt = static_cast<td::uint32>(query.max_size_);
@@ -580,13 +571,6 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
   auto block_id = create_block_id(query.block_);
   VLOG(FULL_NODE_DEBUG) << "Got query downloadZeroState " << block_id.to_str() << " from " << src;
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_zero_state, block_id, std::move(P));
-}
-
-void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadPersistentStateSlice &query,
-                                      td::Promise<td::BufferSlice> promise) {
-  auto query_v2 = create_tl_object<ton_api::tonNode_downloadPersistentStateSliceV2>(
-      persistent_state_id_from_v1_query(query), query.offset_, query.max_size_);
-  return process_query(src, *query_v2, std::move(promise));
 }
 
 void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getCapabilities &query,
@@ -766,8 +750,7 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_ih
 }
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query) {
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_external_message,
-                          std::move(query.message_->data_), 0);
+  process_external_message_broadcast(query, [](td::Result<td::Unit>) {});
 }
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {

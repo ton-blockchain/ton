@@ -5279,11 +5279,8 @@ int main(int argc, char *argv[]) {
                          acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_state_ttl, v); });
                          return td::Status::OK();
                        });
-  p.add_checked_option('m', "mempool-num", "Maximal number of mempool external message", [&](td::Slice fname) {
-    auto v = td::to_double(fname);
-    if (v < 0) {
-      return td::Status::Error("mempool-num should be non-negative");
-    }
+  p.add_checked_option('m', "mempool-num", "Maximal number of mempool external message", [&](td::Slice s) {
+    TRY_RESULT(v, td::to_integer_safe<size_t>(s));
     acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_max_mempool_num, v); });
     return td::Status::OK();
   });
