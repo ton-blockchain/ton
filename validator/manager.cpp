@@ -397,6 +397,9 @@ void ValidatorManagerImpl::get_key_block_proof_link(BlockIdExt block_id, td::Pro
 }
 
 td::actor::Task<> ValidatorManagerImpl::new_external_message_broadcast(td::BufferSlice data, int priority) {
+  if (!started_) {
+    co_return td::Status::Error(ErrorCode::notready, "node not synced");
+  }
   auto r_check_result =
       co_await td::actor::ask(ext_message_pool_, &ExtMessagePool::check_add_external_message, std::move(data), priority,
                               /* add_to_mempool = */ is_validator() || !collator_nodes_.empty())
