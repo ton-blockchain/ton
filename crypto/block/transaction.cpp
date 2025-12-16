@@ -2710,6 +2710,9 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
   // it must be either our source address, or empty
   if (!check_replace_src_addr(info.src)) {
     LOG(DEBUG) << "invalid source address in a proposed outbound message";
+    if(cfg.global_version >= 13) {
+      return check_skip_invalid(35);
+    }
     return 35;  // invalid source address
   }
   bool to_mc = false;
