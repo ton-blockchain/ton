@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+from tonapi import ton_api
 from tontester.install import Install
-from tontester.tl import ton_api
 
 from tl import JSONSerializable
 from tonlib import TonlibClient, TonlibError

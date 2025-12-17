@@ -2,7 +2,7 @@ import base64
 import json
 
 import pytest
-from tontester.tl.ton_api import (
+from tonapi.ton_api import (
     Adnl_packetContents,
     Catchain_config_global,
     Engine_validator_config,

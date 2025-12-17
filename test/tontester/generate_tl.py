@@ -11,7 +11,7 @@ if __name__ == "__main__":
         schemas_root / "ton_api.tl",
         schemas_root / "tonlib_api.tl",
     ]
-    out_directory = repo_root / "test/tontester/src/tontester/tl"
+    out_directory = repo_root / "test/tontester/src/tonapi"
 
     for schema in schemas:
         tl.generate(schema, out_directory)
