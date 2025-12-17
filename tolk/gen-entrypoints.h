@@ -22,7 +22,7 @@
 
 namespace tolk {
 
-void handle_onInternalMessage_codegen_start(FunctionPtr f_onInternalMessage, const std::vector<var_idx_t>& rvect_params, CodeBlob& code, SrcLocation loc);
-std::vector<var_idx_t> generate_get_requested_field_parsing_on_demand(const AuxData_OnInternalMessage_getField* aux_data, CodeBlob& code, SrcLocation loc);
+void handle_onInternalMessage_codegen_start(FunctionPtr f_onInternalMessage, const std::vector<var_idx_t>& rvect_params, CodeBlob& code, AnyV origin);
+std::vector<var_idx_t> generate_get_requested_field_parsing_on_demand(const AuxData_OnInternalMessage_getField* aux_data, CodeBlob& code, AnyV origin);
 
 } // namespace tolk

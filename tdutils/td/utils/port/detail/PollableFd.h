@@ -18,17 +18,17 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-#include "td/utils/format.h"
-#include "td/utils/List.h"
-#include "td/utils/logging.h"
-#include "td/utils/Observer.h"
-#include "td/utils/port/detail/NativeFd.h"
-#include "td/utils/port/PollFlags.h"
-#include "td/utils/SpinLock.h"
-
 #include <atomic>
 #include <memory>
+
+#include "td/utils/List.h"
+#include "td/utils/Observer.h"
+#include "td/utils/common.h"
+#include "td/utils/format.h"
+#include "td/utils/logging.h"
+#include "td/utils/port/Mutex.h"
+#include "td/utils/port/PollFlags.h"
+#include "td/utils/port/detail/NativeFd.h"
 
 namespace td {
 
@@ -72,7 +72,7 @@ inline PollableFd PollableFdRef::lock() {
   return PollableFd::from_list_node(list_node_);
 }
 
-class PollableFdInfo : private ListNode {
+class PollableFdInfo final : private ListNode {
  public:
   PollableFdInfo() = default;
   PollableFdInfo(const PollableFdInfo &) = delete;
@@ -102,7 +102,7 @@ class PollableFdInfo : private ListNode {
   void clear_flags(PollFlags flags) {
     flags_.clear_flags(flags);
   }
-  PollFlags get_flags() const {
+  PollFlags sync_with_poll() const {
     return flags_.read_flags();
   }
   PollFlags get_flags_local() const {
@@ -155,7 +155,7 @@ class PollableFdInfo : private ListNode {
 #pragma clang diagnostic pop
   PollFlagsSet flags_;
 #if TD_PORT_WINDOWS
-  SpinLock observer_lock_;
+  Mutex observer_lock_;
 #endif
   ObserverBase *observer_{nullptr};
 
@@ -166,7 +166,7 @@ class PollableFdInfo : private ListNode {
 #if TD_PORT_WINDOWS
     auto lock = observer_lock_.lock();
 #endif
-    CHECK(!observer_);
+    CHECK(observer_ == nullptr);
     observer_ = observer;
   }
   void clear_observer() {
@@ -180,7 +180,7 @@ class PollableFdInfo : private ListNode {
     auto lock = observer_lock_.lock();
 #endif
     VLOG(fd) << native_fd() << " notify " << tag("observer", observer_);
-    if (observer_) {
+    if (observer_ != nullptr) {
       observer_->notify();
     }
   }
@@ -223,18 +223,41 @@ inline const NativeFd &PollableFd::native_fd() const {
 }
 
 template <class FdT>
+void sync_with_poll(const FdT &fd) {
+  fd.get_poll_info().sync_with_poll();
+}
+
+template <class FdT>
+bool can_read_local(const FdT &fd) {
+  return fd.get_poll_info().get_flags_local().can_read() || fd.get_poll_info().get_flags_local().has_pending_error();
+}
+
+template <class FdT>
+bool can_write_local(const FdT &fd) {
+  return fd.get_poll_info().get_flags_local().can_write();
+}
+
+template <class FdT>
+bool can_close_local(const FdT &fd) {
+  return fd.get_poll_info().get_flags_local().can_close();
+}
+
+template <class FdT>
 bool can_read(const FdT &fd) {
-  return fd.get_poll_info().get_flags().can_read() || fd.get_poll_info().get_flags().has_pending_error();
+  sync_with_poll(fd);
+  return can_read_local(fd);
 }
 
 template <class FdT>
 bool can_write(const FdT &fd) {
-  return fd.get_poll_info().get_flags().can_write();
+  sync_with_poll(fd);
+  return can_write_local(fd);
 }
 
 template <class FdT>
 bool can_close(const FdT &fd) {
-  return fd.get_poll_info().get_flags().can_close();
+  sync_with_poll(fd);
+  return can_close_local(fd);
 }
 
 }  // namespace td

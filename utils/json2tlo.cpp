@@ -25,20 +25,21 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include <iostream>
-#include <iomanip>
-#include <string>
-#include <cstring>
 #include <cassert>
-#include "td/utils/OptionParser.h"
-#include "keys/encryptor.h"
-#include "auto/tl/ton_api_json.h"
-#include "td/utils/filesystem.h"
-#include "common/io.hpp"
-#include "common/checksum.h"
-#include "tl/tl_json.h"
+#include <cstring>
+#include <iomanip>
+#include <iostream>
+#include <string>
+
 #include "auto/tl/ton_api.h"
 #include "auto/tl/ton_api_json.h"
+#include "common/checksum.h"
+#include "common/io.hpp"
+#include "keys/encryptor.h"
+#include "td/utils/OptionParser.h"
+#include "td/utils/filesystem.h"
+#include "tl/tl_json.h"
+
 #include "git.h"
 
 int main(int argc, char *argv[]) {
@@ -53,7 +54,8 @@ int main(int argc, char *argv[]) {
   p.add_option('o', "out", "output", [&](td::Slice key) { out_f = key.str(); });
   p.add_option('r', "reverse", "read tlo, print json", [&]() { reverse_ = !reverse_; });
   p.add_option('V', "version", "shows json2tlo build information", [&]() {
-    std::cout << "json2tlo build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    std::cout << "json2tlo build information: [ Commit: " << GitMetadata::CommitSHA1()
+              << ", Date: " << GitMetadata::CommitDate() << "]\n";
     std::exit(0);
   });
   p.add_option('h', "help", "prints_help", [&]() {
@@ -110,4 +112,3 @@ int main(int argc, char *argv[]) {
 
   return 0;
 }
-

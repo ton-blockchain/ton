@@ -16,17 +16,18 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "shard.hpp"
-#include "message-queue.hpp"
-#include "validator-set.hpp"
-#include "vm/boc.h"
-#include "td/db/utils/BlobView.h"
-#include "vm/db/StaticBagOfCellsDb.h"
-#include "vm/cellslice.h"
-#include "vm/cells/MerkleUpdate.h"
-#include "block/block-parse.h"
 #include "block/block-auto.h"
+#include "block/block-parse.h"
+#include "td/db/utils/BlobView.h"
 #include "td/utils/filesystem.h"
+#include "vm/boc.h"
+#include "vm/cells/MerkleUpdate.h"
+#include "vm/cellslice.h"
+#include "vm/db/StaticBagOfCellsDb.h"
+
+#include "message-queue.hpp"
+#include "shard.hpp"
+#include "validator-set.hpp"
 
 #define LAZY_STATE_DESERIALIZE 1
 

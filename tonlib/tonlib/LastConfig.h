@@ -17,15 +17,12 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include "block/mc-config.h"
 #include "td/actor/actor.h"
-
-#include "tonlib/Config.h"
-#include "tonlib/ExtClient.h"
-
 #include "td/utils/CancellationToken.h"
 #include "td/utils/tl_helpers.h"
-
-#include "block/mc-config.h"
+#include "tonlib/Config.h"
+#include "tonlib/ExtClient.h"
 
 namespace tonlib {
 struct LastConfigState {

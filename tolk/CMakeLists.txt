@@ -2,6 +2,7 @@ set(TOLK_SOURCE
         src-file.cpp
         lexer.cpp
         symtable.cpp
+        compilation-errors.cpp
         compiler-state.cpp
         ast.cpp
         ast-from-tokens.cpp
@@ -22,7 +23,8 @@ set(TOLK_SOURCE
         pipe-check-rvalue-lvalue.cpp
         pipe-check-private-fields.cpp
         pipe-check-pure-impure.cpp
-        pipe-constant-folding.cpp
+        pipe-check-const-expr.cpp
+        pipe-mini-borrow-checker.cpp
         pipe-optimize-boolean-expr.cpp
         pipe-detect-inline-in-place.cpp
         pipe-check-serialized-fields.cpp
@@ -42,6 +44,7 @@ set(TOLK_SOURCE
         builtins.cpp
         stack-transform.cpp
         optimize.cpp
+        pretty-print.cpp
         codegen.cpp
         tolk.cpp
 )

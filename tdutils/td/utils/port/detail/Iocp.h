@@ -22,12 +22,12 @@
 
 #ifdef TD_PORT_WINDOWS
 
-#include "td/utils/common.h"
-#include "td/utils/Context.h"
-#include "td/utils/port/detail/NativeFd.h"
-#include "td/utils/Status.h"
-
 #include <memory>
+
+#include "td/utils/Context.h"
+#include "td/utils/Status.h"
+#include "td/utils/common.h"
+#include "td/utils/port/detail/NativeFd.h"
 
 namespace td {
 namespace detail {

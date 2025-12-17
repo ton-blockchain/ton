@@ -1069,7 +1069,7 @@ x{EDFB} @Defop SAMEALTSAVE
 } dup : JMP : JMPDICT
 { dup 14 ufits
   { <b x{F1A_} s, swap 14 u, @addopb }
-  { PUSHINT c3 PREPAREVAR } cond
+  { PUSHINT PREPAREVAR } cond
 } dup : PREPARE : PREPAREDICT
 //
 // inline support

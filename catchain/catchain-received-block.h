@@ -18,11 +18,10 @@
 */
 #pragma once
 
-#include "td/utils/buffer.h"
-#include "td/utils/SharedSlice.h"
 #include "auto/tl/ton_api.h"
-
 #include "catchain/catchain-receiver.h"
+#include "td/utils/SharedSlice.h"
+#include "td/utils/buffer.h"
 
 namespace ton {
 
@@ -86,19 +85,16 @@ class CatChainReceivedBlock {
   static tl_object_ptr<ton_api::catchain_block_id> block_id(const CatChainReceiver *chain,
                                                             const tl_object_ptr<ton_api::catchain_block_dep> &block);
   static CatChainBlockHash block_hash(const CatChainReceiver *chain,
-                                      const tl_object_ptr<ton_api::catchain_block> &block,
-                                      const td::Slice &payload);
+                                      const tl_object_ptr<ton_api::catchain_block> &block, const td::Slice &payload);
   static CatChainBlockHash block_hash(const CatChainReceiver *chain,
                                       const tl_object_ptr<ton_api::catchain_block_dep> &block);
   static td::Status pre_validate_block(const CatChainReceiver *chain,
-                                       const tl_object_ptr<ton_api::catchain_block> &block,
-                                       const td::Slice &payload);
+                                       const tl_object_ptr<ton_api::catchain_block> &block, const td::Slice &payload);
   static td::Status pre_validate_block(const CatChainReceiver *chain,
                                        const tl_object_ptr<ton_api::catchain_block_dep> &block);
   static CatChainBlockPayloadHash data_payload_hash(const CatChainReceiver *chain,
                                                     const tl_object_ptr<ton_api::catchain_block_data> &data,
                                                     const td::Slice &payload);
-
 
   virtual ~CatChainReceivedBlock() = default;
 };
@@ -120,4 +116,3 @@ inline td::StringBuilder &operator<<(td::StringBuilder &sb, const ton::catchain:
 }
 
 }  // namespace td
-

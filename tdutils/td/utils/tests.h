@@ -18,19 +18,21 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
+#include <atomic>
+#include <functional>
+#include <optional>
+#include <sstream>
+#include <utility>
+
 #include "td/utils/Context.h"
-#include "td/utils/format.h"
-#include "td/utils/logging.h"
-#include "td/utils/port/thread.h"
 #include "td/utils/Random.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Span.h"
 #include "td/utils/Status.h"
-
-#include <atomic>
-#include <functional>
-#include <utility>
+#include "td/utils/common.h"
+#include "td/utils/format.h"
+#include "td/utils/logging.h"
+#include "td/utils/port/thread.h"
 
 #define REGISTER_TESTS(x)                \
   void TD_CONCAT(register_tests_, x)() { \
@@ -101,6 +103,7 @@ class TestContext : public Context<TestContext> {
   virtual ~TestContext() = default;
   virtual Slice name() = 0;
   virtual Status verify(Slice data) = 0;
+  virtual void register_test_failure() = 0;
 };
 
 class TestsRunner : public TestContext {
@@ -110,9 +113,12 @@ class TestsRunner : public TestContext {
   void add_test(string name, unique_ptr<Test> test);
   void add_substr_filter(string str);
   void set_stress_flag(bool flag);
+  void set_pretty_output(bool flag);
   void run_all();
   bool run_all_step();
   void set_regression_tester(unique_ptr<RegressionTester> regression_tester);
+  bool any_test_failed() const;
+  bool use_pretty_output() const;
 
  private:
   struct State {
@@ -123,13 +129,19 @@ class TestsRunner : public TestContext {
     size_t end{0};
   };
   bool stress_flag_{false};
+  bool pretty_output_{false};
   vector<string> substr_filters_;
   vector<std::pair<string, unique_ptr<Test>>> tests_;
+  vector<string> failed_tests_;
+  size_t passed_tests_{0};
   State state_;
+  std::atomic<bool> test_failed_ = false;
   unique_ptr<RegressionTester> regression_tester_;
+  bool any_test_failed_{false};
 
   Slice name() override;
   Status verify(Slice data) override;
+  void register_test_failure() override;
 };
 
 template <class T>
@@ -177,24 +189,80 @@ inline vector<string> rand_split(Slice str) {
   return res;
 }
 
-template <class T1, class T2>
-void assert_eq_impl(const T1 &expected, const T2 &got, const char *file, int line) {
-  LOG_CHECK(expected == got) << tag("expected", expected) << tag("got", got) << " in " << file << " at line " << line;
+namespace detail {
+
+std::optional<std::string> stringify(const auto &value) {
+  if constexpr (requires(std::ostringstream builder) { builder << value; }) {
+    std::ostringstream builder;
+    builder << value;
+    return builder.str();
+  } else if constexpr (requires { PSTRING() << value; }) {
+    return PSTRING() << value;
+  }
+  return std::nullopt;
 }
 
-template <class T>
-void assert_true_impl(const T &got, const char *file, int line) {
-  LOG_CHECK(got) << "Expected true in " << file << " at line " << line;
+inline std::optional<std::string> check(bool condition, const char *msg) {
+  if (condition) {
+    return std::nullopt;
+  }
+
+  return PSTRING() << "Expectation failed: " << msg << "!";
 }
+
+std::optional<std::string> check_eq(const auto &a_value, const auto &b_value, const char *a_expr, const char *b_expr) {
+  if (a_value == b_value) {
+    return std::nullopt;
+  }
+
+  std::ostringstream builder;
+  builder << "Expectation failed: " << a_expr << " is not equal to " << b_expr;
+  if (auto a_str = stringify(a_value), b_str = stringify(b_value); a_str.has_value() && b_str.has_value()) {
+    builder << " (" << *a_str << " != " << *b_str << ")";
+  }
+  return builder.str();
+}
+
+}  // namespace detail
 
 }  // namespace td
 
-#define ASSERT_EQ(expected, got) ::td::assert_eq_impl((expected), (got), __FILE__, __LINE__)
+#define ASSERT_EQ(a, b)                                              \
+  do {                                                               \
+    if (auto error_message = ::td::detail::check_eq(a, b, #a, #b)) { \
+      LOG(FATAL) << *error_message;                                  \
+    }                                                                \
+  } while (0)
 
-#define ASSERT_TRUE(got) ::td::assert_true_impl((got), __FILE__, __LINE__)
+#define ASSERT_TRUE(cond)                                                           \
+  do {                                                                              \
+    if (auto error_message = ::td::detail::check(static_cast<bool>(cond), #cond)) { \
+      LOG(FATAL) << *error_message;                                                 \
+    }                                                                               \
+  } while (0)
 
-#define ASSERT_STREQ(expected, got) \
-  ::td::assert_eq_impl(::td::Slice((expected)), ::td::Slice((got)), __FILE__, __LINE__)
+#define ASSERT_STREQ(a, b)                                                                         \
+  do {                                                                                             \
+    if (auto error_message = ::td::detail::check_eq(::td::Slice((a)), ::td::Slice((b)), #a, #b)) { \
+      LOG(FATAL) << *error_message;                                                                \
+    }                                                                                              \
+  } while (0)
+
+#define EXPECT(cond)                                                                \
+  do {                                                                              \
+    if (auto error_message = ::td::detail::check(static_cast<bool>(cond), #cond)) { \
+      LOG(ERROR) << *error_message;                                                 \
+      ::td::TestContext::get()->register_test_failure();                            \
+    }                                                                               \
+  } while (0)
+
+#define EXPECT_EQ(a, b)                                              \
+  do {                                                               \
+    if (auto error_message = ::td::detail::check_eq(a, b, #a, #b)) { \
+      LOG(ERROR) << *error_message;                                  \
+      ::td::TestContext::get()->register_test_failure();             \
+    }                                                                \
+  } while (0)
 
 #define REGRESSION_VERIFY(data) ::td::TestContext::get()->verify(data).ensure()
 

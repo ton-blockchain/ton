@@ -18,9 +18,9 @@
 */
 #pragma once
 
+#include "common/bitstring.h"
 #include "td/actor/actor.h"
 #include "td/utils/buffer.h"
-#include "common/bitstring.h"
 
 namespace ton::validator {
 
@@ -35,4 +35,4 @@ class LiteServerCache : public td::actor::Actor {
   virtual void drop_send_message_from_cache(td::Bits256 key) = 0;
 };
 
-} // namespace ton::validator
+}  // namespace ton::validator

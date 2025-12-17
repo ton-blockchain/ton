@@ -18,7 +18,6 @@
 */
 #undef NDEBUG
 #include "memprof/memprof.h"
-
 #include "td/utils/port/platform.h"
 
 #if (TD_DARWIN || TD_LINUX) && defined(USE_MEMPROF)
@@ -29,13 +28,12 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <dlfcn.h>
+#include <execinfo.h>
 #include <functional>
 #include <new>
 #include <utility>
 #include <vector>
-
-#include <dlfcn.h>
-#include <execinfo.h>
 
 bool is_memprof_on() {
   return true;

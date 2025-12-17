@@ -16,17 +16,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "manager-disk.hpp"
-#include "validator-group.hpp"
 #include "adnl/utils.hpp"
-#include "downloaders/wait-block-state.hpp"
-#include "downloaders/wait-block-state-merge.hpp"
 #include "downloaders/wait-block-data-disk.hpp"
-#include "validator-group.hpp"
-#include "fabric.h"
-#include "manager.h"
-#include "ton/ton-io.hpp"
+#include "downloaders/wait-block-state-merge.hpp"
+#include "downloaders/wait-block-state.hpp"
 #include "td/utils/overloaded.h"
+#include "ton/ton-io.hpp"
+
+#include "fabric.h"
+#include "manager-disk.hpp"
+#include "manager.h"
+#include "validator-group.hpp"
 
 namespace ton {
 
@@ -269,14 +269,13 @@ void ValidatorManagerImpl::get_key_block_proof_link(BlockIdExt block_id, td::Pro
   td::actor::send_closure(db_, &Db::get_key_block_proof, block_id, std::move(P));
 }
 
-void ValidatorManagerImpl::new_external_message(td::BufferSlice data, int priority) {
+td::actor::Task<> ValidatorManagerImpl::new_external_message_broadcast(td::BufferSlice data, int priority) {
   if (last_masterchain_state_.is_null()) {
-    return;
+    co_return td::Status::Error(ErrorCode::notready, "not ready");
   }
-  auto R = create_ext_message(std::move(data), last_masterchain_state_->get_ext_msg_limits());
-  if (R.is_ok()) {
-    ext_messages_.emplace_back(R.move_as_ok());
-  }
+  auto msg = co_await create_ext_message(std::move(data), last_masterchain_state_->get_ext_msg_limits());
+  ext_messages_.emplace_back(std::move(msg));
+  co_return td::Unit{};
 }
 
 void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
@@ -522,7 +521,7 @@ void ValidatorManagerImpl::wait_block_message_queue_short(BlockIdExt block_id, t
 void ValidatorManagerImpl::get_external_messages(
     ShardIdFull shard, td::Promise<std::vector<std::pair<td::Ref<ExtMessage>, int>>> promise) {
   std::vector<std::pair<td::Ref<ExtMessage>, int>> res;
-  for (const auto& x : ext_messages_) {
+  for (const auto &x : ext_messages_) {
     res.emplace_back(x, 0);
   }
   promise.set_result(std::move(res));

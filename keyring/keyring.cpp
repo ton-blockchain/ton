@@ -16,12 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "keyring.hpp"
 #include "common/errorcode.h"
 #include "common/io.hpp"
-#include "td/utils/port/path.h"
-#include "td/utils/filesystem.h"
 #include "td/utils/Random.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/port/path.h"
+
+#include "keyring.hpp"
 
 namespace ton {
 
@@ -43,7 +44,7 @@ void KeyringImpl::start_up() {
   }
 }
 
-td::Result<KeyringImpl::PrivateKeyDescr *> KeyringImpl::load_key(PublicKeyHash key_hash) {
+td::Result<KeyringImpl::PrivateKeyDescr*> KeyringImpl::load_key(PublicKeyHash key_hash) {
   auto it = map_.find(key_hash);
   if (it != map_.end()) {
     return it->second.get();

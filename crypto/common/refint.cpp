@@ -16,12 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "common/refint.h"
-#include <utility>
 #include <iostream>
+#include <utility>
 
-#include "td/utils/StringBuilder.h"
+#include "common/refint.h"
 #include "td/utils/Slice.h"
+#include "td/utils/StringBuilder.h"
 
 namespace td {
 
@@ -265,6 +265,12 @@ RefInt256 zero_refint() {
   //  static RefInt256 Zero = td::RefInt256{true, 0};
   //  return Zero;
   return td::RefInt256{true, 0};
+}
+
+RefInt256 nan_refint() {
+  RefInt256 x{true};
+  x.unique_write().invalidate();
+  return x;
 }
 
 RefInt256 bits_to_refint(td::ConstBitPtr bits, int n, bool sgnd) {

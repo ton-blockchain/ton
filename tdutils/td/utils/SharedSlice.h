@@ -19,12 +19,12 @@
 
 #pragma once
 
-#include "td/utils/Slice.h"
-
 #include <atomic>
 #include <memory>
 #include <new>
 #include <type_traits>
+
+#include "td/utils/Slice.h"
 
 namespace td {
 

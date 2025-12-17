@@ -1,10 +1,10 @@
-name: MacOS-13 TON build (portable, x86-64)
+name: MacOS-15 TON build (portable, x86-64)
 
 on: [push, pull_request, workflow_dispatch, workflow_call]
 
 jobs:
   build:
-    runs-on: macos-13
+    runs-on: macos-15-intel
 
     steps:
       - name: Check out repository
@@ -28,15 +28,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: 3pp
-          key: ${{ runner.os }}-${{ runner.arch }}-13-3pp-${{ hashFiles('**/assembly/native/build-macos-portable.sh') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-15-3pp-${{ hashFiles('**/assembly/native/build-macos-portable.sh') }}
 
       - name: Cache TON test
         id: cache-ton
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ${{ runner.os }}-${{ runner.arch }}-13-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
-          restore-keys: ${{ runner.os }}-${{ runner.arch }}-13-portable-ccache
+          key: ${{ runner.os }}-${{ runner.arch }}-15-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-15-portable-ccache
 
       - name: Build TON
         run: |
@@ -44,7 +44,7 @@ jobs:
           git submodule update
           cp assembly/native/build-macos-portable.sh .
           chmod +x build-macos-portable.sh
-          ./build-macos-portable.sh -t -a -c -o 13.0
+          ./build-macos-portable.sh -t -a -c -o 15.0
           ccache -sp
 
       - name: Run Tests

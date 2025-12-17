@@ -14,17 +14,15 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "tolk.h"
 #include "ast.h"
 #include "ast-visitor.h"
-#include "platform-utils.h"
+#include "compilation-errors.h"
 #include "type-system.h"
 
 namespace tolk {
 
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_private_field_used_outside_method(FunctionPtr cur_f, SrcLocation loc, StructPtr struct_ref, StructFieldPtr field_ref) {
-  throw ParseError(cur_f, loc, "field `" + struct_ref->as_human_readable() + "." + field_ref->name + "` is private");
+static Error err_private_field_used_outside_method(StructPtr struct_ref, StructFieldPtr field_ref) {
+  return err("field `{}.{}` is private", struct_ref, field_ref);
 }
 
 static bool is_private_field_usage_allowed(FunctionPtr cur_f, StructPtr struct_ref) {
@@ -47,9 +45,7 @@ static bool is_private_field_usage_allowed(FunctionPtr cur_f, StructPtr struct_r
 }
 
 class CheckPrivateFieldsUsageVisitor final : public ASTVisitorFunctionBody {
-  FunctionPtr cur_f = nullptr;
 
-protected:
   void visit(V<ast_dot_access> v) override {
     parent::visit(v);
 
@@ -58,7 +54,7 @@ protected:
       const TypeDataStruct* obj_type = v->get_obj()->inferred_type->unwrap_alias()->try_as<TypeDataStruct>();
       tolk_assert(obj_type);
       if (field_ref->is_private && !is_private_field_usage_allowed(cur_f, obj_type->struct_ref)) {
-        fire_error_private_field_used_outside_method(cur_f, v->loc, obj_type->struct_ref, field_ref);
+        err_private_field_used_outside_method(obj_type->struct_ref, field_ref).fire(v, cur_f);
       }
     }
   }
@@ -71,20 +67,14 @@ protected:
       auto v_field = v->get_body()->get_field(i);
       StructFieldPtr field_ref = v_field->field_ref;
       if (field_ref->is_private && !is_private_field_usage_allowed(cur_f, v->struct_ref)) {
-        fire_error_private_field_used_outside_method(cur_f, v_field->loc, v->struct_ref, field_ref);
+        err_private_field_used_outside_method(v->struct_ref, field_ref).fire(v_field, cur_f);
       }
     }
   }
   
- public:
+public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
-  }
-
-  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) override {
-    cur_f = fun_ref;
-    parent::visit(v_function->get_body());
-    cur_f = nullptr;
   }
 };
 

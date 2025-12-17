@@ -18,8 +18,8 @@
 */
 #pragma once
 
-#include "td/actor/actor.h"
 #include "interfaces/validator-manager.h"
+#include "td/actor/actor.h"
 
 namespace ton {
 
@@ -48,8 +48,8 @@ class ApplyBlock : public td::actor::Actor {
       , timeout_(timeout)
       , promise_(std::move(promise))
       , perf_timer_("applyblock", 0.1, [manager](double duration) {
-          send_closure(manager, &ValidatorManager::add_perf_timer_stat, "applyblock", duration);
-        }) {
+        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "applyblock", duration);
+      }) {
   }
 
   static constexpr td::uint32 apply_block_priority() {

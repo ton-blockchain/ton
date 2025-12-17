@@ -25,31 +25,32 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include <vector>
-#include <string>
-#include <map>
-#include <set>
-#include <stack>
-#include <utility>
 #include <algorithm>
-#include <iostream>
+#include <cassert>
+#include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <functional>
-#include <sstream>
-#include <cstdio>
-#include <cassert>
-#include <cstdlib>
 #include <getopt.h>
+#include <iostream>
+#include <map>
+#include <set>
+#include <sstream>
+#include <stack>
+#include <string>
+#include <utility>
+#include <vector>
 
-#include "common/refcnt.hpp"
 #include "common/bigint.hpp"
+#include "common/refcnt.hpp"
 #include "common/refint.h"
-#include "parser/srcread.h"
 #include "parser/lexer.h"
+#include "parser/srcread.h"
 #include "parser/symtable.h"
 #include "td/utils/Slice-decl.h"
-#include "td/utils/format.h"
 #include "td/utils/crypto.h"
+#include "td/utils/format.h"
+
 #include "tlbc-aux.h"
 #include "tlbc-data.h"
 #include "tlbc-gen-cpp.h"

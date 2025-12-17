@@ -137,7 +137,7 @@ struct NotFixedWidthStorage {
     f4: bool;
     f5: cell;
     f6: int8 | bool;
-    f7: address;
+    f7: any_address;
     f8: int8;
     f9: bits200;
     f10: (bits400, ());
@@ -220,6 +220,12 @@ struct OneIntOneRef {
 struct WithVariadicInts {
     i1: varuint32;
     i2: varuint32;
+}
+
+struct WithInternalAddress {
+    f1: int8;
+    f2: address;
+    f3: int8;
 }
 
 global gModByCustom: int;
@@ -319,9 +325,11 @@ fun demo104() {
 
 @method_id(105)
 fun demo105(s: slice) {
-    var c = lazy ComplexWithMaybePoint.fromSlice(s);
-    __expect_lazy("[c] load f1, skip (Point78ForMaybe?), load f3");
-    return (c.f1, c.f3);
+    return (fun(s: slice) {
+        var c = lazy ComplexWithMaybePoint.fromSlice(s);
+        __expect_lazy("[c] load f1, skip (Point78ForMaybe?), load f3");
+        return (c.f1, c.f3);
+    })(s);
 }
 
 @method_id(106)
@@ -934,7 +942,7 @@ fun demo153() {
 global gTup: tuple;
 
 @noinline
-fun pushToGlobalTup<T>(v: T) { gTup.push(v.__toTuple()); }
+fun pushToGlobalTup<T>(v: T) { gTup.push(v.toTuple()); }
 
 @method_id(154)
 fun demo154() {
@@ -1353,7 +1361,7 @@ fun demo310() {
     var st = lazy cell.load();
     var sm = lazy cell.load();
     var sk = lazy cell.load();
-    __expect_lazy("[st] load (bits8) (int8?) (bits9) (cell) f6, save immutable (tail), skip (address), load f8");
+    __expect_lazy("[st] load (bits8) (int8?) (bits9) (cell) f6, save immutable (tail), skip (any_address), load f8");
     match (st.f6) { int8 => st.f6 += 90, bool => throw 123 };
     __expect_lazy("[sm] load f5");
     sm.f5;  // previous (data-only) fields are not needed to reach a ref
@@ -1369,6 +1377,24 @@ fun demo311() {
     st.isSignatureAllowed = false;
     st.extensions = null;
     return st.toCell();
+}
+
+@method_id(312)
+fun demo312() {
+    val addr = address("EQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPrHF");
+    val correct = beginCell().storeInt(0, 8).storeAddress(addr).storeInt(-1, 8).endCell();
+    var st = lazy WithInternalAddress.fromCell(correct);
+    __expect_lazy("[st] skip (bits8) (address), load f3");
+    val f3 = st.f3;
+    
+    val wrong = beginCell().storeInt(0, 8).storeAddressNone().storeAddress(addr).storeInt(-1, 8).endCell();
+    var st2 = lazy WithInternalAddress.fromCell(wrong);
+    // check that `address` (st2.f2) is validated even though unused
+    try {
+        return (f3, 0, st2.f3);
+    } catch (ex) {
+        return (f3, ex, 0 as int8);
+    }
 }
 
 
@@ -1740,6 +1766,7 @@ fun main() {
 @testcase | 309 |                 | C{EE7C06B69DDCEFEBED507FE35F603A9019D4AE79A13F670FE4E08928AF484838}
 @testcase | 310 |                 | 3332695883 9
 @testcase | 311 |                 | C{16A4757FA412AD5E89418F1263904CD57FA4DF0E73EE8A53DC60F862C72BCD9D}
+@testcase | 312 |                 | -1 9 0
 
 @testcase | 400 |                             | 5
 @testcase | 401 | x{0110} -1                  | 50
@@ -1898,8 +1925,7 @@ fun main() {
     IFJMP:<{                    //  '14
       NEWC                      //  '14 b
       STSLICE                   //  b
-      ENDC                      //  '21
-      CTOS                      //  s
+      BTOS                      //  s
 """
 
 @fif_codegen
@@ -1928,7 +1954,7 @@ fun main() {
     NEWC
     8 STI
     8 STI
-    ENDC
+    BTOS
 """
 
 @fif_codegen

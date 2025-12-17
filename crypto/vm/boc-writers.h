@@ -15,15 +15,17 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "td/utils/port/FileFd.h"
-#include "td/utils/crypto.h"
 #include <vector>
+
+#include "td/utils/crypto.h"
+#include "td/utils/port/FileFd.h"
 
 namespace vm {
 namespace boc_writers {
 struct BufferWriter {
   BufferWriter(unsigned char* store_start, unsigned char* store_end)
-      : store_start(store_start), store_ptr(store_start), store_end(store_end) {}
+      : store_start(store_start), store_ptr(store_start), store_end(store_end) {
+  }
 
   size_t position() const {
     return store_ptr - store_start;
@@ -47,7 +49,7 @@ struct BufferWriter {
     }
     DCHECK(!bytes);
   }
-  void store_bytes(unsigned char const* data, size_t s) {
+  void store_bytes(const unsigned char* data, size_t s) {
     store_ptr += s;
     chk();
     memcpy(store_ptr - s, data, s);
@@ -63,8 +65,8 @@ struct BufferWriter {
 };
 
 struct FileWriter {
-  FileWriter(td::FileFd& fd, size_t expected_size)
-      : fd(fd), expected_size(expected_size) {}
+  FileWriter(td::FileFd& fd, size_t expected_size) : fd(fd), expected_size(expected_size) {
+  }
 
   ~FileWriter() {
     flush();
@@ -86,13 +88,13 @@ struct FileWriter {
     flush_if_needed(bytes);
     writer.store_uint(value, bytes);
   }
-  void store_bytes(unsigned char const* data, size_t s) {
+  void store_bytes(const unsigned char* data, size_t s) {
     flush_if_needed(s);
     writer.store_bytes(data, s);
   }
   unsigned get_crc32() const {
-    unsigned char const* start = buf.data();
-    unsigned char const* end = start + writer.position();
+    const unsigned char* start = buf.data();
+    const unsigned char* end = start + writer.position();
     return td::crc32c_extend(current_crc32, td::Slice(start, end));
   }
 
@@ -142,5 +144,5 @@ struct FileWriter {
   BufferWriter writer = BufferWriter(buf.data(), buf.data() + buf.size());
   td::Status res = td::Status::OK();
 };
-}
-}
+}  // namespace boc_writers
+}  // namespace vm

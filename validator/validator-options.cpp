@@ -16,11 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "validator-options.hpp"
+#include <ton/ton-tl.hpp>
 
 #include "ton/ton-shard.h"
 
-#include <ton/ton-tl.hpp>
+#include "validator-options.hpp"
 
 namespace ton {
 
@@ -86,9 +86,9 @@ td::Status ShardBlockVerifierConfig::unpack(const ton_api::engine_validator_shar
       shard.trusted_nodes.push_back(node_id);
     }
     if (shard_obj->required_confirms_ < 0 || shard_obj->required_confirms_ > (int)shard.trusted_nodes.size()) {
-      return td::Status::Error(PSTRING()
-                               << "invalid required_confirms " << shard_obj->required_confirms_ << " for shard "
-                               << shard.shard_id.to_str() << " (nodes: " << shard.trusted_nodes.size() << ")");
+      return td::Status::Error(PSTRING() << "invalid required_confirms " << shard_obj->required_confirms_
+                                         << " for shard " << shard.shard_id.to_str()
+                                         << " (nodes: " << shard.trusted_nodes.size() << ")");
     }
     shard.required_confirms = shard_obj->required_confirms_;
     shards.push_back(std::move(shard));
@@ -98,9 +98,9 @@ td::Status ShardBlockVerifierConfig::unpack(const ton_api::engine_validator_shar
 
 td::Ref<ValidatorManagerOptions> ValidatorManagerOptions::create(BlockIdExt zero_block_id, BlockIdExt init_block_id,
                                                                  bool allow_blockchain_init, double sync_blocks_before,
-                                                                 double block_ttl, double state_ttl,
-                                                                 double max_mempool_num, double archive_ttl,
-                                                                 double key_proof_ttl, bool initial_sync_disabled) {
+                                                                 double block_ttl, double state_ttl, double archive_ttl,
+                                                                 double key_proof_ttl, size_t max_mempool_num,
+                                                                 bool initial_sync_disabled) {
   return td::make_ref<ValidatorManagerOptionsImpl>(zero_block_id, init_block_id, allow_blockchain_init,
                                                    sync_blocks_before, block_ttl, state_ttl, max_mempool_num,
                                                    archive_ttl, key_proof_ttl, initial_sync_disabled);

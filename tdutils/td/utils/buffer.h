@@ -18,13 +18,13 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-#include "td/utils/port/thread_local.h"
-#include "td/utils/Slice.h"
-
 #include <atomic>
 #include <limits>
 #include <memory>
+
+#include "td/utils/Slice.h"
+#include "td/utils/common.h"
+#include "td/utils/port/thread_local.h"
 
 namespace td {
 

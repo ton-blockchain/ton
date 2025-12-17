@@ -19,36 +19,34 @@
 #pragma once
 
 #include <any>
-#include <memory>
-#include <vector>
 #include <map>
+#include <memory>
+#include <queue>
 #include <set>
 #include <unordered_set>
-#include <queue>
+#include <vector>
 
 #include "adnl/adnl-node-id.hpp"
-#include "overlay.h"
-#include "overlay-manager.h"
-#include "overlay-fec.hpp"
-#include "overlay-broadcast.hpp"
-#include "overlay-fec-broadcast.hpp"
-#include "overlay-id.hpp"
-
+#include "adnl/utils.hpp"
+#include "auto/tl/ton_api.h"
+#include "auto/tl/ton_api.hpp"
+#include "fec/fec.h"
+#include "keys/encryptor.h"
 #include "td/utils/DecTree.h"
 #include "td/utils/List.h"
 #include "td/utils/Status.h"
 #include "td/utils/Time.h"
 #include "td/utils/buffer.h"
 #include "td/utils/overloaded.h"
-#include "fec/fec.h"
-
-#include "adnl/utils.hpp"
-#include "keys/encryptor.h"
-
-#include "auto/tl/ton_api.h"
-#include "auto/tl/ton_api.hpp"
 #include "td/utils/port/signals.h"
 #include "tl-utils/common-utils.hpp"
+
+#include "overlay-broadcast.hpp"
+#include "overlay-fec-broadcast.hpp"
+#include "overlay-fec.hpp"
+#include "overlay-id.hpp"
+#include "overlay-manager.h"
+#include "overlay.h"
 
 namespace ton {
 
@@ -476,9 +474,7 @@ class OverlayImpl : public Overlay {
   OverlayOptions opts_;
 
   struct CachedCertificate : td::ListNode {
-    CachedCertificate(PublicKeyHash source, td::Bits256 cert_hash)
-      : source(source)
-      , cert_hash(cert_hash) {
+    CachedCertificate(PublicKeyHash source, td::Bits256 cert_hash) : source(source), cert_hash(cert_hash) {
     }
 
     PublicKeyHash source;

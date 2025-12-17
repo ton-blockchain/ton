@@ -16,20 +16,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "tonlib/ClientJson.h"
+#include <utility>
 
 #include "auto/tl/tonlib_api_json.h"
-
-#include "tl/tl_json.h"
-
+#include "td/utils/JsonBuilder.h"
+#include "td/utils/Status.h"
 #include "td/utils/common.h"
 #include "td/utils/format.h"
-#include "td/utils/JsonBuilder.h"
 #include "td/utils/logging.h"
 #include "td/utils/port/thread_local.h"
-#include "td/utils/Status.h"
-
-#include <utility>
+#include "tl/tl_json.h"
+#include "tonlib/ClientJson.h"
 
 namespace tonlib {
 
@@ -41,9 +38,9 @@ static td::Result<std::pair<tonlib_api::object_ptr<tonlib_api::Function>, std::s
   }
 
   std::string extra;
-  if (has_json_object_field(json_value.get_object(), "@extra")) {
+  if (json_value.get_object().has_field("@extra")) {
     extra = td::json_encode<std::string>(
-        get_json_object_field(json_value.get_object(), "@extra", td::JsonValue::Type::Null).move_as_ok());
+        json_value.get_object().extract_required_field("@extra", td::JsonValue::Type::Null).move_as_ok());
   }
 
   tonlib_api::object_ptr<tonlib_api::Function> func;

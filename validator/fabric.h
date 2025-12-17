@@ -18,8 +18,10 @@
 */
 #pragma once
 
-#include "interfaces/validator-manager.h"
 #include "interfaces/db.h"
+#include "interfaces/validator-manager.h"
+#include "td/actor/coro_utils.h"
+
 #include "validator.h"
 
 namespace ton {
@@ -47,11 +49,14 @@ struct ValidateParams {
   BlockIdExt min_masterchain_block_id;
   std::vector<BlockIdExt> prev;
   td::Ref<ValidatorSet> validator_set = {};
-  PublicKeyHash local_validator_id = PublicKeyHash::zero();;
+  PublicKeyHash local_validator_id = PublicKeyHash::zero();
+  ;
   bool is_fake = false;
 
   // Optional - used for validation of optimistic candidates
   Ref<BlockData> optimistic_prev_block = {};
+
+  bool parallel_validation = false;
 };
 
 td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_,
@@ -70,20 +75,16 @@ td::Result<BlockHandle> create_block_handle(td::BufferSlice data);
 td::Result<BlockHandle> create_block_handle(td::Slice data);
 td::Result<ConstBlockHandle> create_temp_block_handle(td::BufferSlice data);
 BlockHandle create_empty_block_handle(BlockIdExt id);
-td::Result<td::Ref<ExtMessage>> create_ext_message(td::BufferSlice data,
-                                                   block::SizeLimitsConfig::ExtMsgLimits limits);
+td::Result<td::Ref<ExtMessage>> create_ext_message(td::BufferSlice data, block::SizeLimitsConfig::ExtMsgLimits limits);
 td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data);
 td::Result<std::vector<td::Ref<ShardTopBlockDescription>>> create_new_shard_block_descriptions(td::BufferSlice data);
 
 td::Ref<BlockSignatureSet> create_signature_set(std::vector<BlockSignature> sig_set);
 
-void run_check_external_message(td::Ref<ExtMessage> message, td::actor::ActorId<ValidatorManager> manager,
-                                td::Promise<td::Ref<ExtMessage>> promise);
-
 void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                             td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
-                            td::Ref<BlockSignatureSet> approve_signatures, int send_broadcast_mode, bool apply,
-                            td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
+                            int send_broadcast_mode, bool apply, td::actor::ActorId<ValidatorManager> manager,
+                            td::Promise<td::Unit> promise);
 void run_fake_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                                  td::Ref<ValidatorSet> validator_set, td::actor::ActorId<ValidatorManager> manager,
                                  td::Promise<td::Unit> promise);
@@ -112,8 +113,11 @@ void run_collate_query(CollateParams params, td::actor::ActorId<ValidatorManager
                        td::CancellationToken cancellation_token, td::Promise<BlockCandidate> promise);
 void run_liteserver_query(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager,
                           td::actor::ActorId<LiteServerCache> cache, td::Promise<td::BufferSlice> promise);
-void run_fetch_account_state(WorkchainId wc, StdSmcAddress  addr, td::actor::ActorId<ValidatorManager> manager,
-                             td::Promise<std::tuple<td::Ref<vm::CellSlice>,UnixTime,LogicalTime,std::unique_ptr<block::ConfigInfo>>> promise);
+void run_fetch_account_state(
+    WorkchainId wc, StdSmcAddress addr, td::actor::ActorId<ValidatorManager> manager,
+    td::Promise<std::tuple<td::Ref<vm::CellSlice>, UnixTime, LogicalTime, std::unique_ptr<block::ConfigInfo>>> promise);
+td::actor::Task<std::tuple<td::Ref<vm::CellSlice>, UnixTime, LogicalTime, std::unique_ptr<block::ConfigInfo>>>
+run_fetch_account_state(WorkchainId wc, StdSmcAddress addr, td::actor::ActorId<ValidatorManager> manager);
 void run_validate_shard_block_description(td::BufferSlice data, BlockHandle masterchain_block,
                                           td::Ref<MasterchainState> masterchain_state,
                                           td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,

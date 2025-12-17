@@ -16,15 +16,14 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "auto/tl/ton_api.hpp"
+#include "common/errorcode.h"
+#include "common/status.h"
 #include "td/utils/crypto.h"
 #include "td/utils/overloaded.h"
 
 #include "encryptor.h"
 #include "encryptor.hpp"
-#include "auto/tl/ton_api.hpp"
-
-#include "common/status.h"
-#include "common/errorcode.h"
 #include "keys.hpp"
 
 namespace ton {
@@ -102,7 +101,7 @@ td::Result<td::BufferSlice> DecryptorEd25519::decrypt(td::Slice data) {
   ctr.encrypt(data, res.as_slice());
 
   td::UInt256 real_digest;
-  td::sha256(res.as_slice(), as_slice(real_digest));
+  td::sha256(res.as_slice(), as_mutable_slice(real_digest));
 
   if (as_slice(real_digest) != digest) {
     return td::Status::Error(ErrorCode::protoviolation, "sha256 mismatch after decryption");
@@ -162,7 +161,7 @@ td::Result<td::BufferSlice> DecryptorAES::decrypt(td::Slice data) {
   ctr.encrypt(data, res.as_slice());
 
   td::UInt256 real_digest;
-  td::sha256(res.as_slice(), as_slice(real_digest));
+  td::sha256(res.as_slice(), as_mutable_slice(real_digest));
 
   if (as_slice(real_digest) != digest) {
     return td::Status::Error(ErrorCode::protoviolation, "sha256 mismatch after decryption");

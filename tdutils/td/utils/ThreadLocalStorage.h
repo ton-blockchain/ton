@@ -19,11 +19,11 @@
 
 #pragma once
 
-#include "td/utils/common.h"
-#include "td/utils/port/thread_local.h"
-
 #include <array>
 #include <atomic>
+
+#include "td/utils/common.h"
+#include "td/utils/port/thread_local.h"
 
 namespace td {
 template <class T>

@@ -17,9 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "td/utils/port/user.h"
-
 #include "td/utils/port/config.h"
+#include "td/utils/port/user.h"
 
 #if TD_PORT_POSIX
 #include <grp.h>

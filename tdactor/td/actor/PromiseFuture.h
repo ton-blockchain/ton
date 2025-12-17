@@ -17,16 +17,16 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "td/utils/Closure.h"
-#include "td/utils/common.h"
-#include "td/utils/invoke.h"  // for tuple_for_each
-#include "td/utils/logging.h"
-#include "td/utils/ScopeGuard.h"
-#include "td/utils/Status.h"
-
 #include <tuple>
 #include <type_traits>
 #include <utility>
+
+#include "td/utils/Closure.h"
+#include "td/utils/ScopeGuard.h"
+#include "td/utils/Status.h"
+#include "td/utils/common.h"
+#include "td/utils/invoke.h"  // for tuple_for_each
+#include "td/utils/logging.h"
 
 namespace td {
 namespace detail {
@@ -232,31 +232,31 @@ class Promise {
     if (!promise_) {
       return;
     }
-    promise_->set_value(std::move(value));
-    promise_.reset();
+    auto promise = std::exchange(promise_, nullptr);
+    promise->set_value(std::move(value));
   }
   void set_error(Status &&error) {
     if (!promise_) {
       return;
     }
-    promise_->set_error(std::move(error));
-    promise_.reset();
+    auto promise = std::exchange(promise_, nullptr);
+    promise->set_error(std::move(error));
   }
 
   void set_result(Result<T> &&result) {
     if (!promise_) {
       return;
     }
-    promise_->set_result(std::move(result));
-    promise_.reset();
+    auto promise = std::exchange(promise_, nullptr);
+    promise->set_result(std::move(result));
   }
   template <class S>
   void operator()(S &&result) {
     if (!promise_) {
       return;
     }
-    promise_->operator()(std::forward<S>(result));
-    promise_.reset();
+    auto promise = std::exchange(promise_, nullptr);
+    promise->operator()(std::forward<S>(result));
   }
   void reset() {
     promise_.reset();
@@ -299,7 +299,7 @@ class Promise {
     };
   }
   template <class... ArgsT>
-  auto send_closure(ArgsT &&... args);
+  auto send_closure(ArgsT &&...args);
 
  private:
   std::unique_ptr<PromiseInterface<T>> promise_;
@@ -309,7 +309,7 @@ namespace detail {
 template <class... ArgsT>
 class JoinPromise : public PromiseInterface<Unit> {
  public:
-  explicit JoinPromise(ArgsT &&... arg) : promises_(std::forward<ArgsT>(arg)...) {
+  explicit JoinPromise(ArgsT &&...arg) : promises_(std::forward<ArgsT>(arg)...) {
   }
   void set_value(Unit &&) override {
     tuple_for_each(promises_, [](auto &promise) { promise.set_value(Unit()); });
@@ -337,7 +337,7 @@ class PromiseCreator {
   }
 
   template <class... ArgsT>
-  static Promise<> join(ArgsT &&... args) {
+  static Promise<> join(ArgsT &&...args) {
     return Promise<>(std::make_unique<detail::JoinPromise<ArgsT...>>(std::forward<ArgsT>(args)...));
   }
 };
@@ -421,7 +421,7 @@ class PromiseMerger : public std::enable_shared_from_this<PromiseMerger<PromiseT
       promise_.set_error(std::move(status));
       return;
     }
-    call_tuple([this](auto &&... args) { promise_.set_value({args.move_as_ok()...}); }, std::move(args_));
+    call_tuple([this](auto &&...args) { promise_.set_value({args.move_as_ok()...}); }, std::move(args_));
   }
 
   template <class T>
@@ -431,7 +431,7 @@ class PromiseMerger : public std::enable_shared_from_this<PromiseMerger<PromiseT
 
   template <class R>
   auto split() {
-    return call_tuple([this](auto &&... arg) { return R{this->make_promise(arg)...}; }, std::move(args_));
+    return call_tuple([this](auto &&...arg) { return R{this->make_promise(arg)...}; }, std::move(args_));
   }
 };
 
@@ -516,6 +516,35 @@ std::pair<Promise<T>, Future<T>> make_promise_future() {
   Future<T> future([pf](Result<Promise<T>> res) mutable { pf->promise_ = std::move(res); });
   Promise<T> promise = [pf = std::move(pf)](Result<T> res) mutable { pf->result_ = std::move(res); };
   return std::make_pair(std::move(promise), std::move(future));
+}
+
+template <class...>
+inline constexpr bool always_false = false;
+
+template <class R>
+struct is_result : std::false_type {};
+template <class U>
+struct is_result<td::Result<U>> : std::true_type {};
+
+template <class R>
+inline constexpr bool is_result_v = is_result<R>::value;
+
+template <class L, class R>
+constexpr decltype(auto) connect(L &&l, R &&r) noexcept {
+  if constexpr (is_result_v<std::decay_t<R>>) {
+    if (r.is_error()) {
+      connect(std::forward<L>(l), r.move_as_error());
+    } else {
+      connect(std::forward<L>(l), r.move_as_ok());
+    }
+  } else if constexpr (requires { custom_connect(std::forward<L>(l), std::forward<R>(r)); }) {
+    // ADL will find overloads defined in the namespaces of L or R
+    return custom_connect(std::forward<L>(l), std::forward<R>(r));
+  } else if constexpr (requires { std::forward<L>(l)(std::forward<R>(r)); }) {
+    return std::forward<L>(l)(std::forward<R>(r));
+  } else {
+    static_assert(always_false<L, R>, "no matching apply overload");
+  }
 }
 
 }  // namespace td

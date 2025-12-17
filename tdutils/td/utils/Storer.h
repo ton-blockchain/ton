@@ -18,14 +18,13 @@
 */
 #pragma once
 
-#include "td/utils/StorerBase.h"
-
-#include "td/utils/common.h"
-#include "td/utils/Slice.h"
-#include "td/utils/tl_storers.h"
-
 #include <cstring>
 #include <limits>
+
+#include "td/utils/Slice.h"
+#include "td/utils/StorerBase.h"
+#include "td/utils/common.h"
+#include "td/utils/tl_storers.h"
 
 namespace td {
 

@@ -19,20 +19,19 @@
 
 #pragma once
 
+#include <set>
+
+#include "common/bitstring.h"
+#include "td/utils/Heap.h"
+#include "td/utils/VectorQueue.h"
+#include "td/utils/buffer.h"
+
 #include "Bbr.h"
 #include "InboundTransfer.h"
 #include "LossStats.h"
 #include "OutboundTransfer.h"
 #include "Pacer.h"
 #include "RttStats.h"
-
-#include "common/bitstring.h"
-
-#include "td/utils/buffer.h"
-#include "td/utils/Heap.h"
-#include "td/utils/VectorQueue.h"
-
-#include <set>
 
 namespace ton {
 namespace rldp2 {
@@ -119,7 +118,7 @@ class RldpConnection {
     const RldpSender &sender;
     td::uint32 before_in_flight{sender.get_inflight_symbols_count()};
 
-    Guard(td::uint32 &in_flight_count, const RldpSender &sender) : in_flight_count(in_flight_count), sender(sender){};
+    Guard(td::uint32 &in_flight_count, const RldpSender &sender) : in_flight_count(in_flight_count), sender(sender) {};
     ~Guard() {
       in_flight_count -= before_in_flight;
       in_flight_count += sender.get_inflight_symbols_count();

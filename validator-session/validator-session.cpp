@@ -16,11 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "validator-session.hpp"
 #include "td/utils/Random.h"
-#include "candidate-serializer.h"
 #include "td/utils/overloaded.h"
 #include "ton/ton-tl.hpp"
+
+#include "candidate-serializer.h"
+#include "validator-session.hpp"
 
 namespace ton {
 
@@ -208,7 +209,7 @@ void ValidatorSessionImpl::preprocess_block(catchain::CatChainBlock *block) {
 }
 
 bool ValidatorSessionImpl::ensure_candidate_unique(td::uint32 src_idx, td::uint32 round,
-                                                  ValidatorSessionCandidateId block_id) {
+                                                   ValidatorSessionCandidateId block_id) {
   auto it = src_round_candidate_[src_idx].find(round);
   if (it != src_round_candidate_[src_idx].end() && it->second != block_id) {
     VLOG(VALIDATOR_SESSION_WARNING) << this << "[node " << description_->get_source_adnl_id(src_idx) << "][candidate "
@@ -241,8 +242,7 @@ void ValidatorSessionImpl::process_broadcast(PublicKeyHash src, td::BufferSlice 
   td::Timer deserialize_timer;
   auto R =
       deserialize_candidate(data, compress_block_candidates_,
-                            description().opts().max_block_size + description().opts().max_collated_data_size + 1024,
-                            description().opts().proto_version);
+                            description().opts().max_block_size + description().opts().max_collated_data_size + 1024);
   double deserialize_time = deserialize_timer.elapsed();
   if (R.is_error()) {
     VLOG(VALIDATOR_SESSION_WARNING) << this << "[node " << src << "][broadcast " << sha256_bits256(data.as_slice())
@@ -451,8 +451,9 @@ void ValidatorSessionImpl::process_query(PublicKeyHash src, td::BufferSlice data
     return;
   }
   const SentBlock *block = nullptr;
-  auto id = description().candidate_id(description().get_source_idx(PublicKeyHash{f->id_->src_}), f->id_->root_hash_,
-                                       f->id_->file_hash_, f->id_->collated_data_file_hash_);
+  TRY_RESULT_PROMISE(promise, source_idx, description().get_source_idx_safe(PublicKeyHash{f->id_->src_}));
+  auto id =
+      description().candidate_id(source_idx, f->id_->root_hash_, f->id_->file_hash_, f->id_->collated_data_file_hash_);
   if (round_id < real_state_->cur_round_seqno()) {
     block = real_state_->get_committed_block(description(), round_id);
     if (!block || SentBlock::get_block_id(block) != id) {
@@ -770,8 +771,8 @@ void ValidatorSessionImpl::try_approve_block(const SentBlock *block) {
           td::actor::send_closure(SelfId, &ValidatorSessionImpl::candidate_decision_ok, round, hash, root_hash,
                                   file_hash, src, R.ok_from(), timer.elapsed(), R.is_cached());
         } else {
-          td::actor::send_closure(SelfId, &ValidatorSessionImpl::candidate_decision_fail, round, hash, R.reason(),
-                                  src, R.proof(), timer.elapsed(), R.is_cached());
+          td::actor::send_closure(SelfId, &ValidatorSessionImpl::candidate_decision_fail, round, hash, R.reason(), src,
+                                  R.proof(), timer.elapsed(), R.is_cached());
         }
       });
       pending_approve_.insert(block_id);
@@ -1166,9 +1167,9 @@ void ValidatorSessionImpl::start() {
 
   auto w = description().export_catchain_nodes();
 
-  catchain_ = catchain::CatChain::create(
-      make_catchain_callback(), description().opts().catchain_opts, keyring_, adnl_, overlay_manager_, std::move(w),
-      local_id(), unique_hash_, db_root_, db_suffix_, allow_unsafe_self_blocks_resync_);
+  catchain_ = catchain::CatChain::create(make_catchain_callback(), description().opts().catchain_opts, keyring_, adnl_,
+                                         overlay_manager_, std::move(w), local_id(), unique_hash_, db_root_, db_suffix_,
+                                         allow_unsafe_self_blocks_resync_);
 
   check_all();
 }
@@ -1280,14 +1281,14 @@ void ValidatorSessionImpl::stats_init() {
   cur_stats_.total_weight = description().get_total_weight();
   cur_stats_.self = description().get_source_id(local_idx());
 
-  for (auto it = stats_pending_approve_.begin(); it != stats_pending_approve_.end(); ) {
+  for (auto it = stats_pending_approve_.begin(); it != stats_pending_approve_.end();) {
     if (it->first.first < cur_round_) {
       it = stats_pending_approve_.erase(it);
     } else {
       ++it;
     }
   }
-  for (auto it = stats_pending_sign_.begin(); it != stats_pending_sign_.end(); ) {
+  for (auto it = stats_pending_sign_.begin(); it != stats_pending_sign_.end();) {
     if (it->first.first < cur_round_) {
       it = stats_pending_sign_.erase(it);
     } else {
@@ -1305,7 +1306,7 @@ void ValidatorSessionImpl::stats_init() {
 void ValidatorSessionImpl::stats_add_round() {
   td::uint32 round = cur_stats_.first_round + cur_stats_.rounds.size();
   cur_stats_.rounds.emplace_back();
-  auto& stat = cur_stats_.rounds.back();
+  auto &stat = cur_stats_.rounds.back();
   stat.producers.resize(description().get_max_priority() + 1);
   for (td::uint32 i = 0; i < description().get_total_nodes(); i++) {
     td::int32 priority = description().get_node_priority(i, round);
@@ -1374,38 +1375,38 @@ ValidatorSessionStats::Producer *ValidatorSessionImpl::stats_get_candidate_stat_
 }
 
 void ValidatorSessionImpl::stats_process_action(td::uint32 node_id, ton_api::validatorSession_round_Message &action) {
-  ton_api::downcast_call(action, td::overloaded(
-                                     [&](const ton_api::validatorSession_message_submittedBlock &obj) {
-                                       auto candidate_id = description().candidate_id(
-                                           node_id, obj.root_hash_, obj.file_hash_, obj.collated_data_file_hash_);
-                                       auto stat = stats_get_candidate_stat(
-                                           obj.round_, description().get_source_id(node_id), candidate_id);
-                                       if (stat && stat->got_submit_at <= 0.0) {
-                                         stat->got_submit_at = td::Clocks::system();
-                                         stat->block_id.root_hash = obj.root_hash_;
-                                         stat->block_id.file_hash = obj.file_hash_;
-                                         stat->collated_data_hash = obj.collated_data_file_hash_;
-                                       }
-                                     },
-                                     [&](const ton_api::validatorSession_message_approvedBlock &obj) {
-                                       if (obj.candidate_ == skip_round_candidate_id()) {
-                                         return;
-                                       }
-                                       process_approve(node_id, obj.round_, obj.candidate_);
-                                     },
-                                     [&](const ton_api::validatorSession_message_commit &obj) {
-                                       if (obj.candidate_ == skip_round_candidate_id()) {
-                                         return;
-                                       }
-                                       auto stat = stats_get_candidate_stat_by_id(obj.round_, obj.candidate_);
-                                       if (stat) {
-                                         stat->set_signed_by(node_id, description().get_node_weight(node_id),
-                                                             description().get_total_weight());
-                                       } else {
-                                         stats_pending_sign_[{obj.round_, obj.candidate_}].push_back(node_id);
-                                       }
-                                     },
-                                     [](const auto &) {}));
+  ton_api::downcast_call(
+      action,
+      td::overloaded(
+          [&](const ton_api::validatorSession_message_submittedBlock &obj) {
+            auto candidate_id =
+                description().candidate_id(node_id, obj.root_hash_, obj.file_hash_, obj.collated_data_file_hash_);
+            auto stat = stats_get_candidate_stat(obj.round_, description().get_source_id(node_id), candidate_id);
+            if (stat && stat->got_submit_at <= 0.0) {
+              stat->got_submit_at = td::Clocks::system();
+              stat->block_id.root_hash = obj.root_hash_;
+              stat->block_id.file_hash = obj.file_hash_;
+              stat->collated_data_hash = obj.collated_data_file_hash_;
+            }
+          },
+          [&](const ton_api::validatorSession_message_approvedBlock &obj) {
+            if (obj.candidate_ == skip_round_candidate_id()) {
+              return;
+            }
+            process_approve(node_id, obj.round_, obj.candidate_);
+          },
+          [&](const ton_api::validatorSession_message_commit &obj) {
+            if (obj.candidate_ == skip_round_candidate_id()) {
+              return;
+            }
+            auto stat = stats_get_candidate_stat_by_id(obj.round_, obj.candidate_);
+            if (stat) {
+              stat->set_signed_by(node_id, description().get_node_weight(node_id), description().get_total_weight());
+            } else {
+              stats_pending_sign_[{obj.round_, obj.candidate_}].push_back(node_id);
+            }
+          },
+          [](const auto &) {}));
 }
 
 void ValidatorSessionImpl::process_approve(td::uint32 node_id, td::uint32 round,

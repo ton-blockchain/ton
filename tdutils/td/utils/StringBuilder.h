@@ -18,13 +18,13 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-#include "td/utils/Slice.h"
-#include "td/utils/StackAllocator.h"
-
 #include <cstdlib>
 #include <memory>
 #include <type_traits>
+
+#include "td/utils/Slice.h"
+#include "td/utils/StackAllocator.h"
+#include "td/utils/common.h"
 
 namespace td {
 
@@ -151,16 +151,16 @@ std::enable_if_t<std::is_arithmetic<T>::value, string> to_string(const T &x) {
 
 template <class SB>
 struct LambdaPrintHelper {
-  SB& sb;
+  SB &sb;
 };
 template <class SB, class F>
-SB& operator<<(const LambdaPrintHelper<SB>& helper, F&& f) {
+SB &operator<<(const LambdaPrintHelper<SB> &helper, F &&f) {
   f(helper.sb);
   return helper.sb;
 }
 struct LambdaPrint {};
 
-inline LambdaPrintHelper<td::StringBuilder> operator<<(td::StringBuilder& sb, const LambdaPrint&) {
+inline LambdaPrintHelper<td::StringBuilder> operator<<(td::StringBuilder &sb, const LambdaPrint &) {
   return LambdaPrintHelper<td::StringBuilder>{sb};
 }
 

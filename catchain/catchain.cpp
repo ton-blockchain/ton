@@ -16,11 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <utility>
+
+#include "catchain-receiver.h"
 #include "catchain-types.h"
 #include "catchain.hpp"
-
-#include <utility>
-#include "catchain-receiver.h"
 
 namespace ton {
 
@@ -208,7 +208,8 @@ void CatChainImpl::on_blame(td::uint32 src_id) {
   td::actor::send_closure(receiver_, &CatChainReceiverInterface::on_blame_processed, src_id);
 }
 
-void CatChainImpl::on_custom_query(const PublicKeyHash &src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
+void CatChainImpl::on_custom_query(const PublicKeyHash &src, td::BufferSlice data,
+                                   td::Promise<td::BufferSlice> promise) {
   callback_->process_query(src, std::move(data), std::move(promise));
 }
 
@@ -229,8 +230,8 @@ void CatChainImpl::on_receiver_started() {
 CatChainImpl::CatChainImpl(std::unique_ptr<Callback> callback, const CatChainOptions &opts,
                            td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                            td::actor::ActorId<overlay::Overlays> overlay_manager, std::vector<CatChainNode> ids,
-                           const PublicKeyHash &local_id, const CatChainSessionId &unique_hash,
-                           std::string db_root, std::string db_suffix, bool allow_unsafe_self_blocks_resync)
+                           const PublicKeyHash &local_id, const CatChainSessionId &unique_hash, std::string db_root,
+                           std::string db_suffix, bool allow_unsafe_self_blocks_resync)
     : opts_(opts)
     , unique_hash_(unique_hash)
     , db_root_(std::move(db_root))
@@ -271,7 +272,8 @@ void CatChainImpl::start_up() {
     void blame(td::uint32 src_id) override {
       td::actor::send_closure(id_, &CatChainImpl::on_blame, src_id);
     }
-    void on_custom_query(const PublicKeyHash &src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) override {
+    void on_custom_query(const PublicKeyHash &src, td::BufferSlice data,
+                         td::Promise<td::BufferSlice> promise) override {
       td::actor::send_closure(id_, &CatChainImpl::on_custom_query, src, std::move(data), std::move(promise));
     }
     void on_broadcast(const PublicKeyHash &src, td::BufferSlice data) override {
@@ -289,9 +291,9 @@ void CatChainImpl::start_up() {
 
   auto cb = std::make_unique<ChainCb>(actor_id(this));
 
-  receiver_ = CatChainReceiverInterface::create(
-      std::move(cb), opts_, args_->keyring, args_->adnl, args_->overlay_manager, args_->ids, args_->local_id,
-      args_->unique_hash, db_root_, db_suffix_, allow_unsafe_self_blocks_resync_);
+  receiver_ = CatChainReceiverInterface::create(std::move(cb), opts_, args_->keyring, args_->adnl,
+                                                args_->overlay_manager, args_->ids, args_->local_id, args_->unique_hash,
+                                                db_root_, db_suffix_, allow_unsafe_self_blocks_resync_);
   args_ = nullptr;
   //alarm_timestamp() = td::Timestamp::in(opts_.idle_timeout);
 }
@@ -303,10 +305,9 @@ td::actor::ActorOwn<CatChain> CatChain::create(std::unique_ptr<Callback> callbac
                                                std::vector<CatChainNode> ids, const PublicKeyHash &local_id,
                                                const CatChainSessionId &unique_hash, std::string db_root,
                                                std::string db_suffix, bool allow_unsafe_self_blocks_resync) {
-  return td::actor::create_actor<CatChainImpl>("catchain", std::move(callback), opts, std::move(keyring),
-                                               std::move(adnl), std::move(overlay_manager), std::move(ids),
-                                               local_id, unique_hash, std::move(db_root), std::move(db_suffix),
-                                               allow_unsafe_self_blocks_resync);
+  return td::actor::create_actor<CatChainImpl>(
+      "catchain", std::move(callback), opts, std::move(keyring), std::move(adnl), std::move(overlay_manager),
+      std::move(ids), local_id, unique_hash, std::move(db_root), std::move(db_suffix), allow_unsafe_self_blocks_resync);
 }
 
 CatChainBlock *CatChainImpl::get_block(CatChainBlockHash hash) const {

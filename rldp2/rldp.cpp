@@ -16,12 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "rldp-in.hpp"
 #include "auto/tl/ton_api.h"
 #include "auto/tl/ton_api.hpp"
-#include "td/utils/Random.h"
 #include "fec/fec.h"
+#include "td/utils/Random.h"
+
 #include "RldpConnection.h"
+#include "rldp-in.hpp"
 
 namespace ton {
 
@@ -31,7 +32,7 @@ class RldpConnectionActor : public td::actor::Actor, private ConnectionCallback 
  public:
   RldpConnectionActor(td::actor::ActorId<RldpIn> rldp, adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                       td::actor::ActorId<adnl::Adnl> adnl)
-      : rldp_(std::move(rldp)), src_(src), dst_(dst), adnl_(std::move(adnl)){};
+      : rldp_(std::move(rldp)), src_(src), dst_(dst), adnl_(std::move(adnl)) {};
 
   void send(TransferId transfer_id, td::BufferSlice query, td::Timestamp timeout = td::Timestamp::never()) {
     connection_.send(transfer_id, std::move(query), timeout);

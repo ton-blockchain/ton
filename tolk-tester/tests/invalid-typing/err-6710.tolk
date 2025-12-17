@@ -10,6 +10,6 @@ fun testCantPassAddressToSlice() {
 
 /**
 @compilation_should_fail
-@stderr can not pass `address` to `slice`
+@stderr can not pass `any_address` to `slice`
 @stderr f(a);
  */

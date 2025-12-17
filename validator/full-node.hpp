@@ -18,18 +18,20 @@
 */
 #pragma once
 
-#include "full-node.h"
 #include "full-node-shard.h"
+#include "full-node.h"
 //#include "ton-node-slave.h"
+#include <map>
+#include <queue>
+#include <set>
+#include <token-manager.h>
+
 #include "interfaces/proof.h"
 #include "interfaces/shard.h"
-#include "full-node-private-overlay.hpp"
-#include "full-node-fast-sync-overlays.hpp"
 
-#include <map>
-#include <set>
-#include <queue>
-#include <token-manager.h>
+#include "full-node-custom-overlays.hpp"
+#include "full-node-fast-sync-overlays.hpp"
+#include "rate-limiter.h"
 
 namespace ton {
 
@@ -155,12 +157,6 @@ class FullNodeImpl : public FullNode {
   td::Promise<td::Unit> started_promise_;
   FullNodeOptions opts_;
 
-  // Private overlays:
-  // Old overlays - one private overlay for all validators
-  // New overlays (fast sync overlays) - semiprivate overlay per shard (monitor_min_split depth)
-  //     for validators and authorized nodes
-  bool use_old_private_overlays_ = true;
-  std::map<PublicKeyHash, td::actor::ActorOwn<FullNodePrivateBlockOverlay>> private_block_overlays_;
   FullNodeFastSyncOverlays fast_sync_overlays_;
 
   struct CustomOverlayInfo {
@@ -172,7 +168,6 @@ class FullNodeImpl : public FullNode {
   std::queue<BlockIdExt> custom_overlays_sent_broadcasts_lru_;
 
   void update_private_overlays();
-  void create_private_block_overlay(PublicKeyHash key);
   void update_custom_overlay(CustomOverlayInfo& overlay);
   void send_block_broadcast_to_custom_overlays(const BlockBroadcast& broadcast);
   void send_block_candidate_broadcast_to_custom_overlays(const BlockIdExt& block_id, CatchainSeqno cc_seqno,
@@ -185,6 +180,10 @@ class FullNodeImpl : public FullNode {
 
   td::actor::ActorOwn<TokenManager> out_msg_queue_query_token_manager_ =
       td::actor::create_actor<TokenManager>("tokens", /* max_tokens = */ 1);
+
+  std::shared_ptr<RateLimiter<>> limiter_;
+
+  decltype(limiter_) make_limiter(const FullNodeOptions& opts);
 };
 
 }  // namespace fullnode

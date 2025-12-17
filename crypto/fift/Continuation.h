@@ -18,6 +18,7 @@
 */
 #pragma once
 #include <functional>
+
 #include "common/refcnt.hpp"
 #include "common/refint.h"
 #include "vm/stack.hpp"

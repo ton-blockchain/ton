@@ -16,9 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "parser/srcread.h"
-#include "func.h"
 #include <iostream>
+
+#include "parser/srcread.h"
+
+#include "func.h"
 
 namespace funC {
 

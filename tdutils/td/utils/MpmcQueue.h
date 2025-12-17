@@ -23,14 +23,14 @@
 // To close queue, one should send as much sentinel elements as there are readers.
 // Once there are no readers and writers, one may easily destroy queue
 
-#include "td/utils/format.h"
-#include "td/utils/HazardPointers.h"
-#include "td/utils/logging.h"
-#include "td/utils/port/thread.h"
-#include "td/utils/ScopeGuard.h"
-
 #include <array>
 #include <atomic>
+
+#include "td/utils/HazardPointers.h"
+#include "td/utils/ScopeGuard.h"
+#include "td/utils/format.h"
+#include "td/utils/logging.h"
+#include "td/utils/port/thread.h"
 
 namespace td {
 
