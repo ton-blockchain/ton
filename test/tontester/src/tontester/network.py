@@ -10,13 +10,14 @@ from ipaddress import IPv4Address
 from pathlib import Path
 from typing import Literal, final, override
 
+from tonapi import ton_api
+
 from tl import TLObject
 from tonlib import TonlibClient, TonlibError
 
 from .install import Install
 from .key import Key
 from .log_streamer import LogStreamer
-from .tl import ton_api
 from .zerostate import NetworkConfig, Zerostate, create_zerostate
 
 l = logging.getLogger(__name__)

@@ -3,7 +3,7 @@ import logging
 import traceback
 from pathlib import Path
 
-from tontester.tl import ton_api, tonlib_api
+from tonapi import ton_api, tonlib_api
 
 from .tonlibjson import TonLib
 

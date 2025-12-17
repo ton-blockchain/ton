@@ -8,7 +8,7 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import override
 
-from tontester.tl import tonlib_api
+from tonapi import tonlib_api
 
 from tl import JSONSerializable, TLObject
 

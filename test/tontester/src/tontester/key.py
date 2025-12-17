@@ -2,8 +2,9 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from tonapi import ton_api
+
 from .install import Install
-from .tl import ton_api
 
 
 @dataclass

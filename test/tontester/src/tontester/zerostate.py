@@ -1,9 +1,10 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from tonapi import ton_api
+
 from .install import Install, run_fift
 from .key import Key
-from .tl import ton_api
 
 
 def _shard_json_repr(shard: int):
