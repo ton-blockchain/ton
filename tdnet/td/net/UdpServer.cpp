@@ -22,12 +22,183 @@
 #include "td/net/TcpListener.h"
 #include "td/net/UdpServer.h"
 #include "td/utils/BufferedFd.h"
+#include "td/utils/filesystem.h"
+
+#ifdef TON_USE_GO_TUNNEL
+#include "td/net/tunnel/libtunnel.h"
+#endif
 
 namespace td {
 namespace {
 int VERBOSITY_NAME(udp_server) = VERBOSITY_NAME(DEBUG) + 10;
 }
 namespace detail {
+
+constexpr int TUNNEL_BUFFER_SZ_PACKETS = 100;
+constexpr int TUNNEL_MAX_PACKET_MTU = 1500;
+constexpr double TUNNEL_ALARM_EVERY = 0.01;
+
+class UdpServerTunnelImpl : public UdpServer {
+ public:
+  void start_up() override;
+  void alarm() override;
+
+  void send(td::UdpMessage &&message) override;
+  static td::actor::ActorOwn<UdpServerTunnelImpl> create(td::Slice name, std::string global_config, std::string tunnel_config, std::unique_ptr<TunnelCallback> callback,
+                                                         td::Promise<td::IPAddress> on_ready);
+
+  UdpServerTunnelImpl(std::string global_config, std::string tunnel_config, std::unique_ptr<TunnelCallback> callback, td::Promise<td::IPAddress> on_ready);
+
+private:
+  td::Promise<td::IPAddress> on_ready_;
+  uint8_t out_buf_[(sizeof(sockaddr)+2+TUNNEL_MAX_PACKET_MTU)*TUNNEL_BUFFER_SZ_PACKETS];
+  size_t out_buf_offset_ = 0;
+  size_t out_buf_msg_num_ = 0;
+  size_t tunnel_index_;
+  double last_batch_at_ = Time::now();
+
+  std::string global_config_;
+  std::string tunnel_config_;
+
+  int32 port_;
+  std::unique_ptr<TunnelCallback> callback_;
+
+  static void on_recv_batch(void *next, uint8_t *data, size_t num);
+  static void on_reinit(void *next, sockaddr *addr);
+
+  static void log(const char *text, const size_t len, const int level) {
+    const string str(text, len);
+    switch (level) {
+      case 0:
+        LOG(FATAL) << "[TUNNEL] " << str;
+        break;
+      case 1:
+        LOG(ERROR) << "[TUNNEL] " << str;
+        break;
+      case 2:
+        LOG(WARNING) << "[TUNNEL] " << str;
+        break;
+      case 3:
+        LOG(INFO) << "[TUNNEL] " << str;
+        break;
+      default:
+        LOG(DEBUG) << "[TUNNEL] " << str;
+        break;
+    }
+  }
+};
+
+void UdpServerTunnelImpl::send(td::UdpMessage &&message) {
+  const auto sock = message.address.get_sockaddr();
+  const auto sz = message.data.size();
+
+  // ip+port
+  memcpy(out_buf_ + out_buf_offset_, sock, sizeof(sockaddr));
+  out_buf_offset_ += sizeof(sockaddr);
+
+  // data len (2 bytes)
+  out_buf_[out_buf_offset_] = static_cast<uint8_t>(sz >> 8);
+  out_buf_[out_buf_offset_ + 1] = static_cast<uint8_t>(sz & 0xff);
+
+  if (sz > TUNNEL_MAX_PACKET_MTU) {
+    LOG(WARNING) << "udp message is too big, dropping";
+    return;
+  }
+
+  memcpy(out_buf_ + out_buf_offset_ + 2, message.data.data(), sz);
+  out_buf_offset_ += 2 + sz;
+  out_buf_msg_num_++;
+
+
+  if (out_buf_msg_num_ == TUNNEL_BUFFER_SZ_PACKETS) {
+#ifdef TON_USE_GO_TUNNEL
+    WriteTunnel(tunnel_index_, out_buf_, out_buf_msg_num_);
+    LOG(DEBUG) << "Sending messages by fulfillment " << TUNNEL_BUFFER_SZ_PACKETS;
+#endif
+
+    out_buf_offset_ = 0;
+    out_buf_msg_num_ = 0;
+    last_batch_at_ = Time::now();
+  }
+}
+
+void UdpServerTunnelImpl::alarm() {
+  if (out_buf_msg_num_ > 0 && Time::now()-last_batch_at_ >= TUNNEL_ALARM_EVERY) {
+#ifdef TON_USE_GO_TUNNEL
+    WriteTunnel(tunnel_index_, out_buf_, out_buf_msg_num_);
+    LOG(DEBUG) << "Sending messages by alarm " << out_buf_msg_num_;
+#endif
+
+    out_buf_offset_ = 0;
+    out_buf_msg_num_ = 0;
+    last_batch_at_ = Time::now();
+  }
+
+  alarm_timestamp() = td::Timestamp::in(TUNNEL_ALARM_EVERY);
+}
+
+void UdpServerTunnelImpl::start_up() {
+#ifdef TON_USE_GO_TUNNEL
+  auto global_conf_data_R = td::read_file(global_config_);
+  if (global_conf_data_R.is_error()) {
+    LOG(FATAL) << global_conf_data_R.move_as_error_prefix("failed to read global config: ");
+    return;
+  }
+
+  auto global_cfg = global_conf_data_R.move_as_ok();
+
+  LOG(INFO) << "Initializing ADNL Tunnel...";
+  const auto res = PrepareTunnel(&log, &on_recv_batch, &on_reinit, callback_.get(), callback_.get(), tunnel_config_.data(), tunnel_config_.size(), global_cfg.data(), global_cfg.size());
+  if (!res.index) {
+    // the reason will be displayed in logs from lib part
+    exit(1);
+  }
+  tunnel_index_ = res.index;
+  LOG(INFO) << "ADNL Tunnel Initialized";
+
+  td:IPAddress ip;
+  ip.init_ipv4_port(td::IPAddress::ipv4_to_str(res.ip), static_cast<td::uint16>(res.port)).ensure();
+  on_ready_.set_value(std::move(ip));
+
+  alarm_timestamp() = td::Timestamp::in(TUNNEL_ALARM_EVERY);
+#else
+  LOG(FATAL) << "Tunnel was not enabled during node building, rebuild with cmake flag -DTON_USE_GO_TUNNEL=ON";
+#endif
+}
+
+void UdpServerTunnelImpl::on_recv_batch(void *next, uint8_t *data, size_t num) {
+  for (size_t i = 0; i < num; i++) {
+    UdpMessage msg{};
+    msg.address.init_sockaddr(reinterpret_cast<sockaddr *>(data));
+    const uint16_t len = (static_cast<uint16_t>(data[16]) << 8) + static_cast<uint16_t>(data[17]);
+    msg.data = BufferSlice(reinterpret_cast<const char *>(data + 18), len);
+    data += 18+len;
+
+    // both init_sockaddr and BufferSlice doing memcpy so it is safe
+    static_cast<TunnelCallback*>(next)->on_udp_message(std::move(msg));
+  }
+}
+
+void UdpServerTunnelImpl::on_reinit(void *next, sockaddr *addr) {
+  td::IPAddress ip;
+  ip.init_sockaddr(addr);
+
+  static_cast<TunnelCallback*>(next)->on_in_addr_update(std::move(ip));
+}
+
+td::actor::ActorOwn<UdpServerTunnelImpl> UdpServerTunnelImpl::create(td::Slice name, std::string global_config, std::string tunnel_config,
+                                                                     std::unique_ptr<TunnelCallback> callback,
+                                                                     td::Promise<td::IPAddress> on_ready) {
+  return td::actor::create_actor<UdpServerTunnelImpl>(
+      actor::ActorOptions().with_name(name).with_poll(!td::Poll::is_edge_triggered()), global_config, tunnel_config, std::move(callback), std::move(on_ready));
+}
+
+UdpServerTunnelImpl::UdpServerTunnelImpl(std::string global_config, std::string tunnel_config, std::unique_ptr<TunnelCallback> callback, td::Promise<td::IPAddress> on_ready): on_ready_(std::move(on_ready))
+    , global_config_(global_config)
+    , tunnel_config_(tunnel_config)
+    , callback_(std::move(callback)) {
+}
+
 class UdpServerImpl : public UdpServer {
  public:
   void send(td::UdpMessage &&message) override;
@@ -395,6 +566,13 @@ Result<actor::ActorOwn<UdpServer>> UdpServer::create(td::Slice name, int32 port,
   fd.maximize_rcv_buffer().ensure();
   return detail::UdpServerImpl::create(name, std::move(fd), std::move(callback));
 }
+
+Result<actor::ActorOwn<UdpServer>> UdpServer::create_via_tunnel(td::Slice name, std::string global_config, std::string tunnel_config,
+                                                                std::unique_ptr<TunnelCallback> callback,
+                                                                td::Promise<td::IPAddress> on_ready) {
+  return detail::UdpServerTunnelImpl::create(name, global_config, tunnel_config, std::move(callback), std::move(on_ready));
+}
+
 Result<actor::ActorOwn<UdpServer>> UdpServer::create_via_tcp(td::Slice name, int32 port,
                                                              std::unique_ptr<Callback> callback) {
   return actor::create_actor<detail::UdpServerViaTcp>(name, port, std::move(callback));

@@ -26,7 +26,6 @@ libsodium-1.0.18-stable-msvc.zip
 libmicrohttpd-0.9.77-w32-bin.zip
 openssl-3.1.4.zip
 readline-5.0-1-lib.zip
-
 # Python files
 .venv
 .ruff_cache
@@ -37,3 +36,4 @@ test/integration/.network
 
 test/tontester/tests/tl/generated
 test/tontester/src/tontester/tl
+libtunnel.a

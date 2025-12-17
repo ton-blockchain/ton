@@ -75,11 +75,68 @@ size_t AdnlNetworkManagerImpl::add_listening_udp_port(td::uint16 port) {
   return idx;
 }
 
+constexpr int TUNNEL_FAKE_PORT = 0;
+
+size_t AdnlNetworkManagerImpl::add_tunnel_udp_port(std::string global_config, std::string tunnel_config, td::Promise<td::IPAddress> on_ready,
+                                                   td::actor::Scheduler *scheduler) {
+  auto it = port_2_socket_.find(TUNNEL_FAKE_PORT);
+  if (it != port_2_socket_.end()) {
+    return it->second;
+  }
+  class Callback : public td::UdpServer::TunnelCallback {
+  public:
+    Callback(td::actor::ActorShared<AdnlNetworkManagerImpl> manager, size_t idx, td::actor::Scheduler *scheduler, TunnelEventsHandler* tunnel_events_handler)
+        : manager_(std::move(manager)), idx_(idx), scheduler_(scheduler), tunnel_events_handler_(tunnel_events_handler) {
+    }
+
+  private:
+    TunnelEventsHandler* tunnel_events_handler_;
+    td::actor::ActorShared<AdnlNetworkManagerImpl> manager_;
+    size_t idx_;
+    td::actor::Scheduler *scheduler_;
+    void on_udp_message(td::UdpMessage udp_message) override {
+      scheduler_->run_in_context_external([&] {
+        td::actor::send_closure_later(manager_, &AdnlNetworkManagerImpl::receive_udp_message, std::move(udp_message),
+                              idx_);
+      });
+    }
+    void on_in_addr_update(const td::IPAddress ip) override {
+      tunnel_events_handler_->on_in_addr_update(ip);
+    }
+  };
+
+  auto idx = udp_sockets_.size();
+  auto X = td::UdpServer::create_via_tunnel("udp tunnel server", global_config, tunnel_config,
+                                            std::make_unique<Callback>(actor_shared(this), idx, scheduler, tunnel_events_handler_.get()),
+                                            std::move(on_ready));
+  X.ensure();
+  port_2_socket_[TUNNEL_FAKE_PORT] = idx;
+  udp_sockets_.push_back(UdpSocketDesc{TUNNEL_FAKE_PORT, X.move_as_ok()});
+  return idx;
+}
+
 void AdnlNetworkManagerImpl::add_self_addr(td::IPAddress addr, AdnlCategoryMask cat_mask, td::uint32 priority) {
   auto port = td::narrow_cast<td::uint16>(addr.get_port());
   size_t idx = add_listening_udp_port(port);
   add_in_addr(InDesc{port, nullptr, cat_mask}, idx);
   auto d = OutDesc{port, td::IPAddress{}, nullptr, idx};
+  for (auto &it : out_desc_[priority]) {
+    if (it == d) {
+      it.cat_mask |= cat_mask;
+      return;
+    }
+  }
+
+  d.cat_mask = cat_mask;
+  out_desc_[priority].push_back(std::move(d));
+}
+
+void AdnlNetworkManagerImpl::add_tunnel(std::string global_config, std::string tunnel_config, AdnlCategoryMask cat_mask, td::uint32 priority,
+                                        td::Promise<td::IPAddress> on_ready, td::actor::Scheduler *scheduler) {
+  size_t idx = add_tunnel_udp_port(global_config, tunnel_config, std::move(on_ready), scheduler);
+
+  add_in_addr(InDesc{TUNNEL_FAKE_PORT, nullptr, cat_mask}, idx);
+  auto d = OutDesc{TUNNEL_FAKE_PORT, td::IPAddress{}, nullptr, idx};
   for (auto &it : out_desc_[priority]) {
     if (it == d) {
       it.cat_mask |= cat_mask;
