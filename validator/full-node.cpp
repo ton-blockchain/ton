@@ -604,7 +604,7 @@ void FullNodeImpl::new_key_block(BlockHandle handle) {
   }
 }
 
-void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast) {
+void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast, bool signatures_checked) {
   send_block_broadcast_to_custom_overlays(broadcast);
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_broadcast, std::move(broadcast),
                           [](td::Result<td::Unit> R) {
@@ -615,7 +615,8 @@ void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast) {
                                 LOG(INFO) << "dropped broadcast: " << R.move_as_error();
                               }
                             }
-                          });
+                          },
+                          signatures_checked);
 }
 
 void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,

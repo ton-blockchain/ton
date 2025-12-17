@@ -402,7 +402,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void validate_block_proof_rel(BlockIdExt block_id, BlockIdExt rel_block_id, td::BufferSlice proof,
                                 td::Promise<td::Unit> promise) override;
   void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override;
-  void new_block_broadcast(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override;
+  void new_block_broadcast(BlockBroadcast broadcast, td::Promise<td::Unit> promise,
+                           bool signatures_checked = false) override;
   void validate_block_broadcast_signatures(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override;
   void validated_block_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno);
 

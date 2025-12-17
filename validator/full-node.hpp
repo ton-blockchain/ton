@@ -93,7 +93,7 @@ class FullNodeImpl : public FullNode {
   void got_key_block_config(td::Ref<ConfigHolder> config);
   void new_key_block(BlockHandle handle);
 
-  void process_block_broadcast(BlockBroadcast broadcast) override;
+  void process_block_broadcast(BlockBroadcast broadcast, bool signatures_checked = false) override;
   void process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                          td::BufferSlice data) override;
   void get_out_msg_queue_query_token(td::Promise<std::unique_ptr<ActionToken>> promise) override;
