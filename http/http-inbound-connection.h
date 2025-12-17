@@ -18,9 +18,9 @@
 */
 #pragma once
 
-#include "http.h"
 #include "http-connection.h"
 #include "http-server.h"
+#include "http.h"
 
 namespace ton {
 
@@ -33,6 +33,9 @@ class HttpInboundConnection : public HttpConnection {
   }
 
   td::Status receive_eof() override {
+    if (found_eof_) {
+      return td::Status::OK();
+    }
     found_eof_ = true;
     if (reading_payload_) {
       if (reading_payload_->payload_type() != HttpPayload::PayloadType::pt_eof &&

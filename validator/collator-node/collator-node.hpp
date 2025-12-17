@@ -16,12 +16,14 @@
 */
 #pragma once
 
-#include "collator-node-session.hpp"
+#include <map>
+#include <optional>
+
 #include "interfaces/validator-manager.h"
 #include "rldp/rldp.h"
 #include "rldp2/rldp.h"
-#include <map>
-#include <optional>
+
+#include "collator-node-session.hpp"
 
 namespace ton::validator {
 

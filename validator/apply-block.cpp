@@ -16,12 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "apply-block.hpp"
 #include "adnl/utils.hpp"
-#include "ton/ton-io.hpp"
-#include "validator/invariants.hpp"
 #include "td/actor/MultiPromise.h"
+#include "ton/ton-io.hpp"
 #include "validator/fabric.h"
+#include "validator/invariants.hpp"
+
+#include "apply-block.hpp"
 
 namespace ton {
 
@@ -264,7 +265,6 @@ void ApplyBlock::applied_prev() {
     }
   });
   td::actor::send_closure(manager_, &ValidatorManager::new_block, handle_, state_, std::move(P));
-
 }
 
 void ApplyBlock::applied_set() {

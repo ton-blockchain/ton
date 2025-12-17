@@ -17,11 +17,9 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/JsonBuilder.h"
-
-#include "td/utils/misc.h"
 #include "td/utils/ScopeGuard.h"
-
-#include <cstring>
+#include "td/utils/misc.h"
+#include "td/utils/utf8.h"
 
 namespace td {
 
@@ -107,11 +105,11 @@ StringBuilder &operator<<(StringBuilder &sb, const JsonString &val) {
           break;
         }
         if (128 <= ch) {
-          int a = s[pos];
+          uint32 a = ch;
           CHECK((a & 0x40) != 0);
 
           CHECK(pos + 1 < len);
-          int b = s[++pos];
+          uint32 b = static_cast<unsigned char>(s[++pos]);
           CHECK((b & 0xc0) == 0x80);
           if ((a & 0x20) == 0) {
             CHECK((a & 0x1e) > 0);
@@ -120,7 +118,7 @@ StringBuilder &operator<<(StringBuilder &sb, const JsonString &val) {
           }
 
           CHECK(pos + 1 < len);
-          int c = s[++pos];
+          uint32 c = static_cast<unsigned char>(s[++pos]);
           CHECK((c & 0xc0) == 0x80);
           if ((a & 0x10) == 0) {
             CHECK(((a & 0x0f) | (b & 0x20)) > 0);
@@ -129,7 +127,7 @@ StringBuilder &operator<<(StringBuilder &sb, const JsonString &val) {
           }
 
           CHECK(pos + 1 < len);
-          int d = s[++pos];
+          uint32 d = static_cast<unsigned char>(s[++pos]);
           CHECK((d & 0xc0) == 0x80);
           if ((a & 0x08) == 0) {
             CHECK(((a & 0x07) | (b & 0x30)) > 0);
@@ -151,44 +149,26 @@ Result<MutableSlice> json_string_decode(Parser &parser) {
   if (!parser.try_skip('"')) {
     return Status::Error("Opening '\"' expected");
   }
-  auto *cur_src = parser.data().data();
-  auto *end_src = parser.data().end();
-  auto *end = cur_src;
-  while (end < end_src && end[0] != '"') {
-    if (end[0] == '\\') {
-      end++;
-    }
-    end++;
-  }
-  if (end >= end_src) {
-    return Status::Error("Closing '\"' not found");
-  }
-  parser.advance(end + 1 - cur_src);
-  end_src = end;
+  auto data = parser.data();
+  auto *result_start = data.ubegin();
+  auto *cur_src = result_start;
+  auto *cur_dest = result_start;
+  auto *end = data.uend();
 
-  auto *cur_dest = cur_src;
-  auto *begin_dest = cur_src;
-
-  while (cur_src != end_src) {
-    auto *slash = static_cast<char *>(std::memchr(cur_src, '\\', end_src - cur_src));
-    if (slash == nullptr) {
-      slash = end_src;
+  while (true) {
+    if (cur_src == end) {
+      return Status::Error("Closing '\"' not found");
     }
-    std::memmove(cur_dest, cur_src, slash - cur_src);
-    cur_dest += slash - cur_src;
-    cur_src = slash;
-    if (cur_src != end_src) {
+    if (*cur_src == '"') {
+      parser.advance(cur_src + 1 - result_start);
+      return data.substr(0, cur_dest - result_start);
+    }
+    if (*cur_src == '\\') {
       cur_src++;
-      if (cur_src == end_src) {
-        // TODO UNREACHABLE();
-        return Status::Error("Unexpected end of string");
+      if (cur_src == end) {
+        return Status::Error("Closing '\"' not found");
       }
       switch (*cur_src) {
-        case '"':
-        case '\\':
-        case '/':
-          *cur_dest++ = *cur_src++;
-          break;
         case 'b':
           *cur_dest++ = '\b';
           cur_src++;
@@ -211,10 +191,10 @@ Result<MutableSlice> json_string_decode(Parser &parser) {
           break;
         case 'u': {
           cur_src++;
-          if (cur_src + 4 > end_src) {
+          if (cur_src + 4 > end) {
             return Status::Error("\\u has less than 4 symbols");
           }
-          int num = 0;
+          uint32 num = 0;
           for (int i = 0; i < 4; i++, cur_src++) {
             int d = hex_to_int(*cur_src);
             if (d == 16) {
@@ -223,7 +203,7 @@ Result<MutableSlice> json_string_decode(Parser &parser) {
             num = num * 16 + d;
           }
           if (0xD7FF < num && num < 0xE000) {
-            if (cur_src + 6 <= end_src && cur_src[0] == '\\' && cur_src[1] == 'u') {
+            if (cur_src + 6 <= end && cur_src[0] == '\\' && cur_src[1] == 'u') {
               cur_src += 2;
               int new_num = 0;
               for (int i = 0; i < 4; i++, cur_src++) {
@@ -241,76 +221,46 @@ Result<MutableSlice> json_string_decode(Parser &parser) {
             }
           }
 
-          if (num < 128) {
-            *cur_dest++ = static_cast<char>(num);
-          } else if (num < 0x800) {
-            *cur_dest++ = static_cast<char>(0xc0 + (num >> 6));
-            *cur_dest++ = static_cast<char>(0x80 + (num & 63));
-          } else if (num <= 0xffff) {
-            *cur_dest++ = static_cast<char>(0xe0 + (num >> 12));
-            *cur_dest++ = static_cast<char>(0x80 + ((num >> 6) & 63));
-            *cur_dest++ = static_cast<char>(0x80 + (num & 63));
-          } else {
-            *cur_dest++ = static_cast<char>(0xf0 + (num >> 18));
-            *cur_dest++ = static_cast<char>(0x80 + ((num >> 12) & 63));
-            *cur_dest++ = static_cast<char>(0x80 + ((num >> 6) & 63));
-            *cur_dest++ = static_cast<char>(0x80 + (num & 63));
-          }
+          cur_dest = append_utf8_character_unsafe(cur_dest, num);
           break;
         }
+        default:
+          *cur_dest++ = *cur_src++;
+          break;
       }
+    } else {
+      *cur_dest++ = *cur_src++;
     }
   }
-  CHECK(cur_dest <= end_src);
-  return MutableSlice(begin_dest, cur_dest);
+  UNREACHABLE();
+  return {};
 }
 
 Status json_string_skip(Parser &parser) {
   if (!parser.try_skip('"')) {
     return Status::Error("Opening '\"' expected");
   }
-  auto *begin_src = parser.data().data();
-  auto *cur_src = begin_src;
-  auto *end_src = parser.data().end();
-  auto *end = cur_src;
-  while (end < end_src && *end != '"') {
-    if (*end == '\\') {
-      end++;
-    }
-    end++;
-  }
-  if (end >= end_src) {
-    return Status::Error("Closing '\"' not found");
-  }
-  parser.advance(end + 1 - cur_src);
-  end_src = end;
+  auto data = parser.data();
+  auto *cur_src = data.ubegin();
+  auto *end = data.uend();
 
-  while (cur_src != end_src) {
-    auto *slash = static_cast<char *>(std::memchr(cur_src, '\\', end_src - cur_src));
-    if (slash == nullptr) {
-      slash = end_src;
+  while (true) {
+    if (cur_src == end) {
+      return Status::Error("Closing '\"' not found");
     }
-    cur_src = slash;
-    if (cur_src != end_src) {
+    if (*cur_src == '"') {
+      parser.advance(cur_src + 1 - data.ubegin());
+      return Status::OK();
+    }
+    if (*cur_src == '\\') {
       cur_src++;
-      if (cur_src == end_src) {
-        // TODO UNREACHABLE();
-        return Status::Error("Unexpected end of string");
+      if (cur_src == end) {
+        return Status::Error("Closing '\"' not found");
       }
       switch (*cur_src) {
-        case '"':
-        case '\\':
-        case '/':
-        case 'b':
-        case 'f':
-        case 'n':
-        case 'r':
-        case 't':
-          cur_src++;
-          break;
         case 'u': {
           cur_src++;
-          if (cur_src + 4 > end_src) {
+          if (cur_src + 4 > end) {
             return Status::Error("\\u has less than 4 symbols");
           }
           int num = 0;
@@ -322,7 +272,7 @@ Status json_string_skip(Parser &parser) {
             num = num * 16 + d;
           }
           if (0xD7FF < num && num < 0xE000) {
-            if (cur_src + 6 <= end_src && cur_src[0] == '\\' && cur_src[1] == 'u') {
+            if (cur_src + 6 <= end && cur_src[0] == '\\' && cur_src[1] == 'u') {
               cur_src += 2;
               int new_num = 0;
               for (int i = 0; i < 4; i++, cur_src++) {
@@ -341,9 +291,15 @@ Status json_string_skip(Parser &parser) {
           }
           break;
         }
+        default:
+          cur_src++;
+          break;
       }
+    } else {
+      cur_src++;
     }
   }
+  UNREACHABLE();
   return Status::OK();
 }
 
@@ -355,17 +311,17 @@ Result<JsonValue> do_json_decode(Parser &parser, int32 max_depth) {
   parser.skip_whitespaces();
   switch (parser.peek_char()) {
     case 'f':
-      if (parser.skip_start_with("false")) {
+      if (parser.try_skip("false")) {
         return JsonValue::create_boolean(false);
       }
       return Status::Error("Token starts with 'f' -- false expected");
     case 't':
-      if (parser.skip_start_with("true")) {
+      if (parser.try_skip("true")) {
         return JsonValue::create_boolean(true);
       }
       return Status::Error("Token starts with 't' -- true expected");
     case 'n':
-      if (parser.skip_start_with("null")) {
+      if (parser.try_skip("null")) {
         return JsonValue();
       }
       return Status::Error("Token starts with 'n' -- null expected");
@@ -376,7 +332,7 @@ Result<JsonValue> do_json_decode(Parser &parser, int32 max_depth) {
     case '[': {
       parser.skip('[');
       parser.skip_whitespaces();
-      std::vector<JsonValue> res;
+      vector<JsonValue> res;
       if (parser.try_skip(']')) {
         return JsonValue::create_array(std::move(res));
       }
@@ -405,21 +361,21 @@ Result<JsonValue> do_json_decode(Parser &parser, int32 max_depth) {
     case '{': {
       parser.skip('{');
       parser.skip_whitespaces();
-      std::vector<std::pair<MutableSlice, JsonValue> > res;
       if (parser.try_skip('}')) {
-        return JsonValue::make_object(std::move(res));
+        return JsonValue::make_object(JsonObject());
       }
+      vector<std::pair<Slice, JsonValue>> field_values;
       while (true) {
         if (parser.empty()) {
           return Status::Error("Unexpected string end");
         }
-        TRY_RESULT(key, json_string_decode(parser));
+        TRY_RESULT(field, json_string_decode(parser));
         parser.skip_whitespaces();
         if (!parser.try_skip(':')) {
           return Status::Error("':' expected");
         }
         TRY_RESULT(value, do_json_decode(parser, max_depth - 1));
-        res.emplace_back(std::move(key), std::move(value));
+        field_values.emplace_back(field, std::move(value));
 
         parser.skip_whitespaces();
         if (parser.try_skip('}')) {
@@ -434,7 +390,7 @@ Result<JsonValue> do_json_decode(Parser &parser, int32 max_depth) {
         }
         return Status::Error("Unexpected symbol while parsing JSON Object");
       }
-      return JsonValue::make_object(std::move(res));
+      return JsonValue::make_object(JsonObject(std::move(field_values)));
     }
     case '-':
     case '+':
@@ -475,17 +431,17 @@ Status do_json_skip(Parser &parser, int32 max_depth) {
   parser.skip_whitespaces();
   switch (parser.peek_char()) {
     case 'f':
-      if (parser.skip_start_with("false")) {
+      if (parser.try_skip("false")) {
         return Status::OK();
       }
       return Status::Error("Starts with 'f' -- false expected");
     case 't':
-      if (parser.skip_start_with("true")) {
+      if (parser.try_skip("true")) {
         return Status::OK();
       }
       return Status::Error("Starts with 't' -- true expected");
     case 'n':
-      if (parser.skip_start_with("null")) {
+      if (parser.try_skip("null")) {
         return Status::OK();
       }
       return Status::Error("Starts with 'n' -- null expected");
@@ -596,17 +552,15 @@ Slice JsonValue::get_type_name(Type type) {
   }
 }
 
-bool has_json_object_field(const JsonObject &object, Slice name) {
-  for (auto &field_value : object) {
-    if (field_value.first == name) {
-      return true;
-    }
-  }
-  return false;
+JsonObject::JsonObject(vector<std::pair<Slice, JsonValue>> &&field_values) : field_values_(std::move(field_values)) {
 }
 
-JsonValue get_json_object_field_force(JsonObject &object, Slice name) {
-  for (auto &field_value : object) {
+size_t JsonObject::field_count() const {
+  return field_values_.size();
+}
+
+JsonValue JsonObject::extract_field(Slice name) {
+  for (auto &field_value : field_values_) {
     if (field_value.first == name) {
       return std::move(field_value.second);
     }
@@ -614,8 +568,8 @@ JsonValue get_json_object_field_force(JsonObject &object, Slice name) {
   return JsonValue();
 }
 
-Result<JsonValue> get_json_object_field(JsonObject &object, Slice name, JsonValue::Type type, bool is_optional) {
-  for (auto &field_value : object) {
+Result<JsonValue> JsonObject::extract_optional_field(Slice name, JsonValueType type) {
+  for (auto &field_value : field_values_) {
     if (field_value.first == name) {
       if (type != JsonValue::Type::Null && field_value.second.type() != type) {
         return Status::Error(400, PSLICE()
@@ -625,83 +579,177 @@ Result<JsonValue> get_json_object_field(JsonObject &object, Slice name, JsonValu
       return std::move(field_value.second);
     }
   }
-  if (!is_optional) {
-    return Status::Error(400, PSLICE() << "Can't find field \"" << name << "\"");
-  }
   return JsonValue();
 }
 
-Result<bool> get_json_object_bool_field(JsonObject &object, Slice name, bool is_optional, bool default_value) {
-  TRY_RESULT(value, get_json_object_field(object, name, JsonValue::Type::Boolean, is_optional));
-  if (value.type() == JsonValue::Type::Null) {
-    return default_value;
-  }
-  return value.get_boolean();
-}
-
-Result<int32> get_json_object_int_field(JsonObject &object, Slice name, bool is_optional, int32 default_value) {
-  for (auto &field_value : object) {
+Result<JsonValue> JsonObject::extract_required_field(Slice name, JsonValueType type) {
+  for (auto &field_value : field_values_) {
     if (field_value.first == name) {
-      if (field_value.second.type() == JsonValue::Type::String) {
-        return to_integer_safe<int32>(field_value.second.get_string());
-      }
-      if (field_value.second.type() == JsonValue::Type::Number) {
-        return to_integer_safe<int32>(field_value.second.get_number());
+      if (type != JsonValue::Type::Null && field_value.second.type() != type) {
+        return Status::Error(400, PSLICE()
+                                      << "Field \"" << name << "\" must be of type " << JsonValue::get_type_name(type));
       }
 
-      return Status::Error(400, PSLICE() << "Field \"" << name << "\" must be of type Number");
+      return std::move(field_value.second);
     }
-  }
-  if (is_optional) {
-    return default_value;
   }
   return Status::Error(400, PSLICE() << "Can't find field \"" << name << "\"");
 }
 
-Result<int64> get_json_object_long_field(JsonObject &object, Slice name, bool is_optional, int64 default_value) {
-  for (auto &field_value : object) {
+const JsonValue *JsonObject::get_field(Slice name) const {
+  for (auto &field_value : field_values_) {
     if (field_value.first == name) {
-      if (field_value.second.type() == JsonValue::Type::String) {
-        return to_integer_safe<int64>(field_value.second.get_string());
-      }
-      if (field_value.second.type() == JsonValue::Type::Number) {
-        return to_integer_safe<int64>(field_value.second.get_number());
-      }
-
-      return Status::Error(400, PSLICE() << "Field \"" << name << "\" must be a Number");
+      return &field_value.second;
     }
   }
-  if (is_optional) {
-    return default_value;
-  }
-  return Status::Error(400, PSLICE() << "Can't find field \"" << name << "\"");
+  return nullptr;
 }
 
-Result<double> get_json_object_double_field(JsonObject &object, Slice name, bool is_optional, double default_value) {
-  TRY_RESULT(value, get_json_object_field(object, name, JsonValue::Type::Number, is_optional));
-  if (value.type() == JsonValue::Type::Null) {
-    return default_value;
-  }
-  return to_double(value.get_number());
+bool JsonObject::has_field(Slice name) const {
+  return get_field(name) != nullptr;
 }
 
-Result<string> get_json_object_string_field(JsonObject &object, Slice name, bool is_optional, string default_value) {
-  for (auto &field_value : object) {
-    if (field_value.first == name) {
-      if (field_value.second.type() == JsonValue::Type::String) {
-        return field_value.second.get_string().str();
-      }
-      if (field_value.second.type() == JsonValue::Type::Number) {
-        return field_value.second.get_number().str();
-      }
-
-      return Status::Error(400, PSLICE() << "Field \"" << name << "\" must be of type String");
+Result<bool> JsonObject::get_optional_bool_field(Slice name, bool default_value) const {
+  auto value = get_field(name);
+  if (value != nullptr) {
+    if (value->type() == JsonValue::Type::Boolean) {
+      return value->get_boolean();
     }
+    return Status::Error(400, PSLICE() << "Field \"" << name << "\" must be of type Boolean");
   }
-  if (is_optional) {
-    return default_value;
+  return default_value;
+}
+
+Result<bool> JsonObject::get_required_bool_field(Slice name) const {
+  auto value = get_field(name);
+  if (value != nullptr) {
+    if (value->type() == JsonValue::Type::Boolean) {
+      return value->get_boolean();
+    }
+    return Status::Error(400, PSLICE() << "Field \"" << name << "\" must be of type Boolean");
   }
-  return Status::Error(400, PSLICE() << "Can't find field \"" << name << "\"");
+  return Status::Error(400, PSLICE() << "Can't find field \"" << name << '"');
+}
+
+template <class T>
+static Result<T> get_integer_field(Slice name, Slice value) {
+  auto r_int = to_integer_safe<T>(value);
+  if (r_int.is_ok()) {
+    return r_int.ok();
+  }
+  return Status::Error(400, PSLICE() << "Field \"" << name << "\" must be a valid Number");
+}
+
+Result<int32> JsonObject::get_optional_int_field(Slice name, int32 default_value) const {
+  auto value = get_field(name);
+  if (value != nullptr) {
+    if (value->type() == JsonValue::Type::String) {
+      return get_integer_field<int32>(name, value->get_string());
+    }
+    if (value->type() == JsonValue::Type::Number) {
+      return get_integer_field<int32>(name, value->get_number());
+    }
+    return Status::Error(400, PSLICE() << "Field \"" << name << "\" must be a Number");
+  }
+  return default_value;
+}
+
+Result<int32> JsonObject::get_required_int_field(Slice name) const {
+  auto value = get_field(name);
+  if (value != nullptr) {
+    if (value->type() == JsonValue::Type::String) {
+      return get_integer_field<int32>(name, value->get_string());
+    }
+    if (value->type() == JsonValue::Type::Number) {
+      return get_integer_field<int32>(name, value->get_number());
+    }
+    return Status::Error(400, PSLICE() << "Field \"" << name << "\" must be a Number");
+  }
+  return Status::Error(400, PSLICE() << "Can't find field \"" << name << '"');
+}
+
+Result<int64> JsonObject::get_optional_long_field(Slice name, int64 default_value) const {
+  auto value = get_field(name);
+  if (value != nullptr) {
+    if (value->type() == JsonValue::Type::String) {
+      return get_integer_field<int64>(name, value->get_string());
+    }
+    if (value->type() == JsonValue::Type::Number) {
+      return get_integer_field<int64>(name, value->get_number());
+    }
+    return Status::Error(400, PSLICE() << "Field \"" << name << "\" must be a Number");
+  }
+  return default_value;
+}
+
+Result<int64> JsonObject::get_required_long_field(Slice name) const {
+  auto value = get_field(name);
+  if (value != nullptr) {
+    if (value->type() == JsonValue::Type::String) {
+      return get_integer_field<int64>(name, value->get_string());
+    }
+    if (value->type() == JsonValue::Type::Number) {
+      return get_integer_field<int64>(name, value->get_number());
+    }
+    return Status::Error(400, PSLICE() << "Field \"" << name << "\" must be a Number");
+  }
+  return Status::Error(400, PSLICE() << "Can't find field \"" << name << '"');
+}
+
+Result<double> JsonObject::get_optional_double_field(Slice name, double default_value) const {
+  auto value = get_field(name);
+  if (value != nullptr) {
+    if (value->type() == JsonValue::Type::Number) {
+      return to_double(value->get_number());
+    }
+    return Status::Error(400, PSLICE() << "Field \"" << name << "\" must be of type Number");
+  }
+  return default_value;
+}
+
+Result<double> JsonObject::get_required_double_field(Slice name) const {
+  auto value = get_field(name);
+  if (value != nullptr) {
+    if (value->type() == JsonValue::Type::Number) {
+      return to_double(value->get_number());
+    }
+    return Status::Error(400, PSLICE() << "Field \"" << name << "\" must be of type Number");
+  }
+  return Status::Error(400, PSLICE() << "Can't find field \"" << name << '"');
+}
+
+Result<string> JsonObject::get_optional_string_field(Slice name, string default_value) const {
+  auto value = get_field(name);
+  if (value != nullptr) {
+    if (value->type() == JsonValue::Type::String) {
+      return value->get_string().str();
+    }
+    if (value->type() == JsonValue::Type::Number) {
+      return value->get_number().str();
+    }
+    return Status::Error(400, PSLICE() << "Field \"" << name << "\" must be of type String");
+  }
+  return std::move(default_value);
+}
+
+Result<string> JsonObject::get_required_string_field(Slice name) const {
+  auto value = get_field(name);
+  if (value != nullptr) {
+    if (value->type() == JsonValue::Type::String) {
+      return value->get_string().str();
+    }
+    if (value->type() == JsonValue::Type::Number) {
+      return value->get_number().str();
+    }
+    return Status::Error(400, PSLICE() << "Field \"" << name << "\" must be of type String");
+  }
+  return Status::Error(400, PSLICE() << "Can't find field \"" << name << '"');
+}
+
+void JsonObject::foreach (const std::function<void(Slice name, const JsonValue &value)> &callback) const {
+  for (auto &field_value : field_values_) {
+    callback(field_value.first, field_value.second);
+  }
 }
 
 }  // namespace td

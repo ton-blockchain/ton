@@ -18,8 +18,8 @@
 */
 #pragma once
 
-#include "vm/cells.h"
 #include "block/block.h"
+#include "vm/cells.h"
 
 namespace block {
 using td::Ref;

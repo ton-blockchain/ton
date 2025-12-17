@@ -12,12 +12,12 @@ export CC=$(which clang-16)
 export CXX=$(which clang++-16)
 export CCACHE_DISABLE=1
 
-if [ ! -d android-ndk-r25b ]; then
-  rm android-ndk-r25b-linux.zip
-  echo "Downloading https://dl.google.com/android/repository/android-ndk-r25b-linux.zip"
-  wget -q https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
-  unzip -q android-ndk-r25b-linux.zip
-  test $? -eq 0 || { echo "Can't unzip android-ndk-r25b-linux.zip"; exit 1; }
+if [ ! -d android-ndk-r27d ]; then
+  rm android-ndk-r27d-linux.zip
+  echo "Downloading https://dl.google.com/android/repository/android-ndk-r27d-linux.zip"
+  wget -q https://dl.google.com/android/repository/android-ndk-r27d-linux.zip
+  unzip -q android-ndk-r27d-linux.zip
+  test $? -eq 0 || { echo "Can't unzip android-ndk-r27d-linux.zip"; exit 1; }
   echo "Android NDK extracted"
 else
   echo "Using extracted Android NDK"
@@ -29,13 +29,13 @@ export JAVA_INCLUDE_PATH=${JAVA_HOME}/include
 export JAVA_AWT_INCLUDE_PATH=${JAVA_HOME}/include
 export JAVA_INCLUDE_PATH2=${JAVA_HOME}/include/linux
 
-export ANDROID_NDK_ROOT=$(pwd)/android-ndk-r25b
+export ANDROID_NDK_ROOT=$(pwd)/android-ndk-r27d
 export NDK_PLATFORM="android-21"
 export ANDROID_PLATFORM="android-21"
 export OPENSSL_DIR=$(pwd)/example/android/third_party/crypto
 
 rm -rf example/android/src/drinkless/org/ton/TonApi.java
-cd example/android/
+cd example/android/ || exit
 
 rm CMakeCache.txt .ninja_*
 cmake -GNinja -DTON_ONLY_TONLIB=ON .

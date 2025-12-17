@@ -18,10 +18,11 @@
 */
 #pragma once
 
-#include "ton/ton-types.h"
-#include "crypto/common/refcnt.hpp"
-#include "validator-set.h"
 #include "crypto/block/mc-config.h"
+#include "crypto/common/refcnt.hpp"
+#include "ton/ton-types.h"
+
+#include "validator-set.h"
 
 namespace ton {
 

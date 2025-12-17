@@ -18,9 +18,15 @@
 */
 #pragma once
 
+#include <atomic>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
+#include <utility>
+
+#include "td/actor/core/Actor.h"
 #include "td/actor/core/ActorExecuteContext.h"
 #include "td/actor/core/ActorExecutor.h"
-#include "td/actor/core/Actor.h"
 #include "td/actor/core/ActorInfo.h"
 #include "td/actor/core/ActorInfoCreator.h"
 #include "td/actor/core/ActorLocker.h"
@@ -30,36 +36,27 @@
 #include "td/actor/core/SchedulerContext.h"
 #include "td/actor/core/SchedulerId.h"
 #include "td/actor/core/SchedulerMessage.h"
-
 #include "td/utils/AtomicRead.h"
 #include "td/utils/Closure.h"
-#include "td/utils/common.h"
-#include "td/utils/format.h"
 #include "td/utils/Heap.h"
 #include "td/utils/List.h"
-#include "td/utils/logging.h"
 #include "td/utils/MpmcQueue.h"
-#include "td/utils/StealingQueue.h"
 #include "td/utils/MpmcWaiter.h"
 #include "td/utils/MpscLinkQueue.h"
 #include "td/utils/MpscPollableQueue.h"
+#include "td/utils/ScopeGuard.h"
+#include "td/utils/Slice.h"
+#include "td/utils/StealingQueue.h"
+#include "td/utils/Time.h"
+#include "td/utils/common.h"
+#include "td/utils/format.h"
+#include "td/utils/logging.h"
 #include "td/utils/optional.h"
 #include "td/utils/port/Poll.h"
 #include "td/utils/port/detail/Iocp.h"
 #include "td/utils/port/thread.h"
 #include "td/utils/port/thread_local.h"
-#include "td/utils/ScopeGuard.h"
-#include "td/utils/Slice.h"
-#include "td/utils/Time.h"
 #include "td/utils/type_traits.h"
-
-#include <atomic>
-#include <condition_variable>
-#include <limits>
-#include <memory>
-#include <mutex>
-#include <type_traits>
-#include <utility>
 
 namespace td {
 namespace actor {
@@ -151,10 +148,10 @@ struct LocalQueue {
 struct SchedulerInfo {
   SchedulerId id;
   // will be read by all workers is any thread
-  std::unique_ptr<MpmcQueue<SchedulerMessage::Raw *>> cpu_queue;
+  std::unique_ptr<MpmcQueue<SchedulerToken>> cpu_queue;
   std::unique_ptr<MpmcWaiter> cpu_queue_waiter;
 
-  std::vector<LocalQueue<SchedulerMessage::Raw *>> cpu_local_queue;
+  std::vector<LocalQueue<SchedulerToken>> cpu_local_queue;
   //std::vector<td::StealingQueue<SchedulerMessage>> cpu_stealing_queue;
 
   // only scheduler itself may read from io_queue_
@@ -244,6 +241,7 @@ class Scheduler {
 
     SchedulerId get_scheduler_id() const override;
     void add_to_queue(ActorInfoPtr actor_info_ptr, SchedulerId scheduler_id, bool need_poll) override;
+    void add_token_to_cpu_queue(SchedulerToken token, SchedulerId scheduler_id) override;
 
     ActorInfoCreator &get_actor_info_creator() override;
 
@@ -265,7 +263,6 @@ class Scheduler {
     }
 
    private:
-
     ActorInfoCreator *creator_;
     SchedulerId scheduler_id_;
     CpuWorkerId cpu_worker_id_;

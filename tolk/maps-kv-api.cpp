@@ -85,8 +85,8 @@ static int is_TKey_TVM_uint(TypePtr TKey) {
 // map<address, V> should use DICT* instructions
 // note that map<slice, V> is forbidden, since a raw slice doesn't define binary width
 static int is_TKey_TVM_slice(TypePtr TKey) {
-  if (TKey == TypeDataAddress::create()) {
-    return 3 + 8 + 256;      // "internal address" assumed
+  if (const TypeDataAddress* t_address = TKey->try_as<TypeDataAddress>()) {
+    return t_address->is_internal() ? 3 + 8 + 256 : 0;
   }
   if (const TypeDataBitsN* t_bitsN = TKey->try_as<TypeDataBitsN>()) {
     return t_bitsN->is_bits ? t_bitsN->n_width : t_bitsN->n_width * 8;
@@ -117,7 +117,7 @@ bool check_mapKV_TKey_is_valid(TypePtr TKey, std::string& because_msg) {
 
   // okay, not a trivial key — it must be a serializable struct of a constant size 
   if (TKey->unwrap_alias() == TypeDataSlice::create()) {  // a dedicated error message for `map<slice, V>`
-    because_msg = "because it does not specify keyLen for a dictionary\nhint: use `address` if a key is an internal address\nhint: use `bits128` and similar if a key represents fixed-width data";
+    because_msg = "because it does not specify keyLen for a dictionary\n""hint: use `address` if a key is an internal address\n""hint: use `bits128` and similar if a key represents fixed-width data";
     return false;
   }
   if (!check_struct_can_be_packed_or_unpacked(TKey, false, because_msg)) {
@@ -161,7 +161,7 @@ bool check_mapKV_TValue_is_valid(TypePtr TValue, std::string& because_msg) {
 // an internal helper, having TKey and TValue, generate IR variables passed to __dict.* built-in functions
 class DictKeyValue {
   CodeBlob& code;
-  SrcLocation loc;
+  AnyV origin;
 
   DictKeyKind key_kind;
   int key_len;
@@ -173,15 +173,15 @@ class DictKeyValue {
 public:
 
   var_idx_t ir_key_kind() const {
-    return code.create_int(loc, static_cast<int>(key_kind), "(key-kind)");
+    return code.create_int(origin, static_cast<int>(key_kind), "(key-kind)");
   }
 
   var_idx_t ir_value_kind() const {
-    return code.create_int(loc, static_cast<int>(value_kind), "(value-kind)");
+    return code.create_int(origin, static_cast<int>(value_kind), "(value-kind)");
   }
 
   var_idx_t ir_key_len() const {
-    return code.create_int(loc, key_len, "(key-len)");
+    return code.create_int(origin, key_len, "(key-len)");
   }
 
   var_idx_t ir_key_val() const {
@@ -194,9 +194,9 @@ public:
     return value_irv;
   }
 
-  DictKeyValue(CodeBlob& code, SrcLocation loc, TypePtr TKey, const std::vector<var_idx_t>* exact_key, TypePtr TValue, const std::vector<var_idx_t>* exact_value, bool allow_REF_TValue = false)
+  DictKeyValue(CodeBlob& code, AnyV origin, TypePtr TKey, const std::vector<var_idx_t>* exact_key, TypePtr TValue, const std::vector<var_idx_t>* exact_value, bool allow_REF_TValue = false)
     : code(code)
-    , loc(loc) {
+    , origin(origin) {
     if (int i_bits = is_TKey_TVM_int(TKey)) {
       key_kind = DictKeyKind::IntKey;
       key_len = i_bits;
@@ -225,14 +225,12 @@ public:
       key_len = pack_size.max_bits;
 
       if (exact_key != nullptr) {
-        std::vector ir_builder = code.create_tmp_var(TypeDataBuilder::create(), loc, "(map-keyB)");
-        code.emplace_back(loc, Op::_Call, ir_builder, std::vector<var_idx_t>{}, lookup_function("beginCell"));
-        PackContext ctx(code, loc, ir_builder, create_default_PackOptions(code, loc));
+        std::vector ir_builder = code.create_tmp_var(TypeDataBuilder::create(), origin, "(map-keyB)");
+        code.emplace_back(origin, Op::_Call, ir_builder, std::vector<var_idx_t>{}, lookup_function("beginCell"));
+        PackContext ctx(code, origin, ir_builder, create_default_PackOptions(code, origin));
         ctx.generate_pack_any(TKey, std::vector(*exact_key));
-        std::vector ir_slice = code.create_tmp_var(TypeDataSlice::create(), loc, "(map-key)");
-        // todo BTOS
-        code.emplace_back(loc, Op::_Call, ir_slice, ir_builder, lookup_function("builder.endCell"));
-        code.emplace_back(loc, Op::_Call, ir_slice, ir_slice, lookup_function("cell.beginParse"));
+        std::vector ir_slice = code.create_tmp_var(TypeDataSlice::create(), origin, "(map-key)");
+        code.emplace_back(origin, Op::_Call, ir_slice, ir_builder, lookup_function("builder.toSlice"));
         key_irv = ir_slice[0];
       }
     }
@@ -255,9 +253,9 @@ public:
       value_kind = DictValueKind::BuilderValue;
 
       if (exact_value != nullptr) {
-        std::vector ir_builder = code.create_tmp_var(TypeDataBuilder::create(), loc, "(valueB)");
-        code.emplace_back(loc, Op::_Call, ir_builder, std::vector<var_idx_t>{}, lookup_function("beginCell"));
-        PackContext ctx(code, loc, ir_builder, create_default_PackOptions(code, loc));
+        std::vector ir_builder = code.create_tmp_var(TypeDataBuilder::create(), origin, "(valueB)");
+        code.emplace_back(origin, Op::_Call, ir_builder, std::vector<var_idx_t>{}, lookup_function("beginCell"));
+        PackContext ctx(code, origin, ir_builder, create_default_PackOptions(code, origin));
         ctx.generate_pack_any(TValue, std::vector(*exact_value));
         value_irv = ir_builder[0];
       }
@@ -271,24 +269,24 @@ public:
 // so, in practice, we don't need any transformations from a TVM result,
 // but when K is complex (like struct Point), TVM instructions return a slice, which is needed to be unpacked to K
 GNU_ATTRIBUTE_NOINLINE
-static std::vector<var_idx_t> construct_MapEntry_with_non_trivial_key(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& ir_entry, TypePtr TKey) {
+static std::vector<var_idx_t> construct_MapEntry_with_non_trivial_key(CodeBlob& code, AnyV origin, std::vector<var_idx_t>&& ir_entry, TypePtr TKey) {
   tolk_assert(ir_entry.size() == 3); // slice value, slice key, isFound
 
-  std::vector ir_key = code.create_tmp_var(TKey, loc, "(entry-key)");
-  Op& if_found = code.emplace_back(loc, Op::_If, std::vector{ir_entry[2]});
+  std::vector ir_key = code.create_tmp_var(TKey, origin, "(entry-key)");
+  Op& if_found = code.emplace_back(origin, Op::_If, std::vector{ir_entry[2]});
   {
     code.push_set_cur(if_found.block0);
-    UnpackContext ctx(code, loc, std::vector(ir_entry.begin() + 1, ir_entry.begin() + 2), create_default_UnpackOptions(code, loc));
+    UnpackContext ctx(code, origin, std::vector(ir_entry.begin() + 1, ir_entry.begin() + 2), create_default_UnpackOptions(code, origin));
     std::vector ir_unpacked_key = ctx.generate_unpack_any(TKey);
-    code.emplace_back(loc, Op::_Let, ir_key, std::move(ir_unpacked_key));
-    code.close_pop_cur(loc);
+    code.emplace_back(origin, Op::_Let, ir_key, std::move(ir_unpacked_key));
+    code.close_pop_cur(origin);
   }
   {
     code.push_set_cur(if_found.block1);
     for (var_idx_t ith_null : ir_key) {
-      code.emplace_back(loc, Op::_Let, std::vector{ith_null}, std::vector{ir_entry[1]});
+      code.emplace_back(origin, Op::_Let, std::vector{ith_null}, std::vector{ir_entry[1]});
     }
-    code.close_pop_cur(loc);
+    code.close_pop_cur(origin);
   }
 
   std::vector<var_idx_t> ir_result;
@@ -299,14 +297,14 @@ static std::vector<var_idx_t> construct_MapEntry_with_non_trivial_key(CodeBlob& 
   return ir_result;
 }
 
-static std::vector<var_idx_t> create_ir_MapEntry(CodeBlob& code, SrcLocation loc) {
-  return code.create_tmp_var(TypeDataTensor::create({TypeDataSlice::create(), TypeDataInt::create(), TypeDataInt::create()}), loc, "(entry)");
+static std::vector<var_idx_t> create_ir_MapEntry(CodeBlob& code, AnyV origin) {
+  return code.create_tmp_var(TypeDataTensor::create({TypeDataSlice::create(), TypeDataInt::create(), TypeDataInt::create()}), origin, "(entry)");
 }
 
 // see a comment above construct_MapEntry_with_non_trivial_key() 
-static std::vector<var_idx_t> finalize_ir_MapEntry(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t>&& ir_entry, TypePtr TKey) {
+static std::vector<var_idx_t> finalize_ir_MapEntry(CodeBlob& code, AnyV origin, std::vector<var_idx_t>&& ir_entry, TypePtr TKey) {
   if (!is_TKey_TVM_int(TKey) && !is_TKey_TVM_uint(TKey) && !is_TKey_TVM_slice(TKey)) {
-    ir_entry = construct_MapEntry_with_non_trivial_key(code, loc, std::move(ir_entry), TKey);
+    ir_entry = construct_MapEntry_with_non_trivial_key(code, origin, std::move(ir_entry), TKey);
   }
   return ir_entry;
 }
@@ -337,151 +335,143 @@ static std::string choose_dict_op(std::string_view op_slice, VarDescr& var_with_
 }
 
 // "empty map" is just NULL in TVM; it's extracted as a built-in to check for K/V correctness in advance
-AsmOp compile_createEmptyMap(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+AsmOp compile_createEmptyMap(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 1 && args.empty());
-  return AsmOp::Custom(loc, "NEWDICT", 0, 1);
+  return AsmOp::Custom(origin, "NEWDICT", 0, 1);
 }
 
 // "convert dict to map" is just NOP; it's extracted as a built-in to allow non-1 width K/V
-AsmOp compile_createMapFromLowLevelDict(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+AsmOp compile_createMapFromLowLevelDict(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 1 && args.size() == 1);
-  return AsmOp::Parse(loc, "NOP");
+  return AsmOp::Parse(origin, "NOP");
 }
 
 // DICTGET: k D n => (x −1) OR (0); + NULLSWAPIFNOT => (x -1) OR (null 0)
-AsmOp compile_dict_get(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+AsmOp compile_dict_get(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 2 && args.size() == 2+3);
   std::string op = choose_dict_op("DICTGET", args[0], args[1]);
-  return AsmOp::Custom(loc, op + " NULLSWAPIFNOT", 3, 2);
-}
-
-// DICTGET: k D n => (x −1) OR (0)
-// but since it's MUST get, it's wrapped to assert(found), so assume x (value) will exist on a stack
-AsmOp compile_dict_mustGet(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
-  tolk_assert(res.size() == 2 && args.size() == 2+3);
-  std::string op = choose_dict_op("DICTGET", args[0], args[1]);
-  return AsmOp::Custom(loc, op, 3, 2);
+  return AsmOp::Custom(origin, op + " NULLSWAPIFNOT", 3, 2);
 }
 
 // DICTMIN: D n => (x k −1) OR (0); + NULLSWAPIFNOT2 => (x k -1) OR (null null 0)
-AsmOp compile_dict_getMin(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+AsmOp compile_dict_getMin(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 3 && args.size() == 2+2);
   std::string op = choose_dict_op("DICTMIN", args[0], args[1]);
-  return AsmOp::Custom(loc, op + " NULLSWAPIFNOT2", 2, 3);
+  return AsmOp::Custom(origin, op + " NULLSWAPIFNOT2", 2, 3);
 }
 
 // DICTMAX: D n => (x k −1) OR (0); + NULLSWAPIFNOT2 => (x k -1) OR (null null 0)
-AsmOp compile_dict_getMax(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+AsmOp compile_dict_getMax(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 3 && args.size() == 2+2);
   std::string op = choose_dict_op("DICTMAX", args[0], args[1]);
-  return AsmOp::Custom(loc, op + " NULLSWAPIFNOT2", 2, 3);
+  return AsmOp::Custom(origin, op + " NULLSWAPIFNOT2", 2, 3);
 }
 
 // DICTGETNEXT: k D n => (x k −1) OR (0); + NULLSWAPIFNOT2 => (x k -1) OR (null null 0)
-AsmOp compile_dict_getNext(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+AsmOp compile_dict_getNext(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 3 && args.size() == 2+3);
   std::string op = choose_dict_op("DICTGETNEXT", args[0], args[1]);
-  return AsmOp::Custom(loc, op + " NULLSWAPIFNOT2", 3, 3);
+  return AsmOp::Custom(origin, op + " NULLSWAPIFNOT2", 3, 3);
 }
 
 // DICTGETNEXTEQ: k D n => (x k −1) OR (0); + NULLSWAPIFNOT2 => (x k -1) OR (null null 0)
-AsmOp compile_dict_getNextEq(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+AsmOp compile_dict_getNextEq(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 3 && args.size() == 2+3);
   std::string op = choose_dict_op("DICTGETNEXTEQ", args[0], args[1]);
-  return AsmOp::Custom(loc, op + " NULLSWAPIFNOT2", 3, 3);
+  return AsmOp::Custom(origin, op + " NULLSWAPIFNOT2", 3, 3);
 }
 
 // DICTGETPREV: k D n => (x k −1) OR (0); + NULLSWAPIFNOT2 => (x k -1) OR (null null 0)
-AsmOp compile_dict_getPrev(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+AsmOp compile_dict_getPrev(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 3 && args.size() == 2+3);
   std::string op = choose_dict_op("DICTGETPREV", args[0], args[1]);
-  return AsmOp::Custom(loc, op + " NULLSWAPIFNOT2", 3, 3);
+  return AsmOp::Custom(origin, op + " NULLSWAPIFNOT2", 3, 3);
 }
 
 // DICTGETPREVEQ: k D n => (x k −1) OR (0); + NULLSWAPIFNOT2 => (x k -1) OR (null null 0)
-AsmOp compile_dict_getPrevEq(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+AsmOp compile_dict_getPrevEq(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 3 && args.size() == 2+3);
   std::string op = choose_dict_op("DICTGETPREVEQ", args[0], args[1]);
-  return AsmOp::Custom(loc, op + " NULLSWAPIFNOT2", 3, 3);
+  return AsmOp::Custom(origin, op + " NULLSWAPIFNOT2", 3, 3);
 }
 
 // DICTSET: x k D n => D'
-AsmOp compile_dict_set(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+AsmOp compile_dict_set(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 1 && args.size() == 2+4);
   std::string op = choose_dict_op("DICTSET", args[0], args[1]);
-  return AsmOp::Custom(loc, op, 4, 1);
+  return AsmOp::Custom(origin, op, 4, 1);
 }
 
 // DICTSETGET: x k D n => (D' y −1) or (D' 0); + NULLSWAPIFNOT => (D' y -1) OR (D' null 0)
-AsmOp compile_dict_setGet(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+AsmOp compile_dict_setGet(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 3 && args.size() == 2+4);
   std::string op = choose_dict_op("DICTSETGET", args[0], args[1]);
-  return AsmOp::Custom(loc, op + " NULLSWAPIFNOT", 4, 3);
+  return AsmOp::Custom(origin, op + " NULLSWAPIFNOT", 4, 3);
 }
 
 // DICTREPLACE: x k D n => (D' -1) OR (D 0)
-AsmOp compile_dict_replace(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+AsmOp compile_dict_replace(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 2 && args.size() == 2+4);
   std::string op = choose_dict_op("DICTREPLACE", args[0], args[1]);
-  return AsmOp::Custom(loc, op, 4, 2);
+  return AsmOp::Custom(origin, op, 4, 2);
 }
 
 // DICTREPLACEGET: x k D n => (D' y -1) OR (D 0); + NULLSWAPIFNOT => (D' y -1) OR (D null 0)
-AsmOp compile_dict_replaceGet(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+AsmOp compile_dict_replaceGet(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 3 && args.size() == 2+4);
   std::string op = choose_dict_op("DICTREPLACEGET", args[0], args[1]);
-  return AsmOp::Custom(loc, op + " NULLSWAPIFNOT", 4, 3);
+  return AsmOp::Custom(origin, op + " NULLSWAPIFNOT", 4, 3);
 }
 
 // DICTADD: x k D n => (D' -1) OR (D 0)
-AsmOp compile_dict_add(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+AsmOp compile_dict_add(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 2 && args.size() == 2+4);
   std::string op = choose_dict_op("DICTADD", args[0], args[1]);
-  return AsmOp::Custom(loc, op, 4, 2);
+  return AsmOp::Custom(origin, op, 4, 2);
 }
 
 // DICTADDGET: x k D n => (D' -1) OR (D y 0); + NULLSWAPIF + NOT => (D' null 0) OR (D y -1) (from "isAdded" to "isFound")
-AsmOp compile_dict_addGet(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+AsmOp compile_dict_addGet(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 3 && args.size() == 2+4);
   std::string op = choose_dict_op("DICTADDGET", args[0], args[1]);
-  return AsmOp::Custom(loc, op + " NULLSWAPIF" + " NOT", 4, 3);
+  return AsmOp::Custom(origin, op + " NULLSWAPIF" + " NOT", 4, 3);
 }
 
 // DICTDEL: k D n => (D' -1) OR (D 0)
-AsmOp compile_dict_del(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+AsmOp compile_dict_del(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 2 && args.size() == 2+3);
   std::string op = choose_dict_op("DICTDEL", args[0], args[1]);
-  return AsmOp::Custom(loc, op, 3, 2);
+  return AsmOp::Custom(origin, op, 3, 2);
 }
 
 // DICTDELGET: k D n => (D' x -1) OR (D 0); + NULLSWAPIFNOT => (D' x -1) OR (D null 0)
-AsmOp compile_dict_delGet(std::vector<VarDescr>& res, std::vector<VarDescr>& args, SrcLocation loc) {
+AsmOp compile_dict_delGet(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 3 && args.size() == 2+3);
   std::string op = choose_dict_op("DICTDELGET", args[0], args[1]);
-  return AsmOp::Custom(loc, op + " NULLSWAPIFNOT", 3, 3);
+  return AsmOp::Custom(origin, op + " NULLSWAPIFNOT", 3, 3);
 }
 
 
 // fun map<K,V>.exists(self, key: K): bool
-std::vector<var_idx_t> generate_mapKV_exists(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+std::vector<var_idx_t> generate_mapKV_exists(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
-  DictKeyValue kv(code, loc, TKey, &args[1], TypeDataSlice::create(), nullptr);
+  DictKeyValue kv(code, origin, TKey, &args[1], TypeDataSlice::create(), nullptr);
 
-  std::vector ir_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataSlice::create(), TypeDataInt::create()}), loc, "(lookup)");
+  std::vector ir_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataSlice::create(), TypeDataInt::create()}), origin, "(lookup)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(loc, Op::_Call, ir_lookup, std::move(dict_args), lookup_function("__dict.get"));
+  code.emplace_back(origin, Op::_Call, ir_lookup, std::move(dict_args), lookup_function("__dict.get"));
 
   return {ir_lookup[1]};    // isFound from (sliceOrNull isFound)
 }
 
 // fun map<K,V>.get(self, key: K): MapLookupResult<V>
-std::vector<var_idx_t> generate_mapKV_get(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+std::vector<var_idx_t> generate_mapKV_get(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
-  DictKeyValue kv(code, loc, TKey, &args[1], TypeDataSlice::create(), nullptr);
+  DictKeyValue kv(code, origin, TKey, &args[1], TypeDataSlice::create(), nullptr);
 
-  std::vector ir_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataSlice::create(), TypeDataInt::create()}), loc, "(lookup)");
+  std::vector ir_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataSlice::create(), TypeDataInt::create()}), origin, "(lookup)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(loc, Op::_Call, ir_lookup, std::move(dict_args), lookup_function("__dict.get"));
+  code.emplace_back(origin, Op::_Call, ir_lookup, std::move(dict_args), lookup_function("__dict.get"));
 
   // in all functions where we return MapLookupResult:
   // on a stack we have (slice, found) - exactly the shape of MapLookupResult<TValue>;
@@ -490,20 +480,21 @@ std::vector<var_idx_t> generate_mapKV_get(FunctionPtr called_f, CodeBlob& code, 
 }
 
 // fun map<K,V>.mustGet(self, key: K, throwIfNotFound: int = 9): V
-std::vector<var_idx_t> generate_mapKV_mustGet(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+std::vector<var_idx_t> generate_mapKV_mustGet(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
   TypePtr TValue = called_f->substitutedTs->typeT_at(1);
   // since we don't return MapLookupResult, for `map<K, Cell<T>>` we can use DICTGETREF
   bool use_DICTGETREF = is_TValue_cell_or_CellT(TValue);
-  DictKeyValue kv(code, loc, TKey, &args[1], use_DICTGETREF ? TValue : TypeDataSlice::create(), nullptr, true);
+  DictKeyValue kv(code, origin, TKey, &args[1], use_DICTGETREF ? TValue : TypeDataSlice::create(), nullptr, true);
 
-  std::vector ir_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataSlice::create(), TypeDataInt::create()}), loc, "(lookup)");
+  std::vector ir_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataSlice::create(), TypeDataInt::create()}), origin, "(lookup)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(loc, Op::_Call, ir_lookup, std::move(dict_args), lookup_function("__dict.mustGet"));
+  code.emplace_back(origin, Op::_Call, ir_lookup, std::move(dict_args), lookup_function("__dict.get"));
 
-  std::vector args_assert = { args[2][0], ir_lookup[1], code.create_int(loc, 0, "") };
-  Op& op_assert = code.emplace_back(loc, Op::_Call, std::vector<var_idx_t>{}, std::move(args_assert), lookup_function("__throw_if_unless"));
+  std::vector args_throwifnot = { args[2][0], ir_lookup[1] };
+  Op& op_assert = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throwifnot), lookup_function("__throw_ifnot"));
   op_assert.set_impure_flag();
+  // later on, preceding `NULLSWAPIFNOT` will be removed if possible by a peephole optimization
 
   std::vector ir_slice(ir_lookup.begin(), ir_lookup.begin() + 1);
   if (is_TValue_raw_slice(TValue)) {
@@ -514,210 +505,210 @@ std::vector<var_idx_t> generate_mapKV_mustGet(FunctionPtr called_f, CodeBlob& co
   }
 
   // load TValue and check for assertEnd (it's the default behavior)
-  UnpackContext ctx(code, loc, std::move(ir_slice), create_default_UnpackOptions(code, loc));
+  UnpackContext ctx(code, origin, std::move(ir_slice), create_default_UnpackOptions(code, origin));
   std::vector ir_value = ctx.generate_unpack_any(TValue);
   ctx.assertEndIfOption();
   return ir_value;
 }
 
 // fun map<K,V>.set(mutate self, key: K, value: V): self
-std::vector<var_idx_t> generate_mapKV_set(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+std::vector<var_idx_t> generate_mapKV_set(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
   TypePtr TValue = called_f->substitutedTs->typeT_at(1);
-  DictKeyValue kv(code, loc, TKey, &args[1], TValue, &args[2], true);
+  DictKeyValue kv(code, origin, TKey, &args[1], TValue, &args[2], true);
 
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_value_val(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(loc, Op::_Call, args[0], std::move(dict_args), lookup_function("__dict.set"));
+  code.emplace_back(origin, Op::_Call, args[0], std::move(dict_args), lookup_function("__dict.set"));
 
   return args[0];   // return mutated map
 }
 
 // fun map<K,V>.setAndGetPrevious(mutate self, key: K, value: V): MapLookupResult<V>
-std::vector<var_idx_t> generate_mapKV_setGet(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+std::vector<var_idx_t> generate_mapKV_setGet(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
   TypePtr TValue = called_f->substitutedTs->typeT_at(1);
-  DictKeyValue kv(code, loc, TKey, &args[1], TValue, &args[2]);
+  DictKeyValue kv(code, origin, TKey, &args[1], TValue, &args[2]);
 
-  std::vector ir_map_and_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataSlice::create(), TypeDataInt::create()}), loc, "(map-and-lookup)");
+  std::vector ir_map_and_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataSlice::create(), TypeDataInt::create()}), origin, "(map-and-lookup)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_value_val(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(loc, Op::_Call, ir_map_and_lookup, std::move(dict_args), lookup_function("__dict.setGet"));
+  code.emplace_back(origin, Op::_Call, ir_map_and_lookup, std::move(dict_args), lookup_function("__dict.setGet"));
 
   return ir_map_and_lookup;    
 }
 
 // fun map<K,V>.replaceIfExists(mutate self, key: K, value: V): bool
-std::vector<var_idx_t> generate_mapKV_replace(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+std::vector<var_idx_t> generate_mapKV_replace(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
   TypePtr TValue = called_f->substitutedTs->typeT_at(1);
-  DictKeyValue kv(code, loc, TKey, &args[1], TValue, &args[2], true);
+  DictKeyValue kv(code, origin, TKey, &args[1], TValue, &args[2], true);
 
-  std::vector ir_map_and_was_added = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataBool::create()}), loc, "(map-and-was-added)");
+  std::vector ir_map_and_was_added = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataBool::create()}), origin, "(map-and-was-added)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_value_val(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(loc, Op::_Call, ir_map_and_was_added, std::move(dict_args), lookup_function("__dict.replace"));
+  code.emplace_back(origin, Op::_Call, ir_map_and_was_added, std::move(dict_args), lookup_function("__dict.replace"));
 
   return ir_map_and_was_added;
 }
 
 // fun map<K,V>.replaceAndGetPrevious(mutate self, key: K, value: V): MapLookupResult<V>
-std::vector<var_idx_t> generate_mapKV_replaceGet(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+std::vector<var_idx_t> generate_mapKV_replaceGet(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
   TypePtr TValue = called_f->substitutedTs->typeT_at(1);
-  DictKeyValue kv(code, loc, TKey, &args[1], TValue, &args[2]);
+  DictKeyValue kv(code, origin, TKey, &args[1], TValue, &args[2]);
 
-  std::vector ir_map_and_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataSlice::create(), TypeDataInt::create()}), loc, "(map-and-lookup)");
+  std::vector ir_map_and_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataSlice::create(), TypeDataInt::create()}), origin, "(map-and-lookup)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_value_val(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(loc, Op::_Call, ir_map_and_lookup, std::move(dict_args), lookup_function("__dict.replaceGet"));
+  code.emplace_back(origin, Op::_Call, ir_map_and_lookup, std::move(dict_args), lookup_function("__dict.replaceGet"));
 
   return ir_map_and_lookup;
 }
 
 // fun map<K,V>.addIfNotExists(mutate self, key: K, value: V): bool
-std::vector<var_idx_t> generate_mapKV_add(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+std::vector<var_idx_t> generate_mapKV_add(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
   TypePtr TValue = called_f->substitutedTs->typeT_at(1);
-  DictKeyValue kv(code, loc, TKey, &args[1], TValue, &args[2], true);
+  DictKeyValue kv(code, origin, TKey, &args[1], TValue, &args[2], true);
 
-  std::vector ir_map_and_was_added = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataBool::create()}), loc, "(map-and-was-added)");
+  std::vector ir_map_and_was_added = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataBool::create()}), origin, "(map-and-was-added)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_value_val(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(loc, Op::_Call, ir_map_and_was_added, std::move(dict_args), lookup_function("__dict.add"));
+  code.emplace_back(origin, Op::_Call, ir_map_and_was_added, std::move(dict_args), lookup_function("__dict.add"));
 
   return ir_map_and_was_added;
 }
 
 // fun map<K,V>.addOrGetExisting(mutate self, key: K, value: V): MapLookupResult<V>
-std::vector<var_idx_t> generate_mapKV_addGet(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+std::vector<var_idx_t> generate_mapKV_addGet(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
   TypePtr TValue = called_f->substitutedTs->typeT_at(1);
-  DictKeyValue kv(code, loc, TKey, &args[1], TValue, &args[2]);
+  DictKeyValue kv(code, origin, TKey, &args[1], TValue, &args[2]);
 
-  std::vector ir_map_and_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataSlice::create(), TypeDataInt::create()}), loc, "(lookup)");
+  std::vector ir_map_and_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataSlice::create(), TypeDataInt::create()}), origin, "(lookup)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_value_val(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(loc, Op::_Call, ir_map_and_lookup, std::move(dict_args), lookup_function("__dict.addGet"));
+  code.emplace_back(origin, Op::_Call, ir_map_and_lookup, std::move(dict_args), lookup_function("__dict.addGet"));
 
   return ir_map_and_lookup;
 }
 
 // fun map<K, V>.delete(mutate self, key: K): bool
-std::vector<var_idx_t> generate_mapKV_del(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+std::vector<var_idx_t> generate_mapKV_del(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
-  DictKeyValue kv(code, loc, TKey, &args[1], TypeDataSlice::create(), nullptr);
+  DictKeyValue kv(code, origin, TKey, &args[1], TypeDataSlice::create(), nullptr);
 
-  std::vector ir_map_and_was_deleted = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataBool::create()}), loc, "(map-and-was-added)");
+  std::vector ir_map_and_was_deleted = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataBool::create()}), origin, "(map-and-was-added)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(loc, Op::_Call, ir_map_and_was_deleted, std::move(dict_args), lookup_function("__dict.del"));
+  code.emplace_back(origin, Op::_Call, ir_map_and_was_deleted, std::move(dict_args), lookup_function("__dict.del"));
 
   return ir_map_and_was_deleted;
 }
 
 // fun map<K,V>.deleteAndGetDeleted(mutate self, key: K): MapLookupResult<V>
-std::vector<var_idx_t> generate_mapKV_delGet(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+std::vector<var_idx_t> generate_mapKV_delGet(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
-  DictKeyValue kv(code, loc, TKey, &args[1], TypeDataSlice::create(), nullptr);
+  DictKeyValue kv(code, origin, TKey, &args[1], TypeDataSlice::create(), nullptr);
 
-  std::vector ir_map_and_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataSlice::create(), TypeDataInt::create()}), loc, "(lookup)");
+  std::vector ir_map_and_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataSlice::create(), TypeDataInt::create()}), origin, "(lookup)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(loc, Op::_Call, ir_map_and_lookup, std::move(dict_args), lookup_function("__dict.delGet"));
+  code.emplace_back(origin, Op::_Call, ir_map_and_lookup, std::move(dict_args), lookup_function("__dict.delGet"));
 
   return ir_map_and_lookup;
 }
 
 // fun map<K,V>.findFirst(): MapEntry<K, V>
-std::vector<var_idx_t> generate_mapKV_findFirst(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+std::vector<var_idx_t> generate_mapKV_findFirst(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
-  DictKeyValue kv(code, loc, TKey, nullptr, TypeDataSlice::create(), nullptr);
+  DictKeyValue kv(code, origin, TKey, nullptr, TypeDataSlice::create(), nullptr);
   
   // on a stack (ir_entry) we will have: either (x k −1) or (null null 0)
-  std::vector ir_entry = create_ir_MapEntry(code, loc);
+  std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(loc, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getMin"));
+  code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getMin"));
 
-  return finalize_ir_MapEntry(code, loc, std::move(ir_entry), TKey);
+  return finalize_ir_MapEntry(code, origin, std::move(ir_entry), TKey);
 }
 
 // fun map<K,V>.findLast(): MapEntry<K, V>
-std::vector<var_idx_t> generate_mapKV_findLast(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+std::vector<var_idx_t> generate_mapKV_findLast(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
-  DictKeyValue kv(code, loc, TKey, nullptr, TypeDataSlice::create(), nullptr);
+  DictKeyValue kv(code, origin, TKey, nullptr, TypeDataSlice::create(), nullptr);
   
-  std::vector ir_entry = create_ir_MapEntry(code, loc);
+  std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(loc, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getMax"));
+  code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getMax"));
 
-  return finalize_ir_MapEntry(code, loc, std::move(ir_entry), TKey);
+  return finalize_ir_MapEntry(code, origin, std::move(ir_entry), TKey);
 }
 
 // fun map<K,V>.findKeyGreater(pivotKey: K): MapEntry<K, V>
-std::vector<var_idx_t> generate_mapKV_findKeyGreater(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+std::vector<var_idx_t> generate_mapKV_findKeyGreater(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
-  DictKeyValue kv(code, loc, TKey, &args[1], TypeDataSlice::create(), nullptr);
+  DictKeyValue kv(code, origin, TKey, &args[1], TypeDataSlice::create(), nullptr);
   
-  std::vector ir_entry = create_ir_MapEntry(code, loc);
+  std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(loc, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getNext"));
+  code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getNext"));
 
-  return finalize_ir_MapEntry(code, loc, std::move(ir_entry), TKey);
+  return finalize_ir_MapEntry(code, origin, std::move(ir_entry), TKey);
 }
 
 // fun map<K,V>.findKeyGreaterOrEqual(pivotKey: K): MapEntry<K, V>
-std::vector<var_idx_t> generate_mapKV_findKeyGreaterOrEqual(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+std::vector<var_idx_t> generate_mapKV_findKeyGreaterOrEqual(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
-  DictKeyValue kv(code, loc, TKey, &args[1], TypeDataSlice::create(), nullptr);
+  DictKeyValue kv(code, origin, TKey, &args[1], TypeDataSlice::create(), nullptr);
   
-  std::vector ir_entry = create_ir_MapEntry(code, loc);
+  std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(loc, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getNextEq"));
+  code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getNextEq"));
 
-  return finalize_ir_MapEntry(code, loc, std::move(ir_entry), TKey);
+  return finalize_ir_MapEntry(code, origin, std::move(ir_entry), TKey);
 }
 
 // fun map<K,V>.findKeyLess(pivotKey: K): MapEntry<K, V>
-std::vector<var_idx_t> generate_mapKV_findKeyLess(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+std::vector<var_idx_t> generate_mapKV_findKeyLess(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
-  DictKeyValue kv(code, loc, TKey, &args[1], TypeDataSlice::create(), nullptr);
+  DictKeyValue kv(code, origin, TKey, &args[1], TypeDataSlice::create(), nullptr);
   
-  std::vector ir_entry = create_ir_MapEntry(code, loc);
+  std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(loc, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getPrev"));
+  code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getPrev"));
 
-  return finalize_ir_MapEntry(code, loc, std::move(ir_entry), TKey);
+  return finalize_ir_MapEntry(code, origin, std::move(ir_entry), TKey);
 }
 
 // fun map<K,V>.findKeyLessOrEqual(pivotKey: K): MapEntry<K, V>
-std::vector<var_idx_t> generate_mapKV_findKeyLessOrEqual(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+std::vector<var_idx_t> generate_mapKV_findKeyLessOrEqual(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
-  DictKeyValue kv(code, loc, TKey, &args[1], TypeDataSlice::create(), nullptr);
+  DictKeyValue kv(code, origin, TKey, &args[1], TypeDataSlice::create(), nullptr);
   
-  std::vector ir_entry = create_ir_MapEntry(code, loc);
+  std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(loc, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getPrevEq"));
+  code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getPrevEq"));
 
-  return finalize_ir_MapEntry(code, loc, std::move(ir_entry), TKey);
+  return finalize_ir_MapEntry(code, origin, std::move(ir_entry), TKey);
 }
 
 // fun map<K,V>.iterateNext(current: MapEntry<K, V>): MapEntry<K, V>
-std::vector<var_idx_t> generate_mapKV_iterateNext(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+std::vector<var_idx_t> generate_mapKV_iterateNext(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   std::vector ir_pivot_key(args[1].begin() + 1, args[1].end() - 1);
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
-  DictKeyValue kv(code, loc, TKey, &ir_pivot_key, TypeDataSlice::create(), nullptr);
+  DictKeyValue kv(code, origin, TKey, &ir_pivot_key, TypeDataSlice::create(), nullptr);
   
-  std::vector ir_entry = create_ir_MapEntry(code, loc);
+  std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(loc, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getNext"));
+  code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getNext"));
 
-  return finalize_ir_MapEntry(code, loc, std::move(ir_entry), TKey);
+  return finalize_ir_MapEntry(code, origin, std::move(ir_entry), TKey);
 }
 
 // fun map<K,V>.iteratePrev(current: MapEntry<K, V>): MapEntry<K, V>
-std::vector<var_idx_t> generate_mapKV_iteratePrev(FunctionPtr called_f, CodeBlob& code, SrcLocation loc, const std::vector<std::vector<var_idx_t>>& args) {
+std::vector<var_idx_t> generate_mapKV_iteratePrev(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   std::vector ir_pivot_key(args[1].begin() + 1, args[1].end() - 1);
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
-  DictKeyValue kv(code, loc, TKey, &ir_pivot_key, TypeDataSlice::create(), nullptr);
+  DictKeyValue kv(code, origin, TKey, &ir_pivot_key, TypeDataSlice::create(), nullptr);
   
-  std::vector ir_entry = create_ir_MapEntry(code, loc);
+  std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(loc, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getPrev"));
+  code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getPrev"));
 
-  return finalize_ir_MapEntry(code, loc, std::move(ir_entry), TKey);
+  return finalize_ir_MapEntry(code, origin, std::move(ir_entry), TKey);
 }
 
 } // namespace tolk

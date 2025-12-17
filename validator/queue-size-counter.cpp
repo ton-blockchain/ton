@@ -14,12 +14,13 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "queue-size-counter.hpp"
 #include "block/block-auto.h"
 #include "block/block-parse.h"
 #include "common/delay.h"
 #include "td/actor/MultiPromise.h"
 #include "td/utils/Random.h"
+
+#include "queue-size-counter.hpp"
 
 namespace ton::validator {
 

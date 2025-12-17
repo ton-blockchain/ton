@@ -16,8 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "func.h"
 #include "vm/boc.h"
+
+#include "func.h"
 
 namespace funC {
 
@@ -892,7 +893,8 @@ bool Op::mark_noreturn() {
       return set_noreturn(true);
     case _If:
     case _TryCatch:
-      return set_noreturn((int(block0->mark_noreturn()) & int(block1 && block1->mark_noreturn())) | int(next->mark_noreturn()));
+      return set_noreturn((int(block0->mark_noreturn()) & int(block1 && block1->mark_noreturn())) |
+                          int(next->mark_noreturn()));
     case _Again:
       block0->mark_noreturn();
       return set_noreturn(true);

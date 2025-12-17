@@ -2,8 +2,8 @@ struct BigBodyMessage {
     v1: int256;
     v2: int256;
     v3: int256;
-    a1: address;
-    a2: address;
+    a1: address?;
+    a2: address?;
 }
 
 fun testFail(body: BigBodyMessage) {

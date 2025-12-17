@@ -18,24 +18,24 @@
 */
 #pragma once
 
-#include "td/utils/int_types.h"
-#include "td/utils/buffer.h"
+#include <limits>
+
 #include "adnl/utils.hpp"
 #include "common/io.hpp"
+#include "td/utils/buffer.h"
+#include "td/utils/int_types.h"
 
 #include "persistent-vector.h"
 #include "validator-session-description.h"
-#include "validator-session-types.h"
 #include "validator-session-round-attempt-state.h"
-
-#include <limits>
+#include "validator-session-types.h"
 
 namespace td {
 
 td::StringBuilder& operator<<(td::StringBuilder& sb, const ton::ton_api::validatorSession_round_Message& message);
 td::StringBuilder& operator<<(td::StringBuilder& sb, const ton::ton_api::validatorSession_round_Message* message);
 
-}
+}  // namespace td
 
 namespace ton {
 
@@ -177,7 +177,6 @@ class ValidatorSessionOldRoundState : public ValidatorSessionDescription::RootOb
   const SessionBlockCandidateSignatureVector* approve_signatures_;
   const HashType hash_;
 };
-
 
 class ValidatorSessionRoundState : public ValidatorSessionDescription::RootObject {
  public:

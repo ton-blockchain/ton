@@ -19,11 +19,9 @@
 #pragma once
 
 #include "auto/tl/ton_api.h"
-
-#include "tl/tl_object_parse.h"
-#include "td/utils/tl_parsers.h"
-
 #include "crypto/common/bitstring.h"
+#include "td/utils/tl_parsers.h"
+#include "tl/tl_object_parse.h"
 
 #include "common-utils.hpp"
 

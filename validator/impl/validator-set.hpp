@@ -18,13 +18,13 @@
 */
 #pragma once
 
-#include "validator/interfaces/validator-set.h"
-#include "validator/interfaces/signature-set.h"
-#include "ton/ton-types.h"
-#include "keys/encryptor.h"
-#include "block/mc-config.h"
-
 #include <map>
+
+#include "block/mc-config.h"
+#include "keys/encryptor.h"
+#include "ton/ton-types.h"
+#include "validator/interfaces/signature-set.h"
+#include "validator/interfaces/validator-set.h"
 
 namespace ton {
 

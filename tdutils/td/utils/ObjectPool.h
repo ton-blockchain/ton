@@ -18,12 +18,12 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-#include "td/utils/logging.h"
-
 #include <atomic>
 #include <memory>
 #include <utility>
+
+#include "td/utils/common.h"
+#include "td/utils/logging.h"
 
 namespace td {
 // It is draft object pool implementaion
@@ -168,7 +168,7 @@ class ObjectPool {
   };
 
   template <class... ArgsT>
-  OwnerPtr create(ArgsT &&... args) {
+  OwnerPtr create(ArgsT &&...args) {
     Storage *storage = get_storage();
     storage->init_data(std::forward<ArgsT>(args)...);
     return OwnerPtr(storage, this);
@@ -213,7 +213,7 @@ class ObjectPool {
     std::atomic<int32> generation{1};
 
     template <class... ArgsT>
-    void init_data(ArgsT &&... args) {
+    void init_data(ArgsT &&...args) {
       // new  (&data) DataT(std::forward<ArgsT>(args)...);
       data = DataT(std::forward<ArgsT>(args)...);
     }

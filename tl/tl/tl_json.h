@@ -18,17 +18,17 @@
 */
 #pragma once
 
+#include <type_traits>
+
+#include "td/utils/JsonBuilder.h"
+#include "td/utils/SharedSlice.h"
+#include "td/utils/Slice.h"
+#include "td/utils/Status.h"
 #include "td/utils/base64.h"
 #include "td/utils/buffer.h"
 #include "td/utils/format.h"
-#include "td/utils/JsonBuilder.h"
 #include "td/utils/misc.h"
-#include "td/utils/Slice.h"
-#include "td/utils/SharedSlice.h"
-#include "td/utils/Status.h"
 #include "td/utils/tl_storers.h"
-
-#include <type_traits>
 
 namespace td {
 struct JsonInt64 {
@@ -265,7 +265,7 @@ std::enable_if_t<!std::is_constructible<T>::value, Status> from_json(ton::tl_obj
   }
 
   auto &object = from.get_object();
-  TRY_RESULT(constructor_value, get_json_object_field(object, "@type", JsonValue::Type::Null, false));
+  TRY_RESULT(constructor_value, object.extract_required_field("@type", JsonValue::Type::Null));
   int32 constructor = 0;
   if (constructor_value.type() == JsonValue::Type::Number) {
     constructor = to_integer<int32>(constructor_value.get_number());

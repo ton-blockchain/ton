@@ -18,12 +18,12 @@
 */
 #pragma once
 
-#include "td/utils/int_types.h"
-#include "crypto/common/bitstring.h"
-#include "adnl/adnl-node-id.hpp"
-#include "ton/ton-types.h"
-
 #include <ton/ton-tl.hpp>
+
+#include "adnl/adnl-node-id.hpp"
+#include "crypto/common/bitstring.h"
+#include "td/utils/int_types.h"
+#include "ton/ton-types.h"
 
 namespace ton {
 

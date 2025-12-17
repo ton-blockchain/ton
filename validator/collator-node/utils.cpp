@@ -14,11 +14,12 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "utils.hpp"
-#include "checksum.h"
 #include "keys/keys.hpp"
 #include "ton/ton-tl.hpp"
 #include "validator-session/candidate-serializer.h"
+
+#include "checksum.h"
+#include "utils.hpp"
 
 namespace ton::validator {
 
@@ -30,14 +31,15 @@ tl_object_ptr<ton_api::collatorNode_Candidate> serialize_candidate(const BlockCa
   }
   size_t decompressed_size;
   td::BufferSlice compressed =
-      validatorsession::compress_candidate_data(block.data, block.collated_data, decompressed_size).move_as_ok();
+      validatorsession::compress_candidate_data(block.data, block.collated_data, decompressed_size, block.id.root_hash)
+          .move_as_ok();
   return create_tl_object<ton_api::collatorNode_compressedCandidate>(
       0, PublicKey{pubkeys::Ed25519{block.pubkey.as_bits256()}}.tl(), create_tl_block_id(block.id),
       (int)decompressed_size, std::move(compressed));
 }
 
 td::Result<BlockCandidate> deserialize_candidate(tl_object_ptr<ton_api::collatorNode_Candidate> f,
-                                                 int max_decompressed_data_size, int proto_version) {
+                                                 int max_decompressed_data_size) {
   td::Result<BlockCandidate> res;
   ton_api::downcast_call(
       *f, td::overloaded(
@@ -62,7 +64,8 @@ td::Result<BlockCandidate> deserialize_candidate(tl_object_ptr<ton_api::collator
                     return td::Status::Error("decompressed size is too big");
                   }
                   TRY_RESULT(p, validatorsession::decompress_candidate_data(c.data_, false, c.decompressed_size_,
-                                                                            max_decompressed_data_size, proto_version));
+                                                                            max_decompressed_data_size,
+                                                                            create_block_id(c.id_).root_hash));
                   auto collated_data_hash = td::sha256_bits256(p.second);
                   auto key = PublicKey{c.source_};
                   if (!key.is_ed25519()) {
@@ -75,8 +78,8 @@ td::Result<BlockCandidate> deserialize_candidate(tl_object_ptr<ton_api::collator
               },
               [&](ton_api::collatorNode_compressedCandidateV2& c) {
                 res = [&]() -> td::Result<BlockCandidate> {
-                  TRY_RESULT(p, validatorsession::decompress_candidate_data(c.data_, true, 0,
-                                                                            max_decompressed_data_size, proto_version));
+                  TRY_RESULT(p, validatorsession::decompress_candidate_data(
+                                    c.data_, true, 0, max_decompressed_data_size, create_block_id(c.id_).root_hash));
                   auto collated_data_hash = td::sha256_bits256(p.second);
                   auto key = PublicKey{c.source_};
                   if (!key.is_ed25519()) {

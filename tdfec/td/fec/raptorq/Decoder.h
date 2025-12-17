@@ -17,10 +17,10 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "td/fec/raptorq/Solver.h"
-#include "td/fec/raptorq/Encoder.h"
-
 #include <set>
+
+#include "td/fec/raptorq/Encoder.h"
+#include "td/fec/raptorq/Solver.h"
 
 namespace td {
 namespace raptorq {

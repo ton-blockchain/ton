@@ -97,7 +97,7 @@ struct CompilerState {
   PersistentHeapAllocator persistent_mem;
 
   std::vector<FunctionPtr> all_builtins;        // all built-in functions
-  std::vector<FunctionPtr> all_functions;       // all user-defined (not built-in) global-scope functions, with generic instantiations
+  std::vector<FunctionPtr> all_functions;       // all user-defined (not built-in) global-scope functions, with generic instantiations, with lambdas
   std::vector<FunctionPtr> all_methods;         // all user-defined and built-in extension methods for arbitrary types (receivers)
   std::vector<FunctionPtr> all_contract_getters;
   std::vector<GlobalVarPtr> all_global_vars;

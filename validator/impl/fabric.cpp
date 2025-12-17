@@ -16,25 +16,26 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "fabric.h"
-#include "collator-impl.h"
-#include "validator/db/rootdb.hpp"
-#include "validator/block-handle.hpp"
-#include "apply-block.hpp"
-#include "accept-block.hpp"
-#include "shard.hpp"
-#include "block.hpp"
-#include "proof.hpp"
-#include "signature-set.hpp"
-#include "external-message.hpp"
-#include "ihr-message.hpp"
-#include "validate-query.hpp"
-#include "check-proof.hpp"
-#include "top-shard-descr.hpp"
 #include "ton/ton-io.hpp"
-#include "liteserver.hpp"
+#include "validator/block-handle.hpp"
+#include "validator/db/rootdb.hpp"
 #include "validator/fabric.h"
+
+#include "accept-block.hpp"
+#include "apply-block.hpp"
+#include "block.hpp"
+#include "check-proof.hpp"
+#include "collator-impl.h"
+#include "external-message.hpp"
+#include "fabric.h"
+#include "ihr-message.hpp"
 #include "liteserver-cache.hpp"
+#include "liteserver.hpp"
+#include "proof.hpp"
+#include "shard.hpp"
+#include "signature-set.hpp"
+#include "top-shard-descr.hpp"
+#include "validate-query.hpp"
 
 namespace ton {
 
@@ -113,15 +114,9 @@ td::Ref<BlockSignatureSet> create_signature_set(std::vector<BlockSignature> sig_
   return td::Ref<BlockSignatureSetQ>{true, std::move(sig_set)};
 }
 
-td::Result<td::Ref<ExtMessage>> create_ext_message(td::BufferSlice data,
-                                                   block::SizeLimitsConfig::ExtMsgLimits limits) {
+td::Result<td::Ref<ExtMessage>> create_ext_message(td::BufferSlice data, block::SizeLimitsConfig::ExtMsgLimits limits) {
   TRY_RESULT(res, ExtMessageQ::create_ext_message(std::move(data), limits));
   return std::move(res);
-}
-
-void run_check_external_message(Ref<ExtMessage> message, td::actor::ActorId<ValidatorManager> manager,
-                                td::Promise<td::Ref<ExtMessage>> promise) {
-  ExtMessageQ::run_message(std::move(message), std::move(manager), std::move(promise));
 }
 
 td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data) {
@@ -131,11 +126,11 @@ td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data) {
 
 void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                             td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
-                            td::Ref<BlockSignatureSet> approve_signatures, int send_broadcast_mode, bool apply,
-                            td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise) {
-  td::actor::create_actor<AcceptBlockQuery>(
-      PSTRING() << "accept" << id.id.to_str(), id, std::move(data), prev, std::move(validator_set),
-      std::move(signatures), std::move(approve_signatures), send_broadcast_mode, apply, manager, std::move(promise))
+                            int send_broadcast_mode, bool apply, td::actor::ActorId<ValidatorManager> manager,
+                            td::Promise<td::Unit> promise) {
+  td::actor::create_actor<AcceptBlockQuery>(PSTRING() << "accept" << id.id.to_str(), id, std::move(data), prev,
+                                            std::move(validator_set), std::move(signatures), send_broadcast_mode, apply,
+                                            manager, std::move(promise))
       .release();
 }
 
@@ -230,9 +225,19 @@ void run_liteserver_query(td::BufferSlice data, td::actor::ActorId<ValidatorMana
   LiteQuery::run_query(std::move(data), std::move(manager), std::move(cache), std::move(promise));
 }
 
-void run_fetch_account_state(WorkchainId wc, StdSmcAddress  addr, td::actor::ActorId<ValidatorManager> manager,
-                             td::Promise<std::tuple<td::Ref<vm::CellSlice>,UnixTime,LogicalTime,std::unique_ptr<block::ConfigInfo>>> promise) {
+void run_fetch_account_state(
+    WorkchainId wc, StdSmcAddress addr, td::actor::ActorId<ValidatorManager> manager,
+    td::Promise<std::tuple<td::Ref<vm::CellSlice>, UnixTime, LogicalTime, std::unique_ptr<block::ConfigInfo>>>
+        promise) {
   LiteQuery::fetch_account_state(wc, addr, std::move(manager), std::move(promise));
+}
+
+td::actor::Task<std::tuple<td::Ref<vm::CellSlice>, UnixTime, LogicalTime, std::unique_ptr<block::ConfigInfo>>>
+run_fetch_account_state(WorkchainId wc, StdSmcAddress addr, td::actor::ActorId<ValidatorManager> manager) {
+  auto [task, promise] = td::actor::StartedTask<
+      std::tuple<td::Ref<vm::CellSlice>, UnixTime, LogicalTime, std::unique_ptr<block::ConfigInfo>>>::make_bridge();
+  run_fetch_account_state(wc, addr, std::move(manager), std::move(promise));
+  co_return co_await std::move(task);
 }
 
 void run_validate_shard_block_description(td::BufferSlice data, BlockHandle masterchain_block,

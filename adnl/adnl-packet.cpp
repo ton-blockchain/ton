@@ -16,8 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "adnl-packet.h"
 #include "td/utils/Random.h"
+
+#include "adnl-packet.h"
 
 namespace ton {
 

@@ -16,10 +16,10 @@
 */
 #pragma once
 
+#include <fstream>
+
 #include "full-node.h"
 #include "validator-telemetry.hpp"
-
-#include <fstream>
 
 namespace ton::validator::fullnode {
 

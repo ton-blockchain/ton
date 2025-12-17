@@ -18,11 +18,12 @@
 */
 #pragma once
 
-#include "rldp-peer.h"
-#include "fec/fec.h"
-#include "rldp.hpp"
-
 #include <map>
+
+#include "fec/fec.h"
+
+#include "rldp-peer.h"
+#include "rldp.hpp"
 
 namespace ton {
 

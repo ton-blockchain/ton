@@ -27,24 +27,23 @@
 */
 #pragma once
 
+#include "adnl/adnl-ext-client.h"
 #include "adnl/adnl-node-id.hpp"
 #include "adnl/adnl.h"
 #include "auto/tl/ton_api.h"
-#include "overlays.h"
+#include "auto/tl/ton_api.hpp"
+#include "auto/tl/ton_api_json.h"
+#include "dht/dht.h"
 #include "rldp/rldp.h"
 #include "rldp2/rldp.h"
-#include "dht/dht.h"
+#include "td/actor/MultiPromise.h"
 #include "td/actor/PromiseFuture.h"
+#include "validator/full-node-master.h"
+#include "validator/full-node.h"
 #include "validator/manager.h"
 #include "validator/validator.h"
-#include "validator/full-node.h"
-#include "validator/full-node-master.h"
-#include "adnl/adnl-ext-client.h"
 
-#include "td/actor/MultiPromise.h"
-
-#include "auto/tl/ton_api_json.h"
-#include "auto/tl/ton_api.hpp"
+#include "overlays.h"
 
 enum ValidatorEnginePermissions : td::uint32 { vep_default = 1, vep_modify = 2, vep_unsafe = 4 };
 
@@ -230,7 +229,7 @@ class ValidatorEngine : public td::actor::Actor {
   std::map<CI_key, td::uint32> control_permissions_;
 
   double state_ttl_ = 0;
-  double max_mempool_num_ = 0;
+  size_t max_mempool_num_ = 0;
   double block_ttl_ = 0;
   double sync_ttl_ = 0;
   double archive_ttl_ = 0;
@@ -244,7 +243,6 @@ class ValidatorEngine : public td::actor::Actor {
   bool celldb_direct_io_ = false;
   bool celldb_preload_all_ = false;
   bool celldb_in_memory_ = false;
-  bool celldb_v2_ = false;
   bool celldb_disable_bloom_filter_ = false;
   td::optional<double> catchain_max_block_delay_, catchain_max_block_delay_slow_;
   bool read_config_ = false;
@@ -252,20 +250,25 @@ class ValidatorEngine : public td::actor::Actor {
   bool started_ = false;
   ton::BlockSeqno truncate_seqno_{0};
   std::string session_logs_file_;
-  bool fast_state_serializer_enabled_ = false;
   std::string validator_telemetry_filename_;
   bool not_all_shards_ = false;
   std::vector<ton::ShardIdFull> add_shard_cmds_;
   bool state_serializer_disabled_flag_ = false;
   double broadcast_speed_multiplier_catchain_ = 3.33;
-  double broadcast_speed_multiplier_public_ = 3.33;
-  double broadcast_speed_multiplier_private_ = 3.33;
   bool permanent_celldb_ = false;
   bool skip_key_sync_ = false;
   td::optional<ton::BlockSeqno> sync_shards_upto_;
   ton::adnl::AdnlNodeIdShort shard_block_retainer_adnl_id_ = ton::adnl::AdnlNodeIdShort::zero();
   bool shard_block_retainer_adnl_id_fullnode_ = false;
-  double initial_sync_delay_ = 60.0;
+  bool parallel_validation_ = false;
+  ton::validator::fullnode::FullNodeOptions full_node_options_ = {.config_ = {},
+                                                                  .public_broadcast_speed_multiplier_ = 3.33,
+                                                                  .private_broadcast_speed_multiplier_ = 3.33,
+                                                                  .initial_sync_delay_ = 60.0,
+                                                                  .ratelimit_window_size_ = 0,
+                                                                  .ratelimit_global_ = 0,
+                                                                  .ratelimit_heavy_ = 0,
+                                                                  .ratelimit_medium_ = 0};
 
   std::set<ton::CatchainSeqno> unsafe_catchains_;
   std::map<ton::BlockSeqno, std::pair<ton::CatchainSeqno, td::uint32>> unsafe_catchain_rotations_;
@@ -291,7 +294,7 @@ class ValidatorEngine : public td::actor::Actor {
   void set_state_ttl(double t) {
     state_ttl_ = t;
   }
-  void set_max_mempool_num(double t) {
+  void set_max_mempool_num(size_t t) {
     max_mempool_num_ = t;
   }
   void set_block_ttl(double t) {
@@ -346,9 +349,6 @@ class ValidatorEngine : public td::actor::Actor {
   void set_celldb_in_memory(bool value) {
     celldb_in_memory_ = value;
   }
-  void set_celldb_v2(bool value) {
-    celldb_v2_ = value;
-  }
   void set_celldb_disable_bloom_filter(bool value) {
     celldb_disable_bloom_filter_ = value;
   }
@@ -357,9 +357,6 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_catchain_max_block_delay_slow(double value) {
     catchain_max_block_delay_slow_ = value;
-  }
-  void set_fast_state_serializer_enabled(bool value) {
-    fast_state_serializer_enabled_ = value;
   }
   void set_validator_telemetry_filename(std::string value) {
     validator_telemetry_filename_ = std::move(value);
@@ -377,10 +374,10 @@ class ValidatorEngine : public td::actor::Actor {
     broadcast_speed_multiplier_catchain_ = value;
   }
   void set_broadcast_speed_multiplier_public(double value) {
-    broadcast_speed_multiplier_public_ = value;
+    full_node_options_.public_broadcast_speed_multiplier_ = value;
   }
   void set_broadcast_speed_multiplier_private(double value) {
-    broadcast_speed_multiplier_private_ = value;
+    full_node_options_.private_broadcast_speed_multiplier_ = value;
   }
   void set_permanent_celldb(bool value) {
     permanent_celldb_ = value;
@@ -397,8 +394,23 @@ class ValidatorEngine : public td::actor::Actor {
   void set_shard_block_retainer_adnl_id_fullnode() {
     shard_block_retainer_adnl_id_fullnode_ = true;
   }
+  void set_parallel_validation(bool value) {
+    parallel_validation_ = value;
+  }
   void set_initial_sync_delay(double value) {
-    initial_sync_delay_ = value;
+    full_node_options_.initial_sync_delay_ = value;
+  }
+  void set_ratelimit_window_size(double seconds) {
+    full_node_options_.ratelimit_window_size_ = seconds;
+  }
+  void set_ratelimit_global(size_t count) {
+    full_node_options_.ratelimit_global_ = count;
+  }
+  void set_ratelimit_heavy(size_t count) {
+    full_node_options_.ratelimit_heavy_ = count;
+  }
+  void set_ratelimit_medium(size_t count) {
+    full_node_options_.ratelimit_medium_ = count;
   }
 
   void start_up() override;
@@ -498,8 +510,8 @@ class ValidatorEngine : public td::actor::Actor {
                                            td::uint32 flags, td::int32 slot, td::int32 expire_at,
                                            td::Promise<ton::overlay::OverlayMemberCertificate> promise);
   void process_fast_sync_overlay_certificate_request(ton::PublicKeyHash issue_by, ton::adnl::AdnlNodeIdShort issue_to,
-                                                td::uint32 flags, td::int32 slot, td::int32 expire_at,
-                                                td::Promise<ton::overlay::OverlayMemberCertificate> promise);
+                                                     td::uint32 flags, td::int32 slot, td::int32 expire_at,
+                                                     td::Promise<ton::overlay::OverlayMemberCertificate> promise);
   ton::PublicKeyHash find_local_validator_for_cert_issuing();
 
   std::string custom_overlays_config_file() const {
@@ -598,10 +610,10 @@ class ValidatorEngine : public td::actor::Actor {
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_getActorTextStats &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
-  void run_control_query(ton::ton_api::engine_validator_addShard &query, td::BufferSlice data,
-                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
-  void run_control_query(ton::ton_api::engine_validator_delShard &query, td::BufferSlice data,
-                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_addShard &query, td::BufferSlice data, ton::PublicKeyHash src,
+                         td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_delShard &query, td::BufferSlice data, ton::PublicKeyHash src,
+                         td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_addCollator &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_delCollator &query, td::BufferSlice data,

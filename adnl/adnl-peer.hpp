@@ -18,20 +18,19 @@
 */
 #pragma once
 
-#include <vector>
 #include <map>
 #include <queue>
-
-#include "adnl-peer.h"
-#include "adnl-peer-table.h"
-#include "adnl-network-manager.h"
-#include "keys/encryptor.h"
-#include "adnl-channel.h"
-#include "adnl-query.h"
+#include <vector>
 
 #include "crypto/Ed25519.h"
+#include "keys/encryptor.h"
 #include "td/utils/DecTree.h"
 
+#include "adnl-channel.h"
+#include "adnl-network-manager.h"
+#include "adnl-peer-table.h"
+#include "adnl-peer.h"
+#include "adnl-query.h"
 #include "utils.hpp"
 
 namespace ton {
@@ -60,8 +59,7 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
 
   AdnlPeerPairImpl(td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<AdnlPeerTable> peer_table,
                    td::uint32 local_mode, td::actor::ActorId<AdnlLocalId> local_actor,
-                   td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort local_id,
-                   AdnlNodeIdShort peer_id);
+                   td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id);
   void start_up() override;
   void alarm() override;
 

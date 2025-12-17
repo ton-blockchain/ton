@@ -19,12 +19,13 @@
 #pragma once
 
 #include "auto/tl/lite_api.h"
-#include "adnl-ext-connection.hpp"
-#include "tl-utils/lite-utils.hpp"
-#include "td/utils/Random.h"
-#include "adnl-query.h"
 #include "keys/encryptor.h"
+#include "td/utils/Random.h"
+#include "tl-utils/lite-utils.hpp"
+
 #include "adnl-ext-client.h"
+#include "adnl-ext-connection.hpp"
+#include "adnl-query.h"
 
 namespace ton {
 
@@ -86,7 +87,7 @@ class AdnlExtClientImpl : public AdnlExtClient {
     if (!conn_.empty() && conn_.get() == conn) {
       callback_->on_stop_ready();
       conn_ = {};
-      for (auto& q : out_queries_) {
+      for (auto &q : out_queries_) {
         td::actor::send_closure(q.second, &AdnlQuery::set_error, td::Status::Error(ErrorCode::cancelled));
       }
       alarm_timestamp() = next_create_at_;

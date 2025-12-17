@@ -17,19 +17,20 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "common/refcnt.hpp"
-#include "vm/db/StaticBagOfCellsDb.h"
-#include "vm/dict.h"
-#include "ton/ton-types.h"
-#include "ton/ton-shard.h"
-#include "common/bitstring.h"
-#include "block.h"
-
-#include <vector>
+#include <cstring>
 #include <limits>
 #include <map>
 #include <set>
-#include <cstring>
+#include <vector>
+
+#include "common/bitstring.h"
+#include "common/refcnt.hpp"
+#include "ton/ton-shard.h"
+#include "ton/ton-types.h"
+#include "vm/db/StaticBagOfCellsDb.h"
+#include "vm/dict.h"
+
+#include "block.h"
 
 namespace block {
 using td::Ref;
@@ -340,8 +341,8 @@ struct StoragePrices {
       , mc_cell_price(_mc_cprice) {
   }
   static td::RefInt256 compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing,
-                                            const StorageUsed& storage_used, ton::UnixTime last_paid,
-                                            bool is_special, bool is_masterchain);
+                                            const StorageUsed& storage_used, ton::UnixTime last_paid, bool is_special,
+                                            bool is_masterchain);
 };
 
 struct GasLimitsPrices {
@@ -434,10 +435,10 @@ struct WorkchainInfo : public td::CntObject {
   int min_addr_len, max_addr_len, addr_len_step;
 
   // Default values are used when split_merge_timings is not set in config
-  unsigned split_merge_delay = 100;       // prepare (delay) split/merge for 100 seconds
-  unsigned split_merge_interval = 100;    // split/merge is enabled during 60 second interval
-  unsigned min_split_merge_interval = 30; // split/merge interval must be at least 30 seconds
-  unsigned max_split_merge_delay = 1000;  // end of split/merge interval must be at most 1000 seconds in the future
+  unsigned split_merge_delay = 100;        // prepare (delay) split/merge for 100 seconds
+  unsigned split_merge_interval = 100;     // split/merge is enabled during 60 second interval
+  unsigned min_split_merge_interval = 30;  // split/merge interval must be at least 30 seconds
+  unsigned max_split_merge_delay = 1000;   // end of split/merge interval must be at most 1000 seconds in the future
 
   td::uint32 persistent_state_split_depth = 0;
 
@@ -636,7 +637,8 @@ class Config {
   bool set_block_id_ext(const ton::BlockIdExt& block_id_ext);
   td::Result<std::vector<ton::StdSmcAddress>> get_special_smartcontracts(bool without_config = false) const;
   bool is_special_smartcontract(const ton::StdSmcAddress& addr) const;
-  static td::Result<std::shared_ptr<ValidatorSet>> unpack_validator_set(Ref<vm::Cell> valset_root, bool use_cache = false);
+  static td::Result<std::shared_ptr<ValidatorSet>> unpack_validator_set(Ref<vm::Cell> valset_root,
+                                                                        bool use_cache = false);
   td::Result<std::vector<StoragePrices>> get_storage_prices() const;
   static td::Result<StoragePrices> do_get_one_storage_prices(vm::CellSlice cs);
   td::Result<GasLimitsPrices> get_gas_limits_prices(bool is_masterchain = false) const;
@@ -656,7 +658,7 @@ class Config {
   const WorkchainSet& get_workchain_list() const {
     return workchains_;
   }
-  std::shared_ptr<ValidatorSet> const& get_cur_validator_set() const& {
+  const std::shared_ptr<ValidatorSet>& get_cur_validator_set() const& {
     return cur_validators_;
   }
   std::pair<ton::UnixTime, ton::UnixTime> get_validator_set_start_stop(int next = 0) const;

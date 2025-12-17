@@ -18,11 +18,11 @@
 */
 #pragma once
 
-#include "ton/ton-types.h"
 #include "td/actor/actor.h"
-#include "validator/interfaces/shard.h"
 #include "td/db/KeyValue.h"
 #include "ton/ton-tl.hpp"
+#include "ton/ton-types.h"
+#include "validator/interfaces/shard.h"
 
 namespace ton {
 
@@ -473,4 +473,3 @@ class FileReference {
 }  // namespace validator
 
 }  // namespace ton
-

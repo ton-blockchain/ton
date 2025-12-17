@@ -16,12 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "wait-block-state.hpp"
-#include "validator/fabric.h"
-#include "ton/ton-io.hpp"
 #include "common/checksum.h"
 #include "common/delay.h"
+#include "ton/ton-io.hpp"
 #include "validator/downloaders/download-state.hpp"
+#include "validator/fabric.h"
+
+#include "wait-block-state.hpp"
 
 namespace ton {
 
@@ -128,7 +129,7 @@ void WaitBlockState::start() {
     BlockIdExt masterchain_id = persistent_state_desc_->masterchain_id;
     td::uint32 split_depth = 0;
     bool block_found = false;
-    for (auto const& [block, block_split_depth] : persistent_state_desc_->shard_blocks) {
+    for (const auto& [block, block_split_depth] : persistent_state_desc_->shard_blocks) {
       if (block == handle_->id()) {
         split_depth = block_split_depth;
         block_found = true;

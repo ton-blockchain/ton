@@ -1,3 +1,5 @@
+import "@stdlib/exotic-cells"
+
 fun builder.store_u32(mutate self, value: int): self {
     return self.storeUint(value, 32);
 }
@@ -50,7 +52,7 @@ fun test2(): [int,int,int] {
     // operator ! here and below is used just for testing purposes, it doesn't affect the result
     b!.myStoreInt(3, 32);
 
-    var cs: slice = b.endCell().beginParse();
+    var cs: slice = b.toSlice();
     var one: int = cs.myLoadInt(32);
     var (two: int, three: int) = (cs.myLoadInt(32), cs.myLoadInt(32));
 
@@ -59,7 +61,7 @@ fun test2(): [int,int,int] {
 
 @method_id(103)
 fun test3(ret: int): int {
-    val same: int = beginCell()!.storeUint(ret,32).endCell().beginParse().loadUint(32);
+    val same: int = beginCell()!.storeUint(ret,32).toSlice().loadUint(32);
     return same;
 }
 
@@ -193,7 +195,7 @@ fun test111() {
         .endCell().beginParse();
     var op1 = s.loadUint(32);
     var q1 = s.loadUint(64);
-    if ((s as address).isNone()) {
+    if ((s as any_address).isNone()) {
         s.skipBits(2);
     }
     if (s.loadBool() == false) {
@@ -255,7 +257,7 @@ fun test18() {
   if (true) {
       b.storeInt(x + 2, 8).storeUint(x = match (x) { 24 => 5, else => 0 }, 4);
   }
-  var s = b.endCell().beginParse();
+  var s = [b.endCell()].0.beginParse();
   return (s.loadUint(14), s.loadInt(8), s.loadUint(4));
 }
 
@@ -274,7 +276,7 @@ fun test20() {
   var b = true ? beginCell() : null;
   b.storeBool(true).storeBool(x);
   b = b.storeBool(true).storeUint(0, n *= 2).storeBool(!!true).storeCoins(0);
-  var s = b.endCell().beginParse();
+  var s = b.toSlice();
   return (s.loadBool(), s.loadBool(), s.loadBool(), s.loadUint(8), s.loadBool(), s.loadCoins());
 }
 
@@ -333,7 +335,7 @@ fun test24(uns: bool) {
 fun builder.my_storeRef(mutate self, value: cell): self
     asm(self value) "STREFR";
 
-fun builder.my_storeAddress(mutate self, value: address): self
+fun builder.my_storeAddress(mutate self, value: any_address): self
     asm(value self) "STSLICE";
 
 fun builder.my_storeBuilder(mutate self, value: builder): self
@@ -368,7 +370,7 @@ fun demo33(value: builder, dest: builder) {
 }
 
 @noinline
-fun demo34(dest: builder, value: address) {
+fun demo34(dest: builder, value: any_address) {
     // SWAP + STSLICE => STSLICER
     return dest.my_storeAddress(value);
 }
@@ -469,6 +471,95 @@ fun test36() {
     return beginCell().storeInt(0, 0)
 }
 
+@method_id(137)
+fun test37() {
+    return beginCell().storeInt(12, 32).endCell().hash() & 0xFFFF
+}
+
+@method_id(138)
+fun test38() {
+    return beginCell().endCell().beginParse().remainingBitsCount()
+}
+
+@method_id(139)
+fun test39() {
+    return beginCell().endCell()
+}
+
+@method_id(140)
+fun test40() {
+    return beginCell().toSlice().remainingBitsAndRefsCount()
+}
+
+@method_id(141)
+fun test41() {
+    var empty = "";
+    var incorrect = stringHexToSlice("8");
+    var incomplete = (address("EQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPrHF") as slice).getFirstBits(266);
+
+    var data = createEmptyTuple();
+    var b = beginCell();
+
+    try { data.push(empty.loadAddress()) }
+    catch (ex) { data.push(ex) }
+    try { data.push(incorrect.loadAddress()) }
+    catch (ex) { data.push(ex) }
+    try { data.push(incomplete.loadAddress()) }
+    catch (ex) { data.push(ex) }
+
+    try { data.push(empty.loadAddressOpt()) }
+    catch (ex) { data.push(ex) }
+    try { data.push(incorrect.loadAddressOpt()) }
+    catch (ex) { data.push(ex) }
+    try { data.push(incomplete.loadAddressOpt()) }
+    catch (ex) { data.push(ex) }
+
+    try { data.push(empty.loadAddressAny()) }
+    catch (ex) { data.push(ex) }
+    try { data.push(incorrect.loadAddressAny()) }
+    catch (ex) { data.push(ex) }
+    try { data.push(incomplete.loadAddressAny()) }
+    catch (ex) { data.push(ex) }
+
+    try { b.storeAddress(createAddressNone() as address) }
+    catch (ex) { data.push(ex) }
+    try { b.storeAddressOpt(createAddressNone() as address) }
+    catch (ex) { data.push(ex) }
+    try { b.storeAny("123" as address) }
+    catch (ex) { data.push(ex) }
+    try { b.storeAny("123" as address?) }
+    catch (ex) { data.push(ex) }
+
+    try { b.storeAddressOpt(null); data.push(b.bitsCount()) }
+    catch (ex) { data.push(ex) }
+
+    return data;
+}
+
+@method_id(142)
+fun test42() {
+    var c1 = beginCell().endCell();
+    var c2 = beginCell().endCellSpecial(false);
+    return (
+        c1.hash() == c1.hashOfLevel(3), 
+        c1.depth() == c1.depthOfLevel(3),
+        c1.hash() == c2.hash(),
+        c2.depth() == 0,
+    );
+}
+
+@method_id(143)
+fun test43() {
+    var c3 = beginCell().storeUint(123, 32).endCell();
+    var c3lib = c3.toLibraryReference();
+    
+    var (s, isExotic) = c3lib.beginParseSpecial();
+    assert (isExotic) throw 123;
+    val cellType = s.loadInt(8) as ExoticCellType;
+    return (cellType, s.loadUint(256) == c3.hash(), s.remainingBitsCount());
+    // 73669
+}
+
 fun main(): int {
     return 0;
 }
@@ -512,22 +603,25 @@ fun main(): int {
 @testcase | 135 | 7   | 5
 @testcase | 135 | 8   | 5
 @testcase | 136 |     | BC{0000}
+@testcase | 137 |     | 39065
+@testcase | 138 |     | 0
+@testcase | 140 |     | 0 0
+@testcase | 141 |     | [ 9 9 9 9 9 9 9 9 9 8 8 8 8 2 ]
+@testcase | 142 |     | -1 -1 -1 -1
+@testcase | 143 |     | 2 -1 0
 
 We test that consequtive storeInt/storeUint with constants are joined into a single number
 
 @fif_codegen
 """
   test6() PROC:<{
-    NEWC
-    x{000000010000000200000003} STSLICECONST
-    ENDC        //  '11
+    x{000000010000000200000003} PUSHSLICE
 """
 
 @fif_codegen
 """
   test17() PROC:<{
-    NEWC
-    x{107b} STSLICECONST
+    x{107b} PUSHSLICE
 """
 
 @fif_codegen
@@ -552,8 +646,7 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 @fif_codegen
 """
   test20() PROC:<{
-    NEWC
-    x{a010} STSLICECONST
+    x{a010} PUSHSLICE
 """
 
 @fif_codegen
@@ -698,6 +791,37 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
     NEWC
     OVER
     STIX
+  }>
+"""
+
+@fif_codegen
+"""
+  test37() PROC:<{
+    NEWC
+    x{0000000c} STSLICECONST
+    HASHBU
+"""
+
+@fif_codegen
+"""
+  test38() PROC:<{ 
+    x{} PUSHSLICE
+    SBITS
+  }>
+"""
+
+@fif_codegen
+"""
+  test39() PROC:<{ 
+    <b b> PUSHREF
+  }>
+"""
+
+@fif_codegen
+"""
+  test40() PROC:<{ 
+    x{} PUSHSLICE
+    SBITREFS
   }>
 """
 

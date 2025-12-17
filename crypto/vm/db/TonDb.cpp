@@ -16,10 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "vm/db/TonDb.h"
-
-#include "td/utils/tl_helpers.h"
 #include "td/utils/Random.h"
+#include "td/utils/tl_helpers.h"
+#include "vm/db/TonDb.h"
 
 #if TDDB_USE_ROCKSDB
 #include "td/db/RocksDb.h"

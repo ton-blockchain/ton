@@ -18,10 +18,11 @@
 */
 #pragma once
 
-#include "ton/ton-types.h"
 #include "td/actor/actor.h"
-#include "validator/interfaces/block-handle.h"
 #include "ton/ton-io.hpp"
+#include "ton/ton-types.h"
+#include "validator/interfaces/block-handle.h"
+
 #include "archive-manager.hpp"
 
 namespace ton {

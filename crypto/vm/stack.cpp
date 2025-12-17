@@ -16,13 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "vm/stack.hpp"
-#include "vm/continuation.h"
-#include "vm/box.hpp"
-#include "vm/atom.h"
-#include "vm/vmstate.h"
-#include "vm/boc.h"
 #include "td/utils/misc.h"
+#include "vm/atom.h"
+#include "vm/boc.h"
+#include "vm/box.hpp"
+#include "vm/continuation.h"
+#include "vm/stack.hpp"
+#include "vm/vmstate.h"
 
 namespace td {
 template class td::Cnt<std::string>;
@@ -83,7 +83,7 @@ std::string StackEntry::to_lisp_string() const {
   return std::move(os).str();
 }
 
-static std::string cell_to_hex(const td::Ref<vm::Cell> &cell) {
+static std::string cell_to_hex(const td::Ref<vm::Cell>& cell) {
   auto boc = vm::std_boc_serialize(cell);
   if (boc.is_ok()) {
     return td::buffer_to_hex(boc.move_as_ok().as_slice());

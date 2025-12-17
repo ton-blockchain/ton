@@ -16,19 +16,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "Logging.h"
-#include "utils.h"
-
-#include "auto/tl/tonlib_api.h"
-
-#include "td/utils/FileLog.h"
-#include "td/utils/logging.h"
-#include "td/utils/misc.h"
-#include "td/utils/misc.h"
-
 #include <atomic>
 #include <map>
 #include <mutex>
+
+#include "auto/tl/tonlib_api.h"
+#include "td/utils/FileLog.h"
+#include "td/utils/logging.h"
+#include "td/utils/misc.h"
+
+#include "Logging.h"
+#include "utils.h"
 
 namespace tonlib {
 
@@ -44,8 +42,7 @@ auto &log_data() {
   return data;
 }
 
-#define ADD_TAG(tag) \
-  { #tag, &VERBOSITY_NAME(tag) }
+#define ADD_TAG(tag) {#tag, &VERBOSITY_NAME(tag)}
 static const std::map<td::Slice, int *> log_tags{ADD_TAG(tonlib_query), ADD_TAG(last_block), ADD_TAG(last_config),
                                                  ADD_TAG(lite_server)};
 #undef ADD_TAG

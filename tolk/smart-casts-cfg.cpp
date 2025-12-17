@@ -16,7 +16,7 @@
 */
 #include "smart-casts-cfg.h"
 #include "ast.h"
-#include "tolk.h"
+#include "compilation-errors.h"
 
 /*
  *   This file represents internals of AST-level control flow and data flow analysis.
@@ -111,6 +111,17 @@ std::string SinkExpression::to_string() const {
     cur_path >>= 8;
   }
   return result;
+}
+
+bool SinkExpression::is_child_of(SinkExpression rhs) const {
+  // `c.1.2` (index_path = 3<<8 + 2) is a child of `c.1` (index_path = 2) and `c` (index_path = 0)
+  uint64_t mask = 0;
+  uint64_t rhs_path = rhs.index_path;
+  while (rhs_path != 0) {
+    mask = (mask << 8) + 0xFF;
+    rhs_path >>= 8;
+  }  
+  return var_ref == rhs.var_ref && index_path != rhs.index_path && (index_path & mask) == rhs.index_path; 
 }
 
 SinkExpression SinkExpression::get_child_s_expr(int field_idx) const {
@@ -558,7 +569,7 @@ std::ostream& operator<<(std::ostream& os, const FlowContext& flow) {
 }
 
 std::ostream& operator<<(std::ostream& os, const FactsAboutExpr& facts) {
-  os << facts.expr_type;
+  os << (facts.expr_type == nullptr ? "(nullptr-type)" : facts.expr_type->as_human_readable());
   if (facts.sign_state != SignState::Unknown) {
     os << " " << to_string(facts.sign_state);
   }

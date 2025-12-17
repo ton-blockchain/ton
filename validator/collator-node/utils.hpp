@@ -16,12 +16,12 @@
 */
 #pragma once
 
-#include "ton/ton-types.h"
 #include "tl/generate/auto/tl/ton_api.h"
+#include "ton/ton-types.h"
 
 namespace ton::validator {
 
 tl_object_ptr<ton_api::collatorNode_Candidate> serialize_candidate(const BlockCandidate& block, bool compress);
 td::Result<BlockCandidate> deserialize_candidate(tl_object_ptr<ton_api::collatorNode_Candidate> f,
-                                                 int max_decompressed_data_size, int proto_version);
+                                                 int max_decompressed_data_size);
 }  // namespace ton::validator

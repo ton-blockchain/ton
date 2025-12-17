@@ -222,7 +222,7 @@ std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_recei
       }
     }
     if (dominates_all) {
-      assert(!dominator);
+      tolk_assert(!dominator);
       dominator = &candidate;
     }
   }

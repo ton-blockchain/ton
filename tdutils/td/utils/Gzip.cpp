@@ -21,13 +21,12 @@
 char disable_linker_warning_about_empty_file_gzip_cpp TD_UNUSED;
 
 #if TD_HAVE_ZLIB
-#include "td/utils/logging.h"
-
 #include <cstring>
 #include <limits>
 #include <utility>
-
 #include <zlib.h>
+
+#include "td/utils/logging.h"
 
 namespace td {
 
@@ -37,10 +36,10 @@ class Gzip::Impl {
 
   // z_stream is not copyable nor movable
   Impl() = default;
-  Impl(const Impl &other) = delete;
-  Impl &operator=(const Impl &other) = delete;
-  Impl(Impl &&other) = delete;
-  Impl &operator=(Impl &&other) = delete;
+  Impl(const Impl &) = delete;
+  Impl &operator=(const Impl &) = delete;
+  Impl(Impl &&) = delete;
+  Impl &operator=(Impl &&) = delete;
   ~Impl() = default;
 };
 
@@ -142,11 +141,11 @@ void Gzip::clear() {
 Gzip::Gzip() : impl_(make_unique<Impl>()) {
 }
 
-Gzip::Gzip(Gzip &&other) : Gzip() {
+Gzip::Gzip(Gzip &&other) noexcept : Gzip() {
   swap(other);
 }
 
-Gzip &Gzip::operator=(Gzip &&other) {
+Gzip &Gzip::operator=(Gzip &&other) noexcept {
   CHECK(this != &other);
   clear();
   swap(other);
@@ -201,7 +200,7 @@ BufferSlice gzencode(Slice s, double max_compression_ratio) {
   gzip.init_encode().ensure();
   gzip.set_input(s);
   gzip.close_input();
-  size_t max_size = static_cast<size_t>(static_cast<double>(s.size()) * max_compression_ratio);
+  auto max_size = static_cast<size_t>(static_cast<double>(s.size()) * max_compression_ratio);
   BufferWriter message{max_size};
   gzip.set_output(message.prepare_append());
   auto r_state = gzip.run();

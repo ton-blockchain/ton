@@ -155,8 +155,8 @@ set(FULL_NODE_SOURCE
   full-node-master.h
   full-node-master.hpp
   full-node-master.cpp
-  full-node-private-overlay.hpp
-  full-node-private-overlay.cpp
+  full-node-custom-overlays.hpp
+  full-node-custom-overlays.cpp
   full-node-serializer.hpp
   full-node-serializer.cpp
   full-node-fast-sync-overlays.hpp

@@ -16,9 +16,10 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "block-handle.hpp"
 #include "adnl/utils.hpp"
 #include "ton/ton-tl.hpp"
+
+#include "block-handle.hpp"
 
 namespace ton {
 

@@ -16,15 +16,15 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "wait-block-data.hpp"
-
-#include "block-parse.h"
-#include "block-auto.h"
-#include "fabric.h"
 #include "adnl/utils.hpp"
-#include "ton/ton-io.hpp"
 #include "common/delay.h"
+#include "ton/ton-io.hpp"
 #include "vm/cells/MerkleProof.h"
+
+#include "block-auto.h"
+#include "block-parse.h"
+#include "fabric.h"
+#include "wait-block-data.hpp"
 
 namespace ton {
 
@@ -108,15 +108,15 @@ void WaitBlockData::start() {
     td::actor::send_closure(manager_, &ValidatorManager::try_get_static_file, handle_->id().file_hash, std::move(P));
   } else if (try_get_candidate_ && !handle_->id().is_masterchain()) {
     try_get_candidate_ = false;
-    td::actor::send_closure(
-        manager_, &ValidatorManager::get_candidate_data_by_block_id_from_db, handle_->id(),
-        [SelfId = actor_id(this), id = handle_->id()](td::Result<td::BufferSlice> R) {
-          if (R.is_error()) {
-            td::actor::send_closure(SelfId, &WaitBlockData::start);
-          } else {
-            td::actor::send_closure(SelfId, &WaitBlockData::loaded_data, ReceivedBlock{id, R.move_as_ok()});
-          }
-        });
+    td::actor::send_closure(manager_, &ValidatorManager::get_candidate_data_by_block_id_from_db, handle_->id(),
+                            [SelfId = actor_id(this), id = handle_->id()](td::Result<td::BufferSlice> R) {
+                              if (R.is_error()) {
+                                td::actor::send_closure(SelfId, &WaitBlockData::start);
+                              } else {
+                                td::actor::send_closure(SelfId, &WaitBlockData::loaded_data,
+                                                        ReceivedBlock{id, R.move_as_ok()});
+                              }
+                            });
   } else {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<ReceivedBlock> R) {
       if (R.is_error()) {

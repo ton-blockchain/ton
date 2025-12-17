@@ -16,15 +16,6 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "tl_generate.h"
-
-#include "tl_config.h"
-#include "tl_core.h"
-#include "tl_file_utils.h"
-#include "tl_outputer.h"
-#include "tl_string_outputer.h"
-#include "tl_writer.h"
-
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
@@ -32,6 +23,14 @@
 #include <set>
 #include <string>
 #include <vector>
+
+#include "tl_config.h"
+#include "tl_core.h"
+#include "tl_file_utils.h"
+#include "tl_generate.h"
+#include "tl_outputer.h"
+#include "tl_string_outputer.h"
+#include "tl_writer.h"
 
 namespace td {
 namespace tl {

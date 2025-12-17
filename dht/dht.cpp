@@ -16,23 +16,19 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "dht.hpp"
-
-#include "td/utils/tl_storers.h"
-#include "td/utils/crypto.h"
+#include "auto/tl/ton_api.hpp"
+#include "td/db/RocksDb.h"
 #include "td/utils/Random.h"
 #include "td/utils/base64.h"
-
+#include "td/utils/crypto.h"
 #include "td/utils/format.h"
+#include "td/utils/tl_storers.h"
 
-#include "td/db/RocksDb.h"
-
-#include "auto/tl/ton_api.hpp"
-
-#include "dht.h"
 #include "dht-bucket.hpp"
-#include "dht-query.hpp"
 #include "dht-in.hpp"
+#include "dht-query.hpp"
+#include "dht.h"
+#include "dht.hpp"
 
 namespace ton {
 
@@ -469,8 +465,9 @@ void DhtMemberImpl::get_value_in(DhtKeyId key, td::Promise<DhtValue> result) {
                                        network_id = network_id_, id = id_,
                                        client_only = client_only_](td::Result<DhtNode> R) mutable {
     R.ensure();
-    td::actor::create_actor<DhtQueryFindValueSingle>("FindValueQuery", key, print_id, id, std::move(list), k, a, network_id,
-                                               R.move_as_ok(), client_only, SelfId, adnl, std::move(promise))
+    td::actor::create_actor<DhtQueryFindValueSingle>("FindValueQuery", key, print_id, id, std::move(list), k, a,
+                                                     network_id, R.move_as_ok(), client_only, SelfId, adnl,
+                                                     std::move(promise))
         .release();
   });
 

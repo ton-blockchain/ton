@@ -26,12 +26,10 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/actor/actor.h"
-
-#include "td/utils/OptionParser.h"
-#include "td/utils/Observer.h"
-#include "td/utils/port/UdpSocketFd.h"
-
 #include "td/net/UdpServer.h"
+#include "td/utils/Observer.h"
+#include "td/utils/OptionParser.h"
+#include "td/utils/port/UdpSocketFd.h"
 
 // PingPong
 class PingPong : public td::actor::Actor {

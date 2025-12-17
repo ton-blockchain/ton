@@ -83,7 +83,8 @@ cmake -GNinja -DCMAKE_BUILD_TYPE=Release .. \
 -DCMAKE_SYSROOT=$(xcrun --show-sdk-path) \
 -DLZ4_FOUND=1 \
 -DLZ4_LIBRARIES=$lz4Path/lib/liblz4.a \
--DLZ4_INCLUDE_DIRS=$lz4Path/lib
+-DLZ4_INCLUDE_DIRS=$lz4Path/lib \
+-DCMAKE_INSTALL_PREFIX="$(pwd)/install"
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 
@@ -91,10 +92,7 @@ if [ "$with_tests" = true ]; then
   ninja storage-daemon storage-daemon-cli blockchain-explorer   \
   tonlib tonlibjson tonlib-cli validator-engine func tolk fift \
   lite-client validator-engine-console generate-random-id json2tlo dht-server dht-ping-servers dht-resolve \
-  http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator \
-  test-ed25519 test-bigint test-vm test-fift test-cells test-smartcont \
-  test-net test-tdactor test-tdutils test-tonlib-offline test-adnl test-dht test-rldp \
-  test-rldp2 test-catchain test-fec test-tddb test-db test-validator-session-state test-emulator proxy-liteserver
+  http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator proxy-liteserver all-tests install
   test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 else
   ninja storage-daemon storage-daemon-cli blockchain-explorer   \

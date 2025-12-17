@@ -18,10 +18,10 @@
 */
 #pragma once
 
-#include "td/utils/port/thread.h"
-
 #include <atomic>
 #include <memory>
+
+#include "td/utils/port/thread.h"
 
 namespace td {
 

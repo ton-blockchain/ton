@@ -25,11 +25,12 @@
 
     Copyright 2020 Telegram Systems LLP
 */
+#include <getopt.h>
 #include <iostream>
+
+#include "block/block.h"
 #include "td/utils/Random.h"
 #include "td/utils/misc.h"
-#include "block/block.h"
-#include <getopt.h>
 
 const int MAX_N = 1000, MAX_K = 100, DEFAULT_K = 7;
 

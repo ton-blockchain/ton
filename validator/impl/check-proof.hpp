@@ -18,9 +18,9 @@
 */
 #pragma once
 
-#include "td/actor/actor.h"
 #include "interfaces/block-handle.h"
 #include "interfaces/validator-manager.h"
+#include "td/actor/actor.h"
 
 namespace ton {
 
@@ -49,8 +49,8 @@ class CheckProof : public td::actor::Actor {
       , promise_(std::move(promise))
       , skip_check_signatures_(skip_check_signatures)
       , perf_timer_("checkproof", 0.1, [manager](double duration) {
-          send_closure(manager, &ValidatorManager::add_perf_timer_stat, "checkproof", duration);
-        }) {
+        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "checkproof", duration);
+      }) {
   }
   CheckProof(BlockIdExt id, td::Ref<Proof> proof, td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
              td::Promise<BlockHandle> promise, bool skip_check_signatures, td::Ref<MasterchainState> known_state)
@@ -63,8 +63,8 @@ class CheckProof : public td::actor::Actor {
       , state_(std::move(known_state))
       , skip_check_signatures_(skip_check_signatures)
       , perf_timer_("checkproof", 0.1, [manager](double duration) {
-          send_closure(manager, &ValidatorManager::add_perf_timer_stat, "checkproof", duration);
-        }) {
+        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "checkproof", duration);
+      }) {
   }
   CheckProof(BlockIdExt id, td::Ref<ProofLink> proof_link, td::actor::ActorId<ValidatorManager> manager,
              td::Timestamp timeout, td::Promise<BlockHandle> promise)
@@ -75,8 +75,8 @@ class CheckProof : public td::actor::Actor {
       , timeout_(timeout)
       , promise_(std::move(promise))
       , perf_timer_("checkproof", 0.1, [manager](double duration) {
-          send_closure(manager, &ValidatorManager::add_perf_timer_stat, "checkproof", duration);
-        }) {
+        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "checkproof", duration);
+      }) {
   }
 
  private:

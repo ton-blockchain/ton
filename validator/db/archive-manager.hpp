@@ -18,8 +18,9 @@
 */
 #pragma once
 
-#include "archive-slice.hpp"
 #include "interfaces/persistent-state.h"
+
+#include "archive-slice.hpp"
 
 namespace ton {
 
@@ -222,7 +223,7 @@ class ArchiveManager : public td::actor::Actor {
   PackageId get_max_temp_file_desc_idx();
   PackageId get_prev_temp_file_desc_idx(PackageId id);
 
-  void add_persistent_state_impl(FileReferenceShort const &id, td::Promise<td::Unit> promise,
+  void add_persistent_state_impl(const FileReferenceShort &id, td::Promise<td::Unit> promise,
                                  std::function<void(std::string, td::Promise<std::string>)> create_writer);
   void register_perm_state(FileReferenceShort id);
 

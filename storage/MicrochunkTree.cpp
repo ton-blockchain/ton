@@ -15,10 +15,11 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "MicrochunkTree.h"
-#include "Torrent.h"
 #include "vm/cells/CellSlice.h"
 #include "vm/cells/MerkleProof.h"
+
+#include "MicrochunkTree.h"
+#include "Torrent.h"
 
 namespace ton {
 
@@ -91,7 +92,7 @@ void MicrochunkTree::Builder::add_microchunk(td::Slice s) {
 }
 
 MicrochunkTree::MicrochunkTree(td::Ref<vm::Cell> root_proof) : root_proof_(root_proof) {
-  td::Ref<vm::Cell> virt_root = vm::MerkleProof::virtualize(root_proof_, 1);
+  td::Ref<vm::Cell> virt_root = vm::MerkleProof::virtualize(root_proof_);
   CHECK(!virt_root.is_null());
   CHECK(virt_root->get_depth() <= 50);
   total_size_ = MICROCHUNK_SIZE << virt_root->get_depth();

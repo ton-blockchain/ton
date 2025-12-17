@@ -18,10 +18,10 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-#include "td/utils/Span.h"
-
 #include <utility>
+
+#include "td/utils/Span.h"
+#include "td/utils/common.h"
 
 namespace td {
 
@@ -33,7 +33,7 @@ class VectorQueue {
     vector_.emplace_back(std::forward<S>(s));
   }
   template <class... Args>
-  void emplace(Args &&... args) {
+  void emplace(Args &&...args) {
     vector_.emplace_back(std::forward<Args>(args)...);
   }
   T pop() {
