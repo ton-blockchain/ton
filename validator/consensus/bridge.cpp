@@ -6,6 +6,7 @@
 
 #include "validator-session/validator-session-types.h"
 #include "validator/consensus/null/bus.h"
+#include "validator/consensus/simplex/bus.h"
 #include "validator/fabric.h"
 #include "validator/full-node.h"
 #include "validator/validator-group.hpp"
@@ -133,18 +134,21 @@ class BridgeImpl final : public IValidatorGroup {
       return;
     }
 
-    runtime::Runtime runtime;
-    BlockAccepter::register_in(runtime);
-    BlockProducer::register_in(runtime);
-    BlockValidator::register_in(runtime);
-    PrivateOverlay::register_in(runtime);
-    null::Consensus::register_in(runtime);
-    // StatsCollector::register_in(runtime);
-
     manager_facade_ = td::actor::create_actor<ManagerFacadeImpl>(params_.name + ".ManagerFacade", params_.manager,
                                                                  params_.collation_manager, params_.validator_set);
 
-    auto bus = std::make_shared<null::Bus>();
+    bool is_simplex = params_.config.consensus.has<NewConsensusConfig::Simplex>();
+    std::shared_ptr<Bus> bus;
+
+    if (is_simplex) {
+      auto simplex_bus = std::make_shared<simplex::Bus>();
+
+      simplex_bus->simplex_config = params_.config.consensus.get<NewConsensusConfig::Simplex>();
+
+      bus = simplex_bus;
+    } else {
+      bus = std::make_shared<null::Bus>();
+    }
 
     bus->shard = params_.shard;
     bus->manager = manager_facade_.get();
@@ -184,7 +188,24 @@ class BridgeImpl final : public IValidatorGroup {
 
     bus->first_block_parents = std::move(params_.first_block_parents);
 
-    bus_ = runtime.start(std::move(bus), params_.name);
+    runtime::Runtime runtime;
+    BlockAccepter::register_in(runtime);
+    BlockProducer::register_in(runtime);
+    BlockValidator::register_in(runtime);
+    PrivateOverlay::register_in(runtime);
+    // StatsCollector::register_in(runtime);
+
+    if (is_simplex) {
+      simplex::CandidateResolver::register_in(runtime);
+      simplex::Consensus::register_in(runtime);
+      simplex::Pool::register_in(runtime);
+
+      bus_ = runtime.start(std::static_pointer_cast<simplex::Bus>(bus), params_.name);
+    } else {
+      null::Consensus::register_in(runtime);
+
+      bus_ = runtime.start(std::static_pointer_cast<null::Bus>(bus), params_.name);
+    }
 
     is_started_ = true;
   }
@@ -196,7 +217,7 @@ class BridgeImpl final : public IValidatorGroup {
   BridgeCreationParams params_;
   td::actor::ActorOwn<ManagerFacade> manager_facade_;
 
-  null::BusHandle bus_;
+  BusHandle bus_;
 };
 
 }  // namespace

@@ -1183,3 +1183,8 @@ consensus.empty slot:int parent:consensus.CandidateId block:tonNode.blockIdExt s
 
 consensus.null.signature slot:int signature:bytes = consensus.null.Message;
 consensus.null.handshake = consensus.null.Message;
+
+consensus.simplex.notarizeVote id:consensus.CandidateId = consensus.simplex.UnsignedVote;
+consensus.simplex.finalizeVote id:consensus.CandidateId = consensus.simplex.UnsignedVote;
+consensus.simplex.skipVote slot:int = consensus.simplex.UnsignedVote;
+consensus.simplex.vote unsignedVote:consensus.simplex.UnsignedVote signature:bytes = consensus.simplex.Vote;
