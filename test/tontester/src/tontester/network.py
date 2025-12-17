@@ -13,7 +13,7 @@ from typing import Literal, final, override
 from tonapi import ton_api
 
 from tl import TLObject
-from tonlib import TonlibClient, TonlibError
+from tonlib import EngineConsoleClient, TonlibCDLL, TonlibClient, TonlibError, TonlibEventLoop
 
 from .install import Install
 from .key import Key
@@ -27,6 +27,10 @@ l = logging.getLogger(__name__)
 class _IPv4AddressAndPort:
     ip: IPv4Address
     port: int
+
+    @property
+    def address(self):
+        return f"{str(self.ip)}:{self.port}"
 
 
 class _Status(IntEnum):
@@ -84,6 +88,14 @@ class Network:
 
         def _get_or_generate_zerostate(self):
             return self._network._get_or_generate_zerostate()
+
+        @property
+        def _tonlib(self):
+            return self._network._tonlib
+
+        @property
+        def _tonlib_event_loop(self):
+            return self._network._event_loop
 
         async def _run(
             self,
@@ -189,12 +201,20 @@ class Network:
                 await self.__process_watcher
                 await self.__log_streamer.aclose()
 
-    def __init__(self, install: Install, directory: Path):
+    def __init__(
+        self,
+        install: Install,
+        directory: Path,
+        event_loop: asyncio.AbstractEventLoop | None = None,
+    ):
         self._install = install
         self._directory = directory.absolute()
         self._port = 2000
         self._node_idx = 0
         self._status = _Status.INITED
+
+        self._tonlib = TonlibCDLL(install.tonlibjson)
+        self._event_loop = TonlibEventLoop(self._tonlib, event_loop)
 
         self.__nodes: list[Network.Node] = []
         self.__full_nodes: list[FullNode] = []
@@ -245,6 +265,8 @@ class Network:
 
         for node in self.__nodes:
             await node.stop()
+
+        await self._event_loop.aclose()
 
     async def __aenter__(self):
         return self
@@ -355,10 +377,13 @@ class FullNode(Network.Node):
 
         self._addr = self._new_network_address()
         self._liteserver_addr = self._new_network_address()
+        self._engine_console_addr = self._new_network_address()
 
         self._fullnode_key, _ = self._new_key()
         self._validator_key, _ = self._new_key()
         self._liteserver_key, _ = self._new_key()
+        self._engine_console_server_key, _ = self._new_key()
+        self._engine_console_client_key, _ = self._new_key()
 
         self._local_config = ton_api.Engine_validator_config(
             addrs=[
@@ -401,11 +426,25 @@ class FullNode(Network.Node):
                     port=self._liteserver_addr.port,
                 )
             ],
+            control=[
+                ton_api.Engine_controlInterface(
+                    id=self._engine_console_server_key.id(),
+                    # FIXME: IP?
+                    port=self._engine_console_addr.port,
+                    allowed=[
+                        ton_api.Engine_controlProcess(
+                            id=self._engine_console_client_key.id(),
+                            permissions=15,
+                        )
+                    ],
+                )
+            ],
         )
 
         self._is_initial_validator = False
 
         self._client: TonlibClient | None = None
+        self._engine_console: EngineConsoleClient | None = None
 
     def make_initial_validator(self):
         self._ensure_no_zerostate_yet()
@@ -461,8 +500,24 @@ class FullNode(Network.Node):
 
         return self._client
 
+    @property
+    def engine_console(self) -> EngineConsoleClient:
+        if self._engine_console is None:
+            self._engine_console = EngineConsoleClient(
+                self._tonlib,
+                self._tonlib_event_loop,
+                ton_api.EngineConsoleClient_config(
+                    address=self._engine_console_addr.address,
+                    server_public_key=self._engine_console_server_key.public_key,
+                    client_private_key=self._engine_console_client_key.private_key,
+                ),
+            )
+        return self._engine_console
+
     @override
     async def stop(self):
         if self._client:
             await self._client.aclose()
+        if self._engine_console:
+            await self._engine_console.aclose()
         await super().stop()
