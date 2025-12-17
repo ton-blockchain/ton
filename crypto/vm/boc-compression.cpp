@@ -768,10 +768,6 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
     }
     bool is_prunned_branch = prunned_branch_level[left_idx] != 0;
     if (nodes[left_idx].not_null()) {
-      if (!is_prunned_branch && nodes[left_idx]->get_hash() != state_cell->get_hash()) {
-        return td::Status::Error(
-            "BOC decompression failed: inconsistent state subtree reused within MerkleUpdate left branch");
-      }
       return td::Status::OK();
     }
 

@@ -75,7 +75,7 @@ void FullNodeFastSyncOverlay::process_block_broadcast(PublicKeyHash src, ton_api
   }
   VLOG(FULL_NODE_DEBUG) << "Received block broadcast in fast sync overlay from " << src << ": "
                         << B.ok().block_id.to_str();
-  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok());
+  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), false);
 }
 
 void FullNodeFastSyncOverlay::obtain_state_for_decompression(PublicKeyHash src,
@@ -112,7 +112,7 @@ void FullNodeFastSyncOverlay::process_block_broadcast_with_state(PublicKeyHash s
 
   VLOG(FULL_NODE_DEBUG) << "Received V2 block broadcast in fast sync overlay from " << src << ": "
                         << B.ok().block_id.to_str();
-  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok());
+  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), true);
 }
 
 void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_outMsgQueueProofBroadcast &query) {

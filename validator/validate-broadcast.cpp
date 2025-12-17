@@ -204,6 +204,10 @@ void ValidateBroadcast::got_zero_state(td::Ref<MasterchainState> state) {
 
 void ValidateBroadcast::check_signatures_common(td::Ref<ConfigHolder> conf) {
   VLOG(VALIDATOR_DEBUG) << "checking signatures";
+  if (signatures_checked_) {
+    checked_signatures();
+    return;
+  }
   auto val_set = conf->get_validator_set(broadcast_.block_id.shard_full(), header_info_.utime, header_info_.cc_seqno);
   if (val_set.is_null()) {
     abort_query(td::Status::Error(ErrorCode::notready, "failed to compute validator set"));
