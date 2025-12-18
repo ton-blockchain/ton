@@ -27,6 +27,7 @@ This file is part of TON Blockchain Library.
 namespace vm {
 
 constexpr size_t kDecompressedSizeBytes = 4;
+constexpr size_t kMUCellOrderInRoot = 2;
 
 enum class CompressionAlgorithm : int {
   BaselineLZ4 = 0,

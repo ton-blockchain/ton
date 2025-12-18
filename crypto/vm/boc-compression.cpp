@@ -144,10 +144,10 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
   size_t total_size_estimate = 0;
 
   // Build graph representation using recursive lambda
-  const auto build_graph = [&](auto&& self, td::Ref<vm::Cell> cell, bool under_mu_left = false,
-                               bool under_mu_right = false, td::Ref<vm::Cell> left_cell = td::Ref<vm::Cell>(),
-                               td::RefInt256* sum_diff_out = nullptr,
-                               td::Ref<vm::Cell> state_cell = td::Ref<vm::Cell>()) -> td::Result<size_t> {
+  const auto build_graph = [&](auto&& self, td::Ref<vm::Cell> cell, const td::Ref<vm::Cell>& main_mu_cell,
+                               bool under_mu_left = false, bool under_mu_right = false,
+                               td::Ref<vm::Cell> left_cell = td::Ref<vm::Cell>(),
+                               td::RefInt256* sum_diff_out = nullptr) -> td::Result<size_t> {
     if (cell.is_null()) {
       return td::Status::Error("Error while importing a cell during serialization: cell is null");
     }
@@ -191,12 +191,14 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
     total_size_estimate += cell_bitslice.size();
 
     // Process cell references
-    if (kMURemoveSubtreeSums && cell_slice.special_type() == vm::CellTraits::SpecialType::MerkleUpdate) {
+    if (kMURemoveSubtreeSums && cell_slice.special_type() == vm::CellTraits::SpecialType::MerkleUpdate && main_mu_cell.not_null() && cell_hash == main_mu_cell->get_hash()) {
       // Left branch: traverse normally
-      TRY_RESULT(child_left_id, self(self, cell_slice.prefetch_ref(0), true));
+      TRY_RESULT(child_left_id, self(self, cell_slice.prefetch_ref(0), main_mu_cell, true));
       boc_graph[current_cell_id][0] = child_left_id;
       // Right branch: traverse paired with left and compute diffs inline
-      TRY_RESULT(child_right_id, self(self, cell_slice.prefetch_ref(1), false, true, cell_slice.prefetch_ref(0)));
+      TRY_RESULT(
+          child_right_id,
+          self(self, cell_slice.prefetch_ref(1), main_mu_cell, false, true, cell_slice.prefetch_ref(0)));
       boc_graph[current_cell_id][1] = child_right_id;
     } else if (under_mu_right && left_cell.not_null()) {
       // Inline computation for RIGHT subtree nodes under MerkleUpdate
@@ -204,8 +206,8 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
       td::RefInt256 sum_child_diff = td::make_refint(0);
       // Recurse children first
       for (int i = 0; i < cell_slice.size_refs(); ++i) {
-        TRY_RESULT(child_id,
-                   self(self, cell_slice.prefetch_ref(i), false, true, cs_left.prefetch_ref(i), &sum_child_diff));
+        TRY_RESULT(child_id, self(self, cell_slice.prefetch_ref(i), main_mu_cell, false, true,
+                                  cs_left.prefetch_ref(i), &sum_child_diff));
         boc_graph[current_cell_id][i] = child_id;
       }
 
@@ -220,7 +222,8 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
       }
     } else {
       for (int i = 0; i < cell_slice.size_refs(); ++i) {
-        TRY_RESULT(child_id, self(self, cell_slice.prefetch_ref(i), under_mu_left, under_mu_right));
+        TRY_RESULT(child_id,
+                   self(self, cell_slice.prefetch_ref(i), main_mu_cell, under_mu_left, under_mu_right));
         boc_graph[current_cell_id][i] = child_id;
       }
     }
@@ -230,7 +233,14 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
 
   // Build the graph starting from roots
   for (auto root : boc_roots) {
-    TRY_RESULT(root_cell_id, build_graph(build_graph, root));
+    td::Ref<vm::Cell> main_mu_cell;
+    bool root_is_special;
+    vm::CellSlice root_slice = vm::load_cell_slice_special(root, root_is_special);
+    if (root_slice.is_valid() && root_slice.size_refs() > kMUCellOrderInRoot) {
+      main_mu_cell = root_slice.prefetch_ref(kMUCellOrderInRoot);
+    }
+
+    TRY_RESULT(root_cell_id, build_graph(build_graph, root, main_mu_cell));
     root_indexes.push_back(root_cell_id);
   }
 
@@ -859,18 +869,18 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
   };
 
   // General recursive build that handles MerkleUpdate by pairing left/right subtrees
-  std::function<td::Status(size_t)> build_node = [&](size_t idx) -> td::Status {
+  std::function<td::Status(size_t, size_t)> build_node = [&](size_t idx, const size_t main_mu_cell_idx) -> td::Status {
     if (nodes[idx].not_null()) {
       return td::Status::OK();
     }
     // If this node is a MerkleUpdate, build left subtree normally first, then right subtree paired with left
-    if (is_merkle_update_node(is_special[idx], cell_builders[idx])) {
+    if (idx == main_mu_cell_idx && is_merkle_update_node(is_special[idx], cell_builders[idx])) {
       size_t left_idx = boc_graph[idx][0];
       size_t right_idx = boc_graph[idx][1];
       if (decompress_merkle_update) {
         TRY_STATUS(build_left_under_mu(left_idx, state));
       } else {
-        TRY_STATUS(build_node(left_idx));
+        TRY_STATUS(build_node(left_idx, -1));
       }
       TRY_STATUS(build_right_under_mu(right_idx, left_idx, nullptr));
       TRY_STATUS(finalize_node(idx));
@@ -878,7 +888,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
     } else {
       // Default: build children normally then finalize
       for (int j = 0; j < cell_refs_cnt[idx]; ++j) {
-        TRY_STATUS(build_node(boc_graph[idx][j]));
+        TRY_STATUS(build_node(boc_graph[idx][j], main_mu_cell_idx));
       }
     }
 
@@ -887,8 +897,12 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
   };
 
   // Build from roots using DFS
-  for (size_t index : root_indexes) {
-    TRY_STATUS(build_node(index));
+  for (size_t root_index : root_indexes) {
+    size_t main_mu_cell_idx = -1;
+    if (cell_refs_cnt[root_index] > kMUCellOrderInRoot) {
+      main_mu_cell_idx = boc_graph[root_index][kMUCellOrderInRoot];
+    }
+    TRY_STATUS(build_node(root_index, main_mu_cell_idx));
   }
 
   std::vector<td::Ref<vm::Cell>> root_nodes;
