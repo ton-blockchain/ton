@@ -315,6 +315,7 @@ void ArchiveSlice::update_handle(BlockHandle handle, td::Promise<td::Unit> promi
     auto version = handle->version();
     kv_->set(get_db_key_block_info(handle->id()), handle->serialize().as_slice()).ensure();
     handle->flushed_upto(version);
+    update_temp_max_seqno(handle->id().id);
   } while (handle->need_flush());
   commit_transaction([=, this, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
     R.ensure();
@@ -374,6 +375,7 @@ void ArchiveSlice::add_file_cont(size_t idx, FileReference ref_id, td::uint64 of
     kv_->set("status", td::to_string(size)).ensure();
     kv_->set(ref_id.hash().to_hex(), td::to_string(offset)).ensure();
   }
+  update_temp_max_seqno(ref_id);
   commit_transaction(std::move(promise));
 }
 
@@ -714,6 +716,9 @@ void ArchiveSlice::before_query() {
         kv_->set("status", "0").ensure();
         kv_->commit_transaction().ensure();
         add_package(archive_id_, ShardIdFull{masterchainId}, 0, 0);
+        if (temp_) {
+          temp_max_seqnos_ready_ = true;
+        }
       }
     }
   }
@@ -754,6 +759,55 @@ void ArchiveSlice::iterate_block_handles(std::function<void(const BlockHandleInt
                            }
                            return td::Status::OK();
                          });
+}
+
+void ArchiveSlice::get_temp_max_seqnos(td::Promise<std::map<ShardIdFull, BlockSeqno>> promise) {
+  if (!temp_) {
+    promise.set_error(td::Status::Error("not a temporary package"));
+    return;
+  }
+  before_query();
+  if (!temp_max_seqnos_ready_) {
+    temp_max_seqnos_ready_ = true;
+    td::uint32 range_start = ton_api::db_blockdb_key_value::ID;
+    td::uint32 range_end = ton_api::db_blockdb_key_value::ID + 1;
+    kv_->for_each_in_range(td::Slice{(char *)&range_start, 4}, td::Slice{(char *)&range_end, 4},
+                           [this](td::Slice key, td::Slice) -> td::Status {
+                             auto r_key = fetch_tl_object<ton_api::db_blockdb_key_value>(key, true);
+                             if (r_key.is_ok()) {
+                               update_temp_max_seqno(create_block_id(r_key.ok()->id_).id);
+                             }
+                             return td::Status::OK();
+                           });
+    for (auto &pack : packages_) {
+      pack.package->iterate([this](std::string name, td::BufferSlice, td::uint64) -> bool {
+        auto F = FileReference::create(name);
+        if (F.is_ok()) {
+          update_temp_max_seqno(F.ok_ref());
+        }
+        return true;
+      });
+    }
+  }
+  promise.set_result(temp_max_seqnos_);
+}
+
+void ArchiveSlice::update_temp_max_seqno(BlockId id) {
+  if (temp_ && temp_max_seqnos_ready_) {
+    BlockSeqno &x = temp_max_seqnos_[id.shard_full()];
+    x = std::max(x, id.seqno);
+  }
+}
+
+void ArchiveSlice::update_temp_max_seqno(FileReference &ref) {
+  ref.ref().visit(td::overloaded([&](const fileref::Proof &p) { update_temp_max_seqno(p.block_id.id); },
+                                 [&](const fileref::ProofLink &p) { update_temp_max_seqno(p.block_id.id); },
+                                 [&](const fileref::Block &p) { update_temp_max_seqno(p.block_id.id); },
+                                 [&](const fileref::Signatures &p) { update_temp_max_seqno(p.block_id.id); },
+                                 [&](const fileref::Candidate &p) { update_temp_max_seqno(p.block_id.id); },
+                                 [&](const fileref::CandidateRef &p) { update_temp_max_seqno(p.block_id.id); },
+                                 [&](const fileref::BlockInfo &p) { update_temp_max_seqno(p.block_id.id); },
+                                 [&](const auto &) {}));
 }
 
 void ArchiveSlice::do_close() {

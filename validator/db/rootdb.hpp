@@ -142,7 +142,7 @@ class RootDb : public Db {
   void add_handle_to_archive(BlockHandle handle, td::Promise<td::Unit> promise) override;
   void set_archive_current_shard_split_depth(td::uint32 value) override;
 
-  void run_gc(UnixTime mc_ts, UnixTime gc_ts, double archive_ttl) override;
+  void run_gc(Ref<MasterchainState> shard_client_state, UnixTime gc_ts, double archive_ttl) override;
   void add_persistent_state_description(td::Ref<PersistentStateDescription> desc,
                                         td::Promise<td::Unit> promise) override;
   void get_persistent_state_descriptions(

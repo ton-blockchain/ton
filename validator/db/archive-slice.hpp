@@ -136,6 +136,7 @@ class ArchiveSlice : public td::actor::Actor {
   void close_files();
 
   void iterate_block_handles(std::function<void(const BlockHandleInterface &)> f);
+  void get_temp_max_seqnos(td::Promise<std::map<ShardIdFull, BlockSeqno>> promise);
 
  private:
   void before_query();
@@ -204,6 +205,9 @@ class ArchiveSlice : public td::actor::Actor {
   std::vector<PackageInfo> packages_;
   std::map<std::pair<BlockSeqno, ShardIdFull>, td::uint32> id_to_package_;
 
+  std::map<ShardIdFull, BlockSeqno> temp_max_seqnos_;
+  bool temp_max_seqnos_ready_ = false;
+
   td::Result<PackageInfo *> choose_package(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, bool force);
   void add_package(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, td::uint64 size, td::uint32 version);
   void truncate_shard(BlockSeqno masterchain_seqno, ShardIdFull shard, td::uint32 cutoff_seqno, Package *pack);
@@ -215,6 +219,9 @@ class ArchiveSlice : public td::actor::Actor {
   void move_file(FileReference ref_id, Package *old_pack, Package *pack);
 
   BlockSeqno max_masterchain_seqno();
+
+  void update_temp_max_seqno(BlockId id);
+  void update_temp_max_seqno(FileReference &ref);
 
   static constexpr td::uint32 default_package_version() {
     return 1;

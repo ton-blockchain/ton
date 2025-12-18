@@ -2654,6 +2654,7 @@ void ValidatorManagerImpl::update_shard_client_block_handle(BlockHandle handle, 
   shard_client_handle_ = std::move(handle);
   auto seqno = shard_client_handle_->id().seqno();
   if (state.not_null()) {
+    shard_client_state_ = state;
     shard_client_shards_ = state->get_shards();
     if (last_liteserver_state_.is_null() || last_liteserver_state_->get_block_id().seqno() < seqno) {
       last_liteserver_state_ = std::move(state);
@@ -2693,8 +2694,8 @@ void ValidatorManagerImpl::state_serializer_update(BlockSeqno seqno) {
 void ValidatorManagerImpl::alarm() {
   try_advance_gc_masterchain_block();
   alarm_timestamp() = td::Timestamp::in(1.0);
-  if (shard_client_handle_ && gc_masterchain_handle_) {
-    td::actor::send_closure(db_, &Db::run_gc, shard_client_handle_->unix_time(), gc_masterchain_handle_->unix_time(),
+  if (shard_client_state_.not_null() && gc_masterchain_handle_) {
+    td::actor::send_closure(db_, &Db::run_gc, shard_client_state_, gc_masterchain_handle_->unix_time(),
                             opts_->archive_ttl());
   }
   if (log_status_at_.is_in_past()) {

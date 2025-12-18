@@ -1008,24 +1008,33 @@ void ArchiveManager::alarm() {
   }
 }
 
-void ArchiveManager::run_gc(UnixTime mc_ts, UnixTime gc_ts, double archive_ttl) {
-  auto p = get_temp_package_id_by_unixtime((double)mc_ts - TEMP_PACKAGES_TTL);
-  std::vector<PackageId> vec;
+void ArchiveManager::run_gc(td::Ref<MasterchainState> shard_client_state, UnixTime gc_ts, double archive_ttl) {
+  auto p = get_temp_package_id_by_unixtime(shard_client_state->get_unix_time() - TEMP_PACKAGES_TTL);
+  std::vector<PackageId> to_delete;
   for (auto &x : temp_files_) {
     if (x.first < p) {
-      vec.push_back(x.first);
-    } else {
-      break;
+      to_delete.push_back(x.first);
+      continue;
+    }
+    if (!x.second.deleted && x.first.id < (UnixTime)td::Clocks::system() - TEMP_PACKAGES_HARD_TTL &&
+        x.first != temp_files_.rbegin()->first) {
+      td::actor::send_closure(
+          x.second.file_actor_id(), &ArchiveSlice::get_temp_max_seqnos,
+          [=, id = x.first, SelfId = actor_id(this)](td::Result<std::map<ShardIdFull, BlockSeqno>> R) {
+            if (R.is_error()) {
+              return;
+            }
+            td::actor::send_closure(SelfId, &ArchiveManager::run_gc_temp_cont, id, shard_client_state, R.move_as_ok());
+          });
     }
   }
-  if (vec.size() > 1) {
-    vec.resize(vec.size() - 1, PackageId::empty(false, true));
-
-    for (auto &x : vec) {
+  if (to_delete.size() > 1) {
+    to_delete.pop_back();
+    for (auto &x : to_delete) {
       delete_package(x, [](td::Unit) {});
     }
   }
-  vec.clear();
+  to_delete.clear();
 
   if (archive_ttl > 0) {
     for (auto &f : files_) {
@@ -1038,18 +1047,32 @@ void ArchiveManager::run_gc(UnixTime mc_ts, UnixTime gc_ts, double archive_ttl) 
         continue;
       }
       if ((double)it->second.ts < (double)gc_ts - archive_ttl) {
-        vec.push_back(f.first);
+        to_delete.push_back(f.first);
       }
     }
-    if (vec.size() > 1) {
-      vec.resize(vec.size() - 1, PackageId::empty(false, true));
+    if (to_delete.size() > 1) {
+      to_delete.resize(to_delete.size() - 1, PackageId::empty(false, true));
 
-      for (auto &x : vec) {
+      for (auto &x : to_delete) {
         LOG(ERROR) << "WARNING: deleting package " << x.id;
         delete_package(x, [](td::Unit) {});
       }
     }
   }
+}
+
+void ArchiveManager::run_gc_temp_cont(PackageId id, td::Ref<MasterchainState> shard_client_state,
+                                      std::map<ShardIdFull, BlockSeqno> max_seqnos) {
+  if (!temp_files_.count(id)) {
+    return;
+  }
+  for (const auto &[shard, seqno] : max_seqnos) {
+    auto desc = shard_client_state->get_shard_from_config(ShardIdFull{shard.workchain, shard.shard | 1}, false);
+    if (desc.not_null() && seqno + 16 > desc->top_block_id().seqno()) {
+      return;
+    }
+  }
+  delete_package(id, [](td::Unit) {});
 }
 
 void ArchiveManager::persistent_state_gc(std::pair<BlockSeqno, FileHash> last) {
@@ -1154,7 +1177,7 @@ PackageId ArchiveManager::get_temp_package_id() const {
 }
 
 PackageId ArchiveManager::get_temp_package_id_by_unixtime(UnixTime ts) const {
-  return PackageId{ts - (ts % 3600), false, true};
+  return PackageId{ts - (ts % TEMP_PACKAGES_PERIOD), false, true};
 }
 
 PackageId ArchiveManager::get_key_package_id(BlockSeqno seqno) const {

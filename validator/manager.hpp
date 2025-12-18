@@ -239,6 +239,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   BlockHandle last_key_block_handle_;
   BlockHandle last_known_key_block_handle_;
   BlockHandle shard_client_handle_;
+  td::Ref<MasterchainState> shard_client_state_;
   std::vector<td::Ref<McShardHash>> shard_client_shards_;
   td::Ref<MasterchainState> last_liteserver_state_;
 

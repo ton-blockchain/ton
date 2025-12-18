@@ -5458,10 +5458,9 @@ int main(int argc, char *argv[]) {
       [&]() {
         acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_celldb_disable_bloom_filter, true); });
       });
-  p.add_option(
-      '\0', "unsynced-liteserver",
-      "allow liteserver queries before node is fully synced",
-      [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_unsynced_liteserver, true); }); });
+  p.add_option('\0', "unsynced-liteserver", "allow liteserver queries before node is fully synced", [&]() {
+    acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_unsynced_liteserver, true); });
+  });
   p.add_checked_option(
       '\0', "catchain-max-block-delay", "delay before creating a new catchain block, in seconds (default: 0.4)",
       [&](td::Slice s) -> td::Status {

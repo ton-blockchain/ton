@@ -594,8 +594,8 @@ void RootDb::set_archive_current_shard_split_depth(td::uint32 value) {
   td::actor::send_closure(archive_db_, &ArchiveManager::set_current_shard_split_depth, value);
 }
 
-void RootDb::run_gc(UnixTime mc_ts, UnixTime gc_ts, double archive_ttl) {
-  td::actor::send_closure(archive_db_, &ArchiveManager::run_gc, mc_ts, gc_ts, archive_ttl);
+void RootDb::run_gc(Ref<MasterchainState> shard_client_state, UnixTime gc_ts, double archive_ttl) {
+  td::actor::send_closure(archive_db_, &ArchiveManager::run_gc, shard_client_state, gc_ts, archive_ttl);
 }
 
 void RootDb::add_persistent_state_description(td::Ref<PersistentStateDescription> desc, td::Promise<td::Unit> promise) {
