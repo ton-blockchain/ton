@@ -63,6 +63,7 @@ void QuicConnection::notify() {
 }
 
 void QuicConnection::on_fd_notify() {
+  td::sync_with_poll(p_impl_->fd);
   process_operation_status(p_impl_->handle_ingress());
   process_operation_status(p_impl_->flush_egress());
 }
