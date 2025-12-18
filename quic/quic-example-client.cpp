@@ -15,6 +15,8 @@ class QuicTester : public td::actor::Actor {
 
     void on_connected() override {
       LOG(INFO) << "connected to " << tester_.host_ << ':' << tester_.port_;
+      td::actor::send_closure(tester_.connection_.get(), &ton::quic::QuicConnection::send_data, td::Slice("GET /\r\n"));
+      td::actor::send_closure(tester_.connection_.get(), &ton::quic::QuicConnection::send_disconnect);
     }
 
     void on_data(td::Slice data) override {
@@ -38,9 +40,8 @@ class QuicTester : public td::actor::Actor {
 
   void start_up() override {
     [this] {
-      TRY_RESULT_ASSIGN(connection_, ton::quic::QuicConnection::open(host_, port_, std::make_unique<Callback>(*this)));
-      td::actor::send_closure(connection_.get(), &ton::quic::QuicConnection::send_data, td::Slice("GET /\r\n"));
-      td::actor::send_closure(connection_.get(), &ton::quic::QuicConnection::send_disconnect);
+      TRY_RESULT_ASSIGN(connection_,
+                        ton::quic::QuicConnection::open(host_, port_, std::make_unique<Callback>(*this), alpn_));
       return td::Status::OK();
     }()
         .ensure();

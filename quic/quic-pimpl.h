@@ -1,7 +1,9 @@
 #pragma once
 #include <openssl/rand.h>
 #include <openssl/types.h>
+#include <string>
 
+#include "ngtcp2/ngtcp2.h"
 #include "ngtcp2/ngtcp2_crypto.h"
 #include "ngtcp2/ngtcp2_crypto_ossl.h"
 #include "td/actor/ActorId.h"
@@ -25,10 +27,11 @@ struct QuicConnectionPImpl {
     virtual ~Callback() = default;
   };
 
-  constexpr static size_t QUIC_MTU = 1350;
-  constexpr static size_t UDP_MTU = 2048;
+  constexpr static size_t DEFAULT_MTU = 1350;
+  constexpr static size_t DEFAULT_WINDOW = 1 << 20;
 
   td::UdpSocketFd fd = {};
+  td::UdpSocketFd* shared_fd = nullptr;
   td::IPAddress local_address = {};
   td::IPAddress remote_address = {};
 
@@ -40,16 +43,21 @@ struct QuicConnectionPImpl {
   ngtcp2_crypto_conn_ref conn_ref{};
 
   int64_t out_sid = -1;
+  int64_t in_sid = -1;
 
   std::unique_ptr<Callback> callback = nullptr;
 
   [[nodiscard]] td::Status init_tls(td::Slice host, td::Slice alpn);
+  [[nodiscard]] td::Status init_tls_server(td::Slice cert_file, td::Slice key_file, td::Slice alpn);
   [[nodiscard]] td::Status init_quic();
+  [[nodiscard]] td::Status init_quic_server(const ngtcp2_version_cid& vc);
 
   [[nodiscard]] td::Status flush_egress();
   [[nodiscard]] td::Status handle_ingress();
+  [[nodiscard]] td::Status handle_ingress_packet(td::Slice datagram);
 
   [[nodiscard]] td::Status write_stream(td::Slice data, bool fin);
+  [[nodiscard]] td::Status write_reply(td::Slice data, bool fin);
 
   ~QuicConnectionPImpl() {
     if (conn) {
@@ -69,12 +77,15 @@ struct QuicConnectionPImpl {
       SSL_CTX_free(ssl_ctx);
       ssl_ctx = nullptr;
     }
-    if (!fd.empty()) {
+    if (shared_fd == nullptr && !fd.empty()) {
       fd.close();
     }
   }
 
  private:
+  std::string alpn_wire_;
+  td::UdpSocketFd& sock();
+
   static ngtcp2_tstamp now_ts();
 
   static ngtcp2_conn* get_pimpl_from_ref(ngtcp2_crypto_conn_ref* ref);
@@ -85,5 +96,8 @@ struct QuicConnectionPImpl {
   static int handshake_completed_cb(ngtcp2_conn* conn, void* user_data);
   static int recv_stream_data_cb(ngtcp2_conn* /*conn*/, uint32_t flags, int64_t stream_id, uint64_t offset,
                                  const uint8_t* data, size_t datalen, void* user_data, void* stream_user_data);
+
+  static int alpn_select_cb(SSL* ssl, const unsigned char** out, unsigned char* outlen, const unsigned char* in,
+                            unsigned int inlen, void* arg);
 };
 }  // namespace ton::quic
