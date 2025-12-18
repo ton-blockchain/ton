@@ -78,7 +78,7 @@ void ValidatorTelemetry::send_telemetry() {
   telemetry->cpu_cores_ = cpu_cores_;
   telemetry->node_threads_ = (td::int32)td::actor::SchedulerContext::get()
                                  ->scheduler_group()
-                                 ->schedulers.at(td::actor::SchedulerContext::get()->get_scheduler_id().value())
+                                 ->schedulers.at(td::actor::SchedulerContext::get().get_scheduler_id().value())
                                  .cpu_threads_count;
 
   LOG(DEBUG) << "Sending validator telemetry for adnl id " << local_id_;

@@ -338,7 +338,7 @@ Task<td::Unit> example() {
   (co_await run_all_examples().wrap()).ensure();
 
   LOG(INFO) << "Finish example coroutine and stop scheduler";
-  td::actor::SchedulerContext::get()->stop();
+  td::actor::SchedulerContext::get().stop();
   co_return td::Unit();
 }
 

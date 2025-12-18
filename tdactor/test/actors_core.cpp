@@ -337,7 +337,7 @@ TEST(Actor2, executor_simple) {
     {
       ActorExecutor executor(*actor, dispatcher, ActorExecutor::Options());
       executor.send(
-          ActorMessageCreator::lambda([&] { static_cast<TestActor &>(ActorExecuteContext::get()->actor()).close(); }));
+          ActorMessageCreator::lambda([&] { static_cast<TestActor &>(ActorExecuteContext::get().actor()).close(); }));
     }
     LOG_CHECK(sb.as_cslice() == "TearDown") << sb.as_cslice();
     sb.clear();
@@ -345,7 +345,7 @@ TEST(Actor2, executor_simple) {
     {
       ActorExecutor executor(*actor, dispatcher, ActorExecutor::Options());
       executor.send(
-          ActorMessageCreator::lambda([&] { static_cast<TestActor &>(ActorExecuteContext::get()->actor()).close(); }));
+          ActorMessageCreator::lambda([&] { static_cast<TestActor &>(ActorExecuteContext::get().actor()).close(); }));
     }
     CHECK(dispatcher.queue.empty());
     CHECK(sb.as_cslice() == "");
@@ -364,7 +364,7 @@ TEST(Actor2, executor_simple) {
       sb.clear();
       auto a_msg = ActorMessageCreator::lambda([&] {
         sb << "big pause";
-        ActorExecuteContext::get()->set_pause();
+        ActorExecuteContext::get().set_pause();
       });
       a_msg.set_big();
       executor.send(std::move(a_msg));
@@ -392,7 +392,7 @@ TEST(Actor2, executor_simple) {
     {
       ActorExecutor executor(*actor, dispatcher, ActorExecutor::Options());
       executor.send(
-          ActorMessageCreator::lambda([&] { static_cast<TestActor &>(ActorExecuteContext::get()->actor()).close(); }));
+          ActorMessageCreator::lambda([&] { static_cast<TestActor &>(ActorExecuteContext::get().actor()).close(); }));
     }
     LOG_CHECK(sb.as_cslice() == "TearDown") << sb.as_cslice();
     sb.clear();
@@ -428,7 +428,7 @@ class Master : public Actor {
     l++;
     if (l == r) {
       if (!--global_cnt) {
-        SchedulerContext::get()->stop();
+        SchedulerContext::get().stop();
       }
       detail::send_closure(*worker, &Worker::close);
       stop();
@@ -480,7 +480,7 @@ TEST(Actor2, actor_id_simple) {
       ~A() {
         sb << "~A";
         if (--global_cnt <= 0) {
-          SchedulerContext::get()->stop();
+          SchedulerContext::get().stop();
         }
       }
 
@@ -528,7 +528,7 @@ TEST(Actor2, actor_creation) {
 
       void tear_down() override {
         if (--global_cnt <= 0) {
-          SchedulerContext::get()->stop();
+          SchedulerContext::get().stop();
         }
       }
     };
@@ -547,7 +547,7 @@ TEST(Actor2, actor_creation) {
       }
       void tear_down() override {
         if (--global_cnt <= 0) {
-          SchedulerContext::get()->stop();
+          SchedulerContext::get().stop();
         }
       }
       ActorId<A> a_;
@@ -567,7 +567,7 @@ TEST(Actor2, actor_timeout_simple) {
   sb.clear();
   scheduler.start();
 
-  auto watcher = td::create_shared_destructor([] { SchedulerContext::get()->stop(); });
+  auto watcher = td::create_shared_destructor([] { SchedulerContext::get().stop(); });
   scheduler.run_in_context([watcher = std::move(watcher)] {
     class A : public Actor {
      public:
@@ -612,7 +612,7 @@ TEST(Actor2, actor_timeout_simple2) {
   sb.clear();
   scheduler.start();
 
-  auto watcher = td::create_shared_destructor([] { SchedulerContext::get()->stop(); });
+  auto watcher = td::create_shared_destructor([] { SchedulerContext::get().stop(); });
   scheduler.run_in_context([watcher = std::move(watcher)] {
     class A : public Actor {
      public:
@@ -668,7 +668,7 @@ TEST(Actor2, actor_function_result) {
   sb.clear();
   scheduler.start();
 
-  auto watcher = td::create_shared_destructor([] { SchedulerContext::get()->stop(); });
+  auto watcher = td::create_shared_destructor([] { SchedulerContext::get().stop(); });
   scheduler.run_in_context([watcher = std::move(watcher)] {
     class B : public Actor {
      public:
@@ -732,7 +732,7 @@ TEST(Actor2, actor_ping_pong) {
   sb.clear();
   scheduler.start();
 
-  auto watcher = td::create_shared_destructor([] { SchedulerContext::get()->stop(); });
+  auto watcher = td::create_shared_destructor([] { SchedulerContext::get().stop(); });
   td::actor::set_debug(true);
   for (int i = 0; i < 2000; i++) {
     scheduler.run_in_context([watcher] {
@@ -828,7 +828,7 @@ TEST(Actor2, SchedulerZeroCpuThreads) {
   scheduler.run_in_context([] {
     class A : public Actor {
       void start_up() override {
-        SchedulerContext::get()->stop();
+        SchedulerContext::get().stop();
       }
     };
     create_actor<A>(ActorOptions().with_name("A").with_poll(false)).release();
@@ -841,16 +841,16 @@ TEST(Actor2, SchedulerTwo) {
     class B : public Actor {
      public:
       void start_up() override {
-        CHECK(SchedulerContext::get()->get_scheduler_id() == SchedulerId{1});
+        CHECK(SchedulerContext::get().get_scheduler_id() == SchedulerId{1});
       }
       void close() {
-        CHECK(SchedulerContext::get()->get_scheduler_id() == SchedulerId{1});
-        SchedulerContext::get()->stop();
+        CHECK(SchedulerContext::get().get_scheduler_id() == SchedulerId{1});
+        SchedulerContext::get().stop();
       }
     };
     class A : public Actor {
       void start_up() override {
-        CHECK(SchedulerContext::get()->get_scheduler_id() == SchedulerId{0});
+        CHECK(SchedulerContext::get().get_scheduler_id() == SchedulerId{0});
         auto id =
             create_actor<B>(ActorOptions().with_name("B").with_poll(false).on_scheduler(SchedulerId{1})).release();
         send_closure(id, &B::close);
@@ -867,7 +867,7 @@ TEST(Actor2, ActorIdDynamicCast) {
      public:
       void close() {
         CHECK(actor_id().actor_info_ptr() == get_actor_info_ptr());
-        SchedulerContext::get()->stop();
+        SchedulerContext::get().stop();
       }
     };
     auto actor_own_a = create_actor<A>(ActorOptions().with_name("A").with_poll(false));
@@ -901,7 +901,7 @@ TEST(Actor2, send_vs_close) {
   for (int it = 0; it < 100; it++) {
     Scheduler scheduler({8});
 
-    auto watcher = td::create_shared_destructor([] { SchedulerContext::get()->stop(); });
+    auto watcher = td::create_shared_destructor([] { SchedulerContext::get().stop(); });
     scheduler.run_in_context([watcher = std::move(watcher)] {
       class To : public Actor {
        public:
@@ -1035,7 +1035,7 @@ TEST(Actor2, send_vs_close2) {
   for (int it = 0; it < 100; it++) {
     Scheduler scheduler({8});
 
-    auto watcher = td::create_shared_destructor([] { SchedulerContext::get()->stop(); });
+    auto watcher = td::create_shared_destructor([] { SchedulerContext::get().stop(); });
     //std::shared_ptr<td::Destructor> watcher;
     scheduler.run_in_context([watcher = std::move(watcher)] {
       class To : public Actor {
@@ -1115,7 +1115,7 @@ TEST(Actor2, test_stats) {
   Scheduler scheduler({8});
   td::actor::set_debug(true);
 
-  auto watcher = td::create_shared_destructor([] { SchedulerContext::get()->stop(); });
+  auto watcher = td::create_shared_destructor([] { SchedulerContext::get().stop(); });
   scheduler.run_in_context([watcher = std::move(watcher)] {
     class SleepWorker : public Actor {
       void loop() override {

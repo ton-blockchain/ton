@@ -80,7 +80,7 @@ class ActorExecutor : public vm::DynamicBagOfCellsDb::AsyncExecutor {
   class Worker : public td::actor::Actor {
    public:
     void close() {
-      td::actor::core::SchedulerContext::get()->stop();
+      td::actor::core::SchedulerContext::get().stop();
       stop();
     }
     void execute_sync(std::function<void()> f) {

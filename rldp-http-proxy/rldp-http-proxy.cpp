@@ -602,7 +602,7 @@ class RldpTcpTunnel : public td::actor::Actor, private td::ObserverBase {
 
   void tear_down() override {
     LOG(INFO) << "RldpTcpTunnel: tear_down";
-    td::actor::SchedulerContext::get()->get_poll().unsubscribe(fd_.get_poll_info().get_pollable_fd_ref());
+    td::actor::SchedulerContext::get().get_poll().unsubscribe(fd_.get_poll_info().get_pollable_fd_ref());
   }
 
   void registered_sender(RegisteredPayloadSenderGuard guard) {
@@ -1577,7 +1577,7 @@ void HttpRldpPayloadSender::start_up() {
 
 void RldpTcpTunnel::start_up() {
   self_ = actor_id(this);
-  td::actor::SchedulerContext::get()->get_poll().subscribe(fd_.get_poll_info().extract_pollable_fd(this),
+  td::actor::SchedulerContext::get().get_poll().subscribe(fd_.get_poll_info().extract_pollable_fd(this),
                                                            td::PollFlags::ReadWrite());
   td::actor::send_closure(
       proxy_, &RldpHttpProxy::register_payload_sender, id_,

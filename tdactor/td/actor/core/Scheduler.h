@@ -217,7 +217,7 @@ class Scheduler {
 
   // Just syntactic sugar
   void stop() {
-    run_in_context([] { SchedulerContext::get()->stop(); });
+    run_in_context([] { SchedulerContext::get().stop(); });
   }
 
   SchedulerId get_scheduler_id() const {
@@ -297,13 +297,13 @@ class Scheduler {
 class ActorMessageHangup : public core::ActorMessageImpl {
  public:
   void run() override {
-    ActorExecuteContext::get()->actor().hangup();
+    ActorExecuteContext::get().actor().hangup();
   }
 };
 class ActorMessageHangupShared : public core::ActorMessageImpl {
  public:
   void run() override {
-    ActorExecuteContext::get()->actor().hangup_shared();
+    ActorExecuteContext::get().actor().hangup_shared();
   }
 };
 }  // namespace core

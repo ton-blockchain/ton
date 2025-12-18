@@ -101,7 +101,7 @@ class HttpConnection : public td::actor::Actor, public td::ObserverBase {
     self_ = actor_id(this);
     // Subscribe for socket updates
     // NB: Interface will be changed
-    td::actor::SchedulerContext::get()->get_poll().subscribe(buffered_fd_.get_poll_info().extract_pollable_fd(this),
+    td::actor::SchedulerContext::get().get_poll().subscribe(buffered_fd_.get_poll_info().extract_pollable_fd(this),
                                                              td::PollFlags::ReadWrite() | td::PollFlags::Close());
     notify();
   }
@@ -130,7 +130,7 @@ class HttpConnection : public td::actor::Actor, public td::ObserverBase {
     }
     // unsubscribe from socket updates
     // nb: interface will be changed
-    td::actor::SchedulerContext::get()->get_poll().unsubscribe(buffered_fd_.get_poll_info().get_pollable_fd_ref());
+    td::actor::SchedulerContext::get().get_poll().unsubscribe(buffered_fd_.get_poll_info().get_pollable_fd_ref());
     buffered_fd_.close();
   }
 };

@@ -121,7 +121,7 @@ class ValidatorEngineConsole : public td::actor::Actor {
   }
   void tear_down() override {
     // FIXME: do not work in windows
-    //td::actor::SchedulerContext::get()->stop();
+    //td::actor::SchedulerContext::get().stop();
     io_.reset();
     std::_Exit(0);
   }

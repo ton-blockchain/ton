@@ -107,7 +107,7 @@ class CoroBenchmark final : public td::actor::Actor {
     LOG(INFO) << "Starting benchmarks";
     (void)co_await run_benchmarks();
     LOG(INFO) << "Benchmarks completed";
-    td::actor::SchedulerContext::get()->stop();
+    td::actor::SchedulerContext::get().stop();
     stop();
     co_return td::Unit();
   }

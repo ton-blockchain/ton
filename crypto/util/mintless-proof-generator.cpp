@@ -283,7 +283,7 @@ class MakeAllProofsActor : public td::actor::core::Actor {
       LOG_CHECK(!out_file_.fail()) << "Failed to write to " << out_filename_;
       LOG(INFO) << "Written " << written_count_ << " entries to " << out_filename_;
       stop();
-      td::actor::SchedulerContext::get()->stop();
+      td::actor::SchedulerContext::get().stop();
     }
   }
 

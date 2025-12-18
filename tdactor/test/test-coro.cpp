@@ -160,7 +160,7 @@ class CoroSpec final : public td::actor::Actor {
     [](Task<td::Unit> test) -> Task<td::Unit> {
       (co_await std::move(test).wrap()).ensure();
       co_await yield_on_current();
-      td::actor::SchedulerContext::get()->stop();
+      td::actor::SchedulerContext::get().stop();
       co_return td::Unit{};
     }(run_all())
                                    .start_immediate()
