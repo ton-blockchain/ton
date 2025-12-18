@@ -521,7 +521,7 @@ TEST(Actor2, actor_creation) {
       }
 
       void check() {
-        auto &context = *SchedulerContext::get();
+        auto &context = SchedulerContext::get();
         CHECK(context.has_poll());
         context.get_poll();
       }
@@ -540,7 +540,7 @@ TEST(Actor2, actor_creation) {
 
      private:
       void start_up() override {
-        auto &context = *SchedulerContext::get();
+        auto &context = SchedulerContext::get();
         CHECK(!context.has_poll());
         send_closure(a_, &A::f);
         stop();
