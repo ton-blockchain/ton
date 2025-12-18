@@ -847,6 +847,68 @@ class CoroSpec final : public td::actor::Actor {
     co_return td::Unit{};
   }
 
+  // Test 1: Promise stored in MAILBOX when actor stops
+  // BUG: mailbox.clear() runs AFTER destroy_actor(), context still points to freed actor
+  // FIX: Call actor_execute_context_.clear_actor() after destroy_actor()
+  Task<td::Unit> promise_destroy_in_mailbox() {
+    LOG(INFO) << "=== promise_destroy_in_mailbox ===";
+
+    class Target : public td::actor::Actor {
+     public:
+      explicit Target(StartedTask<int>::ExternalPromise p) : promise_(std::move(p)) {
+      }
+
+      void start_up() override {
+        // Queue the promise to ourselves - it goes to the mailbox
+        send_closure_later(actor_id(this), &Target::receive_promise, std::move(promise_));
+        stop();  // Promise in mailbox destroyed during mailbox.clear() AFTER destroy_actor()
+      }
+
+      void receive_promise(StartedTask<int>::ExternalPromise) {
+        LOG(FATAL) << "Should not reach";
+      }
+
+     private:
+      StartedTask<int>::ExternalPromise promise_;
+    };
+
+    auto [task, promise] = StartedTask<int>::make_bridge();
+    create_actor<Target>("Target", std::move(promise)).release();
+
+    auto result = co_await std::move(task).wrap();
+    expect_true(result.is_error(), "Task should fail");
+    LOG(INFO) << "Got expected error: " << result.error();
+    co_return td::Unit{};
+  }
+
+  // Test 2: Promise stored in ACTOR MEMBER when actor stops
+  // Promise is destroyed during Actor destructor, context might still point to actor
+  Task<td::Unit> promise_destroy_in_actor_member() {
+    LOG(INFO) << "=== promise_destroy_in_actor_member ===";
+
+    class Target : public td::actor::Actor {
+     public:
+      explicit Target(StartedTask<int>::ExternalPromise p) : promise_(std::move(p)) {
+      }
+
+      void start_up() override {
+        // Keep the promise in the actor member, don't move it anywhere
+        stop();  // Promise destroyed during Actor destructor
+      }
+
+     private:
+      StartedTask<int>::ExternalPromise promise_;  // Destroyed BEFORE actor_info_ptr_ (base class)
+    };
+
+    auto [task, promise] = StartedTask<int>::make_bridge();
+    create_actor<Target>("Target", std::move(promise)).release();
+
+    auto result = co_await std::move(task).wrap();
+    expect_true(result.is_error(), "Task should fail");
+    LOG(INFO) << "Got expected error: " << result.error();
+    co_return td::Unit{};
+  }
+
   // Master runner
   Task<td::Unit> run_all() {
     LOG(ERROR) << "Run tests";
@@ -866,6 +928,8 @@ class CoroSpec final : public td::actor::Actor {
     co_await combinators();
     co_await try_awaitable();
     co_await stop_actor();
+    co_await promise_destroy_in_mailbox();
+    co_await promise_destroy_in_actor_member();
 
     (void)co_await ask(logger_, &TestLogger::log, std::string("All tests passed"));
     co_return td::Unit();
