@@ -230,10 +230,10 @@ static LockedBacktraceState get_locked_backtrace_state() {
   if (!backtrace_lock.compare_exchange_strong(expected, true, std::memory_order_acquire)) {
     return nullptr;  // Lock taken by another thread
   }
-  
+
   // Get or initialize state (protected by lock, no atomics needed)
   static backtrace_state *state = nullptr;
-  
+
   if (state == nullptr) {
     // Initialize on first use
     const char *exe_path = nullptr;
@@ -251,10 +251,10 @@ static LockedBacktraceState get_locked_backtrace_state() {
       exe_path = path_buf;
     }
 #endif
-    
+
     state = backtrace_create_state(exe_path, 1, backtrace_error_callback, nullptr);
   }
-  
+
   return LockedBacktraceState(state, BacktraceUnlock{});
 }
 #endif
@@ -307,21 +307,21 @@ void print_backtrace(void) {
 void print_backtrace_libbacktrace(void) {
 #ifdef TD_HAVE_LIBBACKTRACE
   signal_safe_write("--- Enhanced Backtrace (libbacktrace) ---\n", false);
-  
+
   auto locked_state = get_locked_backtrace_state();
   if (!locked_state) {
     signal_safe_write("(another thread is printing backtrace)\n", false);
     signal_safe_write("------------------------------------------\n", false);
     return;
   }
-  
+
   BacktraceState state;
   state.skip = 0;
   state.index = 0;
-  
+
   // Skip 1 frame: this function itself
   backtrace_full(locked_state.get(), 1, backtrace_full_callback, backtrace_error_callback, &state);
-  
+
   signal_safe_write("------------------------------------------\n", false);
 #endif
 }

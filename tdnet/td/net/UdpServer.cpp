@@ -170,7 +170,7 @@ class TcpClient : public td::actor::Actor, td::ObserverBase {
     // Subscribe for socket updates
     // NB: Interface will be changed
     td::actor::SchedulerContext::get().get_poll().subscribe(buffered_fd_.get_poll_info().extract_pollable_fd(this),
-                                                             PollFlags::ReadWrite());
+                                                            PollFlags::ReadWrite());
     alarm_timestamp() = Timestamp::in(10);
     notify();
   }

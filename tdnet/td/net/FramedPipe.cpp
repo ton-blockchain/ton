@@ -5,7 +5,8 @@ namespace td {
 
 Status framed_write(ChainBufferWriter &writer, Slice message, size_t max_message_size) {
   if (message.size() > max_message_size) {
-    return Status::Error(PSLICE() << "Invalid message size: " << message.size() << " (max: " << max_message_size << ")");
+    return Status::Error(PSLICE() << "Invalid message size: " << message.size() << " (max: " << max_message_size
+                                  << ")");
   }
   char head[4];
   as<uint32>(head) = static_cast<uint32>(message.size());

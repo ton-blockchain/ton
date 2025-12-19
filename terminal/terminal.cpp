@@ -116,7 +116,7 @@ void TerminalIOImpl::start_up() {
 
   if (!no_input_) {
     td::actor::SchedulerContext::get().get_poll().subscribe(stdin_.get_poll_info().extract_pollable_fd(this),
-                                                             td::PollFlags::Read());
+                                                            td::PollFlags::Read());
     loop();
   }
 }
