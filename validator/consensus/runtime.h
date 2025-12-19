@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "td/actor/actor.h"
+#include "td/actor/coro_utils.h"
 #include "td/utils/Badge.h"
 #include "td/utils/TypeRegistry.h"
 #include "td/utils/buffer.h"
@@ -32,17 +33,23 @@ template <typename B>
 concept BusWithParent = requires { typename B::Parent; };
 
 template <typename E, typename B>
-struct ValidEventHelper {
+struct ValidPublishTargetHelper {
   static constexpr bool value = td::In<E, typename B::Events>;
 };
 
 template <typename E, BusWithParent B>
-struct ValidEventHelper<E, B> {
-  static constexpr bool value = ValidEventHelper<E, typename B::Parent>::value || td::In<E, typename B::Events>;
+struct ValidPublishTargetHelper<E, B> {
+  static constexpr bool value = ValidPublishTargetHelper<E, typename B::Parent>::value || td::In<E, typename B::Events>;
 };
 
 template <typename E, typename B>
-concept ValidEventFor = ValidEventHelper<E, B>::value;
+concept ValidPublishTargetFor = ValidPublishTargetHelper<E, B>::value;
+
+template <typename E, typename B>
+concept ValidEventFor = ValidPublishTargetFor<E, B> && !requires { typename E::ReturnType; };
+
+template <typename E, typename B>
+concept ValidRequestFor = ValidPublishTargetFor<E, B> && requires { typename E::ReturnType; };
 
 struct BusIdTag {};
 using BusTypeId = td::IdType<BusIdTag>;
@@ -59,26 +66,54 @@ template <BusType B>
 class SpawnsWith;
 
 template <typename B, typename E>
-class BusEventPublishImpl {
+class BusEventPublishImplBase {
  public:
+  struct EventDispatcher {
+    using EventDispatcherFn = void (BusListeningActor::*)(BusHandle<B> bus, std::shared_ptr<const E> event);
+
+    td::actor::ActorId<BusListeningActor> actor;
+    EventDispatcherFn dispatcher_fn;
+  };
+
   void publish(std::shared_ptr<E> event, BusHandle<B> handle) {
     for (const auto& [actor, dispatcher_fn] : dispatchers) {
       td::actor::send_closure(actor, dispatcher_fn, handle, event);
     }
   }
 
+  void add_handler(EventDispatcher dispatcher) {
+    dispatchers.push_back(std::move(dispatcher));
+  }
+
  private:
   friend class Runtime;
 
-  struct EventDispatcher {
-    using EventDispatcherFn = void (BusListeningActor::*)(BusHandle<B> bus, std::shared_ptr<E> event);
-
-    td::actor::ActorId<BusListeningActor> actor;
-    EventDispatcherFn dispatcher_fn;
-  };
-
   // Can only have actors that are owned by (non-strict) predecessor of the current bus.
   std::vector<EventDispatcher> dispatchers;
+};
+
+template <typename B, typename E>
+class BusEventPublishImpl : public BusEventPublishImplBase<B, E> {};
+
+template <typename B, ValidRequestFor<B> E>
+class BusEventPublishImpl<B, E> : public BusEventPublishImplBase<B, E> {
+ public:
+  auto publish(std::shared_ptr<E> event, BusHandle<B> handle) {
+    CHECK(dispatcher_fn != nullptr);
+    return td::actor::ask(actor, dispatcher_fn, handle, event).then([this, event, handle](auto&& result) {
+      static_cast<BusEventPublishImplBase<B, E>>(*this).publish(event, handle);
+      return result;
+    });
+  }
+
+ private:
+  friend class Runtime;
+
+  using EventDispatcherFn = td::actor::Task<typename E::ReturnType> (BusListeningActor::*)(BusHandle<B> bus,
+                                                                                           std::shared_ptr<E> event);
+
+  td::actor::ActorId<BusListeningActor> actor;
+  EventDispatcherFn dispatcher_fn = nullptr;
 };
 
 template <typename, typename>
@@ -172,18 +207,18 @@ class BusHandle {
   }
 
   // publish is technically not constant but we give BusHandle const& to user code.
-  template <ValidEventFor<B> E>
-  void publish(std::shared_ptr<E> event) const {
+  template <ValidPublishTargetFor<B> E>
+  [[nodiscard]] auto publish(std::shared_ptr<E> event) const {
     CHECK(*this);
 
     log_event(true, *node_, *event);
-    impl_->publish(std::move(event), *this);
+    return impl_->publish(std::move(event), *this);
   }
 
-  template <ValidEventFor<B> E, typename... Args>
+  template <ValidPublishTargetFor<B> E, typename... Args>
     requires std::constructible_from<E, Args...>
-  void publish(Args&&... args) const {
-    publish<E>(std::make_shared<E>(std::forward<Args>(args)...));
+  [[nodiscard]] auto publish(Args&&... args) const {
+    return publish<E>(std::make_shared<E>(std::forward<Args>(args)...));
   }
 
   template <BusType Child>
@@ -270,13 +305,24 @@ class BusListeningActor : public td::actor::Actor {
   friend class Runtime;
 
   template <typename A, typename B, typename BOrigin, typename E>
-  void dispatch_event(BusHandle<BOrigin> bus, std::shared_ptr<E> event) {
+  void dispatch_event(BusHandle<BOrigin> bus, std::shared_ptr<const E> event) {
     log_event(false, bus._node(td::Badge<BusListeningActor>{}), *event);
     if constexpr (!std::same_as<B, BOrigin>) {
       // When we install listeners, we guarantee that the actual bus type is at most B.
       static_cast<A*>(this)->template handle<B, E>(bus.template unsafe_static_downcast_to<B>(), std::move(event));
     } else {
       static_cast<A*>(this)->template handle<B, E>(std::move(bus), std::move(event));
+    }
+  }
+
+  template <typename A, typename B, typename BOrigin, typename E>
+  auto process_event(BusHandle<BOrigin> bus, std::shared_ptr<E> event) {
+    log_event(false, bus._node(td::Badge<BusListeningActor>{}), *event);
+    if constexpr (!std::same_as<B, BOrigin>) {
+      return static_cast<A*>(this)->template process<B, E>(bus.template unsafe_static_downcast_to<B>(),
+                                                           std::move(event));
+    } else {
+      return static_cast<A*>(this)->template process<B, E>(std::move(bus), std::move(event));
     }
   }
 
@@ -315,7 +361,11 @@ concept ActorType = std::derived_from<T, SpawnsWith<typename T::SpawnWithBus>> &
 
 template <typename A, typename B, typename E>
 concept CanActorHandleEvent =
-    requires(A& actor, BusHandle<B> bus, std::shared_ptr<E> event) { actor.template handle<B, E>(bus, event); };
+    requires(A& actor, BusHandle<B> bus, std::shared_ptr<const E> event) { actor.template handle<B, E>(bus, event); };
+
+template <typename A, typename B, typename E>
+concept CanActorProcessEvent =
+    requires(A& actor, BusHandle<B> bus, std::shared_ptr<E> event) { actor.template process<B, E>(bus, event); };
 
 class Runtime : public std::enable_shared_from_this<Runtime> {
  public:
@@ -421,19 +471,24 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
 
     template <typename B, typename BOrigin, typename E>
     void register_event_listener(Params params) {
-      if constexpr (CanActorHandleEvent<A, B, E>) {
-        // handle accepts (BusHandle<B>, std::shared_ptr<BOrigin::E>) while we treat newly installed
-        // bus (of type BNew) as having type new_bus_type (one of types in its inheritance chain).
-        if (get_bus_id<B>() == params.new_bus_type) {
-          // node->bus_impl is BusImpl<BNew>. Since BNew <= B == new_bus_type, it is safe to
-          // downcast node->bus_impl to BusImpl<B>.
-          auto bus_impl =
-              static_cast<BusEventPublishImpl<BOrigin, E>*>(static_cast<BusImpl<B>*>(params.node->bus_impl.get()));
+      if (get_bus_id<B>() == params.new_bus_type) {
+        // node->bus_impl is BusImpl<BNew>. Since BNew <= B == new_bus_type, it is safe to
+        // downcast node->bus_impl to BusImpl<B>.
+        auto bus_impl =
+            static_cast<BusEventPublishImpl<BOrigin, E>*>(static_cast<BusImpl<B>*>(params.node->bus_impl.get()));
 
-          bus_impl->dispatchers.push_back({
+        if constexpr (CanActorHandleEvent<A, B, E>) {
+          // handle accepts (BusHandle<B>, std::shared_ptr<BOrigin::E>) while we treat newly installed
+          // bus (of type BNew) as having type new_bus_type (one of types in its inheritance chain).
+          bus_impl->add_handler({
               .actor = params.actor_id,
               .dispatcher_fn = &BusListeningActor::dispatch_event<A, B, BOrigin, E>,
           });
+        }
+        if constexpr (CanActorProcessEvent<A, B, E>) {
+          CHECK(bus_impl->dispatcher_fn == nullptr);
+          bus_impl->actor = params.actor_id;
+          bus_impl->dispatcher_fn = &BusListeningActor::process_event<A, B, BOrigin, E>;
         }
       }
     }
@@ -533,8 +588,12 @@ class Runtime {
   std::shared_ptr<detail::Runtime> impl_ = std::make_shared<detail::Runtime>();
 };
 
-#define TON_RUNTIME_DEFINE_EVENT_HANDLER()                                          \
-  template <::td::In<ConnectToBuses> B, ::ton::runtime::detail::ValidEventFor<B> E> \
-  constexpr void handle(::ton::runtime::BusHandle<B> bus, ::std::shared_ptr<E const> event) = delete;
+#define TON_RUNTIME_DEFINE_EVENT_HANDLER()                                                            \
+  template <::td::In<ConnectToBuses> B, ::ton::runtime::detail::ValidPublishTargetFor<B> E>           \
+  constexpr void handle(::ton::runtime::BusHandle<B> bus, ::std::shared_ptr<E const> event) = delete; \
+                                                                                                      \
+  template <::td::In<ConnectToBuses> B, ::ton::runtime::detail::ValidRequestFor<B> E>                 \
+  constexpr td::actor::Task<typename E::ReturnType> process(::ton::runtime::BusHandle<B> bus,         \
+                                                            ::std::shared_ptr<E> request) = delete;
 
 }  // namespace ton::runtime
