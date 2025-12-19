@@ -21,3 +21,6 @@
 [submodule "third-party/tl-parser"]
 	path = third-party/tl-parser
 	url = https://github.com/ton-blockchain/tl-parser.git
+[submodule "third-party/libbacktrace"]
+	path = third-party/libbacktrace
+	url = https://github.com/ianlancetaylor/libbacktrace.git
