@@ -35,6 +35,7 @@
 #include "interfaces/validator-set.h"
 #include "overlay/overlays.h"
 #include "td/actor/actor.h"
+#include "td/actor/coro_task.h"
 #include "td/actor/coro_utils.h"
 #include "ton/ton-types.h"
 
@@ -151,6 +152,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual td::Ref<CollatorsList> get_collators_list() const = 0;
   virtual bool check_collator_node_whitelist(adnl::AdnlNodeIdShort id) const = 0;
   virtual td::Ref<ShardBlockVerifierConfig> get_shard_block_verifier_config() const = 0;
+  virtual std::string get_db_event_fifo_path() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -191,6 +193,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_collator_node_whitelist_enabled(bool enabled) = 0;
   virtual void set_shard_block_verifier_config(td::Ref<ShardBlockVerifierConfig> config) = 0;
   virtual void set_parallel_validation(bool value) = 0;
+  virtual void set_db_event_fifo_path(std::string value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(BlockIdExt zero_block_id, BlockIdExt init_block_id,
                                                  bool allow_blockchain_init = false, double sync_blocks_before = 3600,
@@ -309,7 +312,10 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void new_ihr_message(td::BufferSlice data) = 0;
   virtual void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                      td::BufferSlice data) = 0;
-  virtual void new_block_candidate_broadcast(BlockIdExt block_id, td::BufferSlice data) = 0;
+  virtual td::actor::Task<> new_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
+                                                          td::BufferSlice data) {
+    co_return td::Unit{};
+  }
 
   virtual void add_ext_server_id(adnl::AdnlNodeIdShort id) = 0;
   virtual void add_ext_server_port(td::uint16 port) = 0;

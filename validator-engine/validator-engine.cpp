@@ -1639,6 +1639,7 @@ td::Status ValidatorEngine::load_global_config() {
   validator_options_.write().set_hardforks(std::move(h));
   validator_options_.write().set_catchain_broadcast_speed_multiplier(broadcast_speed_multiplier_catchain_);
   validator_options_.write().set_parallel_validation(parallel_validation_);
+  validator_options_.write().set_db_event_fifo_path(db_event_fifo_path_);
 
   for (auto &id : config_.collator_node_whitelist) {
     validator_options_.write().set_collator_node_whitelisted_validator(id, true);
@@ -5604,6 +5605,9 @@ int main(int argc, char *argv[]) {
                        });
   p.add_option('\0', "parallel-validation", "parallel validation over different accounts", [&]() {
     acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_parallel_validation, true); });
+  });
+  p.add_option('\0', "db-event-fifo", "path to FIFO pipe for publishing DB events", [&](td::Slice s) {
+    acts.push_back([&x, s = s.str()]() { td::actor::send_closure(x, &ValidatorEngine::set_db_event_fifo_path, s); });
   });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
