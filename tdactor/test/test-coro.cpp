@@ -909,6 +909,47 @@ class CoroSpec final : public td::actor::Actor {
     co_return td::Unit{};
   }
 
+  // Test that co_return {}; works correctly for Task<Unit>
+  // Bug: co_return {}; was equivalent to co_return td::Status::Error(-1);
+  // because {} matched ExternalResult via aggregate initialization
+  Task<td::Unit> co_return_empty_braces() {
+    LOG(INFO) << "=== co_return_empty_braces ===";
+
+    // Test co_return {}; in Task<Unit> - should succeed, not return error
+    auto test_task = []() -> Task<td::Unit> {
+      co_return {};  // This was buggy - was equivalent to co_return td::Status::Error(-1);
+    };
+
+    auto result = co_await test_task().wrap();
+    expect_true(result.is_ok(), "co_return {}; should succeed for Task<Unit>");
+
+    // Also verify co_return td::Unit{}; still works
+    auto test_task2 = []() -> Task<td::Unit> { co_return td::Unit{}; };
+    auto result2 = co_await test_task2().wrap();
+    expect_true(result2.is_ok(), "co_return td::Unit{}; should succeed");
+
+    // Test designated initializers with simple structs
+    struct SimpleStruct {
+      int a;
+      int b;
+    };
+    auto test_designated = []() -> Task<SimpleStruct> { co_return {.a = 1, .b = 2}; };
+    auto result3 = co_await test_designated().wrap();
+    expect_true(result3.is_ok(), "co_return {.a=1, .b=2}; should succeed");
+    expect_eq(result3.ok().a, 1, "designated init .a");
+    expect_eq(result3.ok().b, 2, "designated init .b");
+
+    // Test simple brace init for structs
+    auto test_brace = []() -> Task<SimpleStruct> { co_return {10, 20}; };
+    auto result4 = co_await test_brace().wrap();
+    expect_true(result4.is_ok(), "co_return {10, 20}; should succeed");
+    expect_eq(result4.ok().a, 10, "brace init .a");
+    expect_eq(result4.ok().b, 20, "brace init .b");
+
+    LOG(INFO) << "co_return_empty_braces test passed";
+    co_return td::Unit{};
+  }
+
   // Master runner
   Task<td::Unit> run_all() {
     LOG(ERROR) << "Run tests";
@@ -930,6 +971,7 @@ class CoroSpec final : public td::actor::Actor {
     co_await stop_actor();
     co_await promise_destroy_in_mailbox();
     co_await promise_destroy_in_actor_member();
+    co_await co_return_empty_braces();
 
     (void)co_await ask(logger_, &TestLogger::log, std::string("All tests passed"));
     co_return td::Unit();
