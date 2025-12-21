@@ -54,8 +54,8 @@ class PingClient : public td::actor::Actor, td::ObserverBase {
     LOG(INFO) << "Start";
     // Subscribe for socket updates
     // NB: Interface will be changed
-    td::actor::SchedulerContext::get()->get_poll().subscribe(buffered_fd_.get_poll_info().extract_pollable_fd(this),
-                                                             td::PollFlags::ReadWrite());
+    td::actor::SchedulerContext::get().get_poll().subscribe(buffered_fd_.get_poll_info().extract_pollable_fd(this),
+                                                            td::PollFlags::ReadWrite());
 
     alarm_timestamp() = td::Timestamp::now();
   }
@@ -64,7 +64,7 @@ class PingClient : public td::actor::Actor, td::ObserverBase {
     LOG(INFO) << "Close";
     // unsubscribe from socket updates
     // nb: interface will be changed
-    td::actor::SchedulerContext::get()->get_poll().unsubscribe(buffered_fd_.get_poll_info().get_pollable_fd_ref());
+    td::actor::SchedulerContext::get().get_poll().unsubscribe(buffered_fd_.get_poll_info().get_pollable_fd_ref());
   }
 
   void loop() override {

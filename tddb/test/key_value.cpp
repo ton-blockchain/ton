@@ -79,7 +79,7 @@ TEST(KeyValue, async_simple) {
   td::RocksDb::destroy(db_name).ignore();
 
   td::actor::Scheduler scheduler({6});
-  auto watcher = td::create_shared_destructor([] { td::actor::SchedulerContext::get()->stop(); });
+  auto watcher = td::create_shared_destructor([] { td::actor::SchedulerContext::get().stop(); });
 
   class Worker : public td::actor::Actor {
    public:
@@ -190,7 +190,7 @@ TEST(KeyValue, Stress) {
   }
 
   td::actor::Scheduler scheduler({6});
-  auto watcher = td::create_shared_destructor([] { td::actor::SchedulerContext::get()->stop(); });
+  auto watcher = td::create_shared_destructor([] { td::actor::SchedulerContext::get().stop(); });
 
   class Worker : public td::actor::Actor {
    public:

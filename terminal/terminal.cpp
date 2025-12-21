@@ -115,15 +115,15 @@ void TerminalIOImpl::start_up() {
 #endif
 
   if (!no_input_) {
-    td::actor::SchedulerContext::get()->get_poll().subscribe(stdin_.get_poll_info().extract_pollable_fd(this),
-                                                             td::PollFlags::Read());
+    td::actor::SchedulerContext::get().get_poll().subscribe(stdin_.get_poll_info().extract_pollable_fd(this),
+                                                            td::PollFlags::Read());
     loop();
   }
 }
 
 void TerminalIOImpl::tear_down() {
   log_interface = default_log_interface;
-  td::actor::SchedulerContext::get()->get_poll().unsubscribe(stdin_.get_poll_info().get_pollable_fd_ref());
+  td::actor::SchedulerContext::get().get_poll().unsubscribe(stdin_.get_poll_info().get_pollable_fd_ref());
   out_mutex_.lock();
 #ifdef USE_READLINE
   if (use_readline_) {
