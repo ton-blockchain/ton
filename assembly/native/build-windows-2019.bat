@@ -87,7 +87,7 @@ if not exist "openssl" (
   cd openssl
   git checkout openssl-3.2.6
   where perl
-  perl Configure VC-WIN64A
+  perl Configure VC-WIN64A no-winstore
   IF %errorlevel% NEQ 0 (
     echo Can't configure openssl
     exit /b %errorlevel%
