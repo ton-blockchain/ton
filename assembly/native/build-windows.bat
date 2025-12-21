@@ -85,7 +85,7 @@ if not exist "libsodium" (
 if not exist "openssl" (
   git clone https://github.com/openssl/openssl.git
   cd openssl
-  git checkout openssl-3.1.4
+  git checkout openssl-3.2.6
   where perl
   perl Configure VC-WIN64A
   IF %errorlevel% NEQ 0 (

@@ -34,7 +34,7 @@ if [ ! -d "openssl_3" ]; then
   git clone https://github.com/openssl/openssl openssl_3
   cd openssl_3
   opensslPath=`pwd`
-  git checkout openssl-3.1.4
+  git checkout openssl-3.2.6
   ./config
   make build_libs -j$(nproc)
   test $? -eq 0 || { echo "Can't compile openssl_3"; exit 1; }
