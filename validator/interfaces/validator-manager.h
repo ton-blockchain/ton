@@ -324,7 +324,6 @@ class ValidatorManager : public ValidatorManagerInterface {
                                                  td::Promise<td::BufferSlice> promise) = 0;
   virtual void send_get_next_key_blocks_request(BlockIdExt block_id, td::uint32 priority,
                                                 td::Promise<std::vector<BlockIdExt>> promise) = 0;
-  virtual void send_external_message(td::Ref<ExtMessage> message) = 0;
   virtual void send_ihr_message(td::Ref<IhrMessage> message) = 0;
   virtual void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) = 0;
   virtual void send_block_broadcast(BlockBroadcast broadcast, int mode) = 0;
@@ -385,6 +384,11 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void get_validator_groups_info_for_litequery(
       td::optional<ShardIdFull> shard,
       td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise) = 0;
+  virtual void get_pending_shard_blocks_for_litequery(
+      td::optional<ShardIdFull> shard,
+      td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_pendingShardBlocks>> promise) {
+    promise.set_error(td::Status::Error("not implemented"));
+  }
 
   virtual void add_lite_query_stats(int lite_query_id, bool success) {
   }

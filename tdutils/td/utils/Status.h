@@ -443,6 +443,10 @@ class Status {
   }
 };
 
+inline StringBuilder &operator<<(StringBuilder &string_builder, const Status &status) {
+  return status.print(string_builder);
+}
+
 // Forward declarations for Result wrappers
 template <class T>
 struct ResultUnwrap;
@@ -643,9 +647,6 @@ inline Result<Unit>::Result(Status &&status) : status_(std::move(status)) {
   // no assert
 }
 
-inline StringBuilder &operator<<(StringBuilder &string_builder, const Status &status) {
-  return status.print(string_builder);
-}
 template <class T>
 StringBuilder &operator<<(StringBuilder &sb, const Result<T> &result) {
   if (result.is_ok()) {

@@ -99,7 +99,7 @@ void ValidatorGroup::generate_block_candidate_cont(validatorsession::BlockSource
   td::actor::send_closure(collation_manager_, &CollationManager::collate_block, shard_, min_masterchain_block_id_,
                           prev_block_ids_, Ed25519_PublicKey{local_id_full_.ed25519_value().raw()},
                           source_info.priority, validator_set_, max_answer_size, std::move(cancellation_token),
-                          std::move(promise), config_.proto_version);
+                          std::move(promise));
 }
 
 void ValidatorGroup::generated_block_candidate(validatorsession::BlockSourceInfo source_info,
@@ -345,7 +345,7 @@ void ValidatorGroup::accept_block_query(BlockIdExt block_id, td::Ref<BlockData> 
   });
 
   run_accept_block_query(block_id, std::move(block), std::move(prev), validator_set_, std::move(sig_set),
-                         std::move(approve_sig_set), send_broadcast_mode, monitoring_shard_, manager_, std::move(P));
+                         send_broadcast_mode, monitoring_shard_, manager_, std::move(P));
 }
 
 void ValidatorGroup::skip_round(td::uint32 round_id) {
@@ -394,7 +394,7 @@ void ValidatorGroup::generate_block_optimistic(validatorsession::BlockSourceInfo
                           min_masterchain_block_id_, block_id, std::move(prev_block),
                           Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, source_info.priority, validator_set_,
                           max_answer_size, optimistic_generation_->cancellation_token_source.get_cancellation_token(),
-                          std::move(P), config_.proto_version);
+                          std::move(P));
 }
 
 void ValidatorGroup::generated_block_optimistic(validatorsession::BlockSourceInfo source_info,

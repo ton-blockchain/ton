@@ -86,14 +86,14 @@ class SplitStateDeserializer {
       }
 
       return parts;
-    } catch (vm::VmVirtError const&) {
+    } catch (const vm::VmVirtError &) {
       return td::Status::Error("Insufficient number of cells in split state header");
     }
   }
 
-  td::Ref<vm::Cell> merge(std::vector<td::Ref<vm::Cell>> const& parts) {
+  td::Ref<vm::Cell> merge(const std::vector<td::Ref<vm::Cell>> &parts) {
     vm::AugmentedDictionary accounts{256, block::tlb::aug_ShardAccounts};
-    for (auto const& part_root : parts) {
+    for (const auto &part_root : parts) {
       vm::AugmentedDictionary part{
           vm::load_cell_slice_ref(part_root),
           256,

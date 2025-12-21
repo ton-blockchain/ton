@@ -13,26 +13,39 @@
 
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
-
-    Copyright 2017-2020 Telegram Systems LLP
 */
-#pragma once
 
-#include "common/bitstring.h"
+#pragma once
+#include <string>
+
+#include "auto/tl/ton_api.h"
 #include "td/actor/actor.h"
-#include "td/utils/buffer.h"
+#include "td/actor/coro_utils.h"
+#include "tl/TlObject.h"
 
 namespace ton::validator {
 
-class LiteServerCache : public td::actor::Actor {
+class DbEventPublisher : public td::actor::Actor {
  public:
-  ~LiteServerCache() override = default;
+  explicit DbEventPublisher(std::string fifo_path) : fifo_path_(std::move(fifo_path)) {
+  }
+  void publish(tl_object_ptr<ton_api::db_Event> event);
 
-  virtual void lookup(td::Bits256 key, td::Promise<td::BufferSlice> promise) = 0;
-  virtual void update(td::Bits256 key, td::BufferSlice value) = 0;
+ private:
+  std::string fifo_path_;
+  bool fifo_ready_ = false;
+  bool disabled_ = false;
+  bool ready_error_logged_ = false;
+  bool write_error_logged_ = false;
+  bool no_reader_logged_ = false;
+  bool temp_error_logged_ = false;
+  bool unsupported_logged_ = false;
 
-  virtual void process_send_message(td::Bits256 key, td::Promise<td::Unit> promise) = 0;
-  virtual void drop_send_message_from_cache(td::Bits256 key) = 0;
+#if TD_PORT_POSIX
+  enum class WriteStatus { Ok, NoReader, TemporaryError, FatalError };
+  td::Status ensure_ready();
+  WriteStatus write_once(td::Slice data);
+#endif
 };
 
 }  // namespace ton::validator

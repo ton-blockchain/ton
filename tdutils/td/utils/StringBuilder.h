@@ -140,6 +140,11 @@ class StringBuilder {
   bool reserve_inner(size_t size);
 };
 
+template <typename T>
+concept Formattable = requires(td::StringBuilder &builder, const T &other) {
+  { builder << other } -> std::same_as<td::StringBuilder &>;
+};
+
 template <class T>
 std::enable_if_t<std::is_arithmetic<T>::value, string> to_string(const T &x) {
   const size_t buf_size = 1000;

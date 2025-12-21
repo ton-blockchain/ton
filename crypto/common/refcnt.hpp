@@ -363,7 +363,7 @@ Ref<Cnt<T>> make_cnt_ref(Args&&... args) {
   return Ref<Cnt<T>>{true, std::forward<Args>(args)...};
 }
 
-template <class T>
+template <Formattable T>
 td::StringBuilder& operator<<(td::StringBuilder& sb, const Ref<T>& ref) {
   if (ref.is_null()) {
     return sb << "nullptr";

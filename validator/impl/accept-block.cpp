@@ -39,14 +39,13 @@ using namespace std::literals::string_literals;
 
 AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                                    td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
-                                   td::Ref<BlockSignatureSet> approve_signatures, int send_broadcast_mode, bool apply,
-                                   td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
+                                   int send_broadcast_mode, bool apply, td::actor::ActorId<ValidatorManager> manager,
+                                   td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
     , prev_(std::move(prev))
     , validator_set_(std::move(validator_set))
     , signatures_(std::move(signatures))
-    , approve_signatures_(std::move(approve_signatures))
     , is_fake_(false)
     , is_fork_(false)
     , send_broadcast_mode_(send_broadcast_mode)

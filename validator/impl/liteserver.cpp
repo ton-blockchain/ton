@@ -277,6 +277,9 @@ void LiteQuery::perform() {
           [&](lite_api::liteServer_nonfinal_getValidatorGroups& q) {
             this->perform_nonfinal_getValidatorGroups(q.mode_, ShardIdFull{q.wc_, (ShardId)q.shard_});
           },
+          [&](lite_api::liteServer_nonfinal_getPendingShardBlocks& q) {
+            this->perform_nonfinal_getPendingShardBlocks(q.mode_, ShardIdFull{q.wc_, (ShardId)q.shard_});
+          },
           [&](lite_api::liteServer_getOutMsgQueueSizes& q) {
             this->perform_getOutMsgQueueSizes(q.mode_ & 1 ? ShardIdFull(q.wc_, q.shard_) : td::optional<ShardIdFull>());
           },
@@ -547,23 +550,20 @@ void LiteQuery::continue_getZeroState(BlockIdExt blkid, td::BufferSlice state) {
 
 void LiteQuery::perform_sendMessage(td::BufferSlice data) {
   LOG(INFO) << "started a sendMessage(<" << data.size() << " bytes>) liteserver query";
-  auto copy = data.clone();
-  td::actor::send_closure_later(
-      manager_, &ValidatorManager::check_external_message, std::move(copy),
-      [Self = actor_id(this), data = std::move(data), manager = manager_, cache = cache_,
-       cache_key = cache_key_](td::Result<td::Ref<ExtMessage>> res) mutable {
-        if (res.is_error()) {
-          // Don't cache errors
-          td::actor::send_closure(cache, &LiteServerCache::drop_send_message_from_cache, cache_key);
-          td::actor::send_closure(Self, &LiteQuery::abort_query,
-                                  res.move_as_error_prefix("cannot apply external message to current state : "s));
-        } else {
-          LOG(INFO) << "sending an external message to validator manager";
-          td::actor::send_closure_later(manager, &ValidatorManager::send_external_message, res.move_as_ok());
-          auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_sendMsgStatus>(1);
-          td::actor::send_closure(Self, &LiteQuery::finish_query, std::move(b), false);
-        }
-      });
+  td::actor::send_closure(
+      manager_, &ValidatorManager::new_external_message_query, std::move(data),
+      td::PromiseCreator::lambda(
+          [Self = actor_id(this), cache = cache_, cache_key = cache_key_](td::Result<td::Unit> res) mutable {
+            if (res.is_error()) {
+              // Don't cache errors
+              td::actor::send_closure(cache, &LiteServerCache::drop_send_message_from_cache, cache_key);
+              td::actor::send_closure(Self, &LiteQuery::abort_query,
+                                      res.move_as_error_prefix("cannot apply external message to current state : "s));
+            } else {
+              auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_sendMsgStatus>(1);
+              td::actor::send_closure(Self, &LiteQuery::finish_query, std::move(b), false);
+            }
+          }));
 }
 
 void LiteQuery::get_block_handle_checked(BlockIdExt blkid, td::Promise<ConstBlockHandle> promise) {
@@ -3736,6 +3736,26 @@ void LiteQuery::perform_nonfinal_getValidatorGroups(int mode, ShardIdFull shard)
   td::actor::send_closure(
       manager_, &ValidatorManager::get_validator_groups_info_for_litequery, maybe_shard,
       [Self = actor_id(this)](td::Result<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> R) {
+        if (R.is_error()) {
+          td::actor::send_closure(Self, &LiteQuery::abort_query, R.move_as_error());
+        } else {
+          td::actor::send_closure_later(Self, &LiteQuery::finish_query, serialize_tl_object(R.move_as_ok(), true),
+                                        false);
+        }
+      });
+}
+
+void LiteQuery::perform_nonfinal_getPendingShardBlocks(int mode, ShardIdFull shard) {
+  bool with_shard = mode & 1;
+  LOG(INFO) << "started a nonfinal.getPendingShardBlocks" << (with_shard ? shard.to_str() : "(all)")
+            << " liteserver query";
+  td::optional<ShardIdFull> maybe_shard;
+  if (with_shard) {
+    maybe_shard = shard;
+  }
+  td::actor::send_closure(
+      manager_, &ValidatorManager::get_pending_shard_blocks_for_litequery, maybe_shard,
+      [Self = actor_id(this)](td::Result<tl_object_ptr<lite_api::liteServer_nonfinal_pendingShardBlocks>> R) {
         if (R.is_error()) {
           td::actor::send_closure(Self, &LiteQuery::abort_query, R.move_as_error());
         } else {

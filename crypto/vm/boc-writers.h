@@ -49,7 +49,7 @@ struct BufferWriter {
     }
     DCHECK(!bytes);
   }
-  void store_bytes(unsigned char const* data, size_t s) {
+  void store_bytes(const unsigned char* data, size_t s) {
     store_ptr += s;
     chk();
     memcpy(store_ptr - s, data, s);
@@ -88,13 +88,13 @@ struct FileWriter {
     flush_if_needed(bytes);
     writer.store_uint(value, bytes);
   }
-  void store_bytes(unsigned char const* data, size_t s) {
+  void store_bytes(const unsigned char* data, size_t s) {
     flush_if_needed(s);
     writer.store_bytes(data, s);
   }
   unsigned get_crc32() const {
-    unsigned char const* start = buf.data();
-    unsigned char const* end = start + writer.position();
+    const unsigned char* start = buf.data();
+    const unsigned char* end = start + writer.position();
     return td::crc32c_extend(current_crc32, td::Slice(start, end));
   }
 

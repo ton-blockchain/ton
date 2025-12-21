@@ -25,13 +25,15 @@
 
 #include "collator-node/collator-node.hpp"
 #include "common/refcnt.hpp"
-#include "impl/candidates-buffer.hpp"
+#include "db/db-event-publisher.hpp"
+#include "impl/ext-message-pool.hpp"
 #include "interfaces/db.h"
 #include "interfaces/validator-manager.h"
 #include "rldp/rldp.h"
 #include "rldp2/rldp.h"
 #include "td/actor/ActorStats.h"
 #include "td/actor/PromiseFuture.h"
+#include "td/actor/coro_task.h"
 #include "td/utils/LRUCache.h"
 #include "td/utils/SharedSlice.h"
 #include "td/utils/buffer.h"
@@ -56,75 +58,6 @@ class WaitBlockState;
 class WaitZeroState;
 class WaitShardState;
 class WaitBlockData;
-
-template <class MType>
-struct MessageId {
-  AccountIdPrefixFull dst;
-  typename MType::Hash hash;
-
-  bool operator<(const MessageId &msg) const {
-    if (dst < msg.dst) {
-      return true;
-    }
-    if (msg.dst < dst) {
-      return false;
-    }
-    return hash < msg.hash;
-  }
-};
-
-template <class MType>
-class MessageExt {
- public:
-  auto shard() const {
-    return message_->shard();
-  }
-  auto ext_id() const {
-    auto shard = message_->shard();
-    return MessageId<MType>{shard, message_->hash()};
-  }
-  auto message() const {
-    return message_;
-  }
-  auto hash() const {
-    return message_->hash();
-  }
-  auto address() const {
-    return std::make_pair(message_->wc(), message_->addr());
-  }
-  bool is_active() {
-    if (!active_) {
-      if (reactivate_at_.is_in_past()) {
-        active_ = true;
-        generation_++;
-      }
-    }
-    return active_;
-  }
-  bool can_postpone() const {
-    return generation_ <= 2;
-  }
-  void postpone() {
-    if (!active_) {
-      return;
-    }
-    active_ = false;
-    reactivate_at_ = td::Timestamp::in(generation_ * 5.0);
-  }
-  bool expired() const {
-    return delete_at_.is_in_past();
-  }
-  MessageExt(td::Ref<MType> msg) : message_(std::move(msg)) {
-    delete_at_ = td::Timestamp::in(600);
-  }
-
- private:
-  td::Ref<MType> message_;
-  td::uint32 generation_ = 0;
-  bool active_ = true;
-  td::Timestamp reactivate_at_;
-  td::Timestamp delete_at_;
-};
 
 class BlockHandleLru : public td::ListNode {
  public:
@@ -272,32 +205,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::LRUCache<BlockIdExt, td::BufferSlice> cached_block_data_{/* max_size = */ 128};
   td::LRUCache<BlockIdExt, td::Unit> cached_checked_shard_block_descriptions_{/* max_size = */ 1024};
 
-  struct ExtMessages {
-    std::map<MessageId<ExtMessage>, std::unique_ptr<MessageExt<ExtMessage>>> ext_messages_;
-    std::map<std::pair<ton::WorkchainId, ton::StdSmcAddress>, std::map<ExtMessage::Hash, MessageId<ExtMessage>>>
-        ext_addr_messages_;
-    void erase(const MessageId<ExtMessage> &id) {
-      auto it = ext_messages_.find(id);
-      CHECK(it != ext_messages_.end());
-      ext_addr_messages_[it->second->address()].erase(id.hash);
-      ext_messages_.erase(it);
-    }
-  };
-  std::map<int, ExtMessages> ext_msgs_;                                                    // priority -> messages
-  std::map<ExtMessage::Hash, std::pair<int, MessageId<ExtMessage>>> ext_messages_hashes_;  // hash -> priority
-  td::Timestamp cleanup_mempool_at_;
-  // IHR ?
-  std::map<MessageId<IhrMessage>, std::unique_ptr<MessageExt<IhrMessage>>> ihr_messages_;
-  std::map<IhrMessage::Hash, MessageId<IhrMessage>> ihr_messages_hashes_;
-
-  struct CheckedExtMsgCounter {
-    std::map<std::pair<WorkchainId, StdSmcAddress>, size_t> counter_cur_, counter_prev_;
-    td::Timestamp cleanup_at_ = td::Timestamp::now();
-
-    size_t get_msg_count(WorkchainId wc, StdSmcAddress addr);
-    size_t inc_msg_count(WorkchainId wc, StdSmcAddress addr);
-    void before_query();
-  } checked_ext_msg_counter_;
+  td::actor::ActorOwn<ExtMessagePool> ext_message_pool_;
 
  private:
   // VALIDATOR GROUPS
@@ -333,6 +241,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   BlockHandle last_known_key_block_handle_;
   BlockHandle shard_client_handle_;
   std::vector<td::Ref<McShardHash>> shard_client_shards_;
+  td::Ref<MasterchainState> shard_client_state_;
   td::Ref<MasterchainState> last_liteserver_state_;
 
   td::Ref<MasterchainState> do_get_last_liteserver_state();
@@ -403,7 +312,7 @@ class ValidatorManagerImpl : public ValidatorManager {
                                 td::Promise<td::Unit> promise) override;
   void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override;
   void new_block_broadcast(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override;
-  void validated_block_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno);
+  td::actor::Task<> validated_block_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno);
 
   //void create_validate_block(BlockId block, td::BufferSlice data, td::Promise<Block> promise) = 0;
   void sync_complete(td::Promise<td::Unit> promise) override;
@@ -428,14 +337,16 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_key_block_proof_link(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) override;
   //void get_block_description(BlockIdExt block_id, td::Promise<BlockDescription> promise) override;
 
-  void new_external_message(td::BufferSlice data, int priority) override;
-  void add_external_message(td::Ref<ExtMessage> message, int priority);
-  void check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) override;
+  td::actor::Task<> new_external_message_broadcast(td::BufferSlice data, int priority) override;
+  td::actor::Task<> new_external_message_query(td::BufferSlice data) override;
+  td::actor::Task<> new_external_message_query_cont(td::Ref<ExtMessage> message,
+                                                    td::actor::StartedTask<> wait_allow_broadcast);
 
   void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                              td::BufferSlice data) override;
-  void new_block_candidate_broadcast(BlockIdExt block_id, td::BufferSlice data) override;
+  td::actor::Task<> new_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
+                                                  td::BufferSlice data) override;
 
   void add_ext_server_id(adnl::AdnlNodeIdShort id) override;
   void add_ext_server_port(td::uint16 port) override;
@@ -553,7 +464,6 @@ class ValidatorManagerImpl : public ValidatorManager {
                                          td::Promise<td::BufferSlice> promise) override;
   void send_get_next_key_blocks_request(BlockIdExt block_id, td::uint32 priority,
                                         td::Promise<std::vector<BlockIdExt>> promise) override;
-  void send_external_message(td::Ref<ExtMessage> message) override;
   void send_ihr_message(td::Ref<IhrMessage> message) override;
   void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override;
   void send_block_broadcast(BlockBroadcast broadcast, int mode) override;
@@ -698,6 +608,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_validator_groups_info_for_litequery(
       td::optional<ShardIdFull> shard,
       td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise) override;
+  void get_pending_shard_blocks_for_litequery(
+      td::optional<ShardIdFull> shard,
+      td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_pendingShardBlocks>> promise) override;
 
   void add_lite_query_stats(int lite_query_id, bool success) override {
     ++ls_stats_[lite_query_id];
@@ -769,15 +682,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   double state_ttl() const {
     return opts_->state_ttl();
   }
-  double max_mempool_num() const {
-    return opts_->max_mempool_num();
-  }
-  static double max_ext_msg_per_addr_time_window() {
-    return 10.0;
-  }
-  static size_t max_ext_msg_per_addr() {
-    return 3 * 10;
-  }
 
   void got_persistent_state_descriptions(std::vector<td::Ref<PersistentStateDescription>> descs);
   void add_persistent_state_description_impl(td::Ref<PersistentStateDescription> desc);
@@ -793,19 +697,15 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   td::Timestamp log_ls_stats_at_;
   std::map<int, td::uint32> ls_stats_;  // lite_api ID -> count, 0 for unknown
-  td::uint32 ls_stats_check_ext_messages_{0};
 
   UnixTime started_at_ = (UnixTime)td::Clocks::system();
   std::map<int, td::uint64> total_ls_queries_ok_, total_ls_queries_error_;  // lite_api ID -> count, 0 for unknown
-  td::uint64 total_check_ext_messages_ok_{0}, total_check_ext_messages_error_{0};
   td::uint64 total_collated_blocks_master_ok_{0}, total_collated_blocks_master_error_{0};
   td::uint64 total_validated_blocks_master_ok_{0}, total_validated_blocks_master_error_{0};
   td::uint64 total_collated_blocks_shard_ok_{0}, total_collated_blocks_shard_error_{0};
   td::uint64 total_validated_blocks_shard_ok_{0}, total_validated_blocks_shard_error_{0};
 
   size_t active_validator_groups_master_{0}, active_validator_groups_shard_{0};
-
-  td::actor::ActorOwn<CandidatesBuffer> candidates_buffer_;
 
   void log_collate_query_stats(CollationStats stats) override;
   void log_validate_query_stats(ValidationStats stats) override;
@@ -847,6 +747,17 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<ShardBlockRetainer>> shard_block_retainers_;
 
   void init_shard_block_verifier(adnl::AdnlNodeIdShort local_id);
+
+  td::actor::ActorOwn<DbEventPublisher> db_event_publisher_;
+
+  struct NonfinalGroupInfo {
+    BlockIdExt last_accepted, last_candidate;
+  };
+  std::map<std::pair<ShardIdFull, CatchainSeqno>, NonfinalGroupInfo> nonfinal_info_;
+
+  bool is_valid_nonfinal_group(ShardIdFull shard, CatchainSeqno cc_seqno);
+  void process_accepted_nonfinal_block(BlockIdExt block_id, CatchainSeqno cc_seqno);
+  void cleanup_nonfinal_groups();
 };
 
 }  // namespace validator
