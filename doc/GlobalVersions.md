@@ -144,6 +144,7 @@ Example: if the last masterchain block seqno is `19071` then the list contains b
 - Fix recursive jump to continuations with non-null control data.
 
 ## Version 10
+__Enabled in mainnet on 2025-05-07__
 
 ### Extra currencies
 - Internal messages cannot carry more than 2 different extra currencies. The limit can be changed in size limits config (`ConfigParam 43`).
@@ -194,6 +195,7 @@ Reserve modes `+1`, `+4` and `+8` ("reserve all except", "add original balance" 
 - Exceeding state limits in transaction now reverts `end_lt` back to `start_lt + 1` and collects action fines.
 
 ## Version 11
+__Enabled in mainnet on 2025-07-05__
 
 ### c7 tuple
 **c7** tuple extended from 17 to 18 elements:
@@ -226,3 +228,69 @@ This is required to help computing storage stats in the future, after collator-v
 ### Other changes
 - Fix returning `null` as `c4` and `c5` (when VM state is not committed) in `RUNVM`.
 - In new internal messages `ihr_disabled` is automatically set to `1`, `ihr_fee` is always zero.
+
+## Version 12
+
+### Extra message flags and new bounce format
+Field `ihr_fee:Grams` in internal message is now called `extra_flags:(VarUInteger 16)` (it's the same format).
+This field does not represent fees. `ihr_fee` is always zero since version 11, so this field was essentially unused.
+
+`(extra_flags & 1) = 1` enables the new bounce format for the message. The bounced message contains information about the transaction.
+If `(extra_flags & 3) = 3`, the bounced message contains the whole body of the original message. Otherwise, only the bits from the root of the original body are returned.
+
+All other bits in `extra_flags` are reserved for future use and are not allowed now (internal messages with flags other than `0..3` are invalid).
+
+When the message with new bounce flag is bounced, the bounced message body has the following format (`new_bounce_body`):
+```
+_ value:CurrencyCollection created_lt:uint64 created_at:uint32 = NewBounceOriginalInfo;
+_ gas_used:uint32 vm_steps:uint32 = NewBounceComputePhaseInfo;
+
+new_bounce_body#fffffffe
+    original_body:^Cell
+    original_info:^NewBounceOriginalInfo
+    bounced_by_phase:uint8 exit_code:int32
+    compute_phase:(Maybe NewBounceComputePhaseInfo)
+    = NewBounceBody;
+```
+- `original_body` - cell that contains the body of the original message. If `extra_flags & 2` then the whole body is returned, otherwise it is only the root without refs.
+- `original_info` - value, lt and unixtime of the original message.
+- `bounced_by_phase`:
+  - `0` - compute phase was skipped. `exit_code` denotes the skip reason:
+    - `exit_code = -1` - no state (account is uninit or frozen, and no state init is present in the message).
+    - `exit_code = -2` - bad state (account is uninit or frozen, and state init in the message has the wrong hash).
+    - `exit_code = -3` - no gas.
+    - `exit_code = -4` - account is suspended.
+  - `1` - compute phase failed. `exit_code` is the value from the compute phase.
+  - `2` - action phase failed. `exit_code` is the value from the action phase.
+- `exit_code` - 32-bit exit code, see above.
+- `compute_phase` - exists if it was not skipped (`bounced_by_phase > 0`):
+  - `gas_used`, `vm_steps` - same as in `TrComputePhase` of the transaction.
+
+The bounced message has the same 0th and 1st bits in `extra_flags` as the original message.
+
+### New TVM instructions
+- `BTOS` (`b - s`) - same as `ENDC CTOS`, but without gas cost for cell creation and loading. Gas cost: `26`.
+- `HASHBU` (`b - hash`) - same as `ENDC HASHCU`, but without gas cost for cell creation. Gas cost: `26`.
+- `LDSTDADDR` (`s - a s'`) - loads `addr_std$10`, if address is not `addr_std`, throws an error 9 (`cannot load a MsgAddressInt`). Gas cost: `26`.
+- `LDSTDADDRQ` (`s - a s' -1 or s 0`) - quiet version of `LDSTDADDR`. Gas cost: `26`.
+- `LDOPTSTDADDR` (`s - a s or null s`) - loads `addr_std$10` or `addr_none$00`, if address is `addr_none$00` pushes a Null, if address is not `addr_std` or `addr_none`, throws an error 9 (`cannot load a MsgAddressInt`). Gas cost: `26`.
+- `LDOPTSTDADDRQ` (`s - (a s' -1 or null s' -1) or s 0`) - quiet version of `LDOPTSTDADDR`. Gas cost: `26`.
+- `STSTDADDR` (`s b - b'`) - stores `addr_std$10`, if address is not `addr_std`, throws an error 9 (`cannot load a MsgAddressInt`). Gas cost: `26`.
+- `STSTDADDRQ` (`s b - b' 0 or s b -1`) - quiet version of `STSTDADDR`. Gas cost: `26`.
+- `STOPTSTDADDR` (`s b - b'`) - stores `addr_std$10` or Null. Null is stored as `addr_none$00`, if address is not `addr_std`, throws an error 9 (`cannot load a MsgAddressInt`). Gas cost: `26`.
+- `STOPTSTDADDRQ` (`s b - b' 0 or s b -1`) - quiet version of `STOPTSTDADDR`. Gas cost: `26`.
+
+### Other TVM changes
+- `SENDMSG` instruction treats `extra_flags` field accordingly (see above).
+
+### Other changes
+- Account size in masterchain is now limited to `2048` cells. This can be configured in size limits config (`ConfigParam 43`).
+  - The previous limit was the same as in basechain (`65536`).
+
+## Version 13
+
+### TVM changes
+- Instructions `LSHIFT`, `RSHIFT`, `LSHIFTDIV`, `MULRSHIFT`, `AND`, `OR` now correctly return an error (or `NaN`, if quiet) when one of the arguments is `NaN` (or out of bounds for shifts).
+
+### Transaction changes
+- `end_status` of a transaction is now correctly set to `uninit` when the account is frozen with `frozen_hash` equal to its address.

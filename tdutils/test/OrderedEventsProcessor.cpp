@@ -16,13 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/OrderedEventsProcessor.h"
-#include "td/utils/Random.h"
-#include "td/utils/tests.h"
-
 #include <algorithm>
 #include <utility>
 #include <vector>
+
+#include "td/utils/OrderedEventsProcessor.h"
+#include "td/utils/Random.h"
+#include "td/utils/tests.h"
 
 TEST(OrderedEventsProcessor, random) {
   int d = 5001;

@@ -14,9 +14,9 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "tolk.h"
 #include "ast.h"
 #include "ast-visitor.h"
+#include "compilation-errors.h"
 
 /*
  *   This pipe assigns lvalue/rvalue flags for AST expressions.
@@ -84,6 +84,13 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
   void visit(V<ast_braced_expression> v) override {
     mark_vertex(v);
     MarkingState saved = enter_state(MarkingState::None);
+    parent::visit(v);
+    restore_state(saved);
+  }
+
+  void visit(V<ast_braced_yield_result> v) override {
+    mark_vertex(v);
+    MarkingState saved = enter_rvalue_if_none();
     parent::visit(v);
     restore_state(saved);
   }
@@ -213,6 +220,13 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v->get_expr());   // leave lvalue state unchanged, for `mutate x!` both `x!` and `x` are lvalue
   }
 
+  void visit(V<ast_lazy_operator> v) override {
+    mark_vertex(v);
+    MarkingState saved = enter_state(MarkingState::RValue);
+    parent::visit(v);
+    restore_state(saved);
+  }
+
   void visit(V<ast_match_expression> v) override {
     mark_vertex(v);
     MarkingState saved = enter_state(MarkingState::RValue);
@@ -243,6 +257,11 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     MarkingState saved = enter_state(MarkingState::RValue);
     parent::visit(v);
     restore_state(saved);
+  }
+
+  void visit(V<ast_lambda_fun> v) override {
+    mark_vertex(v);
+    // we do not traverse body of a lambda: it's traversed when that lambda is instantiated
   }
 
   void visit(V<ast_local_var_lhs> v) override {

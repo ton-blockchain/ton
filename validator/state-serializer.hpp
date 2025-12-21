@@ -18,10 +18,10 @@
 */
 #pragma once
 
-#include "interfaces/validator-manager.h"
-#include "interfaces/shard.h"
-
 #include <map>
+
+#include "interfaces/shard.h"
+#include "interfaces/validator-manager.h"
 
 namespace ton {
 
@@ -69,6 +69,7 @@ class AsyncStateSerializer : public td::actor::Actor {
 
     void prepare_cache(ShardIdFull shard, PersistentStateType type);
     void add_new_cells(vm::CellDbReader& reader, Ref<vm::Cell> const& cell);
+    void cleanup_big_state_files(Ref<MasterchainState> mc_state);
   };
   std::shared_ptr<PreviousStateCache> previous_state_cache_;
 

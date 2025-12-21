@@ -9,4 +9,5 @@ fun testAssignBetweenDifferentIntN(op: int32, qid: uint64) {
 @compilation_should_fail
 @stderr can not assign `uint64` to variable of type `int32`
 @stderr op = qid;
+@stderr hint: use `as` operator for UNSAFE casting: `<some_expr> as int32`
  */

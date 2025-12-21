@@ -25,22 +25,23 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "validator-engine-console-query.h"
-#include "auto/tl/ton_api.h"
-#include "td/utils/StringBuilder.h"
-#include "validator-engine-console.h"
-#include "terminal/terminal.h"
-#include "td/utils/filesystem.h"
-#include "overlay/overlays.h"
-#include "ton/ton-tl.hpp"
-#include "td/utils/JsonBuilder.h"
-#include "auto/tl/ton_api_json.h"
-#include "keys/encryptor.h"
-#include "td/utils/port/path.h"
-#include "tl/tl_json.h"
-
 #include <cctype>
 #include <fstream>
+
+#include "auto/tl/ton_api.h"
+#include "auto/tl/ton_api_json.h"
+#include "keys/encryptor.h"
+#include "overlay/overlays.h"
+#include "td/utils/JsonBuilder.h"
+#include "td/utils/StringBuilder.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/port/path.h"
+#include "terminal/terminal.h"
+#include "tl/tl_json.h"
+#include "ton/ton-tl.hpp"
+
+#include "validator-engine-console-query.h"
+#include "validator-engine-console.h"
 
 Tokenizer::Tokenizer(td::BufferSlice data) : data_(std::move(data)) {
   remaining_ = data_.as_slice();
@@ -1043,7 +1044,7 @@ td::Status ImportCertificateQuery::receive(td::BufferSlice data) {
 }
 
 td::Status SignShardOverlayCertificateQuery::run() {
-  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<ton::ShardIdFull>() );
+  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<ton::ShardIdFull>());
   TRY_RESULT_ASSIGN(key_, tokenizer_.get_token<ton::PublicKeyHash>());
   TRY_RESULT_ASSIGN(expire_at_, tokenizer_.get_token<td::int32>());
   TRY_RESULT_ASSIGN(max_size_, tokenizer_.get_token<td::uint32>());
@@ -1098,11 +1099,11 @@ td::Status ImportShardOverlayCertificateQuery::receive(td::BufferSlice data) {
   return td::Status::OK();
 }
 td::Status GetActorStatsQuery::run() {
- auto r_file_name = tokenizer_.get_token<std::string>();
- if (r_file_name.is_ok()) {
+  auto r_file_name = tokenizer_.get_token<std::string>();
+  if (r_file_name.is_ok()) {
     file_name_ = r_file_name.move_as_ok();
- }
- return td::Status::OK();
+  }
+  return td::Status::OK();
 }
 td::Status GetActorStatsQuery::send() {
   auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getActorTextStats>();
@@ -1294,6 +1295,9 @@ td::Status ShowCustomOverlaysQuery::receive(td::BufferSlice data) {
         td::TerminalIO::out() << "  " << ton::create_shard_id(shard).to_str() << "\n";
       }
     }
+    if (overlay->skip_public_msg_send_) {
+      td::TerminalIO::out() << "Don't send external messages to public overlays\n";
+    }
     td::TerminalIO::out() << "\n";
   }
   return td::Status::OK();
@@ -1368,8 +1372,7 @@ td::Status GetCollatorOptionsJsonQuery::run() {
 }
 
 td::Status GetCollatorOptionsJsonQuery::send() {
-  auto b =
-      ton::create_serialize_tl_object<ton::ton_api::engine_validator_getCollatorOptionsJson>();
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getCollatorOptionsJson>();
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
   return td::Status::OK();
 }
@@ -1397,8 +1400,7 @@ td::Status GetAdnlStatsJsonQuery::run() {
 }
 
 td::Status GetAdnlStatsJsonQuery::send() {
-  auto b =
-      ton::create_serialize_tl_object<ton::ton_api::engine_validator_getAdnlStats>(all_);
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getAdnlStats>(all_);
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
   return td::Status::OK();
 }
@@ -1426,8 +1428,7 @@ td::Status GetAdnlStatsQuery::run() {
 }
 
 td::Status GetAdnlStatsQuery::send() {
-  auto b =
-      ton::create_serialize_tl_object<ton::ton_api::engine_validator_getAdnlStats>(all_);
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getAdnlStats>(all_);
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
   return td::Status::OK();
 }
@@ -1447,11 +1448,10 @@ td::Status GetAdnlStatsQuery::receive(td::BufferSlice data) {
     }
     sb << "LOCAL ID " << local_id->short_id_ << "\n";
     if (!local_id->current_decrypt_.empty()) {
-      std::sort(local_id->current_decrypt_.begin(), local_id->current_decrypt_.end(),
-                [](const ton::tl_object_ptr<ton::ton_api::adnl_stats_ipPackets> &a,
-                   const ton::tl_object_ptr<ton::ton_api::adnl_stats_ipPackets> &b) {
-                  return a->packets_ > b->packets_;
-                });
+      std::sort(
+          local_id->current_decrypt_.begin(), local_id->current_decrypt_.end(),
+          [](const ton::tl_object_ptr<ton::ton_api::adnl_stats_ipPackets> &a,
+             const ton::tl_object_ptr<ton::ton_api::adnl_stats_ipPackets> &b) { return a->packets_ > b->packets_; });
       td::uint64 total = 0;
       for (auto &x : local_id->current_decrypt_) {
         total += x->packets_;
@@ -1467,11 +1467,10 @@ td::Status GetAdnlStatsQuery::receive(td::BufferSlice data) {
       if (vec.empty()) {
         return;
       }
-      std::sort(vec.begin(), vec.end(),
-                [](const ton::tl_object_ptr<ton::ton_api::adnl_stats_ipPackets> &a,
-                   const ton::tl_object_ptr<ton::ton_api::adnl_stats_ipPackets> &b) {
-                  return a->packets_ > b->packets_;
-                });
+      std::sort(
+          vec.begin(), vec.end(),
+          [](const ton::tl_object_ptr<ton::ton_api::adnl_stats_ipPackets> &a,
+             const ton::tl_object_ptr<ton::ton_api::adnl_stats_ipPackets> &b) { return a->packets_ > b->packets_; });
       td::uint64 total = 0;
       for (auto &x : vec) {
         total += x->packets_;
@@ -1817,12 +1816,13 @@ td::Status GetCollationManagerStatsQuery::receive(td::BufferSlice data) {
                     "received incorrect answer: ");
   if (list->local_ids_.empty()) {
     td::TerminalIO::out() << "No stats\n";
-    return td::Status::OK();;
+    return td::Status::OK();
+    ;
   }
   for (auto &stats : list->local_ids_) {
     td::TerminalIO::out() << "VALIDATOR ADNL ID = " << stats->adnl_id_ << "\n";
-    std::map<td::Bits256, ton::ton_api::engine_validator_collationManagerStats_collator*> collators;
-    for (auto &collator: stats->collators_) {
+    std::map<td::Bits256, ton::ton_api::engine_validator_collationManagerStats_collator *> collators;
+    for (auto &collator : stats->collators_) {
       collators[collator->adnl_id_] = collator.get();
     }
     for (auto &shard : stats->shards_) {
@@ -1852,6 +1852,9 @@ td::Status GetCollationManagerStatsQuery::receive(td::BufferSlice data) {
             status.resize(128);
           }
           sb << td::StringBuilder::FixedDouble(collator->last_ping_ago_, 3) << ": " << status;
+        }
+        if (collator->banned_for_ > 0.0) {
+          sb << " banned_for=" << td::StringBuilder::FixedDouble(std::max(collator->banned_for_, 0.0), 3);
         }
         td::TerminalIO::out() << sb.as_cslice() << "\n";
       }

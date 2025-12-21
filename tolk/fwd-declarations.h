@@ -36,6 +36,8 @@ struct GlobalConstData;
 struct AliasDefData;
 struct StructFieldData;
 struct StructData;
+struct EnumMemberData;
+struct EnumDefData;
 
 using LocalVarPtr = const LocalVarData*;
 using FunctionPtr = const FunctionData*;
@@ -44,6 +46,8 @@ using GlobalConstPtr = const GlobalConstData*;
 using AliasDefPtr = const AliasDefData*;
 using StructFieldPtr = const StructFieldData*;
 using StructPtr = const StructData*;
+using EnumMemberPtr = const EnumMemberData*;
+using EnumDefPtr = const EnumDefData*;
 
 class TypeData;
 using TypePtr = const TypeData*;
@@ -51,5 +55,15 @@ using TypePtr = const TypeData*;
 struct GenericsSubstitutions;
 
 struct SrcFile;
+
+enum class FunctionInlineMode {
+  notCalculated,
+  inlineViaFif,
+  inlineRef,
+  inlineInPlace,
+  noInline,
+};
+
+typedef int var_idx_t;
 
 } // namespace tolk

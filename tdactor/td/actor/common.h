@@ -17,15 +17,13 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include "td/actor/PromiseFuture.h"
 #include "td/actor/core/Actor.h"
 #include "td/actor/core/ActorSignals.h"
 #include "td/actor/core/ActorTypeStat.h"
-#include "td/actor/core/SchedulerId.h"
-#include "td/actor/core/SchedulerContext.h"
 #include "td/actor/core/Scheduler.h"
-
-#include "td/actor/PromiseFuture.h"
-
+#include "td/actor/core/SchedulerContext.h"
+#include "td/actor/core/SchedulerId.h"
 #include "td/utils/Timer.h"
 
 namespace td {
@@ -301,6 +299,12 @@ inline void send_message_later(ActorRef actor_ref, core::ActorMessage message) {
   send_message_later(actor_ref.actor_info, std::move(message));
 }
 
+template <class ClosureT>
+auto run_on_current_actor(ClosureT &&closure) {
+  using ActorType = typename std::remove_cvref_t<ClosureT>::ActorType;
+  return closure.run(&current_actor<ActorType>());
+}
+
 template <class ExecuteF, class ToMessageF>
 void send_immediate(ActorRef actor_ref, ExecuteF &&execute, ToMessageF &&to_message) {
   auto scheduler_context_ptr = core::SchedulerContext::get();
@@ -320,7 +324,7 @@ void send_immediate(ActorRef actor_ref, ExecuteF &&execute, ToMessageF &&to_mess
 }
 
 template <class F>
-void send_lambda(ActorRef actor_ref, F &&lambda) {
+void send_lambda_immediate(ActorRef actor_ref, F &&lambda) {
   send_immediate(actor_ref, lambda, [&lambda]() mutable { return ActorMessageCreator::lambda(std::move(lambda)); });
 }
 template <class F>
@@ -328,14 +332,18 @@ void send_lambda_later(ActorRef actor_ref, F &&lambda) {
   send_message_later(actor_ref, ActorMessageCreator::lambda(std::move(lambda)));
 }
 
+template <class F>
+void send_lambda(ActorRef actor_ref, F &&lambda) {
+  send_lambda_immediate(actor_ref, std::forward<F>(lambda));
+}
+
 template <class ClosureT>
 void send_closure_impl(ActorRef actor_ref, ClosureT &&closure) {
-  using ActorType = typename ClosureT::ActorType;
   send_immediate(
-      actor_ref, [&closure]() mutable { closure.run(&current_actor<ActorType>()); },
+      actor_ref, [&closure]() mutable { run_on_current_actor(closure); },
       [&closure]() mutable {
         return ActorMessageCreator::lambda(
-            [closure = to_delayed_closure(std::move(closure))]() mutable { closure.run(&current_actor<ActorType>()); });
+            [closure = to_delayed_closure(std::move(closure))]() mutable { run_on_current_actor(closure); });
       });
 }
 
@@ -346,38 +354,77 @@ void send_closure(ActorRef actor_ref, ArgsT &&...args) {
 
 template <class ClosureT>
 void send_closure_later_impl(ActorRef actor_ref, ClosureT &&closure) {
-  using ActorType = typename ClosureT::ActorType;
-  send_message_later(actor_ref,
-                     ActorMessageCreator::lambda([closure = to_delayed_closure(std::move(closure))]() mutable {
-                       closure.run(&current_actor<ActorType>());
-                     }));
+  send_message_later(
+      actor_ref, ActorMessageCreator::lambda(
+                     [closure = to_delayed_closure(std::move(closure))]() mutable { run_on_current_actor(closure); }));
 }
+
+// Helper to unwrap Result<T> to T, otherwise keep the type as is
+template <class T>
+struct unwrap_result {
+  using type = T;
+};
+template <class T>
+struct unwrap_result<td::Result<T>> {
+  using type = T;
+};
+template <class T>
+using unwrap_result_t = typename unwrap_result<T>::type;
 
 template <class ClosureT, class PromiseT>
 void send_closure_with_promise(ActorRef actor_ref, ClosureT &&closure, PromiseT &&promise) {
-  using ActorType = typename ClosureT::ActorType;
-  using ResultType = decltype(closure.run(&current_actor<ActorType>()));
-  auto &&promise_i = promise_interface<ResultType>(std::forward<PromiseT>(promise));
-  send_immediate(
-      actor_ref, [&closure, &promise = promise_i]() mutable { promise(closure.run(&current_actor<ActorType>())); },
-      [&closure, &promise = promise_i]() mutable {
-        return ActorMessageCreator::lambda(
-            [closure = to_delayed_closure(std::move(closure)), promise = std::move(promise)]() mutable {
-              promise(closure.run(&current_actor<ActorType>()));
-            });
-      });
+  using RawResultType = decltype(run_on_current_actor(closure));
+  if constexpr (std::is_void_v<RawResultType>) {
+    // Adapt void to td::Unit
+    auto &&promise_i = promise_interface<td::Unit>(std::forward<PromiseT>(promise));
+    send_immediate(
+        actor_ref,
+        [&closure, &promise = promise_i]() mutable {
+          run_on_current_actor(closure);
+          promise(td::Unit());
+        },
+        [&closure, &promise = promise_i]() mutable {
+          return ActorMessageCreator::lambda(
+              [closure = to_delayed_closure(std::move(closure)), promise = std::move(promise)]() mutable {
+                run_on_current_actor(closure);
+                promise(td::Unit());
+              });
+        });
+  } else {
+    using ResultType = unwrap_result_t<RawResultType>;
+    auto &&promise_i = promise_interface<ResultType>(std::forward<PromiseT>(promise));
+    send_immediate(
+        actor_ref,
+        [&closure, &promise = promise_i]() mutable { connect(std::move(promise), run_on_current_actor(closure)); },
+        [&closure, &promise = promise_i]() mutable {
+          return ActorMessageCreator::lambda(
+              [closure = to_delayed_closure(std::move(closure)), promise = std::move(promise)]() mutable {
+                connect(std::move(promise), run_on_current_actor(closure));
+              });
+        });
+  }
 }
 
 template <class ClosureT, class PromiseT>
 void send_closure_with_promise_later(ActorRef actor_ref, ClosureT &&closure, PromiseT &&promise) {
-  using ActorType = typename ClosureT::ActorType;
-  using ResultType = decltype(closure.run(&current_actor<ActorType>()));
-  send_message_later(
-      actor_ref,
-      ActorMessageCreator::lambda([closure = to_delayed_closure(std::move(closure)),
-                                   promise = promise_interface<ResultType>(std::forward<PromiseT>(promise))]() mutable {
-        promise(closure.run(&current_actor<ActorType>()));
-      }));
+  using RawResultType = decltype(run_on_current_actor(closure));
+  if constexpr (std::is_void_v<RawResultType>) {
+    // Adapt void to td::Unit
+    send_message_later(
+        actor_ref,
+        ActorMessageCreator::lambda([closure = to_delayed_closure(std::move(closure)),
+                                     promise = promise_interface<td::Unit>(std::forward<PromiseT>(promise))]() mutable {
+          run_on_current_actor(closure);
+          promise(td::Unit());
+        }));
+  } else {
+    using ResultType = unwrap_result_t<RawResultType>;
+    send_message_later(actor_ref, ActorMessageCreator::lambda([closure = to_delayed_closure(std::move(closure)),
+                                                               promise = promise_interface<ResultType>(
+                                                                   std::forward<PromiseT>(promise))]() mutable {
+                         connect(std::move(promise), run_on_current_actor(closure));
+                       }));
+  }
 }
 
 template <class... ArgsT>

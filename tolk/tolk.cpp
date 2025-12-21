@@ -23,7 +23,6 @@
     exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 */
-#include "tolk.h"
 #include "pipeline.h"
 #include "compiler-state.h"
 #include "lexer.h"
@@ -32,18 +31,7 @@
 
 namespace tolk {
 
-
-void on_assertion_failed(const char *description, const char *file_name, int line_number) {
-  std::string message = static_cast<std::string>("Assertion failed at ") + file_name + ":" + std::to_string(line_number) + ": " + description;
-#ifdef TOLK_DEBUG
-#ifdef __arm64__
-  // when developing, it's handy when the debugger stops on assertion failure (stacktraces and watches are available)
-  std::cerr << message << std::endl;
-  __builtin_debugtrap();
-#endif
-#endif
-  throw Fatal(std::move(message));
-}
+void define_builtins();
 
 int tolk_proceed(const std::string &entrypoint_filename) {
   type_system_init();
@@ -63,24 +51,29 @@ int tolk_proceed(const std::string &entrypoint_filename) {
     pipeline_check_inferred_types();
     pipeline_refine_lvalue_for_mutate_arguments();
     pipeline_check_rvalue_lvalue();
+    pipeline_check_private_fields_usage();
     pipeline_check_pure_impure_operations();
-    pipeline_check_serialized_fields();
-    pipeline_constant_folding();
+    pipeline_check_constant_expressions();
+    pipeline_mini_borrow_checker_for_mutate();
     pipeline_optimize_boolean_expressions();
+    pipeline_detect_inline_in_place();
+    pipeline_check_serialized_fields();
+    pipeline_lazy_load_insertions();
+    pipeline_transform_onInternalMessage();
     pipeline_convert_ast_to_legacy_Expr_Op();
 
     pipeline_find_unused_symbols();
     pipeline_generate_fif_output_to_std_cout();
 
     return 0;
-  } catch (Fatal& fatal) {
-    std::cerr << "fatal: " << fatal << std::endl;
+  } catch (const Fatal& fatal) {
+    std::cerr << "fatal: " << fatal.message << std::endl;
     return 2;
-  } catch (ParseError& error) {
-    std::cerr << error << std::endl;
+  } catch (const ThrownParseError& error) {
+    error.output_compilation_error(std::cerr);
     return 2;
-  } catch (UnexpectedASTNodeKind& error) {
-    std::cerr << "fatal: " << error.what() << std::endl;
+  } catch (const UnexpectedASTNodeKind& error) {
+    std::cerr << "fatal: " << error.message << std::endl;
     std::cerr << "It's a compiler bug, please report to developers" << std::endl;
     return 2;
   }

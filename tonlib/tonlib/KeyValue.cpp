@@ -16,15 +16,15 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "KeyValue.h"
-
-#include "td/utils/filesystem.h"
-#include "td/utils/port/path.h"
-#include "td/utils/PathView.h"
-
 #include <algorithm>
 #include <map>
 #include <utility>
+
+#include "td/utils/PathView.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/port/path.h"
+
+#include "KeyValue.h"
 
 namespace tonlib {
 namespace detail {
@@ -86,7 +86,7 @@ class KeyValueDir : public KeyValue {
         if (cnt != 1) {
           return td::WalkPath::Action::SkipDir;
         }
-      } else if (type == td::WalkPath::Type::NotDir) {
+      } else if (type == td::WalkPath::Type::RegularFile) {
         f(td::PathView::relative(path, directory_));
       }
 
@@ -110,9 +110,8 @@ class KeyValueDir : public KeyValue {
       return false;
     }
 
-    return std::all_of(key.begin(), key.end(), [](char c) {
-      return std::isalnum(c) || c == '_' || c == '-' || c == '.';
-    });
+    return std::all_of(key.begin(), key.end(),
+                       [](char c) { return std::isalnum(c) || c == '_' || c == '-' || c == '.'; });
   }
 };
 
@@ -149,7 +148,7 @@ class KeyValueInmemory : public KeyValue {
     return td::Status::OK();
   }
   void foreach_key(std::function<void(td::Slice)> f) override {
-    for (auto &it : map_) {
+    for (auto& it : map_) {
       f(it.first);
     }
   }

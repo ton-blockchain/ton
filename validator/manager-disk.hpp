@@ -18,15 +18,16 @@
 */
 #pragma once
 
-#include "interfaces/validator-manager.h"
-#include "interfaces/db.h"
-#include "validator-group.hpp"
-#include "manager-init.h"
-#include "manager-disk.h"
-#include "queue-size-counter.hpp"
-
 #include <map>
 #include <set>
+
+#include "interfaces/db.h"
+#include "interfaces/validator-manager.h"
+
+#include "manager-disk.h"
+#include "manager-init.h"
+#include "queue-size-counter.hpp"
+#include "validator-group.hpp"
 
 namespace ton {
 
@@ -163,9 +164,9 @@ class ValidatorManagerImpl : public ValidatorManager {
                                        std::function<td::Status(td::FileFd &)> write_data,
                                        td::Promise<td::Unit> promise) override;
   void store_zero_state_file(BlockIdExt block_id, td::BufferSlice state, td::Promise<td::Unit> promise) override;
-  void wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
+  void wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout, bool wait_store,
                         td::Promise<td::Ref<ShardState>> promise) override;
-  void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
+  void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout, bool wait_store,
                               td::Promise<td::Ref<ShardState>> promise) override;
   void wait_neighbor_msg_queue_proofs(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks, td::Timestamp timeout,
                                       td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> promise) override {
@@ -274,8 +275,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override;
   void send_block_broadcast(BlockBroadcast broadcast, int mode) override {
-  }
-  void send_validator_telemetry(PublicKeyHash key, tl_object_ptr<ton_api::validator_telemetry> telemetry) override {
   }
   void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                             block::ImportedMsgQueueLimits limits,
@@ -403,15 +402,15 @@ class ValidatorManagerImpl : public ValidatorManager {
     get_shard_state_from_db_short(block_id, std::move(promise));
   }
   void get_block_by_lt_for_litequery(AccountIdPrefixFull account, LogicalTime lt,
-                                             td::Promise<ConstBlockHandle> promise) override {
+                                     td::Promise<ConstBlockHandle> promise) override {
     get_block_by_lt_from_db(account, lt, std::move(promise));
   }
   void get_block_by_unix_time_for_litequery(AccountIdPrefixFull account, UnixTime ts,
-                                                    td::Promise<ConstBlockHandle> promise) override {
+                                            td::Promise<ConstBlockHandle> promise) override {
     get_block_by_unix_time_from_db(account, ts, std::move(promise));
   }
   void get_block_by_seqno_for_litequery(AccountIdPrefixFull account, BlockSeqno seqno,
-                                                td::Promise<ConstBlockHandle> promise) override {
+                                        td::Promise<ConstBlockHandle> promise) override {
     get_block_by_seqno_from_db(account, seqno, std::move(promise));
   }
   void get_block_candidate_for_litequery(PublicKey source, BlockIdExt block_id, FileHash collated_data_hash,

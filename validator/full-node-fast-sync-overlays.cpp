@@ -15,17 +15,23 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "full-node-fast-sync-overlays.hpp"
-
-#include "checksum.h"
-#include "ton/ton-tl.hpp"
+#include "auto/tl/ton_api_json.h"
 #include "common/delay.h"
 #include "td/utils/JsonBuilder.h"
 #include "tl/tl_json.h"
-#include "auto/tl/ton_api_json.h"
+#include "ton/ton-tl.hpp"
+
+#include "checksum.h"
+#include "full-node-fast-sync-overlays.hpp"
 #include "full-node-serializer.hpp"
 
 namespace ton::validator::fullnode {
+
+namespace {
+
+constexpr const char *k_called_from_fast_sync = "fast-sync";
+
+}  // namespace
 
 void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query) {
   process_block_broadcast(src, query);
@@ -35,8 +41,12 @@ void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonN
   process_block_broadcast(src, query);
 }
 
+void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query) {
+  process_block_broadcast(src, query);
+}
+
 void FullNodeFastSyncOverlay::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
-  auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size());
+  auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), k_called_from_fast_sync);
   if (B.is_error()) {
     LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
     return;
@@ -94,13 +104,18 @@ void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src,
   process_block_candidate_broadcast(src, query);
 }
 
+void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src,
+                                                ton_api::tonNode_newBlockCandidateBroadcastCompressedV2 &query) {
+  process_block_candidate_broadcast(src, query);
+}
+
 void FullNodeFastSyncOverlay::process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
   BlockIdExt block_id;
   CatchainSeqno cc_seqno;
   td::uint32 validator_set_hash;
   td::BufferSlice data;
   auto S = deserialize_block_candidate_broadcast(query, block_id, cc_seqno, validator_set_hash, data,
-                                                 overlay::Overlays::max_fec_broadcast_size());
+                                                 overlay::Overlays::max_fec_broadcast_size(), k_called_from_fast_sync);
   if (S.is_error()) {
     LOG(DEBUG) << "dropped broadcast: " << S;
     return;
@@ -182,7 +197,7 @@ void FullNodeFastSyncOverlay::send_broadcast(BlockBroadcast broadcast) {
   }
   VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in fast sync overlay (with compression): "
                         << broadcast.block_id.to_str();
-  auto B = serialize_block_broadcast(broadcast, true);  // compression_enabled = true
+  auto B = serialize_block_broadcast(broadcast, true, k_called_from_fast_sync);  // compression_enabled = true
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
     return;
@@ -196,8 +211,8 @@ void FullNodeFastSyncOverlay::send_block_candidate(BlockIdExt block_id, Catchain
   if (!inited_) {
     return;
   }
-  auto B =
-      serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true);  // compression enabled
+  auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true,
+                                               k_called_from_fast_sync);  // compression enabled
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
     return;
@@ -316,6 +331,21 @@ void FullNodeFastSyncOverlay::init() {
                           std::make_unique<Callback>(actor_id(this)), rules, std::move(scope), options);
 
   inited_ = true;
+  if (shard_.is_masterchain()) {
+    class TelemetryCallback : public ValidatorTelemetry::Callback {
+     public:
+      explicit TelemetryCallback(td::actor::ActorId<FullNodeFastSyncOverlay> id) : id_(id) {
+      }
+      void send_telemetry(tl_object_ptr<ton_api::validator_telemetry> telemetry) override {
+        td::actor::send_closure(id_, &FullNodeFastSyncOverlay::send_validator_telemetry, std::move(telemetry));
+      }
+
+     private:
+      td::actor::ActorId<FullNodeFastSyncOverlay> id_;
+    };
+    telemetry_sender_ = td::actor::create_actor<ValidatorTelemetry>(
+        "telemetry", local_id_, std::make_unique<TelemetryCallback>(actor_id(this)));
+  }
 }
 
 void FullNodeFastSyncOverlay::tear_down() {

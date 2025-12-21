@@ -1,7 +1,3 @@
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 #add_subdirectory(dummy0)
 add_subdirectory(impl)
 
@@ -64,7 +60,9 @@ set(VALIDATOR_HEADERS
   shard-block-retainer.hpp
 
   collation-manager.hpp
-  collator-node.hpp
+  collator-node/collator-node.hpp
+  collator-node/collator-node-session.hpp
+  collator-node/utils.hpp
   manager-disk.h
   manager-disk.hpp
   manager-init.h
@@ -81,7 +79,9 @@ set(VALIDATOR_SOURCE
   apply-block.cpp
   block-handle.cpp
   collation-manager.cpp
-  collator-node.cpp
+  collator-node/collator-node.cpp
+  collator-node/collator-node-session.cpp
+  collator-node/utils.cpp
   get-next-key-blocks.cpp
   import-db-slice.cpp
   import-db-slice-local.cpp
@@ -106,8 +106,6 @@ set(VALIDATOR_SOURCE
   manager-init.cpp
   manager.cpp
 
-  ${VALIDATOR_DB_SOURCE}
-
   ${VALIDATOR_HEADERS}
 )
 
@@ -127,8 +125,6 @@ set(DISK_VALIDATOR_SOURCE
 
   manager-init.cpp
   manager-disk.cpp
-
-  ${VALIDATOR_DB_SOURCE}
 )
 
 set(HARDFORK_VALIDATOR_SOURCE
@@ -147,8 +143,6 @@ set(HARDFORK_VALIDATOR_SOURCE
 
   manager-init.cpp
   manager-hardfork.cpp
-
-  ${VALIDATOR_DB_SOURCE}
 )
 
 set(FULL_NODE_SOURCE
@@ -161,8 +155,8 @@ set(FULL_NODE_SOURCE
   full-node-master.h
   full-node-master.hpp
   full-node-master.cpp
-  full-node-private-overlay.hpp
-  full-node-private-overlay.cpp
+  full-node-custom-overlays.hpp
+  full-node-custom-overlays.cpp
   full-node-serializer.hpp
   full-node-serializer.cpp
   full-node-fast-sync-overlays.hpp
@@ -183,6 +177,10 @@ set(FULL_NODE_SOURCE
   net/get-next-key-blocks.hpp
   net/get-next-key-blocks.cpp
 )
+
+add_library(validator-db OBJECT ${VALIDATOR_DB_SOURCE})
+target_include_directories(validator-db PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+target_link_libraries(validator-db PUBLIC tdactor adnl rldp tl_api dht tdfec overlay catchain validatorsession ton_db)
 
 add_library(validator STATIC ${VALIDATOR_SOURCE})
 add_library(validator-disk STATIC ${DISK_VALIDATOR_SOURCE})
@@ -217,10 +215,10 @@ target_include_directories(full-node PUBLIC
   ${OPENSSL_INCLUDE_DIR}
   )
 
-target_link_libraries(validator PRIVATE tdactor adnl rldp tl_api dht tdfec overlay catchain validatorsession ton_db)
+target_link_libraries(validator PRIVATE validator-db)
 
-target_link_libraries(validator-disk PRIVATE tdactor adnl rldp tl_api dht tdfec overlay catchain validatorsession ton_db)
+target_link_libraries(validator-disk PRIVATE validator-db)
 
-target_link_libraries(validator-hardfork PRIVATE tdactor adnl rldp tl_api dht tdfec overlay catchain validatorsession ton_db)
+target_link_libraries(validator-hardfork PRIVATE validator-db)
 
 target_link_libraries(full-node PRIVATE tdactor adnl rldp rldp2 tl_api dht tdfec overlay catchain validatorsession ton_db)

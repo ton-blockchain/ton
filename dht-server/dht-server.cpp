@@ -25,29 +25,29 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "dht-server.hpp"
-
-#include "td/utils/filesystem.h"
+#include "memprof/memprof.h"
 #include "td/actor/MultiPromise.h"
-#include "td/utils/overloaded.h"
 #include "td/utils/OptionParser.h"
-#include "td/utils/port/path.h"
-#include "td/utils/port/user.h"
-#include "td/utils/port/signals.h"
+#include "td/utils/Random.h"
 #include "td/utils/ThreadSafeCounter.h"
 #include "td/utils/TsFileLog.h"
-#include "td/utils/Random.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/overloaded.h"
+#include "td/utils/port/path.h"
+#include "td/utils/port/signals.h"
+#include "td/utils/port/user.h"
 
-#include "memprof/memprof.h"
+#include "dht-server.hpp"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
 #endif
 #include <algorithm>
-#include <iostream>
-#include <sstream>
 #include <cstdlib>
+#include <iostream>
 #include <set>
+#include <sstream>
+
 #include "git.h"
 
 Config::Config() {
@@ -432,14 +432,6 @@ td::Status DhtServer::load_global_config() {
 
   TRY_RESULT_PREFIX(dht, ton::dht::Dht::create_global_config(std::move(conf.dht_)), "bad [dht] section: ");
   dht_config_ = std::move(dht);
-
-  if (!conf.validator_) {
-    return td::Status::Error(ton::ErrorCode::error, "does not contain [validator] section");
-  }
-
-  if (!conf.validator_->zero_state_) {
-    return td::Status::Error(ton::ErrorCode::error, "[validator] section does not contain [zero_state]");
-  }
 
   return td::Status::OK();
 }
@@ -1233,24 +1225,24 @@ int main(int argc, char *argv[]) {
     td::log_interface = logger_.get();
   });
   td::uint32 threads = 7;
-  p.add_checked_option(
-      't', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice arg) {
-        td::int32 v;
-        try {
-          v = std::stoi(arg.str());
-        } catch (...) {
-          return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: not a number");
-        }
-        if (v <= 0) {
-          return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: should be > 0");
-        }
-        if (v > 127) {
-          LOG(WARNING) << "`--threads " << v << "` is too big, effective value will be 127";
-          v = 127;
-        }
-        threads = v;
-        return td::Status::OK();
-      });
+  p.add_checked_option('t', "threads", PSTRING() << "number of threads (default=" << threads << ")",
+                       [&](td::Slice arg) {
+                         td::int32 v;
+                         try {
+                           v = std::stoi(arg.str());
+                         } catch (...) {
+                           return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: not a number");
+                         }
+                         if (v <= 0) {
+                           return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: should be > 0");
+                         }
+                         if (v > 127) {
+                           LOG(WARNING) << "`--threads " << v << "` is too big, effective value will be 127";
+                           v = 127;
+                         }
+                         threads = v;
+                         return td::Status::OK();
+                       });
   p.add_checked_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user.str()); });
   p.run(argc, argv).ensure();
 

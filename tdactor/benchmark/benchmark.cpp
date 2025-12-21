@@ -42,25 +42,6 @@ extern "C" {
 #include <unistd.h>
 #endif
 
-#include "td/actor/core/ActorLocker.h"
-#include "td/actor/actor.h"
-
-#include "td/utils/benchmark.h"
-#include "td/utils/crypto.h"
-#include "td/utils/logging.h"
-#include "td/utils/misc.h"
-#include "td/utils/MpmcQueue.h"
-#include "td/utils/MpmcWaiter.h"
-#include "td/utils/port/thread.h"
-#include "td/utils/queue.h"
-#include "td/utils/Random.h"
-#include "td/utils/Slice.h"
-#include "td/utils/Status.h"
-#include "td/utils/StealingQueue.h"
-#include "td/utils/ThreadSafeCounter.h"
-#include "td/utils/UInt.h"
-#include "td/utils/VectorQueue.h"
-
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -69,6 +50,24 @@ extern "C" {
 #include <mutex>
 #include <queue>
 #include <string>
+
+#include "td/actor/actor.h"
+#include "td/actor/core/ActorLocker.h"
+#include "td/utils/MpmcQueue.h"
+#include "td/utils/MpmcWaiter.h"
+#include "td/utils/Random.h"
+#include "td/utils/Slice.h"
+#include "td/utils/Status.h"
+#include "td/utils/StealingQueue.h"
+#include "td/utils/ThreadSafeCounter.h"
+#include "td/utils/UInt.h"
+#include "td/utils/VectorQueue.h"
+#include "td/utils/benchmark.h"
+#include "td/utils/crypto.h"
+#include "td/utils/logging.h"
+#include "td/utils/misc.h"
+#include "td/utils/port/thread.h"
+#include "td/utils/queue.h"
 
 using td::int32;
 using td::uint32;
@@ -139,7 +138,7 @@ class BlockSha256Baseline {
   }
   static void calc_hash(Block &block) {
     for (auto &cell : block.cells) {
-      td::sha256(cell.data, as_slice(cell.hash));
+      td::sha256(cell.data, as_mutable_slice(cell.hash));
     }
   }
   static td::Status check(Block &block) {
@@ -163,7 +162,7 @@ class BlockSha256Baseline {
         }
         cell_ref.hash_slice.copy_from(as_slice(block.get_cell(cell_ref.cell_id).hash));
       }
-      td::sha256(cell.data, as_slice(cell.hash));
+      td::sha256(cell.data, as_mutable_slice(cell.hash));
     }
   }
 };
@@ -195,7 +194,7 @@ class BlockSha256Threads {
   }
   static void calc_hash(Block &block) {
     parallel_map(block.cells.begin(), block.cells.end(),
-                 [](Cell &cell) { td::sha256(cell.data, as_slice(cell.hash)); });
+                 [](Cell &cell) { td::sha256(cell.data, as_mutable_slice(cell.hash)); });
   }
   static td::Status check_refs(Block &block) {
     std::atomic<bool> mismatch{false};
@@ -255,7 +254,7 @@ class BlockSha256MpmcQueue {
       }));
     }
     for (auto &cell : block.cells) {
-      queue->push([&cell]() { td::sha256(cell.data, as_slice(cell.hash)); }, threads_count);
+      queue->push([&cell]() { td::sha256(cell.data, as_mutable_slice(cell.hash)); }, threads_count);
     }
     for (size_t thread_id = 0; thread_id < threads_count; thread_id++) {
       queue->push(nullptr, threads_count);
@@ -283,7 +282,7 @@ class BlockSha256MpmcQueueCellPtr {
           if (cell == &poison) {
             return;
           }
-          td::sha256(cell->data, as_slice(cell->hash));
+          td::sha256(cell->data, as_mutable_slice(cell->hash));
         }
       }));
     }
@@ -312,6 +311,10 @@ class ActorExecutorBenchmark : public td::Benchmark {
       void add_to_queue(ActorInfoPtr ptr, SchedulerId scheduler_id, bool need_poll) override {
         //queue.push_back(std::move(ptr));
         q.push(ptr, 0);
+      }
+      void add_token_to_cpu_queue(SchedulerToken token, SchedulerId scheduler_id) override {
+        SchedulerMessage::Raw *raw = reinterpret_cast<SchedulerMessage::Raw *>(token);
+        q.push(SchedulerMessage(SchedulerMessage::acquire_t{}, raw), 0);
       }
       void set_alarm_timestamp(const ActorInfoPtr &actor_info_ptr) override {
         UNREACHABLE();
@@ -649,7 +652,7 @@ class BlockSha256Actors {
   }
   static void calc_hash(Block &block) {
     parallel_map(block.cells.begin(), block.cells.end(),
-                 [](Cell &cell) { td::sha256(cell.data, as_slice(cell.hash)); });
+                 [](Cell &cell) { td::sha256(cell.data, as_mutable_slice(cell.hash)); });
   }
 };
 

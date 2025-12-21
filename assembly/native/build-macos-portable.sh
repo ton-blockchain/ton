@@ -109,24 +109,23 @@ else
 fi
 
 if [ ! -d "../3pp/libmicrohttpd" ]; then
-  mkdir -p ../3pp/libmicrohttpd
-  wget -O ../3pp/libmicrohttpd/libmicrohttpd-1.0.1.tar.gz https://ftpmirror.gnu.org/libmicrohttpd/libmicrohttpd-1.0.1.tar.gz
-  cd ../3pp/libmicrohttpd/
-  tar xf libmicrohttpd-1.0.1.tar.gz
-  cd libmicrohttpd-1.0.1
+  git clone https://github.com/ton-blockchain/libmicrohttpd.git ../3pp/libmicrohttpd
+  cd ../3pp/libmicrohttpd
   libmicrohttpdPath=`pwd`
   ./configure --enable-static --disable-tests --disable-benchmark --disable-shared --disable-https --with-pic
   make -j4
   test $? -eq 0 || { echo "Can't compile libmicrohttpd"; exit 1; }
-  cd ../../../build
+  cd ../../build
 else
-  libmicrohttpdPath=$(pwd)/../3pp/libmicrohttpd/libmicrohttpd-1.0.1
+  libmicrohttpdPath=$(pwd)/../3pp/libmicrohttpd
   echo "Using compiled libmicrohttpd"
 fi
 
 cmake -GNinja .. \
 -DPORTABLE=1 \
 -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=$OSX_TARGET \
+-DCMAKE_CXX_FLAGS="-stdlib=libc++" \
+-DCMAKE_SYSROOT=$(xcrun --show-sdk-path) \
 -DCMAKE_BUILD_TYPE=Release \
 -DOPENSSL_FOUND=1 \
 -DOPENSSL_INCLUDE_DIR=$opensslPath/include \
@@ -151,10 +150,7 @@ if [ "$with_tests" = true ]; then
   ninja storage-daemon storage-daemon-cli blockchain-explorer   \
   tonlib tonlibjson tonlib-cli validator-engine func tolk fift \
   lite-client validator-engine-console generate-random-id json2tlo dht-server dht-ping-servers dht-resolve \
-  http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator \
-  test-ed25519 test-bigint test-vm test-fift test-cells test-smartcont \
-  test-net test-tdactor test-tdutils test-tonlib-offline test-adnl test-dht test-rldp \
-  test-rldp2 test-catchain test-fec test-tddb test-db test-validator-session-state test-emulator proxy-liteserver
+  http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator proxy-liteserver all-tests
   test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 else
   ninja storage-daemon storage-daemon-cli blockchain-explorer   \

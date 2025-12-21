@@ -17,26 +17,26 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
-#include <iostream>
-#include <sstream>
-#include <memory>
-#include <cstring>
-#include <cstdlib>
-#include <cmath>
-#include "common/refcnt.hpp"
-#include "common/bigint.hpp"
-#include "common/refint.h"
-#include "common/bigexp.h"
-#include "common/bitstring.h"
-#include "common/util.h"
-#include "vm/cells.h"
-#include "vm/cellslice.h"
 
-#include "td/utils/tests.h"
+#include "common/bigexp.h"
+#include "common/bigint.hpp"
+#include "common/bitstring.h"
+#include "common/refcnt.hpp"
+#include "common/refint.h"
+#include "common/util.h"
 #include "td/utils/crypto.h"
 #include "td/utils/misc.h"
+#include "td/utils/tests.h"
+#include "vm/cells.h"
+#include "vm/cellslice.h"
 
 static std::stringstream create_ss() {
   std::stringstream ss;

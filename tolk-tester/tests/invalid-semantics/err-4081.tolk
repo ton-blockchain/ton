@@ -15,6 +15,6 @@ fun main(w: int | WrapperAlias<int> | WrapperAlias<int8>) {
 
 /**
 @compilation_should_fail
-@stderr wrong pattern matching: duplicated `Wrapper<int>`
+@stderr wrong pattern matching: duplicated `WrapperAlias<int>`
 @stderr WrapperAlias<int>
  */

@@ -17,19 +17,20 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "common/refcnt.hpp"
-#include "vm/db/StaticBagOfCellsDb.h"
-#include "vm/dict.h"
-#include "ton/ton-types.h"
-#include "ton/ton-shard.h"
-#include "common/bitstring.h"
-#include "block.h"
-
-#include <vector>
+#include <cstring>
 #include <limits>
 #include <map>
 #include <set>
-#include <cstring>
+#include <vector>
+
+#include "common/bitstring.h"
+#include "common/refcnt.hpp"
+#include "ton/ton-shard.h"
+#include "ton/ton-types.h"
+#include "vm/db/StaticBagOfCellsDb.h"
+#include "vm/dict.h"
+
+#include "block.h"
 
 namespace block {
 using td::Ref;
@@ -340,8 +341,8 @@ struct StoragePrices {
       , mc_cell_price(_mc_cprice) {
   }
   static td::RefInt256 compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing,
-                                            const StorageUsed& storage_used, ton::UnixTime last_paid,
-                                            bool is_special, bool is_masterchain);
+                                            const StorageUsed& storage_used, ton::UnixTime last_paid, bool is_special,
+                                            bool is_masterchain);
 };
 
 struct GasLimitsPrices {
@@ -398,11 +399,12 @@ struct SizeLimitsConfig {
   td::uint16 max_vm_data_depth = 512;
   ExtMsgLimits ext_msg_limits;
   td::uint32 max_acc_state_cells = 1 << 16;
-  td::uint32 max_acc_state_bits = (1 << 16) * 1023;
+  td::uint32 max_mc_acc_state_cells = 1 << 11;  // enabled in global version 12
   td::uint32 max_acc_public_libraries = 256;
   td::uint32 defer_out_queue_size_limit = 256;
   td::uint32 max_msg_extra_currencies = 2;
   td::uint32 max_acc_fixed_prefix_length = 8;
+  td::uint32 acc_state_cells_for_storage_dict = 26;
 };
 
 struct CatchainValidatorsConfig {
@@ -433,10 +435,10 @@ struct WorkchainInfo : public td::CntObject {
   int min_addr_len, max_addr_len, addr_len_step;
 
   // Default values are used when split_merge_timings is not set in config
-  unsigned split_merge_delay = 100;       // prepare (delay) split/merge for 100 seconds
-  unsigned split_merge_interval = 100;    // split/merge is enabled during 60 second interval
-  unsigned min_split_merge_interval = 30; // split/merge interval must be at least 30 seconds
-  unsigned max_split_merge_delay = 1000;  // end of split/merge interval must be at most 1000 seconds in the future
+  unsigned split_merge_delay = 100;        // prepare (delay) split/merge for 100 seconds
+  unsigned split_merge_interval = 100;     // split/merge is enabled during 60 second interval
+  unsigned min_split_merge_interval = 30;  // split/merge interval must be at least 30 seconds
+  unsigned max_split_merge_delay = 1000;   // end of split/merge interval must be at most 1000 seconds in the future
 
   td::uint32 persistent_state_split_depth = 0;
 
@@ -635,7 +637,8 @@ class Config {
   bool set_block_id_ext(const ton::BlockIdExt& block_id_ext);
   td::Result<std::vector<ton::StdSmcAddress>> get_special_smartcontracts(bool without_config = false) const;
   bool is_special_smartcontract(const ton::StdSmcAddress& addr) const;
-  static td::Result<std::shared_ptr<ValidatorSet>> unpack_validator_set(Ref<vm::Cell> valset_root, bool use_cache = false);
+  static td::Result<std::shared_ptr<ValidatorSet>> unpack_validator_set(Ref<vm::Cell> valset_root,
+                                                                        bool use_cache = false);
   td::Result<std::vector<StoragePrices>> get_storage_prices() const;
   static td::Result<StoragePrices> do_get_one_storage_prices(vm::CellSlice cs);
   td::Result<GasLimitsPrices> get_gas_limits_prices(bool is_masterchain = false) const;
@@ -775,9 +778,8 @@ class ConfigInfo : public Config, public ShardConfig {
   std::vector<ton::ValidatorDescr> compute_validator_set_cc(ton::ShardIdFull shard, ton::UnixTime time,
                                                             ton::CatchainSeqno* cc_seqno_delta = nullptr) const;
   td::Result<Ref<vm::Tuple>> get_prev_blocks_info() const;
-  static td::Result<std::unique_ptr<ConfigInfo>> extract_config(std::shared_ptr<vm::StaticBagOfCellsDb> static_boc,
-                                                                int mode = 0);
-  static td::Result<std::unique_ptr<ConfigInfo>> extract_config(Ref<vm::Cell> mc_state_root, int mode = 0);
+  static td::Result<std::unique_ptr<ConfigInfo>> extract_config(Ref<vm::Cell> mc_state_root,
+                                                                ton::BlockIdExt mc_block_id, int mode = 0);
 
  private:
   ConfigInfo(Ref<vm::Cell> mc_state_root, int _mode = 0);

@@ -18,15 +18,15 @@
 */
 #pragma once
 
+#include <cinttypes>
+
 #include "crypto/common/bitstring.h"
-#include "td/utils/buffer.h"
-#include "td/utils/bits.h"
 #include "td/utils/Slice.h"
 #include "td/utils/UInt.h"
+#include "td/utils/bits.h"
+#include "td/utils/buffer.h"
 #include "td/utils/misc.h"
 #include "td/utils/optional.h"
-
-#include <cinttypes>
 
 namespace ton {
 
@@ -411,6 +411,8 @@ struct Ed25519_PrivateKey {
 
 struct Ed25519_PublicKey {
   Bits256 _pubkey;
+  Ed25519_PublicKey() : _pubkey(td::Bits256::zero()) {
+  }
   explicit Ed25519_PublicKey(const Bits256& x) : _pubkey(x) {
   }
   explicit Ed25519_PublicKey(const td::ConstBitPtr x) : _pubkey(x) {

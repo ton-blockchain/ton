@@ -18,8 +18,9 @@
 */
 #pragma once
 
-#include "adnl-node-id.hpp"
 #include "td/utils/port/IPAddress.h"
+
+#include "adnl-node-id.hpp"
 
 namespace ton {
 
@@ -38,6 +39,8 @@ class AdnlExtClient : public td::actor::Actor {
   virtual void send_query(std::string name, td::BufferSlice data, td::Timestamp timeout,
                           td::Promise<td::BufferSlice> promise) = 0;
   static td::actor::ActorOwn<AdnlExtClient> create(AdnlNodeIdFull dst, td::IPAddress dst_addr,
+                                                   std::unique_ptr<AdnlExtClient::Callback> callback);
+  static td::actor::ActorOwn<AdnlExtClient> create(AdnlNodeIdFull dst, std::string dst_host,
                                                    std::unique_ptr<AdnlExtClient::Callback> callback);
   static td::actor::ActorOwn<AdnlExtClient> create(AdnlNodeIdFull dst, PrivateKey local_id, td::IPAddress dst_addr,
                                                    std::unique_ptr<AdnlExtClient::Callback> callback);

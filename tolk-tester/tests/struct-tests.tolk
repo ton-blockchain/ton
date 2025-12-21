@@ -6,8 +6,8 @@ struct JustIntWrapper {
     int: JustInt;
 }
 
-type MInt = int;
-type JustIntAlias = JustInt;
+type MInt = int
+type JustIntAlias = JustInt
 type JustIntAlias2 = JustIntAlias;
 
 struct Storage {
@@ -16,13 +16,13 @@ struct Storage {
 }
 
 struct Point {
-    x: int;
+    x: int
     y: MInt
 }
 
 struct User {
-    id: int;
-    name: slice;
+    id: int
+    name: slice
 }
 
 struct OuterStorage {
@@ -31,10 +31,10 @@ struct OuterStorage {
 }
 
 struct WithTensorInside {
-    coords: (int, int);
-    tup: [int, int];
-    otherCoords: (int, int)?;
-    otherTup: tuple;
+    coords: (int, int)
+    tup: [int, int]
+    otherCoords: (int, int)?
+    otherTup: tuple
 }
 
 fun sumCoords(p: Point) {
@@ -110,16 +110,16 @@ fun test5() {
     return (sumCoords(p), p.y += 10, p.sumCoords());
 }
 
-struct BacktickNames {
-    `my()id`: MInt,
+struct `Backtick Names` {
+    `my id`: MInt,
     `100500`: int;
 }
 
 @method_id(106)
 fun test6() {
-    val b: BacktickNames = { `100500`: 20, `my()id`: 10 };
+    val b: `Backtick Names` = { `100500`: 20, `my id`: 10 };
     var p: Point = { x: 0, y: 0 };
-    p.x += b.`my()id`;
+    p.x += b.`my id`;
     p.y += b.100500;
     return p;
 }
@@ -133,9 +133,12 @@ fun test7() {
     return (s.owner.name.loadInt(32), s2.owner.name.loadInt(32), s.lastPoint, s2.lastPoint.sumCoords());
 }
 
-struct Empty{}
+struct Empty
 struct OuterEmpty { nothing: EmptyAlias }
-type EmptyAlias = Empty;
+type EmptyAlias = Empty
+
+struct EmptyGeneric1<T>;
+struct EmptyGeneric2<T>
 
 @method_id(108)
 fun test8() {
@@ -152,6 +155,7 @@ fun test8() {
     __expect_type(o3, "Empty?");
     __expect_type(o6, "OuterEmpty");
     __expect_type(o8, "OuterEmpty?");
+    __expect_type(EmptyGeneric2<slice>{}, "EmptyGeneric2<slice>");
     return (e1, Empty{}, EmptyAlias{}, o2, o1, 777, o3, 777, o4, 777, o5, 777, o6, 777, o7, 777, o8, 777, o3!, 777);
 }
 
@@ -264,6 +268,7 @@ fun test17(x: JustInt?) {
     return (x, x!, x!.value, w1, w2);
 }
 
+@noinline
 fun sumXY<P>(point: P) { return point.x + point.y; }
 
 @method_id(118)
@@ -403,8 +408,8 @@ fun test28(getEmpty: bool) {
     return (t1, t1 is Empty, t1 is (int, int), t1 is builder, 777, t2, t2 is Empty, t2 is Has2EmptyNullable, t2 == null);
 }
 
-struct Empty1 {}
-struct Empty2 {}
+struct Empty1;
+struct Empty2;
 
 @method_id(129)
 fun test29() {
@@ -475,24 +480,24 @@ fun test33(): WithDefaults {
     return { f2: 5, f3: null };
 }
 
-struct WithNever {
+struct WithVoid {
     f1: int;
-    f2: never;
+    f2: void;
     f3: int;
 }
 
 @method_id(134)
 fun test34() {
-    var o1: WithNever = { f1: 10, f3: 20 };   // f2 is `never`, it can be omitted
-    __expect_type(o1.f2, "never");
+    var o1: WithVoid = { f1: 10, f3: 20 };   // f2 is `void`, it can be omitted
+    __expect_type(o1.f2, "void");
     return o1;
 }
 
-@pure fun getXPure() { return 1; }
-@pure fun getYPure() { return 2; }
+@pure @noinline fun getXPure() { return 1; }
+@pure @noinline fun getYPure() { return 2; }
 global t_impure: tuple;
-fun getXImpure() { t_impure.push(1); return 1; }
-fun getYImpure() { t_impure.push(2); return 2; }
+@noinline fun getXImpure() { t_impure.push(1); return 1; }
+@noinline fun getYImpure() { t_impure.push(2); return 2; }
 
 @method_id(135)
 fun test35() {
@@ -564,6 +569,85 @@ fun test41(rev: bool) {
     }
 }
 
+struct PrivPoint {
+    private readonly x: int
+    private y: int
+    z: int
+}
+
+fun PrivPoint.create(x: int, y: int): PrivPoint {
+    return { x, y, z: 0 }
+}
+
+fun PrivPoint.modifyY(mutate self, newY: int) {
+    self.y = newY
+}
+
+fun PrivPoint.getSum(self) {
+    return self.x + self.y + self.z
+}
+
+@method_id(142)
+fun test42() {
+    var p1 = PrivPoint.create(10, 20);
+    p1.modifyY(80);
+    p1.z += 5;
+    return (p1, p1.getSum());
+}
+
+struct PrivWithDefaults {
+    private a: int32 = 0
+    private b: bool = false
+}
+
+fun PrivWithDefaults.createA<U>(a: U) {
+    return PrivWithDefaults { a: a }
+}
+
+@method_id(143)
+fun test43() {
+    var obj: PrivWithDefaults = {};
+    return (obj, PrivWithDefaults.createA(20));
+}
+
+@method_id(144)
+fun test44() {
+    var t = PrivPoint.create(10, 20).toTuple();
+    assert (t.get<int>(1) == 20) throw 123;
+    assert (PrivPoint.fromTuple(t).z == 0) throw 124;
+    return (t, (10 as MInt).toTuple(), PrivWithDefaults{}.toTuple(), PrivWithDefaults.fromTuple(([1, true] as tuple)));
+}
+
+@method_id(145)
+fun test45() {
+    val inner: WithTensorInside = {
+        coords: (10, 20),
+        tup: [-1, -2],
+        otherCoords: null,
+        otherTup: [] as tuple,
+    };
+    return WithTensorInside{
+        coords: (1, 2), 
+        tup: [3, 4], 
+        otherCoords: (5, 6), 
+        otherTup: WithTensorInside.fromTuple(inner.toTuple()).toTuple() 
+    }.toTuple();
+}
+
+struct BigOnStackA {
+    n1: (int, int, int, int, int) = (1,2,3,4,5)
+    n2: (int, int, int, int, int) = (6,7,8,9,10)
+    n3: (int, int, int, int, int) = (11,12,13,14,15)
+    n4: (int, int, int, int, int) = (16,17,18,19,20)
+}
+
+@method_id(146)
+fun test46() {
+    var t = BigOnStackA{}.toTuple();
+    return (t.size(), BigOnStackA.fromTuple(t).n3.toTuple());
+}
+
+
 fun main(x: int8, y: MInt) {
     __expect_type(PointAlias{x,y}, "Point");
     __expect_type(Point{x,y} as Point, "Point");
@@ -581,37 +665,37 @@ type PointAlias = Point;
 @testcase | 105 |      | 35 30 45
 @testcase | 106 |      | 10 20
 @testcase | 107 |      | 5 5 10 20 15
-@testcase | 108 |      | 777 typeid-3 777 0 777 777 777 typeid-3 777 typeid-4 777 777
+@testcase | 108 |      | 777 typeid-2 777 0 777 777 777 typeid-2 777 typeid-3 777 777
 @testcase | 109 |      | 70 30 20 20 -80
 @testcase | 110 | 0    | (null) (null) 0
-@testcase | 110 | -1   | 10 20 typeid-5
+@testcase | 110 | -1   | 10 20 typeid-1
 @testcase | 111 | 0    | 0 2 10 20 30
 @testcase | 111 | -1   | 0 0 3 4 7
 @testcase | 112 | 0    | (null) (null) 0
-@testcase | 112 | -1   | 1 2 typeid-5
+@testcase | 112 | -1   | 1 2 typeid-1
 @testcase | 113 |      | (null) (null) 0
 @testcase | 114 |      | 1 2
 @testcase | 115 |      | (null) (null) (null) (null) 0
-@testcase | 116 |      | -1 -4 [ 8 4 ] 7 (null) 0 [ 10 11 ] typeid-7
+@testcase | 116 |      | -1 -4 [ 8 4 ] 7 (null) 0 [ 10 11 ] typeid-5
 @testcase | 117 | 5    | 5 5 5 5 5
 @testcase | 117 | null | (null) (null) (null) -1 (null)
 @testcase | 118 |      | 17
-@testcase | 119 |      | 10 20 9 10 typeid-5 9
-@testcase | 120 | 0    | 80 9 8 80 typeid-5
+@testcase | 119 |      | 10 20 9 10 typeid-1 9
+@testcase | 120 | 0    | 80 9 8 80 typeid-1
 @testcase | 120 | -1   | 8 14 (null) (null) 0
 @testcase | 121 | 0    | 17 17 8 136
 @testcase | 121 | -1   | 8 (null) 8 8
 @testcase | 122 | 100  | 101 50 106 212 100 101 101
 @testcase | 124 | 66   | 66
-@testcase | 125 |      | (null) (null) 40 60 typeid-5
+@testcase | 125 |      | (null) (null) 40 60 typeid-1
 @testcase | 126 |      | 118
-@testcase | 127 |      | 0 0 typeid-3 typeid-3 777 -1 -1 0 0 777 0 0 typeid-10 777 0 0 777 (null) (null) 0
-@testcase | 128 | -1   | (null) (null) typeid-3 -1 0 0 777 (null) (null) typeid-3 -1 0 0
-@testcase | 128 | 0    | 1 2 typeid-2 0 -1 0 777 0 typeid-3 typeid-10 0 -1 0
+@testcase | 127 |      | 0 0 typeid-2 typeid-2 777 -1 -1 0 0 777 0 0 typeid-7 777 0 0 777 (null) (null) 0
+@testcase | 128 | -1   | (null) (null) typeid-2 -1 0 0 777 (null) (null) typeid-2 -1 0 0
+@testcase | 128 | 0    | 1 2 typeid-8 0 -1 0 777 0 typeid-2 typeid-7 0 -1 0
 @testcase | 129 |      | (null)
-@testcase | 130 | -1   | typeid-12 777 (null) typeid-12 777 0 777 0 0
-@testcase | 130 | 0    | typeid-11 777 4 1 777 typeid-11 777 0 0
-@testcase | 131 |      | 5 typeid-13 (null) typeid-13 (null) 0 777 0 0 -1 777 0 -1
+@testcase | 130 | -1   | typeid-9 777 (null) typeid-9 777 0 777 0 0
+@testcase | 130 | 0    | typeid-10 777 4 1 777 typeid-10 777 0 0
+@testcase | 131 |      | 5 typeid-11 (null) typeid-11 (null) 0 777 0 0 -1 777 0 -1
 @testcase | 132 |      | 10 20 10 0 0 20 0 0 0 0
 @testcase | 133 |      | -1 0 5 (null) (null) (null) 0 0 46
 @testcase | 134 |      | 10 20
@@ -623,10 +707,15 @@ type PointAlias = Point;
 @testcase | 140 |      | 2 1 4 3
 @testcase | 141 | -1   | 4 3 2 1
 @testcase | 141 | 0    | 3 4 1 2
+@testcase | 142 |      | 10 80 5 95
+@testcase | 143 |      | 0 0 20 0
+@testcase | 144 |      | [ 10 20 0 ] [ 10 ] [ 0 0 ] 1 -1
+@testcase | 145 |      | [ 1 2 [ 3 4 ] 5 6 typeid-8 [ 10 20 [ -1 -2 ] (null) (null) 0 [] ] ]
+@testcase | 146 |      | 20 [ 11 12 13 14 15 ] 
 
 @fif_codegen
 """
-  test6 PROC:<{
+  test6() PROC:<{
     10 PUSHINT   // p.x
     20 PUSHINT   // p.x p.y
   }>
@@ -634,7 +723,7 @@ type PointAlias = Point;
 
 @fif_codegen
 """
-  sumXY<Point> PROC:<{  // point.x point.y
+  sumXY<Point>() PROC:<{  // point.x point.y
     ADD   // '2
   }>
 """
@@ -642,7 +731,7 @@ type PointAlias = Point;
 
 @fif_codegen
 """
-  test23 PROC:<{ // p.x p.y
+  test23() PROC:<{ // p.x p.y
     2DROP
     20 PUSHINT   // '10=20
   }>
@@ -650,27 +739,27 @@ type PointAlias = Point;
 
 @fif_codegen
 """
-  test29 PROC:<{
+  test29() PROC:<{
     PUSHNULL   // '5
   }>
 """
 
 @fif_codegen
 """
-  test35 PROC:<{                //
-    getXPure CALLDICT           //  '2
-    getYPure CALLDICT           //  p.x p.y
+  test35() PROC:<{              //
+    getXPure() CALLDICT         //  '2
+    getYPure() CALLDICT         //  p.x p.y
   }>
 """
 
 @fif_codegen
 """
-  test36 PROC:<{                //
+  test36() PROC:<{              //
     NIL                         //  '0
-    t_impure SETGLOB            //
-    getYImpure CALLDICT         //  '4
-    getXImpure CALLDICT         //  p.y p.x
-    t_impure GETGLOB            //  p.y p.x g_t_impure
+    $t_impure SETGLOB           //
+    getYImpure() CALLDICT       //  '4
+    getXImpure() CALLDICT       //  p.y p.x
+    $t_impure GETGLOB           //  p.y p.x g_t_impure
     s1 s2 XCHG                  //  p.x p.y g_t_impure
   }>
 """

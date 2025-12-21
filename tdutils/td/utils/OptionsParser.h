@@ -18,12 +18,12 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
+#include <functional>
+
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
 #include "td/utils/StringBuilder.h"
-
-#include <functional>
+#include "td/utils/common.h"
 
 namespace td {
 

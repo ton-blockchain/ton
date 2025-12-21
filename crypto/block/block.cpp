@@ -16,18 +16,18 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/bits.h"
-#include "block/block.h"
 #include "block/block-auto.h"
 #include "block/block-parse.h"
+#include "block/block.h"
 #include "block/mc-config.h"
-#include "ton/ton-shard.h"
 #include "common/bigexp.h"
 #include "common/util.h"
-#include "td/utils/crypto.h"
-#include "td/utils/tl_storers.h"
-#include "td/utils/misc.h"
 #include "td/utils/Random.h"
+#include "td/utils/bits.h"
+#include "td/utils/crypto.h"
+#include "td/utils/misc.h"
+#include "td/utils/tl_storers.h"
+#include "ton/ton-shard.h"
 #include "vm/fmt.hpp"
 
 namespace block {
@@ -2559,6 +2559,5 @@ bool MsgMetadata::operator==(const MsgMetadata& other) const {
 bool MsgMetadata::operator!=(const MsgMetadata& other) const {
   return !(*this == other);
 }
-
 
 }  // namespace block

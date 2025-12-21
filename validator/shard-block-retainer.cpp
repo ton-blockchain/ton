@@ -14,8 +14,9 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "shard-block-retainer.hpp"
 #include <delay.h>
+
+#include "shard-block-retainer.hpp"
 
 namespace ton::validator {
 
@@ -109,7 +110,7 @@ void ShardBlockRetainer::new_shard_block_description(td::Ref<ShardTopBlockDescri
     return;
   }
   td::actor::send_closure(
-      manager_, &ValidatorManager::wait_block_state_short, desc->block_id(), 0, td::Timestamp::in(30.0),
+      manager_, &ValidatorManager::wait_block_state_short, desc->block_id(), 0, td::Timestamp::in(30.0), true,
       [SelfId = actor_id(this), desc](td::Result<td::Ref<ShardState>> R) {
         if (R.is_error()) {
           LOG(WARNING) << "Wait block state for " << desc->block_id().to_str() << " : " << R.move_as_error();

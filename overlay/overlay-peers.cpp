@@ -16,15 +16,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <algorithm>
+#include <vector>
+
 #include "adnl/adnl-node-id.hpp"
 #include "adnl/adnl-node.h"
 #include "auto/tl/ton_api.h"
-#include "overlay.hpp"
 #include "td/utils/Status.h"
 #include "td/utils/Time.h"
 #include "td/utils/port/signals.h"
-#include <algorithm>
-#include <vector>
+
+#include "overlay.hpp"
 
 namespace ton {
 
@@ -398,8 +400,8 @@ void OverlayImpl::send_random_peers_v2(adnl::AdnlNodeIdShort src, td::Promise<td
 void OverlayImpl::ping_random_peers() {
   auto peers = get_neighbours(5);
   for (const adnl::AdnlNodeIdShort &peer : peers) {
-    auto P =
-        td::PromiseCreator::lambda([SelfId = actor_id(this), peer, timer = td::Timer(), oid = print_id()](td::Result<td::BufferSlice> R) {
+    auto P = td::PromiseCreator::lambda(
+        [SelfId = actor_id(this), peer, timer = td::Timer(), oid = print_id()](td::Result<td::BufferSlice> R) {
           if (R.is_error()) {
             VLOG(OVERLAY_INFO) << oid << " ping to " << peer << " failed : " << R.move_as_error();
             return;
@@ -430,8 +432,8 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change) {
       continue;
     }
 
-    if (overlay_type_ != OverlayType::FixedMemberList && X->get_version() <= td::Clocks::system() -
-        Overlays::overlay_peer_ttl()) {
+    if (overlay_type_ != OverlayType::FixedMemberList &&
+        X->get_version() <= td::Clocks::system() - Overlays::overlay_peer_ttl()) {
       if (X->is_permanent_member()) {
         del_from_neighbour_list(X);
       } else {
@@ -680,8 +682,7 @@ size_t OverlayImpl::neighbours_cnt() const {
 
 void OverlayImpl::update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids,
                                           std::vector<PublicKeyHash> root_public_keys, OverlayMemberCertificate cert) {
-  auto expected_size =
-      (td::uint32)(ids.size() + root_public_keys.size() * opts_.max_slaves_in_semiprivate_overlay_);
+  auto expected_size = (td::uint32)(ids.size() + root_public_keys.size() * opts_.max_slaves_in_semiprivate_overlay_);
   opts_.max_peers_ = std::max(opts_.max_peers_, expected_size);
   std::sort(ids.begin(), ids.end());
   auto old_root_public_keys = std::move(peer_list_.root_public_keys_);

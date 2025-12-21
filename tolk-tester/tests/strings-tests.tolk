@@ -1,20 +1,20 @@
-get ascii_slice(): slice {
+get fun ascii_slice(): slice {
   return"string";
 }
 
-get raw_slice(): slice {
+get fun raw_slice(): slice {
   return stringHexToSlice("abcdef");
 }
 
-get addr_slice(): address {
+get fun addr_slice(): address {
   return address("Ef8zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0vF");
 }
 
-get string_hex(): int {
+get fun string_hex(): int {
   return stringToBase256("ABCDEFGHIJKLMNOPQRSTUVWXYZ012345");
 }
 
-get fun string_minihash(): int {    // 'get' and 'get fun' both possible
+get fun string_minihash(): int {
   return stringSha256_32("transfer(slice, int)");
 }
 
@@ -48,6 +48,10 @@ fun calcSliceBytes(slice: slice): tuple {
   return t;
 }
 
+fun getName<T>() { return T.typeName() }
+
+type EmptyTensor = ()
+
 fun main() {
   var s_ascii: slice = ascii_slice();
   var s_raw: slice = raw_slice();
@@ -66,6 +70,11 @@ fun main() {
   assert(i_maxi == 0x7a62e8a8ebac41bd6de16c65e7be363bc2d2cbc6a0873778dead4795c13db979) throw 106;
   assert(i_crc32 == 2235694568 && i_crc32 == 0x8541fde8) throw 107;
   assert(i_crc16 == 52550 && i_crc16 == 0xCD46) throw 108;
+  assert(getName<int8>().bitsEqual("int8")) throw 109;
+  assert(getName<int8>().bitsEqual(int8.typeName())) throw 109;
+  assert(EmptyTensor.typeName().loadUint(88) == 83932693928210635055918962) throw 110;
+  assert(int176.fromSlice(getName<(int, map<bool,bool>)>()) == 15119865017903399349236740405018280815773870593949225) throw 111;
+  assert((176 as int176, 176).typeNameOfObject().bitsEqual("(int176, int)")) throw 112;
   return 0;
 }
 
@@ -78,5 +87,5 @@ fun test1() {
 @testcase | 0   | | 0
 @testcase | 101 | | [ 65 66 67 68 ]
 
-@code_hash 61963905046482786665931036224265588524206004864815957521622605110240907698574
+@code_hash 28689458953739962699797226940965106691932724643823208129506677010881613457948
 */

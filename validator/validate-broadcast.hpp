@@ -18,8 +18,8 @@
 */
 #pragma once
 
-#include "validator/interfaces/validator-manager.h"
 #include "validator/interfaces/shard.h"
+#include "validator/interfaces/validator-manager.h"
 
 namespace ton {
 
@@ -62,8 +62,8 @@ class ValidateBroadcast : public td::actor::Actor {
       , timeout_(timeout)
       , promise_(std::move(promise))
       , perf_timer_("validatebroadcast", 0.1, [manager](double duration) {
-          send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validatebroadcast", duration);
-        }) {
+        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validatebroadcast", duration);
+      }) {
   }
 
   void start_up() override;

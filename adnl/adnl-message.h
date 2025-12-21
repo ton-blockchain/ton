@@ -18,8 +18,8 @@
 */
 #pragma once
 
-#include "adnl/adnl.h"
 #include "adnl/adnl-query.h"
+#include "adnl/adnl.h"
 
 namespace ton {
 

@@ -25,15 +25,15 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include <iostream>
-#include <iomanip>
-#include <string>
-#include <cstring>
 #include <cassert>
-#include "td/utils/OptionParser.h"
+#include <cstring>
+#include <iomanip>
+#include <iostream>
+#include <string>
 
-#include "validator/db/package.hpp"
+#include "td/utils/OptionParser.h"
 #include "validator/db/fileref.hpp"
+#include "validator/db/package.hpp"
 
 void run(std::string filename) {
   auto R = ton::Package::open(filename, true, false);
@@ -58,4 +58,3 @@ int main(int argc, char **argv) {
   run(argv[1]);
   return 0;
 }
-

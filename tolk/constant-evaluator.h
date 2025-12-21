@@ -22,10 +22,66 @@
 
 namespace tolk {
 
-typedef std::variant<td::RefInt256, std::string> CompileTimeFunctionResult;
+struct ConstValInt;
+struct ConstValBool;
+struct ConstValSlice;
+struct ConstValAddress;
+struct ConstValTensor;
+struct ConstValObject;
+struct ConstValNullLiteral;
 
-void check_expression_is_constant(AnyExprV v_expr);
+// `const a = 2 + 3` is okay, but `const a = foo()` is not;
+// "okay" means "a constant expression", which can be evaluated at compile-time;
+// default values of struct fields and enum members are also required to be constant;
+// `field: (int, Obj) = (2, {v: true})` is also okay, `(2, {v: true})` is a valid constant expression;
+//
+// so, every const/enum/param default can be evaluated into ConstValExpression
+// and later exported into ABI
+typedef std::variant<
+  ConstValInt,
+  ConstValBool,
+  ConstValSlice,
+  ConstValAddress,
+  ConstValTensor,
+  ConstValObject,
+  ConstValNullLiteral
+> ConstValExpression;
+
+struct ConstValInt {
+  td::RefInt256 int_val;
+};
+
+struct ConstValBool {
+  bool bool_val;
+};
+
+struct ConstValSlice {
+  std::string str_hex;
+};
+
+struct ConstValAddress {
+  std::string std_addr_hex;
+};
+
+struct ConstValTensor {
+  std::vector<AnyExprV> items;
+};
+
+struct ConstValObject {
+  StructPtr struct_ref;
+  std::vector<std::pair<StructFieldPtr, AnyExprV>> fields;
+};
+
+struct ConstValNullLiteral {
+};
+
+ConstValExpression eval_constant_expression_or_fire(AnyExprV v_expr);
+ConstValExpression eval_and_cache_const_init_val(GlobalConstPtr const_ref);
+ConstValExpression eval_call_to_compile_time_function(AnyExprV v_call);
+
+std::vector<td::RefInt256> calculate_enum_members_with_values(EnumDefPtr enum_ref);
+
+void check_expression_is_constant_or_fire(AnyExprV v_expr);
 std::string eval_string_const_standalone(AnyExprV v_string);
-CompileTimeFunctionResult eval_call_to_compile_time_function(AnyExprV v_call);
 
 } // namespace tolk

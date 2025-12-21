@@ -26,9 +26,7 @@ fun test2() {
 
 @method_id(103)
 fun test3() {
-    var cc: Cell<CounterIncrement> = {
-        tvmCell: beginCell().storeSlice(stringHexToSlice("0109ab")).endCell()
-    };
+    var cc = beginCell().storeSlice(stringHexToSlice("0109ab")).endCell() as Cell<CounterIncrement>;
     return cc.load({assertEndAfterReading: false});
 }
 
@@ -50,13 +48,13 @@ fun test5() {
 
 @method_id(106)
 fun test6() {
-    return SomeBytesFields { f1: stringHexToSlice("11") as bytes1 }.toCell({skipBitsNFieldsValidation: true}).hash() & 0xFFFF;
+    return SomeBytesFields { f1: stringHexToSlice("11") as bytes1 }.toCell({skipBitsNValidation: true}).hash() & 0xFFFF;
 }
 
 @method_id(107)
 fun test7(believe: bool) {
     try {
-        return SomeBytesFields { f1: stringHexToSlice("ffff") as bytes1 }.toCell({skipBitsNFieldsValidation: believe}).hash() & 0xFFFF;
+        return SomeBytesFields { f1: stringHexToSlice("ffff") as bytes1 }.toCell({skipBitsNValidation: believe}).hash() & 0xFFFF;
     } catch (excno) {
         return excno;
     }
@@ -130,16 +128,14 @@ RETALT
 
 @fif_codegen
 """
-  test3 PROC:<{
-    NEWC
+  test3() PROC:<{
     x{0109ab} PUSHSLICE
-    STSLICER
-    ENDC
-    CTOS
+    NEWC
+    STSLICE
+    BTOS
     x{01} SDBEGINSQ
     63 THROWIFNOT
-    8 LDI
-    DROP
+    8 PLDI
   }>
 """
 
@@ -147,20 +143,20 @@ RETALT
 """
 IF:<{
   DROP
-  139 PUSHINT
+  129 PUSHINT
 }>ELSE<{
   x{03} SDBEGINSQ
   NIP
   IFNOTJMP:<{
     104 THROW
   }>
-  140 PUSHINT
+  130 PUSHINT
 }>
 """
 
 @fif_codegen
 """
-  test5 PROC:<{
+  test5() PROC:<{
     x{11} PUSHSLICE
     NEWC
     OVER
@@ -168,43 +164,40 @@ IF:<{
     9 THROWIF
     8 EQINT
     9 THROWIFNOT
-    SWAP
-    STSLICER
+    STSLICE
 """
 
 @fif_codegen
 """
-  test6 PROC:<{
+  test6() PROC:<{
     x{11} PUSHSLICE
     NEWC
-    SWAP
-    STSLICER
-    ENDC
-    HASHCU
+    STSLICE
+    HASHBU
 """
 
 @fif_codegen
 """
-  test8 PROC:<{                 //
+  test8() PROC:<{               //
     x{010f} PUSHSLICE           //  '0
     16 PUSHPOW2DEC              //  s '2=65535
     SWAP                        //  '2=65535 s
     x{01} SDBEGINSQ             //  '2=65535 s '4
     s1 s2 XCHG                  //  s '2=65535 '4
     THROWANYIFNOT               //  s
-    8 LDI                       //  '9 s
-    ENDS                        //  '9
+    8 LDI                       //  '8 s
+    ENDS                        //  '8
   }>
 """
 
 @fif_codegen
 """
-  test9 PROC:<{
+  test9() PROC:<{
     x{010f} PUSHSLICE
     x{01} SDBEGINSQ
     IF:<{
       DROP
-      139 PUSHINT
+      129 PUSHINT
     }>ELSE<{
       x{03} SDBEGINSQ
       NIP
@@ -212,10 +205,9 @@ IF:<{
         16 PUSHPOW2DEC
         THROWANY
       }>
-      140 PUSHINT
+      130 PUSHINT
     }>
-    139 PUSHINT
-    SWAP
+    129 PUSHINT
     EQUAL
   }>
 """

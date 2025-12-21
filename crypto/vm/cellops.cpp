@@ -17,15 +17,16 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include <functional>
+
+#include "common/bigint.hpp"
+#include "common/refint.h"
 #include "vm/cellops.h"
+#include "vm/excno.hpp"
 #include "vm/log.h"
 #include "vm/opctable.h"
 #include "vm/stack.hpp"
-#include "vm/excno.hpp"
-#include "vm/vmstate.h"
 #include "vm/vm.h"
-#include "common/bigint.hpp"
-#include "common/refint.h"
+#include "vm/vmstate.h"
 
 namespace vm {
 
@@ -764,6 +765,15 @@ int exec_store_same(VmState* st, const char* name, int val) {
   return 0;
 }
 
+int exec_builder_to_slice(VmState* st) {
+  Stack& stack = st->get_stack();
+  VM_LOG(st) << "execute BTOS";
+  stack.check_underflow(1);
+  Ref<Cell> cell = stack.pop_builder().write().finalize_novm();
+  stack.push_cellslice(Ref<CellSlice>{true, NoVm(), cell});
+  return 0;
+}
+
 int exec_store_const_slice(VmState* st, CellSlice& cs, unsigned args, int pfx_bits) {
   unsigned refs = (args >> 3) & 3;
   unsigned data_bits = (args & 7) * 8 + 2;
@@ -866,6 +876,7 @@ void register_cell_serialize_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xcf40, 16, "STZEROES", std::bind(exec_store_same, _1, "STZEROES", 0)))
       .insert(OpcodeInstr::mksimple(0xcf41, 16, "STONES", std::bind(exec_store_same, _1, "STONES", 1)))
       .insert(OpcodeInstr::mksimple(0xcf42, 16, "STSAME", std::bind(exec_store_same, _1, "STSAME", -1)))
+      .insert(OpcodeInstr::mksimple(0xcf50, 16, "BTOS", exec_builder_to_slice)->require_version(12))
       .insert(OpcodeInstr::mkext(0xcf80 >> 7, 9, 5, dump_store_const_slice, exec_store_const_slice,
                                  compute_len_store_const_slice));
 }
@@ -1531,10 +1542,16 @@ void register_cell_deserialize_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xd765, 16, "CDEPTH", exec_cell_depth))
       .insert(OpcodeInstr::mksimple(0xd766, 16, "CLEVEL", exec_cell_level)->require_version(6))
       .insert(OpcodeInstr::mksimple(0xd767, 16, "CLEVELMASK", exec_cell_level_mask)->require_version(6))
-      .insert(OpcodeInstr::mkfixed(0xd768 >> 2, 14, 2, instr::dump_1c_and(3, "CHASHI "), std::bind(exec_cell_hash_i, _1, _2, false))->require_version(6))
-      .insert(OpcodeInstr::mkfixed(0xd76c >> 2, 14, 2, instr::dump_1c_and(3, "CDEPTHI "), std::bind(exec_cell_depth_i, _1, _2, false))->require_version(6))
-      .insert(OpcodeInstr::mksimple(0xd770, 16, "CHASHIX ", std::bind(exec_cell_hash_i, _1, 0, true))->require_version(6))
-      .insert(OpcodeInstr::mksimple(0xd771, 16, "CDEPTHIX ", std::bind(exec_cell_depth_i, _1, 0, true))->require_version(6));
+      .insert(OpcodeInstr::mkfixed(0xd768 >> 2, 14, 2, instr::dump_1c_and(3, "CHASHI "),
+                                   std::bind(exec_cell_hash_i, _1, _2, false))
+                  ->require_version(6))
+      .insert(OpcodeInstr::mkfixed(0xd76c >> 2, 14, 2, instr::dump_1c_and(3, "CDEPTHI "),
+                                   std::bind(exec_cell_depth_i, _1, _2, false))
+                  ->require_version(6))
+      .insert(
+          OpcodeInstr::mksimple(0xd770, 16, "CHASHIX ", std::bind(exec_cell_hash_i, _1, 0, true))->require_version(6))
+      .insert(OpcodeInstr::mksimple(0xd771, 16, "CDEPTHIX ", std::bind(exec_cell_depth_i, _1, 0, true))
+                  ->require_version(6));
 }
 
 void register_cell_ops(OpcodeTable& cp0) {

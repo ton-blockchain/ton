@@ -14,9 +14,9 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "shard-block-verifier.hpp"
-
 #include "td/actor/MultiPromise.h"
+
+#include "shard-block-verifier.hpp"
 
 namespace ton::validator {
 
@@ -131,7 +131,7 @@ void ShardBlockVerifier::process_message(adnl::AdnlNodeIdShort src, td::BufferSl
 int ShardBlockVerifier::get_config_shard_idx(const ShardIdFull& shard_id) const {
   for (size_t i = 0; i < config_->shards.size(); i++) {
     if (shard_intersects(shard_id, config_->shards[i].shard_id)) {
-      return i;
+      return (int)i;
     }
   }
   return -1;

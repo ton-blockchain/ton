@@ -14,35 +14,36 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "td/utils/filesystem.h"
-#include "td/actor/actor.h"
+#include "adnl/adnl.h"
+#include "auto/tl/ton_api_json.h"
+#include "common/delay.h"
+#include "dht/dht.h"
+#include "overlay/overlays.h"
+#include "rldp2/rldp.h"
 #include "td/actor/MultiPromise.h"
+#include "td/actor/actor.h"
+#include "td/utils/FileLog.h"
 #include "td/utils/OptionParser.h"
+#include "td/utils/Random.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/port/IPAddress.h"
 #include "td/utils/port/path.h"
 #include "td/utils/port/signals.h"
 #include "td/utils/port/user.h"
-#include "td/utils/port/IPAddress.h"
-#include "td/utils/Random.h"
-#include "td/utils/FileLog.h"
-#include "checksum.h"
-#include "git.h"
-#include "auto/tl/ton_api_json.h"
-#include "common/delay.h"
 
-#include "adnl/adnl.h"
-#include "rldp2/rldp.h"
-#include "dht/dht.h"
-#include "overlay/overlays.h"
-
-#include "Torrent.h"
-#include "TorrentCreator.h"
 #include "StorageManager.h"
 #include "StorageProvider.h"
+#include "Torrent.h"
+#include "TorrentCreator.h"
+#include "checksum.h"
+#include "git.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
 #endif
 #include <iostream>
+
+#include "td/utils/port/rlimit.h"
 
 namespace ton {
 
@@ -950,6 +951,7 @@ int main(int argc, char *argv[]) {
   SCOPE_EXIT {
     td::log_interface = td::default_log_interface;
   };
+  LOG_STATUS(td::change_maximize_rlimit(td::RlimitType::nofile, 786432));
 
   td::IPAddress ip_addr;
   bool client_mode = false;

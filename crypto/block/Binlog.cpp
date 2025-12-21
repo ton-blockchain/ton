@@ -16,13 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "crypto/block/Binlog.h"
+#include <sstream>
 
+#include "crypto/block/Binlog.h"
 #include "td/utils/as.h"
 #include "td/utils/misc.h"
 #include "td/utils/port/path.h"
-
-#include <sstream>
 
 namespace block {
 /*

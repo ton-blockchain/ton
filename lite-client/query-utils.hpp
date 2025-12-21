@@ -15,10 +15,10 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "ton/ton-types.h"
+#include "adnl/adnl-node-id.hpp"
 #include "auto/tl/lite_api.h"
 #include "td/utils/port/IPAddress.h"
-#include "adnl/adnl-node-id.hpp"
+#include "ton/ton-types.h"
 
 namespace liteclient {
 
@@ -73,11 +73,14 @@ struct LiteServerConfig {
 
  public:
   ton::adnl::AdnlNodeIdFull adnl_id;
-  td::IPAddress addr;
+  std::string hostname;
 
   LiteServerConfig() = default;
-  LiteServerConfig(ton::adnl::AdnlNodeIdFull adnl_id, td::IPAddress addr)
-      : is_full(true), adnl_id(adnl_id), addr(addr) {
+  LiteServerConfig(ton::adnl::AdnlNodeIdFull adnl_id, std::string hostname)
+      : is_full(true), adnl_id(adnl_id), hostname(std::move(hostname)) {
+  }
+  LiteServerConfig(ton::adnl::AdnlNodeIdFull adnl_id, td::IPAddress ip)
+      : is_full(true), adnl_id(adnl_id), hostname(PSTRING() << ip.get_ip_str() << ":" << ip.get_port()) {
   }
 
   bool accepts_query(const QueryInfo& query_info) const;

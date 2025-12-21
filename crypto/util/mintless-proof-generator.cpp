@@ -15,12 +15,12 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "block-parse.h"
-#include "block.h"
+#include <common/delay.h>
+#include <fstream>
+#include <iostream>
+
 #include "td/actor/core/Actor.h"
 #include "td/db/utils/BlobView.h"
-
-#include <iostream>
 #include "td/utils/OptionParser.h"
 #include "td/utils/Time.h"
 #include "td/utils/base64.h"
@@ -29,8 +29,8 @@
 #include "vm/cells/MerkleProof.h"
 #include "vm/db/StaticBagOfCellsDb.h"
 
-#include <fstream>
-#include <common/delay.h>
+#include "block-parse.h"
+#include "block.h"
 
 const size_t KEY_LEN = 3 + 8 + 256;
 

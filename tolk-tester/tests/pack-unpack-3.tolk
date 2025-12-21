@@ -4,8 +4,8 @@ struct EitherRight<T> { value: T }
 type Either<L, R> = EitherLeft<L> | EitherRight<R>;
 
 @inline
-fun makeExternalAddress(hash: int, len: int): address {
-    return beginCell().storeUint(0b01, 2).storeUint(len, 9).storeUint(hash, len).endCell().beginParse() as address;
+fun makeExternalAddress(hash: int, len: int): any_address {
+    return beginCell().storeUint(0b01, 2).storeUint(len, 9).storeUint(hash, len).endCell().beginParse() as any_address;
 }
 
 
@@ -19,7 +19,7 @@ fun slice.assertEqDeeply(self, rhs: slice): slice {
     return self;
 }
 
-@inline
+@inline_ref
 fun slice.appendRef(self, refSlice: slice): slice {
     return beginCell().storeSlice(self).storeRef(beginCell().storeSlice(refSlice).endCell()).endCell().beginParse();
 }
@@ -35,6 +35,7 @@ fun generateCell_44_with_ref45(): cell {
 }
 
 
+@noinline
 fun run<TInputStruct>(input: TInputStruct, ans: slice) {
     repeat (2) {
         var s = input.toCell().beginParse();
@@ -113,11 +114,10 @@ struct(0x00184300) CounterResetTo {
 }
 
 type MsgCounter1 =
-    CounterIncrement |
-    CounterDecrement |
-    CounterReset0 |
-    CounterResetTo |
-;
+    | CounterIncrement
+    | CounterDecrement
+    | CounterReset0
+    | CounterResetTo
 
 /*
 bodyPayload1$001
@@ -145,7 +145,7 @@ struct(0b01) BodyPayload2 {
     owner_address: address;
 }
 
-type BodyPayload = BodyPayload1 | BodyPayload2;
+type BodyPayload = BodyPayload1 | BodyPayload2
 
 /*
 sayHiAndGoodbye#89
@@ -171,7 +171,7 @@ struct(0x0013) SayStoreInChain {
     contents: Cell<BodyPayload>;
 }
 
-type MsgExternal1 = SayHiAndGoodbye | SayStoreInChain;
+type MsgExternal1 = SayHiAndGoodbye | SayStoreInChain
 
 /*
 transferParams1#794
@@ -184,7 +184,7 @@ transferParams1#794
 struct(0x794) TransferParams1 {
     dest_int: address;
     amount: coins;
-    dest_ext: address;
+    dest_ext: any_address;
 }
 
 /*
@@ -245,11 +245,11 @@ fun test_MsgCounter1() {
 
 @method_id(204)
 fun test_MsgExternal1() {
-    run<MsgExternal1>(SayHiAndGoodbye{ dest_addr: null, body: BodyPayload2 { master_id: 10, owner_address: address("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c") } }, stringHexToSlice("892150000000000000000000000000000000000000000000000000000000000000000002_"));
-    run<MsgExternal1>(SayHiAndGoodbye{ dest_addr: address("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"), body: BodyPayload1 { should_forward: false, n_times: 85, content: generateSlice_44_with_ref45() } }, stringHexToSlice("89C0000000000000000000000000000000000000000000000000000000000000000002000000550000002C").appendRef(stringHexToSlice("0000002D")));
-    run<MsgExternal1>(SayHiAndGoodbye{ dest_addr: address("Ef8o6AM9sUZ8rOqLFY8PYeaC3gbopZR1BMkE8fcD0r5NnmCi"), body: BodyPayload2 { master_id: -5, owner_address: address("Ef8o6AM9sUZ8rOqLFY8PYeaC3gbopZR1BMkE8fcD0r5NnmCi") } }, stringHexToSlice("89CFF28E8033DB1467CACEA8B158F0F61E682DE06E8A5947504C904F1F703D2BE4D9E7EE7F9474019ED8A33E5675458AC787B0F3416F037452CA3A82648278FB81E95F26CF4_"));
-    run<MsgExternal1>(SayStoreInChain{ in_masterchain: true, contents: { tvmCell: BodyPayload1{ should_forward: true, n_times: 20, content: generateSlice_44_with_ref45() }.toCell()} }, stringHexToSlice("0013C_").appendRef(stringHexToSlice("3000000140000002C").appendRef(stringHexToSlice("0000002D"))));
-    run<MsgExternal1>(SayStoreInChain{ in_masterchain: false, contents: { tvmCell: BodyPayload2{ master_id: 37, owner_address: address(("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c")) }.toCell()} }, stringHexToSlice("00134_").appendRef(stringHexToSlice("4960000000000000000000000000000000000000000000000000000000000000000004_")));
+    run<MsgExternal1>(SayHiAndGoodbye{ dest_addr: null, body: BodyPayload2 { master_id: 10, owner_address: address("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c") } }, stringHexToSlice("8910A8000000000000000000000000000000000000000000000000000000000000000001_"));
+    run<MsgExternal1>(SayHiAndGoodbye{ dest_addr: address("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"), body: BodyPayload1 { should_forward: false, n_times: 85, content: generateSlice_44_with_ref45() } }, stringHexToSlice("8980000000000000000000000000000000000000000000000000000000000000000004000000AA00000059_").appendRef(stringHexToSlice("0000002D")));
+    run<MsgExternal1>(SayHiAndGoodbye{ dest_addr: address("Ef8o6AM9sUZ8rOqLFY8PYeaC3gbopZR1BMkE8fcD0r5NnmCi"), body: BodyPayload2 { master_id: -5, owner_address: address("Ef8o6AM9sUZ8rOqLFY8PYeaC3gbopZR1BMkE8fcD0r5NnmCi") } }, stringHexToSlice("899FE51D0067B628CF959D5162B1E1EC3CD05BC0DD14B28EA099209E3EE07A57C9B3CFDCFF28E8033DB1467CACEA8B158F0F61E682DE06E8A5947504C904F1F703D2BE4D9E"));
+    run<MsgExternal1>(SayStoreInChain{ in_masterchain: true, contents: BodyPayload1{ should_forward: true, n_times: 20, content: generateSlice_44_with_ref45() }.toCell() as cell as Cell<BodyPayload> }, stringHexToSlice("0013C_").appendRef(stringHexToSlice("3000000140000002C").appendRef(stringHexToSlice("0000002D"))));
+    run<MsgExternal1>(SayStoreInChain{ in_masterchain: false, contents: BodyPayload2{ master_id: 37, owner_address: address("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c") }.toCell() as cell as Cell<BodyPayload> }, stringHexToSlice("00134_").appendRef(stringHexToSlice("4960000000000000000000000000000000000000000000000000000000000000000004_")));
 
     val o = MsgExternal1.fromSlice(stringHexToSlice("00134_").appendRef(stringHexToSlice("4960000000000000000000000000000000000000000000000000000000000000000004_")));
     assert(o is SayStoreInChain, 400);
@@ -260,15 +260,15 @@ fun test_MsgExternal1() {
 @method_id(205)
 fun test_MsgTransfer() {
     run<MsgTransfer>({ params: EitherLeft { value: TransferParams1 { dest_int: address("Ef8o6AM9sUZ8rOqLFY8PYeaC3gbopZR1BMkE8fcD0r5NnmCi"), amount: 80000000, dest_ext: makeExternalAddress(1234,80) } } }, stringHexToSlice("FB3701FF3CA4FF28E8033DB1467CACEA8B158F0F61E682DE06E8A5947504C904F1F703D2BE4D9E404C4B4004A0000000000000000009A5_"));
-    run<MsgTransfer>({ params: EitherLeft { value: TransferParams2 { intVector: (123, 1234567890123456, 1234567890123456), needs_more: {tvmCell: beginCell().storeBool(true).endCell()} } } }, stringHexToSlice("FB3701FF48000003DDC118B54F22AEB0000118B54F22AEB02_").appendRef(stringHexToSlice("C_")));
-    run<MsgTransfer>({ params: EitherRight { value: { tvmCell: TransferParams1{ dest_int: address("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"), amount: 80000000, dest_ext: makeExternalAddress(1234,70) }.toCell()} } }, stringHexToSlice("FB3701FFC_").appendRef(stringHexToSlice("7948000000000000000000000000000000000000000000000000000000000000000000809896800918000000000000004D2")));
-    run<MsgTransfer>({ params: EitherRight { value: { tvmCell: TransferParams2{ intVector: (123, null, 0), needs_more: {tvmCell: beginCell().storeBool(false).endCell()} }.toCell()} } }, stringHexToSlice("FB3701FFC_").appendRef(stringHexToSlice("90000007B00000000000000004_").appendRef(stringHexToSlice("4_"))));
+    run<MsgTransfer>({ params: EitherLeft { value: TransferParams2 { intVector: (123, 1234567890123456, 1234567890123456), needs_more: true.toCell() } } }, stringHexToSlice("FB3701FF48000003DDC118B54F22AEB0000118B54F22AEB02_").appendRef(stringHexToSlice("C_")));
+    run<MsgTransfer>({ params: EitherRight { value: TransferParams1{ dest_int: address("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"), amount: 80000000, dest_ext: makeExternalAddress(1234,70) }.toCell() as cell as Cell<TransferParams> } }, stringHexToSlice("FB3701FFC_").appendRef(stringHexToSlice("7948000000000000000000000000000000000000000000000000000000000000000000809896800918000000000000004D2")));
+    run<MsgTransfer>({ params: EitherRight { value: TransferParams2{ intVector: (123, null, 0), needs_more: false.toCell() }.toCell() as cell as Cell<TransferParams> } }, stringHexToSlice("FB3701FFC_").appendRef(stringHexToSlice("90000007B00000000000000004_").appendRef(stringHexToSlice("4_"))));
 
     val o = MsgTransfer.fromSlice(stringHexToSlice("FB3701FFC_").appendRef(stringHexToSlice("90000007B00000000000000004_").appendRef(stringHexToSlice("4_"))));
     return (
         o.params is EitherLeft, o.params is EitherRight,
-        o.params is EitherRight && TransferParams.fromCell(o.params.value.tvmCell) is TransferParams1,
-        o.params is EitherRight && TransferParams.fromCell(o.params.value.tvmCell) is TransferParams2,
+        o.params is EitherRight && TransferParams.fromCell(o.params.value) is TransferParams1,
+        o.params is EitherRight && TransferParams.fromCell(o.params.value) is TransferParams2,
     );
 }
 

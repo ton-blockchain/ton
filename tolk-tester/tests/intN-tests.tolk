@@ -80,7 +80,7 @@ fun test3(op: int32, qid: uint64) {
     if (op == qid) {}
     if ((op as int32?)! == qid) {}
     if (op == (qid as uint64)) {}
-    if ((op as uint257?)! != (qid as int256?)!) {}
+    if ((op as int257?)! != (qid as uint256?)!) {}
     __expect_type(op << qid, "int");
 
     takeAnyInt(op);
@@ -201,6 +201,7 @@ fun test11() {
     ];
 }
 
+@method_id(112)
 fun test12() {
     var a = ton("1") + ton("2");    // check absence in fif codegen
     return ton("0.1");
@@ -215,6 +216,7 @@ fun test14(firstComponent: int8?): (int, int16)? {
     return firstComponent! < 10 ? null : (firstComponent! as int, 2 as int16);
 }
 
+@noinline
 fun assign0<T>(mutate v: T) { v = 0; }
 
 fun main() {
@@ -226,7 +228,7 @@ fun main() {
     assign0(mutate t.1 as uint16);
     assign0(mutate t.2 as int);
     __expect_type(t.0 as int1, "int1");
-    __expect_type(t.0 as uint257, "uint257");
+    __expect_type(t.0 as int257, "int257");
     __expect_type(0 as int32, "int32");
     __expect_type((0 as int32) as uint64?, "uint64?");
     __expect_type(null as (int8, [uint16?])?, "(int8, [uint16?])?");
@@ -246,15 +248,15 @@ fun main() {
 @testcase | 110 |      | 50000000 50000100 1234000000 51000000
 @testcase | 111 |      | [ 1000000000 1000000000 1000000000 -321123456789 321123456789 1100000000 ]
 @testcase | 114 | 5    | (null) (null) 0
-@testcase | 114 | 15   | 15 2 typeid-2
+@testcase | 114 | 15   | 15 2 typeid-1
 
-@fif_codegen DECLPROC assign0<int8>
-@fif_codegen DECLPROC assign0<uint16>
-@fif_codegen DECLPROC assign0<int>
+@fif_codegen DECLPROC assign0<int8>()
+@fif_codegen DECLPROC assign0<uint16>()
+@fif_codegen DECLPROC assign0<int>()
 
 @fif_codegen
 """
-  test12 PROC:<{
+  test12() PROC:<{
     100000000 PUSHINT	//  '4=100000000
   }>
 """

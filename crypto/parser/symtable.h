@@ -17,9 +17,10 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "srcread.h"
-#include "lexer.h"
 #include <vector>
+
+#include "lexer.h"
+#include "srcread.h"
 
 namespace sym {
 

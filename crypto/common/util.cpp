@@ -16,12 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "util.h"
-
 #include <limits>
 
-#include "td/utils/crypto.h"
 #include "td/utils/base64.h"
+#include "td/utils/crypto.h"
+
+#include "util.h"
 
 namespace td {
 
@@ -163,7 +163,7 @@ std::size_t buff_base64_decode(td::MutableSlice buffer, td::Slice encoded, bool 
   return wptr - (unsigned char *)buffer.data();
 }
 
-td::BufferSlice base64_decode(td::Slice encoded, bool allow_base64_url) {
+td::BufferSlice base64_decode_to_buffer_slice(td::Slice encoded, bool allow_base64_url) {
   auto s = decoded_base64_size(encoded, allow_base64_url);
   if (s <= 0) {
     return td::BufferSlice{};

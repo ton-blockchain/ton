@@ -25,28 +25,30 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "func/func.h"
-#include "git.h"
-#include "td/utils/JsonBuilder.h"
-#include "fift/utils.h"
-#include "td/utils/base64.h"
-#include "td/utils/Status.h"
-#include <sstream>
 #include <iomanip>
+#include <sstream>
+
+#include "fift/utils.h"
+#include "func/func.h"
+#include "td/utils/JsonBuilder.h"
+#include "td/utils/Status.h"
+#include "td/utils/base64.h"
 #include "vm/boc.h"
 
-td::Result<std::string> compile_internal(char *config_json) {
+#include "git.h"
+
+td::Result<std::string> compile_internal(char* config_json) {
   TRY_RESULT(input_json, td::json_decode(td::MutableSlice(config_json)))
   td::JsonObject& config = input_json.get_object();
 
-  TRY_RESULT(opt_level, td::get_json_object_int_field(config, "optLevel", false));
-  TRY_RESULT(sources_obj, td::get_json_object_field(config, "sources", td::JsonValue::Type::Array, false));
+  TRY_RESULT(opt_level, config.get_required_int_field("optLevel"));
+  TRY_RESULT(sources_obj, config.extract_required_field("sources", td::JsonValue::Type::Array));
 
-  auto &sources_arr = sources_obj.get_array();
+  auto& sources_arr = sources_obj.get_array();
 
   std::vector<std::string> sources;
 
-  for (auto &item : sources_arr) {
+  for (auto& item : sources_arr) {
     sources.push_back(item.get_string().str());
   }
 
@@ -89,8 +91,7 @@ td::Result<std::string> compile_internal(char *config_json) {
 /// If the callback is not supported, *o_contents and *o_error must be set to NULL.
 typedef void (*CStyleReadFileCallback)(char const* _kind, char const* _data, char** o_contents, char** o_error);
 
-funC::ReadCallback::Callback wrapReadCallback(CStyleReadFileCallback _readCallback)
-{
+funC::ReadCallback::Callback wrapReadCallback(CStyleReadFileCallback _readCallback) {
   funC::ReadCallback::Callback readCallback;
   if (_readCallback) {
     readCallback = [=](funC::ReadCallback::Kind _kind, char const* _data) -> td::Result<std::string> {
@@ -121,7 +122,7 @@ const char* version() {
   return strdup(version_json.string_builder().as_cslice().c_str());
 }
 
-const char *func_compile(char *config_json, CStyleReadFileCallback callback) {
+const char* func_compile(char* config_json, CStyleReadFileCallback callback) {
   if (callback) {
     funC::read_callback = wrapReadCallback(callback);
   } else {

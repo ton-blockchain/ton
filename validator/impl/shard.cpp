@@ -16,17 +16,18 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "shard.hpp"
-#include "message-queue.hpp"
-#include "validator-set.hpp"
-#include "vm/boc.h"
-#include "td/db/utils/BlobView.h"
-#include "vm/db/StaticBagOfCellsDb.h"
-#include "vm/cellslice.h"
-#include "vm/cells/MerkleUpdate.h"
-#include "block/block-parse.h"
 #include "block/block-auto.h"
+#include "block/block-parse.h"
+#include "td/db/utils/BlobView.h"
 #include "td/utils/filesystem.h"
+#include "vm/boc.h"
+#include "vm/cells/MerkleUpdate.h"
+#include "vm/cellslice.h"
+#include "vm/db/StaticBagOfCellsDb.h"
+
+#include "message-queue.hpp"
+#include "shard.hpp"
+#include "validator-set.hpp"
 
 #define LAZY_STATE_DESERIALIZE 1
 
@@ -376,9 +377,9 @@ td::Status MasterchainStateQ::mc_init() {
 
 td::Status MasterchainStateQ::mc_reinit() {
   auto res = block::ConfigInfo::extract_config(
-      root_cell(), block::ConfigInfo::needStateRoot | block::ConfigInfo::needValidatorSet |
-                       block::ConfigInfo::needShardHashes | block::ConfigInfo::needPrevBlocks |
-                       block::ConfigInfo::needWorkchainInfo);
+      root_cell(), blkid,
+      block::ConfigInfo::needStateRoot | block::ConfigInfo::needValidatorSet | block::ConfigInfo::needShardHashes |
+          block::ConfigInfo::needPrevBlocks | block::ConfigInfo::needWorkchainInfo);
   cur_validators_.reset();
   next_validators_.reset();
   if (res.is_error()) {
@@ -386,7 +387,6 @@ td::Status MasterchainStateQ::mc_reinit() {
   }
   config_ = res.move_as_ok();
   CHECK(config_);
-  CHECK(config_->set_block_id_ext(get_block_id()));
 
   cur_validators_ = config_->get_cur_validator_set();
 

@@ -14,14 +14,14 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
+#include <map>
+
 #include "td/utils/Time.h"
 #include "td/utils/Timer.h"
-
-#include <map>
-#include "vm/boc.h"
-#include "vm/boc-writers.h"
-#include "vm/cellslice.h"
 #include "td/utils/misc.h"
+#include "vm/boc-writers.h"
+#include "vm/boc.h"
+#include "vm/cellslice.h"
 
 namespace vm {
 
@@ -129,7 +129,7 @@ td::Result<int> LargeBocSerializer::import_cell(Hash root_hash, int root_depth) 
     if (current_depth > Cell::max_depth) {
       return td::Status::Error("error while importing a cell into a bag of cells: cell depth too large");
     }
-    
+
     cell_list.resize(cell_list.size() + current_depth_hashes.size());
     td::BTreeMap<Hash, std::pair<int, bool>> next_depth_hashes;
     auto batch_start = current_depth_hashes.begin();
@@ -145,16 +145,16 @@ td::Result<int> LargeBocSerializer::import_cell(Hash root_hash, int root_depth) 
         ++batch_start;
       }
 
-      TRY_RESULT_PREFIX(loaded_results, reader->load_bulk(batch_hashes), 
-                "error while importing a cell into a bag of cells: ");
+      TRY_RESULT_PREFIX(loaded_results, reader->load_bulk(batch_hashes),
+                        "error while importing a cell into a bag of cells: ");
       DCHECK(loaded_results.size() == batch_hashes.size());
 
       for (size_t i = 0; i < loaded_results.size(); ++i) {
         auto& cell = loaded_results[i];
 
-        if (cell->get_virtualization() != 0) {
+        if (cell->is_virtualized()) {
           return td::Status::Error(
-            "error while importing a cell into a bag of cells: cell has non-zero virtualization level");
+              "error while importing a cell into a bag of cells: cell has non-zero virtualization level");
         }
 
         const auto hash = cell->get_hash();
@@ -197,7 +197,7 @@ td::Result<int> LargeBocSerializer::import_cell(Hash root_hash, int root_depth) 
         dc_info.should_cache = idx_should_cache->second;
         dc_info.hcnt = static_cast<unsigned char>(dc->get_level_mask().get_hashes_count());
         DCHECK(dc_info.hcnt <= 4);
-        dc_info.wt = 0; // will be calculated after traversing
+        dc_info.wt = 0;  // will be calculated after traversing
         TRY_RESULT(serialized_size, td::narrow_cast_safe<unsigned short>(dc->get_serialized_size()));
         data_bytes += dc_info.serialized_size = serialized_size;
         cell_count++;
@@ -212,7 +212,7 @@ td::Result<int> LargeBocSerializer::import_cell(Hash root_hash, int root_depth) 
     current_depth++;
   }
   DCHECK(next_child_idx == cell_count);
-  
+
   for (int idx = cell_count - 1; idx >= start_ind; --idx) {
     CellInfo& cell_info = cell_list[idx]->second;
 
@@ -481,29 +481,29 @@ td::Status LargeBocSerializer::serialize(td::FileFd& fd, int mode) {
   }
   for (int batch_start = 0; batch_start < cell_count; batch_start += load_batch_size) {
     int batch_end = std::min(batch_start + static_cast<int>(load_batch_size), cell_count);
-    
+
     std::vector<td::Slice> batch_hashes;
     batch_hashes.reserve(batch_end - batch_start);
     for (int i = batch_start; i < batch_end; ++i) {
       int cell_index = cell_count - 1 - i;
       batch_hashes.push_back(cell_list[cell_index]->first.as_slice());
     }
-    
+
     TRY_RESULT(batch_cells, reader->load_bulk(std::move(batch_hashes)));
-    
+
     for (int i = batch_start; i < batch_end; ++i) {
       int idx_in_batch = i - batch_start;
       int cell_index = cell_count - 1 - i;
-      
+
       const auto& dc_info = cell_list[cell_index]->second;
       auto& dc = batch_cells[idx_in_batch];
-      
+
       bool with_hash = (mode & Mode::WithIntHashes) && !dc_info.wt;
       if (dc_info.is_root_cell && (mode & Mode::WithTopHash)) {
         with_hash = true;
       }
-      unsigned char buf[256];
-      int s = dc->serialize(buf, 256, with_hash);
+      unsigned char buf[Cell::max_serialized_bytes];
+      int s = dc->serialize(buf, Cell::max_serialized_bytes, with_hash);
       writer.store_bytes(buf, s);
       DCHECK(dc->size_refs() == dc_info.get_ref_num());
       unsigned ref_num = dc_info.get_ref_num();
@@ -532,7 +532,7 @@ td::Status LargeBocSerializer::serialize(td::FileFd& fd, int mode) {
 }  // namespace
 
 td::Status boc_serialize_to_file_large(std::shared_ptr<CellDbReader> reader, Cell::Hash root_hash, td::FileFd& fd,
-                                           int mode, td::CancellationToken cancellation_token) {
+                                       int mode, td::CancellationToken cancellation_token) {
   td::Timer timer;
   CHECK(reader != nullptr)
   LargeBocSerializer serializer(reader);

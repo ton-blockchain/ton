@@ -53,7 +53,7 @@ jobs:
       - name: Download Mac x86-64 artifacts
         uses: dawidd6/action-download-artifact@v6
         with:
-          workflow: build-ton-macos-13-x86-64-portable.yml
+          workflow: build-ton-macos-15-x86-64-portable.yml
           path: artifacts
           workflow_conclusion: success
           branch: master
@@ -71,7 +71,7 @@ jobs:
       - name: Download and unzip Mac x86-64 artifacts
         uses: dawidd6/action-download-artifact@v6
         with:
-          workflow: build-ton-macos-13-x86-64-portable.yml
+          workflow: build-ton-macos-15-x86-64-portable.yml
           path: artifacts
           workflow_conclusion: success
           branch: master
@@ -125,7 +125,6 @@ jobs:
       - name: Show all artifacts
         run: |
           tree artifacts
-      
 
       # create release
 

@@ -18,13 +18,14 @@
 */
 #pragma once
 
-#include "td/actor/actor.h"
-#include "ton/ton-types.h"
-#include "ton/ton-shard.h"
 #include "interfaces/validator-manager.h"
-#include "validator-set.hpp"
-#include "signature-set.hpp"
+#include "td/actor/actor.h"
+#include "ton/ton-shard.h"
+#include "ton/ton-types.h"
+
 #include "shard.hpp"
+#include "signature-set.hpp"
+#include "validator-set.hpp"
 
 namespace ton {
 
@@ -89,6 +90,7 @@ class AcceptBlockQuery : public td::actor::Actor {
   void written_block_next();
   void written_block_info_2();
   void applied();
+  void send_broadcasts();
 
  private:
   BlockIdExt id_;

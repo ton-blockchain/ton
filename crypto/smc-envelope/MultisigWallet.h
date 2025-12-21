@@ -17,12 +17,12 @@
     Copyright 2019-2020 Telegram Systems LLP
 */
 #pragma once
+#include <bitset>
+
 #include "vm/cells.h"
 
-#include "SmartContract.h"
 #include "Ed25519.h"
-
-#include <bitset>
+#include "SmartContract.h"
 
 namespace ton {
 class MultisigWallet : public ton::SmartContract {

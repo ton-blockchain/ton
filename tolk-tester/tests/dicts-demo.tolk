@@ -93,6 +93,37 @@ fun test104() {
     );
 }
 
+@method_id(105)
+fun test105(takeNext: bool) {
+    var dict = createEmptyDict();
+    dict.uDictSet(32, 0, stringHexToSlice("01"));
+    dict.uDictSet(32, 8, stringHexToSlice("02"));
+    var (next, data, found) = takeNext ? dict.uDictGetNext(32, -1) : dict.uDictGetPrev(32, 9);
+    __expect_type(found, "bool");
+    assert(found, 10);
+    return data!.loadUint(8);
+}
+
+@method_id(106)
+fun test106() {
+    var dict = createEmptyDict();
+    dict.addIntToIDict(2, 102);
+    dict.addIntToIDict(-1, 101);
+    dict.addIntToIDict(-4, 104);
+    dict.addIntToIDict(3, 103);
+
+    var m = createMapFromLowLevelDict<int32, int32>(dict);
+    val fk = m.findFirst().getKey();
+    val fv = m.findFirst().loadValue();
+    var t = createEmptyTuple();
+    var r = m.findKeyLess(3);
+    while (r.isFound) {
+        t.push(r.loadValue());
+        r = m.iteratePrev(r);
+    }
+    return (fk, fv, t);
+}
+
 fun main() {}
 
 /**
@@ -102,4 +133,7 @@ fun main() {}
 @testcase | 102 |       | [ [ 4 104 ] [ 3 103 ] [ 2 102 ] [ 1 101 ] ] 
 @testcase | 103 |       | 1 1 2 1 3 (null)
 @testcase | 104 |       | 12 34 56 78 0
+@testcase | 105 | -1    | 1
+@testcase | 105 | 0     | 2
+@testcase | 106 |       | -4 104 [ 102 101 104 ]
  */

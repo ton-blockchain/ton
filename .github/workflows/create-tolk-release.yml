@@ -9,6 +9,9 @@ on:
 
 permissions: write-all
 
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 jobs:
   create-release:
     runs-on: ubuntu-22.04
@@ -37,7 +40,7 @@ jobs:
       - name: Download and unzip Mac x86-64 artifacts
         uses: dawidd6/action-download-artifact@v6
         with:
-          workflow: build-ton-macos-13-x86-64-portable.yml
+          workflow: build-ton-macos-15-x86-64-portable.yml
           path: artifacts
           workflow_conclusion: success
           branch: master
@@ -73,7 +76,6 @@ jobs:
       - name: Show all artifacts
         run: |
           tree artifacts
-      
 
       # create release
       - name: Get registration token
@@ -151,4 +153,12 @@ jobs:
           file: artifacts/ton-wasm.zip
           asset_name: ton-wasm.zip
           tag: ${{ inputs.tag }}
+
+      - name: Upload stdlib
+        run: |
+          mkdir smartcont_lib
+          cd smartcont_lib
+          cp -r ../artifacts/ton-x86_64-linux/{smartcont,lib} .
+          zip -r smartcont_lib.zip .
+          gh release upload ${{ inputs.tag }} smartcont_lib.zip
 

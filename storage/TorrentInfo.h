@@ -21,9 +21,8 @@
 
 #include "td/utils/Slice.h"
 #include "td/utils/UInt.h"
-
-#include "vm/cells.h"
 #include "td/utils/optional.h"
+#include "vm/cells.h"
 
 namespace ton {
 // torrent_info piece_size:uint32 file_size:uint64 root_hash:(## 256) header_size:uint64 header_hash:(## 256)

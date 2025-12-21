@@ -21,15 +21,16 @@
 #include <map>
 #include <set>
 
+#include "keys/encryptor.h"
+
 #include "adnl-peer-table.h"
 #include "adnl-peer.h"
-#include "keys/encryptor.h"
 //#include "adnl-decryptor.h"
+#include "adnl-address-list.h"
+#include "adnl-ext-server.h"
 #include "adnl-local-id.h"
 #include "adnl-query.h"
 #include "utils.hpp"
-#include "adnl-ext-server.h"
-#include "adnl-address-list.h"
 
 namespace ton {
 
@@ -144,9 +145,10 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   //td::uint64 last_query_id_ = 1;
 
   static void update_id(PeerInfo &peer_info, AdnlNodeIdFull &&peer_id);
-  td::actor::ActorOwn<AdnlPeerPair> &get_peer_pair(AdnlNodeIdShort peer_id, PeerInfo &peer_info, AdnlNodeIdShort local_id, LocalIdInfo &local_id_info);
+  td::actor::ActorOwn<AdnlPeerPair> &get_peer_pair(AdnlNodeIdShort peer_id, PeerInfo &peer_info,
+                                                   AdnlNodeIdShort local_id, LocalIdInfo &local_id_info);
   static void get_stats_peer(AdnlNodeIdShort peer_id, PeerInfo &peer_info, bool all,
-    td::Promise<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> promise);
+                             td::Promise<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> promise);
 };
 
 inline td::StringBuilder &operator<<(td::StringBuilder &sb, const AdnlPeerTableImpl::PrintId &id) {

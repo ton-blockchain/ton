@@ -67,7 +67,7 @@ protected:
   }
 
   GNU_ATTRIBUTE_ALWAYS_INLINE void visit_children(const ASTExprBlockOfStatements* v) {
-    visit_children(v->child_block_statement->as<ast_block_statement>());
+    visit(v->child_block_statement->as<ast_block_statement>());
   }
 
   GNU_ATTRIBUTE_ALWAYS_INLINE void visit_children(const ASTStatementUnary* v) {
@@ -100,10 +100,13 @@ class ASTVisitorFunctionBody : public ASTVisitor {
 protected:
   using parent = ASTVisitorFunctionBody;
 
+  FunctionPtr cur_f = nullptr;
+
   // expressions
   virtual void visit(V<ast_empty_expression> v)          { return visit_children(v); }
   virtual void visit(V<ast_parenthesized_expression> v)  { return visit_children(v); }
   virtual void visit(V<ast_braced_expression> v)         { return visit_children(v); }
+  virtual void visit(V<ast_braced_yield_result> v)       { return visit_children(v); }
   virtual void visit(V<ast_artificial_aux_vertex> v)     { return visit_children(v); }
   virtual void visit(V<ast_tensor> v)                    { return visit_children(v); }
   virtual void visit(V<ast_bracket_tuple> v)             { return visit_children(v); }
@@ -127,11 +130,13 @@ protected:
   virtual void visit(V<ast_cast_as_operator> v)          { return visit_children(v); }
   virtual void visit(V<ast_is_type_operator> v)          { return visit_children(v); }
   virtual void visit(V<ast_not_null_operator> v)         { return visit_children(v); }
+  virtual void visit(V<ast_lazy_operator> v)             { return visit_children(v); }
   virtual void visit(V<ast_match_expression> v)          { return visit_children(v); }
   virtual void visit(V<ast_match_arm> v)                 { return visit_children(v); }
   virtual void visit(V<ast_object_field> v)              { return visit_children(v); }
   virtual void visit(V<ast_object_body> v)               { return visit_children(v); }
   virtual void visit(V<ast_object_literal> v)            { return visit_children(v); }
+  virtual void visit(V<ast_lambda_fun> v)                { return visit_children(v); }
   // statements
   virtual void visit(V<ast_empty_statement> v)           { return visit_children(v); }
   virtual void visit(V<ast_block_statement> v)           { return visit_children(v); }
@@ -150,6 +155,7 @@ protected:
       case ast_empty_expression:                return visit(v->as<ast_empty_expression>());
       case ast_parenthesized_expression:        return visit(v->as<ast_parenthesized_expression>());
       case ast_braced_expression:               return visit(v->as<ast_braced_expression>());
+      case ast_braced_yield_result:             return visit(v->as<ast_braced_yield_result>());
       case ast_artificial_aux_vertex:           return visit(v->as<ast_artificial_aux_vertex>());
       case ast_tensor:                          return visit(v->as<ast_tensor>());
       case ast_bracket_tuple:                   return visit(v->as<ast_bracket_tuple>());
@@ -173,11 +179,13 @@ protected:
       case ast_cast_as_operator:                return visit(v->as<ast_cast_as_operator>());
       case ast_is_type_operator:                return visit(v->as<ast_is_type_operator>());
       case ast_not_null_operator:               return visit(v->as<ast_not_null_operator>());
+      case ast_lazy_operator:                   return visit(v->as<ast_lazy_operator>());
       case ast_match_expression:                return visit(v->as<ast_match_expression>());
       case ast_match_arm:                       return visit(v->as<ast_match_arm>());
       case ast_object_field:                    return visit(v->as<ast_object_field>());
       case ast_object_body:                     return visit(v->as<ast_object_body>());
       case ast_object_literal:                  return visit(v->as<ast_object_literal>());
+      case ast_lambda_fun:                      return visit(v->as<ast_lambda_fun>());
       // statements
       case ast_empty_statement:                 return visit(v->as<ast_empty_statement>());
       case ast_block_statement:                 return visit(v->as<ast_block_statement>());
@@ -201,15 +209,27 @@ protected:
 public:
   virtual bool should_visit_function(FunctionPtr fun_ref) = 0;
 
-  virtual void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) {
-    visit(v_function->get_body());
+  virtual void on_enter_function(V<ast_function_declaration> v_function) {}
+  virtual void on_exit_function(V<ast_function_declaration> v_function) {}
+
+  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) {
+    cur_f = fun_ref;
+    on_enter_function(v_function);
+    if (V<ast_block_statement> v_body_block = v_function->get_body()->try_as<ast_block_statement>()) {
+      visit(v_body_block);
+    }
+    on_exit_function(v_function);
+    cur_f = nullptr;
   }
 };
 
 
+const std::vector<FunctionPtr>& get_all_builtin_functions();
 const std::vector<FunctionPtr>& get_all_not_builtin_functions();
+const std::vector<GlobalVarPtr>& get_all_declared_global_vars();
 const std::vector<GlobalConstPtr>& get_all_declared_constants();
 const std::vector<StructPtr>& get_all_declared_structs();
+const std::vector<EnumDefPtr>& get_all_declared_enums();
 
 template<class BodyVisitorT>
 void visit_ast_of_all_functions() {

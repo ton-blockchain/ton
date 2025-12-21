@@ -14,20 +14,19 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "query-utils.hpp"
+#include <ton/ton-tl.hpp>
 
-#include "block-parse.h"
+#include "auto/tl/lite_api.hpp"
+#include "block/block-auto.h"
+#include "overlay/overlay-broadcast.hpp"
 #include "td/utils/overloaded.h"
 #include "tl-utils/common-utils.hpp"
-
-#include "block/block-auto.h"
-#include "auto/tl/lite_api.hpp"
-#include "overlay/overlay-broadcast.hpp"
 #include "tl-utils/lite-utils.hpp"
 #include "ton/lite-tl.hpp"
 #include "ton/ton-shard.h"
 
-#include <ton/ton-tl.hpp>
+#include "block-parse.h"
+#include "query-utils.hpp"
 
 namespace liteclient {
 
@@ -318,16 +317,25 @@ bool LiteServerConfig::Slice::accepts_query(const QueryInfo& query_info) const {
 td::Result<std::vector<LiteServerConfig>> LiteServerConfig::parse_global_config(
     const ton_api::liteclient_config_global& config) {
   std::vector<LiteServerConfig> servers;
+  auto get_hostname = [](const auto& f) -> std::string {
+    if (f->hostname_.empty()) {
+      return PSTRING() << td::IPAddress::ipv4_to_str(f->ip_) << ":" << f->port_;
+    }
+    if (f->port_ == 0) {
+      return f->hostname_;
+    }
+    return PSTRING() << f->hostname_ << ":" << f->port_;
+  };
   for (const auto& f : config.liteservers_) {
     LiteServerConfig server;
-    TRY_STATUS(server.addr.init_host_port(td::IPAddress::ipv4_to_str(f->ip_), f->port_));
+    server.hostname = get_hostname(f);
     server.adnl_id = adnl::AdnlNodeIdFull{PublicKey{f->id_}};
     server.is_full = true;
     servers.push_back(std::move(server));
   }
   for (const auto& f : config.liteservers_v2_) {
     LiteServerConfig server;
-    TRY_STATUS(server.addr.init_host_port(td::IPAddress::ipv4_to_str(f->ip_), f->port_));
+    server.hostname = get_hostname(f);
     server.adnl_id = adnl::AdnlNodeIdFull{PublicKey{f->id_}};
     server.is_full = false;
     for (const auto& slice_obj : f->slices_) {

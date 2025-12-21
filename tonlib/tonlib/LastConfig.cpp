@@ -16,16 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "tonlib/LastConfig.h"
-
-#include "tonlib/utils.h"
-
-#include "ton/lite-tl.hpp"
+#include "block/block-auto.h"
 #include "block/check-proof.h"
 #include "block/mc-config.h"
-#include "block/block-auto.h"
-
 #include "lite-client/lite-client-common.h"
+#include "ton/lite-tl.hpp"
+#include "tonlib/LastConfig.h"
+#include "tonlib/utils.h"
 
 #include "LastBlock.h"
 
@@ -93,8 +90,9 @@ td::Status LastConfig::process_config_proof(ton::ton_api::object_ptr<ton::lite_a
   }
   TRY_RESULT(state, block::check_extract_state_proof(blkid, raw_config->state_proof_.as_slice(),
                                                      raw_config->config_proof_.as_slice()));
-  TRY_RESULT(config, block::ConfigInfo::extract_config(
-                         std::move(state), block::ConfigInfo::needPrevBlocks | block::ConfigInfo::needCapabilities));
+  TRY_RESULT(config,
+             block::ConfigInfo::extract_config(
+                 std::move(state), blkid, block::ConfigInfo::needPrevBlocks | block::ConfigInfo::needCapabilities));
 
   for (auto i : params_) {
     VLOG(last_config) << "ConfigParam(" << i << ") = ";

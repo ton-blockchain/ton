@@ -1,10 +1,10 @@
-type MInt = int;
-type MNull = null;
-type MSlice = slice;
-type MIntN = int | MNull;
-type IntOrSlice = MInt | slice;
-type IntOrSliceN = null | slice | int;
-type IntOrSliceOrBuilder = int | slice | builder;
+type MInt = int
+type MNull = | null
+type MSlice = slice
+type MIntN = int | MNull
+type IntOrSlice = MInt | slice
+type IntOrSliceN = null | slice | int
+type IntOrSliceOrBuilder = | int | slice | builder
 
 type Pair2 = (int, int);
 type Pair2Or3 = Pair2 | (int, int, int);
@@ -18,8 +18,8 @@ fun testFlatten() {
     __expect_type(0 as (int | int | slice | builder | slice), "int | slice | builder");
     __expect_type(0 as (int? | int), "int?");
     __expect_type(0 as (slice | int? | slice? | cell), "slice | int | null | cell");
-    __expect_type(0 as (int | (int | int)), "int");
-    __expect_type(0 as (slice | (slice | (slice | int) | (cell | slice?))), "slice | int | cell | null");
+    __expect_type(0 as (| int | (int | int)), "int");
+    __expect_type(0 as (slice | (slice | (slice | int) | (| cell | slice?))), "slice | int | cell | null");
 
     __expect_type(0 as (MInt | MNull), "MInt?");
     __expect_type(0 as (MInt | slice | int), "MInt | slice");
@@ -43,7 +43,7 @@ fun testFlatten() {
     __expect_type(0 as (int?)?, "int?");
     __expect_type(0 as (int?)? | (int)?, "int?");
 
-    __expect_type(0 is builder, "bool");
+    __expect_type(0 is (|builder), "bool");
     __expect_type(0 !is builder, "bool");
     __expect_type(0!!is builder, "bool");
 
@@ -80,7 +80,7 @@ fun test2() {
 }
 
 @method_id(103)
-fun test3(case: int): int | slice | null {
+fun test3(case: int): | int | slice | null {
     var a: int | slice | null = 4;
     if (case == 0) {
         a = getSlice32()
@@ -222,7 +222,7 @@ fun test21() {
         __expect_type(a, "never");
     }
     if (a is slice || a is int) {
-        __expect_type(a, "slice | int")
+        __expect_type(a, "int | slice")
     } else {
         __expect_type(a, "never")
     }
@@ -254,12 +254,12 @@ fun test23(p2: bool) {
     if (p is (int, int) && 10 < 0) {
         __expect_type(p, "(int, int)");
     }
-    __expect_type(p, "(int, int) | (int, int, int)");
+    __expect_type(p, "Pair2Or3");
     if (p is int) {
         __expect_type(p, "never");
         return (0, 0);
     }
-    __expect_type(p, "(int, int) | (int, int, int)");
+    __expect_type(p, "Pair2Or3");
     if (p !is (int, int)) {
         __expect_type(p, "(int, int, int)");
         p = (10, 20);
@@ -535,6 +535,7 @@ fun test47() {
     return (checkSimple(1), checkSimple(beginCell().endCell().beginParse()), checkSimple(100), checkSimple(beginCell()));
 }
 
+@noinline
 fun checkGeneric3<T1, T2, T3>(a: T1 | T2 | T3): (int, T1 | T2?) {
     var vv: T1? = match (a) { T1 => a, T2 => null, T3 => null };
     return match (a) {
@@ -551,7 +552,7 @@ fun test48(a: IntOrInt8OrInt16) {
     var b = a;
     __expect_type(b, "IntOrInt8OrInt16");
     match (b) { MInt => {} int8 => {} int16 => {} }
-    __expect_type(b, "int | int8 | int16");
+    __expect_type(b, "IntOrInt8OrInt16");
     match (b) { int => {}, int8 => { return ((0, null), (0, null)); }, int16 => "" };
     __expect_type(b, "int | int16");
     return (checkGeneric3(a), checkGeneric3(5 as int | slice | builder));
@@ -578,10 +579,10 @@ fun test50() {
     test49(match (a) { int => a, slice => a, null => a, });
     __expect_type(b, "VeryComplexType");
     match (b) { int => {} Pair2 => {} builder => {} null => {} }
-    __expect_type(b, "int | (int, int) | builder | null");
-    __expect_type(b!, "int | (int, int) | builder");
+    __expect_type(b, "VeryComplexType");
+    __expect_type(b!, "int | (MInt, int) | builder");
     match (b) { int => 100, Pair2 => {} builder => return -2, null => "null" }
-    __expect_type(b, "int | (int, int) | null");
+    __expect_type(b, "int | Pair2 | null");
     if (b !is null) {
         match (b) { int => {}, Pair2 => {} }
     } else {
@@ -775,6 +776,20 @@ fun test61(i: int32 | int64 | int) {
     }
 }
 
+fun myFromTuple<T>(t: tuple): T {
+    return T.fromTuple(t)
+}
+
+@method_id(162)
+fun test62() {
+    return (
+        ((5 as int32) as int32 | int64).toTuple(),
+        ((5 as int64) as int32 | int64).toTuple(),
+        myFromTuple<int32 | int64>([10, 48] as tuple) is int64,
+        myFromTuple<int32 | int64>([10, 48] as tuple).typeNameOfObject().bitsEqual("int32 | int64"),
+    ) 
+}
+
 
 
 fun main() {
@@ -795,7 +810,7 @@ fun main() {
 @testcase | 107 | 3         | 6 7 8 typeid-2 6 7 8 typeid-2
 @testcase | 108 |           | (null) 2 3 typeid-1 (null) (null) (null) 0 (null) 2 3 typeid-1 (null) 2 3 typeid-1 (null) (null) (null) 0
 @testcase | 109 |           | 6 7 8 typeid-2 0 (null) -1 (null) (null) (null) 0 -1 (null) (null) (null) 0
-@testcase | 110 |           | 1 (null) (null) 0 (null) (null) 0 typeid-7
+@testcase | 110 |           | 1 (null) (null) 0 (null) (null) 0 typeid-3
 @testcase | 120 |           | 5
 @testcase | 121 |           | -1 0 0 -1 -1 0
 @testcase | 122 | 0 0 1     | 36
@@ -809,19 +824,19 @@ fun main() {
 @testcase | 127 |           | 1 2 5 1
 @testcase | 128 |           | (null) (null) 0 777 (null) 2 1 777 3 4 typeid-1
 @testcase | 129 |           | (null) (null) 0 (null) 5 1
-@testcase | 130 | 0         | (null) 5 1 777 (null) (null) 0 777 1 2 typeid-1 777 (null) [ 6 ] typeid-8 777 (null) (null) 0
-@testcase | 130 | -1        | (null) (null) 0 777 (null) (null) 0 777 1 2 typeid-1 777 (null) [ 6 ] typeid-8 777 (null) (null) 0
+@testcase | 130 | 0         | (null) 5 1 777 (null) (null) 0 777 1 2 typeid-1 777 (null) [ 6 ] typeid-4 777 (null) (null) 0
+@testcase | 130 | -1        | (null) (null) 0 777 (null) (null) 0 777 1 2 typeid-1 777 (null) [ 6 ] typeid-4 777 (null) (null) 0
 @testcase | 131 |           | (null) 777 5 777 1 2 777 (null) 777 5 777 (null) (null) 0 777 1 2 typeid-1
 @testcase | 132 |           | (null) (null) 5 1 777 (null) (null) 5 42 777 (null) 4 5 typeid-1 777 (null) (null) (null) 0
 @testcase | 133 |           | (null) (null) 5 1 777 (null) (null) 5 42 777 (null) 4 5 typeid-1 777 (null) (null) (null) 0
 @testcase | 134 |           | (null) 5 1 777 (null) 5 1 777 1 2 typeid-1 777 1 2 typeid-1 777 (null) 5 42 777 5 42 777 5 42
 @testcase | 135 |           | (null) 5 1 777 (null) (null) 1 2 typeid-1 777 (null) (null) 1 2 typeid-1 777 (null) (null) 0
-@testcase | 136 |           | 1 2 typeid-1 777 1 2 typeid-12 777 1 2 typeid-13 777 (null) 1 2 typeid-14
+@testcase | 136 |           | 1 2 typeid-1 777 1 2 typeid-5 777 1 2 typeid-6 777 (null) 1 2 typeid-7
 @testcase | 137 | 1 2       | 1 2 777 1 2 777 1 2 777 [ 1 2 ]
-@testcase | 138 |           | 1 (null) (null) (null) (null) 0 2 typeid-18 777 1 (null) 0 2 typeid-19 777 1 5 1 2 typeid-19 777 1 (null) 5 1 2 typeid-20
+@testcase | 138 |           | 1 (null) (null) (null) (null) 0 2 typeid-9 777 1 (null) 0 2 typeid-10 777 1 5 1 2 typeid-10 777 1 (null) 5 1 2 typeid-11
 @testcase | 139 |           | 1 (null) (null) (null) (null) 0 2 777 1 (null) 0 2 777 1 5 1 2 777 1 (null) 5 1 2
 @testcase | 140 | 5         | 5 42
-@testcase | 140 | 15        | 15 typeid-3
+@testcase | 140 | 15        | 15 typeid-12
 @testcase | 140 | 90        | 90 49
 @testcase | 141 | 7 8       | 7 7 1 8 8 1
 @testcase | 141 | null null | (null) (null) 0 (null) (null) 0
@@ -842,25 +857,26 @@ fun main() {
 @testcase | 154 |           | 100 1
 @testcase | 155 |           | 5 1 5 1
 @testcase | 156 | 1 2 -1    | 2 44 2 2 44 2 2 44 2 44 2 2 2
-@testcase | 157 | 1         | (null) 0 (null) typeid-21 777 1 2 typeid-1 777 typeid-21 typeid-21 777 0 0 -1 0 -1 0 0 777 -1 0
-@testcase | 157 | 0         | (null) 0 (null) typeid-21 777 (null) (null) typeid-21 777 0 0 777 0 0 -1 0 0 -1 0 777 0 -1
-@testcase | 158 |           | (null) (null) typeid-21 (null) (null) typeid-21 (null) 0 (null)
+@testcase | 157 | 1         | (null) 0 (null) typeid-14 777 1 2 typeid-1 777 typeid-14 typeid-14 777 0 0 -1 0 -1 0 0 777 -1 0
+@testcase | 157 | 0         | (null) 0 (null) typeid-14 777 (null) (null) typeid-14 777 0 0 777 0 0 -1 0 0 -1 0 777 0 -1
+@testcase | 158 |           | (null) (null) typeid-14 (null) (null) typeid-14 (null) 0 (null)
 @testcase | 159 | 0 4       | 456
 @testcase | 159 | null 0    | 123
 @testcase | 160 |           | 10 0
 @testcase | 161 | 100 48    | 20
+@testcase | 162 |           | [ 5 46 ] [ 5 48 ] -1 -1
 
 
 @fif_codegen
 """
-  test26 PROC:<{
+  test26() PROC:<{
     42 PUSHINT  // result
   }>
 """
 
 @fif_codegen
 """
-  checkSimple PROC:<{   //  a.USlot1 a.UTag
+  checkSimple() PROC:<{   //  a.USlot1 a.UTag
     NIP	    //  a.UTag
     DUP	    //  a.UTag a.UTag
     1 EQINT	//  a.UTag '3
@@ -880,7 +896,7 @@ fun main() {
 
 @fif_codegen
 """
-  test61 PROC:<{
+  test61() PROC:<{
     NIP
     DUP
     46 EQINT
@@ -896,6 +912,6 @@ fun main() {
   }>
 """
 
-@fif_codegen DECLPROC checkGeneric3<int,int8,int16>
+@fif_codegen DECLPROC checkGeneric3<int,int8,int16>()
 
  */

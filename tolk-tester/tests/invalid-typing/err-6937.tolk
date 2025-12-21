@@ -9,4 +9,5 @@ fun cantAssignSliceToBytesN() {
 @compilation_should_fail
 @stderr can not assign `slice` to variable of type `bytes16`
 @stderr var c2: bytes16 = getAnySlice();
+@stderr hint: use `as` operator for UNSAFE casting: `<some_expr> as bytes16`
  */

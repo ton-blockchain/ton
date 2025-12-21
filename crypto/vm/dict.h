@@ -17,11 +17,12 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include <functional>
+
 #include "common/bitstring.h"
 #include "vm/cells.h"
 #include "vm/cellslice.h"
 #include "vm/stack.hpp"
-#include <functional>
 
 namespace vm {
 using td::BitSlice;
@@ -138,7 +139,7 @@ class DictionaryBase {
     return std::move(root_cell);
   }
   bool append_dict_to_bool(CellBuilder& cb) &&;
-  bool append_dict_to_bool(CellBuilder& cb) const &;
+  bool append_dict_to_bool(CellBuilder& cb) const&;
   int get_key_bits() const {
     return key_bits;
   }
@@ -575,7 +576,7 @@ class AugmentedDictionary final : public DictionaryFixed {
   Ref<Cell> get_wrapped_dict_root() const;
   Ref<CellSlice> extract_root() &&;
   bool append_dict_to_bool(CellBuilder& cb) &&;
-  bool append_dict_to_bool(CellBuilder& cb) const &;
+  bool append_dict_to_bool(CellBuilder& cb) const&;
   Ref<CellSlice> get_root_extra() const;
   Ref<CellSlice> lookup(td::ConstBitPtr key, int key_len);
   Ref<Cell> lookup_ref(td::ConstBitPtr key, int key_len);

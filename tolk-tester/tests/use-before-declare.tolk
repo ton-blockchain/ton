@@ -23,6 +23,7 @@ fun demo1(v: int): int {
 global demo_var: int;
 const demo_10: int = 10;
 
+@method_id(101)
 fun test1(): int {
     var demo_var: int = demo_10;
     var demo_slice: int = demo_20;
@@ -33,6 +34,7 @@ fun test1(): int {
     return demo_var + demo_slice;
 }
 
+@method_id(102)
 fun test2() {
     return second;
 }
@@ -48,15 +50,15 @@ const first = 1;
 
 @fif_codegen
 """
-  test1 PROC:<{
+  test1() PROC:<{
     30 PUSHINT  // '10
   }>
 """
 
 @fif_codegen
 """
-  test2 PROC:<{
-    2 PUSHINT  // '2
+  test2() PROC:<{
+    2 PUSHINT  // '0=2
   }>
 """
  */

@@ -17,12 +17,11 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include "common/refint.h"
+#include "td/utils/ThreadSafeCounter.h"
 #include "vm/cells/DataCell.h"
 #include "vm/cells/VirtualCell.h"
 #include "vm/vmstate.h"
-#include "common/refint.h"
-
-#include "td/utils/ThreadSafeCounter.h"
 
 namespace vm {
 
@@ -84,6 +83,9 @@ class CellBuilder : public td::CntObject {
   }
   Ref<Cell> get_ref(unsigned idx) const {
     return idx < refs_cnt ? refs[idx] : Ref<Cell>{};
+  }
+  td::Span<Ref<Cell>> get_refs() const {
+    return {refs.data(), refs_cnt};
   }
   void reset();
   bool reset_bool() {
@@ -181,9 +183,9 @@ class CellBuilder : public td::CntObject {
   bool finalize_to(Ref<Cell>& res, bool special = false) {
     return (res = finalize(special)).not_null();
   }
-  CellSlice as_cellslice() const &;
+  CellSlice as_cellslice() const&;
   CellSlice as_cellslice() &&;
-  Ref<CellSlice> as_cellslice_ref() const &;
+  Ref<CellSlice> as_cellslice_ref() const&;
   Ref<CellSlice> as_cellslice_ref() &&;
   static td::int64 get_total_cell_builders() {
     return get_thread_safe_counter().sum();

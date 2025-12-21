@@ -20,12 +20,13 @@
 
 #include "ton/ton-shard.h"
 #include "ton/ton-types.h"
-#include "validator-set.h"
-#include "config.h"
-#include "block.h"
-#include "message-queue.h"
 #include "vm/cells.h"
+
+#include "block.h"
+#include "config.h"
+#include "message-queue.h"
 #include "proof.h"
+#include "validator-set.h"
 
 namespace ton {
 

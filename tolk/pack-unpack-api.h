@@ -22,14 +22,18 @@
 namespace tolk {
 
 bool check_struct_can_be_packed_or_unpacked(TypePtr any_type, bool is_pack, std::string& because_msg);
-
-std::vector<var_idx_t> generate_pack_struct_to_cell(CodeBlob& code, SrcLocation loc, TypePtr any_type, std::vector<var_idx_t>&& ir_obj, const std::vector<var_idx_t>& ir_options);
-std::vector<var_idx_t> generate_pack_struct_to_builder(CodeBlob& code, SrcLocation loc, TypePtr any_type, std::vector<var_idx_t>&& ir_builder, std::vector<var_idx_t>&& ir_obj, const std::vector<var_idx_t>& ir_options);
-std::vector<var_idx_t> generate_unpack_struct_from_slice(CodeBlob& code, SrcLocation loc, TypePtr any_type, std::vector<var_idx_t>&& ir_slice, bool mutate_slice, const std::vector<var_idx_t>& ir_options);
-std::vector<var_idx_t> generate_unpack_struct_from_cell(CodeBlob& code, SrcLocation loc, TypePtr any_type, std::vector<var_idx_t>&& ir_cell, const std::vector<var_idx_t>& ir_options);
-std::vector<var_idx_t> generate_skip_struct_in_slice(CodeBlob& code, SrcLocation loc, TypePtr any_type, std::vector<var_idx_t>&& ir_slice, const std::vector<var_idx_t>& ir_options);
-
 PackSize estimate_serialization_size(TypePtr any_type);
-std::vector<var_idx_t> generate_estimate_size_call(CodeBlob& code, SrcLocation loc, TypePtr any_type);
+
+// functions like T.toCell() are not declared here: they are implemented in a .cpp file,
+// and their prototypes exist and are referenced in `builtins.cpp`
+
+struct LazyStructLoadInfo;
+struct LazyStructLoadedState;
+struct LazyVariableLoadedState;
+
+void generate_lazy_struct_from_slice(CodeBlob& code, AnyV origin, const LazyVariableLoadedState* lazy_variable, const LazyStructLoadInfo& load_info, const std::vector<var_idx_t>& ir_obj);
+std::vector<var_idx_t> generate_lazy_struct_to_cell(CodeBlob& code, AnyV origin, const LazyStructLoadedState* loaded_state, std::vector<var_idx_t>&& ir_obj, const std::vector<var_idx_t>& ir_options);
+std::vector<var_idx_t> generate_lazy_match_for_union(CodeBlob& code, AnyV origin, TypePtr union_type, const LazyVariableLoadedState* lazy_variable, const LazyMatchOptions& options);
+std::vector<var_idx_t> generate_lazy_object_finish_loading(CodeBlob& code, AnyV origin, const LazyVariableLoadedState* lazy_variable, std::vector<var_idx_t>&& ir_obj);
 
 } // namespace tolk

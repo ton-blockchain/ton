@@ -91,10 +91,13 @@ class ASTReplacerInFunctionBody : public ASTReplacer {
 protected:
   using parent = ASTReplacerInFunctionBody;
 
+  FunctionPtr cur_f = nullptr;
+
   // expressions
   virtual AnyExprV replace(V<ast_empty_expression> v)          { return replace_children(v); }
   virtual AnyExprV replace(V<ast_parenthesized_expression> v)  { return replace_children(v); }
   virtual AnyExprV replace(V<ast_braced_expression> v)         { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_braced_yield_result> v)       { return replace_children(v); }
   virtual AnyExprV replace(V<ast_artificial_aux_vertex> v)     { return replace_children(v); }
   virtual AnyExprV replace(V<ast_tensor> v)                    { return replace_children(v); }
   virtual AnyExprV replace(V<ast_bracket_tuple> v)             { return replace_children(v); }
@@ -118,11 +121,13 @@ protected:
   virtual AnyExprV replace(V<ast_cast_as_operator> v)          { return replace_children(v); }
   virtual AnyExprV replace(V<ast_is_type_operator> v)          { return replace_children(v); }
   virtual AnyExprV replace(V<ast_not_null_operator> v)         { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_lazy_operator> v)             { return replace_children(v); }
   virtual AnyExprV replace(V<ast_match_expression> v)          { return replace_children(v); }
   virtual AnyExprV replace(V<ast_match_arm> v)                 { return replace_children(v); }
   virtual AnyExprV replace(V<ast_object_field> v)              { return replace_children(v); }
   virtual AnyExprV replace(V<ast_object_body> v)               { return replace_children(v); }
   virtual AnyExprV replace(V<ast_object_literal> v)            { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_lambda_fun> v)                { return replace_children(v); }
   // statements
   virtual AnyV replace(V<ast_empty_statement> v)               { return replace_children(v); }
   virtual AnyV replace(V<ast_block_statement> v)               { return replace_children(v); }
@@ -140,6 +145,7 @@ protected:
       case ast_empty_expression:                return replace(v->as<ast_empty_expression>());
       case ast_parenthesized_expression:        return replace(v->as<ast_parenthesized_expression>());
       case ast_braced_expression:               return replace(v->as<ast_braced_expression>());
+      case ast_braced_yield_result:             return replace(v->as<ast_braced_yield_result>());
       case ast_artificial_aux_vertex:           return replace(v->as<ast_artificial_aux_vertex>());
       case ast_tensor:                          return replace(v->as<ast_tensor>());
       case ast_bracket_tuple:                   return replace(v->as<ast_bracket_tuple>());
@@ -163,11 +169,13 @@ protected:
       case ast_cast_as_operator:                return replace(v->as<ast_cast_as_operator>());
       case ast_is_type_operator:                return replace(v->as<ast_is_type_operator>());
       case ast_not_null_operator:               return replace(v->as<ast_not_null_operator>());
+      case ast_lazy_operator:                   return replace(v->as<ast_lazy_operator>());
       case ast_match_expression:                return replace(v->as<ast_match_expression>());
       case ast_match_arm:                       return replace(v->as<ast_match_arm>());
       case ast_object_field:                    return replace(v->as<ast_object_field>());
       case ast_object_body:                     return replace(v->as<ast_object_body>());
       case ast_object_literal:                  return replace(v->as<ast_object_literal>());
+      case ast_lambda_fun:                      return replace(v->as<ast_lambda_fun>());
       default:
         throw UnexpectedASTNodeKind(v, "ASTReplacerInFunctionBody::replace");
     }
@@ -200,15 +208,24 @@ protected:
 public:
   virtual bool should_visit_function(FunctionPtr fun_ref) = 0;
 
-  virtual void start_replacing_in_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) {
+  virtual void on_enter_function(V<ast_function_declaration> v_function) {}
+  virtual void on_exit_function(V<ast_function_declaration> v_function) {}
+
+  void start_replacing_in_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) {
+    cur_f = fun_ref;
+    on_enter_function(v_function);
     replace(v_function->get_body());
+    on_exit_function(v_function);
+    cur_f = nullptr;
   }
 };
 
 
+const std::vector<FunctionPtr>& get_all_builtin_functions();
 const std::vector<FunctionPtr>& get_all_not_builtin_functions();
 const std::vector<GlobalConstPtr>& get_all_declared_constants();
 const std::vector<StructPtr>& get_all_declared_structs();
+const std::vector<EnumDefPtr>& get_all_declared_enums();
 
 template<class BodyReplacerT>
 void replace_ast_of_all_functions() {

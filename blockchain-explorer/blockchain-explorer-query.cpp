@@ -26,29 +26,25 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "blockchain-explorer-query.hpp"
-#include "blockchain-explorer-http.hpp"
-#include "block/mc-config.h"
-#include "crypto/block/check-proof.h"
-
 #include "auto/tl/lite_api.h"
-
-#include "tl-utils/tl-utils.hpp"
-#include "tl-utils/lite-utils.hpp"
-
-#include "ton/ton-tl.hpp"
-#include "ton/lite-tl.hpp"
-
-#include "common/errorcode.h"
 #include "block/block-auto.h"
+#include "block/mc-config.h"
+#include "common/errorcode.h"
+#include "crypto/block/check-proof.h"
 #include "crypto/vm/utils.h"
 #include "td/utils/crypto.h"
-
+#include "tl-utils/lite-utils.hpp"
+#include "tl-utils/tl-utils.hpp"
+#include "ton/lite-tl.hpp"
+#include "ton/ton-tl.hpp"
 #include "vm/boc.h"
 #include "vm/cellops.h"
 #include "vm/cells/MerkleProof.h"
-#include "vm/vm.h"
 #include "vm/cp0.h"
+#include "vm/vm.h"
+
+#include "blockchain-explorer-http.hpp"
+#include "blockchain-explorer-query.hpp"
 
 td::Result<ton::BlockIdExt> parse_block_id(std::map<std::string, std::string> &opts, bool allow_empty) {
   if (allow_empty) {
@@ -525,8 +521,8 @@ HttpQueryBlockSearch::HttpQueryBlockSearch(std::map<std::string, std::string> op
   }
   if (opts.count("utime") == 1) {
     try {
-      seqno_ = static_cast<td::uint32>(std::stoull(opts["utime"]));
-      mode_ = 1;
+      utime_ = static_cast<td::uint32>(std::stoull(opts["utime"]));
+      mode_ = 4;
     } catch (...) {
       error_ = td::Status::Error("cannot parse utime");
       return;
@@ -1429,10 +1425,10 @@ void HttpQueryStatus::finish_query() {
         A << "<td>" << static_cast<td::int32>(x->ts_.at_unix()) << "</td>";
       }
       A << "</tr>\n";
-      for (td::uint32 i = 0; i < results_.ips.size(); i++) {
+      for (td::uint32 i = 0; i < results_.addrs.size(); i++) {
         A << "<tr>";
-        if (results_.ips[i].is_valid()) {
-          A << "<td>" << results_.ips[i].get_ip_str() << ":" << results_.ips[i].get_port() << "</td>";
+        if (!results_.addrs[i].empty()) {
+          A << "<td>" << results_.addrs[i] << "</td>";
         } else {
           A << "<td>hidden</td>";
         }

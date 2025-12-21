@@ -21,7 +21,7 @@
 
 namespace tolk {
 
-static_assert(sizeof(ASTNodeBase) == 12);
+static_assert(sizeof(ASTNodeBase) == 16);
 
 #ifdef TOLK_DEBUG
 
@@ -46,10 +46,6 @@ UnexpectedASTNodeKind::UnexpectedASTNodeKind(AnyV v_unexpected, const char* plac
   message += place_where;
 }
 
-void ASTNodeBase::error(const std::string& err_msg) const {
-  throw ParseError(loc, err_msg);
-}
-
 AnnotationKind Vertex<ast_annotation>::parse_kind(std::string_view name) {
   if (name == "@pure") {
     return AnnotationKind::pure;
@@ -59,6 +55,9 @@ AnnotationKind Vertex<ast_annotation>::parse_kind(std::string_view name) {
   }
   if (name == "@inline_ref") {
     return AnnotationKind::inline_ref;
+  }
+  if (name == "@noinline") {
+    return AnnotationKind::noinline;
   }
   if (name == "@method_id") {
     return AnnotationKind::method_id;
@@ -71,6 +70,9 @@ AnnotationKind Vertex<ast_annotation>::parse_kind(std::string_view name) {
   }
   if (name == "@overflow1023_policy") {
     return AnnotationKind::overflow1023_policy;
+  }
+  if (name == "@on_bounced_policy") {
+    return AnnotationKind::on_bounced_policy;
   }
   return AnnotationKind::unknown;
 }
@@ -86,7 +88,7 @@ int Vertex<ast_genericsT_list>::lookup_idx(std::string_view nameT) const {
 
 int Vertex<ast_parameter_list>::lookup_idx(std::string_view param_name) const {
   for (size_t idx = 0; idx < children.size(); ++idx) {
-    if (children[idx] && children[idx]->as<ast_parameter>()->param_name == param_name) {
+    if (children[idx] && children[idx]->as<ast_parameter>()->get_name() == param_name) {
       return static_cast<int>(idx);
     }
   }
@@ -136,10 +138,6 @@ void Vertex<ast_reference>::assign_sym(const Symbol* sym) {
   this->sym = sym;
 }
 
-void Vertex<ast_string_const>::assign_literal_value(std::string&& literal_value) {
-  this->literal_value = std::move(literal_value);
-}
-
 void Vertex<ast_function_call>::assign_fun_ref(FunctionPtr fun_ref, bool dot_obj_is_self) {
   this->fun_maybe = fun_ref;
   this->dot_obj_is_self = dot_obj_is_self;
@@ -147,6 +145,14 @@ void Vertex<ast_function_call>::assign_fun_ref(FunctionPtr fun_ref, bool dot_obj
 
 void Vertex<ast_is_type_operator>::assign_is_negated(bool is_negated) {
   this->is_negated = is_negated;
+}
+
+void Vertex<ast_lazy_operator>::assign_dest_var_ref(LocalVarPtr dest_var_ref) {
+  this->dest_var_ref = dest_var_ref;
+}
+
+void Vertex<ast_match_expression>::assign_is_exhaustive(bool is_exhaustive) {
+  this->is_exhaustive = is_exhaustive;
 }
 
 void Vertex<ast_match_arm>::assign_resolved_pattern(MatchArmKind pattern_kind, AnyExprV pattern_expr) {
@@ -165,6 +171,10 @@ void Vertex<ast_constant_declaration>::assign_const_ref(GlobalConstPtr const_ref
 
 void Vertex<ast_type_alias_declaration>::assign_alias_ref(AliasDefPtr alias_ref) {
   this->alias_ref = alias_ref;
+}
+
+void Vertex<ast_enum_declaration>::assign_enum_ref(EnumDefPtr enum_ref) {
+  this->enum_ref = enum_ref;
 }
 
 void Vertex<ast_struct_declaration>::assign_struct_ref(StructPtr struct_ref) {
@@ -187,6 +197,10 @@ void Vertex<ast_block_statement>::assign_first_unreachable(AnyV first_unreachabl
   this->first_unreachable = first_unreachable;
 }
 
+void Vertex<ast_block_statement>::assign_new_children(std::vector<AnyV>&& children) {
+  this->children = std::move(children);
+}
+
 void Vertex<ast_dot_access>::assign_target(const DotTarget& target) {
   this->target = target;
 }
@@ -197,6 +211,10 @@ void Vertex<ast_object_field>::assign_field_ref(StructFieldPtr field_ref) {
 
 void Vertex<ast_object_literal>::assign_struct_ref(StructPtr struct_ref) {
   this->struct_ref = struct_ref;
+}
+
+void Vertex<ast_lambda_fun>::assign_lambda_ref(FunctionPtr lambda_ref) {
+  this->lambda_ref = lambda_ref;
 }
 
 void Vertex<ast_function_declaration>::assign_fun_ref(FunctionPtr fun_ref) {

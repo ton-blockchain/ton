@@ -23,26 +23,28 @@
     exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 */
-#include "tolk.h"
-#include "tolk-version.h"
+#include <sstream>
+
+#include "fift/utils.h"
+#include "td/utils/JsonBuilder.h"
+#include "td/utils/Status.h"
+
 #include "compiler-state.h"
 #include "git.h"
-#include "td/utils/JsonBuilder.h"
-#include "fift/utils.h"
-#include "td/utils/Status.h"
-#include <sstream>
+#include "tolk-version.h"
+#include "tolk.h"
 
 using namespace tolk;
 
-static td::Result<std::string> compile_internal(char *config_json) {
+static td::Result<std::string> compile_internal(char* config_json) {
   TRY_RESULT(input_json, td::json_decode(td::MutableSlice(config_json)))
   td::JsonObject& config = input_json.get_object();
 
-  TRY_RESULT(opt_level, td::get_json_object_int_field(config, "optimizationLevel", true, 2));
-  TRY_RESULT(stack_comments, td::get_json_object_bool_field(config, "withStackComments", true, false));
-  TRY_RESULT(src_line_comments, td::get_json_object_bool_field(config, "withSrcLineComments", true, false));
-  TRY_RESULT(entrypoint_filename, td::get_json_object_string_field(config, "entrypointFileName", false));
-  TRY_RESULT(experimental_options, td::get_json_object_string_field(config, "experimentalOptions", true));
+  TRY_RESULT(opt_level, config.get_optional_int_field("optimizationLevel", 2));
+  TRY_RESULT(stack_comments, config.get_optional_bool_field("withStackComments", false));
+  TRY_RESULT(src_line_comments, config.get_optional_bool_field("withSrcLineComments", false));
+  TRY_RESULT(entrypoint_filename, config.get_required_string_field("entrypointFileName"));
+  TRY_RESULT(experimental_options, config.get_optional_string_field("experimentalOptions", ""));
 
   G.settings.verbosity = 0;
   G.settings.optimization_level = std::max(0, opt_level);
@@ -57,7 +59,7 @@ static td::Result<std::string> compile_internal(char *config_json) {
   std::cerr.rdbuf(errs.rdbuf());
   int exit_code = tolk_proceed(entrypoint_filename);
   if (exit_code != 0) {
-    return td::Status::Error("Tolk compilation error: " + errs.str());
+    return td::Status::Error(errs.str());
   }
 
   TRY_RESULT(fift_res, fift::compile_asm_program(outs.str(), "/fiftlib/"));
@@ -108,7 +110,7 @@ const char* version() {
   return strdup(version_json.string_builder().as_cslice().c_str());
 }
 
-const char *tolk_compile(char *config_json, WasmFsReadCallback callback) {
+const char* tolk_compile(char* config_json, WasmFsReadCallback callback) {
   G.settings.read_callback = wrap_wasm_read_callback(callback);
 
   td::Result<std::string> res = compile_internal(config_json);
@@ -126,4 +128,4 @@ const char *tolk_compile(char *config_json, WasmFsReadCallback callback) {
   return strdup(res_string.c_str());
 }
 
-} // extern "C"
+}  // extern "C"

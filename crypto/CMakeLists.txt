@@ -1,7 +1,3 @@
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 set(TON_CRYPTO_CORE_SOURCE
   Ed25519.cpp
   common/bigint.cpp
@@ -69,7 +65,6 @@ set(TON_CRYPTO_CORE_SOURCE
   vm/cells/PrunnedCell.h
   vm/cells/UsageCell.h
   vm/cells/VirtualCell.h
-  vm/cells/VirtualizationParameters.h
 
   vm/cells.h
   vm/cellslice.h
@@ -86,6 +81,7 @@ set(TON_CRYPTO_CORE_SOURCE
   ellcurve/p256.cpp)
 
 set(TON_CRYPTO_SOURCE
+  vm/boc-compression.cpp
   vm/stack.cpp
   vm/atom.cpp
   vm/continuation.cpp
@@ -108,6 +104,7 @@ set(TON_CRYPTO_SOURCE
   vm/arithops.h
   vm/atom.h
   vm/boc.h
+  vm/boc-compression.h
   vm/boc-writers.h
   vm/box.hpp
   vm/cellops.h

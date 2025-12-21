@@ -16,25 +16,26 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "validate-query.hpp"
-#include "top-shard-descr.hpp"
-#include "validator-set.hpp"
+#include <ctime>
+
 #include "adnl/utils.hpp"
-#include "ton/ton-tl.hpp"
-#include "ton/ton-io.hpp"
-#include "vm/boc.h"
-#include "block/block-db.h"
-#include "block/block.h"
-#include "block/block-parse.h"
 #include "block/block-auto.h"
+#include "block/block-db.h"
+#include "block/block-parse.h"
+#include "block/block.h"
 #include "block/output-queue-merger.h"
+#include "common/errorlog.h"
+#include "ton/ton-io.hpp"
+#include "ton/ton-tl.hpp"
+#include "vm/boc.h"
 #include "vm/cells/MerkleProof.h"
 #include "vm/cells/MerkleUpdate.h"
-#include "common/errorlog.h"
+
 #include "fabric.h"
 #include "storage-stat-cache.hpp"
-
-#include <ctime>
+#include "top-shard-descr.hpp"
+#include "validate-query.hpp"
+#include "validator-set.hpp"
 
 namespace ton {
 
@@ -59,33 +60,30 @@ std::string ErrorCtx::as_string() const {
 /**
  * Constructs a ValidateQuery object.
  *
- * @param shard The shard of the block being validated.
- * @param min_masterchain_block_id The minimum allowed masterchain block reference for the block.
- * @param prev A vector of BlockIdExt representing the previous blocks.
  * @param candidate The BlockCandidate to be validated.
- * @param validator_set A reference to the ValidatorSet.
+ * @param params Validation parameters
  * @param manager The ActorId of the ValidatorManager.
  * @param timeout The timeout for the validation.
  * @param promise The Promise to return the ValidateCandidateResult to.
- * @param mode +1 - fake mode
  */
-ValidateQuery::ValidateQuery(ShardIdFull shard, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
-                             BlockCandidate candidate, Ref<ValidatorSet> validator_set,
-                             PublicKeyHash local_validator_id, td::actor::ActorId<ValidatorManager> manager,
-                             td::Timestamp timeout, td::Promise<ValidateCandidateResult> promise, unsigned mode)
-    : shard_(shard)
+ValidateQuery::ValidateQuery(BlockCandidate candidate, ValidateParams params,
+                             td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
+                             td::Promise<ValidateCandidateResult> promise)
+    : shard_(params.shard)
     , id_(candidate.id)
-    , min_mc_block_id(min_masterchain_block_id)
-    , prev_blocks(std::move(prev))
+    , min_mc_block_id(params.min_masterchain_block_id)
+    , prev_blocks(std::move(params.prev))
     , block_candidate(std::move(candidate))
-    , validator_set_(std::move(validator_set))
-    , local_validator_id_(local_validator_id)
+    , validator_set_(std::move(params.validator_set))
+    , local_validator_id_(params.local_validator_id)
     , manager(manager)
     , timeout(timeout)
     , main_promise(std::move(promise))
-    , is_fake_(mode & ValidateMode::fake)
+    , is_fake_(params.is_fake)
+    , parallel_accounts_validation_(params.parallel_validation)
     , shard_pfx_(shard_.shard)
     , shard_pfx_len_(ton::shard_prefix_length(shard_))
+    , optimistic_prev_block_(std::move(params.optimistic_prev_block))
     , perf_timer_("validateblock", 0.1, [manager](double duration) {
       send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
     }) {
@@ -95,7 +93,9 @@ ValidateQuery::ValidateQuery(ShardIdFull shard, BlockIdExt min_masterchain_block
  * Raises an error when timeout is reached.
  */
 void ValidateQuery::alarm() {
-  abort_query(td::Status::Error(ErrorCode::timeout, "timeout"));
+  if (!parallel_accounts_validation_pending_) {
+    abort_query(td::Status::Error(ErrorCode::timeout, "timeout"));
+  }
 }
 
 /**
@@ -350,14 +350,31 @@ void ValidateQuery::start_up() {
       // return;
     }
   }
+  if (optimistic_prev_block_.not_null()) {
+    if (is_masterchain()) {
+      fatal_error("optimistic validation in masterchain is not supported");
+      return;
+    }
+    if (prev_blocks.size() != 1) {
+      fatal_error("optimistic prev block is not null, which is not allowed after merge");
+      return;
+    }
+    if (prev_blocks[0] != optimistic_prev_block_->block_id()) {
+      fatal_error("optimistic prev block is not null, but has invalid block id");
+      return;
+    }
+    LOG(WARNING) << "Optimistic prev block id = " << optimistic_prev_block_->block_id().to_str();
+  }
   // 2. learn latest masterchain state and block id
   LOG(DEBUG) << "sending get_top_masterchain_state_block() to Manager";
   ++pending;
   td::actor::send_closure_later(manager, &ValidatorManager::get_top_masterchain_state_block,
-                                [self = get_self()](td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) {
+                                [self = get_self(), token = perf_log_.start_action("get_top_masterchain_state_block")](
+                                    td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) mutable {
                                   LOG(DEBUG) << "got answer to get_top_masterchain_state_block";
-                                  td::actor::send_closure_later(
-                                      std::move(self), &ValidateQuery::after_get_latest_mc_state, std::move(res));
+                                  td::actor::send_closure_later(std::move(self),
+                                                                &ValidateQuery::after_get_latest_mc_state,
+                                                                std::move(res), std::move(token));
                                 });
   // 3. unpack block candidate (while necessary data is being loaded)
   if (!unpack_block_candidate()) {
@@ -366,28 +383,25 @@ void ValidateQuery::start_up() {
   }
   // 4. load state(s) corresponding to previous block(s) (not full-collated-data or masterchain)
   prev_states.resize(prev_blocks.size());
-  if  (is_masterchain() || !full_collated_data_) {
-    for (int i = 0; (unsigned)i < prev_blocks.size(); i++) {
-      // 4.1. load state
-      LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
-      ++pending;
-      td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(),
-                                    timeout, [self = get_self(), i](td::Result<Ref<ShardState>> res) -> void {
-                                      LOG(DEBUG) << "got answer to wait_block_state_short query #" << i;
-                                      td::actor::send_closure_later(
-                                          std::move(self), &ValidateQuery::after_get_shard_state, i, std::move(res));
-                                    });
+  if (is_masterchain() || !full_collated_data_) {
+    if (optimistic_prev_block_.is_null()) {
+      load_prev_states();
+    } else {
+      if (!process_optimistic_prev_block()) {
+        return;
+      }
     }
   }
   // 4. request masterchain handle and state referred to in the block
   if (!is_masterchain()) {
     ++pending;
-    td::actor::send_closure_later(manager, &ValidatorManager::get_block_handle, mc_blkid_, true,
-                                  [self = get_self()](td::Result<BlockHandle> res) {
-                                    LOG(DEBUG) << "got answer to get_block_handle() query for masterchain block";
-                                    td::actor::send_closure_later(std::move(self), &ValidateQuery::got_mc_handle,
-                                                                  std::move(res));
-                                  });
+    td::actor::send_closure_later(
+        manager, &ValidatorManager::get_block_handle, mc_blkid_, true,
+        [self = get_self(), token = perf_log_.start_action("get_block_handle")](td::Result<BlockHandle> res) mutable {
+          LOG(DEBUG) << "got answer to get_block_handle() query for masterchain block";
+          td::actor::send_closure_later(std::move(self), &ValidateQuery::got_mc_handle, std::move(res),
+                                        std::move(token));
+        });
   } else {
     if (prev_blocks[0] != mc_blkid_) {
       soft_reject_query("cannot validate masterchain block "s + id_.to_str() +
@@ -399,14 +413,101 @@ void ValidateQuery::start_up() {
   // 5. get storage stat cache
   ++pending;
   LOG(DEBUG) << "sending get_storage_stat_cache() query to Manager";
-  td::actor::send_closure_later(
-      manager, &ValidatorManager::get_storage_stat_cache,
-      [self = get_self()](td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res) {
-        LOG(DEBUG) << "got answer to get_storage_stat_cache() query";
-        td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_storage_stat_cache, std::move(res));
-      });
+  td::actor::send_closure_later(manager, &ValidatorManager::get_storage_stat_cache,
+                                [self = get_self(), token = perf_log_.start_action("get_storage_stat_cache")](
+                                    td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res) mutable {
+                                  LOG(DEBUG) << "got answer to get_storage_stat_cache() query";
+                                  td::actor::send_closure_later(std::move(self),
+                                                                &ValidateQuery::after_get_storage_stat_cache,
+                                                                std::move(res), std::move(token));
+                                });
   // ...
   CHECK(pending);
+}
+
+/**
+ * Load previous states from DB
+ */
+void ValidateQuery::load_prev_states() {
+  for (int i = 0; (unsigned)i < prev_blocks.size(); i++) {
+    // 4.1. load state
+    LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
+    ++pending;
+    td::actor::send_closure_later(
+        manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(), timeout, false,
+        [self = get_self(), i, token = perf_log_.start_action(PSTRING() << "wait_block_state #" << i)](
+            td::Result<Ref<ShardState>> res) mutable {
+          LOG(DEBUG) << "got answer to wait_block_state_short query #" << i;
+          td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_shard_state, i, std::move(res),
+                                        std::move(token));
+        });
+  }
+}
+
+/**
+ * Load previous state for optimistic prev block to apply Merkle update to it
+ */
+bool ValidateQuery::process_optimistic_prev_block() {
+  std::vector<BlockIdExt> prev_prev;
+  BlockIdExt mc_blkid;
+  bool after_split;
+  auto S = block::unpack_block_prev_blk_try(optimistic_prev_block_->root_cell(), optimistic_prev_block_->block_id(),
+                                            prev_prev, mc_blkid, after_split);
+  if (S.is_error()) {
+    return fatal_error(S.move_as_error_prefix("failed to unpack optimistic prev block: "));
+  }
+  // 4.1. load state
+  if (prev_prev.size() == 1) {
+    LOG(DEBUG) << "sending wait_block_state() query for " << prev_prev[0].to_str() << " to Manager (opt)";
+    ++pending;
+    td::actor::send_closure_later(
+        manager, &ValidatorManager::wait_block_state_short, prev_prev[0], priority(), timeout, false,
+        [self = get_self(),
+         token = perf_log_.start_action("opt wait_block_state")](td::Result<Ref<ShardState>> res) mutable {
+          LOG(DEBUG) << "got answer to wait_block_state query (opt)";
+          td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_shard_state_optimistic,
+                                        std::move(res), std::move(token));
+        });
+  } else {
+    CHECK(prev_prev.size() == 2);
+    LOG(DEBUG) << "sending wait_block_state_merge() query for " << prev_prev[0].to_str() << " and "
+               << prev_prev[1].to_str() << " to Manager (opt)";
+    ++pending;
+    td::actor::send_closure_later(
+        manager, &ValidatorManager::wait_block_state_merge, prev_prev[0], prev_prev[1], priority(), timeout,
+        [self = get_self(),
+         token = perf_log_.start_action("opt wait_block_state_merge")](td::Result<Ref<ShardState>> res) mutable {
+          LOG(DEBUG) << "got answer to wait_block_state_merge query (opt)";
+          td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_shard_state_optimistic,
+                                        std::move(res), std::move(token));
+        });
+  }
+  return true;
+}
+
+/**
+ * Callback function called after retrieving previous state for optimistic prev block
+ *
+ * @param res The retrieved state.
+ */
+void ValidateQuery::after_get_shard_state_optimistic(td::Result<Ref<ShardState>> res, td::PerfLogAction token) {
+  token.finish(res);
+  LOG(DEBUG) << "in ValidateQuery::after_get_shard_state_optimistic()";
+  if (res.is_error()) {
+    fatal_error(res.move_as_error());
+    return;
+  }
+  td::RealCpuTimer timer;
+  work_timer_.resume();
+  auto state = res.move_as_ok();
+  auto S = state.write().apply_block(optimistic_prev_block_->block_id(), optimistic_prev_block_);
+  if (S.is_error()) {
+    fatal_error(S.move_as_error_prefix("apply error: "));
+    return;
+  }
+  work_timer_.pause();
+  stats_.work_time.optimistic_apply = timer.elapsed_both();
+  after_get_shard_state(0, std::move(state), {});
 }
 
 /**
@@ -620,7 +721,7 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     if (cs.special_type() != vm::Cell::SpecialType::MerkleProof) {
       return reject_query("it is a special cell, but not a Merkle proof root");
     }
-    auto virt_root = vm::MerkleProof::virtualize(croot, 1);
+    auto virt_root = vm::MerkleProof::virtualize(croot);
     if (virt_root.is_null()) {
       return reject_query("invalid Merkle proof");
     }
@@ -650,7 +751,7 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     }
     // account_storage_dict_proof#37c1e3fc proof:^Cell = AccountStorageDictProof;
     Ref<vm::Cell> proof = cs.prefetch_ref();
-    auto virt_root = vm::MerkleProof::virtualize(proof, 1);
+    auto virt_root = vm::MerkleProof::virtualize(proof);
     if (virt_root.is_null()) {
       return reject_query("invalid Merkle proof in AccountStorageDictProof");
     }
@@ -698,10 +799,12 @@ bool ValidateQuery::extract_collated_data() {
 void ValidateQuery::request_latest_mc_state() {
   ++pending;
   td::actor::send_closure_later(manager, &ValidatorManager::get_top_masterchain_state_block,
-                                [self = get_self()](td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) {
+                                [self = get_self(), token = perf_log_.start_action("get_top_masterchain_state_block")](
+                                    td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) mutable {
                                   LOG(DEBUG) << "got answer to get_top_masterchain_state_block";
-                                  td::actor::send_closure_later(
-                                      std::move(self), &ValidateQuery::after_get_latest_mc_state, std::move(res));
+                                  td::actor::send_closure_later(std::move(self),
+                                                                &ValidateQuery::after_get_latest_mc_state,
+                                                                std::move(res), std::move(token));
                                 });
 }
 
@@ -710,7 +813,9 @@ void ValidateQuery::request_latest_mc_state() {
  *
  * @param res The result of the retrieval of the latest masterchain state.
  */
-void ValidateQuery::after_get_latest_mc_state(td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) {
+void ValidateQuery::after_get_latest_mc_state(td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res,
+                                              td::PerfLogAction token) {
+  token.finish(res);
   LOG(WARNING) << "in ValidateQuery::after_get_latest_mc_state()";
   --pending;
   if (res.is_error()) {
@@ -751,7 +856,8 @@ void ValidateQuery::after_get_latest_mc_state(td::Result<std::pair<Ref<Mastercha
  *
  * @param res The result of the masterchain state retrieval.
  */
-void ValidateQuery::after_get_mc_state(td::Result<Ref<ShardState>> res) {
+void ValidateQuery::after_get_mc_state(td::Result<Ref<ShardState>> res, td::PerfLogAction token) {
+  token.finish(res);
   CHECK(!is_masterchain());
   LOG(WARNING) << "in ValidateQuery::after_get_mc_state() for " << mc_blkid_.to_str();
   --pending;
@@ -776,7 +882,8 @@ void ValidateQuery::after_get_mc_state(td::Result<Ref<ShardState>> res) {
  *
  * @param res The result of retrieving the masterchain block handle.
  */
-void ValidateQuery::got_mc_handle(td::Result<BlockHandle> res) {
+void ValidateQuery::got_mc_handle(td::Result<BlockHandle> res, td::PerfLogAction token) {
+  token.finish(res);
   LOG(DEBUG) << "in ValidateQuery::got_mc_handle() for " << mc_blkid_.to_str();
   if (res.is_error()) {
     fatal_error(res.move_as_error());
@@ -784,14 +891,16 @@ void ValidateQuery::got_mc_handle(td::Result<BlockHandle> res) {
   }
   auto mc_handle = res.move_as_ok();
   td::actor::send_closure_later(
-      manager, &ValidatorManager::wait_block_state, mc_handle, priority(), timeout,
-      [self = get_self(), id = id_, mc_handle](td::Result<Ref<ShardState>> res) {
+      manager, &ValidatorManager::wait_block_state, mc_handle, priority(), timeout, false,
+      [self = get_self(), id = id_, mc_handle,
+       token = perf_log_.start_action("mc wait_block_state")](td::Result<Ref<ShardState>> res) mutable {
         LOG(DEBUG) << "got answer to wait_block_state() query for masterchain block";
         if (res.is_ok() && mc_handle->id().seqno() > 0 && !mc_handle->inited_proof()) {
           res = td::Status::Error(-666, "reference masterchain block "s + mc_handle->id().to_str() + " for block " +
                                             id.to_str() + " does not have a valid proof");
         }
-        td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_mc_state, std::move(res));
+        td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_mc_state, std::move(res),
+                                      std::move(token));
       });
 }
 
@@ -800,7 +909,9 @@ void ValidateQuery::got_mc_handle(td::Result<BlockHandle> res) {
  *
  * @param res The retrieved storage stat cache.
  */
-void ValidateQuery::after_get_storage_stat_cache(td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res) {
+void ValidateQuery::after_get_storage_stat_cache(td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res,
+                                                 td::PerfLogAction token) {
+  token.finish(res);
   --pending;
   if (res.is_error()) {
     LOG(INFO) << "after_get_storage_stat_cache : " << res.error();
@@ -821,7 +932,8 @@ void ValidateQuery::after_get_storage_stat_cache(td::Result<std::function<td::Re
  * @param idx The index of the previous block (0 or 1).
  * @param res The result of the shard state retrieval.
  */
-void ValidateQuery::after_get_shard_state(int idx, td::Result<Ref<ShardState>> res) {
+void ValidateQuery::after_get_shard_state(int idx, td::Result<Ref<ShardState>> res, td::PerfLogAction token) {
+  token.finish(res);
   LOG(WARNING) << "in ValidateQuery::after_get_shard_state(" << idx << ")";
   --pending;
   if (res.is_error()) {
@@ -901,7 +1013,7 @@ bool ValidateQuery::try_unpack_mc_state() {
       return fatal_error(-666, "latest masterchain state does not have a root cell");
     }
     auto res = block::ConfigInfo::extract_config(
-        mc_state_root_,
+        mc_state_root_, mc_blkid_,
         block::ConfigInfo::needShardHashes | block::ConfigInfo::needLibraries | block::ConfigInfo::needValidatorSet |
             block::ConfigInfo::needWorkchainInfo | block::ConfigInfo::needStateExtraRoot |
             block::ConfigInfo::needCapabilities | block::ConfigInfo::needPrevBlocks |
@@ -912,7 +1024,6 @@ bool ValidateQuery::try_unpack_mc_state() {
     }
     config_ = res.move_as_ok();
     CHECK(config_);
-    config_->set_block_id_ext(mc_blkid_);
     ihr_enabled_ = config_->ihr_enabled();
     create_stats_enabled_ = config_->create_stats_enabled();
     if (config_->has_capabilities() && (config_->get_capabilities() & ~supported_capabilities())) {
@@ -943,6 +1054,7 @@ bool ValidateQuery::try_unpack_mc_state() {
       return reject_query(PSTRING() << "vertical seqno mismatch: new block has " << vert_seqno_
                                     << " while the masterchain configuration expects " << config_->get_vert_seqno());
     }
+    global_version_ = config_->get_global_version();
     prev_key_block_exists_ = config_->get_last_key_block(prev_key_block_, prev_key_block_lt_);
     if (prev_key_block_exists_) {
       prev_key_block_seqno_ = prev_key_block_.seqno();
@@ -960,7 +1072,6 @@ bool ValidateQuery::try_unpack_mc_state() {
     }
     block_limits_ = limits.move_as_ok();
     block_limits_->start_lt = start_lt_;
-    block_limit_status_ = std::make_unique<block::BlockLimitStatus>(*block_limits_);
     if (!fetch_config_params()) {
       return false;
     }
@@ -1031,8 +1142,8 @@ bool ValidateQuery::fetch_config_params() {
     if (compute_phase_cfg_.global_version >= 4) {
       auto prev_blocks_info = config_->get_prev_blocks_info();
       if (prev_blocks_info.is_error()) {
-        return fatal_error(prev_blocks_info.move_as_error_prefix(
-            "cannot fetch prev blocks info from masterchain configuration: "));
+        return fatal_error(
+            prev_blocks_info.move_as_error_prefix("cannot fetch prev blocks info from masterchain configuration: "));
       }
       compute_phase_cfg_.prev_blocks_info = prev_blocks_info.move_as_ok();
     }
@@ -1074,11 +1185,14 @@ bool ValidateQuery::fetch_config_params() {
     action_phase_cfg_.extra_currency_v2 = config_->get_global_version() >= 10;
     action_phase_cfg_.disable_anycast = config_->get_global_version() >= 10;
     action_phase_cfg_.disable_ihr_flag = config_->get_global_version() >= 11;
+    action_phase_cfg_.global_version = config_->get_global_version();
   }
   {
+    serialize_cfg_.global_version = config_->get_global_version();
     serialize_cfg_.extra_currency_v2 = config_->get_global_version() >= 10;
     serialize_cfg_.disable_anycast = config_->get_global_version() >= 10;
     serialize_cfg_.store_storage_dict_hash = config_->get_global_version() >= 11;
+    serialize_cfg_.size_limits = size_limits;
   }
   {
     // fetch block_grams_created
@@ -1406,17 +1520,17 @@ bool ValidateQuery::compute_next_state() {
       }
     }
     auto r_config_info = block::ConfigInfo::extract_config(
-        state_root_, block::ConfigInfo::needShardHashes | block::ConfigInfo::needLibraries |
-                         block::ConfigInfo::needValidatorSet | block::ConfigInfo::needWorkchainInfo |
-                         block::ConfigInfo::needStateExtraRoot | block::ConfigInfo::needAccountsRoot |
-                         block::ConfigInfo::needSpecialSmc | block::ConfigInfo::needCapabilities);
+        state_root_, id_,
+        block::ConfigInfo::needShardHashes | block::ConfigInfo::needLibraries | block::ConfigInfo::needValidatorSet |
+            block::ConfigInfo::needWorkchainInfo | block::ConfigInfo::needStateExtraRoot |
+            block::ConfigInfo::needAccountsRoot | block::ConfigInfo::needSpecialSmc |
+            block::ConfigInfo::needCapabilities);
     if (r_config_info.is_error()) {
       return reject_query("cannot extract configuration from new masterchain state "s + mc_blkid_.to_str() + " : " +
                           r_config_info.error().to_string());
     }
     new_config_ = r_config_info.move_as_ok();
     CHECK(new_config_);
-    new_config_->set_block_id_ext(id_);
   }
   return true;
 }
@@ -1599,7 +1713,8 @@ bool ValidateQuery::request_neighbor_queues() {
           return fatal_error("neighbor from masterchain is not the last mc block");
         }
         ++pending;
-        send_closure_later(get_self(), &ValidateQuery::got_neighbor_out_queue, i, mc_state_->message_queue());
+        send_closure_later(get_self(), &ValidateQuery::got_neighbor_out_queue, i, mc_state_->message_queue(),
+                           td::PerfLogAction{});
         ++i;
         continue;
       }
@@ -1612,18 +1727,26 @@ bool ValidateQuery::request_neighbor_queues() {
         return reject_query("cannot fetch shard state from collated data", state.move_as_error());
       }
       ++pending;
-      send_closure_later(get_self(), &ValidateQuery::got_neighbor_out_queue, i, state.move_as_ok()->message_queue());
+      send_closure_later(get_self(), &ValidateQuery::got_neighbor_out_queue, i, state.move_as_ok()->message_queue(),
+                         td::PerfLogAction{});
       ++i;
     }
   } else {
     for (block::McShardDescr& descr : neighbors_) {
       LOG(DEBUG) << "requesting outbound queue of neighbor #" << i << " : " << descr.blk_.to_str();
       ++pending;
-      send_closure_later(manager, &ValidatorManager::wait_block_message_queue_short, descr.blk_, priority(), timeout,
-                         [self = get_self(), i](td::Result<Ref<MessageQueue>> res) {
-                           td::actor::send_closure(std::move(self), &ValidateQuery::got_neighbor_out_queue, i,
-                                                   std::move(res));
-                         });
+      if (int prev_idx = prev_block_idx(descr.blk_); prev_idx >= 0) {
+        td::actor::send_closure(actor_id(this), &ValidateQuery::got_neighbor_out_queue, i,
+                                prev_states.at(prev_idx)->message_queue(), td::PerfLogAction{});
+      } else {
+        send_closure_later(
+            manager, &ValidatorManager::wait_block_message_queue_short, descr.blk_, priority(), timeout,
+            [self = get_self(), i, token = perf_log_.start_action(PSTRING() << "wait_block_message_queue #" << i)](
+                td::Result<Ref<MessageQueue>> res) mutable {
+              td::actor::send_closure(std::move(self), &ValidateQuery::got_neighbor_out_queue, i, std::move(res),
+                                      std::move(token));
+            });
+      }
       ++i;
     }
   }
@@ -1637,7 +1760,8 @@ bool ValidateQuery::request_neighbor_queues() {
  * @param i The index of the neighbor.
  * @param res The obtained outbound queue.
  */
-void ValidateQuery::got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> res) {
+void ValidateQuery::got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> res, td::PerfLogAction token) {
+  token.finish(res);
   --pending;
   if (res.is_error()) {
     fatal_error(res.move_as_error());
@@ -1764,13 +1888,15 @@ bool ValidateQuery::request_aux_mc_state(BlockSeqno seqno, Ref<MasterchainStateQ
   CHECK(blkid.is_valid_ext() && blkid.is_masterchain());
   LOG(DEBUG) << "sending auxiliary wait_block_state() query for " << blkid.to_str() << " to Manager";
   ++pending;
-  td::actor::send_closure_later(manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout,
-                                [self = get_self(), blkid](td::Result<Ref<ShardState>> res) {
-                                  LOG(DEBUG) << "got answer to wait_block_state query for " << blkid.to_str();
-                                  td::actor::send_closure_later(std::move(self),
-                                                                &ValidateQuery::after_get_aux_shard_state, blkid,
-                                                                std::move(res));
-                                });
+  td::actor::send_closure_later(
+      manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout, false,
+      [self = get_self(), blkid,
+       token = perf_log_.start_action(PSTRING() << "auxiliary wait_block_state " << blkid.seqno())](
+          td::Result<Ref<ShardState>> res) mutable {
+        LOG(DEBUG) << "got answer to wait_block_state query for " << blkid.to_str();
+        td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_aux_shard_state, blkid, std::move(res),
+                                      std::move(token));
+      });
   state.clear();
   return true;
 }
@@ -1800,7 +1926,9 @@ Ref<MasterchainStateQ> ValidateQuery::get_aux_mc_state(BlockSeqno seqno) const {
  * @param blkid The BlockIdExt of the shard state.
  * @param res The result of retrieving the shard state.
  */
-void ValidateQuery::after_get_aux_shard_state(ton::BlockIdExt blkid, td::Result<Ref<ShardState>> res) {
+void ValidateQuery::after_get_aux_shard_state(ton::BlockIdExt blkid, td::Result<Ref<ShardState>> res,
+                                              td::PerfLogAction token) {
+  token.finish(res);
   LOG(DEBUG) << "in ValidateQuery::after_get_aux_shard_state(" << blkid.to_str() << ")";
   --pending;
   if (res.is_error()) {
@@ -2196,11 +2324,12 @@ bool ValidateQuery::check_shard_layout() {
   }
   if (!new_top_shard_blocks.empty()) {
     ++pending;
-    td::actor::send_closure(manager, &ValidatorManager::wait_verify_shard_blocks, std::move(new_top_shard_blocks),
-                            [SelfId = actor_id(this)](td::Result<td::Unit> R) {
-                              td::actor::send_closure(SelfId, &ValidateQuery::verified_shard_blocks,
-                                                      R.move_as_status());
-                            });
+    td::actor::send_closure(
+        manager, &ValidatorManager::wait_verify_shard_blocks, std::move(new_top_shard_blocks),
+        [SelfId = actor_id(this),
+         token = perf_log_.start_action("wait_verify_shard_blocks")](td::Result<td::Unit> R) mutable {
+          td::actor::send_closure(SelfId, &ValidateQuery::verified_shard_blocks, R.move_as_status(), std::move(token));
+        });
   }
   return check_mc_validator_info(is_key_block_ || (now_ / ccvc.mc_cc_lifetime > prev_now_ / ccvc.mc_cc_lifetime));
 }
@@ -2375,11 +2504,13 @@ bool ValidateQuery::prepare_out_msg_queue_size() {
   out_msg_queue_size_known_ = true;
   for (size_t i = 0; i < prev_blocks.size(); ++i) {
     ++pending;
-    send_closure_later(manager, &ValidatorManager::get_out_msg_queue_size, prev_blocks[i],
-                       [self = get_self(), i](td::Result<td::uint64> res) {
-                         td::actor::send_closure(std::move(self), &ValidateQuery::got_out_queue_size, i,
-                                                 std::move(res));
-                       });
+    send_closure_later(
+        manager, &ValidatorManager::get_out_msg_queue_size, prev_blocks[i],
+        [self = get_self(), i, token = perf_log_.start_action(PSTRING() << "get_out_msg_queue_size #" << i)](
+            td::Result<td::uint64> res) mutable {
+          td::actor::send_closure(std::move(self), &ValidateQuery::got_out_queue_size, i, std::move(res),
+                                  std::move(token));
+        });
   }
   return true;
 }
@@ -2392,7 +2523,8 @@ bool ValidateQuery::prepare_out_msg_queue_size() {
  * @param i The index of the previous block (0 or 1).
  * @param res The result object containing the size of the queue.
  */
-void ValidateQuery::got_out_queue_size(size_t i, td::Result<td::uint64> res) {
+void ValidateQuery::got_out_queue_size(size_t i, td::Result<td::uint64> res, td::PerfLogAction token) {
+  token.finish(res);
   --pending;
   if (res.is_error()) {
     fatal_error(
@@ -2412,7 +2544,8 @@ void ValidateQuery::got_out_queue_size(size_t i, td::Result<td::uint64> res) {
  *
  * @param S The status of the operation (OK on success).
  */
-void ValidateQuery::verified_shard_blocks(td::Status S) {
+void ValidateQuery::verified_shard_blocks(td::Status S, td::PerfLogAction token) {
+  token.finish(S);
   --pending;
   if (S.is_error()) {
     fatal_error(S.move_as_error_prefix("failed to verify shard blocks: "));
@@ -2702,17 +2835,19 @@ bool ValidateQuery::unpack_block_data() {
   auto outmsg_cs = vm::load_cell_slice_ref(std::move(extra.out_msg_descr));
   // run some hand-written checks from block::tlb::
   // (automatic tests from block::gen:: have been already run for the entire block)
-  if (!block::tlb::t_InMsgDescr.validate_upto(10000000, *inmsg_cs)) {
+  t_InMsgDescr.aug.global_version = global_version_;
+  t_OutMsgDescr.aug.global_version = global_version_;
+  if (!t_InMsgDescr.validate_upto(10000000, *inmsg_cs)) {
     return reject_query("InMsgDescr of the new block failed to pass handwritten validity tests");
   }
-  if (!block::tlb::t_OutMsgDescr.validate_upto(10000000, *outmsg_cs)) {
+  if (!t_OutMsgDescr.validate_upto(10000000, *outmsg_cs)) {
     return reject_query("OutMsgDescr of the new block failed to pass handwritten validity tests");
   }
   if (!block::tlb::t_ShardAccountBlocks.validate_ref(10000000, extra.account_blocks)) {
     return reject_query("ShardAccountBlocks of the new block failed to pass handwritten validity tests");
   }
-  in_msg_dict_ = std::make_unique<vm::AugmentedDictionary>(std::move(inmsg_cs), 256, block::tlb::aug_InMsgDescr);
-  out_msg_dict_ = std::make_unique<vm::AugmentedDictionary>(std::move(outmsg_cs), 256, block::tlb::aug_OutMsgDescr);
+  in_msg_dict_ = std::make_unique<vm::AugmentedDictionary>(std::move(inmsg_cs), 256, t_InMsgDescr.aug);
+  out_msg_dict_ = std::make_unique<vm::AugmentedDictionary>(std::move(outmsg_cs), 256, t_OutMsgDescr.aug);
   account_blocks_dict_ = std::make_unique<vm::AugmentedDictionary>(
       vm::load_cell_slice_ref(std::move(extra.account_blocks)), 256, block::tlb::aug_ShardAccountBlocks);
   LOG(DEBUG) << "validating InMsgDescr";
@@ -2931,14 +3066,14 @@ bool ValidateQuery::precheck_one_account_update(td::ConstBitPtr acc_id, Ref<vm::
     if (verbosity >= 3 * 0) {
       FLOG(INFO) {
         sb << "state of account " << workchain() << ":" << acc_id.to_hex(256)
-                  << " in the old shardchain state:" << "\n";
+           << " in the old shardchain state:" << "\n";
         if (old_value.not_null()) {
           block::gen::t_ShardAccount.print(sb, old_value);
         } else {
           sb << "<absent>" << "\n";
         }
         sb << "state of account " << workchain() << ":" << acc_id.to_hex(256)
-                  << " in the new shardchain state:" << "\n";
+           << " in the new shardchain state:" << "\n";
         if (new_value.not_null()) {
           block::gen::t_ShardAccount.print(sb, new_value);
         } else {
@@ -3321,7 +3456,8 @@ bool ValidateQuery::precheck_one_message_queue_update(td::ConstBitPtr out_msg_id
   }
   // mode for msg_export_{ext,new,imm,tr,deq_imm,???,deq/deq_short,tr_req,new_defer,deferred_tr}
   static const int tag_mode[10] = {0, 2, 0, 2, 1, 0, 1, 3, 0, 2};
-  static const char* tag_str[10] = {"ext", "new", "imm", "tr", "deq_imm", "???", "deq", "tr_req", "new_defer", "deferred_tr"};
+  static const char* tag_str[10] = {"ext", "new", "imm",    "tr",        "deq_imm",
+                                    "???", "deq", "tr_req", "new_defer", "deferred_tr"};
   if (tag < 0 || tag >= 10 || !(tag_mode[tag] & mode)) {
     return reject_query(PSTRING() << "OutMsgDescr corresponding to " << m_str[mode] << "queued message with key "
                                   << out_msg_id.to_hex(352) << " has invalid tag " << tag << "(" << tag_str[tag & 7]
@@ -3771,7 +3907,7 @@ bool ValidateQuery::check_in_msg(td::ConstBitPtr key, Ref<vm::CellSlice> in_msg)
   block::tlb::MsgEnvelope::Record_std env;
   // int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
   //   src:MsgAddressInt dest:MsgAddressInt
-  //   value:CurrencyCollection ihr_fee:Grams fwd_fee:Grams
+  //   value:CurrencyCollection extra_flags:(VarUInteger 16) fwd_fee:Grams
   //   created_lt:uint64 created_at:uint32 = CommonMsgInfo;
   block::gen::CommonMsgInfo::Record_int_msg_info info;
   ton::AccountIdPrefixFull src_prefix, dest_prefix, cur_prefix, next_prefix;
@@ -3946,9 +4082,8 @@ bool ValidateQuery::check_in_msg(td::ConstBitPtr key, Ref<vm::CellSlice> in_msg)
           dest_prefix.to_str() + "... yet");
     }
     if (from_dispatch_queue && next_prefix != cur_prefix) {
-      return reject_query(
-          "next hop address "s + next_prefix.to_str() + "... of deferred internal message with hash " + key.to_hex(256) +
-          " must coincide with its current prefix "s + cur_prefix.to_str() + "..."s);
+      return reject_query("next hop address "s + next_prefix.to_str() + "... of deferred internal message with hash " +
+                          key.to_hex(256) + " must coincide with its current prefix "s + cur_prefix.to_str() + "..."s);
     }
     // if a message is processed by a transaction, it must have destination inside the current shard
     if (transaction.not_null() && !ton::shard_contains(shard_, dest_prefix)) {
@@ -4144,8 +4279,8 @@ bool ValidateQuery::check_in_msg(td::ConstBitPtr key, Ref<vm::CellSlice> in_msg)
       }
       if (cur_prefix != next_prefix && tag == block::gen::InMsg::msg_import_deferred_tr) {
         return reject_query("internal message from DispatchQueue with hash "s + key.to_hex(256) +
-                            " is a msg_import_deferred_tr$00101, but its current address " +
-                            cur_prefix.to_str() + " is not equal to next address");
+                            " is a msg_import_deferred_tr$00101, but its current address " + cur_prefix.to_str() +
+                            " is not equal to next address");
       }
       CHECK(transaction.is_null());
       auto out_msg_cs = out_msg_dict_->lookup(key, 256);
@@ -4333,7 +4468,7 @@ bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_ms
   block::tlb::MsgEnvelope::Record_std env;
   // int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
   //   src:MsgAddressInt dest:MsgAddressInt
-  //   value:CurrencyCollection ihr_fee:Grams fwd_fee:Grams
+  //   value:CurrencyCollection extra_flags:(VarUInteger 16) fwd_fee:Grams
   //   created_lt:uint64 created_at:uint32 = CommonMsgInfo;
   block::gen::CommonMsgInfo::Record_int_msg_info info;
   ton::AccountIdPrefixFull src_prefix, dest_prefix, cur_prefix, next_prefix;
@@ -4526,8 +4661,9 @@ bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_ms
       }
       // check that next hop is nearer to the destination than the current address
       if (count_matching_bits(dest_prefix, next_prefix) < count_matching_bits(dest_prefix, cur_prefix)) {
-        return reject_query("next hop address "s + next_prefix.to_str() + "... of outbound internal message with hash " +
-                            key.to_hex(256) + " is further from its destination " + dest_prefix.to_str() +
+        return reject_query("next hop address "s + next_prefix.to_str() +
+                            "... of outbound internal message with hash " + key.to_hex(256) +
+                            " is further from its destination " + dest_prefix.to_str() +
                             "... than its current address " + cur_prefix.to_str() + "...");
       }
       // current address must belong to this shard (otherwise we should never had exported this message)
@@ -5309,45 +5445,47 @@ bool ValidateQuery::check_delivered_dequeued() {
  *
  * @returns A unique pointer to the created Account object, or nullptr if the creation failed.
  */
-std::unique_ptr<block::Account> ValidateQuery::make_account_from(td::ConstBitPtr addr, Ref<vm::CellSlice> account) {
-  auto ptr = std::make_unique<block::Account>(workchain(), addr);
+std::unique_ptr<block::Account> ValidateQuery::CheckAccountTxs::make_account_from(td::ConstBitPtr addr,
+                                                                                  Ref<vm::CellSlice> account) {
+  auto ptr = std::make_unique<block::Account>(vq_.workchain(), addr);
   if (account.is_null()) {
-    if (!ptr->init_new(now_)) {
+    if (!ptr->init_new(vq_.now_)) {
       return nullptr;
     }
-  } else if (!ptr->unpack(std::move(account), now_, is_masterchain() && config_->is_special_smartcontract(addr))) {
+  } else if (!ptr->unpack(std::move(account), vq_.now_,
+                          vq_.is_masterchain() && vq_.config_->is_special_smartcontract(addr))) {
     return nullptr;
   }
-  ptr->block_lt = start_lt_;
+  ptr->block_lt = vq_.start_lt_;
   return ptr;
 }
 
 /**
  * Retreives an Account object from the data in the shard state.
  * Accounts are cached in the ValidatorQuery's map.
- * Similar to Collator::make_account()
+ * Similar to `Collator::make_account()`.
  *
  * @param addr The 256-bit address of the account.
  *
  * @returns Pointer to the account if found or created successfully.
  *          Returns nullptr if an error occured.
  */
-std::unique_ptr<block::Account> ValidateQuery::unpack_account(td::ConstBitPtr addr) {
-  auto dict_entry = ps_.account_dict_->lookup_extra(addr, 256);
+std::unique_ptr<block::Account> ValidateQuery::CheckAccountTxs::unpack_account(td::ConstBitPtr addr) {
+  auto dict_entry = vq_.ps_.account_dict_->lookup_extra(addr, 256);
   auto new_acc = make_account_from(addr, std::move(dict_entry.first));
   if (!new_acc) {
     reject_query("cannot load state of account "s + addr.to_hex(256) + " from previous shardchain state");
     return {};
   }
-  if (!new_acc->belongs_to_shard(shard_)) {
+  if (!new_acc->belongs_to_shard(vq_.shard_)) {
     reject_query(PSTRING() << "old state of account " << addr.to_hex(256)
                            << " does not really belong to current shard");
     return {};
   }
   if (new_acc->storage_dict_hash) {
-    if (full_collated_data_ && !is_masterchain()) {
-      auto it = virt_account_storage_dicts_.find(new_acc->storage_dict_hash.value());
-      if (it != virt_account_storage_dicts_.end()) {
+    if (vq_.full_collated_data_ && !vq_.is_masterchain()) {
+      auto it = vq_.virt_account_storage_dicts_.find(new_acc->storage_dict_hash.value());
+      if (it != vq_.virt_account_storage_dicts_.end()) {
         LOG(DEBUG) << "Using account storage dict proof for account " << addr.to_hex(256)
                    << ", hash=" << it->second->get_hash().to_hex();
         auto S = new_acc->init_account_storage_stat(it->second);
@@ -5357,8 +5495,8 @@ std::unique_ptr<block::Account> ValidateQuery::unpack_account(td::ConstBitPtr ad
           return {};
         }
       }
-    } else if (storage_stat_cache_ && new_acc->storage_dict_hash) {
-      auto dict_root = storage_stat_cache_(new_acc->storage_dict_hash.value());
+    } else if (vq_.storage_stat_cache_ && new_acc->storage_dict_hash) {
+      auto dict_root = vq_.storage_stat_cache_(new_acc->storage_dict_hash.value());
       if (dict_root.not_null()) {
         auto S = new_acc->init_account_storage_stat(dict_root);
         if (S.is_error()) {
@@ -5368,11 +5506,36 @@ std::unique_ptr<block::Account> ValidateQuery::unpack_account(td::ConstBitPtr ad
         }
         LOG(DEBUG) << "Inited storage stat from cache for account " << addr.to_hex(256) << " ("
                    << new_acc->storage_used.cells << " cells)";
-        storage_stat_cache_update_.emplace_back(dict_root, new_acc->storage_used.cells);
+
+        ctx_.storage_stat_cache_update.emplace_back(dict_root, new_acc->storage_used.cells);
+        vq_.stats_.storage_stat_cache.hit_cnt.fetch_add(1);
+        vq_.stats_.storage_stat_cache.hit_cells.fetch_add(new_acc->storage_used.cells);
+      } else if (new_acc->storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS) {
+        vq_.stats_.storage_stat_cache.miss_cnt.fetch_add(1);
+        vq_.stats_.storage_stat_cache.miss_cells.fetch_add(new_acc->storage_used.cells);
+      } else {
+        vq_.stats_.storage_stat_cache.small_cnt.fetch_add(1);
+        vq_.stats_.storage_stat_cache.small_cells.fetch_add(new_acc->storage_used.cells);
       }
     }
   }
   return new_acc;
+}
+
+/**
+ * Gets IHR fee of the internal message
+ *
+ * In earlier versions (before 12) the field extra_flags was ihr_fee.
+ * Since version 12 ihr_fee is always zero.
+ *
+ * @param info CommonMsgInfo of the internal message
+ * @param global_version global version from ConfigParam 8
+ *
+ * @returns IHR fee
+ */
+static td::RefInt256 get_ihr_fee(const block::gen::CommonMsgInfo::Record_int_msg_info& info, int global_version) {
+  // Legacy: extra_flags was previously ihr_fee
+  return global_version >= 12 ? td::zero_refint() : block::tlb::t_Grams.as_integer(std::move(info.extra_flags));
 }
 
 /**
@@ -5387,9 +5550,10 @@ std::unique_ptr<block::Account> ValidateQuery::unpack_account(td::ConstBitPtr ad
  *
  * @returns True if the transaction is valid, false otherwise.
  */
-bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalTime lt, Ref<vm::Cell> trans_root,
-                                          bool is_first, bool is_last) {
-  if (!check_timeout()) {
+bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& account, ton::LogicalTime lt,
+                                                           Ref<vm::Cell> trans_root, bool is_first, bool is_last) {
+  if (vq_.timeout && vq_.timeout.is_in_past()) {
+    abort_query(td::Status::Error(ErrorCode::timeout, "timeout"));
     return false;
   }
   LOG(DEBUG) << "checking transaction " << lt << " of account " << account.addr.to_hex();
@@ -5408,7 +5572,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
   CHECK(tag >= 0);  // we have already validated the serialization of all Transactions
   td::optional<block::MsgMetadata> in_msg_metadata;
   if (in_msg_root.not_null()) {
-    auto in_descr_cs = in_msg_dict_->lookup(in_msg_root->get_hash().as_bitslice());
+    auto in_descr_cs = vq_.in_msg_dict_->lookup(in_msg_root->get_hash().as_bitslice());
     if (in_descr_cs.is_null()) {
       return reject_query(PSTRING() << "inbound message with hash " << in_msg_root->get_hash().to_hex()
                                     << " of transaction " << lt << " of account " << addr.to_hex()
@@ -5423,7 +5587,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
                                     << " has an invalid InMsg record (not one of msg_import_ext, msg_import_fin, "
                                        "msg_import_imm, msg_import_ihr or msg_import_deferred_fin)");
     }
-    is_special_tx = is_special_in_msg(*in_descr_cs);
+    is_special_tx = vq_.is_special_in_msg(*in_descr_cs);
     // once we know there is a InMsg with correct hash, we already know that it contains a message with this hash (by the verification of InMsg), so it is our message
     // have still to check its destination address and imported value
     // and that it refers to this transaction
@@ -5455,21 +5619,21 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
           emitted_lt = msg_env.emitted_lt.value();
         }
       }
-      if (info.created_lt != start_lt_ || !is_special_tx) {
-        msg_proc_lt_.emplace_back(addr, lt, emitted_lt);
+      if (info.created_lt != vq_.start_lt_ || !is_special_tx) {
+        ctx_.msg_proc_lt.emplace_back(addr, lt, emitted_lt);
       }
       dest = std::move(info.dest);
       CHECK(money_imported.validate_unpack(info.value));
       ihr_delivered = (in_msg_tag == block::gen::InMsg::msg_import_ihr);
       if (!ihr_delivered) {
-        money_imported += block::tlb::t_Grams.as_integer(info.ihr_fee);
+        money_imported += get_ihr_fee(info, vq_.global_version_);
       }
       CHECK(money_imported.is_valid());
     }
     WorkchainId d_wc;
     StdSmcAddress d_addr;
     CHECK(block::tlb::t_MsgAddressInt.extract_std_address(dest, d_wc, d_addr));
-    if (d_wc != workchain() || d_addr != addr) {
+    if (d_wc != vq_.workchain() || d_addr != addr) {
       return reject_query(PSTRING() << "inbound message of transaction " << lt << " of account " << addr.to_hex()
                                     << " has a different destination address " << d_wc << ":" << d_addr.to_hex());
     }
@@ -5483,7 +5647,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
   }
   // check output messages
   td::optional<block::MsgMetadata> new_msg_metadata;
-  if (msg_metadata_enabled_) {
+  if (vq_.msg_metadata_enabled_) {
     if (external || is_special_tx || tag != block::gen::TransactionDescr::trans_ord) {
       new_msg_metadata = block::MsgMetadata{0, account.workchain, account.addr, (LogicalTime)trans.lt};
     } else if (in_msg_metadata) {
@@ -5495,7 +5659,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
   for (int i = 0; i < trans.outmsg_cnt; i++) {
     auto out_msg_root = out_dict.lookup_ref(td::BitArray<15>{i});
     CHECK(out_msg_root.not_null());  // we have pre-checked this
-    auto out_descr_cs = out_msg_dict_->lookup(out_msg_root->get_hash().as_bitslice());
+    auto out_descr_cs = vq_.out_msg_dict_->lookup(out_msg_root->get_hash().as_bitslice());
     if (out_descr_cs.is_null()) {
       return reject_query(PSTRING() << "outbound message #" << i + 1 << " with hash "
                                     << out_msg_root->get_hash().to_hex() << " of transaction " << lt << " of account "
@@ -5531,7 +5695,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
       // unpack exported message value (from this transaction)
       block::CurrencyCollection msg_export_value;
       CHECK(msg_export_value.unpack(info.value));
-      msg_export_value += block::tlb::t_Grams.as_integer(info.ihr_fee);
+      msg_export_value += get_ihr_fee(info, vq_.global_version_);
       msg_export_value += msg_env.fwd_fee_remaining;
       CHECK(msg_export_value.is_valid());
       money_exported += msg_export_value;
@@ -5546,7 +5710,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     WorkchainId s_wc;
     StdSmcAddress ss_addr;  // s_addr is some macros in Windows
     CHECK(block::tlb::t_MsgAddressInt.extract_std_address(src, s_wc, ss_addr));
-    if (s_wc != workchain() || ss_addr != addr) {
+    if (s_wc != vq_.workchain() || ss_addr != addr) {
       return reject_query(PSTRING() << "outbound message #" << i + 1 << " of transaction " << lt << " of account "
                                     << addr.to_hex() << " has a different source address " << s_wc << ":"
                                     << ss_addr.to_hex());
@@ -5560,24 +5724,25 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     }
     if (tag != block::gen::OutMsg::msg_export_ext) {
       bool is_deferred = tag == block::gen::OutMsg::msg_export_new_defer;
-      if (account_expected_defer_all_messages_.count(ss_addr) && !is_deferred) {
+      if (ctx_.defer_all_messages && !is_deferred) {
         return reject_query(
-            PSTRING() << "outbound message #" << i + 1 << " on account " << workchain() << ":" << ss_addr.to_hex()
+            PSTRING() << "outbound message #" << i + 1 << " on account " << vq_.workchain() << ":" << ss_addr.to_hex()
                       << " must be deferred because this account has earlier messages in DispatchQueue");
       }
       if (is_deferred) {
-        LOG(INFO) << "message from account " << workchain() << ":" << ss_addr.to_hex() << " with lt " << message_lt
+        LOG(INFO) << "message from account " << vq_.workchain() << ":" << ss_addr.to_hex() << " with lt " << message_lt
                   << " was deferred";
-        if (!deferring_messages_enabled_ && !account_expected_defer_all_messages_.count(ss_addr)) {
-          return reject_query(PSTRING() << "outbound message #" << i + 1 << " on account " << workchain() << ":"
+        if (!vq_.deferring_messages_enabled_ && !ctx_.defer_all_messages) {
+          return reject_query(PSTRING() << "outbound message #" << i + 1 << " on account " << vq_.workchain() << ":"
                                         << ss_addr.to_hex() << " is deferred, but deferring messages is disabled");
         }
-        if (i == 0 && !account_expected_defer_all_messages_.count(ss_addr)) {
-          return reject_query(PSTRING() << "outbound message #1 on account " << workchain() << ":" << ss_addr.to_hex()
+        if (i == 0 && !ctx_.defer_all_messages) {
+          return reject_query(PSTRING() << "outbound message #1 on account " << vq_.workchain() << ":"
+                                        << ss_addr.to_hex()
                                         << " must not be deferred (the first message cannot be deferred unless some "
                                            "prevoius messages are deferred)");
         }
-        account_expected_defer_all_messages_.insert(ss_addr);
+        ctx_.defer_all_messages = true;
       }
     }
   }
@@ -5588,14 +5753,14 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
       tag == block::gen::TransactionDescr::trans_merge_install ||
       tag == block::gen::TransactionDescr::trans_split_prepare ||
       tag == block::gen::TransactionDescr::trans_split_install) {
-    if (is_masterchain()) {
+    if (vq_.is_masterchain()) {
       return reject_query(
           PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
                     << " is a split/merge prepare/install transaction, which is impossible in a masterchain block");
     }
     bool split = (tag == block::gen::TransactionDescr::trans_split_prepare ||
                   tag == block::gen::TransactionDescr::trans_split_install);
-    if (split && !before_split_) {
+    if (split && !vq_.before_split_) {
       return reject_query(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
                                     << " is a split prepare/install transaction, but this block is not before a split");
     }
@@ -5604,7 +5769,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
                                     << " is a split prepare/install transaction, but it is not the last transaction "
                                        "for this account in this block");
     }
-    if (!split && !after_merge_) {
+    if (!split && !vq_.after_merge_) {
       return reject_query(
           PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
                     << " is a merge prepare/install transaction, but this block is not immediately after a merge");
@@ -5620,7 +5785,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
                                   << " is a split/merge prepare/install transaction, which are globally disabled");
   }
   if (tag == block::gen::TransactionDescr::trans_tick_tock) {
-    if (!is_masterchain()) {
+    if (!vq_.is_masterchain()) {
       return reject_query(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
                                     << " is a tick-tock transaction, which is impossible outside a masterchain block");
     }
@@ -5635,11 +5800,11 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
             PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
                       << " is a tick transaction, but this is not the first transaction of this account");
       }
-      if (lt != start_lt_ + 1) {
+      if (lt != vq_.start_lt_ + 1) {
         return reject_query(
             PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
                       << " is a tick transaction, but its logical start time differs from block's start time "
-                      << start_lt_ << " by more than one");
+                      << vq_.start_lt_ << " by more than one");
       }
       if (!account.tick) {
         return reject_query(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
@@ -5657,14 +5822,14 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
       }
     }
   }
-  if (is_first && is_masterchain() && account.is_special && account.tick &&
+  if (is_first && vq_.is_masterchain() && account.is_special && account.tick &&
       (tag != block::gen::TransactionDescr::trans_tick_tock || (td_cs.prefetch_ulong(4) & 1)) &&
       account.orig_status == block::Account::acc_active) {
     return reject_query(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
                                   << " is the first transaction for this special tick account in this block, but the "
                                      "transaction is not a tick transaction");
   }
-  if (is_last && is_masterchain() && account.is_special && account.tock &&
+  if (is_last && vq_.is_masterchain() && account.is_special && account.tock &&
       (tag != block::gen::TransactionDescr::trans_tick_tock || !(td_cs.prefetch_ulong(4) & 1)) &&
       trans.end_status == block::gen::AccountStatus::acc_state_active) {
     return reject_query(PSTRING() << "transaction " << lt << " of account " << addr.to_hex()
@@ -5779,9 +5944,15 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
   // similar to Collator::create_ordinary_transaction() and Collator::create_ticktock_transaction()
   // ....
   std::unique_ptr<block::transaction::Transaction> trs =
-      std::make_unique<block::transaction::Transaction>(account, trans_type, lt, now_, in_msg_root);
+      std::make_unique<block::transaction::Transaction>(account, trans_type, lt, vq_.now_, in_msg_root);
+  td::RealCpuTimer timer;
+  SCOPE_EXIT {
+    ctx_.work_time.trx_tvm += trs->time_tvm;
+    ctx_.work_time.trx_storage_stat += trs->time_storage_stat;
+    ctx_.work_time.trx_other += timer.elapsed_both() - trs->time_tvm - trs->time_storage_stat;
+  };
   if (in_msg_root.not_null()) {
-    if (!trs->unpack_input_msg(ihr_delivered, &action_phase_cfg_)) {
+    if (!trs->unpack_input_msg(ihr_delivered, &vq_.action_phase_cfg_)) {
       // inbound external message was not accepted
       return reject_query(PSTRING() << "could not unpack inbound " << (external ? "external" : "internal")
                                     << " message processed by ordinary transaction " << lt << " of account "
@@ -5789,7 +5960,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
     }
   }
   if (trs->bounce_enabled) {
-    if (!trs->prepare_storage_phase(storage_phase_cfg_, true)) {
+    if (!trs->prepare_storage_phase(vq_.storage_phase_cfg_, true)) {
       return reject_query(PSTRING() << "cannot re-create storage phase of transaction " << lt << " for smart contract "
                                     << addr.to_hex());
     }
@@ -5802,12 +5973,12 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
       return reject_query(PSTRING() << "cannot re-create credit phase of transaction " << lt << " for smart contract "
                                     << addr.to_hex());
     }
-    if (!trs->prepare_storage_phase(storage_phase_cfg_, true, need_credit_phase)) {
+    if (!trs->prepare_storage_phase(vq_.storage_phase_cfg_, true, need_credit_phase)) {
       return reject_query(PSTRING() << "cannot re-create storage phase of transaction " << lt << " for smart contract "
                                     << addr.to_hex());
     }
   }
-  if (!trs->prepare_compute_phase(compute_phase_cfg_)) {
+  if (!trs->prepare_compute_phase(vq_.compute_phase_cfg_)) {
     return reject_query(PSTRING() << "cannot re-create compute phase of transaction " << lt << " for smart contract "
                                   << addr.to_hex());
   }
@@ -5821,43 +5992,39 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
                                     << " of account " << addr.to_hex() << " was not processed without any reason");
     }
   }
-  if (trs->compute_phase->success && !trs->prepare_action_phase(action_phase_cfg_)) {
+  if (trs->compute_phase->success && !trs->prepare_action_phase(vq_.action_phase_cfg_)) {
     return reject_query(PSTRING() << "cannot re-create action phase of transaction " << lt << " for smart contract "
                                   << addr.to_hex());
   }
   if (trs->bounce_enabled &&
       (!trs->compute_phase->success || trs->action_phase->state_exceeds_limits || trs->action_phase->bounce) &&
-      !trs->prepare_bounce_phase(action_phase_cfg_)) {
+      !trs->prepare_bounce_phase(vq_.action_phase_cfg_)) {
     return reject_query(PSTRING() << "cannot re-create bounce phase of  transaction " << lt << " for smart contract "
                                   << addr.to_hex());
   }
-  if (!trs->serialize(serialize_cfg_)) {
+  if (!trs->serialize(vq_.serialize_cfg_)) {
     return reject_query(PSTRING() << "cannot re-create the serialization of  transaction " << lt
                                   << " for smart contract " << addr.to_hex());
-  }
-  if (!trs->update_limits(*block_limit_status_, /* with_gas = */ false, /* with_size = */ false)) {
-    return fatal_error(PSTRING() << "cannot update block limit status to include transaction " << lt << " of account "
-                                 << addr.to_hex());
   }
 
   // Collator should stop if total gas usage exceeds limits, including transactions on special accounts, but without
   // ticktocks and mint/recover.
   // Here Validator checks a weaker condition
   if (!is_special_tx && !trs->gas_limit_overridden && trans_type == block::transaction::Transaction::tr_ord) {
-    (account.is_special ? total_special_gas_used_ : total_gas_used_) += trs->gas_used();
+    (account.is_special ? vq_.total_special_gas_used_ : vq_.total_gas_used_).fetch_add(trs->gas_used());
   }
-  if (total_gas_used_ > block_limits_->gas.hard() + compute_phase_cfg_.gas_limit) {
+  if (vq_.total_gas_used_.load() > vq_.block_limits_->gas.hard() + vq_.compute_phase_cfg_.gas_limit) {
     return reject_query(PSTRING() << "gas block limits are exceeded: total_gas_used > gas_limit_hard + trx_gas_limit ("
-                                  << "total_gas_used=" << total_gas_used_
-                                  << ", gas_limit_hard=" << block_limits_->gas.hard()
-                                  << ", trx_gas_limit=" << compute_phase_cfg_.gas_limit << ")");
+                                  << "total_gas_used=" << vq_.total_gas_used_.load()
+                                  << ", gas_limit_hard=" << vq_.block_limits_->gas.hard()
+                                  << ", trx_gas_limit=" << vq_.compute_phase_cfg_.gas_limit << ")");
   }
-  if (total_special_gas_used_ > block_limits_->gas.hard() + compute_phase_cfg_.special_gas_limit) {
+  if (vq_.total_special_gas_used_.load() > vq_.block_limits_->gas.hard() + vq_.compute_phase_cfg_.special_gas_limit) {
     return reject_query(
         PSTRING() << "gas block limits are exceeded: total_special_gas_used > gas_limit_hard + special_gas_limit ("
-                  << "total_special_gas_used=" << total_special_gas_used_
-                  << ", gas_limit_hard=" << block_limits_->gas.hard()
-                  << ", special_gas_limit=" << compute_phase_cfg_.special_gas_limit << ")");
+                  << "total_special_gas_used=" << vq_.total_special_gas_used_.load()
+                  << ", gas_limit_hard=" << vq_.block_limits_->gas.hard()
+                  << ", special_gas_limit=" << vq_.compute_phase_cfg_.special_gas_limit << ")");
   }
 
   auto trans_root2 = trs->commit(account);
@@ -5867,7 +6034,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
   }
   // now compare the re-created transaction with the one we have
   if (trans_root2->get_hash() != trans_root->get_hash()) {
-    if (verbosity >= 3 * 0) {
+    if (vq_.verbosity >= 3 * 0) {
       FLOG(INFO) {
         sb << "original transaction " << lt << " of " << addr.to_hex() << ": ";
         block::gen::t_Transaction.print_ref(sb, trans_root);
@@ -5907,7 +6074,7 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
         << "transaction " << lt << " of " << addr.to_hex()
         << " is invalid: it has produced a set of outbound messages different from that listed in the transaction");
   }
-  total_burned_ += trs->blackhole_burned;
+  ctx_.total_burned += trs->blackhole_burned;
   // check new balance and value flow
   auto new_balance = account.get_balance();
   block::CurrencyCollection total_fees;
@@ -5927,50 +6094,176 @@ bool ValidateQuery::check_one_transaction(block::Account& account, ton::LogicalT
   return true;
 }
 
+ValidateQuery::CheckAccountTxs::CheckAccountTxs(const ValidateQuery& vq, td::actor::ActorId<ValidateQuery> vq_id,
+                                                StdSmcAddress address, Ref<vm::CellSlice> acc_tr, Context ctx)
+    : vq_(vq)
+    , vq_id_(std::move(vq_id))
+    , address_(std::move(address))
+    , acc_tr_(std::move(acc_tr))
+    , ctx_(std::move(ctx)) {
+}
+
 /**
  * Checks the validity of transactions for a given account block.
- * NB: may be run in parallel for different accounts
  *
- * @param acc_addr The address of the account.
- * @param acc_blk_root The root of the AccountBlock.
  *
  * @returns True if the account transactions are valid, false otherwise.
  */
-bool ValidateQuery::check_account_transactions(const StdSmcAddress& acc_addr, Ref<vm::CellSlice> acc_blk_root) {
-  block::gen::AccountBlock::Record acc_blk;
-  CHECK(tlb::csr_unpack(std::move(acc_blk_root), acc_blk) && acc_blk.account_addr == acc_addr);
-  auto account_p = unpack_account(acc_addr.cbits());
-  if (!account_p) {
-    return reject_query("cannot unpack old state of account "s + acc_addr.to_hex());
+bool ValidateQuery::CheckAccountTxs::try_check() {
+  try {
+    block::gen::AccountBlock::Record acc_blk;
+    CHECK(tlb::csr_unpack(std::move(acc_tr_), acc_blk) && acc_blk.account_addr == address_);
+    auto account_p = unpack_account(address_.cbits());
+    if (!account_p) {
+      return reject_query("cannot unpack old state of account "s + address_.to_hex());
+    }
+    auto& account = *account_p;
+    CHECK(account.addr == address_);
+    vm::AugmentedDictionary trans_dict{vm::DictNonEmpty(), std::move(acc_blk.transactions), 64,
+                                       block::tlb::aug_AccountTransactions};
+    td::BitArray<64> min_trans, max_trans;
+    CHECK(trans_dict.get_minmax_key(min_trans).not_null() && trans_dict.get_minmax_key(max_trans, true).not_null());
+    ton::LogicalTime min_trans_lt = min_trans.to_ulong(), max_trans_lt = max_trans.to_ulong();
+    if (!trans_dict.check_for_each_extra(
+            [this, &account, min_trans_lt, max_trans_lt](Ref<vm::CellSlice> value, Ref<vm::CellSlice> extra,
+                                                         td::ConstBitPtr key, int key_len) {
+              CHECK(key_len == 64);
+              ton::LogicalTime lt = key.get_uint(64);
+              extra.clear();
+              return check_one_transaction(account, lt, value->prefetch_ref(), lt == min_trans_lt, lt == max_trans_lt);
+            })) {
+      return reject_query("at least one Transaction of account "s + address_.to_hex() + " is invalid");
+    }
+    if ((!vq_.full_collated_data_ || vq_.is_masterchain()) && account.storage_dict_hash &&
+        account.account_storage_stat && account.account_storage_stat.value().is_dict_ready() &&
+        account.storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS) {
+      ctx_.storage_stat_cache_update.emplace_back(account.account_storage_stat.value().get_dict_root().move_as_ok(),
+                                                  account.storage_used.cells);
+    }
+    if (vq_.is_masterchain() && account.libraries_changed()) {
+      return scan_account_libraries(account.orig_library, account.library, address_);
+    } else {
+      return true;
+    }
+  } catch (vm::VmError& err) {
+    return fatal_error(err.get_msg(), -666);
+  } catch (vm::VmVirtError& err) {
+    return reject_query(err.get_msg());
   }
-  auto& account = *account_p;
-  CHECK(account.addr == acc_addr);
-  vm::AugmentedDictionary trans_dict{vm::DictNonEmpty(), std::move(acc_blk.transactions), 64,
-                                     block::tlb::aug_AccountTransactions};
-  td::BitArray<64> min_trans, max_trans;
-  CHECK(trans_dict.get_minmax_key(min_trans).not_null() && trans_dict.get_minmax_key(max_trans, true).not_null());
-  ton::LogicalTime min_trans_lt = min_trans.to_ulong(), max_trans_lt = max_trans.to_ulong();
-  if (!trans_dict.check_for_each_extra([this, &account, min_trans_lt, max_trans_lt](Ref<vm::CellSlice> value,
-                                                                                    Ref<vm::CellSlice> extra,
-                                                                                    td::ConstBitPtr key, int key_len) {
-        CHECK(key_len == 64);
-        ton::LogicalTime lt = key.get_uint(64);
-        extra.clear();
-        return check_one_transaction(account, lt, value->prefetch_ref(), lt == min_trans_lt, lt == max_trans_lt);
-      })) {
-    return reject_query("at least one Transaction of account "s + acc_addr.to_hex() + " is invalid");
+}
+
+ValidateQuery::CheckAccountTxs::Context ValidateQuery::CheckAccountTxs::extract_context() {
+  return std::move(ctx_);
+}
+
+void ValidateQuery::CheckAccountTxs::start_up() {
+  try_check();
+  td::actor::send_closure(vq_id_, &ValidateQuery::after_check_account_finished, address_, extract_context());
+  stop();
+}
+
+void ValidateQuery::CheckAccountTxs::abort_query(td::Status error) {
+  (void)fatal_error(std::move(error));
+}
+
+bool ValidateQuery::CheckAccountTxs::reject_query(std::string error, td::BufferSlice reason) {
+  if (!ctx_.reject_error.has_value() && !ctx_.fatal_error.has_value()) {
+    ctx_.reject_error = std::move(error);
+    ctx_.reject_reason = std::move(reason);
   }
-  if ((!full_collated_data_ || is_masterchain()) && account.storage_dict_hash && account.account_storage_stat &&
-      account.account_storage_stat.value().is_dict_ready() &&
-      account.storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS) {
-    storage_stat_cache_update_.emplace_back(account.account_storage_stat.value().get_dict_root().move_as_ok(),
-                                            account.storage_used.cells);
+  return false;
+}
+
+bool ValidateQuery::CheckAccountTxs::reject_query(std::string err_msg, td::Status error, td::BufferSlice reason) {
+  return reject_query(err_msg + " : " + error.to_string(), std::move(reason));
+}
+
+bool ValidateQuery::CheckAccountTxs::fatal_error(td::Status error) {
+  if (!ctx_.fatal_error.has_value() && !ctx_.reject_error.has_value()) {
+    ctx_.fatal_error = std::move(error);
   }
-  if (is_masterchain() && account.libraries_changed()) {
-    return scan_account_libraries(account.orig_library, account.library, acc_addr);
-  } else {
-    return true;
+  return false;
+}
+
+bool ValidateQuery::CheckAccountTxs::fatal_error(std::string err_msg, int err_code) {
+  return fatal_error(td::Status::Error(err_code, vq_.error_ctx() + err_msg));
+}
+
+ValidateQuery::CheckAccountTxs::Context ValidateQuery::load_check_account_transactions_context(
+    const StdSmcAddress& address) {
+  CheckAccountTxs::Context ctx{};
+  if (account_expected_defer_all_messages_.count(address)) {
+    ctx.defer_all_messages = true;
   }
+  return ctx;
+}
+
+void ValidateQuery::save_account_transactions_context(const StdSmcAddress& address, CheckAccountTxs::Context ctx) {
+  if (ctx.fatal_error.has_value()) {
+    if (!check_account_failed_) {
+      check_account_failed_ = true;
+      check_account_fatal_error_ = std::move(ctx.fatal_error);
+    }
+    return;
+  }
+
+  if (ctx.reject_reason.has_value()) {
+    if (!check_account_failed_) {
+      check_account_failed_ = true;
+      check_account_reject_error_ = std::move(ctx.reject_error);
+      check_account_reject_reason_ = std::move(ctx.reject_reason);
+    }
+    return;
+  }
+
+  for (auto& e : ctx.msg_proc_lt) {
+    msg_proc_lt_.emplace_back(std::move(e));
+  }
+
+  for (auto& e : ctx.lib_publishers) {
+    lib_publishers_.push_back(e);
+  }
+
+  if (ctx.defer_all_messages) {
+    account_expected_defer_all_messages_.insert(address);
+  }
+
+  for (auto& e : ctx.storage_stat_cache_update) {
+    storage_stat_cache_update_.push_back(e);
+  }
+
+  stats_.work_time.trx_tvm += ctx.work_time.trx_tvm;
+  stats_.work_time.trx_storage_stat += ctx.work_time.trx_storage_stat;
+  stats_.work_time.trx_other += ctx.work_time.trx_other;
+  stats_.work_time.total += ctx.work_time.total;
+
+  total_burned_ += ctx.total_burned;
+}
+
+void ValidateQuery::after_check_account_finished(StdSmcAddress address, CheckAccountTxs::Context context) {
+  --pending;
+  save_account_transactions_context(address, std::move(context));
+  if (!pending) {
+    parallel_accounts_validation_pending_ = false;
+    parallel_work_timer_.pause();
+    stats_.work_time.total += parallel_work_timer_.elapsed_both();
+    if (!check_account_failures()) {
+      reject_query("some accounts failed parallel validation");
+      return;
+    }
+    try_validate();
+  }
+}
+
+bool ValidateQuery::check_account_failures() {
+  if (check_account_fatal_error_.has_value()) {
+    return fatal_error(std::move(check_account_fatal_error_.value()));
+  }
+  if (check_account_reject_error_.has_value()) {
+    return reject_query(std::move(check_account_reject_error_.value()),
+                        std::move(check_account_reject_reason_.value()));
+  }
+  return true;
 }
 
 /**
@@ -5980,17 +6273,47 @@ bool ValidateQuery::check_account_transactions(const StdSmcAddress& acc_addr, Re
  */
 bool ValidateQuery::check_transactions() {
   LOG(INFO) << "checking all transactions";
-  return account_blocks_dict_->check_for_each_extra(
-      [this](Ref<vm::CellSlice> value, Ref<vm::CellSlice> extra, td::ConstBitPtr key, int key_len) {
+  size_t accounts_count = 0;
+  bool result = account_blocks_dict_->check_for_each_extra(
+      [this, &accounts_count](Ref<vm::CellSlice> value, Ref<vm::CellSlice> extra, td::ConstBitPtr key, int key_len) {
         CHECK(key_len == 256);
-        return check_account_transactions(key, std::move(value));
+        accounts_count++;
+        StdSmcAddress address = key;
+        if (parallel_accounts_validation_) {
+          pending++;
+          LOG(INFO) << "starting actor #" << accounts_count << " for account " << address.to_hex();
+          td::actor::create_actor<CheckAccountTxs>(PSTRING() << get_name() << ":#" << accounts_count, *this,
+                                                   actor_id(this), address, std::move(value),
+                                                   load_check_account_transactions_context(address))
+              .release();
+          return true;
+        } else {
+          CheckAccountTxs checker(*this, actor_id(this), address, std::move(value),
+                                  load_check_account_transactions_context(address));
+          bool result = checker.try_check();
+          save_account_transactions_context(address, checker.extract_context());
+          return result;
+        }
       });
+  if (accounts_count == 0 && parallel_accounts_validation_) {
+    parallel_accounts_validation_ = false;
+  }
+  if (parallel_accounts_validation_) {
+    stats_.parallel_accounts_validation = true;
+    parallel_accounts_validation_pending_ = true;
+    parallel_work_timer_.resume();
+  } else {
+    if (!check_account_failures()) {
+      return reject_query("some accounts failed to be validated");
+    }
+  }
+  return result;
 }
 
 /**
  * Processes changes in libraries of an account.
  * Used in masterchain validation.
- * Similar to Collator::update_account_public_libraries()
+ * Similar to `Collator::update_account_public_libraries()`.
  *
  * @param orig_libs The original libraries of the account.
  * @param final_libs The final libraries of the account.
@@ -5998,7 +6321,8 @@ bool ValidateQuery::check_transactions() {
  *
  * @returns True if the update was successful, false otherwise.
  */
-bool ValidateQuery::scan_account_libraries(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs, const td::Bits256& addr) {
+bool ValidateQuery::CheckAccountTxs::scan_account_libraries(Ref<vm::Cell> orig_libs, Ref<vm::Cell> final_libs,
+                                                            const td::Bits256& addr) {
   vm::Dictionary dict1{std::move(orig_libs), 256}, dict2{std::move(final_libs), 256};
   return dict1.scan_diff(
              dict2,
@@ -6007,7 +6331,7 @@ bool ValidateQuery::scan_account_libraries(Ref<vm::Cell> orig_libs, Ref<vm::Cell
                bool f = block::is_public_library(key, std::move(val1));
                bool g = block::is_public_library(key, val2);
                if (f != g) {
-                 lib_publishers_.emplace_back(key, addr, g);
+                 ctx_.lib_publishers.emplace_back(key, addr, g);
                }
                return true;
              },
@@ -6143,8 +6467,11 @@ bool ValidateQuery::check_special_message(Ref<vm::Cell> in_msg_root, const block
   if (block::tlb::t_Grams.as_integer(info.fwd_fee)->sgn()) {
     return reject_query("special message with hash "s + msg_hash.to_hex() + " has a non-zero fwd_fee");
   }
-  if (block::tlb::t_Grams.as_integer(info.ihr_fee)->sgn()) {
+  if (get_ihr_fee(info, global_version_)->sgn()) {
     return reject_query("special message with hash "s + msg_hash.to_hex() + " has a non-zero ihr_fee");
+  }
+  if (block::tlb::t_Grams.as_integer(info.extra_flags)->sgn()) {
+    return reject_query("special message with hash "s + msg_hash.to_hex() + " has a non-zero extra_flags");
   }
   block::CurrencyCollection value;
   if (!value.validate_unpack(info.value)) {
@@ -6989,13 +7316,12 @@ bool ValidateQuery::postcheck_value_flow() {
                                   << import_fees_ << ", the total transaction fees are " << transaction_fees_.to_str()
                                   << ", creation fee for this block is " << value_flow_.created.to_str()
                                   << ", the total imported fees from shards are " << value_flow_.fees_imported.to_str()
-                                  << " and the burned fees are " << fees_burned_.to_str()
-                                  << " with a total of " << expected_fees.to_str());
+                                  << " and the burned fees are " << fees_burned_.to_str() << " with a total of "
+                                  << expected_fees.to_str());
   }
   if (total_burned_ != value_flow_.burned) {
     return reject_query(PSTRING() << "invalid burned in value flow: " << id_.to_str() << " declared "
-                                  << value_flow_.burned.to_str() << ", correct value is "
-                                  << total_burned_.to_str());
+                                  << value_flow_.burned.to_str() << ", correct value is " << total_burned_.to_str());
   }
   return true;
 }
@@ -7029,13 +7355,11 @@ bool ValidateQuery::try_validate() {
     return true;
   }
   work_timer_.resume();
-  cpu_work_timer_.resume();
   SCOPE_EXIT {
     work_timer_.pause();
-    cpu_work_timer_.pause();
   };
   try {
-    if (!stage_) {
+    if (stage_ == 0) {
       LOG(WARNING) << "try_validate stage 0";
       if (!compute_prev_state()) {
         return fatal_error(-666, "cannot compute previous state");
@@ -7069,74 +7393,83 @@ bool ValidateQuery::try_validate() {
         return true;
       }
     }
-    LOG(WARNING) << "try_validate stage 1";
-    LOG(INFO) << "running automated validity checks for block candidate " << id_.to_str();
-    if (!block::gen::t_Block.validate_ref(10000000, block_root_)) {
-      return reject_query("block "s + id_.to_str() + " failed to pass automated validity checks");
+    if (stage_ == 1) {
+      LOG(WARNING) << "try_validate stage 1";
+      LOG(INFO) << "running automated validity checks for block candidate " << id_.to_str();
+      if (!block::gen::t_Block.validate_ref(10000000, block_root_)) {
+        return reject_query("block "s + id_.to_str() + " failed to pass automated validity checks");
+      }
+      if (!fix_all_processed_upto()) {
+        return fatal_error("cannot adjust all ProcessedUpto of neighbor and previous blocks");
+      }
+      if (!add_trivial_neighbor()) {
+        return fatal_error("cannot add previous block as a trivial neighbor");
+      }
+      if (!unpack_block_data()) {
+        return reject_query("cannot unpack block data");
+      }
+      if (!precheck_account_updates()) {
+        return reject_query("invalid AccountState update");
+      }
+      if (!precheck_account_transactions()) {
+        return reject_query("invalid collection of account transactions in ShardAccountBlocks");
+      }
+      if (!precheck_message_queue_update()) {
+        return reject_query("invalid OutMsgQueue update");
+      }
+      if (!unpack_dispatch_queue_update()) {
+        return reject_query("invalid DispatchQueue update");
+      }
+      if (!check_in_msg_descr()) {
+        return reject_query("invalid InMsgDescr");
+      }
+      if (!check_out_msg_descr()) {
+        return reject_query("invalid OutMsgDescr");
+      }
+      if (!check_dispatch_queue_update()) {
+        return reject_query("invalid OutMsgDescr");
+      }
+      if (!check_processed_upto()) {
+        return reject_query("invalid ProcessedInfo");
+      }
+      if (!check_in_queue()) {
+        return reject_query("cannot check inbound message queues");
+      }
+      // Excessive check: validity of message in queue is checked elsewhere
+      /*if (!check_delivered_dequeued()) {
+        return reject_query("cannot check delivery status of all outbound messages");
+      }*/
+      if (!check_transactions()) {
+        return reject_query("invalid collection of account transactions in ShardAccountBlocks");
+      }
+      stage_ = 2;
+      if (parallel_accounts_validation_) {
+        return true;
+      }
     }
-    if (!fix_all_processed_upto()) {
-      return fatal_error("cannot adjust all ProcessedUpto of neighbor and previous blocks");
-    }
-    if (!add_trivial_neighbor()) {
-      return fatal_error("cannot add previous block as a trivial neighbor");
-    }
-    if (!unpack_block_data()) {
-      return reject_query("cannot unpack block data");
-    }
-    if (!precheck_account_updates()) {
-      return reject_query("invalid AccountState update");
-    }
-    if (!precheck_account_transactions()) {
-      return reject_query("invalid collection of account transactions in ShardAccountBlocks");
-    }
-    if (!precheck_message_queue_update()) {
-      return reject_query("invalid OutMsgQueue update");
-    }
-    if (!unpack_dispatch_queue_update()) {
-      return reject_query("invalid DispatchQueue update");
-    }
-    if (!check_in_msg_descr()) {
-      return reject_query("invalid InMsgDescr");
-    }
-    if (!check_out_msg_descr()) {
-      return reject_query("invalid OutMsgDescr");
-    }
-    if (!check_dispatch_queue_update()) {
-      return reject_query("invalid OutMsgDescr");
-    }
-    if (!check_processed_upto()) {
-      return reject_query("invalid ProcessedInfo");
-    }
-    if (!check_in_queue()) {
-      return reject_query("cannot check inbound message queues");
-    }
-    // Excessive check: validity of message in queue is checked elsewhere
-    /*if (!check_delivered_dequeued()) {
-      return reject_query("cannot check delivery status of all outbound messages");
-    }*/
-    if (!check_transactions()) {
-      return reject_query("invalid collection of account transactions in ShardAccountBlocks");
-    }
-    if (!check_all_ticktock_processed()) {
-      return reject_query("not all tick-tock transactions have been run for special accounts");
-    }
-    if (!check_message_processing_order()) {
-      return reject_query("some messages have been processed by transactions in incorrect order");
-    }
-    if (!check_special_messages()) {
-      return reject_query("special messages are invalid");
-    }
-    if (!check_new_state()) {
-      return reject_query("the header of the new shardchain state is invalid");
-    }
-    if (!check_mc_block_extra()) {
-      return reject_query("McBlockExtra of the new block is invalid");
-    }
-    if (!check_mc_state_extra()) {
-      return reject_query("new McStateExtra is invalid");
-    }
-    if (!postcheck_value_flow()) {
-      return reject_query("new ValueFlow is invalid");
+    if (stage_ == 2) {
+      LOG(WARNING) << "try_validate stage 2";
+      if (!check_all_ticktock_processed()) {
+        return reject_query("not all tick-tock transactions have been run for special accounts");
+      }
+      if (!check_message_processing_order()) {
+        return reject_query("some messages have been processed by transactions in incorrect order");
+      }
+      if (!check_special_messages()) {
+        return reject_query("special messages are invalid");
+      }
+      if (!check_new_state()) {
+        return reject_query("the header of the new shardchain state is invalid");
+      }
+      if (!check_mc_block_extra()) {
+        return reject_query("McBlockExtra of the new block is invalid");
+      }
+      if (!check_mc_state_extra()) {
+        return reject_query("new McStateExtra is invalid");
+      }
+      if (!postcheck_value_flow()) {
+        return reject_query("new ValueFlow is invalid");
+      }
     }
   } catch (vm::VmError& err) {
     return fatal_error(-666, err.get_msg());
@@ -7152,13 +7485,14 @@ bool ValidateQuery::try_validate() {
  * @returns True.
  */
 bool ValidateQuery::save_candidate() {
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
-    if (R.is_error()) {
-      td::actor::send_closure(SelfId, &ValidateQuery::abort_query, R.move_as_error());
-    } else {
-      td::actor::send_closure(SelfId, &ValidateQuery::written_candidate);
-    }
-  });
+  auto P = td::PromiseCreator::lambda(
+      [SelfId = actor_id(this), token = perf_log_.start_action("set_block_candidate")](td::Result<td::Unit> R) mutable {
+        if (R.is_error()) {
+          td::actor::send_closure(SelfId, &ValidateQuery::abort_query, R.move_as_error());
+        } else {
+          td::actor::send_closure(SelfId, &ValidateQuery::written_candidate, std::move(token));
+        }
+      });
 
   td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, id_, block_candidate.clone(),
                           validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(), std::move(P));
@@ -7173,7 +7507,8 @@ bool ValidateQuery::save_candidate() {
  * Callback function called after saving block candidate.
  * Finishes validation.
  */
-void ValidateQuery::written_candidate() {
+void ValidateQuery::written_candidate(td::PerfLogAction token) {
+  token.finish(td::Status::OK());
   finish_query();
 }
 
@@ -7181,25 +7516,27 @@ void ValidateQuery::written_candidate() {
  * Sends validation work time to manager.
  */
 void ValidateQuery::record_stats(bool valid, std::string error_message) {
-  ValidationStats stats;
-  stats.block_id = id_;
-  stats.collated_data_hash = block_candidate.collated_file_hash;
-  stats.validated_at = td::Clocks::system();
-  stats.self = local_validator_id_;
-  stats.valid = valid;
+  stats_.block_id = id_;
+  stats_.collated_data_hash = block_candidate.collated_file_hash;
+  stats_.validated_at = td::Clocks::system();
+  stats_.self = local_validator_id_;
+  stats_.valid = valid;
   if (valid) {
-    stats.comment = (PSTRING() << "OK ts=" << now_);
+    stats_.comment = (PSTRING() << "OK ts=" << now_);
   } else {
-    stats.comment = std::move(error_message);
+    stats_.comment = std::move(error_message);
   }
-  stats.actual_bytes = block_candidate.data.size();
-  stats.actual_collated_data_bytes = block_candidate.collated_data.size();
-  stats.total_time = perf_timer_.elapsed();
-  stats.work_time = work_timer_.elapsed();
-  stats.cpu_work_time = cpu_work_timer_.elapsed();
+  stats_.actual_bytes = (td::uint32)block_candidate.data.size();
+  stats_.actual_collated_data_bytes = (td::uint32)block_candidate.collated_data.size();
+  stats_.total_time = perf_timer_.elapsed();
+  stats_.work_time.total += work_timer_.elapsed_both();
+  stats_.actual_time = work_timer_.elapsed_real() + parallel_work_timer_.elapsed_real();
+  stats_.time_stats = (PSTRING() << perf_log_);
   LOG(WARNING) << "validation took " << perf_timer_.elapsed() << "s";
-  LOG(WARNING) << "Validate query work time = " << stats.work_time << "s, cpu time = " << stats.cpu_work_time << "s";
-  td::actor::send_closure(manager, &ValidatorManager::log_validate_query_stats, std::move(stats));
+  LOG(WARNING) << "Validate query work time = " << stats_.work_time.total.real
+               << "s, cpu time = " << stats_.work_time.total.cpu << "s";
+  LOG(WARNING) << perf_log_;
+  td::actor::send_closure(manager, &ValidatorManager::log_validate_query_stats, std::move(stats_));
 }
 
 }  // namespace validator

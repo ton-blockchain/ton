@@ -16,16 +16,16 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "block/transaction.h"
-#include "block/block.h"
-#include "block/block-parse.h"
 #include "block/block-auto.h"
+#include "block/block-parse.h"
+#include "block/block.h"
+#include "block/transaction.h"
 #include "crypto/openssl/rand.hpp"
+#include "td/utils/Timer.h"
 #include "td/utils/bits.h"
 #include "td/utils/uint128.h"
 #include "ton/ton-shard.h"
 #include "vm/vm.h"
-#include "td/utils/Timer.h"
 
 namespace {
 /**
@@ -35,7 +35,8 @@ namespace {
  */
 class StringLoggerTail : public td::LogInterface {
  public:
-  explicit StringLoggerTail(size_t max_size = 256) : buf(max_size, '\0') {}
+  explicit StringLoggerTail(size_t max_size = 256) : buf(max_size, '\0') {
+  }
 
   /**
    * Appends a slice of data to the buffer.
@@ -78,7 +79,7 @@ class StringLoggerTail : public td::LogInterface {
   size_t pos = 0;
   bool truncated = false;
 };
-}
+}  // namespace
 
 namespace block {
 using td::Ref;
@@ -117,7 +118,7 @@ bool Account::set_address(ton::WorkchainId wc, td::ConstBitPtr new_addr) {
 /**
  * Sets the length of anycast prefix length in the account address.
  *
- * @param new_length The new rewrite lingth.
+ * @param new_length The new rewrite length.
  *
  * @returns True if the length was successfully set, False otherwise.
  */
@@ -179,7 +180,7 @@ bool Account::store_maybe_anycast(vm::CellBuilder& cb) const {
   if (!addr_rewrite_length_set || !addr_rewrite_length) {
     return cb.store_bool_bool(false);
   }
-  return cb.store_bool_bool(true)                                    // just$1
+  return cb.store_bool_bool(true)                                           // just$1
          && cb.store_uint_leq(30, addr_rewrite_length)                      // depth:(#<= 30)
          && cb.store_bits_bool(addr_rewrite.cbits(), addr_rewrite_length);  // rewrite_pfx:(bits depth)
 }
@@ -394,7 +395,7 @@ bool Account::recompute_tmp_addr(Ref<vm::CellSlice>& tmp_addr, int fixed_prefix_
     if (!cb.store_bool_bool(false)) {  // anycast:(Maybe Anycast)
       return false;
     }
-  } else if (!(cb.store_bool_bool(true)                             // just$1
+  } else if (!(cb.store_bool_bool(true)                                     // just$1
                && cb.store_long_bool(fixed_prefix_length, 5)                // depth:(#<= 30)
                && cb.store_bits_bool(addr.bits(), fixed_prefix_length))) {  // rewrite_pfx:(bits depth)
     return false;
@@ -872,7 +873,16 @@ bool Transaction::unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* 
       }
       bounce_enabled = in_msg_info.bounce;
       in_msg_type = 1;
-      td::RefInt256 ihr_fee = block::tlb::t_Grams.as_integer(in_msg_info.ihr_fee);
+      td::RefInt256 ihr_fee;
+      if (cfg->global_version >= 12) {
+        ihr_fee = td::zero_refint();
+        in_msg_extra_flags = tlb::t_Grams.as_integer(in_msg_info.extra_flags);
+        new_bounce_format = in_msg_extra_flags->get_bit(0);
+        new_bounce_format_full_body = in_msg_extra_flags->get_bit(1);
+      } else {
+        // Legacy: extra_flags was previously ihr_fee
+        ihr_fee = tlb::t_Grams.as_integer(in_msg_info.extra_flags);
+      }
       if (ihr_delivered) {
         in_fwd_fee = std::move(ihr_fee);
       } else {
@@ -1277,7 +1287,7 @@ namespace transaction {
  * Checks if it is required to increase gas_limit (from GasLimitsPrices config) for the transaction
  *
  * In January 2024 a highload wallet of @wallet Telegram bot in mainnet was stuck because current gas limit (1M) is
- * not enough to clean up old queires, thus locking funds inside.
+ * not enough to clean up old queries, thus locking funds inside.
  * See comment in crypto/smartcont/highload-wallet-v2-code.fc for details on why this happened.
  * Account address: EQD_v9j1rlsuHHw2FIhcsCFFSD367ldfDdCKcsNmNpIRzUlu
  * It was proposed to validators to increase gas limit for this account to 70M for a limited amount
@@ -1479,16 +1489,16 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
     return {};
   }
   std::vector<vm::StackEntry> tuple = {
-      td::make_refint(0x076ef1ea),                // [ magic:0x076ef1ea
-      td::zero_refint(),                          //   actions:Integer
-      td::zero_refint(),                          //   msgs_sent:Integer
-      td::make_refint(now),                       //   unixtime:Integer
-      td::make_refint(account.block_lt),          //   block_lt:Integer
-      td::make_refint(start_lt),                  //   trans_lt:Integer
-      std::move(rand_seed_int),                   //   rand_seed:Integer
-      balance.as_vm_tuple(),                      //   balance_remaining:[Integer (Maybe Cell)]
-      my_addr,                                    //   myself:MsgAddressInt
-      vm::StackEntry::maybe(cfg.global_config)    //   global_config:(Maybe Cell) ] = SmartContractInfo;
+      td::make_refint(0x076ef1ea),              // [ magic:0x076ef1ea
+      td::zero_refint(),                        //   actions:Integer
+      td::zero_refint(),                        //   msgs_sent:Integer
+      td::make_refint(now),                     //   unixtime:Integer
+      td::make_refint(account.block_lt),        //   block_lt:Integer
+      td::make_refint(start_lt),                //   trans_lt:Integer
+      std::move(rand_seed_int),                 //   rand_seed:Integer
+      balance.as_vm_tuple(),                    //   balance_remaining:[Integer (Maybe Cell)]
+      my_addr,                                  //   myself:MsgAddressInt
+      vm::StackEntry::maybe(cfg.global_config)  //   global_config:(Maybe Cell) ] = SmartContractInfo;
   };
   if (cfg.global_version >= 4) {
     tuple.push_back(vm::StackEntry::maybe(new_code));  // code:Cell
@@ -1497,7 +1507,7 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
     } else {
       tuple.push_back(block::CurrencyCollection::zero().as_vm_tuple());
     }
-    tuple.push_back(storage_phase->fees_collected);       // storage_fees:Integer
+    tuple.push_back(storage_phase->fees_collected);  // storage_fees:Integer
 
     // See crypto/block/mc-config.cpp#2223 (get_prev_blocks_info)
     // [ wc:Integer shard:Integer seqno:Integer root_hash:Integer file_hash:Integer] = BlockId;
@@ -1507,7 +1517,7 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
     // The only context where PrevBlocksInfo (13 parameter of c7) is null is inside emulator
     // where it need to be set via transaction_emulator_set_prev_blocks_info (see emulator/emulator-extern.cpp)
     // Inside validator, collator and liteserver checking external message  contexts
-    // prev_blocks_info is always not null, since get_prev_blocks_info()  
+    // prev_blocks_info is always not null, since get_prev_blocks_info()
     // may only return tuple or raise Error (See crypto/block/mc-config.cpp#2223)
     tuple.push_back(vm::StackEntry::maybe(cfg.prev_blocks_info));
   }
@@ -1640,7 +1650,7 @@ bool Transaction::unpack_msg_state(const ComputePhaseConfig& cfg, bool lib_only,
   if (forbid_public_libs) {
     size_limits.max_acc_public_libraries = 0;
   }
-  auto S = check_state_limits(size_limits, false);
+  auto S = check_state_limits(size_limits, cfg.global_version, false);
   if (S.is_error()) {
     LOG(DEBUG) << "Cannot unpack msg state: " << S.move_as_error();
     new_code = old_code;
@@ -1710,12 +1720,12 @@ bool Transaction::run_precompiled_contract(const ComputePhaseConfig& cfg, precom
   ComputePhase& cp = *compute_phase;
   CHECK(cp.precompiled_gas_usage);
   td::uint64 gas_usage = cp.precompiled_gas_usage.value();
-  td::Timer timer;
+  td::RealCpuTimer timer;
   auto result =
       impl.run(my_addr, now, start_lt, balance, new_data, *in_msg_body, in_msg, msg_balance_remaining, in_msg_extern,
                compute_vm_libraries(cfg), cfg.global_version, cfg.max_vm_data_depth, new_code,
                cfg.unpacked_config_tuple, due_payment.not_null() ? due_payment : td::zero_refint(), gas_usage);
-  double elapsed = timer.elapsed();
+  time_tvm = timer.elapsed_both();
   cp.vm_init_state_hash = td::Bits256::zero();
   cp.exit_code = result.exit_code;
   cp.out_of_gas = false;
@@ -1726,7 +1736,7 @@ bool Transaction::run_precompiled_contract(const ComputePhaseConfig& cfg, precom
   cp.success = (cp.accepted && result.committed);
   LOG(INFO) << "Running precompiled smart contract " << impl.get_name() << ": exit_code=" << result.exit_code
             << " accepted=" << result.accepted << " success=" << cp.success << " gas_used=" << gas_usage
-            << " time=" << elapsed << "s";
+            << " time=" << time_tvm.real << "s cpu_time=" << time_tvm.cpu;
   if (cp.accepted & use_msg_state) {
     was_activated = true;
     acc_status = Account::acc_active;
@@ -1734,7 +1744,7 @@ bool Transaction::run_precompiled_contract(const ComputePhaseConfig& cfg, precom
   if (cfg.with_vm_log) {
     cp.vm_log = PSTRING() << "Running precompiled smart contract " << impl.get_name()
                           << ": exit_code=" << result.exit_code << " accepted=" << result.accepted
-                          << " success=" << cp.success << " gas_used=" << gas_usage << " time=" << elapsed << "s";
+                          << " success=" << cp.success << " gas_used=" << gas_usage << " time=" << time_tvm.real << "s";
   }
   if (cp.success) {
     cp.new_data = impl.get_c4();
@@ -1943,9 +1953,9 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
 
   LOG(DEBUG) << "starting VM";
   cp.vm_init_state_hash = vm.get_state_hash();
-  td::Timer timer;
+  td::RealCpuTimer timer;
   cp.exit_code = ~vm.run();
-  double elapsed = timer.elapsed();
+  time_tvm = timer.elapsed_both();
   LOG(DEBUG) << "VM terminated with exit code " << cp.exit_code;
   cp.out_of_gas = (cp.exit_code == ~(int)vm::Excno::out_of_gas);
   cp.vm_final_state_hash = vm.get_final_state_hash(cp.exit_code);
@@ -1971,7 +1981,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   LOG(INFO) << "steps: " << vm.get_steps_count() << " gas: used=" << gas.gas_consumed() << ", max=" << gas.gas_max
             << ", limit=" << gas.gas_limit << ", credit=" << gas.gas_credit;
   LOG(INFO) << "out_of_gas=" << cp.out_of_gas << ", accepted=" << cp.accepted << ", success=" << cp.success
-            << ", time=" << elapsed << "s";
+            << ", time=" << time_tvm.real << "s, cpu_time=" << time_tvm.cpu;
   if (logger != nullptr) {
     cp.vm_log = logger->get_log();
   }
@@ -2046,7 +2056,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
     if (account.is_special) {
       return 1;
     }
-    auto S = check_state_limits(cfg.size_limits);
+    auto S = check_state_limits(cfg.size_limits, cfg.global_version);
     if (S.is_error()) {
       if (S.code() != AccountStorageStat::errorcode_limits_exceeded) {
         LOG(ERROR) << "Account storage stat error: " << S.move_as_error();
@@ -2132,7 +2142,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
   }
   ap.valid = true;
   for (int i = n - 1; i >= 0; --i) {
-    if(ap.action_list[i].is_null()) {
+    if (ap.action_list[i].is_null()) {
       continue;
     }
     ap.result_arg = n - 1 - i;
@@ -2462,8 +2472,8 @@ bool Transaction::check_replace_src_addr(Ref<vm::CellSlice>& src_addr) const {
  *
  * @returns True if the destination address is valid, false otherwise.
  */
-bool Transaction::check_rewrite_dest_addr(Ref<vm::CellSlice>& dest_addr, const ActionPhaseConfig& cfg,
-                                          bool* is_mc, bool allow_anycast) const {
+bool Transaction::check_rewrite_dest_addr(Ref<vm::CellSlice>& dest_addr, const ActionPhaseConfig& cfg, bool* is_mc,
+                                          bool allow_anycast) const {
   if (!dest_addr->prefetch_ulong(1)) {
     // all external addresses allowed
     if (is_mc) {
@@ -2677,11 +2687,18 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     if (cfg.disable_custom_fess) {
       fwd_fee = ihr_fee = td::zero_refint();
     } else {
-      fwd_fee = block::tlb::t_Grams.as_integer(info.fwd_fee);
-      ihr_fee = block::tlb::t_Grams.as_integer(info.ihr_fee);
+      fwd_fee = tlb::t_Grams.as_integer(info.fwd_fee);
+      ihr_fee = cfg.global_version >= 12 ? td::zero_refint() : tlb::t_Grams.as_integer(info.extra_flags);
     }
     if (cfg.disable_ihr_flag) {
       info.ihr_disabled = true;
+    }
+    if (cfg.global_version >= 12) {
+      td::RefInt256 extra_flags = tlb::t_Grams.as_integer(info.extra_flags);
+      if (td::cmp(extra_flags & td::make_refint(3), extra_flags) != 0) {
+        LOG(DEBUG) << "invalid extra_flags in a proposed outbound message";
+        return check_skip_invalid(45);
+      }
     }
   }
   // set created_at and created_lt to correct values
@@ -2916,7 +2933,9 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     // re-pack message value
     CHECK(req.pack_to(info.value));
     CHECK(block::tlb::t_Grams.pack_integer(info.fwd_fee, fwd_fee_remain));
-    CHECK(block::tlb::t_Grams.pack_integer(info.ihr_fee, ihr_fee));
+    if (cfg.global_version < 12) {
+      CHECK(block::tlb::t_Grams.pack_integer(info.extra_flags, ihr_fee));
+    }
 
     // serialize message
     CHECK(tlb::csr_pack(msg.info, info));
@@ -3175,6 +3194,7 @@ static td::uint32 get_public_libraries_diff_count(const td::Ref<vm::Cell>& old_l
  * This function is not called for special accounts.
  *
  * @param size_limits The size limits configuration.
+ * @param global_version Global version (ConfigParam 8).
  * @param is_account_stat Store storage stat in the Transaction's AccountStorageStat.
  *
  * @returns A `td::Status` indicating the result of the check.
@@ -3182,7 +3202,8 @@ static td::uint32 get_public_libraries_diff_count(const td::Ref<vm::Cell>& old_l
  *          - If the state limits exceed the maximum allowed range, returns an error with AccountStorageStat::errorcode_limits_exceeded code.
  *          - If an error occurred during storage stat calculation, returns other error.
  */
-td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, bool is_account_stat) {
+td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, int global_version,
+                                           bool is_account_stat) {
   auto cell_equal = [](const td::Ref<vm::Cell>& a, const td::Ref<vm::Cell>& b) -> bool {
     return a.is_null() || b.is_null() ? a.is_null() == b.is_null() : a->get_hash() == b->get_hash();
   };
@@ -3196,7 +3217,13 @@ td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, 
   }
   {
     TD_PERF_COUNTER(transaction_storage_stat_a);
-    td::Timer timer;
+    td::RealCpuTimer timer;
+    SCOPE_EXIT {
+      LOG_IF(INFO, timer.elapsed_real() > 0.1) << "Compute used storage (1) took " << timer.elapsed_real() << "s";
+      if (is_account_stat) {
+        time_storage_stat += timer.elapsed_both();
+      }
+    };
     if (is_account_stat && compute_phase) {
       storage_stat.add_hint(compute_phase->vm_loaded_cells);
     }
@@ -3208,18 +3235,14 @@ td::Status Transaction::check_state_limits(const SizeLimitsConfig& size_limits, 
       storage_stat_updates.push_back(new_library);
     }
     TRY_STATUS(storage_stat.replace_roots({new_code, new_data, new_library}, /* check_merkle_depth = */ true));
-    if (timer.elapsed() > 0.1) {
-      LOG(INFO) << "Compute used storage (1) took " << timer.elapsed() << "s";
-    }
   }
 
-  if (storage_stat.get_total_cells() > size_limits.max_acc_state_cells ||
-      storage_stat.get_total_bits() > size_limits.max_acc_state_bits) {
+  td::uint32 max_cells = account.is_masterchain() && global_version >= 12 ? size_limits.max_mc_acc_state_cells
+                                                                          : size_limits.max_acc_state_cells;
+  if (storage_stat.get_total_cells() > max_cells) {
     return td::Status::Error(AccountStorageStat::errorcode_limits_exceeded,
                              PSTRING() << "account state is too big: cells=" << storage_stat.get_total_cells()
-                                       << ", bits=" << storage_stat.get_total_bits()
-                                       << " (max cells=" << size_limits.max_acc_state_cells
-                                       << ", max bits=" << size_limits.max_acc_state_bits << ")");
+                                       << " (max cells=" << max_cells << ")");
   }
   if (account.is_masterchain() && !cell_equal(account.library, new_library)) {
     auto libraries_count = get_public_libraries_count(new_library);
@@ -3249,8 +3272,8 @@ bool Transaction::prepare_bounce_phase(const ActionPhaseConfig& cfg) {
   }
   bounce_phase = std::make_unique<BouncePhase>();
   BouncePhase& bp = *bounce_phase;
-  block::gen::Message::Record msg;
-  block::gen::CommonMsgInfo::Record_int_msg_info info;
+  gen::Message::Record msg;
+  gen::CommonMsgInfo::Record_int_msg_info info;
   auto cs = vm::load_cell_slice(in_msg);
   if (!(tlb::unpack(cs, info) && gen::t_Maybe_Either_StateInit_Ref_StateInit.skip(cs) && cs.have(1) &&
         cs.have_refs((int)cs.prefetch_ulong(1)))) {
@@ -3260,6 +3283,44 @@ bool Transaction::prepare_bounce_phase(const ActionPhaseConfig& cfg) {
   if (cs.fetch_ulong(1)) {
     cs = vm::load_cell_slice(cs.prefetch_ref());
   }
+
+  vm::CellBuilder body;
+  if (new_bounce_format) {
+    body.store_long(0xfffffffeU, 32);   // new_bounce_body#fffffffe
+    if (new_bounce_format_full_body) {  // original_body:^Cell
+      body.store_ref(vm::CellBuilder().append_cellslice(in_msg_body).finalize_novm());
+    } else {
+      body.store_ref(vm::CellBuilder().store_bits(in_msg_body->as_bitslice()).finalize_novm());
+    }
+    body.store_ref(vm::CellBuilder()
+                       .append_cellslice(in_msg_info.value)     // value:CurrencyCollection
+                       .store_long(in_msg_info.created_lt, 64)  // created_lt:uint64
+                       .store_long(in_msg_info.created_at, 32)  // created_at:uint32
+                       .finalize_novm());                       // original_info:^NewBounceOriginalInfo
+    if (compute_phase->skip_reason != ComputePhase::sk_none) {
+      body.store_long(0, 8);                             // bounced_by_phase:uint8
+      body.store_long(-compute_phase->skip_reason, 32);  // exit_code:int32
+    } else if (!compute_phase->success) {
+      body.store_long(1, 8);                          // bounced_by_phase:uint8
+      body.store_long(compute_phase->exit_code, 32);  // exit_code:int32
+    } else {
+      body.store_long(2, 8);                           // bounced_by_phase:uint8
+      body.store_long(action_phase->result_code, 32);  // exit_code:int32
+    }
+    // compute_phase:(Maybe NewBounceComputePhaseInfo)
+    if (compute_phase->skip_reason != ComputePhase::sk_none) {
+      body.store_long(0, 1);
+    } else {
+      body.store_long(1, 1);
+      body.store_long(compute_phase->gas_used, 32);  // gas_used:uint32
+      body.store_long(compute_phase->vm_steps, 32);  // vm_steps:uint32
+    }
+  } else if (cfg.bounce_msg_body) {
+    int body_bits = std::min((int)cs.size(), cfg.bounce_msg_body);
+    body.store_long_bool(-1, 32);                       // 0xffffffff tag
+    body.append_bitslice(cs.prefetch_bits(body_bits));  // truncated message body
+  }
+
   info.ihr_disabled = true;
   info.bounce = false;
   info.bounced = true;
@@ -3275,7 +3336,8 @@ bool Transaction::prepare_bounce_phase(const ActionPhaseConfig& cfg) {
   // compute size of message
   vm::CellStorageStat sstat;  // for message size
   // preliminary storage estimation of the resulting message
-  sstat.compute_used_storage(info.value->prefetch_ref());
+  sstat.add_used_storage(info.value->prefetch_ref());
+  sstat.add_used_storage(body.get_refs());
   bp.msg_bits = sstat.bits;
   bp.msg_cells = sstat.cells;
   // compute forwarding fees
@@ -3307,30 +3369,22 @@ bool Transaction::prepare_bounce_phase(const ActionPhaseConfig& cfg) {
   end_lt++;
   info.created_at = now;
   vm::CellBuilder cb;
-  CHECK(cb.store_long_bool(5, 4)                            // int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
-        && cb.append_cellslice_bool(info.src)               // src:MsgAddressInt
-        && cb.append_cellslice_bool(info.dest)              // dest:MsgAddressInt
-        && msg_balance.store(cb)                            // value:CurrencyCollection
-        && block::tlb::t_Grams.store_long(cb, 0)            // ihr_fee:Grams
-        && block::tlb::t_Grams.store_long(cb, bp.fwd_fees)  // fwd_fee:Grams
-        && cb.store_long_bool(info.created_lt, 64)          // created_lt:uint64
-        && cb.store_long_bool(info.created_at, 32)          // created_at:uint32
-        && cb.store_bool_bool(false));                      // init:(Maybe ...)
-  if (cfg.bounce_msg_body) {
-    int body_bits = std::min((int)cs.size(), cfg.bounce_msg_body);
-    if (cb.remaining_bits() >= body_bits + 33u) {
-      CHECK(cb.store_bool_bool(false)                             // body:(Either X ^X) -> left X
-            && cb.store_long_bool(-1, 32)                         // int = -1 ("message type")
-            && cb.append_bitslice(cs.prefetch_bits(body_bits)));  // truncated message body
-    } else {
-      vm::CellBuilder cb2;
-      CHECK(cb.store_bool_bool(true)                             // body:(Either X ^X) -> right ^X
-            && cb2.store_long_bool(-1, 32)                       // int = -1 ("message type")
-            && cb2.append_bitslice(cs.prefetch_bits(body_bits))  // truncated message body
-            && cb.store_builder_ref_bool(std::move(cb2)));       // ^X
-    }
+  CHECK(cb.store_long_bool(5, 4)                // int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
+        && cb.append_cellslice_bool(info.src)   // src:MsgAddressInt
+        && cb.append_cellslice_bool(info.dest)  // dest:MsgAddressInt
+        && msg_balance.store(cb)                // value:CurrencyCollection
+        && block::tlb::t_Grams.store_integer_ref(
+               cb, in_msg_extra_flags & td::make_refint(3))  // extra_flags:(VarUInteger 16)
+        && block::tlb::t_Grams.store_long(cb, bp.fwd_fees)   // fwd_fee:Grams
+        && cb.store_long_bool(info.created_lt, 64)           // created_lt:uint64
+        && cb.store_long_bool(info.created_at, 32)           // created_at:uint32
+        && cb.store_bool_bool(false));                       // init:(Maybe ...)
+  if (cb.can_extend_by(1 + body.size(), body.size_refs())) {
+    // body:(Either X ^X) -> left X
+    CHECK(cb.store_bool_bool(false) && cb.append_builder_bool(body));
   } else {
-    CHECK(cb.store_bool_bool(false));  // body:(Either ..)
+    // body:(Either X ^X) -> right ^X
+    CHECK(cb.store_bool_bool(true) && cb.store_builder_ref_bool(std::move(body)));
   }
   CHECK(cb.finalize_to(bp.out_msg));
   if (verbosity > 2) {
@@ -3442,6 +3496,9 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     if (frozen_hash == account.addr_orig) {
       // if frozen_hash equals account's "original" address (before rewriting), do not need storing hash
       CHECK(cb.store_long_bool(0, 2));  // account_uninit$00 = AccountState
+      if (cfg.global_version >= 13) {
+        acc_status = Account::acc_uninit;
+      }
     } else {
       CHECK(cb.store_long_bool(1, 2)              // account_frozen$01
             && cb.store_bits_bool(frozen_hash));  // state_hash:bits256
@@ -3511,19 +3568,21 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
     auto roots = new_storage_for_stat->prefetch_all_refs();
     storage_stat_updates.insert(storage_stat_updates.end(), roots.begin(), roots.end());
     {
+      td::RealCpuTimer timer;
       StorageStatCalculationContext context{true};
       StorageStatCalculationContext::Guard guard{&context};
       td::Status S = stats.replace_roots(roots);
+      time_storage_stat += timer.elapsed_both();
       if (S.is_error()) {
-        LOG(ERROR) << "Cannot recompute storage stats for account " << account.addr.to_hex() << ": " << S.move_as_error();
+        LOG(ERROR) << "Cannot recompute storage stats for account " << account.addr.to_hex() << ": "
+                   << S.move_as_error();
         return false;
       }
     }
     // Root of AccountStorage is not counted in AccountStorageStat
     new_storage_used.cells = stats.get_total_cells() + 1;
     new_storage_used.bits = stats.get_total_bits() + new_storage_for_stat->size();
-    // TODO: think about this limit (25)
-    if (store_storage_dict_hash && new_storage_used.cells > 25) {
+    if (store_storage_dict_hash && new_storage_used.cells >= cfg.size_limits.acc_state_cells_for_storage_dict) {
       auto r_hash = stats.get_dict_hash();
       if (r_hash.is_error()) {
         LOG(ERROR) << "Cannot compute storage dict hash for account " << account.addr.to_hex() << ": "
@@ -3911,7 +3970,7 @@ Ref<vm::Cell> Transaction::commit(Account& acc) {
   if (force_remove_anycast_address) {
     CHECK(acc.forget_addr_rewrite_length());
   } else if (orig_addr_rewrite_set && new_addr_rewrite_length >= 0 && acc.status != Account::acc_active &&
-      acc_status == Account::acc_active) {
+             acc_status == Account::acc_active) {
     LOG(DEBUG) << "setting address rewriting info for newly-activated account " << acc.addr.to_hex()
                << " with addr_rewrite_length=" << new_addr_rewrite_length
                << ", orig_addr_rewrite=" << orig_addr_rewrite.bits().to_hex(new_addr_rewrite_length);
@@ -4179,11 +4238,14 @@ td::Status FetchConfigParams::fetch_config_params(
     action_phase_cfg->extra_currency_v2 = config.get_global_version() >= 10;
     action_phase_cfg->disable_anycast = config.get_global_version() >= 10;
     action_phase_cfg->disable_ihr_flag = config.get_global_version() >= 11;
+    action_phase_cfg->global_version = config.get_global_version();
   }
   {
+    serialize_cfg->global_version = config.get_global_version();
     serialize_cfg->extra_currency_v2 = config.get_global_version() >= 10;
     serialize_cfg->disable_anycast = config.get_global_version() >= 10;
     serialize_cfg->store_storage_dict_hash = config.get_global_version() >= 11;
+    serialize_cfg->size_limits = size_limits;
   }
   {
     // fetch block_grams_created

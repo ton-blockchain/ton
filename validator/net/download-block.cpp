@@ -16,13 +16,14 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "download-block.hpp"
-#include "ton/ton-tl.hpp"
 #include "adnl/utils.hpp"
-#include "ton/ton-shard.h"
 #include "td/utils/overloaded.h"
 #include "ton/ton-io.hpp"
+#include "ton/ton-shard.h"
+#include "ton/ton-tl.hpp"
 #include "validator/full-node.h"
+
+#include "download-block.hpp"
 
 namespace ton {
 
@@ -294,7 +295,7 @@ void DownloadBlock::got_block_partial_proof(td::BufferSlice proof) {
 }
 
 void DownloadBlock::checked_block_proof() {
-  VLOG(FULL_NODE_DEBUG) << "checked proof for " << block_id_;
+  VLOG(FULL_NODE_DEBUG) << "checked proof for " << block_id_.to_str();
 
   if (!handle_) {
     CHECK(!short_);

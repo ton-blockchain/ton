@@ -16,14 +16,14 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "tl_jni_object.h"
+#include <memory>
 
+#include "td/utils/Slice.h"
 #include "td/utils/common.h"
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
-#include "td/utils/Slice.h"
 
-#include <memory>
+#include "tl_jni_object.h"
 
 namespace td {
 namespace jni {

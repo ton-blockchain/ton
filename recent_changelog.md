@@ -1,11 +1,9 @@
-## 2025.06 Update
+## 2025.11 Update
 
-1. ADNL and candidate broadcast optimization
-2. [TVM version v11](./doc/GlobalVersions.md): new opcodes, and `c7` entry to improve developer experience. It also activates storage stats and `ihr_fee`  nullification.
-3. Fixed `start_lt` of tick transactions [see details on 01.06.2025 incident](https://telegra.ph/Report-on-June-1-2025-Operation-Incident-06-02).
-4. Introduction of persistent state sharding, as well as making serialization of large BOCs more deterministic
-5. Emulator improvements: in get methods, set config from provided `c7`; allow retrieval of logs from emulator runs for get methods
-6. Optimized package import for archive nodes
+1. [TVM version v12](./doc/GlobalVersions.md) update: [forbid unused high bits in extra_flags](https://github.com/ton-blockchain/TEPs/pull/503/commits/d949d70d5a69026d273cbbc07653d12c4373117a), [bounce extra_flags equal to initial message extra_flags](https://github.com/ton-blockchain/TEPs/pull/503/commits/d33ff342d69de04f1c33d11360dcf06b63a6c21e), [new TVM opcodes](https://github.com/ton-blockchain/ton/commit/ecd8fbb833c408eb34ec1aa4516e9e4344b54a22).
+2. Abseil upgrade
+3. Improvements in node synchronisation
+4. Fixing rare ArchiveManager issues
+5. Various improvements in logging, builds, DHT node behavior, private net launching, failure handlers.
 
-Besides the work of the core team, this update is based on the efforts of the RSquad team (deterministic large BOC serialization); AArayz, wy666444, Robinlzw, Lucian-code233 from TonBit (early discovery of the TVM 11 bug); @Skydev0h (uninitialized `BLOCKLT` in get methods); and @yma-het from TONWhales (emulator improvements).
-
+Besides the work of the core team, this update is based on the efforts of the @Lapo4kaKek and [Vahagn x.com/vah_13](https://x.com/vah_13).

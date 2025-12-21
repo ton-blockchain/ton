@@ -15,11 +15,26 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "symtable.h"
+#include "ast.h"
+#include "compilation-errors.h"
 #include "compiler-state.h"
-#include "platform-utils.h"
 #include "generics-helpers.h"
 
 namespace tolk {
+
+void Symbol::check_import_exists_when_used_from(FunctionPtr cur_f, AnyV usage) const {
+#ifdef TOLK_DEBUG
+  tolk_assert(ident_anchor != nullptr);
+#endif
+  const SrcFile* declared_in = ident_anchor->range.get_src_file();
+  bool has_import = false;
+  for (const SrcFile::ImportDirective& import : usage->range.get_src_file()->imports) {
+    has_import |= import.imported_file == declared_in;
+  }
+  if (!has_import) {
+    err("Using a non-imported symbol `{}`\n""hint: forgot to import \"{}\"?", name, declared_in->extract_short_name()).fire(usage, cur_f);
+  }
+}
 
 std::string FunctionData::as_human_readable() const {
   if (!is_generic_function()) {
@@ -42,14 +57,27 @@ std::string StructData::as_human_readable() const {
   return name + genericTs->as_human_readable();
 }
 
+std::string EnumDefData::as_human_readable() const {
+  return name;
+}
+
+LocalVarPtr FunctionData::find_param(std::string_view name) const {
+  for (const LocalVarData& param_data : parameters) {
+    if (param_data.name == name) {
+      return &param_data;
+    }
+  }
+  return nullptr;
+}
+
 bool FunctionData::does_need_codegen() const {
   // when a function is declared, but not referenced from code in any way, don't generate its body
-  if (!is_really_used() && G.settings.remove_unused_functions) {
+  if (!is_really_used()) {
     return false;
   }
   // functions with asm body don't need code generation
   // (even if used as non-call: `var a = beginCell;` inserts TVM continuation inline)
-  if (is_asm_function() || is_builtin_function()) {
+  if (is_asm_function() || is_builtin()) {
     return false;
   }
   // when a function is referenced like `var a = some_fn;` (or in some other non-call way), its continuation should exist
@@ -58,6 +86,10 @@ bool FunctionData::does_need_codegen() const {
   }
   // generic functions also don't need code generation, only generic instantiations do
   if (is_generic_function()) {
+    return false;
+  }
+  // if calls to this function were inlined in place, the function itself is omitted from fif
+  if (is_inlined_in_place()) {
     return false;
   }
   // currently, there is no inlining, all functions are codegenerated
@@ -105,6 +137,10 @@ void FunctionData::assign_is_really_used() {
   this->flags |= flagReallyUsed;
 }
 
+void FunctionData::assign_inline_mode_in_place() {
+  this->inline_mode = FunctionInlineMode::inlineInPlace;
+}
+
 void FunctionData::assign_arg_order(std::vector<int>&& arg_order) {
   this->arg_order = std::move(arg_order);
 }
@@ -127,6 +163,10 @@ void GlobalConstData::assign_inferred_type(TypePtr inferred_type) {
 
 void GlobalConstData::assign_init_value(AnyExprV init_value) {
   this->init_value = init_value;
+}
+
+void LocalVarData::assign_used_as_lval() {
+  this->flags |= flagUsedAsLVal;
 }
 
 void LocalVarData::assign_ir_idx(std::vector<int>&& ir_idx) {
@@ -155,6 +195,14 @@ void AliasDefData::assign_resolved_type(TypePtr underlying_type) {
   this->underlying_type = underlying_type;
 }
 
+void EnumMemberData::assign_init_value(AnyExprV init_value) {
+  this->init_value = init_value;
+}
+
+void EnumMemberData::assign_computed_value(td::RefInt256 computed_value) {
+  this->computed_value = std::move(computed_value);
+}
+
 void StructFieldData::assign_resolved_type(TypePtr declared_type) {
   this->declared_type = declared_type;
 }
@@ -167,6 +215,10 @@ void StructData::assign_resolved_genericTs(const GenericsDeclaration* genericTs)
   if (this->substitutedTs == nullptr) {
     this->genericTs = genericTs;
   }
+}
+
+void EnumDefData::assign_resolved_colon_type(TypePtr colon_type) {
+  this->colon_type = colon_type;
 }
 
 StructFieldPtr StructData::find_field(std::string_view field_name) const {
@@ -196,62 +248,31 @@ std::string StructData::PackOpcode::format_as_slice() const {
   return result;
 }
 
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_redefinition_of_symbol(SrcLocation loc, const Symbol* previous) {
-  SrcLocation prev_loc = previous->loc;
-  if (prev_loc.is_stdlib()) {
-    throw ParseError(loc, "redefinition of a symbol from stdlib");
+EnumMemberPtr EnumDefData::find_member(std::string_view member_name) const {
+  for (EnumMemberPtr member_ref : members) {
+    if (member_ref->name == member_name) {
+      return member_ref;
+    }
   }
-  if (prev_loc.is_defined()) {
-    throw ParseError(loc, "redefinition of symbol, previous was at: " + prev_loc.to_string());
-  }
-  throw ParseError(loc, "redefinition of built-in symbol");
+  return nullptr;
 }
 
-void GlobalSymbolTable::add_function(FunctionPtr f_sym) {
-  auto key = key_hash(f_sym->name);
-  auto [it, inserted] = entries.emplace(key, f_sym);
+static Error err_redefinition_of_symbol(const Symbol* previous) {
+  if (previous->is_builtin()) {
+    return err("redefinition of built-in symbol");
+  }
+  if (previous->ident_anchor->range.get_src_file()->is_stdlib_file) {
+    return err("redefinition of a symbol from stdlib");
+  }
+  return err("redefinition of symbol, previous was at: {}", previous->ident_anchor->range.stringify_start_location(false));
+}
+
+void GlobalSymbolTable::add_global_symbol(const Symbol* sym) {
+  auto key = key_hash(sym->name);
+  auto [it, inserted] = entries.emplace(key, sym);
   if (!inserted) {
-    fire_error_redefinition_of_symbol(f_sym->loc, it->second);
+    err_redefinition_of_symbol(it->second).fire(sym->ident_anchor);
   }
-}
-
-void GlobalSymbolTable::add_global_var(GlobalVarPtr g_sym) {
-  auto key = key_hash(g_sym->name);
-  auto [it, inserted] = entries.emplace(key, g_sym);
-  if (!inserted) {
-    fire_error_redefinition_of_symbol(g_sym->loc, it->second);
-  }
-}
-
-void GlobalSymbolTable::add_global_const(GlobalConstPtr c_sym) {
-  auto key = key_hash(c_sym->name);
-  auto [it, inserted] = entries.emplace(key, c_sym);
-  if (!inserted) {
-    fire_error_redefinition_of_symbol(c_sym->loc, it->second);
-  }
-}
-
-void GlobalSymbolTable::add_type_alias(AliasDefPtr a_sym) {
-  auto key = key_hash(a_sym->name);
-  auto [it, inserted] = entries.emplace(key, a_sym);
-  if (!inserted) {
-    fire_error_redefinition_of_symbol(a_sym->loc, it->second);
-  }
-}
-
-void GlobalSymbolTable::add_struct(StructPtr s_sym) {
-  auto key = key_hash(s_sym->name);
-  auto [it, inserted] = entries.emplace(key, s_sym);
-  if (!inserted) {
-    fire_error_redefinition_of_symbol(s_sym->loc, it->second);
-  }
-}
-
-void GlobalSymbolTable::replace_function(FunctionPtr f_sym) {
-  auto key = key_hash(f_sym->name);
-  assert(entries.contains(key));
-  entries[key] = f_sym;
 }
 
 const Symbol* lookup_global_symbol(std::string_view name) {

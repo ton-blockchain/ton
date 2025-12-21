@@ -33,12 +33,14 @@ fun Pair<int,int>.create0(): Pair<int?,int?> {
 fun Pair<A,B>.create0(): Pair<A,B> {
     return { first: 0, second: 0 };
 }
+@noinline
 fun Pair<A,B>.createFrom<U,V>(first: U, second: V): Pair<A,B> {
     return { first: first as A, second: second as B };
 }
 fun Pair<T1,T2>.is0(self) {
     return self.first == 0 && self.second == 0;
 }
+@noinline
 fun Pair<A,B>.compareWith<U,V>(self, f: U, s: V) {
     return self.first == f && self.second == s;
 }
@@ -189,11 +191,11 @@ fun T?.arbitraryMethod(self): never { throw 123; }
 
 fun test12() {
     __expect_type(10.arbitraryMethod(), "int?");
-    __expect_type((10 as int8?).arbitraryMethod(), "int?");
     __expect_type((10 as coins?)!.arbitraryMethod(), "int?");
 
-    __expect_type(null.arbitraryMethod(), "int?");
-    __expect_type((10 as coins?).arbitraryMethod(), "int?");
+    __expect_type((10 as int8?).arbitraryMethod(), "never");
+    __expect_type(null.arbitraryMethod(), "never");
+    __expect_type((10 as coins?).arbitraryMethod(), "never");
 
     __expect_type(Wrapper { item: 10 }.arbitraryMethod(), "Wrapper<MInt>");
     __expect_type(Wrapper<int> { item: 10 as int8 }.arbitraryMethod(), "Wrapper<MInt>");
@@ -205,12 +207,12 @@ fun test12() {
     __expect_type((null as slice?).arbitraryMethod(), "never");
 }
 
-type BuilderOrInt = builder|int;
-fun (int|builder).isInt(self) { return self is int; }
+type BuilderOrInt = |builder|int
+fun|int|builder.isInt(self) { return self is int; }
 
 @method_id(113)
 fun test13() {
-    var u1 = beginCell() as builder|int;
+    var u1 = beginCell() as|builder|int;
     var u2 = 10 as int|builder;
     var u3 = 20 as BuilderOrInt;
     return (u1.isInt(), u2.isInt(), u3.isInt(), 10.isInt(), beginCell().isInt(), (8 as int8).isInt());
@@ -222,7 +224,7 @@ fun (int|builder|T).isBuilder(self) { return self is builder; }
 fun test14() {
     var b1 = beginCell() as BuilderOrInt | slice;
     var b2 = beginCell() as builder|slice|int|Point;
-    var i1 = 5 as int|builder|continuation|(int, int);
+    var i1 = 5 as |int|builder|continuation|(int, int);
     var c = beginCell().endCell() as cell?|builder|int;
     var cn = null as cell?|int|int8|builder;
     return (b1.isBuilder(), b2.isBuilder(), i1.isBuilder(), c.isBuilder(), cn.isBuilder());
@@ -243,9 +245,11 @@ struct CounterIncrement { inc_by: int; }
 struct CounterReset { initial_value: int; }
 type CounterMsg = CounterIncrement | CounterReset;
 
+@noinline
 fun CounterReset.onInternalMessage(self) {
     throw 123;
 }
+@noinline
 fun CounterMsg.onInternalMessage(self) {
     return match (self) {
         CounterIncrement => self.inc_by,
@@ -276,12 +280,31 @@ fun Wrapper<T>.createFrom<U>(item: U): Wrapper<T> { return {item}; }
 fun test18() {
     __expect_type(10.copy, "(int) -> int");
     __expect_type(Wrapper{item:null as int8?}.copy, "(Wrapper<int8?>) -> Wrapper<int8?>");
-    __expect_type(Wrapper<int>.createNull, "() -> Wrapper<int?>");
+    __expect_type(Wrapper<int?>.createNull, "() -> Wrapper<int?>");
     __expect_type(Wrapper<Wrapper<slice?>?>.createNull, "() -> Wrapper<Wrapper<slice?>?>");
     __expect_type(Wrapper<int?>.createFrom<int8>, "(int8) -> Wrapper<int?>");
 
     var cb = Wrapper<int?>.createFrom<int8>;
     return cb(10);
+}
+
+type BalanceList = dict
+type AssetList = dict
+
+fun BalanceList.validate(self): int1 { return 0 }
+fun AssetList.validate(self): int2 { return 0 }
+
+fun test19(b: BalanceList, a: AssetList) {
+    __expect_type(b.validate(), "int1");
+    __expect_type(a.validate(), "int2");
+    
+    if (b == null) {}
+    match (a) {
+        null => {}
+        cell => {}
+    }
+    __expect_type(b, "BalanceList");
+    __expect_type(a, "AssetList");
 }
 
 fun main() {}
@@ -296,7 +319,7 @@ fun main() {}
 @testcase | 107 |        | 2 1 -1
 @testcase | 108 | 5      | 17 5
 @testcase | 109 |        | 5 100500 20 30 5 5 31
-@testcase | 110 |        | [ 2 3 1 1 3 1 1 ] -1
+@testcase | 110 |        | [ 2 3 1 1 1 1 1 ] -1
 @testcase | 111 |        | [ 1 2 3 3 2 ]
 @testcase | 113 |        | 0 -1 -1 -1 0 -1
 @testcase | 114 |        | -1 -1 0 0 0
@@ -305,7 +328,7 @@ fun main() {}
 @testcase | 117 |        | 3
 @testcase | 118 |        | 10
 
-@fif_codegen DECLPROC Pair<int16,int8>.createFrom<int,coins>
-@fif_codegen DECLPROC Pair<int8,int16>.compareWith<int16,int8>
-@fif_codegen DECLPROC CounterMsg.onInternalMessage
+@fif_codegen DECLPROC Pair<int16,int8>.createFrom<int,coins>()
+@fif_codegen DECLPROC Pair<int8,int16>.compareWith<int16,int8>()
+@fif_codegen DECLPROC CounterMsg.onInternalMessage()
  */

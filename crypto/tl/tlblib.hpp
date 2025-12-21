@@ -17,10 +17,11 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include <functional>
 #include <iostream>
 #include <map>
+
 #include "vm/cellslice.h"
-#include <functional>
 
 namespace tlb {
 

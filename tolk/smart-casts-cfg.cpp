@@ -16,7 +16,7 @@
 */
 #include "smart-casts-cfg.h"
 #include "ast.h"
-#include "tolk.h"
+#include "compilation-errors.h"
 
 /*
  *   This file represents internals of AST-level control flow and data flow analysis.
@@ -113,6 +113,28 @@ std::string SinkExpression::to_string() const {
   return result;
 }
 
+bool SinkExpression::is_child_of(SinkExpression rhs) const {
+  // `c.1.2` (index_path = 3<<8 + 2) is a child of `c.1` (index_path = 2) and `c` (index_path = 0)
+  uint64_t mask = 0;
+  uint64_t rhs_path = rhs.index_path;
+  while (rhs_path != 0) {
+    mask = (mask << 8) + 0xFF;
+    rhs_path >>= 8;
+  }  
+  return var_ref == rhs.var_ref && index_path != rhs.index_path && (index_path & mask) == rhs.index_path; 
+}
+
+SinkExpression SinkExpression::get_child_s_expr(int field_idx) const {
+  uint64_t new_index_path = index_path;    // if we have c.1 (index_path = 2) and construct c.1.N, calc (N<<8 + 2)
+  for (int empty_byte = 0; empty_byte < 8; ++empty_byte) {
+    if ((index_path & (0xFF << (empty_byte*8))) == 0) {
+      new_index_path += (field_idx + 1) << (empty_byte*8);
+      break;
+    }
+  }
+  return SinkExpression(var_ref, new_index_path);
+}
+
 static std::string to_string(SignState s) {
   static const char* txt[6 + 1] = {"sign=unknown", ">0", "<0", "=0", ">=0", "<=0", "sign=never"};
   return txt[static_cast<int>(s)];
@@ -193,18 +215,27 @@ static TypePtr calculate_type_lca(TypePtr a, TypePtr b, bool* became_union = nul
     return TypeDataBrackets::create(std::move(types_lca));
   }
 
-  if (const auto* a_alias = a->try_as<TypeDataAlias>()) {
-    return calculate_type_lca(a_alias->underlying_type, b, became_union);
-  }
-  if (const auto* b_alias = b->try_as<TypeDataAlias>()) {
-    return calculate_type_lca(a, b_alias->underlying_type, became_union);
-  }
-
   TypePtr resulting_union = TypeDataUnion::create(std::vector{a, b});
   if (became_union != nullptr && !a->equal_to(resulting_union) && !b->equal_to(resulting_union)) {
     *became_union = true;
   }
   return resulting_union;
+}
+
+// when `var v = rhs`, `v` is `unknown` before assignment (before rhs->inferred_type is assigned to it);
+// when `var (v1,v2,v3) = rhs`, left side is `(unknown,unknown,unknown)`
+static bool is_type_unknown_from_var_lhs_decl(TypePtr t) {
+  if (t == TypeDataUnknown::create()) {
+    return true;
+  }
+  if (const auto* t_tensor = t->try_as<TypeDataTensor>()) {
+    bool all_unknown = true;
+    for (TypePtr item : t_tensor->items) {
+      all_unknown &=is_type_unknown_from_var_lhs_decl(item);
+    }
+    return all_unknown;
+  }
+  return false;
 }
 
 // merge (unify) of two sign states: what sign do we definitely have
@@ -252,7 +283,7 @@ BoolState calculate_bool_lca(BoolState a, BoolState b) {
 void TypeInferringUnifyStrategy::unify_with(TypePtr next, TypePtr dest_hint) {
   // example: `var r = ... ? int8 : int16`, will be inferred as `int8 | int16` (via unification)
   // but `var r: int = ... ? int8 : int16`, will be inferred as `int` (it's dest_hint)
-  if (dest_hint && dest_hint != TypeDataUnknown::create() && !dest_hint->unwrap_alias()->try_as<TypeDataUnion>()) {
+  if (dest_hint && !is_type_unknown_from_var_lhs_decl(dest_hint) && !dest_hint->unwrap_alias()->try_as<TypeDataUnion>()) {
     if (dest_hint->can_rhs_be_assigned(next)) {
       next = dest_hint;
     }
@@ -285,6 +316,22 @@ void FlowContext::invalidate_all_subfields(LocalVarPtr var_ref, uint64_t parent_
       ++it;
     }
   }
+}
+
+// get the resulting type of variable or struct field
+TypePtr FlowContext::smart_cast_or_original(SinkExpression s_expr, TypePtr originally_declared_type) const {
+  auto it = known_facts.find(s_expr);
+  if (it == known_facts.end()) {
+    return originally_declared_type;
+  }
+
+  TypePtr smart_casted = it->second.expr_type;
+  if (smart_casted->equal_to(originally_declared_type)) {
+    // given `var a: dict`, after merging control flow branches, restore `a: dict` instead of `a: cell?`
+    // (same for struct fields and other sink expressions)
+    return originally_declared_type;
+  }
+  return smart_casted;
 }
 
 // update current type of `local_var` / `tensorVar.0` / `obj.field`
@@ -359,26 +406,26 @@ FlowContext FlowContext::merge_flow(FlowContext&& c1, FlowContext&& c2) {
 // example: `int | slice | builder | bool` - `bool | slice` = `int | builder`
 // what for: `if (x != null)` / `if (x is T)`, to smart cast x inside if
 TypePtr calculate_type_subtract_rhs_type(TypePtr type, TypePtr subtract_type) {
-  const TypeDataUnion* lhs_union = type->try_as<TypeDataUnion>();
+  const TypeDataUnion* lhs_union = type->unwrap_alias()->try_as<TypeDataUnion>();
   if (!lhs_union) {
     return TypeDataNever::create();
   }
 
   std::vector<TypePtr> rest_variants;
 
-  if (const TypeDataUnion* sub_union = subtract_type->try_as<TypeDataUnion>()) {
+  if (const TypeDataUnion* sub_union = subtract_type->unwrap_alias()->try_as<TypeDataUnion>()) {
     if (lhs_union->has_all_variants_of(sub_union)) {
       rest_variants.reserve(lhs_union->size() - sub_union->size());
       for (TypePtr lhs_variant : lhs_union->variants) {
-        if (!sub_union->has_variant_with_type_id(lhs_variant)) {
+        if (!sub_union->has_variant_equal_to(lhs_variant)) {
           rest_variants.push_back(lhs_variant);
         }
       }
     }
-  } else if (lhs_union->has_variant_with_type_id(subtract_type)) {
+  } else if (lhs_union->has_variant_equal_to(subtract_type)) {
     rest_variants.reserve(lhs_union->size() - 1);
     for (TypePtr lhs_variant : lhs_union->variants) {
-      if (lhs_variant->get_type_id() != subtract_type->get_type_id()) {
+      if (!lhs_variant->equal_to(subtract_type)) {
         rest_variants.push_back(lhs_variant);
       }
     }
@@ -492,14 +539,10 @@ TypePtr calc_smart_cast_type_on_assignment(TypePtr lhs_declared_type, TypePtr rh
     // example: `var x: int | slice | cell = 4`, result is int
     // example: `var x: T1 | T2 | T3 = y as T3 | T1`, result is `T1 | T3`
     if (const TypeDataUnion* rhs_union = rhs_inferred_type->try_as<TypeDataUnion>()) {
-      bool lhs_has_all_variants_of_rhs = true;
-      for (TypePtr rhs_variant : rhs_union->variants) {
-        lhs_has_all_variants_of_rhs &= lhs_union->has_variant_with_type_id(rhs_variant);
-      }
-      if (lhs_has_all_variants_of_rhs && rhs_union->size() < lhs_union->size()) {
+      if (lhs_union->has_all_variants_of(rhs_union) && rhs_union->size() < lhs_union->size()) {
         std::vector<TypePtr> subtypes_of_lhs;
         for (TypePtr lhs_variant : lhs_union->variants) {
-          if (rhs_union->has_variant_with_type_id(lhs_variant)) {
+          if (rhs_union->has_variant_equal_to(lhs_variant)) {
             subtypes_of_lhs.push_back(lhs_variant);
           }
         }
@@ -526,7 +569,7 @@ std::ostream& operator<<(std::ostream& os, const FlowContext& flow) {
 }
 
 std::ostream& operator<<(std::ostream& os, const FactsAboutExpr& facts) {
-  os << facts.expr_type;
+  os << (facts.expr_type == nullptr ? "(nullptr-type)" : facts.expr_type->as_human_readable());
   if (facts.sign_state != SignState::Unknown) {
     os << " " << to_string(facts.sign_state);
   }

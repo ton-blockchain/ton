@@ -9,14 +9,17 @@ fun sumOfNullableTensorComponents(t: (int, int)?): int {
     return t!.0 + t!.1;
 }
 
+@noinline
 fun isTensorNull(t: (int, int)?) {
     return t == null;
 }
 
+@noinline
 fun (int, int)?.isTensorNull(self) {
     return self == null;
 }
 
+@noinline
 fun incrementNullableTensorComponents(mutate t: (int, int)?) {
     if (t != null) {
         t!.0 += 1;
@@ -37,12 +40,14 @@ fun incrementTensorComponents(mutate t: (int, int)) {
     t.1 += 1;
 }
 
+@noinline
 fun (int, int).incrementTensorComponents(mutate self): self {
     self.0 += 1;
     self.1 += 1;
     return self;
 }
 
+@noinline
 fun assignFirstComponent(mutate t: (int, int), first: int) {
     t!.0 = first;
 }
@@ -498,7 +503,7 @@ fun main(){}
 @testcase | 102 |      | 1 2 typeid-1 (null) (null) 0
 @testcase | 103 | 1 2  | 3 3 0 1 2
 @testcase | 104 |      | 1 2 (null) (null) 0
-@testcase | 105 |      | (null) (null) (null) 0 1 2 3 typeid-3
+@testcase | 105 |      | (null) (null) (null) 0 1 2 3 typeid-2
 @testcase | 106 |      | 1 2
 @testcase | 107 |      | 0 0 -1 0 0 -1
 @testcase | 108 | 5 6  | 7 8 10 11 typeid-1 (null) (null) 0
@@ -520,37 +525,37 @@ fun main(){}
 @testcase | 121 |      | [ 1 [ 3 4 ] ]
 @testcase | 122 | 0    | [ 1 [ 3 4 ] 4 (null) ]
 @testcase | 122 | -1   | [ 1 (null) 4 (null) ]
-@testcase | 123 |      | 1 3 4 typeid-4
-@testcase | 124 | 0    | 1 3 4 typeid-4 4 (null) (null) 0
+@testcase | 123 |      | 1 3 4 typeid-3
+@testcase | 124 | 0    | 1 3 4 typeid-3 4 (null) (null) 0
 @testcase | 124 | -1   | 1 (null) (null) 0 4 (null) (null) 0
 @testcase | 125 |      | 3
 @testcase | 126 |      | 1 (null) 2
 @testcase | 127 | 1    | 1 (null) (null) 0 2
 @testcase | 127 | 2    | 1 2 3 typeid-1 4
 @testcase | 127 | 3    | 1 (null) (null) 0 5
-@testcase | 128 | 1    | 1 (null) (null) 0 2 typeid-11
+@testcase | 128 | 1    | 1 (null) (null) 0 2 typeid-6
 @testcase | 128 | 2    | (null) (null) (null) (null) (null) 0
-@testcase | 128 | 3    | 1 2 3 typeid-1 4 typeid-11
+@testcase | 128 | 3    | 1 2 3 typeid-1 4 typeid-6
 @testcase | 129 | 0    | 5 5 0 -1 1 2 0 -1
 @testcase | 129 | -1   | 5 5 0 -1 (null) (null) 0 -1
 @testcase | 130 | 0    | 1 2 3 typeid-1
 @testcase | 130 | -1   | 1 (null) (null) 0
-@testcase | 131 |      | typeid-12 777 0 777 777 777 0 0 typeid-12 typeid-12 777 typeid-12 typeid-12 typeid-13 777
+@testcase | 131 |      | typeid-7 777 0 777 777 777 0 0 typeid-7 typeid-7 777 typeid-7 typeid-7 typeid-8 777
 @testcase | 132 |      | -1 0 -1 0 777 (null) (null) -1 0 0
 @testcase | 133 |      | 60
 @testcase | 134 |      | 11 21 typeid-1
-@testcase | 135 |      | [ 10 ] [ (null) ] (null) 777 10 typeid-15 (null) typeid-15 (null) 0 777 10 typeid-16 (null) typeid-16 (null) 0 777 0 0 -1 0 0 -1 0 0 -1 777 0 -1 0 0 -1 0
+@testcase | 135 |      | [ 10 ] [ (null) ] (null) 777 10 typeid-9 (null) typeid-9 (null) 0 777 10 typeid-10 (null) typeid-10 (null) 0 777 0 0 -1 0 0 -1 0 0 -1 777 0 -1 0 0 -1 0
 @testcase | 136 | 9    | 9 0
 @testcase | 136 | null | (null) -1
-@testcase | 140 | 8 9  | 8 9 typeid-17 (null) (null) 0
+@testcase | 140 | 8 9  | 8 9 typeid-11 (null) (null) 0
 @testcase | 141 |      | (null) 10
 @testcase | 142 |      | 3 3 1 2
 @testcase | 143 | -1 0 | 1 2 1 3 777 (null) (null) (null) (null) 0
-@testcase | 143 | 0 -1 | 1 (null) 0 3 777 1 2 1 3 typeid-18
+@testcase | 143 | 0 -1 | 1 (null) 0 3 777 1 2 1 3 typeid-12
 
 @fif_codegen
 """
-  isTensorNull PROC:<{  //  t.0 t.1 t.UTag
+  isTensorNull() PROC:<{//  t.0 t.1 t.UTag
     2 1 BLKDROP2	    //  t.UTag
     0 EQINT	//  '3
   }>
@@ -558,14 +563,14 @@ fun main(){}
 
 @fif_codegen
 """
-  test113 PROC:<{
+  test113() PROC:<{
     1 PUSHINT	//  '2=1
     PUSHNULL	//  '2=1 '3
     PAIR	//  t
     1 INDEX	//  '5
     PUSHNULL	//  '5 '6
     0 PUSHINT	//  '5 '6 '7=0
-    isTensorNull CALLDICT	//  '8
+    isTensorNull() CALLDICT	//  '8
   }>
 """
 */

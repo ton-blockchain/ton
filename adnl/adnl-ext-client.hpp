@@ -19,12 +19,13 @@
 #pragma once
 
 #include "auto/tl/lite_api.h"
-#include "adnl-ext-connection.hpp"
-#include "tl-utils/lite-utils.hpp"
-#include "td/utils/Random.h"
-#include "adnl-query.h"
 #include "keys/encryptor.h"
+#include "td/utils/Random.h"
+#include "tl-utils/lite-utils.hpp"
+
 #include "adnl-ext-client.h"
+#include "adnl-ext-connection.hpp"
+#include "adnl-query.h"
 
 namespace ton {
 
@@ -71,6 +72,9 @@ class AdnlExtClientImpl : public AdnlExtClient {
   AdnlExtClientImpl(AdnlNodeIdFull dst_id, td::IPAddress dst_addr, std::unique_ptr<Callback> callback)
       : dst_(std::move(dst_id)), dst_addr_(dst_addr), callback_(std::move(callback)) {
   }
+  AdnlExtClientImpl(AdnlNodeIdFull dst_id, std::string dst_host, std::unique_ptr<Callback> callback)
+      : dst_(std::move(dst_id)), dst_host_(std::move(dst_host)), callback_(std::move(callback)) {
+  }
   AdnlExtClientImpl(AdnlNodeIdFull dst_id, PrivateKey local_id, td::IPAddress dst_addr,
                     std::unique_ptr<Callback> callback)
       : dst_(std::move(dst_id)), local_id_(local_id), dst_addr_(dst_addr), callback_(std::move(callback)) {
@@ -83,7 +87,7 @@ class AdnlExtClientImpl : public AdnlExtClient {
     if (!conn_.empty() && conn_.get() == conn) {
       callback_->on_stop_ready();
       conn_ = {};
-      for (auto& q : out_queries_) {
+      for (auto &q : out_queries_) {
         td::actor::send_closure(q.second, &AdnlQuery::set_error, td::Status::Error(ErrorCode::cancelled));
       }
       alarm_timestamp() = next_create_at_;
@@ -133,6 +137,7 @@ class AdnlExtClientImpl : public AdnlExtClient {
   AdnlNodeIdFull dst_;
   PrivateKey local_id_;
   td::IPAddress dst_addr_;
+  std::string dst_host_;
 
   std::unique_ptr<Callback> callback_;
 
