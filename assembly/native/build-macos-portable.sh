@@ -44,8 +44,8 @@ if [ "$(uname)" = "Darwin" ]; then
   else
     echo "macOS $MACOS_MAJOR detected -> using Homebrew llvm@21"
     brew install llvm@21
-    export CC=$(brew --prefix llvm)/bin/clang
-    export CXX=$(brew --prefix llvm)/bin/clang++
+    export CC="$(brew --prefix llvm@21)"/bin/clang
+    export CXX="$(brew --prefix llvm@21)"/bin/clang++
   fi
 fi
 
