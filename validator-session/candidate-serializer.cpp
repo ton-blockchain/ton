@@ -50,8 +50,7 @@ td::Result<td::BufferSlice> serialize_candidate(const tl_object_ptr<ton_api::val
 
 td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candidate(td::Slice data,
                                                                                      bool compression_enabled,
-                                                                                     int max_decompressed_data_size,
-                                                                                     int proto_version) {
+                                                                                     int max_decompressed_data_size) {
   if (!compression_enabled) {
     auto t_decompression_start = td::Time::now();
     TRY_RESULT(res, fetch_tl_object<ton_api::validatorSession_candidate>(data, true));
