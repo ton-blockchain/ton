@@ -66,7 +66,7 @@ jobs:
           prompt: |
             This is PR #${{ github.event.pull_request.number }} for ${{ github.repository }}.
 
-            Review ONLY the changes introduced by this PR.
+            Review ONLY the changes introduced by this PR compared to the base (trusted) branch.
 
             Diff range:
               ${{ github.event.pull_request.base.sha }}...pr-${{ github.event.pull_request.number }}
