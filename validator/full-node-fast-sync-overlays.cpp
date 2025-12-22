@@ -53,7 +53,7 @@ void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonN
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), src,
                                          query = std::move(query)](td::Result<td::Unit> R) mutable {
       if (R.is_error()) {
-        LOG(WARNING) << "Dropped V2 broadcast because of signatures validation error: " << R.move_as_error();
+        LOG(DEBUG) << "Dropped V2 broadcast because of signatures validation error: " << R.move_as_error();
         return;
       }
 
