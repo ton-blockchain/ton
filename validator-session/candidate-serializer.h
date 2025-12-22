@@ -16,6 +16,7 @@
 */
 #pragma once
 #include <string>
+
 #include "auto/tl/ton_api.h"
 #include "ton/ton-types.h"
 

@@ -191,14 +191,14 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
     total_size_estimate += cell_bitslice.size();
 
     // Process cell references
-    if (kMURemoveSubtreeSums && cell_slice.special_type() == vm::CellTraits::SpecialType::MerkleUpdate && main_mu_cell.not_null() && cell_hash == main_mu_cell->get_hash()) {
+    if (kMURemoveSubtreeSums && cell_slice.special_type() == vm::CellTraits::SpecialType::MerkleUpdate &&
+        main_mu_cell.not_null() && cell_hash == main_mu_cell->get_hash()) {
       // Left branch: traverse normally
       TRY_RESULT(child_left_id, self(self, cell_slice.prefetch_ref(0), main_mu_cell, true));
       boc_graph[current_cell_id][0] = child_left_id;
       // Right branch: traverse paired with left and compute diffs inline
-      TRY_RESULT(
-          child_right_id,
-          self(self, cell_slice.prefetch_ref(1), main_mu_cell, false, true, cell_slice.prefetch_ref(0)));
+      TRY_RESULT(child_right_id,
+                 self(self, cell_slice.prefetch_ref(1), main_mu_cell, false, true, cell_slice.prefetch_ref(0)));
       boc_graph[current_cell_id][1] = child_right_id;
     } else if (under_mu_right && left_cell.not_null()) {
       // Inline computation for RIGHT subtree nodes under MerkleUpdate
@@ -206,8 +206,8 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
       td::RefInt256 sum_child_diff = td::make_refint(0);
       // Recurse children first
       for (int i = 0; i < cell_slice.size_refs(); ++i) {
-        TRY_RESULT(child_id, self(self, cell_slice.prefetch_ref(i), main_mu_cell, false, true,
-                                  cs_left.prefetch_ref(i), &sum_child_diff));
+        TRY_RESULT(child_id, self(self, cell_slice.prefetch_ref(i), main_mu_cell, false, true, cs_left.prefetch_ref(i),
+                                  &sum_child_diff));
         boc_graph[current_cell_id][i] = child_id;
       }
 
@@ -222,8 +222,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
       }
     } else {
       for (int i = 0; i < cell_slice.size_refs(); ++i) {
-        TRY_RESULT(child_id,
-                   self(self, cell_slice.prefetch_ref(i), main_mu_cell, under_mu_left, under_mu_right));
+        TRY_RESULT(child_id, self(self, cell_slice.prefetch_ref(i), main_mu_cell, under_mu_left, under_mu_right));
         boc_graph[current_cell_id][i] = child_id;
       }
     }

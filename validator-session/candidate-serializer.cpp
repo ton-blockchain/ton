@@ -26,7 +26,7 @@
 namespace ton::validatorsession {
 
 namespace {
-constexpr const char *k_called_from_validator_session = "validator_session";
+constexpr const char* k_called_from_validator_session = "validator_session";
 }  // namespace
 
 td::Result<td::BufferSlice> serialize_candidate(const tl_object_ptr<ton_api::validatorSession_candidate>& block,
@@ -73,9 +73,9 @@ td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candi
                   if (c.decompressed_size_ > max_decompressed_data_size) {
                     return td::Status::Error("decompressed size is too big");
                   }
-                  TRY_RESULT(p, decompress_candidate_data(c.data_, false, c.decompressed_size_,
-                                                          max_decompressed_data_size, proto_version,
-                                                          k_called_from_validator_session, c.root_hash_));
+                  TRY_RESULT(p,
+                             decompress_candidate_data(c.data_, false, c.decompressed_size_, max_decompressed_data_size,
+                                                       proto_version, k_called_from_validator_session, c.root_hash_));
                   return create_tl_object<ton_api::validatorSession_candidate>(c.src_, c.round_, c.root_hash_,
                                                                                std::move(p.first), std::move(p.second));
                 }();
@@ -112,8 +112,8 @@ td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice c
   td::BufferSlice compressed = td::lz4_compress(data);
   LOG(DEBUG) << "Compressing block candidate: " << block.size() + collated_data.size() << " -> " << compressed.size();
   LOG(DEBUG) << "Broadcast_benchmark serialize_candidate block_id=" << root_hash.to_hex()
-             << " called_from=" << called_from
-             << " time_sec=" << (td::Time::now() - t_compression_start) << " compression=" << "compressed"
+             << " called_from=" << called_from << " time_sec=" << (td::Time::now() - t_compression_start)
+             << " compression=" << "compressed"
              << " original_size=" << block.size() + collated_data.size() << " compressed_size=" << compressed.size();
   return compressed;
 }
