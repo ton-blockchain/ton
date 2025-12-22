@@ -85,9 +85,9 @@ if not exist "libsodium" (
 if not exist "openssl" (
   git clone https://github.com/openssl/openssl.git
   cd openssl
-  git checkout openssl-3.2.6 no-winstore
+  git checkout openssl-3.2.6
   where perl
-  perl Configure VC-WIN64A
+  perl Configure VC-WIN64A no-winstore
   IF %errorlevel% NEQ 0 (
     echo Can't configure openssl
     exit /b %errorlevel%
