@@ -11,11 +11,11 @@ RUN apt-get update && \
 
 RUN wget https://apt.llvm.org/llvm.sh && \
     chmod +x llvm.sh && \
-    ./llvm.sh 16 all && \
+    ./llvm.sh 21 all && \
     rm -rf /var/lib/apt/lists/*
 
-ENV CC=/usr/bin/clang-16
-ENV CXX=/usr/bin/clang++-16
+ENV CC=/usr/bin/clang-21
+ENV CXX=/usr/bin/clang++-21
 ENV CCACHE_DISABLE=1
 
 WORKDIR /
