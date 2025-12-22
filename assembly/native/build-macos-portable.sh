@@ -44,13 +44,8 @@ if [ "$(uname)" = "Darwin" ]; then
   else
     echo "macOS $MACOS_MAJOR detected -> using Homebrew llvm@21"
     brew install llvm@21
-    if [ -f /opt/homebrew/opt/llvm@21/bin/clang ]; then
-      export CC=/opt/homebrew/opt/llvm@21/bin/clang
-      export CXX=/opt/homebrew/opt/llvm@21/bin/clang++
-    else
-      export CC=/usr/local/opt/llvm@21/bin/clang
-      export CXX=/usr/local/opt/llvm@21/bin/clang++
-    fi
+    export CC=$(brew --prefix llvm)/bin/clang
+    export CXX=$(brew --prefix llvm)/bin/clang++
   fi
 fi
 
@@ -120,7 +115,7 @@ if [ ! -d "../3pp/zlib" ]; then
   cd ../../build || exit
 else
   zlibPath=$(pwd)/../3pp/zlib
-  echo "Using compile(sw_vers -productVersion | cut -d. -f1d zlib"
+  echo "Using compiled zlib"
 fi
 
 if [ ! -d "../3pp/libmicrohttpd" ]; then
