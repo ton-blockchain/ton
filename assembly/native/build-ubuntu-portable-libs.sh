@@ -109,6 +109,7 @@ fi
 cmake -GNinja .. \
 -DPORTABLE=1 \
 -DCMAKE_BUILD_TYPE=Release \
+-DTON_USE_CI_BASELINE_CPU=1 \
 -DOPENSSL_FOUND=1 \
 -DOPENSSL_INCLUDE_DIR=$opensslPath/include \
 -DOPENSSL_CRYPTO_LIBRARY=$opensslPath/libcrypto.a \

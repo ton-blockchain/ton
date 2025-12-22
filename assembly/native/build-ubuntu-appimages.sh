@@ -50,6 +50,7 @@ fi
 
 cmake -GNinja .. \
 -DCMAKE_BUILD_TYPE=Release \
+-DTON_USE_CI_BASELINE_CPU=1 \
 -DPORTABLE=1 \
 -DOPENSSL_ROOT_DIR=$opensslPath \
 -DOPENSSL_INCLUDE_DIR=$opensslPath/include \
