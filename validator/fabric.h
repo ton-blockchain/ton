@@ -20,6 +20,7 @@
 
 #include "interfaces/db.h"
 #include "interfaces/validator-manager.h"
+#include "td/actor/coro_utils.h"
 
 #include "validator.h"
 
@@ -80,9 +81,6 @@ td::Result<std::vector<td::Ref<ShardTopBlockDescription>>> create_new_shard_bloc
 
 td::Ref<BlockSignatureSet> create_signature_set(std::vector<BlockSignature> sig_set);
 
-void run_check_external_message(td::Ref<ExtMessage> message, td::actor::ActorId<ValidatorManager> manager,
-                                td::Promise<td::Ref<ExtMessage>> promise);
-
 void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                             td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
                             int send_broadcast_mode, bool apply, td::actor::ActorId<ValidatorManager> manager,
@@ -118,6 +116,8 @@ void run_liteserver_query(td::BufferSlice data, td::actor::ActorId<ValidatorMana
 void run_fetch_account_state(
     WorkchainId wc, StdSmcAddress addr, td::actor::ActorId<ValidatorManager> manager,
     td::Promise<std::tuple<td::Ref<vm::CellSlice>, UnixTime, LogicalTime, std::unique_ptr<block::ConfigInfo>>> promise);
+td::actor::Task<std::tuple<td::Ref<vm::CellSlice>, UnixTime, LogicalTime, std::unique_ptr<block::ConfigInfo>>>
+run_fetch_account_state(WorkchainId wc, StdSmcAddress addr, td::actor::ActorId<ValidatorManager> manager);
 void run_validate_shard_block_description(td::BufferSlice data, BlockHandle masterchain_block,
                                           td::Ref<MasterchainState> masterchain_state,
                                           td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,

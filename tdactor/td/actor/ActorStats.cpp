@@ -209,7 +209,7 @@ std::string ActorStats::prepare_stats() {
   };
   std::sort(stats.begin(), stats.end(),
             [&](auto &left, auto &right) { return main_key(left.first) > main_key(right.first); });
-  auto debug = Debug(SchedulerContext::get()->scheduler_group());
+  auto debug = Debug(SchedulerContext::get().scheduler_group());
   debug.dump(sb);
   sb << "All actors:\n";
   for (auto &it : stats) {

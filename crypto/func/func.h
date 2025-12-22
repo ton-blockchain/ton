@@ -857,8 +857,8 @@ extern std::set<std::string> prohibited_var_names;
 class ReadCallback {
  public:
   /// Noncopyable.
-  ReadCallback(ReadCallback const&) = delete;
-  ReadCallback& operator=(ReadCallback const&) = delete;
+  ReadCallback(const ReadCallback&) = delete;
+  ReadCallback& operator=(const ReadCallback&) = delete;
 
   enum class Kind { ReadFile, Realpath };
 

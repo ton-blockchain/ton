@@ -69,7 +69,7 @@ UdpServerImpl::UdpServerImpl(td::UdpSocketFd fd, std::unique_ptr<Callback> callb
 }
 
 void UdpServerImpl::start_up() {
-  //CHECK(td::actor::SchedulerContext::get()->has_poll() == false);
+  //CHECK(td::actor::SchedulerContext::get().has_poll() == false);
   class Observer : public td::ObserverBase, public Destructor {
    public:
     Observer(td::actor::ActorShared<UdpServerImpl> udp_server) : udp_server_(std::move(udp_server)) {
@@ -97,7 +97,7 @@ void UdpServerImpl::loop() {
   if (is_closing_) {
     return;
   }
-  //CHECK(td::actor::SchedulerContext::get()->has_poll() == false);
+  //CHECK(td::actor::SchedulerContext::get().has_poll() == false);
   sync_with_poll(fd_);
   VLOG(udp_server) << "loop " << td::tag("can read", can_read(fd_)) << " " << td::tag("can write", can_write(fd_));
   Status status;
@@ -169,8 +169,8 @@ class TcpClient : public td::actor::Actor, td::ObserverBase {
     LOG(INFO) << "Start";
     // Subscribe for socket updates
     // NB: Interface will be changed
-    td::actor::SchedulerContext::get()->get_poll().subscribe(buffered_fd_.get_poll_info().extract_pollable_fd(this),
-                                                             PollFlags::ReadWrite());
+    td::actor::SchedulerContext::get().get_poll().subscribe(buffered_fd_.get_poll_info().extract_pollable_fd(this),
+                                                            PollFlags::ReadWrite());
     alarm_timestamp() = Timestamp::in(10);
     notify();
   }
@@ -179,7 +179,7 @@ class TcpClient : public td::actor::Actor, td::ObserverBase {
     LOG(INFO) << "Close";
     // unsubscribe from socket updates
     // nb: interface will be changed
-    td::actor::SchedulerContext::get()->get_poll().unsubscribe(buffered_fd_.get_poll_info().get_pollable_fd_ref());
+    td::actor::SchedulerContext::get().get_poll().unsubscribe(buffered_fd_.get_poll_info().get_pollable_fd_ref());
     callback_->on_closed(actor_id(this));
   }
 

@@ -505,6 +505,13 @@ td::Ref<McShardHash> MasterchainStateQ::get_shard_from_config(ShardIdFull shard,
   return config_->get_shard_hash(shard, exact);
 }
 
+CatchainSeqno MasterchainStateQ::get_shard_cc_seqno(ShardIdFull shard) const {
+  if (!config_) {
+    return std::numeric_limits<CatchainSeqno>::max();
+  }
+  return config_->get_shard_cc_seqno(shard);
+}
+
 bool MasterchainStateQ::rotated_all_shards() const {
   if (!config_) {
     return false;

@@ -116,12 +116,12 @@ namespace core {  // for ADL
 template <class SelfT>
 ActorId<SelfT> actor_id(SelfT *self) {
   CHECK(self);
-  CHECK(static_cast<core::Actor *>(self) == &core::ActorExecuteContext::get()->actor());
-  return ActorId<SelfT>(core::ActorExecuteContext::get()->actor().get_actor_info_ptr());
+  CHECK(static_cast<core::Actor *>(self) == &core::ActorExecuteContext::get().actor());
+  return ActorId<SelfT>(core::ActorExecuteContext::get().actor().get_actor_info_ptr());
 }
 
 inline ActorId<> actor_id() {
-  return actor_id(&core::ActorExecuteContext::get()->actor());
+  return actor_id(&core::ActorExecuteContext::get().actor());
 }
 }  // namespace core
 using core::actor_id;

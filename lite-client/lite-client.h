@@ -454,7 +454,7 @@ class TestNode : public td::actor::Actor {
   }
   void tear_down() override {
     // FIXME: do not work in windows
-    //td::actor::SchedulerContext::get()->stop();
+    //td::actor::SchedulerContext::get().stop();
   }
 
   void got_result(td::Result<td::BufferSlice> R, td::Promise<td::BufferSlice> promise);

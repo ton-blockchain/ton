@@ -80,7 +80,7 @@ class ActorExecutor : public vm::DynamicBagOfCellsDb::AsyncExecutor {
   class Worker : public td::actor::Actor {
    public:
     void close() {
-      td::actor::core::SchedulerContext::get()->stop();
+      td::actor::core::SchedulerContext::get().stop();
       stop();
     }
     void execute_sync(std::function<void()> f) {
@@ -101,7 +101,7 @@ class ActorExecutor : public vm::DynamicBagOfCellsDb::AsyncExecutor {
      private:
       std::function<void()> f_;
     };
-    auto context = td::actor::SchedulerContext::get();
+    auto context = td::actor::SchedulerContext::get_ptr();
     if (context) {
       td::actor::create_actor<Runner>("executeasync", std::move(f)).release();
     } else {
@@ -111,7 +111,7 @@ class ActorExecutor : public vm::DynamicBagOfCellsDb::AsyncExecutor {
   }
 
   void execute_sync(std::function<void()> f) override {
-    auto context = td::actor::SchedulerContext::get();
+    auto context = td::actor::SchedulerContext::get_ptr();
     if (context) {
       td::actor::send_closure(worker_, &Worker::execute_sync, std::move(f));
     } else {

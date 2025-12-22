@@ -279,7 +279,7 @@ class TonlibCli : public td::actor::Actor {
     }
   }
   void tear_down() override {
-    td::actor::SchedulerContext::get()->stop();
+    td::actor::SchedulerContext::get().stop();
   }
 
   void on_wait() {

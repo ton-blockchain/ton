@@ -79,7 +79,7 @@ Install additional system libraries
           
   wget https://apt.llvm.org/llvm.sh
   chmod +x llvm.sh
-  sudo ./llvm.sh 16 all
+  sudo ./llvm.sh 21 clang
 ```
 Compile TON binaries
 ```bash
@@ -117,7 +117,7 @@ Install additional system libraries on Ubuntu
           
   wget https://apt.llvm.org/llvm.sh
   chmod +x llvm.sh
-  sudo ./llvm.sh 16 all
+  sudo ./llvm.sh 21 clang
 ```
 Compile TON binaries with emscripten
 ```bash

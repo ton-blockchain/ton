@@ -224,7 +224,7 @@ class ValidatorEngine : public td::actor::Actor {
   std::map<CI_key, td::uint32> control_permissions_;
 
   double state_ttl_ = 0;
-  double max_mempool_num_ = 0;
+  size_t max_mempool_num_ = 0;
   double block_ttl_ = 0;
   double sync_ttl_ = 0;
   double archive_ttl_ = 0;
@@ -256,6 +256,7 @@ class ValidatorEngine : public td::actor::Actor {
   ton::adnl::AdnlNodeIdShort shard_block_retainer_adnl_id_ = ton::adnl::AdnlNodeIdShort::zero();
   bool shard_block_retainer_adnl_id_fullnode_ = false;
   bool parallel_validation_ = false;
+  std::string db_event_fifo_path_;
   ton::validator::fullnode::FullNodeOptions full_node_options_ = {.config_ = {},
                                                                   .public_broadcast_speed_multiplier_ = 3.33,
                                                                   .private_broadcast_speed_multiplier_ = 3.33,
@@ -288,7 +289,7 @@ class ValidatorEngine : public td::actor::Actor {
   void set_state_ttl(double t) {
     state_ttl_ = t;
   }
-  void set_max_mempool_num(double t) {
+  void set_max_mempool_num(size_t t) {
     max_mempool_num_ = t;
   }
   void set_block_ttl(double t) {
@@ -390,6 +391,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_parallel_validation(bool value) {
     parallel_validation_ = value;
+  }
+  void set_db_event_fifo_path(std::string value) {
+    db_event_fifo_path_ = std::move(value);
   }
   void set_initial_sync_delay(double value) {
     full_node_options_.initial_sync_delay_ = value;
