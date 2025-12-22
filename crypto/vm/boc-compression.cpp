@@ -139,7 +139,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
   std::vector<size_t> refs_cnt;
   std::vector<td::BitSlice> cell_data;
   std::vector<size_t> cell_type;
-  std::vector<size_t> prunned_branch_level;
+  std::vector<size_t> pb_level_mask;
   std::vector<size_t> root_indexes;
   size_t total_size_estimate = 0;
 
@@ -172,7 +172,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
     boc_graph.emplace_back();
     refs_cnt.emplace_back(cell_slice.size_refs());
     cell_type.emplace_back(size_t(cell_slice.special_type()));
-    prunned_branch_level.push_back(0);
+    pb_level_mask.push_back(0);
 
     DCHECK(cell_slice.size_refs() <= 4);
 
@@ -180,7 +180,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
     if (cell_slice.special_type() == vm::CellTraits::SpecialType::PrunnedBranch) {
       DCHECK(cell_slice.size() >= 16);
       cell_data.emplace_back(cell_bitslice.subslice(16, cell_bitslice.size() - 16));
-      prunned_branch_level.back() = cell_slice.data()[1];
+      pb_level_mask.back() = cell_slice.data()[1];
     } else {
       cell_data.emplace_back(cell_bitslice);
     }
@@ -215,7 +215,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
       td::RefInt256 vertex_diff = process_shard_accounts_vertex(cs_left, cell_slice);
       if (!is_special && vertex_diff.not_null() && sum_child_diff.not_null() && cmp(sum_child_diff, vertex_diff) == 0) {
         cell_data[current_cell_id] = td::BitSlice();
-        prunned_branch_level[current_cell_id] = 9;
+        pb_level_mask[current_cell_id] = 9;
       }
       if (sum_diff_out && vertex_diff.not_null()) {
         *sum_diff_out += vertex_diff;
@@ -332,7 +332,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
   // Store cell types and sizes
   for (int i = 0; i < node_count; ++i) {
     size_t node = topo_order[i];
-    size_t current_cell_type = bool(cell_type[node]) + prunned_branch_level[node];
+    size_t current_cell_type = bool(cell_type[node]) + pb_level_mask[node];
     append_uint(result, current_cell_type, 4);
     int current_refs_cnt = refs_cnt[node];
     if (cell_type[node] == 1 && cell_data[node].size() == 0) {
@@ -365,7 +365,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
 
   // Store cell data
   for (size_t node : topo_order) {
-    if (prunned_branch_level[node] == 9) {
+    if (pb_level_mask[node] == 9) {
       continue;
     }
     if (cell_type[node] != 1 && !is_data_small[node]) {
@@ -407,7 +407,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
 
   // Store remaining cell data
   for (size_t node : topo_order) {
-    if (prunned_branch_level[node] == 9) {
+    if (pb_level_mask[node] == 9) {
       continue;
     }
     if (cell_type[node] == 1 || is_data_small[node]) {
@@ -537,7 +537,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
   // Initialize data structures
   std::vector<size_t> cell_data_length(node_count), is_data_small(node_count);
   std::vector<size_t> is_special(node_count), cell_refs_cnt(node_count), is_depth_balance(node_count);
-  std::vector<size_t> prunned_branch_level(node_count, 0);
+  std::vector<size_t> pb_level_mask(node_count, 0);
 
   std::vector<vm::CellBuilder> cell_builders(node_count);
   std::vector<std::array<size_t, 4>> boc_graph(node_count);
@@ -553,7 +553,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
     is_special[i] = (cell_type == 9 ? false : bool(cell_type));
     is_depth_balance[i] = cell_type == 9;
     if (is_special[i]) {
-      prunned_branch_level[i] = cell_type - 1;
+      pb_level_mask[i] = cell_type - 1;
     }
     bit_reader.advance(4);
 
@@ -564,8 +564,8 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
     }
     if (is_depth_balance[i]) {
       cell_data_length[i] = 0;
-    } else if (prunned_branch_level[i]) {
-      size_t coef = std::bitset<4>(prunned_branch_level[i]).count();
+    } else if (pb_level_mask[i]) {
+      size_t coef = std::bitset<4>(pb_level_mask[i]).count();
       cell_data_length[i] = (256 + 16) * coef;
       if (cell_refs_cnt[i] == 1) {
         cell_refs_cnt[i] = 0;
@@ -611,8 +611,8 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
     if (is_depth_balance[i]) {
       continue;
     }
-    if (prunned_branch_level[i]) {
-      cell_builders[i].store_long((1 << 8) + prunned_branch_level[i], 16);
+    if (pb_level_mask[i]) {
+      cell_builders[i].store_long((1 << 8) + pb_level_mask[i], 16);
     }
 
     size_t remainder_bits = cell_data_length[i] % 8;
@@ -683,7 +683,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
       continue;
     }
     size_t padding_bits = 0;
-    if (!prunned_branch_level[i] && !is_data_small[i]) {
+    if (!pb_level_mask[i] && !is_data_small[i]) {
       while (bit_reader.size() > 0 && bit_reader.bits()[0] == 0) {
         ++padding_bits;
         bit_reader.advance(1);
@@ -724,7 +724,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
   };
 
   auto build_prunned_branch_from_state = [&](size_t idx, td::Ref<vm::Cell> source_cell) -> td::Status {
-    size_t mask_value = prunned_branch_level[idx];
+    size_t mask_value = pb_level_mask[idx];
     if (!mask_value) {
       return td::Status::Error(
           "BOC decompression failed: invalid prunned branch metadata inside MerkleUpdate left subtree");
@@ -776,7 +776,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
     if (state_cell.is_null()) {
       return td::Status::Error("BOC decompression failed: missing state subtree for MerkleUpdate left branch");
     }
-    bool is_prunned_branch = prunned_branch_level[left_idx] != 0;
+    bool is_prunned_branch = pb_level_mask[left_idx] != 0;
     if (nodes[left_idx].not_null()) {
       return td::Status::OK();
     }
@@ -875,6 +875,9 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
     }
     // If this node is a MerkleUpdate, build left subtree normally first, then right subtree paired with left
     if (idx == main_mu_cell_idx && is_merkle_update_node(is_special[idx], cell_builders[idx])) {
+      if (cell_refs_cnt[idx] != 2) {
+        return td::Status::Error("BOC decompression failed: MerkleUpdate node expected to have 2 references");
+      }
       size_t left_idx = boc_graph[idx][0];
       size_t right_idx = boc_graph[idx][1];
       if (decompress_merkle_update) {
