@@ -43,7 +43,7 @@ void run(std::string filename) {
   }
   auto p = R.move_as_ok();
 
-  p.iterate([&](std::string filename, td::BufferSlice data, td::uint64 offset) -> bool {
+  auto S = p.iterate([&](std::string filename, td::BufferSlice data, td::uint64 offset) -> bool {
     auto E = ton::validator::FileReference::create(filename);
     if (E.is_error()) {
       std::cout << "bad filename\n";
@@ -52,6 +52,9 @@ void run(std::string filename) {
     }
     return true;
   });
+  if (S.is_error()) {
+    LOG(ERROR) << "Package error: " << S;
+  }
 }
 
 int main(int argc, char **argv) {

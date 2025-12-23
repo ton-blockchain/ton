@@ -40,7 +40,7 @@ class Package {
   td::Result<std::pair<std::string, td::BufferSlice>> read(td::uint64 offset) const;
 
   td::Result<td::uint64> advance(td::uint64 offset);
-  void iterate(std::function<bool(std::string, td::BufferSlice, td::uint64)> func);
+  td::Status iterate(std::function<bool(std::string, td::BufferSlice, td::uint64)> func);
 
   td::FileFd &fd() {
     return fd_;
@@ -48,6 +48,27 @@ class Package {
 
  private:
   td::FileFd fd_;
+
+ public:
+  static td::uint32 header_size() {
+    return 4;
+  }
+
+  static td::uint32 max_data_size() {
+    return (1u << 31) - 1;
+  }
+
+  static td::uint32 max_filename_size() {
+    return (1u << 16) - 1;
+  }
+
+  static td::uint16 entry_header_magic() {
+    return 0x1e8b;
+  }
+
+  static td::uint32 package_header_magic() {
+    return 0xae8fdd01;
+  }
 };
 
 }  // namespace ton

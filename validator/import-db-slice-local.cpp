@@ -68,73 +68,75 @@ td::Status ArchiveImporterLocal::process_package(std::string path) {
   auto package = std::make_shared<Package>(std::move(p));
 
   td::Status S = td::Status::OK();
-  package->iterate([&](std::string filename, td::BufferSlice data, td::uint64) -> bool {
-    auto F = FileReference::create(filename);
-    if (F.is_error()) {
-      S = F.move_as_error();
-      return false;
-    }
-    auto f = F.move_as_ok();
-
-    BlockIdExt block_id;
-    bool is_proof = false;
-    bool ignore = true;
-
-    f.ref().visit(td::overloaded(
-        [&](const fileref::Proof &p) {
-          block_id = p.block_id;
-          ignore = !block_id.is_masterchain();
-          is_proof = true;
-        },
-        [&](const fileref::ProofLink &p) {
-          block_id = p.block_id;
-          ignore = block_id.is_masterchain();
-          is_proof = true;
-        },
-        [&](const fileref::Block &p) {
-          block_id = p.block_id;
-          ignore = false;
-          is_proof = false;
-        },
-        [&](const auto &) { ignore = true; }));
-
-    if (ignore || block_id.is_masterchain() && block_id.seqno() <= last_masterchain_state_->get_seqno()) {
-      return true;
-    }
-
-    if (is_proof) {
-      if (block_id.is_masterchain()) {
-        auto R = create_proof(block_id, std::move(data));
-        if (R.is_error()) {
-          S = R.move_as_error();
+  package
+      ->iterate([&](std::string filename, td::BufferSlice data, td::uint64) -> bool {
+        auto F = FileReference::create(filename);
+        if (F.is_error()) {
+          S = F.move_as_error();
           return false;
         }
-        blocks_[block_id].proof = R.move_as_ok();
-      } else {
-        auto R = create_proof_link(block_id, std::move(data));
-        if (R.is_error()) {
-          S = R.move_as_error();
-          return false;
+        auto f = F.move_as_ok();
+
+        BlockIdExt block_id;
+        bool is_proof = false;
+        bool ignore = true;
+
+        f.ref().visit(td::overloaded(
+            [&](const fileref::Proof &p) {
+              block_id = p.block_id;
+              ignore = !block_id.is_masterchain();
+              is_proof = true;
+            },
+            [&](const fileref::ProofLink &p) {
+              block_id = p.block_id;
+              ignore = block_id.is_masterchain();
+              is_proof = true;
+            },
+            [&](const fileref::Block &p) {
+              block_id = p.block_id;
+              ignore = false;
+              is_proof = false;
+            },
+            [&](const auto &) { ignore = true; }));
+
+        if (ignore || block_id.is_masterchain() && block_id.seqno() <= last_masterchain_state_->get_seqno()) {
+          return true;
         }
-        blocks_[block_id].proof_link = R.move_as_ok();
-      }
-    } else {
-      if (td::sha256_bits256(data) != block_id.file_hash) {
-        S = td::Status::Error(ErrorCode::protoviolation, "bad block file hash");
-        return false;
-      }
-      auto R = create_block(block_id, std::move(data));
-      if (R.is_error()) {
-        S = R.move_as_error();
-        return false;
-      }
-      blocks_[block_id].block = R.move_as_ok();
-    }
-    if (block_id.is_masterchain()) {
-      masterchain_blocks_[block_id.seqno()] = block_id;
-    }
-    return true;
-  });
+
+        if (is_proof) {
+          if (block_id.is_masterchain()) {
+            auto R = create_proof(block_id, std::move(data));
+            if (R.is_error()) {
+              S = R.move_as_error();
+              return false;
+            }
+            blocks_[block_id].proof = R.move_as_ok();
+          } else {
+            auto R = create_proof_link(block_id, std::move(data));
+            if (R.is_error()) {
+              S = R.move_as_error();
+              return false;
+            }
+            blocks_[block_id].proof_link = R.move_as_ok();
+          }
+        } else {
+          if (td::sha256_bits256(data) != block_id.file_hash) {
+            S = td::Status::Error(ErrorCode::protoviolation, "bad block file hash");
+            return false;
+          }
+          auto R = create_block(block_id, std::move(data));
+          if (R.is_error()) {
+            S = R.move_as_error();
+            return false;
+          }
+          blocks_[block_id].block = R.move_as_ok();
+        }
+        if (block_id.is_masterchain()) {
+          masterchain_blocks_[block_id.seqno()] = block_id;
+        }
+        return true;
+      })
+      .ignore();
   return S;
 }
 

@@ -1786,37 +1786,39 @@ void ValidatorManagerImpl::get_block_proof_link_from_import(BlockIdExt block_id,
         continue;
       }
       auto package = r_package.move_as_ok();
-      package.iterate([&](std::string filename, td::BufferSlice data, td::uint64) -> bool {
-        auto F = FileReference::create(filename);
-        if (F.is_error()) {
-          return true;
-        }
-        auto f = F.move_as_ok();
-        BlockIdExt id;
-        bool is_proof = false;
-        f.ref().visit(td::overloaded(
-            [&](const fileref::Block &p) {
-              id = p.block_id;
-              is_proof = false;
-            },
-            [&](const fileref::Proof &p) {
-              id = p.block_id;
-              is_proof = true;
-            },
-            [&](const fileref::ProofLink &p) {
-              id = p.block_id;
-              is_proof = true;
-            },
-            [&](const auto &) {}));
-        if (is_proof && id == block_id) {
-          result = std::move(data);
-          return false;
-        }
-        if (shard_intersects(id.shard_full(), block_id.shard_full()) && id.seqno() < block_id.seqno()) {
-          stop = true;
-        }
-        return true;
-      });
+      package
+          .iterate([&](std::string filename, td::BufferSlice data, td::uint64) -> bool {
+            auto F = FileReference::create(filename);
+            if (F.is_error()) {
+              return true;
+            }
+            auto f = F.move_as_ok();
+            BlockIdExt id;
+            bool is_proof = false;
+            f.ref().visit(td::overloaded(
+                [&](const fileref::Block &p) {
+                  id = p.block_id;
+                  is_proof = false;
+                },
+                [&](const fileref::Proof &p) {
+                  id = p.block_id;
+                  is_proof = true;
+                },
+                [&](const fileref::ProofLink &p) {
+                  id = p.block_id;
+                  is_proof = true;
+                },
+                [&](const auto &) {}));
+            if (is_proof && id == block_id) {
+              result = std::move(data);
+              return false;
+            }
+            if (shard_intersects(id.shard_full(), block_id.shard_full()) && id.seqno() < block_id.seqno()) {
+              stop = true;
+            }
+            return true;
+          })
+          .ignore();
       if (!result.empty()) {
         promise.set_result(std::move(result));
         return;
