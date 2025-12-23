@@ -106,7 +106,7 @@ class PingPong : public td::actor::Actor {
     stop();
   }
   void tear_down() override {
-    td::actor::SchedulerContext::get()->stop();
+    td::actor::SchedulerContext::get().stop();
   }
 };
 

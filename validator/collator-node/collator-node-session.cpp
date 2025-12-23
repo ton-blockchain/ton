@@ -293,8 +293,7 @@ void CollatorNodeSession::process_request_optimistic_cont2(BlockIdExt prev_block
                             "failed to download prev block data for optimistic collation: ");
   TRY_RESULT_PROMISE_PREFIX(promise, f, fetch_tl_object<ton_api::collatorNode_Candidate>(response, true),
                             "failed to download prev block data for optimistic collation: ");
-  TRY_RESULT_PROMISE_PREFIX(promise, candidate,
-                            deserialize_candidate(std::move(f), max_candidate_size_, proto_version_),
+  TRY_RESULT_PROMISE_PREFIX(promise, candidate, deserialize_candidate(std::move(f), max_candidate_size_),
                             "failed to download prev block data for optimistic collation: ");
   TRY_RESULT_PROMISE_PREFIX(promise, prev_block, create_block(prev_block_id, std::move(candidate.data)),
                             "invalid prev block data from validator: ");

@@ -4,14 +4,17 @@ project(TON VERSION 0.5 LANGUAGES C CXX)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Define the two required variables before including the source code for watching a git repository.
-set(PRE_CONFIGURE_FILE "git.cc.in")
-set(POST_CONFIGURE_FILE "${CMAKE_CURRENT_BINARY_DIR}/git.cc")
-include(git_watcher.cmake)
+# Only set up git tracking if not already done at a higher level
+if(NOT TARGET git)
+  set(PRE_CONFIGURE_FILE "git.cc.in")
+  set(POST_CONFIGURE_FILE "${CMAKE_CURRENT_BINARY_DIR}/git.cc")
+  include(git_watcher.cmake)
 
-# Create a library out of the compiled post-configure file.
-add_library(git STATIC ${POST_CONFIGURE_FILE})
-target_include_directories(git PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-add_dependencies(git check_git)
+  # Create a library out of the compiled post-configure file.
+  add_library(git STATIC ${POST_CONFIGURE_FILE})
+  target_include_directories(git PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+  add_dependencies(git check_git)
+endif()
 
 # Prevent in-source build
 get_filename_component(TON_REAL_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}" REALPATH)
@@ -202,6 +205,7 @@ set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake" ${CMAKE_MODULE_PATH})
 
 include(BuildBLST)
 include(BuildSECP256K1)
+include(BuildLibbacktrace)
 
 # Configure CCache if available
 find_program(CCACHE_FOUND ccache)
@@ -284,6 +288,12 @@ elseif (CLANG OR GCC)
     #use "-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/export_list" for exported symbols
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fvisibility=hidden -Wl,-dead_strip,-x,-S")
     set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -fvisibility=hidden -Wl,-dead_strip,-x,-S")
+    # Generate dSYM bundles for proper stack traces with libbacktrace (for Ninja/Make generators)
+    if(NOT DSYMUTIL_LINK_CONFIGURED AND NOT CMAKE_GENERATOR MATCHES "Xcode" AND CMAKE_BUILD_TYPE MATCHES "Debug|RelWithDebInfo")
+      set(DSYMUTIL_LINK_CONFIGURED TRUE CACHE INTERNAL "dSYM generation configured in linker")
+      set(CMAKE_C_LINK_EXECUTABLE "${CMAKE_C_LINK_EXECUTABLE} && dsymutil <TARGET>")
+      set(CMAKE_CXX_LINK_EXECUTABLE "${CMAKE_CXX_LINK_EXECUTABLE} && dsymutil <TARGET>")
+    endif()
   else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffunction-sections -fdata-sections")
     if (NOT USE_EMSCRIPTEN)

@@ -152,7 +152,7 @@ void read_async(td::CSlice path, size_t buffer_size) {
       }
       void on_closed(td::Status status) override {
         LOG(ERROR) << processor.result();
-        td::actor::SchedulerContext::get()->stop();
+        td::actor::SchedulerContext::get().stop();
       }
 
      private:
@@ -520,7 +520,7 @@ void write_async(td::CSlice path, size_t buffer_size) {
         }
       }
       void hangup_shared() override {
-        td::actor::SchedulerContext::get()->stop();
+        td::actor::SchedulerContext::get().stop();
         stop();
       }
     };
@@ -580,7 +580,7 @@ void write_async2(td::CSlice path, size_t buffer_size) {
         worker_.reset();
       }
       void hangup_shared() override {
-        td::actor::SchedulerContext::get()->stop();
+        td::actor::SchedulerContext::get().stop();
         stop();
       }
     };

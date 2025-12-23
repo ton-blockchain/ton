@@ -139,7 +139,9 @@ struct promise_value : promise_common {
     result = std::forward<TT>(v);
   }
 
-  struct ExternalResult {};
+  struct ExternalResult {
+    explicit ExternalResult() = default;
+  };
   void return_value(ExternalResult&&) noexcept {
   }
 
@@ -162,6 +164,15 @@ template <class T>
 struct promise_type : promise_value<td::Result<T>> {
   static_assert(!std::is_void_v<T>, "Task<void> is not supported; use Task<Unit> instead");
   using Handle = std::coroutine_handle<promise_type>;
+
+  // Bring base class return_value overloads into scope
+  using promise_value<td::Result<T>>::return_value;
+
+  // Allow co_return {}; to work by constructing T{} (e.g., Unit{})
+  // This fixes a bug where co_return {}; was equivalent to co_return td::Status::Error(-1);
+  void return_value(T v) noexcept {
+    this->result = std::move(v);
+  }
 
   auto self() noexcept {
     return Handle::from_promise(*this);
@@ -288,7 +299,7 @@ struct promise_type : promise_value<td::Result<T>> {
   }
 };
 
-template <class T>
+template <class T = Unit>
 struct [[nodiscard]] Task {
   using value_type = T;
 
@@ -360,7 +371,7 @@ struct [[nodiscard]] Task {
   }
 };
 
-template <class T>
+template <class T = Unit>
 struct [[nodiscard]] StartedTask {
   using value_type = T;
 
@@ -383,9 +394,22 @@ struct [[nodiscard]] StartedTask {
   StartedTask& operator=(const StartedTask&) = delete;
 
   ~StartedTask() noexcept {
-    detach();
+    detach_silent();
   }
-  void detach() {
+  void detach(std::string description = "UnknownTask") && {
+    if (!h) {
+      return;
+    }
+    [](auto self, std::string description) -> Task<Unit> {
+      co_await become_lightweight();
+      auto r = co_await std::move(self).wrap();
+      LOG_IF(ERROR, r.is_error()) << "Detached task <" << description << "> failed: " << r.error();
+      co_return td::Unit{};
+    }(std::move(*this), std::move(description))
+                                                  .start_immediate()
+                                                  .detach_silent();
+  }
+  void detach_silent() {
     if (!h) {
       return;
     }

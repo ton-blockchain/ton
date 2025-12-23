@@ -19,14 +19,14 @@ struct PollFdActor : public td::actor::Actor {
 
   void unsubscribe() {
     CHECK(!closed_);
-    td::actor::SchedulerContext::get()->get_poll().unsubscribe(fd_ref_);
+    td::actor::SchedulerContext::get().get_poll().unsubscribe(fd_ref_);
     closed_ = true;
     stop();
   }
 
   void destroy() {
     CHECK(!closed_);
-    td::actor::SchedulerContext::get()->get_poll().unsubscribe_before_close(fd_ref_);
+    td::actor::SchedulerContext::get().get_poll().unsubscribe_before_close(fd_ref_);
     closed_ = true;
     stop();
   }
@@ -38,7 +38,7 @@ struct PollFdActor : public td::actor::Actor {
   bool closed_{false};
 
   void start_up() override {
-    td::actor::SchedulerContext::get()->get_poll().subscribe(std::move(fd_), td::PollFlags::ReadWrite());
+    td::actor::SchedulerContext::get().get_poll().subscribe(std::move(fd_), td::PollFlags::ReadWrite());
   }
 
   void tear_down() override {
