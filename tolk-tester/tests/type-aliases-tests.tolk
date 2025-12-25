@@ -130,11 +130,11 @@ fun someFn1(v: MInt): MIntN { return v as MIntN; }
 fun test7() {
     var f1: (int) -> int? = someFn1;
     var f2: (int) -> MInt? = someFn1;
-    var f3: (MInt_v2) -> MInt_v2? = someFn1 as (MInt_v2) -> MInt_v2?;
+    var f3: (MInt_v2) -> MInt? = someFn1 as (MInt_v2) -> MInt?;
 
     f1 = f2; f1 = f3;
     f2 = f1; f2 = f3 as (int) -> MInt?;
-    f3 = f1; f3 = f2 as (MInt_v2) -> MInt_v2?;
+    f3 = f1; f3 = f2 as (MInt_v2) -> MInt?;
 }
 
 fun test8() {
@@ -148,7 +148,7 @@ fun test8() {
 
     someFn1 as (int) -> int?;
     someFn1 as (int) -> MInt?;
-    someFn1 as (MInt_v2) -> MInt_v2?;
+    someFn1 as (MInt_v2) -> MIntN;
 }
 
 @method_id(109)

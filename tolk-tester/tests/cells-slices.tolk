@@ -527,7 +527,7 @@ fun test41() {
     catch (ex) { data.push(ex) }
     try { b.storeAny("123" as address) }
     catch (ex) { data.push(ex) }
-    try { b.storeAny("123" as address?) }
+    try { b.storeAny("123" as address as address?) }
     catch (ex) { data.push(ex) }
 
     try { b.storeAddressOpt(null); data.push(b.bitsCount()) }

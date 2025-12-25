@@ -853,27 +853,13 @@ bool TypeDataVoid::can_rhs_be_assigned(TypePtr rhs) const {
 // note, that it's not auto-casts `var lhs: <lhs_type> = rhs`, it's an expression `rhs as <cast_to>`
 //
 
-// common helper for union types:
-// - `int as int?` is ok
-// - `int8 as int16?` is ok (primitive 1-slot nullable don't store UTag, rules are less strict)
-// - `int as int | int16` is ok (exact match one of types)
-// - `int as slice | null` is NOT ok (no rhs subtype fits)
-// - `int as int8 | int16` is NOT ok (ambiguity)
-static bool can_be_casted_to_union(TypePtr self, const TypeDataUnion* rhs_union) {
-  if (rhs_union->is_primitive_nullable()) {     // casting to primitive 1-slot nullable
-    return self == TypeDataNullLiteral::create() || self->can_be_casted_with_as_operator(rhs_union->or_null);
-  }
-
-  return rhs_union->calculate_exact_variant_to_fit_rhs(self) != nullptr;
-}
-
 bool TypeDataAlias::can_be_casted_with_as_operator(TypePtr cast_to) const {
   return underlying_type->can_be_casted_with_as_operator(cast_to);
 }
 
 bool TypeDataInt::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {   // `int` as `int?` / `int` as `int | slice`
-    return can_be_casted_to_union(this, to_union);
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (cast_to->try_as<TypeDataIntN>()) {    // `int` as `int8` / `int` as `uint2`
     return true;
@@ -895,7 +881,7 @@ bool TypeDataBool::can_be_casted_with_as_operator(TypePtr cast_to) const {
     return true;
   }
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
-    return can_be_casted_to_union(this, to_union);
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (const auto* to_intN = cast_to->try_as<TypeDataIntN>()) {
     return !to_intN->is_unsigned;   // `bool` as `int8` ok, `bool` as `uintN` not (true is -1)
@@ -908,7 +894,7 @@ bool TypeDataBool::can_be_casted_with_as_operator(TypePtr cast_to) const {
 
 bool TypeDataCell::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
-    return can_be_casted_to_union(this, to_union);
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (const TypeDataStruct* to_struct = cast_to->try_as<TypeDataStruct>()) {    // cell as Cell<T>
     return to_struct->struct_ref->is_instantiation_of_generic_struct() && to_struct->struct_ref->base_struct_ref->name == "Cell";
@@ -927,7 +913,7 @@ bool TypeDataSlice::can_be_casted_with_as_operator(TypePtr cast_to) const {
     return true;
   }
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
-    return can_be_casted_to_union(this, to_union);
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);
@@ -937,7 +923,7 @@ bool TypeDataSlice::can_be_casted_with_as_operator(TypePtr cast_to) const {
 
 bool TypeDataBuilder::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
-    return can_be_casted_to_union(this, to_union);
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);
@@ -947,7 +933,7 @@ bool TypeDataBuilder::can_be_casted_with_as_operator(TypePtr cast_to) const {
 
 bool TypeDataTuple::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
-    return can_be_casted_to_union(this, to_union);
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);
@@ -957,7 +943,7 @@ bool TypeDataTuple::can_be_casted_with_as_operator(TypePtr cast_to) const {
 
 bool TypeDataContinuation::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
-    return can_be_casted_to_union(this, to_union);
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);
@@ -973,7 +959,7 @@ bool TypeDataAddress::can_be_casted_with_as_operator(TypePtr cast_to) const {
     return true;    // `any_address` as `address` and any other casts are ok
   }
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
-    return can_be_casted_to_union(this, to_union);
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);
@@ -983,7 +969,7 @@ bool TypeDataAddress::can_be_casted_with_as_operator(TypePtr cast_to) const {
 
 bool TypeDataNullLiteral::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {   // `null` to `T?` / `null` to `... | null`
-    return can_be_casted_to_union(this, to_union);
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);
@@ -993,7 +979,7 @@ bool TypeDataNullLiteral::can_be_casted_with_as_operator(TypePtr cast_to) const 
 
 bool TypeDataFunCallable::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
-    return can_be_casted_to_union(this, to_union);
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);
@@ -1026,7 +1012,7 @@ bool TypeDataGenericTypeWithTs::can_be_casted_with_as_operator(TypePtr cast_to) 
 
 bool TypeDataStruct::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
-    return can_be_casted_to_union(this, to_union);
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (cast_to == TypeDataCell::create()) {    // Cell<T> as cell
     return struct_ref->is_instantiation_of_generic_struct() && struct_ref->base_struct_ref->name == "Cell";
@@ -1048,7 +1034,7 @@ bool TypeDataEnum::can_be_casted_with_as_operator(TypePtr cast_to) const {
     return true;    // all enums are integers, they can be `as` cast to each other
   }
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
-    return can_be_casted_to_union(this, to_union);
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);
@@ -1066,7 +1052,7 @@ bool TypeDataTensor::can_be_casted_with_as_operator(TypePtr cast_to) const {
     return true;
   }
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
-    return can_be_casted_to_union(this, to_union);
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);
@@ -1087,7 +1073,7 @@ bool TypeDataBrackets::can_be_casted_with_as_operator(TypePtr cast_to) const {
     return true;
   }
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
-    return can_be_casted_to_union(this, to_union);
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);
@@ -1100,7 +1086,7 @@ bool TypeDataIntN::can_be_casted_with_as_operator(TypePtr cast_to) const {
     return true;
   }
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) { // `int8` as `int32?`
-    return can_be_casted_to_union(this, to_union);
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);
@@ -1116,7 +1102,7 @@ bool TypeDataBitsN::can_be_casted_with_as_operator(TypePtr cast_to) const {
     return true;
   }
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {   // `bytes8` as `slice?`
-    return can_be_casted_to_union(this, to_union);
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);
@@ -1129,7 +1115,7 @@ bool TypeDataCoins::can_be_casted_with_as_operator(TypePtr cast_to) const {
     return true;
   }
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) { // `coins` as `coins?` / `coins` as `int?`
-    return can_be_casted_to_union(this, to_union);
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);
@@ -1142,9 +1128,6 @@ bool TypeDataCoins::can_be_casted_with_as_operator(TypePtr cast_to) const {
 
 bool TypeDataUnion::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {   // `int8 | int16` as `int16 | int8 | slice`
-    if (to_union->is_primitive_nullable()) {
-      return or_null && or_null->can_be_casted_with_as_operator(to_union->or_null);
-    }
     return to_union->has_all_variants_of(this);
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
@@ -1158,7 +1141,7 @@ bool TypeDataMapKV::can_be_casted_with_as_operator(TypePtr cast_to) const {
     return TKey->equal_to(to_map->TKey) && TValue->equal_to(to_map->TValue);
   }
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
-    return can_be_casted_to_union(this, to_union);
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);
@@ -1434,13 +1417,6 @@ int TypeDataUnion::get_variant_idx(TypePtr lookup_variant) const {
 
 // given this = `T1 | T2 | ...` and rhs_type, find the only (not ambiguous) T_i that can accept it
 TypePtr TypeDataUnion::calculate_exact_variant_to_fit_rhs(TypePtr rhs_type) const {
-  // primitive 1-slot nullable don't store type_id, they can be assigned less strict, like `int?` to `int16?`
-  if (const TypeDataUnion* rhs_union = rhs_type->unwrap_alias()->try_as<TypeDataUnion>()) {
-    if (is_primitive_nullable() && rhs_union->is_primitive_nullable() && or_null->can_rhs_be_assigned(rhs_union->or_null)) {
-      return this;
-    }
-    return nullptr;
-  }
   // `int` to `int | int8` is okay: exact type matching
   for (TypePtr variant : variants) {
     if (variant->equal_to(rhs_type)) {

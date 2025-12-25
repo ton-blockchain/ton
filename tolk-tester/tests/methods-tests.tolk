@@ -73,7 +73,7 @@ fun test1() {
 
 @method_id(102)
 fun test2(a: int8, b: int16) {
-    var c = b as coins?;
+    var c = b as coins as coins?;
     return (a.plus1(), b.plusN(a), c!.plus1());
 }
 

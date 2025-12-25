@@ -304,8 +304,8 @@ fun testMethodsOfGenericStruct() {
     var creator1 = Wrapper<int8>.createFrom<int>;
     var w1 = creator1(10);
     __expect_type(w1, "Wrapper<int8>");
-    var creator2 = Wrapper<coins?>.createFrom<int?>;
-    var w2 = creator2(null as int16?);
+    var creator2 = Wrapper<coins?>.createFrom<int>;
+    var w2 = creator2((null as int16?)!);
     __expect_type(w2, "Wrapper<coins?>");
     var eq = Wrapper<int8>.equalsNotNull<coins?>;
     __expect_type(eq, "(Wrapper<int8>, Wrapper<coins?>) -> bool");

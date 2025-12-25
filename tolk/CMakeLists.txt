@@ -34,6 +34,7 @@ set(TOLK_SOURCE
         pipe-find-unused-symbols.cpp
         pipe-generate-fif-output.cpp
         type-system.cpp
+        type-transition.cpp
         smart-casts-cfg.cpp
         generics-helpers.cpp
         lazy-helpers.cpp

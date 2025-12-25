@@ -323,8 +323,15 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
   void visit(V<ast_cast_as_operator> v) override {
     parent::visit(v->get_expr());
 
-    if (!v->get_expr()->inferred_type->can_be_casted_with_as_operator(v->type_node->resolved_type)) {
-      err("type `{}` can not be cast to `{}`", v->get_expr()->inferred_type, v->type_node->resolved_type).fire(v, cur_f);
+    TypePtr cast_from = v->get_expr()->inferred_type; 
+    TypePtr cast_to = v->type_node->resolved_type; 
+    if (!cast_from->can_be_casted_with_as_operator(cast_to)) {
+      std::string hint = "";
+      const TypeDataUnion* to_union = cast_to->unwrap_alias()->try_as<TypeDataUnion>();
+      if (to_union && to_union->or_null && cast_from->can_be_casted_with_as_operator(to_union->or_null)) {
+        hint = "\n""use an intermediate cast: `xxx as " + to_union->or_null->as_human_readable() + " as " + cast_to->as_human_readable() + "`";
+      }
+      err("type `{}` can not be cast to `{}`{}", cast_from, cast_to, hint).fire(v, cur_f);
     }
   }
 

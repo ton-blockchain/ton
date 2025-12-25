@@ -51,10 +51,10 @@ fun test1(x: int8) {
 
     var a1: uint8 = 0;
     var a2: uint8? = 0;
-    var a3: uint8? = 0 as int?;
+    var a3: uint8? = (0 as int?)!;
     __expect_type(a1, "uint8");
     __expect_type(a2, "uint8");
-    __expect_type(a3, "uint8?");
+    __expect_type(a3, "uint8");
 
     var z = x + y;
     __expect_type(z, "int");
@@ -80,7 +80,7 @@ fun test3(op: int32, qid: uint64) {
     if (op == qid) {}
     if ((op as int32?)! == qid) {}
     if (op == (qid as uint64)) {}
-    if ((op as int257?)! != (qid as uint256?)!) {}
+    if ((op as int257 as int257?)! != (qid as uint256 as uint256?)!) {}
     __expect_type(op << qid, "int");
 
     takeAnyInt(op);
@@ -208,7 +208,7 @@ fun test12() {
 }
 
 fun test13(x1: int?, x2: int8?, x3: int, x4: int8): (int8?, int8?, int8?, int8?, int32?, int32?) {
-    return (x1, x2, x3, x4, x4 as int32, x4 as int32?);
+    return (x1!, x2, x3, x4, x4 as int32, x4 as int32 as int32?);
 }
 
 @method_id(114)
@@ -230,11 +230,11 @@ fun main() {
     __expect_type(t.0 as int1, "int1");
     __expect_type(t.0 as int257, "int257");
     __expect_type(0 as int32, "int32");
-    __expect_type((0 as int32) as uint64?, "uint64?");
+    __expect_type(0 as int32 as uint64 as uint64?, "uint64?");
     __expect_type(null as (int8, [uint16?])?, "(int8, [uint16?])?");
     __expect_type(0 as coins, "coins");
     __expect_type(someN_coins as coins?, "coins?");
-    __expect_type(someN_coins as int8?, "int8?");
+    __expect_type(someN_coins as int8 as int8?, "int8?");
     __expect_type(10>3 ? (0 as uint8) as uint8 | uint16 : 0 as uint16, "uint8 | uint16");
     return t;
 }
