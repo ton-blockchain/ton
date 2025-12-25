@@ -24,6 +24,7 @@
 #include "adnl/adnl.h"
 #include "auto/tl/ton_api.h"
 #include "dht/dht.h"
+#include "rldp2/rldp.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/actor/actor.h"
 #include "td/utils/Status.h"
@@ -153,7 +154,7 @@ class Certificate {
   const PublicKey &issuer() const;
   const PublicKeyHash issuer_hash() const;
 
-  static td::Result<std::shared_ptr<Certificate>> create(tl_object_ptr<ton_api::overlay_Certificate> cert);
+  static td::Result<std::shared_ptr<Certificate>> create(const tl_object_ptr<ton_api::overlay_Certificate> &cert);
   static tl_object_ptr<ton_api::overlay_Certificate> empty_tl();
 
  private:
@@ -311,7 +312,8 @@ class Overlays : public td::actor::Actor {
   }
 
   static td::actor::ActorOwn<Overlays> create(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-                                              td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht);
+                                              td::actor::ActorId<adnl::Adnl> adnl,
+                                              td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<dht::Dht> dht);
 
   virtual void update_dht_node(td::actor::ActorId<dht::Dht> dht) = 0;
 

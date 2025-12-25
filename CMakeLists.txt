@@ -561,9 +561,9 @@ add_executable(test-validator-session-state test/test-validator-session-state.cp
 target_link_libraries(test-validator-session-state adnl dht rldp validatorsession tl_api)
 
 add_executable(test-overlay test/test-overlay.cpp)
-target_link_libraries(test-overlay overlay tdutils tdactor adnl adnltest tl_api dht )
+target_link_libraries(test-overlay overlay tdutils tdactor adnl adnltest rldp2 tl_api dht )
 add_executable(test-catchain test/test-catchain.cpp)
-target_link_libraries(test-catchain overlay tdutils tdactor adnl adnltest rldp tl_api dht
+target_link_libraries(test-catchain overlay tdutils tdactor adnl adnltest rldp rldp2 tl_api dht
   catchain )
 add_executable(test-ton-collator test/test-ton-collator.cpp)
 target_link_libraries(test-ton-collator overlay tdutils tdactor adnl tl_api dht

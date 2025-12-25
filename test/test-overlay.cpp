@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,17 +14,18 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+
 #include <memory>
 #include <vector>
 
@@ -38,6 +39,7 @@
 #include "dht/dht.h"
 #include "keys/keys.hpp"
 #include "overlay/overlays.h"
+#include "rldp2/rldp.h"
 #include "td/actor/actor.h"
 #include "td/utils/OptionParser.h"
 #include "td/utils/Random.h"
@@ -121,6 +123,7 @@ int main(int argc, char *argv[]) {
   td::actor::ActorOwn<ton::keyring::Keyring> keyring;
   td::actor::ActorOwn<ton::adnl::TestLoopbackNetworkManager> network_manager;
   td::actor::ActorOwn<ton::adnl::Adnl> adnl;
+  td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
   td::actor::ActorOwn<ton::overlay::Overlays> overlay_manager;
 
   td::actor::Scheduler scheduler({7});
@@ -129,8 +132,9 @@ int main(int argc, char *argv[]) {
     keyring = ton::keyring::Keyring::create(db_root_);
     network_manager = td::actor::create_actor<ton::adnl::TestLoopbackNetworkManager>("test net");
     adnl = ton::adnl::Adnl::create(db_root_, keyring.get());
-    overlay_manager =
-        ton::overlay::Overlays::create(db_root_, keyring.get(), adnl.get(), td::actor::ActorId<ton::dht::Dht>{});
+    rldp2 = ton::rldp2::Rldp::create(adnl.get());
+    overlay_manager = ton::overlay::Overlays::create(db_root_, keyring.get(), adnl.get(), rldp2.get(),
+                                                     td::actor::ActorId<ton::dht::Dht>{});
     td::actor::send_closure(adnl, &ton::adnl::Adnl::register_network_manager, network_manager.get());
   });
 

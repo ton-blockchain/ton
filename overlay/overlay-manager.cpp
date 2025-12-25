@@ -21,6 +21,7 @@
 #include "adnl/utils.hpp"
 #include "auto/tl/ton_api.h"
 #include "auto/tl/ton_api.hpp"
+#include "rldp2/rldp.h"
 #include "td/actor/actor.h"
 #include "td/actor/common.h"
 #include "td/db/RocksDb.h"
@@ -122,9 +123,10 @@ void OverlayManager::create_public_overlay_ex(adnl::AdnlNodeIdShort local_id, Ov
                                               td::string scope, OverlayOptions opts) {
   CHECK(!dht_node_.empty());
   auto id = overlay_id.compute_short_id();
-  register_overlay(local_id, id, OverlayMemberCertificate{},
-                   Overlay::create_public(keyring_, adnl_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
-                                          std::move(callback), std::move(rules), scope, std::move(opts)));
+  register_overlay(
+      local_id, id, OverlayMemberCertificate{},
+      Overlay::create_public(keyring_, adnl_, rldp2_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
+                             std::move(callback), std::move(rules), scope, std::move(opts)));
 }
 
 void OverlayManager::create_private_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
@@ -141,9 +143,9 @@ void OverlayManager::create_private_overlay_ex(adnl::AdnlNodeIdShort local_id, O
                                                std::string scope, OverlayOptions opts) {
   auto id = overlay_id.compute_short_id();
   register_overlay(local_id, id, OverlayMemberCertificate{},
-                   Overlay::create_private(keyring_, adnl_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
-                                           std::move(nodes), std::move(callback), std::move(rules), std::move(scope),
-                                           std::move(opts)));
+                   Overlay::create_private(keyring_, adnl_, rldp2_, actor_id(this), dht_node_, local_id,
+                                           std::move(overlay_id), std::move(nodes), std::move(callback),
+                                           std::move(rules), std::move(scope), std::move(opts)));
 }
 
 void OverlayManager::create_semiprivate_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
@@ -155,7 +157,7 @@ void OverlayManager::create_semiprivate_overlay(adnl::AdnlNodeIdShort local_id, 
   auto id = overlay_id.compute_short_id();
   register_overlay(
       local_id, id, certificate,
-      Overlay::create_semiprivate(keyring_, adnl_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
+      Overlay::create_semiprivate(keyring_, adnl_, rldp2_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
                                   std::move(nodes), std::move(root_public_keys), certificate, std::move(callback),
                                   std::move(rules), std::move(scope), std::move(opts)));
 }
@@ -278,8 +280,6 @@ void OverlayManager::send_query_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdS
 
 void OverlayManager::send_message_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
                                       td::BufferSlice object, td::actor::ActorId<adnl::AdnlSenderInterface> via) {
-  CHECK(object.size() <= adnl::Adnl::huge_packet_max_size());
-
   auto extra = create_tl_object<ton_api::overlay_messageExtra>();
   extra->flags_ = 0;
 
@@ -408,13 +408,20 @@ void OverlayManager::get_overlay_random_peers(adnl::AdnlNodeIdShort local_id, Ov
 }
 
 td::actor::ActorOwn<Overlays> Overlays::create(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-                                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht) {
-  return td::actor::create_actor<OverlayManager>("overlaymanager", db_root, keyring, adnl, dht);
+                                               td::actor::ActorId<adnl::Adnl> adnl,
+                                               td::actor::ActorId<rldp2::Rldp> rldp2,
+                                               td::actor::ActorId<dht::Dht> dht) {
+  return td::actor::create_actor<OverlayManager>("overlaymanager", db_root, keyring, adnl, rldp2, dht);
 }
 
 OverlayManager::OverlayManager(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht)
-    : db_root_(db_root), keyring_(keyring), adnl_(adnl), dht_node_(dht) {
+                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp2,
+                               td::actor::ActorId<dht::Dht> dht)
+    : db_root_(std::move(db_root))
+    , keyring_(std::move(keyring))
+    , adnl_(std::move(adnl))
+    , rldp2_(std::move(rldp2))
+    , dht_node_(std::move(dht)) {
 }
 
 void OverlayManager::start_up() {
@@ -551,7 +558,7 @@ const PublicKey &Certificate::issuer() const {
   return issued_by_.get<PublicKey>();
 }
 
-td::Result<std::shared_ptr<Certificate>> Certificate::create(tl_object_ptr<ton_api::overlay_Certificate> cert) {
+td::Result<std::shared_ptr<Certificate>> Certificate::create(const tl_object_ptr<ton_api::overlay_Certificate> &cert) {
   std::shared_ptr<Certificate> res;
   ton_api::downcast_call(*cert.get(),
                          td::overloaded([&](ton_api::overlay_emptyCertificate &obj) { res = nullptr; },
