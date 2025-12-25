@@ -41,7 +41,6 @@
 #include "td/utils/port/signals.h"
 #include "tl-utils/common-utils.hpp"
 
-#include "broadcast-fec-outbound.hpp"
 #include "broadcast-fec.hpp"
 #include "broadcast-simple.hpp"
 #include "overlay-id.hpp"
@@ -218,9 +217,6 @@ class OverlayImpl : public Overlay {
 
   void update_neighbours(td::uint32 nodes_to_change);
 
-  void finish_fec_bcast(BroadcastHash id) {
-    out_fec_bcasts_.erase(id);
-  }
   struct PrintId {
     OverlayIdShort overlay_id;
     adnl::AdnlNodeIdShort local_id;
@@ -240,18 +236,14 @@ class OverlayImpl : public Overlay {
   void deliver_broadcast(PublicKeyHash source, td::BufferSlice data);
   void register_delivered_broadcast(const BroadcastHash &hash);
   bool is_delivered(const BroadcastHash &hash);
-  td::Status check_delivered(BroadcastHash hash);
-
   void check_broadcast(PublicKeyHash src, td::BufferSlice data, td::Promise<td::Unit> promise);
-  void broadcast_checked(Overlay::BroadcastHash hash, td::Result<td::Unit> R);
 
   void broadcast_simple_signed(std::unique_ptr<BroadcastSimple> &&bcast,
                                td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
   void broadcast_simple_checked(Overlay::BroadcastHash &&hash, td::Result<td::Unit> &&R);
-  BroadcastFec *get_fec_broadcast(BroadcastHash hash);
-  void register_fec_broadcast(std::unique_ptr<BroadcastFec> bcast);
-  void created_fec_broadcast(PublicKeyHash local_id, std::unique_ptr<OverlayFecBroadcastPart> bcast);
-  void failed_to_create_fec_broadcast(td::Status reason);
+  void broadcast_fec_signed(std::unique_ptr<BroadcastFecPart> &&part,
+                            td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
+  void broadcast_fec_checked(Overlay::BroadcastHash &&hash, td::Result<td::Unit> &&R);
   void send_new_fec_broadcast_part(PublicKeyHash local_id, Overlay::BroadcastDataHash data_hash, td::uint32 size,
                                    td::uint32 flags, td::BufferSlice part, td::uint32 seqno, fec::FecType fec_type,
                                    td::uint32 date);
@@ -402,13 +394,10 @@ class OverlayImpl : public Overlay {
   std::unique_ptr<Overlays::Callback> callback_;
 
   BroadcastsSimple broadcasts_simple_;
-  std::map<BroadcastHash, std::unique_ptr<BroadcastFec>> fec_broadcasts_;
+  BroadcastsFec broadcasts_fec_;
   std::set<BroadcastHash> delivered_broadcasts_;
 
-  td::ListNode bcast_fec_lru_;
   std::queue<BroadcastHash> bcast_lru_;
-
-  std::map<BroadcastHash, td::actor::ActorOwn<OverlayOutboundFecBroadcast>> out_fec_bcasts_;
 
   void bcast_gc();
 

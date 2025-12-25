@@ -1,12 +1,10 @@
 set(OVERLAY_SOURCE
-  broadcast-fec-outbound.cpp
   broadcast-fec.cpp
   broadcast-simple.cpp
   overlay-manager.cpp
   overlay.cpp
   overlay-peers.cpp
 
-  broadcast-fec-outbound.hpp
   broadcast-fec.hpp
   broadcast-simple.hpp
   overlay-manager.h
