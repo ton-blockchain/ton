@@ -236,24 +236,27 @@ class OverlayImpl : public Overlay {
   BroadcastCheckResult check_source_eligible(PublicKey source, const Certificate *cert, td::uint32 size, bool is_fec);
   BroadcastCheckResult check_source_eligible(const PublicKeyHash &source, const Certificate *cert, td::uint32 size,
                                              bool is_fec);
+
+  void deliver_broadcast(PublicKeyHash source, td::BufferSlice data);
+  void register_delivered_broadcast(const BroadcastHash &hash);
+  bool is_delivered(const BroadcastHash &hash);
   td::Status check_delivered(BroadcastHash hash);
 
-  void broadcast_checked(Overlay::BroadcastHash hash, td::Result<td::Unit> R);
   void check_broadcast(PublicKeyHash src, td::BufferSlice data, td::Promise<td::Unit> promise);
+  void broadcast_checked(Overlay::BroadcastHash hash, td::Result<td::Unit> R);
 
-  void update_peer_err_ctr(adnl::AdnlNodeIdShort peer_id, bool is_fec);
-
+  void broadcast_simple_signed(std::unique_ptr<BroadcastSimple> &&bcast,
+                               td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
+  void broadcast_simple_checked(Overlay::BroadcastHash &&hash, td::Result<td::Unit> &&R);
   BroadcastFec *get_fec_broadcast(BroadcastHash hash);
   void register_fec_broadcast(std::unique_ptr<BroadcastFec> bcast);
-  void register_simple_broadcast(std::unique_ptr<BroadcastSimple> bcast);
-  void created_simple_broadcast(std::unique_ptr<BroadcastSimple> bcast);
-  void failed_to_create_simple_broadcast(td::Status reason);
   void created_fec_broadcast(PublicKeyHash local_id, std::unique_ptr<OverlayFecBroadcastPart> bcast);
   void failed_to_create_fec_broadcast(td::Status reason);
-  void deliver_broadcast(PublicKeyHash source, td::BufferSlice data);
   void send_new_fec_broadcast_part(PublicKeyHash local_id, Overlay::BroadcastDataHash data_hash, td::uint32 size,
                                    td::uint32 flags, td::BufferSlice part, td::uint32 seqno, fec::FecType fec_type,
                                    td::uint32 date);
+
+  void update_peer_err_ctr(adnl::AdnlNodeIdShort peer_id, bool is_fec);
   std::vector<adnl::AdnlNodeIdShort> get_neighbours(td::uint32 max_size = 0) const;
   td::actor::ActorId<OverlayManager> overlay_manager() const {
     return manager_;
@@ -289,9 +292,6 @@ class OverlayImpl : public Overlay {
   bool is_valid_peer(const adnl::AdnlNodeIdShort &id, const ton_api::overlay_MemberCertificate *certificate);
   bool is_persistent_node(const adnl::AdnlNodeIdShort &id);
 
-  td::uint32 max_data_bcasts() const {
-    return 100;
-  }
   td::uint32 max_bcasts() const {
     return 1000;
   }
@@ -401,11 +401,10 @@ class OverlayImpl : public Overlay {
 
   std::unique_ptr<Overlays::Callback> callback_;
 
-  std::map<BroadcastHash, std::unique_ptr<BroadcastSimple>> broadcasts_;
+  BroadcastsSimple broadcasts_simple_;
   std::map<BroadcastHash, std::unique_ptr<BroadcastFec>> fec_broadcasts_;
   std::set<BroadcastHash> delivered_broadcasts_;
 
-  td::ListNode bcast_data_lru_;
   td::ListNode bcast_fec_lru_;
   std::queue<BroadcastHash> bcast_lru_;
 
