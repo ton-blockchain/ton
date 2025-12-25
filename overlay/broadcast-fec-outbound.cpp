@@ -18,7 +18,7 @@
 */
 #include "adnl/utils.hpp"
 
-#include "overlay-fec.hpp"
+#include "broadcast-fec-outbound.hpp"
 #include "overlay.hpp"
 
 namespace ton {

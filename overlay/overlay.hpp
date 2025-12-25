@@ -41,9 +41,9 @@
 #include "td/utils/port/signals.h"
 #include "tl-utils/common-utils.hpp"
 
-#include "overlay-broadcast.hpp"
-#include "overlay-fec-broadcast.hpp"
-#include "overlay-fec.hpp"
+#include "broadcast-fec-outbound.hpp"
+#include "broadcast-fec.hpp"
+#include "broadcast-simple.hpp"
 #include "overlay-id.hpp"
 #include "overlay-manager.h"
 #include "overlay.h"

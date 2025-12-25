@@ -18,7 +18,7 @@
 */
 #include "keys/encryptor.h"
 
-#include "overlay-fec-broadcast.hpp"
+#include "broadcast-fec.hpp"
 #include "overlay.hpp"
 
 namespace ton {

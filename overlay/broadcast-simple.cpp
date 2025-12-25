@@ -24,7 +24,7 @@
 #include "td/utils/Status.h"
 #include "td/utils/port/Stat.h"
 
-#include "overlay-broadcast.hpp"
+#include "broadcast-simple.hpp"
 #include "overlay.hpp"
 
 namespace ton {
