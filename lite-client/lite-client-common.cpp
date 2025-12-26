@@ -36,32 +36,28 @@ td::Result<std::unique_ptr<block::BlockProofChain>> deserialize_proof_chain(
   for (auto& s : f->steps_) {
     bool ok = false;
     td::BufferSlice dest_proof, proof, state_proof;
-    ton::lite_api::downcast_call(
-        *s,
-        td::overloaded(
-            [&](ton::lite_api::liteServer_blockLinkBack& s) {
-              auto& link = chain->new_link(ton::create_block_id(s.from_), ton::create_block_id(s.to_), s.to_key_block_);
-              link.is_fwd = false;
-              // dest_proof:bytes state_proof:bytes proof:bytes
-              dest_proof = std::move(s.dest_proof_);
-              state_proof = std::move(s.state_proof_);
-              proof = std::move(s.proof_);
-              ok = true;
-            },
-            [&](ton::lite_api::liteServer_blockLinkForward& s) {
-              auto& link = chain->new_link(ton::create_block_id(s.from_), ton::create_block_id(s.to_), s.to_key_block_);
-              link.is_fwd = true;
-              // dest_proof:bytes config_proof:bytes signatures:liteServer.SignatureSet
-              dest_proof = std::move(s.dest_proof_);
-              proof = std::move(s.config_proof_);
-              link.cc_seqno = s.signatures_->catchain_seqno_;
-              link.validator_set_hash = s.signatures_->validator_set_hash_;
-              for (auto& sig : s.signatures_->signatures_) {
-                link.signatures.emplace_back(std::move(sig->node_id_short_), std::move(sig->signature_));
-              }
-              ok = true;
-            },
-            [&](auto& obj) {}));
+    ton::lite_api::downcast_call(*s, td::overloaded(
+                                         [&](ton::lite_api::liteServer_blockLinkBack& s) {
+                                           auto& link = chain->new_link(ton::create_block_id(s.from_),
+                                                                        ton::create_block_id(s.to_), s.to_key_block_);
+                                           link.is_fwd = false;
+                                           // dest_proof:bytes state_proof:bytes proof:bytes
+                                           dest_proof = std::move(s.dest_proof_);
+                                           state_proof = std::move(s.state_proof_);
+                                           proof = std::move(s.proof_);
+                                           ok = true;
+                                         },
+                                         [&](ton::lite_api::liteServer_blockLinkForward& s) {
+                                           auto& link = chain->new_link(ton::create_block_id(s.from_),
+                                                                        ton::create_block_id(s.to_), s.to_key_block_);
+                                           link.is_fwd = true;
+                                           // dest_proof:bytes config_proof:bytes signatures:liteServer.SignatureSet
+                                           dest_proof = std::move(s.dest_proof_);
+                                           proof = std::move(s.config_proof_);
+                                           link.sig_set = block::BlockSignatureSet::fetch(s.signatures_);
+                                           ok = true;
+                                         },
+                                         [&](auto& obj) {}));
     if (!ok) {
       return td::Status::Error("unknown constructor of liteServer.BlockLink");
     }
@@ -88,8 +84,8 @@ td::Result<std::unique_ptr<block::BlockProofChain>> deserialize_proof_chain(
       link.state_proof = d_res.move_as_ok();
     }
     LOG(DEBUG) << "deserialized a " << (link.is_fwd ? "forward" : "backward") << " BlkProofLink from "
-               << link.from.to_str() << " to " << link.to.to_str() << " with " << link.signatures.size()
-               << " signatures";
+               << link.from.to_str() << " to " << link.to.to_str() << " with "
+               << (link.sig_set.not_null() ? link.sig_set->get_size() : 0) << " signatures";
   }
   LOG(DEBUG) << "deserialized a BlkProofChain of " << chain->link_count() << " links";
   return std::move(chain);

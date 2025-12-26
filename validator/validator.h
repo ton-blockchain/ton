@@ -32,12 +32,13 @@
 #include "interfaces/persistent-state.h"
 #include "interfaces/proof.h"
 #include "interfaces/shard.h"
-#include "interfaces/validator-set.h"
 #include "overlay/overlays.h"
 #include "td/actor/actor.h"
 #include "td/actor/coro_task.h"
 #include "td/actor/coro_utils.h"
 #include "ton/ton-types.h"
+
+#include "types.h"
 
 namespace ton {
 

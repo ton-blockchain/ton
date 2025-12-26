@@ -199,7 +199,7 @@ class ValidatorEngine : public td::actor::Actor {
   std::map<ton::PublicKeyHash, ton::PublicKey> keys_;
 
   td::Ref<ton::validator::MasterchainState> state_;
-  td::Ref<ton::validator::ValidatorSet> validator_set_, validator_set_prev_, validator_set_next_;
+  td::Ref<block::ValidatorSet> validator_set_, validator_set_prev_, validator_set_next_;
   td::Timestamp issue_fast_sync_overlay_certificates_at_ = td::Timestamp::now();
 
   td::Promise<ton::PublicKey> get_key_promise(td::MultiPromise::InitGuard &ig);

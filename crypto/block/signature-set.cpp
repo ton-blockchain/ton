@@ -1,0 +1,238 @@
+/*
+    This file is part of TON Blockchain Library.
+
+    TON Blockchain Library is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Lesser General Public License as published by
+    the Free Software Foundation, either version 2 of the License, or
+    (at your option) any later version.
+
+    TON Blockchain Library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Lesser General Public License for more details.
+
+    You should have received a copy of the GNU Lesser General Public License
+    along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
+*/
+#include "auto/tl/ton_api.h"
+#include "common/errorcode.h"
+#include "keys/keys.hpp"
+#include "tl-utils/common-utils.hpp"
+#include "tl-utils/tl-utils.hpp"
+
+#include "block-auto.h"
+#include "mc-config.h"
+#include "signature-set.h"
+
+namespace block {
+
+static td::Status check_vset(const BlockSignatureSet* sig_set, const td::Ref<ValidatorSet>& vset) {
+  if (vset->get_catchain_seqno() != sig_set->get_catchain_seqno()) {
+    return td::Status::Error(ton::ErrorCode::protoviolation, PSTRING() << "catchain seqno mismatch: expected "
+                                                                       << vset->get_catchain_seqno() << ", found "
+                                                                       << sig_set->get_catchain_seqno());
+  }
+  if (vset->get_validator_set_hash() != sig_set->get_validator_set_hash()) {
+    return td::Status::Error(ton::ErrorCode::protoviolation, PSTRING() << "validator set hash mismatch: expected "
+                                                                       << vset->get_validator_set_hash() << ", found "
+                                                                       << sig_set->get_validator_set_hash());
+  }
+  return td::Status::OK();
+}
+
+class BlockSignatureSetOrdinary : public BlockSignatureSet {
+ public:
+  explicit BlockSignatureSetOrdinary(std::vector<ton::BlockSignature> signatures, ton::CatchainSeqno cc_seqno,
+                                     td::uint32 validator_set_hash)
+      : BlockSignatureSet(cc_seqno, validator_set_hash), signatures_(std::move(signatures)) {
+  }
+  ~BlockSignatureSetOrdinary() override = default;
+
+  CntObject* make_copy() const override {
+    std::vector<ton::BlockSignature> copy;
+    for (const auto& s : signatures_) {
+      copy.emplace_back(s.node, s.signature.clone());
+    }
+    return new BlockSignatureSetOrdinary(std::move(copy), cc_seqno_, validator_set_hash_);
+  }
+
+  td::Result<ton::ValidatorWeight> check_signatures(td::Ref<ValidatorSet> vset,
+                                                    ton::BlockIdExt block_id) const override {
+    TRY_STATUS(check_vset(this, vset));
+    auto to_sign = ton::create_serialize_tl_object<ton::ton_api::ton_blockId>(block_id.root_hash, block_id.file_hash);
+    ton::ValidatorWeight weight = 0;
+    std::set<ton::NodeIdShort> nodes;
+    for (auto& sig : signatures_) {
+      if (nodes.contains(sig.node)) {
+        return td::Status::Error(ton::ErrorCode::protoviolation, "duplicate node");
+      }
+      nodes.insert(sig.node);
+
+      auto validator = vset->get_validator(sig.node);
+      if (!validator) {
+        return td::Status::Error(ton::ErrorCode::protoviolation, "unknown node");
+      }
+
+      auto E = ton::PublicKey{ton::pubkeys::Ed25519{validator->key}}.create_encryptor().move_as_ok();
+      TRY_STATUS(E->check_signature(to_sign, sig.signature.as_slice()));
+      weight += validator->weight;
+    }
+
+    if (weight * 3 <= vset->get_total_weight() * 2) {
+      return td::Status::Error(ton::ErrorCode::protoviolation, "too small sig weight");
+    }
+    return weight;
+  }
+
+  size_t get_size() const override {
+    return signatures_.size();
+  }
+
+  td::Result<ton::ValidatorWeight> get_weight(td::Ref<ValidatorSet> vset) const override {
+    TRY_STATUS(check_vset(this, vset));
+    ton::ValidatorWeight weight = 0;
+    std::set<ton::NodeIdShort> nodes;
+    for (auto& sig : signatures_) {
+      if (nodes.contains(sig.node)) {
+        return td::Status::Error(ton::ErrorCode::protoviolation, "duplicate node");
+      }
+      nodes.insert(sig.node);
+      auto validator = vset->get_validator(sig.node);
+      if (!validator) {
+        return td::Status::Error(ton::ErrorCode::protoviolation, "unknown node");
+      }
+      weight += validator->weight;
+    }
+    return weight;
+  }
+
+  td::Result<td::Ref<vm::Cell>> serialize(td::Ref<ValidatorSet> vset) const override {
+    TRY_RESULT(weight, get_weight(vset));
+    vm::Dictionary dict{16};  // HashmapE 16 CryptoSignaturePair
+    for (unsigned i = 0; i < signatures_.size(); i++) {
+      const ton::BlockSignature& sig = signatures_[i];
+      vm::CellBuilder cb;
+      if (!(cb.store_bits_bool(sig.node)                      // sig_pair$_ node_id_short:bits256
+            && cb.store_long_bool(5, 4)                       //   ed25519_signature#5
+            && sig.signature.size() == 64                     // signature must be 64 bytes long
+            && cb.store_bytes_bool(sig.signature.data(), 64)  // R:bits256 s:bits256
+            && dict.set_builder(td::BitArray<16>{i}, cb, vm::Dictionary::SetMode::Add))) {
+        return td::Status::Error(PSTRING() << "failed to serialize");
+      }
+    }
+
+    // block_signatures#11 validator_list_hash_short:uint32 catchain_seqno:uint32
+    //   sig_count:uint32 sig_weight:uint64
+    //   signatures:(HashmapE 16 CryptoSignaturePair) = BlockSignatures;
+    vm::CellBuilder cb;
+    cb.store_long(0x11, 8);
+    cb.store_long(validator_set_hash_, 32);
+    cb.store_long(cc_seqno_, 32);
+    cb.store_long(signatures_.size(), 32);
+    cb.store_long(weight, 64);
+    cb.store_maybe_ref(std::move(dict).extract_root_cell());
+    return cb.finalize_novm();
+  }
+
+  ton::tl_object_ptr<ton::lite_api::liteServer_signatureSet> tl_lite() const override {
+    auto f = ton::create_tl_object<ton::lite_api::liteServer_signatureSet>();
+    f->catchain_seqno_ = cc_seqno_;
+    f->validator_set_hash_ = validator_set_hash_;
+    for (auto& sig : signatures_) {
+      f->signatures_.push_back(
+          ton::create_tl_object<ton::lite_api::liteServer_signature>(sig.node, sig.signature.clone()));
+    }
+    return f;
+  }
+
+  std::vector<ton::tl_object_ptr<ton::ton_api::tonNode_blockSignature>> tl_legacy() const override {
+    std::vector<ton::tl_object_ptr<ton::ton_api::tonNode_blockSignature>> f;
+    for (auto& sig : signatures_) {
+      f.push_back(ton::create_tl_object<ton::ton_api::tonNode_blockSignature>(sig.node, sig.signature.clone()));
+    }
+    return f;
+  }
+
+ private:
+  std::vector<ton::BlockSignature> signatures_;
+};
+
+td::Ref<BlockSignatureSet> BlockSignatureSet::create_ordinary(std::vector<ton::BlockSignature> signatures,
+                                                              ton::CatchainSeqno cc_seqno,
+                                                              td::uint32 validator_set_hash) {
+  return td::Ref<BlockSignatureSetOrdinary>{true, std::move(signatures), cc_seqno, validator_set_hash};
+}
+
+td::Result<td::Ref<BlockSignatureSet>> BlockSignatureSet::fetch(td::Ref<vm::Cell> cell,
+                                                                ton::ValidatorWeight& total_weight) {
+  if (cell.is_null()) {
+    return td::Status::Error("cell is null");
+  }
+  try {
+    gen::BlockSignatures::Record rec;
+    if (!gen::unpack_cell(cell, rec)) {
+      return td::Status::Error("failed to unpack BlockSignatures");
+    }
+    std::vector<ton::BlockSignature> signatures;
+    vm::Dictionary dict{rec.signatures->prefetch_ref(), 16};  // HashmapE 16 CryptoSignaturePair
+    unsigned i = 0;
+    if (!dict.check_for_each([&](Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key, int n) -> bool {
+          if (key.get_int(n) != i || cs_ref->size_ext() != 256 + 4 + 256 + 256) {
+            return false;
+          }
+          vm::CellSlice cs{*cs_ref};
+          ton::NodeIdShort node_id;
+          unsigned char signature[64];
+          if (!(cs.fetch_bits_to(node_id)         // sig_pair$_ node_id_short:bits256
+                && cs.fetch_ulong(4) == 5         // ed25519_signature#5
+                && cs.fetch_bytes(signature, 64)  // R:bits256 s:bits256
+                && !cs.size_ext())) {
+            return false;
+          }
+          signatures.emplace_back(node_id, td::BufferSlice{td::Slice{signature, 64}});
+          ++i;
+          return i <= MAX_SIGNATURES;
+        })) {
+      return td::Status::Error("failed to parse signatures dict");
+    }
+    auto sig_set = create_ordinary(std::move(signatures), rec.catchain_seqno, rec.validator_list_hash_short);
+    if (sig_set->get_size() != rec.sig_count) {
+      return td::Status::Error("signature count mismatch");
+    }
+    total_weight = rec.sig_weight;
+    return sig_set;
+  } catch (vm::VmError& e) {
+    return e.as_status();
+  }
+}
+
+td::Result<td::Ref<BlockSignatureSet>> BlockSignatureSet::fetch(td::Ref<vm::Cell> cell, td::Ref<ValidatorSet> vset) {
+  ton::ValidatorWeight total_weight;
+  TRY_RESULT(sig_set, fetch(std::move(cell), total_weight));
+  TRY_RESULT(expected_weight, sig_set->get_weight(vset));
+  if (expected_weight != total_weight) {
+    return td::Status::Error("signature weight mismatch");
+  }
+  return sig_set;
+}
+
+td::Ref<BlockSignatureSet> BlockSignatureSet::fetch(
+    const std::vector<ton::tl_object_ptr<ton::ton_api::tonNode_blockSignature>>& f, ton::CatchainSeqno cc_seqno,
+    td::uint32 validator_set_hash) {
+  std::vector<ton::BlockSignature> signatures;
+  for (auto& s : f) {
+    signatures.emplace_back(s->who_, s->signature_.clone());
+  }
+  return create_ordinary(std::move(signatures), cc_seqno, validator_set_hash);
+}
+
+td::Ref<BlockSignatureSet> BlockSignatureSet::fetch(
+    const ton::tl_object_ptr<ton::lite_api::liteServer_signatureSet>& f) {
+  std::vector<ton::BlockSignature> signatures;
+  for (auto& s : f->signatures_) {
+    signatures.emplace_back(s->node_id_short_, s->signature_.clone());
+  }
+  return create_ordinary(std::move(signatures), f->catchain_seqno_, f->validator_set_hash_);
+}
+
+}  // namespace block

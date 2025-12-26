@@ -78,7 +78,7 @@ class Collator final : public td::actor::Actor {
   std::vector<Ref<BlockData>> prev_block_data;
   Ed25519_PublicKey created_by_;
   Ref<CollatorOptions> collator_opts_;
-  Ref<ValidatorSet> validator_set_;
+  Ref<block::ValidatorSet> validator_set_;
   td::actor::ActorId<ValidatorManager> manager;
   td::Timestamp timeout;
   td::Timestamp queue_cleanup_timeout_, soft_timeout_, medium_timeout_;

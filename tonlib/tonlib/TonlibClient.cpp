@@ -129,6 +129,15 @@ tonlib_api::object_ptr<tonlib_api::options_configInfo> to_tonlib_api(const Tonli
                                                                  full_config.rwallet_init_public_key);
 }
 
+tonlib_api::object_ptr<tonlib_api::blocks_blockSignatures> to_tonlib_api(const ton::BlockIdExt& blk,
+                                                                         td::Ref<block::BlockSignatureSet> sig_set) {
+  std::vector<tonlib_api_ptr<tonlib_api::blocks_signature>> signatures;
+  for (const auto& s : sig_set->tl_legacy()) {
+    signatures.push_back(ton::create_tl_object<tonlib_api::blocks_signature>(s->who_, s->signature_.as_slice().str()));
+  }
+  return ton::create_tl_object<tonlib_api::blocks_blockSignatures>(to_tonlib_api(blk), std::move(signatures));
+}
+
 class TonlibQueryActor : public td::actor::Actor {
  public:
   TonlibQueryActor(td::actor::ActorShared<TonlibClient> client) : client_(std::move(client)) {
@@ -1596,7 +1605,7 @@ class GetMasterchainBlockSignatures : public td::actor::Actor {
     }
     auto chain = R.move_as_ok();
     if (chain->from != prev_block_id_ || chain->to != block_id_ || !chain->complete || chain->links.empty() ||
-        chain->last_link().signatures.empty()) {
+        chain->last_link().sig_set.is_null()) {
       abort(td::Status::Error("got invalid proof chain"));
       return;
     }
@@ -1605,12 +1614,7 @@ class GetMasterchainBlockSignatures : public td::actor::Actor {
       abort(std::move(S));
       return;
     }
-    std::vector<tonlib_api_ptr<tonlib_api::blocks_signature>> signatures;
-    for (const auto& s : chain->last_link().signatures) {
-      signatures.push_back(ton::create_tl_object<tonlib_api::blocks_signature>(s.node, s.signature.as_slice().str()));
-    }
-    promise_.set_result(
-        ton::create_tl_object<tonlib_api::blocks_blockSignatures>(to_tonlib_api(block_id_), std::move(signatures)));
+    promise_.set_result(to_tonlib_api(block_id_, chain->last_link().sig_set));
     stop();
   }
 

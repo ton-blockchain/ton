@@ -18,14 +18,14 @@
 */
 #pragma once
 
+#include "block/signature-set.h"
+#include "block/validator-set.h"
 #include "interfaces/validator-manager.h"
 #include "td/actor/actor.h"
 #include "ton/ton-shard.h"
 #include "ton/ton-types.h"
 
 #include "shard.hpp"
-#include "signature-set.hpp"
-#include "validator-set.hpp"
 
 namespace ton {
 
@@ -50,10 +50,11 @@ class AcceptBlockQuery : public td::actor::Actor {
   struct IsFake {};
   struct ForceFork {};
   AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                   td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures, int send_broadcast_mode,
-                   bool apply, td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
+                   td::Ref<block::ValidatorSet> validator_set, td::Ref<block::BlockSignatureSet> signatures,
+                   int send_broadcast_mode, bool apply, td::actor::ActorId<ValidatorManager> manager,
+                   td::Promise<td::Unit> promise);
   AcceptBlockQuery(IsFake fake, BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                   td::Ref<ValidatorSet> validator_set, td::actor::ActorId<ValidatorManager> manager,
+                   td::Ref<block::ValidatorSet> validator_set, td::actor::ActorId<ValidatorManager> manager,
                    td::Promise<td::Unit> promise);
   AcceptBlockQuery(ForceFork ffork, BlockIdExt id, td::Ref<BlockData> data,
                    td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
@@ -95,8 +96,8 @@ class AcceptBlockQuery : public td::actor::Actor {
   BlockIdExt id_;
   Ref<BlockData> data_;
   std::vector<BlockIdExt> prev_;
-  Ref<ValidatorSetQ> validator_set_;
-  Ref<BlockSignatureSetQ> signatures_;
+  Ref<block::ValidatorSet> validator_set_;
+  Ref<block::BlockSignatureSet> signatures_;
   bool is_fake_;
   bool is_fork_;
   int send_broadcast_mode_{0};

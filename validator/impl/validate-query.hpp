@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "block/mc-config.h"
+#include "block/signature-set.h"
 #include "block/transaction.h"
 #include "common/global-version.h"
 #include "interfaces/validator-manager.h"
@@ -34,7 +35,6 @@
 #include "block-parse.h"
 #include "fabric.h"
 #include "shard.hpp"
-#include "signature-set.hpp"
 
 namespace ton {
 
@@ -135,7 +135,7 @@ class ValidateQuery : public td::actor::Actor {
   std::vector<BlockIdExt> prev_blocks;
   std::vector<Ref<ShardState>> prev_states;
   BlockCandidate block_candidate;
-  td::Ref<ValidatorSet> validator_set_;
+  td::Ref<block::ValidatorSet> validator_set_;
   PublicKeyHash local_validator_id_ = PublicKeyHash::zero();
   td::actor::ActorId<ValidatorManager> manager;
   td::Timestamp timeout;
@@ -186,7 +186,6 @@ class ValidateQuery : public td::actor::Actor {
 
   Ref<vm::CellSlice> shard_hashes_;              // from McBlockExtra
   Ref<vm::CellSlice> blk_config_params_;         // from McBlockExtra
-  Ref<BlockSignatureSet> prev_signatures_;       // from McBlockExtra (UNCHECKED)
   Ref<vm::Cell> recover_create_msg_, mint_msg_;  // from McBlockExtra (UNCHECKED)
 
   std::unique_ptr<block::ConfigInfo> config_, new_config_;

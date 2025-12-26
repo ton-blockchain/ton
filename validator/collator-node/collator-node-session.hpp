@@ -29,7 +29,7 @@ class ValidatorManager;
 
 class CollatorNodeSession : public td::actor::Actor {
  public:
-  CollatorNodeSession(ShardIdFull shard, std::vector<BlockIdExt> prev, td::Ref<ValidatorSet> validator_set,
+  CollatorNodeSession(ShardIdFull shard, std::vector<BlockIdExt> prev, td::Ref<block::ValidatorSet> validator_set,
                       BlockIdExt min_masterchain_block_id, bool can_generate, td::Ref<MasterchainState> state,
                       adnl::AdnlNodeIdShort local_id, td::Ref<ValidatorManagerOptions> opts,
                       td::actor::ActorId<ValidatorManager> manager, td::actor::ActorId<adnl::Adnl> adnl,
@@ -51,7 +51,7 @@ class CollatorNodeSession : public td::actor::Actor {
  private:
   ShardIdFull shard_;
   std::vector<BlockIdExt> prev_;
-  td::Ref<ValidatorSet> validator_set_;
+  td::Ref<block::ValidatorSet> validator_set_;
   BlockIdExt min_masterchain_block_id_;
   bool can_generate_;
   adnl::AdnlNodeIdShort local_id_;

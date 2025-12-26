@@ -127,7 +127,7 @@ void CollatorNode::new_masterchain_block_notification(td::Ref<MasterchainState> 
 
     validator_adnl_ids_.clear();
     for (int next : {-1, 0, 1}) {
-      td::Ref<ValidatorSet> vals = state->get_total_validator_set(next);
+      td::Ref<block::ValidatorSet> vals = state->get_total_validator_set(next);
       if (vals.not_null()) {
         for (const ValidatorDescr& descr : vals->export_vector()) {
           if (descr.addr.is_zero()) {

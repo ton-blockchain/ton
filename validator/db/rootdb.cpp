@@ -68,8 +68,8 @@ void RootDb::get_block_data(ConstBlockHandle handle, td::Promise<td::Ref<BlockDa
   }
 }
 
-void RootDb::store_block_signatures(BlockHandle handle, td::Ref<BlockSignatureSet> data,
-                                    td::Promise<td::Unit> promise) {
+void RootDb::store_block_signatures(BlockHandle handle, td::Ref<block::BlockSignatureSet> data,
+                                    Ref<block::ValidatorSet> vset, td::Promise<td::Unit> promise) {
   if (handle->inited_signatures() || handle->moved_to_archive()) {
     promise.set_value(td::Unit());
     return;
@@ -84,20 +84,21 @@ void RootDb::store_block_signatures(BlockHandle handle, td::Ref<BlockSignatureSe
           td::actor::send_closure(id, &ArchiveManager::update_handle, std::move(handle), std::move(promise));
         }
       });
+  TRY_RESULT_PROMISE(promise, root, data->serialize(vset));
+  TRY_RESULT_PROMISE(promise, serialized, vm::std_boc_serialize(root));
   td::actor::send_closure(archive_db_, &ArchiveManager::add_temp_file_short, fileref::Signatures{handle->id()},
-                          data->serialize(), std::move(P));
+                          std::move(serialized), std::move(P));
 }
 
-void RootDb::get_block_signatures(ConstBlockHandle handle, td::Promise<td::Ref<BlockSignatureSet>> promise) {
+void RootDb::get_block_signatures(ConstBlockHandle handle, td::Promise<td::Ref<block::BlockSignatureSet>> promise) {
   if (!handle->inited_signatures() || handle->moved_to_archive()) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "not in db"));
   } else {
     auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
-      if (R.is_error()) {
-        promise.set_error(R.move_as_error());
-      } else {
-        promise.set_result(create_signature_set(R.move_as_ok()));
-      }
+      TRY_RESULT_PROMISE(promise, data, std::move(R));
+      TRY_RESULT_PROMISE(promise, root, vm::std_boc_deserialize(data));
+      ValidatorWeight weight;
+      promise.set_result(block::BlockSignatureSet::fetch(root, weight));
     });
     td::actor::send_closure(archive_db_, &ArchiveManager::get_temp_file_short, fileref::Signatures{handle->id()},
                             std::move(P));

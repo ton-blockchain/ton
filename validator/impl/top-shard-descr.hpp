@@ -130,10 +130,8 @@ class ShardTopBlockDescrQ final : public ShardTopBlockDescrQBase {
   CatchainSeqno catchain_seqno_{0};
   td::uint32 validator_set_hash_{0};
   BlockSeqno vert_seqno_{~0U};
-  td::uint32 sig_count_;
-  ValidatorWeight sig_weight_;
-  Ref<vm::Cell> sig_root_;
-  Ref<BlockSignatureSet> sig_set_;
+  ValidatorWeight sig_weight_{0};
+  td::Ref<block::BlockSignatureSet> sig_set_;
   std::vector<Ref<vm::Cell>> proof_roots_;
   std::vector<BlockIdExt> chain_blk_ids_;
   std::vector<BlockIdExt> chain_mc_blk_ids_;

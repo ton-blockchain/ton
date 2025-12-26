@@ -137,7 +137,7 @@ void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
 }
 
 void ValidatorManagerImpl::validate_fake(BlockCandidate candidate, std::vector<BlockIdExt> prev, BlockIdExt last,
-                                         td::Ref<ValidatorSet> val_set) {
+                                         td::Ref<block::ValidatorSet> val_set) {
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), c = candidate.clone(), prev, last,
                                        val_set](td::Result<ValidateCandidateResult> R) mutable {
     if (R.is_ok()) {
@@ -166,7 +166,7 @@ void ValidatorManagerImpl::validate_fake(BlockCandidate candidate, std::vector<B
 }
 
 void ValidatorManagerImpl::write_fake(BlockCandidate candidate, std::vector<BlockIdExt> prev, BlockIdExt last,
-                                      td::Ref<ValidatorSet> val_set) {
+                                      td::Ref<block::ValidatorSet> val_set) {
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), id = candidate.id](td::Result<td::Unit> R) {
     if (R.is_ok()) {
       td::actor::send_closure(SelfId, &ValidatorManagerImpl::complete_fake, id);
@@ -471,12 +471,12 @@ void ValidatorManagerImpl::wait_block_proof_link_short(BlockIdExt block_id, td::
 }
 
 void ValidatorManagerImpl::wait_block_signatures(BlockHandle handle, td::Timestamp timeout,
-                                                 td::Promise<td::Ref<BlockSignatureSet>> promise) {
+                                                 td::Promise<td::Ref<block::BlockSignatureSet>> promise) {
   td::actor::send_closure(db_, &Db::get_block_signatures, handle, std::move(promise));
 }
 
 void ValidatorManagerImpl::wait_block_signatures_short(BlockIdExt block_id, td::Timestamp timeout,
-                                                       td::Promise<td::Ref<BlockSignatureSet>> promise) {
+                                                       td::Promise<td::Ref<block::BlockSignatureSet>> promise) {
   auto P = td::PromiseCreator::lambda(
       [SelfId = actor_id(this), timeout, promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
         if (R.is_error()) {
@@ -776,8 +776,8 @@ void ValidatorManagerImpl::set_block_proof_link(BlockHandle handle, td::Ref<Proo
   td::actor::send_closure(db_, &Db::store_block_proof_link, handle, std::move(proof), std::move(P));
 }
 
-void ValidatorManagerImpl::set_block_signatures(BlockHandle handle, td::Ref<BlockSignatureSet> signatures,
-                                                td::Promise<td::Unit> promise) {
+void ValidatorManagerImpl::set_block_signatures(BlockHandle handle, td::Ref<block::BlockSignatureSet> signatures,
+                                                Ref<block::ValidatorSet> vset, td::Promise<td::Unit> promise) {
   auto P = td::PromiseCreator::lambda(
       [SelfId = actor_id(this), promise = std::move(promise), handle](td::Result<td::Unit> R) mutable {
         if (R.is_error()) {
@@ -787,7 +787,8 @@ void ValidatorManagerImpl::set_block_signatures(BlockHandle handle, td::Ref<Bloc
         }
       });
 
-  td::actor::send_closure(db_, &Db::store_block_signatures, handle, std::move(signatures), std::move(P));
+  td::actor::send_closure(db_, &Db::store_block_signatures, handle, std::move(signatures), std::move(vset),
+                          std::move(P));
 }
 
 void ValidatorManagerImpl::set_next_block(BlockIdExt block_id, BlockIdExt next, td::Promise<td::Unit> promise) {
@@ -1006,7 +1007,7 @@ void ValidatorManagerImpl::update_shard_blocks() {
   }
 }
 
-ValidatorSessionId ValidatorManagerImpl::get_validator_set_id(ShardIdFull shard, td::Ref<ValidatorSet> val_set) {
+ValidatorSessionId ValidatorManagerImpl::get_validator_set_id(ShardIdFull shard, td::Ref<block::ValidatorSet> val_set) {
   return create_hash_tl_object<ton_api::tonNode_sessionId>(shard.workchain, shard.shard, val_set->get_catchain_seqno(),
                                                            td::Bits256::zero());
 }

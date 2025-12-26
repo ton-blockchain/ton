@@ -68,8 +68,7 @@ void ValidateBroadcast::start_up() {
     }
   }
 
-  sig_set_ = create_signature_set(std::move(broadcast_.signatures));
-  if (sig_set_.is_null()) {
+  if (broadcast_.sig_set.is_null()) {
     abort_query(td::Status::Error(ErrorCode::protoviolation, "bad signature set"));
     return;
   }
@@ -217,7 +216,7 @@ void ValidateBroadcast::check_signatures_common(td::Ref<ConfigHolder> conf) {
       return;
     }
   }
-  auto S = val_set->check_signatures(broadcast_.block_id.root_hash, broadcast_.block_id.file_hash, sig_set_);
+  auto S = broadcast_.sig_set->check_signatures(val_set, broadcast_.block_id);
   if (S.is_ok()) {
     checked_signatures();
   } else {

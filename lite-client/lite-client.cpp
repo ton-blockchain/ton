@@ -3813,7 +3813,7 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
   if (mode & 4) {
     ton::BlockSeqno start_seqno = info1->blk_id.seqno();
     ton::BlockSeqno end_seqno = info2->blk_id.seqno();
-    block::ValidatorSet validator_set = *info1->vset;
+    block::TotalValidatorSet validator_set = *info1->vset;
     if (info1->config->get_config_param(28)->get_hash() != info2->config->get_config_param(28)->get_hash()) {
       LOG(ERROR) << "Catchain validator config (28) changed between the first and the last block";
       return;
@@ -3981,7 +3981,7 @@ void TestNode::continue_check_validator_load4(std::unique_ptr<TestNode::Validato
 }
 
 void TestNode::load_validator_shard_shares(ton::BlockSeqno start_seqno, ton::BlockSeqno end_seqno,
-                                           block::ValidatorSet validator_set,
+                                           block::TotalValidatorSet validator_set,
                                            std::unique_ptr<block::CatchainValidatorsConfig> catchain_config,
                                            td::Promise<std::map<td::Bits256, td::uint64>> promise) {
   CHECK(start_seqno <= end_seqno);

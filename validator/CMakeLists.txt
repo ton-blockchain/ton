@@ -31,6 +31,7 @@ set(VALIDATOR_DB_SOURCE
 )
 
 set(VALIDATOR_HEADERS
+  types.h
   block-handle.hpp
   get-next-key-blocks.h
 
@@ -47,10 +48,8 @@ set(VALIDATOR_HEADERS
   interfaces/out-msg-queue-proof.h
   interfaces/proof.h
   interfaces/shard.h
-  interfaces/signature-set.h
   interfaces/validator-full-id.h
   interfaces/validator-manager.h
-  interfaces/validator-set.h
   invariants.hpp
 
   import-db-slice.hpp

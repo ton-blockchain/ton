@@ -38,9 +38,9 @@ namespace validator {
 using namespace std::literals::string_literals;
 
 AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                                   td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
-                                   int send_broadcast_mode, bool apply, td::actor::ActorId<ValidatorManager> manager,
-                                   td::Promise<td::Unit> promise)
+                                   td::Ref<block::ValidatorSet> validator_set,
+                                   td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode, bool apply,
+                                   td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
     , prev_(std::move(prev))
@@ -62,13 +62,15 @@ AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::
 }
 
 AcceptBlockQuery::AcceptBlockQuery(AcceptBlockQuery::IsFake fake, BlockIdExt id, td::Ref<BlockData> data,
-                                   std::vector<BlockIdExt> prev, td::Ref<ValidatorSet> validator_set,
+                                   std::vector<BlockIdExt> prev, td::Ref<block::ValidatorSet> validator_set,
                                    td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
     , prev_(std::move(prev))
     , validator_set_(std::move(validator_set))
-    , signatures_(create_signature_set(std::vector<BlockSignature>{}))
+    , signatures_(block::BlockSignatureSet::create_ordinary(std::vector<BlockSignature>{},
+                                                            validator_set_->get_catchain_seqno(),
+                                                            validator_set_->get_validator_set_hash()))
     , is_fake_(true)
     , is_fork_(false)
     , manager_(manager)
@@ -86,7 +88,9 @@ AcceptBlockQuery::AcceptBlockQuery(ForceFork ffork, BlockIdExt id, td::Ref<Block
                                    td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
-    , signatures_(create_signature_set(std::vector<BlockSignature>{}))
+    , signatures_(block::BlockSignatureSet::create_ordinary(std::vector<BlockSignature>{},
+                                                            validator_set_->get_catchain_seqno(),
+                                                            validator_set_->get_validator_set_hash()))
     , is_fake_(true)
     , is_fork_(true)
     , manager_(manager)
@@ -248,7 +252,7 @@ bool AcceptBlockQuery::create_new_proof() {
     // 7. check signatures
     td::Result<td::uint64> sign_chk;
     if (!is_fake_) {
-      sign_chk = validator_set_->check_signatures(id_.root_hash, id_.file_hash, signatures_);
+      sign_chk = signatures_->check_signatures(validator_set_, id_);
       if (sign_chk.is_error()) {
         auto err = sign_chk.move_as_error();
         VLOG(VALIDATOR_WARNING) << "signature check failed : " << err.to_string();
@@ -259,25 +263,20 @@ bool AcceptBlockQuery::create_new_proof() {
     // 8. serialize signatures
     if (!is_fake_) {
       vm::CellBuilder cb2;
-      Ref<vm::Cell> sign_cell;
-      if (!(cb2.store_long_bool(0x11, 8)  // block_signatures#11
-            && cb2.store_long_bool(validator_set_->get_validator_set_hash(),
-                                   32)  // validator_info$_ validator_set_hash_short:uint32
-            && cb2.store_long_bool(validator_set_->get_catchain_seqno(),
-                                   32)                         //   validator_set_ts:uint32 = ValidatorInfo
-            && cb2.store_long_bool(signatures_->size(), 32)    // sig_count:uint32
-            && cb2.store_long_bool(sign_chk.move_as_ok(), 64)  // sig_weight:uint32
-            && signatures_->serialize_to(sign_cell)            // (HashmapE 16 CryptoSignaturePair)
-            && cb2.store_maybe_ref(std::move(sign_cell)) && cb2.finalize_to(signatures_cell_))) {
-        return fatal_error("cannot serialize BlockSignatures for the newly-accepted block");
+      auto r_sign_cell = signatures_->serialize(validator_set_);
+      if (r_sign_cell.is_error()) {
+        abort_query(
+            r_sign_cell.move_as_error_prefix("cannot serialize BlockSignatures for the newly-accepted block: "));
+        return false;
       }
+      signatures_cell_ = r_sign_cell.move_as_ok();
     } else {  // FAKE
       vm::CellBuilder cb2;
       if (!(cb2.store_long_bool(0x11, 8)  // block_signatures#11
             && cb2.store_long_bool(validator_set_.not_null() ? validator_set_->get_validator_set_hash() : 0,
                                    32)  // validator_info$_ validator_set_hash_short:uint32
             && cb2.store_long_bool(validator_set_.not_null() ? validator_set_->get_catchain_seqno() : 0,
-                                   32)     //   validator_set_ts:uint32 = ValidatorInfo
+                                   32)     //   validator_set_ts:uint32
             && cb2.store_long_bool(0, 32)  // sig_count:uint32
             && cb2.store_long_bool(0, 64)  // sig_weight:uint32
             && cb2.store_bool_bool(false)  // (HashmapE 16 CryptoSignaturePair)
@@ -386,7 +385,7 @@ void AcceptBlockQuery::start_up() {
     fatal_error("a non-fake AcceptBlockQuery for a forced fork block");
     return;
   }
-  if (!is_fork_ && !prev_.size()) {
+  if (!is_fork_ && prev_.empty()) {
     fatal_error("no previous blocks passed to AcceptBlockQuery");
     return;
   }
@@ -470,7 +469,7 @@ void AcceptBlockQuery::written_block_data() {
     written_block_signatures();
     return;
   }
-  td::actor::send_closure(manager_, &ValidatorManager::set_block_signatures, handle_, signatures_,
+  td::actor::send_closure(manager_, &ValidatorManager::set_block_signatures, handle_, signatures_, validator_set_,
                           [SelfId = actor_id(this)](td::Result<td::Unit> R) {
                             check_send_error(SelfId, R) ||
                                 td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::written_block_signatures);
@@ -897,7 +896,7 @@ void AcceptBlockQuery::create_topshard_blk_descr() {
     fatal_error("cannot generate top shard block description for "s + id_.to_str());
     return;
   }
-  CHECK(top_block_descr_data_.size());
+  CHECK(!top_block_descr_data_.empty());
   td::actor::create_actor<ValidateShardTopBlockDescr>(
       "topshardfetchchk", std::move(top_block_descr_data_), last_mc_id_, BlockHandle{}, last_mc_state_, manager_,
       timeout_, is_fake_,
@@ -955,13 +954,7 @@ void AcceptBlockQuery::send_broadcasts() {
   BlockBroadcast b;
   b.data = data_->data();
   b.block_id = id_;
-  std::vector<BlockSignature> sigs;
-  if (!is_fake_ && signatures_.not_null()) {
-    for (auto& v : signatures_->signatures()) {
-      sigs.emplace_back(BlockSignature{v.node, v.signature.clone()});
-    }
-  }
-  b.signatures = std::move(sigs);
+  b.sig_set = signatures_;
   b.catchain_seqno = validator_set_->get_catchain_seqno();
   b.validator_set_hash = validator_set_->get_validator_set_hash();
   if (is_masterchain()) {

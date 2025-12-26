@@ -38,7 +38,7 @@ class IValidatorGroup : public td::actor::Actor {
  public:
   static td::actor::ActorOwn<IValidatorGroup> create_catchain(
       td::Slice name, ShardIdFull shard, PublicKeyHash local_id, ValidatorSessionId session_id,
-      td::Ref<ValidatorSet> validator_set, BlockSeqno last_key_block_seqno,
+      td::Ref<block::ValidatorSet> validator_set, BlockSeqno last_key_block_seqno,
       validatorsession::ValidatorSessionOptions config, td::actor::ActorId<keyring::Keyring> keyring,
       td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
       td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,

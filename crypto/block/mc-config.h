@@ -56,15 +56,15 @@ struct ValidatorDescr {
   }
 };
 
-struct ValidatorSet {
+struct TotalValidatorSet {
   unsigned utime_since;
   unsigned utime_until;
   int total;
   int main;
   td::uint64 total_weight;
   std::vector<ValidatorDescr> list;
-  ValidatorSet() = default;
-  ValidatorSet(unsigned _since, unsigned _until, int _total, int _main = 0)
+  TotalValidatorSet() = default;
+  TotalValidatorSet(unsigned _since, unsigned _until, int _total, int _main = 0)
       : utime_since(_since), utime_until(_until), total(_total), main(_main > 0 ? _main : _total), total_weight(0) {
   }
   const ValidatorDescr& operator[](unsigned i) const {
@@ -573,7 +573,7 @@ class Config {
   td::BitArray<256> config_addr;
   Ref<vm::Cell> config_root;
   std::unique_ptr<vm::Dictionary> config_dict;
-  std::shared_ptr<ValidatorSet> cur_validators_;
+  std::shared_ptr<TotalValidatorSet> cur_validators_;
   std::unique_ptr<vm::Dictionary> workchains_dict_;
   WorkchainSet workchains_;
   int version_{-1};
@@ -637,8 +637,8 @@ class Config {
   bool set_block_id_ext(const ton::BlockIdExt& block_id_ext);
   td::Result<std::vector<ton::StdSmcAddress>> get_special_smartcontracts(bool without_config = false) const;
   bool is_special_smartcontract(const ton::StdSmcAddress& addr) const;
-  static td::Result<std::shared_ptr<ValidatorSet>> unpack_validator_set(Ref<vm::Cell> valset_root,
-                                                                        bool use_cache = false);
+  static td::Result<std::shared_ptr<TotalValidatorSet>> unpack_validator_set(Ref<vm::Cell> valset_root,
+                                                                             bool use_cache = false);
   td::Result<std::vector<StoragePrices>> get_storage_prices() const;
   static td::Result<StoragePrices> do_get_one_storage_prices(vm::CellSlice cs);
   td::Result<GasLimitsPrices> get_gas_limits_prices(bool is_masterchain = false) const;
@@ -658,14 +658,14 @@ class Config {
   const WorkchainSet& get_workchain_list() const {
     return workchains_;
   }
-  const std::shared_ptr<ValidatorSet>& get_cur_validator_set() const& {
+  const std::shared_ptr<TotalValidatorSet>& get_cur_validator_set() const& {
     return cur_validators_;
   }
   std::pair<ton::UnixTime, ton::UnixTime> get_validator_set_start_stop(int next = 0) const;
   ton::ValidatorSessionConfig get_consensus_config() const;
   bool foreach_config_param(std::function<bool(int, Ref<vm::Cell>)> scan_func) const;
   Ref<WorkchainInfo> get_workchain_info(ton::WorkchainId workchain_id) const;
-  std::vector<ton::ValidatorDescr> compute_validator_set(ton::ShardIdFull shard, const block::ValidatorSet& vset,
+  std::vector<ton::ValidatorDescr> compute_validator_set(ton::ShardIdFull shard, const block::TotalValidatorSet& vset,
                                                          ton::UnixTime time, ton::CatchainSeqno cc_seqno) const;
   std::vector<ton::ValidatorDescr> compute_validator_set(ton::ShardIdFull shard, ton::UnixTime time,
                                                          ton::CatchainSeqno cc_seqno) const;
@@ -677,7 +677,8 @@ class Config {
   td::Ref<vm::Tuple> get_unpacked_config_tuple(ton::UnixTime now) const;
   PrecompiledContractsConfig get_precompiled_contracts_config() const;
   static std::vector<ton::ValidatorDescr> do_compute_validator_set(const CatchainValidatorsConfig& ccv_conf,
-                                                                   ton::ShardIdFull shard, const ValidatorSet& vset,
+                                                                   ton::ShardIdFull shard,
+                                                                   const TotalValidatorSet& vset,
                                                                    ton::CatchainSeqno cc_seqno);
 
   static td::Result<std::unique_ptr<Config>> unpack_config(Ref<vm::Cell> config_root,
@@ -772,8 +773,8 @@ class ConfigInfo : public Config, public ShardConfig {
   int get_smc_tick_tock(td::ConstBitPtr smc_addr) const;
   std::unique_ptr<vm::AugmentedDictionary> create_accounts_dict() const;
   const vm::AugmentedDictionary& get_accounts_dict() const;
-  std::vector<ton::ValidatorDescr> compute_validator_set_cc(ton::ShardIdFull shard, const block::ValidatorSet& vset,
-                                                            ton::UnixTime time,
+  std::vector<ton::ValidatorDescr> compute_validator_set_cc(ton::ShardIdFull shard,
+                                                            const block::TotalValidatorSet& vset, ton::UnixTime time,
                                                             ton::CatchainSeqno* cc_seqno_delta = nullptr) const;
   std::vector<ton::ValidatorDescr> compute_validator_set_cc(ton::ShardIdFull shard, ton::UnixTime time,
                                                             ton::CatchainSeqno* cc_seqno_delta = nullptr) const;

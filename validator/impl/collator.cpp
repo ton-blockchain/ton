@@ -25,6 +25,7 @@
 #include "block/block-parse.h"
 #include "block/block.h"
 #include "block/mc-config.h"
+#include "block/validator-set.h"
 #include "crypto/openssl/rand.hpp"
 #include "td/db/utils/BlobView.h"
 #include "td/utils/Random.h"
@@ -38,7 +39,6 @@
 #include "fabric.h"
 #include "storage-stat-cache.hpp"
 #include "top-shard-descr.hpp"
-#include "validator-set.hpp"
 
 namespace ton {
 

@@ -215,6 +215,11 @@ set(BLOCK_SOURCE
   block/transaction.h
   block/precompiled-smc/PrecompiledSmartContract.h
   block/precompiled-smc/common.h
+
+  block/validator-set.h
+  block/validator-set.cpp
+  block/signature-set.h
+  block/signature-set.cpp
 )
 
 set(SMC_ENVELOPE_SOURCE

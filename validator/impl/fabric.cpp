@@ -16,6 +16,7 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "block/signature-set.h"
 #include "ton/ton-io.hpp"
 #include "validator/block-handle.hpp"
 #include "validator/db/rootdb.hpp"
@@ -33,7 +34,6 @@
 #include "liteserver.hpp"
 #include "proof.hpp"
 #include "shard.hpp"
-#include "signature-set.hpp"
 #include "top-shard-descr.hpp"
 #include "validate-query.hpp"
 
@@ -72,10 +72,6 @@ td::Result<td::Ref<ProofLink>> create_proof_link(BlockIdExt block_id, td::Buffer
   return Ref<ProofLinkQ>{true, block_id, std::move(proof_link)};
 }
 
-td::Result<td::Ref<BlockSignatureSet>> create_signature_set(td::BufferSlice sig_set) {
-  return BlockSignatureSetQ::fetch(std::move(sig_set));
-}
-
 td::Result<td::Ref<ShardState>> create_shard_state(BlockIdExt block_id, td::BufferSlice data) {
   auto res = ShardStateQ::fetch(block_id, std::move(data));
   if (res.is_error()) {
@@ -110,10 +106,6 @@ BlockHandle create_empty_block_handle(BlockIdExt id) {
   return ton::validator::BlockHandleImpl::create_empty(id);
 }
 
-td::Ref<BlockSignatureSet> create_signature_set(std::vector<BlockSignature> sig_set) {
-  return td::Ref<BlockSignatureSetQ>{true, std::move(sig_set)};
-}
-
 td::Result<td::Ref<ExtMessage>> create_ext_message(td::BufferSlice data, block::SizeLimitsConfig::ExtMsgLimits limits) {
   TRY_RESULT(res, ExtMessageQ::create_ext_message(std::move(data), limits));
   return std::move(res);
@@ -125,7 +117,7 @@ td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data) {
 }
 
 void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                            td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
+                            td::Ref<block::ValidatorSet> validator_set, td::Ref<block::BlockSignatureSet> signatures,
                             int send_broadcast_mode, bool apply, td::actor::ActorId<ValidatorManager> manager,
                             td::Promise<td::Unit> promise) {
   td::actor::create_actor<AcceptBlockQuery>(
@@ -135,8 +127,8 @@ void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<
 }
 
 void run_fake_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                                 td::Ref<ValidatorSet> validator_set, td::actor::ActorId<ValidatorManager> manager,
-                                 td::Promise<td::Unit> promise) {
+                                 td::Ref<block::ValidatorSet> validator_set,
+                                 td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise) {
   td::actor::create_actor<AcceptBlockQuery>("fakeaccept", AcceptBlockQuery::IsFake(), id, std::move(data),
                                             std::move(prev), std::move(validator_set), std::move(manager),
                                             std::move(promise))

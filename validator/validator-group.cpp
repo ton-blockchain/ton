@@ -20,6 +20,7 @@
 
 #include "collator-node/collator-node.hpp"
 #include "common/delay.h"
+#include "interfaces/validator-full-id.h"
 #include "td/utils/Random.h"
 #include "td/utils/overloaded.h"
 #include "ton/lite-tl.hpp"
@@ -47,7 +48,7 @@ class ValidatorGroup : public IValidatorGroup {
                               validatorsession::ValidatorSessionStats stats, td::Promise<td::Unit> promise);
   void skip_round(td::uint32 round);
   void accept_block_query(BlockIdExt block_id, td::Ref<BlockData> block, std::vector<BlockIdExt> prev,
-                          td::Ref<BlockSignatureSet> sigs, td::Ref<BlockSignatureSet> approve_sigs,
+                          td::Ref<block::BlockSignatureSet> sigs, td::Ref<block::BlockSignatureSet> approve_sigs,
                           int send_broadcast_mode, td::Promise<td::Unit> promise, bool is_retry = false);
   void get_approved_candidate(PublicKey source, RootHash root_hash, FileHash file_hash,
                               FileHash collated_data_file_hash, td::Promise<BlockCandidate> promise);
@@ -85,7 +86,7 @@ class ValidatorGroup : public IValidatorGroup {
   }
 
   ValidatorGroup(ShardIdFull shard, PublicKeyHash local_id, ValidatorSessionId session_id,
-                 td::Ref<ValidatorSet> validator_set, BlockSeqno last_key_block_seqno,
+                 td::Ref<block::ValidatorSet> validator_set, BlockSeqno last_key_block_seqno,
                  validatorsession::ValidatorSessionOptions config, td::actor::ActorId<keyring::Keyring> keyring,
                  td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
                  td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<overlay::Overlays> overlays,
@@ -120,8 +121,8 @@ class ValidatorGroup : public IValidatorGroup {
     RootHash root_hash;
     FileHash file_hash;
     td::BufferSlice block;
-    td::Ref<BlockSignatureSet> sigs;
-    td::Ref<BlockSignatureSet> approve_sigs;
+    td::Ref<block::BlockSignatureSet> sigs;
+    td::Ref<block::BlockSignatureSet> approve_sigs;
     validatorsession::ValidatorSessionStats stats;
     td::Promise<td::Unit> promise;
   };
@@ -136,7 +137,7 @@ class ValidatorGroup : public IValidatorGroup {
   std::vector<BlockIdExt> prev_block_ids_;
   BlockIdExt min_masterchain_block_id_;
 
-  td::Ref<ValidatorSet> validator_set_;
+  td::Ref<block::ValidatorSet> validator_set_;
   BlockSeqno last_key_block_seqno_;
   validatorsession::ValidatorSessionOptions config_;
 
@@ -214,7 +215,7 @@ class ValidatorGroup : public IValidatorGroup {
 
 td::actor::ActorOwn<IValidatorGroup> IValidatorGroup::create_catchain(
     td::Slice name, ShardIdFull shard, PublicKeyHash local_id, ValidatorSessionId session_id,
-    td::Ref<ValidatorSet> validator_set, BlockSeqno last_key_block_seqno,
+    td::Ref<block::ValidatorSet> validator_set, BlockSeqno last_key_block_seqno,
     validatorsession::ValidatorSessionOptions config, td::actor::ActorId<keyring::Keyring> keyring,
     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
     td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
@@ -462,10 +463,11 @@ void ValidatorGroup::accept_block_candidate(validatorsession::BlockSourceInfo so
   stats.cc_seqno = validator_set_->get_catchain_seqno();
   td::uint32 round_id = source_info.priority.round;
   update_round_id(round_id + 1);
-  auto sig_set = create_signature_set(std::move(signatures));
-  validator_set_->check_signatures(root_hash, file_hash, sig_set).ensure();
-  auto approve_sig_set = create_signature_set(std::move(approve_signatures));
-  validator_set_->check_approve_signatures(root_hash, file_hash, approve_sig_set).ensure();
+  auto sig_set = block::BlockSignatureSet::create_ordinary(std::move(signatures), validator_set_->get_catchain_seqno(),
+                                                           validator_set_->get_validator_set_hash());
+  auto approve_sig_set = block::BlockSignatureSet::create_ordinary(
+      std::move(approve_signatures), validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash());
+  // validator_set_->check_approve_signatures(root_hash, file_hash, approve_sig_set).ensure();
 
   if (!started_) {
     postponed_accept_.push_back(PostponedAccept{root_hash, file_hash, std::move(block_data), std::move(sig_set),
@@ -473,6 +475,7 @@ void ValidatorGroup::accept_block_candidate(validatorsession::BlockSourceInfo so
     return;
   }
   auto next_block_id = create_next_block_id(root_hash, file_hash);
+  sig_set->check_signatures(validator_set_, next_block_id).ensure();
   LOG(WARNING) << "Accepted block " << next_block_id.to_str();
   stats.block_id = next_block_id;
   td::actor::send_closure(manager_, &ValidatorManager::log_validator_session_stats, std::move(stats));
@@ -522,8 +525,9 @@ void ValidatorGroup::accept_block_candidate(validatorsession::BlockSourceInfo so
 }
 
 void ValidatorGroup::accept_block_query(BlockIdExt block_id, td::Ref<BlockData> block, std::vector<BlockIdExt> prev,
-                                        td::Ref<BlockSignatureSet> sig_set, td::Ref<BlockSignatureSet> approve_sig_set,
-                                        int send_broadcast_mode, td::Promise<td::Unit> promise, bool is_retry) {
+                                        td::Ref<block::BlockSignatureSet> sig_set,
+                                        td::Ref<block::BlockSignatureSet> approve_sig_set, int send_broadcast_mode,
+                                        td::Promise<td::Unit> promise, bool is_retry) {
   auto P = td::PromiseCreator::lambda([=, SelfId = actor_id(this),
                                        promise = std::move(promise)](td::Result<td::Unit> R) mutable {
     if (R.is_error()) {
@@ -803,6 +807,7 @@ void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterch
 
   for (auto &p : postponed_accept_) {
     auto next_block_id = create_next_block_id(p.root_hash, p.file_hash);
+    p.sigs->check_signatures(validator_set_, next_block_id).ensure();
     p.stats.block_id = next_block_id;
     td::actor::send_closure(manager_, &ValidatorManager::log_validator_session_stats, std::move(p.stats));
 

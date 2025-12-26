@@ -31,8 +31,9 @@ static BlockSeqno get_next_block_seqno(const std::vector<BlockIdExt>& prev) {
 }
 
 CollatorNodeSession::CollatorNodeSession(ShardIdFull shard, std::vector<BlockIdExt> prev,
-                                         td::Ref<ValidatorSet> validator_set, BlockIdExt min_masterchain_block_id,
-                                         bool can_generate, Ref<MasterchainState> state, adnl::AdnlNodeIdShort local_id,
+                                         td::Ref<block::ValidatorSet> validator_set,
+                                         BlockIdExt min_masterchain_block_id, bool can_generate,
+                                         Ref<MasterchainState> state, adnl::AdnlNodeIdShort local_id,
                                          td::Ref<ValidatorManagerOptions> opts,
                                          td::actor::ActorId<ValidatorManager> manager,
                                          td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp)

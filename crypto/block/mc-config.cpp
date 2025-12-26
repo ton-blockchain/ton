@@ -489,7 +489,7 @@ class ValidatorSetCache {
     cache_.reserve(MAX_CACHE_SIZE + 1);
   }
 
-  std::shared_ptr<ValidatorSet> get(const vm::CellHash& hash) {
+  std::shared_ptr<TotalValidatorSet> get(const vm::CellHash& hash) {
     std::lock_guard lock{mutex_};
     auto it = cache_.find(hash);
     if (it == cache_.end()) {
@@ -501,7 +501,7 @@ class ValidatorSetCache {
     return entry->value;
   }
 
-  void set(const vm::CellHash& hash, std::shared_ptr<ValidatorSet> vset) {
+  void set(const vm::CellHash& hash, std::shared_ptr<TotalValidatorSet> vset) {
     std::lock_guard lock{mutex_};
     std::unique_ptr<CacheEntry>& entry = cache_[hash];
     if (entry == nullptr) {
@@ -523,10 +523,11 @@ class ValidatorSetCache {
   std::mutex mutex_;
 
   struct CacheEntry : td::ListNode {
-    explicit CacheEntry(vm::CellHash key, std::shared_ptr<ValidatorSet> value) : key(key), value(std::move(value)) {
+    explicit CacheEntry(vm::CellHash key, std::shared_ptr<TotalValidatorSet> value)
+        : key(key), value(std::move(value)) {
     }
     vm::CellHash key;
-    std::shared_ptr<ValidatorSet> value;
+    std::shared_ptr<TotalValidatorSet> value;
   };
   td::HashMap<vm::CellHash, std::unique_ptr<CacheEntry>> cache_;
   td::ListNode lru_;
@@ -534,7 +535,7 @@ class ValidatorSetCache {
   static constexpr size_t MAX_CACHE_SIZE = 100;
 };
 
-td::Result<std::shared_ptr<ValidatorSet>> Config::unpack_validator_set(Ref<vm::Cell> vset_root, bool use_cache) {
+td::Result<std::shared_ptr<TotalValidatorSet>> Config::unpack_validator_set(Ref<vm::Cell> vset_root, bool use_cache) {
   if (vset_root.is_null()) {
     return td::Status::Error("validator set is absent");
   }
@@ -576,7 +577,7 @@ td::Result<std::shared_ptr<ValidatorSet>> Config::unpack_validator_set(Ref<vm::C
     return td::Status::Error(
         "maximal index in a validator set dictionary must be one less than the total number of validators");
   }
-  auto ptr = std::make_shared<ValidatorSet>(rec.utime_since, rec.utime_until, rec.total, rec.main);
+  auto ptr = std::make_shared<TotalValidatorSet>(rec.utime_since, rec.utime_until, rec.total, rec.main);
 
   std::vector<bool> seen_keys(rec.total);
   td::Status error;
@@ -1828,8 +1829,9 @@ ton::CatchainSeqno ConfigInfo::get_shard_cc_seqno(ton::ShardIdFull shard) const 
   return shard.is_masterchain() ? cc_seqno_ : ShardConfig::get_shard_cc_seqno(shard);
 }
 
-std::vector<ton::ValidatorDescr> Config::compute_validator_set(ton::ShardIdFull shard, const block::ValidatorSet& vset,
-                                                               ton::UnixTime time, ton::CatchainSeqno cc_seqno) const {
+std::vector<ton::ValidatorDescr> Config::compute_validator_set(ton::ShardIdFull shard,
+                                                               const block::TotalValidatorSet& vset, ton::UnixTime time,
+                                                               ton::CatchainSeqno cc_seqno) const {
   return do_compute_validator_set(get_catchain_validators_config(), shard, vset, cc_seqno);
 }
 
@@ -1844,7 +1846,7 @@ std::vector<ton::ValidatorDescr> Config::compute_validator_set(ton::ShardIdFull 
 }
 
 std::vector<ton::ValidatorDescr> ConfigInfo::compute_validator_set_cc(ton::ShardIdFull shard,
-                                                                      const block::ValidatorSet& vset,
+                                                                      const block::TotalValidatorSet& vset,
                                                                       ton::UnixTime time,
                                                                       ton::CatchainSeqno* cc_seqno_delta) const {
   if (cc_seqno_delta && (*cc_seqno_delta & -2)) {
@@ -1899,14 +1901,14 @@ inline bool operator<(td::uint64 pos, const ValidatorDescr& descr) {
   return pos < descr.cum_weight;
 }
 
-const ValidatorDescr& ValidatorSet::at_weight(td::uint64 weight_pos) const {
+const ValidatorDescr& TotalValidatorSet::at_weight(td::uint64 weight_pos) const {
   CHECK(weight_pos < total_weight);
   auto it = std::upper_bound(list.begin(), list.end(), weight_pos);
   CHECK(it != list.begin());
   return *--it;
 }
 
-std::vector<ton::ValidatorDescr> ValidatorSet::export_validator_set() const {
+std::vector<ton::ValidatorDescr> TotalValidatorSet::export_validator_set() const {
   std::vector<ton::ValidatorDescr> l;
   l.reserve(list.size());
   for (const auto& node : list) {
@@ -1915,7 +1917,7 @@ std::vector<ton::ValidatorDescr> ValidatorSet::export_validator_set() const {
   return l;
 }
 
-std::map<ton::Bits256, int> ValidatorSet::compute_validator_map() const {
+std::map<ton::Bits256, int> TotalValidatorSet::compute_validator_map() const {
   std::map<ton::Bits256, int> res;
   for (int i = 0; i < (int)list.size(); i++) {
     res.emplace(list[i].pubkey.as_bits256(), i);
@@ -1923,7 +1925,7 @@ std::map<ton::Bits256, int> ValidatorSet::compute_validator_map() const {
   return res;
 }
 
-std::vector<double> ValidatorSet::export_scaled_validator_weights() const {
+std::vector<double> TotalValidatorSet::export_scaled_validator_weights() const {
   std::vector<double> res;
   for (const auto& node : list) {
     res.push_back((double)node.weight / (double)total_weight);
@@ -1931,7 +1933,7 @@ std::vector<double> ValidatorSet::export_scaled_validator_weights() const {
   return res;
 }
 
-int ValidatorSet::lookup_public_key(td::ConstBitPtr pubkey) const {
+int TotalValidatorSet::lookup_public_key(td::ConstBitPtr pubkey) const {
   for (int i = 0; i < (int)list.size(); i++) {
     if (list[i].pubkey.as_bits256() == pubkey) {
       return i;
@@ -1941,7 +1943,7 @@ int ValidatorSet::lookup_public_key(td::ConstBitPtr pubkey) const {
 }
 
 std::vector<ton::ValidatorDescr> Config::do_compute_validator_set(const CatchainValidatorsConfig& ccv_conf,
-                                                                  ton::ShardIdFull shard, const ValidatorSet& vset,
+                                                                  ton::ShardIdFull shard, const TotalValidatorSet& vset,
                                                                   ton::CatchainSeqno cc_seqno) {
   // LOG(DEBUG) << "in Config::do_compute_validator_set() for " << shard.to_str() << " ; cc_seqno=" << cc_seqno;
   std::vector<ton::ValidatorDescr> nodes;

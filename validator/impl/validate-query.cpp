@@ -24,6 +24,7 @@
 #include "block/block-parse.h"
 #include "block/block.h"
 #include "block/output-queue-merger.h"
+#include "block/validator-set.h"
 #include "common/errorlog.h"
 #include "ton/ton-io.hpp"
 #include "ton/ton-tl.hpp"
@@ -35,7 +36,6 @@
 #include "storage-stat-cache.hpp"
 #include "top-shard-descr.hpp"
 #include "validate-query.hpp"
-#include "validator-set.hpp"
 
 namespace ton {
 
@@ -687,10 +687,7 @@ bool ValidateQuery::init_parse() {
     fees_import_dict_ = std::make_unique<vm::AugmentedDictionary>(mc_extra.shard_fees, 96, block::tlb::aug_ShardFees);
     // prev_blk_signatures:(HashmapE 16 CryptoSignaturePair)
     if (mc_extra.r1.prev_blk_signatures->have_refs()) {
-      prev_signatures_ = BlockSignatureSetQ::fetch(mc_extra.r1.prev_blk_signatures->prefetch_ref());
-      if (prev_signatures_.is_null() || !prev_signatures_->size()) {
-        return reject_query("cannot deserialize signature set for the previous masterchain block in prev_signatures");
-      }
+      return reject_query("prev_blk_signatures not supported");
     }
     recover_create_msg_ = mc_extra.r1.recover_create_msg->prefetch_ref();
     mint_msg_ = mc_extra.r1.mint_msg->prefetch_ref();
@@ -7286,16 +7283,6 @@ bool ValidateQuery::check_mc_block_extra() {
   total_burned_ += x;
   fees_burned_ += x;
   // ^[ prev_blk_signatures:(HashmapE 16 CryptoSignaturePair)
-  if (prev_signatures_.not_null() && id_.seqno() == 1) {
-    return reject_query("block contains non-empty signature set for the zero state of the masterchain");
-  }
-  if (id_.seqno() > 1) {
-    if (prev_signatures_.not_null()) {
-      // TODO: check signatures here
-    } else if (!is_fake_ && false) {  // FIXME: remove "&& false" when collator serializes signatures
-      return reject_query("block contains an empty signature set for the previous block");
-    }
-  }
   //   recover_create_msg:(Maybe ^InMsg)
   //   mint_msg:(Maybe ^InMsg) ]
   // config:key_block?ConfigParams -> checked in compute_next_state() and ???

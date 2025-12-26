@@ -17,6 +17,7 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "auto/tl/ton_api.hpp"
+#include "td/utils/base64.h"
 #include "td/utils/misc.h"
 #include "td/utils/overloaded.h"
 

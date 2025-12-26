@@ -19,17 +19,17 @@
 
 #include "block/block-auto.h"
 #include "block/block-parse.h"
+#include "block/validator-set.h"
 #include "vm/boc.h"
 #include "vm/cells/MerkleProof.h"
 
 #include "config.hpp"
-#include "validator-set.hpp"
 
 namespace ton {
 
 namespace validator {
 
-td::Ref<ValidatorSet> ConfigHolderQ::get_total_validator_set(int next) const {
+td::Ref<block::ValidatorSet> ConfigHolderQ::get_total_validator_set(int next) const {
   if (!config_) {
     LOG(ERROR) << "MasterchainStateQ::get_total_validator_set() : no config";
     return {};
@@ -38,11 +38,11 @@ td::Ref<ValidatorSet> ConfigHolderQ::get_total_validator_set(int next) const {
   if (nodes.empty()) {
     return {};
   }
-  return Ref<ValidatorSetQ>{true, 0, ton::ShardIdFull{}, std::move(nodes)};
+  return Ref<block::ValidatorSet>{true, 0, ton::ShardIdFull{}, std::move(nodes)};
 }
 
-td::Ref<ValidatorSet> ConfigHolderQ::get_validator_set(ShardIdFull shard, UnixTime utime,
-                                                       CatchainSeqno cc_seqno) const {
+td::Ref<block::ValidatorSet> ConfigHolderQ::get_validator_set(ShardIdFull shard, UnixTime utime,
+                                                              CatchainSeqno cc_seqno) const {
   if (!config_) {
     LOG(ERROR) << "MasterchainStateQ::get_validator_set() : no config";
     return {};
@@ -51,7 +51,7 @@ td::Ref<ValidatorSet> ConfigHolderQ::get_validator_set(ShardIdFull shard, UnixTi
   if (nodes.empty()) {
     return {};
   }
-  return Ref<ValidatorSetQ>{true, cc_seqno, shard, std::move(nodes)};
+  return Ref<block::ValidatorSet>{true, cc_seqno, shard, std::move(nodes)};
 }
 
 std::pair<UnixTime, UnixTime> ConfigHolderQ::get_validator_set_start_stop(int next) const {

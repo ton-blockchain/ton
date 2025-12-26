@@ -31,6 +31,8 @@
 #include "ton/ton-types.h"
 #include "validator/validator.h"
 
+#include "types.h"
+
 namespace ton {
 
 namespace validator {

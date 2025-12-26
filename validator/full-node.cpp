@@ -18,6 +18,7 @@
 */
 #include "common/delay.h"
 #include "impl/out-msg-queue-proof.hpp"
+#include "interfaces/validator-full-id.h"
 #include "td/actor/MultiPromise.h"
 #include "td/actor/coro_utils.h"
 #include "td/utils/Random.h"
@@ -608,7 +609,7 @@ void FullNodeImpl::new_key_block(BlockHandle handle) {
 
 void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast) {
   send_block_broadcast_to_custom_overlays(broadcast);
-  if (broadcast.signatures.empty() && !broadcast.block_id.is_masterchain()) {
+  if (broadcast.sig_set.is_null() && !broadcast.block_id.is_masterchain()) {
     td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_candidate_broadcast,
                             broadcast.block_id, broadcast.catchain_seqno, std::move(broadcast.data),
                             td::PromiseCreator::lambda([](td::Result<td::Unit>) {}));

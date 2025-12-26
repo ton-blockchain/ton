@@ -21,6 +21,7 @@
 #include <ton/ton-tl.hpp>
 
 #include "auto/tl/lite_api.h"
+#include "block/signature-set.h"
 #include "crypto/vm/db/DynamicBagOfCellsDb.h"
 #include "impl/out-msg-queue-proof.hpp"
 #include "validator-session/validator-session-types.h"
@@ -276,12 +277,12 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void wait_block_proof_link_short(BlockIdExt id, td::Timestamp timeout,
                                            td::Promise<td::Ref<ProofLink>> promise) = 0;
 
-  virtual void set_block_signatures(BlockHandle handle, td::Ref<BlockSignatureSet> signatures,
-                                    td::Promise<td::Unit> promise) = 0;
+  virtual void set_block_signatures(BlockHandle handle, td::Ref<block::BlockSignatureSet> signatures,
+                                    Ref<block::ValidatorSet> vset, td::Promise<td::Unit> promise) = 0;
   virtual void wait_block_signatures(BlockHandle handle, td::Timestamp timeout,
-                                     td::Promise<td::Ref<BlockSignatureSet>> promise) = 0;
+                                     td::Promise<td::Ref<block::BlockSignatureSet>> promise) = 0;
   virtual void wait_block_signatures_short(BlockIdExt id, td::Timestamp timeout,
-                                           td::Promise<td::Ref<BlockSignatureSet>> promise) = 0;
+                                           td::Promise<td::Ref<block::BlockSignatureSet>> promise) = 0;
 
   virtual void set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
                                    td::uint32 validator_set_hash, td::Promise<td::Unit> promise) = 0;

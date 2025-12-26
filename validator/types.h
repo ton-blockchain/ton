@@ -13,39 +13,33 @@
 
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
-
-    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-
-#include "crypto/common/refcnt.hpp"
+#include "block/signature-set.h"
 #include "ton/ton-types.h"
 
-namespace ton {
+namespace ton::validator {
 
-namespace validator {
+struct ReceivedBlock {
+  BlockIdExt id;
+  td::BufferSlice data;
 
-class BlockSignatureSet : public td::CntObject {
- public:
-  const auto &signatures() const {
-    return signatures_;
+  ReceivedBlock clone() const {
+    return ReceivedBlock{id, data.clone()};
   }
-  auto &signatures() {
-    return signatures_;
-  }
-  std::size_t size() const {
-    return signatures_.size();
-  }
-
-  virtual td::BufferSlice serialize() const = 0;
-
-  BlockSignatureSet(std::vector<BlockSignature> signatures) : signatures_(std::move(signatures)) {
-  }
-
- protected:
-  std::vector<BlockSignature> signatures_;
 };
 
-}  // namespace validator
+struct BlockBroadcast {
+  BlockIdExt block_id;
+  td::Ref<block::BlockSignatureSet> sig_set;
+  CatchainSeqno catchain_seqno;
+  td::uint32 validator_set_hash;
+  td::BufferSlice data;
+  td::BufferSlice proof;
 
-}  // namespace ton
+  BlockBroadcast clone() const {
+    return {block_id, sig_set, catchain_seqno, validator_set_hash, data.clone(), proof.clone()};
+  }
+};
+
+}  // namespace ton::validator

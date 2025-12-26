@@ -817,7 +817,7 @@ void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonN
   //                         << " block=" << block_id.to_str();
   //  return;
   //}
-  VLOG(FULL_NODE_DEBUG) << "Received block broadcast " << (B.ok().signatures.empty() ? "(no signatures) " : "")
+  VLOG(FULL_NODE_DEBUG) << "Received block broadcast " << (B.ok().sig_set.is_null() ? "(no signatures) " : "")
                         << "from " << src << ": " << B.ok().block_id.to_str();
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok());
 }
