@@ -28,7 +28,7 @@ td::Result<td::actor::ActorOwn<QuicClient>> QuicClient::connect(td::Slice host, 
 void QuicClient::start_up() {
   LOG(INFO) << "starting up";
   self_id_ = actor_id(this);
-  td::actor::SchedulerContext::get()->get_poll().subscribe(fd_.get_poll_info().extract_pollable_fd(this),
+  td::actor::SchedulerContext::get().get_poll().subscribe(fd_.get_poll_info().extract_pollable_fd(this),
                                                            td::PollFlags::ReadWrite());
   flush_egress();
   LOG(INFO) << "startup completed";
