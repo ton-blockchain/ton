@@ -5,7 +5,7 @@
 
 namespace ton::quic {
 
-td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::open(td::Slice bind_host, int port, td::Slice cert_file,
+td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::listen(td::Slice bind_host, int port, td::Slice cert_file,
                                                              td::Slice key_file, std::unique_ptr<Callback> callback,
                                                              td::Slice alpn) {
   td::IPAddress bind_addr;
@@ -15,7 +15,7 @@ td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::open(td::Slice bind_host
   TRY_RESULT_ASSIGN(auto fd, td::UdpSocketFd::open(bind_addr));
   TRY_RESULT_ASSIGN(auto local, fd.get_local_address());
 
-  auto name = PSTRING() << "QUIC-SRV:[" << local << "]";
+  auto name = PSTRING() << "QUIC:[" << local << "]";
   return td::actor::create_actor<QuicServer>(td::actor::ActorOptions().with_name(name).with_poll(true), std::move(fd),
                                              local, cert_file, key_file, alpn, std::move(callback));
 }
@@ -93,7 +93,6 @@ td::Status QuicServer::ensure_conn(const td::IPAddress& peer, td::Slice datagram
 
   PeerState& pst = peers_[peer];
   pst.pimpl = std::make_unique<QuicConnectionPImpl>();
-  pst.pimpl->shared_fd = &fd_;
   pst.pimpl->local_address = local_address_;
   pst.pimpl->remote_address = peer;
 
@@ -122,7 +121,7 @@ td::Status QuicServer::ensure_conn(const td::IPAddress& peer, td::Slice datagram
   TRY_STATUS(pst.pimpl->init_tls_server(cert_file_, key_file_, alpn_));
   TRY_STATUS(pst.pimpl->init_quic_server(vc));
 
-  TRY_STATUS(pst.pimpl->flush_egress());
+  // TRY_STATUS(pst.pimpl->flush_egress(TODO));
 
   return td::Status::OK();
 }
@@ -130,50 +129,50 @@ td::Status QuicServer::ensure_conn(const td::IPAddress& peer, td::Slice datagram
 void QuicServer::on_fd_notify() {
   td::sync_with_poll(fd_);
 
-  while (true) {
-    uint8_t buf[QuicConnectionPImpl::DEFAULT_MTU];
-    td::MutableSlice buf_slice(reinterpret_cast<char*>(buf), reinterpret_cast<char*>(buf) + sizeof(buf));
-
-    td::IPAddress from;
-    bool is_received;
-    td::UdpSocketFd::InboundMessage msg{.from = &from, .data = buf_slice, .error = nullptr};
-    auto st = fd_.receive_message(msg, is_received);
-    if (st.is_error()) {
-      LOG(ERROR) << "receive_message failed: " << st;
-      break;
-    }
-    if (!is_received) {
-      break;
-    }
-
-    td::Slice datagram(msg.data.data(), msg.data.size());
-
-    auto status = ensure_conn(from, datagram);
-    if (status.is_error()) {
-      LOG(ERROR) << "dropping datagram from " << from << ": " << status;
-      continue;
-    }
-
-    auto* peer_state = get_peer_state(from);
-    if (!peer_state || !peer_state->pimpl) {
-      continue;
-    }
-
-    status = peer_state->pimpl->handle_ingress_packet(datagram);
-    if (status.is_error()) {
-      LOG(ERROR) << "connection aborted for " << from << ": " << status;
-      callback_->on_client_disconnected(from);
-      drop_peer(from);
-      continue;
-    }
-
-    status = peer_state->pimpl->flush_egress();
-    if (status.is_error()) {
-      LOG(ERROR) << "flush_egress failed for " << from << ": " << status;
-      callback_->on_client_disconnected(from);
-      drop_peer(from);
-    }
-  }
+  // while (true) {
+  //   uint8_t buf[QuicConnectionPImpl::DEFAULT_MTU];
+  //   td::MutableSlice buf_slice(reinterpret_cast<char*>(buf), reinterpret_cast<char*>(buf) + sizeof(buf));
+  //
+  //   td::IPAddress from;
+  //   bool is_received;
+  //   td::UdpSocketFd::InboundMessage msg{.from = &from, .data = buf_slice, .error = nullptr};
+  //   auto st = fd_.receive_message(msg, is_received);
+  //   if (st.is_error()) {
+  //     LOG(ERROR) << "receive_message failed: " << st;
+  //     break;
+  //   }
+  //   if (!is_received) {
+  //     break;
+  //   }
+  //
+  //   td::Slice datagram(msg.data.data(), msg.data.size());
+  //
+  //   auto status = ensure_conn(from, datagram);
+  //   if (status.is_error()) {
+  //     LOG(ERROR) << "dropping datagram from " << from << ": " << status;
+  //     continue;
+  //   }
+  //
+  //   auto* peer_state = get_peer_state(from);
+  //   if (!peer_state || !peer_state->pimpl) {
+  //     continue;
+  //   }
+  //
+  //   status = peer_state->pimpl->handle_ingress_packet(datagram);
+  //   if (status.is_error()) {
+  //     LOG(ERROR) << "connection aborted for " << from << ": " << status;
+  //     callback_->on_client_disconnected(from);
+  //     drop_peer(from);
+  //     continue;
+  //   }
+  //
+  //   status = peer_state->pimpl->flush_egress(TODO);
+  //   if (status.is_error()) {
+  //     LOG(ERROR) << "flush_egress failed for " << from << ": " << status;
+  //     callback_->on_client_disconnected(from);
+  //     drop_peer(from);
+  //   }
+  // }
 }
 
 void QuicServer::process_operation_status(td::Status status) {
@@ -189,7 +188,7 @@ void QuicServer::send_data(const td::IPAddress& peer, td::Slice data) {
     return;
   }
   process_operation_status(st->pimpl->write_reply(data, false));
-  process_operation_status(st->pimpl->flush_egress());
+  // process_operation_status(st->pimpl->flush_egress(TODO));
 }
 
 void QuicServer::send_disconnect(const td::IPAddress& peer) {
@@ -199,7 +198,7 @@ void QuicServer::send_disconnect(const td::IPAddress& peer) {
     return;
   }
   process_operation_status(st->pimpl->write_reply(td::Slice(), true));
-  process_operation_status(st->pimpl->flush_egress());
+  // process_operation_status(st->pimpl->flush_egress(TODO));
 }
 
 }  // namespace ton::quic
