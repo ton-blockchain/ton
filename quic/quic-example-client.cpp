@@ -4,28 +4,33 @@
 #include "td/actor/actor.h"
 #include "td/utils/OptionParser.h"
 
-#include "quic-connection.h"
+#include "quic-client.h"
 
 class QuicTester : public td::actor::Actor {
  public:
-  class Callback : public ton::quic::QuicConnection::Callback {
+  class Callback : public ton::quic::QuicClient::Callback {
    public:
     explicit Callback(QuicTester& tester) : tester_(tester) {
     }
 
     void on_connected() override {
       LOG(INFO) << "connected to " << tester_.host_ << ':' << tester_.port_;
-      td::actor::send_closure(tester_.connection_.get(), &ton::quic::QuicConnection::send_data, td::Slice("GET /\r\n"));
-      td::actor::send_closure(tester_.connection_.get(), &ton::quic::QuicConnection::send_disconnect);
+      td::Promise<ton::quic::QuicStreamID> P = td::make_promise([this](td::Result<ton::quic::QuicStreamID> R) {
+        auto sid = R.move_as_ok();
+        td::actor::send_closure(tester_.connection_.get(), &ton::quic::QuicClient::send_stream_data, sid,
+                                td::Slice("GET /\r\n"));
+        td::actor::send_closure(tester_.connection_.get(), &ton::quic::QuicClient::send_stream_end, sid);
+      });
+      td::actor::send_closure(tester_.connection_.get(), &ton::quic::QuicClient::open_stream, std::move(P));
     }
 
-    void on_data(td::Slice data) override {
+    void on_stream_data(td::Slice data) override {
       std::cout.flush();
       std::cout.write(data.data(), static_cast<std::streamsize>(data.size()));
       std::cout.flush();
     }
 
-    void on_disconnected() override {
+    void on_stream_end() override {
       LOG(INFO) << "disconnected from " << tester_.host_ << ':' << tester_.port_;
       std::exit(0);
     }
@@ -41,7 +46,7 @@ class QuicTester : public td::actor::Actor {
   void start_up() override {
     [this] {
       TRY_RESULT_ASSIGN(connection_,
-                        ton::quic::QuicConnection::open(host_, port_, std::make_unique<Callback>(*this), alpn_));
+                        ton::quic::QuicClient::connect(host_, port_, std::make_unique<Callback>(*this), alpn_));
       return td::Status::OK();
     }()
         .ensure();
@@ -52,7 +57,7 @@ class QuicTester : public td::actor::Actor {
   td::Slice host_;
   int port_;
 
-  td::actor::ActorOwn<ton::quic::QuicConnection> connection_ = {};
+  td::actor::ActorOwn<ton::quic::QuicClient> connection_ = {};
 };
 
 int main(int argc, char** argv) {

@@ -1,4 +1,4 @@
-add_library(quic STATIC quic-connection.cpp quic-server.cpp quic-pimpl.cpp)
+add_library(quic STATIC quic-client.cpp quic-server.cpp quic-pimpl.cpp)
 target_include_directories(quic PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..

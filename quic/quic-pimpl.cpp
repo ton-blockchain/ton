@@ -3,12 +3,13 @@
 #include <openssl/ssl.h>
 #include <quic-pimpl.h>
 
-namespace ton::quic {
-td::UdpSocketFd& QuicConnectionPImpl::sock() {
-  return shared_fd ? *shared_fd : fd;
-}
+#include "td/utils/port/UdpSocketFd.h"
 
-td::Status QuicConnectionPImpl::init_tls(td::Slice host, td::Slice alpn) {
+#include "quic-common.h"
+
+namespace ton::quic {
+
+td::Status QuicConnectionPImpl::init_tls_client(td::Slice host, td::Slice alpn) {
   ssl_ctx = SSL_CTX_new(TLS_client_method());
   if (!ssl_ctx)
     return td::Status::Error("SSL_CTX_new failed");
@@ -79,7 +80,7 @@ td::Status QuicConnectionPImpl::init_tls_server(td::Slice cert_file, td::Slice k
   alpn_wire_[0] = static_cast<char>(alpn.size());
   std::memcpy(alpn_wire_.data() + 1, alpn.data(), alpn.size());
 
-  SSL_CTX_set_alpn_select_cb(ssl_ctx, QuicConnectionPImpl::alpn_select_cb, &alpn_wire_);
+  SSL_CTX_set_alpn_select_cb(ssl_ctx, alpn_select_cb, &alpn_wire_);
 
   ssl = SSL_new(ssl_ctx);
   if (!ssl) {
@@ -102,7 +103,7 @@ td::Status QuicConnectionPImpl::init_tls_server(td::Slice cert_file, td::Slice k
   return td::Status::OK();
 }
 
-td::Status QuicConnectionPImpl::init_quic() {
+td::Status QuicConnectionPImpl::init_quic_client() {
   ngtcp2_callbacks callbacks{};
   callbacks.client_initial = ngtcp2_crypto_client_initial_cb;
   callbacks.recv_crypto_data = ngtcp2_crypto_recv_crypto_data_cb;
@@ -182,7 +183,7 @@ td::Status QuicConnectionPImpl::init_quic_server(const ngtcp2_version_cid& vc) {
   ngtcp2_transport_params params;
   ngtcp2_transport_params_default(&params);
 
-  params.initial_max_streams_bidi = 1;
+  params.initial_max_streams_bidi = DEFAULT_STREAM_LIMIT;
   params.initial_max_stream_data_bidi_local = 0;
   params.initial_max_stream_data_bidi_remote = DEFAULT_WINDOW;
   params.initial_max_data = DEFAULT_WINDOW;
@@ -214,62 +215,22 @@ td::Status QuicConnectionPImpl::init_quic_server(const ngtcp2_version_cid& vc) {
   return td::Status::OK();
 }
 
-td::Status QuicConnectionPImpl::flush_egress() {
-  while (true) {
-    uint8_t out[DEFAULT_MTU];
+td::Status QuicConnectionPImpl::produce_egress(UdpMessageBuffer& msg_out) {
+  ngtcp2_pkt_info pi{};
+  ngtcp2_ssize n_write = ngtcp2_conn_write_pkt(conn, nullptr, &pi, reinterpret_cast<uint8_t*>(msg_out.storage.data()),
+                                               msg_out.storage.size(), now_ts());
 
-    ngtcp2_pkt_info pi{};
-    ngtcp2_ssize n_write = ngtcp2_conn_write_pkt(conn, nullptr, &pi, out, sizeof(out), now_ts());
-
-    if (n_write < 0) {
-      if (n_write == NGTCP2_ERR_WRITE_MORE)
-        return td::Status::OK();
-      return td::Status::Error("ngtcp2_conn_write_pkt failed");
-    }
-    if (n_write == 0)
-      break;
-
-    bool is_sent;
-    td::Slice out_slice(reinterpret_cast<const char*>(out), reinterpret_cast<const char*>(out) + n_write);
-    td::UdpSocketFd::OutboundMessage msg{.to = &remote_address, .data = out_slice};
-    TRY_STATUS(sock().send_message(msg, is_sent));
-
-    if (!is_sent)
-      break;
+  if (n_write < 0) {
+    return td::Status::Error("ngtcp2_conn_write_pkt failed");
   }
+
+  msg_out.address = remote_address;
+  msg_out.storage = msg_out.storage.substr(0, n_write);
 
   return td::Status::OK();
 }
 
-td::Status QuicConnectionPImpl::handle_ingress() {
-  while (true) {
-    uint8_t buf[DEFAULT_MTU];
-
-    bool is_received;
-    td::MutableSlice buf_slice(reinterpret_cast<char*>(buf), reinterpret_cast<char*>(buf) + DEFAULT_MTU);
-    td::UdpSocketFd::InboundMessage msg{.from = &remote_address, .data = buf_slice, .error = nullptr};
-    TRY_STATUS(sock().receive_message(msg, is_received));
-
-    if (!is_received)
-      break;
-
-    ngtcp2_path path{};
-    path.local.addr = const_cast<ngtcp2_sockaddr*>(local_address.get_sockaddr());
-    path.local.addrlen = static_cast<ngtcp2_socklen>(local_address.get_sockaddr_len());
-    path.remote.addr = const_cast<ngtcp2_sockaddr*>(remote_address.get_sockaddr());
-    path.remote.addrlen = static_cast<ngtcp2_socklen>(remote_address.get_sockaddr_len());
-
-    ngtcp2_pkt_info pi{};
-    int rv = ngtcp2_conn_read_pkt(conn, &path, &pi, buf, msg.data.size(), now_ts());
-
-    if (rv != 0)
-      return td::Status::Error(PSTRING() << "ngtcp2_conn_read_pkt failed: " << rv);
-  }
-
-  return td::Status::OK();
-}
-
-td::Status QuicConnectionPImpl::handle_ingress_packet(td::Slice datagram) {
+td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in) {
   ngtcp2_path path{};
   path.local.addr = const_cast<ngtcp2_sockaddr*>(local_address.get_sockaddr());
   path.local.addrlen = static_cast<ngtcp2_socklen>(local_address.get_sockaddr_len());
@@ -277,72 +238,46 @@ td::Status QuicConnectionPImpl::handle_ingress_packet(td::Slice datagram) {
   path.remote.addrlen = static_cast<ngtcp2_socklen>(remote_address.get_sockaddr_len());
 
   ngtcp2_pkt_info pi{};
-  int rv = ngtcp2_conn_read_pkt(conn, &path, &pi, reinterpret_cast<const uint8_t*>(datagram.data()), datagram.size(),
-                                now_ts());
-  if (rv != 0) {
+  int rv = ngtcp2_conn_read_pkt(conn, &path, &pi, reinterpret_cast<uint8_t*>(msg_in.storage.data()),
+                                msg_in.storage.size(), now_ts());
+
+  if (rv != 0)
     return td::Status::Error(PSTRING() << "ngtcp2_conn_read_pkt failed: " << rv);
-  }
+
   return td::Status::OK();
 }
 
-td::Status QuicConnectionPImpl::write_stream(td::Slice data, bool fin) {
-  if (out_sid == -1) {
-    int rv = ngtcp2_conn_open_bidi_stream(conn, &out_sid, nullptr);
-    if (rv != 0)
-      return td::Status::Error(PSTRING() << "ngtcp2_conn_open_bidi_stream failed: " << rv);
-  }
+td::Result<QuicStreamID> QuicConnectionPImpl::open_stream() {
+  QuicStreamID sid;
 
+  int rv = ngtcp2_conn_open_bidi_stream(conn, &sid, nullptr);
+  if (rv != 0)
+    return td::Status::Error(PSTRING() << "ngtcp2_conn_open_bidi_stream failed: " << rv);
+
+  return sid;
+}
+
+td::Status QuicConnectionPImpl::write_stream(UdpMessageBuffer& msg_out, QuicStreamID sid, td::Slice data, bool fin) {
   ngtcp2_vec vec{};
   vec.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(data.data()));
   vec.len = data.size();
 
-  uint8_t out[DEFAULT_MTU];
-
   ngtcp2_pkt_info pi{};
-  ngtcp2_ssize n_write = ngtcp2_conn_writev_stream(conn, nullptr, &pi, out, sizeof(out), nullptr,
-                                                   fin ? NGTCP2_WRITE_STREAM_FLAG_FIN : 0, out_sid, &vec, 1, now_ts());
+  ngtcp2_ssize n_write = ngtcp2_conn_writev_stream(
+      conn, nullptr, &pi, reinterpret_cast<uint8_t*>(msg_out.storage.data()), msg_out.storage.size(), nullptr,
+      fin ? NGTCP2_WRITE_STREAM_FLAG_FIN : 0, sid, &vec, 1, now_ts());
 
   if (n_write < 0)
     return td::Status::Error(PSTRING() << "ngtcp2_conn_writev_stream failed: " << n_write);
 
-  if (n_write == 0) {
-    return td::Status::OK();
-  }
-
-  bool is_sent;
-  td::Slice out_slice(reinterpret_cast<const char*>(out), reinterpret_cast<const char*>(out) + n_write);
-  td::UdpSocketFd::OutboundMessage msg{.to = &remote_address, .data = out_slice};
-  TRY_STATUS(sock().send_message(msg, is_sent));
+  msg_out.storage = msg_out.storage.substr(0, n_write);
+  msg_out.address = remote_address;
 
   return td::Status::OK();
 }
 
-td::Status QuicConnectionPImpl::write_reply(td::Slice data, bool fin) {
-  if (in_sid == -1) {
-    return td::Status::Error("no inbound stream to reply on");
-  }
-
-  ngtcp2_vec vec{};
-  vec.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(data.data()));
-  vec.len = data.size();
-
-  uint8_t out[DEFAULT_MTU];
-  ngtcp2_pkt_info pi{};
-  ngtcp2_ssize n_write = ngtcp2_conn_writev_stream(conn, nullptr, &pi, out, sizeof(out), nullptr,
-                                                   fin ? NGTCP2_WRITE_STREAM_FLAG_FIN : 0, in_sid, &vec, 1, now_ts());
-  if (n_write < 0) {
-    return td::Status::Error(PSTRING() << "ngtcp2_conn_writev_stream(reply) failed: " << n_write);
-  }
-
-  if (n_write == 0) {
-    return td::Status::OK();
-  }
-
-  bool is_sent;
-  td::Slice out_slice(reinterpret_cast<const char*>(out), reinterpret_cast<const char*>(out) + n_write);
-  td::UdpSocketFd::OutboundMessage msg{.to = &remote_address, .data = out_slice};
-  TRY_STATUS(sock().send_message(msg, is_sent));
-  return td::Status::OK();
+td::Status QuicConnectionPImpl::write_reply(td::Slice, bool) {
+  CHECK(false);
 }
 
 ngtcp2_tstamp QuicConnectionPImpl::now_ts() {
@@ -384,9 +319,6 @@ int QuicConnectionPImpl::recv_stream_data_cb(ngtcp2_conn*, uint32_t flags, int64
   td::Slice data_slice(reinterpret_cast<const char*>(data), reinterpret_cast<const char*>(data) + datalen);
   Callback::StreamDataEvent event{.data = data_slice, .fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0};
   auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
-  if (pimpl->in_sid == -1) {
-    pimpl->in_sid = stream_id;
-  }
   pimpl->callback->on_stream_data(event);
   return 0;
 }

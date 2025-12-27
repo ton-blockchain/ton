@@ -27,7 +27,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   QuicServer(td::UdpSocketFd fd, td::IPAddress local_address, td::Slice cert_file, td::Slice key_file, td::Slice alpn,
              std::unique_ptr<Callback> callback);
 
-  static td::Result<td::actor::ActorOwn<QuicServer>> open(td::Slice bind_host, int port, td::Slice cert_file,
+  static td::Result<td::actor::ActorOwn<QuicServer>> listen(td::Slice bind_host, int port, td::Slice cert_file,
                                                          td::Slice key_file, std::unique_ptr<Callback> callback,
                                                          td::Slice alpn = "ton");
 

@@ -9,7 +9,8 @@
 #include "td/actor/ActorId.h"
 #include "td/utils/port/UdpSocketFd.h"
 
-#include "quic-connection.h"
+#include "quic-client.h"
+#include "quic-common.h"
 
 namespace ton::quic {
 struct QuicConnectionPImpl {
@@ -27,11 +28,9 @@ struct QuicConnectionPImpl {
     virtual ~Callback() = default;
   };
 
-  constexpr static size_t DEFAULT_MTU = 1350;
   constexpr static size_t DEFAULT_WINDOW = 1 << 20;
+  constexpr static size_t DEFAULT_STREAM_LIMIT = 64;
 
-  td::UdpSocketFd fd = {};
-  td::UdpSocketFd* shared_fd = nullptr;
   td::IPAddress local_address = {};
   td::IPAddress remote_address = {};
 
@@ -42,21 +41,19 @@ struct QuicConnectionPImpl {
   ngtcp2_crypto_ossl_ctx* ossl_ctx = nullptr;
   ngtcp2_crypto_conn_ref conn_ref{};
 
-  int64_t out_sid = -1;
-  int64_t in_sid = -1;
-
   std::unique_ptr<Callback> callback = nullptr;
 
-  [[nodiscard]] td::Status init_tls(td::Slice host, td::Slice alpn);
+  [[nodiscard]] td::Status init_tls_client(td::Slice host, td::Slice alpn);
   [[nodiscard]] td::Status init_tls_server(td::Slice cert_file, td::Slice key_file, td::Slice alpn);
-  [[nodiscard]] td::Status init_quic();
+
+  [[nodiscard]] td::Status init_quic_client();
   [[nodiscard]] td::Status init_quic_server(const ngtcp2_version_cid& vc);
 
-  [[nodiscard]] td::Status flush_egress();
-  [[nodiscard]] td::Status handle_ingress();
-  [[nodiscard]] td::Status handle_ingress_packet(td::Slice datagram);
+  [[nodiscard]] td::Status produce_egress(UdpMessageBuffer& msg_out);
+  [[nodiscard]] td::Status handle_ingress(const UdpMessageBuffer& msg_in);
 
-  [[nodiscard]] td::Status write_stream(td::Slice data, bool fin);
+  [[nodiscard]] td::Result<QuicStreamID> open_stream();
+  [[nodiscard]] td::Status write_stream(UdpMessageBuffer& msg_out, QuicStreamID sid, td::Slice data, bool fin);
   [[nodiscard]] td::Status write_reply(td::Slice data, bool fin);
 
   ~QuicConnectionPImpl() {
@@ -77,14 +74,10 @@ struct QuicConnectionPImpl {
       SSL_CTX_free(ssl_ctx);
       ssl_ctx = nullptr;
     }
-    if (shared_fd == nullptr && !fd.empty()) {
-      fd.close();
-    }
   }
 
  private:
   std::string alpn_wire_;
-  td::UdpSocketFd& sock();
 
   static ngtcp2_tstamp now_ts();
 
