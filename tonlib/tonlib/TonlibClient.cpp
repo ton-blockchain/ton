@@ -16,6 +16,7 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "auto/tl/ton_api.hpp"
 #include "auto/tl/tonlib_api.hpp"
 #include "block/block-auto.h"
 #include "block/check-proof.h"

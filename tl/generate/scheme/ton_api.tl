@@ -403,6 +403,7 @@ tonNode.sessionId workchain:int shard:long cc_seqno:int opts_hash:int256 = tonNo
 
 
 tonNode.blockSignature who:int256 signature:bytes = tonNode.BlockSignature;
+tonNode.signatureSet.ordinary cc_seqno:int validator_set_hash:int signatures:(vector tonNode.blockSignature) = tonNode.SignatureSet;
 
 tonNode.blockId workchain:int shard:long seqno:int = tonNode.BlockId;
 tonNode.blockIdExt workchain:int shard:long seqno:int root_hash:int256 file_hash:int256 = tonNode.BlockIdExt;
@@ -438,8 +439,7 @@ tonNode.blockBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_ha
               proof:bytes data:bytes = tonNode.Broadcast;
 tonNode.blockBroadcastCompressed id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               flags:# compressed:bytes = tonNode.Broadcast;
-tonNode.blockBroadcastCompressedV2 id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
-              signatures:(vector tonNode.blockSignature) flags:# compressed:bytes = tonNode.Broadcast;
+tonNode.blockBroadcastCompressedV2 id:tonNode.blockIdExt signature_set:tonNode.SignatureSet flags:# proof:bytes data_compressed:bytes = tonNode.Broadcast;
 tonNode.ihrMessageBroadcast message:tonNode.ihrMessage = tonNode.Broadcast;
 tonNode.externalMessageBroadcast message:tonNode.externalMessage = tonNode.Broadcast;
 tonNode.newShardBlockBroadcast block:tonNode.newShardBlock = tonNode.Broadcast;

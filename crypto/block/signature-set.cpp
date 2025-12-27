@@ -40,26 +40,22 @@ static td::Status check_vset(const BlockSignatureSet* sig_set, const td::Ref<Val
   return td::Status::OK();
 }
 
-class BlockSignatureSetOrdinary : public BlockSignatureSet {
+class BlockSignatureSetBase : public BlockSignatureSet {
  public:
-  explicit BlockSignatureSetOrdinary(std::vector<ton::BlockSignature> signatures, ton::CatchainSeqno cc_seqno,
-                                     td::uint32 validator_set_hash)
+  explicit BlockSignatureSetBase(std::vector<ton::BlockSignature> signatures, ton::CatchainSeqno cc_seqno,
+                                 td::uint32 validator_set_hash)
       : BlockSignatureSet(cc_seqno, validator_set_hash), signatures_(std::move(signatures)) {
   }
-  ~BlockSignatureSetOrdinary() override = default;
 
-  CntObject* make_copy() const override {
-    std::vector<ton::BlockSignature> copy;
-    for (const auto& s : signatures_) {
-      copy.emplace_back(s.node, s.signature.clone());
-    }
-    return new BlockSignatureSetOrdinary(std::move(copy), cc_seqno_, validator_set_hash_);
+  virtual td::BufferSlice to_sign(ton::BlockIdExt block_id) const = 0;
+  virtual bool check_threshold(ton::ValidatorWeight sig_weight, ton::ValidatorWeight total_weight) const {
+    return sig_weight * 3 > total_weight * 2;
   }
 
   td::Result<ton::ValidatorWeight> check_signatures(td::Ref<ValidatorSet> vset,
                                                     ton::BlockIdExt block_id) const override {
     TRY_STATUS(check_vset(this, vset));
-    auto to_sign = ton::create_serialize_tl_object<ton::ton_api::ton_blockId>(block_id.root_hash, block_id.file_hash);
+    td::BufferSlice data = to_sign(block_id);
     ton::ValidatorWeight weight = 0;
     std::set<ton::NodeIdShort> nodes;
     for (auto& sig : signatures_) {
@@ -74,11 +70,11 @@ class BlockSignatureSetOrdinary : public BlockSignatureSet {
       }
 
       auto E = ton::PublicKey{ton::pubkeys::Ed25519{validator->key}}.create_encryptor().move_as_ok();
-      TRY_STATUS(E->check_signature(to_sign, sig.signature.as_slice()));
+      TRY_STATUS(E->check_signature(data, sig.signature.as_slice()));
       weight += validator->weight;
     }
 
-    if (weight * 3 <= vset->get_total_weight() * 2) {
+    if (!check_threshold(weight, vset->get_total_weight())) {
       return td::Status::Error(ton::ErrorCode::protoviolation, "too small sig weight");
     }
     return weight;
@@ -106,8 +102,7 @@ class BlockSignatureSetOrdinary : public BlockSignatureSet {
     return weight;
   }
 
-  td::Result<td::Ref<vm::Cell>> serialize(td::Ref<ValidatorSet> vset) const override {
-    TRY_RESULT(weight, get_weight(vset));
+  td::Result<td::Ref<vm::Cell>> serialize_dict() const {
     vm::Dictionary dict{16};  // HashmapE 16 CryptoSignaturePair
     for (unsigned i = 0; i < signatures_.size(); i++) {
       const ton::BlockSignature& sig = signatures_[i];
@@ -120,18 +115,46 @@ class BlockSignatureSetOrdinary : public BlockSignatureSet {
         return td::Status::Error(PSTRING() << "failed to serialize");
       }
     }
+    return std::move(dict).extract_root_cell();
+  }
 
-    // block_signatures#11 validator_list_hash_short:uint32 catchain_seqno:uint32
-    //   sig_count:uint32 sig_weight:uint64
-    //   signatures:(HashmapE 16 CryptoSignaturePair) = BlockSignatures;
-    vm::CellBuilder cb;
-    cb.store_long(0x11, 8);
-    cb.store_long(validator_set_hash_, 32);
-    cb.store_long(cc_seqno_, 32);
-    cb.store_long(signatures_.size(), 32);
-    cb.store_long(weight, 64);
-    cb.store_maybe_ref(std::move(dict).extract_root_cell());
-    return cb.finalize_novm();
+ protected:
+  std::vector<ton::BlockSignature> signatures_;
+};
+
+class BlockSignatureSetOrdinary : public BlockSignatureSetBase {
+ public:
+  explicit BlockSignatureSetOrdinary(std::vector<ton::BlockSignature> signatures, ton::CatchainSeqno cc_seqno,
+                                     td::uint32 validator_set_hash)
+      : BlockSignatureSetBase(std::move(signatures), cc_seqno, validator_set_hash) {
+  }
+  ~BlockSignatureSetOrdinary() override = default;
+
+  CntObject* make_copy() const override {
+    std::vector<ton::BlockSignature> copy;
+    for (const auto& s : signatures_) {
+      copy.emplace_back(s.node, s.signature.clone());
+    }
+    return new BlockSignatureSetOrdinary(std::move(copy), cc_seqno_, validator_set_hash_);
+  }
+
+  bool is_ordinary() const override {
+    return true;
+  }
+
+  td::BufferSlice to_sign(ton::BlockIdExt block_id) const override {
+    return ton::create_serialize_tl_object<ton::ton_api::ton_blockId>(block_id.root_hash, block_id.file_hash);
+  }
+
+  ton::tl_object_ptr<ton::ton_api::tonNode_signatureSet_ordinary> tl() const override {
+    auto f = ton::create_tl_object<ton::ton_api::tonNode_signatureSet_ordinary>();
+    f->cc_seqno_ = cc_seqno_;
+    f->validator_set_hash_ = validator_set_hash_;
+    for (auto& sig : signatures_) {
+      f->signatures_.push_back(
+          ton::create_tl_object<ton::ton_api::tonNode_blockSignature>(sig.node, sig.signature.clone()));
+    }
+    return f;
   }
 
   ton::tl_object_ptr<ton::lite_api::liteServer_signatureSet> tl_lite() const override {
@@ -153,8 +176,21 @@ class BlockSignatureSetOrdinary : public BlockSignatureSet {
     return f;
   }
 
- private:
-  std::vector<ton::BlockSignature> signatures_;
+  td::Result<td::Ref<vm::Cell>> serialize(td::Ref<ValidatorSet> vset) const override {
+    TRY_RESULT(weight, get_weight(vset));
+    TRY_RESULT(dict_root, serialize_dict());
+    // block_signatures#11 validator_list_hash_short:uint32 catchain_seqno:uint32
+    //   sig_count:uint32 sig_weight:uint64
+    //   signatures:(HashmapE 16 CryptoSignaturePair) = BlockSignatures;
+    vm::CellBuilder cb;
+    cb.store_long(0x11, 8);
+    cb.store_long(validator_set_hash_, 32);
+    cb.store_long(cc_seqno_, 32);
+    cb.store_long(signatures_.size(), 32);
+    cb.store_long(weight, 64);
+    cb.store_maybe_ref(dict_root);
+    return cb.finalize_novm();
+  }
 };
 
 td::Ref<BlockSignatureSet> BlockSignatureSet::create_ordinary(std::vector<ton::BlockSignature> signatures,
@@ -224,6 +260,15 @@ td::Ref<BlockSignatureSet> BlockSignatureSet::fetch(
     signatures.emplace_back(s->who_, s->signature_.clone());
   }
   return create_ordinary(std::move(signatures), cc_seqno, validator_set_hash);
+}
+
+td::Ref<BlockSignatureSet> BlockSignatureSet::fetch(
+    const ton::tl_object_ptr<ton::ton_api::tonNode_signatureSet_ordinary>& f) {
+  std::vector<ton::BlockSignature> signatures;
+  for (auto& s : f->signatures_) {
+    signatures.emplace_back(s->who_, s->signature_.clone());
+  }
+  return create_ordinary(std::move(signatures), f->cc_seqno_, f->validator_set_hash_);
 }
 
 td::Ref<BlockSignatureSet> BlockSignatureSet::fetch(

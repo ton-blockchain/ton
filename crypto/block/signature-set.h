@@ -32,10 +32,18 @@ class BlockSignatureSet : public td::CntObject {
 
   virtual size_t get_size() const = 0;
   virtual td::Result<ton::ValidatorWeight> get_weight(td::Ref<ValidatorSet> vset) const = 0;
+  virtual bool is_ordinary() const {
+    return false;
+  }
 
   virtual td::Result<td::Ref<vm::Cell>> serialize(td::Ref<ValidatorSet> vset) const = 0;
+  virtual ton::tl_object_ptr<ton::ton_api::tonNode_signatureSet_ordinary> tl() const = 0;
   virtual ton::tl_object_ptr<ton::lite_api::liteServer_signatureSet> tl_lite() const = 0;
-  virtual std::vector<ton::tl_object_ptr<ton::ton_api::tonNode_blockSignature>> tl_legacy() const = 0;
+
+  // ordinary signature set only (is_ordinary())
+  virtual std::vector<ton::tl_object_ptr<ton::ton_api::tonNode_blockSignature>> tl_legacy() const {
+    UNREACHABLE();
+  }
 
   BlockSignatureSet(ton::CatchainSeqno cc_seqno, td::uint32 validator_set_hash)
       : cc_seqno_(cc_seqno), validator_set_hash_(validator_set_hash) {
@@ -60,6 +68,7 @@ class BlockSignatureSet : public td::CntObject {
   static td::Ref<BlockSignatureSet> fetch(
       const std::vector<ton::tl_object_ptr<ton::ton_api::tonNode_blockSignature>>& f, ton::CatchainSeqno cc_seqno,
       td::uint32 validator_set_hash);
+  static td::Ref<BlockSignatureSet> fetch(const ton::tl_object_ptr<ton::ton_api::tonNode_signatureSet_ordinary>& f);
   static td::Ref<BlockSignatureSet> fetch(const ton::tl_object_ptr<ton::lite_api::liteServer_signatureSet>& f);
 
   static constexpr size_t MAX_SIGNATURES = 1024;
