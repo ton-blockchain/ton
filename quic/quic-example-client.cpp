@@ -24,13 +24,13 @@ class QuicTester : public td::actor::Actor {
       td::actor::send_closure(tester_.connection_.get(), &ton::quic::QuicClient::open_stream, std::move(P));
     }
 
-    void on_stream_data(td::Slice data) override {
+    void on_stream_data(ton::quic::QuicStreamID, td::Slice data) override {
       std::cout.flush();
       std::cout.write(data.data(), static_cast<std::streamsize>(data.size()));
       std::cout.flush();
     }
 
-    void on_stream_end() override {
+    void on_stream_end(ton::quic::QuicStreamID) override {
       LOG(INFO) << "disconnected from " << tester_.host_ << ':' << tester_.port_;
       std::exit(0);
     }

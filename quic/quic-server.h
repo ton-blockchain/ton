@@ -20,8 +20,8 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   class Callback {
    public:
     virtual void on_connected(const td::IPAddress &peer) = 0;
-    virtual void on_stream_data(const td::IPAddress &peer, td::Slice data) = 0;
-    virtual void on_stream_end(const td::IPAddress &peer) = 0;
+    virtual void on_stream_data(const td::IPAddress &peer, QuicStreamID sid, td::Slice data) = 0;
+    virtual void on_stream_end(const td::IPAddress &peer, QuicStreamID sid) = 0;
     virtual ~Callback() = default;
   };
 

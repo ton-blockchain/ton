@@ -316,8 +316,9 @@ int QuicConnectionPImpl::handshake_completed_cb(ngtcp2_conn* conn, void* user_da
 int QuicConnectionPImpl::recv_stream_data_cb(ngtcp2_conn*, uint32_t flags, int64_t stream_id, uint64_t offset,
                                              const uint8_t* data, size_t datalen, void* user_data,
                                              void* stream_user_data) {
+  data = data ? data : static_cast<uint8_t *>(user_data); // stupid hack to create empty slice
   td::Slice data_slice(reinterpret_cast<const char*>(data), reinterpret_cast<const char*>(data) + datalen);
-  Callback::StreamDataEvent event{.data = data_slice, .fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0};
+  Callback::StreamDataEvent event{.sid = stream_id, .data = data_slice, .fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0};
   auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
   pimpl->callback->on_stream_data(event);
   return 0;

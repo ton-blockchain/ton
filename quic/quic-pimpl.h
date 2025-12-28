@@ -18,6 +18,7 @@ struct QuicConnectionPImpl {
    public:
     struct HandshakeCompletedEvent {};
     struct StreamDataEvent {
+      QuicStreamID sid = 0;
       td::Slice data;
       bool fin = false;
     };

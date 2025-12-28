@@ -16,8 +16,8 @@ class QuicClient : public td::actor::Actor, public td::ObserverBase {
   class Callback {
    public:
     virtual void on_connected() = 0;
-    virtual void on_stream_data(td::Slice data) = 0;
-    virtual void on_stream_end() = 0;
+    virtual void on_stream_data(QuicStreamID sid, td::Slice data) = 0;
+    virtual void on_stream_end(QuicStreamID sid) = 0;
     virtual ~Callback() = default;
   };
 
@@ -28,7 +28,7 @@ class QuicClient : public td::actor::Actor, public td::ObserverBase {
   QuicClient(td::UdpSocketFd fd, std::unique_ptr<QuicConnectionPImpl> p_impl, std::unique_ptr<Callback> callback);
   static td::Result<td::actor::ActorOwn<QuicClient>> connect(td::Slice host, int port,
                                                              std::unique_ptr<Callback> callback, td::Slice alpn = "ton",
-                                                             int local_port = 14998);
+                                                             int local_port = 0);
 
  protected:
   void start_up() override;

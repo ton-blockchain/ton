@@ -21,11 +21,11 @@ class QuicHttpServer : public td::actor::Actor {
       td::actor::send_closure(server_, &QuicHttpServer::on_connected, peer);
     }
 
-    void on_stream_data(const td::IPAddress &peer, td::Slice data) override {
+    void on_stream_data(const td::IPAddress &peer, ton::quic::QuicStreamID sid, td::Slice data) override {
       td::actor::send_closure(server_, &QuicHttpServer::on_stream_data, peer, td::BufferSlice(data));
     }
 
-    void on_stream_end(const td::IPAddress &peer) override {
+    void on_stream_end(const td::IPAddress &peer, ton::quic::QuicStreamID sid) override {
       td::actor::send_closure(server_, &QuicHttpServer::on_stream_end, peer);
     }
 

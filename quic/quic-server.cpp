@@ -143,9 +143,9 @@ td::Result<QuicServer::ConnectionState *> QuicServer::get_or_create_connection(c
 
     void on_stream_data(const StreamDataEvent &event) override {
       if (server_.callback_) {
-        server_.callback_->on_stream_data(peer_, event.data);
+        server_.callback_->on_stream_data(peer_, event.sid, event.data);
         if (event.fin) {
-          server_.callback_->on_stream_end(peer_);
+          server_.callback_->on_stream_end(peer_, event.sid);
         }
       }
     }
