@@ -180,9 +180,9 @@ QuicClient::QuicClient(td::UdpSocketFd fd, std::unique_ptr<QuicConnectionPImpl> 
     }
 
     void on_stream_data(const StreamDataEvent& event) override {
-      connection_.callback_->on_stream_data(event.data);
+      connection_.callback_->on_stream_data(event.sid, event.data);
       if (event.fin) {
-        connection_.callback_->on_stream_end();
+        connection_.callback_->on_stream_end(event.sid);
       }
     }
 
