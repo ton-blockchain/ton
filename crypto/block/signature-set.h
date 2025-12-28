@@ -37,8 +37,8 @@ class BlockSignatureSet : public td::CntObject {
   }
 
   virtual td::Result<td::Ref<vm::Cell>> serialize(td::Ref<ValidatorSet> vset) const = 0;
-  virtual ton::tl_object_ptr<ton::ton_api::tonNode_signatureSet_ordinary> tl() const = 0;
-  virtual ton::tl_object_ptr<ton::lite_api::liteServer_signatureSet> tl_lite() const = 0;
+  virtual ton::tl_object_ptr<ton::ton_api::tonNode_SignatureSet> tl() const = 0;
+  virtual ton::tl_object_ptr<ton::lite_api::liteServer_SignatureSet> tl_lite() const = 0;
 
   // ordinary signature set only (is_ordinary())
   virtual std::vector<ton::tl_object_ptr<ton::ton_api::tonNode_blockSignature>> tl_legacy() const {
@@ -62,14 +62,18 @@ class BlockSignatureSet : public td::CntObject {
  public:
   static td::Ref<BlockSignatureSet> create_ordinary(std::vector<ton::BlockSignature> signatures,
                                                     ton::CatchainSeqno cc_seqno, td::uint32 validator_set_hash);
+  static td::Ref<BlockSignatureSet> create_simplex(
+      std::vector<ton::BlockSignature> signatures, ton::CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+      td::Bits256 session_id, td::uint32 slot, ton::tl_object_ptr<ton::ton_api::consensus_CandidateHashData> candidate);
 
   static td::Result<td::Ref<BlockSignatureSet>> fetch(td::Ref<vm::Cell> cell, ton::ValidatorWeight& total_weight);
   static td::Result<td::Ref<BlockSignatureSet>> fetch(td::Ref<vm::Cell> cell, td::Ref<ValidatorSet> vset);
   static td::Ref<BlockSignatureSet> fetch(
       const std::vector<ton::tl_object_ptr<ton::ton_api::tonNode_blockSignature>>& f, ton::CatchainSeqno cc_seqno,
       td::uint32 validator_set_hash);
-  static td::Ref<BlockSignatureSet> fetch(const ton::tl_object_ptr<ton::ton_api::tonNode_signatureSet_ordinary>& f);
-  static td::Ref<BlockSignatureSet> fetch(const ton::tl_object_ptr<ton::lite_api::liteServer_signatureSet>& f);
+  static td::Ref<BlockSignatureSet> fetch(const ton::tl_object_ptr<ton::ton_api::tonNode_SignatureSet>& f);
+  static td::Result<td::Ref<BlockSignatureSet>> fetch(
+      const ton::tl_object_ptr<ton::lite_api::liteServer_SignatureSet>& f);
 
   static constexpr size_t MAX_SIGNATURES = 1024;
 };

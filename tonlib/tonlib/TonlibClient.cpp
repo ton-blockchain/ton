@@ -132,6 +132,7 @@ tonlib_api::object_ptr<tonlib_api::options_configInfo> to_tonlib_api(const Tonli
 
 tonlib_api::object_ptr<tonlib_api::blocks_blockSignatures> to_tonlib_api(const ton::BlockIdExt& blk,
                                                                          td::Ref<block::BlockSignatureSet> sig_set) {
+  // TODO: simplex signatures
   std::vector<tonlib_api_ptr<tonlib_api::blocks_signature>> signatures;
   for (const auto& s : sig_set->tl_legacy()) {
     signatures.push_back(ton::create_tl_object<tonlib_api::blocks_signature>(s->who_, s->signature_.as_slice().str()));

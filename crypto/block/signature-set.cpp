@@ -15,10 +15,13 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "auto/tl/ton_api.h"
+#include "auto/tl/ton_api.hpp"
 #include "common/errorcode.h"
 #include "keys/keys.hpp"
+#include "td/utils/overloaded.h"
 #include "tl-utils/common-utils.hpp"
 #include "tl-utils/tl-utils.hpp"
+#include "ton/ton-tl.hpp"
 
 #include "block-auto.h"
 #include "mc-config.h"
@@ -47,7 +50,7 @@ class BlockSignatureSetBase : public BlockSignatureSet {
       : BlockSignatureSet(cc_seqno, validator_set_hash), signatures_(std::move(signatures)) {
   }
 
-  virtual td::BufferSlice to_sign(ton::BlockIdExt block_id) const = 0;
+  virtual td::Result<td::BufferSlice> to_sign(ton::BlockIdExt block_id) const = 0;
   virtual bool check_threshold(ton::ValidatorWeight sig_weight, ton::ValidatorWeight total_weight) const {
     return sig_weight * 3 > total_weight * 2;
   }
@@ -55,7 +58,7 @@ class BlockSignatureSetBase : public BlockSignatureSet {
   td::Result<ton::ValidatorWeight> check_signatures(td::Ref<ValidatorSet> vset,
                                                     ton::BlockIdExt block_id) const override {
     TRY_STATUS(check_vset(this, vset));
-    td::BufferSlice data = to_sign(block_id);
+    TRY_RESULT(data, to_sign(block_id));
     ton::ValidatorWeight weight = 0;
     std::set<ton::NodeIdShort> nodes;
     for (auto& sig : signatures_) {
@@ -142,11 +145,11 @@ class BlockSignatureSetOrdinary : public BlockSignatureSetBase {
     return true;
   }
 
-  td::BufferSlice to_sign(ton::BlockIdExt block_id) const override {
+  td::Result<td::BufferSlice> to_sign(ton::BlockIdExt block_id) const override {
     return ton::create_serialize_tl_object<ton::ton_api::ton_blockId>(block_id.root_hash, block_id.file_hash);
   }
 
-  ton::tl_object_ptr<ton::ton_api::tonNode_signatureSet_ordinary> tl() const override {
+  ton::tl_object_ptr<ton::ton_api::tonNode_SignatureSet> tl() const override {
     auto f = ton::create_tl_object<ton::ton_api::tonNode_signatureSet_ordinary>();
     f->cc_seqno_ = cc_seqno_;
     f->validator_set_hash_ = validator_set_hash_;
@@ -157,8 +160,8 @@ class BlockSignatureSetOrdinary : public BlockSignatureSetBase {
     return f;
   }
 
-  ton::tl_object_ptr<ton::lite_api::liteServer_signatureSet> tl_lite() const override {
-    auto f = ton::create_tl_object<ton::lite_api::liteServer_signatureSet>();
+  ton::tl_object_ptr<ton::lite_api::liteServer_SignatureSet> tl_lite() const override {
+    auto f = ton::create_tl_object<ton::lite_api::liteServer_signatureSet_ordinary>();
     f->catchain_seqno_ = cc_seqno_;
     f->validator_set_hash_ = validator_set_hash_;
     for (auto& sig : signatures_) {
@@ -179,7 +182,7 @@ class BlockSignatureSetOrdinary : public BlockSignatureSetBase {
   td::Result<td::Ref<vm::Cell>> serialize(td::Ref<ValidatorSet> vset) const override {
     TRY_RESULT(weight, get_weight(vset));
     TRY_RESULT(dict_root, serialize_dict());
-    // block_signatures#11 validator_list_hash_short:uint32 catchain_seqno:uint32
+    // block_signatures_ordinary#11 validator_list_hash_short:uint32 catchain_seqno:uint32
     //   sig_count:uint32 sig_weight:uint64
     //   signatures:(HashmapE 16 CryptoSignaturePair) = BlockSignatures;
     vm::CellBuilder cb;
@@ -193,10 +196,137 @@ class BlockSignatureSetOrdinary : public BlockSignatureSetBase {
   }
 };
 
+class BlockSignatureSetSimplex : public BlockSignatureSetBase {
+ public:
+  explicit BlockSignatureSetSimplex(std::vector<ton::BlockSignature> signatures, ton::CatchainSeqno cc_seqno,
+                                    td::uint32 validator_set_hash, td::Bits256 session_id, td::uint32 slot,
+                                    ton::tl_object_ptr<ton::ton_api::consensus_CandidateHashData> candidate)
+      : BlockSignatureSetBase(std::move(signatures), cc_seqno, validator_set_hash)
+      , session_id_(session_id)
+      , slot_(slot)
+      , candidate_(std::move(candidate)) {
+  }
+  ~BlockSignatureSetSimplex() override = default;
+
+  CntObject* make_copy() const override {
+    std::vector<ton::BlockSignature> copy;
+    for (const auto& s : signatures_) {
+      copy.emplace_back(s.node, s.signature.clone());
+    }
+    return new BlockSignatureSetSimplex(std::move(copy), cc_seqno_, validator_set_hash_, session_id_, slot_,
+                                        ton::clone_tl_object(candidate_));
+  }
+
+  td::Result<td::BufferSlice> to_sign(ton::BlockIdExt block_id) const override {
+    ton::BlockIdExt expected_block_id;
+    ton::ton_api::downcast_call(*candidate_, td::overloaded(
+                                                 [&](const ton::ton_api::consensus_candidateHashDataOrdinary& obj) {
+                                                   expected_block_id = ton::create_block_id(obj.block_);
+                                                 },
+                                                 [&](const ton::ton_api::consensus_candidateHashDataEmpty& obj) {
+                                                   expected_block_id = ton::create_block_id(obj.block_);
+                                                 }));
+    if (block_id != expected_block_id) {
+      return td::Status::Error("block id mismatch");
+    }
+    auto candidate_id = ton::create_tl_object<ton::ton_api::consensus_candidateId>(
+        slot_, td::Bits256{ton::get_tl_object_sha256(candidate_).raw});
+    td::BufferSlice data =
+        ton::create_serialize_tl_object<ton::ton_api::consensus_simplex_finalizeVote>(std::move(candidate_id));
+    return ton::create_serialize_tl_object<ton::ton_api::consensus_dataToSign>(session_id_, std::move(data));
+  }
+
+  ton::tl_object_ptr<ton::ton_api::tonNode_SignatureSet> tl() const override {
+    auto f = ton::create_tl_object<ton::ton_api::tonNode_signatureSet_simplex>();
+    f->cc_seqno_ = cc_seqno_;
+    f->validator_set_hash_ = validator_set_hash_;
+    for (auto& sig : signatures_) {
+      f->signatures_.push_back(
+          ton::create_tl_object<ton::ton_api::tonNode_blockSignature>(sig.node, sig.signature.clone()));
+    }
+    f->session_id_ = session_id_;
+    f->slot_ = slot_;
+    f->candidate_ = ton::clone_tl_object(candidate_);
+    return f;
+  }
+
+  ton::tl_object_ptr<ton::lite_api::liteServer_SignatureSet> tl_lite() const override {
+    auto f = ton::create_tl_object<ton::lite_api::liteServer_signatureSet_simplex>();
+    f->cc_seqno_ = cc_seqno_;
+    f->validator_set_hash_ = validator_set_hash_;
+    for (auto& sig : signatures_) {
+      f->signatures_.push_back(
+          ton::create_tl_object<ton::lite_api::liteServer_signature>(sig.node, sig.signature.clone()));
+    }
+    f->session_id_ = session_id_;
+    f->slot_ = slot_;
+    f->candidate_ = ton::serialize_tl_object(candidate_, true);
+    return f;
+  }
+
+  td::Result<td::Ref<vm::Cell>> serialize(td::Ref<ValidatorSet> vset) const override {
+    TRY_RESULT(weight, get_weight(vset));
+    TRY_RESULT(dict_root, serialize_dict());
+    // block_signatures_simplex#12 validator_list_hash_short:uint32 catchain_seqno:uint32
+    //   sig_count:uint32 sig_weight:uint64
+    //   signatures:(HashmapE 16 CryptoSignaturePair)
+    //   session_id:bits256 slot:uint32 candidate_data:^Cell = BlockSignatures;
+    vm::CellBuilder cb;
+    cb.store_long(0x12, 8);
+    cb.store_long(validator_set_hash_, 32);
+    cb.store_long(cc_seqno_, 32);
+    cb.store_long(signatures_.size(), 32);
+    cb.store_long(weight, 64);
+    cb.store_maybe_ref(dict_root);
+    cb.store_bytes(session_id_.as_slice());
+    cb.store_long(slot_, 32);
+    cb.store_ref(vm::CellBuilder{}.store_bytes(ton::serialize_tl_object(candidate_, true)).finalize_novm());
+    return cb.finalize_novm();
+  }
+
+ private:
+  td::Bits256 session_id_;
+  td::uint32 slot_;
+  ton::tl_object_ptr<ton::ton_api::consensus_CandidateHashData> candidate_;
+};
+
 td::Ref<BlockSignatureSet> BlockSignatureSet::create_ordinary(std::vector<ton::BlockSignature> signatures,
                                                               ton::CatchainSeqno cc_seqno,
                                                               td::uint32 validator_set_hash) {
   return td::Ref<BlockSignatureSetOrdinary>{true, std::move(signatures), cc_seqno, validator_set_hash};
+}
+
+td::Ref<BlockSignatureSet> BlockSignatureSet::create_simplex(
+    std::vector<ton::BlockSignature> signatures, ton::CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+    td::Bits256 session_id, td::uint32 slot, ton::tl_object_ptr<ton::ton_api::consensus_CandidateHashData> candidate) {
+  return td::Ref<BlockSignatureSetSimplex>{true, std::move(signatures), cc_seqno, validator_set_hash, session_id,
+                                           slot, std::move(candidate)};
+}
+
+static td::Result<std::vector<ton::BlockSignature>> unpack_signatures_dict(td::Ref<vm::Cell> dict_root) {
+  std::vector<ton::BlockSignature> signatures;
+  vm::Dictionary dict{dict_root, 16};  // HashmapE 16 CryptoSignaturePair
+  unsigned i = 0;
+  if (!dict.check_for_each([&](Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key, int n) -> bool {
+        if (key.get_int(n) != i || cs_ref->size_ext() != 256 + 4 + 256 + 256) {
+          return false;
+        }
+        vm::CellSlice cs{*cs_ref};
+        ton::NodeIdShort node_id;
+        unsigned char signature[64];
+        if (!(cs.fetch_bits_to(node_id)         // sig_pair$_ node_id_short:bits256
+              && cs.fetch_ulong(4) == 5         // ed25519_signature#5
+              && cs.fetch_bytes(signature, 64)  // R:bits256 s:bits256
+              && !cs.size_ext())) {
+          return false;
+        }
+        signatures.emplace_back(node_id, td::BufferSlice{td::Slice{signature, 64}});
+        ++i;
+        return i <= BlockSignatureSet::MAX_SIGNATURES;
+      })) {
+    return td::Status::Error("failed to parse signatures dict");
+  }
+  return signatures;
 }
 
 td::Result<td::Ref<BlockSignatureSet>> BlockSignatureSet::fetch(td::Ref<vm::Cell> cell,
@@ -205,38 +335,33 @@ td::Result<td::Ref<BlockSignatureSet>> BlockSignatureSet::fetch(td::Ref<vm::Cell
     return td::Status::Error("cell is null");
   }
   try {
-    gen::BlockSignatures::Record rec;
-    if (!gen::unpack_cell(cell, rec)) {
-      return td::Status::Error("failed to unpack BlockSignatures");
+    if (gen::BlockSignatures::Record_block_signatures_ordinary rec; gen::unpack_cell(cell, rec)) {
+      TRY_RESULT(signatures, unpack_signatures_dict(rec.signatures->prefetch_ref()));
+      auto sig_set = create_ordinary(std::move(signatures), rec.catchain_seqno, rec.validator_list_hash_short);
+      if (sig_set->get_size() != rec.sig_count) {
+        return td::Status::Error("signature count mismatch");
+      }
+      total_weight = rec.sig_weight;
+      return sig_set;
     }
-    std::vector<ton::BlockSignature> signatures;
-    vm::Dictionary dict{rec.signatures->prefetch_ref(), 16};  // HashmapE 16 CryptoSignaturePair
-    unsigned i = 0;
-    if (!dict.check_for_each([&](Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key, int n) -> bool {
-          if (key.get_int(n) != i || cs_ref->size_ext() != 256 + 4 + 256 + 256) {
-            return false;
-          }
-          vm::CellSlice cs{*cs_ref};
-          ton::NodeIdShort node_id;
-          unsigned char signature[64];
-          if (!(cs.fetch_bits_to(node_id)         // sig_pair$_ node_id_short:bits256
-                && cs.fetch_ulong(4) == 5         // ed25519_signature#5
-                && cs.fetch_bytes(signature, 64)  // R:bits256 s:bits256
-                && !cs.size_ext())) {
-            return false;
-          }
-          signatures.emplace_back(node_id, td::BufferSlice{td::Slice{signature, 64}});
-          ++i;
-          return i <= MAX_SIGNATURES;
-        })) {
-      return td::Status::Error("failed to parse signatures dict");
+    if (gen::BlockSignatures::Record_block_signatures_simplex rec; gen::unpack_cell(cell, rec)) {
+      TRY_RESULT(signatures, unpack_signatures_dict(rec.signatures->prefetch_ref()));
+      vm::CellSlice candidate_cs = vm::load_cell_slice(rec.candidate_data);
+      if (candidate_cs.size_refs() > 0 || candidate_cs.size() % 8 != 0) {
+        return td::Status::Error("invalid candidate data");
+      }
+      td::BufferSlice candidate_data(candidate_cs.size() / 8);
+      candidate_cs.prefetch_bytes(candidate_data.as_slice());
+      TRY_RESULT(candidate, ton::fetch_tl_object<ton::ton_api::consensus_CandidateHashData>(candidate_data, true));
+      auto sig_set = create_simplex(std::move(signatures), rec.catchain_seqno, rec.validator_list_hash_short,
+                                    rec.session_id, rec.slot, std::move(candidate));
+      if (sig_set->get_size() != rec.sig_count) {
+        return td::Status::Error("signature count mismatch");
+      }
+      total_weight = rec.sig_weight;
+      return sig_set;
     }
-    auto sig_set = create_ordinary(std::move(signatures), rec.catchain_seqno, rec.validator_list_hash_short);
-    if (sig_set->get_size() != rec.sig_count) {
-      return td::Status::Error("signature count mismatch");
-    }
-    total_weight = rec.sig_weight;
-    return sig_set;
+    return td::Status::Error("failed to unpack signature set");
   } catch (vm::VmError& e) {
     return e.as_status();
   }
@@ -262,22 +387,55 @@ td::Ref<BlockSignatureSet> BlockSignatureSet::fetch(
   return create_ordinary(std::move(signatures), cc_seqno, validator_set_hash);
 }
 
-td::Ref<BlockSignatureSet> BlockSignatureSet::fetch(
-    const ton::tl_object_ptr<ton::ton_api::tonNode_signatureSet_ordinary>& f) {
-  std::vector<ton::BlockSignature> signatures;
-  for (auto& s : f->signatures_) {
-    signatures.emplace_back(s->who_, s->signature_.clone());
-  }
-  return create_ordinary(std::move(signatures), f->cc_seqno_, f->validator_set_hash_);
+td::Ref<BlockSignatureSet> BlockSignatureSet::fetch(const ton::tl_object_ptr<ton::ton_api::tonNode_SignatureSet>& f) {
+  td::Ref<BlockSignatureSet> sig_set;
+  ton::ton_api::downcast_call(
+      *f, td::overloaded(
+              [&](const ton::ton_api::tonNode_signatureSet_ordinary& obj) {
+                std::vector<ton::BlockSignature> signatures;
+                for (auto& s : obj.signatures_) {
+                  signatures.emplace_back(s->who_, s->signature_.clone());
+                }
+                sig_set = create_ordinary(std::move(signatures), obj.cc_seqno_, obj.validator_set_hash_);
+              },
+              [&](const ton::ton_api::tonNode_signatureSet_simplex& obj) {
+                std::vector<ton::BlockSignature> signatures;
+                for (auto& s : obj.signatures_) {
+                  signatures.emplace_back(s->who_, s->signature_.clone());
+                }
+                sig_set = create_simplex(std::move(signatures), obj.cc_seqno_, obj.validator_set_hash_, obj.session_id_,
+                                         obj.slot_, ton::clone_tl_object(obj.candidate_));
+              }));
+  return sig_set;
 }
 
-td::Ref<BlockSignatureSet> BlockSignatureSet::fetch(
-    const ton::tl_object_ptr<ton::lite_api::liteServer_signatureSet>& f) {
-  std::vector<ton::BlockSignature> signatures;
-  for (auto& s : f->signatures_) {
-    signatures.emplace_back(s->node_id_short_, s->signature_.clone());
-  }
-  return create_ordinary(std::move(signatures), f->catchain_seqno_, f->validator_set_hash_);
+td::Result<td::Ref<BlockSignatureSet>> BlockSignatureSet::fetch(
+    const ton::tl_object_ptr<ton::lite_api::liteServer_SignatureSet>& f) {
+  td::Result<td::Ref<BlockSignatureSet>> sig_set;
+  ton::lite_api::downcast_call(
+      *f, td::overloaded(
+              [&](const ton::lite_api::liteServer_signatureSet_ordinary& obj) {
+                std::vector<ton::BlockSignature> signatures;
+                for (auto& s : obj.signatures_) {
+                  signatures.emplace_back(s->node_id_short_, s->signature_.clone());
+                }
+                sig_set = create_ordinary(std::move(signatures), obj.catchain_seqno_, obj.validator_set_hash_);
+              },
+              [&](const ton::lite_api::liteServer_signatureSet_simplex& obj) {
+                std::vector<ton::BlockSignature> signatures;
+                for (auto& s : obj.signatures_) {
+                  signatures.emplace_back(s->node_id_short_, s->signature_.clone());
+                }
+                auto r_candidate =
+                    ton::fetch_tl_object<ton::ton_api::consensus_CandidateHashData>(obj.candidate_, true);
+                if (r_candidate.is_error()) {
+                  sig_set = r_candidate.move_as_error_prefix("failed to unpack candidate data: ");
+                  return;
+                }
+                sig_set = create_simplex(std::move(signatures), obj.cc_seqno_, obj.validator_set_hash_, obj.session_id_,
+                                         obj.slot_, r_candidate.move_as_ok());
+              }));
+  return sig_set;
 }
 
 }  // namespace block

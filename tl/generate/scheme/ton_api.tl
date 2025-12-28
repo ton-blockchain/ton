@@ -404,6 +404,8 @@ tonNode.sessionId workchain:int shard:long cc_seqno:int opts_hash:int256 = tonNo
 
 tonNode.blockSignature who:int256 signature:bytes = tonNode.BlockSignature;
 tonNode.signatureSet.ordinary cc_seqno:int validator_set_hash:int signatures:(vector tonNode.blockSignature) = tonNode.SignatureSet;
+tonNode.signatureSet.simplex cc_seqno:int validator_set_hash:int signatures:(vector tonNode.blockSignature)
+    session_id:int256 slot:int candidate:consensus.CandidateHashData = tonNode.SignatureSet;
 
 tonNode.blockId workchain:int shard:long seqno:int = tonNode.BlockId;
 tonNode.blockIdExt workchain:int shard:long seqno:int root_hash:int256 file_hash:int256 = tonNode.BlockIdExt;

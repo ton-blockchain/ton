@@ -839,9 +839,13 @@ _ JettonBridgeParams = ConfigParam 82; // Polygon->TON token bridge
 //
 //  PROOFS
 //
-block_signatures#11 validator_list_hash_short:uint32 catchain_seqno:uint32
+block_signatures_ordinary#11 validator_list_hash_short:uint32 catchain_seqno:uint32
   sig_count:uint32 sig_weight:uint64
   signatures:(HashmapE 16 CryptoSignaturePair) = BlockSignatures;
+block_signatures_simplex#12 validator_list_hash_short:uint32 catchain_seqno:uint32
+  sig_count:uint32 sig_weight:uint64
+  signatures:(HashmapE 16 CryptoSignaturePair)
+  session_id:bits256 slot:uint32 candidate_data:^Cell = BlockSignatures;
 block_proof#c3 proof_for:BlockIdExt root:^Cell signatures:(Maybe ^BlockSignatures) = BlockProof;
 
 chain_empty$_ = ProofChain 0;
