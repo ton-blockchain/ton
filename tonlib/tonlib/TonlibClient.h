@@ -390,7 +390,7 @@ class TonlibClient : public td::actor::Actor {
   td::Status do_request(const tonlib_api::blocks_getBlockHeader& request,
                         td::Promise<object_ptr<tonlib_api::blocks_header>>&& promise);
   td::Status do_request(const tonlib_api::blocks_getMasterchainBlockSignatures& request,
-                        td::Promise<object_ptr<tonlib_api::blocks_blockSignatures>>&& promise);
+                        td::Promise<object_ptr<tonlib_api::blocks_BlockSignatures>>&& promise);
   td::Status do_request(const tonlib_api::blocks_getShardBlockProof& request,
                         td::Promise<object_ptr<tonlib_api::blocks_shardBlockProof>>&& promise);
   td::Status do_request(const tonlib_api::blocks_getOutMsgQueueSizes& request,
