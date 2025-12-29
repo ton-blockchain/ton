@@ -44,12 +44,11 @@ class ValidatorGroup : public IValidatorGroup {
                                 td::optional<BlockCandidate> optimistic_prev_block);
   void accept_block_candidate(validatorsession::BlockSourceInfo source_info, td::BufferSlice block, RootHash root_hash,
                               FileHash file_hash, std::vector<BlockSignature> signatures,
-                              std::vector<BlockSignature> approve_signatures,
                               validatorsession::ValidatorSessionStats stats, td::Promise<td::Unit> promise);
   void skip_round(td::uint32 round);
   void accept_block_query(BlockIdExt block_id, td::Ref<BlockData> block, std::vector<BlockIdExt> prev,
-                          td::Ref<block::BlockSignatureSet> sigs, td::Ref<block::BlockSignatureSet> approve_sigs,
-                          int send_broadcast_mode, td::Promise<td::Unit> promise, bool is_retry = false);
+                          td::Ref<block::BlockSignatureSet> sigs, int send_broadcast_mode,
+                          td::Promise<td::Unit> promise, bool is_retry = false);
   void get_approved_candidate(PublicKey source, RootHash root_hash, FileHash file_hash,
                               FileHash collated_data_file_hash, td::Promise<BlockCandidate> promise);
   BlockIdExt create_next_block_id(RootHash root_hash, FileHash file_hash) const;
@@ -122,7 +121,6 @@ class ValidatorGroup : public IValidatorGroup {
     FileHash file_hash;
     td::BufferSlice block;
     td::Ref<block::BlockSignatureSet> sigs;
-    td::Ref<block::BlockSignatureSet> approve_sigs;
     validatorsession::ValidatorSessionStats stats;
     td::Promise<td::Unit> promise;
   };
@@ -457,7 +455,6 @@ void ValidatorGroup::update_approve_cache(CacheKey key, UnixTime value) {
 void ValidatorGroup::accept_block_candidate(validatorsession::BlockSourceInfo source_info, td::BufferSlice block_data,
                                             RootHash root_hash, FileHash file_hash,
                                             std::vector<BlockSignature> signatures,
-                                            std::vector<BlockSignature> approve_signatures,
                                             validatorsession::ValidatorSessionStats stats,
                                             td::Promise<td::Unit> promise) {
   stats.cc_seqno = validator_set_->get_catchain_seqno();
@@ -465,13 +462,10 @@ void ValidatorGroup::accept_block_candidate(validatorsession::BlockSourceInfo so
   update_round_id(round_id + 1);
   auto sig_set = block::BlockSignatureSet::create_ordinary(std::move(signatures), validator_set_->get_catchain_seqno(),
                                                            validator_set_->get_validator_set_hash());
-  auto approve_sig_set = block::BlockSignatureSet::create_ordinary(
-      std::move(approve_signatures), validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash());
-  // validator_set_->check_approve_signatures(root_hash, file_hash, approve_sig_set).ensure();
 
   if (!started_) {
     postponed_accept_.push_back(PostponedAccept{root_hash, file_hash, std::move(block_data), std::move(sig_set),
-                                                std::move(approve_sig_set), std::move(stats), std::move(promise)});
+                                                std::move(stats), std::move(promise)});
     return;
   }
   auto next_block_id = create_next_block_id(root_hash, file_hash);
@@ -514,7 +508,7 @@ void ValidatorGroup::accept_block_candidate(validatorsession::BlockSourceInfo so
     send_broadcast_mode |= fullnode::FullNode::broadcast_mode_custom;
   }*/
   accept_block_query(next_block_id, std::move(block), std::move(prev_block_ids_), std::move(sig_set),
-                     std::move(approve_sig_set), send_broadcast_mode, std::move(promise));
+                     send_broadcast_mode, std::move(promise));
   prev_block_ids_ = std::vector<BlockIdExt>{next_block_id};
   cached_collated_block_ = nullptr;
   cancellation_token_source_.cancel();
@@ -525,8 +519,7 @@ void ValidatorGroup::accept_block_candidate(validatorsession::BlockSourceInfo so
 }
 
 void ValidatorGroup::accept_block_query(BlockIdExt block_id, td::Ref<BlockData> block, std::vector<BlockIdExt> prev,
-                                        td::Ref<block::BlockSignatureSet> sig_set,
-                                        td::Ref<block::BlockSignatureSet> approve_sig_set, int send_broadcast_mode,
+                                        td::Ref<block::BlockSignatureSet> sig_set, int send_broadcast_mode,
                                         td::Promise<td::Unit> promise, bool is_retry) {
   auto P = td::PromiseCreator::lambda([=, SelfId = actor_id(this),
                                        promise = std::move(promise)](td::Result<td::Unit> R) mutable {
@@ -537,8 +530,7 @@ void ValidatorGroup::accept_block_query(BlockIdExt block_id, td::Ref<BlockData> 
       }
       LOG_CHECK(R.error().code() == ErrorCode::timeout || R.error().code() == ErrorCode::notready) << R.move_as_error();
       td::actor::send_closure(SelfId, &ValidatorGroup::accept_block_query, block_id, std::move(block), std::move(prev),
-                              std::move(sig_set), std::move(approve_sig_set), send_broadcast_mode, std::move(promise),
-                              true);
+                              std::move(sig_set), send_broadcast_mode, std::move(promise), true);
     } else {
       promise.set_value(R.move_as_ok());
     }
@@ -689,14 +681,9 @@ std::unique_ptr<validatorsession::ValidatorSession::Callback> ValidatorGroup::ma
       for (auto &sig : signatures) {
         sigs.emplace_back(BlockSignature{sig.first.bits256_value(), std::move(sig.second)});
       }
-      std::vector<BlockSignature> approve_sigs;
-      for (auto &sig : approve_signatures) {
-        approve_sigs.emplace_back(BlockSignature{sig.first.bits256_value(), std::move(sig.second)});
-      }
       auto P = td::PromiseCreator::lambda([](td::Result<td::Unit>) {});
       td::actor::send_closure(id_, &ValidatorGroup::accept_block_candidate, std::move(source_info), std::move(data),
-                              root_hash, file_hash, std::move(sigs), std::move(approve_sigs), std::move(stats),
-                              std::move(P));
+                              root_hash, file_hash, std::move(sigs), std::move(stats), std::move(P));
     }
     void on_block_skipped(td::uint32 round) override {
       td::actor::send_closure(id_, &ValidatorGroup::skip_round, round);
@@ -813,8 +800,8 @@ void ValidatorGroup::start(std::vector<BlockIdExt> prev, BlockIdExt min_masterch
 
     auto block =
         p.block.size() > 0 ? create_block(next_block_id, std::move(p.block)).move_as_ok() : td::Ref<BlockData>{};
-    accept_block_query(next_block_id, std::move(block), std::move(prev_block_ids_), std::move(p.sigs),
-                       std::move(p.approve_sigs), 0, std::move(p.promise));
+    accept_block_query(next_block_id, std::move(block), std::move(prev_block_ids_), std::move(p.sigs), 0,
+                       std::move(p.promise));
     prev_block_ids_ = std::vector<BlockIdExt>{next_block_id};
   }
   postponed_accept_.clear();
