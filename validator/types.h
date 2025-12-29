@@ -32,13 +32,11 @@ struct ReceivedBlock {
 struct BlockBroadcast {
   BlockIdExt block_id;
   td::Ref<block::BlockSignatureSet> sig_set;
-  CatchainSeqno catchain_seqno;
-  td::uint32 validator_set_hash;
   td::BufferSlice data;
   td::BufferSlice proof;
 
   BlockBroadcast clone() const {
-    return {block_id, sig_set, catchain_seqno, validator_set_hash, data.clone(), proof.clone()};
+    return {block_id, sig_set, data.clone(), proof.clone()};
   }
 };
 

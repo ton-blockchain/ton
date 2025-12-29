@@ -55,8 +55,8 @@ class BlockSignatureSetBase : public BlockSignatureSet {
     return sig_weight * 3 > total_weight * 2;
   }
 
-  td::Result<ton::ValidatorWeight> check_signatures(td::Ref<ValidatorSet> vset,
-                                                    ton::BlockIdExt block_id) const override {
+  td::Result<ton::ValidatorWeight> check_signatures_impl(td::Ref<ValidatorSet> vset,
+                                                         ton::BlockIdExt block_id) const override {
     TRY_STATUS(check_vset(this, vset));
     TRY_RESULT(data, to_sign(block_id));
     ton::ValidatorWeight weight = 0;
@@ -144,6 +144,9 @@ class BlockSignatureSetOrdinary : public BlockSignatureSetBase {
   bool is_ordinary() const override {
     return true;
   }
+  bool is_final() const override {
+    return true;
+  }
 
   td::Result<td::BufferSlice> to_sign(ton::BlockIdExt block_id) const override {
     return ton::create_serialize_tl_object<ton::ton_api::ton_blockId>(block_id.root_hash, block_id.file_hash);
@@ -200,11 +203,12 @@ class BlockSignatureSetSimplex : public BlockSignatureSetBase {
  public:
   explicit BlockSignatureSetSimplex(std::vector<ton::BlockSignature> signatures, ton::CatchainSeqno cc_seqno,
                                     td::uint32 validator_set_hash, td::Bits256 session_id, td::uint32 slot,
-                                    ton::tl_object_ptr<ton::ton_api::consensus_CandidateHashData> candidate)
+                                    ton::tl_object_ptr<ton::ton_api::consensus_CandidateHashData> candidate, bool final)
       : BlockSignatureSetBase(std::move(signatures), cc_seqno, validator_set_hash)
       , session_id_(session_id)
       , slot_(slot)
-      , candidate_(std::move(candidate)) {
+      , candidate_(std::move(candidate))
+      , final_(final) {
   }
   ~BlockSignatureSetSimplex() override = default;
 
@@ -214,7 +218,11 @@ class BlockSignatureSetSimplex : public BlockSignatureSetBase {
       copy.emplace_back(s.node, s.signature.clone());
     }
     return new BlockSignatureSetSimplex(std::move(copy), cc_seqno_, validator_set_hash_, session_id_, slot_,
-                                        ton::clone_tl_object(candidate_));
+                                        ton::clone_tl_object(candidate_), final_);
+  }
+
+  bool is_final() const override {
+    return final_;
   }
 
   td::Result<td::BufferSlice> to_sign(ton::BlockIdExt block_id) const override {
@@ -231,8 +239,12 @@ class BlockSignatureSetSimplex : public BlockSignatureSetBase {
     }
     auto candidate_id = ton::create_tl_object<ton::ton_api::consensus_candidateId>(
         slot_, td::Bits256{ton::get_tl_object_sha256(candidate_).raw});
-    td::BufferSlice data =
-        ton::create_serialize_tl_object<ton::ton_api::consensus_simplex_finalizeVote>(std::move(candidate_id));
+    td::BufferSlice data;
+    if (final_) {
+      data = ton::create_serialize_tl_object<ton::ton_api::consensus_simplex_finalizeVote>(std::move(candidate_id));
+    } else {
+      data = ton::create_serialize_tl_object<ton::ton_api::consensus_simplex_notarizeVote>(std::move(candidate_id));
+    }
     return ton::create_serialize_tl_object<ton::ton_api::consensus_dataToSign>(session_id_, std::move(data));
   }
 
@@ -247,10 +259,12 @@ class BlockSignatureSetSimplex : public BlockSignatureSetBase {
     f->session_id_ = session_id_;
     f->slot_ = slot_;
     f->candidate_ = ton::clone_tl_object(candidate_);
+    f->final_ = final_;
     return f;
   }
 
   ton::tl_object_ptr<ton::lite_api::liteServer_SignatureSet> tl_lite() const override {
+    CHECK(final_);
     auto f = ton::create_tl_object<ton::lite_api::liteServer_signatureSet_simplex>();
     f->cc_seqno_ = cc_seqno_;
     f->validator_set_hash_ = validator_set_hash_;
@@ -265,6 +279,9 @@ class BlockSignatureSetSimplex : public BlockSignatureSetBase {
   }
 
   td::Result<td::Ref<vm::Cell>> serialize(td::Ref<ValidatorSet> vset) const override {
+    if (!final_) {
+      return td::Status::Error(ton::ErrorCode::protoviolation, "cannot serialize approve simplex signatures to cell");
+    }
     TRY_RESULT(weight, get_weight(vset));
     TRY_RESULT(dict_root, serialize_dict());
     // block_signatures_simplex#12 validator_list_hash_short:uint32 catchain_seqno:uint32
@@ -288,6 +305,7 @@ class BlockSignatureSetSimplex : public BlockSignatureSetBase {
   td::Bits256 session_id_;
   td::uint32 slot_;
   ton::tl_object_ptr<ton::ton_api::consensus_CandidateHashData> candidate_;
+  bool final_;
 };
 
 td::Ref<BlockSignatureSet> BlockSignatureSet::create_ordinary(std::vector<ton::BlockSignature> signatures,
@@ -300,7 +318,14 @@ td::Ref<BlockSignatureSet> BlockSignatureSet::create_simplex(
     std::vector<ton::BlockSignature> signatures, ton::CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
     td::Bits256 session_id, td::uint32 slot, ton::tl_object_ptr<ton::ton_api::consensus_CandidateHashData> candidate) {
   return td::Ref<BlockSignatureSetSimplex>{true, std::move(signatures), cc_seqno, validator_set_hash, session_id,
-                                           slot, std::move(candidate)};
+                                           slot, std::move(candidate),  true};
+}
+
+td::Ref<BlockSignatureSet> BlockSignatureSet::create_simplex_approve(
+    std::vector<ton::BlockSignature> signatures, ton::CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+    td::Bits256 session_id, td::uint32 slot, ton::tl_object_ptr<ton::ton_api::consensus_CandidateHashData> candidate) {
+  return td::Ref<BlockSignatureSetSimplex>{true, std::move(signatures), cc_seqno, validator_set_hash, session_id,
+                                           slot, std::move(candidate),  false};
 }
 
 static td::Result<std::vector<ton::BlockSignature>> unpack_signatures_dict(td::Ref<vm::Cell> dict_root) {
@@ -403,8 +428,9 @@ td::Ref<BlockSignatureSet> BlockSignatureSet::fetch(const ton::tl_object_ptr<ton
                 for (auto& s : obj.signatures_) {
                   signatures.emplace_back(s->who_, s->signature_.clone());
                 }
-                sig_set = create_simplex(std::move(signatures), obj.cc_seqno_, obj.validator_set_hash_, obj.session_id_,
-                                         obj.slot_, ton::clone_tl_object(obj.candidate_));
+                sig_set = td::Ref<BlockSignatureSetSimplex>(true, std::move(signatures), obj.cc_seqno_,
+                                                            obj.validator_set_hash_, obj.session_id_, obj.slot_,
+                                                            ton::clone_tl_object(obj.candidate_), obj.final_);
               }));
   return sig_set;
 }

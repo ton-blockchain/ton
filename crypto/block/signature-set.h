@@ -17,6 +17,7 @@
 #pragma once
 
 #include "auto/tl/lite_api.hpp"
+#include "common/errorcode.h"
 #include "crypto/common/refcnt.hpp"
 #include "ton/ton-types.h"
 #include "vm/cells.h"
@@ -27,13 +28,25 @@ namespace block {
 
 class BlockSignatureSet : public td::CntObject {
  public:
-  virtual td::Result<ton::ValidatorWeight> check_signatures(td::Ref<ValidatorSet> vset,
-                                                            ton::BlockIdExt block_id) const = 0;
-
   virtual size_t get_size() const = 0;
   virtual td::Result<ton::ValidatorWeight> get_weight(td::Ref<ValidatorSet> vset) const = 0;
   virtual bool is_ordinary() const {
     return false;
+  }
+  virtual bool is_final() const = 0;
+
+  td::Result<ton::ValidatorWeight> check_signatures(td::Ref<ValidatorSet> vset, ton::BlockIdExt block_id) const {
+    if (!is_final()) {
+      return td::Status::Error(ton::ErrorCode::protoviolation, "not final signatures");
+    }
+    return check_signatures_impl(std::move(vset), block_id);
+  }
+  td::Result<ton::ValidatorWeight> check_approve_signatures(td::Ref<ValidatorSet> vset,
+                                                            ton::BlockIdExt block_id) const {
+    if (is_final()) {
+      return td::Status::Error(ton::ErrorCode::protoviolation, "not approve signatures");
+    }
+    return check_signatures_impl(std::move(vset), block_id);
   }
 
   virtual td::Result<td::Ref<vm::Cell>> serialize(td::Ref<ValidatorSet> vset) const = 0;
@@ -59,10 +72,16 @@ class BlockSignatureSet : public td::CntObject {
   ton::CatchainSeqno cc_seqno_;
   td::uint32 validator_set_hash_;
 
+  virtual td::Result<ton::ValidatorWeight> check_signatures_impl(td::Ref<ValidatorSet> vset,
+                                                                 ton::BlockIdExt block_id) const = 0;
+
  public:
   static td::Ref<BlockSignatureSet> create_ordinary(std::vector<ton::BlockSignature> signatures,
                                                     ton::CatchainSeqno cc_seqno, td::uint32 validator_set_hash);
   static td::Ref<BlockSignatureSet> create_simplex(
+      std::vector<ton::BlockSignature> signatures, ton::CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+      td::Bits256 session_id, td::uint32 slot, ton::tl_object_ptr<ton::ton_api::consensus_CandidateHashData> candidate);
+  static td::Ref<BlockSignatureSet> create_simplex_approve(
       std::vector<ton::BlockSignature> signatures, ton::CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
       td::Bits256 session_id, td::uint32 slot, ton::tl_object_ptr<ton::ton_api::consensus_CandidateHashData> candidate);
 

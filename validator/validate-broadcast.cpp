@@ -69,11 +69,15 @@ void ValidateBroadcast::start_up() {
   }
 
   if (broadcast_.sig_set.is_null()) {
-    abort_query(td::Status::Error(ErrorCode::protoviolation, "bad signature set"));
+    abort_query(td::Status::Error(ErrorCode::protoviolation, "no signature set"));
     return;
   }
 
   if (broadcast_.block_id.is_masterchain()) {
+    if (!broadcast_.sig_set->is_final()) {
+      abort_query(td::Status::Error(ErrorCode::protoviolation, "not final signature set for masterchain block"));
+      return;
+    }
     auto R = create_proof(broadcast_.block_id, broadcast_.proof.clone());
     if (R.is_error()) {
       abort_query(R.move_as_error_prefix("bad proof: "));
@@ -200,7 +204,7 @@ void ValidateBroadcast::got_zero_state(td::Ref<MasterchainState> state) {
 }
 
 void ValidateBroadcast::check_signatures_common(td::Ref<ConfigHolder> conf) {
-  VLOG(VALIDATOR_DEBUG) << "checking signatures";
+  VLOG(VALIDATOR_DEBUG) << "checking signatures (" << (broadcast_.sig_set->is_final() ? "final" : "approve") << ")";
   auto val_set = conf->get_validator_set(broadcast_.block_id.shard_full(), header_info_.utime, header_info_.cc_seqno);
   if (val_set.is_null()) {
     abort_query(td::Status::Error(ErrorCode::notready, "failed to compute validator set"));
@@ -216,7 +220,12 @@ void ValidateBroadcast::check_signatures_common(td::Ref<ConfigHolder> conf) {
       return;
     }
   }
-  auto S = broadcast_.sig_set->check_signatures(val_set, broadcast_.block_id);
+  td::Result<td::uint64> S;
+  if (broadcast_.sig_set->is_final()) {
+    S = broadcast_.sig_set->check_signatures(val_set, broadcast_.block_id);
+  } else {
+    S = broadcast_.sig_set->check_approve_signatures(val_set, broadcast_.block_id);
+  }
   if (S.is_ok()) {
     checked_signatures();
   } else {

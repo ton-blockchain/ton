@@ -248,18 +248,22 @@ bool AcceptBlockQuery::create_new_proof() {
                          " is invalid or contains extra information reserved for key blocks only");
     }
   }
-  if (signatures_.not_null()) {
-    // 7. check signatures
+  // 7. check signatures
+  if (!is_fake_) {
     td::Result<td::uint64> sign_chk;
-    if (!is_fake_) {
+    if (signatures_->is_final()) {
       sign_chk = signatures_->check_signatures(validator_set_, id_);
-      if (sign_chk.is_error()) {
-        auto err = sign_chk.move_as_error();
-        VLOG(VALIDATOR_WARNING) << "signature check failed : " << err.to_string();
-        abort_query(std::move(err));
-        return false;
-      }
+    } else {
+      sign_chk = signatures_->check_approve_signatures(validator_set_, id_);
     }
+    if (sign_chk.is_error()) {
+      auto err = sign_chk.move_as_error();
+      VLOG(VALIDATOR_WARNING) << "signature check failed : " << err.to_string();
+      abort_query(std::move(err));
+      return false;
+    }
+  }
+  if (signatures_->is_final()) {
     // 8. serialize signatures
     if (!is_fake_) {
       vm::CellBuilder cb2;
@@ -377,7 +381,7 @@ void AcceptBlockQuery::start_up() {
     fatal_error("no real ValidatorSet passed to AcceptBlockQuery");
     return;
   }
-  if (!is_fake_ && signatures_.is_null() && is_masterchain()) {
+  if (!is_fake_ && !signatures_->is_final() && is_masterchain()) {
     fatal_error("no real SignatureSet passed to AcceptBlockQuery for masterchain");
     return;
   }
@@ -412,7 +416,7 @@ void AcceptBlockQuery::start_up() {
 void AcceptBlockQuery::got_block_handle(BlockHandle handle) {
   VLOG(VALIDATOR_DEBUG) << "got_block_handle()";
   handle_ = std::move(handle);
-  if (handle_->received() && handle_->received_state() && (handle_->inited_signatures() || signatures_.is_null()) &&
+  if (handle_->received() && handle_->received_state() && (handle_->inited_signatures() || !signatures_->is_final()) &&
       handle_->inited_split_after() && handle_->inited_merge_before() && handle_->inited_prev() &&
       handle_->inited_logical_time() && handle_->inited_state_root_hash() &&
       (is_masterchain() ? handle_->inited_proof() && handle_->is_applied() && handle_->inited_is_key_block()
@@ -465,7 +469,7 @@ void AcceptBlockQuery::got_block_handle_cont() {
 
 void AcceptBlockQuery::written_block_data() {
   VLOG(VALIDATOR_DEBUG) << "written_block_data()";
-  if (handle_->inited_signatures() || signatures_.is_null()) {
+  if (handle_->inited_signatures() || !signatures_->is_final()) {
     written_block_signatures();
     return;
   }
@@ -604,7 +608,7 @@ void AcceptBlockQuery::written_state(td::Ref<ShardState> upd_state) {
 
 void AcceptBlockQuery::written_block_proof() {
   VLOG(VALIDATOR_DEBUG) << "written_block_proof()";
-  if (signatures_.is_null()) {
+  if (!signatures_->is_final()) {
     written_block_next();
     return;
   }
@@ -955,8 +959,6 @@ void AcceptBlockQuery::send_broadcasts() {
   b.data = data_->data();
   b.block_id = id_;
   b.sig_set = signatures_;
-  b.catchain_seqno = validator_set_->get_catchain_seqno();
-  b.validator_set_hash = validator_set_->get_validator_set_hash();
   if (is_masterchain()) {
     b.proof = proof_->data();
   } else {

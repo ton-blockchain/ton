@@ -313,7 +313,7 @@ class ValidatorManagerImpl : public ValidatorManager {
                                 td::Promise<td::Unit> promise) override;
   void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override;
   void new_block_broadcast(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override;
-  td::actor::Task<> validated_block_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno);
+  td::actor::Task<> validated_accepted_block_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno);
 
   //void create_validate_block(BlockId block, td::BufferSlice data, td::Promise<Block> promise) = 0;
   void sync_complete(td::Promise<td::Unit> promise) override;

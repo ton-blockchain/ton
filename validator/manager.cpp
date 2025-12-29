@@ -223,9 +223,10 @@ void ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broadcast, td::Pro
     return;
   }
   promise = [SelfId = actor_id(this), promise = std::move(promise), block_id = broadcast.block_id,
-             cc_seqno = broadcast.catchain_seqno](td::Result<td::Unit> R) mutable {
-    if (R.is_ok()) {
-      td::actor::ask(SelfId, &ValidatorManagerImpl::validated_block_broadcast, block_id, cc_seqno).detach();
+             cc_seqno = broadcast.sig_set->get_catchain_seqno(),
+             is_final = broadcast.sig_set->is_final()](td::Result<td::Unit> R) mutable {
+    if (R.is_ok() && is_final) {
+      td::actor::ask(SelfId, &ValidatorManagerImpl::validated_accepted_block_broadcast, block_id, cc_seqno).detach();
     }
     promise.set_result(std::move(R));
   };
@@ -237,7 +238,8 @@ void ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broadcast, td::Pro
       .release();
 }
 
-td::actor::Task<> ValidatorManagerImpl::validated_block_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno) {
+td::actor::Task<> ValidatorManagerImpl::validated_accepted_block_broadcast(BlockIdExt block_id,
+                                                                           CatchainSeqno cc_seqno) {
   for (auto &[_, collator_node] : collator_nodes_) {
     if (collator_node.can_collate_shard(block_id.shard_full())) {
       td::actor::send_closure(collator_node.actor, &CollatorNode::new_shard_block_accepted, block_id, cc_seqno);
