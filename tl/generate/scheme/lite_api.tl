@@ -22,7 +22,7 @@ tonNode.zeroStateIdExt workchain:int root_hash:int256 file_hash:int256 = tonNode
 adnl.message.query query_id:int256 query:bytes = adnl.Message;
 adnl.message.answer query_id:int256 answer:bytes = adnl.Message;
 
-liteServer.error code:int message:string = liteServer.Error; 
+liteServer.error code:int message:string = liteServer.Error;
 
 liteServer.accountId workchain:int id:int256 = liteServer.AccountId;
 liteServer.libraryEntry hash:int256 data:bytes = liteServer.LibraryEntry;
@@ -114,6 +114,6 @@ liteServer.nonfinal.getValidatorGroups mode:# wc:mode.0?int shard:mode.0?long = 
 liteServer.nonfinal.getCandidate id:liteServer.nonfinal.candidateId = liteServer.nonfinal.Candidate;
 liteServer.nonfinal.getPendingShardBlocks mode:# wc:mode.0?int shard:mode.0?long = liteServer.nonfinal.PendingShardBlocks;
 
-liteServer.queryPrefix = Object; 
+liteServer.queryPrefix = Object;
 liteServer.query data:bytes = Object;
 liteServer.waitMasterchainSeqno seqno:int timeout_ms:int = Object; // query prefix

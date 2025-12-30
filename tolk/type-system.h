@@ -65,7 +65,7 @@ protected:
     type_id_int128 = 50,
     type_id_int256 = 52,
   };
-  
+
   enum flag_mask {
     flag_contains_genericT_inside = 1 << 2,
     flag_contains_type_alias_inside = 1 << 3,
@@ -650,7 +650,7 @@ class TypeDataMapKV final : public TypeData {
 public:
   TypePtr TKey;
   TypePtr TValue;
-  
+
   static TypePtr create(TypePtr TKey, TypePtr TValue);
 
   int get_type_id() const override;

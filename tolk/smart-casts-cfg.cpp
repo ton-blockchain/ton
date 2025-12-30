@@ -120,8 +120,8 @@ bool SinkExpression::is_child_of(SinkExpression rhs) const {
   while (rhs_path != 0) {
     mask = (mask << 8) + 0xFF;
     rhs_path >>= 8;
-  }  
-  return var_ref == rhs.var_ref && index_path != rhs.index_path && (index_path & mask) == rhs.index_path; 
+  }
+  return var_ref == rhs.var_ref && index_path != rhs.index_path && (index_path & mask) == rhs.index_path;
 }
 
 SinkExpression SinkExpression::get_child_s_expr(int field_idx) const {

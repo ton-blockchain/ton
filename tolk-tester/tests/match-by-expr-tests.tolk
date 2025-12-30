@@ -171,13 +171,13 @@ fun test13() {
     var ex2 = 0;
 
     // will throw (the compiler generates "else" implicitly for enums)
-    try { ex1 = mapRole(invalidAsmRole()); }        
+    try { ex1 = mapRole(invalidAsmRole()); }
     catch (ex) { ex1 = ex }
 
     // will not throw (the compiler compiles "match" for bool as true => else =>)
     try { ex2 = mapBool(invalidAsmBool()); }
     catch (ex) { ex2 = ex }
-    
+
     return (ex1, ex2);
 }
 
@@ -344,9 +344,9 @@ fun main() {
 @fif_codegen
 """
       1 EQINT                   //  '6
-      IFNOTJMP:<{               // 
+      IFNOTJMP:<{               //
         5 THROW
-      }>                        // 
+      }>                        //
       200 PUSHINT               //  '1=200
 """
 

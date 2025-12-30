@@ -21,9 +21,9 @@
 namespace tolk {
 
 /*
- * 
+ *
  *   ABSTRACT CODE
- * 
+ *
  */
 
 void TmpVar::show_as_stack_comment(std::ostream& os) const {

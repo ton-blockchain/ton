@@ -29,7 +29,7 @@ def get_addr_list(node):
 def generate_dht_node(node):
     global binary
     addr_list = get_addr_list(node)
-    r = subprocess.run([binary, '-k', node['spk'], '-a', addr_list, '-m', 'dht'], capture_output=True) 
+    r = subprocess.run([binary, '-k', node['spk'], '-a', addr_list, '-m', 'dht'], capture_output=True)
     s = r.stdout.decode("utf-8").split("\n")
     return json.loads(s[0])
 
@@ -47,11 +47,11 @@ def add_id(s):
     options = t[3:]
     pub = '-'
     short = '-'
-    rand = None 
+    rand = None
     spk = pk
 
     if (pk[0] != '-'):
-        r = subprocess.run([binary, '-k', pk, '-m', 'id'], capture_output=True) 
+        r = subprocess.run([binary, '-k', pk, '-m', 'id'], capture_output=True)
         s = r.stdout.decode("utf-8").split("\n")
         pk = json.loads(pk)
         pub = json.loads(s[1])
@@ -73,7 +73,7 @@ def add_id(s):
         ids.append({'ip' : ip, 'port' : port, 'options' : options, 'pk' : pk, 'spk' : spk, 'pub' : pub, 'short' : short, 'rand' : rand})
     else:
         for x in range(0, rand):
-            r = subprocess.run([binary, '-m', 'id'], capture_output=True) 
+            r = subprocess.run([binary, '-m', 'id'], capture_output=True)
             s = r.stdout.decode("utf-8").split("\n")
             pk = json.loads(s[0])
             pub = json.loads(s[1])
@@ -81,13 +81,13 @@ def add_id(s):
             ids.append({'ip' : ip, 'port' : port, 'options' : options, 'pk' : pk, 'spk' : spk, 'pub' : pub, 'short' : short, 'rand' : None})
 
 def readconfig(name):
-    with open(name) as f: 
+    with open(name) as f:
         for s in f.readlines():
             add_id(s.strip())
 
 def generate_global_config():
     global ids
-  
+
     config={'@type':'config.global'}
 
     dht={'@type':'dht.config.global','k':6,'a':3}
@@ -97,7 +97,7 @@ def generate_global_config():
         if '+dhtstatic' in node['options']:
             dht_nodes.append(generate_dht_node(node))
 
-    dht['static_nodes'] = {'@type':'dht.nodes','nodes':dht_nodes} 
+    dht['static_nodes'] = {'@type':'dht.nodes','nodes':dht_nodes}
 
     config['dht'] = dht
 
@@ -111,16 +111,16 @@ def generate_global_config():
                     catchains.append(name)
 
     cc=[]
-    for name in catchains: 
+    for name in catchains:
         catchain={'@type':'catchain.config.global','tag':base64.b64encode(hashlib.sha256(name.encode("utf-8")).digest()).decode("utf-8")}
         catchain_nodes=[]
         for node in ids:
             if ('+catchain'+name) in node['options']:
                 catchain_nodes.append(node['pub'])
-        catchain['nodes'] = catchain_nodes 
+        catchain['nodes'] = catchain_nodes
         cc.append(catchain)
     config['catchains'] = cc
-    
+
     liteservers=[]
     for node in ids:
         for opt in node['options']:
@@ -134,7 +134,7 @@ def generate_global_config():
         "workchain" : -1,
         "shard" : -9223372036854775808,
         "seqno" : 0,
-        "root_hash": "DXduYJkakj2d+rB7Qpj2SCkjTCG7AGXAA9G7EHQEyG0=", 
+        "root_hash": "DXduYJkakj2d+rB7Qpj2SCkjTCG7AGXAA9G7EHQEyG0=",
         "file_hash": "4xASfDALy6Hk5Tg01IyBoFUepur9YJg2pg3cm0zocJk="
         }}
 
@@ -170,7 +170,7 @@ def generate_local_config(ip,port):
                 cnt=node['rand']
                 dht_config.append({'@type':'dht.config.random.local', 'cnt':cnt})
     config['dht'] = dht_config
-    
+
     liteservers=[]
     for node in ids:
         for opt in node['options']:

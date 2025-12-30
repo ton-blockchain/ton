@@ -1140,7 +1140,7 @@ std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect,
 }
 
 // convert a constant value (calculated by a "constant-evaluator") to IR vars;
-// every init_val of `const XXX = ...` is calculated once (into ConstValExpression) and cached 
+// every init_val of `const XXX = ...` is calculated once (into ConstValExpression) and cached
 static std::vector<var_idx_t> pre_compile_constant_expression(const ConstValExpression& value, CodeBlob& code, AnyV origin) {
   if (const ConstValInt* val = std::get_if<ConstValInt>(&value)) {
     std::vector rvect = code.create_tmp_var(TypeDataInt::create(), origin, "(int-const)");
@@ -1489,7 +1489,7 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
   }
 
   // how to compare subject and branches for `match` expression, similar to operator `==` which can handle non-integers
-  FunctionPtr eq_fn = lookup_function("_==_");      // for int/bool/enum                                                                   
+  FunctionPtr eq_fn = lookup_function("_==_");      // for int/bool/enum
   if (subject_type->unwrap_alias()->try_as<TypeDataAddress>()) {
     eq_fn = lookup_function("slice.bitsEqual");
   }

@@ -73,14 +73,14 @@ We see that the address of this automatic DNS smart contract is EQAZC9dW9sDnlI3C
 ================================================
 > runmethod EQAZC9dW9sDnlI3CbLR5aDIxd_sgNE-PmlCRjK-H7LNLeUXN getstdperiod
 ...
-arguments:  [ 67418 ] 
-result:  [ 700000 ] 
-remote result (not to be trusted):  [ 700000 ] 
+arguments:  [ 67418 ]
+result:  [ 700000 ]
+remote result (not to be trusted):  [ 700000 ]
 > runmethod EQAZC9dW9sDnlI3CbLR5aDIxd_sgNE-PmlCRjK-H7LNLeUXN getppr
 ...
-arguments:  [ 109522 ] 
-result:  [ 100000000 ] 
-remote result (not to be trusted):  [ 100000000 ] 
+arguments:  [ 109522 ]
+result:  [ 100000000 ]
+remote result (not to be trusted):  [ 100000000 ]
 ================================================
 
 We see that subdomains are registered for 700000 seconds (about eight days), and that the registration price is 100000000ng = 0.1 test Grams per domain, plus a price for each bit and cell of stored data, which can be learned by running get-methods `getppb` and `getppc`.
@@ -93,10 +93,10 @@ For example:
 
 ===============================================
 $ fift -s auto-dns.fif EQAZC9dW9sDnlI3CbLR5aDIxd_sgNE-PmlCRjK-H7LNLeUXN add 'mysite' 700000 owner kQABzslAMKOVwkSkkWfelS1pYSDOSyTcgn0yY_loQvyo_ZgI cat 1 adnl vcqmha5j3ceve35ammfrhqty46rkhi455otydstv66pk2tmf7rl25f3
-Automatic DNS smart contract address = 0:190bd756f6c0e7948dc26cb47968323177fb20344f8f9a50918caf87ecb34b79 
+Automatic DNS smart contract address = 0:190bd756f6c0e7948dc26cb47968323177fb20344f8f9a50918caf87ecb34b79
 kQAZC9dW9sDnlI3CbLR5aDIxd_sgNE-PmlCRjK-H7LNLef5H
-Action: add mysite 1583865040 
-Operation code: 0x72656764 
+Action: add mysite 1583865040
+Operation code: 0x72656764
 Value: x{2_}
  x{BC000C_}
   x{AD0145061C1D4EC44A937D0318589E13C73D151D1CEF5D3C0E53AFBCF56A6C2FE2BD00}
@@ -111,7 +111,7 @@ Internal message body is: x{726567645E5D2E700481CE3F0EDAF2E6D2E8CA00BCCFB9A1_}
    x{9FD3800039D928061472B84894922CFBD2A5AD2C2419C9649B904FA64C7F2D085F951FA01_}
 
 B5EE9C7241010601007800012F726567645E5D2E700481CE3F0EDAF2E6D2E8CA00BCCFB9A10102012002030105BC000C040105BFFFF4050046AD0145061C1D4EC44A937D0318589E13C73D151D1CEF5D3C0E53AFBCF56A6C2FE2BD0000499FD3800039D928061472B84894922CFBD2A5AD2C2419C9649B904FA64C7F2D085F951FA01070E6337D
-Query_id is 6799642071046147647 = 0x5E5D2E700481CE3F 
+Query_id is 6799642071046147647 = 0x5E5D2E700481CE3F
 (Saved to file dns-msg-body.boc)
 ================================================
 
@@ -119,10 +119,10 @@ We see that the internal message body for this query has been created and saved 
 
 ================================================
 $ fift -s wallet.fif my_new_wallet EQAZC9dW9sDnlI3CbLR5aDIxd_sgNE-PmlCRjK-H7LNLeUXN 1 1.7 -B dns-msg-body.boc
-Source wallet address = 0:01cec94030a395c244a49167de952d696120ce4b24dc827d3263f96842fca8fd 
+Source wallet address = 0:01cec94030a395c244a49167de952d696120ce4b24dc827d3263f96842fca8fd
 kQABzslAMKOVwkSkkWfelS1pYSDOSyTcgn0yY_loQvyo_ZgI
 Loading private key from file my_new_wallet.pk
-Transferring GR$1.7 to account kQAZC9dW9sDnlI3CbLR5aDIxd_sgNE-PmlCRjK-H7LNLef5H = 0:190bd756f6c0e7948dc26cb47968323177fb20344f8f9a50918caf87ecb34b79 seqno=0x1 bounce=-1 
+Transferring GR$1.7 to account kQAZC9dW9sDnlI3CbLR5aDIxd_sgNE-PmlCRjK-H7LNLef5H = 0:190bd756f6c0e7948dc26cb47968323177fb20344f8f9a50918caf87ecb34b79 seqno=0x1 bounce=-1
 Body of transfer message is x{726567645E5D2E700481CE3F0EDAF2E6D2E8CA00BCCFB9A1_}
  x{2_}
   x{BC000C_}
@@ -153,7 +153,7 @@ B5EE9C72410207010001170001CF8800039D928061472B84894922CFBD2A5AD2C2419C9649B904FA
 (You have to replace 1 with the correct sequence number for your wallet.) Once you obtain a signed external message in `wallet-query.boc`, addressed to your wallet and instructing it to transfer 1.7 test Grams to the automatic DNS smart contract along with the description of your new domain to be registered, you can upload this message using the LiteClient by typing
 
 =====================================================
-> sendfile wallet-query.boc 
+> sendfile wallet-query.boc
 [ 1][t 1][!testnode]	sending query from file wallet-query.boc
 [ 3][t 1][!query]	external message status is 1
 =====================================================

@@ -47,7 +47,7 @@ internal? {
 { ."Creating an external message to configuration smart contract "
   config-addr 2dup 6 .Addr ." = " .addr cr
 } cond
-."containing a signed request " internal? { ."expiring at " expire-at . } ifnot 
+."containing a signed request " internal? { ."expiring at " expire-at . } ifnot
 ."to vote for configuration proposal 0x" prop-hash 64x.
 ."on behalf of validator with index " val-idx . "and public key" pubkey Bx. cr
 
@@ -65,7 +65,7 @@ now 32 << prop-hash 32 1<< mod + =: query-id
 <b internal? { x{566f7465} s, query-id 64 u, }
    { b{1000100} s, config-addr addr, 0 Gram, b{00} s, } cond
    signature B, to_sign B, b>
-cr 
+cr
 internal? { ."Internal message body is " } { ."External message is " } cond
 dup <s csr. cr
 

@@ -451,7 +451,7 @@ fun test34(p: int, n: int) {
 fun test35(overflowMode: int) {
     try {
         val b: builder = match (overflowMode) {
-            1 => triggerOverflowIntConst(), 
+            1 => triggerOverflowIntConst(),
             2 => triggerOverflowUintConst(),
             3 => beginCell().storeUint(10, -4),
             4 => beginCell().storeInt(100, 1),
@@ -541,7 +541,7 @@ fun test42() {
     var c1 = beginCell().endCell();
     var c2 = beginCell().endCellSpecial(false);
     return (
-        c1.hash() == c1.hashOfLevel(3), 
+        c1.hash() == c1.hashOfLevel(3),
         c1.depth() == c1.depthOfLevel(3),
         c1.hash() == c2.hash(),
         c2.depth() == 0,
@@ -552,7 +552,7 @@ fun test42() {
 fun test43() {
     var c3 = beginCell().storeUint(123, 32).endCell();
     var c3lib = c3.toLibraryReference();
-    
+
     var (s, isExotic) = c3lib.beginParseSpecial();
     assert (isExotic) throw 123;
     val cellType = s.loadInt(8) as ExoticCellType;
@@ -768,7 +768,7 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 
 @fif_codegen
 """
-  triggerOverflowIntConst() PROC:<{ 
+  triggerOverflowIntConst() PROC:<{
     10 PUSHINT
     NEWC
     4 STI
@@ -777,7 +777,7 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 
 @fif_codegen
 """
-  triggerOverflowUintConst() PROC:<{ 
+  triggerOverflowUintConst() PROC:<{
     123 PUSHINT
     NEWC
     6 STU
@@ -786,7 +786,7 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 
 @fif_codegen
 """
-  test36() PROC:<{ 
+  test36() PROC:<{
     0 PUSHINT
     NEWC
     OVER
@@ -804,7 +804,7 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 
 @fif_codegen
 """
-  test38() PROC:<{ 
+  test38() PROC:<{
     x{} PUSHSLICE
     SBITS
   }>
@@ -812,14 +812,14 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 
 @fif_codegen
 """
-  test39() PROC:<{ 
+  test39() PROC:<{
     <b b> PUSHREF
   }>
 """
 
 @fif_codegen
 """
-  test40() PROC:<{ 
+  test40() PROC:<{
     x{} PUSHSLICE
     SBITREFS
   }>

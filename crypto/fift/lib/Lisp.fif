@@ -38,7 +38,7 @@ recursive lisp-ctx-eval {
 recursive lisp-ctx-eval-list
 { over null? { drop } {
   swap uncons -rot over lisp-ctx-eval -rot lisp-ctx-eval-list cons
-  } cond 
+  } cond
 } swap !
 // (exprs) ctx -- val
 { null rot {
@@ -205,7 +205,7 @@ forget 0L:  forget 1L:  forget 2L:
 { 3 exch 3 pick lisp-ctx-eval lisp-true? ' swap if nip swap lisp-ctx-eval }
 `if 3 lisp-fixed-lazy-primitive
 // (e) ctx
-{ #t -rot 
+{ #t -rot
   { over null? { 2drop true } {
     swap uncons swap 2 pick lisp-ctx-eval dup lisp-true? // v' c t v ?
     { swap 2swap nip false } { -rot 2drop nip true } cond
@@ -228,14 +228,14 @@ forget 0L:  forget 1L:  forget 2L:
 } : eval-cond-clause
 // (clauses) ctx -- v
 { { over null? { no-answer true } {
-    swap uncons -rot over eval-cond-clause } cond 
+    swap uncons -rot over eval-cond-clause } cond
   } until -rot 2drop
 } `cond lisp-lazy-primitive
 { lisp-dict @ lookup-in { hole tuck lisp-dict-int-define } ifnot
 } : lisp-create-global-var
 // a e ctx  -- old (simple) define
 { drop over atom? not abort"only a variable can be define'd"
-  over lisp-create-global-var swap lisp-eval swap ! 
+  over lisp-create-global-var swap lisp-eval swap !
 } drop // `define 2 lisp-fixed-lazy-primitive
 { tuck lisp-ctx-eval rot dup atom? not abort"only a variable can be set"
   rot lookup-or-fail dup @ -rot !
@@ -255,7 +255,7 @@ forget 0L:  forget 1L:  forget 2L:
 } : is-quote?
 recursive match-arg-list-acc
 // l (vars) (args) -- ((var . arg) ...)+l -1 or ? 0
-{ over atom? { over `_ eq? { 2drop } { pair swap cons } cond true } { 
+{ over atom? { over `_ eq? { 2drop } { pair swap cons } cond true } {
   over null? { nip null? } { // (vars) (args)
   over tuple? not { 2drop false } {
   over is-quote? { eq? nip } { // (v) (a)
@@ -279,7 +279,7 @@ recursive match-arg-list-acc
   nip
 } : extend-ctx-by-list
 // ((vars) body) ctx
-{ swap uncons -rot 
+{ swap uncons -rot
   dup lambda-var-list? not abort"invalid formal parameter list"
   { // l-expr ctx' [_ body ctx (vars)]
     -rot 2 pick 3 [] swap rot  // [_ body ...] (vars) ctx' l-expr
@@ -291,7 +291,7 @@ recursive match-arg-list-acc
 } : make-lambda
 { make-lambda } `lambda lisp-lazy-primitive
 // (a e) ctx -- more sophisticated (define a e)
-{ drop uncons swap dup atom? { // (e) a 
+{ drop uncons swap dup atom? { // (e) a
     tuck lisp-create-global-var
     swap lisp-dict @ lisp-ctx-eval-list-last swap !
   } { // (e) (a v..)
@@ -356,8 +356,8 @@ lisp-dict @ constant original-lisp-dict
 { original-lisp-dict lisp-dict ! } : reset-lisp
 { ' drop { lisp-eval .l cr } List-generic( } :_ LISP-EVAL-PRINT(
 // LISP-EVAL-PRINT((+ 3 4) (* 5 6)) computes and prints 12 and 30
-{ hole dup 1 { @ nip } does swap 
-  1 { swap lisp-eval swap ! } does 
+{ hole dup 1 { @ nip } does swap
+  1 { swap lisp-eval swap ! } does
   List-generic(
 } :_ LISP-EVAL(
 // LISP-EVAL((+ 3 4) (* 5 6)) computes 12 and 30, returns only 30

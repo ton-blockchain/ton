@@ -60,9 +60,9 @@ inline bool is_special_ident(sym_idx_t idx) {
 }
 
 /*
- * 
+ *
  *   PARSE SOURCE
- * 
+ *
  */
 
 // TE ::= TA | TA -> TE

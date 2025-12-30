@@ -13,7 +13,7 @@ jobs:
     steps:
     - name: Check out repository
       uses: actions/checkout@v3
-      with:      
+      with:
         submodules: 'recursive'
 
     - name: Date Stamp

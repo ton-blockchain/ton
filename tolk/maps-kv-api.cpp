@@ -107,7 +107,7 @@ static bool is_TValue_raw_slice(TypePtr TValue) {
 
 // `map<K, Cell<T>>` can emit SETREF instructions
 static bool is_TValue_cell_or_CellT(TypePtr TValue) {
-  return TValue->unwrap_alias() == TypeDataCell::create() || is_type_cellT(TValue->unwrap_alias());  
+  return TValue->unwrap_alias() == TypeDataCell::create() || is_type_cellT(TValue->unwrap_alias());
 }
 
 bool check_mapKV_TKey_is_valid(TypePtr TKey, std::string& because_msg) {
@@ -115,7 +115,7 @@ bool check_mapKV_TKey_is_valid(TypePtr TKey, std::string& because_msg) {
     return true;
   }
 
-  // okay, not a trivial key — it must be a serializable struct of a constant size 
+  // okay, not a trivial key — it must be a serializable struct of a constant size
   if (TKey->unwrap_alias() == TypeDataSlice::create()) {  // a dedicated error message for `map<slice, V>`
     because_msg = "because it does not specify keyLen for a dictionary\n""hint: use `address` if a key is an internal address\n""hint: use `bits128` and similar if a key represents fixed-width data";
     return false;
@@ -153,7 +153,7 @@ bool check_mapKV_TValue_is_valid(TypePtr TValue, std::string& because_msg) {
   }
   // note that `struct A { s: slice }` can not be used as a value (not serializable),
   // although `slice` can, because in stdlib behavior for TValue=slice is overloaded (no deserialization)
-  
+
   return true;
 }
 
@@ -301,7 +301,7 @@ static std::vector<var_idx_t> create_ir_MapEntry(CodeBlob& code, AnyV origin) {
   return code.create_tmp_var(TypeDataTensor::create({TypeDataSlice::create(), TypeDataInt::create(), TypeDataInt::create()}), origin, "(entry)");
 }
 
-// see a comment above construct_MapEntry_with_non_trivial_key() 
+// see a comment above construct_MapEntry_with_non_trivial_key()
 static std::vector<var_idx_t> finalize_ir_MapEntry(CodeBlob& code, AnyV origin, std::vector<var_idx_t>&& ir_entry, TypePtr TKey) {
   if (!is_TKey_TVM_int(TKey) && !is_TKey_TVM_uint(TKey) && !is_TKey_TVM_slice(TKey)) {
     ir_entry = construct_MapEntry_with_non_trivial_key(code, origin, std::move(ir_entry), TKey);
@@ -321,7 +321,7 @@ static std::string choose_dict_op(std::string_view op_slice, VarDescr& var_with_
 
   DictKeyKind key_kind = static_cast<DictKeyKind>(var_with_key_kind.int_const->to_long());
   var_with_key_kind.unused();
-  
+
   if (key_kind == DictKeyKind::UIntKey) op = "DICTU" + op.substr(4);
   if (key_kind == DictKeyKind::IntKey)  op = "DICTI" + op.substr(4);
 
@@ -533,7 +533,7 @@ std::vector<var_idx_t> generate_mapKV_setGet(FunctionPtr called_f, CodeBlob& cod
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_value_val(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
   code.emplace_back(origin, Op::_Call, ir_map_and_lookup, std::move(dict_args), lookup_function("__dict.setGet"));
 
-  return ir_map_and_lookup;    
+  return ir_map_and_lookup;
 }
 
 // fun map<K,V>.replaceIfExists(mutate self, key: K, value: V): bool
@@ -616,7 +616,7 @@ std::vector<var_idx_t> generate_mapKV_delGet(FunctionPtr called_f, CodeBlob& cod
 std::vector<var_idx_t> generate_mapKV_findFirst(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
   DictKeyValue kv(code, origin, TKey, nullptr, TypeDataSlice::create(), nullptr);
-  
+
   // on a stack (ir_entry) we will have: either (x k −1) or (null null 0)
   std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), args[0][0], kv.ir_key_len() };
@@ -629,7 +629,7 @@ std::vector<var_idx_t> generate_mapKV_findFirst(FunctionPtr called_f, CodeBlob& 
 std::vector<var_idx_t> generate_mapKV_findLast(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
   DictKeyValue kv(code, origin, TKey, nullptr, TypeDataSlice::create(), nullptr);
-  
+
   std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), args[0][0], kv.ir_key_len() };
   code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getMax"));
@@ -641,7 +641,7 @@ std::vector<var_idx_t> generate_mapKV_findLast(FunctionPtr called_f, CodeBlob& c
 std::vector<var_idx_t> generate_mapKV_findKeyGreater(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
   DictKeyValue kv(code, origin, TKey, &args[1], TypeDataSlice::create(), nullptr);
-  
+
   std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
   code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getNext"));
@@ -653,7 +653,7 @@ std::vector<var_idx_t> generate_mapKV_findKeyGreater(FunctionPtr called_f, CodeB
 std::vector<var_idx_t> generate_mapKV_findKeyGreaterOrEqual(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
   DictKeyValue kv(code, origin, TKey, &args[1], TypeDataSlice::create(), nullptr);
-  
+
   std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
   code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getNextEq"));
@@ -665,7 +665,7 @@ std::vector<var_idx_t> generate_mapKV_findKeyGreaterOrEqual(FunctionPtr called_f
 std::vector<var_idx_t> generate_mapKV_findKeyLess(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
   DictKeyValue kv(code, origin, TKey, &args[1], TypeDataSlice::create(), nullptr);
-  
+
   std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
   code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getPrev"));
@@ -677,7 +677,7 @@ std::vector<var_idx_t> generate_mapKV_findKeyLess(FunctionPtr called_f, CodeBlob
 std::vector<var_idx_t> generate_mapKV_findKeyLessOrEqual(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
   DictKeyValue kv(code, origin, TKey, &args[1], TypeDataSlice::create(), nullptr);
-  
+
   std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
   code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getPrevEq"));
@@ -690,7 +690,7 @@ std::vector<var_idx_t> generate_mapKV_iterateNext(FunctionPtr called_f, CodeBlob
   std::vector ir_pivot_key(args[1].begin() + 1, args[1].end() - 1);
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
   DictKeyValue kv(code, origin, TKey, &ir_pivot_key, TypeDataSlice::create(), nullptr);
-  
+
   std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
   code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getNext"));
@@ -703,7 +703,7 @@ std::vector<var_idx_t> generate_mapKV_iteratePrev(FunctionPtr called_f, CodeBlob
   std::vector ir_pivot_key(args[1].begin() + 1, args[1].end() - 1);
   TypePtr TKey = called_f->substitutedTs->typeT_at(0);
   DictKeyValue kv(code, origin, TKey, &ir_pivot_key, TypeDataSlice::create(), nullptr);
-  
+
   std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
   code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getPrev"));

@@ -43,7 +43,7 @@
  *
  *   In order to prevent `x += ([x] = rhs).0`, we need to carefully dig into lhs of assignment. Traversing top-down,
  * we can't just mark "we are inside lhs of assignment" and treat all references as mutated there, because
- * `getObj(x).field` is a valid lhs, where `x` is not mutated. 
+ * `getObj(x).field` is a valid lhs, where `x` is not mutated.
  */
 
 namespace tolk {
@@ -88,10 +88,10 @@ public:
   void borrow_or_fire_if_twice(FunctionPtr cur_f, SinkExpression s_expr, AnyExprV where, FunctionPtr by_function) {
     for (const BorrowedVarOrField& existing : expressions) {
       if (existing.s_expr == s_expr) {
-        err("can not borrow `{}` for mutation once again, it is already being mutated by `{}`\n""hint: split a complex expression into several simple ones", s_expr.to_string(), existing.stringify_by_function()).fire(where, cur_f); 
+        err("can not borrow `{}` for mutation once again, it is already being mutated by `{}`\n""hint: split a complex expression into several simple ones", s_expr.to_string(), existing.stringify_by_function()).fire(where, cur_f);
       }
       if (existing.s_expr.is_child_of(s_expr) || s_expr.is_child_of(existing.s_expr)) {
-        err("can not borrow `{}` for mutation, because `{}` is already being mutated by `{}`\n""hint: split a complex expression into several simple ones", s_expr.to_string(), existing.s_expr.to_string(), existing.stringify_by_function()).fire(where, cur_f); 
+        err("can not borrow `{}` for mutation, because `{}` is already being mutated by `{}`\n""hint: split a complex expression into several simple ones", s_expr.to_string(), existing.s_expr.to_string(), existing.stringify_by_function()).fire(where, cur_f);
       }
     }
     expressions.emplace_front(BorrowedVarOrField{s_expr, by_function});

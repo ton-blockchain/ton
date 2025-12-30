@@ -43,7 +43,7 @@ dup ."resulting internal message body: " <s csr. cr
 2 boc+>B dup Bx. cr
 
 complaint
-totalcsize swap ."(a total of " . ."data bits, " . ."cell references -> " 
+totalcsize swap ."(a total of " . ."data bits, " . ."cell references -> "
 drop dup Blen . ."BoC data bytes)" cr
 
 savefile tuck B>file

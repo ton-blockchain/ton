@@ -30,7 +30,7 @@ _ unpack_owner_info(slice cs) inline_ref {
 
 (int, int) check_signatures(cell public_keys, cell signatures, int hash, int cnt_bits) inline_ref {
   int cnt = 0;
-  
+
   do {
     slice cs = signatures.begin_parse();
     slice signature = cs~load_bits(512);
@@ -170,7 +170,7 @@ _ unpack_owner_info(slice cs) inline_ref {
   set_data(pack_state(pending_queries, owner_infos, last_cleaned, k, n, wallet_id));
 
   commit();
-  
+
   int need_save = 0;
   ifnot (cell_null?(signatures) | (cnt >= k)) {
     (int new_cnt, cnt_bits) = check_signatures(owner_infos, signatures, hash, cnt_bits);
@@ -241,11 +241,11 @@ cell merge_list(cell a, cell b) {
     cell tail = merge_list(as~load_ref(), b);
     return begin_cell().store_slice(as).store_ref(tail).end_cell();
   }
-  
+
   as~skip_last_bits(1);
   ;; as~skip_bits(1);
   return begin_cell().store_slice(as).store_dict(b).end_cell();
-  
+
 }
 
 cell get_public_keys() method_id {

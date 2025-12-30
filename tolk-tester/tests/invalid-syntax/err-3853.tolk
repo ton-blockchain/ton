@@ -1,5 +1,5 @@
 fun main(int): int {
-    
+
 }
 
 /**
