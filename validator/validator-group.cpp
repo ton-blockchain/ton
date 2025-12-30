@@ -566,6 +566,10 @@ void ValidatorGroup::create_session() {
 
   td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_adnl_id_);
   td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_adnl_id_);
+  for (const auto &node : vec) {
+    td::actor::send_closure(rldp2_, &rldp2::Rldp::set_peer_mtu, local_adnl_id_, node.adnl_id,
+                            config_.max_block_size + config_.max_collated_data_size + 1024);
+  }
 
   config_.catchain_opts.broadcast_speed_multiplier = opts_->get_catchain_broadcast_speed_multiplier();
   if (!config_.new_catchain_ids) {

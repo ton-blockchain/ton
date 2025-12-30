@@ -38,6 +38,7 @@ class Rldp : public adnl::AdnlSenderInterface {
                                td::BufferSlice data) = 0;
 
   virtual void set_default_mtu(td::uint64 mtu) = 0;
+  virtual void set_peer_mtu(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu) = 0;
 
   static td::actor::ActorOwn<Rldp> create(td::actor::ActorId<adnl::Adnl> adnl);
 };
