@@ -16,13 +16,13 @@ class QuicClient : public td::actor::Actor, public td::ObserverBase {
   class Callback {
    public:
     virtual void on_connected() = 0;
-    virtual void on_stream_data(QuicStreamID sid, td::Slice data) = 0;
+    virtual void on_stream_data(QuicStreamID sid, td::BufferSlice data) = 0;
     virtual void on_stream_end(QuicStreamID sid) = 0;
     virtual ~Callback() = default;
   };
 
   void open_stream(td::Promise<QuicStreamID> P);
-  void send_stream_data(QuicStreamID sid, td::Slice data);
+  void send_stream_data(QuicStreamID sid, td::BufferSlice data);
   void send_stream_end(QuicStreamID sid);
 
   QuicClient(td::UdpSocketFd fd, std::unique_ptr<QuicConnectionPImpl> p_impl, std::unique_ptr<Callback> callback);
@@ -49,7 +49,7 @@ class QuicClient : public td::actor::Actor, public td::ObserverBase {
   struct EgressData {
     struct StreamData {
       QuicStreamID sid;
-      td::Slice data;
+      td::BufferSlice data;
       bool fin;
     };
     std::optional<StreamData> stream_data;

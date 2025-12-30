@@ -276,10 +276,6 @@ td::Status QuicConnectionPImpl::write_stream(UdpMessageBuffer& msg_out, QuicStre
   return td::Status::OK();
 }
 
-td::Status QuicConnectionPImpl::write_reply(td::Slice, bool) {
-  CHECK(false);
-}
-
 ngtcp2_tstamp QuicConnectionPImpl::now_ts() {
   return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch())
       .count();
@@ -318,9 +314,9 @@ int QuicConnectionPImpl::recv_stream_data_cb(ngtcp2_conn*, uint32_t flags, int64
                                              void* stream_user_data) {
   data = data ? data : static_cast<uint8_t *>(user_data); // stupid hack to create empty slice
   td::Slice data_slice(reinterpret_cast<const char*>(data), reinterpret_cast<const char*>(data) + datalen);
-  Callback::StreamDataEvent event{.sid = stream_id, .data = data_slice, .fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0};
+  Callback::StreamDataEvent event{.sid = stream_id, .data = td::BufferSlice{data_slice}, .fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0};
   auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
-  pimpl->callback->on_stream_data(event);
+  pimpl->callback->on_stream_data(std::move(event));
   return 0;
 }
 }  // namespace ton::quic

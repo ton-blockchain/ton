@@ -18,13 +18,13 @@ class QuicTester : public td::actor::Actor {
       td::Promise<ton::quic::QuicStreamID> P = td::make_promise([this](td::Result<ton::quic::QuicStreamID> R) {
         auto sid = R.move_as_ok();
         td::actor::send_closure(tester_.connection_.get(), &ton::quic::QuicClient::send_stream_data, sid,
-                                td::Slice("GET /\r\n"));
+                                td::BufferSlice("GET /\r\n"));
         td::actor::send_closure(tester_.connection_.get(), &ton::quic::QuicClient::send_stream_end, sid);
       });
       td::actor::send_closure(tester_.connection_.get(), &ton::quic::QuicClient::open_stream, std::move(P));
     }
 
-    void on_stream_data(ton::quic::QuicStreamID, td::Slice data) override {
+    void on_stream_data(ton::quic::QuicStreamID, td::BufferSlice data) override {
       std::cout.flush();
       std::cout.write(data.data(), static_cast<std::streamsize>(data.size()));
       std::cout.flush();
