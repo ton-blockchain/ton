@@ -43,6 +43,39 @@ static td::Status check_vset(const BlockSignatureSet* sig_set, const td::Ref<Val
   return td::Status::OK();
 }
 
+static ton::tl_object_ptr<ton::ton_api::consensus_CandidateParent> clone_tl(
+    const ton::tl_object_ptr<ton::ton_api::consensus_CandidateParent>& f) {
+  ton::tl_object_ptr<ton::ton_api::consensus_CandidateParent> result;
+  ton::ton_api::downcast_call(
+      *f, td::overloaded(
+              [&](const ton::ton_api::consensus_candidateParent& obj) {
+                result = ton::create_tl_object<ton::ton_api::consensus_candidateParent>(
+                    ton::create_tl_object<ton::ton_api::consensus_candidateId>(obj.id_->slot_, obj.id_->hash_));
+              },
+              [&](const ton::ton_api::consensus_candidateWithoutParents&) {
+                result = ton::create_tl_object<ton::ton_api::consensus_candidateWithoutParents>();
+              }));
+  return result;
+}
+
+static ton::tl_object_ptr<ton::ton_api::consensus_CandidateHashData> clone_tl(
+    const ton::tl_object_ptr<ton::ton_api::consensus_CandidateHashData>& f) {
+  ton::tl_object_ptr<ton::ton_api::consensus_CandidateHashData> result;
+  ton::ton_api::downcast_call(
+      *f, td::overloaded(
+              [&](const ton::ton_api::consensus_candidateHashDataOrdinary& obj) {
+                result = ton::create_tl_object<ton::ton_api::consensus_candidateHashDataOrdinary>(
+                    ton::create_tl_block_id(ton::create_block_id(obj.block_)), obj.collated_file_hash_,
+                    clone_tl(obj.parent_));
+              },
+              [&](const ton::ton_api::consensus_candidateHashDataEmpty& obj) {
+                result = ton::create_tl_object<ton::ton_api::consensus_candidateHashDataEmpty>(
+                    ton::create_tl_block_id(ton::create_block_id(obj.block_)),
+                    ton::create_tl_object<ton::ton_api::consensus_candidateId>(obj.parent_->slot_, obj.parent_->hash_));
+              }));
+  return result;
+}
+
 class BlockSignatureSetBase : public BlockSignatureSet {
  public:
   explicit BlockSignatureSetBase(std::vector<ton::BlockSignature> signatures, ton::CatchainSeqno cc_seqno,
@@ -53,34 +86,6 @@ class BlockSignatureSetBase : public BlockSignatureSet {
   virtual td::Result<td::BufferSlice> to_sign(ton::BlockIdExt block_id) const = 0;
   virtual bool check_threshold(ton::ValidatorWeight sig_weight, ton::ValidatorWeight total_weight) const {
     return sig_weight * 3 > total_weight * 2;
-  }
-
-  td::Result<ton::ValidatorWeight> check_signatures_impl(td::Ref<ValidatorSet> vset,
-                                                         ton::BlockIdExt block_id) const override {
-    TRY_STATUS(check_vset(this, vset));
-    TRY_RESULT(data, to_sign(block_id));
-    ton::ValidatorWeight weight = 0;
-    std::set<ton::NodeIdShort> nodes;
-    for (auto& sig : signatures_) {
-      if (nodes.contains(sig.node)) {
-        return td::Status::Error(ton::ErrorCode::protoviolation, "duplicate node");
-      }
-      nodes.insert(sig.node);
-
-      auto validator = vset->get_validator(sig.node);
-      if (!validator) {
-        return td::Status::Error(ton::ErrorCode::protoviolation, "unknown node");
-      }
-
-      auto E = ton::PublicKey{ton::pubkeys::Ed25519{validator->key}}.create_encryptor().move_as_ok();
-      TRY_STATUS(E->check_signature(data, sig.signature.as_slice()));
-      weight += validator->weight;
-    }
-
-    if (!check_threshold(weight, vset->get_total_weight())) {
-      return td::Status::Error(ton::ErrorCode::protoviolation, "too small sig weight");
-    }
-    return weight;
   }
 
   size_t get_size() const override {
@@ -123,6 +128,34 @@ class BlockSignatureSetBase : public BlockSignatureSet {
 
  protected:
   std::vector<ton::BlockSignature> signatures_;
+
+  td::Result<ton::ValidatorWeight> check_signatures_impl(td::Ref<ValidatorSet> vset,
+                                                         ton::BlockIdExt block_id) const override {
+    TRY_STATUS(check_vset(this, vset));
+    TRY_RESULT(data, to_sign(block_id));
+    ton::ValidatorWeight weight = 0;
+    std::set<ton::NodeIdShort> nodes;
+    for (auto& sig : signatures_) {
+      if (nodes.contains(sig.node)) {
+        return td::Status::Error(ton::ErrorCode::protoviolation, "duplicate node");
+      }
+      nodes.insert(sig.node);
+
+      auto validator = vset->get_validator(sig.node);
+      if (!validator) {
+        return td::Status::Error(ton::ErrorCode::protoviolation, "unknown node");
+      }
+
+      auto E = ton::PublicKey{ton::pubkeys::Ed25519{validator->key}}.create_encryptor().move_as_ok();
+      TRY_STATUS(E->check_signature(data, sig.signature.as_slice()));
+      weight += validator->weight;
+    }
+
+    if (!check_threshold(weight, vset->get_total_weight())) {
+      return td::Status::Error(ton::ErrorCode::protoviolation, "too small sig weight");
+    }
+    return weight;
+  }
 };
 
 class BlockSignatureSetOrdinary : public BlockSignatureSetBase {
@@ -218,7 +251,7 @@ class BlockSignatureSetSimplex : public BlockSignatureSetBase {
       copy.emplace_back(s.node, s.signature.clone());
     }
     return new BlockSignatureSetSimplex(std::move(copy), cc_seqno_, validator_set_hash_, session_id_, slot_,
-                                        ton::clone_tl_object(candidate_), final_);
+                                        clone_tl(candidate_), final_);
   }
 
   bool is_final() const override {
@@ -258,7 +291,7 @@ class BlockSignatureSetSimplex : public BlockSignatureSetBase {
     }
     f->session_id_ = session_id_;
     f->slot_ = slot_;
-    f->candidate_ = ton::clone_tl_object(candidate_);
+    f->candidate_ = clone_tl(candidate_);
     f->final_ = final_;
     return f;
   }
@@ -430,7 +463,7 @@ td::Ref<BlockSignatureSet> BlockSignatureSet::fetch(const ton::tl_object_ptr<ton
                 }
                 sig_set = td::Ref<BlockSignatureSetSimplex>(true, std::move(signatures), obj.cc_seqno_,
                                                             obj.validator_set_hash_, obj.session_id_, obj.slot_,
-                                                            ton::clone_tl_object(obj.candidate_), obj.final_);
+                                                            clone_tl(obj.candidate_), obj.final_);
               }));
   return sig_set;
 }
