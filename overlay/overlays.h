@@ -24,7 +24,6 @@
 #include "adnl/adnl.h"
 #include "auto/tl/ton_api.h"
 #include "dht/dht.h"
-#include "rldp2/rldp.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/actor/actor.h"
 #include "td/utils/Status.h"
@@ -270,6 +269,9 @@ struct OverlayOptions {
   td::uint32 default_permanent_members_flags_ = 0;
   double broadcast_speed_multiplier_ = 1.0;
   bool private_ping_peers_ = false;
+
+  bool enable_twostep_broadcast_ = false;
+  td::actor::ActorId<adnl::AdnlSenderInterface> twostep_broadcast_sender_ = {};
 };
 
 class Overlays : public td::actor::Actor {
@@ -312,8 +314,7 @@ class Overlays : public td::actor::Actor {
   }
 
   static td::actor::ActorOwn<Overlays> create(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-                                              td::actor::ActorId<adnl::Adnl> adnl,
-                                              td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<dht::Dht> dht);
+                                              td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht);
 
   virtual void update_dht_node(td::actor::ActorId<dht::Dht> dht) = 0;
 

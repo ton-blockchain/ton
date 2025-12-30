@@ -20,7 +20,6 @@
 
 #include "adnl/adnl.h"
 #include "auto/tl/ton_api.h"
-#include "rldp2/rldp.h"
 #include "td/actor/actor.h"
 #include "td/utils/buffer.h"
 #include "td/utils/int_types.h"
@@ -39,21 +38,18 @@ class Overlay : public td::actor::Actor {
 
   static td::actor::ActorOwn<Overlay> create_public(
       td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-      td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<OverlayManager> manager,
-      td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
-      std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules, td::string scope,
-      OverlayOptions opts = {});
+      td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id,
+      OverlayIdFull overlay_id, std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules,
+      td::string scope, OverlayOptions opts = {});
   static td::actor::ActorOwn<Overlay> create_private(
       td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-      td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<OverlayManager> manager,
-      td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
-      std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules,
-      std::string scope, OverlayOptions opts = {});
+      td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id,
+      OverlayIdFull overlay_id, std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Overlays::Callback> callback,
+      OverlayPrivacyRules rules, std::string scope, OverlayOptions opts = {});
   static td::actor::ActorOwn<Overlay> create_semiprivate(
       td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-      td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<OverlayManager> manager,
-      td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
-      std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
+      td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id,
+      OverlayIdFull overlay_id, std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
       OverlayMemberCertificate cert, std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules,
       std::string scope, OverlayOptions opts = {});
 

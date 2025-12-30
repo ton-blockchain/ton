@@ -169,7 +169,7 @@ void BroadcastsTwostep::signed_simple(OverlayImpl *overlay, BroadcastTwostepData
       cert ? cert->tl() : Certificate::empty_tl(), std::move(data.data), std::move(V.first));
   for (auto &dst : data.dsts) {
     td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message_via, dst, overlay->local_id(),
-                            overlay->overlay_id(), broadcast.clone(), overlay->rldp2());
+                            overlay->overlay_id(), broadcast.clone(), sender_);
   }
 }
 
@@ -185,7 +185,7 @@ void BroadcastsTwostep::signed_fec(OverlayImpl *overlay, BroadcastTwostepDataFec
       cert ? cert->tl() : Certificate::empty_tl(), data.data_hash, data.data_size, data.seqno, std::move(data.part),
       std::move(V.first));
   td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message_via, data.dst, overlay->local_id(),
-                          overlay->overlay_id(), std::move(broadcast), overlay->rldp2());
+                          overlay->overlay_id(), std::move(broadcast), sender_);
 }
 
 static td::Result<BroadcastCheckResult> check_signature_and_certificate(
@@ -202,12 +202,12 @@ static td::Result<BroadcastCheckResult> check_signature_and_certificate(
   return r;
 }
 
-static void rebroadcast(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &bcast_src_adnl_id,
-                        const td::BufferSlice &data) {
+void BroadcastsTwostep::rebroadcast(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &bcast_src_adnl_id,
+                                    const td::BufferSlice &data) {
   overlay->iterate_all_peers([&](const adnl::AdnlNodeIdShort &peer_id, OverlayPeer &) {
     if (peer_id != bcast_src_adnl_id && peer_id != overlay->local_id()) {
       td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message_via, peer_id, overlay->local_id(),
-                              overlay->overlay_id(), data.clone(), overlay->rldp2());
+                              overlay->overlay_id(), data.clone(), sender_);
     }
   });
 }

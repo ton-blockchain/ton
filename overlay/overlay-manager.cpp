@@ -21,7 +21,6 @@
 #include "adnl/utils.hpp"
 #include "auto/tl/ton_api.h"
 #include "auto/tl/ton_api.hpp"
-#include "rldp2/rldp.h"
 #include "td/actor/actor.h"
 #include "td/actor/common.h"
 #include "td/db/RocksDb.h"
@@ -123,10 +122,9 @@ void OverlayManager::create_public_overlay_ex(adnl::AdnlNodeIdShort local_id, Ov
                                               td::string scope, OverlayOptions opts) {
   CHECK(!dht_node_.empty());
   auto id = overlay_id.compute_short_id();
-  register_overlay(
-      local_id, id, OverlayMemberCertificate{},
-      Overlay::create_public(keyring_, adnl_, rldp2_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
-                             std::move(callback), std::move(rules), scope, std::move(opts)));
+  register_overlay(local_id, id, OverlayMemberCertificate{},
+                   Overlay::create_public(keyring_, adnl_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
+                                          std::move(callback), std::move(rules), scope, std::move(opts)));
 }
 
 void OverlayManager::create_private_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
@@ -143,9 +141,9 @@ void OverlayManager::create_private_overlay_ex(adnl::AdnlNodeIdShort local_id, O
                                                std::string scope, OverlayOptions opts) {
   auto id = overlay_id.compute_short_id();
   register_overlay(local_id, id, OverlayMemberCertificate{},
-                   Overlay::create_private(keyring_, adnl_, rldp2_, actor_id(this), dht_node_, local_id,
-                                           std::move(overlay_id), std::move(nodes), std::move(callback),
-                                           std::move(rules), std::move(scope), std::move(opts)));
+                   Overlay::create_private(keyring_, adnl_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
+                                           std::move(nodes), std::move(callback), std::move(rules), std::move(scope),
+                                           std::move(opts)));
 }
 
 void OverlayManager::create_semiprivate_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
@@ -157,7 +155,7 @@ void OverlayManager::create_semiprivate_overlay(adnl::AdnlNodeIdShort local_id, 
   auto id = overlay_id.compute_short_id();
   register_overlay(
       local_id, id, certificate,
-      Overlay::create_semiprivate(keyring_, adnl_, rldp2_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
+      Overlay::create_semiprivate(keyring_, adnl_, actor_id(this), dht_node_, local_id, std::move(overlay_id),
                                   std::move(nodes), std::move(root_public_keys), certificate, std::move(callback),
                                   std::move(rules), std::move(scope), std::move(opts)));
 }
@@ -408,20 +406,13 @@ void OverlayManager::get_overlay_random_peers(adnl::AdnlNodeIdShort local_id, Ov
 }
 
 td::actor::ActorOwn<Overlays> Overlays::create(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-                                               td::actor::ActorId<adnl::Adnl> adnl,
-                                               td::actor::ActorId<rldp2::Rldp> rldp2,
-                                               td::actor::ActorId<dht::Dht> dht) {
-  return td::actor::create_actor<OverlayManager>("overlaymanager", db_root, keyring, adnl, rldp2, dht);
+                                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht) {
+  return td::actor::create_actor<OverlayManager>("overlaymanager", db_root, keyring, adnl, dht);
 }
 
 OverlayManager::OverlayManager(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp2,
-                               td::actor::ActorId<dht::Dht> dht)
-    : db_root_(std::move(db_root))
-    , keyring_(std::move(keyring))
-    , adnl_(std::move(adnl))
-    , rldp2_(std::move(rldp2))
-    , dht_node_(std::move(dht)) {
+                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht)
+    : db_root_(db_root), keyring_(keyring), adnl_(adnl), dht_node_(dht) {
 }
 
 void OverlayManager::start_up() {

@@ -58,11 +58,17 @@ class BroadcastsTwostep {
   void checked(OverlayImpl *overlay, PublicKeyHash &&src, td::BufferSlice &&data, td::Result<td::Unit> &&R);
   void gc(OverlayImpl *overlay);
 
+  void init_sender(td::actor::ActorId<adnl::AdnlSenderInterface> sender) {
+    sender_ = std::move(sender);
+  }
+
  private:
+  td::actor::ActorId<adnl::AdnlSenderInterface> sender_;
   std::map<Overlay::BroadcastHash, std::unique_ptr<BroadcastTwostep>> broadcasts_;
   td::ListNode lru_;
-};
 
+  void rebroadcast(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &bcast_src_adnl_id, const td::BufferSlice &data);
+};
 }  // namespace overlay
 
 }  // namespace ton

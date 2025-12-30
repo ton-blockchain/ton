@@ -197,7 +197,7 @@ class StorageDaemon : public td::actor::Actor {
 
     rldp_ = ton_rldp::Rldp::create(adnl_.get());
     td::actor::send_closure(rldp_, &ton_rldp::Rldp::add_id, local_id_);
-    overlays_ = overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(), rldp_.get(), dht_.get());
+    overlays_ = overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(), dht_.get());
   }
 
   void inited_storage_manager() {

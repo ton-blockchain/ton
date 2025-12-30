@@ -2160,8 +2160,8 @@ void ValidatorEngine::started_rldp() {
 
 void ValidatorEngine::start_overlays() {
   if (!default_dht_node_.is_zero()) {
-    overlay_manager_ = ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(), rldp2_.get(),
-                                                      dht_nodes_[default_dht_node_].get());
+    overlay_manager_ =
+        ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(), dht_nodes_[default_dht_node_].get());
   }
   started_overlays();
 }

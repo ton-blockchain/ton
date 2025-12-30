@@ -42,52 +42,50 @@ static std::string overlay_actor_name(const OverlayIdFull &overlay_id) {
   return PSTRING() << "overlay." << overlay_id.compute_short_id().bits256_value().to_hex().substr(0, 4);
 }
 
-td::actor::ActorOwn<Overlay> Overlay::create_public(
-    td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-    td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<OverlayManager> manager,
-    td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
-    std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules, td::string scope, OverlayOptions opts) {
+td::actor::ActorOwn<Overlay> Overlay::create_public(td::actor::ActorId<keyring::Keyring> keyring,
+                                                    td::actor::ActorId<adnl::Adnl> adnl,
+                                                    td::actor::ActorId<OverlayManager> manager,
+                                                    td::actor::ActorId<dht::Dht> dht_node,
+                                                    adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
+                                                    std::unique_ptr<Overlays::Callback> callback,
+                                                    OverlayPrivacyRules rules, td::string scope, OverlayOptions opts) {
   return td::actor::create_actor<OverlayImpl>(
-      overlay_actor_name(overlay_id), keyring, adnl, rldp2, manager, dht_node, local_id, std::move(overlay_id),
+      overlay_actor_name(overlay_id), keyring, adnl, manager, dht_node, local_id, std::move(overlay_id),
       OverlayType::Public, std::vector<adnl::AdnlNodeIdShort>(), std::vector<PublicKeyHash>(),
       OverlayMemberCertificate{}, std::move(callback), std::move(rules), std::move(scope), std::move(opts));
 }
 
 td::actor::ActorOwn<Overlay> Overlay::create_private(
     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-    td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<OverlayManager> manager,
-    td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
-    std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules,
-    std::string scope, OverlayOptions opts) {
+    td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id,
+    OverlayIdFull overlay_id, std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Overlays::Callback> callback,
+    OverlayPrivacyRules rules, std::string scope, OverlayOptions opts) {
   return td::actor::create_actor<OverlayImpl>(
-      overlay_actor_name(overlay_id), keyring, adnl, rldp2, manager, dht_node, local_id, std::move(overlay_id),
+      overlay_actor_name(overlay_id), keyring, adnl, manager, dht_node, local_id, std::move(overlay_id),
       OverlayType::FixedMemberList, std::move(nodes), std::vector<PublicKeyHash>(), OverlayMemberCertificate{},
       std::move(callback), std::move(rules), std::move(scope), std::move(opts));
 }
 
 td::actor::ActorOwn<Overlay> Overlay::create_semiprivate(
     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-    td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<OverlayManager> manager,
-    td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
-    std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
+    td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id,
+    OverlayIdFull overlay_id, std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
     OverlayMemberCertificate cert, std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules,
     std::string scope, OverlayOptions opts) {
-  return td::actor::create_actor<OverlayImpl>(overlay_actor_name(overlay_id), keyring, adnl, rldp2, manager, dht_node,
+  return td::actor::create_actor<OverlayImpl>(overlay_actor_name(overlay_id), keyring, adnl, manager, dht_node,
                                               local_id, std::move(overlay_id), OverlayType::CertificatedMembers,
                                               std::move(nodes), std::move(root_public_keys), std::move(cert),
                                               std::move(callback), std::move(rules), std::move(scope), std::move(opts));
 }
 
 OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                         td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<OverlayManager> manager,
-                         td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id,
-                         OverlayIdFull overlay_id, OverlayType overlay_type, std::vector<adnl::AdnlNodeIdShort> nodes,
-                         std::vector<PublicKeyHash> root_public_keys, OverlayMemberCertificate cert,
-                         std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules, td::string scope,
-                         OverlayOptions opts)
+                         td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node,
+                         adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id, OverlayType overlay_type,
+                         std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
+                         OverlayMemberCertificate cert, std::unique_ptr<Overlays::Callback> callback,
+                         OverlayPrivacyRules rules, td::string scope, OverlayOptions opts)
     : keyring_(keyring)
     , adnl_(adnl)
-    , rldp2_(rldp2)
     , manager_(manager)
     , dht_node_(dht_node)
     , local_id_(local_id)
@@ -108,6 +106,18 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
   auto nodes_size = static_cast<td::uint32>(nodes.size());
   OverlayImpl::update_root_member_list(std::move(nodes), std::move(root_public_keys), std::move(cert));
   update_neighbours(nodes_size);
+
+  if (opts_.enable_twostep_broadcast_) {
+    if (overlay_type_ == OverlayType::Public) {
+      VLOG(OVERLAY_WARNING) << "Cannot enable twostep broadcasts in public overlay";
+      opts_.enable_twostep_broadcast_ = false;
+    } else if (opts_.twostep_broadcast_sender_.empty()) {
+      VLOG(OVERLAY_WARNING) << "Twostep broadcast sender is not set";
+      opts_.enable_twostep_broadcast_ = false;
+    } else {
+      broadcasts_twostep_.init_sender(opts_.twostep_broadcast_sender_);
+    }
+  }
 }
 
 void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getRandomPeers &query,
@@ -229,11 +239,17 @@ td::Status OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
 
 td::Status OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
                                           tl_object_ptr<ton_api::overlay_broadcastTwostepSimple> bcast) {
+  if (!opts_.enable_twostep_broadcast_) {
+    return td::Status::Error("twostep broadcasts are not enabled");
+  }
   return broadcasts_twostep_.process_broadcast(this, message_from, std::move(bcast));
 }
 
 td::Status OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
                                           tl_object_ptr<ton_api::overlay_broadcastTwostepFec> bcast) {
+  if (!opts_.enable_twostep_broadcast_) {
+    return td::Status::Error("twostep broadcasts are not enabled");
+  }
   return broadcasts_twostep_.process_broadcast(this, message_from, std::move(bcast));
 }
 
@@ -460,7 +476,11 @@ void OverlayImpl::send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td
     VLOG(OVERLAY_WARNING) << "broadcast source certificate is invalid";
     return;
   }
-  broadcasts_fec_.send(this, send_as, std::move(data), flags, opts_.broadcast_speed_multiplier_);
+  if (opts_.enable_twostep_broadcast_) {
+    broadcasts_twostep_.send(this, send_as, std::move(data), flags);
+  } else {
+    broadcasts_fec_.send(this, send_as, std::move(data), flags, opts_.broadcast_speed_multiplier_);
+  }
 }
 
 void OverlayImpl::print(td::StringBuilder &sb) {
@@ -545,10 +565,6 @@ void OverlayImpl::send_new_fec_broadcast_part(PublicKeyHash local_id, Overlay::B
                                               td::uint32 size, td::uint32 flags, td::BufferSlice part, td::uint32 seqno,
                                               fec::FecType fec_type, td::uint32 date) {
   broadcasts_fec_.send_part(this, local_id, data_hash, size, flags, std::move(part), seqno, std::move(fec_type), date);
-}
-
-void OverlayImpl::send_broadcast_twostep(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) {
-  broadcasts_twostep_.send(this, send_as, std::move(data), flags);
 }
 
 void OverlayImpl::broadcast_twostep_signed_simple(BroadcastTwostepDataSimple &&data,

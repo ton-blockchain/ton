@@ -33,7 +33,6 @@
 #include "common/errorlog.h"
 #include "dht/dht.h"
 #include "overlay/overlays.h"
-#include "rldp2/rldp.h"
 #include "td/utils/OptionParser.h"
 #include "td/utils/Random.h"
 #include "td/utils/Time.h"
@@ -230,7 +229,6 @@ int main(int argc, char *argv[]) {
   td::actor::ActorOwn<ton::keyring::Keyring> keyring;
   td::actor::ActorOwn<ton::adnl::TestLoopbackNetworkManager> network_manager;
   td::actor::ActorOwn<ton::adnl::Adnl> adnl;
-  td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
   td::actor::ActorOwn<ton::overlay::Overlays> overlay_manager;
 
   td::actor::Scheduler scheduler({7});
@@ -239,9 +237,8 @@ int main(int argc, char *argv[]) {
     keyring = ton::keyring::Keyring::create(db_root_);
     network_manager = td::actor::create_actor<ton::adnl::TestLoopbackNetworkManager>("test net");
     adnl = ton::adnl::Adnl::create(db_root_, keyring.get());
-    rldp2 = ton::rldp2::Rldp::create(adnl.get());
-    overlay_manager = ton::overlay::Overlays::create(db_root_, keyring.get(), adnl.get(), rldp2.get(),
-                                                     td::actor::ActorId<ton::dht::Dht>{});
+    overlay_manager =
+        ton::overlay::Overlays::create(db_root_, keyring.get(), adnl.get(), td::actor::ActorId<ton::dht::Dht>{});
     td::actor::send_closure(adnl, &ton::adnl::Adnl::register_network_manager, network_manager.get());
   });
 

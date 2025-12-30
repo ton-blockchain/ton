@@ -165,11 +165,10 @@ class OverlayPeer {
 class OverlayImpl : public Overlay {
  public:
   OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-              td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<OverlayManager> manager,
-              td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
-              OverlayType overlay_type, std::vector<adnl::AdnlNodeIdShort> nodes,
-              std::vector<PublicKeyHash> root_public_keys, OverlayMemberCertificate cert,
-              std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules,
+              td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node,
+              adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id, OverlayType overlay_type,
+              std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
+              OverlayMemberCertificate cert, std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules,
               td::string scope = "{ \"type\": \"undefined\" }", OverlayOptions opts = {});
   void update_dht_node(td::actor::ActorId<dht::Dht> dht) override {
     dht_node_ = dht;
@@ -251,7 +250,6 @@ class OverlayImpl : public Overlay {
                                    td::uint32 flags, td::BufferSlice part, td::uint32 seqno, fec::FecType fec_type,
                                    td::uint32 date);
 
-  void send_broadcast_twostep(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data);
   void broadcast_twostep_signed_simple(BroadcastTwostepDataSimple &&data,
                                        td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
   void broadcast_twostep_signed_fec(BroadcastTwostepDataFec &&data,
@@ -265,9 +263,6 @@ class OverlayImpl : public Overlay {
   }
   td::actor::ActorId<adnl::Adnl> adnl() const {
     return adnl_;
-  }
-  td::actor::ActorId<rldp2::Rldp> rldp2() const {
-    return rldp2_;
   }
   td::actor::ActorId<keyring::Keyring> keyring() const {
     return keyring_;
@@ -394,7 +389,6 @@ class OverlayImpl : public Overlay {
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<rldp2::Rldp> rldp2_;
   td::actor::ActorId<OverlayManager> manager_;
   td::actor::ActorId<dht::Dht> dht_node_;
   adnl::AdnlNodeIdShort local_id_;
