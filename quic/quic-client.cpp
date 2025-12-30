@@ -159,8 +159,8 @@ void QuicClient::open_stream(td::Promise<QuicStreamID> P) {
   P.set_result(p_impl_->open_stream());
 }
 
-void QuicClient::send_stream_data(QuicStreamID sid, td::Slice data) {
-  flush_egress({.stream_data = EgressData::StreamData{.sid = sid, .data = data, .fin = false}});
+void QuicClient::send_stream_data(QuicStreamID sid, td::BufferSlice data) {
+  flush_egress({.stream_data = EgressData::StreamData{.sid = sid, .data = std::move(data), .fin = false}});
 }
 
 void QuicClient::send_stream_end(QuicStreamID sid) {
@@ -175,12 +175,12 @@ QuicClient::QuicClient(td::UdpSocketFd fd, std::unique_ptr<QuicConnectionPImpl> 
     explicit PImplCallback(QuicClient& connection) : connection_(connection) {
     }
 
-    void on_handshake_completed(const HandshakeCompletedEvent& event) override {
+    void on_handshake_completed(HandshakeCompletedEvent event) override {
       connection_.callback_->on_connected();
     }
 
-    void on_stream_data(const StreamDataEvent& event) override {
-      connection_.callback_->on_stream_data(event.sid, event.data);
+    void on_stream_data(StreamDataEvent event) override {
+      connection_.callback_->on_stream_data(event.sid, std::move(event.data));
       if (event.fin) {
         connection_.callback_->on_stream_end(event.sid);
       }

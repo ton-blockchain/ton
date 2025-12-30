@@ -19,12 +19,12 @@ struct QuicConnectionPImpl {
     struct HandshakeCompletedEvent {};
     struct StreamDataEvent {
       QuicStreamID sid = 0;
-      td::Slice data;
+      td::BufferSlice data;
       bool fin = false;
     };
 
-    virtual void on_handshake_completed(const HandshakeCompletedEvent& event) = 0;
-    virtual void on_stream_data(const StreamDataEvent& event) = 0;
+    virtual void on_handshake_completed(HandshakeCompletedEvent event) = 0;
+    virtual void on_stream_data(StreamDataEvent event) = 0;
 
     virtual ~Callback() = default;
   };
@@ -55,7 +55,6 @@ struct QuicConnectionPImpl {
 
   [[nodiscard]] td::Result<QuicStreamID> open_stream();
   [[nodiscard]] td::Status write_stream(UdpMessageBuffer& msg_out, QuicStreamID sid, td::Slice data, bool fin);
-  [[nodiscard]] td::Status write_reply(td::Slice data, bool fin);
 
   ~QuicConnectionPImpl() {
     if (conn) {

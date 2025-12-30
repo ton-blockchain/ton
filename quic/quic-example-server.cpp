@@ -21,8 +21,8 @@ class QuicHttpServer : public td::actor::Actor {
       td::actor::send_closure(server_, &QuicHttpServer::on_connected, peer);
     }
 
-    void on_stream_data(const td::IPAddress &peer, ton::quic::QuicStreamID sid, td::Slice data) override {
-      td::actor::send_closure(server_, &QuicHttpServer::on_stream_data, peer, td::BufferSlice(data));
+    void on_stream_data(const td::IPAddress &peer, ton::quic::QuicStreamID sid, td::BufferSlice data) override {
+      td::actor::send_closure(server_, &QuicHttpServer::on_stream_data, peer, std::move(data));
     }
 
     void on_stream_end(const td::IPAddress &peer, ton::quic::QuicStreamID sid) override {
@@ -106,7 +106,7 @@ class QuicHttpServer : public td::actor::Actor {
     const auto &stored = responses_.back();
 
     LOG(INFO) << "request finished from " << peer << ", replying on stream " << sid_;
-    td::actor::send_closure(server_.get(), &ton::quic::QuicServer::send_stream_data, peer, sid_, td::Slice(stored));
+    td::actor::send_closure(server_.get(), &ton::quic::QuicServer::send_stream_data, peer, sid_, td::BufferSlice(stored));
     td::actor::send_closure(server_.get(), &ton::quic::QuicServer::send_stream_end, peer, sid_);
 
     while (responses_.size() > 1024) {

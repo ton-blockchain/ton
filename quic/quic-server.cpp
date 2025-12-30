@@ -135,15 +135,15 @@ td::Result<QuicServer::ConnectionState *> QuicServer::get_or_create_connection(c
     PImplCallback(QuicServer &server, td::IPAddress peer) : server_(server), peer_(peer) {
     }
 
-    void on_handshake_completed(const HandshakeCompletedEvent &) override {
+    void on_handshake_completed(HandshakeCompletedEvent event) override {
       if (server_.callback_) {
         server_.callback_->on_connected(peer_);
       }
     }
 
-    void on_stream_data(const StreamDataEvent &event) override {
+    void on_stream_data(StreamDataEvent event) override {
       if (server_.callback_) {
-        server_.callback_->on_stream_data(peer_, event.sid, event.data);
+        server_.callback_->on_stream_data(peer_, event.sid, std::move(event.data));
         if (event.fin) {
           server_.callback_->on_stream_end(peer_, event.sid);
         }
@@ -267,13 +267,13 @@ void QuicServer::flush_egress_all() {
   }
 }
 
-void QuicServer::send_stream_data(const td::IPAddress &peer, QuicStreamID sid, td::Slice data) {
+void QuicServer::send_stream_data(const td::IPAddress &peer, QuicStreamID sid, td::BufferSlice data) {
   auto it = connections_.find(peer);
   if (it == connections_.end()) {
     LOG(WARNING) << "send_stream_data to unknown peer " << peer;
     return;
   }
-  flush_egress_for(peer, it->second, {.stream_data = EgressData::StreamData{.sid = sid, .data = data, .fin = false}});
+  flush_egress_for(peer, it->second, {.stream_data = EgressData::StreamData{.sid = sid, .data = std::move(data), .fin = false}});
 }
 
 void QuicServer::send_stream_end(const td::IPAddress &peer, QuicStreamID sid) {
