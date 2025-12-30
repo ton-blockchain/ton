@@ -462,6 +462,7 @@ void CatChainReceiverImpl::debug_add_fork(td::BufferSlice payload, CatChainBlock
 CatChainReceiverImpl::CatChainReceiverImpl(std::unique_ptr<Callback> callback, const CatChainOptions &opts,
                                            td::actor::ActorId<keyring::Keyring> keyring,
                                            td::actor::ActorId<adnl::Adnl> adnl,
+                                           td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender,
                                            td::actor::ActorId<overlay::Overlays> overlay_manager,
                                            const std::vector<CatChainNode> &ids, const PublicKeyHash &local_id,
                                            const CatChainSessionId &unique_hash, std::string db_root,
@@ -470,6 +471,7 @@ CatChainReceiverImpl::CatChainReceiverImpl(std::unique_ptr<Callback> callback, c
     , opts_(opts)
     , keyring_(std::move(keyring))
     , adnl_(std::move(adnl))
+    , adnl_sender_(std::move(adnl_sender))
     , overlay_manager_(std::move(overlay_manager))
     , local_id_(local_id)
     , db_root_(std::move(db_root))
@@ -523,6 +525,9 @@ void CatChainReceiverImpl::start_up() {
   overlay::OverlayOptions overlay_options;
   overlay_options.broadcast_speed_multiplier_ = opts_.broadcast_speed_multiplier;
   overlay_options.private_ping_peers_ = true;
+  // Uncomment these to enable twostep broadcasts in catchain overlays:
+  // overlay_options.enable_twostep_broadcast_ = true;
+  // overlay_options.twostep_broadcast_sender_ = adnl_sender_;
   td::actor::send_closure(overlay_manager_, &overlay::Overlays::create_private_overlay_ex,
                           get_source(local_idx_)->get_adnl_id(), overlay_full_id_.clone(), std::move(ids),
                           make_callback(), overlay::OverlayPrivacyRules{0, 0, std::move(root_keys)},
@@ -653,12 +658,14 @@ void CatChainReceiverImpl::read_db() {
 
 td::actor::ActorOwn<CatChainReceiverInterface> CatChainReceiverInterface::create(
     std::unique_ptr<Callback> callback, const CatChainOptions &opts, td::actor::ActorId<keyring::Keyring> keyring,
-    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<overlay::Overlays> overlay_manager,
-    const std::vector<CatChainNode> &ids, const PublicKeyHash &local_id, const CatChainSessionId &unique_hash,
-    std::string db_root, std::string db_suffix, bool allow_unsafe_self_blocks_resync) {
+    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender,
+    td::actor::ActorId<overlay::Overlays> overlay_manager, const std::vector<CatChainNode> &ids,
+    const PublicKeyHash &local_id, const CatChainSessionId &unique_hash, std::string db_root, std::string db_suffix,
+    bool allow_unsafe_self_blocks_resync) {
   auto A = td::actor::create_actor<CatChainReceiverImpl>(
-      "catchainreceiver", std::move(callback), opts, std::move(keyring), std::move(adnl), std::move(overlay_manager),
-      ids, local_id, unique_hash, std::move(db_root), std::move(db_suffix), allow_unsafe_self_blocks_resync);
+      "catchainreceiver", std::move(callback), opts, std::move(keyring), std::move(adnl), std::move(adnl_sender),
+      std::move(overlay_manager), ids, local_id, unique_hash, std::move(db_root), std::move(db_suffix),
+      allow_unsafe_self_blocks_resync);
   return std::move(A);
 }
 
