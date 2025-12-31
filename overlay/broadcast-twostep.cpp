@@ -310,8 +310,9 @@ void BroadcastsTwostep::gc(OverlayImpl *overlay) {
     if (bcast->date > td::Clocks::system() - 60) {
       break;
     }
-    broadcasts_.erase(bcast->broadcast_id);
-    overlay->register_delivered_broadcast(bcast->broadcast_id);
+    auto broadcast_id = bcast->broadcast_id;
+    broadcasts_.erase(broadcast_id);
+    overlay->register_delivered_broadcast(broadcast_id);
   }
 }
 

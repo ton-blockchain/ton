@@ -445,6 +445,7 @@ void OverlayImpl::update_dht_nodes(OverlayNode node) {
 void OverlayImpl::bcast_gc() {
   broadcasts_simple_.gc(this);
   broadcasts_fec_.gc(this);
+  broadcasts_twostep_.gc(this);
   while (bcast_lru_.size() > max_bcasts()) {
     auto Id = bcast_lru_.front();
     bcast_lru_.pop();
