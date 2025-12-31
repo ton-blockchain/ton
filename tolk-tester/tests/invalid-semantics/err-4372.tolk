@@ -17,5 +17,5 @@ fun test(p: Point) {
 
 /**
 @compilation_should_fail
-@stderr can not borrow `p` for mutation, because `p.x` is already being mutated by `assignment operator` 
+@stderr can not borrow `p` for mutation, because `p.x` is already being mutated by `assignment operator`
  */

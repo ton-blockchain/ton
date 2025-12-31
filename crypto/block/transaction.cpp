@@ -96,9 +96,9 @@ Ref<vm::Cell> ComputePhaseConfig::lookup_library(td::ConstBitPtr key) const {
 }
 
 /*
- * 
+ *
  *   ACCOUNTS
- * 
+ *
  */
 
 /**
@@ -148,7 +148,7 @@ bool Account::check_addr_rewrite_length(int length) const {
 
 /**
  * Parses anycast data of the account address.
- * 
+ *
  * Initializes addr_rewrite.
  *
  * @param cs The cell slice containing partially-parsed account address.
@@ -244,7 +244,7 @@ bool Account::unpack_address(vm::CellSlice& addr_cs) {
 
 /**
  * Unpacks storage information from a CellSlice.
- * 
+ *
  * Storage information is serialized using StorageInfo TLB-scheme.
  *
  * @param cs The CellSlice containing the storage information.
@@ -434,7 +434,7 @@ bool Account::init_rewrite_addr(int rewrite_length, td::ConstBitPtr orig_addr_re
 
 /**
  * Unpacks the account information from the provided CellSlice.
- * 
+ *
  * Used to unpack previously existing accounts.
  *
  * @param shard_account The ShardAccount to unpack.
@@ -2345,7 +2345,7 @@ int Transaction::try_action_change_library(vm::CellSlice& cs, ActionPhase& ap, c
 
 /**
  * Computes the forward fees for a message based on the number of cells and bits.
- * 
+ *
  * msg_fwd_fees = (lump_price + ceil((bit_price * msg.bits + cell_price * msg.cells)/2^16)) nanograms
  * ihr_fwd_fees = ceil((msg_fwd_fees * ihr_price_factor)/2^16) nanograms
  * bits in the root cell of a message are not included in msg.bits (lump_price pays for them)
@@ -3403,9 +3403,9 @@ bool Transaction::prepare_bounce_phase(const ActionPhaseConfig& cfg) {
 }  // namespace transaction
 
 /*
- * 
+ *
  *  SERIALIZE PREPARED TRANSACTION
- * 
+ *
  */
 
 /**
@@ -3634,7 +3634,7 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
 
 /**
  * Serializes the transaction object using Transaction TLB-scheme.
- * 
+ *
  * Updates root.
  *
  * @param cfg The configuration for the serialization.
@@ -3951,9 +3951,9 @@ bool Transaction::update_limits(block::BlockLimitStatus& blimst, bool with_gas, 
 }
 
 /*
- * 
+ *
  *  COMMIT TRANSACTION
- * 
+ *
  */
 
 /**

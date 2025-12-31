@@ -26,19 +26,19 @@ namespace ton {
 namespace adnl {
 
 /*
-  from:flags.0?PublicKey 
+  from:flags.0?PublicKey
   from_short:flags.1?adnl.id.short
-  message:flags.2?adnl.Message 
+  message:flags.2?adnl.Message
   messages:flags.3?(vector adnl.Message)
-  address:flags.4?adnl.addressList 
+  address:flags.4?adnl.addressList
   priority_address:flags.5?adnl.addressList
-  seqno:flags.6?long 
-  confirm_seqno:flags.7?long 
+  seqno:flags.6?long
+  confirm_seqno:flags.7?long
   recv_addr_list_version:flags.8?int
   recv_priority_addr_list_version:flags.9?int
-  reinit_date:flags.10?int 
+  reinit_date:flags.10?int
   dst_reinit_date:flags.10?int
-  signature:flags.11?bytes 
+  signature:flags.11?bytes
   */
 
 // total packet length:

@@ -42,6 +42,10 @@ jobs:
           -DTON_WERROR_BUILD=On
         ninja -C build
 
+    - name: Check spaces at EOL
+      run: |
+        ! git grep --cached -Il '\s$' :!example/android/third_party
+
     - name: Check C++ formatting
       run: |
         # TODO: Run clang-format only on changed files.

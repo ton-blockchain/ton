@@ -165,7 +165,7 @@ _ __gen_Context_get_sender((int, slice, int, slice) v) inline {
 }
 
 (int, int, slice, cell, cell) __gen_JettonData_to_external(((int, int, slice, cell, cell)) v) {
-    var (v'totalSupply, v'mintable, v'owner, v'content, v'walletCode) = v; 
+    var (v'totalSupply, v'mintable, v'owner, v'content, v'walletCode) = v;
     return (v'totalSupply, v'mintable, v'owner, v'content, v'walletCode);
 }
 
@@ -258,7 +258,7 @@ cell $__gen_JettonDefaultWallet_init(cell sys', slice $master, slice $owner) {
     slice sc' = sys'.begin_parse();
     cell source = sc'~load_dict();
     cell contracts = new_dict();
-    
+
     ;; Contract Code: JettonDefaultWallet
     cell mine = __tact_dict_get_code(source, 55471);
     contracts = __tact_dict_set_code(contracts, 55471, mine);
@@ -366,7 +366,7 @@ _ $__gen_get_owner() method_id(83229) {
 
 
 () recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
-    
+
     ;; Parse incoming message
     int op = 0;
     if (slice_bits(in_msg) >= 32) {
@@ -377,12 +377,12 @@ _ $__gen_get_owner() method_id(83229) {
     var msg_bounced = ((msg_flags & 1) == 1 ? true : false);
     slice msg_sender_addr = cs~load_msg_addr();
     __tact_context = (msg_bounced, msg_sender_addr, msg_value, cs);
-    
+
     ;; Handle bounced messages
     if (msg_bounced) {
         return ();
     }
-    
+
     ;; Receive Mint message
     if (op == 33240155) {
         var self = __gen_load_SampleJetton();
@@ -391,7 +391,7 @@ _ $__gen_get_owner() method_id(83229) {
         __gen_store_SampleJetton(self);
         return ();
     }
-    
+
     ;; Receive TokenUpdateContent message
     if (op == 201882270) {
         var self = __gen_load_SampleJetton();
@@ -400,7 +400,7 @@ _ $__gen_get_owner() method_id(83229) {
         __gen_store_SampleJetton(self);
         return ();
     }
-    
+
     ;; Receive TokenBurnNotification message
     if (op == 2078119902) {
         var self = __gen_load_SampleJetton();
@@ -409,11 +409,11 @@ _ $__gen_get_owner() method_id(83229) {
         __gen_store_SampleJetton(self);
         return ();
     }
-    
+
     ;; Text Receivers
     if (op == 0) {
         var text_op = slice_hash(in_msg);
-        
+
         ;; Receive "Mint!" message
         if (text_op == 0xcd0d986cb1a2f468ae7089f4fc3162c116e5f53fbd11a6839f52dbf5040830b2) {
             var self = __gen_load_SampleJetton();
@@ -422,7 +422,7 @@ _ $__gen_get_owner() method_id(83229) {
             return ();
         }
     }
-    
+
     throw(130);
 }
 

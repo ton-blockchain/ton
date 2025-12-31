@@ -17,9 +17,9 @@ set(OVERLAY_SOURCE
 
 add_library(overlay STATIC ${OVERLAY_SOURCE})
 
-target_include_directories(overlay PUBLIC 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
+target_include_directories(overlay PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
   ${OPENSSL_INCLUDE_DIR}
 )
 target_link_libraries(overlay PRIVATE tdutils tdactor adnl tl_api dht fec)

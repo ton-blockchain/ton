@@ -415,7 +415,7 @@ fun main(){
 
 @fif_codegen
 """
-  testReceiverAndNot() PROC:<{  // 
+  testReceiverAndNot() PROC:<{  //
     30 PUSHINT                  //  '6=30
     40 PUSHINT                  //  obj.f1=30 obj.f2=40
     OVER

@@ -47,7 +47,7 @@ __Enabled in mainnet on 2024-02-03__
 ### Gas limits
 Version 5 enables higher gas limits for special contracts.
 
-* Gas limit for all transactions on special contracts is set to `special_gas_limit` from `ConfigParam 20` (which is 35M at the moment of writing). 
+* Gas limit for all transactions on special contracts is set to `special_gas_limit` from `ConfigParam 20` (which is 35M at the moment of writing).
 Previously only ticktock transactions had this limit, while ordinary transactions had a default limit of `gas_limit` gas (1M).
 * Gas usage of special contracts is not taken into account when checking block limits. This allows keeping masterchain block limits low
 while having high gas limits for elector.

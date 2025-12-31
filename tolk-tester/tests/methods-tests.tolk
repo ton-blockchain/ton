@@ -297,7 +297,7 @@ fun AssetList.validate(self): int2 { return 0 }
 fun test19(b: BalanceList, a: AssetList) {
     __expect_type(b.validate(), "int1");
     __expect_type(a.validate(), "int2");
-    
+
     if (b == null) {}
     match (a) {
         null => {}

@@ -29,9 +29,9 @@ namespace block {
 using td::Ref;
 
 /*
- * 
+ *
  *   BLOCK DATABASE
- * 
+ *
  */
 
 class BlockDbImpl;

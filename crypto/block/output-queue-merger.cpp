@@ -21,9 +21,9 @@
 namespace block {
 
 /*
- * 
- *  OUTPUT QUEUE MERGER 
- * 
+ *
+ *  OUTPUT QUEUE MERGER
+ *
  */
 
 bool OutputQueueMerger::MsgKeyValue::operator<(const MsgKeyValue& other) const {

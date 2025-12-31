@@ -21,5 +21,5 @@ fun main() {
 /**
 @compilation_should_fail
 @stderr method `method1` not found for type `WithDefaults<int, cell>`
-@stderr (but it exists for type `WithDefaults<T1, slice>`  
+@stderr (but it exists for type `WithDefaults<T1, slice>`
  */

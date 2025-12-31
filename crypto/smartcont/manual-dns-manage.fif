@@ -14,7 +14,7 @@ begin-options
     +cr +"<op> is an operation description, one of" +cr +tab
     +"add <subdomain> cat <cat-id> (smc <smc-addr> | next <next-resolver-smc-addr> | adnl <adnl-addr> | text <string>)" +cr +tab
     +"delete <subdomain> cat <cat-id>" +cr +tab
-    +"drop <subdomain>" 
+    +"drop <subdomain>"
     disable-digit-options generic-help-setopt
   "t" "--timeout" { parse-int =: timeout } short-long-option-arg
     "Sets expiration timeout in seconds (" timeout (.) $+ +" by default)" option-help
@@ -47,7 +47,7 @@ variable Actions
 } : parse-cat-num
 { @end? abort"`cat` expected" @next "cat" $= not abort"`cat` expected" parse-cat-num
 } : parse-cat
-{ @end? abort"smart contract address expected" 
+{ @end? abort"smart contract address expected"
   @next false parse-load-address drop triple
 } : cl-parse-smc-addr
 { @end? abort"adnl address expected"
@@ -96,11 +96,11 @@ file-base +"-dns" +contractid +".addr" load-address
   dup `smc eq? { drop untriple 2swap drop x{9fd3} s, -rot Addr, 0 8 u, } {
   dup `next eq? { drop untriple 2swap drop x{ba93} s, -rot Addr, } {
   dup `adnl eq? { drop second swap x{ad01} s, swap 256 u, 0 8 u, } {
-  dup `text eq? { drop second swap x{1eda01} s, over $len 8 u, swap $, } { 
+  dup `text eq? { drop second swap x{1eda01} s, over $len 8 u, swap $, } {
     abort"unknown value type"
   } cond } cond } cond } cond
 } : value,
-{ subdomain>s dup sbits 3 >> 
+{ subdomain>s dup sbits 3 >>
   dup 63 > { drop s>c dict, } { rot swap 7 u, swap s, } cond
 } : subdomain,
 // ( A -- b )
