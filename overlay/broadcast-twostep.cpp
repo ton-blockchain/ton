@@ -141,6 +141,7 @@ void BroadcastsTwostep::send(OverlayImpl *overlay, PublicKeyHash send_as, td::Bu
                             std::move(P));
   }
   if (!overlay->is_delivered(broadcast_id)) {
+    overlay->register_delivered_broadcast(broadcast_id);
     overlay->deliver_broadcast(send_as, std::move(data));
   }
 }
