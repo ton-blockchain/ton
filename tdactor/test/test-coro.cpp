@@ -542,12 +542,22 @@ class CoroSpec final : public td::actor::Actor {
   Task<td::Unit> helpers() {
     LOG(INFO) << "=== Task helper ===";
     CHECK(5 == co_await td::actor::detail::make_awaitable(5));
+
     auto get7 = []() -> Task<int> { co_return 7; };
     CHECK(7 == co_await get7());
-    auto square = [](size_t x) -> Task<size_t> { co_return x* x; };
-    auto res = co_await get7().start().then(square);
-    CHECK(res == 49);
-    co_return td::Unit();
+
+    auto square_async = [](size_t x) -> Task<size_t> { co_return x* x; };
+    auto res_async = co_await get7().start().then(square_async);
+    CHECK(res_async == 49);
+
+    auto square_sync = [](size_t x) -> size_t { return x * x; };
+    auto res_sync = co_await get7().start().then(square_sync);
+    CHECK(res_sync == 49);
+
+    auto square_error = [](size_t x) -> td::Result<size_t> { return td::Status::Error("I forgor arithmetic!"); };
+    auto res_error = co_await get7().start().then(square_error).wrap();
+    CHECK(res_error.is_error());
+
     co_return td::Unit();
   }
 

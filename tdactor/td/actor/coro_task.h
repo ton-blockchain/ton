@@ -442,7 +442,7 @@ struct [[nodiscard]] StartedTask {
     using FDecayed = std::decay_t<F>;
     using Awaitable = decltype(detail::make_awaitable(std::declval<FDecayed&>()(std::declval<T&&>())));
     using Ret = decltype(std::declval<Awaitable&>().await_resume());
-    using U = std::conditional_t<TDResultLike<Ret>, decltype(std::declval<Ret&&>().move_as_ok()), Ret>;
+    using U = detail::UnwrapTDResult<Ret>::Type;
     return [](Self task, FDecayed fn) mutable -> Task<U> {
       co_await become_lightweight();
       auto value = co_await std::move(task);

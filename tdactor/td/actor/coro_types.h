@@ -30,6 +30,16 @@ concept CoroTask = requires(T t) {
 };
 
 namespace detail {
+template <typename T>
+struct UnwrapTDResult {
+  using Type = T;
+};
+
+template <TDResultLike T>
+struct UnwrapTDResult<T> {
+  using Type = decltype(std::declval<T>().move_as_ok());
+};
+
 template <class Aw>
 inline std::coroutine_handle<> await_suspend_to(Aw& aw, std::coroutine_handle<> cont) noexcept {
   if constexpr (std::is_same_v<decltype(aw.await_suspend(cont)), void>) {
