@@ -22,6 +22,7 @@
 #include "tl-utils/common-utils.hpp"
 #include "tl-utils/tl-utils.hpp"
 #include "ton/ton-tl.hpp"
+#include "vm/cells/CellString.h"
 
 #include "block-auto.h"
 #include "mc-config.h"
@@ -330,7 +331,8 @@ class BlockSignatureSetSimplex : public BlockSignatureSetBase {
     cb.store_maybe_ref(dict_root);
     cb.store_bytes(session_id_.as_slice());
     cb.store_long(slot_, 32);
-    cb.store_ref(vm::CellBuilder{}.store_bytes(ton::serialize_tl_object(candidate_, true)).finalize_novm());
+    TRY_RESULT(candidate_cell, vm::CellString::create(ton::serialize_tl_object(candidate_, true)));
+    cb.store_ref(candidate_cell);
     return cb.finalize_novm();
   }
 
@@ -405,11 +407,7 @@ td::Result<td::Ref<BlockSignatureSet>> BlockSignatureSet::fetch(td::Ref<vm::Cell
     if (gen::BlockSignatures::Record_block_signatures_simplex rec; gen::unpack_cell(cell, rec)) {
       TRY_RESULT(signatures, unpack_signatures_dict(rec.signatures->prefetch_ref()));
       vm::CellSlice candidate_cs = vm::load_cell_slice(rec.candidate_data);
-      if (candidate_cs.size_refs() > 0 || candidate_cs.size() % 8 != 0) {
-        return td::Status::Error("invalid candidate data");
-      }
-      td::BufferSlice candidate_data(candidate_cs.size() / 8);
-      candidate_cs.prefetch_bytes(candidate_data.as_slice());
+      TRY_RESULT(candidate_data, vm::CellString::load(candidate_cs));
       TRY_RESULT(candidate, ton::fetch_tl_object<ton::ton_api::consensus_CandidateHashData>(candidate_data, true));
       auto sig_set = create_simplex(std::move(signatures), rec.catchain_seqno, rec.validator_list_hash_short,
                                     rec.session_id, rec.slot, std::move(candidate));
