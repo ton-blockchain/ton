@@ -167,9 +167,9 @@ class CheckMutationNotHappensTwiceVisitor final : public ASTVisitorFunctionBody 
       }
       return;
     }
-    if (auto lhs_tuple = lhs->try_as<ast_bracket_tuple>()) {
-      for (int i = 0; i < lhs_tuple->size(); ++i) {
-        process_assignment_lhs(lhs_tuple->get_item(i));
+    if (auto lhs_square = lhs->try_as<ast_square_brackets>()) {
+      for (int i = 0; i < lhs_square->size(); ++i) {
+        process_assignment_lhs(lhs_square->get_item(i));
       }
       return;
     }

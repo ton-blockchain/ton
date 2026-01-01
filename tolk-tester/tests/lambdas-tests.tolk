@@ -150,13 +150,12 @@ fun test9() {
     var t = createEmptyTuple();
     t.push(fun() { return fun(x: int) { return x + 3 } }());
     t.push(fun() {});
-    t.1 = fun() { g103 -= 500; };
+    t.set(fun() { g103 -= 500; }, 1);
 
-    var t2 = [1, fun() {}];
-    __expect_type(t2, "[int, () -> void]");
+    var t2 = [1, fun() {}] as [int16, () -> void];
     t2.1 = fun() { g103 -= 500; };
 
-    return (t.get<() -> void>(1)(), t2.1(), g103, t.get<(int) -> int>(0)(t2.0 += 4));
+    return ((t.get(1) as () -> void)(), t2.1(), g103, (t.get(0) as unknown as (int) -> int)(t2.0 += 4));
 }
 
 @method_id(110)

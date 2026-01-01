@@ -36,11 +36,6 @@ type builder = builtin
 /// the basis for function calls, exception handling, and control flow operations. 
 type continuation = builtin
 
-/// `tuple` is a collection from 0 to 255 elements of any type.
-/// You can push, pop, access individual elements as `someTuple.0`.
-/// A tuple occupies one stack slot regardless of its size.
-type tuple = builtin
-
 /// `address` represents a standard (internal) address: workchain + hash.
 /// Addresses are comparable with `==` operator, they have methods like [address.getWorkchain].
 /// In binary, it's 267 bits: '10' (addr_std) + '0' (no anycast) + workchain (int8) + hash (uint256).
@@ -110,7 +105,41 @@ struct map<K, V> {
     private tvmDict: dict
 }
 
-/// `dict` is a low-level TVM dictionary.
+/// `array<T>` is a container that stores from 0 to 255 elements of type T.
+/// Internally, it's a TVM tuple: the i-th element of a TVM tuple is the i-th element of an array.
+/// On a stack, an array occupies one stack slot regardless of its size.
+/// `T` can be any type (complex types are converted to sub-tuples under the hood).
+/// Work with array using its methods: `arr.push(v)`, `arr.get(i)`, etc.
+struct array<T> {
+    private tvmTuple: tuple
+}
+
+/// `unknown` represents one TVM primitive (one stack slot) with a kind unknown at compile-time.
+/// Any type `T` can be cast to `unknown` and back. If T is a TVM primitive, it's a type-only cast.
+/// Otherwise, an object is converted to a tuple, and is still stored as one stack slot.
+/// ```
+/// var u1 = 5 as unknown;         // stack: "5"
+/// u1 as int;                     // stack: "5"
+/// var u2 = (10, 20) as unknown;  // stack: "[ 10 20 ]" (a TVM tuple)
+/// u2 as (int, int);              // stack: "10 20" (two integers)
+/// ```
+/// Be extremely careful using `unknown`, because the compiler is unable to validate the casts.
+/// An invalid cast from your side leads to stack corruption, resulting in undefined behavior.
+type unknown = builtin
+
+/// `tuple` represents a TVM tuple. Essentially, it's "an array of unknown elements".
+/// Reading an individual element results in `unknown`, cast it to perform some actions:
+/// ```
+/// // wrong:
+/// var elem = someTuple.get(0);    // unknown
+/// return elem + 123;              // error, can not apply `+`
+/// 
+/// // correct:
+/// var elem = someTuple.get(0) as int;
+/// return elem + 123;
+/// ```
+type tuple = array<unknown>
+
 /// Think of it as "a map with unknown keys and unknown values".
 /// Prefer using `map<K, V>`, not `dict`.
 type dict = cell?
@@ -157,58 +186,66 @@ fun T.typeNameOfObject(self): slice
     builtin
 
 /**
-    Tuple manipulation primitives.
-    Elements of a tuple can be of arbitrary type.
-    Note that atomic type `tuple` can't be cast to composite tuple type (e.g. `[int, cell]`) and vise versa.
+    Array manipulation primitives.
  */
 
-/// Creates a tuple with zero elements.
+/// Creates a TVM tuple with zero elements.
+/// Deprecated since Tolk v1.3. Use `[]` to get an empty array instead: 
+/// ```
+/// // old way, deprecated:
+/// var t = createEmptyTuple();
+/// 
+/// // new way, preferred:
+/// var t = [];   // array<unknown>
+/// 
+/// // create an empty typed array:
+/// var numbers: array<int> = [];
+/// ```
 @pure
-fun createEmptyTuple(): tuple
-    asm "NIL"
+@deprecated("use `[]` instead of `createEmptyTuple`")
+fun createEmptyTuple(): array<unknown>
+    asm "0 TUPLE"
 
-/// Appends a value to tuple, resulting in `Tuple t' = (x1, ..., xn, value)`.
+/// Appends a value to array.
 /// If its size exceeds 255, throws a type check exception.
 @pure
-fun tuple.push<T>(mutate self, value: T): void
-    asm "TPUSH"
-
-/// Returns the first element of a non-empty tuple.
-/// `t.0` is actually the same as `t.first()`
-@pure
-fun tuple.first<T>(self): T
-    asm "FIRST"
-
-/// Returns the `i`-th element of a tuple.
-/// `t.i` is actually the same as `t.get(i)`
-@pure
-fun tuple.get<T>(self, index: int): T
+fun array<T>.push(mutate self, value: T): void
     builtin
 
-/// Sets the `i`-th element of a tuple to a specified value
+/// Returns the first element of a non-empty array.
+@pure
+fun array<T>.first(self): T
+    builtin
+
+/// Returns the `i`-th element of an array.
+@pure
+fun array<T>.get(self, index: int): T
+    builtin
+
+/// Sets the `i`-th element of an array to a specified value
 /// (an element with this index must already exist, a new element is not created).
-/// `t.i = value` is actually the same as `t.set(value, i)`
 @pure
-fun tuple.set<T>(mutate self, value: T, index: int): void
+fun array<T>.set(mutate self, value: T, index: int): void
     builtin
 
-/// Returns the size of a tuple (elements count in it).
+/// Returns the size of an array (elements count in it).
 @pure
-fun tuple.size(self): int
-    asm "TLEN"
+fun array<T>.size(self): int
+    builtin
 
-/// Returns the last element of a non-empty tuple.
+/// Returns the last element of a non-empty array.
 @pure
-fun tuple.last<T>(self): T
-    asm "LAST"
+fun array<T>.last(self): T
+    builtin
 
-/// Pops and returns the last element of a non-empty tuple.
+/// Pops and returns the last element of a non-empty array.
 @pure
-fun tuple.pop<T>(mutate self): T
-    asm "TPOP"
+fun array<T>.pop(mutate self): T
+    builtin
 
 /// Packs any object from a stack to a tuple. 
 /// An object occupies N slots on a stack — the tuple will be of size N.
+/// It works identically as casting an object to `unknown`.
 /// Example:
 /// ```
 /// struct Point { x: int, y: int }
@@ -216,18 +253,19 @@ fun tuple.pop<T>(mutate self): T
 /// var p: Point = { x: 1, y: 2 };
 /// var t = p.toTuple();     // [ 1 2 ]
 /// p = Point.fromTuple(t);  // back
-/// t.get<int>(0);           // 1
+/// t.get(0) as int;         // 1
 /// ```
 /// It can be used for logging or low-level purposes like running a child VM or custom "equals".
 /// See [T.fromTuple] counterpart.
 @pure
-fun T.toTuple(self): tuple
+fun T.toTuple(self): array<unknown>
     builtin
 
 /// Unpacks a tuple back to an object on a stack.
+/// It works identically as casting `unknown` to an object.
 /// See [T.toTuple] for explanation and examples.
 @pure
-fun T.fromTuple(packedObject: tuple): T
+fun T.fromTuple(packedObject: array<unknown>): T
     builtin
 
 /**
@@ -318,7 +356,7 @@ fun contract.getAddress(): address
 fun contract.getOriginalBalance(): coins
     asm "BALANCE" "FIRST"
 
-/// Same as [contract.getOriginalBalance], but returns a tuple: balance in nanotoncoins and extra currencies.
+/// Same as [contract.getOriginalBalance], but also returns the balance in extra currencies.
 @pure
 fun contract.getOriginalBalanceWithExtraCurrencies(): [coins, ExtraCurrenciesMap]
     asm "BALANCE"

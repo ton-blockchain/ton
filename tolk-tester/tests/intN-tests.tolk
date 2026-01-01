@@ -219,16 +219,23 @@ fun test14(firstComponent: int8?): (int, int16)? {
 @noinline
 fun assign0<T>(mutate v: T) { v = 0; }
 
-fun main() {
+@method_id(115)
+fun test15() {
     var t = createEmptyTuple();
     t.push(1);
     t.push(2);
     t.push(3);
-    assign0<int8>(mutate t.0);
-    assign0<uint16>(mutate t.1);
-    assign0<int>(mutate t.2);
-    __expect_type(t.0 as int1, "int1");
-    __expect_type(t.0 as int257, "int257");
+    // these statements have no effect, they work on a tmp rvalue
+    assign0<int8>(mutate (t as unknown as [int]).0);
+    assign0<uint16>(mutate (t as unknown as [int, int]).1);
+    assign0<int>(mutate (t as unknown as [unknown, slice, coins]).2);
+    return t;
+}
+
+fun main() {
+    var t = createEmptyTuple();
+    __expect_type(t.get(0) as int1, "int1");
+    __expect_type(t.get(0) as int257, "int257");
     __expect_type(0 as int32, "int32");
     __expect_type(0 as int32 as uint64 as uint64?, "uint64?");
     __expect_type(null as (int8, [uint16?])?, "(int8, [uint16?])?");
@@ -236,11 +243,9 @@ fun main() {
     __expect_type(someN_coins as coins?, "coins?");
     __expect_type(someN_coins as int8 as int8?, "int8?");
     __expect_type(10>3 ? (0 as uint8) as uint8 | uint16 : 0 as uint16, "uint8 | uint16");
-    return t;
 }
 
 /**
-@testcase | 0 |        | [ 0 0 0 ]
 @testcase | 101 | 0    | 129
 @testcase | 104 |      | 64 64 -1 0
 @testcase | 105 |      | 3 -1 0
@@ -249,6 +254,7 @@ fun main() {
 @testcase | 111 |      | [ 1000000000 1000000000 1000000000 -321123456789 321123456789 1100000000 ]
 @testcase | 114 | 5    | (null) (null) 0
 @testcase | 114 | 15   | 15 2 typeid-1
+@testcase | 115 |      | [ 1 2 3 ]
 
 @fif_codegen DECLPROC assign0<int8>()
 @fif_codegen DECLPROC assign0<uint16>()

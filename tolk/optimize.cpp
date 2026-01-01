@@ -628,6 +628,29 @@ bool Optimizer::detect_rewrite_NEWC_ENDC() {
   return true;
 }
 
+// pattern `N TUPLE` + `N UNTUPLE` -> nothing (but not vice versa, since `UNTUPLE` may throw)
+bool Optimizer::detect_rewrite_N_TUPLE_N_UNTUPLE() {
+  bool first_tuple = op_[0]->op.ends_with(" TUPLE");
+  if (!first_tuple || op_[0]->op.find(' ') != op_[0]->op.rfind(' ') || pb_ < 2) {
+    return false;
+  }
+
+  bool second_untuple = op_[1]->op.ends_with(" UNTUPLE");
+  if (!second_untuple || op_[1]->op.find(' ') != op_[1]->op.rfind(' ')) {
+    return false;
+  }
+
+  std::string_view arg0 = std::string_view(op_[0]->op).substr(0, op_[0]->op.find(' '));
+  std::string_view arg1 = std::string_view(op_[1]->op).substr(0, op_[1]->op.find(' '));
+  if (op_[0]->op == op_[1]->op || arg0 != arg1 || arg0[0] < '1' || arg0[0] > '9') {
+    return false;
+  }
+
+  p_ = 2;
+  q_ = 0;
+  return true;
+}
+
 // pattern `0 EQINT` + `NOT` -> `0 NEQINT` and other (mathematical operations + NOT), like `!(a >= 4)` -> `a < 4`;
 // since the first is boolean (-1 or 0), NOT will invert it, there are no occasions with bitwise integers;
 // it's especially helpful to invert condition of `do while` for TVM `UNTIL`
@@ -1131,6 +1154,7 @@ bool Optimizer::find_at_least(int pb) {
          detect_rewrite_ENDC_CTOS() || detect_rewrite_ENDC_HASHCU() ||
          detect_rewrite_NEWC_BTOS() || detect_rewrite_NEWC_STSLICECONST_BTOS() ||
          detect_rewrite_NEWC_ENDC_CTOS() || detect_rewrite_NEWC_ENDC() ||
+         detect_rewrite_N_TUPLE_N_UNTUPLE() ||
          detect_rewrite_xxx_NOT() ||
          (!(mode_ & 1) && replace_BOOLNOT_to_NOT()) ||
          (!(mode_ & 1) &&

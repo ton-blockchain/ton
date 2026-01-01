@@ -85,7 +85,7 @@ fun test2() {
     __expect_type(i1.value, "int");
     __expect_type(i1.value + i2.value + i3.value, "int");
     __expect_type(i3, "JustIntAlias2");
-    __expect_type([i2, i3], "[JustInt, JustIntAlias2]");
+    __expect_type([i2, i3], "array<JustInt>");
     __expect_type([i2] as [JustIntAlias], "[JustIntAlias]");
     return (i1, i2, i3, [i1, JustIntAlias{value:5}]);
 }
@@ -257,7 +257,7 @@ fun test16(): WithTensorInside? {
     wt.otherCoords!.0 = 7;
     wt.otherTup.push(0);
     pushZero(mutate wt.otherTup);
-    (wt.otherTup.1, wt.otherTup.0) = (11, 10);
+    ((wt.otherTup as unknown as [unknown, unknown]).1, (wt.otherTup as unknown as [unknown]).0) = (11, 10); // no effect, tmp rvalue
     return wt;
 }
 
@@ -613,7 +613,7 @@ fun test43() {
 @method_id(144)
 fun test44() {
     var t = PrivPoint.create(10, 20).toTuple();
-    assert (t.get<int>(1) == 20) throw 123;
+    assert (t.get(1) as int == 20) throw 123;
     assert (PrivPoint.fromTuple(t).z == 0) throw 124;
     return (t, (10 as MInt).toTuple(), PrivWithDefaults{}.toTuple(), PrivWithDefaults.fromTuple(([1, true] as tuple)));
 }
@@ -690,33 +690,33 @@ type PointAlias = Point;
 @testcase | 105 |      | 35 30 45
 @testcase | 106 |      | 10 20
 @testcase | 107 |      | 5 5 10 20 15
-@testcase | 108 |      | 777 typeid-2 777 0 777 777 777 typeid-2 777 typeid-3 777 777
+@testcase | 108 |      | 777 typeid-1 777 0 777 777 777 typeid-1 777 typeid-2 777 777
 @testcase | 109 |      | 70 30 20 20 -80
 @testcase | 110 | 0    | (null) (null) 0
-@testcase | 110 | -1   | 10 20 typeid-1
+@testcase | 110 | -1   | 10 20 typeid-3
 @testcase | 111 | 0    | 0 2 10 20 30
 @testcase | 111 | -1   | 0 0 3 4 7
 @testcase | 112 | 0    | (null) (null) 0
-@testcase | 112 | -1   | 1 2 typeid-1
+@testcase | 112 | -1   | 1 2 typeid-3
 @testcase | 113 |      | (null) (null) 0
 @testcase | 114 |      | 1 2
 @testcase | 115 |      | (null) (null) (null) (null) 0
-@testcase | 116 |      | -1 -4 [ 8 4 ] 7 (null) 0 [ 10 11 ] typeid-5
+@testcase | 116 |      | -1 -4 [ 8 4 ] 7 (null) 0 [ 0 0 ] typeid-5
 @testcase | 117 | 5    | 5 5 5 5 5
 @testcase | 117 | null | (null) (null) (null) -1 (null)
 @testcase | 118 |      | 17
-@testcase | 119 |      | 10 20 9 10 typeid-1 9
-@testcase | 120 | 0    | 80 9 8 80 typeid-1
+@testcase | 119 |      | 10 20 9 10 typeid-3 9
+@testcase | 120 | 0    | 80 9 8 80 typeid-3
 @testcase | 120 | -1   | 8 9 (null) (null) 0
 @testcase | 121 | 0    | 17 17 8 136
 @testcase | 121 | -1   | 8 (null) 8 8
 @testcase | 122 | 100  | 101 50 106 212 100 101 101
 @testcase | 124 | 66   | 66
-@testcase | 125 |      | (null) (null) 40 60 typeid-1
+@testcase | 125 |      | (null) (null) 40 60 typeid-3
 @testcase | 126 |      | 118
-@testcase | 127 |      | 0 0 typeid-2 typeid-2 777 -1 -1 0 0 777 0 0 typeid-7 777 0 0 777 (null) (null) 0
-@testcase | 128 | -1   | (null) (null) typeid-2 -1 0 0 777 (null) (null) typeid-2 -1 0 0
-@testcase | 128 | 0    | 1 2 typeid-8 0 -1 0 777 0 typeid-2 typeid-7 0 -1 0
+@testcase | 127 |      | 0 0 typeid-1 typeid-1 777 -1 -1 0 0 777 0 0 typeid-7 777 0 0 777 (null) (null) 0
+@testcase | 128 | -1   | (null) (null) typeid-1 -1 0 0 777 (null) (null) typeid-1 -1 0 0
+@testcase | 128 | 0    | 1 2 typeid-8 0 -1 0 777 0 typeid-1 typeid-7 0 -1 0
 @testcase | 129 |      | (null)
 @testcase | 130 | -1   | typeid-9 777 (null) typeid-9 777 0 777 0 0
 @testcase | 130 | 0    | typeid-10 777 4 1 777 typeid-10 777 0 0
@@ -783,7 +783,7 @@ type PointAlias = Point;
 @fif_codegen
 """
   test36() PROC:<{              //
-    NIL                         //  g_t_impure
+    0 TUPLE                     //  g_t_impure
     $t_impure SETGLOB           //
     getYImpure() CALLDICT       //  '4
     getXImpure() CALLDICT       //  p.y p.x

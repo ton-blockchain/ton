@@ -47,7 +47,7 @@ fun testFlatten() {
     __expect_type(0 !is builder, "bool");
     __expect_type(0!!is builder, "bool");
 
-    __expect_type(match (0) { int => [] }, "[]");
+    __expect_type(match (0) { int => [] }, "array<unknown>");
     __expect_type(match (0 as int|slice) { int => 0, slice => 0 }, "int");
     __expect_type(match (0 as int|slice) { int => 0, slice => 0 as int8 } as int|int8, "int | int8");
     __expect_type(match (0 as int?) { int => "", null => null }, "slice?");
@@ -790,6 +790,63 @@ fun test62() {
     ) 
 }
 
+@method_id(163)
+fun test63(makeSingleInt: bool) {
+    var v: array<int> | int = makeSingleInt ? 10 : [1, 2, 3];
+    return (
+        v is array<int>,
+        v is array<slice>,
+        v is int,
+        match (v) { array<int> => v.size(), int => v },
+        (v is array<int>) ? v.last() : -1,
+    )
+}
+
+@method_id(164)
+fun test64(makeArrInt32: bool) {
+    var v: array<int32> | array<int64> = makeArrInt32 ? [5, 6] as array<int32> : [12, 13] as array<int64>;
+    var m: map<int32, bool> | map<int64, bool> = createEmptyMap<int64, bool>();
+    if (makeArrInt32) {
+        m = createEmptyMap<int32, bool>();
+        match (v) {
+            array<int64> => {}
+            array<int32> => {
+                var i = 0;
+                repeat (v.size()) {
+                    m.set(v.get(i), true);
+                    i += 1;
+                }
+            }    
+        }
+    }
+    return (
+        v is array<int32>,
+        v is array<int48>,
+        v is array<int64>,
+        m is map<int32, bool>,
+        m is map<int32, slice>,
+        match (m) {
+            map<int32, bool> => [m.exists(5), (!m.mustGet(6)) as int],
+            map<int64, bool> => [m.exists(12), match (v) { array<int32> => throw 123, array<int64> => v.size() }],
+        } as [bool, int]
+    )
+}
+
+@method_id(165)
+fun test65() {
+    var ai: array<int> | array<int32> = [1, 2, 3];
+    __expect_type(ai, "array<int>");
+    return ai.size();
+}
+
+type U = unknown
+
+@method_id(166)
+fun test66(x: int) {
+    var t: tuple = [1];
+    var u: tuple | int = x == 0 ? t : 5;
+    return u is array<U>
+}
 
 
 fun main() {
@@ -865,6 +922,12 @@ fun main() {
 @testcase | 160 |           | 10 0
 @testcase | 161 | 100 48    | 20
 @testcase | 162 |           | [ 5 46 ] [ 5 48 ] -1 -1
+@testcase | 163 | -1        | 0 0 -1 10 -1
+@testcase | 163 | 0         | -1 0 0 3 3
+@testcase | 164 | -1        | -1 0 0 -1 0 [ -1 0 ]
+@testcase | 164 | 0         | 0 0 -1 0 0 [ 0 2 ]
+@testcase | 165 |           | 3
+@testcase | 166 | 0         | -1
 
 
 @fif_codegen

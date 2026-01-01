@@ -173,11 +173,16 @@ void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, T
         consider_next_condition(p_tensor->items[i], a_tensor->items[i]);
       }
     }
-  } else if (const auto* p_tuple = param_type->try_as<TypeDataBrackets>()) {
+  } else if (const auto* p_array = param_type->try_as<TypeDataArray>()) {
+    // `arg: array<T>` called as `f(arrOfUnknown)` => T is unknown
+    if (const auto* a_array = arg_type->unwrap_alias()->try_as<TypeDataArray>()) {
+      consider_next_condition(p_array->innerT, a_array->innerT);
+    }
+  } else if (const auto* p_shaped = param_type->try_as<TypeDataShapedTuple>()) {
     // `arg: [int, T]` called as `f([5, cs])` => T is slice
-    if (const auto* a_tuple = arg_type->unwrap_alias()->try_as<TypeDataBrackets>(); a_tuple && a_tuple->size() == p_tuple->size()) {
-      for (int i = 0; i < a_tuple->size(); ++i) {
-        consider_next_condition(p_tuple->items[i], a_tuple->items[i]);
+    if (const auto* a_shaped = arg_type->unwrap_alias()->try_as<TypeDataShapedTuple>()) {
+      for (int i = 0; i < p_shaped->size() && i < a_shaped->size(); ++i) {
+        consider_next_condition(p_shaped->items[i], a_shaped->items[i]);
       }
     }
   } else if (const auto* p_callable = param_type->try_as<TypeDataFunCallable>()) {
@@ -259,6 +264,12 @@ void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, T
       for (int i = 0; i < p_instAl->size(); ++i) {
         consider_next_condition(p_instAl->type_arguments[i], a_alias->alias_ref->substitutedTs->typeT_at(i));
       }
+    } else {
+      // `arg: WrapperAlias<T>` called as `f(someWrapperInt)` => T is int
+      // `arg: ArrayAlias<ArrayAlias<T>>` called as `f([[1],[2]])` => T is int
+      GenericsSubstitutions cur_sub(p_instAl->alias_ref->genericTs, p_instAl->type_arguments);
+      TypePtr underlying_replaced = replace_genericT_with_deduced(p_instAl->alias_ref->underlying_type, &cur_sub);
+      consider_next_condition(underlying_replaced, arg_type);
     }
   } else if (const auto* p_map = param_type->try_as<TypeDataMapKV>()) {
     // `arg: map<K, V>` called as `f(someMapInt32Slice)` => K = int32, V = slice
@@ -557,7 +568,7 @@ FunctionPtr instantiate_lambda_function(AnyV v_lambda, FunctionPtr parent_fun_re
   return lambda_ref;  
 }
 
-// a function `tuple.push<T>(self, v: T) asm "TPUSH"` can't be called with T=Point (2 stack slots);
+// a function `myFunPTuplePush<T>(self, v: T) asm "TPUSH"` can't be called with T=Point (2 stack slots);
 // almost all asm/built-in generic functions expect one stack slot, but there are exceptions
 bool is_allowed_asm_generic_function_with_non1_width_T(FunctionPtr fun_ref, int idxT) {
   // if a built-in function is marked with a special flag

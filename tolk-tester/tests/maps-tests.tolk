@@ -423,7 +423,7 @@ fun test33() {
 }
 
 @method_id(134)
-fun test34(z: int) {
+fun test34(z: int): array<unknown> {
     var m = createEmptyMap<uint32, Point3d>();
     m.set(123, {x: 10, y: 10, z});
     return [m.mustGet(123).z, m.addIfNotExists(456, {x: 10, y: z, z}), m.mustGet(456).y];

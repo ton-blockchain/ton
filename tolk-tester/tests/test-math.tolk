@@ -1019,7 +1019,7 @@ fun test_nrand(n: int): tuple {
   repeat (n) {
     var x: int = fixed248_nrand();
     var bucket: int = (abs(x) >> 243);   // 255 buckets starting from x=0, each 1/32 wide
-    var at_bucket: int = t.get(bucket);
+    var at_bucket: int = t.get(bucket) as int;
     t.tset(bucket, at_bucket + 1);
   }
   return t;

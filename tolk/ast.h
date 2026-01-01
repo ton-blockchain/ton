@@ -69,7 +69,7 @@ enum ASTNodeKind {
   ast_type_leaf_text,
   ast_type_question_nullable,
   ast_type_parenthesis_tensor,
-  ast_type_bracket_tuple,
+  ast_type_brackets_shape,
   ast_type_arrow_callable,
   ast_type_vertical_bar_union,
   ast_type_triangle_args,
@@ -80,7 +80,7 @@ enum ASTNodeKind {
   ast_braced_yield_result,
   ast_artificial_aux_vertex,
   ast_tensor,
-  ast_bracket_tuple,
+  ast_square_brackets,
   ast_reference,
   ast_local_var_lhs,
   ast_local_vars_declaration,
@@ -459,13 +459,13 @@ struct Vertex<ast_type_parenthesis_tensor> final : ASTTypeVararg {
 };
 
 template<>
-// ast_type_bracket_tuple is "[T1, T2, ...]"
-// after resolving, it will become TypeDataBrackets
-struct Vertex<ast_type_bracket_tuple> final : ASTTypeVararg {
+// ast_type_brackets_shape is "[T1, T2, ...]"
+// after resolving, it will become TypeDataShapedTuple
+struct Vertex<ast_type_brackets_shape> final : ASTTypeVararg {
   const std::vector<AnyTypeV>& get_items() const { return children; }
 
   Vertex(SrcRange range, std::vector<AnyTypeV>&& items)
-    : ASTTypeVararg(ast_type_bracket_tuple, range, std::move(items)) {}
+    : ASTTypeVararg(ast_type_brackets_shape, range, std::move(items)) {}
 };
 
 template<>
@@ -580,16 +580,20 @@ struct Vertex<ast_tensor> final : ASTExprVararg {
 };
 
 template<>
-// ast_bracket_tuple is a set of expressions in [square brackets]
-// in TVM, it's a TVM tuple, that occupies 1 slot, but the compiler knows its "typed structure"
-// example: `[1, x]`, `[[0]]` (nested)
-// typed tuples can be assigned to N variables, like `[one, _, three] = [1,2,3]`
-struct Vertex<ast_bracket_tuple> final : ASTExprVararg {
+// ast_square_brackets is a set of expressions in [square brackets]
+// it's a notation that either means an array or a shaped tuple if specified in code
+// example: `var x = [1, 2]` is `array<int>`
+// example: `var x: [int, int] = [1, 2]` is `[int, int]` because of a hint
+// shaped tuples can be assigned to N variables, like `[one, _, three] = [1,2,3]`
+struct Vertex<ast_square_brackets> final : ASTExprVararg {
+  AnyTypeV type_node;                   // not null for `T [ ... ]`, nullptr for plain `[ ... ]`
+
   const std::vector<AnyExprV>& get_items() const { return children; }
   AnyExprV get_item(int i) const { return child(i); }
 
-  Vertex(SrcRange range, std::vector<AnyExprV> items)
-    : ASTExprVararg(ast_bracket_tuple, range, std::move(items)) {}
+  Vertex(SrcRange range, std::vector<AnyExprV> items, AnyTypeV type_node)
+    : ASTExprVararg(ast_square_brackets, range, std::move(items))
+    , type_node(type_node) {}
 };
 
 template<>
@@ -647,11 +651,11 @@ public:
 
 template<>
 // ast_local_vars_declaration is an expression declaring local variables on the left side of assignment
-// examples: see above
-// for `var (x, [y])` its expr is "tensor (local var, typed tuple (local var))"
+// examples: see above                                             
+// for `var (x, [y])` its expr is "tensor (local var, bracket array (local var))"
 // for assignment `var x = 5`, this node is `var x`, lhs of assignment
 struct Vertex<ast_local_vars_declaration> final : ASTExprUnary {
-  AnyExprV get_expr() const { return child; } // ast_local_var_lhs / ast_tensor / ast_bracket_tuple
+  AnyExprV get_expr() const { return child; } // ast_local_var_lhs / ast_tensor / ast_square_brackets
 
   Vertex(SrcRange range, AnyExprV expr)
     : ASTExprUnary(ast_local_vars_declaration, range, expr) {}
@@ -705,7 +709,7 @@ struct Vertex<ast_null_keyword> final : ASTExprLeaf {
 
 template<>
 // ast_argument is an element of an argument list of a function/method call
-// example: `f(1, x)` has 2 arguments, `t.tupleFirst()` has no arguments (though `t` is passed as `self`)
+// example: `f(1, x)` has 2 arguments, `t.first()` has no arguments (though `t` is passed as `self`)
 // example: `f(mutate arg)` has 1 argument with `passed_as_mutate` flag
 // (without `mutate` keyword, the entity "argument" could be replaced just by "any expression")
 struct Vertex<ast_argument> final : ASTExprUnary {
@@ -741,7 +745,7 @@ private:
 public:
 
   typedef std::variant<
-    FunctionPtr,                 // for `t.tupleAt` target is `tupleAt` global function
+    FunctionPtr,                 // for `t.get` target is `array<T>.get` function (method)
     StructFieldPtr,              // for `user.id` target is field `id` of struct `User`
     EnumMemberPtr,               // for `Color.Red` target is `Red` enum member
     int                          // for `t.0` target is "indexed access" 0
@@ -889,7 +893,7 @@ struct Vertex<ast_ternary_operator> final : ASTExprVararg {
 
 template<>
 // ast_cast_as_operator is explicit casting with "as" keyword
-// examples: `arg as int` / `null as cell` / `t.tupleAt(2) as slice`
+// examples: `arg as int` / `null as cell` / `t.get(2) as slice`
 struct Vertex<ast_cast_as_operator> final : ASTExprUnary {
   AnyTypeV type_node;
 
@@ -1262,7 +1266,7 @@ struct Vertex<ast_genericsT_list> final : ASTOtherVararg {
 
 template<>
 // ast_instantiationT_item is manual substitution of generic T used in code, mostly for func calls
-// examples: `g<int>()` / `t.tupleFirst<slice>()` / `f<(int, slice), builder>()`
+// examples: `g<int>()` / `t.getFirst<slice>()` / `f<(int, slice), builder>()`
 struct Vertex<ast_instantiationT_item> final : ASTOtherLeaf {
   AnyTypeV type_node;
 

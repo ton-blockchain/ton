@@ -55,7 +55,7 @@ fun testDict(last: int) {
 }
 
 @method_id(105)
-fun testNotNull(x: int?) {
+fun testNotNull(x: int?): tuple {
     return [x == null, null == x, !(x == null), null == null, (null != null) as int];
 }
 
@@ -340,14 +340,14 @@ fun main() {
     FALSE
     0 PUSHINT
     DUP
-    TRIPLE
+    3 TUPLE
     TRUE
     TRUE
     TRUE
-    TRIPLE
+    3 TUPLE
     FALSE
     TRUE
-    PAIR
+    2 TUPLE
   }>
 """
 
@@ -362,14 +362,14 @@ fun main() {
     FALSE
     FALSE
     FALSE
-    TRIPLE
+    3 TUPLE
     -1 PUSHINT
     DUP
     TRUE
-    TRIPLE
+    3 TUPLE
     -1 PUSHINT
     FALSE
-    PAIR
+    2 TUPLE
   }>
 """
 

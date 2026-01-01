@@ -560,13 +560,13 @@ fun main(){
 @testcase | 120 | 0  | 1 20 typeid-1
 @testcase | 120 | -1 | (null) (null) 0
 @testcase | 121 |    | 709 9
-@testcase | 122 |    | 115 12 3
+@testcase | 122 |    | 115 7 -2
 @testcase | 123 |    | 112 11
 @testcase | 124 |    | 100 102
 @testcase | 125 |    | 1 30
 @testcase | 126 | 7  | 8 10
 @testcase | 127 | 7  | 9 9
-@testcase | 128 |    | 111 111 222 2
+@testcase | 128 |    | 111 111 222 222
 
 @fif_codegen
 """

@@ -81,9 +81,9 @@ static ShapeScore calculate_shape_score(TypePtr t) {
     return {ShapeKind::Tensor, 1 + d};
   }
 
-  if (const auto* t_brackets = t->try_as<TypeDataBrackets>()) {
+  if (const auto* t_shaped = t->try_as<TypeDataShapedTuple>()) {
     int d = 0;
-    for (TypePtr item : t_brackets->items) {
+    for (TypePtr item : t_shaped->items) {
       d = std::max(d, calculate_shape_score(item).depth);
     }
     return {ShapeKind::Tensor, 1 + d};
@@ -99,6 +99,11 @@ static ShapeScore calculate_shape_score(TypePtr t) {
 
   if (const auto* t_map = t->try_as<TypeDataMapKV>()) {
     int d = std::max(calculate_shape_score(t_map->TKey).depth, calculate_shape_score(t_map->TValue).depth);
+    return {ShapeKind::Instantiated, 1 + d};
+  }
+
+  if (const auto* t_array = t->try_as<TypeDataArray>()) {
+    int d = calculate_shape_score(t_array->innerT).depth;
     return {ShapeKind::Instantiated, 1 + d};
   }
 

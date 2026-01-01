@@ -211,8 +211,8 @@ static AnyTypeV parse_simple_type(Lexer& lex) {
     }
     case tok_opbracket: {
       SrcRange range = lex.range_start();
-      std::vector tuple_items = parse_nested_type_list(lex, tok_opbracket, "`[`", tok_clbracket, "`]` or `,`", range);
-      return createV<ast_type_bracket_tuple>(range, std::move(tuple_items));
+      std::vector shaped_items = parse_nested_type_list(lex, tok_opbracket, "`[`", tok_clbracket, "`]` or `,`", range);
+      return createV<ast_type_brackets_shape>(range, std::move(shaped_items));
     }
     default:
       lex.unexpected("<type>");
@@ -511,7 +511,7 @@ static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable, bool al
     lex.check(tok_clbracket, "`]`");
     range.end(lex.cur_range());
     lex.next();
-    return createV<ast_bracket_tuple>(range, std::move(args));
+    return createV<ast_square_brackets>(range, std::move(args), nullptr);
   }
   if (lex.tok() == tok_identifier) {
     SrcRange range = lex.range_start();
@@ -715,6 +715,30 @@ static V<ast_object_body> parse_object_body(Lexer& lex) {
   return createV<ast_object_body>(range, std::move(fields));
 }
 
+static V<ast_square_brackets> parse_square_brackets(Lexer& lex, AnyTypeV type_node) {
+  SrcRange range = lex.range_start();
+  lex.next();
+  if (lex.tok() == tok_clbracket) {
+    range.end(lex.cur_range());
+    lex.next();
+    return createV<ast_square_brackets>(range, {}, type_node);
+  }
+
+  std::vector<AnyExprV> items(1, parse_expr(lex));
+  while (lex.tok() == tok_comma) {
+    lex.next();
+    if (lex.tok() == tok_clbracket) {   // trailing comma
+      break;
+    }
+    items.emplace_back(parse_expr(lex));
+  }
+  lex.check(tok_clbracket, "`]`");
+
+  range.end(lex.cur_range());
+  lex.next();
+  return createV<ast_square_brackets>(range, std::move(items), type_node);
+}
+
 // `throw code` / `throw (code)` / `throw (code, arg)`
 // it's technically a statement (can't occur "in any place of expression"),
 // but inside `match` arm it can appear without semicolon: `pattern => throw 123`
@@ -902,26 +926,8 @@ static AnyExprV parse_expr100(Lexer& lex) {
       }                             // since 1-element tensors won't be type compatible with item's type
       return createV<ast_tensor>(range, std::move(items));
     }
-    case tok_opbracket: {
-      SrcRange range = lex.range_start();
-      lex.next();
-      if (lex.tok() == tok_clbracket) {
-        range.end(lex.cur_range());
-        lex.next();
-        return createV<ast_bracket_tuple>(range, {});
-      }
-      std::vector<AnyExprV> items(1, parse_expr(lex));
-      while (lex.tok() == tok_comma) {
-        lex.next();
-        if (lex.tok() == tok_clbracket) {   // trailing comma
-          break;
-        }
-        items.emplace_back(parse_expr(lex));
-      }
-      lex.check(tok_clbracket, "`]`");
-      range.end(lex.cur_range());
-      lex.next();
-      return createV<ast_bracket_tuple>(range, std::move(items));
+    case tok_opbracket: {           // `[1, 2]` (not `array<int> [1, 2]`)
+      return parse_square_brackets(lex, nullptr);
     }
     case tok_int_const: {
       SrcRange range = lex.cur_range();
@@ -977,7 +983,7 @@ static AnyExprV parse_expr100(Lexer& lex) {
           range.end(v_instantiationTs->range);
         }
       }
-      if (lex.tok() == tok_opbrace) {
+      if (lex.tok() == tok_opbrace || lex.tok() == tok_opbracket) {     // `Pair { ... }` or `array [ ... ]`
         AnyTypeV type_node = createV<ast_type_leaf_text>(v_ident->range, v_ident->name);  // `Pair { ... }`
         if (v_instantiationTs) {                                                          // `Pair<int> { ... }`
           std::vector<AnyTypeV> ident_and_args;
@@ -988,6 +994,9 @@ static AnyExprV parse_expr100(Lexer& lex) {
           }
           SrcRange tri_range = SrcRange::overlap(v_ident->range, v_instantiationTs->range);
           type_node = createV<ast_type_triangle_args>(tri_range, std::move(ident_and_args));
+        }
+        if (lex.tok() == tok_opbracket) {       // `array<int> []` / `lisp_list<int> [ 1,2,3 ]`
+          return parse_square_brackets(lex, type_node);
         }
         auto body = parse_object_body(lex);
         range.end(body->range);

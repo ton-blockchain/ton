@@ -43,7 +43,7 @@ static Error err_type_mismatch(const char* text_tpl, TypePtr src, TypePtr dst) {
   message.replace(message.find("{src}"), 5, "`" + src->as_human_readable() + "`");
   message.replace(message.find("{dst}"), 5, "`" + dst->as_human_readable() + "`");
   if (src->can_be_casted_with_as_operator(dst)) {
-    bool suggest_as = !dst->try_as<TypeDataTensor>() && !dst->try_as<TypeDataBrackets>();
+    bool suggest_as = !dst->try_as<TypeDataTensor>() && !dst->try_as<TypeDataShapedTuple>();
     if ((src == TypeDataSlice::create() || dst == TypeDataSlice::create()) && (src->try_as<TypeDataAddress>() || dst->try_as<TypeDataAddress>())) {
       message += "\n""hint: unlike FunC, Tolk has a special type `address` (which is slice at the TVM level);";
       message += "\n""      most likely, you just need `address` everywhere";
@@ -122,11 +122,6 @@ static Error err_assign_always_null_to_variable(LocalVarPtr assigned_var, bool i
   return err("can not infer type of `{}`, it's always null\nspecify its type with `{}: <type>`{}", assigned_var, assigned_var, (is_assigned_null_literal ? " or use `null as <type>`" : ""));
 }
 
-// make an error on `untypedTupleVar.0` when inferred as (int,int), or `[int, (int,int)]`, or other non-1 width in a tuple
-static Error err_cannot_put_non1_stack_width_arg_to_tuple(TypePtr inferred_type) {
-  return err("a tuple can not have `{}` inside, because it occupies {} stack slots in TVM, not 1", inferred_type, inferred_type->get_width_on_stack());
-}
-
 // handle __expect_type(expr, "type") call
 // this is used in compiler tests
 GNU_ATTRIBUTE_NOINLINE GNU_ATTRIBUTE_COLD
@@ -134,7 +129,7 @@ static void handle_possible_compiler_internal_call(FunctionPtr cur_f, V<ast_func
   FunctionPtr fun_ref = v->fun_maybe;
   tolk_assert(fun_ref && fun_ref->is_builtin());
 
-  if (fun_ref->name == "__expect_type" && v->get_num_args() == 2) {
+  if (fun_ref->is_instantiation_of_generic_function() && fun_ref->base_fun_ref->name == "__expect_type" && v->get_num_args() == 2) {
     // __expect_type(expr, "...") is a compiler built-in for testing, it's not indented to be called by users
     auto v_expected_str = v->get_arg(1)->get_expr()->try_as<ast_string_const>();
     tolk_assert(v_expected_str && "invalid __expect_type");
@@ -347,6 +342,9 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       err("{} is always `{}`, this condition is always {}", expression_as_string(v->get_expr()), rhs_type, v->is_always_true).warning(v, cur_f);
     }
     if ((v->is_always_false && !v->is_negated) || (v->is_always_true && v->is_negated)) {
+      if (v->get_expr()->inferred_type == TypeDataUnknown::create()) {
+        err("operator `is` does not work for `unknown`, it works for union types only").fire(v, cur_f);
+      }
       err("{} of type `{}` can never be `{}`, this condition is always {}", expression_as_string(v->get_expr()), v->get_expr()->inferred_type, rhs_type, v->is_always_true).warning(v, cur_f);
     }
   }
@@ -359,28 +357,6 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       err("operator `!` used for always null expression").fire(v, cur_f);
     }
     // if operator `!` used for non-nullable, probably a warning should be printed
-  }
-
-  void visit(V<ast_bracket_tuple> v) override {
-    parent::visit(v);
-
-    for (int i = 0; i < v->size(); ++i) {
-      AnyExprV item = v->get_item(i);
-      if (item->inferred_type->get_width_on_stack() != 1) {
-        err_cannot_put_non1_stack_width_arg_to_tuple(item->inferred_type).fire(v->get_item(i), cur_f);
-      }
-    }
-  }
-
-  void visit(V<ast_dot_access> v) override {
-    parent::visit(v);
-
-    if (v->is_target_indexed_access()) {
-      TypePtr obj_type = v->get_obj()->inferred_type->unwrap_alias();
-      if (v->inferred_type->get_width_on_stack() != 1 && (obj_type->try_as<TypeDataTuple>() || obj_type->try_as<TypeDataBrackets>())) {
-        err_cannot_put_non1_stack_width_arg_to_tuple(v->inferred_type).fire(v, cur_f);
-      }
-    }
   }
 
   void visit(V<ast_function_call> v) override {
@@ -484,32 +460,6 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       return;
     }
 
-    // `[v1, v2] = rhs` / `var [v1, v2] = rhs` (rhs may be `[1,2]` or `tupleVar` or `someF()`, doesn't matter)
-    // dig recursively into v1 and v2 with corresponding rhs i-th item of a tuple
-    if (auto lhs_tuple = lhs->try_as<ast_bracket_tuple>()) {
-      const TypeDataBrackets* rhs_type_tuple = rhs_type->unwrap_alias()->try_as<TypeDataBrackets>();
-      if (!rhs_type_tuple) {
-        err("can not assign `{}` to a tuple", rhs_type).fire(err_loc, cur_f);
-      }
-      if (lhs_tuple->size() != rhs_type_tuple->size()) {
-        err("can not assign `{}`, sizes mismatch", rhs_type).fire(err_loc, cur_f);
-      }
-      V<ast_bracket_tuple> rhs_tuple_maybe = corresponding_maybe_rhs ? corresponding_maybe_rhs->try_as<ast_bracket_tuple>() : nullptr;
-      for (int i = 0; i < lhs_tuple->size(); ++i) {
-        process_assignment_lhs(lhs_tuple->get_item(i), rhs_type_tuple->items[i], rhs_tuple_maybe ? rhs_tuple_maybe->get_item(i) : nullptr);
-      }
-      return;
-    }
-
-    // check `untypedTuple.0 = rhs_tensor` and other non-1 width elements
-    if (auto lhs_dot = lhs->try_as<ast_dot_access>()) {
-      if (lhs_dot->is_target_indexed_access() && lhs_dot->get_obj()->inferred_type->unwrap_alias() == TypeDataTuple::create()) {
-        if (rhs_type->get_width_on_stack() != 1) {
-          err_cannot_put_non1_stack_width_arg_to_tuple(rhs_type).fire(err_loc, cur_f);
-        }
-      }
-    }
-
     // here is `v = rhs` (just assignment, not `var v = rhs`) / `a.0 = rhs` / `getObj(z=f()).0 = rhs` etc.
     // types were already inferred, so just check their compatibility
     // for strange lhs like `f() = rhs` type checking will pass, but will fail lvalue check later
@@ -570,6 +520,26 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     if (is_assignment_inside_condition(cond)) {
       err_assignment_inside_condition().warning(cond, cur_f);
     }
+  }
+
+  void visit(V<ast_square_brackets> v) override {
+    // `array<int> []` / `lisp_list<int> [1,2,3]` / `tuple [1, "aba"]`
+    if (v->type_node) {
+      TypePtr hint = v->type_node->resolved_type->unwrap_alias();
+      TypePtr ith_hint = nullptr;
+      if (const TypeDataArray* h_array = hint->try_as<TypeDataArray>()) {
+        ith_hint = h_array->innerT;
+      } else {
+        tolk_assert(false);
+      }
+      for (AnyExprV v_item : v->get_items()) {
+        if (!ith_hint->can_rhs_be_assigned(v_item->inferred_type)) {
+          err("type `{}` is not assignable to `{}`", v_item->inferred_type, ith_hint).fire(v_item, cur_f);
+        }
+      }
+    }
+
+    parent::visit(v);
   }
 
   void visit(V<ast_match_expression> v) override {
@@ -779,8 +749,8 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     if (!expect_thrown_code(v->get_thrown_code()->inferred_type)) {
       err("excNo of `throw` must be an integer, got `{}`", v->get_thrown_code()->inferred_type).fire(v->get_thrown_code(), cur_f);
     }
-    if (v->has_thrown_arg() && v->get_thrown_arg()->inferred_type->get_width_on_stack() != 1) {
-      err("can not throw `{}`, exception arg must occupy exactly 1 stack slot", v->get_thrown_arg()->inferred_type).fire(v->get_thrown_arg(), cur_f);
+    if (v->has_thrown_arg()) {
+      // exception arg could be anything (even a struct), it's casted to unknown
     }
   }
 

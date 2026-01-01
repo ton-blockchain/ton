@@ -192,7 +192,7 @@ fun tuple.myTuplePush<T>(mutate self, value: T): self {
 }
 
 fun tuple.myTupleAt<T>(self, idx: int): T {
-    return self.get(idx);
+    return self.get(idx) as T;
 }
 
 global tup111: tuple;

@@ -72,11 +72,11 @@ fun MultipleWithDefaults<T1, T2>.getT(self) {
 }
 
 fun MultipleWithDefaults<T1, T2, T3, T4>.method1<U1 = int>(self) {
-    return [self.t!.2, null as U1?]
+    return [self.t!.2, null] as [T3, U1?]
 }
 
-fun MultipleWithDefaults<T1, T2, T3, T4>.method2<U1, U2 = int>(self) {
-    return [self.t!.3, null as U1?, null as U2?]
+fun MultipleWithDefaults<T1, T2, T3, T4>.method2<U1, U2 = int>(self): [T4, U1?, U2?] {
+    return [self.t!.3, null, null]
 }
 
 type ParametrizedInt<T1, T2 = slice> = int
@@ -104,7 +104,7 @@ fun test1() {
     eqUnusedU(beginCell());
 
     __expect_type(dup(null, null), "(null, null)");
-    __expect_type(dup(createEmptyTuple(), 6), "(tuple, int)");
+    __expect_type(dup(createEmptyTuple(), 6), "(array<unknown>, int)");
 }
 
 fun test2() {

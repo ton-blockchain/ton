@@ -5,5 +5,5 @@ fun cantAssignSizesMismatch() {
 
 /**
 @compilation_should_fail
-@stderr can not assign `[int, int, int]`, sizes mismatch
+@stderr can not assign `[int, int, int]` to `[int, int]`
  */

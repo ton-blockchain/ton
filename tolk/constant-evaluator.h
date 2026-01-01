@@ -27,6 +27,7 @@ struct ConstValBool;
 struct ConstValSlice;
 struct ConstValAddress;
 struct ConstValTensor;
+struct ConstValShapedTuple;
 struct ConstValObject;
 struct ConstValNullLiteral;
 
@@ -43,6 +44,7 @@ typedef std::variant<
   ConstValSlice,
   ConstValAddress,
   ConstValTensor,
+  ConstValShapedTuple,
   ConstValObject,
   ConstValNullLiteral
 > ConstValExpression;
@@ -64,6 +66,10 @@ struct ConstValAddress {
 };
 
 struct ConstValTensor {
+  std::vector<AnyExprV> items;
+};
+
+struct ConstValShapedTuple {
   std::vector<AnyExprV> items;
 };
 

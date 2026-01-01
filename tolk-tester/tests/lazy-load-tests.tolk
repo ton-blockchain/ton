@@ -1400,7 +1400,7 @@ fun demo312() {
 
 @method_id(400)
 fun demo400() {
-    var t = createEmptyTuple();
+    var t: array<slice> = [];
     t.push(stringHexToSlice("0102"));
     t.push(stringHexToSlice("0304"));
     t.push(stringHexToSlice("0506"));

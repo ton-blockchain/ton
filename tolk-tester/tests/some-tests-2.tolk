@@ -35,7 +35,7 @@ fun test88(x: int) {
 }
 
 @method_id(89)
-fun test89(last: int): (int, int, int, int) {
+fun test89(last: int): (unknown, unknown, unknown, unknown) {
     var t: tuple = createEmptyTuple();
     t.push(1);
     t.push(2);
@@ -154,7 +154,7 @@ fun test96(p: Point) {
     3 PUSHINT	    //  g_next '14=3
     4 PUSHINT	    //  g_next '14=3 '15=4
     5 PUSHINT	    //  g_next '14=3 '15=4 '16=5
-    TRIPLE	        //  g_cur g_next
+    3 TUPLE	        //  g_cur g_next
     SWAP            //  g_next g_cur
     $cur SETGLOB    //  g_next
     $next SETGLOB   //

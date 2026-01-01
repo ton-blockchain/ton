@@ -100,7 +100,7 @@ protected:
   virtual AnyExprV replace(V<ast_braced_yield_result> v)       { return replace_children(v); }
   virtual AnyExprV replace(V<ast_artificial_aux_vertex> v)     { return replace_children(v); }
   virtual AnyExprV replace(V<ast_tensor> v)                    { return replace_children(v); }
-  virtual AnyExprV replace(V<ast_bracket_tuple> v)             { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_square_brackets> v)           { return replace_children(v); }
   virtual AnyExprV replace(V<ast_reference> v)                 { return replace_children(v); }
   virtual AnyExprV replace(V<ast_local_var_lhs> v)             { return replace_children(v); }
   virtual AnyExprV replace(V<ast_local_vars_declaration> v)    { return replace_children(v); }
@@ -148,7 +148,7 @@ protected:
       case ast_braced_yield_result:             return replace(v->as<ast_braced_yield_result>());
       case ast_artificial_aux_vertex:           return replace(v->as<ast_artificial_aux_vertex>());
       case ast_tensor:                          return replace(v->as<ast_tensor>());
-      case ast_bracket_tuple:                   return replace(v->as<ast_bracket_tuple>());
+      case ast_square_brackets:                 return replace(v->as<ast_square_brackets>());
       case ast_reference:                       return replace(v->as<ast_reference>());
       case ast_local_var_lhs:                   return replace(v->as<ast_local_var_lhs>());
       case ast_local_vars_declaration:          return replace(v->as<ast_local_vars_declaration>());

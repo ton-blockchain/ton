@@ -347,7 +347,6 @@ bool Op::generate_code_step(Stack& stack) {
         }
         stack.o << AsmOp::Custom(origin, CodeBlob::fift_name(g_sym) + " GETGLOB", 0, 1);
         if (left.size() != 1) {
-          tolk_assert(left.size() <= 15);
           stack.o << AsmOp::UnTuple(origin, (int)left.size());
         }
         for (auto i : left) {

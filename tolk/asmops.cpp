@@ -155,30 +155,14 @@ AsmOp AsmOp::BlkReverse(AnyV origin, int a, int b) {
 }
 
 AsmOp AsmOp::Tuple(AnyV origin, int a) {
-  switch (a) {
-    case 1:
-      return AsmOp::Custom(origin, "SINGLE", 1, 1);
-    case 2:
-      return AsmOp::Custom(origin, "PAIR", 2, 1);
-    case 3:
-      return AsmOp::Custom(origin, "TRIPLE", 3, 1);
-  }
   std::ostringstream os;
-  os << a << " TUPLE";
+  os << a << (a > 15 ? " PUSHINT TUPLEVAR" : " TUPLE");
   return AsmOp::Custom(origin, os.str(), a, 1);
 }
 
 AsmOp AsmOp::UnTuple(AnyV origin, int a) {
-  switch (a) {
-    case 1:
-      return AsmOp::Custom(origin, "UNSINGLE", 1, 1);
-    case 2:
-      return AsmOp::Custom(origin, "UNPAIR", 1, 2);
-    case 3:
-      return AsmOp::Custom(origin, "UNTRIPLE", 1, 3);
-  }
   std::ostringstream os;
-  os << a << " UNTUPLE";
+  os << a << (a > 15 ? " PUSHINT UNTUPLEVAR" : " UNTUPLE");
   return AsmOp::Custom(origin, os.str(), 1, a);
 }
 

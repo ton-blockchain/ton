@@ -66,11 +66,27 @@ fun test7() {
 
 fun test8() {
     __expect_type(null, "null");
-    __expect_type([[null]], "[[null]]");
+    __expect_type([[null]], "array<array<null>>");
     __expect_type(null as tuple?, "tuple?");
     __expect_type(null as [int]?, "[int]?");
     __expect_type(((null)) as (int, int)?, "(int, int)?");
 }
+
+struct WrappedUnknown {
+    u: unknown
+}
+
+@method_id(109)
+fun test9() {
+    var w = (
+        { u: 123 } as WrappedUnknown?,
+        { u: null } as WrappedUnknown?,
+        null as WrappedUnknown?,
+    );
+    __expect_type(w, "(WrappedUnknown?, WrappedUnknown?, WrappedUnknown?)");
+    return (w.0 == null, w.1 == null, w.2 == null, w.0!.u == null, w.1!.u == null, null as WrappedUnknown? as unknown)
+}
+
 
 fun main() {
     // the compiler optimizes this at compile-time
@@ -89,6 +105,7 @@ fun main() {
 @testcase | 103 | 15   | -1
 @testcase | 104 |      | (null)
 @testcase | 107 |      | -11
+@testcase | 109 |      | 0 0 -1 0 -1 [ (null) 0 ]
 
 @fif_codegen
 """

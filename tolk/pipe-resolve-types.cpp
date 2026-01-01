@@ -102,13 +102,13 @@ static TypePtr try_parse_predefined_type(std::string_view str) {
       break;
     case 5:
       if (str == "slice") return TypeDataSlice::create();
-      if (str == "tuple") return TypeDataTuple::create();
       if (str == "coins") return TypeDataCoins::create();
       if (str == "never") return TypeDataNever::create();
       break;
     case 7:
       if (str == "builder") return TypeDataBuilder::create();
       if (str == "address") return TypeDataAddress::internal();
+      if (str == "unknown") return TypeDataUnknown::create();
       break;
     case 8:
       if (str == "varint16") return TypeDataIntN::create(16, false, true);
@@ -170,6 +170,12 @@ class TypeNodesVisitorResolver {
           // if we're inside `f<int>`, replace "T" with TypeDataInt
           return substitutedTs->get_substitution_for_nameT(text);
         }
+        if (text == "array") {
+          if (!allow_without_type_arguments) {
+            err_generic_type_used_without_T("array<T>").fire(v, cur_f);
+          }
+          return TypeDataArray::create(TypeDataGenericT::create("T"));
+        }
         if (text == "map") {
           if (!allow_without_type_arguments) {
             err_generic_type_used_without_T("map<K,V>").fire(v, cur_f);
@@ -211,9 +217,9 @@ class TypeNodesVisitorResolver {
         return TypeDataTensor::create(std::move(items));
       }
 
-      case ast_type_bracket_tuple: {
-        std::vector<TypePtr> items = finalize_type_node(v->as<ast_type_bracket_tuple>()->get_items());
-        return TypeDataBrackets::create(std::move(items));
+      case ast_type_brackets_shape: {
+        std::vector<TypePtr> items = finalize_type_node(v->as<ast_type_brackets_shape>()->get_items());
+        return TypeDataShapedTuple::create(std::move(items));
       }
 
       case ast_type_arrow_callable: {
@@ -312,6 +318,12 @@ class TypeNodesVisitorResolver {
       }
       return TypeDataAlias::create(instantiate_generic_alias(alias_ref, GenericsSubstitutions(alias_ref->genericTs, type_arguments)));
     }
+    if (const TypeDataArray* t_array = type_to_instantiate->try_as<TypeDataArray>(); t_array && t_array->innerT->try_as<TypeDataGenericT>()) {
+      if (type_arguments.size() != 1) {
+        err("type `array<T>` expects 1 type argument, but {} provided", type_arguments.size()).fire(range, cur_f);
+      }
+      return TypeDataArray::create(type_arguments[0]);
+    }
     if (const TypeDataMapKV* t_map = type_to_instantiate->try_as<TypeDataMapKV>(); t_map && t_map->TKey->try_as<TypeDataGenericT>()) {
       if (type_arguments.size() != 2) {
         err("type `map<K,V>` expects 2 type arguments, but {} provided", type_arguments.size()).fire(range, cur_f);
@@ -327,7 +339,7 @@ class TypeNodesVisitorResolver {
 
   static void validate_resulting_union_type(const TypeDataUnion* t_union, FunctionPtr cur_f, SrcRange range) {
     for (TypePtr variant : t_union->variants) {
-      if (variant == TypeDataVoid::create() || variant == TypeDataNever::create()) {
+      if (variant == TypeDataVoid::create() || variant == TypeDataNever::create() || variant == TypeDataUnknown::create()) {
         err_void_type_not_allowed_inside_union(variant).fire(range, cur_f);
       }
     }
@@ -531,6 +543,20 @@ class ResolveTypesInsideFunctionVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v->get_expr());
   }
 
+  void visit(V<ast_square_brackets> v) override {
+    if (v->type_node) {
+      try {
+        finalize_type_node(v->type_node, false);
+      } catch (const ThrownParseError& ex) {
+        if (v->size() == 1) {
+          err("use `array.get(idx)`, not `array[idx]`").fire(v, cur_f);
+        }
+        throw;
+      }
+    }
+    parent::visit(v);
+  }
+
   void visit(V<ast_object_literal> v) override {
     if (v->type_node) {
       finalize_type_node(v->type_node, true);
@@ -635,13 +661,24 @@ public:
 // if there is an annotation to store a struct in a tuple, then it has to be reconsidered;
 // it's crucial to detect it here; otherwise, get_width_on_stack() will silently face stack overflow
 class InfiniteStructSizeDetector {
+  // `struct A { next: array<A> }` is okay, since the nested `A` is not on a stack, it's in a tuple
+  static bool is_type_stored_not_on_a_stack(TypePtr type) {
+    return type->try_as<TypeDataMapKV>() || type->try_as<TypeDataArray>() || type->try_as<TypeDataShapedTuple>();
+  }
+
   static TypePtr visit_type_deeply(TypePtr type) {
+    if (is_type_stored_not_on_a_stack(type)) {
+      return type;
+    }
     return type->replace_children_custom([](TypePtr child) {
       if (const TypeDataStruct* child_struct = child->try_as<TypeDataStruct>()) {
         check_struct_for_infinite_size(child_struct->struct_ref);
       }
       if (const TypeDataAlias* child_alias = child->try_as<TypeDataAlias>()) {
         return visit_type_deeply(child_alias->underlying_type);
+      }
+      if (is_type_stored_not_on_a_stack(child)) {
+        return TypeDataUnknown::create();
       }
       return child;
     });

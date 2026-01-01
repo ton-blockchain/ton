@@ -59,8 +59,8 @@ class ASTReplicator final {
   static V<ast_type_parenthesis_tensor> clone(V<ast_type_parenthesis_tensor> v) {
     return createV<ast_type_parenthesis_tensor>(v->range, clone(v->get_items()));
   }
-  static V<ast_type_bracket_tuple> clone(V<ast_type_bracket_tuple> v) {
-    return createV<ast_type_bracket_tuple>(v->range, clone(v->get_items()));
+  static V<ast_type_brackets_shape> clone(V<ast_type_brackets_shape> v) {
+    return createV<ast_type_brackets_shape>(v->range, clone(v->get_items()));
   }
   static V<ast_type_arrow_callable> clone(V<ast_type_arrow_callable> v) {
     return createV<ast_type_arrow_callable>(v->range, clone(v->get_params_and_return()));
@@ -92,8 +92,8 @@ class ASTReplicator final {
   static V<ast_tensor> clone(V<ast_tensor> v) {
     return createV<ast_tensor>(v->range, clone(v->get_items()));
   }
-  static V<ast_bracket_tuple> clone(V<ast_bracket_tuple> v) {
-    return createV<ast_bracket_tuple>(v->range, clone(v->get_items()));
+  static V<ast_square_brackets> clone(V<ast_square_brackets> v) {
+    return createV<ast_square_brackets>(v->range, clone(v->get_items()), clone(v->type_node));
   }
   static V<ast_reference> clone(V<ast_reference> v) {
     return createV<ast_reference>(v->range, clone(v->get_identifier()), v->has_instantiationTs() ? clone(v->get_instantiationTs()) : nullptr);
@@ -284,7 +284,7 @@ class ASTReplicator final {
       case ast_braced_yield_result:             return clone(v->as<ast_braced_yield_result>());
       case ast_artificial_aux_vertex:           return clone(v->as<ast_artificial_aux_vertex>());
       case ast_tensor:                          return clone(v->as<ast_tensor>());
-      case ast_bracket_tuple:                   return clone(v->as<ast_bracket_tuple>());
+      case ast_square_brackets:                 return clone(v->as<ast_square_brackets>());
       case ast_reference:                       return clone(v->as<ast_reference>());
       case ast_local_var_lhs:                   return clone(v->as<ast_local_var_lhs>());
       case ast_local_vars_declaration:          return clone(v->as<ast_local_vars_declaration>());
@@ -325,7 +325,7 @@ class ASTReplicator final {
       case ast_type_leaf_text:                  return clone(v->as<ast_type_leaf_text>());
       case ast_type_question_nullable:          return clone(v->as<ast_type_question_nullable>());
       case ast_type_parenthesis_tensor:         return clone(v->as<ast_type_parenthesis_tensor>());
-      case ast_type_bracket_tuple:              return clone(v->as<ast_type_bracket_tuple>());
+      case ast_type_brackets_shape:             return clone(v->as<ast_type_brackets_shape>());
       case ast_type_arrow_callable:             return clone(v->as<ast_type_arrow_callable>());
       case ast_type_vertical_bar_union:         return clone(v->as<ast_type_vertical_bar_union>());
       case ast_type_triangle_args:              return clone(v->as<ast_type_triangle_args>());

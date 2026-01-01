@@ -462,6 +462,16 @@ public:
       }
       return ConstValTensor{std::move(items)};
     }
+    if (auto v_square = v->try_as<ast_square_brackets>()) {
+      std::vector<AnyExprV> items;
+      items.reserve(v_square->size());
+      for (int i = 0; i < v_square->size(); ++i) {
+        AnyExprV v_ith = v_square->get_item(i);
+        check_expression_is_constant_or_fire(v_ith);
+        items.emplace_back(v_ith);
+      }
+      return ConstValShapedTuple{std::move(items)};
+    }
     if (auto v_object = v->try_as<ast_object_literal>()) {
       V<ast_object_body> v_body = v_object->get_body();
       std::vector<std::pair<StructFieldPtr, AnyExprV>> fields;

@@ -36,6 +36,25 @@
 
 namespace tolk {
 
+std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr from_type, TypePtr dest_type, AnyV origin);
+
+// having `a = b` where `a` is `array<int?>`, b is `array<int>` (from=`int`, dest=`int?`),
+// check that this assignment can be done atomically, without unpacking a tuple and moving every item
+// example when can: `array<int> to array<int?>`, `[Point, Point] to [unknown, unknown]`
+// example when not: `array<Point> to array<Point?>`, because of transformation `[x y]` to `[x y type-id]`
+static bool can_safely_move_inside_tuple(TypePtr from, TypePtr dest) {
+  if (from->equal_to(dest) || dest == TypeDataUnknown::create()) {
+    return true;
+  }
+  if (from->get_width_on_stack() != 1 || dest->get_width_on_stack() != 1) {
+    return false;
+  }
+
+  CodeBlob tmp(nullptr);
+  std::vector same = transition_rvect_to_runtime_type({-1}, tmp, from, dest, nullptr);
+  return same[0] == -1 && tmp.var_cnt == 0;
+}
+
 std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr from_type, TypePtr dest_type, AnyV origin) {
 #ifdef TOLK_DEBUG
   tolk_assert(static_cast<int>(rvect.size()) == from_type->get_width_on_stack());
@@ -92,15 +111,28 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
   }
 
   // transform anything to `unknown`
+  // type `unknown` can not occur inside a union (`5 as int|unknown` is forbidden), so do this before handling unions
+  // have: [value] or [slot ... slot]
+  // need: [value] or [tuple]
   if (dest_type == TypeDataUnknown::create()) {
-    return rvect;
+    if (from_slots == 1) {
+      return rvect;
+    }
+    std::vector ir_to_tuple = code.create_tmp_var(TypeDataUnknown::create(), origin, "(to-unknown)");
+    code.emplace_back(origin, Op::_Tuple, ir_to_tuple, std::move(rvect));
+    return ir_to_tuple;
   }
-  
+
   // transform `unknown` to anything
-  // currently, `unknown` can be cast only to a single-slot type
+  // have: [value] or [tuple] (compile-time known that a tuple is of size N!=1)
+  // need: [value] or [slot ... slot]
   if (from_type == TypeDataUnknown::create()) {
-    tolk_assert(dest_slots == 1);
-    return rvect;
+    if (dest_slots == 1) {
+      return rvect;
+    }
+    std::vector ir_from_tuple = code.create_tmp_var(dest_type, origin, "(from-unknown)");
+    code.emplace_back(origin, Op::_UnTuple, ir_from_tuple, std::move(rvect));
+    return ir_from_tuple;
   }
 
   // handle unions, there are many combinations, since tagged unions have special stack layout and optimizations
@@ -321,11 +353,6 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
     return rvect;
   }
 
-  // transform a typed tuple `[int, int]` to an untyped `tuple`
-  if (from_type->try_as<TypeDataBrackets>() && dest_type->try_as<TypeDataTuple>()) {
-    return rvect;
-  }
-
   // transform a tensor to a tensor
   // - `(1, null)` to `(int, slice?)`
   // - `(1, null)` to `(int, (int,int)?)`
@@ -347,13 +374,101 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
     return dest_rvect;
   }
 
-  // transform typed to tuples
-  // - `[1, null]` to `[int, int?]`
-  // - `[1, null]` to `[int, [int?,int?]?]`
-  // to changes to rvect, since tuples contain only 1-slot elements
-  if (dest_type->try_as<TypeDataBrackets>() && from_type->try_as<TypeDataBrackets>()) {
-    tolk_assert(dest_slots == 1 && from_slots == 1);
-    return rvect;
+  // handle arrays and shapes (TVM tuples at runtime)
+  const TypeDataArray* from_array = from_type->try_as<TypeDataArray>();
+  const TypeDataArray* dest_array = dest_type->try_as<TypeDataArray>();
+  const TypeDataShapedTuple* from_shaped = from_type->try_as<TypeDataShapedTuple>();
+  const TypeDataShapedTuple* dest_shaped = dest_type->try_as<TypeDataShapedTuple>();
+
+  // transform an array to another array
+  // - `array<int>` to `array<int?>`
+  // - `array<int?>` to `array<unknown>`
+  // - `array<Point>` to `array<Point?>`
+  if (from_array && dest_array) {
+    // if no inner transformations required, just re-use a ready TVM tuple
+    if (can_safely_move_inside_tuple(from_array->innerT, dest_array->innerT)) {
+      return rvect;
+    }
+
+    // otherwise, transform every element, e.g. `array<Point>` to `array<Point?>`: each from [x y] to [x y type-id]
+    // it's done via generating a loop; pseudocode: `i = 0; repeat (a1.size()) { a2.push(a1.get(i) as T2); i++ }`
+    var_idx_t ir_one = code.create_int(origin, 1, "(one)");
+    std::vector ir_loop_i = {code.create_int(origin, 0, "(loop-i)")};
+    std::vector ir_result_arr = code.create_tmp_var(TypeDataArray::create(TypeDataUnknown::create()), origin, "(target-array)");
+    code.emplace_back(origin, Op::_Tuple, ir_result_arr, std::vector<var_idx_t>{});
+    std::vector ir_orig_size = code.create_tmp_var(TypeDataInt::create(), origin, "(orig-tuple-size)");
+    code.emplace_back(origin, Op::_Call, ir_orig_size, rvect, lookup_function("array<T>.size"));
+    Op& repeat_op = code.emplace_back(origin, Op::_Repeat, ir_orig_size);
+    code.push_set_cur(repeat_op.block0);
+    std::vector ir_ith_elem = code.create_tmp_var(from_array->innerT, origin, "(ith-orig-elem)");
+    code.emplace_back(origin, Op::_Call, ir_ith_elem, std::vector{rvect[0], ir_loop_i[0]}, lookup_function("array<T>.get"));
+    ir_ith_elem = transition_rvect_to_runtime_type(std::move(ir_ith_elem), code, from_array->innerT, dest_array->innerT, origin);
+    std::vector<var_idx_t> ir_args_push;
+    ir_args_push.reserve(1 + ir_ith_elem.size());
+    ir_args_push.push_back(ir_result_arr[0]);
+    ir_args_push.insert(ir_args_push.end(), ir_ith_elem.begin(), ir_ith_elem.end());
+    code.emplace_back(origin, Op::_Call, ir_result_arr, std::move(ir_args_push), lookup_function("array<T>.push"));
+    code.emplace_back(origin, Op::_Call, ir_loop_i, std::vector{ir_loop_i[0], ir_one}, lookup_function("_+_"));
+    code.close_pop_cur(origin);
+    return ir_result_arr;
+  }
+
+  // transform a shape to an array (they both are TVM tuples)
+  // - `[int, int]` to `array<int>`
+  // - `[int, slice, Point]` to `array<unknown>`
+  if (from_shaped && dest_array) {
+    int shape_size = from_shaped->size();
+    bool safely_move = true;
+    for (int i = 0; i < shape_size; ++i) {
+      safely_move &= can_safely_move_inside_tuple(from_shaped->items[i], dest_array->innerT);
+    }
+    if (safely_move) {
+      return rvect;
+    }
+
+    std::vector ir_un_tuple = code.create_tmp_var(TypeDataTensor::create(std::vector(shape_size, TypeDataUnknown::create())), origin, "(unpack-shape)");
+    code.emplace_back(origin, Op::_UnTuple, ir_un_tuple, std::move(rvect));
+    std::vector ir_result_arr = code.create_tmp_var(TypeDataArray::create(TypeDataUnknown::create()), origin, "(target-array)");
+    code.emplace_back(origin, Op::_Tuple, ir_result_arr, std::vector<var_idx_t>{});
+    for (int i = 0; i < shape_size; ++i) {
+      std::vector ir_ith_elem = { ir_un_tuple[i] };
+      ir_ith_elem = transition_rvect_to_runtime_type(std::move(ir_ith_elem), code, TypeDataUnknown::create(), from_shaped->items[i], origin);
+      ir_ith_elem = transition_rvect_to_runtime_type(std::move(ir_ith_elem), code, from_shaped->items[i], dest_array->innerT, origin);
+      std::vector<var_idx_t> ir_args_push = std::move(ir_ith_elem);
+      ir_args_push.insert(ir_args_push.begin(), ir_result_arr[0]);
+      code.emplace_back(origin, Op::_Call, ir_result_arr, std::move(ir_args_push), lookup_function("array<T>.push"));
+    }
+    return ir_result_arr;
+  }
+
+  // transform a shape to a shape
+  // - `[int, int]` to `[int?, int?]`
+  // - `[Point, null]` to `[Point?, Point?]`
+  // - `[Point?, Point?]` to `[Point, null]` (smart cast)
+  if (from_shaped && dest_shaped) {
+    tolk_assert(dest_shaped->size() == from_shaped->size());
+    int shape_size = dest_shaped->size();
+    bool safely_move = true;
+    for (int i = 0; i < shape_size; ++i) {
+      safely_move &= can_safely_move_inside_tuple(from_shaped->items[i], dest_shaped->items[i]);
+    }
+    if (safely_move) {
+      return rvect;
+    }
+
+    std::vector ir_un_tuple = code.create_tmp_var(TypeDataTensor::create(std::vector(shape_size, TypeDataUnknown::create())), origin, "(unpack-shape)");
+    code.emplace_back(origin, Op::_UnTuple, ir_un_tuple, std::move(rvect));
+    std::vector ir_result_arr = code.create_tmp_var(TypeDataArray::create(TypeDataUnknown::create()), origin, "(target-shape)");
+    code.emplace_back(origin, Op::_Tuple, ir_result_arr, std::vector<var_idx_t>{});
+    for (int i = 0; i < shape_size; ++i) {
+      std::vector ir_ith_elem = { ir_un_tuple[i] };
+      ir_ith_elem = transition_rvect_to_runtime_type(std::move(ir_ith_elem), code, TypeDataUnknown::create(), from_shaped->items[i], origin);
+      ir_ith_elem = transition_rvect_to_runtime_type(std::move(ir_ith_elem), code, from_shaped->items[i], dest_shaped->items[i], origin);
+      std::vector<var_idx_t> ir_args_push = std::move(ir_ith_elem);
+      ir_args_push.insert(ir_args_push.begin(), ir_result_arr[0]);
+      code.emplace_back(origin, Op::_Call, ir_result_arr, std::move(ir_args_push), lookup_function("array<T>.push"));
+    }
+    return ir_result_arr;
   }
 
   // transform a callable to a callable

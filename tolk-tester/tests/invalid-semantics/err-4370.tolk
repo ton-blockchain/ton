@@ -8,7 +8,7 @@ fun test(x: int, y: int) {
     x += (y = x);
     x.incrementBy(([y] = [x]).0);
     x.incrementBy(([y] = [x]).0);
-    x.incrementBy(([eq([x].0 = x + 10)].0));
+    x.incrementBy(((eq((x, 1).0 = x + 10), 1).0));
 
     // error
     x.incrementBy(([y, x] = [0, 0]).0);

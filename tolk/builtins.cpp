@@ -86,6 +86,23 @@ void FunctionBodyAsm::compile(AsmOpList& dest, AnyV origin) const {
 }
 
 
+static std::string op_postfix_N_untuple(std::string cmd, int n_slots) {
+  if (n_slots != 1) {
+    cmd += " ";
+    cmd += std::to_string(n_slots);
+    cmd += n_slots < 16 ? " UNTUPLE" : " PUSHINT UNTUPLEVAR";
+  }
+  return cmd;
+}
+
+static std::string op_prefix_N_tuple(std::string cmd, int n_slots) {
+  if (n_slots != 1) {
+    std::string prefix = std::to_string(n_slots) + (n_slots < 16 ? " TUPLE " : " PUSHINT TUPLEVAR ");
+    cmd = prefix + cmd;
+  }
+  return cmd;
+}
+
 /*
  * 
  *   DEFINE BUILT-IN FUNCTIONS
@@ -1213,26 +1230,69 @@ static AsmOp compile_skip_bits_in_slice(std::vector<VarDescr>& res, std::vector<
 }
 
 
-// fun tuple.get<X>(t: tuple, index: int): X   asm "INDEXVAR";
-static AsmOp compile_tuple_get(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
-  tolk_assert(args.size() == 2 && res.size() == 1);
+// fun array<T>.get(self, index: int): T
+static AsmOp compile_array_get(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
+  tolk_assert(args.size() == 2);
+  int n_slots = static_cast<int>(res.size());
   auto& y = args[1];
   if (y.is_int_const() && y.int_const >= 0 && y.int_const < 16) {
     y.unused();
-    return exec_arg_op(origin, "INDEX", y.int_const, 1, 1);
+    return exec_arg_op(origin, op_postfix_N_untuple("INDEX", n_slots), y.int_const, 1, n_slots);
   }
-  return exec_op(origin, "INDEXVAR", 2, 1);
+  return exec_op(origin, op_postfix_N_untuple("INDEXVAR", n_slots), 2, n_slots);
 }
 
-// fun tuple.set<X>(mutate self: tuple, value: X, index: int): void   asm "SETINDEXVAR";
-static AsmOp compile_tuple_set_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
-  tolk_assert(args.size() == 3 && res.size() == 1);
-  auto& y = args[2];
+// fun array<T>.set(mutate self, value: T, index: int): void
+static AsmOp compile_array_set_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
+  tolk_assert(args.size() >= 2 && res.size() == 1);
+  int n_slots = static_cast<int>(args.size() - 2);
+  auto& y = args.back();
   if (y.is_int_const() && y.int_const >= 0 && y.int_const < 16) {
     y.unused();
-    return exec_arg_op(origin, "SETINDEX", y.int_const, 1, 1);
+    return exec_op(origin, op_prefix_N_tuple(y.int_const->to_dec_string() + " SETINDEX", n_slots), n_slots + 1, 1);
   }
-  return exec_op(origin, "SETINDEXVAR", 2, 1);
+  if (n_slots == 1) {
+    return exec_op(origin, "SETINDEXVAR", 3, 1);
+  }
+  if (n_slots < 1 || n_slots > 16) {
+    err("array.set is supported for 1..16 slots ({} stack slots here)", n_slots).fire(origin);
+  }
+  std::string prefix_N_tuple_stack = std::to_string(n_slots) + " 1 BLKSWAP " + std::to_string(n_slots) + (n_slots > 15 ? " PUSHINT TUPLEVAR " : " TUPLE ") + "SWAP ";  
+  return exec_op(origin, prefix_N_tuple_stack + "SETINDEXVAR", n_slots + 2, 1);
+}
+
+// fun array<T>.push(mutate self, value: T): void;
+static AsmOp compile_array_push(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
+  tolk_assert(res.size() == 1);
+  int n_slots = static_cast<int>(args.size() - 1);
+  return exec_op(origin, op_prefix_N_tuple("TPUSH", n_slots), n_slots, 1);
+}
+
+// fun array<T>.size(self): int;
+static AsmOp compile_array_size(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
+  tolk_assert(res.size() == 1 && args.size() == 1);
+  return exec_op(origin, "TLEN", 1, 1);
+}
+
+// fun array<T>.last(self): T;
+static AsmOp compile_array_last(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
+  tolk_assert(args.size() == 1);
+  int n_slots = static_cast<int>(res.size());
+  return exec_op(origin, op_postfix_N_untuple("LAST", n_slots), 1, n_slots);
+}
+
+// fun array<T>.first(self): T;
+static AsmOp compile_array_first(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
+  tolk_assert(args.size() == 1);
+  int n_slots = static_cast<int>(res.size());
+  return exec_op(origin, op_postfix_N_untuple("FIRST", n_slots), 1, n_slots);
+}
+
+// fun array<T>.pop(mutate self): T;
+static AsmOp compile_array_pop(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
+  tolk_assert(res.size() >= 1 && args.size() == 1);
+  int n_slots = static_cast<int>(res.size() - 1);
+  return exec_op(origin, op_postfix_N_untuple("TPOP", n_slots), 1, n_slots + 1);
 }
 
 // fun debug.dumpStack(): void   asm "DUMPSTK";
@@ -1263,7 +1323,7 @@ static AsmOp compile_debug_print_to_string(std::vector<VarDescr>&, std::vector<V
   return AsmOp::Custom(origin, cmd, n, n);
 }
 
-// fun T.toTuple(self): tuple;    (T can be any number of slots, it works for structs and tensors)
+// fun T.toTuple(self): array<unknown>;    (T can be any number of slots, it works for structs and tensors)
 static AsmOp compile_T_to_tuple(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 1);
   int n_slots = static_cast<int>(args.size());
@@ -1271,7 +1331,7 @@ static AsmOp compile_T_to_tuple(std::vector<VarDescr>& res, std::vector<VarDescr
   return exec_op(origin, op_make_tuple, n_slots, 1);
 }
 
-// fun T.fromTuple(t: tuple): T;
+// fun T.fromTuple(t: array<unknown>): T;
 static AsmOp compile_T_from_tuple(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(args.size() == 1);
   int n_slots = static_cast<int>(res.size());
@@ -1311,7 +1371,10 @@ static AsmOp compile_is_null(std::vector<VarDescr>& res, std::vector<VarDescr>& 
 }
 
 // fun __expect_type(<expression>, "<expected_type>"): void;
-static AsmOp compile_expect_type(std::vector<VarDescr>&, std::vector<VarDescr>&, AnyV origin) {
+static AsmOp compile_expect_type(std::vector<VarDescr>&, std::vector<VarDescr>& args, AnyV origin) {
+  for (VarDescr& a : args) {
+    a.unused();
+  }
   // handled by type checker, does nothing at runtime
   return AsmOp::Nop(origin);
 }
@@ -1379,16 +1442,16 @@ CompileToAsmOpImpl compile_dict_delGet;
 void define_builtins() {
   using namespace std::placeholders;
 
+  TypePtr typeT = TypeDataGenericT::create("T");
   TypePtr Unit = TypeDataVoid::create();
   TypePtr Int = TypeDataInt::create();
   TypePtr Bool = TypeDataBool::create();
   TypePtr Slice = TypeDataSlice::create();
   TypePtr Builder = TypeDataBuilder::create();
   TypePtr Address = TypeDataAddress::internal();
-  TypePtr Tuple = TypeDataTuple::create();
+  TypePtr ArrayOfT = TypeDataArray::create(typeT);
   TypePtr Never = TypeDataNever::create();
 
-  TypePtr typeT = TypeDataGenericT::create("T");
   const GenericsDeclaration* declGenericT = new GenericsDeclaration(std::vector<GenericsDeclaration::ItemT>{{"T", nullptr}}, 0);
   const GenericsDeclaration* declReceiverT = new GenericsDeclaration(std::vector<GenericsDeclaration::ItemT>{{"T", nullptr}}, 1);
 
@@ -1575,6 +1638,30 @@ void define_builtins() {
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
 
+  // array<T> — a TVM tuple under the hood
+  // implemented as built-in functions to support variable-width T (not 1-slot values are backed by sub-tuples)
+  define_builtin_method("array<T>.get", ArrayOfT, {ArrayOfT, Int}, typeT, declReceiverT,
+                              compile_array_get,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("array<T>.set", ArrayOfT, {ArrayOfT, typeT, Int}, Unit, declReceiverT,
+                              compile_array_set_at,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("array<T>.push", ArrayOfT, {ArrayOfT, typeT}, Unit, declReceiverT,
+                              compile_array_push,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("array<T>.size", ArrayOfT, {ArrayOfT}, Int, declReceiverT,
+                              compile_array_size,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("array<T>.last", ArrayOfT, {ArrayOfT}, typeT, declReceiverT,
+                              compile_array_last,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("array<T>.first", ArrayOfT, {ArrayOfT}, typeT, declReceiverT,
+                              compile_array_first,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("array<T>.pop", ArrayOfT, {ArrayOfT}, typeT, declReceiverT,
+                              compile_array_pop,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+
   // functions from stdlib marked as `builtin`, implemented at compiler level for optimizations
   // (for example, `loadInt(1)` is `1 LDI`, but `loadInt(n)` for non-constant requires it be on a stack and `LDIX`)
   define_builtin_func("mulDivFloor", ParamsInt3, Int, nullptr,
@@ -1631,12 +1718,6 @@ void define_builtins() {
   define_builtin_method("builder.storeCoins", Builder, {Builder, TypeDataCoins::create()}, Unit, nullptr,
                               compile_store_coins,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf);
-  define_builtin_method("tuple.get", Tuple, {Tuple, Int}, typeT, declGenericT,
-                              compile_tuple_get,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
-  define_builtin_method("tuple.set", Tuple, {Tuple, typeT, Int}, Unit, declGenericT,
-                              compile_tuple_set_at,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf);
   define_builtin_method("address.buildSameAddressInAnotherShard", Address, {Address, AddressShardingOptions}, Builder, nullptr,
                                 generate_address_buildInAnotherShard,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
@@ -1691,10 +1772,10 @@ void define_builtins() {
   define_builtin_method("builder.storeAny", Builder, {Builder, typeT, PackOptions}, Builder, declGenericT,
                                 generate_builder_storeAny,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("T.toTuple", typeT, {typeT}, Tuple, declReceiverT,
+  define_builtin_method("T.toTuple", typeT, {typeT}, TypeDataArray::create(TypeDataUnknown::create()), declReceiverT,
                                 compile_T_to_tuple,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("T.fromTuple", typeT, {Tuple}, typeT, declReceiverT,
+  define_builtin_method("T.fromTuple", typeT, {TypeDataArray::create(TypeDataUnknown::create())}, typeT, declReceiverT,
                                 compile_T_from_tuple,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
 
@@ -1717,9 +1798,9 @@ void define_builtins() {
   // functions not presented in stdlib at all
   // used in tolk-tester to check/expose internal compiler state
   // each of them is handled in a special way, search by its name
-  define_builtin_func("__expect_type", {TypeDataUnknown::create(), Slice}, Unit, nullptr,
+  define_builtin_func("__expect_type", {typeT, Slice}, Unit, declGenericT,
                                 compile_expect_type,
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
   define_builtin_func("__expect_inline", {Bool}, Unit, nullptr,
                                 compile_expect_type,
                                 FunctionData::flagMarkedAsPure);

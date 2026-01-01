@@ -137,7 +137,7 @@ fun test9() {
 fun test10() {
     var w1 = WithEnumsUnion{u: EFits8Bits.E110}.toCell().load();
     var w2 = WithEnumsUnion{u: (220 as EFits8Bits)}.toCell().load();
-    var w3 = WithEnumsUnion{u: ([0] as tuple).get<EStartFromM2>(0)}.toCell().load();
+    var w3 = WithEnumsUnion{u: ([0] as [EStartFromM2]).0}.toCell().load();
     var w4 = WithEnumsUnion{u: EStartFromM2.P3}.toCell().load();
     return (
         w1.u is EFits8Bits && w1.u == EFits8Bits.E110,

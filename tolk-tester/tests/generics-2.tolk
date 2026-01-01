@@ -546,7 +546,7 @@ fun main(c: Wrapper<slice>, d: WrappedInt) {
 @testcase | 116 |         | 1 2 3 4
 @testcase | 117 |         | 100 123
 @testcase | 118 |         | 123 1 777 123 1 -1 2
-@testcase | 119 |         | 40 40 -1 -1 -1 -1
+@testcase | 119 |         | 40 40 -1 0 -1 0
 @testcase | 120 |         | (null) typeid-9 777 (null) (null) 0 typeid-10 -1 -1
 @testcase | 123 |         | 10 10 10 10 10
 @testcase | 126 |         | 0 0 0 (null) 777 0 typeid-12 (null) typeid-12 (null) 0

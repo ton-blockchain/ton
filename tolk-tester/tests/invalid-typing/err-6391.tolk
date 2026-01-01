@@ -2,7 +2,7 @@ fun (int, int)?.acceptMutateNullableTensor(mutate self) {
 }
 
 fun cantModifyTupleIndexWithTypeTransition() {
-    var t = [1, null];
+    var t: [int, null] = [1, null];
     t.1.acceptMutateNullableTensor();
 }
 

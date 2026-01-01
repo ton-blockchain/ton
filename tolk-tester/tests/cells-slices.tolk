@@ -265,7 +265,7 @@ fun test18() {
   if (true) {
       b.storeInt(x + 2, 8).storeUint(x = match (x) { 24 => 5, else => 0 }, 4);
   }
-  var s = [b.endCell()].0.beginParse();
+  var s = ([b.endCell()] as [cell]).0.beginParse();
   return (s.loadUint(14), s.loadInt(8), s.loadUint(4));
 }
 

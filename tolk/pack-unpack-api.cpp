@@ -224,8 +224,8 @@ public:
     if (any_type == TypeDataNullLiteral::create()) {
       return CantSerializeBecause("because type `null` is not serializable\n""hint: `int32?` and other nullable types will work");
     }
-    if (any_type == TypeDataTuple::create() || any_type->try_as<TypeDataBrackets>()) {
-      return CantSerializeBecause("because tuples are not serializable\n""hint: use tensors instead of tuples, they will work");
+    if (any_type->try_as<TypeDataArray>()) {
+      return CantSerializeBecause("because arrays are not serializable\n""hint: use fixed-width tensors `(T1, T2, ...)`, they are serializable\n""hint: or define a `type XXX = " + any_type->as_human_readable() + "` and implement custom serializers for it");
     }
 
     return CantSerializeBecause("because type `" + any_type->as_human_readable() + "` is not serializable");

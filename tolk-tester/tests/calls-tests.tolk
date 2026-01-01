@@ -140,7 +140,7 @@ fun test7() {
     return (10.plus(5.plus()), int.plus(4));
 }
 
-fun createTFrom<U = int, V = int100>(v: (int, (U, V)) = (1, (2, 3))) {
+fun createTFrom<U = int, V = int100>(v: (int, (U, V)) = (1, (2, 3))): [int, U, V] {
     return [v.0, v.1.0, v.1.1];
 }
 

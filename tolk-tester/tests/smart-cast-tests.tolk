@@ -273,7 +273,8 @@ fun test25() {
 }
 
 fun test26() {
-    var x = [getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(),
+    var x: [int?,int?,int?,int?,int?,int?,int?,int?,int?,int?] = [
+        getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(),
         getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt()];
     if (~(x.0 = rand())) { return; }
     if ((x.1 = rand()) < (x.2 = rand())) { return; }
@@ -281,20 +282,21 @@ fun test26() {
     x.5 = (x.4 = rand()) ? (x.6 = rand()) : (x.6 = rand());
     if ((x.7 = rand()) as int) { return; }
     if (((((x.8 = rand()) != null)))) { return; }
-    if ([x.1, (x.9 = rand())!].1) { return; }
+    if (([x.1, (x.9 = rand())!] as [unknown, int]).1) { return; }
     val result = x.0+x.1+x.2+x.3+x.4+x.5+x.6+x.7+x.8+x.9;
 }
 
 fun test27() {
     var (x, _) = ([getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(),
-        getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt()], []);
+        getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt()]
+        as [int?,int?,int?,int?,int?,int?,int?,int?,int?,int?], []);
     +(x.0 = rand());
-    x.0 += [((x.1 = rand()) < (x.2 = rand() + x.1)) as int].0;
+    x.0 += ([((x.1 = rand()) < (x.2 = rand() + x.1)) as int] as [int]).0;
     !(x.2 <=> (x.3 = rand() + x.2));
     x.5 = (x.4 = rand()) ? (x.6 = rand()) : (x.6 = rand());
     (x.7 = rand()) as int;
     (((((x.8 = rand()) != null))));
-    [x.1, (x.9 = rand())!].1;
+    ([x.1, (x.9 = rand())!] as [unknown, unknown]).1;
     return x.0+x.1+x.2+x.3+x.4+x.5+x.6+x.7+x.8+x.9;
 }
 
@@ -306,8 +308,7 @@ fun test28() {
 
 fun test29() {
     var x = (getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt());
-    __expect_type([x.0 = rand(), ((x.0 += (x.1 = rand()) as int)), !(x.1 <=> (x.2 = rand() + x.0)) == null, (x.3 = rand()) ? x.3 : (!x.3) as int],
-                  "[int, int, bool, int]");
+    [x.0 = rand(), ((x.0 += (x.1 = rand()) as int)), !(x.1 <=> (x.2 = rand() + x.0)) == null, (x.3 = rand()) ? x.3 : (!x.3) as int] as array<unknown>;
 }
 
 @method_id(130)
@@ -743,7 +744,7 @@ fun test64(d: dict, b: BalanceDict) {
     __expect_type(d.myDepth(), "int1");
     __expect_type(b.myDepth(), "int4");
     
-    if ([0].0) {
+    if (([0] as [int]).0) {
         (b, d) = (createEmptyCell(), null)
     }
     __expect_type(b, "BalanceDict");
@@ -773,6 +774,13 @@ fun test65(w: WithDict, t: (dict, BalanceDict)) {
     __expect_type(w.b, "BalanceDict");
     __expect_type(t.0, "dict");
     __expect_type(t.1, "BalanceDict");
+}
+
+@method_id(166)
+fun test66() {
+    var sh: [int, array<int>, Point?] | slice = [1, [2, 3], null];
+    __expect_type(sh, "[int, array<int>, Point?]");
+    return (sh.1.size(), sh !is slice);
 }
 
 
@@ -806,6 +814,7 @@ fun main(x: int?): int {
 @testcase | 160 |       | 101 109
 @testcase | 161 | 9 9   | (null) (null) 0 (null) (null)
 @testcase | 161 | 19 0  | 19 0 typeid-4 19 0
+@testcase | 166 |       | 2 -1
 
 @stderr warning: expression of type `int` can never be `null`, this condition is always true
 @stderr warning: unreachable code

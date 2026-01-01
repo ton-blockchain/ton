@@ -34,14 +34,16 @@ namespace tolk {
  * BTW, don't confuse this way of inferring with Hindley-Milner, they have nothing in common.
  */
 class TypeInferringUnifyStrategy {
+  TypePtr dest_hint = nullptr;
   TypePtr unified_result = nullptr;
   bool different_types_became_union = false;
 
 public:
-  void unify_with(TypePtr next, TypePtr dest_hint = nullptr);
+  explicit TypeInferringUnifyStrategy(TypePtr hint, bool allow_hint_be_unknown = false);
+  void unify_with(TypePtr next);
 
   TypePtr get_result() const { return unified_result; }
-  bool is_union_of_different_types() const { return different_types_became_union; }
+  bool became_union_without_hint() const { return different_types_became_union && dest_hint == nullptr; }
 };
 
 /*

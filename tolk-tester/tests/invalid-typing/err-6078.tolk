@@ -7,5 +7,5 @@ fun cantAssignIncorrectTypeToField() {
 
 /**
 @compilation_should_fail
-@stderr can not assign `tuple` to field of type `int`
+@stderr can not assign `array<unknown>` to field of type `int`
  */

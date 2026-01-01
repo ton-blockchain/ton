@@ -128,7 +128,7 @@ struct Point1D {
 
 @method_id(25)
 fun test_with_single_slot_struct(x: Point1D) {
-    var result = (x, x.c += 10, [x, x.c += 20, eq(x.c -= 50), x.c], eq2((x.c, x.c *= eq(x.c / 2))));
+    var result = (x, x.c += 10, [x, x.c += 20, eq(x.c -= 50), x.c] as array<unknown>, eq2((x.c, x.c *= eq(x.c / 2))));
     return result;
 }
 

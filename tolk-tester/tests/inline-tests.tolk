@@ -258,8 +258,8 @@ fun tuple.pushPoint(mutate self, p: Point) {
 
 fun tuple.popPoint(mutate self): Point {
     __expect_inline(true);
-    var y = self.pop<int>();
-    return {x: self.pop(), y};
+    var y = self.pop() as int;
+    return {x: self.pop() as int, y};
 }
 
 @method_id(110)
@@ -481,7 +481,7 @@ fun usedIn10ButDeclaredBelow(x: int) {
   test9() PROC:<{               //  x
     0 PUSHINT                   //  p1.x p1.y=0
     s0 s1 PUSH2                 //  p1.x p1.y=0 p2.x=0 p2.y
-    NIL                         //  x p1.y=0 p2.x=0 p2.y self
+    0 TUPLE                     //  x p1.y=0 p2.x=0 p2.y self
     s0 s4 XCHG2                 //  p2.y p1.y=0 p2.x=0 self x
     TPUSH                       //  p2.y p1.y=0 p2.x=0 self
     ROT                         //  p2.y p2.x=0 self p1.y=0
