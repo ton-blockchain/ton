@@ -445,12 +445,17 @@ TypePtr calculate_type_subtract_rhs_type(TypePtr type, TypePtr subtract_type) {
 // example: `x.1` is { var_ref: x, index_path: 2 }
 // example: `x!.1` is the same
 // example: `x.1.2` is { var_ref: x, index_path: 2<<8 + 3 }
-// example: `x!.1!.2` is the same
+// example: `x!.1!.2!` is the same
 // not SinkExpressions: `globalVar` / `f()` / `obj.method().1`
-SinkExpression extract_sink_expression_from_vertex(AnyExprV v) {
+SinkExpression extract_sink_expression_from_vertex(AnyExprV v, bool allow_global_vars) {
+  v = unwrap_not_null_operator(v);
+
   if (auto as_ref = v->try_as<ast_reference>()) {
     if (LocalVarPtr var_ref = as_ref->sym->try_as<LocalVarPtr>()) {
       return SinkExpression(var_ref);
+    }
+    if (GlobalVarPtr glob_ref = as_ref->sym->try_as<GlobalVarPtr>(); glob_ref && allow_global_vars) {
+      return SinkExpression(reinterpret_cast<LocalVarPtr>(glob_ref));
     }
   }
 
@@ -472,15 +477,18 @@ SinkExpression extract_sink_expression_from_vertex(AnyExprV v) {
       if (LocalVarPtr var_ref = as_ref->sym->try_as<LocalVarPtr>(); var_ref && index_path) {
         return SinkExpression(var_ref, index_path);
       }
+      if (GlobalVarPtr glob_ref = as_ref->sym->try_as<GlobalVarPtr>(); glob_ref && index_path && allow_global_vars) {
+        return SinkExpression(reinterpret_cast<LocalVarPtr>(glob_ref), index_path);
+      }
     }
   }
 
   if (auto as_par = v->try_as<ast_parenthesized_expression>()) {
-    return extract_sink_expression_from_vertex(as_par->get_expr());
+    return extract_sink_expression_from_vertex(as_par->get_expr(), allow_global_vars);
   }
 
   if (auto as_assign = v->try_as<ast_assign>()) {
-    return extract_sink_expression_from_vertex(as_assign->get_lhs());
+    return extract_sink_expression_from_vertex(as_assign->get_lhs(), allow_global_vars);
   }
 
   if (auto as_decl = v->try_as<ast_local_vars_declaration>()) {

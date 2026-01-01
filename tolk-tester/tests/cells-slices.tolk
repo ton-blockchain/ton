@@ -50,7 +50,7 @@ fun test2(): [int,int,int] {
     var b: builder = beginCell().myStoreInt(1, 32);
     b = b.myStoreInt(2, 32);
     // operator ! here and below is used just for testing purposes, it doesn't affect the result
-    b!.myStoreInt(3, 32);
+    b.myStoreInt(3, 32);
 
     var cs: slice = b.toSlice();
     var one: int = cs.myLoadInt(32);
@@ -61,14 +61,14 @@ fun test2(): [int,int,int] {
 
 @method_id(103)
 fun test3(ret: int): int {
-    val same: int = beginCell()!.storeUint(ret,32).toSlice().loadUint(32);
+    val same: int = beginCell().storeUint(ret,32).toSlice().loadUint(32);
     return same;
 }
 
 @method_id(104)
 fun test4(): [int,int] {
-    var b: builder = (beginCell() as builder).myStoreInt(1, 32);
-    b = b!.storeInt(2, 32)!.storeInt(3, 32);
+    var b: builder = beginCell().myStoreInt(1, 32);
+    b = b.storeInt(2, 32).storeInt(3, 32);
 
     var cs: slice = b.endCell().beginParse();
     var (one, _, three) = (cs.getFirstBits(32).loadUint(32), cs.skipBits(64), cs.load_u32());
@@ -135,7 +135,7 @@ fun test10() {
 fun test11() {
     var s: slice = beginCell().storeInt(1, 32).storeInt(2, 32).storeInt(3, 32).storeInt(4, 32).storeInt(5, 32).storeInt(6, 32).storeInt(7, 32).endCell().beginParse();
     var size1 = s.remainingBitsCount();
-    s!.skipBits(32);
+    s.skipBits(32);
     var s1: slice = s.getFirstBits(64);
     var n1 = s1.loadInt(32);
     var size2 = s.remainingBitsCount();
@@ -145,7 +145,15 @@ fun test11() {
     var size4 = s.remainingBitsCount();
     var n2 = s.loadInt(32);
     var size5 = s.remainingBitsCount();
-    return (n1, n2, size1, size2, size3, size4, size5);
+
+    var s32 = stringHexToSlice("00000000");
+    // all these calls do not modify `s32`, they modify a temporary object (and a pure call is removed)
+    (s32, 0).0.skipBits(32);
+    (s32!, 0).0.skipBits(32);
+    (s32 as slice, 0).0.skipBits(32);
+    ((_, _) = (1, s32)).1.skipBits(32);
+
+    return (n1, n2, size1, size2, size3, size4, size5, s32.remainingBitsCount());
 }
 
 @method_id(112)
@@ -574,7 +582,7 @@ fun main(): int {
 @testcase | 107 |     | 72 40 72
 @testcase | 108 |     | 0 40 32
 @testcase | 110 |     | 64 3 0 0 -1 0 100 -1
-@testcase | 111 |     | 2 3 224 192 160 128 96
+@testcase | 111 |     | 2 3 224 192 160 128 96 32
 @testcase | 112 |     | 9 100
 @testcase | 113 |     | [ 3 128 5 ] [ 2 96 3 ] 444
 @testcase | 114 | -1  | -1 0 -1

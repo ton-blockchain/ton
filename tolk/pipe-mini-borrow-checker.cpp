@@ -117,7 +117,7 @@ class CheckMutationNotHappensTwiceVisitor final : public ASTVisitorFunctionBody 
       AnyExprV self_obj = v->get_self_obj();
       parent::visit(self_obj);
       if (fun_ref->does_mutate_self()) {
-        if (SinkExpression s_expr = extract_sink_expression_from_vertex(self_obj)) {
+        if (SinkExpression s_expr = extract_sink_expression_from_vertex(self_obj, true)) {
           borrow_ctx.borrow_or_fire_if_twice(cur_f, s_expr, self_obj, fun_ref);
         }
       }
@@ -127,7 +127,7 @@ class CheckMutationNotHappensTwiceVisitor final : public ASTVisitorFunctionBody 
       AnyExprV ith_arg = v->get_arg(i)->get_expr();
       parent::visit(ith_arg);
       if (fun_ref->parameters[delta_self + i].is_mutate_parameter()) {
-        if (SinkExpression s_expr = extract_sink_expression_from_vertex(ith_arg)) {
+        if (SinkExpression s_expr = extract_sink_expression_from_vertex(ith_arg, true)) {
           borrow_ctx.borrow_or_fire_if_twice(cur_f, s_expr, ith_arg, fun_ref);
         }
       }
@@ -140,14 +140,16 @@ class CheckMutationNotHappensTwiceVisitor final : public ASTVisitorFunctionBody 
     // recursively analyze assignment lhs to find not only `x = rhs`, but also `(([_, x], _)) = rhs`
     // note, that rhs CAN mutate x, because assignment is happening only after evaluating it
     // (unlike `x += rhs`, which can't mutate x)
+    borrow_ctx.push_frame();
     process_assignment_lhs(v->get_lhs());
+    borrow_ctx.pop_frame();
     parent::visit(v->get_rhs());
   }
 
   void visit(V<ast_set_assign> v) override {
     // unlike assignment `x = rhs`, operators `+=` and similar don't allow tensors and similar
     borrow_ctx.push_frame();
-    if (SinkExpression lhs_s_expr = extract_sink_expression_from_vertex(v->get_lhs())) {
+    if (SinkExpression lhs_s_expr = extract_sink_expression_from_vertex(v->get_lhs(), true)) {
       borrow_ctx.borrow_or_fire_if_twice(cur_f, lhs_s_expr, v->get_lhs(), nullptr);
     }
 
@@ -176,10 +178,8 @@ class CheckMutationNotHappensTwiceVisitor final : public ASTVisitorFunctionBody 
     // for example, `b = b.storeInt()` is common and correct;
     // what we do here is checking that assignment is allowed in this exact place, it's not already borrowed:
     // `point.mutate(..., point.x = 10)`   // can't borrow `point.x`, because `point` is already being mutated
-    if (SinkExpression lhs_s_expr = extract_sink_expression_from_vertex(lhs)) {
-      borrow_ctx.push_frame();
+    if (SinkExpression lhs_s_expr = extract_sink_expression_from_vertex(lhs, true)) {
       borrow_ctx.borrow_or_fire_if_twice(cur_f, lhs_s_expr, lhs, nullptr);
-      borrow_ctx.pop_frame();
     }
 
     parent::visit(lhs);

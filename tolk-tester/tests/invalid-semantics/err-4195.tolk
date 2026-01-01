@@ -10,5 +10,5 @@ fun cantUseLValueUnwrappedNotNull() {
 
 /**
 @compilation_should_fail
-@stderr function call can not be used as lvalue
+@stderr operator `!` can not be used as lvalue
  */

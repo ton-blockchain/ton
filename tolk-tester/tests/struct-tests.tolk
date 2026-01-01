@@ -298,7 +298,7 @@ fun test20(setNull: bool) {
     if (!setNull) {
         gPoint.x = gPointN!.y = 80;
     } else {
-        (gPoint as Point?)!.y += 5;
+        (gPoint as Point?)!.y += 5;     // has no effect, it operates on a tmp rvalue
     }
     return (gPoint, gPointN);
 }
@@ -647,6 +647,22 @@ fun test46() {
     return (t.size(), BigOnStackA.fromTuple(t).n3.toTuple());
 }
 
+global g147: int;
+
+@method_id(147)
+fun test47() {
+    g147 = 0;
+    var origY: int = 0;
+    Point{x: g147, y: origY}.x = 10;    // no effect
+    Point{x: g147, y: origY}.y = 20;    // no effect
+
+    val a: Point = { x: 1, y: 1 };
+    var b: Point = { x: 2, y: 2 };
+    (b = a).x = 7;      // b = a, but no slots overlapping
+
+    return (g147, origY, a, b);
+}
+
 
 fun main(x: int8, y: MInt) {
     __expect_type(PointAlias{x,y}, "Point");
@@ -682,7 +698,7 @@ type PointAlias = Point;
 @testcase | 118 |      | 17
 @testcase | 119 |      | 10 20 9 10 typeid-1 9
 @testcase | 120 | 0    | 80 9 8 80 typeid-1
-@testcase | 120 | -1   | 8 14 (null) (null) 0
+@testcase | 120 | -1   | 8 9 (null) (null) 0
 @testcase | 121 | 0    | 17 17 8 136
 @testcase | 121 | -1   | 8 (null) 8 8
 @testcase | 122 | 100  | 101 50 106 212 100 101 101
@@ -712,6 +728,7 @@ type PointAlias = Point;
 @testcase | 144 |      | [ 10 20 0 ] [ 10 ] [ 0 0 ] 1 -1
 @testcase | 145 |      | [ 1 2 [ 3 4 ] 5 6 typeid-8 [ 10 20 [ -1 -2 ] (null) (null) 0 [] ] ]
 @testcase | 146 |      | 20 [ 11 12 13 14 15 ] 
+@testcase | 147 |      | 0 0 1 1 1 1
 
 @fif_codegen
 """
@@ -755,7 +772,7 @@ type PointAlias = Point;
 @fif_codegen
 """
   test36() PROC:<{              //
-    NIL                         //  '0
+    NIL                         //  g_t_impure
     $t_impure SETGLOB           //
     getYImpure() CALLDICT       //  '4
     getXImpure() CALLDICT       //  p.y p.x

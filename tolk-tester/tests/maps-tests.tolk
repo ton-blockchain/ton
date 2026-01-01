@@ -411,7 +411,8 @@ fun test32() {
     m.set(stringHexToSlice("0304") as bits16, stringHexToSlice("bbbb") as bits16);
     val repl = m.replaceAndGetPrevious(stringHexToSlice("0304") as bits16, stringHexToSlice("0000") as bits16);
     var r = m.iteratePrev(m.findLast());
-    return ((r.getKey() as slice).remainingBitsCount(), (r.getKey() as slice).loadAny<Point>(), (r.loadValue() as slice).remainingBitsCount(), repl.isFound, (repl.loadValue() as slice).loadUint(8));
+    var (ks, vs, rs) = (r.getKey() as slice, r.loadValue() as slice, repl.loadValue() as slice);
+    return (ks.remainingBitsCount(), ks.loadAny<Point>(), (vs).remainingBitsCount(), repl.isFound, (rs).loadUint(8));
 }
 
 @method_id(133)
@@ -503,7 +504,8 @@ fun test40() {
     var `m filled` = createEmptyMap() as map<int32, int64>?;
     var `m_null` = null as map<int32, int64>?;
 
-    `m filled`!.set(10, 20);
+    `m filled` = `m filled`!;
+    `m filled`.set(10, 20);
     return (
         `m!empty` == null, `m filled` == null, `m_null` == null, 777,
         `m!empty`!.isEmpty(), `m filled`!.isEmpty(), 777,

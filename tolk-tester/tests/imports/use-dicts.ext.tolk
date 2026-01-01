@@ -14,7 +14,7 @@ fun lookupIdxByValue(idict32: cell?, value: int): int {
         var (cur_key redef, cs: slice?, found: bool) = idict32.iDictGetNext(32, cur_key!);
         // one-line condition (via &) doesn't work, since right side is calculated immediately
         if (found) {
-            if (cs!.loadInt(32) == value) {
+            if (cs!.preloadInt(32) == value) {
                 return cur_key!;
             }
         }

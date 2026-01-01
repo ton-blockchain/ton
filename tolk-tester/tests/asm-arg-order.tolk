@@ -190,6 +190,33 @@ fun test34() {
     return asmAPlus1TimesB(cs.loadUint(8), cs.loadUint(8));
 }
 
+fun inc_identity_order(a: int, mutate b: int, c: int): int asm (a b c)
+    "SWAP"             // a c b
+    "1 PUSHINT ADD"    // a c b+1
+    "NIP"              // a b+1
+    "NIP"              // b+1
+    "DUP"              // b+1 b+1
+
+fun inc_with_arg_order(a: int, mutate b: int, c: int): int asm (c a b)
+    "1 PUSHINT ADD"     // c a b+1
+    "NIP"               // a b+1
+    "NIP"               // b+1
+    "DUP"               // b+1 b+1
+
+@method_id(35)
+fun test35() {
+    var (t1, t2) = (10, 10);
+    var r1 = inc_identity_order(111, mutate t1, 222);
+    var r2 = inc_with_arg_order(111, mutate t2, 222);
+    var tensor: (int, int, int) = (5, 6, 7);
+    var shaped: [int, int, int] = [5, 6, 7];
+    inc_identity_order(111, mutate tensor.0, 222);
+    inc_identity_order(111, mutate tensor.2, 222);
+    inc_identity_order(111, mutate shaped.0, 222);
+    inc_identity_order(111, mutate shaped.2, 222);
+    return (t1, t2, r1, r2, tensor, shaped);
+}
+
 
 fun main() {
 }
@@ -216,6 +243,7 @@ fun main() {
 @testcase | 32 |    | 30
 @testcase | 33 | 0  | 22 930 480 56
 @testcase | 34 |    | 30
+@testcase | 35 |    | 11 11 11 11 6 6 8 [ 6 6 8 ]
 
 @fif_codegen
 """
@@ -275,5 +303,5 @@ fun main() {
   }>
 """
 
-@code_hash 38717859169035491454494966803813683158800226121601078320213761069394202390827
+@code_hash 16415324206176013895128467871900531568236669373747457174465079601228992028418
 */

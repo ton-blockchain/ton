@@ -154,10 +154,10 @@ fun test96(p: Point) {
     3 PUSHINT	    //  g_next '14=3
     4 PUSHINT	    //  g_next '14=3 '15=4
     5 PUSHINT	    //  g_next '14=3 '15=4 '16=5
-    TRIPLE	        //  '10 '11
-    SWAP
-    $cur SETGLOB
-    $next SETGLOB
+    TRIPLE	        //  g_cur g_next
+    SWAP            //  g_next g_cur
+    $cur SETGLOB    //  g_next
+    $next SETGLOB   //
     $cur GETGLOB    //  g_cur
     $next GETGLOB	//  g_cur g_next
   }>

@@ -471,8 +471,8 @@ fun usedIn10ButDeclaredBelow(x: int) {
     x{00000005} STSLICECONST    //  '3
     25 PUSHINT                  //  '3 '9
     SWAP                        //  x self
-    x{0000001900000019} STSLICECONST  //  x '3
-    SWAP                        //  '3 x
+    x{0000001900000019} STSLICECONST  //  x '15
+    SWAP                        //  '15 x
   }>
 """
 
@@ -492,13 +492,13 @@ fun usedIn10ButDeclaredBelow(x: int) {
     TPUSH                       //  self
     TPOP                        //  self y
     SWAP                        //  y self
-    TPOP                        //  '36 self '35
-    SWAP                        //  '36 '35 self
-    TPOP                        //  '36 '35 self y
-    SWAP                        //  '36 '35 y self
-    TPOP                        //  '36 '35 '50 t '49
-    s3 s4 XCHG                  //  '35 '36 '50 t '49
-    -ROT                        //  '35 '36 '49 '50 t
+    TPOP                        //  '26 self '25
+    SWAP                        //  '26 '25 self
+    TPOP                        //  '26 '25 self y
+    SWAP                        //  '26 '25 y self
+    TPOP                        //  '26 '25 '36 t '35
+    s3 s4 XCHG                  //  '25 '26 '36 t '35
+    -ROT                        //  '25 '26 '35 '36 t
   }>
 """
 

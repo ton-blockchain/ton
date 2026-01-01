@@ -193,8 +193,9 @@ fun test111() {
 @method_id(112)
 fun test112() {
     var x: (int, int)? = (10, 20);
-    incrementTensorComponents(mutate x!);
-    x!.incrementTensorComponents();
+    __expect_type(x, "(int, int)");
+    incrementTensorComponents(mutate x);
+    x.incrementTensorComponents();
     return x;
 }
 
@@ -214,8 +215,10 @@ fun test114(): ((slice, (cell, [int, slice, tuple]))?, slice?, (int?, bool?)?) {
 fun test115() {
     var tt = getNullableTensor(null);
     assignFirstComponentNullable(mutate tt, 5);
+    var t0 = getNullableTensor(1);
+    var t0n = t0!;
     return (
-        getNullableTensor(1)!.incrementTensorComponents(),
+        t0n.incrementTensorComponents(),
         sumOfNullableTensorComponents(getNullableTensor(1).incrementNullableTensorComponents().incrementNullableTensorComponents()),
         getNullableTensor(null).incrementNullableTensorComponents(),
         tt,

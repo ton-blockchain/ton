@@ -68,11 +68,16 @@ fun entrypoint3() {
     invokeTest("00", 103);
 }
 
+fun readN(n: int, mutate s: slice): int {
+    return s.loadUint(n);
+}
+
 fun onInternalMessage(in: InMessage) {
     __expect_type(in.body, "slice");
     __expect_type(in.senderAddress, "address");
     __expect_type(in.valueCoins, "coins");
-    return in.originalForwardFee;
+    readN(32, mutate in.body);
+    return (in.originalForwardFee, in.body);
 }
 
 /**
@@ -122,12 +127,14 @@ fun onInternalMessage(in: InMessage) {
 @fif_codegen
 """
   onInternalMessage() PROC:<{   //  in.body
-    DROP
     INMSG_BOUNCED
     0 THROWIF
+    32 LDU
+    NIP
     INMSG_FWDFEE
     0 PUSHINT
     GETORIGINALFWDFEE
+    SWAP                        //  '17 in.body
   }>
 """
 

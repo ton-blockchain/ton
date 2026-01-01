@@ -110,7 +110,9 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
   }
 
   void visit(V<ast_cast_as_operator> v) override {
-    // if `x as int` is lvalue, then `x` is also lvalue, so check that `x` is ok
+    if (v->is_lvalue) {
+      err_cannot_be_used_as_lvalue("operator `as`").fire(v, cur_f);
+    }
     parent::visit(v->get_expr());
   }
 
@@ -122,7 +124,9 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
   }
 
   void visit(V<ast_not_null_operator> v) override {
-    // if `x!` is lvalue, then `x` is also lvalue, so check that `x` is ok
+    if (v->is_lvalue) {
+      err_cannot_be_used_as_lvalue("operator `!`").fire(v, cur_f);
+    }
     parent::visit(v->get_expr());
   }
 

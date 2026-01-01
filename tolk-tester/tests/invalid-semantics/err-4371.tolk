@@ -2,8 +2,11 @@ fun eq<T>(x: T) { return x }
 
 fun int.incrementBy(mutate self, dx: int) { self += dx }
 
-fun test(xy: (int, int)) {
+global xy: (int, int);
+
+fun test() {
     // ok
+    xy = (0, 0);
     xy.0 = (xy.0 += 10);
     xy.0 += (xy.1 = xy.0);
     xy.0.incrementBy(([xy.1] = [xy.0]).0);

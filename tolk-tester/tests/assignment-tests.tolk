@@ -169,7 +169,7 @@ fun test112() {
 @method_id(113)
 fun test113() {
     var (a, t, z, ) = (1, [2,3], (-1,-1));
-    (a, t, a, z, t.1, z.1) = (10, [a,12], 13, (a, t.1), 14, t.1);
+    (a, t.0, z.0, t.1, z.1) = (13, a += 1, a, 14, t.1);
     return (a, t, z);
 }
 
@@ -181,7 +181,7 @@ global z114: (int, int);
 fun test114() {
     g114 = 1;
     t114 = [2, 3];
-    (g114, t114, g114, z114, t114.1, z114.1) = (10, [g114,12], 13, (g114, t114.1), 14, t114.1);
+    (g114, t114.0, t114.1, z114) = (13, g114 += 1, 14, (g114, t114.1));
     return (g114, t114, z114);
 }
 
@@ -283,6 +283,37 @@ fun test121(l: ROLine) {
     return l
 }
 
+global i122: int;
+global ab122: (int, int);
+
+@method_id(122)
+fun test122() {
+    (i122, ab122) = (0, (0,0));
+    (i122, ab122.0).1 = 10;     // no effect, operates on a tmp rvalue
+    return (i122, ab122);
+}
+
+@method_id(123)
+fun test123() {
+    var ab = [0, 0];
+    (0, ab.0).1 = 20;
+
+    var cd = [0, 0];
+    ((0, cd.0, cd.1).1, (0, cd.0, cd.1).2) = (20, 10);
+
+    var e = 0;
+    ((e as int?), 1).0 = null;
+
+    var a0 = 1;
+    var b0 = 2;
+    val r0 = (((a0, b0) as (int, int)).0 = 10);
+
+    var (x1, x2, x3, x4) = (1, 2, 3, 4);
+    ((x1, x2) = (x3, x4)).0 = 200;
+
+    return (ab, cd, e, a0, b0, r0, [x1, x2, x3, x4]);
+}
+
 
 
 fun main(value: int, ) {
@@ -307,8 +338,8 @@ fun main(value: int, ) {
 @testcase | 110 |        | [ 13 13 ] [ 111 11 111 11 ] 23 13 19
 @testcase | 111 |        | [ 10 0 ] 18 [ 11 11 111 ] 50
 @testcase | 112 |        | [ 2 1 ]
-@testcase | 113 |        | 13 [ 1 14 ] 1 3
-@testcase | 114 |        | 13 [ 1 14 ] 1 3
+@testcase | 113 |        | 13 [ 2 14 ] 2 3
+@testcase | 114 |        | 13 [ 2 14 ] 2 3
 @testcase | 115 |        | [ 101 111 ] 9 9
 @testcase | 116 |        | 1 2 3 4 [ 1 2 3 4 ]
 @testcase | 117 |        | [ 20 ]
@@ -316,6 +347,8 @@ fun main(value: int, ) {
 @testcase | 119 | 1 2    | 2 2 4
 @testcase | 120 |        | 10 20
 @testcase | 121 | null   | (null)
+@testcase | 122 |        | 0 0 0
+@testcase | 123 |        | [ 0 0 ] [ 0 0 ] 0 1 2 10 [ 3 4 3 4 ]
 
 
 @fif_codegen

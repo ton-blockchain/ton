@@ -224,9 +224,9 @@ fun main() {
     t.push(1);
     t.push(2);
     t.push(3);
-    assign0(mutate t.0 as int8);
-    assign0(mutate t.1 as uint16);
-    assign0(mutate t.2 as int);
+    assign0<int8>(mutate t.0);
+    assign0<uint16>(mutate t.1);
+    assign0<int>(mutate t.2);
     __expect_type(t.0 as int1, "int1");
     __expect_type(t.0 as int257, "int257");
     __expect_type(0 as int32, "int32");

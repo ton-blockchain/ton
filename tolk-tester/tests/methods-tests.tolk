@@ -132,7 +132,7 @@ fun test8(x: int32) {
     var cp = x.copy();
     x.assign(10);
     int32.assign(mutate x, x+cp);
-    (x as int18).assign(x+2);
+    x.assign(x+2);
     __expect_type(x, "int32");
     return (x, cp);
 }

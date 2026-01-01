@@ -20,7 +20,9 @@ fun mutateDemoAndGetC(mutate d: Demo): int {
     return d.c
 }
 
-fun m(d1: Demo, d2: Demo) {
+global d1: Demo;
+
+fun m(d2: Demo) {
     // ok
     d1.assignB(10);
     d1.assignB(mutateDemoAndGetC(mutate d2));

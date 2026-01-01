@@ -170,7 +170,7 @@ global yy: [int, int];
 @method_id(112)
 fun test112(f: int, s: int) {
     yy = [f, s];
-    return (yy, yy.1, yy.1.plus(yy.1 / 20), eq(yy.1 += (yy.1 *= 0)), yy.1 = yy.1 * 2, yy.1, yy.1 += 1, yy.1, yy);
+    return (yy, yy.1, yy.1.plus(yy.1 / 20), eq(yy.1 += (yy.0 *= 0)), yy.1 = yy.1 * 2, yy.1, yy.1 += 1, yy.1, yy);
 }
 
 @pure
@@ -244,15 +244,15 @@ fun test120() {
     return (getT().0 = 3, getT().0 = sizeof(getT()) * 2, [getT().0 = 5, getT().0 = 6]);
 }
 
+global t121: (int, int);
+
 @method_id(121)
-fun test121(zero: int) {
-    var t = createEmptyTuple();
-    t.push(-100);
-    t.set(0, zero);
-    (t.0 as int).increment();
-    (((t.0) as int) as int).increment();
-    increment(mutate t.0 as int);
-    return t;
+fun test121() {
+    t121 = (0, 0);
+    t121.0 = t121.1 = 1;
+    var tup = [[0, 0]];
+    tup.0.0 = tup.0.1 = 2;
+    return (t121, tup);
 }
 
 fun (T1, T2).isFirstComponentGt0(self): bool {
@@ -304,7 +304,7 @@ fun main(){
 @testcase | 118 | 1 2   | 2 1
 @testcase | 119 | 1 2 3 4 | 4 1 3
 @testcase | 120 |       | 3 4 [ 5 6 ]
-@testcase | 121 | 0     | [ 3 ]
+@testcase | 121 |       | 1 1 [ [ 2 2 ] ]
 @testcase | 122 | 1 2   | -1 -1 0 -1 -1 0
 @testcase | 123 |       | [ [ 100 100 ] ]
 
@@ -313,44 +313,44 @@ fun main(){
   testCodegenSimple() PROC:<{
     1 PUSHINT	    //  '2=1
     SINGLE	        //  t1
-    2 PUSHINT	    //  t1 '3=2
+    2 PUSHINT	    //  t1 '4=2
     0 SETINDEX	    //  t1
-    x{} PUSHSLICE	//  t1 '6
-    STRDUMP DROP
-    1 PUSHINT	//  t1 '10=1
-    SINGLE	    //  t1 '9
-    SINGLE	    //  t1 t2
-    2 PUSHINT	//  t1 t2 '11=2
-    OVER	    //  t1 t2 '11=2 t2
-    0 INDEX	    //  t1 t2 '11=2 '14
-    SWAP	    //  t1 t2 '14 '11=2
-    0 SETINDEX	//  t1 t2 '14
-    0 SETINDEX	//  t1 t2
-    x{} PUSHSLICE	//  t1 t2 '17
-    STRDUMP DROP
-    1 PUSHINT	//  t1 t2 '20=1
-    SINGLE	    //  t1 t2 '18
-    $gTup SETGLOB
-    2 PUSHINT	    //  t1 t2 '21=2
-    $gTup GETGLOB	//  t1 t2 '21=2 g_gTup
-    SWAP	        //  t1 t2 g_gTup '21=2
+    x{} PUSHSLICE	//  t1 '7
+    STRDUMP DROP    //  t1
+    1 PUSHINT	    //  t1 '11=1
+    SINGLE	        //  t1 '10
+    SINGLE	        //  t1 t2
+    2 PUSHINT	    //  t1 t2 '15=2
+    OVER	        //  t1 t2 '15=2 t2
+    0 INDEX	        //  t1 t2 '15=2 '18
+    SWAP	        //  t1 t2 '18 '15=2
+    0 SETINDEX	    //  t1 t2 '18
+    0 SETINDEX	    //  t1 t2
+    x{} PUSHSLICE	//  t1 t2 '21
+    STRDUMP DROP    //  t1 t2
+    1 PUSHINT	    //  t1 t2 '24=1
+    SINGLE	        //  t1 t2 g_gTup
+    $gTup SETGLOB   //  t1 t2
+    2 PUSHINT	    //  t1 t2 '27=2
+    $gTup GETGLOB	//  t1 t2 '27=2 g_gTup
+    SWAP	        //  t1 t2 g_gTup '27=2
     0 SETINDEX	    //  t1 t2 g_gTup
-    $gTup SETGLOB
-    x{} PUSHSLICE	//  t1 t2 '25
-    STRDUMP DROP
-    1 PUSHINT	//  t1 t2 '28=1
-    2 PUSHINT	//  t1 t2 '26=1 '27=2
+    $gTup SETGLOB   //  t1 t2
+    x{} PUSHSLICE	//  t1 t2 '31
+    STRDUMP DROP    //  t1 t2
+    1 PUSHINT	    //  t1 t2 '34=1
+    2 PUSHINT	    //  t1 t2 g_gTens.0=1 g_gTens.1=2
     PAIR
-    $gTens SETGLOB
-    4 PUSHINT	//  t1 t2 g_gTens.1=4
+    $gTens SETGLOB  //  t1 t2
+    4 PUSHINT	    //  t1 t2 g_gTens.1=4
     $gTens GETGLOB
     UNPAIR	    //  t1 t2 g_gTens.1=4 g_gTens.0 g_gTens.1
     DROP	    //  t1 t2 g_gTens.1=4 g_gTens.0
     SWAP	    //  t1 t2 g_gTens.0 g_gTens.1=4
     PAIR
-    $gTens SETGLOB
-    x{} PUSHSLICE	//  t1 t2 '36
-    STRDUMP DROP
+    $gTens SETGLOB  //  t1 t2
+    x{} PUSHSLICE	//  t1 t2 '41
+    STRDUMP DROP    //  t1 t2
     $gTup GETGLOB	//  t1 t2 g_gTup
     $gTens GETGLOB
     UNPAIR	    //  t1 t2 g_gTup g_gTens.0 g_gTens.1

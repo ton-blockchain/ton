@@ -46,6 +46,8 @@ static Error err_invalid_mutate_arg_passed(FunctionPtr fun_ref, const LocalVarDa
 }
 
 
+void mark_lvalue_AnyV(AnyV v);    // implemented in `pipe-calc-rvalue-lvalue.cpp`
+
 class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBody {
 
   void visit(V<ast_function_call> v) override {
@@ -70,21 +72,13 @@ class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBod
       // but: `beginCell().storeInt()`, then `beginCell()` is not lvalue
       // (it will be extracted as tmp var when transforming AST to IR)
       AnyExprV leftmost_obj = v->get_self_obj();
-      while (true) {
-        if (auto as_par = leftmost_obj->try_as<ast_parenthesized_expression>()) {
-          leftmost_obj = as_par->get_expr();
-        } else if (auto as_cast = leftmost_obj->try_as<ast_cast_as_operator>()) {
-          leftmost_obj = as_cast->get_expr();
-        } else if (auto as_nn = leftmost_obj->try_as<ast_not_null_operator>()) {
-          leftmost_obj = as_nn->get_expr();
-        } else {
-          break;
-        }
+      while (auto as_par = leftmost_obj->try_as<ast_parenthesized_expression>()) {
+        leftmost_obj = as_par->get_expr();
       }
       bool will_be_extracted_as_tmp_var = leftmost_obj->kind == ast_function_call;
       if (!will_be_extracted_as_tmp_var) {
-        leftmost_obj->mutate()->assign_lvalue_true();
-        v->get_self_obj()->mutate()->assign_lvalue_true();
+        // marking obj as lvalue will ensure in a later pass that it's valid, not `(v as int).method()`
+        mark_lvalue_AnyV(v->get_self_obj());
       }
     }
 

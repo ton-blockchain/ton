@@ -135,12 +135,12 @@ fun main() {
   test7() PROC:<{
     ...
     PLDOPTREF	//  b c
-    ISNULL	    //  b '11
-    10 MULCONST	//  b '13
-    SWAP	    //  '13 b
-    ISNULL	    //  '13 '14
-    NOT         // '13 '14
-    ADD	        //  '15
+    ISNULL	    //  b '10
+    10 MULCONST	//  b '12
+    SWAP	    //  '12 b
+    ISNULL	    //  '12 '13
+    NOT         //  '12 '13
+    ADD	        //  '14
   }>
 """
 */

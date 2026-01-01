@@ -46,13 +46,6 @@ static bool is_modern_onInternalMessage(FunctionPtr f_onInternalMessage) {
 }
 
 std::vector<var_idx_t> AuxData_OnInternalMessage_getField::generate_get_InMessage_field(CodeBlob& code, AnyV origin) const {
-  if (field_name == "body") {           // take `in.body` from a stack
-    return f_onInternalMessage->find_param("in.body")->ir_idx;
-  }
-  if (field_name == "bouncedBody") {    // we're in onBouncedMessage()
-    return f_onInternalMessage->find_param("in.body")->ir_idx;
-  }
-
   int idx = -1;
   if      (field_name == "isBounced")          idx = 1;
   else if (field_name == "senderAddress")      idx = 2;
@@ -61,7 +54,7 @@ std::vector<var_idx_t> AuxData_OnInternalMessage_getField::generate_get_InMessag
   else if (field_name == "createdAt")          idx = 5;
   else if (field_name == "valueCoins")         idx = 7;
   else if (field_name == "valueExtra")         idx = 8;
-  tolk_assert(idx != -1);
+  tolk_assert(idx != -1);     // `in.body` and `in.bouncedBody` are regular parameters, not aux vertices
 
   std::vector ir_msgparam = code.create_tmp_var(TypeDataInt::create(), origin, field_name.data());
   code.emplace_back(origin, Op::_Call, ir_msgparam, std::vector{code.create_int(origin, idx, "(param-idx)")}, lookup_function("__InMessage.getInMsgParam"));

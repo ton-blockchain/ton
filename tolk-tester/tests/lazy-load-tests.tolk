@@ -679,7 +679,7 @@ fun demo133() {
         __expect_lazy("[st] skip (bits321), load extensions");
         while (!false) {
             assert(st.extensions != null, 123);
-            return st.extensions.iDictGet(32, 8).0!.loadUint(8);
+            return st.extensions.iDictGet(32, 8).0!.preloadUint(8);
         }
     } else {
         throw 0;

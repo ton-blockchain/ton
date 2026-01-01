@@ -159,7 +159,8 @@ fun testCallingNotNull() {
     var n4: () -> MIntN = getNullable4;
     var creator: (() -> builder?)? = myBeginCell;
     var end2: [int, (MBuilder -> cell)?] = [0, endCell];
-    var c: cell = end2.1!((creator!()!)!.storeInt(getNullable4()!, 32));
+    var builderN = (creator!()!);
+    var c: cell = end2.1!(builderN.storeInt(getNullable4()!, 32));
     return c.beginParse().loadInt(32);
 }
 
