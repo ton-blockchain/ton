@@ -14,6 +14,8 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
+#include <consensus/simplex/consensus-bus.h>
+
 #include "adnl/adnl-test-loopback-implementation.h"
 #include "adnl/utils.hpp"
 #include "block/block.h"
@@ -38,15 +40,23 @@ td::Bits256 from_hex(td::Slice s) {
   return x;
 }
 
-const ShardIdFull SHARD{basechainId, shardIdAll};
 constexpr CatchainSeqno CC_SEQNO = 123;
 const BlockIdExt MIN_MC_BLOCK_ID{masterchainId, shardIdAll, 0,
                                  from_hex("AAAAAAAABBBBBBBBCCCCCCCCDDDDDDDDAAAAAAAABBBBBBBBCCCCCCCCDDDDDDDD"),
                                  from_hex("0123456012345601234560123456012345601234560123456777777701234567")};
-const BlockIdExt FIRST_PARENT{basechainId, shardIdAll, 0,
-                              from_hex("0000111122223333444455556666777788889999AAAABBBBCCCCDDDDEEEEFFFF"),
-                              from_hex("89abcde89abcde89abcde89abcde89abcde89abcde89abcdefffffff89abcdef")};
 const td::Bits256 SESSION_ID = from_hex("00001234000012340000123400001234aaaaaaaabbbbbbbbcccccccceeeeeeee");
+
+ShardIdFull SHARD{basechainId, shardIdAll};
+BlockIdExt FIRST_PARENT{basechainId, shardIdAll, 0,
+                        from_hex("0000111122223333444455556666777788889999AAAABBBBCCCCDDDDEEEEFFFF"),
+                        from_hex("89abcde89abcde89abcde89abcde89abcde89abcde89abcdefffffff89abcdef")};
+
+double NET_PING_MIN = 0.05;
+double NET_PING_MAX = 0.1;
+double NET_LOSS = 0.0;
+
+size_t N_NODES = 8;
+size_t N_DOUBLE_NODES = 0;
 
 class TestOverlayNode;
 
@@ -65,13 +75,13 @@ class TestOverlay : public td::actor::Actor {
  private:
   std::vector<std::vector<td::actor::ActorId<TestOverlayNode>>> nodes_;
 
-  td::actor::Task<> before_receive(size_t src_idx, size_t dst_idx) {
-    co_await td::actor::coro_sleep(td::Timestamp::in(td::Random::fast(PING_MIN, PING_MAX)));
+  td::actor::Task<> before_receive(size_t src_idx, size_t dst_idx, bool is_candidate) {
+    if (!is_candidate && td::Random::fast(0.0, 1.0) < NET_LOSS) {
+      co_return td::Status::Error("packet lost");
+    }
+    co_await td::actor::coro_sleep(td::Timestamp::in(td::Random::fast(NET_PING_MIN, NET_PING_MAX)));
     co_return td::Unit{};
   }
-
-  static constexpr double PING_MIN = 0.1;
-  static constexpr double PING_MAX = 0.2;
 };
 
 td::actor::ActorOwn<TestOverlay> test_overlay;
@@ -97,12 +107,12 @@ class TestOverlayNode : public runtime::SpawnsWith<ConsensusBus>, public runtime
       CHECK(message->recipient.value() != bus->local_id.idx);
       td::actor::ask(test_overlay, &TestOverlay::send_message, bus->local_id, message->recipient->value(),
                      message->message.data.clone())
-          .detach();
+          .detach_silent();
     } else {
       for (size_t i = 0; i < bus->validator_set.size(); ++i) {
         if (bus->local_id.idx.value() != i) {
           td::actor::ask(test_overlay, &TestOverlay::send_message, bus->local_id, i, message->message.data.clone())
-              .detach();
+              .detach_silent();
         }
       }
     }
@@ -112,7 +122,7 @@ class TestOverlayNode : public runtime::SpawnsWith<ConsensusBus>, public runtime
   void handle(runtime::BusHandle<ConsensusBus> bus, std::shared_ptr<const ConsensusBus::CandidateGenerated> event) {
     for (size_t i = 0; i < bus->validator_set.size(); ++i) {
       if (bus->local_id.idx.value() != i) {
-        td::actor::ask(test_overlay, &TestOverlay::send_candidate, bus->local_id, i, event->candidate).detach();
+        td::actor::ask(test_overlay, &TestOverlay::send_candidate, bus->local_id, i, event->candidate).detach_silent();
       }
     }
   }
@@ -131,7 +141,7 @@ class TestOverlayNode : public runtime::SpawnsWith<ConsensusBus>, public runtime
 };
 
 td::actor::Task<> TestOverlay::send_message(PeerValidator src, size_t dst_idx, td::BufferSlice message) {
-  co_await before_receive(src.idx.value(), dst_idx);
+  co_await before_receive(src.idx.value(), dst_idx, false);
   for (const auto &instance : nodes_[dst_idx]) {
     td::actor::send_closure(instance, &TestOverlayNode::receive_message, src, message.clone());
   }
@@ -139,7 +149,7 @@ td::actor::Task<> TestOverlay::send_message(PeerValidator src, size_t dst_idx, t
 }
 
 td::actor::Task<> TestOverlay::send_candidate(PeerValidator src, size_t dst_idx, RawCandidateRef candidate) {
-  co_await before_receive(src.idx.value(), dst_idx);
+  co_await before_receive(src.idx.value(), dst_idx, true);
   for (const auto &instance : nodes_[dst_idx]) {
     td::actor::send_closure(instance, &TestOverlayNode::receive_candidate, candidate);
   }
@@ -202,19 +212,29 @@ class TestConsensus : public td::actor::Actor {
     if (result.is_error()) {
       LOG(FATAL) << "Test consensus error: " << result.move_as_error();
     }
-    LOG(INFO) << "Test finished";
+    LOG(WARNING) << "Test finished";
     std::exit(0);
   }
 
   td::actor::Task<> on_block_accepted(size_t node_idx, size_t instance_idx, BlockIdExt block_id,
                                       td::Ref<block::BlockSignatureSet> signatures) {
-    CHECK(signatures.not_null());
-    signatures->check_signatures(validator_set_, block_id).ensure();
+    if (signatures->is_final()) {
+      signatures->check_signatures(validator_set_, block_id).ensure();
+    } else {
+      CHECK(!SHARD.is_masterchain());
+      signatures->check_approve_signatures(validator_set_, block_id).ensure();
+    }
     BlockSeqno seqno = block_id.seqno();
     if (accepted_blocks_.contains(seqno)) {
       LOG_CHECK(accepted_blocks_[seqno] == block_id) << "Accepted different blocks for seqno " << seqno;
     } else {
       accepted_blocks_[seqno] = block_id;
+
+      for (Node &node : nodes_) {
+        for (Instance &inst : node.instances) {
+          inst.bus.publish<ConsensusBus::BlockFinalizedInMasterchain>(block_id);
+        }
+      }
     }
     Instance &inst = nodes_[node_idx].instances[instance_idx];
     if (!inst.accepted_blocks.insert(seqno).second) {
@@ -227,7 +247,7 @@ class TestConsensus : public td::actor::Actor {
   td::actor::Task<> run_inner() {
     keyring_ = keyring::Keyring::create("");
 
-    for (size_t i = 0; i < n_nodes_; ++i) {
+    for (size_t i = 0; i < N_NODES; ++i) {
       Node node;
 
       PrivateKey node_pk{privkeys::Ed25519::random()};
@@ -261,9 +281,9 @@ class TestConsensus : public td::actor::Actor {
 
     test_overlay = td::actor::create_actor<TestOverlay>("test-overlay");
 
-    for (size_t idx = 0; idx < n_nodes_; ++idx) {
+    for (size_t idx = 0; idx < N_NODES; ++idx) {
       Node &node = nodes_[idx];
-      size_t n_instances = idx < 4 ? 1 : 2;
+      size_t n_instances = idx < N_DOUBLE_NODES ? 2 : 1;
       for (size_t i = 0; i < n_instances; ++i) {
         Instance inst;
         auto &runtime = inst.runtime;
@@ -271,11 +291,13 @@ class TestConsensus : public td::actor::Actor {
         BlockProducer::register_in(runtime);
         BlockValidator::register_in(runtime);
         runtime.register_actor<TestOverlayNode>("PrivateOverlay");
-        NullConsensus::register_in(runtime);
+        CandidateResolver::register_in(runtime);
+        SimplexConsensus::register_in(runtime);
+        SimplexPool::register_in(runtime);
 
         inst.manager_facade = td::actor::create_actor<TestManagerFacade>(
             PSTRING() << "ManagerFacade." << idx << "." << i, idx, i, actor_id(this));
-        auto bus = std::make_shared<NullConsensusBus>();
+        auto bus = std::make_shared<SimplexConsensusBus>();
         bus->shard = SHARD;
         bus->manager = inst.manager_facade.get();
         bus->keyring = keyring_.get();
@@ -285,7 +307,8 @@ class TestConsensus : public td::actor::Actor {
         bus->config = NewConsensusConfig{.target_rate_ms = 500,
                                          .max_block_size = 1 << 20,
                                          .max_collated_data_size = 1 << 20,
-                                         .consensus = NewConsensusConfig::NullConsensus{}};
+                                         .consensus = NewConsensusConfig::Simplex{}};
+        bus->simplex_config = bus->config.consensus.get<NewConsensusConfig::Simplex>();
         bus->min_masterchain_block_id = MIN_MC_BLOCK_ID;
         bus->session_id = SESSION_ID;
         bus->first_block_parents = {FIRST_PARENT};
@@ -296,7 +319,7 @@ class TestConsensus : public td::actor::Actor {
       }
     }
 
-    co_await td::actor::coro_sleep(td::Timestamp::in(30.0));
+    co_await td::actor::coro_sleep(td::Timestamp::in(300.0));
 
     co_return co_await finalize();
   }
@@ -310,7 +333,7 @@ class TestConsensus : public td::actor::Actor {
     }
     co_await td::actor::coro_sleep(td::Timestamp::in(1.0));
     LOG(WARNING) << "TEST RESULTS:";
-    for (size_t idx = 0; idx < n_nodes_; ++idx) {
+    for (size_t idx = 0; idx < N_NODES; ++idx) {
       for (size_t inst_idx = 0; inst_idx < nodes_[idx].instances.size(); ++inst_idx) {
         Instance &inst = nodes_[idx].instances[inst_idx];
         BlockSeqno seqno = FIRST_PARENT.seqno();
@@ -326,7 +349,7 @@ class TestConsensus : public td::actor::Actor {
   struct Instance {
     runtime::Runtime runtime;
     td::actor::ActorOwn<TestManagerFacade> manager_facade;
-    runtime::BusHandle<NullConsensusBus> bus;
+    runtime::BusHandle<SimplexConsensusBus> bus;
 
     std::set<BlockSeqno> accepted_blocks;
   };
@@ -339,7 +362,6 @@ class TestConsensus : public td::actor::Actor {
     std::vector<Instance> instances;
   };
   std::vector<Node> nodes_;
-  size_t n_nodes_ = 8;
   td::Ref<block::ValidatorSet> validator_set_;
 
   td::actor::ActorOwn<keyring::Keyring> keyring_;
@@ -351,7 +373,8 @@ td::actor::Task<> TestManagerFacade::accept_block(BlockIdExt id, td::Ref<BlockDa
                                                   td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode,
                                                   bool apply) {
   CHECK(id.shard_full() == SHARD);
-  LOG(WARNING) << "Accept block #" << id.seqno() << " (" << (signatures.is_null() ? "no" : "with") << " signatures)";
+  LOG(WARNING) << "Accept block #" << id.seqno() << " (" << (signatures->is_final() ? "final" : "notarize")
+               << " signatures)";
   td::actor::ask(test_consensus_, &TestConsensus::on_block_accepted, node_idx_, instance_idx_, id, signatures).detach();
   co_return td::Unit{};
 }
@@ -361,6 +384,56 @@ td::actor::Task<> TestManagerFacade::accept_block(BlockIdExt id, td::Ref<BlockDa
 int main(int argc, char *argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_WARNING);
   td::set_default_failure_signal_handler().ensure();
+
+  td::OptionParser p;
+  p.set_description("test consensus");
+  p.add_option('h', "help", "prints_help", [&]() {
+    std::cout << (PSLICE() << p).c_str();
+    std::exit(2);
+  });
+  p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
+    int v = VERBOSITY_NAME(FATAL) + (td::to_integer<int>(arg));
+    SET_VERBOSITY_LEVEL(v);
+  });
+  p.add_option('m', "masterchain", "masterchain consensus (default is shardchain)", [&]() {
+    SHARD = ShardIdFull{masterchainId};
+    FIRST_PARENT = MIN_MC_BLOCK_ID;
+  });
+  p.add_checked_option('n', "n-nodes", "number of nodes (default: 8)", [&](td::Slice arg) {
+    TRY_RESULT_ASSIGN(N_NODES, td::to_integer_safe<td::uint32>(arg));
+    if (N_NODES == 0) {
+      return td::Status::Error(PSTRING() << "invalid n-nodes value " << arg);
+    }
+    return td::Status::OK();
+  });
+  p.add_checked_option('\0', "n-double-nodes", "number of nodes with two instances (default: 0)", [&](td::Slice arg) {
+    TRY_RESULT_ASSIGN(N_DOUBLE_NODES, td::to_integer_safe<td::uint32>(arg));
+    return td::Status::OK();
+  });
+  p.add_checked_option('\0', "net-ping-min", "network ping (minimal)", [&](td::Slice arg) {
+    NET_PING_MIN = td::to_double(arg);
+    if (NET_PING_MIN < 0.0) {
+      return td::Status::Error(PSTRING() << "invalid ping value " << arg);
+    }
+    return td::Status::OK();
+  });
+  p.add_checked_option('\0', "net-ping-max", "network ping (minimal)", [&](td::Slice arg) {
+    NET_PING_MAX = td::to_double(arg);
+    if (NET_PING_MAX < 0.0) {
+      return td::Status::Error(PSTRING() << "invalid ping value " << arg);
+    }
+    return td::Status::OK();
+  });
+  p.add_checked_option('\0', "net-loss", "packet loss probability", [&](td::Slice arg) {
+    NET_LOSS = td::to_double(arg);
+    if (NET_LOSS < 0.0 || NET_LOSS > 1.0) {
+      return td::Status::Error(PSTRING() << "invalid loss value " << arg);
+    }
+    return td::Status::OK();
+  });
+  p.run(argc, argv).ensure();
+  CHECK(NET_PING_MIN <= NET_PING_MAX);
+  CHECK(N_DOUBLE_NODES <= N_NODES);
 
   td::actor::Scheduler scheduler({7});
   td::actor::ActorOwn<TestConsensus> test;
