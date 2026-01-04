@@ -1,37 +1,22 @@
 /*
-    This file is part of TON Blockchain source code.
+ * Copyright (c) 2025-2026, TON CORE TECHNOLOGIES CO. L.L.C
+ *
+ * SPDX-License-Identifier: LGPL-2.0-or-later
+ */
 
-    TON Blockchain is free software; you can redistribute it and/or
-    modify it under the terms of the GNU General Public License
-    as published by the Free Software Foundation; either version 2
-    of the License, or (at your option) any later version.
-
-    TON Blockchain is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
-*/
-#include <consensus/simplex/consensus-bus.h>
-
-#include "adnl/adnl-test-loopback-implementation.h"
 #include "adnl/utils.hpp"
 #include "block/block.h"
 #include "block/validator-set.h"
-#include "catchain/catchain.h"
-#include "common/errorlog.h"
-#include "consensus/consensus-bus.h"
-#include "consensus/null/consensus-bus.h"
 #include "consensus/runtime.h"
-#include "overlay/overlays.h"
+#include "consensus/simplex/bus.h"
 #include "td/actor/coro_utils.h"
 #include "td/utils/OptionParser.h"
+#include "td/utils/Random.h"
 #include "td/utils/port/signals.h"
 
 using namespace ton;
 using namespace ton::validator;
+using namespace ton::validator::consensus;
 
 namespace {
 td::Bits256 from_hex(td::Slice s) {
@@ -86,7 +71,7 @@ class TestOverlay : public td::actor::Actor {
 
 td::actor::ActorOwn<TestOverlay> test_overlay;
 
-class TestOverlayNode : public runtime::SpawnsWith<ConsensusBus>, public runtime::ConnectsTo<ConsensusBus> {
+class TestOverlayNode : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
@@ -96,13 +81,12 @@ class TestOverlayNode : public runtime::SpawnsWith<ConsensusBus>, public runtime
   }
 
   template <>
-  void handle(runtime::BusHandle<ConsensusBus>, std::shared_ptr<const ConsensusBus::StopRequested>) {
+  void handle(BusHandle, std::shared_ptr<const StopRequested>) {
     stop();
   }
 
   template <>
-  void handle(runtime::BusHandle<ConsensusBus> bus,
-              std::shared_ptr<const ConsensusBus::OutgoingProtocolMessage> message) {
+  void handle(BusHandle bus, std::shared_ptr<const OutgoingProtocolMessage> message) {
     if (message->recipient.has_value()) {
       CHECK(message->recipient.value() != bus->local_id.idx);
       td::actor::ask(test_overlay, &TestOverlay::send_message, bus->local_id, message->recipient->value(),
@@ -119,7 +103,7 @@ class TestOverlayNode : public runtime::SpawnsWith<ConsensusBus>, public runtime
   }
 
   template <>
-  void handle(runtime::BusHandle<ConsensusBus> bus, std::shared_ptr<const ConsensusBus::CandidateGenerated> event) {
+  void handle(BusHandle bus, std::shared_ptr<const CandidateGenerated> event) {
     for (size_t i = 0; i < bus->validator_set.size(); ++i) {
       if (bus->local_id.idx.value() != i) {
         td::actor::ask(test_overlay, &TestOverlay::send_candidate, bus->local_id, i, event->candidate).detach_silent();
@@ -132,11 +116,11 @@ class TestOverlayNode : public runtime::SpawnsWith<ConsensusBus>, public runtime
       LOG(WARNING) << "MISBEHAVIOR: Dropping oversized protocol message of size " << data.size() << " from " << src;
       return;
     }
-    owning_bus().publish<ConsensusBus::IncomingProtocolMessage>(src.idx, std::move(data));
+    owning_bus().publish<IncomingProtocolMessage>(src.idx, std::move(data));
   }
 
   void receive_candidate(RawCandidateRef candidate) {
-    owning_bus().publish<ConsensusBus::CandidateReceived>(candidate);
+    owning_bus().publish<CandidateReceived>(candidate);
   }
 };
 
@@ -232,7 +216,7 @@ class TestConsensus : public td::actor::Actor {
 
       for (Node &node : nodes_) {
         for (Instance &inst : node.instances) {
-          inst.bus.publish<ConsensusBus::BlockFinalizedInMasterchain>(block_id);
+          inst.bus.publish<BlockFinalizedInMasterchain>(block_id);
         }
       }
     }
@@ -291,13 +275,13 @@ class TestConsensus : public td::actor::Actor {
         BlockProducer::register_in(runtime);
         BlockValidator::register_in(runtime);
         runtime.register_actor<TestOverlayNode>("PrivateOverlay");
-        CandidateResolver::register_in(runtime);
-        SimplexConsensus::register_in(runtime);
-        SimplexPool::register_in(runtime);
+        simplex::CandidateResolver::register_in(runtime);
+        simplex::Consensus::register_in(runtime);
+        simplex::Pool::register_in(runtime);
 
         inst.manager_facade = td::actor::create_actor<TestManagerFacade>(
             PSTRING() << "ManagerFacade." << idx << "." << i, idx, i, actor_id(this));
-        auto bus = std::make_shared<SimplexConsensusBus>();
+        auto bus = std::make_shared<simplex::Bus>();
         bus->shard = SHARD;
         bus->manager = inst.manager_facade.get();
         bus->keyring = keyring_.get();
@@ -328,7 +312,7 @@ class TestConsensus : public td::actor::Actor {
     LOG(WARNING) << "TEST FINISHED";
     for (Node &node : nodes_) {
       for (Instance &inst : node.instances) {
-        inst.bus.publish<ConsensusBus::StopRequested>();
+        inst.bus.publish<StopRequested>();
       }
     }
     co_await td::actor::coro_sleep(td::Timestamp::in(1.0));
@@ -349,7 +333,7 @@ class TestConsensus : public td::actor::Actor {
   struct Instance {
     runtime::Runtime runtime;
     td::actor::ActorOwn<TestManagerFacade> manager_facade;
-    runtime::BusHandle<SimplexConsensusBus> bus;
+    simplex::BusHandle bus;
 
     std::set<BlockSeqno> accepted_blocks;
   };
