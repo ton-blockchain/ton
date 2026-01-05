@@ -252,7 +252,7 @@ void RldpIn::add_peer_mtu_limit(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeId
 }
 
 void RldpIn::remove_peer_mtu_limit(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu) {
-  auto& map = custom_peer_mtu_[{local_id, peer_id}];
+  auto &map = custom_peer_mtu_[{local_id, peer_id}];
   auto it = map.find(mtu);
   CHECK(it != map.end());
   map.erase(it);

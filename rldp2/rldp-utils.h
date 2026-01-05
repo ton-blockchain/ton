@@ -20,54 +20,54 @@
 
 namespace ton::rldp2 {
 
-  class PeersMtuLimitGuard {
-   public:
-    PeersMtuLimitGuard() = default;
-    PeersMtuLimitGuard(td::actor::ActorId<Rldp> rldp, adnl::AdnlNodeIdShort local_id,
-                       std::vector<adnl::AdnlNodeIdShort> peer_ids, td::uint64 mtu)
-        : rldp_(std::move(rldp)), local_id_(local_id), peer_ids_(std::move(peer_ids)), mtu_(mtu) {
-      for (const adnl::AdnlNodeIdShort peer_id : peer_ids_) {
-        td::actor::send_closure(rldp_, &Rldp::add_peer_mtu_limit, local_id_, peer_id, mtu_);
-      }
+class PeersMtuLimitGuard {
+ public:
+  PeersMtuLimitGuard() = default;
+  PeersMtuLimitGuard(td::actor::ActorId<Rldp> rldp, adnl::AdnlNodeIdShort local_id,
+                     std::vector<adnl::AdnlNodeIdShort> peer_ids, td::uint64 mtu)
+      : rldp_(std::move(rldp)), local_id_(local_id), peer_ids_(std::move(peer_ids)), mtu_(mtu) {
+    for (const adnl::AdnlNodeIdShort peer_id : peer_ids_) {
+      td::actor::send_closure(rldp_, &Rldp::add_peer_mtu_limit, local_id_, peer_id, mtu_);
     }
-    PeersMtuLimitGuard(const PeersMtuLimitGuard&) = delete;
-    PeersMtuLimitGuard(PeersMtuLimitGuard&& other) noexcept
-        : rldp_(std::move(other.rldp_))
-        , local_id_(other.local_id_)
-        , peer_ids_(std::move(other.peer_ids_))
-        , mtu_(other.mtu_) {
-      other.rldp_ = {};
-    }
-    ~PeersMtuLimitGuard() {
-      reset();
-    }
-    PeersMtuLimitGuard& operator=(PeersMtuLimitGuard&& other) noexcept {
-      if (this == &other) {
-        return *this;
-      }
-      reset();
-      rldp_ = std::move(other.rldp_);
-      local_id_ = other.local_id_;
-      peer_ids_ = std::move(other.peer_ids_);
-      mtu_ = other.mtu_;
-      other.rldp_ = {};
+  }
+  PeersMtuLimitGuard(const PeersMtuLimitGuard&) = delete;
+  PeersMtuLimitGuard(PeersMtuLimitGuard&& other) noexcept
+      : rldp_(std::move(other.rldp_))
+      , local_id_(other.local_id_)
+      , peer_ids_(std::move(other.peer_ids_))
+      , mtu_(other.mtu_) {
+    other.rldp_ = {};
+  }
+  ~PeersMtuLimitGuard() {
+    reset();
+  }
+  PeersMtuLimitGuard& operator=(PeersMtuLimitGuard&& other) noexcept {
+    if (this == &other) {
       return *this;
     }
+    reset();
+    rldp_ = std::move(other.rldp_);
+    local_id_ = other.local_id_;
+    peer_ids_ = std::move(other.peer_ids_);
+    mtu_ = other.mtu_;
+    other.rldp_ = {};
+    return *this;
+  }
 
-   private:
-    td::actor::ActorId<Rldp> rldp_;
-    adnl::AdnlNodeIdShort local_id_;
-    std::vector<adnl::AdnlNodeIdShort> peer_ids_;
-    td::uint64 mtu_ = 0;
+ private:
+  td::actor::ActorId<Rldp> rldp_;
+  adnl::AdnlNodeIdShort local_id_;
+  std::vector<adnl::AdnlNodeIdShort> peer_ids_;
+  td::uint64 mtu_ = 0;
 
-    void reset() {
-      if (rldp_.empty()) {
-        return;
-      }
-      for (const adnl::AdnlNodeIdShort peer_id : peer_ids_) {
-        td::actor::send_closure(rldp_, &Rldp::remove_peer_mtu_limit, local_id_, peer_id, mtu_);
-      }
+  void reset() {
+    if (rldp_.empty()) {
+      return;
     }
-  };
+    for (const adnl::AdnlNodeIdShort peer_id : peer_ids_) {
+      td::actor::send_closure(rldp_, &Rldp::remove_peer_mtu_limit, local_id_, peer_id, mtu_);
+    }
+  }
+};
 
 }  // namespace ton::rldp2

@@ -22,8 +22,8 @@
 
 #include "interfaces/validator-manager.h"
 #include "rldp/rldp.h"
-#include "rldp2/rldp.h"
 #include "rldp2/rldp-utils.h"
+#include "rldp2/rldp.h"
 #include "validator-session/validator-session.h"
 
 #include "collation-manager.hpp"

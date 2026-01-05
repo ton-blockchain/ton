@@ -107,7 +107,8 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
   OverlayImpl::update_root_member_list(std::move(nodes), std::move(root_public_keys), std::move(cert));
   update_neighbours(nodes_size);
 
-  if (overlay_type_ == OverlayType::Public && (!opts_.twostep_broadcast_sender_.empty() || opts_.send_twostep_broadcast_)) {
+  if (overlay_type_ == OverlayType::Public &&
+      (!opts_.twostep_broadcast_sender_.empty() || opts_.send_twostep_broadcast_)) {
     VLOG(OVERLAY_WARNING) << "Cannot enable twostep broadcasts in public overlay";
     opts_.twostep_broadcast_sender_ = {};
     opts_.send_twostep_broadcast_ = false;

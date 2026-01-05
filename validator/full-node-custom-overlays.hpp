@@ -18,9 +18,10 @@
 
 #include <fstream>
 
+#include "rldp2/rldp-utils.h"
+
 #include "full-node.h"
 #include "validator-telemetry.hpp"
-#include "rldp2/rldp-utils.h"
 
 namespace ton::validator::fullnode {
 
