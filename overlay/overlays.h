@@ -270,8 +270,8 @@ struct OverlayOptions {
   double broadcast_speed_multiplier_ = 1.0;
   bool private_ping_peers_ = false;
 
-  bool enable_twostep_broadcast_ = false;
   td::actor::ActorId<adnl::AdnlSenderInterface> twostep_broadcast_sender_ = {};
+  bool send_twostep_broadcast_ = false;
 };
 
 class Overlays : public td::actor::Actor {

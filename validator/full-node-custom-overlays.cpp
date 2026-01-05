@@ -263,7 +263,7 @@ void FullNodeCustomOverlay::init() {
   overlay::OverlayPrivacyRules rules{overlay::Overlays::max_fec_broadcast_size(), 0, std::move(authorized_keys)};
   overlay::OverlayOptions overlay_options;
   overlay_options.broadcast_speed_multiplier_ = opts_.private_broadcast_speed_multiplier_;
-  overlay_options.enable_twostep_broadcast_ = true;
+  overlay_options.send_twostep_broadcast_ = true;
   overlay_options.twostep_broadcast_sender_ = rldp2_;
   td::actor::send_closure(
       overlays_, &overlay::Overlays::create_private_overlay_ex, local_id_, overlay_id_full_.clone(), nodes_,

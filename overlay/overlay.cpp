@@ -107,16 +107,17 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
   OverlayImpl::update_root_member_list(std::move(nodes), std::move(root_public_keys), std::move(cert));
   update_neighbours(nodes_size);
 
-  if (opts_.enable_twostep_broadcast_) {
-    if (overlay_type_ == OverlayType::Public) {
-      VLOG(OVERLAY_WARNING) << "Cannot enable twostep broadcasts in public overlay";
-      opts_.enable_twostep_broadcast_ = false;
-    } else if (opts_.twostep_broadcast_sender_.empty()) {
-      VLOG(OVERLAY_WARNING) << "Twostep broadcast sender is not set";
-      opts_.enable_twostep_broadcast_ = false;
-    } else {
-      broadcasts_twostep_.init_sender(opts_.twostep_broadcast_sender_);
-    }
+  if (overlay_type_ == OverlayType::Public && (!opts_.twostep_broadcast_sender_.empty() || opts_.send_twostep_broadcast_)) {
+    VLOG(OVERLAY_WARNING) << "Cannot enable twostep broadcasts in public overlay";
+    opts_.twostep_broadcast_sender_ = {};
+    opts_.send_twostep_broadcast_ = false;
+  }
+  if (opts_.send_twostep_broadcast_ && opts_.twostep_broadcast_sender_.empty()) {
+    VLOG(OVERLAY_WARNING) << "Twostep broadcast sender is not set";
+    opts_.send_twostep_broadcast_ = false;
+  }
+  if (!opts_.twostep_broadcast_sender_.empty()) {
+    broadcasts_twostep_.init_sender(opts_.twostep_broadcast_sender_);
   }
 }
 
@@ -239,7 +240,7 @@ td::Status OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
 
 td::Status OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
                                           tl_object_ptr<ton_api::overlay_broadcastTwostepSimple> bcast) {
-  if (!opts_.enable_twostep_broadcast_) {
+  if (opts_.twostep_broadcast_sender_.empty()) {
     return td::Status::Error("twostep broadcasts are not enabled");
   }
   return broadcasts_twostep_.process_broadcast(this, message_from, std::move(bcast));
@@ -247,7 +248,7 @@ td::Status OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
 
 td::Status OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
                                           tl_object_ptr<ton_api::overlay_broadcastTwostepFec> bcast) {
-  if (!opts_.enable_twostep_broadcast_) {
+  if (opts_.twostep_broadcast_sender_.empty()) {
     return td::Status::Error("twostep broadcasts are not enabled");
   }
   return broadcasts_twostep_.process_broadcast(this, message_from, std::move(bcast));
@@ -477,7 +478,7 @@ void OverlayImpl::send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td
     VLOG(OVERLAY_WARNING) << "broadcast source certificate is invalid";
     return;
   }
-  if (opts_.enable_twostep_broadcast_) {
+  if (opts_.send_twostep_broadcast_) {
     broadcasts_twostep_.send(this, send_as, std::move(data), flags);
   } else {
     broadcasts_fec_.send(this, send_as, std::move(data), flags, opts_.broadcast_speed_multiplier_);
