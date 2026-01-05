@@ -92,11 +92,33 @@ struct MisbehaviorReport {
   MisbehaviorRef proof;
 };
 
+struct StatsTargetReached {
+  enum Target {
+    CollateStarted,
+    CollateFinished,
+    CandidateReceived,
+    ValidateStarted,
+    ValidateFinished,
+    NotarObserved,
+    FinalObserved,
+  };
+
+  StatsTargetReached(Target target, td::uint32 slot) : target(target), slot(slot), timestamp(td::Timestamp::now()) {
+  }
+
+  Target target;
+  td::uint32 slot;
+  td::Timestamp timestamp;
+
+  std::string contents_to_string() const;
+};
+
 class Bus : public runtime::Bus {
  public:
-  using Events = td::TypeList<StopRequested, BlockFinalized, OurLeaderWindowStarted, OurLeaderWindowAborted,
-                              CandidateGenerated, CandidateReceived, ValidationRequest, IncomingProtocolMessage,
-                              OutgoingProtocolMessage, BlockFinalizedInMasterchain, MisbehaviorReport>;
+  using Events =
+      td::TypeList<StopRequested, BlockFinalized, OurLeaderWindowStarted, OurLeaderWindowAborted, CandidateGenerated,
+                   CandidateReceived, ValidationRequest, IncomingProtocolMessage, OutgoingProtocolMessage,
+                   BlockFinalizedInMasterchain, MisbehaviorReport, StatsTargetReached>;
 
   Bus() = default;
 

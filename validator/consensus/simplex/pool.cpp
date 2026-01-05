@@ -431,6 +431,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   void on_notarization(State::SlotRef &slot, RawCandidateId id, NotarCertRef cert) {
     log_certificate(cert, *owning_bus());
     owning_bus().publish<NotarizationObserved>(id, cert);
+    owning_bus().publish<StatsTargetReached>(StatsTargetReached::NotarObserved, id.slot);
     slot.state->notarized = id;
 
     next_nonskipped_slot_after(id.slot).state->available_base = id;
@@ -469,6 +470,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
 
     last_finalized_block_ = id;
     first_nonfinalized_slot_ = id.slot + 1;
+    owning_bus().publish<StatsTargetReached>(StatsTargetReached::FinalObserved, id.slot);
     owning_bus().publish<FinalizationObserved>(id, cert);
 
     if (now_ <= id.slot) {

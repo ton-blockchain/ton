@@ -232,8 +232,10 @@ td::actor::ActorOwn<IValidatorGroup> IValidatorGroup::create_bridge(
     td::actor::ActorId<ValidatorManager> validator_manager, td::actor::ActorId<CollationManager> collation_manager,
     bool create_session, bool allow_unsafe_self_blocks_resync, td::Ref<ValidatorManagerOptions> opts,
     bool monitoring_shard) {
+  auto name_with_seqno =
+      std::string(name.begin(), name.end()) + "." + std::to_string(validator_set->get_catchain_seqno());
   consensus::BridgeCreationParams params{
-      .name = std::string(name.begin(), name.end()),
+      .name = name_with_seqno,
       .is_create_session_called = create_session,
       .shard = shard,
       .manager = validator_manager,
@@ -246,7 +248,7 @@ td::actor::ActorOwn<IValidatorGroup> IValidatorGroup::create_bridge(
       .session_id = std::move(session_id),
       .overlays = overlays,
   };
-  return td::actor::create_actor<consensus::BridgeImpl>(name, std::move(params));
+  return td::actor::create_actor<consensus::BridgeImpl>(name_with_seqno, std::move(params));
 }
 
 }  // namespace ton::validator

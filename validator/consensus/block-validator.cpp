@@ -25,6 +25,8 @@ class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
   td::actor::Task<> process(BusHandle, std::shared_ptr<ValidationRequest> event) {
     auto& bus = *owning_bus();
 
+    td::uint32 slot = event->candidate->id.slot;
+
     if (std::holds_alternative<BlockIdExt>(event->candidate->block)) {
       co_return {};
     }
@@ -37,9 +39,13 @@ class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
         .local_validator_id = bus.local_id.short_id,
     };
 
+    owning_bus().publish<StatsTargetReached>(StatsTargetReached::ValidateStarted, slot);
+
     auto maybe_candidate_reject =
         co_await td::actor::ask(bus.manager, &ManagerFacade::validate_block_candidate, candidate.clone(),
                                 std::move(validate_params), td::Timestamp::in(60.0));
+
+    owning_bus().publish<StatsTargetReached>(StatsTargetReached::ValidateFinished, slot);
 
     if (maybe_candidate_reject.has<CandidateReject>()) {
       auto error = td::Status::Error(0, maybe_candidate_reject.get<CandidateReject>().reason);

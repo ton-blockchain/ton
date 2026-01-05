@@ -84,6 +84,19 @@ std::string BlockFinalizedInMasterchain::contents_to_string() const {
   return PSTRING() << "{block=" << block.to_str() << "}";
 }
 
+std::string StatsTargetReached::contents_to_string() const {
+  auto targets = std::to_array<const char*>({
+      "CollateStarted",
+      "CollateFinished",
+      "CandidateReceived",
+      "ValidateStarted",
+      "ValidateFinished",
+      "NotarObserved",
+      "FinalObserved",
+  });
+  return PSTRING() << "{target=" << targets[target] << ", slot=" << slot << ", timestamp=" << timestamp.at() << "}";
+}
+
 std::vector<BlockIdExt> Bus::convert_id_to_blocks(ParentId parent) const {
   if (parent.has_value()) {
     return {parent->block};

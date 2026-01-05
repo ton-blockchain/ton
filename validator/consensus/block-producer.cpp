@@ -127,6 +127,8 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
       std::variant<BlockIdExt, BlockCandidate> block;
       std::optional<adnl::AdnlNodeIdShort> collator;
 
+      owning_bus().publish<StatsTargetReached>(StatsTargetReached::CollateStarted, slot);
+
       if (should_generate_empty_block(new_seqno)) {
         LOG(WARNING) << "Generating an empty block for slot " << slot << "! new_seqno=" << new_seqno
                      << ", last_consensus_finalized_seqno_=" << last_consensus_finalized_seqno_
@@ -160,6 +162,8 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
 
       auto candidate =
           td::make_ref<RawCandidate>(id, parent.id(), bus.local_id.idx, std::move(block), std::move(signature));
+
+      owning_bus().publish<StatsTargetReached>(StatsTargetReached::CollateFinished, slot);
 
       if (current_leader_window_ != window) {
         break;
