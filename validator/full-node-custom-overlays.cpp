@@ -270,9 +270,7 @@ void FullNodeCustomOverlay::init() {
       std::make_unique<Callback>(actor_id(this)), rules,
       PSTRING() << R"({ "type": "custom-overlay", "name": ")" << td::format::Escaped{name_} << R"(" })",
       overlay_options);
-  for (const adnl::AdnlNodeIdShort &peer : nodes_) {
-    td::actor::send_closure(rldp2_, &rldp2::Rldp::set_peer_mtu, local_id_, peer, FullNode::max_block_size() + 128);
-  }
+  rldp_limit_guard_ = rldp2::PeersMtuLimitGuard(rldp2_, local_id_, nodes_, FullNode::max_block_size() + 1024);
 
   inited_ = true;
 }

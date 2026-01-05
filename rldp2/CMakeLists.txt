@@ -33,6 +33,7 @@ set(RLDP_SOURCE
   Pacer.h
   rldp.h
   rldp.hpp
+  rldp-utils.h
   RldpReceiver.h
   RldpSender.h
   RldpConnection.h

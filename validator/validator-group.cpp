@@ -16,6 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <bits/cxxabi_tweaks.h>
+
 #include "collator-node/collator-node.hpp"
 #include "common/delay.h"
 #include "td/utils/Random.h"
@@ -543,6 +545,7 @@ void ValidatorGroup::create_session() {
   CHECK(!init_);
   init_ = true;
   std::vector<validatorsession::ValidatorSessionNode> vec;
+  std::vector<adnl::AdnlNodeIdShort> adnl_ids;
   auto v = validator_set_->export_vector();
   bool found = false;
   for (auto &el : v) {
@@ -560,16 +563,15 @@ void ValidatorGroup::create_session() {
       local_id_full_ = n.pub_key;
       local_adnl_id_ = n.adnl_id;
     }
+    adnl_ids.push_back(n.adnl_id);
     vec.emplace_back(std::move(n));
   }
   CHECK(found);
 
   td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_adnl_id_);
   td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_adnl_id_);
-  for (const auto &node : vec) {
-    td::actor::send_closure(rldp2_, &rldp2::Rldp::set_peer_mtu, local_adnl_id_, node.adnl_id,
-                            config_.max_block_size + config_.max_collated_data_size + 1024);
-  }
+  rldp_limit_guard_ = rldp2::PeersMtuLimitGuard(rldp2_, local_adnl_id_, adnl_ids,
+                                                config_.max_block_size + config_.max_collated_data_size + 1024);
 
   config_.catchain_opts.broadcast_speed_multiplier = opts_->get_catchain_broadcast_speed_multiplier();
   if (!config_.new_catchain_ids) {

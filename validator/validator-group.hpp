@@ -23,6 +23,7 @@
 #include "interfaces/validator-manager.h"
 #include "rldp/rldp.h"
 #include "rldp2/rldp.h"
+#include "rldp2/rldp-utils.h"
 #include "validator-session/validator-session.h"
 
 #include "collation-manager.hpp"
@@ -147,6 +148,7 @@ class ValidatorGroup : public td::actor::Actor {
   td::actor::ActorId<CollationManager> collation_manager_;
   td::actor::ActorOwn<validatorsession::ValidatorSession> session_;
   adnl::AdnlNodeIdShort local_adnl_id_;
+  rldp2::PeersMtuLimitGuard rldp_limit_guard_;
 
   bool init_ = false;
   bool started_ = false;

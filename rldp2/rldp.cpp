@@ -143,7 +143,7 @@ td::uint64 RldpIn::get_peer_mtu(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeId
   td::uint64 mtu = custom_default_mtu_ ? custom_default_mtu_.value() : RldpConnection::DEFAULT_MTU;
   auto it = custom_peer_mtu_.find({local_id, peer_id});
   if (it != custom_peer_mtu_.end()) {
-    mtu = std::max(mtu, it->second);
+    mtu = std::max(mtu, *it->second.rbegin());
   }
   return mtu;
 }
@@ -242,15 +242,26 @@ void RldpIn::set_default_mtu(td::uint64 mtu) {
   }
 }
 
-void RldpIn::set_peer_mtu(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu) {
-  if (!local_ids_.contains(local_id)) {
-    VLOG(RLDP_WARNING) << "unknown local id " << local_id;
-    return;
-  }
-  custom_peer_mtu_[{local_id, peer_id}] = mtu;
+void RldpIn::add_peer_mtu_limit(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu) {
+  custom_peer_mtu_[{local_id, peer_id}].insert(mtu);
   auto it = connections_.find({local_id, peer_id});
   if (it != connections_.end()) {
     auto &[p, connection] = *it;
+    td::actor::send_closure(connection, &RldpConnectionActor::set_default_mtu, get_peer_mtu(p.first, p.second));
+  }
+}
+
+void RldpIn::remove_peer_mtu_limit(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu) {
+  auto& map = custom_peer_mtu_[{local_id, peer_id}];
+  auto it = map.find(mtu);
+  CHECK(it != map.end());
+  map.erase(it);
+  if (map.empty()) {
+    custom_peer_mtu_.erase({local_id, peer_id});
+  }
+  auto it2 = connections_.find({local_id, peer_id});
+  if (it2 != connections_.end()) {
+    auto &[p, connection] = *it2;
     td::actor::send_closure(connection, &RldpConnectionActor::set_default_mtu, get_peer_mtu(p.first, p.second));
   }
 }

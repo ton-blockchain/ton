@@ -20,6 +20,7 @@
 
 #include "full-node.h"
 #include "validator-telemetry.hpp"
+#include "rldp2/rldp-utils.h"
 
 namespace ton::validator::fullnode {
 
@@ -99,6 +100,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   bool inited_ = false;
   overlay::OverlayIdFull overlay_id_full_;
   overlay::OverlayIdShort overlay_id_;
+  rldp2::PeersMtuLimitGuard rldp_limit_guard_;
 
   void try_init();
   void init();
