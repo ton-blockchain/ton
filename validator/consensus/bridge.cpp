@@ -54,6 +54,7 @@ class ManagerFacadeImpl : public ManagerFacade {
   }
 
   void log_validator_session_stats(validatorsession::ValidatorSessionStats stats) override {
+    stats.cc_seqno = validator_set_->get_catchain_seqno();
     td::actor::send_closure(manager_, &ValidatorManager::log_validator_session_stats, std::move(stats));
   }
 
@@ -193,7 +194,7 @@ class BridgeImpl final : public IValidatorGroup {
     BlockProducer::register_in(runtime);
     BlockValidator::register_in(runtime);
     PrivateOverlay::register_in(runtime);
-    // StatsCollector::register_in(runtime);
+    StatsCollector::register_in(runtime);
 
     if (is_simplex) {
       simplex::CandidateResolver::register_in(runtime);

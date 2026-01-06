@@ -8,133 +8,127 @@
 
 #include "validator-session/validator-session-types.h"
 
-#include "checksum.h"
-#include "consensus-bus.h"
+#include "bus.h"
 
-namespace ton::validator {
+namespace ton::validator::consensus {
 
 namespace {
 
-class StatsCollectorImpl : public runtime::SpawnsWith<ConsensusBus>, public runtime::ConnectsTo<ConsensusBus> {
+class StatsCollectorImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
   void start_up() override {
-    total_weight_ = 0;
     for (const auto& v : owning_bus()->validator_set) {
       total_weight_ += v.weight;
     }
+    system_clock_offset_ = td::Clocks::system() - td::Clocks::monotonic();
   }
 
   template <>
-  void handle(runtime::BusHandle<ConsensusBus>, std::shared_ptr<const ConsensusBus::StopRequested>) {
+  void handle(BusHandle, std::shared_ptr<const StopRequested>) {
     stop();
   }
 
   template <>
-  void handle(runtime::BusHandle<ConsensusBus>, std::shared_ptr<const ConsensusBus::CandidateGenerated> event) {
-    BlockSeqno seqno = event->candidate.id().seqno();
+  void handle(BusHandle, std::shared_ptr<const StatsTargetReached> event) {
+    auto& stats = stats_for_[event->slot];
+    auto timestamp = event->timestamp.at() + system_clock_offset_;
 
-    auto& producer = create_stats_for(seqno, owning_bus()->local_id.short_id);
-    producer.is_ours = true;
-    producer.block_status = validatorsession::ValidatorSessionStats::status_received;
-    producer.block_id = event->candidate.id();
-    producer.collated_data_hash = sha256_bits256(event->candidate.block->collated_data.as_slice());
-    producer.got_block_at = td::Clocks::system();
-    producer.got_block_by = validatorsession::ValidatorSessionStats::recv_collated;
-    producer.collated_at = td::Clocks::system();
-    producer.self_collated = !event->collator_id.has_value();
+    switch (event->target) {
+      case StatsTargetReached::CollateStarted: {
+        stats.got_submit_at = timestamp;
+        break;
+      }
+
+      case StatsTargetReached::CollateFinished: {
+        stats.got_block_at = timestamp;
+        stats.got_block_by = validatorsession::ValidatorSessionStats::recv_collated;
+        stats.collated_at = timestamp;
+        break;
+      }
+
+      case StatsTargetReached::CandidateReceived: {
+        stats.got_submit_at = timestamp;
+        stats.got_block_at = timestamp;
+        stats.got_block_by = validatorsession::ValidatorSessionStats::recv_broadcast;
+        break;
+      }
+
+      case StatsTargetReached::ValidateStarted: {
+        stats.validation_time = timestamp;
+        break;
+      }
+
+      case StatsTargetReached::ValidateFinished: {
+        stats.validated_at = timestamp;
+        stats.validation_time = timestamp - stats.validated_at;
+        break;
+      }
+
+      case StatsTargetReached::NotarObserved: {
+        stats.approved_33pct_at = stats.approved_66pct_at = timestamp;
+      }
+
+      case StatsTargetReached::FinalObserved:
+        stats.signed_33pct_at = timestamp;
+        stats.block_status = validatorsession::ValidatorSessionStats::status_approved;
+        break;
+    }
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const CandidateGenerated> event) {
+    auto& stats = stats_for_[event->candidate->id.slot];
+
+    stats.is_ours = true;
+    stats.self_collated = !event->collator_id.has_value();
     if (event->collator_id.has_value()) {
-      producer.collator_node_id = event->collator_id.value();
+      stats.collator_node_id = event->collator_id.value().bits256_value();
     }
   }
 
   template <>
-  void handle(runtime::BusHandle<ConsensusBus>, std::shared_ptr<const ConsensusBus::CandidateReceived> event) {
-    BlockSeqno seqno = event->candidate.id().seqno();
+  void handle(BusHandle, std::shared_ptr<const BlockFinalized> event) {
+    auto id = event->candidate->id;
+    auto& stats = stats_for_[id.slot];
 
-    auto& producer = create_stats_for(seqno, event->candidate.leader.short_id);
-    producer.block_status = validatorsession::ValidatorSessionStats::status_received;
-    producer.block_id = event->candidate.id();
-    producer.collated_data_hash = sha256_bits256(event->candidate.block->collated_data.as_slice());
-    producer.got_block_at = td::Clocks::system();
-    producer.got_block_by = validatorsession::ValidatorSessionStats::recv_broadcast;
-  }
+    stats.block_id = id.block;
+    stats.is_accepted = true;
+    stats.signed_66pct_at = td::Clocks::system();
+    send_stats_for_block(id.slot);
 
-  template <>
-  void handle(runtime::BusHandle<ConsensusBus>, std::shared_ptr<const ConsensusBus::CandidateValidated> event) {
-    BlockSeqno seqno = event->candidate.id().seqno();
-
-    auto& producer = create_stats_for(seqno, event->candidate.leader.short_id);
-    if (event->verdict.is_ok()) {
-      producer.validated_at = td::Clocks::system();
-    }
-  }
-
-  template <>
-  void handle(runtime::BusHandle<ConsensusBus>, std::shared_ptr<const ConsensusBus::BlockFinalized> event) {
-    BlockSeqno seqno = event->id.seqno();
-
-    auto& producer = create_stats_for(seqno, event->leader.short_id);
-    producer.is_accepted = true;
-    producer.block_status = validatorsession::ValidatorSessionStats::status_approved;
-    producer.block_id = event->id;
-
-    auto now = td::Clocks::system();
-    producer.approved_33pct_at = now;
-    producer.approved_66pct_at = now;
-    producer.signed_33pct_at = now;
-    producer.signed_66pct_at = now;
-
-    auto it = rounds_.find(seqno);
-    if (it != rounds_.end()) {
-      send_stats_for_block(seqno, event->id, true);
-      rounds_.erase(it);
+    first_nonfinalized_slot_ = id.slot + 1;
+    while (!stats_for_.empty() && stats_for_.begin()->first <= id.slot) {
+      stats_for_.erase(stats_for_.begin());
     }
   }
 
  private:
-  struct RoundStats {
-    double started_at = -1.0;
-    validatorsession::ValidatorSessionStats::Producer producer;
-  };
-
-  validatorsession::ValidatorSessionStats::Producer& create_stats_for(BlockSeqno seqno, PublicKeyHash validator_id) {
-    auto& round = rounds_[seqno];
-
-    if (round.started_at == -1) {
-      round.started_at = td::Clocks::system();
-    }
-
-    round.producer.validator_id = validator_id;
-
-    return round.producer;
-  }
-
-  void send_stats_for_block(BlockSeqno seqno, BlockIdExt block_id, bool success) {
-    auto it = rounds_.find(seqno);
-    if (it == rounds_.end()) {
-      return;
-    }
-
+  void send_stats_for_block(td::uint32 slot) {
+    auto& producer_stats = stats_for_[slot];
     auto& bus = *owning_bus();
 
     validatorsession::ValidatorSessionStats stats;
     stats.session_id = bus.session_id;
     stats.self = bus.local_id.short_id;
-    stats.block_id = block_id;
-    stats.cc_seqno = bus.validator_set_for_external_code->get_catchain_seqno();
-    stats.success = success;
+    stats.block_id = producer_stats.block_id;
+    stats.success = true;
     stats.timestamp = td::Clocks::system();
-    stats.creator = it->second.producer.validator_id;
+    stats.creator = producer_stats.validator_id;
     stats.total_validators = static_cast<td::uint32>(bus.validator_set.size());
     stats.total_weight = total_weight_;
 
     validatorsession::ValidatorSessionStats::Round round;
-    round.started_at = it->second.started_at;
-    round.producers = {it->second.producer};
+    round.started_at = producer_stats.got_submit_at;
+    round.producers = {producer_stats};
 
-    stats.first_round = 0;
+    // Remove
+    if (bus.shard.is_masterchain()) {
+      stats.first_round = slot % 4 != 1;
+    } else {
+      stats.first_round = slot % 4 != 0;
+    }
     stats.rounds.push_back(std::move(round));
 
     stats.fix_block_ids();
@@ -143,8 +137,10 @@ class StatsCollectorImpl : public runtime::SpawnsWith<ConsensusBus>, public runt
   }
 
   ValidatorWeight total_weight_ = 0;
+  double system_clock_offset_ = 0;
 
-  std::map<BlockSeqno, RoundStats> rounds_;
+  td::uint32 first_nonfinalized_slot_ = 0;
+  std::map<td::uint32, validatorsession::ValidatorSessionStats::Producer> stats_for_;
 };
 
 }  // namespace
@@ -153,4 +149,4 @@ void StatsCollector::register_in(runtime::Runtime& runtime) {
   runtime.register_actor<StatsCollectorImpl>("StatsCollector");
 }
 
-}  // namespace ton::validator
+}  // namespace ton::validator::consensus

@@ -162,8 +162,8 @@ struct PrivateOverlay {
   static void register_in(runtime::Runtime&);
 };
 
-// struct StatsCollector {
-//   static void register_in(runtime::Runtime&);
-// };
+struct StatsCollector {
+  static void register_in(runtime::Runtime&);
+};
 
 }  // namespace ton::validator::consensus

@@ -119,6 +119,7 @@ set(VALIDATOR_SOURCE
   consensus/bridge.cpp
   consensus/bus.cpp
   consensus/private-overlay.cpp
+  consensus/stats-collector.cpp
   consensus/types.cpp
 
   ${VALIDATOR_HEADERS}
