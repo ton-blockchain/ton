@@ -64,8 +64,10 @@ class RldpConnection {
     return default_mtu_;
   }
 
+  static constexpr td::uint64 DEFAULT_MTU = 7680;
+
  private:
-  td::uint64 default_mtu_ = 7680;
+  td::uint64 default_mtu_ = DEFAULT_MTU;
 
   std::map<TransferId, OutboundTransfer> outbound_transfers_;
   td::uint32 in_flight_count_{0};

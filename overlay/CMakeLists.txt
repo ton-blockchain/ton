@@ -1,14 +1,14 @@
 set(OVERLAY_SOURCE
+  broadcast-fec.cpp
+  broadcast-simple.cpp
+  broadcast-twostep.cpp
   overlay-manager.cpp
   overlay.cpp
-  overlay-fec.cpp
-  overlay-fec-broadcast.cpp
-  overlay-broadcast.cpp
   overlay-peers.cpp
 
-  overlay-fec.hpp
-  overlay-broadcast.hpp
-  overlay-fec-broadcast.hpp
+  broadcast-fec.hpp
+  broadcast-simple.hpp
+  broadcast-twostep.hpp
   overlay-manager.h
   overlay.h
   overlay.hpp

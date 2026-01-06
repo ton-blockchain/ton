@@ -25,6 +25,7 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+
 #include "adnl/adnl-test-loopback-implementation.h"
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
@@ -130,7 +131,7 @@ class CatChainInst : public td::actor::Actor {
       nodes.push_back(ton::catchain::CatChainNode{n.adnl_id, n.id_full});
     }
     catchain_ =
-        ton::catchain::CatChain::create(make_callback(), opts, keyring_, adnl_, overlay_manager_, std::move(nodes),
+        ton::catchain::CatChain::create(make_callback(), opts, keyring_, adnl_, {}, overlay_manager_, std::move(nodes),
                                         nodes_[idx_].id, unique_hash_, std::string(""), "", false);
   }
 
