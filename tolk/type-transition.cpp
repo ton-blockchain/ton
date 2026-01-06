@@ -14,6 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
+#include "generics-helpers.h"
 #include "tolk.h"
 #include "type-system.h"
 
@@ -471,16 +472,35 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
     return ir_result_arr;
   }
 
+  // handle structs and typed cells (which are also structs in stdlib)
+  const TypeDataStruct* from_struct = from_type->try_as<TypeDataStruct>();
+  const TypeDataStruct* dest_struct = dest_type->try_as<TypeDataStruct>();
+
+  // transform `[]` to `lisp_list<T>` / `[1, 2, 3]` to `lisp_list<int>`
+  if (from_shaped && dest_struct && dest_struct->struct_ref->is_instantiation_of_LispListT()) {
+    TypePtr list_T = dest_struct->struct_ref->substitutedTs->typeT_at(0);
+    std::vector ir_un_tuple = code.create_tmp_var(TypeDataTensor::create(std::vector(from_shaped->size(), TypeDataUnknown::create())), origin, "(unpack-shape)");
+    code.emplace_back(origin, Op::_UnTuple, ir_un_tuple, std::move(rvect));
+    std::vector ir_result_list = code.create_tmp_var(TypeDataNullLiteral::create(), origin, "(lisp-list)");
+    code.emplace_back(origin, Op::_Call, ir_result_list, std::vector<var_idx_t>{}, lookup_function("__null"));
+    for (int i = from_shaped->size() - 1; i >= 0; --i) {
+      std::vector ir_ith_elem = { ir_un_tuple[i] };
+      ir_ith_elem = transition_rvect_to_runtime_type(std::move(ir_ith_elem), code, TypeDataUnknown::create(), from_shaped->items[i], origin);
+      ir_ith_elem = transition_rvect_to_runtime_type(std::move(ir_ith_elem), code, from_shaped->items[i], list_T, origin);
+      ir_ith_elem = transition_rvect_to_runtime_type(std::move(ir_ith_elem), code, list_T, TypeDataUnknown::create(), origin);
+      std::vector<var_idx_t> ir_args_tuple = std::move(ir_ith_elem);
+      ir_args_tuple.push_back(ir_result_list[0]);
+      code.emplace_back(origin, Op::_Tuple, ir_result_list, std::move(ir_args_tuple));
+    }
+    return ir_result_list;
+  }
+
   // transform a callable to a callable
   // their types aren't exactly equal, but they match (containing aliases, for example)
   if (from_type->try_as<TypeDataFunCallable>() && dest_type->try_as<TypeDataFunCallable>()) {
     tolk_assert(dest_slots == 1 && from_slots == 1);
     return rvect;
   }
-
-  // handle structs and typed cells (which are also structs in stdlib)
-  const TypeDataStruct* from_struct = from_type->try_as<TypeDataStruct>();
-  const TypeDataStruct* dest_struct = dest_type->try_as<TypeDataStruct>();
 
   // transform struct A to struct B
   // different structs are typically not assignable, but Wrapper<WrapperAlias<int>> is ok to Wrapper<Wrapper<int>>
@@ -491,12 +511,12 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
 
   // transform `Cell<Something>` to `cell`
   if (from_struct && dest_type == TypeDataCell::create()) {
-    tolk_assert(from_slots == 1 && from_struct->struct_ref->is_instantiation_of_generic_struct());
+    tolk_assert(from_slots == 1 && from_struct->struct_ref->is_instantiation_of_CellT());
     return rvect;
   }
   // and vice versa, `cell as Cell<Something>`
   if (from_type == TypeDataCell::create() && dest_struct) {
-    tolk_assert(dest_slots == 1 && dest_struct->struct_ref->is_instantiation_of_generic_struct());
+    tolk_assert(dest_slots == 1 && dest_struct->struct_ref->is_instantiation_of_CellT());
     return rvect;
   }
 

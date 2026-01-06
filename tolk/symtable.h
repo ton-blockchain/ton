@@ -356,6 +356,10 @@ struct StructData final : Symbol {
 
   bool is_generic_struct() const { return genericTs != nullptr; }
   bool is_instantiation_of_generic_struct() const { return substitutedTs != nullptr; }
+  // some predefined structs from stdlib
+  bool is_instantiation_of_CellT() const           { return substitutedTs != nullptr && base_struct_ref->name == "Cell"; }
+  bool is_instantiation_of_LispListT() const       { return substitutedTs != nullptr && base_struct_ref->name == "lisp_list"; }
+  bool is_instantiation_of_UnsafeBodyNoRef() const { return substitutedTs != nullptr && base_struct_ref->name == "UnsafeBodyNoRef"; }
 
   StructData* mutate() const { return const_cast<StructData*>(this); }
   void assign_resolved_genericTs(const GenericsDeclaration* genericTs);

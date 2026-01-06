@@ -93,7 +93,7 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
 
   static void check_struct_fits_cell_or_has_policy(const TypeDataStruct* t_struct) {
     StructPtr struct_ref = t_struct->struct_ref;
-    bool avoid_check = struct_ref->is_instantiation_of_generic_struct() && struct_ref->base_struct_ref->name == "UnsafeBodyNoRef";
+    bool avoid_check = struct_ref->is_instantiation_of_UnsafeBodyNoRef();
     if (avoid_check) {
       return;
     }

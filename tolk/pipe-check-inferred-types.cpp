@@ -17,6 +17,7 @@
 #include "ast.h"
 #include "ast-visitor.h"
 #include "compilation-errors.h"
+#include "generics-helpers.h"
 #include "type-system.h"
 
 namespace tolk {
@@ -529,6 +530,8 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       TypePtr ith_hint = nullptr;
       if (const TypeDataArray* h_array = hint->try_as<TypeDataArray>()) {
         ith_hint = h_array->innerT;
+      } else if (const TypeDataStruct* h_struct = hint->try_as<TypeDataStruct>(); h_struct && h_struct->struct_ref->is_instantiation_of_LispListT()) {
+        ith_hint = h_struct->struct_ref->substitutedTs->typeT_at(0);
       } else {
         tolk_assert(false);
       }

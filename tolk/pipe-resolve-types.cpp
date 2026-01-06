@@ -663,7 +663,13 @@ public:
 class InfiniteStructSizeDetector {
   // `struct A { next: array<A> }` is okay, since the nested `A` is not on a stack, it's in a tuple
   static bool is_type_stored_not_on_a_stack(TypePtr type) {
-    return type->try_as<TypeDataMapKV>() || type->try_as<TypeDataArray>() || type->try_as<TypeDataShapedTuple>();
+    if (type->try_as<TypeDataMapKV>() || type->try_as<TypeDataArray>() || type->try_as<TypeDataShapedTuple>()) {
+      return true;
+    }
+    if (const TypeDataUnion* t_union = type->try_as<TypeDataUnion>()) {
+      return !t_union->has_genericT_inside() && t_union->or_null && is_type_stored_not_on_a_stack(t_union->or_null) && t_union->is_primitive_nullable();
+    }
+    return false;
   }
 
   static TypePtr visit_type_deeply(TypePtr type) {

@@ -12,6 +12,9 @@ fun main() {
     [] as array<array<int>>;
     [] as array<array<int>>?;
     [] as array<array<int>> | int;
+    [] as lisp_list<int>;
+    [] as lisp_list<int>?;
+    [] as lisp_list<int> | int;
     // err
     [] as Point | int;
 }

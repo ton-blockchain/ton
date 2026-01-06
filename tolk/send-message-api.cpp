@@ -25,7 +25,7 @@ std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect,
 
 static bool is_type_UnsafeBodyNoRef_T(TypePtr bodyT) {
   if (const TypeDataStruct* t_struct = bodyT->unwrap_alias()->try_as<TypeDataStruct>()) {
-    if (t_struct->struct_ref->is_instantiation_of_generic_struct() && t_struct->struct_ref->base_struct_ref->name == "UnsafeBodyNoRef") {
+    if (t_struct->struct_ref->is_instantiation_of_UnsafeBodyNoRef()) {
       return true;
     }
   }

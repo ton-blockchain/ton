@@ -140,6 +140,23 @@ type unknown = builtin
 /// ```
 type tuple = array<unknown>
 
+/// `lisp_list<T>` is a set of nested 2-element TVM tuples:
+/// `[1, [2, [3, null]]]` represents a list `[1, 2, 3]`.
+/// Unlike `array<T>`, it can represent a list longer than 255 elements,
+/// but it has access only to the frontmost element (head).
+/// 
+/// To use lisp-style list, import the `@stdlib/lisp-lists` and call its methods.
+/// ```
+/// var list: lisp_list<int> = [];
+/// list.prependHead(1);
+/// list.prependHead(2);
+/// // list is now "2 1" (on a stack: [ 2 [ 1 null ] ])
+/// list.getHead(); // 2
+/// ```
+struct lisp_list<T> {
+    private tvmTuple: [T, lisp_list<T>] | null
+}
+
 /// Think of it as "a map with unknown keys and unknown values".
 /// Prefer using `map<K, V>`, not `dict`.
 type dict = cell?

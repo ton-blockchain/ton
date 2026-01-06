@@ -45,8 +45,7 @@ std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_
 
 bool is_type_cellT(TypePtr any_type) {
   if (const TypeDataStruct* t_struct = any_type->try_as<TypeDataStruct>()) {
-    StructPtr struct_ref = t_struct->struct_ref;
-    return struct_ref->is_instantiation_of_generic_struct() && struct_ref->base_struct_ref->name == "Cell";
+    return t_struct->struct_ref->is_instantiation_of_CellT();
   }
   return false;
 }

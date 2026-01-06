@@ -639,7 +639,7 @@ bool TypeDataCell::can_rhs_be_assigned(TypePtr rhs) const {
     return true;
   }
   if (const TypeDataStruct* rhs_struct = rhs->try_as<TypeDataStruct>()) {
-    if (rhs_struct->struct_ref->is_instantiation_of_generic_struct() && rhs_struct->struct_ref->base_struct_ref->name == "Cell") {
+    if (rhs_struct->struct_ref->is_instantiation_of_CellT()) {
       return true;      // Cell<Something> to cell, e.g. `contract.setData(obj.toCell())`
     }
   }
@@ -770,6 +770,16 @@ bool TypeDataStruct::can_rhs_be_assigned(TypePtr rhs) const {
   }
   if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
     return can_rhs_be_assigned(rhs_alias->underlying_type);
+  }
+  if (const TypeDataShapedTuple* rhs_shaped = rhs->try_as<TypeDataShapedTuple>()) {
+    if (struct_ref->is_instantiation_of_LispListT()) {    // someList = [1, 2, 3]
+      TypePtr list_T = struct_ref->substitutedTs->typeT_at(0);
+      bool all_assignable = true;
+      for (TypePtr ith : rhs_shaped->items) {
+        all_assignable &= list_T->can_rhs_be_assigned(ith);
+      }
+      return all_assignable;
+    }
   }
   return rhs == TypeDataNever::create();
 }
@@ -932,7 +942,7 @@ bool TypeDataCell::can_be_casted_with_as_operator(TypePtr cast_to) const {
     return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (const TypeDataStruct* to_struct = cast_to->try_as<TypeDataStruct>()) {    // cell as Cell<T>
-    return to_struct->struct_ref->is_instantiation_of_generic_struct() && to_struct->struct_ref->base_struct_ref->name == "Cell";
+    return to_struct->struct_ref->is_instantiation_of_CellT();
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);
@@ -1023,6 +1033,16 @@ bool TypeDataShapedTuple::can_be_casted_with_as_operator(TypePtr cast_to) const 
     }
     return all_castable;
   }
+  if (const TypeDataStruct* to_struct = cast_to->try_as<TypeDataStruct>()) {
+    if (to_struct->struct_ref->is_instantiation_of_LispListT()) {
+      TypePtr list_T = to_struct->struct_ref->substitutedTs->typeT_at(0);
+      bool all_castable = true;
+      for (TypePtr ith : items) {
+        all_castable &= ith->can_be_casted_with_as_operator(list_T);
+      }
+      return all_castable;
+    }
+  }
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
     return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
@@ -1080,7 +1100,7 @@ bool TypeDataStruct::can_be_casted_with_as_operator(TypePtr cast_to) const {
     return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (cast_to == TypeDataCell::create()) {    // Cell<T> as cell
-    return struct_ref->is_instantiation_of_generic_struct() && struct_ref->base_struct_ref->name == "Cell";
+    return struct_ref->is_instantiation_of_CellT();
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
     return can_be_casted_with_as_operator(to_alias->underlying_type);

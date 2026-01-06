@@ -1249,7 +1249,8 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // `array<int> []` / `lisp_list<int> [1,2,3]` / `tuple [1, "aba"]`
     if (v->type_node) {
       TypePtr provided_type = v->type_node->resolved_type->unwrap_alias();
-      bool is_valid_constructor = provided_type->try_as<TypeDataArray>();
+      bool is_valid_constructor = provided_type->try_as<TypeDataArray>()
+                              || (provided_type->try_as<TypeDataStruct>() && provided_type->try_as<TypeDataStruct>()->struct_ref->is_instantiation_of_LispListT());
       if (is_valid_constructor) {
         hint = v->type_node->resolved_type;
       } else {
@@ -1259,12 +1260,18 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
     const TypeDataArray* hint_array = hint ? try_pick_T_from_hint<TypeDataArray>(hint) : nullptr;
     const TypeDataShapedTuple* hint_shaped = hint ? try_pick_T_from_hint<TypeDataShapedTuple>(hint) : nullptr;
+    const TypeDataStruct* hint_lisp_list = hint ? try_pick_T_from_hint<TypeDataStruct>(hint, [](const TypeDataStruct* check) {
+      return check->struct_ref->is_instantiation_of_LispListT();
+    }) : nullptr;
 
     std::vector<TypePtr> types_list;
     types_list.reserve(v->size());
     for (int i = 0; i < v->size(); ++i) {
       AnyExprV item = v->get_item(i);
-      TypePtr ith_hint = hint_array ? hint_array->innerT : hint_shaped && i < hint_shaped->size() ? hint_shaped->items[i] : nullptr;
+      TypePtr ith_hint = hint_array ? hint_array->innerT :
+                         hint_shaped && i < hint_shaped->size() ? hint_shaped->items[i] :
+                         hint_lisp_list ? hint_lisp_list->struct_ref->substitutedTs->typeT_at(0) :
+                         nullptr;
       flow = infer_any_expr(item, std::move(flow), false, ith_hint).out_flow;
       types_list.emplace_back(item->inferred_type);
     }
@@ -1272,7 +1279,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     if (v->type_node) {
       // `array<int> []` / `tuple [1,"aba"]`
       assign_inferred_type(v, v->type_node->resolved_type);
-    } else if (hint_shaped) {
+    } else if (hint_shaped || hint_lisp_list) {
       // `var x: [int] = [0]` / `f([1,2])` (where f's param is `lisp_list<T>`)
       assign_inferred_type(v, TypeDataShapedTuple::create(std::move(types_list)));
     } else if (v->empty()) {
@@ -1412,7 +1419,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         struct_ref = hint_withTs->struct_ref;   // `var v: Wrapper<int> = {}` or within a union
       }
     }
-    if (!struct_ref) {
+    if (!struct_ref || struct_ref->is_instantiation_of_LispListT()) {
       err("can not detect struct name\nuse either `var v: StructName = { ... }` or `var v = StructName { ... }`").fire(v, cur_f);
     }
 

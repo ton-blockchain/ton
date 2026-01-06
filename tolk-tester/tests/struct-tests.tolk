@@ -37,6 +37,14 @@ struct WithTensorInside {
     otherTup: tuple
 }
 
+struct WithShapedDefaults {
+    f1: array<int?> = [null]
+    f2: array<Point?> = [null]
+    f3: [int?] = [null]
+    f4: [Point?] = [null]
+    f5: lisp_list<int?> = [null]
+}
+
 fun sumCoords(p: Point) {
     return p.x + p.y;
 }
@@ -672,6 +680,11 @@ fun test48(forceNull: bool) {
     return (tens is null) ? 0 : tens.1.x + tens.1.y;
 }
 
+@method_id(149)
+fun test49() {
+    return WithShapedDefaults{};
+}
+
 
 fun main(x: int8, y: MInt) {
     __expect_type(PointAlias{x,y}, "Point");
@@ -740,6 +753,7 @@ type PointAlias = Point;
 @testcase | 147 |      | 0 0 1 1 1 1
 @testcase | 148 | -1   | 0
 @testcase | 148 | 0    | 30
+@testcase | 149 |      | [ (null) ] [ [ (null) (null) 0 ] ] [ (null) ] [ [ (null) (null) 0 ] ] [ (null) (null) ]
 
 @fif_codegen
 """
