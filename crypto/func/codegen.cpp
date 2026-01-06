@@ -21,9 +21,9 @@
 namespace funC {
 
 /*
- * 
+ *
  *   GENERATE TVM STACK CODE
- * 
+ *
  */
 
 StackLayout Stack::vars() const {

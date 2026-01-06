@@ -21,9 +21,9 @@
 namespace funC {
 
 /*
- * 
+ *
  *   TYPE EXPRESSIONS
- * 
+ *
  */
 
 int TypeExpr::holes = 0, TypeExpr::type_vars = 0;  // not thread safe, but it is ok for now

@@ -30,9 +30,9 @@ if(PkgConfig_FOUND)
     target_link_libraries(gbench-coro -lbenchmark)
     target_include_directories(gbench-coro PRIVATE ${GBENCH_INCLUDE_DIRS})
     target_compile_options(gbench-coro PRIVATE ${GBENCH_CFLAGS_OTHER})
-    
+
     message(STATUS "Google Benchmark found via pkg-config - gbench-coro target enabled")
-    
+
     # Check for Folly
     find_package(folly CONFIG QUIET)
     if(folly_FOUND)

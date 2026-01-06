@@ -27,7 +27,7 @@ fun fakeParseMessage(mode: int): MyMessage {
 fun onInternalMessage(curCounter: int, mode: int) {
     var m = fakeParseMessage(mode);
     __expect_type(m, "MyMessage");
-    
+
     val nextCounter: int = match (m) {
         CounterReset => m.initialValue,
         CounterIncrement => curCounter + m.byValue,

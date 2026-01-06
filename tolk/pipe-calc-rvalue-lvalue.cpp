@@ -73,7 +73,7 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
   void visit(V<ast_empty_expression> v) override {
     mark_vertex(v);
   }
-  
+
   void visit(V<ast_parenthesized_expression> v) override {
     mark_vertex(v);
     MarkingState saved = enter_rvalue_if_none();
@@ -101,7 +101,7 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v);
     restore_state(saved);
   }
-  
+
   void visit(V<ast_bracket_tuple> v) override {
     mark_vertex(v);
     MarkingState saved = enter_rvalue_if_none();

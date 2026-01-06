@@ -1,4 +1,5 @@
 option(TDUTILS_MIME_TYPE "Generate mime types conversion (gperf is required)" ON)
+option(TDUTILS_USE_LIBBACKTRACE "Use libbacktrace for better stack traces" ON)
 
 set(TD_HAVE_OPENSSL 1)
 
@@ -29,6 +30,16 @@ endif()
 
 if (ABSL_FOUND)
   set(TD_HAVE_ABSL 1)
+endif()
+
+# libbacktrace support - check if target exists (built at higher level)
+if (TDUTILS_USE_LIBBACKTRACE)
+  if (TARGET libbacktrace AND NOT WIN32)
+    set(TD_HAVE_LIBBACKTRACE 1)
+    message(STATUS "Using libbacktrace for enhanced stack traces")
+  else()
+    message(STATUS "libbacktrace target not found, using basic backtrace")
+  endif()
 endif()
 
 configure_file(td/utils/config.h.in td/utils/config.h @ONLY)
@@ -359,6 +370,11 @@ endif()
 
 if (ABSL_FOUND)
   target_link_libraries_system(tdutils absl::flat_hash_map absl::flat_hash_set absl::hash)
+endif()
+
+if (TD_HAVE_LIBBACKTRACE)
+  target_link_libraries(tdutils PRIVATE libbacktrace)
+  target_compile_definitions(tdutils PRIVATE TD_HAVE_LIBBACKTRACE=1)
 endif()
 
 if (WIN32 AND WINGETOPT_FOUND)

@@ -133,7 +133,7 @@ static Error err_method_or_field_not_found(TypePtr receiver_type, std::string_vi
   }
   if (!called_as_method && !is_static_dot) {
     return err("field `{}` doesn't exist in type `{}`", field_name, receiver_type);
-  } 
+  }
   if (std::vector<FunctionPtr> other = lookup_methods_with_name(field_name); !other.empty()) {
     return err("method `{}` not found for type `{}`\n(but it exists for type `{}`)", field_name, receiver_type, other.front()->receiver_type);
   }
@@ -847,7 +847,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // for `genericF<T1,T2>` user should provide two Ts
     // for `genericF<T1,T2>` where T2 has a default — one T1
     // for `Container<T>.wrap<U>` — one U (and one T is implicitly from receiver)
-    int n_provided = instantiationT_list->size() + genericTs->n_from_receiver; 
+    int n_provided = instantiationT_list->size() + genericTs->n_from_receiver;
     if (n_provided < genericTs->size_no_defaults() || n_provided > genericTs->size()) {
       err("expected {} type arguments, got {}", genericTs->size() - genericTs->n_from_receiver, instantiationT_list->size()).fire(instantiationT_list, cur_f);
     }
@@ -1806,11 +1806,11 @@ void pipeline_infer_types_and_calls_and_fields() {
   // loop over user-defined functions
   visit_ast_of_all_functions<LaunchInferTypesAndMethodsOnce>();
 
-  // assign inferred_type to built-in functions like __throw() 
+  // assign inferred_type to built-in functions like __throw()
   for (FunctionPtr fun_ref : get_all_builtin_functions()) {
     if (LaunchInferTypesAndMethodsOnce::should_visit_function(fun_ref)) {
-      infer_and_save_return_type_of_function(fun_ref);      
-    }    
+      infer_and_save_return_type_of_function(fun_ref);
+    }
   }
 
   // analyze constants that weren't referenced by any function

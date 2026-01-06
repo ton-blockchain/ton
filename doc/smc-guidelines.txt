@@ -34,7 +34,7 @@ Most smart contracts should not perform non-trivial actions or reject the inboun
 * op = 0xffffffff means "operation not supported". It is followed by the 64-bit *query_id* extracted from the original query, and the 32-bit *op* of the original query. All but the simplest smart contracts should return this error when they receive a query with an unknown *op* in the range 1 .. 2^31-1.
 * op = 0xfffffffe means "operation not allowed". It is followed by the 64-bit *query_id* of the original query, followed by the 32-bit *op* extracted from the original query.
 
-Notice that unknown "responses" (with an *op* in the range 2^31 .. 2^32-1) should be ignored (in particular, no response with an *op* equal to 0xffffffff should be generated in response to them), just as unexpected bounced messages (with "bounced" flag set). 
+Notice that unknown "responses" (with an *op* in the range 2^31 .. 2^32-1) should be ignored (in particular, no response with an *op* equal to 0xffffffff should be generated in response to them), just as unexpected bounced messages (with "bounced" flag set).
 
 2. Paying for processing queries and sending responses
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

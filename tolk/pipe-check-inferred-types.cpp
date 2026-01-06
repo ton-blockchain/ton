@@ -211,7 +211,7 @@ static bool check_eq_neq_operator(TypePtr lhs_type, TypePtr rhs_type, bool& not_
   if (lhs_enum && rhs_enum) {   // allow `someColor == anotherColor`, don't allow `someColor == 123`
     return lhs_enum->enum_ref == rhs_enum->enum_ref;
   }
-  
+
   return false;
 }
 
@@ -273,7 +273,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
           } else {
             err_cannot_apply_operator(v->operator_name, lhs, rhs).fire(v->operator_range, cur_f);
           }
-        } 
+        }
         if (not_integer_comparison) {    // special handling at IR generation like for `address`
           v->mutate()->assign_fun_ref(nullptr);
         }
@@ -628,7 +628,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
           }
           if (subject_enum) {
             auto l_dot = v_arm->get_pattern_expr()->try_as<ast_dot_access>();
-            if (!l_dot || !l_dot->is_target_enum_member()) {    // match (someColor) { anotherColor => } 
+            if (!l_dot || !l_dot->is_target_enum_member()) {    // match (someColor) { anotherColor => }
               err("wrong pattern matching: `match` should contain members of a enum").fire(v_arm->get_pattern_expr(), cur_f);
             }
             EnumMemberPtr member_ref = std::get<EnumMemberPtr>(l_dot->target);

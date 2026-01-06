@@ -89,7 +89,7 @@ fun main() {
 
 @fif_codegen
 """
-  call_some_calc() PROC:<{      // 
+  call_some_calc() PROC:<{      //
     // 48: return some_calc(-10)
     -10 PUSHINT                 //  '0=-10
     // 31: calcAbs: bool = true

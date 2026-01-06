@@ -24,6 +24,7 @@ class Stacktrace {
  public:
   struct PrintOptions {
     bool use_gdb = false;
+    bool use_libbacktrace = true;
     PrintOptions() {
     }
   };

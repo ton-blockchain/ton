@@ -263,7 +263,7 @@ type MMap8Of32 = map<int8, MMap32>
 fun test14(
     m1: map<int8, map<int16, int32>>, m2: map<int8, map<MInt16ov, MInt16ov>>,
     m3: map<int8, map<Point, slice>>, m4: map<int8, MMap32>, m5: MMap8Of32,
-    m6: map<int8, map<int8,int8>?>, 
+    m6: map<int8, map<int8,int8>?>,
     m7: map<int8, bool|cell>, m8: map<MInt16, ()|cell|Point>,
     m9: map<address, address>,
 ) {

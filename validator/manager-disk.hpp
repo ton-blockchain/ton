@@ -134,8 +134,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                              td::BufferSlice data) override;
-  void new_block_candidate_broadcast(BlockIdExt block_id, td::BufferSlice data) override {
-  }
 
   void add_ext_server_id(adnl::AdnlNodeIdShort id) override {
     UNREACHABLE();

@@ -124,9 +124,9 @@ FileHash compute_file_hash(td::Slice data) {
 }
 
 /*
- * 
+ *
  *   ZEROSTATE CONFIGURATION
- * 
+ *
  */
 
 td::Status ZerostateInfo::base_check() {
@@ -154,9 +154,9 @@ td::Status ZerostateInfo::base_check() {
 }
 
 /*
- * 
- *   BLOCK DATABASE 
- * 
+ *
+ *   BLOCK DATABASE
+ *
  */
 
 std::string compute_db_filename(std::string base_dir, const FileHash& file_hash, int depth) {

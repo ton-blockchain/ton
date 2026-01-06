@@ -339,16 +339,16 @@ Lambda<LambdaT> lambda(const LambdaT &lambda) {
 
 using format::tag;
 
-template <class A, class B>
+template <Formattable A, Formattable B>
 StringBuilder &operator<<(StringBuilder &sb, const std::pair<A, B> &p) {
   return sb << "[" << p.first << ";" << p.second << "]";
 }
 
-template <class T>
+template <Formattable T>
 StringBuilder &operator<<(StringBuilder &stream, const vector<T> &vec) {
   return stream << format::as_array(vec);
 }
-template <class T>
+template <Formattable T>
 StringBuilder &operator<<(StringBuilder &stream, const std::set<T> &vec) {
   return stream << format::as_array(vec);
 }

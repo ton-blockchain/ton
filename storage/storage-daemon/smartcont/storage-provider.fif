@@ -1,5 +1,5 @@
 "Asm.fif" include
-// automatically generated from `../../../crypto/smartcont/stdlib.fc` `storage-provider.fc` incl:`constants.fc` 
+// automatically generated from `../../../crypto/smartcont/stdlib.fc` `storage-provider.fc` incl:`constants.fc`
 PROGRAM{
   DECLPROC calculate_address_by_stateinit
   DECLPROC build_storage_contract_stateinit
@@ -125,7 +125,7 @@ PROGRAM{
     SEMPTY	//  msg_value in_msg_body cs _10 _11
     OR	//  msg_value in_msg_body cs _12
     IFJMP:<{	//  msg_value in_msg_body cs
-      3 BLKDROP	// 
+      3 BLKDROP	//
     }>	//  msg_value in_msg_body cs
     LDMSGADDR	//  msg_value in_msg_body _141 _140
     DROP	//  msg_value in_msg_body sender_address
@@ -134,7 +134,7 @@ PROGRAM{
     OVER	//  msg_value sender_address op in_msg_body op
     0 EQINT	//  msg_value sender_address op in_msg_body _21
     IFJMP:<{	//  msg_value sender_address op in_msg_body
-      4 BLKDROP	// 
+      4 BLKDROP	//
     }>	//  msg_value sender_address op in_msg_body
     64 LDU	//  msg_value sender_address op query_id in_msg_body
     s2 PUSH
@@ -171,7 +171,7 @@ PROGRAM{
     3055775075 PUSHINT	//  in_msg_body sender_address op op _58=3055775075
     EQUAL	//  in_msg_body sender_address op _59
     IFJMP:<{	//  in_msg_body sender_address op
-      3 BLKDROP	// 
+      3 BLKDROP	//
     }>	//  in_msg_body sender_address op
     DUP
     1408453846 PUSHINT	//  in_msg_body sender_address op op _60=1408453846
@@ -182,7 +182,7 @@ PROGRAM{
       SDEQ	//  in_msg_body sender_address op _63
       NOT	//  in_msg_body sender_address op _64
       IFJMP:<{	//  in_msg_body sender_address op
-        3 BLKDROP	// 
+        3 BLKDROP	//
         RETALT
       }>	//  in_msg_body sender_address op
       c4 PUSH	//  in_msg_body sender_address op _66
@@ -209,7 +209,7 @@ PROGRAM{
       SDEQ	//  in_msg_body _93
       NOT	//  in_msg_body _94
       IFJMP:<{	//  in_msg_body
-        DROP	// 
+        DROP	//
         RETALT
       }>	//  in_msg_body
       c4 PUSH	//  in_msg_body _96
@@ -237,7 +237,7 @@ PROGRAM{
       ENDC	//  _136
       c4 POP
     }>ELSE<{
-      2DROP	// 
+      2DROP	//
     }>
   }>
   recv_external PROC:<{
@@ -293,13 +293,13 @@ PROGRAM{
     c4 POP
   }>
   seqno PROC:<{
-    // 
+    //
     c4 PUSH	//  _0
     CTOS	//  _1
     32 PLDU	//  _3
   }>
   get_public_key PROC:<{
-    // 
+    //
     c4 PUSH	//  _1
     CTOS	//  cs
     64 LDU	//  _9 _8
@@ -307,7 +307,7 @@ PROGRAM{
     256 PLDU	//  _7
   }>
   get_wallet_params PROC:<{
-    // 
+    //
     c4 PUSH	//  _1
     CTOS	//  ds
     32 LDU	//  _6 ds
@@ -316,7 +316,7 @@ PROGRAM{
     DROP	//  stored_seqno stored_subwallet public_key
   }>
   get_storage_params PROC:<{
-    // 
+    //
     c4 PUSH	//  _1
     CTOS	//  ds
     320 PUSHINT	//  ds _14

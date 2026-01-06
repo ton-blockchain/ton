@@ -165,6 +165,21 @@ struct unified_result<void (C::*)(Args...)> {
   static constexpr UnifiedKind kind = is_promise ? UnifiedKind::PromiseArgument : UnifiedKind::Void;
 };
 
+// Concept: arguments must match the member function signature
+template <class MemFn, class... Args>
+concept AskArgsValid = [] {
+  using Meta = unified_result<MemFn>;
+  using C = detail::memfn_meta<std::remove_cvref_t<MemFn>>::cls;
+
+  if constexpr (Meta::kind == UnifiedKind::PromiseArgument) {
+    using T = Meta::type;
+    using P = StartedTask<std::conditional_t<std::is_void_v<T>, td::Unit, T>>::ExternalPromise;
+    return std::is_invocable_v<MemFn, C&, Args..., P>;
+  } else {
+    return std::is_invocable_v<MemFn, C&, Args...>;
+  }
+}();
+
 template <bool Later, class TargetId, class MemFn, class... Args>
 auto ask_impl(TargetId&& to, MemFn mf, Args&&... args) {
   using Meta = unified_result<MemFn>;
@@ -218,29 +233,34 @@ auto ask_new_impl(TargetId&& to, MemFn mf, Args&&... args) {
   }
 }
 
-template <class... Args>
-auto ask_new(Args&&... args) {
-  return ask_new_impl<true>(std::forward<Args>(args)...);
+template <class TargetId, class MemFn, class... Args>
+  requires AskArgsValid<MemFn, Args...>
+auto ask_new(TargetId&& to, MemFn mf, Args&&... args) {
+  return ask_new_impl<true>(std::forward<TargetId>(to), mf, std::forward<Args>(args)...);
 }
 
-template <class... Args>
-auto ask_new_immediate(Args&&... args) {
-  return ask_new_impl<false>(std::forward<Args>(args)...);
+template <class TargetId, class MemFn, class... Args>
+  requires AskArgsValid<MemFn, Args...>
+auto ask_new_immediate(TargetId&& to, MemFn mf, Args&&... args) {
+  return ask_new_impl<false>(std::forward<TargetId>(to), mf, std::forward<Args>(args)...);
 }
 
-template <class... Args>
-auto ask(Args&&... args) {
-  return ask_impl<true>(std::forward<Args>(args)...);
+template <class TargetId, class MemFn, class... Args>
+  requires AskArgsValid<MemFn, Args...>
+auto ask(TargetId&& to, MemFn mf, Args&&... args) {
+  return ask_impl<true>(std::forward<TargetId>(to), mf, std::forward<Args>(args)...);
 }
 
-template <class... Args>
-auto ask_immediate(Args&&... args) {
-  return ask_impl<false>(std::forward<Args>(args)...);
+template <class TargetId, class MemFn, class... Args>
+  requires AskArgsValid<MemFn, Args...>
+auto ask_immediate(TargetId&& to, MemFn mf, Args&&... args) {
+  return ask_impl<false>(std::forward<TargetId>(to), mf, std::forward<Args>(args)...);
 }
 
-template <class... Args>
-auto ask_promise(Args&&... args) {
-  return ask(std::forward<Args>(args)...);
+template <class TargetId, class MemFn, class... Args>
+  requires AskArgsValid<MemFn, Args...>
+auto ask_promise(TargetId&& to, MemFn mf, Args&&... args) {
+  return ask(std::forward<TargetId>(to), mf, std::forward<Args>(args)...);
 }
 
 template <typename TaskType>

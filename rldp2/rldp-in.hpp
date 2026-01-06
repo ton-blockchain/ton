@@ -93,6 +93,8 @@ class RldpIn : public RldpImpl {
                        td::Promise<td::string> promise) override;
 
   void set_default_mtu(td::uint64 mtu) override;
+  void add_peer_mtu_limit(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu) override;
+  void remove_peer_mtu_limit(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu) override;
 
   RldpIn(td::actor::ActorId<adnl::AdnlPeerTable> adnl) : adnl_(adnl) {
   }
@@ -110,8 +112,10 @@ class RldpIn : public RldpImpl {
   std::set<adnl::AdnlNodeIdShort> local_ids_;
 
   td::optional<td::uint64> custom_default_mtu_;
+  std::map<std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>, std::multiset<td::uint64>> custom_peer_mtu_;
 
   td::actor::ActorId<RldpConnectionActor> create_connection(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst);
+  td::uint64 get_peer_mtu(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id);
 };
 
 }  // namespace rldp2

@@ -33,6 +33,7 @@ set(RLDP_SOURCE
   Pacer.h
   rldp.h
   rldp.hpp
+  rldp-utils.h
   RldpReceiver.h
   RldpSender.h
   RldpConnection.h
@@ -42,9 +43,9 @@ set(RLDP_SOURCE
 
 add_library(rldp2 STATIC ${RLDP_SOURCE})
 
-target_include_directories(rldp PUBLIC 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
+target_include_directories(rldp PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
   ${OPENSSL_INCLUDE_DIR}
 )
 if (GSL_FOUND AND BLAS_FOUND)

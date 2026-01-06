@@ -157,9 +157,6 @@ class ValidatorManagerImpl : public ValidatorManager {
                                              td::BufferSlice data) override {
     UNREACHABLE();
   }
-  void new_block_candidate_broadcast(BlockIdExt block_id, td::BufferSlice data) override {
-    UNREACHABLE();
-  }
 
   void add_ext_server_id(adnl::AdnlNodeIdShort id) override {
     UNREACHABLE();

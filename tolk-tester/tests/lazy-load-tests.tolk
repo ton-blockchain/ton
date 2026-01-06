@@ -1386,7 +1386,7 @@ fun demo312() {
     var st = lazy WithInternalAddress.fromCell(correct);
     __expect_lazy("[st] skip (bits8) (address), load f3");
     val f3 = st.f3;
-    
+
     val wrong = beginCell().storeInt(0, 8).storeAddressNone().storeAddress(addr).storeInt(-1, 8).endCell();
     var st2 = lazy WithInternalAddress.fromCell(wrong);
     // check that `address` (st2.f2) is validated even though unused

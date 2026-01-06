@@ -261,11 +261,11 @@ struct ActorRef {
 
 template <class T>
 T &current_actor() {
-  return static_cast<T &>(core::ActorExecuteContext::get()->actor());
+  return static_cast<T &>(core::ActorExecuteContext::get().actor());
 }
 
 inline void send_message(core::ActorInfo &actor_info, core::ActorMessage message) {
-  auto scheduler_context_ptr = core::SchedulerContext::get();
+  auto scheduler_context_ptr = core::SchedulerContext::get_ptr();
   if (scheduler_context_ptr == nullptr) {
     //LOG(ERROR) << "send to actor is silently ignored";
     return;
@@ -282,7 +282,7 @@ inline void send_message(ActorRef actor_ref, core::ActorMessage message) {
 }
 
 inline void send_message_later(core::ActorInfo &actor_info, core::ActorMessage message) {
-  auto scheduler_context_ptr = core::SchedulerContext::get();
+  auto scheduler_context_ptr = core::SchedulerContext::get_ptr();
   if (scheduler_context_ptr == nullptr) {
     //LOG(ERROR) << "send to actor is silently ignored";
     return;
@@ -307,7 +307,7 @@ auto run_on_current_actor(ClosureT &&closure) {
 
 template <class ExecuteF, class ToMessageF>
 void send_immediate(ActorRef actor_ref, ExecuteF &&execute, ToMessageF &&to_message) {
-  auto scheduler_context_ptr = core::SchedulerContext::get();
+  auto scheduler_context_ptr = core::SchedulerContext::get_ptr();
   if (scheduler_context_ptr == nullptr) {
     //LOG(ERROR) << "send to actor is silently ignored";
     return;
@@ -433,7 +433,7 @@ void send_closure_later(ActorRef actor_ref, ArgsT &&...args) {
 }
 
 inline void send_signals(ActorRef actor_ref, ActorSignals signals) {
-  auto scheduler_context_ptr = core::SchedulerContext::get();
+  auto scheduler_context_ptr = core::SchedulerContext::get_ptr();
   if (scheduler_context_ptr == nullptr) {
     //LOG(ERROR) << "send to actor is silently ignored";
     return;
@@ -445,7 +445,7 @@ inline void send_signals(ActorRef actor_ref, ActorSignals signals) {
 }
 
 inline void send_signals_later(ActorRef actor_ref, ActorSignals signals) {
-  auto scheduler_context_ptr = core::SchedulerContext::get();
+  auto scheduler_context_ptr = core::SchedulerContext::get_ptr();
   if (scheduler_context_ptr == nullptr) {
     //LOG(ERROR) << "send to actor is silently ignored";
     return;
@@ -460,12 +460,12 @@ inline void send_signals_later(ActorRef actor_ref, ActorSignals signals) {
 inline void register_actor_info_ptr(core::ActorInfoPtr actor_info_ptr) {
   auto state = actor_info_ptr->state().get_flags_unsafe();
   actor_info_ptr->on_add_to_queue();
-  core::SchedulerContext::get()->add_to_queue(std::move(actor_info_ptr), state.get_scheduler_id(), !state.is_shared());
+  core::SchedulerContext::get().add_to_queue(std::move(actor_info_ptr), state.get_scheduler_id(), !state.is_shared());
 }
 
 template <class T, class... ArgsT>
 core::ActorInfoPtr create_actor(core::ActorOptions &options, ArgsT &&...args) noexcept {
-  auto *scheduler_context = core::SchedulerContext::get();
+  auto *scheduler_context = core::SchedulerContext::get_ptr();
   if (!options.has_scheduler()) {
     options.on_scheduler(scheduler_context->get_scheduler_id());
   }
