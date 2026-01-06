@@ -1168,8 +1168,8 @@ void ValidatorSessionImpl::start() {
   auto w = description().export_catchain_nodes();
 
   catchain_ = catchain::CatChain::create(make_catchain_callback(), description().opts().catchain_opts, keyring_, adnl_,
-                                         overlay_manager_, std::move(w), local_id(), unique_hash_, db_root_, db_suffix_,
-                                         allow_unsafe_self_blocks_resync_);
+                                         rldp_, overlay_manager_, std::move(w), local_id(), unique_hash_, db_root_,
+                                         db_suffix_, allow_unsafe_self_blocks_resync_);
 
   check_all();
 }

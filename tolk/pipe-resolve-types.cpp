@@ -290,7 +290,7 @@ class TypeNodesVisitorResolver {
 
     if (const TypeDataStruct* t_struct = type_to_instantiate->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->is_generic_struct()) {
       StructPtr struct_ref = t_struct->struct_ref;
-      int n_provided = static_cast<int>(type_arguments.size()); 
+      int n_provided = static_cast<int>(type_arguments.size());
       if (n_provided < struct_ref->genericTs->size_no_defaults() || n_provided > struct_ref->genericTs->size()) {
         err("struct `{}` expects {} type arguments, but {} provided", struct_ref, struct_ref->genericTs->size(), type_arguments.size()).fire(range, cur_f);
       }
@@ -302,7 +302,7 @@ class TypeNodesVisitorResolver {
     }
     if (const TypeDataAlias* t_alias = type_to_instantiate->try_as<TypeDataAlias>(); t_alias && t_alias->alias_ref->is_generic_alias()) {
       AliasDefPtr alias_ref = t_alias->alias_ref;
-      int n_provided = static_cast<int>(type_arguments.size()); 
+      int n_provided = static_cast<int>(type_arguments.size());
       if (n_provided < alias_ref->genericTs->size_no_defaults() || n_provided > alias_ref->genericTs->size()) {
         err("type `{}` expects {} type arguments, but {} provided", alias_ref, alias_ref->genericTs->size(), type_arguments.size()).fire(range, cur_f);
       }
@@ -576,7 +576,7 @@ public:
     for (int i = 0; i < cur_f->get_num_params(); ++i) {
       LocalVarPtr param_ref = &cur_f->parameters[i];
       // types for parameters in regular functions are mandatory: `fun f(a: int)`, so type_node always exists;
-      // but types for lambdas may be missed out; they are inferred at usage, and declared_type filled before instantiation 
+      // but types for lambdas may be missed out; they are inferred at usage, and declared_type filled before instantiation
       if (param_ref->type_node) {
         TypePtr declared_type = finalize_type_node(param_ref->type_node);
         param_ref->mutate()->assign_resolved_type(declared_type);

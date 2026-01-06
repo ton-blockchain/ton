@@ -25,7 +25,7 @@ enum EFits8Bits {
 }
 
 const MAX_UINT = 115792089237316195423570985008687907853269984665640564039457584007913129639935
-    
+
 enum EMinMax {
     MIN_INT = -115792089237316195423570985008687907853269984665640564039457584007913129639935 - 1,
     MAX_INT = +115792089237316195423570985008687907853269984665640564039457584007913129639935,
@@ -39,7 +39,7 @@ enum E0Max {
 struct WithEnumsUnion {
     u: EFits8Bits | EStartFromM2
 }
-    
+
 enum Role: int8 {
     Admin, User,
 }
@@ -93,7 +93,7 @@ fun test3() {
 fun test4(v: EFillsAllUint3) {
     return EFillsAllUint3.fromCell(v.toCell())
 }
-    
+
 @method_id(105)
 fun test5(s: slice) {
     return EStartFromM2.fromSlice(s, {assertEndAfterReading: false})
@@ -145,7 +145,7 @@ fun test10() {
         w3.u is EStartFromM2 && w3.u == EStartFromM2.ZERO,
         w4.u is EStartFromM2 && w4.u == EStartFromM2.P3,
         w4.u is EFits8Bits && w4.u == EFits8Bits.E220,
-    ) 
+    )
 }
 
 @method_id(111)
@@ -190,7 +190,7 @@ fun test14() {
 }
 
 fun main() {
-    
+
 }
 
 /**
@@ -219,7 +219,7 @@ fun main() {
 
 @fif_codegen
 """
-  test1() PROC:<{ 
+  test1() PROC:<{
     b{00} PUSHSLICE
     2 LDU
     OVER

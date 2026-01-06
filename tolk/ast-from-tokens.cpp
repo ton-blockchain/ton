@@ -846,7 +846,7 @@ static V<ast_match_expression> parse_match_expression(Lexer& lex) {
 static V<ast_lambda_fun> parse_lambda_fun_expression(Lexer& lex) {
   SrcRange range = lex.range_start();
   lex.expect(tok_fun, "`fun`");
-  
+
   V<ast_parameter_list> v_param_list = parse_parameter_list(lex, nullptr, true);
 
   AnyTypeV ret_type = nullptr;
@@ -857,7 +857,7 @@ static V<ast_lambda_fun> parse_lambda_fun_expression(Lexer& lex) {
 
   auto v_body = parse_block_statement(lex);
   range.end(v_body->range);
-  return createV<ast_lambda_fun>(range, v_param_list, v_body, ret_type); 
+  return createV<ast_lambda_fun>(range, v_param_list, v_body, ret_type);
 }
 
 static V<ast_lazy_operator> parse_lazy_operator(Lexer& lex) {
@@ -1084,7 +1084,7 @@ static AnyExprV parse_expr75(Lexer& lex) {
     AnyExprV rhs = parse_expr75(lex);
     range.end(rhs->range);
 
-    // convert `-1` to `int(-1)`, not to a tree `unary(-) > int(1)` right here 
+    // convert `-1` to `int(-1)`, not to a tree `unary(-) > int(1)` right here
     if (auto rhs_int = rhs->try_as<ast_int_const>(); rhs_int && (t == tok_minus || t == tok_plus)) {
       td::RefInt256 intval = rhs_int->intval;
       tolk_assert(!intval.is_null());
@@ -1710,7 +1710,7 @@ static AnyV parse_struct_field(Lexer& lex) {
     lex.next();
     is_readonly = true;
   }
-  
+
   auto v_ident = parse_identifier(lex, "field name");
   lex.expect(tok_colon, "`: <type>`");
   AnyTypeV declared_type = parse_type_from_tokens(lex);
@@ -1813,7 +1813,7 @@ static AnyV parse_enum_member(Lexer& lex) {
     range.end(init_value->range);
   }
 
-  return createV<ast_enum_member>(range, v_ident, init_value);  
+  return createV<ast_enum_member>(range, v_ident, init_value);
 }
 
 static V<ast_enum_body> parse_enum_body(Lexer& lex) {

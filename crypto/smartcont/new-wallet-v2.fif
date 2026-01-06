@@ -39,10 +39,10 @@ def? $2 { @' $2 } { "new-wallet" } cond constant file-base
    NEWC 32 STU 256 STU ENDC c4 POP
 }>c // >libref
 // code
-<b 0 32 u, 
+<b 0 32 u,
    file-base +".pk" load-generate-keypair
    constant wallet_pk
-   B, 
+   B,
 b> // data
 null // no libraries
 <b b{0011} s, 3 roll ref, rot ref, swap dict, b>  // create StateInit

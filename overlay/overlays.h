@@ -153,7 +153,7 @@ class Certificate {
   const PublicKey &issuer() const;
   const PublicKeyHash issuer_hash() const;
 
-  static td::Result<std::shared_ptr<Certificate>> create(tl_object_ptr<ton_api::overlay_Certificate> cert);
+  static td::Result<std::shared_ptr<Certificate>> create(const tl_object_ptr<ton_api::overlay_Certificate> &cert);
   static tl_object_ptr<ton_api::overlay_Certificate> empty_tl();
 
  private:
@@ -269,6 +269,9 @@ struct OverlayOptions {
   td::uint32 default_permanent_members_flags_ = 0;
   double broadcast_speed_multiplier_ = 1.0;
   bool private_ping_peers_ = false;
+
+  td::actor::ActorId<adnl::AdnlSenderInterface> twostep_broadcast_sender_ = {};
+  bool send_twostep_broadcast_ = false;
 };
 
 class Overlays : public td::actor::Actor {

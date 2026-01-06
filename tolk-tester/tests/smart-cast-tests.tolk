@@ -729,20 +729,20 @@ fun test64(d: dict, b: BalanceDict) {
     }
     __expect_type(d, "dict");
     __expect_type(d.myDepth(), "int3");
-    
+
     match (b) {
         null => { __expect_type(b.myDepth(), "int4") }
         cell => { __expect_type(b.myDepth(), "int1") }
     }
     __expect_type(b, "BalanceDict");
     __expect_type(b.myDepth(), "int3");
-    
+
     if (d == null) { return; }
     if (b != null) { return; }
 
     __expect_type(d.myDepth(), "int1");
     __expect_type(b.myDepth(), "int4");
-    
+
     if ([0].0) {
         (b, d) = (createEmptyCell(), null)
     }
@@ -779,7 +779,7 @@ fun test65(w: WithDict, t: (dict, BalanceDict)) {
 fun main(x: int?): int {
     // mark used to codegen them
     test55;
-    
+
     return x == null ? -1 : x;
 }
 

@@ -350,8 +350,8 @@ and then write {\tt 2.39 Gram*/} or {\tt 17/12 Gram*/} instead of integer litera
 
 If one needs to use such Gram literals often, one can introduce a new active prefix word {\tt GR\$} as follows:
 \begin{verbatim}
-{ bl word (number) ?dup 0= abort"not a valid Gram amount" 
-  1- { Gram swap */r } { Gram * } cond 
+{ bl word (number) ?dup 0= abort"not a valid Gram amount"
+  1- { Gram swap */r } { Gram * } cond
   1 'nop
 } ::_ GR$
 \end{verbatim}
@@ -533,11 +533,11 @@ variable-set y y!
 \end{verbatim}
 produces
 \begin{verbatim}
-x=2 y=5 x*y=10 
-x=2 y=6 x*y=12 
-x=3 y=6 x*y=18 
-x=3 y=7 x*y=21 
-x=7 y=3 x*y=21 
+x=2 y=5 x*y=10
+x=2 y=6 x*y=12
+x=3 y=6 x*y=18
+x=3 y=7 x*y=21
+x=7 y=3 x*y=21
 \end{verbatim}
 
 \mysubsection{Tuples and arrays}\label{p:tuples}
@@ -596,9 +596,9 @@ Matrix third .dump cr
 \end{verbatim}
 produces
 \begin{verbatim}
-[ [ 1 2 3 ] [ 4 5 6 ] [ 7 8 9 ] ] 
-6 
-[ 7 8 9 ] 
+[ [ 1 2 3 ] [ 4 5 6 ] [ 7 8 9 ] ]
+6
+[ 7 8 9 ]
 \end{verbatim}
 
 Notice that {\em Tuple\/}s are somewhat similar to arrays of other programming languages, but are immutable: we cannot change one individual component of a {\em Tuple}. If we still want to create something like an array, we need a {\em Tuple\/} of {\em Box\/}es (cf.~\ptref{p:variables}):
@@ -612,7 +612,7 @@ For instance,
 { over @ over @ swap rot ! swap ! } : swap-values-of
 { B swap [] } : B[]
 { B[] swap B[] swap-values-of } : swap-B
-{ B[] @ . } : .B[] 
+{ B[] @ . } : .B[]
 0 1 swap-B  1 3 swap-B  0 2 swap-B
 0 .B[] 1 .B[] 2 .B[] 3 .B[]
 \end{verbatim}
@@ -640,14 +640,14 @@ After that, {\tt cons} and {\tt uncons} are defined as aliases for {\tt pair} an
 For instance,
 \begin{verbatim}
 2 3 9  3 tuple .dump cr
-2 3 9  3 list dup .dump space dup .l cr 
+2 3 9  3 list dup .dump space dup .l cr
 "test" swap cons .l cr
 \end{verbatim}
 produces
 \begin{verbatim}
-[ 2 3 9 ] 
-[ 2 [ 3 [ 9 (null) ] ] ]  (2 3 9) 
-("test" 2 3 9) 
+[ 2 3 9 ]
+[ 2 [ 3 [ 9 (null) ] ] ]  (2 3 9)
+("test" 2 3 9)
 \end{verbatim}
 Notice that the three-element list $(2\ 3\ 9)$ is distinct from the triple $(2,3,9)$.
 
@@ -656,7 +656,7 @@ An {\em Atom\/} is a simple entity uniquely identified by its name. {\em Atom\/}
 \begin{itemize}
 \item {\tt (atom)} ($S$ $x$ -- $a$ $-1$ or $0$), returns the only {\em Atom\/} $a$ with the name given by {\em String\/}~$S$. If there is no such {\em Atom\/} yet, either creates it (if {\em Integer\/}~$x$ is non-zero) or returns a single zero to indicate failure (if $x$ is zero).
 \item {\tt atom} ($S$ -- $a$), returns the only {\em Atom\/}~$a$ with the name~$S$, creating such an atom if necessary. Equivalent to {\tt true (atom) drop}.
-\item {\tt `$\langle\textit{word\/}\rangle$} ( -- $a$), introduces an {\em Atom\/} literal, equal to the only {\em Atom\/} with the name equal to $\langle\textit{word\/}\rangle$. Equivalent to {\tt "$\langle\textit{word\/}\rangle$" atom}. 
+\item {\tt `$\langle\textit{word\/}\rangle$} ( -- $a$), introduces an {\em Atom\/} literal, equal to the only {\em Atom\/} with the name equal to $\langle\textit{word\/}\rangle$. Equivalent to {\tt "$\langle\textit{word\/}\rangle$" atom}.
 \item {\tt anon} ( -- $a$), creates a new unique anonymous {\em Atom}.
 \item {\tt atom?} ($u$ -- $?$), checks whether $u$ is an {\em Atom}.
 \item {\tt eq?} ($u$ $v$ -- $?$), checks whether $u$ and $v$ are equal {\em Integer\/}s, {\em Atom\/}s, or {\em Null\/}s. If they are not equal, or if they are of different types, or not of one of the types listed, returns zero.
@@ -676,21 +676,21 @@ variable 'eval
 { 'eval @ execute } : eval
 { dup tuple? {
     uncons uncons uncons
-    null? not abort"three-element list expected"  
+    null? not abort"three-element list expected"
     swap eval swap eval rot
     dup `+ eq? { drop + } {
       dup `- eq? { drop - } {
-        `* eq? not abort"unknown operation" *   
+        `* eq? not abort"unknown operation" *
       } cond
     } cond
-  } if 
+  } if
 } 'eval !
 `+ 2 `* 3 4 3 list 3 list dup .l cr eval . cr
 \end{verbatim}
 prints
 \begin{verbatim}
-(+ 2 (* 3 4)) 
-14 
+(+ 2 (* 3 4))
+14
 \end{verbatim}
 If we load {\tt Lisp.fif} to enable Lisp-style list syntax, we can enter
 \begin{verbatim}
@@ -700,7 +700,7 @@ If we load {\tt Lisp.fif} to enable Lisp-style list syntax, we can enter
 with the same result as before. The word {\tt (}, defined in {\tt Lisp.fif}, uses an anonymous {\em Atom\/} created by {\tt anon} to mark the current stack position, and then {\tt )} builds a list from several top stack entries, scanning the stack until the anonymous {\em Atom\/} marker is found:
 \begin{verbatim}
 variable ')
-{ ") without (" abort } ') ! 
+{ ") without (" abort } ') !
 { ') @ execute } : )
 { null { -rot 2dup eq? not } { swap rot cons } while 2drop
 } : list-until-marker
@@ -948,10 +948,10 @@ dup .l cr sort .l cr
 \end{verbatim}
 producing the following output:
 \begin{verbatim}
-(3 1 4 1 5 9 2 6 5) 
-(1 1 2 3 4 5 5 6 9) 
-("once" "upon" "a" "time" "there" "lived" "a" "kitten") 
-("a" "a" "kitten" "lived" "once" "there" "time" "upon") 
+(3 1 4 1 5 9 2 6 5)
+(1 1 2 3 4 5 5 6 9)
+("once" "upon" "a" "time" "there" "lived" "a" "kitten")
+("a" "a" "kitten" "lived" "once" "there" "time" "upon")
 \end{verbatim}
 
 \mysubsection{Throwing exceptions}\label{p:exception.ops}
@@ -1618,7 +1618,7 @@ Fift assembler words that can be used to produce such ``high-level'' conditional
 If we choose to keep a conditional branch in a separate cell, we can use the {\tt <\{ \dots\ \}>c} construct along with instructions such as {\tt IFJMPREF}:
 \begin{verbatim}
 <{ DUP 1 INT AND
-   <{ 3 MULCONST INC }>c IFJMPREF 
+   <{ 3 MULCONST INC }>c IFJMPREF
    1 RSHIFT#
 }>s dup csr.
 3 swap runvmcode .s
@@ -1634,7 +1634,7 @@ execute IFJMPREF (2946....A1DD)
 execute MULINT 3
 execute INC
 execute implicit RET
-10 0 
+10 0
 \end{verbatim}
 
 \mysubsection{Macro definitions}
@@ -1770,7 +1770,7 @@ One should bear in mind that very simple programs (including the simplest smart 
 dup csr.
 runvmdict .s
 \end{verbatim}
-which produces   
+which produces
 \begin{verbatim}
 x{F24B9D5331A85331A8A15044A859A8A075715C24D85C24D8588100EF7F58D9}
 implicit PUSH 0 at start
@@ -1792,7 +1792,7 @@ execute ADD
 execute implicit RET
 114244 114244 0
 \end{verbatim}
-  
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
 %
@@ -1992,7 +1992,7 @@ For example, the active prefix word {\tt B\{}, used for defining {\em Bytes\/} l
 \item {\tt []} ($t$ $i$ -- $x$), returns the $(i+1)$-st component $t_{i+1}$ of {\em Tuple\/}~$t$, where $0\leq i<|t|$, cf.~\ptref{p:tuples}.
 \item {\tt \underline{[compile]} $\langle\textit{word-name}\rangle$} ( -- ), compiles $\langle\textit{word-name}\rangle$ as if it were an ordinary word, even if it is active, cf.~\ptref{p:dict.lookup}. Essentially equivalent to {\tt ' $\langle\textit{word-name}\rangle$ execute}.
 \item {\tt \underline{]}} ($x_1$ \dots $x_n$ $n$ -- ), closes an internal interpreter session opened by {\tt [} and invokes {\tt (compile)} or {\tt (execute)} afterwards depending on whether {\tt state} is greater than zero. For instance, {\tt \{ [ 2 3 + 1 ] * \}} is equivalent to {\tt \{ 5 * \}}.
-\item {\tt \underline{`}$\langle\textit{word\/}\rangle$} ( -- $a$), introduces an {\em Atom\/} literal, equal to the only {\em Atom\/} with the name equal to $\langle\textit{word\/}\rangle$, cf.~\ptref{p:atoms}. Equivalent to {\tt "$\langle\textit{word\/}\rangle$" atom}. 
+\item {\tt \underline{`}$\langle\textit{word\/}\rangle$} ( -- $a$), introduces an {\em Atom\/} literal, equal to the only {\em Atom\/} with the name equal to $\langle\textit{word\/}\rangle$, cf.~\ptref{p:atoms}. Equivalent to {\tt "$\langle\textit{word\/}\rangle$" atom}.
 \item {\tt abort} ($S$ -- ), throws an exception with an error message taken from {\em String\/}~$S$, cf.~\ptref{p:exception.ops}.
 \item {\tt \underline{abort"}$\langle\textit{message}\rangle$"} ($x$ -- ), throws an exception with the error message $\langle\textit{message}\rangle$ if the {\em Integer\/}~$x$ is non-zero, cf.~\ptref{p:exception.ops}.
 \item {\tt abs} ($x$ -- $|x|$), computes the absolute value $|x|=\max(x,-x)$ of {\em Integer\/}~$x$. Equivalent to {\tt dup negate max}.
@@ -2076,7 +2076,7 @@ Typical values of $x$ are $x=0$ or $x=2$ for very small bags of cells (e.g., TON
 \item {\tt gasrunvmctx} (\dots $s$ $c$ $t$ $z$ -- \dots $x$ $c'$ $z'$), a gas-aware version of {\tt runvmctx}, cf.~\ptref{p:tvm.ops}. Differs from {\tt gasrunmv} in that it initializes {\tt c7} with {\em Tuple\/}~$t$.
 \item {\tt gasrunvmdict} (\dots $s$ $z$ -- \dots $x$ $z'$), a gas-aware version of {\tt runvmdict}, cf.~\ptref{p:tvm.ops}: invokes a new instance of TVM with the current continuation {\tt cc} initialized from {\em Slice\/} $s$ and sets the gas limit to $z$ similarly to {\tt gasrunvmcode}, but also initializes the special register {\tt c3} with the same value, and pushes a zero into the initial TVM stack before the TVM execution begins. The actually consumed gas is returned as an {\em Integer\/} $z'$. In a typical application {\em Slice\/}~$s$ consists of a subroutine selection code that uses the top-of-stack {\em Integer\/} to select the subroutine to be executed, thus enabling the definition and execution of several mutually-recursive subroutines (cf.~\cite[4.6]{TVM} and~\ptref{p:asm.prog}). The selector equal to zero corresponds to the {\tt main()} subroutine in a large TVM program.
 \item {\tt halt} ($x$ -- ), quits to the operating system similarly to {\tt bye}, but uses {\em Integer\/} $x$ as the exit code, cf.~\ptref{p:exit.fift}.
-\item {\tt hash} ($c$ -- $x$), a deprecated version of {\tt hashu}. Use {\tt hashu} or {\tt hashB} instead. 
+\item {\tt hash} ($c$ -- $x$), a deprecated version of {\tt hashu}. Use {\tt hashu} or {\tt hashB} instead.
 \item {\tt hashB} ($c$ -- $B$), computes the $\Sha$-based representation hash of {\em Cell\/}~$c$ (cf.~\cite[3.1]{TVM}), which unambiguously defines $c$ and all its descendants (provided there are no collisions for $\Sha$), cf.~\ptref{p:hash.ops}. The result is returned as a {\em Bytes\/} value consisting of exactly 32 bytes.
 \item {\tt hashu} ($c$ -- $x$), computes the $\Sha$-based representation hash of {\em Cell\/}~$c$ similarly to {\tt hashB}, but returns the result as a big-endian unsigned 256-bit {\em Integer}.
 \item {\tt hold} ($S$ $x$ -- $S'$), appends to {\em String\/}~$S$ one UTF-8 encoded character with Unicode codepoint~$x$. Equivalent to {\tt chr \$+}.

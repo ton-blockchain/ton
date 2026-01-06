@@ -578,7 +578,7 @@ TypePtr TypeDataMapKV::replace_children_custom(const ReplacerCallbackT& callback
 bool TypeDataAlias::can_rhs_be_assigned(TypePtr rhs) const {
   if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
     // having `type UserId = int` and `type OwnerId = int`, make them NOT assignable without `as`
-    // (although they both have the same type_id) 
+    // (although they both have the same type_id)
     if (underlying_type->equal_to(rhs_alias->underlying_type)) {
       return !are_two_equal_type_aliases_different(this, rhs_alias);
     }

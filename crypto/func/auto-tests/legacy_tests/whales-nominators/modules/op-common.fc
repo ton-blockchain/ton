@@ -3,7 +3,7 @@
     ;; Read extras
     var (enabled, udpates_enabled, min_stake, deposit_fee, withdraw_fee, pool_fee, receipt_price) = ctx_extras;
     throw_unless(error::invalid_message(), enabled);
-    
+
     ;; Read stake value
     int fee = receipt_price + deposit_fee;
     int stake = value - fee;
@@ -67,7 +67,7 @@
     if (member != owner_id()) {
         address = serialize_work_addr(member);
     }
-    
+
     ;; Send receipt
     if (ctx_query_id == 0) {
         send_text_message(
@@ -76,7 +76,7 @@
             send_mode::default(),
             all ? begin_cell().store_withdraw_completed() : begin_cell().store_withdraw_delayed()
         );
-    } else {    
+    } else {
         send_empty_std_message(
             address,
             withdrawed + receipt_price,
@@ -92,10 +92,10 @@
 }
 
 () op_donate(int value) impure {
-    
+
     ;; Check value
     throw_unless(error::invalid_message(), value >= 2 * coins::1());
-    
+
     ;; Distribute profit to everyone
     distribute_profit(value - coins::1());
 
@@ -108,7 +108,7 @@
     ;; Read extras
     var (enabled, udpates_enabled, min_stake, deposit_fee, withdraw_fee, pool_fee, receipt_price) = ctx_extras;
     throw_unless(error::invalid_message(), udpates_enabled);
-    
+
     ;; Check value
     throw_unless(error::too_low_value(), value >= fees::deploy());
 

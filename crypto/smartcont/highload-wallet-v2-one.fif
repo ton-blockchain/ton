@@ -56,7 +56,7 @@ def? body-boc-file { @' body-boc-file file>B B>boc } { comment simple-transfer-b
 constant body-cell
 
 ."Transferring " amount .GR+cc ."to account "
-dest_addr 2dup bounce 7 + .Addr ." = " .addr 
+dest_addr 2dup bounce 7 + .Addr ." = " .addr
 ."subwallet-id=0x" subwallet-id x.
 ."timeout=" timeout . ."bounce=" bounce . cr
 ."Body of transfer message is " body-cell <s csr. cr
@@ -77,11 +77,11 @@ variable order#   order# 0!
   0 9 64 32 + + 1+ u, swap append-msg-body b>
 } : create-int-msg
 // ng wc addr bnc --
-{ ."Transferring " 3 roll .GR ."to account " 
+{ ."Transferring " 3 roll .GR ."to account "
   -rot 2dup 4 pick 7 + .Addr ." = " .addr ." bounce=" . cr
 } : .transfer
 // addr$ ng -- c
-{ swap parse-smc-addr force-bounce or allow-bounce and  // ng wc addr bnc 
+{ swap parse-smc-addr force-bounce or allow-bounce and  // ng wc addr bnc
   2over 2over .transfer
   <b 0 32 u, b> create-int-msg
 } : create-simple-transfer

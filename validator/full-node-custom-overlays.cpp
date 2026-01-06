@@ -292,6 +292,9 @@ void FullNodeCustomOverlay::try_init() {
 }
 
 void FullNodeCustomOverlay::init() {
+  td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_id_);
+  td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_id_);
+
   LOG(FULL_NODE_WARNING) << "Creating custom overlay \"" << name_ << "\" for adnl id " << local_id_ << " : "
                          << nodes_.size() << " nodes, " << msg_senders_.size() << " msg senders, "
                          << block_senders_.size() << " block senders, overlay_id=" << overlay_id_;
@@ -325,14 +328,15 @@ void FullNodeCustomOverlay::init() {
   overlay::OverlayPrivacyRules rules{overlay::Overlays::max_fec_broadcast_size(), 0, std::move(authorized_keys)};
   overlay::OverlayOptions overlay_options;
   overlay_options.broadcast_speed_multiplier_ = opts_.private_broadcast_speed_multiplier_;
+  overlay_options.send_twostep_broadcast_ = true;
+  overlay_options.twostep_broadcast_sender_ = rldp2_;
   td::actor::send_closure(
       overlays_, &overlay::Overlays::create_private_overlay_ex, local_id_, overlay_id_full_.clone(), nodes_,
       std::make_unique<Callback>(actor_id(this)), rules,
       PSTRING() << R"({ "type": "custom-overlay", "name": ")" << td::format::Escaped{name_} << R"(" })",
       overlay_options);
+  rldp_limit_guard_ = rldp2::PeersMtuLimitGuard(rldp2_, local_id_, nodes_, FullNode::max_block_size() + 1024);
 
-  td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_id_);
-  td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_id_);
   inited_ = true;
 }
 

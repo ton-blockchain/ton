@@ -4,9 +4,9 @@
  * This file has no copyright assigned and is placed in the Public Domain.
  * This file is a part of the w64 mingw-runtime package.
  *
- * The w64 mingw-runtime package and its code is distributed in the hope that it 
- * will be useful but WITHOUT ANY WARRANTY.  ALL WARRANTIES, EXPRESSED OR 
- * IMPLIED ARE HEREBY DISCLAIMED.  This includes but is not limited to 
+ * The w64 mingw-runtime package and its code is distributed in the hope that it
+ * will be useful but WITHOUT ANY WARRANTY.  ALL WARRANTIES, EXPRESSED OR
+ * IMPLIED ARE HEREBY DISCLAIMED.  This includes but is not limited to
  * warranties of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  */
 

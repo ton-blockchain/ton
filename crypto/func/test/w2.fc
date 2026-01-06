@@ -1,5 +1,5 @@
 _ f(cs) {
-  return (cs~load_uint(8), cs~load_uint(8), cs~load_uint(8), cs~load_uint(8), 
+  return (cs~load_uint(8), cs~load_uint(8), cs~load_uint(8), cs~load_uint(8),
           cs~load_uint(8), cs~load_uint(8), cs~load_uint(8), cs~load_uint(8),
           cs~load_uint(8), cs~load_uint(8), cs~load_uint(8), cs~load_uint(8),
           cs~load_uint(8), cs~load_uint(8), cs~load_uint(8), cs~load_uint(8),

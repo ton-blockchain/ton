@@ -18,7 +18,6 @@
 
 #include "auto/tl/lite_api.hpp"
 #include "block/block-auto.h"
-#include "overlay/overlay-broadcast.hpp"
 #include "td/utils/overloaded.h"
 #include "tl-utils/common-utils.hpp"
 #include "tl-utils/lite-utils.hpp"

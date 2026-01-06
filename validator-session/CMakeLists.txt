@@ -17,9 +17,9 @@ set(VALIDATOR_SESSION_SOURCE
 
 add_library(validatorsession STATIC ${VALIDATOR_SESSION_SOURCE})
 
-target_include_directories(validatorsession PUBLIC 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
+target_include_directories(validatorsession PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
   ${OPENSSL_INCLUDE_DIR}
 )
 target_link_libraries(validatorsession PRIVATE tdutils tdactor adnl rldp2 tl_api dht tdfec overlay catchain)

@@ -554,7 +554,7 @@ FunctionPtr instantiate_lambda_function(AnyV v_lambda, FunctionPtr parent_fun_re
   lambda_ref->mutate()->assign_resolved_type(return_type);
 
   run_pipeline_for_cloned_function(lambda_ref);
-  return lambda_ref;  
+  return lambda_ref;
 }
 
 // a function `tuple.push<T>(self, v: T) asm "TPUSH"` can't be called with T=Point (2 stack slots);
@@ -567,7 +567,7 @@ bool is_allowed_asm_generic_function_with_non1_width_T(FunctionPtr fun_ref, int 
 
   // allow "Cell<T>.hash", "map<K, V>.isEmpty" and other methods that don't depend on internal structure
   if (fun_ref->is_method() && idxT < fun_ref->genericTs->n_from_receiver) {
-    TypePtr receiver = fun_ref->receiver_type->unwrap_alias(); 
+    TypePtr receiver = fun_ref->receiver_type->unwrap_alias();
     if (const auto* r_withTs = receiver->try_as<TypeDataGenericTypeWithTs>()) {
       return r_withTs->struct_ref && r_withTs->struct_ref->name == "Cell";
     }

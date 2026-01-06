@@ -59,7 +59,7 @@ EMULATOR_EXPORT bool transaction_emulator_set_ignore_chksig(void *transaction_em
 /**
  * @brief Set config for emulation
  * @param transaction_emulator Pointer to TransactionEmulator object
- * @param config_boc Base64 encoded BoC serialized Config dictionary (Hashmap 32 ^Cell) 
+ * @param config_boc Base64 encoded BoC serialized Config dictionary (Hashmap 32 ^Cell)
  * @return true in case of success, false in case of error
  */
 EMULATOR_EXPORT bool transaction_emulator_set_config(void *transaction_emulator, const char *config_boc);
@@ -102,18 +102,18 @@ EMULATOR_EXPORT bool transaction_emulator_set_prev_blocks_info(void *transaction
  * @param shard_account_boc Base64 encoded BoC serialized ShardAccount
  * @param message_boc Base64 encoded BoC serialized inbound Message (internal or external)
  * @return Json object with error:
- * { 
- *   "success": false, 
+ * {
+ *   "success": false,
  *   "error": "Error description",
  *   "external_not_accepted": false,
  *   // and optional fields "vm_exit_code", "vm_log", "elapsed_time" in case external message was not accepted.
- * } 
+ * }
  * Or success:
- * { 
- *   "success": true, 
- *   "transaction": "Base64 encoded Transaction boc", 
- *   "shard_account": "Base64 encoded new ShardAccount boc", 
- *   "vm_log": "execute DUP...", 
+ * {
+ *   "success": true,
+ *   "transaction": "Base64 encoded Transaction boc",
+ *   "shard_account": "Base64 encoded new ShardAccount boc",
+ *   "vm_log": "execute DUP...",
  *   "actions": "Base64 encoded compute phase actions boc (OutList n)",
  *   "elapsed_time": 0.02
  * }
@@ -128,17 +128,17 @@ EMULATOR_EXPORT const char *transaction_emulator_emulate_transaction(void *trans
  * @param shard_account_boc Base64 encoded BoC serialized ShardAccount of special account
  * @param is_tock True for tock transactions, false for tick
  * @return Json object with error:
- * { 
- *   "success": false, 
+ * {
+ *   "success": false,
  *   "error": "Error description",
  *   "external_not_accepted": false
- * } 
+ * }
  * Or success:
- * { 
- *   "success": true, 
- *   "transaction": "Base64 encoded Transaction boc", 
- *   "shard_account": "Base64 encoded new ShardAccount boc", 
- *   "vm_log": "execute DUP...", 
+ * {
+ *   "success": true,
+ *   "transaction": "Base64 encoded Transaction boc",
+ *   "shard_account": "Base64 encoded new ShardAccount boc",
+ *   "vm_log": "execute DUP...",
  *   "actions": "Base64 encoded compute phase actions boc (OutList n)",
  *   "elapsed_time": 0.02
  * }
@@ -183,7 +183,7 @@ EMULATOR_EXPORT bool tvm_emulator_set_libraries(void *tvm_emulator, const char *
  * @param balance Smart contract balance
  * @param rand_seed_hex Random seed as hex string of length 64
  * @param config Base64 encoded BoC serialized Config dictionary (Hashmap 32 ^Cell). Optional.
- * @return true in case of success, false in case of error 
+ * @return true in case of success, false in case of error
  */
 EMULATOR_EXPORT bool tvm_emulator_set_c7(void *tvm_emulator, const char *address, uint32_t unixtime, uint64_t balance,
                                          const char *rand_seed_hex, const char *config);
@@ -192,7 +192,7 @@ EMULATOR_EXPORT bool tvm_emulator_set_c7(void *tvm_emulator, const char *address
  * @brief Set extra currencies balance
  * @param tvm_emulator Pointer to TVM emulator
  * @param extra_currencies String with extra currencies balance in format "currency_id1=balance1 currency_id2=balance2 ..."
- * @return true in case of success, false in case of error 
+ * @return true in case of success, false in case of error
  */
 EMULATOR_EXPORT bool tvm_emulator_set_extra_currencies(void *tvm_emulator, const char *extra_currencies);
 
@@ -234,17 +234,17 @@ EMULATOR_EXPORT bool tvm_emulator_set_debug_enabled(void *tvm_emulator, bool deb
  * @param method_id Integer method id
  * @param stack_boc Base64 encoded BoC serialized stack (VmStack)
  * @return Json object with error:
- * { 
- *   "success": false, 
+ * {
+ *   "success": false,
  *   "error": "Error description"
- * } 
+ * }
  * Or success:
  * {
  *   "success": true
- *   "vm_log": "...", 
- *   "vm_exit_code": 0, 
- *   "stack": "Base64 encoded BoC serialized stack (VmStack)", 
- *   "missing_library": null, 
+ *   "vm_log": "...",
+ *   "vm_exit_code": 0,
+ *   "stack": "Base64 encoded BoC serialized stack (VmStack)",
+ *   "missing_library": null,
  *   "gas_used": 1212
  * }
  */
@@ -275,7 +275,7 @@ EMULATOR_EXPORT void *tvm_emulator_emulate_run_method_detailed(uint32_t len, con
 /**
  * @brief Destroy detailed result of "tvm_emulator_emulate_run_method_detailed"
  * @param detailed_result Pointer to detailed result struct returned by "tvm_emulator_emulate_run_method_detailed"
- * 
+ *
  * Caller should not use string_destroy() for fields of this struct,
  * as they are already freed in this function.
  */
@@ -286,19 +286,19 @@ EMULATOR_EXPORT void run_method_detailed_result_destroy(void *detailed_result);
  * @param tvm_emulator Pointer to TVM emulator
  * @param message_body_boc Base64 encoded BoC serialized message body cell.
  * @return Json object with error:
- * { 
- *   "success": false, 
+ * {
+ *   "success": false,
  *   "error": "Error description"
- * } 
+ * }
  * Or success:
  * {
  *   "success": true,
  *   "new_code": "Base64 boc decoded new code cell",
  *   "new_data": "Base64 boc decoded new data cell",
  *   "accepted": true,
- *   "vm_exit_code": 0, 
- *   "vm_log": "...", 
- *   "missing_library": null, 
+ *   "vm_exit_code": 0,
+ *   "vm_log": "...",
+ *   "missing_library": null,
  *   "gas_used": 1212,
  *   "actions": "Base64 boc decoded actions cell of type (OutList n)"
  * }
@@ -311,19 +311,19 @@ EMULATOR_EXPORT const char *tvm_emulator_send_external_message(void *tvm_emulato
  * @param message_body_boc Base64 encoded BoC serialized message body cell.
  * @param amount Amount of nanograms attached with internal message.
  * @return Json object with error:
- * { 
- *   "success": false, 
+ * {
+ *   "success": false,
  *   "error": "Error description"
- * } 
+ * }
  * Or success:
  * {
  *   "success": true,
  *   "new_code": "Base64 boc decoded new code cell",
  *   "new_data": "Base64 boc decoded new data cell",
  *   "accepted": true,
- *   "vm_exit_code": 0, 
- *   "vm_log": "...", 
- *   "missing_library": null, 
+ *   "vm_exit_code": 0,
+ *   "vm_log": "...",
+ *   "missing_library": null,
  *   "gas_used": 1212,
  *   "actions": "Base64 boc decoded actions cell of type (OutList n)"
  * }
@@ -346,7 +346,7 @@ EMULATOR_EXPORT void emulator_config_destroy(void *config);
 /**
  * @brief Destroy string created by emulator library
  * @param string Pointer to string to destroy
- * 
+ *
  * This function should be used to free strings returned by emulator library functions.
  * It is not safe to use caller's free() on them, as they may have been allocated using a different allocator.
  */
