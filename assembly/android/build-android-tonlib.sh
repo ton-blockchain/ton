@@ -8,8 +8,8 @@ while getopts 'a' flag; do
   esac
 done
 
-export CC=$(which clang-16)
-export CXX=$(which clang++-16)
+export CC=$(which clang-21)
+export CXX=$(which clang++-21)
 export CCACHE_DISABLE=1
 
 if [ ! -d android-ndk-r27d ]; then

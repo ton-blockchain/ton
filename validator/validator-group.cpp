@@ -16,6 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <bits/cxxabi_tweaks.h>
+
 #include "collator-node/collator-node.hpp"
 #include "common/delay.h"
 #include "td/utils/Random.h"
@@ -99,7 +101,7 @@ void ValidatorGroup::generate_block_candidate_cont(validatorsession::BlockSource
   td::actor::send_closure(collation_manager_, &CollationManager::collate_block, shard_, min_masterchain_block_id_,
                           prev_block_ids_, Ed25519_PublicKey{local_id_full_.ed25519_value().raw()},
                           source_info.priority, validator_set_, max_answer_size, std::move(cancellation_token),
-                          std::move(promise), config_.proto_version);
+                          std::move(promise));
 }
 
 void ValidatorGroup::generated_block_candidate(validatorsession::BlockSourceInfo source_info,
@@ -394,7 +396,7 @@ void ValidatorGroup::generate_block_optimistic(validatorsession::BlockSourceInfo
                           min_masterchain_block_id_, block_id, std::move(prev_block),
                           Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, source_info.priority, validator_set_,
                           max_answer_size, optimistic_generation_->cancellation_token_source.get_cancellation_token(),
-                          std::move(P), config_.proto_version);
+                          std::move(P));
 }
 
 void ValidatorGroup::generated_block_optimistic(validatorsession::BlockSourceInfo source_info,
@@ -543,6 +545,7 @@ void ValidatorGroup::create_session() {
   CHECK(!init_);
   init_ = true;
   std::vector<validatorsession::ValidatorSessionNode> vec;
+  std::vector<adnl::AdnlNodeIdShort> adnl_ids;
   auto v = validator_set_->export_vector();
   bool found = false;
   for (auto &el : v) {
@@ -560,12 +563,15 @@ void ValidatorGroup::create_session() {
       local_id_full_ = n.pub_key;
       local_adnl_id_ = n.adnl_id;
     }
+    adnl_ids.push_back(n.adnl_id);
     vec.emplace_back(std::move(n));
   }
   CHECK(found);
 
   td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_adnl_id_);
   td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_adnl_id_);
+  rldp_limit_guard_ = rldp2::PeersMtuLimitGuard(rldp2_, local_adnl_id_, adnl_ids,
+                                                config_.max_block_size + config_.max_collated_data_size + 1024);
 
   config_.catchain_opts.broadcast_speed_multiplier = opts_->get_catchain_broadcast_speed_multiplier();
   if (!config_.new_catchain_ids) {

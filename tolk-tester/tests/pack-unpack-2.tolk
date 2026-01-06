@@ -792,7 +792,7 @@ fun test_serializeMaps() {
     }
     return (w.m1.isEmpty(), w.m2.isEmpty(), d3.isFound, d3.loadValue(), kl);
 }
-    
+
 @method_id(231)
 fun test_nullableMaps() {
     var o: WithNullableMaps = {
@@ -908,7 +908,7 @@ fun test_WithAnyAddress() {
         a6: createAddressNone().toCell(),
         a7: null,
     }, stringHexToSlice("2084_").appendRef(stringHexToSlice("2_")));
-    
+
     return true;
 }
 

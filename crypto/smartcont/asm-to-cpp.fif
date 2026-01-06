@@ -18,8 +18,8 @@ $3 =: name
 source include
 
 boc>B
-."Convert boc to base64" cr 
-B>base64 
+."Convert boc to base64" cr
+B>base64
 
 { char " chr tuck $+ $+ } : wrp
 wrp  // "<code>"

@@ -9,8 +9,8 @@ enum ExoticCellType: int8 {
     MerkleUpdate = 4
 }
 
-/// Transforms an ordinary or exotic cell into a slice, as if it were an ordinary cell. 
-/// A flag is returned indicating whether c is exotic. 
+/// Transforms an ordinary or exotic cell into a slice, as if it were an ordinary cell.
+/// A flag is returned indicating whether c is exotic.
 /// If so, ExoticCellType can later be deserialized from the first eight bits of s.
 /// ```
 /// var (s, isExotic) = c.beginParseSpecial();

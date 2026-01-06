@@ -242,8 +242,7 @@ void ValidatorSessionImpl::process_broadcast(PublicKeyHash src, td::BufferSlice 
   td::Timer deserialize_timer;
   auto R =
       deserialize_candidate(data, compress_block_candidates_,
-                            description().opts().max_block_size + description().opts().max_collated_data_size + 1024,
-                            description().opts().proto_version);
+                            description().opts().max_block_size + description().opts().max_collated_data_size + 1024);
   double deserialize_time = deserialize_timer.elapsed();
   if (R.is_error()) {
     VLOG(VALIDATOR_SESSION_WARNING) << this << "[node " << src << "][broadcast " << sha256_bits256(data.as_slice())
@@ -1169,8 +1168,8 @@ void ValidatorSessionImpl::start() {
   auto w = description().export_catchain_nodes();
 
   catchain_ = catchain::CatChain::create(make_catchain_callback(), description().opts().catchain_opts, keyring_, adnl_,
-                                         overlay_manager_, std::move(w), local_id(), unique_hash_, db_root_, db_suffix_,
-                                         allow_unsafe_self_blocks_resync_);
+                                         rldp_, overlay_manager_, std::move(w), local_id(), unique_hash_, db_root_,
+                                         db_suffix_, allow_unsafe_self_blocks_resync_);
 
   check_all();
 }

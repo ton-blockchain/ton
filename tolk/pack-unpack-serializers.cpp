@@ -68,7 +68,7 @@ void get_custom_pack_unpack_function(TypePtr receiver_type, FunctionPtr& f_pack,
       f_pack = sym->try_as<FunctionPtr>();
     }
     if (const Symbol* sym = lookup_global_symbol(receiver_name + ".unpackFromSlice")) {
-      f_unpack = sym->try_as<FunctionPtr>();                                           
+      f_unpack = sym->try_as<FunctionPtr>();
     }
   }
 }
@@ -1130,7 +1130,7 @@ struct S_IntegerEnum final : ISerializer {
       // then validation is: "throw if v<A or v>B", but "LESSINT + THROWIF" 2 times is more generalized
       td::RefInt256 min_value = enum_ref->members.front()->computed_value;
       bool dont_check_min = intN != nullptr && intN->is_unsigned && min_value == 0;
-      if (!dont_check_min) {    // LDU can't load < 0 
+      if (!dont_check_min) {    // LDU can't load < 0
         std::vector ir_min_value = code.create_tmp_var(TypeDataInt::create(), origin, "(enum-min)");
         code.emplace_back(origin, Op::_IntConst, ir_min_value, min_value);
         std::vector ir_lt_min = code.create_tmp_var(TypeDataInt::create(), origin, "(enum-lt-min)");
@@ -1273,7 +1273,7 @@ std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std:
   // examples: `int32 | int64 | int128` / `int32 | A | null` / `A | B` / `A | B | C`;
   // if `null` exists, it's 0, all others are 1+tree: A|B|C|D|null => 0 | 100+A | 101+B | 110+C | 111+D;
   // if no `null`, just distribute sequentially: A|B|C => 00+A | 01+B | 10+C
-  int n_without_null = t_union->size() - has_null; 
+  int n_without_null = t_union->size() - has_null;
   int prefix_len = static_cast<int>(std::ceil(std::log2(n_without_null)));
   int cur_prefix = 0;
   for (TypePtr variant : t_union->variants) {
@@ -1295,7 +1295,7 @@ TypePtr calculate_intN_to_serialize_enum(EnumDefPtr enum_ref) {
   if (enum_ref->colon_type) {       // intN / coins
     return enum_ref->colon_type;
   }
-  
+
   bool is_unsigned = false;
   int n_bits = 1;
   for (; n_bits <= 256; ++n_bits) {
@@ -1326,7 +1326,7 @@ std::vector<var_idx_t> create_default_PackOptions(CodeBlob& code, AnyV origin) {
   std::vector ir_defaults = {
     code.create_int(origin, 0, "(zero)"),    // skipBitsNFieldsValidation
   };
-  code.emplace_back(origin, Op::_Let, ir_options, std::move(ir_defaults));  
+  code.emplace_back(origin, Op::_Let, ir_options, std::move(ir_defaults));
   return ir_options;
 }
 
@@ -1340,7 +1340,7 @@ std::vector<var_idx_t> create_default_UnpackOptions(CodeBlob& code, AnyV origin)
     code.create_int(origin, -1, "(true)"),     // assertEndAfterReading
     code.create_int(origin, 63, "(excno)"),    // throwIfOpcodeDoesNotMatch
   };
-  code.emplace_back(origin, Op::_Let, ir_options, std::move(ir_defaults));  
+  code.emplace_back(origin, Op::_Let, ir_options, std::move(ir_defaults));
   return ir_options;
 }
 
@@ -1486,7 +1486,7 @@ std::vector<var_idx_t> UnpackContext::generate_lazy_match_any(TypePtr any_type, 
   if (auto* s = dynamic_cast<S_CustomStruct*>(serializer.get())) {
     return s->lazy_match(this, code, origin, options);
   }
-  tolk_assert(false);                           
+  tolk_assert(false);
 }
 
 PackSize EstimateContext::estimate_any(TypePtr any_type, PrefixEstimateMode prefix_mode) const {

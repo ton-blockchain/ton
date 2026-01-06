@@ -9,7 +9,7 @@
   <hr/>
 </div>
 
-## 
+##
 
 <p align="center">
   <a href="https://tonresear.ch">
@@ -76,16 +76,16 @@ Install additional system libraries
 ```bash
   sudo apt-get update
   sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
-          
+
   wget https://apt.llvm.org/llvm.sh
   chmod +x llvm.sh
-  sudo ./llvm.sh 16 all
+  sudo ./llvm.sh 21 clang
 ```
 Compile TON binaries
 ```bash
   cp assembly/native/build-ubuntu-shared.sh .
   chmod +x build-ubuntu-shared.sh
-  ./build-ubuntu-shared.sh  
+  ./build-ubuntu-shared.sh
 ```
 
 ### MacOS 11, 12 (x86-64, aarch64)
@@ -99,11 +99,11 @@ Compile TON binaries
 You need to install `MS Visual Studio 2022` first.
 Go to https://www.visualstudio.com/downloads/ and download `MS Visual Studio 2022 Community`.
 
-Launch installer and select `Desktop development with C++`. 
+Launch installer and select `Desktop development with C++`.
 After installation, also make sure that `cmake` is globally available by adding
 `C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin` to the system `PATH` (adjust the path per your needs).
 
-Open an elevated (Run as Administrator) `x86-64 Native Tools Command Prompt for VS 2022`, go to the root folder and execute: 
+Open an elevated (Run as Administrator) `x86-64 Native Tools Command Prompt for VS 2022`, go to the root folder and execute:
 ```bash
   copy assembly\native\build-windows.bat .
   build-windows.bat
@@ -114,10 +114,10 @@ Install additional system libraries on Ubuntu
 ```bash
   sudo apt-get update
   sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
-          
+
   wget https://apt.llvm.org/llvm.sh
   chmod +x llvm.sh
-  sudo ./llvm.sh 16 all
+  sudo ./llvm.sh 21 clang
 ```
 Compile TON binaries with emscripten
 ```bash
@@ -144,7 +144,7 @@ Compile TON tonlib library
 ### TON portable binaries
 
 Linux portable binaries are wrapped into AppImages, at the same time MacOS portable binaries are statically linked executables.
-Linux and MacOS binaries are available for both x86-64 and arm64 architectures. 
+Linux and MacOS binaries are available for both x86-64 and arm64 architectures.
 
 ## Running tests
 

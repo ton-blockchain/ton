@@ -164,7 +164,7 @@ _ $__gen_get_owner() method_id(83229) {
 
 
 () recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
-    
+
     ;; Parse incoming message
     int op = 0;
     if (slice_bits(in_msg) >= 32) {
@@ -175,12 +175,12 @@ _ $__gen_get_owner() method_id(83229) {
     var msg_bounced = ((msg_flags & 1) == 1 ? true : false);
     slice msg_sender_addr = cs~load_msg_addr();
     __tact_context = (msg_bounced, msg_sender_addr, msg_value, cs);
-    
+
     ;; Handle bounced messages
     if (msg_bounced) {
         return ();
     }
-    
+
     ;; Receive Withdraw message
     if (op == 1672521544) {
         var self = __gen_load_Treasure();
@@ -189,7 +189,7 @@ _ $__gen_get_owner() method_id(83229) {
         __gen_store_Treasure(self);
         return ();
     }
-    
+
     ;; Receive ChangeOwner message
     if (op == 256331011) {
         var self = __gen_load_Treasure();
@@ -198,11 +198,11 @@ _ $__gen_get_owner() method_id(83229) {
         __gen_store_Treasure(self);
         return ();
     }
-    
+
     ;; Text Receivers
     if (op == 0) {
         var text_op = slice_hash(in_msg);
-        
+
         ;; Receive "Destroy" message
         if (text_op == 0x986c2ba124bb9287eb4a0bd8d3104e1c0067a3c93952d889c74d08185bd30d4d) {
             var self = __gen_load_Treasure();
@@ -211,7 +211,7 @@ _ $__gen_get_owner() method_id(83229) {
             return ();
         }
     }
-    
+
     throw(130);
 }
 

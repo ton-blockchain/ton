@@ -144,9 +144,9 @@ class IdSc {
 // 0 = else
 
 /*
- * 
+ *
  *   TYPE EXPRESSIONS
- * 
+ *
  */
 
 struct TypeExpr {
@@ -294,9 +294,9 @@ void unify(TypeExpr*& te1, TypeExpr*& te2);
 // extern int TypeExpr::holes;
 
 /*
- * 
+ *
  *   ABSTRACT CODE
- * 
+ *
  */
 
 using src::Lexem;
@@ -751,7 +751,7 @@ struct CodeBlob {
 /*
  *
  *   SYMBOL VALUES
- * 
+ *
  */
 
 struct SymVal : sym::SymValBase {
@@ -849,16 +849,16 @@ extern std::vector<SymDef*> glob_func, glob_vars;
 extern std::set<std::string> prohibited_var_names;
 
 /*
- * 
+ *
  *   PARSE SOURCE
- * 
+ *
  */
 
 class ReadCallback {
  public:
   /// Noncopyable.
-  ReadCallback(ReadCallback const&) = delete;
-  ReadCallback& operator=(ReadCallback const&) = delete;
+  ReadCallback(const ReadCallback&) = delete;
+  ReadCallback& operator=(const ReadCallback&) = delete;
 
   enum class Kind { ReadFile, Realpath };
 
@@ -885,9 +885,9 @@ bool parse_source_stdin();
 extern std::stack<src::SrcLocation> inclusion_locations;
 
 /*
- * 
+ *
  *   EXPRESSIONS
- * 
+ *
  */
 
 struct Expr {
@@ -981,9 +981,9 @@ struct Expr {
 };
 
 /*
- * 
+ *
  *   GENERATE CODE
- * 
+ *
  */
 
 typedef std::vector<var_idx_t> StackLayout;
@@ -1268,9 +1268,9 @@ int is_pos_pow2(td::RefInt256 x);
 int is_neg_pow2(td::RefInt256 x);
 
 /*
- * 
+ *
  *  STACK TRANSFORMS
- * 
+ *
  */
 
 /*
@@ -1458,9 +1458,9 @@ inline std::ostream& operator<<(std::ostream& os, const StackTransform& trans) {
 bool apply_op(StackTransform& trans, const AsmOp& op);
 
 /*
- * 
+ *
  *   STACK OPERATION OPTIMIZER
- * 
+ *
  */
 
 struct Optimizer {
@@ -1678,7 +1678,7 @@ struct Stack {
  *
  *   SPECIFIC SYMBOL VALUES,
  *   BUILT-IN FUNCTIONS AND OPERATIONS
- * 
+ *
  */
 
 typedef std::function<AsmOp(std::vector<VarDescr>&, std::vector<VarDescr>&, const SrcLocation)> simple_compile_func_t;

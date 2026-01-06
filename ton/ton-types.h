@@ -245,8 +245,8 @@ inline bool operator<(const ShardIdFull& x, const BlockId& y) {
 
 struct BlockIdExt {
   BlockId id;
-  RootHash root_hash;
-  FileHash file_hash;
+  RootHash root_hash{};
+  FileHash file_hash{};
   BlockIdExt(WorkchainId workchain, ShardId shard, BlockSeqno seqno, const RootHash& root_hash,
              const FileHash& file_hash)
       : id{workchain, shard, seqno}, root_hash(root_hash), file_hash(file_hash) {
@@ -255,11 +255,8 @@ struct BlockIdExt {
       : id(id), root_hash(root_hash), file_hash(file_hash) {
   }
   BlockIdExt(BlockId id, const FileHash& file_hash) : id(id), file_hash(file_hash) {
-    root_hash.set_zero();
   }
   explicit BlockIdExt(BlockId id) : id(id) {
-    root_hash.set_zero();
-    file_hash.set_zero();
   }
   BlockIdExt() : id(workchainIdNotYet, 0, 0) {
   }

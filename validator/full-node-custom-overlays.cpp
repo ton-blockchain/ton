@@ -58,7 +58,7 @@ void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNod
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), src,
                                          query = std::move(query)](td::Result<td::Unit> R) mutable {
       if (R.is_error()) {
-        LOG(WARNING) << "Dropped V2 broadcast because of signatures validation error: " << R.move_as_error();
+        LOG(DEBUG) << "Dropped V2 broadcast because of signatures validation error: " << R.move_as_error();
         return;
       }
 
@@ -134,8 +134,9 @@ void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNod
   }
   VLOG(FULL_NODE_DEBUG) << "Got external message in custom overlay \"" << name_ << "\" from " << src
                         << " (priority=" << it->second << ")";
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_external_message,
-                          std::move(query.message_->data_), it->second);
+  td::actor::ask(validator_manager_, &ValidatorManagerInterface::new_external_message_broadcast,
+                 std::move(query.message_->data_), it->second)
+      .detach();
 }
 
 void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query) {
@@ -180,6 +181,14 @@ void FullNodeCustomOverlay::process_block_candidate_broadcast(PublicKeyHash src,
                         << block_id.to_str();
   td::actor::send_closure(full_node_, &FullNode::process_block_candidate_broadcast, block_id, cc_seqno,
                           validator_set_hash, std::move(data));
+}
+
+void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
+  BlockIdExt block_id = create_block_id(query.block_->block_);
+  VLOG(FULL_NODE_DEBUG) << "Received newShardBlockBroadcast in custom overlay \"" << name_ << "\" from " << src << ": "
+                        << block_id.to_str();
+  td::actor::send_closure(full_node_, &FullNode::process_shard_block_info_broadcast, block_id, query.block_->cc_seqno_,
+                          std::move(query.block_->data_));
 }
 
 void FullNodeCustomOverlay::receive_broadcast(PublicKeyHash src, td::BufferSlice broadcast) {
@@ -240,6 +249,20 @@ void FullNodeCustomOverlay::send_block_candidate(BlockIdExt block_id, CatchainSe
                           local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
 }
 
+void FullNodeCustomOverlay::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
+  VLOG(FULL_NODE_DEBUG) << "Sending newShardBlockBroadcast in custom overlay \"" << name_
+                        << "\": " << block_id.to_str();
+  auto B = create_serialize_tl_object<ton_api::tonNode_newShardBlockBroadcast>(
+      create_tl_object<ton_api::tonNode_newShardBlock>(create_tl_block_id(block_id), cc_seqno, std::move(data)));
+  if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
+    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_ex, local_id_, overlay_id_,
+                            local_id_.pubkey_hash(), 0, std::move(B));
+  } else {
+    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
+                            local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), std::move(B));
+  }
+}
+
 void FullNodeCustomOverlay::start_up() {
   std::sort(nodes_.begin(), nodes_.end());
   nodes_.erase(std::unique(nodes_.begin(), nodes_.end()), nodes_.end());
@@ -269,6 +292,9 @@ void FullNodeCustomOverlay::try_init() {
 }
 
 void FullNodeCustomOverlay::init() {
+  td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_id_);
+  td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_id_);
+
   LOG(FULL_NODE_WARNING) << "Creating custom overlay \"" << name_ << "\" for adnl id " << local_id_ << " : "
                          << nodes_.size() << " nodes, " << msg_senders_.size() << " msg senders, "
                          << block_senders_.size() << " block senders, overlay_id=" << overlay_id_;
@@ -302,14 +328,15 @@ void FullNodeCustomOverlay::init() {
   overlay::OverlayPrivacyRules rules{overlay::Overlays::max_fec_broadcast_size(), 0, std::move(authorized_keys)};
   overlay::OverlayOptions overlay_options;
   overlay_options.broadcast_speed_multiplier_ = opts_.private_broadcast_speed_multiplier_;
+  overlay_options.send_twostep_broadcast_ = true;
+  overlay_options.twostep_broadcast_sender_ = rldp2_;
   td::actor::send_closure(
       overlays_, &overlay::Overlays::create_private_overlay_ex, local_id_, overlay_id_full_.clone(), nodes_,
       std::make_unique<Callback>(actor_id(this)), rules,
       PSTRING() << R"({ "type": "custom-overlay", "name": ")" << td::format::Escaped{name_} << R"(" })",
       overlay_options);
+  rldp_limit_guard_ = rldp2::PeersMtuLimitGuard(rldp2_, local_id_, nodes_, FullNode::max_block_size() + 1024);
 
-  td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_id_);
-  td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_id_);
   inited_ = true;
 }
 

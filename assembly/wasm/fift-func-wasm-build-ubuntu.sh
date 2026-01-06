@@ -6,7 +6,7 @@
 
 # wget https://apt.llvm.org/llvm.sh
 # chmod +x llvm.sh
-# sudo ./llvm.sh 16 all
+# sudo ./llvm.sh 21 clang
 
 with_artifacts=false
 scratch_new=false
@@ -20,8 +20,8 @@ while getopts 'af' flag; do
   esac
 done
 
-export CC=$(which clang-16)
-export CXX=$(which clang++-16)
+export CC=$(which clang-21)
+export CXX=$(which clang++-21)
 export CCACHE_DISABLE=1
 
 echo `pwd`
@@ -32,7 +32,7 @@ fi
 
 if [ ! -d "openssl_3" ]; then
   git clone https://github.com/openssl/openssl openssl_3
-  cd openssl_3
+  cd openssl_3 || exit
   opensslPath=`pwd`
   git checkout openssl-3.1.4
   ./config
@@ -69,7 +69,7 @@ echo
   echo Using cloned emsdk
 fi
 
-cd emsdk
+cd emsdk || exit
 ./emsdk install 4.0.17
 ./emsdk activate 4.0.17
 EMSDK_DIR=`pwd`
@@ -84,7 +84,7 @@ cd ..
 if [ ! -f "3pp_emscripten/openssl_em/openssl_em" ]; then
   mkdir -p 3pp_emscripten
   git clone https://github.com/openssl/openssl 3pp_emscripten/openssl_em
-  cd 3pp_emscripten/openssl_em
+  cd 3pp_emscripten/openssl_em || exit
   emconfigure ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test no-tests no-fuzz-afl no-fuzz-libfuzzer
   sed -i 's/CROSS_COMPILE=.*/CROSS_COMPILE=/g' Makefile
   sed -i 's/-ldl//g' Makefile
@@ -102,7 +102,7 @@ fi
 
 if [ ! -d "3pp_emscripten/zlib" ]; then
   git clone https://github.com/madler/zlib.git 3pp_emscripten/zlib
-  cd 3pp_emscripten/zlib
+  cd 3pp_emscripten/zlib || exit
   git checkout v1.3.1
   ZLIB_DIR=`pwd`
   emconfigure ./configure --static
@@ -116,7 +116,7 @@ fi
 
 if [ ! -d "3pp_emscripten/lz4" ]; then
   git clone https://github.com/lz4/lz4.git 3pp_emscripten/lz4
-  cd 3pp_emscripten/lz4
+  cd 3pp_emscripten/lz4 || exit
   git checkout v1.9.4
   LZ4_DIR=`pwd`
   emmake make -j$(nproc)
@@ -129,7 +129,7 @@ fi
 
 if [ ! -d "3pp_emscripten/libsodium" ]; then
   git clone https://github.com/jedisct1/libsodium 3pp_emscripten/libsodium
-  cd 3pp_emscripten/libsodium
+  cd 3pp_emscripten/libsodium || exit
   git checkout 1.0.18-RELEASE
   SODIUM_DIR=`pwd`
   emconfigure ./configure --disable-ssp
@@ -141,7 +141,7 @@ else
   echo Using compiled libsodium with emscripten at $SODIUM_DIR
 fi
 
-cd build
+cd build || exit
 
 emcmake cmake -DUSE_EMSCRIPTEN=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON \
 -DZLIB_FOUND=1 \

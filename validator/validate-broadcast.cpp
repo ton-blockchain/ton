@@ -65,6 +65,10 @@ void ValidateBroadcast::start_up() {
 
   if (broadcast_.block_id.is_masterchain()) {
     if (last_masterchain_block_handle_->id().id.seqno >= broadcast_.block_id.id.seqno) {
+      if (signatures_only_) {
+        abort_query(td::Status::Error(ErrorCode::cancelled, "block is too old"));
+        return;
+      }
       finish_query();
       return;
     }

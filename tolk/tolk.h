@@ -33,9 +33,9 @@ namespace tolk {
 
 
 /*
- * 
+ *
  *   ABSTRACT CODE
- * 
+ *
  */
 
 typedef int const_idx_t;
@@ -390,9 +390,9 @@ struct FunctionBodyCode {
 };
 
 /*
- * 
+ *
  *   GENERATE CODE
- * 
+ *
  */
 
 typedef std::vector<var_idx_t> StackLayout;
@@ -629,9 +629,9 @@ int is_pos_pow2(td::RefInt256 x);
 int is_neg_pow2(td::RefInt256 x);
 
 /*
- * 
+ *
  *  STACK TRANSFORMS
- * 
+ *
  */
 
 /*
@@ -790,9 +790,9 @@ inline std::ostream& operator<<(std::ostream& os, const StackTransform& trans) {
 bool apply_op(StackTransform& trans, const AsmOp& op);
 
 /*
- * 
+ *
  *   STACK OPERATION OPTIMIZER
- * 
+ *
  */
 
 struct Optimizer {
@@ -1023,12 +1023,12 @@ struct Stack {
  *
  *   SPECIFIC SYMBOL VALUES,
  *   BUILT-IN FUNCTIONS AND OPERATIONS
- * 
+ *
  */
 
 struct FunctionBodyBuiltinAsmOp {
   using CompileToAsmOpImpl = AsmOp(std::vector<VarDescr>&, std::vector<VarDescr>&, AnyV origin);
-  
+
   std::function<CompileToAsmOpImpl> simple_compile;
 
   explicit FunctionBodyBuiltinAsmOp(std::function<CompileToAsmOpImpl> compile)
@@ -1041,7 +1041,7 @@ struct FunctionBodyBuiltinGenerateOps {
   using GenerateOpsImpl = std::vector<var_idx_t>(FunctionPtr, CodeBlob&, AnyV origin, const std::vector<std::vector<var_idx_t>>&);
 
   std::function<GenerateOpsImpl> generate_ops;
-  
+
   explicit FunctionBodyBuiltinGenerateOps(std::function<GenerateOpsImpl> generate_ops)
     : generate_ops(std::move(generate_ops)) {}
 };
