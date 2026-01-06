@@ -750,7 +750,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
       }
       // Create PB from state cell (either regular cell or lower-level PB)
       td::Ref<vm::Cell> pb_cell =
-          vm::CellBuilder::do_create_pruned_branch(source_cell, merkle_depth + 1);
+          vm::CellBuilder::create_pruned_branch(source_cell, merkle_depth + 1);
       if (pb_cell.is_null()) {
         return td::Status::Error("BOC decompression failed: failed to create pruned branch from state");
       }
