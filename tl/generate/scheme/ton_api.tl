@@ -1187,4 +1187,8 @@ consensus.null.handshake = consensus.null.Message;
 consensus.simplex.notarizeVote id:consensus.CandidateId = consensus.simplex.UnsignedVote;
 consensus.simplex.finalizeVote id:consensus.CandidateId = consensus.simplex.UnsignedVote;
 consensus.simplex.skipVote slot:int = consensus.simplex.UnsignedVote;
-consensus.simplex.vote unsignedVote:consensus.simplex.UnsignedVote signature:bytes = consensus.simplex.Vote;
+consensus.simplex.vote vote:consensus.simplex.UnsignedVote signature:bytes = consensus.simplex.Vote;
+
+consensus.simplex.voteSignature who:int signature:bytes = consensus.simplex.VoteSignature;
+consensus.simplex.voteSignatureSet votes:(vector consensus.simplex.VoteSignature) = consensus.simplex.VoteSignatureSet;
+consensus.simplex.certificate vote:consensus.simplex.UnsignedVote signatures:consensus.simplex.VoteSignatureSet = consensus.simplex.Certificate;

@@ -85,14 +85,14 @@ class Tsentrizbirkom {
   }
 
   template <typename T>
-  std::optional<typename Certificate<T>::Signature> to_signature(const T &vote) const {
+  std::optional<typename Certificate<T>::VoteSignature> to_signature(const T &vote) const {
     auto tuple = std::tuple{&notarize_, &skip_, &finalize_};
     const auto &stored_vote = *std::get<const std::optional<Signed<T>> *>(tuple);
 
     if (!stored_vote.has_value() || stored_vote->vote != vote) {
       return std::nullopt;
     }
-    return typename Certificate<T>::Signature{
+    return typename Certificate<T>::VoteSignature{
         .validator = stored_vote->validator,
         .signature = stored_vote->signature.clone(),
     };
@@ -134,7 +134,7 @@ struct SlotState {
 
   template <typename T>
   CertificateRef<T> create_cert(const T &vote) const {
-    std::vector<typename Certificate<T>::Signature> signatures;
+    std::vector<typename Certificate<T>::VoteSignature> signatures;
     for (const auto &voting_state : votes) {
       if (auto notar_sig = voting_state.to_signature(vote)) {
         signatures.emplace_back(std::move(*notar_sig));
@@ -155,13 +155,8 @@ struct SlotState {
   bool finalized = false;
 };
 
-struct WindowState {
-  WindowState(td::Unit) {
-  }
-};
-
 class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
-  using State = ConsensusState<WindowState, SlotState, td::Unit, const Bus &>;
+  using State = ConsensusState<td::Unit, SlotState, td::Unit, const Bus &>;
 
   struct Request {
     RawCandidateId id;
@@ -178,17 +173,13 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
 
     slots_per_leader_window_ = bus.simplex_config.slots_per_leader_window;
 
-    ValidatorWeight total_weight = 0;
-    for (const auto &validator : bus.validator_set) {
-      total_weight += validator.weight;
-    }
-    weight_threshold_ = (total_weight * 2) / 3 + 1;
+    weight_threshold_ = (bus.total_weight * 2) / 3 + 1;
 
     state_.emplace(State(bus.simplex_config.slots_per_leader_window, {}, bus));
     state_->slot_at(0)->state->available_base = RawParentId{};
 
     LOG(INFO) << "Validator group started. We are " << bus.local_id << " with weight " << bus.local_id.weight
-              << " out of " << total_weight;
+              << " out of " << bus.total_weight;
 
     owning_bus().publish<LeaderWindowObserved>(0, RawParentId{});
 
@@ -304,8 +295,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   td::actor::Task<> handle_our_vote(Vote vote) {
     auto &bus = *owning_bus();
 
-    auto tl_vote = std::visit([](const auto &vote) { return vote.to_tl(); }, vote);
-    auto vote_to_sign = serialize_tl_object(tl_vote, true);
+    auto vote_to_sign = serialize_tl_object(vote.to_tl(), true);
     auto data_to_sign = create_serialize_tl_object<consensus::tl::dataToSign>(bus.session_id, std::move(vote_to_sign));
     auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id.short_id,
                                              std::move(data_to_sign));
@@ -422,6 +412,8 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
       if (maybe_resolve_request(requests_[i])) {
         if (i + 1 != requests_.size()) {
           std::swap(requests_[i], requests_.back());
+          // FIXME: Catch bug with i == 0 with stress.
+          --i;
         }
         requests_.pop_back();
       }

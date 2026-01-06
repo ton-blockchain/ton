@@ -110,6 +110,7 @@ set(VALIDATOR_SOURCE
   consensus/null/consensus.cpp
   consensus/simplex/bus.cpp
   consensus/simplex/candidate-resolver.cpp
+  consensus/simplex/certificate.cpp
   consensus/simplex/consensus.cpp
   consensus/simplex/pool.cpp
   consensus/simplex/votes.cpp

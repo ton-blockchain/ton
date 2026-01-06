@@ -251,6 +251,7 @@ class TestConsensus : public td::actor::Actor {
 
     std::vector<ValidatorDescr> validator_descrs;
     std::vector<PeerValidator> validators;
+    ValidatorWeight total_weight = 0;
     for (size_t idx = 0; idx < nodes_.size(); ++idx) {
       Node &node = nodes_[idx];
       validator_descrs.push_back(ValidatorDescr(Ed25519_PublicKey{node.public_key.ed25519_value().raw()}, node.weight,
@@ -260,6 +261,7 @@ class TestConsensus : public td::actor::Actor {
                                          .short_id = node.node_id,
                                          .adnl_id = node.adnl_id,
                                          .weight = node.weight});
+      total_weight += node.weight;
     }
     validator_set_ = td::Ref<block::ValidatorSet>{true, CC_SEQNO, SHARD, std::move(validator_descrs)};
 
@@ -287,6 +289,7 @@ class TestConsensus : public td::actor::Actor {
         bus->keyring = keyring_.get();
         bus->validator_opts = ValidatorManagerOptions::create(BlockIdExt{}, BlockIdExt{});
         bus->validator_set = validators;
+        bus->total_weight = total_weight;
         bus->local_id = validators[idx];
         bus->config = NewConsensusConfig{.target_rate_ms = 500,
                                          .max_block_size = 1 << 20,

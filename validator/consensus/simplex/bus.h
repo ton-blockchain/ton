@@ -8,7 +8,7 @@
 
 #include "consensus/bus.h"
 
-#include "votes.h"
+#include "certificate.h"
 
 namespace ton::validator::consensus::simplex {
 

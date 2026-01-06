@@ -158,6 +158,7 @@ class BridgeImpl final : public IValidatorGroup {
 
     bool found = false;
     size_t idx = 0;
+    ValidatorWeight total_weight = 0;
     for (const auto& el : params_.validator_set->export_vector()) {
       PublicKey key{pubkeys::Ed25519{el.key}};
       PublicKeyHash short_id = key.compute_short_id();
@@ -175,8 +176,10 @@ class BridgeImpl final : public IValidatorGroup {
         bus->local_id = bus->validator_set.back();
       }
 
+      total_weight += el.weight;
       ++idx;
     }
+    bus->total_weight = total_weight;
     bus->cc_seqno = params_.validator_set->get_catchain_seqno();
     bus->validator_set_hash = params_.validator_set->get_validator_set_hash();
     CHECK(found);

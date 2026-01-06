@@ -45,11 +45,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     auto& bus = *owning_bus();
 
     validator_count_ = bus.validator_set.size();
-    ValidatorWeight total_weight = 0;
-    for (const auto& validator : bus.validator_set) {
-      total_weight += validator.weight;
-    }
-    weight_threshold_ = (total_weight * 2) / 3 + 1;
+    weight_threshold_ = (bus.total_weight * 2) / 3 + 1;
 
     leader_ = bus.validator_set[0].idx;
     is_leader_ = bus.local_id.idx == leader_;

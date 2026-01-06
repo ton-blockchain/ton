@@ -132,6 +132,7 @@ class Bus : public runtime::Bus {
   td::Ref<ValidatorManagerOptions> validator_opts;
 
   std::vector<PeerValidator> validator_set;
+  ValidatorWeight total_weight;
   ton::CatchainSeqno cc_seqno;
   td::uint32 validator_set_hash;
   PeerValidator local_id;

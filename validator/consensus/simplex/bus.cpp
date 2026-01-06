@@ -9,8 +9,7 @@
 namespace ton::validator::consensus::simplex {
 
 std::string BroadcastVote::contents_to_string() const {
-  auto vote_contents = std::visit([](const auto& vote) { return PSTRING() << vote; }, vote);
-  return PSTRING() << "{vote=" << vote_contents << "}";
+  return PSTRING() << "{vote=" << vote << "}";
 }
 
 std::string NotarizationObserved::contents_to_string() const {

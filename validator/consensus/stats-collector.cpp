@@ -19,9 +19,6 @@ class StatsCollectorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
   void start_up() override {
-    for (const auto& v : owning_bus()->validator_set) {
-      total_weight_ += v.weight;
-    }
     system_clock_offset_ = td::Clocks::system() - td::Clocks::monotonic();
   }
 
@@ -117,7 +114,7 @@ class StatsCollectorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
     stats.timestamp = td::Clocks::system();
     stats.creator = producer_stats.validator_id;
     stats.total_validators = static_cast<td::uint32>(bus.validator_set.size());
-    stats.total_weight = total_weight_;
+    stats.total_weight = bus.total_weight;
 
     validatorsession::ValidatorSessionStats::Round round;
     round.started_at = producer_stats.got_submit_at;
@@ -136,7 +133,6 @@ class StatsCollectorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
     td::actor::send_closure(bus.manager, &ManagerFacade::log_validator_session_stats, std::move(stats));
   }
 
-  ValidatorWeight total_weight_ = 0;
   double system_clock_offset_ = 0;
 
   td::uint32 first_nonfinalized_slot_ = 0;
