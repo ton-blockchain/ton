@@ -28,7 +28,8 @@ td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candi
                                                                                      bool compression_enabled,
                                                                                      int max_decompressed_data_size);
 
-td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice collated_data, std::string called_from, td::Bits256 root_hash);
+td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice collated_data, std::string called_from,
+                                                    td::Bits256 root_hash);
 td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_data(
     td::Slice compressed, bool improved_compression, int decompressed_size, int max_decompressed_size,
     std::string called_from, td::Bits256 root_hash);

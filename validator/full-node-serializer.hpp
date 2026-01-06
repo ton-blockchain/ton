@@ -24,7 +24,8 @@ namespace ton::validator::fullnode {
 enum class StateUsage { None, DecompressOnly, CompressAndDecompress };
 
 td::Result<td::BufferSlice> serialize_block_broadcast(const BlockBroadcast& broadcast, bool compression_enabled,
-                                                      std::string called_from, StateUsage state_usage = StateUsage::None,
+                                                      std::string called_from,
+                                                      StateUsage state_usage = StateUsage::None,
                                                       td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
 td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_Broadcast& obj, int max_decompressed_data_size,
                                                        std::string called_from,

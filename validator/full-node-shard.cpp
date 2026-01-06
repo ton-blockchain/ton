@@ -962,8 +962,8 @@ void FullNodeShardImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno 
     UNREACHABLE();
     return;
   }
-  auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true,
-                                               k_called_from_public);
+  auto B =
+      serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true, k_called_from_public);
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
     return;

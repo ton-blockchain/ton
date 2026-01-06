@@ -42,8 +42,8 @@ td::Result<td::BufferSlice> serialize_candidate(const tl_object_ptr<ton_api::val
     return res;
   }
   size_t decompressed_size;
-  TRY_RESULT(compressed, compress_candidate_data(block->data_, block->collated_data_,
-                                                 k_called_from_validator_session, block->root_hash_))
+  TRY_RESULT(compressed, compress_candidate_data(block->data_, block->collated_data_, k_called_from_validator_session,
+                                                 block->root_hash_))
   return create_serialize_tl_object<ton_api::validatorSession_compressedCandidate>(
       0, block->src_, block->round_, block->root_hash_, (int)decompressed_size, std::move(compressed));
 }
@@ -93,7 +93,8 @@ td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candi
   return res;
 }
 
-td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice collated_data, std::string called_from, td::Bits256 root_hash) {
+td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice collated_data, std::string called_from,
+                                                    td::Bits256 root_hash) {
   vm::BagOfCells boc1, boc2;
   TRY_STATUS(boc1.deserialize(block));
   if (boc1.get_root_count() != 1) {
