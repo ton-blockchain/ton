@@ -722,54 +722,56 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
     return td::Status::OK();
   };
 
-  auto build_prunned_branch_from_state = [&](size_t idx, td::Ref<vm::Cell> source_cell,
-                                             int merkle_depth) -> td::Status {
+  auto build_prunned_branch_from_state = [&](size_t idx, td::Ref<vm::Cell> source_cell) -> td::Status {
     size_t mask_value = pb_level_mask[idx];
     if (!mask_value) {
       return td::Status::Error(
           "BOC decompression failed: invalid prunned branch metadata inside MerkleUpdate left subtree");
     }
-
-    vm::Cell::LevelMask level_mask(static_cast<td::uint32>(mask_value));
-    td::uint32 pb_level = level_mask.get_level();
-    if (pb_level == 0 || pb_level > vm::Cell::max_level) {
+    if (cell_refs_cnt[idx] != 0) {
       return td::Status::Error(
-          "BOC decompression failed: invalid level for prunned branch");
+          "BOC decompression failed: prunned branch node unexpectedly has references inside MerkleUpdate left subtree");
     }
 
-    // Check if source_cell is already a PB
-    bool source_is_special = false;
-    vm::CellSlice source_slice = vm::load_cell_slice_special(source_cell, source_is_special);
-    bool source_is_pb = source_slice.special_type() == vm::CellTraits::SpecialType::PrunnedBranch;
-
-    if (static_cast<int>(pb_level) == merkle_depth + 1) {
-      // This PB in state already belongs to current MU, just copy it from state
-      if (source_is_pb && source_cell->get_level() == pb_level) {
-        nodes[idx] = source_cell;
-        return td::Status::OK();
-      }
-      // Create PB from state cell (either regular cell or lower-level PB)
-      td::Ref<vm::Cell> pb_cell =
-          vm::CellBuilder::create_pruned_branch(source_cell, merkle_depth + 1);
-      if (pb_cell.is_null()) {
-        return td::Status::Error("BOC decompression failed: failed to create pruned branch from state");
-      }
-      nodes[idx] = std::move(pb_cell);
-      return td::Status::OK();
-    } else {
-      // This PB existed in the original state (from outer or inner Merkle structure), just copy it from state
-      if (!source_is_pb) {
-        return td::Status::Error(
-            "BOC decompression failed: expected PB in state but found regular cell");
-      }
-      nodes[idx] = source_cell;
-      return td::Status::OK();
+    td::uint32 mask = static_cast<td::uint32>(mask_value);
+    int leading_zeroes = td::count_leading_zeroes32(mask);
+    if (leading_zeroes >= 32) {
+      return td::Status::Error(
+          "BOC decompression failed: unable to determine level mask for prunned branch under MerkleUpdate");
     }
+    td::uint32 highest_bit = 31 - leading_zeroes;
+    td::uint32 highest_bit_mask = 1u << highest_bit;
+    td::uint32 base_mask = mask & (highest_bit_mask ? (highest_bit_mask - 1) : 0);
+    vm::Cell::LevelMask level_mask(base_mask);
+    td::uint32 max_level = level_mask.get_level();
+    if (source_cell->get_level() < max_level) {
+      return td::Status::Error(
+          "BOC decompression failed: state subtree level is too small for requested prunned branch");
+    }
+
+    cell_builders[idx].reset();
+    cell_builders[idx].store_long(static_cast<td::uint8>(vm::CellTraits::SpecialType::PrunnedBranch), 8);
+    cell_builders[idx].store_long(mask, 8);
+
+    for (td::uint32 lvl = 0; lvl <= max_level; ++lvl) {
+      if (!level_mask.is_significant(lvl)) {
+        continue;
+      }
+      cell_builders[idx].store_bytes(source_cell->get_hash(lvl).as_slice());
+    }
+    for (td::uint32 lvl = 0; lvl <= max_level; ++lvl) {
+      if (!level_mask.is_significant(lvl)) {
+        continue;
+      }
+      cell_builders[idx].store_long(source_cell->get_depth(lvl), 16);
+    }
+
+    return finalize_node(idx);
   };
 
   // Recursively rebuild the left subtree of a MerkleUpdate by mirroring the provided state tree.
-  std::function<td::Status(size_t, td::Ref<vm::Cell>, int)> build_left_under_mu =
-      [&](size_t left_idx, td::Ref<vm::Cell> state_cell, int merkle_depth) -> td::Status {
+  std::function<td::Status(size_t, td::Ref<vm::Cell>)> build_left_under_mu =
+      [&](size_t left_idx, td::Ref<vm::Cell> state_cell) -> td::Status {
     if (state_cell.is_null()) {
       return td::Status::Error("BOC decompression failed: missing state subtree for MerkleUpdate left branch");
     }
@@ -785,7 +787,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
           "BOC decompression failed: invalid state cell while restoring MerkleUpdate left subtree");
     }
     if (is_prunned_branch) {
-      TRY_STATUS(build_prunned_branch_from_state(left_idx, state_cell, merkle_depth));
+      TRY_STATUS(build_prunned_branch_from_state(left_idx, state_cell));
       return td::Status::OK();
     }
 
@@ -798,11 +800,9 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
           "BOC decompression failed: state subtree special flag mismatch while restoring MerkleUpdate left subtree");
     }
 
-    int child_merkle_depth = state_slice.child_merkle_depth(merkle_depth);
-
     for (size_t j = 0; j < cell_refs_cnt[left_idx]; ++j) {
       td::Ref<vm::Cell> child_state = state_slice.prefetch_ref(j);
-      TRY_STATUS(build_left_under_mu(boc_graph[left_idx][j], child_state, child_merkle_depth));
+      TRY_STATUS(build_left_under_mu(boc_graph[left_idx][j], child_state));
     }
 
     cell_builders[left_idx].reset();
@@ -880,7 +880,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
       size_t left_idx = boc_graph[idx][0];
       size_t right_idx = boc_graph[idx][1];
       if (decompress_merkle_update) {
-        TRY_STATUS(build_left_under_mu(left_idx, state, 0));
+        TRY_STATUS(build_left_under_mu(left_idx, state));
       } else {
         TRY_STATUS(build_node(left_idx, -1));
       }
