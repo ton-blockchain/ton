@@ -18,7 +18,7 @@ begin-options
     "Sets proposal expiration time in seconds (default " expire-in (.) $+ +")" option-help
   "H" "--old-hash" { (hex-number) 1 = not .s abort"256-bit hex number expected as hash" =: old-hash }
      short-long-option-arg
-     "Sets the required cell hash of existing parameter value (0 means no value)" option-help 
+     "Sets the required cell hash of existing parameter value (0 means no value)" option-help
   "h" "--help" { usage } short-long-option
     "Shows a help message" option-help
 parse-options
@@ -50,16 +50,16 @@ now 32 << param-idx + =: query-id
 ."Query id is " query-id . cr
 
 // create message body
-<b x{6e565052} s, query-id 64 u, expire-at 32 u, 
-  <b x{f3} s, param-idx 32 i, param-value dict, 
-     old-hash tuck 0>= tuck 1 i, -rot { 256 u, } { drop } cond b> ref, 
+<b x{6e565052} s, query-id 64 u, expire-at 32 u,
+  <b x{f3} s, param-idx 32 i, param-value dict,
+     old-hash tuck 0>= tuck 1 i, -rot { 256 u, } { drop } cond b> ref,
   critical 1 i, b>
 
 dup ."resulting internal message body: " <s csr. cr
 2 boc+>B dup Bx. cr
 
 param-value dup null? { drop } {
-  totalcsize swap ."(a total of " . ."data bits, " . ."cell references -> " 
+  totalcsize swap ."(a total of " . ."data bits, " . ."cell references -> "
   drop dup Blen . ."BoC data bytes)" cr
 } cond
 

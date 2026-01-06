@@ -24,9 +24,9 @@
 namespace tlbc {
 
 /*
- * 
+ *
  *   C++ CODE GENERATION
- * 
+ *
  */
 
 CppIdentSet global_cpp_ids;

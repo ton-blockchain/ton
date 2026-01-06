@@ -1,7 +1,7 @@
 (int) equal_slices (slice s1, slice s2) asm "SDEQ";
 
 () recv_internal(cell in_msg_cell, slice in_msg) {
-  
+
   ;; Parse message
   var cs = in_msg_cell.begin_parse();
   var flags = cs~load_uint(4);  ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool

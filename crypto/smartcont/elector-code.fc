@@ -99,7 +99,7 @@ builder pack_complaint(int validator_pubkey, cell description, int created_at, i
     .store_uint(suggested_fine_part, 32);
 }
 
-;; complaint_prices#1a deposit:Grams bit_price:Grams cell_price:Grams = ComplaintPricing; 
+;; complaint_prices#1a deposit:Grams bit_price:Grams cell_price:Grams = ComplaintPricing;
 (int, int, int) parse_complaint_prices(cell info) inline {
   var cs = info.begin_parse();
   throw_unless(9, cs~load_uint(8) == 0x1a);
@@ -125,8 +125,8 @@ builder pack_complaint(int validator_pubkey, cell description, int created_at, i
 (cell, int, cell) get_current_vset() inline_ref {
   var vset = config_param(34);
   var cs = begin_parse(vset);
-  ;; validators_ext#12 utime_since:uint32 utime_until:uint32 
-  ;; total:(## 16) main:(## 16) { main <= total } { main >= 1 } 
+  ;; validators_ext#12 utime_since:uint32 utime_until:uint32
+  ;; total:(## 16) main:(## 16) { main <= total } { main >= 1 }
   ;; total_weight:uint64
   throw_unless(40, cs~load_uint(8) == 0x12);
   cs~skip_bits(32 + 32 + 16 + 16);
@@ -175,7 +175,7 @@ builder pack_complaint(int validator_pubkey, cell description, int created_at, i
 
 () send_validator_set_to_config(config_addr, vset, query_id) impure inline_ref {
   var msg = begin_cell()
-    .store_uint(0xc4ff, 17)   ;; 0 11000100 0xff 
+    .store_uint(0xc4ff, 17)   ;; 0 11000100 0xff
     .store_uint(config_addr, 256)
     .store_grams(1 << 30)     ;; ~1 gram of value to process and obtain answer
     .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
@@ -637,7 +637,7 @@ int proceed_register_vote(election_id, chash, idx, weight) impure inline_ref {
     return config_set_confirmed(s_addr, in_msg, query_id, cfg_ok);
   }
   if (op == 0x52674370) {
-    ;; new complaint 
+    ;; new complaint
     var price = register_complaint(s_addr, in_msg, msg_value);
     int mode = 64;
     int ans_tag = - price;
@@ -796,7 +796,7 @@ _ compute_total_stake(l, n, m_stake) inline_ref {
     i += 1;
   } until (l.null?());
   throw_unless(49, tot_stake == best_stake);
-  return (credits, vset, tot_weight, frozen, tot_stake, m); 
+  return (credits, vset, tot_weight, frozen, tot_stake, m);
 }
 
 int conduct_elections(ds, elect, credits) impure {
@@ -846,7 +846,7 @@ int conduct_elections(ds, elect, credits) impure {
     .store_uint(0x12, 8)      ;; validators_ext#12
     .store_uint(start, 32)    ;; utime_since:uint32
     .store_uint(start + elect_for, 32)  ;; utime_until:uint32
-    .store_uint(cnt, 16)      ;; total:(## 16) 
+    .store_uint(cnt, 16)      ;; total:(## 16)
     .store_uint(min(cnt, main_validators), 16)  ;; main:(## 16)
     .store_uint(total_weight, 64)      ;; total_weight:uint64
     .store_dict(vdict)        ;; list:(HashmapE 16 ValidatorDescr)

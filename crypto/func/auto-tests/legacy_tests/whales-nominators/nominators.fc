@@ -14,7 +14,7 @@
 #include "modules/get.fc";
 
 () recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
-    
+
     ;; Prepare message context
     var cs = in_msg_cell.begin_parse();
     var flags = cs~load_uint(4);  ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool

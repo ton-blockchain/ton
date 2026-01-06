@@ -19,9 +19,9 @@
 namespace tolk {
 
 /*
- * 
+ *
  *   PEEPHOLE OPTIMIZER
- * 
+ *
  */
 
 void Optimizer::set_code(AsmOpConsList code) {
@@ -454,7 +454,7 @@ bool Optimizer::detect_rewrite_0EQINT_THROWIF() {
       return true;
     }
   }
-  
+
   return false;
 }
 
@@ -480,7 +480,7 @@ bool Optimizer::detect_rewrite_DICTSETB_DICTSET() {
   std::string new_op = op_[4]->op;  // "DICTSET" / "DICTSETGET NULLSWAPIFNOT"
   for (size_t i = 0; i < std::size(contains_b); ++i) {
     if (size_t pos = new_op.find(contains_b[i]); pos == 4 || pos == 5) {
-      new_op.replace(pos, std::strlen(contains_b[i]), repl_with[i]); 
+      new_op.replace(pos, std::strlen(contains_b[i]), repl_with[i]);
       p_ = 5;
       q_ = 4;
       oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[1]->origin, op_[1]->op.substr(0, op_[1]->op.rfind(' ')) + " PUSHSLICE", 0, 1));
@@ -488,7 +488,7 @@ bool Optimizer::detect_rewrite_DICTSETB_DICTSET() {
       oq_[2] = std::move(op_[3]);
       oq_[3] = std::make_unique<AsmOp>(AsmOp::Custom(op_[4]->origin, new_op));
       return true;
-    } 
+    }
   }
 
   return false;
@@ -555,7 +555,7 @@ bool Optimizer::detect_rewrite_ENDC_HASHCU() {
 // pattern `NEWC` + `BTOS` -> `x{} PUSHSLICE`
 bool Optimizer::detect_rewrite_NEWC_BTOS() {
   bool first_newc = op_[0]->is_custom() && op_[0]->op == "NEWC";
-  if (!first_newc || pb_ < 2) {                               
+  if (!first_newc || pb_ < 2) {
     return false;
   }
 
@@ -573,7 +573,7 @@ bool Optimizer::detect_rewrite_NEWC_BTOS() {
 // pattern `NEWC` + `x{...} STSLICECONST` + `BTOS` -> `x{...} PUSHSLICE`
 bool Optimizer::detect_rewrite_NEWC_STSLICECONST_BTOS() {
   bool first_newc = op_[0]->is_custom() && op_[0]->op == "NEWC";
-  if (!first_newc || pb_ < 3) {                               
+  if (!first_newc || pb_ < 3) {
     return false;
   }
 
@@ -594,13 +594,13 @@ bool Optimizer::detect_rewrite_NEWC_STSLICECONST_BTOS() {
 // pattern `NEWC` + `ENDC` + `CTOS` -> `x{} PUSHSLICE`
 bool Optimizer::detect_rewrite_NEWC_ENDC_CTOS() {
   bool first_newc = op_[0]->is_custom() && op_[0]->op == "NEWC";
-  if (!first_newc || pb_ < 3) {                               
+  if (!first_newc || pb_ < 3) {
     return false;
   }
 
   bool next_endc = op_[1]->is_custom() && op_[1]->op == "ENDC";
   bool next_ctos = op_[2]->is_custom() && op_[2]->op == "CTOS";
-  if (!next_endc || !next_ctos) {                                          
+  if (!next_endc || !next_ctos) {
     return false;
   }
 
@@ -613,7 +613,7 @@ bool Optimizer::detect_rewrite_NEWC_ENDC_CTOS() {
 // pattern `NEWC` + `ENDC` -> `<b b> PUSHREF`
 bool Optimizer::detect_rewrite_NEWC_ENDC() {
   bool first_newc = op_[0]->is_custom() && op_[0]->op == "NEWC";
-  if (!first_newc || pb_ < 2) {                               
+  if (!first_newc || pb_ < 2) {
     return false;
   }
 

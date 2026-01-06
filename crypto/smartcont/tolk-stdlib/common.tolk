@@ -33,7 +33,7 @@ type builder = builtin
 
 /// `continuation` is an "executable cell" representing executable TVM bytecode.
 /// They are used to manage execution flow in TVM programs and serve as
-/// the basis for function calls, exception handling, and control flow operations. 
+/// the basis for function calls, exception handling, and control flow operations.
 type continuation = builtin
 
 /// `tuple` is a collection from 0 to 255 elements of any type.
@@ -66,12 +66,12 @@ type never = builtin
 
 /// `int8`, `int32`, `int222`, etc. is "a fixed-width signed integer with N bits", N <= 257.
 /// Note: it's still `int` at runtime, you can assign "100500" to "int8":
-/// overflow will happen at serialization to a cell/builder, NOT at assignment. 
+/// overflow will happen at serialization to a cell/builder, NOT at assignment.
 type intN = builtin
 
 /// `uint32`, `uint64`, `uint111`, etc. is "a fixed-width unsigned integer with N bits", N <= 256.
 /// Note: it's still `int` at runtime, you can assign "100500" to "uint8":
-/// overflow will happen at serialization to a cell/builder, NOT at assignment. 
+/// overflow will happen at serialization to a cell/builder, NOT at assignment.
 type uintN = builtin
 
 /// `coins` is a special primitive representing "nanotoncoins". One TON = 10^9 nanotoncoins.
@@ -79,20 +79,20 @@ type uintN = builtin
 /// Arithmetic operations on `coins` degrade to 257-bit `int` type.
 type coins = builtin
 
-/// `varint16` is `int` at runtime, but serialized as "variadic signed int", -2^119 <= X < 2^119. 
+/// `varint16` is `int` at runtime, but serialized as "variadic signed int", -2^119 <= X < 2^119.
 type varint16 = builtin
 
-/// `varuint16` is `int` at runtime, but serialized as "variadic unsigned int", 0 <= X < 2^120. 
+/// `varuint16` is `int` at runtime, but serialized as "variadic unsigned int", 0 <= X < 2^120.
 type varuint16 = builtin
 
-/// `varint32` is `int` at runtime, but serialized as "variadic signed int", -2^247 <= X < 2^247. 
+/// `varint32` is `int` at runtime, but serialized as "variadic signed int", -2^247 <= X < 2^247.
 type varint32 = builtin
 
-/// `varuint32` is `int` at runtime, but serialized as "variadic unsigned int", 0 <= X < 2^248. 
+/// `varuint32` is `int` at runtime, but serialized as "variadic unsigned int", 0 <= X < 2^248.
 type varuint32 = builtin
 
 /// `bits256`, `bits111`, etc. is "a fixed-width slice with N bits and 0 refs", N <= 1023.
-/// Note: use `as` operator to convert `slice` to `bitsN`: `someSlice as bits256` 
+/// Note: use `as` operator to convert `slice` to `bitsN`: `someSlice as bits256`
 /// (manually writing `as` enforces you to think that this conversion is correct).
 /// Note: similar to `intN`, you can assign an invalid slice to `bitsN`,
 /// an error will be fired at serialization with [T.toCell] and similar, NOT at assignment.
@@ -207,12 +207,12 @@ fun tuple.last<T>(self): T
 fun tuple.pop<T>(mutate self): T
     asm "TPOP"
 
-/// Packs any object from a stack to a tuple. 
+/// Packs any object from a stack to a tuple.
 /// An object occupies N slots on a stack — the tuple will be of size N.
 /// Example:
 /// ```
 /// struct Point { x: int, y: int }
-/// 
+///
 /// var p: Point = { x: 1, y: 2 };
 /// var t = p.toTuple();     // [ 1 2 ]
 /// p = Point.fromTuple(t);  // back
@@ -328,7 +328,7 @@ fun contract.getOriginalBalanceWithExtraCurrencies(): [coins, ExtraCurrenciesMap
 fun contract.getData(): cell
     asm "c4 PUSH"
 
-/// Sets the persistent contract storage. 
+/// Sets the persistent contract storage.
 fun contract.setData(c: cell): void
     asm "c4 POP"
 
@@ -620,7 +620,7 @@ fun slice.hash(self): uint256
 fun builder.hash(self): uint256
     asm "HASHBU"
 
-/// Computes sha256 of the data bits of a slice (without refs). 
+/// Computes sha256 of the data bits of a slice (without refs).
 /// If the bit length is not divisible by eight, throws a cell underflow exception.
 @pure
 fun slice.bitsHash(self): uint256
@@ -731,7 +731,7 @@ fun builder.depth(self): int
 /// Returns the number of stack slots `anyVariable` occupies (works at compile-time).
 /// - sizeof(nullableInt) = 1, because `int?` is 1 TVM slot holding either NULL or a value.
 /// - sizeof(somePoint) = 2 for `struct Point { x:int, y:int }`: two fields one slot per each.
-/// 
+///
 /// Useful for debugging or when preparing stack contents for RUNVM.
 @pure
 fun sizeof<T>(anyVariable: T): int
@@ -763,7 +763,7 @@ fun debug.dumpStack(): void
 /*
     Implementation of `map<K, V>` and methods over it.
 
-    Note: maps in TVM are called "dictionaries". They are stored as nested cells 
+    Note: maps in TVM are called "dictionaries". They are stored as nested cells
   (each value in a separate cell, probably with intermediate cells-nodes).
   Constructing even small dicts is gas-expensive, because cell creation costs a lot.
 
@@ -794,7 +794,7 @@ fun map<K, V>.toLowLevelDict(self): dict
     asm "NOP"
 
 /// Checks whether a map is empty (whether a cell is null).
-/// 
+///
 /// Note: a check `m == null` will not work, use `m.isEmpty()`.
 @pure
 fun map<K, V>.isEmpty(self): bool
@@ -861,7 +861,7 @@ fun map<K, V>.addIfNotExists(mutate self, key: K, value: V): bool
 fun map<K, V>.addOrGetExisting(mutate self, key: K, value: V): MapLookupResult<V>
     builtin
 
-/// Delete an element at the key. Returns whether an element was deleted. 
+/// Delete an element at the key. Returns whether an element was deleted.
 @pure
 fun map<K, V>.delete(mutate self, key: K): bool
     builtin
@@ -1322,7 +1322,7 @@ fun address.getWorkchain(self): int8
 
 /// Creates a slice representing "none external address" (TL addr_none$00 — two zero bits).
 /// Note! Use this in combination with EXTERNAL addresses (e.g. for [createExternalLogMessage]).
-/// To represent "internal or none" address (which you most likely need to), 
+/// To represent "internal or none" address (which you most likely need to),
 /// use `address?` (nullable) and `null` accordingly.
 @pure
 fun createAddressNone(): any_address
@@ -1335,7 +1335,7 @@ fun any_address.isNone(self): bool
     asm "b{00} SDBEGINSQ" "NIP"
 
 /// Returns if "any address" is a standard (internal) address: workchain + hash.
-/// Then it can be safely cast to `address`. 
+/// Then it can be safely cast to `address`.
 /// In TL/B, it's addr_std$10.
 @pure
 fun any_address.isInternal(self): bool
@@ -1453,7 +1453,7 @@ const SEND_MODE_ESTIMATE_FEE_ONLY = 1024
 
 /// `ExtraCurrenciesMap` represents a dictionary of "extra currencies" other than TON coin.
 /// They can be attached to a message (incoming and outgoing) and stored on contract's balance.
-/// It's a dictionary `[currencyID => amount]` (amount is like `coins`, but encoded with a high precision). 
+/// It's a dictionary `[currencyID => amount]` (amount is like `coins`, but encoded with a high precision).
 type ExtraCurrenciesMap = map<int32, varuint32>
 
 /// `ContractState` is "code + data" of a contract.
@@ -1485,7 +1485,7 @@ struct AddressShardingOptions {
 /// ```
 /// You just provide code+data, and the compiler automatically calculates the destination address,
 /// because in TON, the address of a contract, by definition, is a hash of its initial state.
-/// You can also use it without sending a message. 
+/// You can also use it without sending a message.
 /// See [AutoDeployAddress.calculateAddress].
 struct AutoDeployAddress {
     workchain: int8 = BASECHAIN
@@ -1533,10 +1533,10 @@ fun AutoDeployAddress.addressMatches(self, addr: address): bool
 ///     bounce: BounceMode.Only256BitsOfBody,
 ///     ...
 /// });
-/// 
+///
 /// fun onBouncedMessage(in: InMessageBounced) {
 ///     // in.bouncedBody is populated depending on BounceMode
-///     // for instance, "Only256BitsOfBody" means 
+///     // for instance, "Only256BitsOfBody" means
 ///     // "bounced prefix 0xFFFFFFFF" and 256 bits of data
 ///     in.bouncedBody.skipBouncedPrefix();
 ///     val originalOpcode = in.bouncedBody.loadUint(32);
@@ -1596,7 +1596,7 @@ fun createMessage<TBody>(options: CreateMessageOptions<TBody>): OutMessage
 /// It includes some "topic" (arbitrary number), that determines the format of the message body.
 /// For example, you emit "deposit event" (reserving topic "deposit" = 123):
 /// ```
-/// dest: ExtOutLogBucket { topic: 123 }, 
+/// dest: ExtOutLogBucket { topic: 123 },
 /// body: DepositData { ... }
 /// ```
 /// and external indexers can index your emitted logs by destination address without parsing body.
@@ -1752,7 +1752,7 @@ fun address.fromValidBuilder(b: builder): address
 ///     dest: (workchain, hash),   // a pair can be passed instead of `address`
 ///     ...                        // so, don't call this function in such a case
 /// ```
-fun address.fromWorkchainAndHash(workchain: int8, hash: uint256): address 
+fun address.fromWorkchainAndHash(workchain: int8, hash: uint256): address
     asm (hash workchain)
     "NEWC"
     "b{100} STSLICECONST"       // addr_std$10 + 0 (no anycast)
@@ -1796,7 +1796,7 @@ struct InMessage {
 /// ```
 /// fun onBouncedMessage(in: InMessageBounced) {
 ///     // in.bouncedBody is populated depending on BounceMode
-///     // for instance, "Only256BitsOfBody" means 
+///     // for instance, "Only256BitsOfBody" means
 ///     // "bounced prefix 0xFFFFFFFF" and 256 bits of data
 ///     in.bouncedBody.skipBouncedPrefix();
 ///     val originalOpcode = in.bouncedBody.loadUint(32);
@@ -1829,7 +1829,7 @@ struct (0xfffffffe) RichBounceBody {
     computePhase: RichBounceComputePhaseInfo?       // filled if compute phase executed
 }
 
-/// Describes compute phase details of a bounced message. 
+/// Describes compute phase details of a bounced message.
 struct RichBounceComputePhaseInfo {
     gasUsed: uint32
     vmSteps: uint32

@@ -101,7 +101,7 @@ void Scheduler::start() {
 bool Scheduler::run(double timeout) {
   bool res;
   run_in_context_impl(*info_->io_worker, [this, timeout, &res] {
-    if (SchedulerContext::get()->is_stop_requested()) {
+    if (SchedulerContext::get().is_stop_requested()) {
       res = false;
     } else {
       res = io_worker_->run_once(timeout, skip_timeouts_);

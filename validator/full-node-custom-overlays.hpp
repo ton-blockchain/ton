@@ -18,6 +18,8 @@
 
 #include <fstream>
 
+#include "rldp2/rldp-utils.h"
+
 #include "full-node.h"
 #include "validator-telemetry.hpp"
 
@@ -36,6 +38,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressed &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressedV2 &query);
   void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query);
 
   template <class T>
   void process_broadcast(PublicKeyHash, T &) {
@@ -47,6 +50,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   void send_broadcast(BlockBroadcast broadcast);
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data);
+  void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
 
   void set_config(FullNodeConfig config) {
     opts_.config_ = std::move(config);
@@ -97,6 +101,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   bool inited_ = false;
   overlay::OverlayIdFull overlay_id_full_;
   overlay::OverlayIdShort overlay_id_;
+  rldp2::PeersMtuLimitGuard rldp_limit_guard_;
 
   void try_init();
   void init();

@@ -1787,9 +1787,9 @@ void MtCarloComputeShare::gen_vset() {
 }
 
 /*
- * 
+ *
  *    Other block-related functions
- * 
+ *
  */
 
 bool store_UInt7(vm::CellBuilder& cb, unsigned long long value) {

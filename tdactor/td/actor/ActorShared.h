@@ -112,7 +112,7 @@ ActorShared<SelfT> actor_shared(SelfT *self, uint64 id = static_cast<uint64>(-1)
 }
 
 inline ActorShared<> actor_shared() {
-  return actor_shared(&core::ActorExecuteContext::get()->actor());
+  return actor_shared(&core::ActorExecuteContext::get().actor());
 }
 }  // namespace core
 using core::actor_shared;

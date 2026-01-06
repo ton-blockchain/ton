@@ -22,7 +22,7 @@ fun checkBool(b: bool) {
     match (b) {
         true => return 1,
         false => return 100,
-    } 
+    }
     throw 456;
 }
 

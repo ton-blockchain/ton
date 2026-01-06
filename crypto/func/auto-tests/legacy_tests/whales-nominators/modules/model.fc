@@ -5,7 +5,7 @@
 () add_member_pending_withdraw(int delta) impure inline {
     ctx_balance_pending_withdraw = ctx_balance_pending_withdraw + delta;
     ctx_member_pending_withdraw = ctx_member_pending_withdraw + delta;
-} 
+}
 () set_member_pending_withdraw(int value) impure inline {
     add_member_pending_withdraw(value - ctx_member_pending_withdraw);
 }
@@ -32,7 +32,7 @@ int apply_profit(int value, int value_profit, int profit) {
 ;;
 
 () member_update_balance() impure {
-    
+
     ;; Update profit (for non-owner)
     if (ctx_member != owner_id()) {
         if (ctx_profit_per_coin != ctx_member_profit_per_coin) {
@@ -127,7 +127,7 @@ int apply_profit(int value, int value_profit, int profit) {
     ;; Trying to withdraw immediatelly
     var remaining = value;
     var withdrawed = 0;
-    
+
     ;; Try to withdraw from pending deposit
     if ((remaining > 0) & (ctx_member_pending_deposit >= 0)) {
         int delta = min(ctx_member_pending_deposit, remaining);
@@ -165,7 +165,7 @@ int apply_profit(int value, int value_profit, int profit) {
 }
 
 () member_accept_withdraw() impure {
-    
+
     ;; Checks if there are pending withdrawals
     throw_unless(error::invalid_message(), ctx_member_pending_withdraw > 0);
 
@@ -248,10 +248,10 @@ int apply_profit(int value, int value_profit, int profit) {
 
 () on_locked() impure {
     if (~ ctx_locked) {
-        
+
         ;; Allow locking only on no pending withdrawals
         throw_unless(error::invalid_message(), ctx_balance_pending_withdraw == 0);
-        
+
         ;; Update state
         ctx_locked = true;
     }
@@ -284,7 +284,7 @@ int owned_balance() {
 () on_stake_recovered(int stake) impure {
 
     ;; Calculate profit
-    ;; NOTE: ctx_locked is true meaning that ctx_balance 
+    ;; NOTE: ctx_locked is true meaning that ctx_balance
     ;;       have the same value as was when stake was sent
     ;;       balances are going to be unlocked after profit distribution
     var profit = stake - ctx_balance_sent;

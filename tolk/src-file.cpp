@@ -163,7 +163,7 @@ static void output_line_to_fif(std::ostream& os, int indent, std::string_view li
       os << ' ';
     }
     os << "// " << (dots ? "..." : "") << line_no << ": " << s.substr(b, e - b + 1) << std::endl;
-  }  
+  }
 }
 
 // when generating Fift output, every block of asm instructions originated from the same Tolk line,

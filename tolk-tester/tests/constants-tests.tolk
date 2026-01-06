@@ -195,7 +195,7 @@ fun test14() {
 @method_id(115)
 fun test15() {
     return (
-        opts1.equals(), opts1.equals(opts1), opts1.equals(opts2), opts1.equals(opts3), opts1.equals(opts4),  
+        opts1.equals(), opts1.equals(opts1), opts1.equals(opts2), opts1.equals(opts3), opts1.equals(opts4),
         opts4.equals(), opts4.equals(opts1), opts4.equals(opts2), opts4.equals(opts3), opts4.equals(opts4),
         777,
         opts1.equals({ closeTo: null, allowPenalty: true }),

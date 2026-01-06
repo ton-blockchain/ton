@@ -152,7 +152,7 @@ forget curloop  forget loopdump
 //
 variable ')
 'nop box constant ',
-{ ") without (" abort } ') ! 
+{ ") without (" abort } ') !
 { ') @ execute } : )
 anon constant dot-marker
 // m x1 ... xn t m -- (x1 ... xn . t)

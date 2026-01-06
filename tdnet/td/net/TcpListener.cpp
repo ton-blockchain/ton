@@ -49,15 +49,15 @@ void TcpListener::start_up() {
 
   // Subscribe for socket updates
   // NB: Interface will be changed
-  td::actor::SchedulerContext::get()->get_poll().subscribe(server_socket_fd_.get_poll_info().extract_pollable_fd(this),
-                                                           PollFlags::Read());
+  td::actor::SchedulerContext::get().get_poll().subscribe(server_socket_fd_.get_poll_info().extract_pollable_fd(this),
+                                                          PollFlags::Read());
 }
 
 void TcpListener::tear_down() {
   if (!server_socket_fd_.empty()) {
     // unsubscribe from socket updates
     // nb: interface will be changed
-    td::actor::SchedulerContext::get()->get_poll().unsubscribe(server_socket_fd_.get_poll_info().get_pollable_fd_ref());
+    td::actor::SchedulerContext::get().get_poll().unsubscribe(server_socket_fd_.get_poll_info().get_pollable_fd_ref());
   }
 }
 

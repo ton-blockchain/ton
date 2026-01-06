@@ -18,5 +18,5 @@ fun f(l: ROLine) {
 
 /**
 @compilation_should_fail
-@stderr modifying readonly field `ROLine.p2` 
+@stderr modifying readonly field `ROLine.p2`
  */

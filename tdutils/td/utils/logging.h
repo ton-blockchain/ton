@@ -259,7 +259,7 @@ class Logger {
 
   Logger(LogInterface &log, const LogOptions &options, int log_level, Slice file_name, int line_num, Slice comment);
 
-  template <class T>
+  template <Formattable T>
   Logger &operator<<(const T &other) {
     sb_ << other;
     return *this;

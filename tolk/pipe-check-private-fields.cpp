@@ -30,7 +30,7 @@ static bool is_private_field_usage_allowed(FunctionPtr cur_f, StructPtr struct_r
   if (!cur_f->is_method()) {
     return false;
   }
-  const TypeDataStruct* receiver_struct = cur_f->receiver_type->unwrap_alias()->try_as<TypeDataStruct>(); 
+  const TypeDataStruct* receiver_struct = cur_f->receiver_type->unwrap_alias()->try_as<TypeDataStruct>();
   if (receiver_struct && receiver_struct->struct_ref == struct_ref) {
     return true;
   }
@@ -40,7 +40,7 @@ static bool is_private_field_usage_allowed(FunctionPtr cur_f, StructPtr struct_r
     const auto* receiver_Ts = cur_f->base_fun_ref->receiver_type->try_as<TypeDataGenericTypeWithTs>();
     return receiver_Ts && receiver_Ts->struct_ref == struct_ref->base_struct_ref;
   }
-  
+
   return false;
 }
 
@@ -71,7 +71,7 @@ class CheckPrivateFieldsUsageVisitor final : public ASTVisitorFunctionBody {
       }
     }
   }
-  
+
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();

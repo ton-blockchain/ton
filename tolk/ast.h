@@ -183,7 +183,7 @@ struct ASTNodeBase {
     if (range.is_defined() && !range.is_valid()) {
       throw Fatal("forgot to end() range in ast");
     }
-#endif    
+#endif
   }
   ASTNodeBase(const ASTNodeBase&) = delete;
 
@@ -1059,7 +1059,7 @@ public:
   auto get_param(int i) const { return parameters->get_param(i); }
   auto get_body() const { return body; }
   SrcRange keyword_range() const { return SrcRange::span(range, 3); }
-  
+
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_lambda_ref(FunctionPtr lambda_ref);
 

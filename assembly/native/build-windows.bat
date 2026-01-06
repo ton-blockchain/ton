@@ -35,8 +35,8 @@ IF %errorlevel% NEQ 0 (
 
 echo Installing nasm...
 choco install -y nasm
-where nasm
 SET PATH=%PATH%;C:\Program Files\NASM
+where nasm
 IF %errorlevel% NEQ 0 (
   echo Can't install nasm
   exit /b %errorlevel%

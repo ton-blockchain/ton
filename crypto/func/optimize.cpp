@@ -21,9 +21,9 @@
 namespace funC {
 
 /*
- * 
+ *
  *   PEEPHOLE OPTIMIZER
- * 
+ *
  */
 
 void Optimizer::set_code(AsmOpConsList code) {
