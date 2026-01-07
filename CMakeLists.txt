@@ -191,7 +191,7 @@ endif()
 
 option(USE_QUIC "use ngtcp2 QUIC library" OFF)
 if (USE_QUIC)
-  find_package(OpenSSL 3.2 REQUIRED COMPONENTS SSL Crypto)
+  find_package(OpenSSL 3.5 REQUIRED COMPONENTS SSL Crypto)
   message("Add ngtcp2")
   add_subdirectory(third-party/ngtcp2 EXCLUDE_FROM_ALL)
   set(NGTCP2_ROOT ${CMAKE_SOURCE_DIR}/third-party/ngtcp2)
