@@ -207,12 +207,12 @@ void QuicServer::flush_egress_for(const td::IPAddress &peer, ConnectionState &st
   }
 
   if (data.stream_data.has_value()) {
-    const auto &stream_data = data.stream_data.value();
+    auto &stream_data = data.stream_data.value();
     auto cycle = [this, &state, &stream_data]() -> td::Status {
       char buf[DEFAULT_MTU];
       UdpMessageBuffer msg_out;
       msg_out.storage = td::MutableSlice(buf, DEFAULT_MTU);
-      TRY_STATUS(state.p_impl->write_stream(msg_out, stream_data.sid, stream_data.data, stream_data.fin));
+      TRY_STATUS(state.p_impl->write_stream(msg_out, stream_data.sid, std::move(stream_data.data), stream_data.fin));
 
       if (msg_out.storage.empty()) {
         return td::Status::OK();

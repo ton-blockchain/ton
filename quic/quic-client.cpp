@@ -74,14 +74,14 @@ void QuicClient::on_fd_notify() {
 
 void QuicClient::flush_egress(EgressData data) {
   if (data.stream_data.has_value()) {
-    const auto& stream_data = data.stream_data.value();
+    auto& stream_data = data.stream_data.value();
     auto cycle = [this, &stream_data]() -> td::Status {
       char buf[DEFAULT_MTU];
 
       UdpMessageBuffer msg_out;
 
       msg_out.storage = td::MutableSlice(buf, DEFAULT_MTU);
-      TRY_STATUS(p_impl_->write_stream(msg_out, stream_data.sid, stream_data.data, stream_data.fin));
+      TRY_STATUS(p_impl_->write_stream(msg_out, stream_data.sid, std::move(stream_data.data), stream_data.fin));
 
       if (msg_out.storage.empty())
         return td::Status::OK();

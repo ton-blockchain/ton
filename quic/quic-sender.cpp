@@ -9,7 +9,7 @@
 #include "td/actor/coro_utils.h"
 
 namespace ton::quic {
-QuicSender::QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::Slice cert_file, td::Slice key_file) : adnl_(std::move(adnl)),cert_file_(cert_file),key_file_(key_file) {
+QuicSender::QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::Slice cert_file, td::Slice key_file) : adnl_(std::move(adnl)), cert_file_(cert_file), key_file_(key_file) {
 }
 
 void QuicSender::send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data){
@@ -162,7 +162,7 @@ void QuicSender::find_out_connection(AdnlPath path, td::Promise<OutboundConnecti
 }
 
 void QuicSender::create_connection(AdnlPath path, td::Promise<OutboundConnection*> P){
-  td::actor::send_closure(adnl_, &adnl::Adnl::get_peer_node, path.first, path.second, [this, path, P = std::move(P)] (td::Result<adnl::AdnlNode> res) mutable {
+  td::actor::send_closure(adnl_, &adnl::Adnl::get_peer_node, path.first, path.second, [this, self = actor_id(this), path, P = std::move(P)] (td::Result<adnl::AdnlNode> res) mutable {
     if (res.is_error()) {
       P.set_error(res.move_as_error_prefix("failed to obtain peer for connection"));
       return;
@@ -220,7 +220,7 @@ void QuicSender::create_connection(AdnlPath path, td::Promise<OutboundConnection
     };
 
     auto iter = outbound_.emplace(path, OutboundConnection{}).first;
-    auto conn_res = QuicClient::connect(peer_host, peer_port, std::make_unique<OutConnectionCallback>(path, actor_id(this)));
+    auto conn_res = QuicClient::connect(peer_host, peer_port, std::make_unique<OutConnectionCallback>(path, self));
     if (conn_res.is_error())
       P.set_error(conn_res.move_as_error());
     else {

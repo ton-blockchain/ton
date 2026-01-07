@@ -54,7 +54,7 @@ struct QuicConnectionPImpl {
   [[nodiscard]] td::Status handle_ingress(const UdpMessageBuffer& msg_in);
 
   [[nodiscard]] td::Result<QuicStreamID> open_stream();
-  [[nodiscard]] td::Status write_stream(UdpMessageBuffer& msg_out, QuicStreamID sid, td::Slice data, bool fin);
+  [[nodiscard]] td::Status write_stream(UdpMessageBuffer&msg_out, QuicStreamID sid, td::BufferSlice data, bool fin);
 
   ~QuicConnectionPImpl() {
     if (conn) {
