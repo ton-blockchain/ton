@@ -45,7 +45,7 @@ class QuicSender : public adnl::AdnlSenderInterface {
   void after_in_message(AdnlPath path, td::BufferSlice data);
 
   td::actor::ActorId<adnl::AdnlPeerTable> adnl_;
-  td::Slice cert_file_, key_file_;
+  td::BufferSlice cert_file_, key_file_;
 
   std::map<AdnlPath, OutboundConnection> outbound_;
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<QuicServer>> inbound_;

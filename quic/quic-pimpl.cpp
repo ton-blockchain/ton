@@ -257,7 +257,7 @@ td::Result<QuicStreamID> QuicConnectionPImpl::open_stream() {
   return sid;
 }
 
-td::Status QuicConnectionPImpl::write_stream(UdpMessageBuffer& msg_out, QuicStreamID sid, td::Slice data, bool fin) {
+td::Status QuicConnectionPImpl::write_stream(UdpMessageBuffer& msg_out, QuicStreamID sid, td::BufferSlice data, bool fin) {
   ngtcp2_vec vec{};
   vec.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(data.data()));
   vec.len = data.size();
