@@ -114,6 +114,10 @@ int emulate_negate(int a) {
   if ((a & f) && (~a & f)) {
     a ^= f;
   }
+  f = VarDescr::_Bit | VarDescr::_Bool;
+  if ((a & f) && (~a & f)) {
+    a ^= f;
+  }
   return a;
 }
 
@@ -148,9 +152,9 @@ int emulate_sub(int a, int b) {
 }
 
 int emulate_mul(int a, int b) {
-  if ((b & VarDescr::ConstOne) == VarDescr::ConstOne) {
+  if ((b & (VarDescr::_NonZero | VarDescr::_Bit)) == (VarDescr::_NonZero | VarDescr::_Bit)) {
     return a;
-  } else if ((a & VarDescr::ConstOne) == VarDescr::ConstOne) {
+  } else if ((a & (VarDescr::_NonZero | VarDescr::_Bit)) == (VarDescr::_NonZero | VarDescr::_Bit)) {
     return b;
   }
   int u = a & b, v = a | b;
@@ -170,6 +174,11 @@ int emulate_mul(int a, int b) {
   } else if (!(~v & (VarDescr::_Pos | VarDescr::_Neg))) {
     r |= VarDescr::_Neg;
   }
+  if (u & (VarDescr::_Bit | VarDescr::_Bool)) {
+    r |= VarDescr::_Bit;
+  } else if (!(~v & (VarDescr::_Bit | VarDescr::_Bool))) {
+    r |= VarDescr::_Bool;
+  }
   r |= v & VarDescr::_Even;
   r |= u & (VarDescr::_Odd | VarDescr::_NonZero);
   return r;
@@ -186,6 +195,7 @@ int emulate_bitwise_and(int a, int b) {
     return VarDescr::ConstZero;
   }
   r |= both & (VarDescr::_Even | VarDescr::_Odd);
+  r |= both & (VarDescr::_Bit | VarDescr::_Bool);
   if (both & VarDescr::_Odd) {
     r |= VarDescr::_NonZero;
   }
@@ -241,7 +251,7 @@ int emulate_bitwise_not(int a) {
   if ((a2 & f) && (~a2 & f)) {
     a2 ^= f;
   }
-  a2 &= ~(VarDescr::_Zero | VarDescr::_NonZero | VarDescr::_Pos | VarDescr::_Neg);
+  a2 &= ~(VarDescr::_Zero | VarDescr::_NonZero | VarDescr::_Bit | VarDescr::_Pos | VarDescr::_Neg);
   if ((a & VarDescr::_Neg) && (a & VarDescr::_NonZero)) {
     a2 |= VarDescr::_Pos;
   }
@@ -264,9 +274,9 @@ int emulate_lshift(int a, int b) {
 }
 
 int emulate_div(int a, int b) {
-  if ((b & VarDescr::ConstOne) == VarDescr::ConstOne) {
+  if ((b & (VarDescr::_NonZero | VarDescr::_Bit)) == (VarDescr::_NonZero | VarDescr::_Bit)) {
     return a;
-  } else if ((b & VarDescr::ConstOne) == VarDescr::ConstOne) {
+  } else if ((b & (VarDescr::_NonZero | VarDescr::_Bool)) == (VarDescr::_NonZero | VarDescr::_Bool)) {
     return emulate_negate(a);
   }
   if (b & VarDescr::_Zero) {
@@ -289,6 +299,11 @@ int emulate_div(int a, int b) {
   } else if (!(~v & (VarDescr::_Pos | VarDescr::_Neg))) {
     r |= VarDescr::_Neg;
   }
+  if (u & (VarDescr::_Bit | VarDescr::_Bool)) {
+    r |= VarDescr::_Bit;
+  } else if (!(~v & (VarDescr::_Bit | VarDescr::_Bool))) {
+    r |= VarDescr::_Bool;
+  }
   return r;
 }
 
@@ -305,7 +320,9 @@ int emulate_rshift(int a, int b) {
 }
 
 int emulate_mod(int a, int b, int round_mode = -1) {
-  if ((b & VarDescr::ConstOne) == VarDescr::ConstOne) {
+  if ((b & (VarDescr::_NonZero | VarDescr::_Bit)) == (VarDescr::_NonZero | VarDescr::_Bit)) {
+    return VarDescr::ConstZero;
+  } else if ((b & (VarDescr::_NonZero | VarDescr::_Bool)) == (VarDescr::_NonZero | VarDescr::_Bool)) {
     return VarDescr::ConstZero;
   }
   if (b & VarDescr::_Zero) {
@@ -326,6 +343,14 @@ int emulate_mod(int a, int b, int round_mode = -1) {
     r |= b & (VarDescr::_Pos | VarDescr::_Neg);
   } else if (round_mode > 0) {
     r |= emulate_negate(b) & (VarDescr::_Pos | VarDescr::_Neg);
+  }
+  if (a & (VarDescr::_Bit | VarDescr::_Bool)) {
+    if (r & VarDescr::_Pos) {
+      r |= VarDescr::_Bit;
+    }
+    if (r & VarDescr::_Neg) {
+      r |= VarDescr::_Bool;
+    }
   }
   if (b & VarDescr::_Even) {
     r |= a & (VarDescr::_Even | VarDescr::_Odd);
@@ -1366,6 +1391,12 @@ static AsmOp compile_push_null(std::vector<VarDescr>&, std::vector<VarDescr>&, A
 // fun __isNull<X>(X arg): bool
 static AsmOp compile_is_null(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(args.size() == 1 && res.size() == 1);
+  auto &x = args[0], &r = res[0];
+  if (x.always_null() || x.always_not_null()) {
+    x.unused();
+    r.set_const(x.always_null() ? -1 : 0);
+    return push_const(origin, r.int_const);
+  }
   res[0].val = VarDescr::ValBool;
   return exec_op(origin, "ISNULL", 1, 1);
 }

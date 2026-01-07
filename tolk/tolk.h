@@ -63,23 +63,28 @@ struct VarDescr {
   enum { _Last = 1, _Unused = 2 };
   int flags;
   enum {
+    _Const = 16,
     _Int = 32,
     _Zero = 64,
     _NonZero = 128,
     _Pos = 256,
     _Neg = 512,
+    _Bool = 1024,
+    _Bit = 2048,
     _Finite = 4096,
     _Nan = 8192,
     _Even = 16384,
     _Odd = 32768,
+    _Null = (1 << 16),
+    _NotNull = (1 << 17)
   };
-  static constexpr int ConstZero  = _Int | _Zero | _Pos | _Neg | _Finite | _Even;
-  static constexpr int ConstOne   = _Int | _NonZero | _Pos | _Finite | _Odd;
-  static constexpr int ConstTrue  = _Int | _NonZero | _Neg | _Finite | _Odd;
-  static constexpr int ValBit     = _Int | _Pos | _Finite;
-  static constexpr int ValBool    = _Int | _Neg | _Finite;
-  static constexpr int FiniteInt  = _Int | _Finite;
-  static constexpr int FiniteUInt = _Int | _Finite | _Pos;
+  static constexpr int ConstZero = _Int | _Zero | _Pos | _Neg | _Bool | _Bit | _Finite | _Even | _NotNull;
+  static constexpr int ConstOne = _Int | _NonZero | _Pos | _Bit | _Finite | _Odd | _NotNull;
+  static constexpr int ConstTrue = _Int | _NonZero | _Neg | _Bool | _Finite | _Odd | _NotNull;
+  static constexpr int ValBit = ConstZero & ConstOne;
+  static constexpr int ValBool = ConstZero & ConstTrue;
+  static constexpr int FiniteInt = _Int | _Finite | _NotNull;
+  static constexpr int FiniteUInt = FiniteInt | _Pos;
   int val;
   td::RefInt256 int_const;
 
@@ -112,13 +117,14 @@ struct VarDescr {
   bool always_odd() const {
     return val & _Odd;
   }
+  bool always_null() const {
+    return val & _Null;
+  }
+  bool always_not_null() const {
+    return val & _NotNull;
+  }
   bool is_int_const() const {
-#ifdef TOLK_DEBUG
-    if (int_const.not_null()) {
-      tolk_assert(val & _Int);
-    }
-#endif
-    return int_const.not_null();
+    return (val & (_Int | _Const)) == (_Int | _Const) && int_const.not_null();
   }
   bool always_nonpos() const {
     return val & _Neg;

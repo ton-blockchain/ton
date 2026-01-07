@@ -179,6 +179,20 @@ fun test11(a: int, b: int) {
     return ((b < a), (b <= a), (b > a), (b >= a));
 }
 
+@noinline
+fun throwIfNotDivisibleBy3(len: int) {
+    if (len % 3) {
+        throw 123;
+    }
+    return 100;
+}
+
+@method_id(112)
+fun test12() {
+    try { return throwIfNotDivisibleBy3(100); }
+    catch (ex) { return ex; }
+}
+
 fun main() {
     // mark used to codegen them
     cmp1; cmp2; cmp3; cmp4;
@@ -198,6 +212,7 @@ fun main() {
 @testcase | 110 | 5 8     | 3
 @testcase | 111 | 5 8     | 0 0 -1 -1
 @testcase | 111 | 7 7     | 0 -1 0 -1
+@testcase | 112 |         | 123
 
 @fif_codegen
 """

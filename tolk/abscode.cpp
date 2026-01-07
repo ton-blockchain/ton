@@ -59,6 +59,9 @@ void VarDescr::show_value(std::ostream& os) const {
   if (val & _Int) {
     os << 'i';
   }
+  if (val & _Const) {
+    os << 'c';
+  }
   if (val & _Zero) {
     os << '0';
   }
@@ -70,6 +73,12 @@ void VarDescr::show_value(std::ostream& os) const {
   }
   if (val & _Neg) {
     os << '<';
+  }
+  if (val & _Bool) {
+    os << 'B';
+  }
+  if (val & _Bit) {
+    os << 'b';
   }
   if (val & _Even) {
     os << 'E';
@@ -111,16 +120,22 @@ void VarDescr::set_const(td::RefInt256 value) {
   if (!int_const->signed_fits_bits(257)) {
     int_const.write().invalidate();
   }
-  val = _Int;
+  val = _Const | _Int;
   int s = sgn(int_const);
   if (s < -1) {
     val |= _Nan | _NonZero;
   } else if (s < 0) {
     val |= _NonZero | _Neg | _Finite;
+    if (*int_const == -1) {
+      val |= _Bool;
+    }
   } else if (s > 0) {
     val |= _NonZero | _Pos | _Finite;
-  } else {
-    val |= _Zero | _Neg | _Pos | _Finite;
+  } else if (!s) {
+    //if (*int_const == 1) {
+    //  val |= _Bit;
+    //}
+    val |= _Zero | _Neg | _Pos | _Finite | _Bool | _Bit;
   }
   if (val & _Finite) {
     val |= int_const->get_bit(0) ? _Odd : _Even;
@@ -129,39 +144,39 @@ void VarDescr::set_const(td::RefInt256 value) {
 
 void VarDescr::set_const(const std::string&) {
   int_const.clear();
-  val = 0;
+  val = _Const;
 }
 
 void VarDescr::operator|=(const VarDescr& y) {
-  if (is_int_const()) {
-    bool y_same = y.is_int_const() && *int_const == *y.int_const;
-    if (!y_same) {
-      int_const.clear();
-    }
-  }
   val &= y.val;
+  if (is_int_const() && y.is_int_const() && cmp(int_const, y.int_const) != 0) {
+    val &= ~_Const;
+  }
+  if (!(val & _Const)) {
+    int_const.clear();
+  }
 }
 
 void VarDescr::operator&=(const VarDescr& y) {
-  if (y.is_int_const()) {
+  val |= y.val;
+  if (y.int_const.not_null() && int_const.is_null()) {
     int_const = y.int_const;
   }
-  val |= y.val;
 }
 
 void VarDescr::set_value(const VarDescr& y) {
-  int_const = y.int_const;
   val = y.val;
+  int_const = y.int_const;
 }
 
 void VarDescr::set_value(VarDescr&& y) {
-  int_const = std::move(y.int_const);
   val = y.val;
+  int_const = std::move(y.int_const);
 }
 
 void VarDescr::clear_value() {
-  int_const.clear();
   val = 0;
+  int_const.clear();
 }
 
 void VarDescrList::show(std::ostream& os) const {
