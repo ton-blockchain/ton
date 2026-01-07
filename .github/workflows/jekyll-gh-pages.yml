@@ -1,0 +1,468 @@
+              - name: Designite Incremental Code Quality Analysis
+  # You may pin to the exact commit or the version.
+  # uses: DesigniteTools/designite-incremental-analysis@c9ec3cf4d058aa09194f2285f3e8f299cfdfd66f
+  uses: DesigniteTools/designite-incremental-analysis@v2.1.0
+  with:
+    # GitHub token created during workflow execution (Set to Read and Write)
+    github-token: 
+    # Code quality analysis output folder name from previous commit
+    designite-output-old: 
+    # Code quality analysis output folder name from current commit
+    designite-output-new: 
+    # Repository name
+    repo-name: 
+    # Tool used for code analysis (dj or dpy)
+    tool-name: 
+                      - name: Run Parasoft C/C++test
+  # You may pin to the exact commit or the version.
+  # uses: parasoft/run-cpptest-action@b8d80cb3a54e92da530d4857477c18b9b55e707b
+  uses: parasoft/run-cpptest-action@2.0.1
+  with:
+    # Installation folder of Parasoft C/C++test. If not specified, the cpptestcli executable must be added to $PATH.
+    installDir: # optional
+    # Working directory for running C/C++test.
+    workingDir: # optional, default is ${{ github.workspace }}
+    # Identifier of a compiler configuration. Ensure you specify the configuration that matches your compiler.
+    compilerConfig: # optional, default is gcc_9-64
+    # Test configuration to be used for code analysis.
+    testConfig: # optional, default is builtin://Recommended Rules
+    # Output folder for reports from code analysis.
+    reportDir: # optional, default is reports
+    # Format of reports from code analysis.
+    reportFormat: # optional, default is xml,html,sarif
+    # Input scope for analysis (typically, cpptestscan.bdf or compile_commands.json, depending on the project type and the build system).
+    input: # optional, default is cpptestscan.bdf
+    # Additional parameters for the cpptestcli executable.
+    additionalParams: # optional, default is 
+    # Command line pattern for running C/C++test.
+    commandLinePattern: # optional, default is ${cpptestcli} -compiler "${compilerConfig}" -config "${testConfig}" -property report.format=${reportFormat} -report "${reportDir}" -module . -input "${input}" ${additionalParams}
+                      - name: SecureStack All-In-One GitHub Action
+  # You may pin to the exact commit or the version.
+  # uses: SecureStackCo/actions-all-in-one@96dc79a3c4081a8333040c6bf84b0c528ccb1eb9
+  uses: SecureStackCo/actions-all-in-one@v0.1.2
+  with:
+    # SecureStack API key - generate an API key at https://app.securestack.com
+    securestack_api_key: 
+    # SecureStack Application ID - can be retrieved by accessing required application at https://app.securestack.com
+    securestack_app_id: 
+    # Severities lower than this value will be reported in the workflow console but will not cause an error for the action; value should be one of: critical | high | medium | low
+    severity: 
+                         - name: Run Parasoft Jtest
+  # You may pin to the exact commit or the version.
+  # uses: parasoft/run-jtest-action@911ad01303d296e5dcb0af47f23890e5ee0e610c
+  uses: parasoft/run-jtest-action@2.0.2
+  with:
+    # Installation folder of Parasoft Jtest. If not specified, the cpptestcli executable must be added to PATH.
+    installDir: # optional
+    # Working directory for running Jtest.
+    workingDir: # optional, default is ${{ github.workspace }}
+    # Test configuration to be used for code analysis.
+    testConfig: # optional, default is builtin://Recommended Rules
+    # Output folder for reports from code analysis.
+    reportDir: # optional, default is reports
+    # Format of reports from code analysis.
+    reportFormat: # optional, default is xml,html,sarif
+    # Input scope for analysis.
+    input: # optional, default is jtest.data.json
+    # Additional parameters for the jtestcli executable.
+    additionalParams: # optional, default is 
+                     - name: validate-license-action
+  # You may pin to the exact commit or the version.
+  # uses: datreeio/validate-license-action@69e5b55debf4046461b0d21cced2f444937f863f
+  uses: datreeio/validate-license-action@v1.0.0
+                  - name: SecureStack Secrets Analysis
+  # You may pin to the exact commit or the version.
+  # uses: SecureStackCo/actions-secrets@68f5dca939e2bf6b627449bd5c00f1bb423b01ca
+  uses: SecureStackCo/actions-secrets@v0.1.3
+  with:
+    # SecureStack API key - generate one at https://app.securestack.com
+    securestack_api_key: 
+    # SecureStack Application ID - available when viewing applications at https://app.securestack.com
+    securestack_app_id: 
+    # Severities lower than this input value will not be reported; value should be one of: critical | high | medium | low
+    severity: 
+    # Optional flags for the bloodhound-cli secrets command - run bloodhound-cli code --help for more details.
+    flags: # optional, default is 
+          #             - name: Montara CI
+  # You may pin to the exact commit or the version.
+  # uses: montara-io/montara-ci@eca5afc53f2e39c847d187e4bf43b1bef9e1056e
+  uses: montara-io/montara-ci@v1.0.20
+  with:
+    # The URL of the webhook
+    webhookUrl: 
+    # Whether to use smart run, defaults to true
+    isSmartRun: # optional, default is true
+    # The variables to pass to the test run, a stringified JSON object of key-value pairs. for example: {"var1": "value1", "var2": "value2"}
+    variables: # optional
+    # Whether to allow concurrent pipeline runs, defaults to true
+    allowConcurrentPipelineRuns: # optional, default is true
+    # The number of retries to attempt
+    numRetries: # optional, default is 60
+                      - name: Xanitizer Security Analysis
+  # You may pin to the exact commit or the version.
+  # uses: RIGS-IT/xanitizer-action@87d13138fb113b727cbe040c744a15a2b4fe5316
+  uses: RIGS-IT/xanitizer-action@v1.0.1
+  with:
+    # String which is used as input for a Xanitizer license file. Note: It is recommended to use a GitHub secret to store the license file content like XANITIZER_LICENSE and access the content in the configuration via the GitHub secret parameter. Please see https://docs.github.com/en/actions/configuring-and-managing-workflows/creating-and-storing-encrypted-secrets for details. Note: If the license is a floating license and a proxy server is used to access the license server, please specify the proxy server settings. If no settings are specified, the settings from the Xanitizer properties file will be used.
+    license: # optional
+    # Number of attempts to get a license token from the license server. Note: If the used Xanitizer license is a machine bound license, this parameter will be ignored. If the used Xanitizer license is a floating license it may happen that all tokens are in use or the connection to the license server is not available at startup. In such cases, no license token can be requested successfully from the license server to start Xanitizer and the headless process would terminate with a license error. When this parameter is set to a value greater than zero, Xanitizer attempts every minute to request a license token until the specified count has been reached. Setting this parameter to zero disables the repetition.
+    licenseServerRetryCount: # optional
+    # Relative path under $GITHUB_WORKSPACE where the project was checked out. Note: Please use the same value as for parameter `path` of the configured actions/checkout action (see https://github.com/actions/checkout#usage parameter `path`).
+    checkoutPath: # optional
+    # The output location of the overview report. This has to be either a list of files or the parameter has to be undefined or empty if no overview reports should be written. Allowed file extensions are: pdf, html, docx.
+    overviewReportOutputFile: # optional
+    # Comma separated list of output locations of the overview reports. This has to be either a list of files or the parameter has to be undefined or empty if no overview reports should be written. Allowed file extensions are: pdf, html, docx.
+    overviewReportOutputFiles: # optional
+    # The output location of the findings list report. This has to be either a list of files or the parameter has to be undefined or empty if no findings list reports should be written. Allowed file extensions are: pdf, html, docx, xml, csv, sarif.
+    findingsListReportOutputFile: # optional
+    # Comma separated list of output locations of the findings list reports. This has to be either a list of files or the parameter has to be undefined or empty if no findings list reports should be written. Allowed file extensions are: pdf, html, docx, xml, csv, sarif. Note: If no report file has been secified, i.e., neither an overview report nor a findings list report, both a Xanitizer-Findings-List.pdf and a Xanitizer-Findings-List.sarif report will be generated in the checkout directory specified by $GITHUB_WORKSPACE with the optional relative parameter `checkoutPath` as default.
+    findingsListReportOutputFiles: # optional
+    # Boolean flag specifying if only findings with problem classifications are written to the findings list report.
+    onlyProblemsInFindingsListReport: # optional, default is true
+    # Boolean flag specifying if all the details of a finding are written to the findings list report, e.g. if the output contains all steps of a path. Note: Only relevant if the file extension of the parameter `findingsListReportOutputFile` is xml, html, or sarif.
+    generateDetailsInFindingsListReport: # optional, default is true
+    # The path to the Xanitizer configuration file of the project that should be analyzed. Either this parameter or the parameter `rootDirectory` may be specified, but not both. Note: If neither the parameter `configFile` nor the parameter `rootDirectory` has been specified, the parameter `rootDirectory` is set to the checkout directory specified by $GITHUB_WORKSPACE with the optional relative parameter `checkoutPath`.
+    configFile: # optional
+    # The root directory, to be used for default set-ups. Either this parameter or the parameter `configFile` may be specified, but not both. Note: If neither the parameter `configFile` nor the parameter `rootDirectory` has been specified, the parameter `rootDirectory` is set to the checkout directory specified by $GITHUB_WORKSPACE with the optional relative parameter `checkoutPath`.
+    rootDirectory: # optional
+    # The project name that should be used. Only relevant if the parameter `rootDirectory` is specified. If not given, the simple name of the root directory is used.
+    projectName: # optional
+    # The directory where to put the generated configuration file. Only relevant if the parameter `rootDirectory` is specified. If not given, the configuration file is generated in the `rootDirectory`.
+    configFileDirectory: # optional
+    # Boolean flag specifying if an existing config file is to be overwritten. Only relevant if the parameter `rootDirectory` is specified.
+    overwriteConfigFile: # optional
+    # Boolean flag specifying whether Xanitizer uses NodeJS to compile Angular and TypeScript projects to JavaScript code itself or not. This could be a potential risk if someone has manipulated the external ng or the tsc script. If the code is already compiled to JavaScript, best with a source map, this option can be set to `false` true - enables the compilation of Angular and TypeScript code to JavaScript by Xanitizer itself false - disables the compilation of Angular and TypeScript code to JavaScript by Xanitizer itself and some Xanitizer workspace information will be generated if Angular or Typescript files are found in the project not set - if this option is not set and Angular or Typescript files are found in the project, a Xanitizer workspace error will be generated 
+    compileToJavaScript: # optional, default is true
+    # Boolean flag specifying if npm audit should be executed. The npm audit APIs can be used to report on known vulnerable node.js libraries. This requires an Internet connection and so has to be allowed explicitly. This is only relevant for NodeJS projects.
+    performNodeAudit: # optional, default is true
+    # Boolean flag specifying whether the task should fail if there are search paths configured that do not exist.
+    haltOnMissingSearchPaths: # optional
+    # A comma - separated list of issue groups that will let the task fail if for any of them, a Xanitizer error issue occurs. Possible values are ALL_ERRORS, WORKSPACE_ERRORS, CALL_GRAPH_ERRORS, ANALYSIS_ERRORS, MIGRATION_ERRORS. If the value is not set, this means that issues are not relevant for the success of the task.
+    haltOnIssues: # optional
+    # Boolean flag specifying whether the task should fail if there are findings with a rating equal or higher than the value defined for `findingsRatingThreshold`.
+    haltOnFindings: # optional
+    # A rating value. Only used if the parameter `haltOnFindings` is set.
+    findingsRatingThreshold: # optional
+    # Boolean flag specifying whether the OWASP Dependency Check repository should be updated or not. Note: The OWASP Dependency Check is based on vulnerability data stored in a local repository. It is recommended to update the local OWASP Dependency Check repository on a regular basis via remote access to the National Vulnerability Database (NIST). If a proxy server is used to access the internet, please specify the proxy server settings otherwise the settings from the Xanitizer properties file will be used.
+    updateOwaspDependencyCheckRepository: # optional
+    # The logging level to be used when running Xanitizer. Values: OFF, SEVERE, WARNING, INFO, CONFIG, FINE, FINER, FINEST, ALL.
+    logLevel: # optional
+    # Xanitizer`s project data directory, if it is not the default one in <HOME>/.Xanitizer.
+    projectDataDirectory: # optional
+    # Boolean flag specifying whether the task should fail if there are * NEW * findings with a rating equal or higher than the value defined for `newFindingsRating`.
+    haltOnNewFindings: # optional
+    # A rating value. Only used if the parameter `haltOnNewFindings` is set.
+    newFindingsRatingThreshold: # optional
+    # Optional path to the local Maven repository. Note: If no settings are specified, the settings from the Xanitizer properties file will be used.
+    mavenRepository: # optional
+    # Boolean flag specifying whether a snapshot should be created after parsing and analyzing the current version or not.
+    createSnapshot: # optional
+    # Optional comment added to the newly created snapshot. Only relevant if the parameter `createSnapshot` is true.
+    snapshotComment: # optional
+    # The output directory of the project export. Note: If the parameter is undefined or an empty string, the project is not exported.
+    exportDirectory: # optional
+    # Boolean flag specifying if snapshots should be exported or not. The parameter is only used if an export directory is set. If the parameter is not set or empty, no snapshots are exported.
+    exportSnapshots: # optional
+    # The passphrase for the project export. The parameter is only used if an export directory is set. If the parameter is not set or empty, the exported project is not encrypted. Note: It is recommended to use a GitHub secret to store the export like XANITIZER_EXPORT_PASSPHRASE and access the content in the configuration via the GitHub secret parameter. Please see https://docs.github.com/en/actions/configuring-and-managing-workflows/creating-and-storing-encrypted-secrets for details.
+    exportPassphrase: # optional
+    # The path to an exported Xanitizer project archive file. If specified, this project is merged into the current project. This means that all more recent user adaptations, findings and issues are migrated into the current project.
+    mergedProject: # optional
+    # The passphrase for the merged project. The parameter is only necessary if the parameter `mergedProject` is set and the merged project is encrypted. Note: It is recommended to use a GitHub secret to store the export passphrase like XANITIZER_EXPORT_PASSPHRASE. and access the content in the configuration via the GitHub secret parameter. Please see https://docs.github.com/en/actions/configuring-and-managing-workflows/creating-and-storing-encrypted-secrets for details.
+    importPassphrase: # optional
+    # Optional proxy server to access the internet to update the OWASP Dependency Check repository or to request a license token from the public license server in case of a floating license via a proxy. Note: If no settings are specified, the settings from the Xanitizer properties file will be used.
+    proxyServer: # optional
+    # Optional proxy server port.
+    proxyPort: # optional
+    # Optional proxy server user name.
+    proxyUser: # optional
+    # Optional proxy server user password.
+    proxyPassword: # optional
+                       - name: Close Stale Issues
+  uses: actions/stale@v10.1.1
+  with:
+    # Token for the repository. Can be passed in using `{{ secrets.GITHUB_TOKEN }}`.
+    repo-token: # optional, default is ${{ github.token }}
+    # The message to post on the issue when tagging it. If none provided, will not mark issues stale.
+    stale-issue-message: # optional
+    # The message to post on the pull request when tagging it. If none provided, will not mark pull requests stale.
+    stale-pr-message: # optional
+    # The message to post on the issue when closing it. If none provided, will not comment when closing an issue.
+    close-issue-message: # optional
+    # The message to post on the pull request when closing it. If none provided, will not comment when closing a pull requests.
+    close-pr-message: # optional
+    # The number of days old an issue or a pull request can be before marking it stale. Set to -1 to never mark issues or pull requests as stale automatically.
+    days-before-stale: # optional, default is 60
+    # The number of days old an issue can be before marking it stale. Set to -1 to never mark issues as stale automatically. Override "days-before-stale" option regarding only the issues.
+    days-before-issue-stale: # optional
+    # The number of days old a pull request can be before marking it stale. Set to -1 to never mark pull requests as stale automatically. Override "days-before-stale" option regarding only the pull requests.
+    days-before-pr-stale: # optional
+    # The number of days to wait to close an issue or a pull request after it being marked stale. Set to -1 to never close stale issues or pull requests.
+    days-before-close: # optional, default is 7
+    # The number of days to wait to close an issue after it being marked stale. Set to -1 to never close stale issues. Override "days-before-close" option regarding only the issues.
+    days-before-issue-close: # optional
+    # The number of days to wait to close a pull request after it being marked stale. Set to -1 to never close stale pull requests. Override "days-before-close" option regarding only the pull requests.
+    days-before-pr-close: # optional
+    # The label to apply when an issue is stale.
+    stale-issue-label: # optional, default is Stale
+    # The label to apply when an issue is closed.
+    close-issue-label: # optional
+    # The labels that mean an issue is exempt from being marked stale. Separate multiple labels with commas (eg. "label1,label2").
+    exempt-issue-labels: # optional, default is 
+    # The reason to use when closing an issue.
+    close-issue-reason: # optional, default is not_planned
+    # The label to apply when a pull request is stale.
+    stale-pr-label: # optional, default is Stale
+    # The label to apply when a pull request is closed.
+    close-pr-label: # optional
+    # The labels that mean a pull request is exempt from being marked as stale. Separate multiple labels with commas (eg. "label1,label2").
+    exempt-pr-labels: # optional, default is 
+    # The milestones that mean an issue or a pull request is exempt from being marked as stale. Separate multiple milestones with commas (eg. "milestone1,milestone2").
+    exempt-milestones: # optional, default is 
+    # The milestones that mean an issue is exempt from being marked as stale. Separate multiple milestones with commas (eg. "milestone1,milestone2"). Override "exempt-milestones" option regarding only the issues.
+    exempt-issue-milestones: # optional, default is 
+    # The milestones that mean a pull request is exempt from being marked as stale. Separate multiple milestones with commas (eg. "milestone1,milestone2"). Override "exempt-milestones" option regarding only the pull requests.
+    exempt-pr-milestones: # optional, default is 
+    # Exempt all issues and pull requests with milestones from being marked as stale. Default to false.
+    exempt-all-milestones: # optional, default is false
+    # Exempt all issues with milestones from being marked as stale. Override "exempt-all-milestones" option regarding only the issues.
+    exempt-all-issue-milestones: # optional, default is 
+    # Exempt all pull requests with milestones from being marked as stale. Override "exempt-all-milestones" option regarding only the pull requests.
+    exempt-all-pr-milestones: # optional, default is 
+    # Only issues or pull requests with all of these labels are checked if stale. Defaults to `` (disabled) and can be a comma-separated list of labels.
+    only-labels: # optional, default is 
+    # Only issues or pull requests with at least one of these labels are checked if stale. Defaults to `` (disabled) and can be a comma-separated list of labels.
+    any-of-labels: # optional, default is 
+    # Only issues with at least one of these labels are checked if stale. Defaults to `` (disabled) and can be a comma-separated list of labels. Override "any-of-labels" option regarding only the issues.
+    any-of-issue-labels: # optional, default is 
+    # Only pull requests with at least one of these labels are checked if stale. Defaults to `` (disabled) and can be a comma-separated list of labels. Override "any-of-labels" option regarding only the pull requests.
+    any-of-pr-labels: # optional, default is 
+    # Only issues with all of these labels are checked if stale. Defaults to `[]` (disabled) and can be a comma-separated list of labels. Override "only-labels" option regarding only the issues.
+    only-issue-labels: # optional, default is 
+    # Only pull requests with all of these labels are checked if stale. Defaults to `[]` (disabled) and can be a comma-separated list of labels. Override "only-labels" option regarding only the pull requests.
+    only-pr-labels: # optional, default is 
+    # The maximum number of operations per run, used to control rate limiting (GitHub API CRUD related).
+    operations-per-run: # optional, default is 30
+    # Remove stale labels from issues and pull requests when they are updated or commented on.
+    remove-stale-when-updated: # optional, default is true
+    # Remove stale labels from issues when they are updated or commented on. Override "remove-stale-when-updated" option regarding only the issues.
+    remove-issue-stale-when-updated: # optional, default is 
+    # Remove stale labels from pull requests when they are updated or commented on. Override "remove-stale-when-updated" option regarding only the pull requests.
+    remove-pr-stale-when-updated: # optional, default is 
+    # Run the processor in debug mode without actually performing any operations on live issues.
+    debug-only: # optional, default is false
+    # The order to get issues or pull requests. Defaults to false, which is descending.
+    ascending: # optional, default is false
+    # What to sort results by. Valid options are `created`, `updated`, and `comments`. Defaults to `created`.
+    sort-by: # optional, default is created
+    # Delete the git branch after closing a stale pull request.
+    delete-branch: # optional, default is false
+    # The date used to skip the stale action on issue/pull request created before it (ISO 8601 or RFC 2822).
+    start-date: # optional, default is 
+    # The assignees which exempt an issue or a pull request from being marked as stale. Separate multiple assignees with commas (eg. "user1,user2").
+    exempt-assignees: # optional, default is 
+    # The assignees which exempt an issue from being marked as stale. Separate multiple assignees with commas (eg. "user1,user2"). Override "exempt-assignees" option regarding only the issues.
+    exempt-issue-assignees: # optional, default is 
+    # The assignees which exempt a pull request from being marked as stale. Separate multiple assignees with commas (eg. "user1,user2"). Override "exempt-assignees" option regarding only the pull requests.
+    exempt-pr-assignees: # optional, default is 
+    # Exempt all issues and pull requests with assignees from being marked as stale. Default to false.
+    exempt-all-assignees: # optional, default is false
+    # Exempt all issues with assignees from being marked as stale. Override "exempt-all-assignees" option regarding only the issues.
+    exempt-all-issue-assignees: # optional, default is 
+    # Exempt all pull requests with assignees from being marked as stale. Override "exempt-all-assignees" option regarding only the pull requests.
+    exempt-all-pr-assignees: # optional, default is 
+    # Exempt draft pull requests from being marked as stale. Default to false.
+    exempt-draft-pr: # optional, default is false
+    # Display some statistics at the end regarding the stale workflow (only when the logs are enabled).
+    enable-statistics: # optional, default is true
+    # A comma delimited list of labels to add when an issue or pull request becomes unstale.
+    labels-to-add-when-unstale: # optional, default is 
+    # A comma delimited list of labels to remove when an issue or pull request becomes stale.
+    labels-to-remove-when-stale: # optional, default is 
+    # A comma delimited list of labels to remove when an issue or pull request becomes unstale.
+    labels-to-remove-when-unstale: # optional, default is 
+    # Any update (update/comment) can reset the stale idle time on the issues and pull requests.
+    ignore-updates: # optional, default is false
+    # Any update (update/comment) can reset the stale idle time on the issues. Override "ignore-updates" option regarding only the issues.
+    ignore-issue-updates: # optional, default is 
+    # Any update (update/comment) can reset the stale idle time on the pull requests. Override "ignore-updates" option regarding only the pull requests.
+    ignore-pr-updates: # optional, default is 
+    # Only the issues or the pull requests with an assignee will be marked as stale automatically.
+    include-only-assigned: # optional, default is false
+    # Only issues with a matching type are processed as stale/closed. Defaults to `[]` (disabled) and can be a comma-separated list of issue types.
+    only-issue-types: # optional, default is 
+                     - name: First interaction
+  uses: actions/first-interaction@v1.3.0
+  with:
+    # Token for the repository. Can be passed in using {{ secrets.GITHUB_TOKEN }}
+    repo-token: 
+    # Comment to post on an individual's first issue
+    issue-message: # optional
+    # Comment to post on an individual's first pull request
+    pr-message: # optional
+                      - name: Setup Node.js environment
+  uses: actions/setup-node@v6.1.0
+  with:
+    # Version Spec of the version to use. Examples: 12.x, 10.15.1, >=10.15.0.
+    node-version: # optional
+    # File containing the version Spec of the version to use.  Examples: package.json, .nvmrc, .node-version, .tool-versions.
+    node-version-file: # optional
+    # Target architecture for Node to use. Examples: x86, x64. Will use system architecture by default.
+    architecture: # optional
+    # Set this option if you want the action to check for the latest available version that satisfies the version spec.
+    check-latest: # optional
+    # Optional registry to set up for auth. Will set the registry in a project level .npmrc and .yarnrc file, and set up auth to read in from env.NODE_AUTH_TOKEN.
+    registry-url: # optional
+    # Optional scope for authenticating against scoped registries. Will fall back to the repository owner when using the GitHub Packages registry (https://npm.pkg.github.com/).
+    scope: # optional
+    # Used to pull node distributions from node-versions. Since there's a default, this is typically not supplied by the user. When running this action on github.com, the default value is sufficient. When running on GHES, you can pass a personal access token for github.com if you are experiencing rate limiting.
+    token: # optional, default is ${{ github.server_url == 'https://github.com' && github.token || '' }}
+    # Used to specify a package manager for caching in the default directory. Supported values: npm, yarn, pnpm.
+    cache: # optional
+    # Set to false to disable automatic caching. By default, caching is enabled when either devEngines.packageManager or the top-level packageManager field in package.json specifies npm as the package manager.
+    package-manager-cache: # optional, default is true
+    # Used to specify the path to a dependency file: package-lock.json, yarn.lock, etc. Supports wildcards or a list of file names for caching multiple dependencies.
+    cache-dependency-path: # optional
+    # Used to specify an alternative mirror to downlooad Node.js binaries from
+    mirror: # optional
+    # The token used as Authorization header when fetching from the mirror
+    mirror-token: # optional
+                      - name: Setup Java JDK
+  uses: actions/setup-java@v5.1.0
+  with:
+    # The Java version to set up. Takes a whole or semver Java version. See examples of supported syntax in README file
+    java-version: # optional
+    # The path to the `.java-version` file. See examples of supported syntax in README file
+    java-version-file: # optional
+    # Java distribution. See the list of supported distributions in README file
+    distribution: 
+    # The package type (jdk, jre, jdk+fx, jre+fx)
+    java-package: # optional, default is jdk
+    # The architecture of the package (defaults to the action runner's architecture)
+    architecture: # optional
+    # Path to where the compressed JDK is located
+    jdkFile: # optional
+    # Set this option if you want the action to check for the latest available version that satisfies the version spec
+    check-latest: # optional
+    # ID of the distributionManagement repository in the pom.xml file. Default is `github`
+    server-id: # optional, default is github
+    # Environment variable name for the username for authentication to the Apache Maven repository. Default is $GITHUB_ACTOR
+    server-username: # optional, default is GITHUB_ACTOR
+    # Environment variable name for password or token for authentication to the Apache Maven repository. Default is $GITHUB_TOKEN
+    server-password: # optional, default is GITHUB_TOKEN
+    # Path to where the settings.xml file will be written. Default is ~/.m2.
+    settings-path: # optional
+    # Overwrite the settings.xml file if it exists. Default is "true".
+    overwrite-settings: # optional, default is true
+    # GPG private key to import. Default is empty string.
+    gpg-private-key: # optional
+    # Environment variable name for the GPG private key passphrase. Default is $GPG_PASSPHRASE.
+    gpg-passphrase: # optional
+    # Name of the build platform to cache dependencies. It can be "maven", "gradle" or "sbt".
+    cache: # optional
+    # The path to a dependency file: pom.xml, build.gradle, build.sbt, etc. This option can be used with the `cache` option. If this option is omitted, the action searches for the dependency file in the entire repository. This option supports wildcards and a list of file names for caching multiple dependencies.
+    cache-dependency-path: # optional
+    # Workaround to pass job status to post job step. This variable is not intended for manual setting
+    job-status: # optional, default is ${{ job.status }}
+    # The token used to authenticate when fetching version manifests hosted on github.com, such as for the Microsoft Build of OpenJDK. When running this action on github.com, the default value is sufficient. When running on GHES, you can pass a personal access token for github.com if you are experiencing rate limiting.
+    token: # optional, default is ${{ github.server_url == 'https://github.com' && github.token || '' }}
+    # Name of Maven Toolchain ID if the default name of "${distribution}_${java-version}" is not wanted. See examples of supported syntax in Advanced Usage file
+    mvn-toolchain-id: # optional
+    # Name of Maven Toolchain Vendor if the default name of "${distribution}" is not wanted. See examples of supported syntax in Advanced Usage file
+    mvn-toolchain-vendor: # optional
+                      - name: Cache
+  uses: actions/cache@v5.0.1
+  with:
+    # A list of files, directories, and wildcard patterns to cache and restore
+    path: 
+    # An explicit key for restoring and saving the cache
+    key: 
+    # An ordered multiline string listing the prefix-matched keys, that are used for restoring stale cache if no cache hit occurred for key. Note `cache-hit` returns false in this case.
+    restore-keys: # optional
+    # The chunk size used to split up large files during upload, in bytes
+    upload-chunk-size: # optional
+    # An optional boolean when enabled, allows windows runners to save or restore caches that can be restored or saved respectively on other platforms
+    enableCrossOsArchive: # optional, default is false
+    # Fail the workflow if cache entry is not found
+    fail-on-cache-miss: # optional, default is false
+    # Check if a cache entry exists for the given input(s) (key, restore-keys) without downloading the cache
+    lookup-only: # optional, default is false
+    # Run the post step to save the cache even if another step before fails
+    save-always: # optional, default is false
+                     - name: Upload a Build Artifact
+  uses: actions/upload-artifact@v6.0.0
+  with:
+    # Artifact name
+    name: # optional, default is artifact
+    # A file, directory or wildcard pattern that describes what to upload
+    path: ./_site
+    # The desired behavior if no files are found using the provided path.
+Available Options:
+  warn: Output a warning but do not fail the action
+  error: Fail the action with an error message
+  ignore: Do not output any warnings or errors, the action does not fail
+
+    if-no-files-found: # optional, default is warn
+    # Duration after which artifact will expire in days. 0 means using default retention.
+Minimum 1 day. Maximum 90 days unless changed from the repository settings page.
+
+    retention-days: # optional
+    # The level of compression for Zlib to be applied to the artifact archive. The value can range from 0 to 9: - 0: No compression - 1: Best speed - 6: Default compression (same as GNU Gzip) - 9: Best compression Higher levels will result in better compression, but will take longer to complete. For large files that are not easily compressed, a value of 0 is recommended for significantly faster uploads.
+
+    compression-level: # optional, default is 6
+    # If true, an artifact with a matching name will be deleted before a new one is uploaded. If false, the action will fail if an artifact for the given name already exists. Does not fail if the artifact does not exist.
+
+    overwrite: # optional, default is false
+    # If true, hidden files will be included in the artifact. If false, hidden files will be excluded from the artifact.
+
+    include-hidden-files: # optional, default is false
+           Sample workflow for building and deploying a Jekyll site to GitHub Pages
+name: Deploy Jekyll with GitHub Pages dependencies preinstalled
+
+on:
+  # Runs on pushes targeting the default branch
+  push:
+    branches: ["master"]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
+# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  # Build job
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      - name: Build with Jekyll
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./
+          destination: ./_site
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+
+  # Deployment job
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
