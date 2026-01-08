@@ -575,6 +575,8 @@ add_executable(test-rldp test/test-rldp.cpp)
 target_link_libraries(test-rldp adnl adnltest dht rldp tl_api)
 add_executable(test-rldp2 test/test-rldp2.cpp)
 target_link_libraries(test-rldp2 adnl adnltest dht rldp2 tl_api)
+add_executable(bench-rldp test/net/bench-rldp.cpp)
+target_link_libraries(bench-rldp adnl adnltest dht rldp rldp2 tl_api quic)
 add_executable(test-validator-session-state test/test-validator-session-state.cpp)
 target_link_libraries(test-validator-session-state adnl dht rldp validatorsession tl_api)
 
