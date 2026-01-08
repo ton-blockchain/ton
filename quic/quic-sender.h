@@ -1,16 +1,19 @@
 #pragma once
 
 #include "adnl/adnl.h"
+#include "keyring/keyring.h"
 #include "td/actor/coro_task.h"
 
+#include "openssl-utils.h"
 #include "quic-client.h"
 #include "quic-server.h"
 
 namespace ton::quic {
 class QuicSender : public adnl::AdnlSenderInterface {
   using AdnlPath = std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>;
+
  public:
-  explicit QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::Slice cert_file, td::Slice key_file);
+  explicit QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::actor::ActorId<keyring::Keyring> keyring);
 
   void send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) override;
   void send_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, std::string name,
@@ -42,13 +45,15 @@ class QuicSender : public adnl::AdnlSenderInterface {
 
   void after_in_init(AdnlPath path, td::IPAddress peer, QuicStreamID sid);
   void after_in_query(AdnlPath path, td::IPAddress peer, QuicStreamID sid, td::BufferSlice data);
-  void after_in_query_answer(adnl::AdnlNodeIdShort local_id, td::IPAddress peer, QuicStreamID sid,td::BufferSlice data);
+  void after_in_query_answer(adnl::AdnlNodeIdShort local_id, td::IPAddress peer, QuicStreamID sid,
+                             td::BufferSlice data);
   void after_in_message(AdnlPath path, td::BufferSlice data);
 
   td::actor::ActorId<adnl::AdnlPeerTable> adnl_;
-  td::BufferSlice cert_file_, key_file_;
+  td::actor::ActorId<keyring::Keyring> keyring_;
 
   std::map<AdnlPath, OutboundConnection> outbound_;
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<QuicServer>> inbound_;
+  std::map<adnl::AdnlNodeIdShort, td::SecureString> local_keys_;  // Cached raw Ed25519 keys
 };
 }  // namespace ton::quic

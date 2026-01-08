@@ -1,13 +1,14 @@
 #include <algorithm>
 #include <cstring>
 #include <limits>
-#include <vector>
 #include <openssl/ssl.h>
 #include <quic-pimpl.h>
+#include <vector>
 
-#include "td/utils/port/UdpSocketFd.h"
 #include "td/utils/logging.h"
+#include "td/utils/port/UdpSocketFd.h"
 
+#include "openssl-utils.h"
 #include "quic-common.h"
 
 namespace ton::quic {
@@ -27,37 +28,36 @@ static ngtcp2_tstamp to_ngtcp2_tstamp(double monotonic_sec) {
 }
 
 td::Status QuicConnectionPImpl::init_tls_client(td::Slice host, td::Slice alpn) {
-  ssl_ctx = SSL_CTX_new(TLS_client_method());
-  if (!ssl_ctx)
-    return td::Status::Error("SSL_CTX_new failed");
+  OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_client_method()), SSL_CTX_free, "Failed to create TLS client context");
 
-  SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, nullptr);
+  SSL_CTX_set_verify(ssl_ctx_ptr.get(), SSL_VERIFY_NONE, nullptr);
 
-  ssl = SSL_new(ssl_ctx);
-  if (!ssl)
-    return td::Status::Error("SSL_new failed");
+  OPENSSL_MAKE_PTR(ssl_ptr, SSL_new(ssl_ctx_ptr.get()), SSL_free, "Failed to create SSL session");
 
-  SSL_set_connect_state(ssl);
+  SSL_set_connect_state(ssl_ptr.get());
 
   std::string host_c(host.begin(), host.end());
-  SSL_set_tlsext_host_name(ssl, host_c.c_str());
+  OPENSSL_CHECK_OK(SSL_set_tlsext_host_name(ssl_ptr.get(), host_c.c_str()), "Failed to set TLS hostname");
 
-  std::string alpn_data(alpn.size() + 1, '\0');
-  alpn_data[0] = static_cast<int8_t>(alpn.size());
-  std::copy_n(alpn.data(), alpn.size(), alpn_data.begin() + 1);
-  SSL_set_alpn_protos(ssl, reinterpret_cast<const unsigned char*>(alpn_data.c_str()),
-                      static_cast<unsigned int>(alpn_data.size()));
+  alpn_wire_.assign(alpn.size() + 1, '\0');
+  alpn_wire_[0] = static_cast<char>(alpn.size());
+  std::memcpy(alpn_wire_.data() + 1, alpn.data(), alpn.size());
+  SSL_set_alpn_protos(ssl_ptr.get(), reinterpret_cast<const unsigned char*>(alpn_wire_.c_str()),
+                      static_cast<unsigned int>(alpn_wire_.size()));
 
   conn_ref.get_conn = get_pimpl_from_ref;
   conn_ref.user_data = this;
-  SSL_set_app_data(ssl, &conn_ref);
+  SSL_set_app_data(ssl_ptr.get(), &conn_ref);
 
-  if (ngtcp2_crypto_ossl_configure_client_session(ssl) != 0)
+  if (ngtcp2_crypto_ossl_configure_client_session(ssl_ptr.get()) != 0) {
     return td::Status::Error("ngtcp2_crypto_ossl_configure_client_session failed");
-
-  if (ngtcp2_crypto_ossl_ctx_new(&ossl_ctx, ssl) != 0)
+  }
+  if (ngtcp2_crypto_ossl_ctx_new(&ossl_ctx, ssl_ptr.get()) != 0) {
     return td::Status::Error("ngtcp2_crypto_ossl_ctx_new failed");
+  }
 
+  ssl_ctx = std::move(ssl_ctx_ptr);
+  ssl = std::move(ssl_ptr);
   return td::Status::OK();
 }
 
@@ -74,49 +74,131 @@ int QuicConnectionPImpl::alpn_select_cb(SSL*, const unsigned char** out, unsigne
 }
 
 td::Status QuicConnectionPImpl::init_tls_server(td::Slice cert_file, td::Slice key_file, td::Slice alpn) {
-  ssl_ctx = SSL_CTX_new(TLS_server_method());
-  if (!ssl_ctx) {
-    return td::Status::Error("SSL_CTX_new failed");
-  }
+  OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_server_method()), SSL_CTX_free, "Failed to create TLS server context");
 
-  SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_3_VERSION);
-  SSL_CTX_set_max_proto_version(ssl_ctx, TLS1_3_VERSION);
-
-  SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, nullptr);
+  SSL_CTX_set_min_proto_version(ssl_ctx_ptr.get(), TLS1_3_VERSION);
+  SSL_CTX_set_max_proto_version(ssl_ctx_ptr.get(), TLS1_3_VERSION);
+  SSL_CTX_set_verify(ssl_ctx_ptr.get(), SSL_VERIFY_NONE, nullptr);
 
   std::string cert(cert_file.begin(), cert_file.end());
   std::string key(key_file.begin(), key_file.end());
-  if (SSL_CTX_use_certificate_file(ssl_ctx, cert.c_str(), SSL_FILETYPE_PEM) != 1) {
-    return td::Status::Error("SSL_CTX_use_certificate_file failed");
-  }
-  if (SSL_CTX_use_PrivateKey_file(ssl_ctx, key.c_str(), SSL_FILETYPE_PEM) != 1) {
-    return td::Status::Error("SSL_CTX_use_PrivateKey_file failed");
-  }
+  OPENSSL_CHECK_OK(SSL_CTX_use_certificate_file(ssl_ctx_ptr.get(), cert.c_str(), SSL_FILETYPE_PEM),
+                   "Failed to load certificate");
+  OPENSSL_CHECK_OK(SSL_CTX_use_PrivateKey_file(ssl_ctx_ptr.get(), key.c_str(), SSL_FILETYPE_PEM),
+                   "Failed to load private key");
 
   alpn_wire_.assign(alpn.size() + 1, '\0');
   alpn_wire_[0] = static_cast<char>(alpn.size());
   std::memcpy(alpn_wire_.data() + 1, alpn.data(), alpn.size());
+  SSL_CTX_set_alpn_select_cb(ssl_ctx_ptr.get(), alpn_select_cb, &alpn_wire_);
 
-  SSL_CTX_set_alpn_select_cb(ssl_ctx, alpn_select_cb, &alpn_wire_);
+  OPENSSL_MAKE_PTR(ssl_ptr, SSL_new(ssl_ctx_ptr.get()), SSL_free, "Failed to create SSL session");
 
-  ssl = SSL_new(ssl_ctx);
-  if (!ssl) {
-    return td::Status::Error("SSL_new failed");
-  }
-  SSL_set_accept_state(ssl);
+  SSL_set_accept_state(ssl_ptr.get());
 
   conn_ref.get_conn = get_pimpl_from_ref;
   conn_ref.user_data = this;
-  SSL_set_app_data(ssl, &conn_ref);
+  SSL_set_app_data(ssl_ptr.get(), &conn_ref);
 
-  if (ngtcp2_crypto_ossl_configure_server_session(ssl) != 0) {
+  if (ngtcp2_crypto_ossl_configure_server_session(ssl_ptr.get()) != 0) {
     return td::Status::Error("ngtcp2_crypto_ossl_configure_server_session failed");
   }
-
-  if (ngtcp2_crypto_ossl_ctx_new(&ossl_ctx, ssl) != 0) {
+  if (ngtcp2_crypto_ossl_ctx_new(&ossl_ctx, ssl_ptr.get()) != 0) {
     return td::Status::Error("ngtcp2_crypto_ossl_ctx_new failed");
   }
 
+  ssl_ctx = std::move(ssl_ctx_ptr);
+  ssl = std::move(ssl_ptr);
+  return td::Status::OK();
+}
+
+td::Status QuicConnectionPImpl::init_tls_client_rpk(EVP_PKEY* client_key, td::Slice alpn) {
+  OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_client_method()), SSL_CTX_free, "Failed to create TLS client context");
+
+  SSL_CTX_set_min_proto_version(ssl_ctx_ptr.get(), TLS1_3_VERSION);
+  SSL_CTX_set_max_proto_version(ssl_ctx_ptr.get(), TLS1_3_VERSION);
+  SSL_CTX_set_verify(ssl_ctx_ptr.get(), SSL_VERIFY_NONE, nullptr);
+
+  // Accept Raw Public Keys from server (RFC 7250)
+  static const unsigned char server_cert_types[] = {TLSEXT_cert_type_rpk};
+  OPENSSL_CHECK_OK(SSL_CTX_set1_server_cert_type(ssl_ctx_ptr.get(), server_cert_types, sizeof(server_cert_types)),
+                   "Failed to enable server RPK");
+
+  // Send our RPK as client certificate
+  static const unsigned char client_cert_types[] = {TLSEXT_cert_type_rpk};
+  OPENSSL_CHECK_OK(SSL_CTX_set1_client_cert_type(ssl_ctx_ptr.get(), client_cert_types, sizeof(client_cert_types)),
+                   "Failed to enable client RPK");
+
+  if (client_key) {
+    OPENSSL_CHECK_OK(SSL_CTX_use_PrivateKey(ssl_ctx_ptr.get(), client_key), "Failed to set client private key");
+  }
+
+  OPENSSL_MAKE_PTR(ssl_ptr, SSL_new(ssl_ctx_ptr.get()), SSL_free, "Failed to create SSL session");
+
+  SSL_set_connect_state(ssl_ptr.get());
+
+  alpn_wire_.assign(alpn.size() + 1, '\0');
+  alpn_wire_[0] = static_cast<char>(alpn.size());
+  std::memcpy(alpn_wire_.data() + 1, alpn.data(), alpn.size());
+  SSL_set_alpn_protos(ssl_ptr.get(), reinterpret_cast<const unsigned char*>(alpn_wire_.c_str()),
+                      static_cast<unsigned int>(alpn_wire_.size()));
+
+  conn_ref.get_conn = get_pimpl_from_ref;
+  conn_ref.user_data = this;
+  SSL_set_app_data(ssl_ptr.get(), &conn_ref);
+
+  if (ngtcp2_crypto_ossl_configure_client_session(ssl_ptr.get()) != 0) {
+    return td::Status::Error("ngtcp2_crypto_ossl_configure_client_session failed");
+  }
+  if (ngtcp2_crypto_ossl_ctx_new(&ossl_ctx, ssl_ptr.get()) != 0) {
+    return td::Status::Error("ngtcp2_crypto_ossl_ctx_new failed");
+  }
+
+  ssl_ctx = std::move(ssl_ctx_ptr);
+  ssl = std::move(ssl_ptr);
+  return td::Status::OK();
+}
+
+td::Status QuicConnectionPImpl::init_tls_server_rpk(EVP_PKEY* server_key, td::Slice alpn) {
+  OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_server_method()), SSL_CTX_free, "Failed to create TLS server context");
+
+  SSL_CTX_set_min_proto_version(ssl_ctx_ptr.get(), TLS1_3_VERSION);
+  SSL_CTX_set_max_proto_version(ssl_ctx_ptr.get(), TLS1_3_VERSION);
+  SSL_CTX_set_verify(ssl_ctx_ptr.get(), SSL_VERIFY_PEER, [](int, X509_STORE_CTX*) { return 1; });
+
+  OPENSSL_CHECK_OK(SSL_CTX_use_PrivateKey(ssl_ctx_ptr.get(), server_key), "Failed to set server private key");
+
+  // Enable RPK (RFC 7250)
+  static const unsigned char server_cert_types[] = {TLSEXT_cert_type_rpk};
+  OPENSSL_CHECK_OK(SSL_CTX_set1_server_cert_type(ssl_ctx_ptr.get(), server_cert_types, sizeof(server_cert_types)),
+                   "Failed to enable server RPK");
+
+  static const unsigned char client_cert_types[] = {TLSEXT_cert_type_rpk};
+  OPENSSL_CHECK_OK(SSL_CTX_set1_client_cert_type(ssl_ctx_ptr.get(), client_cert_types, sizeof(client_cert_types)),
+                   "Failed to enable client RPK");
+
+  alpn_wire_.assign(alpn.size() + 1, '\0');
+  alpn_wire_[0] = static_cast<char>(alpn.size());
+  std::memcpy(alpn_wire_.data() + 1, alpn.data(), alpn.size());
+  SSL_CTX_set_alpn_select_cb(ssl_ctx_ptr.get(), alpn_select_cb, &alpn_wire_);
+
+  OPENSSL_MAKE_PTR(ssl_ptr, SSL_new(ssl_ctx_ptr.get()), SSL_free, "Failed to create SSL session");
+
+  SSL_set_accept_state(ssl_ptr.get());
+
+  conn_ref.get_conn = get_pimpl_from_ref;
+  conn_ref.user_data = this;
+  SSL_set_app_data(ssl_ptr.get(), &conn_ref);
+
+  if (ngtcp2_crypto_ossl_configure_server_session(ssl_ptr.get()) != 0) {
+    return td::Status::Error("ngtcp2_crypto_ossl_configure_server_session failed");
+  }
+  if (ngtcp2_crypto_ossl_ctx_new(&ossl_ctx, ssl_ptr.get()) != 0) {
+    return td::Status::Error("ngtcp2_crypto_ossl_ctx_new failed");
+  }
+
+  ssl_ctx = std::move(ssl_ctx_ptr);
+  ssl = std::move(ssl_ptr);
   return td::Status::OK();
 }
 
@@ -236,11 +318,11 @@ td::Status QuicConnectionPImpl::init_quic_server(const ngtcp2_version_cid& vc) {
   return td::Status::OK();
 }
 
-uint64_t QuicConnectionPImpl::OutboundStreamState::unsent_bytes() const{
+uint64_t QuicConnectionPImpl::OutboundStreamState::unsent_bytes() const {
   return queued_bytes >= submitted_unacked ? queued_bytes - submitted_unacked : 0;
 }
 
-void QuicConnectionPImpl::OutboundStreamState::consume_acked_prefix(uint64_t n){
+void QuicConnectionPImpl::OutboundStreamState::consume_acked_prefix(uint64_t n) {
   if (n == 0) {
     return;
   }
@@ -251,7 +333,7 @@ void QuicConnectionPImpl::OutboundStreamState::consume_acked_prefix(uint64_t n){
   queued_bytes = queued_bytes >= n ? queued_bytes - n : 0;
 
   while (n > 0 && chunks.size() > 0) {
-    auto &bs = chunks.front();
+    auto& bs = chunks.front();
     auto sz = bs.size();
     if (sz <= n) {
       n -= sz;
@@ -267,7 +349,7 @@ void QuicConnectionPImpl::OutboundStreamState::consume_acked_prefix(uint64_t n){
   }
 }
 
-void QuicConnectionPImpl::build_unsent_vecs(std::vector<ngtcp2_vec> &out, OutboundStreamState &st) {
+void QuicConnectionPImpl::build_unsent_vecs(std::vector<ngtcp2_vec>& out, OutboundStreamState& st) {
   out.clear();
   uint64_t skip = st.submitted_unacked;
   for (size_t i = 0; i < st.chunks.size(); ++i) {
@@ -284,13 +366,13 @@ void QuicConnectionPImpl::build_unsent_vecs(std::vector<ngtcp2_vec> &out, Outbou
       continue;
     }
     ngtcp2_vec v{};
-    v.base = const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(slice.data()));
+    v.base = const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(slice.data()));
     v.len = slice.size();
     out.push_back(v);
   }
 }
 
-td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer &msg_out, QuicStreamID sid) {
+td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer& msg_out, QuicStreamID sid) {
   const auto ts = now_ts();
 
   std::vector<ngtcp2_vec> datav;
@@ -303,7 +385,7 @@ td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer &msg_out, Quic
       msg_out.storage = msg_out.storage.substr(0, 0);
       return td::Status::OK();
     }
-    auto &st = it->second;
+    auto& st = it->second;
 
     unsent_before = st.unsent_bytes();
     build_unsent_vecs(datav, st);
@@ -317,9 +399,8 @@ td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer &msg_out, Quic
   ngtcp2_ssize pdatalen = -1;
 
   ngtcp2_ssize n_write = ngtcp2_conn_writev_stream(
-      conn, nullptr, &pi, reinterpret_cast<uint8_t *>(msg_out.storage.data()), msg_out.storage.size(),
-      sid == -1 ? nullptr : &pdatalen, flags, sid,
-      datav.empty() ? nullptr : datav.data(), datav.size(), ts);
+      conn, nullptr, &pi, reinterpret_cast<uint8_t*>(msg_out.storage.data()), msg_out.storage.size(),
+      sid == -1 ? nullptr : &pdatalen, flags, sid, datav.empty() ? nullptr : datav.data(), datav.size(), ts);
 
   if (n_write == 0) {
     msg_out.storage = msg_out.storage.substr(0, 0);
@@ -337,7 +418,7 @@ td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer &msg_out, Quic
   ngtcp2_conn_update_pkt_tx_time(conn, ts);
 
   if (sid != -1) {
-    auto &st = outbound_.find(sid)->second;
+    auto& st = outbound_.find(sid)->second;
 
     if (pdatalen > 0) {
       auto n = static_cast<uint64_t>(pdatalen);
@@ -363,7 +444,7 @@ td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer &msg_out, Quic
 
 td::Status QuicConnectionPImpl::produce_egress(UdpMessageBuffer& msg_out) {
   QuicStreamID sid = -1;
-  for (auto &it : outbound_) {
+  for (auto& it : outbound_) {
     if (it.second.unsent_bytes() > 0 || it.second.fin_pending) {
       sid = it.first;
       break;
@@ -400,8 +481,8 @@ td::Result<QuicStreamID> QuicConnectionPImpl::open_stream() {
 }
 
 td::Status QuicConnectionPImpl::write_stream(UdpMessageBuffer& msg_out, QuicStreamID sid, td::BufferSlice data,
-                                            bool fin) {
-  auto &st = outbound_[sid];
+                                             bool fin) {
+  auto& st = outbound_[sid];
 
   if (!data.empty()) {
     st.queued_bytes += data.size();
@@ -487,29 +568,42 @@ int QuicConnectionPImpl::get_new_connection_id_cb(ngtcp2_conn* conn, ngtcp2_cid*
 }
 
 int QuicConnectionPImpl::handshake_completed_cb(ngtcp2_conn* conn, void* user_data) {
-  static_cast<QuicConnectionPImpl*>(user_data)->callback->on_handshake_completed({});
+  auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
+  Callback::HandshakeCompletedEvent event;
+  // Extract peer's Ed25519 public key from RPK (if available)
+  if (EVP_PKEY* peer_rpk = SSL_get0_peer_rpk(pimpl->ssl.get())) {
+    if (EVP_PKEY_id(peer_rpk) == EVP_PKEY_ED25519) {
+      size_t len = 32;
+      td::SecureString key(32);
+      if (EVP_PKEY_get_raw_public_key(peer_rpk, key.as_mutable_slice().ubegin(), &len) == 1 && len == 32) {
+        event.peer_public_key = std::move(key);
+      }
+    }
+  }
+  pimpl->callback->on_handshake_completed(std::move(event));
   return 0;
 }
 
 int QuicConnectionPImpl::recv_stream_data_cb(ngtcp2_conn*, uint32_t flags, int64_t stream_id, uint64_t offset,
                                              const uint8_t* data, size_t datalen, void* user_data,
                                              void* stream_user_data) {
-  data = data ? data : static_cast<uint8_t *>(user_data); // stupid hack to create empty slice
+  data = data ? data : static_cast<uint8_t*>(user_data);  // stupid hack to create empty slice
   td::Slice data_slice(reinterpret_cast<const char*>(data), reinterpret_cast<const char*>(data) + datalen);
-  Callback::StreamDataEvent event{.sid = stream_id, .data = td::BufferSlice{data_slice}, .fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0};
+  Callback::StreamDataEvent event{
+      .sid = stream_id, .data = td::BufferSlice{data_slice}, .fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0};
   auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
   pimpl->callback->on_stream_data(std::move(event));
   return 0;
 }
 
-int QuicConnectionPImpl::acked_stream_data_offset_cb(ngtcp2_conn*, int64_t stream_id, uint64_t offset,
-                                                     uint64_t datalen, void* user_data, void* /*stream_user_data*/) {
+int QuicConnectionPImpl::acked_stream_data_offset_cb(ngtcp2_conn*, int64_t stream_id, uint64_t offset, uint64_t datalen,
+                                                     void* user_data, void* /*stream_user_data*/) {
   auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
   auto it = pimpl->outbound_.find(stream_id);
   if (it == pimpl->outbound_.end()) {
     return 0;
   }
-  auto &st = it->second;
+  auto& st = it->second;
 
   const uint64_t end = offset + datalen;
   if (end <= st.acked_prefix) {
@@ -520,7 +614,8 @@ int QuicConnectionPImpl::acked_stream_data_offset_cb(ngtcp2_conn*, int64_t strea
     offset = st.acked_prefix;
   }
   if (offset != st.acked_prefix) {
-    LOG(WARNING) << "acked_stream_data_offset gap for stream " << stream_id << ": got " << offset << " expected " << st.acked_prefix;
+    LOG(WARNING) << "acked_stream_data_offset gap for stream " << stream_id << ": got " << offset << " expected "
+                 << st.acked_prefix;
     return 0;
   }
 
@@ -540,8 +635,7 @@ int QuicConnectionPImpl::acked_stream_data_offset_cb(ngtcp2_conn*, int64_t strea
 }
 
 int QuicConnectionPImpl::stream_close_cb(ngtcp2_conn*, uint32_t /*flags*/, int64_t stream_id,
-                                        uint64_t /*app_error_code*/, void* user_data,
-                                        void* /*stream_user_data*/) {
+                                         uint64_t /*app_error_code*/, void* user_data, void* /*stream_user_data*/) {
   auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
   pimpl->outbound_.erase(stream_id);
   return 0;

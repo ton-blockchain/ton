@@ -25,11 +25,37 @@ td::Result<td::actor::ActorOwn<QuicClient>> QuicClient::connect(td::Slice host, 
                                              std::move(p_impl), std::move(callback));
 }
 
+td::Result<td::actor::ActorOwn<QuicClient>> QuicClient::connect_rpk(td::Slice host, int port,
+                                                                    td::Ed25519::PrivateKey client_key,
+                                                                    std::unique_ptr<Callback> callback, td::Slice alpn,
+                                                                    int local_port) {
+  auto p_impl = std::make_unique<QuicConnectionPImpl>();
+  std::string host_c(host.begin(), host.end());
+  TRY_STATUS(p_impl->remote_address.init_host_port(td::CSlice(host_c.c_str()), port));
+
+  td::IPAddress local_addr;
+  TRY_STATUS(local_addr.init_host_port("0.0.0.0", local_port));
+
+  TRY_RESULT(fd, td::UdpSocketFd::open(local_addr));
+  TRY_RESULT_ASSIGN(p_impl->local_address, fd.get_local_address());
+
+  // Convert Ed25519 private key to EVP_PKEY for OpenSSL
+  auto key_bytes = client_key.as_octet_string();
+  OPENSSL_MAKE_PTR(evp_key, EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, nullptr, key_bytes.as_slice().ubegin(), 32),
+                   EVP_PKEY_free, "Failed to create Ed25519 key from raw bytes");
+  TRY_STATUS(p_impl->init_tls_client_rpk(evp_key.get(), alpn));
+  TRY_STATUS(p_impl->init_quic_client());
+
+  auto name = PSTRING() << "QUIC:" << p_impl->local_address << ">[" << host << ':' << port << ']';
+  return td::actor::create_actor<QuicClient>(td::actor::ActorOptions().with_name(name).with_poll(true), std::move(fd),
+                                             std::move(p_impl), std::move(callback));
+}
+
 void QuicClient::start_up() {
   LOG(INFO) << "starting up";
   self_id_ = actor_id(this);
   td::actor::SchedulerContext::get().get_poll().subscribe(fd_.get_poll_info().extract_pollable_fd(this),
-                                                           td::PollFlags::ReadWrite());
+                                                          td::PollFlags::ReadWrite());
   flush_egress();
   update_alarm();
   LOG(INFO) << "startup completed";
@@ -214,7 +240,7 @@ QuicClient::QuicClient(td::UdpSocketFd fd, std::unique_ptr<QuicConnectionPImpl> 
     }
 
     void on_handshake_completed(HandshakeCompletedEvent event) override {
-      connection_.callback_->on_connected();
+      connection_.callback_->on_connected(std::move(event.peer_public_key));
     }
 
     void on_stream_data(StreamDataEvent event) override {

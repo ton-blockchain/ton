@@ -4,8 +4,11 @@
 #include "td/actor/ActorOwn.h"
 #include "td/actor/core/Actor.h"
 #include "td/utils/buffer.h"
+#include "td/utils/crypto.h"
 #include "td/utils/port/UdpSocketFd.h"
 
+#include "Ed25519.h"
+#include "openssl-utils.h"
 #include "quic-common.h"
 
 namespace ton::quic {
@@ -15,7 +18,8 @@ class QuicClient : public td::actor::Actor, public td::ObserverBase {
  public:
   class Callback {
    public:
-    virtual void on_connected() = 0;
+    // peer_public_key is the server's Ed25519 public key (32 bytes) when using RPK, empty otherwise
+    virtual void on_connected(td::SecureString peer_public_key) = 0;
     virtual void on_stream_data(QuicStreamID sid, td::BufferSlice data) = 0;
     virtual void on_stream_end(QuicStreamID sid) = 0;
     virtual ~Callback() = default;
@@ -29,6 +33,12 @@ class QuicClient : public td::actor::Actor, public td::ObserverBase {
   static td::Result<td::actor::ActorOwn<QuicClient>> connect(td::Slice host, int port,
                                                              std::unique_ptr<Callback> callback, td::Slice alpn = "ton",
                                                              int local_port = 0);
+  // RPK variant - uses Raw Public Key instead of certificate
+  // client_key is used for client authentication; server verification happens post-handshake
+  static td::Result<td::actor::ActorOwn<QuicClient>> connect_rpk(td::Slice host, int port,
+                                                                 td::Ed25519::PrivateKey client_key,
+                                                                 std::unique_ptr<Callback> callback,
+                                                                 td::Slice alpn = "ton", int local_port = 0);
 
  protected:
   void start_up() override;

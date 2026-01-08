@@ -1,20 +1,22 @@
 #pragma once
-#include <openssl/rand.h>
-#include <openssl/types.h>
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include <deque>
+#include <openssl/rand.h>
+#include <openssl/ssl.h>
+#include <string>
 #include <unordered_map>
 #include <vector>
-#include <string>
 
 #include "ngtcp2/ngtcp2.h"
 #include "ngtcp2/ngtcp2_crypto.h"
 #include "ngtcp2/ngtcp2_crypto_ossl.h"
 #include "td/actor/ActorId.h"
 #include "td/utils/Time.h"
+#include "td/utils/crypto.h"
 #include "td/utils/port/UdpSocketFd.h"
 
+#include "openssl-utils.h"
 #include "quic-client.h"
 #include "quic-common.h"
 
@@ -28,7 +30,9 @@ struct QuicConnectionPImpl {
   };
   class Callback {
    public:
-    struct HandshakeCompletedEvent {};
+    struct HandshakeCompletedEvent {
+      td::SecureString peer_public_key;  // Ed25519 public key (32 bytes), empty if not available
+    };
     struct StreamDataEvent {
       QuicStreamID sid = 0;
       td::BufferSlice data;
@@ -42,14 +46,14 @@ struct QuicConnectionPImpl {
   };
 
   constexpr static size_t DEFAULT_WINDOW = 1 << 20;
-  constexpr static size_t DEFAULT_STREAM_LIMIT = 64;
+  constexpr static size_t DEFAULT_STREAM_LIMIT = 4096;
 
   td::IPAddress local_address = {};
   td::IPAddress remote_address = {};
 
   ngtcp2_conn* conn = nullptr;
-  SSL_CTX* ssl_ctx = nullptr;
-  SSL* ssl = nullptr;
+  openssl_ptr<SSL_CTX, &SSL_CTX_free> ssl_ctx;
+  openssl_ptr<SSL, &SSL_free> ssl;
 
   ngtcp2_crypto_ossl_ctx* ossl_ctx = nullptr;
   ngtcp2_crypto_conn_ref conn_ref{};
@@ -59,6 +63,11 @@ struct QuicConnectionPImpl {
   [[nodiscard]] td::Status init_tls_client(td::Slice host, td::Slice alpn);
   [[nodiscard]] td::Status init_tls_server(td::Slice cert_file, td::Slice key_file, td::Slice alpn);
 
+  // RPK (Raw Public Key) variants - no certificates needed
+  // Keys are used for identity, verification happens post-handshake via ssl_get_peer_ed25519_public_key()
+  [[nodiscard]] td::Status init_tls_client_rpk(EVP_PKEY* client_key, td::Slice alpn);
+  [[nodiscard]] td::Status init_tls_server_rpk(EVP_PKEY* server_key, td::Slice alpn);
+
   [[nodiscard]] td::Status init_quic_client();
   [[nodiscard]] td::Status init_quic_server(const ngtcp2_version_cid& vc);
 
@@ -66,14 +75,14 @@ struct QuicConnectionPImpl {
   [[nodiscard]] td::Status handle_ingress(const UdpMessageBuffer& msg_in);
 
   [[nodiscard]] td::Timestamp get_expiry_timestamp() const;
-  void relax_alarm_timestamp(td::Timestamp &alarm_ts) const {
+  void relax_alarm_timestamp(td::Timestamp& alarm_ts) const {
     alarm_ts.relax(get_expiry_timestamp());
   }
   [[nodiscard]] bool is_expired() const;
   [[nodiscard]] td::Result<ExpiryAction> handle_expiry();
 
   [[nodiscard]] td::Result<QuicStreamID> open_stream();
-  [[nodiscard]] td::Status write_stream(UdpMessageBuffer&msg_out, QuicStreamID sid, td::BufferSlice data, bool fin);
+  [[nodiscard]] td::Status write_stream(UdpMessageBuffer& msg_out, QuicStreamID sid, td::BufferSlice data, bool fin);
 
   ~QuicConnectionPImpl() {
     if (conn) {
@@ -85,13 +94,7 @@ struct QuicConnectionPImpl {
       ossl_ctx = nullptr;
     }
     if (ssl) {
-      SSL_set_app_data(ssl, NULL);
-      SSL_free(ssl);
-      ssl = nullptr;
-    }
-    if (ssl_ctx) {
-      SSL_CTX_free(ssl_ctx);
-      ssl_ctx = nullptr;
+      SSL_set_app_data(ssl.get(), nullptr);
     }
   }
 
@@ -110,14 +113,14 @@ struct QuicConnectionPImpl {
 
     uint64_t unsent_bytes() const;
 
-    void consume_acked_prefix(uint64_t n) ;
+    void consume_acked_prefix(uint64_t n);
   };
 
   std::unordered_map<QuicStreamID, OutboundStreamState> outbound_;
 
-  static void build_unsent_vecs(std::vector<ngtcp2_vec> &out, OutboundStreamState &st);
+  static void build_unsent_vecs(std::vector<ngtcp2_vec>& out, OutboundStreamState& st);
 
-  [[nodiscard]] td::Status write_one_packet(UdpMessageBuffer &msg_out, QuicStreamID sid);
+  [[nodiscard]] td::Status write_one_packet(UdpMessageBuffer& msg_out, QuicStreamID sid);
 
   static ngtcp2_tstamp now_ts();
 
