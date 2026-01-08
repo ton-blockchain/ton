@@ -81,6 +81,21 @@ struct OutgoingProtocolMessage {
   std::string contents_to_string() const;
 };
 
+struct IncomingOverlayRequest {
+  using ReturnType = ProtocolMessage;
+
+  PeerValidatorId source;
+  ProtocolMessage request;
+};
+
+struct OutgoingOverlayRequest {
+  using ReturnType = ProtocolMessage;
+
+  PeerValidatorId destination;
+  td::Timestamp timeout;
+  ProtocolMessage request;
+};
+
 struct BlockFinalizedInMasterchain {
   BlockIdExt block;
 
@@ -115,10 +130,10 @@ struct StatsTargetReached {
 
 class Bus : public runtime::Bus {
  public:
-  using Events =
-      td::TypeList<StopRequested, BlockFinalized, OurLeaderWindowStarted, OurLeaderWindowAborted, CandidateGenerated,
-                   CandidateReceived, ValidationRequest, IncomingProtocolMessage, OutgoingProtocolMessage,
-                   BlockFinalizedInMasterchain, MisbehaviorReport, StatsTargetReached>;
+  using Events = td::TypeList<StopRequested, BlockFinalized, OurLeaderWindowStarted, OurLeaderWindowAborted,
+                              CandidateGenerated, CandidateReceived, ValidationRequest, IncomingProtocolMessage,
+                              OutgoingProtocolMessage, IncomingOverlayRequest, OutgoingOverlayRequest,
+                              BlockFinalizedInMasterchain, MisbehaviorReport, StatsTargetReached>;
 
   Bus() = default;
 

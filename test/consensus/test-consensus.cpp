@@ -112,10 +112,6 @@ class TestOverlayNode : public runtime::SpawnsWith<Bus>, public runtime::Connect
   }
 
   void receive_message(PeerValidator src, td::BufferSlice data) {
-    if (data.size() > ProtocolMessage::max_length) {
-      LOG(WARNING) << "MISBEHAVIOR: Dropping oversized protocol message of size " << data.size() << " from " << src;
-      return;
-    }
     owning_bus().publish<IncomingProtocolMessage>(src.idx, std::move(data));
   }
 

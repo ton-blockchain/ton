@@ -82,15 +82,11 @@ struct PeerValidator {
 td::StringBuilder& operator<<(td::StringBuilder& stream, const PeerValidator& peer_validator);
 
 struct ProtocolMessage {
-  static constexpr size_t max_length = 1024;
-
   ProtocolMessage(td::BufferSlice data) : data(std::move(data)) {
-    CHECK(this->data.size() <= max_length);
   }
 
   template <typename T>
   ProtocolMessage(const tl_object_ptr<T>& object) : data(serialize_tl_object(object, true)) {
-    CHECK(data.size() <= max_length);
   }
 
   td::BufferSlice data;

@@ -17,6 +17,13 @@
 
 namespace ton::validator::consensus {
 
+namespace tl {
+
+using requestError = ton_api::consensus_requestError;
+using RequestErrorRef = tl_object_ptr<requestError>;
+
+}  // namespace tl
+
 namespace {
 
 class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
@@ -81,6 +88,19 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
   }
 
   template <>
+  td::actor::Task<ProtocolMessage> process(BusHandle, std::shared_ptr<OutgoingOverlayRequest> message) {
+    auto [awaiter, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
+    auto dst = message->destination.get_using(*owning_bus()).adnl_id;
+    td::actor::send_closure(overlays_, &overlay::Overlays::send_query, dst, local_id_.adnl_id, overlay_id_, "",
+                            std::move(promise), message->timeout, std::move(message->request.data));
+    auto response = co_await std::move(awaiter);
+    if (fetch_tl_object<tl::requestError>(response, true).is_ok()) {
+      co_return td::Status::Error("Peer returned an error");
+    }
+    co_return ProtocolMessage{std::move(response)};
+  }
+
+  template <>
   void handle(BusHandle, std::shared_ptr<const CandidateGenerated> event) {
     td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_.adnl_id, overlay_id_,
                             local_id_.short_id, 0, event->candidate->serialize());
@@ -97,9 +117,9 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
         td::actor::send_closure(owner_, &PrivateOverlayImpl::on_overlay_message, src, std::move(data));
       }
 
-      void receive_query(adnl::AdnlNodeIdShort, overlay::OverlayIdShort, td::BufferSlice,
+      void receive_query(adnl::AdnlNodeIdShort src, overlay::OverlayIdShort, td::BufferSlice data,
                          td::Promise<td::BufferSlice> promise) override {
-        promise.set_error(td::Status::Error("Queries are not supported"));
+        td::actor::send_closure(owner_, &PrivateOverlayImpl::on_query, src, std::move(data), std::move(promise));
       }
 
       void receive_broadcast(PublicKeyHash src, overlay::OverlayIdShort, td::BufferSlice data) override {
@@ -120,11 +140,6 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
 
   void on_overlay_message(adnl::AdnlNodeIdShort src_adnl_id, td::BufferSlice data) {
     auto peer = adnl_id_to_peer_.at(src_adnl_id);
-    if (data.size() > ProtocolMessage::max_length) {
-      LOG(WARNING) << "MISBEHAVIOR: Dropping oversized protocol message of size " << data.size() << " from " << peer;
-      return;
-    }
-
     owning_bus().publish<IncomingProtocolMessage>(peer.idx, std::move(data));
   }
 
@@ -148,6 +163,24 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
     //        only then publish stats target.
     owning_bus().publish<StatsTargetReached>(StatsTargetReached::CandidateReceived, maybe_candidate.ok()->id.slot);
     owning_bus().publish<CandidateReceived>(maybe_candidate.move_as_ok());
+  }
+
+  void on_query(adnl::AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
+    auto peer = adnl_id_to_peer_.at(src);
+    auto request = std::make_shared<IncomingOverlayRequest>(peer.idx, std::move(data));
+
+    auto task = [](BusHandle bus, auto message, auto promise) -> td::actor::Task<> {
+      auto response = co_await bus.publish(std::move(message)).wrap();
+      if (response.is_ok()) {
+        promise.set_value(response.move_as_ok().data);
+      } else {
+        LOG(WARNING) << "Failed to process overlay request from " << message->source << ": "
+                     << response.move_as_error();
+        promise.set_value(create_serialize_tl_object<tl::requestError>());
+      }
+      co_return {};
+    };
+    task(owning_bus(), request, std::move(promise)).start().detach();
   }
 
   td::actor::ActorId<overlay::Overlays> overlays_;

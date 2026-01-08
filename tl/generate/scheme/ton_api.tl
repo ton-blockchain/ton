@@ -1181,6 +1181,8 @@ consensus.candidateHashDataEmpty block:tonNode.blockIdExt parent:consensus.candi
 consensus.block slot:int parent:consensus.CandidateParent candidate:bytes signature:bytes = consensus.CandidateData;
 consensus.empty slot:int parent:consensus.CandidateId block:tonNode.blockIdExt signature:bytes = consensus.CandidateData;
 
+consensus.requestError = consensus.RequestError;
+
 consensus.null.signature slot:int signature:bytes = consensus.null.Message;
 consensus.null.handshake = consensus.null.Message;
 
