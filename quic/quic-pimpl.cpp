@@ -385,7 +385,7 @@ td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer& msg_out, Quic
       msg_out.storage = msg_out.storage.substr(0, 0);
       return td::Status::OK();
     }
-    auto& st = it->second;
+    auto &st = it->second;
 
     unsent_before = st.unsent_bytes();
     build_unsent_vecs(datav, st);

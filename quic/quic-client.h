@@ -8,7 +8,6 @@
 #include "td/utils/port/UdpSocketFd.h"
 
 #include "Ed25519.h"
-#include "openssl-utils.h"
 #include "quic-common.h"
 
 namespace ton::quic {

@@ -35,18 +35,13 @@ class QuicHttpServer : public td::actor::Actor {
 
   QuicHttpServer(int port, td::Slice cert_file, td::Slice key_file, td::Slice alpn, ton::quic::QuicStreamID sid,
                  td::Slice bind_host)
-      : port_(port)
-      , sid_(sid)
-      , cert_file_(cert_file)
-      , key_file_(key_file)
-      , alpn_(alpn)
-      , bind_host_(bind_host) {
+      : port_(port), sid_(sid), cert_file_(cert_file), key_file_(key_file), alpn_(alpn), bind_host_(bind_host) {
   }
 
   void start_up() override {
     auto cb = std::make_unique<ServerCallback>(actor_id(this));
     auto R = ton::quic::QuicServer::listen(port_, cert_file_.as_slice(), key_file_.as_slice(), std::move(cb),
-                                          alpn_.as_slice(), bind_host_.as_slice());
+                                           alpn_.as_slice(), bind_host_.as_slice());
     if (R.is_error()) {
       LOG(ERROR) << "failed to start QUIC server: " << R.error();
       std::exit(1);
@@ -106,7 +101,8 @@ class QuicHttpServer : public td::actor::Actor {
     const auto &stored = responses_.back();
 
     LOG(INFO) << "request finished from " << peer << ", replying on stream " << sid_;
-    td::actor::send_closure(server_.get(), &ton::quic::QuicServer::send_stream_data, peer, sid_, td::BufferSlice(stored));
+    td::actor::send_closure(server_.get(), &ton::quic::QuicServer::send_stream_data, peer, sid_,
+                            td::BufferSlice(stored));
     td::actor::send_closure(server_.get(), &ton::quic::QuicServer::send_stream_end, peer, sid_);
 
     while (responses_.size() > 1024) {
