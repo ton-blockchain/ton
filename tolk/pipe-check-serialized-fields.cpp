@@ -88,6 +88,8 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
       for (TypePtr variant : s_union->variants) {
         check_type_fits_cell_or_has_policy(variant);
       }
+    } else if (const TypeDataArray* s_array = serialized_type->unwrap_alias()->try_as<TypeDataArray>()) {
+      check_type_fits_cell_or_has_policy(s_array->innerT);
     }
   }
 

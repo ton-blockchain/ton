@@ -238,6 +238,14 @@ fun test22() {
     )
 }
 
+@method_id(123)
+fun test23() {
+    return (
+        array<int8>.estimate(),
+        array<array<RemainingBitsAndRefs>>.estimate(),
+    )
+}
+
 fun main() {
     __expect_type(int8.estimatePackSize(), "(int, int, int, int)");
 }
@@ -257,4 +265,5 @@ fun main() {
 @testcase | 120 | | 16 4128 1 1
 @testcase | 121 | | [ 2 2 0 0 ] [ 9 9 0 0 ] [ 6 6 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 123 123 0 0 ] [ 123 123 0 0 ] 
 @testcase | 122 | | [ 267 267 0 0 ] [ 2 267 0 0 ] [ 267 267 0 0 ] [ 1 268 0 0 ] [ 267 267 0 0 ] [ 2 267 0 0 ] [ 2 523 0 0 ] [ 1 524 0 0 ] 
+@testcase | 123 | | [ 9 9 0 1 ] [ 9 9 0 1 ]
  */

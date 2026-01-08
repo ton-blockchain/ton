@@ -460,6 +460,13 @@ struct WithAnyAddress {
     a7: Cell<any_address?>?
 }
 
+struct WithArrays {
+    a1: array<int8>
+    a2: array<Cell<int8>>
+    a3: array<RemainingBitsAndRefs>
+    after: bool = true
+}
+
 
 // ---------------------------------------------
 
@@ -912,6 +919,21 @@ fun test_WithAnyAddress() {
     return true;
 }
 
+@method_id(236)
+fun test_WithArrays() {
+    run(WithArrays{
+        a1: [1],
+        a2: [(1 as int8).toCell()],
+        a3: [beginCell().storeUint(1, 32).toSlice()],
+    }, stringHexToSlice("0180C07").appendRef(stringHexToSlice("00C_")).appendRef(stringHexToSlice("4_").appendRef(stringHexToSlice("01"))).appendRef(stringHexToSlice("00000000C_")));
+    run(WithArrays{
+        a1: [],
+        a2: [],
+        a3: [beginCell().storeRef(createEmptyCell()).toSlice()],
+    }, stringHexToSlice("0000007").appendRef(stringHexToSlice("4_").appendRef("")));
+    return true;
+}
+
 
 fun main() {
     var t: JustInt32 = { value: 10 };
@@ -959,4 +981,5 @@ fun main() {
 @testcase | 233 | | -1
 @testcase | 234 | | -1
 @testcase | 235 | | -1
+@testcase | 236 | | -1
  */

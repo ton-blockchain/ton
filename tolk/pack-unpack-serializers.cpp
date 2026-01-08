@@ -80,14 +80,14 @@ void get_custom_pack_unpack_function(TypePtr receiver_type, FunctionPtr& f_pack,
 //
 
 
-PackContext::PackContext(CodeBlob& code, AnyV origin, std::vector<var_idx_t> ir_builder, const std::vector<var_idx_t>& ir_options)
+PackContext::PackContext(CodeBlob& code, AnyV origin, std::vector<var_idx_t> ir_builder, std::vector<var_idx_t> ir_options)
   : code(code)
   , origin(origin)
   , f_storeInt(lookup_function("builder.storeInt"))
   , f_storeUint(lookup_function("builder.storeUint"))
+  , ir_options(std::move(ir_options))
   , ir_builder(std::move(ir_builder))
-  , ir_builder0(this->ir_builder[0])
-  , option_skipBitsNValidation(ir_options[0]) {
+  , ir_builder0(this->ir_builder[0]) {
 }
 
 void PackContext::storeInt(var_idx_t ir_idx, int len) const {
@@ -151,16 +151,15 @@ void PackContext::storeOpcode(PackOpcode opcode) const {
 }
 
 
-UnpackContext::UnpackContext(CodeBlob& code, AnyV origin, std::vector<var_idx_t> ir_slice, const std::vector<var_idx_t>& ir_options)
+UnpackContext::UnpackContext(CodeBlob& code, AnyV origin, std::vector<var_idx_t> ir_slice, std::vector<var_idx_t> ir_options)
   : code(code)
   , origin(origin)
   , f_loadInt(lookup_function("slice.loadInt"))
   , f_loadUint(lookup_function("slice.loadUint"))
   , f_skipBits(lookup_function("slice.skipBits"))
+  , ir_options(std::move(ir_options))
   , ir_slice(std::move(ir_slice))
-  , ir_slice0(this->ir_slice[0])
-  , option_assertEndAfterReading(ir_options[0])
-  , option_throwIfOpcodeDoesNotMatch(ir_options[1]) {
+  , ir_slice0(this->ir_slice[0]) {
 }
 
 std::vector<var_idx_t> UnpackContext::loadInt(int len, const char* debug_desc) const {
@@ -177,11 +176,25 @@ std::vector<var_idx_t> UnpackContext::loadUint(int len, const char* debug_desc) 
   return result;
 }
 
+std::vector<var_idx_t> UnpackContext::loadRef(const char* debug_desc) const {
+  std::vector args = ir_slice;
+  std::vector result = code.create_tmp_var(TypeDataCell::create(), origin, debug_desc);
+  code.emplace_back(origin, Op::_Call, std::vector{ir_slice0, result[0]}, std::move(args), lookup_function("slice.loadRef"));
+  return result;
+}
+
+std::vector<var_idx_t> UnpackContext::loadMaybeRef(const char* debug_desc) const {
+  std::vector args = ir_slice;
+  std::vector ir_result = code.create_tmp_var(TypeDataCell::create(), origin, debug_desc);
+  code.emplace_back(origin, Op::_Call, std::vector{ir_slice0, ir_result[0]}, std::move(args), lookup_function("slice.loadMaybeRef"));
+  return ir_result;
+}
+
 void UnpackContext::loadAndCheckOpcode(PackOpcode opcode) const {
   std::vector ir_prefix_eq = code.create_tmp_var(TypeDataInt::create(), origin, "(prefix-eq)");
   std::vector args = { ir_slice0, code.create_int(origin, opcode.pack_prefix, "(pack-prefix)"), code.create_int(origin, opcode.prefix_len, "(prefix-len)") };
   code.emplace_back(origin, Op::_Call, std::vector{ir_slice0, ir_prefix_eq[0]}, std::move(args), lookup_function("slice.tryStripPrefix"));
-  std::vector args_throwifnot = { option_throwIfOpcodeDoesNotMatch, ir_prefix_eq[0] };
+  std::vector args_throwifnot = { option_throwIfOpcodeDoesNotMatch(), ir_prefix_eq[0] };
   Op& op_assert = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throwifnot), lookup_function("__throw_ifnot"));
   op_assert.set_impure_flag();
 }
@@ -196,8 +209,18 @@ void UnpackContext::skipBits_var(var_idx_t ir_len) const {
   code.emplace_back(origin, Op::_Call, ir_slice, std::move(args), f_skipBits);
 }
 
+void UnpackContext::skipRef() const {
+  std::vector args = ir_slice;
+  std::vector dummy_loaded = code.create_tmp_var(TypeDataCell::create(), origin, "(loaded-cell)");
+  code.emplace_back(origin, Op::_Call, std::vector{ir_slice0, dummy_loaded[0]}, std::move(args), lookup_function("slice.loadRef"));
+}
+
+void UnpackContext::skipMaybeRef() const {
+  code.emplace_back(origin, Op::_Call, ir_slice, ir_slice, lookup_function("slice.skipMaybeRef"));
+}
+
 void UnpackContext::assertEndIfOption() const {
-  Op& if_assertEnd = code.emplace_back(origin, Op::_If, std::vector{option_assertEndAfterReading});
+  Op& if_assertEnd = code.emplace_back(origin, Op::_If, std::vector{option_assertEndAfterReading()});
   {
     code.push_set_cur(if_assertEnd.block0);
     Op& op_ends = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, ir_slice, lookup_function("slice.assertEnd"));
@@ -211,7 +234,7 @@ void UnpackContext::assertEndIfOption() const {
 }
 
 void UnpackContext::throwInvalidOpcode() const {
-  std::vector args_throw = { option_throwIfOpcodeDoesNotMatch };
+  std::vector args_throw = { option_throwIfOpcodeDoesNotMatch() };
   Op& op_throw = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throw), lookup_function("__throw"));
   op_throw.set_impure_flag();
 }
@@ -335,7 +358,7 @@ struct S_BitsN final : ISerializer {
   void pack(const PackContext* ctx, CodeBlob& code, AnyV origin, std::vector<var_idx_t>&& rvect) override {
     tolk_assert(rvect.size() == 1);
 
-    Op& if_disabled_by_user = code.emplace_back(origin, Op::_If, std::vector{ctx->option_skipBitsNValidation});
+    Op& if_disabled_by_user = code.emplace_back(origin, Op::_If, std::vector{ctx->option_skipBitsNValidation()});
     {
       code.push_set_cur(if_disabled_by_user.block0);
       code.close_pop_cur(origin);
@@ -403,18 +426,11 @@ struct S_RawTVMcell final : ISerializer {
   }
 
   std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
-    FunctionPtr f_loadRef = lookup_function("slice.loadRef");
-    std::vector args = ctx->ir_slice;
-    std::vector ir_result = code.create_tmp_var(TypeDataCell::create(), origin, "(loaded-cell)");
-    code.emplace_back(origin, Op::_Call, std::vector{ctx->ir_slice0, ir_result[0]}, std::move(args), f_loadRef);
-    return ir_result;
+    return ctx->loadRef("(loaded-cell)");
   }
 
   void skip(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
-    FunctionPtr f_loadRef = lookup_function("slice.loadRef");
-    std::vector args = ctx->ir_slice;
-    std::vector dummy_loaded = code.create_tmp_var(TypeDataCell::create(), origin, "(loaded-cell)");
-    code.emplace_back(origin, Op::_Call, std::vector{ctx->ir_slice0, dummy_loaded[0]}, std::move(args), f_loadRef);
+    ctx->skipRef();
   }
 
   PackSize estimate(const EstimateContext* ctx) override {
@@ -429,16 +445,11 @@ struct S_RawTVMcellOrNull final : ISerializer {
   }
 
   std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
-    FunctionPtr f_loadMaybeRef = lookup_function("slice.loadMaybeRef");
-    std::vector args = ctx->ir_slice;
-    std::vector ir_result = code.create_tmp_var(TypeDataCell::create(), origin, "(loaded-cell)");
-    code.emplace_back(origin, Op::_Call, std::vector{ctx->ir_slice0, ir_result[0]}, std::move(args), f_loadMaybeRef);
-    return ir_result;
+    return ctx->loadMaybeRef("(loaded-cell)");
   }
 
   void skip(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
-    FunctionPtr f_skipMaybeRef = lookup_function("slice.skipMaybeRef");
-    code.emplace_back(origin, Op::_Call, ctx->ir_slice, ctx->ir_slice, f_skipMaybeRef);
+    ctx->skipMaybeRef();
   }
 
   PackSize estimate(const EstimateContext* ctx) override {
@@ -993,6 +1004,139 @@ struct S_Tensor final : ISerializer {
   }
 };
 
+struct S_Array final : ISerializer {
+  TypePtr innerT;
+
+  explicit S_Array(TypePtr innerT)
+    : innerT(innerT) {
+  }
+
+  // an array is serialized as snake refs with in chunks, with N elems per cell:
+  // for example, `[1 2 3 4 5]` with N=2 is `[1 [2 3 [4 5]]]`;
+  // the compiler detects N to always fit one cell: for `int256` it's 3, for `int32` it's 31
+  int detect_chunk_size() const {
+    PackSize elem_size = EstimateContext().estimate_any(innerT);
+    int fits_in_bits = elem_size.max_bits == 0 ? 255 : 1022 / elem_size.max_bits;
+    int fits_in_refs = elem_size.max_refs == 0 ? 255 : 3 / elem_size.max_refs;
+    int chunk_size = std::min(fits_in_bits, fits_in_refs);
+    return std::max(1, chunk_size);
+  }
+  
+  void pack(const PackContext* ctx, CodeBlob& code, AnyV origin, std::vector<var_idx_t>&& rvect) override {
+    // var len = arr.size();
+    std::vector var_len = code.create_tmp_var(TypeDataInt::create(), origin, "(var-len)");
+    code.emplace_back(origin, Op::_Call, var_len, rvect, lookup_function("array<T>.size"));
+    // var chunkSize = N;
+    std::vector var_chunkSize = code.create_tmp_var(TypeDataInt::create(), origin, "(var-chunkSize)");
+    code.emplace_back(origin, Op::_IntConst, var_chunkSize, td::make_refint(detect_chunk_size()));
+    // var tail = null as cell?;
+    std::vector var_tail = code.create_tmp_var(TypeDataCell::create(), origin, "(var-tail)");
+    code.emplace_back(origin, Op::_Call, var_tail, std::vector<var_idx_t>{}, lookup_function("__null"));
+    // var idx = len;
+    std::vector var_idx = code.create_tmp_var(TypeDataInt::create(), origin, "(var-idx)");
+    code.emplace_back(origin, Op::_Let, var_idx, var_len);
+    // var nTotalChunks = len ^/ chunkSize;
+    std::vector var_nTotalChunks = code.create_tmp_var(TypeDataInt::create(), origin, "(var-nTotalChunks)");
+    code.emplace_back(origin, Op::_Call, var_nTotalChunks, std::vector{var_len[0], var_chunkSize[0]}, lookup_function("_^/_"));
+    // repeat (nTotalChunks) {
+    Op& repeat_op = code.emplace_back(origin, Op::_Repeat, var_nTotalChunks);
+    code.push_set_cur(repeat_op.block0);
+    {
+      // var chunkB = beginCell().storeMaybeRef(tail);
+      std::vector var_chunkB = code.create_tmp_var(TypeDataBuilder::create(), origin, "(var-chunkB)");
+      code.emplace_back(origin, Op::_Call, var_chunkB, std::vector<var_idx_t>{}, lookup_function("beginCell"));
+      code.emplace_back(origin, Op::_Call, var_chunkB, std::vector{var_chunkB[0], var_tail[0]}, lookup_function("builder.storeMaybeRef"));
+      // var curChunkSize = min(idx, chunkSize);
+      std::vector var_curChunkSize = code.create_tmp_var(TypeDataInt::create(), origin, "(var-curChunkSize)");
+      code.emplace_back(origin, Op::_Call, var_curChunkSize, std::vector{var_chunkSize[0], var_idx[0]}, lookup_function("min"));
+      // idx -= curChunkSize;
+      code.emplace_back(origin, Op::_Call, var_idx, std::vector{var_idx[0], var_curChunkSize[0]}, lookup_function("_-_"));
+      // repeat (curChunkSize) {
+      Op& chunk_repeat_op = code.emplace_back(origin, Op::_Repeat, var_curChunkSize);
+      code.push_set_cur(chunk_repeat_op.block0);
+      {
+        // serialize<T>(chunkB, arr.get(idx));
+        std::vector ir_ith_elem = code.create_tmp_var(innerT, origin, "(ith-elem)");
+        code.emplace_back(origin, Op::_Call, ir_ith_elem, std::vector{rvect[0], var_idx[0]}, lookup_function("array<T>.get"));
+        PackContext chunk_ctx(code, origin, var_chunkB, ctx->ir_options);
+        chunk_ctx.generate_pack_any(innerT, std::move(ir_ith_elem));
+        // idx += 1;
+        var_idx_t ir_one = code.create_int(origin, 1, "");
+        code.emplace_back(origin, Op::_Call, var_idx, std::vector{var_idx[0], ir_one}, lookup_function("_+_"));
+      }
+      code.close_pop_cur(origin);
+      // tail = chunkB.endCell();
+      code.emplace_back(origin, Op::_Call, var_tail, var_chunkB, lookup_function("builder.endCell"));
+      // idx -= curChunkSize;
+      code.emplace_back(origin, Op::_Call, var_idx, std::vector{var_idx[0], var_curChunkSize[0]}, lookup_function("_-_"));
+    }
+    code.close_pop_cur(origin);
+    // array serialization: len + snake maybe ref
+    ctx->storeUint(var_len[0], 8);
+    ctx->storeMaybeRef(var_tail[0]);
+  }
+
+  std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
+    // var outArr = [] as array<T>;
+    std::vector var_outArr = code.create_tmp_var(TypeDataArray::create(innerT), origin, "(var-outArr)");
+    code.emplace_back(origin, Op::_Tuple, var_outArr, std::vector<var_idx_t>{});
+    // val len = s.loadUint(8);
+    std::vector var_len = ctx->loadUint(8, "(var-len)");
+    // var head = s.loadMaybeRef();
+    std::vector var_head = ctx->loadMaybeRef("(var-head)");
+    // while (head != null) {
+    Op& while_op = code.emplace_back(origin, Op::_While);
+    code.push_set_cur(while_op.block0);
+    std::vector ir_null = code.create_tmp_var(TypeDataNullLiteral::create(), origin, "(null-literal)");
+    code.emplace_back(origin, Op::_Call, ir_null, std::vector<var_idx_t>{}, lookup_function("__null"));
+    std::vector ir_is_not_null = code.create_tmp_var(TypeDataBool::create(), origin, "(is-null)");
+    code.emplace_back(origin, Op::_Call, ir_is_not_null, var_head, lookup_function("__isNull"));
+    code.emplace_back(origin, Op::_Call, ir_is_not_null, ir_is_not_null, lookup_function("!b_"));
+    while_op.left = std::move(ir_is_not_null);
+    code.close_pop_cur(origin);
+    code.push_set_cur(while_op.block1);
+    {
+      // var s = head.beginParse();
+      std::vector var_s = code.create_tmp_var(TypeDataSlice::create(), origin, "(var-s)");
+      code.emplace_back(origin, Op::_Call, var_s, var_head, lookup_function("cell.beginParse"));
+      UnpackContext chunk_ctx(code, origin, var_s, ctx->ir_options);
+      // head = s.loadMaybeRef();
+      code.emplace_back(origin, Op::_Let, var_head, chunk_ctx.loadMaybeRef("(var-snakeTail)"));
+      // do { outArr.push(s.loadAny<T>()); } while (!s.isEmpty());
+      Op& until_op = code.emplace_back(origin, Op::_Until);
+      code.push_set_cur(until_op.block0);
+      {
+        std::vector ir_ith_elem = chunk_ctx.generate_unpack_any(innerT);
+        std::vector args_push = std::move(ir_ith_elem);
+        args_push.insert(args_push.begin(), var_outArr.begin(), var_outArr.end());
+        code.emplace_back(origin, Op::_Call, var_outArr, std::move(args_push), lookup_function("array<T>.push"));
+      }
+      std::vector ir_isEmpty = code.create_tmp_var(TypeDataBool::create(), origin, "(is-empty)");
+      code.emplace_back(origin, Op::_Call, ir_isEmpty, var_s, lookup_function("slice.isEmpty"));
+      until_op.left = std::move(ir_isEmpty);
+      code.close_pop_cur(origin);
+    }
+    code.close_pop_cur(origin);
+    // assert (outArr.size() == len) throw "cell underflow";
+    std::vector ir_size = code.create_tmp_var(TypeDataInt::create(), origin, "(arr-size)");
+    code.emplace_back(origin, Op::_Call, ir_size, var_outArr, lookup_function("array<T>.size"));
+    std::vector ir_eq_len = code.create_tmp_var(TypeDataBool::create(), origin, "(size-eq-len)");
+    code.emplace_back(origin, Op::_Call, ir_eq_len, std::vector{ir_size[0], var_len[0]}, lookup_function("_==_"));
+    std::vector args_throwifnot = { code.create_int(origin, 9, "(excno)"), ir_eq_len[0] };
+    code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throwifnot), lookup_function("__throw_ifnot")).set_impure_flag();
+    return var_outArr;
+  }
+
+  void skip(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
+    ctx->skipBits(8);
+    ctx->skipMaybeRef();
+  }
+
+  PackSize estimate(const EstimateContext* ctx) override {
+    return PackSize(9, 9, 0, 1);
+  }
+};
+
 struct S_CustomStruct final : ISerializer {
   StructPtr struct_ref;
 
@@ -1433,6 +1577,10 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
 
   if (const auto* t_tensor = any_type->try_as<TypeDataTensor>()) {
     return std::make_unique<S_Tensor>(t_tensor);
+  }
+
+  if (const auto* t_array = any_type->try_as<TypeDataArray>()) {
+    return std::make_unique<S_Array>(t_array->innerT);
   }
 
   if (const auto* t_alias = any_type->try_as<TypeDataAlias>()) {

@@ -163,6 +163,20 @@ public:
       return {};
     }
 
+    if (const auto* t_array = any_type->try_as<TypeDataArray>()) {
+      if (auto why = detect_why_cant_serialize(t_array->innerT, is_pack)) {
+        return CantSerializeBecause("because array of type `" + t_array->innerT->as_human_readable() + "` can't be serialized", why.value());
+      }
+      PackSize sizeT = estimate_serialization_size(t_array->innerT);
+      if ((sizeT.max_refs >= 4 || sizeT.min_bits >= 1022) && !sizeT.is_unpredictable_infinity()) {    // one cell and one bit is for snaking
+        return CantSerializeBecause("because `" + t_array->innerT->as_human_readable() + "` is too big and won't fit into a nested cell");
+      }
+      if (sizeT.is_zero()) {
+        return CantSerializeBecause("because `" + t_array->innerT->as_human_readable() + "` has zero binary size, and an array can't be deserialized back");
+      }
+      return {};
+    }
+
     if (const auto* t_alias = any_type->try_as<TypeDataAlias>()) {
       if (t_alias->alias_ref->name == "RemainingBitsAndRefs") {   // it's built-in RemainingBitsAndRefs (slice)
         return {};
@@ -223,9 +237,6 @@ public:
     }
     if (any_type == TypeDataNullLiteral::create()) {
       return CantSerializeBecause("because type `null` is not serializable\n""hint: `int32?` and other nullable types will work");
-    }
-    if (any_type->try_as<TypeDataArray>()) {
-      return CantSerializeBecause("because arrays are not serializable\n""hint: use fixed-width tensors `(T1, T2, ...)`, they are serializable\n""hint: or define a `type XXX = " + any_type->as_human_readable() + "` and implement custom serializers for it");
     }
 
     return CantSerializeBecause("because type `" + any_type->as_human_readable() + "` is not serializable");
