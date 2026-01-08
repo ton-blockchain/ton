@@ -230,6 +230,61 @@ fun test10() {
     )
 }
 
+type EmptyShape = []
+type MyShape1 = [int32?, Point, EmptyShape, EmptyE, Cell<[]>?, int8]
+
+@method_id(111)
+fun test11() {
+    var (zuko1: MyShape1, zuko2: MyShape1) = (
+        [ 100, {}, [], {}, null, 8 ],
+        [ null, {x:-5, y:-15}, [], {}, null, -8 ]
+    );
+    var b1 = beginCell().storeAny(zuko1);
+    var b2 = beginCell().storeBool(true).storeInt(100, 32).storeInt((10<<8)+20, 16).storeUint(0x1234,16).storeBool(false).storeInt(8, 8);
+    assert(b1.hash() == b2.hash()) throw 123;
+    val o1 = MyShape1.fromCell(zuko1.toCell());
+    return (
+        o1,
+        o1.1,
+        o1.2,
+        o1.3,
+        MyShape1.fromCell(zuko2.toCell()).5,
+    )
+}
+
+struct Recurrent {
+    value: int16
+    nextSh: [int4, Cell<Recurrent>?]
+}
+
+fun Recurrent.sumAll(self): int {
+    var sum = self.value + self.nextSh.0;
+    if (self.nextSh.1 != null) {
+        sum += self.nextSh.1.load().sumAll();
+    }
+    return sum;
+}
+
+@method_id(112)
+fun test12() {
+    var r: Recurrent = {
+        value: 100,
+        nextSh: [1, Recurrent {
+            value: 200,
+            nextSh: [2, Recurrent {
+                value: 300,
+                nextSh: [3, null],
+            }.toCell()],
+        }.toCell()],
+    };
+    var s = r.toCell().beginParse();
+    assert (s.remainingBitsCount() == 21) throw 123;
+    assert (s.preloadUint(21) == 0b000000000110010000011) throw 123;
+    val r2 = Recurrent.fromSlice(s);
+    return (r.sumAll(), r2.sumAll());
+}
+
+
 fun main() {
     return (
         array<int8>.fromSlice(`[1..5] each in ref`()),
@@ -251,4 +306,6 @@ fun main() {
 @testcase | 108 |     | 0 0 10000000000 10000000000 0 50000000 
 @testcase | 109 |     | 4 -1 0 [ 1 2 ] -1 50000000 -1
 @testcase | 110 |     | 1 -1 0 (null) [ -1 0 ] 2000 (null) [] [] 9
+@testcase | 111 |     | [ 100 [ 10 20 ] [] [] (null) 8 ] 10 20 [] -8
+@testcase | 112 |     | 606 606
  */

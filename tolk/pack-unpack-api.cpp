@@ -51,7 +51,7 @@ struct CantSerializeBecause {
 };
 
 class PackUnpackAvailabilityChecker {
-  std::vector<StructPtr> already_checked;
+  std::vector<StructPtr> called_stack;      // to prevent recursion (give an error)
 
   static bool check_declared_packToBuilder(TypePtr receiver_type, FunctionPtr f_pack) {
     if (!f_pack->does_accept_self() || f_pack->does_mutate_self() || f_pack->get_num_params() != 2) {
@@ -102,22 +102,23 @@ public:
 
     if (const auto* t_struct = any_type->try_as<TypeDataStruct>()) {
       StructPtr struct_ref = t_struct->struct_ref;
-      if (std::find(already_checked.begin(), already_checked.end(), struct_ref) != already_checked.end()) {
-        return {};
-      }
-      already_checked.push_back(struct_ref);    // prevent recursion and visiting one struct multiple times
 
+      // give an error for `struct A { next: [A?] }`
+      // (it's okay from the stack point of view, but not okay for serialization)
+      bool in_recursion = std::find(called_stack.begin(), called_stack.end(), struct_ref) != called_stack.end();
+      if (in_recursion) {
+        return CantSerializeBecause("because struct `" + struct_ref->as_human_readable() + "` appears recursively in itself");
+      }
+
+      called_stack.push_back(struct_ref);
       for (StructFieldPtr field_ref : struct_ref->fields) {
         if (auto why = detect_why_cant_serialize(field_ref->declared_type, is_pack)) {
           return CantSerializeBecause("because field `" + struct_ref->name + "." + field_ref->name + "` of type `" + field_ref->declared_type->as_human_readable() + "` can't be serialized", why.value());
         }
       }
-      if (is_type_cellT(t_struct)) {
-        TypePtr cellT = struct_ref->substitutedTs->typeT_at(0);
-        if (auto why = detect_why_cant_serialize(cellT, is_pack)) {
-          return CantSerializeBecause("because type `" + cellT->as_human_readable() + "` can't be serialized", why.value());
-        }
-      }
+      // having `Cell<T>`, don't check `T` to allow recursion `struct A { next: Cell<A>? }`
+      // (T will be automatically checked when a user tries to operate it via `typedCell.load()` or `objT.toCell()`)
+      called_stack.pop_back();
       return {};
     }
 
@@ -158,6 +159,15 @@ public:
       for (int i = 0; i < t_tensor->size(); ++i) {
         if (auto why = detect_why_cant_serialize(t_tensor->items[i], is_pack)) {
           return CantSerializeBecause("because element `tensor." + std::to_string(i) + "` of type `" + t_tensor->items[i]->as_human_readable() + "` can't be serialized", why.value());
+        }
+      }
+      return {};
+    }
+
+    if (const auto* t_shaped = any_type->try_as<TypeDataShapedTuple>()) {
+      for (int i = 0; i < t_shaped->size(); ++i) {
+        if (auto why = detect_why_cant_serialize(t_shaped->items[i], is_pack)) {
+          return CantSerializeBecause("because element `shaped." + std::to_string(i) + "` of type `" + t_shaped->items[i]->as_human_readable() + "` can't be serialized", why.value());
         }
       }
       return {};

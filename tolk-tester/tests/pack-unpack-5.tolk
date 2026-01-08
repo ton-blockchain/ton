@@ -10,6 +10,13 @@ struct JustMaybeInt32 {
     value: MaybeInt32;
 }
 
+struct Point {
+    x: int8
+    y: int8
+}
+
+struct (0x1234) EmptyOpcode16
+
 fun T.estimate(): [int, int, int, int] {
     // convert a tensor to a tuple for better output readability
     val (minBits, maxBits, minRefs, maxRefs) = T.estimatePackSize();
@@ -246,6 +253,17 @@ fun test23() {
     )
 }
 
+type EmptyShape = []
+type MyShape1 = [int32?, Point, EmptyShape, EmptyOpcode16, Cell<[]>?, int8]
+
+@method_id(124)
+fun test24() {
+    return (
+        MyShape1.estimate(),
+        EmptyShape.estimate(),
+    )
+}
+
 fun main() {
     __expect_type(int8.estimatePackSize(), "(int, int, int, int)");
 }
@@ -266,4 +284,5 @@ fun main() {
 @testcase | 121 | | [ 2 2 0 0 ] [ 9 9 0 0 ] [ 6 6 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 123 123 0 0 ] [ 123 123 0 0 ] 
 @testcase | 122 | | [ 267 267 0 0 ] [ 2 267 0 0 ] [ 267 267 0 0 ] [ 1 268 0 0 ] [ 267 267 0 0 ] [ 2 267 0 0 ] [ 2 523 0 0 ] [ 1 524 0 0 ] 
 @testcase | 123 | | [ 9 9 0 1 ] [ 9 9 0 1 ]
+@testcase | 124 | | [ 42 74 0 1 ] [ 0 0 0 0 ]
  */

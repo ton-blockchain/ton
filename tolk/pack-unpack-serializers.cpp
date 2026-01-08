@@ -1004,6 +1004,48 @@ struct S_Tensor final : ISerializer {
   }
 };
 
+struct S_ShapedTuple final : ISerializer {
+  const TypeDataShapedTuple* t_shaped;
+
+  explicit S_ShapedTuple(const TypeDataShapedTuple* t_shaped)
+    : t_shaped(t_shaped) {
+  }
+
+  void pack(const PackContext* ctx, CodeBlob& code, AnyV origin, std::vector<var_idx_t>&& rvect) override {
+    for (int i = 0; i < t_shaped->size(); ++i) {
+      std::vector ir_ith_item = code.create_tmp_var(t_shaped->items[i], origin, "(ith-item)");
+      code.emplace_back(origin, Op::_Call, ir_ith_item, std::vector{rvect[0], code.create_int(origin, i, "")}, lookup_function("array<T>.get"));
+      ctx->generate_pack_any(t_shaped->items[i], std::move(ir_ith_item));
+    }
+  }
+
+  std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
+    std::vector ir_result = code.create_tmp_var(t_shaped, origin, "(result-shaped)");
+    code.emplace_back(origin, Op::_Tuple, ir_result, std::vector<var_idx_t>{});
+    for (int i = 0; i < t_shaped->size(); ++i) {
+      std::vector ir_ith_item = ctx->generate_unpack_any(t_shaped->items[i]);
+      std::vector args_push = std::move(ir_ith_item);
+      args_push.insert(args_push.begin(), ir_result.begin(), ir_result.end());
+      code.emplace_back(origin, Op::_Call, ir_result, std::move(args_push), lookup_function("array<T>.push"));
+    }
+    return ir_result;
+  }
+
+  void skip(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
+    for (TypePtr item : t_shaped->items) {
+      ctx->generate_skip_any(item);
+    }
+  }
+
+  PackSize estimate(const EstimateContext* ctx) override {
+    PackSize sum = PackSize(0);
+    for (TypePtr item : t_shaped->items) {
+      sum = EstimateContext::sum(sum, ctx->estimate_any(item));
+    }
+    return sum;
+  }
+};
+
 struct S_Array final : ISerializer {
   TypePtr innerT;
 
@@ -1577,6 +1619,10 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
 
   if (const auto* t_tensor = any_type->try_as<TypeDataTensor>()) {
     return std::make_unique<S_Tensor>(t_tensor);
+  }
+
+  if (const auto* t_shaped = any_type->try_as<TypeDataShapedTuple>()) {
+    return std::make_unique<S_ShapedTuple>(t_shaped);
   }
 
   if (const auto* t_array = any_type->try_as<TypeDataArray>()) {
