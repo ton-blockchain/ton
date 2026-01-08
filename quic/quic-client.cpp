@@ -31,6 +31,7 @@ void QuicClient::start_up() {
   td::actor::SchedulerContext::get().get_poll().subscribe(fd_.get_poll_info().extract_pollable_fd(this),
                                                            td::PollFlags::ReadWrite());
   flush_egress();
+  update_alarm();
   LOG(INFO) << "startup completed";
 }
 
@@ -53,8 +54,34 @@ void QuicClient::wake_up() {
   LOG(ERROR) << "unexpected wake_up signal";
 }
 void QuicClient::alarm() {
-  // TODO(@avevad): maybe watch for ngtcp2 expiry?
-  LOG(ERROR) << "unexpected alarm signal";
+  if (!p_impl_) {
+    alarm_timestamp() = td::Timestamp::never();
+    return;
+  }
+  if (p_impl_->is_expired()) {
+    auto R = p_impl_->handle_expiry();
+    if (R.is_error()) {
+      LOG(WARNING) << "failed to handle QUIC expiry: " << R.error();
+      stop();
+      return;
+    }
+
+    switch (R.ok()) {
+      case QuicConnectionPImpl::ExpiryAction::None:
+        break;
+      case QuicConnectionPImpl::ExpiryAction::ScheduleWrite:
+        flush_egress();
+        break;
+      case QuicConnectionPImpl::ExpiryAction::IdleClose:
+        stop();
+        return;
+      case QuicConnectionPImpl::ExpiryAction::Close:
+        flush_egress();
+        stop();
+        return;
+    }
+  }
+  update_alarm();
 }
 
 void QuicClient::loop() {
@@ -70,6 +97,7 @@ void QuicClient::on_fd_notify() {
   td::sync_with_poll(fd_);
   drain_ingress();
   flush_egress();
+  update_alarm();
 }
 
 void QuicClient::flush_egress(EgressData data) {
@@ -161,10 +189,20 @@ void QuicClient::open_stream(td::Promise<QuicStreamID> P) {
 
 void QuicClient::send_stream_data(QuicStreamID sid, td::BufferSlice data) {
   flush_egress({.stream_data = EgressData::StreamData{.sid = sid, .data = std::move(data), .fin = false}});
+  update_alarm();
 }
 
 void QuicClient::send_stream_end(QuicStreamID sid) {
   flush_egress({.stream_data = EgressData::StreamData{.sid = sid, .data = {}, .fin = true}});
+  update_alarm();
+}
+
+void QuicClient::update_alarm() {
+  if (!p_impl_) {
+    alarm_timestamp() = td::Timestamp::never();
+    return;
+  }
+  alarm_timestamp() = p_impl_->get_expiry_timestamp();
 }
 
 QuicClient::QuicClient(td::UdpSocketFd fd, std::unique_ptr<QuicConnectionPImpl> p_impl,

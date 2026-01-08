@@ -97,7 +97,41 @@ void QuicServer::wake_up() {
 }
 
 void QuicServer::alarm() {
-  LOG(ERROR) << "unexpected alarm signal";
+  for (auto it = connections_.begin(); it != connections_.end();) {
+    auto &peer = it->first;
+    auto &state = it->second;
+
+    if (!state.p_impl) {
+      it = connections_.erase(it);
+      continue;
+    }
+
+    if (state.p_impl->is_expired()) {
+      auto R = state.p_impl->handle_expiry();
+      if (R.is_error()) {
+        it = connections_.erase(it);
+        continue;
+      }
+
+      switch (R.ok()) {
+        case QuicConnectionPImpl::ExpiryAction::None:
+          break;
+        case QuicConnectionPImpl::ExpiryAction::ScheduleWrite:
+          flush_egress_for(peer, state);
+          break;
+        case QuicConnectionPImpl::ExpiryAction::IdleClose:
+          it = connections_.erase(it);
+          continue;
+        case QuicConnectionPImpl::ExpiryAction::Close:
+          flush_egress_for(peer, state);
+          it = connections_.erase(it);
+          continue;
+      }
+    }
+
+    ++it;
+  }
+  update_alarm();
 }
 
 void QuicServer::loop() {
@@ -112,6 +146,7 @@ void QuicServer::on_fd_notify() {
   td::sync_with_poll(fd_);
   drain_ingress();
   flush_egress_all();
+  update_alarm();
 }
 
 td::Result<QuicServer::ConnectionState *> QuicServer::get_or_create_connection(const UdpMessageBuffer &msg_in) {
@@ -267,6 +302,16 @@ void QuicServer::flush_egress_all() {
   }
 }
 
+void QuicServer::update_alarm() {
+  td::Timestamp alarm_ts = td::Timestamp::never();
+  for (auto &it : connections_) {
+    if (it.second.p_impl) {
+      it.second.p_impl->relax_alarm_timestamp(alarm_ts);
+    }
+  }
+  alarm_timestamp() = alarm_ts;
+}
+
 void QuicServer::send_stream_data(const td::IPAddress &peer, QuicStreamID sid, td::BufferSlice data) {
   auto it = connections_.find(peer);
   if (it == connections_.end()) {
@@ -274,6 +319,7 @@ void QuicServer::send_stream_data(const td::IPAddress &peer, QuicStreamID sid, t
     return;
   }
   flush_egress_for(peer, it->second, {.stream_data = EgressData::StreamData{.sid = sid, .data = std::move(data), .fin = false}});
+  update_alarm();
 }
 
 void QuicServer::send_stream_end(const td::IPAddress &peer, QuicStreamID sid) {
@@ -283,6 +329,7 @@ void QuicServer::send_stream_end(const td::IPAddress &peer, QuicStreamID sid) {
     return;
   }
   flush_egress_for(peer, it->second, {.stream_data = EgressData::StreamData{.sid = sid, .data = {}, .fin = true}});
+  update_alarm();
 }
 
 }  // namespace ton::quic

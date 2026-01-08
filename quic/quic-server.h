@@ -65,6 +65,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   };
 
   void on_fd_notify();
+  void update_alarm();
   void drain_ingress();
   void flush_egress_for(const td::IPAddress &peer, ConnectionState &state,
                         EgressData data = {.stream_data = std::nullopt});
