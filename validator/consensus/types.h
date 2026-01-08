@@ -172,7 +172,8 @@ struct CandidateHashData {
 };
 
 struct RawCandidate : td::CntObject {
-  static td::Result<td::Ref<RawCandidate>> deserialize(td::Slice data, const PeerValidator& leader, const Bus& bus);
+  static td::Result<td::Ref<RawCandidate>> deserialize(td::Slice data, const Bus& bus,
+                                                       std::optional<PeerValidatorId> src = std::nullopt);
 
   RawCandidate(CandidateId id, RawParentId parent_id, PeerValidatorId leader,
                std::variant<BlockIdExt, BlockCandidate> block, td::BufferSlice signature)
@@ -221,5 +222,14 @@ struct Candidate : td::CntObject {
 };
 
 using CandidateRef = td::Ref<Candidate>;
+
+class CollatorSchedule : public td::CntObject {
+ public:
+  virtual PeerValidatorId expected_collator_for(td::uint32 slot) const = 0;
+
+  [[nodiscard]] bool is_expected_collator(PeerValidatorId id, td::uint32 slot) const {
+    return expected_collator_for(slot) == id;
+  }
+};
 
 }  // namespace ton::validator::consensus

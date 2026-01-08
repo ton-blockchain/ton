@@ -127,7 +127,8 @@ bool CandidateHashData::check(BlockIdExt block, Bits256 candidate_hash) const {
   return this->block() == block && hash() == candidate_hash;
 }
 
-td::Result<RawCandidateRef> RawCandidate::deserialize(td::Slice data, const PeerValidator& leader, const Bus& bus) {
+td::Result<RawCandidateRef> RawCandidate::deserialize(td::Slice data, const Bus& bus,
+                                                      std::optional<PeerValidatorId> src) {
   TRY_RESULT(broadcast, fetch_tl_object<tl::CandidateData>(data, true));
 
   struct ExtractedData {
@@ -139,11 +140,23 @@ td::Result<RawCandidateRef> RawCandidate::deserialize(td::Slice data, const Peer
   };
   td::Result<ExtractedData> maybe_data;
 
-  auto empty_fn = [](tl::empty& empty_broadcast) -> td::Result<ExtractedData> {
+  PeerValidator leader;
+  auto set_check_leader = [&](td::uint32 slot) -> td::Status {
+    leader = bus.collator_schedule->expected_collator_for(slot).get_using(bus);
+    if (leader.idx != src.value_or(leader.idx)) {
+      return td::Status::Error("Candidate broadcast source does not match expected leader");
+    }
+    return td::Status::OK();
+  };
+
+  auto empty_fn = [&](tl::empty& empty_broadcast) -> td::Result<ExtractedData> {
+    auto slot = static_cast<td::uint32>(empty_broadcast.slot_);
+    TRY_STATUS(set_check_leader(slot));
+
     auto block = create_block_id(empty_broadcast.block_);
     auto parent = RawCandidateId::from_tl(empty_broadcast.parent_);
     return ExtractedData{
-        .slot = static_cast<td::uint32>(empty_broadcast.slot_),
+        .slot = slot,
         .parent_id = parent,
         .block = block,
         .signature = std::move(empty_broadcast.signature_),
@@ -152,6 +165,9 @@ td::Result<RawCandidateRef> RawCandidate::deserialize(td::Slice data, const Peer
   };
 
   auto ordinary_fn = [&](tl::block& block_broadcast) -> td::Result<ExtractedData> {
+    auto slot = static_cast<td::uint32>(block_broadcast.slot_);
+    TRY_STATUS(set_check_leader(slot));
+
     TRY_RESULT(candidate, validatorsession::deserialize_candidate(
                               block_broadcast.candidate_, true,
                               bus.config.max_block_size + bus.config.max_collated_data_size + 1024));
@@ -183,7 +199,7 @@ td::Result<RawCandidateRef> RawCandidate::deserialize(td::Slice data, const Peer
     auto parent = tl_to_parent_id(block_broadcast.parent_);
     auto hash_builder = CandidateHashData::create_full(block, parent);
     return ExtractedData{
-        .slot = static_cast<td::uint32>(block_broadcast.slot_),
+        .slot = slot,
         .parent_id = parent,
         .block = std::move(block),
         .signature = std::move(block_broadcast.signature_),

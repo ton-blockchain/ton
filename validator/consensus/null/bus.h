@@ -19,12 +19,23 @@ using MessageRef = tl_object_ptr<Message>;
 
 }  // namespace tl
 
+class StaticCollatorSchedule : public CollatorSchedule {
+ public:
+  PeerValidatorId expected_collator_for(td::uint32 slot) const override {
+    return PeerValidatorId{0};
+  }
+};
+
 class Bus : public consensus::Bus {
  public:
   using Parent = consensus::Bus;
   using Events = td::TypeList<>;
 
   Bus() = default;
+
+  void populate_collator_schedule() override {
+    collator_schedule = td::make_ref<StaticCollatorSchedule>();
+  }
 };
 
 using BusHandle = runtime::BusHandle<Bus>;

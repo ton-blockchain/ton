@@ -192,6 +192,8 @@ class BridgeImpl final : public IValidatorGroup {
 
     bus->first_block_parents = std::move(params_.first_block_parents);
 
+    bus->populate_collator_schedule();
+
     runtime::Runtime runtime;
     BlockAccepter::register_in(runtime);
     BlockProducer::register_in(runtime);

@@ -137,6 +137,8 @@ class Bus : public runtime::Bus {
 
   Bus() = default;
 
+  virtual void populate_collator_schedule() = 0;
+
   std::vector<BlockIdExt> convert_id_to_blocks(ParentId parent) const;
 
   ValidatorSessionId session_id;
@@ -154,6 +156,8 @@ class Bus : public runtime::Bus {
 
   NewConsensusConfig config;
   BlockIdExt min_masterchain_block_id;
+
+  td::Ref<CollatorSchedule> collator_schedule;
 
   td::actor::ActorId<overlay::Overlays> overlays;
 

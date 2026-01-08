@@ -63,6 +63,8 @@ class Bus : public consensus::Bus {
 
   Bus() = default;
 
+  void populate_collator_schedule() override;
+
   NewConsensusConfig::Simplex simplex_config;
 
   // FIXME: These should come from validator options

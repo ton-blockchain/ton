@@ -70,11 +70,11 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
   template <>
   void handle(BusHandle, std::shared_ptr<const LeaderWindowObserved> event) {
+    auto& bus = *owning_bus();
+
     td::uint32 offset = event->start_slot % slots_per_leader_window_;
     if (offset == 0) {
-      auto window = event->start_slot / slots_per_leader_window_;
-      // FIXME: random selection
-      if (window % owning_bus()->validator_set.size() == owning_bus()->local_id.idx.value()) {
+      if (bus.collator_schedule->is_expected_collator(bus.local_id.idx, event->start_slot)) {
         start_generation(event->base, event->start_slot).start().detach();
       }
     }
