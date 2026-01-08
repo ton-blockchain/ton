@@ -1,6 +1,11 @@
 #pragma once
 #include <openssl/rand.h>
 #include <openssl/types.h>
+#include <cstdint>
+#include <cstddef>
+#include <deque>
+#include <unordered_map>
+#include <vector>
 #include <string>
 
 #include "ngtcp2/ngtcp2.h"
@@ -79,6 +84,27 @@ struct QuicConnectionPImpl {
  private:
   std::string alpn_wire_;
 
+  struct OutboundStreamState {
+    std::deque<td::BufferSlice> chunks;
+    uint64_t queued_bytes = 0;
+    uint64_t submitted_unacked = 0;
+    uint64_t acked_prefix = 0;
+
+    bool fin_pending = false;
+    bool fin_submitted = false;
+    bool fin_acked = false;
+
+    uint64_t unsent_bytes() const;
+
+    void consume_acked_prefix(uint64_t n) ;
+  };
+
+  std::unordered_map<QuicStreamID, OutboundStreamState> outbound_;
+
+  static void build_unsent_vecs(std::vector<ngtcp2_vec> &out, OutboundStreamState &st);
+
+  [[nodiscard]] td::Status write_one_packet(UdpMessageBuffer &msg_out, QuicStreamID sid);
+
   static ngtcp2_tstamp now_ts();
 
   static ngtcp2_conn* get_pimpl_from_ref(ngtcp2_crypto_conn_ref* ref);
@@ -89,6 +115,11 @@ struct QuicConnectionPImpl {
   static int handshake_completed_cb(ngtcp2_conn* conn, void* user_data);
   static int recv_stream_data_cb(ngtcp2_conn* /*conn*/, uint32_t flags, int64_t stream_id, uint64_t offset,
                                  const uint8_t* data, size_t datalen, void* user_data, void* stream_user_data);
+
+  static int acked_stream_data_offset_cb(ngtcp2_conn* /*conn*/, int64_t stream_id, uint64_t offset, uint64_t datalen,
+                                         void* user_data, void* stream_user_data);
+  static int stream_close_cb(ngtcp2_conn* /*conn*/, uint32_t flags, int64_t stream_id, uint64_t app_error_code,
+                             void* user_data, void* stream_user_data);
 
   static int alpn_select_cb(SSL* ssl, const unsigned char** out, unsigned char* outlen, const unsigned char* in,
                             unsigned int inlen, void* arg);
