@@ -40,6 +40,7 @@ class QuicSender : public adnl::AdnlSenderInterface {
   void after_out_connection_ready(AdnlPath path);
   void after_out_query_answer(AdnlPath path, QuicStreamID sid, td::BufferSlice data);
 
+  void after_in_init(AdnlPath path, td::IPAddress peer, QuicStreamID sid);
   void after_in_query(AdnlPath path, td::IPAddress peer, QuicStreamID sid, td::BufferSlice data);
   void after_in_query_answer(adnl::AdnlNodeIdShort local_id, td::IPAddress peer, QuicStreamID sid,td::BufferSlice data);
   void after_in_message(AdnlPath path, td::BufferSlice data);
