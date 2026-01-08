@@ -102,8 +102,9 @@ void RldpConnection::set_receive_limits(TransferId transfer_id, td::Timestamp ti
 RldpConnection::RldpConnection() {
   bdw_stats_.on_update(td::Timestamp::now(), 0);
 
-  rtt_stats_.windowed_min_rtt = 0.5;
-  bdw_stats_.windowed_max_bdw = 10;
+  // Conservative initial estimates - BBR will ramp up based on measurements
+  rtt_stats_.windowed_min_rtt = RldpSender::Config::DEFAULT_INITIAL_RTT;
+  bdw_stats_.windowed_max_bdw = 100;
 }
 
 void RldpConnection::send(TransferId transfer_id, td::BufferSlice data, td::Timestamp timeout) {
