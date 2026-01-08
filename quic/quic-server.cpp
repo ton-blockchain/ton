@@ -202,10 +202,11 @@ td::Result<QuicServer::ConnectionState *> QuicServer::get_or_create_connection(c
     PImplCallback(QuicServer &server, td::IPAddress peer) : server_(server), peer_(peer) {
     }
 
-    void on_handshake_completed(HandshakeCompletedEvent event) override {
+    td::Status on_handshake_completed(HandshakeCompletedEvent event) override {
       if (server_.callback_) {
         server_.callback_->on_connected(peer_, std::move(event.peer_public_key));
       }
+      return td::Status::OK();
     }
 
     void on_stream_data(StreamDataEvent event) override {

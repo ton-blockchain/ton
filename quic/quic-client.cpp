@@ -241,8 +241,8 @@ QuicClient::QuicClient(td::UdpSocketFd fd, std::unique_ptr<QuicConnectionPImpl> 
     explicit PImplCallback(QuicClient& connection) : connection_(connection) {
     }
 
-    void on_handshake_completed(HandshakeCompletedEvent event) override {
-      connection_.callback_->on_connected(std::move(event.peer_public_key));
+    td::Status on_handshake_completed(HandshakeCompletedEvent event) override {
+      return connection_.callback_->on_connected(std::move(event.peer_public_key));
     }
 
     void on_stream_data(StreamDataEvent event) override {

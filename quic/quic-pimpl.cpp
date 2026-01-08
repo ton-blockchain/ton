@@ -580,7 +580,11 @@ int QuicConnectionPImpl::handshake_completed_cb(ngtcp2_conn* conn, void* user_da
       }
     }
   }
-  pimpl->callback->on_handshake_completed(std::move(event));
+  if (auto status = pimpl->callback->on_handshake_completed(std::move(event)); status.is_error()) {
+    LOG(WARNING) << "handshake rejected: " << status;
+    //FIXME: we should actually close connection
+    return NGTCP2_ERR_CALLBACK_FAILURE;
+  }
   return 0;
 }
 

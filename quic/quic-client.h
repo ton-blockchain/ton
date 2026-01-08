@@ -18,7 +18,8 @@ class QuicClient : public td::actor::Actor, public td::ObserverBase {
   class Callback {
    public:
     // peer_public_key is the server's Ed25519 public key (32 bytes) when using RPK, empty otherwise
-    virtual void on_connected(td::SecureString peer_public_key) = 0;
+    // Return error to reject the connection (e.g., if peer_public_key doesn't match expected)
+    virtual td::Status on_connected(td::SecureString peer_public_key) = 0;
     virtual void on_stream_data(QuicStreamID sid, td::BufferSlice data) = 0;
     virtual void on_stream_end(QuicStreamID sid) = 0;
     virtual ~Callback() = default;

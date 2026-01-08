@@ -117,7 +117,7 @@ td::actor::Task<> QuicSender::add_local_id(adnl::AdnlNodeIdShort local_id) {
     }
 
     void on_connected(const td::IPAddress& peer, td::SecureString peer_public_key) override {
-      // TODO: Use peer_public_key for authentication instead of IP
+      // FIXME: Use peer_public_key for authentication instead of IP
       LOG(INFO) << "Server: client connected from " << peer << " with public key: "
                 << (peer_public_key.empty() ? "<none>" : td::base64_encode(peer_public_key.as_slice()));
       inbound_.emplace(peer.get_ip_str().c_str(), InboundConnection{});
@@ -247,11 +247,19 @@ void QuicSender::create_connection(AdnlPath path, td::Promise<OutboundConnection
               : sender_(std::move(sender)), path_(std::move(path)) {
           }
 
-          void on_connected(td::SecureString peer_public_key) override {
-            // TODO: Verify peer_public_key matches expected server identity
-            LOG(INFO) << "Client: connected to " << path_.second << " with server public key: "
-                      << (peer_public_key.empty() ? "<none>" : td::base64_encode(peer_public_key.as_slice()));
+          td::Status on_connected(td::SecureString peer_public_key) override {
+            if (peer_public_key.size() != 32) {
+              return td::Status::Error("peer public key must be 32 bytes");
+            }
+            td::Bits256 key_bits;
+            key_bits.as_slice().copy_from(peer_public_key.as_slice());
+            auto got_id = adnl::AdnlNodeIdFull(PublicKey(pubkeys::Ed25519(key_bits))).compute_short_id();
+            if (got_id != path_.second) {
+              return td::Status::Error("connected to unexpected node");
+            }
+            LOG(INFO) << "Client: connected to " << path_.second;
             td::actor::send_closure(sender_, &QuicSender::after_out_connection_created, path_);
+            return td::Status::OK();
           }
 
           void on_stream_data(QuicStreamID sid, td::BufferSlice data) override {
