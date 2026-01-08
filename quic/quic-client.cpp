@@ -62,6 +62,8 @@ void QuicClient::start_up() {
 }
 
 void QuicClient::tear_down() {
+  td::actor::SchedulerContext::get().get_poll().unsubscribe(fd_.get_poll_info().get_pollable_fd_ref());
+  LOG(INFO) << "tear down";
   // TODO(@avevad): close connection cleanly
 }
 

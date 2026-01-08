@@ -104,6 +104,8 @@ void QuicServer::start_up() {
 }
 
 void QuicServer::tear_down() {
+  td::actor::SchedulerContext::get().get_poll().unsubscribe(fd_.get_poll_info().get_pollable_fd_ref());
+  LOG(INFO) << "tear down";
 }
 
 void QuicServer::hangup() {
