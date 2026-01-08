@@ -127,6 +127,16 @@ void KeyringImpl::del_key(PublicKeyHash key_hash, td::Promise<td::Unit> promise)
   promise.set_value(td::Unit());
 }
 
+void KeyringImpl::export_private_key(PublicKeyHash key_hash, td::Promise<PrivateKey> promise) {
+  auto S = load_key(key_hash);
+
+  if (S.is_error()) {
+    promise.set_error(S.move_as_error());
+  } else {
+    promise.set_result(map_[key_hash]->private_key);
+  }
+}
+
 void KeyringImpl::get_public_key(PublicKeyHash key_hash, td::Promise<PublicKey> promise) {
   auto S = load_key(key_hash);
 

@@ -49,6 +49,7 @@ class KeyringImpl : public Keyring {
   void add_key_short(PublicKeyHash key_hash, td::Promise<PublicKey> promise) override;
   void del_key(PublicKeyHash key_hash, td::Promise<td::Unit> promise) override;
 
+  void export_private_key(PublicKeyHash key_hash, td::Promise<PrivateKey> promise) override;
   void get_public_key(PublicKeyHash key_hash, td::Promise<PublicKey> promise) override;
   void sign_message(PublicKeyHash key_hash, td::BufferSlice data, td::Promise<td::BufferSlice> promise) override;
   void sign_add_get_public_key(PublicKeyHash key_hash, td::BufferSlice data,
