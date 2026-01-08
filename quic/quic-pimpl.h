@@ -12,6 +12,7 @@
 #include "ngtcp2/ngtcp2_crypto.h"
 #include "ngtcp2/ngtcp2_crypto_ossl.h"
 #include "td/actor/ActorId.h"
+#include "td/utils/Time.h"
 #include "td/utils/port/UdpSocketFd.h"
 
 #include "quic-client.h"
@@ -19,6 +20,12 @@
 
 namespace ton::quic {
 struct QuicConnectionPImpl {
+  enum class ExpiryAction {
+    None,
+    ScheduleWrite,
+    IdleClose,
+    Close,
+  };
   class Callback {
    public:
     struct HandshakeCompletedEvent {};
@@ -57,6 +64,13 @@ struct QuicConnectionPImpl {
 
   [[nodiscard]] td::Status produce_egress(UdpMessageBuffer& msg_out);
   [[nodiscard]] td::Status handle_ingress(const UdpMessageBuffer& msg_in);
+
+  [[nodiscard]] td::Timestamp get_expiry_timestamp() const;
+  void relax_alarm_timestamp(td::Timestamp &alarm_ts) const {
+    alarm_ts.relax(get_expiry_timestamp());
+  }
+  [[nodiscard]] bool is_expired() const;
+  [[nodiscard]] td::Result<ExpiryAction> handle_expiry();
 
   [[nodiscard]] td::Result<QuicStreamID> open_stream();
   [[nodiscard]] td::Status write_stream(UdpMessageBuffer&msg_out, QuicStreamID sid, td::BufferSlice data, bool fin);

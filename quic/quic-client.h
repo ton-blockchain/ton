@@ -56,6 +56,7 @@ class QuicClient : public td::actor::Actor, public td::ObserverBase {
   };
 
   void on_fd_notify();
+  void update_alarm();
   void flush_egress(EgressData data = {.stream_data = std::nullopt});
   void drain_ingress();
 
