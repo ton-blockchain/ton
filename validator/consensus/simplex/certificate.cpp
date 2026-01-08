@@ -82,7 +82,7 @@ td::Ref<block::BlockSignatureSet> Certificate<T>::to_signature_set(const RawCand
     fn = block::BlockSignatureSet::create_simplex;
   }
   return fn(std::move(block_signatures), bus.cc_seqno, bus.validator_set_hash, bus.session_id, vote.id.slot,
-            CandidateId::create_hash_data(candidate->id.slot, candidate->block, candidate->parent_id));
+            candidate->hash_data().to_tl());
 }
 
 template struct Certificate<NotarizeVote>;

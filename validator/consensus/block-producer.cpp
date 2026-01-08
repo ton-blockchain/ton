@@ -124,6 +124,7 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
 
       BlockSeqno new_seqno = parent.next_seqno();
 
+      CandidateHashData hash_builder;
       std::variant<BlockIdExt, BlockCandidate> block;
       std::optional<adnl::AdnlNodeIdShort> collator;
 
@@ -135,6 +136,7 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
                      << ", last_mc_finalized_seqno_=" << last_mc_finalized_seqno_;
         CHECK(parent.id().has_value());  // first generated block in an epoch cannot be empty
 
+        hash_builder = CandidateHashData::create_empty(parent.id()->block, *parent.id());
         block = parent.id()->block;
       } else {
         // Before doing anything substantial, check the leader window.
@@ -148,13 +150,14 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
             Ed25519_PublicKey{bus.local_id.key.ed25519_value().raw()}, BlockCandidatePriority{}, max_answer_size_,
             cancellation_source_.get_cancellation_token());
 
+        hash_builder = CandidateHashData::create_full(block_candidate.candidate, parent.id());
         block = std::move(block_candidate.candidate);
         if (!block_candidate.collator_node_id.is_zero()) {
           collator = adnl::AdnlNodeIdShort{block_candidate.collator_node_id};
         }
       }
 
-      auto id = CandidateId::create(slot, block, parent.id());
+      auto id = CandidateId::create(slot, hash_builder);
       auto id_to_sign = serialize_tl_object(id.as_raw().to_tl(), true);
       auto data_to_sign = create_serialize_tl_object<tl::dataToSign>(bus.session_id, std::move(id_to_sign));
       auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id.short_id,

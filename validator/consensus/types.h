@@ -107,11 +107,10 @@ using RawParentId = std::optional<RawCandidateId>;
 td::StringBuilder& operator<<(td::StringBuilder& stream, const RawCandidateId& id);
 td::StringBuilder& operator<<(td::StringBuilder& stream, const RawParentId& id);
 
+struct CandidateHashData;
+
 struct CandidateId {
-  static tl::CandidateHashDataRef create_hash_data(td::uint32 slot,
-                                                   const std::variant<BlockIdExt, BlockCandidate>& block,
-                                                   RawParentId parent);
-  static CandidateId create(td::uint32 slot, const std::variant<BlockIdExt, BlockCandidate>& block, RawParentId parent);
+  static CandidateId create(td::uint32 slot, const CandidateHashData& builder);
 
   CandidateId() = default;
 
@@ -138,6 +137,40 @@ using ParentId = std::optional<CandidateId>;
 td::StringBuilder& operator<<(td::StringBuilder& stream, const CandidateId& id);
 td::StringBuilder& operator<<(td::StringBuilder& stream, const ParentId& id);
 
+struct CandidateHashData {
+  struct EmptyCandidate {
+    BlockIdExt reference;
+  };
+
+  struct FullCandidate {
+    BlockIdExt id;
+    td::Bits256 collated_file_hash;
+  };
+
+  static CandidateHashData create_empty(BlockIdExt reference, RawCandidateId parent) {
+    return {EmptyCandidate{reference}, parent};
+  }
+
+  static CandidateHashData create_full(FullCandidate candidate, RawParentId parent) {
+    return {candidate, parent};
+  }
+
+  static CandidateHashData create_full(const BlockCandidate& candidate, RawParentId parent) {
+    return {FullCandidate{candidate.id, candidate.collated_file_hash}, parent};
+  }
+
+  static CandidateHashData from_tl(tl::CandidateHashData&& data);
+
+  BlockIdExt block() const;
+  tl::CandidateHashDataRef to_tl() const;
+  Bits256 hash() const;
+
+  [[nodiscard]] bool check(BlockIdExt block, Bits256 candidate_hash) const;
+
+  std::variant<EmptyCandidate, FullCandidate> candidate;
+  RawParentId parent;
+};
+
 struct RawCandidate : td::CntObject {
   static td::Result<td::Ref<RawCandidate>> deserialize(td::Slice data, const PeerValidator& leader, const Bus& bus);
 
@@ -151,6 +184,7 @@ struct RawCandidate : td::CntObject {
     CHECK(std::holds_alternative<BlockCandidate>(this->block) || this->parent_id.has_value());
   }
 
+  CandidateHashData hash_data() const;
   td::BufferSlice serialize() const;
 
   CandidateId id;
