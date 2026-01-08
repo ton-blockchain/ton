@@ -43,6 +43,9 @@ double NET_LOSS = 0.0;
 size_t N_NODES = 8;
 size_t N_DOUBLE_NODES = 0;
 
+double DURATION = 60.0;
+td::uint32 TARGET_RATE_MS = 1000;
+
 class TestOverlayNode;
 
 class TestOverlay : public td::actor::Actor {
@@ -185,6 +188,20 @@ class TestManagerFacade : public ManagerFacade {
   td::actor::ActorId<TestConsensus> test_consensus_;
 };
 
+class TestSimplexBus : public simplex::Bus {
+ public:
+  using Parent = simplex::Bus;
+
+  explicit TestSimplexBus(td::Promise<td::Unit> stop_promise) : stop_promise_(std::move(stop_promise)) {
+  }
+  ~TestSimplexBus() override {
+    stop_promise_.set_value(td::Unit{});
+  }
+
+ private:
+  td::Promise<td::Unit> stop_promise_;
+};
+
 class TestConsensus : public td::actor::Actor {
  public:
   td::actor::Task<> run() {
@@ -279,7 +296,9 @@ class TestConsensus : public td::actor::Actor {
 
         inst.manager_facade = td::actor::create_actor<TestManagerFacade>(
             PSTRING() << "ManagerFacade." << idx << "." << i, idx, i, actor_id(this));
-        auto bus = std::make_shared<simplex::Bus>();
+        auto [stop_task, stop_promise] = td::actor::StartedTask<>::make_bridge();
+        auto bus = std::make_shared<TestSimplexBus>(std::move(stop_promise));
+        inst.stop_waiter = std::make_unique<td::actor::StartedTask<>>(std::move(stop_task));
         bus->shard = SHARD;
         bus->manager = inst.manager_facade.get();
         bus->keyring = keyring_.get();
@@ -287,7 +306,7 @@ class TestConsensus : public td::actor::Actor {
         bus->validator_set = validators;
         bus->total_weight = total_weight;
         bus->local_id = validators[idx];
-        bus->config = NewConsensusConfig{.target_rate_ms = 500,
+        bus->config = NewConsensusConfig{.target_rate_ms = TARGET_RATE_MS,
                                          .max_block_size = 1 << 20,
                                          .max_collated_data_size = 1 << 20,
                                          .consensus = NewConsensusConfig::Simplex{}};
@@ -297,12 +316,14 @@ class TestConsensus : public td::actor::Actor {
         bus->first_block_parents = {FIRST_PARENT};
         bus->cc_seqno = CC_SEQNO;
         bus->validator_set_hash = validator_set_->get_validator_set_hash();
-        inst.bus = runtime.start(std::move(bus), PSTRING() << "consensus." << idx << "." << i);
+        bus->populate_collator_schedule();
+        inst.bus =
+            runtime.start(std::static_pointer_cast<simplex::Bus>(bus), PSTRING() << "consensus." << idx << "." << i);
         node.instances.push_back(std::move(inst));
       }
     }
 
-    co_await td::actor::coro_sleep(td::Timestamp::in(300.0));
+    co_await td::actor::coro_sleep(td::Timestamp::in(DURATION));
 
     co_return co_await finalize();
   }
@@ -312,9 +333,14 @@ class TestConsensus : public td::actor::Actor {
     for (Node &node : nodes_) {
       for (Instance &inst : node.instances) {
         inst.bus.publish<StopRequested>();
+        inst.bus = {};
       }
     }
-    co_await td::actor::coro_sleep(td::Timestamp::in(1.0));
+    for (Node &node : nodes_) {
+      for (Instance &inst : node.instances) {
+        co_await std::move(*inst.stop_waiter);
+      }
+    }
     LOG(WARNING) << "TEST RESULTS:";
     for (size_t idx = 0; idx < N_NODES; ++idx) {
       for (size_t inst_idx = 0; inst_idx < nodes_[idx].instances.size(); ++inst_idx) {
@@ -333,6 +359,7 @@ class TestConsensus : public td::actor::Actor {
     runtime::Runtime runtime;
     td::actor::ActorOwn<TestManagerFacade> manager_facade;
     simplex::BusHandle bus;
+    std::unique_ptr<td::actor::StartedTask<>> stop_waiter;
 
     std::set<BlockSeqno> accepted_blocks;
   };
@@ -378,6 +405,13 @@ int main(int argc, char *argv[]) {
     int v = VERBOSITY_NAME(FATAL) + (td::to_integer<int>(arg));
     SET_VERBOSITY_LEVEL(v);
   });
+  p.add_checked_option('d', "duration", "test duration in seconds (default: 60)", [&](td::Slice arg) {
+    DURATION = td::to_double(arg);
+    if (DURATION < 0.0) {
+      return td::Status::Error(PSTRING() << "invalid duration value " << arg);
+    }
+    return td::Status::OK();
+  });
   p.add_option('m', "masterchain", "masterchain consensus (default is shardchain)", [&]() {
     SHARD = ShardIdFull{masterchainId};
     FIRST_PARENT = MIN_MC_BLOCK_ID;
@@ -391,6 +425,10 @@ int main(int argc, char *argv[]) {
   });
   p.add_checked_option('\0', "n-double-nodes", "number of nodes with two instances (default: 0)", [&](td::Slice arg) {
     TRY_RESULT_ASSIGN(N_DOUBLE_NODES, td::to_integer_safe<td::uint32>(arg));
+    return td::Status::OK();
+  });
+  p.add_checked_option('\0', "target-rate-ms", "target block rate in milliseconds (default: 1000)", [&](td::Slice arg) {
+    TRY_RESULT_ASSIGN(TARGET_RATE_MS, td::to_integer_safe<td::uint32>(arg));
     return td::Status::OK();
   });
   p.add_checked_option('\0', "net-ping-min", "network ping (minimal)", [&](td::Slice arg) {
