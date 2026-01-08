@@ -306,12 +306,13 @@ void BroadcastsTwostep::checked(OverlayImpl *overlay, PublicKeyHash &&src, td::B
 
 void BroadcastsTwostep::gc(OverlayImpl *overlay) {
   while (!broadcasts_.empty()) {
-    auto bcast = static_cast<BroadcastTwostep *>(lru_.get());
+    auto bcast = static_cast<BroadcastTwostep *>(lru_.prev);
+    CHECK(bcast);
     if (bcast->date > td::Clocks::system() - 60) {
       break;
     }
     auto broadcast_id = bcast->broadcast_id;
-    broadcasts_.erase(broadcast_id);
+    CHECK(broadcasts_.erase(broadcast_id));
     overlay->register_delivered_broadcast(broadcast_id);
   }
 }
