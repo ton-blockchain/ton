@@ -48,7 +48,7 @@ void QuicSender::send_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst
       auto sid = res.move_as_ok();
       conn->responses.emplace(sid, std::move(promise));
       td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_query>(std::move(data));
-      td::actor::send_closure(client, &QuicClient::send_stream_data, sid, std::move(data));
+      td::actor::send_closure(client, &QuicClient::send_stream_data, sid, std::move(wire_data));
       td::actor::send_closure(client, &QuicClient::send_stream_end, sid);
     });
   });
@@ -108,12 +108,13 @@ td::actor::Task<> QuicSender::add_local_id(adnl::AdnlNodeIdShort local_id){
       }
       auto response = R.move_as_ok();
       ton_api::downcast_call(*response, td::overloaded(
-        [this, &conn] (const ton_api::quic_init& init) {
+        [this, &conn, peer, sid] (const ton_api::quic_init& init) {
           conn.peer_id_ = adnl::AdnlNodeIdShort{init.local_id_};
           auto local_id = adnl::AdnlNodeIdShort{init.peer_id_};
           if (local_id != local_id_) {
             LOG(WARNING) << "adnl id mismatch ignored";
           }
+          td::actor::send_closure(sender_, &QuicSender::after_in_init, AdnlPath{conn.peer_id_, local_id_}, peer, sid);
         },
         [this, &conn, peer, sid] (ton_api::quic_query& query) {
           td::actor::send_closure(sender_, &QuicSender::after_in_query, AdnlPath{conn.peer_id_, local_id_}, peer, sid, std::move(query.data_));
@@ -177,6 +178,7 @@ void QuicSender::create_connection(AdnlPath path, td::Promise<OutboundConnection
     }
     if (!peer_addr.is_valid()) {
       P.set_result(td::Status::Error("no ip address for peer"));
+      return;
     }
     auto peer_host = peer_addr.get_ip_host();
     auto peer_port = peer_addr.get_port() + NODE_PORT_OFFSET;
@@ -247,6 +249,7 @@ void QuicSender::after_out_connection_created(AdnlPath path){
 void QuicSender::after_out_connection_ready(AdnlPath path){
   auto conn = &outbound_.find(path)->second;
   conn->ready.set_result(conn);
+  conn->ready_received = true;
 }
 
 void QuicSender::after_out_query_answer(AdnlPath path, QuicStreamID sid, td::BufferSlice data){
@@ -254,8 +257,15 @@ void QuicSender::after_out_query_answer(AdnlPath path, QuicStreamID sid, td::Buf
   conn->responses[sid].set_result(std::move(data));
 }
 
+void QuicSender::after_in_init(AdnlPath path, td::IPAddress peer, QuicStreamID sid){
+  td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_ready>();
+  auto server = inbound_[path.first].get();
+  td::actor::send_closure(server, &QuicServer::send_stream_data, peer, sid, std::move(wire_data));
+  td::actor::send_closure(server, &QuicServer::send_stream_end, peer, sid);
+}
+
 void QuicSender::after_in_query(AdnlPath path, td::IPAddress peer, QuicStreamID sid, td::BufferSlice data){
-  td::actor::send_closure(adnl_, &adnl::AdnlPeerTable::deliver_query, path.first, path.second, std::move(data), [self = actor_id(this), peer, sid, local_id = path.first] (td::Result<td::BufferSlice> R) {
+  td::actor::send_closure(adnl_, &adnl::AdnlPeerTable::deliver_query, path.first, path.second, std::move(data), [self = actor_id(this), peer, sid, local_id = path.second] (td::Result<td::BufferSlice> R) {
     if (R.is_error()) {
       LOG(ERROR) << R.move_as_error_prefix("adnl failed to deliver query, not sending any answer");
       return;
