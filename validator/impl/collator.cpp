@@ -879,6 +879,7 @@ bool Collator::unpack_last_mc_state() {
   store_out_msg_queue_size_ = config_->has_capability(ton::capStoreOutMsgQueueSize);
   msg_metadata_enabled_ = config_->has_capability(ton::capMsgMetadata);
   deferring_messages_enabled_ = config_->has_capability(ton::capDeferMessages);
+  allow_same_timestamp_ = global_version_ >= 13;
   full_collated_data_ = config_->has_capability(capFullCollatedData) || collator_opts_->force_full_collated_data;
   LOG(DEBUG) << "full_collated_data is " << full_collated_data_;
   shard_conf_ = std::make_unique<block::ShardConfig>(*config_);
@@ -1920,7 +1921,7 @@ bool Collator::import_new_shard_top_blocks() {
                  << chain_len;
       continue;
     }
-    if (sh_bd->generated_at() > now_) {
+    if (allow_same_timestamp_ ? sh_bd->generated_at() > now_ : sh_bd->generated_at() >= now_) {
       LOG(DEBUG) << "ShardTopBlockDescr for " << sh_bd->block_id().to_str() << " skipped: it claims to be generated at "
                  << sh_bd->generated_at() << " while it is still " << now_;
       continue;
@@ -2179,7 +2180,7 @@ bool Collator::init_utime() {
   }
 
   auto prev = std::max<td::uint32>(config_->utime, prev_now_);
-  now_ = std::max<td::uint32>(prev, (unsigned)std::time(nullptr));
+  now_ = std::max<td::uint32>(prev + (allow_same_timestamp_ ? 0 : 1), (unsigned)std::time(nullptr));
   if (now_ > now_upper_limit_) {
     return fatal_error(
         "error initializing unix time for the new block: failed to observe end of fsm_split time interval for this "

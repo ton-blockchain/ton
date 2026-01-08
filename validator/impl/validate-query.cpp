@@ -1052,6 +1052,7 @@ bool ValidateQuery::try_unpack_mc_state() {
                                     << " while the masterchain configuration expects " << config_->get_vert_seqno());
     }
     global_version_ = config_->get_global_version();
+    allow_same_timestamp_ = global_version_ >= 13;
     prev_key_block_exists_ = config_->get_last_key_block(prev_key_block_, prev_key_block_lt_);
     if (prev_key_block_exists_) {
       prev_key_block_seqno_ = prev_key_block_.seqno();
@@ -2440,14 +2441,15 @@ bool ValidateQuery::check_utime_lt() {
     return reject_query(PSTRING() << "block has start_lt " << start_lt_ << " less than or equal to lt " << ps_.lt_
                                   << " of the previous state");
   }
-  if (now_ < ps_.utime_) {
-    return reject_query(PSTRING() << "block has creation time " << now_
-                                  << " less than or equal to that of the previous state (" << ps_.utime_ << ")");
+  if (allow_same_timestamp_ ? now_ < ps_.utime_ : now_ <= ps_.utime_) {
+    return reject_query(PSTRING() << "block has creation time " << now_ << " less than "
+                                  << (allow_same_timestamp_ ? "" : "or equal ") << "to that of the previous state ("
+                                  << ps_.utime_ << ")");
   }
-  if (now_ < config_->utime) {
-    return reject_query(PSTRING() << "block has creation time " << now_
-                                  << " less than or equal to that of the reference masterchain state ("
-                                  << config_->utime << ")");
+  if (allow_same_timestamp_ ? now_ < config_->utime : now_ <= config_->utime) {
+    return reject_query(PSTRING() << "block has creation time " << now_ << " less than "
+                                  << (allow_same_timestamp_ ? "" : "or equal ")
+                                  << "to that of the reference masterchain state (" << config_->utime << ")");
   }
   /*
   if (now_ > (unsigned)std::time(nullptr) + 15) {

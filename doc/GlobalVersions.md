@@ -294,3 +294,9 @@ The bounced message has the same 0th and 1st bits in `extra_flags` as the origin
 
 ### Transaction changes
 - `end_status` of a transaction is now correctly set to `uninit` when the account is frozen with `frozen_hash` equal to its address.
+
+### Other changes
+- Block timestamps are now non-strictly increasing. Block timestamp now can be equal to the timestamp of:
+  - Previous block
+  - Reference masterchain block
+  - Top shard block (in masterchain)

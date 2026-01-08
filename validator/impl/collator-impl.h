@@ -173,6 +173,7 @@ class Collator final : public td::actor::Actor {
   bool skip_topmsgdescr_{false};
   bool skip_extmsg_{false};
   bool short_dequeue_records_{false};
+  bool allow_same_timestamp_{false};
   td::uint64 overload_history_{0}, underload_history_{0};
   td::uint64 block_size_estimate_{};
   Ref<block::WorkchainInfo> wc_info_;

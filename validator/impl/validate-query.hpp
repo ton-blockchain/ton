@@ -202,6 +202,7 @@ class ValidateQuery : public td::actor::Actor {
 
   int global_id_{0};
   int global_version_{0};
+  bool allow_same_timestamp_{false};
   ton::BlockSeqno vert_seqno_{~0U};
   bool ihr_enabled_{false};
   bool create_stats_enabled_{false};
