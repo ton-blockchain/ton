@@ -211,6 +211,37 @@ static bool check_eq_neq_operator(TypePtr lhs_type, TypePtr rhs_type, bool& not_
   return false;
 }
 
+// given `fun Some.packToBuilder`, check that it's declared correctly
+static void check_declared_packToBuilder(FunctionPtr f_pack) {
+  bool declared_correctly = f_pack->does_accept_self() && !f_pack->does_mutate_self()
+                         && f_pack->get_num_params() == 2 && f_pack->has_mutate_params()
+                         && f_pack->get_param(1).declared_type == TypeDataBuilder::create()
+                         && f_pack->inferred_return_type->equal_to(TypeDataVoid::create());
+  if (!declared_correctly) {
+    err("method `{}` is declared incorrectly\n""hint: it must accept 2 parameters and return nothing:\n""> fun {}(self, mutate b: builder)", f_pack, f_pack).fire(f_pack->ident_anchor, f_pack);
+  }
+  bool is_receiver_ok = f_pack->receiver_type->try_as<TypeDataAlias>() || f_pack->receiver_type->try_as<TypeDataStruct>() || f_pack->receiver_type->try_as<TypeDataEnum>();
+  if (!is_receiver_ok) {
+    err("this method can not be declared for type `{}`\n""hint: custom pack/unpack can be declared only for type aliases and structures", f_pack->receiver_type).fire(f_pack->ident_anchor, f_pack);
+  }
+}
+
+// given `fun Some.unpackFromSlice`, check that it's declared correctly
+static void check_declared_unpackFromSlice(FunctionPtr f_unpack) {
+  bool declared_correctly = !f_unpack->does_accept_self()
+                         && f_unpack->get_num_params() == 1 && f_unpack->has_mutate_params()
+                         && f_unpack->get_param(0).declared_type == TypeDataSlice::create()
+                         && f_unpack->inferred_return_type->equal_to(f_unpack->receiver_type);
+  if (!declared_correctly) {
+    err("method `{}` is declared incorrectly\n""hint: it must accept 1 parameter and return an object:\n""> fun {}(mutate s: slice): {}", f_unpack, f_unpack, f_unpack->receiver_type).fire(f_unpack->ident_anchor, f_unpack);
+  }
+  bool is_receiver_ok = f_unpack->receiver_type->try_as<TypeDataAlias>() || f_unpack->receiver_type->try_as<TypeDataStruct>() || f_unpack->receiver_type->try_as<TypeDataEnum>();
+  if (!is_receiver_ok) {
+    err("this method can not be declared for type `{}`\n""hint: custom pack/unpack can be declared only for type aliases and structures", f_unpack->receiver_type).fire(f_unpack->ident_anchor, f_unpack);
+  }
+}
+
+
 class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
 
   void visit(V<ast_set_assign> v) override {
@@ -810,6 +841,14 @@ public:
           err_type_mismatch("can not assign {src} to {dst}", inferred_type, param_ref->declared_type).fire(param_ref->default_value, cur_f);
         }
       }
+    }
+
+    // methods with special names defined in user code that must have an exact prototype
+    if (cur_f->is_method() && cur_f->method_name == "packToBuilder") {
+      check_declared_packToBuilder(cur_f);
+    }
+    if (cur_f->is_method() && cur_f->method_name == "unpackFromSlice") {
+      check_declared_unpackFromSlice(cur_f);
     }
   }
 

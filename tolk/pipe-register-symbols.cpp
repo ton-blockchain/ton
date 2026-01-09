@@ -282,7 +282,7 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
 
   if (!f_sym->receiver_type_node) {
     G.symtable.add_function(f_sym);
-  } else if (!substitutedTs) {
+  } else {
     G.all_methods.push_back(f_sym);
   }
   G.all_functions.push_back(f_sym);

@@ -175,9 +175,18 @@ public:
   PackSize estimate_any(TypePtr any_type, PrefixEstimateMode prefix_mode = PrefixEstimateMode::IncludePrefixOfStruct) const;
 };
 
+struct CustomPackUnpackF {
+  FunctionPtr f_pack;
+  FunctionPtr f_unpack;
+
+  explicit operator bool() const { return f_pack != nullptr || f_unpack != nullptr; }
+};
+
+
+struct MethodCallCandidate;
 
 bool is_type_cellT(TypePtr any_type);
-void get_custom_pack_unpack_function(TypePtr receiver_type, FunctionPtr& f_pack, FunctionPtr& f_unpack);
+CustomPackUnpackF get_custom_pack_unpack_function(TypePtr receiver_type, std::vector<MethodCallCandidate>* out_candidates = nullptr);
 std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std::string& because_msg);
 TypePtr calculate_intN_to_serialize_enum(EnumDefPtr enum_ref);
 

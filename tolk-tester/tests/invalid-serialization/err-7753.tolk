@@ -13,7 +13,6 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr auto-serialization via toCell() is not available for type `CustomInt`
-@stderr because `CustomInt.unpackFromSlice()` is declared incorrectly
+@stderr method `CustomInt.unpackFromSlice` is declared incorrectly
 @stderr hint: it must accept 1 parameter and return an object:
  */

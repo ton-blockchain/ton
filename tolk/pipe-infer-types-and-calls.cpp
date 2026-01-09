@@ -20,6 +20,7 @@
 #include "src-file.h"
 #include "generics-helpers.h"
 #include "overload-resolution.h"
+#include "pack-unpack-api.h"
 #include "type-system.h"
 #include "smart-casts-cfg.h"
 #include <charconv>
@@ -205,7 +206,7 @@ static TypePtr try_pick_instantiated_generic_from_hint(TypePtr hint, AliasDefPtr
 // given `p.create` (called_receiver = Point, called_name = "create")
 // look up a corresponding method (it may be `Point.create` / `Point?.create` / `T.create`)
 static std::pair<FunctionPtr, GenericsSubstitutions> choose_only_method_to_call(FunctionPtr cur_f, SrcRange range, TypePtr called_receiver, std::string_view called_name) {
-  std::vector<MethodCallCandidate> candidates = resolve_methods_for_call(called_receiver, called_name);
+  std::vector<MethodCallCandidate> candidates = resolve_methods_for_call(called_receiver, called_name, true);
   if (candidates.size() == 1) {
     return {candidates[0].method_ref, candidates[0].substitutedTs};
   }
@@ -1229,6 +1230,24 @@ class InferTypesAndCallsAndFieldsVisitor final {
     if (inferred_type == TypeDataNever::create()) {
       flow.mark_unreachable(UnreachableKind::CallNeverReturnFunction);
     }
+
+    // calling `SomeStruct.toCell()` implicitly calls custom `packToBuilder()` serializers for nested fields,
+    // which may be generic and need to be instantiated here
+    if (fun_ref->is_builtin() && fun_ref->is_instantiation_of_generic_function()) {
+      TypePtr serialized_type = nullptr;
+      bool is_pack = true;
+      if (is_serialization_builtin_function(fun_ref, &serialized_type, &is_pack)) {
+        // use the traversing function that collects all nested types recursively (fields, tensor components, etc.)
+        std::vector<MethodCallCandidate> un_pack_candidates;
+        check_struct_can_be_packed_or_unpacked(serialized_type, is_pack, nullptr, &un_pack_candidates);
+        for (MethodCallCandidate c : un_pack_candidates) {
+          if (c.is_generic()) {
+            instantiate_generic_function(c.method_ref, std::move(c.substitutedTs));
+          }
+        }
+      }
+    }
+
     return ExprFlow(std::move(flow), used_as_condition);
   }
 

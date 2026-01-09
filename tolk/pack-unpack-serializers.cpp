@@ -18,7 +18,7 @@
 #include "ast.h"
 #include "compilation-errors.h"
 #include "type-system.h"
-#include "td/utils/crypto.h"
+#include "overload-resolution.h"
 
 /*
  *   This module implements serializing different types to/from cells.
@@ -50,26 +50,41 @@ bool is_type_cellT(TypePtr any_type) {
   return false;
 }
 
-// For any type alias, one can declare custom pack/unpack functions:
+// Any type alias or struct can have custom pack/unpack functions declared:
 // > type TelegramString = slice
 // > fun TelegramString.packToBuilder(self, mutate b: builder) { ... }
 // > fun TelegramString.unpackFromSlice(mutate s: slice): TelegramString { ... }
-// It's externally checked in advance that it's declared correctly.
-void get_custom_pack_unpack_function(TypePtr receiver_type, FunctionPtr& f_pack, FunctionPtr& f_unpack) {
-  f_pack = f_unpack = nullptr;
-  if (const TypeDataAlias* t_alias = receiver_type->try_as<TypeDataAlias>()) {
-    if (t_alias->alias_ref->is_instantiation_of_generic_alias()) {
-      // does not work for generic aliases currently, because `MyAlias<ConcreteT>.pack` was not instantiated earlier
-      return;
-    }
-    std::string receiver_name = t_alias->alias_ref->as_human_readable();
-    if (const Symbol* sym = lookup_global_symbol(receiver_name + ".packToBuilder")) {
-      f_pack = sym->try_as<FunctionPtr>();
-    }
-    if (const Symbol* sym = lookup_global_symbol(receiver_name + ".unpackFromSlice")) {
-      f_unpack = sym->try_as<FunctionPtr>();                                           
+// It's checked in advance that those methods, if existed, are declared correctly.
+CustomPackUnpackF get_custom_pack_unpack_function(TypePtr receiver_type, std::vector<MethodCallCandidate>* out_candidates) {
+  // a receiver is not a primitive, so `MyInt` won't collide with `int.packToBuilder` (the latter is disallowed)
+  CustomPackUnpackF f{nullptr, nullptr};
+
+  // while inferring types and generic functions, output generic candidates
+  // for `fun SomeStruct<T>.packToBuilder`, so that it would be instantiated for T
+  std::vector<MethodCallCandidate> c_pack = resolve_methods_for_call(receiver_type, "packToBuilder", false);
+  std::vector<MethodCallCandidate> c_unpack = resolve_methods_for_call(receiver_type, "unpackFromSlice", false);
+  if (out_candidates) {
+    out_candidates->insert(out_candidates->end(), c_pack.begin(), c_pack.end());
+    out_candidates->insert(out_candidates->end(), c_unpack.begin(), c_unpack.end());
+  }
+
+  for (const MethodCallCandidate& c : c_pack) {
+    if (!c.is_generic() && c.method_ref->receiver_type->equal_to(receiver_type)) {
+      if (f.f_pack) {
+        err("ambiguous method, both `{}` and `{}` are applicable", f.f_pack, c.method_ref).fire(f.f_pack->ident_anchor);
+      }
+      f.f_pack = c.method_ref;
     }
   }
+  for (const MethodCallCandidate& c : c_unpack) {
+    if (!c.is_generic() && c.method_ref->receiver_type->equal_to(receiver_type)) {
+      if (f.f_unpack) {
+        err("ambiguous method, both `{}` and `{}` are applicable", f.f_unpack, c.method_ref).fire(f.f_unpack->ident_anchor);
+      }
+      f.f_unpack = c.method_ref;
+    }
+  }
+  return f;
 }
 
 // --------------------------------------------
@@ -1371,20 +1386,18 @@ struct S_CustomReceiverForPackUnpack final : ISerializer {
     : receiver_type(receiver_type) {}
 
   void pack(const PackContext* ctx, CodeBlob& code, AnyV origin, std::vector<var_idx_t>&& rvect) override {
-    FunctionPtr f_pack = nullptr, f_unpack = nullptr;
-    get_custom_pack_unpack_function(receiver_type, f_pack, f_unpack);
-    tolk_assert(f_pack && f_pack->does_accept_self() && f_pack->inferred_return_type->get_width_on_stack() == 0);
+    CustomPackUnpackF f = get_custom_pack_unpack_function(receiver_type);
+    tolk_assert(f.f_pack && f.f_pack->does_accept_self() && f.f_pack->inferred_return_type->get_width_on_stack() == 0);
     std::vector vars_per_arg = { std::move(rvect), ctx->ir_builder };
-    std::vector ir_mutated_builder = gen_inline_fun_call_in_place(code, TypeDataBuilder::create(), origin, f_pack, nullptr, false, vars_per_arg);
+    std::vector ir_mutated_builder = gen_inline_fun_call_in_place(code, TypeDataBuilder::create(), origin, f.f_pack, nullptr, false, vars_per_arg);
     code.emplace_back(origin, Op::_Let, ctx->ir_builder, std::move(ir_mutated_builder));
   }
 
   std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
-    FunctionPtr f_pack = nullptr, f_unpack = nullptr;
-    get_custom_pack_unpack_function(receiver_type, f_pack, f_unpack);
-    tolk_assert(f_unpack && f_unpack->inferred_return_type->get_width_on_stack() == receiver_type->get_width_on_stack());
+    CustomPackUnpackF f = get_custom_pack_unpack_function(receiver_type);
+    tolk_assert(f.f_unpack && f.f_unpack->inferred_return_type->get_width_on_stack() == receiver_type->get_width_on_stack());
     TypePtr ret_type = TypeDataTensor::create({TypeDataSlice::create(), receiver_type});
-    std::vector ir_slice_and_res = gen_inline_fun_call_in_place(code, ret_type, origin, f_unpack, nullptr, false, {ctx->ir_slice});
+    std::vector ir_slice_and_res = gen_inline_fun_call_in_place(code, ret_type, origin, f.f_unpack, nullptr, false, {ctx->ir_slice});
     code.emplace_back(origin, Op::_Let, ctx->ir_slice, std::vector{ir_slice_and_res.front()});
     return std::vector(ir_slice_and_res.begin() + 1, ir_slice_and_res.end());
   }
@@ -1579,10 +1592,19 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
     }
     return std::make_unique<S_AddressAny>();
   }
+
   if (const auto* t_struct = any_type->try_as<TypeDataStruct>()) {
+    if (get_custom_pack_unpack_function(t_struct)) {
+      return std::make_unique<S_CustomReceiverForPackUnpack>(t_struct);
+    }
     return std::make_unique<S_CustomStruct>(t_struct->struct_ref);
   }
+
   if (const auto* t_enum = any_type->try_as<TypeDataEnum>()) {
+    if (get_custom_pack_unpack_function(t_enum)) {
+      return std::make_unique<S_CustomReceiverForPackUnpack>(t_enum);
+    }
+
     return std::make_unique<S_IntegerEnum>(t_enum->enum_ref);
   }
 
@@ -1633,9 +1655,7 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
     if (t_alias->alias_ref->name == "RemainingBitsAndRefs") {
       return std::make_unique<S_RemainingBitsAndRefs>();
     }
-    FunctionPtr f_pack = nullptr, f_unpack = nullptr;
-    get_custom_pack_unpack_function(t_alias, f_pack, f_unpack);
-    if (f_pack || f_unpack) {
+    if (get_custom_pack_unpack_function(t_alias)) {
       return std::make_unique<S_CustomReceiverForPackUnpack>(t_alias);
     }
     return get_serializer_for_type(t_alias->underlying_type);

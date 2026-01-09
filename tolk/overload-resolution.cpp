@@ -135,12 +135,16 @@ static bool is_more_specific_generic(TypePtr typeA, TypePtr typeB, const Generic
 
 // the main "overload resolution" entrypoint: given `obj.method()`, find best applicable methods;
 // if there are many (no one is better than others), a caller side will emit "ambiguous call"
-std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_receiver, std::string_view called_name) {
+std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_receiver, std::string_view called_name, bool skip_instantiations) {
   // find all methods theoretically applicable; we'll filter them by priority;
   // for instance, if there is `T.method`, it will be instantiated with T=provided_receiver
   std::vector<MethodCallCandidate> viable;
   for (FunctionPtr method_ref : G.all_methods) {
     if (method_ref->method_name == called_name) {
+      if (skip_instantiations && method_ref->is_instantiation_of_generic_function()) {
+        continue;
+      }
+
       TypePtr receiver = method_ref->receiver_type;
       if (receiver->has_genericT_inside()) {
         try {   // check whether exist some T to make it a valid call (probably with type coercion)

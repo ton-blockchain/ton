@@ -58,9 +58,6 @@ static void check_mapKV_inside_type(SrcRange range, TypePtr any_type) {
     if (const TypeDataMapKV* t_map = child->try_as<TypeDataMapKV>()) {
       check_map_TKey_TValue(range, t_map->TKey, t_map->TValue);
     }
-    if (const TypeDataAlias* t_alias = child->try_as<TypeDataAlias>()) {
-      check_mapKV_inside_type(range, t_alias->underlying_type);
-    }
     return child;
   });
 }
@@ -116,26 +113,20 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
     if (!fun_ref || !fun_ref->is_builtin() || !fun_ref->is_instantiation_of_generic_function()) {
       return;
     }
-    std::string_view f_name = fun_ref->base_fun_ref->name;
 
-    if (f_name == "createEmptyMap") {
+    if (fun_ref->base_fun_ref->name == "createEmptyMap") {
       check_map_TKey_TValue(v->range, fun_ref->substitutedTs->typeT_at(0), fun_ref->substitutedTs->typeT_at(1));
       return;
     }
     
     TypePtr serialized_type = nullptr;
     bool is_pack = false;
-    if (f_name == "Cell<T>.load" || f_name == "T.fromSlice" || f_name == "T.fromCell" || f_name == "T.toCell" ||
-        f_name == "T.loadAny" || f_name == "slice.skipAny" || f_name == "slice.loadAny" || f_name == "builder.storeAny" || f_name == "T.estimatePackSize" ||
-        f_name == "createMessage" || f_name == "createExternalLogMessage") {
-      serialized_type = fun_ref->substitutedTs->typeT_at(0);
-      is_pack = f_name == "T.toCell" || f_name == "builder.storeAny" || f_name == "T.estimatePackSize" || f_name == "createMessage" || f_name == "createExternalLogMessage";
-    } else {
-      return;   // not a serialization function
+    if (!is_serialization_builtin_function(fun_ref, &serialized_type, &is_pack)) {
+      return;
     }
 
     std::string because_msg;
-    if (!check_struct_can_be_packed_or_unpacked(serialized_type, is_pack, because_msg)) {
+    if (!check_struct_can_be_packed_or_unpacked(serialized_type, is_pack, &because_msg)) {
       std::string via_name = fun_ref->is_method() ? fun_ref->method_name : fun_ref->base_fun_ref->name;
       err("auto-serialization via {}() is not available for type `{}`\n{}", via_name, serialized_type, because_msg).fire(v, cur_f);
     }
