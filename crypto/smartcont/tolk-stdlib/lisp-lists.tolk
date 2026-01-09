@@ -113,3 +113,31 @@ fun lisp_list<T>.calculateConcatenation(self, other: lisp_list<T>): lisp_list<T>
 @deprecated("use `[]` instead of `createEmptyList`")
 fun createEmptyList<T>(): lisp_list<T>
     asm "PUSHNULL"
+
+
+/// `lisp_list<T>` can be serialized if `T` is serializable. It's encoded as reversed snake refs:
+/// A list `[1 2 3]` (on a stack: `[1 [2 [3 null]]]`) is "3.ref(2.ref(1.ref(empty cell)))".
+/// An empty list `[]` (on a stack: `null`) is "empty cell"
+fun lisp_list<T>.packToBuilder(self, mutate b: builder): void {
+    var tail = createEmptyCell();
+    var ptr = self;
+    while (!ptr.isEmpty()) {
+        tail = beginCell().storeRef(tail).storeAny<T>(ptr.popHead()).endCell();
+    }
+    b.storeRef(tail);
+}
+
+/// Unserialize `lisp_list<T>` from snake refs:
+/// From "3.ref(2.ref(1.ref(empty cell)))" get a list `[1 2 3]` (on a stack: `[1 [2 [3 null]]]`).
+fun lisp_list<T>.unpackFromSlice(mutate s: slice): lisp_list<T> {
+    var result = [] as lisp_list<T>;
+    var head = s.loadRef().beginParse();
+    while (!head.isEmpty()) {
+        val tailSnaked = head.loadRef();
+        val headValue = head.loadAny<T>();
+        head.assertEnd();   // ensure no data is present besides T
+        result.prependHead(headValue);
+        head = tailSnaked.beginParse();
+    }
+    return result;
+}

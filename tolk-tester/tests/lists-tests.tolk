@@ -9,6 +9,12 @@ struct WithCb<R> {
     cb: (int, int) -> R
 }
 
+struct WithTwoCells {
+    value: int32
+    r1: Cell<int32>
+    r2: Cell<any_address>
+}
+
 fun eq<T>(v: T) { return v }
 
 /// For testing purposes only (not included in stdlib). Assumes list depth < 255.
@@ -346,6 +352,39 @@ fun test121() {
     return result;
 }
 
+@method_id(122)
+fun test122() {
+    val c = beginCell().storeUint(171, 8).endCell();
+    val lis = [c] as lisp_list<cell>;
+    val back = lisp_list<cell>.fromCell(lis.toCell());
+    return back.getHead().hash() == c.hash();
+}
+
+@method_id(123)
+fun test123() {
+    var lis: lisp_list<WithTwoCells> = [
+        {
+            value: 100,
+            r1: (100 as int32).toCell(),
+            r2: createAddressNone().toCell(),
+        },
+        {
+            value: 200,
+            r1: (200 as int32).toCell(),
+            r2: createAddressNone().toCell(),
+        },
+    ];
+    lis = lis.toCell().load();
+    val (first, second) = (lis.popHead(), lis.popHead());
+    return (
+        lis.isEmpty(),
+        first.value,
+        second.value,
+        first.r1.load(),
+        second.r2.load().isNone(),
+    )
+}
+
 
 fun main() {
     __expect_type([] as lisp_list<int8>, "lisp_list<int8>");
@@ -377,4 +416,6 @@ fun main() {
 @testcase | 119 |       | [] (null) (null) -1
 @testcase | 120 |       | [ (null) 2 3 ] [ [ 10 20 130 ] [ (null) (null) 0 ] ] 10 20 130 -1 0 0
 @testcase | 121 |       | 41
+@testcase | 122 |       | -1
+@testcase | 123 |       | -1 100 200 100 -1
  */

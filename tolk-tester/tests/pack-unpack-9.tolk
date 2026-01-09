@@ -1,3 +1,5 @@
+import "@stdlib/lisp-lists"
+
 struct Point {
     x: int8 = 10
     y: int8 = 20
@@ -284,6 +286,56 @@ fun test12() {
     return (r.sumAll(), r2.sumAll());
 }
 
+@method_id(113)
+fun test13() {
+    var l3: lisp_list<int8> = [];
+    l3.prependHead(3);
+    l3.prependHead(2);
+    l3.prependHead(1);
+    var l1: lisp_list<int256> = [];
+    l1.prependHead(256);
+    return (
+        lisp_list<int8>.fromCell(l3.toCell()),
+        lisp_list<int256>.fromCell(l1.toCell()),
+        lisp_list<address>.fromCell(([] as lisp_list<address>).toCell()),
+    )
+}
+
+@method_id(114)
+fun test14() {
+    try {
+        var l: lisp_list<int16> = [];
+        l.prependHead(0);
+        // read int8 instead of int16, assertEnd will fail
+        val back = lisp_list<int8>.fromCell(l.toCell());
+        return back.getHead() as int;
+    } catch (ex) {
+        return ex;
+    }
+}
+
+@method_id(115)
+fun test15() {
+    // estimation gives "unpredictable infinity" since it's custom logic via packToBuilder
+    return lisp_list<int8>.estimatePackSize()
+}
+
+type ArrayList8 = array<lisp_list<int8>>
+
+@method_id(116)
+fun test16() {
+    val l1: lisp_list<int8> = [1, 2, 3];
+    var l2: lisp_list<int8> = [];
+    l2.prependHead(4);
+    val arr = ArrayList8 [l1, l2];
+    val back = arr.toCell().load();
+    return (
+        back.size(),
+        back.first().getTail().getTail(),
+        back.last(),
+    )
+}
+
 
 fun main() {
     return (
@@ -308,4 +360,8 @@ fun main() {
 @testcase | 110 |     | 1 -1 0 (null) [ -1 0 ] 2000 (null) [] [] 9
 @testcase | 111 |     | [ 100 [ 10 20 ] [] [] (null) 8 ] 10 20 [] -8
 @testcase | 112 |     | 606 606
+@testcase | 113 |     | [ 1 [ 2 [ 3 (null) ] ] ] [ 256 (null) ] (null)
+@testcase | 114 |     | 9
+@testcase | 115 |     | 0 9999 0 4
+@testcase | 116 |     | 2 [ 3 (null) ] [ 4 (null) ]
  */

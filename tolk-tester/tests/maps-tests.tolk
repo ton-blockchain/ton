@@ -1,3 +1,4 @@
+import "@stdlib/lisp-lists"
 
 struct JustInt32 {
     v: MInt32
@@ -46,6 +47,25 @@ fun map<K, V>.calculateSize(self) {
         r = self.iterateNext(r);
     }
     return size;
+}
+
+
+struct LinkedMap {
+    values: array<int8>
+    tree: map<int32, LinkedMap>
+}
+
+fun LinkedMap.flattenValuesInto<T>(self, mutate out: array<T>): void {
+    var i = 0;
+    repeat (self.values.size()) {
+        out.push(self.values.get(i));
+        i += 1;
+    }
+    var it = self.tree.findFirst();
+    while (it.isFound) {
+        it.loadValue().flattenValuesInto(mutate out);
+        it = self.tree.iterateNext(it);
+    }
 }
 
 
@@ -544,6 +564,38 @@ fun test42(dyn: int) {
     return t;
 }
 
+@method_id(143)
+fun test43() {
+    var m = createEmptyMap<int32, lisp_list<int16>>();
+    m.set(1, [23, 24]);
+    m.set(2, [5]);
+    m.set(3, []);
+
+    // currently, this won't work without a call to `toCell` (or any other serialization function),
+    // because generic serializers for `lisp_list<T>` won't be instantiated
+    m = m.toCell().beginParse().loadAny<map<int32, lisp_list<int16>>>();
+
+    return (
+        m.mustGet(1),
+        m.mustGet(2),
+        m.mustGet(3),
+    );
+}
+
+@method_id(144)
+fun test44() {
+    var l = LinkedMap {
+        values: [1,2,3],
+        tree: createEmptyMap()
+    };
+    l.tree.set(1, {values: [4, 5], tree: createEmptyMap()});
+    l.tree.set(2, {values: [6, 7], tree: createEmptyMap()});
+
+    var totalValues = [] as array<int>;
+    l.flattenValuesInto(mutate totalValues);
+    return totalValues;
+}
+
 
 fun main() {
     __expect_type(createEmptyMap<int8, (int32, int64)>, "() -> map<int8, (int32, int64)>");
@@ -593,6 +645,8 @@ fun main() {
 @testcase | 140 |            | 0 0 -1 777 -1 0 777 (null) typeid-1 (null) 0
 @testcase | 141 |            | 0 -1 -1 0 -1
 @testcase | 142 | 80         | [ 123 12345 80 800 ]
+@testcase | 143 |            | [ 23 [ 24 (null) ] ] [ 5 (null) ] (null)
+@testcase | 144 |            | [ 1 2 3 4 5 6 7 ]
 
 @fif_codegen
 """

@@ -140,7 +140,7 @@ void pipeline_generate_fif_output_to_std_cout() {
       if (G.is_verbosity(2) && fun_ref->is_code_function()) {
         std::cerr << fun_ref->name << ": code not generated, function does not need codegen\n";
       }
-      n_inlined_in_place += fun_ref->is_inlined_in_place();
+      n_inlined_in_place += fun_ref->is_inlined_in_place() && fun_ref->is_really_used();
       continue;
     }
 
