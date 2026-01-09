@@ -1,6 +1,7 @@
 #pragma once
 
 #include "adnl/adnl.h"
+#include "adnl/adnl-peer-table.h"
 #include "keyring/keyring.h"
 #include "td/actor/coro_task.h"
 
@@ -24,7 +25,8 @@ class QuicSender : public adnl::AdnlSenderInterface {
   void get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id,
                        td::Promise<td::string> promise) override;
 
-  td::actor::Task<> add_local_id(adnl::AdnlNodeIdShort local_id);
+  td::actor::Task<> add_local_id_coro(adnl::AdnlNodeIdShort local_id);
+  void add_local_id(adnl::AdnlNodeIdShort local_id);
 
  private:
   struct OutboundConnection {

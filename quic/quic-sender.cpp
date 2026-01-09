@@ -67,7 +67,10 @@ void QuicSender::get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdSho
   });
 }
 
-td::actor::Task<> QuicSender::add_local_id(adnl::AdnlNodeIdShort local_id) {
+void QuicSender::add_local_id(adnl::AdnlNodeIdShort local_id) {
+  add_local_id_coro(local_id).start().detach("add local id");
+}
+td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) {
   adnl::AdnlNode node = co_await td::actor::ask(adnl_, &adnl::Adnl::get_self_node, local_id);
   std::set<int> ports;
   for (const auto& addr : node.addr_list().addrs()) {

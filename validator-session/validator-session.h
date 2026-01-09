@@ -23,7 +23,6 @@
 #include "auto/tl/lite_api.h"
 #include "catchain/catchain-types.h"
 #include "overlay/overlays.h"
-#include "rldp2/rldp.h"
 #include "ton/ton-types.h"
 
 #include "validator-session-types.h"
@@ -116,7 +115,7 @@ class ValidatorSession : public td::actor::Actor {
       catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,
       std::vector<ValidatorSessionNode> nodes, std::unique_ptr<Callback> callback,
       td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-      td::actor::ActorId<rldp2::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
+      td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
       std::string db_suffix, bool allow_unsafe_self_blocks_resync);
   virtual ~ValidatorSession() = default;
 };

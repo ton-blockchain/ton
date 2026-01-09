@@ -16,8 +16,6 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include <bits/cxxabi_tweaks.h>
-
 #include "collator-node/collator-node.hpp"
 #include "common/delay.h"
 #include "td/utils/Random.h"
@@ -570,17 +568,20 @@ void ValidatorGroup::create_session() {
 
   td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_adnl_id_);
   td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_adnl_id_);
+  td::actor::send_closure(quic_, &quic::QuicSender::add_local_id, local_adnl_id_);
   rldp_limit_guard_ = rldp2::PeersMtuLimitGuard(rldp2_, local_adnl_id_, adnl_ids,
                                                 config_.max_block_size + config_.max_collated_data_size + 1024);
 
+  // FIXME: we currently use quic here for tests. Use option or something
+  auto adnl_sender = quic_;
   config_.catchain_opts.broadcast_speed_multiplier = opts_->get_catchain_broadcast_speed_multiplier();
   if (!config_.new_catchain_ids) {
     session_ = validatorsession::ValidatorSession::create(session_id_, config_, local_id_, std::move(vec),
-                                                          make_validator_session_callback(), keyring_, adnl_, rldp2_,
+                                                          make_validator_session_callback(), keyring_, adnl_, adnl_sender,
                                                           overlays_, db_root_, "-", allow_unsafe_self_blocks_resync_);
   } else {
     session_ = validatorsession::ValidatorSession::create(
-        session_id_, config_, local_id_, std::move(vec), make_validator_session_callback(), keyring_, adnl_, rldp2_,
+        session_id_, config_, local_id_, std::move(vec), make_validator_session_callback(), keyring_, adnl_, adnl_sender,
         overlays_, db_root_ + "/catchains/",
         PSTRING() << "." << shard_.workchain << "." << shard_.shard << "." << validator_set_->get_catchain_seqno()
                   << ".",

@@ -314,11 +314,8 @@ void run_loopback(Config config) {
     quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
         "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
     // Add both local IDs to QUIC sender
-    td::actor::send_lambda(quic_sender, [src, dst]() {
-      auto& sender = td::actor::detail::current_actor<ton::quic::QuicSender>();
-      sender.add_local_id(src).start().detach("add_local_id_src");
-      sender.add_local_id(dst).start().detach("add_local_id_dst");
-    });
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, src);
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, dst);
 
     td::actor::send_closure(adnl, &ton::adnl::Adnl::subscribe, dst, "B",
                             std::make_unique<Server>(config.response_size));
@@ -393,9 +390,7 @@ void run_server(Config config) {
     quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
         "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
     // Use send_lambda to properly start the coroutine task
-    td::actor::send_lambda(quic_sender, [local_id]() {
-      td::actor::detail::current_actor<ton::quic::QuicSender>().add_local_id(local_id).start().detach("add_local_id");
-    });
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, local_id);
 
     td::actor::send_closure(adnl, &ton::adnl::Adnl::subscribe, local_id, "B",
                             std::make_unique<Server>(config.response_size));
@@ -460,9 +455,7 @@ void run_client(Config config) {
     quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
         "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
     // Use send_lambda to properly start the coroutine task
-    td::actor::send_lambda(quic_sender, [src]() {
-      td::actor::detail::current_actor<ton::quic::QuicSender>().add_local_id(src).start().detach("add_local_id");
-    });
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, src);
 
     // Add server as static node
     dst = ton::adnl::AdnlNodeIdShort{server_public_key().compute_short_id()};

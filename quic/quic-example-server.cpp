@@ -17,7 +17,7 @@ class QuicHttpServer : public td::actor::Actor {
     explicit ServerCallback(td::actor::ActorId<QuicHttpServer> server) : server_(std::move(server)) {
     }
 
-    void on_connected(const td::IPAddress &peer) override {
+    void on_connected(const td::IPAddress &peer, td::SecureString public_key) override {
       td::actor::send_closure(server_, &QuicHttpServer::on_connected, peer);
     }
 

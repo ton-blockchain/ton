@@ -21,6 +21,7 @@
 #include <list>
 
 #include "interfaces/validator-manager.h"
+#include "quic/quic-sender.h"
 #include "rldp/rldp.h"
 #include "rldp2/rldp-utils.h"
 #include "rldp2/rldp.h"
@@ -86,7 +87,8 @@ class ValidatorGroup : public td::actor::Actor {
                  td::Ref<ValidatorSet> validator_set, BlockSeqno last_key_block_seqno,
                  validatorsession::ValidatorSessionOptions config, td::actor::ActorId<keyring::Keyring> keyring,
                  td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
-                 td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<overlay::Overlays> overlays,
+                 td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic_sender,
+                 td::actor::ActorId<overlay::Overlays> overlays,
                  std::string db_root, td::actor::ActorId<ValidatorManager> validator_manager,
                  td::actor::ActorId<CollationManager> collation_manager, bool create_session,
                  bool allow_unsafe_self_blocks_resync, td::Ref<ValidatorManagerOptions> opts, bool monitoring_shard)
@@ -100,6 +102,7 @@ class ValidatorGroup : public td::actor::Actor {
       , adnl_(adnl)
       , rldp_(rldp)
       , rldp2_(rldp2)
+      , quic_(quic_sender)
       , overlays_(overlays)
       , db_root_(std::move(db_root))
       , manager_(validator_manager)
@@ -108,6 +111,7 @@ class ValidatorGroup : public td::actor::Actor {
       , allow_unsafe_self_blocks_resync_(allow_unsafe_self_blocks_resync)
       , opts_(std::move(opts))
       , monitoring_shard_(monitoring_shard) {
+    CHECK(!quic_.empty());
   }
 
  private:
@@ -142,6 +146,7 @@ class ValidatorGroup : public td::actor::Actor {
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<rldp::Rldp> rldp_;
   td::actor::ActorId<rldp2::Rldp> rldp2_;
+  td::actor::ActorId<quic::QuicSender> quic_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   std::string db_root_;
   td::actor::ActorId<ValidatorManager> manager_;

@@ -13,7 +13,7 @@ class QuicTester : public td::actor::Actor {
     explicit Callback(QuicTester& tester) : tester_(tester) {
     }
 
-    void on_connected() override {
+    td::Status on_connected(td::SecureString public_key) override {
       LOG(INFO) << "connected to " << tester_.host_ << ':' << tester_.port_;
       td::Promise<ton::quic::QuicStreamID> P = td::make_promise([this](td::Result<ton::quic::QuicStreamID> R) {
         auto sid = R.move_as_ok();
@@ -22,6 +22,7 @@ class QuicTester : public td::actor::Actor {
         td::actor::send_closure(tester_.connection_.get(), &ton::quic::QuicClient::send_stream_end, sid);
       });
       td::actor::send_closure(tester_.connection_.get(), &ton::quic::QuicClient::open_stream, std::move(P));
+      return td::Status::OK();
     }
 
     void on_stream_data(ton::quic::QuicStreamID, td::BufferSlice data) override {

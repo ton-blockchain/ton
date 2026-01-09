@@ -836,7 +836,7 @@ void ValidatorSessionImpl::get_broadcast_p2p(PublicKeyHash node, ValidatorSessio
       catchain_, &catchain::CatChain::send_query_via, node, "download candidate", std::move(promise), timeout,
       serialize_tl_object(obj, true),
       description().opts().max_block_size + description().opts().max_collated_data_size + MAX_CANDIDATE_EXTRA_SIZE,
-      rldp_);
+      adnl_sender_);
 }
 
 void ValidatorSessionImpl::check_sign_slot() {
@@ -1140,7 +1140,7 @@ ValidatorSessionImpl::ValidatorSessionImpl(catchain::CatChainSessionId session_i
                                            PublicKeyHash local_id, std::vector<ValidatorSessionNode> nodes,
                                            std::unique_ptr<Callback> callback,
                                            td::actor::ActorId<keyring::Keyring> keyring,
-                                           td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp,
+                                           td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender,
                                            td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
                                            std::string db_suffix, bool allow_unsafe_self_blocks_resync)
     : unique_hash_(session_id)
@@ -1149,7 +1149,7 @@ ValidatorSessionImpl::ValidatorSessionImpl(catchain::CatChainSessionId session_i
     , db_suffix_(db_suffix)
     , keyring_(keyring)
     , adnl_(adnl)
-    , rldp_(rldp)
+    , adnl_sender_(adnl_sender)
     , overlay_manager_(overlays)
     , allow_unsafe_self_blocks_resync_(allow_unsafe_self_blocks_resync) {
   compress_block_candidates_ = opts.proto_version >= 4;
@@ -1168,7 +1168,7 @@ void ValidatorSessionImpl::start() {
   auto w = description().export_catchain_nodes();
 
   catchain_ = catchain::CatChain::create(make_catchain_callback(), description().opts().catchain_opts, keyring_, adnl_,
-                                         rldp_, overlay_manager_, std::move(w), local_id(), unique_hash_, db_root_,
+                                         adnl_sender_, overlay_manager_, std::move(w), local_id(), unique_hash_, db_root_,
                                          db_suffix_, allow_unsafe_self_blocks_resync_);
 
   check_all();
@@ -1255,7 +1255,7 @@ void ValidatorSessionImpl::get_validator_group_info_for_litequery(
 }
 
 void ValidatorSessionImpl::start_up() {
-  CHECK(!rldp_.empty());
+  CHECK(!adnl_sender_.empty());
   cur_round_ = 0;
   round_started_at_ = td::Timestamp::now();
   round_debug_at_ = td::Timestamp::in(60.0);
@@ -1477,10 +1477,10 @@ td::actor::ActorOwn<ValidatorSession> ValidatorSession::create(
     catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,
     std::vector<ValidatorSessionNode> nodes, std::unique_ptr<Callback> callback,
     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-    td::actor::ActorId<rldp2::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
+    td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
     std::string db_suffix, bool allow_unsafe_self_blocks_resync) {
   return td::actor::create_actor<ValidatorSessionImpl>("session", session_id, std::move(opts), local_id,
-                                                       std::move(nodes), std::move(callback), keyring, adnl, rldp,
+                                                       std::move(nodes), std::move(callback), keyring, adnl, adnl_sender,
                                                        overlays, db_root, db_suffix, allow_unsafe_self_blocks_resync);
 }
 

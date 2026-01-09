@@ -389,6 +389,7 @@ class UdpServerViaTcp : public UdpServer {
 }  // namespace detail
 
 Result<actor::ActorOwn<UdpServer>> UdpServer::create(td::Slice name, int32 port, std::unique_ptr<Callback> callback) {
+  LOG(INFO) << "Start udp server on 0.0.0.0:" << port;
   td::IPAddress from_ip;
   TRY_STATUS(from_ip.init_ipv4_port("0.0.0.0", port));
   TRY_RESULT(fd, UdpSocketFd::open(from_ip));
