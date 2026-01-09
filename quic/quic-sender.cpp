@@ -16,7 +16,7 @@ void QuicSender::send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort d
   find_out_connection({src, dst}, [data = std::move(data), src, dst](td::Result<OutboundConnection*> R) mutable {
     if (R.is_error()) {
       LOG(ERROR) << R.move_as_error_prefix(PSTRING()
-                                           << "dropping message " << src << '>' << dst << " because connection failed");
+                                           << "dropping message " << src << '>' << dst << " because connection failed: ");
       return;
     }
     auto client = R.move_as_ok()->client.get();
@@ -24,7 +24,7 @@ void QuicSender::send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort d
                             [data = std::move(data), client, src, dst](td::Result<QuicStreamID> res) mutable {
                               if (res.is_error()) {
                                 LOG(ERROR) << res.move_as_error_prefix(PSTRING() << "dropping message " << src << '>'
-                                                                                 << dst << " because stream failed");
+                                                                                 << dst << " because stream failed: ");
                                 return;
                               }
                               auto sid = res.move_as_ok();
@@ -42,7 +42,7 @@ void QuicSender::send_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst
                                    dst](td::Result<OutboundConnection*> R) mutable {
     if (R.is_error()) {
       LOG(ERROR) << R.move_as_error_prefix(PSTRING()
-                                           << "dropping query " << src << '>' << dst << " because connection failed");
+                                           << "dropping query " << src << '>' << dst << " because connection failed: ");
       return;
     }
     auto conn = R.move_as_ok();
@@ -52,7 +52,7 @@ void QuicSender::send_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst
                              dst](td::Result<QuicStreamID> res) mutable {
                               if (res.is_error()) {
                                 LOG(ERROR) << res.move_as_error_prefix(PSTRING() << "dropping query " << src << '>'
-                                                                                 << dst << " because stream failed");
+                                                                                 << dst << " because stream failed: ");
                                 return;
                               }
                               auto sid = res.move_as_ok();
@@ -174,7 +174,7 @@ td::actor::Task<> QuicSender::add_local_id(adnl::AdnlNodeIdShort local_id) {
   auto res = QuicServer::listen_rpk(port, td::Ed25519::PrivateKey(local_keys_[local_id].copy()),
                                     std::make_unique<InConnectionCallback>(local_id, actor_id(this)));
   if (res.is_error())
-    LOG(WARNING) << res.move_as_error_prefix(PSTRING() << "discarding port " << port << " for local id " << local_id);
+    LOG(WARNING) << res.move_as_error_prefix(PSTRING() << "discarding port " << port << " for local id " << local_id << ": ");
   else
     inbound_[local_id] = res.move_as_ok();
 
@@ -212,7 +212,7 @@ void QuicSender::create_connection(AdnlPath path, td::Promise<OutboundConnection
           return;
         }
         if (res.is_error()) {
-          iter->second.ready.set_error(res.move_as_error_prefix("failed to obtain peer for connection"));
+          iter->second.ready.set_error(res.move_as_error_prefix("failed to obtain peer for connection: "));
           outbound_.erase(iter);
           return;
         }
@@ -310,7 +310,7 @@ void QuicSender::after_out_connection_created(AdnlPath path) {
   td::actor::send_closure(client, &QuicClient::open_stream, [path, client](td::Result<QuicStreamID> res) mutable {
     if (res.is_error()) {
       LOG(ERROR) << res.move_as_error_prefix(PSTRING() << "failed to open stream for connection " << path.first << '>'
-                                                       << path.second);
+                                                       << path.second << ": ");
       return;
     }
     auto sid = res.move_as_ok();
@@ -343,7 +343,7 @@ void QuicSender::after_in_query(AdnlPath path, td::IPAddress peer, QuicStreamID 
       adnl_, &adnl::AdnlPeerTable::deliver_query, path.first, path.second, std::move(data),
       [self = actor_id(this), peer, sid, local_id = path.second](td::Result<td::BufferSlice> R) {
         if (R.is_error()) {
-          LOG(ERROR) << R.move_as_error_prefix("adnl failed to deliver query, not sending any answer");
+          LOG(ERROR) << R.move_as_error_prefix("adnl failed to deliver query, not sending any answer: ");
           return;
         }
         td::actor::send_closure(self, &QuicSender::after_in_query_answer, local_id, peer, sid, R.move_as_ok());
