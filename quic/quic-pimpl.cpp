@@ -635,10 +635,6 @@ int QuicConnectionPImpl::acked_stream_data_offset_cb(ngtcp2_conn*, int64_t strea
     st.fin_acked = true;
   }
 
-  if (st.queued_bytes == 0 && st.submitted_unacked == 0 && !st.fin_pending) {
-    pimpl->outbound_.erase(it);
-  }
-
   return 0;
 }
 
