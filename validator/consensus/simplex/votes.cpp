@@ -72,8 +72,10 @@ td::BufferSlice Signed<T>::serialize() const {
   return create_serialize_tl_object<tl::vote>(vote.to_tl(), signature.clone());
 }
 
-template <>
-td::Result<Signed<Vote>> Signed<Vote>::deserialize(td::Slice data, PeerValidatorId validator, const Bus& bus) {
+template <ValidVote T>
+td::Result<Signed<Vote>> Signed<T>::deserialize(td::Slice data, PeerValidatorId validator, const Bus& bus)
+  requires std::same_as<T, Vote>
+{
   TRY_RESULT(signed_vote, fetch_tl_object<tl::vote>(data, true));
 
   auto vote_to_sign = serialize_tl_object(signed_vote->vote_, true);
