@@ -38,7 +38,7 @@ void QuicSender::send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort d
 
 void QuicSender::send_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, std::string name,
                             td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice data) {
-  find_out_connection({src, dst}, [data = std::move(data), promise = std::move(promise), src,
+  find_out_connection({src, dst}, [self = actor_id(this), data = std::move(data), promise = std::move(promise), src,
                                    dst](td::Result<OutboundConnection*> R) mutable {
     if (R.is_error()) {
       LOG(ERROR) << R.move_as_error_prefix(PSTRING()
@@ -47,21 +47,7 @@ void QuicSender::send_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst
     }
     auto conn = R.move_as_ok();
     auto client = conn->client.get();
-    td::actor::send_closure(client, &QuicClient::open_stream,
-                            [data = std::move(data), promise = std::move(promise), conn, client, src,
-                             dst](td::Result<QuicStreamID> res) mutable {
-                              if (res.is_error()) {
-                                LOG(ERROR) << res.move_as_error_prefix(PSTRING() << "dropping query " << src << '>'
-                                                                                 << dst << " because stream failed: ");
-                                return;
-                              }
-                              auto sid = res.move_as_ok();
-                              conn->responses.emplace(sid, std::move(promise));
-                              td::BufferSlice wire_data =
-                                  create_serialize_tl_object<ton_api::quic_query>(std::move(data));
-                              td::actor::send_closure(client, &QuicClient::send_stream_data, sid, std::move(wire_data));
-                              td::actor::send_closure(client, &QuicClient::send_stream_end, sid);
-                            });
+    td::actor::send_closure(client, &QuicClient::open_stream, td::promise_send_closure(self, &QuicSender::after_out_query_stream_obtained, conn, std::move(data), std::move(promise)));
   });
 }
 
@@ -324,6 +310,18 @@ void QuicSender::after_out_connection_ready(AdnlPath path) {
   auto conn = &outbound_.find(path)->second;
   conn->ready.set_result(conn);
   conn->ready_received = true;
+}
+
+void QuicSender::after_out_query_stream_obtained(OutboundConnection* conn, td::BufferSlice query_data, td::Promise<td::BufferSlice> answer_promise, td::Result<QuicStreamID> sid_res) {
+  if (sid_res.is_error()) {
+    LOG(ERROR) << sid_res.move_as_error_prefix(PSTRING() << "dropping query because stream failed: ");
+    return;
+  }
+  auto sid = sid_res.move_as_ok();
+  conn->responses.emplace(sid, std::move(answer_promise));
+  td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_query>(std::move(query_data));
+  td::actor::send_closure(conn->client, &QuicClient::send_stream_data, sid, std::move(wire_data));
+  td::actor::send_closure(conn->client, &QuicClient::send_stream_end, sid);
 }
 
 void QuicSender::after_out_query_answer(AdnlPath path, QuicStreamID sid, td::BufferSlice data) {
