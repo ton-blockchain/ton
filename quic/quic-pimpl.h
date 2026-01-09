@@ -46,7 +46,7 @@ struct QuicConnectionPImpl {
   };
 
   constexpr static size_t DEFAULT_WINDOW = 1 << 20;
-  constexpr static size_t DEFAULT_STREAM_LIMIT = 4096;
+  constexpr static size_t DEFAULT_STREAM_LIMIT = 1ULL << 60ULL;
 
   td::IPAddress local_address = {};
   td::IPAddress remote_address = {};
