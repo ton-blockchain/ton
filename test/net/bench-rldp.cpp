@@ -28,6 +28,7 @@
 #include "rldp2/rldp.h"
 #include "td/utils/OptionParser.h"
 #include "td/utils/Random.h"
+#include "td/utils/as.h"
 #include "td/utils/base64.h"
 #include "td/utils/format.h"
 #include "td/utils/port/path.h"
@@ -90,6 +91,14 @@ const char* protocol_name(Protocol p) {
   return "unknown";
 }
 
+// Message format: [header...][payload...][crc32:4]
+inline td::uint32 compute_crc(td::Slice msg) {
+  return td::crc32(msg.substr(0, msg.size() - 4));
+}
+inline td::uint32 stored_crc(td::Slice msg) {
+  return td::as<td::uint32>(msg.end() - 4);
+}
+
 class Server : public ton::adnl::Adnl::Callback {
  public:
   Server(td::uint32 response_size) : response_size_(response_size) {
@@ -100,9 +109,18 @@ class Server : public ton::adnl::Adnl::Callback {
 
   void receive_query(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                      td::Promise<td::BufferSlice> promise) override {
-    td::BufferSlice response{response_size_};
-    td::Random::secure_bytes(response.as_slice());
-    promise.set_value(std::move(response));
+    auto q = data.as_slice();
+    if (q.size() < 9 || compute_crc(q) != stored_crc(q)) {
+      return promise.set_error(td::Status::Error("bad query"));
+    }
+    td::uint32 id = td::as<td::uint32>(q.data() + 1);
+
+    td::BufferSlice resp{response_size_};
+    auto r = resp.as_slice();
+    td::as<td::uint32>(r.data()) = id;
+    td::Random::secure_bytes(r.substr(4, r.size() - 8));
+    td::as<td::uint32>(r.end() - 4) = compute_crc(r);
+    promise.set_value(std::move(resp));
   }
 
  private:
@@ -147,10 +165,11 @@ class BenchmarkRunner : public td::actor::Actor {
     td::uint32 max_inflight = config_.max_inflight > 0 ? config_.max_inflight : config_.num_queries;
     while (sent_ < config_.num_queries && inflight_ < max_inflight) {
       td::BufferSlice query{config_.query_size};
-      query.as_slice()[0] = 'B';
-      if (config_.query_size > 1) {
-        td::Random::secure_bytes(query.as_slice().remove_prefix(1));
-      }
+      auto q = query.as_slice();
+      q[0] = 'B';
+      td::as<td::uint32>(q.data() + 1) = sent_;
+      td::Random::secure_bytes(q.substr(5, q.size() - 9));
+      td::as<td::uint32>(q.end() - 4) = compute_crc(q);
 
       query_start_times_[sent_] = td::Clocks::system();
 
@@ -175,8 +194,14 @@ class BenchmarkRunner : public td::actor::Actor {
       LOG(WARNING) << "Query " << idx << " failed: " << R.error();
       errors_++;
     } else {
-      received_++;
-      latencies_.push_back(latency);
+      auto r = R.ok().as_slice();
+      if (r.size() < 8 || td::as<td::uint32>(r.data()) != idx || compute_crc(r) != stored_crc(r)) {
+        LOG(ERROR) << "Query " << idx << ": bad response";
+        errors_++;
+      } else {
+        received_++;
+        latencies_.push_back(latency);
+      }
     }
 
     if (received_ + errors_ == config_.num_queries) {
