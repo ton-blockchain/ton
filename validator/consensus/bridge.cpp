@@ -95,6 +95,7 @@ struct BridgeCreationParams {
 
   ValidatorSessionId session_id;
   td::actor::ActorId<overlay::Overlays> overlays;
+  td::actor::ActorId<rldp2::Rldp> rldp2;
 
   std::vector<BlockIdExt> first_block_parents = {};
 };
@@ -203,6 +204,7 @@ class BridgeImpl final : public IValidatorGroup {
 
     bus->session_id = params_.session_id;
     bus->overlays = params_.overlays;
+    bus->rldp2 = params_.rldp2;
 
     bus->first_block_parents = std::move(params_.first_block_parents);
 
@@ -267,6 +269,7 @@ td::actor::ActorOwn<IValidatorGroup> IValidatorGroup::create_bridge(
       .config = std::move(config),
       .session_id = std::move(session_id),
       .overlays = overlays,
+      .rldp2 = rldp2,
   };
   return td::actor::create_actor<consensus::BridgeImpl>(name_with_seqno, std::move(params));
 }

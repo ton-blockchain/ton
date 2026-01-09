@@ -9,6 +9,7 @@
 #include "consensus/misbehavior.h"
 #include "keyring/keyring.hpp"
 #include "overlay/overlays.h"
+#include "rldp2/rldp.h"
 #include "ton/ton-types.h"
 
 #include "manager-facade.h"
@@ -160,6 +161,7 @@ class Bus : public runtime::Bus {
   td::Ref<CollatorSchedule> collator_schedule;
 
   td::actor::ActorId<overlay::Overlays> overlays;
+  td::actor::ActorId<rldp2::Rldp> rldp2;
 
   std::vector<BlockIdExt> first_block_parents;
 };

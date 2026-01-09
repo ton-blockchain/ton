@@ -10,6 +10,7 @@
 #include "adnl/adnl-node-id.hpp"
 #include "auto/tl/ton_api.h"
 #include "overlay/overlays.h"
+#include "rldp2/rldp-utils.h"
 #include "td/utils/Status.h"
 #include "td/utils/logging.h"
 
@@ -33,6 +34,7 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
   void start_up() override {
     auto& bus = *owning_bus();
     overlays_ = bus.overlays;
+    rldp2_ = bus.rldp2;
     local_id_ = bus.local_id;
 
     std::vector<adnl::AdnlNodeIdShort> overlay_nodes;
@@ -47,6 +49,10 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
       authorized_keys.emplace(peer.short_id, overlay::Overlays::max_fec_broadcast_size());
     }
 
+    td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_id_.adnl_id);
+    rldp_limit_guard_ = rldp2::PeersMtuLimitGuard(rldp2_, local_id_.adnl_id, overlay_nodes,
+                                                  bus.config.max_block_size + bus.config.max_collated_data_size + 1024);
+
     auto overlay_seed = create_tl_object<tl::overlayId>(bus.session_id, std::move(overlay_nodes_tl));
     auto overlay_full_id = overlay::OverlayIdFull{serialize_tl_object(overlay_seed, true)};
     overlay_id_ = overlay_full_id.compute_short_id();
@@ -54,6 +60,8 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
     overlay::OverlayOptions options;
     options.broadcast_speed_multiplier_ = bus.validator_opts->get_catchain_broadcast_speed_multiplier();
     options.private_ping_peers_ = true;
+    options.twostep_broadcast_sender_ = rldp2_;
+    options.send_twostep_broadcast_ = true;
 
     td::actor::send_closure(overlays_, &overlay::Overlays::create_private_overlay_ex, local_id_.adnl_id,
                             std::move(overlay_full_id), std::move(overlay_nodes), make_callback(),
@@ -185,7 +193,9 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
   }
 
   td::actor::ActorId<overlay::Overlays> overlays_;
+  td::actor::ActorId<rldp2::Rldp> rldp2_;
   overlay::OverlayIdShort overlay_id_;
+  rldp2::PeersMtuLimitGuard rldp_limit_guard_;
   PeerValidator local_id_;
   std::map<adnl::AdnlNodeIdShort, PeerValidator> adnl_id_to_peer_;
   std::map<PublicKeyHash, PeerValidator> short_id_to_peer_;
