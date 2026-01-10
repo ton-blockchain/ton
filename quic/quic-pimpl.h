@@ -52,13 +52,6 @@ struct QuicConnectionPImpl {
   td::IPAddress local_address = {};
   td::IPAddress remote_address = {};
 
-  ngtcp2_conn* conn = nullptr;
-  openssl_ptr<SSL_CTX, &SSL_CTX_free> ssl_ctx;
-  openssl_ptr<SSL, &SSL_free> ssl;
-
-  ngtcp2_crypto_ossl_ctx* ossl_ctx = nullptr;
-  ngtcp2_crypto_conn_ref conn_ref{};
-
   std::unique_ptr<Callback> callback = nullptr;
 
   // RPK (Raw Public Key) - uses Ed25519 keys for identity
@@ -83,16 +76,8 @@ struct QuicConnectionPImpl {
   [[nodiscard]] td::Status write_stream(UdpMessageBuffer& msg_out, QuicStreamID sid, td::BufferSlice data, bool fin);
 
   ~QuicConnectionPImpl() {
-    if (conn) {
-      ngtcp2_conn_del(conn);
-      conn = nullptr;
-    }
-    if (ossl_ctx) {
-      ngtcp2_crypto_ossl_ctx_del(ossl_ctx);
-      ossl_ctx = nullptr;
-    }
-    if (ssl) {
-      SSL_set_app_data(ssl.get(), nullptr);
+    if (ssl_) {
+      SSL_set_app_data(ssl_.get(), nullptr);
     }
   }
 
@@ -117,6 +102,12 @@ struct QuicConnectionPImpl {
 
     void consume_acked_prefix(uint64_t n);
   };
+
+  openssl_ptr<SSL_CTX, &SSL_CTX_free> ssl_ctx_;
+  openssl_ptr<SSL, &SSL_free> ssl_;
+  openssl_ptr<ngtcp2_crypto_ossl_ctx, &ngtcp2_crypto_ossl_ctx_del> ossl_ctx_;
+  openssl_ptr<ngtcp2_conn, &ngtcp2_conn_del> conn_;
+  ngtcp2_crypto_conn_ref conn_ref_{};
 
   std::unordered_map<QuicStreamID, OutboundStreamState> outbound_;
 

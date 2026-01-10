@@ -5,6 +5,7 @@
 #include <quic-pimpl.h>
 #include <vector>
 
+#include "td/utils/Random.h"
 #include "td/utils/logging.h"
 #include "td/utils/port/UdpSocketFd.h"
 
@@ -39,9 +40,9 @@ void QuicConnectionPImpl::setup_alpn_wire(td::Slice alpn) {
 
 td::Status QuicConnectionPImpl::finish_tls_setup(openssl_ptr<SSL, &SSL_free> ssl_ptr,
                                                  openssl_ptr<SSL_CTX, &SSL_CTX_free> ssl_ctx_ptr, bool is_client) {
-  conn_ref.get_conn = get_pimpl_from_ref;
-  conn_ref.user_data = this;
-  SSL_set_app_data(ssl_ptr.get(), &conn_ref);
+  conn_ref_.get_conn = get_pimpl_from_ref;
+  conn_ref_.user_data = this;
+  SSL_set_app_data(ssl_ptr.get(), &conn_ref_);
 
   if (is_client) {
     if (ngtcp2_crypto_ossl_configure_client_session(ssl_ptr.get()) != 0) {
@@ -53,12 +54,14 @@ td::Status QuicConnectionPImpl::finish_tls_setup(openssl_ptr<SSL, &SSL_free> ssl
     }
   }
 
+  ngtcp2_crypto_ossl_ctx* ossl_ctx = nullptr;
   if (ngtcp2_crypto_ossl_ctx_new(&ossl_ctx, ssl_ptr.get()) != 0) {
     return td::Status::Error("ngtcp2_crypto_ossl_ctx_new failed");
   }
+  ossl_ctx_.reset(ossl_ctx);
 
-  ssl_ctx = std::move(ssl_ctx_ptr);
-  ssl = std::move(ssl_ptr);
+  ssl_ctx_ = std::move(ssl_ctx_ptr);
+  ssl_ = std::move(ssl_ptr);
   return td::Status::OK();
 }
 
@@ -164,14 +167,16 @@ td::Status QuicConnectionPImpl::init_quic_client() {
   path.remote.addr = const_cast<ngtcp2_sockaddr*>(remote_address.get_sockaddr());
   path.remote.addrlen = static_cast<ngtcp2_socklen>(remote_address.get_sockaddr_len());
 
+  ngtcp2_conn* conn = nullptr;
   int rv = ngtcp2_conn_client_new(&conn, &dcid, &scid, &path, NGTCP2_PROTO_VER_V1, &callbacks, &settings, &params,
                                   nullptr, this);
 
   if (rv != 0) {
     return td::Status::Error("ngtcp2_conn_client_new failed");
   }
+  conn_.reset(conn);
 
-  ngtcp2_conn_set_tls_native_handle(conn, ossl_ctx);
+  ngtcp2_conn_set_tls_native_handle(conn_.get(), ossl_ctx_.get());
 
   return td::Status::OK();
 }
@@ -226,12 +231,14 @@ td::Status QuicConnectionPImpl::init_quic_server(const ngtcp2_version_cid& vc) {
   path.remote.addr = const_cast<ngtcp2_sockaddr*>(remote_address.get_sockaddr());
   path.remote.addrlen = static_cast<ngtcp2_socklen>(remote_address.get_sockaddr_len());
 
+  ngtcp2_conn* conn = nullptr;
   int rv = ngtcp2_conn_server_new(&conn, &client_scid, &server_scid, &path, vc.version, &callbacks, &settings, &params,
                                   nullptr, this);
   if (rv != 0) {
     return td::Status::Error(PSTRING() << "ngtcp2_conn_server_new failed: " << rv);
   }
-  ngtcp2_conn_set_tls_native_handle(conn, ossl_ctx);
+  conn_.reset(conn);
+  ngtcp2_conn_set_tls_native_handle(conn_.get(), ossl_ctx_.get());
   return td::Status::OK();
 }
 
@@ -316,7 +323,7 @@ td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer& msg_out, Quic
   ngtcp2_ssize pdatalen = -1;
 
   ngtcp2_ssize n_write = ngtcp2_conn_writev_stream(
-      conn, nullptr, &pi, reinterpret_cast<uint8_t*>(msg_out.storage.data()), msg_out.storage.size(),
+      conn_.get(), nullptr, &pi, reinterpret_cast<uint8_t*>(msg_out.storage.data()), msg_out.storage.size(),
       sid == -1 ? nullptr : &pdatalen, flags, sid, datav.empty() ? nullptr : datav.data(), datav.size(), ts);
 
   if (n_write == 0) {
@@ -332,7 +339,7 @@ td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer& msg_out, Quic
     return td::Status::Error(PSTRING() << "ngtcp2_conn_writev_stream failed: " << n_write);
   }
 
-  ngtcp2_conn_update_pkt_tx_time(conn, ts);
+  ngtcp2_conn_update_pkt_tx_time(conn_.get(), ts);
 
   if (sid != -1) {
     auto& st = outbound_.find(sid)->second;
@@ -378,7 +385,7 @@ td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in) {
   path.remote.addrlen = static_cast<ngtcp2_socklen>(remote_address.get_sockaddr_len());
 
   ngtcp2_pkt_info pi{};
-  int rv = ngtcp2_conn_read_pkt(conn, &path, &pi, reinterpret_cast<uint8_t*>(msg_in.storage.data()),
+  int rv = ngtcp2_conn_read_pkt(conn_.get(), &path, &pi, reinterpret_cast<uint8_t*>(msg_in.storage.data()),
                                 msg_in.storage.size(), now_ts());
 
   if (rv != 0)
@@ -390,7 +397,7 @@ td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in) {
 td::Result<QuicStreamID> QuicConnectionPImpl::open_stream() {
   QuicStreamID sid;
 
-  int rv = ngtcp2_conn_open_bidi_stream(conn, &sid, nullptr);
+  int rv = ngtcp2_conn_open_bidi_stream(conn_.get(), &sid, nullptr);
   if (rv != 0)
     return td::Status::Error(PSTRING() << "ngtcp2_conn_open_bidi_stream failed: " << rv);
 
@@ -417,25 +424,25 @@ ngtcp2_tstamp QuicConnectionPImpl::now_ts() {
 }
 
 td::Timestamp QuicConnectionPImpl::get_expiry_timestamp() const {
-  if (!conn) {
+  if (!conn_) {
     return td::Timestamp::never();
   }
-  return from_ngtcp2_tstamp(ngtcp2_conn_get_expiry(conn));
+  return from_ngtcp2_tstamp(ngtcp2_conn_get_expiry(conn_.get()));
 }
 
 bool QuicConnectionPImpl::is_expired() const {
-  if (!conn) {
+  if (!conn_) {
     return false;
   }
-  auto expiry = ngtcp2_conn_get_expiry(conn);
+  auto expiry = ngtcp2_conn_get_expiry(conn_.get());
   return expiry != NGTCP2_TSTAMP_INF && expiry <= now_ts();
 }
 
 td::Result<QuicConnectionPImpl::ExpiryAction> QuicConnectionPImpl::handle_expiry() {
-  if (!conn) {
+  if (!conn_) {
     return ExpiryAction::None;
   }
-  int rv = ngtcp2_conn_handle_expiry(conn, now_ts());
+  int rv = ngtcp2_conn_handle_expiry(conn_.get(), now_ts());
 
   if (rv == 0) {
     return ExpiryAction::ScheduleWrite;
@@ -450,13 +457,11 @@ td::Result<QuicConnectionPImpl::ExpiryAction> QuicConnectionPImpl::handle_expiry
 
 ngtcp2_conn* QuicConnectionPImpl::get_pimpl_from_ref(ngtcp2_crypto_conn_ref* ref) {
   auto* c = static_cast<QuicConnectionPImpl*>(ref->user_data);
-  return c->conn;
+  return c->conn_.get();
 }
 
 void QuicConnectionPImpl::rand_cb(uint8_t* dest, size_t destlen, const ngtcp2_rand_ctx* rand_ctx) {
-  if (destlen == 0)
-    return;
-  RAND_bytes(dest, static_cast<int>(destlen));
+  td::Random::secure_bytes(td::MutableSlice(dest, destlen));
 }
 
 int QuicConnectionPImpl::get_new_connection_id_cb(ngtcp2_conn* conn, ngtcp2_cid* cid, uint8_t* token, size_t cidlen,
@@ -475,15 +480,17 @@ int QuicConnectionPImpl::handshake_completed_cb(ngtcp2_conn* conn, void* user_da
   auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
   Callback::HandshakeCompletedEvent event;
   // Extract peer's Ed25519 public key from RPK (if available)
-  if (EVP_PKEY* peer_rpk = SSL_get0_peer_rpk(pimpl->ssl.get())) {
+  if (EVP_PKEY* peer_rpk = SSL_get0_peer_rpk(pimpl->ssl_.get())) {
     if (EVP_PKEY_id(peer_rpk) == EVP_PKEY_ED25519) {
-      size_t len = 32;
-      td::SecureString key(32);
-      if (EVP_PKEY_get_raw_public_key(peer_rpk, key.as_mutable_slice().ubegin(), &len) == 1 && len == 32) {
+      size_t len = td::Ed25519::PublicKey::LENGTH;
+      td::SecureString key(len);
+      if (EVP_PKEY_get_raw_public_key(peer_rpk, key.as_mutable_slice().ubegin(), &len) == 1 &&
+          len == td::Ed25519::PublicKey::LENGTH) {
         event.peer_public_key = std::move(key);
       }
     }
   }
+
   if (auto status = pimpl->callback->on_handshake_completed(std::move(event)); status.is_error()) {
     LOG(WARNING) << "handshake rejected: " << status;
     //FIXME: we should actually close connection

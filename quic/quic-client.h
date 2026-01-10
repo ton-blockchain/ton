@@ -30,6 +30,7 @@ class QuicClient : public td::actor::Actor, public td::ObserverBase {
   void send_stream_end(QuicStreamID sid);
 
   QuicClient(td::UdpSocketFd fd, std::unique_ptr<QuicConnectionPImpl> p_impl, std::unique_ptr<Callback> callback);
+  // Connect to QUIC server using RPK authentication
   static td::Result<td::actor::ActorOwn<QuicClient>> connect(td::Slice host, int port,
                                                              td::Ed25519::PrivateKey client_key,
                                                              std::unique_ptr<Callback> callback, td::Slice alpn = "ton",
