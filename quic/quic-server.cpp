@@ -8,28 +8,7 @@
 
 namespace ton::quic {
 
-namespace {
-
-td::Result<ngtcp2_version_cid> decode_version_cid(td::Slice datagram) {
-  ngtcp2_version_cid vc;
-  int rv = ngtcp2_pkt_decode_version_cid(&vc, reinterpret_cast<const uint8_t *>(datagram.data()), datagram.size(),
-                                         QuicConnectionPImpl::CID_LENGTH);
-  if (rv != 0) {
-    return td::Status::Error("failed to decode version_cid");
-  }
-  return vc;
-}
-
-QuicConnectionId raw_to_quic_cid(const uint8_t *data, size_t len) {
-  QuicConnectionId qcid;
-  qcid.datalen = len;
-  std::memcpy(qcid.data, data, len);
-  return qcid;
-}
-
-}  // namespace
-
-td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::listen(int port, td::Ed25519::PrivateKey server_key,
+td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, td::Ed25519::PrivateKey server_key,
                                                                std::unique_ptr<Callback> callback, td::Slice alpn,
                                                                td::Slice bind_host) {
   td::IPAddress local_addr;
@@ -76,7 +55,7 @@ void QuicServer::wake_up() {
 QuicServer::ConnectionState *QuicServer::find_connection(const QuicConnectionId &cid) {
   auto it = connections_.find(cid);
   if (it != connections_.end()) {
-    return &it->second;
+    return it->second.get();
   }
   return nullptr;
 }
@@ -90,13 +69,13 @@ void QuicServer::alarm() {
     auto &cid = it->first;
     auto &state = it->second;
 
-    if (!state.p_impl) {
+    if (!state->p_impl) {
       it = connections_.erase(it);
       continue;
     }
 
-    if (state.p_impl->is_expired()) {
-      auto R = state.p_impl->handle_expiry();
+    if (state->p_impl->is_expired()) {
+      auto R = state->p_impl->handle_expiry();
       if (R.is_error()) {
         it = connections_.erase(it);
         continue;
@@ -106,13 +85,13 @@ void QuicServer::alarm() {
         case QuicConnectionPImpl::ExpiryAction::None:
           break;
         case QuicConnectionPImpl::ExpiryAction::ScheduleWrite:
-          flush_egress_for(cid, state);
+          flush_egress_for(cid, *state);
           break;
         case QuicConnectionPImpl::ExpiryAction::IdleClose:
           it = connections_.erase(it);
           continue;
         case QuicConnectionPImpl::ExpiryAction::Close:
-          flush_egress_for(cid, state);
+          flush_egress_for(cid, *state);
           it = connections_.erase(it);
           continue;
       }
@@ -168,14 +147,22 @@ class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
   QuicConnectionId cid_;
 };
 
-td::Result<std::map<QuicConnectionId, QuicServer::ConnectionState>::iterator> QuicServer::get_or_create_connection(
+td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_create_connection(
     const UdpMessageBuffer &msg_in) {
-  TRY_RESULT(vc, decode_version_cid(td::Slice(msg_in.storage)));
-  QuicConnectionId dcid = raw_to_quic_cid(vc.dcid, vc.dcidlen);
+  TRY_RESULT(vc, VersionCid::from_datagram(td::Slice(msg_in.storage)));
 
-  auto it = connections_.find(dcid);
+  // Try lookup by DCID (works for post-handshake short-header packets using server's SCID)
+  auto it = connections_.find(vc.dcid);
   if (it != connections_.end()) {
-    return it;
+    return it->second;
+  }
+
+  // Try lookup by source CID from packet (works for handshake long-header packets with client SCID)
+  QuicConnectionId client_scid = vc.scid;
+  if (!client_scid.empty()) {
+    if (it = connections_.find(client_scid); it != connections_.end()) {
+      return it->second;
+    }
   }
 
   TRY_RESULT(local_address, fd_.get_local_address());
@@ -183,17 +170,23 @@ td::Result<std::map<QuicConnectionId, QuicServer::ConnectionState>::iterator> Qu
   TRY_RESULT(p_impl, QuicConnectionPImpl::create_server(local_address, msg_in.address, server_key_, alpn_.as_slice(),
                                                         vc, std::make_unique<PImplCallback>(*this)));
 
-  QuicConnectionId cid = p_impl->get_primary_scid();
+  QuicConnectionId server_scid = p_impl->get_primary_scid();
 
-  LOG(INFO) << "creating new inbound connection from " << msg_in.address << " cid=" << cid;
+  LOG(INFO) << "creating new inbound connection from " << msg_in.address << " server_scid=" << server_scid
+            << " client_scid=" << client_scid;
 
-  ConnectionState state;
-  state.p_impl = std::move(p_impl);
-  state.remote_address = msg_in.address;
-  state.is_outbound = false;
+  auto state = std::make_shared<ConnectionState>();
+  state->p_impl = std::move(p_impl);
+  state->remote_address = msg_in.address;
+  state->is_outbound = false;
 
-  auto ins = connections_.emplace(cid, std::move(state));
-  return ins.first;
+  // Store by BOTH server SCID and client SCID to support both handshake and post-handshake lookup
+  connections_[server_scid] = state;
+  if (!client_scid.empty()) {
+    connections_[client_scid] = state;
+  }
+
+  return state;
 }
 
 td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key,
@@ -210,14 +203,14 @@ td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::E
 
   LOG(INFO) << "creating outbound connection to " << remote_address << " cid=" << cid;
 
-  ConnectionState state;
-  state.p_impl = std::move(p_impl);
-  state.remote_address = remote_address;
-  state.is_outbound = true;
+  auto state = std::make_shared<ConnectionState>();
+  state->p_impl = std::move(p_impl);
+  state->remote_address = remote_address;
+  state->is_outbound = true;
 
-  auto [it, inserted] = connections_.emplace(cid, std::move(state));
+  connections_[cid] = state;
 
-  flush_egress_for(cid, it->second);
+  flush_egress_for(cid, *state);
   update_alarm();
 
   return QuicConnectionId(cid);
@@ -243,18 +236,17 @@ void QuicServer::drain_ingress() {
       LOG(WARNING) << "dropping inbound packet from " << msg_in.address << ": " << R.error();
       return td::Status::OK();
     }
-    auto it = R.ok();
-    auto &cid = it->first;
-    auto &state = it->second;
+    auto state = R.move_as_ok();
 
-    if (auto status = state.p_impl->handle_ingress(msg_in); status.is_error()) {
-      LOG(WARNING) << "failed to handle ingress from " << state.remote_address << " cid=" << cid << " ("
-                   << (state.is_outbound ? "outbound" : "inbound") << "): " << status;
-      remove_connection(cid);
+    if (auto status = state->p_impl->handle_ingress(msg_in); status.is_error()) {
+      LOG(WARNING) << "failed to handle ingress from " << state->remote_address << " ("
+                   << (state->is_outbound ? "outbound" : "inbound") << "): " << status;
+      // Note: don't call remove_connection here - the connection might be stored under multiple CIDs
       return td::Status::OK();
     }
 
-    flush_egress_for(cid, state);
+    auto cid = state->p_impl->get_primary_scid();
+    flush_egress_for(cid, *state);
     return td::Status::OK();
   };
 
@@ -328,16 +320,14 @@ void QuicServer::flush_egress_for(QuicConnectionId cid, ConnectionState &state, 
 
 void QuicServer::flush_egress_all() {
   for (auto &it : connections_) {
-    flush_egress_for(it.first, it.second);
+    flush_egress_for(it.first, *it.second);
   }
 }
 
 void QuicServer::update_alarm() {
   td::Timestamp alarm_ts = td::Timestamp::never();
   for (auto &it : connections_) {
-    if (it.second.p_impl) {
-      it.second.p_impl->relax_alarm_timestamp(alarm_ts);
-    }
+    it.second->p_impl->relax_alarm_timestamp(alarm_ts);
   }
   alarm_timestamp() = alarm_ts;
 }

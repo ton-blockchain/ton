@@ -166,7 +166,7 @@ td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) 
     std::unordered_map<QuicConnectionId, Connection> connections_{};
   };
 
-  auto res = QuicServer::listen(port, td::Ed25519::PrivateKey(local_keys_[local_id].copy()),
+  auto res = QuicServer::create(port, td::Ed25519::PrivateKey(local_keys_[local_id].copy()),
                                 std::make_unique<InConnectionCallback>(local_id, actor_id(this)));
   if (res.is_error())
     LOG(WARNING) << res.move_as_error_prefix(PSTRING()

@@ -13,6 +13,7 @@
 #include "ngtcp2/ngtcp2_crypto.h"
 #include "ngtcp2/ngtcp2_crypto_ossl.h"
 #include "td/actor/ActorId.h"
+#include "td/utils/Random.h"
 #include "td/utils/Time.h"
 #include "td/utils/crypto.h"
 #include "td/utils/port/UdpSocketFd.h"
@@ -21,6 +22,38 @@
 #include "quic-common.h"
 
 namespace ton::quic {
+
+struct QuicConnectionIdAccess {
+  static ngtcp2_cid to_ngtcp2(const QuicConnectionId& cid) {
+    ngtcp2_cid result{};
+    auto slice = cid.as_slice();
+    result.datalen = slice.size();
+    std::memcpy(result.data, slice.data(), slice.size());
+    return result;
+  }
+  static QuicConnectionId from_ngtcp2(const ngtcp2_cid& cid) {
+    return QuicConnectionId::from_raw(cid.data, cid.datalen).move_as_ok();
+  }
+};
+
+struct VersionCid {
+  td::uint32 version{};
+  QuicConnectionId dcid{};
+  QuicConnectionId scid{};
+
+  static td::Result<VersionCid> from_datagram(td::Slice datagram) {
+    ngtcp2_version_cid vc;
+    int rv = ngtcp2_pkt_decode_version_cid(&vc, reinterpret_cast<const uint8_t*>(datagram.data()), datagram.size(),
+                                           QuicConnectionId::MAX_SIZE);
+    if (rv != 0) {
+      return td::Status::Error("failed to decode version_cid");
+    }
+    TRY_RESULT(scid, QuicConnectionId::from_raw(vc.scid, vc.scidlen));
+    TRY_RESULT(dcid, QuicConnectionId::from_raw(vc.dcid, vc.dcidlen));
+    return VersionCid{.version = vc.version, .dcid = dcid, .scid = scid};
+  }
+};
+
 struct QuicConnectionPImpl {
   enum class ExpiryAction {
     None,
@@ -66,7 +99,7 @@ struct QuicConnectionPImpl {
 
   [[nodiscard]] static td::Result<std::unique_ptr<QuicConnectionPImpl>> create_server(
       const td::IPAddress& local_address, const td::IPAddress& remote_address,
-      const td::Ed25519::PrivateKey& server_key, td::Slice alpn, const ngtcp2_version_cid& vc,
+      const td::Ed25519::PrivateKey& server_key, td::Slice alpn, const VersionCid& vc,
       std::unique_ptr<Callback> callback);
 
   [[nodiscard]] td::Status produce_egress(UdpMessageBuffer& msg_out);
@@ -125,7 +158,7 @@ struct QuicConnectionPImpl {
   [[nodiscard]] td::Status init_tls_server_rpk(const td::Ed25519::PrivateKey& server_key, td::Slice alpn);
 
   [[nodiscard]] td::Status init_quic_client();
-  [[nodiscard]] td::Status init_quic_server(const ngtcp2_version_cid& vc);
+  [[nodiscard]] td::Status init_quic_server(const VersionCid& vc);
 
   void setup_alpn_wire(td::Slice alpn);
   [[nodiscard]] td::Status finish_tls_setup(openssl_ptr<SSL, &SSL_free> ssl_ptr,

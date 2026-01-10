@@ -37,7 +37,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::BufferSlice alpn,
              std::unique_ptr<Callback> callback);
 
-  static td::Result<td::actor::ActorOwn<QuicServer>> listen(int port, td::Ed25519::PrivateKey server_key,
+  static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, td::Ed25519::PrivateKey server_key,
                                                             std::unique_ptr<Callback> callback, td::Slice alpn = "ton",
                                                             td::Slice bind_host = "0.0.0.0");
 
@@ -80,8 +80,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void flush_egress_all();
 
   ConnectionState *find_connection(const QuicConnectionId &cid);
-  td::Result<std::map<QuicConnectionId, ConnectionState>::iterator> get_or_create_connection(
-      const UdpMessageBuffer &msg_in);
+  td::Result<std::shared_ptr<ConnectionState>> get_or_create_connection(const UdpMessageBuffer &msg_in);
   void remove_connection(const QuicConnectionId &cid);
 
   td::UdpSocketFd fd_;
@@ -91,7 +90,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   std::unique_ptr<Callback> callback_;
   td::actor::ActorId<QuicServer> self_id_;
 
-  std::map<QuicConnectionId, ConnectionState> connections_;
+  std::map<QuicConnectionId, std::shared_ptr<ConnectionState>> connections_;
 };
 
 }  // namespace ton::quic

@@ -2,7 +2,6 @@
 #include <cstring>
 #include <limits>
 #include <openssl/ssl.h>
-#include <quic-pimpl.h>
 #include <vector>
 
 #include "td/utils/Random.h"
@@ -11,6 +10,7 @@
 
 #include "openssl-utils.h"
 #include "quic-common.h"
+#include "quic-pimpl.h"
 
 namespace ton::quic {
 
@@ -34,30 +34,6 @@ static td::Timestamp from_ngtcp2_tstamp(ngtcp2_tstamp ns) {
   return td::Timestamp::at(static_cast<double>(ns) * 1e-9);
 }
 
-static ngtcp2_cid gen_cid(size_t datalen = QuicConnectionPImpl::CID_LENGTH) {
-  ngtcp2_cid cid{};
-  CHECK(datalen <= NGTCP2_MAX_CIDLEN);
-  cid.datalen = datalen;
-  td::Random::secure_bytes(td::MutableSlice(cid.data, cid.datalen));
-  return cid;
-}
-
-static td::Result<ngtcp2_cid> make_cid(const uint8_t* data, size_t len) {
-  if (len > NGTCP2_MAX_CIDLEN) {
-    return td::Status::Error("CID length exceeds NGTCP2_MAX_CIDLEN");
-  }
-  ngtcp2_cid cid{};
-  ngtcp2_cid_init(&cid, data, len);
-  return cid;
-}
-
-static QuicConnectionId ngtcp2_cid_to_quic_cid(const ngtcp2_cid& cid) {
-  QuicConnectionId qcid;
-  qcid.datalen = cid.datalen;
-  std::memcpy(qcid.data, cid.data, cid.datalen);
-  return qcid;
-}
-
 td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_client(
     const td::IPAddress& local_address, const td::IPAddress& remote_address, const td::Ed25519::PrivateKey& client_key,
     td::Slice alpn, std::unique_ptr<Callback> callback) {
@@ -74,7 +50,7 @@ td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_cli
 
 td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_server(
     const td::IPAddress& local_address, const td::IPAddress& remote_address, const td::Ed25519::PrivateKey& server_key,
-    td::Slice alpn, const ngtcp2_version_cid& vc, std::unique_ptr<Callback> callback) {
+    td::Slice alpn, const VersionCid& vc, std::unique_ptr<Callback> callback) {
   auto p_impl =
       std::make_unique<QuicConnectionPImpl>(PrivateTag{}, local_address, remote_address, true, std::move(callback));
 
@@ -215,28 +191,30 @@ td::Status QuicConnectionPImpl::init_quic_client() {
   params.initial_max_stream_data_bidi_remote = 0;
   params.initial_max_data = DEFAULT_WINDOW;
 
-  ngtcp2_cid dcid = gen_cid();
-  ngtcp2_cid scid = gen_cid();
+  auto dcid = QuicConnectionId::random();
+  auto scid = QuicConnectionId::random();
+  auto dcid_raw = QuicConnectionIdAccess::to_ngtcp2(dcid);
+  auto scid_raw = QuicConnectionIdAccess::to_ngtcp2(scid);
 
   ngtcp2_path path = make_path();
 
   ngtcp2_conn* conn = nullptr;
-  int rv = ngtcp2_conn_client_new(&conn, &dcid, &scid, &path, NGTCP2_PROTO_VER_V1, &callbacks, &settings, &params,
-                                  nullptr, this);
+  int rv = ngtcp2_conn_client_new(&conn, &dcid_raw, &scid_raw, &path, NGTCP2_PROTO_VER_V1, &callbacks, &settings,
+                                  &params, nullptr, this);
 
   if (rv != 0) {
     return td::Status::Error("ngtcp2_conn_client_new failed");
   }
   conn_.reset(conn);
 
-  primary_scid_ = ngtcp2_cid_to_quic_cid(scid);
+  primary_scid_ = scid;
 
   ngtcp2_conn_set_tls_native_handle(conn_.get(), ossl_ctx_.get());
 
   return td::Status::OK();
 }
 
-td::Status QuicConnectionPImpl::init_quic_server(const ngtcp2_version_cid& vc) {
+td::Status QuicConnectionPImpl::init_quic_server(const VersionCid& vc) {
   ngtcp2_callbacks callbacks{};
   setup_ngtcp2_callbacks(callbacks, false);
 
@@ -253,24 +231,23 @@ td::Status QuicConnectionPImpl::init_quic_server(const ngtcp2_version_cid& vc) {
   params.initial_max_data = DEFAULT_WINDOW;
 
   params.original_dcid_present = 1;
-  TRY_RESULT_ASSIGN(params.original_dcid, make_cid(vc.dcid, vc.dcidlen));
+  params.original_dcid = QuicConnectionIdAccess::to_ngtcp2(vc.dcid);
 
-  ngtcp2_cid client_scid;
-  TRY_RESULT_ASSIGN(client_scid, make_cid(vc.scid, vc.scidlen));
-
-  ngtcp2_cid server_scid = gen_cid();
+  auto client_scid = QuicConnectionIdAccess::to_ngtcp2(vc.scid);
+  auto server_scid = QuicConnectionId::random();
+  auto server_scid_raw = QuicConnectionIdAccess::to_ngtcp2(server_scid);
 
   ngtcp2_path path = make_path();
 
   ngtcp2_conn* conn = nullptr;
-  int rv = ngtcp2_conn_server_new(&conn, &client_scid, &server_scid, &path, vc.version, &callbacks, &settings, &params,
-                                  nullptr, this);
+  int rv = ngtcp2_conn_server_new(&conn, &client_scid, &server_scid_raw, &path, vc.version, &callbacks, &settings,
+                                  &params, nullptr, this);
   if (rv != 0) {
     return td::Status::Error(PSTRING() << "ngtcp2_conn_server_new failed: " << rv);
   }
   conn_.reset(conn);
 
-  primary_scid_ = ngtcp2_cid_to_quic_cid(server_scid);
+  primary_scid_ = server_scid;
 
   ngtcp2_conn_set_tls_native_handle(conn_.get(), ossl_ctx_.get());
   return td::Status::OK();
@@ -279,7 +256,7 @@ td::Status QuicConnectionPImpl::init_quic_server(const ngtcp2_version_cid& vc) {
 void QuicConnectionPImpl::build_unsent_vecs(std::vector<ngtcp2_vec>& out, OutboundStreamState& st) {
   out.clear();
   auto it = st.reader_.clone();
-  // TODO: limit - not all chunks
+  // currently we usually have just one chunk, so this approach is perfectly fine
   while (!it.empty()) {
     auto head = it.prepare_read();
     ngtcp2_vec v{};
@@ -309,7 +286,7 @@ td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer& msg_out, Quic
   if (sid != -1) {
     auto it = streams_.find(sid);
     if (it == streams_.end()) {
-      msg_out.storage = msg_out.storage.substr(0, 0);
+      msg_out.storage.truncate(0);
       return td::Status::OK();
     }
     auto& st = it->second;
@@ -330,13 +307,13 @@ td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer& msg_out, Quic
       sid == -1 ? nullptr : &pdatalen, flags, sid, datav.empty() ? nullptr : datav.data(), datav.size(), ts);
 
   if (n_write == 0) {
-    msg_out.storage = msg_out.storage.substr(0, 0);
+    msg_out.storage.truncate(0);
     return td::Status::OK();
   }
 
   if (n_write < 0) {
     if (n_write == NGTCP2_ERR_STREAM_DATA_BLOCKED) {
-      msg_out.storage = msg_out.storage.substr(0, 0);
+      msg_out.storage.truncate(0);
       return td::Status::OK();
     }
     return td::Status::Error(PSTRING() << "ngtcp2_conn_writev_stream failed: " << n_write);
@@ -537,7 +514,7 @@ void QuicConnectionPImpl::rand_cb(uint8_t* dest, size_t destlen, const ngtcp2_ra
 
 int QuicConnectionPImpl::get_new_connection_id_cb(ngtcp2_conn* conn, ngtcp2_cid* cid, uint8_t* token, size_t cidlen,
                                                   void* user_data) {
-  *cid = gen_cid(cidlen);
+  *cid = QuicConnectionIdAccess::to_ngtcp2(QuicConnectionId::random(cidlen));
   td::Random::secure_bytes(td::MutableSlice(token, NGTCP2_STATELESS_RESET_TOKENLEN));
   return 0;
 }
