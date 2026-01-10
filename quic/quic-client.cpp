@@ -8,20 +8,19 @@ td::Result<td::actor::ActorOwn<QuicClient>> QuicClient::connect(td::Slice host, 
                                                                 td::Ed25519::PrivateKey client_key,
                                                                 std::unique_ptr<Callback> callback, td::Slice alpn,
                                                                 int local_port) {
-  auto p_impl = std::make_unique<QuicConnectionPImpl>();
+  td::IPAddress remote_address;
   std::string host_c(host.begin(), host.end());
-  TRY_STATUS(p_impl->remote_address.init_host_port(td::CSlice(host_c.c_str()), port));
+  TRY_STATUS(remote_address.init_host_port(td::CSlice(host_c.c_str()), port));
 
   td::IPAddress local_addr;
   TRY_STATUS(local_addr.init_host_port("0.0.0.0", local_port));
 
   TRY_RESULT(fd, td::UdpSocketFd::open(local_addr));
-  TRY_RESULT_ASSIGN(p_impl->local_address, fd.get_local_address());
+  TRY_RESULT(actual_local_address, fd.get_local_address());
 
-  TRY_STATUS(p_impl->init_tls_client_rpk(client_key, alpn));
-  TRY_STATUS(p_impl->init_quic_client());
+  TRY_RESULT(p_impl, QuicConnectionPImpl::create_client(actual_local_address, remote_address, client_key, alpn));
 
-  auto name = PSTRING() << "QUIC:" << p_impl->local_address << ">[" << host << ':' << port << ']';
+  auto name = PSTRING() << "QUIC:" << actual_local_address << ">[" << host << ':' << port << ']';
   return td::actor::create_actor<QuicClient>(td::actor::ActorOptions().with_name(name).with_poll(true), std::move(fd),
                                              std::move(p_impl), std::move(callback));
 }

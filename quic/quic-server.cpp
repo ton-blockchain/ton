@@ -125,14 +125,11 @@ td::Result<QuicServer::ConnectionState *> QuicServer::get_or_create_connection(c
   }
 
   TRY_RESULT(vc, decode_version_cid(td::Slice(msg_in.storage)));
+  TRY_RESULT(local_address, fd_.get_local_address());
 
   ConnectionState state;
-  state.p_impl = std::make_unique<QuicConnectionPImpl>();
-  state.p_impl->remote_address = msg_in.address;
-  TRY_RESULT_ASSIGN(state.p_impl->local_address, fd_.get_local_address());
-
-  TRY_STATUS(state.p_impl->init_tls_server_rpk(server_key_, alpn_.as_slice()));
-  TRY_STATUS(state.p_impl->init_quic_server(vc));
+  TRY_RESULT_ASSIGN(state.p_impl, QuicConnectionPImpl::create_server(local_address, msg_in.address, server_key_,
+                                                                     alpn_.as_slice(), vc));
 
   class PImplCallback final : public QuicConnectionPImpl::Callback {
    public:

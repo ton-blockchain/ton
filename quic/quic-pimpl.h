@@ -55,6 +55,14 @@ struct QuicConnectionPImpl {
 
   std::unique_ptr<Callback> callback = nullptr;
 
+  [[nodiscard]] static td::Result<std::unique_ptr<QuicConnectionPImpl>> create_client(
+      const td::IPAddress& local_address, const td::IPAddress& remote_address,
+      const td::Ed25519::PrivateKey& client_key, td::Slice alpn);
+
+  [[nodiscard]] static td::Result<std::unique_ptr<QuicConnectionPImpl>> create_server(
+      const td::IPAddress& local_address, const td::IPAddress& remote_address,
+      const td::Ed25519::PrivateKey& server_key, td::Slice alpn, const ngtcp2_version_cid& vc);
+
   // RPK (Raw Public Key) - uses Ed25519 keys for identity
   // Verification happens post-handshake via ssl_get_peer_ed25519_public_key()
   [[nodiscard]] td::Status init_tls_client_rpk(const td::Ed25519::PrivateKey& client_key, td::Slice alpn);

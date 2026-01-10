@@ -50,6 +50,32 @@ static td::Result<ngtcp2_cid> make_cid(const uint8_t* data, size_t len) {
   return cid;
 }
 
+td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_client(
+    const td::IPAddress& local_address, const td::IPAddress& remote_address, const td::Ed25519::PrivateKey& client_key,
+    td::Slice alpn) {
+  auto p_impl = std::make_unique<QuicConnectionPImpl>();
+  p_impl->local_address = local_address;
+  p_impl->remote_address = remote_address;
+
+  TRY_STATUS(p_impl->init_tls_client_rpk(client_key, alpn));
+  TRY_STATUS(p_impl->init_quic_client());
+
+  return std::move(p_impl);
+}
+
+td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_server(
+    const td::IPAddress& local_address, const td::IPAddress& remote_address, const td::Ed25519::PrivateKey& server_key,
+    td::Slice alpn, const ngtcp2_version_cid& vc) {
+  auto p_impl = std::make_unique<QuicConnectionPImpl>();
+  p_impl->local_address = local_address;
+  p_impl->remote_address = remote_address;
+
+  TRY_STATUS(p_impl->init_tls_server_rpk(server_key, alpn));
+  TRY_STATUS(p_impl->init_quic_server(vc));
+
+  return std::move(p_impl);
+}
+
 void QuicConnectionPImpl::setup_alpn_wire(td::Slice alpn) {
   alpn_wire_ = std::string(1, td::narrow_cast<char>(alpn.size())) + alpn.str();
 }
