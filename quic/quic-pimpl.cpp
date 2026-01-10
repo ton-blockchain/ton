@@ -62,6 +62,21 @@ td::Status QuicConnectionPImpl::finish_tls_setup(openssl_ptr<SSL, &SSL_free> ssl
   return td::Status::OK();
 }
 
+static td::Status setup_rpk_context(SSL_CTX* ssl_ctx, EVP_PKEY* key) {
+  SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_3_VERSION);
+  SSL_CTX_set_max_proto_version(ssl_ctx, TLS1_3_VERSION);
+  SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, [](int, X509_STORE_CTX*) { return 1; });
+
+  static const unsigned char cert_types[] = {TLSEXT_cert_type_rpk};
+  OPENSSL_CHECK_OK(SSL_CTX_set1_server_cert_type(ssl_ctx, cert_types, sizeof(cert_types)),
+                   "Failed to enable server RPK");
+  OPENSSL_CHECK_OK(SSL_CTX_set1_client_cert_type(ssl_ctx, cert_types, sizeof(cert_types)),
+                   "Failed to enable client RPK");
+
+  OPENSSL_CHECK_OK(SSL_CTX_use_PrivateKey(ssl_ctx, key), "Failed to set private key");
+  return td::Status::OK();
+}
+
 td::Status QuicConnectionPImpl::init_tls_client(td::Slice host, td::Slice alpn) {
   OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_client_method()), SSL_CTX_free, "Failed to create TLS client context");
   SSL_CTX_set_verify(ssl_ctx_ptr.get(), SSL_VERIFY_NONE, nullptr);
@@ -115,24 +130,12 @@ td::Status QuicConnectionPImpl::init_tls_server(td::Slice cert_file, td::Slice k
 
 td::Status QuicConnectionPImpl::init_tls_client_rpk(EVP_PKEY* client_key, td::Slice alpn) {
   OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_client_method()), SSL_CTX_free, "Failed to create TLS client context");
-  SSL_CTX_set_min_proto_version(ssl_ctx_ptr.get(), TLS1_3_VERSION);
-  SSL_CTX_set_max_proto_version(ssl_ctx_ptr.get(), TLS1_3_VERSION);
-  SSL_CTX_set_verify(ssl_ctx_ptr.get(), SSL_VERIFY_NONE, nullptr);
-
-  static const unsigned char cert_types[] = {TLSEXT_cert_type_rpk};
-  OPENSSL_CHECK_OK(SSL_CTX_set1_server_cert_type(ssl_ctx_ptr.get(), cert_types, sizeof(cert_types)),
-                   "Failed to enable server RPK");
-  OPENSSL_CHECK_OK(SSL_CTX_set1_client_cert_type(ssl_ctx_ptr.get(), cert_types, sizeof(cert_types)),
-                   "Failed to enable client RPK");
-
-  if (client_key) {
-    OPENSSL_CHECK_OK(SSL_CTX_use_PrivateKey(ssl_ctx_ptr.get(), client_key), "Failed to set client private key");
-  }
+  TRY_STATUS(setup_rpk_context(ssl_ctx_ptr.get(), client_key));
+  setup_alpn_wire(alpn);
 
   OPENSSL_MAKE_PTR(ssl_ptr, SSL_new(ssl_ctx_ptr.get()), SSL_free, "Failed to create SSL session");
   SSL_set_connect_state(ssl_ptr.get());
 
-  setup_alpn_wire(alpn);
   SSL_set_alpn_protos(ssl_ptr.get(), reinterpret_cast<const unsigned char*>(alpn_wire_.c_str()),
                       static_cast<unsigned int>(alpn_wire_.size()));
 
@@ -141,19 +144,9 @@ td::Status QuicConnectionPImpl::init_tls_client_rpk(EVP_PKEY* client_key, td::Sl
 
 td::Status QuicConnectionPImpl::init_tls_server_rpk(EVP_PKEY* server_key, td::Slice alpn) {
   OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_server_method()), SSL_CTX_free, "Failed to create TLS server context");
-  SSL_CTX_set_min_proto_version(ssl_ctx_ptr.get(), TLS1_3_VERSION);
-  SSL_CTX_set_max_proto_version(ssl_ctx_ptr.get(), TLS1_3_VERSION);
-  SSL_CTX_set_verify(ssl_ctx_ptr.get(), SSL_VERIFY_PEER, [](int, X509_STORE_CTX*) { return 1; });
-
-  OPENSSL_CHECK_OK(SSL_CTX_use_PrivateKey(ssl_ctx_ptr.get(), server_key), "Failed to set server private key");
-
-  static const unsigned char cert_types[] = {TLSEXT_cert_type_rpk};
-  OPENSSL_CHECK_OK(SSL_CTX_set1_server_cert_type(ssl_ctx_ptr.get(), cert_types, sizeof(cert_types)),
-                   "Failed to enable server RPK");
-  OPENSSL_CHECK_OK(SSL_CTX_set1_client_cert_type(ssl_ctx_ptr.get(), cert_types, sizeof(cert_types)),
-                   "Failed to enable client RPK");
-
+  TRY_STATUS(setup_rpk_context(ssl_ctx_ptr.get(), server_key));
   setup_alpn_wire(alpn);
+
   SSL_CTX_set_alpn_select_cb(ssl_ctx_ptr.get(), alpn_select_cb, &alpn_wire_);
 
   OPENSSL_MAKE_PTR(ssl_ptr, SSL_new(ssl_ctx_ptr.get()), SSL_free, "Failed to create SSL session");
