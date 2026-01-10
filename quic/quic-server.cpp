@@ -10,39 +10,12 @@ namespace ton::quic {
 namespace {
 
 td::Result<ngtcp2_version_cid> decode_version_cid(td::Slice datagram) {
-  if (datagram.size() < 7) {
-    return td::Status::Error("QUIC packet too small");
+  ngtcp2_version_cid vc;
+  int rv = ngtcp2_pkt_decode_version_cid(&vc, reinterpret_cast<const uint8_t *>(datagram.data()), datagram.size(),
+                                         NGTCP2_MAX_CIDLEN);
+  if (rv != 0) {
+    return td::Status::Error("failed to decode version_cid");
   }
-  const auto *p = reinterpret_cast<const uint8_t *>(datagram.data());
-  const auto n = datagram.size();
-
-  if ((p[0] & 0x80u) == 0) {
-    return td::Status::Error("not a long header QUIC packet");
-  }
-
-  uint32_t version = (static_cast<uint32_t>(p[1]) << 24) | (static_cast<uint32_t>(p[2]) << 16) |
-                     (static_cast<uint32_t>(p[3]) << 8) | static_cast<uint32_t>(p[4]);
-  size_t off = 5;
-
-  uint8_t dcid_len = p[off++];
-  if (off + dcid_len + 1 > n) {
-    return td::Status::Error("invalid DCID length");
-  }
-  const uint8_t *dcid = p + off;
-  off += dcid_len;
-
-  uint8_t scid_len = p[off++];
-  if (off + scid_len > n) {
-    return td::Status::Error("invalid SCID length");
-  }
-  const uint8_t *scid = p + off;
-
-  ngtcp2_version_cid vc{};
-  vc.version = version;
-  vc.dcid = dcid;
-  vc.dcidlen = dcid_len;
-  vc.scid = scid;
-  vc.scidlen = scid_len;
   return vc;
 }
 
