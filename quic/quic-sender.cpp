@@ -13,27 +13,17 @@ QuicSender::QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::actor::
 }
 
 void QuicSender::send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) {
-  find_out_connection({src, dst}, [data = std::move(data), src, dst](td::Result<OutboundConnection*> R) mutable {
-    if (R.is_error()) {
-      LOG(ERROR) << R.move_as_error_prefix(PSTRING() << "dropping message " << src << '>' << dst
-                                                     << " because connection failed: ");
-      return;
-    }
-    auto client = R.move_as_ok()->client.get();
-    td::actor::send_closure(client, &QuicClient::open_stream,
-                            [data = std::move(data), client, src, dst](td::Result<QuicStreamID> res) mutable {
-                              if (res.is_error()) {
-                                LOG(ERROR) << res.move_as_error_prefix(PSTRING() << "dropping message " << src << '>'
-                                                                                 << dst << " because stream failed: ");
-                                return;
-                              }
-                              auto sid = res.move_as_ok();
-                              td::BufferSlice wire_data =
-                                  create_serialize_tl_object<ton_api::quic_message>(std::move(data));
-                              td::actor::send_closure(client, &QuicClient::send_stream_data, sid, std::move(wire_data));
-                              td::actor::send_closure(client, &QuicClient::send_stream_end, sid);
-                            });
-  });
+  find_out_connection(
+      {src, dst}, [self = actor_id(this), data = std::move(data), src, dst](td::Result<OutboundConnection*> R) mutable {
+        if (R.is_error()) {
+          LOG(ERROR) << R.move_as_error_prefix(PSTRING() << "dropping message " << src << '>' << dst
+                                                         << " because connection failed: ");
+          return;
+        }
+        auto conn = R.move_as_ok();
+        td::actor::send_closure(self, &QuicSender::send_message_on_connection, conn->local_id, conn->cid,
+                                std::move(data), src, dst);
+      });
 }
 
 void QuicSender::send_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, std::string name,
@@ -46,10 +36,8 @@ void QuicSender::send_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst
       return;
     }
     auto conn = R.move_as_ok();
-    auto client = conn->client.get();
-    td::actor::send_closure(client, &QuicClient::open_stream,
-                            td::promise_send_closure(self, &QuicSender::after_out_query_stream_obtained, conn,
-                                                     std::move(data), std::move(promise)));
+    td::actor::send_closure(self, &QuicSender::send_query_on_connection, conn->local_id, conn->cid, conn,
+                            std::move(data), std::move(promise));
   });
 }
 
@@ -65,7 +53,8 @@ void QuicSender::get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdSho
     if (R.is_error())
       P.set_error(R.move_as_error());
     else
-      P.set_value(PSTRING() << R.move_as_ok()->client.as_actor_ref().actor_info.get_name());
+      // TODO: write some resonable ip here
+      P.set_value("<quic connection>");
   });
 }
 
@@ -107,51 +96,66 @@ td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) 
         : local_id_(local_id), sender_(sender) {
     }
 
-    void on_connected(const td::IPAddress& peer, td::SecureString peer_public_key) override {
-      // FIXME: Use peer_public_key for authentication instead of IP
-      LOG(INFO) << "Server: client connected from " << peer << " with public key: "
-                << (peer_public_key.empty() ? "<none>" : td::base64_encode(peer_public_key.as_slice()));
-      inbound_.emplace(peer.get_ip_str().c_str(), InboundConnection{});
+    td::Status on_connected(QuicConnectionId cid, td::SecureString peer_public_key) override {
+      if (peer_public_key.size() != 32) {
+        return td::Status::Error("peer public key must be 32 bytes");
+      }
+      td::Bits256 key_bits;
+      key_bits.as_slice().copy_from(peer_public_key.as_slice());
+      auto peer_id = adnl::AdnlNodeIdFull(PublicKey(pubkeys::Ed25519(key_bits))).compute_short_id();
+
+      LOG(INFO) << "Server: client connected with CID: " << cid << ", peer ADNL ID: " << peer_id;
+      connections_.emplace(cid, Connection{peer_id});
+
+      // Notify sender that connection is ready (will mark outbound connections as ready)
+      td::actor::send_closure(sender_, &QuicSender::after_connection_ready, cid);
+
+      return td::Status::OK();
     }
 
-    void on_stream_data(const td::IPAddress& peer, QuicStreamID sid, td::BufferSlice data) override {
-      inbound_[peer.get_ip_str().c_str()].msg_builders_[sid].append(std::move(data));
+    void on_stream_data(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data) override {
+      connections_[cid].msg_builders_[sid].append(std::move(data));
     }
 
-    void on_stream_end(const td::IPAddress& peer, QuicStreamID sid) override {
-      auto& conn = inbound_[peer.get_ip_str().c_str()];
+    void on_stream_end(QuicConnectionId cid, QuicStreamID sid) override {
+      auto& conn = connections_[cid];
       auto data = conn.msg_builders_[sid].extract();
       conn.msg_builders_.erase(sid);
-      auto R = fetch_tl_object<ton_api::quic_Request>(data, true);
-      if (R.is_error()) {
-        LOG(ERROR) << "malformed request from " << peer << " SID:" << sid;
+
+      // Try to parse as Request (for inbound connections)
+      auto req_R = fetch_tl_object<ton_api::quic_Request>(data.clone(), true);
+      if (req_R.is_ok()) {
+        // This is an inbound connection receiving a request
+        auto request = req_R.move_as_ok();
+        ton_api::downcast_call(*request, td::overloaded(
+                                             [this, &conn, cid, sid](ton_api::quic_query& query) {
+                                               td::actor::send_closure(sender_, &QuicSender::after_in_query,
+                                                                       AdnlPath{conn.peer_id_, local_id_}, cid, sid,
+                                                                       std::move(query.data_));
+                                             },
+                                             [this, &conn](ton_api::quic_message& message) {
+                                               td::actor::send_closure(sender_, &QuicSender::after_in_message,
+                                                                       AdnlPath{conn.peer_id_, local_id_},
+                                                                       std::move(message.data_));
+                                             }));
         return;
       }
-      auto response = R.move_as_ok();
-      ton_api::downcast_call(*response, td::overloaded(
-                                            [this, &conn, peer, sid](const ton_api::quic_init& init) {
-                                              conn.peer_id_ = adnl::AdnlNodeIdShort{init.local_id_};
-                                              auto local_id = adnl::AdnlNodeIdShort{init.peer_id_};
-                                              if (local_id != local_id_) {
-                                                LOG(WARNING) << "adnl id mismatch ignored";
-                                              }
-                                              td::actor::send_closure(sender_, &QuicSender::after_in_init,
-                                                                      AdnlPath{conn.peer_id_, local_id_}, peer, sid);
-                                            },
-                                            [this, &conn, peer, sid](ton_api::quic_query& query) {
-                                              td::actor::send_closure(sender_, &QuicSender::after_in_query,
-                                                                      AdnlPath{conn.peer_id_, local_id_}, peer, sid,
-                                                                      std::move(query.data_));
-                                            },
-                                            [this, &conn](ton_api::quic_message& message) {
-                                              td::actor::send_closure(sender_, &QuicSender::after_in_message,
-                                                                      AdnlPath{conn.peer_id_, local_id_},
-                                                                      std::move(message.data_));
-                                            }));
+
+      // Try to parse as answer (for outbound connections)
+      auto answer_R = fetch_tl_object<ton_api::quic_answer>(data.clone(), true);
+      if (answer_R.is_ok()) {
+        // This is an outbound connection receiving a response
+        auto path = AdnlPath{local_id_, conn.peer_id_};
+        td::actor::send_closure(sender_, &QuicSender::after_out_query_answer, path, sid,
+                                std::move(answer_R.move_as_ok()->data_));
+        return;
+      }
+
+      LOG(ERROR) << "malformed message from CID, SID:" << sid;
     }
 
    private:
-    struct InboundConnection {
+    struct Connection {
       adnl::AdnlNodeIdShort peer_id_;
       std::unordered_map<QuicStreamID, td::BufferBuilder> msg_builders_;
     };
@@ -159,7 +163,7 @@ td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) 
     adnl::AdnlNodeIdShort local_id_;
     td::actor::ActorId<QuicSender> sender_;
 
-    std::unordered_map<std::string, InboundConnection> inbound_{};
+    std::unordered_map<QuicConnectionId, Connection> connections_{};
   };
 
   auto res = QuicServer::listen(port, td::Ed25519::PrivateKey(local_keys_[local_id].copy()),
@@ -194,6 +198,7 @@ void QuicSender::create_connection(AdnlPath path, td::Promise<OutboundConnection
   // Add placeholder immediately to prevent duplicate connections from concurrent queries
   auto iter = outbound_.emplace(path, OutboundConnection{}).first;
   iter->second.ready = std::move(P);
+  iter->second.local_id = path.first;
 
   td::actor::send_closure(
       adnl_, &adnl::Adnl::get_peer_node, path.first, path.second,
@@ -233,89 +238,92 @@ void QuicSender::create_connection(AdnlPath path, td::Promise<OutboundConnection
         }
         auto client_key = td::Ed25519::PrivateKey(local_key_iter->second.copy());
 
-        class OutConnectionCallback : public QuicClient::Callback {
-         public:
-          OutConnectionCallback(AdnlPath path, td::actor::ActorId<QuicSender> sender)
-              : sender_(std::move(sender)), path_(std::move(path)) {
-          }
-
-          td::Status on_connected(td::SecureString peer_public_key) override {
-            if (peer_public_key.size() != 32) {
-              return td::Status::Error("peer public key must be 32 bytes");
-            }
-            td::Bits256 key_bits;
-            key_bits.as_slice().copy_from(peer_public_key.as_slice());
-            auto got_id = adnl::AdnlNodeIdFull(PublicKey(pubkeys::Ed25519(key_bits))).compute_short_id();
-            if (got_id != path_.second) {
-              return td::Status::Error("connected to unexpected node");
-            }
-            LOG(INFO) << "Client: connected to " << path_.second;
-            td::actor::send_closure(sender_, &QuicSender::after_out_connection_created, path_);
-            return td::Status::OK();
-          }
-
-          void on_stream_data(QuicStreamID sid, td::BufferSlice data) override {
-            msg_builders_[sid].append(std::move(data));
-          }
-
-          void on_stream_end(QuicStreamID sid) override {
-            auto data = msg_builders_[sid].extract();
-            msg_builders_.erase(sid);
-            auto R = fetch_tl_object<ton_api::quic_Response>(data, true);
-            if (R.is_error()) {
-              LOG(ERROR) << "malformed response from " << path_.second << " SID:" << sid;
-              return;
-            }
-            auto response = R.move_as_ok();
-            ton_api::downcast_call(
-                *response, td::overloaded(
-                               [this](const ton_api::quic_ready&) {
-                                 td::actor::send_closure(sender_, &QuicSender::after_out_connection_ready, path_);
-                               },
-                               [this, sid](ton_api::quic_answer& answer) {
-                                 td::actor::send_closure(sender_, &QuicSender::after_out_query_answer, path_, sid,
-                                                         std::move(answer.data_));
-                               }));
-          }
-
-         private:
-          td::actor::ActorId<QuicSender> sender_;
-          AdnlPath path_;
-
-          std::unordered_map<QuicStreamID, td::BufferBuilder> msg_builders_;
-        };
-
-        // TODO: maybe we should check the peer key during handshake and not after
-        auto conn_res = QuicClient::connect(peer_host, peer_port, std::move(client_key),
-                                            std::make_unique<OutConnectionCallback>(path, self));
-        if (conn_res.is_error()) {
-          iter->second.ready.set_error(conn_res.move_as_error());
+        // Get the QuicServer for the local_id to initiate the outbound connection
+        auto server_iter = inbound_.find(path.first);
+        if (server_iter == inbound_.end()) {
+          iter->second.ready.set_error(td::Status::Error("no QuicServer for local id"));
           outbound_.erase(iter);
-        } else {
-          iter->second.client = conn_res.move_as_ok();
+          return;
         }
+
+        auto server = server_iter->second.get();
+        td::actor::send_closure(
+            server, &QuicServer::connect, peer_host, peer_port, std::move(client_key), td::Slice("ton"),
+            td::PromiseCreator::lambda([self, path](td::Result<QuicConnectionId> R) {
+              if (R.is_error()) {
+                td::actor::send_closure(self, &QuicSender::after_out_connection_failed, path, R.move_as_error());
+              } else {
+                td::actor::send_closure(self, &QuicSender::after_out_connection_established, path, R.move_as_ok());
+              }
+            }));
       });
 }
 
-void QuicSender::after_out_connection_created(AdnlPath path) {
-  auto client = outbound_.find(path)->second.client.get();
-  td::actor::send_closure(client, &QuicClient::open_stream, [path, client](td::Result<QuicStreamID> res) mutable {
-    if (res.is_error()) {
-      LOG(ERROR) << res.move_as_error_prefix(PSTRING() << "failed to open stream for connection " << path.first << '>'
-                                                       << path.second << ": ");
-      return;
-    }
-    auto sid = res.move_as_ok();
-    td::BufferSlice data = create_serialize_tl_object<ton_api::quic_init>(path.first.tl(), path.second.tl());
-    td::actor::send_closure(client, &QuicClient::send_stream_data, sid, std::move(data));
-    td::actor::send_closure(client, &QuicClient::send_stream_end, sid);
-  });
+void QuicSender::after_out_connection_established(AdnlPath path, QuicConnectionId cid) {
+  auto iter = outbound_.find(path);
+  if (iter == outbound_.end()) {
+    LOG(ERROR) << "outbound connection entry disappeared for " << path.first << " -> " << path.second;
+    return;
+  }
+  iter->second.cid = cid;
+  cid_to_outbound_path_[cid] = path;
 }
 
-void QuicSender::after_out_connection_ready(AdnlPath path) {
-  auto conn = &outbound_.find(path)->second;
-  conn->ready.set_result(conn);
-  conn->ready_received = true;
+void QuicSender::after_connection_ready(QuicConnectionId cid) {
+  // Check if this is an outbound connection and mark it ready
+  auto path_it = cid_to_outbound_path_.find(cid);
+  if (path_it != cid_to_outbound_path_.end()) {
+    auto outbound_it = outbound_.find(path_it->second);
+    if (outbound_it != outbound_.end()) {
+      outbound_it->second.ready.set_result(&outbound_it->second);
+      outbound_it->second.ready_received = true;
+    }
+  }
+}
+
+void QuicSender::after_out_connection_failed(AdnlPath path, td::Status error) {
+  auto iter = outbound_.find(path);
+  if (iter != outbound_.end()) {
+    iter->second.ready.set_error(std::move(error));
+    outbound_.erase(iter);
+  }
+}
+
+void QuicSender::send_message_on_connection(adnl::AdnlNodeIdShort local_id, QuicConnectionId cid, td::BufferSlice data,
+                                            adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst) {
+  auto it = inbound_.find(local_id);
+  if (it == inbound_.end()) {
+    LOG(ERROR) << "dropping message " << src << '>' << dst << " because no QuicServer for local_id";
+    return;
+  }
+  auto server = it->second.get();
+  td::actor::send_closure(
+      server, &QuicServer::open_stream, cid,
+      [server, cid, data = std::move(data), src, dst](td::Result<QuicStreamID> res) mutable {
+        if (res.is_error()) {
+          LOG(ERROR) << res.move_as_error_prefix(PSTRING() << "dropping message " << src << '>' << dst
+                                                           << " because stream failed: ");
+          return;
+        }
+        auto sid = res.move_as_ok();
+        td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_message>(std::move(data));
+        td::actor::send_closure(server, &QuicServer::send_stream_data, cid, sid, std::move(wire_data));
+        td::actor::send_closure(server, &QuicServer::send_stream_end, cid, sid);
+      });
+}
+
+void QuicSender::send_query_on_connection(adnl::AdnlNodeIdShort local_id, QuicConnectionId cid,
+                                          OutboundConnection* conn, td::BufferSlice data,
+                                          td::Promise<td::BufferSlice> promise) {
+  auto it = inbound_.find(local_id);
+  if (it == inbound_.end()) {
+    promise.set_error(td::Status::Error("no QuicServer for local_id"));
+    return;
+  }
+  auto server = it->second.get();
+  td::actor::send_closure(server, &QuicServer::open_stream, cid,
+                          td::promise_send_closure(actor_id(this), &QuicSender::after_out_query_stream_obtained, conn,
+                                                   std::move(data), std::move(promise)));
 }
 
 void QuicSender::after_out_query_stream_obtained(OutboundConnection* conn, td::BufferSlice query_data,
@@ -323,13 +331,20 @@ void QuicSender::after_out_query_stream_obtained(OutboundConnection* conn, td::B
                                                  td::Result<QuicStreamID> sid_res) {
   if (sid_res.is_error()) {
     LOG(ERROR) << sid_res.move_as_error_prefix(PSTRING() << "dropping query because stream failed: ");
+    answer_promise.set_error(sid_res.move_as_error());
     return;
   }
   auto sid = sid_res.move_as_ok();
   conn->responses.emplace(sid, std::move(answer_promise));
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_query>(std::move(query_data));
-  td::actor::send_closure(conn->client, &QuicClient::send_stream_data, sid, std::move(wire_data));
-  td::actor::send_closure(conn->client, &QuicClient::send_stream_end, sid);
+  auto it = inbound_.find(conn->local_id);
+  if (it == inbound_.end()) {
+    LOG(ERROR) << "dropping query because no QuicServer for local_id";
+    return;
+  }
+  auto server = it->second.get();
+  td::actor::send_closure(server, &QuicServer::send_stream_data, conn->cid, sid, std::move(wire_data));
+  td::actor::send_closure(server, &QuicServer::send_stream_end, conn->cid, sid);
 }
 
 void QuicSender::after_out_query_answer(AdnlPath path, QuicStreamID sid, td::BufferSlice data) {
@@ -337,31 +352,24 @@ void QuicSender::after_out_query_answer(AdnlPath path, QuicStreamID sid, td::Buf
   conn->responses[sid].set_result(std::move(data));
 }
 
-void QuicSender::after_in_init(AdnlPath path, td::IPAddress peer, QuicStreamID sid) {
-  td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_ready>();
-  auto server = inbound_[path.second].get();
-  td::actor::send_closure(server, &QuicServer::send_stream_data, peer, sid, std::move(wire_data));
-  td::actor::send_closure(server, &QuicServer::send_stream_end, peer, sid);
-}
-
-void QuicSender::after_in_query(AdnlPath path, td::IPAddress peer, QuicStreamID sid, td::BufferSlice data) {
+void QuicSender::after_in_query(AdnlPath path, QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data) {
   td::actor::send_closure(
       adnl_, &adnl::AdnlPeerTable::deliver_query, path.first, path.second, std::move(data),
-      [self = actor_id(this), peer, sid, local_id = path.second](td::Result<td::BufferSlice> R) {
+      [self = actor_id(this), cid, sid, local_id = path.second](td::Result<td::BufferSlice> R) {
         if (R.is_error()) {
           LOG(ERROR) << R.move_as_error_prefix("adnl failed to deliver query, not sending any answer: ");
           return;
         }
-        td::actor::send_closure(self, &QuicSender::after_in_query_answer, local_id, peer, sid, R.move_as_ok());
+        td::actor::send_closure(self, &QuicSender::after_in_query_answer, local_id, cid, sid, R.move_as_ok());
       });
 }
 
-void QuicSender::after_in_query_answer(adnl::AdnlNodeIdShort local_id, td::IPAddress peer, QuicStreamID sid,
+void QuicSender::after_in_query_answer(adnl::AdnlNodeIdShort local_id, QuicConnectionId cid, QuicStreamID sid,
                                        td::BufferSlice data) {
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_answer>(std::move(data));
   auto server = inbound_[local_id].get();
-  td::actor::send_closure(server, &QuicServer::send_stream_data, peer, sid, std::move(wire_data));
-  td::actor::send_closure(server, &QuicServer::send_stream_end, peer, sid);
+  td::actor::send_closure(server, &QuicServer::send_stream_data, cid, sid, std::move(wire_data));
+  td::actor::send_closure(server, &QuicServer::send_stream_end, cid, sid);
 }
 
 void QuicSender::after_in_message(AdnlPath path, td::BufferSlice data) {

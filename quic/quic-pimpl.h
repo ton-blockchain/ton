@@ -18,7 +18,6 @@
 #include "td/utils/port/UdpSocketFd.h"
 
 #include "openssl-utils.h"
-#include "quic-client.h"
 #include "quic-common.h"
 
 namespace ton::quic {
@@ -40,6 +39,7 @@ struct QuicConnectionPImpl {
       bool fin = false;
     };
 
+    virtual void set_connection_id(QuicConnectionId cid) = 0;
     virtual td::Status on_handshake_completed(HandshakeCompletedEvent event) = 0;
     virtual void on_stream_data(StreamDataEvent event) = 0;
 
@@ -66,14 +66,6 @@ struct QuicConnectionPImpl {
       const td::Ed25519::PrivateKey& server_key, td::Slice alpn, const ngtcp2_version_cid& vc,
       std::unique_ptr<Callback> callback);
 
-  // RPK (Raw Public Key) - uses Ed25519 keys for identity
-  // Verification happens post-handshake via ssl_get_peer_ed25519_public_key()
-  [[nodiscard]] td::Status init_tls_client_rpk(const td::Ed25519::PrivateKey& client_key, td::Slice alpn);
-  [[nodiscard]] td::Status init_tls_server_rpk(const td::Ed25519::PrivateKey& server_key, td::Slice alpn);
-
-  [[nodiscard]] td::Status init_quic_client();
-  [[nodiscard]] td::Status init_quic_server(const ngtcp2_version_cid& vc);
-
   [[nodiscard]] td::Status produce_egress(UdpMessageBuffer& msg_out);
   [[nodiscard]] td::Status handle_ingress(const UdpMessageBuffer& msg_in);
 
@@ -84,12 +76,10 @@ struct QuicConnectionPImpl {
   [[nodiscard]] bool is_expired() const;
   [[nodiscard]] td::Result<ExpiryAction> handle_expiry();
 
+  [[nodiscard]] QuicConnectionId get_primary_scid() const;
+
   [[nodiscard]] td::Result<QuicStreamID> open_stream();
   [[nodiscard]] td::Status write_stream(UdpMessageBuffer& msg_out, QuicStreamID sid, td::BufferSlice data, bool fin);
-
-  void set_callback(std::unique_ptr<Callback> cb) {
-    callback_ = std::move(cb);
-  }
 
   ~QuicConnectionPImpl() {
     if (ssl_) {
@@ -102,11 +92,8 @@ struct QuicConnectionPImpl {
   td::IPAddress remote_address_;
   std::unique_ptr<Callback> callback_;
 
+  QuicConnectionId primary_scid_;
   std::string alpn_wire_;
-
-  void setup_alpn_wire(td::Slice alpn);
-  [[nodiscard]] td::Status finish_tls_setup(openssl_ptr<SSL, &SSL_free> ssl_ptr,
-                                            openssl_ptr<SSL_CTX, &SSL_CTX_free> ssl_ctx_ptr, bool is_client);
 
   struct OutboundStreamState {
     std::deque<td::BufferSlice> chunks;
@@ -130,6 +117,18 @@ struct QuicConnectionPImpl {
   ngtcp2_crypto_conn_ref conn_ref_{};
 
   std::unordered_map<QuicStreamID, OutboundStreamState> outbound_;
+
+  // RPK (Raw Public Key) - uses Ed25519 keys for identity
+  // Verification happens post-handshake via ssl_get_peer_ed25519_public_key()
+  [[nodiscard]] td::Status init_tls_client_rpk(const td::Ed25519::PrivateKey& client_key, td::Slice alpn);
+  [[nodiscard]] td::Status init_tls_server_rpk(const td::Ed25519::PrivateKey& server_key, td::Slice alpn);
+
+  [[nodiscard]] td::Status init_quic_client();
+  [[nodiscard]] td::Status init_quic_server(const ngtcp2_version_cid& vc);
+
+  void setup_alpn_wire(td::Slice alpn);
+  [[nodiscard]] td::Status finish_tls_setup(openssl_ptr<SSL, &SSL_free> ssl_ptr,
+                                            openssl_ptr<SSL_CTX, &SSL_CTX_free> ssl_ctx_ptr, bool is_client);
 
   static void build_unsent_vecs(std::vector<ngtcp2_vec>& out, OutboundStreamState& st);
 

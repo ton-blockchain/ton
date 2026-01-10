@@ -1,6 +1,7 @@
 #include <cstring>
 
 #include "td/actor/actor.h"
+#include "td/utils/Random.h"
 
 #include "quic-pimpl.h"
 #include "quic-server.h"
@@ -17,6 +18,13 @@ td::Result<ngtcp2_version_cid> decode_version_cid(td::Slice datagram) {
     return td::Status::Error("failed to decode version_cid");
   }
   return vc;
+}
+
+QuicConnectionId raw_to_quic_cid(const uint8_t *data, size_t len) {
+  QuicConnectionId qcid;
+  qcid.datalen = len;
+  std::memcpy(qcid.data, data, len);
+  return qcid;
 }
 
 }  // namespace
@@ -65,9 +73,21 @@ void QuicServer::wake_up() {
   LOG(ERROR) << "unexpected wake_up signal";
 }
 
+QuicServer::ConnectionState *QuicServer::find_connection(const QuicConnectionId &cid) {
+  auto it = connections_.find(cid);
+  if (it != connections_.end()) {
+    return &it->second;
+  }
+  return nullptr;
+}
+
+void QuicServer::remove_connection(const QuicConnectionId &cid) {
+  connections_.erase(cid);
+}
+
 void QuicServer::alarm() {
   for (auto it = connections_.begin(); it != connections_.end();) {
-    auto &peer = it->first;
+    auto &cid = it->first;
     auto &state = it->second;
 
     if (!state.p_impl) {
@@ -86,13 +106,13 @@ void QuicServer::alarm() {
         case QuicConnectionPImpl::ExpiryAction::None:
           break;
         case QuicConnectionPImpl::ExpiryAction::ScheduleWrite:
-          flush_egress_for(peer, state);
+          flush_egress_for(cid, state);
           break;
         case QuicConnectionPImpl::ExpiryAction::IdleClose:
           it = connections_.erase(it);
           continue;
         case QuicConnectionPImpl::ExpiryAction::Close:
-          flush_egress_for(peer, state);
+          flush_egress_for(cid, state);
           it = connections_.erase(it);
           continue;
       }
@@ -118,48 +138,89 @@ void QuicServer::on_fd_notify() {
   update_alarm();
 }
 
-td::Result<QuicServer::ConnectionState *> QuicServer::get_or_create_connection(const UdpMessageBuffer &msg_in) {
-  auto it = connections_.find(msg_in.address);
-  if (it != connections_.end()) {
-    return &it->second;
+class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
+ public:
+  explicit PImplCallback(QuicServer &server) : server_(server) {
   }
 
+  void set_connection_id(QuicConnectionId cid) override {
+    cid_ = cid;
+  }
+
+  td::Status on_handshake_completed(HandshakeCompletedEvent event) override {
+    if (server_.callback_) {
+      return server_.callback_->on_connected(cid_, std::move(event.peer_public_key));
+    }
+    return td::Status::OK();
+  }
+
+  void on_stream_data(StreamDataEvent event) override {
+    if (server_.callback_) {
+      server_.callback_->on_stream_data(cid_, event.sid, std::move(event.data));
+      if (event.fin) {
+        server_.callback_->on_stream_end(cid_, event.sid);
+      }
+    }
+  }
+
+ private:
+  QuicServer &server_;
+  QuicConnectionId cid_;
+};
+
+td::Result<std::map<QuicConnectionId, QuicServer::ConnectionState>::iterator> QuicServer::get_or_create_connection(
+    const UdpMessageBuffer &msg_in) {
   TRY_RESULT(vc, decode_version_cid(td::Slice(msg_in.storage)));
+  QuicConnectionId dcid = raw_to_quic_cid(vc.dcid, vc.dcidlen);
+
+  auto it = connections_.find(dcid);
+  if (it != connections_.end()) {
+    return it;
+  }
+
   TRY_RESULT(local_address, fd_.get_local_address());
 
-  class PImplCallback final : public QuicConnectionPImpl::Callback {
-   public:
-    PImplCallback(QuicServer &server, td::IPAddress peer) : server_(server), peer_(peer) {
-    }
+  TRY_RESULT(p_impl, QuicConnectionPImpl::create_server(local_address, msg_in.address, server_key_, alpn_.as_slice(),
+                                                        vc, std::make_unique<PImplCallback>(*this)));
 
-    td::Status on_handshake_completed(HandshakeCompletedEvent event) override {
-      if (server_.callback_) {
-        server_.callback_->on_connected(peer_, std::move(event.peer_public_key));
-      }
-      return td::Status::OK();
-    }
+  QuicConnectionId cid = p_impl->get_primary_scid();
 
-    void on_stream_data(StreamDataEvent event) override {
-      if (server_.callback_) {
-        server_.callback_->on_stream_data(peer_, event.sid, std::move(event.data));
-        if (event.fin) {
-          server_.callback_->on_stream_end(peer_, event.sid);
-        }
-      }
-    }
-
-   private:
-    QuicServer &server_;
-    td::IPAddress peer_;
-  };
+  LOG(INFO) << "creating new inbound connection from " << msg_in.address << " cid=" << cid;
 
   ConnectionState state;
-  TRY_RESULT_ASSIGN(state.p_impl,
-                    QuicConnectionPImpl::create_server(local_address, msg_in.address, server_key_, alpn_.as_slice(), vc,
-                                                       std::make_unique<PImplCallback>(*this, msg_in.address)));
+  state.p_impl = std::move(p_impl);
+  state.remote_address = msg_in.address;
+  state.is_outbound = false;
 
-  auto ins = connections_.emplace(msg_in.address, std::move(state));
-  return &ins.first->second;
+  auto ins = connections_.emplace(cid, std::move(state));
+  return ins.first;
+}
+
+td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key,
+                                                 td::Slice alpn) {
+  td::IPAddress remote_address;
+  std::string host_str(host.begin(), host.end());
+  TRY_STATUS(remote_address.init_host_port(td::CSlice(host_str.c_str()), port));
+
+  TRY_RESULT(local_address, fd_.get_local_address());
+
+  TRY_RESULT(p_impl, QuicConnectionPImpl::create_client(local_address, remote_address, std::move(client_key), alpn,
+                                                        std::make_unique<PImplCallback>(*this)));
+  QuicConnectionId cid = p_impl->get_primary_scid();
+
+  LOG(INFO) << "creating outbound connection to " << remote_address << " cid=" << cid;
+
+  ConnectionState state;
+  state.p_impl = std::move(p_impl);
+  state.remote_address = remote_address;
+  state.is_outbound = true;
+
+  auto [it, inserted] = connections_.emplace(cid, std::move(state));
+
+  flush_egress_for(cid, it->second);
+  update_alarm();
+
+  return QuicConnectionId(cid);
 }
 
 void QuicServer::drain_ingress() {
@@ -182,15 +243,18 @@ void QuicServer::drain_ingress() {
       LOG(WARNING) << "dropping inbound packet from " << msg_in.address << ": " << R.error();
       return td::Status::OK();
     }
-    auto *state = R.ok();
+    auto it = R.ok();
+    auto &cid = it->first;
+    auto &state = it->second;
 
-    if (auto status = state->p_impl->handle_ingress(msg_in); status.is_error()) {
-      LOG(WARNING) << "failed to handle ingress from " << msg_in.address << ": " << status;
-      connections_.erase(msg_in.address);
+    if (auto status = state.p_impl->handle_ingress(msg_in); status.is_error()) {
+      LOG(WARNING) << "failed to handle ingress from " << state.remote_address << " cid=" << cid << " ("
+                   << (state.is_outbound ? "outbound" : "inbound") << "): " << status;
+      remove_connection(cid);
       return td::Status::OK();
     }
 
-    flush_egress_for(msg_in.address, *state);
+    flush_egress_for(cid, state);
     return td::Status::OK();
   };
 
@@ -202,7 +266,7 @@ void QuicServer::drain_ingress() {
   }
 }
 
-void QuicServer::flush_egress_for(const td::IPAddress &peer, ConnectionState &state, EgressData data) {
+void QuicServer::flush_egress_for(QuicConnectionId cid, ConnectionState &state, EgressData data) {
   if (!state.p_impl) {
     return;
   }
@@ -229,7 +293,7 @@ void QuicServer::flush_egress_for(const td::IPAddress &peer, ConnectionState &st
     };
 
     if (auto status = cycle(); status.is_error()) {
-      LOG(WARNING) << "failed to send stream data to " << peer << ": " << status;
+      LOG(WARNING) << "failed to send stream data: " << status;
       return;
     }
   }
@@ -256,7 +320,7 @@ void QuicServer::flush_egress_for(const td::IPAddress &peer, ConnectionState &st
 
   while (run) {
     if (auto status = cycle(); status.is_error()) {
-      LOG(WARNING) << "failed to flush egress to " << peer << ": " << status;
+      LOG(WARNING) << "failed to flush egress: " << status;
       break;
     }
   }
@@ -278,25 +342,33 @@ void QuicServer::update_alarm() {
   alarm_timestamp() = alarm_ts;
 }
 
-void QuicServer::send_stream_data(const td::IPAddress &peer, QuicStreamID sid, td::BufferSlice data) {
-  auto it = connections_.find(peer);
-  if (it == connections_.end()) {
-    LOG(WARNING) << "send_stream_data to unknown peer " << peer;
+void QuicServer::send_stream_data(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data) {
+  auto *state = find_connection(cid);
+  if (!state) {
+    LOG(WARNING) << "send_stream_data to unknown connection cid=" << cid;
     return;
   }
-  flush_egress_for(peer, it->second,
+  flush_egress_for(cid, *state,
                    {.stream_data = EgressData::StreamData{.sid = sid, .data = std::move(data), .fin = false}});
   update_alarm();
 }
 
-void QuicServer::send_stream_end(const td::IPAddress &peer, QuicStreamID sid) {
-  auto it = connections_.find(peer);
-  if (it == connections_.end()) {
-    LOG(WARNING) << "send_stream_end to unknown peer " << peer;
+void QuicServer::send_stream_end(QuicConnectionId cid, QuicStreamID sid) {
+  auto *state = find_connection(cid);
+  if (!state) {
+    LOG(WARNING) << "send_stream_end to unknown connection cid=" << cid;
     return;
   }
-  flush_egress_for(peer, it->second, {.stream_data = EgressData::StreamData{.sid = sid, .data = {}, .fin = true}});
+  flush_egress_for(cid, *state, {.stream_data = EgressData::StreamData{.sid = sid, .data = {}, .fin = true}});
   update_alarm();
+}
+
+td::Result<QuicStreamID> QuicServer::open_stream(QuicConnectionId cid) {
+  auto *state = find_connection(cid);
+  if (!state || !state->p_impl) {
+    return td::Status::Error("Connection not found");
+  }
+  return state->p_impl->open_stream();
 }
 
 }  // namespace ton::quic

@@ -1167,9 +1167,6 @@ proxyLiteserver.config port:int id:PublicKey = proxyLiteserver.Config;
 ---functions---
 
 ---types---
-quic.init local_id:adnl.id.short peer_id:adnl.id.short = quic.Request;
-quic.ready = quic.Response;
-
 quic.message data:bytes = quic.Request;
 quic.query data:bytes = quic.Request;
 quic.answer data:bytes = quic.Response;

@@ -19,25 +19,25 @@ class QuicHttpServer : public td::actor::Actor {
     explicit ServerCallback(td::actor::ActorId<QuicHttpServer> server) : server_(std::move(server)) {
     }
 
-    void on_connected(const td::IPAddress &peer, td::SecureString public_key) override {
-      td::actor::send_closure(server_, &QuicHttpServer::on_connected, peer);
+    td::Status on_connected(ton::quic::QuicConnectionId cid, td::SecureString public_key) override {
+      td::actor::send_closure(server_, &QuicHttpServer::on_connected, cid, std::move(public_key));
+      return td::Status::OK();
     }
 
-    void on_stream_data(const td::IPAddress &peer, ton::quic::QuicStreamID sid, td::BufferSlice data) override {
-      td::actor::send_closure(server_, &QuicHttpServer::on_stream_data, peer, std::move(data));
+    void on_stream_data(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid, td::BufferSlice data) override {
+      td::actor::send_closure(server_, &QuicHttpServer::on_stream_data, cid, sid, std::move(data));
     }
 
-    void on_stream_end(const td::IPAddress &peer, ton::quic::QuicStreamID sid) override {
-      td::actor::send_closure(server_, &QuicHttpServer::on_stream_end, peer);
+    void on_stream_end(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid) override {
+      td::actor::send_closure(server_, &QuicHttpServer::on_stream_end, cid, sid);
     }
 
    private:
     td::actor::ActorId<QuicHttpServer> server_;
   };
 
-  QuicHttpServer(int port, td::Ed25519::PrivateKey server_key, td::Slice alpn, ton::quic::QuicStreamID sid,
-                 td::Slice bind_host)
-      : port_(port), sid_(sid), server_key_(std::move(server_key)), alpn_(alpn), bind_host_(bind_host) {
+  QuicHttpServer(int port, td::Ed25519::PrivateKey server_key, td::Slice alpn, td::Slice bind_host)
+      : port_(port), server_key_(std::move(server_key)), alpn_(alpn), bind_host_(bind_host) {
   }
 
   void start_up() override {
@@ -62,22 +62,26 @@ class QuicHttpServer : public td::actor::Actor {
   }
 
  private:
-  void on_connected(const td::IPAddress &peer) {
-    LOG(INFO) << "connected: " << peer;
+  void on_connected(ton::quic::QuicConnectionId cid, td::SecureString public_key) {
+    auto public_key_b64 = td::base64_encode(public_key.as_slice());
+    LOG(INFO) << "connected: CID, peer public key: " << public_key_b64;
   }
 
-  void on_stream_data(const td::IPAddress &peer, td::BufferSlice data) {
-    auto &buf = request_buf_[peer];
+  void on_stream_data(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid, td::BufferSlice data) {
+    auto &buf = request_buf_[cid][sid];
     auto s = data.as_slice();
     buf.append(s.data(), s.size());
   }
 
-  void on_stream_end(const td::IPAddress &peer) {
-    auto it = request_buf_.find(peer);
+  void on_stream_end(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid) {
+    auto it = request_buf_.find(cid);
     std::string req;
     if (it != request_buf_.end()) {
-      req = std::move(it->second);
-      request_buf_.erase(it);
+      auto stream_it = it->second.find(sid);
+      if (stream_it != it->second.end()) {
+        req = std::move(stream_it->second);
+        it->second.erase(stream_it);
+      }
     }
 
     std::string first_line;
@@ -97,7 +101,6 @@ class QuicHttpServer : public td::actor::Actor {
     }
 
     std::string body = PSTRING() << "Hello from quic-example-server\n"
-                                 << "Peer: " << peer << "\n"
                                  << "Request: " << first_line << "\n";
 
     std::string resp = PSTRING() << "HTTP/1.1 200 OK\r\n"
@@ -110,10 +113,9 @@ class QuicHttpServer : public td::actor::Actor {
     responses_.push_back(std::move(resp));
     const auto &stored = responses_.back();
 
-    LOG(INFO) << "request finished from " << peer << ", replying on stream " << sid_;
-    td::actor::send_closure(server_.get(), &ton::quic::QuicServer::send_stream_data, peer, sid_,
-                            td::BufferSlice(stored));
-    td::actor::send_closure(server_.get(), &ton::quic::QuicServer::send_stream_end, peer, sid_);
+    LOG(INFO) << "request finished, replying on stream " << sid;
+    td::actor::send_closure(server_.get(), &ton::quic::QuicServer::send_stream_data, cid, sid, td::BufferSlice(stored));
+    td::actor::send_closure(server_.get(), &ton::quic::QuicServer::send_stream_end, cid, sid);
 
     while (responses_.size() > 1024) {
       responses_.pop_front();
@@ -121,14 +123,13 @@ class QuicHttpServer : public td::actor::Actor {
   }
 
   int port_;
-  ton::quic::QuicStreamID sid_;
   td::Ed25519::PrivateKey server_key_;
   td::BufferSlice alpn_;
   td::BufferSlice bind_host_;
 
   td::actor::ActorOwn<ton::quic::QuicServer> server_;
 
-  std::map<td::IPAddress, std::string> request_buf_;
+  std::map<ton::quic::QuicConnectionId, std::map<ton::quic::QuicStreamID, std::string>> request_buf_;
 
   std::deque<std::string> responses_;
 };
@@ -139,7 +140,6 @@ int main(int argc, char **argv) {
   std::optional<td::BufferSlice> alpn;
   std::optional<td::BufferSlice> bind_host;
   std::optional<int> port;
-  std::optional<ton::quic::QuicStreamID> sid;
 
   td::OptionParser p;
   p.set_description("HTTP/1.1-over-QUIC demo server (hq-interop) using RPK");
@@ -149,12 +149,6 @@ int main(int argc, char **argv) {
     TRY_RESULT_ASSIGN(port, td::to_integer_safe<int>(arg));
     return td::Status::OK();
   });
-  p.add_checked_option('s', "sid", "stream id to reply on (default: 0)", [&](td::Slice arg) {
-    int64_t v;
-    TRY_RESULT_ASSIGN(v, td::to_integer_safe<int64_t>(arg));
-    sid = v;
-    return td::Status::OK();
-  });
   p.run(argc, argv).ensure();
 
   if (!alpn.has_value()) {
@@ -162,9 +156,6 @@ int main(int argc, char **argv) {
   }
   if (!bind_host.has_value()) {
     bind_host = td::BufferSlice("0.0.0.0");
-  }
-  if (!sid.has_value()) {
-    sid = 0;
   }
   if (!port.has_value()) {
     LOG(ERROR) << "no --port provided";
@@ -182,7 +173,7 @@ int main(int argc, char **argv) {
   scheduler.run_in_context([&] {
     server = td::actor::create_actor<QuicHttpServer>(
         PSTRING() << "quic-http-server@" << bind_host.value().as_slice() << ':' << port.value(), port.value(),
-        server_key_r.move_as_ok(), alpn.value().as_slice(), sid.value(), bind_host.value().as_slice());
+        server_key_r.move_as_ok(), alpn.value().as_slice(), bind_host.value().as_slice());
   });
   scheduler.run();
 }

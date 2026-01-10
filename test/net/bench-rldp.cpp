@@ -73,6 +73,7 @@ struct Config {
   td::uint32 num_queries = 100;
   td::uint32 max_inflight = 0;  // 0 = unlimited
   double timeout = 60.0;
+  double test_timeout = 5.0;  // Global test timeout
 
   // Network mode options
   td::IPAddress local_addr;
@@ -137,13 +138,23 @@ class BenchmarkRunner : public td::actor::Actor {
 
   void start_up() override {
     alarm_timestamp() = td::Timestamp::in(0.5);
+    test_timeout_at_ = td::Timestamp::in(config_.test_timeout);
   }
 
   void alarm() override {
+    if (test_timeout_at_.is_in_past()) {
+      LOG(ERROR) << "Test timeout reached after " << config_.test_timeout << "s";
+      LOG(ERROR) << "Sent: " << sent_ << ", Received: " << received_ << ", Errors: " << errors_
+                 << ", Inflight: " << inflight_;
+      std::_Exit(1);
+    }
+
     if (start_time_ == 0) {
       start_time_ = td::Clocks::system();
     }
     send_queries();
+
+    alarm_timestamp() = td::Timestamp::in(0.1);
   }
 
  private:
@@ -157,6 +168,7 @@ class BenchmarkRunner : public td::actor::Actor {
   td::uint32 received_ = 0;
   td::uint32 errors_ = 0;
   td::uint32 inflight_ = 0;
+  td::Timestamp test_timeout_at_;
 
   std::vector<double> query_start_times_;
   std::vector<double> latencies_;
@@ -567,6 +579,8 @@ int main(int argc, char* argv[]) {
   });
   p.add_option('\0', "timeout", "query timeout in seconds (default: 60)",
                [&](td::Slice arg) { config.timeout = td::to_double(arg); });
+  p.add_option('\0', "test-timeout", "global test timeout in seconds (default: 5)",
+               [&](td::Slice arg) { config.test_timeout = td::to_double(arg); });
   p.add_checked_option('\0', "server", "run as server", [&]() {
     config.mode = Mode::server;
     return td::Status::OK();

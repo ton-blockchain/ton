@@ -51,6 +51,13 @@ static td::Result<ngtcp2_cid> make_cid(const uint8_t* data, size_t len) {
   return cid;
 }
 
+static QuicConnectionId ngtcp2_cid_to_quic_cid(const ngtcp2_cid& cid) {
+  QuicConnectionId qcid;
+  qcid.datalen = cid.datalen;
+  std::memcpy(qcid.data, cid.data, cid.datalen);
+  return qcid;
+}
+
 td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_client(
     const td::IPAddress& local_address, const td::IPAddress& remote_address, const td::Ed25519::PrivateKey& client_key,
     td::Slice alpn, std::unique_ptr<Callback> callback) {
@@ -58,6 +65,8 @@ td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_cli
 
   TRY_STATUS(p_impl->init_tls_client_rpk(client_key, alpn));
   TRY_STATUS(p_impl->init_quic_client());
+
+  p_impl->callback_->set_connection_id(p_impl->get_primary_scid());
 
   return std::move(p_impl);
 }
@@ -69,6 +78,8 @@ td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_ser
 
   TRY_STATUS(p_impl->init_tls_server_rpk(server_key, alpn));
   TRY_STATUS(p_impl->init_quic_server(vc));
+
+  p_impl->callback_->set_connection_id(p_impl->get_primary_scid());
 
   return std::move(p_impl);
 }
@@ -216,6 +227,8 @@ td::Status QuicConnectionPImpl::init_quic_client() {
   }
   conn_.reset(conn);
 
+  primary_scid_ = ngtcp2_cid_to_quic_cid(scid);
+
   ngtcp2_conn_set_tls_native_handle(conn_.get(), ossl_ctx_.get());
 
   return td::Status::OK();
@@ -254,6 +267,9 @@ td::Status QuicConnectionPImpl::init_quic_server(const ngtcp2_version_cid& vc) {
     return td::Status::Error(PSTRING() << "ngtcp2_conn_server_new failed: " << rv);
   }
   conn_.reset(conn);
+
+  primary_scid_ = ngtcp2_cid_to_quic_cid(server_scid);
+
   ngtcp2_conn_set_tls_native_handle(conn_.get(), ossl_ctx_.get());
   return td::Status::OK();
 }
@@ -409,10 +425,18 @@ td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in) {
   int rv = ngtcp2_conn_read_pkt(conn_.get(), &path, &pi, reinterpret_cast<uint8_t*>(msg_in.storage.data()),
                                 msg_in.storage.size(), now_ts());
 
-  if (rv != 0)
-    return td::Status::Error(PSTRING() << "ngtcp2_conn_read_pkt failed: " << rv);
+  if (rv != 0) {
+    if (rv == NGTCP2_ERR_DROP_CONN || ngtcp2_err_is_fatal(rv)) {
+      return td::Status::Error(PSTRING() << "ngtcp2_conn_read_pkt failed: " << rv);
+    }
+    return td::Status::OK();
+  }
 
   return td::Status::OK();
+}
+
+QuicConnectionId QuicConnectionPImpl::get_primary_scid() const {
+  return primary_scid_;
 }
 
 td::Result<QuicStreamID> QuicConnectionPImpl::open_stream() {

@@ -6,7 +6,6 @@
 #include "td/actor/coro_task.h"
 
 #include "openssl-utils.h"
-#include "quic-client.h"
 #include "quic-server.h"
 
 namespace ton::quic {
@@ -31,7 +30,8 @@ class QuicSender : public adnl::AdnlSenderInterface {
  private:
   struct OutboundConnection {
     bool ready_received = false;
-    td::actor::ActorOwn<QuicClient> client{};
+    QuicConnectionId cid{};
+    adnl::AdnlNodeIdShort local_id{};
     td::Promise<OutboundConnection*> ready = td::make_promise([](td::Result<OutboundConnection*>) {});
     std::unordered_map<QuicStreamID, td::Promise<td::BufferSlice>> responses{};
   };
@@ -41,15 +41,19 @@ class QuicSender : public adnl::AdnlSenderInterface {
   void find_out_connection(AdnlPath path, td::Promise<OutboundConnection*> P);
   void create_connection(AdnlPath path, td::Promise<OutboundConnection*> P);
 
-  void after_out_connection_created(AdnlPath path);
-  void after_out_connection_ready(AdnlPath path);
+  void after_out_connection_established(AdnlPath path, QuicConnectionId cid);
+  void after_connection_ready(QuicConnectionId cid);
+  void after_out_connection_failed(AdnlPath path, td::Status error);
   void after_out_query_stream_obtained(OutboundConnection* conn, td::BufferSlice query_data,
                                        td::Promise<td::BufferSlice> answer_promise, td::Result<QuicStreamID> sid_res);
   void after_out_query_answer(AdnlPath path, QuicStreamID sid, td::BufferSlice data);
+  void send_message_on_connection(adnl::AdnlNodeIdShort local_id, QuicConnectionId cid, td::BufferSlice data,
+                                  adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst);
+  void send_query_on_connection(adnl::AdnlNodeIdShort local_id, QuicConnectionId cid, OutboundConnection* conn,
+                                td::BufferSlice data, td::Promise<td::BufferSlice> promise);
 
-  void after_in_init(AdnlPath path, td::IPAddress peer, QuicStreamID sid);
-  void after_in_query(AdnlPath path, td::IPAddress peer, QuicStreamID sid, td::BufferSlice data);
-  void after_in_query_answer(adnl::AdnlNodeIdShort local_id, td::IPAddress peer, QuicStreamID sid,
+  void after_in_query(AdnlPath path, QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data);
+  void after_in_query_answer(adnl::AdnlNodeIdShort local_id, QuicConnectionId cid, QuicStreamID sid,
                              td::BufferSlice data);
   void after_in_message(AdnlPath path, td::BufferSlice data);
 
@@ -58,6 +62,7 @@ class QuicSender : public adnl::AdnlSenderInterface {
 
   std::map<AdnlPath, OutboundConnection> outbound_;
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<QuicServer>> inbound_;
-  std::map<adnl::AdnlNodeIdShort, td::SecureString> local_keys_;  // Cached raw Ed25519 keys
+  std::map<adnl::AdnlNodeIdShort, td::SecureString> local_keys_;         // Cached raw Ed25519 keys
+  std::unordered_map<QuicConnectionId, AdnlPath> cid_to_outbound_path_;  // Maps outbound CIDs to paths
 };
 }  // namespace ton::quic
