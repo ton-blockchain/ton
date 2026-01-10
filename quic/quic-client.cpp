@@ -18,7 +18,8 @@ td::Result<td::actor::ActorOwn<QuicClient>> QuicClient::connect(td::Slice host, 
   TRY_RESULT(fd, td::UdpSocketFd::open(local_addr));
   TRY_RESULT(actual_local_address, fd.get_local_address());
 
-  TRY_RESULT(p_impl, QuicConnectionPImpl::create_client(actual_local_address, remote_address, client_key, alpn));
+  TRY_RESULT(p_impl,
+             QuicConnectionPImpl::create_client(actual_local_address, remote_address, client_key, alpn, nullptr));
 
   auto name = PSTRING() << "QUIC:" << actual_local_address << ">[" << host << ':' << port << ']';
   return td::actor::create_actor<QuicClient>(td::actor::ActorOptions().with_name(name).with_poll(true), std::move(fd),
@@ -229,7 +230,7 @@ QuicClient::QuicClient(td::UdpSocketFd fd, std::unique_ptr<QuicConnectionPImpl> 
    private:
     QuicClient& connection_;
   };
-  p_impl_->callback = std::make_unique<PImplCallback>(*this);
+  p_impl_->set_callback(std::make_unique<PImplCallback>(*this));
 }
 
 }  // namespace ton::quic

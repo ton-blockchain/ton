@@ -50,18 +50,21 @@ struct QuicConnectionPImpl {
   constexpr static size_t CID_LENGTH = 16;
   constexpr static size_t DEFAULT_STREAM_LIMIT = 1ULL << 60ULL;
 
-  td::IPAddress local_address = {};
-  td::IPAddress remote_address = {};
+  struct PrivateTag {};
 
-  std::unique_ptr<Callback> callback = nullptr;
+  QuicConnectionPImpl(PrivateTag, const td::IPAddress& local_address, const td::IPAddress& remote_address,
+                      std::unique_ptr<Callback> callback)
+      : local_address_(local_address), remote_address_(remote_address), callback_(std::move(callback)) {
+  }
 
   [[nodiscard]] static td::Result<std::unique_ptr<QuicConnectionPImpl>> create_client(
       const td::IPAddress& local_address, const td::IPAddress& remote_address,
-      const td::Ed25519::PrivateKey& client_key, td::Slice alpn);
+      const td::Ed25519::PrivateKey& client_key, td::Slice alpn, std::unique_ptr<Callback> callback);
 
   [[nodiscard]] static td::Result<std::unique_ptr<QuicConnectionPImpl>> create_server(
       const td::IPAddress& local_address, const td::IPAddress& remote_address,
-      const td::Ed25519::PrivateKey& server_key, td::Slice alpn, const ngtcp2_version_cid& vc);
+      const td::Ed25519::PrivateKey& server_key, td::Slice alpn, const ngtcp2_version_cid& vc,
+      std::unique_ptr<Callback> callback);
 
   // RPK (Raw Public Key) - uses Ed25519 keys for identity
   // Verification happens post-handshake via ssl_get_peer_ed25519_public_key()
@@ -84,6 +87,10 @@ struct QuicConnectionPImpl {
   [[nodiscard]] td::Result<QuicStreamID> open_stream();
   [[nodiscard]] td::Status write_stream(UdpMessageBuffer& msg_out, QuicStreamID sid, td::BufferSlice data, bool fin);
 
+  void set_callback(std::unique_ptr<Callback> cb) {
+    callback_ = std::move(cb);
+  }
+
   ~QuicConnectionPImpl() {
     if (ssl_) {
       SSL_set_app_data(ssl_.get(), nullptr);
@@ -91,6 +98,10 @@ struct QuicConnectionPImpl {
   }
 
  private:
+  td::IPAddress local_address_;
+  td::IPAddress remote_address_;
+  std::unique_ptr<Callback> callback_;
+
   std::string alpn_wire_;
 
   void setup_alpn_wire(td::Slice alpn);

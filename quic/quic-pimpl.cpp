@@ -52,10 +52,8 @@ static td::Result<ngtcp2_cid> make_cid(const uint8_t* data, size_t len) {
 
 td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_client(
     const td::IPAddress& local_address, const td::IPAddress& remote_address, const td::Ed25519::PrivateKey& client_key,
-    td::Slice alpn) {
-  auto p_impl = std::make_unique<QuicConnectionPImpl>();
-  p_impl->local_address = local_address;
-  p_impl->remote_address = remote_address;
+    td::Slice alpn, std::unique_ptr<Callback> callback) {
+  auto p_impl = std::make_unique<QuicConnectionPImpl>(PrivateTag{}, local_address, remote_address, std::move(callback));
 
   TRY_STATUS(p_impl->init_tls_client_rpk(client_key, alpn));
   TRY_STATUS(p_impl->init_quic_client());
@@ -65,10 +63,8 @@ td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_cli
 
 td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_server(
     const td::IPAddress& local_address, const td::IPAddress& remote_address, const td::Ed25519::PrivateKey& server_key,
-    td::Slice alpn, const ngtcp2_version_cid& vc) {
-  auto p_impl = std::make_unique<QuicConnectionPImpl>();
-  p_impl->local_address = local_address;
-  p_impl->remote_address = remote_address;
+    td::Slice alpn, const ngtcp2_version_cid& vc, std::unique_ptr<Callback> callback) {
+  auto p_impl = std::make_unique<QuicConnectionPImpl>(PrivateTag{}, local_address, remote_address, std::move(callback));
 
   TRY_STATUS(p_impl->init_tls_server_rpk(server_key, alpn));
   TRY_STATUS(p_impl->init_quic_server(vc));
@@ -317,10 +313,10 @@ void QuicConnectionPImpl::build_unsent_vecs(std::vector<ngtcp2_vec>& out, Outbou
 
 ngtcp2_path QuicConnectionPImpl::make_path() const {
   ngtcp2_path path{};
-  path.local.addr = const_cast<ngtcp2_sockaddr*>(local_address.get_sockaddr());
-  path.local.addrlen = static_cast<ngtcp2_socklen>(local_address.get_sockaddr_len());
-  path.remote.addr = const_cast<ngtcp2_sockaddr*>(remote_address.get_sockaddr());
-  path.remote.addrlen = static_cast<ngtcp2_socklen>(remote_address.get_sockaddr_len());
+  path.local.addr = const_cast<ngtcp2_sockaddr*>(local_address_.get_sockaddr());
+  path.local.addrlen = static_cast<ngtcp2_socklen>(local_address_.get_sockaddr_len());
+  path.remote.addr = const_cast<ngtcp2_sockaddr*>(remote_address_.get_sockaddr());
+  path.remote.addrlen = static_cast<ngtcp2_socklen>(remote_address_.get_sockaddr_len());
   return path;
 }
 
@@ -389,7 +385,7 @@ td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer& msg_out, Quic
   }
 
   msg_out.storage = msg_out.storage.substr(0, n_write);
-  msg_out.address = remote_address;
+  msg_out.address = remote_address_;
 
   return td::Status::OK();
 }
@@ -515,7 +511,7 @@ int QuicConnectionPImpl::handshake_completed_cb(ngtcp2_conn* conn, void* user_da
     }
   }
 
-  if (auto status = pimpl->callback->on_handshake_completed(std::move(event)); status.is_error()) {
+  if (auto status = pimpl->callback_->on_handshake_completed(std::move(event)); status.is_error()) {
     LOG(WARNING) << "handshake rejected: " << status;
     //FIXME: we should actually close connection
     return NGTCP2_ERR_CALLBACK_FAILURE;
@@ -531,7 +527,7 @@ int QuicConnectionPImpl::recv_stream_data_cb(ngtcp2_conn* conn, uint32_t flags, 
   Callback::StreamDataEvent event{
       .sid = stream_id, .data = td::BufferSlice{data_slice}, .fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0};
   auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
-  pimpl->callback->on_stream_data(std::move(event));
+  pimpl->callback_->on_stream_data(std::move(event));
 
   ngtcp2_conn_extend_max_stream_offset(conn, stream_id, datalen);
   ngtcp2_conn_extend_max_offset(conn, datalen);
