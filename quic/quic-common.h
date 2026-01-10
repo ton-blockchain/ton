@@ -14,7 +14,7 @@ using QuicStreamID = int64_t;
 constexpr size_t QUIC_MAX_CIDLEN = 20;
 
 struct QuicConnectionId {
-  size_t datalen;
+  size_t datalen{};
   uint8_t data[QUIC_MAX_CIDLEN];
 
   std::strong_ordering operator<=>(const QuicConnectionId& other) const {

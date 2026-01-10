@@ -53,8 +53,11 @@ struct QuicConnectionPImpl {
   struct PrivateTag {};
 
   QuicConnectionPImpl(PrivateTag, const td::IPAddress& local_address, const td::IPAddress& remote_address,
-                      std::unique_ptr<Callback> callback)
-      : local_address_(local_address), remote_address_(remote_address), callback_(std::move(callback)) {
+                      bool is_server, std::unique_ptr<Callback> callback)
+      : local_address_(local_address)
+      , remote_address_(remote_address)
+      , is_server_(is_server)
+      , callback_(std::move(callback)) {
   }
 
   [[nodiscard]] static td::Result<std::unique_ptr<QuicConnectionPImpl>> create_client(
@@ -90,24 +93,22 @@ struct QuicConnectionPImpl {
  private:
   td::IPAddress local_address_;
   td::IPAddress remote_address_;
+  bool is_server_{};
   std::unique_ptr<Callback> callback_;
 
-  QuicConnectionId primary_scid_;
+  QuicConnectionId primary_scid_{};
   std::string alpn_wire_;
 
   struct OutboundStreamState {
-    std::deque<td::BufferSlice> chunks;
-    uint64_t queued_bytes = 0;
-    uint64_t submitted_unacked = 0;
-    uint64_t acked_prefix = 0;
+    td::ChainBufferWriter writer_;
+    td::ChainBufferReader reader_{writer_.extract_reader()};
+    td::ChainBufferReader pin_{reader_.clone()};
+
+    uint64_t acked_prefix{};
 
     bool fin_pending = false;
     bool fin_submitted = false;
     bool fin_acked = false;
-
-    uint64_t unsent_bytes() const;
-
-    void consume_acked_prefix(uint64_t n);
   };
 
   openssl_ptr<SSL_CTX, &SSL_CTX_free> ssl_ctx_;
@@ -116,7 +117,7 @@ struct QuicConnectionPImpl {
   openssl_ptr<ngtcp2_conn, &ngtcp2_conn_del> conn_;
   ngtcp2_crypto_conn_ref conn_ref_{};
 
-  std::unordered_map<QuicStreamID, OutboundStreamState> outbound_;
+  std::unordered_map<QuicStreamID, OutboundStreamState> streams_;
 
   // RPK (Raw Public Key) - uses Ed25519 keys for identity
   // Verification happens post-handshake via ssl_get_peer_ed25519_public_key()
