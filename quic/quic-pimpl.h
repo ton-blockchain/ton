@@ -143,6 +143,11 @@ struct QuicConnectionPImpl {
 
   static void setup_ngtcp2_callbacks(ngtcp2_callbacks& callbacks, bool is_client);
 
+  int on_handshake_completed();
+  int on_recv_stream_data(uint32_t flags, int64_t stream_id, td::Slice data);
+  int on_acked_stream_data_offset(int64_t stream_id, uint64_t offset, uint64_t datalen);
+  int on_stream_close(int64_t stream_id);
+
   static void rand_cb(uint8_t* dest, size_t destlen, const ngtcp2_rand_ctx* rand_ctx);
   static int get_new_connection_id_cb(ngtcp2_conn* conn, ngtcp2_cid* cid, uint8_t* token, size_t cidlen,
                                       void* user_data);

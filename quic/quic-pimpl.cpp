@@ -34,9 +34,10 @@ static td::Timestamp from_ngtcp2_tstamp(ngtcp2_tstamp ns) {
   return td::Timestamp::at(static_cast<double>(ns) * 1e-9);
 }
 
-static ngtcp2_cid gen_cid() {
+static ngtcp2_cid gen_cid(size_t datalen = QuicConnectionPImpl::CID_LENGTH) {
   ngtcp2_cid cid{};
-  cid.datalen = QuicConnectionPImpl::CID_LENGTH;
+  CHECK(datalen <= NGTCP2_MAX_CIDLEN);
+  cid.datalen = datalen;
   td::Random::secure_bytes(td::MutableSlice(cid.data, cid.datalen));
   return cid;
 }
@@ -480,27 +481,10 @@ ngtcp2_conn* QuicConnectionPImpl::get_pimpl_from_ref(ngtcp2_crypto_conn_ref* ref
   return c->conn_.get();
 }
 
-void QuicConnectionPImpl::rand_cb(uint8_t* dest, size_t destlen, const ngtcp2_rand_ctx* rand_ctx) {
-  td::Random::secure_bytes(td::MutableSlice(dest, destlen));
-}
-
-int QuicConnectionPImpl::get_new_connection_id_cb(ngtcp2_conn* conn, ngtcp2_cid* cid, uint8_t* token, size_t cidlen,
-                                                  void* user_data) {
-  cid->datalen = cidlen;
-  if (RAND_bytes(cid->data, static_cast<int>(cidlen)) != 1) {
-    return NGTCP2_ERR_CALLBACK_FAILURE;
-  }
-  if (RAND_bytes(token, NGTCP2_STATELESS_RESET_TOKENLEN) != 1) {
-    return NGTCP2_ERR_CALLBACK_FAILURE;
-  }
-  return 0;
-}
-
-int QuicConnectionPImpl::handshake_completed_cb(ngtcp2_conn* conn, void* user_data) {
-  auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
+int QuicConnectionPImpl::on_handshake_completed() {
   Callback::HandshakeCompletedEvent event;
   // Extract peer's Ed25519 public key from RPK (if available)
-  if (EVP_PKEY* peer_rpk = SSL_get0_peer_rpk(pimpl->ssl_.get())) {
+  if (EVP_PKEY* peer_rpk = SSL_get0_peer_rpk(ssl_.get())) {
     if (EVP_PKEY_id(peer_rpk) == EVP_PKEY_ED25519) {
       size_t len = td::Ed25519::PublicKey::LENGTH;
       td::SecureString key(len);
@@ -511,7 +495,7 @@ int QuicConnectionPImpl::handshake_completed_cb(ngtcp2_conn* conn, void* user_da
     }
   }
 
-  if (auto status = pimpl->callback_->on_handshake_completed(std::move(event)); status.is_error()) {
+  if (auto status = callback_->on_handshake_completed(std::move(event)); status.is_error()) {
     LOG(WARNING) << "handshake rejected: " << status;
     //FIXME: we should actually close connection
     return NGTCP2_ERR_CALLBACK_FAILURE;
@@ -519,27 +503,20 @@ int QuicConnectionPImpl::handshake_completed_cb(ngtcp2_conn* conn, void* user_da
   return 0;
 }
 
-int QuicConnectionPImpl::recv_stream_data_cb(ngtcp2_conn* conn, uint32_t flags, int64_t stream_id, uint64_t offset,
-                                             const uint8_t* data, size_t datalen, void* user_data,
-                                             void* stream_user_data) {
-  data = data ? data : static_cast<uint8_t*>(user_data);  // stupid hack to create empty slice
-  td::Slice data_slice(reinterpret_cast<const char*>(data), reinterpret_cast<const char*>(data) + datalen);
+int QuicConnectionPImpl::on_recv_stream_data(uint32_t flags, int64_t stream_id, td::Slice data) {
   Callback::StreamDataEvent event{
-      .sid = stream_id, .data = td::BufferSlice{data_slice}, .fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0};
-  auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
-  pimpl->callback_->on_stream_data(std::move(event));
+      .sid = stream_id, .data = td::BufferSlice{data}, .fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0};
+  callback_->on_stream_data(std::move(event));
 
-  ngtcp2_conn_extend_max_stream_offset(conn, stream_id, datalen);
-  ngtcp2_conn_extend_max_offset(conn, datalen);
+  ngtcp2_conn_extend_max_stream_offset(conn_.get(), stream_id, data.size());
+  ngtcp2_conn_extend_max_offset(conn_.get(), data.size());
 
   return 0;
 }
 
-int QuicConnectionPImpl::acked_stream_data_offset_cb(ngtcp2_conn*, int64_t stream_id, uint64_t offset, uint64_t datalen,
-                                                     void* user_data, void* /*stream_user_data*/) {
-  auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
-  auto it = pimpl->outbound_.find(stream_id);
-  if (it == pimpl->outbound_.end()) {
+int QuicConnectionPImpl::on_acked_stream_data_offset(int64_t stream_id, uint64_t offset, uint64_t datalen) {
+  auto it = outbound_.find(stream_id);
+  if (it == outbound_.end()) {
     return 0;
   }
   auto& st = it->second;
@@ -568,11 +545,43 @@ int QuicConnectionPImpl::acked_stream_data_offset_cb(ngtcp2_conn*, int64_t strea
 
   return 0;
 }
+int QuicConnectionPImpl::on_stream_close(int64_t stream_id) {
+  outbound_.erase(stream_id);
+  return 0;
+}
+
+void QuicConnectionPImpl::rand_cb(uint8_t* dest, size_t destlen, const ngtcp2_rand_ctx* rand_ctx) {
+  td::Random::secure_bytes(td::MutableSlice(dest, destlen));
+}
+
+int QuicConnectionPImpl::get_new_connection_id_cb(ngtcp2_conn* conn, ngtcp2_cid* cid, uint8_t* token, size_t cidlen,
+                                                  void* user_data) {
+  *cid = gen_cid(cidlen);
+  td::Random::secure_bytes(td::MutableSlice(token, NGTCP2_STATELESS_RESET_TOKENLEN));
+  return 0;
+}
+
+int QuicConnectionPImpl::handshake_completed_cb(ngtcp2_conn* conn, void* user_data) {
+  auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
+  return pimpl->on_handshake_completed();
+}
+
+int QuicConnectionPImpl::recv_stream_data_cb(ngtcp2_conn* conn, uint32_t flags, int64_t stream_id, uint64_t offset,
+                                             const uint8_t* data, size_t datalen, void* user_data,
+                                             void* stream_user_data) {
+  auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
+  return pimpl->on_recv_stream_data(flags, stream_id, datalen != 0 ? td::Slice(data, datalen) : td::Slice());
+}
+
+int QuicConnectionPImpl::acked_stream_data_offset_cb(ngtcp2_conn*, int64_t stream_id, uint64_t offset, uint64_t datalen,
+                                                     void* user_data, void* /*stream_user_data*/) {
+  auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
+  return pimpl->on_acked_stream_data_offset(stream_id, offset, datalen);
+}
 
 int QuicConnectionPImpl::stream_close_cb(ngtcp2_conn*, uint32_t /*flags*/, int64_t stream_id,
                                          uint64_t /*app_error_code*/, void* user_data, void* /*stream_user_data*/) {
   auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
-  pimpl->outbound_.erase(stream_id);
-  return 0;
+  return pimpl->on_stream_close(stream_id);
 }
 }  // namespace ton::quic
