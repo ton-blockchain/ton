@@ -62,7 +62,7 @@ td::Status QuicConnectionPImpl::finish_tls_setup(openssl_ptr<SSL, &SSL_free> ssl
   return td::Status::OK();
 }
 
-static td::Status setup_rpk_context(SSL_CTX* ssl_ctx, EVP_PKEY* key) {
+static td::Status setup_rpk_context(SSL_CTX* ssl_ctx, const td::Ed25519::PrivateKey& key) {
   SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_3_VERSION);
   SSL_CTX_set_max_proto_version(ssl_ctx, TLS1_3_VERSION);
   SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, [](int, X509_STORE_CTX*) { return 1; });
@@ -73,7 +73,10 @@ static td::Status setup_rpk_context(SSL_CTX* ssl_ctx, EVP_PKEY* key) {
   OPENSSL_CHECK_OK(SSL_CTX_set1_client_cert_type(ssl_ctx, cert_types, sizeof(cert_types)),
                    "Failed to enable client RPK");
 
-  OPENSSL_CHECK_OK(SSL_CTX_use_PrivateKey(ssl_ctx, key), "Failed to set private key");
+  auto key_bytes = key.as_octet_string();
+  OPENSSL_MAKE_PTR(evp_key, EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, nullptr, key_bytes.as_slice().ubegin(), 32),
+                   EVP_PKEY_free, "Failed to create Ed25519 key from raw bytes");
+  OPENSSL_CHECK_OK(SSL_CTX_use_PrivateKey(ssl_ctx, evp_key.get()), "Failed to set private key");
   return td::Status::OK();
 }
 
@@ -128,7 +131,7 @@ td::Status QuicConnectionPImpl::init_tls_server(td::Slice cert_file, td::Slice k
   return finish_tls_setup(std::move(ssl_ptr), std::move(ssl_ctx_ptr), false);
 }
 
-td::Status QuicConnectionPImpl::init_tls_client_rpk(EVP_PKEY* client_key, td::Slice alpn) {
+td::Status QuicConnectionPImpl::init_tls_client_rpk(const td::Ed25519::PrivateKey& client_key, td::Slice alpn) {
   OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_client_method()), SSL_CTX_free, "Failed to create TLS client context");
   TRY_STATUS(setup_rpk_context(ssl_ctx_ptr.get(), client_key));
   setup_alpn_wire(alpn);
@@ -142,7 +145,7 @@ td::Status QuicConnectionPImpl::init_tls_client_rpk(EVP_PKEY* client_key, td::Sl
   return finish_tls_setup(std::move(ssl_ptr), std::move(ssl_ctx_ptr), true);
 }
 
-td::Status QuicConnectionPImpl::init_tls_server_rpk(EVP_PKEY* server_key, td::Slice alpn) {
+td::Status QuicConnectionPImpl::init_tls_server_rpk(const td::Ed25519::PrivateKey& server_key, td::Slice alpn) {
   OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_server_method()), SSL_CTX_free, "Failed to create TLS server context");
   TRY_STATUS(setup_rpk_context(ssl_ctx_ptr.get(), server_key));
   setup_alpn_wire(alpn);
@@ -338,7 +341,7 @@ td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer& msg_out, Quic
       msg_out.storage = msg_out.storage.substr(0, 0);
       return td::Status::OK();
     }
-    auto &st = it->second;
+    auto& st = it->second;
 
     unsent_before = st.unsent_bytes();
     build_unsent_vecs(datav, st);

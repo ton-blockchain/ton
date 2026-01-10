@@ -39,11 +39,7 @@ td::Result<td::actor::ActorOwn<QuicClient>> QuicClient::connect_rpk(td::Slice ho
   TRY_RESULT(fd, td::UdpSocketFd::open(local_addr));
   TRY_RESULT_ASSIGN(p_impl->local_address, fd.get_local_address());
 
-  // Convert Ed25519 private key to EVP_PKEY for OpenSSL
-  auto key_bytes = client_key.as_octet_string();
-  OPENSSL_MAKE_PTR(evp_key, EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, nullptr, key_bytes.as_slice().ubegin(), 32),
-                   EVP_PKEY_free, "Failed to create Ed25519 key from raw bytes");
-  TRY_STATUS(p_impl->init_tls_client_rpk(evp_key.get(), alpn));
+  TRY_STATUS(p_impl->init_tls_client_rpk(client_key, alpn));
   TRY_STATUS(p_impl->init_quic_client());
 
   auto name = PSTRING() << "QUIC:" << p_impl->local_address << ">[" << host << ':' << port << ']';

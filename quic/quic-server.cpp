@@ -187,11 +187,7 @@ td::Result<QuicServer::ConnectionState *> QuicServer::get_or_create_connection(c
   TRY_RESULT_ASSIGN(state.p_impl->local_address, fd_.get_local_address());
 
   if (use_rpk_) {
-    auto key_bytes = server_key_->as_octet_string();
-    OPENSSL_MAKE_PTR(evp_key,
-                     EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, nullptr, key_bytes.as_slice().ubegin(), 32),
-                     EVP_PKEY_free, "Failed to create Ed25519 key from raw bytes");
-    TRY_STATUS(state.p_impl->init_tls_server_rpk(evp_key.get(), alpn_.as_slice()));
+    TRY_STATUS(state.p_impl->init_tls_server_rpk(*server_key_, alpn_.as_slice()));
   } else {
     TRY_STATUS(state.p_impl->init_tls_server(cert_file_.as_slice(), key_file_.as_slice(), alpn_.as_slice()));
   }

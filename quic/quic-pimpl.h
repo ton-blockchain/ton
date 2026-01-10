@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "crypto/Ed25519.h"
 #include "ngtcp2/ngtcp2.h"
 #include "ngtcp2/ngtcp2_crypto.h"
 #include "ngtcp2/ngtcp2_crypto_ossl.h"
@@ -65,8 +66,8 @@ struct QuicConnectionPImpl {
 
   // RPK (Raw Public Key) variants - no certificates needed
   // Keys are used for identity, verification happens post-handshake via ssl_get_peer_ed25519_public_key()
-  [[nodiscard]] td::Status init_tls_client_rpk(EVP_PKEY* client_key, td::Slice alpn);
-  [[nodiscard]] td::Status init_tls_server_rpk(EVP_PKEY* server_key, td::Slice alpn);
+  [[nodiscard]] td::Status init_tls_client_rpk(const td::Ed25519::PrivateKey& client_key, td::Slice alpn);
+  [[nodiscard]] td::Status init_tls_server_rpk(const td::Ed25519::PrivateKey& server_key, td::Slice alpn);
 
   [[nodiscard]] td::Status init_quic_client();
   [[nodiscard]] td::Status init_quic_server(const ngtcp2_version_cid& vc);
@@ -103,7 +104,7 @@ struct QuicConnectionPImpl {
 
   void setup_alpn_wire(td::Slice alpn);
   [[nodiscard]] td::Status finish_tls_setup(openssl_ptr<SSL, &SSL_free> ssl_ptr,
-                                             openssl_ptr<SSL_CTX, &SSL_CTX_free> ssl_ctx_ptr, bool is_client);
+                                            openssl_ptr<SSL_CTX, &SSL_CTX_free> ssl_ctx_ptr, bool is_client);
 
   struct OutboundStreamState {
     std::deque<td::BufferSlice> chunks;

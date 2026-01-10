@@ -5,8 +5,10 @@
 #include <string>
 #include <utility>
 
+#include "crypto/Ed25519.h"
 #include "td/actor/actor.h"
 #include "td/utils/OptionParser.h"
+#include "td/utils/base64.h"
 
 #include "quic-server.h"
 
@@ -33,15 +35,22 @@ class QuicHttpServer : public td::actor::Actor {
     td::actor::ActorId<QuicHttpServer> server_;
   };
 
-  QuicHttpServer(int port, td::Slice cert_file, td::Slice key_file, td::Slice alpn, ton::quic::QuicStreamID sid,
+  QuicHttpServer(int port, td::Ed25519::PrivateKey server_key, td::Slice alpn, ton::quic::QuicStreamID sid,
                  td::Slice bind_host)
-      : port_(port), sid_(sid), cert_file_(cert_file), key_file_(key_file), alpn_(alpn), bind_host_(bind_host) {
+      : port_(port), sid_(sid), server_key_(std::move(server_key)), alpn_(alpn), bind_host_(bind_host) {
   }
 
   void start_up() override {
+    auto public_key_r = server_key_.get_public_key();
+    if (public_key_r.is_error()) {
+      LOG(ERROR) << "failed to get public key: " << public_key_r.error();
+      std::exit(1);
+    }
+    auto public_key_b64 = td::base64_encode(public_key_r.ok().as_octet_string().as_slice());
+
     auto cb = std::make_unique<ServerCallback>(actor_id(this));
-    auto R = ton::quic::QuicServer::listen(port_, cert_file_.as_slice(), key_file_.as_slice(), std::move(cb),
-                                           alpn_.as_slice(), bind_host_.as_slice());
+    auto R = ton::quic::QuicServer::listen_rpk(port_, std::move(server_key_), std::move(cb), alpn_.as_slice(),
+                                               bind_host_.as_slice());
     if (R.is_error()) {
       LOG(ERROR) << "failed to start QUIC server: " << R.error();
       std::exit(1);
@@ -49,6 +58,7 @@ class QuicHttpServer : public td::actor::Actor {
     server_ = R.move_as_ok();
 
     LOG(INFO) << "listening on " << bind_host_.as_slice() << ':' << port_ << " (ALPN: " << alpn_.as_slice() << ")";
+    LOG(INFO) << "server public key: " << public_key_b64;
   }
 
  private:
@@ -112,8 +122,7 @@ class QuicHttpServer : public td::actor::Actor {
 
   int port_;
   ton::quic::QuicStreamID sid_;
-  td::BufferSlice cert_file_;
-  td::BufferSlice key_file_;
+  td::Ed25519::PrivateKey server_key_;
   td::BufferSlice alpn_;
   td::BufferSlice bind_host_;
 
@@ -127,17 +136,13 @@ class QuicHttpServer : public td::actor::Actor {
 int main(int argc, char **argv) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
 
-  std::optional<td::BufferSlice> cert_file;
-  std::optional<td::BufferSlice> key_file;
   std::optional<td::BufferSlice> alpn;
   std::optional<td::BufferSlice> bind_host;
   std::optional<int> port;
   std::optional<ton::quic::QuicStreamID> sid;
 
   td::OptionParser p;
-  p.set_description("HTTP/1.1-over-QUIC demo server (hq-interop)");
-  p.add_option('c', "cert", "TLS certificate file (PEM)", [&](td::Slice arg) { cert_file = td::BufferSlice(arg); });
-  p.add_option('k', "key", "TLS private key file (PEM)", [&](td::Slice arg) { key_file = td::BufferSlice(arg); });
+  p.set_description("HTTP/1.1-over-QUIC demo server (hq-interop) using RPK");
   p.add_option('a', "alpn", "ALPN (default: hq-interop)", [&](td::Slice arg) { alpn = td::BufferSlice(arg); });
   p.add_option('b', "bind", "bind host (default: 0.0.0.0)", [&](td::Slice arg) { bind_host = td::BufferSlice(arg); });
   p.add_checked_option('p', "port", "UDP port to listen on", [&](td::Slice arg) {
@@ -161,16 +166,14 @@ int main(int argc, char **argv) {
   if (!sid.has_value()) {
     sid = 0;
   }
-  if (!cert_file.has_value()) {
-    LOG(ERROR) << "no --cert provided";
-    std::exit(1);
-  }
-  if (!key_file.has_value()) {
-    LOG(ERROR) << "no --key provided";
-    std::exit(1);
-  }
   if (!port.has_value()) {
     LOG(ERROR) << "no --port provided";
+    std::exit(1);
+  }
+
+  auto server_key_r = td::Ed25519::generate_private_key();
+  if (server_key_r.is_error()) {
+    LOG(ERROR) << "failed to generate server key: " << server_key_r.error();
     std::exit(1);
   }
 
@@ -179,8 +182,7 @@ int main(int argc, char **argv) {
   scheduler.run_in_context([&] {
     server = td::actor::create_actor<QuicHttpServer>(
         PSTRING() << "quic-http-server@" << bind_host.value().as_slice() << ':' << port.value(), port.value(),
-        cert_file.value().as_slice(), key_file.value().as_slice(), alpn.value().as_slice(), sid.value(),
-        bind_host.value().as_slice());
+        server_key_r.move_as_ok(), alpn.value().as_slice(), sid.value(), bind_host.value().as_slice());
   });
   scheduler.run();
 }
