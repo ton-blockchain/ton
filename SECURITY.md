@@ -2,15 +2,16 @@
 
 ## Supported Versions
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+The TON blockchain node software follows a date-based versioning scheme (YYYY.MM). We provide security updates for the following versions:
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+| 2025.12 | :white_check_mark: |
+| 2025.11 | :white_check_mark: |
+| 2025.10 | :white_check_mark: |
+| < 2025.10 | :x:                |
+
+We recommend always using the latest stable release to ensure you have the most recent security patches and improvements.
 
 ## Reporting a Vulnerability
 
