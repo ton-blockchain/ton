@@ -34,6 +34,22 @@ static td::Timestamp from_ngtcp2_tstamp(ngtcp2_tstamp ns) {
   return td::Timestamp::at(static_cast<double>(ns) * 1e-9);
 }
 
+static ngtcp2_cid gen_cid() {
+  ngtcp2_cid cid{};
+  cid.datalen = QuicConnectionPImpl::CID_LENGTH;
+  td::Random::secure_bytes(td::MutableSlice(cid.data, cid.datalen));
+  return cid;
+}
+
+static td::Result<ngtcp2_cid> make_cid(const uint8_t* data, size_t len) {
+  if (len > NGTCP2_MAX_CIDLEN) {
+    return td::Status::Error("CID length exceeds NGTCP2_MAX_CIDLEN");
+  }
+  ngtcp2_cid cid{};
+  ngtcp2_cid_init(&cid, data, len);
+  return cid;
+}
+
 void QuicConnectionPImpl::setup_alpn_wire(td::Slice alpn) {
   alpn_wire_ = std::string(1, td::narrow_cast<char>(alpn.size())) + alpn.str();
 }
@@ -163,11 +179,8 @@ td::Status QuicConnectionPImpl::init_quic_client() {
   params.initial_max_stream_data_bidi_remote = 0;
   params.initial_max_data = DEFAULT_WINDOW;
 
-  ngtcp2_cid dcid{}, scid{};
-  dcid.datalen = 8;
-  scid.datalen = 8;
-  RAND_bytes(dcid.data, static_cast<int>(dcid.datalen));
-  RAND_bytes(scid.data, static_cast<int>(scid.datalen));
+  ngtcp2_cid dcid = gen_cid();
+  ngtcp2_cid scid = gen_cid();
 
   ngtcp2_path path{};
   path.local.addr = const_cast<ngtcp2_sockaddr*>(local_address.get_sockaddr());
@@ -206,16 +219,12 @@ td::Status QuicConnectionPImpl::init_quic_server(const ngtcp2_version_cid& vc) {
   params.initial_max_data = DEFAULT_WINDOW;
 
   params.original_dcid_present = 1;
-  params.original_dcid.datalen = std::min<size_t>(vc.dcidlen, sizeof(params.original_dcid.data));
-  std::memcpy(params.original_dcid.data, vc.dcid, params.original_dcid.datalen);
+  TRY_RESULT_ASSIGN(params.original_dcid, make_cid(vc.dcid, vc.dcidlen));
 
-  ngtcp2_cid client_scid{};
-  client_scid.datalen = std::min<size_t>(vc.scidlen, sizeof(client_scid.data));
-  std::memcpy(client_scid.data, vc.scid, client_scid.datalen);
+  ngtcp2_cid client_scid;
+  TRY_RESULT_ASSIGN(client_scid, make_cid(vc.scid, vc.scidlen));
 
-  ngtcp2_cid server_scid{};
-  server_scid.datalen = 8;
-  RAND_bytes(server_scid.data, static_cast<int>(server_scid.datalen));
+  ngtcp2_cid server_scid = gen_cid();
 
   ngtcp2_path path{};
   path.local.addr = const_cast<ngtcp2_sockaddr*>(local_address.get_sockaddr());

@@ -12,7 +12,7 @@ namespace {
 td::Result<ngtcp2_version_cid> decode_version_cid(td::Slice datagram) {
   ngtcp2_version_cid vc;
   int rv = ngtcp2_pkt_decode_version_cid(&vc, reinterpret_cast<const uint8_t *>(datagram.data()), datagram.size(),
-                                         NGTCP2_MAX_CIDLEN);
+                                         QuicConnectionPImpl::CID_LENGTH);
   if (rv != 0) {
     return td::Status::Error("failed to decode version_cid");
   }
