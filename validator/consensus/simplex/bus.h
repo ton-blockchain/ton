@@ -48,7 +48,12 @@ struct WaitForParent {
 };
 
 struct ResolveCandidate {
-  using ReturnType = CandidateId;
+  struct Result {
+    RawCandidateRef candidate;
+    NotarCertRef notar;
+  };
+
+  using ReturnType = Result;
 
   RawCandidateId id;
 
