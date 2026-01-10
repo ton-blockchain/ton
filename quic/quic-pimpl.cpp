@@ -122,11 +122,14 @@ td::Status QuicConnectionPImpl::init_tls_server_rpk(const td::Ed25519::PrivateKe
   return finish_tls_setup(std::move(ssl_ptr), std::move(ssl_ctx_ptr), false);
 }
 
-td::Status QuicConnectionPImpl::init_quic_client() {
-  ngtcp2_callbacks callbacks{};
-  callbacks.client_initial = ngtcp2_crypto_client_initial_cb;
+void QuicConnectionPImpl::setup_ngtcp2_callbacks(ngtcp2_callbacks& callbacks, bool is_client) {
+  if (is_client) {
+    callbacks.client_initial = ngtcp2_crypto_client_initial_cb;
+    callbacks.recv_retry = ngtcp2_crypto_recv_retry_cb;
+  } else {
+    callbacks.recv_client_initial = ngtcp2_crypto_recv_client_initial_cb;
+  }
   callbacks.recv_crypto_data = ngtcp2_crypto_recv_crypto_data_cb;
-  callbacks.recv_retry = ngtcp2_crypto_recv_retry_cb;
   callbacks.encrypt = ngtcp2_crypto_encrypt_cb;
   callbacks.decrypt = ngtcp2_crypto_decrypt_cb;
   callbacks.hp_mask = ngtcp2_crypto_hp_mask_cb;
@@ -142,6 +145,11 @@ td::Status QuicConnectionPImpl::init_quic_client() {
   callbacks.recv_stream_data = recv_stream_data_cb;
   callbacks.acked_stream_data_offset = acked_stream_data_offset_cb;
   callbacks.stream_close = stream_close_cb;
+}
+
+td::Status QuicConnectionPImpl::init_quic_client() {
+  ngtcp2_callbacks callbacks{};
+  setup_ngtcp2_callbacks(callbacks, true);
 
   ngtcp2_settings settings;
   ngtcp2_settings_default(&settings);
@@ -183,23 +191,7 @@ td::Status QuicConnectionPImpl::init_quic_client() {
 
 td::Status QuicConnectionPImpl::init_quic_server(const ngtcp2_version_cid& vc) {
   ngtcp2_callbacks callbacks{};
-  callbacks.recv_client_initial = ngtcp2_crypto_recv_client_initial_cb;
-  callbacks.recv_crypto_data = ngtcp2_crypto_recv_crypto_data_cb;
-  callbacks.encrypt = ngtcp2_crypto_encrypt_cb;
-  callbacks.decrypt = ngtcp2_crypto_decrypt_cb;
-  callbacks.hp_mask = ngtcp2_crypto_hp_mask_cb;
-  callbacks.update_key = ngtcp2_crypto_update_key_cb;
-  callbacks.delete_crypto_aead_ctx = ngtcp2_crypto_delete_crypto_aead_ctx_cb;
-  callbacks.delete_crypto_cipher_ctx = ngtcp2_crypto_delete_crypto_cipher_ctx_cb;
-  callbacks.get_path_challenge_data = ngtcp2_crypto_get_path_challenge_data_cb;
-  callbacks.version_negotiation = ngtcp2_crypto_version_negotiation_cb;
-
-  callbacks.rand = rand_cb;
-  callbacks.get_new_connection_id = get_new_connection_id_cb;
-  callbacks.handshake_completed = handshake_completed_cb;
-  callbacks.recv_stream_data = recv_stream_data_cb;
-  callbacks.acked_stream_data_offset = acked_stream_data_offset_cb;
-  callbacks.stream_close = stream_close_cb;
+  setup_ngtcp2_callbacks(callbacks, false);
 
   ngtcp2_settings settings;
   ngtcp2_settings_default(&settings);

@@ -119,6 +119,8 @@ struct QuicConnectionPImpl {
 
   static ngtcp2_conn* get_pimpl_from_ref(ngtcp2_crypto_conn_ref* ref);
 
+  static void setup_ngtcp2_callbacks(ngtcp2_callbacks& callbacks, bool is_client);
+
   static void rand_cb(uint8_t* dest, size_t destlen, const ngtcp2_rand_ctx* rand_ctx);
   static int get_new_connection_id_cb(ngtcp2_conn* conn, ngtcp2_cid* cid, uint8_t* token, size_t cidlen,
                                       void* user_data);
