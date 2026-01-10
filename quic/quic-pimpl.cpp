@@ -182,11 +182,7 @@ td::Status QuicConnectionPImpl::init_quic_client() {
   ngtcp2_cid dcid = gen_cid();
   ngtcp2_cid scid = gen_cid();
 
-  ngtcp2_path path{};
-  path.local.addr = const_cast<ngtcp2_sockaddr*>(local_address.get_sockaddr());
-  path.local.addrlen = static_cast<ngtcp2_socklen>(local_address.get_sockaddr_len());
-  path.remote.addr = const_cast<ngtcp2_sockaddr*>(remote_address.get_sockaddr());
-  path.remote.addrlen = static_cast<ngtcp2_socklen>(remote_address.get_sockaddr_len());
+  ngtcp2_path path = make_path();
 
   ngtcp2_conn* conn = nullptr;
   int rv = ngtcp2_conn_client_new(&conn, &dcid, &scid, &path, NGTCP2_PROTO_VER_V1, &callbacks, &settings, &params,
@@ -226,11 +222,7 @@ td::Status QuicConnectionPImpl::init_quic_server(const ngtcp2_version_cid& vc) {
 
   ngtcp2_cid server_scid = gen_cid();
 
-  ngtcp2_path path{};
-  path.local.addr = const_cast<ngtcp2_sockaddr*>(local_address.get_sockaddr());
-  path.local.addrlen = static_cast<ngtcp2_socklen>(local_address.get_sockaddr_len());
-  path.remote.addr = const_cast<ngtcp2_sockaddr*>(remote_address.get_sockaddr());
-  path.remote.addrlen = static_cast<ngtcp2_socklen>(remote_address.get_sockaddr_len());
+  ngtcp2_path path = make_path();
 
   ngtcp2_conn* conn = nullptr;
   int rv = ngtcp2_conn_server_new(&conn, &client_scid, &server_scid, &path, vc.version, &callbacks, &settings, &params,
@@ -295,6 +287,15 @@ void QuicConnectionPImpl::build_unsent_vecs(std::vector<ngtcp2_vec>& out, Outbou
     v.len = slice.size();
     out.push_back(v);
   }
+}
+
+ngtcp2_path QuicConnectionPImpl::make_path() const {
+  ngtcp2_path path{};
+  path.local.addr = const_cast<ngtcp2_sockaddr*>(local_address.get_sockaddr());
+  path.local.addrlen = static_cast<ngtcp2_socklen>(local_address.get_sockaddr_len());
+  path.remote.addr = const_cast<ngtcp2_sockaddr*>(remote_address.get_sockaddr());
+  path.remote.addrlen = static_cast<ngtcp2_socklen>(remote_address.get_sockaddr_len());
+  return path;
 }
 
 td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer& msg_out, QuicStreamID sid) {
@@ -379,11 +380,7 @@ td::Status QuicConnectionPImpl::produce_egress(UdpMessageBuffer& msg_out) {
 }
 
 td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in) {
-  ngtcp2_path path{};
-  path.local.addr = const_cast<ngtcp2_sockaddr*>(local_address.get_sockaddr());
-  path.local.addrlen = static_cast<ngtcp2_socklen>(local_address.get_sockaddr_len());
-  path.remote.addr = const_cast<ngtcp2_sockaddr*>(remote_address.get_sockaddr());
-  path.remote.addrlen = static_cast<ngtcp2_socklen>(remote_address.get_sockaddr_len());
+  ngtcp2_path path = make_path();
 
   ngtcp2_pkt_info pi{};
   int rv = ngtcp2_conn_read_pkt(conn_.get(), &path, &pi, reinterpret_cast<uint8_t*>(msg_in.storage.data()),

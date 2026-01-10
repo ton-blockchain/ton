@@ -116,6 +116,8 @@ struct QuicConnectionPImpl {
 
   [[nodiscard]] td::Status write_one_packet(UdpMessageBuffer& msg_out, QuicStreamID sid);
 
+  ngtcp2_path make_path() const;
+
   static ngtcp2_tstamp now_ts();
 
   static ngtcp2_conn* get_pimpl_from_ref(ngtcp2_crypto_conn_ref* ref);
