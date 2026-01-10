@@ -48,24 +48,9 @@ td::Result<ngtcp2_version_cid> decode_version_cid(td::Slice datagram) {
 
 }  // namespace
 
-td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::listen(int port, td::Slice cert_file, td::Slice key_file,
+td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::listen(int port, td::Ed25519::PrivateKey server_key,
                                                                std::unique_ptr<Callback> callback, td::Slice alpn,
                                                                td::Slice bind_host) {
-  td::IPAddress local_addr;
-  std::string bind_host_str = bind_host.str();
-  TRY_STATUS(local_addr.init_host_port(td::CSlice(bind_host_str.c_str()), port));
-
-  TRY_RESULT(fd, td::UdpSocketFd::open(local_addr));
-
-  auto name = PSTRING() << "QUIC:" << local_addr;
-  return td::actor::create_actor<QuicServer>(td::actor::ActorOptions().with_name(name).with_poll(true), std::move(fd),
-                                             td::BufferSlice(cert_file), td::BufferSlice(key_file),
-                                             td::BufferSlice(alpn), std::move(callback));
-}
-
-td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::listen_rpk(int port, td::Ed25519::PrivateKey server_key,
-                                                                   std::unique_ptr<Callback> callback, td::Slice alpn,
-                                                                   td::Slice bind_host) {
   td::IPAddress local_addr;
   std::string bind_host_str = bind_host.str();
   TRY_STATUS(local_addr.init_host_port(td::CSlice(bind_host_str.c_str()), port));
@@ -77,22 +62,9 @@ td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::listen_rpk(int port, td:
                                              std::move(server_key), td::BufferSlice(alpn), std::move(callback));
 }
 
-QuicServer::QuicServer(td::UdpSocketFd fd, td::BufferSlice cert_file, td::BufferSlice key_file, td::BufferSlice alpn,
-                       std::unique_ptr<Callback> callback)
-    : fd_(std::move(fd))
-    , cert_file_(std::move(cert_file))
-    , key_file_(std::move(key_file))
-    , alpn_(std::move(alpn))
-    , callback_(std::move(callback)) {
-}
-
 QuicServer::QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::BufferSlice alpn,
                        std::unique_ptr<Callback> callback)
-    : fd_(std::move(fd))
-    , alpn_(std::move(alpn))
-    , server_key_(std::move(server_key))
-    , use_rpk_(true)
-    , callback_(std::move(callback)) {
+    : fd_(std::move(fd)), alpn_(std::move(alpn)), server_key_(std::move(server_key)), callback_(std::move(callback)) {
 }
 
 void QuicServer::start_up() {
@@ -186,11 +158,7 @@ td::Result<QuicServer::ConnectionState *> QuicServer::get_or_create_connection(c
   state.p_impl->remote_address = msg_in.address;
   TRY_RESULT_ASSIGN(state.p_impl->local_address, fd_.get_local_address());
 
-  if (use_rpk_) {
-    TRY_STATUS(state.p_impl->init_tls_server_rpk(*server_key_, alpn_.as_slice()));
-  } else {
-    TRY_STATUS(state.p_impl->init_tls_server(cert_file_.as_slice(), key_file_.as_slice(), alpn_.as_slice()));
-  }
+  TRY_STATUS(state.p_impl->init_tls_server_rpk(server_key_, alpn_.as_slice()));
   TRY_STATUS(state.p_impl->init_quic_server(vc));
 
   class PImplCallback final : public QuicConnectionPImpl::Callback {

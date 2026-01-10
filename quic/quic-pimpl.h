@@ -61,11 +61,8 @@ struct QuicConnectionPImpl {
 
   std::unique_ptr<Callback> callback = nullptr;
 
-  [[nodiscard]] td::Status init_tls_client(td::Slice host, td::Slice alpn);
-  [[nodiscard]] td::Status init_tls_server(td::Slice cert_file, td::Slice key_file, td::Slice alpn);
-
-  // RPK (Raw Public Key) variants - no certificates needed
-  // Keys are used for identity, verification happens post-handshake via ssl_get_peer_ed25519_public_key()
+  // RPK (Raw Public Key) - uses Ed25519 keys for identity
+  // Verification happens post-handshake via ssl_get_peer_ed25519_public_key()
   [[nodiscard]] td::Status init_tls_client_rpk(const td::Ed25519::PrivateKey& client_key, td::Slice alpn);
   [[nodiscard]] td::Status init_tls_server_rpk(const td::Ed25519::PrivateKey& server_key, td::Slice alpn);
 

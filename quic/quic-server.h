@@ -32,20 +32,12 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void send_stream_data(const td::IPAddress &peer, QuicStreamID sid, td::BufferSlice data);
   void send_stream_end(const td::IPAddress &peer, QuicStreamID sid);
 
-  QuicServer(td::UdpSocketFd fd, td::BufferSlice cert_file, td::BufferSlice key_file, td::BufferSlice alpn,
-             std::unique_ptr<Callback> callback);
-  // RPK constructor
   QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::BufferSlice alpn,
              std::unique_ptr<Callback> callback);
 
-  static td::Result<td::actor::ActorOwn<QuicServer>> listen(int port, td::Slice cert_file, td::Slice key_file,
+  static td::Result<td::actor::ActorOwn<QuicServer>> listen(int port, td::Ed25519::PrivateKey server_key,
                                                             std::unique_ptr<Callback> callback, td::Slice alpn = "ton",
                                                             td::Slice bind_host = "0.0.0.0");
-  // RPK variant - uses Raw Public Key instead of certificate
-  static td::Result<td::actor::ActorOwn<QuicServer>> listen_rpk(int port, td::Ed25519::PrivateKey server_key,
-                                                                std::unique_ptr<Callback> callback,
-                                                                td::Slice alpn = "ton",
-                                                                td::Slice bind_host = "0.0.0.0");
 
  protected:
   void start_up() override;
@@ -86,11 +78,8 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   td::Result<ConnectionState *> get_or_create_connection(const UdpMessageBuffer &msg_in);
 
   td::UdpSocketFd fd_;
-  td::BufferSlice cert_file_;
-  td::BufferSlice key_file_;
   td::BufferSlice alpn_;
-  std::optional<td::Ed25519::PrivateKey> server_key_;  // For RPK mode
-  bool use_rpk_ = false;
+  td::Ed25519::PrivateKey server_key_;
 
   std::unique_ptr<Callback> callback_;
   td::actor::ActorId<QuicServer> self_id_;

@@ -80,23 +80,6 @@ static td::Status setup_rpk_context(SSL_CTX* ssl_ctx, const td::Ed25519::Private
   return td::Status::OK();
 }
 
-td::Status QuicConnectionPImpl::init_tls_client(td::Slice host, td::Slice alpn) {
-  OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_client_method()), SSL_CTX_free, "Failed to create TLS client context");
-  SSL_CTX_set_verify(ssl_ctx_ptr.get(), SSL_VERIFY_NONE, nullptr);
-
-  OPENSSL_MAKE_PTR(ssl_ptr, SSL_new(ssl_ctx_ptr.get()), SSL_free, "Failed to create SSL session");
-  SSL_set_connect_state(ssl_ptr.get());
-
-  std::string host_c(host.begin(), host.end());
-  OPENSSL_CHECK_OK(SSL_set_tlsext_host_name(ssl_ptr.get(), host_c.c_str()), "Failed to set TLS hostname");
-
-  setup_alpn_wire(alpn);
-  SSL_set_alpn_protos(ssl_ptr.get(), reinterpret_cast<const unsigned char*>(alpn_wire_.c_str()),
-                      static_cast<unsigned int>(alpn_wire_.size()));
-
-  return finish_tls_setup(std::move(ssl_ptr), std::move(ssl_ctx_ptr), true);
-}
-
 int QuicConnectionPImpl::alpn_select_cb(SSL*, const unsigned char** out, unsigned char* outlen, const unsigned char* in,
                                         unsigned int inlen, void* arg) {
   auto* wire = static_cast<std::string*>(arg);
@@ -107,28 +90,6 @@ int QuicConnectionPImpl::alpn_select_cb(SSL*, const unsigned char** out, unsigne
     return SSL_TLSEXT_ERR_OK;
   }
   return SSL_TLSEXT_ERR_NOACK;
-}
-
-td::Status QuicConnectionPImpl::init_tls_server(td::Slice cert_file, td::Slice key_file, td::Slice alpn) {
-  OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_server_method()), SSL_CTX_free, "Failed to create TLS server context");
-  SSL_CTX_set_min_proto_version(ssl_ctx_ptr.get(), TLS1_3_VERSION);
-  SSL_CTX_set_max_proto_version(ssl_ctx_ptr.get(), TLS1_3_VERSION);
-  SSL_CTX_set_verify(ssl_ctx_ptr.get(), SSL_VERIFY_NONE, nullptr);
-
-  std::string cert(cert_file.begin(), cert_file.end());
-  std::string key(key_file.begin(), key_file.end());
-  OPENSSL_CHECK_OK(SSL_CTX_use_certificate_file(ssl_ctx_ptr.get(), cert.c_str(), SSL_FILETYPE_PEM),
-                   "Failed to load certificate");
-  OPENSSL_CHECK_OK(SSL_CTX_use_PrivateKey_file(ssl_ctx_ptr.get(), key.c_str(), SSL_FILETYPE_PEM),
-                   "Failed to load private key");
-
-  setup_alpn_wire(alpn);
-  SSL_CTX_set_alpn_select_cb(ssl_ctx_ptr.get(), alpn_select_cb, &alpn_wire_);
-
-  OPENSSL_MAKE_PTR(ssl_ptr, SSL_new(ssl_ctx_ptr.get()), SSL_free, "Failed to create SSL session");
-  SSL_set_accept_state(ssl_ptr.get());
-
-  return finish_tls_setup(std::move(ssl_ptr), std::move(ssl_ctx_ptr), false);
 }
 
 td::Status QuicConnectionPImpl::init_tls_client_rpk(const td::Ed25519::PrivateKey& client_key, td::Slice alpn) {

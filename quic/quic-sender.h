@@ -1,7 +1,7 @@
 #pragma once
 
-#include "adnl/adnl.h"
 #include "adnl/adnl-peer-table.h"
+#include "adnl/adnl.h"
 #include "keyring/keyring.h"
 #include "td/actor/coro_task.h"
 
@@ -43,7 +43,8 @@ class QuicSender : public adnl::AdnlSenderInterface {
 
   void after_out_connection_created(AdnlPath path);
   void after_out_connection_ready(AdnlPath path);
-  void after_out_query_stream_obtained(OutboundConnection* conn, td::BufferSlice query_data, td::Promise<td::BufferSlice> answer_promise, td::Result<QuicStreamID> sid_res);
+  void after_out_query_stream_obtained(OutboundConnection* conn, td::BufferSlice query_data,
+                                       td::Promise<td::BufferSlice> answer_promise, td::Result<QuicStreamID> sid_res);
   void after_out_query_answer(AdnlPath path, QuicStreamID sid, td::BufferSlice data);
 
   void after_in_init(AdnlPath path, td::IPAddress peer, QuicStreamID sid);

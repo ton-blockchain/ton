@@ -15,8 +15,8 @@ QuicSender::QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::actor::
 void QuicSender::send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) {
   find_out_connection({src, dst}, [data = std::move(data), src, dst](td::Result<OutboundConnection*> R) mutable {
     if (R.is_error()) {
-      LOG(ERROR) << R.move_as_error_prefix(PSTRING()
-                                           << "dropping message " << src << '>' << dst << " because connection failed: ");
+      LOG(ERROR) << R.move_as_error_prefix(PSTRING() << "dropping message " << src << '>' << dst
+                                                     << " because connection failed: ");
       return;
     }
     auto client = R.move_as_ok()->client.get();
@@ -47,7 +47,9 @@ void QuicSender::send_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst
     }
     auto conn = R.move_as_ok();
     auto client = conn->client.get();
-    td::actor::send_closure(client, &QuicClient::open_stream, td::promise_send_closure(self, &QuicSender::after_out_query_stream_obtained, conn, std::move(data), std::move(promise)));
+    td::actor::send_closure(client, &QuicClient::open_stream,
+                            td::promise_send_closure(self, &QuicSender::after_out_query_stream_obtained, conn,
+                                                     std::move(data), std::move(promise)));
   });
 }
 
@@ -160,10 +162,11 @@ td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) 
     std::unordered_map<std::string, InboundConnection> inbound_{};
   };
 
-  auto res = QuicServer::listen_rpk(port, td::Ed25519::PrivateKey(local_keys_[local_id].copy()),
-                                    std::make_unique<InConnectionCallback>(local_id, actor_id(this)));
+  auto res = QuicServer::listen(port, td::Ed25519::PrivateKey(local_keys_[local_id].copy()),
+                                std::make_unique<InConnectionCallback>(local_id, actor_id(this)));
   if (res.is_error())
-    LOG(WARNING) << res.move_as_error_prefix(PSTRING() << "discarding port " << port << " for local id " << local_id << ": ");
+    LOG(WARNING) << res.move_as_error_prefix(PSTRING()
+                                             << "discarding port " << port << " for local id " << local_id << ": ");
   else
     inbound_[local_id] = res.move_as_ok();
 
@@ -283,8 +286,8 @@ void QuicSender::create_connection(AdnlPath path, td::Promise<OutboundConnection
         };
 
         // TODO: maybe we should check the peer key during handshake and not after
-        auto conn_res = QuicClient::connect_rpk(peer_host, peer_port, std::move(client_key),
-                                                std::make_unique<OutConnectionCallback>(path, self));
+        auto conn_res = QuicClient::connect(peer_host, peer_port, std::move(client_key),
+                                            std::make_unique<OutConnectionCallback>(path, self));
         if (conn_res.is_error()) {
           iter->second.ready.set_error(conn_res.move_as_error());
           outbound_.erase(iter);
@@ -315,7 +318,9 @@ void QuicSender::after_out_connection_ready(AdnlPath path) {
   conn->ready_received = true;
 }
 
-void QuicSender::after_out_query_stream_obtained(OutboundConnection* conn, td::BufferSlice query_data, td::Promise<td::BufferSlice> answer_promise, td::Result<QuicStreamID> sid_res) {
+void QuicSender::after_out_query_stream_obtained(OutboundConnection* conn, td::BufferSlice query_data,
+                                                 td::Promise<td::BufferSlice> answer_promise,
+                                                 td::Result<QuicStreamID> sid_res) {
   if (sid_res.is_error()) {
     LOG(ERROR) << sid_res.move_as_error_prefix(PSTRING() << "dropping query because stream failed: ");
     return;

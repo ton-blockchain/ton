@@ -49,8 +49,8 @@ class QuicHttpServer : public td::actor::Actor {
     auto public_key_b64 = td::base64_encode(public_key_r.ok().as_octet_string().as_slice());
 
     auto cb = std::make_unique<ServerCallback>(actor_id(this));
-    auto R = ton::quic::QuicServer::listen_rpk(port_, std::move(server_key_), std::move(cb), alpn_.as_slice(),
-                                               bind_host_.as_slice());
+    auto R = ton::quic::QuicServer::listen(port_, std::move(server_key_), std::move(cb), alpn_.as_slice(),
+                                           bind_host_.as_slice());
     if (R.is_error()) {
       LOG(ERROR) << "failed to start QUIC server: " << R.error();
       std::exit(1);

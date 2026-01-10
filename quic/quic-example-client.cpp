@@ -57,8 +57,8 @@ class QuicTester : public td::actor::Actor {
     }
 
     [this] {
-      TRY_RESULT_ASSIGN(connection_, ton::quic::QuicClient::connect_rpk(host_, port_, std::move(client_key_),
-                                                                        std::make_unique<Callback>(*this), alpn_));
+      TRY_RESULT_ASSIGN(connection_, ton::quic::QuicClient::connect(host_, port_, std::move(client_key_),
+                                                                    std::make_unique<Callback>(*this), alpn_));
       return td::Status::OK();
     }()
         .ensure();

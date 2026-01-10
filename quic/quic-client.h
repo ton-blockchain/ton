@@ -31,14 +31,9 @@ class QuicClient : public td::actor::Actor, public td::ObserverBase {
 
   QuicClient(td::UdpSocketFd fd, std::unique_ptr<QuicConnectionPImpl> p_impl, std::unique_ptr<Callback> callback);
   static td::Result<td::actor::ActorOwn<QuicClient>> connect(td::Slice host, int port,
+                                                             td::Ed25519::PrivateKey client_key,
                                                              std::unique_ptr<Callback> callback, td::Slice alpn = "ton",
                                                              int local_port = 0);
-  // RPK variant - uses Raw Public Key instead of certificate
-  // client_key is used for client authentication; server verification happens post-handshake
-  static td::Result<td::actor::ActorOwn<QuicClient>> connect_rpk(td::Slice host, int port,
-                                                                 td::Ed25519::PrivateKey client_key,
-                                                                 std::unique_ptr<Callback> callback,
-                                                                 td::Slice alpn = "ton", int local_port = 0);
 
  protected:
   void start_up() override;
