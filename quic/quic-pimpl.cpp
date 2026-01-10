@@ -33,31 +33,26 @@ static td::Timestamp from_ngtcp2_tstamp(ngtcp2_tstamp ns) {
   return td::Timestamp::at(static_cast<double>(ns) * 1e-9);
 }
 
-td::Status QuicConnectionPImpl::init_tls_client(td::Slice host, td::Slice alpn) {
-  OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_client_method()), SSL_CTX_free, "Failed to create TLS client context");
+void QuicConnectionPImpl::setup_alpn_wire(td::Slice alpn) {
+  alpn_wire_ = std::string(1, td::narrow_cast<char>(alpn.size())) + alpn.str();
+}
 
-  SSL_CTX_set_verify(ssl_ctx_ptr.get(), SSL_VERIFY_NONE, nullptr);
-
-  OPENSSL_MAKE_PTR(ssl_ptr, SSL_new(ssl_ctx_ptr.get()), SSL_free, "Failed to create SSL session");
-
-  SSL_set_connect_state(ssl_ptr.get());
-
-  std::string host_c(host.begin(), host.end());
-  OPENSSL_CHECK_OK(SSL_set_tlsext_host_name(ssl_ptr.get(), host_c.c_str()), "Failed to set TLS hostname");
-
-  alpn_wire_.assign(alpn.size() + 1, '\0');
-  alpn_wire_[0] = static_cast<char>(alpn.size());
-  std::memcpy(alpn_wire_.data() + 1, alpn.data(), alpn.size());
-  SSL_set_alpn_protos(ssl_ptr.get(), reinterpret_cast<const unsigned char*>(alpn_wire_.c_str()),
-                      static_cast<unsigned int>(alpn_wire_.size()));
-
+td::Status QuicConnectionPImpl::finish_tls_setup(openssl_ptr<SSL, &SSL_free> ssl_ptr,
+                                                 openssl_ptr<SSL_CTX, &SSL_CTX_free> ssl_ctx_ptr, bool is_client) {
   conn_ref.get_conn = get_pimpl_from_ref;
   conn_ref.user_data = this;
   SSL_set_app_data(ssl_ptr.get(), &conn_ref);
 
-  if (ngtcp2_crypto_ossl_configure_client_session(ssl_ptr.get()) != 0) {
-    return td::Status::Error("ngtcp2_crypto_ossl_configure_client_session failed");
+  if (is_client) {
+    if (ngtcp2_crypto_ossl_configure_client_session(ssl_ptr.get()) != 0) {
+      return td::Status::Error("ngtcp2_crypto_ossl_configure_client_session failed");
+    }
+  } else {
+    if (ngtcp2_crypto_ossl_configure_server_session(ssl_ptr.get()) != 0) {
+      return td::Status::Error("ngtcp2_crypto_ossl_configure_server_session failed");
+    }
   }
+
   if (ngtcp2_crypto_ossl_ctx_new(&ossl_ctx, ssl_ptr.get()) != 0) {
     return td::Status::Error("ngtcp2_crypto_ossl_ctx_new failed");
   }
@@ -65,6 +60,23 @@ td::Status QuicConnectionPImpl::init_tls_client(td::Slice host, td::Slice alpn) 
   ssl_ctx = std::move(ssl_ctx_ptr);
   ssl = std::move(ssl_ptr);
   return td::Status::OK();
+}
+
+td::Status QuicConnectionPImpl::init_tls_client(td::Slice host, td::Slice alpn) {
+  OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_client_method()), SSL_CTX_free, "Failed to create TLS client context");
+  SSL_CTX_set_verify(ssl_ctx_ptr.get(), SSL_VERIFY_NONE, nullptr);
+
+  OPENSSL_MAKE_PTR(ssl_ptr, SSL_new(ssl_ctx_ptr.get()), SSL_free, "Failed to create SSL session");
+  SSL_set_connect_state(ssl_ptr.get());
+
+  std::string host_c(host.begin(), host.end());
+  OPENSSL_CHECK_OK(SSL_set_tlsext_host_name(ssl_ptr.get(), host_c.c_str()), "Failed to set TLS hostname");
+
+  setup_alpn_wire(alpn);
+  SSL_set_alpn_protos(ssl_ptr.get(), reinterpret_cast<const unsigned char*>(alpn_wire_.c_str()),
+                      static_cast<unsigned int>(alpn_wire_.size()));
+
+  return finish_tls_setup(std::move(ssl_ptr), std::move(ssl_ctx_ptr), true);
 }
 
 int QuicConnectionPImpl::alpn_select_cb(SSL*, const unsigned char** out, unsigned char* outlen, const unsigned char* in,
@@ -81,7 +93,6 @@ int QuicConnectionPImpl::alpn_select_cb(SSL*, const unsigned char** out, unsigne
 
 td::Status QuicConnectionPImpl::init_tls_server(td::Slice cert_file, td::Slice key_file, td::Slice alpn) {
   OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_server_method()), SSL_CTX_free, "Failed to create TLS server context");
-
   SSL_CTX_set_min_proto_version(ssl_ctx_ptr.get(), TLS1_3_VERSION);
   SSL_CTX_set_max_proto_version(ssl_ctx_ptr.get(), TLS1_3_VERSION);
   SSL_CTX_set_verify(ssl_ctx_ptr.get(), SSL_VERIFY_NONE, nullptr);
@@ -93,46 +104,25 @@ td::Status QuicConnectionPImpl::init_tls_server(td::Slice cert_file, td::Slice k
   OPENSSL_CHECK_OK(SSL_CTX_use_PrivateKey_file(ssl_ctx_ptr.get(), key.c_str(), SSL_FILETYPE_PEM),
                    "Failed to load private key");
 
-  alpn_wire_.assign(alpn.size() + 1, '\0');
-  alpn_wire_[0] = static_cast<char>(alpn.size());
-  std::memcpy(alpn_wire_.data() + 1, alpn.data(), alpn.size());
+  setup_alpn_wire(alpn);
   SSL_CTX_set_alpn_select_cb(ssl_ctx_ptr.get(), alpn_select_cb, &alpn_wire_);
 
   OPENSSL_MAKE_PTR(ssl_ptr, SSL_new(ssl_ctx_ptr.get()), SSL_free, "Failed to create SSL session");
-
   SSL_set_accept_state(ssl_ptr.get());
 
-  conn_ref.get_conn = get_pimpl_from_ref;
-  conn_ref.user_data = this;
-  SSL_set_app_data(ssl_ptr.get(), &conn_ref);
-
-  if (ngtcp2_crypto_ossl_configure_server_session(ssl_ptr.get()) != 0) {
-    return td::Status::Error("ngtcp2_crypto_ossl_configure_server_session failed");
-  }
-  if (ngtcp2_crypto_ossl_ctx_new(&ossl_ctx, ssl_ptr.get()) != 0) {
-    return td::Status::Error("ngtcp2_crypto_ossl_ctx_new failed");
-  }
-
-  ssl_ctx = std::move(ssl_ctx_ptr);
-  ssl = std::move(ssl_ptr);
-  return td::Status::OK();
+  return finish_tls_setup(std::move(ssl_ptr), std::move(ssl_ctx_ptr), false);
 }
 
 td::Status QuicConnectionPImpl::init_tls_client_rpk(EVP_PKEY* client_key, td::Slice alpn) {
   OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_client_method()), SSL_CTX_free, "Failed to create TLS client context");
-
   SSL_CTX_set_min_proto_version(ssl_ctx_ptr.get(), TLS1_3_VERSION);
   SSL_CTX_set_max_proto_version(ssl_ctx_ptr.get(), TLS1_3_VERSION);
   SSL_CTX_set_verify(ssl_ctx_ptr.get(), SSL_VERIFY_NONE, nullptr);
 
-  // Accept Raw Public Keys from server (RFC 7250)
-  static const unsigned char server_cert_types[] = {TLSEXT_cert_type_rpk};
-  OPENSSL_CHECK_OK(SSL_CTX_set1_server_cert_type(ssl_ctx_ptr.get(), server_cert_types, sizeof(server_cert_types)),
+  static const unsigned char cert_types[] = {TLSEXT_cert_type_rpk};
+  OPENSSL_CHECK_OK(SSL_CTX_set1_server_cert_type(ssl_ctx_ptr.get(), cert_types, sizeof(cert_types)),
                    "Failed to enable server RPK");
-
-  // Send our RPK as client certificate
-  static const unsigned char client_cert_types[] = {TLSEXT_cert_type_rpk};
-  OPENSSL_CHECK_OK(SSL_CTX_set1_client_cert_type(ssl_ctx_ptr.get(), client_cert_types, sizeof(client_cert_types)),
+  OPENSSL_CHECK_OK(SSL_CTX_set1_client_cert_type(ssl_ctx_ptr.get(), cert_types, sizeof(cert_types)),
                    "Failed to enable client RPK");
 
   if (client_key) {
@@ -140,72 +130,36 @@ td::Status QuicConnectionPImpl::init_tls_client_rpk(EVP_PKEY* client_key, td::Sl
   }
 
   OPENSSL_MAKE_PTR(ssl_ptr, SSL_new(ssl_ctx_ptr.get()), SSL_free, "Failed to create SSL session");
-
   SSL_set_connect_state(ssl_ptr.get());
 
-  alpn_wire_.assign(alpn.size() + 1, '\0');
-  alpn_wire_[0] = static_cast<char>(alpn.size());
-  std::memcpy(alpn_wire_.data() + 1, alpn.data(), alpn.size());
+  setup_alpn_wire(alpn);
   SSL_set_alpn_protos(ssl_ptr.get(), reinterpret_cast<const unsigned char*>(alpn_wire_.c_str()),
                       static_cast<unsigned int>(alpn_wire_.size()));
 
-  conn_ref.get_conn = get_pimpl_from_ref;
-  conn_ref.user_data = this;
-  SSL_set_app_data(ssl_ptr.get(), &conn_ref);
-
-  if (ngtcp2_crypto_ossl_configure_client_session(ssl_ptr.get()) != 0) {
-    return td::Status::Error("ngtcp2_crypto_ossl_configure_client_session failed");
-  }
-  if (ngtcp2_crypto_ossl_ctx_new(&ossl_ctx, ssl_ptr.get()) != 0) {
-    return td::Status::Error("ngtcp2_crypto_ossl_ctx_new failed");
-  }
-
-  ssl_ctx = std::move(ssl_ctx_ptr);
-  ssl = std::move(ssl_ptr);
-  return td::Status::OK();
+  return finish_tls_setup(std::move(ssl_ptr), std::move(ssl_ctx_ptr), true);
 }
 
 td::Status QuicConnectionPImpl::init_tls_server_rpk(EVP_PKEY* server_key, td::Slice alpn) {
   OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_server_method()), SSL_CTX_free, "Failed to create TLS server context");
-
   SSL_CTX_set_min_proto_version(ssl_ctx_ptr.get(), TLS1_3_VERSION);
   SSL_CTX_set_max_proto_version(ssl_ctx_ptr.get(), TLS1_3_VERSION);
   SSL_CTX_set_verify(ssl_ctx_ptr.get(), SSL_VERIFY_PEER, [](int, X509_STORE_CTX*) { return 1; });
 
   OPENSSL_CHECK_OK(SSL_CTX_use_PrivateKey(ssl_ctx_ptr.get(), server_key), "Failed to set server private key");
 
-  // Enable RPK (RFC 7250)
-  static const unsigned char server_cert_types[] = {TLSEXT_cert_type_rpk};
-  OPENSSL_CHECK_OK(SSL_CTX_set1_server_cert_type(ssl_ctx_ptr.get(), server_cert_types, sizeof(server_cert_types)),
+  static const unsigned char cert_types[] = {TLSEXT_cert_type_rpk};
+  OPENSSL_CHECK_OK(SSL_CTX_set1_server_cert_type(ssl_ctx_ptr.get(), cert_types, sizeof(cert_types)),
                    "Failed to enable server RPK");
-
-  static const unsigned char client_cert_types[] = {TLSEXT_cert_type_rpk};
-  OPENSSL_CHECK_OK(SSL_CTX_set1_client_cert_type(ssl_ctx_ptr.get(), client_cert_types, sizeof(client_cert_types)),
+  OPENSSL_CHECK_OK(SSL_CTX_set1_client_cert_type(ssl_ctx_ptr.get(), cert_types, sizeof(cert_types)),
                    "Failed to enable client RPK");
 
-  alpn_wire_.assign(alpn.size() + 1, '\0');
-  alpn_wire_[0] = static_cast<char>(alpn.size());
-  std::memcpy(alpn_wire_.data() + 1, alpn.data(), alpn.size());
+  setup_alpn_wire(alpn);
   SSL_CTX_set_alpn_select_cb(ssl_ctx_ptr.get(), alpn_select_cb, &alpn_wire_);
 
   OPENSSL_MAKE_PTR(ssl_ptr, SSL_new(ssl_ctx_ptr.get()), SSL_free, "Failed to create SSL session");
-
   SSL_set_accept_state(ssl_ptr.get());
 
-  conn_ref.get_conn = get_pimpl_from_ref;
-  conn_ref.user_data = this;
-  SSL_set_app_data(ssl_ptr.get(), &conn_ref);
-
-  if (ngtcp2_crypto_ossl_configure_server_session(ssl_ptr.get()) != 0) {
-    return td::Status::Error("ngtcp2_crypto_ossl_configure_server_session failed");
-  }
-  if (ngtcp2_crypto_ossl_ctx_new(&ossl_ctx, ssl_ptr.get()) != 0) {
-    return td::Status::Error("ngtcp2_crypto_ossl_ctx_new failed");
-  }
-
-  ssl_ctx = std::move(ssl_ctx_ptr);
-  ssl = std::move(ssl_ptr);
-  return td::Status::OK();
+  return finish_tls_setup(std::move(ssl_ptr), std::move(ssl_ctx_ptr), false);
 }
 
 td::Status QuicConnectionPImpl::init_quic_client() {

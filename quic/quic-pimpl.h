@@ -101,6 +101,10 @@ struct QuicConnectionPImpl {
  private:
   std::string alpn_wire_;
 
+  void setup_alpn_wire(td::Slice alpn);
+  [[nodiscard]] td::Status finish_tls_setup(openssl_ptr<SSL, &SSL_free> ssl_ptr,
+                                             openssl_ptr<SSL_CTX, &SSL_CTX_free> ssl_ctx_ptr, bool is_client);
+
   struct OutboundStreamState {
     std::deque<td::BufferSlice> chunks;
     uint64_t queued_bytes = 0;
