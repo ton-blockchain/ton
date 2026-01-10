@@ -15,16 +15,22 @@ namespace ton::quic {
 
 static constexpr ngtcp2_tstamp NGTCP2_TSTAMP_INF = std::numeric_limits<ngtcp2_tstamp>::max();
 
-static ngtcp2_tstamp to_ngtcp2_tstamp(double monotonic_sec) {
-  long double now_sec = static_cast<long double>(monotonic_sec);
-  if (now_sec <= 0) {
+static ngtcp2_tstamp to_ngtcp2_tstamp(td::Timestamp ts) {
+  if (ts.at() < 0) {
     return 0;
   }
-  long double ns = now_sec * 1000000000.0L;
-  if (ns >= static_cast<long double>(NGTCP2_TSTAMP_INF)) {
+  constexpr double MAX_SEC = static_cast<double>(NGTCP2_TSTAMP_INF - 1) / 1e9;
+  if (!ts || ts.at() >= MAX_SEC) {
     return NGTCP2_TSTAMP_INF;
   }
-  return static_cast<ngtcp2_tstamp>(ns);
+  return static_cast<ngtcp2_tstamp>(ts.at() * 1e9);
+}
+
+static td::Timestamp from_ngtcp2_tstamp(ngtcp2_tstamp ns) {
+  if (ns == NGTCP2_TSTAMP_INF) {
+    return td::Timestamp::never();
+  }
+  return td::Timestamp::at(static_cast<double>(ns) * 1e-9);
 }
 
 td::Status QuicConnectionPImpl::init_tls_client(td::Slice host, td::Slice alpn) {
@@ -496,27 +502,14 @@ td::Status QuicConnectionPImpl::write_stream(UdpMessageBuffer& msg_out, QuicStre
 }
 
 ngtcp2_tstamp QuicConnectionPImpl::now_ts() {
-  return to_ngtcp2_tstamp(td::Time::now());
+  return to_ngtcp2_tstamp(td::Timestamp::now());
 }
 
 td::Timestamp QuicConnectionPImpl::get_expiry_timestamp() const {
   if (!conn) {
     return td::Timestamp::never();
   }
-
-  auto expiry = ngtcp2_conn_get_expiry(conn);
-  if (expiry == NGTCP2_TSTAMP_INF) {
-    return td::Timestamp::never();
-  }
-
-  const double now_sec = td::Time::now();
-  const auto now_ng = to_ngtcp2_tstamp(now_sec);
-  const auto now_td = td::Timestamp::at(now_sec);
-  if (expiry <= now_ng) {
-    return now_td;
-  }
-  double in_sec = static_cast<double>(expiry - now_ng) * 1e-9;
-  return td::Timestamp::at(now_td.at() + in_sec);
+  return from_ngtcp2_tstamp(ngtcp2_conn_get_expiry(conn));
 }
 
 bool QuicConnectionPImpl::is_expired() const {
