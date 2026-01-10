@@ -9,6 +9,7 @@
 #include "td/utils/CancellationToken.h"
 
 #include "bus.h"
+#include "utils.h"
 
 namespace ton::validator::consensus {
 
@@ -57,7 +58,6 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
 
   void start_up() {
     auto& bus = *owning_bus();
-    max_answer_size_ = bus.config.max_block_size + bus.config.max_collated_data_size + 1024;
 
     last_mc_finalized_seqno_ = last_consensus_finalized_seqno_ = CandidateParent{bus, std::nullopt}.seqno();
   }
@@ -119,6 +119,9 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
 
     td::uint32 slot = event->start_slot;
 
+    std::vector<td::Ref<vm::Cell>> prev_block_state_roots = event->prev_block_state_roots;
+    std::vector<td::Ref<BlockData>> prev_block_data = event->prev_block_data;
+
     while (current_leader_window_ == window && slot < event->end_slot) {
       co_await td::actor::coro_sleep(target_time);
 
@@ -145,11 +148,24 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
         }
 
         // FIXME: What to do if collate_block suddenly fails?
-        auto block_candidate = co_await td::actor::ask(
-            bus.manager, &ManagerFacade::collate_block, bus.shard, bus.min_masterchain_block_id, parent.parent_blocks(),
-            Ed25519_PublicKey{bus.local_id.key.ed25519_value().raw()}, BlockCandidatePriority{}, max_answer_size_,
-            cancellation_source_.get_cancellation_token());
+        CollateParams params{
+            .shard = bus.shard,
+            .min_masterchain_block_id = bus.min_masterchain_block_id,
+            .prev = parent.parent_blocks(),
+            .creator = Ed25519_PublicKey{bus.local_id.key.ed25519_value().raw()},
+            .prev_block_data = prev_block_data,
+            .prev_block_state_roots = prev_block_state_roots,
+            .is_new_consensus = true,
+        };
+        auto block_candidate = co_await td::actor::ask(bus.manager, &ManagerFacade::collate_block, std::move(params),
+                                                       cancellation_source_.get_cancellation_token());
 
+        if (!prev_block_state_roots.empty()) {
+          auto [new_state_root, new_block_data] =
+              co_await apply_block_to_state(prev_block_state_roots, block_candidate.candidate);
+          prev_block_state_roots = {new_state_root};
+          prev_block_data = {new_block_data};
+        }
         hash_builder = CandidateHashData::create_full(block_candidate.candidate, parent.id());
         block = std::move(block_candidate.candidate);
         if (!block_candidate.collator_node_id.is_zero()) {
@@ -184,8 +200,6 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
 
   std::optional<td::uint32> current_leader_window_;
   td::CancellationTokenSource cancellation_source_;
-
-  td::uint64 max_answer_size_;
 
   BlockSeqno last_consensus_finalized_seqno_ = 0;
   BlockSeqno last_mc_finalized_seqno_ = 0;

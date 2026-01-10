@@ -12,9 +12,7 @@ namespace ton::validator::consensus {
 
 class ManagerFacade : public td::actor::Actor {
  public:
-  virtual td::actor::Task<GeneratedCandidate> collate_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
-                                                            std::vector<BlockIdExt> prev, Ed25519_PublicKey creator,
-                                                            BlockCandidatePriority priority, td::uint64 max_answer_size,
+  virtual td::actor::Task<GeneratedCandidate> collate_block(CollateParams params,
                                                             td::CancellationToken cancellation_token) = 0;
 
   virtual td::actor::Task<ValidateCandidateResult> validate_block_candidate(BlockCandidate candidate,
@@ -24,6 +22,9 @@ class ManagerFacade : public td::actor::Actor {
   virtual td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                                          td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode,
                                          bool apply) = 0;
+
+  virtual td::actor::Task<td::Ref<vm::Cell>> wait_block_state_root(BlockIdExt block_id, td::Timestamp timeout) = 0;
+  virtual td::actor::Task<td::Ref<BlockData>> wait_block_data(BlockIdExt block_id, td::Timestamp timeout) = 0;
 
   virtual void log_validator_session_stats(validatorsession::ValidatorSessionStats stats) {
   }

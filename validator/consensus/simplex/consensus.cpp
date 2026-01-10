@@ -142,28 +142,16 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   }
 
  private:
-  td::actor::Task<ParentId> resolve_parent(RawParentId parent) {
-    if (parent.has_value()) {
-      co_return co_await owning_bus().publish<ResolveCandidate>(*parent);
-    } else {
-      co_return std::nullopt;
-    }
-  }
-
   td::actor::Task<> start_generation(RawParentId raw_parent, td::uint32 start_slot) {
-    auto parent = co_await resolve_parent(raw_parent);
+    auto parent = co_await get_resolved_candidate(raw_parent);
     td::Timestamp start_time = td::Timestamp::now();
-    if (parent.has_value()) {
-      BlockCandidate parent_candidate({}, {}, {}, {}, {});  // TODO: Resolve candidate
-      auto r_gen_utime = get_candidate_gen_utime_exact(parent_candidate);
-      if (r_gen_utime.is_error()) {
-        LOG(WARNING) << "Cannot get exact timestamp of the previous block: " << r_gen_utime.move_as_error();
-      } else {
-        start_time = std::max(start_time, td::Timestamp::at_unix(r_gen_utime.move_as_ok() + target_rate_s_));
-        start_time = std::min(start_time, td::Timestamp::in(target_rate_s_));
-      }
+    if (parent.gen_utime_exact.has_value()) {
+      start_time = std::max(start_time, td::Timestamp::at_unix(*parent.gen_utime_exact + target_rate_s_));
+      start_time = std::min(start_time, td::Timestamp::in(target_rate_s_));
     }
-    owning_bus().publish<OurLeaderWindowStarted>(parent, start_slot, start_slot + slots_per_leader_window_, start_time);
+    owning_bus().publish<OurLeaderWindowStarted>(parent.id, start_slot, start_slot + slots_per_leader_window_,
+                                                 start_time, std::move(parent.state_roots),
+                                                 std::move(parent.block_data));
     co_return {};
   }
 
@@ -176,14 +164,15 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       co_return {};
     }
 
-    auto parent = co_await resolve_parent(candidate->parent_id);
-    if (candidate->parent_id != parent) {
+    auto parent = co_await get_resolved_candidate(candidate->parent_id);
+    if (candidate->parent_id != parent.id) {
       // FIXME: Report misbehavior
       co_return {};
     }
 
-    auto resolved_candidate = td::make_ref<Candidate>(parent, candidate);
-    auto validation_result = co_await owning_bus().publish<ValidationRequest>(resolved_candidate).wrap();
+    auto resolved_candidate = td::make_ref<Candidate>(parent.id, candidate);
+    auto validation_result =
+        co_await owning_bus().publish<ValidationRequest>(resolved_candidate, std::move(parent.state_roots)).wrap();
 
     if (validation_result.is_error()) {
       // FIXME: Report misbehavior
@@ -202,6 +191,83 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   std::optional<State> state_;
 
   std::multimap<td::Timestamp, td::uint32> skip_timeouts_;
+
+  struct ResolvedCandidate {
+    ParentId id;
+    std::vector<td::Ref<vm::Cell>> state_roots;
+    std::vector<td::Ref<BlockData>> block_data;
+    std::optional<double> gen_utime_exact = std::nullopt;
+  };
+  struct ResolvedCandidateEntry {
+    std::optional<ResolvedCandidate> result;
+    bool started = false;
+    std::vector<td::Promise<ResolvedCandidate>> promises;
+  };
+  std::map<RawParentId, ResolvedCandidateEntry> block_data_state_cache_;
+
+  td::actor::Task<ResolvedCandidate> get_resolved_candidate(RawParentId id) {
+    ResolvedCandidateEntry& entry = block_data_state_cache_[id];
+    if (entry.result.has_value()) {
+      co_return *entry.result;
+    }
+    auto [task, promise] = td::actor::StartedTask<ResolvedCandidate>::make_bridge();
+    entry.promises.push_back(std::move(promise));
+    if (!entry.started) {
+      entry.started = true;
+      auto result = co_await get_resolved_candidate_inner(id).wrap();
+      for (auto& p : entry.promises) {
+        p.set_result(result.clone());
+      }
+      entry.promises.clear();
+      if (result.is_ok()) {
+        entry.result = result.move_as_ok();
+      } else {
+        block_data_state_cache_.erase(id);
+      }
+    }
+    co_return co_await std::move(task);
+  }
+
+  td::actor::Task<ResolvedCandidate> get_resolved_candidate_inner(RawParentId id) {
+    if (!id.has_value()) {  // TODO: or block is finalized
+      std::vector<td::actor::StartedTask<td::Ref<vm::Cell>>> wait_state_root;
+      std::vector<td::actor::StartedTask<td::Ref<BlockData>>> wait_block_data;
+      for (const BlockIdExt& block_id : owning_bus()->first_block_parents) {
+        wait_state_root.push_back(td::actor::ask(owning_bus()->manager, &ManagerFacade::wait_block_state_root, block_id,
+                                                 td::Timestamp::in(10.0)));
+        if (block_id.seqno() != 0) {
+          wait_block_data.push_back(td::actor::ask(owning_bus()->manager, &ManagerFacade::wait_block_data, block_id,
+                                                   td::Timestamp::in(10.0)));
+        }
+      }
+      co_return ResolvedCandidate{
+          .id = std::nullopt,
+          .state_roots = co_await td::actor::all(std::move(wait_state_root)),
+          .block_data = co_await td::actor::all(std::move(wait_block_data)),
+      };
+    }
+
+    auto candidate = (co_await owning_bus().publish<ResolveCandidate>(*id)).candidate;
+    auto prev_data_state = co_await get_resolved_candidate(candidate->parent_id);
+    if (std::holds_alternative<BlockIdExt>(candidate->block)) {
+      prev_data_state.id = candidate->id;
+      co_return prev_data_state;
+    }
+    const auto& block_candidate = std::get<BlockCandidate>(candidate->block);
+    auto [new_state_root, new_block_data] = co_await apply_block_to_state(prev_data_state.state_roots, block_candidate);
+    ResolvedCandidate result{
+        .id = candidate->id,
+        .state_roots = {new_state_root},
+        .block_data = {new_block_data},
+    };
+    auto r_gen_utime_exact = get_candidate_gen_utime_exact(block_candidate);
+    if (r_gen_utime_exact.is_error()) {
+      LOG(WARNING) << "Cannot get exact timestamp of the previous block: " << r_gen_utime_exact.move_as_error();
+    } else {
+      result.gen_utime_exact = r_gen_utime_exact.move_as_ok();
+    }
+    co_return result;
+  }
 };
 
 }  // namespace

@@ -29,23 +29,14 @@ class ManagerFacadeImpl : public ManagerFacade {
       , opts_(std::move(opts)) {
   }
 
-  td::actor::Task<GeneratedCandidate> collate_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
-                                                    std::vector<BlockIdExt> prev, Ed25519_PublicKey creator,
-                                                    BlockCandidatePriority priority, td::uint64 max_answer_size,
+  td::actor::Task<GeneratedCandidate> collate_block(CollateParams params,
                                                     td::CancellationToken cancellation_token) override {
+    params.validator_set = validator_set_;
+    params.collator_opts = opts_->get_collator_options();
     // TODO: support accelerator (use CollationManager)
     auto [task, promise] = td::actor::StartedTask<BlockCandidate>::make_bridge();
-    run_collate_query(
-        CollateParams{
-            .shard = shard,
-            .min_masterchain_block_id = min_masterchain_block_id,
-            .prev = prev,
-            .creator = creator,
-            .validator_set = validator_set_,
-            .collator_opts = opts_->get_collator_options(),
-            .is_new_consensus = true,
-        },
-        manager_, td::Timestamp::in(10.0), std::move(cancellation_token), std::move(promise));
+    run_collate_query(std::move(params), manager_, td::Timestamp::in(10.0), std::move(cancellation_token),
+                      std::move(promise));
     auto candidate = co_await std::move(task);
     co_return GeneratedCandidate{.candidate = std::move(candidate), .self_collated = true};
   }
@@ -67,6 +58,16 @@ class ManagerFacadeImpl : public ManagerFacade {
     auto result = co_await std::move(task).wrap();
     LOG_CHECK(!result.is_error()) << "Failed to accept finalized block " << result.move_as_error();
     co_return {};
+  }
+
+  td::actor::Task<td::Ref<vm::Cell>> wait_block_state_root(BlockIdExt block_id, td::Timestamp timeout) override {
+    auto state =
+        co_await td::actor::ask(manager_, &ValidatorManager::wait_block_state_short, block_id, 0, timeout, false);
+    co_return state->root_cell();
+  }
+
+  td::actor::Task<td::Ref<BlockData>> wait_block_data(BlockIdExt block_id, td::Timestamp timeout) override {
+    co_return co_await td::actor::ask(manager_, &ValidatorManager::wait_block_data_short, block_id, 0, timeout);
   }
 
   void log_validator_session_stats(validatorsession::ValidatorSessionStats stats) override {

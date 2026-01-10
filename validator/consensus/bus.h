@@ -35,6 +35,10 @@ struct OurLeaderWindowStarted {
   td::uint32 end_slot;
   td::Timestamp start_time;
 
+  // Optional - if empty, get it from manager
+  std::vector<td::Ref<vm::Cell>> prev_block_state_roots = {};
+  std::vector<td::Ref<BlockData>> prev_block_data = {};
+
   std::string contents_to_string() const;
 };
 
@@ -65,6 +69,8 @@ struct ValidationRequest {
   using ReturnType = td::Unit;
 
   CandidateRef candidate;
+  // Optional - if empty, get it from manager
+  std::vector<td::Ref<vm::Cell>> prev_block_state_roots = {};
 
   std::string contents_to_string() const;
 };

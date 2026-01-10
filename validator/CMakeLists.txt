@@ -75,8 +75,6 @@ set(VALIDATOR_HEADERS
   validator-group.hpp
   validator-options.hpp
   validator.h
-
-  consensus/consensus-utils.h
 )
 set(VALIDATOR_SOURCE
   apply-block.cpp
@@ -124,7 +122,7 @@ set(VALIDATOR_SOURCE
   consensus/private-overlay.cpp
   consensus/stats-collector.cpp
   consensus/types.cpp
-  consensus/consensus-utils.cpp
+  consensus/utils.cpp
 
   ${VALIDATOR_HEADERS}
 )

@@ -147,14 +147,12 @@ class TestManagerFacade : public ManagerFacade {
       : node_idx_(node_idx), instance_idx_(instance_idx), test_consensus_(test_consensus) {
   }
 
-  td::actor::Task<GeneratedCandidate> collate_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
-                                                    std::vector<BlockIdExt> prev, Ed25519_PublicKey creator,
-                                                    BlockCandidatePriority priority, td::uint64 max_answer_size,
+  td::actor::Task<GeneratedCandidate> collate_block(CollateParams params,
                                                     td::CancellationToken cancellation_token) override {
-    LOG(WARNING) << "Collate block #" << prev[0].seqno() + 1;
-    CHECK(shard == SHARD);
-    CHECK(min_masterchain_block_id == MIN_MC_BLOCK_ID);
-    CHECK(prev.size() == 1);
+    LOG(WARNING) << "Collate block #" << params.prev[0].seqno() + 1;
+    CHECK(params.shard == SHARD);
+    CHECK(params.min_masterchain_block_id == MIN_MC_BLOCK_ID);
+    CHECK(params.prev.size() == 1);
 
     td::Bits256 rand_data;
     td::Random::secure_bytes(rand_data.as_slice());
@@ -171,9 +169,10 @@ class TestManagerFacade : public ManagerFacade {
     collated_roots.push_back(std::move(cell));
     td::BufferSlice collated_data = co_await vm::std_boc_serialize_multi(collated_roots, 2);
 
-    BlockCandidate candidate(
-        creator, BlockIdExt(BlockId(shard, prev[0].seqno() + 1), root->get_hash().bits(), td::sha256_bits256(data)),
-        td::sha256_bits256(collated_data), data.clone(), collated_data.clone());
+    BlockCandidate candidate(params.creator,
+                             BlockIdExt(BlockId(params.shard, params.prev[0].seqno() + 1), root->get_hash().bits(),
+                                        td::sha256_bits256(data)),
+                             td::sha256_bits256(collated_data), data.clone(), collated_data.clone());
     co_return GeneratedCandidate{.candidate = std::move(candidate), .is_cached = false, .self_collated = true};
   }
 
@@ -190,6 +189,16 @@ class TestManagerFacade : public ManagerFacade {
   td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                                  td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode,
                                  bool apply) override;
+
+  td::actor::Task<td::Ref<vm::Cell>> wait_block_state_root(BlockIdExt block_id, td::Timestamp timeout) override {
+    // TODO: make fake states
+    co_return td::Ref<vm::Cell>{};
+  }
+
+  td::actor::Task<td::Ref<BlockData>> wait_block_data(BlockIdExt block_id, td::Timestamp timeout) override {
+    // TODO: return previous blocks
+    co_return td::Ref<BlockData>{};
+  }
 
  private:
   size_t node_idx_;
