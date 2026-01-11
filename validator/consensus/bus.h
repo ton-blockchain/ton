@@ -33,6 +33,7 @@ struct OurLeaderWindowStarted {
   ParentId base;
   td::uint32 start_slot;
   td::uint32 end_slot;
+  td::Timestamp start_time;
 
   std::string contents_to_string() const;
 };

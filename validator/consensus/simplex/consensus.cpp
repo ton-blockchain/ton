@@ -5,6 +5,7 @@
  */
 
 #include "consensus/simplex/state.h"
+#include "consensus/utils.h"
 #include "td/actor/coro_utils.h"
 
 #include "bus.h"
@@ -151,7 +152,18 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
   td::actor::Task<> start_generation(RawParentId raw_parent, td::uint32 start_slot) {
     auto parent = co_await resolve_parent(raw_parent);
-    owning_bus().publish<OurLeaderWindowStarted>(parent, start_slot, start_slot + slots_per_leader_window_);
+    td::Timestamp start_time = td::Timestamp::now();
+    if (parent.has_value()) {
+      BlockCandidate parent_candidate({}, {}, {}, {}, {});  // TODO: Resolve candidate
+      auto r_gen_utime = get_candidate_gen_utime_exact(parent_candidate);
+      if (r_gen_utime.is_error()) {
+        LOG(WARNING) << "Cannot get exact timestamp of the previous block: " << r_gen_utime.move_as_error();
+      } else {
+        start_time = std::max(start_time, td::Timestamp::at_unix(r_gen_utime.move_as_ok() + target_rate_s_));
+        start_time = std::min(start_time, td::Timestamp::in(target_rate_s_));
+      }
+    }
+    owning_bus().publish<OurLeaderWindowStarted>(parent, start_slot, start_slot + slots_per_leader_window_, start_time);
     co_return {};
   }
 

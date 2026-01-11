@@ -113,7 +113,7 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
       co_return {};
     }
 
-    td::Timestamp target_time = td::Timestamp::now();
+    td::Timestamp target_time = event->start_time;
 
     CandidateParent parent{bus, event->base};
 

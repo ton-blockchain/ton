@@ -37,6 +37,7 @@ class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
         .min_masterchain_block_id = bus.min_masterchain_block_id,
         .prev = bus.convert_id_to_blocks(event->candidate->parent_id),
         .local_validator_id = bus.local_id.short_id,
+        .is_new_consensus = true,
     };
 
     owning_bus().publish<StatsTargetReached>(StatsTargetReached::ValidateStarted, slot);

@@ -160,7 +160,16 @@ class TestManagerFacade : public ManagerFacade {
     td::Random::secure_bytes(rand_data.as_slice());
     td::Ref<vm::Cell> root = vm::CellBuilder{}.store_bytes(rand_data.as_slice()).finalize_novm();
     td::BufferSlice data = vm::std_boc_serialize(root, 31).move_as_ok();
-    td::BufferSlice collated_data = {};
+
+    std::vector<td::Ref<vm::Cell>> collated_roots;
+    // consensus_extra_data#638eb292 flags:# gen_utime_ms:uint64 = ConsensusExtraData;
+    auto cell = vm::CellBuilder{}
+                    .store_long(0x638eb292, 32)
+                    .store_long(0, 32)
+                    .store_long((td::uint64)(td::Clocks::system() * 1000.0), 64)
+                    .finalize_novm();
+    collated_roots.push_back(std::move(cell));
+    td::BufferSlice collated_data = co_await vm::std_boc_serialize_multi(collated_roots, 2);
 
     BlockCandidate candidate(
         creator, BlockIdExt(BlockId(shard, prev[0].seqno() + 1), root->get_hash().bits(), td::sha256_bits256(data)),
@@ -175,7 +184,7 @@ class TestManagerFacade : public ManagerFacade {
     CHECK(params.prev[0].shard_full() == SHARD);
     CHECK(candidate.id.shard_full() == SHARD);
     CHECK(candidate.id.seqno() == params.prev[0].seqno() + 1);
-    co_return ValidateCandidateResult{(UnixTime)td::Clocks::system()};
+    co_return CandidateAccept{.ok_from_utime = td::Clocks::system()};
   }
 
   td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,

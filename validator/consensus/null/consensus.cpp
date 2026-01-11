@@ -116,7 +116,8 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
   void try_start_generation() {
     if (seen_handshakes_.size() == validator_count_ - 1) {
-      owning_bus().publish<OurLeaderWindowStarted>(std::nullopt, 0, std::numeric_limits<td::uint32>::max());
+      owning_bus().publish<OurLeaderWindowStarted>(std::nullopt, 0, std::numeric_limits<td::uint32>::max(),
+                                                   td::Timestamp::now());
     }
   }
 

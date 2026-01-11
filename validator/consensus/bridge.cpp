@@ -35,13 +35,17 @@ class ManagerFacadeImpl : public ManagerFacade {
                                                     td::CancellationToken cancellation_token) override {
     // TODO: support accelerator (use CollationManager)
     auto [task, promise] = td::actor::StartedTask<BlockCandidate>::make_bridge();
-    run_collate_query(CollateParams{.shard = shard,
-                                    .min_masterchain_block_id = min_masterchain_block_id,
-                                    .prev = prev,
-                                    .creator = creator,
-                                    .validator_set = validator_set_,
-                                    .collator_opts = opts_->get_collator_options()},
-                      manager_, td::Timestamp::in(10.0), std::move(cancellation_token), std::move(promise));
+    run_collate_query(
+        CollateParams{
+            .shard = shard,
+            .min_masterchain_block_id = min_masterchain_block_id,
+            .prev = prev,
+            .creator = creator,
+            .validator_set = validator_set_,
+            .collator_opts = opts_->get_collator_options(),
+            .is_new_consensus = true,
+        },
+        manager_, td::Timestamp::in(10.0), std::move(cancellation_token), std::move(promise));
     auto candidate = co_await std::move(task);
     co_return GeneratedCandidate{.candidate = std::move(candidate), .self_collated = true};
   }
