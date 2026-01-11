@@ -54,6 +54,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   template <>
   void handle(BusHandle, std::shared_ptr<const FinalizationObserved> event) {
     state_->notify_finalized(event->id.slot);
+    finalize_blocks(event).start().detach();
   }
 
   template <>
@@ -267,6 +268,56 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       result.gen_utime_exact = r_gen_utime_exact.move_as_ok();
     }
     co_return result;
+  }
+
+  std::set<RawCandidateId> finalized_blocks_;
+
+  td::actor::Task<> finalize_blocks(std::shared_ptr<const FinalizationObserved> event) {
+    RawCandidateId id = event->id;
+    RawCandidateRef first_candidate;
+    bool is_first_block = true;
+    while (!finalized_blocks_.contains(id)) {
+      finalized_blocks_.insert(id);
+      auto candidate = co_await owning_bus().publish<ResolveCandidate>(id);
+      if (first_candidate.is_null()) {
+        first_candidate = candidate.candidate;
+      }
+      if (std::holds_alternative<BlockCandidate>(candidate.candidate->block)) {
+        auto& bus = *owning_bus();
+        td::Ref<block::BlockSignatureSet> sig_set;
+        if (is_first_block) {
+          std::vector<BlockSignature> signatures;
+          for (const auto& s : event->certificate->signatures) {
+            signatures.emplace_back(bus.validator_set[s.validator.value()].short_id.tl(), s.signature.clone());
+          }
+          sig_set = block::BlockSignatureSet::create_simplex(
+              std::move(signatures), bus.cc_seqno, bus.validator_set_hash, bus.session_id, first_candidate->id.slot,
+              first_candidate->hash_data().to_tl());
+        } else {
+          std::vector<BlockSignature> signatures;
+          for (const auto& s : candidate.notar->signatures) {
+            signatures.emplace_back(bus.validator_set[s.validator.value()].short_id.tl(), s.signature.clone());
+          }
+          sig_set = block::BlockSignatureSet::create_simplex_approve(
+              std::move(signatures), bus.cc_seqno, bus.validator_set_hash, bus.session_id, candidate.candidate->id.slot,
+              candidate.candidate->hash_data().to_tl());
+        }
+        is_first_block = false;
+        ParentId parent_id = std::nullopt;
+        if (candidate.candidate->parent_id.has_value()) {
+          parent_id = (co_await owning_bus().publish<ResolveCandidate>(*candidate.candidate->parent_id)).candidate->id;
+        }
+        owning_bus().publish<BlockFinalized>(candidate.candidate, parent_id, std::move(sig_set)).detach();
+        if (owning_bus()->shard.is_masterchain()) {
+          break;
+        }
+      }
+      if (!candidate.candidate->parent_id.has_value()) {
+        break;
+      }
+      id = *candidate.candidate->parent_id;
+    }
+    co_return td::Unit{};
   }
 };
 

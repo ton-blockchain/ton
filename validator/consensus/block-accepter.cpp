@@ -24,7 +24,7 @@ class BlockAccepterImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
   td::actor::Task<> process(BusHandle, std::shared_ptr<BlockFinalized> event) {
     const auto& block = std::get<BlockCandidate>(event->candidate->block);
     auto block_data = create_block(block.id, block.data.clone()).move_as_ok();
-    auto block_parents = owning_bus()->convert_id_to_blocks(event->candidate->parent_id);
+    auto block_parents = owning_bus()->convert_id_to_blocks(event->parent_id);
 
     co_return co_await td::actor::ask(owning_bus()->manager, &ManagerFacade::accept_block, block.id, block_data,
                                       block_parents, event->signatures, fullnode::FullNode::broadcast_mode_public,
