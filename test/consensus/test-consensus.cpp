@@ -9,10 +9,13 @@
 #include "block/validator-set.h"
 #include "consensus/runtime.h"
 #include "consensus/simplex/bus.h"
+#include "consensus/utils.h"
 #include "td/actor/coro_utils.h"
 #include "td/utils/OptionParser.h"
 #include "td/utils/Random.h"
 #include "td/utils/port/signals.h"
+
+#include "block-auto.h"
 
 using namespace ton;
 using namespace ton::validator;
@@ -25,15 +28,18 @@ td::Bits256 from_hex(td::Slice s) {
   return x;
 }
 
-constexpr CatchainSeqno CC_SEQNO = 123;
-const BlockIdExt MIN_MC_BLOCK_ID{masterchainId, shardIdAll, 0,
-                                 from_hex("AAAAAAAABBBBBBBBCCCCCCCCDDDDDDDDAAAAAAAABBBBBBBBCCCCCCCCDDDDDDDD"),
-                                 from_hex("0123456012345601234560123456012345601234560123456777777701234567")};
-const td::Bits256 SESSION_ID = from_hex("00001234000012340000123400001234aaaaaaaabbbbbbbbcccccccceeeeeeee");
+td::Ref<vm::Cell> gen_shard_state(BlockSeqno seqno) {
+  return vm::CellBuilder().store_long(0xabcdabcdU, 32).store_long(seqno, 32).finalize_novm();
+}
+
+CatchainSeqno CC_SEQNO = 123;
+BlockIdExt MIN_MC_BLOCK_ID{masterchainId, shardIdAll, 0,
+                           from_hex("AAAAAAAABBBBBBBBCCCCCCCCDDDDDDDDAAAAAAAABBBBBBBBCCCCCCCCDDDDDDDD"),
+                           from_hex("0123456012345601234560123456012345601234560123456777777701234567")};
+td::Bits256 SESSION_ID = from_hex("00001234000012340000123400001234aaaaaaaabbbbbbbbcccccccceeeeeeee");
 
 ShardIdFull SHARD{basechainId, shardIdAll};
-BlockIdExt FIRST_PARENT{basechainId, shardIdAll, 0,
-                        from_hex("0000111122223333444455556666777788889999AAAABBBBCCCCDDDDEEEEFFFF"),
+BlockIdExt FIRST_PARENT{basechainId, shardIdAll, 0, td::Bits256(gen_shard_state(0)->get_hash().bits()),
                         from_hex("89abcde89abcde89abcde89abcde89abcde89abcde89abcdefffffff89abcdef")};
 
 double NET_PING_MIN = 0.05;
@@ -149,15 +155,34 @@ class TestManagerFacade : public ManagerFacade {
 
   td::actor::Task<GeneratedCandidate> collate_block(CollateParams params,
                                                     td::CancellationToken cancellation_token) override {
-    LOG(WARNING) << "Collate block #" << params.prev[0].seqno() + 1;
+    CHECK(params.prev.size() == 1);
+    uint32_t prev_seqno = params.prev[0].seqno();
+    LOG(WARNING) << "Collate block #" << prev_seqno + 1;
     CHECK(params.shard == SHARD);
     CHECK(params.min_masterchain_block_id == MIN_MC_BLOCK_ID);
-    CHECK(params.prev.size() == 1);
+
+    CHECK(params.prev_block_state_roots.size() == 1 &&
+          params.prev_block_state_roots[0]->get_hash() == gen_shard_state(prev_seqno)->get_hash());
+    if (prev_seqno != 0) {
+      CHECK(params.prev_block_data.size() == 1 && params.prev_block_data[0]->block_id() == params.prev[0]);
+    }
 
     td::Bits256 rand_data;
     td::Random::secure_bytes(rand_data.as_slice());
-    td::Ref<vm::Cell> root = vm::CellBuilder{}.store_bytes(rand_data.as_slice()).finalize_novm();
-    td::BufferSlice data = vm::std_boc_serialize(root, 31).move_as_ok();
+    td::Ref<vm::Cell> block_info = vm::CellBuilder{}.store_bytes(rand_data.as_slice()).finalize_novm();
+    td::Ref<vm::Cell> value_flow = vm::CellBuilder{}.finalize_novm();
+    td::Ref<vm::Cell> merkle_update =
+        vm::CellBuilder::create_merkle_update(gen_shard_state(prev_seqno), gen_shard_state(prev_seqno + 1));
+    td::Ref<vm::Cell> block_extra = vm::CellBuilder{}.finalize_novm();
+    td::Ref<vm::Cell> block_root = vm::CellBuilder{}
+                                       .store_long(0x11ef55aa, 32)
+                                       .store_long(-111, 32)
+                                       .store_ref(block_info)
+                                       .store_ref(value_flow)
+                                       .store_ref(merkle_update)
+                                       .store_ref(block_extra)
+                                       .finalize_novm();
+    td::BufferSlice data = vm::std_boc_serialize(block_root, 31).move_as_ok();
 
     std::vector<td::Ref<vm::Cell>> collated_roots;
     // consensus_extra_data#638eb292 flags:# gen_utime_ms:uint64 = ConsensusExtraData;
@@ -169,36 +194,32 @@ class TestManagerFacade : public ManagerFacade {
     collated_roots.push_back(std::move(cell));
     td::BufferSlice collated_data = co_await vm::std_boc_serialize_multi(collated_roots, 2);
 
-    BlockCandidate candidate(params.creator,
-                             BlockIdExt(BlockId(params.shard, params.prev[0].seqno() + 1), root->get_hash().bits(),
-                                        td::sha256_bits256(data)),
-                             td::sha256_bits256(collated_data), data.clone(), collated_data.clone());
+    BlockCandidate candidate(
+        params.creator,
+        BlockIdExt(BlockId(params.shard, prev_seqno + 1), block_root->get_hash().bits(), td::sha256_bits256(data)),
+        td::sha256_bits256(collated_data), data.clone(), collated_data.clone());
     co_return GeneratedCandidate{.candidate = std::move(candidate), .is_cached = false, .self_collated = true};
   }
 
   td::actor::Task<ValidateCandidateResult> validate_block_candidate(BlockCandidate candidate, ValidateParams params,
                                                                     td::Timestamp timeout) override {
-    LOG(WARNING) << "Validate block #" << candidate.id.seqno();
     CHECK(params.prev.size() == 1);
+    uint32_t prev_seqno = params.prev[0].seqno();
+    LOG(WARNING) << "Validate block #" << candidate.id.seqno();
     CHECK(params.prev[0].shard_full() == SHARD);
     CHECK(candidate.id.shard_full() == SHARD);
-    CHECK(candidate.id.seqno() == params.prev[0].seqno() + 1);
-    co_return CandidateAccept{.ok_from_utime = td::Clocks::system()};
+    CHECK(candidate.id.seqno() == prev_seqno + 1);
+    CHECK(params.prev_block_state_roots.size() == 1 &&
+          params.prev_block_state_roots[0]->get_hash() == gen_shard_state(prev_seqno)->get_hash());
+    co_return CandidateAccept{.ok_from_utime = co_await get_candidate_gen_utime_exact(candidate)};
   }
 
   td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                                  td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode,
                                  bool apply) override;
 
-  td::actor::Task<td::Ref<vm::Cell>> wait_block_state_root(BlockIdExt block_id, td::Timestamp timeout) override {
-    // TODO: make fake states
-    co_return td::Ref<vm::Cell>{};
-  }
-
-  td::actor::Task<td::Ref<BlockData>> wait_block_data(BlockIdExt block_id, td::Timestamp timeout) override {
-    // TODO: return previous blocks
-    co_return td::Ref<BlockData>{};
-  }
+  td::actor::Task<td::Ref<vm::Cell>> wait_block_state_root(BlockIdExt block_id, td::Timestamp timeout) override;
+  td::actor::Task<td::Ref<BlockData>> wait_block_data(BlockIdExt block_id, td::Timestamp timeout) override;
 
  private:
   size_t node_idx_;
@@ -231,8 +252,9 @@ class TestConsensus : public td::actor::Actor {
     std::exit(0);
   }
 
-  td::actor::Task<> on_block_accepted(size_t node_idx, size_t instance_idx, BlockIdExt block_id,
+  td::actor::Task<> on_block_accepted(size_t node_idx, size_t instance_idx, td::Ref<BlockData> block,
                                       td::Ref<block::BlockSignatureSet> signatures) {
+    BlockIdExt block_id = block->block_id();
     if (signatures->is_final()) {
       signatures->check_signatures(validator_set_, block_id).ensure();
     } else {
@@ -241,9 +263,9 @@ class TestConsensus : public td::actor::Actor {
     }
     BlockSeqno seqno = block_id.seqno();
     if (accepted_blocks_.contains(seqno)) {
-      LOG_CHECK(accepted_blocks_[seqno] == block_id) << "Accepted different blocks for seqno " << seqno;
+      LOG_CHECK(accepted_blocks_[seqno]->block_id() == block_id) << "Accepted different blocks for seqno " << seqno;
     } else {
-      accepted_blocks_[seqno] = block_id;
+      accepted_blocks_[seqno] = block;
 
       for (Node &node : nodes_) {
         for (Instance &inst : node.instances) {
@@ -256,6 +278,24 @@ class TestConsensus : public td::actor::Actor {
       LOG(FATAL) << "Node " << node_idx << "." << instance_idx << " accepted block #" << seqno << " twice";
     }
     co_return td::Unit{};
+  }
+
+  td::actor::Task<td::Ref<vm::Cell>> wait_block_state_root(BlockIdExt block_id) {
+    if (block_id == FIRST_PARENT) {
+      co_return gen_shard_state(block_id.seqno());
+    }
+    auto it = accepted_blocks_.find(block_id.seqno());
+    CHECK(it != accepted_blocks_.end());
+    CHECK(it->second->block_id() == block_id);
+    co_return gen_shard_state(block_id.seqno());
+  }
+
+  td::actor::Task<td::Ref<BlockData>> wait_block_data(BlockIdExt block_id) {
+    CHECK(block_id != FIRST_PARENT);
+    auto it = accepted_blocks_.find(block_id.seqno());
+    CHECK(it != accepted_blocks_.end());
+    CHECK(it->second->block_id() == block_id);
+    co_return it->second;
   }
 
  private:
@@ -394,7 +434,7 @@ class TestConsensus : public td::actor::Actor {
 
   td::actor::ActorOwn<keyring::Keyring> keyring_;
 
-  std::map<BlockSeqno, BlockIdExt> accepted_blocks_;
+  std::map<BlockSeqno, td::Ref<BlockData>> accepted_blocks_;
 };
 
 td::actor::Task<> TestManagerFacade::accept_block(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
@@ -403,8 +443,19 @@ td::actor::Task<> TestManagerFacade::accept_block(BlockIdExt id, td::Ref<BlockDa
   CHECK(id.shard_full() == SHARD);
   LOG(WARNING) << "Accept block #" << id.seqno() << " (" << (signatures->is_final() ? "final" : "notarize")
                << " signatures)";
-  td::actor::ask(test_consensus_, &TestConsensus::on_block_accepted, node_idx_, instance_idx_, id, signatures).detach();
+  CHECK(id == data->block_id());
+  td::actor::ask(test_consensus_, &TestConsensus::on_block_accepted, node_idx_, instance_idx_, data, signatures)
+      .detach();
   co_return td::Unit{};
+}
+
+td::actor::Task<td::Ref<vm::Cell>> TestManagerFacade::wait_block_state_root(BlockIdExt block_id,
+                                                                            td::Timestamp timeout) {
+  co_return co_await td::actor::ask(test_consensus_, &TestConsensus::wait_block_state_root, block_id);
+}
+
+td::actor::Task<td::Ref<BlockData>> TestManagerFacade::wait_block_data(BlockIdExt block_id, td::Timestamp timeout) {
+  co_return co_await td::actor::ask(test_consensus_, &TestConsensus::wait_block_data, block_id);
 }
 
 }  // namespace
@@ -432,7 +483,9 @@ int main(int argc, char *argv[]) {
   });
   p.add_option('m', "masterchain", "masterchain consensus (default is shardchain)", [&]() {
     SHARD = ShardIdFull{masterchainId};
-    FIRST_PARENT = MIN_MC_BLOCK_ID;
+    FIRST_PARENT.id.workchain = masterchainId;
+    FIRST_PARENT.id.shard = shardIdAll;
+    MIN_MC_BLOCK_ID = FIRST_PARENT;
   });
   p.add_checked_option('n', "n-nodes", "number of nodes (default: 8)", [&](td::Slice arg) {
     TRY_RESULT_ASSIGN(N_NODES, td::to_integer_safe<td::uint32>(arg));
