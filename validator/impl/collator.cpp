@@ -85,6 +85,8 @@ Collator::Collator(CollateParams params, td::actor::ActorId<ValidatorManager> ma
     , collator_node_id_(params.collator_node_id)
     , skip_store_candidate_(params.skip_store_candidate)
     , optimistic_prev_block_(std::move(params.optimistic_prev_block))
+    , preloaded_prev_block_data_(std::move(params.prev_block_data))
+    , preloaded_prev_block_state_roots_(std::move(params.prev_block_state_roots))
     , attempt_idx_(params.attempt_idx)
     , perf_timer_("collate", 0.1,
                   [manager](double duration) {
@@ -297,30 +299,43 @@ void Collator::start_up() {
  * Load previous states and blocks from DB
  */
 void Collator::load_prev_states_blocks() {
+  CHECK(preloaded_prev_block_data_.empty() || preloaded_prev_block_data_.size() == prev_blocks.size());
+  CHECK(preloaded_prev_block_state_roots_.empty() || preloaded_prev_block_state_roots_.size() == prev_blocks.size());
   for (int i = 0; (unsigned)i < prev_blocks.size(); i++) {
     // 3.1. load state
-    LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
     ++pending;
-    auto token = perf_log_.start_action(PSTRING() << "wait_block_state #" << i);
-    td::actor::send_closure_later(
-        manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(), timeout, false,
-        [self = get_self(), i, token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
-          LOG(DEBUG) << "got answer to wait_block_state query #" << i;
-          td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_state, i, std::move(res),
-                                        std::move(token));
-        });
-    if (prev_blocks[i].seqno()) {
-      // 3.2. load block
-      LOG(DEBUG) << "sending wait_block_data() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
-      ++pending;
-      auto token = perf_log_.start_action(PSTRING() << "wait_block_data #" << i);
+    if (preloaded_prev_block_state_roots_.empty()) {
+      LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
+      auto token = perf_log_.start_action(PSTRING() << "wait_block_state #" << i);
       td::actor::send_closure_later(
-          manager, &ValidatorManager::wait_block_data_short, prev_blocks[i], priority(), timeout,
-          [self = get_self(), i, token = std::move(token)](td::Result<Ref<BlockData>> res) mutable {
-            LOG(DEBUG) << "got answer to wait_block_data query #" << i;
-            td::actor::send_closure_later(std::move(self), &Collator::after_get_block_data, i, std::move(res),
+          manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(), timeout, false,
+          [self = get_self(), i, token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
+            LOG(DEBUG) << "got answer to wait_block_state query #" << i;
+            td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_state, i, std::move(res),
                                           std::move(token));
           });
+    } else {
+      td::actor::send_closure_later(actor_id(this), &Collator::after_get_shard_state, i,
+                                    validator::create_shard_state(prev_blocks[i], preloaded_prev_block_state_roots_[i]),
+                                    td::PerfLogAction{});
+    }
+    if (prev_blocks[i].seqno()) {
+      // 3.2. load block
+      ++pending;
+      if (preloaded_prev_block_data_.empty()) {
+        LOG(DEBUG) << "sending wait_block_data() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
+        auto token = perf_log_.start_action(PSTRING() << "wait_block_data #" << i);
+        td::actor::send_closure_later(
+            manager, &ValidatorManager::wait_block_data_short, prev_blocks[i], priority(), timeout,
+            [self = get_self(), i, token = std::move(token)](td::Result<Ref<BlockData>> res) mutable {
+              LOG(DEBUG) << "got answer to wait_block_data query #" << i;
+              td::actor::send_closure_later(std::move(self), &Collator::after_get_block_data, i, std::move(res),
+                                            std::move(token));
+            });
+      } else {
+        td::actor::send_closure_later(actor_id(this), &Collator::after_get_block_data, i, preloaded_prev_block_data_[i],
+                                      td::PerfLogAction{});
+      }
     }
   }
 }

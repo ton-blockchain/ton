@@ -84,6 +84,7 @@ ValidateQuery::ValidateQuery(BlockCandidate candidate, ValidateParams params,
     , shard_pfx_(shard_.shard)
     , shard_pfx_len_(ton::shard_prefix_length(shard_))
     , optimistic_prev_block_(std::move(params.optimistic_prev_block))
+    , preloaded_prev_block_state_roots_(std::move(params.prev_block_state_roots))
     , perf_timer_("validateblock", 0.1, [manager](double duration) {
       send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
     }) {
@@ -429,18 +430,25 @@ void ValidateQuery::start_up() {
  * Load previous states from DB
  */
 void ValidateQuery::load_prev_states() {
+  CHECK(preloaded_prev_block_state_roots_.empty() || preloaded_prev_block_state_roots_.size() == prev_blocks.size());
   for (int i = 0; (unsigned)i < prev_blocks.size(); i++) {
     // 4.1. load state
-    LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
     ++pending;
-    td::actor::send_closure_later(
-        manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(), timeout, false,
-        [self = get_self(), i, token = perf_log_.start_action(PSTRING() << "wait_block_state #" << i)](
-            td::Result<Ref<ShardState>> res) mutable {
-          LOG(DEBUG) << "got answer to wait_block_state_short query #" << i;
-          td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_shard_state, i, std::move(res),
-                                        std::move(token));
-        });
+    if (preloaded_prev_block_state_roots_.empty()) {
+      LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
+      td::actor::send_closure_later(
+          manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(), timeout, false,
+          [self = get_self(), i, token = perf_log_.start_action(PSTRING() << "wait_block_state #" << i)](
+              td::Result<Ref<ShardState>> res) mutable {
+            LOG(DEBUG) << "got answer to wait_block_state_short query #" << i;
+            td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_shard_state, i, std::move(res),
+                                          std::move(token));
+          });
+    } else {
+      td::actor::send_closure_later(actor_id(this), &ValidateQuery::after_get_shard_state, i,
+                                    create_shard_state(prev_blocks[i], preloaded_prev_block_state_roots_[i]),
+                                    td::PerfLogAction{});
+    }
   }
 }
 

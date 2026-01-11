@@ -42,6 +42,11 @@ struct CollateParams {
 
   // Optional - used for optimistic collation
   Ref<BlockData> optimistic_prev_block = {};
+
+  // Optional - if empty, blocks and states are taken from manager
+  // If not empty, should be the same size as prev
+  std::vector<Ref<BlockData>> prev_block_data = {};
+  std::vector<Ref<vm::Cell>> prev_block_state_roots = {};
 };
 
 struct ValidateParams {
@@ -57,6 +62,10 @@ struct ValidateParams {
   Ref<BlockData> optimistic_prev_block = {};
 
   bool parallel_validation = false;
+
+  // Optional - if empty, states are taken from manager
+  // If not empty, should be the same size as prev
+  std::vector<Ref<vm::Cell>> prev_block_state_roots = {};
 };
 
 td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_,
