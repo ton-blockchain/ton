@@ -76,6 +76,11 @@ class Bus : public consensus::Bus {
   double max_backoff_delay_s = 100;
   double timeout_increase_factor = 1.05;
   double standstill_timeout_s = 10;
+
+  // Candidate resolution timeout settings
+  double candidate_resolve_initial_timeout_s = 0.5;
+  double candidate_resolve_timeout_multiplier = 1.5;
+  double candidate_resolve_max_timeout_s = 30.0;
 };
 
 using BusHandle = runtime::BusHandle<Bus>;

@@ -4,11 +4,85 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
+#include "td/utils/Random.h"
+
 #include "bus.h"
 
 namespace ton::validator::consensus::simplex {
 
+namespace tl {
+
+using candidateAndCert = ton_api::consensus_simplex_candidateAndCert;
+using CandidateAndCertRef = tl_object_ptr<candidateAndCert>;
+
+using requestCandidate = ton_api::consensus_simplex_requestCandidate;
+using RequestCandidateRef = tl_object_ptr<requestCandidate>;
+
+}  // namespace tl
+
 namespace {
+using BlockSignatureSetRef = td::Ref<block::BlockSignatureSet>;
+
+struct CandidateAndCert {
+  static td::Result<CandidateAndCert> from_tl(tl::candidateAndCert &&entry, const tl::requestCandidate &request,
+                                              const Bus &bus) {
+    if (!entry.candidate_.empty() && !request.want_candidate_) {
+      return td::Status::Error("Candidate was not requested but was provided");
+    }
+    if (!entry.notar_.empty() && !request.want_notar_) {
+      return td::Status::Error("Notar cert was not requested but was provided");
+    }
+
+    auto id = RawCandidateId::from_tl(request.id_);
+    CandidateAndCert result;
+
+    if (!entry.candidate_.empty()) {
+      TRY_RESULT(candidate, RawCandidate::deserialize(entry.candidate_, bus));
+      if (candidate->id != id) {
+        return td::Status::Error("Candidate id mismatch");
+      }
+      result.candidate = candidate;
+    }
+    if (!entry.notar_.empty()) {
+      auto vote = NotarizeVote{id};
+      TRY_RESULT(signatures, fetch_tl_object<tl::voteSignatureSet>(entry.notar_, true));
+      TRY_RESULT_ASSIGN(result.notar_cert, NotarCert::from_tl(std::move(*signatures), vote, bus));
+    }
+    return result;
+  }
+
+  tl::CandidateAndCertRef to_tl(const tl::requestCandidate &request) {
+    auto id = RawCandidateId::from_tl(request.id_);
+
+    td::BufferSlice serialized_candidate;
+    if (request.want_candidate_ && candidate.has_value()) {
+      CHECK((*candidate)->id == id);
+      serialized_candidate = (*candidate)->serialize();
+    }
+
+    td::BufferSlice serialized_notar;
+    if (request.want_notar_ && notar_cert.has_value()) {
+      serialized_notar = serialize_tl_object((*notar_cert)->to_tl_vote_signature_set(), true);
+    }
+
+    return create_tl_object<tl::candidateAndCert>(std::move(serialized_candidate), std::move(serialized_notar));
+  }
+
+  void merge(const CandidateAndCert &other) {
+    if (!candidate.has_value() && other.candidate.has_value()) {
+      candidate = other.candidate;
+    }
+    if (!notar_cert.has_value() && other.notar_cert.has_value()) {
+      notar_cert = other.notar_cert;
+    }
+  }
+
+  std::optional<RawCandidateRef> candidate = std::nullopt;
+  std::optional<NotarCertRef> notar_cert = std::nullopt;
+};
+
+struct BlockchainState;
+using BlockchainStateRef = td::Ref<BlockchainState>;
 
 class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
  public:
@@ -21,136 +95,121 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
 
   template <>
   void handle(BusHandle, std::shared_ptr<const CandidateReceived> event) {
-    cache_[event->candidate->id].candidate = event->candidate;
+    auto &state = resolve_states_[event->candidate->id];
+    state.data.candidate.emplace(event->candidate);
   }
 
   template <>
   void handle(BusHandle, std::shared_ptr<const NotarizationObserved> event) {
-    cache_[event->id].notar_cert.emplace(event->certificate);
+    auto &state = resolve_states_[event->id];
+    state.data.notar_cert.emplace(event->certificate);
   }
 
   template <>
-  void handle(BusHandle, std::shared_ptr<const FinalizationObserved> event) {
-    cache_[event->id].final_cert.emplace(event->certificate);
-    last_staging_finalized_block_ = event->id;
-    next_non_staging_finalized_slot_ = event->id.slot + 1;
-    maybe_true_finalize().start().detach();
+  td::actor::Task<ProtocolMessage> process(BusHandle, std::shared_ptr<IncomingOverlayRequest> event) {
+    auto request = co_await fetch_tl_object<tl::requestCandidate>(event->request.data, true);
+    auto id = RawCandidateId::from_tl(request->id_);
+
+    auto it = resolve_states_.find(id);
+    if (it == resolve_states_.end()) {
+      co_return ProtocolMessage{CandidateAndCert{}.to_tl(*request)};
+    }
+    co_return ProtocolMessage{it->second.data.to_tl(*request)};
   }
 
   template <>
-  td::actor::Task<CandidateId> process(BusHandle, std::shared_ptr<ResolveCandidate> request) {
-    if (request->id.slot + 1 < next_non_staging_finalized_slot_) {
-      co_return td::Status::Error("Slot is already finalized");
-    }
-    if (request->id.slot + 1 == next_non_true_finalized_slot_) {
-      auto candidate = last_true_finalized_block_.value();
-      CHECK(candidate == request->id);
-      co_return candidate;
-    }
-    co_return (co_await get(request->id)).candidate->id;
-  }
+  td::actor::Task<ResolveCandidate::Result> process(BusHandle bus, std::shared_ptr<ResolveCandidate> request) {
+    ResolveState &state = resolve_states_[request->id];
 
- private:
-  using NotarCertRef = CertificateRef<NotarizeVote>;
-  using FinalCertRef = CertificateRef<FinalizeVote>;
-
-  struct Entry {
-    std::optional<RawCandidateRef> candidate = std::nullopt;
-    std::optional<NotarCertRef> notar_cert = std::nullopt;
-    std::optional<FinalCertRef> final_cert = std::nullopt;
-  };
-
-  struct CandidateAndNotarCert {
-    RawCandidateRef candidate;
-    NotarCertRef notar_cert;
-  };
-
-  td::actor::Task<CandidateAndNotarCert> get(RawCandidateId candidate) {
-    if (auto it = cache_.find(candidate); it != cache_.end()) {
-      if (it->second.candidate.has_value() && it->second.notar_cert.has_value()) {
-        co_return {
-            .candidate = it->second.candidate.value(),
-            .notar_cert = it->second.notar_cert.value(),
-        };
-      }
+    if (state.result.has_value()) {
+      co_return *state.result;
     }
 
-    co_return td::Status::Error("TODO: should request candidate from other node");
-  }
+    auto [task, promise] = td::actor::StartedTask<ResolveCandidate::Result>::make_bridge();
+    state.promises.push_back(std::move(promise));
 
-  td::actor::Task<> maybe_true_finalize() {
-    if (is_true_finalize_running_) {
-      co_return {};
+    if (state.started) {
+      co_return co_await std::move(task);
     }
-    is_true_finalize_running_ = true;
-    auto result = co_await maybe_true_finalize_inner().wrap();
-    // NOTE: This is not SCOPE_EXIT as capturing this in a destructor is potentially use-after-free.
-    is_true_finalize_running_ = false;
+
+    state.started = true;
+    auto result = co_await resolve_candidate_inner(bus, request->id);
+
+    for (auto &p : state.promises) {
+      auto result_copy = result;
+      p.set_value(std::move(result_copy));
+    }
+    state.promises.clear();
+    state.result = result;
+
     co_return result;
   }
 
-  td::actor::Task<> maybe_true_finalize_inner() {
-    while (last_staging_finalized_block_ != last_true_finalized_block_) {
-      CHECK(next_non_true_finalized_slot_ < next_non_staging_finalized_slot_);
-      co_await true_finalize_up_to(last_staging_finalized_block_.value());
-    }
-    co_return {};
-  }
+ private:
+  td::actor::Task<ResolveCandidate::Result> resolve_candidate_inner(BusHandle bus, RawCandidateId id) {
+    ResolveState &state = resolve_states_[id];
+    double timeout_s = bus->candidate_resolve_initial_timeout_s;
 
-  td::actor::Task<> true_finalize_up_to(RawCandidateId block_to_finalize) {
-    std::vector<CandidateAndNotarCert> sequence;
-    RawParentId next_block = block_to_finalize;
-    while (next_block != last_true_finalized_block_) {
-      CHECK(next_block.has_value() && next_block->slot >= next_non_true_finalized_slot_);
-      sequence.push_back(co_await get(next_block.value()));
-      next_block = sequence.back().candidate->parent_id;
-    }
+    while (true) {
+      if (state.is_complete()) {
+        co_return ResolveCandidate::Result{*state.data.candidate, *state.data.notar_cert};
+      }
 
-    auto last_candidate = sequence.front().candidate;
-    auto last_final_cert = *cache_[block_to_finalize].final_cert;
-    auto last_signature_set = last_final_cert->to_signature_set(last_candidate, *owning_bus());
+      auto request_tl = state.make_request(id);
+      ProtocolMessage request{serialize_tl_object(request_tl, true)};
 
-    ParentId parent = last_true_finalized_block_;
-    for (size_t i = sequence.size(); i--;) {
-      auto& [candidate, notar_cert] = sequence[i];
-      if (std::holds_alternative<BlockCandidate>(candidate->block)) {
-        td::Ref<block::BlockSignatureSet> cert;
-        if (last_candidate->id.block == candidate->id.block) {
-          cert = last_signature_set;
-        } else {
-          cert = notar_cert->to_signature_set(candidate, *owning_bus());
+      size_t peer_idx = td::Random::fast(0, static_cast<int>(bus->validator_set.size()) - 1);
+      PeerValidatorId peer{peer_idx};
+
+      if (peer == bus->local_id.idx) {
+        peer_idx = (peer_idx + 1) % bus->validator_set.size();
+        peer = PeerValidatorId{peer_idx};
+      }
+
+      auto timeout_at = td::Timestamp::in(timeout_s);
+      auto maybe_response = co_await bus.publish<OutgoingOverlayRequest>(peer, timeout_at, std::move(request)).wrap();
+
+      if (maybe_response.is_ok()) {
+        auto response = maybe_response.move_as_ok();
+        auto response_tl_r = fetch_tl_object<tl::candidateAndCert>(response.data, true);
+        if (response_tl_r.is_ok()) {
+          auto data_r = CandidateAndCert::from_tl(std::move(*response_tl_r.move_as_ok()), *request_tl, *bus);
+          if (data_r.is_ok()) {
+            state.data.merge(data_r.move_as_ok());
+
+            if (state.is_complete()) {
+              co_return ResolveCandidate::Result{*state.data.candidate, *state.data.notar_cert};
+            }
+          }
         }
-        auto resolved_candidate = td::make_ref<Candidate>(parent, candidate);
-        co_await owning_bus().publish<BlockFinalized>(resolved_candidate, cert);
       }
 
-      last_true_finalized_block_ = candidate->id;
-      next_non_true_finalized_slot_ = candidate->id.slot + 1;
-      while (!cache_.empty() && cache_.begin()->first.slot < next_non_true_finalized_slot_) {
-        cache_.erase(cache_.begin());
-      }
-
-      parent = candidate->id;
+      timeout_s = std::min(timeout_s * bus->candidate_resolve_timeout_multiplier, bus->candidate_resolve_max_timeout_s);
     }
-
-    CHECK(block_to_finalize == last_true_finalized_block_);
-    co_return {};
   }
 
-  std::map<RawCandidateId, Entry> cache_;
+  struct ResolveState {
+    CandidateAndCert data;
+    bool started = false;
+    std::optional<ResolveCandidate::Result> result;
+    std::vector<td::Promise<ResolveCandidate::Result>> promises;
 
-  RawParentId last_staging_finalized_block_;
-  td::uint32 next_non_staging_finalized_slot_ = 0;
+    bool is_complete() const {
+      return data.candidate.has_value() && data.notar_cert.has_value();
+    }
 
-  ParentId last_true_finalized_block_;
-  td::uint32 next_non_true_finalized_slot_ = 0;
+    tl::RequestCandidateRef make_request(const RawCandidateId &id) const {
+      return create_tl_object<tl::requestCandidate>(id.to_tl(), !data.candidate.has_value(),
+                                                    !data.notar_cert.has_value());
+    }
+  };
 
-  bool is_true_finalize_running_ = false;
+  std::map<RawCandidateId, ResolveState> resolve_states_;
 };
 
 }  // namespace
 
-void CandidateResolver::register_in(runtime::Runtime& runtime) {
+void CandidateResolver::register_in(runtime::Runtime &runtime) {
   runtime.register_actor<CandidateResolverImpl>("CandidateResolver");
 }
 

@@ -1194,3 +1194,8 @@ consensus.simplex.vote vote:consensus.simplex.UnsignedVote signature:bytes = con
 consensus.simplex.voteSignature who:int signature:bytes = consensus.simplex.VoteSignature;
 consensus.simplex.voteSignatureSet votes:(vector consensus.simplex.VoteSignature) = consensus.simplex.VoteSignatureSet;
 consensus.simplex.certificate vote:consensus.simplex.UnsignedVote signatures:consensus.simplex.VoteSignatureSet = consensus.simplex.Certificate;
+
+consensus.simplex.candidateAndCert candidate:bytes notar:bytes = consensus.simplex.CandidateAndCert;
+
+---functions---
+consensus.simplex.requestCandidate id:consensus.CandidateId want_candidate:Bool want_notar:Bool = consensus.simplex.CandidateAndCert;
