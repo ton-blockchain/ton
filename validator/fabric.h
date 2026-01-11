@@ -47,6 +47,8 @@ struct CollateParams {
   // If not empty, should be the same size as prev
   std::vector<Ref<BlockData>> prev_block_data = {};
   std::vector<Ref<vm::Cell>> prev_block_state_roots = {};
+
+  bool is_new_consensus = false;
 };
 
 struct ValidateParams {
@@ -55,13 +57,14 @@ struct ValidateParams {
   std::vector<BlockIdExt> prev;
   td::Ref<block::ValidatorSet> validator_set = {};
   PublicKeyHash local_validator_id = PublicKeyHash::zero();
-  ;
+
   bool is_fake = false;
 
   // Optional - used for validation of optimistic candidates
   Ref<BlockData> optimistic_prev_block = {};
 
   bool parallel_validation = false;
+  bool is_new_consensus = false;
 
   // Optional - if empty, states are taken from manager
   // If not empty, should be the same size as prev

@@ -85,6 +85,7 @@ ValidateQuery::ValidateQuery(BlockCandidate candidate, ValidateParams params,
     , shard_pfx_len_(ton::shard_prefix_length(shard_))
     , optimistic_prev_block_(std::move(params.optimistic_prev_block))
     , preloaded_prev_block_state_roots_(std::move(params.prev_block_state_roots))
+    , is_new_consensus_(params.is_new_consensus)
     , perf_timer_("validateblock", 0.1, [manager](double duration) {
       send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
     }) {
@@ -241,7 +242,8 @@ void ValidateQuery::finish_query() {
   if (main_promise) {
     record_stats(true);
     LOG(WARNING) << "validate query done";
-    main_promise.set_result(now_);
+    double ok_from_utime = now_ms_ ? (double)now_ms_.value() / 1000.0 : (double)now_;
+    main_promise.set_result(CandidateAccept{.ok_from_utime = ok_from_utime});
   }
   stop();
 }
@@ -766,6 +768,22 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
       return reject_query("duplicate AccountStorageDictProof");
     }
     full_collated_data_ = true;
+    return true;
+  }
+  if (block::gen::t_ConsensusExtraData.has_valid_tag(cs)) {
+    if (!block::gen::t_ConsensusExtraData.validate_upto(10000, cs)) {
+      return reject_query("invalid ConsensusExtraData");
+    }
+    if (now_ms_) {
+      return reject_query("duplicate ConsensusExtraData");
+    }
+    if (!is_new_consensus_) {
+      return reject_query("unexpected ConsensusExtraData");
+    }
+    block::gen::ConsensusExtraData::Record rec;
+    CHECK(block::gen::unpack(cs, rec));
+    now_ms_ = rec.gen_utime_ms;
+    LOG(DEBUG) << "collated datum # " << idx << " is a ConsensusExtraData, gen_utime_ms=" << rec.gen_utime_ms;
     return true;
   }
   LOG(WARNING) << "collated datum # " << idx << " has unknown type (magic " << cs.prefetch_ulong(32) << "), ignoring";
@@ -2481,6 +2499,13 @@ bool ValidateQuery::check_utime_lt() {
   if (end_lt_ - start_lt_ > block_limits_->lt_delta.hard()) {
     return reject_query(PSTRING() << "block increased logical time by " << end_lt_ - start_lt_
                                   << " which is larger than the hard limit " << block_limits_->lt_delta.hard());
+  }
+  if (is_new_consensus_) {
+    CHECK(now_ms_);
+    if (now_ms_.value() / 1000 != now_) {
+      return reject_query(PSTRING() << "gen_utime is " << now_ << ", but gen_utime_ms in ConsensusExtraData is "
+                                    << now_ms_.value());
+    }
   }
   return true;
 }

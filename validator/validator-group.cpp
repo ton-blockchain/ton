@@ -40,7 +40,7 @@ class ValidatorGroup : public IValidatorGroup {
   void generate_block_candidate_cont(validatorsession::BlockSourceInfo source_info,
                                      td::Promise<GeneratedCandidate> promise, td::CancellationToken cancellation_token);
   void validate_block_candidate(validatorsession::BlockSourceInfo source_info, BlockCandidate block,
-                                td::Promise<std::pair<UnixTime, bool>> promise,
+                                td::Promise<std::pair<CandidateAccept, bool>> promise,
                                 td::optional<BlockCandidate> optimistic_prev_block);
   void accept_block_candidate(validatorsession::BlockSourceInfo source_info, td::BufferSlice block, RootHash root_hash,
                               FileHash file_hash, std::vector<BlockSignature> signatures,
@@ -172,9 +172,9 @@ class ValidatorGroup : public IValidatorGroup {
                                  std::shared_ptr<CachedCollatedBlock> cache, td::Result<GeneratedCandidate> R);
 
   using CacheKey = std::tuple<td::Bits256, BlockIdExt, FileHash, FileHash>;
-  std::map<CacheKey, UnixTime> approved_candidates_cache_;
+  std::map<CacheKey, CandidateAccept> approved_candidates_cache_;
 
-  void update_approve_cache(CacheKey key, UnixTime value);
+  void update_approve_cache(CacheKey key, CandidateAccept accept);
 
   static CacheKey block_to_cache_key(const BlockCandidate &block) {
     return std::make_tuple(block.pubkey.as_bits256(), block.id, sha256_bits256(block.data), block.collated_file_hash);
@@ -325,7 +325,7 @@ void ValidatorGroup::generated_block_candidate(validatorsession::BlockSourceInfo
 }
 
 void ValidatorGroup::validate_block_candidate(validatorsession::BlockSourceInfo source_info, BlockCandidate block,
-                                              td::Promise<std::pair<UnixTime, bool>> promise,
+                                              td::Promise<std::pair<CandidateAccept, bool>> promise,
                                               td::optional<BlockCandidate> optimistic_prev_block) {
   if (destroying_) {
     promise.set_error(td::Status::Error("validator session finished"));
@@ -385,46 +385,46 @@ void ValidatorGroup::validate_block_candidate(validatorsession::BlockSourceInfo 
   adnl::AdnlNodeIdShort collator_node_id =
       it2 == block_collator_node_id_.end() ? adnl::AdnlNodeIdShort::zero() : it2->second;
 
-  auto P = td::PromiseCreator::lambda(
-      [=, SelfId = actor_id(this), block = block.clone(),
-       optimistic_prev_block = is_optimistic ? optimistic_prev_block.value().clone() : td::optional<BlockCandidate>{},
-       promise = std::move(promise),
-       collation_manager = collation_manager_](td::Result<ValidateCandidateResult> R) mutable {
-        if (R.is_error()) {
-          auto S = R.move_as_error();
-          if (S.code() != ErrorCode::timeout && S.code() != ErrorCode::notready) {
-            LOG(ERROR) << "failed to validate candidate: " << S;
-          }
-          delay_action(
-              [SelfId, source_info, block = std::move(block), promise = std::move(promise),
-               optimistic_prev_block = std::move(optimistic_prev_block)]() mutable {
-                td::actor::send_closure(SelfId, &ValidatorGroup::validate_block_candidate, std::move(source_info),
-                                        std::move(block), std::move(promise), std::move(optimistic_prev_block));
-              },
-              td::Timestamp::in(0.1));
-        } else {
-          auto v = R.move_as_ok();
-          v.visit(td::overloaded(
-              [&](UnixTime ts) {
-                td::actor::send_closure(SelfId, &ValidatorGroup::update_approve_cache, block_to_cache_key(block), ts);
-                td::actor::send_closure(SelfId, &ValidatorGroup::add_available_block_candidate,
-                                        block.pubkey.as_bits256(), block.id, block.collated_file_hash);
-                if (need_send_candidate_broadcast(source_info, block.id.is_masterchain())) {
-                  td::actor::send_closure(SelfId, &ValidatorGroup::send_block_candidate_broadcast, block.id,
-                                          block.data.clone());
-                }
-                promise.set_value({ts, false});
-              },
-              [&](CandidateReject reject) {
-                if (!collator_node_id.is_zero()) {
-                  td::actor::send_closure(collation_manager, &CollationManager::ban_collator, collator_node_id,
-                                          PSTRING() << "bad candidate " << block.id.to_str() << " : " << reject.reason);
-                }
-                promise.set_error(
-                    td::Status::Error(ErrorCode::protoviolation, PSTRING() << "bad candidate: " << reject.reason));
-              }));
-        }
-      });
+  auto P = td::PromiseCreator::lambda([=, SelfId = actor_id(this), block = block.clone(),
+                                       optimistic_prev_block = is_optimistic ? optimistic_prev_block.value().clone()
+                                                                             : td::optional<BlockCandidate>{},
+                                       promise = std::move(promise), collation_manager = collation_manager_](
+                                          td::Result<ValidateCandidateResult> R) mutable {
+    if (R.is_error()) {
+      auto S = R.move_as_error();
+      if (S.code() != ErrorCode::timeout && S.code() != ErrorCode::notready) {
+        LOG(ERROR) << "failed to validate candidate: " << S;
+      }
+      delay_action(
+          [SelfId, source_info, block = std::move(block), promise = std::move(promise),
+           optimistic_prev_block = std::move(optimistic_prev_block)]() mutable {
+            td::actor::send_closure(SelfId, &ValidatorGroup::validate_block_candidate, std::move(source_info),
+                                    std::move(block), std::move(promise), std::move(optimistic_prev_block));
+          },
+          td::Timestamp::in(0.1));
+    } else {
+      auto v = R.move_as_ok();
+      v.visit(td::overloaded(
+          [&](CandidateAccept accept) {
+            td::actor::send_closure(SelfId, &ValidatorGroup::update_approve_cache, block_to_cache_key(block), accept);
+            td::actor::send_closure(SelfId, &ValidatorGroup::add_available_block_candidate, block.pubkey.as_bits256(),
+                                    block.id, block.collated_file_hash);
+            if (need_send_candidate_broadcast(source_info, block.id.is_masterchain())) {
+              td::actor::send_closure(SelfId, &ValidatorGroup::send_block_candidate_broadcast, block.id,
+                                      block.data.clone());
+            }
+            promise.set_value({accept, false});
+          },
+          [&](CandidateReject reject) {
+            if (!collator_node_id.is_zero()) {
+              td::actor::send_closure(collation_manager, &CollationManager::ban_collator, collator_node_id,
+                                      PSTRING() << "bad candidate " << block.id.to_str() << " : " << reject.reason);
+            }
+            promise.set_error(
+                td::Status::Error(ErrorCode::protoviolation, PSTRING() << "bad candidate: " << reject.reason));
+          }));
+    }
+  });
   if (!started_) {
     P.set_error(td::Status::Error(ErrorCode::notready, "validator group not started"));
     return;
@@ -448,8 +448,8 @@ void ValidatorGroup::validate_block_candidate(validatorsession::BlockSourceInfo 
                      manager_, td::Timestamp::in(15.0), std::move(P));
 }
 
-void ValidatorGroup::update_approve_cache(CacheKey key, UnixTime value) {
-  approved_candidates_cache_[key] = value;
+void ValidatorGroup::update_approve_cache(CacheKey key, CandidateAccept accept) {
+  approved_candidates_cache_[key] = accept;
 }
 
 void ValidatorGroup::accept_block_candidate(validatorsession::BlockSourceInfo source_info, td::BufferSlice block_data,
@@ -646,10 +646,10 @@ std::unique_ptr<validatorsession::ValidatorSession::Callback> ValidatorGroup::ma
                       validatorsession::ValidatorSessionRootHash root_hash, td::BufferSlice data,
                       td::BufferSlice collated_data,
                       td::Promise<validatorsession::ValidatorSession::CandidateDecision> promise) override {
-      auto P =
-          td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<std::pair<td::uint32, bool>> R) mutable {
+      auto P = td::PromiseCreator::lambda(
+          [promise = std::move(promise)](td::Result<std::pair<CandidateAccept, bool>> R) mutable {
             if (R.is_ok()) {
-              validatorsession::ValidatorSession::CandidateDecision decision(R.ok().first);
+              validatorsession::ValidatorSession::CandidateDecision decision(R.ok().first.ok_from_utime);
               decision.set_is_cached(R.ok().second);
               promise.set_value(std::move(decision));
             } else {
@@ -716,7 +716,7 @@ std::unique_ptr<validatorsession::ValidatorSession::Callback> ValidatorGroup::ma
 
       td::actor::send_closure(
           id_, &ValidatorGroup::validate_block_candidate, std::move(source_info), std::move(candidate),
-          [](td::Result<std::pair<td::uint32, bool>>) mutable {}, std::move(prev_candidate));
+          [](td::Result<std::pair<CandidateAccept, bool>>) mutable {}, std::move(prev_candidate));
     }
 
    private:

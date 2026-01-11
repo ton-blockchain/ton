@@ -45,7 +45,7 @@ class ValidatorSession : public td::actor::Actor {
     bool is_ok() const {
       return ok_;
     }
-    td::uint32 ok_from() const {
+    double ok_from() const {
       return ok_from_;
     }
     std::string reason() const {
@@ -60,7 +60,7 @@ class ValidatorSession : public td::actor::Actor {
     void set_is_cached(bool value = true) {
       is_cached_ = value;
     }
-    CandidateDecision(td::uint32 ok_from) {
+    CandidateDecision(double ok_from) {
       ok_ = true;
       ok_from_ = ok_from;
     }
@@ -70,7 +70,7 @@ class ValidatorSession : public td::actor::Actor {
 
    private:
     bool ok_ = false;
-    td::uint32 ok_from_ = 0;
+    double ok_from_ = 0;
     std::string reason_;
     td::BufferSlice proof_;
     bool is_cached_ = false;

@@ -143,7 +143,7 @@ void ValidatorManagerImpl::validate_fake(BlockCandidate candidate, std::vector<B
     if (R.is_ok()) {
       auto v = R.move_as_ok();
       v.visit(td::overloaded(
-          [&](UnixTime ts) {
+          [&](CandidateAccept) {
             td::actor::send_closure(SelfId, &ValidatorManagerImpl::write_fake, std::move(c), prev, last, val_set);
           },
           [&](CandidateReject reject) {

@@ -88,6 +88,7 @@ class Collator final : public td::actor::Actor {
   Ref<BlockData> optimistic_prev_block_;
   std::vector<Ref<BlockData>> preloaded_prev_block_data_;
   std::vector<Ref<vm::Cell>> preloaded_prev_block_state_roots_;
+  bool is_new_consensus_ = false;
   int attempt_idx_;
   bool allow_repeat_collation_ = false;
   ton::BlockSeqno last_block_seqno{0};
@@ -136,6 +137,7 @@ class Collator final : public td::actor::Actor {
   ton::UnixTime now_;
   ton::UnixTime prev_now_;
   ton::UnixTime now_upper_limit_{~0U};
+  td::uint64 now_ms_;
   unsigned out_msg_queue_ops_{}, in_descr_cnt_{}, out_descr_cnt_{};
   Ref<MasterchainStateQ> mc_state_;
   Ref<BlockData> prev_mc_block;

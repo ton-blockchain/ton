@@ -87,6 +87,7 @@ Collator::Collator(CollateParams params, td::actor::ActorId<ValidatorManager> ma
     , optimistic_prev_block_(std::move(params.optimistic_prev_block))
     , preloaded_prev_block_data_(std::move(params.prev_block_data))
     , preloaded_prev_block_state_roots_(std::move(params.prev_block_state_roots))
+    , is_new_consensus_(params.is_new_consensus)
     , attempt_idx_(params.attempt_idx)
     , perf_timer_("collate", 0.1,
                   [manager](double duration) {
@@ -2195,7 +2196,9 @@ bool Collator::init_utime() {
   }
 
   auto prev = std::max<td::uint32>(config_->utime, prev_now_);
-  now_ = std::max<td::uint32>(prev + (allow_same_timestamp_ ? 0 : 1), (unsigned)std::time(nullptr));
+  now_ms_ =
+      std::max((td::uint64)(prev + (allow_same_timestamp_ ? 0 : 1)) * 1000, (td::uint64)(td::Clocks::system() * 1000));
+  now_ = (UnixTime)(now_ms_ / 1000);
   if (now_ > now_upper_limit_) {
     return fatal_error(
         "error initializing unix time for the new block: failed to observe end of fsm_split time interval for this "
@@ -6302,13 +6305,17 @@ bool Collator::create_collated_data() {
   SCOPE_EXIT {
     stats_.work_time.create_collated_data += timer.elapsed_both();
   };
-  // 1. store the set of used shard block descriptions
+  // 1.1 store the set of used shard block descriptions
   if (!used_shard_block_descr_.empty()) {
     auto cell = collate_shard_block_descr_set();
-    if (cell.is_null()) {
-      return true;
-      // return fatal_error("cannot collate the collection of used shard block descriptions");
+    if (cell.not_null()) {
+      collated_roots_.push_back(std::move(cell));
     }
+  }
+  // 1.2 store info for simplex consensus
+  if (is_new_consensus_) {
+    // consensus_extra_data#638eb292 flags:# gen_utime_ms:uint64 = ConsensusExtraData;
+    auto cell = vm::CellBuilder{}.store_long(0x638eb292, 32).store_long(0, 32).store_long(now_ms_, 64).finalize_novm();
     collated_roots_.push_back(std::move(cell));
   }
   if (!full_collated_data_) {

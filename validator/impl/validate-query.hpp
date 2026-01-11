@@ -166,6 +166,7 @@ class ValidateQuery : public td::actor::Actor {
   td::Bits256 created_by_;
   Ref<BlockData> optimistic_prev_block_;
   std::vector<Ref<vm::Cell>> preloaded_prev_block_state_roots_;
+  bool is_new_consensus_ = false;
 
   Ref<vm::Cell> prev_state_root_;
   Ref<vm::Cell> state_root_;
@@ -215,6 +216,7 @@ class ValidateQuery : public td::actor::Actor {
 
   LogicalTime start_lt_, end_lt_;
   UnixTime prev_now_{~0u}, now_{~0u};
+  td::optional<td::uint64> now_ms_;
 
   ton::Bits256 rand_seed_;
   std::vector<block::StoragePrices> storage_prices_;

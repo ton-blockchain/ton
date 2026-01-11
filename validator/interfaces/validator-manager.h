@@ -46,6 +46,10 @@ constexpr int VERBOSITY_NAME(VALIDATOR_INFO) = verbosity_DEBUG;
 constexpr int VERBOSITY_NAME(VALIDATOR_DEBUG) = verbosity_DEBUG;
 constexpr int VERBOSITY_NAME(VALIDATOR_EXTRA_DEBUG) = verbosity_DEBUG + 1;
 
+struct CandidateAccept {
+  double ok_from_utime = 0.0;
+};
+
 struct CandidateReject {
   std::string reason;
   td::BufferSlice proof;
@@ -237,7 +241,7 @@ struct CollatorNodeResponseStats {
   }
 };
 
-using ValidateCandidateResult = td::Variant<UnixTime, CandidateReject>;
+using ValidateCandidateResult = td::Variant<CandidateAccept, CandidateReject>;
 
 class ValidatorManager : public ValidatorManagerInterface {
  public:
