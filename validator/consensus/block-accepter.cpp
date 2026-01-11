@@ -21,7 +21,12 @@ class BlockAccepterImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
   }
 
   template <>
-  td::actor::Task<> process(BusHandle, std::shared_ptr<BlockFinalized> event) {
+  void handle(BusHandle, std::shared_ptr<const BlockFinalized> event) {
+    process_block_finalized(event).start().detach();
+  }
+
+ private:
+  td::actor::Task<> process_block_finalized(std::shared_ptr<const BlockFinalized> event) {
     const auto& block = std::get<BlockCandidate>(event->candidate->block);
     auto block_data = create_block(block.id, block.data.clone()).move_as_ok();
     auto block_parents = owning_bus()->convert_id_to_blocks(event->parent_id);

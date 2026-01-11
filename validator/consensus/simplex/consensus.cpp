@@ -307,7 +307,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
         if (candidate.candidate->parent_id.has_value()) {
           parent_id = (co_await owning_bus().publish<ResolveCandidate>(*candidate.candidate->parent_id)).candidate->id;
         }
-        owning_bus().publish<BlockFinalized>(candidate.candidate, parent_id, std::move(sig_set)).detach();
+        owning_bus().publish<BlockFinalized>(candidate.candidate, parent_id, std::move(sig_set));
         if (owning_bus()->shard.is_masterchain()) {
           break;
         }

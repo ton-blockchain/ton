@@ -21,8 +21,6 @@ namespace ton::validator::consensus {
 struct StopRequested {};
 
 struct BlockFinalized {
-  using ReturnType = td::Unit;
-
   RawCandidateRef candidate;
   ParentId parent_id;
   td::Ref<block::BlockSignatureSet> signatures;
