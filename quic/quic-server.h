@@ -68,20 +68,35 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   };
 
   struct ConnectionState {
-    std::unique_ptr<QuicConnectionPImpl> p_impl;
+    QuicConnectionPImpl &impl() {
+      CHECK(impl_);
+      return *impl_;
+    }
+    std::unique_ptr<QuicConnectionPImpl> impl_;
     td::IPAddress remote_address;
+    QuicConnectionId cid;
+    std::optional<QuicConnectionId> temp_cid;
     bool is_outbound;
+    friend td::StringBuilder &operator<<(td::StringBuilder &sb, const ConnectionState &state) {
+      sb << "Connection{" << (state.is_outbound ? "to" : "from") << " " << state.remote_address;
+      sb << " cid=" << state.cid;
+      if (state.temp_cid) {
+        sb << " (temp=" << state.temp_cid.value() << ")";
+      }
+      sb << "}";
+      return sb;
+    }
   };
 
-  void on_fd_notify();
   void update_alarm();
+  void update_alarm_for(ConnectionState &state);
   void drain_ingress();
-  void flush_egress_for(QuicConnectionId cid, ConnectionState &state, EgressData data = {.stream_data = std::nullopt});
+  void flush_egress_for(ConnectionState &state, EgressData data = {.stream_data = std::nullopt});
   void flush_egress_all();
 
-  ConnectionState *find_connection(const QuicConnectionId &cid);
+  std::shared_ptr<ConnectionState> find_connection(const QuicConnectionId &cid);
   td::Result<std::shared_ptr<ConnectionState>> get_or_create_connection(const UdpMessageBuffer &msg_in);
-  void remove_connection(const QuicConnectionId &cid);
+  bool try_close(ConnectionState &state);
 
   td::UdpSocketFd fd_;
   td::BufferSlice alpn_;
@@ -90,6 +105,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   std::unique_ptr<Callback> callback_;
   td::actor::ActorId<QuicServer> self_id_;
 
+  std::map<QuicConnectionId, QuicConnectionId> to_primary_cid_;
   std::map<QuicConnectionId, std::shared_ptr<ConnectionState>> connections_;
 };
 

@@ -106,9 +106,6 @@ struct QuicConnectionPImpl {
   [[nodiscard]] td::Status handle_ingress(const UdpMessageBuffer& msg_in);
 
   [[nodiscard]] td::Timestamp get_expiry_timestamp() const;
-  void relax_alarm_timestamp(td::Timestamp& alarm_ts) const {
-    alarm_ts.relax(get_expiry_timestamp());
-  }
   [[nodiscard]] bool is_expired() const;
   [[nodiscard]] td::Result<ExpiryAction> handle_expiry();
 
@@ -151,6 +148,11 @@ struct QuicConnectionPImpl {
   ngtcp2_crypto_conn_ref conn_ref_{};
 
   std::unordered_map<QuicStreamID, OutboundStreamState> streams_;
+
+  ngtcp2_conn* conn() const {
+    CHECK(conn_);
+    return conn_.get();
+  }
 
   // RPK (Raw Public Key) - uses Ed25519 keys for identity
   // Verification happens post-handshake via ssl_get_peer_ed25519_public_key()

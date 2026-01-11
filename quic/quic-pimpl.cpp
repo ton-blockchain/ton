@@ -198,18 +198,18 @@ td::Status QuicConnectionPImpl::init_quic_client() {
 
   ngtcp2_path path = make_path();
 
-  ngtcp2_conn* conn = nullptr;
-  int rv = ngtcp2_conn_client_new(&conn, &dcid_raw, &scid_raw, &path, NGTCP2_PROTO_VER_V1, &callbacks, &settings,
+  ngtcp2_conn* new_conn = nullptr;
+  int rv = ngtcp2_conn_client_new(&new_conn, &dcid_raw, &scid_raw, &path, NGTCP2_PROTO_VER_V1, &callbacks, &settings,
                                   &params, nullptr, this);
 
   if (rv != 0) {
     return td::Status::Error("ngtcp2_conn_client_new failed");
   }
-  conn_.reset(conn);
+  conn_.reset(new_conn);
 
   primary_scid_ = scid;
 
-  ngtcp2_conn_set_tls_native_handle(conn_.get(), ossl_ctx_.get());
+  ngtcp2_conn_set_tls_native_handle(conn(), ossl_ctx_.get());
 
   return td::Status::OK();
 }
@@ -239,17 +239,17 @@ td::Status QuicConnectionPImpl::init_quic_server(const VersionCid& vc) {
 
   ngtcp2_path path = make_path();
 
-  ngtcp2_conn* conn = nullptr;
-  int rv = ngtcp2_conn_server_new(&conn, &client_scid, &server_scid_raw, &path, vc.version, &callbacks, &settings,
+  ngtcp2_conn* new_conn = nullptr;
+  int rv = ngtcp2_conn_server_new(&new_conn, &client_scid, &server_scid_raw, &path, vc.version, &callbacks, &settings,
                                   &params, nullptr, this);
   if (rv != 0) {
     return td::Status::Error(PSTRING() << "ngtcp2_conn_server_new failed: " << rv);
   }
-  conn_.reset(conn);
+  conn_.reset(new_conn);
 
   primary_scid_ = server_scid;
 
-  ngtcp2_conn_set_tls_native_handle(conn_.get(), ossl_ctx_.get());
+  ngtcp2_conn_set_tls_native_handle(conn(), ossl_ctx_.get());
   return td::Status::OK();
 }
 
@@ -303,7 +303,7 @@ td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer& msg_out, Quic
   ngtcp2_ssize pdatalen = -1;
 
   ngtcp2_ssize n_write = ngtcp2_conn_writev_stream(
-      conn_.get(), nullptr, &pi, reinterpret_cast<uint8_t*>(msg_out.storage.data()), msg_out.storage.size(),
+      conn(), nullptr, &pi, reinterpret_cast<uint8_t*>(msg_out.storage.data()), msg_out.storage.size(),
       sid == -1 ? nullptr : &pdatalen, flags, sid, datav.empty() ? nullptr : datav.data(), datav.size(), ts);
 
   if (n_write == 0) {
@@ -319,7 +319,7 @@ td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer& msg_out, Quic
     return td::Status::Error(PSTRING() << "ngtcp2_conn_writev_stream failed: " << n_write);
   }
 
-  ngtcp2_conn_update_pkt_tx_time(conn_.get(), ts);
+  ngtcp2_conn_update_pkt_tx_time(conn(), ts);
 
   if (sid != -1) {
     auto& st = streams_.find(sid)->second;
@@ -357,7 +357,7 @@ td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in) {
   ngtcp2_path path = make_path();
 
   ngtcp2_pkt_info pi{};
-  int rv = ngtcp2_conn_read_pkt(conn_.get(), &path, &pi, reinterpret_cast<uint8_t*>(msg_in.storage.data()),
+  int rv = ngtcp2_conn_read_pkt(conn(), &path, &pi, reinterpret_cast<uint8_t*>(msg_in.storage.data()),
                                 msg_in.storage.size(), now_ts());
 
   if (rv != 0) {
@@ -377,7 +377,7 @@ QuicConnectionId QuicConnectionPImpl::get_primary_scid() const {
 td::Result<QuicStreamID> QuicConnectionPImpl::open_stream() {
   QuicStreamID sid;
 
-  int rv = ngtcp2_conn_open_bidi_stream(conn_.get(), &sid, nullptr);
+  int rv = ngtcp2_conn_open_bidi_stream(conn(), &sid, nullptr);
   if (rv != 0) {
     return td::Status::Error(PSTRING() << "ngtcp2_conn_open_bidi_stream failed: " << rv);
   }
@@ -408,25 +408,16 @@ ngtcp2_tstamp QuicConnectionPImpl::now_ts() {
 }
 
 td::Timestamp QuicConnectionPImpl::get_expiry_timestamp() const {
-  if (!conn_) {
-    return td::Timestamp::never();
-  }
-  return from_ngtcp2_tstamp(ngtcp2_conn_get_expiry(conn_.get()));
+  return from_ngtcp2_tstamp(ngtcp2_conn_get_expiry(conn()));
 }
 
 bool QuicConnectionPImpl::is_expired() const {
-  if (!conn_) {
-    return false;
-  }
-  auto expiry = ngtcp2_conn_get_expiry(conn_.get());
+  auto expiry = ngtcp2_conn_get_expiry(conn());
   return expiry != NGTCP2_TSTAMP_INF && expiry <= now_ts();
 }
 
 td::Result<QuicConnectionPImpl::ExpiryAction> QuicConnectionPImpl::handle_expiry() {
-  if (!conn_) {
-    return ExpiryAction::None;
-  }
-  int rv = ngtcp2_conn_handle_expiry(conn_.get(), now_ts());
+  int rv = ngtcp2_conn_handle_expiry(conn(), now_ts());
 
   if (rv == 0) {
     return ExpiryAction::ScheduleWrite;
@@ -441,7 +432,7 @@ td::Result<QuicConnectionPImpl::ExpiryAction> QuicConnectionPImpl::handle_expiry
 
 ngtcp2_conn* QuicConnectionPImpl::get_pimpl_from_ref(ngtcp2_crypto_conn_ref* ref) {
   auto* c = static_cast<QuicConnectionPImpl*>(ref->user_data);
-  return c->conn_.get();
+  return c->conn();
 }
 
 int QuicConnectionPImpl::on_handshake_completed() {
@@ -460,7 +451,7 @@ int QuicConnectionPImpl::on_handshake_completed() {
 
   if (auto status = callback_->on_handshake_completed(std::move(event)); status.is_error()) {
     LOG(WARNING) << "handshake rejected: " << status;
-    //FIXME: we should actually close connection
+    // FIXME: we should actually close connection
     return NGTCP2_ERR_CALLBACK_FAILURE;
   }
   return 0;
@@ -471,11 +462,11 @@ int QuicConnectionPImpl::on_recv_stream_data(uint32_t flags, int64_t stream_id, 
       .sid = stream_id, .data = td::BufferSlice{data}, .fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0};
   callback_->on_stream_data(std::move(event));
 
-  ngtcp2_conn_extend_max_stream_offset(conn_.get(), stream_id, data.size());
-  ngtcp2_conn_extend_max_offset(conn_.get(), data.size());
+  ngtcp2_conn_extend_max_stream_offset(conn(), stream_id, data.size());
+  ngtcp2_conn_extend_max_offset(conn(), data.size());
 
   // bidi stream initiated by other party
-  if (ngtcp2_is_bidi_stream(stream_id) && !ngtcp2_conn_is_local_stream(conn_.get(), stream_id)) {
+  if (ngtcp2_is_bidi_stream(stream_id) && !ngtcp2_conn_is_local_stream(conn(), stream_id)) {
     // allow to write into this stream
     streams_.emplace(stream_id, OutboundStreamState{});
   }
