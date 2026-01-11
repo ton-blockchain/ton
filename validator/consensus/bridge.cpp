@@ -21,17 +21,29 @@ namespace {
 class ManagerFacadeImpl : public ManagerFacade {
  public:
   ManagerFacadeImpl(td::actor::ActorId<ValidatorManager> manager,
-                    td::actor::ActorId<CollationManager> collation_manager, td::Ref<block::ValidatorSet> validator_set)
-      : manager_(manager), collation_manager_(collation_manager), validator_set_(std::move(validator_set)) {
+                    td::actor::ActorId<CollationManager> collation_manager, td::Ref<block::ValidatorSet> validator_set,
+                    td::Ref<ValidatorManagerOptions> opts)
+      : manager_(manager)
+      , collation_manager_(collation_manager)
+      , validator_set_(std::move(validator_set))
+      , opts_(std::move(opts)) {
   }
 
   td::actor::Task<GeneratedCandidate> collate_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
                                                     std::vector<BlockIdExt> prev, Ed25519_PublicKey creator,
                                                     BlockCandidatePriority priority, td::uint64 max_answer_size,
                                                     td::CancellationToken cancellation_token) override {
-    co_return co_await td::actor::ask(collation_manager_, &CollationManager::collate_block, shard,
-                                      min_masterchain_block_id, std::move(prev), creator, priority, validator_set_,
-                                      max_answer_size, cancellation_token);
+    // TODO: support accelerator (use CollationManager)
+    auto [task, promise] = td::actor::StartedTask<BlockCandidate>::make_bridge();
+    run_collate_query(CollateParams{.shard = shard,
+                                    .min_masterchain_block_id = min_masterchain_block_id,
+                                    .prev = prev,
+                                    .creator = creator,
+                                    .validator_set = validator_set_,
+                                    .collator_opts = opts_->get_collator_options()},
+                      manager_, td::Timestamp::in(10.0), std::move(cancellation_token), std::move(promise));
+    auto candidate = co_await std::move(task);
+    co_return GeneratedCandidate{.candidate = std::move(candidate), .self_collated = true};
   }
 
   td::actor::Task<ValidateCandidateResult> validate_block_candidate(BlockCandidate candidate, ValidateParams params,
@@ -62,6 +74,7 @@ class ManagerFacadeImpl : public ManagerFacade {
   td::actor::ActorId<ValidatorManager> manager_;
   td::actor::ActorId<CollationManager> collation_manager_;
   td::Ref<block::ValidatorSet> validator_set_;
+  td::Ref<ValidatorManagerOptions> opts_;
 };
 
 struct BridgeCreationParams {
@@ -136,7 +149,8 @@ class BridgeImpl final : public IValidatorGroup {
     }
 
     manager_facade_ = td::actor::create_actor<ManagerFacadeImpl>(params_.name + ".ManagerFacade", params_.manager,
-                                                                 params_.collation_manager, params_.validator_set);
+                                                                 params_.collation_manager, params_.validator_set,
+                                                                 params_.validator_opts);
 
     bool is_simplex = params_.config.consensus.has<NewConsensusConfig::Simplex>();
     std::shared_ptr<Bus> bus;
