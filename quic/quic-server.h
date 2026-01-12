@@ -39,6 +39,8 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
 
   td::Result<QuicConnectionId> connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key, td::Slice alpn);
 
+  void close(QuicConnectionId cid);
+
   QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::BufferSlice alpn,
              std::unique_ptr<Callback> callback);
 

@@ -80,6 +80,21 @@ bool QuicServer::try_close(ConnectionState &state) {
   return true;
 }
 
+void QuicServer::close(QuicConnectionId cid) {
+  auto it = connections_.find(cid);
+  if (it == connections_.end()) {
+    LOG(WARNING) << "Can't find connection for closing " << cid;
+    return;
+  }
+  auto state = it->second;
+  LOG(INFO) << "Close connection: " << *state;
+  if (state->temp_cid) {
+    to_primary_cid_.erase(*state->temp_cid);
+  }
+  connections_.erase(it);
+  callback_->on_closed(cid);
+}
+
 void QuicServer::alarm() {
   // FIXME: this could be problematic if we have thousands of connections
   // Maybe add heap like in IoWorker.cpp

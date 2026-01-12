@@ -137,7 +137,7 @@ td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdSho
   // create stream_id explicitly to avoid race
   auto stream_id = co_await td::actor::ask(conn->server, &QuicServer::open_stream, conn->cid);
   auto [future, answer_promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
-  conn->responses.emplace(stream_id, std::move(answer_promise));
+  CHECK(conn->responses.emplace(stream_id, std::move(answer_promise)).second);
   co_await td::actor::ask(conn->server, &QuicServer::send_stream, conn->cid, stream_id, std::move(wire_data), true);
   co_return co_await std::move(future);
 }
@@ -172,7 +172,7 @@ td::actor::Task<std::shared_ptr<QuicSender::Connection>> QuicSender::find_or_cre
   auto iter = outbound_.find(path);
   if (iter == outbound_.end()) {
     connection = std::make_shared<Connection>();
-    outbound_.emplace(path, connection);
+    CHECK(outbound_.emplace(path, connection).second);
   } else {
     connection = iter->second;
   }
@@ -233,7 +233,7 @@ td::actor::Task<td::Unit> QuicSender::init_connection_inner(AdnlPath path, std::
   conn->cid = connection_id;
   conn->is_ready = true;
   conn->server = server;
-  by_cid_[connection_id] = conn;
+  CHECK(by_cid_.emplace(connection_id, conn).second);
   co_return td::Unit{};
 }
 
@@ -250,12 +250,20 @@ td::Status QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicC
     if (is_outbound) {
       LOG(ERROR) << "Unknown outbound connection";
     }
+    // Close existing inbound connection for same path if any
+    LOG(ERROR) << "Create inbound " << path;
+    if (auto old_it = inbound_.find(path); old_it != inbound_.end()) {
+      auto old_conn = old_it->second;
+      by_cid_.erase(old_conn->cid);
+      td::actor::send_closure(old_conn->server, &QuicServer::close, old_conn->cid);
+      inbound_.erase(old_it);
+    }
     connection = std::make_shared<Connection>();
     connection->server = server;
     connection->path = path;
     connection->cid = cid;
     connection->is_ready = true;
-    by_cid_.emplace(cid, connection);
+    CHECK(by_cid_.emplace(cid, connection).second);
     inbound_[path] = connection;
   }
 
@@ -299,8 +307,13 @@ void QuicSender::on_closed(QuicConnectionId cid) {
   auto path = connection->path;
 
   by_cid_.erase(it);
-  outbound_.erase(path);
-  inbound_.erase(path);
+  // Only erase from outbound_/inbound_ if cid matches (avoid race with newer connection)
+  if (auto out_it = outbound_.find(path); out_it != outbound_.end() && out_it->second->cid == cid) {
+    outbound_.erase(out_it);
+  }
+  if (auto in_it = inbound_.find(path); in_it != inbound_.end() && in_it->second->cid == cid) {
+    inbound_.erase(in_it);
+  }
 }
 
 void QuicSender::on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
