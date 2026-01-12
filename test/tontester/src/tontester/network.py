@@ -97,6 +97,10 @@ class Network:
         def _tonlib_event_loop(self):
             return self._network._event_loop
 
+        @property
+        def log_path(self):
+            return self._directory / "log"
+
         async def _run(
             self,
             executable: Path,
@@ -135,8 +139,7 @@ class Network:
             local_config_file = self._directory / "config.json"
             _write_model(local_config_file, local_config)
 
-            log_path = self._directory / "log"
-            l.info(f"Running {self.name} and saving its raw log to {log_path}")
+            l.info(f"Running {self.name} and saving its raw log to {self.log_path}")
 
             cmd_flags = [
                 "--global-config",
@@ -171,7 +174,7 @@ class Network:
             self.__process_watcher = asyncio.create_task(process_watcher())
 
             self.__log_streamer = LogStreamer(
-                open(log_path, "wb"),
+                open(self.log_path, "wb"),
                 self.name,
                 self.__process.stderr,
             )

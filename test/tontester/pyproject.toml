@@ -2,4 +2,10 @@
 name = "tontester"
 version = "0.1.0"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "dash",
+    "plotly"
+]
+
+[project.scripts]
+consensus_explorer = "consensus_explorer.explorer:_main"
