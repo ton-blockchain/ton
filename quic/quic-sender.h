@@ -37,7 +37,6 @@ class QuicSender : public adnl::AdnlSenderInterface {
     td::actor::ActorId<QuicServer> server;
     std::vector<td::Promise<td::Unit>> waiting_ready{};
     std::unordered_map<QuicStreamID, td::Promise<td::BufferSlice>> responses{};
-    std::map<QuicStreamID, td::BufferBuilder> stream_builders;
   };
 
   class ServerCallback;
@@ -67,7 +66,7 @@ class QuicSender : public adnl::AdnlSenderInterface {
 
   td::Status on_connected(td::actor::ActorId<QuicServer> server, QuicConnectionId cid, adnl::AdnlNodeIdShort local_id,
                           td::SecureString peer_public_key, bool is_outbound);
-  void on_stream(QuicConnectionId cid, QuicStreamID stream_id, td::BufferSlice new_data, bool is_end);
+  void on_stream(QuicConnectionId cid, QuicStreamID stream_id, td::BufferSlice data);
 
   void on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id, ton_api::quic_query& query);
   void on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id, ton_api::quic_message& message);

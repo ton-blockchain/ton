@@ -23,12 +23,26 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
   }
 
   void on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) override {
-    td::actor::send_closure(sender_, &QuicSender::on_stream, cid, sid, std::move(data), is_end);
+    if (!data.empty()) {
+      stream_builders_[{cid, sid}].append(std::move(data));
+    }
+    if (!is_end) {
+      return;
+    }
+    auto key = std::make_pair(cid, sid);
+    td::BufferSlice complete_data;
+    if (auto it = stream_builders_.find(key); it != stream_builders_.end()) {
+      complete_data = it->second.extract();
+      stream_builders_.erase(it);
+    }
+    td::actor::send_closure(sender_, &QuicSender::on_stream, cid, sid, std::move(complete_data));
   }
 
  private:
   adnl::AdnlNodeIdShort local_id_;
   td::actor::ActorId<QuicSender> sender_;
+  // TODO: gc when connection is closed
+  std::map<std::pair<QuicConnectionId, QuicStreamID>, td::BufferBuilder> stream_builders_;
 };
 
 static td::Result<adnl::AdnlNodeIdShort> parse_peer_id(td::Slice peer_public_key) {
@@ -244,26 +258,12 @@ td::Status QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicC
   return td::Status::OK();
 }
 
-void QuicSender::on_stream(QuicConnectionId cid, QuicStreamID stream_id, td::BufferSlice new_data, bool is_end) {
+void QuicSender::on_stream(QuicConnectionId cid, QuicStreamID stream_id, td::BufferSlice data) {
   auto it = by_cid_.find(cid);
   if (it == by_cid_.end()) {
     return;
   }
   auto connection = it->second;
-
-  if (!new_data.empty()) {
-    connection->stream_builders[stream_id].append(std::move(new_data));
-  }
-
-  if (!is_end) {
-    return;
-  }
-
-  td::BufferSlice data;
-  if (auto stream_it = connection->stream_builders.find(stream_id); stream_it != connection->stream_builders.end()) {
-    data = stream_it->second.extract();
-    connection->stream_builders.erase(stream_it);
-  }
 
   auto req_R = fetch_tl_object<ton_api::quic_Request>(data.clone(), true);
   if (req_R.is_ok()) {
