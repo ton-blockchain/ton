@@ -49,6 +49,7 @@ class FileFd {
   static FileFd from_native_fd(NativeFd fd) TD_WARN_UNUSED_RESULT;
 
   Result<size_t> write(Slice slice) TD_WARN_UNUSED_RESULT;
+  Status write_all(Slice slice) TD_WARN_UNUSED_RESULT;
   Result<size_t> writev(Span<IoSlice> slices) TD_WARN_UNUSED_RESULT;
   Result<size_t> read(MutableSlice slice) TD_WARN_UNUSED_RESULT;
 

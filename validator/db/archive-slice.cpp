@@ -834,11 +834,20 @@ td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(BlockSeqno 
 void ArchiveSlice::add_package(td::uint32 seqno, ShardIdFull shard_prefix, td::uint64 size, td::uint32 version) {
   PackageId p_id{seqno, key_blocks_only_, temp_};
   std::string path_legacy = PSTRING() << db_root_ << p_id.path() << get_package_file_name(p_id, shard_prefix, true);
+  std::string path_new = PSTRING() << db_root_ << p_id.path() << get_package_file_name(p_id, shard_prefix, false);
+  if (path_legacy != path_new && td::stat(path_legacy).is_ok() && td::stat(path_new).is_ok()) {
+    auto S = repair_pack_files(path_new, path_legacy, version, size);
+    if (S.is_error()) {
+      LOG(ERROR) << "Repair pack file '" << path_new << "' : " << S;
+    } else {
+      LOG(ERROR) << "Repair pack file '" << path_new << "' : DONE";
+    }
+  }
   std::string path;
   if (td::stat(path_legacy).is_ok()) {
-    path = std::move(path_legacy);
+    path = path_legacy;
   } else {
-    path = PSTRING() << db_root_ << p_id.path() << get_package_file_name(p_id, shard_prefix);
+    path = path_new;
   }
   auto R = Package::open(path, false, true);
   if (R.is_error()) {
@@ -1129,6 +1138,119 @@ void ArchiveSlice::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle, td::
 
   kv_->commit_transaction().ensure();
   promise.set_value(td::Unit());
+}
+
+td::Status ArchiveSlice::repair_pack_files(std::string path_new, std::string path_old, td::uint32 version,
+                                           td::uint64 trunc_size) {
+  /*
+   * Old file is the file in format archive.xxx.0:8000000000000000.pack
+   * New file is the file in format archive.xxx.0_8000000000000000.pack
+   * After the update that changed files from old to new names, rollback of the node to the previous version
+   * results in both files being present in DB.
+   * This function merges their contents (or deletes one of them if it has no meaningful data).
+   *
+   * What happens after node rollback:
+   * Node on the newer version appends data to package `file_new`.
+   * After rollback, node creates package `file_old` and starts to append data to it, but starting from the same offset.
+   * I.e. `file_old` starts with 4-byte package tag, followed by a bunch of zeroes, followed by package data.
+   * How to merge: fill these zeroes with data from `file_new`.
+   **/
+  TRY_RESULT(file_new, td::FileFd::open(path_new, td::FileFd::Flags::Read));
+  TRY_RESULT(file_old, td::FileFd::open(path_old, td::FileFd::Flags::Read));
+  auto is_valid_package = [&](td::FileFd &f) -> td::Result<bool> {
+    TRY_RESULT(size, f.get_size());
+    if (size < 4) {
+      return false;
+    }
+    td::uint32 header[1];
+    TRY_RESULT(s, f.pread(td::MutableSlice(reinterpret_cast<td::uint8 *>(header), 4), 0));
+    if (s != 4) {
+      return td::Status::Error("read failed");
+    }
+    if (header[0] != Package::package_header_magic()) {
+      return false;
+    }
+    return true;
+  };
+
+  TRY_RESULT(valid_new, is_valid_package(file_new));
+  if (!valid_new) {
+    LOG(ERROR) << "Repair pack file '" << path_new << "' : remove invalid new file";
+    file_new.close();
+    return td::unlink(path_new);
+  }
+  TRY_RESULT(valid_old, is_valid_package(file_old));
+  if (!valid_old) {
+    LOG(ERROR) << "Repair pack file '" << path_new << "' : remove invalid old file";
+    file_old.close();
+    return td::unlink(path_old);
+  }
+
+  td::uint8 buf[1 << 17];
+  td::int64 split_offset = 0;
+  TRY_RESULT(size_old, file_old.get_size());
+  TRY_RESULT(size_new, file_new.get_size());
+  for (td::int64 offset = 4; offset < size_old && split_offset == 0;) {
+    TRY_RESULT(s, file_old.pread(td::MutableSlice(buf, std::min<td::int64>(sizeof(buf), size_old - offset)), offset));
+    if (s == 0) {
+      return td::Status::Error("read failed: unexpected EOF");
+    }
+    for (size_t i = 0; i < s; ++i) {
+      if (buf[i] != 0) {
+        split_offset = offset + i;
+        break;
+      }
+    }
+    offset += s;
+  }
+  if (split_offset == 0) {
+    LOG(ERROR) << "Repair pack file '" << path_new << "' : remove old file (no actual data)";
+    file_old.close();
+    return td::unlink(path_old);
+  }
+  if (split_offset > size_new) {
+    return td::Status::Error("unexpected old/new file sizes");
+  }
+
+  std::string path_tmp = path_old + ".tmp";
+  SCOPE_EXIT {
+    td::unlink(path_tmp).ignore();
+  };
+  TRY_RESULT(file_tmp, td::FileFd::open(path_tmp, td::FileFd::Truncate | td::FileFd::Create | td::FileFd::Write));
+  for (td::int64 offset = 0; offset < split_offset;) {
+    TRY_RESULT(s,
+               file_new.pread(td::MutableSlice(buf, std::min<td::int64>(sizeof(buf), split_offset - offset)), offset));
+    if (s == 0) {
+      return td::Status::Error("read failed: unexpected EOF");
+    }
+    TRY_STATUS(file_tmp.write_all(td::Slice(buf, s)));
+    offset += s;
+  }
+  for (td::int64 offset = split_offset; offset < size_old;) {
+    TRY_RESULT(s, file_old.pread(td::MutableSlice(buf, std::min<td::int64>(sizeof(buf), size_old - offset)), offset));
+    if (s == 0) {
+      return td::Status::Error("read failed: unexpected EOF");
+    }
+    TRY_STATUS(file_tmp.write_all(td::Slice(buf, s)));
+    offset += s;
+  }
+  TRY_STATUS(file_tmp.sync());
+  file_tmp.close();
+  file_new.close();
+  file_old.close();
+
+  TRY_RESULT(pack, Package::open(path_tmp, false, false));
+  if (version >= 1) {
+    pack.truncate(trunc_size);
+  }
+  pack.sync();
+
+  TRY_STATUS(pack.iterate([&](std::string, td::BufferSlice, td::uint64) -> bool { return true; }));
+
+  pack.fd().close();
+  TRY_STATUS(td::rename(path_tmp, path_old));
+  TRY_STATUS(td::unlink(path_new));
+  return td::Status::OK();
 }
 
 static std::tuple<td::uint32, bool, bool> to_tuple(const PackageId &id) {
