@@ -31,9 +31,12 @@ class BlockAccepterImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
     auto block_data = create_block(block.id, block.data.clone()).move_as_ok();
     auto block_parents = owning_bus()->convert_id_to_blocks(event->parent_id);
 
+    int broadcast_mode = fullnode::FullNode::broadcast_mode_custom;
+    if (event->candidate->leader == owning_bus()->local_id.idx) {
+      broadcast_mode |= fullnode::FullNode::broadcast_mode_public | fullnode::FullNode::broadcast_mode_fast_sync;
+    }
     co_return co_await td::actor::ask(owning_bus()->manager, &ManagerFacade::accept_block, block.id, block_data,
-                                      block_parents, event->signatures, fullnode::FullNode::broadcast_mode_public,
-                                      true);
+                                      block_parents, event->signatures, broadcast_mode, true);
   }
 };
 
