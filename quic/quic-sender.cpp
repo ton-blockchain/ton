@@ -24,25 +24,34 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
 
   void on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) override {
     if (!data.empty()) {
-      stream_builders_[{cid, sid}].append(std::move(data));
+      connections_[cid].streams[sid].append(std::move(data));
     }
     if (!is_end) {
       return;
     }
-    auto key = std::make_pair(cid, sid);
     td::BufferSlice complete_data;
-    if (auto it = stream_builders_.find(key); it != stream_builders_.end()) {
-      complete_data = it->second.extract();
-      stream_builders_.erase(it);
+    if (auto cid_it = connections_.find(cid); cid_it != connections_.end()) {
+      if (auto sid_it = cid_it->second.streams.find(sid); sid_it != cid_it->second.streams.end()) {
+        complete_data = sid_it->second.extract();
+        cid_it->second.streams.erase(sid_it);
+      }
     }
     td::actor::send_closure(sender_, &QuicSender::on_stream, cid, sid, std::move(complete_data));
   }
 
+  void on_closed(QuicConnectionId cid) override {
+    connections_.erase(cid);
+    td::actor::send_closure(sender_, &QuicSender::on_closed, cid);
+  }
+
  private:
+  struct ConnectionState {
+    std::map<QuicStreamID, td::BufferBuilder> streams;
+  };
+
   adnl::AdnlNodeIdShort local_id_;
   td::actor::ActorId<QuicSender> sender_;
-  // TODO: gc when connection is closed
-  std::map<std::pair<QuicConnectionId, QuicStreamID>, td::BufferBuilder> stream_builders_;
+  std::map<QuicConnectionId, ConnectionState> connections_;
 };
 
 static td::Result<adnl::AdnlNodeIdShort> parse_peer_id(td::Slice peer_public_key) {
@@ -279,6 +288,19 @@ void QuicSender::on_stream(QuicConnectionId cid, QuicStreamID stream_id, td::Buf
   }
 
   LOG(ERROR) << "malformed message from CID, SID:" << stream_id;
+}
+
+void QuicSender::on_closed(QuicConnectionId cid) {
+  auto it = by_cid_.find(cid);
+  if (it == by_cid_.end()) {
+    return;
+  }
+  auto connection = it->second;
+  auto path = connection->path;
+
+  by_cid_.erase(it);
+  outbound_.erase(path);
+  inbound_.erase(path);
 }
 
 void QuicSender::on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id,

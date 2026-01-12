@@ -95,6 +95,7 @@ void QuicServer::alarm() {
   }
   for (auto cid : to_erase) {
     connections_.erase(cid);
+    callback_->on_closed(cid);
   }
   update_alarm();
 }

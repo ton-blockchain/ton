@@ -32,6 +32,10 @@ class QuicHttpServer : public td::actor::Actor {
       }
     }
 
+    void on_closed(ton::quic::QuicConnectionId cid) override {
+      td::actor::send_closure(server_, &QuicHttpServer::on_closed, cid);
+    }
+
    private:
     td::actor::ActorId<QuicHttpServer> server_;
   };
@@ -65,6 +69,11 @@ class QuicHttpServer : public td::actor::Actor {
   void on_connected(ton::quic::QuicConnectionId cid, td::SecureString public_key) {
     auto public_key_b64 = td::base64_encode(public_key.as_slice());
     LOG(INFO) << "connected: CID, peer public key: " << public_key_b64;
+  }
+
+  void on_closed(ton::quic::QuicConnectionId cid) {
+    request_buf_.erase(cid);
+    LOG(INFO) << "connection closed";
   }
 
   void on_stream_data(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid, td::BufferSlice data) {

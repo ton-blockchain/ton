@@ -30,9 +30,14 @@ class QuicTester : public td::actor::Actor {
       std::cout.flush();
 
       if (is_end) {
-        LOG(INFO) << "disconnected";
+        LOG(INFO) << "stream ended";
         std::exit(0);
       }
+    }
+
+    void on_closed(ton::quic::QuicConnectionId cid) override {
+      LOG(INFO) << "connection closed";
+      std::exit(0);
     }
 
    private:
