@@ -41,7 +41,7 @@ void QuicServer::tear_down() {
 }
 
 void QuicServer::hangup() {
-  LOG(ERROR) << "unexpected hangup signal";
+  stop();
 }
 
 void QuicServer::hangup_shared() {
@@ -140,8 +140,8 @@ class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
     cid_ = cid;
   }
 
-  td::Status on_handshake_completed(HandshakeCompletedEvent event) override {
-    return callback_.on_connected(cid_, std::move(event.peer_public_key), is_outbound_);
+  void on_handshake_completed(HandshakeCompletedEvent event) override {
+    callback_.on_connected(cid_, std::move(event.peer_public_key), is_outbound_);
   }
 
   void on_stream_data(StreamDataEvent event) override {
@@ -214,6 +214,7 @@ td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::E
 }
 
 void QuicServer::drain_ingress() {
+  td::PerfWarningTimer w("drain_ingress", 0.1);
   bool run = true;
   auto cycle = [this, &run]() -> td::Status {
     char buf[DEFAULT_MTU];
@@ -255,6 +256,7 @@ void QuicServer::drain_ingress() {
 }
 
 void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
+  td::PerfWarningTimer w("flush_egress_for", 0.1);
   if (data.stream_data.has_value()) {
     auto &stream_data = data.stream_data.value();
     auto cycle = [this, &state, &stream_data]() -> td::Status {
@@ -311,6 +313,7 @@ void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
 }
 
 void QuicServer::flush_egress_all() {
+  td::PerfWarningTimer w("flush_egress_all", 0.1);
   // TODO: could be optimized if we support list of connections with nonempty write
   for (auto &[cid, state] : connections_) {
     flush_egress_for(*state);
@@ -318,6 +321,7 @@ void QuicServer::flush_egress_all() {
 }
 
 void QuicServer::update_alarm() {
+  td::PerfWarningTimer w("update_alarm", 0.1);
   td::Timestamp alarm_ts = td::Timestamp::never();
   for (auto &[cid, state] : connections_) {
     alarm_ts.relax(state->impl().get_expiry_timestamp());

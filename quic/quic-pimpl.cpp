@@ -343,6 +343,7 @@ td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer& msg_out, Quic
 }
 
 td::Status QuicConnectionPImpl::produce_egress(UdpMessageBuffer& msg_out) {
+  td::PerfWarningTimer w("produce_egress", 0.1);
   QuicStreamID sid = -1;
   for (auto& it : streams_) {
     if (!it.second.reader_.empty() || it.second.fin_pending) {
@@ -449,11 +450,7 @@ int QuicConnectionPImpl::on_handshake_completed() {
     }
   }
 
-  if (auto status = callback_->on_handshake_completed(std::move(event)); status.is_error()) {
-    LOG(WARNING) << "handshake rejected: " << status;
-    // FIXME: we should actually close connection
-    return NGTCP2_ERR_CALLBACK_FAILURE;
-  }
+  callback_->on_handshake_completed(std::move(event));
   return 0;
 }
 

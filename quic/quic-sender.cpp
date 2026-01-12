@@ -14,12 +14,11 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
       : local_id_(local_id), sender_(sender) {
   }
 
-  td::Status on_connected(QuicConnectionId cid, td::SecureString peer_public_key, bool is_outbound) override {
+  void on_connected(QuicConnectionId cid, td::SecureString peer_public_key, bool is_outbound) override {
     auto server = td::actor::actor_dynamic_cast<QuicServer>(td::actor::actor_id());
     CHECK(!server.empty());
     td::actor::send_closure(sender_, &QuicSender::on_connected, server, cid, local_id_, std::move(peer_public_key),
                             is_outbound);
-    return td::Status::OK();
   }
 
   void on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) override {
@@ -231,21 +230,32 @@ td::actor::Task<td::Unit> QuicSender::init_connection_inner(AdnlPath path, std::
   auto connection_id =
       co_await ask(server, &QuicServer::connect, peer_host, peer_port, std::move(client_key), td::Slice("ton"));
   conn->cid = connection_id;
+  conn->path = path;
   conn->is_ready = true;
   conn->server = server;
   CHECK(by_cid_.emplace(connection_id, conn).second);
   co_return td::Unit{};
 }
 
-td::Status QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicConnectionId cid,
-                                    adnl::AdnlNodeIdShort local_id, td::SecureString peer_public_key,
-                                    bool is_outbound) {
-  TRY_RESULT(peer_id, parse_peer_id(peer_public_key.as_slice()));
+void QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicConnectionId cid,
+                              adnl::AdnlNodeIdShort local_id, td::SecureString peer_public_key, bool is_outbound) {
+  auto r_peer_id = parse_peer_id(peer_public_key.as_slice());
+  if (r_peer_id.is_error()) {
+    LOG(ERROR) << "Failed to parse public key " << r_peer_id.error();
+    return;
+  }
+  auto peer_id = r_peer_id.move_as_ok();
 
   auto path = AdnlPath{local_id, peer_id};
   std::shared_ptr<Connection> connection;
+  td::Result<td::Unit> result;
   if (auto it = by_cid_.find(cid); it != by_cid_.end()) {
     connection = it->second;
+    if (connection->path != path) {
+      result = td::Status::Error(PSLICE() << "Key mismatch got:" << path << " expected " << connection->path);
+    } else {
+      result = td::Unit{};
+    }
   } else {
     if (is_outbound) {
       LOG(ERROR) << "Unknown outbound connection";
@@ -265,14 +275,13 @@ td::Status QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicC
     connection->is_ready = true;
     CHECK(by_cid_.emplace(cid, connection).second);
     inbound_[path] = connection;
+    result = td::Unit{};
   }
 
   auto promises = std::move(connection->waiting_ready);
   for (auto &promise : promises) {
-    promise.set_result(td::Unit{});
+    promise.set_result(result.clone());
   }
-
-  return td::Status::OK();
 }
 
 void QuicSender::on_stream(QuicConnectionId cid, QuicStreamID stream_id, td::BufferSlice data) {

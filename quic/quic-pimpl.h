@@ -73,7 +73,7 @@ struct QuicConnectionPImpl {
     };
 
     virtual void set_connection_id(QuicConnectionId cid) = 0;
-    virtual td::Status on_handshake_completed(HandshakeCompletedEvent event) = 0;
+    virtual void on_handshake_completed(HandshakeCompletedEvent event) = 0;
     virtual void on_stream_data(StreamDataEvent event) = 0;
 
     virtual ~Callback() = default;
