@@ -65,12 +65,13 @@ class TestOverlay : public td::actor::Actor {
 
   td::actor::Task<> send_message(PeerValidator src, size_t dst_idx, td::BufferSlice message);
   td::actor::Task<> send_candidate(PeerValidator src, size_t dst_idx, RawCandidateRef candidate);
+  td::actor::Task<td::BufferSlice> send_query(PeerValidator src, size_t dst_idx, td::BufferSlice message);
 
  private:
   std::vector<std::vector<td::actor::ActorId<TestOverlayNode>>> nodes_;
 
-  td::actor::Task<> before_receive(size_t src_idx, size_t dst_idx, bool is_candidate) {
-    if (!is_candidate && td::Random::fast(0.0, 1.0) < NET_LOSS) {
+  td::actor::Task<> before_receive(size_t src_idx, size_t dst_idx, bool no_loss) {
+    if (!no_loss && td::Random::fast(0.0, 1.0) < NET_LOSS) {
       co_return td::Status::Error("packet lost");
     }
     co_await td::actor::coro_sleep(td::Timestamp::in(td::Random::fast(NET_PING_MIN, NET_PING_MAX)));
@@ -120,12 +121,57 @@ class TestOverlayNode : public runtime::SpawnsWith<Bus>, public runtime::Connect
     }
   }
 
+  template <>
+  td::actor::Task<ProtocolMessage> process(BusHandle bus, std::shared_ptr<OutgoingOverlayRequest> message) {
+    auto [task, promise] = td::actor::StartedTask<ProtocolMessage>::make_bridge();
+    auto promise_ptr = std::make_shared<td::Promise<ProtocolMessage>>(std::move(promise));
+    process_query_inner1(bus, message, promise_ptr).start().detach();
+    process_query_inner2(bus, message, promise_ptr).start().detach();
+    co_return co_await std::move(task);
+  }
+
+  td::actor::Task<> process_query_inner1(BusHandle bus, std::shared_ptr<OutgoingOverlayRequest> message,
+                                         std::shared_ptr<td::Promise<ProtocolMessage>> promise_ptr) {
+    if (message->timeout) {
+      co_await td::actor::coro_sleep(message->timeout);
+      if (*promise_ptr) {
+        promise_ptr->set_error(td::Status::Error(ErrorCode::timeout, "timeout"));
+      }
+    }
+    co_return {};
+  }
+
+  td::actor::Task<> process_query_inner2(BusHandle bus, std::shared_ptr<OutgoingOverlayRequest> message,
+                                         std::shared_ptr<td::Promise<ProtocolMessage>> promise_ptr) {
+    auto r_response = co_await td::actor::ask(test_overlay, &TestOverlay::send_query, bus->local_id,
+                                              message->destination.value(), message->request.data.clone())
+                          .wrap();
+    if (r_response.is_ok() && *promise_ptr) {
+      td::BufferSlice response = r_response.move_as_ok();
+      if (fetch_tl_object<ton_api::consensus_requestError>(response, true).is_ok()) {
+        promise_ptr->set_error(td::Status::Error("Peer returned an error"));
+      } else {
+        promise_ptr->set_value(ProtocolMessage{std::move(response)});
+      }
+    }
+    co_return {};
+  }
+
   void receive_message(PeerValidator src, td::BufferSlice data) {
     owning_bus().publish<IncomingProtocolMessage>(src.idx, std::move(data));
   }
 
   void receive_candidate(RawCandidateRef candidate) {
     owning_bus().publish<CandidateReceived>(candidate);
+  }
+
+  td::actor::Task<td::BufferSlice> receive_query(PeerValidator src, td::BufferSlice query) {
+    auto request = std::make_shared<IncomingOverlayRequest>(src.idx, std::move(query));
+    auto response = co_await owning_bus().publish(std::move(request)).wrap();
+    if (response.is_ok()) {
+      co_return std::move(response.move_as_ok().data);
+    }
+    co_return create_serialize_tl_object<ton_api::consensus_requestError>();
   }
 };
 
@@ -143,6 +189,17 @@ td::actor::Task<> TestOverlay::send_candidate(PeerValidator src, size_t dst_idx,
     td::actor::send_closure(instance, &TestOverlayNode::receive_candidate, candidate);
   }
   co_return td::Unit{};
+}
+
+td::actor::Task<td::BufferSlice> TestOverlay::send_query(PeerValidator src, size_t dst_idx, td::BufferSlice message) {
+  if (nodes_[dst_idx].empty()) {
+    co_return td::Status::Error("no instances");
+  }
+  const auto &instance = nodes_[dst_idx][td::Random::fast(0, (int)nodes_[dst_idx].size() - 1)];
+  co_await before_receive(src.idx.value(), dst_idx, true);
+  auto response = co_await td::actor::ask(instance, &TestOverlayNode::receive_query, src, std::move(message));
+  co_await before_receive(src.idx.value(), dst_idx, true);
+  co_return response;
 }
 
 class TestConsensus;
