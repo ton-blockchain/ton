@@ -66,7 +66,9 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
     td::actor::send_closure(overlays_, &overlay::Overlays::create_private_overlay_ex, local_id_.adnl_id,
                             std::move(overlay_full_id), std::move(overlay_nodes), make_callback(),
                             overlay::OverlayPrivacyRules{0, 0, std::move(authorized_keys)},
-                            R"({ "type": "nullConsensus" })", std::move(options));
+                            PSTRING() << R"({ "type": "consensus", "shard": ")" << bus.shard.to_str()
+                                      << R"(", "cc_seqno": )" << bus.cc_seqno << R"( })",
+                            std::move(options));
   }
 
   template <>
