@@ -23,15 +23,19 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
  public:
   class Callback {
    public:
-    virtual td::Status on_connected(QuicConnectionId cid, td::SecureString peer_public_key) = 0;
-    virtual void on_stream_data(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data) = 0;
-    virtual void on_stream_end(QuicConnectionId cid, QuicStreamID sid) = 0;
+    virtual td::Status on_connected(QuicConnectionId cid, td::SecureString peer_public_key, bool is_outbound) = 0;
+    virtual void on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) = 0;
     virtual ~Callback() = default;
   };
 
   void send_stream_data(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data);
   void send_stream_end(QuicConnectionId cid, QuicStreamID sid);
   td::Result<QuicStreamID> open_stream(QuicConnectionId cid);
+
+  // new inteface
+  td::Result<QuicStreamID> send_stream(QuicConnectionId cid, std::optional<QuicStreamID> sid, td::BufferSlice data,
+                                       bool is_end);
+
   td::Result<QuicConnectionId> connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key, td::Slice alpn);
 
   QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::BufferSlice alpn,

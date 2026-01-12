@@ -116,7 +116,8 @@ void QuicServer::wake_up() {
 
 class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
  public:
-  explicit PImplCallback(QuicServer::Callback &callback) : callback_(callback) {
+  explicit PImplCallback(QuicServer::Callback &callback, bool is_outbound)
+      : callback_(callback), is_outbound_(is_outbound) {
   }
 
   void set_connection_id(QuicConnectionId cid) override {
@@ -124,19 +125,17 @@ class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
   }
 
   td::Status on_handshake_completed(HandshakeCompletedEvent event) override {
-    return callback_.on_connected(cid_, std::move(event.peer_public_key));
+    return callback_.on_connected(cid_, std::move(event.peer_public_key), is_outbound_);
   }
 
   void on_stream_data(StreamDataEvent event) override {
-    callback_.on_stream_data(cid_, event.sid, std::move(event.data));
-    if (event.fin) {
-      callback_.on_stream_end(cid_, event.sid);
-    }
+    callback_.on_stream(cid_, event.sid, std::move(event.data), event.fin);
   }
 
  private:
   QuicServer::Callback &callback_;
   QuicConnectionId cid_;
+  bool is_outbound_;
 };
 
 td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_create_connection(
@@ -156,7 +155,7 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
   TRY_RESULT(local_address, fd_.get_local_address());
 
   TRY_RESULT(p_impl, QuicConnectionPImpl::create_server(local_address, msg_in.address, server_key_, alpn_.as_slice(),
-                                                        vc, std::make_unique<PImplCallback>(*this->callback_)));
+                                                        vc, std::make_unique<PImplCallback>(*this->callback_, false)));
 
   QuicConnectionId cid = p_impl->get_primary_scid();
   QuicConnectionId temp_cid = vc.dcid;
@@ -183,7 +182,7 @@ td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::E
   TRY_RESULT(local_address, fd_.get_local_address());  // TODO: we may avoid system call here
 
   TRY_RESULT(p_impl, QuicConnectionPImpl::create_client(local_address, remote_address, std::move(client_key), alpn,
-                                                        std::make_unique<PImplCallback>(*this->callback_)));
+                                                        std::make_unique<PImplCallback>(*this->callback_, true)));
   QuicConnectionId cid = p_impl->get_primary_scid();
 
   auto state = std::make_shared<ConnectionState>(ConnectionState{
@@ -317,31 +316,38 @@ void QuicServer::update_alarm_for(ConnectionState &state) {
 }
 
 void QuicServer::send_stream_data(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data) {
-  auto state = find_connection(cid);
-  if (!state) {
-    LOG(WARNING) << "send_stream_data to unknown connection cid=" << cid;
-    return;
-  }
-  flush_egress_for(*state, {.stream_data = EgressData::StreamData{.sid = sid, .data = std::move(data), .fin = false}});
-  update_alarm_for(*state);
+  send_stream(cid, sid, std::move(data), false);
 }
 
 void QuicServer::send_stream_end(QuicConnectionId cid, QuicStreamID sid) {
-  auto state = find_connection(cid);
-  if (!state) {
-    LOG(WARNING) << "send_stream_end to unknown connection cid=" << cid;
-    return;
-  }
-  flush_egress_for(*state, {.stream_data = EgressData::StreamData{.sid = sid, .data = {}, .fin = true}});
-  update_alarm_for(*state);
+  send_stream(cid, sid, {}, true);
 }
 
 td::Result<QuicStreamID> QuicServer::open_stream(QuicConnectionId cid) {
+  return send_stream(cid, {}, {}, false);
+}
+
+td::Result<QuicStreamID> QuicServer::send_stream(QuicConnectionId cid, std::optional<QuicStreamID> o_sid,
+                                                 td::BufferSlice data, bool is_end) {
   auto state = find_connection(cid);
   if (!state) {
     return td::Status::Error("Connection not found");
   }
-  return state->impl().open_stream();
+
+  QuicStreamID sid;
+  if (o_sid) {
+    sid = *o_sid;
+  } else {
+    TRY_RESULT_ASSIGN(sid, state->impl().open_stream());
+  }
+
+  if (!data.empty() || is_end) {
+    flush_egress_for(*state,
+                     {.stream_data = EgressData::StreamData{.sid = sid, .data = std::move(data), .fin = is_end}});
+    update_alarm_for(*state);
+  }
+
+  return sid;
 }
 
 }  // namespace ton::quic

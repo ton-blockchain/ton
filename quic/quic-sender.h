@@ -9,11 +9,13 @@
 #include "quic-server.h"
 
 namespace ton::quic {
+
 class QuicSender : public adnl::AdnlSenderInterface {
+ public:
   using AdnlPath = std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>;
 
- public:
   explicit QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::actor::ActorId<keyring::Keyring> keyring);
+  ~QuicSender() override = default;
 
   void send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) override;
   void send_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, std::string name,
@@ -24,45 +26,54 @@ class QuicSender : public adnl::AdnlSenderInterface {
   void get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id,
                        td::Promise<td::string> promise) override;
 
-  td::actor::Task<> add_local_id_coro(adnl::AdnlNodeIdShort local_id);
   void add_local_id(adnl::AdnlNodeIdShort local_id);
 
  private:
-  struct OutboundConnection {
-    bool ready_received = false;
+  struct Connection {
+    bool init_started = false;
+    bool is_ready = false;
     QuicConnectionId cid{};
-    adnl::AdnlNodeIdShort local_id{};
-    td::Promise<OutboundConnection*> ready = td::make_promise([](td::Result<OutboundConnection*>) {});
+    AdnlPath path{};
+    td::actor::ActorId<QuicServer> server;
+    std::vector<td::Promise<td::Unit>> waiting_ready{};
     std::unordered_map<QuicStreamID, td::Promise<td::BufferSlice>> responses{};
+    std::map<QuicStreamID, td::BufferBuilder> stream_builders;
   };
 
-  constexpr static int NODE_PORT_OFFSET = 1000;
+  class ServerCallback;
 
-  void find_out_connection(AdnlPath path, td::Promise<OutboundConnection*> P);
-  void create_connection(AdnlPath path, td::Promise<OutboundConnection*> P);
-
-  void after_out_connection_established(AdnlPath path, QuicConnectionId cid);
-  void after_connection_ready(QuicConnectionId cid);
-  void after_out_connection_failed(AdnlPath path, td::Status error);
-  void after_out_query_stream_obtained(OutboundConnection* conn, td::BufferSlice query_data,
-                                       td::Promise<td::BufferSlice> answer_promise, td::Result<QuicStreamID> sid_res);
-  void after_out_query_answer(AdnlPath path, QuicStreamID sid, td::BufferSlice data);
-  void send_message_on_connection(adnl::AdnlNodeIdShort local_id, QuicConnectionId cid, td::BufferSlice data,
-                                  adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst);
-  void send_query_on_connection(adnl::AdnlNodeIdShort local_id, QuicConnectionId cid, OutboundConnection* conn,
-                                td::BufferSlice data, td::Promise<td::BufferSlice> promise);
-
-  void after_in_query(AdnlPath path, QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data);
-  void after_in_query_answer(adnl::AdnlNodeIdShort local_id, QuicConnectionId cid, QuicStreamID sid,
-                             td::BufferSlice data);
-  void after_in_message(AdnlPath path, td::BufferSlice data);
+  static constexpr int NODE_PORT_OFFSET = 1000;
 
   td::actor::ActorId<adnl::AdnlPeerTable> adnl_;
   td::actor::ActorId<keyring::Keyring> keyring_;
 
-  std::map<AdnlPath, OutboundConnection> outbound_;
-  std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<QuicServer>> inbound_;
-  std::map<adnl::AdnlNodeIdShort, td::SecureString> local_keys_;         // Cached raw Ed25519 keys
-  std::unordered_map<QuicConnectionId, AdnlPath> cid_to_outbound_path_;  // Maps outbound CIDs to paths
+  std::map<AdnlPath, std::shared_ptr<Connection>> outbound_;
+  std::map<AdnlPath, std::shared_ptr<Connection>> inbound_;
+  std::map<QuicConnectionId, std::shared_ptr<Connection>> by_cid_;
+
+  std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<QuicServer>> servers_;
+  std::map<adnl::AdnlNodeIdShort, td::Ed25519::PrivateKey> local_keys_;
+
+  td::actor::Task<td::Unit> send_message_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
+                                              td::BufferSlice data);
+  td::actor::Task<td::BufferSlice> send_query_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
+                                                   std::string name, td::Timestamp timeout, td::BufferSlice data);
+  td::actor::Task<std::string> get_conn_ip_str_coro(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id);
+  td::actor::Task<> add_local_id_coro(adnl::AdnlNodeIdShort local_id);
+
+  td::actor::Task<std::shared_ptr<Connection>> find_or_create_connection(AdnlPath path);
+  td::actor::Task<td::Unit> init_connection(AdnlPath path, std::shared_ptr<Connection> connection);
+  td::actor::Task<td::Unit> init_connection_inner(AdnlPath path, std::shared_ptr<Connection> conn);
+
+  td::Status on_connected(td::actor::ActorId<QuicServer> server, QuicConnectionId cid, adnl::AdnlNodeIdShort local_id,
+                          td::SecureString peer_public_key, bool is_outbound);
+  void on_stream(QuicConnectionId cid, QuicStreamID stream_id, td::BufferSlice new_data, bool is_end);
+
+  void on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id, ton_api::quic_query& query);
+  void on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id, ton_api::quic_message& message);
+  td::actor::Task<> on_inbound_query(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
+                                     td::BufferSlice query);
+  void on_answer(Connection& connection, QuicStreamID stream_id, ton_api::quic_answer& answer);
 };
+
 }  // namespace ton::quic

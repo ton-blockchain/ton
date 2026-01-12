@@ -15,7 +15,7 @@ class QuicTester : public td::actor::Actor {
     explicit Callback(td::actor::ActorId<QuicTester> tester) : tester_(std::move(tester)) {
     }
 
-    td::Status on_connected(ton::quic::QuicConnectionId cid, td::SecureString public_key) override {
+    td::Status on_connected(ton::quic::QuicConnectionId cid, td::SecureString public_key, bool is_outbound) override {
       auto public_key_b64 = td::base64_encode(public_key.as_slice());
       LOG(INFO) << "connected";
       LOG(INFO) << "server public key: " << public_key_b64;
@@ -23,15 +23,16 @@ class QuicTester : public td::actor::Actor {
       return td::Status::OK();
     }
 
-    void on_stream_data(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid, td::BufferSlice data) override {
+    void on_stream(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid, td::BufferSlice data,
+                   bool is_end) override {
       std::cout.flush();
       std::cout.write(data.data(), static_cast<std::streamsize>(data.size()));
       std::cout.flush();
-    }
 
-    void on_stream_end(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid) override {
-      LOG(INFO) << "disconnected";
-      std::exit(0);
+      if (is_end) {
+        LOG(INFO) << "disconnected";
+        std::exit(0);
+      }
     }
 
    private:
