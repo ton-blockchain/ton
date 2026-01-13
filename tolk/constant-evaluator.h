@@ -26,10 +26,11 @@ struct ConstValInt;
 struct ConstValBool;
 struct ConstValSlice;
 struct ConstValAddress;
+struct ConstValNullLiteral;
 struct ConstValTensor;
 struct ConstValShapedTuple;
 struct ConstValObject;
-struct ConstValNullLiteral;
+struct ConstValCastToType;
 
 // `const a = 2 + 3` is okay, but `const a = foo()` is not;
 // "okay" means "a constant expression", which can be evaluated at compile-time;
@@ -43,10 +44,11 @@ typedef std::variant<
   ConstValBool,
   ConstValSlice,
   ConstValAddress,
+  ConstValNullLiteral,
   ConstValTensor,
   ConstValShapedTuple,
   ConstValObject,
-  ConstValNullLiteral
+  ConstValCastToType
 > ConstValExpression;
 
 struct ConstValInt {
@@ -65,23 +67,27 @@ struct ConstValAddress {
   std::string std_addr_hex;
 };
 
+struct ConstValNullLiteral {
+};
+
 struct ConstValTensor {
-  std::vector<AnyExprV> items;
+  std::vector<ConstValExpression> items;
 };
 
 struct ConstValShapedTuple {
-  std::vector<AnyExprV> items;
+  std::vector<ConstValExpression> items;
 };
 
 struct ConstValObject {
   StructPtr struct_ref;
-  std::vector<std::pair<StructFieldPtr, AnyExprV>> fields;
+  std::vector<ConstValExpression> fields;   // i-th value for i-th field of a struct
 };
 
-struct ConstValNullLiteral {
+struct ConstValCastToType {
+  std::vector<ConstValExpression> inner;    // size = 1, to place an item onto the heap
+  TypePtr cast_to;
 };
 
-ConstValExpression eval_constant_expression_or_fire(AnyExprV v_expr);
 ConstValExpression eval_and_cache_const_init_val(GlobalConstPtr const_ref);
 ConstValExpression eval_call_to_compile_time_function(AnyExprV v_call);
 

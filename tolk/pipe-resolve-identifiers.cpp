@@ -60,8 +60,11 @@ static Error err_type_used_as_symbol(V<ast_identifier> v) {
   }
 }
 
+GNU_ATTRIBUTE_NOINLINE
 static Error err_using_self_not_in_method(FunctionPtr cur_f) {
-  if (cur_f->is_static_method()) {
+  if (!cur_f) {
+    return err("using `self` outside a function");
+  } else if (cur_f->is_static_method()) {
     return err("using `self` in a static method");
   } else {
     return err("using `self` in a regular function (not a method)");

@@ -30,7 +30,7 @@ fun Point.incrementX(mutate self, deltaX: int = 1) {
 }
 
 fun makeCost(cost: coins = ton("0.05")) {
-    return cost + ton("0.05");
+    return cost + ton("0.05") + ton("0.");
 }
 
 fun makeUnion(v: int | slice = 0) {

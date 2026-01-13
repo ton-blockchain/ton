@@ -702,55 +702,71 @@ std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_
 
 // convert a constant value (calculated by a "constant-evaluator") to IR vars;
 // every init_val of `const XXX = ...` is calculated once (into ConstValExpression) and cached
-static std::vector<var_idx_t> pre_compile_constant_expression(const ConstValExpression& value, CodeBlob& code, AnyV origin) {
+// besides rvect, return the type this rvect has, for correct transitions
+static std::pair<TypePtr, std::vector<var_idx_t>> pre_compile_constant_expression(const ConstValExpression& value, CodeBlob& code, AnyV origin) {
   if (const ConstValInt* val = std::get_if<ConstValInt>(&value)) {
     std::vector rvect = code.create_tmp_var(TypeDataInt::create(), origin, "(int-const)");
     code.emplace_back(origin, Op::_IntConst, rvect, val->int_val);
-    return rvect;
+    return {TypeDataInt::create(), rvect};
   }
   if (const ConstValBool* val = std::get_if<ConstValBool>(&value)) {
-    FunctionPtr builtin_sym = lookup_function(val->bool_val ? "__true" : "__false");
-    std::vector rvect = gen_op_call(code, TypeDataBool::create(), origin, {}, builtin_sym, "(bool-const)");
-    return rvect;
+    std::vector rvect = code.create_tmp_var(TypeDataBool::create(), origin, "(bool-const)");
+    code.emplace_back(origin, Op::_Call, rvect, std::vector<var_idx_t>{}, lookup_function(val->bool_val ? "__true" : "__false"));
+    return {TypeDataBool::create(), rvect};
   }
   if (const ConstValSlice* val = std::get_if<ConstValSlice>(&value)) {
     std::vector rvect = code.create_tmp_var(TypeDataSlice::create(), origin, "(str-const)");
     code.emplace_back(origin, Op::_SliceConst, rvect, val->str_hex);
-    return rvect;
+    return {TypeDataSlice::create(), rvect};
   }
   if (const ConstValAddress* val = std::get_if<ConstValAddress>(&value)) {
-    std::vector rvect = code.create_tmp_var(TypeDataSlice::create(), origin, "(addr-const)");
+    std::vector rvect = code.create_tmp_var(TypeDataAddress::internal(), origin, "(addr-const)");
     code.emplace_back(origin, Op::_SliceConst, rvect, val->std_addr_hex);
-    return rvect;
+    return {TypeDataAddress::internal(), rvect};
   }
+  if (std::get_if<ConstValNullLiteral>(&value)) {
+    std::vector rvect = code.create_tmp_var(TypeDataNullLiteral::create(), origin, "(null-literal)");
+    code.emplace_back(origin, Op::_Call, rvect, std::vector<var_idx_t>{}, lookup_function("__null"));
+    return {TypeDataNullLiteral::create(), rvect};
+  }
+
   if (const ConstValTensor* val = std::get_if<ConstValTensor>(&value)) {
+    std::vector<TypePtr> items_types;
     std::vector<var_idx_t> rvect;
-    for (AnyExprV v_item : val->items) {
-      std::vector ir_item = pre_compile_expr(v_item, code);
-      rvect.insert(rvect.end(), ir_item.begin(), ir_item.end());
+    for (const ConstValExpression& c_item : val->items) {
+      auto [item_type, item_rvect] = pre_compile_constant_expression(c_item, code, origin);
+      items_types.push_back(item_type);
+      rvect.insert(rvect.end(), item_rvect.begin(), item_rvect.end());
     }
-    return rvect;
+    return {TypeDataTensor::create(std::move(items_types)), rvect};
+  }
+  if (const ConstValShapedTuple* val = std::get_if<ConstValShapedTuple>(&value)) {
+    std::vector<TypePtr> items_types;
+    std::vector<var_idx_t> rvect;
+    for (const ConstValExpression& c_item : val->items) {
+      auto [item_type, item_rvect] = pre_compile_constant_expression(c_item, code, origin);
+      items_types.push_back(item_type);
+      item_rvect = transition_to_target_type(std::move(item_rvect), code, item_type, TypeDataUnknown::create(), origin);
+      rvect.insert(rvect.end(), item_rvect.begin(), item_rvect.end());
+    }
+    TypePtr t_shaped = TypeDataShapedTuple::create(std::move(items_types));
+    std::vector ir_shaped = code.create_tmp_var(t_shaped, origin, "(shaped-const)");
+    code.emplace_back(origin, Op::_Tuple, ir_shaped, std::move(rvect));
+    return {t_shaped, ir_shaped};
   }
   if (const ConstValObject* val = std::get_if<ConstValObject>(&value)) {
     std::vector<var_idx_t> rvect;
-    for (StructFieldPtr field_ref : val->struct_ref->fields) {
-      std::vector<var_idx_t> ir_field;
-      auto it = std::find_if(val->fields.begin(), val->fields.end(),
-          [field_ref](const auto& p) { return p.first == field_ref; });
-      if (it != val->fields.end()) {
-        ir_field = pre_compile_expr(it->second, code, field_ref->declared_type);
-      } else if (field_ref->declared_type != TypeDataVoid::create()) {
-        tolk_assert(field_ref->has_default_value());
-        ir_field = pre_compile_expr(field_ref->default_value, code, field_ref->declared_type);
-      }
-      rvect.insert(rvect.end(), ir_field.begin(), ir_field.end());
+    for (int i = 0; i < val->struct_ref->get_num_fields(); ++i) {
+      auto [field_type, field_rvect] = pre_compile_constant_expression(val->fields[i], code, origin);
+      field_rvect = transition_to_target_type(std::move(field_rvect), code, field_type, val->struct_ref->get_field(i)->declared_type, origin);
+      rvect.insert(rvect.end(), field_rvect.begin(), field_rvect.end());
     }
-    return rvect;
+    return {TypeDataStruct::create(val->struct_ref), rvect};
   }
-  if (std::get_if<ConstValNullLiteral>(&value)) {
-    FunctionPtr builtin_sym = lookup_function("__null");
-    std::vector rvect = gen_op_call(code, TypeDataNullLiteral::create(), origin, {}, builtin_sym, "(null-literal)");
-    return rvect;
+  if (const ConstValCastToType* val = std::get_if<ConstValCastToType>(&value)) {
+    auto [original_type, rvect] = pre_compile_constant_expression(val->inner.front(), code, origin);
+    rvect = transition_to_target_type(std::move(rvect), code, original_type, val->cast_to, origin);
+    return {val->cast_to, rvect};
   }
   tolk_assert(false);
 }
@@ -769,10 +785,9 @@ std::vector<var_idx_t> pre_compile_symbol(const Symbol* sym, CodeBlob& code, Any
   if (GlobalConstPtr const_ref = sym->try_as<GlobalConstPtr>()) {
     tolk_assert(lval_ctx == nullptr);
     ConstValExpression value = eval_and_cache_const_init_val(const_ref);
-    std::vector ir_init = pre_compile_constant_expression(value, code, origin);
-    tolk_assert(static_cast<int>(ir_init.size()) == const_ref->init_value->inferred_type->get_width_on_stack());
+    auto [original_type, rvect] = pre_compile_constant_expression(value, code, origin);
     // handle `const a: int|slice = 1`, ir_init is int(1), transition to union
-    return transition_to_target_type(std::move(ir_init), code, const_ref->init_value->inferred_type, const_ref->inferred_type, origin);
+    return transition_to_target_type(std::move(rvect), code, original_type, const_ref->inferred_type, origin);
   }
 
   // referencing a global variable, copy it to a local tmp var
@@ -1253,7 +1268,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
   // `ton("0.05")` and others, we even don't need to calculate ir_idx for arguments, just replace with constexpr
   if (fun_ref->is_compile_time_const_val()) {
     ConstValExpression value = eval_call_to_compile_time_function(v);
-    std::vector rvect = pre_compile_constant_expression(value, code, v);
+    auto [type, rvect] = pre_compile_constant_expression(value, code, v);
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
 

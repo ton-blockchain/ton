@@ -385,6 +385,24 @@ fun test123() {
     )
 }
 
+const list1: lisp_list<int> = []
+const list2: lisp_list<int> = [1, 2]
+const list1Unknown: unknown = list1
+const list2Unknown: unknown = list2
+
+@method_id(124)
+fun test124() {
+    __expect_type(list2, "lisp_list<int>");
+    return (
+        list1,
+        list2,
+        list1Unknown,
+        list2Unknown,
+        (list1 as unknown) == null,
+    )
+}
+
+
 
 fun main() {
     __expect_type([] as lisp_list<int8>, "lisp_list<int8>");
@@ -418,4 +436,5 @@ fun main() {
 @testcase | 121 |       | 41
 @testcase | 122 |       | -1
 @testcase | 123 |       | -1 100 200 100 -1
+@testcase | 124 |       | (null) [ 1 [ 2 (null) ] ] (null) [ 1 [ 2 (null) ] ] -1
  */

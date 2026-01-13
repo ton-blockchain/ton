@@ -568,6 +568,22 @@ fun test43() {
     // 73669
 }
 
+@method_id(144)
+fun test44() {
+    return (
+        stringHexToSlice("").remainingBitsAndRefsCount(),
+        stringCrc32(""),
+        stringCrc16(""),
+        stringSha256("") == 0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855,
+        stringSha256_32(""),
+        // they are the same
+        stringHexToSlice("  0   A   1    4   ").bitsEqual(stringHexToSlice("0a14")),
+        // but they are not
+        stringCrc32("  0A14  ") == stringCrc32("0A14"),
+        stringSha256("  0A14  ") == stringSha256("0A14"),
+    )
+}
+
 fun main(): int {
     return 0;
 }
@@ -617,6 +633,7 @@ fun main(): int {
 @testcase | 141 |     | [ 9 9 9 9 9 9 9 9 9 8 8 8 8 2 ]
 @testcase | 142 |     | -1 -1 -1 -1
 @testcase | 143 |     | 2 -1 0
+@testcase | 144 |     | 0 0 0 0 -1 3820012610 -1 0 0
 
 We test that consequtive storeInt/storeUint with constants are joined into a single number
 

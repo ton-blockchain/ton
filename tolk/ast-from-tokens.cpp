@@ -143,8 +143,8 @@ static td::RefInt256 parse_tok_int_const(std::string_view text, SrcRange cur_ran
     return intval;
   }
   // parse a binary number; to make it simpler, don't allow too long numbers, it's impractical
-  if (text.size() > 64 + 2) {
-    return {};
+  if (text.size() < 3 || text.size() > 64 + 2) {
+    err("invalid binary integer").fire(cur_range);
   }
   uint64_t result = 0;
   for (char c : text.substr(2)) { // skip "0b"
@@ -1480,8 +1480,8 @@ static AnyV parse_asm_func_body(Lexer& lex, V<ast_identifier> name_ident, V<ast_
     }
     if (lex.tok() == tok_arrow) {
       lex.next();
-      while (lex.tok() == tok_int_const && lex.cur_str().size() < 6) {
-        int ret_idx = std::stoi(static_cast<std::string>(lex.cur_str()));
+      while (lex.tok() == tok_int_const) {
+        int ret_idx = static_cast<int>(parse_tok_int_const(lex.cur_str(), lex.cur_range())->to_long());
         ret_order.push_back(ret_idx);
         lex.next();
       }
