@@ -209,9 +209,10 @@ static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_b
   if (roots.size() != 1) {
     return td::Status::Error("expected 1 root in boc");
   }
+  TRY_RESULT(algorithm_name, vm::boc_get_algorithm_name(f.data_compressed_));
   LOG(DEBUG) << "Broadcast_benchmark deserialize_block_broadcast block_id=" << block_id.to_str()
              << " called_from=" << called_from << " time_sec=" << (td::Time::now() - t_decompression_start)
-             << " compression=" << "compressedV2"
+             << " compression=" << "compressedV2_" << algorithm_name
              << " compressed_size=" << f.data_compressed_.size() + f.proof_.size() + total_signatures_size;
   TRY_RESULT(data, vm::std_boc_serialize(roots[0], 31));
   return BlockBroadcast{create_block_id(f.id_),
@@ -306,8 +307,9 @@ static td::Status deserialize_block_full(ton_api::tonNode_dataFullCompressedV2& 
   if (roots.size() != 1) {
     return td::Status::Error("expected 1 root in boc");
   }
+  TRY_RESULT(algorithm_name, vm::boc_get_algorithm_name(f.block_compressed_));
   LOG(DEBUG) << "Broadcast_benchmark deserialize_block_full block_id=" << id.to_str()
-             << " time_sec=" << (td::Time::now() - t_decompression_start) << " compression=" << "compressedV2"
+             << " time_sec=" << (td::Time::now() - t_decompression_start) << " compression=" << "compressedV2_" << algorithm_name
              << " compressed_size=" << f.block_compressed_.size() + f.proof_.size();
   TRY_RESULT_ASSIGN(data, vm::std_boc_serialize(roots[0], 31));
   proof = std::move(f.proof_);
@@ -412,9 +414,10 @@ static td::Status deserialize_block_candidate_broadcast(ton_api::tonNode_newBloc
   if (roots.size() != 1) {
     return td::Status::Error("expected 1 root in boc");
   }
+  TRY_RESULT(algorithm_name, vm::boc_get_algorithm_name(obj.compressed_));
   LOG(DEBUG) << "Broadcast_benchmark deserialize_block_candidate_broadcast block_id=" << block_id.to_str()
              << " called_from=" << called_from << " time_sec=" << (td::Time::now() - t_decompression_start)
-             << " compression=" << "compressedV2"
+             << " compression=" << "compressedV2_" << algorithm_name
              << " compressed_size=" << obj.compressed_.size();
   auto root = std::move(roots[0]);
   TRY_RESULT_ASSIGN(data, vm::std_boc_serialize(root, 31));

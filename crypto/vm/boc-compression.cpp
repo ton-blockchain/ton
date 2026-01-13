@@ -939,7 +939,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress(td::Slice compressed, 
   return td::Status::Error("Unknown compression algorithm");
 }
 
-td::Result<bool> boc_need_state_for_decompression(td::Slice compressed) {
+td::Result<bool> boc_need_state_for_decompression(const td::Slice& compressed) {
   if (compressed.size() == 0) {
     return td::Status::Error("Can't check algorithm on empty data");
   }
@@ -952,6 +952,36 @@ td::Result<bool> boc_need_state_for_decompression(td::Slice compressed) {
       return false;
     case CompressionAlgorithm::ImprovedStructureLZ4WithState:
       return true;
+    default:
+      return td::Status::Error("Unknown compression algorithm");
+  }
+}
+
+std::string compression_algorithm_to_str(CompressionAlgorithm algo) {
+  switch (algo) {
+    case CompressionAlgorithm::BaselineLZ4:
+      return "BaselineLZ4";
+    case CompressionAlgorithm::ImprovedStructureLZ4:
+      return "ImprovedStructureLZ4";
+    case CompressionAlgorithm::ImprovedStructureLZ4WithState:
+      return "ImprovedStructureLZ4WithState";
+    default:
+      return "Unknown";
+  }
+}
+
+td::Result<std::string> boc_get_algorithm_name(const td::Slice& compressed) {
+  if (compressed.size() == 0) {
+    return td::Status::Error("Can't get algorithm name from empty data");
+  }
+
+  CompressionAlgorithm algo = static_cast<CompressionAlgorithm>(compressed[0]);
+
+  switch (algo) {
+    case CompressionAlgorithm::BaselineLZ4:
+    case CompressionAlgorithm::ImprovedStructureLZ4:
+    case CompressionAlgorithm::ImprovedStructureLZ4WithState:
+      return compression_algorithm_to_str(algo);
     default:
       return td::Status::Error("Unknown compression algorithm");
   }
