@@ -120,12 +120,6 @@ class StatsCollectorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
     round.started_at = producer_stats.got_submit_at;
     round.producers = {producer_stats};
 
-    // Remove
-    if (bus.shard.is_masterchain()) {
-      stats.first_round = slot % 4 != 1;
-    } else {
-      stats.first_round = slot % 4 != 0;
-    }
     stats.rounds.push_back(std::move(round));
 
     stats.fix_block_ids();
