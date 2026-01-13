@@ -10,6 +10,7 @@
 #include "keyring/keyring.hpp"
 #include "overlay/overlays.h"
 #include "rldp2/rldp.h"
+#include "td/db/KeyValueAsync.h"
 #include "ton/ton-types.h"
 
 #include "manager-facade.h"
@@ -135,6 +136,9 @@ struct StatsTargetReached {
   std::string contents_to_string() const;
 };
 
+using DbType = td::KeyValueAsync<td::BufferSlice, td::BufferSlice>;
+using DbReaderType = std::unique_ptr<td::KeyValueReader>;
+
 class Bus : public runtime::Bus {
  public:
   using Events = td::TypeList<StopRequested, BlockFinalized, OurLeaderWindowStarted, OurLeaderWindowAborted,
@@ -168,8 +172,13 @@ class Bus : public runtime::Bus {
 
   td::actor::ActorId<overlay::Overlays> overlays;
   td::actor::ActorId<rldp2::Rldp> rldp2;
+  DbType db;
+  DbReaderType db_reader;
 
   std::vector<BlockIdExt> first_block_parents;
+
+  std::optional<td::BufferSlice> db_get(td::Slice key) const;
+  std::vector<std::pair<td::BufferSlice, td::BufferSlice>> db_get_by_prefix(td::uint32 prefix) const;
 };
 
 using BusHandle = runtime::BusHandle<Bus>;

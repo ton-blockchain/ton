@@ -105,4 +105,28 @@ std::vector<BlockIdExt> Bus::convert_id_to_blocks(ParentId parent) const {
   }
 }
 
+std::optional<td::BufferSlice> Bus::db_get(td::Slice key) const {
+  std::string value;
+  auto result = db_reader->get(key, value).ensure().move_as_ok();
+  if (result == td::KeyValueReader::GetStatus::Ok) {
+    return td::BufferSlice(value);
+  }
+  return std::nullopt;
+}
+
+std::vector<std::pair<td::BufferSlice, td::BufferSlice>> Bus::db_get_by_prefix(td::uint32 prefix) const {
+  td::uint32 prefix2 = prefix + 1;
+  td::Slice begin{(const char*)&prefix, 4};
+  td::Slice end{(const char*)&prefix2, 4};
+  std::vector<std::pair<td::BufferSlice, td::BufferSlice>> result;
+  db_reader
+      ->for_each_in_range(begin, end,
+                          [&](td::Slice key, td::Slice value) -> td::Status {
+                            result.emplace_back(key, value);
+                            return td::Status::OK();
+                          })
+      .ensure();
+  return result;
+}
+
 }  // namespace ton::validator::consensus

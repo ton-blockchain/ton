@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
+#include "td/db/RocksDb.h"
+#include "td/utils/port/path.h"
 #include "validator-session/validator-session-types.h"
 #include "validator/consensus/null/bus.h"
 #include "validator/consensus/simplex/bus.h"
@@ -70,6 +72,19 @@ class ManagerFacadeImpl : public ManagerFacade {
     co_return co_await td::actor::ask(manager_, &ValidatorManager::wait_block_data_short, block_id, 0, timeout);
   }
 
+  td::actor::Task<BlockCandidate> load_block_candidate(PublicKey source, BlockIdExt block_id,
+                                                       FileHash collated_data_hash) override {
+    co_return co_await td::actor::ask(manager_, &ValidatorManager::get_block_candidate_from_db, source, block_id,
+                                      collated_data_hash);
+  }
+
+  td::actor::Task<> store_block_candidate(BlockCandidate candidate) override {
+    candidate.out_msg_queue_proof_broadcasts = {};
+    BlockIdExt block_id = candidate.id;
+    co_return co_await td::actor::ask(manager_, &ValidatorManager::set_block_candidate, block_id, std::move(candidate),
+                                      validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash());
+  }
+
   void log_validator_session_stats(validatorsession::ValidatorSessionStats stats) override {
     stats.cc_seqno = validator_set_->get_catchain_seqno();
     td::actor::send_closure(manager_, &ValidatorManager::log_validator_session_stats, std::move(stats));
@@ -101,6 +116,7 @@ struct BridgeCreationParams {
   ValidatorSessionId session_id;
   td::actor::ActorId<overlay::Overlays> overlays;
   td::actor::ActorId<rldp2::Rldp> rldp2;
+  std::string db_root;
 
   std::vector<BlockIdExt> first_block_parents = {};
 };
@@ -215,6 +231,14 @@ class BridgeImpl final : public IValidatorGroup {
 
     bus->populate_collator_schedule();
 
+    std::string db_dir = PSTRING() << params_.db_root << "/consensus/consensus." << params_.shard.workchain << "."
+                                   << params_.shard.shard << "." << params_.validator_set->get_catchain_seqno() << "."
+                                   << params_.session_id.to_hex() << "/db/";
+    td::mkpath(db_dir).ensure();
+    auto rocksdb = td::RocksDb::open(db_dir).ensure().move_as_ok();
+    bus->db_reader = rocksdb.snapshot();
+    bus->db = DbType(std::make_shared<td::RocksDb>(std::move(rocksdb)));
+
     runtime::Runtime runtime;
     BlockAccepter::register_in(runtime);
     BlockProducer::register_in(runtime);
@@ -275,6 +299,7 @@ td::actor::ActorOwn<IValidatorGroup> IValidatorGroup::create_bridge(
       .session_id = std::move(session_id),
       .overlays = overlays,
       .rldp2 = rldp2,
+      .db_root = db_root,
   };
   return td::actor::create_actor<consensus::BridgeImpl>(name_with_seqno, std::move(params));
 }

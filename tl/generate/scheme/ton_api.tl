@@ -1197,5 +1197,14 @@ consensus.simplex.certificate vote:consensus.simplex.UnsignedVote signatures:con
 
 consensus.simplex.candidateAndCert candidate:bytes notar:bytes = consensus.simplex.CandidateAndCert;
 
+consensus.simplex.db.key.vote vote_hash:int256 = consensus.simplex.db.key.Vote;
+consensus.simplex.db.vote data:bytes node_idx:int = consensus.simplex.db.Vote;
+consensus.simplex.db.key.poolState = consensus.simplex.db.key.PoolState;
+consensus.simplex.db.poolState first_nonannounced_window:int = consensus.simplex.db.PoolState;
+consensus.simplex.db.key.storedCandidate candidateId:consensus.candidateId = consensus.simplex.db.key.Candidate;
+consensus.simplex.db.storedCandidate leader_id:int candidate_hash_data:consensus.CandidateHashData
+    notar:consensus.simplex.voteSignatureSet signature:bytes = consensus.simplex.db.StoredCandidate;
+consensus.simplex.db.key.finalizedBlock candidateId:consensus.candidateId = consensus.simplex.db.key.FinalizedBlock;
+
 ---functions---
 consensus.simplex.requestCandidate id:consensus.CandidateId want_candidate:Bool want_notar:Bool = consensus.simplex.CandidateAndCert;

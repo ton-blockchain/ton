@@ -7,6 +7,7 @@
 #include "td/actor/coro_utils.h"
 
 #include "bus.h"
+#include "checksum.h"
 #include "misbehavior.h"
 #include "state.h"
 
@@ -181,8 +182,8 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     LOG(INFO) << "Validator group started. We are " << bus.local_id << " with weight " << bus.local_id.weight
               << " out of " << bus.total_weight;
 
-    owning_bus().publish<LeaderWindowObserved>(0, RawParentId{});
-
+    load_from_db();
+    maybe_publish_new_leader_window(0).start().detach();
     reschedule_standstill_resolution();
     // FIXME: Load our existing votes from disk
   }
@@ -202,7 +203,9 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
       return;
     }
 
-    handle_vote(message->source.get_using(bus), maybe_vote.move_as_ok());
+    if (handle_vote(message->source.get_using(bus), maybe_vote.move_as_ok())) {
+      store_vote_to_db(message->message.data.clone(), message->source).detach();
+    }
   }
 
   template <>
@@ -249,26 +252,28 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     alarm_timestamp() = td::Timestamp::in(owning_bus()->standstill_timeout_s);
   }
 
-  void handle_vote(const PeerValidator &validator, Signed<Vote> vote) {
-    auto vote_fn = [&](auto vote) {
+  bool handle_vote(const PeerValidator &validator, Signed<Vote> vote) {
+    auto vote_fn = [&](auto vote) -> bool {
       auto slot = state_->slot_at(vote.vote.referenced_slot());
       if (!slot) {
         LOG(WARNING) << "Dropping " << vote.vote << " from " << validator << " which references a finalized slot";
-        return;
+        return false;
       }
 
       auto add_result = slot->state->votes[validator.idx.value()].add_vote(std::move(vote));
 
       if (auto misbehavior = add_result.misbehavior) {
         owning_bus().publish<MisbehaviorReport>(validator.idx, *misbehavior);
-        return;
+        return false;
       }
 
       if (add_result.is_applied) {
         handle_vote(validator, std::move(vote), *slot);
+        return true;
       }
+      return false;
     };
-    std::move(vote).consume_and_downcast(vote_fn);
+    return std::move(vote).consume_and_downcast(vote_fn);
   }
 
   void handle_vote(const PeerValidator &validator, Signed<NotarizeVote> vote, State::SlotRef &slot) {
@@ -301,10 +306,10 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
                                              std::move(data_to_sign));
 
     Signed<Vote> signed_vote{bus.local_id.idx, vote, std::move(signature)};
+    td::BufferSlice serialized = signed_vote.serialize();
+    co_await store_vote_to_db(serialized.clone(), bus.local_id.idx);
 
-    // FIXME: Store on disk
-
-    owning_bus().publish(std::make_shared<OutgoingProtocolMessage>(std::nullopt, signed_vote.serialize()));
+    owning_bus().publish(std::make_shared<OutgoingProtocolMessage>(std::nullopt, std::move(serialized)));
     handle_vote(bus.local_id, std::move(signed_vote));
 
     co_return {};
@@ -319,14 +324,24 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
         break;
       }
     }
+    maybe_publish_new_leader_window(now_).start().detach();
+  }
 
-    td::uint32 new_window = now_ / slots_per_leader_window_;
-    if (new_window >= first_nonannounced_window_) {
-      const auto &base = state_->slot_at(now_)->state->available_base;
-      CHECK(base.has_value());
-      owning_bus().publish<LeaderWindowObserved>(now_, *base);
-      first_nonannounced_window_ = new_window + 1;
+  td::actor::Task<> maybe_publish_new_leader_window(td::uint32 start_slot) {
+    td::uint32 new_window = start_slot / slots_per_leader_window_;
+    if (new_window < first_nonannounced_window_) {
+      co_return {};
     }
+    first_nonannounced_window_ = new_window + 1;
+    co_await store_pool_state_to_db();
+    RawParentId base = {};
+    if (start_slot != 0) {
+      const auto &opt_base = state_->slot_at(now_)->state->available_base;
+      CHECK(opt_base.has_value());
+      base = opt_base.value();
+    }
+    owning_bus().publish<LeaderWindowObserved>(now_, base);
+    co_return {};
   }
 
   State::SlotRef next_nonskipped_slot_after(int slot) {
@@ -480,6 +495,40 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     reschedule_standstill_resolution();
   }
 
+  void load_from_db() {
+    auto &bus = *owning_bus();
+
+    auto pool_state_str = bus.db_get(create_serialize_tl_object<ton_api::consensus_simplex_db_key_poolState>());
+    if (pool_state_str.has_value()) {
+      auto pool_state =
+          fetch_tl_object<ton_api::consensus_simplex_db_poolState>(*pool_state_str, true).ensure().move_as_ok();
+      first_nonannounced_window_ = pool_state->first_nonannounced_window_;
+      LOG(INFO) << "Loaded pool state from DB: first_nonannounced_window=" << first_nonannounced_window_;
+    }
+
+    auto votes = bus.db_get_by_prefix(ton_api::consensus_simplex_db_key_vote::ID);
+    for (auto &[_, data] : votes) {
+      auto f = fetch_tl_object<ton_api::consensus_simplex_db_vote>(data, true).ensure().move_as_ok();
+      PeerValidatorId validator_id(f->node_idx_);
+      auto vote = Signed<Vote>::deserialize(f->data_, validator_id, bus).ensure().move_as_ok();
+      handle_vote(validator_id.get_using(bus), std::move(vote));
+    }
+    LOG(INFO) << "Loaded " << votes.size() << " votes from DB";
+  }
+
+  td::actor::Task<> store_vote_to_db(td::BufferSlice serialized, PeerValidatorId validator_id) {
+    td::Bits256 hash = td::sha256_bits256(serialized);
+    co_return co_await owning_bus()->db.set(create_serialize_tl_object<ton_api::consensus_simplex_db_key_vote>(hash),
+                                            create_serialize_tl_object<ton_api::consensus_simplex_db_vote>(
+                                                std::move(serialized), (int)validator_id.value()));
+  }
+
+  td::actor::Task<> store_pool_state_to_db() {
+    co_return co_await owning_bus()->db.set(
+        create_serialize_tl_object<ton_api::consensus_simplex_db_key_poolState>(),
+        create_serialize_tl_object<ton_api::consensus_simplex_db_poolState>(first_nonannounced_window_));
+  }
+
   td::uint32 slots_per_leader_window_;
   ValidatorWeight weight_threshold_ = 0;
   std::optional<State> state_;
@@ -489,7 +538,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   std::set<td::uint32> skip_intervals_;
   RawParentId last_finalized_block_;
   td::uint32 first_nonfinalized_slot_ = 0;
-  td::uint32 first_nonannounced_window_ = 1;
+  td::uint32 first_nonannounced_window_ = 0;
 
   std::vector<Request> requests_;
 };

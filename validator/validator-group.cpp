@@ -16,8 +16,6 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include <bits/cxxabi_tweaks.h>
-
 #include "collator-node/collator-node.hpp"
 #include "common/delay.h"
 #include "interfaces/validator-full-id.h"

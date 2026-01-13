@@ -44,6 +44,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     target_rate_s_ = bus.config.target_rate_ms / 1000.;
     first_block_timeout_s_ = bus.simplex_config.first_block_timeout_ms / 1000.;
     state_.emplace(State(bus.simplex_config.slots_per_leader_window, {}, {}));
+    load_from_db();
   }
 
   template <>
@@ -278,6 +279,12 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     bool is_first_block = true;
     while (!finalized_blocks_.contains(id)) {
       finalized_blocks_.insert(id);
+      owning_bus()
+          ->db
+          .set(create_serialize_tl_object<ton_api::consensus_simplex_db_key_finalizedBlock>(id.to_tl()),
+               td::BufferSlice{})
+          .start()
+          .detach();
       auto candidate = co_await owning_bus().publish<ResolveCandidate>(id);
       if (first_candidate.is_null()) {
         first_candidate = candidate.candidate;
@@ -318,6 +325,15 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       id = *candidate.candidate->parent_id;
     }
     co_return td::Unit{};
+  }
+
+  void load_from_db() {
+    auto blocks = owning_bus()->db_get_by_prefix(ton_api::consensus_simplex_db_key_finalizedBlock::ID);
+    for (auto &[key, _] : blocks) {
+      auto f = fetch_tl_object<ton_api::consensus_simplex_db_key_finalizedBlock>(key, true).ensure().move_as_ok();
+      finalized_blocks_.insert(RawCandidateId::from_tl(f->candidateId_));
+    }
+    LOG(INFO) << "Loaded " << blocks.size() << " finalized blocks from DB";
   }
 };
 
