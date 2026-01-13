@@ -131,9 +131,10 @@ td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_dat
                << " compression=" << "compressed" << " compressed_size=" << compressed.size();
   } else {
     TRY_RESULT_ASSIGN(roots, vm::boc_decompress(compressed, max_decompressed_size));
+    TRY_RESULT(algorithm_name, vm::boc_get_algorithm_name(compressed));
     LOG(DEBUG) << "Broadcast_benchmark deserialize_candidate block_id=" << root_hash.to_hex()
                << " called_from=" << called_from << " time_sec=" << (td::Time::now() - t_decompression_start)
-               << " compression=" << "compressedV2" << " compressed_size=" << compressed.size();
+               << " compression=" << "compressedV2_" << algorithm_name << " compressed_size=" << compressed.size();
   }
   if (roots.empty()) {
     return td::Status::Error("boc is empty");
