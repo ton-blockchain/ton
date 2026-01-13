@@ -107,10 +107,11 @@ td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice c
   }
   auto t_compression_start = td::Time::now();
   TRY_RESULT(compressed, vm::boc_compress(roots, vm::CompressionAlgorithm::ImprovedStructureLZ4));
+  TRY_RESULT(algorithm_name, vm::boc_get_algorithm_name(compressed));
   LOG(DEBUG) << "Compressing block candidate: " << block.size() + collated_data.size() << " -> " << compressed.size();
   LOG(DEBUG) << "Broadcast_benchmark serialize_candidate block_id=" << root_hash.to_hex()
              << " called_from=" << called_from << " time_sec=" << (td::Time::now() - t_compression_start)
-             << " compression=" << "compressed"
+             << " compression=" << "compressedV2_" << algorithm_name
              << " original_size=" << block.size() + collated_data.size() << " compressed_size=" << compressed.size();
   return compressed;
 }
