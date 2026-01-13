@@ -157,11 +157,8 @@ class BridgeImpl final : public IValidatorGroup {
     }
   }
 
-  virtual void destroy() override {
-    if (is_started_) {
-      bus_.publish<StopRequested>();
-    }
-    stop();
+  void destroy() override {
+    destroy_inner().start().detach();
   }
 
  private:
@@ -231,13 +228,15 @@ class BridgeImpl final : public IValidatorGroup {
 
     bus->populate_collator_schedule();
 
-    std::string db_dir = PSTRING() << params_.db_root << "/consensus/consensus." << params_.shard.workchain << "."
-                                   << params_.shard.shard << "." << params_.validator_set->get_catchain_seqno() << "."
-                                   << params_.session_id.to_hex() << "/db/";
+    std::string db_dir = db_path() + "/db/";
     td::mkpath(db_dir).ensure();
     auto rocksdb = td::RocksDb::open(db_dir).ensure().move_as_ok();
     bus->db_reader = rocksdb.snapshot();
     bus->db = DbType(std::make_shared<td::RocksDb>(std::move(rocksdb)));
+
+    auto [stop_waiter, stop_promise] = td::actor::StartedTask<>::make_bridge();
+    stop_waiter_ = std::move(stop_waiter);
+    bus->stop_promise = std::move(stop_promise);
 
     runtime::Runtime runtime;
     BlockAccepter::register_in(runtime);
@@ -261,6 +260,19 @@ class BridgeImpl final : public IValidatorGroup {
     is_started_ = true;
   }
 
+  td::actor::Task<> destroy_inner() {
+    if (is_started_) {
+      LOG(INFO) << "Destroying validator group";
+      bus_.publish<StopRequested>();
+      bus_ = {};
+      co_await std::move(stop_waiter_.value());
+      LOG(INFO) << "Consensus bus stopped";
+      td::rmrf(db_path()).ignore();
+    }
+    stop();
+    co_return td::Unit{};
+  }
+
   bool is_start_called_ = false;
   bool is_create_session_called_ = false;
   bool is_started_ = false;
@@ -269,6 +281,13 @@ class BridgeImpl final : public IValidatorGroup {
   td::actor::ActorOwn<ManagerFacade> manager_facade_;
 
   BusHandle bus_;
+  td::optional<td::actor::StartedTask<>> stop_waiter_;
+
+  std::string db_path() const {
+    return PSTRING() << params_.db_root << "/consensus/consensus." << params_.shard.workchain << "."
+                     << params_.shard.shard << "." << params_.validator_set->get_catchain_seqno() << "."
+                     << params_.session_id.to_hex() << "/";
+  }
 };
 
 }  // namespace

@@ -327,20 +327,6 @@ class TestManagerFacade : public ManagerFacade {
   td::actor::ActorId<CandidateStorage> candidate_storage_;
 };
 
-class TestSimplexBus : public simplex::Bus {
- public:
-  using Parent = simplex::Bus;
-
-  explicit TestSimplexBus(td::Promise<td::Unit> stop_promise) : stop_promise_(std::move(stop_promise)) {
-  }
-  ~TestSimplexBus() override {
-    stop_promise_.set_value(td::Unit{});
-  }
-
- private:
-  td::Promise<td::Unit> stop_promise_;
-};
-
 class TestConsensus : public td::actor::Actor {
  public:
   td::actor::Task<> run() {
@@ -458,8 +444,9 @@ class TestConsensus : public td::actor::Actor {
         inst.manager_facade = td::actor::create_actor<TestManagerFacade>(
             PSTRING() << "ManagerFacade." << idx << "." << i, idx, i, actor_id(this), inst.candidate_storage.get());
         auto [stop_task, stop_promise] = td::actor::StartedTask<>::make_bridge();
-        auto bus = std::make_shared<TestSimplexBus>(std::move(stop_promise));
+        auto bus = std::make_shared<simplex::Bus>();
         inst.stop_waiter = std::make_unique<td::actor::StartedTask<>>(std::move(stop_task));
+        bus->stop_promise = std::move(stop_promise);
         bus->shard = SHARD;
         bus->manager = inst.manager_facade.get();
         bus->keyring = keyring_.get();

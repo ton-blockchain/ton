@@ -147,6 +147,9 @@ class Bus : public runtime::Bus {
                               BlockFinalizedInMasterchain, MisbehaviorReport, StatsTargetReached>;
 
   Bus() = default;
+  ~Bus() override {
+    stop_promise.set_value(td::Unit());
+  }
 
   virtual void populate_collator_schedule() = 0;
 
@@ -176,6 +179,8 @@ class Bus : public runtime::Bus {
   DbReaderType db_reader;
 
   std::vector<BlockIdExt> first_block_parents;
+
+  td::Promise<td::Unit> stop_promise;
 
   std::optional<td::BufferSlice> db_get(td::Slice key) const;
   std::vector<std::pair<td::BufferSlice, td::BufferSlice>> db_get_by_prefix(td::uint32 prefix) const;
