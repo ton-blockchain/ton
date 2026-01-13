@@ -83,7 +83,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     }
 
     // FIXME: Use had_timeouts in determining timeout duration.
-    auto timeout_at = td::Timestamp::in(first_block_timeout_s_);
+    auto timeout_at = td::Timestamp::in(first_block_timeout_s_ + target_rate_s_);
     skip_timeouts_.emplace(timeout_at, event->start_slot - offset);
     alarm_timestamp().relax(timeout_at);
   }
