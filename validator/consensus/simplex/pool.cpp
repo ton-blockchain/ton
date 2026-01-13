@@ -429,14 +429,14 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   }
 
   void maybe_resolve_requests() {
-    for (size_t i = 0; i < requests_.size(); ++i) {
+    for (size_t i = 0; i < requests_.size();) {
       if (maybe_resolve_request(requests_[i])) {
         if (i + 1 != requests_.size()) {
           std::swap(requests_[i], requests_.back());
-          // FIXME: Catch bug with i == 0 with stress.
-          --i;
         }
         requests_.pop_back();
+      } else {
+        ++i;
       }
     }
   }
