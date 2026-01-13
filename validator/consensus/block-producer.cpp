@@ -93,7 +93,8 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
 
   template <>
   void handle(BusHandle, std::shared_ptr<const BlockFinalizedInMasterchain> event) {
-    last_mc_finalized_seqno_ = event->block.seqno();
+    last_mc_finalized_seqno_ = std::max(event->block.seqno(), last_mc_finalized_seqno_);
+    last_consensus_finalized_seqno_ = std::max(last_mc_finalized_seqno_, last_consensus_finalized_seqno_);
   }
 
  private:
