@@ -436,7 +436,7 @@ void OverlayManager::save_to_db(adnl::AdnlNodeIdShort local_id, OverlayIdShort o
   auto obj = create_tl_object<ton_api::overlay_nodes>(std::move(nodes_vec));
 
   auto key = create_hash_tl_object<ton_api::overlay_db_key_nodes>(local_id.bits256_value(), overlay_id.bits256_value());
-  db_.set(key, create_serialize_tl_object<ton_api::overlay_db_nodes>(std::move(obj)));
+  db_.set(key, create_serialize_tl_object<ton_api::overlay_db_nodes>(std::move(obj)), [](td::Result<td::Unit>) {});
 }
 
 void OverlayManager::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_overlaysStats>> promise) {
