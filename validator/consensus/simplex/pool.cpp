@@ -253,9 +253,15 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   }
 
   bool handle_vote(const PeerValidator &validator, Signed<Vote> vote) {
-    auto vote_fn = [&](auto vote) -> bool {
+    auto vote_fn = [&]<typename VoteT>(Signed<VoteT> vote) -> bool {
       auto slot = state_->slot_at(vote.vote.referenced_slot());
       if (!slot) {
+        if constexpr (std::same_as<VoteT, FinalizeVote> || std::same_as<VoteT, NotarizeVote>) {
+          if (vote.vote.id == last_finalized_block_) {
+            return false;
+          }
+        }
+
         LOG(WARNING) << "Dropping " << vote.vote << " from " << validator << " which references a finalized slot";
         return false;
       }
