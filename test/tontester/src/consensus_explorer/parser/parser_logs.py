@@ -297,11 +297,12 @@ class ParserLogs(Parser):
 
     @staticmethod
     def _extract_timestamp(line: str) -> float | None:
-        s = line.split("[")
-        if len(s) < 5 or ":" not in s[4] and "-" not in s[4]:
-            return None
-        timestamp_str = s[4].strip("]")
-        dt = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S.%f")
+        i = 0
+        for _ in range(4):
+            i = line.find('[', i) + 1
+        j = line.find(']', i)
+        timestamp_str = line[i:j]
+        dt = datetime.fromisoformat(timestamp_str)
         return dt.timestamp() * 1000
 
     @staticmethod
@@ -367,23 +368,25 @@ class ParserLogs(Parser):
     @override
     def parse(self) -> ConsensusData:
         for log_file in self._logs_path:
-            data = log_file.read_text().splitlines()
+            with open(log_file, "r", encoding="utf-8") as f:
 
-            v_groups: dict[str, int] = {}
-            v_weights: dict[str, int] = {}
+                v_groups: dict[str, int] = {}
+                v_weights: dict[str, int] = {}
 
-            for line in data:
-                v_group = self._extract_valgroup(line)
-                if v_group is None:
-                    continue
+                for line in f:
+                    if ("Published event" not in line) and ("StatsTargetReached" not in line) and ("Obtained certificate for SkipVote" not in line) and ("We are validator" not in line):
+                        continue
+                    v_group = self._extract_valgroup(line)
+                    if v_group is None:
+                        continue
 
-                t_ms = self._extract_timestamp(line)
-                if t_ms is None:
-                    continue
+                    t_ms = self._extract_timestamp(line)
+                    if t_ms is None:
+                        continue
 
-                self._parse_validator_info(line, v_group, v_groups, v_weights)
+                    self._parse_validator_info(line, v_group, v_groups, v_weights)
 
-                self._process_log_line(line, v_group, t_ms, v_groups, v_weights)
+                    self._process_log_line(line, v_group, t_ms, v_groups, v_weights)
 
         self._infer_slot_phases()
         self._infer_slot_events()
