@@ -596,14 +596,14 @@ int main(int argc, char *argv[]) {
     TRY_RESULT_ASSIGN(TARGET_RATE_MS, td::to_integer_safe<td::uint32>(arg));
     return td::Status::OK();
   });
-  p.add_checked_option('\0', "net-ping-min", "network ping (minimal)", [&](td::Slice arg) {
+  p.add_checked_option('\0', "net-ping-min", "min network ping (default: 0.05)", [&](td::Slice arg) {
     NET_PING_MIN = td::to_double(arg);
     if (NET_PING_MIN < 0.0) {
       return td::Status::Error(PSTRING() << "invalid ping value " << arg);
     }
     return td::Status::OK();
   });
-  p.add_checked_option('\0', "net-ping-max", "network ping (minimal)", [&](td::Slice arg) {
+  p.add_checked_option('\0', "net-ping-max", "max network ping (default: 0.1)", [&](td::Slice arg) {
     NET_PING_MAX = td::to_double(arg);
     if (NET_PING_MAX < 0.0) {
       return td::Status::Error(PSTRING() << "invalid ping value " << arg);
