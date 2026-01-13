@@ -183,9 +183,8 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
               << " out of " << bus.total_weight;
 
     load_from_db();
-    maybe_publish_new_leader_window(0).start().detach();
+    publish_initial_leader_window().start().detach();
     reschedule_standstill_resolution();
-    // FIXME: Load our existing votes from disk
   }
 
   template <>
@@ -269,7 +268,9 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
       auto add_result = slot->state->votes[validator.idx.value()].add_vote(std::move(vote));
 
       if (auto misbehavior = add_result.misbehavior) {
-        owning_bus().publish<MisbehaviorReport>(validator.idx, *misbehavior);
+        if (validator != owning_bus()->local_id) {
+          owning_bus().publish<MisbehaviorReport>(validator.idx, *misbehavior);
+        }
         return false;
       }
 
@@ -303,7 +304,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     }
   }
 
-  td::actor::Task<> handle_our_vote(Vote vote) {
+  td::actor::Task<> handle_our_vote(Vote vote, bool allow_invalid_vote = false) {
     auto &bus = *owning_bus();
 
     auto vote_to_sign = serialize_tl_object(vote.to_tl(), true);
@@ -313,10 +314,13 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
 
     Signed<Vote> signed_vote{bus.local_id.idx, vote, std::move(signature)};
     td::BufferSlice serialized = signed_vote.serialize();
+
+    bool added = handle_vote(bus.local_id, std::move(signed_vote));
+    LOG_CHECK(added || allow_invalid_vote) << "We produced conflicting votes! Conflict occured for " << vote;
+
     co_await store_vote_to_db(serialized.clone(), bus.local_id.idx);
 
     owning_bus().publish(std::make_shared<OutgoingProtocolMessage>(std::nullopt, std::move(serialized)));
-    handle_vote(bus.local_id, std::move(signed_vote));
 
     co_return {};
   }
@@ -342,11 +346,26 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     co_await store_pool_state_to_db();
     RawParentId base = {};
     if (start_slot != 0) {
-      const auto &opt_base = state_->slot_at(now_)->state->available_base;
-      CHECK(opt_base.has_value());
-      base = opt_base.value();
+      auto maybe_base = state_->slot_at(now_)->state->available_base;
+      CHECK(maybe_base.has_value());
+      base = maybe_base.value();
     }
     owning_bus().publish<LeaderWindowObserved>(now_, base);
+    co_return {};
+  }
+
+  td::actor::Task<> publish_initial_leader_window() {
+    if (first_nonannounced_window_ == 0) {
+      co_await maybe_publish_new_leader_window(0);
+      co_return {};
+    }
+
+    auto window = first_nonannounced_window_ - 1;
+    auto start_slot = window * slots_per_leader_window_;
+    auto end_slot = (window + 1) * slots_per_leader_window_;
+    for (td::uint32 i = start_slot; i < end_slot; ++i) {
+      co_await handle_our_vote(SkipVote{i}, /*allow_invalid_vote=*/true);
+    }
     co_return {};
   }
 
