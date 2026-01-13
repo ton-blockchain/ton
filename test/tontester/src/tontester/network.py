@@ -204,6 +204,10 @@ class Network:
                 await self.__process_watcher
                 await self.__log_streamer.aclose()
 
+                self.__process = None
+                self.__process_watcher = None
+                self.__log_streamer = None
+
     def __init__(
         self,
         install: Install,
@@ -449,6 +453,7 @@ class FullNode(Network.Node):
         self._client: TonlibClient | None = None
         self._engine_console: EngineConsoleClient | None = None
         self._blockchain_explorer: asyncio.Task[None] | None = None
+        self._static_populated = False
 
     def make_initial_validator(self):
         self._ensure_no_zerostate_yet()
@@ -466,10 +471,12 @@ class FullNode(Network.Node):
     async def run(self, *, debug: DebugType = None):
         zerostate = self._get_or_generate_zerostate()
 
-        static_dir = self._directory / "static"
-        static_dir.mkdir()
-        for state in (zerostate.masterchain, zerostate.shardchain):
-            (static_dir / state.file_hash.hex().upper()).symlink_to(state.file)
+        if not self._static_populated:
+            static_dir = self._directory / "static"
+            static_dir.mkdir()
+            for state in (zerostate.masterchain, zerostate.shardchain):
+                (static_dir / state.file_hash.hex().upper()).symlink_to(state.file)
+            self._static_populated = True
 
         await self._run(
             self._install.validator_engine_exe,
