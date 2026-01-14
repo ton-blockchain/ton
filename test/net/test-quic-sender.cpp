@@ -494,6 +494,10 @@ TEST(QuicSender, RestartResponderNewPort) {
 
     co_await td::actor::coro_sleep(td::Timestamp::in(0.2));
 
+    auto no_resp2 = co_await t.send_query(a, b, "after").wrap();
+    ASSERT_TRUE(no_resp2.is_error());
+    // Same logic as in RestartResponder
+
     auto resp2 = co_await t.send_query(a, b, "after");
     ASSERT_EQ(resp2.as_slice(), td::Slice("Qafter"));
 
