@@ -1,5 +1,8 @@
 name: Tonlib Android
 
+permissions:
+  contents: read
+
 on: [push, pull_request, workflow_dispatch, workflow_call]
 
 jobs:
