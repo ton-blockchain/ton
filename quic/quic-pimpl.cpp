@@ -187,9 +187,9 @@ td::Status QuicConnectionPImpl::init_quic_client() {
   ngtcp2_transport_params_default(&params);
   params.max_idle_timeout = DEFAULT_IDLE_TIMEOUT;
 
-  params.initial_max_streams_bidi = 0;  // TODO proper limit
+  params.initial_max_streams_bidi = DEFAULT_STREAM_LIMIT;  // TODO proper dynamic limit
+  params.initial_max_stream_data_bidi_remote = DEFAULT_STREAM_LIMIT;
   params.initial_max_stream_data_bidi_local = DEFAULT_WINDOW;
-  params.initial_max_stream_data_bidi_remote = 0;
   params.initial_max_data = DEFAULT_WINDOW;
 
   auto dcid = QuicConnectionId::random();
@@ -228,7 +228,7 @@ td::Status QuicConnectionPImpl::init_quic_server(const VersionCid& vc) {
   params.max_idle_timeout = DEFAULT_IDLE_TIMEOUT;
 
   params.initial_max_streams_bidi = DEFAULT_STREAM_LIMIT;
-  params.initial_max_stream_data_bidi_local = 0;
+  params.initial_max_stream_data_bidi_local = DEFAULT_STREAM_LIMIT;
   params.initial_max_stream_data_bidi_remote = DEFAULT_WINDOW;
   params.initial_max_data = DEFAULT_WINDOW;
 
