@@ -21,6 +21,8 @@
 
 namespace ton::validator {
 
+constexpr int VERBOSITY_NAME(COLLATOR_NODE_BENCHMARK) = verbosity_WARNING;
+
 tl_object_ptr<ton_api::collatorNode_Candidate> serialize_candidate(const BlockCandidate& block, bool compress);
 td::Result<BlockCandidate> deserialize_candidate(tl_object_ptr<ton_api::collatorNode_Candidate> f,
                                                  int max_decompressed_data_size);
