@@ -85,7 +85,14 @@ td::uint32 SLOTS_PER_LEADER_WINDOW = 4;
 std::pair<double, double> GREMLIN_PERIOD = {-1.0, -1.0};
 std::pair<double, double> GREMLIN_DOWNTIME = {1.0, 1.0};
 std::pair<size_t, size_t> GREMLIN_N = {1, 1};
+size_t GREMLIN_TIMES = 1000000000;
 bool GREMLIN_KILLS_LEADER = false;
+
+std::pair<double, double> NET_GREMLIN_PERIOD = {-1.0, -1.0};
+std::pair<double, double> NET_GREMLIN_DOWNTIME = {10.0, 10.0};
+std::pair<size_t, size_t> NET_GREMLIN_N = {1, 1};
+size_t NET_GREMLIN_TIMES = 1000000000;
+bool NET_GREMLIN_KILLS_LEADER = false;
 
 class TestSimplexBus : public simplex::Bus {
  public:
@@ -98,31 +105,50 @@ class TestOverlayNode;
 class TestOverlay : public td::actor::Actor {
  public:
   void register_node(size_t idx, size_t instance_idx, td::actor::ActorId<TestOverlayNode> node) {
+    Instance &inst = get_inst(idx, instance_idx);
+    CHECK(inst.actor.empty());
+    inst.actor = std::move(node);
+  }
+
+  void unregister_node(size_t idx, size_t instance_idx) {
+    Instance &inst = get_inst(idx, instance_idx);
+    CHECK(!inst.actor.empty());
+    inst.actor = {};
+  }
+
+  td::actor::Task<> set_instance_disabled(size_t idx, size_t instance_idx, bool value) {
+    get_inst(idx, instance_idx).disabled = value;
+    LOG(ERROR) << "Node #" << idx << "." << instance_idx << ": " << (value ? "disable" : "enable") << " network";
+    co_return td::Unit{};
+  }
+
+  td::actor::Task<> send_message(PeerValidator src, size_t src_instance_idx, size_t dst_idx, td::BufferSlice message);
+  td::actor::Task<> send_candidate(PeerValidator src, size_t src_instance_idx, size_t dst_idx,
+                                   RawCandidateRef candidate);
+  td::actor::Task<td::BufferSlice> send_query(PeerValidator src, size_t src_instance_idx, size_t dst_idx,
+                                              td::BufferSlice message);
+
+ private:
+  struct Instance {
+    td::actor::ActorId<TestOverlayNode> actor;
+    bool disabled = false;
+  };
+  std::vector<std::vector<Instance>> nodes_;
+
+  Instance &get_inst(size_t idx, size_t instance_idx) {
     if (nodes_.size() <= idx) {
       nodes_.resize(idx + 1);
     }
     if (nodes_[idx].size() <= instance_idx) {
       nodes_[idx].resize(instance_idx + 1);
     }
-    CHECK(nodes_[idx][instance_idx].empty());
-    nodes_[idx][instance_idx] = std::move(node);
+    return nodes_[idx][instance_idx];
   }
 
-  void unregister_node(size_t idx, size_t instance_idx) {
-    CHECK(nodes_.size() > idx);
-    CHECK(nodes_[idx].size() > instance_idx);
-    CHECK(!nodes_[idx][instance_idx].empty());
-    nodes_[idx][instance_idx] = {};
-  }
-
-  td::actor::Task<> send_message(PeerValidator src, size_t dst_idx, td::BufferSlice message);
-  td::actor::Task<> send_candidate(PeerValidator src, size_t dst_idx, RawCandidateRef candidate);
-  td::actor::Task<td::BufferSlice> send_query(PeerValidator src, size_t dst_idx, td::BufferSlice message);
-
- private:
-  std::vector<std::vector<td::actor::ActorId<TestOverlayNode>>> nodes_;
-
-  td::actor::Task<> before_receive(size_t src_idx, size_t dst_idx, bool no_loss) {
+  td::actor::Task<> before_receive(size_t src_idx, size_t src_instance_idx, size_t dst_idx, bool no_loss) {
+    if (get_inst(src_idx, src_instance_idx).disabled) {
+      co_return td::Status::Error("src is disabled");
+    }
     if (!no_loss && td::Random::fast(0.0, 1.0) < NET_LOSS) {
       co_return td::Status::Error("packet lost");
     }
@@ -157,13 +183,14 @@ class TestOverlayNode : public runtime::SpawnsWith<Bus>, public runtime::Connect
   void handle(BusHandle bus, std::shared_ptr<const OutgoingProtocolMessage> message) {
     if (message->recipient.has_value()) {
       CHECK(message->recipient.value() != bus->local_id.idx);
-      td::actor::ask(test_overlay, &TestOverlay::send_message, bus->local_id, message->recipient->value(),
-                     message->message.data.clone())
+      td::actor::ask(test_overlay, &TestOverlay::send_message, bus->local_id, instance_idx_,
+                     message->recipient->value(), message->message.data.clone())
           .detach_silent();
     } else {
       for (size_t i = 0; i < bus->validator_set.size(); ++i) {
         if (bus->local_id.idx.value() != i) {
-          td::actor::ask(test_overlay, &TestOverlay::send_message, bus->local_id, i, message->message.data.clone())
+          td::actor::ask(test_overlay, &TestOverlay::send_message, bus->local_id, instance_idx_, i,
+                         message->message.data.clone())
               .detach_silent();
         }
       }
@@ -174,7 +201,8 @@ class TestOverlayNode : public runtime::SpawnsWith<Bus>, public runtime::Connect
   void handle(BusHandle bus, std::shared_ptr<const CandidateGenerated> event) {
     for (size_t i = 0; i < bus->validator_set.size(); ++i) {
       if (bus->local_id.idx.value() != i) {
-        td::actor::ask(test_overlay, &TestOverlay::send_candidate, bus->local_id, i, event->candidate).detach_silent();
+        td::actor::ask(test_overlay, &TestOverlay::send_candidate, bus->local_id, instance_idx_, i, event->candidate)
+            .detach_silent();
       }
     }
   }
@@ -201,7 +229,7 @@ class TestOverlayNode : public runtime::SpawnsWith<Bus>, public runtime::Connect
 
   td::actor::Task<> process_query_inner2(BusHandle bus, std::shared_ptr<OutgoingOverlayRequest> message,
                                          std::shared_ptr<td::Promise<ProtocolMessage>> promise_ptr) {
-    auto r_response = co_await td::actor::ask(test_overlay, &TestOverlay::send_query, bus->local_id,
+    auto r_response = co_await td::actor::ask(test_overlay, &TestOverlay::send_query, bus->local_id, instance_idx_,
                                               message->destination.value(), message->request.data.clone())
                           .wrap();
     if (r_response.is_ok() && *promise_ptr) {
@@ -236,39 +264,43 @@ class TestOverlayNode : public runtime::SpawnsWith<Bus>, public runtime::Connect
   size_t instance_idx_ = 0;
 };
 
-td::actor::Task<> TestOverlay::send_message(PeerValidator src, size_t dst_idx, td::BufferSlice message) {
-  co_await before_receive(src.idx.value(), dst_idx, false);
+td::actor::Task<> TestOverlay::send_message(PeerValidator src, size_t src_instance_idx, size_t dst_idx,
+                                            td::BufferSlice message) {
+  co_await before_receive(src.idx.value(), src_instance_idx, dst_idx, false);
   for (const auto &instance : nodes_[dst_idx]) {
-    if (instance.empty()) {
+    if (instance.actor.empty() || instance.disabled) {
       continue;
     }
-    td::actor::send_closure(instance, &TestOverlayNode::receive_message, src, message.clone());
+    td::actor::send_closure(instance.actor, &TestOverlayNode::receive_message, src, message.clone());
   }
   co_return td::Unit{};
 }
 
-td::actor::Task<> TestOverlay::send_candidate(PeerValidator src, size_t dst_idx, RawCandidateRef candidate) {
-  co_await before_receive(src.idx.value(), dst_idx, true);
+td::actor::Task<> TestOverlay::send_candidate(PeerValidator src, size_t src_instance_idx, size_t dst_idx,
+                                              RawCandidateRef candidate) {
+  co_await before_receive(src.idx.value(), src_instance_idx, dst_idx, true);
   for (const auto &instance : nodes_[dst_idx]) {
-    if (instance.empty()) {
+    if (instance.actor.empty() || instance.disabled) {
       continue;
     }
-    td::actor::send_closure(instance, &TestOverlayNode::receive_candidate, candidate);
+    td::actor::send_closure(instance.actor, &TestOverlayNode::receive_candidate, candidate);
   }
   co_return td::Unit{};
 }
 
-td::actor::Task<td::BufferSlice> TestOverlay::send_query(PeerValidator src, size_t dst_idx, td::BufferSlice message) {
+td::actor::Task<td::BufferSlice> TestOverlay::send_query(PeerValidator src, size_t src_instance_idx, size_t dst_idx,
+                                                         td::BufferSlice message) {
   if (nodes_[dst_idx].empty()) {
     co_return td::Status::Error("no instances");
   }
-  const auto &instance = nodes_[dst_idx][td::Random::fast(0, (int)nodes_[dst_idx].size() - 1)];
-  co_await before_receive(src.idx.value(), dst_idx, true);
-  if (instance.empty()) {
-    co_return td::Status::Error("instance is stopped");
+  auto dst_instance_idx = (size_t)td::Random::fast(0, (int)nodes_[dst_idx].size() - 1);
+  const auto &instance = nodes_[dst_idx][dst_instance_idx];
+  co_await before_receive(src.idx.value(),src_instance_idx, dst_idx, true);
+  if (instance.actor.empty() || instance.disabled) {
+    co_return td::Status::Error("instance is stopped/disabled");
   }
-  auto response = co_await td::actor::ask(instance, &TestOverlayNode::receive_query, src, std::move(message));
-  co_await before_receive(dst_idx, src.idx.value(), true);
+  auto response = co_await td::actor::ask(instance.actor, &TestOverlayNode::receive_query, src, std::move(message));
+  co_await before_receive(dst_idx, dst_instance_idx, src.idx.value(), true);
   co_return response;
 }
 
@@ -516,6 +548,9 @@ class TestConsensus : public td::actor::Actor {
     if (GREMLIN_PERIOD.first >= 0.0) {
       run_gremlin().start().detach();
     }
+    if (NET_GREMLIN_PERIOD.first >= 0.0) {
+      run_net_gremlin().start().detach();
+    }
 
     co_await td::actor::coro_sleep(td::Timestamp::in(DURATION));
 
@@ -597,7 +632,7 @@ class TestConsensus : public td::actor::Actor {
   }
 
   td::actor::Task<> run_gremlin() {
-    while (!finishing_) {
+    for (size_t i = 0; i < GREMLIN_TIMES && !finishing_; ++i) {
       co_await td::actor::coro_sleep(td::Timestamp::in(td::Random::fast(GREMLIN_PERIOD.first, GREMLIN_PERIOD.second)));
       int cnt = td::Random::fast((int)GREMLIN_N.first, (int)GREMLIN_N.second);
       for (int i = 0; i < cnt; ++i) {
@@ -641,6 +676,53 @@ class TestConsensus : public td::actor::Actor {
     co_return {};
   }
 
+  td::actor::Task<> run_net_gremlin() {
+    for (size_t i = 0; i < NET_GREMLIN_TIMES && !finishing_; ++i) {
+      co_await td::actor::coro_sleep(
+          td::Timestamp::in(td::Random::fast(NET_GREMLIN_PERIOD.first, NET_GREMLIN_PERIOD.second)));
+      int cnt = td::Random::fast((int)NET_GREMLIN_N.first, (int)NET_GREMLIN_N.second);
+      for (int i = 0; i < cnt; ++i) {
+        run_net_gremlin_once().start().detach();
+      }
+    }
+    co_return {};
+  }
+
+  td::actor::Task<> run_net_gremlin_once() {
+    if (finishing_) {
+      co_return {};
+    }
+    size_t selected_node_idx = 0, selected_inst_idx = 0;
+    int cnt = 0;
+    for (size_t node_idx = 0; node_idx < N_NODES; ++node_idx) {
+      if (NET_GREMLIN_KILLS_LEADER &&
+          (!last_accepted_block_leader_idx_ || last_accepted_block_leader_idx_.value() != node_idx)) {
+        continue;
+      }
+      for (size_t inst_idx = 0; inst_idx < nodes_[inst_idx].instances.size(); ++inst_idx) {
+        if (!nodes_[node_idx].instances[inst_idx].net_gremlin_active) {
+          ++cnt;
+          if (td::Random::fast(1, cnt) == 1) {
+            selected_node_idx = node_idx;
+            selected_inst_idx = inst_idx;
+          }
+        }
+      }
+    }
+    if (cnt == 0) {
+      co_return {};
+    }
+    nodes_[selected_node_idx].instances[selected_inst_idx].net_gremlin_active = true;
+    co_await td::actor::ask(test_overlay, &TestOverlay::set_instance_disabled, selected_node_idx, selected_inst_idx,
+                            true);
+    co_await td::actor::coro_sleep(
+        td::Timestamp::in(td::Random::fast(NET_GREMLIN_DOWNTIME.first, NET_GREMLIN_DOWNTIME.second)));
+    co_await td::actor::ask(test_overlay, &TestOverlay::set_instance_disabled, selected_node_idx, selected_inst_idx,
+                            false);
+    nodes_[selected_node_idx].instances[selected_inst_idx].net_gremlin_active = false;
+    co_return {};
+  }
+
   td::actor::Task<> finalize() {
     finishing_ = true;
     LOG(WARNING) << "TEST FINISHED";
@@ -675,6 +757,8 @@ class TestConsensus : public td::actor::Actor {
     Status status = Stopped;
     td::optional<td::actor::StartedTask<>> stop_waiter;
     std::vector<td::Promise<td::Unit>> extra_stop_waiters;
+
+    bool net_gremlin_active = false;
   };
   struct Node {
     PublicKey public_key;
@@ -781,6 +865,7 @@ int main(int argc, char *argv[]) {
     }
     return td::Status::OK();
   });
+
   p.add_checked_option('\0', "gremlin-period", "gremlin period (range, default: no gremlin)", [&](td::Slice arg) {
     TRY_RESULT_ASSIGN(GREMLIN_PERIOD, parse_range(arg));
     if (GREMLIN_PERIOD.first < 0.0 || GREMLIN_PERIOD.second <= 0.0) {
@@ -800,8 +885,42 @@ int main(int argc, char *argv[]) {
                          TRY_RESULT_ASSIGN(GREMLIN_N, parse_int_range<size_t>(arg));
                          return td::Status::OK();
                        });
+  p.add_checked_option('\0', "gremlin-times", "how many times gremlin runs (default: unlimited)", [&](td::Slice arg) {
+    TRY_RESULT_ASSIGN(GREMLIN_TIMES, td::to_integer_safe<size_t>(arg));
+    return td::Status::OK();
+  });
   p.add_option('\0', "gremlin-kills-leader", "gremlin always restarts the current leader",
                [&]() { GREMLIN_KILLS_LEADER = true; });
+
+  p.add_checked_option('\0', "net-gremlin-period", "network gremlin period (range, default: no gremlin)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT_ASSIGN(NET_GREMLIN_PERIOD, parse_range(arg));
+                         if (NET_GREMLIN_PERIOD.first < 0.0 || NET_GREMLIN_PERIOD.second <= 0.0) {
+                           return td::Status::Error(PSTRING() << "invalid net gremlin period value " << arg);
+                         }
+                         return td::Status::OK();
+                       });
+  p.add_checked_option('\0', "net-gremlin-downtime", "network gremlin downtime duration (range, default: 10)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT_ASSIGN(NET_GREMLIN_DOWNTIME, parse_range(arg));
+                         if (NET_GREMLIN_DOWNTIME.first < 0.0) {
+                           return td::Status::Error(PSTRING() << "invalid network gremlin downtime value " << arg);
+                         }
+                         return td::Status::OK();
+                       });
+  p.add_checked_option('\0', "net-gremlin-n", "how many nodes network gremlin disables at once (range, default: 1)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT_ASSIGN(NET_GREMLIN_N, parse_int_range<size_t>(arg));
+                         return td::Status::OK();
+                       });
+  p.add_checked_option('\0', "net-gremlin-times", "how many times network gremlin runs (default: unlimited)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT_ASSIGN(NET_GREMLIN_TIMES, td::to_integer_safe<size_t>(arg));
+                         return td::Status::OK();
+                       });
+  p.add_option('\0', "net-gremlin-kills-leader", "network gremlin always disables the current leader",
+               [&]() { NET_GREMLIN_KILLS_LEADER = true; });
+
   p.run(argc, argv).ensure();
   CHECK(N_DOUBLE_NODES <= N_NODES);
 
