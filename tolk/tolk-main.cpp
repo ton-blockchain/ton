@@ -30,6 +30,7 @@
 #include <getopt.h>
 #include <fstream>
 #include <sys/stat.h>
+#include <fcntl.h>
 #ifdef TD_DARWIN
 #include <mach-o/dyld.h>
 #elif TD_WINDOWS
@@ -167,17 +168,36 @@ td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind ki
     }
     case CompilerSettings::FsReadCallbackKind::ReadFile: {
       struct stat f_stat;
-      int res = stat(query, &f_stat);   // query here is already resolved realpath
+      int fd = ::open(query, O_RDONLY | O_CLOEXEC);   // query here is already resolved realpath
+      if (fd < 0) {
+        return td::Status::Error(std::string{"cannot open file "} + query);
+      }
+      int res = ::fstat(fd, &f_stat);
       if (res != 0 || (f_stat.st_mode & S_IFMT) != S_IFREG) {
+        ::close(fd);
         return td::Status::Error(std::string{"cannot open file "} + query);
       }
 
       size_t file_size = static_cast<size_t>(f_stat.st_size);
       std::string str;
       str.resize(file_size);
-      FILE* f = fopen(query, "rb");
-      fread(str.data(), file_size, 1, f);
-      fclose(f);
+
+      size_t total_read = 0;
+      while (total_read < file_size) {
+        ssize_t n = ::read(fd, str.data() + total_read, file_size - total_read);
+        if (n < 0) {
+          ::close(fd);
+          return td::Status::Error(std::string{"cannot open file "} + query);
+        }
+        if (n == 0) {
+          break;
+        }
+        total_read += static_cast<size_t>(n);
+      }
+      ::close(fd);
+      if (total_read != file_size) {
+        str.resize(total_read);
+      }
       return std::move(str);
     }
     default: {
