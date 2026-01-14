@@ -33,6 +33,20 @@ td::Ref<vm::Cell> gen_shard_state(BlockSeqno seqno) {
   return vm::CellBuilder().store_long(0xabcdabcdU, 32).store_long(seqno, 32).finalize_novm();
 }
 
+td::Result<std::pair<double, double>> parse_range(td::Slice s) {
+  auto pos = s.find(':');
+  if (pos == td::Slice::npos) {
+    double x = td::to_double(s);
+    return std::make_pair(x, x);
+  }
+  double x = td::to_double(s.substr(0, pos));
+  double y = td::to_double(s.substr(pos + 1, s.size()));
+  if (x > y) {
+    return td::Status::Error(PSTRING() << "invalid range " << s);
+  }
+  return std::make_pair(x, y);
+}
+
 CatchainSeqno CC_SEQNO = 123;
 BlockIdExt MIN_MC_BLOCK_ID{masterchainId, shardIdAll, 0,
                            from_hex("AAAAAAAABBBBBBBBCCCCCCCCDDDDDDDDAAAAAAAABBBBBBBBCCCCCCCCDDDDDDDD"),
@@ -43,8 +57,7 @@ ShardIdFull SHARD{basechainId, shardIdAll};
 BlockIdExt FIRST_PARENT{basechainId, shardIdAll, 0, td::Bits256(gen_shard_state(0)->get_hash().bits()),
                         from_hex("89abcde89abcde89abcde89abcde89abcde89abcde89abcdefffffff89abcdef")};
 
-double NET_PING_MIN = 0.05;
-double NET_PING_MAX = 0.1;
+std::pair<double, double> NET_PING = {0.05, 0.1};
 double NET_LOSS = 0.0;
 
 size_t N_NODES = 8;
@@ -53,15 +66,35 @@ size_t N_DOUBLE_NODES = 0;
 double DURATION = 60.0;
 td::uint32 TARGET_RATE_MS = 1000;
 
+std::pair<double, double> GREMLIN_PERIOD = {-1.0, -1.0};
+std::pair<double, double> GREMLIN_DOWNTIME = {1.0, 1.0};
+
+class TestSimplexBus : public simplex::Bus {
+ public:
+  using Parent = simplex::Bus;
+  size_t instance_idx = 0;
+};
+
 class TestOverlayNode;
 
 class TestOverlay : public td::actor::Actor {
  public:
-  void register_node(size_t idx, td::actor::ActorId<TestOverlayNode> node) {
+  void register_node(size_t idx, size_t instance_idx, td::actor::ActorId<TestOverlayNode> node) {
     if (nodes_.size() <= idx) {
       nodes_.resize(idx + 1);
     }
-    nodes_[idx].push_back(std::move(node));
+    if (nodes_[idx].size() <= instance_idx) {
+      nodes_[idx].resize(instance_idx + 1);
+    }
+    CHECK(nodes_[idx][instance_idx].empty());
+    nodes_[idx][instance_idx] = std::move(node);
+  }
+
+  void unregister_node(size_t idx, size_t instance_idx) {
+    CHECK(nodes_.size() > idx);
+    CHECK(nodes_[idx].size() > instance_idx);
+    CHECK(!nodes_[idx][instance_idx].empty());
+    nodes_[idx][instance_idx] = {};
   }
 
   td::actor::Task<> send_message(PeerValidator src, size_t dst_idx, td::BufferSlice message);
@@ -75,7 +108,7 @@ class TestOverlay : public td::actor::Actor {
     if (!no_loss && td::Random::fast(0.0, 1.0) < NET_LOSS) {
       co_return td::Status::Error("packet lost");
     }
-    co_await td::actor::coro_sleep(td::Timestamp::in(td::Random::fast(NET_PING_MIN, NET_PING_MAX)));
+    co_await td::actor::coro_sleep(td::Timestamp::in(td::Random::fast(NET_PING.first, NET_PING.second)));
     co_return td::Unit{};
   }
 };
@@ -87,8 +120,14 @@ class TestOverlayNode : public runtime::SpawnsWith<Bus>, public runtime::Connect
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
   void start_up() override {
+    instance_idx_ = dynamic_cast<const TestSimplexBus &>(*owning_bus()).instance_idx;
     td::actor::send_closure(test_overlay, &TestOverlay::register_node, owning_bus()->local_id.idx.value(),
-                            actor_id(this));
+                            instance_idx_, actor_id(this));
+  }
+
+  void tear_down() override {
+    td::actor::send_closure(test_overlay, &TestOverlay::unregister_node, owning_bus()->local_id.idx.value(),
+                            instance_idx_);
   }
 
   template <>
@@ -174,11 +213,17 @@ class TestOverlayNode : public runtime::SpawnsWith<Bus>, public runtime::Connect
     }
     co_return create_serialize_tl_object<ton_api::consensus_requestError>();
   }
+
+ private:
+  size_t instance_idx_ = 0;
 };
 
 td::actor::Task<> TestOverlay::send_message(PeerValidator src, size_t dst_idx, td::BufferSlice message) {
   co_await before_receive(src.idx.value(), dst_idx, false);
   for (const auto &instance : nodes_[dst_idx]) {
+    if (instance.empty()) {
+      continue;
+    }
     td::actor::send_closure(instance, &TestOverlayNode::receive_message, src, message.clone());
   }
   co_return td::Unit{};
@@ -187,6 +232,9 @@ td::actor::Task<> TestOverlay::send_message(PeerValidator src, size_t dst_idx, t
 td::actor::Task<> TestOverlay::send_candidate(PeerValidator src, size_t dst_idx, RawCandidateRef candidate) {
   co_await before_receive(src.idx.value(), dst_idx, true);
   for (const auto &instance : nodes_[dst_idx]) {
+    if (instance.empty()) {
+      continue;
+    }
     td::actor::send_closure(instance, &TestOverlayNode::receive_candidate, candidate);
   }
   co_return td::Unit{};
@@ -198,8 +246,11 @@ td::actor::Task<td::BufferSlice> TestOverlay::send_query(PeerValidator src, size
   }
   const auto &instance = nodes_[dst_idx][td::Random::fast(0, (int)nodes_[dst_idx].size() - 1)];
   co_await before_receive(src.idx.value(), dst_idx, true);
+  if (instance.empty()) {
+    co_return td::Status::Error("instance is stopped");
+  }
   auto response = co_await td::actor::ask(instance, &TestOverlayNode::receive_query, src, std::move(message));
-  co_await before_receive(src.idx.value(), dst_idx, true);
+  co_await before_receive(dst_idx, src.idx.value(), true);
   co_return response;
 }
 
@@ -355,14 +406,14 @@ class TestConsensus : public td::actor::Actor {
 
       for (Node &node : nodes_) {
         for (Instance &inst : node.instances) {
-          inst.bus.publish<BlockFinalizedInMasterchain>(block_id);
+          if (inst.status == Instance::Running) {
+            inst.bus.publish<BlockFinalizedInMasterchain>(block_id);
+          }
         }
       }
     }
     Instance &inst = nodes_[node_idx].instances[instance_idx];
-    if (!inst.accepted_blocks.insert(seqno).second) {
-      LOG(FATAL) << "Node " << node_idx << "." << instance_idx << " accepted block #" << seqno << " twice";
-    }
+    inst.last_accepted_block = std::max(inst.last_accepted_block, seqno);
     co_return td::Unit{};
   }
 
@@ -407,18 +458,16 @@ class TestConsensus : public td::actor::Actor {
     }
 
     std::vector<ValidatorDescr> validator_descrs;
-    std::vector<PeerValidator> validators;
-    ValidatorWeight total_weight = 0;
     for (size_t idx = 0; idx < nodes_.size(); ++idx) {
       Node &node = nodes_[idx];
       validator_descrs.push_back(ValidatorDescr(Ed25519_PublicKey{node.public_key.ed25519_value().raw()}, node.weight,
                                                 node.adnl_id.bits256_value()));
-      validators.push_back(PeerValidator{.idx = PeerValidatorId((int)idx),
-                                         .key = node.public_key,
-                                         .short_id = node.node_id,
-                                         .adnl_id = node.adnl_id,
-                                         .weight = node.weight});
-      total_weight += node.weight;
+      validators_.push_back(PeerValidator{.idx = PeerValidatorId((int)idx),
+                                          .key = node.public_key,
+                                          .short_id = node.node_id,
+                                          .adnl_id = node.adnl_id,
+                                          .weight = node.weight});
+      total_weight_ += node.weight;
     }
     validator_set_ = td::Ref<block::ValidatorSet>{true, CC_SEQNO, SHARD, std::move(validator_descrs)};
 
@@ -430,47 +479,20 @@ class TestConsensus : public td::actor::Actor {
       for (size_t i = 0; i < n_instances; ++i) {
         Instance inst;
         inst.db = std::make_shared<td::MemoryKeyValue>();
-        auto &runtime = inst.runtime;
-        BlockAccepter::register_in(runtime);
-        BlockProducer::register_in(runtime);
-        BlockValidator::register_in(runtime);
-        runtime.register_actor<TestOverlayNode>("PrivateOverlay");
-        simplex::CandidateResolver::register_in(runtime);
-        simplex::Consensus::register_in(runtime);
-        simplex::Pool::register_in(runtime);
-
         inst.candidate_storage =
             td::actor::create_actor<CandidateStorage>(PSTRING() << "ManagerFacade." << idx << "." << i);
-        inst.manager_facade = td::actor::create_actor<TestManagerFacade>(
-            PSTRING() << "ManagerFacade." << idx << "." << i, idx, i, actor_id(this), inst.candidate_storage.get());
-        auto [stop_task, stop_promise] = td::actor::StartedTask<>::make_bridge();
-        auto bus = std::make_shared<simplex::Bus>();
-        inst.stop_waiter = std::make_unique<td::actor::StartedTask<>>(std::move(stop_task));
-        bus->stop_promise = std::move(stop_promise);
-        bus->shard = SHARD;
-        bus->manager = inst.manager_facade.get();
-        bus->keyring = keyring_.get();
-        bus->validator_opts = ValidatorManagerOptions::create(BlockIdExt{}, BlockIdExt{});
-        bus->validator_set = validators;
-        bus->total_weight = total_weight;
-        bus->local_id = validators[idx];
-        bus->config = NewConsensusConfig{.target_rate_ms = TARGET_RATE_MS,
-                                         .max_block_size = 1 << 20,
-                                         .max_collated_data_size = 1 << 20,
-                                         .consensus = NewConsensusConfig::Simplex{}};
-        bus->simplex_config = bus->config.consensus.get<NewConsensusConfig::Simplex>();
-        bus->min_masterchain_block_id = MIN_MC_BLOCK_ID;
-        bus->session_id = SESSION_ID;
-        bus->first_block_parents = {FIRST_PARENT};
-        bus->cc_seqno = CC_SEQNO;
-        bus->validator_set_hash = validator_set_->get_validator_set_hash();
-        bus->populate_collator_schedule();
-        bus->db_reader = inst.db->snapshot();
-        bus->db = DbType(inst.db);
-        inst.bus =
-            runtime.start(std::static_pointer_cast<simplex::Bus>(bus), PSTRING() << "consensus." << idx << "." << i);
         node.instances.push_back(std::move(inst));
       }
+    }
+
+    for (size_t idx = 0; idx < N_NODES; ++idx) {
+      for (size_t i = 0; i < nodes_[i].instances.size(); ++i) {
+        start_instance(idx, i);
+      }
+    }
+
+    if (GREMLIN_PERIOD.first >= 0.0) {
+      run_gremlin().start().detach();
     }
 
     co_await td::actor::coro_sleep(td::Timestamp::in(DURATION));
@@ -478,28 +500,133 @@ class TestConsensus : public td::actor::Actor {
     co_return co_await finalize();
   }
 
+  void start_instance(size_t node_idx, size_t instance_idx) {
+    Node &node = nodes_[node_idx];
+    Instance &inst = node.instances[instance_idx];
+    CHECK(inst.status == Instance::Stopped);
+    auto &runtime = inst.runtime;
+    BlockAccepter::register_in(runtime);
+    BlockProducer::register_in(runtime);
+    BlockValidator::register_in(runtime);
+    runtime.register_actor<TestOverlayNode>("PrivateOverlay");
+    simplex::CandidateResolver::register_in(runtime);
+    simplex::Consensus::register_in(runtime);
+    simplex::Pool::register_in(runtime);
+
+    inst.manager_facade = td::actor::create_actor<TestManagerFacade>(
+        PSTRING() << "ManagerFacade." << node_idx << "." << instance_idx, node_idx, instance_idx, actor_id(this),
+        inst.candidate_storage.get());
+    auto [stop_task, stop_promise] = td::actor::StartedTask<>::make_bridge();
+    auto bus = std::make_shared<TestSimplexBus>();
+    inst.stop_waiter = std::move(stop_task);
+    bus->instance_idx = instance_idx;
+    bus->stop_promise = std::move(stop_promise);
+    bus->shard = SHARD;
+    bus->manager = inst.manager_facade.get();
+    bus->keyring = keyring_.get();
+    bus->validator_opts = ValidatorManagerOptions::create(BlockIdExt{}, BlockIdExt{});
+    bus->validator_set = validators_;
+    bus->total_weight = total_weight_;
+    bus->local_id = validators_[node_idx];
+    bus->config = NewConsensusConfig{.target_rate_ms = TARGET_RATE_MS,
+                                     .max_block_size = 1 << 20,
+                                     .max_collated_data_size = 1 << 20,
+                                     .consensus = NewConsensusConfig::Simplex{}};
+    bus->simplex_config = bus->config.consensus.get<NewConsensusConfig::Simplex>();
+    bus->min_masterchain_block_id = MIN_MC_BLOCK_ID;
+    bus->session_id = SESSION_ID;
+    bus->first_block_parents = {FIRST_PARENT};
+    bus->cc_seqno = CC_SEQNO;
+    bus->validator_set_hash = validator_set_->get_validator_set_hash();
+    bus->populate_collator_schedule();
+    bus->db_reader = inst.db->snapshot();
+    bus->db = DbType(inst.db);
+    inst.bus = runtime.start(std::static_pointer_cast<simplex::Bus>(bus),
+                             PSTRING() << "consensus." << node_idx << "." << instance_idx);
+    inst.status = Instance::Running;
+    LOG(ERROR) << "Starting node #" << node_idx << "." << instance_idx;
+  }
+
+  td::actor::Task<> stop_instance(size_t node_idx, size_t instance_idx) {
+    Node &node = nodes_[node_idx];
+    Instance &inst = node.instances[instance_idx];
+    if (inst.status == Instance::Stopped) {
+      co_return td::Unit{};
+    }
+    if (inst.status == Instance::Stopping) {
+      auto [task, promise] = td::actor::StartedTask<>::make_bridge();
+      inst.extra_stop_waiters.push_back(std::move(promise));
+      co_return co_await std::move(task);
+    }
+    LOG(ERROR) << "Stopping node #" << node_idx << "." << instance_idx;
+    inst.bus.publish<StopRequested>();
+    inst.bus = {};
+    inst.status = Instance::Stopping;
+    co_await std::move(*inst.stop_waiter);
+    inst.status = Instance::Stopped;
+    inst.runtime = {};
+    LOG(ERROR) << "Stopped node #" << node_idx << "." << instance_idx;
+    for (auto &promise : inst.extra_stop_waiters) {
+      promise.set_value(td::Unit{});
+    }
+    inst.extra_stop_waiters.clear();
+    co_return {};
+  }
+
+  td::actor::Task<> run_gremlin() {
+    while (!finishing_) {
+      co_await td::actor::coro_sleep(td::Timestamp::in(td::Random::fast(GREMLIN_PERIOD.first, GREMLIN_PERIOD.second)));
+      run_gremlin_once().start().detach();
+    }
+    co_return {};
+  }
+
+  td::actor::Task<> run_gremlin_once() {
+    if (finishing_) {
+      co_return {};
+    }
+    size_t kill_node_idx = 0, kill_inst_idx = 0;
+    int cnt = 0;
+    for (size_t node_idx = 0; node_idx < N_NODES; ++node_idx) {
+      for (size_t inst_idx = 0; inst_idx < nodes_[inst_idx].instances.size(); ++inst_idx) {
+        if (nodes_[node_idx].instances[inst_idx].status == Instance::Running) {
+          ++cnt;
+          if (td::Random::fast(1, cnt) == 1) {
+            kill_node_idx = node_idx;
+            kill_inst_idx = inst_idx;
+          }
+        }
+      }
+    }
+    if (cnt == 0) {
+      co_return {};
+    }
+    co_await stop_instance(kill_node_idx, kill_inst_idx);
+    co_await td::actor::coro_sleep(
+        td::Timestamp::in(td::Random::fast(GREMLIN_DOWNTIME.first, GREMLIN_DOWNTIME.second)));
+    if (finishing_) {
+      co_return {};
+    }
+    start_instance(kill_node_idx, kill_inst_idx);
+    co_return {};
+  }
+
   td::actor::Task<> finalize() {
+    finishing_ = true;
     LOG(WARNING) << "TEST FINISHED";
-    for (Node &node : nodes_) {
-      for (Instance &inst : node.instances) {
-        inst.bus.publish<StopRequested>();
-        inst.bus = {};
+    std::vector<td::actor::Task<>> tasks;
+    for (size_t idx = 0; idx < N_NODES; ++idx) {
+      for (size_t i = 0; i < nodes_[i].instances.size(); ++i) {
+        tasks.push_back(stop_instance(idx, i));
       }
     }
-    for (Node &node : nodes_) {
-      for (Instance &inst : node.instances) {
-        co_await std::move(*inst.stop_waiter);
-      }
-    }
+    co_await td::actor::all(std::move(tasks));
     LOG(WARNING) << "TEST RESULTS:";
     for (size_t idx = 0; idx < N_NODES; ++idx) {
       for (size_t inst_idx = 0; inst_idx < nodes_[idx].instances.size(); ++inst_idx) {
         Instance &inst = nodes_[idx].instances[inst_idx];
-        BlockSeqno seqno = FIRST_PARENT.seqno();
-        while (inst.accepted_blocks.contains(seqno + 1)) {
-          ++seqno;
-        }
-        LOG(WARNING) << "Node #" << idx << " instance #" << inst_idx << " : synced up to block " << seqno;
+        LOG(WARNING) << "Node #" << idx << " instance #" << inst_idx << " : synced up to block "
+                     << inst.last_accepted_block;
       }
     }
     co_return td::Unit{};
@@ -509,11 +636,15 @@ class TestConsensus : public td::actor::Actor {
     runtime::Runtime runtime;
     td::actor::ActorOwn<TestManagerFacade> manager_facade;
     simplex::BusHandle bus;
-    std::unique_ptr<td::actor::StartedTask<>> stop_waiter;
 
-    std::set<BlockSeqno> accepted_blocks;
+    BlockSeqno last_accepted_block = FIRST_PARENT.seqno();
     std::shared_ptr<td::KeyValue> db;
     td::actor::ActorOwn<CandidateStorage> candidate_storage;
+
+    enum Status { Stopped, Running, Stopping };
+    Status status = Stopped;
+    td::optional<td::actor::StartedTask<>> stop_waiter;
+    std::vector<td::Promise<td::Unit>> extra_stop_waiters;
   };
   struct Node {
     PublicKey public_key;
@@ -525,10 +656,13 @@ class TestConsensus : public td::actor::Actor {
   };
   std::vector<Node> nodes_;
   td::Ref<block::ValidatorSet> validator_set_;
+  std::vector<PeerValidator> validators_;
+  ValidatorWeight total_weight_ = 0;
 
   td::actor::ActorOwn<keyring::Keyring> keyring_;
 
   std::map<BlockSeqno, td::Ref<BlockData>> accepted_blocks_;
+  bool finishing_ = false;
 };
 
 td::actor::Task<> TestManagerFacade::accept_block(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
@@ -596,29 +730,35 @@ int main(int argc, char *argv[]) {
     TRY_RESULT_ASSIGN(TARGET_RATE_MS, td::to_integer_safe<td::uint32>(arg));
     return td::Status::OK();
   });
-  p.add_checked_option('\0', "net-ping-min", "min network ping (default: 0.05)", [&](td::Slice arg) {
-    NET_PING_MIN = td::to_double(arg);
-    if (NET_PING_MIN < 0.0) {
+  p.add_checked_option('\0', "net-ping", "network ping (range, default: 0.05:0.1)", [&](td::Slice arg) {
+    TRY_RESULT_ASSIGN(NET_PING, parse_range(arg));
+    if (NET_PING.first < 0.0) {
       return td::Status::Error(PSTRING() << "invalid ping value " << arg);
     }
     return td::Status::OK();
   });
-  p.add_checked_option('\0', "net-ping-max", "max network ping (default: 0.1)", [&](td::Slice arg) {
-    NET_PING_MAX = td::to_double(arg);
-    if (NET_PING_MAX < 0.0) {
-      return td::Status::Error(PSTRING() << "invalid ping value " << arg);
-    }
-    return td::Status::OK();
-  });
-  p.add_checked_option('\0', "net-loss", "packet loss probability", [&](td::Slice arg) {
+  p.add_checked_option('\0', "net-loss", "packet loss probability (default: 0)", [&](td::Slice arg) {
     NET_LOSS = td::to_double(arg);
     if (NET_LOSS < 0.0 || NET_LOSS > 1.0) {
       return td::Status::Error(PSTRING() << "invalid loss value " << arg);
     }
     return td::Status::OK();
   });
+  p.add_checked_option('\0', "gremlin-period", "gremlin period (range, default: no gremlin)", [&](td::Slice arg) {
+    TRY_RESULT_ASSIGN(GREMLIN_PERIOD, parse_range(arg));
+    if (GREMLIN_PERIOD.first < 0.0 || GREMLIN_PERIOD.second <= 0.0) {
+      return td::Status::Error(PSTRING() << "invalid gremlin period value " << arg);
+    }
+    return td::Status::OK();
+  });
+  p.add_checked_option('\0', "gremlin-downtime", "gremlin downtime duration (range, default: 1)", [&](td::Slice arg) {
+    TRY_RESULT_ASSIGN(GREMLIN_DOWNTIME, parse_range(arg));
+    if (GREMLIN_DOWNTIME.first < 0.0) {
+      return td::Status::Error(PSTRING() << "invalid gremlin downtime value " << arg);
+    }
+    return td::Status::OK();
+  });
   p.run(argc, argv).ensure();
-  CHECK(NET_PING_MIN <= NET_PING_MAX);
   CHECK(N_DOUBLE_NODES <= N_NODES);
 
   td::actor::Scheduler scheduler({7});
