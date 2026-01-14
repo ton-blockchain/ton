@@ -231,10 +231,20 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   }
 
   td::actor::Task<ResolvedCandidate> get_resolved_candidate_inner(RawParentId id) {
-    if (!id.has_value()) {  // TODO: or block is finalized
+    if (!id.has_value() || finalized_blocks_.contains(*id)) {
+      std::vector<BlockIdExt> block_ids;
+      ParentId id_full;
+      if (id.has_value()) {
+        auto candidate = (co_await owning_bus().publish<ResolveCandidate>(*id)).candidate;
+        block_ids = {candidate->id.block};
+        id_full = candidate->id;
+      } else {
+        block_ids = owning_bus()->first_block_parents;
+        id_full = std::nullopt;
+      }
       std::vector<td::actor::StartedTask<td::Ref<vm::Cell>>> wait_state_root;
       std::vector<td::actor::StartedTask<td::Ref<BlockData>>> wait_block_data;
-      for (const BlockIdExt& block_id : owning_bus()->first_block_parents) {
+      for (const BlockIdExt& block_id : block_ids) {
         wait_state_root.push_back(td::actor::ask(owning_bus()->manager, &ManagerFacade::wait_block_state_root, block_id,
                                                  td::Timestamp::in(10.0)));
         if (block_id.seqno() != 0) {
@@ -243,7 +253,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
         }
       }
       co_return ResolvedCandidate{
-          .id = std::nullopt,
+          .id = id_full,
           .state_roots = co_await td::actor::all(std::move(wait_state_root)),
           .block_data = co_await td::actor::all(std::move(wait_block_data)),
       };
