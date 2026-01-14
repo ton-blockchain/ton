@@ -88,10 +88,10 @@ public:
   void borrow_or_fire_if_twice(FunctionPtr cur_f, SinkExpression s_expr, AnyExprV where, FunctionPtr by_function) {
     for (const BorrowedVarOrField& existing : expressions) {
       if (existing.s_expr == s_expr) {
-        err("can not borrow `{}` for mutation once again, it is already being mutated by `{}`\n""hint: split a complex expression into several simple ones", s_expr.to_string(), existing.stringify_by_function()).fire(where, cur_f); 
+        err("can not borrow `{}` for mutation once again, it is already being mutated by `{}`\n""hint: split a complex expression into several simple ones", s_expr.to_string(), existing.stringify_by_function()).fire(where, cur_f);
       }
       if (existing.s_expr.is_child_of(s_expr) || s_expr.is_child_of(existing.s_expr)) {
-        err("can not borrow `{}` for mutation, because `{}` is already being mutated by `{}`\n""hint: split a complex expression into several simple ones", s_expr.to_string(), existing.s_expr.to_string(), existing.stringify_by_function()).fire(where, cur_f); 
+        err("can not borrow `{}` for mutation, because `{}` is already being mutated by `{}`\n""hint: split a complex expression into several simple ones", s_expr.to_string(), existing.s_expr.to_string(), existing.stringify_by_function()).fire(where, cur_f);
       }
     }
     expressions.emplace_front(BorrowedVarOrField{s_expr, by_function});
@@ -117,9 +117,7 @@ class CheckMutationNotHappensTwiceVisitor final : public ASTVisitorFunctionBody 
       AnyExprV self_obj = v->get_self_obj();
       parent::visit(self_obj);
       if (fun_ref->does_mutate_self()) {
-        if (SinkExpression s_expr = extract_sink_expression_from_vertex(self_obj, true)) {
-          borrow_ctx.borrow_or_fire_if_twice(cur_f, s_expr, self_obj, fun_ref);
-        }
+        process_lvalue(self_obj, fun_ref);
       }
     }
     // f(mutate x) — borrow x while calculating rest arguments
@@ -127,9 +125,7 @@ class CheckMutationNotHappensTwiceVisitor final : public ASTVisitorFunctionBody 
       AnyExprV ith_arg = v->get_arg(i)->get_expr();
       parent::visit(ith_arg);
       if (fun_ref->parameters[delta_self + i].is_mutate_parameter()) {
-        if (SinkExpression s_expr = extract_sink_expression_from_vertex(ith_arg, true)) {
-          borrow_ctx.borrow_or_fire_if_twice(cur_f, s_expr, ith_arg, fun_ref);
-        }
+        process_lvalue(ith_arg, fun_ref);
       }
     }
 
@@ -141,7 +137,7 @@ class CheckMutationNotHappensTwiceVisitor final : public ASTVisitorFunctionBody 
     // note, that rhs CAN mutate x, because assignment is happening only after evaluating it
     // (unlike `x += rhs`, which can't mutate x)
     borrow_ctx.push_frame();
-    process_assignment_lhs(v->get_lhs());
+    process_lvalue(v->get_lhs(), nullptr);
     borrow_ctx.pop_frame();
     parent::visit(v->get_rhs());
   }
@@ -159,19 +155,34 @@ class CheckMutationNotHappensTwiceVisitor final : public ASTVisitorFunctionBody 
     borrow_ctx.pop_frame();
   }
 
-  void process_assignment_lhs(AnyExprV lhs) {
-    // we are not interested in `var x = rhs`, only in assigning to existing `x = rhs`
+  // analyze `lvalue = rhs` or `mutate lvalue` in case of called_f
+  void process_lvalue(AnyExprV lhs, FunctionPtr called_f) {
+    // `(a, b, c) = rhs`: borrow each of components
     if (auto lhs_tensor = lhs->try_as<ast_tensor>()) {
       for (int i = 0; i < lhs_tensor->size(); ++i) {
-        process_assignment_lhs(lhs_tensor->get_item(i));
+        process_lvalue(lhs_tensor->get_item(i), called_f);
       }
       return;
     }
+    // `[a, b, c] = rhs`: same
     if (auto lhs_square = lhs->try_as<ast_square_brackets>()) {
       for (int i = 0; i < lhs_square->size(); ++i) {
-        process_assignment_lhs(lhs_square->get_item(i));
+        process_lvalue(lhs_square->get_item(i), called_f);
       }
       return;
+    }
+    // `a!.modify()`, borrow `a`
+    if (auto lhs_nn = lhs->try_as<ast_not_null_operator>()) {
+      return process_lvalue(lhs_nn->get_expr(), called_f);
+    }
+    // `a.id()`, borrow `a` (example: prevent `(a = rhs).id().mutate()`)
+    if (auto lhs_call = lhs->try_as<ast_function_call>()) {
+      if (lhs_call->fun_maybe && lhs_call->fun_maybe->does_return_self() && lhs_call->dot_obj_is_self) {
+        return process_lvalue(lhs_call->get_self_obj(), called_f);
+      }
+    }
+    if (auto lhs_par = lhs->try_as<ast_parenthesized_expression>()) {
+      return process_lvalue(lhs_par->get_expr(), called_f);
     }
 
     // note, that for `x = rhs` we ALLOW rhs to mutate x, because assignment happens after evaluating rhs;
@@ -179,7 +190,7 @@ class CheckMutationNotHappensTwiceVisitor final : public ASTVisitorFunctionBody 
     // what we do here is checking that assignment is allowed in this exact place, it's not already borrowed:
     // `point.mutate(..., point.x = 10)`   // can't borrow `point.x`, because `point` is already being mutated
     if (SinkExpression lhs_s_expr = extract_sink_expression_from_vertex(lhs, true)) {
-      borrow_ctx.borrow_or_fire_if_twice(cur_f, lhs_s_expr, lhs, nullptr);
+      borrow_ctx.borrow_or_fire_if_twice(cur_f, lhs_s_expr, lhs, called_f);
     }
 
     parent::visit(lhs);

@@ -173,6 +173,12 @@ fun test305(y: bool) {
     return y ? Point.create0().y : 5;
 }
 
+@method_id(306)
+fun test306(cond: bool) {
+    var t = null as [int, int]?;
+    return cond ? t!.0 : 112;   // `t!.0` is not trivial because it's a shape, not a tensor
+}
+
 
 fun main() {}
 
@@ -216,6 +222,7 @@ fun main() {}
 @testcase | 304 | 0       | 5
 @testcase | 305 | 0       | 5
 @testcase | 305 | 0       | 5
+@testcase | 306 | 0       | 112
 
 @fif_codegen
 """

@@ -115,6 +115,22 @@ fun test9() {
     __expect_type(alwaysThrowsNotAnnotated2(), "never");
 }
 
+fun test10(i: int) {
+    var tail: slice? = null;
+    __expect_type(tail, "null");
+    repeat (10) {
+        __expect_type(tail, "slice?");
+        if (tail == null) {
+            tail = createEmptySlice();
+        } else {
+            tail = null;
+        }
+        __expect_type(tail, "slice?");
+        tail!.remainingBitsCount();
+    }
+    __expect_type(tail, "slice?");
+}
+
 
 fun main() {
     return 0;

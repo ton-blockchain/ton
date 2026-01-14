@@ -108,14 +108,6 @@ fun test106() {
     return callOrder;
 }
 
-global t107: (int, int);
-
-@method_id(107)
-fun test107() {
-    ((t107 = (1, 2)).0, (t107 = (3, 4)).1, ) = (5, 6, );
-    return t107;
-}
-
 global g108: int;
 fun assertEq(a: int, b: int) {
     assert(a == b, 10);
@@ -343,7 +335,6 @@ fun main(value: int, ) {
 @testcase | 104 |        | [ 120 10 121 10 121 11 ] 10
 @testcase | 105 |        | [ 100 10 101 100 11 ]
 @testcase | 106 |        | [ 110 10 111 110 11 ]
-@testcase | 107 |        | 3 4
 @testcase | 108 |        | [ 101 ] 8
 @testcase | 109 |        | [ 110 10 111 111 10 10 11 ] 15
 @testcase | 110 |        | [ 13 13 ] [ 111 11 111 11 ] 23 13 19

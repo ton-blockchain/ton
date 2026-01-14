@@ -146,6 +146,12 @@ class OptimizerBooleanExpressionsReplacer final : public ASTReplacerInFunctionBo
   AnyV replace(V<ast_if_statement> v) override {
     parent::replace(v);
 
+    // don't deal with always true/false conditions, they will anyway be erased at compile-time later;
+    // because below, we swap v->is_ifnot and is_negated flags, it's hard to keep them in sync
+    if (v->get_cond()->is_always_true || v->get_cond()->is_always_false) {
+      return v;
+    }
+
     // here we optimize common conditions to generate IFNOT instead of IF;
     // obviously, this should be done later, around peephole optimizer,
     // but with current implementation of stack transformations (inherited from FunC) we have no chance,

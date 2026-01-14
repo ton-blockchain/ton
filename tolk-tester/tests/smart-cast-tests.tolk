@@ -783,6 +783,18 @@ fun test66() {
     return (sh.1.size(), sh !is slice);
 }
 
+fun test77(p: (int?, int?)?) {
+    if ((p = p!).0 != null) {
+        __expect_type(p.0, "int");
+        __expect_type(p.1, "int?");
+        if ((p = p).1 != null) {
+            __expect_type(p.0, "int?");
+            __expect_type(p.1, "int");
+            p.0! + p.1;
+        }
+    }
+}
+
 
 fun main(x: int?): int {
     // mark used to codegen them

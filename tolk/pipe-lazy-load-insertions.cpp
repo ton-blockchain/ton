@@ -418,7 +418,7 @@ struct ExprUsagesWhileCollecting {
       bool used_anyhow_but_match = field_usages.is_self_or_field_used_for_reading() || field_usages.is_self_or_child_used_for_writing() || field_usages.is_self_or_field_used_for_toCell();
 
       if (need_immutable_tail && field_idx == last_modified_field_idx + 1) {
-        future_fields.emplace_back(LazyStructLoadInfo::SaveImmutableTail, "(tail)", TypeDataSlice::create());
+        future_fields.emplace_back(LazyStructLoadInfo::SaveImmutableTail, "`tail`", TypeDataSlice::create());
       }
 
       if (field_usages.used_for_matching == 1 && !used_anyhow_but_match && !object_used_as_a_whole && !used_for_toCell && !is_variant_of_union && field_idx == struct_ref->get_num_fields() - 1 &&
@@ -450,7 +450,7 @@ struct ExprUsagesWhileCollecting {
       if (skip_size.min_bits == skip_size.max_bits && skip_size.max_refs == 0 && !skip_size.skipping_is_dangerous) {
         skip_type = TypeDataBitsN::create(skip_size.max_bits, true);
       }
-      future_fields.emplace_back(LazyStructLoadInfo::SkipField, "(gap)", skip_type);
+      future_fields.emplace_back(LazyStructLoadInfo::SkipField, "`gap`", skip_type);
     }
 
     // if we need tail, we should load all fields before it (even if they aren't used)
@@ -625,7 +625,7 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
       if (!is_subj_of_dot) {
         lazy_expr->on_used_rw(v->is_lvalue);
       }
-      if (!v->is_lvalue && !lazy_expr->expr_type->equal_to(v->inferred_type)) {
+      if (v->is_rvalue && !lazy_expr->expr_type->equal_to(v->inferred_type)) {
         lazy_expr->on_used_reassigned_type();     // e.g. in `A => ...` variable was reassigned and now is `B`
       }
     }
@@ -964,8 +964,11 @@ class CheckExpectLazyAssertionsVisitor final : public ASTVisitorFunctionBody {
     std::string result = "[" + aux_load->var_ref->name + "] ";
     for (int i = 0; i < struct_ref->get_num_fields(); ++i) {
       std::string field_name = struct_ref->get_field(i)->name;
-      if (field_name == "(gap)") {
+      if (field_name == "`gap`") {
         field_name = "(" + struct_ref->get_field(i)->declared_type->as_human_readable() + ")";
+      }
+      if (field_name == "`tail`") {
+        field_name = "(tail)";
       }
       std::string_view action = action_to_str[load_info.ith_field_action[i]];
       if (action != last_action) {

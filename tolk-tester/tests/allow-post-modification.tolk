@@ -132,6 +132,27 @@ fun test_with_single_slot_struct(x: Point1D) {
     return result;
 }
 
+@method_id(26)
+fun test_load_slice() {
+    var s = stringHexToSlice("0000006f000000de");        // 111 and 222
+    var tensor = (s, s.loadAny<int32>(), s);
+    return (tensor.0.remainingBitsCount(), tensor.0.loadUint(32), tensor.1, tensor.2.remainingBitsCount());
+}
+
+@method_id(27)
+fun test_skip_in_slice() {
+    var s = stringHexToSlice("0000006f000000de");        // 111 and 222
+    var tensor = (s, s.skipAny<int32>(), s, s.skipBits(31), s);
+    return (tensor.0.remainingBitsCount(), tensor.1.remainingBitsCount(), tensor.2.remainingBitsCount(), tensor.4.remainingBitsCount());
+}
+
+@method_id(28)
+fun test_store_builder() {
+    var b = beginCell();
+    var tensor = (b, b.storeAny<int32>(5), b);
+    return (tensor.0.bitsCount(), tensor.1.bitsCount(), tensor.2.bitsCount());
+}
+
 fun main() {
 }
 
@@ -153,6 +174,9 @@ fun main() {
 @testcase | 23 | 1 1 | 1 1 20 30 20 60 -400 -3600 -20 -60 -400 -3600
 @testcase | 24 | 1 1 | 1 1 20 30 20 60 -400 -3600 -20 -60 -400 -3600
 @testcase | 25 | 100 | 100 110 [ 110 130 80 80 ] 80 3200
+@testcase | 26 |     | 64 111 111 32
+@testcase | 27 |     | 64 32 32 1
+@testcase | 28 |     | 0 32 32
 
 @fif_codegen
 """
@@ -166,5 +190,5 @@ fun main() {
   test_assign_tensor_global() PROC:<{   // x.0 x.1
 """
 
-@code_hash 100917106354173523289840373352963613103431536107946186391104629360178302773217
+@code_hash 54507350030003588837959563408669825079893928922592627660327958097203688051706
 */

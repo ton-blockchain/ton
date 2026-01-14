@@ -18,6 +18,7 @@
 #include "ast-visitor.h"
 #include "compilation-errors.h"
 #include "generics-helpers.h"
+#include "smart-casts-cfg.h"
 #include "type-system.h"
 
 namespace tolk {
@@ -92,25 +93,34 @@ static void warning_condition_always_true_or_false(FunctionPtr cur_f, SrcRange k
   err("condition of {} is always {}", operator_name, cond->is_always_true).warning(keyword_range, cur_f);
 }
 
-// given `f(x: int)` and a call `f(expr)`, check that expr_type is assignable to `int`
-static void check_function_argument_passed(FunctionPtr cur_f, TypePtr param_type, AnyExprV ith_arg, bool is_obj_of_dot_call) {
-  if (!param_type->can_rhs_be_assigned(ith_arg->inferred_type)) {
-    if (is_obj_of_dot_call) {
-      err("can not call method for `{}` with object of type `{}`", param_type, ith_arg->inferred_type).fire(ith_arg, cur_f);
-    } else {
-      err_type_mismatch("can not pass {src} to {dst}", ith_arg->inferred_type, param_type).fire(ith_arg, cur_f);
-    }
-  }
-}
-
 // given `f(x: mutate int?)` and a call `f(expr)`, check that `int?` is assignable to expr_type
 // (for instance, can't call `f(mutate intVal)`, since f can potentially assign null to it)
 static void check_function_argument_mutate_back(FunctionPtr cur_f, TypePtr param_type, AnyExprV ith_arg, bool is_obj_of_dot_call) {
-  if (!ith_arg->inferred_type->can_rhs_be_assigned(param_type)) {
+  // important: use declared_type of variable, not inferred_type: if arg is a smart-casted,
+  // it narrows the type, but writeback happens to declared_type, so param_type must be compatible with declared_type
+  TypePtr orig_type = calc_declared_type_before_smart_cast(ith_arg);
+  if (orig_type == nullptr) {
+    orig_type = ith_arg->inferred_type;   // then it's a temporary object, like `f(mutate g().field)`
+  }
+
+  // while inferring, `f(mutate x)` assigned "type of `x` = param_type of `f`",
+  // and here, in checking mutations, we will emit an error if this back-assignment is incompatible;
+  // we don't allow passing `int` to mutate `coins` and similar: not can_rhs_be_assigned(), but equal_to()
+  bool ok = orig_type->equal_to(param_type);
+  if (!ok) {
+    // the only exception, if we originally have `var x: int|builder`, and `x` is smart-cast to `builder`,
+    // we allow calling method for `builder`; we also don't allow intersection between unions
+    if (const TypeDataUnion* orig_union = orig_type->unwrap_alias()->try_as<TypeDataUnion>()) {
+      TypePtr only_t = orig_union->calculate_exact_variant_to_fit_rhs(param_type);
+      ok = only_t != nullptr && only_t->equal_to(param_type);
+    }
+  }
+
+  if (!ok) {
     if (is_obj_of_dot_call) {
-      err("can not call method for mutate `{}` with object of type `{}`, because mutation is not type compatible", param_type, ith_arg->inferred_type).fire(ith_arg, cur_f);
+      err("can not call method for mutate `{}` with object of type `{}`, because mutation is not type compatible", param_type, orig_type).fire(ith_arg, cur_f);
     } else {
-      err("can not pass `{}` to mutate `{}`, because mutation is not type compatible", ith_arg->inferred_type, param_type).fire(ith_arg, cur_f);
+      err("can not pass `{}` to mutate `{}`, because mutation is not type compatible", orig_type, param_type).fire(ith_arg, cur_f);
     }
   }
 }
@@ -416,18 +426,24 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     if (self_obj) {
       const LocalVarData& param_0 = fun_ref->parameters[0];
       TypePtr param_type = param_0.declared_type;
-      check_function_argument_passed(cur_f, param_type, self_obj, true);
+      if (!param_type->can_rhs_be_assigned(self_obj->inferred_type)) {
+        err("can not call method for `{}` with object of type `{}`", param_type, self_obj->inferred_type).fire(self_obj, cur_f);
+      }
       if (param_0.is_mutate_parameter()) {
         check_function_argument_mutate_back(cur_f, param_type, self_obj, true);
       }
     }
     for (int i = 0; i < v->get_num_args(); ++i) {
       const LocalVarData& param_i = fun_ref->parameters[delta_self + i];
-      AnyExprV arg_i = v->get_arg(i)->get_expr();
+      // note: we take ast_argument, not get_expr() inside it, because for `f(mutate expr)`,
+      // argument's type is before `mutate` (equal to `f(expr)`), and expr's is after `mutate`
+      V<ast_argument> arg_i = v->get_arg(i);
       TypePtr param_type = param_i.declared_type;
-      check_function_argument_passed(cur_f, param_type, arg_i, false);
+      if (!param_type->can_rhs_be_assigned(arg_i->inferred_type)) {
+        err_type_mismatch("can not pass {src} to {dst}", arg_i->inferred_type, param_type).fire(arg_i, cur_f);
+      }
       if (param_i.is_mutate_parameter()) {
-        check_function_argument_mutate_back(cur_f, param_type, arg_i, false);
+        check_function_argument_mutate_back(cur_f, param_type, arg_i->get_expr(), false);
       }
     }
 

@@ -465,12 +465,13 @@ SinkExpression extract_sink_expression_from_vertex(AnyExprV v, bool allow_global
         break;
       }
     }
-    if (auto as_ref = unwrap_not_null_operator(cur_dot->get_obj())->try_as<ast_reference>()) {
-      if (LocalVarPtr var_ref = as_ref->sym->try_as<LocalVarPtr>(); var_ref && index_path) {
-        return SinkExpression(var_ref, index_path);
-      }
-      if (GlobalVarPtr glob_ref = as_ref->sym->try_as<GlobalVarPtr>(); glob_ref && index_path && allow_global_vars) {
-        return SinkExpression(reinterpret_cast<LocalVarPtr>(glob_ref), index_path);
+    if (index_path) {     // `(x = rhs).field` is the same sink as `x.field`
+      if (SinkExpression inner = extract_sink_expression_from_vertex(cur_dot->get_obj(), allow_global_vars)) {
+        int inner_n_bits = 0;
+        for (uint64_t tmp = inner.index_path; tmp; tmp >>= 8) {
+          inner_n_bits += 8;
+        }
+        return SinkExpression(inner.var_ref, (index_path << inner_n_bits) | inner.index_path);
       }
     }
   }
@@ -501,6 +502,12 @@ TypePtr calc_declared_type_before_smart_cast(AnyExprV v) {
   if (auto as_ref = v->try_as<ast_reference>()) {
     if (LocalVarPtr var_ref = as_ref->sym->try_as<LocalVarPtr>()) {
       return var_ref->declared_type;
+    }
+  }
+
+  if (auto as_call = v->try_as<ast_function_call>()) {
+    if (as_call->fun_maybe && as_call->fun_maybe->does_return_self() && as_call->get_self_obj()) {
+      return calc_declared_type_before_smart_cast(as_call->get_self_obj());
     }
   }
 

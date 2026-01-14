@@ -532,6 +532,82 @@ fun test128() {
     return (a1, a2, b1, b2);
 }
 
+struct B129 { x: int }
+
+fun mk129(mutate w: int, v: int): B129 { w += 1; return { x: v }; }
+fun B129.id(self): self { return self; }
+
+fun int.inc(mutate self) { self += 1; }
+
+@method_id(129)
+fun test129() {
+    var b: B129 = { x: 0 };
+    var w = 0;
+    ((b = mk129(mutate w, 7))).id().x.inc();
+    return (w, b.x);
+}
+
+@method_id(130)
+fun test130() {
+    var sh: [B129?] = [null];
+    var w = 0;
+    (sh.0 = mk129(mutate w, 10))!.id().x += 1;
+    // w is mutated once; sh.0.x is modified via return-self writeback
+    return (w, sh.0!!.x);
+}
+
+fun (int, int).id(self): self { return self; }
+fun int.setOne(mutate self, dummy: int) { self = 1; }
+
+@method_id(131)
+fun test131() {
+    var p = (7, 9);
+    p.id().id().id().0.setOne(p.id().id().1 = 5);   // set p.0 = 1, set p.1 = 5
+    return p;
+}
+
+
+
+// return-self wrapper in narrowed union branch: type check, width transition, writeback tracking
+
+struct UA { x: int }
+struct UB { y: int }
+type UnionAB = UA | UB;
+
+fun UnionAB.id(self): self { return self; }
+fun UnionAB.toUA(mutate self) { self = UA { x: 1 }; }
+
+fun int?.idNullable(self): self { return self; }
+fun int?.assign42(mutate self) { self = 42; }
+
+@method_id(132)
+fun test132(): int {
+    var x: int? = 10;
+    if (x != null) {        // return-self wrapper in narrowed union branch
+        x.idNullable().assign42();
+    }
+    return x;
+}
+
+@method_id(133)
+fun test133(): int {
+    var sh: [UnionAB] = [UB { y: 7 }];
+    if (sh.0 is UB) {       // return-self wrapper in narrowed union branch
+        var copy: UnionAB = sh.0.id();
+        if (copy is UB) { return copy.y; }
+    }
+    return -1;
+}
+
+@method_id(134)
+fun test134(): int {
+    var sh: [UnionAB] = [UB { y: 7 }];
+    if (sh.0 is UB) {       // return-self in narrowed, chained via id(), mutated, and writes back to a shape
+        sh.0.id().toUA();
+    }
+    if (sh.0 is UA) { return sh.0.x; }
+    return -1;
+}
 
 fun main(){
     // mark used to codegen them
@@ -567,6 +643,12 @@ fun main(){
 @testcase | 126 | 7  | 8 10
 @testcase | 127 | 7  | 9 9
 @testcase | 128 |    | 111 111 222 222
+@testcase | 129 |    | 1 8
+@testcase | 130 |    | 1 11
+@testcase | 131 |    | 1 5
+@testcase | 132 |    | 42
+@testcase | 133 |    | 7
+@testcase | 134 |    | 1
 
 @fif_codegen
 """
@@ -620,6 +702,15 @@ fun main(){
     OVER
     0 PUSHINT                   //  a1.f1=30 a2.f2=40 a2.f1=30 a1.f2=0
     s0 s2 XCHG                  //  a1.f1=30 a1.f2=0 a2.f1=30 a2.f2=40
+  }>
+"""
+
+@fif_codegen
+"""
+  test131() PROC:<{
+    5 PUSHINT
+    1 PUSHINT
+    SWAP
   }>
 """
 

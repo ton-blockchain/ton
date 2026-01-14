@@ -192,7 +192,7 @@ fun testCodegenNoPureIndexedAccess() {
 
 @method_id(113)
 fun test113() {
-    var x = [[1, 2]] as [[int8,uint256]];
+    var x = [[1, 2]] as [[int,uint256]];
     return (x, x.0, plus(mutate x.0.0, 10), x.0, x, x.0 = [10, 20], x);
 }
 

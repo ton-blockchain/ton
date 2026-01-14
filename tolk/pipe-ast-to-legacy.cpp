@@ -308,6 +308,11 @@ class CheckReorderingForAsmArgOrderIsSafeVisitor final : public ASTVisitorFuncti
     parent::visit(v);
   }
 
+  void visit(V<ast_braced_expression> v) override {
+    has_side_effects = true;    // e.g., `f(arg1, match(v) { 7 => return 0 })`
+    parent::visit(v);           // (treat any "statement-expression" argument as unsafe to reorder)
+  }
+
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     tolk_assert(false);
@@ -400,7 +405,11 @@ static bool is_ternary_arg_trivial_for_condsel(AnyExprV v, bool require_1slot = 
     return is_ternary_arg_trivial_for_condsel(v_par->get_expr(), require_1slot);
   }
   if (auto v_dot = v->try_as<ast_dot_access>()) {
-    return is_ternary_arg_trivial_for_condsel(v_dot->get_obj(), false);
+    TypePtr obj_type = v_dot->get_obj()->inferred_type;
+    if (obj_type && !obj_type->unwrap_alias()->try_as<TypeDataShapedTuple>()) {   // `t.0` for tuples is a runtime call, not trivial
+      return is_ternary_arg_trivial_for_condsel(v_dot->get_obj(), false);
+    }
+    return false;
   }
   if (auto v_cast = v->try_as<ast_not_null_operator>()) {
     return is_ternary_arg_trivial_for_condsel(v_cast->get_expr(), require_1slot);
@@ -451,43 +460,82 @@ static std::vector<std::vector<var_idx_t>> pre_compile_tensor_inner(CodeBlob& co
   // how it works: for every arg, after transforming to ops, start tracking ir_idx inside it
   // on modification attempt, create Op::_Let to a tmp var and replace old ir_idx with tmp_idx in result
   struct WatchingVarList {
-    std::vector<var_idx_t> watched_vars;
+    struct WatchedVarInfo {
+      var_idx_t ir_idx;
+      std::unique_ptr<Op>* saved_cur_ops;  // cur_ops at the time variable was added to watch list
+      size_t saved_stack_depth;            // cur_ops_stack.size() at that moment
+    };
+
+    std::vector<WatchedVarInfo> watched_vars;
     std::vector<std::vector<var_idx_t>> res_lists;
 
     explicit WatchingVarList(int n_args) {
       res_lists.reserve(n_args);
     }
 
-    bool is_watched(var_idx_t ir_idx) const {
-      return std::find(watched_vars.begin(), watched_vars.end(), ir_idx) != watched_vars.end();
+    WatchedVarInfo* find_watched(var_idx_t ir_idx) {
+      for (auto& w : watched_vars) {
+        if (w.ir_idx == ir_idx) {
+          return &w;
+        }
+      }
+      return nullptr;
     }
 
     void add_and_watch_modifications(std::vector<var_idx_t>&& vars_of_ith_arg, CodeBlob& code) {
       for (var_idx_t ir_idx : vars_of_ith_arg) {
-        if (!code.vars[ir_idx].name.empty() && !is_watched(ir_idx)) {
-          watched_vars.emplace_back(ir_idx);
-          vars_modification_watcher.push_callback(ir_idx, [this, &code](AnyV origin, var_idx_t ir_idx) {
-            on_var_modified(ir_idx, origin, code);
-          });
+        if (!code.vars[ir_idx].name.empty()) {
+          WatchedVarInfo* existing = find_watched(ir_idx);
+          if (existing) {
+            // Variable is already watched. Update saved position if we're at the same nesting level,
+            // so that subsequent modifications insert Op::_Let after this argument, not before.
+            // Example: `(x, c1 ? x=2 : x=5, x, c2 ? x=20 : x=50, x)` — when processing the 3rd `x`,
+            // update saved_cur_ops so the 2nd ternary inserts Op::_Let after the 1st ternary.
+            if (code.cur_ops_stack.size() == existing->saved_stack_depth) {
+              existing->saved_cur_ops = code.cur_ops;
+            }
+          } else {
+            // Variable is not watched yet. Start watching it: remember current insertion point
+            // and nesting level, and register a callback for when this variable is modified.
+            // When modified, on_var_modified() will insert Op::_Let to capture the pre-modified value.
+            size_t watch_idx = watched_vars.size();
+            watched_vars.push_back({ir_idx, code.cur_ops, code.cur_ops_stack.size()});
+            vars_modification_watcher.push_callback(ir_idx, [this, &code, watch_idx](AnyV origin, var_idx_t ir_idx) {
+              on_var_modified(ir_idx, origin, code, watch_idx);
+            });
+          }
         }
       }
       res_lists.emplace_back(std::move(vars_of_ith_arg));
     }
 
-    void on_var_modified(var_idx_t ir_idx, AnyV origin, CodeBlob& code) {
-      tolk_assert(is_watched(ir_idx));
+    void on_var_modified(var_idx_t ir_idx, AnyV origin, CodeBlob& code, size_t watch_idx) {
+      WatchedVarInfo& info = watched_vars[watch_idx];
+      tolk_assert(info.ir_idx == ir_idx);
       std::vector tmp_idx_arr = code.create_tmp_var(code.vars[ir_idx].v_type, origin, "(pre-modified)");
       tolk_assert(tmp_idx_arr.size() == 1);
       var_idx_t tmp_idx = tmp_idx_arr[0];
-      code.emplace_back(origin, Op::_Let, std::vector{tmp_idx}, std::vector{ir_idx});
+
+      // if we are in a nested block (inside a ternary), insert Op::_Let at saved position;
+      // example: `return (x, condition ? x = 9 : x = 10, x)`, we are in "x=9", insert outside ternary;
+      // otherwise, insert at current position (standard behavior)
+      if (code.cur_ops_stack.size() > info.saved_stack_depth) {
+        std::unique_ptr<Op> next_op = std::move(*info.saved_cur_ops);
+        *info.saved_cur_ops = std::make_unique<Op>(origin, Op::_Let, std::vector{tmp_idx}, std::vector{ir_idx});
+        (*info.saved_cur_ops)->next = std::move(next_op);
+        info.saved_cur_ops = &(*info.saved_cur_ops)->next;
+      } else {
+        code.emplace_back(origin, Op::_Let, std::vector{tmp_idx}, std::vector{ir_idx});
+      }
+
       for (std::vector<var_idx_t>& prev_vars : res_lists) {
         std::replace(prev_vars.begin(), prev_vars.end(), ir_idx, tmp_idx);
       }
     }
 
     std::vector<std::vector<var_idx_t>> clear_and_stop_watching() {
-      for (var_idx_t ir_idx : watched_vars) {
-        vars_modification_watcher.pop_callback(ir_idx);
+      for (const WatchedVarInfo& w : watched_vars) {
+        vars_modification_watcher.pop_callback(w.ir_idx);
       }
       watched_vars.clear();
       return std::move(res_lists);
@@ -852,15 +900,24 @@ static std::vector<var_idx_t> process_assignment(V<ast_assign> v, CodeBlob& code
 }
 
 static std::vector<var_idx_t> process_set_assign(V<ast_set_assign> v, CodeBlob& code, TypePtr target_type) {
-  // for "a += b", emulate "a = a + b"
-  // seems not beautiful, but it works; probably, this transformation should be done at AST level in advance
-  std::string_view calc_operator = v->operator_name;  // "+" for operator +=
-  auto v_apply = createV<ast_binary_operator>(v->range, v->operator_range, calc_operator, static_cast<TokenType>(v->tok - 1), v->get_lhs(), v->get_rhs());
-  v_apply->assign_inferred_type(v->inferred_type);
-  v_apply->assign_fun_ref(v->fun_ref);
+  // for "lhs += rhs", compile lhs once as lvalue, read its current value from the resulting IR vars,
+  // compute (current_value OP rhs), and assign the result back
+  LValContext local_lval;
+  std::vector ir_lhs = pre_compile_expr(v->get_lhs(), code, nullptr, &local_lval);
+  vars_modification_watcher.trigger_callbacks(ir_lhs, v->get_lhs());
 
-  std::vector rvect = pre_compile_let(code, v->get_lhs(), v_apply);
-  return transition_to_target_type(std::move(rvect), code, target_type, v);
+  std::vector ir_rhs = pre_compile_expr(v->get_rhs(), code, nullptr);
+
+  std::vector<var_idx_t> args_vars;
+  args_vars.insert(args_vars.end(), ir_lhs.begin(), ir_lhs.end());
+  args_vars.insert(args_vars.end(), ir_rhs.begin(), ir_rhs.end());
+  std::vector ir_result = code.create_tmp_var(v->inferred_type, v, "(set-assign)");
+  code.emplace_back(v, Op::_Call, ir_result, std::move(args_vars), v->fun_ref);
+
+  code.emplace_back(v, Op::_Let, ir_lhs, ir_result);   // += and others for math only, transition not required
+  local_lval.after_let(std::move(ir_lhs), code, v);
+
+  return transition_to_target_type(std::move(ir_result), code, target_type, v);
 }
 
 static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, CodeBlob& code, TypePtr target_type) {
@@ -1250,6 +1307,8 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     // it's `local_var(args)`, treat args like a tensor:
     // 1) when variables are modified like `local_var(x, x += 2, x)`, regular mechanism of watching automatically works
     // 2) when `null` is passed to `(int, int)?`, or any other type transitions, it automatically works
+    std::vector tfunc = pre_compile_expr(v->get_callee(), code, nullptr);
+    tolk_assert(tfunc.size() == 1);
     std::vector<AnyExprV> args;
     args.reserve(v->get_num_args());
     for (int i = 0; i < v->get_num_args(); ++i) {
@@ -1257,10 +1316,11 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     }
     std::vector<TypePtr> params_types = v->get_callee()->inferred_type->unwrap_alias()->try_as<TypeDataFunCallable>()->params_types;
     std::vector args_vars = pre_compile_tensor(code, args, nullptr, params_types);
-    std::vector tfunc = pre_compile_expr(v->get_callee(), code, nullptr);
-    tolk_assert(tfunc.size() == 1);
     args_vars.push_back(tfunc[0]);
     std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(call-ind)");
+    if (args_vars.size() >= 254 || rvect.size() >= 254) {
+      err("too many arguments on a stack for an indirect call").fire(v->get_callee());
+    }
     Op& op = code.emplace_back(v, Op::_CallInd, rvect, std::move(args_vars));
     op.set_impure_flag();
     return transition_to_target_type(std::move(rvect), code, target_type, v);
@@ -2076,7 +2136,7 @@ public:
     // example: `fun f(a: int, b: (int, (int, int)), c: int)` with `asm (b a c)`
     // current arg_order is [1 0 2]
     // needs to be converted to [1 2 3 0 4] because b width is 3
-    if (has_arg_width_not_1) {
+    if (has_arg_width_not_1 && !fun_ref->arg_order.empty()) {
       int total_arg_width = 0;
       std::vector<int> cum_arg_width;
       cum_arg_width.reserve(1 + fun_ref->get_num_params());

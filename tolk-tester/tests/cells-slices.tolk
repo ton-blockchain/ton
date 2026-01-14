@@ -584,6 +584,34 @@ fun test44() {
     )
 }
 
+@method_id(145)
+fun test45() {
+    var s = stringHexToSlice("FF");
+    s.skipBits(0);      // optimized out
+    return s.remainingBitsCount();
+}
+
+@method_id(146)
+fun test46() {
+    return (
+        beginCell().storeInt(0, 256).hash() & 0xFFFF,
+        beginCell().storeInt(0, 255).storeInt(0, 1).hash() & 0xFFFF,
+        beginCell().storeInt(1<<100, 256).hash() & 0xFFFF,
+        beginCell().storeInt((1<<255) - 1, 256).hash() & 0xFFFF,
+        beginCell().storeInt(-(1<<255), 256).hash() & 0xFFFF,
+        beginCell().storeInt(0, 257).hash() & 0xFFFF,
+        beginCell().storeInt(0, 255).storeInt(0, 1).storeInt(0, 1).hash() & 0xFFFF,
+        beginCell().storeUint(0, 254).storeUint(0, 2).storeUint(0, 1).hash() & 0xFFFF,
+        beginCell().storeInt(1<<100, 257).hash() & 0xFFFF,
+        beginCell().storeInt((1<<255) + (1<<254), 257).hash() & 0xFFFF,
+        beginCell().storeInt(-(1<<255) * 2, 257).hash() & 0xFFFF,
+        beginCell().storeUint(0, 256).hash() & 0xFFFF,
+        beginCell().storeUint(0, 255).storeUint(0, 1).hash() & 0xFFFF,
+        beginCell().storeUint(1<<100, 256).hash() & 0xFFFF,
+        beginCell().storeUint((1<<255) + (1<<254), 256).hash() & 0xFFFF,
+    )
+}
+
 fun main(): int {
     return 0;
 }
@@ -634,6 +662,7 @@ fun main(): int {
 @testcase | 142 |     | -1 -1 -1 -1
 @testcase | 143 |     | 2 -1 0
 @testcase | 144 |     | 0 0 0 0 -1 3820012610 -1 0 0
+@testcase | 146 |     | 64898 64898 30460 59911 15354 54467 54467 54467 15533 16598 20076 64898 64898 30460 11765
 
 We test that consequtive storeInt/storeUint with constants are joined into a single number
 
@@ -847,6 +876,14 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
   test40() PROC:<{ 
     x{} PUSHSLICE
     SBITREFS
+  }>
+"""
+
+@fif_codegen
+"""
+  test45() PROC:<{ 
+    x{FF} PUSHSLICE
+    SBITS
   }>
 """
 

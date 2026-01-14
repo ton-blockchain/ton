@@ -39,7 +39,7 @@ static Error err_modifying_immutable_variable(LocalVarPtr var_ref) {
   if (var_ref->param_idx == 0 && var_ref->name == "self") {
     return err("modifying `self`, which is immutable by default; probably, you want to declare `mutate self`");
   } else {
-    return err("modifying immutable variable `{}`", var_ref);
+    return err("modifying immutable variable `{}`\n""hint: it's declared `val {}`, keyword 'val' means 'immutable'\n""hint: declare `var {}` to allow modifications", var_ref, var_ref, var_ref);
   }
 }
 
@@ -60,11 +60,31 @@ static void validate_function_used_as_noncall(FunctionPtr cur_f, AnyExprV v, Fun
 
 class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
 
-  void on_var_used_as_lvalue(SrcRange range, LocalVarPtr var_ref) const {
-    if (var_ref->is_immutable()) {
-      err_modifying_immutable_variable(var_ref).fire(range, cur_f);
+  void on_reference_used_as_lvalue(const Symbol* sym, SrcRange range) const {
+    tolk_assert(sym != nullptr);
+
+    if (LocalVarPtr var_ref = sym->try_as<LocalVarPtr>()) {
+      // deny `v = rhs` / `mutate v` / `v.field = rhs` / etc. if v is immutable
+      if (var_ref->is_immutable()) {
+        err_modifying_immutable_variable(var_ref).fire(range, cur_f);
+      }
+      var_ref->mutate()->assign_used_as_lval();
+
+    } else if (sym->try_as<GlobalConstPtr>()) {
+      // deny `SOME_CONST = rhs` / `mutate CONST_TENSOR.0` / etc.
+      err("modifying immutable constant").fire(range, cur_f);
+
+    } else if (sym->try_as<GlobalVarPtr>()) {
+      // fire on `global = rhs` in a @pure function: it's easier to do this check here,
+      // because it's very similar to checking immutable variables, especially `(global!).field = rhs`
+      if (cur_f->is_marked_as_pure()) {
+        err("modifying a global in a pure function").fire(range, cur_f);
+      }
+
+    } else if (sym->try_as<const TypeReferenceUsedAsSymbol*>()) {
+      // `Point.create = f` or `Enum.value = v`
+      err("invalid left side of assignment").fire(range, cur_f);
     }
-    var_ref->mutate()->assign_used_as_lval();
   }
 
   void visit(V<ast_braced_expression> v) override {
@@ -190,16 +210,8 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
         }
       }
 
-      if (auto as_ref = leftmost_obj->try_as<ast_reference>()) {
-        if (LocalVarPtr var_ref = as_ref->sym->try_as<LocalVarPtr>()) {
-          on_var_used_as_lvalue(leftmost_obj->range, var_ref);
-        }
-        if (as_ref->sym->try_as<const TypeReferenceUsedAsSymbol*>()) {  // `Point.create = f`
-          if (v->is_target_enum_member()) {
-            err("modifying immutable constant").fire(v, cur_f);
-          }
-          err("invalid left side of assignment").fire(v, cur_f);
-        }
+      if (auto leftmost_ref = leftmost_obj->try_as<ast_reference>()) {
+        on_reference_used_as_lvalue(leftmost_ref->sym, leftmost_obj->range);
       }
     }
 
@@ -247,14 +259,7 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
 
   void visit(V<ast_reference> v) override {
     if (v->is_lvalue) {
-      tolk_assert(v->sym);
-      if (LocalVarPtr var_ref = v->sym->try_as<LocalVarPtr>()) {
-        on_var_used_as_lvalue(v->range, var_ref);
-      } else if (v->sym->try_as<GlobalConstPtr>()) {
-        err("modifying immutable constant").fire(v, cur_f);
-      } else if (v->sym->try_as<FunctionPtr>()) {
-        err("function can't be used as lvalue").fire(v, cur_f);
-      }
+      on_reference_used_as_lvalue(v->sym, v->range);
     }
 
     // a reference to a function used as rvalue, like `var v = someFunction`

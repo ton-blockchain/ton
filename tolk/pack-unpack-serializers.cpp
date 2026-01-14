@@ -563,7 +563,7 @@ struct S_AddressAny final : ISerializer {
   }
 
   PackSize estimate(const EstimateContext* ctx) override {
-    return PackSize(2, 2 + 9 + 512);    // an extern address could be really large
+    return PackSize(2, 2 + 9 + 511);    // an extern address could be really large
   }
 };
 
@@ -963,15 +963,19 @@ struct S_MultipleConstructors final : ISerializer {
   }
 
   PackSize estimate(const EstimateContext* ctx) override {
-    PackSize variants_size = ctx->estimate_any(t_union->variants[0], PrefixEstimateMode::DoNothingAlreadyIncluded);
-    PackSize prefix_size(opcodes[0].prefix_len);
+    PackSize variants_size = EstimateContext::sum(
+      PackSize(opcodes[0].prefix_len),
+      ctx->estimate_any(t_union->variants[0], PrefixEstimateMode::DoNothingAlreadyIncluded)
+    );
 
     for (int i = 1; i < t_union->size(); ++i) {
-      variants_size = EstimateContext::minmax(variants_size, ctx->estimate_any(t_union->variants[i], PrefixEstimateMode::DoNothingAlreadyIncluded));
-      prefix_size = EstimateContext::minmax(prefix_size, PackSize(opcodes[i].prefix_len));
+      variants_size = EstimateContext::minmax(variants_size, EstimateContext::sum(
+        PackSize(opcodes[i].prefix_len),
+        ctx->estimate_any(t_union->variants[i], PrefixEstimateMode::DoNothingAlreadyIncluded)
+      ));
     }
 
-    return EstimateContext::sum(variants_size, prefix_size);
+    return variants_size;
   }
 };
 
@@ -1707,6 +1711,9 @@ PackSize EstimateContext::estimate_any(TypePtr any_type, PrefixEstimateMode pref
   this->prefix_mode = prefix_mode;
   PackSize result = get_serializer_for_type(any_type)->estimate(this);
   this->prefix_mode = backup;
+  if (result.is_unpredictable_infinity()) {   // max_bits >= 9999 (may be 10000+ due to aggregation)
+    result.max_bits = std::max(9999, result.min_bits);    // always return a definite number
+  }
   return result;
 }
 

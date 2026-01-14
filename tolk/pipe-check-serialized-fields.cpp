@@ -114,7 +114,7 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
       return;
     }
 
-    if (fun_ref->base_fun_ref->name == "createEmptyMap") {
+    if (fun_ref->base_fun_ref->name == "createEmptyMap" || fun_ref->base_fun_ref->name == "createMapFromLowLevelDict") {
       check_map_TKey_TValue(v->range, fun_ref->substitutedTs->typeT_at(0), fun_ref->substitutedTs->typeT_at(1));
       return;
     }

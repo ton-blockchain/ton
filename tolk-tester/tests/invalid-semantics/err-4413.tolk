@@ -15,7 +15,7 @@ fun main(): int {
 
 /**
 @compilation_should_fail
-@stderr an impure operation in a pure function
+@stderr modifying a global in a pure function
 @stderr in function `f_pure`
 @stderr g = g + 1;
  */

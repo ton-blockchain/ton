@@ -363,7 +363,8 @@ fun main() {
   test3() PROC:<{
     x{0102} PUSHSLICE
     8 LDU
-    8 PLDI
+    8 LDI
+    ENDS
   }>
 """
  */

@@ -226,9 +226,9 @@ fun test15() {
     t.push(2);
     t.push(3);
     // these statements have no effect, they work on a tmp rvalue
-    assign0<int8>(mutate (t as unknown as [int]).0);
-    assign0<uint16>(mutate (t as unknown as [int, int]).1);
-    assign0<int>(mutate (t as unknown as [unknown, slice, coins]).2);
+    assign0<int8>(mutate (t as unknown as [int8]).0);
+    assign0<uint16>(mutate (t as unknown as [int, uint16]).1);
+    assign0<int>(mutate (t as unknown as [unknown, slice, int]).2);
     return t;
 }
 

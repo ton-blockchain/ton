@@ -173,6 +173,9 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
     }
     fields.emplace_back(new StructFieldData(std::move(field_name), v_ident, i, v_field->is_private, v_field->is_readonly, v_field->type_node, v_field->default_value));
   }
+  if (fields.size() >= 64) {
+    err("too big struct (64 or more fields)").fire(v->get_identifier());
+  }
 
   PackOpcode opcode(0, 0);
   if (v->has_opcode()) {

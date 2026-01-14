@@ -261,20 +261,20 @@ class TypeNodesVisitorResolver {
   // example: `var w: KKK`, nullptr will be returned
   static TypePtr try_resolve_user_defined_type(FunctionPtr cur_f, SrcRange range, const Symbol* sym, bool allow_without_type_arguments) {
     if (AliasDefPtr alias_ref = sym->try_as<AliasDefPtr>()) {
-      if (alias_ref->is_generic_alias() && !allow_without_type_arguments) {
-        err_generic_type_used_without_T(alias_ref->as_human_readable()).fire(range, cur_f);
-      }
       if (!visited_aliases.contains(alias_ref)) {
         visit_symbol(alias_ref);
+      }
+      if (alias_ref->is_generic_alias() && !allow_without_type_arguments) {
+        err_generic_type_used_without_T(alias_ref->as_human_readable()).fire(range, cur_f);
       }
       return TypeDataAlias::create(alias_ref);
     }
     if (StructPtr struct_ref = sym->try_as<StructPtr>()) {
-      if (struct_ref->is_generic_struct() && !allow_without_type_arguments) {
-        err_generic_type_used_without_T(struct_ref->as_human_readable()).fire(range, cur_f);
-      }
       if (!visited_structs.contains(struct_ref)) {
         visit_symbol(struct_ref);
+      }
+      if (struct_ref->is_generic_struct() && !allow_without_type_arguments) {
+        err_generic_type_used_without_T(struct_ref->as_human_readable()).fire(range, cur_f);
       }
       return TypeDataStruct::create(struct_ref);
     }

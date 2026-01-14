@@ -1491,7 +1491,7 @@ static AnyV parse_asm_func_body(Lexer& lex, V<ast_identifier> name_ident, V<ast_
   std::vector<AnyV> asm_commands;
   lex.check(tok_string_const, "\"ASM COMMAND\"");
   while (lex.tok() == tok_string_const) {
-    asm_commands.push_back(parse_expr(lex));
+    asm_commands.push_back(parse_expr100(lex));
   }
   range.end(asm_commands.back()->range);
   return createV<ast_asm_body>(range, std::move(arg_order), std::move(ret_order), std::move(asm_commands));
@@ -1615,12 +1615,13 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
       ret_type = parse_type_from_tokens(lex);
     }
   }
+  bool is_code_function = lex.tok() == tok_opbrace;
 
-  if (is_entrypoint && (is_contract_getter || genericsT_list || n_mutate_params)) {
-    err("invalid declaration of a reserved function").fire(range);
+  if (is_entrypoint && (is_contract_getter || genericsT_list || n_mutate_params || !is_code_function)) {
+    err("invalid declaration of a reserved function").fire(v_ident);
   }
-  if (is_contract_getter && (genericsT_list || n_mutate_params || receiver_type)) {
-    err("invalid declaration of a get method").fire(range);
+  if (is_contract_getter && (genericsT_list || n_mutate_params || receiver_type || !is_code_function)) {
+    err("invalid declaration of a get method").fire(v_ident);
   }
 
   AnyV v_body = nullptr;
@@ -1889,10 +1890,10 @@ static AnyV parse_import_directive(Lexer& lex) {
   SrcRange range = lex.range_start();
   lex.expect(tok_import, "`import`");
   lex.check(tok_string_const, "source file name");
-  auto v_str = parse_expr(lex)->as<ast_string_const>();
+  auto v_str = parse_expr100(lex)->as<ast_string_const>();
   std::string_view rel_filename = v_str->str_val;
   if (rel_filename.empty()) {
-    lex.error("imported file name is an empty string");
+    err("imported file name is an empty string").fire(v_str);
   }
   range.end(v_str->range);
   return createV<ast_import_directive>(range, v_str);

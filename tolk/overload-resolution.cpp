@@ -150,7 +150,7 @@ std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_recei
         try {   // check whether exist some T to make it a valid call (probably with type coercion)
           GenericSubstitutionsDeducing deducingTs(method_ref);
           TypePtr replaced = deducingTs.auto_deduce_from_argument(receiver, provided_receiver);
-          if (replaced->can_rhs_be_assigned(provided_receiver)) {
+          if (replaced->can_rhs_be_assigned(provided_receiver) && !replaced->has_genericT_inside()) {
             viable.emplace_back(receiver, replaced, method_ref, deducingTs.flush());
           }
         } catch (...) {}

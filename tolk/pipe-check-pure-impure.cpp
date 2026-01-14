@@ -21,6 +21,7 @@
 /*
  *   This pipe checks for impure operations inside pure functions.
  *   It happens after type inferring (after methods binding) since it operates fun_ref of calls.
+ *   It does not check for globals modification, it's done in another pipe (see a comment below).
  */
 
 namespace tolk {
@@ -31,21 +32,10 @@ static Error err_impure_operation_inside_pure_function() {
 
 class CheckImpureOperationsInPureFunctionVisitor final : public ASTVisitorFunctionBody {
 
-  void fire_if_global_var(AnyExprV v) const {
-    if (auto v_ident = v->try_as<ast_reference>()) {
-      if (v_ident->sym->try_as<GlobalVarPtr>()) {
-        err_impure_operation_inside_pure_function().fire(v_ident, cur_f);
-      }
-    }
-  }
-
-  void visit(V<ast_assign> v) override {
-    fire_if_global_var(v->get_lhs());
-    parent::visit(v);
-  }
-
-  void visit(V<ast_set_assign> v) override {
-    fire_if_global_var(v->get_lhs());
+  void visit(V<ast_reference> v) override {
+    // `globalVar = rhs` is also denied in pure functions, but it's analyzed not here,
+    // it's checked in `pipe-check-rvalue-lvalue.cpp` to detect `(globVar!).0 = rhs` and other
+    // (it's the same as detecting modification of immutable variables)
     parent::visit(v);
   }
 
@@ -58,14 +48,6 @@ class CheckImpureOperationsInPureFunctionVisitor final : public ASTVisitorFuncti
 
     if (!v->fun_maybe->is_marked_as_pure()) {
       err_impure_operation_inside_pure_function().fire(v, cur_f);
-    }
-
-    parent::visit(v);
-  }
-
-  void visit(V<ast_argument> v) override {
-    if (v->passed_as_mutate) {
-      fire_if_global_var(v->get_expr());
     }
 
     parent::visit(v);

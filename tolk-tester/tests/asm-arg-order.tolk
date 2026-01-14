@@ -21,6 +21,9 @@ asm (y z self -> 0) "3 TUPLE";
 fun asm_func_4(a: int, b: (int, (int, int)), c: int): tuple
 asm (b a c -> 0) "5 TUPLE";
 
+fun add_swapped(a: int, b: int): int
+    asm (b a) "ADD"
+
 @pure
 fun tuple.asm_func_modify(mutate self, b: int, c: int): void
 asm (c b self) "SWAP TPUSH SWAP TPUSH";
@@ -217,6 +220,14 @@ fun test35() {
     return (t1, t2, r1, r2, tensor, shaped);
 }
 
+@method_id(36)
+fun test36(k: int): int {
+    return add_swapped(
+        match (k) { 7 => return 1, else => 5 },
+        match (k) { 7 => return 2, else => 6 },
+    );
+}
+
 
 fun main() {
 }
@@ -244,6 +255,8 @@ fun main() {
 @testcase | 33 | 0  | 22 930 480 56
 @testcase | 34 |    | 30
 @testcase | 35 |    | 11 11 11 11 6 6 8 [ 6 6 8 ]
+@testcase | 36 | 7  | 1
+@testcase | 36 | 9  | 11
 
 @fif_codegen
 """
@@ -303,5 +316,5 @@ fun main() {
   }>
 """
 
-@code_hash 16415324206176013895128467871900531568236669373747457174465079601228992028418
+@code_hash 98112237312599117361360505207413290833928615253348061305894339367683016107491
 */

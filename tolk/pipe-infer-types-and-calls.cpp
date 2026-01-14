@@ -676,7 +676,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         assign_inferred_type(v, TypeDataBool::create());
         if (!used_as_condition) {
           FlowContext out_flow = FlowContext::merge_flow(std::move(after_lhs.true_flow), std::move(after_rhs.out_flow));
-          return ExprFlow(std::move(after_rhs.out_flow), false);
+          return ExprFlow(std::move(out_flow), false);
         }
         FlowContext out_flow = FlowContext::merge_flow(std::move(after_lhs.out_flow), std::move(after_rhs.out_flow));
         FlowContext true_flow = FlowContext::merge_flow(std::move(after_lhs.true_flow), std::move(after_rhs.true_flow));
@@ -730,7 +730,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
     assign_inferred_type(v, branches_unifier.get_result());
 
     FlowContext out_flow = FlowContext::merge_flow(std::move(after_true.out_flow), std::move(after_false.out_flow));
-    return ExprFlow(std::move(out_flow), std::move(after_true.true_flow), std::move(after_false.false_flow));
+    FlowContext true_flow = FlowContext::merge_flow(std::move(after_true.true_flow), std::move(after_false.true_flow));
+    FlowContext false_flow = FlowContext::merge_flow(std::move(after_true.false_flow), std::move(after_false.false_flow));
+    return ExprFlow(std::move(out_flow), std::move(true_flow), std::move(false_flow));
   }
 
   ExprFlow infer_cast_as_operator(V<ast_cast_as_operator> v, FlowContext&& flow, bool used_as_condition) {
@@ -777,7 +779,6 @@ class InferTypesAndCallsAndFieldsVisitor final {
       err("can not deduce type arguments for `{}`, provide them manually", rhs_type).fire(v->type_node, cur_f);
     }
 
-    rhs_type = rhs_type->unwrap_alias();
     TypePtr expr_type = v->get_expr()->inferred_type;
     TypePtr non_rhs_type = calculate_type_subtract_rhs_type(expr_type, rhs_type);
     if (expr_type->equal_to(rhs_type)) {                          // `expr is <type>` is always true
@@ -1164,9 +1165,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
       if (param_type->has_genericT_inside()) {
         param_type = deducingTs.auto_deduce_from_argument(cur_f, self_obj->range, param_type, self_obj->inferred_type);
       }
-      if (param_0.is_mutate_parameter() && !self_obj->inferred_type->equal_to(param_type)) {
+      if (param_0.is_mutate_parameter()) {
         if (SinkExpression s_expr = extract_sink_expression_from_vertex(self_obj)) {
-          assign_inferred_type(self_obj, calc_declared_type_before_smart_cast(self_obj));
+          assign_inferred_type(self_obj, param_type);
           flow.register_known_type(s_expr, param_type);
         }
       }
@@ -1191,10 +1192,10 @@ class InferTypesAndCallsAndFieldsVisitor final {
         param_type = deducingTs.auto_deduce_from_argument(cur_f, arg_i->range, param_type, arg_i->inferred_type);
       }
       assign_inferred_type(v->get_arg(i), arg_i);  // arg itself is an expression
-      if (param_i.is_mutate_parameter() && !arg_i->inferred_type->equal_to(param_type)) {
+      if (param_i.is_mutate_parameter()) {
         if (SinkExpression s_expr = extract_sink_expression_from_vertex(arg_i)) {
-          assign_inferred_type(arg_i, calc_declared_type_before_smart_cast(arg_i));
-          flow.register_known_type(s_expr, param_type);
+          assign_inferred_type(arg_i, param_type);      // note that we unconditionally set cur type = param's type
+          flow.register_known_type(s_expr, param_type); // (this mutate-back will be type checked in a later pass)
         }
       }
     }
@@ -1260,6 +1261,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
       flow = infer_any_expr(item, std::move(flow), false, tensor_hint && i < tensor_hint->size() ? tensor_hint->items[i] : nullptr).out_flow;
       types_list.emplace_back(item->inferred_type);
     }
+    if (types_list.size() >= 64) {
+      err("too big tensor (64 or more elements)").fire(v, cur_f);
+    }
     assign_inferred_type(v, TypeDataTensor::create(std::move(types_list)));
     return ExprFlow(std::move(flow), used_as_condition);
   }
@@ -1293,6 +1297,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
                          nullptr;
       flow = infer_any_expr(item, std::move(flow), false, ith_hint).out_flow;
       types_list.emplace_back(item->inferred_type);
+    }
+    if (types_list.size() >= 64) {
+      err("too big tuple (64 or more elements)").fire(v, cur_f);
     }
 
     if (v->type_node) {
@@ -1594,13 +1601,21 @@ class InferTypesAndCallsAndFieldsVisitor final {
   }
 
   FlowContext process_repeat_statement(V<ast_repeat_statement> v, FlowContext&& flow) {
-    ExprFlow after_cond = infer_any_expr(v->get_cond(), std::move(flow), false);
+    // loops are inferred twice, to merge body outcome with the state before the loop
+    // in `repeat` (as opposed to `while`), a condition is not boolean, it's a number
+    flow = infer_any_expr(v->get_cond(), std::move(flow), false).out_flow;
+    FlowContext loop_entry_facts = flow.clone();
+    FlowContext body_out = process_any_statement(v->get_body(), std::move(flow));
 
-    return process_any_statement(v->get_body(), std::move(after_cond.out_flow));
+    // second time, to refine all types
+    flow = FlowContext::merge_flow(std::move(loop_entry_facts), std::move(body_out));
+    FlowContext body_out2 = process_any_statement(v->get_body(), flow.clone());
+    // merge second body output to account for its effects on the loop state
+    return FlowContext::merge_flow(std::move(flow), std::move(body_out2));
   }
 
   FlowContext process_while_statement(V<ast_while_statement> v, FlowContext&& flow) {
-    // loops are inferred twice, to merge body outcome with the state before the loop
+    // loops are inferred twice; read comments above
     // (a more correct approach would be not "twice", but "find a fixed point when state stop changing")
     // also remember, we don't have a `break` statement, that's why when loop exits, condition became false
     FlowContext loop_entry_facts = flow.clone();
@@ -1608,12 +1623,15 @@ class InferTypesAndCallsAndFieldsVisitor final {
     FlowContext body_out = process_any_statement(v->get_body(), std::move(after_cond.true_flow));
     // second time, to refine all types
     flow = FlowContext::merge_flow(std::move(loop_entry_facts), std::move(body_out));
-    ExprFlow after_cond2 = infer_any_expr(v->get_cond(), std::move(flow), true);
-    v->get_cond()->mutate()->assign_always_true_or_false(after_cond2.get_always_true_false_state());
+    ExprFlow after_cond2 = infer_any_expr(v->get_cond(), flow.clone(), true);
+    FlowContext body_out2 = process_any_statement(v->get_body(), std::move(after_cond2.true_flow));
+    // unlike do_while (where cond is last and already sees body effects), in while cond precedes body,
+    // so merge the second body output back and re-evaluate the condition (third time!)
+    flow = FlowContext::merge_flow(std::move(flow), std::move(body_out2));
+    ExprFlow after_cond3 = infer_any_expr(v->get_cond(), std::move(flow), true);
+    v->get_cond()->mutate()->assign_always_true_or_false(after_cond3.get_always_true_false_state());
 
-    process_any_statement(v->get_body(), std::move(after_cond2.true_flow));
-
-    return std::move(after_cond2.false_flow);
+    return std::move(after_cond3.false_flow);
   }
 
   FlowContext process_do_while_statement(V<ast_do_while_statement> v, FlowContext&& flow) {

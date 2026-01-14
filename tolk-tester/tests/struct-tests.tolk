@@ -20,6 +20,8 @@ struct Point {
     y: MInt
 }
 
+fun Point.id(self) { return self; }
+
 struct User {
     id: int
     name: slice
@@ -666,7 +668,7 @@ fun test47() {
 
     val a: Point = { x: 1, y: 1 };
     var b: Point = { x: 2, y: 2 };
-    (b = a).x = 7;      // b = a, but no slots overlapping
+    (b = a).id().x = 7;      // b = a, but no slots overlapping, `x` not changed of neither a nor b
 
     return (g147, origY, a, b);
 }

@@ -338,6 +338,30 @@ fun testNoInlineSaving() {
     return creator();
 }
 
+global gT: tuple
+
+fun getLambda() {
+    gT.push(10);
+    return fun(a: int, b: int) {
+        gT.push(20);
+        return a + b
+    }
+}
+
+fun getArg() {
+    gT.push(30);
+    return 50;
+}
+
+@method_id(121)
+fun testCalleeEvaluatedFirst() {
+    gT = [];
+    return (
+        getLambda()(getArg(), (gT.push(40), 50).1),
+        gT
+    )
+}
+
 
 fun main() {}
 
@@ -369,4 +393,5 @@ fun main() {}
 @testcase | 118 |            | 0 10 -1 (null)
 @testcase | 119 |            | 6
 @testcase | 120 |            | []
+@testcase | 121 |            | 100 [ 10 30 40 20 ]
  */

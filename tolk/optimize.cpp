@@ -189,12 +189,10 @@ bool Optimizer::detect_rewrite_MY_store_int() {
     std::string s_number(s_op_number_len.substr(13 + 1, sp - 13 - 1));
     int len = std::stoi(std::string(s_op_number_len.substr(sp + 1)));
 
-    if (total_len + len > (255 + first_unsigned)) {
+    if (total_len + len > 256) {
       break;
     }
-    if (total_number != 0) {
-      total_number <<= len;
-    }
+    total_number <<= len;
     total_number += td::string_to_int256(s_number);
     total_len += len;
     n_merged++;
@@ -251,16 +249,19 @@ bool Optimizer::detect_rewrite_MY_skip_bits() {
     }
 
     std::string s_number(s_op_len.substr(s_op_len.find(' ') + 1));
-    total_skip_bits += std::stoi(s_number);
+    total_skip_bits += std::stoi(s_number); // it's a small number, stoi() is safe
     n_merged++;
   }
 
   p_ = n_merged;
-  q_ = 2;
-  if (total_skip_bits <= 256) {
+  if (total_skip_bits == 0) {
+    q_ = 0;
+  } else if (total_skip_bits <= 256) {
+    q_ = 2;
     oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, std::to_string(total_skip_bits) + " LDU"));
     oq_[1] = std::make_unique<AsmOp>(AsmOp::Pop(op_[0]->origin, 1));
   } else {
+    q_ = 2;
     oq_[0] = std::make_unique<AsmOp>(AsmOp::IntConst(op_[0]->origin, td::make_refint(total_skip_bits)));
     oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, "SDSKIPFIRST"));
   }
@@ -625,6 +626,23 @@ bool Optimizer::detect_rewrite_NEWC_ENDC() {
   p_ = 2;
   q_ = 1;
   oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, "<b b> PUSHREF", 0, 1));
+  return true;
+}
+
+// pattern `x{} PUSHSLICE` + `ENDS` -> no-op
+bool Optimizer::detect_rewrite_emptySlice_ENDS() {
+  bool first_empty_slice = op_[0]->is_custom() && op_[0]->op == "x{} PUSHSLICE";
+  if (!first_empty_slice || pb_ < 2) {
+    return false;
+  }
+
+  bool next_ends = op_[1]->is_custom() && op_[1]->op == "ENDS";
+  if (!next_ends) {
+    return false;
+  }
+
+  p_ = 2;
+  q_ = 0;
   return true;
 }
 
@@ -1154,6 +1172,7 @@ bool Optimizer::find_at_least(int pb) {
          detect_rewrite_ENDC_CTOS() || detect_rewrite_ENDC_HASHCU() ||
          detect_rewrite_NEWC_BTOS() || detect_rewrite_NEWC_STSLICECONST_BTOS() ||
          detect_rewrite_NEWC_ENDC_CTOS() || detect_rewrite_NEWC_ENDC() ||
+         detect_rewrite_emptySlice_ENDS() ||
          detect_rewrite_N_TUPLE_N_UNTUPLE() ||
          detect_rewrite_xxx_NOT() ||
          (!(mode_ & 1) && replace_BOOLNOT_to_NOT()) ||

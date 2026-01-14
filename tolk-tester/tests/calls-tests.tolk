@@ -193,6 +193,33 @@ fun test12() {
     catch (ex) { return ex; }
 }
 
+@pure
+fun int.increment(mutate self) { self += 1 }
+@pure
+fun int.clone(self): int { return self }
+
+global g113: int
+
+@pure
+fun pure113(mutate p113: int) {
+    var l113 = 0;
+    l113.increment();
+    p113.increment();
+    // g113.increment();        // not allowed in a pure function
+    l113.clone().increment();
+    p113.clone().increment();
+    g113.clone().increment();
+    return l113;
+}
+
+@method_id(113)
+fun test13() {
+    g113 = 0;
+    var p113 = 0;
+    var l113 = pure113(mutate p113);
+    return (l113, p113, g113);
+}
+
 fun main() {
     // mark used to codegen them
     cmp1; cmp2; cmp3; cmp4;
@@ -213,6 +240,7 @@ fun main() {
 @testcase | 111 | 5 8     | 0 0 -1 -1
 @testcase | 111 | 7 7     | 0 -1 0 -1
 @testcase | 112 |         | 123
+@testcase | 113 |         | 1 1 0
 
 @fif_codegen
 """
