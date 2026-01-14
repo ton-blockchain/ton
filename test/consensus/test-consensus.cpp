@@ -47,6 +47,21 @@ td::Result<std::pair<double, double>> parse_range(td::Slice s) {
   return std::make_pair(x, y);
 }
 
+template <typename T>
+td::Result<std::pair<T, T>> parse_int_range(td::Slice s) {
+  auto pos = s.find(':');
+  if (pos == td::Slice::npos) {
+    TRY_RESULT(x, td::to_integer_safe<T>(s));
+    return std::make_pair(x, x);
+  }
+  TRY_RESULT(x, td::to_integer_safe<T>(s.substr(0, pos)));
+  TRY_RESULT(y, td::to_integer_safe<T>(s.substr(pos + 1, s.size())));
+  if (x > y) {
+    return td::Status::Error(PSTRING() << "invalid range " << s);
+  }
+  return std::make_pair(x, y);
+}
+
 CatchainSeqno CC_SEQNO = 123;
 BlockIdExt MIN_MC_BLOCK_ID{masterchainId, shardIdAll, 0,
                            from_hex("AAAAAAAABBBBBBBBCCCCCCCCDDDDDDDDAAAAAAAABBBBBBBBCCCCCCCCDDDDDDDD"),
@@ -65,9 +80,12 @@ size_t N_DOUBLE_NODES = 0;
 
 double DURATION = 60.0;
 td::uint32 TARGET_RATE_MS = 1000;
+td::uint32 SLOTS_PER_LEADER_WINDOW = 4;
 
 std::pair<double, double> GREMLIN_PERIOD = {-1.0, -1.0};
 std::pair<double, double> GREMLIN_DOWNTIME = {1.0, 1.0};
+std::pair<size_t, size_t> GREMLIN_N = {1, 1};
+bool GREMLIN_KILLS_LEADER = false;
 
 class TestSimplexBus : public simplex::Bus {
  public:
@@ -353,8 +371,8 @@ class TestManagerFacade : public ManagerFacade {
   }
 
   td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                                 td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode,
-                                 bool apply) override;
+                                 size_t creator_idx, td::Ref<block::BlockSignatureSet> signatures,
+                                 int send_broadcast_mode, bool apply) override;
 
   td::actor::Task<td::Ref<vm::Cell>> wait_block_state_root(BlockIdExt block_id, td::Timestamp timeout) override;
   td::actor::Task<td::Ref<BlockData>> wait_block_data(BlockIdExt block_id, td::Timestamp timeout) override;
@@ -390,7 +408,7 @@ class TestConsensus : public td::actor::Actor {
   }
 
   td::actor::Task<> on_block_accepted(size_t node_idx, size_t instance_idx, td::Ref<BlockData> block,
-                                      td::Ref<block::BlockSignatureSet> signatures) {
+                                      size_t creator_idx, td::Ref<block::BlockSignatureSet> signatures) {
     BlockIdExt block_id = block->block_id();
     if (signatures->is_final()) {
       signatures->check_signatures(validator_set_, block_id).ensure();
@@ -414,6 +432,10 @@ class TestConsensus : public td::actor::Actor {
     }
     Instance &inst = nodes_[node_idx].instances[instance_idx];
     inst.last_accepted_block = std::max(inst.last_accepted_block, seqno);
+    if (last_accepted_block_seqno_ < seqno) {
+      last_accepted_block_seqno_ = seqno;
+      last_accepted_block_leader_idx_ = creator_idx;
+    }
     co_return td::Unit{};
   }
 
@@ -528,10 +550,11 @@ class TestConsensus : public td::actor::Actor {
     bus->validator_set = validators_;
     bus->total_weight = total_weight_;
     bus->local_id = validators_[node_idx];
-    bus->config = NewConsensusConfig{.target_rate_ms = TARGET_RATE_MS,
-                                     .max_block_size = 1 << 20,
-                                     .max_collated_data_size = 1 << 20,
-                                     .consensus = NewConsensusConfig::Simplex{}};
+    bus->config = NewConsensusConfig{
+        .target_rate_ms = TARGET_RATE_MS,
+        .max_block_size = 1 << 20,
+        .max_collated_data_size = 1 << 20,
+        .consensus = NewConsensusConfig::Simplex{.slots_per_leader_window = SLOTS_PER_LEADER_WINDOW}};
     bus->simplex_config = bus->config.consensus.get<NewConsensusConfig::Simplex>();
     bus->min_masterchain_block_id = MIN_MC_BLOCK_ID;
     bus->session_id = SESSION_ID;
@@ -576,7 +599,10 @@ class TestConsensus : public td::actor::Actor {
   td::actor::Task<> run_gremlin() {
     while (!finishing_) {
       co_await td::actor::coro_sleep(td::Timestamp::in(td::Random::fast(GREMLIN_PERIOD.first, GREMLIN_PERIOD.second)));
-      run_gremlin_once().start().detach();
+      int cnt = td::Random::fast((int)GREMLIN_N.first, (int)GREMLIN_N.second);
+      for (int i = 0; i < cnt; ++i) {
+        run_gremlin_once().start().detach();
+      }
     }
     co_return {};
   }
@@ -588,6 +614,10 @@ class TestConsensus : public td::actor::Actor {
     size_t kill_node_idx = 0, kill_inst_idx = 0;
     int cnt = 0;
     for (size_t node_idx = 0; node_idx < N_NODES; ++node_idx) {
+      if (GREMLIN_KILLS_LEADER &&
+          (!last_accepted_block_leader_idx_ || last_accepted_block_leader_idx_.value() != node_idx)) {
+        continue;
+      }
       for (size_t inst_idx = 0; inst_idx < nodes_[inst_idx].instances.size(); ++inst_idx) {
         if (nodes_[node_idx].instances[inst_idx].status == Instance::Running) {
           ++cnt;
@@ -662,17 +692,20 @@ class TestConsensus : public td::actor::Actor {
   td::actor::ActorOwn<keyring::Keyring> keyring_;
 
   std::map<BlockSeqno, td::Ref<BlockData>> accepted_blocks_;
+  BlockSeqno last_accepted_block_seqno_ = FIRST_PARENT.seqno();
+  td::optional<size_t> last_accepted_block_leader_idx_;
   bool finishing_ = false;
 };
 
 td::actor::Task<> TestManagerFacade::accept_block(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                                                  td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode,
-                                                  bool apply) {
+                                                  size_t creator_idx, td::Ref<block::BlockSignatureSet> signatures,
+                                                  int send_broadcast_mode, bool apply) {
   CHECK(id.shard_full() == SHARD);
   LOG(WARNING) << "Accept block #" << id.seqno() << " (" << (signatures->is_final() ? "final" : "notarize")
-               << " signatures)";
+               << " signatures), creator_idx=" << creator_idx;
   CHECK(id == data->block_id());
-  td::actor::ask(test_consensus_, &TestConsensus::on_block_accepted, node_idx_, instance_idx_, data, signatures)
+  td::actor::ask(test_consensus_, &TestConsensus::on_block_accepted, node_idx_, instance_idx_, data, creator_idx,
+                 signatures)
       .detach();
   co_return td::Unit{};
 }
@@ -730,6 +763,10 @@ int main(int argc, char *argv[]) {
     TRY_RESULT_ASSIGN(TARGET_RATE_MS, td::to_integer_safe<td::uint32>(arg));
     return td::Status::OK();
   });
+  p.add_checked_option('\0', "slots-per-leader-window", "slots per leader window (default: 4)", [&](td::Slice arg) {
+    TRY_RESULT_ASSIGN(SLOTS_PER_LEADER_WINDOW, td::to_integer_safe<td::uint32>(arg));
+    return td::Status::OK();
+  });
   p.add_checked_option('\0', "net-ping", "network ping (range, default: 0.05:0.1)", [&](td::Slice arg) {
     TRY_RESULT_ASSIGN(NET_PING, parse_range(arg));
     if (NET_PING.first < 0.0) {
@@ -758,6 +795,13 @@ int main(int argc, char *argv[]) {
     }
     return td::Status::OK();
   });
+  p.add_checked_option('\0', "gremlin-n", "how many nodes gremlin restarts at once (range, default: 1)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT_ASSIGN(GREMLIN_N, parse_int_range<size_t>(arg));
+                         return td::Status::OK();
+                       });
+  p.add_option('\0', "gremlin-kills-leader", "gremlin always restarts the current leader",
+               [&]() { GREMLIN_KILLS_LEADER = true; });
   p.run(argc, argv).ensure();
   CHECK(N_DOUBLE_NODES <= N_NODES);
 

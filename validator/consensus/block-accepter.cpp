@@ -36,7 +36,8 @@ class BlockAccepterImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
       broadcast_mode |= fullnode::FullNode::broadcast_mode_public | fullnode::FullNode::broadcast_mode_fast_sync;
     }
     co_return co_await td::actor::ask(owning_bus()->manager, &ManagerFacade::accept_block, block.id, block_data,
-                                      block_parents, event->signatures, broadcast_mode, true);
+                                      block_parents, event->candidate->leader.value(), event->signatures,
+                                      broadcast_mode, true);
   }
 };
 

@@ -20,8 +20,8 @@ class ManagerFacade : public td::actor::Actor {
                                                                             td::Timestamp timeout) = 0;
 
   virtual td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                                         td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode,
-                                         bool apply) = 0;
+                                         size_t creator_idx, td::Ref<block::BlockSignatureSet> signatures,
+                                         int send_broadcast_mode, bool apply) = 0;
 
   virtual td::actor::Task<td::Ref<vm::Cell>> wait_block_state_root(BlockIdExt block_id, td::Timestamp timeout) = 0;
   virtual td::actor::Task<td::Ref<BlockData>> wait_block_data(BlockIdExt block_id, td::Timestamp timeout) = 0;

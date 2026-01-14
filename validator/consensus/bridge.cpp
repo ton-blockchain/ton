@@ -52,8 +52,8 @@ class ManagerFacadeImpl : public ManagerFacade {
   }
 
   td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                                 td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode,
-                                 bool apply) override {
+                                 size_t creator_idx, td::Ref<block::BlockSignatureSet> signatures,
+                                 int send_broadcast_mode, bool apply) override {
     auto [task, promise] = td::actor::StartedTask<>::make_bridge();
     run_accept_block_query(id, std::move(data), std::move(prev), validator_set_, std::move(signatures),
                            send_broadcast_mode, apply, manager_, std::move(promise));
