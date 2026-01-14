@@ -43,20 +43,27 @@ class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
 
     owning_bus().publish<StatsTargetReached>(StatsTargetReached::ValidateStarted, slot);
 
-    auto maybe_candidate_reject =
+    auto validation_result =
         co_await td::actor::ask(bus.manager, &ManagerFacade::validate_block_candidate, candidate.clone(),
                                 std::move(validate_params), td::Timestamp::in(60.0));
 
     owning_bus().publish<StatsTargetReached>(StatsTargetReached::ValidateFinished, slot);
 
-    if (maybe_candidate_reject.has<CandidateReject>()) {
-      auto error = td::Status::Error(0, maybe_candidate_reject.get<CandidateReject>().reason);
+    if (validation_result.has<CandidateReject>()) {
+      auto error = td::Status::Error(0, validation_result.get<CandidateReject>().reason);
 
       if (event->candidate->leader == bus.local_id.idx) {
         LOG(ERROR) << "BUG! Candidate " << event->candidate->id << " is self-rejected: " << error;
       }
 
       co_return error;
+    }
+
+    td::Timestamp ok_from = td::Timestamp::at_unix(validation_result.get<CandidateAccept>().ok_from_utime);
+    if (!ok_from.is_in_past()) {
+      LOG(INFO) << "Candidate " << event->candidate->id << " has timestamp in the future, wait for " << ok_from.in()
+                << " s";
+      co_await td::actor::coro_sleep(ok_from);
     }
 
     co_return {};
