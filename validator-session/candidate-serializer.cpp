@@ -41,11 +41,10 @@ td::Result<td::BufferSlice> serialize_candidate(const tl_object_ptr<ton_api::val
                << " compressed_size=" << block->data_.size() + block->collated_data_.size();
     return res;
   }
-  size_t decompressed_size;
   TRY_RESULT(compressed, compress_candidate_data(block->data_, block->collated_data_, k_called_from_validator_session,
                                                  block->root_hash_))
-  return create_serialize_tl_object<ton_api::validatorSession_compressedCandidate>(
-      0, block->src_, block->round_, block->root_hash_, (int)decompressed_size, std::move(compressed));
+  return create_serialize_tl_object<ton_api::validatorSession_compressedCandidateV2>(
+      0, block->src_, block->round_, block->root_hash_, std::move(compressed));
 }
 
 td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candidate(td::Slice data,
