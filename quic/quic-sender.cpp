@@ -119,6 +119,12 @@ void QuicSender::add_local_id(adnl::AdnlNodeIdShort local_id) {
   add_local_id_coro(local_id).start().detach("add local id");
 }
 
+QuicSender::Connection::~Connection(){
+  for (auto& [_, P] : responses) {
+    P.set_error(td::Status::Error("connection closed"));
+  }
+}
+
 td::actor::Task<td::Unit> QuicSender::send_message_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                                         td::BufferSlice data) {
   auto conn = co_await find_or_create_connection({src, dst});
@@ -137,7 +143,10 @@ td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdSho
   auto stream_id = co_await td::actor::ask(conn->server, &QuicServer::open_stream, conn->cid);
   auto [future, answer_promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
   CHECK(conn->responses.emplace(stream_id, std::move(answer_promise)).second);
-  co_await td::actor::ask(conn->server, &QuicServer::send_stream, conn->cid, stream_id, std::move(wire_data), true);
+  auto server = conn->server;
+  auto cid = conn->cid;
+  conn = nullptr; // don't keep connection, it may disconnect during our wait
+  co_await td::actor::ask(server, &QuicServer::send_stream, cid, stream_id, std::move(wire_data), true);
   co_return co_await std::move(future);
 }
 

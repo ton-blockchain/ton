@@ -82,6 +82,7 @@ struct QuicConnectionPImpl {
   constexpr static size_t DEFAULT_WINDOW = 1 << 20;
   constexpr static size_t CID_LENGTH = 16;
   constexpr static size_t DEFAULT_STREAM_LIMIT = 1ULL << 60ULL;
+  constexpr static ngtcp2_duration DEFAULT_IDLE_TIMEOUT = 5 * NGTCP2_SECONDS;
 
   struct PrivateTag {};
 

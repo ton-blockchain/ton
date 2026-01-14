@@ -66,14 +66,17 @@ bool QuicServer::try_close(ConnectionState &state) {
 
   switch (R.ok()) {
     case QuicConnectionPImpl::ExpiryAction::None:
+      LOG(DEBUG) << "expiry None for " << state.remote_address;
       return false;
     case QuicConnectionPImpl::ExpiryAction::ScheduleWrite:
+      LOG(DEBUG) << "expiry ScheduleWrite for " << state.remote_address;
       flush_egress_for(state);
       return false;
     case QuicConnectionPImpl::ExpiryAction::IdleClose:
+      LOG(DEBUG) << "expiry IdleClose for " << state.remote_address;
       return true;
     case QuicConnectionPImpl::ExpiryAction::Close:
-      // TODO: We may not be able to write all we want. Or it it just best effort write?
+      LOG(DEBUG) << "expiry Close for " << state.remote_address;
       flush_egress_for(state);
       return true;
   }

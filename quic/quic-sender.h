@@ -37,6 +37,8 @@ class QuicSender : public adnl::AdnlSenderInterface {
     td::actor::ActorId<QuicServer> server;
     std::vector<td::Promise<td::Unit>> waiting_ready{};
     std::unordered_map<QuicStreamID, td::Promise<td::BufferSlice>> responses{};
+
+    ~Connection();
   };
 
   class ServerCallback;
