@@ -240,7 +240,6 @@ td::actor::Task<td::Unit> QuicSender::init_connection_inner(AdnlPath path, std::
       co_await ask(server, &QuicServer::connect, peer_host, peer_port, std::move(client_key), td::Slice("ton"));
   conn->cid = connection_id;
   conn->path = path;
-  conn->is_ready = true;
   conn->server = server;
   CHECK(by_cid_.emplace(connection_id, conn).second);
   co_return td::Unit{};
@@ -287,6 +286,7 @@ void QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicConnect
     result = td::Unit{};
   }
 
+  connection->is_ready = true;
   auto promises = std::move(connection->waiting_ready);
   for (auto &promise : promises) {
     promise.set_result(result.clone());
