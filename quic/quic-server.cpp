@@ -238,7 +238,7 @@ void QuicServer::drain_ingress() {
 
     if (auto status = state->impl().handle_ingress(msg_in); status.is_error()) {
       LOG(WARNING) << "failed to handle ingress from " << *state << ":  " << status;
-      // Note: don't call remove_connection here - the connection might be stored under multiple CIDs
+      close(state->cid);
       return td::Status::OK();
     }
 
