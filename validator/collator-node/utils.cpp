@@ -31,11 +31,12 @@ tl_object_ptr<ton_api::collatorNode_Candidate> serialize_candidate(const BlockCa
     auto res = create_tl_object<ton_api::collatorNode_candidate>(
         PublicKey{pubkeys::Ed25519{block.pubkey.as_bits256()}}.tl(), create_tl_block_id(block.id), block.data.clone(),
         block.collated_data.clone());
-    LOG(DEBUG) << "Broadcast_benchmark serialize_candidate block_id=" << block.id.root_hash.to_hex()
-               << " called_from=" << k_called_from_collator_node
-               << " time_sec=" << (td::Time::now() - t_compression_start) << " compression=" << "none"
-               << " original_size=" << block.data.size() + block.collated_data.size()
-               << " compressed_size=" << block.data.size() + block.collated_data.size();
+    VLOG(COLLATOR_NODE_BENCHMARK) << "Broadcast_benchmark serialize_candidate block_id=" << block.id.root_hash.to_hex()
+                                  << " called_from=" << k_called_from_collator_node
+                                  << " time_sec=" << (td::Time::now() - t_compression_start)
+                                  << " compression=" << "none"
+                                  << " original_size=" << block.data.size() + block.collated_data.size()
+                                  << " compressed_size=" << block.data.size() + block.collated_data.size();
     return res;
   }
   size_t decompressed_size;
@@ -64,10 +65,11 @@ td::Result<BlockCandidate> deserialize_candidate(tl_object_ptr<ton_api::collator
                   auto e_key = Ed25519_PublicKey{key.ed25519_value().raw()};
                   auto block_id = create_block_id(c.id_);
                   BlockCandidate res{e_key, block_id, hash, std::move(c.data_), std::move(c.collated_data_)};
-                  LOG(DEBUG) << "Broadcast_benchmark deserialize_candidate block_id=" << block_id.root_hash.to_hex()
-                             << " called_from=" << k_called_from_collator_node
-                             << " time_sec=" << (td::Time::now() - t_decompression_start) << " compression=" << "none"
-                             << " compressed_size=" << res.data.size() + res.collated_data.size();
+                  VLOG(COLLATOR_NODE_BENCHMARK)
+                      << "Broadcast_benchmark deserialize_candidate block_id=" << block_id.root_hash.to_hex()
+                      << " called_from=" << k_called_from_collator_node
+                      << " time_sec=" << (td::Time::now() - t_decompression_start) << " compression=" << "none"
+                      << " compressed_size=" << res.data.size() + res.collated_data.size();
                   return std::move(res);
                 }();
               },
