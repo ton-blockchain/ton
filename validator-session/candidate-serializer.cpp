@@ -34,11 +34,13 @@ td::Result<td::BufferSlice> serialize_candidate(const tl_object_ptr<ton_api::val
   if (!compression_enabled) {
     auto t_compression_start = td::Time::now();
     auto res = serialize_tl_object(block, true);
-    LOG(DEBUG) << "Broadcast_benchmark serialize_candidate block_id=" << block->root_hash_.to_hex()
-               << " called_from=" << k_called_from_validator_session
-               << " time_sec=" << (td::Time::now() - t_compression_start) << " compression=" << "none"
-               << " original_size=" << block->data_.size() + block->collated_data_.size()
-               << " compressed_size=" << block->data_.size() + block->collated_data_.size();
+    VLOG(VALIDATOR_SESSION_BENCHMARK) << "Broadcast_benchmark serialize_candidate block_id="
+                                      << block->root_hash_.to_hex()
+                                      << " called_from=" << k_called_from_validator_session
+                                      << " time_sec=" << (td::Time::now() - t_compression_start)
+                                      << " compression=" << "none"
+                                      << " original_size=" << block->data_.size() + block->collated_data_.size()
+                                      << " compressed_size=" << block->data_.size() + block->collated_data_.size();
     return res;
   }
   TRY_RESULT(compressed, compress_candidate_data(block->data_, block->collated_data_, k_called_from_validator_session,
@@ -53,10 +55,11 @@ td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candi
   if (!compression_enabled) {
     auto t_decompression_start = td::Time::now();
     TRY_RESULT(res, fetch_tl_object<ton_api::validatorSession_candidate>(data, true));
-    LOG(DEBUG) << "Broadcast_benchmark deserialize_candidate block_id=" << res->root_hash_.to_hex()
-               << " called_from=" << k_called_from_validator_session
-               << " time_sec=" << (td::Time::now() - t_decompression_start) << " compression=" << "none"
-               << " compressed_size=" << res->data_.size() + res->collated_data_.size();
+    VLOG(VALIDATOR_SESSION_BENCHMARK) << "Broadcast_benchmark deserialize_candidate block_id="
+                                      << res->root_hash_.to_hex() << " called_from=" << k_called_from_validator_session
+                                      << " time_sec=" << (td::Time::now() - t_decompression_start)
+                                      << " compression=" << "none"
+                                      << " compressed_size=" << res->data_.size() + res->collated_data_.size();
     return std::move(res);
   }
   TRY_RESULT(f, fetch_tl_object<ton_api::validatorSession_Candidate>(data, true));
@@ -108,10 +111,12 @@ td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice c
   TRY_RESULT(compressed, vm::boc_compress(roots, vm::CompressionAlgorithm::ImprovedStructureLZ4));
   TRY_RESULT(algorithm_name, vm::boc_get_algorithm_name(compressed));
   LOG(DEBUG) << "Compressing block candidate: " << block.size() + collated_data.size() << " -> " << compressed.size();
-  LOG(DEBUG) << "Broadcast_benchmark serialize_candidate block_id=" << root_hash.to_hex()
-             << " called_from=" << called_from << " time_sec=" << (td::Time::now() - t_compression_start)
-             << " compression=" << "compressedV2_" << algorithm_name
-             << " original_size=" << block.size() + collated_data.size() << " compressed_size=" << compressed.size();
+  VLOG(VALIDATOR_SESSION_BENCHMARK) << "Broadcast_benchmark serialize_candidate block_id=" << root_hash.to_hex()
+                                    << " called_from=" << called_from
+                                    << " time_sec=" << (td::Time::now() - t_compression_start)
+                                    << " compression=" << "compressedV2_" << algorithm_name
+                                    << " original_size=" << block.size() + collated_data.size()
+                                    << " compressed_size=" << compressed.size();
   return compressed;
 }
 
@@ -126,15 +131,18 @@ td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_dat
       return td::Status::Error("decompressed size mismatch");
     }
     TRY_RESULT_ASSIGN(roots, vm::std_boc_deserialize_multi(decompressed));
-    LOG(DEBUG) << "Broadcast_benchmark deserialize_candidate block_id=" << root_hash.to_hex()
-               << " called_from=" << called_from << " time_sec=" << (td::Time::now() - t_decompression_start)
-               << " compression=" << "compressed" << " compressed_size=" << compressed.size();
+    VLOG(VALIDATOR_SESSION_BENCHMARK) << "Broadcast_benchmark deserialize_candidate block_id=" << root_hash.to_hex()
+                                      << " called_from=" << called_from
+                                      << " time_sec=" << (td::Time::now() - t_decompression_start)
+                                      << " compression=" << "compressed" << " compressed_size=" << compressed.size();
   } else {
     TRY_RESULT_ASSIGN(roots, vm::boc_decompress(compressed, max_decompressed_size));
     TRY_RESULT(algorithm_name, vm::boc_get_algorithm_name(compressed));
-    LOG(DEBUG) << "Broadcast_benchmark deserialize_candidate block_id=" << root_hash.to_hex()
-               << " called_from=" << called_from << " time_sec=" << (td::Time::now() - t_decompression_start)
-               << " compression=" << "compressedV2_" << algorithm_name << " compressed_size=" << compressed.size();
+    VLOG(VALIDATOR_SESSION_BENCHMARK) << "Broadcast_benchmark deserialize_candidate block_id=" << root_hash.to_hex()
+                                      << " called_from=" << called_from
+                                      << " time_sec=" << (td::Time::now() - t_decompression_start)
+                                      << " compression=" << "compressedV2_" << algorithm_name
+                                      << " compressed_size=" << compressed.size();
   }
   if (roots.empty()) {
     return td::Status::Error("boc is empty");
