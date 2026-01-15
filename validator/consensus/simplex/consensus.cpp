@@ -151,6 +151,9 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     if (!slot.has_value()) {
       return;
     }
+    if (slot->state->voted_notar) {
+      return;
+    }
 
     const auto& candidate = event->candidate;
 
