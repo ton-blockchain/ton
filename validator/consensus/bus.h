@@ -136,8 +136,17 @@ struct StatsTargetReached {
   std::string contents_to_string() const;
 };
 
-using DbType = td::KeyValueAsync<td::BufferSlice, td::BufferSlice>;
-using DbReaderType = std::unique_ptr<td::KeyValueReader>;
+
+class Db {
+ public:
+  virtual ~Db() = default;
+
+  // Note: `get` and `get_by_prefix` use db snapshot from the start
+  // `set` waits for syncing data to disk
+  virtual std::optional<td::BufferSlice> get(td::Slice key) const = 0;
+  virtual std::vector<std::pair<td::BufferSlice, td::BufferSlice>> get_by_prefix(td::uint32 prefix) const = 0;
+  virtual td::actor::Task<> set(td::BufferSlice key, td::BufferSlice value) = 0;
+};
 
 class Bus : public runtime::Bus {
  public:
@@ -175,15 +184,11 @@ class Bus : public runtime::Bus {
 
   td::actor::ActorId<overlay::Overlays> overlays;
   td::actor::ActorId<rldp2::Rldp> rldp2;
-  DbType db;
-  DbReaderType db_reader;
+  std::unique_ptr<Db> db;
 
   std::vector<BlockIdExt> first_block_parents;
 
   td::Promise<td::Unit> stop_promise;
-
-  std::optional<td::BufferSlice> db_get(td::Slice key) const;
-  std::vector<std::pair<td::BufferSlice, td::BufferSlice>> db_get_by_prefix(td::uint32 prefix) const;
 };
 
 using BusHandle = runtime::BusHandle<Bus>;

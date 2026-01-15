@@ -653,7 +653,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   void load_from_db() {
     auto &bus = *owning_bus();
 
-    auto pool_state_str = bus.db_get(create_serialize_tl_object<ton_api::consensus_simplex_db_key_poolState>());
+    auto pool_state_str = bus.db->get(create_serialize_tl_object<ton_api::consensus_simplex_db_key_poolState>());
     if (pool_state_str.has_value()) {
       auto pool_state =
           fetch_tl_object<ton_api::consensus_simplex_db_poolState>(*pool_state_str, true).ensure().move_as_ok();
@@ -661,7 +661,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
       LOG(INFO) << "Loaded pool state from DB: first_nonannounced_window=" << first_nonannounced_window_;
     }
 
-    auto votes = bus.db_get_by_prefix(ton_api::consensus_simplex_db_key_vote::ID);
+    auto votes = bus.db->get_by_prefix(ton_api::consensus_simplex_db_key_vote::ID);
     for (auto &[_, data] : votes) {
       auto f = fetch_tl_object<ton_api::consensus_simplex_db_vote>(data, true).ensure().move_as_ok();
       PeerValidatorId validator_id(f->node_idx_);
@@ -673,13 +673,13 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
 
   td::actor::Task<> store_vote_to_db(td::BufferSlice serialized, PeerValidatorId validator_id) {
     td::Bits256 hash = td::sha256_bits256(serialized);
-    co_return co_await owning_bus()->db.set(create_serialize_tl_object<ton_api::consensus_simplex_db_key_vote>(hash),
-                                            create_serialize_tl_object<ton_api::consensus_simplex_db_vote>(
-                                                std::move(serialized), (int)validator_id.value()));
+    co_return co_await owning_bus()->db->set(create_serialize_tl_object<ton_api::consensus_simplex_db_key_vote>(hash),
+                                             create_serialize_tl_object<ton_api::consensus_simplex_db_vote>(
+                                                 std::move(serialized), (int)validator_id.value()));
   }
 
   td::actor::Task<> store_pool_state_to_db() {
-    co_return co_await owning_bus()->db.set(
+    co_return co_await owning_bus()->db->set(
         create_serialize_tl_object<ton_api::consensus_simplex_db_key_poolState>(),
         create_serialize_tl_object<ton_api::consensus_simplex_db_poolState>(first_nonannounced_window_));
   }

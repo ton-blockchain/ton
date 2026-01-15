@@ -219,7 +219,7 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
 
   void load_from_db() {
     auto &bus = *owning_bus();
-    auto candidates = bus.db_get_by_prefix(ton_api::consensus_simplex_db_key_storedCandidate::ID);
+    auto candidates = bus.db->get_by_prefix(ton_api::consensus_simplex_db_key_storedCandidate::ID);
     size_t ok_cnt = 0;
     for (auto &[key_str, value_str] : candidates) {
       auto S = [&]() -> td::Status {
@@ -282,7 +282,7 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
     }
   };
 
-  void maybe_store_to_db(RawCandidateId id, ResolveState& state) {
+  void maybe_store_to_db(RawCandidateId id, ResolveState &state) {
     if (!state.data.candidate.has_value() || !state.data.notar_cert.has_value()) {
       return;
     }
@@ -291,10 +291,10 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
     if (!state.stored_info_to_db) {
       owning_bus()
           ->db
-          .set(create_serialize_tl_object<ton_api::consensus_simplex_db_key_storedCandidate>(id.to_tl()),
-               create_serialize_tl_object<ton_api::consensus_simplex_db_storedCandidate>(
-                   (int)cand->leader.value(), cand->hash_data().to_tl(), notar->to_tl_vote_signature_set(),
-                   cand->signature.clone()))
+          ->set(create_serialize_tl_object<ton_api::consensus_simplex_db_key_storedCandidate>(id.to_tl()),
+                create_serialize_tl_object<ton_api::consensus_simplex_db_storedCandidate>(
+                    (int)cand->leader.value(), cand->hash_data().to_tl(), notar->to_tl_vote_signature_set(),
+                    cand->signature.clone()))
           .start()
           .detach();
       state.stored_info_to_db = true;

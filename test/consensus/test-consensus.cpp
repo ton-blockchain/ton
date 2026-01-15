@@ -94,6 +94,8 @@ std::pair<size_t, size_t> NET_GREMLIN_N = {1, 1};
 size_t NET_GREMLIN_TIMES = 1000000000;
 bool NET_GREMLIN_KILLS_LEADER = false;
 
+std::pair<double, double> DB_DELAY = {0.0, 0.0};
+
 class TestSimplexBus : public simplex::Bus {
  public:
   using Parent = simplex::Bus;
@@ -295,7 +297,7 @@ td::actor::Task<td::BufferSlice> TestOverlay::send_query(PeerValidator src, size
   }
   auto dst_instance_idx = (size_t)td::Random::fast(0, (int)nodes_[dst_idx].size() - 1);
   const auto &instance = nodes_[dst_idx][dst_instance_idx];
-  co_await before_receive(src.idx.value(),src_instance_idx, dst_idx, true);
+  co_await before_receive(src.idx.value(), src_instance_idx, dst_idx, true);
   if (instance.actor.empty() || instance.disabled) {
     co_return td::Status::Error("instance is stopped/disabled");
   }
@@ -428,6 +430,59 @@ class TestManagerFacade : public ManagerFacade {
   td::actor::ActorId<CandidateStorage> candidate_storage_;
 };
 
+class TestDbImpl : public consensus::Db {
+ public:
+  struct DbInner {
+    std::map<td::BufferSlice, td::BufferSlice> map;
+    std::mutex mutex;
+  };
+
+  explicit TestDbImpl(std::shared_ptr<DbInner> db) : db_(std::move(db)) {
+    std::scoped_lock lock(db_->mutex);
+    for (auto &[key, value] : db_->map) {
+      snapshot_.emplace(key.clone(), value.clone());
+    }
+  }
+  ~TestDbImpl() override = default;
+
+  void disable() {
+    std::scoped_lock lock(db_->mutex);
+    disabled_ = true;
+  }
+
+  std::optional<td::BufferSlice> get(td::Slice key) const override {
+    auto it = snapshot_.find(td::BufferSlice{key});
+    if (it == snapshot_.end()) {
+      return std::nullopt;
+    }
+    return it->second.clone();
+  }
+  std::vector<std::pair<td::BufferSlice, td::BufferSlice>> get_by_prefix(td::uint32 prefix) const override {
+    std::vector<std::pair<td::BufferSlice, td::BufferSlice>> result;
+    td::BufferSlice begin{(const char*)&prefix, 4};
+    td::uint32 prefix2 = prefix + 1;
+    td::BufferSlice end{(const char*)&prefix2, 4};
+    for (auto it = snapshot_.lower_bound(begin); it != snapshot_.end() && it->first < end; ++it) {
+      result.emplace_back(it->first.clone(), it->second.clone());
+    }
+    return result;
+  }
+  td::actor::Task<> set(td::BufferSlice key, td::BufferSlice value) override {
+    co_await td::actor::coro_sleep(td::Timestamp::in(td::Random::fast(DB_DELAY.first, DB_DELAY.second)));
+    std::scoped_lock lock(db_->mutex);
+    if (disabled_) {
+      co_return td::Status::Error("db is disabled");
+    }
+    db_->map[std::move(key)] = std::move(value);
+    co_return {};
+  }
+
+ private:
+  std::map<td::BufferSlice, td::BufferSlice> snapshot_;
+  std::shared_ptr<DbInner> db_;
+  bool disabled_ = false;
+};
+
 class TestConsensus : public td::actor::Actor {
  public:
   td::actor::Task<> run() {
@@ -453,7 +508,12 @@ class TestConsensus : public td::actor::Actor {
       LOG_CHECK(accepted_blocks_[seqno]->block_id() == block_id) << "Accepted different blocks for seqno " << seqno;
     } else {
       accepted_blocks_[seqno] = block;
-
+    }
+    Instance &inst = nodes_[node_idx].instances[instance_idx];
+    inst.last_accepted_block = std::max(inst.last_accepted_block, seqno);
+    if (last_accepted_block_.seqno() < seqno && signatures->is_final()) {
+      last_accepted_block_ = block_id;
+      last_accepted_block_leader_idx_ = creator_idx;
       for (Node &node : nodes_) {
         for (Instance &inst : node.instances) {
           if (inst.status == Instance::Running) {
@@ -461,12 +521,6 @@ class TestConsensus : public td::actor::Actor {
           }
         }
       }
-    }
-    Instance &inst = nodes_[node_idx].instances[instance_idx];
-    inst.last_accepted_block = std::max(inst.last_accepted_block, seqno);
-    if (last_accepted_block_seqno_ < seqno) {
-      last_accepted_block_seqno_ = seqno;
-      last_accepted_block_leader_idx_ = creator_idx;
     }
     co_return td::Unit{};
   }
@@ -532,7 +586,7 @@ class TestConsensus : public td::actor::Actor {
       size_t n_instances = idx < N_DOUBLE_NODES ? 2 : 1;
       for (size_t i = 0; i < n_instances; ++i) {
         Instance inst;
-        inst.db = std::make_shared<td::MemoryKeyValue>();
+        inst.db_inner = std::make_shared<TestDbImpl::DbInner>();
         inst.candidate_storage =
             td::actor::create_actor<CandidateStorage>(PSTRING() << "ManagerFacade." << idx << "." << i);
         node.instances.push_back(std::move(inst));
@@ -540,7 +594,7 @@ class TestConsensus : public td::actor::Actor {
     }
 
     for (size_t idx = 0; idx < N_NODES; ++idx) {
-      for (size_t i = 0; i < nodes_[i].instances.size(); ++i) {
+      for (size_t i = 0; i < nodes_[idx].instances.size(); ++i) {
         start_instance(idx, i);
       }
     }
@@ -597,11 +651,11 @@ class TestConsensus : public td::actor::Actor {
     bus->cc_seqno = CC_SEQNO;
     bus->validator_set_hash = validator_set_->get_validator_set_hash();
     bus->populate_collator_schedule();
-    bus->db_reader = inst.db->snapshot();
-    bus->db = DbType(inst.db);
+    bus->db = std::make_unique<TestDbImpl>(inst.db_inner);
     inst.bus = runtime.start(std::static_pointer_cast<simplex::Bus>(bus),
                              PSTRING() << "consensus." << node_idx << "." << instance_idx);
     inst.status = Instance::Running;
+    inst.bus.publish<BlockFinalizedInMasterchain>(last_accepted_block_);
     LOG(ERROR) << "Starting node #" << node_idx << "." << instance_idx;
   }
 
@@ -618,6 +672,7 @@ class TestConsensus : public td::actor::Actor {
     }
     LOG(ERROR) << "Stopping node #" << node_idx << "." << instance_idx;
     inst.bus.publish<StopRequested>();
+    dynamic_cast<TestDbImpl&>(*inst.bus->db).disable();
     inst.bus = {};
     inst.status = Instance::Stopping;
     co_await std::move(*inst.stop_waiter);
@@ -750,7 +805,7 @@ class TestConsensus : public td::actor::Actor {
     simplex::BusHandle bus;
 
     BlockSeqno last_accepted_block = FIRST_PARENT.seqno();
-    std::shared_ptr<td::KeyValue> db;
+    std::shared_ptr<TestDbImpl::DbInner> db_inner;
     td::actor::ActorOwn<CandidateStorage> candidate_storage;
 
     enum Status { Stopped, Running, Stopping };
@@ -776,7 +831,7 @@ class TestConsensus : public td::actor::Actor {
   td::actor::ActorOwn<keyring::Keyring> keyring_;
 
   std::map<BlockSeqno, td::Ref<BlockData>> accepted_blocks_;
-  BlockSeqno last_accepted_block_seqno_ = FIRST_PARENT.seqno();
+  BlockIdExt last_accepted_block_ = FIRST_PARENT;
   td::optional<size_t> last_accepted_block_leader_idx_;
   bool finishing_ = false;
 };
@@ -920,6 +975,14 @@ int main(int argc, char *argv[]) {
                        });
   p.add_option('\0', "net-gremlin-kills-leader", "network gremlin always disables the current leader",
                [&]() { NET_GREMLIN_KILLS_LEADER = true; });
+  p.add_checked_option('\0', "db-delay", "delay before db values are stored to disk (range, default: 0)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT_ASSIGN(DB_DELAY, parse_range(arg));
+                         if (DB_DELAY.first < 0.0) {
+                           return td::Status::Error(PSTRING() << "invalid db delay value " << arg);
+                         }
+                         return td::Status::OK();
+                       });
 
   p.run(argc, argv).ensure();
   CHECK(N_DOUBLE_NODES <= N_NODES);

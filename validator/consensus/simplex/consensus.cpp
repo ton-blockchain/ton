@@ -291,8 +291,8 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       finalized_blocks_.insert(id);
       owning_bus()
           ->db
-          .set(create_serialize_tl_object<ton_api::consensus_simplex_db_key_finalizedBlock>(id.to_tl()),
-               td::BufferSlice{})
+          ->set(create_serialize_tl_object<ton_api::consensus_simplex_db_key_finalizedBlock>(id.to_tl()),
+                td::BufferSlice{})
           .start()
           .detach();
       auto candidate = co_await owning_bus().publish<ResolveCandidate>(id);
@@ -338,8 +338,8 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   }
 
   void load_from_db() {
-    auto blocks = owning_bus()->db_get_by_prefix(ton_api::consensus_simplex_db_key_finalizedBlock::ID);
-    for (auto &[key, _] : blocks) {
+    auto blocks = owning_bus()->db->get_by_prefix(ton_api::consensus_simplex_db_key_finalizedBlock::ID);
+    for (auto& [key, _] : blocks) {
       auto f = fetch_tl_object<ton_api::consensus_simplex_db_key_finalizedBlock>(key, true).ensure().move_as_ok();
       finalized_blocks_.insert(RawCandidateId::from_tl(f->candidateId_));
     }
