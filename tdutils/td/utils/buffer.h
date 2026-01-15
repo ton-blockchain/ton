@@ -279,6 +279,9 @@ class BufferWriter {
   }
 
   BufferSlice as_buffer_slice() const {
+    if (is_null()) {
+      return BufferSlice();
+    }
     return BufferSlice(BufferAllocator::create_reader(buffer_));
   }
   bool is_null() const {
@@ -294,10 +297,16 @@ class BufferWriter {
     return buffer_->end_.load(std::memory_order_relaxed) - buffer_->begin_;
   }
   MutableSlice as_slice() {
+    if (is_null()) {
+      return MutableSlice();
+    }
     auto end = buffer_->end_.load(std::memory_order_relaxed);
     return MutableSlice(buffer_->data_ + buffer_->begin_, buffer_->data_ + end);
   }
   Slice as_slice() const {
+    if (is_null()) {
+      return Slice();
+    }
     auto end = buffer_->end_.load(std::memory_order_relaxed);
     return Slice(buffer_->data_ + buffer_->begin_, buffer_->data_ + end);
   }
