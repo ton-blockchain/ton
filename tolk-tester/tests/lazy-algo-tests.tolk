@@ -203,6 +203,12 @@ struct HasUnusedAddressInTensor {
     f3: int8
 }
 
+struct StartsWithEmptyTensor {
+    a: ()
+    b: int8
+    c: int8
+}
+
 
 fun loadWalletStorage() {
     return WalletStorage.fromSlice(stringHexToSlice("8000003d800000e4000000000000000000000000000000000000000000000000000000000000000020_"));
@@ -210,6 +216,12 @@ fun loadWalletStorage() {
 
 fun WalletStorage.load() {
     return WalletStorage.fromCell(createEmptyCell());
+}
+
+// Uses only `other`, not `self`.
+fun Point3d.sumOther(self, other: Point3d): int {
+    __expect_inline(true);
+    return other.x + other.y + other.z;
 }
 
 
@@ -703,6 +715,23 @@ fun algo53() {
     val i = lazy ItemState.fromSlice("");
     __expect_lazy("[i] load content");
     return i.content.beginParse();
+}
+
+fun algo54() {
+    val p = lazy Point3d.fromSlice("");
+    var r = 0;
+    __expect_lazy("[p] load x y z");
+    repeat (1) {
+        r = p.sumOther(p);
+    }
+}
+
+fun algo55() {
+    val p = lazy Point3d.fromSlice("");
+    __expect_lazy("[p] save immutable (tail), load x y z");
+    return p.toCell({
+        skipBitsNValidation: p.sumOther(p) == 0,
+    })
 }
 
 
@@ -1439,7 +1468,7 @@ fun algo306() {
     var st = lazy WalletStorage.load();
     __expect_lazy("[st] load (bits1) seqno, save immutable (tail)");
     st.seqno += 1;
-    return st.toCell();
+    return ((st)).toCell();
 }
 
 fun algo307() {
@@ -1503,6 +1532,12 @@ fun algo314() {
     var l = lazy HasUnusedAddressInTensor.fromSlice("");
     __expect_lazy("[l] skip (bits283) ((int8, address, int8)), load f3");
     l.f3;
+}
+
+fun algo315() {
+    val o = lazy StartsWithEmptyTensor.fromSlice("");
+    __expect_lazy("[o] skip (bits8), load c");
+    return (o.c);
 }
 
 

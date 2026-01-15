@@ -1294,6 +1294,7 @@ struct S_CustomStruct final : ISerializer {
 
     if (struct_ref->opcode.exists() && ctx->get_prefix_mode() == PrefixEstimateMode::IncludePrefixOfStruct) {
       sum = EstimateContext::sum(sum, PackSize(struct_ref->opcode.prefix_len));
+      sum.skipping_is_dangerous = true;
     }
 
     for (StructFieldPtr field_ref : struct_ref->fields) {

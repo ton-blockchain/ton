@@ -389,11 +389,9 @@ struct ExprUsagesWhileCollecting {
       LazyStructLoadInfo::ActionWithField action;
       std::string_view field_name;
       TypePtr field_type;
-      PackSize pack_size;
 
       FutureField(LazyStructLoadInfo::ActionWithField action, std::string_view field_name, TypePtr field_type)
-        : action(action), field_name(field_name), field_type(field_type)
-        , pack_size(estimate_serialization_size(field_type)) {}
+        : action(action), field_name(field_name), field_type(field_type) {}
     };
 
     std::vector<FutureField> future_fields;
@@ -468,10 +466,10 @@ struct ExprUsagesWhileCollecting {
     // example: `skip bits8; load ref` - `load ref`, because to reach a ref, no need to skip preceding bits;
     for (size_t i = future_fields.size(); i-- > 0; ) {
       if (FutureField f = future_fields[i]; f.action == LazyStructLoadInfo::SkipField) {
-        PackSize s_cur = f.pack_size;
+        PackSize s_cur = estimate_serialization_size(f.field_type);
         PackSize s_after(0);
         for (size_t j = i + 1; j < future_fields.size(); ++j) {
-          s_after = EstimateContext::sum(s_after, future_fields[j].pack_size);
+          s_after = EstimateContext::sum(s_after, estimate_serialization_size(future_fields[j].field_type));
         }
         bool ignore = (s_after.max_bits == 0 && s_after.max_refs == 0)  // nothing is loaded after — no need to skip cur
                    || (s_after.max_bits == 0 && s_cur.max_refs == 0)    // no reach ref, no need to skip bits
@@ -632,7 +630,9 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
   }
 
   void visit(V<ast_dot_access> v) override {
-    if (extract_sink_expression_from_vertex(v) == s_expr) {
+    SinkExpression dot_s_expr = extract_sink_expression_from_vertex(v);
+    bool check_for_child = lazy_expr->fields.empty();   // treat accessing `obj.tensor.0` is like `obj.tensor`
+    if (dot_s_expr == s_expr || (check_for_child && dot_s_expr.is_child_of(s_expr))) {
       bool is_subj_of_dot = parent_dot && parent_dot->is_target_struct_field() && parent_dot->get_obj() == v;
       if (!is_subj_of_dot) {
         lazy_expr->on_used_rw(v->is_lvalue);
@@ -652,6 +652,10 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
         // handle built-in functions specially
         if (fun_ref->is_builtin() && fun_ref->base_fun_ref->name == "T.toCell") {
           lazy_expr->on_used_toCell();
+          if (dot_obj->kind == ast_assign) {
+            parent::visit(v->get_callee());
+          }
+          parent::visit(v->get_arg_list());
           return;
         }
 
@@ -670,6 +674,7 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
           ExprUsagesWhileCollecting inner_usages = collect_expr_usages_in_block(lazy_expr->name_str + "(=self)", SinkExpression(&fun_ref->parameters[0]), lazy_expr->expr_type, v_body_block);
           inner_usages.treat_match_like_read();   // nested lazy match in inlined functions doesn't work, it's not wrapped into aux vertex
           lazy_expr->merge_with_sub_block(inner_usages);
+          parent::visit(v->get_arg_list());
           return;
         }
       }
@@ -730,6 +735,12 @@ public:
       for (int field_idx = 0; field_idx < out->struct_ref->get_num_fields(); ++field_idx) {
         collect_usages_in_expression(&out->fields[field_idx], s_expr.get_child_s_expr(field_idx), v_expr);
         out->total_usages_with_fields += out->fields[field_idx].total_usages_with_fields;
+      }
+    }
+    if (out->variants.size() > 1 && s_expr.index_path) {    // in case `obj.field` is a union
+      for (int variant_idx = 0; variant_idx < static_cast<int>(out->variants.size()); ++variant_idx) {
+        collect_usages_in_expression(&out->variants[variant_idx], s_expr, v_expr);
+        out->total_usages_with_fields += out->variants[variant_idx].total_usages_with_fields;
       }
     }
   }

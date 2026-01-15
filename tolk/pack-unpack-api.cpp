@@ -445,8 +445,8 @@ std::vector<var_idx_t> generate_lazy_struct_to_cell(CodeBlob& code, AnyV origin,
 
   PackContext ctx(code, origin, rvect_builder, ir_options);
 
-  if (hidden_struct->opcode.exists()) {
-    ctx.storeUint(code.create_int(origin, hidden_struct->opcode.pack_prefix, "(struct-prefix)"), hidden_struct->opcode.prefix_len);
+  if (PackOpcode opcode = original_struct->opcode; opcode.exists()) {
+    ctx.storeUint(code.create_int(origin, opcode.pack_prefix, "(struct-prefix)"), opcode.prefix_len);
   }
 
   for (int field_idx = 0; field_idx < hidden_struct->get_num_fields(); ++field_idx) {
