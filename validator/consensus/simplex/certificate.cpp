@@ -44,8 +44,10 @@ td::Result<td::Ref<Certificate<T>>> Certificate<T>::from_tl(tl::voteSignatureSet
   return td::make_ref<Certificate<T>>(std::move(vote), std::move(signatures));
 }
 
-template <>
-td::Result<td::Ref<Certificate<Vote>>> Certificate<Vote>::from_tl(tl::certificate&& cert, const Bus& bus) {
+template <ValidVote T>
+td::Result<td::Ref<Certificate<Vote>>> Certificate<T>::from_tl(tl::certificate&& cert, const Bus& bus)
+  requires std::same_as<T, Vote>
+{
   auto vote_to_sign = serialize_tl_object(cert.vote_, true);
   auto vote = Vote::from_tl(std::move(*cert.vote_));
   return from_tl(std::move(*cert.signatures_), std::move(vote), bus);
@@ -63,6 +65,11 @@ tl::VoteSignatureSetRef Certificate<T>::to_tl_vote_signature_set() const {
 template <ValidVote T>
 tl::CertificateRef Certificate<T>::to_tl() const {
   return create_tl_object<tl::certificate>(vote.to_tl(), to_tl_vote_signature_set());
+}
+
+template <ValidVote T>
+td::BufferSlice Certificate<T>::serialize() const {
+  return serialize_tl_object(to_tl(), true);
 }
 
 template <ValidVote T>

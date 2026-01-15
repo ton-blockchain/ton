@@ -76,6 +76,10 @@ struct Vote {
   Vote(td::OneOf<NotarizeVote, FinalizeVote, SkipVote> auto vote) : vote(std::move(vote)) {
   }
 
+  td::uint32 referenced_slot() const {
+    return std::visit([](const auto& v) { return v.referenced_slot(); }, vote);
+  }
+
   tl::UnsignedVoteRef to_tl() const;
 
   std::variant<NotarizeVote, FinalizeVote, SkipVote> vote;
@@ -91,6 +95,8 @@ struct Signed {
   td::BufferSlice serialize() const;
 
   static td::Result<Signed<Vote>> deserialize(td::Slice data, PeerValidatorId validator, const Bus& bus)
+    requires std::same_as<T, Vote>;
+  static td::Result<Signed<Vote>> from_tl(tl::vote&& data, PeerValidatorId validator, const Bus& bus)
     requires std::same_as<T, Vote>;
 
   bool operator==(const Signed&) const = delete;  // Ed25519 signatures are not unique

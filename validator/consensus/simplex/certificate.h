@@ -44,6 +44,21 @@ struct Certificate : td::CntObject {
 
   tl::VoteSignatureSetRef to_tl_vote_signature_set() const;
   tl::CertificateRef to_tl() const;
+  td::BufferSlice serialize() const;
+
+  auto consume_and_downcast(auto&& func) &&
+    requires std::same_as<T, Vote>
+  {
+    auto visitor = [&]<typename U>(const U& vote) {
+      std::vector<typename Certificate<U>::VoteSignature> casted_signatures;
+      for (auto& sig : signatures) {
+        casted_signatures.emplace_back(sig.validator, std::move(sig.signature));
+      }
+      auto cert = td::make_ref<Certificate<U>>(vote, std::move(casted_signatures));
+      return func(std::move(cert));
+    };
+    return std::visit(visitor, vote.vote);
+  }
 
   T vote;
   std::vector<VoteSignature> signatures;

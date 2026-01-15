@@ -73,18 +73,24 @@ td::BufferSlice Signed<T>::serialize() const {
 }
 
 template <ValidVote T>
-td::Result<Signed<Vote>> Signed<T>::deserialize(td::Slice data, PeerValidatorId validator, const Bus& bus)
+td::Result<Signed<Vote>> Signed<T>::from_tl(tl::vote&& vote, PeerValidatorId validator, const Bus& bus)
   requires std::same_as<T, Vote>
 {
-  TRY_RESULT(signed_vote, fetch_tl_object<tl::vote>(data, true));
-
-  auto vote_to_sign = serialize_tl_object(signed_vote->vote_, true);
-  Signed<Vote> result{validator, Vote::from_tl(std::move(*signed_vote->vote_)), std::move(signed_vote->signature_)};
+  auto vote_to_sign = serialize_tl_object(vote.vote_, true);
+  Signed<Vote> result{validator, Vote::from_tl(std::move(*vote.vote_)), std::move(vote.signature_)};
 
   if (!validator.get_using(bus).check_signature(bus.session_id, vote_to_sign, result.signature)) {
     return td::Status::Error("Invalid vote signature");
   }
   return result;
+}
+
+template <ValidVote T>
+td::Result<Signed<Vote>> Signed<T>::deserialize(td::Slice data, PeerValidatorId validator, const Bus& bus)
+  requires std::same_as<T, Vote>
+{
+  TRY_RESULT(vote, fetch_tl_object<tl::vote>(data, true));
+  return from_tl(std::move(*vote), validator, bus);
 }
 
 template struct Signed<NotarizeVote>;
