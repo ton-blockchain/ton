@@ -245,8 +245,6 @@ void QuicServer::drain_ingress() {
       return td::Status::OK();
     }
 
-    // TODO: do we need egress here, we will do flush_egress_all_soon anyway?
-    flush_egress_for(*state);
     return td::Status::OK();
   };
 
