@@ -19,7 +19,7 @@ struct SlotState {
   }
 
   std::optional<RawCandidateRef> pending_block;
-  std::optional<CandidateId> voted_notar;
+  std::optional<RawCandidateId> voted_notar;
   bool voted_skip = false;
   bool voted_final = false;
 };
@@ -45,6 +45,34 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     first_block_timeout_s_ = bus.simplex_config.first_block_timeout_ms / 1000.;
     state_.emplace(State(bus.simplex_config.slots_per_leader_window, {}, {}));
     load_from_db();
+
+    for (const auto& vote : bus.bootstrap_votes) {
+      if (vote.validator != bus.local_id.idx) {
+        continue;
+      }
+
+      auto slot = state_->slot_at(vote.vote.referenced_slot());
+      if (!slot.has_value()) {
+        continue;
+      }
+
+      auto notar_fn = [&](const NotarizeVote& notar_vote) { slot->state->voted_notar = notar_vote.id; };
+      auto final_fn = [&](const FinalizeVote& final_vote) { slot->state->voted_final = true; };
+      auto skip_fn = [&](const SkipVote& skip_vote) { slot->state->voted_skip = true; };
+      std::visit(td::overloaded(notar_fn, final_fn, skip_fn), vote.vote.vote);
+    }
+
+    if (auto window = bus.first_nonannounced_window) {
+      auto start_slot = (window - 1) * slots_per_leader_window_;
+      auto end_slot = window * slots_per_leader_window_;
+      for (td::uint32 i = start_slot; i < end_slot; ++i) {
+        auto slot = state_->slot_at(i);
+        if (slot.has_value() && !slot->state->voted_final) {
+          slot->state->voted_skip = true;
+          owning_bus().publish<BroadcastVote>(SkipVote{i});
+        }
+      }
+    }
   }
 
   template <>

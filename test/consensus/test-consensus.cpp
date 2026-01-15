@@ -459,9 +459,9 @@ class TestDbImpl : public consensus::Db {
   }
   std::vector<std::pair<td::BufferSlice, td::BufferSlice>> get_by_prefix(td::uint32 prefix) const override {
     std::vector<std::pair<td::BufferSlice, td::BufferSlice>> result;
-    td::BufferSlice begin{(const char*)&prefix, 4};
+    td::BufferSlice begin{(const char *)&prefix, 4};
     td::uint32 prefix2 = prefix + 1;
-    td::BufferSlice end{(const char*)&prefix2, 4};
+    td::BufferSlice end{(const char *)&prefix2, 4};
     for (auto it = snapshot_.lower_bound(begin); it != snapshot_.end() && it->first < end; ++it) {
       result.emplace_back(it->first.clone(), it->second.clone());
     }
@@ -652,6 +652,7 @@ class TestConsensus : public td::actor::Actor {
     bus->validator_set_hash = validator_set_->get_validator_set_hash();
     bus->populate_collator_schedule();
     bus->db = std::make_unique<TestDbImpl>(inst.db_inner);
+    bus->load_bootstrap_state();
     inst.bus = runtime.start(std::static_pointer_cast<simplex::Bus>(bus),
                              PSTRING() << "consensus." << node_idx << "." << instance_idx);
     inst.status = Instance::Running;
@@ -672,7 +673,7 @@ class TestConsensus : public td::actor::Actor {
     }
     LOG(ERROR) << "Stopping node #" << node_idx << "." << instance_idx;
     inst.bus.publish<StopRequested>();
-    dynamic_cast<TestDbImpl&>(*inst.bus->db).disable();
+    dynamic_cast<TestDbImpl &>(*inst.bus->db).disable();
     inst.bus = {};
     inst.status = Instance::Stopping;
     co_await std::move(*inst.stop_waiter);

@@ -264,8 +264,15 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     LOG(INFO) << "Validator group started. We are " << bus.local_id << " with weight " << bus.local_id.weight
               << " out of " << bus.total_weight;
 
-    load_from_db();
-    publish_initial_leader_window().start().detach();
+    first_nonannounced_window_ = bus.first_nonannounced_window;
+    for (const auto &vote : bus.bootstrap_votes) {
+      handle_vote(vote.validator.get_using(bus), vote.clone());
+    }
+
+    if (first_nonannounced_window_ == 0) {
+      maybe_publish_new_leader_window(0).start().detach();
+    }
+
     reschedule_standstill_resolution();
   }
 
@@ -371,9 +378,9 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
       auto add_result = slot->state->votes[validator.idx.value()].add_vote(std::move(vote));
 
       if (auto misbehavior = add_result.misbehavior) {
-        if (validator != owning_bus()->local_id) {
-          owning_bus().publish<MisbehaviorReport>(validator.idx, *misbehavior);
-        }
+        LOG_CHECK(validator != owning_bus()->local_id)
+            << "We produced conflicting votes! Conflict occured for " << vote.vote;
+        owning_bus().publish<MisbehaviorReport>(validator.idx, *misbehavior);
         return false;
       }
 
@@ -407,7 +414,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     }
   }
 
-  td::actor::Task<> handle_our_vote(Vote vote, bool allow_invalid_vote = false) {
+  td::actor::Task<> handle_our_vote(Vote vote) {
     auto &bus = *owning_bus();
 
     auto vote_to_sign = serialize_tl_object(vote.to_tl(), true);
@@ -418,12 +425,10 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     Signed<Vote> signed_vote{bus.local_id.idx, vote, std::move(signature)};
     td::BufferSlice serialized = signed_vote.serialize();
 
-    bool added = handle_vote(bus.local_id, std::move(signed_vote));
-    LOG_CHECK(added || allow_invalid_vote) << "We produced conflicting votes! Conflict occured for " << vote;
-
-    co_await store_vote_to_db(serialized.clone(), bus.local_id.idx);
-
-    owning_bus().publish(std::make_shared<OutgoingProtocolMessage>(std::nullopt, std::move(serialized)));
+    if (handle_vote(bus.local_id, std::move(signed_vote))) {
+      co_await store_vote_to_db(serialized.clone(), bus.local_id.idx);
+      owning_bus().publish(std::make_shared<OutgoingProtocolMessage>(std::nullopt, std::move(serialized)));
+    }
 
     co_return {};
   }
@@ -454,21 +459,6 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
       base = maybe_base.value();
     }
     owning_bus().publish<LeaderWindowObserved>(now_, base);
-    co_return {};
-  }
-
-  td::actor::Task<> publish_initial_leader_window() {
-    if (first_nonannounced_window_ == 0) {
-      co_await maybe_publish_new_leader_window(0);
-      co_return {};
-    }
-
-    auto window = first_nonannounced_window_ - 1;
-    auto start_slot = window * slots_per_leader_window_;
-    auto end_slot = (window + 1) * slots_per_leader_window_;
-    for (td::uint32 i = start_slot; i < end_slot; ++i) {
-      co_await handle_our_vote(SkipVote{i}, /*allow_invalid_vote=*/true);
-    }
     co_return {};
   }
 
@@ -648,27 +638,6 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
 
     maybe_resolve_requests();
     reschedule_standstill_resolution();
-  }
-
-  void load_from_db() {
-    auto &bus = *owning_bus();
-
-    auto pool_state_str = bus.db->get(create_serialize_tl_object<ton_api::consensus_simplex_db_key_poolState>());
-    if (pool_state_str.has_value()) {
-      auto pool_state =
-          fetch_tl_object<ton_api::consensus_simplex_db_poolState>(*pool_state_str, true).ensure().move_as_ok();
-      first_nonannounced_window_ = pool_state->first_nonannounced_window_;
-      LOG(INFO) << "Loaded pool state from DB: first_nonannounced_window=" << first_nonannounced_window_;
-    }
-
-    auto votes = bus.db->get_by_prefix(ton_api::consensus_simplex_db_key_vote::ID);
-    for (auto &[_, data] : votes) {
-      auto f = fetch_tl_object<ton_api::consensus_simplex_db_vote>(data, true).ensure().move_as_ok();
-      PeerValidatorId validator_id(f->node_idx_);
-      auto vote = Signed<Vote>::deserialize(f->data_, validator_id, bus).ensure().move_as_ok();
-      handle_vote(validator_id.get_using(bus), std::move(vote));
-    }
-    LOG(INFO) << "Loaded " << votes.size() << " votes from DB";
   }
 
   td::actor::Task<> store_vote_to_db(td::BufferSlice serialized, PeerValidatorId validator_id) {

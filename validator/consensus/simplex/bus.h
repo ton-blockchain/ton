@@ -69,8 +69,12 @@ class Bus : public consensus::Bus {
   Bus() = default;
 
   void populate_collator_schedule() override;
+  void load_bootstrap_state();
 
   NewConsensusConfig::Simplex simplex_config;
+
+  std::vector<Signed<Vote>> bootstrap_votes;
+  td::uint32 first_nonannounced_window = 0;
 
   // FIXME: These should come from validator options
   double max_backoff_delay_s = 100;

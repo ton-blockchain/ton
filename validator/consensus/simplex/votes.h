@@ -101,6 +101,10 @@ struct Signed {
 
   bool operator==(const Signed&) const = delete;  // Ed25519 signatures are not unique
 
+  Signed<T> clone() const {
+    return Signed<T>{validator, vote, signature.clone()};
+  }
+
   auto consume_and_downcast(auto&& func) &&
     requires std::same_as<T, Vote>
   {
