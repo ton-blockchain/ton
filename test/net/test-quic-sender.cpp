@@ -69,7 +69,17 @@ ton::adnl::AdnlAddressList make_addr_list(td::Slice ip_str, int port) {
 
 class EchoCallback : public ton::adnl::Adnl::Callback {
  public:
-  void receive_message(ton::adnl::AdnlNodeIdShort, ton::adnl::AdnlNodeIdShort, td::BufferSlice) override {
+  std::shared_ptr<std::vector<td::BufferSlice>> received_messages;
+
+  explicit EchoCallback(std::shared_ptr<std::vector<td::BufferSlice>> msgs = nullptr)
+      : received_messages(std::move(msgs)) {
+  }
+
+  void receive_message(ton::adnl::AdnlNodeIdShort, ton::adnl::AdnlNodeIdShort, td::BufferSlice data) override {
+    LOG(ERROR) << "receive message message";
+    if (received_messages) {
+      received_messages->push_back(std::move(data));
+    }
   }
 
   void receive_query(ton::adnl::AdnlNodeIdShort, ton::adnl::AdnlNodeIdShort, td::BufferSlice data,
@@ -88,6 +98,7 @@ struct TestNode {
   td::actor::ActorOwn<ton::adnl::AdnlNetworkManager> network_manager;
   td::actor::ActorOwn<ton::adnl::Adnl> adnl;
   td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
+  std::shared_ptr<std::vector<td::BufferSlice>> received_messages;
 
   TestNode() = default;
   TestNode(TestNode&&) = default;
@@ -151,6 +162,10 @@ class TestRunner : public td::actor::Actor {
 
     td::actor::send_closure(node.adnl, &ton::adnl::Adnl::subscribe, node.id, "Q", std::make_unique<EchoCallback>());
 
+    node.received_messages = std::make_shared<std::vector<td::BufferSlice>>();
+    td::actor::send_closure(node.adnl, &ton::adnl::Adnl::subscribe, node.id, "M",
+                            std::make_unique<EchoCallback>(node.received_messages));
+
     node.quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
         "quic-" + name, td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(node.adnl.get()), node.keyring.get());
 
@@ -175,6 +190,13 @@ class TestRunner : public td::actor::Actor {
     td::actor::send_closure(from.quic_sender, &ton::quic::QuicSender::send_query, from.id, to.id, std::string("Q"),
                             std::move(promise), td::Timestamp::in(10.0), std::move(query));
     co_return co_await std::move(future);
+  }
+
+  void send_message(TestNode& from, TestNode& to, td::Slice data) {
+    td::BufferSlice msg(1 + data.size());
+    msg.as_slice()[0] = 'M';
+    msg.as_slice().substr(1).copy_from(data);
+    td::actor::send_closure(from.quic_sender, &ton::quic::QuicSender::send_message, from.id, to.id, std::move(msg));
   }
 
  private:
@@ -622,6 +644,24 @@ TEST(QuicSender, LargeScale) {
 
     ASSERT_EQ(errors, 0);
 
+    co_return td::Unit{};
+  });
+}
+
+TEST(QuicSender, EmptyMessage) {
+  run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    auto a = co_await t.create_node("em-a", next_port());
+    auto b = co_await t.create_node("em-b", next_port());
+
+    t.add_peer(a, b);
+    t.add_peer(b, a);
+
+    t.send_message(a, b, "");
+
+    co_await td::actor::coro_sleep(td::Timestamp::in(1.0));
+    ASSERT_EQ(1u, b.received_messages->size());
+
+    // If we get here without crashing, the test passes
     co_return td::Unit{};
   });
 }

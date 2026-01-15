@@ -30,7 +30,6 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
   }
 
  private:
-
   adnl::AdnlNodeIdShort local_id_;
   td::actor::ActorId<QuicSender> sender_;
 };
@@ -100,8 +99,8 @@ void QuicSender::add_local_id(adnl::AdnlNodeIdShort local_id) {
   add_local_id_coro(local_id).start().detach("add local id");
 }
 
-QuicSender::Connection::~Connection(){
-  for (auto& [_, P] : responses) {
+QuicSender::Connection::~Connection() {
+  for (auto &[_, P] : responses) {
     P.set_error(td::Status::Error("connection closed"));
   }
 }
@@ -127,7 +126,7 @@ td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdSho
   auto [future, answer_promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
   CHECK(conn->responses.emplace(stream_id, std::move(answer_promise)).second);
   auto server = conn->server;
-  conn = nullptr; // don't keep connection, it may disconnect during our wait
+  conn = nullptr;  // don't keep connection, it may disconnect during our wait
   co_await td::actor::ask(server, &QuicServer::send_stream, cid, stream_id, std::move(wire_data), true);
   co_return co_await std::move(future);
 }
@@ -149,6 +148,10 @@ td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) 
   auto priv_key = co_await td::actor::ask(keyring_, &keyring::Keyring::export_private_key, local_id.pubkey_hash());
   auto ed25519_key = co_await priv_key.export_as_ed25519();
   local_keys_.emplace(local_id, td::Ed25519::PrivateKey(ed25519_key.as_octet_string()));
+
+  if (servers_.find(local_id) != servers_.end()) {
+    co_return td::Status::Error(PSLICE() << "Local id has already been added: " << local_id);
+  }
 
   auto server = co_await QuicServer::create(port, td::Ed25519::PrivateKey(local_keys_.at(local_id).as_octet_string()),
                                             std::make_unique<ServerCallback>(local_id, actor_id(this)));
@@ -298,6 +301,10 @@ void QuicSender::on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSli
 }
 
 void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id, td::BufferSlice data) {
+  if (data.empty()) {
+    return;  // currently message will trigger empty response
+  }
+
   auto it = by_cid_.find(cid);
   if (it == by_cid_.end()) {
     return;
@@ -346,8 +353,9 @@ void QuicSender::on_request(std::shared_ptr<Connection> connection, QuicStreamID
 
 void QuicSender::on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
                             ton_api::quic_message &message) {
-  td::actor::send_closure(adnl_, &adnl::AdnlPeerTable::deliver, connection->path.first, connection->path.second,
+  td::actor::send_closure(adnl_, &adnl::AdnlPeerTable::deliver, connection->path.second, connection->path.first,
                           std::move(message.data_));
+  // TODO: use unidirectional stream, so there will be no need to process result
   td::actor::send_closure(connection->server, &QuicServer::send_stream, connection->cid, stream_id, td::BufferSlice{},
                           true);
 }
