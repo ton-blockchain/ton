@@ -394,6 +394,15 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
                                                                    candidate->id.slot, candidate->hash_data().to_tl());
       }
       do_finalize_block(id, candidate, parent_id, sig_set).start().detach();
+    } else if (!owning_bus()->shard.is_masterchain()) {
+      owning_bus()
+          ->db
+          ->set(create_serialize_tl_object<ton_api::consensus_simplex_db_key_finalizedBlock>(id.to_tl()),
+                create_serialize_tl_object<ton_api::consensus_simplex_db_finalizedBlock>(
+                    create_tl_block_id(candidate->id.block), RawCandidateId::parent_id_to_tl(candidate->parent_id),
+                    maybe_final_cert.not_null()))
+          .start()
+          .detach();
     }
     co_return candidate->id;
   }
