@@ -924,6 +924,48 @@ class CoroSpec final : public td::actor::Actor {
     co_return td::Unit{};
   }
 
+  Task<td::Unit> actor_task_unwrap_bug() {
+    LOG(INFO) << "=== actor_task_unwrap_bug ===";
+
+    class B : public td::actor::Actor {
+     public:
+      td::actor::Task<> run() {
+        co_await td::actor::coro_sleep(td::Timestamp::in(2.0));
+        co_return td::Status::Error("err");
+      }
+    };
+
+    class A : public td::actor::Actor {
+     public:
+      void start_up() override {
+        b_ = td::actor::create_actor<B>("B");
+        run().start().detach();
+        alarm_timestamp() = td::Timestamp::in(1.0);
+      }
+
+      void alarm() override {
+        b_.release();
+        stop();
+      }
+
+      td::actor::Task<> run() {
+        LOG(ERROR) << "Start";
+        std::vector<td::actor::StartedTask<>> tasks;
+        tasks.push_back(td::actor::ask(b_, &B::run));
+        co_await td::actor::all(std::move(tasks));
+        co_return {};
+      }
+
+      td::actor::ActorOwn<B> b_;
+    };
+
+    td::actor::create_actor<A>("A").release();
+    co_await coro_sleep(td::Timestamp::in(3.0));  // Wait for the scenario to play out
+
+    LOG(INFO) << "actor_task_unwrap_bug test completed";
+    co_return td::Unit{};
+  }
+
   // Test that co_return {}; works correctly for Task<Unit>
   // Bug: co_return {}; was equivalent to co_return td::Status::Error(-1);
   // because {} matched ExternalResult via aggregate initialization
@@ -987,6 +1029,7 @@ class CoroSpec final : public td::actor::Actor {
     co_await promise_destroy_in_mailbox();
     co_await promise_destroy_in_actor_member();
     co_await co_return_empty_braces();
+    co_await actor_task_unwrap_bug();
 
     (void)co_await ask(logger_, &TestLogger::log, std::string("All tests passed"));
     co_return td::Unit();

@@ -126,9 +126,8 @@ struct TaskUnwrapAwaiter {
         return route_resume(h);
       }
     }
-    if (h.promise().is_immediate_execution_always_allowed()) {
-      return await_suspend_to(aw, h);
-    }
+    // Always use wrapper for error routing - is_immediate_execution_always_allowed
+    // only affects scheduling, not error handling correctness
     auto r_handle = wrap_coroutine(this, h);
     return await_suspend_to(aw, r_handle);
   }
