@@ -21,7 +21,7 @@ void log_certificate(const CertificateRef<T> &certificate, const Bus &bus) {
   for (const auto &signature : certificate->signatures) {
     votes[signature.validator.value()] = 'V';
   }
-  LOG(INFO) << "Obtained certificate for " << certificate->vote << ": " << votes;
+  LOG(WARNING) << "Obtained certificate for " << certificate->vote << ": " << votes;
 }
 
 template <typename T>
@@ -150,6 +150,18 @@ class Tsentrizbirkom {
       return *misbehavior;
     }
     return true;
+  }
+
+  bool is_notarized() const {
+    return notarize_.has_value();
+  }
+
+  bool is_skipped() const {
+    return skip_.has_value();
+  }
+
+  bool is_finalized() const {
+    return finalize_.has_value();
   }
 
   template <typename T>
@@ -334,20 +346,52 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   }
 
   void alarm() override {
-    LOG(WARNING) << "Standstill detected, re-broadcasting votes";
     auto &bus = *owning_bus();
     auto [begin, end] = state_->tracked_slots_interval();
 
+    td::StringBuilder sb;
+
     std::vector<ProtocolMessage> messages;
     if (last_final_cert_.has_value()) {
+      sb << "Last final cert is for " << (*last_final_cert_)->vote.id << "\n";
       messages.push_back((*last_final_cert_)->serialize());
     }
 
     for (td::uint32 i = begin; i < end; ++i) {
       auto slot = state_->slot_at(i);
-      slot->state->certs.serialize_to(messages);
+      auto &certs = slot->state->certs;
+
+      sb << i << ": ";
+      for (size_t j = 0; j < bus.validator_set.size(); ++j) {
+        auto &voting_state = slot->state->votes[j];
+        if (voting_state.is_finalized()) {
+          sb << 'F';
+        } else if (voting_state.is_notarized() && voting_state.is_skipped()) {
+          sb << 'I';
+        } else if (voting_state.is_notarized()) {
+          sb << 'N';
+        } else if (voting_state.is_skipped()) {
+          sb << 'S';
+        } else {
+          sb << '.';
+        }
+      }
+      if (certs.notarize_.has_value()) {
+        sb << " notar";
+      }
+      if (certs.skip_.has_value()) {
+        sb << " skip";
+      }
+      if (certs.finalize_.has_value()) {
+        sb << " final";
+      }
+      sb << "\n";
+
+      certs.serialize_to(messages);
       slot->state->votes[bus.local_id.idx.value()].serialize_to(messages, slot->state->certs);
     }
+
+    LOG(WARNING) << "Standstill detected. Current pool state: " << sb.as_cslice();
 
     for (auto &vote : messages) {
       owning_bus().publish<OutgoingProtocolMessage>(std::nullopt, std::move(vote));
