@@ -5,6 +5,7 @@
  */
 
 #include "adnl/utils.hpp"
+#include "auto/tl/ton_api.h"
 #include "block/block.h"
 #include "block/validator-set.h"
 #include "consensus/runtime.h"
@@ -525,18 +526,29 @@ class TestConsensus : public td::actor::Actor {
     co_return td::Unit{};
   }
 
-  td::actor::Task<td::Ref<vm::Cell>> wait_block_state_root(BlockIdExt block_id) {
+  td::actor::Task<> wait_block_accepted(BlockIdExt block_id) {
     if (block_id == FIRST_PARENT) {
-      co_return gen_shard_state(block_id.seqno());
+      co_return {};
     }
-    auto it = accepted_blocks_.find(block_id.seqno());
-    CHECK(it != accepted_blocks_.end());
-    CHECK(it->second->block_id() == block_id);
+    td::Timestamp timeout = td::Timestamp::in(10.0);
+    while (!timeout.is_in_past()) {
+      auto it = accepted_blocks_.find(block_id.seqno());
+      if (it != accepted_blocks_.end() && it->second->block_id() == block_id) {
+        co_return {};
+      }
+      co_await td::actor::coro_sleep(td::Timestamp::in(0.1));
+    }
+    co_return td::Status::Error(ErrorCode::timeout, "timeout");
+  }
+
+  td::actor::Task<td::Ref<vm::Cell>> wait_block_state_root(BlockIdExt block_id) {
+    co_await wait_block_accepted(block_id);
     co_return gen_shard_state(block_id.seqno());
   }
 
   td::actor::Task<td::Ref<BlockData>> wait_block_data(BlockIdExt block_id) {
     CHECK(block_id != FIRST_PARENT);
+    co_await wait_block_accepted(block_id);
     auto it = accepted_blocks_.find(block_id.seqno());
     CHECK(it != accepted_blocks_.end());
     CHECK(it->second->block_id() == block_id);
@@ -677,6 +689,8 @@ class TestConsensus : public td::actor::Actor {
     inst.bus = {};
     inst.status = Instance::Stopping;
     co_await std::move(*inst.stop_waiter);
+    //std::move(inst.stop_waiter.value()).detach();
+    //co_await td::actor::coro_sleep(td::Timestamp::in(0.5));
     inst.status = Instance::Stopped;
     inst.runtime = {};
     LOG(ERROR) << "Stopped node #" << node_idx << "." << instance_idx;

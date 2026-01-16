@@ -87,16 +87,8 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   }
 
   template <>
-  void handle(BusHandle, std::shared_ptr<const NotarizationObserved> event) {
-    auto slot = state_->slot_at(event->id.slot);
-    if (!slot.has_value()) {
-      return;
-    }
-
-    if (!slot->state->voted_skip && !slot->state->voted_final && slot->state->voted_notar == event->id) {
-      owning_bus().publish<BroadcastVote>(FinalizeVote{event->id});
-      slot->state->voted_final = true;
-    }
+  void handle(BusHandle bus, std::shared_ptr<const NotarizationObserved> event) {
+    process_notarization_observed(bus, event).start().detach();
   }
 
   template <>
@@ -211,10 +203,25 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       // FIXME: Report misbehavior
       co_return {};
     }
+    co_await owning_bus().publish<WaitCandidateInfoStored>(candidate->id.as_raw(), true, false);
 
     slot.state->voted_notar = candidate->id;
 
     owning_bus().publish<BroadcastVote>(NotarizeVote{candidate->id});
+    co_return {};
+  }
+
+  td::actor::Task<> process_notarization_observed(BusHandle, std::shared_ptr<const NotarizationObserved> event) {
+    auto slot = state_->slot_at(event->id.slot);
+    if (!slot.has_value()) {
+      co_return {};
+    }
+
+    co_await owning_bus().publish<WaitCandidateInfoStored>(event->id, false, true);
+    if (!slot->state->voted_skip && !slot->state->voted_final && slot->state->voted_notar == event->id) {
+      owning_bus().publish<BroadcastVote>(FinalizeVote{event->id});
+      slot->state->voted_final = true;
+    }
     co_return {};
   }
 

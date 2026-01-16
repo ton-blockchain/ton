@@ -117,7 +117,7 @@ struct CandidateId {
   CandidateId(RawCandidateId id, BlockIdExt block) : slot(id.slot), hash(id.hash), block(block) {
   }
 
-  RawCandidateId as_raw() {
+  RawCandidateId as_raw() const {
     return RawCandidateId{slot, hash};
   }
 
