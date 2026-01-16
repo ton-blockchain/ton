@@ -149,31 +149,41 @@ static bool try_parse_string_to_int(std::string_view str, int& out) {
   return result.ec == std::errc() && result.ptr == str.data() + str.size();
 }
 
-// helper function: given hint = `Ok<int> | Err<slice>` and struct `Ok`, return `Ok<int>`
-// example: `match (...) { Ok => ... }` we need to deduce `Ok<T>` based on subject
-static TypePtr try_pick_instantiated_generic_from_hint(TypePtr hint, StructPtr lookup_ref) {
-  // example: `var w: Ok<int> = Ok { ... }`, hint is `Ok<int>`, lookup is `Ok`
-  if (const TypeDataStruct* h_struct = hint->unwrap_alias()->try_as<TypeDataStruct>()) {
-    if (lookup_ref == h_struct->struct_ref->base_struct_ref) {
-      return h_struct;
+// type hints from a user help inferring template arguments, object literal structs, etc.
+// they occur in variables `var v: hint = ...`, parameters `fun f(v: hint)`, return values `fun f(): hint`, etc.
+// example: `var v: (int, Point) = (2, {})` hint is a tensor, 1-th component `Point` infers `{}`
+template<class TypeT>
+static const TypeT* try_pick_T_from_hint(TypePtr hint, const std::function<bool(const TypeT*)>& optional_callback = nullptr) {
+  hint = hint->unwrap_alias();
+  // if hint is what we look for: `var v: Point` / `fun f(): Point`
+  if (const TypeT* converted = hint->try_as<TypeT>()) {
+    if (!optional_callback || optional_callback(converted)) {
+      return converted;
     }
   }
-  // example: `fun f(): Response<int, slice> { return Err { ... } }`, hint is `Ok<int> | Err<slice>`, lookup is `Err`
-  if (const TypeDataUnion* h_union = hint->unwrap_alias()->try_as<TypeDataUnion>()) {
-    TypePtr only_variant = nullptr;   // hint `Ok<int8> | Ok<int16>` is ambiguous
-    for (TypePtr h_variant : h_union->variants) {
-      if (const TypeDataStruct* variant_struct = h_variant->unwrap_alias()->try_as<TypeDataStruct>()) {
-        if (lookup_ref == variant_struct->struct_ref->base_struct_ref) {
-          if (only_variant) {
-            return nullptr;
-          }
-          only_variant = variant_struct;
+  // if hint is inside a union: `var v: Point | int` / `fun f(): Point?`
+  if (const TypeDataUnion* hint_union = hint->try_as<TypeDataUnion>()) {
+    const TypeT* only_variant = nullptr;
+    for (TypePtr variant : hint_union->variants) {
+      if (const TypeT* ok_variant = try_pick_T_from_hint<TypeT>(variant, optional_callback)) {
+        if (only_variant) {   // but `var v: Point | AnotherStruct` is ambiguous
+          return nullptr;
         }
+        only_variant = ok_variant;
       }
     }
     return only_variant;
   }
   return nullptr;
+}
+
+// helper function: given hint = `Ok<int> | Err<slice>` and struct `Ok`, return `Ok<int>`
+// example: `match (...) { Ok => ... }` we need to deduce `Ok<T>` based on subject
+// example: `fun f(): Response<int, slice> { return Err { ... } }`, hint is `Ok<int> | Err<slice>`, lookup is `Err`
+static TypePtr try_pick_instantiated_generic_from_hint(TypePtr hint, StructPtr lookup_ref) {
+  return try_pick_T_from_hint<TypeDataStruct>(hint, [lookup_ref](const TypeDataStruct* check) {
+    return lookup_ref == check->struct_ref->base_struct_ref;
+  });
 }
 
 // helper function, similar to the above, but for generic type aliases
@@ -1233,7 +1243,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
   }
 
   ExprFlow infer_tensor(V<ast_tensor> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {
-    const TypeDataTensor* tensor_hint = hint ? hint->unwrap_alias()->try_as<TypeDataTensor>() : nullptr;
+    const TypeDataTensor* tensor_hint = hint ? try_pick_T_from_hint<TypeDataTensor>(hint) : nullptr;
     std::vector<TypePtr> types_list;
     types_list.reserve(v->get_items().size());
     for (int i = 0; i < v->size(); ++i) {
@@ -1373,28 +1383,10 @@ class InferTypesAndCallsAndFieldsVisitor final {
       }
     }
     if (!struct_ref && hint) {
-      if (const TypeDataStruct* hint_struct = hint->unwrap_alias()->try_as<TypeDataStruct>()) {
-        struct_ref = hint_struct->struct_ref;
-      }
-      if (const TypeDataUnion* hint_union = hint->unwrap_alias()->try_as<TypeDataUnion>()) {
-        StructPtr last_struct = nullptr;
-        int n_structs = 0;
-        for (TypePtr variant : hint_union->variants) {
-          if (const TypeDataStruct* variant_struct = variant->unwrap_alias()->try_as<TypeDataStruct>()) {
-            last_struct = variant_struct->struct_ref;
-            n_structs++;
-          }
-          if (const TypeDataGenericTypeWithTs* hint_withTs = variant->unwrap_alias()->try_as<TypeDataGenericTypeWithTs>()) {
-            last_struct = hint_withTs->struct_ref;
-            n_structs++;
-          }
-        }
-        if (n_structs == 1) {
-          struct_ref = last_struct;
-        }
-      }
-      if (const TypeDataGenericTypeWithTs* hint_withTs = hint->unwrap_alias()->try_as<TypeDataGenericTypeWithTs>()) {
-        struct_ref = hint_withTs->struct_ref;
+      if (const TypeDataStruct* hint_struct = try_pick_T_from_hint<TypeDataStruct>(hint)) {
+        struct_ref = hint_struct->struct_ref;   // `var v: Point = {}` or `var v: Point | int = {}`
+      } else if (const TypeDataGenericTypeWithTs* hint_withTs = try_pick_T_from_hint<TypeDataGenericTypeWithTs>(hint)) {
+        struct_ref = hint_withTs->struct_ref;   // `var v: Wrapper<int> = {}` or within a union
       }
     }
     if (!struct_ref) {
@@ -1471,7 +1463,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // > fun call(f: (int) -> slice) { ... }
     // > call(fun(i) { ... })
     // then from a hint, calculate params_types=[int], return_type=slice
-    const TypeDataFunCallable* h_callable = hint ? hint->unwrap_alias()->try_as<TypeDataFunCallable>() : nullptr;
+    const TypeDataFunCallable* h_callable = hint ? try_pick_T_from_hint<TypeDataFunCallable>(hint) : nullptr;
 
     std::vector<TypePtr> params_types;
     params_types.reserve(v->get_num_params());

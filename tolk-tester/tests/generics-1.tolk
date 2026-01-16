@@ -48,7 +48,10 @@ fun test102(): (int, int, int, [int, int], Wrapper< Wrapper<int8> >) {
     var cint: Wrapper<int> = { value: getTwo() };
     var cuni: Wrapper<int> | Err<int> = Wrapper { value: getTwo() };
     cuni = Err { errPayload: getTwo() };
-    return (eq1<int>(a), eq2<int>(b), takeInt(getTwo()), [getTwo(), ab_tens.1.1], eq1({ value: { value: getTwo() } } as Wrapper< Wrapper<int8> >));
+    var tensNul: (int, int)? = (getTwo(), getTwo());
+    var tensOrS: (int8, int8) | slice | builder = (getTwo(), getTwo());
+    __expect_type(tensOrS, "(int8, int8)");     // smart cast
+    return (eq1<int>(tensOrS.0), eq2<int>(b), takeInt(getTwo()), [getTwo(), ab_tens.1.1], eq1({ value: { value: getTwo() } } as Wrapper< Wrapper<int8> >));
 }
 
 @method_id(103)

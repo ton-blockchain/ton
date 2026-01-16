@@ -663,6 +663,15 @@ fun test47() {
     return (g147, origY, a, b);
 }
 
+@method_id(148)
+fun test48(forceNull: bool) {
+    var tens: (int, Point) | int | null = forceNull ? null : (5,
+        { x: 10, y: 20 }        // the compiler understands that it's Point
+    );
+    __expect_type(tens, "(int, Point)?");
+    return (tens is null) ? 0 : tens.1.x + tens.1.y;
+}
+
 
 fun main(x: int8, y: MInt) {
     __expect_type(PointAlias{x,y}, "Point");
@@ -729,6 +738,8 @@ type PointAlias = Point;
 @testcase | 145 |      | [ 1 2 [ 3 4 ] 5 6 typeid-8 [ 10 20 [ -1 -2 ] (null) (null) 0 [] ] ]
 @testcase | 146 |      | 20 [ 11 12 13 14 15 ] 
 @testcase | 147 |      | 0 0 1 1 1 1
+@testcase | 148 | -1   | 0
+@testcase | 148 | 0    | 30
 
 @fif_codegen
 """

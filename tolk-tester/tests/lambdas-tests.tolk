@@ -188,6 +188,28 @@ fun test11(v: bool) {
     )
 }
 
+@method_id(112)
+fun test12(useCb: bool) {
+    var f1: ((int) -> int) | slice = fun(a) {
+        __expect_type(a, "int");
+        return a * 2
+    };
+    __expect_type(f1, "(int) -> int");
+    var f2: bool | (WithCb -> int) = !useCb ? useCb : fun(a) {
+        __expect_type(a, "WithCb");
+        __expect_type(a.cb, "(int, int) -> int");
+        return a.cb(5, 10)
+    };
+    __expect_type(f2, "bool | ((WithCb) -> int)");
+    return (
+        f1(10),
+        (f2 is bool) ? f2 as int : f2({cb: fun(a, b) {
+            __expect_type(a, "int");
+            return a * b;
+        }}),
+    )
+}
+
 fun main() {
     __expect_type(fun() {}, "() -> void");
     __expect_type(fun(x: int) { x }, "(int) -> void");
@@ -208,4 +230,6 @@ fun main() {
 @testcase | 110 |        | 20 400 60 
 @testcase | 111 | -1     | (null) -1 -1 500
 @testcase | 111 | 0      | 20 20 20 20
+@testcase | 112 | -1     | 20 50
+@testcase | 112 | 0      | 20 0
 */
