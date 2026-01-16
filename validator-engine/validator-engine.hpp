@@ -34,6 +34,7 @@
 #include "auto/tl/ton_api.hpp"
 #include "auto/tl/ton_api_json.h"
 #include "dht/dht.h"
+#include "quic/quic-sender.h"
 #include "rldp/rldp.h"
 #include "rldp2/rldp.h"
 #include "td/actor/MultiPromise.h"
@@ -162,6 +163,7 @@ class ValidatorEngine : public td::actor::Actor {
   td::actor::ActorOwn<ton::adnl::Adnl> adnl_;
   td::actor::ActorOwn<ton::rldp::Rldp> rldp_;
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2_;
+  td::actor::ActorOwn<ton::quic::QuicSender> quic_;
   std::map<ton::PublicKeyHash, td::actor::ActorOwn<ton::dht::Dht>> dht_nodes_;
   ton::PublicKeyHash default_dht_node_ = ton::PublicKeyHash::zero();
   td::actor::ActorOwn<ton::overlay::Overlays> overlay_manager_;

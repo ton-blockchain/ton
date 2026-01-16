@@ -303,7 +303,7 @@ class Ed25519 {
   Ed25519() {
   }
   Ed25519(td::Ed25519::PrivateKey pk);
-  td::Ed25519::PrivateKey export_key() {
+  td::Ed25519::PrivateKey export_key() const {
     return td::Ed25519::PrivateKey{td::SecureString(data_.as_slice())};
   }
   td::SecureString export_as_slice() const {
@@ -484,6 +484,7 @@ class PrivateKey {
   PublicKey compute_public_key() const;
   PublicKeyHash compute_short_id() const;
   td::SecureString export_as_slice() const;
+  td::Result<td::Ed25519::PrivateKey> export_as_ed25519() const;
   static td::Result<PrivateKey> import(td::Slice s);
   bool exportable() const;
   tl_object_ptr<ton_api::PrivateKey> tl() const;

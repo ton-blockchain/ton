@@ -1166,6 +1166,13 @@ storage.daemon.removeStorageProvider = storage.daemon.Success;
 
 ---types---
 proxyLiteserver.config port:int id:PublicKey = proxyLiteserver.Config;
+---functions---
+
+---types---
+quic.message data:bytes = quic.Request;
+quic.query data:bytes = quic.Request;
+quic.answer data:bytes = quic.Response;
+
 engineConsoleClient.config address:string server_public_key:PublicKey client_private_key:PrivateKey = engineConsoleClient.Config;
 
 consensus.overlayId session_id:int256 nodes:(vector int256) = consensus.OverlayId;

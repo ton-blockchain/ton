@@ -3552,9 +3552,10 @@ td::Ref<PersistentStateDescription> ValidatorManagerImpl::get_block_persistent_s
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(
     td::Ref<ValidatorManagerOptions> opts, std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
+    td::actor::ActorId<quic::QuicSender> quic,
     td::actor::ActorId<overlay::Overlays> overlays) {
   return td::actor::create_actor<validator::ValidatorManagerImpl>("manager", std::move(opts), db_root, keyring, adnl,
-                                                                  rldp, rldp2, overlays);
+                                                                  rldp, rldp2, quic, overlays);
 }
 
 void ValidatorManagerImpl::log_collate_query_stats(CollationStats stats) {

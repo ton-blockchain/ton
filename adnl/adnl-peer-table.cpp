@@ -316,6 +316,18 @@ void AdnlPeerTableImpl::get_self_node(AdnlNodeIdShort id, td::Promise<AdnlNode> 
   td::actor::send_closure(it->second.local_id, &AdnlLocalId::get_self_node, std::move(promise));
 }
 
+void AdnlPeerTableImpl::get_peer_node(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id,
+                                      td::Promise<AdnlNode> promise) {
+  auto &peer_info = peers_[peer_id];
+  auto it2 = local_ids_.find(local_id);
+  if (it2 == local_ids_.end()) {
+    promise.set_error(td::Status::Error("unknown local id"));
+    return;
+  }
+  td::actor::send_closure(get_peer_pair(peer_id, peer_info, local_id, it2->second), &AdnlPeerPair::get_peer_node,
+                          std::move(promise));
+}
+
 void AdnlPeerTableImpl::register_channel(AdnlChannelIdShort id, AdnlNodeIdShort local_id,
                                          td::actor::ActorId<AdnlChannel> channel) {
   auto it = local_ids_.find(local_id);

@@ -5,7 +5,7 @@ set(VALIDATOR_ENGINE_SOURCE
 
 add_executable(validator-engine ${VALIDATOR_ENGINE_SOURCE})
 target_link_libraries(validator-engine overlay tdutils tdactor adnl tl_api dht
-  rldp rldp2 catchain validatorsession full-node validator ton_validator validator
+  rldp rldp2 quic catchain validatorsession full-node validator ton_validator validator
   fift-lib memprof git ${JEMALLOC_LIBRARIES})
 if (JEMALLOC_FOUND)
   target_include_directories(validator-engine PRIVATE ${JEMALLOC_INCLUDE_DIR})
