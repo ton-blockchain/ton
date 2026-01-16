@@ -195,7 +195,7 @@ if (USE_LIBRAPTORQ)
   add_subdirectory(third-party/libraptorq EXCLUDE_FROM_ALL)
 endif()
 
-option(USE_QUIC "use ngtcp2 QUIC library" OFF)
+option(USE_QUIC "use ngtcp2 QUIC library" ON)
 if (USE_QUIC)
   find_package(OpenSSL 3.5 REQUIRED COMPONENTS SSL Crypto)
   message("Add ngtcp2")
