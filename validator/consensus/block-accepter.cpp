@@ -30,10 +30,21 @@ class BlockAccepterImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
     if (event->candidate->leader == owning_bus()->local_id.idx) {
       broadcast_mode |= fullnode::FullNode::broadcast_mode_public | fullnode::FullNode::broadcast_mode_fast_sync;
     }
+    if (last_mc_finalized_seqno_ >= 2 && block.id.seqno() < last_mc_finalized_seqno_ - 2) {
+      broadcast_mode = 0;
+    }
     co_return co_await td::actor::ask(owning_bus()->manager, &ManagerFacade::accept_block, block.id, block_data,
                                       block_parents, event->candidate->leader.value(), event->signatures,
                                       broadcast_mode, true);
   }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const BlockFinalizedInMasterchain> event) {
+    last_mc_finalized_seqno_ = std::max(event->block.seqno(), last_mc_finalized_seqno_);
+  }
+
+ private:
+  BlockSeqno last_mc_finalized_seqno_ = 0;
 };
 
 }  // namespace
