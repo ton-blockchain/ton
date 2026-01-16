@@ -94,6 +94,8 @@ struct ProtocolMessage {
 
 struct RawCandidateId {
   static RawCandidateId from_tl(const tl::CandidateIdRef& tl_parent);
+  static tl::CandidateParentRef parent_id_to_tl(std::optional<RawCandidateId> parent);
+  static std::optional<RawCandidateId> tl_to_parent_id(const tl::CandidateParentRef& tl_parent);
 
   tl::CandidateIdRef to_tl() const;
   std::strong_ordering operator<=>(const RawCandidateId&) const = default;

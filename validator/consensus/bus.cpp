@@ -46,6 +46,10 @@ std::string block_signature_set_to_string(const td::Ref<block::BlockSignatureSet
 }  // namespace
 
 std::string BlockFinalized::contents_to_string() const {
+  return PSTRING() << "{candidate=" << candidate_to_string(candidate) << ", final_sigs=" << final_signatures << "}";
+}
+
+std::string FinalizeBlock::contents_to_string() const {
   return PSTRING() << "{candidate=" << candidate_to_string(candidate)
                    << ", signatures=" << block_signature_set_to_string(signatures) << "}";
 }

@@ -23,6 +23,15 @@ struct StopRequested {};
 
 struct BlockFinalized {
   RawCandidateRef candidate;
+  bool final_signatures;
+
+  std::string contents_to_string() const;
+};
+
+struct FinalizeBlock {
+  using ReturnType = td::Unit;
+
+  RawCandidateRef candidate;
   ParentId parent_id;
   td::Ref<block::BlockSignatureSet> signatures;
 
@@ -136,7 +145,6 @@ struct StatsTargetReached {
   std::string contents_to_string() const;
 };
 
-
 class Db {
  public:
   virtual ~Db() = default;
@@ -150,10 +158,11 @@ class Db {
 
 class Bus : public runtime::Bus {
  public:
-  using Events = td::TypeList<StopRequested, BlockFinalized, OurLeaderWindowStarted, OurLeaderWindowAborted,
-                              CandidateGenerated, CandidateReceived, ValidationRequest, IncomingProtocolMessage,
-                              OutgoingProtocolMessage, IncomingOverlayRequest, OutgoingOverlayRequest,
-                              BlockFinalizedInMasterchain, MisbehaviorReport, StatsTargetReached>;
+  using Events =
+      td::TypeList<StopRequested, BlockFinalized, FinalizeBlock, OurLeaderWindowStarted, OurLeaderWindowAborted,
+                   CandidateGenerated, CandidateReceived, ValidationRequest, IncomingProtocolMessage,
+                   OutgoingProtocolMessage, IncomingOverlayRequest, OutgoingOverlayRequest, BlockFinalizedInMasterchain,
+                   MisbehaviorReport, StatsTargetReached>;
 
   Bus() = default;
   ~Bus() override {

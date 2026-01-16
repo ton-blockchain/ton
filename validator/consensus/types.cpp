@@ -51,9 +51,7 @@ td::StringBuilder& operator<<(td::StringBuilder& stream, const RawParentId& id) 
   }
 }
 
-namespace {
-
-tl::CandidateParentRef parent_id_to_tl(RawParentId parent) {
+tl::CandidateParentRef RawCandidateId::parent_id_to_tl(RawParentId parent) {
   if (!parent) {
     return create_tl_object<tl::candidateWithoutParents>();
   } else {
@@ -61,15 +59,13 @@ tl::CandidateParentRef parent_id_to_tl(RawParentId parent) {
   }
 }
 
-RawParentId tl_to_parent_id(const tl::CandidateParentRef& tl_parent) {
+RawParentId RawCandidateId::tl_to_parent_id(const tl::CandidateParentRef& tl_parent) {
   RawParentId id;
   auto without_parents_fn = [&](const tl::candidateWithoutParents&) {};
   auto parent_fn = [&](const tl::candidateParent& parent) { id = RawCandidateId::from_tl(parent.id_); };
   ton_api::downcast_call(*tl_parent, td::overloaded(without_parents_fn, parent_fn));
   return id;
 }
-
-}  // namespace
 
 CandidateId CandidateId::create(td::uint32 slot, const CandidateHashData& builder) {
   return CandidateId{RawCandidateId{slot, builder.hash()}, builder.block()};
@@ -95,7 +91,7 @@ CandidateHashData CandidateHashData::from_tl(tl::CandidateHashData&& data) {
   };
   auto ordinary_fn = [&](const tl::candidateHashDataOrdinary& full) {
     FullCandidate candidate{create_block_id(full.block_), full.collated_file_hash_};
-    builder = CandidateHashData::create_full(candidate, tl_to_parent_id(full.parent_));
+    builder = CandidateHashData::create_full(candidate, RawCandidateId::tl_to_parent_id(full.parent_));
   };
   ton_api::downcast_call(data, td::overloaded(empty_fn, ordinary_fn));
 
@@ -114,7 +110,7 @@ tl::CandidateHashDataRef CandidateHashData::to_tl() const {
   };
   auto full_fn = [&](const FullCandidate& full) -> tl::CandidateHashDataRef {
     return create_tl_object<tl::candidateHashDataOrdinary>(create_tl_block_id(full.id), full.collated_file_hash,
-                                                           parent_id_to_tl(parent));
+                                                           RawCandidateId::parent_id_to_tl(parent));
   };
   return std::visit(td::overloaded(empty_fn, full_fn), candidate);
 }
@@ -196,7 +192,7 @@ td::Result<RawCandidateRef> RawCandidate::deserialize(td::Slice data, const Bus&
         creator, block_id, collated_file_hash, std::move(candidate->data_), std::move(candidate->collated_data_),
     };
 
-    auto parent = tl_to_parent_id(block_broadcast.parent_);
+    auto parent = RawCandidateId::tl_to_parent_id(block_broadcast.parent_);
     auto hash_builder = CandidateHashData::create_full(block, parent);
     return ExtractedData{
         .slot = slot,
@@ -240,7 +236,7 @@ td::BufferSlice RawCandidate::serialize() const {
         td::Bits256{}, candidate.id.seqno(), candidate.id.root_hash, candidate.data.clone(),
         candidate.collated_data.clone());
 
-    return create_serialize_tl_object<tl::block>(id.slot, parent_id_to_tl(parent_id),
+    return create_serialize_tl_object<tl::block>(id.slot, RawCandidateId::parent_id_to_tl(parent_id),
                                                  validatorsession::serialize_candidate(candidate_tl, true).move_as_ok(),
                                                  signature.clone());
   };

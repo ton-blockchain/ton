@@ -83,7 +83,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   template <>
   void handle(BusHandle, std::shared_ptr<const FinalizationObserved> event) {
     state_->notify_finalized(event->id.slot);
-    finalize_blocks(event).start().detach();
+    finalize_blocks(event->id, event->certificate).start().detach();
   }
 
   template <>
@@ -319,69 +319,121 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     co_return result;
   }
 
-  std::set<RawCandidateId> finalized_blocks_;
+  struct FinalizedBlock {
+    std::optional<CandidateId> done = std::nullopt;
+    bool started = false;
+    std::vector<td::Promise<CandidateId>> waiters;
+  };
+  std::map<RawCandidateId, FinalizedBlock> finalized_blocks_;
 
-  td::actor::Task<> finalize_blocks(std::shared_ptr<const FinalizationObserved> event) {
-    RawCandidateId id = event->id;
-    RawCandidateRef first_candidate;
-    bool is_first_block = true;
-    while (!finalized_blocks_.contains(id)) {
-      finalized_blocks_.insert(id);
-      owning_bus()
-          ->db
-          ->set(create_serialize_tl_object<ton_api::consensus_simplex_db_key_finalizedBlock>(id.to_tl()),
-                td::BufferSlice{})
-          .start()
-          .detach();
-      auto candidate = co_await owning_bus().publish<ResolveCandidate>(id);
-      if (first_candidate.is_null()) {
-        first_candidate = candidate.candidate;
-      }
-      if (std::holds_alternative<BlockCandidate>(candidate.candidate->block)) {
-        auto& bus = *owning_bus();
-        td::Ref<block::BlockSignatureSet> sig_set;
-        if (is_first_block) {
-          std::vector<BlockSignature> signatures;
-          for (const auto& s : event->certificate->signatures) {
-            signatures.emplace_back(bus.validator_set[s.validator.value()].short_id.tl(), s.signature.clone());
-          }
-          sig_set = block::BlockSignatureSet::create_simplex(
-              std::move(signatures), bus.cc_seqno, bus.validator_set_hash, bus.session_id, first_candidate->id.slot,
-              first_candidate->hash_data().to_tl());
-        } else {
-          std::vector<BlockSignature> signatures;
-          for (const auto& s : candidate.notar->signatures) {
-            signatures.emplace_back(bus.validator_set[s.validator.value()].short_id.tl(), s.signature.clone());
-          }
-          sig_set = block::BlockSignatureSet::create_simplex_approve(
-              std::move(signatures), bus.cc_seqno, bus.validator_set_hash, bus.session_id, candidate.candidate->id.slot,
-              candidate.candidate->hash_data().to_tl());
-        }
-        is_first_block = false;
-        ParentId parent_id = std::nullopt;
-        if (candidate.candidate->parent_id.has_value()) {
-          parent_id = (co_await owning_bus().publish<ResolveCandidate>(*candidate.candidate->parent_id)).candidate->id;
-        }
-        owning_bus().publish<BlockFinalized>(candidate.candidate, parent_id, std::move(sig_set));
-        if (owning_bus()->shard.is_masterchain()) {
-          break;
-        }
-      }
-      if (!candidate.candidate->parent_id.has_value()) {
-        break;
-      }
-      id = *candidate.candidate->parent_id;
+  td::actor::Task<CandidateId> finalize_blocks(RawCandidateId id, FinalCertRef maybe_final_cert,
+                                               RawCandidateRef maybe_final_candidate = {}) {
+    FinalizedBlock& state = finalized_blocks_[id];
+    if (state.done.has_value()) {
+      co_return state.done.value();
     }
+    auto [task, promise] = td::actor::StartedTask<CandidateId>::make_bridge();
+    state.waiters.push_back(std::move(promise));
+    if (!state.started) {
+      state.started = true;
+      auto result = co_await finalize_blocks_inner(id, maybe_final_cert, maybe_final_candidate).wrap();
+      for (auto& p : state.waiters) {
+        p.set_result(result.clone());
+      }
+      state.waiters.clear();
+      if (result.is_ok()) {
+        state.done = result.move_as_ok();
+      } else {
+        finalized_blocks_.erase(id);
+      }
+    }
+    co_return co_await std::move(task);
+  }
+
+  td::actor::Task<CandidateId> finalize_blocks_inner(RawCandidateId id, FinalCertRef maybe_final_cert,
+                                                     RawCandidateRef maybe_final_candidate = {}) {
+    auto& bus = owning_bus();
+    auto [candidate, notar_cert] = co_await bus.publish<ResolveCandidate>(id);
+    if (maybe_final_cert.is_null() && owning_bus()->shard.is_masterchain()) {
+      co_return candidate->id;
+    }
+    if (maybe_final_cert.not_null() && maybe_final_candidate.is_null()) {
+      maybe_final_candidate = candidate;
+    }
+    bool is_empty = std::holds_alternative<BlockIdExt>(candidate->block);
+    if (!is_empty) {
+      bus.publish<BlockFinalized>(candidate, maybe_final_cert.not_null());
+    }
+    ParentId parent_id;
+    if (candidate->parent_id.has_value()) {
+      if (is_empty) {
+        parent_id = co_await finalize_blocks(candidate->parent_id.value(), maybe_final_cert, maybe_final_candidate);
+      } else {
+        parent_id = co_await finalize_blocks(candidate->parent_id.value(), {});
+      }
+    } else {
+      parent_id = std::nullopt;
+    }
+    if (!is_empty) {
+      td::Ref<block::BlockSignatureSet> sig_set;
+      std::vector<BlockSignature> signatures;
+      if (maybe_final_cert.not_null()) {
+        for (const auto& s : maybe_final_cert->signatures) {
+          signatures.emplace_back(bus->validator_set[s.validator.value()].short_id.tl(), s.signature.clone());
+        }
+        sig_set = block::BlockSignatureSet::create_simplex(
+            std::move(signatures), bus->cc_seqno, bus->validator_set_hash, bus->session_id,
+            maybe_final_candidate->id.slot, maybe_final_candidate->hash_data().to_tl());
+      } else {
+        std::vector<BlockSignature> signatures;
+        for (const auto& s : notar_cert->signatures) {
+          signatures.emplace_back(bus->validator_set[s.validator.value()].short_id.tl(), s.signature.clone());
+        }
+        sig_set = block::BlockSignatureSet::create_simplex_approve(std::move(signatures), bus->cc_seqno,
+                                                                   bus->validator_set_hash, bus->session_id,
+                                                                   candidate->id.slot, candidate->hash_data().to_tl());
+      }
+      do_finalize_block(id, candidate, parent_id, sig_set).start().detach();
+    }
+    co_return candidate->id;
+  }
+
+  td::actor::Task<> do_finalize_block(RawCandidateId id, RawCandidateRef candidate, ParentId parent_id,
+                                      td::Ref<block::BlockSignatureSet> sig_set) {
+    co_await owning_bus().publish<FinalizeBlock>(candidate, parent_id, std::move(sig_set));
+    co_await owning_bus()->db->set(
+        create_serialize_tl_object<ton_api::consensus_simplex_db_key_finalizedBlock>(id.to_tl()),
+        create_serialize_tl_object<ton_api::consensus_simplex_db_finalizedBlock>(
+            create_tl_block_id(candidate->id.block), RawCandidateId::parent_id_to_tl(candidate->parent_id)));
     co_return td::Unit{};
   }
 
   void load_from_db() {
-    auto blocks = owning_bus()->db->get_by_prefix(ton_api::consensus_simplex_db_key_finalizedBlock::ID);
-    for (auto& [key, _] : blocks) {
-      auto f = fetch_tl_object<ton_api::consensus_simplex_db_key_finalizedBlock>(key, true).ensure().move_as_ok();
-      finalized_blocks_.insert(RawCandidateId::from_tl(f->candidateId_));
+    auto data = owning_bus()->db->get_by_prefix(ton_api::consensus_simplex_db_key_finalizedBlock::ID);
+    std::vector<std::pair<CandidateId, RawParentId>> blocks;
+    for (auto& [key_str, value_str] : data) {
+      auto key = fetch_tl_object<ton_api::consensus_simplex_db_key_finalizedBlock>(key_str, true).ensure().move_as_ok();
+      auto value = fetch_tl_object<ton_api::consensus_simplex_db_finalizedBlock>(value_str, true).ensure().move_as_ok();
+      blocks.emplace_back(CandidateId{RawCandidateId::from_tl(key->candidateId_), create_block_id(value->block_id_)},
+                          RawCandidateId::tl_to_parent_id(value->parent_));
     }
-    LOG(INFO) << "Loaded " << blocks.size() << " finalized blocks from DB";
+    std::sort(blocks.begin(), blocks.end(), [](const auto& x, const auto& y) { return x.first.slot < y.first.slot; });
+    size_t cnt = 0;
+    for (size_t i = 0; i < blocks.size(); ++i) {
+      auto& [id, parent_id] = blocks[i];
+      RawParentId expected_parent_id;
+      if (i == 0) {
+        expected_parent_id = std::nullopt;
+      } else {
+        expected_parent_id = blocks[i].first.as_raw();
+      }
+      if (expected_parent_id != parent_id && !owning_bus()->shard.is_masterchain()) {
+        continue;
+      }
+      ++cnt;
+      finalized_blocks_[id.as_raw()].done = id;
+    }
+    LOG(INFO) << "Loaded " << cnt << " finalized blocks from DB";
   }
 };
 
