@@ -88,9 +88,9 @@ class ActorRef {
     return *ptr_;
   }
 
-  detail::ActorRef as_actor_ref() const {
+  detail::ActorTarget as_actor_ref() const {
     CHECK(!empty());
-    return detail::ActorRef(*ptr_);
+    return detail::ActorTarget(*ptr_);
   }
 
  private:
