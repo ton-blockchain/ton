@@ -277,6 +277,7 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
       if (std::holds_alternative<CandidateHashData::EmptyCandidate>(hash_data.candidate)) {
         state.data.candidate = td::make_ref<RawCandidate>(CandidateId(id, block_id), hash_data.parent, leader_id,
                                                           block_id, std::move(value->signature_));
+        state.stored_data_to_db = true;
       } else {
         state.candidate_info_from_db = ResolveState::CandidateInfo{
             .leader_id = leader_id,
@@ -346,15 +347,12 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
     co_await td::actor::all(std::move(tasks));
 
     if (state.data.candidate.has_value()) {
-      auto &cand = *state.data.candidate;
       state.stored_info_to_db = true;
       for (auto &p : state.stored_info_to_db_waiters) {
         p.set_value(td::Unit{});
       }
       state.stored_info_to_db_waiters.clear();
-      if (std::holds_alternative<BlockCandidate>(cand->block)) {
-        state.stored_data_to_db = true;
-      }
+      state.stored_data_to_db = true;
     }
     if (state.data.notar_cert.has_value()) {
       state.stored_notar_cert_to_db = true;
