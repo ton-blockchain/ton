@@ -176,10 +176,6 @@ void TsCerr::enterCritical() {
 void TsCerr::exitCritical() {
   lock_.clear(std::memory_order_release);
 }
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-pragma"
-TsCerr::Lock TsCerr::lock_ = ATOMIC_FLAG_INIT;
-#pragma clang diagnostic pop
 
 class DefaultLog : public LogInterface {
  public:
