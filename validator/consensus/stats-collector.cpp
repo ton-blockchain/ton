@@ -87,7 +87,7 @@ class StatsCollectorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
 
   template <>
   void handle(BusHandle, std::shared_ptr<const BlockFinalized> event) {
-    auto id = event->candidate->id;
+    auto id = event->candidate;
     auto& stats = stats_for_[id.slot];
 
     stats.block_id = id.block;

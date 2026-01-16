@@ -362,7 +362,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     }
     bool is_empty = std::holds_alternative<BlockIdExt>(candidate->block);
     if (!is_empty) {
-      bus.publish<BlockFinalized>(candidate, maybe_final_cert.not_null());
+      bus.publish<BlockFinalized>(candidate->id, maybe_final_cert.not_null());
     }
     ParentId parent_id;
     if (candidate->parent_id.has_value()) {
@@ -400,27 +400,30 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
   td::actor::Task<> do_finalize_block(RawCandidateId id, RawCandidateRef candidate, ParentId parent_id,
                                       td::Ref<block::BlockSignatureSet> sig_set) {
-    co_await owning_bus().publish<FinalizeBlock>(candidate, parent_id, std::move(sig_set));
+    co_await owning_bus().publish<FinalizeBlock>(candidate, parent_id, sig_set);
     co_await owning_bus()->db->set(
         create_serialize_tl_object<ton_api::consensus_simplex_db_key_finalizedBlock>(id.to_tl()),
         create_serialize_tl_object<ton_api::consensus_simplex_db_finalizedBlock>(
-            create_tl_block_id(candidate->id.block), RawCandidateId::parent_id_to_tl(candidate->parent_id)));
+            create_tl_block_id(candidate->id.block), RawCandidateId::parent_id_to_tl(candidate->parent_id),
+            sig_set->is_final()));
     co_return td::Unit{};
   }
 
   void load_from_db() {
     auto data = owning_bus()->db->get_by_prefix(ton_api::consensus_simplex_db_key_finalizedBlock::ID);
-    std::vector<std::pair<CandidateId, RawParentId>> blocks;
+    std::vector<std::pair<CandidateId, std::pair<RawParentId, bool>>> blocks;
     for (auto& [key_str, value_str] : data) {
       auto key = fetch_tl_object<ton_api::consensus_simplex_db_key_finalizedBlock>(key_str, true).ensure().move_as_ok();
       auto value = fetch_tl_object<ton_api::consensus_simplex_db_finalizedBlock>(value_str, true).ensure().move_as_ok();
       blocks.emplace_back(CandidateId{RawCandidateId::from_tl(key->candidateId_), create_block_id(value->block_id_)},
-                          RawCandidateId::tl_to_parent_id(value->parent_));
+                          std::make_pair(RawCandidateId::tl_to_parent_id(value->parent_), value->is_final_));
     }
     std::sort(blocks.begin(), blocks.end(), [](const auto& x, const auto& y) { return x.first.slot < y.first.slot; });
     size_t cnt = 0;
+    std::optional<CandidateId> last_known_finalized_block;
     for (size_t i = 0; i < blocks.size(); ++i) {
-      auto& [id, parent_id] = blocks[i];
+      auto& [id, p] = blocks[i];
+      auto& [parent_id, is_final] = p;
       RawParentId expected_parent_id;
       if (i == 0) {
         expected_parent_id = std::nullopt;
@@ -432,8 +435,14 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       }
       ++cnt;
       finalized_blocks_[id.as_raw()].done = id;
+      if (is_final) {
+        last_known_finalized_block = id;
+      }
     }
     LOG(INFO) << "Loaded " << cnt << " finalized blocks from DB";
+    if (last_known_finalized_block.has_value()) {
+      owning_bus().publish<BlockFinalized>(last_known_finalized_block.value(), true);
+    }
   }
 };
 

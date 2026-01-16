@@ -22,7 +22,7 @@ namespace ton::validator::consensus {
 struct StopRequested {};
 
 struct BlockFinalized {
-  RawCandidateRef candidate;
+  CandidateId candidate;
   bool final_signatures;
 
   std::string contents_to_string() const;

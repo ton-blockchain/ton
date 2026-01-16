@@ -72,7 +72,7 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
   template <>
   void handle(BusHandle, std::shared_ptr<const BlockFinalized> event) {
     if (event->final_signatures) {
-      last_consensus_finalized_seqno_ = event->candidate->id.block.seqno();
+      last_consensus_finalized_seqno_ = std::max(last_consensus_finalized_seqno_, event->candidate.block.seqno());
     }
   }
 
