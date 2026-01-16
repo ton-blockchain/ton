@@ -304,10 +304,10 @@ void ActorExecutor::flush_context_flags() {
       actor_info_.actor().tear_down();
       actor_stats_.destroyed();
     }
-    // Clear actor pointer BEFORE destroy_actor() so any code during
+    // Clear actor pointer before releasing ref so any code during
     // destruction (actor members, mailbox clear) sees no current actor
     actor_execute_context_.clear_actor();
-    actor_info_.destroy_actor();
+    actor_info_.dec_ref();
   } else {
     if (actor_execute_context_.get_pause()) {
       flags_.add_signals(ActorSignals::one(ActorSignals::Pause));
