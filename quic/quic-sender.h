@@ -41,24 +41,12 @@ class QuicSender : public adnl::AdnlSenderInterface {
     ~Connection();
   };
 
-  struct ConnectionState {
-    struct StreamState {
-      td::BufferBuilder builder{};
-      std::optional<td::uint64> limit = std::nullopt;
-      td::Timestamp timeout = td::Timestamp::never();
-    };
-
-    std::map<QuicStreamID, StreamState> streams{};
-  };
-
   class ServerCallback;
 
   static constexpr int NODE_PORT_OFFSET = 1000;
 
   td::actor::ActorId<adnl::AdnlPeerTable> adnl_;
   td::actor::ActorId<keyring::Keyring> keyring_;
-
-  std::map<QuicConnectionId, ConnectionState> connections_;
 
   std::map<AdnlPath, std::shared_ptr<Connection>> outbound_;
   std::map<AdnlPath, std::shared_ptr<Connection>> inbound_;
@@ -70,7 +58,8 @@ class QuicSender : public adnl::AdnlSenderInterface {
   td::actor::Task<td::Unit> send_message_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                               td::BufferSlice data);
   td::actor::Task<td::BufferSlice> send_query_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
-                                                   std::string name, td::Timestamp timeout, td::BufferSlice data,std::optional<td::uint64>limit);
+                                                   std::string name, td::Timestamp timeout, td::BufferSlice data,
+                                                   std::optional<td::uint64> limit);
   td::actor::Task<std::string> get_conn_ip_str_coro(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id);
   td::actor::Task<> add_local_id_coro(adnl::AdnlNodeIdShort local_id);
 
@@ -80,7 +69,6 @@ class QuicSender : public adnl::AdnlSenderInterface {
 
   void on_connected(td::actor::ActorId<QuicServer> server, QuicConnectionId cid, adnl::AdnlNodeIdShort local_id,
                     td::SecureString peer_public_key, bool is_outbound);
-  void on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end);
   void on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id, td::BufferSlice data);
   void on_closed(QuicConnectionId cid);
 

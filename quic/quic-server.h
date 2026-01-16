@@ -3,6 +3,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <variant>
 
 #include "td/actor/ActorOwn.h"
 #include "td/actor/core/Actor.h"
@@ -19,6 +20,11 @@
 namespace ton::quic {
 struct QuicConnectionPImpl;
 
+struct StreamOptions {
+  std::optional<td::uint64> max_size;
+  td::Timestamp timeout = td::Timestamp::never();
+};
+
 class QuicServer : public td::actor::Actor, public td::ObserverBase {
  public:
   class Callback {
@@ -26,16 +32,17 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     virtual void on_connected(QuicConnectionId cid, td::SecureString peer_public_key, bool is_outbound) = 0;
     virtual void on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) = 0;
     virtual void on_closed(QuicConnectionId cid) = 0;
+    virtual void set_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options) {
+    }
     virtual ~Callback() = default;
   };
 
   void send_stream_data(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data);
   void send_stream_end(QuicConnectionId cid, QuicStreamID sid);
-  td::Result<QuicStreamID> open_stream(QuicConnectionId cid);
+  td::Result<QuicStreamID> open_stream(QuicConnectionId cid, StreamOptions options = {});
 
-  // new inteface
-  td::Result<QuicStreamID> send_stream(QuicConnectionId cid, std::optional<QuicStreamID> sid, td::BufferSlice data,
-                                       bool is_end);
+  td::Result<QuicStreamID> send_stream(QuicConnectionId cid, std::variant<QuicStreamID, StreamOptions> stream,
+                                       td::BufferSlice data, bool is_end);
 
   td::Result<QuicConnectionId> connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key, td::Slice alpn);
 

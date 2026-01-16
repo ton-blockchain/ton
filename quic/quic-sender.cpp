@@ -22,16 +22,69 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
   }
 
   void on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) override {
-    td::actor::send_closure(sender_, &QuicSender::on_stream, cid, sid, std::move(data), is_end);
+    auto [cid_it, cid_inserted] = streams_.emplace(cid, std::map<QuicStreamID, StreamState>{});
+    auto [sid_it, sid_inserted] = cid_it->second.emplace(sid, StreamState{});
+    (void)cid_inserted;
+    (void)sid_inserted;
+    auto &state = sid_it->second;
+    state.append(std::move(data));
+    if (state.should_end()) {
+      is_end = true;
+    }
+    if (!is_end) {
+      return;
+    }
+    auto complete_data = state.extract();
+    cid_it->second.erase(sid_it);
+    if (cid_it->second.empty()) {
+      streams_.erase(cid_it);
+    }
+    td::actor::send_closure(sender_, &QuicSender::on_stream_complete, cid, sid, std::move(complete_data));
   }
 
   void on_closed(QuicConnectionId cid) override {
+    streams_.erase(cid);
     td::actor::send_closure(sender_, &QuicSender::on_closed, cid);
   }
 
+  void set_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options) override {
+    streams_[cid][sid].set_options(options);
+  }
+
  private:
+  struct StreamState {
+    void append(td::BufferSlice data) {
+      if (!data.empty()) {
+        builder_.append(std::move(data));
+      }
+    }
+
+    bool should_end() const {
+      if (options_.max_size.has_value() && builder_.size() > *options_.max_size) {
+        return true;
+      }
+      if (options_.timeout && options_.timeout.is_in_past()) {
+        return true;
+      }
+      return false;
+    }
+
+    td::BufferSlice extract() {
+      return builder_.extract();
+    }
+
+    void set_options(StreamOptions options) {
+      options_ = options;
+    }
+
+   private:
+    td::BufferBuilder builder_;
+    StreamOptions options_;
+  };
+
   adnl::AdnlNodeIdShort local_id_;
   td::actor::ActorId<QuicSender> sender_;
+  std::map<QuicConnectionId, std::map<QuicStreamID, StreamState>> streams_;
 };
 
 static td::Result<adnl::AdnlNodeIdShort> parse_peer_id(td::Slice peer_public_key) {
@@ -109,7 +162,8 @@ td::actor::Task<td::Unit> QuicSender::send_message_coro(adnl::AdnlNodeIdShort sr
                                                         td::BufferSlice data) {
   auto conn = co_await find_or_create_connection({src, dst});
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_message>(std::move(data));
-  co_await td::actor::ask(conn->server, &QuicServer::send_stream, conn->cid, std::nullopt, std::move(wire_data), true);
+  co_await td::actor::ask(conn->server, &QuicServer::send_stream, conn->cid, StreamOptions{}, std::move(wire_data),
+                          true);
   co_return td::Unit{};
 }
 
@@ -118,14 +172,13 @@ td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdSho
                                                              td::BufferSlice data, std::optional<td::uint64> limit) {
   auto conn = co_await find_or_create_connection({src, dst});
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_query>(std::move(data));
-  // create stream_id explicitly to avoid race
-  auto stream_id = co_await td::actor::ask(conn->server, &QuicServer::open_stream, conn->cid);
   auto cid = conn->cid;
-  connections_[cid].streams[stream_id].limit = limit;
-  connections_[cid].streams[stream_id].timeout = timeout;
+  auto server = conn->server;
+  // create stream explicitly to avoid race with response
+  auto stream_id = co_await td::actor::ask(server, &QuicServer::open_stream, cid,
+                                           StreamOptions{.max_size = limit, .timeout = timeout});
   auto [future, answer_promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
   CHECK(conn->responses.emplace(stream_id, std::move(answer_promise)).second);
-  auto server = conn->server;
   conn = nullptr;  // don't keep connection, it may disconnect during our wait
   co_await td::actor::ask(server, &QuicServer::send_stream, cid, stream_id, std::move(wire_data), true);
   co_return co_await std::move(future);
@@ -278,28 +331,6 @@ void QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicConnect
   }
 }
 
-void QuicSender::on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) {
-  auto &s_state = connections_[cid].streams[sid];
-  if (!data.empty()) {
-    s_state.builder.append(std::move(data));
-  }
-  if (s_state.limit.has_value() && s_state.builder.size() > *s_state.limit)
-    is_end = true;
-  if (s_state.timeout && s_state.timeout.is_in_past())
-    is_end = true;
-  if (!is_end) {
-    return;
-  }
-  td::BufferSlice complete_data;
-  if (auto cid_it = connections_.find(cid); cid_it != connections_.end()) {
-    if (auto sid_it = cid_it->second.streams.find(sid); sid_it != cid_it->second.streams.end()) {
-      complete_data = sid_it->second.builder.extract();
-      cid_it->second.streams.erase(sid_it);
-    }
-  }
-  td::actor::send_closure(actor_id(this), &QuicSender::on_stream_complete, cid, sid, std::move(complete_data));
-}
-
 void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id, td::BufferSlice data) {
   if (data.empty()) {
     return;  // currently message will trigger empty response
@@ -328,7 +359,6 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
 }
 
 void QuicSender::on_closed(QuicConnectionId cid) {
-  connections_.erase(cid);
   auto it = by_cid_.find(cid);
   if (it == by_cid_.end()) {
     return;

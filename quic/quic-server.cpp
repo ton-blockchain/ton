@@ -344,11 +344,11 @@ void QuicServer::send_stream_end(QuicConnectionId cid, QuicStreamID sid) {
   send_stream(cid, sid, {}, true);
 }
 
-td::Result<QuicStreamID> QuicServer::open_stream(QuicConnectionId cid) {
-  return send_stream(cid, {}, {}, false);
+td::Result<QuicStreamID> QuicServer::open_stream(QuicConnectionId cid, StreamOptions options) {
+  return send_stream(cid, options, {}, false);
 }
 
-td::Result<QuicStreamID> QuicServer::send_stream(QuicConnectionId cid, std::optional<QuicStreamID> o_sid,
+td::Result<QuicStreamID> QuicServer::send_stream(QuicConnectionId cid, std::variant<QuicStreamID, StreamOptions> stream,
                                                  td::BufferSlice data, bool is_end) {
   auto state = find_connection(cid);
   if (!state) {
@@ -356,10 +356,11 @@ td::Result<QuicStreamID> QuicServer::send_stream(QuicConnectionId cid, std::opti
   }
 
   QuicStreamID sid;
-  if (o_sid) {
-    sid = *o_sid;
+  if (auto *existing = std::get_if<QuicStreamID>(&stream)) {
+    sid = *existing;
   } else {
     TRY_RESULT_ASSIGN(sid, state->impl().open_stream());
+    callback_->set_stream_options(cid, sid, std::get<StreamOptions>(stream));
   }
 
   if (!data.empty() || is_end) {
