@@ -177,7 +177,7 @@ variable special-dict
 // target_rate-ms
 { <b x{2000} s, swap 32 u, b> } : make-null-consensus-params
 // target-rate-ms slots-per-leader-window first-block-timeout-ms max-leader-window-desync
-{ <b x{2100} s, 4 roll 32 u, 3 roll 32 u, rot 32 u, swap 32 u, b> } : make-simplex-params
+{ <b x{21} s, 1 8 u, 4 roll 32 u, 3 roll 32 u, rot 32 u, swap 32 u, b> } : make-simplex-params
 // mc-params shard-params
 { <b x{10} s, rot dict, swap dict, b> } : make-new-consensus-params-all
 { make-new-consensus-params-all 30 config! } : config.new_consensus_params_all!
