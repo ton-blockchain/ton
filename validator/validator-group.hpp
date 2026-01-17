@@ -21,6 +21,7 @@
 #include <list>
 
 #include "interfaces/validator-manager.h"
+#include "quic/quic-sender.h"
 #include "rldp/rldp.h"
 #include "rldp2/rldp-utils.h"
 #include "rldp2/rldp.h"
