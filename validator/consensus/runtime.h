@@ -166,29 +166,37 @@ struct BusTreeNode {
 
 template <typename E>
 void log_event(bool published, const BusTreeNode& bus, const E& event) {
-  std::string contents;
-  if constexpr (requires {
-                  { event.contents_to_string() } -> std::same_as<std::string>;
-                }) {
-    if (published) {
-      contents = event.contents_to_string();
+  auto printer = [&](td::StringBuilder& sb) {
+    auto type_name = td::actor::core::ActorTypeStatManager::get_class_name(typeid(event).name());
+    size_t last_colon = type_name.rfind("::");
+    if (last_colon != std::string::npos) {
+      sb << type_name.substr(0, last_colon + 2) << td::Colored{td::AnsiColor::Yellow, type_name.substr(last_colon + 2)};
     }
-  }
-  std::string_view bus_name = bus.actor_name_prefix;
-  if (bus_name.ends_with(".")) {
-    bus_name = bus_name.substr(0, bus_name.size() - 1);
-  } else if (bus_name == "") {
-    bus_name = "root";
-  }
 
-  auto type_name = td::actor::core::ActorTypeStatManager::get_class_name(typeid(event).name());
-  size_t last_colon = type_name.rfind("::");
-  if (last_colon != std::string::npos) {
-    type_name = type_name.substr(0, last_colon + 2) + TC_YELLOW + type_name.substr(last_colon + 2) + TC_CYAN;
-  }
+    sb << "@" << &event;
 
-  LOG(INFO) << (published ? "Published event " : "Received event ") << type_name << "@" << &event << "\x1b[90m"
-            << contents << TC_CYAN << " on " << td::Slice(bus_name.data(), bus_name.size()) << " bus";
+    if constexpr (requires {
+                    { event.contents_to_string() } -> std::same_as<std::string>;
+                  }) {
+      if (published) {
+        sb << td::Colored{td::AnsiColor::Gray, event.contents_to_string()};
+      }
+    }
+
+    std::string_view bus_name = bus.actor_name_prefix;
+    if (bus_name != "") {
+      if (bus_name.ends_with(".")) {
+        bus_name = bus_name.substr(0, bus_name.size() - 1);
+      }
+      sb << " on " << td::Slice(bus_name.data(), bus_name.size()) << " bus";
+    }
+  };
+
+  if (published) {
+    LOG(INFO) << "Published event " << td::LambdaPrint{} << printer;
+  } else {
+    LOG(DEBUG) << "Received event " << td::LambdaPrint{} << printer;
+  }
 }
 
 // A ref-counted nullable pointer of bus B.

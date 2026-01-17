@@ -222,7 +222,7 @@ std::pair<Pipe, Observer> make_pipe(ChainBufferReader input, ChainBufferWriter o
 
    private:
     CancellationTokenSource cancellation_token_source_;
-    std::atomic_flag has_listener_ = ATOMIC_FLAG_INIT;
+    std::atomic_flag has_listener_;
     actor::ActorId<> listener_;
   };
 
