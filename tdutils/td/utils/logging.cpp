@@ -57,6 +57,16 @@ LogOptions log_options;
 TD_THREAD_LOCAL const char *Logger::tag_ = nullptr;
 TD_THREAD_LOCAL const char *Logger::tag2_ = nullptr;
 
+Logger::Logger(LogInterface &log, const LogOptions &options, int log_level)
+    : buffer_(StackAllocator::alloc(BUFFER_SIZE))
+    , log_(log)
+    , sb_(buffer_.as_slice())
+    , options_(options)
+    , log_level_(log_level)
+    , start_at_(Clocks::rdtsc()) {
+  sb_.current_color() = log_.color_for(log_level);
+}
+
 Logger::Logger(LogInterface &log, const LogOptions &options, int log_level, Slice file_name, int line_num,
                Slice comment)
     : Logger(log, options, log_level) {

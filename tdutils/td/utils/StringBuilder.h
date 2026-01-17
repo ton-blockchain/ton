@@ -79,6 +79,10 @@ class StringBuilder {
     return error_flag_;
   }
 
+  AnsiColor &current_color() & {
+    return current_color_;
+  }
+
   StringBuilder &operator<<(const char *str) {
     return *this << Slice(str);
   }
@@ -145,6 +149,7 @@ class StringBuilder {
   char *end_ptr_;
   bool error_flag_ = false;
   bool use_buffer_ = false;
+  AnsiColor current_color_ = AnsiColor::Disallowed;
   std::unique_ptr<char[]> buffer_;
   static constexpr size_t RESERVED_SIZE = 30;
 
@@ -196,5 +201,15 @@ struct LambdaPrint {};
 inline LambdaPrintHelper<td::StringBuilder> operator<<(td::StringBuilder &sb, const LambdaPrint &) {
   return LambdaPrintHelper<td::StringBuilder>{sb};
 }
+
+struct Colored {
+  explicit Colored(AnsiColor color, Slice text) : color(color), text(text) {
+  }
+
+  AnsiColor color;
+  Slice text;
+};
+
+StringBuilder &operator<<(StringBuilder &sb, Colored text);
 
 }  // namespace td

@@ -244,15 +244,7 @@ class TsCerr {
 class Logger {
  public:
   static const int BUFFER_SIZE = 128 * 1024;
-  Logger(LogInterface &log, const LogOptions &options, int log_level)
-      : buffer_(StackAllocator::alloc(BUFFER_SIZE))
-      , log_(log)
-      , sb_(buffer_.as_slice())
-      , options_(options)
-      , log_level_(log_level)
-      , start_at_(Clocks::rdtsc()) {
-  }
-
+  Logger(LogInterface &log, const LogOptions &options, int log_level);
   Logger(LogInterface &log, const LogOptions &options, int log_level, Slice file_name, int line_num, Slice comment);
 
   template <Formattable T>
