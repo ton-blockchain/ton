@@ -636,7 +636,7 @@ TEST(QuicSender, LargeScale) {
     }
 
     auto elapsed = td::Timestamp::now().at() - start.at();
-    double mbps = (total_bytes / 1024.0 / 1024.0) / elapsed;
+    double mbps = (static_cast<double>(total_bytes) / 1024.0 / 1024.0) / elapsed;
 
     LOG(INFO) << "Success: " << success << ", Errors: " << errors;
     LOG(INFO) << "Time: " << td::format::as_time(elapsed);

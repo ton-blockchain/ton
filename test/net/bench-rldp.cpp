@@ -226,7 +226,7 @@ class BenchmarkRunner : public td::actor::Actor {
   double percentile(std::vector<double>& sorted, double p) {
     if (sorted.empty())
       return 0;
-    size_t idx = static_cast<size_t>(p * (sorted.size() - 1));
+    size_t idx = static_cast<size_t>(p * static_cast<double>(sorted.size() - 1));
     return sorted[idx];
   }
 
@@ -234,7 +234,7 @@ class BenchmarkRunner : public td::actor::Actor {
     auto elapsed = td::Clocks::system() - start_time_;
     auto qps = config_.num_queries / elapsed;
     auto total_bytes = (td::uint64)config_.num_queries * (config_.query_size + config_.response_size);
-    auto throughput_mbps = (total_bytes / elapsed) / (1024 * 1024);
+    auto throughput_mbps = (static_cast<double>(total_bytes) / elapsed) / (1024 * 1024);
 
     LOG(ERROR) << "Benchmark complete:";
     LOG(ERROR) << "  Protocol: " << protocol_name(config_.protocol);
@@ -250,7 +250,7 @@ class BenchmarkRunner : public td::actor::Actor {
       double sum = 0;
       for (auto l : latencies_)
         sum += l;
-      double avg = sum / latencies_.size();
+      double avg = sum / static_cast<double>(latencies_.size());
 
       LOG(ERROR) << "  Latency:";
       LOG(ERROR) << "    min: " << td::format::as_time(latencies_.front());
