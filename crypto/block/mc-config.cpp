@@ -338,6 +338,7 @@ ton::ValidatorSessionConfig Config::get_consensus_config() const {
       td::uint64 catchain_lifetime = std::max(catchain_config.mc_cc_lifetime, catchain_config.shard_cc_lifetime);
       c.catchain_opts.max_block_height_coeff = catchain_lifetime * max_blocks_coeff;
     }
+    c.use_quic = r.use_quic;
   };
   if (cc.not_null()) {
     block::gen::ConsensusConfig::Record_consensus_config_v4 r4;
@@ -379,6 +380,7 @@ td::optional<ton::NewConsensusConfig> Config::get_new_consensus_config(ton::Work
     return ton::NewConsensusConfig{.target_rate_ms = r1.target_rate_ms,
                                    .max_block_size = consensus_config.max_block_size,
                                    .max_collated_data_size = consensus_config.max_collated_data_size,
+                                   .use_quic = r1.use_quic,
                                    .consensus = ton::NewConsensusConfig::NullConsensus{}};
   }
   gen::NewConsensusConfig::Record_simplex_config r2;
@@ -387,6 +389,7 @@ td::optional<ton::NewConsensusConfig> Config::get_new_consensus_config(ton::Work
         .target_rate_ms = r2.target_rate_ms,
         .max_block_size = consensus_config.max_block_size,
         .max_collated_data_size = consensus_config.max_collated_data_size,
+        .use_quic = r2.use_quic,
         .consensus = ton::NewConsensusConfig::Simplex{.slots_per_leader_window = r2.slots_per_leader_window,
                                                       .first_block_timeout_ms = r2.first_block_timeout_ms,
                                                       .max_leader_window_desync = r2.max_leader_window_desync}};

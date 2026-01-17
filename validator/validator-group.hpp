@@ -41,7 +41,7 @@ class IValidatorGroup : public td::actor::Actor {
       td::Ref<block::ValidatorSet> validator_set, BlockSeqno last_key_block_seqno,
       validatorsession::ValidatorSessionOptions config, td::actor::ActorId<keyring::Keyring> keyring,
       td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
-      td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
+      td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
       td::actor::ActorId<ValidatorManager> validator_manager, td::actor::ActorId<CollationManager> collation_manager,
       bool create_session, bool allow_unsafe_self_blocks_resync, td::Ref<ValidatorManagerOptions> opts,
       bool monitoring_shard);
@@ -51,7 +51,7 @@ class IValidatorGroup : public td::actor::Actor {
       td::Ref<block::ValidatorSet> validator_set, BlockSeqno last_key_block_seqno, NewConsensusConfig config,
       td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
       td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
-      td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
+      td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
       td::actor::ActorId<ValidatorManager> validator_manager, td::actor::ActorId<CollationManager> collation_manager,
       bool create_session, bool allow_unsafe_self_blocks_resync, td::Ref<ValidatorManagerOptions> opts,
       bool monitoring_shard);

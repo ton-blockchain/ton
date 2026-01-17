@@ -35,7 +35,13 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
     auto& bus = *owning_bus();
     overlays_ = bus.overlays;
     rldp2_ = bus.rldp2;
+    quic_ = bus.quic;
     local_id_ = bus.local_id;
+    if (bus.config.use_quic) {
+      adnl_sender_ = quic_;
+    } else {
+      adnl_sender_ = rldp2_;
+    }
 
     std::vector<adnl::AdnlNodeIdShort> overlay_nodes;
     std::vector<td::Bits256> overlay_nodes_tl;
@@ -52,6 +58,7 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
     td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_id_.adnl_id);
     rldp_limit_guard_ = rldp2::PeersMtuLimitGuard(rldp2_, local_id_.adnl_id, overlay_nodes,
                                                   bus.config.max_block_size + bus.config.max_collated_data_size + 1024);
+    td::actor::send_closure(quic_, &quic::QuicSender::add_local_id, local_id_.adnl_id);
 
     auto overlay_seed = create_tl_object<tl::overlayId>(bus.session_id, std::move(overlay_nodes_tl));
     auto overlay_full_id = overlay::OverlayIdFull{serialize_tl_object(overlay_seed, true)};
@@ -60,7 +67,7 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
     overlay::OverlayOptions options;
     options.broadcast_speed_multiplier_ = bus.validator_opts->get_catchain_broadcast_speed_multiplier();
     options.private_ping_peers_ = true;
-    options.twostep_broadcast_sender_ = rldp2_;
+    options.twostep_broadcast_sender_ = adnl_sender_;
     options.send_twostep_broadcast_ = true;
 
     td::actor::send_closure(overlays_, &overlay::Overlays::create_private_overlay_ex, local_id_.adnl_id,
@@ -104,7 +111,7 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
     td::actor::send_closure(
         overlays_, &overlay::Overlays::send_query_via, dst, local_id_.adnl_id, overlay_id_, "", std::move(promise),
         message->timeout, std::move(message->request.data),
-        owning_bus()->config.max_block_size + owning_bus()->config.max_collated_data_size + (1 << 13), rldp2_);
+        owning_bus()->config.max_block_size + owning_bus()->config.max_collated_data_size + (1 << 13), adnl_sender_);
     auto response = co_await std::move(awaiter);
     if (fetch_tl_object<tl::requestError>(response, true).is_ok()) {
       co_return td::Status::Error("Peer returned an error");
@@ -198,6 +205,8 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
 
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<rldp2::Rldp> rldp2_;
+  td::actor::ActorId<quic::QuicSender> quic_;
+  td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender_;
   overlay::OverlayIdShort overlay_id_;
   rldp2::PeersMtuLimitGuard rldp_limit_guard_;
   PeerValidator local_id_;

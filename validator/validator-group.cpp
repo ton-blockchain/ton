@@ -19,6 +19,7 @@
 #include "collator-node/collator-node.hpp"
 #include "common/delay.h"
 #include "interfaces/validator-full-id.h"
+#include "quic/quic-sender.h"
 #include "td/utils/Random.h"
 #include "td/utils/overloaded.h"
 #include "ton/lite-tl.hpp"
@@ -86,8 +87,9 @@ class ValidatorGroup : public IValidatorGroup {
                  td::Ref<block::ValidatorSet> validator_set, BlockSeqno last_key_block_seqno,
                  validatorsession::ValidatorSessionOptions config, td::actor::ActorId<keyring::Keyring> keyring,
                  td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
-                 td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<overlay::Overlays> overlays,
-                 std::string db_root, td::actor::ActorId<ValidatorManager> validator_manager,
+                 td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
+                 td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
+                 td::actor::ActorId<ValidatorManager> validator_manager,
                  td::actor::ActorId<CollationManager> collation_manager, bool create_session,
                  bool allow_unsafe_self_blocks_resync, td::Ref<ValidatorManagerOptions> opts, bool monitoring_shard)
       : shard_(shard)
@@ -100,6 +102,7 @@ class ValidatorGroup : public IValidatorGroup {
       , adnl_(adnl)
       , rldp_(rldp)
       , rldp2_(rldp2)
+      , quic_(quic)
       , overlays_(overlays)
       , db_root_(std::move(db_root))
       , manager_(validator_manager)
@@ -141,6 +144,7 @@ class ValidatorGroup : public IValidatorGroup {
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<rldp::Rldp> rldp_;
   td::actor::ActorId<rldp2::Rldp> rldp2_;
+  td::actor::ActorId<quic::QuicSender> quic_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   std::string db_root_;
   td::actor::ActorId<ValidatorManager> manager_;
@@ -214,14 +218,14 @@ td::actor::ActorOwn<IValidatorGroup> IValidatorGroup::create_catchain(
     td::Ref<block::ValidatorSet> validator_set, BlockSeqno last_key_block_seqno,
     validatorsession::ValidatorSessionOptions config, td::actor::ActorId<keyring::Keyring> keyring,
     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
-    td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
+    td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
     td::actor::ActorId<ValidatorManager> validator_manager, td::actor::ActorId<CollationManager> collation_manager,
     bool create_session, bool allow_unsafe_self_blocks_resync, td::Ref<ValidatorManagerOptions> opts,
     bool monitoring_shard) {
   return td::actor::create_actor<ValidatorGroup>(
       name, shard, std::move(local_id), session_id, std::move(validator_set), last_key_block_seqno, std::move(config),
-      keyring, adnl, rldp, rldp2, overlays, std::move(db_root), validator_manager, collation_manager, create_session,
-      allow_unsafe_self_blocks_resync, std::move(opts), monitoring_shard);
+      keyring, adnl, rldp, rldp2, quic, overlays, std::move(db_root), validator_manager, collation_manager,
+      create_session, allow_unsafe_self_blocks_resync, std::move(opts), monitoring_shard);
 }
 
 static bool need_send_candidate_broadcast(const validatorsession::BlockSourceInfo &source_info, bool is_masterchain) {
@@ -758,7 +762,12 @@ void ValidatorGroup::create_session() {
                                                 config_.max_block_size + config_.max_collated_data_size + 1024);
 
   // FIXME: we currently use quic here for tests. Use option or something
-  auto adnl_sender = quic_;
+  td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender;
+  if (config_.use_quic) {
+    adnl_sender = quic_;
+  } else {
+    adnl_sender = rldp2_;
+  }
   config_.catchain_opts.broadcast_speed_multiplier = opts_->get_catchain_broadcast_speed_multiplier();
   if (!config_.new_catchain_ids) {
     session_ = validatorsession::ValidatorSession::create(

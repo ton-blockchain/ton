@@ -1520,6 +1520,7 @@ ValidatorSessionOptions::ValidatorSessionOptions(const ValidatorSessionConfig &c
   round_attempt_duration = conf.round_attempt_duration;
   round_candidates = conf.round_candidates;
   new_catchain_ids = conf.new_catchain_ids;
+  use_quic = conf.use_quic;
 }
 
 }  // namespace validatorsession

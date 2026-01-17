@@ -538,6 +538,7 @@ struct ValidatorSessionConfig {
   td::uint32 max_collated_data_size = (4 << 20);
 
   bool new_catchain_ids = false;
+  bool use_quic = false;
 
   static const td::uint32 BLOCK_HASH_COVERS_DATA_FROM_VERSION = 2;
 };
@@ -546,6 +547,7 @@ struct NewConsensusConfig {
   td::uint32 target_rate_ms = 1000;
   td::uint32 max_block_size = (4 << 20);
   td::uint32 max_collated_data_size = (4 << 20);
+  bool use_quic = false;
 
   struct NullConsensus {};
   struct Simplex {

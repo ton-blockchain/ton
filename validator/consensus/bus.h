@@ -9,6 +9,7 @@
 #include "consensus/misbehavior.h"
 #include "keyring/keyring.hpp"
 #include "overlay/overlays.h"
+#include "quic/quic-sender.h"
 #include "rldp2/rldp.h"
 #include "td/db/KeyValueAsync.h"
 #include "ton/ton-types.h"
@@ -193,6 +194,7 @@ class Bus : public runtime::Bus {
 
   td::actor::ActorId<overlay::Overlays> overlays;
   td::actor::ActorId<rldp2::Rldp> rldp2;
+  td::actor::ActorId<quic::QuicSender> quic;
   std::unique_ptr<Db> db;
 
   std::vector<BlockIdExt> first_block_parents;
