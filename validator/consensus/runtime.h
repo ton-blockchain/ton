@@ -57,6 +57,41 @@ concept ValidEventFor = ValidPublishTargetFor<E, B> && !requires { typename E::R
 template <typename E, typename B>
 concept ValidRequestFor = ValidPublishTargetFor<E, B> && requires { typename E::ReturnType; };
 
+template <typename E>
+concept LogToDebug = std::same_as<typename E::LogToDebug, std::true_type>;
+
+template <typename E>
+void append_event_typename(td::StringBuilder& sb, const E& event) {
+  auto type_name = td::actor::core::ActorTypeStatManager::get_class_name(typeid(event).name());
+  size_t last_colon = type_name.rfind("::");
+  if (last_colon != std::string::npos) {
+    sb << type_name.substr(0, last_colon + 2) << td::Colored{td::AnsiColor::Yellow, type_name.substr(last_colon + 2)};
+  }
+  sb << "@" << &event;
+}
+
+template <typename E, typename R>
+void log_response(const E& event, const td::Result<R>& response) {
+  auto printer = [&](td::StringBuilder& sb) {
+    sb << "Response for ";
+    append_event_typename(sb, event);
+    sb << " is ready";
+    if (response.is_error()) {
+      sb << ": " << response.error();
+    } else {
+      if constexpr (requires(const R& r) { E::response_to_string(r); }) {
+        sb << ": " << td::Colored{td::AnsiColor::Gray, E::response_to_string(response.ok())};
+      }
+    }
+  };
+
+  if (!LogToDebug<E>) {
+    LOG(INFO) << td::LambdaPrint{} << printer;
+  } else {
+    LOG(DEBUG) << td::LambdaPrint{} << printer;
+  }
+}
+
 struct BusIdTag {};
 using BusTypeId = td::IdType<BusIdTag>;
 
@@ -103,13 +138,17 @@ class BusEventPublishImpl : public BusEventPublishImplBase<B, E> {};
 
 template <typename B, ValidRequestFor<B> E>
 class BusEventPublishImpl<B, E> : public BusEventPublishImplBase<B, E> {
+  using ReturnType = E::ReturnType;
+
  public:
-  auto publish(std::shared_ptr<E> event, BusHandle<B> handle) {
+  td::actor::Task<ReturnType> publish(std::shared_ptr<E> event, BusHandle<B> handle) {
     CHECK(dispatcher_fn != nullptr);
-    return td::actor::ask(actor, dispatcher_fn, handle, event).then([this, event, handle](auto&& result) {
+    auto result = co_await td::actor::ask(actor, dispatcher_fn, handle, event).wrap();
+    log_response(*event, result);
+    if (result.is_ok()) {
       static_cast<BusEventPublishImplBase<B, E>>(*this).publish(event, handle);
-      return result;
-    });
+    }
+    co_return result;
   }
 
  private:
@@ -167,14 +206,12 @@ struct BusTreeNode {
 template <typename E>
 void log_event(bool published, const BusTreeNode& bus, const E& event) {
   auto printer = [&](td::StringBuilder& sb) {
-    auto type_name = td::actor::core::ActorTypeStatManager::get_class_name(typeid(event).name());
-    size_t last_colon = type_name.rfind("::");
-    if (last_colon != std::string::npos) {
-      sb << type_name.substr(0, last_colon + 2) << td::Colored{td::AnsiColor::Yellow, type_name.substr(last_colon + 2)};
+    if (published) {
+      sb << "Published event ";
+    } else {
+      sb << "Received event ";
     }
-
-    sb << "@" << &event;
-
+    append_event_typename(sb, event);
     if constexpr (requires {
                     { event.contents_to_string() } -> std::same_as<std::string>;
                   }) {
@@ -192,10 +229,10 @@ void log_event(bool published, const BusTreeNode& bus, const E& event) {
     }
   };
 
-  if (published) {
-    LOG(INFO) << "Published event " << td::LambdaPrint{} << printer;
+  if (published && !LogToDebug<E>) {
+    LOG(INFO) << td::LambdaPrint{} << printer;
   } else {
-    LOG(DEBUG) << "Received event " << td::LambdaPrint{} << printer;
+    LOG(DEBUG) << td::LambdaPrint{} << printer;
   }
 }
 
@@ -584,6 +621,7 @@ using detail::Bus;
 using detail::BusHandle;
 using detail::BusType;
 using detail::ConnectsTo;
+using detail::LogToDebug;
 using detail::SpawnsWith;
 
 class Runtime {

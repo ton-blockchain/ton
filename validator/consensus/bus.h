@@ -86,6 +86,8 @@ struct ValidationRequest {
 };
 
 struct IncomingProtocolMessage {
+  using LogToDebug = std::true_type;
+
   PeerValidatorId source;
   ProtocolMessage message;
 
@@ -93,6 +95,8 @@ struct IncomingProtocolMessage {
 };
 
 struct OutgoingProtocolMessage {
+  using LogToDebug = std::true_type;
+
   std::optional<PeerValidatorId> recipient;
   ProtocolMessage message;
 
@@ -100,18 +104,26 @@ struct OutgoingProtocolMessage {
 };
 
 struct IncomingOverlayRequest {
+  using LogToDebug = std::true_type;
   using ReturnType = ProtocolMessage;
 
   PeerValidatorId source;
   ProtocolMessage request;
+
+  std::string contents_to_string() const;
+  static std::string response_to_string(const ReturnType&);
 };
 
 struct OutgoingOverlayRequest {
+  using LogToDebug = std::true_type;
   using ReturnType = ProtocolMessage;
 
   PeerValidatorId destination;
   td::Timestamp timeout;
   ProtocolMessage request;
+
+  std::string contents_to_string() const;
+  static std::string response_to_string(const ReturnType&);
 };
 
 struct BlockFinalizedInMasterchain {
@@ -123,6 +135,8 @@ struct BlockFinalizedInMasterchain {
 struct MisbehaviorReport {
   PeerValidatorId id;
   MisbehaviorRef proof;
+
+  std::string contents_to_string() const;
 };
 
 struct StatsTargetReached {

@@ -29,13 +29,25 @@ std::string candidate_to_string(const td::OneOf<RawCandidateRef, CandidateRef> a
                    << ", block=" << std::visit(td::overloaded(block_fn, empty_fn), candidate->block) << "}";
 }
 
-std::string message_to_string(td::Slice message) {
-  auto maybe_decoded = fetch_tl_object<ton_api::Object>(message, true);
-  if (maybe_decoded.is_error()) {
-    return PSTRING() << "<message of size " << message.size() << ">";
+std::string message_to_string(const ProtocolMessage& message) {
+  constexpr size_t max_size_for_json = 1024;
+  constexpr size_t max_size_for_hex_dump = 256;
+
+  td::Slice data = message.data;
+
+  if (data.size() <= max_size_for_json) {
+    auto maybe_decoded = fetch_tl_object<ton_api::Object>(data, true);
+    if (maybe_decoded.is_ok()) {
+      return td::json_encode<std::string>(td::ToJson(maybe_decoded.ok()));
+    }
   }
 
-  return td::json_encode<std::string>(td::ToJson(maybe_decoded.ok()));
+  if (data.size() <= max_size_for_hex_dump) {
+    return PSTRING() << td::format::as_hex_dump<0>(data);
+  } else {
+    return PSTRING() << td::format::as_hex_dump<0>(data.substr(0, max_size_for_json)) << "... (truncated "
+                     << (data.size() - max_size_for_json) << " bytes)";
+  }
 }
 
 std::string block_signature_set_to_string(const td::Ref<block::BlockSignatureSet>& set) {
@@ -76,16 +88,37 @@ std::string ValidationRequest::contents_to_string() const {
 }
 
 std::string IncomingProtocolMessage::contents_to_string() const {
-  return PSTRING() << "{source=" << source << ", message=" << message_to_string(message.data) << "}";
+  return PSTRING() << "{source=" << source << ", message=" << message_to_string(message) << "}";
 }
 
 std::string OutgoingProtocolMessage::contents_to_string() const {
   return PSTRING() << "{recipient=" << (recipient.has_value() ? (PSTRING() << *recipient) : "broadcast")
-                   << ", message=" << message_to_string(message.data) << "}";
+                   << ", message=" << message_to_string(message) << "}";
+}
+
+std::string IncomingOverlayRequest::contents_to_string() const {
+  return PSTRING() << "{source=" << source << ", request=" << message_to_string(request) << "}";
+}
+
+std::string IncomingOverlayRequest::response_to_string(const ReturnType& response) {
+  return PSTRING() << message_to_string(response);
+}
+
+std::string OutgoingOverlayRequest::contents_to_string() const {
+  return PSTRING() << "{destination=" << destination << ", timeout=" << timeout.in()
+                   << " remaining, request=" << message_to_string(request) << "}";
+}
+
+std::string OutgoingOverlayRequest::response_to_string(const ReturnType& response) {
+  return PSTRING() << message_to_string(response);
 }
 
 std::string BlockFinalizedInMasterchain::contents_to_string() const {
   return PSTRING() << "{block=" << block.to_str() << "}";
+}
+
+std::string MisbehaviorReport::contents_to_string() const {
+  return PSTRING() << "{id=" << id << "}";
 }
 
 std::string StatsTargetReached::contents_to_string() const {
