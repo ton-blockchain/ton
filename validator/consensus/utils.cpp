@@ -58,4 +58,13 @@ td::Result<std::pair<td::Ref<vm::Cell>, td::Ref<BlockData>>> apply_block_to_stat
   }
 }
 
+td::Result<bool> get_before_split(const td::Ref<BlockData>& block) {
+  block::gen::Block::Record blk;
+  block::gen::BlockInfo::Record info;
+  if (!(tlb::unpack_cell(block->root_cell(), blk) && tlb::unpack_cell(blk.info, info))) {
+    return td::Status::Error("cannot unpack block header");
+  }
+  return info.before_split;
+}
+
 }  // namespace ton::validator::consensus
