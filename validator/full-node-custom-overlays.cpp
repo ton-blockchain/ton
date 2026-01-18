@@ -55,8 +55,8 @@ void FullNodeCustomOverlay::process_block_broadcast(PublicKeyHash src, ton_api::
     LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Received block broadcast in custom overlay \"" << name_ << "\" from " << src << ": "
-                        << B.ok().block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Received block broadcast " << (B.ok().sig_set->is_final() ? "" : "(approve signatures) ")
+                        << "in custom overlay \"" << name_ << "\" from " << src << ": " << B.ok().block_id.to_str();
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok());
 }
 
@@ -159,7 +159,7 @@ void FullNodeCustomOverlay::send_broadcast(BlockBroadcast broadcast) {
   }
   VLOG(FULL_NODE_DEBUG) << "Sending block broadcast to custom overlay \"" << name_
                         << "\": " << broadcast.block_id.to_str();
-  auto B = serialize_block_broadcast(broadcast, true, k_called_from_custom);  // compression_enabled = true
+  auto B = serialize_block_broadcast(broadcast, k_called_from_custom);
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
     return;

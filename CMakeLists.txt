@@ -195,6 +195,18 @@ if (USE_LIBRAPTORQ)
   add_subdirectory(third-party/libraptorq EXCLUDE_FROM_ALL)
 endif()
 
+option(USE_QUIC "use ngtcp2 QUIC library" ON)
+if (USE_QUIC)
+  function(ngtcp2_scope)
+    find_package(OpenSSL 3.5 REQUIRED COMPONENTS SSL Crypto)
+    set(BUILD_TESTING OFF)
+    message("Add ngtcp2")
+    add_subdirectory(third-party/ngtcp2 EXCLUDE_FROM_ALL)
+    set(NGTCP2_ROOT ${CMAKE_SOURCE_DIR}/third-party/ngtcp2)
+  endfunction()
+  ngtcp2_scope()
+endif ()
+
 message("Add tl-parser")
 add_subdirectory(third-party/tl-parser EXCLUDE_FROM_ALL)
 
@@ -480,6 +492,10 @@ add_subdirectory(rldp-http-proxy)
 endif()
 #END internal
 
+if (USE_QUIC)
+  add_subdirectory(quic)
+endif ()
+
 if (NOT CMAKE_CROSSCOMPILING)
   if (TDUTILS_MIME_TYPE)
     set(TDMIME_AUTO tdmime_auto)
@@ -563,6 +579,10 @@ add_executable(test-rldp test/test-rldp.cpp)
 target_link_libraries(test-rldp adnl adnltest dht rldp tl_api)
 add_executable(test-rldp2 test/test-rldp2.cpp)
 target_link_libraries(test-rldp2 adnl adnltest dht rldp2 tl_api)
+add_executable(bench-rldp test/net/bench-rldp.cpp)
+target_link_libraries(bench-rldp adnl adnltest dht rldp rldp2 tl_api quic)
+add_executable(test-quic-sender test/net/test-quic-sender.cpp)
+target_link_libraries(test-quic-sender adnl dht tl_api quic)
 add_executable(test-validator-session-state test/test-validator-session-state.cpp)
 target_link_libraries(test-validator-session-state adnl dht rldp validatorsession tl_api)
 
@@ -694,5 +714,7 @@ ton_test(test-emulator)
 ton_test(test-fec)
 ton_test(test-tddb ${TEST_OPTIONS})
 ton_test(test-db ${TEST_OPTIONS})
+
+add_subdirectory(test)
 endif()
 #END internal

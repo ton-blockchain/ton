@@ -18,11 +18,10 @@
 */
 #pragma once
 
+#include "block/validator-set.h"
 #include "crypto/block/mc-config.h"
 #include "crypto/common/refcnt.hpp"
 #include "ton/ton-types.h"
-
-#include "validator-set.h"
 
 namespace ton {
 
@@ -34,8 +33,10 @@ class ConfigHolder : public td::CntObject {
  public:
   virtual ~ConfigHolder() = default;
 
-  virtual td::Ref<ValidatorSet> get_total_validator_set(int next) const = 0;  // next = -1 -> prev, next = 0 -> cur
-  virtual td::Ref<ValidatorSet> get_validator_set(ShardIdFull shard, UnixTime utime, CatchainSeqno seqno) const = 0;
+  virtual td::Ref<block::ValidatorSet> get_total_validator_set(
+      int next) const = 0;  // next = -1 -> prev, next = 0 -> cur
+  virtual td::Ref<block::ValidatorSet> get_validator_set(ShardIdFull shard, UnixTime utime,
+                                                         CatchainSeqno seqno) const = 0;
   virtual std::pair<UnixTime, UnixTime> get_validator_set_start_stop(int next) const = 0;
 };
 

@@ -17,6 +17,7 @@
 
 #include "auto/tl/ton_api_json.h"
 #include "common/delay.h"
+#include "interfaces/validator-full-id.h"
 #include "td/utils/JsonBuilder.h"
 #include "tl/tl_json.h"
 #include "ton/ton-tl.hpp"
@@ -51,8 +52,8 @@ void FullNodeFastSyncOverlay::process_block_broadcast(PublicKeyHash src, ton_api
     LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Received block broadcast in fast sync overlay from " << src << ": "
-                        << B.ok().block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Received block broadcast " << (B.ok().sig_set->is_final() ? "" : "(approve signatures) ")
+                        << "in fast sync overlay from " << src << ": " << B.ok().block_id.to_str();
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok());
 }
 
@@ -197,7 +198,7 @@ void FullNodeFastSyncOverlay::send_broadcast(BlockBroadcast broadcast) {
   }
   VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in fast sync overlay (with compression): "
                         << broadcast.block_id.to_str();
-  auto B = serialize_block_broadcast(broadcast, true, k_called_from_fast_sync);  // compression_enabled = true
+  auto B = serialize_block_broadcast(broadcast, k_called_from_fast_sync);
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
     return;

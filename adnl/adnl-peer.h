@@ -49,6 +49,7 @@ class AdnlPeerPair : public td::actor::Actor {
     vec.push_back(std::move(message));
     send_messages(std::move(vec));
   }
+  virtual void get_peer_node(td::Promise<AdnlNode> promise) = 0;
   static constexpr td::uint32 get_mtu() {
     return Adnl::get_mtu() + 128;
   }

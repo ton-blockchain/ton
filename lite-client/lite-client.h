@@ -144,7 +144,7 @@ class TestNode : public td::actor::Actor {
     ton::LogicalTime end_lt{0};
     ton::Bits256 vset_hash;
     Ref<vm::Cell> vset_root;
-    std::shared_ptr<block::ValidatorSet> vset;
+    std::shared_ptr<block::TotalValidatorSet> vset;
     std::map<ton::Bits256, int> vset_map;
     int special_idx{-1};
     std::pair<td::int64, td::int64> created_total, created_special;
@@ -288,14 +288,14 @@ class TestNode : public td::actor::Actor {
   struct LoadValidatorShardSharesState {
     ton::BlockSeqno start_seqno;
     ton::BlockSeqno end_seqno;
-    block::ValidatorSet validator_set;
+    block::TotalValidatorSet validator_set;
     std::unique_ptr<block::CatchainValidatorsConfig> catchain_config;
     std::vector<block::ShardConfig> shard_configs;
     td::uint32 cur_idx = 0, pending = 0, loaded = 0;
     td::Promise<std::map<td::Bits256, td::uint64>> promise;
   };
   void load_validator_shard_shares(ton::BlockSeqno start_seqno, ton::BlockSeqno end_seqno,
-                                   block::ValidatorSet validator_set,
+                                   block::TotalValidatorSet validator_set,
                                    std::unique_ptr<block::CatchainValidatorsConfig> catchain_config,
                                    td::Promise<std::map<td::Bits256, td::uint64>> promise);
   void load_validator_shard_shares_cont(std::shared_ptr<LoadValidatorShardSharesState> state);

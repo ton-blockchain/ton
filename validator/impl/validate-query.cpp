@@ -24,6 +24,7 @@
 #include "block/block-parse.h"
 #include "block/block.h"
 #include "block/output-queue-merger.h"
+#include "block/validator-set.h"
 #include "common/errorlog.h"
 #include "ton/ton-io.hpp"
 #include "ton/ton-tl.hpp"
@@ -35,7 +36,6 @@
 #include "storage-stat-cache.hpp"
 #include "top-shard-descr.hpp"
 #include "validate-query.hpp"
-#include "validator-set.hpp"
 
 namespace ton {
 
@@ -84,6 +84,8 @@ ValidateQuery::ValidateQuery(BlockCandidate candidate, ValidateParams params,
     , shard_pfx_(shard_.shard)
     , shard_pfx_len_(ton::shard_prefix_length(shard_))
     , optimistic_prev_block_(std::move(params.optimistic_prev_block))
+    , preloaded_prev_block_state_roots_(std::move(params.prev_block_state_roots))
+    , is_new_consensus_(params.is_new_consensus)
     , perf_timer_("validateblock", 0.1, [manager](double duration) {
       send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
     }) {
@@ -240,7 +242,8 @@ void ValidateQuery::finish_query() {
   if (main_promise) {
     record_stats(true);
     LOG(WARNING) << "validate query done";
-    main_promise.set_result(now_);
+    double ok_from_utime = now_ms_ ? (double)now_ms_.value() / 1000.0 : (double)now_;
+    main_promise.set_result(CandidateAccept{.ok_from_utime = ok_from_utime});
   }
   stop();
 }
@@ -429,18 +432,25 @@ void ValidateQuery::start_up() {
  * Load previous states from DB
  */
 void ValidateQuery::load_prev_states() {
+  CHECK(preloaded_prev_block_state_roots_.empty() || preloaded_prev_block_state_roots_.size() == prev_blocks.size());
   for (int i = 0; (unsigned)i < prev_blocks.size(); i++) {
     // 4.1. load state
-    LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
     ++pending;
-    td::actor::send_closure_later(
-        manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(), timeout, false,
-        [self = get_self(), i, token = perf_log_.start_action(PSTRING() << "wait_block_state #" << i)](
-            td::Result<Ref<ShardState>> res) mutable {
-          LOG(DEBUG) << "got answer to wait_block_state_short query #" << i;
-          td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_shard_state, i, std::move(res),
-                                        std::move(token));
-        });
+    if (preloaded_prev_block_state_roots_.empty()) {
+      LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
+      td::actor::send_closure_later(
+          manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(), timeout, false,
+          [self = get_self(), i, token = perf_log_.start_action(PSTRING() << "wait_block_state #" << i)](
+              td::Result<Ref<ShardState>> res) mutable {
+            LOG(DEBUG) << "got answer to wait_block_state_short query #" << i;
+            td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_shard_state, i, std::move(res),
+                                          std::move(token));
+          });
+    } else {
+      td::actor::send_closure_later(actor_id(this), &ValidateQuery::after_get_shard_state, i,
+                                    create_shard_state(prev_blocks[i], preloaded_prev_block_state_roots_[i]),
+                                    td::PerfLogAction{});
+    }
   }
 }
 
@@ -687,10 +697,7 @@ bool ValidateQuery::init_parse() {
     fees_import_dict_ = std::make_unique<vm::AugmentedDictionary>(mc_extra.shard_fees, 96, block::tlb::aug_ShardFees);
     // prev_blk_signatures:(HashmapE 16 CryptoSignaturePair)
     if (mc_extra.r1.prev_blk_signatures->have_refs()) {
-      prev_signatures_ = BlockSignatureSetQ::fetch(mc_extra.r1.prev_blk_signatures->prefetch_ref());
-      if (prev_signatures_.is_null() || !prev_signatures_->size()) {
-        return reject_query("cannot deserialize signature set for the previous masterchain block in prev_signatures");
-      }
+      return reject_query("prev_blk_signatures not supported");
     }
     recover_create_msg_ = mc_extra.r1.recover_create_msg->prefetch_ref();
     mint_msg_ = mc_extra.r1.mint_msg->prefetch_ref();
@@ -761,6 +768,22 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
       return reject_query("duplicate AccountStorageDictProof");
     }
     full_collated_data_ = true;
+    return true;
+  }
+  if (block::gen::t_ConsensusExtraData.has_valid_tag(cs)) {
+    if (!block::gen::t_ConsensusExtraData.validate_upto(10000, cs)) {
+      return reject_query("invalid ConsensusExtraData");
+    }
+    if (now_ms_) {
+      return reject_query("duplicate ConsensusExtraData");
+    }
+    if (!is_new_consensus_) {
+      return reject_query("unexpected ConsensusExtraData");
+    }
+    block::gen::ConsensusExtraData::Record rec;
+    CHECK(block::gen::unpack(cs, rec));
+    now_ms_ = rec.gen_utime_ms;
+    LOG(DEBUG) << "collated datum # " << idx << " is a ConsensusExtraData, gen_utime_ms=" << rec.gen_utime_ms;
     return true;
   }
   LOG(WARNING) << "collated datum # " << idx << " has unknown type (magic " << cs.prefetch_ulong(32) << "), ignoring";
@@ -1055,6 +1078,7 @@ bool ValidateQuery::try_unpack_mc_state() {
                                     << " while the masterchain configuration expects " << config_->get_vert_seqno());
     }
     global_version_ = config_->get_global_version();
+    allow_same_timestamp_ = global_version_ >= 13;
     prev_key_block_exists_ = config_->get_last_key_block(prev_key_block_, prev_key_block_lt_);
     if (prev_key_block_exists_) {
       prev_key_block_seqno_ = prev_key_block_.seqno();
@@ -2443,14 +2467,15 @@ bool ValidateQuery::check_utime_lt() {
     return reject_query(PSTRING() << "block has start_lt " << start_lt_ << " less than or equal to lt " << ps_.lt_
                                   << " of the previous state");
   }
-  if (now_ <= ps_.utime_) {
-    return reject_query(PSTRING() << "block has creation time " << now_
-                                  << " less than or equal to that of the previous state (" << ps_.utime_ << ")");
+  if (allow_same_timestamp_ ? now_ < ps_.utime_ : now_ <= ps_.utime_) {
+    return reject_query(PSTRING() << "block has creation time " << now_ << " less than "
+                                  << (allow_same_timestamp_ ? "" : "or equal ") << "to that of the previous state ("
+                                  << ps_.utime_ << ")");
   }
-  if (now_ <= config_->utime) {
-    return reject_query(PSTRING() << "block has creation time " << now_
-                                  << " less than or equal to that of the reference masterchain state ("
-                                  << config_->utime << ")");
+  if (allow_same_timestamp_ ? now_ < config_->utime : now_ <= config_->utime) {
+    return reject_query(PSTRING() << "block has creation time " << now_ << " less than "
+                                  << (allow_same_timestamp_ ? "" : "or equal ")
+                                  << "to that of the reference masterchain state (" << config_->utime << ")");
   }
   /*
   if (now_ > (unsigned)std::time(nullptr) + 15) {
@@ -2474,6 +2499,13 @@ bool ValidateQuery::check_utime_lt() {
   if (end_lt_ - start_lt_ > block_limits_->lt_delta.hard()) {
     return reject_query(PSTRING() << "block increased logical time by " << end_lt_ - start_lt_
                                   << " which is larger than the hard limit " << block_limits_->lt_delta.hard());
+  }
+  if (is_new_consensus_) {
+    CHECK(now_ms_);
+    if (now_ms_.value() / 1000 != now_) {
+      return reject_query(PSTRING() << "gen_utime is " << now_ << ", but gen_utime_ms in ConsensusExtraData is "
+                                    << now_ms_.value());
+    }
   }
   return true;
 }
@@ -7286,16 +7318,6 @@ bool ValidateQuery::check_mc_block_extra() {
   total_burned_ += x;
   fees_burned_ += x;
   // ^[ prev_blk_signatures:(HashmapE 16 CryptoSignaturePair)
-  if (prev_signatures_.not_null() && id_.seqno() == 1) {
-    return reject_query("block contains non-empty signature set for the zero state of the masterchain");
-  }
-  if (id_.seqno() > 1) {
-    if (prev_signatures_.not_null()) {
-      // TODO: check signatures here
-    } else if (!is_fake_ && false) {  // FIXME: remove "&& false" when collator serializes signatures
-      return reject_query("block contains an empty signature set for the previous block");
-    }
-  }
   //   recover_create_msg:(Maybe ^InMsg)
   //   mint_msg:(Maybe ^InMsg) ]
   // config:key_block?ConfigParams -> checked in compute_next_state() and ???

@@ -18,11 +18,11 @@
 */
 #include "block/block-auto.h"
 #include "block/block-parse.h"
+#include "block/validator-set.h"
 #include "vm/boc.h"
 #include "vm/cells/MerkleProof.h"
 
 #include "proof.hpp"
-#include "validator-set.hpp"
 
 namespace ton {
 namespace validator {

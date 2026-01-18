@@ -312,12 +312,12 @@ void ValidatorManagerImpl::wait_block_proof_link_short(BlockIdExt block_id, td::
 }
 
 void ValidatorManagerImpl::wait_block_signatures(BlockHandle handle, td::Timestamp timeout,
-                                                 td::Promise<td::Ref<BlockSignatureSet>> promise) {
+                                                 td::Promise<td::Ref<block::BlockSignatureSet>> promise) {
   td::actor::send_closure(db_, &Db::get_block_signatures, handle, std::move(promise));
 }
 
 void ValidatorManagerImpl::wait_block_signatures_short(BlockIdExt block_id, td::Timestamp timeout,
-                                                       td::Promise<td::Ref<BlockSignatureSet>> promise) {
+                                                       td::Promise<td::Ref<block::BlockSignatureSet>> promise) {
   auto P = td::PromiseCreator::lambda(
       [SelfId = actor_id(this), timeout, promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
         if (R.is_error()) {

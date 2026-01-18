@@ -228,14 +228,14 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_block_proof_link_short(BlockIdExt id, td::Timestamp timeout,
                                    td::Promise<td::Ref<ProofLink>> promise) override;
 
-  void set_block_signatures(BlockHandle handle, td::Ref<BlockSignatureSet> signatures,
-                            td::Promise<td::Unit> promise) override {
+  void set_block_signatures(BlockHandle handle, td::Ref<block::BlockSignatureSet> signatures,
+                            Ref<block::ValidatorSet> vset, td::Promise<td::Unit> promise) override {
     UNREACHABLE();
   }
   void wait_block_signatures(BlockHandle handle, td::Timestamp timeout,
-                             td::Promise<td::Ref<BlockSignatureSet>> promise) override;
+                             td::Promise<td::Ref<block::BlockSignatureSet>> promise) override;
   void wait_block_signatures_short(BlockIdExt id, td::Timestamp timeout,
-                                   td::Promise<td::Ref<BlockSignatureSet>> promise) override;
+                                   td::Promise<td::Ref<block::BlockSignatureSet>> promise) override;
 
   void set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
                            td::uint32 validator_set_hash, td::Promise<td::Unit> promise) override {

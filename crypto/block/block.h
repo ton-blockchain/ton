@@ -31,6 +31,8 @@
 #include "vm/dict.h"
 #include "vm/stack.hpp"
 
+#include "signature-set.h"
+
 namespace block {
 
 using td::Ref;
@@ -590,9 +592,7 @@ struct BlockProofLink {
   ton::BlockIdExt from, to;
   bool is_key{false}, is_fwd{false};
   Ref<vm::Cell> dest_proof, state_proof, proof;
-  ton::CatchainSeqno cc_seqno{0};
-  td::uint32 validator_set_hash{0};
-  std::vector<ton::BlockSignature> signatures;
+  Ref<BlockSignatureSet> sig_set;
   BlockProofLink(ton::BlockIdExt _from, ton::BlockIdExt _to, bool _iskey = false)
       : from(_from), to(_to), is_key(_iskey), is_fwd(to.seqno() > from.seqno()) {
   }

@@ -18,6 +18,7 @@
 */
 #include "common/delay.h"
 #include "impl/out-msg-queue-proof.hpp"
+#include "interfaces/validator-full-id.h"
 #include "td/actor/MultiPromise.h"
 #include "td/actor/coro_utils.h"
 #include "td/utils/Random.h"

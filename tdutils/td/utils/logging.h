@@ -199,6 +199,9 @@ class LogInterface {
   virtual vector<string> get_file_paths() {
     return {};
   }
+  virtual AnsiColor color_for(int log_level) {
+    return AnsiColor::Disallowed;
+  }
 };
 
 class NullLog : public LogInterface {
@@ -219,13 +222,6 @@ using OnFatalErrorCallback = void (*)(CSlice message);
 void set_log_fatal_error_callback(OnFatalErrorCallback callback);
 
 [[noreturn]] void process_fatal_error(CSlice message);
-
-#define TC_RED "\x1b[1;31m"
-#define TC_BLUE "\x1b[1;34m"
-#define TC_CYAN "\x1b[1;36m"
-#define TC_GREEN "\x1b[1;32m"
-#define TC_YELLOW "\x1b[1;33m"
-#define TC_EMPTY "\x1b[0m"
 
 class TsCerr {
  public:
@@ -248,15 +244,7 @@ class TsCerr {
 class Logger {
  public:
   static const int BUFFER_SIZE = 128 * 1024;
-  Logger(LogInterface &log, const LogOptions &options, int log_level)
-      : buffer_(StackAllocator::alloc(BUFFER_SIZE))
-      , log_(log)
-      , sb_(buffer_.as_slice())
-      , options_(options)
-      , log_level_(log_level)
-      , start_at_(Clocks::rdtsc()) {
-  }
-
+  Logger(LogInterface &log, const LogOptions &options, int log_level);
   Logger(LogInterface &log, const LogOptions &options, int log_level, Slice file_name, int line_num, Slice comment);
 
   template <Formattable T>

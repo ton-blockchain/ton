@@ -463,15 +463,20 @@ inline void register_actor_info_ptr(core::ActorInfoPtr actor_info_ptr) {
   core::SchedulerContext::get().add_to_queue(std::move(actor_info_ptr), state.get_scheduler_id(), !state.is_shared());
 }
 
-template <class T, class... ArgsT>
-core::ActorInfoPtr create_actor(core::ActorOptions &options, ArgsT &&...args) noexcept {
+template <class T>
+core::ActorInfoPtr create_actor_info(core::ActorOptions &options, std::unique_ptr<T> actor) noexcept {
   auto *scheduler_context = core::SchedulerContext::get_ptr();
   if (!options.has_scheduler()) {
     options.on_scheduler(scheduler_context->get_scheduler_id());
   }
   options.with_actor_stat_id(core::ActorTypeStatImpl::get_unique_id<T>());
-  auto res =
-      scheduler_context->get_actor_info_creator().create(std::make_unique<T>(std::forward<ArgsT>(args)...), options);
+  auto res = scheduler_context->get_actor_info_creator().create(std::move(actor), options);
+  return res;
+}
+
+template <class T>
+core::ActorInfoPtr create_actor(core::ActorOptions &options, std::unique_ptr<T> actor) noexcept {
+  auto res = create_actor_info(options, std::move(actor));
   register_actor_info_ptr(res);
   return res;
 }

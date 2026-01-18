@@ -58,7 +58,7 @@ class ValidatorSessionImpl : public ValidatorSession {
   std::set<ValidatorSessionCandidateId> pending_approve_;
   std::map<ValidatorSessionCandidateId, td::BufferSlice> pending_reject_;
   std::set<ValidatorSessionCandidateId> rejected_;
-  std::map<ValidatorSessionCandidateId, std::pair<UnixTime, td::BufferSlice>> approved_;
+  std::map<ValidatorSessionCandidateId, std::pair<double, td::BufferSlice>> approved_;
 
   std::set<ValidatorSessionCandidateId> active_requests_;
 
@@ -85,7 +85,8 @@ class ValidatorSessionImpl : public ValidatorSession {
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<rldp2::Rldp> rldp_;
+  td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender_;
+
   td::actor::ActorId<overlay::Overlays> overlay_manager_;
   td::actor::ActorOwn<catchain::CatChain> catchain_;
   std::unique_ptr<ValidatorSessionDescription> description_;
@@ -210,8 +211,9 @@ class ValidatorSessionImpl : public ValidatorSession {
   ValidatorSessionImpl(catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,
                        std::vector<ValidatorSessionNode> nodes, std::unique_ptr<Callback> callback,
                        td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                       td::actor::ActorId<rldp2::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
-                       std::string db_root, std::string db_suffix, bool allow_unsafe_self_blocks_resync);
+                       td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender,
+                       td::actor::ActorId<overlay::Overlays> overlays, std::string db_root, std::string db_suffix,
+                       bool allow_unsafe_self_blocks_resync);
   void start_up() override;
   void alarm() override;
 
@@ -248,8 +250,8 @@ class ValidatorSessionImpl : public ValidatorSession {
   void candidate_decision_fail(td::uint32 round, ValidatorSessionCandidateId hash, std::string result, td::uint32 src,
                                td::BufferSlice proof, double validation_time, bool validation_cached);
   void candidate_decision_ok(td::uint32 round, ValidatorSessionCandidateId hash, RootHash root_hash, FileHash file_hash,
-                             td::uint32 src, td::uint32 ok_from, double validation_time, bool validation_cached);
-  void candidate_approved_signed(td::uint32 round, ValidatorSessionCandidateId hash, td::uint32 ok_from,
+                             td::uint32 src, double ok_from, double validation_time, bool validation_cached);
+  void candidate_approved_signed(td::uint32 round, ValidatorSessionCandidateId hash, double ok_from,
                                  td::BufferSlice signature);
 
   void generated_block(td::uint32 round, GeneratedCandidate c, double collation_time);
