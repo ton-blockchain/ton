@@ -27,3 +27,9 @@
 [submodule "third-party/ngtcp2"]
 	path = third-party/ngtcp2
 	url = https://github.com/ngtcp2/ngtcp2.git
+[submodule "third-party/openssl"]
+	path = third-party/openssl
+	url = https://github.com/openssl/openssl
+[submodule "third-party/sodium"]
+	path = third-party/sodium
+	url = https://github.com/jedisct1/libsodium.git
