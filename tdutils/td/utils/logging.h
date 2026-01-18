@@ -239,7 +239,7 @@ class TsCerr {
 
  private:
   using Lock = std::atomic_flag;
-  static Lock lock_;
+  inline static Lock lock_;
 
   void enterCritical();
   void exitCritical();
@@ -343,10 +343,8 @@ class TsLog : public LogInterface {
 
  private:
   LogInterface *log_ = nullptr;
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-pragma"
-  std::atomic_flag lock_ = ATOMIC_FLAG_INIT;
-#pragma clang diagnostic pop
+  std::atomic_flag lock_;
+
   void enter_critical() {
     while (lock_.test_and_set(std::memory_order_acquire)) {
       // spin
