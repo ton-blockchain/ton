@@ -98,7 +98,22 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
   }
 
  private:
-  bool should_generate_empty_block(BlockSeqno new_seqno) {
+  bool is_before_split(const std::vector<td::Ref<BlockData>>& prev_block_data) {
+    if (prev_block_data.size() != 1 || prev_block_data[0]->block_id().shard_full() != owning_bus()->shard) {
+      return false;
+    }
+    auto result = get_before_split(prev_block_data[0]);
+    if (result.is_error()) {
+      LOG(INFO) << "Failed to get before_split of the previous block: " << result.move_as_error();
+      return false;
+    }
+    return result.move_as_ok();
+  }
+
+  bool should_generate_empty_block(BlockSeqno new_seqno, const std::vector<td::Ref<BlockData>>& prev_block_data) {
+    if (is_before_split(prev_block_data)) {
+      return true;
+    }
     if (owning_bus()->shard.is_masterchain()) {
       return last_consensus_finalized_seqno_ + 1 < new_seqno;
     } else {
@@ -134,7 +149,7 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
 
       owning_bus().publish<StatsTargetReached>(StatsTargetReached::CollateStarted, slot);
 
-      if (should_generate_empty_block(new_seqno)) {
+      if (should_generate_empty_block(new_seqno, prev_block_data)) {
         LOG(WARNING) << "Generating an empty block for slot " << slot << "! new_seqno=" << new_seqno
                      << ", last_consensus_finalized_seqno_=" << last_consensus_finalized_seqno_
                      << ", last_mc_finalized_seqno_=" << last_mc_finalized_seqno_;
