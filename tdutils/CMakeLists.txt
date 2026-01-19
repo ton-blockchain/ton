@@ -350,6 +350,10 @@ target_include_directories(tdutils PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOUR
 if (OPENSSL_FOUND)
   target_link_libraries(tdutils PRIVATE ${OPENSSL_CRYPTO_LIBRARY} ${CMAKE_DL_LIBS} ${ZLIB_LIBRARIES})
   target_include_directories(tdutils SYSTEM PRIVATE ${OPENSSL_INCLUDE_DIR})
+  # Ensure OpenSSL is built before tdutils
+  if (TARGET OpenSSL)
+    add_dependencies(tdutils OpenSSL)
+  endif()
 endif()
 
 if (ZLIB_FOUND)

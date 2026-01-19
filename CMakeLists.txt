@@ -103,6 +103,13 @@ if (TON_WERROR_BUILD)
   add_compile_options(-Werror)
 endif()
 
+# Ensure custom build modules (including OpenSSL) are available early for QUIC checks.
+set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake" ${CMAKE_MODULE_PATH})
+include(BuildOpenSSL)
+
+#message("Add OpenSSL")
+#add_subdirectory(third-party/openssl EXCLUDE_FROM_ALL)
+
 if (TON_USE_ROCKSDB)
   message("Add rocksdb")
   function(rocksdb_scope)
@@ -197,25 +204,41 @@ endif()
 
 option(USE_QUIC "use ngtcp2 QUIC library" ON)
 if (USE_QUIC)
+  # Set OpenSSL paths to use our custom-built OpenSSL with QUIC support
+  # Use CACHE variables to override find_package(OpenSSL) behavior
+  set(OPENSSL_ROOT_DIR ${CMAKE_CURRENT_BINARY_DIR}/third-party/openssl CACHE PATH "OpenSSL root directory" FORCE)
+  set(OPENSSL_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/third-party/openssl/include CACHE PATH "OpenSSL include directory" FORCE)
+  set(OPENSSL_CRYPTO_LIBRARY ${CMAKE_CURRENT_BINARY_DIR}/third-party/openssl/lib/libcrypto.a CACHE FILEPATH "OpenSSL crypto library" FORCE)
+  set(OPENSSL_SSL_LIBRARY ${CMAKE_CURRENT_BINARY_DIR}/third-party/openssl/lib/libssl.a CACHE FILEPATH "OpenSSL SSL library" FORCE)
+  set(OPENSSL_LIBRARIES ${OPENSSL_SSL_LIBRARY} ${OPENSSL_CRYPTO_LIBRARY} CACHE STRING "OpenSSL libraries" FORCE)
+  set(OPENSSL_FOUND TRUE CACHE BOOL "OpenSSL found" FORCE)
+  
   function(ngtcp2_scope)
-    find_package(OpenSSL 3.5 REQUIRED COMPONENTS SSL Crypto)
     set(BUILD_TESTING OFF)
-    message("Add ngtcp2")
+    message("Add ngtcp2 with custom OpenSSL from ${OPENSSL_ROOT_DIR}")
     add_subdirectory(third-party/ngtcp2 EXCLUDE_FROM_ALL)
     set(NGTCP2_ROOT ${CMAKE_SOURCE_DIR}/third-party/ngtcp2)
   endfunction()
   ngtcp2_scope()
+  
+  # Make sure ngtcp2 libraries depend on OpenSSL being built first
+  add_dependencies(ngtcp2 OpenSSL)
+  if (TARGET ngtcp2_crypto_quictls)
+    add_dependencies(ngtcp2_crypto_quictls OpenSSL)
+  endif()
 endif ()
 
 message("Add tl-parser")
 add_subdirectory(third-party/tl-parser EXCLUDE_FROM_ALL)
 
 message("Add ton")
-set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake" ${CMAKE_MODULE_PATH})
-
 include(BuildBLST)
 include(BuildSECP256K1)
 include(BuildLibbacktrace)
+include(BuildSodium)
+#include(BuildMHD)
+#include(BuildZLIB)
+
 
 # Configure CCache if available
 find_program(CCACHE_FOUND ccache)

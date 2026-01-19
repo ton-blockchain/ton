@@ -292,10 +292,18 @@ if (NOT WIN32)
   target_link_libraries(ton_crypto_core PUBLIC dl z)
 endif()
 target_include_directories(ton_crypto_core SYSTEM PUBLIC $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>)
+# Ensure OpenSSL is built before ton_crypto_core
+if (TARGET OpenSSL)
+  add_dependencies(ton_crypto_core OpenSSL)
+endif()
 
 add_library(ton_crypto STATIC ${TON_CRYPTO_SOURCE})
 target_include_directories(ton_crypto PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
 target_link_libraries(ton_crypto PUBLIC ${OPENSSL_CRYPTO_LIBRARY} ton_crypto_core ton_block)
+# Ensure OpenSSL is built before ton_crypto
+if (TARGET OpenSSL)
+  add_dependencies(ton_crypto OpenSSL)
+endif()
 if (USE_EMSCRIPTEN)
   target_link_options(ton_crypto PRIVATE -fexceptions)
   target_compile_options(ton_crypto PRIVATE -fexceptions)
