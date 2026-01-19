@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <map>
 #include <memory>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -44,20 +45,60 @@ namespace ton {
 
 namespace overlay {
 
+constexpr int VERBOSITY_NAME(TWOSTEP_WARNING) = verbosity_WARNING;
+constexpr int VERBOSITY_NAME(TWOSTEP_INFO) = verbosity_INFO;
+constexpr int VERBOSITY_NAME(TWOSTEP_DEBUG) = verbosity_DEBUG;
+
 static constexpr std::size_t FEC_MIN_BYTES = 513;
 static constexpr std::size_t FEC_MIN_OTHER_NODES = 4;
 
 static constexpr std::size_t fec_k(std::size_t other_nodes) {
+  LOG_CHECK(other_nodes > 2) << "other_nodes=" << other_nodes;
   return (other_nodes * 2 - 2) / 3;
+}
+
+struct BroadcastTwostepDebugInfo {
+  adnl::AdnlNodeIdShort src_adnl_id;
+  td::Bits256 data_hash;
+  td::uint32 data_size{0};
+  td::uint32 symbols_received{0};
+  td::uint32 symbols_needed{0};
+  td::Timestamp timestamp;
+  std::set<adnl::AdnlNodeIdShort> chunk_senders;
+
+  void print_senders(td::StringBuilder &sb) const {
+    sb << "senders=" << chunk_senders;
+  }
+
+  double elapsed() const {
+    return timestamp.at() - td::Timestamp::now().at();
+  }
+};
+
+td::StringBuilder &operator<<(td::StringBuilder &sb, const BroadcastTwostepDebugInfo &d) {
+  sb << "src=" << d.src_adnl_id << " data_hash=" << d.data_hash.to_hex() << " data_size=" << d.data_size;
+  if (d.symbols_needed > 0) {
+    sb << " symbols=" << d.symbols_received << "/" << d.symbols_needed;
+  }
+  if (!d.chunk_senders.empty()) {
+    sb << " unique_senders=" << d.chunk_senders.size();
+  }
+  return sb;
 }
 
 struct BroadcastTwostep : td::ListNode {
   Overlay::BroadcastHash broadcast_id;
   td::uint32 date;
   std::unique_ptr<td::raptorq::Decoder> decoder;
+  BroadcastTwostepDebugInfo debug;
 };
 
+td::StringBuilder &operator<<(td::StringBuilder &sb, const BroadcastTwostep &b) {
+  return sb << "broadcast_id=" << b.broadcast_id.to_hex() << " " << b.debug;
+}
+
 struct BroadcastTwostepDataSimple {
+  td::Bits256 broadcast_id;
   td::uint32 flags;
   td::uint32 date;
   adnl::AdnlNodeIdShort src;
@@ -66,6 +107,7 @@ struct BroadcastTwostepDataSimple {
 };
 
 struct BroadcastTwostepDataFec {
+  td::Bits256 broadcast_id;
   td::uint32 flags;
   td::uint32 date;
   adnl::AdnlNodeIdShort src;
@@ -91,16 +133,20 @@ void BroadcastsTwostep::send(OverlayImpl *overlay, PublicKeyHash send_as, td::Bu
     }
   });
   td::Bits256 broadcast_id;
-  if (data_size >= FEC_MIN_BYTES && other_nodes.size() >= FEC_MIN_OTHER_NODES) {
+  bool use_fec = data_size >= FEC_MIN_BYTES && other_nodes.size() >= FEC_MIN_OTHER_NODES;
+  if (use_fec) {
     std::size_t k = fec_k(other_nodes.size());
     std::size_t part_size = (data_size + k - 1) / k;
     CHECK(part_size < data_size);
     broadcast_id = get_tl_object_sha_bits256(create_tl_object<ton_api::overlay_broadcastTwostep_id>(
         flags, date, send_as.bits256_value(), overlay->local_id().bits256_value(), data_hash,
         static_cast<std::int32_t>(part_size)));
+    VLOG(TWOSTEP_INFO) << "twostep START sender broadcast_id=" << broadcast_id.to_hex()
+                       << " data_hash=" << data_hash.to_hex() << " data_size=" << data_size
+                       << " recipients=" << other_nodes.size() << " mode=FEC";
     auto R = td::raptorq::Encoder::create(part_size, data.clone());
     if (R.is_error()) {
-      VLOG(OVERLAY_WARNING) << overlay << ": cannot create FEC encoder: " << R.move_as_error();
+      VLOG(TWOSTEP_WARNING) << "cannot create FEC encoder: " << R.move_as_error();
       return;
     }
     auto encoder = R.move_as_ok();
@@ -110,14 +156,20 @@ void BroadcastsTwostep::send(OverlayImpl *overlay, PublicKeyHash send_as, td::Bu
       td::BufferSlice part(part_size);
       td::Status S = encoder->gen_symbol(seqno, part.as_slice());
       if (S.is_error()) {
-        VLOG(OVERLAY_WARNING) << overlay << ": cannot generate symbol: " << S;
+        VLOG(TWOSTEP_WARNING) << "cannot generate symbol: " << S;
         continue;
       }
       td::BufferSlice to_sign = create_serialize_tl_object<ton_api::overlay_broadcastTwostepFec_toSign>(
           broadcast_id, static_cast<std::int32_t>(data_size), static_cast<std::int32_t>(seqno), part.clone());
-      BroadcastTwostepDataFec passdata{flags,          date,           adnl::AdnlNodeIdShort(send_as),
-                                       other_nodes[i], data_hash,      static_cast<td::uint32>(data_size),
-                                       seqno,          std::move(part)};
+      BroadcastTwostepDataFec passdata{.broadcast_id = broadcast_id,
+                                       .flags = flags,
+                                       .date = date,
+                                       .src = adnl::AdnlNodeIdShort(send_as),
+                                       .dst = other_nodes[i],
+                                       .data_hash = data_hash,
+                                       .data_size = static_cast<td::uint32>(data_size),
+                                       .seqno = seqno,
+                                       .part = std::move(part)};
       auto P = td::PromiseCreator::lambda([overlay = actor_id(overlay), data = std::move(passdata)](
                                               td::Result<std::pair<td::BufferSlice, PublicKey>> R) mutable {
         td::actor::send_closure(overlay, &OverlayImpl::broadcast_twostep_signed_fec, std::move(data), std::move(R));
@@ -129,10 +181,17 @@ void BroadcastsTwostep::send(OverlayImpl *overlay, PublicKeyHash send_as, td::Bu
     broadcast_id = get_tl_object_sha_bits256(create_tl_object<ton_api::overlay_broadcastTwostep_id>(
         flags, date, send_as.bits256_value(), overlay->local_id().bits256_value(), data_hash,
         static_cast<std::int32_t>(data_size)));
+    VLOG(TWOSTEP_INFO) << "twostep START sender broadcast_id=" << broadcast_id.to_hex()
+                       << " data_hash=" << data_hash.to_hex() << " data_size=" << data_size
+                       << " recipients=" << other_nodes.size() << " mode=simple";
     td::BufferSlice to_sign =
         create_serialize_tl_object<ton_api::overlay_broadcastTwostepSimple_toSign>(broadcast_id, data.clone());
-    BroadcastTwostepDataSimple passdata{flags, date, adnl::AdnlNodeIdShort(send_as), std::move(other_nodes),
-                                        data.clone()};
+    BroadcastTwostepDataSimple passdata{.broadcast_id = broadcast_id,
+                                        .flags = flags,
+                                        .date = date,
+                                        .src = adnl::AdnlNodeIdShort(send_as),
+                                        .dsts = std::move(other_nodes),
+                                        .data = data.clone()};
     auto P = td::PromiseCreator::lambda([overlay = actor_id(overlay), data = std::move(passdata)](
                                             td::Result<std::pair<td::BufferSlice, PublicKey>> R) mutable {
       td::actor::send_closure(overlay, &OverlayImpl::broadcast_twostep_signed_simple, std::move(data), std::move(R));
@@ -164,6 +223,8 @@ void BroadcastsTwostep::signed_simple(OverlayImpl *overlay, BroadcastTwostepData
     return;
   }
   auto V = R.move_as_ok();
+  VLOG(TWOSTEP_INFO) << "twostep SEND_SIMPLE sender broadcast_id=" << data.broadcast_id.to_hex()
+                     << " data_size=" << data.data.size() << " recipients=" << data.dsts.size();
   auto cert = overlay->get_certificate(data.src.pubkey_hash());
   td::BufferSlice broadcast = create_serialize_tl_object<ton_api::overlay_broadcastTwostepSimple>(
       data.flags, data.date, V.second.tl(), overlay->local_id().bits256_value(),
@@ -180,6 +241,9 @@ void BroadcastsTwostep::signed_fec(OverlayImpl *overlay, BroadcastTwostepDataFec
     return;
   }
   auto V = R.move_as_ok();
+  VLOG(TWOSTEP_INFO) << "twostep SEND_CHUNK sender broadcast_id=" << data.broadcast_id.to_hex()
+                     << " data_hash=" << data.data_hash.to_hex() << " data_size=" << data.data_size
+                     << " seqno=" << data.seqno << " part_size=" << data.part.size() << " to=" << data.dst;
   auto cert = overlay->get_certificate(data.src.pubkey_hash());
   td::BufferSlice broadcast = create_serialize_tl_object<ton_api::overlay_broadcastTwostepFec>(
       data.flags, data.date, V.second.tl(), overlay->local_id().bits256_value(),
@@ -233,20 +297,29 @@ td::Status BroadcastsTwostep::process_broadcast(OverlayImpl *overlay, adnl::Adnl
   PublicKey src_key(broadcast->src_);
   PublicKeyHash src_keyhash(src_key.compute_short_id());
   adnl::AdnlNodeIdShort bcast_src_adnl_id{broadcast->src_adnl_id_};
+  td::Bits256 data_hash = sha256_bits256(broadcast->data_.as_slice());
   td::Bits256 broadcast_id = get_tl_object_sha_bits256(create_tl_object<ton_api::overlay_broadcastTwostep_id>(
-      broadcast->flags_, broadcast->date_, src_keyhash.bits256_value(), bcast_src_adnl_id.bits256_value(),
-      sha256_bits256(broadcast->data_.as_slice()), static_cast<std::int32_t>(broadcast->data_.size())));
+      broadcast->flags_, broadcast->date_, src_keyhash.bits256_value(), bcast_src_adnl_id.bits256_value(), data_hash,
+      static_cast<std::int32_t>(broadcast->data_.size())));
+  bool will_rebroadcast = src_peer_id == bcast_src_adnl_id;
+  VLOG(TWOSTEP_INFO) << "twostep RECV_SIMPLE receiver broadcast_id=" << broadcast_id.to_hex()
+                     << " data_hash=" << data_hash.to_hex() << " data_size=" << broadcast->data_.size()
+                     << " from=" << src_peer_id << " will_rebroadcast=" << will_rebroadcast;
   td::BufferSlice to_sign = create_serialize_tl_object<ton_api::overlay_broadcastTwostepSimple_toSign>(
       broadcast_id, broadcast->data_.clone());
   TRY_RESULT(check_result, check_signature_and_certificate(overlay, src_key, src_keyhash, to_sign,
                                                            broadcast->signature_, broadcast->certificate_,
                                                            static_cast<td::uint32>(broadcast->data_.size())));
-  if (src_peer_id == bcast_src_adnl_id) {
+  if (will_rebroadcast) {
     rebroadcast(overlay, bcast_src_adnl_id, serialize_tl_object(broadcast, true));
   }
   if (overlay->is_delivered(broadcast_id)) {
+    VLOG(TWOSTEP_DEBUG) << "twostep DUPLICATE receiver broadcast_id=" << broadcast_id.to_hex();
     return td::Status::Error(ErrorCode::notready, "duplicate broadcast");
   }
+  VLOG(TWOSTEP_INFO) << "twostep FINISH receiver broadcast_id=" << broadcast_id.to_hex()
+                     << " data_hash=" << data_hash.to_hex() << " data_size=" << broadcast->data_.size()
+                     << " decoded=true";
   check_and_deliver(overlay, src_keyhash, check_result, std::move(broadcast->data_));
   return td::Status::OK();
 }
@@ -268,12 +341,16 @@ td::Status BroadcastsTwostep::process_broadcast(OverlayImpl *overlay, adnl::Adnl
   TRY_RESULT(check_result,
              check_signature_and_certificate(overlay, src_key, src_keyhash, to_sign, broadcast->signature_,
                                              broadcast->certificate_, static_cast<td::uint32>(data_size)));
-  if (src_peer_id == bcast_src_adnl_id) {
+  bool will_rebroadcast = src_peer_id == bcast_src_adnl_id;
+  if (will_rebroadcast) {
     rebroadcast(overlay, bcast_src_adnl_id, serialize_tl_object(broadcast, true));
   }
   auto it = broadcasts_.find(broadcast_id);
-  if (it == broadcasts_.end()) {
+  bool is_new = (it == broadcasts_.end());
+  if (is_new) {
     if (overlay->is_delivered(broadcast_id)) {
+      VLOG(TWOSTEP_DEBUG) << "twostep DUPLICATE receiver broadcast_id=" << broadcast_id.to_hex()
+                          << " seqno=" << broadcast->seqno_;
       return td::Status::Error(ErrorCode::notready, "duplicate broadcast");
     }
     td::Result<std::unique_ptr<td::raptorq::Decoder>> R;
@@ -282,14 +359,31 @@ td::Status BroadcastsTwostep::process_broadcast(OverlayImpl *overlay, adnl::Adnl
             .is_error()) {
       return td::Status::Error(ErrorCode::protoviolation, "invalid FEC parameters");
     }
-    std::unique_ptr<BroadcastTwostep> bcast(new BroadcastTwostep{{}, broadcast_id, date, R.move_as_ok()});
+    td::uint32 symbols_needed = static_cast<td::uint32>((data_size + part_size - 1) / part_size);
+    std::unique_ptr<BroadcastTwostep> bcast(
+        new BroadcastTwostep{.broadcast_id = broadcast_id,
+                             .date = date,
+                             .decoder = R.move_as_ok(),
+                             .debug = {.src_adnl_id = bcast_src_adnl_id,
+                                       .data_hash = broadcast->data_hash_,
+                                       .data_size = static_cast<td::uint32>(data_size),
+                                       .symbols_received = 0,
+                                       .symbols_needed = symbols_needed,
+                                       .timestamp = td::Timestamp::now(),
+                                       .chunk_senders = {}}});
     lru_.put(bcast.get());
     it = broadcasts_.emplace(broadcast_id, std::move(bcast)).first;
+    VLOG(TWOSTEP_INFO) << "twostep START receiver " << *it->second << " from=" << src_peer_id;
   }
   auto bcast = it->second.get();
+  bcast->debug.chunk_senders.insert(src_peer_id);
   TRY_STATUS(bcast->decoder->add_symbol({static_cast<std::uint32_t>(broadcast->seqno_), broadcast->part_.as_slice()}));
+  bcast->debug.symbols_received++;
+  VLOG(TWOSTEP_INFO) << "twostep RECV_CHUNK receiver " << *bcast << " seqno=" << broadcast->seqno_
+                     << " from=" << src_peer_id << " will_rebroadcast=" << will_rebroadcast;
   if (bcast->decoder->may_try_decode()) {
     TRY_RESULT(R, bcast->decoder->try_decode(false));
+    VLOG(TWOSTEP_INFO) << "twostep FINISH receiver " << *bcast << " decoded=true elapsed=" << bcast->debug.elapsed();
     broadcasts_.erase(it);
     overlay->register_delivered_broadcast(broadcast_id);
     check_and_deliver(overlay, src_keyhash, check_result, std::move(R.data));
@@ -312,6 +406,11 @@ void BroadcastsTwostep::gc(OverlayImpl *overlay) {
       break;
     }
     auto broadcast_id = bcast->broadcast_id;
+
+    FLOG(INFO) {
+      sb << "twostep GC_INCOMPLETE receiver " << *bcast << " decoded=false elapsed=" << bcast->debug.elapsed() << " ";
+      bcast->debug.print_senders(sb);
+    };
     CHECK(broadcasts_.erase(broadcast_id));
     overlay->register_delivered_broadcast(broadcast_id);
   }
