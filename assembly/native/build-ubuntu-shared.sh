@@ -37,9 +37,7 @@ fi
 export CC=$(which clang-21)
 export CXX=$(which clang++-21)
 
-cmake -GNinja -DTON_USE_JEMALLOC=ON .. \
--DCMAKE_BUILD_TYPE=Release
--DCMAKE_INSTALL_PREFIX="$(pwd)/install"
+cmake -GNinja -DTON_USE_JEMALLOC=ON .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$(pwd)/install"
 
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
