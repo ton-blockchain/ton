@@ -36,12 +36,39 @@ if (NOT SECP256K1_LIBRARY)
     else()
       if (NOT NIX)
         set(SECP256K1_LIBRARY ${SECP256K1_BINARY_DIR}/lib/libsecp256k1.a)
+        if (CMAKE_RANLIB)
+          set(SECP256K1_RANLIB ${CMAKE_RANLIB})
+        else()
+          set(SECP256K1_RANLIB ranlib)
+        endif()
         add_custom_command(
             WORKING_DIRECTORY ${SECP256K1_SOURCE_DIR}
-            COMMAND ./autogen.sh
-            COMMAND ./configure -q --disable-option-checking --enable-module-recovery --enable-module-extrakeys --prefix ${SECP256K1_BINARY_DIR} --with-pic --disable-shared --enable-static --disable-tests --disable-benchmark
-            COMMAND make -j16
-            COMMAND make install
+            COMMAND ${CMAKE_COMMAND} -E rm -f ${SECP256K1_LIBRARY}
+            COMMAND ${CMAKE_COMMAND} -E env
+              CC=${CMAKE_C_COMPILER}
+              CXX=${CMAKE_CXX_COMPILER}
+              AR=${CMAKE_AR}
+              RANLIB=${SECP256K1_RANLIB}
+              ./autogen.sh
+            COMMAND ${CMAKE_COMMAND} -E env
+              CC=${CMAKE_C_COMPILER}
+              CXX=${CMAKE_CXX_COMPILER}
+              AR=${CMAKE_AR}
+              RANLIB=${SECP256K1_RANLIB}
+              ./configure -q --disable-option-checking --enable-module-recovery --enable-module-extrakeys --prefix ${SECP256K1_BINARY_DIR} --with-pic --disable-shared --enable-static --disable-tests --disable-benchmark
+            COMMAND ${CMAKE_COMMAND} -E env
+              CC=${CMAKE_C_COMPILER}
+              CXX=${CMAKE_CXX_COMPILER}
+              AR=${CMAKE_AR}
+              RANLIB=${SECP256K1_RANLIB}
+              make -j16
+            COMMAND ${CMAKE_COMMAND} -E env
+              CC=${CMAKE_C_COMPILER}
+              CXX=${CMAKE_CXX_COMPILER}
+              AR=${CMAKE_AR}
+              RANLIB=${SECP256K1_RANLIB}
+              make install
+            COMMAND ${SECP256K1_RANLIB} ${SECP256K1_LIBRARY}
             COMMENT "Build secp256k1"
             DEPENDS ${SECP256K1_SOURCE_DIR}
             OUTPUT ${SECP256K1_LIBRARY}
