@@ -25,6 +25,8 @@ if (NOT SECP256K1_LIBRARY)
       set(SECP256K1_INCLUDE_DIR ${SECP256K1_SOURCE_DIR}/include)
       add_custom_command(
           WORKING_DIRECTORY ${SECP256K1_SOURCE_DIR}
+          COMMAND ${CMAKE_COMMAND} -E rm -rf .libs src/.libs config.cache config.status config.log Makefile libtool
+          COMMAND ${CMAKE_COMMAND} -E rm -f libsecp256k1.la libsecp256k1_precomputed.la libsecp256k1_common.la libsecp256k1.pc libsecp256k1-config
           COMMAND ./autogen.sh
           COMMAND emconfigure ./configure --enable-module-recovery --enable-module-extrakeys --disable-tests --disable-benchmark
           COMMAND emmake make clean
@@ -44,24 +46,32 @@ if (NOT SECP256K1_LIBRARY)
         add_custom_command(
             WORKING_DIRECTORY ${SECP256K1_SOURCE_DIR}
             COMMAND ${CMAKE_COMMAND} -E rm -f ${SECP256K1_LIBRARY}
+            COMMAND ${CMAKE_COMMAND} -E rm -rf .libs src/.libs config.cache config.status config.log Makefile libtool
+            COMMAND ${CMAKE_COMMAND} -E rm -f libsecp256k1.la libsecp256k1_precomputed.la libsecp256k1_common.la libsecp256k1.pc libsecp256k1-config
             COMMAND ${CMAKE_COMMAND} -E env
               CC=${CMAKE_C_COMPILER}
               CXX=${CMAKE_CXX_COMPILER}
               AR=${CMAKE_AR}
               RANLIB=${SECP256K1_RANLIB}
               ./autogen.sh
-            COMMAND ${CMAKE_COMMAND} -E env
-              CC=${CMAKE_C_COMPILER}
-              CXX=${CMAKE_CXX_COMPILER}
-              AR=${CMAKE_AR}
-              RANLIB=${SECP256K1_RANLIB}
-              ./configure -q --disable-option-checking --enable-module-recovery --enable-module-extrakeys --prefix ${SECP256K1_BINARY_DIR} --with-pic --disable-shared --enable-static --disable-tests --disable-benchmark
-            COMMAND ${CMAKE_COMMAND} -E env
-              CC=${CMAKE_C_COMPILER}
-              CXX=${CMAKE_CXX_COMPILER}
-              AR=${CMAKE_AR}
-              RANLIB=${SECP256K1_RANLIB}
-              make -j16
+          COMMAND ${CMAKE_COMMAND} -E env
+            CC=${CMAKE_C_COMPILER}
+            CXX=${CMAKE_CXX_COMPILER}
+            AR=${CMAKE_AR}
+            RANLIB=${SECP256K1_RANLIB}
+            ./configure -q --disable-option-checking --enable-module-recovery --enable-module-extrakeys --prefix ${SECP256K1_BINARY_DIR} --with-pic --disable-shared --enable-static --disable-tests --disable-benchmark
+          COMMAND ${CMAKE_COMMAND} -E env
+            CC=${CMAKE_C_COMPILER}
+            CXX=${CMAKE_CXX_COMPILER}
+            AR=${CMAKE_AR}
+            RANLIB=${SECP256K1_RANLIB}
+            make clean
+          COMMAND ${CMAKE_COMMAND} -E env
+            CC=${CMAKE_C_COMPILER}
+            CXX=${CMAKE_CXX_COMPILER}
+            AR=${CMAKE_AR}
+            RANLIB=${SECP256K1_RANLIB}
+            make -j16
             COMMAND ${CMAKE_COMMAND} -E env
               CC=${CMAKE_C_COMPILER}
               CXX=${CMAKE_CXX_COMPILER}
