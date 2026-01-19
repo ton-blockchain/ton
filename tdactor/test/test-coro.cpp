@@ -217,7 +217,7 @@ class CoroSpec final : public td::actor::Actor {
       check_value(co_await ask_immediate(args...));
       LOG(INFO) << "meta_ask: co_try(ask(args...))";
       check_value(co_await ask(args...));
-      //check(co_await ask_new(args...));
+      // check(co_await ask_new(args...));
 
       auto [bridge_task, bridge_promise] = StartedTask<td::Unit>::make_bridge();
       auto promise = [&](auto value) {
@@ -255,7 +255,7 @@ class CoroSpec final : public td::actor::Actor {
                                                    .wrap());
 
       LOG(INFO) << "meta_ask_err: co_try(ask(args...))";
-      //check(co_await ask_new(args...));
+      // check(co_await ask_new(args...));
       co_return td::Unit{};
     };
 
@@ -500,7 +500,7 @@ class CoroSpec final : public td::actor::Actor {
     for (int i = 0; i < 8000; i++) {
       int m = i % 4;
       if (m == 0) {
-        //shapes.push_back(spawn_actor("immediate", []() -> Task<int> { co_return 1; }));
+        // shapes.push_back(spawn_actor("immediate", []() -> Task<int> { co_return 1; }));
       } else if (m == 1) {
         shapes.push_back(spawn_actor("hop1", []() -> Task<int> {
           co_await spawn_actor("sub", []() -> Task<td::Unit> { co_return td::Unit(); }());
@@ -509,7 +509,7 @@ class CoroSpec final : public td::actor::Actor {
       } else if (m == 2) {
         // intentionally left out heavy nested spawns variant
       } else {
-        //shapes.push_back([]() -> Task<int> { co_return 2; }().start_immediate());
+        // shapes.push_back([]() -> Task<int> { co_return 2; }().start_immediate());
       }
     }
     int s = 0;
@@ -1153,6 +1153,95 @@ class CoroSpec final : public td::actor::Actor {
     co_return td::Unit{};
   }
 
+  // Test CoroMutex: mutual exclusion with async operations
+  Task<td::Unit> coro_mutex_test() {
+    LOG(INFO) << "=== coro_mutex_test ===";
+
+    class MutexActor : public td::actor::Actor {
+     public:
+      Task<td::Unit> critical_section() {
+        co_await coro_sleep(td::Timestamp::in(0.001 * td::Random::fast(0, 100)));
+        auto lock = co_await mutex_.lock();
+        in_lock_cnt_++;
+        CHECK(in_lock_cnt_ == 1);
+        co_await coro_sleep(td::Timestamp::in(0.001 * td::Random::fast(0, 100)));
+        CHECK(in_lock_cnt_ == 1);
+        in_lock_cnt_--;
+        co_return td::Unit{};
+      }
+
+     private:
+      CoroMutex mutex_;
+      int in_lock_cnt_{0};
+    };
+
+    auto actor = create_actor<MutexActor>("MutexActor");
+
+    constexpr int num_tasks = 20;
+    std::vector<StartedTask<td::Unit>> tasks;
+    for (int i = 0; i < num_tasks; i++) {
+      tasks.push_back(ask(actor, &MutexActor::critical_section));
+    }
+
+    for (auto& t : tasks) {
+      co_await std::move(t);
+    }
+
+    LOG(INFO) << "coro_mutex_test passed";
+    co_return td::Unit{};
+  }
+
+  // Test CoroCoalesce: coalesce concurrent requests
+  // Multiple queries arrive, only one executes, all get the same result
+  Task<td::Unit> coro_coalesce_test() {
+    LOG(INFO) << "=== coro_coalesce_test ===";
+
+    class CoalesceActor : public td::actor::Actor {
+     public:
+      Task<int> query(int x) {
+        co_return co_await coalesce_.run(x, [this, x]() -> Task<int> {
+          LOG(INFO) << "Query(" << x << "): computing...";
+          computation_count_++;
+          co_await coro_sleep(td::Timestamp::in(0.1));
+          int result = x * 2;
+          LOG(INFO) << "Query(" << x << "): computed " << result;
+          co_return result;
+        });
+      }
+
+      int get_computation_count() {
+        return computation_count_;
+      }
+
+     private:
+      CoroCoalesce<int, int> coalesce_;
+      int computation_count_{0};
+    };
+
+    auto actor = create_actor<CoalesceActor>("CoalesceActor");
+
+    // Send many concurrent queries with x=21
+    constexpr int num_queries = 10;
+    std::vector<StartedTask<int>> tasks;
+    for (int i = 0; i < num_queries; i++) {
+      tasks.push_back(ask(actor, &CoalesceActor::query, 21));
+    }
+
+    // Wait for all queries
+    for (auto& t : tasks) {
+      int result = co_await std::move(t);
+      expect_eq(result, 42, "Result should be 21*2=42");
+    }
+
+    // Verify only one computation happened
+    auto count = co_await ask_immediate(actor, &CoalesceActor::get_computation_count);
+    LOG(INFO) << "Computation count: " << count;
+    expect_eq(count, 1, "Should have computed only once");
+
+    LOG(INFO) << "coro_coalesce_test passed";
+    co_return td::Unit{};
+  }
+
   // Master runner
   Task<td::Unit> run_all() {
     LOG(ERROR) << "Run tests";
@@ -1176,7 +1265,9 @@ class CoroSpec final : public td::actor::Actor {
     co_await promise_destroy_in_mailbox();
     co_await promise_destroy_in_actor_member();
     co_await co_return_empty_braces();
-    co_await actor_ref_uaf();  // UAF test - demonstrates need for ActorRef
+    co_await actor_ref_uaf();       // UAF test - demonstrates need for ActorRef
+    co_await coro_mutex_test();     // CoroMutex mutual exclusion test
+    co_await coro_coalesce_test();  // CoroCoalesce coalescing test
     co_await actor_task_unwrap_bug();
 
     (void)co_await ask(logger_, &TestLogger::log, std::string("All tests passed"));

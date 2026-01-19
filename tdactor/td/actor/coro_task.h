@@ -302,6 +302,11 @@ struct promise_type : promise_value<td::Result<T>> {
     return this->state_manager_data.executor.resume_or_schedule(self());
   }
 
+  std::coroutine_handle<> route_schedule() {
+    this->state_manager_data.executor.schedule(self());
+    return std::noop_coroutine();
+  }
+
   std::coroutine_handle<> route_finish(td::Result<T> r) {
     this->return_value(std::move(r));
     return final_suspend().await_suspend(self());

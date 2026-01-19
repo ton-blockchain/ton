@@ -1,5 +1,7 @@
 #pragma once
 
+#include <map>
+#include <memory>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -11,6 +13,7 @@
 #include "td/actor/coro_types.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
+#include "td/utils/VectorQueue.h"
 
 namespace td::actor {
 
@@ -399,5 +402,132 @@ inline StartedTask<td::Unit> coro_sleep(td::Timestamp t) {
   create_actor<S>("sleep", std::move(promise), t).release();
   return std::move(task);
 }
+
+struct CoroMutex {
+  CoroMutex() = default;
+  CoroMutex(const CoroMutex&) = delete;
+  CoroMutex(const CoroMutex&&) = delete;
+  CoroMutex& operator=(const CoroMutex&) = delete;
+  CoroMutex& operator=(const CoroMutex&&) = delete;
+
+  struct [[nodiscard("Lock must be held to maintain mutual exclusion")]] Lock {
+    Lock(CoroMutex* m) : mutex_(m) {
+    }
+    ~Lock() {
+      if (mutex_)
+        mutex_->unlock();
+    }
+    Lock(Lock&& o) noexcept : mutex_(std::exchange(o.mutex_, nullptr)) {
+    }
+    Lock& operator=(Lock&&) = delete;
+    Lock(const Lock&) = delete;
+    Lock& operator=(const Lock&) = delete;
+
+   private:
+    CoroMutex* mutex_;
+  };
+
+  bool await_ready() {
+    return !is_locked_;
+  }
+  Lock await_resume() {
+    CHECK(++lock_cnt_ == 1);
+    is_locked_ = true;
+    return Lock{this};
+  }
+
+  template <class OuterPromise>
+  std::coroutine_handle<> route_resume(std::coroutine_handle<OuterPromise> h) noexcept {
+    return h.promise().route_schedule();
+  }
+
+  template <class OuterPromise>
+  std::coroutine_handle<> await_suspend(std::coroutine_handle<OuterPromise> h) noexcept {
+    auto r_handle = detail::wrap_coroutine(this, h);
+    pending_.push(r_handle);
+    return std::noop_coroutine();
+  }
+
+  struct LockAwaitable {
+    CoroMutex* m;
+    bool await_ready() {
+      return m->await_ready();
+    }
+    template <class OuterPromise>
+    void await_suspend(std::coroutine_handle<OuterPromise> h) noexcept {
+      m->await_suspend(h);
+    }
+    Lock await_resume() {
+      return m->await_resume();
+    }
+  };
+
+  [[nodiscard]] SkipAwaitTransform<LockAwaitable> lock() {
+    return {LockAwaitable{this}};
+  }
+
+ private:
+  bool is_locked_{false};
+  int lock_cnt_{0};
+  VectorQueue<std::coroutine_handle<>> pending_;
+
+  void unlock() {
+    CHECK(is_locked_);
+    CHECK(--lock_cnt_ == 0);
+    if (!pending_.empty()) {
+      auto handle = pending_.pop();
+      handle.resume();
+      return;
+    }
+    is_locked_ = false;
+  }
+};
+
+// CoroCoalesce: coalesce concurrent requests for the same key
+// - Multiple callers requesting same key → only one computes
+// - Result shared among all waiters
+// - Entry auto-removed when all callers done (via shared_ptr ref counting)
+//
+// Usage:
+//   CoroCoalesce<int, std::string> coalesce;
+//   Task<std::string> get(int key) {
+//     co_return co_await coalesce.run(key, [key]() -> Task<std::string> {
+//       co_return expensive_compute(key);
+//     });
+//   }
+template <class K, class V>
+class CoroCoalesce {
+ public:
+  template <class F>
+  Task<V> run(K key, F compute) {
+    auto entry = get_or_create(std::move(key));
+    auto lock = co_await entry->gate.lock();
+    if (!entry->result) {
+      entry->result = co_await compute().wrap();
+    }
+    co_return entry->result->clone();
+  }
+
+ private:
+  struct Entry {
+    CoroMutex gate;
+    std::optional<Result<V>> result;
+  };
+
+  std::map<K, std::weak_ptr<Entry>> entries_;
+
+  std::shared_ptr<Entry> get_or_create(K key) {
+    auto& slot = entries_[key];
+    if (auto p = slot.lock()) {
+      return p;
+    }
+    auto p = std::shared_ptr<Entry>(new Entry{}, [this, key](Entry* e) {
+      entries_.erase(key);
+      delete e;
+    });
+    slot = p;
+    return p;
+  }
+};
 
 }  // namespace td::actor
