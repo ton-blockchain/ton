@@ -271,7 +271,7 @@ void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_a
   auto Q = X.move_as_ok();
   ton_api::downcast_call(*Q.get(), [Self = this, &Q, &src](auto &object) {
     auto status = Self->process_broadcast(src, move_tl_object_as<std::remove_reference_t<decltype(object)>>(Q));
-    LOG_IF(WARNING, status.is_error() && !status.code() == ErrorCode::notready)
+    LOG_IF(WARNING, status.is_error() && status.code() != ErrorCode::notready)
         << "Failed to process broadcast: " << status;
   });
 }
