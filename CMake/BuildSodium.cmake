@@ -36,10 +36,13 @@ if (NOT SODIUM_LIBRARY)
     else()
       if (NOT NIX)
         set(SODIUM_LIBRARY ${SODIUM_BINARY_DIR}/lib/libsodium.a)
+        set(SODIUM_LIBRARY_RELEASE ${SODIUM_LIBRARY})
+        set(SODIUM_LIBRARY_DEBUG ${SODIUM_LIBRARY})
+        set(SODIUM_FOUND TRUE)
         add_custom_command(
             WORKING_DIRECTORY ${SODIUM_SOURCE_DIR}
             COMMAND ./autogen.sh
-            COMMAND ./configure --with-pic --enable-static
+            COMMAND ./configure --prefix=${SODIUM_BINARY_DIR} --with-pic --enable-static --disable-shared
             COMMAND make -j16
             COMMAND make install
             COMMENT "Build sodium"

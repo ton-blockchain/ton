@@ -320,6 +320,10 @@ target_include_directories(ton_crypto SYSTEM PUBLIC $<BUILD_INTERFACE:${OPENSSL_
 
 add_dependencies(ton_crypto blst)
 add_dependencies(ton_crypto_core secp256k1)
+if (TARGET sodium)
+  add_dependencies(ton_crypto sodium)
+  add_dependencies(ton_crypto_core sodium)
+endif()
 
 target_include_directories(ton_crypto PRIVATE ${BLST_INCLUDE_DIR})
 target_link_libraries(ton_crypto PRIVATE ${BLST_LIB})

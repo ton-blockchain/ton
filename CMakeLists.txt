@@ -103,9 +103,10 @@ if (TON_WERROR_BUILD)
   add_compile_options(-Werror)
 endif()
 
-# Ensure custom build modules (including OpenSSL) are available early for QUIC checks.
+# Ensure custom build modules (including OpenSSL/Sodium) are available early for QUIC/crypto checks.
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake" ${CMAKE_MODULE_PATH})
 include(BuildOpenSSL)
+include(BuildSodium)
 
 #message("Add OpenSSL")
 #add_subdirectory(third-party/openssl EXCLUDE_FROM_ALL)
@@ -235,7 +236,6 @@ message("Add ton")
 include(BuildBLST)
 include(BuildSECP256K1)
 include(BuildLibbacktrace)
-include(BuildSodium)
 #include(BuildMHD)
 #include(BuildZLIB)
 
