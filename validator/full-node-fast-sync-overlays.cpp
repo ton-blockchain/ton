@@ -327,6 +327,7 @@ void FullNodeFastSyncOverlay::init() {
   }
   options.local_overlay_member_flags_ = receive_broadcasts_ ? 0 : overlay::OverlayMemberFlags::DoNotReceiveBroadcasts;
   options.max_slaves_in_semiprivate_overlay_ = FullNode::MAX_FAST_SYNC_OVERLAY_CLIENTS;
+  options.broadcast_speed_multiplier_ = broadcast_speed_multiplier_;
   td::actor::send_closure(overlays_, &overlay::Overlays::create_semiprivate_overlay, local_id_,
                           overlay_id_full_.clone(), current_validators_adnl_, root_public_keys_, member_certificate_,
                           std::make_unique<Callback>(actor_id(this)), rules, std::move(scope), options);
@@ -435,7 +436,7 @@ td::actor::ActorId<FullNodeFastSyncOverlay> FullNodeFastSyncOverlays::get_master
 void FullNodeFastSyncOverlays::update_overlays(td::Ref<MasterchainState> state,
                                                std::set<adnl::AdnlNodeIdShort> my_adnl_ids,
                                                std::set<ShardIdFull> monitoring_shards,
-                                               const FileHash &zero_state_file_hash,
+                                               const FileHash &zero_state_file_hash, double broadcast_speed_multiplier,
                                                const td::actor::ActorId<keyring::Keyring> &keyring,
                                                const td::actor::ActorId<adnl::Adnl> &adnl,
                                                const td::actor::ActorId<overlay::Overlays> &overlays,
@@ -562,8 +563,8 @@ void FullNodeFastSyncOverlays::update_overlays(td::Ref<MasterchainState> state,
       if (overlay.empty()) {
         overlay = td::actor::create_actor<FullNodeFastSyncOverlay>(
             PSTRING() << "FastSyncOv" << shard.to_str(), local_id, shard, zero_state_file_hash, root_public_keys_,
-            current_validators_adnl_, overlays_info.current_certificate_, receive_broadcasts, keyring, adnl, overlays,
-            validator_manager, full_node);
+            current_validators_adnl_, overlays_info.current_certificate_, receive_broadcasts,
+            broadcast_speed_multiplier, keyring, adnl, overlays, validator_manager, full_node);
       } else {
         td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_receive_broadcasts, receive_broadcasts);
         if (changed_certificate) {
