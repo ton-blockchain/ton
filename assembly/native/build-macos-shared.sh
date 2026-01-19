@@ -72,10 +72,6 @@ else
   echo "Using compiled lz4"
 fi
 
-brew unlink openssl@1.1
-brew install openssl@3
-brew unlink openssl@3 &&  brew link --overwrite openssl@3
-
 cmake -GNinja -DCMAKE_BUILD_TYPE=Release .. \
 -DCMAKE_CXX_FLAGS="-nostdinc++ -isystem ${SDKROOT}/usr/include/c++/v1 -isystem ${SDKROOT}/usr/include" \
 -DCMAKE_SYSROOT="$(xcrun --show-sdk-path)" \

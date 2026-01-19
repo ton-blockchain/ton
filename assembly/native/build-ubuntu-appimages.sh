@@ -34,26 +34,7 @@ fi
 export CC=$(which clang-21)
 export CXX=$(which clang++-21)
 
-if [ ! -d "../openssl_3" ]; then
-  git clone https://github.com/openssl/openssl ../openssl_3
-  cd ../openssl_3 || exit
-  opensslPath=`pwd`
-  git checkout openssl-3.5
-  ./config
-  make build_libs -j$(nproc)
-  test $? -eq 0 || { echo "Can't compile openssl_3"; exit 1; }
-  cd ../build || exit
-else
-  opensslPath=$(pwd)/../openssl_3
-  echo "Using compiled openssl_3"
-fi
-
-cmake -GNinja .. \
--DCMAKE_BUILD_TYPE=Release \
--DPORTABLE=1 \
--DOPENSSL_ROOT_DIR=$opensslPath \
--DOPENSSL_INCLUDE_DIR=$opensslPath/include \
--DOPENSSL_CRYPTO_LIBRARY=$opensslPath/libcrypto.so
+cmake -GNinja .. -DCMAKE_BUILD_TYPE=Release -DPORTABLE=1
 
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }

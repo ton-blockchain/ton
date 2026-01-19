@@ -24,17 +24,25 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
         DEPENDS ${OPENSSL_SOURCE_DIR}
         OUTPUT ${OPENSSL_CRYPTO_LIBRARY}
       )
-    elseif (EMSCRIPTEN)
+    elseif (USE_EMSCRIPTEN OR EMSCRIPTEN)
       set(OPENSSL_BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/openssl)
       set(OPENSSL_CRYPTO_LIBRARY ${OPENSSL_BINARY_DIR}/libcrypto.a)
       set(OPENSSL_INCLUDE_DIR ${OPENSSL_BINARY_DIR}/include)
       add_custom_command(
           WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
-          COMMAND emconfigure ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test no-tests
+          COMMAND ${CMAKE_COMMAND} -E rm -f configdata.pm Makefile
+          COMMAND ${CMAKE_COMMAND} -E env
+            CC=emcc
+            CXX=em++
+            AR=emar
+            RANLIB=emranlib
+            NM=llvm-nm
+            ARFLAGS=rcs
+            ./Configure linux-generic32 no-asm no-shared no-dso no-engine no-unit-test no-tests no-apps no-threads enable-quic
           COMMAND sed -i 's/CROSS_COMPILE=.*/CROSS_COMPILE=/g' Makefile
           COMMAND sed -i 's/-ldl//g' Makefile
           COMMAND sed -i 's/-O3/-Os/g' Makefile
-          COMMAND emmake make
+          COMMAND emmake make build_libs
           COMMENT "Build OpenSSL with emscripten"
           DEPENDS ${OPENSSL_SOURCE_DIR}
           OUTPUT ${OPENSSL_CRYPTO_LIBRARY}

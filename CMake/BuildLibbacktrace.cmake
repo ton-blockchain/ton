@@ -9,9 +9,9 @@
 
 include(ExternalProject)
 
-# Skip libbacktrace on Android - it doesn't work well with Android's unwinder
-if(ANDROID)
-  message(STATUS "Skipping libbacktrace on Android (not supported)")
+# Skip libbacktrace on Android/emscripten - it doesn't work well there
+if(ANDROID OR USE_EMSCRIPTEN OR EMSCRIPTEN)
+  message(STATUS "Skipping libbacktrace (not supported)")
   set(LIBBACKTRACE_FOUND FALSE CACHE BOOL "libbacktrace found" FORCE)
   return()
 endif()
@@ -107,4 +107,3 @@ set_target_properties(libbacktrace PROPERTIES
 add_dependencies(libbacktrace libbacktrace_external)
 
 set(LIBBACKTRACE_FOUND TRUE CACHE BOOL "libbacktrace found" FORCE)
-

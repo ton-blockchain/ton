@@ -49,37 +49,6 @@ else
   echo "Using compiled lz4"
 fi
 
-if [ ! -d "../3pp/libsodium" ]; then
-  export LIBSODIUM_FULL_BUILD=1
-  mkdir -p ../3pp/libsodium
-  wget -O ../3pp/libsodium/libsodium-1.0.18.tar.gz https://github.com/jedisct1/libsodium/releases/download/1.0.18-RELEASE/libsodium-1.0.18.tar.gz
-  cd ../3pp/libsodium || exit
-  tar xf libsodium-1.0.18.tar.gz
-  cd libsodium-1.0.18 || exit
-  sodiumPath=`pwd`
-  ./configure --with-pic --enable-static
-  make -j$(nproc)
-  test $? -eq 0 || { echo "Can't compile libsodium"; exit 1; }
-  cd ../../../build || exit
-else
-  sodiumPath=$(pwd)/../3pp/libsodium/libsodium-1.0.18
-  echo "Using compiled libsodium"
-fi
-
-if [ ! -d "../3pp/openssl_3" ]; then
-  git clone https://github.com/openssl/openssl ../3pp/openssl_3
-  cd ../3pp/openssl_3 || exit
-  opensslPath=`pwd`
-  git checkout openssl-3.5
-  ./config
-  make build_libs -j$(nproc)
-  test $? -eq 0 || { echo "Can't compile openssl_3"; exit 1; }
-  cd ../../build || exit
-else
-  opensslPath=$(pwd)/../3pp/openssl_3
-  echo "Using compiled openssl_3"
-fi
-
 if [ ! -d "../3pp/zlib" ]; then
   git clone https://github.com/madler/zlib.git ../3pp/zlib
   cd ../3pp/zlib || exit
@@ -109,15 +78,9 @@ fi
 cmake -GNinja .. \
 -DPORTABLE=1 \
 -DCMAKE_BUILD_TYPE=Release \
--DOPENSSL_FOUND=1 \
--DOPENSSL_INCLUDE_DIR=$opensslPath/include \
--DOPENSSL_CRYPTO_LIBRARY=$opensslPath/libcrypto.a \
 -DZLIB_FOUND=1 \
 -DZLIB_INCLUDE_DIR=$zlibPath \
 -DZLIB_LIBRARIES=$zlibPath/libz.a \
--DSODIUM_FOUND=1 \
--DSODIUM_INCLUDE_DIR=$sodiumPath/src/libsodium/include \
--DSODIUM_LIBRARY_RELEASE=$sodiumPath/src/libsodium/.libs/libsodium.a \
 -DMHD_FOUND=1 \
 -DMHD_INCLUDE_DIR=$libmicrohttpdPath/src/include \
 -DMHD_LIBRARY=$libmicrohttpdPath/src/microhttpd/.libs/libmicrohttpd.a \

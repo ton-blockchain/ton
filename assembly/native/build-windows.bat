@@ -72,32 +72,6 @@ if not exist "lz4" (
   echo Using lz4...
 )
 
-if not exist "libsodium" (
-  git clone https://github.com/jedisct1/libsodium
-  cd libsodium
-  git checkout 1.0.18-RELEASE
-  msbuild libsodium.vcxproj /p:Configuration=Release /p:platform=x64 -p:PlatformToolset=v143
-  cd ..
-) else (
-  echo Using libsodium...
-)
-
-if not exist "openssl" (
-  git clone https://github.com/openssl/openssl.git
-  cd openssl
-  git checkout openssl-3.5
-  where perl
-  perl Configure VC-WIN64A
-  IF %errorlevel% NEQ 0 (
-    echo Can't configure openssl
-    exit /b %errorlevel%
-  )
-  nmake
-  cd ..
-) else (
-  echo Using openssl...
-)
-
 if not exist "libmicrohttpd" (
   git clone https://github.com/Karlson2k/libmicrohttpd.git
   cd libmicrohttpd
@@ -120,10 +94,6 @@ mkdir build
 cd build
 cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
 -DPORTABLE=1 ^
--DSODIUM_USE_STATIC_LIBS=1 ^
--DSODIUM_LIBRARY_RELEASE=%third_libs%\libsodium\Build\Release\x64\libsodium.lib ^
--DSODIUM_LIBRARY_DEBUG=%third_libs%\libsodium\Build\Release\x64\libsodium.lib ^
--DSODIUM_INCLUDE_DIR=%third_libs%\libsodium\src\libsodium\include ^
 -DLZ4_FOUND=1 ^
 -DLZ4_INCLUDE_DIRS=%third_libs%\lz4\lib ^
 -DLZ4_LIBRARIES=%third_libs%\lz4\build\VS2022\liblz4\bin\x64_Release\liblz4_static.lib ^
@@ -133,9 +103,6 @@ cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
 -DZLIB_FOUND=1 ^
 -DZLIB_INCLUDE_DIR=%third_libs%\zlib ^
 -DZLIB_LIBRARIES=%third_libs%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib ^
--DOPENSSL_FOUND=1 ^
--DOPENSSL_INCLUDE_DIR=%third_libs%\openssl\include ^
--DOPENSSL_CRYPTO_LIBRARY=%third_libs%\openssl\libcrypto_static.lib ^
 -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj" ..
 
 IF %errorlevel% NEQ 0 (
