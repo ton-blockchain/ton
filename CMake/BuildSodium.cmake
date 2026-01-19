@@ -2,22 +2,20 @@ set(SODIUM_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/sodium)
 set(SODIUM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/third-party/sodium)
 
 if (USE_EMSCRIPTEN OR EMSCRIPTEN)
-  set(SODIUM_BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/sodium)
-  set(SODIUM_LIBRARY ${SODIUM_BINARY_DIR}/.libs/libsodium.a)
+  set(SODIUM_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/3pp_emscripten/libsodium)
+  if (EXISTS ${SODIUM_ROOT_DIR}/lib/libsodium.a)
+    set(SODIUM_LIBRARY ${SODIUM_ROOT_DIR}/lib/libsodium.a)
+    set(SODIUM_INCLUDE_DIR ${SODIUM_ROOT_DIR}/include)
+  elseif (EXISTS ${SODIUM_ROOT_DIR}/src/libsodium/.libs/libsodium.a)
+    set(SODIUM_LIBRARY ${SODIUM_ROOT_DIR}/src/libsodium/.libs/libsodium.a)
+    set(SODIUM_INCLUDE_DIR ${SODIUM_ROOT_DIR}/src/libsodium/include)
+  else()
+    message(FATAL_ERROR "libsodium not found under ${SODIUM_ROOT_DIR}. Build it with emscripten first.")
+  endif()
   set(SODIUM_LIBRARY_RELEASE ${SODIUM_LIBRARY} CACHE FILEPATH "Sodium release library" FORCE)
   set(SODIUM_LIBRARY_DEBUG ${SODIUM_LIBRARY} CACHE FILEPATH "Sodium debug library" FORCE)
-  set(SODIUM_INCLUDE_DIR ${SODIUM_SOURCE_DIR}/src/libsodium/include CACHE PATH "Sodium include dir" FORCE)
+  set(SODIUM_INCLUDE_DIR ${SODIUM_INCLUDE_DIR} CACHE PATH "Sodium include dir" FORCE)
   set(SODIUM_FOUND TRUE CACHE BOOL "Sodium found" FORCE)
-  add_custom_command(
-      WORKING_DIRECTORY ${SODIUM_SOURCE_DIR}
-      COMMAND ./autogen.sh
-      COMMAND emconfigure ./configure --enable-module-recovery --enable-module-extrakeys --disable-tests --disable-benchmark
-      COMMAND emmake make clean
-      COMMAND emmake make
-      COMMENT "Build sodium with emscripten"
-      DEPENDS ${SODIUM_SOURCE_DIR}
-      OUTPUT ${SODIUM_LIBRARY}
-  )
 elseif (MSVC)
   set(SODIUM_BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/sodium)
   set(SODIUM_LIBRARY ${SODIUM_SOURCE_DIR}/build/src/Release/libsodium.lib CACHE FILEPATH "Sodium release library" FORCE)

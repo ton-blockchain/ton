@@ -33,9 +33,8 @@ fi
 if [ ! -d "build" ]; then
   mkdir build
   cd build
-  cmake -GNinja .. \
-  -DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
-  -DTON_USE_JEMALLOC=ON -DCMAKE_BUILD_TYPE=Release
+  cmake -GNinja -DTON_USE_JEMALLOC=ON .. \
+  -DCMAKE_BUILD_TYPE=Release
 
   test $? -eq 0 || { echo "Can't configure TON build"; exit 1; }
   ninja fift smc-envelope
@@ -65,6 +64,25 @@ export CCACHE_DISABLE=1
 
 cd ..
 
+if [ ! -f "3pp_emscripten/openssl_em" ]; then
+  mkdir -p 3pp_emscripten
+  git clone https://github.com/openssl/openssl 3pp_emscripten/openssl_em
+  cd 3pp_emscripten/openssl_em || exit
+  emconfigure ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test no-tests no-fuzz-afl no-fuzz-libfuzzer enable-quic
+  sed -i 's/CROSS_COMPILE=.*/CROSS_COMPILE=/g' Makefile
+  sed -i 's/-ldl//g' Makefile
+  sed -i 's/-O3/-Os/g' Makefile
+  emmake make depend
+  emmake make -j$(nproc)
+  test $? -eq 0 || { echo "Can't compile OpenSSL with emmake "; exit 1; }
+  opensslPath=`pwd`
+  touch openssl_em
+  cd ../..
+else
+  opensslPath=`pwd`/3pp_emscripten/openssl_em
+  echo Using compiled with empscripten openssl at $opensslPath
+fi
+
 if [ ! -d "3pp_emscripten/zlib" ]; then
   git clone https://github.com/madler/zlib.git 3pp_emscripten/zlib
   cd 3pp_emscripten/zlib || exit
@@ -92,17 +110,39 @@ else
   echo Using compiled lz4 with emscripten at $LZ4_DIR
 fi
 
+if [ ! -d "3pp_emscripten/libsodium" ]; then
+  git clone https://github.com/jedisct1/libsodium 3pp_emscripten/libsodium
+  cd 3pp_emscripten/libsodium || exit
+  git checkout 1.0.18-RELEASE
+  SODIUM_DIR=`pwd`
+  emconfigure ./configure --disable-ssp
+  emmake make -j$(nproc)
+  test $? -eq 0 || { echo "Can't compile libsodium with emmake "; exit 1; }
+  cd ../..
+else
+  SODIUM_DIR=`pwd`/3pp_emscripten/libsodium
+  echo Using compiled libsodium with emscripten at $SODIUM_DIR
+fi
+
 cd build || exit
 
-emcmake cmake .. -DUSE_EMSCRIPTEN=ON -DUSE_QUIC=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON \
+emcmake cmake -DUSE_EMSCRIPTEN=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON \
 -DZLIB_FOUND=1 \
 -DZLIB_LIBRARIES=$ZLIB_DIR/libz.a \
 -DZLIB_INCLUDE_DIR=$ZLIB_DIR \
 -DLZ4_FOUND=1 \
 -DLZ4_LIBRARIES=$LZ4_DIR/lib/liblz4.a \
 -DLZ4_INCLUDE_DIRS=$LZ4_DIR/lib \
+-DOPENSSL_FOUND=1 \
+-DOPENSSL_INCLUDE_DIR=$opensslPath/include \
+-DOPENSSL_CRYPTO_LIBRARY=$opensslPath/libcrypto.a \
 -DCMAKE_TOOLCHAIN_FILE=$EMSDK_DIR/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
--DCMAKE_CXX_FLAGS="-sUSE_ZLIB=1"
+-DCMAKE_CXX_FLAGS="-sUSE_ZLIB=1" \
+-DSODIUM_FOUND=1 \
+-DSODIUM_INCLUDE_DIR=$SODIUM_DIR/src/libsodium/include \
+-DSODIUM_USE_STATIC_LIBS=1 \
+-DSODIUM_LIBRARY_RELEASE=$SODIUM_DIR/src/libsodium/.libs/libsodium.a \
+..
 
 test $? -eq 0 || { echo "Can't configure TON with emmake "; exit 1; }
 cp -R ../crypto/smartcont ../crypto/fift/lib crypto
