@@ -31,10 +31,9 @@ else
   rm -rf .ninja* CMakeCache.txt
 fi
 
-export CC=$(which clang-21)
-export CXX=$(which clang++-21)
-
-cmake -GNinja .. -DCMAKE_BUILD_TYPE=Release -DPORTABLE=1
+cmake -GNinja .. \
+-DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
+-DCMAKE_BUILD_TYPE=Release -DPORTABLE=1
 
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }

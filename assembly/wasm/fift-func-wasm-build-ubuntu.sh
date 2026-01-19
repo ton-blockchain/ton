@@ -33,7 +33,9 @@ fi
 if [ ! -d "build" ]; then
   mkdir build
   cd build
-  cmake -GNinja -DTON_USE_JEMALLOC=ON .. -DCMAKE_BUILD_TYPE=Release
+  cmake -GNinja .. \
+  -DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
+  -DTON_USE_JEMALLOC=ON -DCMAKE_BUILD_TYPE=Release
 
   test $? -eq 0 || { echo "Can't configure TON build"; exit 1; }
   ninja fift smc-envelope

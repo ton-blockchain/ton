@@ -32,9 +32,6 @@ else
   rm -rf .ninja* CMakeCache.txt
 fi
 
-export CC=$(which clang-21)
-export CXX=$(which clang++-21)
-
 if [ ! -d "../3pp/lz4" ]; then
 mkdir -p ../3pp
 git clone https://github.com/lz4/lz4.git ../3pp/lz4
@@ -76,6 +73,7 @@ else
 fi
 
 cmake -GNinja .. \
+-DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
 -DPORTABLE=1 \
 -DCMAKE_BUILD_TYPE=Release \
 -DZLIB_FOUND=1 \

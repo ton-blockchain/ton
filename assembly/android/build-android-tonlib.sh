@@ -8,8 +8,6 @@ while getopts 'a' flag; do
   esac
 done
 
-export CC=$(which clang-21)
-export CXX=$(which clang++-21)
 export CCACHE_DISABLE=1
 
 if [ ! -d android-ndk-r27d ]; then
@@ -38,7 +36,9 @@ rm -rf example/android/src/drinkless/org/ton/TonApi.java
 cd example/android/ || exit
 
 rm CMakeCache.txt .ninja_*
-cmake -GNinja -DTON_ONLY_TONLIB=ON .
+cmake -GNinja . \
+-DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
+-DTON_ONLY_TONLIB=ON
 
 test $? -eq 0 || { echo "Can't configure TON"; exit 1; }
 

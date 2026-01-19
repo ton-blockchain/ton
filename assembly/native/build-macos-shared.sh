@@ -36,19 +36,6 @@ export NONINTERACTIVE=1
 brew install ninja libsodium libmicrohttpd pkg-config automake libtool autoconf gnutls
 export PATH=/usr/local/opt/ccache/libexec:$PATH
 
-if [ "$(uname)" = "Darwin" ]; then
-  if [ "$MACOS_MAJOR" -ge 15 ]; then
-    echo "macOS $MACOS_MAJOR detected -> using AppleClang (Xcode toolchain), NOT llvm@21"
-    export CC="$(xcrun --find clang)"
-    export CXX="$(xcrun --find clang++)"
-  else
-    echo "macOS $MACOS_MAJOR detected -> using Homebrew llvm@21"
-    brew install llvm@21
-    export CC="$(brew --prefix llvm@21)"/bin/clang
-    export CXX="$(brew --prefix llvm@21)"/bin/clang++
-  fi
-fi
-
 if [ "$with_ccache" = true ]; then
   brew install ccache
   mkdir -p ~/.ccache
@@ -73,6 +60,7 @@ else
 fi
 
 cmake -GNinja -DCMAKE_BUILD_TYPE=Release .. \
+-DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
 -DCMAKE_CXX_FLAGS="-nostdinc++ -isystem ${SDKROOT}/usr/include/c++/v1 -isystem ${SDKROOT}/usr/include" \
 -DCMAKE_SYSROOT="$(xcrun --show-sdk-path)" \
 -DLZ4_FOUND=1 \
