@@ -71,7 +71,7 @@ struct BroadcastTwostepDebugInfo {
   }
 
   double elapsed() const {
-    return timestamp.at() - td::Timestamp::now().at();
+    return td::Timestamp::now().at() - timestamp.at();
   }
 };
 
@@ -320,6 +320,7 @@ td::Status BroadcastsTwostep::process_broadcast(OverlayImpl *overlay, adnl::Adnl
   VLOG(TWOSTEP_INFO) << "twostep FINISH receiver broadcast_id=" << broadcast_id.to_hex()
                      << " data_hash=" << data_hash.to_hex() << " data_size=" << broadcast->data_.size()
                      << " decoded=true";
+  overlay->register_delivered_broadcast(broadcast_id);
   check_and_deliver(overlay, src_keyhash, check_result, std::move(broadcast->data_));
   return td::Status::OK();
 }
