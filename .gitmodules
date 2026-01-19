@@ -33,3 +33,6 @@
 [submodule "third-party/sodium"]
 	path = third-party/sodium
 	url = https://github.com/jedisct1/libsodium.git
+[submodule "third-party/lz4"]
+	path = third-party/lz4
+	url = https://github.com/lz4/lz4.git
