@@ -247,6 +247,7 @@ td::Status BroadcastsTwostep::process_broadcast(OverlayImpl *overlay, adnl::Adnl
   if (overlay->is_delivered(broadcast_id)) {
     return td::Status::Error(ErrorCode::notready, "duplicate broadcast");
   }
+  overlay->register_delivered_broadcast(broadcast_id);
   check_and_deliver(overlay, src_keyhash, check_result, std::move(broadcast->data_));
   return td::Status::OK();
 }
