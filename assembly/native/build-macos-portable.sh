@@ -47,22 +47,6 @@ else
   export CCACHE_DISABLE=1
 fi
 
-if [ ! -d "../3pp/lz4" ]; then
-mkdir -p ../3pp
-git clone https://github.com/lz4/lz4.git ../3pp/lz4
-cd ../3pp/lz4 || exit
-lz4Path=`pwd`
-git checkout v1.9.4
-make -j4 CC="$CC" CFLAGS="--sysroot=$SDKROOT"
-test $? -eq 0 || { echo "Can't compile lz4"; exit 1; }
-cd ../../build  || exit
-# ./lib/liblz4.a
-# ./lib
-else
-  lz4Path=$(pwd)/../3pp/lz4
-  echo "Using compiled lz4"
-fi
-
 if [ ! -d "../3pp/zlib" ]; then
   git clone https://github.com/madler/zlib.git ../3pp/zlib
   cd ../3pp/zlib || exit
@@ -90,7 +74,6 @@ else
 fi
 
 cmake -GNinja .. \
--DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
 -DPORTABLE=1 \
 -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=$OSX_TARGET \
 -DCMAKE_CXX_FLAGS="-nostdinc++ -isystem ${SDKROOT}/usr/include/c++/v1 -isystem ${SDKROOT}/usr/include" \
@@ -101,10 +84,7 @@ cmake -GNinja .. \
 -DZLIB_LIBRARIES=$zlibPath/libz.a \
 -DMHD_FOUND=1 \
 -DMHD_INCLUDE_DIR=$libmicrohttpdPath/src/include \
--DMHD_LIBRARY=$libmicrohttpdPath/src/microhttpd/.libs/libmicrohttpd.a \
--DLZ4_FOUND=1 \
--DLZ4_INCLUDE_DIRS=$lz4Path/lib \
--DLZ4_LIBRARIES=$lz4Path/lib/liblz4.a
+-DMHD_LIBRARY=$libmicrohttpdPath/src/microhttpd/.libs/libmicrohttpd.a
 
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
