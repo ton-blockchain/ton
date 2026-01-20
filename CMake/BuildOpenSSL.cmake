@@ -23,6 +23,13 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
         NM=${TON_ANDROID_NM}
         PATH=${TON_ANDROID_NDK_BIN}:$ENV{PATH}
       )
+      set(OPENSSL_ANDROID_MAKE_ARGS
+        CC=${TON_ANDROID_CC}
+        CXX=${TON_ANDROID_CXX}
+        AR=${TON_ANDROID_AR}
+        RANLIB=${TON_ANDROID_RANLIB}
+        NM=${TON_ANDROID_NM}
+      )
       if (TON_ANDROID_ARCH STREQUAL "arm")
         set(OPENSSL_CONFIGURE_TARGET android-arm)
       elseif (TON_ANDROID_ARCH STREQUAL "arm64")
@@ -93,9 +100,9 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
       )
     else()
       if (ANDROID)
-        set(OPENSSL_CRYPTO_LIBRARY ${OPENSSL_BUILD_DIR}/libcrypto.a)
-        set(OPENSSL_SSL_LIBRARY ${OPENSSL_BUILD_DIR}/libssl.a)
-        set(OPENSSL_QUIC_CHECK_STAMP ${OPENSSL_BUILD_DIR}/.openssl_quic_checked)
+      set(OPENSSL_CRYPTO_LIBRARY ${OPENSSL_BUILD_DIR}/libcrypto.a)
+      set(OPENSSL_SSL_LIBRARY ${OPENSSL_BUILD_DIR}/libssl.a)
+      set(OPENSSL_QUIC_CHECK_STAMP ${OPENSSL_BUILD_DIR}/.openssl_quic_checked)
       else()
         set(OPENSSL_CRYPTO_LIBRARY ${OPENSSL_BINARY_DIR}/lib/libcrypto.a)
         set(OPENSSL_SSL_LIBRARY ${OPENSSL_BINARY_DIR}/lib/libssl.a)
@@ -104,6 +111,17 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
 
       if (ANDROID)
         set(OPENSSL_NEEDS_BUILD FALSE)
+        set(OPENSSL_ARCH_STAMP ${OPENSSL_BUILD_DIR}/.android_arch)
+        set(OPENSSL_ARCH_EXPECTED "${TON_ANDROID_ABI};${TON_ANDROID_API};${TON_ANDROID_CC}")
+        if (EXISTS ${OPENSSL_ARCH_STAMP})
+          file(READ ${OPENSSL_ARCH_STAMP} OPENSSL_ARCH_CURRENT)
+          string(STRIP "${OPENSSL_ARCH_CURRENT}" OPENSSL_ARCH_CURRENT)
+          if (NOT OPENSSL_ARCH_CURRENT STREQUAL OPENSSL_ARCH_EXPECTED)
+            set(OPENSSL_NEEDS_BUILD TRUE)
+          endif()
+        else()
+          set(OPENSSL_NEEDS_BUILD TRUE)
+        endif()
         if (NOT EXISTS ${OPENSSL_SSL_LIBRARY} OR NOT EXISTS ${OPENSSL_CRYPTO_LIBRARY})
           set(OPENSSL_NEEDS_BUILD TRUE)
         endif()
@@ -129,8 +147,9 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
             message(STATUS "OpenSSL config error: ${OPENSSL_CONFIG_ERROR}")
             message(FATAL_ERROR "OpenSSL config failed with code ${OPENSSL_CONFIG_RESULT} in ${OPENSSL_BUILD_DIR}")
           endif()
+          file(WRITE ${OPENSSL_ARCH_STAMP} "${OPENSSL_ARCH_EXPECTED}\n")
           execute_process(
-            COMMAND ${OPENSSL_ANDROID_ENV} make -j16 -C ${OPENSSL_BUILD_DIR}
+            COMMAND ${OPENSSL_ANDROID_ENV} make -j16 -C ${OPENSSL_BUILD_DIR} ${OPENSSL_ANDROID_MAKE_ARGS}
             WORKING_DIRECTORY ${OPENSSL_BUILD_ROOT}
             RESULT_VARIABLE OPENSSL_MAKE_RESULT
           )
@@ -138,7 +157,7 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
             message(FATAL_ERROR "OpenSSL build failed with code ${OPENSSL_MAKE_RESULT}")
           endif()
           execute_process(
-            COMMAND ${OPENSSL_ANDROID_ENV} make -j16 -C ${OPENSSL_BUILD_DIR} install_sw
+            COMMAND ${OPENSSL_ANDROID_ENV} make -j16 -C ${OPENSSL_BUILD_DIR} ${OPENSSL_ANDROID_MAKE_ARGS} install_sw
             WORKING_DIRECTORY ${OPENSSL_BUILD_ROOT}
             RESULT_VARIABLE OPENSSL_INSTALL_RESULT
           )
@@ -150,8 +169,8 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
         add_custom_command(
             WORKING_DIRECTORY ${OPENSSL_BUILD_DIR}
             COMMAND ${CMD}
-            COMMAND ${OPENSSL_ANDROID_ENV} make -j16 -C ${OPENSSL_BUILD_DIR}
-            COMMAND ${OPENSSL_ANDROID_ENV} make -j16 -C ${OPENSSL_BUILD_DIR} install_sw
+            COMMAND ${OPENSSL_ANDROID_ENV} make -j16 -C ${OPENSSL_BUILD_DIR} ${OPENSSL_ANDROID_MAKE_ARGS}
+            COMMAND ${OPENSSL_ANDROID_ENV} make -j16 -C ${OPENSSL_BUILD_DIR} ${OPENSSL_ANDROID_MAKE_ARGS} install_sw
             COMMENT "Build OpenSSL with QUIC support (Android)"
             DEPENDS ${OPENSSL_SOURCE_DIR}
             OUTPUT ${OPENSSL_CRYPTO_LIBRARY} ${OPENSSL_SSL_LIBRARY}
