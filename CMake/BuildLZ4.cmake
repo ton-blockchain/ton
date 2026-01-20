@@ -40,7 +40,8 @@ elseif (ANDROID)
 
   add_custom_command(
       WORKING_DIRECTORY ${LZ4_BUILD_DIR}
-      COMMAND sed -i "s/cmake_minimum_required.VERSION 2.8.12./cmake_minimum_required(VERSION 3.5)/" ${LZ4_SOURCE_DIR}/build/cmake/CMakeLists.txt
+      COMMAND ${CMAKE_COMMAND} -E echo "Patching LZ4 CMakeLists.txt"
+      COMMAND ${CMAKE_COMMAND} -DINPUT_FILE=${LZ4_SOURCE_DIR}/build/cmake/CMakeLists.txt -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/PatchLZ4.cmake
       COMMAND ${CMAKE_COMMAND}
         -S ${LZ4_SOURCE_DIR}/build/cmake
         -B ${LZ4_BUILD_DIR}
@@ -88,7 +89,8 @@ else()
 
   add_custom_command(
       WORKING_DIRECTORY ${LZ4_BUILD_DIR}
-      COMMAND sed -i "s/cmake_minimum_required.VERSION 2.8.12./cmake_minimum_required(VERSION 3.5)/" ${LZ4_SOURCE_DIR}/build/cmake/CMakeLists.txt
+      COMMAND ${CMAKE_COMMAND} -E echo "Patching LZ4 CMakeLists.txt"
+      COMMAND ${CMAKE_COMMAND} -DINPUT_FILE=${LZ4_SOURCE_DIR}/build/cmake/CMakeLists.txt -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/PatchLZ4.cmake
       COMMAND ${CMAKE_COMMAND}
         -S ${LZ4_SOURCE_DIR}/build/cmake
         -B ${LZ4_BUILD_DIR}
