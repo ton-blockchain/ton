@@ -39,12 +39,11 @@ class SharedFuture {
       }
     }
 
-    CHECK(future_.valid());
-
     auto [awaiter, promise] = td::actor::StartedTask<T>::make_bridge();
     promises_.push_back(std::move(promise));
 
     if (promises_.size() == 1) {
+      CHECK(future_.valid());
       td::Result<T> result = co_await std::move(future_).wrap();
 
       is_resolved = true;
