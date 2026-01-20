@@ -379,6 +379,10 @@ struct [[nodiscard]] StartedTask {
   using Handle = std::coroutine_handle<promise_type>;
   Handle h{};
 
+  bool valid() const {
+    return h.address() != nullptr;
+  }
+
   auto sm() {
     CHECK(h);
     return detail::StartedTaskStateManager<promise_type>{&h.promise().state_manager_data};
@@ -389,7 +393,14 @@ struct [[nodiscard]] StartedTask {
   }
   StartedTask(StartedTask&& o) noexcept : h(std::exchange(o.h, {})) {
   }
-  StartedTask& operator=(StartedTask&& o) = delete;
+  StartedTask& operator=(StartedTask&& o) {
+    if (this != &o) {
+      detach_silent();
+      h = std::exchange(o.h, {});
+    }
+    return *this;
+  }
+
   StartedTask(const StartedTask&) = delete;
   StartedTask& operator=(const StartedTask&) = delete;
 

@@ -657,9 +657,7 @@ class TestConsensus : public td::actor::Actor {
         .max_collated_data_size = 1 << 20,
         .consensus = NewConsensusConfig::Simplex{.slots_per_leader_window = SLOTS_PER_LEADER_WINDOW}};
     bus->simplex_config = bus->config.consensus.get<NewConsensusConfig::Simplex>();
-    bus->min_masterchain_block_id = MIN_MC_BLOCK_ID;
     bus->session_id = SESSION_ID;
-    bus->first_block_parents = {FIRST_PARENT};
     bus->cc_seqno = CC_SEQNO;
     bus->validator_set_hash = validator_set_->get_validator_set_hash();
     bus->populate_collator_schedule();
@@ -669,6 +667,7 @@ class TestConsensus : public td::actor::Actor {
                              PSTRING() << "consensus." << node_idx << "." << instance_idx);
     inst.status = Instance::Running;
     inst.bus.publish<BlockFinalizedInMasterchain>(last_accepted_block_);
+    inst.bus.publish<Start>(std::vector{FIRST_PARENT}, MIN_MC_BLOCK_ID);
     LOG(ERROR) << "Starting node #" << node_idx << "." << instance_idx;
   }
 
