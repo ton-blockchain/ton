@@ -65,7 +65,13 @@ if (NOT SECP256K1_LIBRARY)
             CXX=${CMAKE_CXX_COMPILER}
             AR=${SECP256K1_AR}
             RANLIB=${SECP256K1_RANLIB}
-            ${CMAKE_COMMAND} -E chdir ${SECP256K1_EMSRC_DIR} emmake make
+            ${CMAKE_COMMAND} -E chdir ${SECP256K1_EMSRC_DIR} emmake make clean
+          COMMAND ${CMAKE_COMMAND} -E env
+            CC=${CMAKE_C_COMPILER}
+            CXX=${CMAKE_CXX_COMPILER}
+            AR=${SECP256K1_AR}
+            RANLIB=${SECP256K1_RANLIB}
+            ${CMAKE_COMMAND} -E chdir ${SECP256K1_EMSRC_DIR} emmake make -j16
           COMMAND ${CMAKE_COMMAND} -E env
             CC=${CMAKE_C_COMPILER}
             CXX=${CMAKE_CXX_COMPILER}
