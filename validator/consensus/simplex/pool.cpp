@@ -240,6 +240,14 @@ struct SlotState {
     return certs.finalize_.has_value();
   }
 
+  void add_available_base(RawParentId parent) {
+    // If we have multiple bases, choose one coming from the highest slot to maximize the chance of
+    // forward-progress.
+    if (!available_base.has_value() || parent >= *available_base) {
+      available_base = parent;
+    }
+  }
+
   std::vector<Tsentrizbirkom> votes;
   CertificateBundle certs;
 
@@ -641,7 +649,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     owning_bus().publish<NotarizationObserved>(id, cert);
     owning_bus().publish<StatsTargetReached>(StatsTargetReached::NotarObserved, id.slot);
 
-    next_nonskipped_slot_after(id.slot).state->available_base = id;
+    next_nonskipped_slot_after(id.slot).state->add_available_base(id);
 
     advance_present();
     maybe_resolve_requests();
@@ -660,8 +668,8 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
       skip_intervals_.insert(i + 1);
     }
 
-    if (!next_slot.state->available_base.has_value()) {
-      next_slot.state->available_base = slot.state->available_base;
+    if (auto base = slot.state->available_base) {
+      next_slot.state->add_available_base(*base);
     }
 
     advance_present();
@@ -676,7 +684,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     CHECK(!slot.state->is_skipped());
     CHECK(slot.state->notarized_block().value_or(id) == id);
     if (!slot.state->is_notarized()) {
-      next_nonskipped_slot_after(id.slot).state->available_base = id;
+      next_nonskipped_slot_after(id.slot).state->add_available_base(id);
     }
 
     last_finalized_block_ = id;
