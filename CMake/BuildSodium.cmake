@@ -1,3 +1,5 @@
+include(AndroidThirdParty)
+
 set(SODIUM_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/sodium)
 set(SODIUM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/third-party/sodium)
 
@@ -30,6 +32,78 @@ elseif (MSVC)
     COMMENT "Build Secp256k1"
     DEPENDS ${SODIUM_SOURCE_DIR}
     OUTPUT ${SODIUM_LIBRARY}
+  )
+elseif (ANDROID)
+  set(SODIUM_BINARY_DIR ${TON_ANDROID_THIRD_PARTY_DIR}/libsodium/${TON_ANDROID_SODIUM_DIR})
+  set(SODIUM_INCLUDE_DIR ${SODIUM_BINARY_DIR}/include)
+  set(SODIUM_LIBRARY ${SODIUM_BINARY_DIR}/lib/libsodium.a CACHE FILEPATH "Sodium release library" FORCE)
+  set(SODIUM_LIBRARY_RELEASE ${SODIUM_LIBRARY} CACHE FILEPATH "Sodium release library" FORCE)
+  set(SODIUM_LIBRARY_DEBUG ${SODIUM_LIBRARY} CACHE FILEPATH "Sodium debug library" FORCE)
+  set(SODIUM_INCLUDE_DIR ${SODIUM_INCLUDE_DIR} CACHE PATH "Sodium include dir" FORCE)
+  set(SODIUM_FOUND TRUE CACHE BOOL "Sodium found" FORCE)
+
+  file(MAKE_DIRECTORY ${SODIUM_BINARY_DIR})
+  file(MAKE_DIRECTORY "${SODIUM_BINARY_DIR}/include")
+
+  set(SODIUM_AR ${TON_ANDROID_AR})
+  set(SODIUM_RANLIB ${TON_ANDROID_RANLIB})
+  if (CMAKE_C_FLAGS)
+    set(SODIUM_CFLAGS "${CMAKE_C_FLAGS} -fPIC")
+  else()
+    set(SODIUM_CFLAGS "-fPIC")
+  endif()
+  if (CMAKE_CXX_FLAGS)
+    set(SODIUM_CXXFLAGS "${CMAKE_CXX_FLAGS} -fPIC")
+  else()
+    set(SODIUM_CXXFLAGS "-fPIC")
+  endif()
+  add_custom_command(
+      WORKING_DIRECTORY ${SODIUM_SOURCE_DIR}
+      COMMAND ${CMAKE_COMMAND} -E rm -f ${SODIUM_LIBRARY}
+      COMMAND ${CMAKE_COMMAND} -E env
+        CC=${TON_ANDROID_CC}
+        CXX=${TON_ANDROID_CXX}
+        AR=${SODIUM_AR}
+        RANLIB=${SODIUM_RANLIB}
+        CFLAGS=${SODIUM_CFLAGS}
+        CXXFLAGS=${SODIUM_CXXFLAGS}
+        ./autogen.sh
+      COMMAND ${CMAKE_COMMAND} -E env
+        CC=${TON_ANDROID_CC}
+        CXX=${TON_ANDROID_CXX}
+        AR=${SODIUM_AR}
+        RANLIB=${SODIUM_RANLIB}
+        CFLAGS=${SODIUM_CFLAGS}
+        CXXFLAGS=${SODIUM_CXXFLAGS}
+        ./configure --host=${TON_ANDROID_HOST} --prefix=${SODIUM_BINARY_DIR} --with-pic --enable-static --disable-shared
+      COMMAND ${CMAKE_COMMAND} -E env
+        CC=${TON_ANDROID_CC}
+        CXX=${TON_ANDROID_CXX}
+        AR=${SODIUM_AR}
+        RANLIB=${SODIUM_RANLIB}
+        CFLAGS=${SODIUM_CFLAGS}
+        CXXFLAGS=${SODIUM_CXXFLAGS}
+        make clean
+      COMMAND ${CMAKE_COMMAND} -E env
+        CC=${TON_ANDROID_CC}
+        CXX=${TON_ANDROID_CXX}
+        AR=${SODIUM_AR}
+        RANLIB=${SODIUM_RANLIB}
+        CFLAGS=${SODIUM_CFLAGS}
+        CXXFLAGS=${SODIUM_CXXFLAGS}
+        make -j16
+      COMMAND ${CMAKE_COMMAND} -E env
+        CC=${TON_ANDROID_CC}
+        CXX=${TON_ANDROID_CXX}
+        AR=${SODIUM_AR}
+        RANLIB=${SODIUM_RANLIB}
+        CFLAGS=${SODIUM_CFLAGS}
+        CXXFLAGS=${SODIUM_CXXFLAGS}
+        make install
+      COMMAND ${SODIUM_RANLIB} ${SODIUM_LIBRARY}
+      COMMENT "Build sodium (Android)"
+      DEPENDS ${SODIUM_SOURCE_DIR}
+      OUTPUT ${SODIUM_LIBRARY}
   )
 elseif (NOT NIX)
   set(SODIUM_INCLUDE_DIR ${SODIUM_BINARY_DIR}/include)

@@ -1,9 +1,21 @@
+include(AndroidThirdParty)
+
 set(BLST_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/blst)
 set(BLST_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/third-party/blst)
 set(BLST_INCLUDE_DIR ${BLST_SOURCE_DIR}/bindings)
 
 if (NOT BLST_LIB)
-  if (WIN32)
+  if (ANDROID)
+    set(BLST_BINARY_DIR ${TON_ANDROID_THIRD_PARTY_DIR}/blst/${TON_ANDROID_ARCH_DIR})
+    set(BLST_LIB ${BLST_BINARY_DIR}/libblst.a)
+    set(BLST_AR ${TON_ANDROID_AR})
+    set(BLST_RANLIB ${TON_ANDROID_RANLIB})
+    if (CMAKE_C_FLAGS)
+      set(BLST_CFLAGS "${CMAKE_C_FLAGS} -fPIC")
+    else()
+      set(BLST_CFLAGS "-fPIC")
+    endif()
+  elseif (WIN32)
     set(BLST_LIB ${BLST_BINARY_DIR}/blst.lib)
     set(BLST_BUILD_COMMAND ${BLST_SOURCE_DIR}/build.bat)
   else()
@@ -25,6 +37,19 @@ if (NOT BLST_LIB)
       COMMAND emranlib ${BLST_LIB}
       COMMENT "Build blst (emscripten)"
       DEPENDS ${BLST_SOURCE_DIR}/src/server.c
+      OUTPUT ${BLST_LIB}
+    )
+  elseif (ANDROID)
+    add_custom_command(
+      WORKING_DIRECTORY ${BLST_BINARY_DIR}
+      COMMAND ${CMAKE_COMMAND} -E env
+        CC=${TON_ANDROID_CC}
+        AR=${BLST_AR}
+        RANLIB=${BLST_RANLIB}
+        CFLAGS=${BLST_CFLAGS}
+        ${BLST_SOURCE_DIR}/build.sh
+      COMMENT "Build blst (Android)"
+      DEPENDS ${BLST_SOURCE_DIR}
       OUTPUT ${BLST_LIB}
     )
   else()
