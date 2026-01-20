@@ -7,13 +7,13 @@ echo "[build-all.sh] ANDROID_NDK_ROOT=$ANDROID_NDK_ROOT"
 #echo
 #ARCH="x86" ./build.sh || exit 1
 
-echo "[build-all.sh] Building tonlib for x86_64..."
-echo
-ARCH="x86_64" ./build.sh || exit 1
-#
-#echo "[build-all.sh] Building tonlib for arm..."
+#echo "[build-all.sh] Building tonlib for x86_64..."
 #echo
-#ARCH="arm" ./build.sh || exit 1
+#ARCH="x86_64" ./build.sh || exit 1
+#
+echo "[build-all.sh] Building tonlib for arm..."
+echo
+ARCH="arm" ./build.sh || exit 1
 #
 #echo "[build-all.sh] Building tonlib for arm64..."
 #echo

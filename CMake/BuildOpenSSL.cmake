@@ -128,6 +128,14 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
         if (OPENSSL_NEEDS_BUILD)
           file(REMOVE_RECURSE ${OPENSSL_BUILD_DIR})
           file(MAKE_DIRECTORY ${OPENSSL_BUILD_DIR})
+          # Clean OpenSSL source directory before copying to avoid architecture conflicts
+          execute_process(
+            COMMAND make clean
+            WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
+            RESULT_VARIABLE OPENSSL_CLEAN_RESULT
+            OUTPUT_QUIET
+            ERROR_QUIET
+          )
           file(COPY ${OPENSSL_SOURCE_DIR}/ DESTINATION ${OPENSSL_BUILD_DIR})
           if (NOT EXISTS ${OPENSSL_CONFIGURE_SCRIPT})
             message(FATAL_ERROR "OpenSSL Configure script missing at ${OPENSSL_CONFIGURE_SCRIPT}")
