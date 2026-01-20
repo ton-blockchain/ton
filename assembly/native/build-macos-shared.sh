@@ -33,7 +33,7 @@ else
 fi
 
 export NONINTERACTIVE=1
-brew install ninja libsodium libmicrohttpd pkg-config automake libtool autoconf gnutls
+brew install ninja libmicrohttpd pkg-config automake libtool autoconf gnutls
 export PATH=/usr/local/opt/ccache/libexec:$PATH
 
 if [ "$with_ccache" = true ]; then
@@ -46,26 +46,9 @@ else
   export CCACHE_DISABLE=1
 fi
 
-if [ ! -d "lz4" ]; then
-  git clone https://github.com/lz4/lz4
-  cd lz4 || exit
-  lz4Path=`pwd`
-  git checkout v1.9.4
-  make -j4 CC="$CC" CFLAGS="--sysroot=$SDKROOT"
-  test $? -eq 0 || { echo "Can't compile lz4"; exit 1; }
-  cd ..
-else
-  lz4Path=$(pwd)/lz4
-  echo "Using compiled lz4"
-fi
-
 cmake -GNinja -DCMAKE_BUILD_TYPE=Release .. \
--DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
 -DCMAKE_CXX_FLAGS="-nostdinc++ -isystem ${SDKROOT}/usr/include/c++/v1 -isystem ${SDKROOT}/usr/include" \
 -DCMAKE_SYSROOT="$(xcrun --show-sdk-path)" \
--DLZ4_FOUND=1 \
--DLZ4_LIBRARIES=$lz4Path/lib/liblz4.a \
--DLZ4_INCLUDE_DIRS=$lz4Path/lib \
 -DCMAKE_INSTALL_PREFIX="$(pwd)/install"
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }

@@ -48,7 +48,18 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
       set(OPENSSL_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/third-party/openssl)
       set(OPENSSL_INCLUDE_DIR ${OPENSSL_BINARY_DIR}/include)
       if (APPLE)
-        set(CMD ./Configure darwin64-x86_64-cc --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests enable-quic --libdir=lib)
+        # Detect macOS architecture
+        execute_process(
+          COMMAND uname -m
+          OUTPUT_VARIABLE MACOS_ARCH
+          OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        if (MACOS_ARCH STREQUAL "arm64")
+          set(OPENSSL_DARWIN_TARGET darwin64-arm64-cc)
+        else()
+          set(OPENSSL_DARWIN_TARGET darwin64-x86_64-cc)
+        endif()
+        set(CMD ./Configure ${OPENSSL_DARWIN_TARGET} --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests no-apps enable-quic --libdir=lib)
       else()
         set(CMD ./config --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests enable-quic --libdir=lib)
       endif()
