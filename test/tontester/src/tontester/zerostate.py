@@ -30,7 +30,7 @@ class SimplexConsensusConfig:
 class NetworkConfig:
     monitor_min_split: int = 0
     split: int = 0
-    global_version: int = 11
+    global_version: int = 13
     shard_validators: int = 1
     block_limit_mul: int = 1
     mc_valgroup_lifetime: int = 250

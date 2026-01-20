@@ -161,7 +161,7 @@ class ParserLogs(Parser):
             for s in range(start_slot, end_slot):
                 self._slot_leaders[(v_group, s)] = v_id
         elif "BlockFinalized" in line and not "BlockFinalizedInMasterchain" in line:
-            slot_match = re.search(r"candidate=Candidate\{id=\{(\d+)", line)
+            slot_match = re.search(r"candidate=\{(\d+)", line)
             assert slot_match is not None
             slot = int(slot_match.group(1))
             slot_id = (v_group, slot)

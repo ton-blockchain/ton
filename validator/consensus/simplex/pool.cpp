@@ -240,6 +240,14 @@ struct SlotState {
     return certs.finalize_.has_value();
   }
 
+  void add_available_base(RawParentId parent) {
+    // If we have multiple bases, choose one coming from the highest slot to maximize the chance of
+    // forward-progress.
+    if (!available_base.has_value() || parent >= *available_base) {
+      available_base = parent;
+    }
+  }
+
   std::vector<Tsentrizbirkom> votes;
   CertificateBundle certs;
 
@@ -282,15 +290,22 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     }
 
     if (first_nonannounced_window_ == 0) {
-      maybe_publish_new_leader_window(0).start().detach();
+      maybe_publish_new_leader_window().start().detach();
     }
-
-    reschedule_standstill_resolution();
   }
 
   template <>
   void handle(BusHandle, std::shared_ptr<const StopRequested>) {
     stop();
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const Start>) {
+    reschedule_standstill_resolution();
+    is_started_ = true;
+    if (leader_window_observation_) {
+      owning_bus().publish(std::move(leader_window_observation_));
+    }
   }
 
   template <>
@@ -477,7 +492,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     co_return {};
   }
 
-  void maybe_publish_new_leader_windows() {
+  void advance_present() {
     while (true) {
       auto slot = state_->slot_at(now_);
       if (slot->state->is_notarized() || slot->state->is_skipped()) {
@@ -486,23 +501,32 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
         break;
       }
     }
-    maybe_publish_new_leader_window(now_).start().detach();
+    maybe_publish_new_leader_window().start().detach();
   }
 
-  td::actor::Task<> maybe_publish_new_leader_window(td::uint32 start_slot) {
-    td::uint32 new_window = start_slot / slots_per_leader_window_;
+  td::actor::Task<> maybe_publish_new_leader_window() {
+    td::uint32 now_save = now_;
+    td::uint32 new_window = now_ / slots_per_leader_window_;
     if (new_window < first_nonannounced_window_) {
       co_return {};
     }
     first_nonannounced_window_ = new_window + 1;
     co_await store_pool_state_to_db();
+
+    if (now_save != now_) {
+      co_return {};
+    }
+
     RawParentId base = {};
-    if (start_slot != 0) {
+    if (now_ != 0) {
       auto maybe_base = state_->slot_at(now_)->state->available_base;
       CHECK(maybe_base.has_value());
       base = maybe_base.value();
     }
-    owning_bus().publish<LeaderWindowObserved>(now_, base);
+    leader_window_observation_ = std::make_shared<LeaderWindowObserved>(now_, base);
+    if (is_started_) {
+      owning_bus().publish(std::move(leader_window_observation_));
+    }
     co_return {};
   }
 
@@ -625,9 +649,9 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     owning_bus().publish<NotarizationObserved>(id, cert);
     owning_bus().publish<StatsTargetReached>(StatsTargetReached::NotarObserved, id.slot);
 
-    next_nonskipped_slot_after(id.slot).state->available_base = id;
+    next_nonskipped_slot_after(id.slot).state->add_available_base(id);
 
-    maybe_publish_new_leader_windows();
+    advance_present();
     maybe_resolve_requests();
   }
 
@@ -644,11 +668,11 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
       skip_intervals_.insert(i + 1);
     }
 
-    if (!next_slot.state->available_base.has_value()) {
-      next_slot.state->available_base = slot.state->available_base;
+    if (auto base = slot.state->available_base) {
+      next_slot.state->add_available_base(*base);
     }
 
-    maybe_publish_new_leader_windows();
+    advance_present();
     maybe_resolve_requests();
   }
 
@@ -660,7 +684,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     CHECK(!slot.state->is_skipped());
     CHECK(slot.state->notarized_block().value_or(id) == id);
     if (!slot.state->is_notarized()) {
-      next_nonskipped_slot_after(id.slot).state->available_base = id;
+      next_nonskipped_slot_after(id.slot).state->add_available_base(id);
     }
 
     last_finalized_block_ = id;
@@ -671,7 +695,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
 
     if (now_ <= id.slot) {
       now_ = id.slot + 1;
-      maybe_publish_new_leader_windows();
+      advance_present();
     }
 
     while (!skip_intervals_.empty() && *skip_intervals_.begin() <= id.slot) {
@@ -701,6 +725,8 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   ValidatorWeight weight_threshold_ = 0;
   std::optional<State> state_;
 
+  bool is_started_ = false;
+  std::shared_ptr<LeaderWindowObserved> leader_window_observation_;
   td::uint32 now_ = 0;
 
   std::set<td::uint32> skip_intervals_;
