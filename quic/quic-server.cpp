@@ -151,6 +151,9 @@ class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
   td::Status on_stream_data(StreamDataEvent event) override {
     return callback_.on_stream(cid_, event.sid, std::move(event.data), event.fin);
   }
+  void on_stream_closed(QuicStreamID sid) override {
+    return callback_.on_stream_closed(cid_, sid);
+  }
 
  private:
   QuicServer::Callback &callback_;

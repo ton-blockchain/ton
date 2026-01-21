@@ -29,6 +29,10 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     (void)cid_inserted;
     (void)sid_inserted;
     auto &state = sid_it->second;
+    if (state.is_failed()) {
+      LOG(INFO) << "got data for closed stream, ignore cid=" << cid << " sid=" << sid;
+      return td::Status::Error("stream failed");
+    }
     state.append(std::move(data));
     auto status = state.check_limits();
     is_end |= status.is_error();
@@ -54,6 +58,16 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     streams_.erase(cid);
     td::actor::send_closure(sender_, &QuicSender::on_closed, cid);
   }
+  void on_stream_closed(QuicConnectionId cid, QuicStreamID sid) override {
+    if (auto cid_it = streams_.find(cid); cid_it != streams_.end()) {
+      if (auto sid_it = cid_it->second.find(sid); sid_it != cid_it->second.end()) {
+        cid_it->second.erase(sid_it);
+        if (cid_it->second.empty()) {
+          streams_.erase(cid_it);
+        }
+      }
+    }
+  }
 
   void set_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options) override {
     streams_[cid][sid].set_options(options);
@@ -62,16 +76,24 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
  private:
   struct StreamState {
     void append(td::BufferSlice data) {
+      CHECK(!failed_);
       if (!data.empty()) {
         builder_.append(std::move(data));
       }
     }
 
-    td::Status check_limits() const {
+    bool is_failed() const {
+      return failed_;
+    }
+
+    td::Status check_limits() {
+      CHECK(!failed_);
       if (options_.max_size.has_value() && builder_.size() > *options_.max_size) {
+        failed_ = true;
         return td::Status::Error(PSLICE() << "stream size limit exceeded: max=" << *options_.max_size);
       }
       if (options_.timeout && options_.timeout.is_in_past()) {
+        failed_ = true;
         return td::Status::Error(PSLICE() << "stream timeout exceeded: " << options_.timeout_seconds << "s");
       }
       return td::Status::OK();
@@ -88,6 +110,7 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
    private:
     td::BufferBuilder builder_;
     StreamOptions options_;
+    bool failed_{false};
   };
 
   adnl::AdnlNodeIdShort local_id_;
@@ -365,6 +388,8 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
   if (data.empty()) {
     return;  // currently message will trigger empty response
   }
+
+  // TODO: accept request only from inbound streams. and answers only from outbound
 
   auto req_R = fetch_tl_object<ton_api::quic_Request>(data.clone(), true);
   if (req_R.is_ok()) {

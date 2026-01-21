@@ -519,6 +519,7 @@ int QuicConnectionPImpl::on_acked_stream_data_offset(int64_t stream_id, uint64_t
 int QuicConnectionPImpl::on_stream_close(int64_t stream_id) {
   streams_.erase(stream_id);
   ngtcp2_conn_extend_max_streams_bidi(conn(), 1);
+  callback_->on_stream_closed(stream_id);
   return 0;
 }
 
