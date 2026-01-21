@@ -23,6 +23,7 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
   }
 
   td::Status on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) override {
+    // TODO: some limit for input connections
     auto [cid_it, cid_inserted] = streams_.emplace(cid, std::map<QuicStreamID, StreamState>{});
     auto [sid_it, sid_inserted] = cid_it->second.emplace(sid, StreamState{});
     (void)cid_inserted;
