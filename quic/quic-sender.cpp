@@ -22,7 +22,7 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
                             is_outbound);
   }
 
-  void on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) override {
+  td::Status on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) override {
     auto [cid_it, cid_inserted] = streams_.emplace(cid, std::map<QuicStreamID, StreamState>{});
     auto [sid_it, sid_inserted] = cid_it->second.emplace(sid, StreamState{});
     (void)cid_inserted;
@@ -30,19 +30,23 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     auto &state = sid_it->second;
     state.append(std::move(data));
     auto status = state.check_limits();
-    if (status.is_error()) {
-      LOG(INFO) << "close stream cid=" << cid << " sid=" << sid << " due to " << status.error();
-      is_end = true;
-    }
+    is_end |= status.is_error();
     if (!is_end) {
-      return;
+      return td::Status::OK();
     }
-    auto complete_data = state.extract();
+    td::Result<td::BufferSlice> result;
+    if (status.is_error()) {
+      result = status.clone();
+      LOG(INFO) << "close stream cid=" << cid << " sid=" << sid << " due to " << status.error();
+    } else {
+      result = state.extract();
+    }
     cid_it->second.erase(sid_it);
     if (cid_it->second.empty()) {
       streams_.erase(cid_it);
     }
-    td::actor::send_closure(sender_, &QuicSender::on_stream_complete, cid, sid, std::move(complete_data));
+    td::actor::send_closure(sender_, &QuicSender::on_stream_complete, cid, sid, std::move(result));
+    return status;
   }
 
   void on_closed(QuicConnectionId cid) override {
@@ -335,16 +339,27 @@ void QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicConnect
   }
 }
 
-void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id, td::BufferSlice data) {
-  if (data.empty()) {
-    return;  // currently message will trigger empty response
-  }
-
+void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id, td::Result<td::BufferSlice> r_data) {
   auto it = by_cid_.find(cid);
   if (it == by_cid_.end()) {
+    LOG(ERROR) << "Unknown CID:" << cid << " SID:" << stream_id;
     return;
   }
   auto connection = it->second;
+
+  if (r_data.is_error()) {
+    auto resp_it = connection->responses.find(stream_id);
+    if (resp_it != connection->responses.end()) {
+      resp_it->second.set_error(r_data.move_as_error());
+      connection->responses.erase(resp_it);
+    }
+    return;
+  }
+
+  auto data = r_data.move_as_ok();
+  if (data.empty()) {
+    return;  // currently message will trigger empty response
+  }
 
   auto req_R = fetch_tl_object<ton_api::quic_Request>(data.clone(), true);
   if (req_R.is_ok()) {

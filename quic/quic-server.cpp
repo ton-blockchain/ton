@@ -148,8 +148,8 @@ class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
     callback_.on_connected(cid_, std::move(event.peer_public_key), is_outbound_);
   }
 
-  void on_stream_data(StreamDataEvent event) override {
-    callback_.on_stream(cid_, event.sid, std::move(event.data), event.fin);
+  td::Status on_stream_data(StreamDataEvent event) override {
+    return callback_.on_stream(cid_, event.sid, std::move(event.data), event.fin);
   }
 
  private:

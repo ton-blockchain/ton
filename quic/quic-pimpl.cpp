@@ -477,7 +477,12 @@ int QuicConnectionPImpl::on_handshake_completed() {
 int QuicConnectionPImpl::on_recv_stream_data(uint32_t flags, int64_t stream_id, td::Slice data) {
   Callback::StreamDataEvent event{
       .sid = stream_id, .data = td::BufferSlice{data}, .fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0};
-  callback_->on_stream_data(std::move(event));
+  auto status = callback_->on_stream_data(std::move(event));
+
+  if (status.is_error()) {
+    ngtcp2_conn_shutdown_stream(conn(), 0, stream_id, 1);
+    return 0;
+  }
 
   ngtcp2_conn_extend_max_stream_offset(conn(), stream_id, data.size());
   ngtcp2_conn_extend_max_offset(conn(), data.size());
