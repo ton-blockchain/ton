@@ -3,6 +3,7 @@
 #include "adnl/adnl-peer-table.h"
 #include "auto/tl/ton_api.hpp"
 #include "td/actor/coro_utils.h"
+#include "td/utils/as.h"
 
 #include "quic-sender.h"
 
@@ -28,7 +29,9 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     (void)sid_inserted;
     auto &state = sid_it->second;
     state.append(std::move(data));
-    if (state.should_end()) {
+    auto status = state.check_limits();
+    if (status.is_error()) {
+      LOG(INFO) << "close stream cid=" << cid << " sid=" << sid << " due to " << status.error();
       is_end = true;
     }
     if (!is_end) {
@@ -59,14 +62,14 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
       }
     }
 
-    bool should_end() const {
+    td::Status check_limits() const {
       if (options_.max_size.has_value() && builder_.size() > *options_.max_size) {
-        return true;
+        return td::Status::Error(PSLICE() << "stream size limit exceeded: max=" << *options_.max_size);
       }
       if (options_.timeout && options_.timeout.is_in_past()) {
-        return true;
+        return td::Status::Error("stream timeout exceeded");
       }
-      return false;
+      return td::Status::OK();
     }
 
     td::BufferSlice extract() {
@@ -356,7 +359,12 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
     return;
   }
 
-  LOG(ERROR) << "malformed message from CID, SID:" << stream_id;
+  td::uint32 tl_id = 0;
+  if (data.size() >= 4) {
+    tl_id = td::as<td::uint32>(data.data());
+  }
+  LOG(ERROR) << "malformed message from CID:" << cid << " SID:" << stream_id << " size:" << data.size()
+             << " tl_id:" << td::format::as_hex(tl_id);
 }
 
 void QuicSender::on_closed(QuicConnectionId cid) {
