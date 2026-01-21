@@ -76,8 +76,8 @@ if not exist "%third_party%\lz4" (
   echo lz4 submodule not found at %third_party%\lz4
   exit /b 1
 )
-if not exist "%third_party%\libsodium" (
-  echo libsodium submodule not found at %third_party%\libsodium
+if not exist "%third_party%\sodium" (
+  echo sodium submodule not found at %third_party%\sodium
   exit /b 1
 )
 if not exist "%third_party%\openssl" (
@@ -95,9 +95,9 @@ if not exist "%third_party%\lz4\build\VS2022\liblz4\bin\x64_Release\liblz4_stati
   echo Using lz4...
 )
 
-if not exist "%third_party%\libsodium\Build\Release\x64\libsodium.lib" (
+if not exist "%third_party%\sodium\Build\Release\x64\libsodium.lib" (
   echo Building libsodium from submodule...
-  cd /d "%third_party%\libsodium"
+  cd /d "%third_party%\sodium"
   msbuild libsodium.vcxproj /p:Configuration=Release /p:platform=x64 -p:PlatformToolset=v143
   cd /d "%third_libs%"
 ) else (
@@ -142,9 +142,9 @@ cd build
 cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
 -DPORTABLE=1 ^
 -DSODIUM_USE_STATIC_LIBS=1 ^
--DSODIUM_LIBRARY_RELEASE=%third_party%\libsodium\Build\Release\x64\libsodium.lib ^
--DSODIUM_LIBRARY_DEBUG=%third_party%\libsodium\Build\Release\x64\libsodium.lib ^
--DSODIUM_INCLUDE_DIR=%third_party%\libsodium\src\libsodium\include ^
+-DSODIUM_LIBRARY_RELEASE=%third_party%\sodium\Build\Release\x64\libsodium.lib ^
+-DSODIUM_LIBRARY_DEBUG=%third_party%\sodium\Build\Release\x64\libsodium.lib ^
+-DSODIUM_INCLUDE_DIR=%third_party%\sodium\src\libsodium\include ^
 -DLZ4_FOUND=1 ^
 -DLZ4_INCLUDE_DIRS=%third_party%\lz4\lib ^
 -DLZ4_LIBRARIES=%third_party%\lz4\build\VS2019\liblz4\bin\x64_Release\liblz4_static.lib ^
