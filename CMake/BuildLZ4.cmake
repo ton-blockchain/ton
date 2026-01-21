@@ -24,6 +24,8 @@ elseif (ANDROID)
   set(LZ4_BUILD_DIR ${LZ4_BINARY_DIR}/cmake)
   set(LZ4_INCLUDE_DIRS ${TON_ANDROID_THIRD_PARTY_DIR}/lz4/include)
   set(LZ4_LIBRARY ${LZ4_BINARY_DIR}/lib/liblz4.a)
+  set(LZ4_ARCH_STAMP ${LZ4_BINARY_DIR}/.android_arch)
+  set(LZ4_ARCH_EXPECTED "${TON_ANDROID_ABI};${TON_ANDROID_API};${TON_ANDROID_CC}")
 
   set(LZ4_ANDROID_CMAKE_ARGS)
   if (CMAKE_TOOLCHAIN_FILE)
@@ -42,14 +44,30 @@ elseif (ANDROID)
   file(MAKE_DIRECTORY ${LZ4_BUILD_DIR})
   file(MAKE_DIRECTORY ${LZ4_BINARY_DIR}/lib)
 
+  set(LZ4_NEEDS_BUILD FALSE)
+  if (EXISTS ${LZ4_ARCH_STAMP})
+    file(READ ${LZ4_ARCH_STAMP} LZ4_ARCH_CURRENT)
+    string(STRIP "${LZ4_ARCH_CURRENT}" LZ4_ARCH_CURRENT)
+    if (NOT LZ4_ARCH_CURRENT STREQUAL LZ4_ARCH_EXPECTED)
+      set(LZ4_NEEDS_BUILD TRUE)
+    endif()
+  else()
+    set(LZ4_NEEDS_BUILD TRUE)
+  endif()
   if (NOT EXISTS "${LZ4_LIBRARY}")
+    set(LZ4_NEEDS_BUILD TRUE)
+  endif()
+
+  if (LZ4_NEEDS_BUILD)
+    file(REMOVE_RECURSE ${LZ4_BUILD_DIR})
+    file(MAKE_DIRECTORY ${LZ4_BUILD_DIR})
     execute_process(
       COMMAND ${CMAKE_COMMAND} -E echo "Patching LZ4 CMakeLists.txt"
       COMMAND ${CMAKE_COMMAND} -DINPUT_FILE=${LZ4_SOURCE_DIR}/build/cmake/CMakeLists.txt -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/PatchLZ4.cmake
       COMMAND ${CMAKE_COMMAND}
         -S ${LZ4_SOURCE_DIR}/build/cmake
         -B ${LZ4_BUILD_DIR}
-        ${LZ4_CMAKE_GENERATOR_ARGS}
+        ${LZ4_ANDROID_CMAKE_ARGS}
         -DLZ4_BUILD_CLI=OFF
         -DLZ4_BUILD_LEGACY_LZ4C=OFF
         -DBUILD_SHARED_LIBS=OFF
@@ -73,6 +91,7 @@ elseif (ANDROID)
     if (NOT LZ4_BUILD_RESULT EQUAL 0)
       message(FATAL_ERROR "LZ4 build failed with code ${LZ4_BUILD_RESULT}")
     endif()
+    file(WRITE ${LZ4_ARCH_STAMP} "${LZ4_ARCH_EXPECTED}\n")
   endif()
   add_custom_command(
       WORKING_DIRECTORY ${LZ4_BUILD_DIR}
