@@ -29,6 +29,8 @@ namespace tolk {
 GNU_ATTRIBUTE_COLD GNU_ATTRIBUTE_NORETURN
 void on_assertion_failed(const char *description, const char *file_name, int line_number);
 
+class JsonPrettyOutput;   // forward declaration
+
 class [[nodiscard]] Error {
   std::string message;
 
@@ -111,7 +113,8 @@ struct ThrownParseError final : std::exception {
   const char* what() const noexcept override {
     return message.c_str();
   }
-  void output_compilation_error(std::ostream& os) const;
+  void output_to_console(std::ostream& os) const;
+  void output_to_json(JsonPrettyOutput& json) const;
 };
 
 struct UnexpectedASTNodeKind final : std::exception {

@@ -37,6 +37,7 @@
 #include <unistd.h>
 #endif
 #include "git.h"
+#include "json-output.h"
 
 using namespace tolk;
 
@@ -207,32 +208,49 @@ td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind ki
   }
 }
 
-class StdCoutRedirectToFile {
-  std::unique_ptr<std::fstream> output_file;
-  std::streambuf* backup_sbuf = nullptr;
+GNU_ATTRIBUTE_NOINLINE
+static void compilation_failed_output_errors(const std::vector<ThrownParseError>& errors) {
+  constexpr int JSON_ERROR_LIMIT = 50;
+  constexpr int CONSOLE_ERROR_LIMIT = 20;
+  int shown = 0;
 
-public:
-  explicit StdCoutRedirectToFile(const std::string& output_filename) {
-    if (!output_filename.empty()) {
-      output_file = std::make_unique<std::fstream>(output_filename, std::fstream::trunc | std::fstream::out);
-      if (output_file->is_open()) {
-        backup_sbuf = std::cout.rdbuf(output_file->rdbuf());
-      }
+  if (G.settings.show_errors_as_json) {
+    JsonPrettyOutput json(std::cerr);
+    json.start_object();
+    json.key_value("status", "error");
+    json.start_array("errors");
+    for (const ThrownParseError& error : errors) {
+      if (shown >= JSON_ERROR_LIMIT) break;
+      error.output_to_json(json);
+      shown++;
+    }
+    json.end_array();
+    json.end_object();
+
+  } else {
+    for (const ThrownParseError& error : errors) {
+      if (shown >= CONSOLE_ERROR_LIMIT) break;
+      if (shown++) std::cerr << std::endl;  // separator between errors
+      error.output_to_console(std::cerr);
     }
   }
+}
 
-  ~StdCoutRedirectToFile() {
-    if (backup_sbuf) {
-      std::cout.rdbuf(backup_sbuf);
-    }
+static void compilation_failed_with_fatal(const std::string& message) {
+  // no location, no pretty header, no json output, just "fatal", something unexpected happened
+  std::cerr << "fatal: " << message << std::endl;
+}
+
+static void compilation_succeed_output_fift(std::ostream& fif_os, const std::string& fift_code) {
+  fif_os << fift_code;
+  if (G.settings.show_errors_as_json) {
+    std::cerr << R"({"status":"ok"})";
   }
-
-  bool is_failed() const { return output_file && !output_file->is_open(); }
-};
+}
 
 int main(int argc, char* const argv[]) {
   int i;
-  while ((i = getopt(argc, argv, "o:b:O:p:x:SLevh")) != -1) {
+  while ((i = getopt(argc, argv, "o:b:O:p:x:SLjevh")) != -1) {
     switch (i) {
       case 'o':
         G.settings.output_filename = optarg;
@@ -257,6 +275,9 @@ int main(int argc, char* const argv[]) {
       case 'L':
         G.settings.tolk_src_as_line_comments = false;
         break;
+      case 'j':
+        G.settings.show_errors_as_json = true;
+        break;
       case 'e':
         G.settings.verbosity++;
         break;
@@ -271,10 +292,13 @@ int main(int argc, char* const argv[]) {
     }
   }
 
-  StdCoutRedirectToFile redirect_cout(G.settings.output_filename);
-  if (redirect_cout.is_failed()) {
-    std::cerr << "Failed to create output file " << G.settings.output_filename << std::endl;
-    return 2;
+  std::ofstream fif_out_file;
+  if (!G.settings.output_filename.empty()) {    // if not set, fif code will be output to std::cout
+    fif_out_file.open(G.settings.output_filename);
+    if (!fif_out_file.is_open()) {
+      std::cerr << "Failed to create output file " << G.settings.output_filename << std::endl;
+      return 2;
+    }
   }
 
   // locate tolk-stdlib/ based on env or default system paths
@@ -306,6 +330,16 @@ int main(int argc, char* const argv[]) {
 
   G.settings.read_callback = fs_read_callback;
 
-  int exit_code = tolk_proceed(argv[optind]);
-  return exit_code;
+  TolkCompilationResult result = tolk_proceed(argv[optind]);
+  if (!result.fatal_msg.empty()) {
+    compilation_failed_with_fatal(result.fatal_msg);
+    return 2;
+  }
+  if (!result.errors.empty()) {
+    compilation_failed_output_errors(result.errors);
+    return 2;
+  }
+
+  compilation_succeed_output_fift(fif_out_file.is_open() ? fif_out_file : std::cout, result.fift_code);
+  return 0;
 }

@@ -25,15 +25,16 @@
 */
 #include "pipeline.h"
 #include "compiler-state.h"
+#include "compilation-errors.h"
 #include "lexer.h"
-#include "ast.h"
 #include "type-system.h"
+#include <sstream>
 
 namespace tolk {
 
 void define_builtins();
 
-int tolk_proceed(const std::string &entrypoint_filename) {
+TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
   type_system_init();
   define_builtins();
   lexer_init();
@@ -63,19 +64,36 @@ int tolk_proceed(const std::string &entrypoint_filename) {
     pipeline_convert_ast_to_legacy_Expr_Op();
 
     pipeline_find_unused_symbols();
-    pipeline_generate_fif_output_to_std_cout();
 
-    return 0;
+    std::ostringstream os_fif;
+    pipeline_generate_fif_output(os_fif);
+
+    return TolkCompilationResult{
+      .errors = {},
+      .fatal_msg = "",
+      .fift_code = os_fif.str(),
+    };
+
   } catch (const Fatal& fatal) {
-    std::cerr << "fatal: " << fatal.message << std::endl;
-    return 2;
+    return TolkCompilationResult{
+      .errors = {},
+      .fatal_msg = fatal.message,
+      .fift_code = "",
+    };
+
   } catch (const ThrownParseError& error) {
-    error.output_compilation_error(std::cerr);
-    return 2;
+    return TolkCompilationResult{
+      .errors = {error},
+      .fatal_msg = "",
+      .fift_code = "",
+    };
+
   } catch (const UnexpectedASTNodeKind& error) {
-    std::cerr << "fatal: " << error.message << std::endl;
-    std::cerr << "It's a compiler bug, please report to developers" << std::endl;
-    return 2;
+    return TolkCompilationResult{
+      .errors = {},
+      .fatal_msg = error.message,
+      .fift_code = "",
+    };
   }
 }
 

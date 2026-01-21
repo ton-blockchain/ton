@@ -17,6 +17,7 @@
 #include "compilation-errors.h"
 #include "ast.h"
 #include "type-system.h"
+#include "json-output.h"
 
 namespace tolk {
 
@@ -173,8 +174,28 @@ void Error::warning(SrcRange range, FunctionPtr in_function) const {
   output_compiler_message(std::cerr, true, str_in_function(in_function), range, message);
 }
 
-void ThrownParseError::output_compilation_error(std::ostream& os) const {
+void ThrownParseError::output_to_console(std::ostream& os) const {
   output_compiler_message(os, false, in_function, range, message);
+}
+
+void ThrownParseError::output_to_json(JsonPrettyOutput& json) const {
+  json.start_object();
+  json.key_value("message", message);
+  if (!in_function.empty()) {
+    json.key_value("in_function", in_function);
+  }
+  if (range.is_valid()) {
+    SrcRange::DecodedRange r = range.decode_offsets();
+    json.start_object("range");
+    json.key_value("file_name", range.get_src_file()->realpath);
+    json.key_value("start_line_no", r.start_line_no);
+    json.key_value("start_char_no", r.start_char_no);
+    json.key_value("end_line_no", r.end_line_no);
+    json.key_value("end_char_no", r.end_char_no);
+    json.key_value("text_inside", r.text_inside);
+    json.end_object();
+  }
+  json.end_object();
 }
 
 } // namespace tolk

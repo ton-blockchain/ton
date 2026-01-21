@@ -61,6 +61,7 @@ struct CompilerSettings {
   int optimization_level = 2;
   bool stack_layout_comments = true;
   bool tolk_src_as_line_comments = true;
+  bool show_errors_as_json = false;
 
   std::string output_filename;
   std::string boc_output_filename;
@@ -124,6 +125,14 @@ struct CompilerState {
 
 extern CompilerState G;
 
-int tolk_proceed(const std::string &entrypoint_filename);
+struct ThrownParseError;
+
+struct TolkCompilationResult {
+  std::vector<ThrownParseError> errors;
+  std::string fatal_msg;      // some Fatal happened, it has no location and can't be pretty formatted
+  std::string fift_code;      // fift code exists only if no compilation errors
+};
+
+TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename);
 
 }  // namespace tolk

@@ -215,21 +215,21 @@ static void generate_output_func(std::ostream& os, FunctionPtr fun_ref) {
   }
 }
 
-void pipeline_generate_fif_output_to_std_cout() {
-  std::cout << "\"Asm.fif\" include\n";
-  std::cout << "// automatically generated from ";
+void pipeline_generate_fif_output(std::ostream& os) {
+  os << "\"Asm.fif\" include\n";
+  os << "// automatically generated from ";
   bool need_comma = false;
   for (const SrcFile* file : G.all_src_files) {
     if (!file->is_stdlib_file) {
       if (need_comma) {
-        std::cout << ", ";
+        os << ", ";
       }
-      std::cout << file->extract_short_name();
+      os << file->extract_short_name();
       need_comma = true;
     }
   }
-  std::cout << std::endl;
-  std::cout << "PROGRAM{\n";
+  os << std::endl;
+  os << "PROGRAM{\n";
 
   bool has_main_procedure = false;
   int n_inlined_in_place = 0;
@@ -246,11 +246,11 @@ void pipeline_generate_fif_output_to_std_cout() {
       has_main_procedure = true;
     }
 
-    std::cout << "  ";
+    os << "  ";
     if (fun_ref->has_tvm_method_id()) {
-      std::cout << fun_ref->tvm_method_id << " DECLMETHOD " << CodeBlob::fift_name(fun_ref) << "\n";
+      os << fun_ref->tvm_method_id << " DECLMETHOD " << CodeBlob::fift_name(fun_ref) << "\n";
     } else {
-      std::cout << "DECLPROC " << CodeBlob::fift_name(fun_ref) << "\n";
+      os << "DECLPROC " << CodeBlob::fift_name(fun_ref) << "\n";
     }
   }
 
@@ -259,10 +259,10 @@ void pipeline_generate_fif_output_to_std_cout() {
   }
 
   if (n_inlined_in_place) {
-    std::cout << "  // " << n_inlined_in_place << " functions inlined in-place:" << "\n";
+    os << "  // " << n_inlined_in_place << " functions inlined in-place:" << "\n";
     for (FunctionPtr fun_ref : G.all_functions) {
       if (fun_ref->is_inlined_in_place()) {
-        std::cout << "  // - " << fun_ref->name << " (" << fun_ref->n_times_called << (fun_ref->n_times_called == 1 ? " call" : " calls") << ")\n";
+        os << "  // - " << fun_ref->name << " (" << fun_ref->n_times_called << (fun_ref->n_times_called == 1 ? " call" : " calls") << ")\n";
       }
     }
   }
@@ -275,19 +275,19 @@ void pipeline_generate_fif_output_to_std_cout() {
       continue;
     }
 
-    std::cout << "  " << "DECLGLOBVAR " << CodeBlob::fift_name(var_ref) << "\n";
+    os << "  " << "DECLGLOBVAR " << CodeBlob::fift_name(var_ref) << "\n";
   }
 
   for (FunctionPtr fun_ref : G.all_functions) {
     if (fun_ref->is_asm_function() || !fun_ref->does_need_codegen()) {
       continue;
     }
-    generate_output_func(std::cout, fun_ref);
+    generate_output_func(os, fun_ref);
   }
 
-  std::cout << "}END>c\n";
+  os << "}END>c\n";
   if (!G.settings.boc_output_filename.empty()) {
-    std::cout << "boc>B \"" << G.settings.boc_output_filename << "\" B>file\n";
+    os << "boc>B \"" << G.settings.boc_output_filename << "\" B>file\n";
   }
 }
 

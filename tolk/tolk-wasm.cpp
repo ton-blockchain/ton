@@ -28,11 +28,38 @@
 #include "compiler-state.h"
 #include "git.h"
 #include "td/utils/JsonBuilder.h"
+#include "json-output.h"
 #include "fift/utils.h"
 #include "td/utils/Status.h"
 #include <sstream>
 
 using namespace tolk;
+
+static void output_errors_all_human_readable(JsonPrettyOutput& json, const std::vector<ThrownParseError>& errors) {
+  constexpr int CONSOLE_ERROR_LIMIT = 20;
+  int shown = 0;
+
+  std::ostringstream concat;
+  for (const ThrownParseError& error : errors) {
+    if (shown >= CONSOLE_ERROR_LIMIT) break;
+    if (shown++) concat << std::endl;  // separator between errors
+    error.output_to_console(concat);
+  }
+  json.key_value("message", concat.str());
+}
+
+static void output_errors_as_json_array(JsonPrettyOutput& json, const std::vector<ThrownParseError>& errors) {
+  constexpr int JSON_ERROR_LIMIT = 50;
+  int shown = 0;
+
+  json.start_array("errors");
+  for (const ThrownParseError& error : errors) {
+    if (shown >= JSON_ERROR_LIMIT) break;
+    error.output_to_json(json);
+    shown++;
+  }
+  json.end_array();
+}
 
 static td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(input_json, td::json_decode(td::MutableSlice(config_json)))
@@ -43,36 +70,54 @@ static td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(src_line_comments, config.get_optional_bool_field("withSrcLineComments", false));
   TRY_RESULT(entrypoint_filename, config.get_required_string_field("entrypointFileName"));
   TRY_RESULT(experimental_options, config.get_optional_string_field("experimentalOptions", ""));
+  TRY_RESULT(show_errors_as_json, config.get_optional_bool_field("jsonErrors", false));
   // note that `pathMappings` are handled on a client-side (in tolk-js) only
 
   G.settings.verbosity = 0;
   G.settings.optimization_level = std::max(0, opt_level);
   G.settings.stack_layout_comments = stack_comments;
   G.settings.tolk_src_as_line_comments = src_line_comments;
+  G.settings.show_errors_as_json = show_errors_as_json;
   if (!experimental_options.empty()) {
     G.settings.parse_experimental_options_cmd_arg(experimental_options.c_str());
   }
 
-  std::ostringstream outs, errs;
-  std::cout.rdbuf(outs.rdbuf());
+  std::ostringstream errs;
   std::cerr.rdbuf(errs.rdbuf());
-  int exit_code = tolk_proceed(entrypoint_filename);
-  if (exit_code != 0) {
-    return td::Status::Error(errs.str());
+
+  TolkCompilationResult result = tolk_proceed(entrypoint_filename);
+  if (!result.fatal_msg.empty()) {
+    // no location or errors in json, just a message "fatal", something unexpected happened
+    return td::Status::Error(td::Slice(result.fatal_msg.c_str()));
+  }
+  if (!result.errors.empty()) {
+    // regular response with a list of compilation errors
+    std::ostringstream result_json_str;
+    JsonPrettyOutput json(result_json_str);
+    json.start_object();
+    json.key_value("status", "error");
+    if (G.settings.show_errors_as_json) {   // { status: "error", errors: [...] }
+      output_errors_as_json_array(json, result.errors);
+    } else {                                // { status: "error", message: "one formatted multiline string" }
+      output_errors_all_human_readable(json, result.errors);
+    }
+    json.end_object();
+    return result_json_str.str();
   }
 
-  TRY_RESULT(fift_res, fift::compile_asm_program(outs.str(), "/fiftlib/"));
+  TRY_RESULT(fift_res, fift::compile_asm_program(std::move(result.fift_code), "/fiftlib/"));
 
-  td::JsonBuilder result_json;
-  auto obj = result_json.enter_object();
-  obj("status", "ok");
-  obj("fiftCode", fift_res.fiftCode);
-  obj("codeBoc64", fift_res.codeBoc64);
-  obj("codeHashHex", fift_res.codeHashHex);
-  obj("stderr", errs.str().c_str());
-  obj.leave();
+  std::ostringstream result_json_str;
+  JsonPrettyOutput json(result_json_str);
+  json.start_object();
+  json.key_value("status", "ok");
+  json.key_value("fiftCode", fift_res.fiftCode);
+  json.key_value("codeBoc64", JsonPrettyOutput::Unescaped{fift_res.codeBoc64});
+  json.key_value("codeHashHex", JsonPrettyOutput::Unescaped{fift_res.codeHashHex});
+  json.key_value("stderr", errs.str());
+  json.end_object();
 
-  return result_json.string_builder().as_cslice().str();
+  return result_json_str.str();
 }
 
 /// Callback used to retrieve file contents from a "not file system". See tolk-js for implementation.
@@ -100,13 +145,14 @@ static CompilerSettings::FsReadCallback wrap_wasm_read_callback(WasmFsReadCallba
 extern "C" {
 
 const char* version() {
-  td::JsonBuilder version_json = td::JsonBuilder();
-  auto obj = version_json.enter_object();
-  obj("tolkVersion", TOLK_VERSION);
-  obj("tolkFiftLibCommitHash", GitMetadata::CommitSHA1());
-  obj("tolkFiftLibCommitDate", GitMetadata::CommitDate());
-  obj.leave();
-  return strdup(version_json.string_builder().as_cslice().c_str());
+  std::ostringstream result_json_str;
+  JsonPrettyOutput json(result_json_str);
+  json.start_object();
+  json.key_value("tolkVersion", JsonPrettyOutput::Unescaped{TOLK_VERSION});
+  json.key_value("tolkFiftLibCommitHash", JsonPrettyOutput::Unescaped{GitMetadata::CommitSHA1()});
+  json.key_value("tolkFiftLibCommitDate", JsonPrettyOutput::Unescaped{GitMetadata::CommitDate()});
+  json.end_object();
+  return strdup(result_json_str.str().c_str());
 }
 
 const char *tolk_compile(char *config_json, WasmFsReadCallback callback) {
@@ -115,16 +161,18 @@ const char *tolk_compile(char *config_json, WasmFsReadCallback callback) {
   td::Result<std::string> res = compile_internal(config_json);
 
   if (res.is_error()) {
-    td::JsonBuilder error_res = td::JsonBuilder();
-    auto obj = error_res.enter_object();
-    obj("status", "error");
-    obj("message", res.move_as_error().message().str());
-    obj.leave();
-    return strdup(error_res.string_builder().as_cslice().c_str());
+    // it's an error of TRY_RESULT macro
+    std::ostringstream result_json_str;
+    JsonPrettyOutput json(result_json_str);
+    json.start_object();
+    json.key_value("status", "error");
+    json.key_value("message", res.move_as_error().message().str());
+    json.end_object();
+    return strdup(result_json_str.str().c_str());
   }
 
-  std::string res_string = res.move_as_ok();
-  return strdup(res_string.c_str());
+  std::string json_string = res.move_as_ok();
+  return strdup(json_string.c_str());
 }
 
 } // extern "C"
