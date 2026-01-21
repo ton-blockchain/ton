@@ -23,6 +23,7 @@ struct QuicConnectionPImpl;
 struct StreamOptions {
   std::optional<td::uint64> max_size;
   td::Timestamp timeout = td::Timestamp::never();
+  double timeout_seconds = 0.0;
 };
 
 class QuicServer : public td::actor::Actor, public td::ObserverBase {
