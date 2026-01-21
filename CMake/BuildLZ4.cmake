@@ -1,7 +1,11 @@
 include(AndroidThirdParty)
 
-set(LZ4_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/lz4)
-set(LZ4_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/third-party/lz4)
+get_filename_component(TON_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+set(TON_THIRD_PARTY_SOURCE_DIR "${TON_SOURCE_DIR}/third-party")
+set(TON_THIRD_PARTY_BINARY_DIR "${CMAKE_BINARY_DIR}/third-party")
+
+set(LZ4_SOURCE_DIR ${TON_THIRD_PARTY_SOURCE_DIR}/lz4)
+set(LZ4_BINARY_DIR ${TON_THIRD_PARTY_BINARY_DIR}/lz4)
 
 if (USE_EMSCRIPTEN OR EMSCRIPTEN)
   set(LZ4_BINARY_DIR ${LZ4_SOURCE_DIR})
@@ -38,6 +42,38 @@ elseif (ANDROID)
   file(MAKE_DIRECTORY ${LZ4_BUILD_DIR})
   file(MAKE_DIRECTORY ${LZ4_BINARY_DIR}/lib)
 
+  if (NOT EXISTS "${LZ4_LIBRARY}")
+    execute_process(
+      COMMAND ${CMAKE_COMMAND} -E echo "Patching LZ4 CMakeLists.txt"
+      COMMAND ${CMAKE_COMMAND} -DINPUT_FILE=${LZ4_SOURCE_DIR}/build/cmake/CMakeLists.txt -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/PatchLZ4.cmake
+      COMMAND ${CMAKE_COMMAND}
+        -S ${LZ4_SOURCE_DIR}/build/cmake
+        -B ${LZ4_BUILD_DIR}
+        ${LZ4_CMAKE_GENERATOR_ARGS}
+        -DLZ4_BUILD_CLI=OFF
+        -DLZ4_BUILD_LEGACY_LZ4C=OFF
+        -DBUILD_SHARED_LIBS=OFF
+        -DBUILD_STATIC_LIBS=ON
+        -DLZ4_BUNDLED_MODE=ON
+        -DLZ4_POSITION_INDEPENDENT_LIB=ON
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=${LZ4_BINARY_DIR}/lib
+        -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY_RELEASE=${LZ4_BINARY_DIR}/lib
+        -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY_DEBUG=${LZ4_BINARY_DIR}/lib
+      RESULT_VARIABLE LZ4_CONFIG_RESULT
+    )
+    if (NOT LZ4_CONFIG_RESULT EQUAL 0)
+      message(FATAL_ERROR "LZ4 config failed with code ${LZ4_CONFIG_RESULT}")
+    endif()
+    execute_process(
+      COMMAND ${CMAKE_COMMAND} --build ${LZ4_BUILD_DIR} --config Release --parallel 16
+      RESULT_VARIABLE LZ4_BUILD_RESULT
+    )
+    if (NOT LZ4_BUILD_RESULT EQUAL 0)
+      message(FATAL_ERROR "LZ4 build failed with code ${LZ4_BUILD_RESULT}")
+    endif()
+  endif()
   add_custom_command(
       WORKING_DIRECTORY ${LZ4_BUILD_DIR}
       COMMAND ${CMAKE_COMMAND} -E echo "Patching LZ4 CMakeLists.txt"
@@ -64,58 +100,83 @@ elseif (ANDROID)
       OUTPUT ${LZ4_LIBRARY}
   )
 else()
-  set(LZ4_BUILD_DIR ${LZ4_BINARY_DIR}/cmake)
   set(LZ4_INCLUDE_DIRS ${LZ4_SOURCE_DIR}/lib)
 
   if (MSVC)
-    set(LZ4_LIBRARY ${LZ4_BINARY_DIR}/lib/lz4.lib)
+    set(LZ4_PROJECT_DIR ${LZ4_SOURCE_DIR}/build/VS2022/liblz4)
+    set(LZ4_LIBRARY ${LZ4_PROJECT_DIR}/x64/Release/liblz4.lib)
+    set(LZ4_LIBRARY_DIRS ${LZ4_PROJECT_DIR}/x64/Release)
   else()
     set(LZ4_LIBRARY ${LZ4_BINARY_DIR}/lib/liblz4.a)
   endif()
 
-  set(LZ4_CMAKE_GENERATOR_ARGS)
-  if (CMAKE_GENERATOR)
-    list(APPEND LZ4_CMAKE_GENERATOR_ARGS -G "${CMAKE_GENERATOR}")
-  endif()
-  if (CMAKE_GENERATOR_PLATFORM)
-    list(APPEND LZ4_CMAKE_GENERATOR_ARGS -A "${CMAKE_GENERATOR_PLATFORM}")
-  endif()
-  if (CMAKE_GENERATOR_TOOLSET)
-    list(APPEND LZ4_CMAKE_GENERATOR_ARGS -T "${CMAKE_GENERATOR_TOOLSET}")
-  endif()
+  if (MSVC)
+    if (NOT EXISTS "${LZ4_LIBRARY}")
+      execute_process(
+        COMMAND msbuild liblz4.vcxproj /p:Configuration=Release /p:Platform=x64 -p:PlatformToolset=v143
+        WORKING_DIRECTORY ${LZ4_PROJECT_DIR}
+        RESULT_VARIABLE LZ4_BUILD_RESULT
+      )
+      if (NOT LZ4_BUILD_RESULT EQUAL 0)
+        message(FATAL_ERROR "LZ4 build failed with code ${LZ4_BUILD_RESULT}")
+      endif()
+    endif()
+    add_custom_command(
+        WORKING_DIRECTORY ${LZ4_PROJECT_DIR}
+        COMMAND msbuild liblz4.vcxproj /p:Configuration=Release /p:Platform=x64 -p:PlatformToolset=v143
+        COMMENT "Build lz4 (MSVC)"
+        DEPENDS ${LZ4_SOURCE_DIR}
+        OUTPUT ${LZ4_LIBRARY}
+    )
+  else()
+    set(LZ4_BUILD_DIR ${LZ4_BINARY_DIR}/cmake)
+    set(LZ4_CMAKE_GENERATOR_ARGS)
+    if (CMAKE_GENERATOR)
+      list(APPEND LZ4_CMAKE_GENERATOR_ARGS -G "${CMAKE_GENERATOR}")
+    endif()
+    if (CMAKE_GENERATOR_PLATFORM)
+      list(APPEND LZ4_CMAKE_GENERATOR_ARGS -A "${CMAKE_GENERATOR_PLATFORM}")
+    endif()
+    if (CMAKE_GENERATOR_TOOLSET)
+      list(APPEND LZ4_CMAKE_GENERATOR_ARGS -T "${CMAKE_GENERATOR_TOOLSET}")
+    endif()
 
-  file(MAKE_DIRECTORY ${LZ4_BUILD_DIR})
-  file(MAKE_DIRECTORY ${LZ4_BINARY_DIR}/lib)
+    file(MAKE_DIRECTORY ${LZ4_BUILD_DIR})
+    file(MAKE_DIRECTORY ${LZ4_BINARY_DIR}/lib)
 
-  add_custom_command(
-      WORKING_DIRECTORY ${LZ4_BUILD_DIR}
-      COMMAND ${CMAKE_COMMAND} -E echo "Patching LZ4 CMakeLists.txt"
-      COMMAND ${CMAKE_COMMAND} -DINPUT_FILE=${LZ4_SOURCE_DIR}/build/cmake/CMakeLists.txt -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/PatchLZ4.cmake
-      COMMAND ${CMAKE_COMMAND}
-        -S ${LZ4_SOURCE_DIR}/build/cmake
-        -B ${LZ4_BUILD_DIR}
-        ${LZ4_CMAKE_GENERATOR_ARGS}
-        -DLZ4_BUILD_CLI=OFF
-        -DLZ4_BUILD_LEGACY_LZ4C=OFF
-        -DBUILD_SHARED_LIBS=OFF
-        -DBUILD_STATIC_LIBS=ON
-        -DLZ4_BUNDLED_MODE=ON
-        -DLZ4_POSITION_INDEPENDENT_LIB=ON
-        -DCMAKE_POSITION_INDEPENDENT_CODE=ON
-        -DCMAKE_BUILD_TYPE=Release
-        -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=${LZ4_BINARY_DIR}/lib
-        -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY_RELEASE=${LZ4_BINARY_DIR}/lib
-        -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY_DEBUG=${LZ4_BINARY_DIR}/lib
-      COMMAND ${CMAKE_COMMAND} --build ${LZ4_BUILD_DIR} --config Release --parallel 16
-      COMMENT "Build lz4"
-      DEPENDS ${LZ4_SOURCE_DIR}
-      OUTPUT ${LZ4_LIBRARY}
-  )
+    add_custom_command(
+        WORKING_DIRECTORY ${LZ4_BUILD_DIR}
+        COMMAND ${CMAKE_COMMAND} -E echo "Patching LZ4 CMakeLists.txt"
+        COMMAND ${CMAKE_COMMAND} -DINPUT_FILE=${LZ4_SOURCE_DIR}/build/cmake/CMakeLists.txt -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/PatchLZ4.cmake
+        COMMAND ${CMAKE_COMMAND}
+          -S ${LZ4_SOURCE_DIR}/build/cmake
+          -B ${LZ4_BUILD_DIR}
+          ${LZ4_CMAKE_GENERATOR_ARGS}
+          -DLZ4_BUILD_CLI=OFF
+          -DLZ4_BUILD_LEGACY_LZ4C=OFF
+          -DBUILD_SHARED_LIBS=OFF
+          -DBUILD_STATIC_LIBS=ON
+          -DLZ4_BUNDLED_MODE=ON
+          -DLZ4_POSITION_INDEPENDENT_LIB=ON
+          -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=${LZ4_BINARY_DIR}/lib
+          -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY_RELEASE=${LZ4_BINARY_DIR}/lib
+          -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY_DEBUG=${LZ4_BINARY_DIR}/lib
+        COMMAND ${CMAKE_COMMAND} --build ${LZ4_BUILD_DIR} --config Release --parallel 16
+        COMMENT "Build lz4"
+        DEPENDS ${LZ4_SOURCE_DIR}
+        OUTPUT ${LZ4_LIBRARY}
+    )
+  endif()
 endif()
 
 set(LZ4_LIBRARY ${LZ4_LIBRARY} CACHE FILEPATH "LZ4 library" FORCE)
 set(LZ4_LIBRARIES ${LZ4_LIBRARY} CACHE STRING "LZ4 libraries" FORCE)
-set(LZ4_LIBRARY_DIRS ${LZ4_BINARY_DIR}/lib CACHE PATH "LZ4 library dir" FORCE)
+if (NOT LZ4_LIBRARY_DIRS)
+  set(LZ4_LIBRARY_DIRS ${LZ4_BINARY_DIR}/lib)
+endif()
+set(LZ4_LIBRARY_DIRS ${LZ4_LIBRARY_DIRS} CACHE PATH "LZ4 library dir" FORCE)
 set(LZ4_INCLUDE_DIRS ${LZ4_INCLUDE_DIRS} CACHE PATH "LZ4 include dir" FORCE)
 set(LZ4_INCLUDE_DIR ${LZ4_INCLUDE_DIRS} CACHE PATH "LZ4 include dir" FORCE)
 set(LZ4_FOUND TRUE CACHE BOOL "LZ4 found" FORCE)

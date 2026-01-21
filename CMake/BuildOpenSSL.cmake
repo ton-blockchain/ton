@@ -1,13 +1,17 @@
 include(AndroidThirdParty)
 
+get_filename_component(TON_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+set(TON_THIRD_PARTY_SOURCE_DIR "${TON_SOURCE_DIR}/third-party")
+set(TON_THIRD_PARTY_BINARY_DIR "${CMAKE_BINARY_DIR}/third-party")
+
 if (NOT OPENSSL_CRYPTO_LIBRARY)
 
-    set(OPENSSL_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/openssl)
+    set(OPENSSL_SOURCE_DIR ${TON_THIRD_PARTY_SOURCE_DIR}/openssl)
     if (ANDROID)
       set(OPENSSL_INSTALL_DIR ${TON_ANDROID_THIRD_PARTY_DIR}/crypto/${TON_ANDROID_OPENSSL_DIR})
       set(OPENSSL_BINARY_DIR ${OPENSSL_INSTALL_DIR})
-      set(OPENSSL_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/third-party/openssl-android-${TON_ANDROID_OPENSSL_DIR})
-      set(OPENSSL_BUILD_ROOT ${CMAKE_CURRENT_BINARY_DIR}/third-party)
+      set(OPENSSL_BUILD_DIR ${TON_THIRD_PARTY_BINARY_DIR}/openssl-android-${TON_ANDROID_OPENSSL_DIR})
+      set(OPENSSL_BUILD_ROOT ${TON_THIRD_PARTY_BINARY_DIR})
       set(OPENSSL_CONFIGURE_SCRIPT ${OPENSSL_BUILD_DIR}/Configure)
       set(OPENSSL_INCLUDE_DIR ${OPENSSL_INSTALL_DIR}/include)
       set(OPENSSL_ANDROID_ENV
@@ -45,7 +49,7 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
         /usr/bin/perl ./Configure ${OPENSSL_CONFIGURE_TARGET} --prefix=${OPENSSL_INSTALL_DIR}
           no-shared no-dso no-engine no-unit-test no-tests no-apps enable-quic --libdir=lib -D__ANDROID_API__=${TON_ANDROID_API})
     else()
-      set(OPENSSL_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/third-party/openssl)
+      set(OPENSSL_BINARY_DIR ${TON_THIRD_PARTY_BINARY_DIR}/openssl)
       set(OPENSSL_INCLUDE_DIR ${OPENSSL_BINARY_DIR}/include)
       if (APPLE)
         # Detect macOS architecture
@@ -75,19 +79,47 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
     endif()
 
     if (MSVC)
-      set(OPENSSL_BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/openssl)
-      set(OPENSSL_CRYPTO_LIBRARY ${OPENSSL_SOURCE_DIR}/libcrypto.lib)
+      set(OPENSSL_BINARY_DIR ${TON_THIRD_PARTY_BINARY_DIR}/openssl)
+      set(OPENSSL_CRYPTO_LIBRARY ${OPENSSL_BINARY_DIR}/lib/libcrypto.lib)
+      set(OPENSSL_SSL_LIBRARY ${OPENSSL_BINARY_DIR}/lib/libssl.lib)
       set(OPENSSL_INCLUDE_DIR ${OPENSSL_BINARY_DIR}/include)
+      if (NOT EXISTS "${OPENSSL_CRYPTO_LIBRARY}" OR NOT EXISTS "${OPENSSL_SSL_LIBRARY}")
+        execute_process(
+          COMMAND perl Configure VC-WIN64A --prefix=${OPENSSL_BINARY_DIR} --openssldir=${OPENSSL_BINARY_DIR} no-shared no-unit-test no-tests no-apps enable-quic
+          WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
+          RESULT_VARIABLE OPENSSL_CONFIG_RESULT
+        )
+        if (NOT OPENSSL_CONFIG_RESULT EQUAL 0)
+          message(FATAL_ERROR "OpenSSL config failed with code ${OPENSSL_CONFIG_RESULT}")
+        endif()
+        execute_process(
+          COMMAND nmake
+          WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
+          RESULT_VARIABLE OPENSSL_MAKE_RESULT
+        )
+        if (NOT OPENSSL_MAKE_RESULT EQUAL 0)
+          message(FATAL_ERROR "OpenSSL build failed with code ${OPENSSL_MAKE_RESULT}")
+        endif()
+        execute_process(
+          COMMAND nmake install_sw
+          WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
+          RESULT_VARIABLE OPENSSL_INSTALL_RESULT
+        )
+        if (NOT OPENSSL_INSTALL_RESULT EQUAL 0)
+          message(FATAL_ERROR "OpenSSL install failed with code ${OPENSSL_INSTALL_RESULT}")
+        endif()
+      endif()
       add_custom_command(
         WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
-        COMMAND perl Configure VC-WIN64A no-shared no-unit-test no-tests
+        COMMAND perl Configure VC-WIN64A --prefix=${OPENSSL_BINARY_DIR} --openssldir=${OPENSSL_BINARY_DIR} no-shared no-unit-test no-tests no-apps enable-quic
         COMMAND nmake
-        COMMENT "Build OpenSSL with vs2017"
+        COMMAND nmake install_sw
+        COMMENT "Build OpenSSL with MSVC"
         DEPENDS ${OPENSSL_SOURCE_DIR}
-        OUTPUT ${OPENSSL_CRYPTO_LIBRARY}
+        OUTPUT ${OPENSSL_CRYPTO_LIBRARY} ${OPENSSL_SSL_LIBRARY}
       )
     elseif (USE_EMSCRIPTEN OR EMSCRIPTEN)
-      set(OPENSSL_BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/openssl)
+      set(OPENSSL_BINARY_DIR ${TON_THIRD_PARTY_SOURCE_DIR}/openssl)
       set(OPENSSL_CRYPTO_LIBRARY ${OPENSSL_BINARY_DIR}/libcrypto.a)
       set(OPENSSL_INCLUDE_DIR ${OPENSSL_BINARY_DIR}/include)
       add_custom_command(

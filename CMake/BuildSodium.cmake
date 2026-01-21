@@ -1,7 +1,11 @@
 include(AndroidThirdParty)
 
-set(SODIUM_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/sodium)
-set(SODIUM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/third-party/sodium)
+get_filename_component(TON_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+set(TON_THIRD_PARTY_SOURCE_DIR "${TON_SOURCE_DIR}/third-party")
+set(TON_THIRD_PARTY_BINARY_DIR "${CMAKE_BINARY_DIR}/third-party")
+
+set(SODIUM_SOURCE_DIR ${TON_THIRD_PARTY_SOURCE_DIR}/sodium)
+set(SODIUM_BINARY_DIR ${TON_THIRD_PARTY_BINARY_DIR}/sodium)
 
 if (USE_EMSCRIPTEN OR EMSCRIPTEN)
   set(SODIUM_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/3pp_emscripten/libsodium)
@@ -19,17 +23,26 @@ if (USE_EMSCRIPTEN OR EMSCRIPTEN)
   set(SODIUM_INCLUDE_DIR ${SODIUM_INCLUDE_DIR} CACHE PATH "Sodium include dir" FORCE)
   set(SODIUM_FOUND TRUE CACHE BOOL "Sodium found" FORCE)
 elseif (MSVC)
-  set(SODIUM_BINARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third-party/sodium)
-  set(SODIUM_LIBRARY ${SODIUM_SOURCE_DIR}/build/src/Release/libsodium.lib CACHE FILEPATH "Sodium release library" FORCE)
+  set(SODIUM_PROJECT_DIR ${SODIUM_SOURCE_DIR}/builds/msvc/vs2022/libsodium)
+  set(SODIUM_LIBRARY ${SODIUM_PROJECT_DIR}/x64/Release/libsodium.lib CACHE FILEPATH "Sodium release library" FORCE)
   set(SODIUM_LIBRARY_RELEASE ${SODIUM_LIBRARY} CACHE FILEPATH "Sodium release library" FORCE)
   set(SODIUM_LIBRARY_DEBUG ${SODIUM_LIBRARY} CACHE FILEPATH "Sodium debug library" FORCE)
-  set(SODIUM_INCLUDE_DIR ${SODIUM_BINARY_DIR}/include CACHE PATH "Sodium include dir" FORCE)
+  set(SODIUM_INCLUDE_DIR ${SODIUM_SOURCE_DIR}/src/libsodium/include CACHE PATH "Sodium include dir" FORCE)
   set(SODIUM_FOUND TRUE CACHE BOOL "Sodium found" FORCE)
+  if (NOT EXISTS "${SODIUM_LIBRARY}")
+    execute_process(
+      COMMAND msbuild libsodium.vcxproj /p:Configuration=ReleaseLIB /p:Platform=x64 -p:PlatformToolset=v143
+      WORKING_DIRECTORY ${SODIUM_PROJECT_DIR}
+      RESULT_VARIABLE SODIUM_BUILD_RESULT
+    )
+    if (NOT SODIUM_BUILD_RESULT EQUAL 0)
+      message(FATAL_ERROR "Sodium build failed with code ${SODIUM_BUILD_RESULT}")
+    endif()
+  endif()
   add_custom_command(
-    WORKING_DIRECTORY ${SODIUM_SOURCE_DIR}
-    COMMAND cmake -E env CFLAGS="/WX" cmake -A x64 -B build -DSODIUM_ENABLE_MODULE_RECOVERY=ON -DSODIUM_ENABLE_MODULE_EXTRAKEYS=ON -DSODIUM_BUILD_EXAMPLES=OFF -DBUILD_SHARED_LIBS=OFF
-    COMMAND cmake --build build --config Release
-    COMMENT "Build Secp256k1"
+    WORKING_DIRECTORY ${SODIUM_PROJECT_DIR}
+    COMMAND msbuild libsodium.vcxproj /p:Configuration=ReleaseLIB /p:Platform=x64 -p:PlatformToolset=v143
+    COMMENT "Build sodium (MSVC)"
     DEPENDS ${SODIUM_SOURCE_DIR}
     OUTPUT ${SODIUM_LIBRARY}
   )

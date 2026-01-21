@@ -1,4 +1,4 @@
-REM execute this script inside elevated (Run as Administrator) console "x64 Native Tools Command Prompt for VS 2019"
+REM execute this script inside elevated (Run as Administrator) console "x64 Native Tools Command Prompt for VS 2022"
 
 echo off
 
@@ -22,35 +22,13 @@ IF %errorlevel% NEQ 0 (
 
 choco feature enable -n allowEmptyChecksums
 
-echo Installing pkgconfiglite...
-choco install -y pkgconfiglite
+echo Installing tools...
+choco install -y pkgconfiglite ninja ccache nasm
 IF %errorlevel% NEQ 0 (
-  echo Can't install pkgconfiglite
+  echo Can't install tools
   exit /b %errorlevel%
 )
 
-echo Installing ninja...
-choco install -y ninja
-IF %errorlevel% NEQ 0 (
-  echo Can't install ninja
-  exit /b %errorlevel%
-)
-
-echo Installing ccache...
-choco install -y ccache
-IF %errorlevel% NEQ 0 (
-  echo Can't install ccache
-  exit /b %errorlevel%
-)
-
-echo Installing nasm...
-choco install -y nasm
-SET PATH=%PATH%;C:\Program Files\NASM
-where nasm
-IF %errorlevel% NEQ 0 (
-  echo Can't install nasm
-  exit /b %errorlevel%
-)
 
 if not exist "third_libs" (
     mkdir "third_libs"
@@ -70,53 +48,6 @@ if not exist "zlib" (
   cd ..\..\..\..
 ) else (
   echo Using zlib...
-)
-
-if not exist "%third_party%\lz4" (
-  echo lz4 submodule not found at %third_party%\lz4
-  exit /b 1
-)
-if not exist "%third_party%\sodium" (
-  echo sodium submodule not found at %third_party%\sodium
-  exit /b 1
-)
-if not exist "%third_party%\openssl" (
-  echo openssl submodule not found at %third_party%\openssl
-  exit /b 1
-)
-
-
-if not exist "%third_party%\lz4\build\VS2022\liblz4\bin\x64_Release\liblz4_static.lib" (
-  echo Building lz4 from submodule...
-  cd /d "%third_party%\lz4\build\VS2022\liblz4"
-  msbuild liblz4.vcxproj /p:Configuration=Release /p:platform=x64 -p:PlatformToolset=v143
-  cd /d "%third_libs%"
-) else (
-  echo Using lz4...
-)
-
-if not exist "%third_party%\sodium\Build\Release\x64\libsodium.lib" (
-  echo Building libsodium from submodule...
-  cd /d "%third_party%\sodium"
-  msbuild libsodium.vcxproj /p:Configuration=Release /p:platform=x64 -p:PlatformToolset=v143
-  cd /d "%third_libs%"
-) else (
-  echo Using libsodium...
-)
-
-if not exist "%third_party%\openssl\libcrypto.lib" (
-  echo Building openssl from submodule...
-  cd /d "%third_party%\openssl"
-  where perl
-  perl Configure VC-WIN64A
-  IF %errorlevel% NEQ 0 (
-    echo Can't configure openssl
-    exit /b %errorlevel%
-  )
-  nmake
-  cd /d "%third_libs%"
-) else (
-  echo Using openssl...
 )
 
 if not exist "libmicrohttpd" (
@@ -141,24 +72,12 @@ mkdir build
 cd build
 cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
 -DPORTABLE=1 ^
--DSODIUM_USE_STATIC_LIBS=1 ^
--DSODIUM_LIBRARY_RELEASE=%third_party%\sodium\Build\Release\x64\libsodium.lib ^
--DSODIUM_LIBRARY_DEBUG=%third_party%\sodium\Build\Release\x64\libsodium.lib ^
--DSODIUM_INCLUDE_DIR=%third_party%\sodium\src\libsodium\include ^
--DLZ4_FOUND=1 ^
--DLZ4_INCLUDE_DIRS=%third_party%\lz4\lib ^
--DLZ4_LIBRARIES=%third_party%\lz4\build\VS2019\liblz4\bin\x64_Release\liblz4_static.lib ^
 -DMHD_FOUND=1 ^
 -DMHD_LIBRARY=%third_libs%\libmicrohttpd\w32\VS2019\Output\x64\libmicrohttpd.lib ^
 -DMHD_INCLUDE_DIR=%third_libs%\libmicrohttpd\src\include ^
 -DZLIB_FOUND=1 ^
 -DZLIB_INCLUDE_DIR=%third_libs%\zlib ^
 -DZLIB_LIBRARIES=%third_libs%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib ^
--DOPENSSL_FOUND=1 ^
--DOPENSSL_ROOT_DIR=%third_party%\openssl ^
--DOPENSSL_INCLUDE_DIR=%third_party%\openssl\include ^
--DOPENSSL_CRYPTO_LIBRARY=%third_party%\openssl\libcrypto.lib ^
--DOPENSSL_SSL_LIBRARY=%third_party%\openssl\libssl.lib ^
 -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj" ..
 
 IF %errorlevel% NEQ 0 (
