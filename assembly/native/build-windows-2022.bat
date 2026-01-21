@@ -28,7 +28,7 @@ IF %errorlevel% NEQ 0 (
   echo Can't install tools
   exit /b %errorlevel%
 )
-
+SET PATH=%PATH%;C:\Program Files\NASM
 
 if not exist "third_libs" (
     mkdir "third_libs"
