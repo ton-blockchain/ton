@@ -168,6 +168,15 @@ class ParserLogs(Parser):
             block_id_match = re.search(r"(\([^)]+\):[A-F0-9]+:[A-F0-9]+)", line)
             assert block_id_match is not None
             block_id = block_id_match.group(0)
+            if slot_id not in self._slots:
+                self._slots[slot_id] = SlotData(
+                    valgroup_id=v_group,
+                    slot=slot,
+                    is_empty=False,
+                    slot_start_est_ms=t_ms,
+                    block_id_ext=None,
+                    collator=None,
+                )
             self._slots[slot_id].block_id_ext = block_id
 
     def _infer_slot_events(self) -> None:
@@ -298,10 +307,10 @@ class ParserLogs(Parser):
     @staticmethod
     def _extract_timestamp(line: str) -> float | None:
         i = 0
-        for _ in range(4):
-            i = line.find('[', i) + 1
-        j = line.find(']', i)
-        timestamp_str = line[i:j]
+        for _ in range(3):
+            i = line.find(']', i) + 1
+        j = line.rfind('[', 0, i) + 1
+        timestamp_str = line[j:i - 1]
         dt = datetime.fromisoformat(timestamp_str)
         return dt.timestamp() * 1000
 
@@ -368,7 +377,7 @@ class ParserLogs(Parser):
     @override
     def parse(self) -> ConsensusData:
         for log_file in self._logs_path:
-            with open(log_file, "r", encoding="utf-8") as f:
+            with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
 
                 v_groups: dict[str, int] = {}
                 v_weights: dict[str, int] = {}
