@@ -274,6 +274,11 @@ struct OverlayOptions {
   bool send_twostep_broadcast_ = false;
 };
 
+struct OverlayManagerBufferLimits {
+  td::uint32 max_packets = 0;
+  td::uint64 max_data_size = 0;
+};
+
 class Overlays : public td::actor::Actor {
  public:
   class Callback {
@@ -314,7 +319,8 @@ class Overlays : public td::actor::Actor {
   }
 
   static td::actor::ActorOwn<Overlays> create(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-                                              td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht);
+                                              td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht,
+                                              OverlayManagerBufferLimits buffer_limits = {});
 
   virtual void update_dht_node(td::actor::ActorId<dht::Dht> dht) = 0;
 
