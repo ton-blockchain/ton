@@ -43,6 +43,7 @@ static td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(src_line_comments, config.get_optional_bool_field("withSrcLineComments", false));
   TRY_RESULT(entrypoint_filename, config.get_required_string_field("entrypointFileName"));
   TRY_RESULT(experimental_options, config.get_optional_string_field("experimentalOptions", ""));
+  // note that `pathMappings` are handled on a client-side (in tolk-js) only
 
   G.settings.verbosity = 0;
   G.settings.optimization_level = std::max(0, opt_level);

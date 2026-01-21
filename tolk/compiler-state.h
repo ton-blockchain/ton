@@ -42,6 +42,14 @@ public:
   explicit operator bool() const { return enabled; }
 };
 
+// Custom path mappings that allow imports "@third_party/utils", mapped to "/absolute/folder/utils".
+// Each mapping is appended by a cmd line option, they are resolved before calculating realpath.
+// Note, that in wasm (in tolk-js), path mappings are handled in a different way, in a JS resolver.
+struct CompilerPathMapping {
+  std::string at_prefix;    // "@third_party"
+  std::string abs_folder;   // "/absolute/folder"
+};
+
 // CompilerSettings contains settings that can be passed via cmd line or (partially) wasm envelope.
 // They are filled once at start and are immutable since the compilation started.
 struct CompilerSettings {
@@ -58,12 +66,17 @@ struct CompilerSettings {
   std::string boc_output_filename;
   std::string stdlib_folder;    // path to tolk-stdlib/; note: from tolk-js it's empty! tolk-js reads files via js callback
 
+  std::vector<CompilerPathMapping> path_mappings;    // "@third_party" to "/absolute/folder"
+
   FsReadCallback read_callback;
 
   // ExperimentalOption some_option{"some-option"};
 
   void enable_experimental_option(std::string_view name);
   void parse_experimental_options_cmd_arg(const std::string& cmd_arg);
+  bool parse_path_mapping_cmd_arg(const std::string& cmd_arg);
+
+  std::string_view get_path_mapping(std::string_view at_prefix) const;
 };
 
 // AST nodes contain std::string_view referencing to contents of .tolk files (kept in memory after reading).

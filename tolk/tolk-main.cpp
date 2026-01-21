@@ -149,10 +149,28 @@ static std::string auto_discover_stdlib_folder() {
 td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind kind, const char* query) {
   switch (kind) {
     case CompilerSettings::FsReadCallbackKind::Realpath: {
-      bool is_stdlib = query[0] == '@' && strlen(query) > 8 && !strncmp(query, "@stdlib/", 8);
-      std::string path = is_stdlib
-            ? G.settings.stdlib_folder + static_cast<std::string>(query + 7)
-            : static_cast<std::string>(query);
+      std::string path;
+      if (query[0] == '@' && strlen(query) > 8 && !strncmp(query, "@stdlib/", 8)) {
+        path = G.settings.stdlib_folder + static_cast<std::string>(query + 7);
+      } else if (query[0] == '@') {
+        const char* slash = strchr(query, '/');
+        if (slash == nullptr || slash[1] == '\0') {
+          return td::Status::Error("import path with @ prefix must specify a file, e.g. @third_party/math-utils");
+        }
+        std::string_view at_prefix(query, slash);
+        std::string_view abs_folder = G.settings.get_path_mapping(at_prefix);
+        if (abs_folder.empty()) {
+          return td::Status::Error("path mapping " + std::string{at_prefix} + " was not registered");
+        }
+        path = std::string(abs_folder) + slash;
+      } else {
+        path = query;
+      }
+
+      // reject `import "some/dir/"`, do not try to load "some/dir/.tolk"
+      if (path.back() == '/' || path.back() == '\\') {
+        return td::Status::Error("import path must specify a file, not a directory");
+      }
 
       if (strncmp(path.c_str() + path.size() - 5, ".tolk", 5) != 0) {
         path += ".tolk";
@@ -161,8 +179,9 @@ td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind ki
       if (res_realpath.is_error()) {
         // note, that for non-existing files, `realpath()` on Linux/Mac returns an error,
         // whereas on Windows, it returns okay, but fails after, on reading, with a message "cannot open file"
-        return td::Status::Error(std::string{"cannot find file "} + query);
+        return td::Status::Error("cannot find file \"" + path + "\"");
       }
+      // files with the same realpath are considered equal (imported only once)
       return res_realpath;
     }
     case CompilerSettings::FsReadCallbackKind::ReadFile: {
@@ -176,6 +195,9 @@ td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind ki
       std::string str;
       str.resize(file_size);
       FILE* f = fopen(query, "rb");
+      if (!f) {
+        return td::Status::Error(std::string{"cannot open file "} + query);
+      }
       fread(str.data(), file_size, 1, f);
       fclose(f);
       return std::move(str);
@@ -211,7 +233,7 @@ public:
 
 int main(int argc, char* const argv[]) {
   int i;
-  while ((i = getopt(argc, argv, "o:b:O:x:SLevh")) != -1) {
+  while ((i = getopt(argc, argv, "o:b:O:p:x:SLevh")) != -1) {
     switch (i) {
       case 'o':
         G.settings.output_filename = optarg;
@@ -221,6 +243,11 @@ int main(int argc, char* const argv[]) {
         break;
       case 'O':
         G.settings.optimization_level = std::max(0, atoi(optarg));
+        break;
+      case 'p':
+        if (!G.settings.parse_path_mapping_cmd_arg(optarg)) {
+          return 2;   // the error was printed to std::cerr
+        }
         break;
       case 'x':
         G.settings.parse_experimental_options_cmd_arg(optarg);

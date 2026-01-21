@@ -71,6 +71,7 @@ public:
 
   auto begin() const { return all_src_files.begin(); }
   auto end() const { return all_src_files.end(); }
+  auto size() const { return all_src_files.size(); }
 };
 
 // SrcRange is a "substring" in some loaded .tolk source SrcFile.

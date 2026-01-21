@@ -26,6 +26,7 @@
 #include "ast.h"
 #include "compilation-errors.h"
 #include "compiler-state.h"
+#include "td/utils/PathView.h"
 
 /*
  *   This is the starting point of compilation pipeline.
@@ -42,6 +43,9 @@ AnyV parse_src_file_to_ast(const SrcFile* file);
 void pipeline_discover_and_parse_sources(const std::string& stdlib_filename, const std::string& entrypoint_filename) {
   G.all_src_files.locate_and_register_source_file(stdlib_filename, nullptr);
   G.all_src_files.locate_and_register_source_file(entrypoint_filename, nullptr);
+  if (G.all_src_files.size() == 1) {
+    throw Fatal("entrypoint file resolves to stdlib file");
+  }
 
   while (SrcFile* file = G.all_src_files.get_next_unparsed_file()) {
     tolk_assert(!file->ast);
@@ -52,7 +56,7 @@ void pipeline_discover_and_parse_sources(const std::string& stdlib_filename, con
     for (AnyV v_toplevel : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
       if (auto v_import = v_toplevel->try_as<ast_import_directive>()) {
         std::string imported_str = v_import->get_file_name();
-        std::string rel_filename = imported_str[0] == '@'
+        std::string rel_filename = imported_str[0] == '@' || td::PathView(td::Slice(imported_str)).is_absolute()
           ? std::move(imported_str)
           : file->extract_dirname() + imported_str;
 
