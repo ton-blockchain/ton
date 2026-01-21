@@ -178,6 +178,67 @@ struct TaskWrapAwaiter {
   }
 };
 
+template <class Aw>
+struct TaskTraceAwaiter {
+  using A = std::remove_cvref_t<Aw>;
+  using Res = decltype(std::declval<A&>().await_resume());
+  using Ok = decltype(std::declval<Res&&>().move_as_ok());
+
+  [[no_unique_address]] A aw;
+  std::string trace;
+
+  using Cache = std::conditional_t<has_peek<Aw>, td::Unit, std::optional<Ok>>;
+  [[no_unique_address]] Cache ok_;
+
+  bool await_ready() noexcept {
+    if constexpr (has_peek<Aw>) {
+      if (aw.await_ready() && !aw.await_resume_peek().is_error()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  template <class OuterPromise>
+  std::coroutine_handle<> route_resume(std::coroutine_handle<OuterPromise> h) noexcept {
+    if constexpr (has_peek<Aw>) {
+      const Res& r = aw.await_resume_peek();
+      if (r.is_error()) {
+        return h.promise().route_finish(aw.await_resume().move_as_error().trace(trace));
+      }
+      return h.promise().route_resume();
+    } else {
+      Res r = aw.await_resume();
+      if (r.is_error()) {
+        return h.promise().route_finish(r.move_as_error().trace(trace));
+      }
+      ok_.emplace(std::move(r).move_as_ok());
+      return h.promise().route_resume();
+    }
+  }
+
+  template <class OuterPromise>
+  std::coroutine_handle<> await_suspend(std::coroutine_handle<OuterPromise> h) noexcept {
+    if constexpr (requires { aw.await_ready(); }) {
+      if (aw.await_ready()) {
+        return route_resume(h);
+      }
+    }
+    auto r_handle = wrap_coroutine(this, h);
+    return await_suspend_to(aw, r_handle);
+  }
+
+  Ok await_resume() noexcept {
+    if constexpr (!has_peek<Aw>) {
+      if (ok_) {
+        return std::move(*ok_);
+      }
+    }
+    Res r = aw.await_resume();
+    return std::move(r).move_as_ok();
+  }
+};
+
 template <class R>
 struct ResultUnwrapAwaiter {
   using Res = std::remove_cvref_t<R>;
@@ -218,6 +279,11 @@ template <IsAwaitable Aw>
 template <IsAwaitable Aw>
 [[nodiscard]] auto wrap_and_resume_on_current(Aw&& aw_) noexcept {
   return detail::TaskWrapAwaiter<Aw>{std::forward<Aw>(aw_)};
+}
+
+template <IsAwaitable Aw>
+[[nodiscard]] auto trace_and_resume_on_current(Aw&& aw_, std::string trace) noexcept {
+  return detail::TaskTraceAwaiter<Aw>{std::forward<Aw>(aw_), std::move(trace), {}};
 }
 
 template <class T>

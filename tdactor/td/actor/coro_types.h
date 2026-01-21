@@ -118,6 +118,12 @@ struct Wrapped {
   [[no_unique_address]] T value;
 };
 
+template <class T>
+struct Traced {
+  [[no_unique_address]] T value;
+  std::string trace;
+};
+
 struct [[nodiscard]] Yield {};
 
 }  // namespace td::actor

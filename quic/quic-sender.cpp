@@ -72,7 +72,7 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
         return td::Status::Error(PSLICE() << "stream size limit exceeded: max=" << *options_.max_size);
       }
       if (options_.timeout && options_.timeout.is_in_past()) {
-        return td::Status::Error("stream timeout exceeded");
+        return td::Status::Error(PSLICE() << "stream timeout exceeded: " << options_.timeout_seconds << "s");
       }
       return td::Status::OK();
     }
@@ -183,8 +183,10 @@ td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdSho
   auto cid = conn->cid;
   auto server = conn->server;
   // create stream explicitly to avoid race with response
-  auto stream_id = co_await td::actor::ask(server, &QuicServer::open_stream, cid,
-                                           StreamOptions{.max_size = limit, .timeout = timeout});
+  auto timeout_seconds = timeout ? timeout.at() - td::Time::now() : 0.0;
+  auto stream_id =
+      co_await td::actor::ask(server, &QuicServer::open_stream, cid,
+                              StreamOptions{.max_size = limit, .timeout = timeout, .timeout_seconds = timeout_seconds});
   auto [future, answer_promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
   CHECK(conn->responses.emplace(stream_id, std::move(answer_promise)).second);
   conn = nullptr;  // don't keep connection, it may disconnect during our wait
@@ -254,7 +256,8 @@ td::actor::Task<td::Unit> QuicSender::init_connection(AdnlPath path, std::shared
     co_return td::Unit{};  // wait for on_ready
   }
 
-  // got error befor connection created
+  LOG(WARNING) << "Failed to init connection: " << path << " " << R.error();
+  // got error before connection created
   auto promises = std::move(connection->waiting_ready);
   for (auto &promise : promises) {
     promise.set_result(R.error().clone());
@@ -264,7 +267,7 @@ td::actor::Task<td::Unit> QuicSender::init_connection(AdnlPath path, std::shared
 }
 
 td::actor::Task<td::Unit> QuicSender::init_connection_inner(AdnlPath path, std::shared_ptr<Connection> conn) {
-  auto node = co_await ask(adnl_, &adnl::Adnl::get_peer_node, path.first, path.second);
+  auto node = co_await ask(adnl_, &adnl::Adnl::get_peer_node, path.first, path.second).trace("get_peer_node");
 
   auto peer_addr = co_await get_ip_address(node.addr_list());
   auto peer_host = peer_addr.get_ip_host();
@@ -284,7 +287,8 @@ td::actor::Task<td::Unit> QuicSender::init_connection_inner(AdnlPath path, std::
 
   auto server = server_iter->second.get();
   auto connection_id =
-      co_await ask(server, &QuicServer::connect, peer_host, peer_port, std::move(client_key), td::Slice("ton"));
+      co_await ask(server, &QuicServer::connect, peer_host, peer_port, std::move(client_key), td::Slice("ton"))
+          .trace("connect");
   conn->cid = connection_id;
   conn->path = path;
   conn->server = server;
