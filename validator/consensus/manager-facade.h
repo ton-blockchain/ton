@@ -32,6 +32,9 @@ class ManagerFacade : public td::actor::Actor {
 
   virtual void log_validator_session_stats(validatorsession::ValidatorSessionStats stats) {
   }
+
+  virtual void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data, int mode) {
+  }
 };
 
 }  // namespace ton::validator::consensus
