@@ -3,7 +3,9 @@ REM execute this script inside elevated (Run as Administrator) console "x64 Nati
 echo off
 
 set "SCRIPT_DIR=%~dp0"
-for %%I in ("%SCRIPT_DIR%..\..") do set "ROOT_DIR=%%~fI"
+pushd "%SCRIPT_DIR%"
+for %%I in ("..\\..") do set "ROOT_DIR=%%~fI"
+popd
 
 echo Using repo root: %ROOT_DIR%
 cd /d "%ROOT_DIR%"
