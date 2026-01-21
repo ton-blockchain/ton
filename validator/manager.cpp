@@ -1943,19 +1943,6 @@ void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
 
   shard_client_ = std::move(R.clients);
 
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::vector<ValidatorSessionId>> R) {
-    if (R.is_error()) {
-      if (R.error().code() == ErrorCode::notready) {
-        td::actor::send_closure(SelfId, &ValidatorManagerImpl::read_gc_list, std::vector<ValidatorSessionId>{});
-      } else {
-        LOG(FATAL) << "db error: " << R.move_as_error();
-      }
-    } else {
-      td::actor::send_closure(SelfId, &ValidatorManagerImpl::read_gc_list, R.move_as_ok());
-    }
-  });
-  td::actor::send_closure(db_, &Db::get_destroyed_validator_sessions, std::move(P));
-
   auto Q = td::PromiseCreator::lambda(
       [SelfId = actor_id(this)](td::Result<std::vector<td::Ref<PersistentStateDescription>>> R) {
         if (R.is_error()) {
@@ -1966,13 +1953,10 @@ void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
       });
   td::actor::send_closure(db_, &Db::get_persistent_state_descriptions, std::move(Q));
   update_shard_overlays();
+  finish_start_up();
 }
 
-void ValidatorManagerImpl::read_gc_list(std::vector<ValidatorSessionId> list) {
-  for (auto &v : list) {
-    check_gc_list_.insert(v);
-  }
-
+void ValidatorManagerImpl::finish_start_up() {
   new_masterchain_block();
 
   serializer_ =
@@ -2400,13 +2384,11 @@ void ValidatorManagerImpl::update_shards() {
   std::vector<td::actor::ActorId<IValidatorGroup>> gc;
   for (auto &v : validator_groups_) {
     if (!v.second.actor.empty()) {
-      gc_list_.push_back(v.first);
       gc.push_back(v.second.actor.release());
     }
   }
   for (auto &v : next_validator_groups_) {
     if (!v.second.actor.empty()) {
-      gc_list_.push_back(v.first);
       gc.push_back(v.second.actor.release());
     }
   }
@@ -2415,34 +2397,22 @@ void ValidatorManagerImpl::update_shards() {
   next_validator_groups_ = std::move(new_next_validator_groups_);
 
   if (last_masterchain_state_->rotated_all_shards()) {
-    gc_list_.clear();
-    check_gc_list_.clear();
     CHECK(last_masterchain_block_handle_->received_state());
     auto P = td::PromiseCreator::lambda(
-        [SelfId = actor_id(this), gc = std::move(gc), block_id = last_masterchain_block_id_](td::Result<td::Unit> R) {
+        [SelfId = actor_id(this), block_id = last_masterchain_block_id_](td::Result<td::Unit> R) {
           R.ensure();
-          td::actor::send_closure(SelfId, &ValidatorManagerImpl::written_destroyed_validator_sessions, std::move(gc));
           td::actor::send_closure(SelfId, &ValidatorManagerImpl::updated_init_block, block_id);
         });
     td::actor::send_closure(db_, &Db::update_init_masterchain_block, last_masterchain_block_id_, std::move(P));
-  } else {
-    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), gc = std::move(gc)](td::Result<td::Unit> R) {
-      R.ensure();
-      td::actor::send_closure(SelfId, &ValidatorManagerImpl::written_destroyed_validator_sessions, std::move(gc));
-    });
-    td::actor::send_closure(db_, &Db::update_destroyed_validator_sessions, gc_list_, std::move(P));
+  }
+  for (auto &v : gc) {
+    td::actor::send_closure(v, &IValidatorGroup::destroy);
   }
   if (!serializer_.empty()) {
     td::actor::send_closure(serializer_, &AsyncStateSerializer::auto_disable_serializer,
                             is_validator() && last_masterchain_state_->get_global_id() == -239);  // mainnet only
   }
   init_shard_block_verifier(mc_validator_adnl_id);
-}
-
-void ValidatorManagerImpl::written_destroyed_validator_sessions(std::vector<td::actor::ActorId<IValidatorGroup>> list) {
-  for (auto &v : list) {
-    td::actor::send_closure(v, &IValidatorGroup::destroy);
-  }
 }
 
 void ValidatorManagerImpl::update_shard_blocks() {
@@ -2509,32 +2479,28 @@ ValidatorSessionId ValidatorManagerImpl::get_validator_set_id(ShardIdFull shard,
 td::actor::ActorOwn<IValidatorGroup> ValidatorManagerImpl::create_validator_group(
     ValidatorSessionId session_id, ShardIdFull shard, td::Ref<block::ValidatorSet> validator_set, BlockSeqno key_seqno,
     validatorsession::ValidatorSessionOptions opts, bool init_session) {
-  if (check_gc_list_.count(session_id) == 1) {
-    return td::actor::ActorOwn<IValidatorGroup>{};
-  } else {
-    td::actor::send_closure(ext_message_pool_, &ExtMessagePool::cleanup_external_messages, shard);
+  td::actor::send_closure(ext_message_pool_, &ExtMessagePool::cleanup_external_messages, shard);
 
-    auto validator_id = get_validator(shard, validator_set);
-    CHECK(!validator_id.is_zero());
-    auto descr = validator_set->get_validator(validator_id.bits256_value());
-    CHECK(descr);
-    auto adnl_id = adnl::AdnlNodeIdShort{
-        descr->addr.is_zero() ? ValidatorFullId{descr->key}.compute_short_id().bits256_value() : descr->addr};
-    auto new_consensus_config = last_masterchain_state_->get_new_consensus_config(shard.workchain);
-    if (new_consensus_config) {
-      return IValidatorGroup::create_bridge(PSTRING() << "valgroup" << shard.to_str(), shard, validator_id, session_id,
-                                            validator_set, key_seqno, new_consensus_config.value(), keyring_, adnl_,
-                                            rldp_, rldp2_, quic_, overlays_, db_root_, actor_id(this),
-                                            get_collation_manager(adnl_id), init_session,
-                                            opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()),
-                                            opts_, opts_->need_monitor(shard, last_masterchain_state_));
-    }
-    return IValidatorGroup::create_catchain(
-        PSTRING() << "valgroup" << shard.to_str(), shard, validator_id, session_id, validator_set, key_seqno, opts,
-        keyring_, adnl_, rldp_, rldp2_, quic_, overlays_, db_root_, actor_id(this), get_collation_manager(adnl_id),
-        init_session, opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()), opts_,
-        opts_->need_monitor(shard, last_masterchain_state_));
+  auto validator_id = get_validator(shard, validator_set);
+  CHECK(!validator_id.is_zero());
+  auto descr = validator_set->get_validator(validator_id.bits256_value());
+  CHECK(descr);
+  auto adnl_id = adnl::AdnlNodeIdShort{
+      descr->addr.is_zero() ? ValidatorFullId{descr->key}.compute_short_id().bits256_value() : descr->addr};
+  auto new_consensus_config = last_masterchain_state_->get_new_consensus_config(shard.workchain);
+  if (new_consensus_config) {
+    return IValidatorGroup::create_bridge(PSTRING() << "valgroup" << shard.to_str(), shard, validator_id, session_id,
+                                          validator_set, key_seqno, new_consensus_config.value(), keyring_, adnl_,
+                                          rldp_, rldp2_, quic_, overlays_, db_root_, actor_id(this),
+                                          get_collation_manager(adnl_id), init_session,
+                                          opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()),
+                                          opts_, opts_->need_monitor(shard, last_masterchain_state_));
   }
+  return IValidatorGroup::create_catchain(
+      PSTRING() << "valgroup" << shard.to_str(), shard, validator_id, session_id, validator_set, key_seqno, opts,
+      keyring_, adnl_, rldp_, rldp2_, quic_, overlays_, db_root_, actor_id(this), get_collation_manager(adnl_id),
+      init_session, opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()), opts_,
+      opts_->need_monitor(shard, last_masterchain_state_));
 }
 
 td::actor::ActorId<CollationManager> ValidatorManagerImpl::get_collation_manager(adnl::AdnlNodeIdShort adnl_id) {

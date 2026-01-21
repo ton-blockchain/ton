@@ -227,9 +227,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::map<ValidatorSessionId, ValidatorGroupEntry> next_validator_groups_;
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<CollationManager>> collation_managers_;
 
-  std::set<ValidatorSessionId> check_gc_list_;
-  std::vector<ValidatorSessionId> gc_list_;
-
  private:
   // MASTERCHAIN LAST BLOCK
   BlockSeqno last_masterchain_seqno_ = 0;
@@ -262,7 +259,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void update_shard_overlays();
   void update_shards();
   void update_shard_blocks();
-  void written_destroyed_validator_sessions(std::vector<td::actor::ActorId<IValidatorGroup>> groups);
   void updated_init_block(BlockIdExt last_rotate_block_id) {
     last_rotate_block_id_ = last_rotate_block_id;
   }
@@ -518,7 +514,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void start_up() override;
   void init_last_masterchain_state(td::Ref<MasterchainState> state) override;
   void started(ValidatorManagerInitResult result);
-  void read_gc_list(std::vector<ValidatorSessionId> list);
+  void finish_start_up();
 
   bool is_validator();
   bool validating_masterchain();
