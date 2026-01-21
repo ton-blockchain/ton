@@ -33,6 +33,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     virtual void on_connected(QuicConnectionId cid, td::SecureString peer_public_key, bool is_outbound) = 0;
     virtual td::Status on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) = 0;
     virtual void on_closed(QuicConnectionId cid) = 0;
+    virtual void on_stream_closed(QuicConnectionId cid, QuicStreamID sid) = 0;
     virtual void set_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options) {
     }
     virtual ~Callback() = default;
