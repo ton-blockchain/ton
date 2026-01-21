@@ -88,6 +88,63 @@ class EchoCallback : public ton::adnl::Adnl::Callback {
   }
 };
 
+class DelayedResponse : public td::actor::Actor {
+ public:
+  DelayedResponse(double delay, td::BufferSlice data, td::Promise<td::BufferSlice> promise)
+      : delay_(delay), data_(std::move(data)), promise_(std::move(promise)) {
+  }
+
+  void start_up() override {
+    alarm_timestamp() = td::Timestamp::in(delay_);
+  }
+
+  void alarm() override {
+    promise_.set_value(std::move(data_));
+    stop();
+  }
+
+ private:
+  double delay_;
+  td::BufferSlice data_;
+  td::Promise<td::BufferSlice> promise_;
+};
+
+class SlowEchoCallback : public ton::adnl::Adnl::Callback {
+ public:
+  double delay_seconds;
+
+  explicit SlowEchoCallback(double delay) : delay_seconds(delay) {
+  }
+
+  void receive_message(ton::adnl::AdnlNodeIdShort, ton::adnl::AdnlNodeIdShort, td::BufferSlice) override {
+  }
+
+  void receive_query(ton::adnl::AdnlNodeIdShort, ton::adnl::AdnlNodeIdShort, td::BufferSlice data,
+                     td::Promise<td::BufferSlice> promise) override {
+    td::actor::create_actor<DelayedResponse>("delay", delay_seconds, std::move(data), std::move(promise)).release();
+  }
+};
+
+class LimitedEchoCallback : public ton::adnl::Adnl::Callback {
+ public:
+  td::uint64 max_query_size;
+
+  explicit LimitedEchoCallback(td::uint64 limit) : max_query_size(limit) {
+  }
+
+  void receive_message(ton::adnl::AdnlNodeIdShort, ton::adnl::AdnlNodeIdShort, td::BufferSlice) override {
+  }
+
+  void receive_query(ton::adnl::AdnlNodeIdShort, ton::adnl::AdnlNodeIdShort, td::BufferSlice data,
+                     td::Promise<td::BufferSlice> promise) override {
+    if (data.size() > max_query_size) {
+      promise.set_error(td::Status::Error("query too large"));
+      return;
+    }
+    promise.set_value(std::move(data));
+  }
+};
+
 struct TestNode {
   ton::adnl::AdnlNodeIdShort id;
   ton::PrivateKey key;
@@ -181,6 +238,11 @@ class TestRunner : public td::actor::Actor {
                             ton::adnl::AdnlNodeIdFull{to.key.compute_public_key()}, addr_list);
   }
 
+  void set_slow_echo(TestNode& node, double delay) {
+    td::actor::send_closure(node.adnl, &ton::adnl::Adnl::subscribe, node.id, "S",
+                            std::make_unique<SlowEchoCallback>(delay));
+  }
+
   td::actor::Task<td::BufferSlice> send_query(TestNode& from, TestNode& to, td::Slice data) {
     td::BufferSlice query(1 + data.size());
     query.as_slice()[0] = 'Q';
@@ -189,6 +251,30 @@ class TestRunner : public td::actor::Actor {
     auto [future, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
     td::actor::send_closure(from.quic_sender, &ton::quic::QuicSender::send_query, from.id, to.id, std::string("Q"),
                             std::move(promise), td::Timestamp::in(10.0), std::move(query));
+    co_return co_await std::move(future);
+  }
+
+  td::actor::Task<td::BufferSlice> send_query_ex(TestNode& from, TestNode& to, td::Slice data, double timeout,
+                                                 td::uint64 max_answer_size) {
+    td::BufferSlice query(1 + data.size());
+    query.as_slice()[0] = 'Q';
+    query.as_slice().substr(1).copy_from(data);
+
+    auto [future, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
+    td::actor::send_closure(from.quic_sender, &ton::quic::QuicSender::send_query_ex, from.id, to.id, std::string("Q"),
+                            std::move(promise), td::Timestamp::in(timeout), std::move(query), max_answer_size);
+    co_return co_await std::move(future);
+  }
+
+  td::actor::Task<td::BufferSlice> send_slow_query_ex(TestNode& from, TestNode& to, td::Slice data, double timeout,
+                                                      td::uint64 max_answer_size) {
+    td::BufferSlice query(1 + data.size());
+    query.as_slice()[0] = 'S';
+    query.as_slice().substr(1).copy_from(data);
+
+    auto [future, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
+    td::actor::send_closure(from.quic_sender, &ton::quic::QuicSender::send_query_ex, from.id, to.id, std::string("S"),
+                            std::move(promise), td::Timestamp::in(timeout), std::move(query), max_answer_size);
     co_return co_await std::move(future);
   }
 
@@ -662,6 +748,105 @@ TEST(QuicSender, EmptyMessage) {
     ASSERT_EQ(1u, b.received_messages->size());
 
     // If we get here without crashing, the test passes
+    co_return td::Unit{};
+  });
+}
+
+TEST(QuicSender, ResponseSizeLimit) {
+  run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    auto a = co_await t.create_node("lim-a", next_port());
+    auto b = co_await t.create_node("lim-b", next_port());
+
+    t.add_peer(a, b);
+    t.add_peer(b, a);
+
+    // First, verify normal query works
+    auto resp1 = co_await t.send_query(a, b, "normal");
+    ASSERT_EQ(resp1.as_slice(), td::Slice("Qnormal"));
+
+    // Send large query with small response size limit
+    // Query data is 1000 bytes, response will be same size (echo), but limit is 100
+    std::string large_data(1000, 'X');
+    auto result = co_await t.send_query_ex(a, b, large_data, 10.0, 100).wrap();
+
+    LOG(INFO) << "ResponseSizeLimit result: " << (result.is_ok() ? "OK (unexpected)" : result.error().to_string());
+    ASSERT_TRUE(result.is_error());
+
+    // Verify connection still works after the failed query
+    for (int i = 0; i < 5; i++) {
+      auto resp = co_await t.send_query(a, b, "after-" + std::to_string(i));
+      ASSERT_EQ(resp.as_slice(), td::Slice("Qafter-" + std::to_string(i)));
+    }
+
+    LOG(INFO) << "Connection still works after size limit exceeded";
+    co_return td::Unit{};
+  });
+}
+
+TEST(QuicSender, LargeQueryWithSmallLimit) {
+  run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    auto a = co_await t.create_node("lg-a", next_port());
+    auto b = co_await t.create_node("lg-b", next_port());
+
+    t.add_peer(a, b);
+    t.add_peer(b, a);
+
+    // First, verify normal query works
+    auto resp1 = co_await t.send_query(a, b, "normal");
+    ASSERT_EQ(resp1.as_slice(), td::Slice("Qnormal"));
+
+    // Send very large query (1MB) with small response limit (100 bytes)
+    // This should cause buffering and potentially trigger -219 when stream is shutdown
+    std::string huge_data(1 << 20, 'X');  // 1MB
+    auto result = co_await t.send_query_ex(a, b, huge_data, 30.0, 100).wrap();
+
+    LOG(INFO) << "LargeQueryWithSmallLimit result: "
+              << (result.is_ok() ? "OK (unexpected)" : result.error().to_string());
+    ASSERT_TRUE(result.is_error());
+
+    // Verify connection still works after the failed query
+    for (int i = 0; i < 5; i++) {
+      auto resp = co_await t.send_query(a, b, "after-" + std::to_string(i));
+      ASSERT_EQ(resp.as_slice(), td::Slice("Qafter-" + std::to_string(i)));
+    }
+
+    LOG(INFO) << "Connection still works after large query with small limit";
+    co_return td::Unit{};
+  });
+}
+
+TEST(QuicSender, ResponseTimeout) {
+  run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    auto a = co_await t.create_node("to-a", next_port());
+    auto b = co_await t.create_node("to-b", next_port());
+
+    t.add_peer(a, b);
+    t.add_peer(b, a);
+
+    // Set up slow echo on node b (5 second delay)
+    t.set_slow_echo(b, 5.0);
+
+    // First, verify normal query works
+    auto resp1 = co_await t.send_query(a, b, "normal");
+    ASSERT_EQ(resp1.as_slice(), td::Slice("Qnormal"));
+
+    // Send query to slow endpoint with short timeout (1 second timeout, 5 second response delay)
+    // Use large max_answer_size so we test timeout, not size limit
+    auto result = co_await t.send_slow_query_ex(a, b, "slow", 1.0, 1 << 20).wrap();
+
+    LOG(INFO) << "ResponseTimeout result: " << (result.is_ok() ? "OK (unexpected)" : result.error().to_string());
+    ASSERT_TRUE(result.is_error());
+
+    // Wait for the slow response to complete on server side
+    co_await td::actor::coro_sleep(td::Timestamp::in(5.0));
+
+    // Verify connection still works after the timeout
+    for (int i = 0; i < 5; i++) {
+      auto resp = co_await t.send_query(a, b, "after-" + std::to_string(i));
+      ASSERT_EQ(resp.as_slice(), td::Slice("Qafter-" + std::to_string(i)));
+    }
+
+    LOG(INFO) << "Connection still works after timeout";
     co_return td::Unit{};
   });
 }

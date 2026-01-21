@@ -321,7 +321,7 @@ td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer& msg_out, Quic
   }
 
   if (n_write < 0) {
-    if (n_write == NGTCP2_ERR_STREAM_DATA_BLOCKED) {
+    if (n_write == NGTCP2_ERR_STREAM_DATA_BLOCKED || n_write == NGTCP2_ERR_STREAM_SHUT_WR) {
       msg_out.storage.truncate(0);
       return td::Status::OK();
     }
@@ -517,6 +517,8 @@ int QuicConnectionPImpl::on_acked_stream_data_offset(int64_t stream_id, uint64_t
 }
 
 int QuicConnectionPImpl::on_stream_close(int64_t stream_id) {
+  LOG(INFO) << "close SID:" << stream_id;
+  ;
   streams_.erase(stream_id);
   ngtcp2_conn_extend_max_streams_bidi(conn(), 1);
   return 0;
