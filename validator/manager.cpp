@@ -2280,8 +2280,7 @@ void ValidatorManagerImpl::update_shards() {
 
   VLOG(VALIDATOR_DEBUG) << "total shards=" << new_shards.size() << " config shards=" << exp_vec.size();
 
-  std::map<ValidatorSessionId, ValidatorGroupEntry> new_validator_groups_;
-  std::map<ValidatorSessionId, ValidatorGroupEntry> new_next_validator_groups_;
+  std::map<ValidatorSessionId, ValidatorGroupEntry> new_validator_groups;
 
   bool force_recover = false;
   {
@@ -2291,6 +2290,25 @@ void ValidatorManagerImpl::update_shards() {
   }
 
   BlockSeqno key_seqno = last_key_block_handle_->id().seqno();
+
+  auto get_or_make_next_group = [&](ShardIdFull shard, ValidatorSessionId id, td::Ref<block::ValidatorSet> val_set) {
+    CHECK(!validator_groups_.contains(id) && !new_validator_groups.contains(id));
+    if (auto it = next_validator_groups_.find(id); it != next_validator_groups_.end()) {
+      return it;
+    }
+
+    auto G = create_validator_group(id, shard, val_set, key_seqno, opts, started_);
+    ValidatorGroupEntry entry{
+        .actor = std::move(G),
+        .shard = shard,
+        .started = false,
+        .cc_seqno = val_set->get_catchain_seqno(),
+    };
+    LOG(INFO) << "Created " << entry.name() << ":" << id;
+    auto [it, success] = next_validator_groups_.emplace(id, std::move(entry));
+    CHECK(success);
+    return it;
+  };
 
   active_validator_groups_master_ = active_validator_groups_shard_ = 0;
   adnl::AdnlNodeIdShort mc_validator_adnl_id = adnl::AdnlNodeIdShort::zero();
@@ -2326,25 +2344,26 @@ void ValidatorManagerImpl::update_shards() {
           }
         }
 
-        VLOG(VALIDATOR_DEBUG) << "validating group " << val_group_id;
-        auto it = validator_groups_.find(val_group_id);
-        if (it != validator_groups_.end()) {
-          new_validator_groups_.emplace(val_group_id, std::move(it->second));
-        } else {
-          auto it2 = next_validator_groups_.find(val_group_id);
-          if (it2 != next_validator_groups_.end()) {
-            if (!it2->second.actor.empty()) {
-              td::actor::send_closure(it2->second.actor, &IValidatorGroup::start, prev, last_masterchain_block_id_);
-            }
-            new_validator_groups_.emplace(val_group_id, std::move(it2->second));
+        auto find_or_create_validator_group = [&] {
+          if (auto it = validator_groups_.find(val_group_id); it != validator_groups_.end()) {
+            auto &entry = new_validator_groups[val_group_id] = std::move(it->second);
+            validator_groups_.erase(it);
+            return &entry;
           } else {
-            auto G = create_validator_group(val_group_id, shard, val_set, key_seqno, opts, started_);
-            if (!G.empty()) {
-              td::actor::send_closure(G, &IValidatorGroup::start, prev, last_masterchain_block_id_);
-            }
-            new_validator_groups_.emplace(val_group_id, ValidatorGroupEntry{std::move(G), shard});
+            auto it2 = get_or_make_next_group(shard, val_group_id, val_set);
+            auto &entry = new_validator_groups[val_group_id] = std::move(it2->second);
+            next_validator_groups_.erase(it2);
+            return &entry;
           }
+        };
+        auto entry = find_or_create_validator_group();
+
+        if (!entry->started) {
+          LOG(INFO) << "Started " << entry->name() << ":" << val_group_id;
+          td::actor::send_closure(entry->actor, &IValidatorGroup::start, prev, last_masterchain_block_id_);
+          entry->started = true;
         }
+
         if (shard.is_masterchain()) {
           mc_validator_adnl_id = adnl::AdnlNodeIdShort{val_set->get_validator(validator_id.bits256_value())->addr};
           if (mc_validator_adnl_id.is_zero()) {
@@ -2363,15 +2382,7 @@ void ValidatorManagerImpl::update_shards() {
     auto validator_id = get_validator(shard, val_set);
     if (!validator_id.is_zero()) {
       auto val_group_id = get_validator_set_id(shard, val_set, opts_hash, key_seqno, opts);
-      auto it = next_validator_groups_.find(val_group_id);
-      if (it != next_validator_groups_.end()) {
-        //CHECK(!it->second.empty());
-        new_next_validator_groups_.emplace(val_group_id, std::move(it->second));
-      } else {
-        new_next_validator_groups_.emplace(
-            val_group_id, ValidatorGroupEntry{
-                              create_validator_group(val_group_id, shard, val_set, key_seqno, opts, started_), shard});
-      }
+      get_or_make_next_group(shard, val_group_id, val_set);
       if (shard.is_masterchain() && mc_validator_adnl_id.is_zero()) {
         mc_validator_adnl_id = adnl::AdnlNodeIdShort{val_set->get_validator(validator_id.bits256_value())->addr};
         if (mc_validator_adnl_id.is_zero()) {
@@ -2381,20 +2392,46 @@ void ValidatorManagerImpl::update_shards() {
     }
   }
 
-  std::vector<td::actor::ActorId<IValidatorGroup>> gc;
-  for (auto &v : validator_groups_) {
-    if (!v.second.actor.empty()) {
-      gc.push_back(v.second.actor.release());
-    }
+  for (auto &[id, group] : validator_groups_) {
+    LOG(INFO) << "Destroying active " << group.name() << ":" << id;
+    td::actor::send_closure(group.actor.release(), &IValidatorGroup::destroy);
   }
-  for (auto &v : next_validator_groups_) {
-    if (!v.second.actor.empty()) {
-      gc.push_back(v.second.actor.release());
+  validator_groups_ = std::move(new_validator_groups);
+
+  struct CleanupEntry {
+    ValidatorSessionId id;
+    std::string reason;
+  };
+
+  std::vector<CleanupEntry> ids_to_remove;
+  for (auto &[id, tentative_group] : next_validator_groups_) {
+    for (auto &[active_id, active_group] : validator_groups_) {
+      if (active_group.shard.workchain != tentative_group.shard.workchain) {
+        continue;
+      }
+
+      bool shards_equal = active_group.shard.shard == tentative_group.shard.shard;
+      bool shards_related = shard_is_ancestor(active_group.shard.shard, tentative_group.shard.shard) ||
+                            shard_is_ancestor(tentative_group.shard.shard, active_group.shard.shard);
+      bool equal_condition = active_group.cc_seqno >= tentative_group.cc_seqno && shards_equal;
+      bool related_condition = active_group.cc_seqno > tentative_group.cc_seqno && shards_related;
+
+      if (equal_condition || related_condition) {
+        ids_to_remove.push_back({
+            .id = id,
+            .reason = PSTRING() << active_group.name() << ":" << active_id,
+        });
+        break;
+      }
     }
   }
 
-  validator_groups_ = std::move(new_validator_groups_);
-  next_validator_groups_ = std::move(new_next_validator_groups_);
+  for (auto [id, reason] : ids_to_remove) {
+    LOG(INFO) << "Destroying tentative " << next_validator_groups_[id].name() << ":" << id << " because of an active "
+              << reason;
+    td::actor::send_closure(next_validator_groups_[id].actor.release(), &IValidatorGroup::destroy);
+    next_validator_groups_.erase(id);
+  }
 
   if (last_masterchain_state_->rotated_all_shards()) {
     CHECK(last_masterchain_block_handle_->received_state());
@@ -2404,9 +2441,6 @@ void ValidatorManagerImpl::update_shards() {
           td::actor::send_closure(SelfId, &ValidatorManagerImpl::updated_init_block, block_id);
         });
     td::actor::send_closure(db_, &Db::update_init_masterchain_block, last_masterchain_block_id_, std::move(P));
-  }
-  for (auto &v : gc) {
-    td::actor::send_closure(v, &IValidatorGroup::destroy);
   }
   if (!serializer_.empty()) {
     td::actor::send_closure(serializer_, &AsyncStateSerializer::auto_disable_serializer,

@@ -220,8 +220,14 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::actor::ActorId<CollationManager> get_collation_manager(adnl::AdnlNodeIdShort adnl_id);
 
   struct ValidatorGroupEntry {
+    std::string name() const {
+      return PSTRING() << "validator group " << shard.to_str() << "." << cc_seqno;
+    }
+
     td::actor::ActorOwn<IValidatorGroup> actor;
     ShardIdFull shard;
+    bool started = false;
+    td::uint32 cc_seqno = 0;
   };
   std::map<ValidatorSessionId, ValidatorGroupEntry> validator_groups_;
   std::map<ValidatorSessionId, ValidatorGroupEntry> next_validator_groups_;
