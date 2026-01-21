@@ -191,6 +191,16 @@ QuicSender::Connection::~Connection() {
 
 td::actor::Task<td::Unit> QuicSender::send_message_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                                         td::BufferSlice data) {
+  auto size = data.size();
+  td::uint32 magic = size >= 4 ? td::as<td::uint32>(data.data()) : 0;
+  auto R = co_await send_message_coro_inner(src, dst, std::move(data)).wrap();
+  LOG_IF(INFO, R.is_error()) << "Failed to send message: " << src << " -> " << dst << " size=" << size
+                             << " magic=" << td::format::as_hex(magic) << " " << R.error();
+  co_return td::Unit{};
+}
+
+td::actor::Task<td::Unit> QuicSender::send_message_coro_inner(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
+                                                              td::BufferSlice data) {
   auto conn = co_await find_or_create_connection({src, dst});
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_message>(std::move(data));
   co_await td::actor::ask(conn->server, &QuicServer::send_stream, conn->cid, StreamOptions{}, std::move(wire_data),
