@@ -127,9 +127,9 @@ void BroadcastsTwostep::send(OverlayImpl *overlay, PublicKeyHash send_as, td::Bu
   td::Bits256 data_hash = sha256_bits256(data.as_slice());
   td::uint32 date = static_cast<td::uint32>(td::Clocks::system());
   std::vector<adnl::AdnlNodeIdShort> other_nodes;
-  overlay->iterate_all_peers([&](const adnl::AdnlNodeIdShort &key, OverlayPeer &peer) {
-    if (overlay->is_persistent_node(key) && key.pubkey_hash() != send_as) {
-      other_nodes.push_back(key);
+  overlay->iterate_all_peers([&](const adnl::AdnlNodeIdShort &peer_id, OverlayPeer &peer) {
+    if (overlay->is_persistent_node(peer_id) && peer_id != overlay->local_id()) {
+      other_nodes.push_back(peer_id);
     }
   });
   td::Bits256 broadcast_id;
