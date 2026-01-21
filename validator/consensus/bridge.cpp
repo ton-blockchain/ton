@@ -292,7 +292,7 @@ class BridgeImpl final : public IValidatorGroup {
 
  private:
   td::actor::Task<> destroy_inner() {
-    if (is_started_) {
+    if (bus_) {
       LOG(INFO) << "Destroying validator group";
       bus_.publish<StopRequested>();
       bus_ = {};
