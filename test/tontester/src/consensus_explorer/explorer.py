@@ -1,6 +1,7 @@
 from multiprocessing import Process
 from pathlib import Path
 from typing import final, cast
+import os
 
 from .parser import ParserLogs
 from .visualizer import DashApp
@@ -39,7 +40,7 @@ def _main():
     import argparse
 
     parser = argparse.ArgumentParser()
-    _ = parser.add_argument("--logs", nargs="+", required=True, help="Paths to log files")
+    _ = parser.add_argument("--logs", nargs="+", required=True, help="Paths to log files or directory")
     _ = parser.add_argument("--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)")
     _ = parser.add_argument("--port", type=int, default=8050, help="Port to bind to (default: 8050)")
 
@@ -49,6 +50,8 @@ def _main():
     port = cast(int, args.port)
 
     log_paths = [Path(log) for log in logs]
+    if len(log_paths) == 1 and log_paths[0].is_dir():
+        log_paths = [p for p in log_paths[0].iterdir()]
     app = DashApp(ParserLogs(log_paths))
 
     app.run(debug=True, host=host, port=port)
