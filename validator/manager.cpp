@@ -2234,12 +2234,6 @@ void ValidatorManagerImpl::update_shards() {
   auto exp_vec = last_masterchain_state_->get_shards();
   auto config = last_masterchain_state_->get_consensus_config();
   validatorsession::ValidatorSessionOptions opts{config};
-  td::uint32 threshold = 9407194;
-  bool force_group_id_upgrade = last_masterchain_seqno_ == threshold;
-  auto legacy_opts_hash = opts.get_hash();
-  if (last_masterchain_seqno_ >= threshold) {  //TODO move to get_consensus_config()
-    opts.proto_version = std::max<td::uint32>(opts.proto_version, 1);
-  }
   auto opts_hash = opts.get_hash();
 
   std::map<ShardIdFull, std::vector<BlockIdExt>> new_shards;
@@ -2313,42 +2307,6 @@ void ValidatorManagerImpl::update_shards() {
   }
 
   BlockSeqno key_seqno = last_key_block_handle_->id().seqno();
-
-  if (force_group_id_upgrade) {
-    for (auto &desc : new_shards) {
-      auto shard = desc.first;
-      auto prev = desc.second;
-      for (auto &p : prev) {
-        CHECK(p.is_valid());
-      }
-      auto val_set = last_masterchain_state_->get_validator_set(shard);
-      auto validator_id = get_validator(shard, val_set);
-
-      if (!validator_id.is_zero()) {
-        auto legacy_val_group_id = get_validator_set_id(shard, val_set, legacy_opts_hash, key_seqno, opts);
-        auto val_group_id = get_validator_set_id(shard, val_set, opts_hash, key_seqno, opts);
-
-        auto it = validator_groups_.find(legacy_val_group_id);
-        if (it != validator_groups_.end()) {
-          new_validator_groups_.emplace(val_group_id, std::move(it->second));
-        } else {
-          auto it2 = next_validator_groups_.find(legacy_val_group_id);
-          if (it2 != next_validator_groups_.end()) {
-            if (!it2->second.actor.empty()) {
-              td::actor::send_closure(it2->second.actor, &IValidatorGroup::start, prev, last_masterchain_block_id_);
-            }
-            new_validator_groups_.emplace(val_group_id, std::move(it2->second));
-          } else {
-            auto G = create_validator_group(val_group_id, shard, val_set, key_seqno, opts, started_);
-            if (!G.empty()) {
-              td::actor::send_closure(G, &IValidatorGroup::start, prev, last_masterchain_block_id_);
-            }
-            new_validator_groups_.emplace(val_group_id, ValidatorGroupEntry{std::move(G), shard});
-          }
-        }
-      }
-    }
-  }
 
   active_validator_groups_master_ = active_validator_groups_shard_ = 0;
   adnl::AdnlNodeIdShort mc_validator_adnl_id = adnl::AdnlNodeIdShort::zero();
