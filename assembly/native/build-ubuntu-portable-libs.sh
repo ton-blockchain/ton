@@ -32,20 +32,6 @@ else
   rm -rf .ninja* CMakeCache.txt
 fi
 
-if [ ! -d "../3pp/lz4" ]; then
-mkdir -p ../3pp
-git clone https://github.com/lz4/lz4.git ../3pp/lz4
-cd ../3pp/lz4 || exit
-lz4Path=`pwd`
-git checkout v1.9.4
-CFLAGS="-fPIC" make -j$(nproc)
-test $? -eq 0 || { echo "Can't compile lz4"; exit 1; }
-cd ../../build || exit
-else
-  lz4Path=$(pwd)/../3pp/lz4
-  echo "Using compiled lz4"
-fi
-
 if [ ! -d "../3pp/zlib" ]; then
   git clone https://github.com/madler/zlib.git ../3pp/zlib
   cd ../3pp/zlib || exit
@@ -81,10 +67,7 @@ cmake -GNinja .. \
 -DZLIB_LIBRARIES=$zlibPath/libz.a \
 -DMHD_FOUND=1 \
 -DMHD_INCLUDE_DIR=$libmicrohttpdPath/src/include \
--DMHD_LIBRARY=$libmicrohttpdPath/src/microhttpd/.libs/libmicrohttpd.a \
--DLZ4_FOUND=1 \
--DLZ4_INCLUDE_DIRS=$lz4Path/lib \
--DLZ4_LIBRARIES=$lz4Path/lib/liblz4.a
+-DMHD_LIBRARY=$libmicrohttpdPath/src/microhttpd/.libs/libmicrohttpd.a
 
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
