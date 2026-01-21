@@ -258,6 +258,18 @@ void QuicServer::drain_ingress() {
 }
 
 void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
+  while (!state.blocked_datagrams.empty()) {
+    auto &[dgram_addr, dgram_data] = state.blocked_datagrams.front();
+    td::UdpSocketFd::OutboundMessage msg{.to = &dgram_addr, .data = dgram_data};
+
+    bool unblocked = false;
+    auto status = fd_.send_message(msg, unblocked);
+    if (!status.is_ok() || !unblocked)
+      break;
+
+    state.blocked_datagrams.pop_front();
+  }
+
   td::PerfWarningTimer w("flush_egress_for", 0.1);
   if (data.stream_data.has_value()) {
     auto &stream_data = data.stream_data.value();
@@ -275,7 +287,7 @@ void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
       td::UdpSocketFd::OutboundMessage msg{.to = &msg_out.address, .data = td::Slice{msg_out.storage}};
       TRY_STATUS(fd_.send_message(msg, sent));
       if (!sent) {
-        LOG(WARNING) << "outbound message lost to " << msg_out.address;
+        state.blocked_datagrams.emplace_back(msg_out.address, msg_out.storage);
       }
       return td::Status::OK();
     };
@@ -301,7 +313,7 @@ void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
     td::UdpSocketFd::OutboundMessage msg{.to = &msg_out.address, .data = td::Slice{msg_out.storage}};
     TRY_STATUS(fd_.send_message(msg, run));
     if (!run) {
-      LOG(WARNING) << "outbound message lost to " << msg_out.address;
+      state.blocked_datagrams.emplace_back(msg_out.address, msg_out.storage);
     }
     return td::Status::OK();
   };

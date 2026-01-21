@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 #include <variant>
+#include <deque>
 
 #include "td/actor/ActorOwn.h"
 #include "td/actor/core/Actor.h"
@@ -90,6 +91,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     td::IPAddress remote_address;
     QuicConnectionId cid;
     std::optional<QuicConnectionId> temp_cid;
+    std::deque<std::pair<td::IPAddress, td::BufferSlice>> blocked_datagrams;
     bool is_outbound;
     friend td::StringBuilder &operator<<(td::StringBuilder &sb, const ConnectionState &state) {
       sb << "Connection{" << (state.is_outbound ? "to" : "from") << " " << state.remote_address;
