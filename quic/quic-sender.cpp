@@ -9,6 +9,10 @@
 
 namespace ton::quic {
 
+static td::uint32 get_magic(const td::BufferSlice &data) {
+  return data.size() >= 4 ? td::as<td::uint32>(data.data()) : 0;
+}
+
 class QuicSender::ServerCallback final : public QuicServer::Callback {
  public:
   ServerCallback(adnl::AdnlNodeIdShort local_id, td::actor::ActorId<QuicSender> sender)
@@ -94,7 +98,10 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
       }
       if (options_.timeout && options_.timeout.is_in_past()) {
         failed_ = true;
-        return td::Status::Error(PSLICE() << "stream timeout exceeded: " << options_.timeout_seconds << "s");
+        return td::Status::Error(PSLICE() << "stream timeout exceeded: " << options_.timeout_seconds
+                                          << "s query_size=" << options_.query_size
+                                          << " query_magic=" << td::format::as_hex(options_.query_magic)
+                                          << " received=" << builder_.size());
       }
       return td::Status::OK();
     }
@@ -192,7 +199,7 @@ QuicSender::Connection::~Connection() {
 td::actor::Task<td::Unit> QuicSender::send_message_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                                         td::BufferSlice data) {
   auto size = data.size();
-  td::uint32 magic = size >= 4 ? td::as<td::uint32>(data.data()) : 0;
+  auto magic = get_magic(data);
   auto R = co_await send_message_coro_inner(src, dst, std::move(data)).wrap();
   LOG_IF(INFO, R.is_error()) << "Failed to send message: " << src << " -> " << dst << " size=" << size
                              << " magic=" << td::format::as_hex(magic) << " " << R.error();
@@ -212,14 +219,19 @@ td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdSho
                                                              std::string name, td::Timestamp timeout,
                                                              td::BufferSlice data, std::optional<td::uint64> limit) {
   auto conn = co_await find_or_create_connection({src, dst});
+  auto query_size = data.size();
+  auto query_magic = get_magic(data);
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_query>(std::move(data));
   auto cid = conn->cid;
   auto server = conn->server;
   // create stream explicitly to avoid race with response
   auto timeout_seconds = timeout ? timeout.at() - td::Time::now() : 0.0;
-  auto stream_id =
-      co_await td::actor::ask(server, &QuicServer::open_stream, cid,
-                              StreamOptions{.max_size = limit, .timeout = timeout, .timeout_seconds = timeout_seconds});
+  auto stream_id = co_await td::actor::ask(server, &QuicServer::open_stream, cid,
+                                           StreamOptions{.max_size = limit,
+                                                         .timeout = timeout,
+                                                         .timeout_seconds = timeout_seconds,
+                                                         .query_size = query_size,
+                                                         .query_magic = query_magic});
   auto [future, answer_promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
   CHECK(conn->responses.emplace(stream_id, std::move(answer_promise)).second);
   conn = nullptr;  // don't keep connection, it may disconnect during our wait
@@ -414,12 +426,9 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
     return;
   }
 
-  td::uint32 tl_id = 0;
-  if (data.size() >= 4) {
-    tl_id = td::as<td::uint32>(data.data());
-  }
   LOG(ERROR) << "malformed message from CID:" << cid << " SID:" << stream_id << " size:" << data.size()
-             << " tl_id:" << td::format::as_hex(tl_id);
+             << " tl_id:" << td::format::as_hex(get_magic(data))
+             << " head:" << td::format::as_hex_dump<4>(data.as_slice().truncate(32));
 }
 
 void QuicSender::on_closed(QuicConnectionId cid) {
