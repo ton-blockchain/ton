@@ -18,6 +18,7 @@
 */
 
 #include <atomic>
+#include <cstring>
 
 #include "td/utils/common.h"
 #include "td/utils/port/thread.h"
@@ -29,9 +30,14 @@ class AtomicRead {
   void read(T &dest) const {
     while (true) {
       static_assert(std::is_trivially_copyable<T>::value, "T must be trivially copyable");
-      auto version_before = version.load();
+      auto version_before = version.load(std::memory_order_acquire);
+      if (version_before % 2 != 0) {
+        td::this_thread::yield();
+        continue;
+      }
       memcpy(&dest, &value, sizeof(dest));
-      auto version_after = version.load();
+      std::atomic_thread_fence(std::memory_order_acquire);
+      auto version_after = version.load(std::memory_order_acquire);
       if (version_before == version_after && version_before % 2 == 0) {
         break;
       }
@@ -73,10 +79,13 @@ class AtomicRead {
   T value;
 
   void do_lock() {
-    CHECK(++version % 2 == 1);
+    auto v = version.fetch_add(1, std::memory_order_acq_rel) + 1;
+    CHECK(v % 2 == 1);
   }
   void do_unlock() {
-    CHECK(++version % 2 == 0);
+    std::atomic_thread_fence(std::memory_order_release);
+    auto v = version.fetch_add(1, std::memory_order_release) + 1;
+    CHECK(v % 2 == 0);
   }
 };
 };  // namespace td
