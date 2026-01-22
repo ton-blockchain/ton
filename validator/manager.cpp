@@ -20,6 +20,8 @@
 
 #include "auto/tl/lite_api.h"
 #include "auto/tl/ton_api_json.h"
+#include "block/block-auto.h"
+#include "block/block-parse.h"
 #include "common/delay.h"
 #include "db/fileref.hpp"
 #include "downloaders/wait-block-data.hpp"
@@ -39,6 +41,7 @@
 #include "ton/ton-io.hpp"
 #include "ton/ton-tl.hpp"
 #include "validator/stats-merger.h"
+#include "vm/boc.h"
 
 #include "checksum.h"
 #include "fabric.h"
@@ -54,6 +57,59 @@
 namespace ton {
 
 namespace validator {
+namespace {
+
+td::Result<td::Bits256> compute_ext_in_msg_norm_hash(td::Ref<vm::Cell> ext_in_msg_cell) {
+  block::gen::Message::Record message;
+  if (!tlb::type_unpack_cell(ext_in_msg_cell, block::gen::t_Message_Any, message)) {
+    return td::Status::Error("Failed to unpack Message");
+  }
+  auto tag = block::gen::CommonMsgInfo().get_tag(*message.info);
+  if (tag != block::gen::CommonMsgInfo::ext_in_msg_info) {
+    return td::Status::Error("CommonMsgInfo tag is not ext_in_msg_info");
+  }
+  block::gen::CommonMsgInfo::Record_ext_in_msg_info msg_info;
+  if (!tlb::csr_unpack(message.info, msg_info)) {
+    return td::Status::Error("Failed to unpack CommonMsgInfo::ext_in_msg_info");
+  }
+
+  td::Ref<vm::Cell> body;
+  auto body_cs = message.body.write();
+  if (body_cs.fetch_ulong(1) == 1) {
+    body = body_cs.fetch_ref();
+  } else {
+    body = vm::CellBuilder().append_cellslice(body_cs).finalize();
+  }
+
+  auto cb = vm::CellBuilder();
+  bool status = cb.store_long_bool(2, 2) &&  // message$_ -> info:CommonMsgInfo -> ext_in_msg_info$10
+                cb.store_long_bool(0, 2) &&  // message$_ -> info:CommonMsgInfo -> src:MsgAddressExt -> addr_none$00
+                cb.append_cellslice_bool(msg_info.dest) &&  // message$_ -> info:CommonMsgInfo -> dest:MsgAddressInt
+                cb.store_long_bool(0, 4) &&                 // message$_ -> info:CommonMsgInfo -> import_fee:Grams -> 0
+                cb.store_long_bool(0, 1) &&  // message$_ -> init:(Maybe (Either StateInit ^StateInit)) -> nothing$0
+                cb.store_long_bool(1, 1) &&  // message$_ -> body:(Either X ^X) -> right$1
+                cb.store_ref_bool(body);
+
+  if (!status) {
+    return td::Status::Error("Failed to build normalized message");
+  }
+  return cb.finalize()->get_hash().bits();
+}
+
+td::Result<td::Bits256> compute_ext_in_msg_norm_hash_from_boc(td::Slice data) {
+  TRY_RESULT(body, vm::std_boc_deserialize(data));
+  return compute_ext_in_msg_norm_hash(std::move(body));
+}
+
+std::string ext_msg_norm_hash_str(td::Slice data) {
+  auto hash_norm_res = compute_ext_in_msg_norm_hash_from_boc(data);
+  if (hash_norm_res.is_ok()) {
+    return td::base64_encode(hash_norm_res.ok().as_slice());
+  }
+  return PSTRING() << "error:" << hash_norm_res.error().message();
+}
+
+}  // namespace
 
 void ValidatorManagerImpl::validate_block_is_next_proof(BlockIdExt prev_block_id, BlockIdExt next_block_id,
                                                         td::BufferSlice proof, td::Promise<td::Unit> promise) {
@@ -408,27 +464,36 @@ void ValidatorManagerImpl::get_key_block_proof_link(BlockIdExt block_id, td::Pro
 }
 
 td::actor::Task<> ValidatorManagerImpl::new_external_message_broadcast(td::BufferSlice data, int priority) {
+  auto norm_hash = ext_msg_norm_hash_str(data.as_slice());
+  auto add_to_mempool = is_validator() || !collator_nodes_.empty();
   if (!started_) {
+    LOG(WARNING) << "dropping external message broadcast: node not synced normalized_hash=" << norm_hash
+                 << " prio=" << priority;
     co_return td::Status::Error(ErrorCode::notready, "node not synced");
   }
   auto r_check_result =
       co_await td::actor::ask(ext_message_pool_, &ExtMessagePool::check_add_external_message, std::move(data), priority,
-                              /* add_to_mempool = */ is_validator() || !collator_nodes_.empty())
+                              /* add_to_mempool = */ add_to_mempool)
           .wrap();
   if (r_check_result.is_error()) {
-    VLOG(VALIDATOR_DEBUG) << "Dropping external message broadcast (prio=" << priority
-                          << ") : " << r_check_result.error();
+    LOG(WARNING) << "dropping external message broadcast normalized_hash=" << norm_hash << " prio=" << priority
+                 << " : " << r_check_result.error();
     co_return r_check_result.move_as_error();
+  }
+  if (!add_to_mempool) {
+    LOG(INFO) << "external message not added to mempool (not a validator or no collator nodes) normalized_hash="
+              << norm_hash << " prio=" << priority;
   }
   auto check_result = r_check_result.move_as_ok();
   auto allow_broadcast = co_await std::move(check_result.wait_allow_broadcast).wrap();
   if (allow_broadcast.is_error()) {
-    VLOG(VALIDATOR_DEBUG) << "Dropping external message broadcast (prio=" << priority
-                          << ") : " << allow_broadcast.error();
+    LOG(WARNING) << "dropping external message broadcast normalized_hash=" << norm_hash << " prio=" << priority
+                 << " : " << allow_broadcast.error();
     co_return allow_broadcast.move_as_error();
   }
   VLOG(VALIDATOR_DEBUG) << "Checked external message broadcast to " << check_result.message->wc() << ":"
-                        << check_result.message->addr().to_hex() << " (prio=" << priority << ")";
+                        << check_result.message->addr().to_hex() << " normalized_hash=" << norm_hash
+                        << " (prio=" << priority << ")";
   co_return td::Unit{};
 }
 

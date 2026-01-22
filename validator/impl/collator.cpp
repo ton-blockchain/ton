@@ -57,6 +57,58 @@ static constexpr int HIGH_PRIORITY_EXTERNAL = 10;  // don't skip high priority e
 
 static constexpr int MAX_ATTEMPTS = 5;
 
+td::Result<td::Bits256> get_ext_in_msg_hash_norm(td::Ref<vm::Cell> ext_in_msg_cell) {
+  block::gen::Message::Record message;
+  if (!tlb::type_unpack_cell(ext_in_msg_cell, block::gen::t_Message_Any, message)) {
+    return td::Status::Error("Failed to unpack Message");
+  }
+  auto tag = block::gen::CommonMsgInfo().get_tag(*message.info);
+  if (tag != block::gen::CommonMsgInfo::ext_in_msg_info) {
+    return td::Status::Error("CommonMsgInfo tag is not ext_in_msg_info");
+  }
+  block::gen::CommonMsgInfo::Record_ext_in_msg_info msg_info;
+  if (!tlb::csr_unpack(message.info, msg_info)) {
+    return td::Status::Error("Failed to unpack CommonMsgInfo::ext_in_msg_info");
+  }
+
+  td::Ref<vm::Cell> body;
+  auto body_cs = message.body.write();
+  if (body_cs.fetch_ulong(1) == 1) {
+    body = body_cs.fetch_ref();
+  } else {
+    body = vm::CellBuilder().append_cellslice(body_cs).finalize();
+  }
+
+  auto cb = vm::CellBuilder();
+  bool status = cb.store_long_bool(2, 2) &&  // message$_ -> info:CommonMsgInfo -> ext_in_msg_info$10
+                cb.store_long_bool(0, 2) &&  // message$_ -> info:CommonMsgInfo -> src:MsgAddressExt -> addr_none$00
+                cb.append_cellslice_bool(msg_info.dest) &&  // message$_ -> info:CommonMsgInfo -> dest:MsgAddressInt
+                cb.store_long_bool(0, 4) &&                 // message$_ -> info:CommonMsgInfo -> import_fee:Grams -> 0
+                cb.store_long_bool(0, 1) &&  // message$_ -> init:(Maybe (Either StateInit ^StateInit)) -> nothing$0
+                cb.store_long_bool(1, 1) &&  // message$_ -> body:(Either X ^X) -> right$1
+                cb.store_ref_bool(body);
+
+  if (!status) {
+    return td::Status::Error("Failed to build normalized message");
+  }
+  return cb.finalize()->get_hash().bits();
+}
+
+namespace {
+
+std::string ext_msg_norm_hash_str(Ref<vm::Cell> ext_in_msg_cell) {
+  if (ext_in_msg_cell.is_null()) {
+    return "null";
+  }
+  auto hash_norm_res = get_ext_in_msg_hash_norm(ext_in_msg_cell);
+  if (hash_norm_res.is_ok()) {
+    return td::base64_encode(hash_norm_res.ok().as_slice());
+  }
+  return PSTRING() << "error:" << hash_norm_res.error().message();
+}
+
+}  // namespace
+
 /**
  * Constructs a Collator object.
  *
@@ -4365,15 +4417,20 @@ int Collator::process_external_message(Ref<vm::Cell> msg) {
   if (!is_our_address(info.dest)) {
     return 0;
   }
+  auto hash_norm_res = get_ext_in_msg_hash_norm(msg);
+  auto norm_hash = hash_norm_res.is_ok()
+                       ? td::base64_encode(hash_norm_res.ok().as_slice())
+                       : PSTRING() << "error:" << hash_norm_res.error().message();
   // process message by a transaction in this block:
   // 1. create a Transaction processing this Message
   auto trans_root = create_ordinary_transaction(msg, /* metadata = */ {}, 0);
   if (trans_root.is_null()) {
     if (busy_) {
       // transaction rejected by account
-      LOG(DEBUG) << "external message rejected by account, skipping";
+      LOG(INFO) << "external message rejected by account, skipping normalized_hash=" << norm_hash;
       return 0;
     } else {
+      LOG(ERROR) << "external message rejected by account, fatal normalized_hash=" << norm_hash;
       fatal_error("cannot create transaction for processing inbound external message");
       return -1;
     }
@@ -4387,6 +4444,12 @@ int Collator::process_external_message(Ref<vm::Cell> msg) {
   // 3. insert InMsg into InMsgDescr
   if (!insert_in_msg(std::move(in_msg))) {
     return -1;
+  }
+  if (hash_norm_res.is_ok()) {
+    LOG(INFO) << "imported external message with normalized_hash=" << norm_hash;
+  } else {
+    LOG(WARNING) << "failed to compute normalized hash for imported external message normalized_hash=" << norm_hash
+                 << " reason=" << hash_norm_res.error().message();
   }
   return 1;
 }
@@ -6647,10 +6710,18 @@ void Collator::after_get_external_messages(td::Result<std::vector<std::pair<Ref<
     auto& ext_msg = p.first;
     int priority = p.second;
     Ref<vm::Cell> ext_msg_cell = ext_msg->root_cell();
+    auto norm_hash = ext_msg_norm_hash_str(ext_msg_cell);
+    LOG(INFO) << "collator received external message from mempool normalized_hash=" << norm_hash
+              << " prio=" << priority;
     bool err = ext_msg_cell.is_null();
     if (!err) {
       auto reg_res = register_external_message_cell(std::move(ext_msg_cell), ext_msg->hash(), priority);
-      if (reg_res.is_error() || !reg_res.move_as_ok()) {
+      if (reg_res.is_error()) {
+        LOG(WARNING) << "collator rejected external message normalized_hash=" << norm_hash
+                     << " reason=" << reg_res.error().message();
+        err = true;
+      } else if (!reg_res.ok()) {
+        LOG(INFO) << "collator skipped duplicate external message normalized_hash=" << norm_hash;
         err = true;
       }
     }

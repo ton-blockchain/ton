@@ -16,12 +16,66 @@
 */
 #include "td/utils/Random.h"
 
+#include "block/block-auto.h"
+#include "block/block-parse.h"
+
 #include "ext-message-pool.hpp"
 #include "external-message.hpp"
 #include "fabric.h"
 #include "transaction.h"
 
 namespace ton::validator {
+namespace {
+
+td::Result<td::Bits256> compute_ext_in_msg_norm_hash(td::Ref<vm::Cell> ext_in_msg_cell) {
+  block::gen::Message::Record message;
+  if (!tlb::type_unpack_cell(ext_in_msg_cell, block::gen::t_Message_Any, message)) {
+    return td::Status::Error("Failed to unpack Message");
+  }
+  auto tag = block::gen::CommonMsgInfo().get_tag(*message.info);
+  if (tag != block::gen::CommonMsgInfo::ext_in_msg_info) {
+    return td::Status::Error("CommonMsgInfo tag is not ext_in_msg_info");
+  }
+  block::gen::CommonMsgInfo::Record_ext_in_msg_info msg_info;
+  if (!tlb::csr_unpack(message.info, msg_info)) {
+    return td::Status::Error("Failed to unpack CommonMsgInfo::ext_in_msg_info");
+  }
+
+  td::Ref<vm::Cell> body;
+  auto body_cs = message.body.write();
+  if (body_cs.fetch_ulong(1) == 1) {
+    body = body_cs.fetch_ref();
+  } else {
+    body = vm::CellBuilder().append_cellslice(body_cs).finalize();
+  }
+
+  auto cb = vm::CellBuilder();
+  bool status = cb.store_long_bool(2, 2) &&  // message$_ -> info:CommonMsgInfo -> ext_in_msg_info$10
+                cb.store_long_bool(0, 2) &&  // message$_ -> info:CommonMsgInfo -> src:MsgAddressExt -> addr_none$00
+                cb.append_cellslice_bool(msg_info.dest) &&  // message$_ -> info:CommonMsgInfo -> dest:MsgAddressInt
+                cb.store_long_bool(0, 4) &&                 // message$_ -> info:CommonMsgInfo -> import_fee:Grams -> 0
+                cb.store_long_bool(0, 1) &&  // message$_ -> init:(Maybe (Either StateInit ^StateInit)) -> nothing$0
+                cb.store_long_bool(1, 1) &&  // message$_ -> body:(Either X ^X) -> right$1
+                cb.store_ref_bool(body);
+
+  if (!status) {
+    return td::Status::Error("Failed to build normalized message");
+  }
+  return cb.finalize()->get_hash().bits();
+}
+
+std::string ext_msg_norm_hash_str(td::Ref<vm::Cell> ext_in_msg_cell) {
+  if (ext_in_msg_cell.is_null()) {
+    return "null";
+  }
+  auto hash_norm_res = compute_ext_in_msg_norm_hash(std::move(ext_in_msg_cell));
+  if (hash_norm_res.is_ok()) {
+    return td::base64_encode(hash_norm_res.ok().as_slice());
+  }
+  return PSTRING() << "error:" << hash_norm_res.error().message();
+}
+
+}  // namespace
 td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_add_external_message(td::BufferSlice data,
                                                                                         int priority,
                                                                                         bool add_to_mempool) {
@@ -68,6 +122,10 @@ std::vector<std::pair<td::Ref<ExtMessage>, int>> ExtMessagePool::get_external_me
       }
       ++processed;
       if (it->second->expired()) {
+        auto address = it->second->address();
+        auto norm_hash = ext_msg_norm_hash_str(it->second->message->root_cell());
+        LOG(INFO) << "expired external message removed from mempool normalized_hash=" << norm_hash
+                  << " addr=" << address.first << ":" << address.second.to_hex() << " prio=" << priority;
         msgs.ext_addr_messages_[it->second->address()].erase(it->first.hash);
         ext_messages_hashes_.erase(it->first.hash);
         it = msgs.ext_messages_.erase(it);
@@ -126,7 +184,15 @@ void ExtMessagePool::complete_external_messages(std::vector<ExtMessage::Hash> to
     if (it != ext_messages_hashes_.end()) {
       int priority = it->second.first;
       auto msg_id = it->second.second;
-      ext_msgs_[priority].erase(msg_id);
+      auto &msgs = ext_msgs_[priority];
+      auto it2 = msgs.ext_messages_.find(msg_id);
+      if (it2 != msgs.ext_messages_.end()) {
+        auto address = it2->second->address();
+        auto norm_hash = ext_msg_norm_hash_str(it2->second->message->root_cell());
+        LOG(INFO) << "dropping external message normalized_hash=" << norm_hash << " addr=" << address.first << ":"
+                  << address.second.to_hex() << " prio=" << priority << " reason=bad_or_filtered";
+      }
+      msgs.erase(msg_id);
       ext_messages_hashes_.erase(it);
     }
   }
@@ -137,11 +203,20 @@ void ExtMessagePool::complete_external_messages(std::vector<ExtMessage::Hash> to
       auto msg_id = it->second.second;
       auto &msgs = ext_msgs_[priority];
       auto it2 = msgs.ext_messages_.find(msg_id);
-      if (msgs.ext_messages_.size() < SOFT_MEMPOOL_LIMIT && it2->second->can_postpone()) {
-        it2->second->postpone();
-      } else {
-        msgs.erase(msg_id);
-        ext_messages_hashes_.erase(it);
+      if (it2 != msgs.ext_messages_.end()) {
+        auto address = it2->second->address();
+        auto norm_hash = ext_msg_norm_hash_str(it2->second->message->root_cell());
+        if (msgs.ext_messages_.size() < SOFT_MEMPOOL_LIMIT && it2->second->can_postpone()) {
+          LOG(INFO) << "delaying external message normalized_hash=" << norm_hash << " addr=" << address.first << ":"
+                    << address.second.to_hex() << " prio=" << priority << " generation=" << it2->second->generation;
+          it2->second->postpone();
+        } else {
+          LOG(INFO) << "dropping external message normalized_hash=" << norm_hash << " addr=" << address.first << ":"
+                    << address.second.to_hex() << " prio=" << priority
+                    << " reason=delay_limit_or_mempool_full";
+          msgs.erase(msg_id);
+          ext_messages_hashes_.erase(it);
+        }
       }
     }
   }
@@ -167,9 +242,11 @@ void ExtMessagePool::add_message_to_mempool(td::Ref<ExtMessage> message, int pri
                                             td::optional<td::uint32> msg_seqno) {
   WorkchainId wc = message->wc();
   StdSmcAddress addr = message->addr();
+  auto norm_hash = ext_msg_norm_hash_str(message->root_cell());
   auto &msgs = ext_msgs_[priority];
   if (msgs.ext_messages_.size() > opts_->max_mempool_num()) {
-    LOG(INFO) << "cannot add message addr=" << wc << ":" << addr.to_hex() << " prio=" << priority
+    LOG(INFO) << "cannot add external message normalized_hash=" << norm_hash << " addr=" << wc << ":"
+              << addr.to_hex() << " prio=" << priority
               << " to mempool: mempool is full (limit=" << opts_->max_mempool_num() << ")";
     return;
   }
@@ -179,7 +256,8 @@ void ExtMessagePool::add_message_to_mempool(td::Ref<ExtMessage> message, int pri
   auto address = msg->address();
   auto it = msgs.ext_addr_messages_.find(address);
   if (it != msgs.ext_addr_messages_.end() && it->second.size() >= PER_ADDRESS_LIMIT) {
-    LOG(INFO) << "cannot add message addr=" << wc << ":" << addr.to_hex() << " prio=" << priority
+    LOG(INFO) << "cannot add external message normalized_hash=" << norm_hash << " addr=" << wc << ":"
+              << addr.to_hex() << " prio=" << priority
               << " to mempool: per address limit reached (limit=" << PER_ADDRESS_LIMIT << ")";
     return;
   }
@@ -187,7 +265,8 @@ void ExtMessagePool::add_message_to_mempool(td::Ref<ExtMessage> message, int pri
   if (it2 != ext_messages_hashes_.end()) {
     int old_priority = it2->second.first;
     if (old_priority >= priority) {
-      LOG(INFO) << "cannot add message addr=" << wc << ":" << addr.to_hex() << " prio=" << priority
+      LOG(INFO) << "cannot add external message normalized_hash=" << norm_hash << " addr=" << wc << ":"
+                << addr.to_hex() << " prio=" << priority
                 << " to mempool: already exists";
       return;
     }
@@ -196,7 +275,8 @@ void ExtMessagePool::add_message_to_mempool(td::Ref<ExtMessage> message, int pri
   msgs.ext_messages_.emplace(id, std::move(msg));
   msgs.ext_addr_messages_[address].emplace(id.hash, id);
   ext_messages_hashes_[id.hash] = {priority, id};
-  LOG(INFO) << "adding message addr=" << wc << ":" << addr.to_hex() << " prio=" << priority << " to mempool";
+  LOG(INFO) << "adding external message normalized_hash=" << norm_hash << " addr=" << wc << ":" << addr.to_hex()
+            << " prio=" << priority << " to mempool";
 }
 
 td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_message(td::Ref<ExtMessage> message,
