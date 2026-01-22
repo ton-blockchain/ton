@@ -2022,13 +2022,15 @@ void ValidatorEngine::load_config(td::Promise<td::Unit> promise) {
 void ValidatorEngine::write_config(td::Promise<td::Unit> promise) {
   auto s = td::json_encode<std::string>(td::ToJson(*config_.tl().get()), true);
 
-  auto S = td::write_file(temp_config_file(), s);
+  td::WriteFileOptions options;
+  options.need_sync = true;
+  options.need_lock = true;
+  auto S = td::write_file(temp_config_file(), s, options);
   if (S.is_error()) {
     td::unlink(temp_config_file()).ignore();
     promise.set_error(std::move(S));
     return;
   }
-  td::unlink(config_file_).ignore();
   TRY_STATUS_PROMISE(promise, td::rename(temp_config_file(), config_file_));
   promise.set_value(td::Unit());
 }
