@@ -153,7 +153,7 @@ struct QuicConnectionPImpl {
   ngtcp2_crypto_conn_ref conn_ref_{};
 
   std::unordered_map<QuicStreamID, OutboundStreamState> streams_;
-  bool streams_blocked_;
+  bool streams_blocked_ = false;
 
   ngtcp2_conn* conn() const {
     CHECK(conn_);
