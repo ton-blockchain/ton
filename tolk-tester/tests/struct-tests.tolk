@@ -687,6 +687,15 @@ fun test49() {
     return WithShapedDefaults{};
 }
 
+@method_id(150)
+fun test50(p1set: bool, p2set: bool) {
+    var p1: Point? = p1set ? { x: 1, y: 1 } : null;
+    var p2: Point? = p2set ? { x: 2, y: 2 } : null;
+    var p3: Point? = p1 ?? p2 ?? { x: 3, y: 3 } ?? null;
+    __expect_type(p3, "Point");
+    return p3;
+}
+
 
 fun main(x: int8, y: MInt) {
     __expect_type(PointAlias{x,y}, "Point");
@@ -756,6 +765,8 @@ type PointAlias = Point;
 @testcase | 148 | -1   | 0
 @testcase | 148 | 0    | 30
 @testcase | 149 |      | [ (null) ] [ [ (null) (null) 0 ] ] [ (null) ] [ [ (null) (null) 0 ] ] [ (null) (null) ]
+@testcase | 150 | 0 -1 | 2 2
+@testcase | 150 | 0 0  | 3 3
 
 @fif_codegen
 """

@@ -771,6 +771,25 @@ fun test146() {
     return test145((1, 2));
 }
 
+@method_id(147)
+fun test147(flag: bool) {
+    var src: Point? = flag ? Point { x: 8, y: 9 } : null;
+    return ([src].get(0) ?? null) as unknown;
+}
+
+@method_id(148)
+fun test148(flag: bool) {
+    var src: ()? = flag ? () : null;
+    var coalesced = through_unknown(src);
+    __expect_type(coalesced, "()?");
+    return coalesced == null;
+}
+
+
+fun through_unknown<T>(src: T?): T? {
+    var recovered = [src as unknown].get(0) as T?;
+    return ((recovered ?? null) as unknown) as T?;
+}
 
 fun inferArrayUnknown(): array<unknown> {
     if ([0].get(0)) {
@@ -834,6 +853,10 @@ fun main() {
 @testcase | 144 |    | [ [ 10 20 129 ] [ (null) (null) 0 ] ]
 @testcase | 145 | 1  | 0 0
 @testcase | 146 |    | 42 [ 1 2 ]
+@testcase | 147 | 0  | [ (null) (null) 0 ]
+@testcase | 147 | -1 | [ 8 9 129 ]
+@testcase | 148 | 0  | -1
+@testcase | 148 | -1 | 0
 
 @fif_codegen
 """

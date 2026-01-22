@@ -98,6 +98,7 @@ enum ASTNodeKind {
   ast_unary_operator,
   ast_binary_operator,
   ast_ternary_operator,
+  ast_null_coalesce_operator,
   ast_cast_as_operator,
   ast_is_type_operator,
   ast_not_null_operator,
@@ -889,6 +890,17 @@ struct Vertex<ast_ternary_operator> final : ASTExprVararg {
 
   Vertex(SrcRange range, AnyExprV cond, AnyExprV when_true, AnyExprV when_false)
     : ASTExprVararg(ast_ternary_operator, range, {cond, when_true, when_false}) {}
+};
+
+template<>
+// ast_null_coalesce_operator is `??` operator: it consumes a non-null value and calls rhs if null
+// examples: `nullableInt ?? 0` / `env("...") ?? default`
+struct Vertex<ast_null_coalesce_operator> final : ASTExprBinary {
+  AnyExprV get_lhs() const { return lhs; }
+  AnyExprV get_rhs() const { return rhs; }
+
+  Vertex(SrcRange range, AnyExprV lhs, AnyExprV rhs)
+    : ASTExprBinary(ast_null_coalesce_operator, range, lhs, rhs) {}
 };
 
 template<>

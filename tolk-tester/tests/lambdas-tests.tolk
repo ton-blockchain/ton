@@ -209,6 +209,17 @@ fun test12(useCb: bool) {
     )
 }
 
+@method_id(113)
+fun test13(f1null: bool) {
+    var a = [] as array<(int -> int)?>;
+    a.push(f1null ? null : fun(a) {
+        __expect_type(a, "int");
+        return a * 2;
+    });
+    a.push(null);
+    return (a.get(0) ?? a.get(1) ?? fun(a: int) { return a * 10 })(6);
+}
+
 fun main() {
     __expect_type(fun() {}, "() -> void");
     __expect_type(fun(x: int) { x }, "(int) -> void");
@@ -231,4 +242,6 @@ fun main() {
 @testcase | 111 | 0      | 20 20 20 20
 @testcase | 112 | -1     | 20 50
 @testcase | 112 | 0      | 20 0
+@testcase | 113 | -1     | 60
+@testcase | 113 | 0      | 12
 */

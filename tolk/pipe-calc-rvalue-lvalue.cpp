@@ -203,6 +203,13 @@ class CalculateRvalueLvalueVisitor final : public ASTVisitorFunctionBody {
     restore_state(saved);
   }
 
+  void visit(V<ast_null_coalesce_operator> v) override {
+    mark_vertex(v);
+    MarkingState saved = enter_state(MarkingState::RValue);
+    parent::visit(v);
+    restore_state(saved);
+  }
+
   void visit(V<ast_cast_as_operator> v) override {
     mark_vertex(v);
     MarkingState saved = enter_state(MarkingState::RValue);

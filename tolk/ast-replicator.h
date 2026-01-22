@@ -146,6 +146,9 @@ class ASTReplicator final {
   static V<ast_ternary_operator> clone(V<ast_ternary_operator> v) {
     return createV<ast_ternary_operator>(v->range, clone(v->get_cond()), clone(v->get_when_true()), clone(v->get_when_false()));
   }
+  static V<ast_null_coalesce_operator> clone(V<ast_null_coalesce_operator> v) {
+    return createV<ast_null_coalesce_operator>(v->range, clone(v->get_lhs()), clone(v->get_rhs()));
+  }
   static V<ast_cast_as_operator> clone(V<ast_cast_as_operator> v) {
     return createV<ast_cast_as_operator>(v->range, clone(v->get_expr()), clone(v->type_node));
   }
@@ -302,6 +305,7 @@ class ASTReplicator final {
       case ast_unary_operator:                  return clone(v->as<ast_unary_operator>());
       case ast_binary_operator:                 return clone(v->as<ast_binary_operator>());
       case ast_ternary_operator:                return clone(v->as<ast_ternary_operator>());
+      case ast_null_coalesce_operator:          return clone(v->as<ast_null_coalesce_operator>());
       case ast_cast_as_operator:                return clone(v->as<ast_cast_as_operator>());
       case ast_is_type_operator:                return clone(v->as<ast_is_type_operator>());
       case ast_not_null_operator:               return clone(v->as<ast_not_null_operator>());

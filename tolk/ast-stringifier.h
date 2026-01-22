@@ -68,6 +68,7 @@ class ASTStringifier final : public ASTVisitor {
     {ast_unary_operator, "ast_unary_operator"},
     {ast_binary_operator, "ast_binary_operator"},
     {ast_ternary_operator, "ast_ternary_operator"},
+    {ast_null_coalesce_operator, "ast_null_coalesce_operator"},
     {ast_cast_as_operator, "ast_cast_as_operator"},
     {ast_is_type_operator, "ast_is_type_operator"},
     {ast_not_null_operator, "ast_not_null_operator"},
@@ -340,6 +341,7 @@ public:
       case ast_unary_operator:                return handle_vertex(v->as<ast_unary_operator>());
       case ast_binary_operator:               return handle_vertex(v->as<ast_binary_operator>());
       case ast_ternary_operator:              return handle_vertex(v->as<ast_ternary_operator>());
+      case ast_null_coalesce_operator:        return handle_vertex(v->as<ast_null_coalesce_operator>());
       case ast_cast_as_operator:              return handle_vertex(v->as<ast_cast_as_operator>());
       case ast_is_type_operator:              return handle_vertex(v->as<ast_is_type_operator>());
       case ast_not_null_operator:             return handle_vertex(v->as<ast_not_null_operator>());

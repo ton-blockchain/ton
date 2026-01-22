@@ -307,6 +307,21 @@ fun test19(b: BalanceList, a: AssetList) {
     __expect_type(a, "AssetList");
 }
 
+fun int.double(self) {
+    return self * 2
+}
+
+fun getI1(v: int?, default: int) {
+    callOrder.push(v);
+    return v ?? default
+}
+
+@method_id(120)
+fun test20(v1: int?) {
+    callOrder = [];
+    return ((getI1(v1, 5) ?? getI1(100, 10)).double(), callOrder)
+}
+
 fun main() {}
 
 /**
@@ -327,6 +342,8 @@ fun main() {}
 @testcase | 116 |        | 100 100 5
 @testcase | 117 |        | 3
 @testcase | 118 |        | 10
+@testcase | 120 | 6      | 12 [ 6 ] 
+@testcase | 120 | null   | 10 [ (null) ] 
 
 @fif_codegen DECLPROC Pair<int16,int8>.createFrom<int,coins>()
 @fif_codegen DECLPROC Pair<int8,int16>.compareWith<int16,int8>()

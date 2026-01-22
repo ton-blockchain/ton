@@ -142,7 +142,7 @@ GenericSubstitutionsDeducing::GenericSubstitutionsDeducing(const GenericsDeclara
 void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, TypePtr arg_type) {
   // all Ts deduced up to this point are apriori
   param_type = replace_genericT_with_deduced(param_type, &deducedTs);
-  if (!param_type->has_genericT_inside()) {
+  if (!param_type->has_genericT_inside() || arg_type == TypeDataNotInferred::create()) {
     return;
   }
 

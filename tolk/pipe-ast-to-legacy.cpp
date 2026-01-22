@@ -1002,6 +1002,42 @@ static std::vector<var_idx_t> process_ternary_operator(V<ast_ternary_operator> v
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
+static std::vector<var_idx_t> process_null_coalesce_operator(V<ast_null_coalesce_operator> v, CodeBlob& code, TypePtr target_type) {
+  std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(null-coalesce)");
+  std::vector ir_lhs = pre_compile_expr(v->get_lhs(), code);
+  TypePtr lhs_type = v->get_lhs()->inferred_type;
+  TypePtr without_null_type = calculate_type_subtract_rhs_type(lhs_type, TypeDataNullLiteral::create());
+
+  if (lhs_type == TypeDataNullLiteral::create()) {
+    // `null ?? rhs` — lhs is always null, no IF ELSE, just return rhs
+    std::vector ir_rhs = pre_compile_expr(v->get_rhs(), code, v->inferred_type);
+    code.emplace_back(v, Op::_Let, rvect, std::move(ir_rhs));
+  } else if (without_null_type == TypeDataNever::create()) {
+    // `1 ?? rhs` — lhs can never be null, don't even call rhs, just return lhs
+    ir_lhs = transition_to_target_type(std::move(ir_lhs), code, lhs_type, v->inferred_type, v);
+    code.emplace_back(v, Op::_Let, rvect, std::move(ir_lhs));
+  } else {
+    // regular situation: `lhs ?? rhs`, need a runtime branch
+    std::vector ir_is_null = pre_compile_is_type(code, lhs_type, TypeDataNullLiteral::create(), ir_lhs, v, "(lhs-is-null)");
+    Op& if_op = code.emplace_back(v, Op::_If, ir_is_null);
+    {
+      code.push_set_cur(if_op.block0);
+      std::vector ir_rhs = pre_compile_expr(v->get_rhs(), code, v->inferred_type);
+      code.emplace_back(v, Op::_Let, rvect, std::move(ir_rhs));
+      code.close_pop_cur(v);
+    }
+    {
+      code.push_set_cur(if_op.block1);
+      ir_lhs = transition_to_target_type(std::move(ir_lhs), code, lhs_type, without_null_type, v);
+      ir_lhs = transition_to_target_type(std::move(ir_lhs), code, without_null_type, v->inferred_type, v);
+      code.emplace_back(v, Op::_Let, rvect, std::move(ir_lhs));
+      code.close_pop_cur(v);
+    }
+  }
+
+  return transition_to_target_type(std::move(rvect), code, target_type, v);
+}
+
 static std::vector<var_idx_t> process_cast_as_operator(V<ast_cast_as_operator> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
   TypePtr child_target_type = v->type_node->resolved_type;
   std::vector rvect = pre_compile_expr(v->get_expr(), code, child_target_type);
@@ -1780,6 +1816,8 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr targ
       return process_unary_operator(v->as<ast_unary_operator>(), code, target_type);
     case ast_ternary_operator:
       return process_ternary_operator(v->as<ast_ternary_operator>(), code, target_type);
+    case ast_null_coalesce_operator:
+      return process_null_coalesce_operator(v->as<ast_null_coalesce_operator>(), code, target_type);
     case ast_cast_as_operator:
       return process_cast_as_operator(v->as<ast_cast_as_operator>(), code, target_type, lval_ctx);
     case ast_is_type_operator:

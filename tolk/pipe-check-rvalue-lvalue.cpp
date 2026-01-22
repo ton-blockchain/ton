@@ -129,6 +129,13 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v);
   }
 
+  void visit(V<ast_null_coalesce_operator> v) override {
+    if (v->is_lvalue) {
+      err_cannot_be_used_as_lvalue("operator ??").fire(v, cur_f);
+    }
+    parent::visit(v);
+  }
+
   void visit(V<ast_cast_as_operator> v) override {
     if (v->is_lvalue) {
       err_cannot_be_used_as_lvalue("operator `as`").fire(v, cur_f);

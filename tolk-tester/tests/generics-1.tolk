@@ -213,8 +213,10 @@ fun test113(a: int | slice) {
 
 @method_id(114)
 fun test114(): [[int], tuple] {
+    var kust: int | slice = (null as slice?) ?? getTwo();
     var t1: [int] = [0];
     t1.0 = getTwo();   // ok
+    t1.0 += match (kust) { int => kust - 2, slice => throw 123 };
     var t2 = createEmptyTuple();
     t2.push(0);
     t2.set(getTwo(), 0);

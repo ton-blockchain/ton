@@ -126,6 +126,7 @@ enum TokenType {
   tok_double_arrow,
   tok_as,
   tok_is,
+  tok_double_question,
 
   tok_tolk,
   tok_semver,

@@ -353,6 +353,8 @@ class InferTypesAndCallsAndFieldsVisitor final {
         return infer_binary_operator(v->as<ast_binary_operator>(), std::move(flow), used_as_condition);
       case ast_ternary_operator:
         return infer_ternary_operator(v->as<ast_ternary_operator>(), std::move(flow), used_as_condition, hint);
+      case ast_null_coalesce_operator:
+        return infer_null_coalesce_operator(v->as<ast_null_coalesce_operator>(), std::move(flow), used_as_condition, hint);
       case ast_cast_as_operator:
         return infer_cast_as_operator(v->as<ast_cast_as_operator>(), std::move(flow), used_as_condition);
       case ast_is_type_operator:
@@ -733,6 +735,51 @@ class InferTypesAndCallsAndFieldsVisitor final {
     FlowContext true_flow = FlowContext::merge_flow(std::move(after_true.true_flow), std::move(after_false.true_flow));
     FlowContext false_flow = FlowContext::merge_flow(std::move(after_true.false_flow), std::move(after_false.false_flow));
     return ExprFlow(std::move(out_flow), std::move(true_flow), std::move(false_flow));
+  }
+
+  ExprFlow infer_null_coalesce_operator(V<ast_null_coalesce_operator> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {
+    flow = infer_any_expr(v->get_lhs(), std::move(flow), false, hint).out_flow;
+
+    TypePtr lhs_type = v->get_lhs()->inferred_type;
+    TypePtr without_null_type = calculate_type_subtract_rhs_type(lhs_type, TypeDataNullLiteral::create());
+
+    FlowContext rhs_flow = flow.clone();
+    if (lhs_type == TypeDataNullLiteral::create()) {
+      // `null ?? rhs` — lhs is always null, rhs is always executed, the non-null branch is unreachable
+      flow.mark_unreachable(UnreachableKind::CantHappen);
+    } else if (without_null_type == TypeDataNever::create()) {
+      // `1 ?? rhs` — lhs can never be null, rhs is never executed
+      rhs_flow.mark_unreachable(UnreachableKind::CantHappen);
+    } else {
+      // regular situation: in the lhs branch, lhs was non-null; calculate rhs branch with lhs=null
+      if (SinkExpression s_expr = extract_sink_expression_from_vertex(v->get_lhs())) {
+        flow.register_known_type(s_expr, without_null_type);
+        rhs_flow.register_known_type(s_expr, TypeDataNullLiteral::create());
+      }
+    }
+    rhs_flow = infer_any_expr(v->get_rhs(), std::move(rhs_flow), false, hint).out_flow;
+
+    if (lhs_type == TypeDataNullLiteral::create()) {
+      // `null ?? rhs` — lhs is always null, rhs is always executed
+      assign_inferred_type(v, v->get_rhs());
+    } else if (without_null_type == TypeDataNever::create()) {
+      // `1 ?? rhs` — lhs can never be null, rhs is never executed
+      assign_inferred_type(v, v->get_lhs());
+    } else {
+      // regular situation: `lhs ?? rhs`, will generate a runtime branch
+      TypeInferringUnifyStrategy branches_unifier(hint);
+      branches_unifier.unify_with(without_null_type);
+      branches_unifier.unify_with(v->get_rhs()->inferred_type);
+      if (branches_unifier.became_union_without_hint()) {
+        // `nullableSlice ?? 0` results in `slice | int`, probably it's not what the user expected
+        // but do NOT show an error for `var v: T = ...` (T is hint); it will be checked by type checker later
+        err("type of operator `??` is `{}`; probably, it's not what you expected\n""assign it to a variable `var v: <type> = ... ?? ...` manually", branches_unifier.get_result()).fire(v, cur_f);
+      }
+      assign_inferred_type(v, branches_unifier.get_result());
+    }
+
+    flow = FlowContext::merge_flow(std::move(flow), std::move(rhs_flow));
+    return ExprFlow(std::move(flow), used_as_condition);
   }
 
   ExprFlow infer_cast_as_operator(V<ast_cast_as_operator> v, FlowContext&& flow, bool used_as_condition) {

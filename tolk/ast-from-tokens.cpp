@@ -1237,7 +1237,7 @@ static AnyExprV parse_expr13(Lexer& lex) {
   return lhs;
 }
 
-// parse E = += -= E and E ? E : E (right-to-left)
+// parse E = += -= E and E ? E : E and E ?? E (right-to-left)
 static AnyExprV parse_expr10(Lexer& lex) {
   AnyExprV lhs = parse_expr13(lex);
   TokenType t = lex.tok();
@@ -1264,6 +1264,12 @@ static AnyExprV parse_expr10(Lexer& lex) {
     AnyExprV when_false = parse_expr10(lex);
     SrcRange range = SrcRange::overlap(lhs->range, when_false->range);
     return createV<ast_ternary_operator>(range, lhs, when_true, when_false);
+  }
+  if (t == tok_double_question) {
+    lex.next();
+    AnyExprV rhs = parse_expr10(lex);
+    SrcRange range = SrcRange::overlap(lhs->range, rhs->range);
+    return createV<ast_null_coalesce_operator>(range, lhs, rhs);
   }
   return lhs;
 }

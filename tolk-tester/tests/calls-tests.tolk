@@ -220,6 +220,12 @@ fun test13() {
     return (l113, p113, g113);
 }
 
+@method_id(114)
+fun test14(p1: bool?, p2: bool?): (bool, int) {
+    var i = 0;
+    return (p1 ?? (i.increment(), p2).1 ?? (i.increment(), 66).1 as unknown as bool, i);
+}
+
 fun main() {
     // mark used to codegen them
     cmp1; cmp2; cmp3; cmp4;
@@ -241,6 +247,10 @@ fun main() {
 @testcase | 111 | 7 7     | 0 -1 0 -1
 @testcase | 112 |         | 123
 @testcase | 113 |         | 1 1 0
+@testcase | 114 | 0 0       | 0 0
+@testcase | 114 | -1 0      | -1 0
+@testcase | 114 | null -1   | -1 1
+@testcase | 114 | null null | 66 2
 
 @fif_codegen
 """
