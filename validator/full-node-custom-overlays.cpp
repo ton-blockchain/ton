@@ -144,13 +144,8 @@ void FullNodeCustomOverlay::send_external_message(td::BufferSlice data) {
   VLOG(FULL_NODE_DEBUG) << "Sending external message to custom overlay \"" << name_ << "\"";
   auto B = create_serialize_tl_object<ton_api::tonNode_externalMessageBroadcast>(
       create_tl_object<ton_api::tonNode_externalMessage>(std::move(data)));
-  if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_ex, local_id_, overlay_id_,
-                            local_id_.pubkey_hash(), 0, std::move(B));
-  } else {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
-                            local_id_.pubkey_hash(), 0, std::move(B));
-  }
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
+                          local_id_.pubkey_hash(), 0, std::move(B));
 }
 
 void FullNodeCustomOverlay::send_broadcast(BlockBroadcast broadcast) {
