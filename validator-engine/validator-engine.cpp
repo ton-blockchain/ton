@@ -2164,8 +2164,12 @@ void ValidatorEngine::started_rldp() {
 
 void ValidatorEngine::start_overlays() {
   if (!default_dht_node_.is_zero()) {
-    overlay_manager_ =
-        ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(), dht_nodes_[default_dht_node_].get());
+    ton::overlay::OverlayManagerBufferLimits buffer_limits{
+        .max_packets = 1024,
+        .max_data_size = 2 << 20,
+    };
+    overlay_manager_ = ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(),
+                                                      dht_nodes_[default_dht_node_].get(), buffer_limits);
   }
   started_overlays();
 }

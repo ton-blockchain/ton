@@ -220,15 +220,18 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::actor::ActorId<CollationManager> get_collation_manager(adnl::AdnlNodeIdShort adnl_id);
 
   struct ValidatorGroupEntry {
+    std::string name() const {
+      return PSTRING() << "validator group " << shard.to_str() << "." << cc_seqno;
+    }
+
     td::actor::ActorOwn<IValidatorGroup> actor;
     ShardIdFull shard;
+    bool started = false;
+    td::uint32 cc_seqno = 0;
   };
   std::map<ValidatorSessionId, ValidatorGroupEntry> validator_groups_;
   std::map<ValidatorSessionId, ValidatorGroupEntry> next_validator_groups_;
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<CollationManager>> collation_managers_;
-
-  std::set<ValidatorSessionId> check_gc_list_;
-  std::vector<ValidatorSessionId> gc_list_;
 
  private:
   // MASTERCHAIN LAST BLOCK
@@ -262,7 +265,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void update_shard_overlays();
   void update_shards();
   void update_shard_blocks();
-  void written_destroyed_validator_sessions(std::vector<td::actor::ActorId<IValidatorGroup>> groups);
   void updated_init_block(BlockIdExt last_rotate_block_id) {
     last_rotate_block_id_ = last_rotate_block_id;
   }
@@ -518,7 +520,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void start_up() override;
   void init_last_masterchain_state(td::Ref<MasterchainState> state) override;
   void started(ValidatorManagerInitResult result);
-  void read_gc_list(std::vector<ValidatorSessionId> list);
+  void finish_start_up();
 
   bool is_validator();
   bool validating_masterchain();
