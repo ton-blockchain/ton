@@ -205,6 +205,11 @@ add_library(validator-disk STATIC ${DISK_VALIDATOR_SOURCE})
 add_library(validator-hardfork STATIC ${HARDFORK_VALIDATOR_SOURCE})
 add_library(full-node STATIC ${FULL_NODE_SOURCE})
 
+if (MSVC)
+  # Work around MSVC ICE in consensus/simplex/consensus.cpp by disabling optimization for this TU.
+  set_source_files_properties(consensus/simplex/consensus.cpp PROPERTIES COMPILE_OPTIONS "/Od")
+endif()
+
 target_include_directories(validator PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
