@@ -281,6 +281,11 @@ ngtcp2_path QuicConnectionPImpl::make_path() const {
 }
 
 td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer& msg_out, QuicStreamID sid) {
+  if (streams_blocked_) { // same as NGTCP2_ERR_STREAM_DATA_BLOCKED by its nature
+    msg_out.storage.truncate(0);
+    return td::Status::OK();
+  }
+
   const auto ts = now_ts();
 
   std::vector<ngtcp2_vec> datav;
@@ -316,7 +321,7 @@ td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer& msg_out, Quic
   }
 
   if (n_write < 0) {
-    if (n_write == NGTCP2_ERR_STREAM_DATA_BLOCKED) {
+    if (n_write == NGTCP2_ERR_STREAM_DATA_BLOCKED || n_write == NGTCP2_ERR_STREAM_SHUT_WR) {
       msg_out.storage.truncate(0);
       return td::Status::OK();
     }
@@ -378,6 +383,17 @@ td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in) {
 QuicConnectionId QuicConnectionPImpl::get_primary_scid() const {
   return primary_scid_;
 }
+
+void QuicConnectionPImpl::block_streams(){
+  CHECK(!streams_blocked_);
+  streams_blocked_ = true;
+}
+
+void QuicConnectionPImpl::unblock_streams(){
+  CHECK(streams_blocked_);
+  streams_blocked_ = false;
+}
+
 
 td::Result<QuicStreamID> QuicConnectionPImpl::open_stream() {
   QuicStreamID sid;
@@ -461,7 +477,12 @@ int QuicConnectionPImpl::on_handshake_completed() {
 int QuicConnectionPImpl::on_recv_stream_data(uint32_t flags, int64_t stream_id, td::Slice data) {
   Callback::StreamDataEvent event{
       .sid = stream_id, .data = td::BufferSlice{data}, .fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0};
-  callback_->on_stream_data(std::move(event));
+  auto status = callback_->on_stream_data(std::move(event));
+
+  if (status.is_error()) {
+    ngtcp2_conn_shutdown_stream(conn(), 0, stream_id, 1);
+    return 0;
+  }
 
   ngtcp2_conn_extend_max_stream_offset(conn(), stream_id, data.size());
   ngtcp2_conn_extend_max_offset(conn(), data.size());
@@ -498,6 +519,7 @@ int QuicConnectionPImpl::on_acked_stream_data_offset(int64_t stream_id, uint64_t
 int QuicConnectionPImpl::on_stream_close(int64_t stream_id) {
   streams_.erase(stream_id);
   ngtcp2_conn_extend_max_streams_bidi(conn(), 1);
+  callback_->on_stream_closed(stream_id);
   return 0;
 }
 

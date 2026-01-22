@@ -148,8 +148,11 @@ class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
     callback_.on_connected(cid_, std::move(event.peer_public_key), is_outbound_);
   }
 
-  void on_stream_data(StreamDataEvent event) override {
-    callback_.on_stream(cid_, event.sid, std::move(event.data), event.fin);
+  td::Status on_stream_data(StreamDataEvent event) override {
+    return callback_.on_stream(cid_, event.sid, std::move(event.data), event.fin);
+  }
+  void on_stream_closed(QuicStreamID sid) override {
+    return callback_.on_stream_closed(cid_, sid);
   }
 
  private:
@@ -258,6 +261,17 @@ void QuicServer::drain_ingress() {
 }
 
 void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
+  if (state.blocked_packet.has_value()) {
+    bool unblocked = false;
+    auto &[packet_addr, packet_data] = *state.blocked_packet;
+    td::UdpSocketFd::OutboundMessage msg{.to = &packet_addr, .data = packet_data};
+    auto status = fd_.send_message(msg, unblocked);
+    if (!status.is_ok() || unblocked) {
+      state.blocked_packet.reset();
+      state.impl_->unblock_streams();
+    }
+  }
+
   td::PerfWarningTimer w("flush_egress_for", 0.1);
   if (data.stream_data.has_value()) {
     auto &stream_data = data.stream_data.value();
@@ -275,7 +289,8 @@ void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
       td::UdpSocketFd::OutboundMessage msg{.to = &msg_out.address, .data = td::Slice{msg_out.storage}};
       TRY_STATUS(fd_.send_message(msg, sent));
       if (!sent) {
-        LOG(WARNING) << "outbound message lost to " << msg_out.address;
+        state.impl_->block_streams();
+        state.blocked_packet = std::pair{msg_out.address, td::BufferSlice{msg_out.storage}};
       }
       return td::Status::OK();
     };
@@ -301,7 +316,8 @@ void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
     td::UdpSocketFd::OutboundMessage msg{.to = &msg_out.address, .data = td::Slice{msg_out.storage}};
     TRY_STATUS(fd_.send_message(msg, run));
     if (!run) {
-      LOG(WARNING) << "outbound message lost to " << msg_out.address;
+      state.impl_->block_streams();
+      state.blocked_packet = std::pair{msg_out.address, td::BufferSlice{msg_out.storage}};
     }
     return td::Status::OK();
   };
