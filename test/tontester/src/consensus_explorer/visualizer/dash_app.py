@@ -17,8 +17,8 @@ class DashApp:
         self._app: Dash = Dash(__name__)
 
     def update_data(self, _url: str):
-        self._data = self._parser.parse()
-        self._builder = FigureBuilder(self._data)
+        # self._data = self._parser.parse()
+        # self._builder = FigureBuilder(self._data)
         valgroups = sorted(set(s.valgroup_id for s in self._data.slots))
         options = [{"label": g, "value": g} for g in valgroups]
         value = valgroups[0] if valgroups else ""

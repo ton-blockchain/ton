@@ -211,6 +211,7 @@ td::Status QuicConnectionPImpl::init_quic_client() {
   primary_scid_ = scid;
 
   ngtcp2_conn_set_tls_native_handle(conn(), ossl_ctx_.get());
+  ngtcp2_conn_set_keep_alive_timeout(conn(), DEFAULT_KEEP_ALIVE_TIMEOUT);
 
   return td::Status::OK();
 }
@@ -252,6 +253,7 @@ td::Status QuicConnectionPImpl::init_quic_server(const VersionCid& vc) {
   primary_scid_ = server_scid;
 
   ngtcp2_conn_set_tls_native_handle(conn(), ossl_ctx_.get());
+  ngtcp2_conn_set_keep_alive_timeout(conn(), DEFAULT_KEEP_ALIVE_TIMEOUT);
   return td::Status::OK();
 }
 

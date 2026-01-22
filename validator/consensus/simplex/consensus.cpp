@@ -38,6 +38,10 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
   void start_up() override {
+    auto [awaiter, promise] = td::actor::StartedTask<StartEvent>::make_bridge();
+    genesis_promise_ = std::move(promise);
+    genesis_ = std::move(awaiter);
+
     auto& bus = *owning_bus();
 
     slots_per_leader_window_ = bus.simplex_config.slots_per_leader_window;
@@ -73,6 +77,11 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
         }
       }
     }
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const Start> event) {
+    genesis_promise_.set_value(std::move(event));
   }
 
   template <>
@@ -245,6 +254,9 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   };
   std::map<RawParentId, ResolvedCandidateEntry> block_data_state_cache_;
 
+  td::Promise<StartEvent> genesis_promise_;
+  SharedFuture<StartEvent> genesis_;
+
   td::actor::Task<ResolvedCandidate> get_resolved_candidate(RawParentId id) {
     ResolvedCandidateEntry& entry = block_data_state_cache_[id];
     if (entry.result.has_value()) {
@@ -270,19 +282,16 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
   td::actor::Task<ResolvedCandidate> get_resolved_candidate_inner(RawParentId id) {
     if (!id.has_value() || finalized_blocks_.contains(*id)) {
-      std::vector<BlockIdExt> block_ids;
       ParentId id_full;
       if (id.has_value()) {
         auto candidate = (co_await owning_bus().publish<ResolveCandidate>(*id)).candidate;
-        block_ids = {candidate->id.block};
         id_full = candidate->id;
       } else {
-        block_ids = owning_bus()->first_block_parents;
         id_full = std::nullopt;
       }
       std::vector<td::actor::StartedTask<td::Ref<vm::Cell>>> wait_state_root;
       std::vector<td::actor::StartedTask<td::Ref<BlockData>>> wait_block_data;
-      for (const BlockIdExt& block_id : block_ids) {
+      for (const BlockIdExt& block_id : (co_await genesis_.get())->convert_id_to_blocks(id_full)) {
         wait_state_root.push_back(td::actor::ask(owning_bus()->manager, &ManagerFacade::wait_block_state_root, block_id,
                                                  td::Timestamp::in(10.0)));
         if (block_id.seqno() != 0) {

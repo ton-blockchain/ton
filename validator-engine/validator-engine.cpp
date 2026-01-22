@@ -5532,6 +5532,18 @@ int main(int argc, char *argv[]) {
             [&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_broadcast_speed_multiplier_private, v); });
         return td::Status::OK();
       });
+  p.add_checked_option(
+      '\0', "broadcast-speed-fast-sync",
+      "multiplier for broadcast speed in fast-sync overlays (experimental, default is 3.33, which is ~1 MB/s)",
+      [&](td::Slice s) -> td::Status {
+        auto v = td::to_double(s);
+        if (v <= 0.0) {
+          return td::Status::Error("broadcast-speed-fast-sync should be positive");
+        }
+        acts.push_back(
+            [&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_broadcast_speed_multiplier_fast_sync, v); });
+        return td::Status::OK();
+      });
   p.add_option(
       '\0', "permanent-celldb",
       "disable garbage collection in CellDb. This improves performance on archival nodes (once enabled, this option "

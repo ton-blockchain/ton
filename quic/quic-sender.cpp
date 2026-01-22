@@ -203,7 +203,8 @@ td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) 
   local_keys_.emplace(local_id, td::Ed25519::PrivateKey(ed25519_key.as_octet_string()));
 
   if (servers_.find(local_id) != servers_.end()) {
-    co_return td::Status::Error(PSLICE() << "Local id has already been added: " << local_id);
+    LOG(INFO) << "Local id has already been added: " << local_id;
+    co_return td::Unit{};  // already added
   }
 
   auto server = co_await QuicServer::create(port, td::Ed25519::PrivateKey(local_keys_.at(local_id).as_octet_string()),

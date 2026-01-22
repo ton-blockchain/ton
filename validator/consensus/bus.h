@@ -20,6 +20,16 @@
 
 namespace ton::validator::consensus {
 
+struct Start {
+  std::vector<BlockIdExt> first_block_parents;
+  BlockIdExt min_masterchain_block_id;
+
+  std::string contents_to_string() const;
+  std::vector<BlockIdExt> convert_id_to_blocks(ParentId parent) const;
+};
+
+using StartEvent = std::shared_ptr<const Start>;
+
 struct StopRequested {};
 
 struct BlockFinalized {
@@ -174,7 +184,7 @@ class Db {
 class Bus : public runtime::Bus {
  public:
   using Events =
-      td::TypeList<StopRequested, BlockFinalized, FinalizeBlock, OurLeaderWindowStarted, OurLeaderWindowAborted,
+      td::TypeList<Start, StopRequested, BlockFinalized, FinalizeBlock, OurLeaderWindowStarted, OurLeaderWindowAborted,
                    CandidateGenerated, CandidateReceived, ValidationRequest, IncomingProtocolMessage,
                    OutgoingProtocolMessage, IncomingOverlayRequest, OutgoingOverlayRequest, BlockFinalizedInMasterchain,
                    MisbehaviorReport, StatsTargetReached>;
@@ -185,8 +195,6 @@ class Bus : public runtime::Bus {
   }
 
   virtual void populate_collator_schedule() = 0;
-
-  std::vector<BlockIdExt> convert_id_to_blocks(ParentId parent) const;
 
   ValidatorSessionId session_id;
 
@@ -202,7 +210,6 @@ class Bus : public runtime::Bus {
   PeerValidator local_id;
 
   NewConsensusConfig config;
-  BlockIdExt min_masterchain_block_id;
 
   td::Ref<CollatorSchedule> collator_schedule;
 
@@ -210,8 +217,6 @@ class Bus : public runtime::Bus {
   td::actor::ActorId<rldp2::Rldp> rldp2;
   td::actor::ActorId<quic::QuicSender> quic;
   std::unique_ptr<Db> db;
-
-  std::vector<BlockIdExt> first_block_parents;
 
   td::Promise<td::Unit> stop_promise;
 };

@@ -61,6 +61,7 @@ bool QuicServer::try_close(ConnectionState &state) {
   }
   auto R = state.impl().handle_expiry();
   if (R.is_error()) {
+    LOG(INFO) << "expiry error: " << R.error();
     return true;
   }
 
@@ -73,10 +74,10 @@ bool QuicServer::try_close(ConnectionState &state) {
       flush_egress_for(state);
       return false;
     case QuicConnectionPImpl::ExpiryAction::IdleClose:
-      LOG(DEBUG) << "expiry IdleClose for " << state.remote_address;
+      LOG(INFO) << "expiry IdleClose for " << state.remote_address;
       return true;
     case QuicConnectionPImpl::ExpiryAction::Close:
-      LOG(DEBUG) << "expiry Close for " << state.remote_address;
+      LOG(INFO) << "expiry Close for " << state.remote_address;
       flush_egress_for(state);
       return true;
   }
