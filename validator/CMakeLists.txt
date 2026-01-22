@@ -208,7 +208,7 @@ add_library(full-node STATIC ${FULL_NODE_SOURCE})
 if (MSVC)
   # Work around MSVC ICE in consensus/simplex/consensus.cpp by disabling optimizer passes for this TU.
   set_source_files_properties(consensus/simplex/consensus.cpp PROPERTIES
-    COMPILE_OPTIONS "/Od;/d2ssaoptimizer-;/d2noftol3;/d2fp-contract-")
+    COMPILE_OPTIONS "/Od;/d2ssaoptimizer-;/GL-;/MP-")
 endif()
 
 target_include_directories(validator PUBLIC
