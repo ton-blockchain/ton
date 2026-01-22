@@ -23,7 +23,7 @@ IF %errorlevel% NEQ 0 (
 choco feature enable -n allowEmptyChecksums
 
 echo Installing tools...
-choco install -y pkgconfiglite ninja ccache nasm
+choco install -y pkgconfiglite ninja nasm
 IF %errorlevel% NEQ 0 (
   echo Can't install tools
   exit /b %errorlevel%
@@ -71,6 +71,8 @@ echo Current dir %cd%
 mkdir build
 cd build
 cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
+-DCCACHE_FOUND= ^
+-DCMAKE_CXX_COMPILER_LAUNCHER= ^
 -DPORTABLE=1 ^
 -DMHD_FOUND=1 ^
 -DMHD_LIBRARY=%third_libs%\libmicrohttpd\w32\VS2022\Output\x64\libmicrohttpd.lib ^
