@@ -229,14 +229,6 @@ class DetailFigureBuilder:
         events_by_label = DataFilter.group_events_by_label(events)
 
         for label in sorted(events_by_label.keys()):
-            if label not in (
-                "block_validation",
-                "finalization",
-                "collation",
-                "skip_observed",
-                "candidate_received",
-            ):
-                continue
             label_events = events_by_label[label]
 
             if self._time_mode == "abs":
@@ -263,7 +255,7 @@ class DetailFigureBuilder:
                 ],
             )
 
-            if label not in ("skip_observed", "candidate_received"):
+            if label_events[0].t1_ms:  # event has end time
                 _ = self._fig.add_trace(  # pyright: ignore[reportUnknownMemberType]
                     go.Bar(
                         orientation="h",
@@ -271,6 +263,7 @@ class DetailFigureBuilder:
                         x=x,
                         y=[e.validator for e in label_events],
                         marker=dict(color=label_events[0].get_color()),
+                        opacity=0.8,
                         hovertemplate=(
                             f"valgroup={self._valgroup_id}<br>slot={self._slot.slot}<br>"
                             + f"validator=%{{customdata[2]}}<br>event={label} (kind=%{{customdata[4]}})<br>"
