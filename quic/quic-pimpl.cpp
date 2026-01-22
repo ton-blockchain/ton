@@ -281,6 +281,11 @@ ngtcp2_path QuicConnectionPImpl::make_path() const {
 }
 
 td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer& msg_out, QuicStreamID sid) {
+  if (streams_blocked_) { // same as NGTCP2_ERR_STREAM_DATA_BLOCKED by its nature
+    msg_out.storage.truncate(0);
+    return td::Status::OK();
+  }
+
   const auto ts = now_ts();
 
   std::vector<ngtcp2_vec> datav;
@@ -378,6 +383,17 @@ td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in) {
 QuicConnectionId QuicConnectionPImpl::get_primary_scid() const {
   return primary_scid_;
 }
+
+void QuicConnectionPImpl::block_streams(){
+  CHECK(!streams_blocked_);
+  streams_blocked_ = true;
+}
+
+void QuicConnectionPImpl::unblock_streams(){
+  CHECK(streams_blocked_);
+  streams_blocked_ = false;
+}
+
 
 td::Result<QuicStreamID> QuicConnectionPImpl::open_stream() {
   QuicStreamID sid;

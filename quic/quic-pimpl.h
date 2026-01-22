@@ -113,6 +113,9 @@ struct QuicConnectionPImpl {
 
   [[nodiscard]] QuicConnectionId get_primary_scid() const;
 
+  void block_streams();
+  void unblock_streams();
+
   [[nodiscard]] td::Result<QuicStreamID> open_stream();
   [[nodiscard]] td::Status write_stream(UdpMessageBuffer& msg_out, QuicStreamID sid, td::BufferSlice data, bool fin);
 
@@ -150,6 +153,7 @@ struct QuicConnectionPImpl {
   ngtcp2_crypto_conn_ref conn_ref_{};
 
   std::unordered_map<QuicStreamID, OutboundStreamState> streams_;
+  bool streams_blocked_;
 
   ngtcp2_conn* conn() const {
     CHECK(conn_);

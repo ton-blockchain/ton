@@ -258,16 +258,15 @@ void QuicServer::drain_ingress() {
 }
 
 void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
-  while (!state.blocked_datagrams.empty()) {
-    auto &[dgram_addr, dgram_data] = state.blocked_datagrams.front();
-    td::UdpSocketFd::OutboundMessage msg{.to = &dgram_addr, .data = dgram_data};
-
+  if (state.blocked_packet.has_value()) {
     bool unblocked = false;
+    auto &[packet_addr, packet_data] = *state.blocked_packet;
+    td::UdpSocketFd::OutboundMessage msg{.to = &packet_addr, .data = packet_data};
     auto status = fd_.send_message(msg, unblocked);
-    if (!status.is_ok() || !unblocked)
-      break;
-
-    state.blocked_datagrams.pop_front();
+    if (status.is_ok() && unblocked) {
+      state.blocked_packet.reset();
+      state.impl_->unblock_streams();
+    }
   }
 
   td::PerfWarningTimer w("flush_egress_for", 0.1);
@@ -287,7 +286,8 @@ void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
       td::UdpSocketFd::OutboundMessage msg{.to = &msg_out.address, .data = td::Slice{msg_out.storage}};
       TRY_STATUS(fd_.send_message(msg, sent));
       if (!sent) {
-        state.blocked_datagrams.emplace_back(msg_out.address, msg_out.storage);
+        state.impl_->block_streams();
+        state.blocked_packet = std::pair{msg_out.address, td::BufferSlice{msg_out.storage}};
       }
       return td::Status::OK();
     };
@@ -313,7 +313,8 @@ void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
     td::UdpSocketFd::OutboundMessage msg{.to = &msg_out.address, .data = td::Slice{msg_out.storage}};
     TRY_STATUS(fd_.send_message(msg, run));
     if (!run) {
-      state.blocked_datagrams.emplace_back(msg_out.address, msg_out.storage);
+      state.impl_->block_streams();
+      state.blocked_packet = std::pair{msg_out.address, td::BufferSlice{msg_out.storage}};
     }
     return td::Status::OK();
   };
