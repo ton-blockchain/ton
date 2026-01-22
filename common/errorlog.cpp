@@ -66,7 +66,10 @@ void ErrorLog::log_file(td::BufferSlice data) {
   auto filename = sha256_bits256(data.as_slice());
   auto path = files_path_ + "/" + filename.to_hex();
 
-  td::write_file(path, data.as_slice()).ensure();
+  td::WriteFileOptions options;
+  options.need_sync = true;
+  options.need_lock = false;
+  td::write_file(path, data.as_slice(), options).ensure();
 }
 
 }  // namespace errorlog
