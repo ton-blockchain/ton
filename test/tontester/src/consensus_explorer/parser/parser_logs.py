@@ -202,6 +202,12 @@ class ParserLogs(Parser):
                             t1_ms=end_event.t_ms,
                         )
                     )
+                    if (
+                        start_event_name == "collate_started"
+                    ):  # if collation was less than 1 ms add points collate started / ended to detailgraph
+                        if end_event.t_ms - e.t_ms <= 1:
+                            self._events.append(e)
+                            self._events.append(end_event)
 
     def _infer_slot_phases(self):
         for slot_id, slot_data in self._slots.items():
@@ -308,9 +314,9 @@ class ParserLogs(Parser):
     def _extract_timestamp(line: str) -> float | None:
         i = 0
         for _ in range(3):
-            i = line.find(']', i) + 1
-        j = line.rfind('[', 0, i) + 1
-        timestamp_str = line[j:i - 1]
+            i = line.find("]", i) + 1
+        j = line.rfind("[", 0, i) + 1
+        timestamp_str = line[j : i - 1]
         dt = datetime.fromisoformat(timestamp_str)
         return dt.timestamp() * 1000
 
@@ -378,12 +384,16 @@ class ParserLogs(Parser):
     def parse(self) -> ConsensusData:
         for log_file in self._logs_path:
             with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
-
                 v_groups: dict[str, int] = {}
                 v_weights: dict[str, int] = {}
 
                 for line in f:
-                    if ("Published event" not in line) and ("StatsTargetReached" not in line) and ("Obtained certificate for SkipVote" not in line) and ("We are validator" not in line):
+                    if (
+                        ("Published event" not in line)
+                        and ("StatsTargetReached" not in line)
+                        and ("Obtained certificate for SkipVote" not in line)
+                        and ("We are validator" not in line)
+                    ):
                         continue
                     v_group = self._extract_valgroup(line)
                     if v_group is None:
