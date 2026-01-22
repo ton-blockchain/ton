@@ -263,7 +263,7 @@ void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
     auto &[packet_addr, packet_data] = *state.blocked_packet;
     td::UdpSocketFd::OutboundMessage msg{.to = &packet_addr, .data = packet_data};
     auto status = fd_.send_message(msg, unblocked);
-    if (status.is_ok() && unblocked) {
+    if (!status.is_ok() || unblocked) {
       state.blocked_packet.reset();
       state.impl_->unblock_streams();
     }
