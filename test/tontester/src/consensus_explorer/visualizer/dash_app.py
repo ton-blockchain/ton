@@ -1,4 +1,5 @@
 from typing import cast, final
+from urllib.parse import parse_qs, urlencode
 
 from dash import Dash, dcc, html, Input, Output, State, callback_context
 import plotly.graph_objects as go  # pyright: ignore[reportMissingTypeStubs]
@@ -16,13 +17,41 @@ class DashApp:
         self._builder: FigureBuilder = FigureBuilder(self._data)
         self._app: Dash = Dash(__name__)
 
-    def update_data(self, _url: str):
+    def update_data(self, href: str | None):
         # self._data = self._parser.parse()
         # self._builder = FigureBuilder(self._data)
         valgroups = sorted(set(s.valgroup_id for s in self._data.slots))
         options = [{"label": g, "value": g} for g in valgroups]
-        value = valgroups[0] if valgroups else ""
+
+        url_params = self._parse_url_params(href)
+        if "valgroup_id" in url_params and url_params["valgroup_id"] in valgroups:
+            value = str(url_params["valgroup_id"])
+        else:
+            value = valgroups[0] if valgroups else ""
+
         return options, value
+
+    @staticmethod
+    def _parse_url_params(href: str | None) -> dict[str, str | int]:
+        if not href or "?" not in href:
+            return {}
+        query_string = href.split("?", 1)[1]
+        params = parse_qs(query_string)
+        result: dict[str, str | int] = {}
+        if "valgroup_id" in params:
+            result["valgroup_id"] = params["valgroup_id"][0]
+        if "slot" in params:
+            result["slot"] = int(params["slot"][0])
+        return result
+
+    @staticmethod
+    def _build_url_search(valgroup_id: str | None, slot: int | None) -> str:
+        params: dict[str, str] = {}
+        if valgroup_id:
+            params["valgroup_id"] = valgroup_id
+        if slot is not None:
+            params["slot"] = str(slot)
+        return f"?{urlencode(params)}" if params else ""
 
     def run(self, debug: bool = True, host: str = "127.0.0.1", port: int = 8050) -> None:
         self._setup_layout()
@@ -33,7 +62,7 @@ class DashApp:
         self._app.title = "Consensus Explorer"
         self._app.layout = html.Div(
             [
-                dcc.Location(id="url"),
+                dcc.Location(id="url", refresh=False),
                 html.Div(
                     [
                         html.H1(
@@ -179,8 +208,8 @@ class DashApp:
             style={"maxWidth": "1500px", "margin": "0 auto"},
         )
 
-    @staticmethod
     def _update_selection_from_click(
+        self,
         clickData: dict[str, list[dict[str, int | dict[str, int] | list[str | int]]]] | None,
         group: str,
     ) -> dict[str, str | int]:
@@ -221,6 +250,10 @@ class DashApp:
             and (show_empty or not s.is_empty)
         ]
 
+        if selected and selected.get("valgroup_id") == group:
+            fig = self._builder.build_summary(group, slot_from, slot_to, show_empty)
+            return fig, selected
+
         if not slots:
             selected = {"valgroup_id": group, "slot": slot_from}
         else:
@@ -246,15 +279,15 @@ class DashApp:
         fig = self._builder.build_detail(valgroup_id, slot, time_mode)
         return fig, f"selected: {valgroup_id} slot {slot}"
 
-    @staticmethod
     def _navigate_slot(
+        self,
         _prev: int,
         _next: int,
         selected: dict[str, str | int],
     ) -> dict[str, str | int]:
         ctx = callback_context
         if not ctx.triggered:
-            return selected
+            raise PreventUpdate
 
         triggered_id = cast(str, ctx.triggered_id)
         assert isinstance(triggered_id, str)
@@ -266,14 +299,35 @@ class DashApp:
         if 0 <= new_idx:
             return {"valgroup_id": selected["valgroup_id"], "slot": new_idx}
 
-        return selected
+        raise PreventUpdate
+
+    def _update_selected_from_url(self, href: str | None) -> dict[str, str | int]:
+        url_params = self._parse_url_params(href)
+        if not url_params:
+            raise PreventUpdate
+        return {"valgroup_id": url_params["valgroup_id"], "slot": int(url_params["slot"])}
+
+    def _update_url_href(self, selected: dict[str, str | int]) -> str:
+        return self._build_url_search(str(selected["valgroup_id"]), int(selected["slot"]))
 
     def _setup_callbacks(self) -> None:
         self._app.callback(  # pyright: ignore[reportUnknownMemberType]
             Output("group", "options"),
             Output("group", "value"),
-            Input("url", "pathname"),
+            Input("url", "href"),
         )(self.update_data)
+
+        self._app.callback(  # pyright: ignore[reportUnknownMemberType]
+            Output("selected", "data", allow_duplicate=True),
+            Input("url", "href"),
+            prevent_initial_call=True,
+        )(self._update_selected_from_url)
+
+        self._app.callback(  # pyright: ignore[reportUnknownMemberType]
+            Output("url", "search", allow_duplicate=True),
+            Input("selected", "data"),
+            prevent_initial_call=True,
+        )(self._update_url_href)
 
         self._app.callback(  # pyright: ignore[reportUnknownMemberType]
             Output("summary", "figure"),
