@@ -50,10 +50,7 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     } else {
       result = state.extract();
     }
-    cid_it->second.erase(sid_it);
-    if (cid_it->second.empty()) {
-      streams_.erase(cid_it);
-    }
+    // do not delete stream, here, it will be deleted in on_stream_closed
     td::actor::send_closure(sender_, &QuicSender::on_stream_complete, cid, sid, std::move(result));
     return status;
   }
