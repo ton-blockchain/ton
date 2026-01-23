@@ -366,6 +366,13 @@ class Status {
     }
   }
 
+  Status trace(Slice t) const TD_WARN_UNUSED_RESULT {
+    if (is_ok()) {
+      return Status::OK();
+    }
+    return move_as_error_prefix(PSLICE() << t << ": ");
+  }
+
  private:
   struct Info {
     bool static_flag : 1;
@@ -584,6 +591,12 @@ class Result {
       status_ = Status::Error<-5>();
     };
     return status_.move_as_error_suffix(suffix);
+  }
+  Result<T> trace(Slice t) TD_WARN_UNUSED_RESULT {
+    if (is_ok()) {
+      return std::move(*this);
+    }
+    return move_as_error_prefix(PSLICE() << t << ": ");
   }
   Status move_as_status() TD_WARN_UNUSED_RESULT {
     if (status_.is_error()) {

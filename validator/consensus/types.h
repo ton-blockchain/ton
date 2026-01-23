@@ -189,6 +189,7 @@ struct RawCandidate : td::CntObject {
 
   CandidateHashData hash_data() const;
   td::BufferSlice serialize() const;
+  bool is_empty() const;
 
   CandidateId id;
   RawParentId parent_id;

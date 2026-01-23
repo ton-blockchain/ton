@@ -292,7 +292,7 @@ void ArchiveImporter::checked_all_masterchain_blocks() {
     return;
   }
   BlockIdExt block_id;
-  CHECK(last_masterchain_state_->get_old_mc_block_id(start_import_seqno_, block_id));
+  CHECK(last_masterchain_state_->get_old_mc_block_id(start_import_seqno_ - 1, block_id));
   td::actor::send_closure(manager_, &ValidatorManager::get_shard_state_from_db_short, block_id,
                           [SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
                             R.ensure();

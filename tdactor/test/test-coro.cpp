@@ -831,6 +831,90 @@ class CoroSpec final : public td::actor::Actor {
     co_return td::Unit{};
   }
 
+  Task<td::Unit> test_trace() {
+    LOG(INFO) << "=== test_trace ===";
+
+    // Test trace with error from Task
+    {
+      auto err_task = []() -> Task<int> { co_return td::Status::Error("original error"); };
+      auto outer = [&]() -> Task<int> { co_return co_await err_task().trace("context"); }();
+      auto result = co_await std::move(outer).wrap();
+      expect_true(result.is_error(), "trace propagates error");
+      auto msg = result.error().message().str();
+      expect_true(msg.find("context") != std::string::npos, "trace adds context to error");
+      expect_true(msg.find("original error") != std::string::npos, "trace preserves original message");
+      LOG(INFO) << "Error with trace: " << result.error();
+    }
+
+    // Test trace with success from Task
+    {
+      auto ok_task = []() -> Task<int> { co_return 42; };
+      auto outer = [&]() -> Task<int> { co_return co_await ok_task().trace("context"); }();
+      auto result = co_await std::move(outer).wrap();
+      expect_true(result.is_ok(), "trace passes through success");
+      expect_eq(result.ok(), 42, "trace preserves value");
+    }
+
+    // Test trace with StartedTask
+    {
+      auto err_task = []() -> Task<int> { co_return td::Status::Error("started error"); };
+      auto outer = [&]() -> Task<int> { co_return co_await err_task().start().trace("started context"); }();
+      auto result = co_await std::move(outer).wrap();
+      expect_true(result.is_error(), "trace works with StartedTask");
+      auto msg = result.error().message().str();
+      expect_true(msg.find("started context") != std::string::npos, "trace adds context to StartedTask error");
+    }
+
+    // Test trace with ask()
+    {
+      class ErrActor : public td::actor::Actor {
+       public:
+        Task<int> get_error() {
+          co_return td::Status::Error("actor error");
+        }
+      };
+      auto actor = create_actor<ErrActor>("ErrActor");
+      auto outer = [&]() -> Task<int> { co_return co_await ask(actor, &ErrActor::get_error).trace("ask context"); }();
+      auto result = co_await std::move(outer).wrap();
+      expect_true(result.is_error(), "trace works with ask()");
+      auto msg = result.error().message().str();
+      expect_true(msg.find("ask context") != std::string::npos, "trace adds context to ask() error");
+      LOG(INFO) << "Error with ask().trace(): " << result.error();
+    }
+
+    // Test Status::trace() directly
+    {
+      td::Status err = td::Status::Error("status error");
+      td::Status traced = err.trace("status context");
+      expect_true(traced.is_error(), "Status::trace() preserves error");
+      auto msg = traced.message().str();
+      expect_true(msg.find("status context") != std::string::npos, "Status::trace() adds context");
+      expect_true(msg.find("status error") != std::string::npos, "Status::trace() preserves message");
+
+      td::Status ok = td::Status::OK();
+      td::Status traced_ok = ok.trace("ok context");
+      expect_true(traced_ok.is_ok(), "Status::trace() preserves OK");
+    }
+
+    // Test Result<T>::trace() directly
+    {
+      td::Result<int> err = td::Status::Error("result error");
+      td::Result<int> traced = err.trace("result context");
+      expect_true(traced.is_error(), "Result::trace() preserves error");
+      auto msg = traced.error().message().str();
+      expect_true(msg.find("result context") != std::string::npos, "Result::trace() adds context");
+      expect_true(msg.find("result error") != std::string::npos, "Result::trace() preserves message");
+
+      td::Result<int> ok = 123;
+      td::Result<int> traced_ok = ok.trace("ok context");
+      expect_true(traced_ok.is_ok(), "Result::trace() preserves OK");
+      expect_eq(traced_ok.ok(), 123, "Result::trace() preserves value");
+    }
+
+    LOG(INFO) << "test_trace passed";
+    co_return td::Unit{};
+  }
+
   static Task<td::Unit> slow_task() {
     td::usleep_for(2000000);
     co_return td::Unit{};
@@ -1025,6 +1109,7 @@ class CoroSpec final : public td::actor::Actor {
     co_await helpers();
     co_await combinators();
     co_await try_awaitable();
+    co_await test_trace();
     co_await stop_actor();
     co_await promise_destroy_in_mailbox();
     co_await promise_destroy_in_actor_member();

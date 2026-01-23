@@ -23,12 +23,13 @@ class QuicHttpServer : public td::actor::Actor {
       td::actor::send_closure(server_, &QuicHttpServer::on_connected, cid, std::move(public_key));
     }
 
-    void on_stream(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid, td::BufferSlice data,
-                   bool is_end) override {
+    td::Status on_stream(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid, td::BufferSlice data,
+                         bool is_end) override {
       td::actor::send_closure(server_, &QuicHttpServer::on_stream_data, cid, sid, std::move(data));
       if (is_end) {
         td::actor::send_closure(server_, &QuicHttpServer::on_stream_end, cid, sid);
       }
+      return td::Status::OK();
     }
 
     void on_closed(ton::quic::QuicConnectionId cid) override {

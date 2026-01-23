@@ -279,6 +279,15 @@ struct promise_type : promise_value<td::Result<T>> {
     return wrap_and_resume_on_current(std::move(wrapped.value));
   }
 
+  template <class U>
+  auto await_transform(Traced<Task<U>>&& traced) noexcept {
+    return trace_and_resume_on_current(std::move(traced.value).start_immediate(), std::move(traced.trace));
+  }
+  template <class U>
+  auto await_transform(Traced<StartedTask<U>>&& traced) noexcept {
+    return trace_and_resume_on_current(std::move(traced.value), std::move(traced.trace));
+  }
+
   template <class Aw>
   auto await_transform(Aw&& aw) noexcept {
     return wrap_and_resume_on_current(std::forward<Aw>(aw));
@@ -369,6 +378,10 @@ struct [[nodiscard]] Task {
   auto wrap() && {
     return Wrapped<Task>{std::move(*this)};
   }
+
+  auto trace(std::string t) && {
+    return Traced<Task>{std::move(*this), std::move(t)};
+  }
 };
 
 template <class T = Unit>
@@ -445,6 +458,10 @@ struct [[nodiscard]] StartedTask {
 
   auto wrap() && {
     return Wrapped<StartedTask>{std::move(*this)};
+  }
+
+  auto trace(std::string t) && {
+    return Traced<StartedTask>{std::move(*this), std::move(t)};
   }
 
   template <class F>

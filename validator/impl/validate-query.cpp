@@ -2501,7 +2501,9 @@ bool ValidateQuery::check_utime_lt() {
                                   << " which is larger than the hard limit " << block_limits_->lt_delta.hard());
   }
   if (is_new_consensus_) {
-    CHECK(now_ms_);
+    if (!now_ms_) {
+      return reject_query("now_ms is not set");
+    }
     if (now_ms_.value() / 1000 != now_) {
       return reject_query(PSTRING() << "gen_utime is " << now_ << ", but gen_utime_ms in ConsensusExtraData is "
                                     << now_ms_.value());

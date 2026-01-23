@@ -3,10 +3,15 @@
 #include "adnl/adnl-peer-table.h"
 #include "auto/tl/ton_api.hpp"
 #include "td/actor/coro_utils.h"
+#include "td/utils/as.h"
 
 #include "quic-sender.h"
 
 namespace ton::quic {
+
+static td::uint32 get_magic(const td::BufferSlice &data) {
+  return data.size() >= 4 ? td::as<td::uint32>(data.data()) : 0;
+}
 
 class QuicSender::ServerCallback final : public QuicServer::Callback {
  public:
@@ -21,30 +26,48 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
                             is_outbound);
   }
 
-  void on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) override {
+  td::Status on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) override {
+    // TODO: some limit for input connections
     auto [cid_it, cid_inserted] = streams_.emplace(cid, std::map<QuicStreamID, StreamState>{});
     auto [sid_it, sid_inserted] = cid_it->second.emplace(sid, StreamState{});
     (void)cid_inserted;
     (void)sid_inserted;
     auto &state = sid_it->second;
+    if (state.is_failed()) {
+      LOG(INFO) << "got data for closed stream, ignore cid=" << cid << " sid=" << sid;
+      return td::Status::Error("stream failed");
+    }
     state.append(std::move(data));
-    if (state.should_end()) {
-      is_end = true;
-    }
+    auto status = state.check_limits();
+    is_end |= status.is_error();
     if (!is_end) {
-      return;
+      return td::Status::OK();
     }
-    auto complete_data = state.extract();
-    cid_it->second.erase(sid_it);
-    if (cid_it->second.empty()) {
-      streams_.erase(cid_it);
+    td::Result<td::BufferSlice> result;
+    if (status.is_error()) {
+      result = status.clone();
+      LOG(INFO) << "close stream cid=" << cid << " sid=" << sid << " due to " << status.error();
+    } else {
+      result = state.extract();
     }
-    td::actor::send_closure(sender_, &QuicSender::on_stream_complete, cid, sid, std::move(complete_data));
+    // do not delete stream, here, it will be deleted in on_stream_closed
+    td::actor::send_closure(sender_, &QuicSender::on_stream_complete, cid, sid, std::move(result));
+    return status;
   }
 
   void on_closed(QuicConnectionId cid) override {
     streams_.erase(cid);
     td::actor::send_closure(sender_, &QuicSender::on_closed, cid);
+  }
+  void on_stream_closed(QuicConnectionId cid, QuicStreamID sid) override {
+    if (auto cid_it = streams_.find(cid); cid_it != streams_.end()) {
+      if (auto sid_it = cid_it->second.find(sid); sid_it != cid_it->second.end()) {
+        cid_it->second.erase(sid_it);
+        if (cid_it->second.empty()) {
+          streams_.erase(cid_it);
+        }
+      }
+    }
   }
 
   void set_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options) override {
@@ -54,19 +77,30 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
  private:
   struct StreamState {
     void append(td::BufferSlice data) {
+      CHECK(!failed_);
       if (!data.empty()) {
         builder_.append(std::move(data));
       }
     }
 
-    bool should_end() const {
+    bool is_failed() const {
+      return failed_;
+    }
+
+    td::Status check_limits() {
+      CHECK(!failed_);
       if (options_.max_size.has_value() && builder_.size() > *options_.max_size) {
-        return true;
+        failed_ = true;
+        return td::Status::Error(PSLICE() << "stream size limit exceeded: max=" << *options_.max_size);
       }
       if (options_.timeout && options_.timeout.is_in_past()) {
-        return true;
+        failed_ = true;
+        return td::Status::Error(PSLICE() << "stream timeout exceeded: " << options_.timeout_seconds
+                                          << "s query_size=" << options_.query_size
+                                          << " query_magic=" << td::format::as_hex(options_.query_magic)
+                                          << " received=" << builder_.size());
       }
-      return false;
+      return td::Status::OK();
     }
 
     td::BufferSlice extract() {
@@ -80,6 +114,7 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
    private:
     td::BufferBuilder builder_;
     StreamOptions options_;
+    bool failed_{false};
   };
 
   adnl::AdnlNodeIdShort local_id_;
@@ -160,6 +195,16 @@ QuicSender::Connection::~Connection() {
 
 td::actor::Task<td::Unit> QuicSender::send_message_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                                         td::BufferSlice data) {
+  auto size = data.size();
+  auto magic = get_magic(data);
+  auto R = co_await send_message_coro_inner(src, dst, std::move(data)).wrap();
+  LOG_IF(INFO, R.is_error()) << "Failed to send message: " << src << " -> " << dst << " size=" << size
+                             << " magic=" << td::format::as_hex(magic) << " " << R.error();
+  co_return td::Unit{};
+}
+
+td::actor::Task<td::Unit> QuicSender::send_message_coro_inner(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
+                                                              td::BufferSlice data) {
   auto conn = co_await find_or_create_connection({src, dst});
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_message>(std::move(data));
   co_await td::actor::ask(conn->server, &QuicServer::send_stream, conn->cid, StreamOptions{}, std::move(wire_data),
@@ -171,12 +216,19 @@ td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdSho
                                                              std::string name, td::Timestamp timeout,
                                                              td::BufferSlice data, std::optional<td::uint64> limit) {
   auto conn = co_await find_or_create_connection({src, dst});
+  auto query_size = data.size();
+  auto query_magic = get_magic(data);
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_query>(std::move(data));
   auto cid = conn->cid;
   auto server = conn->server;
   // create stream explicitly to avoid race with response
+  auto timeout_seconds = timeout ? timeout.at() - td::Time::now() : 0.0;
   auto stream_id = co_await td::actor::ask(server, &QuicServer::open_stream, cid,
-                                           StreamOptions{.max_size = limit, .timeout = timeout});
+                                           StreamOptions{.max_size = limit,
+                                                         .timeout = timeout,
+                                                         .timeout_seconds = timeout_seconds,
+                                                         .query_size = query_size,
+                                                         .query_magic = query_magic});
   auto [future, answer_promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
   CHECK(conn->responses.emplace(stream_id, std::move(answer_promise)).second);
   conn = nullptr;  // don't keep connection, it may disconnect during our wait
@@ -246,7 +298,8 @@ td::actor::Task<td::Unit> QuicSender::init_connection(AdnlPath path, std::shared
     co_return td::Unit{};  // wait for on_ready
   }
 
-  // got error befor connection created
+  LOG(WARNING) << "Failed to init connection: " << path << " " << R.error();
+  // got error before connection created
   auto promises = std::move(connection->waiting_ready);
   for (auto &promise : promises) {
     promise.set_result(R.error().clone());
@@ -256,7 +309,7 @@ td::actor::Task<td::Unit> QuicSender::init_connection(AdnlPath path, std::shared
 }
 
 td::actor::Task<td::Unit> QuicSender::init_connection_inner(AdnlPath path, std::shared_ptr<Connection> conn) {
-  auto node = co_await ask(adnl_, &adnl::Adnl::get_peer_node, path.first, path.second);
+  auto node = co_await ask(adnl_, &adnl::Adnl::get_peer_node, path.first, path.second).trace("get_peer_node");
 
   auto peer_addr = co_await get_ip_address(node.addr_list());
   auto peer_host = peer_addr.get_ip_host();
@@ -276,7 +329,8 @@ td::actor::Task<td::Unit> QuicSender::init_connection_inner(AdnlPath path, std::
 
   auto server = server_iter->second.get();
   auto connection_id =
-      co_await ask(server, &QuicServer::connect, peer_host, peer_port, std::move(client_key), td::Slice("ton"));
+      co_await ask(server, &QuicServer::connect, peer_host, peer_port, std::move(client_key), td::Slice("ton"))
+          .trace("connect");
   conn->cid = connection_id;
   conn->path = path;
   conn->server = server;
@@ -332,16 +386,29 @@ void QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicConnect
   }
 }
 
-void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id, td::BufferSlice data) {
+void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id, td::Result<td::BufferSlice> r_data) {
+  auto it = by_cid_.find(cid);
+  if (it == by_cid_.end()) {
+    LOG(ERROR) << "Unknown CID:" << cid << " SID:" << stream_id;
+    return;
+  }
+  auto connection = it->second;
+
+  if (r_data.is_error()) {
+    auto resp_it = connection->responses.find(stream_id);
+    if (resp_it != connection->responses.end()) {
+      resp_it->second.set_error(r_data.move_as_error());
+      connection->responses.erase(resp_it);
+    }
+    return;
+  }
+
+  auto data = r_data.move_as_ok();
   if (data.empty()) {
     return;  // currently message will trigger empty response
   }
 
-  auto it = by_cid_.find(cid);
-  if (it == by_cid_.end()) {
-    return;
-  }
-  auto connection = it->second;
+  // TODO: accept request only from inbound streams. and answers only from outbound
 
   auto req_R = fetch_tl_object<ton_api::quic_Request>(data.clone(), true);
   if (req_R.is_ok()) {
@@ -356,7 +423,9 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
     return;
   }
 
-  LOG(ERROR) << "malformed message from CID, SID:" << stream_id;
+  LOG(ERROR) << "malformed message from CID:" << cid << " SID:" << stream_id << " size:" << data.size()
+             << " tl_id:" << td::format::as_hex(get_magic(data))
+             << " head:" << td::format::as_hex_dump<4>(data.as_slice().truncate(32));
 }
 
 void QuicSender::on_closed(QuicConnectionId cid) {
