@@ -105,7 +105,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void update_alarm();
   void update_alarm_for(ConnectionState &state);
   void drain_ingress();
-  void flush_egress_for(ConnectionState &state, EgressData data = {.stream_data = std::nullopt});
+  void flush_egress_for(ConnectionState &state, EgressData data = EgressData{});
   void flush_egress_all();
 
   std::shared_ptr<ConnectionState> find_connection(const QuicConnectionId &cid);

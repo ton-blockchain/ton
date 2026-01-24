@@ -180,11 +180,12 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
   QuicConnectionId cid = p_impl->get_primary_scid();
   QuicConnectionId temp_cid = vc.dcid;
 
-  auto state = std::make_shared<ConnectionState>(ConnectionState{.impl_ = std::move(p_impl),
-                                                                 .remote_address = msg_in.address,
-                                                                 .cid = cid,
-                                                                 .temp_cid = temp_cid,
-                                                                 .is_outbound = false});
+  auto state = std::make_shared<ConnectionState>();
+  state->impl_ = std::move(p_impl);
+  state->remote_address = msg_in.address;
+  state->cid = cid;
+  state->temp_cid = temp_cid;
+  state->is_outbound = false;
   LOG(INFO) << "creating " << *state;
 
   // Store by BOTH current temporary dcid and cid we just generated for the server
@@ -205,8 +206,12 @@ td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::E
                                                         std::make_unique<PImplCallback>(*this->callback_, true)));
   QuicConnectionId cid = p_impl->get_primary_scid();
 
-  auto state = std::make_shared<ConnectionState>(ConnectionState{
-      .impl_ = std::move(p_impl), .remote_address = remote_address, .cid = cid, .temp_cid = {}, .is_outbound = true});
+  auto state = std::make_shared<ConnectionState>();
+  state->impl_ = std::move(p_impl);
+  state->remote_address = remote_address;
+  state->cid = cid;
+  state->temp_cid = std::nullopt;
+  state->is_outbound = true;
   LOG(INFO) << "creating " << *state;
 
   connections_[cid] = state;
@@ -224,14 +229,17 @@ void QuicServer::drain_ingress() {
     char buf[DEFAULT_MTU];
     td::MutableSlice slice(buf, buf + DEFAULT_MTU);
     UdpMessageBuffer msg_in;
-    td::UdpSocketFd::InboundMessage msg{.from = &msg_in.address, .data = slice, .error = nullptr};
-    TRY_STATUS(fd_.receive_message(msg, run));
+    td::UdpSocketFd::InboundMessage in_msg;
+    in_msg.from = &msg_in.address;
+    in_msg.data = slice;
+    in_msg.error = nullptr;
+    TRY_STATUS(fd_.receive_message(in_msg, run));
 
     if (!run) {
       return td::Status::OK();
     }
 
-    msg_in.storage = msg.data;
+    msg_in.storage = in_msg.data;
 
     auto R = get_or_create_connection(msg_in);
     if (R.is_error()) {
@@ -272,8 +280,10 @@ void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
       }
 
       bool sent = false;
-      td::UdpSocketFd::OutboundMessage msg{.to = &msg_out.address, .data = td::Slice{msg_out.storage}};
-      TRY_STATUS(fd_.send_message(msg, sent));
+      td::UdpSocketFd::OutboundMessage out_msg;
+      out_msg.to = &msg_out.address;
+      out_msg.data = td::Slice{msg_out.storage};
+      TRY_STATUS(fd_.send_message(out_msg, sent));
       if (!sent) {
         LOG(WARNING) << "outbound message lost to " << msg_out.address;
       }
@@ -298,8 +308,10 @@ void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
       return td::Status::OK();
     }
 
-    td::UdpSocketFd::OutboundMessage msg{.to = &msg_out.address, .data = td::Slice{msg_out.storage}};
-    TRY_STATUS(fd_.send_message(msg, run));
+    td::UdpSocketFd::OutboundMessage out_msg;
+    out_msg.to = &msg_out.address;
+    out_msg.data = td::Slice{msg_out.storage};
+    TRY_STATUS(fd_.send_message(out_msg, run));
     if (!run) {
       LOG(WARNING) << "outbound message lost to " << msg_out.address;
     }
@@ -365,8 +377,13 @@ td::Result<QuicStreamID> QuicServer::send_stream(QuicConnectionId cid, std::vari
   }
 
   if (!data.empty() || is_end) {
-    flush_egress_for(*state,
-                     {.stream_data = EgressData::StreamData{.sid = sid, .data = std::move(data), .fin = is_end}});
+    EgressData::StreamData stream_data;
+    stream_data.sid = sid;
+    stream_data.data = std::move(data);
+    stream_data.fin = is_end;
+    EgressData egress_data;
+    egress_data.stream_data = std::move(stream_data);
+    flush_egress_for(*state, std::move(egress_data));
     update_alarm_for(*state);
   }
 
