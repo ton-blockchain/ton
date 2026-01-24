@@ -18,6 +18,7 @@
 #include "auto/tl/ton_api.h"
 #include "ton/ton-types.h"
 #include "vm/cells.h"
+
 #include "types.h"
 
 namespace ton::validator::fullnode {
