@@ -39,7 +39,6 @@ class ValidateBroadcast : public td::actor::Actor {
   td::Promise<td::Unit> promise_;
 
   td::Ref<BlockData> data_;
-  td::Ref<BlockSignatureSet> sig_set_;
   td::Ref<Proof> proof_;
   td::Ref<ProofLink> proof_link_;
   BlockHandle handle_;

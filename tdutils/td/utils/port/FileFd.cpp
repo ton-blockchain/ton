@@ -267,6 +267,17 @@ Result<size_t> FileFd::write(Slice slice) {
   return OS_ERROR(PSLICE() << "Write to " << get_native_fd() << " has failed");
 }
 
+Status FileFd::write_all(Slice slice) {
+  while (!slice.empty()) {
+    TRY_RESULT(written, write(slice));
+    if (written == 0) {
+      return Status::Error("write failed: zero bytes written");
+    }
+    slice.remove_prefix(written);
+  }
+  return Status::OK();
+}
+
 Result<size_t> FileFd::writev(Span<IoSlice> slices) {
 #if TD_PORT_POSIX
   auto native_fd = get_native_fd().fd();

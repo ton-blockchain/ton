@@ -150,7 +150,7 @@ void DhtMemberImpl::save_to_db() {
     auto key = create_hash_tl_object<ton_api::dht_db_key_bucket>(bit);
     auto value = create_serialize_tl_object<ton_api::dht_db_bucket>(list.tl());
 
-    db_.set(key, std::move(value));
+    db_.set(key, std::move(value), [](td::Result<td::Unit>) {});
   }
 }
 

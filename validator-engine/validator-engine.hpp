@@ -34,6 +34,7 @@
 #include "auto/tl/ton_api.hpp"
 #include "auto/tl/ton_api_json.h"
 #include "dht/dht.h"
+#include "quic/quic-sender.h"
 #include "rldp/rldp.h"
 #include "rldp2/rldp.h"
 #include "td/actor/MultiPromise.h"
@@ -162,6 +163,7 @@ class ValidatorEngine : public td::actor::Actor {
   td::actor::ActorOwn<ton::adnl::Adnl> adnl_;
   td::actor::ActorOwn<ton::rldp::Rldp> rldp_;
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2_;
+  td::actor::ActorOwn<ton::quic::QuicSender> quic_;
   std::map<ton::PublicKeyHash, td::actor::ActorOwn<ton::dht::Dht>> dht_nodes_;
   ton::PublicKeyHash default_dht_node_ = ton::PublicKeyHash::zero();
   td::actor::ActorOwn<ton::overlay::Overlays> overlay_manager_;
@@ -199,7 +201,7 @@ class ValidatorEngine : public td::actor::Actor {
   std::map<ton::PublicKeyHash, ton::PublicKey> keys_;
 
   td::Ref<ton::validator::MasterchainState> state_;
-  td::Ref<ton::validator::ValidatorSet> validator_set_, validator_set_prev_, validator_set_next_;
+  td::Ref<block::ValidatorSet> validator_set_, validator_set_prev_, validator_set_next_;
   td::Timestamp issue_fast_sync_overlay_certificates_at_ = td::Timestamp::now();
 
   td::Promise<ton::PublicKey> get_key_promise(td::MultiPromise::InitGuard &ig);
@@ -260,6 +262,7 @@ class ValidatorEngine : public td::actor::Actor {
   ton::validator::fullnode::FullNodeOptions full_node_options_ = {.config_ = {},
                                                                   .public_broadcast_speed_multiplier_ = 3.33,
                                                                   .private_broadcast_speed_multiplier_ = 3.33,
+                                                                  .fast_sync_broadcast_speed_multiplier_ = 3.33,
                                                                   .initial_sync_delay_ = 60.0,
                                                                   .ratelimit_window_size_ = 0,
                                                                   .ratelimit_global_ = 0,
@@ -373,6 +376,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_broadcast_speed_multiplier_private(double value) {
     full_node_options_.private_broadcast_speed_multiplier_ = value;
+  }
+  void set_broadcast_speed_multiplier_fast_sync(double value) {
+    full_node_options_.fast_sync_broadcast_speed_multiplier_ = value;
   }
   void set_permanent_celldb(bool value) {
     permanent_celldb_ = value;

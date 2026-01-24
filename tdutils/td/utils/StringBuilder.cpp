@@ -222,4 +222,14 @@ StringBuilder &StringBuilder::operator<<(const void *ptr) {
   return *this;
 }
 
+StringBuilder &operator<<(StringBuilder &sb, Colored text) {
+  auto current_color = sb.current_color();
+  if (current_color != AnsiColor::Disallowed && current_color != text.color) {
+    sb << ansi_color_to_str(text.color) << text.text << ansi_color_to_str(current_color);
+  } else {
+    sb << text.text;
+  }
+  return sb;
+}
+
 }  // namespace td

@@ -18,6 +18,7 @@
 */
 #include "common/delay.h"
 #include "impl/out-msg-queue-proof.hpp"
+#include "interfaces/validator-full-id.h"
 #include "td/actor/MultiPromise.h"
 #include "td/actor/coro_utils.h"
 #include "td/utils/Random.h"
@@ -275,8 +276,8 @@ void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std
     monitoring_shards.insert(cut_shard(shard));
   }
   fast_sync_overlays_.update_overlays(state, std::move(my_adnl_ids), std::move(monitoring_shards),
-                                      zero_state_file_hash_, keyring_, adnl_, overlays_, validator_manager_,
-                                      actor_id(this));
+                                      zero_state_file_hash_, opts_.fast_sync_broadcast_speed_multiplier_, keyring_,
+                                      adnl_, overlays_, validator_manager_, actor_id(this));
   update_validator_telemetry_collector();
 }
 

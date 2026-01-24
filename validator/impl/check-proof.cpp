@@ -19,6 +19,8 @@
 #include "adnl/utils.hpp"
 #include "block/block-auto.h"
 #include "block/block-parse.h"
+#include "block/signature-set.h"
+#include "block/validator-set.h"
 #include "ton/ton-io.hpp"
 #include "ton/ton-tl.hpp"
 #include "validator/invariants.hpp"
@@ -28,8 +30,6 @@
 #include "check-proof.hpp"
 #include "fabric.h"
 #include "shard.hpp"
-#include "signature-set.hpp"
-#include "validator-set.hpp"
 
 namespace ton {
 
@@ -125,18 +125,13 @@ bool CheckProof::init_parse(bool is_aux) {
   auto keep_utime = created_at_;
   Ref<vm::Cell> sig_root = proof.signatures->prefetch_ref();
   if (sig_root.not_null()) {
-    vm::CellSlice cs{vm::NoVmOrd(), sig_root};
-    bool have_sig;
-    if (!(cs.fetch_ulong(8) == 0x11                 // block_signatures#11
-          && cs.fetch_uint_to(32, validator_hash_)  // validator_set_hash:uint32
-          && cs.fetch_uint_to(32, catchain_seqno_)  // catchain_seqno:uint32
-          && cs.fetch_uint_to(32, sig_count_)       // sig_count:uint32
-          && cs.fetch_uint_to(64, sig_weight_)      // sig_weight:uint64
-          && cs.fetch_bool_to(have_sig) && have_sig == (sig_count_ > 0) &&
-          cs.size_ext() == ((unsigned)have_sig << 16))) {
-      return fatal_error("cannot parse BlockSignatures");
+    auto r_sig_set = block::BlockSignatureSet::fetch(sig_root, sig_weight_);
+    if (r_sig_set.is_error()) {
+      return fatal_error(r_sig_set.move_as_error_prefix("cannot parse BlockSignatures: "));
     }
-    sig_root_ = cs.prefetch_ref();
+    sig_set_ = r_sig_set.move_as_ok();
+    catchain_seqno_ = sig_set_->get_catchain_seqno();
+    validator_hash_ = sig_set_->get_validator_set_hash();
     if (!proof_blk_id.is_masterchain()) {
       return fatal_error("invalid ProofLink for non-masterchain block "s + proof_blk_id.to_str() +
                          " with validator signatures present");
@@ -144,9 +139,8 @@ bool CheckProof::init_parse(bool is_aux) {
   } else {
     validator_hash_ = 0;
     catchain_seqno_ = 0;
-    sig_count_ = 0;
     sig_weight_ = 0;
-    sig_root_.clear();
+    sig_set_ = {};
   }
   auto virt_root = vm::MerkleProof::virtualize(proof.root);
   if (virt_root.is_null()) {
@@ -255,7 +249,7 @@ bool CheckProof::init_parse(bool is_aux) {
     if (!config) {
       return fatal_error("cannot extract configuration from previous key block " + key_id_.to_str());
     }
-    ValidatorSetCompute vs_comp;
+    block::ValidatorSetCompute vs_comp;
     auto res = vs_comp.init(config.get());
     if (res.is_error()) {
       return fatal_error(std::move(res));
@@ -305,10 +299,10 @@ void CheckProof::start_up() {
         return;
       }
     }
-  } catch (vm::VmError err) {
+  } catch (vm::VmError& err) {
     fatal_error("error while processing Merkle proof: "s + err.get_msg());
     return;
-  } catch (vm::VmVirtError err) {
+  } catch (vm::VmVirtError& err) {
     fatal_error("error while processing Merkle proof: "s + err.get_msg());
     return;
   }
@@ -338,7 +332,7 @@ void CheckProof::got_block_handle(BlockHandle handle) {
   CHECK(is_proof() && prev_.size() == 1);
   if (mode_ == m_relproof) {
     CHECK(vset_.not_null());
-    check_signatures(vset_);
+    check_signatures();
     return;
   }
   if (mode_ == m_relstate) {
@@ -364,7 +358,7 @@ void CheckProof::got_masterchain_state(td::Ref<MasterchainState> state) {
     return;
   }
   vset_ = state_->get_validator_set(id_.shard_full());
-  check_signatures(vset_);
+  check_signatures();
 }
 
 void CheckProof::process_masterchain_state() {
@@ -395,48 +389,35 @@ void CheckProof::process_masterchain_state() {
   auto state_q = Ref<MasterchainStateQ>(state_);
   CHECK(state_q.not_null());
   vset_ = state_q->get_validator_set(id_.shard_full(), created_at_, catchain_seqno_);
-  check_signatures(vset_);
+  check_signatures();
 }
 
-void CheckProof::check_signatures(Ref<ValidatorSet> s) {
+void CheckProof::check_signatures() {
   VLOG(VALIDATOR_DEBUG) << "check_signatures";
-  if (s->get_catchain_seqno() != catchain_seqno_) {
-    abort_query(td::Status::Error(ErrorCode::protoviolation, PSTRING() << "bad validator catchain seqno: expected "
-                                                                       << s->get_catchain_seqno() << ", found "
-                                                                       << catchain_seqno_));
-    return;
-  }
-  if (s->get_validator_set_hash() != validator_hash_) {
-    abort_query(td::Status::Error(ErrorCode::protoviolation, PSTRING() << "bad validator set hash: expected "
-                                                                       << s->get_validator_set_hash() << ", found "
-                                                                       << validator_hash_));
-    return;
-  }
-
-  if (sig_root_.is_null()) {
+  if (sig_set_.is_null()) {
     fatal_error("no block signatures present in proof to check");
     return;
   }
-
-  auto sigs = BlockSignatureSetQ::fetch(sig_root_);
-  if (sigs.is_null()) {
-    fatal_error("cannot deserialize signature set");
+  if (vset_->get_catchain_seqno() != catchain_seqno_) {
+    abort_query(td::Status::Error(ErrorCode::protoviolation, PSTRING() << "bad validator catchain seqno: expected "
+                                                                       << vset_->get_catchain_seqno() << ", found "
+                                                                       << catchain_seqno_));
     return;
   }
-  if (sigs->signatures().size() != sig_count_) {
-    fatal_error(PSTRING() << "signature count mismatch: present " << sigs->signatures().size() << ", declared "
-                          << sig_count_);
+  if (vset_->get_validator_set_hash() != validator_hash_) {
+    abort_query(td::Status::Error(ErrorCode::protoviolation, PSTRING() << "bad validator set hash: expected "
+                                                                       << vset_->get_validator_set_hash() << ", found "
+                                                                       << validator_hash_));
     return;
   }
-
-  auto S = s->check_signatures(id_.root_hash, id_.file_hash, sigs);
-  if (S.is_error()) {
-    abort_query(S.move_as_error());
+  auto result = sig_set_->check_signatures(vset_, id_);
+  if (result.is_error()) {
+    abort_query(result.move_as_error());
     return;
   }
-  auto s_weight = S.move_as_ok();
-  if (s_weight != sig_weight_) {
-    fatal_error(PSTRING() << "total signature weight mismatch: declared " << sig_weight_ << ", actual " << s_weight);
+  if (result.ok() != sig_weight_) {
+    abort_query(td::Status::Error(ErrorCode::protoviolation, PSTRING() << "bad signature set weight: expected "
+                                                                       << result.ok() << ", found " << sig_weight_));
     return;
   }
   sig_ok_ = true;
@@ -462,7 +443,7 @@ void CheckProof::got_block_handle_2(BlockHandle handle) {
   handle_->set_state_root_hash(state_hash_);
   handle_->set_logical_time(lt_);
   handle_->set_unix_time(created_at_);
-  for (auto &prev : prev_) {
+  for (auto& prev : prev_) {
     handle_->set_prev(prev);
   }
 

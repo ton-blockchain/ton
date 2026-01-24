@@ -85,6 +85,10 @@ class Client::Impl final {
     return response;
   }
 
+  void cancel_requests() {
+    scheduler_.run_in_context_external([&] { tonlib_.reset(); });
+  }
+
   Impl(const Impl&) = delete;
   Impl& operator=(const Impl&) = delete;
   Impl(Impl&&) = delete;
@@ -114,6 +118,9 @@ class Client::Impl final {
   td::actor::ActorOwn<TonlibClient> tonlib_;
 
   Client::Response receive_unlocked(double timeout) {
+    if (is_closed_) {
+      return {0, nullptr};
+    }
     if (output_queue_ready_cnt_ == 0) {
       output_queue_ready_cnt_ = output_queue_->reader_wait_nonblock();
     }
@@ -152,6 +159,10 @@ Client::Response Client::execute(Request&& request) {
   response.id = request.id;
   response.object = TonlibClient::static_request(std::move(request.function));
   return response;
+}
+
+void Client::cancel_requests() {
+  impl_->cancel_requests();
 }
 
 Client::~Client() = default;

@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 
 from tontester.install import Install
-from tontester.network import Network
+from tontester.network import FullNode, Network
 
 
 async def main():
@@ -24,7 +24,7 @@ async def main():
     async with Network(install, working_dir) as network:
         dht = network.create_dht_node()
 
-        nodes: list[Network.Node] = []
+        nodes: list[FullNode] = []
         for _ in range(2):
             node = network.create_full_node()
             node.make_initial_validator()
@@ -36,6 +36,9 @@ async def main():
             await node.run()
 
         await network.wait_mc_block(seqno=1)
+
+        actor_stats = await nodes[0].engine_console.get_actor_stats()
+        assert "= ACTORS STATS =" in actor_stats and "= PERF COUNTERS =" in actor_stats
 
 
 if __name__ == "__main__":

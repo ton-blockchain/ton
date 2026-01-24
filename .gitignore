@@ -36,4 +36,4 @@ readline-5.0-1-lib.zip
 test/integration/.network
 
 test/tontester/tests/tl/generated
-test/tontester/src/tontester/tl
+test/tontester/src/tonapi

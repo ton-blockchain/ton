@@ -18,13 +18,13 @@
 #include "auto/tl/ton_api.h"
 #include "ton/ton-types.h"
 #include "vm/cells.h"
+#include "types.h"
 
 namespace ton::validator::fullnode {
 
 enum class StateUsage { None, DecompressOnly, CompressAndDecompress };
 
-td::Result<td::BufferSlice> serialize_block_broadcast(const BlockBroadcast& broadcast, bool compression_enabled,
-                                                      std::string called_from,
+td::Result<td::BufferSlice> serialize_block_broadcast(const BlockBroadcast& broadcast, std::string called_from,
                                                       StateUsage state_usage = StateUsage::None,
                                                       td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
 td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_Broadcast& obj, int max_decompressed_data_size,

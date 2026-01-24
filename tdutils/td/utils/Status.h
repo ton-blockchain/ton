@@ -366,6 +366,13 @@ class Status {
     }
   }
 
+  Status trace(Slice t) const TD_WARN_UNUSED_RESULT {
+    if (is_ok()) {
+      return Status::OK();
+    }
+    return move_as_error_prefix(PSLICE() << t << ": ");
+  }
+
  private:
   struct Info {
     bool static_flag : 1;
@@ -513,18 +520,38 @@ class Result {
   }
 
 #ifdef TD_STATUS_NO_ENSURE
-  void ensure() const {
+  const Result &ensure() const {
     status_.ensure();
+    return *this;
   }
-  void ensure_error() const {
+  const Result &ensure_error() const {
     status_.ensure_error();
+    return *this;
+  }
+  Result &ensure() {
+    status_.ensure();
+    return *this;
+  }
+  Result &ensure_error() {
+    status_.ensure_error();
+    return *this;
   }
 #else
-  void ensure_impl(CSlice file_name, int line) const {
+  const Result &ensure_impl(CSlice file_name, int line) const {
     status_.ensure_impl(file_name, line);
+    return *this;
   }
-  void ensure_error_impl(CSlice file_name, int line) const {
+  const Result &ensure_error_impl(CSlice file_name, int line) const {
     status_.ensure_error_impl(file_name, line);
+    return *this;
+  }
+  Result &ensure_impl(CSlice file_name, int line) {
+    status_.ensure_impl(file_name, line);
+    return *this;
+  }
+  Result &ensure_error_impl(CSlice file_name, int line) {
+    status_.ensure_error_impl(file_name, line);
+    return *this;
   }
 #endif
   void ignore() const {
@@ -564,6 +591,12 @@ class Result {
       status_ = Status::Error<-5>();
     };
     return status_.move_as_error_suffix(suffix);
+  }
+  Result<T> trace(Slice t) TD_WARN_UNUSED_RESULT {
+    if (is_ok()) {
+      return std::move(*this);
+    }
+    return move_as_error_prefix(PSLICE() << t << ": ");
   }
   Status move_as_status() TD_WARN_UNUSED_RESULT {
     if (status_.is_error()) {

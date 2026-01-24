@@ -839,7 +839,8 @@ void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonN
   //                         << " block=" << block_id.to_str();
   //  return;
   //}
-  VLOG(FULL_NODE_DEBUG) << "Received block broadcast from " << src << ": " << B.ok().block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Received block broadcast " << (B.ok().sig_set->is_final() ? "" : "(approve signatures) ")
+                        << "from " << src << ": " << B.ok().block_id.to_str();
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), false);
 }
 
@@ -979,7 +980,7 @@ void FullNodeShardImpl::send_broadcast(BlockBroadcast broadcast) {
     return;
   }
   VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in private overlay: " << broadcast.block_id.to_str();
-  auto B = serialize_block_broadcast(broadcast, true, k_called_from_public, StateUsage::DecompressOnly);
+  auto B = serialize_block_broadcast(broadcast, k_called_from_public, StateUsage::DecompressOnly);
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
     return;
