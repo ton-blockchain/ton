@@ -17,6 +17,7 @@
 
 #include "auto/tl/ton_api_json.h"
 #include "common/delay.h"
+#include "interfaces/validator-full-id.h"
 #include "td/utils/JsonBuilder.h"
 #include "tl/tl_json.h"
 #include "ton/ton-tl.hpp"
@@ -73,8 +74,8 @@ void FullNodeFastSyncOverlay::process_block_broadcast(PublicKeyHash src, ton_api
     LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Received block broadcast in fast sync overlay from " << src << ": "
-                        << B.ok().block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Received block broadcast " << (B.ok().sig_set->is_final() ? "" : "(approve signatures) ")
+                        << "in fast sync overlay from " << src << ": " << B.ok().block_id.to_str();
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), false);
 }
 
@@ -256,7 +257,7 @@ void FullNodeFastSyncOverlay::send_broadcast(BlockBroadcast broadcast) {
   }
   VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in fast sync overlay (with compression): "
                         << broadcast.block_id.to_str();
-  auto B = serialize_block_broadcast(broadcast, true, k_called_from_fast_sync);  // compression_enabled = true
+  auto B = serialize_block_broadcast(broadcast, k_called_from_fast_sync);
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
     return;
@@ -385,6 +386,7 @@ void FullNodeFastSyncOverlay::init() {
   }
   options.local_overlay_member_flags_ = receive_broadcasts_ ? 0 : overlay::OverlayMemberFlags::DoNotReceiveBroadcasts;
   options.max_slaves_in_semiprivate_overlay_ = FullNode::MAX_FAST_SYNC_OVERLAY_CLIENTS;
+  options.broadcast_speed_multiplier_ = broadcast_speed_multiplier_;
   td::actor::send_closure(overlays_, &overlay::Overlays::create_semiprivate_overlay, local_id_,
                           overlay_id_full_.clone(), current_validators_adnl_, root_public_keys_, member_certificate_,
                           std::make_unique<Callback>(actor_id(this)), rules, std::move(scope), options);
@@ -493,7 +495,7 @@ td::actor::ActorId<FullNodeFastSyncOverlay> FullNodeFastSyncOverlays::get_master
 void FullNodeFastSyncOverlays::update_overlays(td::Ref<MasterchainState> state,
                                                std::set<adnl::AdnlNodeIdShort> my_adnl_ids,
                                                std::set<ShardIdFull> monitoring_shards,
-                                               const FileHash &zero_state_file_hash,
+                                               const FileHash &zero_state_file_hash, double broadcast_speed_multiplier,
                                                const td::actor::ActorId<keyring::Keyring> &keyring,
                                                const td::actor::ActorId<adnl::Adnl> &adnl,
                                                const td::actor::ActorId<overlay::Overlays> &overlays,
@@ -620,8 +622,8 @@ void FullNodeFastSyncOverlays::update_overlays(td::Ref<MasterchainState> state,
       if (overlay.empty()) {
         overlay = td::actor::create_actor<FullNodeFastSyncOverlay>(
             PSTRING() << "FastSyncOv" << shard.to_str(), local_id, shard, zero_state_file_hash, root_public_keys_,
-            current_validators_adnl_, overlays_info.current_certificate_, receive_broadcasts, keyring, adnl, overlays,
-            validator_manager, full_node);
+            current_validators_adnl_, overlays_info.current_certificate_, receive_broadcasts,
+            broadcast_speed_multiplier, keyring, adnl, overlays, validator_manager, full_node);
       } else {
         td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_receive_broadcasts, receive_broadcasts);
         if (changed_certificate) {

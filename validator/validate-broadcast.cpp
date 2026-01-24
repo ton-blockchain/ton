@@ -74,13 +74,16 @@ void ValidateBroadcast::start_up() {
     }
   }
 
-  sig_set_ = create_signature_set(std::move(broadcast_.signatures));
-  if (sig_set_.is_null()) {
-    abort_query(td::Status::Error(ErrorCode::protoviolation, "bad signature set"));
+  if (broadcast_.sig_set.is_null()) {
+    abort_query(td::Status::Error(ErrorCode::protoviolation, "no signature set"));
     return;
   }
 
   if (broadcast_.block_id.is_masterchain()) {
+    if (!broadcast_.sig_set->is_final()) {
+      abort_query(td::Status::Error(ErrorCode::protoviolation, "not final signature set for masterchain block"));
+      return;
+    }
     auto R = create_proof(broadcast_.block_id, broadcast_.proof.clone());
     if (R.is_error()) {
       abort_query(R.move_as_error_prefix("bad proof: "));
@@ -207,7 +210,7 @@ void ValidateBroadcast::got_zero_state(td::Ref<MasterchainState> state) {
 }
 
 void ValidateBroadcast::check_signatures_common(td::Ref<ConfigHolder> conf) {
-  VLOG(VALIDATOR_DEBUG) << "checking signatures";
+  VLOG(VALIDATOR_DEBUG) << "checking signatures (" << (broadcast_.sig_set->is_final() ? "final" : "approve") << ")";
   if (signatures_checked_) {
     checked_signatures();
     return;
@@ -227,7 +230,12 @@ void ValidateBroadcast::check_signatures_common(td::Ref<ConfigHolder> conf) {
       return;
     }
   }
-  auto S = val_set->check_signatures(broadcast_.block_id.root_hash, broadcast_.block_id.file_hash, sig_set_);
+  td::Result<td::uint64> S;
+  if (broadcast_.sig_set->is_final()) {
+    S = broadcast_.sig_set->check_signatures(val_set, broadcast_.block_id);
+  } else {
+    S = broadcast_.sig_set->check_approve_signatures(val_set, broadcast_.block_id);
+  }
   if (S.is_ok()) {
     checked_signatures();
   } else {

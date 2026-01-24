@@ -28,6 +28,34 @@
 
 namespace td {
 
+#define TD_ENUMERATE_ANSI_COLORS(F) \
+  F(Empty, 0, "\x1b[0m")            \
+  F(Red, 1, "\x1b[1;31m")           \
+  F(Blue, 2, "\x1b[1;34m")          \
+  F(Cyan, 3, "\x1b[1;36m")          \
+  F(Green, 4, "\x1b[1;32m")         \
+  F(Yellow, 5, "\x1b[1;33m")        \
+  F(Gray, 6, "\x1b[1;90m")
+
+enum class AnsiColor : int {
+  Disallowed = -1,
+#define DEFINE_ANSI_COLOR_ENUM(name, code, esc) name = code,
+  TD_ENUMERATE_ANSI_COLORS(DEFINE_ANSI_COLOR_ENUM)
+#undef DEFINE_ANSI_COLOR_ENUM
+};
+
+inline td::Slice ansi_color_to_str(AnsiColor color) {
+  switch (color) {
+    case td::AnsiColor::Disallowed:
+      return "";
+#define DEFINE_ANSI_COLOR_TO_STR(name, code, esc) \
+  case AnsiColor::name:                           \
+    return esc;
+      TD_ENUMERATE_ANSI_COLORS(DEFINE_ANSI_COLOR_TO_STR)
+#undef DEFINE_ANSI_COLOR_TO_STR
+  }
+}
+
 class StringBuilder {
  public:
   explicit StringBuilder(MutableSlice slice, bool use_buffer = false);
@@ -49,6 +77,10 @@ class StringBuilder {
 
   bool is_error() const {
     return error_flag_;
+  }
+
+  AnsiColor &current_color() & {
+    return current_color_;
   }
 
   StringBuilder &operator<<(const char *str) {
@@ -117,6 +149,7 @@ class StringBuilder {
   char *end_ptr_;
   bool error_flag_ = false;
   bool use_buffer_ = false;
+  AnsiColor current_color_ = AnsiColor::Disallowed;
   std::unique_ptr<char[]> buffer_;
   static constexpr size_t RESERVED_SIZE = 30;
 
@@ -168,5 +201,15 @@ struct LambdaPrint {};
 inline LambdaPrintHelper<td::StringBuilder> operator<<(td::StringBuilder &sb, const LambdaPrint &) {
   return LambdaPrintHelper<td::StringBuilder>{sb};
 }
+
+struct Colored {
+  explicit Colored(AnsiColor color, Slice text) : color(color), text(text) {
+  }
+
+  AnsiColor color;
+  Slice text;
+};
+
+StringBuilder &operator<<(StringBuilder &sb, Colored text);
 
 }  // namespace td

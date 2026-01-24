@@ -421,7 +421,7 @@ class Master : public Actor {
   uint32 r = 1000;
   core::ActorInfoPtr worker;
   void start_up() override {
-    worker = detail::create_actor<Worker>(ActorOptions().with_name("Master"));
+    worker = detail::create_actor<Worker>(ActorOptions().with_name("Master"), std::make_unique<Worker>());
     loop();
   }
   void loop() override {
@@ -454,7 +454,7 @@ TEST(Actor2, scheduler_simple) {
   scheduler.run_in_context([] {
     global_cnt = 1000;
     for (int i = 0; i < global_cnt; i++) {
-      detail::create_actor<Master>(ActorOptions().with_name("Master"));
+      detail::create_actor<Master>(ActorOptions().with_name("Master"), std::make_unique<Master>());
     }
   });
   while (scheduler.run(1000)) {

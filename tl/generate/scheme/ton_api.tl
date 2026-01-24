@@ -403,6 +403,9 @@ tonNode.sessionId workchain:int shard:long cc_seqno:int opts_hash:int256 = tonNo
 
 
 tonNode.blockSignature who:int256 signature:bytes = tonNode.BlockSignature;
+tonNode.signatureSet.ordinary cc_seqno:int validator_set_hash:int signatures:(vector tonNode.blockSignature) = tonNode.SignatureSet;
+tonNode.signatureSet.simplex final:Bool cc_seqno:int validator_set_hash:int signatures:(vector tonNode.blockSignature)
+    session_id:int256 slot:int candidate:consensus.CandidateHashData = tonNode.SignatureSet;
 
 tonNode.blockId workchain:int shard:long seqno:int = tonNode.BlockId;
 tonNode.blockIdExt workchain:int shard:long seqno:int root_hash:int256 file_hash:int256 = tonNode.BlockIdExt;
@@ -438,9 +441,7 @@ tonNode.blockBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_ha
               proof:bytes data:bytes = tonNode.Broadcast;
 tonNode.blockBroadcastCompressed id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               flags:# compressed:bytes = tonNode.Broadcast;
-tonNode.blockBroadcastCompressedV2 id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
-              signatures:(vector tonNode.blockSignature) flags:# 
-              proof:bytes data_compressed:bytes = tonNode.Broadcast;              
+tonNode.blockBroadcastCompressedV2 id:tonNode.blockIdExt signature_set:tonNode.SignatureSet flags:# proof:bytes data_compressed:bytes = tonNode.Broadcast;
 tonNode.ihrMessageBroadcast message:tonNode.ihrMessage = tonNode.Broadcast;
 tonNode.externalMessageBroadcast message:tonNode.externalMessage = tonNode.Broadcast;
 tonNode.newShardBlockBroadcast block:tonNode.newShardBlock = tonNode.Broadcast;
@@ -1165,3 +1166,57 @@ storage.daemon.removeStorageProvider = storage.daemon.Success;
 
 ---types---
 proxyLiteserver.config port:int id:PublicKey = proxyLiteserver.Config;
+---functions---
+
+---types---
+quic.message data:bytes = quic.Request;
+quic.query data:bytes = quic.Request;
+quic.answer data:bytes = quic.Response;
+
+engineConsoleClient.config address:string server_public_key:PublicKey client_private_key:PrivateKey = engineConsoleClient.Config;
+
+consensus.overlayId session_id:int256 nodes:(vector int256) = consensus.OverlayId;
+consensus.dataToSign session_id:int256 data:bytes = consensus.DataToSign;
+
+consensus.candidateId slot:int hash:int256 = consensus.CandidateId;
+consensus.candidateParent id:consensus.CandidateId = consensus.CandidateParent;
+consensus.candidateWithoutParents = consensus.CandidateParent;
+
+consensus.candidateHashDataOrdinary block:tonNode.blockIdExt collated_file_hash:int256 parent:consensus.CandidateParent = consensus.CandidateHashData;
+consensus.candidateHashDataEmpty block:tonNode.blockIdExt parent:consensus.candidateId = consensus.CandidateHashData;
+
+consensus.block slot:int parent:consensus.CandidateParent candidate:bytes signature:bytes = consensus.CandidateData;
+consensus.empty slot:int parent:consensus.CandidateId block:tonNode.blockIdExt signature:bytes = consensus.CandidateData;
+
+consensus.requestError = consensus.RequestError;
+
+consensus.null.signature slot:int signature:bytes = consensus.null.Message;
+consensus.null.handshake = consensus.null.Message;
+
+consensus.simplex.notarizeVote id:consensus.CandidateId = consensus.simplex.UnsignedVote;
+consensus.simplex.finalizeVote id:consensus.CandidateId = consensus.simplex.UnsignedVote;
+consensus.simplex.skipVote slot:int = consensus.simplex.UnsignedVote;
+consensus.simplex.vote vote:consensus.simplex.UnsignedVote signature:bytes = consensus.simplex.Vote;
+
+consensus.simplex.voteSignature who:int signature:bytes = consensus.simplex.VoteSignature;
+consensus.simplex.voteSignatureSet votes:(vector consensus.simplex.VoteSignature) = consensus.simplex.VoteSignatureSet;
+consensus.simplex.certificate vote:consensus.simplex.UnsignedVote signatures:consensus.simplex.VoteSignatureSet = consensus.simplex.Certificate;
+
+consensus.simplex.candidateAndCert candidate:bytes notar:bytes = consensus.simplex.CandidateAndCert;
+
+consensus.simplex.db.key.vote vote_hash:int256 = consensus.simplex.db.key.Vote;
+consensus.simplex.db.vote data:bytes node_idx:int = consensus.simplex.db.Vote;
+
+consensus.simplex.db.key.poolState = consensus.simplex.db.key.PoolState;
+consensus.simplex.db.poolState first_nonannounced_window:int = consensus.simplex.db.PoolState;
+
+consensus.simplex.db.key.finalizedBlock candidateId:consensus.candidateId = consensus.simplex.db.key.FinalizedBlock;
+consensus.simplex.db.finalizedBlock block_id:tonNode.blockIdExt parent:consensus.CandidateParent is_final:Bool = consensus.simplex.db.FinalizedBlock;
+
+consensus.simplex.db.key.candidateResolver.candidateInfo candidateId:consensus.candidateId = consensus.simplex.db.key.candidateResolver.CandidateInfo;
+consensus.simplex.db.candidateResolver.candidateInfo leader_id:int candidate_hash_data:consensus.CandidateHashData signature:bytes = consensus.simplex.db.candidateResolver.CandidateInfo;
+consensus.simplex.db.key.candidateResolver.notarCert candidateId:consensus.candidateId = consensus.simplex.db.key.candidateResolver.NotarCert;
+consensus.simplex.db.candidateResolver.notarCert notar:consensus.simplex.voteSignatureSet = consensus.simplex.db.candidateResolver.NotarCert;
+
+---functions---
+consensus.simplex.requestCandidate id:consensus.CandidateId want_candidate:Bool want_notar:Bool = consensus.simplex.CandidateAndCert;

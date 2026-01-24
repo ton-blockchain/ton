@@ -57,7 +57,7 @@ void CollationManager::tear_down() {
 
 void CollationManager::collate_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
                                      std::vector<BlockIdExt> prev, Ed25519_PublicKey creator,
-                                     BlockCandidatePriority priority, td::Ref<ValidatorSet> validator_set,
+                                     BlockCandidatePriority priority, td::Ref<block::ValidatorSet> validator_set,
                                      td::uint64 max_answer_size, td::CancellationToken cancellation_token,
                                      td::Promise<GeneratedCandidate> promise) {
   if (shard.is_masterchain()) {
@@ -80,7 +80,7 @@ void CollationManager::collate_block(ShardIdFull shard, BlockIdExt min_mastercha
 void CollationManager::collate_block_optimistic(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
                                                 BlockIdExt prev_block_id, td::BufferSlice prev_block,
                                                 Ed25519_PublicKey creator, BlockCandidatePriority priority,
-                                                td::Ref<ValidatorSet> validator_set, td::uint64 max_answer_size,
+                                                td::Ref<block::ValidatorSet> validator_set, td::uint64 max_answer_size,
                                                 td::CancellationToken cancellation_token,
                                                 td::Promise<GeneratedCandidate> promise) {
   if (shard.is_masterchain()) {
@@ -122,7 +122,7 @@ void CollationManager::collate_block_optimistic(ShardIdFull shard, BlockIdExt mi
 
 void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id,
                                            std::vector<BlockIdExt> prev, Ed25519_PublicKey creator,
-                                           BlockCandidatePriority priority, td::Ref<ValidatorSet> validator_set,
+                                           BlockCandidatePriority priority, td::Ref<block::ValidatorSet> validator_set,
                                            td::uint64 max_answer_size, td::CancellationToken cancellation_token,
                                            td::Promise<GeneratedCandidate> promise, td::Timestamp timeout,
                                            bool is_optimistic) {

@@ -447,7 +447,7 @@ td::Status BlockProofLink::validate(td::uint32* save_utime) const {
   if (!is_fwd && state_proof.is_null()) {
     return td::Status::Error("a backward BlockProofLink contains no proof for the source state of "s + from.to_str());
   }
-  if (is_fwd && signatures.empty()) {
+  if (is_fwd && sig_set.is_null()) {
     return td::Status::Error("a forward BlockProofLink from "s + from.to_str() + " to " + to.to_str() +
                              " contains no signatures");
   }
@@ -518,20 +518,21 @@ td::Status BlockProofLink::validate(td::uint32* save_utime) const {
                                  << to.to_str() << " with utime " << info.gen_utime << " and cc_seqno "
                                  << info.gen_catchain_seqno << " starting from previous key block " << from.to_str());
       }
+      td::Ref<ValidatorSet> vset{true, sig_set->get_catchain_seqno(), shard, std::move(nodes)};
       // check computed validator set hash
-      auto vset_hash = compute_validator_set_hash(cc_seqno, shard, nodes);
-      if (vset_hash != info.gen_validator_list_hash_short) {
-        return td::Status::Error(
-            PSTRING() << "while checking a forward BlockProofLink: computed validator set for block " << to.to_str()
-                      << " with utime " << info.gen_utime << " and cc_seqno " << info.gen_catchain_seqno
-                      << " starting from previous key block " << from.to_str() << " has hash " << vset_hash
-                      << " different from " << info.gen_validator_list_hash_short << " stated in block header");
+      if (vset->get_validator_set_hash() != info.gen_validator_list_hash_short) {
+        return td::Status::Error(PSTRING()
+                                 << "while checking a forward BlockProofLink: computed validator set for block "
+                                 << to.to_str() << " with utime " << info.gen_utime << " and cc_seqno "
+                                 << info.gen_catchain_seqno << " starting from previous key block " << from.to_str()
+                                 << " has hash " << vset->get_validator_set_hash() << " different from "
+                                 << info.gen_validator_list_hash_short << " stated in block header");
       }
       // check signatures
-      auto err = check_block_signatures(nodes, signatures, to);
-      if (err.is_error()) {
-        return td::Status::Error("error checking signatures for block "s + to.to_str() +
-                                 " in a forward BlockProofLink: " + err.to_string());
+      auto result = sig_set->check_signatures(vset, to);
+      if (result.is_error()) {
+        return result.move_as_error_prefix(PSTRING() << "error checking signatures for block " << to.to_str()
+                                                     << " in a forward BlockProofLink: ");
       }
       return td::Status::OK();
     }
@@ -603,65 +604,6 @@ td::Bits256 compute_node_id_short(td::Bits256 ed25519_pubkey) {
   td::Bits256 hash;
   digest::hash_str<digest::SHA256>(hash.data(), (void*)&PK, sizeof(pubkey));
   return hash;
-}
-
-td::Status check_block_signatures(const std::vector<ton::ValidatorDescr>& nodes,
-                                  const std::vector<ton::BlockSignature>& signatures, const ton::BlockIdExt& blkid) {
-  if (nodes.empty()) {
-    return td::Status::Error("empty validator public keys set");
-  }
-  if (signatures.empty()) {
-    return td::Status::Error("empty validator signature set");
-  }
-  // compute the string to be signed and its hash
-  unsigned char to_sign[68];
-  td::as<td::uint32>(to_sign) = 0xc50b6e70;  // ton.blockId root_cell_hash:int256 file_hash:int256 = ton.BlockId;
-  memcpy(to_sign + 4, blkid.root_hash.data(), 32);
-  memcpy(to_sign + 36, blkid.file_hash.data(), 32);
-  // unsigned char hash[32];
-  // digest::hash_str<digest::SHA256>(hash, (void*)to_sign, sizeof(to_sign));
-
-  ton::ValidatorWeight total_weight = 0, signed_weight = 0;
-  std::vector<std::pair<td::Bits256, unsigned>> node_map;
-  for (unsigned i = 0; i < nodes.size(); i++) {
-    total_weight += nodes[i].weight;
-    node_map.emplace_back(compute_node_id_short(nodes[i].key), i);
-  }
-  std::sort(node_map.begin(), node_map.end());
-  std::vector<unsigned> seen;
-  for (auto& sig : signatures) {
-    // lookup node in validator set
-    auto& id = sig.node;
-    auto it = std::lower_bound(node_map.begin(), node_map.end(), id,
-                               [](const auto& p, const auto& x) { return p.first < x; });
-    if (it == node_map.end() || it->first != id) {
-      return td::Status::Error("signature set contains unknown NodeIdShort "s + id.to_hex());
-    }
-    unsigned i = it->second;
-    seen.emplace_back(i);
-    // check one signature
-    td::Ed25519::PublicKey pub_key{td::SecureString{nodes.at(i).key.as_slice()}};
-    auto res = pub_key.verify_signature(td::Slice{to_sign, 68}, sig.signature.as_slice());
-    if (res.is_error()) {
-      return res;
-    }
-    signed_weight += nodes[i].weight;
-    if (signed_weight > total_weight) {
-      break;
-    }
-  }
-  std::sort(seen.begin(), seen.end());
-  for (std::size_t i = 1; i < seen.size(); i++) {
-    if (seen[i] == seen[i - 1]) {
-      return td::Status::Error("signature set contains duplicate signature for NodeIdShort "s +
-                               compute_node_id_short(nodes.at(seen[i]).key).to_hex());
-    }
-  }
-  if (3 * signed_weight <= 2 * total_weight) {
-    return td::Status::Error(PSTRING() << "insufficient total signature weight: only " << signed_weight << " out of "
-                                       << total_weight);
-  }
-  return td::Status::OK();
 }
 
 }  // namespace block

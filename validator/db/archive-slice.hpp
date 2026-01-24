@@ -209,6 +209,8 @@ class ArchiveSlice : public td::actor::Actor {
 
   BlockSeqno max_masterchain_seqno();
 
+  td::Status repair_pack_files(std::string path_new, std::string path_old, td::uint32 version, td::uint64 trunc_size);
+
   static constexpr td::uint32 default_package_version() {
     return 1;
   }

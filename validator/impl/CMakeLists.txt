@@ -13,10 +13,8 @@ set(TON_VALIDATOR_SOURCE
   out-msg-queue-proof.cpp
   proof.cpp
   shard.cpp
-  signature-set.cpp
   top-shard-descr.cpp
   validate-query.cpp
-  validator-set.cpp
 
   accept-block.hpp
   block.hpp
@@ -33,10 +31,8 @@ set(TON_VALIDATOR_SOURCE
   out-msg-queue-proof.hpp
   proof.hpp
   shard.hpp
-  signature-set.hpp
   top-shard-descr.hpp
-  validate-query.hpp
-  validator-set.hpp)
+  validate-query.hpp)
 
 add_library(ton_validator STATIC ${TON_VALIDATOR_SOURCE})
 

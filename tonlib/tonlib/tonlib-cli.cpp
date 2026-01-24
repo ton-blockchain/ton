@@ -1933,11 +1933,26 @@ class TonlibCli : public td::actor::Actor {
   void run_get_masterchain_block_signatures(td::Slice seqno_s, td::Promise<td::Unit> promise) {
     TRY_RESULT_PROMISE(promise, seqno, td::to_integer_safe<td::int32>(seqno_s));
     send_query(make_object<tonlib_api::blocks_getMasterchainBlockSignatures>(seqno), promise.wrap([](auto signatures) {
-      td::TerminalIO::out() << "Signatures: " << signatures->signatures_.size() << "\n";
-      for (const auto& s : signatures->signatures_) {
-        td::TerminalIO::out() << "  " << s->node_id_short_ << " : " << td::base64_encode(td::Slice(s->signature_))
-                              << "\n";
-      }
+      ton::tonlib_api::downcast_call(
+          *signatures,
+          td::overloaded(
+              [&](const tonlib_api::blocks_blockSignatures& obj) {
+                td::TerminalIO::out() << "Ordinary signatures: " << obj.signatures_.size() << "\n";
+                for (const auto& s : obj.signatures_) {
+                  td::TerminalIO::out() << "  " << s->node_id_short_ << " : "
+                                        << td::base64_encode(td::Slice(s->signature_)) << "\n";
+                }
+              },
+              [&](const tonlib_api::blocks_blockSignatures_simplex& obj) {
+                td::TerminalIO::out() << "Simplex signatures: " << obj.signatures_.size() << "\n";
+                for (const auto& s : obj.signatures_) {
+                  td::TerminalIO::out() << "  " << s->node_id_short_ << " : "
+                                        << td::base64_encode(td::Slice(s->signature_)) << "\n";
+                }
+                td::TerminalIO::out() << "session_id = " << td::base64_encode(obj.session_id_.as_slice()) << "\n";
+                td::TerminalIO::out() << "slot = " << obj.slot_;
+                td::TerminalIO::out() << "candidate = " << td::base64_encode(td::Slice(obj.candidate_)) << "\n";
+              }));
       return td::Unit();
     }));
   }

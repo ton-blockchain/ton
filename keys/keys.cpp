@@ -183,6 +183,13 @@ td::SecureString PrivateKey::export_as_slice() const {
   return res;
 }
 
+td::Result<td::Ed25519::PrivateKey> PrivateKey::export_as_ed25519() const {
+  if (!priv_key_.has<privkeys::Ed25519>()) {
+    return td::Status::Error("Key is not Ed25519");
+  }
+  return priv_key_.get<privkeys::Ed25519>().export_key();
+}
+
 bool PrivateKey::exportable() const {
   bool res;
   priv_key_.visit([&](auto &obj) { res = obj.exportable(); });

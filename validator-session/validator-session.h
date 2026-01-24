@@ -23,7 +23,6 @@
 #include "auto/tl/lite_api.h"
 #include "catchain/catchain-types.h"
 #include "overlay/overlays.h"
-#include "rldp2/rldp.h"
 #include "ton/ton-types.h"
 
 #include "validator-session-types.h"
@@ -45,7 +44,7 @@ class ValidatorSession : public td::actor::Actor {
     bool is_ok() const {
       return ok_;
     }
-    td::uint32 ok_from() const {
+    double ok_from() const {
       return ok_from_;
     }
     std::string reason() const {
@@ -60,7 +59,7 @@ class ValidatorSession : public td::actor::Actor {
     void set_is_cached(bool value = true) {
       is_cached_ = value;
     }
-    CandidateDecision(td::uint32 ok_from) {
+    CandidateDecision(double ok_from) {
       ok_ = true;
       ok_from_ = ok_from;
     }
@@ -70,7 +69,7 @@ class ValidatorSession : public td::actor::Actor {
 
    private:
     bool ok_ = false;
-    td::uint32 ok_from_ = 0;
+    double ok_from_ = 0;
     std::string reason_;
     td::BufferSlice proof_;
     bool is_cached_ = false;
@@ -116,8 +115,8 @@ class ValidatorSession : public td::actor::Actor {
       catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,
       std::vector<ValidatorSessionNode> nodes, std::unique_ptr<Callback> callback,
       td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-      td::actor::ActorId<rldp2::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
-      std::string db_suffix, bool allow_unsafe_self_blocks_resync);
+      td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender, td::actor::ActorId<overlay::Overlays> overlays,
+      std::string db_root, std::string db_suffix, bool allow_unsafe_self_blocks_resync);
   virtual ~ValidatorSession() = default;
 };
 

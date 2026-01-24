@@ -560,11 +560,6 @@ validator_info$_
   nx_cc_updated:Bool
 = ValidatorInfo;
 
-validator_base_info$_
-  validator_list_hash_short:uint32
-  catchain_seqno:uint32
-= ValidatorBaseInfo;
-
 _ key:Bool max_end_lt:uint64 = KeyMaxLt;
 _ key:Bool blk_ref:ExtBlkRef = KeyExtBlkRef;
 
@@ -774,7 +769,7 @@ consensus_config_v3#d8 flags:(## 7) { flags = 0 } new_catchain_ids:Bool
   max_block_bytes:uint32 max_collated_bytes:uint32
   proto_version:uint16 = ConsensusConfig;
 
-consensus_config_v4#d9 flags:(## 7) { flags = 0 } new_catchain_ids:Bool
+consensus_config_v4#d9 flags:(## 6) { flags = 0 } use_quic:Bool new_catchain_ids:Bool
   round_candidates:(## 8) { round_candidates >= 1 }
   next_candidate_delay_ms:uint32 consensus_timeout_ms:uint32
   fast_attempts:uint32 attempt_duration:uint32 catchain_max_deps:uint32
@@ -783,6 +778,13 @@ consensus_config_v4#d9 flags:(## 7) { flags = 0 } new_catchain_ids:Bool
 
 _ CatchainConfig = ConfigParam 28;
 _ ConsensusConfig = ConfigParam 29;
+
+null_consensus_config#20 flags:(## 7) use_quic:Bool target_rate_ms:uint32 = NewConsensusConfig;
+simplex_config#21 flags:(## 7) use_quic:Bool
+  target_rate_ms:uint32 slots_per_leader_window:uint32
+  first_block_timeout_ms:uint32 max_leader_window_desync:uint32 = NewConsensusConfig;
+new_consensus_config_all#10 mc:(Maybe ^NewConsensusConfig) shard:(Maybe ^NewConsensusConfig) = NewConsensusConfigAll;
+_ NewConsensusConfigAll = ConfigParam 30;
 
 _ fundamental_smc_addr:(HashmapE 256 True) = ConfigParam 31;
 _ prev_validators:ValidatorSet = ConfigParam 32;
@@ -844,9 +846,13 @@ _ JettonBridgeParams = ConfigParam 82; // Polygon->TON token bridge
 //
 //  PROOFS
 //
-block_signatures_pure#_ sig_count:uint32 sig_weight:uint64
-  signatures:(HashmapE 16 CryptoSignaturePair) = BlockSignaturesPure;
-block_signatures#11 validator_info:ValidatorBaseInfo pure_signatures:BlockSignaturesPure = BlockSignatures;
+block_signatures_ordinary#11 validator_list_hash_short:uint32 catchain_seqno:uint32
+  sig_count:uint32 sig_weight:uint64
+  signatures:(HashmapE 16 CryptoSignaturePair) = BlockSignatures;
+block_signatures_simplex#12 validator_list_hash_short:uint32 catchain_seqno:uint32
+  sig_count:uint32 sig_weight:uint64
+  signatures:(HashmapE 16 CryptoSignaturePair)
+  session_id:bits256 slot:uint32 candidate_data:^Cell = BlockSignatures;
 block_proof#c3 proof_for:BlockIdExt root:^Cell signatures:(Maybe ^BlockSignatures) = BlockProof;
 
 chain_empty$_ = ProofChain 0;
@@ -859,6 +865,7 @@ top_block_descr#d5 proof_for:BlockIdExt signatures:(Maybe ^BlockSignatures)
 //
 top_block_descr_set#4ac789f3 collection:(HashmapE 96 ^TopBlockDescr) = TopBlockDescrSet;
 account_storage_dict_proof#37c1e3fc proof:^Cell = AccountStorageDictProof;
+consensus_extra_data#638eb292 flags:# gen_utime_ms:uint64 = ConsensusExtraData;
 
 //
 //  VALIDATOR MISBEHAVIOR COMPLAINTS

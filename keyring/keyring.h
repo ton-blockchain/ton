@@ -34,7 +34,7 @@ class Keyring : public td::actor::Actor {
   virtual void add_key_short(PublicKeyHash key_hash, td::Promise<PublicKey> promise) = 0;
   virtual void del_key(PublicKeyHash key_hash, td::Promise<td::Unit> promise) = 0;
 
-  //virtual void export_private_key(PublicKeyHash key_hash, td::Promise<td::Unit> promise) = 0;
+  virtual void export_private_key(PublicKeyHash key_hash, td::Promise<PrivateKey> promise) = 0;
   virtual void get_public_key(PublicKeyHash key_hash, td::Promise<PublicKey> promise) = 0;
   virtual void sign_message(PublicKeyHash key_hash, td::BufferSlice data, td::Promise<td::BufferSlice> promise) = 0;
   virtual void sign_add_get_public_key(PublicKeyHash key_hash, td::BufferSlice data,

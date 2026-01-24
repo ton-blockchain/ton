@@ -3,6 +3,7 @@ option(TONLIBJSON_STATIC "Build tonlibjson as static library" OFF)
 set(TONLIB_SOURCE
   tonlib/Client.cpp
   tonlib/Config.cpp
+  tonlib/EngineConsoleClient.cpp
   tonlib/ExtClient.cpp
   tonlib/ExtClientOutbound.cpp
   tonlib/KeyStorage.cpp
@@ -17,6 +18,7 @@ set(TONLIB_SOURCE
 
   tonlib/Client.h
   tonlib/Config.h
+  tonlib/EngineConsoleClient.h
   tonlib/ExtClient.h
   tonlib/ExtClientOutbound.h
   tonlib/KeyStorage.h
@@ -54,8 +56,8 @@ target_include_directories(tonlib PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
   $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>
 )
-target_link_libraries(tonlib PRIVATE tdactor adnllite tl_lite_api tl-lite-utils ton_crypto lite-client-common smc-envelope emulator_static)
-target_link_libraries(tonlib PUBLIC tdutils tl_tonlib_api)
+target_link_libraries(tonlib PRIVATE adnllite tl_lite_api tl-lite-utils ton_crypto lite-client-common smc-envelope emulator_static)
+target_link_libraries(tonlib PUBLIC tdactor tdutils tl_tonlib_api)
 
 if (TONLIB_ENABLE_JNI AND NOT ANDROID) # jni is available by default on Android
   if (NOT JNI_FOUND)
@@ -88,7 +90,10 @@ target_link_libraries(tonlibjson_private_interface INTERFACE
 
 add_library(tonlibjson_objects OBJECT
   tonlib/ClientJson.cpp
+  tonlib/FFIEngineConsoleClient.cpp
+  tonlib/FFIEventLoop.cpp
   tonlib/tonlib_client_json.cpp
+  tonlib/tonlib_engine_console.cpp
 )
 target_link_libraries(tonlibjson_objects
   PRIVATE tonlibjson_private_interface
@@ -175,6 +180,7 @@ endif()
 
 set(TONLIB_JSON_HEADERS
   tonlib/tonlib_client_json.h
+  tonlib/tonlib_engine_console.h
 )
 
 install(FILES ${TONLIB_JSON_HEADERS} ${CMAKE_CURRENT_BINARY_DIR}/tonlib/tonlibjson_export.h DESTINATION include/tonlib/)
