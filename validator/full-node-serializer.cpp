@@ -64,8 +64,7 @@ td::Result<td::BufferSlice> serialize_block_broadcast(const BlockBroadcast& broa
       std::move(compressed_data));
   VLOG(FULL_NODE_BENCHMARK) << "Broadcast_benchmark serialize_block_broadcast block_id=" << broadcast.block_id.to_str()
                             << " called_from=" << called_from << " time_sec=" << (td::Time::now() - t_compression_start)
-                            << " compression=" << "compressedV2" << algorithm_name
-                            << " original_size="
+                            << " compression=" << "compressedV2" << algorithm_name << " original_size="
                             << broadcast.data.size() + broadcast.proof.size() + total_signatures_size
                             << " compressed_size=" << compressed_size + broadcast.proof.size() + total_signatures_size;
   return res;
