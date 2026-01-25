@@ -68,7 +68,10 @@ async function estimateDeployAmount(init: any): Promise<bigint> {
 
         console.warn('TonClient found but no known estimate method present. Falling back.');
     } catch (e) {
-        console.warn('Could not use TonClient to estimate fees (skipped). Error:', e?.message ?? e);
+        console.warn(
+            'Could not use TonClient to estimate fees (skipped). Error:',
+            e instanceof Error ? e.message : String(e),
+        );
     }
 
     // Fallback to default conservative amount
