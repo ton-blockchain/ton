@@ -47,6 +47,23 @@ elseif (NOT MSVC)
   message(FATAL_ERROR "Compiler isn't supported")
 endif()
 
+if (MINGW)
+  if (NOT CMAKE_AR OR NOT EXISTS "${CMAKE_AR}")
+    find_program(TON_LLVM_AR NAMES llvm-ar)
+    if (TON_LLVM_AR)
+      set(CMAKE_AR "${TON_LLVM_AR}" CACHE FILEPATH "Archiver" FORCE)
+    endif()
+  endif()
+  if (NOT CMAKE_RANLIB OR NOT EXISTS "${CMAKE_RANLIB}")
+    find_program(TON_LLVM_RANLIB NAMES llvm-ranlib ranlib)
+    if (TON_LLVM_RANLIB)
+      set(CMAKE_RANLIB "${TON_LLVM_RANLIB}" CACHE FILEPATH "Ranlib" FORCE)
+    endif()
+  endif()
+  # OpenSSL static libs need Windows socket/crypto system libs on MinGW.
+  link_libraries(ws2_32 crypt32)
+endif()
+
 #BEGIN internal
 option(BUILD_SHARED_LIBS "Use \"ON\" to build shared libraries instead of static where it's not specified (not recommended)" OFF)
 option(USE_EMSCRIPTEN "Use \"ON\" for config building wasm." OFF)

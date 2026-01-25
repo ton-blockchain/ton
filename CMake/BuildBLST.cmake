@@ -16,8 +16,18 @@ if (NOT BLST_LIB)
       set(BLST_CFLAGS "-fPIC")
     endif()
   elseif (WIN32)
-    set(BLST_LIB ${BLST_BINARY_DIR}/blst.lib)
-    set(BLST_BUILD_COMMAND ${BLST_SOURCE_DIR}/build.bat)
+    if (MINGW)
+      set(BLST_LIB ${BLST_BINARY_DIR}/libblst.a)
+      if (PORTABLE)
+        set(BLST_BUILD_COMMAND ${BLST_SOURCE_DIR}/build.sh -D__BLST_PORTABLE__)
+      else()
+        set(BLST_BUILD_COMMAND ${BLST_SOURCE_DIR}/build.sh)
+      endif()
+      set(BLST_BUILD_SHELL "C:/msys64/usr/bin/bash.exe")
+    else()
+      set(BLST_LIB ${BLST_BINARY_DIR}/blst.lib)
+      set(BLST_BUILD_COMMAND ${BLST_SOURCE_DIR}/build.bat)
+    endif()
   else()
     set(BLST_LIB ${BLST_BINARY_DIR}/libblst.a)
     if (PORTABLE)
@@ -53,13 +63,23 @@ if (NOT BLST_LIB)
       OUTPUT ${BLST_LIB}
     )
   else()
-    add_custom_command(
-      WORKING_DIRECTORY ${BLST_BINARY_DIR}
-      COMMAND ${BLST_BUILD_COMMAND}
-      COMMENT "Build blst"
-      DEPENDS ${BLST_SOURCE_DIR}
-      OUTPUT ${BLST_LIB}
-    )
+    if (MINGW)
+      add_custom_command(
+        WORKING_DIRECTORY ${BLST_BINARY_DIR}
+        COMMAND ${BLST_BUILD_SHELL} -lc "${BLST_BUILD_COMMAND}"
+        COMMENT "Build blst"
+        DEPENDS ${BLST_SOURCE_DIR}
+        OUTPUT ${BLST_LIB}
+      )
+    else()
+      add_custom_command(
+        WORKING_DIRECTORY ${BLST_BINARY_DIR}
+        COMMAND ${BLST_BUILD_COMMAND}
+        COMMENT "Build blst"
+        DEPENDS ${BLST_SOURCE_DIR}
+        OUTPUT ${BLST_LIB}
+      )
+    endif()
   endif()
 else()
   message(STATUS "Use BLST: ${BLST_LIB}")

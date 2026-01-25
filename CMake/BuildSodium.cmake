@@ -130,49 +130,76 @@ elseif (NOT NIX)
   file(MAKE_DIRECTORY ${SODIUM_BINARY_DIR})
   file(MAKE_DIRECTORY "${SODIUM_BINARY_DIR}/include")
 
-  if (CMAKE_RANLIB)
+  if (MINGW)
+    set(SODIUM_AR ar)
+    set(SODIUM_RANLIB ranlib)
+    set(MSYS2_BASH "C:/msys64/usr/bin/bash.exe")
+  elseif (CMAKE_RANLIB)
+    set(SODIUM_AR ${CMAKE_AR})
     set(SODIUM_RANLIB ${CMAKE_RANLIB})
   else()
+    set(SODIUM_AR ${CMAKE_AR})
     set(SODIUM_RANLIB ranlib)
   endif()
-  add_custom_command(
-      WORKING_DIRECTORY ${SODIUM_SOURCE_DIR}
-      COMMAND ${CMAKE_COMMAND} -E rm -f ${SODIUM_LIBRARY}
-      COMMAND ${CMAKE_COMMAND} -E env
-        CC=${CMAKE_C_COMPILER}
-        CXX=${CMAKE_CXX_COMPILER}
-        AR=${CMAKE_AR}
-        RANLIB=${SODIUM_RANLIB}
-        ./autogen.sh
-      COMMAND ${CMAKE_COMMAND} -E env
-        CC=${CMAKE_C_COMPILER}
-        CXX=${CMAKE_CXX_COMPILER}
-        AR=${CMAKE_AR}
-        RANLIB=${SODIUM_RANLIB}
-        ./configure --prefix=${SODIUM_BINARY_DIR} --with-pic --enable-static --disable-shared
-      COMMAND ${CMAKE_COMMAND} -E env
-        CC=${CMAKE_C_COMPILER}
-        CXX=${CMAKE_CXX_COMPILER}
-        AR=${CMAKE_AR}
-        RANLIB=${SODIUM_RANLIB}
-        make clean
-      COMMAND ${CMAKE_COMMAND} -E env
-        CC=${CMAKE_C_COMPILER}
-        CXX=${CMAKE_CXX_COMPILER}
-        AR=${CMAKE_AR}
-        RANLIB=${SODIUM_RANLIB}
-        make -j16
-      COMMAND ${CMAKE_COMMAND} -E env
-        CC=${CMAKE_C_COMPILER}
-        CXX=${CMAKE_CXX_COMPILER}
-        AR=${CMAKE_AR}
-        RANLIB=${SODIUM_RANLIB}
-        make install
-      COMMAND ${SODIUM_RANLIB} ${SODIUM_LIBRARY}
-      COMMENT "Build sodium"
-      DEPENDS ${SODIUM_SOURCE_DIR}
-      OUTPUT ${SODIUM_LIBRARY}
-  )
+  if (MINGW)
+    set(SODIUM_POST_RANLIB ${CMAKE_COMMAND} -E echo "Skip ranlib on MinGW")
+  else()
+    set(SODIUM_POST_RANLIB ${SODIUM_RANLIB} ${SODIUM_LIBRARY})
+  endif()
+  if (MINGW)
+    add_custom_command(
+        WORKING_DIRECTORY ${SODIUM_SOURCE_DIR}
+        COMMAND ${CMAKE_COMMAND} -E rm -f ${SODIUM_LIBRARY}
+        COMMAND ${MSYS2_BASH} -lc "CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} AR=${SODIUM_AR} RANLIB=${SODIUM_RANLIB} ./autogen.sh"
+        COMMAND ${MSYS2_BASH} -lc "CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} AR=${SODIUM_AR} RANLIB=${SODIUM_RANLIB} ./configure --prefix=${SODIUM_BINARY_DIR} --with-pic --enable-static --disable-shared"
+        COMMAND ${MSYS2_BASH} -lc "CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} AR=${SODIUM_AR} RANLIB=${SODIUM_RANLIB} make clean"
+        COMMAND ${MSYS2_BASH} -lc "CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} AR=${SODIUM_AR} RANLIB=${SODIUM_RANLIB} make -j16"
+        COMMAND ${MSYS2_BASH} -lc "CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} AR=${SODIUM_AR} RANLIB=${SODIUM_RANLIB} make install"
+        COMMAND ${SODIUM_POST_RANLIB}
+        COMMENT "Build sodium"
+        DEPENDS ${SODIUM_SOURCE_DIR}
+        OUTPUT ${SODIUM_LIBRARY}
+    )
+  else()
+    add_custom_command(
+        WORKING_DIRECTORY ${SODIUM_SOURCE_DIR}
+        COMMAND ${CMAKE_COMMAND} -E rm -f ${SODIUM_LIBRARY}
+        COMMAND ${CMAKE_COMMAND} -E env
+          CC=${CMAKE_C_COMPILER}
+          CXX=${CMAKE_CXX_COMPILER}
+          AR=${SODIUM_AR}
+          RANLIB=${SODIUM_RANLIB}
+          ./autogen.sh
+        COMMAND ${CMAKE_COMMAND} -E env
+          CC=${CMAKE_C_COMPILER}
+          CXX=${CMAKE_CXX_COMPILER}
+          AR=${SODIUM_AR}
+          RANLIB=${SODIUM_RANLIB}
+          ./configure --prefix=${SODIUM_BINARY_DIR} --with-pic --enable-static --disable-shared
+        COMMAND ${CMAKE_COMMAND} -E env
+          CC=${CMAKE_C_COMPILER}
+          CXX=${CMAKE_CXX_COMPILER}
+          AR=${SODIUM_AR}
+          RANLIB=${SODIUM_RANLIB}
+          make clean
+        COMMAND ${CMAKE_COMMAND} -E env
+          CC=${CMAKE_C_COMPILER}
+          CXX=${CMAKE_CXX_COMPILER}
+          AR=${SODIUM_AR}
+          RANLIB=${SODIUM_RANLIB}
+          make -j16
+        COMMAND ${CMAKE_COMMAND} -E env
+          CC=${CMAKE_C_COMPILER}
+          CXX=${CMAKE_CXX_COMPILER}
+          AR=${SODIUM_AR}
+          RANLIB=${SODIUM_RANLIB}
+          make install
+        COMMAND ${SODIUM_POST_RANLIB}
+        COMMENT "Build sodium"
+        DEPENDS ${SODIUM_SOURCE_DIR}
+        OUTPUT ${SODIUM_LIBRARY}
+    )
+  endif()
 else()
   message(STATUS "Use Secp256k1: ${SODIUM_LIBRARY}")
 endif()

@@ -229,6 +229,7 @@ void QuicServer::drain_ingress() {
     char buf[DEFAULT_MTU];
     td::MutableSlice slice(buf, buf + DEFAULT_MTU);
     UdpMessageBuffer msg_in;
+#if TD_PORT_POSIX
     td::UdpSocketFd::InboundMessage in_msg;
     in_msg.from = &msg_in.address;
     in_msg.data = slice;
@@ -240,13 +241,37 @@ void QuicServer::drain_ingress() {
     }
 
     msg_in.storage = in_msg.data;
-
-    auto R = get_or_create_connection(msg_in);
-    if (R.is_error()) {
-      LOG(WARNING) << "dropping inbound packet from " << msg_in.address << ": " << R.error();
+#elif TD_PORT_WINDOWS
+    auto recv_res = fd_.receive();
+    if (recv_res.is_error()) {
+      return recv_res.move_as_error();
+    }
+    auto opt_msg = recv_res.move_as_ok();
+    if (!opt_msg) {
+      run = false;
       return td::Status::OK();
     }
-    auto state = R.move_as_ok();
+    const auto &recv_msg = opt_msg.value();
+    if (recv_msg.error.is_error()) {
+      LOG(WARNING) << "dropping inbound packet: " << recv_msg.error;
+      return td::Status::OK();
+    }
+    msg_in.address = recv_msg.address;
+    auto recv_slice = recv_msg.data.as_slice();
+    if (recv_slice.size() > slice.size()) {
+      return td::Status::Error("Received UDP packet is too large");
+    }
+    slice.truncate(recv_slice.size());
+    slice.copy_from(recv_slice);
+    msg_in.storage = slice;
+#endif
+
+    auto conn_res = get_or_create_connection(msg_in);
+    if (conn_res.is_error()) {
+      LOG(WARNING) << "dropping inbound packet from " << msg_in.address << ": " << conn_res.error();
+      return td::Status::OK();
+    }
+    auto state = conn_res.move_as_ok();
 
     if (auto status = state->impl().handle_ingress(msg_in); status.is_error()) {
       LOG(WARNING) << "failed to handle ingress from " << *state << ":  " << status;
@@ -279,6 +304,7 @@ void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
         return td::Status::OK();
       }
 
+#if TD_PORT_POSIX
       bool sent = false;
       td::UdpSocketFd::OutboundMessage out_msg;
       out_msg.to = &msg_out.address;
@@ -287,6 +313,13 @@ void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
       if (!sent) {
         LOG(WARNING) << "outbound message lost to " << msg_out.address;
       }
+#elif TD_PORT_WINDOWS
+      td::UdpMessage out_msg;
+      out_msg.address = msg_out.address;
+      out_msg.data = td::BufferSlice(td::Slice(msg_out.storage));
+      fd_.send(std::move(out_msg));
+      TRY_STATUS(fd_.flush_send());
+#endif
       return td::Status::OK();
     };
 
@@ -308,6 +341,7 @@ void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
       return td::Status::OK();
     }
 
+#if TD_PORT_POSIX
     td::UdpSocketFd::OutboundMessage out_msg;
     out_msg.to = &msg_out.address;
     out_msg.data = td::Slice{msg_out.storage};
@@ -315,6 +349,13 @@ void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
     if (!run) {
       LOG(WARNING) << "outbound message lost to " << msg_out.address;
     }
+#elif TD_PORT_WINDOWS
+    td::UdpMessage out_msg;
+    out_msg.address = msg_out.address;
+    out_msg.data = td::BufferSlice(td::Slice(msg_out.storage));
+    fd_.send(std::move(out_msg));
+    TRY_STATUS(fd_.flush_send());
+#endif
     return td::Status::OK();
   };
 

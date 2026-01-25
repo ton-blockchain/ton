@@ -64,6 +64,14 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
           set(OPENSSL_DARWIN_TARGET darwin64-x86_64-cc)
         endif()
         set(CMD ./Configure ${OPENSSL_DARWIN_TARGET} --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests no-apps enable-quic --libdir=lib)
+      elseif (MINGW)
+        set(CMD ${CMAKE_COMMAND} -E env
+          CC=clang
+          CXX=clang++
+          AR=llvm-ar
+          RANLIB=llvm-ranlib
+          CFLAGS=-DSIO_UDP_NETRESET=SIO_UDP_CONNRESET
+          perl ./Configure mingw64 --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests no-apps enable-quic --libdir=lib)
       else()
         set(CMD ./config --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests enable-quic --libdir=lib)
       endif()
