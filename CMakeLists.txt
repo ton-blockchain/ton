@@ -272,6 +272,12 @@ if (USE_QUIC)
   function(ngtcp2_scope)
     set(BUILD_TESTING OFF)
     message("Add ngtcp2 with custom OpenSSL from ${OPENSSL_ROOT_DIR}")
+    execute_process(
+      COMMAND ${CMAKE_COMMAND}
+        -DWORKING_DIR=${CMAKE_CURRENT_SOURCE_DIR}/third-party/ngtcp2
+        -DPATCH_FILE=${CMAKE_CURRENT_SOURCE_DIR}/CMake/patches/ngtcp2-openssl-mingw.patch
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/ApplyGitPatch.cmake
+    )
     add_subdirectory(third-party/ngtcp2 EXCLUDE_FROM_ALL)
     set(NGTCP2_ROOT ${CMAKE_SOURCE_DIR}/third-party/ngtcp2)
   endfunction()
