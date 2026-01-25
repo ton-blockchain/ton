@@ -71,7 +71,7 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
           AR=llvm-ar
           RANLIB=llvm-ranlib
           CFLAGS=-DSIO_UDP_NETRESET=SIO_UDP_CONNRESET
-          perl ./Configure mingw64 --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests no-apps enable-quic --libdir=lib)
+          perl ./Configure mingw64 --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests no-apps enable-quic --libdir=lib no-threads)
       else()
         set(CMD ./config --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests enable-quic --libdir=lib)
       endif()
@@ -159,6 +159,12 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
         set(OPENSSL_SSL_LIBRARY ${OPENSSL_BINARY_DIR}/lib/libssl.a)
         set(OPENSSL_QUIC_CHECK_STAMP ${OPENSSL_BINARY_DIR}/.openssl_quic_checked)
       endif()
+      if (MINGW)
+        set(OPENSSL_LIBRARIES ${OPENSSL_SSL_LIBRARY} ${OPENSSL_CRYPTO_LIBRARY}
+          ws2_32 bcrypt crypt32 advapi32 user32 gdi32 kernel32)
+      else()
+        set(OPENSSL_LIBRARIES ${OPENSSL_SSL_LIBRARY} ${OPENSSL_CRYPTO_LIBRARY})
+      endif()
 
       if (ANDROID)
         set(OPENSSL_NEEDS_BUILD FALSE)
@@ -239,6 +245,13 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
         if (NOT EXISTS ${OPENSSL_SSL_LIBRARY} OR NOT EXISTS ${OPENSSL_CRYPTO_LIBRARY})
           set(OPENSSL_NEEDS_BUILD TRUE)
         else()
+          if (MINGW AND EXISTS "${OPENSSL_SOURCE_DIR}/configdata.pm")
+            file(READ "${OPENSSL_SOURCE_DIR}/configdata.pm" OPENSSL_CONFIGDATA)
+            string(FIND "${OPENSSL_CONFIGDATA}" "no-threads" OPENSSL_NO_THREADS_POS)
+            if (OPENSSL_NO_THREADS_POS EQUAL -1)
+              set(OPENSSL_NEEDS_BUILD TRUE)
+            endif()
+          endif()
           set(OPENSSL_NM_EXECUTABLE ${CMAKE_NM})
           if (NOT OPENSSL_NM_EXECUTABLE)
             find_program(OPENSSL_NM_EXECUTABLE nm)
@@ -266,6 +279,15 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
         endif()
 
         if (OPENSSL_NEEDS_BUILD)
+          if (MINGW)
+            execute_process(
+              COMMAND ${CMAKE_COMMAND} -E rm -f configdata.pm Makefile
+              WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
+              RESULT_VARIABLE OPENSSL_CLEAN_RESULT
+              OUTPUT_QUIET
+              ERROR_QUIET
+            )
+          endif()
           execute_process(
             COMMAND ${CMD}
             WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
@@ -292,13 +314,11 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
           endif()
         endif()
 
+        # OpenSSL already built during configuration - just create dummy targets
         add_custom_command(
-            WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
-            COMMAND ${CMD}
-            COMMAND make -j16
-            COMMAND make install_sw
-            COMMENT "Build OpenSSL with QUIC support"
-            DEPENDS ${OPENSSL_SOURCE_DIR}
+            COMMAND ${CMAKE_COMMAND} -E touch ${OPENSSL_CRYPTO_LIBRARY}
+            COMMAND ${CMAKE_COMMAND} -E touch ${OPENSSL_SSL_LIBRARY}
+            COMMENT "OpenSSL already built during configuration"
             OUTPUT ${OPENSSL_CRYPTO_LIBRARY} ${OPENSSL_SSL_LIBRARY}
         )
       endif()
