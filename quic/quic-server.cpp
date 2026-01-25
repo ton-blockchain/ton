@@ -183,11 +183,14 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
   QuicConnectionId cid = p_impl->get_primary_scid();
   QuicConnectionId temp_cid = vc.dcid;
 
-  auto state = std::make_shared<ConnectionState>(ConnectionState{.impl_ = std::move(p_impl),
-                                                                 .remote_address = msg_in.address,
-                                                                 .cid = cid,
-                                                                 .temp_cid = temp_cid,
-                                                                 .is_outbound = false});
+  auto state = std::make_shared<ConnectionState>(ConnectionState{
+      .impl_ = std::move(p_impl),
+      .remote_address = msg_in.address,
+      .cid = cid,
+      .temp_cid = temp_cid,
+      .blocked_packet = std::nullopt,
+      .is_outbound = false,
+  });
   LOG(INFO) << "creating " << *state;
 
   // Store by BOTH current temporary dcid and cid we just generated for the server
@@ -209,7 +212,13 @@ td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::E
   QuicConnectionId cid = p_impl->get_primary_scid();
 
   auto state = std::make_shared<ConnectionState>(ConnectionState{
-      .impl_ = std::move(p_impl), .remote_address = remote_address, .cid = cid, .temp_cid = {}, .is_outbound = true});
+      .impl_ = std::move(p_impl),
+      .remote_address = remote_address,
+      .cid = cid,
+      .temp_cid = {},
+      .blocked_packet = std::nullopt,
+      .is_outbound = true,
+  });
   LOG(INFO) << "creating " << *state;
 
   connections_[cid] = state;
