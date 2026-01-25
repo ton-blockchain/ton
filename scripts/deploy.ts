@@ -26,7 +26,12 @@ import { highloadWalletV3ConfigToCell } from '../wrappers/HighloadWalletV3';
 const RPC_URL = process.env.RPC_URL || 'https://net.ton.dev';
 const SECRET_KEY_BASE64 = process.env.SECRET_KEY_BASE64 || '';
 const WORKCHAIN = Number(process.env.WORKCHAIN || 0);
-const SUBWALLET_ID = Number(process.env.SUBWALLET_ID || 0x10ad);
+
+// Default subwallet id for HighloadWalletV3 as per the HighloadWalletV3 specification.
+// Can be overridden via the SUBWALLET_ID environment variable if needed.
+const HIGHLOAD_WALLET_V3_DEFAULT_SUBWALLET_ID = 0x10ad;
+
+const SUBWALLET_ID = Number(process.env.SUBWALLET_ID || HIGHLOAD_WALLET_V3_DEFAULT_SUBWALLET_ID);
 const TIMEOUT = Number(process.env.TIMEOUT || 3600);
 const DEPLOY_VALUE_ENV = process.env.DEPLOY_VALUE || '';
 const DEPLOY_SAFE_MARGIN = Number(process.env.DEPLOY_SAFE_MARGIN || '1.5');
