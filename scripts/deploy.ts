@@ -44,7 +44,7 @@ async function estimateDeployAmount(init: any): Promise<bigint> {
     try {
         // dynamic require to avoid TypeScript type errors if library evolves
         // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { TonClient } = require('@ton/ton');
+        const { TonClient } = require('ton');
         const client = new TonClient({ endpoint: RPC_URL });
 
         // Try some common estimate API names in a safe way
