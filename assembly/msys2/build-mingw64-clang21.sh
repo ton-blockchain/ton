@@ -26,8 +26,8 @@ case "${MSYSTEM:-}" in
     ;;
 esac
 
-# Ensure MSYS2 runtime DLLs are preferred at run time.
-export PATH="${MSYS_PREFIX}/bin:$PATH"
+# Ensure MSYS2 runtime DLLs and tools are preferred at run time.
+export PATH="/usr/bin:${MSYS_PREFIX}/bin:$PATH"
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="$ROOT_DIR/build-mingw64"
@@ -54,6 +54,7 @@ if ! clang++ --version | grep -q "clang version 21"; then
 fi
 
 cd third-party/openssl
+git checkout .
 git clean -fdx
 cd -
 
