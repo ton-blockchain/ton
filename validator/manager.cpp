@@ -21,6 +21,7 @@
 #include "auto/tl/lite_api.h"
 #include "auto/tl/ton_api_json.h"
 #include "common/delay.h"
+#include "common/stats.h"
 #include "db/fileref.hpp"
 #include "downloaders/wait-block-data.hpp"
 #include "downloaders/wait-block-state-merge.hpp"
@@ -1878,7 +1879,40 @@ void ValidatorManagerImpl::get_block_proof_link_from_import(BlockIdExt block_id,
   }
 }
 
+namespace {
+
+class StatsCallback final : public ton::stats::Callback {
+ public:
+  StatsCallback(td::actor::ActorId<ValidatorManagerImpl> manager) : manager_(manager) {
+  }
+
+  std::unique_ptr<stats::Recorder> get_recorder(const stats::Tag &) override {
+    return std::make_unique<Recorder>(manager_);
+  }
+
+ private:
+  class Recorder final : public ton::stats::Recorder {
+   public:
+    Recorder(td::actor::ActorId<ValidatorManagerImpl> manager) : manager_(manager) {
+    }
+
+    void add(const tl_object_ptr<ton_api::Object> &data) override {
+      td::actor::send_closure(manager_, &ValidatorManagerImpl::log_stats,
+                              td::json_encode<std::string>(td::ToJson(data)));
+    }
+
+   private:
+    td::actor::ActorId<ValidatorManagerImpl> manager_;
+  };
+
+  td::actor::ActorId<ValidatorManagerImpl> manager_;
+};
+
+}  // namespace
+
 void ValidatorManagerImpl::start_up() {
+  stats::install_callback(std::make_unique<StatsCallback>(actor_id(this)));
+
   db_ = create_db_actor(actor_id(this), db_root_, opts_);
   actor_stats_ = td::actor::create_actor<td::actor::ActorStats>("actor_stats");
   lite_server_cache_ = create_liteserver_cache_actor(actor_id(this), db_root_);
@@ -3116,6 +3150,10 @@ void ValidatorManagerImpl::log_end_validator_group_stats(validatorsession::EndVa
   write_session_stats(stats);
 }
 
+void ValidatorManagerImpl::log_stats(std::string data) {
+  write_session_stats(data);
+}
+
 void ValidatorManagerImpl::get_block_handle_for_litequery(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise) {
   get_block_handle(block_id, false,
                    [SelfId = actor_id(this), block_id, promise = std::move(promise),
@@ -3598,7 +3636,12 @@ void ValidatorManagerImpl::write_session_stats(const T &obj) {
   if (fname.empty()) {
     return;
   }
-  auto s = td::json_encode<std::string>(td::ToJson(*obj.tl()), false);
+  std::string s;
+  if constexpr (std::same_as<T, std::string>) {
+    s = obj;
+  } else {
+    s = td::json_encode<std::string>(td::ToJson(*obj.tl()), false);
+  }
   s.erase(std::remove_if(s.begin(), s.end(), [](char c) { return c == '\n' || c == '\r'; }), s.end());
 
   std::ofstream file;
