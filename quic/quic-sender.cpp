@@ -230,7 +230,7 @@ std::string QuicSender::Stats::dump_top(size_t k) const{
   }
   std::string result = "[\n";
   for (auto it = top.crbegin(); it != top.crend(); ++it) {
-    result += PSTRING() << "(" << it->first.first << "," << it->first.second << "):{" << it->second.dump() << "},\n";
+    result += PSTRING() << "\t(" << it->first.first << "," << it->first.second << "):{" << it->second.dump() << "},\n";
   }
   result += "]";
   return result;
@@ -252,6 +252,11 @@ QuicSender::Connection::~Connection() {
   for (auto &[_, P] : responses) {
     P.set_error(td::Status::Error("connection closed"));
   }
+}
+
+void QuicSender::start_up(){
+  AdnlSenderInterface::start_up();
+  alarm_timestamp() = td::Timestamp::now();
 }
 
 void QuicSender::alarm(){

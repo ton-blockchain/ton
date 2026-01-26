@@ -15,9 +15,9 @@ namespace ton::quic {
 using QuicStreamID = int64_t;
 
 struct QuicConnectionStats {
-  size_t bytes_rx = 0, bytes_tx = 0, bytes_lost = 0;
-  size_t bytes_unacked = 0, bytes_unsent = 0;
-  size_t total_sids = 0, open_sids = 0;
+  int64_t bytes_rx = 0, bytes_tx = 0, bytes_lost = 0;
+  int64_t bytes_unacked = 0, bytes_unsent = 0;
+  int64_t total_sids = 0, open_sids = 0;
   double mean_rtt = 0;
 
   QuicConnectionStats operator+(const QuicConnectionStats &other) const {
@@ -25,7 +25,7 @@ struct QuicConnectionStats {
       .bytes_rx = bytes_rx + other.bytes_rx, .bytes_tx = bytes_tx + other.bytes_tx,
       .bytes_lost = bytes_lost + other.bytes_lost, .bytes_unacked = bytes_unacked + other.bytes_unacked,
       .bytes_unsent = bytes_unsent + other.bytes_unsent, .total_sids = total_sids + other.total_sids,
-      .open_sids = open_sids + other.open_sids, .mean_rtt = 0
+      .open_sids = open_sids + other.open_sids
     };
   }
 
@@ -34,7 +34,7 @@ struct QuicConnectionStats {
       .bytes_rx = bytes_rx - other.bytes_rx, .bytes_tx = bytes_tx - other.bytes_tx,
       .bytes_lost = bytes_lost - other.bytes_lost, .bytes_unacked = bytes_unacked - other.bytes_unacked,
       .bytes_unsent = bytes_unsent - other.bytes_unsent, .total_sids = total_sids - other.total_sids,
-      .open_sids = open_sids - other.open_sids, .mean_rtt = 0
+      .open_sids = open_sids - other.open_sids
     };
   }
 };

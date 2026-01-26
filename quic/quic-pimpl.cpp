@@ -432,9 +432,10 @@ QuicConnectionStats QuicConnectionPImpl::get_stats(){
     bytes_unsent += stream.reader_.size();
   }
   return {
-    .bytes_rx = info.bytes_recv, .bytes_tx = info.bytes_sent, .bytes_lost = info.bytes_lost,
-    .bytes_unacked = bytes_unacked, .bytes_unsent = bytes_unsent, .total_sids = sids_encountered,
-    .open_sids = streams_.size(), .mean_rtt = static_cast<double>(info.smoothed_rtt)
+    .bytes_rx = static_cast<int64_t>(info.bytes_recv), .bytes_tx = static_cast<int64_t>(info.bytes_sent),
+    .bytes_lost = static_cast<int64_t>(info.bytes_lost), .bytes_unacked = static_cast<int64_t>(bytes_unacked),
+    .bytes_unsent = static_cast<int64_t>(bytes_unsent), .total_sids = static_cast<int64_t>(sids_encountered),
+    .open_sids = static_cast<int64_t>(streams_.size()), .mean_rtt = static_cast<double>(info.smoothed_rtt)
   };
 }
 

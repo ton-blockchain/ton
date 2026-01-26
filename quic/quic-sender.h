@@ -70,9 +70,9 @@ class QuicSender : public adnl::AdnlSenderInterface {
 
   static constexpr int NODE_PORT_OFFSET = 1000;
 
-  static constexpr double STATS_DUMP_PERIOD_SEC = 60;
-  static constexpr double STATS_COLLECT_PERIOD0_SEC = 10;
-  static constexpr double STATS_COLLECT_PERIOD1_SEC = 10 * 60;
+  static constexpr double STATS_DUMP_PERIOD_SEC = 10;
+  static constexpr double STATS_COLLECT_PERIOD0_SEC = 2;
+  static constexpr double STATS_COLLECT_PERIOD1_SEC = 5;
 
   td::actor::ActorId<adnl::AdnlPeerTable> adnl_;
   td::actor::ActorId<keyring::Keyring> keyring_;
@@ -88,6 +88,7 @@ class QuicSender : public adnl::AdnlSenderInterface {
   std::tuple<td::Timestamp, Stats, Stats> period0_stats = {{}, {}, {}};
   std::tuple<td::Timestamp, Stats, Stats> period1_stats = {{}, {}, {}};
 
+  void start_up() override;
   void alarm() override;
 
   void write_stats(Stats stats);

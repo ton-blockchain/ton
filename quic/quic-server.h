@@ -65,11 +65,15 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
       QuicConnectionStats impl_stats = {};
 
       Entry operator+(const Entry &other) const {
-        return {.total_conns = total_conns + other.total_conns, .impl_stats = impl_stats + other.impl_stats};
+        Entry res = {.total_conns = total_conns + other.total_conns, .impl_stats = impl_stats + other.impl_stats};
+        res.impl_stats.mean_rtt = (total_conns * impl_stats.mean_rtt + other.total_conns * impl_stats.mean_rtt) / (total_conns + other.total_conns);
+        return res;
       }
 
       Entry operator-(const Entry &other) const {
-        return {.total_conns = total_conns - other.total_conns, .impl_stats = impl_stats - other.impl_stats};
+        Entry res = {.total_conns = total_conns - other.total_conns, .impl_stats = impl_stats - other.impl_stats};
+        res.impl_stats.mean_rtt = impl_stats.mean_rtt;
+        return res;
       }
 
     } summary = {};
