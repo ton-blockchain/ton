@@ -568,6 +568,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void log_validator_session_stats(validatorsession::ValidatorSessionStats stats) override;
   void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) override;
   void log_end_validator_group_stats(validatorsession::EndValidatorGroupStats stats) override;
+  void log_stats(std::string);
 
   void update_options(td::Ref<ValidatorManagerOptions> opts) override;
 

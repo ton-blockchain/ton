@@ -220,6 +220,8 @@ set(BLOCK_SOURCE
   block/validator-set.cpp
   block/signature-set.h
   block/signature-set.cpp
+
+  common/stats.cpp
 )
 
 set(SMC_ENVELOPE_SOURCE
