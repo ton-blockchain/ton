@@ -69,11 +69,27 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
         if ("$ENV{MSYSTEM}" STREQUAL "UCRT64")
           set(OPENSSL_MINGW_CFLAGS "${OPENSSL_MINGW_CFLAGS} -D__USE_MINGW_ANSI_STDIO=1")
         endif()
+        set(OPENSSL_CC "${CMAKE_C_COMPILER}")
+        set(OPENSSL_CXX "${CMAKE_CXX_COMPILER}")
+        set(OPENSSL_AR "${CMAKE_AR}")
+        set(OPENSSL_RANLIB "${CMAKE_RANLIB}")
+        if (NOT OPENSSL_CC)
+          set(OPENSSL_CC clang)
+        endif()
+        if (NOT OPENSSL_CXX)
+          set(OPENSSL_CXX clang++)
+        endif()
+        if (NOT OPENSSL_AR)
+          set(OPENSSL_AR llvm-ar)
+        endif()
+        if (NOT OPENSSL_RANLIB)
+          set(OPENSSL_RANLIB llvm-ranlib)
+        endif()
         set(CMD ${CMAKE_COMMAND} -E env
-          CC=clang
-          CXX=clang++
-          AR=llvm-ar
-          RANLIB=llvm-ranlib
+          CC=${OPENSSL_CC}
+          CXX=${OPENSSL_CXX}
+          AR=${OPENSSL_AR}
+          RANLIB=${OPENSSL_RANLIB}
           CFLAGS=${OPENSSL_MINGW_CFLAGS}
           perl ./Configure mingw64 --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests no-apps enable-quic --libdir=lib no-threads)
       else()
@@ -299,6 +315,23 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
               string(FIND "${OPENSSL_NM_OUTPUT}" "SSL_set_quic_tls_cbs" HAVE_SSL_SET_QUIC_TLS_CBS)
               if (HAVE_SSL_PROVIDE_QUIC_DATA EQUAL -1 AND HAVE_SSL_SET_QUIC_TLS_CBS EQUAL -1)
                 set(OPENSSL_NEEDS_BUILD TRUE)
+              endif()
+              if (MINGW)
+                execute_process(
+                  COMMAND ${OPENSSL_NM_EXECUTABLE} -g ${OPENSSL_CRYPTO_LIBRARY}
+                  RESULT_VARIABLE OPENSSL_CRYPTO_NM_RESULT
+                  OUTPUT_VARIABLE OPENSSL_CRYPTO_NM_OUTPUT
+                  ERROR_VARIABLE OPENSSL_CRYPTO_NM_ERROR
+                )
+                if (NOT OPENSSL_CRYPTO_NM_RESULT EQUAL 0)
+                  set(OPENSSL_NEEDS_BUILD TRUE)
+                else()
+                  string(FIND "${OPENSSL_CRYPTO_NM_OUTPUT}" "__security_cookie" OPENSSL_CRYPTO_HAS_SECURITY_COOKIE)
+                  string(FIND "${OPENSSL_CRYPTO_NM_OUTPUT}" "__GSHandlerCheck" OPENSSL_CRYPTO_HAS_GS_HANDLER)
+                  if (NOT OPENSSL_CRYPTO_HAS_SECURITY_COOKIE EQUAL -1 OR NOT OPENSSL_CRYPTO_HAS_GS_HANDLER EQUAL -1)
+                    set(OPENSSL_NEEDS_BUILD TRUE)
+                  endif()
+                endif()
               endif()
             endif()
           endif()

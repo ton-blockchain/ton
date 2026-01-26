@@ -53,6 +53,10 @@ if ! clang++ --version | grep -q "clang version 21"; then
   exit 1
 fi
 
+cd third-party/openssl
+git clean -fdx
+cd -
+
 cmake -S "$ROOT_DIR" -B "$BUILD_DIR" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_COMPILER=clang \
@@ -99,5 +103,7 @@ if [ "$with_artifacts" = true ]; then
   test $? -eq 0 || { echo "Can't copy final binaries"; exit 1; }
   cp -R crypto/smartcont artifacts
   cp -R crypto/fift/lib artifacts
-  chmod -R +x artifacts/*
+  cd artifacts
+  strip *.exe *.dll
+  chmod -R +x *
 fi
