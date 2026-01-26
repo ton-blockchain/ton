@@ -65,12 +65,16 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
         endif()
         set(CMD ./Configure ${OPENSSL_DARWIN_TARGET} --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests no-apps enable-quic --libdir=lib)
       elseif (MINGW)
+        set(OPENSSL_MINGW_CFLAGS "-DSIO_UDP_NETRESET=SIO_UDP_CONNRESET")
+        if ("$ENV{MSYSTEM}" STREQUAL "UCRT64")
+          set(OPENSSL_MINGW_CFLAGS "${OPENSSL_MINGW_CFLAGS} -D__USE_MINGW_ANSI_STDIO=1")
+        endif()
         set(CMD ${CMAKE_COMMAND} -E env
           CC=clang
           CXX=clang++
           AR=llvm-ar
           RANLIB=llvm-ranlib
-          CFLAGS=-DSIO_UDP_NETRESET=SIO_UDP_CONNRESET
+          CFLAGS=${OPENSSL_MINGW_CFLAGS}
           perl ./Configure mingw64 --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests no-apps enable-quic --libdir=lib no-threads)
       else()
         set(CMD ./config --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests enable-quic --libdir=lib)
@@ -91,9 +95,28 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
       set(OPENSSL_CRYPTO_LIBRARY ${OPENSSL_BINARY_DIR}/lib/libcrypto.lib)
       set(OPENSSL_SSL_LIBRARY ${OPENSSL_BINARY_DIR}/lib/libssl.lib)
       set(OPENSSL_INCLUDE_DIR ${OPENSSL_BINARY_DIR}/include)
+      set(OPENSSL_MSVC_ENV ${CMAKE_COMMAND} -E env CL=/FS)
+      set(OPENSSL_MSVC_RECONFIG FALSE)
+      if (EXISTS "${OPENSSL_SOURCE_DIR}/configdata.pm")
+        file(READ "${OPENSSL_SOURCE_DIR}/configdata.pm" OPENSSL_CONFIGDATA)
+        string(FIND "${OPENSSL_CONFIGDATA}" "VC-WIN64A" OPENSSL_MSVC_CONFIG_POS)
+        if (OPENSSL_MSVC_CONFIG_POS EQUAL -1)
+          set(OPENSSL_MSVC_RECONFIG TRUE)
+        endif()
+      endif()
+      if (OPENSSL_MSVC_RECONFIG)
+        file(REMOVE
+          "${OPENSSL_SOURCE_DIR}/configdata.pm"
+          "${OPENSSL_SOURCE_DIR}/Makefile"
+          "${OPENSSL_SOURCE_DIR}/makefile"
+          "${OPENSSL_SOURCE_DIR}/makefile.gen"
+          "${OPENSSL_CRYPTO_LIBRARY}"
+          "${OPENSSL_SSL_LIBRARY}"
+        )
+      endif()
       if (NOT EXISTS "${OPENSSL_CRYPTO_LIBRARY}" OR NOT EXISTS "${OPENSSL_SSL_LIBRARY}")
         execute_process(
-          COMMAND perl Configure VC-WIN64A --prefix=${OPENSSL_BINARY_DIR} --openssldir=${OPENSSL_BINARY_DIR} no-shared no-unit-test no-tests no-apps enable-quic
+          COMMAND ${OPENSSL_MSVC_ENV} perl Configure VC-WIN64A --prefix=${OPENSSL_BINARY_DIR} --openssldir=${OPENSSL_BINARY_DIR} no-shared no-unit-test no-tests no-apps enable-quic
           WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
           RESULT_VARIABLE OPENSSL_CONFIG_RESULT
         )
@@ -101,7 +124,7 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
           message(FATAL_ERROR "OpenSSL config failed with code ${OPENSSL_CONFIG_RESULT}")
         endif()
         execute_process(
-          COMMAND nmake
+          COMMAND ${OPENSSL_MSVC_ENV} nmake
           WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
           RESULT_VARIABLE OPENSSL_MAKE_RESULT
         )
@@ -109,7 +132,7 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
           message(FATAL_ERROR "OpenSSL build failed with code ${OPENSSL_MAKE_RESULT}")
         endif()
         execute_process(
-          COMMAND nmake install_sw
+          COMMAND ${OPENSSL_MSVC_ENV} nmake install_sw
           WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
           RESULT_VARIABLE OPENSSL_INSTALL_RESULT
         )
@@ -118,12 +141,9 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
         endif()
       endif()
       add_custom_command(
-        WORKING_DIRECTORY ${OPENSSL_SOURCE_DIR}
-        COMMAND perl Configure VC-WIN64A --prefix=${OPENSSL_BINARY_DIR} --openssldir=${OPENSSL_BINARY_DIR} no-shared no-unit-test no-tests no-apps enable-quic
-        COMMAND nmake
-        COMMAND nmake install_sw
-        COMMENT "Build OpenSSL with MSVC"
-        DEPENDS ${OPENSSL_SOURCE_DIR}
+        COMMAND ${CMAKE_COMMAND} -E touch ${OPENSSL_CRYPTO_LIBRARY}
+        COMMAND ${CMAKE_COMMAND} -E touch ${OPENSSL_SSL_LIBRARY}
+        COMMENT "OpenSSL already built during configuration (MSVC)"
         OUTPUT ${OPENSSL_CRYPTO_LIBRARY} ${OPENSSL_SSL_LIBRARY}
       )
     elseif (USE_EMSCRIPTEN OR EMSCRIPTEN)
@@ -250,6 +270,12 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
             string(FIND "${OPENSSL_CONFIGDATA}" "no-threads" OPENSSL_NO_THREADS_POS)
             if (OPENSSL_NO_THREADS_POS EQUAL -1)
               set(OPENSSL_NEEDS_BUILD TRUE)
+            endif()
+            if ("$ENV{MSYSTEM}" STREQUAL "UCRT64")
+              string(FIND "${OPENSSL_CONFIGDATA}" "__USE_MINGW_ANSI_STDIO" OPENSSL_UCRT_STDIO_POS)
+              if (OPENSSL_UCRT_STDIO_POS EQUAL -1)
+                set(OPENSSL_NEEDS_BUILD TRUE)
+              endif()
             endif()
           endif()
           set(OPENSSL_NM_EXECUTABLE ${CMAKE_NM})

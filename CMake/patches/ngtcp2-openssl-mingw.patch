@@ -1,8 +1,7 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 62e64b39..6815f7a3 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -169,14 +169,25 @@ if(OPENSSL_FOUND)
+@@ -171,14 +171,25 @@ if(OPENSSL_FOUND)
      cmake_push_check_state()
      set(CMAKE_REQUIRED_INCLUDES   "${OPENSSL_INCLUDE_DIR}")
      set(CMAKE_REQUIRED_LIBRARIES  "${OPENSSL_LIBRARIES}")

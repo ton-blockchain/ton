@@ -1,0 +1,36 @@
+name: MSYS2 MinGW64 Build
+
+on: [push, pull_request, workflow_dispatch, workflow_call]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: Setup MSYS2 and Install Packages
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+
+      - name: Run Build Script
+        run: |
+          echo "Running in MSYS2 MINGW64 environment!"
+          cp assembly/msys2/build-mingw64-clang21.sh .
+          chmod +x build-mingw64-clang21.sh
+          ./build-mingw64-clang21.sh -a
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@master
+        with:
+          name: ton-msys2-mingw64
+          path: artifacts

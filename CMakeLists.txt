@@ -272,12 +272,10 @@ if (USE_QUIC)
   function(ngtcp2_scope)
     set(BUILD_TESTING OFF)
     message("Add ngtcp2 with custom OpenSSL from ${OPENSSL_ROOT_DIR}")
-    execute_process(
-      COMMAND ${CMAKE_COMMAND}
-        -DWORKING_DIR=${CMAKE_CURRENT_SOURCE_DIR}/third-party/ngtcp2
-        -DPATCH_FILE=${CMAKE_CURRENT_SOURCE_DIR}/CMake/patches/ngtcp2-openssl-mingw.patch
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/ApplyGitPatch.cmake
-    )
+    if (MINGW)
+      # Assume QUIC support for the custom OpenSSL to avoid MSYS2 patching issues.
+      set(HAVE_SSL_SET_QUIC_TLS_CBS TRUE CACHE BOOL "OpenSSL QUIC support" FORCE)
+    endif()
     add_subdirectory(third-party/ngtcp2 EXCLUDE_FROM_ALL)
     set(NGTCP2_ROOT ${CMAKE_SOURCE_DIR}/third-party/ngtcp2)
   endfunction()
