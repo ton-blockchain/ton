@@ -3,7 +3,7 @@ set -euo pipefail
 
 with_artifacts=false
 
-while getopts 'ta' flag; do
+while getopts 'a' flag; do
   case "${flag}" in
     a) with_artifacts=true ;;
     *) break
@@ -30,7 +30,7 @@ esac
 export PATH="${MSYS_PREFIX}/bin:$PATH"
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BUILD_DIR="$ROOT_DIR/build-ucrt64-clang21-static"
+BUILD_DIR="$ROOT_DIR/build-ucrt64"
 
 PACMAN_PKGS=(
   ${PKG_PREFIX}-clang
