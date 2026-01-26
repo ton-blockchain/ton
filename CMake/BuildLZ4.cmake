@@ -64,9 +64,8 @@ elseif (ANDROID)
     execute_process(
       COMMAND ${CMAKE_COMMAND} -E echo "Patching LZ4 CMakeLists.txt"
       COMMAND ${CMAKE_COMMAND}
-        -DWORKING_DIR=${LZ4_SOURCE_DIR}
-        -DPATCH_FILE=${CMAKE_CURRENT_SOURCE_DIR}/CMake/patches/lz4-cmake-min-version.patch
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/ApplyGitPatch.cmake
+        -DLZ4_CMAKE_FILE=${LZ4_SOURCE_DIR}/build/cmake/CMakeLists.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/PatchLZ4.cmake
       COMMAND ${CMAKE_COMMAND}
         -S ${LZ4_SOURCE_DIR}/build/cmake
         -B ${LZ4_BUILD_DIR}
@@ -100,9 +99,8 @@ elseif (ANDROID)
       WORKING_DIRECTORY ${LZ4_BUILD_DIR}
       COMMAND ${CMAKE_COMMAND} -E echo "Patching LZ4 CMakeLists.txt"
       COMMAND ${CMAKE_COMMAND}
-        -DWORKING_DIR=${LZ4_SOURCE_DIR}
-        -DPATCH_FILE=${CMAKE_CURRENT_SOURCE_DIR}/CMake/patches/lz4-cmake-min-version.patch
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/ApplyGitPatch.cmake
+        -DLZ4_CMAKE_FILE=${LZ4_SOURCE_DIR}/build/cmake/CMakeLists.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/PatchLZ4.cmake
       COMMAND ${CMAKE_COMMAND}
         -S ${LZ4_SOURCE_DIR}/build/cmake
         -B ${LZ4_BUILD_DIR}
@@ -173,9 +171,8 @@ else()
         WORKING_DIRECTORY ${LZ4_BUILD_DIR}
         COMMAND ${CMAKE_COMMAND} -E echo "Patching LZ4 CMakeLists.txt"
         COMMAND ${CMAKE_COMMAND}
-          -DWORKING_DIR=${LZ4_SOURCE_DIR}
-          -DPATCH_FILE=${CMAKE_CURRENT_SOURCE_DIR}/CMake/patches/lz4-cmake-min-version.patch
-          -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/ApplyGitPatch.cmake
+          -DLZ4_CMAKE_FILE=${LZ4_SOURCE_DIR}/build/cmake/CMakeLists.txt
+          -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/PatchLZ4.cmake
         COMMAND ${CMAKE_COMMAND}
           -S ${LZ4_SOURCE_DIR}/build/cmake
           -B ${LZ4_BUILD_DIR}
