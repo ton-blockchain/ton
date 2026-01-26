@@ -187,10 +187,129 @@ void QuicSender::add_local_id(adnl::AdnlNodeIdShort local_id) {
   add_local_id_coro(local_id).start().detach("add local id");
 }
 
+std::string QuicSender::Stats::Entry::dump() const{
+  return PSTRING()
+    << "conns: " << server_stats.total_conns << ", "
+    << "rx: " << server_stats.impl_stats.bytes_rx << ", "
+    << "tx: " << server_stats.impl_stats.bytes_tx << ", "
+    << "lost: " << server_stats.impl_stats.bytes_lost << ", "
+    << "unack: " << server_stats.impl_stats.bytes_unacked << ", "
+    << "wait: " << server_stats.impl_stats.bytes_unsent << ", "
+    << "sids: " << server_stats.impl_stats.open_sids << ", "
+    << "rtt: " << server_stats.impl_stats.mean_rtt;
+}
+
+QuicSender::Stats QuicSender::Stats::operator-(const Stats& other) const{
+  Stats stats {.summary = summary - other.summary, .per_path = {}};
+  for (const auto &[path, entry] : other.per_path) {
+    if (per_path.contains(path)) {
+      stats.per_path[path] = per_path.at(path) - entry;
+    }
+  }
+  return stats;
+}
+
+std::string QuicSender::Stats::dump() const{
+  return PSTRING() << "{\n\t" << summary.dump() << "\n}";
+}
+
+std::string QuicSender::Stats::dump_top(size_t k) const{
+  using Element = std::pair<AdnlPath, Entry>;
+  struct Compare {
+    bool operator()(const Element &a, const Element &b) const {
+      return a.second.server_stats.impl_stats.bytes_rx + a.second.server_stats.impl_stats.bytes_tx <
+        b.second.server_stats.impl_stats.bytes_rx + b.second.server_stats.impl_stats.bytes_tx;
+    }
+  } cmp;
+  std::multiset<Element, Compare> top(cmp);
+  for (const auto &e : per_path) {
+    top.insert(e);
+    if (top.size() > k) {
+      top.erase(top.begin());
+    }
+  }
+  std::string result = "[\n";
+  for (auto it = top.crbegin(); it != top.crend(); ++it) {
+    result += PSTRING() << "(" << it->first.first << "," << it->first.second << "):{" << it->second.dump() << "},\n";
+  }
+  result += "]";
+  return result;
+}
+
+td::actor::Task<QuicSender::Stats> QuicSender::collect_stats(){
+  Stats stats;
+  for (auto &[_, server] : servers_) {
+    auto serv_stats = co_await td::actor::ask(server, &QuicServer::collect_stats);
+    stats.summary = stats.summary + Stats::Entry{.server_stats = serv_stats.summary};
+    for (auto &[id, conn_stats] : serv_stats.per_conn) {
+      stats.per_path[by_cid_[id]->path] = Stats::Entry{.server_stats = conn_stats};
+    }
+  }
+  co_return stats;
+}
+
 QuicSender::Connection::~Connection() {
   for (auto &[_, P] : responses) {
     P.set_error(td::Status::Error("connection closed"));
   }
+}
+
+void QuicSender::alarm(){
+  AdnlSenderInterface::alarm();
+  td::actor::send_closure(actor_id(this), &QuicSender::collect_stats, td::make_promise([self = actor_id(this)] (td::Result<Stats> R) {
+    td::actor::send_closure(self, &QuicSender::write_stats, R.move_as_ok());
+  }));
+}
+
+void QuicSender::write_stats(Stats stats) {
+  auto now = td::Timestamp::now();
+  if (!next_stats_dump) { // Init all stats
+    next_stats_dump = now;
+    next_stats_dump += STATS_DUMP_PERIOD_SEC;
+
+    period0_stats = {now, stats, stats};
+    std::get<0>(period0_stats) += STATS_COLLECT_PERIOD0_SEC;
+
+    period1_stats = {now, stats, stats};
+    std::get<0>(period1_stats) += STATS_COLLECT_PERIOD1_SEC;
+  }
+
+  bool period0_collected = false, period1_collected = false;
+
+  if (std::get<0>(period0_stats) < now) {
+    auto &[ts, stats_last, stats_delta] = period0_stats;
+    ts += STATS_COLLECT_PERIOD0_SEC;
+    stats_delta = stats - stats_last;
+    stats_last = stats;
+    period0_collected = true;
+  }
+
+  if (std::get<0>(period1_stats) < now) {
+    auto &[ts, stats_last, stats_delta] = period1_stats;
+    ts += STATS_COLLECT_PERIOD1_SEC;
+    stats_delta = stats - stats_last;
+    stats_last = stats;
+    period1_collected = true;
+  }
+
+  if (next_stats_dump < now) {
+    next_stats_dump += STATS_DUMP_PERIOD_SEC;
+    LOG(INFO) << "ALL TIME stats SUMMARY: " << stats.dump();
+    if (period0_collected) {
+      const auto &stats0 = std::get<2>(period0_stats);
+      LOG(INFO) << "PERIOD 0 stats SUMMARY: " << stats0.dump();
+      LOG(INFO) << "PERIOD 0 stats TOP 5 (by RX+TX): " << stats0.dump_top(5);
+    }
+    if (period1_collected) {
+      const auto &stats1 = std::get<2>(period0_stats);
+      LOG(INFO) << "PERIOD 1 stats SUMMARY: " << stats1.dump();
+      LOG(INFO) << "PERIOD 1 stats TOP 5 (by RX+TX): " << stats1.dump_top(5);
+    }
+  }
+
+  alarm_timestamp().relax(next_stats_dump);
+  alarm_timestamp().relax(std::get<0>(period0_stats));
+  alarm_timestamp().relax(std::get<0>(period1_stats));
 }
 
 td::actor::Task<td::Unit> QuicSender::send_message_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,

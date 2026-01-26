@@ -28,6 +28,31 @@ class QuicSender : public adnl::AdnlSenderInterface {
 
   void add_local_id(adnl::AdnlNodeIdShort local_id);
 
+  struct Stats {
+    struct Entry {
+      QuicServer::Stats::Entry server_stats = {};
+
+      Entry operator+(const Entry &other) const {
+        return {.server_stats = server_stats + other.server_stats};
+      }
+
+      Entry operator-(const Entry &other) const {
+        return {.server_stats = server_stats - other.server_stats};
+      }
+
+      [[nodiscard]] std::string dump() const;
+    } summary = {};
+    std::map<AdnlPath, Entry> per_path;
+
+    Stats operator-(const Stats& other) const;
+
+    [[nodiscard]] std::string dump() const;
+
+    [[nodiscard]] std::string dump_top(size_t k) const;
+  };
+
+  td::actor::Task<Stats> collect_stats();
+
  private:
   struct Connection {
     bool init_started = false;
@@ -45,6 +70,10 @@ class QuicSender : public adnl::AdnlSenderInterface {
 
   static constexpr int NODE_PORT_OFFSET = 1000;
 
+  static constexpr double STATS_DUMP_PERIOD_SEC = 60;
+  static constexpr double STATS_COLLECT_PERIOD0_SEC = 10;
+  static constexpr double STATS_COLLECT_PERIOD1_SEC = 10 * 60;
+
   td::actor::ActorId<adnl::AdnlPeerTable> adnl_;
   td::actor::ActorId<keyring::Keyring> keyring_;
 
@@ -54,6 +83,14 @@ class QuicSender : public adnl::AdnlSenderInterface {
 
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<QuicServer>> servers_;
   std::map<adnl::AdnlNodeIdShort, td::Ed25519::PrivateKey> local_keys_;
+
+  td::Timestamp next_stats_dump = {};
+  std::tuple<td::Timestamp, Stats, Stats> period0_stats = {{}, {}, {}};
+  std::tuple<td::Timestamp, Stats, Stats> period1_stats = {{}, {}, {}};
+
+  void alarm() override;
+
+  void write_stats(Stats stats);
 
   td::actor::Task<td::Unit> send_message_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                               td::BufferSlice data);

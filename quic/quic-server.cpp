@@ -84,6 +84,19 @@ bool QuicServer::try_close(ConnectionState &state) {
   return true;
 }
 
+void QuicServer::collect_stats(td::Promise<Stats> P){
+  Stats stats;
+  for (auto &[id, conn] : connections_) {
+    Stats::Entry entry {
+      .total_conns = 1,
+      .impl_stats = conn->impl_->get_stats()
+    };
+    stats.summary = stats.summary + entry;
+    stats.per_conn[id] = entry;
+  }
+  return P.set_value(std::move(stats));
+}
+
 void QuicServer::close(QuicConnectionId cid) {
   auto it = connections_.find(cid);
   if (it == connections_.end()) {

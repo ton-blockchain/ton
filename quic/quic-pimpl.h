@@ -126,6 +126,8 @@ struct QuicConnectionPImpl {
     }
   }
 
+  QuicConnectionStats get_stats();
+
  private:
   td::IPAddress local_address_;
   td::IPAddress remote_address_;
@@ -153,6 +155,7 @@ struct QuicConnectionPImpl {
   openssl_ptr<ngtcp2_conn, &ngtcp2_conn_del> conn_;
   ngtcp2_crypto_conn_ref conn_ref_{};
 
+  size_t sids_encountered = 0;
   std::unordered_map<QuicStreamID, OutboundStreamState> streams_;
   bool streams_blocked_ = false;
 

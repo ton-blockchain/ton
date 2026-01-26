@@ -423,6 +423,21 @@ td::Status QuicConnectionPImpl::write_stream(UdpMessageBuffer& msg_out, QuicStre
   return write_one_packet(msg_out, sid);
 }
 
+QuicConnectionStats QuicConnectionPImpl::get_stats(){
+  ngtcp2_conn_info info;
+  ngtcp2_conn_get_conn_info(conn(), &info);
+  size_t bytes_unacked = 0, bytes_unsent = 0;
+  for (auto &[_, stream] : streams_) {
+    bytes_unacked += stream.pin_.size();
+    bytes_unsent += stream.reader_.size();
+  }
+  return {
+    .bytes_rx = info.bytes_recv, .bytes_tx = info.bytes_sent, .bytes_lost = info.bytes_lost,
+    .bytes_unacked = bytes_unacked, .bytes_unsent = bytes_unsent, .total_sids = sids_encountered,
+    .open_sids = streams_.size(), .mean_rtt = static_cast<double>(info.smoothed_rtt)
+  };
+}
+
 ngtcp2_tstamp QuicConnectionPImpl::now_ts() {
   return to_ngtcp2_tstamp(td::Timestamp::now());
 }
@@ -490,6 +505,7 @@ int QuicConnectionPImpl::on_recv_stream_data(uint32_t flags, int64_t stream_id, 
   if (ngtcp2_is_bidi_stream(stream_id) && !ngtcp2_conn_is_local_stream(conn(), stream_id)) {
     // allow to write into this stream
     streams_.emplace(stream_id, OutboundStreamState{});
+    sids_encountered++;
   }
 
   return 0;
