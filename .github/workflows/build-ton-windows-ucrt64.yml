@@ -19,7 +19,7 @@ jobs:
       - name: Setup MSYS2 and Install Packages
         uses: msys2/setup-msys2@v2
         with:
-          msystem: URCT64
+          msystem: UCRT64
           update: true
 
       - name: Run Build Script
