@@ -32,6 +32,10 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query);
   void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
 
+  void obtain_state_for_decompression(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query);
+  void process_block_broadcast_with_state(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query,
+                                          td::Ref<ShardState> state);
+
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query);
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query);

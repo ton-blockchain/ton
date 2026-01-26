@@ -94,7 +94,7 @@ class FullNodeImpl : public FullNode {
   void got_key_block_config(td::Ref<ConfigHolder> config);
   void new_key_block(BlockHandle handle);
 
-  void process_block_broadcast(BlockBroadcast broadcast) override;
+  void process_block_broadcast(BlockBroadcast broadcast, bool signatures_checked = false) override;
   void process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                          td::BufferSlice data) override;
   void process_shard_block_info_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override;
