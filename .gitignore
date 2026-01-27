@@ -37,7 +37,6 @@ test/integration/.network
 
 test/tontester/tests/tl/generated
 test/tontester/src/tonapi
-third-party/lz4/build/
 build-mingw64
 build-ucrt64
 build

@@ -1,11 +1,11 @@
 from typing import cast, final
 
-from dash import Dash, dcc, html, Input, Output, State, callback_context
 import plotly.graph_objects as go  # pyright: ignore[reportMissingTypeStubs]
+from dash import Dash, Input, Output, State, callback_context, dcc, html
 from dash.exceptions import PreventUpdate
 
-from .figure_builder import FigureBuilder
 from ..parser import Parser
+from .figure_builder import FigureBuilder
 
 
 @final
