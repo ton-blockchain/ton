@@ -2022,13 +2022,15 @@ void ValidatorEngine::load_config(td::Promise<td::Unit> promise) {
 void ValidatorEngine::write_config(td::Promise<td::Unit> promise) {
   auto s = td::json_encode<std::string>(td::ToJson(*config_.tl().get()), true);
 
-  auto S = td::write_file(temp_config_file(), s);
+  td::WriteFileOptions options;
+  options.need_sync = true;
+  options.need_lock = true;
+  auto S = td::write_file(temp_config_file(), s, options);
   if (S.is_error()) {
     td::unlink(temp_config_file()).ignore();
     promise.set_error(std::move(S));
     return;
   }
-  td::unlink(config_file_).ignore();
   TRY_STATUS_PROMISE(promise, td::rename(temp_config_file(), config_file_));
   promise.set_value(td::Unit());
 }
@@ -2164,8 +2166,12 @@ void ValidatorEngine::started_rldp() {
 
 void ValidatorEngine::start_overlays() {
   if (!default_dht_node_.is_zero()) {
-    overlay_manager_ =
-        ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(), dht_nodes_[default_dht_node_].get());
+    ton::overlay::OverlayManagerBufferLimits buffer_limits{
+        .max_packets = 1024,
+        .max_data_size = 2 << 20,
+    };
+    overlay_manager_ = ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(),
+                                                      dht_nodes_[default_dht_node_].get(), buffer_limits);
   }
   started_overlays();
 }
@@ -2180,8 +2186,9 @@ void ValidatorEngine::start_validator() {
                                                           !state_serializer_disabled_flag_);
   load_collator_options();
 
-  validator_manager_ = ton::validator::ValidatorManagerFactory::create(
-      validator_options_, db_root_, keyring_.get(), adnl_.get(), rldp_.get(), rldp2_.get(), quic_.get(), overlay_manager_.get());
+  validator_manager_ =
+      ton::validator::ValidatorManagerFactory::create(validator_options_, db_root_, keyring_.get(), adnl_.get(),
+                                                      rldp_.get(), rldp2_.get(), quic_.get(), overlay_manager_.get());
 
   for (auto &v : config_.validators) {
     td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_permanent_key, v.first,

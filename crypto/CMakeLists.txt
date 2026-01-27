@@ -442,18 +442,12 @@ if (JEMALLOC_FOUND)
   target_compile_definitions(mintless-proof-generator PRIVATE -DTON_USE_JEMALLOC=1)
 endif()
 
-set(TURN_OFF_LSAN cd .)
-if (TON_USE_ASAN AND NOT WIN32)
-  set(TURN_OFF_LSAN export LSAN_OPTIONS=detect_leaks=0)
-endif()
-
 file(MAKE_DIRECTORY smartcont/auto)
 if (NOT CMAKE_CROSSCOMPILING OR USE_EMSCRIPTEN)
   set(GENERATE_TLB_CMD tlbc)
   if (NOT USE_EMSCRIPTEN)
     add_custom_command(
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/block
-      COMMAND ${TURN_OFF_LSAN}
       COMMAND ${GENERATE_TLB_CMD} -o block-auto -n block::gen -z block.tlb
       COMMENT "Generate block tlb source files"
       OUTPUT ${TLB_BLOCK_AUTO}
@@ -462,7 +456,6 @@ if (NOT CMAKE_CROSSCOMPILING OR USE_EMSCRIPTEN)
   else()
     add_custom_command(
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/block
-      COMMAND ${TURN_OFF_LSAN}
       COMMENT "Generate block tlb source files"
       OUTPUT ${TLB_BLOCK_AUTO}
       DEPENDS tlbc block/block.tlb

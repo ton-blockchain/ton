@@ -22,8 +22,8 @@ class QuicTester : public td::actor::Actor {
       td::actor::send_closure(tester_, &QuicTester::on_connected, cid);
     }
 
-    void on_stream(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid, td::BufferSlice data,
-                   bool is_end) override {
+    td::Status on_stream(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid, td::BufferSlice data,
+                         bool is_end) override {
       std::cout.flush();
       std::cout.write(data.data(), static_cast<std::streamsize>(data.size()));
       std::cout.flush();
@@ -32,6 +32,7 @@ class QuicTester : public td::actor::Actor {
         LOG(INFO) << "stream ended";
         std::exit(0);
       }
+      return td::Status::OK();
     }
 
     void on_closed(ton::quic::QuicConnectionId cid) override {

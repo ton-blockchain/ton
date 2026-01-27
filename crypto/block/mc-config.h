@@ -470,6 +470,7 @@ class ShardConfig {
       : shard_hashes_(std::move(shard_hashes)), mc_shard_hash_(std::move(mc_shard_hash)) {
     init();
   }
+  virtual ~ShardConfig() = default;
   ShardConfig& operator=(ShardConfig&& other) = default;
   bool is_valid() const {
     return valid_;
@@ -696,6 +697,8 @@ class Config {
     config_addr.set_zero();
   }
   Config(Ref<vm::Cell> config_root, const td::Bits256& config_addr = td::Bits256::zero(), int _mode = 0);
+  Config(Config&&) = default;
+  virtual ~Config() = default;
   td::Status unpack_wrapped(Ref<vm::CellSlice> config_csr);
   td::Status unpack(Ref<vm::CellSlice> config_csr);
   td::Status unpack_wrapped();

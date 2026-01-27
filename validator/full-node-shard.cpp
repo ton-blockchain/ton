@@ -803,13 +803,35 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_bl
 }
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query) {
+  auto R_requires_state = need_state_for_decompression(query);
+  if (R_requires_state.is_error()) {
+    LOG(DEBUG) << "Failed to check if state is required for broadcast: " << R_requires_state.move_as_error();
+    return;
+  }
+
+  if (R_requires_state.move_as_ok()) {
+    auto block_wo_data = get_block_broadcast_without_data(query);
+    auto P = td::PromiseCreator::lambda(
+        [SelfId = actor_id(this), src, query = std::move(query)](td::Result<td::Unit> R) mutable {
+          if (R.is_error()) {
+            LOG(DEBUG) << "Dropped V2 broadcast because of signatures validation error: " << R.move_as_error();
+            return;
+          }
+
+          td::actor::send_closure(SelfId, &FullNodeShardImpl::obtain_state_for_decompression, src, std::move(query));
+        });
+    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::validate_block_broadcast_signatures,
+                            std::move(block_wo_data), std::move(P));
+    return;
+  }
+
   process_block_broadcast(src, query);
 }
 
 void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
   auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), k_called_from_public);
   if (B.is_error()) {
-    LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
+    LOG(DEBUG) << "Failed to deserialize block broadcast: " << B.move_as_error();
     return;
   }
   //if (!shard_is_ancestor(shard_, block_id.shard_full())) {
@@ -819,7 +841,43 @@ void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonN
   //}
   VLOG(FULL_NODE_DEBUG) << "Received block broadcast " << (B.ok().sig_set->is_final() ? "" : "(approve signatures) ")
                         << "from " << src << ": " << B.ok().block_id.to_str();
-  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok());
+  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), false);
+}
+
+void FullNodeShardImpl::obtain_state_for_decompression(PublicKeyHash src,
+                                                       ton_api::tonNode_blockBroadcastCompressedV2 query) {
+  auto id = create_block_id(query.id_);
+  auto R_prev = extract_prev_blocks_from_proof(query.proof_.as_slice(), id);
+  if (R_prev.is_error()) {
+    LOG(DEBUG) << "Failed to extract prev blocks for V2 broadcast: " << R_prev.move_as_error();
+    return;
+  }
+  auto prev_blocks = R_prev.move_as_ok();
+  auto P_state = td::PromiseCreator::lambda(
+      [SelfId = actor_id(this), src, query = std::move(query)](td::Result<td::Ref<ShardState>> R_state) mutable {
+        if (R_state.is_error()) {
+          LOG(DEBUG) << "Failed to get state for V2 broadcast: " << R_state.move_as_error();
+          return;
+        }
+        td::actor::send_closure(SelfId, &FullNodeShardImpl::process_block_broadcast_with_state, src, std::move(query),
+                                R_state.move_as_ok());
+      });
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::wait_state_by_prev_blocks, id,
+                          std::move(prev_blocks), std::move(P_state));
+}
+
+void FullNodeShardImpl::process_block_broadcast_with_state(PublicKeyHash src,
+                                                           ton_api::tonNode_blockBroadcastCompressedV2 query,
+                                                           td::Ref<ShardState> state) {
+  td::Ref<vm::Cell> state_root = state->root_cell();
+  auto B =
+      deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), k_called_from_public, state_root);
+  if (B.is_error()) {
+    LOG(DEBUG) << "Failed to deserialize block broadcast: " << B.move_as_error();
+    return;
+  }
+  VLOG(FULL_NODE_DEBUG) << "Received block broadcast from " << src << ": " << B.ok().block_id.to_str();
+  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), true);
 }
 
 void FullNodeShardImpl::receive_broadcast(PublicKeyHash src, td::BufferSlice broadcast) {

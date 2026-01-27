@@ -74,7 +74,8 @@ struct QuicConnectionPImpl {
 
     virtual void set_connection_id(QuicConnectionId cid) = 0;
     virtual void on_handshake_completed(HandshakeCompletedEvent event) = 0;
-    virtual void on_stream_data(StreamDataEvent event) = 0;
+    virtual td::Status on_stream_data(StreamDataEvent event) = 0;
+    virtual void on_stream_closed(QuicStreamID sid) = 0;
 
     virtual ~Callback() = default;
   };
@@ -113,6 +114,9 @@ struct QuicConnectionPImpl {
 
   [[nodiscard]] QuicConnectionId get_primary_scid() const;
 
+  void block_streams();
+  void unblock_streams();
+
   [[nodiscard]] td::Result<QuicStreamID> open_stream();
   [[nodiscard]] td::Status write_stream(UdpMessageBuffer& msg_out, QuicStreamID sid, td::BufferSlice data, bool fin);
 
@@ -150,6 +154,7 @@ struct QuicConnectionPImpl {
   ngtcp2_crypto_conn_ref conn_ref_{};
 
   std::unordered_map<QuicStreamID, OutboundStreamState> streams_;
+  bool streams_blocked_ = false;
 
   ngtcp2_conn* conn() const {
     CHECK(conn_);
