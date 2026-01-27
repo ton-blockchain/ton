@@ -112,7 +112,9 @@ set(VALIDATOR_SOURCE
   consensus/simplex/candidate-resolver.cpp
   consensus/simplex/certificate.cpp
   consensus/simplex/consensus.cpp
+  consensus/simplex/metric-collector.cpp
   consensus/simplex/pool.cpp
+  consensus/simplex/stats.cpp
   consensus/simplex/votes.cpp
   consensus/block-accepter.cpp
   consensus/block-producer.cpp
@@ -120,7 +122,8 @@ set(VALIDATOR_SOURCE
   consensus/bridge.cpp
   consensus/bus.cpp
   consensus/private-overlay.cpp
-  consensus/stats-collector.cpp
+  consensus/trace-collector.cpp
+  consensus/stats.cpp
   consensus/types.cpp
   consensus/utils.cpp
 

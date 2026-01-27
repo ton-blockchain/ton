@@ -111,4 +111,8 @@ struct CandidateResolver {
   static void register_in(runtime::Runtime&);
 };
 
+struct MetricCollector {
+  static void register_in(runtime::Runtime&);
+};
+
 }  // namespace ton::validator::consensus::simplex

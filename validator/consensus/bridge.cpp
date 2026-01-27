@@ -7,11 +7,9 @@
 #include "quic/quic-sender.h"
 #include "td/db/RocksDb.h"
 #include "td/utils/port/path.h"
-#include "validator-session/validator-session-types.h"
 #include "validator/consensus/null/bus.h"
 #include "validator/consensus/simplex/bus.h"
 #include "validator/fabric.h"
-#include "validator/full-node.h"
 #include "validator/validator-group.hpp"
 
 #include "runtime.h"
@@ -84,11 +82,6 @@ class ManagerFacadeImpl : public ManagerFacade {
     BlockIdExt block_id = candidate.id;
     co_return co_await td::actor::ask(manager_, &ValidatorManager::set_block_candidate, block_id, std::move(candidate),
                                       validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash());
-  }
-
-  void log_validator_session_stats(validatorsession::ValidatorSessionStats stats) override {
-    stats.cc_seqno = validator_set_->get_catchain_seqno();
-    td::actor::send_closure(manager_, &ValidatorManager::log_validator_session_stats, std::move(stats));
   }
 
   void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data, int mode) override {
@@ -276,7 +269,7 @@ class BridgeImpl final : public IValidatorGroup {
     BlockProducer::register_in(runtime);
     BlockValidator::register_in(runtime);
     PrivateOverlay::register_in(runtime);
-    StatsCollector::register_in(runtime);
+    TraceCollector::register_in(runtime);
 
     if (is_simplex) {
       auto simplex_bus = std::static_pointer_cast<simplex::Bus>(bus);
@@ -285,6 +278,7 @@ class BridgeImpl final : public IValidatorGroup {
       simplex::CandidateResolver::register_in(runtime);
       simplex::Consensus::register_in(runtime);
       simplex::Pool::register_in(runtime);
+      simplex::MetricCollector::register_in(runtime);
 
       bus_ = runtime.start(simplex_bus, params_.name);
     } else {

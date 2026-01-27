@@ -247,4 +247,7 @@ bool RawCandidate::is_empty() const {
   return std::holds_alternative<BlockIdExt>(block);
 }
 
+stats::Event::Event() : ts_(td::Clocks::system()) {
+}
+
 }  // namespace ton::validator::consensus

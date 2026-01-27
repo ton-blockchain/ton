@@ -30,9 +30,6 @@ class ManagerFacade : public td::actor::Actor {
                                                                FileHash collated_data_hash) = 0;
   virtual td::actor::Task<> store_block_candidate(BlockCandidate candidate) = 0;
 
-  virtual void log_validator_session_stats(validatorsession::ValidatorSessionStats stats) {
-  }
-
   virtual void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data, int mode) {
   }
 };
