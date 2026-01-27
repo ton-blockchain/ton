@@ -149,23 +149,8 @@ struct MisbehaviorReport {
   std::string contents_to_string() const;
 };
 
-struct StatsTargetReached {
-  enum Target {
-    CollateStarted,
-    CollateFinished,
-    CandidateReceived,
-    ValidateStarted,
-    ValidateFinished,
-    NotarObserved,
-    FinalObserved,
-  };
-
-  StatsTargetReached(Target target, td::uint32 slot) : target(target), slot(slot), timestamp(td::Timestamp::now()) {
-  }
-
-  Target target;
-  td::uint32 slot;
-  td::Timestamp timestamp;
+struct TraceEvent {
+  std::unique_ptr<const stats::Event> event;
 
   std::string contents_to_string() const;
 };
@@ -183,11 +168,10 @@ class Db {
 
 class Bus : public runtime::Bus {
  public:
-  using Events =
-      td::TypeList<Start, StopRequested, BlockFinalized, FinalizeBlock, OurLeaderWindowStarted, OurLeaderWindowAborted,
-                   CandidateGenerated, CandidateReceived, ValidationRequest, IncomingProtocolMessage,
-                   OutgoingProtocolMessage, IncomingOverlayRequest, OutgoingOverlayRequest, BlockFinalizedInMasterchain,
-                   MisbehaviorReport, StatsTargetReached>;
+  using Events = td::TypeList<Start, StopRequested, BlockFinalized, FinalizeBlock, OurLeaderWindowStarted,
+                              OurLeaderWindowAborted, CandidateGenerated, CandidateReceived, ValidationRequest,
+                              IncomingProtocolMessage, OutgoingProtocolMessage, IncomingOverlayRequest,
+                              OutgoingOverlayRequest, BlockFinalizedInMasterchain, MisbehaviorReport, TraceEvent>;
 
   Bus() = default;
   ~Bus() override {
@@ -239,7 +223,7 @@ struct PrivateOverlay {
   static void register_in(runtime::Runtime&);
 };
 
-struct StatsCollector {
+struct TraceCollector {
   static void register_in(runtime::Runtime&);
 };
 

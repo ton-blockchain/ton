@@ -7,6 +7,7 @@
 #include "validator/full-node.h"
 
 #include "bus.h"
+#include "stats.h"
 #include "utils.h"
 
 namespace ton::validator::consensus {
@@ -49,9 +50,10 @@ class BlockAccepterImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
     if (sent_candidate_broadcasts_.contains(block.id)) {
       broadcast_mode &= ~(fullnode::FullNode::broadcast_mode_fast_sync | fullnode::FullNode::broadcast_mode_custom);
     }
-    co_return co_await td::actor::ask(owning_bus()->manager, &ManagerFacade::accept_block, block.id, block_data,
-                                      block_parents, event->candidate->leader.value(), event->signatures,
-                                      broadcast_mode, true);
+    co_await td::actor::ask(owning_bus()->manager, &ManagerFacade::accept_block, block.id, block_data, block_parents,
+                            event->candidate->leader.value(), event->signatures, broadcast_mode, true);
+    owning_bus().publish<TraceEvent>(stats::BlockAccepted::create(event->candidate->id));
+    co_return {};
   }
 
   template <>
