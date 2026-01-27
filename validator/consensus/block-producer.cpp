@@ -9,6 +9,7 @@
 #include "td/utils/CancellationToken.h"
 
 #include "bus.h"
+#include "stats.h"
 #include "utils.h"
 
 namespace ton::validator::consensus {
@@ -153,11 +154,9 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
 
       BlockSeqno new_seqno = parent.next_seqno();
 
-      CandidateHashData hash_builder;
+      CandidateId id;
       std::variant<BlockIdExt, BlockCandidate> block;
       std::optional<adnl::AdnlNodeIdShort> collator;
-
-      owning_bus().publish<StatsTargetReached>(StatsTargetReached::CollateStarted, slot);
 
       if (should_generate_empty_block(new_seqno, prev_block_data)) {
         LOG(WARNING) << "Generating an empty block for slot " << slot << "! new_seqno=" << new_seqno
@@ -165,13 +164,17 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
                      << ", last_mc_finalized_seqno_=" << last_mc_finalized_seqno_;
         CHECK(parent.id().has_value());  // first generated block in an epoch cannot be empty
 
-        hash_builder = CandidateHashData::create_empty(parent.id()->block, *parent.id());
         block = parent.id()->block;
+        id = CandidateId::create(slot, CandidateHashData::create_empty(parent.id()->block, *parent.id()));
+
+        owning_bus().publish<TraceEvent>(stats::CollatedEmpty::create(id));
       } else {
         // Before doing anything substantial, check the leader window.
         if (current_leader_window_ != window) {
           break;
         }
+
+        owning_bus().publish<TraceEvent>(stats::CollateStarted::create(slot));
 
         // FIXME: What to do if collate_block suddenly fails?
         CollateParams params{
@@ -192,14 +195,15 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
           prev_block_state_roots = {new_state_root};
           prev_block_data = {new_block_data};
         }
-        hash_builder = CandidateHashData::create_full(block_candidate.candidate, parent.id());
         block = std::move(block_candidate.candidate);
         if (!block_candidate.collator_node_id.is_zero()) {
           collator = adnl::AdnlNodeIdShort{block_candidate.collator_node_id};
         }
+        id = CandidateId::create(slot, CandidateHashData::create_full(block_candidate.candidate, parent.id()));
+
+        owning_bus().publish<TraceEvent>(stats::CollateFinished::create(slot, id));
       }
 
-      auto id = CandidateId::create(slot, hash_builder);
       auto id_to_sign = serialize_tl_object(id.as_raw().to_tl(), true);
       auto data_to_sign = create_serialize_tl_object<tl::dataToSign>(bus.session_id, std::move(id_to_sign));
       auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id.short_id,
@@ -208,13 +212,12 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
       auto candidate =
           td::make_ref<RawCandidate>(id, parent.id(), bus.local_id.idx, std::move(block), std::move(signature));
 
-      owning_bus().publish<StatsTargetReached>(StatsTargetReached::CollateFinished, slot);
-
       if (current_leader_window_ != window) {
         break;
       }
       owning_bus().publish<CandidateGenerated>(candidate, collator);
       owning_bus().publish<CandidateReceived>(candidate);
+      owning_bus().publish<TraceEvent>(stats::CandidateReceived::create(candidate, true));
 
       ++slot;
       parent = id;

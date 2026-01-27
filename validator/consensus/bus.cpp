@@ -139,17 +139,8 @@ std::string MisbehaviorReport::contents_to_string() const {
   return PSTRING() << "{id=" << id << "}";
 }
 
-std::string StatsTargetReached::contents_to_string() const {
-  auto targets = std::to_array<const char*>({
-      "CollateStarted",
-      "CollateFinished",
-      "CandidateReceived",
-      "ValidateStarted",
-      "ValidateFinished",
-      "NotarObserved",
-      "FinalObserved",
-  });
-  return PSTRING() << "{target=" << targets[target] << ", slot=" << slot << ", timestamp=" << timestamp.at() << "}";
+std::string TraceEvent::contents_to_string() const {
+  return PSTRING() << "{event=" << event->to_string() << "}";
 }
 
 }  // namespace ton::validator::consensus
