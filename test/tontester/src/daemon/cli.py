@@ -21,7 +21,7 @@ async def start() -> None:
     if socket_path.exists():
         try:
             client = IPCClient(socket_path)
-            await client.ping()
+            _ = await client.ping()
             print(f"Daemon already running at {socket_path}")
             return
         except Exception:
@@ -62,7 +62,7 @@ async def status() -> None:
 
     try:
         client = IPCClient(socket_path)
-        await client.ping()
+        _ = await client.ping()
         print("Daemon is running")
         print(f"Config: {config_path}")
         print(f"Socket: {socket_path}")
@@ -72,8 +72,8 @@ async def status() -> None:
 
 
 def main() -> None:
-    if len(sys.argv) < 2:
-        print("Usage: python -m daemon.cli [start|stop|status]")
+    if len(sys.argv) != 2:
+        print("Usage: uv run daemon [start|stop|status]")
         sys.exit(1)
 
     command = sys.argv[1]

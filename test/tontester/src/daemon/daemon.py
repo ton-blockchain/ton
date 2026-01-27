@@ -1,6 +1,7 @@
 import asyncio
 import signal
 from pathlib import Path
+from typing import final
 
 import uvicorn
 
@@ -10,6 +11,7 @@ from .ipc import IPCServer
 from .sqlite_storage import SQLiteStorage
 
 
+@final
 class DashboardDaemon:
     def __init__(self, config_path: Path, socket_path: Path, frontend_dir: Path):
         self.config_path = config_path
@@ -28,10 +30,10 @@ class DashboardDaemon:
 
     def _on_config_change(self, new_config: DaemonConfig | None) -> None:
         if new_config is None:
-            asyncio.create_task(self._stop_http_server())
-            asyncio.create_task(self._shutdown())
+            _ = asyncio.create_task(self._stop_http_server())
+            _ = asyncio.create_task(self._shutdown())
         elif new_config != self._current_config:
-            asyncio.create_task(self._restart_http_server(new_config))
+            _ = asyncio.create_task(self._restart_http_server(new_config))
 
     async def _start_http_server(self, config: DaemonConfig) -> None:
         app = create_app(self.storage, str(self.frontend_dir))
@@ -76,12 +78,12 @@ class DashboardDaemon:
         loop = asyncio.get_running_loop()
 
         def signal_handler() -> None:
-            asyncio.create_task(self._shutdown())
+            _ = asyncio.create_task(self._shutdown())
 
         loop.add_signal_handler(signal.SIGTERM, signal_handler)
         loop.add_signal_handler(signal.SIGINT, signal_handler)
 
-        await self._shutdown_event.wait()
+        _ = await self._shutdown_event.wait()
 
         self.config_watcher.stop()
         await watch_task

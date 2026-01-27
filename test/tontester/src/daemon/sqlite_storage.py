@@ -1,12 +1,18 @@
 import json
 import sqlite3
 from datetime import datetime
-from typing import Any
+from typing import TypedDict, cast, final, override
 
-from .storage import MetricPoint, RunMetadata, StorageBackend
+from tl import JSONSerializable
+
+from .storage import RunMetadata, StorageBackend, TestMetadata
 
 
+@final
 class SQLiteStorage(StorageBackend):
+    db_path: str
+    conn: sqlite3.Connection
+
     def __init__(self, db_path: str | None = None):
         self.db_path = db_path or ":memory:"
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
@@ -16,7 +22,7 @@ class SQLiteStorage(StorageBackend):
     def _init_schema(self) -> None:
         cursor = self.conn.cursor()
 
-        cursor.execute("""
+        _ = cursor.execute("""
             CREATE TABLE IF NOT EXISTS runs (
                 run_id TEXT PRIMARY KEY,
                 start_time REAL NOT NULL,
@@ -27,7 +33,7 @@ class SQLiteStorage(StorageBackend):
             )
         """)
 
-        cursor.execute("""
+        _ = cursor.execute("""
             CREATE TABLE IF NOT EXISTS metrics (
                 run_id TEXT NOT NULL,
                 node_id TEXT NOT NULL,
@@ -35,26 +41,26 @@ class SQLiteStorage(StorageBackend):
                 timestamp REAL NOT NULL,
                 workchain INTEGER,
                 value REAL NOT NULL,
-                tags TEXT,
                 FOREIGN KEY (run_id) REFERENCES runs(run_id)
             )
         """)
 
-        cursor.execute("""
+        _ = cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_metrics_run_time
             ON metrics(run_id, timestamp)
         """)
 
-        cursor.execute("""
+        _ = cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_metrics_name
             ON metrics(run_id, metric_name)
         """)
 
         self.conn.commit()
 
-    async def register_run(self, run_id: str, metadata: dict[str, Any]) -> None:
+    @override
+    async def register_run(self, run_id: str, metadata: TestMetadata) -> None:
         cursor = self.conn.cursor()
-        cursor.execute(
+        _ = cursor.execute(
             """
             INSERT INTO runs (run_id, start_time, end_time, status, metadata, node_count)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -64,17 +70,18 @@ class SQLiteStorage(StorageBackend):
                 datetime.now().timestamp(),
                 None,
                 "running",
-                json.dumps(metadata),
-                metadata.get("node_count", 0),
+                metadata.model_dump_json(),
+                0,
             ),
         )
         self.conn.commit()
 
+    @override
     async def update_run_status(
         self, run_id: str, status: str, end_time: datetime | None = None
     ) -> None:
         cursor = self.conn.cursor()
-        cursor.execute(
+        _ = cursor.execute(
             """
             UPDATE runs
             SET status = ?, end_time = ?
@@ -84,28 +91,10 @@ class SQLiteStorage(StorageBackend):
         )
         self.conn.commit()
 
-    async def write_metric(self, metric: MetricPoint) -> None:
-        cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO metrics (run_id, node_id, metric_name, timestamp, workchain, value, tags)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                metric.run_id,
-                metric.node_id,
-                metric.metric_name,
-                metric.timestamp.timestamp(),
-                metric.workchain,
-                metric.value,
-                json.dumps(metric.tags) if metric.tags else None,
-            ),
-        )
-        self.conn.commit()
-
+    @override
     async def list_runs(self, limit: int = 50, offset: int = 0) -> list[RunMetadata]:
         cursor = self.conn.cursor()
-        cursor.execute(
+        _ = cursor.execute(
             """
             SELECT run_id, start_time, end_time, status, metadata, node_count
             FROM runs
@@ -115,23 +104,37 @@ class SQLiteStorage(StorageBackend):
             (limit, offset),
         )
 
+        class SelectRow(TypedDict):
+            run_id: str
+            start_time: float
+            end_time: float | None
+            status: str
+            metadata: str
+            node_count: int
+
         runs: list[RunMetadata] = []
-        for row in cursor.fetchall():
+        for row in cast(list[SelectRow], cursor.fetchall()):
+            metadata_json = cast(JSONSerializable, json.loads(row["metadata"]))
+            if not isinstance(metadata_json, dict):
+                continue
+            metadata = TestMetadata.model_validate(metadata_json)
+
             runs.append(
                 RunMetadata(
                     run_id=row["run_id"],
                     start_time=datetime.fromtimestamp(row["start_time"]),
                     end_time=datetime.fromtimestamp(row["end_time"]) if row["end_time"] else None,
                     status=row["status"],
-                    metadata=json.loads(row["metadata"]),
+                    metadata=metadata,
                     node_count=row["node_count"],
                 )
             )
         return runs
 
+    @override
     async def get_run_metadata(self, run_id: str) -> RunMetadata | None:
         cursor = self.conn.cursor()
-        cursor.execute(
+        _ = cursor.execute(
             """
             SELECT run_id, start_time, end_time, status, metadata, node_count
             FROM runs
@@ -140,64 +143,31 @@ class SQLiteStorage(StorageBackend):
             (run_id,),
         )
 
-        row = cursor.fetchone()
+        class SelectRow(TypedDict):
+            run_id: str
+            start_time: float
+            end_time: float | None
+            status: str
+            metadata: str
+            node_count: int
+
+        row = cast(SelectRow, cursor.fetchone())
         if not row:
             return None
+
+        metadata_json = cast(JSONSerializable, json.loads(row["metadata"]))
+        if not isinstance(metadata_json, dict):
+            return None
+        metadata = TestMetadata.model_validate(metadata_json)
 
         return RunMetadata(
             run_id=row["run_id"],
             start_time=datetime.fromtimestamp(row["start_time"]),
             end_time=datetime.fromtimestamp(row["end_time"]) if row["end_time"] else None,
             status=row["status"],
-            metadata=json.loads(row["metadata"]),
+            metadata=metadata,
             node_count=row["node_count"],
         )
-
-    async def query_metrics(
-        self,
-        run_id: str,
-        metric_names: list[str],
-        start_time: datetime | None,
-        end_time: datetime | None,
-        workchain: int | None = None,
-    ) -> list[dict[str, Any]]:
-        cursor = self.conn.cursor()
-
-        query = """
-            SELECT timestamp, metric_name, AVG(value) as value
-            FROM metrics
-            WHERE run_id = ? AND metric_name IN ({})
-        """.format(",".join("?" * len(metric_names)))
-
-        params: list[Any] = [run_id, *metric_names]
-
-        if start_time:
-            query += " AND timestamp >= ?"
-            params.append(start_time.timestamp())
-
-        if end_time:
-            query += " AND timestamp <= ?"
-            params.append(end_time.timestamp())
-
-        if workchain is not None:
-            query += " AND workchain = ?"
-            params.append(workchain)
-
-        query += " GROUP BY timestamp, metric_name ORDER BY timestamp"
-
-        cursor.execute(query, params)
-
-        results: list[dict[str, Any]] = []
-        for row in cursor.fetchall():
-            results.append(
-                {
-                    "timestamp": datetime.fromtimestamp(row["timestamp"]).isoformat(),
-                    "metric_name": row["metric_name"],
-                    "value": row["value"],
-                }
-            )
-
-        return results
 
     def close(self) -> None:
         self.conn.close()

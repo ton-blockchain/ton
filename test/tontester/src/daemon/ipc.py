@@ -1,11 +1,26 @@
 import asyncio
 import json
 from pathlib import Path
-from typing import Any
+from typing import cast, final
 
-from .storage import StorageBackend
+from pydantic import BaseModel
+
+from tl import JSONSerializable
+
+from .storage import StorageBackend, TestMetadata
 
 
+class PingResponse(BaseModel):
+    status: str
+    message: str
+
+
+class RegisterResponse(BaseModel):
+    status: str
+    run_id: str
+
+
+@final
 class IPCServer:
     def __init__(self, socket_path: Path, storage: StorageBackend):
         self.socket_path = socket_path
@@ -22,29 +37,37 @@ class IPCServer:
             if not data:
                 return
 
-            hello = json.loads(data.decode())
+            hello = cast(JSONSerializable, json.loads(data.decode()))
+            if not isinstance(hello, dict):
+                return
 
-            if hello.get("command") == "ping":
-                response = {"status": "ok", "message": "pong"}
-                writer.write(json.dumps(response).encode())
+            command = hello.get("command")
+            if command == "ping":
+                response = PingResponse(status="ok", message="pong")
+                writer.write(response.model_dump_json().encode())
                 await writer.drain()
                 writer.close()
                 await writer.wait_closed()
                 return
 
-            run_id = hello.get("run_id")
-            metadata = hello.get("metadata", {})
-
-            if not run_id:
+            run_id_raw = hello.get("run_id")
+            if not isinstance(run_id_raw, str):
                 return
+            run_id = run_id_raw
+
+            metadata_raw = hello.get("metadata", {})
+            if not isinstance(metadata_raw, dict):
+                return
+
+            metadata = TestMetadata.model_validate(metadata_raw)
 
             await self.storage.register_run(run_id, metadata)
 
-            response = {"status": "ok", "run_id": run_id}
-            writer.write(json.dumps(response).encode())
+            response = RegisterResponse(status="ok", run_id=run_id)
+            writer.write(response.model_dump_json().encode())
             await writer.drain()
 
-            await reader.read()
+            _ = await reader.read()
 
         except Exception:
             pass
@@ -74,23 +97,24 @@ class IPCServer:
             self.socket_path.unlink()
 
 
+@final
 class IPCClient:
     def __init__(self, socket_path: Path):
         self.socket_path = socket_path
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
 
-    async def connect_and_register(self, run_id: str, metadata: dict[str, Any]) -> None:
+    async def connect_and_register(self, run_id: str, metadata: TestMetadata) -> None:
         self._reader, self._writer = await asyncio.open_unix_connection(str(self.socket_path))
 
-        hello = {"run_id": run_id, "metadata": metadata}
+        hello = {"run_id": run_id, "metadata": metadata.model_dump()}
         self._writer.write(json.dumps(hello).encode())
         await self._writer.drain()
 
         response_data = await self._reader.read(1024 * 1024)
-        response: dict[str, Any] = json.loads(response_data.decode())
+        response = RegisterResponse.model_validate_json(response_data)
 
-        if response.get("status") != "ok":
+        if response.status != "ok":
             raise RuntimeError(f"Failed to register run: {response}")
 
     async def disconnect(self) -> None:
@@ -100,7 +124,7 @@ class IPCClient:
             self._reader = None
             self._writer = None
 
-    async def ping(self) -> dict[str, Any]:
+    async def ping(self) -> PingResponse:
         reader, writer = await asyncio.open_unix_connection(str(self.socket_path))
         try:
             ping_msg = {"command": "ping"}
@@ -108,8 +132,7 @@ class IPCClient:
             await writer.drain()
 
             data = await reader.read(1024)
-            response: dict[str, Any] = json.loads(data.decode())
-            return response
+            return PingResponse.model_validate_json(data)
         finally:
             writer.close()
             await writer.wait_closed()

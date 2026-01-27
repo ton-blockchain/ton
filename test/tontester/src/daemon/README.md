@@ -363,75 +363,6 @@ Abstract interface with implementations:
 - Usage: `python -m daemon start`
 - No external dependencies (plain Python)
 
-### Config Reloading Mechanics
-
-```python
-# ConfigWatcher monitors config file
-async for changes in awatch(config_dir, stop_event=stop_event):
-    for change_type, changed_path in changes:
-        if Path(changed_path).name == "config.yaml":
-            if change_type == Change.deleted:
-                # Config deleted → shutdown daemon
-                on_config_change(None)
-            elif change_type in (Change.added, Change.modified):
-                new_config = load_config()
-                if new_config != last_config:
-                    # Config changed → reload
-                    on_config_change(new_config)
-
-# Daemon handles config changes
-def _on_config_change(new_config: DaemonConfig | None):
-    if new_config is None:
-        # Shutdown both HTTP server and daemon
-        asyncio.create_task(_stop_http_server())
-        asyncio.create_task(_shutdown())
-    elif new_config != _current_config:
-        # Restart HTTP server with new config
-        asyncio.create_task(_restart_http_server(new_config))
-```
-
-### Stopping Mechanics for Local Runs
-
-#### 1. Graceful Shutdown Flow
-```
-Config deleted or SIGTERM/SIGINT received
-→ Set shutdown_event
-→ Stop ConfigWatcher (stop_event.set())
-→ Stop HTTP server (uvicorn_server.should_exit = True)
-→ Stop IPC server (close Unix socket)
-→ Close SQLite connection
-→ Exit
-```
-
-#### 2. Run Completion Detection
-```python
-# IPC server holds connection open
-async def handle_client(reader, writer):
-    hello = await reader.read()  # Get run info
-    await storage.register_run(run_id, metadata)
-    writer.write(b"OK")
-
-    # Wait for client to disconnect
-    await reader.read()  # Blocks until EOF
-
-    # Client disconnected → run completed
-    await storage.update_run_status(run_id, "completed")
-```
-
-#### 3. Test Integration
-```python
-# In tontester Network class
-async def __aenter__(self):
-    ipc_client = IPCClient(socket_path)
-    await ipc_client.connect_and_register(run_id, metadata)
-    # Connection held in background
-    return self
-
-async def __aexit__(self, ...):
-    await ipc_client.disconnect()  # Closes connection
-    # Daemon automatically marks run as completed
-```
-
 ---
 
 ## Current Implementation State
@@ -546,29 +477,7 @@ All code written with proper type hints for basedpyright strict mode:
 
 ## Current Status
 
-### ✅ Completed and Tested
-
-#### Core Infrastructure
-1. **SQLite Storage Backend**: In-memory database with runs and metrics tables
-2. **Config Live-Reloading**: Daemon watches config file and reloads on changes
-   - ✅ Tested: Changed port 8080 → 8081, server restarted automatically
-3. **Daemon Shutdown**: Graceful shutdown when config is deleted
-   - ✅ Tested: Deleted config.yaml, daemon stopped cleanly
-4. **IPC Protocol**: Unix socket with ping support and run registration
-   - ✅ Tested: Ping command works for health checks
-5. **FastAPI Backend**: HTTP API compatible with ton-dashboard frontend
-   - ✅ Tested: `/health` and `/api/tests` endpoints working
-6. **CLI Interface**: Commands for start/stop/status
-   - ✅ Tested: `uv run daemon start`, `uv run daemon status`
-
-#### Dependencies
-Added to `pyproject.toml`:
-- ✅ fastapi
-- ✅ uvicorn
-- ✅ pyyaml
-- ✅ watchfiles
-
-#### Testing Results
+### Testing Results
 ```bash
 # Start daemon
 $ uv run daemon start
@@ -728,10 +637,227 @@ For manual control in devnet/testnet:
 
 ---
 
+## Metrics Architecture Plan
+
+### Local Development & Devnet
+
+**Goal**: Simple, reliable metrics collection without requiring Docker/Podman for developers.
+
+**Architecture**:
+1. **Daemon manages Prometheus**: The tontester daemon automatically starts/stops Prometheus and Grafana processes
+   - No manual Docker commands needed
+   - Automatic cleanup and storage management
+   - Robust error handling (not "YOLO Python exceptions")
+2. **Push-based metrics**: Validator nodes push metrics to daemon
+   - Simpler than SSH-based pull
+   - Better security model
+   - Works well with tontester's lifecycle management
+
+**Local Flow**:
+```
+Test harness → Daemon → Prometheus (managed by daemon) → Grafana (managed by daemon)
+            ↓
+        Unix socket IPC
+```
+
+**Benefits**:
+- Works with both Docker and Podman (daemon handles compatibility)
+- No manual container lifecycle management
+- Integrated with tontester's run lifecycle
+- Automatic storage cleanup between runs
+
+### Production (Testnet/Mainnet)
+
+**Architecture**:
+1. **Separate Prometheus deployment**: Team-wide or per-environment Prometheus instance
+2. **HTTP metrics endpoint**: Validator nodes expose Prometheus-compatible `/metrics` endpoint
+3. **Prometheus scrapes validators**: Standard pull-based model
+4. **Grafana visualization**: Standard Grafana + Prometheus stack
+
+**Flow**:
+```
+Validator nodes → HTTP /metrics endpoint ← Prometheus (scraped) → Grafana
+```
+
+### Unified Approach
+
+**Key insight**: Use Prometheus as the common format everywhere
+- **Local/Devnet**: Daemon manages Prometheus lifecycle
+- **Production**: Standard Prometheus deployment
+- **Metrics format**: Prometheus exposition format (same everywhere)
+- **Query language**: PromQL (works in both environments)
+
+This allows:
+- Single metrics definition in validator code
+- Same queries work in local dev and production
+- Grafana dashboards portable between environments
+- Developers can test production dashboards locally
+
+### Custom Tooling Integration
+
+For tools that need custom logic beyond standard Prometheus/Grafana:
+- **consensus-explorer**: Query Prometheus for raw data, add custom visualization
+- **Time synchronization**: Cross-tool time navigation by querying same Prometheus data
+- **Atomic updates**: Metrics code changes + Grafana dashboard changes in same PR
+
+---
+
+## Type Safety Patterns
+
+This codebase follows strict type checking with `basedpyright`. Key patterns learned:
+
+### 1. Pydantic Models for All Data Structures
+
+**Pattern**: Use Pydantic `BaseModel` instead of `TypedDict` or `dataclass` for data that crosses boundaries (JSON, database, IPC).
+
+**Why**:
+- Runtime validation catches errors early
+- `model_validate_json()` eliminates manual parsing and casting
+- Type-safe serialization with `model_dump_json()`
+- No need for `Any` types or manual `isinstance()` checks
+
+**Example**:
+```python
+from pydantic import BaseModel
+
+class TestMetadata(BaseModel):
+    description: str = ""
+    git_branch: str = ""
+    git_commit_id: str = ""
+
+class PingResponse(BaseModel):
+    status: str
+    message: str
+
+# Loading from JSON (no cast needed!)
+metadata = TestMetadata.model_validate_json(json_string)
+
+# Loading from dict
+metadata = TestMetadata.model_validate(dict_data)
+
+# Serializing
+json_string = metadata.model_dump_json()
+```
+
+### 2. JSONSerializable Type for json.loads()
+
+**Pattern**: Only use `JSONSerializable` type immediately after `json.loads()`, then narrow with `isinstance()`.
+
+```python
+from typing import cast
+from tl import JSONSerializable
+
+# CORRECT: Cast json.loads output, then narrow
+data = cast(JSONSerializable, json.loads(raw_data))
+if not isinstance(data, dict):
+    return
+
+# Now type checker knows data is dict
+# Use Pydantic to validate further
+model = MyModel.model_validate(data)
+```
+
+**Don't**:
+- Don't use `JSONSerializable` as function parameter types
+- Don't use `Any` for JSON data
+- Don't use multiple casts after the initial one
+
+### 3. No Casts Except After json.loads()
+
+**Rule**: `cast()` is only allowed immediately after `json.loads()`. All other type refinement must use:
+- `isinstance()` checks (type narrowing)
+- Pydantic validation
+- Explicit type guards
+
+**Example**:
+```python
+# ❌ BAD: Multiple casts
+data = cast(dict[str, str], response.items())
+result = cast(MyType, some_function())
+
+# ✅ GOOD: isinstance check
+if isinstance(value, str):
+    result[key] = value  # Type checker knows value is str
+
+# ✅ GOOD: Pydantic validation
+response = PingResponse.model_validate_json(data)
+```
+
+### 4. Mark Unused Results with _
+
+**Pattern**: When calling functions that return values you don't need, assign to `_`.
+
+```python
+# ❌ BAD: Unused return value
+await client.ping()
+cursor.execute("CREATE TABLE ...")
+
+# ✅ GOOD: Explicitly mark as unused
+_ = await client.ping()
+_ = cursor.execute("CREATE TABLE ...")
+```
+
+### 5. Use @final Decorator
+
+**Pattern**: Mark classes as `@final` to avoid needing type annotations on instance variables.
+
+```python
+from typing import final
+
+# ❌ BAD: Need type annotations on all attributes
+class ConfigWatcher:
+    config_path: Path
+    on_config_change: Callable[...]
+    _stop_event: asyncio.Event
+
+    def __init__(self, ...):
+        self.config_path = config_path
+        ...
+
+# ✅ GOOD: @final means no type annotations needed
+@final
+class ConfigWatcher:
+    def __init__(self, config_path: Path, ...):
+        self.config_path = config_path
+        self.on_config_change = on_config_change
+        self._stop_event = asyncio.Event()
+```
+
+### 6. Use @override for Method Overrides
+
+**Pattern**: Always mark overridden methods with `@override` decorator.
+
+```python
+from typing import override
+
+class SQLiteStorage(StorageBackend):
+    @override
+    async def register_run(self, run_id: str, metadata: TestMetadata) -> None:
+        ...
+```
+
+### 7. Minimize Use of object Type
+
+**Rule**: Avoid `object` type. Use specific types:
+- `str`, `int`, `bool` for known types
+- `Never` for empty collections (e.g., `dict[str, Never]` for always-empty dict)
+- Pydantic models for structured data
+
+```python
+# ❌ BAD: object is too generic
+configuration: dict[str, object]
+
+# ✅ GOOD: Never for truly empty dict
+configuration: dict[str, Never] = {}
+```
+
+---
+
 ## Next Steps (Immediate)
 
 1. **Implement StatsCollector**: Watch and parse session-logs files
-2. **Integrate with tontester**: Add IPCClient to Network class
-3. **Test end-to-end**: Start daemon → run test → verify data collection → view in dashboard
-4. **Document usage**: Add examples to tontester documentation
-5. **Add basic metrics API**: Query endpoints for time-series data
+2. **Integrate Prometheus management**: Add Prometheus lifecycle to daemon
+3. **Add metrics push endpoint**: `POST /api/runs/{run_id}/metrics` for validator nodes
+4. **Integrate with tontester**: Add IPCClient to Network class
+5. **Test end-to-end**: Start daemon → run test → verify Prometheus collection → view in Grafana
+6. **Document usage**: Add examples to tontester documentation
