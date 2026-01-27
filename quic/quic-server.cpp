@@ -264,7 +264,9 @@ void QuicServer::drain_ingress() {
     msg_in.address = recv_msg.address;
     auto recv_slice = recv_msg.data.as_slice();
     if (recv_slice.size() > slice.size()) {
-      return td::Status::Error("Received UDP packet is too large");
+      LOG(WARNING) << "dropping inbound packet larger than MTU (" << recv_slice.size() << " > " << slice.size()
+                   << ")";
+      return td::Status::OK();
     }
     slice.truncate(recv_slice.size());
     slice.copy_from(recv_slice);

@@ -91,7 +91,7 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
           AR=${OPENSSL_AR}
           RANLIB=${OPENSSL_RANLIB}
           CFLAGS=${OPENSSL_MINGW_CFLAGS}
-          perl ./Configure mingw64 --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests no-apps enable-quic --libdir=lib no-threads)
+          perl ./Configure mingw64 --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests no-apps enable-quic --libdir=lib)
       else()
         set(CMD ./config --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests enable-quic --libdir=lib)
       endif()
