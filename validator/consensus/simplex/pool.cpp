@@ -10,6 +10,7 @@
 #include "checksum.h"
 #include "misbehavior.h"
 #include "state.h"
+#include "stats.h"
 
 namespace ton::validator::consensus::simplex {
 
@@ -301,6 +302,11 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
 
   template <>
   void handle(BusHandle, std::shared_ptr<const Start>) {
+    auto &bus = *owning_bus();
+    owning_bus().publish<TraceEvent>(consensus::stats::Id::create(
+        bus.shard, bus.cc_seqno, bus.local_id.idx.value(), bus.validator_set.size(), bus.local_id.weight,
+        bus.total_weight, bus.simplex_config.slots_per_leader_window));
+
     reschedule_standstill_resolution();
     is_started_ = true;
     if (leader_window_observation_) {
@@ -485,6 +491,8 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   td::actor::Task<> handle_our_vote(Vote vote) {
     auto &bus = *owning_bus();
 
+    owning_bus().publish<TraceEvent>(stats::Voted::create(vote));
+
     auto vote_to_sign = serialize_tl_object(vote.to_tl(), true);
     auto data_to_sign = create_serialize_tl_object<consensus::tl::dataToSign>(bus.session_id, std::move(vote_to_sign));
     auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id.short_id,
@@ -655,8 +663,8 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
 
     log_certificate(cert, *owning_bus());
     owning_bus().publish<OutgoingProtocolMessage>(std::nullopt, cert->serialize());
+    owning_bus().publish<TraceEvent>(stats::CertObserved::create(cert->vote));
     owning_bus().publish<NotarizationObserved>(id, cert);
-    owning_bus().publish<StatsTargetReached>(StatsTargetReached::NotarObserved, id.slot);
 
     next_nonskipped_slot_after(id.slot).state->add_available_base(id);
 
@@ -670,6 +678,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
 
     log_certificate(cert, *owning_bus());
     owning_bus().publish<OutgoingProtocolMessage>(std::nullopt, cert->serialize());
+    owning_bus().publish<TraceEvent>(stats::CertObserved::create(cert->vote));
     auto next_slot = next_nonskipped_slot_after(i);
 
     skip_intervals_.erase(i);
@@ -690,6 +699,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     auto id = cert->vote.id;
 
     log_certificate(cert, *owning_bus());
+    owning_bus().publish<TraceEvent>(stats::CertObserved::create(cert->vote));
     CHECK(!slot.state->is_skipped());
     CHECK(slot.state->notarized_block().value_or(id) == id);
     if (!slot.state->is_notarized()) {
@@ -699,7 +709,6 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     last_finalized_block_ = id;
     last_final_cert_ = cert;
     first_nonfinalized_slot_ = id.slot + 1;
-    owning_bus().publish<StatsTargetReached>(StatsTargetReached::FinalObserved, id.slot);
     owning_bus().publish<FinalizationObserved>(id, cert);
 
     if (now_ <= id.slot) {

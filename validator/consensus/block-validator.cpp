@@ -7,6 +7,7 @@
 #include "td/actor/coro_utils.h"
 
 #include "bus.h"
+#include "stats.h"
 #include "utils.h"
 
 namespace ton::validator::consensus {
@@ -37,8 +38,6 @@ class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
   td::actor::Task<> process(BusHandle, std::shared_ptr<ValidationRequest> event) {
     auto& bus = *owning_bus();
 
-    td::uint32 slot = event->candidate->id.slot;
-
     if (std::holds_alternative<BlockIdExt>(event->candidate->block)) {
       co_return {};
     }
@@ -55,13 +54,13 @@ class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
         .prev_block_state_roots = event->prev_block_state_roots,
     };
 
-    owning_bus().publish<StatsTargetReached>(StatsTargetReached::ValidateStarted, slot);
+    owning_bus().publish<TraceEvent>(stats::ValidationStarted::create(event->candidate->id));
 
     auto validation_result =
         co_await td::actor::ask(bus.manager, &ManagerFacade::validate_block_candidate, candidate.clone(),
                                 std::move(validate_params), td::Timestamp::in(60.0));
 
-    owning_bus().publish<StatsTargetReached>(StatsTargetReached::ValidateFinished, slot);
+    owning_bus().publish<TraceEvent>(stats::ValidationFinished::create(event->candidate->id));
 
     if (validation_result.has<CandidateReject>()) {
       auto error = td::Status::Error(0, validation_result.get<CandidateReject>().reason);
