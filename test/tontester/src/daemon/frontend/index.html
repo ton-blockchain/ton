@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TON Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>TON Test Dashboard</h1>
+            <button id="refreshBtn" class="refresh-btn">🔄 Refresh</button>
+        </header>
+
+        <div id="loading" class="loading">Loading test files...</div>
+        <div id="error" class="error" style="display: none;"></div>
+
+        <div class="table-container">
+            <table id="testsTable">
+                <thead>
+                    <tr>
+                        <th class="user-name-header">
+                            <div class="user-name-header-content">
+                                <span>User Name</span>
+                                <select id="userFilter" class="user-filter" aria-label="Filter by user">
+                                    <option value="all">All users</option>
+                                </select>
+                            </div>
+                        </th>
+                        <th>Date & Time</th>
+                        <th>Description</th>
+                        <th>Nodes</th>
+                        <th>Branch</th>
+                        <th>Duration</th>
+                        <th class="seconds-per-block-cell">Stats</th>
+                        <th>Chart</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="testsTableBody">
+                    <!-- Table rows will be inserted here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

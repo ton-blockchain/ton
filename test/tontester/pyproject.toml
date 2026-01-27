@@ -3,9 +3,14 @@ name = "tontester"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
-    "dash",
-    "plotly"
+    "dash>=3.3.0",
+    "fastapi>=0.128.0",
+    "plotly>=6.5.1",
+    "pyyaml>=6.0.3",
+    "uvicorn>=0.40.0",
+    "watchfiles>=1.1.1",
 ]
 
 [project.scripts]
 consensus_explorer = "consensus_explorer.explorer:_main"
+daemon = "daemon.cli:main"
