@@ -299,12 +299,23 @@ void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
   if (state.blocked_packet.has_value()) {
     bool unblocked = false;
     auto &[packet_addr, packet_data] = *state.blocked_packet;
+#if TD_PORT_POSIX
     td::UdpSocketFd::OutboundMessage msg{.to = &packet_addr, .data = packet_data};
     auto status = fd_.send_message(msg, unblocked);
     if (!status.is_ok() || unblocked) {
       state.blocked_packet.reset();
       state.impl_->unblock_streams();
     }
+#elif TD_PORT_WINDOWS
+    td::UdpMessage msg;
+    msg.address = packet_addr;
+    msg.data = td::BufferSlice(td::Slice(packet_data));
+    fd_.send(std::move(msg));
+    if (auto status = fd_.flush_send(); status.is_error()) {
+      state.blocked_packet.reset();
+      state.impl_->unblock_streams();
+    }
+#endif
   }
 
   td::PerfWarningTimer w("flush_egress_for", 0.1);
