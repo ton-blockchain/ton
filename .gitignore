@@ -37,6 +37,7 @@ test/integration/.network
 
 test/tontester/tests/tl/generated
 test/tontester/src/tonapi
-build-mingw64
-build-ucrt64
-build
+build-mingw64/
+build-ucrt64/
+build/
+3pp_emscripten/
