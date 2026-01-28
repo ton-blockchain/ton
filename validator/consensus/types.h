@@ -111,31 +111,6 @@ td::StringBuilder& operator<<(td::StringBuilder& stream, const RawParentId& id);
 
 struct CandidateHashData;
 
-struct CandidateId {
-  static CandidateId create(td::uint32 slot, const CandidateHashData& builder);
-
-  CandidateId() = default;
-
-  CandidateId(RawCandidateId id, BlockIdExt block) : slot(id.slot), hash(id.hash), block(block) {
-  }
-
-  RawCandidateId as_raw() const {
-    return RawCandidateId{slot, hash};
-  }
-
-  operator RawCandidateId() const {
-    return RawCandidateId{slot, hash};
-  }
-
-  std::strong_ordering operator<=>(const CandidateId&) const = default;
-
-  td::uint32 slot{0};
-  Bits256 hash{};
-  BlockIdExt block;
-};
-
-td::StringBuilder& operator<<(td::StringBuilder& stream, const CandidateId& id);
-
 struct CandidateHashData {
   struct EmptyCandidate {
     BlockIdExt reference;
@@ -161,8 +136,8 @@ struct CandidateHashData {
   static CandidateHashData from_tl(tl::CandidateHashData&& data);
 
   BlockIdExt block() const;
+  RawCandidateId build_id_with(td::uint32 slot) const;
   tl::CandidateHashDataRef to_tl() const;
-  Bits256 hash() const;
 
   std::variant<EmptyCandidate, FullCandidate> candidate;
   RawParentId parent;
@@ -172,7 +147,7 @@ struct RawCandidate : td::CntObject {
   static td::Result<td::Ref<RawCandidate>> deserialize(td::Slice data, const Bus& bus,
                                                        std::optional<PeerValidatorId> src = std::nullopt);
 
-  RawCandidate(CandidateId id, RawParentId parent_id, PeerValidatorId leader,
+  RawCandidate(RawCandidateId id, RawParentId parent_id, PeerValidatorId leader,
                std::variant<BlockIdExt, BlockCandidate> block, td::BufferSlice signature)
       : id(id)
       , parent_id(std::move(parent_id))
@@ -182,11 +157,12 @@ struct RawCandidate : td::CntObject {
     CHECK(std::holds_alternative<BlockCandidate>(this->block) || this->parent_id.has_value());
   }
 
+  BlockIdExt block_id() const;
   CandidateHashData hash_data() const;
   td::BufferSlice serialize() const;
   bool is_empty() const;
 
-  CandidateId id;
+  RawCandidateId id;
   RawParentId parent_id;
   PeerValidatorId leader;
   std::variant<BlockIdExt, BlockCandidate> block;

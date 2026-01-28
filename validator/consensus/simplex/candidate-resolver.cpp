@@ -188,8 +188,8 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
       if (r_candidate.is_error()) {
         LOG(WARNING) << "Failed to load block candidate data from db: " << r_candidate.move_as_error();
       } else {
-        state.data.candidate = td::make_ref<RawCandidate>(CandidateId(id, info.block_id), info.parent, info.leader_id,
-                                                          r_candidate.move_as_ok(), std::move(info.signature));
+        state.data.candidate = td::make_ref<RawCandidate>(id, info.parent, info.leader_id, r_candidate.move_as_ok(),
+                                                          std::move(info.signature));
         state.stored_data_to_db = true;
       }
       state.candidate_info_from_db = std::nullopt;
@@ -275,8 +275,8 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
       ResolveState &state = resolve_states_[id];
       state.stored_info_to_db = true;
       if (std::holds_alternative<CandidateHashData::EmptyCandidate>(hash_data.candidate)) {
-        state.data.candidate = td::make_ref<RawCandidate>(CandidateId(id, block_id), hash_data.parent, leader_id,
-                                                          block_id, std::move(value->signature_));
+        state.data.candidate =
+            td::make_ref<RawCandidate>(id, hash_data.parent, leader_id, block_id, std::move(value->signature_));
         state.stored_data_to_db = true;
       } else {
         state.candidate_info_from_db = ResolveState::CandidateInfo{

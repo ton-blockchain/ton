@@ -171,8 +171,8 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
           co_await owning_bus().publish<ValidationRequest>(state_for_validation_, raw_candidate).wrap();
       validation_result.ensure();
 
-      auto signature_data = create_serialize_tl_object<ton_api::ton_blockId>(raw_candidate->id.block.root_hash,
-                                                                             raw_candidate->id.block.file_hash);
+      auto signature_data = create_serialize_tl_object<ton_api::ton_blockId>(raw_candidate->block_id().root_hash,
+                                                                             raw_candidate->block_id().file_hash);
       auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id.short_id,
                                                std::move(signature_data));
 
