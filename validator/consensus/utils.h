@@ -15,9 +15,6 @@
 namespace ton::validator::consensus {
 
 td::Result<double> get_candidate_gen_utime_exact(const BlockCandidate& candidate);
-td::Result<std::pair<td::Ref<vm::Cell>, td::Ref<BlockData>>> apply_block_to_state(
-    const std::vector<td::Ref<vm::Cell>>& state_roots, const BlockCandidate& candidate);
-td::Result<bool> get_before_split(const td::Ref<BlockData>& block);
 
 template <typename T>
 class SharedFuture {

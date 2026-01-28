@@ -165,11 +165,10 @@ class BridgeImpl final : public IValidatorGroup {
       : is_create_session_called_(params.is_create_session_called), params_(std::move(params)) {
   }
 
-  virtual void start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id) override {
+  virtual void start(std::vector<BlockIdExt> blocks, BlockIdExt min_mc_block_id) override {
     CHECK(!is_start_called_);
     is_start_called_ = true;
-    start_event_ = std::make_shared<Start>(prev, min_masterchain_block_id);
-    maybe_start_group();
+    resolve_state_and_start(blocks, min_mc_block_id).start().detach();
   }
 
   virtual void create_session() override {
@@ -304,8 +303,15 @@ class BridgeImpl final : public IValidatorGroup {
     co_return td::Unit{};
   }
 
+  td::actor::Task<> resolve_state_and_start(std::vector<BlockIdExt> blocks, BlockIdExt min_mc_block_id) {
+    auto state = co_await ChainState::from_manager(manager_facade_.get(), params_.shard, blocks, min_mc_block_id);
+    start_event_ = std::make_shared<Start>(state);
+    maybe_start_group();
+    co_return {};
+  }
+
   void maybe_start_group() {
-    if (!is_create_session_called_ || !is_start_called_ || is_started_) {
+    if (!is_create_session_called_ || !is_start_called_ || !start_event_ || is_started_) {
       return;
     }
     is_started_ = true;

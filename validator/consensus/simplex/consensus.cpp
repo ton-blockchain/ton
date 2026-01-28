@@ -185,9 +185,8 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       start_time = std::max(start_time, td::Timestamp::at_unix(*parent.gen_utime_exact + target_rate_s_));
       start_time = std::min(start_time, td::Timestamp::in(target_rate_s_));
     }
-    owning_bus().publish<OurLeaderWindowStarted>(parent.id, start_slot, start_slot + slots_per_leader_window_,
-                                                 start_time, std::move(parent.state_roots),
-                                                 std::move(parent.block_data));
+    owning_bus().publish<OurLeaderWindowStarted>(parent.id, parent.state, start_slot,
+                                                 start_slot + slots_per_leader_window_, start_time);
     co_return {};
   }
 
@@ -207,8 +206,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     }
 
     auto resolved_candidate = td::make_ref<Candidate>(parent.id, candidate);
-    auto validation_result =
-        co_await owning_bus().publish<ValidationRequest>(resolved_candidate, std::move(parent.state_roots)).wrap();
+    auto validation_result = co_await owning_bus().publish<ValidationRequest>(parent.state, resolved_candidate).wrap();
 
     if (validation_result.is_error()) {
       // FIXME: Report misbehavior
@@ -245,8 +243,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
   struct ResolvedCandidate {
     ParentId id;
-    std::vector<td::Ref<vm::Cell>> state_roots;
-    std::vector<td::Ref<BlockData>> block_data;
+    ChainStateRef state;
     std::optional<double> gen_utime_exact = std::nullopt;
   };
   struct ResolvedCandidateEntry {
@@ -291,22 +288,14 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       } else {
         id_full = std::nullopt;
       }
-      std::vector<td::actor::StartedTask<td::Ref<vm::Cell>>> wait_state_root;
-      std::vector<td::actor::StartedTask<td::Ref<BlockData>>> wait_block_data;
-      auto blocks = (co_await genesis_.get())->convert_id_to_blocks(id_full);
-      for (const BlockIdExt& block_id : blocks) {
-        wait_state_root.push_back(td::actor::ask(owning_bus()->manager, &ManagerFacade::wait_block_state_root, block_id,
-                                                 td::Timestamp::in(10.0)));
-        if (block_id.seqno() != 0) {
-          wait_block_data.push_back(td::actor::ask(owning_bus()->manager, &ManagerFacade::wait_block_data, block_id,
-                                                   td::Timestamp::in(10.0)));
-        }
-      }
-      ResolvedCandidate resolved;
-      resolved.id = id_full;
-      resolved.state_roots = co_await td::actor::all(std::move(wait_state_root));
-      resolved.block_data = co_await td::actor::all(std::move(wait_block_data));
-      co_return resolved;
+      auto genesis = co_await genesis_.get();
+      auto state =
+          co_await ChainState::from_manager(owning_bus()->manager, owning_bus()->shard,
+                                            genesis->convert_id_to_blocks(id_full), genesis->state->min_mc_block_id());
+      co_return ResolvedCandidate{
+          .id = id_full,
+          .state = state,
+      };
     }
 
     auto candidate = (co_await owning_bus().publish<ResolveCandidate>(*id)).candidate;
@@ -316,11 +305,9 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       co_return prev_data_state;
     }
     const auto& block_candidate = std::get<BlockCandidate>(candidate->block);
-    auto [new_state_root, new_block_data] = co_await apply_block_to_state(prev_data_state.state_roots, block_candidate);
     ResolvedCandidate result{
         .id = candidate->id,
-        .state_roots = {new_state_root},
-        .block_data = {new_block_data},
+        .state = prev_data_state.state->apply(block_candidate),
     };
     auto r_gen_utime_exact = get_candidate_gen_utime_exact(block_candidate);
     if (r_gen_utime_exact.is_error()) {
