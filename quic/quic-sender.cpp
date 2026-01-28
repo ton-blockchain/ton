@@ -16,8 +16,9 @@ static td::uint32 get_magic(const td::BufferSlice &data) {
 
 class QuicSender::ServerCallback final : public QuicServer::Callback {
  public:
-  ServerCallback(adnl::AdnlNodeIdShort local_id, td::actor::ActorId<QuicSender> sender)
-      : local_id_(local_id), sender_(sender) {
+  ServerCallback(adnl::AdnlNodeIdShort local_id, td::actor::ActorId<QuicSender> sender,
+                 td::uint64 inbound_stream_max_size)
+      : local_id_(local_id), sender_(sender), inbound_stream_max_size_(inbound_stream_max_size) {
   }
 
   void on_connected(QuicConnectionId cid, td::SecureString peer_public_key, bool is_outbound) override {
@@ -34,6 +35,9 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     (void)cid_inserted;
     (void)sid_inserted;
     auto &state = sid_it->second;
+    if (sid_inserted && inbound_stream_max_size_ > 0) {
+      apply_stream_options(state, StreamOptions{.max_size = inbound_stream_max_size_});
+    }
     if (state.is_failed()) {
       LOG(INFO) << "got data for closed stream, ignore cid=" << cid << " sid=" << sid;
       return td::Status::Error("stream failed");
@@ -83,17 +87,7 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     auto [it, inserted] = by_cid.try_emplace(sid, StreamState{cid, sid});
     (void)inserted;
     auto &state = it->second;
-    state.set_options(options);
-
-    if (options.timeout) {
-      if (state.in_heap()) {
-        timeout_heap_.fix(options.timeout.at(), &state);
-      } else {
-        timeout_heap_.insert(options.timeout.at(), &state);
-      }
-    } else if (state.in_heap()) {
-      timeout_heap_.erase(&state);
-    }
+    apply_stream_options(state, options);
   }
 
   void loop(td::Timestamp now, StreamShutdownList &shutdown) override {
@@ -170,8 +164,22 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
 
   adnl::AdnlNodeIdShort local_id_;
   td::actor::ActorId<QuicSender> sender_;
+  td::uint64 inbound_stream_max_size_;
   std::map<QuicConnectionId, std::map<QuicStreamID, StreamState>> streams_;
   td::KHeap<double> timeout_heap_;
+
+  void apply_stream_options(StreamState &state, const StreamOptions &options) {
+    state.set_options(options);
+    if (options.timeout) {
+      if (state.in_heap()) {
+        timeout_heap_.fix(options.timeout.at(), &state);
+      } else {
+        timeout_heap_.insert(options.timeout.at(), &state);
+      }
+    } else if (state.in_heap()) {
+      timeout_heap_.erase(&state);
+    }
+  }
 
   void fail_stream(StreamState &state, td::Status error) {
     if (state.in_heap()) {
@@ -219,8 +227,9 @@ static td::Result<std::set<int>> get_unique_ports(const adnl::AdnlAddressList &a
   return ports;
 }
 
-QuicSender::QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::actor::ActorId<keyring::Keyring> keyring)
-    : adnl_(std::move(adnl)), keyring_(std::move(keyring)) {
+QuicSender::QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::actor::ActorId<keyring::Keyring> keyring,
+                       td::uint64 inbound_stream_max_size)
+    : adnl_(std::move(adnl)), keyring_(std::move(keyring)), inbound_stream_max_size_(inbound_stream_max_size) {
 }
 
 void QuicSender::send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) {
@@ -319,8 +328,9 @@ td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) 
     co_return td::Unit{};  // already added
   }
 
-  auto server = co_await QuicServer::create(port, td::Ed25519::PrivateKey(local_keys_.at(local_id).as_octet_string()),
-                                            std::make_unique<ServerCallback>(local_id, actor_id(this)));
+  auto server =
+      co_await QuicServer::create(port, td::Ed25519::PrivateKey(local_keys_.at(local_id).as_octet_string()),
+                                  std::make_unique<ServerCallback>(local_id, actor_id(this), inbound_stream_max_size_));
   servers_[local_id] = std::move(server);
 
   co_return td::Unit{};
