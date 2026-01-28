@@ -58,7 +58,6 @@ AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::
   state_keep_old_hash_.clear();
   state_old_hash_.clear();
   state_hash_.clear();
-  CHECK(prev_.size() > 0);
 }
 
 AcceptBlockQuery::AcceptBlockQuery(AcceptBlockQuery::IsFake fake, BlockIdExt id, td::Ref<BlockData> data,
@@ -81,7 +80,6 @@ AcceptBlockQuery::AcceptBlockQuery(AcceptBlockQuery::IsFake fake, BlockIdExt id,
   state_keep_old_hash_.clear();
   state_old_hash_.clear();
   state_hash_.clear();
-  CHECK(prev_.size() > 0);
 }
 
 AcceptBlockQuery::AcceptBlockQuery(ForceFork ffork, BlockIdExt id, td::Ref<BlockData> data,
@@ -134,7 +132,7 @@ bool AcceptBlockQuery::precheck_header() {
   if (res.is_error()) {
     return fatal_error("invalid block header in AcceptBlock: "s + res.to_string());
   }
-  if (is_fork_) {
+  if (prev_.size() == 0) {
     prev_ = prev;
   } else if (prev_ != prev) {
     return fatal_error("invalid previous block reference(s) in block header");
@@ -387,10 +385,6 @@ void AcceptBlockQuery::start_up() {
   }
   if (!is_fake_ && is_fork_) {
     fatal_error("a non-fake AcceptBlockQuery for a forced fork block");
-    return;
-  }
-  if (!is_fork_ && prev_.empty()) {
-    fatal_error("no previous blocks passed to AcceptBlockQuery");
     return;
   }
   if (is_fork_ && !is_masterchain()) {
