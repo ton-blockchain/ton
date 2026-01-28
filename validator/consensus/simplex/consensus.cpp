@@ -358,9 +358,6 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       maybe_final_candidate = candidate;
     }
     bool is_empty = std::holds_alternative<BlockIdExt>(candidate->block);
-    if (!is_empty) {
-      bus.publish<BlockFinalized>(candidate->id, maybe_final_cert.not_null());
-    }
     RawParentId parent_id;
     if (candidate->parent_id.has_value()) {
       if (is_empty) {
@@ -426,7 +423,6 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     }
     std::sort(blocks.begin(), blocks.end(), [](const auto& x, const auto& y) { return x.first.slot < y.first.slot; });
     size_t cnt = 0;
-    std::optional<CandidateId> last_known_finalized_block;
     for (size_t i = 0; i < blocks.size(); ++i) {
       auto& [id, p] = blocks[i];
       auto& [parent_id, is_final] = p;
@@ -441,14 +437,8 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       }
       ++cnt;
       finalized_blocks_[id.as_raw()].done = id;
-      if (is_final) {
-        last_known_finalized_block = id;
-      }
     }
     LOG(INFO) << "Loaded " << cnt << " finalized blocks from DB";
-    if (last_known_finalized_block.has_value()) {
-      owning_bus().publish<BlockFinalized>(last_known_finalized_block.value(), true);
-    }
   }
 };
 
