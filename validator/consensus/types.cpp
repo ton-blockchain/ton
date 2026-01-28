@@ -67,14 +67,6 @@ RawParentId RawCandidateId::tl_to_parent_id(const tl::CandidateParentRef& tl_par
   return id;
 }
 
-CandidateId CandidateId::create(td::uint32 slot, const CandidateHashData& builder) {
-  return CandidateId{RawCandidateId{slot, builder.hash()}, builder.block()};
-}
-
-td::StringBuilder& operator<<(td::StringBuilder& stream, const CandidateId& id) {
-  return stream << "{" << id.slot << ", " << id.hash << ", " << id.block.to_str() << "}";
-}
-
 CandidateHashData CandidateHashData::from_tl(tl::CandidateHashData&& data) {
   CandidateHashData builder;
 
@@ -96,6 +88,10 @@ BlockIdExt CandidateHashData::block() const {
   return std::visit(td::overloaded(empty_fn, full_fn), candidate);
 }
 
+RawCandidateId CandidateHashData::build_id_with(td::uint32 slot) const {
+  return RawCandidateId{slot, get_tl_object_sha_bits256(to_tl())};
+}
+
 tl::CandidateHashDataRef CandidateHashData::to_tl() const {
   auto empty_fn = [&](const EmptyCandidate& empty) -> tl::CandidateHashDataRef {
     return create_tl_object<tl::candidateHashDataEmpty>(create_tl_block_id(empty.reference), parent->to_tl());
@@ -105,10 +101,6 @@ tl::CandidateHashDataRef CandidateHashData::to_tl() const {
                                                            RawCandidateId::parent_id_to_tl(parent));
   };
   return std::visit(td::overloaded(empty_fn, full_fn), candidate);
-}
-
-Bits256 CandidateHashData::hash() const {
-  return get_tl_object_sha_bits256(to_tl());
 }
 
 td::Result<RawCandidateRef> RawCandidate::deserialize(td::Slice data, const Bus& bus,
@@ -195,15 +187,21 @@ td::Result<RawCandidateRef> RawCandidate::deserialize(td::Slice data, const Bus&
                          [&](auto& broadcast) { maybe_data = td::overloaded(empty_fn, ordinary_fn)(broadcast); });
   TRY_RESULT(parsed, std::move(maybe_data));
 
-  auto id = CandidateId::create(parsed.slot, parsed.hash_builder);
+  auto id = parsed.hash_builder.build_id_with(parsed.slot);
 
-  auto signed_data = serialize_tl_object(id.as_raw().to_tl(), true);
+  auto signed_data = serialize_tl_object(id.to_tl(), true);
   if (!leader.check_signature(bus.session_id, signed_data, parsed.signature)) {
     return td::Status::Error("Candidate broadcast signature is not valid");
   }
 
   return td::make_ref<RawCandidate>(id, parsed.parent_id, leader.idx, std::move(parsed.block),
                                     std::move(parsed.signature));
+}
+
+BlockIdExt RawCandidate::block_id() const {
+  auto empty_fn = [&](const BlockIdExt& referenced_block) { return referenced_block; };
+  auto full_fn = [&](const BlockCandidate& candidate) { return candidate.id; };
+  return std::visit(td::overloaded(empty_fn, full_fn), block);
 }
 
 CandidateHashData RawCandidate::hash_data() const {

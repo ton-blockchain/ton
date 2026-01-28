@@ -211,7 +211,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       // FIXME: Report misbehavior
       co_return {};
     }
-    co_await owning_bus().publish<WaitCandidateInfoStored>(candidate->id.as_raw(), true, false);
+    co_await owning_bus().publish<WaitCandidateInfoStored>(candidate->id, true, false);
 
     slot.state->voted_notar = candidate->id;
 
@@ -284,7 +284,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       auto genesis = co_await genesis_.get();
       if (id.has_value()) {
         auto candidate = (co_await owning_bus().publish<ResolveCandidate>(*id)).candidate;
-        block = {candidate->id.block};
+        block = {candidate->block_id()};
       } else {
         block = genesis->state->block_ids();
       }
@@ -317,19 +317,19 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   }
 
   struct FinalizedBlock {
-    std::optional<CandidateId> done = std::nullopt;
+    std::optional<RawCandidateId> done = std::nullopt;
     bool started = false;
-    std::vector<td::Promise<CandidateId>> waiters;
+    std::vector<td::Promise<RawCandidateId>> waiters;
   };
   std::map<RawCandidateId, FinalizedBlock> finalized_blocks_;
 
-  td::actor::Task<CandidateId> finalize_blocks(RawCandidateId id, FinalCertRef maybe_final_cert,
-                                               RawCandidateRef maybe_final_candidate = {}) {
+  td::actor::Task<RawCandidateId> finalize_blocks(RawCandidateId id, FinalCertRef maybe_final_cert,
+                                                  RawCandidateRef maybe_final_candidate = {}) {
     FinalizedBlock& state = finalized_blocks_[id];
     if (state.done.has_value()) {
       co_return state.done.value();
     }
-    auto [task, promise] = td::actor::StartedTask<CandidateId>::make_bridge();
+    auto [task, promise] = td::actor::StartedTask<RawCandidateId>::make_bridge();
     state.waiters.push_back(std::move(promise));
     if (!state.started) {
       state.started = true;
@@ -347,8 +347,8 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     co_return co_await std::move(task);
   }
 
-  td::actor::Task<CandidateId> finalize_blocks_inner(RawCandidateId id, FinalCertRef maybe_final_cert,
-                                                     RawCandidateRef maybe_final_candidate = {}) {
+  td::actor::Task<RawCandidateId> finalize_blocks_inner(RawCandidateId id, FinalCertRef maybe_final_cert,
+                                                        RawCandidateRef maybe_final_candidate = {}) {
     auto& bus = owning_bus();
     auto [candidate, notar_cert] = co_await bus.publish<ResolveCandidate>(id);
     if (maybe_final_cert.is_null() && owning_bus()->shard.is_masterchain()) {
@@ -393,7 +393,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
           ->db
           ->set(create_serialize_tl_object<ton_api::consensus_simplex_db_key_finalizedBlock>(id.to_tl()),
                 create_serialize_tl_object<ton_api::consensus_simplex_db_finalizedBlock>(
-                    create_tl_block_id(candidate->id.block), RawCandidateId::parent_id_to_tl(candidate->parent_id),
+                    create_tl_block_id(candidate->block_id()), RawCandidateId::parent_id_to_tl(candidate->parent_id),
                     maybe_final_cert.not_null()))
           .start()
           .detach();
@@ -407,18 +407,18 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     co_await owning_bus()->db->set(
         create_serialize_tl_object<ton_api::consensus_simplex_db_key_finalizedBlock>(id.to_tl()),
         create_serialize_tl_object<ton_api::consensus_simplex_db_finalizedBlock>(
-            create_tl_block_id(candidate->id.block), RawCandidateId::parent_id_to_tl(candidate->parent_id),
+            create_tl_block_id(candidate->block_id()), RawCandidateId::parent_id_to_tl(candidate->parent_id),
             sig_set->is_final()));
     co_return td::Unit{};
   }
 
   void load_from_db() {
     auto data = owning_bus()->db->get_by_prefix(ton_api::consensus_simplex_db_key_finalizedBlock::ID);
-    std::vector<std::pair<CandidateId, std::pair<RawParentId, bool>>> blocks;
+    std::vector<std::pair<RawCandidateId, std::pair<RawParentId, bool>>> blocks;
     for (auto& [key_str, value_str] : data) {
       auto key = fetch_tl_object<ton_api::consensus_simplex_db_key_finalizedBlock>(key_str, true).ensure().move_as_ok();
       auto value = fetch_tl_object<ton_api::consensus_simplex_db_finalizedBlock>(value_str, true).ensure().move_as_ok();
-      blocks.emplace_back(CandidateId{RawCandidateId::from_tl(key->candidateId_), create_block_id(value->block_id_)},
+      blocks.emplace_back(RawCandidateId::from_tl(key->candidateId_),
                           std::make_pair(RawCandidateId::tl_to_parent_id(value->parent_), value->is_final_));
     }
     std::sort(blocks.begin(), blocks.end(), [](const auto& x, const auto& y) { return x.first.slot < y.first.slot; });
@@ -430,13 +430,13 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       if (i == 0) {
         expected_parent_id = std::nullopt;
       } else {
-        expected_parent_id = blocks[i].first.as_raw();
+        expected_parent_id = blocks[i].first;
       }
       if (expected_parent_id != parent_id && !owning_bus()->shard.is_masterchain()) {
         continue;
       }
       ++cnt;
-      finalized_blocks_[id.as_raw()].done = id;
+      finalized_blocks_[id].done = id;
     }
     LOG(INFO) << "Loaded " << cnt << " finalized blocks from DB";
   }
