@@ -71,7 +71,7 @@ class ParserSessionStats(Parser):
 
         return self._slots[slot_id]
 
-    def _parse_stats_target_reached(
+    def _parse_stats_event(
         self,
         event: TypeConsensus_stats_Event,
         t_ms: float,
@@ -83,8 +83,8 @@ class ParserSessionStats(Parser):
         if isinstance(event, (Consensus_stats_collateStarted, Consensus_stats_collateFinished)):
             slot = event.target_slot
         else:
-            assert event.candidateId is not None, f"CandidateId is None for {event}"
-            slot = event.candidateId.slot
+            assert event.id is not None, f"id is None for {event}"
+            slot = event.id.slot
         assert slot is not None, f"Slot is None for {event}"
 
         slot_id = (v_group, slot)
@@ -107,6 +107,10 @@ class ParserSessionStats(Parser):
             t1_ms=None,
         )
         self._slot_events.setdefault(slot_id, {}).setdefault(v_id, {})[label] = ev
+
+        if isinstance(event, Consensus_stats_collateFinished):
+            assert event.block is not None
+            slot_data.block_id_ext = f"({event.block.workchain},{self._shard_to_hex(event.block.shard)},{event.block.seqno}):{event.block.root_hash.hex().upper()}:{event.block.file_hash.hex().upper()}"
 
         if label == "candidate_received":
             self._events.append(ev)
@@ -323,10 +327,13 @@ class ParserSessionStats(Parser):
 
         return None
 
+    @staticmethod
+    def _shard_to_hex(sh: int) -> str:
+        return f"{sh & 0xFFFFFFFFFFFFFFFF:016x}"
+
     def _process_group_events(
         self,
         events: list[Consensus_stats_timestampedEvent],
-        v_group: str,
     ):
         event_id: Consensus_stats_id | None = None
         for e in events:
@@ -334,6 +341,8 @@ class ParserSessionStats(Parser):
                 event_id = e.event
                 break
         assert event_id, "Event ID not found in events list"
+
+        v_group = f"{event_id.workchain},{self._shard_to_hex(event_id.shard)}.{event_id.cc_seqno}"
 
         v_id = event_id.idx
         v_weight = event_id.weight
@@ -351,7 +360,7 @@ class ParserSessionStats(Parser):
             elif isinstance(ev, Consensus_simplex_stats_certObserved):
                 self._parse_cert_observed(ev, t_ms, v_group, v_id, get_slot_leader)
             else:
-                self._parse_stats_target_reached(ev, t_ms, v_group, v_id)
+                self._parse_stats_event(ev, t_ms, v_group, v_id)
 
     def _clear_state(self) -> None:
         self._slots = {}
@@ -366,18 +375,18 @@ class ParserSessionStats(Parser):
     def parse(self) -> ConsensusData:
         for log_file in self._logs_path:
             with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
-                events_by_groups: dict[str, list[Consensus_stats_timestampedEvent]] = {}
+                events_by_groups: dict[bytes, list[Consensus_stats_timestampedEvent]] = {}
 
                 for line in f:
                     if not line.startswith('{"@type":"consensus.stats.events"'):
                         continue
 
                     events = Consensus_stats_events.from_json(line)
-                    v_group = events.id.hex()
-                    events_by_groups.setdefault(v_group, []).extend(events.events)
 
-                for v_group, events in events_by_groups.items():
-                    self._process_group_events(events, v_group)
+                    events_by_groups.setdefault(events.id, []).extend(events.events)
+
+                for events in events_by_groups.values():
+                    self._process_group_events(events)
 
         self._infer_slot_phases()
         self._infer_slot_events()
