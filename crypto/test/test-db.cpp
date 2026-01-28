@@ -1176,14 +1176,14 @@ struct BocOptions {
       res.dboc->set_celldb_compress_depth(rnd.fast(compress_depth_range.first, compress_depth_range.second));
     }
     return res;
-  };
-  void prepare_commit(DynamicBagOfCellsDb &dboc) {
+  }
+  void prepare_commit(DynamicBagOfCellsDb &dboc, StoreCellHint hint = {}) {
     td::PerfWarningTimer warning_timer("test_db_prepare_commit");
     if (async_executor) {
       std::latch latch(1);
       td::Result<td::Unit> res;
-      async_executor->execute_sync([&] {
-        dboc.prepare_commit_async(async_executor, {}, [&](auto r) {
+      async_executor->execute_sync([&, hint = std::move(hint)] {
+        dboc.prepare_commit_async(async_executor, std::move(hint), [&](auto r) {
           res = std::move(r);
           latch.count_down();
         });
@@ -1192,7 +1192,7 @@ struct BocOptions {
       async_executor->execute_sync([&] {});
       res.ensure();
     } else {
-      dboc.prepare_commit();
+      dboc.prepare_commit(std::move(hint));
     }
   }
   enum CacheAction { ResetCache, KeepCache };
@@ -1219,8 +1219,8 @@ struct BocOptions {
     }
   }
 
-  void commit(DB &db, CacheAction action = ResetCache) {
-    prepare_commit(*db.dboc);
+  void commit(DB &db, CacheAction action = ResetCache, StoreCellHint hint = {}) {
+    prepare_commit(*db.dboc, std::move(hint));
     write_commit(*db.dboc, db.kv, action);
   }
 
@@ -1257,7 +1257,7 @@ struct BocOptions {
 };
 
 template <class F>
-void with_all_boc_options(F &&f, size_t tests_n, bool single_thread = false) {
+void with_all_boc_options(F &&f, size_t tests_n, bool only_v2 = false) {
   LOG(INFO) << "Test dynamic boc";
   auto counter = [] { return td::NamedThreadSafeCounter::get_default().get_counter("DataCell").sum(); };
   std::map<std::string, std::vector<std::pair<td::int64, std::string>>> benches;
@@ -1314,11 +1314,13 @@ void with_all_boc_options(F &&f, size_t tests_n, bool single_thread = false) {
             .compress_depth_range = compress_depth_range,
         });
 
-        // V1
-        run({.async_executor = executor,
-             .kv_options = kv_options,
-             .options = DynamicBagOfCellsDb::CreateV1Options{},
-             .compress_depth_range = compress_depth_range});
+        if (!only_v2) {
+          // V1
+          run({.async_executor = executor,
+               .kv_options = kv_options,
+               .options = DynamicBagOfCellsDb::CreateV1Options{},
+               .compress_depth_range = compress_depth_range});
+        }
 
         // V2 - one thread
         run({.async_executor = executor,
@@ -1328,7 +1330,7 @@ void with_all_boc_options(F &&f, size_t tests_n, bool single_thread = false) {
              .compress_depth_range = compress_depth_range});
 
         // InMemory
-        if (compress_depth_range.second == 0) {
+        if (compress_depth_range.second == 0 && !only_v2) {
           for (auto use_arena : {false, true}) {
             for (auto less_memory : {false, true}) {
               run({.async_executor = executor,
@@ -1579,6 +1581,86 @@ DynamicBagOfCellsDb::Stats test_dynamic_boc2(BocOptions options) {
 
 TEST(TonDb, DynamicBoc2) {
   with_all_boc_options(test_dynamic_boc2, 50);
+}
+
+DynamicBagOfCellsDb::Stats test_dynamic_boc_hint(BocOptions options) {
+  auto &rnd = options.rnd;
+  DynamicBagOfCellsDb::Stats stats;
+
+  int max_cells = 30;
+
+  DB db;
+  auto reload_db = [&](td::int64 root_n) { db = options.create_db(std::move(db), root_n); };
+  reload_db(0);
+
+  std::vector<Ref<Cell>> roots;
+  td::UsageStats commit_stats{};
+  for (size_t iter = 0; iter < 30; ++iter) {
+    StoreCellHint hint;
+    if (!roots.empty() && rnd.fast(0, 2) == 0) {
+      int i = rnd.fast(0, (int)roots.size() - 1);
+      auto root = roots[i];
+      roots[i] = roots.back();
+      roots.pop_back();
+      VLOG(boc) << "Remove root " << root->get_hash().to_hex();
+      db.dboc->dec(root);
+    } else {
+      Ref<Cell> from_root;
+      if (!roots.empty()) {
+        int i = rnd.fast(0, (int)roots.size() - 1);
+        if (rnd.fast(0, 1)) {
+          auto hash = roots[i]->get_hash();
+          from_root = db.dboc->load_cell(hash.as_slice()).ensure().move_as_ok();
+        } else {
+          from_root = roots[i];
+        }
+      }
+      Ref<Cell> usage_from_root;
+      std::shared_ptr<CellUsageTree> usage_tree;
+      if (from_root.not_null()) {
+        usage_tree = std::make_shared<CellUsageTree>();
+        usage_from_root = UsageCell::create(from_root, usage_tree->root_ptr());
+      }
+      auto root = gen_random_cell(rnd.fast(1, max_cells), usage_from_root, rnd);
+      if (from_root.not_null()) {
+        auto update = MerkleUpdate::generate(usage_from_root, root, usage_tree.get());
+        CHECK(update.not_null());
+        root = MerkleUpdate::apply(from_root, update, &hint);
+        CHECK(root.not_null());
+      }
+      roots.push_back(root);
+      VLOG(boc) << "Add root " << root->get_hash().to_hex();
+      db.dboc->inc(root);
+    }
+    VLOG(boc) << "before commit cells_in_db=" << db.kv->count("");
+    auto stats_before = db.kv->get_usage_stats();
+    options.commit(db, BocOptions::ResetCache, std::move(hint));
+    auto stats_after = db.kv->get_usage_stats();
+    commit_stats = commit_stats + stats_after - stats_before;
+    VLOG(boc) << "after commit cells_in_db=" << db.kv->count("");
+  }
+
+  auto r_stats = db.dboc->get_stats();
+  if (r_stats.is_ok()) {
+    stats.apply_diff(r_stats.ok());
+  }
+  stats.named_stats.apply_diff(db.kv->get_usage_stats().to_named_stats());
+
+  if (!std::holds_alternative<DynamicBagOfCellsDb::CreateInMemoryOptions>(options.options)) {
+    // Validate the whole DB in DynamicBagOfCellsDb::create_in_memory
+    auto kv = std::move(db.kv);
+    db = {};
+    auto mem =
+        DynamicBagOfCellsDb::create_in_memory(kv.get(), DynamicBagOfCellsDb::CreateInMemoryOptions{.verbose = false});
+    CHECK(mem);
+    mem = {};
+  }
+
+  return stats;
+}
+
+TEST(TonDb, DynamicBocHint) {
+  with_all_boc_options(test_dynamic_boc_hint, 50, /* only_v2 = */ true);
 }
 
 template <class BocDeserializerT>
