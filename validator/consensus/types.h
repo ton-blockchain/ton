@@ -134,10 +134,7 @@ struct CandidateId {
   BlockIdExt block;
 };
 
-using ParentId = std::optional<CandidateId>;
-
 td::StringBuilder& operator<<(td::StringBuilder& stream, const CandidateId& id);
-td::StringBuilder& operator<<(td::StringBuilder& stream, const ParentId& id);
 
 struct CandidateHashData {
   struct EmptyCandidate {

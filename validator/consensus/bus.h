@@ -25,7 +25,6 @@ struct Start {
   ChainStateRef state;
 
   std::string contents_to_string() const;
-  std::vector<BlockIdExt> convert_id_to_blocks(ParentId parent) const;
 };
 
 using StartEvent = std::shared_ptr<const Start>;
@@ -49,7 +48,7 @@ struct FinalizeBlock {
 };
 
 struct OurLeaderWindowStarted {
-  ParentId base;
+  RawParentId base;
   ChainStateRef state;
   td::uint32 start_slot;
   td::uint32 end_slot;
