@@ -126,8 +126,7 @@ class TestOverlay : public td::actor::Actor {
   }
 
   td::actor::Task<> send_message(PeerValidator src, size_t src_instance_idx, size_t dst_idx, td::BufferSlice message);
-  td::actor::Task<> send_candidate(PeerValidator src, size_t src_instance_idx, size_t dst_idx,
-                                   RawCandidateRef candidate);
+  td::actor::Task<> send_candidate(PeerValidator src, size_t src_instance_idx, size_t dst_idx, CandidateRef candidate);
   td::actor::Task<td::BufferSlice> send_query(PeerValidator src, size_t src_instance_idx, size_t dst_idx,
                                               td::BufferSlice message);
 
@@ -250,7 +249,7 @@ class TestOverlayNode : public runtime::SpawnsWith<Bus>, public runtime::Connect
     owning_bus().publish<IncomingProtocolMessage>(src.idx, std::move(data));
   }
 
-  void receive_candidate(RawCandidateRef candidate) {
+  void receive_candidate(CandidateRef candidate) {
     owning_bus().publish<CandidateReceived>(candidate);
   }
 
@@ -280,7 +279,7 @@ td::actor::Task<> TestOverlay::send_message(PeerValidator src, size_t src_instan
 }
 
 td::actor::Task<> TestOverlay::send_candidate(PeerValidator src, size_t src_instance_idx, size_t dst_idx,
-                                              RawCandidateRef candidate) {
+                                              CandidateRef candidate) {
   co_await before_receive(src.idx.value(), src_instance_idx, dst_idx, true);
   for (const auto &instance : nodes_[dst_idx]) {
     if (instance.actor.empty() || instance.disabled) {

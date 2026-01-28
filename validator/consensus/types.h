@@ -92,22 +92,22 @@ struct ProtocolMessage {
   td::BufferSlice data;
 };
 
-struct RawCandidateId {
-  static RawCandidateId from_tl(const tl::CandidateIdRef& tl_parent);
-  static tl::CandidateParentRef parent_id_to_tl(std::optional<RawCandidateId> parent);
-  static std::optional<RawCandidateId> tl_to_parent_id(const tl::CandidateParentRef& tl_parent);
+struct CandidateId {
+  static CandidateId from_tl(const tl::CandidateIdRef& tl_parent);
+  static tl::CandidateParentRef parent_id_to_tl(std::optional<CandidateId> parent);
+  static std::optional<CandidateId> tl_to_parent_id(const tl::CandidateParentRef& tl_parent);
 
   tl::CandidateIdRef to_tl() const;
-  std::strong_ordering operator<=>(const RawCandidateId&) const = default;
+  std::strong_ordering operator<=>(const CandidateId&) const = default;
 
   td::uint32 slot{0};
   Bits256 hash{};
 };
 
-using RawParentId = std::optional<RawCandidateId>;
+using ParentId = std::optional<CandidateId>;
 
-td::StringBuilder& operator<<(td::StringBuilder& stream, const RawCandidateId& id);
-td::StringBuilder& operator<<(td::StringBuilder& stream, const RawParentId& id);
+td::StringBuilder& operator<<(td::StringBuilder& stream, const CandidateId& id);
+td::StringBuilder& operator<<(td::StringBuilder& stream, const ParentId& id);
 
 struct CandidateHashData;
 
@@ -121,34 +121,34 @@ struct CandidateHashData {
     td::Bits256 collated_file_hash;
   };
 
-  static CandidateHashData create_empty(BlockIdExt reference, RawCandidateId parent) {
+  static CandidateHashData create_empty(BlockIdExt reference, CandidateId parent) {
     return {EmptyCandidate{reference}, parent};
   }
 
-  static CandidateHashData create_full(FullCandidate candidate, RawParentId parent) {
+  static CandidateHashData create_full(FullCandidate candidate, ParentId parent) {
     return {candidate, parent};
   }
 
-  static CandidateHashData create_full(const BlockCandidate& candidate, RawParentId parent) {
+  static CandidateHashData create_full(const BlockCandidate& candidate, ParentId parent) {
     return {FullCandidate{candidate.id, candidate.collated_file_hash}, parent};
   }
 
   static CandidateHashData from_tl(tl::CandidateHashData&& data);
 
   BlockIdExt block() const;
-  RawCandidateId build_id_with(td::uint32 slot) const;
+  CandidateId build_id_with(td::uint32 slot) const;
   tl::CandidateHashDataRef to_tl() const;
 
   std::variant<EmptyCandidate, FullCandidate> candidate;
-  RawParentId parent;
+  ParentId parent;
 };
 
-struct RawCandidate : td::CntObject {
-  static td::Result<td::Ref<RawCandidate>> deserialize(td::Slice data, const Bus& bus,
-                                                       std::optional<PeerValidatorId> src = std::nullopt);
+struct Candidate : td::CntObject {
+  static td::Result<td::Ref<Candidate>> deserialize(td::Slice data, const Bus& bus,
+                                                    std::optional<PeerValidatorId> src = std::nullopt);
 
-  RawCandidate(RawCandidateId id, RawParentId parent_id, PeerValidatorId leader,
-               std::variant<BlockIdExt, BlockCandidate> block, td::BufferSlice signature)
+  Candidate(CandidateId id, ParentId parent_id, PeerValidatorId leader, std::variant<BlockIdExt, BlockCandidate> block,
+            td::BufferSlice signature)
       : id(id)
       , parent_id(std::move(parent_id))
       , leader(leader)
@@ -162,14 +162,14 @@ struct RawCandidate : td::CntObject {
   td::BufferSlice serialize() const;
   bool is_empty() const;
 
-  RawCandidateId id;
-  RawParentId parent_id;
+  CandidateId id;
+  ParentId parent_id;
   PeerValidatorId leader;
   std::variant<BlockIdExt, BlockCandidate> block;
   td::BufferSlice signature;
 };
 
-using RawCandidateRef = td::Ref<RawCandidate>;
+using CandidateRef = td::Ref<Candidate>;
 
 class CollatorSchedule : public td::CntObject {
  public:

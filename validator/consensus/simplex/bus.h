@@ -19,14 +19,14 @@ struct BroadcastVote {
 };
 
 struct NotarizationObserved {
-  RawCandidateId id;
+  CandidateId id;
   NotarCertRef certificate;
 
   std::string contents_to_string() const;
 };
 
 struct FinalizationObserved {
-  RawCandidateId id;
+  CandidateId id;
   FinalCertRef certificate;
 
   std::string contents_to_string() const;
@@ -34,7 +34,7 @@ struct FinalizationObserved {
 
 struct LeaderWindowObserved {
   td::uint32 start_slot;
-  RawParentId base;
+  ParentId base;
 
   std::string contents_to_string() const;
 };
@@ -42,20 +42,20 @@ struct LeaderWindowObserved {
 struct WaitForParent {
   using ReturnType = std::optional<MisbehaviorRef>;
 
-  RawCandidateRef candidate;
+  CandidateRef candidate;
 
   std::string contents_to_string() const;
 };
 
 struct ResolveCandidate {
   struct Result {
-    RawCandidateRef candidate;
+    CandidateRef candidate;
     NotarCertRef notar;
   };
 
   using ReturnType = Result;
 
-  RawCandidateId id;
+  CandidateId id;
 
   std::string contents_to_string() const;
 };
@@ -63,7 +63,7 @@ struct ResolveCandidate {
 struct WaitCandidateInfoStored {
   using ReturnType = td::Unit;
 
-  RawCandidateId id;
+  CandidateId id;
   bool wait_candidate_info = false;
   bool wait_notar_cert = false;
 

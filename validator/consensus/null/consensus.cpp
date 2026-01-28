@@ -27,7 +27,7 @@ struct SlotState {
     total_signed_weight += validator.weight;
   }
 
-  std::optional<RawCandidateRef> raw_candidate;
+  std::optional<CandidateRef> candidate;
 
   std::vector<BlockSignature> signatures;
   ValidatorWeight total_signed_weight = 0;
@@ -130,10 +130,10 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     co_return {};
   }
 
-  td::actor::Task<> on_new_candidate(RawCandidateRef candidate) {
+  td::actor::Task<> on_new_candidate(CandidateRef candidate) {
     SlotState& state = get_or_create_slot_state(candidate->id.slot);
-    CHECK(!state.raw_candidate.has_value());
-    state.raw_candidate = candidate;
+    CHECK(!state.candidate.has_value());
+    state.candidate = candidate;
 
     co_await try_validate_blocks();
     try_finalize_blocks();
@@ -160,32 +160,32 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       }
       SlotState& state = it->second;
       CHECK(!state.validated);
-      if (!state.raw_candidate.has_value()) {
+      if (!state.candidate.has_value()) {
         break;
       }
-      const auto& raw_candidate = *state.raw_candidate;
+      const auto& candidate = *state.candidate;
 
-      CHECK(raw_candidate->parent_id == parent_for_validation_);
+      CHECK(candidate->parent_id == parent_for_validation_);
 
       auto validation_result =
-          co_await owning_bus().publish<ValidationRequest>(state_for_validation_, raw_candidate).wrap();
+          co_await owning_bus().publish<ValidationRequest>(state_for_validation_, candidate).wrap();
       validation_result.ensure();
 
-      auto signature_data = create_serialize_tl_object<ton_api::ton_blockId>(raw_candidate->block_id().root_hash,
-                                                                             raw_candidate->block_id().file_hash);
+      auto signature_data = create_serialize_tl_object<ton_api::ton_blockId>(candidate->block_id().root_hash,
+                                                                             candidate->block_id().file_hash);
       auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id.short_id,
                                                std::move(signature_data));
 
       state.add_signature(bus.local_id, signature.clone());
       state.validated = true;
 
-      send_message({}, create_tl_object<tl::signature>(raw_candidate->id.slot, std::move(signature)));
+      send_message({}, create_tl_object<tl::signature>(candidate->id.slot, std::move(signature)));
 
       ++next_slot_to_validate_;
-      if (auto block = std::get_if<BlockCandidate>(&raw_candidate->block)) {
+      if (auto block = std::get_if<BlockCandidate>(&candidate->block)) {
         state_for_validation_ = state_for_validation_->apply(*block);
       }
-      parent_for_validation_ = raw_candidate->id;
+      parent_for_validation_ = candidate->id;
       if (state.finalized) {
         block_states_.erase(it);
       }
@@ -203,11 +203,11 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       }
       SlotState& state = it->second;
       CHECK(!state.finalized);
-      if (state.total_signed_weight < weight_threshold_ || !state.raw_candidate.has_value()) {
+      if (state.total_signed_weight < weight_threshold_ || !state.candidate.has_value()) {
         break;
       }
       auto& bus = owning_bus();
-      bus.publish<FinalizeBlock>(*state.raw_candidate,
+      bus.publish<FinalizeBlock>(*state.candidate,
                                  block::BlockSignatureSet::create_ordinary(std::move(state.signatures), bus->cc_seqno,
                                                                            bus->validator_set_hash))
           .start()
@@ -233,7 +233,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   std::map<td::uint32, SlotState> block_states_;
 
   bool try_validate_blocks_running_ = false;
-  RawParentId parent_for_validation_;
+  ParentId parent_for_validation_;
   ChainStateRef state_for_validation_;
   td::uint32 next_slot_to_validate_ = 0;
   td::uint32 next_slot_to_finalize_ = 0;

@@ -223,7 +223,7 @@ struct SlotState {
     return certs.notarize_.has_value();
   }
 
-  std::optional<RawCandidateId> notarized_block() const {
+  std::optional<CandidateId> notarized_block() const {
     if (certs.notarize_.has_value()) {
       return (*certs.notarize_)->vote.id;
     }
@@ -241,7 +241,7 @@ struct SlotState {
     return certs.finalize_.has_value();
   }
 
-  void add_available_base(RawParentId parent) {
+  void add_available_base(ParentId parent) {
     // If we have multiple bases, choose one coming from the highest slot to maximize the chance of
     // forward-progress.
     if (!available_base.has_value() || parent >= *available_base) {
@@ -253,20 +253,20 @@ struct SlotState {
   CertificateBundle certs;
 
   ValidatorWeight skip_weight = 0;
-  std::map<RawCandidateId, ValidatorWeight> notarize_weight;
-  std::map<RawCandidateId, ValidatorWeight> finalize_weight;
+  std::map<CandidateId, ValidatorWeight> notarize_weight;
+  std::map<CandidateId, ValidatorWeight> finalize_weight;
 
-  std::optional<RawParentId> available_base;
+  std::optional<ParentId> available_base;
 };
 
 class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
   using State = ConsensusState<td::Unit, SlotState, td::Unit, const Bus &>;
 
   struct Request {
-    RawCandidateId id;
-    RawParentId parent;
+    CandidateId id;
+    ParentId parent;
     td::Promise<std::optional<MisbehaviorRef>> promise;
-    RawCandidateRef candidate_for_proof;
+    CandidateRef candidate_for_proof;
   };
 
  public:
@@ -280,7 +280,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     weight_threshold_ = (bus.total_weight * 2) / 3 + 1;
 
     state_.emplace(State(bus.simplex_config.slots_per_leader_window, {}, bus));
-    state_->slot_at(0)->state->available_base = RawParentId{};
+    state_->slot_at(0)->state->available_base = ParentId{};
 
     LOG(INFO) << "Validator group started. We are " << bus.local_id << " with weight " << bus.local_id.weight
               << " out of " << bus.total_weight;
@@ -534,7 +534,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
       co_return {};
     }
 
-    RawParentId base = {};
+    ParentId base = {};
     if (now_ != 0) {
       auto maybe_base = state_->slot_at(now_)->state->available_base;
       CHECK(maybe_base.has_value());
@@ -751,7 +751,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
 
   td::uint32 first_nonannounced_window_ = 0;
 
-  RawParentId last_finalized_block_;
+  ParentId last_finalized_block_;
   std::optional<FinalCertRef> last_final_cert_;
   td::uint32 first_nonfinalized_slot_ = 0;
 

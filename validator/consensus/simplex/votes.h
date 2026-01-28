@@ -35,7 +35,7 @@ struct NotarizeVote {
 
   bool operator==(const NotarizeVote&) const = default;
 
-  RawCandidateId id;
+  CandidateId id;
 };
 
 td::StringBuilder& operator<<(td::StringBuilder& sb, const NotarizeVote& vote);
@@ -50,7 +50,7 @@ struct FinalizeVote {
 
   bool operator==(const FinalizeVote&) const = default;
 
-  RawCandidateId id;
+  CandidateId id;
 };
 
 td::StringBuilder& operator<<(td::StringBuilder& sb, const FinalizeVote& vote);

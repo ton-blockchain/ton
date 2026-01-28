@@ -18,8 +18,8 @@ struct SlotState {
   SlotState(td::Unit) {
   }
 
-  std::optional<RawCandidateRef> pending_block;
-  std::optional<RawCandidateId> voted_notar;
+  std::optional<CandidateRef> pending_block;
+  std::optional<CandidateId> voted_notar;
   bool voted_skip = false;
   bool voted_final = false;
 };
@@ -178,8 +178,8 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   }
 
  private:
-  td::actor::Task<> start_generation(RawParentId raw_parent, td::uint32 start_slot) {
-    auto parent = co_await get_resolved_candidate(raw_parent);
+  td::actor::Task<> start_generation(ParentId base, td::uint32 start_slot) {
+    auto parent = co_await get_resolved_candidate(base);
     td::Timestamp start_time = td::Timestamp::now();
     if (parent.gen_utime_exact.has_value()) {
       start_time = std::max(start_time, td::Timestamp::at_unix(*parent.gen_utime_exact + target_rate_s_));
@@ -241,7 +241,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   std::multimap<td::Timestamp, td::uint32> skip_timeouts_;
 
   struct ResolvedCandidate {
-    RawParentId id;
+    ParentId id;
     ChainStateRef state;
     std::optional<double> gen_utime_exact = std::nullopt;
   };
@@ -250,12 +250,12 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     bool started = false;
     std::vector<td::Promise<ResolvedCandidate>> promises;
   };
-  std::map<RawParentId, ResolvedCandidateEntry> block_data_state_cache_;
+  std::map<ParentId, ResolvedCandidateEntry> block_data_state_cache_;
 
   td::Promise<StartEvent> genesis_promise_;
   SharedFuture<StartEvent> genesis_;
 
-  td::actor::Task<ResolvedCandidate> get_resolved_candidate(RawParentId id) {
+  td::actor::Task<ResolvedCandidate> get_resolved_candidate(ParentId id) {
     ResolvedCandidateEntry& entry = block_data_state_cache_[id];
     if (entry.result.has_value()) {
       co_return *entry.result;
@@ -278,7 +278,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     co_return co_await std::move(task);
   }
 
-  td::actor::Task<ResolvedCandidate> get_resolved_candidate_inner(RawParentId id) {
+  td::actor::Task<ResolvedCandidate> get_resolved_candidate_inner(ParentId id) {
     if (!id.has_value() || finalized_blocks_.contains(*id)) {
       std::vector<BlockIdExt> block;
       auto genesis = co_await genesis_.get();
@@ -317,19 +317,19 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   }
 
   struct FinalizedBlock {
-    std::optional<RawCandidateId> done = std::nullopt;
+    std::optional<CandidateId> done = std::nullopt;
     bool started = false;
-    std::vector<td::Promise<RawCandidateId>> waiters;
+    std::vector<td::Promise<CandidateId>> waiters;
   };
-  std::map<RawCandidateId, FinalizedBlock> finalized_blocks_;
+  std::map<CandidateId, FinalizedBlock> finalized_blocks_;
 
-  td::actor::Task<RawCandidateId> finalize_blocks(RawCandidateId id, FinalCertRef maybe_final_cert,
-                                                  RawCandidateRef maybe_final_candidate = {}) {
+  td::actor::Task<CandidateId> finalize_blocks(CandidateId id, FinalCertRef maybe_final_cert,
+                                               CandidateRef maybe_final_candidate = {}) {
     FinalizedBlock& state = finalized_blocks_[id];
     if (state.done.has_value()) {
       co_return state.done.value();
     }
-    auto [task, promise] = td::actor::StartedTask<RawCandidateId>::make_bridge();
+    auto [task, promise] = td::actor::StartedTask<CandidateId>::make_bridge();
     state.waiters.push_back(std::move(promise));
     if (!state.started) {
       state.started = true;
@@ -347,8 +347,8 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     co_return co_await std::move(task);
   }
 
-  td::actor::Task<RawCandidateId> finalize_blocks_inner(RawCandidateId id, FinalCertRef maybe_final_cert,
-                                                        RawCandidateRef maybe_final_candidate = {}) {
+  td::actor::Task<CandidateId> finalize_blocks_inner(CandidateId id, FinalCertRef maybe_final_cert,
+                                                     CandidateRef maybe_final_candidate = {}) {
     auto& bus = owning_bus();
     auto [candidate, notar_cert] = co_await bus.publish<ResolveCandidate>(id);
     if (maybe_final_cert.is_null() && owning_bus()->shard.is_masterchain()) {
@@ -358,7 +358,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       maybe_final_candidate = candidate;
     }
     bool is_empty = std::holds_alternative<BlockIdExt>(candidate->block);
-    RawParentId parent_id;
+    ParentId parent_id;
     if (candidate->parent_id.has_value()) {
       if (is_empty) {
         parent_id = co_await finalize_blocks(candidate->parent_id.value(), maybe_final_cert, maybe_final_candidate);
@@ -393,7 +393,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
           ->db
           ->set(create_serialize_tl_object<ton_api::consensus_simplex_db_key_finalizedBlock>(id.to_tl()),
                 create_serialize_tl_object<ton_api::consensus_simplex_db_finalizedBlock>(
-                    create_tl_block_id(candidate->block_id()), RawCandidateId::parent_id_to_tl(candidate->parent_id),
+                    create_tl_block_id(candidate->block_id()), CandidateId::parent_id_to_tl(candidate->parent_id),
                     maybe_final_cert.not_null()))
           .start()
           .detach();
@@ -401,32 +401,32 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     co_return candidate->id;
   }
 
-  td::actor::Task<> do_finalize_block(RawCandidateId id, RawCandidateRef candidate, RawParentId parent_id,
+  td::actor::Task<> do_finalize_block(CandidateId id, CandidateRef candidate, ParentId parent_id,
                                       td::Ref<block::BlockSignatureSet> sig_set) {
     co_await owning_bus().publish<FinalizeBlock>(candidate, sig_set);
     co_await owning_bus()->db->set(
         create_serialize_tl_object<ton_api::consensus_simplex_db_key_finalizedBlock>(id.to_tl()),
         create_serialize_tl_object<ton_api::consensus_simplex_db_finalizedBlock>(
-            create_tl_block_id(candidate->block_id()), RawCandidateId::parent_id_to_tl(candidate->parent_id),
+            create_tl_block_id(candidate->block_id()), CandidateId::parent_id_to_tl(candidate->parent_id),
             sig_set->is_final()));
     co_return td::Unit{};
   }
 
   void load_from_db() {
     auto data = owning_bus()->db->get_by_prefix(ton_api::consensus_simplex_db_key_finalizedBlock::ID);
-    std::vector<std::pair<RawCandidateId, std::pair<RawParentId, bool>>> blocks;
+    std::vector<std::pair<CandidateId, std::pair<ParentId, bool>>> blocks;
     for (auto& [key_str, value_str] : data) {
       auto key = fetch_tl_object<ton_api::consensus_simplex_db_key_finalizedBlock>(key_str, true).ensure().move_as_ok();
       auto value = fetch_tl_object<ton_api::consensus_simplex_db_finalizedBlock>(value_str, true).ensure().move_as_ok();
-      blocks.emplace_back(RawCandidateId::from_tl(key->candidateId_),
-                          std::make_pair(RawCandidateId::tl_to_parent_id(value->parent_), value->is_final_));
+      blocks.emplace_back(CandidateId::from_tl(key->candidateId_),
+                          std::make_pair(CandidateId::tl_to_parent_id(value->parent_), value->is_final_));
     }
     std::sort(blocks.begin(), blocks.end(), [](const auto& x, const auto& y) { return x.first.slot < y.first.slot; });
     size_t cnt = 0;
     for (size_t i = 0; i < blocks.size(); ++i) {
       auto& [id, p] = blocks[i];
       auto& [parent_id, is_final] = p;
-      RawParentId expected_parent_id;
+      ParentId expected_parent_id;
       if (i == 0) {
         expected_parent_id = std::nullopt;
       } else {
