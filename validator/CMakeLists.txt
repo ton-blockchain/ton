@@ -121,6 +121,7 @@ set(VALIDATOR_SOURCE
   consensus/block-validator.cpp
   consensus/bridge.cpp
   consensus/bus.cpp
+  consensus/chain-state.cpp
   consensus/private-overlay.cpp
   consensus/trace-collector.cpp
   consensus/stats.cpp

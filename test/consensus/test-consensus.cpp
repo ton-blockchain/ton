@@ -667,7 +667,7 @@ class TestConsensus : public td::actor::Actor {
                              PSTRING() << "consensus." << node_idx << "." << instance_idx);
     inst.status = Instance::Running;
     inst.bus.publish<BlockFinalizedInMasterchain>(last_accepted_block_);
-    inst.bus.publish<Start>(std::vector{FIRST_PARENT}, MIN_MC_BLOCK_ID);
+    inst.bus.publish<Start>(ChainState::from_zerostate(FIRST_PARENT, gen_shard_state(0), MIN_MC_BLOCK_ID));
     LOG(ERROR) << "Starting node #" << node_idx << "." << instance_idx;
   }
 

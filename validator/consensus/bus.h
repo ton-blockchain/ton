@@ -14,6 +14,7 @@
 #include "td/db/KeyValueAsync.h"
 #include "ton/ton-types.h"
 
+#include "chain-state.h"
 #include "manager-facade.h"
 #include "runtime.h"
 #include "types.h"
@@ -21,8 +22,7 @@
 namespace ton::validator::consensus {
 
 struct Start {
-  std::vector<BlockIdExt> first_block_parents;
-  BlockIdExt min_masterchain_block_id;
+  ChainStateRef state;
 
   std::string contents_to_string() const;
   std::vector<BlockIdExt> convert_id_to_blocks(ParentId parent) const;
@@ -51,13 +51,10 @@ struct FinalizeBlock {
 
 struct OurLeaderWindowStarted {
   ParentId base;
+  ChainStateRef state;
   td::uint32 start_slot;
   td::uint32 end_slot;
   td::Timestamp start_time;
-
-  // Optional - if empty, get it from manager
-  std::vector<td::Ref<vm::Cell>> prev_block_state_roots = {};
-  std::vector<td::Ref<BlockData>> prev_block_data = {};
 
   std::string contents_to_string() const;
 };
@@ -88,9 +85,8 @@ struct CandidateReceived {
 struct ValidationRequest {
   using ReturnType = td::Unit;
 
+  ChainStateRef state;
   CandidateRef candidate;
-  // Optional - if empty, get it from manager
-  std::vector<td::Ref<vm::Cell>> prev_block_state_roots = {};
 
   std::string contents_to_string() const;
 };
