@@ -79,7 +79,7 @@ class CollateStarted : public CollectibleEvent<MetricCollector> {
 
 class CollateFinished : public CollectibleEvent<MetricCollector> {
  public:
-  static std::unique_ptr<CollateFinished> create(td::uint32 slot, RawCandidateId id);
+  static std::unique_ptr<CollateFinished> create(td::uint32 slot, CandidateId id);
 
   tl::EventRef to_tl() const override;
   std::string to_string() const override;
@@ -88,46 +88,46 @@ class CollateFinished : public CollectibleEvent<MetricCollector> {
   td::uint32 target_slot() const {
     return target_slot_;
   }
-  RawCandidateId id() const {
+  CandidateId id() const {
     return id_;
   }
 
  private:
-  CollateFinished(td::uint32 target_slot, RawCandidateId id);
+  CollateFinished(td::uint32 target_slot, CandidateId id);
 
   td::uint32 target_slot_;
-  RawCandidateId id_;
+  CandidateId id_;
 };
 
 class CollatedEmpty : public Event {
  public:
-  static std::unique_ptr<CollatedEmpty> create(RawCandidateId id);
+  static std::unique_ptr<CollatedEmpty> create(CandidateId id);
 
   tl::EventRef to_tl() const override;
   std::string to_string() const override;
 
-  RawCandidateId id() const {
+  CandidateId id() const {
     return id_;
   }
 
  private:
-  CollatedEmpty(RawCandidateId id);
+  CollatedEmpty(CandidateId id);
 
-  RawCandidateId id_;
+  CandidateId id_;
 };
 
 class CandidateReceived : public CollectibleEvent<MetricCollector> {
  public:
-  static std::unique_ptr<CandidateReceived> create(const RawCandidateRef& candidate, bool is_collator);
+  static std::unique_ptr<CandidateReceived> create(const CandidateRef& candidate, bool is_collator);
 
   tl::EventRef to_tl() const override;
   std::string to_string() const override;
   void collect_to(MetricCollector& collector) const override;
 
-  RawCandidateId id() const {
+  CandidateId id() const {
     return id_;
   }
-  RawParentId parent() const {
+  ParentId parent() const {
     return parent_;
   }
   std::optional<BlockIdExt> block_id() const {
@@ -138,66 +138,66 @@ class CandidateReceived : public CollectibleEvent<MetricCollector> {
   }
 
  private:
-  CandidateReceived(RawCandidateId id, RawParentId parent, std::optional<BlockIdExt> block, bool is_collator);
+  CandidateReceived(CandidateId id, ParentId parent, std::optional<BlockIdExt> block, bool is_collator);
 
-  RawCandidateId id_;
-  RawParentId parent_;
+  CandidateId id_;
+  ParentId parent_;
   std::optional<BlockIdExt> block_;
   bool is_collator_;
 };
 
 class ValidationStarted : public CollectibleEvent<MetricCollector> {
  public:
-  static std::unique_ptr<ValidationStarted> create(RawCandidateId id);
+  static std::unique_ptr<ValidationStarted> create(CandidateId id);
 
   tl::EventRef to_tl() const override;
   std::string to_string() const override;
   void collect_to(MetricCollector& collector) const override;
 
-  RawCandidateId id() const {
+  CandidateId id() const {
     return id_;
   }
 
  private:
-  ValidationStarted(RawCandidateId id);
+  ValidationStarted(CandidateId id);
 
-  RawCandidateId id_;
+  CandidateId id_;
 };
 
 class ValidationFinished : public CollectibleEvent<MetricCollector> {
  public:
-  static std::unique_ptr<ValidationFinished> create(RawCandidateId id);
+  static std::unique_ptr<ValidationFinished> create(CandidateId id);
 
   tl::EventRef to_tl() const override;
   std::string to_string() const override;
   void collect_to(MetricCollector& collector) const override;
 
-  RawCandidateId id() const {
+  CandidateId id() const {
     return id_;
   }
 
  private:
-  ValidationFinished(RawCandidateId id);
+  ValidationFinished(CandidateId id);
 
-  RawCandidateId id_;
+  CandidateId id_;
 };
 
 class BlockAccepted : public CollectibleEvent<MetricCollector> {
  public:
-  static std::unique_ptr<BlockAccepted> create(RawCandidateId id);
+  static std::unique_ptr<BlockAccepted> create(CandidateId id);
 
   tl::EventRef to_tl() const override;
   std::string to_string() const override;
   void collect_to(MetricCollector& collector) const override;
 
-  RawCandidateId id() const {
+  CandidateId id() const {
     return id_;
   }
 
  private:
-  BlockAccepted(RawCandidateId id);
+  BlockAccepted(CandidateId id);
 
-  RawCandidateId id_;
+  CandidateId id_;
 };
 
 class MetricCollector {

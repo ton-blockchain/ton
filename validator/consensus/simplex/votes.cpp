@@ -12,7 +12,7 @@
 namespace ton::validator::consensus::simplex {
 
 NotarizeVote NotarizeVote::from_tl(tl::notarizeVote&& vote) {
-  return {RawCandidateId::from_tl(vote.id_)};
+  return {CandidateId::from_tl(vote.id_)};
 }
 
 tl::UnsignedVoteRef NotarizeVote::to_tl() const {
@@ -24,7 +24,7 @@ td::StringBuilder& operator<<(td::StringBuilder& sb, const NotarizeVote& vote) {
 }
 
 FinalizeVote FinalizeVote::from_tl(tl::finalizeVote&& vote) {
-  return {RawCandidateId::from_tl(vote.id_)};
+  return {CandidateId::from_tl(vote.id_)};
 }
 
 tl::UnsignedVoteRef FinalizeVote::to_tl() const {

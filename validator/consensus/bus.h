@@ -34,14 +34,14 @@ struct StopRequested {};
 struct FinalizeBlock {
   using ReturnType = td::Unit;
 
-  RawCandidateRef candidate;
+  CandidateRef candidate;
   td::Ref<block::BlockSignatureSet> signatures;
 
   std::string contents_to_string() const;
 };
 
 struct OurLeaderWindowStarted {
-  RawParentId base;
+  ParentId base;
   ChainStateRef state;
   td::uint32 start_slot;
   td::uint32 end_slot;
@@ -57,7 +57,7 @@ struct OurLeaderWindowAborted {
 };
 
 struct CandidateGenerated {
-  RawCandidateRef candidate;
+  CandidateRef candidate;
   std::optional<adnl::AdnlNodeIdShort> collator_id;
 
   std::string contents_to_string() const;
@@ -65,7 +65,7 @@ struct CandidateGenerated {
 
 // The only guarantee is that the candidate has a valid signature from `candidate->leader`.
 struct CandidateReceived {
-  RawCandidateRef candidate;
+  CandidateRef candidate;
 
   std::string contents_to_string() const;
 };
@@ -74,7 +74,7 @@ struct ValidationRequest {
   using ReturnType = td::Unit;
 
   ChainStateRef state;
-  RawCandidateRef candidate;
+  CandidateRef candidate;
 
   std::string contents_to_string() const;
 };

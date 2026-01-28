@@ -31,19 +31,19 @@ td::StringBuilder& operator<<(td::StringBuilder& stream, const PeerValidator& pe
   return stream << peer_validator.idx << " at " << peer_validator.short_id;
 }
 
-RawCandidateId RawCandidateId::from_tl(const tl::CandidateIdRef& tl_parent) {
-  return RawCandidateId{static_cast<td::uint32>(tl_parent->slot_), tl_parent->hash_};
+CandidateId CandidateId::from_tl(const tl::CandidateIdRef& tl_parent) {
+  return CandidateId{static_cast<td::uint32>(tl_parent->slot_), tl_parent->hash_};
 }
 
-tl::CandidateIdRef RawCandidateId::to_tl() const {
+tl::CandidateIdRef CandidateId::to_tl() const {
   return create_tl_object<tl::candidateId>(slot, hash);
 }
 
-td::StringBuilder& operator<<(td::StringBuilder& stream, const RawCandidateId& id) {
+td::StringBuilder& operator<<(td::StringBuilder& stream, const CandidateId& id) {
   return stream << "{" << id.slot << ", " << id.hash << ", ?}";
 }
 
-td::StringBuilder& operator<<(td::StringBuilder& stream, const RawParentId& id) {
+td::StringBuilder& operator<<(td::StringBuilder& stream, const ParentId& id) {
   if (id.has_value()) {
     return stream << *id;
   } else {
@@ -51,7 +51,7 @@ td::StringBuilder& operator<<(td::StringBuilder& stream, const RawParentId& id) 
   }
 }
 
-tl::CandidateParentRef RawCandidateId::parent_id_to_tl(RawParentId parent) {
+tl::CandidateParentRef CandidateId::parent_id_to_tl(ParentId parent) {
   if (!parent) {
     return create_tl_object<tl::candidateWithoutParents>();
   } else {
@@ -59,10 +59,10 @@ tl::CandidateParentRef RawCandidateId::parent_id_to_tl(RawParentId parent) {
   }
 }
 
-RawParentId RawCandidateId::tl_to_parent_id(const tl::CandidateParentRef& tl_parent) {
-  RawParentId id;
+ParentId CandidateId::tl_to_parent_id(const tl::CandidateParentRef& tl_parent) {
+  ParentId id;
   auto without_parents_fn = [&](const tl::candidateWithoutParents&) {};
-  auto parent_fn = [&](const tl::candidateParent& parent) { id = RawCandidateId::from_tl(parent.id_); };
+  auto parent_fn = [&](const tl::candidateParent& parent) { id = CandidateId::from_tl(parent.id_); };
   ton_api::downcast_call(*tl_parent, td::overloaded(without_parents_fn, parent_fn));
   return id;
 }
@@ -71,11 +71,11 @@ CandidateHashData CandidateHashData::from_tl(tl::CandidateHashData&& data) {
   CandidateHashData builder;
 
   auto empty_fn = [&](const tl::candidateHashDataEmpty& empty) {
-    builder = CandidateHashData::create_empty(create_block_id(empty.block_), RawCandidateId::from_tl(empty.parent_));
+    builder = CandidateHashData::create_empty(create_block_id(empty.block_), CandidateId::from_tl(empty.parent_));
   };
   auto ordinary_fn = [&](const tl::candidateHashDataOrdinary& full) {
     FullCandidate candidate{create_block_id(full.block_), full.collated_file_hash_};
-    builder = CandidateHashData::create_full(candidate, RawCandidateId::tl_to_parent_id(full.parent_));
+    builder = CandidateHashData::create_full(candidate, CandidateId::tl_to_parent_id(full.parent_));
   };
   ton_api::downcast_call(data, td::overloaded(empty_fn, ordinary_fn));
 
@@ -88,8 +88,8 @@ BlockIdExt CandidateHashData::block() const {
   return std::visit(td::overloaded(empty_fn, full_fn), candidate);
 }
 
-RawCandidateId CandidateHashData::build_id_with(td::uint32 slot) const {
-  return RawCandidateId{slot, get_tl_object_sha_bits256(to_tl())};
+CandidateId CandidateHashData::build_id_with(td::uint32 slot) const {
+  return CandidateId{slot, get_tl_object_sha_bits256(to_tl())};
 }
 
 tl::CandidateHashDataRef CandidateHashData::to_tl() const {
@@ -98,18 +98,17 @@ tl::CandidateHashDataRef CandidateHashData::to_tl() const {
   };
   auto full_fn = [&](const FullCandidate& full) -> tl::CandidateHashDataRef {
     return create_tl_object<tl::candidateHashDataOrdinary>(create_tl_block_id(full.id), full.collated_file_hash,
-                                                           RawCandidateId::parent_id_to_tl(parent));
+                                                           CandidateId::parent_id_to_tl(parent));
   };
   return std::visit(td::overloaded(empty_fn, full_fn), candidate);
 }
 
-td::Result<RawCandidateRef> RawCandidate::deserialize(td::Slice data, const Bus& bus,
-                                                      std::optional<PeerValidatorId> src) {
+td::Result<CandidateRef> Candidate::deserialize(td::Slice data, const Bus& bus, std::optional<PeerValidatorId> src) {
   TRY_RESULT(broadcast, fetch_tl_object<tl::CandidateData>(data, true));
 
   struct ExtractedData {
     td::uint32 slot;
-    RawParentId parent_id;
+    ParentId parent_id;
     std::variant<BlockIdExt, BlockCandidate> block;
     td::BufferSlice signature;
     CandidateHashData hash_builder;
@@ -130,7 +129,7 @@ td::Result<RawCandidateRef> RawCandidate::deserialize(td::Slice data, const Bus&
     TRY_STATUS(set_check_leader(slot));
 
     auto block = create_block_id(empty_broadcast.block_);
-    auto parent = RawCandidateId::from_tl(empty_broadcast.parent_);
+    auto parent = CandidateId::from_tl(empty_broadcast.parent_);
     return ExtractedData{
         .slot = slot,
         .parent_id = parent,
@@ -172,7 +171,7 @@ td::Result<RawCandidateRef> RawCandidate::deserialize(td::Slice data, const Bus&
         creator, block_id, collated_file_hash, std::move(candidate->data_), std::move(candidate->collated_data_),
     };
 
-    auto parent = RawCandidateId::tl_to_parent_id(block_broadcast.parent_);
+    auto parent = CandidateId::tl_to_parent_id(block_broadcast.parent_);
     auto hash_builder = CandidateHashData::create_full(block, parent);
     return ExtractedData{
         .slot = slot,
@@ -194,17 +193,17 @@ td::Result<RawCandidateRef> RawCandidate::deserialize(td::Slice data, const Bus&
     return td::Status::Error("Candidate broadcast signature is not valid");
   }
 
-  return td::make_ref<RawCandidate>(id, parsed.parent_id, leader.idx, std::move(parsed.block),
-                                    std::move(parsed.signature));
+  return td::make_ref<Candidate>(id, parsed.parent_id, leader.idx, std::move(parsed.block),
+                                 std::move(parsed.signature));
 }
 
-BlockIdExt RawCandidate::block_id() const {
+BlockIdExt Candidate::block_id() const {
   auto empty_fn = [&](const BlockIdExt& referenced_block) { return referenced_block; };
   auto full_fn = [&](const BlockCandidate& candidate) { return candidate.id; };
   return std::visit(td::overloaded(empty_fn, full_fn), block);
 }
 
-CandidateHashData RawCandidate::hash_data() const {
+CandidateHashData Candidate::hash_data() const {
   auto empty_fn = [&](const BlockIdExt& referenced_block) {
     return CandidateHashData::create_empty(referenced_block, parent_id.value());
   };
@@ -212,7 +211,7 @@ CandidateHashData RawCandidate::hash_data() const {
   return std::visit(td::overloaded(empty_fn, block_fn), block);
 }
 
-td::BufferSlice RawCandidate::serialize() const {
+td::BufferSlice Candidate::serialize() const {
   auto empty_fn = [&](const BlockIdExt& referenced_block) {
     return create_serialize_tl_object<tl::empty>(id.slot, parent_id->to_tl(), create_tl_block_id(referenced_block),
                                                  signature.clone());
@@ -222,14 +221,14 @@ td::BufferSlice RawCandidate::serialize() const {
         td::Bits256{}, candidate.id.seqno(), candidate.id.root_hash, candidate.data.clone(),
         candidate.collated_data.clone());
 
-    return create_serialize_tl_object<tl::block>(id.slot, RawCandidateId::parent_id_to_tl(parent_id),
+    return create_serialize_tl_object<tl::block>(id.slot, CandidateId::parent_id_to_tl(parent_id),
                                                  validatorsession::serialize_candidate(candidate_tl, true).move_as_ok(),
                                                  signature.clone());
   };
   return std::visit(td::overloaded(empty_fn, block_fn), block);
 }
 
-bool RawCandidate::is_empty() const {
+bool Candidate::is_empty() const {
   return std::holds_alternative<BlockIdExt>(block);
 }
 
