@@ -28,6 +28,14 @@ struct StreamOptions {
   td::uint32 query_magic = 0;
 };
 
+struct StreamShutdownList {
+  struct Entry {
+    QuicConnectionId cid;
+    QuicStreamID sid;
+  };
+  td::vector<Entry> entries;
+};
+
 class QuicServer : public td::actor::Actor, public td::ObserverBase {
  public:
   class Callback {
@@ -37,6 +45,11 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     virtual void on_closed(QuicConnectionId cid) = 0;
     virtual void on_stream_closed(QuicConnectionId cid, QuicStreamID sid) = 0;
     virtual void set_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options) {
+    }
+    virtual void loop(td::Timestamp now, StreamShutdownList &streams_to_shutdown) {
+    }
+    virtual td::Timestamp next_alarm() const {
+      return td::Timestamp::never();
     }
     virtual ~Callback() = default;
   };
@@ -50,6 +63,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
 
   td::Result<QuicConnectionId> connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key, td::Slice alpn);
 
+  void shutdown_stream(QuicConnectionId cid, QuicStreamID sid);
   void close(QuicConnectionId cid);
 
   QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::BufferSlice alpn,

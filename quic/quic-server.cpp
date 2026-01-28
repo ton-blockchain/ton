@@ -84,6 +84,15 @@ bool QuicServer::try_close(ConnectionState &state) {
   return true;
 }
 
+void QuicServer::shutdown_stream(QuicConnectionId cid, QuicStreamID sid) {
+  auto state = find_connection(cid);
+  if (!state) {
+    return;
+  }
+  state->impl().shutdown_stream(sid);
+  flush_egress_for(*state);
+}
+
 void QuicServer::close(QuicConnectionId cid) {
   auto it = connections_.find(cid);
   if (it == connections_.end()) {
@@ -115,6 +124,11 @@ void QuicServer::alarm() {
   for (auto cid : to_erase) {
     connections_.erase(cid);
     callback_->on_closed(cid);
+  }
+  StreamShutdownList shutdown;
+  callback_->loop(td::Timestamp::now(), shutdown);
+  for (auto &e : shutdown.entries) {
+    shutdown_stream(e.cid, e.sid);
   }
   update_alarm();
 }
@@ -353,6 +367,7 @@ void QuicServer::update_alarm() {
   for (auto &[cid, state] : connections_) {
     alarm_ts.relax(state->impl().get_expiry_timestamp());
   }
+  alarm_ts.relax(callback_->next_alarm());
   alarm_timestamp() = alarm_ts;
 }
 
@@ -360,6 +375,7 @@ void QuicServer::update_alarm_for(ConnectionState &state) {
   // Only decrease global timestamp for now.
   // May lead to waking up earlier than necessary, but usually correct
   alarm_timestamp().relax(state.impl().get_expiry_timestamp());
+  alarm_timestamp().relax(callback_->next_alarm());
 }
 
 void QuicServer::send_stream_data(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data) {
@@ -387,6 +403,7 @@ td::Result<QuicStreamID> QuicServer::send_stream(QuicConnectionId cid, std::vari
   } else {
     TRY_RESULT_ASSIGN(sid, state->impl().open_stream());
     callback_->set_stream_options(cid, sid, std::get<StreamOptions>(stream));
+    update_alarm_for(*state);
   }
 
   if (!data.empty() || is_end) {

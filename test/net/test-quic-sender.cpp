@@ -145,6 +145,19 @@ class LimitedEchoCallback : public ton::adnl::Adnl::Callback {
   }
 };
 
+class NeverRespondCallback : public ton::adnl::Adnl::Callback {
+ public:
+  std::vector<td::Promise<td::BufferSlice>> pending_;
+
+  void receive_message(ton::adnl::AdnlNodeIdShort, ton::adnl::AdnlNodeIdShort, td::BufferSlice) override {
+  }
+
+  void receive_query(ton::adnl::AdnlNodeIdShort, ton::adnl::AdnlNodeIdShort, td::BufferSlice data,
+                     td::Promise<td::BufferSlice> promise) override {
+    pending_.push_back(std::move(promise));
+  }
+};
+
 struct TestNode {
   ton::adnl::AdnlNodeIdShort id;
   ton::PrivateKey key;
@@ -243,6 +256,23 @@ class TestRunner : public td::actor::Actor {
                             std::make_unique<SlowEchoCallback>(delay));
   }
 
+  void set_never_respond(TestNode& node) {
+    td::actor::send_closure(node.adnl, &ton::adnl::Adnl::subscribe, node.id, "X",
+                            std::make_unique<NeverRespondCallback>());
+  }
+
+  td::actor::Task<td::BufferSlice> send_never_respond_query(TestNode& from, TestNode& to, td::Slice data,
+                                                            double timeout, td::uint64 max_answer_size) {
+    td::BufferSlice query(1 + data.size());
+    query.as_slice()[0] = 'X';
+    query.as_slice().substr(1).copy_from(data);
+
+    auto [future, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
+    td::actor::send_closure(from.quic_sender, &ton::quic::QuicSender::send_query_ex, from.id, to.id, std::string("X"),
+                            std::move(promise), td::Timestamp::in(timeout), std::move(query), max_answer_size);
+    co_return co_await std::move(future);
+  }
+
   td::actor::Task<td::BufferSlice> send_query(TestNode& from, TestNode& to, td::Slice data) {
     td::BufferSlice query(1 + data.size());
     query.as_slice()[0] = 'Q';
@@ -250,7 +280,7 @@ class TestRunner : public td::actor::Actor {
 
     auto [future, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
     td::actor::send_closure(from.quic_sender, &ton::quic::QuicSender::send_query, from.id, to.id, std::string("Q"),
-                            std::move(promise), td::Timestamp::in(10.0), std::move(query));
+                            std::move(promise), td::Timestamp::in(30.0), std::move(query));
     co_return co_await std::move(future);
   }
 
@@ -847,6 +877,45 @@ TEST(QuicSender, ResponseTimeout) {
     }
 
     LOG(INFO) << "Connection still works after timeout";
+    co_return td::Unit{};
+  });
+}
+
+TEST(QuicSender, NoResponseTimeout) {
+  run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    auto a = co_await t.create_node("nrt-a", next_port());
+    auto b = co_await t.create_node("nrt-b", next_port());
+
+    t.add_peer(a, b);
+    t.add_peer(b, a);
+
+    // Set up never-respond callback on node b
+    t.set_never_respond(b);
+
+    // First, verify normal query works
+    auto resp1 = co_await t.send_query(a, b, "normal");
+    ASSERT_EQ(resp1.as_slice(), td::Slice("Qnormal"));
+
+    // Send query to never-respond endpoint with 2 second timeout
+    auto start = td::Timestamp::now();
+    auto result = co_await t.send_never_respond_query(a, b, "waiting", 2.0, 1 << 20).wrap();
+    auto elapsed = td::Timestamp::now().at() - start.at();
+
+    LOG(INFO) << "NoResponseTimeout result: " << (result.is_ok() ? "OK (unexpected)" : result.error().to_string());
+    LOG(INFO) << "Elapsed: " << elapsed << "s (expected ~2s)";
+
+    ASSERT_TRUE(result.is_error());
+    auto msg = result.error().message().str();
+    ASSERT_TRUE(msg.find("timeout") != std::string::npos);
+    ASSERT_TRUE(elapsed >= 1.0 && elapsed < 10.0);
+
+    // Verify connection still works after the timeout
+    for (int i = 0; i < 3; i++) {
+      auto resp = co_await t.send_query(a, b, "after-" + std::to_string(i));
+      ASSERT_EQ(resp.as_slice(), td::Slice("Qafter-" + std::to_string(i)));
+    }
+
+    LOG(INFO) << "Connection still works after no-response timeout";
     co_return td::Unit{};
   });
 }

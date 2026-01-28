@@ -394,6 +394,10 @@ void QuicConnectionPImpl::unblock_streams() {
   streams_blocked_ = false;
 }
 
+void QuicConnectionPImpl::shutdown_stream(QuicStreamID sid) {
+  ngtcp2_conn_shutdown_stream(conn(), 0, sid, 1);
+}
+
 td::Result<QuicStreamID> QuicConnectionPImpl::open_stream() {
   QuicStreamID sid;
 
@@ -479,7 +483,7 @@ int QuicConnectionPImpl::on_recv_stream_data(uint32_t flags, int64_t stream_id, 
   auto status = callback_->on_stream_data(std::move(event));
 
   if (status.is_error()) {
-    ngtcp2_conn_shutdown_stream(conn(), 0, stream_id, 1);
+    shutdown_stream(stream_id);
     return 0;
   }
 

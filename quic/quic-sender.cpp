@@ -3,6 +3,7 @@
 #include "adnl/adnl-peer-table.h"
 #include "auto/tl/ton_api.hpp"
 #include "td/actor/coro_utils.h"
+#include "td/utils/Heap.h"
 #include "td/utils/as.h"
 
 #include "quic-sender.h"
@@ -29,7 +30,7 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
   td::Status on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) override {
     // TODO: some limit for input connections
     auto [cid_it, cid_inserted] = streams_.emplace(cid, std::map<QuicStreamID, StreamState>{});
-    auto [sid_it, sid_inserted] = cid_it->second.emplace(sid, StreamState{});
+    auto [sid_it, sid_inserted] = cid_it->second.emplace(sid, StreamState{cid, sid});
     (void)cid_inserted;
     (void)sid_inserted;
     auto &state = sid_it->second;
@@ -43,25 +44,32 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     if (!is_end) {
       return td::Status::OK();
     }
-    td::Result<td::BufferSlice> result;
     if (status.is_error()) {
-      result = status.clone();
       LOG(INFO) << "close stream cid=" << cid << " sid=" << sid << " due to " << status.error();
+      fail_stream(state, status.clone());
     } else {
-      result = state.extract();
+      td::actor::send_closure(sender_, &QuicSender::on_stream_complete, cid, sid, state.extract());
     }
-    // do not delete stream, here, it will be deleted in on_stream_closed
-    td::actor::send_closure(sender_, &QuicSender::on_stream_complete, cid, sid, std::move(result));
     return status;
   }
 
   void on_closed(QuicConnectionId cid) override {
-    streams_.erase(cid);
+    if (auto it = streams_.find(cid); it != streams_.end()) {
+      for (auto &[sid, state] : it->second) {
+        if (state.in_heap()) {
+          timeout_heap_.erase(&state);
+        }
+      }
+      streams_.erase(it);
+    }
     td::actor::send_closure(sender_, &QuicSender::on_closed, cid);
   }
   void on_stream_closed(QuicConnectionId cid, QuicStreamID sid) override {
     if (auto cid_it = streams_.find(cid); cid_it != streams_.end()) {
       if (auto sid_it = cid_it->second.find(sid); sid_it != cid_it->second.end()) {
+        if (sid_it->second.in_heap()) {
+          timeout_heap_.erase(&sid_it->second);
+        }
         cid_it->second.erase(sid_it);
         if (cid_it->second.empty()) {
           streams_.erase(cid_it);
@@ -71,11 +79,48 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
   }
 
   void set_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options) override {
-    streams_[cid][sid].set_options(options);
+    auto &by_cid = streams_[cid];
+    auto [it, inserted] = by_cid.try_emplace(sid, StreamState{cid, sid});
+    (void)inserted;
+    auto &state = it->second;
+    state.set_options(options);
+
+    if (options.timeout) {
+      if (state.in_heap()) {
+        timeout_heap_.fix(options.timeout.at(), &state);
+      } else {
+        timeout_heap_.insert(options.timeout.at(), &state);
+      }
+    } else if (state.in_heap()) {
+      timeout_heap_.erase(&state);
+    }
+  }
+
+  void loop(td::Timestamp now, StreamShutdownList &shutdown) override {
+    while (!timeout_heap_.empty() && td::Timestamp::at(timeout_heap_.top_key()).is_in_past(now)) {
+      auto *state = static_cast<StreamState *>(timeout_heap_.pop());
+      if (!state->is_failed()) {
+        fail_stream(*state, state->timeout_error());
+        shutdown.entries.push_back({state->cid, state->sid});
+      }
+    }
+  }
+
+  td::Timestamp next_alarm() const override {
+    if (timeout_heap_.empty()) {
+      return td::Timestamp::never();
+    }
+    return td::Timestamp::at(timeout_heap_.top_key());
   }
 
  private:
-  struct StreamState {
+  struct StreamState : public td::HeapNode {
+    QuicConnectionId cid;
+    QuicStreamID sid;
+
+    StreamState(QuicConnectionId cid, QuicStreamID sid) : cid(cid), sid(sid) {
+    }
+
     void append(td::BufferSlice data) {
       CHECK(!failed_);
       if (!data.empty()) {
@@ -87,20 +132,26 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
       return failed_;
     }
 
-    td::Status check_limits() {
-      CHECK(!failed_);
-      if (options_.max_size.has_value() && builder_.size() > *options_.max_size) {
-        failed_ = true;
-        return td::Status::Error(PSLICE() << "stream size limit exceeded: max=" << *options_.max_size);
+    void mark_failed() {
+      failed_ = true;
+    }
+
+    td::Status check_limits() const {
+      if (failed_) {
+        return td::Status::Error("stream already failed");
       }
-      if (options_.timeout && options_.timeout.is_in_past()) {
-        failed_ = true;
-        return td::Status::Error(PSLICE() << "stream timeout exceeded: " << options_.timeout_seconds
-                                          << "s query_size=" << options_.query_size
-                                          << " query_magic=" << td::format::as_hex(options_.query_magic)
-                                          << " received=" << builder_.size());
+      if (options_.max_size.has_value() && builder_.size() > *options_.max_size) {
+        return td::Status::Error(PSLICE() << "stream size limit exceeded: max=" << *options_.max_size
+                                          << " received=" << builder_.size() << " query_size=" << options_.query_size
+                                          << " query_magic=" << td::format::as_hex(options_.query_magic));
       }
       return td::Status::OK();
+    }
+
+    td::Status timeout_error() const {
+      return td::Status::Error(PSLICE() << "stream timeout exceeded: " << options_.timeout_seconds
+                                        << "s query_size=" << options_.query_size << " query_magic="
+                                        << td::format::as_hex(options_.query_magic) << " received=" << builder_.size());
     }
 
     td::BufferSlice extract() {
@@ -120,6 +171,15 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
   adnl::AdnlNodeIdShort local_id_;
   td::actor::ActorId<QuicSender> sender_;
   std::map<QuicConnectionId, std::map<QuicStreamID, StreamState>> streams_;
+  td::KHeap<double> timeout_heap_;
+
+  void fail_stream(StreamState &state, td::Status error) {
+    if (state.in_heap()) {
+      timeout_heap_.erase(&state);
+    }
+    state.mark_failed();
+    td::actor::send_closure(sender_, &QuicSender::on_stream_complete, state.cid, state.sid, std::move(error));
+  }
 };
 
 static td::Result<adnl::AdnlNodeIdShort> parse_peer_id(td::Slice peer_public_key) {

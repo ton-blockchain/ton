@@ -116,6 +116,7 @@ struct QuicConnectionPImpl {
 
   void block_streams();
   void unblock_streams();
+  void shutdown_stream(QuicStreamID sid);
 
   [[nodiscard]] td::Result<QuicStreamID> open_stream();
   [[nodiscard]] td::Status write_stream(UdpMessageBuffer& msg_out, QuicStreamID sid, td::BufferSlice data, bool fin);
