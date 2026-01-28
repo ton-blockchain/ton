@@ -234,7 +234,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   std::map<td::uint32, SlotState> block_states_;
 
   bool try_validate_blocks_running_ = false;
-  ParentId parent_for_validation_;
+  RawParentId parent_for_validation_;
   ChainStateRef state_for_validation_;
   td::uint32 next_slot_to_validate_ = 0;
   td::uint32 next_slot_to_finalize_ = 0;
