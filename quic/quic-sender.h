@@ -16,10 +16,8 @@ class QuicSender : public adnl::AdnlSenderInterface {
  public:
   using AdnlPath = std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>;
 
-  static constexpr td::uint64 DEFAULT_INBOUND_STREAM_MAX_SIZE = 4ull << 20;
-
   explicit QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::actor::ActorId<keyring::Keyring> keyring,
-                      td::uint64 inbound_stream_max_size = DEFAULT_INBOUND_STREAM_MAX_SIZE);
+                      QuicServer::Options options = {});
   ~QuicSender() override = default;
 
   void send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) override;
@@ -31,6 +29,7 @@ class QuicSender : public adnl::AdnlSenderInterface {
   void get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id,
                        td::Promise<td::string> promise) override;
 
+  void set_udp_offload_options(QuicServer::Options options);
   void add_local_id(adnl::AdnlNodeIdShort local_id);
   void log_stats(std::string reason = "stats");
 
@@ -53,7 +52,7 @@ class QuicSender : public adnl::AdnlSenderInterface {
 
   td::actor::ActorId<adnl::AdnlPeerTable> adnl_;
   td::actor::ActorId<keyring::Keyring> keyring_;
-  td::uint64 inbound_stream_max_size_;
+  QuicServer::Options server_options_;
 
   std::map<AdnlPath, std::shared_ptr<Connection>> outbound_;
   std::map<AdnlPath, std::shared_ptr<Connection>> inbound_;

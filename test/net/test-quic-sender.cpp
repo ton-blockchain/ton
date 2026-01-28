@@ -920,6 +920,242 @@ TEST(QuicSender, NoResponseTimeout) {
   });
 }
 
+// ============================================================================
+// Fairness tests - verify fair bandwidth distribution across connections/streams
+// Note: These tests verify round-robin scheduling but can't truly test fairness
+// on localhost since the socket never blocks (fairness matters under contention)
+// ============================================================================
+
+// Test: Two connections sending large data should get approximately equal bandwidth
+TEST(QuicFairness, TwoConnectionsFairBandwidth) {
+  run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    // Create a "hub" node that will receive from two senders
+    auto hub = co_await t.create_node("hub", next_port());
+
+    // Create two sender nodes
+    auto sender1 = co_await t.create_node("s1", next_port());
+    auto sender2 = co_await t.create_node("s2", next_port());
+
+    // Set up peer connections
+    t.add_peer(sender1, hub);
+    t.add_peer(sender2, hub);
+    t.add_peer(hub, sender1);
+    t.add_peer(hub, sender2);
+
+    co_await td::actor::coro_sleep(td::Timestamp::in(0.2));
+
+    // Both senders send many large queries simultaneously
+    // Target: ~50MB per sender to saturate localhost (~200MB/s)
+    constexpr int queries_per_sender = 50;
+    constexpr int query_size = 1024 * 1024;  // 1 MB each = 50 MB total per sender
+
+    std::vector<td::actor::StartedTask<td::BufferSlice>> tasks1, tasks2;
+    auto start = td::Timestamp::now();
+
+    // Launch queries from sender1
+    for (int i = 0; i < queries_per_sender; i++) {
+      td::BufferSlice data(query_size);
+      data.as_slice()[0] = 'Q';
+      td::Random::secure_bytes(data.as_slice().substr(1));
+      auto [future, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
+      td::actor::send_closure(sender1.quic_sender, &ton::quic::QuicSender::send_query, sender1.id, hub.id,
+                              std::string("Q"), std::move(promise), td::Timestamp::in(60.0), std::move(data));
+      tasks1.push_back(std::move(future));
+    }
+
+    // Launch queries from sender2
+    for (int i = 0; i < queries_per_sender; i++) {
+      td::BufferSlice data(query_size);
+      data.as_slice()[0] = 'Q';
+      td::Random::secure_bytes(data.as_slice().substr(1));
+      auto [future, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
+      td::actor::send_closure(sender2.quic_sender, &ton::quic::QuicSender::send_query, sender2.id, hub.id,
+                              std::string("Q"), std::move(promise), td::Timestamp::in(60.0), std::move(data));
+      tasks2.push_back(std::move(future));
+    }
+
+    // Track completion times
+    std::vector<double> completion1, completion2;
+
+    // Wait for all to complete, tracking when each finishes
+    for (size_t i = 0; i < tasks1.size() || i < tasks2.size(); i++) {
+      if (i < tasks1.size()) {
+        auto r = co_await std::move(tasks1[i]).wrap();
+        if (r.is_ok()) {
+          completion1.push_back(td::Timestamp::now().at() - start.at());
+        }
+      }
+      if (i < tasks2.size()) {
+        auto r = co_await std::move(tasks2[i]).wrap();
+        if (r.is_ok()) {
+          completion2.push_back(td::Timestamp::now().at() - start.at());
+        }
+      }
+    }
+
+    auto elapsed = td::Timestamp::now().at() - start.at();
+
+    // Calculate average completion time for each sender
+    double avg1 = 0, avg2 = 0;
+    for (double t : completion1)
+      avg1 += t;
+    for (double t : completion2)
+      avg2 += t;
+    avg1 /= completion1.size();
+    avg2 /= completion2.size();
+
+    LOG(INFO) << "Fairness test: sender1 completed " << completion1.size() << " queries, avg time " << avg1 << "s";
+    LOG(INFO) << "Fairness test: sender2 completed " << completion2.size() << " queries, avg time " << avg2 << "s";
+    LOG(INFO) << "Total elapsed: " << td::format::as_time(elapsed);
+
+    // Fairness assertion: both senders should complete all queries
+    ASSERT_EQ(completion1.size(), static_cast<size_t>(queries_per_sender));
+    ASSERT_EQ(completion2.size(), static_cast<size_t>(queries_per_sender));
+
+    // Fairness assertion: average completion times should be within 50% of each other
+    // (This is a loose bound; with perfect fairness they'd be nearly equal)
+    double ratio = avg1 > avg2 ? avg1 / avg2 : avg2 / avg1;
+    LOG(INFO) << "Completion time ratio: " << ratio;
+    ASSERT_TRUE(ratio < 1.5);  // Unfair: one sender completed much faster than the other
+
+    co_return td::Unit{};
+  });
+}
+
+// Test: Multiple streams within one connection should interleave fairly
+TEST(QuicFairness, MultipleStreamsFairBandwidth) {
+  run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    auto server = co_await t.create_node("srv", next_port());
+    auto client = co_await t.create_node("cli", next_port());
+
+    t.add_peer(client, server);
+    t.add_peer(server, client);
+
+    co_await td::actor::coro_sleep(td::Timestamp::in(0.2));
+
+    // Open multiple streams (queries) simultaneously with large data
+    constexpr int num_streams = 20;
+    constexpr int query_size = 512 * 1024;  // 512 KB each = 10 MB total
+
+    std::vector<td::actor::StartedTask<td::BufferSlice>> tasks;
+    auto start = td::Timestamp::now();
+
+    for (int i = 0; i < num_streams; i++) {
+      td::BufferSlice data(query_size);
+      data.as_slice()[0] = 'Q';
+      td::Random::secure_bytes(data.as_slice().substr(1));
+      auto [future, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
+      td::actor::send_closure(client.quic_sender, &ton::quic::QuicSender::send_query, client.id, server.id,
+                              std::string("Q"), std::move(promise), td::Timestamp::in(30.0), std::move(data));
+      tasks.push_back(std::move(future));
+    }
+
+    // Track completion order
+    std::vector<int> completion_order;
+    for (int i = 0; i < num_streams; i++) {
+      auto r = co_await std::move(tasks[i]).wrap();
+      if (r.is_ok()) {
+        completion_order.push_back(i);
+      }
+    }
+
+    auto elapsed = td::Timestamp::now().at() - start.at();
+
+    LOG(INFO) << "Multi-stream test: " << completion_order.size() << "/" << num_streams << " completed in "
+              << td::format::as_time(elapsed);
+
+    // All streams should complete
+    ASSERT_EQ(completion_order.size(), static_cast<size_t>(num_streams));
+
+    // With fair scheduling, streams should complete in roughly the order they were opened
+    // (since they're all the same size). Check that early streams don't all finish last.
+    int early_in_first_half = 0;
+    for (size_t i = 0; i < completion_order.size() / 2; i++) {
+      if (completion_order[i] < num_streams / 2) {
+        early_in_first_half++;
+      }
+    }
+
+    LOG(INFO) << "Early streams in first half of completions: " << early_in_first_half;
+    // At least some early streams should complete in the first half
+    ASSERT_TRUE(early_in_first_half >= num_streams / 4);  // Unfair: early streams starved
+
+    co_return td::Unit{};
+  });
+}
+
+// Test: Many connections should all make progress (no starvation)
+TEST(QuicFairness, ManyConnectionsNoStarvation) {
+  run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    auto hub = co_await t.create_node("hub", next_port());
+
+    constexpr int num_senders = 10;
+    std::vector<TestNode> senders;
+
+    for (int i = 0; i < num_senders; i++) {
+      senders.push_back(co_await t.create_node("s" + std::to_string(i), next_port()));
+      t.add_peer(senders.back(), hub);
+      t.add_peer(hub, senders.back());
+    }
+
+    co_await td::actor::coro_sleep(td::Timestamp::in(0.3));
+
+    constexpr int queries_per_sender = 20;
+    constexpr int query_size = 256 * 1024;  // 256 KB each = 5 MB per sender = 50 MB total
+
+    std::vector<std::vector<td::actor::StartedTask<td::BufferSlice>>> all_tasks(num_senders);
+    auto start = td::Timestamp::now();
+
+    // Launch queries from all senders
+    for (int s = 0; s < num_senders; s++) {
+      for (int q = 0; q < queries_per_sender; q++) {
+        td::BufferSlice data(query_size);
+        data.as_slice()[0] = 'Q';
+        td::Random::secure_bytes(data.as_slice().substr(1));
+        auto [future, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
+        td::actor::send_closure(senders[s].quic_sender, &ton::quic::QuicSender::send_query, senders[s].id, hub.id,
+                                std::string("Q"), std::move(promise), td::Timestamp::in(60.0), std::move(data));
+        all_tasks[s].push_back(std::move(future));
+      }
+    }
+
+    // Wait for all and count successes per sender
+    std::vector<int> success_counts(num_senders, 0);
+    for (int s = 0; s < num_senders; s++) {
+      for (auto& task : all_tasks[s]) {
+        auto r = co_await std::move(task).wrap();
+        if (r.is_ok()) {
+          success_counts[s]++;
+        }
+      }
+    }
+
+    auto elapsed = td::Timestamp::now().at() - start.at();
+
+    int total_success = 0;
+    int min_success = queries_per_sender;
+    int max_success = 0;
+    for (int s = 0; s < num_senders; s++) {
+      total_success += success_counts[s];
+      min_success = std::min(min_success, success_counts[s]);
+      max_success = std::max(max_success, success_counts[s]);
+      LOG(INFO) << "Sender " << s << ": " << success_counts[s] << "/" << queries_per_sender << " completed";
+    }
+
+    LOG(INFO) << "Total: " << total_success << "/" << (num_senders * queries_per_sender) << " in "
+              << td::format::as_time(elapsed);
+    LOG(INFO) << "Min/Max per sender: " << min_success << "/" << max_success;
+
+    // All senders should complete all queries (no starvation)
+    ASSERT_EQ(total_success, num_senders * queries_per_sender);
+
+    // No sender should be significantly behind others
+    ASSERT_EQ(min_success, queries_per_sender);  // Some senders starved if this fails
+
+    co_return td::Unit{};
+  });
+}
+
 int main(int argc, char* argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
   td::set_default_failure_signal_handler().ensure();

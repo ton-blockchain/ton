@@ -36,9 +36,9 @@ static td::Timestamp from_ngtcp2_tstamp(ngtcp2_tstamp ns) {
 
 td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_client(
     const td::IPAddress& local_address, const td::IPAddress& remote_address, const td::Ed25519::PrivateKey& client_key,
-    td::Slice alpn, std::unique_ptr<Callback> callback) {
-  auto p_impl =
-      std::make_unique<QuicConnectionPImpl>(PrivateTag{}, local_address, remote_address, false, std::move(callback));
+    td::Slice alpn, std::unique_ptr<Callback> callback, QuicConnectionOptions options) {
+  auto p_impl = std::make_unique<QuicConnectionPImpl>(PrivateTag{}, local_address, remote_address, false,
+                                                      std::move(callback), options);
 
   TRY_STATUS(p_impl->init_tls_client_rpk(client_key, alpn));
   TRY_STATUS(p_impl->init_quic_client());
@@ -50,9 +50,9 @@ td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_cli
 
 td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_server(
     const td::IPAddress& local_address, const td::IPAddress& remote_address, const td::Ed25519::PrivateKey& server_key,
-    td::Slice alpn, const VersionCid& vc, std::unique_ptr<Callback> callback) {
-  auto p_impl =
-      std::make_unique<QuicConnectionPImpl>(PrivateTag{}, local_address, remote_address, true, std::move(callback));
+    td::Slice alpn, const VersionCid& vc, std::unique_ptr<Callback> callback, QuicConnectionOptions options) {
+  auto p_impl = std::make_unique<QuicConnectionPImpl>(PrivateTag{}, local_address, remote_address, true,
+                                                      std::move(callback), options);
 
   TRY_STATUS(p_impl->init_tls_server_rpk(server_key, alpn));
   TRY_STATUS(p_impl->init_quic_server(vc));
@@ -150,6 +150,34 @@ td::Status QuicConnectionPImpl::init_tls_server_rpk(const td::Ed25519::PrivateKe
   return finish_tls_setup(std::move(ssl_ptr), std::move(ssl_ctx_ptr), false);
 }
 
+void QuicConnectionPImpl::setup_settings_and_params(ngtcp2_settings& settings, ngtcp2_transport_params& params,
+                                                    const QuicConnectionOptions& options) {
+  ngtcp2_settings_default(&settings);
+  settings.initial_ts = now_ts();
+  settings.max_window = options.max_window;
+  settings.max_stream_window = options.max_stream_window;
+
+  switch (options.cc_algo) {
+    case CongestionControlAlgo::Reno:
+      settings.cc_algo = NGTCP2_CC_ALGO_RENO;
+      break;
+    case CongestionControlAlgo::Bbr:
+      settings.cc_algo = NGTCP2_CC_ALGO_BBR;
+      break;
+    case CongestionControlAlgo::Cubic:
+    default:
+      settings.cc_algo = NGTCP2_CC_ALGO_CUBIC;
+      break;
+  }
+
+  ngtcp2_transport_params_default(&params);
+  params.max_idle_timeout = options.idle_timeout;
+  params.initial_max_streams_bidi = options.max_streams_bidi;
+  params.initial_max_stream_data_bidi_remote = options.max_stream_window;
+  params.initial_max_stream_data_bidi_local = options.max_stream_window;
+  params.initial_max_data = options.max_window;
+}
+
 void QuicConnectionPImpl::setup_ngtcp2_callbacks(ngtcp2_callbacks& callbacks, bool is_client) {
   if (is_client) {
     callbacks.client_initial = ngtcp2_crypto_client_initial_cb;
@@ -173,6 +201,7 @@ void QuicConnectionPImpl::setup_ngtcp2_callbacks(ngtcp2_callbacks& callbacks, bo
   callbacks.recv_stream_data = recv_stream_data_cb;
   callbacks.acked_stream_data_offset = acked_stream_data_offset_cb;
   callbacks.stream_close = stream_close_cb;
+  callbacks.extend_max_stream_data = extend_max_stream_data_cb;
 }
 
 td::Status QuicConnectionPImpl::init_quic_client() {
@@ -180,19 +209,8 @@ td::Status QuicConnectionPImpl::init_quic_client() {
   setup_ngtcp2_callbacks(callbacks, true);
 
   ngtcp2_settings settings;
-  ngtcp2_settings_default(&settings);
-  settings.initial_ts = now_ts();
-  settings.max_window = DEFAULT_MAX_WINDOW;
-  settings.max_stream_window = DEFAULT_MAX_STREAM_WINDOW;
-
   ngtcp2_transport_params params;
-  ngtcp2_transport_params_default(&params);
-  params.max_idle_timeout = DEFAULT_IDLE_TIMEOUT;
-
-  params.initial_max_streams_bidi = DEFAULT_PARALLEL_STREAMS_LIMIT;
-  params.initial_max_stream_data_bidi_remote = DEFAULT_MAX_STREAM_WINDOW;
-  params.initial_max_stream_data_bidi_local = DEFAULT_MAX_STREAM_WINDOW;
-  params.initial_max_data = DEFAULT_MAX_WINDOW;
+  setup_settings_and_params(settings, params, options_);
 
   auto dcid = QuicConnectionId::random();
   auto scid = QuicConnectionId::random();
@@ -213,7 +231,7 @@ td::Status QuicConnectionPImpl::init_quic_client() {
   primary_scid_ = scid;
 
   ngtcp2_conn_set_tls_native_handle(conn(), ossl_ctx_.get());
-  ngtcp2_conn_set_keep_alive_timeout(conn(), DEFAULT_KEEP_ALIVE_TIMEOUT);
+  ngtcp2_conn_set_keep_alive_timeout(conn(), options_.keep_alive_timeout);
 
   return td::Status::OK();
 }
@@ -223,19 +241,8 @@ td::Status QuicConnectionPImpl::init_quic_server(const VersionCid& vc) {
   setup_ngtcp2_callbacks(callbacks, false);
 
   ngtcp2_settings settings;
-  ngtcp2_settings_default(&settings);
-  settings.initial_ts = now_ts();
-  settings.max_window = DEFAULT_MAX_WINDOW;
-  settings.max_stream_window = DEFAULT_MAX_STREAM_WINDOW;
-
   ngtcp2_transport_params params;
-  ngtcp2_transport_params_default(&params);
-  params.max_idle_timeout = DEFAULT_IDLE_TIMEOUT;
-
-  params.initial_max_streams_bidi = DEFAULT_PARALLEL_STREAMS_LIMIT;
-  params.initial_max_stream_data_bidi_local = DEFAULT_MAX_STREAM_WINDOW;
-  params.initial_max_stream_data_bidi_remote = DEFAULT_MAX_STREAM_WINDOW;
-  params.initial_max_data = DEFAULT_MAX_WINDOW;
+  setup_settings_and_params(settings, params, options_);
 
   params.original_dcid_present = 1;
   params.original_dcid = QuicConnectionIdAccess::to_ngtcp2(vc.dcid);
@@ -257,7 +264,7 @@ td::Status QuicConnectionPImpl::init_quic_server(const VersionCid& vc) {
   primary_scid_ = server_scid;
 
   ngtcp2_conn_set_tls_native_handle(conn(), ossl_ctx_.get());
-  ngtcp2_conn_set_keep_alive_timeout(conn(), DEFAULT_KEEP_ALIVE_TIMEOUT);
+  ngtcp2_conn_set_keep_alive_timeout(conn(), options_.keep_alive_timeout);
   return td::Status::OK();
 }
 
@@ -276,7 +283,7 @@ void QuicConnectionPImpl::build_unsent_vecs(std::vector<ngtcp2_vec>& out, Outbou
 }
 
 bool QuicConnectionPImpl::is_stream_ready(const OutboundStreamState& st) {
-  return !st.reader_.empty() || st.fin_pending;
+  return !st.is_blocked && !st.is_write_closed && (!st.reader_.empty() || st.fin_pending);
 }
 
 void QuicConnectionPImpl::mark_stream_ready(QuicStreamID sid, OutboundStreamState& st) {
@@ -303,7 +310,10 @@ QuicStreamID QuicConnectionPImpl::pop_ready_stream() {
   return -1;
 }
 
-void QuicConnectionPImpl::requeue_stream_if_ready(QuicStreamID sid) {
+void QuicConnectionPImpl::try_enqueue_stream(QuicStreamID sid) {
+  if (sid == -1) {
+    return;
+  }
   auto it = streams_.find(sid);
   if (it == streams_.end()) {
     return;
@@ -320,101 +330,178 @@ ngtcp2_path QuicConnectionPImpl::make_path() const {
   return path;
 }
 
-td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer& msg_out, QuicStreamID sid) {
-  if (streams_blocked_) {  // same as NGTCP2_ERR_STREAM_DATA_BLOCKED by its nature
-    msg_out.storage.truncate(0);
-    return td::Status::OK();
+td::Status QuicConnectionPImpl::clear_out(UdpMessageBuffer& msg_out) {
+  msg_out.storage.truncate(0);
+  msg_out.gso_size = 0;
+  return td::Status::OK();
+}
+
+void QuicConnectionPImpl::commit_write(UdpMessageBuffer& msg_out, size_t n_write, size_t gso_size) {
+  msg_out.storage.truncate(n_write);
+  msg_out.address = remote_address_;
+  msg_out.gso_size = gso_size;
+}
+
+void QuicConnectionPImpl::prepare_stream_write(QuicStreamID sid, bool padding, StreamWriteContext& ctx,
+                                               std::vector<ngtcp2_vec>& datav) {
+  ctx = StreamWriteContext{};
+  if (padding) {
+    ctx.flags |= NGTCP2_WRITE_STREAM_FLAG_PADDING;
   }
+  datav.clear();
+
+  if (sid == -1) {
+    return;
+  }
+
+  auto it = streams_.find(sid);
+  CHECK(it != streams_.end());
+
+  auto& st = it->second;
+
+  ctx.unsent_before = st.reader_.size();
+  build_unsent_vecs(datav, st);
+
+  if (st.fin_pending) {
+    ctx.flags |= NGTCP2_WRITE_STREAM_FLAG_FIN;
+  }
+}
+
+void QuicConnectionPImpl::finish_stream_write(QuicStreamID sid, const StreamWriteContext& ctx, ngtcp2_ssize pdatalen) {
+  if (sid == -1) {
+    return;
+  }
+  auto it = streams_.find(sid);
+  if (it == streams_.end()) {
+    return;
+  }
+  auto& st = it->second;
+
+  if (pdatalen > 0) {
+    st.reader_.advance(pdatalen);
+  }
+
+  if ((ctx.flags & NGTCP2_WRITE_STREAM_FLAG_FIN) != 0 && pdatalen >= 0) {
+    if (static_cast<uint64_t>(pdatalen) == ctx.unsent_before) {
+      st.fin_pending = false;
+      st.fin_submitted = true;
+    }
+  }
+}
+
+void QuicConnectionPImpl::start_batch() {
+  CHECK(write_sid_ == -1);
+  write_sid_ = pop_ready_stream();
+}
+QuicStreamID QuicConnectionPImpl::next_ready_stream_id() {
+  while (write_sid_ != -1) {
+    auto it = streams_.find(write_sid_);
+    if (it != streams_.end() && is_stream_ready(it->second)) {
+      break;
+    }
+    if (it != streams_.end()) {
+      try_enqueue_stream(write_sid_);
+    }
+    write_sid_ = pop_ready_stream();
+  }
+
+  return write_sid_;
+}
+void QuicConnectionPImpl::finish_batch() {
+  try_enqueue_stream(write_sid_);
+  write_sid_ = -1;
+}
+
+ngtcp2_ssize QuicConnectionPImpl::write_streams_to_packet(ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest,
+                                                          size_t destlen, bool padding, ngtcp2_tstamp ts) {
+  ngtcp2_ssize n_write = 0;
+  size_t streams_in_packet = 0;
+
+  for (;;) {
+    auto sid = next_ready_stream_id();
+    StreamWriteContext ctx;
+    prepare_stream_write(sid, padding, ctx, write_datav_);
+
+    ctx.flags |= NGTCP2_WRITE_STREAM_FLAG_MORE;
+    ngtcp2_ssize pdatalen = -1;
+    n_write =
+        ngtcp2_conn_writev_stream(conn(), path, pi, dest, destlen, sid == -1 ? nullptr : &pdatalen, ctx.flags, sid,
+                                  write_datav_.empty() ? nullptr : write_datav_.data(), write_datav_.size(), ts);
+
+    finish_stream_write(sid, ctx, pdatalen);
+
+    if (pdatalen > 0) {
+      ++streams_in_packet;
+    }
+
+    if (n_write == NGTCP2_ERR_STREAM_DATA_BLOCKED) {
+      streams_[sid].is_blocked = true;
+      continue;
+    }
+    if (n_write == NGTCP2_ERR_STREAM_SHUT_WR) {
+      streams_[sid].is_write_closed = true;
+      continue;
+    }
+    if (n_write != NGTCP2_ERR_WRITE_MORE) {
+      break;
+    }
+  }
+
+  last_packet_streams_ = streams_in_packet;
+  return n_write;
+}
+
+ngtcp2_ssize QuicConnectionPImpl::write_pkt_cb(ngtcp2_conn* /*conn*/, ngtcp2_path* path, ngtcp2_pkt_info* pi,
+                                               uint8_t* dest, size_t destlen, ngtcp2_tstamp ts, void* user_data) {
+  auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
+  return pimpl->write_pkt_aggregate(path, pi, dest, destlen, ts);
+}
+
+ngtcp2_ssize QuicConnectionPImpl::write_pkt_aggregate(ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest,
+                                                      size_t destlen, ngtcp2_tstamp ts) {
+  return write_streams_to_packet(path, pi, dest, destlen, true, ts);
+}
+
+td::Status QuicConnectionPImpl::produce_egress(UdpMessageBuffer& msg_out, bool use_gso, size_t max_packets) {
+  td::PerfWarningTimer w("produce_egress", 0.1);
 
   const auto ts = now_ts();
-
-  std::vector<ngtcp2_vec> datav;
-  uint32_t flags = 0;
-  uint64_t unsent_before = 0;
-
-  if (sid != -1) {
-    auto it = streams_.find(sid);
-    if (it == streams_.end()) {
-      msg_out.storage.truncate(0);
-      return td::Status::OK();
-    }
-    auto& st = it->second;
-
-    unsent_before = st.reader_.size();
-    build_unsent_vecs(datav, st);
-
-    if (st.fin_pending) {
-      flags |= NGTCP2_WRITE_STREAM_FLAG_FIN;
-    }
-  }
-
+  auto path = make_path();
   ngtcp2_pkt_info pi{};
-  ngtcp2_ssize pdatalen = -1;
+  size_t gso_size = 0;
+  ngtcp2_ssize n_write = -1;
 
-  ngtcp2_ssize n_write = ngtcp2_conn_writev_stream(
-      conn(), nullptr, &pi, reinterpret_cast<uint8_t*>(msg_out.storage.data()), msg_out.storage.size(),
-      sid == -1 ? nullptr : &pdatalen, flags, sid, datav.empty() ? nullptr : datav.data(), datav.size(), ts);
-
-  if (n_write == 0) {
-    msg_out.storage.truncate(0);
-    return td::Status::OK();
+  start_batch();
+  if (use_gso) {
+    n_write = ngtcp2_conn_write_aggregate_pkt2(conn(), &path, &pi, reinterpret_cast<uint8_t*>(msg_out.storage.data()),
+                                               msg_out.storage.size(), &gso_size, &write_pkt_cb, max_packets, ts);
+  } else {
+    n_write = write_streams_to_packet(&path, &pi, reinterpret_cast<uint8_t*>(msg_out.storage.data()),
+                                      msg_out.storage.size(), false, ts);
   }
+  finish_batch();
 
   if (n_write < 0) {
-    if (n_write == NGTCP2_ERR_STREAM_DATA_BLOCKED || n_write == NGTCP2_ERR_STREAM_SHUT_WR) {
-      msg_out.storage.truncate(0);
-      return td::Status::OK();
-    }
-    return td::Status::Error(PSTRING() << "ngtcp2_conn_writev_stream failed: " << n_write);
+    return td::Status::Error(PSTRING() << "ngtcp2_conn_write_aggregate_pkt2 failed: " << n_write);
   }
 
   ngtcp2_conn_update_pkt_tx_time(conn(), ts);
-
-  if (sid != -1) {
-    auto& st = streams_.find(sid)->second;
-
-    if (pdatalen > 0) {
-      st.reader_.advance(pdatalen);
-    }
-
-    if ((flags & NGTCP2_WRITE_STREAM_FLAG_FIN) != 0 && pdatalen >= 0) {
-      if (static_cast<uint64_t>(pdatalen) == unsent_before) {
-        st.fin_pending = false;
-        st.fin_submitted = true;
-      }
-    }
-  }
-
-  msg_out.storage = msg_out.storage.substr(0, n_write);
-  msg_out.address = remote_address_;
+  commit_write(msg_out, static_cast<size_t>(n_write), gso_size);
 
   return td::Status::OK();
 }
 
-td::Status QuicConnectionPImpl::produce_egress(UdpMessageBuffer& msg_out) {
-  td::PerfWarningTimer w("produce_egress", 0.1);
-  QuicStreamID sid = pop_ready_stream();
-  auto status = write_one_packet(msg_out, sid);
-  if (status.is_ok() && sid != -1) {
-    requeue_stream_if_ready(sid);
-  }
-  return status;
-}
-
 td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in) {
   ngtcp2_path path = make_path();
-
   ngtcp2_pkt_info pi{};
   int rv = ngtcp2_conn_read_pkt(conn(), &path, &pi, reinterpret_cast<uint8_t*>(msg_in.storage.data()),
                                 msg_in.storage.size(), now_ts());
-
-  if (rv != 0) {
-    if (rv == NGTCP2_ERR_DROP_CONN || ngtcp2_err_is_fatal(rv)) {
-      return td::Status::Error(PSTRING() << "ngtcp2_conn_read_pkt failed: " << rv);
-    }
+  if (rv == 0) {
     return td::Status::OK();
   }
-
+  if (rv == NGTCP2_ERR_DROP_CONN || ngtcp2_err_is_fatal(rv)) {
+    return td::Status::Error(PSTRING() << "ngtcp2_conn_read_pkt failed: " << rv);
+  }
   return td::Status::OK();
 }
 
@@ -426,16 +513,6 @@ ngtcp2_conn_info QuicConnectionPImpl::get_conn_info() const {
 
 QuicConnectionId QuicConnectionPImpl::get_primary_scid() const {
   return primary_scid_;
-}
-
-void QuicConnectionPImpl::block_streams() {
-  CHECK(!streams_blocked_);
-  streams_blocked_ = true;
-}
-
-void QuicConnectionPImpl::unblock_streams() {
-  CHECK(streams_blocked_);
-  streams_blocked_ = false;
 }
 
 void QuicConnectionPImpl::shutdown_stream(QuicStreamID sid) {
@@ -454,13 +531,15 @@ td::Result<QuicStreamID> QuicConnectionPImpl::open_stream() {
   return sid;
 }
 
-td::Status QuicConnectionPImpl::write_stream(UdpMessageBuffer& msg_out, QuicStreamID sid, td::BufferSlice data,
-                                             bool fin) {
+td::Status QuicConnectionPImpl::buffer_stream(QuicStreamID sid, td::BufferSlice data, bool fin) {
   auto it = streams_.find(sid);
   if (it == streams_.end()) {
     return td::Status::Error("stream not opened");
   }
   auto& st = it->second;
+  if (st.fin_pending || st.fin_submitted) {
+    return td::Status::Error("stream already closed");
+  }
   st.writer_.append(std::move(data));
   st.reader_.sync_with_writer();
   st.pin_.sync_with_writer();
@@ -468,7 +547,7 @@ td::Status QuicConnectionPImpl::write_stream(UdpMessageBuffer& msg_out, QuicStre
     st.fin_pending = true;
   }
   mark_stream_ready(sid, st);
-  return write_one_packet(msg_out, sid);
+  return td::Status::OK();
 }
 
 ngtcp2_tstamp QuicConnectionPImpl::now_ts() {
@@ -524,15 +603,15 @@ int QuicConnectionPImpl::on_handshake_completed() {
 int QuicConnectionPImpl::on_recv_stream_data(uint32_t flags, int64_t stream_id, td::Slice data) {
   Callback::StreamDataEvent event{
       .sid = stream_id, .data = td::BufferSlice{data}, .fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0};
-  auto status = callback_->on_stream_data(std::move(event));
 
+  ngtcp2_conn_extend_max_stream_offset(conn(), stream_id, data.size());
+  ngtcp2_conn_extend_max_offset(conn(), data.size());
+
+  auto status = callback_->on_stream_data(std::move(event));
   if (status.is_error()) {
     shutdown_stream(stream_id);
     return 0;
   }
-
-  ngtcp2_conn_extend_max_stream_offset(conn(), stream_id, data.size());
-  ngtcp2_conn_extend_max_offset(conn(), data.size());
 
   // bidi stream initiated by other party
   if (ngtcp2_is_bidi_stream(stream_id) && !ngtcp2_conn_is_local_stream(conn(), stream_id)) {
@@ -570,6 +649,17 @@ int QuicConnectionPImpl::on_stream_close(int64_t stream_id) {
   return 0;
 }
 
+int QuicConnectionPImpl::on_extend_max_stream_data(QuicStreamID sid, uint64_t max_data) {
+  auto it = streams_.find(sid);
+  if (it == streams_.end()) {
+    return 0;
+  }
+  auto& st = it->second;
+  st.is_blocked = false;
+  mark_stream_ready(sid, st);
+  return 0;
+}
+
 void QuicConnectionPImpl::rand_cb(uint8_t* dest, size_t destlen, const ngtcp2_rand_ctx* rand_ctx) {
   td::Random::secure_bytes(td::MutableSlice(dest, destlen));
 }
@@ -603,5 +693,12 @@ int QuicConnectionPImpl::stream_close_cb(ngtcp2_conn*, uint32_t /*flags*/, int64
                                          uint64_t /*app_error_code*/, void* user_data, void* /*stream_user_data*/) {
   auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
   return pimpl->on_stream_close(stream_id);
+}
+
+int QuicConnectionPImpl::extend_max_stream_data_cb(ngtcp2_conn*, int64_t stream_id, uint64_t max_data, void* user_data,
+                                                   void* /*stream_user_data*/) {
+  auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
+  pimpl->on_extend_max_stream_data(stream_id, max_data);
+  return 0;
 }
 }  // namespace ton::quic

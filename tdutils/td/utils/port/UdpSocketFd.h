@@ -60,11 +60,16 @@ class UdpSocketFd {
   Result<uint32> maximize_rcv_buffer(uint32 max_buffer_size = 0);
 
   static Result<UdpSocketFd> open(const IPAddress &address) TD_WARN_UNUSED_RESULT;
+  static bool is_gso_supported();
 
   PollableFdInfo &get_poll_info();
   const PollableFdInfo &get_poll_info() const;
   const NativeFd &get_native_fd() const;
   [[nodiscard]] Result<IPAddress> get_local_address() const;
+  [[nodiscard]] Status enable_gro();
+  void enable_mmsg();
+  void disable_mmsg();
+  bool is_mmsg_enabled() const;
 
   void close();
   bool empty() const;
@@ -75,11 +80,13 @@ class UdpSocketFd {
   struct OutboundMessage {
     const IPAddress *to;
     Slice data;
+    size_t gso_size{0};  // 0 means no GSO, >0 enables UDP_SEGMENT
   };
   struct InboundMessage {
     IPAddress *from;
     MutableSlice data;
     Status *error;
+    size_t gso_size{0};
   };
 
   Status send_message(const OutboundMessage &message, bool &is_sent) TD_WARN_UNUSED_RESULT;
