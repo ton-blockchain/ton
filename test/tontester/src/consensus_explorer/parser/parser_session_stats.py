@@ -190,10 +190,21 @@ class ParserSessionStats(Parser):
         slot = vote.id.slot
         slot_id = (v_group, slot)
         vote_type = (
-            "NotarizeVote" if isinstance(vote, Consensus_simplex_notarizeVote) else "FinalizeVote"
+            "notarize_vote" if isinstance(vote, Consensus_simplex_notarizeVote) else "finalize_vote"
         )
         self._votes.setdefault(slot_id, {}).setdefault(vote_type, []).append(
             VoteData(t_ms=t_ms, v_id=v_id, weight=v_weight)
+        )
+        self._events.append(
+            EventData(
+                valgroup_id=v_group,
+                slot=slot,
+                label=vote_type,
+                kind="local",
+                t_ms=t_ms,
+                validator=v_id,
+                t1_ms=None,
+            )
         )
 
     def _infer_slot_events(self) -> None:
@@ -264,12 +275,12 @@ class ParserSessionStats(Parser):
             notarize_reached = None
             if (
                 slot_id in self._votes
-                and "NotarizeVote" in self._votes[slot_id]
+                and "notarize_vote" in self._votes[slot_id]
                 and collate_end is not None
             ):
                 notarize_reached = self._process_vote_threshold(
                     slot_data=slot_data,
-                    votes=self._votes[slot_id]["NotarizeVote"],
+                    votes=self._votes[slot_id]["notarize_vote"],
                     weight_threshold=weight_threshold,
                     label="notarize",
                     phase_start=collate_end,
@@ -277,12 +288,12 @@ class ParserSessionStats(Parser):
 
             if (
                 slot_id in self._votes
-                and "FinalizeVote" in self._votes[slot_id]
+                and "finalize_vote" in self._votes[slot_id]
                 and notarize_reached is not None
             ):
                 _ = self._process_vote_threshold(
                     slot_data=slot_data,
-                    votes=self._votes[slot_id]["FinalizeVote"],
+                    votes=self._votes[slot_id]["finalize_vote"],
                     weight_threshold=weight_threshold,
                     label="finalize",
                     phase_start=notarize_reached,
