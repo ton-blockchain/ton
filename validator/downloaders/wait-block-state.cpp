@@ -295,13 +295,15 @@ void WaitBlockState::apply() {
   }
   TD_PERF_COUNTER(apply_block_to_state);
   td::PerfWarningTimer t{"applyblocktostate", 0.1};
-  auto S = prev_state_.write().apply_block(handle_->id(), block_);
+  vm::StoreCellHint hint;
+  auto S = prev_state_.write().apply_block(handle_->id(), block_, &hint);
   if (S.is_error()) {
     abort_query(S.move_as_error_prefix("apply error: "));
     return;
   }
 
-  td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, prev_state_, std::move(P));
+  td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, prev_state_, std::move(hint),
+                          std::move(P));
   if (promise_no_store_) {
     promise_no_store_.set_result(prev_state_);
     promise_no_store_ = {};
@@ -324,7 +326,8 @@ void WaitBlockState::got_state_from_db(td::Ref<ShardState> state) {
       }
     });
 
-    td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, prev_state_, std::move(P));
+    td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, prev_state_, vm::StoreCellHint{},
+                            std::move(P));
     if (promise_no_store_) {
       promise_no_store_.set_result(prev_state_);
       promise_no_store_ = {};
@@ -418,7 +421,8 @@ void WaitBlockState::written_state_file() {
     }
   });
 
-  td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, prev_state_, std::move(P));
+  td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, prev_state_, vm::StoreCellHint{},
+                          std::move(P));
 }
 
 void WaitBlockState::failed_to_get_zero_state() {

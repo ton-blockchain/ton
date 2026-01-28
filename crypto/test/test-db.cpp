@@ -1183,7 +1183,7 @@ struct BocOptions {
       std::latch latch(1);
       td::Result<td::Unit> res;
       async_executor->execute_sync([&] {
-        dboc.prepare_commit_async(async_executor, [&](auto r) {
+        dboc.prepare_commit_async(async_executor, {}, [&](auto r) {
           res = std::move(r);
           latch.count_down();
         });

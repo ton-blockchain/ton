@@ -829,10 +829,11 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
     CHECK(cell_db_reader_);
     return cell_db_reader_->load_cell_async(hash, std::move(executor), std::move(promise));
   }
-  void prepare_commit_async(std::shared_ptr<AsyncExecutor> executor, td::Promise<td::Unit> promise) override {
+  void prepare_commit_async(std::shared_ptr<AsyncExecutor> executor, StoreCellHint hint,
+                            td::Promise<td::Unit> promise) override {
     auto promise_ptr = std::make_shared<td::Promise<td::Unit>>(std::move(promise));
-    executor->execute_async([this, promise_ptr = std::move(promise_ptr)] {
-      prepare_commit();
+    executor->execute_async([this, hint = std::move(hint), promise_ptr = std::move(promise_ptr)] {
+      prepare_commit(std::move(hint));
       promise_ptr->set_value(td::Unit());
     });
   }
@@ -864,7 +865,7 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
     return {};
   }
 
-  td::Status prepare_commit() override {
+  td::Status prepare_commit(StoreCellHint hint = {}) override {
     if (is_prepared_for_commit()) {
       return td::Status::OK();
     }
@@ -907,8 +908,8 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
           prepared_to_inc.push_back(&info);
         }
       }
-      new_cells_leaves =
-          executor({std::move(prepared_to_inc)}, [&](CellInfo *info, auto &worker) { gather_new_cells(info, worker); });
+      new_cells_leaves = executor({std::move(prepared_to_inc)},
+                                  [&](CellInfo *info, auto &worker) { gather_new_cells(info, worker, hint); });
       visited_cells.push_back(std::move(visited_roots));
     }
 
@@ -1264,7 +1265,7 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
   bool dbg{false};
 
   template <class WorkerT>
-  void gather_new_cells(CellInfo *info, WorkerT &worker) {
+  void gather_new_cells(CellInfo *info, WorkerT &worker, const StoreCellHint &hint) {
     stats_.gather_new_cells_calls.inc();
     do {
       // invariant: info is not in DB; with created in_db_info
@@ -1281,6 +1282,11 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
 
         if (child_state.in_db) {
           LOG_IF(INFO, dbg) << "gather_new_cells: IN DB\n\tchld: " << *child_info;
+          continue;
+        }
+        if (hint.prev_state_cells.contains(child_info->cell->get_hash())) {
+          child_info->set_in_db();
+          LOG_IF(INFO, dbg) << "gather_new_cells: IN DB (from hint)\n\tchld: " << *child_info;
           continue;
         }
 
