@@ -111,10 +111,6 @@ Bits256 CandidateHashData::hash() const {
   return get_tl_object_sha_bits256(to_tl());
 }
 
-bool CandidateHashData::check(BlockIdExt block, Bits256 candidate_hash) const {
-  return this->block() == block && hash() == candidate_hash;
-}
-
 td::Result<RawCandidateRef> RawCandidate::deserialize(td::Slice data, const Bus& bus,
                                                       std::optional<PeerValidatorId> src) {
   TRY_RESULT(broadcast, fetch_tl_object<tl::CandidateData>(data, true));
