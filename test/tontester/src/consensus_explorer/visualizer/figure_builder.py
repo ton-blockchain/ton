@@ -263,6 +263,7 @@ class DetailFigureBuilder:
                         x=x,
                         y=[e.validator for e in label_events],
                         marker=dict(color=label_events[0].get_color()),
+                        opacity=0.8,
                         hovertemplate=(
                             f"valgroup={self._valgroup_id}<br>slot={self._slot.slot}<br>"
                             + f"validator=%{{customdata[2]}}<br>event={label} (kind=%{{customdata[4]}})<br>"
