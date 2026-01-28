@@ -241,7 +241,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   std::multimap<td::Timestamp, td::uint32> skip_timeouts_;
 
   struct ResolvedCandidate {
-    ParentId id;
+    RawParentId id;
     ChainStateRef state;
     std::optional<double> gen_utime_exact = std::nullopt;
   };
@@ -280,19 +280,18 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
   td::actor::Task<ResolvedCandidate> get_resolved_candidate_inner(RawParentId id) {
     if (!id.has_value() || finalized_blocks_.contains(*id)) {
-      ParentId id_full;
+      std::vector<BlockIdExt> block;
+      auto genesis = co_await genesis_.get();
       if (id.has_value()) {
         auto candidate = (co_await owning_bus().publish<ResolveCandidate>(*id)).candidate;
-        id_full = candidate->id;
+        block = {candidate->id.block};
       } else {
-        id_full = std::nullopt;
+        block = genesis->state->block_ids();
       }
-      auto genesis = co_await genesis_.get();
-      auto state =
-          co_await ChainState::from_manager(owning_bus()->manager, owning_bus()->shard,
-                                            genesis->convert_id_to_blocks(id_full), genesis->state->min_mc_block_id());
+      auto state = co_await ChainState::from_manager(owning_bus()->manager, owning_bus()->shard, block,
+                                                     genesis->state->min_mc_block_id());
       co_return ResolvedCandidate{
-          .id = id_full,
+          .id = id,
           .state = state,
       };
     }
@@ -362,7 +361,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     if (!is_empty) {
       bus.publish<BlockFinalized>(candidate->id, maybe_final_cert.not_null());
     }
-    ParentId parent_id;
+    RawParentId parent_id;
     if (candidate->parent_id.has_value()) {
       if (is_empty) {
         parent_id = co_await finalize_blocks(candidate->parent_id.value(), maybe_final_cert, maybe_final_candidate);
@@ -405,7 +404,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     co_return candidate->id;
   }
 
-  td::actor::Task<> do_finalize_block(RawCandidateId id, RawCandidateRef candidate, ParentId parent_id,
+  td::actor::Task<> do_finalize_block(RawCandidateId id, RawCandidateRef candidate, RawParentId parent_id,
                                       td::Ref<block::BlockSignatureSet> sig_set) {
     co_await owning_bus().publish<FinalizeBlock>(candidate, sig_set);
     co_await owning_bus()->db->set(

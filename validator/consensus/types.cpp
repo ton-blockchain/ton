@@ -75,14 +75,6 @@ td::StringBuilder& operator<<(td::StringBuilder& stream, const CandidateId& id) 
   return stream << "{" << id.slot << ", " << id.hash << ", " << id.block.to_str() << "}";
 }
 
-td::StringBuilder& operator<<(td::StringBuilder& stream, const ParentId& id) {
-  if (id.has_value()) {
-    return stream << *id;
-  } else {
-    return stream << "consensus genesis";
-  }
-}
-
 CandidateHashData CandidateHashData::from_tl(tl::CandidateHashData&& data) {
   CandidateHashData builder;
 

@@ -61,14 +61,6 @@ std::string Start::contents_to_string() const {
   return PSTRING() << "{state=" << state << "}";
 }
 
-std::vector<BlockIdExt> Start::convert_id_to_blocks(ParentId parent) const {
-  if (parent.has_value()) {
-    return {parent->block};
-  } else {
-    return state->block_ids();
-  }
-}
-
 std::string BlockFinalized::contents_to_string() const {
   return PSTRING() << "{candidate=" << candidate << ", final_sigs=" << final_signatures << "}";
 }
