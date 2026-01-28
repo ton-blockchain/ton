@@ -184,14 +184,12 @@ class ParserSessionStats(Parser):
         vote = event.vote
         assert vote is not None
         if isinstance(vote, Consensus_simplex_skipVote):
-            return
-
-        assert vote.id is not None
-        slot = vote.id.slot
+            slot = vote.slot
+        else:
+            assert vote.id is not None
+            slot = vote.id.slot
         slot_id = (v_group, slot)
-        vote_type = (
-            "notarize_vote" if isinstance(vote, Consensus_simplex_notarizeVote) else "finalize_vote"
-        )
+        vote_type = {Consensus_simplex_notarizeVote: "notarize_vote", Consensus_simplex_finalizeVote: "finalize_vote", Consensus_simplex_skipVote: "skip_vote"}[type(vote)]
         self._votes.setdefault(slot_id, {}).setdefault(vote_type, []).append(
             VoteData(t_ms=t_ms, v_id=v_id, weight=v_weight)
         )
@@ -275,8 +273,18 @@ class ParserSessionStats(Parser):
             notarize_reached = None
             if (
                 slot_id in self._votes
+                and "skip_vote" in self._votes[slot_id]
+            ):
+                _ = self._process_vote_threshold(
+                    slot_data=slot_data,
+                    votes=self._votes[slot_id]["skip_vote"],
+                    weight_threshold=weight_threshold,
+                    label="skip",
+                    phase_start=None,
+                )
+            if (
+                slot_id in self._votes
                 and "notarize_vote" in self._votes[slot_id]
-                and collate_end is not None
             ):
                 notarize_reached = self._process_vote_threshold(
                     slot_data=slot_data,
@@ -289,7 +297,6 @@ class ParserSessionStats(Parser):
             if (
                 slot_id in self._votes
                 and "finalize_vote" in self._votes[slot_id]
-                and notarize_reached is not None
             ):
                 _ = self._process_vote_threshold(
                     slot_data=slot_data,
@@ -305,7 +312,7 @@ class ParserSessionStats(Parser):
         votes: list[VoteData],
         weight_threshold: int,
         label: str,
-        phase_start: float,
+        phase_start: float | None,
     ) -> float | None:
         current_weight = 0
         sorted_votes = sorted(votes, key=lambda x: x.t_ms)
@@ -324,16 +331,17 @@ class ParserSessionStats(Parser):
                         t1_ms=None,
                     )
                 )
-                self._events.append(
-                    EventData(
-                        valgroup_id=slot_data.valgroup_id,
-                        slot=slot_data.slot,
-                        label=label,
-                        kind="phase",
-                        t_ms=phase_start,
-                        t1_ms=vote.t_ms,
+                if phase_start is not None:
+                    self._events.append(
+                        EventData(
+                            valgroup_id=slot_data.valgroup_id,
+                            slot=slot_data.slot,
+                            label=label,
+                            kind="phase",
+                            t_ms=phase_start,
+                            t1_ms=vote.t_ms,
+                        )
                     )
-                )
                 return vote.t_ms
 
         return None
