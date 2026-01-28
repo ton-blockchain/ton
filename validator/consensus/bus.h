@@ -78,14 +78,11 @@ struct CandidateReceived {
   std::string contents_to_string() const;
 };
 
-// Checks that if candidate contains a block, then BlockCandidate is a valid block built on top of
-// the parent. Note that empty blocks are always (locally) valid because of an assert in Candidate
-// constructor.
 struct ValidationRequest {
   using ReturnType = td::Unit;
 
   ChainStateRef state;
-  CandidateRef candidate;
+  RawCandidateRef candidate;
 
   std::string contents_to_string() const;
 };

@@ -20,7 +20,7 @@ std::string block_candidate_to_string(const BlockCandidate& candidate) {
                    << ", pubkey=" << candidate.pubkey.as_bits256() << "}";
 }
 
-std::string candidate_to_string(const td::OneOf<RawCandidateRef, CandidateRef> auto& candidate) {
+std::string candidate_to_string(const RawCandidateRef& candidate) {
   auto block_fn = [](const BlockCandidate& block) { return block_candidate_to_string(block); };
   auto empty_fn = [](const BlockIdExt& id) { return PSTRING() << id.to_str() << " (referenced)"; };
 
