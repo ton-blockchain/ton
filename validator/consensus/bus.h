@@ -31,13 +31,6 @@ using StartEvent = std::shared_ptr<const Start>;
 
 struct StopRequested {};
 
-struct BlockFinalized {
-  CandidateId candidate;
-  bool final_signatures;
-
-  std::string contents_to_string() const;
-};
-
 struct FinalizeBlock {
   using ReturnType = td::Unit;
 
@@ -159,10 +152,10 @@ class Db {
 
 class Bus : public runtime::Bus {
  public:
-  using Events = td::TypeList<Start, StopRequested, BlockFinalized, FinalizeBlock, OurLeaderWindowStarted,
-                              OurLeaderWindowAborted, CandidateGenerated, CandidateReceived, ValidationRequest,
-                              IncomingProtocolMessage, OutgoingProtocolMessage, IncomingOverlayRequest,
-                              OutgoingOverlayRequest, BlockFinalizedInMasterchain, MisbehaviorReport, TraceEvent>;
+  using Events = td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, OurLeaderWindowAborted,
+                              CandidateGenerated, CandidateReceived, ValidationRequest, IncomingProtocolMessage,
+                              OutgoingProtocolMessage, IncomingOverlayRequest, OutgoingOverlayRequest,
+                              BlockFinalizedInMasterchain, MisbehaviorReport, TraceEvent>;
 
   Bus() = default;
   ~Bus() override {
