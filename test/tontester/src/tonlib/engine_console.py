@@ -6,22 +6,9 @@ from tonapi import ton_api
 
 from tl import JSONSerializable, TLRequest
 
+from .errors import LocalError, RemoteError
 from .event_loop import TonlibEventLoop
 from .tonlib_cdll import TonlibCDLL
-
-
-class LocalError(Exception):
-    def __init__(self, code: int, message: str):
-        super().__init__(message)
-        self.code: int = code
-        self.message: str = message
-
-
-class RemoteError(Exception):
-    def __init__(self, code: int, message: str):
-        super().__init__(message)
-        self.code: int = code
-        self.message: str = message
 
 
 @final
