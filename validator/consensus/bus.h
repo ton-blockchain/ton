@@ -43,7 +43,6 @@ struct FinalizeBlock {
   using ReturnType = td::Unit;
 
   RawCandidateRef candidate;
-  ParentId parent_id;
   td::Ref<block::BlockSignatureSet> signatures;
 
   std::string contents_to_string() const;
