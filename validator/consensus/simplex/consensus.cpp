@@ -408,7 +408,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
   td::actor::Task<> do_finalize_block(RawCandidateId id, RawCandidateRef candidate, ParentId parent_id,
                                       td::Ref<block::BlockSignatureSet> sig_set) {
-    co_await owning_bus().publish<FinalizeBlock>(candidate, parent_id, sig_set);
+    co_await owning_bus().publish<FinalizeBlock>(candidate, sig_set);
     co_await owning_bus()->db->set(
         create_serialize_tl_object<ton_api::consensus_simplex_db_key_finalizedBlock>(id.to_tl()),
         create_serialize_tl_object<ton_api::consensus_simplex_db_finalizedBlock>(

@@ -50,12 +50,12 @@ class ManagerFacadeImpl : public ManagerFacade {
     co_return co_await std::move(task);
   }
 
-  td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                                 size_t creator_idx, td::Ref<block::BlockSignatureSet> signatures,
-                                 int send_broadcast_mode, bool apply) override {
+  td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, size_t creator_idx,
+                                 td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode,
+                                 bool apply) override {
     auto [task, promise] = td::actor::StartedTask<>::make_bridge();
-    run_accept_block_query(id, std::move(data), std::move(prev), validator_set_, std::move(signatures),
-                           send_broadcast_mode, apply, manager_, std::move(promise));
+    run_accept_block_query(id, std::move(data), {}, validator_set_, std::move(signatures), send_broadcast_mode, apply,
+                           manager_, std::move(promise));
     auto result = co_await std::move(task).wrap();
     LOG_CHECK(!result.is_error()) << "Failed to accept finalized block " << result.move_as_error();
     co_return {};

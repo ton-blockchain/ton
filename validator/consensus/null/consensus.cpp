@@ -212,7 +212,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       }
       auto& bus = owning_bus();
       bus.publish<BlockFinalized>((*state.raw_candidate)->id);
-      bus.publish<FinalizeBlock>(*state.raw_candidate, (*state.candidate)->parent_id,
+      bus.publish<FinalizeBlock>(*state.raw_candidate,
                                  block::BlockSignatureSet::create_ordinary(std::move(state.signatures), bus->cc_seqno,
                                                                            bus->validator_set_hash))
           .start()
