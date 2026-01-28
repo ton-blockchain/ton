@@ -170,7 +170,7 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
 
     auto& bus = *owning_bus();
     auto peer = short_id_to_peer_.at(src);
-    auto maybe_candidate = RawCandidate::deserialize(std::move(data), bus, peer.idx);
+    auto maybe_candidate = Candidate::deserialize(std::move(data), bus, peer.idx);
 
     if (!maybe_candidate.is_ok()) {
       // FIXME: If we actually collected signed broadcast parts, we could have produced a

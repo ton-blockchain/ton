@@ -93,7 +93,7 @@ class MetricCollector final : public consensus::stats::MetricCollector {
   ValidatorSessionId session_id_;
   PublicKeyHash self_id_;
 
-  std::map<RawCandidateId, Flow> flows_;
+  std::map<CandidateId, Flow> flows_;
   std::map<td::uint32, double> collate_started_by_slot_;
   td::uint32 first_non_accepted_slot_ = 0;
 

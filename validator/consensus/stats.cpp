@@ -60,7 +60,7 @@ void CollateStarted::collect_to(MetricCollector& collector) const {
 CollateStarted::CollateStarted(td::uint32 target_slot) : target_slot_(target_slot) {
 }
 
-std::unique_ptr<CollateFinished> CollateFinished::create(td::uint32 slot, RawCandidateId id) {
+std::unique_ptr<CollateFinished> CollateFinished::create(td::uint32 slot, CandidateId id) {
   return std::unique_ptr<CollateFinished>(new CollateFinished(slot, id));
 }
 
@@ -76,10 +76,10 @@ void CollateFinished::collect_to(MetricCollector& collector) const {
   collector.collect_collate_finished(*this);
 }
 
-CollateFinished::CollateFinished(td::uint32 target_slot, RawCandidateId id) : target_slot_(target_slot), id_(id) {
+CollateFinished::CollateFinished(td::uint32 target_slot, CandidateId id) : target_slot_(target_slot), id_(id) {
 }
 
-std::unique_ptr<CollatedEmpty> CollatedEmpty::create(RawCandidateId id) {
+std::unique_ptr<CollatedEmpty> CollatedEmpty::create(CandidateId id) {
   return std::unique_ptr<CollatedEmpty>(new CollatedEmpty(id));
 }
 
@@ -91,10 +91,10 @@ std::string CollatedEmpty::to_string() const {
   return PSTRING() << "CollatedEmpty{id=" << id_ << "}";
 }
 
-CollatedEmpty::CollatedEmpty(RawCandidateId id) : id_(id) {
+CollatedEmpty::CollatedEmpty(CandidateId id) : id_(id) {
 }
 
-std::unique_ptr<CandidateReceived> CandidateReceived::create(const RawCandidateRef& candidate, bool is_collator) {
+std::unique_ptr<CandidateReceived> CandidateReceived::create(const CandidateRef& candidate, bool is_collator) {
   auto empty_fn = [&](const BlockIdExt&) { return std::optional<BlockIdExt>{}; };
   auto candidate_fn = [&](const BlockCandidate& candidate_block) { return std::optional{candidate_block.id}; };
   auto block = std::visit(td::overloaded(empty_fn, candidate_fn), candidate->block);
@@ -110,8 +110,8 @@ tl::EventRef CandidateReceived::to_tl() const {
   } else {
     block = create_tl_object<tl::empty>();
   }
-  return create_tl_object<tl::candidateReceived>(id_.to_tl(), RawCandidateId::parent_id_to_tl(parent_),
-                                                 std::move(block), is_collator_);
+  return create_tl_object<tl::candidateReceived>(id_.to_tl(), CandidateId::parent_id_to_tl(parent_), std::move(block),
+                                                 is_collator_);
 }
 
 std::string CandidateReceived::to_string() const {
@@ -126,12 +126,11 @@ void CandidateReceived::collect_to(MetricCollector& collector) const {
   collector.collect_candidate_received(*this);
 }
 
-CandidateReceived::CandidateReceived(RawCandidateId id, RawParentId parent, std::optional<BlockIdExt> block,
-                                     bool is_collator)
+CandidateReceived::CandidateReceived(CandidateId id, ParentId parent, std::optional<BlockIdExt> block, bool is_collator)
     : id_(id), parent_(parent), block_(block), is_collator_(is_collator) {
 }
 
-std::unique_ptr<ValidationStarted> ValidationStarted::create(RawCandidateId id) {
+std::unique_ptr<ValidationStarted> ValidationStarted::create(CandidateId id) {
   return std::unique_ptr<ValidationStarted>(new ValidationStarted(id));
 }
 
@@ -147,10 +146,10 @@ void ValidationStarted::collect_to(MetricCollector& collector) const {
   collector.collect_validation_started(*this);
 }
 
-ValidationStarted::ValidationStarted(RawCandidateId id) : id_(id) {
+ValidationStarted::ValidationStarted(CandidateId id) : id_(id) {
 }
 
-std::unique_ptr<ValidationFinished> ValidationFinished::create(RawCandidateId id) {
+std::unique_ptr<ValidationFinished> ValidationFinished::create(CandidateId id) {
   return std::unique_ptr<ValidationFinished>(new ValidationFinished(id));
 }
 
@@ -166,10 +165,10 @@ void ValidationFinished::collect_to(MetricCollector& collector) const {
   collector.collect_validation_finished(*this);
 }
 
-ValidationFinished::ValidationFinished(RawCandidateId id) : id_(id) {
+ValidationFinished::ValidationFinished(CandidateId id) : id_(id) {
 }
 
-std::unique_ptr<BlockAccepted> BlockAccepted::create(RawCandidateId id) {
+std::unique_ptr<BlockAccepted> BlockAccepted::create(CandidateId id) {
   return std::unique_ptr<BlockAccepted>(new BlockAccepted(id));
 }
 
@@ -185,7 +184,7 @@ void BlockAccepted::collect_to(MetricCollector& collector) const {
   collector.collect_block_accepted(*this);
 }
 
-BlockAccepted::BlockAccepted(RawCandidateId id) : id_(id) {
+BlockAccepted::BlockAccepted(CandidateId id) : id_(id) {
 }
 
 }  // namespace ton::validator::consensus::stats

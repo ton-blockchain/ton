@@ -84,14 +84,14 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
     td::Timestamp target_time = event->start_time;
 
     ChainStateRef state = event->state;
-    RawParentId parent = event->base;
+    ParentId parent = event->base;
 
     td::uint32 slot = event->start_slot;
 
     while (current_leader_window_ == window && slot < event->end_slot) {
       co_await td::actor::coro_sleep(target_time);
 
-      RawCandidateId id;
+      CandidateId id;
       std::variant<BlockIdExt, BlockCandidate> block;
       std::optional<adnl::AdnlNodeIdShort> collator;
 
@@ -143,7 +143,7 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
       auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id.short_id,
                                                std::move(data_to_sign));
 
-      auto candidate = td::make_ref<RawCandidate>(id, parent, bus.local_id.idx, std::move(block), std::move(signature));
+      auto candidate = td::make_ref<Candidate>(id, parent, bus.local_id.idx, std::move(block), std::move(signature));
 
       if (current_leader_window_ != window) {
         break;
