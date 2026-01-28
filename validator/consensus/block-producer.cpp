@@ -36,7 +36,7 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
   template <>
   void handle(BusHandle, std::shared_ptr<const FinalizeBlock> event) {
     if (event->signatures->is_final()) {
-      last_consensus_finalized_seqno_ = std::max(last_consensus_finalized_seqno_, event->candidate->id.block.seqno());
+      last_consensus_finalized_seqno_ = std::max(last_consensus_finalized_seqno_, event->candidate->block_id().seqno());
     }
   }
 
@@ -91,7 +91,7 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
     while (current_leader_window_ == window && slot < event->end_slot) {
       co_await td::actor::coro_sleep(target_time);
 
-      CandidateId id;
+      RawCandidateId id;
       std::variant<BlockIdExt, BlockCandidate> block;
       std::optional<adnl::AdnlNodeIdShort> collator;
 
@@ -103,7 +103,7 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
 
         auto referenced_block = state->assert_normal();
         block = referenced_block;
-        id = CandidateId::create(slot, CandidateHashData::create_empty(referenced_block, *parent));
+        id = CandidateHashData::create_empty(referenced_block, *parent).build_id_with(slot);
 
         owning_bus().publish<TraceEvent>(stats::CollatedEmpty::create(id));
       } else {
@@ -133,12 +133,12 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
         if (!block_candidate.collator_node_id.is_zero()) {
           collator = adnl::AdnlNodeIdShort{block_candidate.collator_node_id};
         }
-        id = CandidateId::create(slot, CandidateHashData::create_full(block_candidate.candidate, parent));
+        id = CandidateHashData::create_full(block_candidate.candidate, parent).build_id_with(slot);
 
         owning_bus().publish<TraceEvent>(stats::CollateFinished::create(slot, id));
       }
 
-      auto id_to_sign = serialize_tl_object(id.as_raw().to_tl(), true);
+      auto id_to_sign = serialize_tl_object(id.to_tl(), true);
       auto data_to_sign = create_serialize_tl_object<tl::dataToSign>(bus.session_id, std::move(id_to_sign));
       auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id.short_id,
                                                std::move(data_to_sign));
