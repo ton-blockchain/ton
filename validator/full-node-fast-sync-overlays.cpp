@@ -373,6 +373,11 @@ void FullNodeFastSyncOverlay::init() {
     td::actor::ActorId<FullNodeFastSyncOverlay> node_;
   };
 
+  td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_id_);
+  td::actor::send_closure(quic_, &quic::QuicSender::add_local_id, local_id_);
+  rldp_limit_guard_ =
+      rldp2::PeersMtuLimitGuard(rldp2_, local_id_, current_validators_adnl_, FullNode::max_block_size() + 1024);
+
   overlay::OverlayPrivacyRules rules{overlay::Overlays::max_fec_broadcast_size(),
                                      overlay::CertificateFlags::AllowFec | overlay::CertificateFlags::Trusted,
                                      {}};
@@ -387,6 +392,8 @@ void FullNodeFastSyncOverlay::init() {
   options.local_overlay_member_flags_ = receive_broadcasts_ ? 0 : overlay::OverlayMemberFlags::DoNotReceiveBroadcasts;
   options.max_slaves_in_semiprivate_overlay_ = FullNode::MAX_FAST_SYNC_OVERLAY_CLIENTS;
   options.broadcast_speed_multiplier_ = broadcast_speed_multiplier_;
+  options.twostep_broadcast_sender_ = rldp2_;
+  options.send_twostep_broadcast_ = send_twostep_broadcasts_;
   td::actor::send_closure(overlays_, &overlay::Overlays::create_semiprivate_overlay, local_id_,
                           overlay_id_full_.clone(), current_validators_adnl_, root_public_keys_, member_certificate_,
                           std::make_unique<Callback>(actor_id(this)), rules, std::move(scope), options);
@@ -411,7 +418,7 @@ void FullNodeFastSyncOverlay::init() {
 
 void FullNodeFastSyncOverlay::tear_down() {
   if (inited_) {
-    td::actor::send_closure(overlays_, &ton::overlay::Overlays::delete_overlay, local_id_, overlay_id_);
+    td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_, overlay_id_);
   }
 }
 
@@ -420,7 +427,7 @@ void FullNodeFastSyncOverlay::set_validators(std::vector<PublicKeyHash> root_pub
   root_public_keys_ = std::move(root_public_keys);
   current_validators_adnl_ = std::move(current_validators_adnl);
   if (inited_) {
-    td::actor::send_closure(overlays_, &ton::overlay::Overlays::delete_overlay, local_id_, overlay_id_);
+    td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_, overlay_id_);
     init();
   }
 }
@@ -439,7 +446,18 @@ void FullNodeFastSyncOverlay::set_receive_broadcasts(bool value) {
   }
   receive_broadcasts_ = value;
   if (inited_) {
-    td::actor::send_closure(overlays_, &ton::overlay::Overlays::delete_overlay, local_id_, overlay_id_);
+    td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_, overlay_id_);
+    init();
+  }
+}
+
+void FullNodeFastSyncOverlay::set_send_twostep_broadcasts(bool value) {
+  if (value == send_twostep_broadcasts_) {
+    return;
+  }
+  send_twostep_broadcasts_ = value;
+  if (inited_) {
+    td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_, overlay_id_);
     init();
   }
 }
@@ -492,15 +510,14 @@ td::actor::ActorId<FullNodeFastSyncOverlay> FullNodeFastSyncOverlays::get_master
   return it2->second.get();
 }
 
-void FullNodeFastSyncOverlays::update_overlays(td::Ref<MasterchainState> state,
-                                               std::set<adnl::AdnlNodeIdShort> my_adnl_ids,
-                                               std::set<ShardIdFull> monitoring_shards,
-                                               const FileHash &zero_state_file_hash, double broadcast_speed_multiplier,
-                                               const td::actor::ActorId<keyring::Keyring> &keyring,
-                                               const td::actor::ActorId<adnl::Adnl> &adnl,
-                                               const td::actor::ActorId<overlay::Overlays> &overlays,
-                                               const td::actor::ActorId<ValidatorManagerInterface> &validator_manager,
-                                               const td::actor::ActorId<FullNode> &full_node) {
+void FullNodeFastSyncOverlays::update_overlays(
+    td::Ref<MasterchainState> state, std::set<adnl::AdnlNodeIdShort> my_adnl_ids,
+    std::set<ShardIdFull> monitoring_shards, const FileHash &zero_state_file_hash, double broadcast_speed_multiplier,
+    const td::actor::ActorId<keyring::Keyring> &keyring, const td::actor::ActorId<adnl::Adnl> &adnl,
+    const td::actor::ActorId<rldp2::Rldp> &rldp2, const td::actor::ActorId<quic::QuicSender> &quic,
+    const td::actor::ActorId<overlay::Overlays> &overlays,
+    const td::actor::ActorId<ValidatorManagerInterface> &validator_manager,
+    const td::actor::ActorId<FullNode> &full_node) {
   monitoring_shards.insert(ShardIdFull{masterchainId});
   std::set<ShardIdFull> all_shards;
   all_shards.insert(ShardIdFull{masterchainId});
@@ -618,14 +635,18 @@ void FullNodeFastSyncOverlays::update_overlays(td::Ref<MasterchainState> state,
     // Update shard overlays
     for (ShardIdFull shard : all_shards) {
       bool receive_broadcasts = monitoring_shards.contains(shard);
+      // Enable twostep broadcasts by ConfigParam 30
+      bool send_twostep_broadcasts = (bool)state->get_new_consensus_config(shard.workchain);
       auto &overlay = overlays_info.overlays_[shard];
       if (overlay.empty()) {
         overlay = td::actor::create_actor<FullNodeFastSyncOverlay>(
             PSTRING() << "FastSyncOv" << shard.to_str(), local_id, shard, zero_state_file_hash, root_public_keys_,
-            current_validators_adnl_, overlays_info.current_certificate_, receive_broadcasts,
-            broadcast_speed_multiplier, keyring, adnl, overlays, validator_manager, full_node);
+            current_validators_adnl_, overlays_info.current_certificate_, receive_broadcasts, send_twostep_broadcasts,
+            broadcast_speed_multiplier, keyring, adnl, rldp2, quic, overlays, validator_manager, full_node);
       } else {
         td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_receive_broadcasts, receive_broadcasts);
+        td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_send_twostep_broadcasts,
+                                send_twostep_broadcasts);
         if (changed_certificate) {
           td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_member_certificate,
                                   overlays_info.current_certificate_);
