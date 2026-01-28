@@ -21,5 +21,5 @@ COLOR_MAP = {
     "collate_finished": "#65B891",
     "notarize_vote": "#d62728",
     "finalize_vote": "#B3BD44",
-    "skip_vote": "#26C485"
+    "skip_vote": "#26C485",
 }

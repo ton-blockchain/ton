@@ -189,7 +189,11 @@ class ParserSessionStats(Parser):
             assert vote.id is not None
             slot = vote.id.slot
         slot_id = (v_group, slot)
-        vote_type = {Consensus_simplex_notarizeVote: "notarize_vote", Consensus_simplex_finalizeVote: "finalize_vote", Consensus_simplex_skipVote: "skip_vote"}[type(vote)]
+        vote_type = {
+            Consensus_simplex_notarizeVote: "notarize_vote",
+            Consensus_simplex_finalizeVote: "finalize_vote",
+            Consensus_simplex_skipVote: "skip_vote",
+        }[type(vote)]
         self._votes.setdefault(slot_id, {}).setdefault(vote_type, []).append(
             VoteData(t_ms=t_ms, v_id=v_id, weight=v_weight)
         )
@@ -271,10 +275,7 @@ class ParserSessionStats(Parser):
             weight_threshold = (total_weight * 2) // 3 + 1
 
             notarize_reached = None
-            if (
-                slot_id in self._votes
-                and "skip_vote" in self._votes[slot_id]
-            ):
+            if slot_id in self._votes and "skip_vote" in self._votes[slot_id]:
                 _ = self._process_vote_threshold(
                     slot_data=slot_data,
                     votes=self._votes[slot_id]["skip_vote"],
@@ -282,10 +283,7 @@ class ParserSessionStats(Parser):
                     label="skip",
                     phase_start=None,
                 )
-            if (
-                slot_id in self._votes
-                and "notarize_vote" in self._votes[slot_id]
-            ):
+            if slot_id in self._votes and "notarize_vote" in self._votes[slot_id]:
                 notarize_reached = self._process_vote_threshold(
                     slot_data=slot_data,
                     votes=self._votes[slot_id]["notarize_vote"],
@@ -294,10 +292,7 @@ class ParserSessionStats(Parser):
                     phase_start=collate_end,
                 )
 
-            if (
-                slot_id in self._votes
-                and "finalize_vote" in self._votes[slot_id]
-            ):
+            if slot_id in self._votes and "finalize_vote" in self._votes[slot_id]:
                 _ = self._process_vote_threshold(
                     slot_data=slot_data,
                     votes=self._votes[slot_id]["finalize_vote"],
