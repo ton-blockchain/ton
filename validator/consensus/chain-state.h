@@ -26,6 +26,7 @@ class ChainState : public td::CntObject {
 
   BlockSeqno next_seqno() const;
   bool is_before_split() const;
+  std::optional<BlockIdExt> as_normal() const;
   BlockIdExt assert_normal() const;
 
   td::Ref<ChainState> apply(const BlockCandidate& candidate) const;

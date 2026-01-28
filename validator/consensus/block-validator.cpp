@@ -26,25 +26,30 @@ class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
   td::actor::Task<> process(BusHandle, std::shared_ptr<ValidationRequest> event) {
     auto& bus = *owning_bus();
 
-    if (std::holds_alternative<BlockIdExt>(event->candidate->block)) {
-      co_return {};
-    }
-    const auto& candidate = std::get<BlockCandidate>(event->candidate->block);
-
-    ValidateParams validate_params{
-        .shard = bus.shard,
-        .min_masterchain_block_id = event->state->min_mc_block_id(),
-        .prev = event->state->block_ids(),
-        .local_validator_id = bus.local_id.short_id,
-        .is_new_consensus = true,
-        .prev_block_state_roots = event->state->state(),
-    };
-
     owning_bus().publish<TraceEvent>(stats::ValidationStarted::create(event->candidate->id));
 
-    auto validation_result =
-        co_await td::actor::ask(bus.manager, &ManagerFacade::validate_block_candidate, candidate.clone(),
-                                std::move(validate_params), td::Timestamp::in(60.0));
+    auto empty_fn = [&](BlockIdExt block) -> td::actor::Task<ValidateCandidateResult> {
+      if (block != event->state->as_normal()) {
+        co_return CandidateReject{
+            .reason = "Wrong referenced block in empty candidate",
+            .proof = td::BufferSlice(),
+        };
+      }
+      co_return CandidateAccept{};
+    };
+    auto block_fn = [&](const BlockCandidate& block) -> td::actor::Task<ValidateCandidateResult> {
+      ValidateParams validate_params{
+          .shard = bus.shard,
+          .min_masterchain_block_id = event->state->min_mc_block_id(),
+          .prev = event->state->block_ids(),
+          .local_validator_id = bus.local_id.short_id,
+          .is_new_consensus = true,
+          .prev_block_state_roots = event->state->state(),
+      };
+      co_return co_await td::actor::ask(bus.manager, &ManagerFacade::validate_block_candidate, block.clone(),
+                                        std::move(validate_params), td::Timestamp::in(60.0));
+    };
+    auto validation_result = co_await std::visit(td::overloaded(block_fn, empty_fn), event->candidate->block);
 
     owning_bus().publish<TraceEvent>(stats::ValidationFinished::create(event->candidate->id));
 

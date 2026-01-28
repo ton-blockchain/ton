@@ -28,7 +28,6 @@ struct SlotState {
   }
 
   std::optional<RawCandidateRef> raw_candidate;
-  std::optional<CandidateRef> candidate;
 
   std::vector<BlockSignature> signatures;
   ValidatorWeight total_signed_weight = 0;
@@ -168,25 +167,22 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
       CHECK(raw_candidate->parent_id == parent_for_validation_);
 
-      CandidateRef candidate = td::make_ref<Candidate>(parent_for_validation_, raw_candidate);
-      state.candidate = candidate;
-
       auto validation_result =
-          co_await owning_bus().publish<ValidationRequest>(state_for_validation_, candidate).wrap();
+          co_await owning_bus().publish<ValidationRequest>(state_for_validation_, raw_candidate).wrap();
       validation_result.ensure();
 
-      auto signature_data = create_serialize_tl_object<ton_api::ton_blockId>(candidate->id.block.root_hash,
-                                                                             candidate->id.block.file_hash);
+      auto signature_data = create_serialize_tl_object<ton_api::ton_blockId>(raw_candidate->id.block.root_hash,
+                                                                             raw_candidate->id.block.file_hash);
       auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id.short_id,
                                                std::move(signature_data));
 
       state.add_signature(bus.local_id, signature.clone());
       state.validated = true;
 
-      send_message({}, create_tl_object<tl::signature>(candidate->id.slot, std::move(signature)));
+      send_message({}, create_tl_object<tl::signature>(raw_candidate->id.slot, std::move(signature)));
 
       ++next_slot_to_validate_;
-      if (auto block = std::get_if<BlockCandidate>(&candidate->block)) {
+      if (auto block = std::get_if<BlockCandidate>(&raw_candidate->block)) {
         state_for_validation_ = state_for_validation_->apply(*block);
       }
       parent_for_validation_ = raw_candidate->id;
@@ -207,7 +203,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       }
       SlotState& state = it->second;
       CHECK(!state.finalized);
-      if (state.total_signed_weight < weight_threshold_ || !state.candidate.has_value()) {
+      if (state.total_signed_weight < weight_threshold_ || !state.raw_candidate.has_value()) {
         break;
       }
       auto& bus = owning_bus();
