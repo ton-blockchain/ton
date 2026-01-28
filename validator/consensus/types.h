@@ -164,8 +164,6 @@ struct CandidateHashData {
   tl::CandidateHashDataRef to_tl() const;
   Bits256 hash() const;
 
-  [[nodiscard]] bool check(BlockIdExt block, Bits256 candidate_hash) const;
-
   std::variant<EmptyCandidate, FullCandidate> candidate;
   RawParentId parent;
 };
