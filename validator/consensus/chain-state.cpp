@@ -98,6 +98,13 @@ bool ChainState::is_before_split() const {
   return false;
 }
 
+std::optional<BlockIdExt> ChainState::as_normal() const {
+  if (auto normal_tip = std::get_if<NormalTip>(&tip_)) {
+    return normal_tip->block->block_id();
+  }
+  return std::nullopt;
+}
+
 BlockIdExt ChainState::assert_normal() const {
   CHECK(std::holds_alternative<NormalTip>(tip_));
   return std::get<NormalTip>(tip_).block->block_id();

@@ -205,8 +205,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       co_return {};
     }
 
-    auto resolved_candidate = td::make_ref<Candidate>(parent.id, candidate);
-    auto validation_result = co_await owning_bus().publish<ValidationRequest>(parent.state, resolved_candidate).wrap();
+    auto validation_result = co_await owning_bus().publish<ValidationRequest>(parent.state, candidate).wrap();
 
     if (validation_result.is_error()) {
       // FIXME: Report misbehavior

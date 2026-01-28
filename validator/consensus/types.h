@@ -200,32 +200,6 @@ struct RawCandidate : td::CntObject {
 
 using RawCandidateRef = td::Ref<RawCandidate>;
 
-struct Candidate : td::CntObject {
-  Candidate(ParentId parent_id, RawCandidateRef raw)
-      : id(raw->id)
-      , parent_id(parent_id)
-      , leader(raw->leader)
-      , block(raw->block)
-      , signature(raw->signature)
-      , raw(std::move(raw)) {
-    CHECK(parent_id == this->raw->parent_id);
-
-    if (auto* id = std::get_if<BlockIdExt>(&block)) {
-      CHECK(parent_id->block == *id);
-    }
-  }
-
-  CandidateId id;
-  ParentId parent_id;
-  PeerValidatorId leader;
-  const std::variant<BlockIdExt, BlockCandidate>& block;
-  const td::BufferSlice& signature;
-
-  RawCandidateRef raw;
-};
-
-using CandidateRef = td::Ref<Candidate>;
-
 class CollatorSchedule : public td::CntObject {
  public:
   virtual PeerValidatorId expected_collator_for(td::uint32 slot) const = 0;
