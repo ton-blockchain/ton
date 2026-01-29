@@ -182,6 +182,8 @@ td::Status QuicConnectionPImpl::init_quic_client() {
   ngtcp2_settings settings;
   ngtcp2_settings_default(&settings);
   settings.initial_ts = now_ts();
+  settings.max_window = DEFAULT_MAX_WINDOW;
+  settings.max_stream_window = DEFAULT_MAX_STREAM_WINDOW;
 
   ngtcp2_transport_params params;
   ngtcp2_transport_params_default(&params);
@@ -223,6 +225,8 @@ td::Status QuicConnectionPImpl::init_quic_server(const VersionCid& vc) {
   ngtcp2_settings settings;
   ngtcp2_settings_default(&settings);
   settings.initial_ts = now_ts();
+  settings.max_window = DEFAULT_MAX_WINDOW;
+  settings.max_stream_window = DEFAULT_MAX_STREAM_WINDOW;
 
   ngtcp2_transport_params params;
   ngtcp2_transport_params_default(&params);
