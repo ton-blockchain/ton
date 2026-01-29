@@ -126,7 +126,9 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       td::uint32 offset = slot_idx % slots_per_leader_window_;
 
       if (!slot || slot->state->voted_final) {
-        skip_timeouts_.emplace(ts.in(target_rate_s_), slot_idx + 1);
+        if (offset + 1 != slots_per_leader_window_) {
+          skip_timeouts_.emplace(ts.in(target_rate_s_), slot_idx + 1);
+        }
         continue;
       }
 
