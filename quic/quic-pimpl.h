@@ -149,6 +149,7 @@ struct QuicConnectionPImpl {
     bool fin_pending = false;
     bool fin_submitted = false;
     bool fin_acked = false;
+    bool in_ready_queue = false;
   };
 
   openssl_ptr<SSL_CTX, &SSL_CTX_free> ssl_ctx_;
@@ -158,6 +159,7 @@ struct QuicConnectionPImpl {
   ngtcp2_crypto_conn_ref conn_ref_{};
 
   std::unordered_map<QuicStreamID, OutboundStreamState> streams_;
+  std::deque<QuicStreamID> ready_streams_;
   bool streams_blocked_ = false;
 
   ngtcp2_conn* conn() const {
@@ -178,6 +180,10 @@ struct QuicConnectionPImpl {
                                             openssl_ptr<SSL_CTX, &SSL_CTX_free> ssl_ctx_ptr, bool is_client);
 
   static void build_unsent_vecs(std::vector<ngtcp2_vec>& out, OutboundStreamState& st);
+  static bool is_stream_ready(const OutboundStreamState& st);
+  void mark_stream_ready(QuicStreamID sid, OutboundStreamState& st);
+  QuicStreamID pop_ready_stream();
+  void requeue_stream_if_ready(QuicStreamID sid);
 
   [[nodiscard]] td::Status write_one_packet(UdpMessageBuffer& msg_out, QuicStreamID sid);
 

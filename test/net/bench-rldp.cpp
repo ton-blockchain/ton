@@ -14,7 +14,6 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include <atomic>
 #include <memory>
 #include <thread>
 
@@ -278,6 +277,31 @@ class BenchmarkRunner : public td::actor::Actor {
   }
 };
 
+class StatsReporter : public td::actor::Actor {
+ public:
+  StatsReporter(td::actor::ActorId<ton::quic::QuicSender> quic_sender, std::string reason, bool enabled,
+                double interval_sec)
+      : quic_sender_(quic_sender), reason_(std::move(reason)), enabled_(enabled), interval_sec_(interval_sec) {
+  }
+
+  void start_up() override {
+    alarm_timestamp() = td::Timestamp::in(interval_sec_);
+  }
+
+  void alarm() override {
+    if (enabled_ && !quic_sender_.empty()) {
+      td::actor::send_closure(quic_sender_, &ton::quic::QuicSender::log_stats, reason_);
+    }
+    alarm_timestamp() = td::Timestamp::in(interval_sec_);
+  }
+
+ private:
+  td::actor::ActorId<ton::quic::QuicSender> quic_sender_;
+  std::string reason_;
+  bool enabled_{false};
+  double interval_sec_{10.0};
+};
+
 void run_loopback(Config config) {
   std::string db_root = "tmp-dir-bench-rldp";
   td::rmrf(db_root).ignore();
@@ -292,6 +316,7 @@ void run_loopback(Config config) {
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
   td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
   td::actor::ActorOwn<BenchmarkRunner> runner;
+  td::actor::ActorOwn<StatsReporter> stats_reporter;
 
   ton::adnl::AdnlNodeIdShort src;
   ton::adnl::AdnlNodeIdShort dst;
@@ -342,6 +367,9 @@ void run_loopback(Config config) {
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, src);
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, dst);
 
+    stats_reporter = td::actor::create_actor<StatsReporter>(
+        "quic-stats-loopback", quic_sender.get(), "loopback-periodic", config.protocol == Protocol::quic, 10.0);
+
     td::actor::send_closure(adnl, &ton::adnl::Adnl::subscribe, dst, "B",
                             std::make_unique<Server>(config.response_size));
 
@@ -377,6 +405,7 @@ void run_server(Config config) {
   td::actor::ActorOwn<ton::rldp::Rldp> rldp1;
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
   td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
+  td::actor::ActorOwn<StatsReporter> stats_reporter;
 
   scheduler.run_in_context([&] {
     keyring = ton::keyring::Keyring::create(db_root);
@@ -421,6 +450,9 @@ void run_server(Config config) {
     td::actor::send_closure(adnl, &ton::adnl::Adnl::subscribe, local_id, "B",
                             std::make_unique<Server>(config.response_size));
 
+    stats_reporter = td::actor::create_actor<StatsReporter>("quic-stats-server", quic_sender.get(), "server-periodic",
+                                                            config.protocol == Protocol::quic, 10.0);
+
     LOG(ERROR) << "Server listening on " << config.local_addr;
   });
 
@@ -441,6 +473,7 @@ void run_client(Config config) {
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
   td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
   td::actor::ActorOwn<BenchmarkRunner> runner;
+  td::actor::ActorOwn<StatsReporter> stats_reporter;
 
   ton::adnl::AdnlNodeIdShort src;
   ton::adnl::AdnlNodeIdShort dst;
@@ -483,6 +516,9 @@ void run_client(Config config) {
         "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
     // Use send_lambda to properly start the coroutine task
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, src);
+
+    stats_reporter = td::actor::create_actor<StatsReporter>("quic-stats-client", quic_sender.get(), "client-periodic",
+                                                            config.protocol == Protocol::quic, 10.0);
 
     // Add server as static node
     dst = ton::adnl::AdnlNodeIdShort{server_public_key().compute_short_id()};

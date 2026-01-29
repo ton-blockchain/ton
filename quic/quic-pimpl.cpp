@@ -190,9 +190,9 @@ td::Status QuicConnectionPImpl::init_quic_client() {
   params.max_idle_timeout = DEFAULT_IDLE_TIMEOUT;
 
   params.initial_max_streams_bidi = DEFAULT_PARALLEL_STREAMS_LIMIT;
-  params.initial_max_stream_data_bidi_remote = DEFAULT_WINDOW;
-  params.initial_max_stream_data_bidi_local = DEFAULT_WINDOW;
-  params.initial_max_data = DEFAULT_WINDOW;
+  params.initial_max_stream_data_bidi_remote = DEFAULT_MAX_STREAM_WINDOW;
+  params.initial_max_stream_data_bidi_local = DEFAULT_MAX_STREAM_WINDOW;
+  params.initial_max_data = DEFAULT_MAX_WINDOW;
 
   auto dcid = QuicConnectionId::random();
   auto scid = QuicConnectionId::random();
@@ -233,9 +233,9 @@ td::Status QuicConnectionPImpl::init_quic_server(const VersionCid& vc) {
   params.max_idle_timeout = DEFAULT_IDLE_TIMEOUT;
 
   params.initial_max_streams_bidi = DEFAULT_PARALLEL_STREAMS_LIMIT;
-  params.initial_max_stream_data_bidi_local = DEFAULT_WINDOW;
-  params.initial_max_stream_data_bidi_remote = DEFAULT_WINDOW;
-  params.initial_max_data = DEFAULT_WINDOW;
+  params.initial_max_stream_data_bidi_local = DEFAULT_MAX_STREAM_WINDOW;
+  params.initial_max_stream_data_bidi_remote = DEFAULT_MAX_STREAM_WINDOW;
+  params.initial_max_data = DEFAULT_MAX_WINDOW;
 
   params.original_dcid_present = 1;
   params.original_dcid = QuicConnectionIdAccess::to_ngtcp2(vc.dcid);
@@ -273,6 +273,42 @@ void QuicConnectionPImpl::build_unsent_vecs(std::vector<ngtcp2_vec>& out, Outbou
     out.push_back(v);
     it.confirm_read(head.size());
   }
+}
+
+bool QuicConnectionPImpl::is_stream_ready(const OutboundStreamState& st) {
+  return !st.reader_.empty() || st.fin_pending;
+}
+
+void QuicConnectionPImpl::mark_stream_ready(QuicStreamID sid, OutboundStreamState& st) {
+  if (!st.in_ready_queue && is_stream_ready(st)) {
+    ready_streams_.push_back(sid);
+    st.in_ready_queue = true;
+  }
+}
+
+QuicStreamID QuicConnectionPImpl::pop_ready_stream() {
+  while (!ready_streams_.empty()) {
+    auto sid = ready_streams_.front();
+    ready_streams_.pop_front();
+    auto it = streams_.find(sid);
+    if (it == streams_.end()) {
+      continue;
+    }
+    auto& st = it->second;
+    st.in_ready_queue = false;
+    if (is_stream_ready(st)) {
+      return sid;
+    }
+  }
+  return -1;
+}
+
+void QuicConnectionPImpl::requeue_stream_if_ready(QuicStreamID sid) {
+  auto it = streams_.find(sid);
+  if (it == streams_.end()) {
+    return;
+  }
+  mark_stream_ready(sid, it->second);
 }
 
 ngtcp2_path QuicConnectionPImpl::make_path() const {
@@ -357,14 +393,12 @@ td::Status QuicConnectionPImpl::write_one_packet(UdpMessageBuffer& msg_out, Quic
 
 td::Status QuicConnectionPImpl::produce_egress(UdpMessageBuffer& msg_out) {
   td::PerfWarningTimer w("produce_egress", 0.1);
-  QuicStreamID sid = -1;
-  for (auto& it : streams_) {
-    if (!it.second.reader_.empty() || it.second.fin_pending) {
-      sid = it.first;
-      break;
-    }
+  QuicStreamID sid = pop_ready_stream();
+  auto status = write_one_packet(msg_out, sid);
+  if (status.is_ok() && sid != -1) {
+    requeue_stream_if_ready(sid);
   }
-  return write_one_packet(msg_out, sid);
+  return status;
 }
 
 td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in) {
@@ -433,7 +467,7 @@ td::Status QuicConnectionPImpl::write_stream(UdpMessageBuffer& msg_out, QuicStre
   if (fin) {
     st.fin_pending = true;
   }
-
+  mark_stream_ready(sid, st);
   return write_one_packet(msg_out, sid);
 }
 
