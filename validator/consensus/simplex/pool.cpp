@@ -420,6 +420,10 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     alarm_timestamp() = td::Timestamp::in(owning_bus()->standstill_timeout_s);
   }
 
+  void publish_misbehavior(PeerValidatorId idx, MisbehaviorRef misbehavior) {
+    owning_bus().publish<MisbehaviorReport>(idx, misbehavior);
+  }
+
   bool handle_vote(const PeerValidator &validator, Signed<Vote> vote) {
     auto vote_fn = [&]<typename VoteT>(Signed<VoteT> vote) -> bool {
       auto slot = state_->slot_at(vote.vote.referenced_slot());
@@ -439,7 +443,12 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
       if (auto misbehavior = add_result.misbehavior) {
         LOG_CHECK(validator != owning_bus()->local_id)
             << "We produced conflicting votes! Conflict occured for " << vote.vote;
-        owning_bus().publish<MisbehaviorReport>(validator.idx, *misbehavior);
+        // The following line cannot be simply
+        // `owning_bus().publish<MisbehaviorReport>(validator.idx, *misbehavior);` as this would
+        // _sometimes_ result in link errors (at least with clang-21 and libstdc++-15) because of a
+        // missing complete-object destructor. I think this is because we would somehow trigger
+        // https://github.com/llvm/llvm-project/issues/46044 .
+        publish_misbehavior(validator.idx, *misbehavior);
         return false;
       }
 
