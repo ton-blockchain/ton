@@ -189,6 +189,8 @@ class ParserSessionStats(Parser):
             assert vote.id is not None
             slot = vote.id.slot
         slot_id = (v_group, slot)
+        slot_data = self._get_create_slot(slot, v_group)
+        slot_data.slot_start_est_ms = min(t_ms, slot_data.slot_start_est_ms)
         vote_type = {
             Consensus_simplex_notarizeVote: "notarize_vote",
             Consensus_simplex_finalizeVote: "finalize_vote",
