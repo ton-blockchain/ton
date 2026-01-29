@@ -70,7 +70,10 @@ Usually, the response to your pull request will indicate which section it falls 
 * Thou shall make sure that workflows are cleanly completed for your PR before considering merge
 
 ## Build TON blockchain
-
+Code base contains sub-modules so make sure you clone like ex:
+```bash
+   git clone --recurse-submodules https://github.com/ton-blockchain/ton.git
+```
 ### Ubuntu 20.4, 22.04, 24.04 (x86-64, aarch64)
 Install additional system libraries
 ```bash
