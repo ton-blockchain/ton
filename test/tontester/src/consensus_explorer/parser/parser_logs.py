@@ -4,8 +4,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import final, override
 
-from ..models import ConsensusData, EventData, SlotData
 from .parser_base import Parser
+from ..models import ConsensusData, SlotData, EventData
 
 type slot_id_type = tuple[str, int]
 
@@ -160,7 +160,7 @@ class ParserLogs(Parser):
 
             for s in range(start_slot, end_slot):
                 self._slot_leaders[(v_group, s)] = v_id
-        elif "BlockFinalized" in line and "BlockFinalizedInMasterchain" not in line:
+        elif "BlockFinalized" in line and not "BlockFinalizedInMasterchain" in line:
             slot_match = re.search(r"candidate=\{(\d+)", line)
             assert slot_match is not None
             slot = int(slot_match.group(1))
@@ -308,9 +308,9 @@ class ParserLogs(Parser):
     def _extract_timestamp(line: str) -> float | None:
         i = 0
         for _ in range(3):
-            i = line.find("]", i) + 1
-        j = line.rfind("[", 0, i) + 1
-        timestamp_str = line[j : i - 1]
+            i = line.find(']', i) + 1
+        j = line.rfind('[', 0, i) + 1
+        timestamp_str = line[j:i - 1]
         dt = datetime.fromisoformat(timestamp_str)
         return dt.timestamp() * 1000
 
@@ -378,16 +378,12 @@ class ParserLogs(Parser):
     def parse(self) -> ConsensusData:
         for log_file in self._logs_path:
             with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+
                 v_groups: dict[str, int] = {}
                 v_weights: dict[str, int] = {}
 
                 for line in f:
-                    if (
-                        ("Published event" not in line)
-                        and ("StatsTargetReached" not in line)
-                        and ("Obtained certificate for SkipVote" not in line)
-                        and ("We are validator" not in line)
-                    ):
+                    if ("Published event" not in line) and ("StatsTargetReached" not in line) and ("Obtained certificate for SkipVote" not in line) and ("We are validator" not in line):
                         continue
                     v_group = self._extract_valgroup(line)
                     if v_group is None:
