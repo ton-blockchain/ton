@@ -3,6 +3,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <string>
 #include <variant>
 
 #include "td/actor/ActorOwn.h"
@@ -65,6 +66,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
 
   void shutdown_stream(QuicConnectionId cid, QuicStreamID sid);
   void close(QuicConnectionId cid);
+  void log_stats(std::string reason = "stats");
 
   QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::BufferSlice alpn,
              std::unique_ptr<Callback> callback);
@@ -130,6 +132,9 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   std::shared_ptr<ConnectionState> find_connection(const QuicConnectionId &cid);
   td::Result<std::shared_ptr<ConnectionState>> get_or_create_connection(const UdpMessageBuffer &msg_in);
   bool try_close(ConnectionState &state);
+  void log_conn_stats(ConnectionState &state, const char *reason);
+  td::Status send_or_block(ConnectionState &state, const UdpMessageBuffer &msg_out);
+  bool resume_blocked(ConnectionState &state);
 
   td::UdpSocketFd fd_;
   td::BufferSlice alpn_;

@@ -380,6 +380,12 @@ td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in) {
   return td::Status::OK();
 }
 
+ngtcp2_conn_info QuicConnectionPImpl::get_conn_info() const {
+  ngtcp2_conn_info info{};
+  ngtcp2_conn_get_conn_info(conn(), &info);
+  return info;
+}
+
 QuicConnectionId QuicConnectionPImpl::get_primary_scid() const {
   return primary_scid_;
 }

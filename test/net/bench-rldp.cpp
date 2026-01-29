@@ -143,6 +143,9 @@ class BenchmarkRunner : public td::actor::Actor {
   }
 
   void alarm() override {
+    if (exit_pending_) {
+      std::_Exit(0);
+    }
     if (test_timeout_at_.is_in_past()) {
       LOG(ERROR) << "Test timeout reached after " << config_.test_timeout << "s";
       LOG(ERROR) << "Sent: " << sent_ << ", Received: " << received_ << ", Errors: " << errors_
@@ -170,6 +173,7 @@ class BenchmarkRunner : public td::actor::Actor {
   td::uint32 errors_ = 0;
   td::uint32 inflight_ = 0;
   td::Timestamp test_timeout_at_;
+  bool exit_pending_{false};
 
   std::vector<double> query_start_times_;
   std::vector<double> latencies_;
@@ -260,6 +264,14 @@ class BenchmarkRunner : public td::actor::Actor {
       LOG(ERROR) << "    p90: " << td::format::as_time(percentile(latencies_, 0.90));
       LOG(ERROR) << "    p99: " << td::format::as_time(percentile(latencies_, 0.99));
       LOG(ERROR) << "    max: " << td::format::as_time(latencies_.back());
+    }
+
+    if (config_.protocol == Protocol::quic) {
+      auto quic_sender = td::actor::actor_dynamic_cast<ton::quic::QuicSender>(rldp_);
+      td::actor::send_closure(quic_sender, &ton::quic::QuicSender::log_stats, "bench-complete");
+      exit_pending_ = true;
+      alarm_timestamp() = td::Timestamp::in(0.2);
+      return;
     }
 
     std::_Exit(0);

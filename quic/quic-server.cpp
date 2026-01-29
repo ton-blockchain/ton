@@ -133,6 +133,28 @@ void QuicServer::alarm() {
   update_alarm();
 }
 
+void QuicServer::log_stats(std::string reason) {
+  if (connections_.empty()) {
+    LOG(INFO) << "quic stats (" << reason << "): no active connections";
+    return;
+  }
+  for (auto &[cid, state] : connections_) {
+    log_conn_stats(*state, reason.c_str());
+  }
+}
+
+void QuicServer::log_conn_stats(ConnectionState &state, const char *reason) {
+  constexpr double kNsToMs = 1e-6;
+  auto info = state.impl().get_conn_info();
+  double loss_pct = info.pkt_sent ? (100.0 * static_cast<double>(info.pkt_lost) / info.pkt_sent) : 0.0;
+  LOG(INFO) << "quic stats (" << reason << ") for " << state.remote_address << " cid=" << state.cid
+            << " rtt_ms{smoothed=" << info.smoothed_rtt * kNsToMs << " min=" << info.min_rtt * kNsToMs
+            << " latest=" << info.latest_rtt * kNsToMs << " var=" << info.rttvar * kNsToMs << "}"
+            << " cwnd=" << info.cwnd << " inflight=" << info.bytes_in_flight << " sent=" << info.pkt_sent << "/"
+            << info.bytes_sent << " recv=" << info.pkt_recv << "/" << info.bytes_recv << " lost=" << info.pkt_lost
+            << "/" << info.bytes_lost << " loss=" << loss_pct << "%";
+}
+
 void QuicServer::loop() {
   LOG(ERROR) << "unexpected loop signal";
 }

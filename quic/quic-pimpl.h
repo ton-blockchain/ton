@@ -120,6 +120,7 @@ struct QuicConnectionPImpl {
 
   [[nodiscard]] td::Result<QuicStreamID> open_stream();
   [[nodiscard]] td::Status write_stream(UdpMessageBuffer& msg_out, QuicStreamID sid, td::BufferSlice data, bool fin);
+  [[nodiscard]] ngtcp2_conn_info get_conn_info() const;
 
   ~QuicConnectionPImpl() {
     if (ssl_) {

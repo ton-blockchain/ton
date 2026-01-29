@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 #include "adnl/adnl-peer-table.h"
 #include "adnl/adnl.h"
 #include "keyring/keyring.h"
@@ -30,6 +32,7 @@ class QuicSender : public adnl::AdnlSenderInterface {
                        td::Promise<td::string> promise) override;
 
   void add_local_id(adnl::AdnlNodeIdShort local_id);
+  void log_stats(std::string reason = "stats");
 
  private:
   struct Connection {

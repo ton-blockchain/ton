@@ -256,6 +256,12 @@ void QuicSender::add_local_id(adnl::AdnlNodeIdShort local_id) {
   add_local_id_coro(local_id).start().detach("add local id");
 }
 
+void QuicSender::log_stats(std::string reason) {
+  for (auto &it : servers_) {
+    td::actor::send_closure(it.second.get(), &QuicServer::log_stats, reason);
+  }
+}
+
 QuicSender::Connection::~Connection() {
   for (auto &[_, P] : responses) {
     P.set_error(td::Status::Error("connection closed"));
