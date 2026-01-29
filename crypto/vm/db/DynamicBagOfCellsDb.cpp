@@ -238,7 +238,7 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     return stats_diff_;
   }
 
-  td::Status prepare_commit() override {
+  td::Status prepare_commit(StoreCellHint hint = {}) override {
     if (pca_state_) {
       return td::Status::Error("prepare_commit_async is not finished");
     }
@@ -737,7 +737,8 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
   };
   std::unique_ptr<PrepareCommitAsyncState> pca_state_;
 
-  void prepare_commit_async(std::shared_ptr<AsyncExecutor> executor, td::Promise<td::Unit> promise) override {
+  void prepare_commit_async(std::shared_ptr<AsyncExecutor> executor, StoreCellHint hint,
+                            td::Promise<td::Unit> promise) override {
     hash_table_ = {};
     if (pca_state_) {
       promise.set_error(td::Status::Error("Other prepare_commit_async is not finished"));
