@@ -147,19 +147,19 @@ class ParserSessionStats(Parser):
             assert vote.id is not None
             slot = vote.id.slot
 
-        label = (
-            "notarize_observed"
-            if isinstance(vote, Consensus_simplex_notarizeVote)
-            else "finalize_observed"
-        )
-        self._slot_events.setdefault((v_group, slot), {}).setdefault(v_id, {})[label] = EventData(
-            valgroup_id=v_group,
-            slot=slot,
-            label=label,
-            kind="local",
-            validator=v_id,
-            t_ms=t_ms,
-        )
+            label = (
+                "notarize_observed"
+                if isinstance(vote, Consensus_simplex_notarizeVote)
+                else "finalize_observed"
+            )
+            self._slot_events.setdefault((v_group, slot), {}).setdefault(v_id, {})[label] = EventData(
+                valgroup_id=v_group,
+                slot=slot,
+                label=label,
+                kind="local",
+                validator=v_id,
+                t_ms=t_ms,
+            )
 
         if isinstance(vote, Consensus_simplex_finalizeVote) and get_slot_leader(slot + 1) == v_id:
             self._events.append(
