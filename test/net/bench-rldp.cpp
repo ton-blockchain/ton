@@ -77,6 +77,7 @@ struct Config {
 
   // Network mode options
   td::IPAddress local_addr;
+  td::IPAddress public_addr;
   td::IPAddress server_addr;
 };
 
@@ -373,14 +374,15 @@ void run_server(Config config) {
 
     ton::adnl::AdnlCategoryMask cat_mask;
     cat_mask[0] = true;
-    td::actor::send_closure(network_manager, &ton::adnl::AdnlNetworkManager::add_self_addr, config.local_addr,
+    const auto& self_addr = config.public_addr.is_valid() ? config.public_addr : config.local_addr;
+    td::actor::send_closure(network_manager, &ton::adnl::AdnlNetworkManager::add_self_addr, self_addr,
                             std::move(cat_mask), 0);
 
     auto local_id = ton::adnl::AdnlNodeIdShort{server_public_key().compute_short_id()};
     td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, server_private_key(), true, [](td::Unit) {});
 
     ton::adnl::AdnlAddressList addr_list;
-    addr_list.add_udp_address(config.local_addr).ensure();
+    addr_list.add_udp_address(self_addr).ensure();
     addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
     addr_list.set_reinit_date(ton::adnl::Adnl::adnl_start_time());
 
@@ -439,14 +441,15 @@ void run_client(Config config) {
 
     ton::adnl::AdnlCategoryMask cat_mask;
     cat_mask[0] = true;
-    td::actor::send_closure(network_manager, &ton::adnl::AdnlNetworkManager::add_self_addr, config.local_addr,
+    const auto& self_addr = config.public_addr.is_valid() ? config.public_addr : config.local_addr;
+    td::actor::send_closure(network_manager, &ton::adnl::AdnlNetworkManager::add_self_addr, self_addr,
                             std::move(cat_mask), 0);
 
     src = ton::adnl::AdnlNodeIdShort{client_private_key().compute_public_key().compute_short_id()};
     td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, client_private_key(), true, [](td::Unit) {});
 
     ton::adnl::AdnlAddressList local_addr_list;
-    local_addr_list.add_udp_address(config.local_addr).ensure();
+    local_addr_list.add_udp_address(self_addr).ensure();
     local_addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
     local_addr_list.set_reinit_date(ton::adnl::Adnl::adnl_start_time());
 
@@ -595,6 +598,10 @@ int main(int argc, char* argv[]) {
   });
   p.add_checked_option('a', "addr", "local address (ip:port)", [&](td::Slice arg) {
     TRY_STATUS(config.local_addr.init_host_port(arg.str()));
+    return td::Status::OK();
+  });
+  p.add_checked_option('\0', "public-addr", "public address to advertise (ip:port)", [&](td::Slice arg) {
+    TRY_STATUS(config.public_addr.init_host_port(arg.str()));
     return td::Status::OK();
   });
   p.add_checked_option('s', "server-addr", "server address (ip:port) for client mode", [&](td::Slice arg) {
