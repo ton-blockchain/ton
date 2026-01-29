@@ -166,13 +166,14 @@ class CellDbIn : public CellDbBase {
   bool permanent_mode_ = false;
 
   bool db_busy_ = false;
-  std::queue<td::Promise<td::Unit>> action_queue_;
+  std::deque<td::Promise<td::Unit>> action_queue_;
+  size_t action_queue_cnt_store_ = 0, action_queue_cnt_load_ = 0;
 
   void release_db() {
     db_busy_ = false;
     while (!db_busy_ && !action_queue_.empty()) {
       auto action = std::move(action_queue_.front());
-      action_queue_.pop();
+      action_queue_.pop_front();
       action.set_value(td::Unit());
     }
   }
@@ -194,11 +195,10 @@ class CellDbIn : public CellDbBase {
 class CellDb : public CellDbBase {
  public:
   void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise);
-  void load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise);
-  void store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, vm::StoreCellHint hint,
-                  td::Promise<td::Ref<vm::DataCell>> promise);
-  void store_block_state_permanent(td::Ref<BlockData> block, td::Promise<td::Ref<vm::DataCell>> promise);
-  void store_block_state_permanent_bulk(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise);
+  td::actor::Task<Ref<vm::DataCell>> load_cell(RootHash hash);
+  td::actor::Task<Ref<vm::DataCell>> store_cell(BlockIdExt block_id, Ref<vm::Cell> cell, vm::StoreCellHint hint);
+  td::actor::Task<Ref<vm::DataCell>> store_block_state_permanent(Ref<BlockData> block);
+  td::actor::Task<> store_block_state_permanent_bulk(std::vector<Ref<BlockData>> blocks);
   void update_snapshot(std::unique_ptr<td::KeyValueReader> snapshot) {
     CHECK(!opts_->get_celldb_in_memory());
     if (!started_) {
@@ -216,6 +216,8 @@ class CellDb : public CellDbBase {
     thread_safe_boc_ = std::move(thread_safe_boc);
   }
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise);
+
+  void flush_db_stats(std::string stats);
 
   CellDb(td::actor::ActorId<RootDb> root_db, std::string path, td::Ref<ValidatorManagerOptions> opts)
       : root_db_(root_db), path_(path), opts_(opts) {
@@ -239,6 +241,22 @@ class CellDb : public CellDbBase {
 
   void update_stats(td::Result<std::vector<std::pair<std::string, std::string>>> stats);
   void alarm() override;
+
+  struct CellDbStatistics {
+    size_t queries_load_ok_immediate_{0}, queries_load_ok_inner_{0}, queries_load_error_{0};
+    size_t queries_store_ok_{0}, queries_store_error_{0};
+
+    void prepare_stats(std::vector<std::pair<std::string, std::string>>& vec) const;
+    std::vector<std::pair<std::string, std::string>> prepare_stats() const {
+      std::vector<std::pair<std::string, std::string>> vec;
+      prepare_stats(vec);
+      return vec;
+    }
+    void clear() {
+      *this = CellDbStatistics{};
+    }
+  };
+  CellDbStatistics cell_db_statistics_;
 };
 
 }  // namespace validator
