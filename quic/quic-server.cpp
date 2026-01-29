@@ -309,6 +309,12 @@ void QuicServer::drain_ingress() {
 }
 
 void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
+  td::PerfWarningTimer w("flush_egress_for", 0.1);
+
+  if (data.stream_data.has_value()) {
+    state.pending_streams.push_back(std::move(data.stream_data.value()));
+  }
+
   if (state.blocked_packet.has_value()) {
     bool unblocked = false;
     auto &[packet_addr, packet_data] = *state.blocked_packet;
@@ -318,11 +324,15 @@ void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
       state.blocked_packet.reset();
       state.impl_->unblock_streams();
     }
+    if (state.blocked_packet.has_value()) {
+      return;
+    }
   }
 
-  td::PerfWarningTimer w("flush_egress_for", 0.1);
-  if (data.stream_data.has_value()) {
-    auto &stream_data = data.stream_data.value();
+  while (!state.pending_streams.empty()) {
+    auto stream_data = std::move(state.pending_streams.front());
+    state.pending_streams.pop_front();
+
     auto cycle = [this, &state, &stream_data]() -> td::Status {
       char buf[DEFAULT_MTU];
       UdpMessageBuffer msg_out;
@@ -345,6 +355,9 @@ void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
 
     if (auto status = cycle(); status.is_error()) {
       LOG(WARNING) << "failed to send stream data: " << status;
+      return;
+    }
+    if (state.blocked_packet.has_value()) {
       return;
     }
   }

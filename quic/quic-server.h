@@ -1,5 +1,6 @@
 #pragma once
 
+#include <deque>
 #include <map>
 #include <memory>
 #include <optional>
@@ -111,6 +112,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     QuicConnectionId cid;
     std::optional<QuicConnectionId> temp_cid;
     std::optional<std::pair<td::IPAddress, td::BufferSlice>> blocked_packet;
+    std::deque<EgressData::StreamData> pending_streams;
     bool is_outbound;
     friend td::StringBuilder &operator<<(td::StringBuilder &sb, const ConnectionState &state) {
       sb << "Connection{" << (state.is_outbound ? "to" : "from") << " " << state.remote_address;
