@@ -1014,7 +1014,7 @@ td::actor::Task<Ref<vm::DataCell>> CellDb::load_cell(RootHash hash) {
     auto result = thread_safe_boc_->load_root_thread_safe(hash.as_slice());
     if (result.is_ok()) {
       ++cell_db_statistics_.queries_load_ok_immediate_;
-      co_await td::actor::become_lightweight();
+      co_await td::actor::detach_from_actor();
       co_return result.move_as_ok();
     }
   }
@@ -1022,34 +1022,34 @@ td::actor::Task<Ref<vm::DataCell>> CellDb::load_cell(RootHash hash) {
     auto result = co_await boc_->load_cell_async(hash.as_slice(), async_executor).wrap();
     if (result.is_ok()) {
       ++cell_db_statistics_.queries_load_ok_immediate_;
-      co_await td::actor::become_lightweight();
+      co_await td::actor::detach_from_actor();
       co_return result.move_as_ok();
     }
   }
   auto result = co_await ask(cell_db_, &CellDbIn::load_cell, hash).wrap();
   ++(result.is_ok() ? cell_db_statistics_.queries_load_ok_inner_ : cell_db_statistics_.queries_load_error_);
-  co_await td::actor::become_lightweight();
+  co_await td::actor::detach_from_actor();
   co_return std::move(result);
 }
 
 td::actor::Task<Ref<vm::DataCell>> CellDb::store_cell(BlockIdExt block_id, Ref<vm::Cell> cell, vm::StoreCellHint hint) {
   auto result = co_await ask(cell_db_, &CellDbIn::store_cell, block_id, std::move(cell), std::move(hint)).wrap();
   ++(result.is_ok() ? cell_db_statistics_.queries_store_ok_ : cell_db_statistics_.queries_store_error_);
-  co_await td::actor::become_lightweight();
+  co_await td::actor::detach_from_actor();
   co_return std::move(result);
 }
 
 td::actor::Task<Ref<vm::DataCell>> CellDb::store_block_state_permanent(Ref<BlockData> block) {
   auto result = co_await ask(cell_db_, &CellDbIn::store_block_state_permanent, std::move(block)).wrap();
   ++(result.is_ok() ? cell_db_statistics_.queries_store_ok_ : cell_db_statistics_.queries_store_error_);
-  co_await td::actor::become_lightweight();
+  co_await td::actor::detach_from_actor();
   co_return std::move(result);
 }
 
 td::actor::Task<> CellDb::store_block_state_permanent_bulk(std::vector<Ref<BlockData>> blocks) {
   auto result = co_await ask(cell_db_, &CellDbIn::store_block_state_permanent_bulk, std::move(blocks)).wrap();
   ++(result.is_ok() ? cell_db_statistics_.queries_store_ok_ : cell_db_statistics_.queries_store_error_);
-  co_await td::actor::become_lightweight();
+  co_await td::actor::detach_from_actor();
   co_return std::move(result);
 }
 
