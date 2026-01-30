@@ -716,9 +716,9 @@ void ValidatorManagerImpl::finished_wait_data(BlockIdExt block_id, td::Result<td
   }
 }
 
-void ValidatorManagerImpl::set_block_state(BlockHandle handle, td::Ref<ShardState> state,
+void ValidatorManagerImpl::set_block_state(BlockHandle handle, td::Ref<ShardState> state, vm::StoreCellHint hint,
                                            td::Promise<td::Ref<ShardState>> promise) {
-  td::actor::send_closure(db_, &Db::store_block_state, handle, state, std::move(promise));
+  td::actor::send_closure(db_, &Db::store_block_state, handle, state, std::move(hint), std::move(promise));
 }
 
 void ValidatorManagerImpl::store_block_state_part(BlockId effective_block, td::Ref<vm::Cell> cell,

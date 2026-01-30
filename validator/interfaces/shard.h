@@ -53,7 +53,7 @@ class ShardState : public td::CntObject {
   virtual bool before_split() const = 0;
   virtual td::Result<td::Ref<MessageQueue>> message_queue() const = 0;
 
-  virtual td::Status apply_block(BlockIdExt id, td::Ref<BlockData> block) = 0;
+  virtual td::Status apply_block(BlockIdExt id, td::Ref<BlockData> block, vm::StoreCellHint* hint = nullptr) = 0;
   virtual td::Result<td::Ref<ShardState>> merge_with(const ShardState& with) const = 0;
   virtual td::Result<std::pair<td::Ref<ShardState>, td::Ref<ShardState>>> split() const = 0;
 

@@ -71,11 +71,11 @@ Usually, the response to your pull request will indicate which section it falls 
 
 ## Build TON blockchain
 
-### Ubuntu 20.4, 22.04, 24.04 (x86-64, aarch64)
+### Ubuntu 22.04, 24.04 (x86-64, aarch64)
 Install additional system libraries
 ```bash
   sudo apt-get update
-  sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
+  sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libmicrohttpd-dev
 
   wget https://apt.llvm.org/llvm.sh
   chmod +x llvm.sh
@@ -103,17 +103,35 @@ Launch installer and select `Desktop development with C++`.
 After installation, also make sure that `cmake` is globally available by adding
 `C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin` to the system `PATH` (adjust the path per your needs).
 
-Open an elevated (Run as Administrator) `x86-64 Native Tools Command Prompt for VS 2022`, go to the root folder and execute:
+Open an elevated (Run as Administrator) `x86-64 Native Tools Command Prompt for VS 2022`, go to the root folder, and execute:
 ```bash
   copy assembly\native\build-windows.bat .
   build-windows.bat
 ```
 
+### MSYS2 MinGW64 (x86-64)
+Execute from MinGW64 shell
+```bash
+  cp assembly/msys2/build-mingw64-clang21.sh .
+  chmod +x build-mingw64-clang21.sh
+  ./build-mingw64-clang21.sh -a
+```
+As a result, you will get fully statically compiled TON windows binaries. 
+
+### MSYS2 UCRT64 (x86-64)
+Execute from ucrt64 shell
+```bash
+  cp assembly/msys2/build-ucrt64-clang21.sh .
+  chmod +x build-ucrt64-clang21.sh
+  ./build-ucrt64-clang21.sh -a
+```
+As a result, you will get fully statically compiled TON windows binaries.
+
 ### Building TON to WebAssembly
 Install additional system libraries on Ubuntu
 ```bash
   sudo apt-get update
-  sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
+  sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libmicrohttpd-dev
 
   wget https://apt.llvm.org/llvm.sh
   chmod +x llvm.sh
@@ -131,8 +149,8 @@ Install additional system libraries on Ubuntu
 ```bash
   sudo apt-get update
   sudo apt-get install -y build-essential git cmake ninja-build automake libtool texinfo autoconf libgflags-dev \
-  zlib1g-dev libssl-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev \
-  libtool autoconf libsodium-dev libsecp256k1-dev
+  zlib1g-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev \
+  libtool autoconf
 ```
 Compile TON tonlib library
 ```bash

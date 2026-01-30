@@ -59,52 +59,6 @@ else
   export CCACHE_DISABLE=1
 fi
 
-if [ ! -d "../3pp/lz4" ]; then
-mkdir -p ../3pp
-git clone https://github.com/lz4/lz4.git ../3pp/lz4
-cd ../3pp/lz4 || exit
-lz4Path=`pwd`
-git checkout v1.9.4
-make -j4 CC="$CC" CFLAGS="--sysroot=$SDKROOT"
-test $? -eq 0 || { echo "Can't compile lz4"; exit 1; }
-cd ../../build  || exit
-# ./lib/liblz4.a
-# ./lib
-else
-  lz4Path=$(pwd)/../3pp/lz4
-  echo "Using compiled lz4"
-fi
-
-if [ ! -d "../3pp/libsodium-1.0.18" ]; then
-  export LIBSODIUM_FULL_BUILD=1
-  cd ../3pp || exit
-  curl -LO https://download.libsodium.org/libsodium/releases/libsodium-1.0.18.tar.gz
-  tar -xzf libsodium-1.0.18.tar.gz
-  cd libsodium-1.0.18  || exit
-  sodiumPath=`pwd`
-  ./configure --with-pic --enable-static
-  make -j4 CC="$CC" CFLAGS="--sysroot=$SDKROOT"
-  test $? -eq 0 || { echo "Can't compile libsodium"; exit 1; }
-  cd ../../build || exit
-else
-  sodiumPath=$(pwd)/../3pp/libsodium-1.0.18
-  echo "Using compiled libsodium"
-fi
-
-if [ ! -d "../3pp/openssl_3" ]; then
-  git clone https://github.com/openssl/openssl ../3pp/openssl_3
-  cd ../3pp/openssl_3 || exit
-  opensslPath=`pwd`
-  git checkout openssl-3.1.4
-  ./config
-  make build_libs -j4 CC="$CC" CFLAGS="--sysroot=$SDKROOT"
-  test $? -eq 0 || { echo "Can't compile openssl_3"; exit 1; }
-  cd ../../build || exit
-else
-  opensslPath=$(pwd)/../3pp/openssl_3
-  echo "Using compiled openssl_3"
-fi
-
 if [ ! -d "../3pp/zlib" ]; then
   git clone https://github.com/madler/zlib.git ../3pp/zlib
   cd ../3pp/zlib || exit
@@ -137,21 +91,12 @@ cmake -GNinja .. \
 -DCMAKE_CXX_FLAGS="-nostdinc++ -isystem ${SDKROOT}/usr/include/c++/v1 -isystem ${SDKROOT}/usr/include" \
 -DCMAKE_SYSROOT="$(xcrun --show-sdk-path)" \
 -DCMAKE_BUILD_TYPE=Release \
--DOPENSSL_FOUND=1 \
--DOPENSSL_INCLUDE_DIR=$opensslPath/include \
--DOPENSSL_CRYPTO_LIBRARY=$opensslPath/libcrypto.a \
 -DZLIB_FOUND=1 \
 -DZLIB_INCLUDE_DIR=$zlibPath \
 -DZLIB_LIBRARIES=$zlibPath/libz.a \
--DSODIUM_FOUND=1 \
--DSODIUM_INCLUDE_DIR=$sodiumPath/src/libsodium/include \
--DSODIUM_LIBRARY_RELEASE=$sodiumPath/src/libsodium/.libs/libsodium.a \
 -DMHD_FOUND=1 \
 -DMHD_INCLUDE_DIR=$libmicrohttpdPath/src/include \
--DMHD_LIBRARY=$libmicrohttpdPath/src/microhttpd/.libs/libmicrohttpd.a \
--DLZ4_FOUND=1 \
--DLZ4_INCLUDE_DIRS=$lz4Path/lib \
--DLZ4_LIBRARIES=$lz4Path/lib/liblz4.a
+-DMHD_LIBRARY=$libmicrohttpdPath/src/microhttpd/.libs/libmicrohttpd.a
 
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }

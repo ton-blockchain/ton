@@ -205,6 +205,21 @@ add_library(validator-disk STATIC ${DISK_VALIDATOR_SOURCE})
 add_library(validator-hardfork STATIC ${HARDFORK_VALIDATOR_SOURCE})
 add_library(full-node STATIC ${FULL_NODE_SOURCE})
 
+if (MSVC)
+  # Work around MSVC ICE in consensus/simplex/consensus.cpp by disabling optimizer passes for this TU.
+  # Newer MSVC (17.11 / 19.41+) ICEs with the old workaround, so only apply it to older toolsets.
+  if (MSVC_VERSION LESS 1941)
+    include(CheckCXXCompilerFlag)
+    check_cxx_compiler_flag("/d2ssaoptimizer-" TON_MSVC_HAS_D2SSAOPT)
+    set(TON_MSVC_CONSENSUS_OPTS "/Od" "/GL-")
+    if (TON_MSVC_HAS_D2SSAOPT)
+      list(APPEND TON_MSVC_CONSENSUS_OPTS "/d2ssaoptimizer-")
+    endif()
+    set_source_files_properties(consensus/simplex/consensus.cpp PROPERTIES
+      COMPILE_OPTIONS "${TON_MSVC_CONSENSUS_OPTS}")
+  endif()
+endif()
+
 target_include_directories(validator PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
