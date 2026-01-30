@@ -2,24 +2,30 @@ import asyncio
 from pathlib import Path
 from typing import Callable, final
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from watchfiles import Change, awatch  # pyright: ignore[reportUnknownVariableType]
 
 
 class DaemonConfig(BaseModel):
     host: str = "127.0.0.1"
-    port: int = 8080
+    dashboard_port: int = 8080
+    prometheus_port: int = 9090
+    grafana_port: int = 3000
 
 
 @final
 class ConfigWatcher:
-    def __init__(self, config_path: Path, on_config_change: Callable[[DaemonConfig | None], None]):
+    def __init__(
+        self,
+        config_path: Path,
+        on_config_change: Callable[[DaemonConfig | ValidationError | None], None],
+    ):
         self.config_path = config_path
         self.on_config_change = on_config_change
         self._stop_event = asyncio.Event()
         self._last_config = self._load_config()
 
-    def _load_config(self) -> DaemonConfig | None:
+    def _load_config(self):
         if not self.config_path.exists():
             return None
 
@@ -27,8 +33,8 @@ class ConfigWatcher:
             with open(self.config_path, "r") as f:
                 json_content = f.read()
             return DaemonConfig.model_validate_json(json_content)
-        except Exception:
-            return None
+        except ValidationError as e:
+            return e
 
     async def watch(self) -> None:
         config_dir = self.config_path.parent
@@ -55,5 +61,5 @@ class ConfigWatcher:
     def stop(self) -> None:
         self._stop_event.set()
 
-    def get_current_config(self) -> DaemonConfig | None:
+    def get_current_config(self):
         return self._last_config
