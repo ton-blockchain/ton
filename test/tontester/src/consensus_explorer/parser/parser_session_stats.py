@@ -1,4 +1,6 @@
 import dataclasses
+import os
+from itertools import islice
 from pathlib import Path
 from typing import final, override, Callable
 
@@ -46,15 +48,20 @@ TARGET_TO_LABEL = {
 
 @final
 class ParserSessionStats(Parser):
-    def __init__(self, logs_path: list[Path]):
+    def __init__(self, logs_path: list[Path], with_cache: bool = True):
         self._logs_path = logs_path
         self._slots: dict[slot_id_type, SlotData] = {}
         self._collated: dict[slot_id_type, dict[str, EventData]] = {}
         self._votes: dict[slot_id_type, dict[str, list[VoteData]]] = {}
         self._total_weights: dict[str, int] = {}
-        self._slot_leaders: dict[slot_id_type, int] = {}
         self._slot_events: dict[slot_id_type, dict[int, dict[str, EventData]]] = {}
         self._events: list[EventData] = []
+
+        self.with_cache = with_cache
+        self._raw_events: dict[Path, dict[bytes, list[Consensus_stats_timestampedEvent]]] = {}
+        self._cache_result: ConsensusData | None = None
+        self._cache_lines: dict[Path, int] = {}
+        self._cache_mtime: dict[Path, float] = {}
 
     def _get_create_slot(self, slot: int, v_group: str) -> SlotData:
         slot_id = (v_group, slot)
@@ -152,13 +159,15 @@ class ParserSessionStats(Parser):
                 if isinstance(vote, Consensus_simplex_notarizeVote)
                 else "finalize_observed"
             )
-            self._slot_events.setdefault((v_group, slot), {}).setdefault(v_id, {})[label] = EventData(
-                valgroup_id=v_group,
-                slot=slot,
-                label=label,
-                kind="local",
-                validator=v_id,
-                t_ms=t_ms,
+            self._slot_events.setdefault((v_group, slot), {}).setdefault(v_id, {})[label] = (
+                EventData(
+                    valgroup_id=v_group,
+                    slot=slot,
+                    label=label,
+                    kind="local",
+                    validator=v_id,
+                    t_ms=t_ms,
+                )
             )
 
         if isinstance(vote, Consensus_simplex_finalizeVote) and get_slot_leader(slot + 1) == v_id:
@@ -383,23 +392,49 @@ class ParserSessionStats(Parser):
         self._collated = {}
         self._votes = {}
         self._total_weights = {}
-        self._slot_leaders = {}
         self._slot_events = {}
         self._events = []
 
     @override
     def parse(self) -> ConsensusData:
+        files_changed = False
+
+        if self.with_cache:
+            for log_file in self._logs_path:
+                current_mtime = os.stat(log_file).st_mtime
+                cached_mtime = self._cache_mtime.get(log_file)
+                if cached_mtime is not None and current_mtime == cached_mtime:
+                    continue
+                self._cache_mtime[log_file] = current_mtime
+                files_changed = True
+        if not files_changed and self._cache_result:
+            return self._cache_result
+
         for log_file in self._logs_path:
             with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
                 events_by_groups: dict[bytes, list[Consensus_stats_timestampedEvent]] = {}
-
-                for line in f:
+                start_line = 0
+                if self.with_cache and log_file in self._cache_lines:
+                    start_line = self._cache_lines[log_file]
+                current_line = start_line
+                for line in islice(f, start_line, None):
+                    current_line += 1
                     if not line.startswith('{"@type":"consensus.stats.events"'):
                         continue
 
                     events = Consensus_stats_events.from_json(line)
 
                     events_by_groups.setdefault(events.id, []).extend(events.events)
+
+                if self.with_cache:
+                    self._cache_lines[log_file] = current_line
+                    # merge old events with new ones
+                    old_events = self._raw_events.get(log_file, {})
+                    events_by_groups = {
+                        k: old_events.get(k, []) + events_by_groups.get(k, [])
+                        for k in set(old_events) | set(events_by_groups)
+                    }
+                    self._raw_events[log_file] = events_by_groups
 
                 for events in events_by_groups.values():
                     self._process_group_events(events)
@@ -408,6 +443,9 @@ class ParserSessionStats(Parser):
         self._infer_slot_events()
 
         result = ConsensusData(slots=list(self._slots.values()), events=self._events)
+
+        if self.with_cache:
+            self._cache_result = result
 
         self._clear_state()
 

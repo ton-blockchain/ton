@@ -101,6 +101,10 @@ class Network:
         def log_path(self):
             return self._directory / "log"
 
+        @property
+        def session_log_path(self):
+            return self._directory / "session-logs"
+
         async def _run(
             self,
             executable: Path,
@@ -482,7 +486,7 @@ class FullNode(Network.Node):
             self._install.validator_engine_exe,
             self._local_config,
             zerostate.as_validator_config(),
-            ["--initial-sync-delay", "5", "--session-logs", str(self._directory / "session-logs")],
+            ["--initial-sync-delay", "5", "--session-logs", str(self.session_log_path)],
             debug=debug,
         )
 
