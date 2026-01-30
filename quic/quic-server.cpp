@@ -1,11 +1,7 @@
-#include <array>
 #include <atomic>
-#include <map>
-#include <set>
-#include <vector>
 
 #include "td/actor/actor.h"
-#include "td/utils/Random.h"
+#include "td/utils/Timer.h"
 
 #include "quic-pimpl.h"
 #include "quic-server.h"
@@ -427,7 +423,7 @@ void QuicServer::drain_ingress() {
       break;
     }
   }
-  if (buf_size <= 0) {
+  if (bytes_budget <= 0) {
     yield();
   }
 }

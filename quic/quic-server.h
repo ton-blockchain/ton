@@ -9,15 +9,12 @@
 
 #include "td/actor/ActorOwn.h"
 #include "td/actor/core/Actor.h"
-#include "td/actor/coro_task.h"
 #include "td/utils/Heap.h"
 #include "td/utils/buffer.h"
-#include "td/utils/crypto.h"
 #include "td/utils/port/IPAddress.h"
 #include "td/utils/port/UdpSocketFd.h"
 
 #include "Ed25519.h"
-#include "openssl-utils.h"
 #include "quic-common.h"
 
 namespace ton::quic {
@@ -108,15 +105,6 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   constexpr static size_t kIngressBatch = 16;
   constexpr static size_t kEgressBatch = 16;
   constexpr static size_t kMaxDatagram = 64 * 1024;
-
-  struct EgressData {
-    struct StreamData {
-      QuicStreamID sid;
-      td::BufferSlice data;
-      bool fin;
-    };
-    std::optional<StreamData> stream_data;
-  };
 
   struct ConnectionState : td::HeapNode {
     QuicConnectionPImpl &impl() {

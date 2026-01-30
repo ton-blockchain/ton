@@ -7,7 +7,6 @@
 #include "keyring/keyring.h"
 #include "td/actor/coro_task.h"
 
-#include "openssl-utils.h"
 #include "quic-server.h"
 
 namespace ton::quic {

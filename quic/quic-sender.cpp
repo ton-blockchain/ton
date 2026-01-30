@@ -1,6 +1,5 @@
 #include <utility>
 
-#include "adnl/adnl-peer-table.h"
 #include "auto/tl/ton_api.hpp"
 #include "td/actor/coro_utils.h"
 #include "td/utils/Heap.h"

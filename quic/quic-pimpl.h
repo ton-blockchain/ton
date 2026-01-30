@@ -2,7 +2,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
-#include <openssl/rand.h>
 #include <openssl/ssl.h>
 #include <string>
 #include <unordered_map>
@@ -12,11 +11,7 @@
 #include "ngtcp2/ngtcp2.h"
 #include "ngtcp2/ngtcp2_crypto.h"
 #include "ngtcp2/ngtcp2_crypto_ossl.h"
-#include "td/actor/ActorId.h"
-#include "td/utils/Random.h"
 #include "td/utils/Time.h"
-#include "td/utils/crypto.h"
-#include "td/utils/port/UdpSocketFd.h"
 
 #include "openssl-utils.h"
 #include "quic-common.h"
@@ -95,16 +90,12 @@ struct QuicConnectionPImpl {
     virtual ~Callback() = default;
   };
 
-  constexpr static size_t DEFAULT_WINDOW = 1 << 20;
-  constexpr static size_t CID_LENGTH = 16;
-
   struct PrivateTag {};
 
   QuicConnectionPImpl(PrivateTag, const td::IPAddress& local_address, const td::IPAddress& remote_address,
-                      bool is_server, std::unique_ptr<Callback> callback, QuicConnectionOptions options)
+                      std::unique_ptr<Callback> callback, QuicConnectionOptions options)
       : local_address_(local_address)
       , remote_address_(remote_address)
-      , is_server_(is_server)
       , callback_(std::move(callback))
       , options_(options) {
   }
@@ -146,7 +137,6 @@ struct QuicConnectionPImpl {
  private:
   td::IPAddress local_address_;
   td::IPAddress remote_address_;
-  bool is_server_{};
   std::unique_ptr<Callback> callback_;
   QuicConnectionOptions options_;
 
@@ -177,7 +167,6 @@ struct QuicConnectionPImpl {
   std::unordered_map<QuicStreamID, OutboundStreamState> streams_;
   std::deque<QuicStreamID> ready_streams_;
   QuicStreamID write_sid_ = -1;
-  bool write_padding_ = false;
   std::vector<ngtcp2_vec> write_datav_;
   size_t last_packet_streams_ = 0;
 
@@ -186,13 +175,14 @@ struct QuicConnectionPImpl {
     return conn_.get();
   }
 
-  // RPK (Raw Public Key) - uses Ed25519 keys for identity
-  // Verification happens post-handshake via ssl_get_peer_ed25519_public_key()
   [[nodiscard]] td::Status init_tls_client_rpk(const td::Ed25519::PrivateKey& client_key, td::Slice alpn);
   [[nodiscard]] td::Status init_tls_server_rpk(const td::Ed25519::PrivateKey& server_key, td::Slice alpn);
 
   [[nodiscard]] td::Status init_quic_client();
   [[nodiscard]] td::Status init_quic_server(const VersionCid& vc);
+  void finish_quic_init(const QuicConnectionId& scid);
+
+  [[nodiscard]] td::SecureString extract_peer_ed25519_key() const;
 
   static void setup_settings_and_params(ngtcp2_settings& settings, ngtcp2_transport_params& params,
                                         const QuicConnectionOptions& options);
@@ -212,7 +202,6 @@ struct QuicConnectionPImpl {
     uint64_t unsent_before = 0;
   };
 
-  static td::Status clear_out(UdpMessageBuffer& msg_out);
   void commit_write(UdpMessageBuffer& msg_out, size_t n_write, size_t gso_size);
   void prepare_stream_write(QuicStreamID sid, bool padding, StreamWriteContext& ctx, std::vector<ngtcp2_vec>& datav);
   void finish_stream_write(QuicStreamID sid, const StreamWriteContext& ctx, ngtcp2_ssize pdatalen);
@@ -241,7 +230,7 @@ struct QuicConnectionPImpl {
   int on_recv_stream_data(uint32_t flags, int64_t stream_id, td::Slice data);
   int on_acked_stream_data_offset(int64_t stream_id, uint64_t offset, uint64_t datalen);
   int on_stream_close(int64_t stream_id);
-  int on_extend_max_stream_data(QuicStreamID sid, uint64_t max_data);
+  int on_extend_max_stream_data(QuicStreamID sid);
 
   static void rand_cb(uint8_t* dest, size_t destlen, const ngtcp2_rand_ctx* rand_ctx);
   static int get_new_connection_id_cb(ngtcp2_conn* conn, ngtcp2_cid* cid, uint8_t* token, size_t cidlen,

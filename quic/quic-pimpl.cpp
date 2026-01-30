@@ -1,15 +1,11 @@
-#include <algorithm>
 #include <cstring>
 #include <limits>
 #include <openssl/ssl.h>
-#include <vector>
 
 #include "td/utils/Random.h"
+#include "td/utils/Timer.h"
 #include "td/utils/logging.h"
-#include "td/utils/port/UdpSocketFd.h"
 
-#include "openssl-utils.h"
-#include "quic-common.h"
 #include "quic-pimpl.h"
 
 namespace ton::quic {
@@ -37,8 +33,8 @@ static td::Timestamp from_ngtcp2_tstamp(ngtcp2_tstamp ns) {
 td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_client(
     const td::IPAddress& local_address, const td::IPAddress& remote_address, const td::Ed25519::PrivateKey& client_key,
     td::Slice alpn, std::unique_ptr<Callback> callback, QuicConnectionOptions options) {
-  auto p_impl = std::make_unique<QuicConnectionPImpl>(PrivateTag{}, local_address, remote_address, false,
-                                                      std::move(callback), options);
+  auto p_impl =
+      std::make_unique<QuicConnectionPImpl>(PrivateTag{}, local_address, remote_address, std::move(callback), options);
 
   TRY_STATUS(p_impl->init_tls_client_rpk(client_key, alpn));
   TRY_STATUS(p_impl->init_quic_client());
@@ -51,8 +47,8 @@ td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_cli
 td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_server(
     const td::IPAddress& local_address, const td::IPAddress& remote_address, const td::Ed25519::PrivateKey& server_key,
     td::Slice alpn, const VersionCid& vc, std::unique_ptr<Callback> callback, QuicConnectionOptions options) {
-  auto p_impl = std::make_unique<QuicConnectionPImpl>(PrivateTag{}, local_address, remote_address, true,
-                                                      std::move(callback), options);
+  auto p_impl =
+      std::make_unique<QuicConnectionPImpl>(PrivateTag{}, local_address, remote_address, std::move(callback), options);
 
   TRY_STATUS(p_impl->init_tls_server_rpk(server_key, alpn));
   TRY_STATUS(p_impl->init_quic_server(vc));
@@ -157,18 +153,8 @@ void QuicConnectionPImpl::setup_settings_and_params(ngtcp2_settings& settings, n
   settings.max_window = options.max_window;
   settings.max_stream_window = options.max_stream_window;
 
-  switch (options.cc_algo) {
-    case CongestionControlAlgo::Reno:
-      settings.cc_algo = NGTCP2_CC_ALGO_RENO;
-      break;
-    case CongestionControlAlgo::Bbr:
-      settings.cc_algo = NGTCP2_CC_ALGO_BBR;
-      break;
-    case CongestionControlAlgo::Cubic:
-    default:
-      settings.cc_algo = NGTCP2_CC_ALGO_CUBIC;
-      break;
-  }
+  static constexpr ngtcp2_cc_algo CC_ALGO_MAP[] = {NGTCP2_CC_ALGO_CUBIC, NGTCP2_CC_ALGO_RENO, NGTCP2_CC_ALGO_BBR};
+  settings.cc_algo = CC_ALGO_MAP[static_cast<int>(options.cc_algo)];
 
   ngtcp2_transport_params_default(&params);
   params.max_idle_timeout = options.idle_timeout;
@@ -204,6 +190,12 @@ void QuicConnectionPImpl::setup_ngtcp2_callbacks(ngtcp2_callbacks& callbacks, bo
   callbacks.extend_max_stream_data = extend_max_stream_data_cb;
 }
 
+void QuicConnectionPImpl::finish_quic_init(const QuicConnectionId& scid) {
+  primary_scid_ = scid;
+  ngtcp2_conn_set_tls_native_handle(conn(), ossl_ctx_.get());
+  ngtcp2_conn_set_keep_alive_timeout(conn(), options_.keep_alive_timeout);
+}
+
 td::Status QuicConnectionPImpl::init_quic_client() {
   ngtcp2_callbacks callbacks{};
   setup_ngtcp2_callbacks(callbacks, true);
@@ -227,12 +219,7 @@ td::Status QuicConnectionPImpl::init_quic_client() {
     return td::Status::Error("ngtcp2_conn_client_new failed");
   }
   conn_.reset(new_conn);
-
-  primary_scid_ = scid;
-
-  ngtcp2_conn_set_tls_native_handle(conn(), ossl_ctx_.get());
-  ngtcp2_conn_set_keep_alive_timeout(conn(), options_.keep_alive_timeout);
-
+  finish_quic_init(scid);
   return td::Status::OK();
 }
 
@@ -260,24 +247,16 @@ td::Status QuicConnectionPImpl::init_quic_server(const VersionCid& vc) {
     return td::Status::Error(PSTRING() << "ngtcp2_conn_server_new failed: " << rv);
   }
   conn_.reset(new_conn);
-
-  primary_scid_ = server_scid;
-
-  ngtcp2_conn_set_tls_native_handle(conn(), ossl_ctx_.get());
-  ngtcp2_conn_set_keep_alive_timeout(conn(), options_.keep_alive_timeout);
+  finish_quic_init(server_scid);
   return td::Status::OK();
 }
 
 void QuicConnectionPImpl::build_unsent_vecs(std::vector<ngtcp2_vec>& out, OutboundStreamState& st) {
   out.clear();
   auto it = st.reader_.clone();
-  // currently we usually have just one chunk, so this approach is perfectly fine
   while (!it.empty()) {
     auto head = it.prepare_read();
-    ngtcp2_vec v{};
-    v.base = const_cast<td::uint8*>(head.ubegin());
-    v.len = head.size();
-    out.push_back(v);
+    out.push_back({.base = const_cast<td::uint8*>(head.ubegin()), .len = head.size()});
     it.confirm_read(head.size());
   }
 }
@@ -322,18 +301,12 @@ void QuicConnectionPImpl::try_enqueue_stream(QuicStreamID sid) {
 }
 
 ngtcp2_path QuicConnectionPImpl::make_path() const {
-  ngtcp2_path path{};
-  path.local.addr = const_cast<ngtcp2_sockaddr*>(local_address_.get_sockaddr());
-  path.local.addrlen = static_cast<ngtcp2_socklen>(local_address_.get_sockaddr_len());
-  path.remote.addr = const_cast<ngtcp2_sockaddr*>(remote_address_.get_sockaddr());
-  path.remote.addrlen = static_cast<ngtcp2_socklen>(remote_address_.get_sockaddr_len());
-  return path;
-}
-
-td::Status QuicConnectionPImpl::clear_out(UdpMessageBuffer& msg_out) {
-  msg_out.storage.truncate(0);
-  msg_out.gso_size = 0;
-  return td::Status::OK();
+  return {
+      .local = {.addr = const_cast<ngtcp2_sockaddr*>(local_address_.get_sockaddr()),
+                .addrlen = static_cast<ngtcp2_socklen>(local_address_.get_sockaddr_len())},
+      .remote = {.addr = const_cast<ngtcp2_sockaddr*>(remote_address_.get_sockaddr()),
+                 .addrlen = static_cast<ngtcp2_socklen>(remote_address_.get_sockaddr_len())},
+  };
 }
 
 void QuicConnectionPImpl::commit_write(UdpMessageBuffer& msg_out, size_t n_write, size_t gso_size) {
@@ -582,21 +555,22 @@ ngtcp2_conn* QuicConnectionPImpl::get_pimpl_from_ref(ngtcp2_crypto_conn_ref* ref
   return c->conn();
 }
 
-int QuicConnectionPImpl::on_handshake_completed() {
-  Callback::HandshakeCompletedEvent event;
-  // Extract peer's Ed25519 public key from RPK (if available)
-  if (EVP_PKEY* peer_rpk = SSL_get0_peer_rpk(ssl_.get())) {
-    if (EVP_PKEY_id(peer_rpk) == EVP_PKEY_ED25519) {
-      size_t len = td::Ed25519::PublicKey::LENGTH;
-      td::SecureString key(len);
-      if (EVP_PKEY_get_raw_public_key(peer_rpk, key.as_mutable_slice().ubegin(), &len) == 1 &&
-          len == td::Ed25519::PublicKey::LENGTH) {
-        event.peer_public_key = std::move(key);
-      }
-    }
+td::SecureString QuicConnectionPImpl::extract_peer_ed25519_key() const {
+  EVP_PKEY* peer_rpk = SSL_get0_peer_rpk(ssl_.get());
+  if (!peer_rpk || EVP_PKEY_id(peer_rpk) != EVP_PKEY_ED25519) {
+    return {};
   }
+  size_t len = td::Ed25519::PublicKey::LENGTH;
+  td::SecureString key(len);
+  if (EVP_PKEY_get_raw_public_key(peer_rpk, key.as_mutable_slice().ubegin(), &len) != 1 ||
+      len != td::Ed25519::PublicKey::LENGTH) {
+    return {};
+  }
+  return key;
+}
 
-  callback_->on_handshake_completed(std::move(event));
+int QuicConnectionPImpl::on_handshake_completed() {
+  callback_->on_handshake_completed({.peer_public_key = extract_peer_ed25519_key()});
   return 0;
 }
 
@@ -649,7 +623,7 @@ int QuicConnectionPImpl::on_stream_close(int64_t stream_id) {
   return 0;
 }
 
-int QuicConnectionPImpl::on_extend_max_stream_data(QuicStreamID sid, uint64_t max_data) {
+int QuicConnectionPImpl::on_extend_max_stream_data(QuicStreamID sid) {
   auto it = streams_.find(sid);
   if (it == streams_.end()) {
     return 0;
@@ -695,10 +669,10 @@ int QuicConnectionPImpl::stream_close_cb(ngtcp2_conn*, uint32_t /*flags*/, int64
   return pimpl->on_stream_close(stream_id);
 }
 
-int QuicConnectionPImpl::extend_max_stream_data_cb(ngtcp2_conn*, int64_t stream_id, uint64_t max_data, void* user_data,
-                                                   void* /*stream_user_data*/) {
+int QuicConnectionPImpl::extend_max_stream_data_cb(ngtcp2_conn*, int64_t stream_id, uint64_t /*max_data*/,
+                                                   void* user_data, void* /*stream_user_data*/) {
   auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
-  pimpl->on_extend_max_stream_data(stream_id, max_data);
+  pimpl->on_extend_max_stream_data(stream_id);
   return 0;
 }
 }  // namespace ton::quic
