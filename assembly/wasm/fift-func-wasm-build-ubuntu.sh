@@ -30,28 +30,11 @@ if [ "$scratch_new" = true ]; then
   rm -rf openssl zlib lz4 emsdk libsodium build openssl_em
 fi
 
-if [ ! -d "openssl_3" ]; then
-  git clone https://github.com/openssl/openssl openssl_3
-  cd openssl_3 || exit
-  opensslPath=`pwd`
-  git checkout openssl-3.1.4
-  ./config
-  make build_libs -j$(nproc)
-  test $? -eq 0 || { echo "Can't compile openssl_3"; exit 1; }
-  cd ..
-else
-  opensslPath=$(pwd)/openssl_3
-  echo "Using compiled openssl_3"
-fi
-
 if [ ! -d "build" ]; then
   mkdir build
   cd build
   cmake -GNinja -DTON_USE_JEMALLOC=ON .. \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DOPENSSL_ROOT_DIR=$opensslPath \
-  -DOPENSSL_INCLUDE_DIR=$opensslPath/include \
-  -DOPENSSL_CRYPTO_LIBRARY=$opensslPath/libcrypto.so
+  -DCMAKE_BUILD_TYPE=Release
 
   test $? -eq 0 || { echo "Can't configure TON build"; exit 1; }
   ninja fift smc-envelope
@@ -81,11 +64,11 @@ export CCACHE_DISABLE=1
 
 cd ..
 
-if [ ! -f "3pp_emscripten/openssl_em/openssl_em" ]; then
+if [ ! -f "3pp_emscripten/openssl_em" ]; then
   mkdir -p 3pp_emscripten
   git clone https://github.com/openssl/openssl 3pp_emscripten/openssl_em
   cd 3pp_emscripten/openssl_em || exit
-  emconfigure ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test no-tests no-fuzz-afl no-fuzz-libfuzzer
+  emconfigure ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test no-tests no-fuzz-afl no-fuzz-libfuzzer enable-quic
   sed -i 's/CROSS_COMPILE=.*/CROSS_COMPILE=/g' Makefile
   sed -i 's/-ldl//g' Makefile
   sed -i 's/-O3/-Os/g' Makefile

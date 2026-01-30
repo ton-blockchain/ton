@@ -185,7 +185,14 @@ class CatChainInst : public td::actor::Actor {
   }
 
   void create_fork() {
+    if (height_ == 0 || prev_values_.empty()) {
+      LOG(WARNING) << "Skipping fork, source_id=" << idx_ << ", no blocks yet";
+      return;
+    }
     auto height = height_ - 1;  //td::Random::fast(0, height_ - 1);
+    if (height >= prev_values_.size()) {
+      height = static_cast<td::uint32>(prev_values_.size() - 1);
+    }
     LOG(WARNING) << "Creating fork, source_id=" << idx_ << ", height=" << height;
 
     auto sum = prev_values_[height] + 1;

@@ -293,7 +293,8 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       }
       std::vector<td::actor::StartedTask<td::Ref<vm::Cell>>> wait_state_root;
       std::vector<td::actor::StartedTask<td::Ref<BlockData>>> wait_block_data;
-      for (const BlockIdExt& block_id : (co_await genesis_.get())->convert_id_to_blocks(id_full)) {
+      auto blocks = (co_await genesis_.get())->convert_id_to_blocks(id_full);
+      for (const BlockIdExt& block_id : blocks) {
         wait_state_root.push_back(td::actor::ask(owning_bus()->manager, &ManagerFacade::wait_block_state_root, block_id,
                                                  td::Timestamp::in(10.0)));
         if (block_id.seqno() != 0) {
@@ -301,11 +302,11 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
                                                    td::Timestamp::in(10.0)));
         }
       }
-      co_return ResolvedCandidate{
-          .id = id_full,
-          .state_roots = co_await td::actor::all(std::move(wait_state_root)),
-          .block_data = co_await td::actor::all(std::move(wait_block_data)),
-      };
+      ResolvedCandidate resolved;
+      resolved.id = id_full;
+      resolved.state_roots = co_await td::actor::all(std::move(wait_state_root));
+      resolved.block_data = co_await td::actor::all(std::move(wait_block_data));
+      co_return resolved;
     }
 
     auto candidate = (co_await owning_bus().publish<ResolveCandidate>(*id)).candidate;
