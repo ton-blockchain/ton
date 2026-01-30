@@ -19,6 +19,7 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 
 #include "td/utils/Slice.h"
 #include "td/utils/Span.h"
@@ -76,7 +77,6 @@ class UdpSocketFd {
 
   static bool is_critical_read_error(const Status &status);
 
-#if TD_PORT_POSIX
   struct OutboundMessage {
     const IPAddress *to;
     Slice data;
@@ -90,9 +90,14 @@ class UdpSocketFd {
   };
 
   Status send_message(const OutboundMessage &message, bool &is_sent) TD_WARN_UNUSED_RESULT;
-  Status receive_message(InboundMessage &message, bool &is_received) TD_WARN_UNUSED_RESULT;
+  Status receive_message(InboundMessage &message, bool &is_received,
+                         std::vector<BufferSlice> &buf) TD_WARN_UNUSED_RESULT;
 
   Status send_messages(Span<OutboundMessage> messages, size_t &count) TD_WARN_UNUSED_RESULT;
+  Status receive_messages(MutableSpan<InboundMessage> messages, size_t &count,
+                          std::vector<BufferSlice> &buf) TD_WARN_UNUSED_RESULT;
+
+#if TD_PORT_POSIX
   Status receive_messages(MutableSpan<InboundMessage> messages, size_t &count) TD_WARN_UNUSED_RESULT;
 #elif TD_PORT_WINDOWS
   Result<optional<UdpMessage> > receive();

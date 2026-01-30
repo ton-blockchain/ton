@@ -327,7 +327,8 @@ void QuicServer::drain_ingress() {
   td::PerfWarningTimer w("drain_ingress", 0.1);
   const size_t buf_size = gro_enabled_ ? kMaxDatagram : DEFAULT_MTU * kMaxBurst;
 
-  td::int64 bytes_budget = 10 << 20;  // 10MB
+  std::vector<td::BufferSlice> ingress_data_buffers;  // for Windows receive_messages
+  td::int64 bytes_budget = 10 << 20;                  // 10MB
   while (bytes_budget > 0) {
     for (size_t i = 0; i < kIngressBatch; i++) {
       ingress_errors_[i] = td::Status::OK();
@@ -338,8 +339,9 @@ void QuicServer::drain_ingress() {
     }
 
     size_t cnt = 0;
-    auto status = fd_.receive_messages(
-        td::MutableSpan<td::UdpSocketFd::InboundMessage>(ingress_messages_.data(), kIngressBatch), cnt);
+    auto status =
+        fd_.receive_messages(td::MutableSpan<td::UdpSocketFd::InboundMessage>(ingress_messages_.data(), kIngressBatch),
+                             cnt, ingress_data_buffers);
     if (cnt == 0) {
       if (status.is_error()) {
         LOG(ERROR) << "failed to drain incoming traffic: " << status;

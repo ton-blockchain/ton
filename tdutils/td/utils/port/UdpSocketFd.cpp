@@ -948,22 +948,34 @@ Result<uint32> UdpSocketFd::maximize_rcv_buffer(uint32 max) {
 }
 #endif
 
-#if TD_PORT_POSIX
 Status UdpSocketFd::send_message(const OutboundMessage &message, bool &is_sent) {
-  return impl_->send_message(message, is_sent);
-}
-Status UdpSocketFd::receive_message(InboundMessage &message, bool &is_received) {
-  return impl_->receive_message(message, is_received);
+  size_t count = 0;
+  auto status = send_messages({&message, 1}, count);
+  is_sent = count > 0;
+  return status;
 }
 
+Status UdpSocketFd::receive_message(InboundMessage &message, bool &is_received, std::vector<BufferSlice> &buf) {
+  size_t count = 0;
+  auto status = receive_messages({&message, 1}, count, buf);
+  is_received = count > 0;
+  return status;
+}
+
+#if TD_PORT_POSIX
 Status UdpSocketFd::send_messages(Span<OutboundMessage> messages, size_t &count) {
   return impl_->send_messages(messages, count);
 }
+
 Status UdpSocketFd::receive_messages(MutableSpan<InboundMessage> messages, size_t &count) {
   return impl_->receive_messages(messages, count);
 }
-#endif
-#if TD_PORT_WINDOWS
+
+Status UdpSocketFd::receive_messages(MutableSpan<InboundMessage> messages, size_t &count,
+                                     std::vector<BufferSlice> & /*buf*/) {
+  return receive_messages(messages, count);
+}
+#elif TD_PORT_WINDOWS
 Result<optional<UdpMessage>> UdpSocketFd::receive() {
   return impl_->receive();
 }
@@ -974,6 +986,48 @@ void UdpSocketFd::send(UdpMessage message) {
 
 Status UdpSocketFd::flush_send() {
   return impl_->flush_send();
+}
+
+Status UdpSocketFd::send_messages(Span<OutboundMessage> messages, size_t &count) {
+  count = 0;
+  for (auto &message : messages) {
+    UdpMessage msg;
+    msg.address = *message.to;
+    msg.data = BufferSlice(message.data);
+    impl_->send(std::move(msg));
+    count++;
+  }
+  return impl_->flush_send();
+}
+
+Status UdpSocketFd::receive_messages(MutableSpan<InboundMessage> messages, size_t &count,
+                                     std::vector<BufferSlice> &buf) {
+  count = 0;
+  buf.clear();
+  while (count < messages.size()) {
+    auto r_msg = impl_->receive();
+    if (r_msg.is_error()) {
+      return r_msg.move_as_error();
+    }
+    auto msg_opt = r_msg.move_as_ok();
+    if (!msg_opt) {
+      break;
+    }
+    auto &msg = *msg_opt;
+    auto &out = messages[count];
+
+    buf.push_back(std::move(msg.data));
+    if (out.from) {
+      *out.from = msg.address;
+    }
+    if (out.error) {
+      *out.error = std::move(msg.error);
+    }
+    out.data = buf.back().as_mutable_slice();
+    out.gso_size = 0;
+    count++;
+  }
+  return Status::OK();
 }
 #endif
 
