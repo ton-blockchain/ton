@@ -107,6 +107,7 @@ std::shared_ptr<QuicServer::ConnectionState> QuicServer::find_connection(const Q
 
 bool QuicServer::handle_expiry(ConnectionState &state) {
   if (!state.impl().is_expired()) {
+    on_connection_updated(state);
     return false;
   }
   auto R = state.impl().handle_expiry();
@@ -171,7 +172,6 @@ void QuicServer::handle_timeouts() {
     auto *state = static_cast<ConnectionState *>(timeout_heap_.pop());
     if (handle_expiry(*state)) {
       to_erase_connections_.push_back(state->cid);
-      LOG(INFO) << "Close connection: " << *state;
     }
   }
 

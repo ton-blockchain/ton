@@ -433,6 +433,7 @@ TEST(QuicSender, RestartSender) {
 
 TEST(QuicSender, RestartResponder) {
   run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    LOG(ERROR) << "=== RestartResponder: creating nodes ===";
     auto a = co_await t.create_node("ra", next_port());
     int b_port = next_port();
     auto b_key = make_key(-1);
@@ -442,31 +443,42 @@ TEST(QuicSender, RestartResponder) {
     t.add_peer(a, b);
     t.add_peer(b, a);
 
+    LOG(ERROR) << "=== RestartResponder: sending first query ===";
     auto resp1 = co_await t.send_query(a, b, "before");
     ASSERT_EQ(resp1.as_slice(), td::Slice("Qbefore"));
+    LOG(ERROR) << "=== RestartResponder: first query OK ===";
 
     auto b_id = b.id;
+    LOG(ERROR) << "=== RestartResponder: destroying responder ===";
     b.quic_sender.reset();
     b.adnl.reset();
     b.network_manager.reset();
     b.keyring.reset();
 
+    LOG(ERROR) << "=== RestartResponder: sleeping 3s ===";
     co_await td::actor::coro_sleep(td::Timestamp::in(3.0));
 
+    LOG(ERROR) << "=== RestartResponder: recreating responder ===";
     b = co_await t.create_node("rb2", b_port, b_key);
     ASSERT_EQ(b.id, b_id);
 
     t.add_peer(a, b);
     t.add_peer(b, a);
 
+    LOG(ERROR) << "=== RestartResponder: sleeping 0.2s ===";
     co_await td::actor::coro_sleep(td::Timestamp::in(0.2));
 
-    auto no_resp2 = co_await t.send_query(a, b, "after").wrap();
+    LOG(ERROR) << "=== RestartResponder: sending query (expected to fail) ===";
+    auto no_resp2 = co_await t.send_query_ex(a, b, "after", 50.0, 1024).wrap();
+    LOG(ERROR) << "=== RestartResponder: query result: " << (no_resp2.is_ok() ? "OK" : no_resp2.error().to_string())
+               << " ===";
     ASSERT_TRUE(no_resp2.is_error());
     // should fail because connection is lost
 
     // check that connection will be restored
+    LOG(ERROR) << "=== RestartResponder: sending second query (should succeed) ===";
     auto resp2 = co_await t.send_query(a, b, "after");
+    LOG(ERROR) << "=== RestartResponder: second query OK ===";
     ASSERT_EQ(resp2.as_slice(), td::Slice("Qafter"));
 
     co_return td::Unit{};
