@@ -1,8 +1,8 @@
 # Execute these prerequisites first
 # sudo apt update
-# sudo apt install -y build-essential git make cmake ninja-build clang libgflags-dev zlib1g-dev libssl-dev \
-#                    libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev python3-pip \
-#                    nodejs libsodium-dev automake libtool libjemalloc-dev ccache
+# sudo apt install -y build-essential git make cmake ninja-build clang libgflags-dev \
+#                    libreadline-dev pkg-config libgsl-dev python3 python3-dev python3-pip \
+#                    nodejs automake libtool libjemalloc-dev ccache
 
 # wget https://apt.llvm.org/llvm.sh
 # chmod +x llvm.sh

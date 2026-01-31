@@ -28,7 +28,6 @@ for file in ../artifacts/*; do
     cp ../ton.png $appName.AppDir/$appName.png
     cp $file $appName.AppDir/usr/bin/
     cp /lib/$ARCH-linux-gnu/libatomic.so.1 \
-      /lib/$ARCH-linux-gnu/libz.so.1 \
       /lib/$ARCH-linux-gnu/libreadline.so.8 \
       /lib/$ARCH-linux-gnu/libstdc++.so.6 \
       /lib/$ARCH-linux-gnu/libgsl.so.27 \

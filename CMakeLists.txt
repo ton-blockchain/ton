@@ -296,7 +296,7 @@ include(BuildBLST)
 include(BuildSECP256K1)
 include(BuildLibbacktrace)
 include(BuildMHD)
-#include(BuildZLIB)
+include(BuildZlib)
 
 
 # Configure CCache if available

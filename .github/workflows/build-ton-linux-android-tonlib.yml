@@ -16,8 +16,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential git cmake ninja-build automake libtool texinfo autoconf libgflags-dev \
-        zlib1g-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev \
-        libtool autoconf libsecp256k1-dev
+        libreadline-dev pkg-config libgsl-dev python3 python3-dev libtool autoconf
 
     -  name: Install llvm-21
        run: |

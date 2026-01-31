@@ -39,8 +39,6 @@ PACMAN_PKGS=(
   ${PKG_PREFIX}-ninja
   ${PKG_PREFIX}-cmake
   ${PKG_PREFIX}-pkgconf
-  ${PKG_PREFIX}-zlib
-  ${PKG_PREFIX}-libmicrohttpd
   autoconf automake libtool m4 make git diffutils autogen
 )
 

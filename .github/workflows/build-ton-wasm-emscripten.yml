@@ -15,7 +15,7 @@ jobs:
     - name: Install system libraries
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev liblz4-dev libjemalloc-dev
+        sudo apt-get install -y build-essential git cmake ninja-build libjemalloc-dev
         mkdir -p 3pp_emscripten
 
     - name: Install clang-21
