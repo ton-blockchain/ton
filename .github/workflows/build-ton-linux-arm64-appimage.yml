@@ -39,13 +39,6 @@ jobs:
         path: 3pp
         key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-3pp-${{ hashFiles('**/assembly/native/build-ubuntu-appimages.sh') }}
 
-    - name: Cache OpenSSL
-      id: cache-openssl
-      uses: actions/cache@v4
-      with:
-        path: openssl_3
-        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-openssl_3-${{ hashFiles('**/assembly/native/build-ubuntu-appimages.sh') }}
-
     - name: Restore cache TON
       uses: actions/cache/restore@v4
       with:

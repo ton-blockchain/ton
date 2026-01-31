@@ -46,13 +46,6 @@ jobs:
         sudo apt-get -y update
         sudo apt-get install -y clang-21
 
-    - name: Cache OpenSSL
-      id: cache-openssl
-      uses: actions/cache@v4
-      with:
-        path: openssl_3
-        key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-openssl_3-${{ hashFiles('**/assembly/native/build-ubuntu-shared.sh') }}
-
     - name: Cache TON test
       id: cache-ton
       uses: actions/cache@v4
