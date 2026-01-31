@@ -51,6 +51,20 @@ if ! clang++ --version | grep -q "clang version 21"; then
   exit 1
 fi
 
+if [ ! -f "$ROOT_DIR/third-party/zlib/configure" ]; then
+  echo "Initializing zlib submodule..."
+  git -C "$ROOT_DIR" submodule update --init --recursive third-party/zlib
+fi
+
+if [ ! -f "$ROOT_DIR/third-party/libmicrohttpd/configure" ]; then
+  echo "Initializing libmicrohttpd submodule..."
+  git -C "$ROOT_DIR" submodule update --init --recursive third-party/libmicrohttpd
+fi
+if [ ! -f "$ROOT_DIR/third-party/libmicrohttpd/configure" ] && [ -f "$ROOT_DIR/third-party/libmicrohttpd/configure.ac" ]; then
+  echo "Generating libmicrohttpd configure script..."
+  (cd "$ROOT_DIR/third-party/libmicrohttpd" && autoreconf -fi)
+fi
+
 cd third-party/openssl
 git checkout .
 git clean -fdx
