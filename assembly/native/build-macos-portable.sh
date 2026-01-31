@@ -33,7 +33,7 @@ else
 fi
 
 export NONINTERACTIVE=1
-brew install ninja pkg-config automake libtool autoconf texinfo
+brew install ninja pkg-config automake libtool autoconf texinfo m4
 export PATH=/usr/local/opt/ccache/libexec:$PATH
 
 if [ "$(uname)" = "Darwin" ]; then
