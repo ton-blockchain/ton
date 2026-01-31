@@ -45,3 +45,7 @@
 	path = third-party/libmicrohttpd
 	url = https://github.com/ton-blockchain/libmicrohttpd
 	ignore = all
+[submodule "third-party/zlib"]
+	path = third-party/zlib
+	url = https://github.com/madler/zlib.git
+	ignore = all
