@@ -295,7 +295,7 @@ message("Add ton")
 include(BuildBLST)
 include(BuildSECP256K1)
 include(BuildLibbacktrace)
-#include(BuildMHD)
+include(BuildMHD)
 #include(BuildZLIB)
 
 

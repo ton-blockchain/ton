@@ -41,3 +41,7 @@
 	path = third-party/lz4
 	url = https://github.com/lz4/lz4.git
 	ignore = all
+[submodule "third-party/libmicrohttpd"]
+	path = third-party/libmicrohttpd
+	url = https://github.com/ton-blockchain/libmicrohttpd
+	ignore = all
