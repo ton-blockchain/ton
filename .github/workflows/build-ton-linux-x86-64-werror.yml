@@ -42,6 +42,16 @@ jobs:
           -DTON_WERROR_BUILD=On
         ninja -C build
 
+    - name: Check spaces at EOL
+      run: |
+        ! git grep --cached -Il '\s$'
+
+    - name: Check C++ formatting
+      run: |
+        # TODO: Run clang-format only on changed files.
+        clang-format-21 -i $(git ls-files '*.h' '*.hpp' '*.cpp' ':!^tolk/')
+        git diff --exit-code
+
     - name: Prepare Python environment
       run: |
         curl -LsSf https://astral.sh/uv/install.sh | sh

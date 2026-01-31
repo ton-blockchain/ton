@@ -268,7 +268,7 @@ if (USE_QUIC)
     set(OPENSSL_LIBRARIES ${OPENSSL_LIBRARIES} crypt32 CACHE STRING "OpenSSL libraries" FORCE)
   endif()
   set(OPENSSL_FOUND TRUE CACHE BOOL "OpenSSL found" FORCE)
-  
+
   function(ngtcp2_scope)
     set(BUILD_TESTING OFF)
     message("Add ngtcp2 with custom OpenSSL from ${OPENSSL_ROOT_DIR}")
@@ -280,7 +280,7 @@ if (USE_QUIC)
     set(NGTCP2_ROOT ${CMAKE_SOURCE_DIR}/third-party/ngtcp2)
   endfunction()
   ngtcp2_scope()
-  
+
   # Make sure ngtcp2 libraries depend on OpenSSL being built first
   add_dependencies(ngtcp2 OpenSSL)
   if (TARGET ngtcp2_crypto_quictls)

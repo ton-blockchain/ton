@@ -116,7 +116,7 @@ Execute from MinGW64 shell
   chmod +x build-mingw64-clang21.sh
   ./build-mingw64-clang21.sh -a
 ```
-As a result, you will get fully statically compiled TON windows binaries. 
+As a result, you will get fully statically compiled TON windows binaries.
 
 ### MSYS2 UCRT64 (x86-64)
 Execute from ucrt64 shell
