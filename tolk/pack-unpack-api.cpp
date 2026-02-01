@@ -100,6 +100,9 @@ public:
     if (any_type == TypeDataVoid::create()) {
       return {};
     }
+    if (any_type == TypeDataString::create()) {
+      return {};
+    }
     if (any_type->try_as<TypeDataAddress>()) {
       return {};
     }

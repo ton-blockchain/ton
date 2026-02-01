@@ -763,9 +763,14 @@ static std::pair<TypePtr, std::vector<var_idx_t>> pre_compile_constant_expressio
     return {TypeDataBool::create(), rvect};
   }
   if (const ConstValSlice* val = std::get_if<ConstValSlice>(&value)) {
-    std::vector rvect = code.create_tmp_var(TypeDataSlice::create(), origin, "(str-const)");
+    std::vector rvect = code.create_tmp_var(TypeDataSlice::create(), origin, "(slice-const)");
     code.emplace_back(origin, Op::_SliceConst, rvect, val->str_hex);
     return {TypeDataSlice::create(), rvect};
+  }
+  if (const ConstValString* val = std::get_if<ConstValString>(&value)) {
+    std::vector rvect = code.create_tmp_var(TypeDataString::create(), origin, "(str-const)");
+    code.emplace_back(origin, Op::_SnakeStringConst, rvect, val->str_val);
+    return {TypeDataString::create(), rvect};
   }
   if (const ConstValAddress* val = std::get_if<ConstValAddress>(&value)) {
     std::vector rvect = code.create_tmp_var(TypeDataAddress::internal(), origin, "(addr-const)");
@@ -1363,7 +1368,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
   }
   // `ton("0.05")` and others, we even don't need to calculate ir_idx for arguments, just replace with constexpr
   if (fun_ref->is_compile_time_const_val()) {
-    ConstValExpression value = eval_call_to_compile_time_function(v);
+    ConstValExpression value = eval_expression_if_const_or_fire(v);
     auto [type, rvect] = pre_compile_constant_expression(value, code, v);
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
@@ -1683,9 +1688,8 @@ static std::vector<var_idx_t> process_int_const(V<ast_int_const> v, CodeBlob& co
 }
 
 static std::vector<var_idx_t> process_string_const(V<ast_string_const> v, CodeBlob& code, TypePtr target_type) {
-  std::string literal_value = eval_string_const_standalone(v);
   std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(str-const)");
-  code.emplace_back(v, Op::_SliceConst, rvect, std::move(literal_value));
+  code.emplace_back(v, Op::_SnakeStringConst, rvect, v->str_val);   // if long, will be transfomed to snake
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 

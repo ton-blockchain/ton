@@ -76,10 +76,10 @@ fun test103() {
 @method_id(104)
 fun test104() {
     var dict = createEmptyDict();
-    dict.sDictSetBuilder(32, "7800", beginCell().storeUint(5 + 48, 8).storeUint(6 + 48, 8));
-    dict.sDictSet(32, "key1", "12");
-    var (old1, _) = dict.sDictSetAndGet(32, "key1", "34");
-    var (old2, _) = dict.sDictDeleteAndGet(32, "key1");
+    dict.sDictSetBuilder(32, "7800".literalSlice(), beginCell().storeUint(5 + 48, 8).storeUint(6 + 48, 8));
+    dict.sDictSet(32, "key1".beginParse(), "12".literalSlice());
+    var (old1, _) = dict.sDictSetAndGet(32, "key1".literalSlice(), "34".literalSlice());
+    var (old2, _) = dict.sDictDeleteAndGet(32, "key1".literalSlice());
     var (restK, restV, _) = dict.sDictGetFirst(32);
     var (restK1, restV1, _) = dict.sDictDeleteLastAndGet(32);
     assert (restK!.bitsEqual(restK1!)) throw 123;

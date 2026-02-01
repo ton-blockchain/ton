@@ -58,6 +58,7 @@ protected:
     type_id_void = 10,
     type_id_unknown = 11,
     type_id_coins = 17,
+    type_id_string = 18,
     type_id_never = 19,
     type_id_int8 = 42,
     type_id_int16 = 44,
@@ -255,6 +256,26 @@ public:
 
   int get_type_id() const override { return type_id_continuation; }
   std::string as_human_readable() const override { return "continuation"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `string` is TypeDataString — a cell containing snake-formatted text data.
+ * Snake format: data bytes in cell, if more data needed — ref to next cell.
+ * At TVM level, string is a cell (1 stack slot).
+ */
+class TypeDataString final : public TypeData {
+  TypeDataString() : TypeData(0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  int get_type_id() const override { return type_id_string; }
+  std::string as_human_readable() const override { return "string"; }
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
 };

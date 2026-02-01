@@ -6,5 +6,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr can not pass `slice` to `int32`
+@stderr can not pass `string` to `int32`
  */

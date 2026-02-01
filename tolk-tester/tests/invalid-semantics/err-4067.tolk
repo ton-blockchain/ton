@@ -8,7 +8,7 @@ fun increment(mutate i: int) {}
 fun set_pure() {
     // ok
     var i = 0;
-    var sh: [slice, int] = ["", 0];
+    var sh: [string, int] = ["", 0];
     increment(mutate i);
     increment(mutate sh.1);
     // err

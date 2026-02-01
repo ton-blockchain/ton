@@ -269,6 +269,11 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, const std::stri
       show_var_list(os, left, vars);
       os << " := " << str_const << std::endl;
       break;
+    case _SnakeStringConst:
+      os << indent << dis << "SNAKE_STR ";
+      show_var_list(os, left, vars);
+      os << " := " << str_const << std::endl;
+      break;
     case _Import:
       os << indent << dis << "IMPORT ";
       show_var_list(os, left, vars);

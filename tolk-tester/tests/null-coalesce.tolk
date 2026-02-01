@@ -15,9 +15,9 @@ fun getIntOrIntOr0(v1: int?, v2: int?) {
     return v1 ?? v2 ?? 0;
 }
 
-fun env(s: slice): int? {
-    if (s.bitsEqual("one")) { return 1; }
-    if (s.bitsEqual("two")) { return 2; }
+fun env(s: string): int? {
+    if (s.beginParse().bitsEqual("one".literalSlice())) { return 1; }
+    if (s.beginParse().bitsEqual("two".literalSlice())) { return 2; }
     return null;
 }
 
@@ -40,10 +40,10 @@ fun main(x: int?) {
     __expect_type(x ?? x, "int?");
     __expect_type(null ?? 8, "int");
     __expect_type(x ?? null, "int?");
-    __expect_type("" ?? null, "slice");
+    __expect_type("" ?? null, "string");
     __expect_type(x ?? x ?? x, "int?");
     __expect_type(x ?? x ?? x ?? 9, "int");
-    __expect_type((x ?? "asdf") as int | slice | bool, "int | slice | bool");
+    __expect_type((x ?? "asdf") as int | string | bool, "int | string | bool");
     __expect_type([x ?? (__expect_type(x, "null"), 8 as int?).1], "array<int?>");
 
     var my: int? = 5;
@@ -55,7 +55,7 @@ fun main(x: int?) {
     (my = 0) ?? x;
     __expect_type(my, "int");
 
-    var iors: int | slice = x ?? "asdf" ?? null;
+    var iors: int | string = x ?? "asdf" ?? null;
     var i32or: int32 | int64 | null = ([x].get(0) as unknown as int32?) ?? 8 as int64;
 
     if (0) {

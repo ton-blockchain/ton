@@ -24,7 +24,7 @@ fun Point.id(self) { return self; }
 
 struct User {
     id: int
-    name: slice
+    name: string
 }
 
 struct OuterStorage {
@@ -137,10 +137,10 @@ fun test6() {
 @method_id(107)
 fun test7() {
     var s = getStorage1(5);
-    s.owner.name = beginCell().storeInt(s.lastPoint.x, 32).endCell().beginParse();
+    s.owner.name = beginCell().storeInt(s.lastPoint.x, 32).endCell() as unknown as string;
     var s2 = s;
     assignCoords(mutate s.lastPoint);
-    return (s.owner.name.loadInt(32), s2.owner.name.loadInt(32), s.lastPoint, s2.lastPoint.sumCoords());
+    return (s.owner.name.beginParse().loadInt(32), s2.owner.name.beginParse().loadInt(32), s.lastPoint, s2.lastPoint.sumCoords());
 }
 
 struct Empty

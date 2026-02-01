@@ -472,6 +472,25 @@ struct S_RawTVMcellOrNull final : ISerializer {
   }
 };
 
+struct S_String final : ISerializer {
+  void pack(const PackContext* ctx, CodeBlob& code, AnyV origin, std::vector<var_idx_t>&& rvect) override {
+    tolk_assert(rvect.size() == 1);
+    ctx->storeRef(rvect[0]);    // string is a TVM CELL (probably, snaked)
+  }
+
+  std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
+    return ctx->loadRef("(loaded-string)");
+  }
+
+  void skip(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
+    ctx->skipRef();
+  }
+
+  PackSize estimate(const EstimateContext* ctx) override {
+    return PackSize(0, 0, 1, 1);
+  }
+};
+
 struct S_Coins final : ISerializer {
   void pack(const PackContext* ctx, CodeBlob& code, AnyV origin, std::vector<var_idx_t>&& rvect) override {
     tolk_assert(rvect.size() == 1);
@@ -1580,6 +1599,9 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
   }
   if (any_type == TypeDataSlice::create()) {
     return std::make_unique<S_Slice>();
+  }
+  if (any_type == TypeDataString::create()) {
+    return std::make_unique<S_String>();
   }
   if (any_type == TypeDataNullLiteral::create()) {
     return std::make_unique<S_Null>();

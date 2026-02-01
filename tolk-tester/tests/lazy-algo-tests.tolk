@@ -1,3 +1,5 @@
+const S0 = "".literalSlice()      // empty slice
+
 struct A { a1: int7; a2: int8; a3: int8; }
 struct B { b1: int7; b2: int8; b3: int8; }
 type AOrB = A | B;
@@ -209,6 +211,12 @@ struct StartsWithEmptyTensor {
     c: int8
 }
 
+struct HasStrings {
+    s1: string
+    s2: string
+    num: int8
+}
+
 
 fun loadWalletStorage() {
     return WalletStorage.fromSlice(stringHexToSlice("8000003d800000e4000000000000000000000000000000000000000000000000000000000000000020_"));
@@ -227,7 +235,7 @@ fun Point3d.sumOther(self, other: Point3d): int {
 
 
 fun algo1() {
-    val o = lazy Fields9.fromSlice("");
+    val o = lazy Fields9.fromSlice(S0);
     if (rand()) {
         __expect_lazy("[o] load f1");
         o.f1;
@@ -235,7 +243,7 @@ fun algo1() {
 }
 
 fun algo2() {
-    val o = lazy Fields9.fromSlice("");
+    val o = lazy Fields9.fromSlice(S0);
     __expect_lazy("[o] load f1");
     if (rand()) {
         o.f1;
@@ -245,7 +253,7 @@ fun algo2() {
 }
 
 fun algo3() {
-    val o = lazy Fields9.fromSlice("");
+    val o = lazy Fields9.fromSlice(S0);
     if (rand()) {
         return;
     }
@@ -254,7 +262,7 @@ fun algo3() {
 }
 
 fun algo4() {
-    val o = lazy Fields9.fromSlice("");
+    val o = lazy Fields9.fromSlice(S0);
     __expect_lazy("[o] load f1 f2");
     if (rand()) {
         o.f1;
@@ -264,14 +272,14 @@ fun algo4() {
 }
 
 fun algo5() {
-    val o = lazy Fields9.fromSlice("");
+    val o = lazy Fields9.fromSlice(S0);
     __expect_lazy("[o] skip (bits8), load f2, skip (bits8), load f4");
     o.f4;
     o.f2;
 }
 
 fun algo6() {
-    val o = lazy Fields9.fromSlice("");
+    val o = lazy Fields9.fromSlice(S0);
     __expect_lazy("[o] load f1 f2, skip (bits40), load f8");
     if (rand()) {
         o.f8;
@@ -281,7 +289,7 @@ fun algo6() {
 }
 
 fun algo7() {
-    val o = lazy Fields9.fromSlice("");
+    val o = lazy Fields9.fromSlice(S0);
     if (rand()) {
         __expect_lazy("[o] load f1 f2 f3 f4 f5 f6 f7 f8 f9");
         o;
@@ -291,7 +299,7 @@ fun algo7() {
 
 fun algo8() {
     if (rand()) {
-        val o: Fields9 = lazy Fields9.fromSlice("");
+        val o: Fields9 = lazy Fields9.fromSlice(S0);
         __expect_lazy("[o] load f1 f2 f3 f4 f5 f6 f7 f8 f9");
         o.method();
     } else {
@@ -310,7 +318,7 @@ fun algo9() {
 }
 
 fun algo10() {
-    val p = lazy Point3d.fromSlice("");
+    val p = lazy Point3d.fromSlice(S0);
     __expect_lazy("[p] load x, skip (bits32), load z");
     p.z;
     if (rand()) {
@@ -320,7 +328,7 @@ fun algo10() {
 }
 
 fun algo11() {
-    val p = lazy Point3d.fromSlice("");
+    val p = lazy Point3d.fromSlice(S0);
     var num = 0;
     if (10 > 2) {
         num += 1;
@@ -333,7 +341,7 @@ fun algo11() {
 
 fun algo12() {
     try {
-        val p = lazy Point3d.fromSlice("");
+        val p = lazy Point3d.fromSlice(S0);
         try {}
         catch {}
         assert(10>3, 1);
@@ -344,7 +352,7 @@ fun algo12() {
 }
 
 fun algo13() {
-    val o = lazy Fields9.fromSlice("");
+    val o = lazy Fields9.fromSlice(S0);
     if (10 > 3) {
         __expect_lazy("[o] load f1");
         assert(o.f1 > 0) throw 400;
@@ -352,7 +360,7 @@ fun algo13() {
 }
 
 fun algo14() {
-    val p = lazy Point.fromSlice("");
+    val p = lazy Point.fromSlice(S0);
     __expect_lazy("[p] load x");
     while (rand()) {
         p.x;
@@ -360,7 +368,7 @@ fun algo14() {
 }
 
 fun algo15() {
-    val p = lazy Point.fromSlice("");
+    val p = lazy Point.fromSlice(S0);
     __expect_lazy("[p] skip (bits8), load y");
     do {
         p.y;
@@ -368,7 +376,7 @@ fun algo15() {
 }
 
 fun algo16() {
-    val p = lazy Point3d.fromSlice("");
+    val p = lazy Point3d.fromSlice(S0);
     __expect_lazy("[p] load x, skip (bits32), load z");
     do {
         p.x;
@@ -376,7 +384,7 @@ fun algo16() {
 }
 
 fun algo17() {
-    val p = lazy Point.fromSlice("");
+    val p = lazy Point.fromSlice(S0);
     __expect_lazy("[p] load x y");
     repeat(p.x) {
         p.y;
@@ -384,7 +392,7 @@ fun algo17() {
 }
 
 fun algo18() {
-    val o = lazy Fields9.fromSlice("");
+    val o = lazy Fields9.fromSlice(S0);
     __expect_lazy("[o] load f1 f2, skip (bits16), load f5 f6");
     if (o.f1) {
         if (o.f2) {
@@ -395,20 +403,20 @@ fun algo18() {
 }
 
 fun algo19() {
-    val p = lazy Point.fromSlice("");
+    val p = lazy Point.fromSlice(S0);
     __expect_lazy("[p] load x y");
     var p2 = p;
     return (p2.x, p2.y);
 }
 
 fun algo20() {
-    val c = lazy ComplexWithPoint.fromSlice("");
+    val c = lazy ComplexWithPoint.fromSlice(S0);
     __expect_lazy("[c] skip (bits8), load p");
     return c.p.x;
 }
 
 fun algo21() {
-    val c = lazy ComplexWithPoint.fromSlice("");
+    val c = lazy ComplexWithPoint.fromSlice(S0);
     __expect_lazy("[c] load f1 p");
     if (c.f1 > 0) {
         return c.p.y;
@@ -417,13 +425,13 @@ fun algo21() {
 }
 
 fun algo22() {
-    var w = lazy WithTensor.fromSlice("");
+    var w = lazy WithTensor.fromSlice(S0);
     __expect_lazy("[w] skip (bits8), load t");
     w.t.0 = 10;
 }
 
 fun algo23() {
-    var w = lazy WithMaybeTensor.fromSlice("");
+    var w = lazy WithMaybeTensor.fromSlice(S0);
     __expect_lazy("[w] skip (bits8), load a2 t");
     if (w.t == null) {
         return w.a2;
@@ -432,7 +440,7 @@ fun algo23() {
 }
 
 fun algo24() {
-    val w = lazy WalletStorage.fromSlice("");
+    val w = lazy WalletStorage.fromSlice(S0);
     try {
         __expect_lazy("[w] skip (bits1), load seqno");
         return w.seqno as int;
@@ -442,7 +450,7 @@ fun algo24() {
 }
 
 fun algo25() {
-    val w = lazy WalletStorage.fromSlice("");
+    val w = lazy WalletStorage.fromSlice(S0);
     __expect_lazy("[w] skip (bits1), load seqno");
     try {
         return w.seqno as int;
@@ -455,7 +463,7 @@ fun algo25() {
 }
 
 fun algo26() {
-    val w = lazy WalletStorage.fromSlice("");
+    val w = lazy WalletStorage.fromSlice(S0);
     __expect_lazy("[w] skip (bits1), load seqno");
     try {
         return w.seqno + 1;
@@ -465,7 +473,7 @@ fun algo26() {
 }
 
 fun algo27() {
-    val w = lazy WalletStorage.fromSlice("");
+    val w = lazy WalletStorage.fromSlice(S0);
     __expect_lazy("[w] skip (bits1), load seqno walletId");
     try {
         return w.seqno + 1;
@@ -478,7 +486,7 @@ fun algo27() {
 }
 
 fun algo28() {
-    val w = lazy WalletStorage.fromSlice("");
+    val w = lazy WalletStorage.fromSlice(S0);
     try {
         try {
             return 1;
@@ -493,7 +501,7 @@ fun algo28() {
 }
 
 fun algo29() {
-    val w = lazy WalletStorage.fromSlice("");
+    val w = lazy WalletStorage.fromSlice(S0);
     try {
         __expect_lazy("[w] skip (bits1), load seqno walletId");
         try {
@@ -508,7 +516,7 @@ fun algo29() {
 }
 
 fun algo30() {
-    val w = lazy WalletStorage.fromSlice("");
+    val w = lazy WalletStorage.fromSlice(S0);
     if (true) {
         try {
             __expect_lazy("[w] skip (bits1), load seqno walletId");
@@ -525,7 +533,7 @@ fun algo30() {
 }
 
 fun algo31() {
-    val w = lazy WalletStorage.fromSlice("");
+    val w = lazy WalletStorage.fromSlice(S0);
     if (false) {}
     else {
         __expect_lazy("[w] skip (bits65), load publicKey");
@@ -536,7 +544,7 @@ fun algo31() {
 }
 
 fun algo32() {
-    val w = lazy WalletStorage.fromSlice("");
+    val w = lazy WalletStorage.fromSlice(S0);
     __expect_lazy("[w] load isSignatureAllowed");
     match (true) {
         true => { w.isSignatureAllowed }
@@ -545,7 +553,7 @@ fun algo32() {
 }
 
 fun algo33() {
-    val p = lazy ComplexWithPoint.fromSlice("");
+    val p = lazy ComplexWithPoint.fromSlice(S0);
     try { if(true) {} else {
         __expect_lazy("[p] skip (bits8), load p");
         p.p.x;
@@ -553,14 +561,14 @@ fun algo33() {
 }
 
 fun algo34() {
-    val p = lazy ComplexWithPoint.fromSlice("");
+    val p = lazy ComplexWithPoint.fromSlice(S0);
     __expect_lazy("[p] skip (bits8), load p f3");
     if (p.p.x) { }
     else { p.f3 }
 }
 
 fun algo35() {
-    var p = lazy ComplexWithPoint.fromSlice("");
+    var p = lazy ComplexWithPoint.fromSlice(S0);
     try {
         __expect_lazy("[p] load f1 p");
         if (p.p.x) { }
@@ -572,8 +580,8 @@ fun algo35() {
 }
 
 fun algo36() {
-    var p1 = lazy ComplexWithPoint.fromSlice("");
-    var p2 = lazy ComplexWithPoint.fromSlice("");
+    var p1 = lazy ComplexWithPoint.fromSlice(S0);
+    var p2 = lazy ComplexWithPoint.fromSlice(S0);
     __expect_lazy("[p1] skip (bits8), load p");
     try {
         __expect_lazy("[p2] load f1 p f3");
@@ -585,8 +593,8 @@ fun algo36() {
 }
 
 fun algo37() {
-    var p1 = lazy ComplexWithPoint.fromSlice("");
-    var p2 = lazy ComplexWithPoint.fromSlice("");
+    var p1 = lazy ComplexWithPoint.fromSlice(S0);
+    var p2 = lazy ComplexWithPoint.fromSlice(S0);
     try {
         if (10>3) {
             __expect_lazy("[p2] load f1 p f3");
@@ -599,8 +607,8 @@ fun algo37() {
 }
 
 fun algo38() {
-    var p1 = lazy ComplexWithPoint.fromSlice("");
-    var p2 = lazy ComplexWithPoint.fromSlice("");
+    var p1 = lazy ComplexWithPoint.fromSlice(S0);
+    var p2 = lazy ComplexWithPoint.fromSlice(S0);
     __expect_lazy("[p1] skip (bits8), load p f3");
     try {
         if (10>3) {
@@ -613,7 +621,7 @@ fun algo38() {
 }
 
 fun algo39() {
-    val p = lazy Point.fromSlice("");
+    val p = lazy Point.fromSlice(S0);
     __expect_lazy("[p] load x");
     return p.getX();
 }
@@ -633,45 +641,45 @@ fun algo41(getX: bool) {
 }
 
 fun algo42() {
-    var p = lazy Point.fromSlice("");
+    var p = lazy Point.fromSlice(S0);
     __expect_lazy("[p] load x y");      // calling a mutating method — not available for lazy
     p.assignX(10);
 }
 
 fun algo43() {
-    val p = lazy Point.fromSlice("");
+    val p = lazy Point.fromSlice(S0);
     __expect_lazy("[p] load x y");      // not a method — not available for lazy (not implemented)
     return getXOfPoint(p);
 }
 
 fun algo44() {
-    val p = lazy Point.fromSlice("");
+    val p = lazy Point.fromSlice(S0);
     __expect_lazy("[p] load x y");      // not an inlined method
     return p.getXNoInline();
 }
 
 fun algo46() {
-    var w = lazy WithEitherABEnd.fromSlice("");
+    var w = lazy WithEitherABEnd.fromSlice(S0);
     __expect_lazy("[w] skip (bits64), load f3, skip (bits64), load ab");
     w.checkF3(0);
     w.doMatch();
 }
 
 fun algo47() {
-    var f = lazy Fields9.fromSlice("");
+    var f = lazy Fields9.fromSlice(S0);
     __expect_lazy("[f] load f1 f2 f3 f4 f5 f6 f7 f8 f9");
     f.useAll();
 }
 
 fun algo48() {
-    var p = lazy Point.fromSlice("");
+    var p = lazy Point.fromSlice(S0);
     contract.getData();
     __expect_lazy("[p] load x y");
     p.forceLoadLazyObject();
 }
 
 fun algo49(forceLoad: bool) {
-    val l = lazy Fields9.fromSlice("");
+    val l = lazy Fields9.fromSlice(S0);
     if (forceLoad) {
         __expect_lazy("[l] load f1 f2 f3 f4 f5 f6 f7 f8 f9");
         try { l.forceLoadLazyObject() }
@@ -680,18 +688,18 @@ fun algo49(forceLoad: bool) {
 }
 
 fun algo50() {
-    var st = lazy NotFixedWidthStorage.fromSlice("");
+    var st = lazy NotFixedWidthStorage.fromSlice(S0);
     __expect_lazy("[st] skip (bits8) (int8?) (bits9) (int8 | bool) (address?) (bits608), load f11");
     st.f11;
 }
 
 fun algo51() {
-    var w1 = lazy MixedDataAndRefs.fromSlice("");
-    var w2 = lazy MixedDataAndRefs.fromSlice("");
-    var w3 = lazy MixedDataAndRefs.fromSlice("");
-    var w4 = lazy MixedDataAndRefs.fromSlice("");
-    var w5 = lazy MixedDataAndRefs.fromSlice("");
-    var w6 = lazy MixedDataAndRefs.fromSlice("");
+    var w1 = lazy MixedDataAndRefs.fromSlice(S0);
+    var w2 = lazy MixedDataAndRefs.fromSlice(S0);
+    var w3 = lazy MixedDataAndRefs.fromSlice(S0);
+    var w4 = lazy MixedDataAndRefs.fromSlice(S0);
+    var w5 = lazy MixedDataAndRefs.fromSlice(S0);
+    var w6 = lazy MixedDataAndRefs.fromSlice(S0);
 
     __expect_lazy("[w1] load r1");
     w1.r1;
@@ -712,13 +720,13 @@ fun algo52(cc: Cell<ItemState>?) {
 }
 
 fun algo53() {
-    val i = lazy ItemState.fromSlice("");
+    val i = lazy ItemState.fromSlice(S0);
     __expect_lazy("[i] load content");
     return i.content.beginParse();
 }
 
 fun algo54() {
-    val p = lazy Point3d.fromSlice("");
+    val p = lazy Point3d.fromSlice(S0);
     var r = 0;
     __expect_lazy("[p] load x y z");
     repeat (1) {
@@ -727,7 +735,7 @@ fun algo54() {
 }
 
 fun algo55() {
-    val p = lazy Point3d.fromSlice("");
+    val p = lazy Point3d.fromSlice(S0);
     __expect_lazy("[p] save immutable (tail), load x y z");
     return p.toCell({
         skipBitsNValidation: p.sumOther(p) == 0,
@@ -736,7 +744,7 @@ fun algo55() {
 
 
 fun algo100() {
-    var o = lazy AOrB.fromSlice("");
+    var o = lazy AOrB.fromSlice(S0);
     __expect_lazy("[o] lazy match");
     match (o) {
         A => {
@@ -755,21 +763,21 @@ fun algo100() {
 }
 
 fun algo101() {
-    val o = lazy WithEitherABMiddle.fromSlice("");
+    val o = lazy WithEitherABMiddle.fromSlice(S0);
     __expect_lazy("[o] skip (bits64), load ab, skip (bits32), load f5");
     o.f5;
     o.ab;
 }
 
 fun algo102() {
-    val o = lazy WithEitherABEnd.fromSlice("");
+    val o = lazy WithEitherABEnd.fromSlice(S0);
     __expect_lazy("[o] skip (bits128), load f5 ab");
     o.f5;
     o.ab;
 }
 
 fun algo103() {
-    val o = lazy WithEitherABMiddle.fromSlice("");
+    val o = lazy WithEitherABMiddle.fromSlice(S0);
     __expect_lazy("[o] skip (bits64), load ab");
     match (o.ab) {
         A => {}
@@ -778,7 +786,7 @@ fun algo103() {
 }
 
 fun algo104() {
-    val o = lazy WithEitherABEnd.fromSlice("");
+    val o = lazy WithEitherABEnd.fromSlice(S0);
     __expect_lazy("[o] skip (bits160), lazy match ab");
     match (o.ab) {
         A => {}
@@ -787,7 +795,7 @@ fun algo104() {
 }
 
 fun algo105() {
-    val o = lazy WithEitherABEnd.fromSlice("");
+    val o = lazy WithEitherABEnd.fromSlice(S0);
     __expect_lazy("[o] load f1 f2 f3, skip (bits64), lazy match ab");
     match (o.ab) {
         A => {
@@ -804,7 +812,7 @@ fun algo105() {
 }
 
 fun algo106() {
-    val o = lazy WithEitherABEnd.fromSlice("");
+    val o = lazy WithEitherABEnd.fromSlice(S0);
     __expect_lazy("[o] skip (bits96), load f4, skip (bits32), lazy match ab");
     if (rand()) {
         o.f4;
@@ -817,14 +825,14 @@ fun algo106() {
 }
 
 fun algo107() {
-    val o = lazy WithEitherABEnd.fromSlice("");
+    val o = lazy WithEitherABEnd.fromSlice(S0);
     __expect_lazy("[o] skip (bits160), load ab");
     if (o.ab is B) {}
     match (o.ab) {}
 }
 
 fun algo108(): int7 | int8 {
-    val o = lazy WithEitherABEnd.fromSlice("");
+    val o = lazy WithEitherABEnd.fromSlice(S0);
     __expect_lazy("[o] skip (bits160), lazy match ab");
     return match (o.ab) {
         A => {
@@ -839,7 +847,7 @@ fun algo108(): int7 | int8 {
 }
 
 fun algo109(): int {
-    val o = lazy WithEitherABEnd.fromSlice("");
+    val o = lazy WithEitherABEnd.fromSlice(S0);
     __expect_lazy("[o] load f1 f2, skip (bits32), load f4, skip (bits32), lazy match ab");
     match (o.ab) {
         A => {
@@ -854,7 +862,7 @@ fun algo109(): int {
 }
 
 fun algo110() {
-    val p = lazy Point3d.fromSlice("");
+    val p = lazy Point3d.fromSlice(S0);
     __expect_lazy("[p] load x y z");
     match (p.x) {
         1 => p.y,
@@ -863,7 +871,7 @@ fun algo110() {
 }
 
 fun algo111() {
-    val p = lazy Point3d.fromSlice("");
+    val p = lazy Point3d.fromSlice(S0);
     __expect_lazy("[p] load x y z");
     match (p.x) {
         1 => 1,
@@ -873,7 +881,7 @@ fun algo111() {
 }
 
 fun algo112() {
-    val o = lazy Fields9.fromSlice("");
+    val o = lazy Fields9.fromSlice(S0);
     __expect_lazy("[o] load f1 f2, skip (bits8), load f4 f5 f6");
     match (o.f2) {
         uint8 => {
@@ -884,7 +892,7 @@ fun algo112() {
 }
 
 fun algo113() {
-    val o = lazy Fields9.fromSlice("");
+    val o = lazy Fields9.fromSlice(S0);
     __expect_lazy("[o] load f1");
     match (o.f1) {
         uint8 => {
@@ -897,7 +905,7 @@ fun algo113() {
 type PointOrPoint3d = Point | Point3d;
 
 fun algo114() {
-    val o = lazy PointOrPoint3d.fromSlice("");
+    val o = lazy PointOrPoint3d.fromSlice(S0);
     __expect_lazy("[o] lazy match");
     match (o) {
         Point => {
@@ -913,7 +921,7 @@ fun algo114() {
 }
 
 fun algo115() {
-    val o = lazy WithEitherABMiddle.fromSlice("");
+    val o = lazy WithEitherABMiddle.fromSlice(S0);
     assert(10>3, 1);
     __expect_lazy("[o] load f1 f2 ab f4");
     o.f1 + o.f2;
@@ -925,7 +933,7 @@ fun algo115() {
 }
 
 fun algo116() {
-    val o = lazy WithEitherABMiddle.fromSlice("");
+    val o = lazy WithEitherABMiddle.fromSlice(S0);
     __expect_lazy("[o] load f1 f2 ab f4 f5");
     o.f1 + o.f2;
     match (o.ab) {
@@ -935,7 +943,7 @@ fun algo116() {
 }
 
 fun algo117() {
-    val o = lazy WithEitherABEnd.fromSlice("");
+    val o = lazy WithEitherABEnd.fromSlice(S0);
     __expect_lazy("[o] load f1 f2, skip (bits32), load f4 f5, lazy match ab");
     o.f1 + o.f2;
     match (o.ab) {
@@ -945,7 +953,7 @@ fun algo117() {
 }
 
 fun algo118() {
-    val o = lazy WithEitherABEnd.fromSlice("");
+    val o = lazy WithEitherABEnd.fromSlice(S0);
     if (10>3) {
         __expect_lazy("[o] load f1 f2, skip (bits96), lazy match ab");
         match (o.ab) {
@@ -957,7 +965,7 @@ fun algo118() {
 }
 
 fun algo119() {
-    val o = lazy WithEitherABEnd.fromSlice("");
+    val o = lazy WithEitherABEnd.fromSlice(S0);
     __expect_lazy("[o] load f1 f2, skip (bits96), lazy match ab");
     match (o.ab) {
         A => {
@@ -972,7 +980,7 @@ fun algo119() {
 }
 
 fun algo120() {
-    val o = lazy WithEitherABEnd.fromSlice("");
+    val o = lazy WithEitherABEnd.fromSlice(S0);
     __expect_lazy("[o] load f1, skip (bits128), lazy match ab");
     match (o.ab) {
         A => return o.ab.a2 * 1,
@@ -982,13 +990,13 @@ fun algo120() {
 }
 
 fun algo121() {
-    val o1 = lazy WithEitherABEnd.fromSlice("");
+    val o1 = lazy WithEitherABEnd.fromSlice(S0);
     __expect_lazy("[o1] load f1 f2 f3 f4 f5, lazy match ab");
     match (o1.ab) {
         A => { (o1.f1, o1.f2, o1.f3, o1.f4, o1.f5) }
         B => {}
     }
-    val o2 = lazy WithEitherABEnd.fromSlice("");
+    val o2 = lazy WithEitherABEnd.fromSlice(S0);
     __expect_lazy("[o2] load f1 f2 f3 f4 f5 ab");
     match (o2.ab) {
         A => { (o2) }
@@ -1000,7 +1008,7 @@ fun algo121() {
 type AOrWithEitherABEnd = A | WithEitherABEnd;
 
 fun algo122() {
-    val o = lazy AOrWithEitherABEnd.fromSlice("");
+    val o = lazy AOrWithEitherABEnd.fromSlice(S0);
     match (o) {
         A => {
             __expect_lazy("[o] load a1");
@@ -1017,7 +1025,7 @@ fun algo122() {
 }
 
 fun algo123() {
-    val o = lazy AOrB.fromSlice("");
+    val o = lazy AOrB.fromSlice(S0);
     return match (o) {
         A => {
             __expect_lazy("[o] load a1");
@@ -1032,7 +1040,7 @@ fun algo123() {
 }
 
 fun algo124() {
-    val o = lazy AOrB.fromSlice("");
+    val o = lazy AOrB.fromSlice(S0);
     return match (o) {
         A => {
             assert(10>3, 100);
@@ -1049,7 +1057,7 @@ fun algo124() {
 }
 
 fun algo127() {
-    val w = lazy WithMaybeTensor.fromSlice("");
+    val w = lazy WithMaybeTensor.fromSlice(S0);
     __expect_lazy("[w] skip (bits16), load t");
     match (w.t) {
         null => {}
@@ -1058,7 +1066,7 @@ fun algo127() {
 }
 
 fun algo128() {
-    val o = lazy AOrB.fromSlice("");
+    val o = lazy AOrB.fromSlice(S0);
     __expect_lazy("[o] lazy match");
     match (o) {
         A => {
@@ -1069,7 +1077,7 @@ fun algo128() {
 }
 
 fun algo129() {
-    val o = lazy WithEitherABEnd.fromSlice("");
+    val o = lazy WithEitherABEnd.fromSlice(S0);
     __expect_lazy("[o] skip (bits128), load f5, lazy match ab");
     match (o.ab) {
         A => {}
@@ -1080,7 +1088,7 @@ fun algo129() {
 }
 
 fun algo130() {
-    var o = lazy AOrB.fromSlice("");
+    var o = lazy AOrB.fromSlice(S0);
     try {
         return 1;
     } catch (excno) {
@@ -1100,7 +1108,7 @@ fun algo130() {
 }
 
 fun algo131() {
-    val o = lazy AOrB.fromSlice("");
+    val o = lazy AOrB.fromSlice(S0);
     match (o) {
         A => {
             try {
@@ -1122,7 +1130,7 @@ fun algo131() {
 }
 
 fun algo132(): int {
-    val o = lazy AOrB.fromSlice("");
+    val o = lazy AOrB.fromSlice(S0);
     match (o) {
         B => {
             __expect_lazy("[o] load b1 b2");
@@ -1145,7 +1153,7 @@ fun algo132(): int {
 }
 
 fun algo133(): void {
-    val o = lazy WithEitherABEnd.fromSlice("");
+    val o = lazy WithEitherABEnd.fromSlice(S0);
     try {}
     catch {
         try {
@@ -1159,7 +1167,7 @@ fun algo133(): void {
 }
 
 fun algo134(): void {
-    val o = lazy WithEitherABEnd.fromSlice("");
+    val o = lazy WithEitherABEnd.fromSlice(S0);
     try { try {
         __expect_lazy("[o] load f1 f2, skip (bits96), lazy match ab");
         try {
@@ -1172,7 +1180,7 @@ fun algo134(): void {
 }
 
 fun algo135() {
-    val o = lazy AOrB.fromSlice("");
+    val o = lazy AOrB.fromSlice(S0);
     match (o) {
         A => {
             __expect_lazy("[o] load a1 a2 a3");
@@ -1190,7 +1198,7 @@ fun algo135() {
 
 fun algo136() {
     while (true) {
-        val obj = lazy AOrB.fromSlice("");
+        val obj = lazy AOrB.fromSlice(S0);
         __expect_lazy("[obj] lazy match");
         match (obj) {
             A => { __expect_lazy("[obj] load a1"); obj.a1 }
@@ -1201,7 +1209,7 @@ fun algo136() {
 
 
 fun algo150() {
-    val o = lazy WithEitherABEnd.fromSlice("");
+    val o = lazy WithEitherABEnd.fromSlice(S0);
     var found = false;
     __expect_lazy("[o] skip (bits160), load ab");
     while (!found) {
@@ -1213,7 +1221,7 @@ fun algo150() {
 }
 
 fun algo151() {
-    val o = lazy WithEitherABEnd.fromSlice("");
+    val o = lazy WithEitherABEnd.fromSlice(S0);
     var found = false;
     if (!found) {
         __expect_lazy("[o] skip (bits160), lazy match ab");
@@ -1225,7 +1233,7 @@ fun algo151() {
 }
 
 fun algo152() {
-    val o = lazy WithEitherABEnd.fromSlice("");
+    val o = lazy WithEitherABEnd.fromSlice(S0);
     __expect_lazy("[o] skip (bits160), load ab");
     1 + match (o.ab) {
         A => 1,
@@ -1234,7 +1242,7 @@ fun algo152() {
 }
 
 fun algo153() {
-    val o = lazy WithEitherABEnd.fromSlice("");
+    val o = lazy WithEitherABEnd.fromSlice(S0);
     __expect_lazy("[o] skip (bits160), load ab");
     1 && match (o.ab) {
         A => 1,
@@ -1256,7 +1264,7 @@ fun algo154() {
 }
 
 fun algo224(): void {
-    val o = lazy WithEitherABEnd.fromSlice("");
+    val o = lazy WithEitherABEnd.fromSlice(S0);
     __expect_lazy("[o] skip (bits32), load f2, skip (bits32), load f4 f5 ab");
     match (o.ab) {
         A => {}
@@ -1275,9 +1283,9 @@ fun algo224(): void {
 
 fun algo225() {
     __expect_lazy("[c] lazy match");
-    match (val c = lazy MsgFullCounter.fromSlice("")) {
+    match (val c = lazy MsgFullCounter.fromSlice(S0)) {
         CounterIncrement => {
-            var d = lazy WalletStorage.fromSlice("");
+            var d = lazy WalletStorage.fromSlice(S0);
             __expect_lazy("[d] load (bits1) seqno, save immutable (tail)");
             d.seqno += 1;
             d.toCell();
@@ -1285,7 +1293,7 @@ fun algo225() {
             1 + c.byValue;
         }
         CounterDecrement => {
-            val c = lazy MsgFullCounter.fromSlice("");
+            val c = lazy MsgFullCounter.fromSlice(S0);
             __expect_lazy("[c] lazy match");
             match (c) {
                 CounterIncrement => {}
@@ -1319,7 +1327,7 @@ fun algo226() {
 }
 
 fun algo250() {
-    var f = lazy Fields9.fromSlice("");
+    var f = lazy Fields9.fromSlice(S0);
     __expect_lazy("[f] skip (bits8), load f2");
     match (f.f2) {
         uint8 => {}
@@ -1327,7 +1335,7 @@ fun algo250() {
 }
 
 fun algo251() {
-    var f = lazy Fields9.fromSlice("");
+    var f = lazy Fields9.fromSlice(S0);
     __expect_lazy("[f] skip (bits8), load f2");
     match (f.f2) {
         0 => 1,
@@ -1337,7 +1345,7 @@ fun algo251() {
 }
 
 fun algo252() {
-    var p = lazy Point.fromSlice("");
+    var p = lazy Point.fromSlice(S0);
     __expect_lazy("[p] skip (bits8), load y");
     match (p.y) {
         int8 => {}
@@ -1345,7 +1353,7 @@ fun algo252() {
 }
 
 fun algo253() {
-    var p = lazy Point.fromSlice("");
+    var p = lazy Point.fromSlice(S0);
     __expect_lazy("[p] load x y");
     match (p.y) {
         0 => p.x,
@@ -1355,7 +1363,7 @@ fun algo253() {
 }
 
 fun algo254() {
-    var p = lazy Point.fromSlice("");
+    var p = lazy Point.fromSlice(S0);
     __expect_lazy("[p] lazy match");
     match (p) {
         Point => {
@@ -1365,7 +1373,7 @@ fun algo254() {
 }
 
 fun algo255() {
-    var p = lazy Point.fromSlice("");
+    var p = lazy Point.fromSlice(S0);
     __expect_lazy("[p] lazy match");
     match (p) {
         Point => {
@@ -1377,7 +1385,7 @@ fun algo255() {
 }
 
 fun algo256() {
-    var p = lazy Point.fromSlice("");
+    var p = lazy Point.fromSlice(S0);
     match (p) {
         Point => {
             __expect_lazy("[p] load x");
@@ -1387,7 +1395,7 @@ fun algo256() {
 }
 
 fun algo257(): int {
-    val k = lazy HasIncrementEnd.fromSlice("");
+    val k = lazy HasIncrementEnd.fromSlice(S0);
     __expect_lazy("[k] skip (bits8), load inc");
     match (k.inc) {
         CounterIncrement => {
@@ -1472,28 +1480,28 @@ fun algo306() {
 }
 
 fun algo307() {
-    var c = lazy ComplexWithPoint.fromSlice("");
+    var c = lazy ComplexWithPoint.fromSlice(S0);
     __expect_lazy("[c] load (bits8) p, save immutable (tail)");
     c.p.assignX(10);
     c.toCell();
 }
 
 fun algo308() {
-    var c = lazy ComplexWithPoint.fromSlice("");
+    var c = lazy ComplexWithPoint.fromSlice(S0);
     __expect_lazy("[c] load (bits8) p, save immutable (tail)");
     c.p.x = 10;
     c.toCell();
 }
 
 fun algo309() {
-    var c = lazy ComplexWithPoint.fromSlice("");
+    var c = lazy ComplexWithPoint.fromSlice(S0);
     __expect_lazy("[c] load f1 p f3");  // object used for writing and toCell, load all for safety
     c = { f1: 10, p: {x:0,y:0}, f3: c.f3 };
     c.toCell();
 }
 
 fun algo310() {
-    var c = lazy ComplexWithPoint.fromSlice("");
+    var c = lazy ComplexWithPoint.fromSlice(S0);
     if (true) {
         __expect_lazy("[c] load (bits8) p, save immutable (tail)");
         debug.print(c.p.y += 2);
@@ -1510,7 +1518,7 @@ fun algo311() {
 }
 
 fun algo312() {
-    var st = lazy NotFixedWidthStorage.fromSlice("");
+    var st = lazy NotFixedWidthStorage.fromSlice(S0);
     __expect_lazy("[st] load (bits8) (int8?) (bits9) (cell) (int8 | bool) (address?) f8, save immutable (tail)");
     if (rand()) {
         st.f8 += 1;
@@ -1519,7 +1527,7 @@ fun algo312() {
 }
 
 fun algo313() {
-    var st = lazy NotFixedWidthStorage.fromSlice("");
+    var st = lazy NotFixedWidthStorage.fromSlice(S0);
     if (rand()) {
         __expect_lazy("[st] load (bits8) (int8?) (bits9) f5, save immutable (tail), skip (int8 | bool) (address?) (bits8), load f9");
         st.f5 = createEmptyCell();
@@ -1529,15 +1537,25 @@ fun algo313() {
 }
 
 fun algo314() {
-    var l = lazy HasUnusedAddressInTensor.fromSlice("");
+    var l = lazy HasUnusedAddressInTensor.fromSlice(S0);
     __expect_lazy("[l] skip (bits283) ((int8, address, int8)), load f3");
     l.f3;
 }
 
 fun algo315() {
-    val o = lazy StartsWithEmptyTensor.fromSlice("");
+    val o = lazy StartsWithEmptyTensor.fromSlice(S0);
     __expect_lazy("[o] skip (bits8), load c");
     return (o.c);
+}
+
+fun algo316() {
+    val o1 = lazy HasStrings.fromSlice(S0);
+    __expect_lazy("[o1] load num");     // no need to skip strings
+    o1.num;
+
+    val o2 = lazy HasStrings.fromSlice(S0);
+    __expect_lazy("[o2] skip (string), load s2");
+    o2.s2.beginParse();
 }
 
 

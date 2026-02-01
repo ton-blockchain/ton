@@ -83,6 +83,7 @@ TypePtr TypeDataCell::singleton;
 TypePtr TypeDataSlice::singleton;
 TypePtr TypeDataBuilder::singleton;
 TypePtr TypeDataContinuation::singleton;
+TypePtr TypeDataString::singleton;
 TypePtr TypeDataAddress::singleton_internal;
 TypePtr TypeDataAddress::singleton_any;
 TypePtr TypeDataUnknown::singleton;
@@ -99,6 +100,7 @@ void type_system_init() {
   TypeDataSlice::singleton = new TypeDataSlice;
   TypeDataBuilder::singleton = new TypeDataBuilder;
   TypeDataContinuation::singleton = new TypeDataContinuation;
+  TypeDataString::singleton = new TypeDataString;
   TypeDataAddress::singleton_internal = new TypeDataAddress(0);
   TypeDataAddress::singleton_any = new TypeDataAddress(1);
   TypeDataUnknown::singleton = new TypeDataUnknown;
@@ -679,6 +681,16 @@ bool TypeDataContinuation::can_rhs_be_assigned(TypePtr rhs) const {
   return rhs == TypeDataNever::create();
 }
 
+bool TypeDataString::can_rhs_be_assigned(TypePtr rhs) const {
+  if (rhs == singleton) {
+    return true;
+  }
+  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
+    return can_rhs_be_assigned(rhs_alias->underlying_type);
+  }
+  return rhs == TypeDataNever::create();
+}
+
 bool TypeDataAddress::can_rhs_be_assigned(TypePtr rhs) const {
   if (const TypeDataAddress* rhs_address = rhs->try_as<TypeDataAddress>()) {
     // note that not `address` to `any_address` also requires manual `as`
@@ -977,6 +989,16 @@ bool TypeDataBuilder::can_be_casted_with_as_operator(TypePtr cast_to) const {
 }
 
 bool TypeDataContinuation::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
+  }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
+  }
+  return cast_to == singleton || cast_to == TypeDataUnknown::create();
+}
+
+bool TypeDataString::can_be_casted_with_as_operator(TypePtr cast_to) const {
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
     return to_union->calculate_exact_variant_to_fit_rhs(this);
   }

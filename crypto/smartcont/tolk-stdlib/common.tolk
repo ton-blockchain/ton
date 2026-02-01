@@ -86,6 +86,13 @@ type varint32 = builtin
 /// `varuint32` is `int` at runtime, but serialized as "variadic unsigned int", 0 <= X < 2^248. 
 type varuint32 = builtin
 
+/// `string` represents text data stored as a cell in snake format.
+/// Snake format: data bytes, if more data exists — ref to next cell.
+/// Example of "abcd" in a single chunk: cell(data: "abcd") (32 bits inside)
+/// Example of "abcd" in two chunks: cell(data: "ab", ref: cell(data: "cd"))
+/// At the TVM level, `string` is a TVM `CELL` (1 stack slot).
+type string = builtin
+
 /// `bits256`, `bits111`, etc. is "a fixed-width slice with N bits and 0 refs", N <= 1023.
 /// Note: use `as` operator to convert `slice` to `bitsN`: `someSlice as bits256` 
 /// (manually writing `as` enforces you to think that this conversion is correct).
@@ -190,7 +197,7 @@ struct Cell<T> {
 /// debug.printString(int.typeName());  // "int"
 /// ```
 @pure
-fun T.typeName(): slice
+fun T.typeName(): string
     builtin
 
 /// Get human-readable type name of any object for logging or low-level purposes.
@@ -199,7 +206,7 @@ fun T.typeName(): slice
 /// debug.printString(42.typeNameOfObject());   // "int"
 /// ```
 @pure
-fun T.typeNameOfObject(self): slice
+fun T.typeNameOfObject(self): string
     builtin
 
 /**
@@ -293,7 +300,7 @@ fun T.fromTuple(packedObject: array<unknown>): T
 /// Example: `ton("0.05")` is equal to 50000000.
 /// Note, that `ton()` requires a constant string; `ton(some_var)` is an error.
 @pure
-fun ton(floatString: slice): coins
+fun ton(floatString: string): coins
     builtin
 
 /// Computes the minimum of two integers.
@@ -617,7 +624,8 @@ fun createEmptySlice(): slice
 /// ```
 /// Note: `stringCrc32(slice_var)` does NOT work! It accepts a constant string and works at compile-time.
 @pure
-fun stringCrc32(constString: slice): int
+@deprecated("""use `"str".crc32()` instead of `stringCrc32("str")`""")
+fun stringCrc32(constString: string): int
     builtin
 
 /// Compile-time function that calculates crc16 (XMODEM) of a constant string.
@@ -626,7 +634,8 @@ fun stringCrc32(constString: slice): int
 /// ```
 /// Note: `stringCrc16(slice_var)` does NOT work! It accepts a constant string and works at compile-time.
 @pure
-fun stringCrc16(constString: slice): int
+@deprecated("""use `"str".crc16()` instead of `stringCrc16("str")`""")
+fun stringCrc16(constString: string): int
     builtin
 
 /// Compile-time function that calculates sha256 of a constant string and returns 256-bit integer.
@@ -636,7 +645,8 @@ fun stringCrc16(constString: slice): int
 /// Note: it's a compile-time function, `stringSha256(slice_var)` does NOT work!
 /// Use [slice.bitsHash] or [slice.hash] (declared below) to hash a slice without/with its refs at runtime.
 @pure
-fun stringSha256(constString: slice): int
+@deprecated("""use `"str".sha256()` instead of `stringSha256("str")`""")
+fun stringSha256(constString: string): int
     builtin
 
 /// Compile-time function that calculates sha256 of a constant string and takes the first 32 bits.
@@ -645,7 +655,8 @@ fun stringSha256(constString: slice): int
 /// ```
 /// Note: `stringSha256_32(slice_var)` does NOT work! It accepts a constant string and works at compile-time.
 @pure
-fun stringSha256_32(constString: slice): int
+@deprecated("""use `"str".sha256_32()` instead of `stringSha256_32("str")`""")
+fun stringSha256_32(constString: string): int
     builtin
 
 /// Compile-time function that takes N-chars ascii string and interprets it as a number in base 256.
@@ -654,7 +665,8 @@ fun stringSha256_32(constString: slice): int
 /// ```
 /// Note: `stringToBase256(slice_var)` does NOT work! It accepts a constant string and works at compile-time.
 @pure
-fun stringToBase256(constString: slice): int
+@deprecated("""use `"str".toBase256()` instead of `stringToBase256("str")`""")
+fun stringToBase256(constString: string): int
     builtin
 
 /// Computes the representation hash of a cell and returns it as a 256-bit unsigned integer.
@@ -802,12 +814,12 @@ fun sizeof<T>(anyVariable: T): int
 /// Example: `debug.print(v)` and other methods.
 struct debug
 
-/// Dump a variable to the debug log.
+/// Dump a variable to the debug log as a raw TVM stack value.
 fun debug.print<T>(x: T): void
     builtin
 
 /// Dump a string to the debug log.
-fun debug.printString<T>(x: T): void
+fun debug.printString(x: string): void
     builtin
 
 /// Dumps the stack (at most the top 255 values) and shows the total stack depth.
@@ -1078,6 +1090,85 @@ fun MapEntry<K, slice>.loadValue(self): slice {
 
 
 /**
+    Strings.
+    A string is a language primitive — a cell containing snake-formatted text data.
+    See [string] built-in type.
+    Also see `@stdlib/strings.tolk` — additional methods for strings (including `StringBuilder`),
+  which must be explicitly imported to be used.
+ */
+
+/// Begins parsing the string content. Use for accessing raw bytes.
+/// Remember that a string may be a snake: not just "ab", but "a" + (ref "b").
+@pure
+fun string.beginParse(self): slice
+    asm "CTOS"
+
+/// Compile-time method that returns raw bytes of a short string literal as a slice.
+/// Use this when you need a slice constant, not a string.
+/// ```
+/// const s: slice = "hello".literalSlice()
+/// ```
+/// Unlike `beginParse()`, it works at compile-time and is allowed in constant expressions.
+@pure
+fun string.literalSlice(self): slice
+    builtin
+
+/// Compile-time method that calculates crc32 of a constant string.
+/// ```
+/// const op = "some_str".crc32()  // = 4013618352 = 0xEF3AF4B0
+/// ```
+/// Note: this is a compile-time method, it works only with string literals.
+@pure
+fun string.crc32(self): int
+    builtin
+
+/// Compile-time method that calculates crc16 (XMODEM) of a constant string.
+/// ```
+/// const op = "some_str".crc16()  // = 53407 = 0xD09F
+/// ```
+/// Note: this is a compile-time method, it works only with string literals.
+@pure
+fun string.crc16(self): int
+    builtin
+
+/// Compile-time method that calculates sha256 of a constant string.
+/// ```
+/// const hash = "some_crypto_key".sha256()
+/// ```
+/// Note: this is a compile-time method, it works only with string literals.
+@pure
+fun string.sha256(self): int
+    builtin
+
+/// Compile-time method that calculates sha256 of a constant string and takes the first 32 bits.
+/// ```
+/// const minihash = "some_crypto_key".sha256_32()
+/// ```
+/// Note: this is a compile-time method, it works only with string literals.
+@pure
+fun string.sha256_32(self): int
+    builtin
+
+/// Compile-time method that converts a constant hex-encoded string to a slice.
+/// ```
+/// const v = "abcdef".hexToSlice()  // = slice with 3 bytes: 0xAB,0xCD,0xEF
+/// ```
+/// Note: this is a compile-time method, it works only with string literals.
+@pure
+fun string.hexToSlice(self): slice
+    builtin
+
+/// Compile-time method that takes N-chars ascii string and interprets it as a number in base 256.
+/// ```
+/// const value = "AB".toBase256() // = 16706 (65*256 + 66)
+/// ```
+/// Note: this is a compile-time method, it works only with string literals.
+@pure
+fun string.toBase256(self): int
+    builtin
+
+
+/**
     Slice primitives: parsing cells.
     When you _load_ some data, you mutate the slice (shifting an internal pointer on the stack).
     When you _preload_ some data, you just get the result without mutating the slice.
@@ -1089,7 +1180,8 @@ fun MapEntry<K, slice>.loadValue(self): slice {
 /// ```
 /// Note: `stringHexToSlice(slice_var)` does NOT work! It accepts a constant string and works at compile-time.
 @pure
-fun stringHexToSlice(constStringBytesHex: slice): slice
+@deprecated("""use `"hex".hexToSlice()` instead of `stringHexToSlice("hex")`""")
+fun stringHexToSlice(constStringBytesHex: string): slice
     builtin
 
 /// Converts a cell into a slice.
@@ -1208,6 +1300,11 @@ fun slice.preloadMaybeRef(self): cell?
 fun slice.skipMaybeRef(mutate self): self
     asm "SKIPOPTREF"
 
+/// Loads a string from a slice. A string is a nested ref, so just load a ref.
+@pure
+fun slice.loadString(mutate self): string
+    asm( -> 1 0) "LDREF"
+
 
 /**
     Builder primitives: constructing cells.
@@ -1251,6 +1348,11 @@ fun builder.storeUint(mutate self, x: int, len: int): self
 @pure
 fun builder.storeSlice(mutate self, s: slice): self
     asm(s self) "STSLICE"
+
+/// Stores a string into a builder (it's a TVM cell, stored as a ref).
+@pure
+fun builder.storeString(mutate self, s: string): self
+    asm(s self) "STREF"
 
 /// Stores an internal address into a builder.
 @pure
@@ -1362,7 +1464,7 @@ fun builder.bitsCount(self): int
 /// ```
 /// Returns `address`, which can be stored in a struct, compared with `==`, etc.
 @pure
-fun address(stdAddress: slice): address
+fun address(stdAddress: string): address
     builtin
 
 /// Extracts workchain and hash from a standard (internal) address.

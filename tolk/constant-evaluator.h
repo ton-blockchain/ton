@@ -25,6 +25,7 @@ namespace tolk {
 struct ConstValInt;
 struct ConstValBool;
 struct ConstValSlice;
+struct ConstValString;
 struct ConstValAddress;
 struct ConstValNullLiteral;
 struct ConstValTensor;
@@ -43,6 +44,7 @@ typedef std::variant<
   ConstValInt,
   ConstValBool,
   ConstValSlice,
+  ConstValString,
   ConstValAddress,
   ConstValNullLiteral,
   ConstValTensor,
@@ -61,6 +63,10 @@ struct ConstValBool {
 
 struct ConstValSlice {
   std::string str_hex;
+};
+
+struct ConstValString {
+  std::string str_val;
 };
 
 struct ConstValAddress {
@@ -89,11 +95,10 @@ struct ConstValCastToType {
 };
 
 ConstValExpression eval_and_cache_const_init_val(GlobalConstPtr const_ref);
-ConstValExpression eval_call_to_compile_time_function(AnyExprV v_call);
+ConstValExpression eval_expression_if_const_or_fire(AnyExprV v);
 
 std::vector<td::RefInt256> calculate_enum_members_with_values(EnumDefPtr enum_ref);
 
 void check_expression_is_constant_or_fire(AnyExprV v_expr);
-std::string eval_string_const_standalone(AnyExprV v_string);
 
 } // namespace tolk

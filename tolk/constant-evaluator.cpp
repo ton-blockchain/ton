@@ -30,6 +30,10 @@ static Error err_const_string_required(std::string_view f_name, std::string_view
   return err("function `{}` requires a constant string, like `{}(\"{}\")`", f_name, f_name, example_arg);
 }
 
+static Error err_const_string_required(std::string_view method_name) {
+  return err("method `{}` requires a constant string, like \"some_str\".{}()", method_name, method_name);
+}
+
 static Error err_not_a_constant_expression() {
   return err("not a constant expression");
 }
@@ -213,13 +217,26 @@ static td::RefInt256 operator>>(td::RefInt256 x, const td::RefInt256& y) {
   return x;
 }
 
+// for `"some_str".crc32()` we also accept any string-const expressions, like `SOME_STR.crc32()`
+static bool extract_string_literal_from_v(AnyExprV v, std::string& out) {
+  try {
+    ConstValExpression val = unwrap_const_cast(eval_expression_if_const_or_fire(v));
+    if (ConstValString* val_s = std::get_if<ConstValString>(&val)) {
+      out = std::move(val_s->str_val);
+      return true;
+    }
+  } catch (...) {}
+  return false;
+}
+
 // given `ton("0.05")` evaluate it to 50000000
-// given `stringCrc32("some_str")` evaluate it
+// given `stringCrc32("some_str")` or `"some_str".crc32()` evaluate it
 // etc.
 static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_function_call> v, std::string_view f_name) {
-  // most functions accept 1 argument, but static compile-time methods like `MyStruct.getDeclaredPackPrefix()` have 0 args
+  TypePtr receiver = v->fun_maybe->receiver_type;
+
+  // static compile-time methods like `MyStruct.getDeclaredPackPrefix()` have 0 args
   if (v->get_num_args() == 0) {
-    TypePtr receiver = v->fun_maybe->receiver_type;
     f_name = v->fun_maybe->method_name;
 
     if (f_name == "getDeclaredPackPrefix" || f_name == "getDeclaredPackPrefixLen") {
@@ -231,19 +248,67 @@ static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_funct
       return ConstValInt{td::make_refint(val)};
     }
     if (f_name == "typeName" || f_name == "typeNameOfObject") {
-      std::string readable = receiver->as_human_readable();
-      td::Slice str_slice = td::Slice(readable.data(), std::min(126, static_cast<int>(readable.size())));
-      return ConstValSlice{td::hex_encode(str_slice)};
+      return ConstValString{receiver->as_human_readable()};
+    }
+  }
+
+  // string methods: "hello".crc32(), "hello".sha256(), etc.
+  // copy-paste from `stringCrc32()` and similar (below), which are deprecated and will be deleted soon
+  if (receiver == TypeDataString::create()) {
+    f_name = v->fun_maybe->method_name;
+
+    // support both `"abc".crc32()` and `string.crc32("abc")`
+    tolk_assert(v->get_num_args() == !v->dot_obj_is_self);
+    AnyExprV self_obj = v->dot_obj_is_self ? v->get_self_obj() : v->get_arg(0)->get_expr();
+    std::string str;
+    if (!extract_string_literal_from_v(self_obj, str)) {
+      err_const_string_required(f_name).fire(v);
+    }
+
+    if (f_name == "crc32") {
+      return ConstValInt{td::make_refint(td::crc32(td::Slice{str.data(), str.size()}))};
+    }
+    if (f_name == "crc16") {
+      return ConstValInt{td::make_refint(td::crc16(td::Slice{str.data(), str.size()}))};
+    }
+    if (f_name == "sha256") {
+      unsigned char hash[32];
+      digest::hash_str<digest::SHA256>(hash, str.data(), str.size());
+      return ConstValInt{td::bits_to_refint(hash, 256, false)};
+    }
+    if (f_name == "sha256_32") {
+      unsigned char hash[32];
+      digest::hash_str<digest::SHA256>(hash, str.data(), str.size());
+      return ConstValInt{td::bits_to_refint(hash, 32, false)};
+    }
+    if (f_name == "hexToSlice") {
+      unsigned char buff[128];
+      long bits = td::bitstring::parse_bitstring_hex_literal(buff, sizeof(buff), str.data(), str.data() + str.size());
+      if (bits < 0 || bits > 1023) {
+        err("invalid hex bitstring constant").fire(self_obj);
+      }
+      return ConstValSlice{static_cast<std::string>(str)};
+    }
+    if (f_name == "toBase256") {
+      td::RefInt256 intval = td::hex_string_to_int256(td::hex_encode(td::Slice(str.data(), str.size())));
+      if (intval.is_null() || !intval->signed_fits_bits(257)) {
+        err("invalid or too long integer ascii-constant").fire(self_obj);
+      }
+      return ConstValInt{std::move(intval)};
+    }
+    if (f_name == "literalSlice") {
+      if (str.size() > 127) {
+        err("too long const string, can't get raw bytes, it's a snake cell").fire(self_obj);
+      }
+      return ConstValSlice{td::hex_encode(td::Slice(str.data(), str.size()))};
     }
   }
 
   tolk_assert(v->get_num_args() == 1);    // checked by type inferring
   AnyExprV v_arg = v->get_arg(0)->get_expr();
 
-  std::string_view str;
-  if (auto as_string = v_arg->try_as<ast_string_const>()) {
-    str = as_string->str_val;
-  } else {
+  std::string str;
+  if (!extract_string_literal_from_v(v_arg, str)) {
     // ton(SOME_CONST) is not supported
     // ton(0.05) is not supported (it can't be represented in AST even)
     // stringCrc32(SOME_CONST) / stringCrc32(some_var) also, it's compile-time literal-only
@@ -294,8 +359,8 @@ static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_funct
 
   if (f_name == "stringToBase256") {      // previously, postfix "..."u
     td::RefInt256 intval = td::hex_string_to_int256(td::hex_encode(td::Slice(str.data(), str.size())));
-    if (intval.is_null() || !intval->is_valid()) {
-      err("too long integer ascii-constant").fire(v_arg);
+    if (intval.is_null() || !intval->signed_fits_bits(257)) {
+      err("invalid or too long integer ascii-constant").fire(v_arg);
     }
     return ConstValInt{std::move(intval)};
   }
@@ -454,8 +519,7 @@ public:
       return ConstValBool{v_bool->bool_val};
     }
     if (auto v_string = v->try_as<ast_string_const>()) {
-      td::Slice str_slice = td::Slice(v_string->str_val.data(), v_string->str_val.size());
-      return ConstValSlice{td::hex_encode(str_slice)};
+      return ConstValString{v_string->str_val};
     }
     if (auto v_par = v->try_as<ast_parenthesized_expression>()) {
       return eval_any_v_or_fire(v_par->get_expr());
@@ -590,21 +654,10 @@ std::vector<td::RefInt256> calculate_enum_members_with_values(EnumDefPtr enum_re
   return values;
 }
 
-// for just a string literal "asdf" in Tolk code, it's hex-encoded "61626364",
-// and surrounded as `x{61626364}` into Fift output
-std::string eval_string_const_standalone(AnyExprV v_string) {
-  auto v = v_string->try_as<ast_string_const>();
-  tolk_assert(v);
-  td::Slice str_slice = td::Slice(v->str_val.data(), v->str_val.size());
-  return td::hex_encode(str_slice);
-}
-
-// for `ton("0.05")` and similar compile-time only functions, we evaluate them in-place
-// and push already evaluated expression to IR vars
-ConstValExpression eval_call_to_compile_time_function(AnyExprV v_call) {
-  auto v = v_call->try_as<ast_function_call>();
-  tolk_assert(v && v->fun_maybe->is_compile_time_const_val());
-  return parse_vertex_call_to_compile_time_function(v, v->fun_maybe->name);
+// for any constant expression: `1 + 2` / `ton("0.05")` / `SOME_STR.crc32()`, consteval them;
+// a non-constant expression: `a + b` / `foo()`, will fire (and can be wrapped by try/catch)
+ConstValExpression eval_expression_if_const_or_fire(AnyExprV v) {
+  return ConstExpressionEvaluator::eval_any_v_or_fire(v);
 }
 
 } // namespace tolk

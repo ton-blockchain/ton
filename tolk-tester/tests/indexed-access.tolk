@@ -353,7 +353,7 @@ fun main(){
     1 TUPLE                     //  t1
     2 PUSHINT                   //  t1 '7=2
     0 SETINDEX                  //  t1
-    x{} PUSHSLICE               //  t1 '8
+    x{} PUSHSLICE
     STRDUMP DROP                //  t1
     1 PUSHINT                   //  t1 '12=1
     1 TUPLE                     //  t1 '11
@@ -364,7 +364,7 @@ fun main(){
     SWAP                        //  t1 t2 '19 '21=2
     0 SETINDEX                  //  t1 t2 '23
     0 SETINDEX                  //  t1 t2
-    x{} PUSHSLICE               //  t1 t2 '24
+    x{} PUSHSLICE
     STRDUMP DROP                //  t1 t2
     1 PUSHINT                   //  t1 t2 '27=1
     1 TUPLE                     //  t1 t2 g_gTup
@@ -374,7 +374,7 @@ fun main(){
     SWAP                        //  t1 t2 g_gTup '34=2
     0 SETINDEX                  //  t1 t2 g_gTup
     $gTup SETGLOB               //  t1 t2
-    x{} PUSHSLICE               //  t1 t2 '35
+    x{} PUSHSLICE
     STRDUMP DROP                //  t1 t2
     1 PUSHINT                   //  t1 t2 '38=1
     2 PUSHINT                   //  t1 t2 g_gTens.0=1 g_gTens.1=2
@@ -387,7 +387,7 @@ fun main(){
     SWAP                        //  t1 t2 g_gTens.0 g_gTens.1=4
     2 TUPLE
     $gTens SETGLOB              //  t1 t2
-    x{} PUSHSLICE               //  t1 t2 '45
+    x{} PUSHSLICE
     STRDUMP DROP                //  t1 t2
     $gTup GETGLOB               //  t1 t2 g_gTup
     $gTens GETGLOB

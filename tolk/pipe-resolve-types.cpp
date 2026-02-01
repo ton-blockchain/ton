@@ -105,6 +105,9 @@ static TypePtr try_parse_predefined_type(std::string_view str) {
       if (str == "coins") return TypeDataCoins::create();
       if (str == "never") return TypeDataNever::create();
       break;
+    case 6:
+      if (str == "string") return TypeDataString::create();
+      break;
     case 7:
       if (str == "builder") return TypeDataBuilder::create();
       if (str == "address") return TypeDataAddress::internal();

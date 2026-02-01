@@ -1,4 +1,5 @@
 import "@stdlib/lisp-lists"
+import "@stdlib/strings"
 
 struct JustInt32 {
     v: MInt32
@@ -353,7 +354,7 @@ fun test26() {
 @method_id(127)
 fun test27() {
     var m = createEmptyMap<int8, slice>();
-    m.set(1, "");
+    m.set(1, createEmptySlice());
     return (m.findFirst().getKey(), m.findFirst().loadValue().remainingBitsCount());
 }
 
@@ -378,7 +379,7 @@ fun test29() {
     val a1 = m.addIfNotExists(1, DataWithCell{a: null, v: 0, p: null, payload: null}.toCell().beginParse());
     val a2 = m.addIfNotExists(2, DataWithCell{a: null, v: 0, p: Point{x:20,y:20}.toCell(), payload: null}.toCell().beginParse());
     val a3 = m.addIfNotExists(3, DataWithCell{a: null, v: 0, p: Point{x:30,y:30}.toCell(), payload: createEmptyCell()}.toCell().beginParse());
-    val r4 = m.replaceAndGetPrevious(4, "");
+    val r4 = m.replaceAndGetPrevious(4, createEmptySlice());
     return (
         a1, a2, a3, r4, 
         DataWithCell.fromSlice(m.mustGet(2)).payload, 
@@ -596,6 +597,21 @@ fun test44() {
     return totalValues;
 }
 
+@method_id(145)
+fun test45() {
+    var m = createEmptyMap<int32, string>();
+    m.set(1, "1");
+    m.set(2, "3");
+    m.replaceIfExists(2, "2");
+    m.set(100, StringBuilder{}.append("1").append("0").append("0").build());
+    return (
+        m.get(2).loadValue().beginParse().bitsEqual("2".literalSlice()),
+        m.mustGet(1).calculateLength(),
+        m.mustGet(100).beginParse().remainingBitsAndRefsCount(),
+        m.mustGet(100).calculateLength(),
+    )
+}
+
 
 fun main() {
     __expect_type(createEmptyMap<int8, (int32, int64)>, "() -> map<int8, (int32, int64)>");
@@ -647,6 +663,7 @@ fun main() {
 @testcase | 142 | 80         | [ 123 12345 80 800 ]
 @testcase | 143 |            | [ 23 [ 24 (null) ] ] [ 5 (null) ] (null)
 @testcase | 144 |            | [ 1 2 3 4 5 6 7 ]
+@testcase | 145 |            | -1 1 8 1 3
 
 @fif_codegen
 """

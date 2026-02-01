@@ -409,17 +409,17 @@ fun test38() {
         if (y == null) { return -1; }
         return x + y;
     }
-    var t: (int?, slice?) = (null, null);
+    var t: (int?, string?) = (null, null);
     if (!false) { t.0 = 1; }
-    if (true) { t.1 = beginCell().endCell().beginParse(); }
+    if (true) { t.1 = "abcd"; }
     __expect_type(t.0, "int");
-    __expect_type(t.1, "slice");
-    t.0 + t.1.loadInt(32);
+    __expect_type(t.1, "string");
+    t.0 + t.1.beginParse().loadUint(1);
     assignNull2(mutate t.0, mutate t.1);
     __expect_type(t.0, "int?");
-    __expect_type(t.1, "slice?");
-    t.0 != null && t.1 != null ? t.0 + t.1.loadInt(32) : -1;
-    return t.0 != null && t.1 != null ? t.0 + t.1.loadInt(32) : -1;
+    __expect_type(t.1, "string?");
+    t.0 != null && t.1 != null ? t.0 + t.1.beginParse().loadUint(1) : -1;
+    return t.0 != null && t.1 != null ? t.0 + t.1.beginParse().loadUint(1) : -1;
 }
 
 @method_id(139)

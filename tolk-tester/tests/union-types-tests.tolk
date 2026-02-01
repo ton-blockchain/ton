@@ -19,7 +19,7 @@ fun testFlatten() {
     __expect_type(0 as (int? | int), "int?");
     __expect_type(0 as (slice | int? | slice? | cell), "slice | int | null | cell");
     __expect_type(0 as (| int | (int | int)), "int");
-    __expect_type(0 as (slice | (slice | (slice | int) | (| cell | slice?))), "slice | int | cell | null");
+    __expect_type(0 as (string | (string | (string | int) | (| cell | string?))), "string | int | cell | null");
 
     __expect_type(0 as (MInt | MNull), "MInt?");
     __expect_type(0 as (MInt | slice | int), "MInt | slice");
@@ -49,8 +49,8 @@ fun testFlatten() {
 
     __expect_type(match (0) { int => [] }, "array<unknown>");
     __expect_type(match (0 as int|slice) { int => 0, slice => 0 }, "int");
-    __expect_type(match (0 as int|slice) { int => 0, slice => 0 as int8 } as int|int8, "int | int8");
-    __expect_type(match (0 as int?) { int => "", null => null }, "slice?");
+    __expect_type(match (0 as int|string) { int => 0, string => 0 as int8 } as int|int8, "int | int8");
+    __expect_type(match (0 as int?) { int => "", null => null }, "string?");
     __expect_type(match (0 as int?) {
         int => 10>3 ? match(0) { int => 0 } : match (10>3 ? 6 : null) { null => 0, int => { return; } },
         null => match(null) { null => 0 }
@@ -236,13 +236,13 @@ fun test21() {
 }
 
 @method_id(122)
-fun test22(a: int, b: int | slice) {
+fun test22(a: int, b: int | string) {
     var result = 0;
     if (a is int) { result += 1 }
-    if (a is int || a is slice) { result += 2 }
-    if (a is builder || a is slice) { result += 3 }
+    if (a is int || a is string) { result += 2 }
+    if (a is builder || a is string) { result += 3 }
     if (b is int) { result += 10 }
-    if ((b is int) | (b is slice)) { result += 11 }
+    if ((b is int) | (b is string)) { result += 11 }
     if ((b is builder) | (b is int)) { result += 12 }
     return result
 }
@@ -786,7 +786,7 @@ fun test62() {
         ((5 as int32) as int32 | int64).toTuple(),
         ((5 as int64) as int32 | int64).toTuple(),
         myFromTuple<int32 | int64>([10, 48] as tuple) is int64,
-        myFromTuple<int32 | int64>([10, 48] as tuple).typeNameOfObject().bitsEqual("int32 | int64"),
+        myFromTuple<int32 | int64>([10, 48] as tuple).typeNameOfObject().beginParse().bitsEqual("int32 | int64".literalSlice()),
     ) 
 }
 
@@ -871,7 +871,7 @@ fun main() {
 @testcase | 120 |           | 5
 @testcase | 121 |           | -1 0 0 -1 -1 0
 @testcase | 122 | 0 0 1     | 36
-@testcase | 122 | 0 0 4     | 14
+@testcase | 122 | 0 0 18    | 14
 @testcase | 123 | 1         | 1 2
 @testcase | 123 | 0         | 10 20
 @testcase | 124 |           | 0 1 0 1 0 0 1 0

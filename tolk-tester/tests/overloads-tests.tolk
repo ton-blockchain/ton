@@ -39,12 +39,12 @@ fun test1() {
 
 fun T.doSome2(self): int { return 0 }
 fun int8.doSome2(self): cell { return createEmptyCell() }
-fun int16.doSome2(self): slice { return "" }
+fun int16.doSome2(self) { return "" }
 
 fun test2() {
     __expect_type(5.doSome2(), "int");
     __expect_type((5 as int8).doSome2(), "cell");
-    __expect_type(((5 as int8) as int16).doSome2(), "slice");
+    __expect_type(((5 as int8) as int16).doSome2(), "string");
     __expect_type((5 as int?).doSome2(), "int");
     __expect_type(5.doSome2().doSome2(), "int");
     __expect_type((1, 2).doSome2(), "int");
@@ -65,12 +65,12 @@ fun test3() {
     __expect_type(MyPair<never, (slice,slice)>{}.mapFn(), "int4");
 }
 
-fun (int|slice).unionMix(self): slice { return "" }
+fun (int|slice).unionMix(self): slice { return createEmptySlice() }
 fun int.unionMix(self): bool { return true }
 
 fun test4() {
     __expect_type((5 as int).unionMix(), "bool");
-    __expect_type(("".unionMix()), "slice");
+    __expect_type((createEmptySlice().unionMix()), "slice");
     __expect_type(((5 as int|slice).unionMix()), "slice");
 }
 
@@ -186,20 +186,20 @@ fun T.p(self): int3 { return 0 }
 fun test11() {
     __expect_type((5, "").p(), "int1");
     __expect_type((5 as int8, "").p(), "int8");
-    __expect_type(("", "").p(), "slice");
+    __expect_type(("", "").p(), "string");
     __expect_type((1, 2, 3).p(), "int3");
 }
 
-fun Wrapper<T|slice>.w(self): int1 { return 0 }
+fun Wrapper<T|string>.w(self): int1 { return 0 }
 fun Wrapper<T>.w(self): int2 { return 0 }
 
 fun test12() {
-    __expect_type(Wrapper<int|slice>{item:0}.w(), "int1");
-    __expect_type(Wrapper<PointAlias|slice>{item:""}.w(), "int1");
+    __expect_type(Wrapper<int|string>{item:0}.w(), "int1");
+    __expect_type(Wrapper<PointAlias|string>{item:""}.w(), "int1");
     __expect_type(Wrapper<Wrapper<int>>{item:{item:0}}.w(), "int2");
-    // here the compiler finds T=slice resulting in Wrapper<slice|slice> (it's correct)
+    // here the compiler finds T=string resulting in Wrapper<string|string> (it's correct)
     // and chooses (1) due to a deeper shape
-    __expect_type(Wrapper<slice>{item:""}.w(), "int1");
+    __expect_type(Wrapper{item:""}.w(), "int1");
 }
 
 type MyCell<T> = cell

@@ -35,7 +35,7 @@ class ConstantExpressionsChecker final : public ASTVisitorFunctionBody {
     // check `ton("0.05")` and others for correctness (not `ton(local_var)`, etc.)
     if (v->fun_maybe && v->fun_maybe->is_compile_time_const_val()) {
       // on invalid usage, this call will fire
-      eval_call_to_compile_time_function(v);
+      eval_expression_if_const_or_fire(v);
       // note that in AST tree, it's still left as `ton("0.05")`, `stringCrc32("...")`, etc.
       // later, when transforming to IR, such compile-time functions are handled specially
     }

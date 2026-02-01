@@ -229,7 +229,7 @@ fun test118(x: int) {
         throw 123;
     } else {
         if (x < -100) { throw 456; }
-        else { st = { owner: "" }}
+        else { st = { owner: "".beginParse() }}
     }
 
     var i3: (int, int) | builder;

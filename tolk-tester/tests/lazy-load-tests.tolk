@@ -1420,8 +1420,8 @@ fun demo310() {
         f6: 10,
         f7: createAddressNone(),
         f8: 9,
-        f9: "" as bits200,
-        f10: ("" as bits400, ()),
+        f9: createEmptySlice() as bits200,
+        f10: ("".literalSlice() as bits400, ()),
         f11: 0,
     }.toCell({skipBitsNValidation: true});
     var st = lazy cell.load();
@@ -1745,7 +1745,7 @@ fun demo411(s: slice) {
 
 @method_id(412)
 fun demo412() {
-    val msg = lazy AOrB.fromSlice("");
+    val msg = lazy AOrB.fromSlice(createEmptySlice());
     match (msg) {
     }
     return 123;

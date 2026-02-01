@@ -24,9 +24,10 @@
 
 namespace tolk {
 
-// make an error on overflow 1023 bits
+// make an error on overflow 1023 bits or 4 cells
 static Error err_theoretical_overflow_1023(StructPtr struct_ref, PackSize size) {
-  return err("struct `{}` can exceed 1023 bits in serialization (estimated size: {}..{} bits)\n\n"
+  bool exceeds_in_bits = size.max_bits > 1023;
+  return err("struct `{}` can exceed {} {} in serialization (estimated size: {}..{} {})\n\n"
                   "1) either suppress it by adding an annotation:\n"
                   ">     @overflow1023_policy(\"suppress\")\n"
                   ">     struct {} {\n"
@@ -38,7 +39,13 @@ static Error err_theoretical_overflow_1023(StructPtr struct_ref, PackSize size) 
                   ">         ...\n"
                   ">         more: Cell<ExtraFields>;\n"
                   ">     }\n",
-                  struct_ref, size.min_bits, size.max_bits, struct_ref->name, struct_ref->name);
+                  struct_ref,
+                  exceeds_in_bits ? 1023 : 4,
+                  exceeds_in_bits ? "bits" : "refs",
+                  exceeds_in_bits ? size.min_bits : size.min_refs,
+                  exceeds_in_bits ? size.max_bits : size.max_refs,
+                  exceeds_in_bits ? "bits" : "refs",
+                  struct_ref, struct_ref);
 }
 
 GNU_ATTRIBUTE_NOINLINE
@@ -98,7 +105,7 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
     }
 
     PackSize size = estimate_serialization_size(t_struct);
-    if (size.max_bits > 1023 && !size.is_unpredictable_infinity()) {
+    if ((size.max_bits > 1023 || size.max_refs > 4) && !size.is_unpredictable_infinity()) {
       if (struct_ref->overflow1023_policy == StructData::Overflow1023Policy::not_specified) {
         err_theoretical_overflow_1023(struct_ref, size).fire(struct_ref->ident_anchor);
       }

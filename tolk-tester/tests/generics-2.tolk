@@ -270,7 +270,7 @@ fun test14() {
     var s1 = Storage { Wrapper: wrap(999), backup: null };
     var s2 = Storage { Wrapper: wrap(makePair(1, "")), backup: makePair(2, "") };
     __expect_type(s1, "Storage<int>");
-    __expect_type(s2, "Storage<Pair<int, slice>>");
+    __expect_type(s2, "Storage<Pair<int, string>>");
     return (s1, s2.backup!.first);
 }
 
@@ -324,7 +324,7 @@ struct UnionHolder<T> {
 
 @method_id(118)
 fun test18() {
-    var uh: UnionHolder<int | slice> = { item: wrap(123 as int|slice), extra: wrap("" as int|slice|bool) };
+    var uh: UnionHolder<int | slice> = { item: wrap(123 as int|slice), extra: wrap(createEmptySlice() as int|slice|bool) };
     __expect_type(uh, "UnionHolder<int | slice>");
     __expect_type(uh.item, "Wrapper<int | slice>");
     __expect_type(uh.extra, "Wrapper<int | slice | bool>");

@@ -681,13 +681,13 @@ template<>
 // examples: "asdf" / "LTIME" (in asm body) / stringCrc32("asdf") (as an argument)
 // note, that TVM doesn't have strings, it has only slices, so "hello" has type slice
 struct Vertex<ast_string_const> final : ASTExprLeaf {
-  std::string_view str_val;
+  std::string str_val;      // unescaped literal; if originally is `"with\"quotes"`, we keep `with"quotes`
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
 
-  Vertex(SrcRange range, std::string_view str_val)
+  Vertex(SrcRange range, std::string str_val)
     : ASTExprLeaf(ast_string_const, range)
-    , str_val(str_val) {}
+    , str_val(std::move(str_val)) {}
 };
 
 template<>

@@ -6,6 +6,6 @@ fun failIncompatibleTypesForT() {
 
 /**
 @compilation_should_fail
-@stderr can not pass `slice` to `int`
+@stderr can not pass `string` to `int`
 @stderr f(32
  */

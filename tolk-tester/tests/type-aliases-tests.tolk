@@ -193,7 +193,7 @@ fun cell.getFakeDepth(self) { return 2; }
 fun test12(makeNotNull: bool) {
     var d = createEmptyDict();
     if (makeNotNull) {
-        d.iDictSet(32, 123, "");
+        d.iDictSet(32, 123, createEmptySlice());
     }
     var t = createEmptyTuple();
     if (d != null) {

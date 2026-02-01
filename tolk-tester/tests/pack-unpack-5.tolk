@@ -264,6 +264,15 @@ fun test24() {
     )
 }
 
+@method_id(125)
+fun test25() {
+    return (
+        string.estimate(),
+        Cell<string>.estimate(),
+        array<string>.estimate(),
+    )
+}
+
 fun main() {
     __expect_type(int8.estimatePackSize(), "(int, int, int, int)");
 }
@@ -285,4 +294,5 @@ fun main() {
 @testcase | 122 | | [ 267 267 0 0 ] [ 2 267 0 0 ] [ 267 267 0 0 ] [ 1 268 0 0 ] [ 267 267 0 0 ] [ 2 267 0 0 ] [ 2 522 0 0 ] [ 1 523 0 0 ]
 @testcase | 123 | | [ 9 9 0 1 ] [ 9 9 0 1 ]
 @testcase | 124 | | [ 42 74 0 1 ] [ 0 0 0 0 ]
+@testcase | 125 | | [ 0 0 1 1 ] [ 0 0 1 1 ] [ 9 9 0 1 ]
  */

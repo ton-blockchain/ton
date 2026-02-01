@@ -6,5 +6,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr type `array<slice>` is not assignable to `array<int>`
+@stderr type `array<string>` is not assignable to `array<int>`
  */

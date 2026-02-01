@@ -2,12 +2,12 @@ fun takeAnySlice(slice: slice) {}
 fun getSomeSlice() { return beginCell().endCell().beginParse(); }
 fun getNullableBytes16(): bytes16? { return getSomeSlice() as bytes16; }
 
-const someBytes = "asdf" as bytes16;
-const anotherBytes: bytes16 = "asdf" as bytes16;
+const someBytes = "asdf".literalSlice() as bytes16;
+const anotherBytes: bytes16 = "asdf".literalSlice() as bytes16;
 
 fun autoInferBytes16() {
     if (random.uint256()) { return someBytes; }
-    else if (random.uint256()) { return true ? "" as bytes16 : anotherBytes; }
+    else if (random.uint256()) { return true ? "".beginParse() as bytes16 : anotherBytes; }
     else { return someBytes!; }
 }
 

@@ -1,3 +1,5 @@
+import "@stdlib/strings"
+
 const ZERO = 0;
 
 fun sumABDef0(a: int, b: int = 0) {
@@ -226,6 +228,26 @@ fun test14(p1: bool?, p2: bool?): (bool, int) {
     return (p1 ?? (i.increment(), p2).1 ?? (i.increment(), 66).1 as unknown as bool, i);
 }
 
+struct S15 {
+    f: string = "abcd"
+}
+
+@inline_ref
+fun helper15(s: string = "abcd") {
+    return s.equalTo(S15{}.f);
+}
+
+@method_id(115)
+fun test15() {
+    return (
+        helper15(),
+        helper15("abcd"),
+        helper15(StringBuilder{}.append("ab").append("").append("cd").build()),
+        helper15("def"),
+        helper15(StringBuilder{}.append("").build()),
+    )
+}
+
 fun main() {
     // mark used to codegen them
     cmp1; cmp2; cmp3; cmp4;
@@ -251,6 +273,7 @@ fun main() {
 @testcase | 114 | -1 0      | -1 0
 @testcase | 114 | null -1   | -1 1
 @testcase | 114 | null null | 66 2
+@testcase | 115 |           | -1 -1 -1 0 0
 
 @fif_codegen
 """

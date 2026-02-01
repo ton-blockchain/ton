@@ -12,7 +12,7 @@ fun CustomInt.unpackFromSlice(mutate s: slice) {
 
 fun main() {
     var s = "";
-    s.loadAny<CustomInt>();
+    s.beginParse().loadAny<CustomInt>();
 }
 
 /**

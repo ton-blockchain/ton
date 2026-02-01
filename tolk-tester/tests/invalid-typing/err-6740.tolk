@@ -4,6 +4,6 @@ struct A {
 
 /**
 @compilation_should_fail
-@stderr can not assign `slice` to `int`
+@stderr can not assign `string` to `int`
 @stderr v1: int = "asdf"
  */

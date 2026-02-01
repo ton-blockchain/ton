@@ -311,6 +311,7 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
   switch (cl) {
     case _IntConst:
     case _SliceConst:
+    case _SnakeStringConst:
     case _GlobVar:
     case _Call:
     case _CallInd:
@@ -522,6 +523,7 @@ bool prune_unreachable(std::unique_ptr<Op>& ops) {
   switch (op.cl) {
     case Op::_IntConst:
     case Op::_SliceConst:
+    case Op::_SnakeStringConst:
     case Op::_GlobVar:
     case Op::_SetGlob:
     case Op::_CallInd:
@@ -705,6 +707,10 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
       values.add_newval(left[0]).set_const(str_const);
       break;
     }
+    case _SnakeStringConst: {
+      values.add_newval(left[0]).set_const(str_const);
+      break;
+    }
     case _Call: {
       prepare_args(values);
       if (!f_sym->is_code_function()) {
@@ -880,6 +886,7 @@ bool Op::mark_noreturn() {
     case _Import:
     case _IntConst:
     case _SliceConst:
+    case _SnakeStringConst:
     case _Let:
     case _Tuple:
     case _UnTuple:

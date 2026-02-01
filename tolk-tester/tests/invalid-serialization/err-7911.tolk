@@ -9,7 +9,7 @@ struct Storage {
 
 fun main() {
     // it's okay, the field 'more' is not checked here
-    var st = Storage.fromSlice("");
+    var st = Storage.fromSlice(createEmptySlice());
     // fails on a load attempt:
     st.more.load();
 }

@@ -9,5 +9,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr can not apply operator `+` to `int8` and `slice`
+@stderr can not apply operator `+` to `int8` and `string`
  */

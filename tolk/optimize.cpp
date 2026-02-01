@@ -669,6 +669,40 @@ bool Optimizer::detect_rewrite_N_TUPLE_N_UNTUPLE() {
   return true;
 }
 
+// pattern `<b x{...} s, b> PUSHREF` + `CTOS` -> `x{...} PUSHSLICE`
+// (for example, `"str".beginParse()` will expand at compile-time)
+bool Optimizer::detect_rewrite_PUSHREF_CTOS() {
+  bool first_b_pushref = op_[0]->op.starts_with("<b x{") && op_[0]->op.ends_with("} s, b> PUSHREF");
+  if (!first_b_pushref || pb_ < 2) {
+    return false;
+  }
+
+  bool second_ctos = op_[1]->op == "CTOS" || op_[1]->op == "CTOS STRDUMP DROP";
+  if (!second_ctos) {
+    return false;
+  }
+
+  // check for `x{hex}` — no spaces, invalid symbols, etc.
+  std::string_view hex = std::string_view(op_[0]->op).substr(5, op_[0]->op.size() - 15 - 5);
+  bool x_is_correct = true;
+  for (char c : hex) {
+    x_is_correct &= (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+  }
+  if (!x_is_correct) {
+    return false;
+  }
+
+  p_ = 2;
+  q_ = 1;
+  std::string op = "x{" + std::string(hex) + "} PUSHSLICE";
+  oq_[0] = std::make_unique<AsmOp>(AsmOp::Custom(op_[0]->origin, op, 0, 1));
+  if (op_[1]->op == "CTOS STRDUMP DROP") {    // debug.printString("str")
+    q_ = 2;
+    oq_[1] = std::make_unique<AsmOp>(AsmOp::Custom(op_[1]->origin, "STRDUMP DROP", 1, 0));
+  }
+  return true;
+}
+
 // pattern `0 EQINT` + `NOT` -> `0 NEQINT` and other (mathematical operations + NOT), like `!(a >= 4)` -> `a < 4`;
 // since the first is boolean (-1 or 0), NOT will invert it, there are no occasions with bitwise integers;
 // it's especially helpful to invert condition of `do while` for TVM `UNTIL`
@@ -1174,6 +1208,7 @@ bool Optimizer::find_at_least(int pb) {
          detect_rewrite_NEWC_ENDC_CTOS() || detect_rewrite_NEWC_ENDC() ||
          detect_rewrite_emptySlice_ENDS() ||
          detect_rewrite_N_TUPLE_N_UNTUPLE() ||
+         detect_rewrite_PUSHREF_CTOS() ||
          detect_rewrite_xxx_NOT() ||
          (!(mode_ & 1) && replace_BOOLNOT_to_NOT()) ||
          (!(mode_ & 1) &&

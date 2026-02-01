@@ -153,6 +153,41 @@ static td::RefInt256 parse_tok_int_const(std::string_view text, SrcRange cur_ran
   return td::make_refint(result);
 }
 
+// parse and un-escape a string token; for text `"with\"quotes"`, return `with"quotes`: just contents
+static std::string parse_tok_string_const(std::string_view text, SrcRange cur_range) {
+  // trim surrounding quotes
+  int trim_n = text.starts_with(R"(""")") ? 3 : 1;    // multi-line literal: 3 quotes outside
+  text = text.substr(trim_n, text.size() - 2 * trim_n);
+  if (text.size() >= 32768) {
+    err("too long string literal").fire(cur_range);
+  }
+  // unescape contents within
+  std::string unescaped;
+  unescaped.reserve(text.size());
+  for (size_t i = 0; i < text.size(); ++i) {
+    if (text[i] == '\r' && text[i + 1] == '\n') {   // normalize CRLF line endings to LF
+      unescaped += '\n';
+      ++i;
+      continue;
+    }
+    if (text[i] != '\\') {
+      unescaped += text[i];
+      continue;
+    }
+    switch (text[++i]) {
+      case 'n':  unescaped += '\n'; break;
+      case 'r':  unescaped += '\r'; break;
+      case 't':  unescaped += '\t'; break;
+      case '\\': unescaped += '\\'; break;
+      case '\'': unescaped += '\''; break;
+      case '"':  unescaped += '"';  break;
+      default:
+        err("invalid escape sequence \\{}", std::string_view(&text[i], 1)).fire(cur_range);
+    }
+  }
+  return unescaped;
+}
+
 
 
 // --------------------------------------------
@@ -938,14 +973,9 @@ static AnyExprV parse_expr100(Lexer& lex) {
     }
     case tok_string_const: {
       SrcRange range = lex.cur_range();
-      std::string_view str_val = lex.cur_str();     // with surrounding quotes, remove them
-      if (str_val.starts_with(R"(""")")) {        // multi-line literal: begins-ends with 3 quotes
-        str_val = str_val.substr(3, str_val.size() - 6);
-      } else {
-        str_val = str_val.substr(1, str_val.size() - 2);
-      }
+      std::string_view orig_str = lex.cur_str();  // with surrounding quotes and non-escaped symbols
       lex.next();
-      return createV<ast_string_const>(range, str_val);
+      return createV<ast_string_const>(range, parse_tok_string_const(orig_str, range));
     }
     case tok_underscore: {
       SrcRange range = lex.cur_range();

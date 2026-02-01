@@ -107,7 +107,8 @@ static bool is_TValue_raw_slice(TypePtr TValue) {
 
 // `map<K, Cell<T>>` can emit SETREF instructions
 static bool is_TValue_cell_or_CellT(TypePtr TValue) {
-  return TValue->unwrap_alias() == TypeDataCell::create() || is_type_cellT(TValue->unwrap_alias());  
+  return TValue->unwrap_alias() == TypeDataCell::create() || is_type_cellT(TValue->unwrap_alias())
+      || TValue->unwrap_alias() == TypeDataString::create();
 }
 
 bool check_mapKV_TKey_is_valid(TypePtr TKey, std::string& because_msg) {

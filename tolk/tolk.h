@@ -280,6 +280,7 @@ struct Op {
     _Again,
     _TryCatch,
     _SliceConst,
+    _SnakeStringConst,
   };
   OpKind cl;
   enum { _Disabled = 1, _NoReturn = 2, _Impure = 4, _ArgOrderAlreadyEqualsAsm = 8 };
@@ -911,6 +912,7 @@ struct Optimizer {
   bool detect_rewrite_NEWC_ENDC();
   bool detect_rewrite_emptySlice_ENDS();
   bool detect_rewrite_N_TUPLE_N_UNTUPLE();
+  bool detect_rewrite_PUSHREF_CTOS();
   bool detect_rewrite_xxx_NOT();
   bool replace_BOOLNOT_to_NOT();
 

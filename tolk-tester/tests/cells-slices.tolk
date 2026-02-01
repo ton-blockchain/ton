@@ -96,8 +96,8 @@ fun test6() {
 fun test7() {
     // since .store() methods now mutate, this piece of code works not as earlier (mutates uri_builder)
     var uri_builder = beginCell();
-    var uri_slice = uri_builder.storeSlice(".json").endCell().beginParse();
-    var image_slice = uri_builder.storeSlice(".png").endCell().beginParse();
+    var uri_slice = uri_builder.storeSlice(".json".beginParse()).endCell().beginParse();
+    var image_slice = uri_builder.storeSlice(".png".beginParse()).endCell().beginParse();
     return (uri_builder.bitsCount(), uri_slice.remainingBitsCount(), image_slice.remainingBitsCount());
 }
 
@@ -105,9 +105,9 @@ fun test7() {
 fun test8() {
     var uri_builder = beginCell();
     var fresh = uri_builder;
-    var uri_slice = fresh.storeSlice(".json").endCell().beginParse();
+    var uri_slice = fresh.storeSlice(".json".literalSlice()).endCell().beginParse();
     var fresh redef = uri_builder;
-    var image_slice = fresh.storeSlice(".png").endCell().beginParse();
+    var image_slice = fresh.storeSlice(".png".literalSlice()).endCell().beginParse();
     return (uri_builder.bitsCount(), uri_slice.remainingBitsCount(), image_slice.remainingBitsCount());
 }
 
@@ -501,7 +501,7 @@ fun test40() {
 
 @method_id(141)
 fun test41() {
-    var empty = "";
+    var empty = "".literalSlice();
     var incorrect = stringHexToSlice("8");
     var incomplete = (address("EQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPrHF") as slice).getFirstBits(266);
 
@@ -533,9 +533,9 @@ fun test41() {
     catch (ex) { data.push(ex) }
     try { b.storeAddressOpt(createAddressNone() as address) }
     catch (ex) { data.push(ex) }
-    try { b.storeAny("123" as address) }
+    try { b.storeAny("123".beginParse() as address) }
     catch (ex) { data.push(ex) }
-    try { b.storeAny("123" as address as address?) }
+    try { b.storeAny("123".beginParse() as address as address?) }
     catch (ex) { data.push(ex) }
 
     try { b.storeAddressOpt(null); data.push(b.bitsCount()) }

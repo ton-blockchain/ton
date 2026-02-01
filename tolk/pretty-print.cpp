@@ -104,6 +104,7 @@ std::string debug_print(const Op* op) {
       }
       break;
     case Op::_SliceConst:
+    case Op::_SnakeStringConst:
       os << " \'" << op->left[0] << " = " << op->str_const;
       break;
     case Op::_Call:

@@ -1330,9 +1330,10 @@ static AsmOp compile_dumpstk(std::vector<VarDescr>&, std::vector<VarDescr>&, Any
   return AsmOp::Custom(origin, "DUMPSTK", 0, 0);
 }
 
-// fun debug.printString<T>(x: T): void   asm "STRDUMP";
+// fun debug.printString(x: string): void   asm "STRDUMP";
 static AsmOp compile_strdump(std::vector<VarDescr>&, std::vector<VarDescr>&, AnyV origin) {
-  return AsmOp::Custom(origin, "STRDUMP DROP", 1, 1);
+  // a string (a parameter) is a TVM cell, which may be a snake string actually, it dumps the first chunk
+  return AsmOp::Custom(origin, "CTOS STRDUMP DROP", 1, 0);
 }
 
 // fun debug.print<T>(x: T): void;
@@ -1483,6 +1484,7 @@ void define_builtins() {
   TypePtr Int = TypeDataInt::create();
   TypePtr Bool = TypeDataBool::create();
   TypePtr Slice = TypeDataSlice::create();
+  TypePtr String = TypeDataString::create();
   TypePtr Builder = TypeDataBuilder::create();
   TypePtr Address = TypeDataAddress::internal();
   TypePtr ArrayOfT = TypeDataArray::create(typeT);
@@ -1646,33 +1648,56 @@ void define_builtins() {
   define_builtin_func("ton", {TypeDataUnknown::create()}, TypeDataCoins::create(), nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
-  define_builtin_func("stringCrc32", {TypeDataUnknown::create()}, TypeDataInt::create(), nullptr,
+  define_builtin_func("stringCrc32", {String}, Int, nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
-  define_builtin_func("stringCrc16", {TypeDataUnknown::create()}, TypeDataInt::create(), nullptr,
+  define_builtin_func("stringCrc16", {String}, Int, nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
-  define_builtin_func("stringSha256", {TypeDataUnknown::create()}, TypeDataInt::create(), nullptr,
+  define_builtin_func("stringSha256", {String}, Int, nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
-  define_builtin_func("stringSha256_32", {TypeDataUnknown::create()}, TypeDataInt::create(), nullptr,
+  define_builtin_func("stringSha256_32", {String}, Int, nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
-  define_builtin_func("stringToBase256", {TypeDataUnknown::create()}, TypeDataInt::create(), nullptr,
+  define_builtin_func("stringToBase256", {String}, Int, nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
-  define_builtin_func("stringHexToSlice", {TypeDataUnknown::create()}, TypeDataSlice::create(), nullptr,
+  define_builtin_func("stringHexToSlice", {String}, Slice, nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
-  define_builtin_func("address", {TypeDataUnknown::create()}, TypeDataAddress::internal(), nullptr,
+  define_builtin_func("address", {String}, TypeDataAddress::internal(), nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
-  define_builtin_method("T.typeName", typeT, {}, TypeDataSlice::create(), declReceiverT,
+  define_builtin_method("T.typeName", typeT, {}, String, declReceiverT,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("T.typeNameOfObject", typeT, {typeT}, TypeDataSlice::create(), declReceiverT,
+  define_builtin_method("T.typeNameOfObject", typeT, {typeT}, String, declReceiverT,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+
+  // string compile-time methods: "hello".crc32(), "hello".sha256(), etc.
+  define_builtin_method("string.crc32", String, {String}, Int, nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
+  define_builtin_method("string.crc16", String, {String}, Int, nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
+  define_builtin_method("string.sha256", String, {String}, Int, nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
+  define_builtin_method("string.sha256_32", String, {String}, Int, nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
+  define_builtin_method("string.hexToSlice", String, {String}, Slice, nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
+  define_builtin_method("string.toBase256", String, {String}, Int, nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
+  define_builtin_method("string.literalSlice", String, {String}, Slice, nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
 
   // array<T> — a TVM tuple under the hood
   // implemented as built-in functions to support variable-width T (not 1-slot values are backed by sub-tuples)
@@ -1763,7 +1788,7 @@ void define_builtins() {
   define_builtin_method("debug.print", debug, {typeT}, Unit, declGenericT,
                                 compile_debug_print_to_string,
                                 FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("debug.printString", debug, {typeT}, Unit, declGenericT,
+  define_builtin_method("debug.printString", debug, {String}, Unit, nullptr,
                                 compile_strdump,
                                 0);
   define_builtin_method("debug.dumpStack", debug, {}, Unit, nullptr,
@@ -1834,13 +1859,13 @@ void define_builtins() {
   // functions not presented in stdlib at all
   // used in tolk-tester to check/expose internal compiler state
   // each of them is handled in a special way, search by its name
-  define_builtin_func("__expect_type", {typeT, Slice}, Unit, declGenericT,
+  define_builtin_func("__expect_type", {typeT, String}, Unit, declGenericT,
                                 compile_expect_type,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
   define_builtin_func("__expect_inline", {Bool}, Unit, nullptr,
                                 compile_expect_type,
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("__expect_lazy", {Slice}, Unit, nullptr,
+  define_builtin_func("__expect_lazy", {String}, Unit, nullptr,
                                 compile_expect_type,
                                 FunctionData::flagMarkedAsPure);
 

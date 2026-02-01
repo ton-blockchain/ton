@@ -10,7 +10,8 @@ const int111: MInt = 111;
 const int1r = int1;
 
 const str1 = "const1";
-const str2: MSlice = stringHexToSlice("aabbcc");
+const str2: MSlice = "aabbcc".hexToSlice();
+const str3: MSlice = ("aabbccdd" as string).literalSlice();
 
 const str2r: slice = str2;
 
@@ -48,7 +49,7 @@ fun iget3(): int { return int1+int2; }
 
 fun iget1r(): int { return int1r; }
 
-fun sget1(): slice { return str1; }
+fun sget1(): string { return str1; }
 fun sget2(): slice { return str2; }
 fun sget2r(): slice { return str2r; }
 
@@ -238,8 +239,11 @@ fun test16() {
 
 @method_id(117)
 fun test17() {
-    __expect_type(nameOfAddress, "slice");
-    return (nameOfAddress.bitsEqual("address"), nameOfAddress.typeNameOfObject().bitsEqual("slice"))
+    __expect_type(nameOfAddress, "string");
+    return (
+        nameOfAddress.beginParse().bitsEqual("address".beginParse()),
+        nameOfAddress.beginParse().typeNameOfObject().beginParse().bitsEqual("slice".literalSlice())
+    )
 }
 
 @method_id(118)
@@ -268,6 +272,12 @@ fun test21() {
     return nullFromThatTens;
 }
 
+@method_id(122)
+fun test22() {
+    __expect_type(str1, "string");
+    return (str1.beginParse().remainingBitsCount(), str3.remainingBitsCount());
+}
+
 fun main() {
     var i1: int = iget1();
     var i2: int = iget2();
@@ -277,9 +287,9 @@ fun main() {
     assert(i2 == 2) throw 102;
     assert(i3 == 3) throw 103;
 
-    var s1: slice = sget1();
+    var s1: slice = sget1().beginParse();
     var s2: slice = sget2();
-    var s3: slice = newc().stslicer(str1).stslicer(str2r).endcs();
+    var s3: slice = newc().stslicer(str1.beginParse()).stslicer(str2r).endcs();
 
     assert(sdeq(s1, newc().storeUint(str1int, 12 * nibbles).endcs())) throw int111;
     assert(sdeq(s2, newc().storeUint(str2int, 6 * nibbles).endcs())) throw 112;
@@ -313,6 +323,7 @@ fun main() {
 @testcase | 119 |   | 1 1 1 typeid-2 1 46
 @testcase | 120 |   | [ 5 0 7 ] [ 5 [ 6 -1 ] [ 10 20 typeid-3 ] [ (null) (null) 0 ] [] ] 5 0
 @testcase | 121 |   | (null) (null) 0 
+@testcase | 122 |   | 48 64
 
-@code_hash 107949183624762807558510972652715815212803398580308943217667016087076199455575
+@code_hash 67723149647754803618590559478221789890530509010341373926517429131762844790728
 */

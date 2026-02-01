@@ -108,7 +108,7 @@ fun slice.load_decimal_symbol(mutate self): int {
 
 @method_id(104)
 fun testSlices2() {
-    var cs = "123";
+    var cs = "123".beginParse();
     return (cs.load_decimal_symbol(), cs.load_decimal_symbol(), cs.load_decimal_symbol());
 }
 

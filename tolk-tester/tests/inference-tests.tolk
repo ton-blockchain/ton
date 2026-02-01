@@ -95,7 +95,7 @@ fun test7() {
     // __expect_type(eq<(int, slice)>, "(int, slice) -> (int, slice)");
 }
 
-fun unnamed_args(_: int, _: slice, _: int) {
+fun unnamed_args(_: int, _: string, _: int) {
     return true;
 }
 
@@ -131,6 +131,44 @@ fun test10(i: int) {
     __expect_type(tail, "slice?");
 }
 
+fun test11() {
+    var x: string? = "A";
+    var y: string? = "B";
+
+    repeat (3) {
+        x = y;
+        y = null;
+    }
+
+    __expect_type(x, "string?");
+    __expect_type(y, "string?");
+    return x == null;
+}
+
+@method_id(112)
+fun test12(): int {
+    var x: string? = "A";
+    var y: string? = "B";
+    var i = 0;
+
+    __expect_type(y, "string");
+    __expect_type(x, "string");
+
+    while (x != null) {
+        __expect_type(y, "string?");
+        __expect_type(x, "string");
+        x = y;
+        __expect_type(x, "string?");
+        y = null;
+        i += 1;
+        if (i == 3) {
+            return 777;
+        }
+    }
+    __expect_type(x, "null");
+    return 1;
+}
+
 
 fun main() {
     return 0;
@@ -139,4 +177,5 @@ fun main() {
 /**
 @testcase | 0   |      | 0
 @testcase | 108 | 1 10 | -1
+@testcase | 112 |      | 1
 */

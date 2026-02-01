@@ -122,7 +122,7 @@ struct FunctionData final : Symbol {
     flagAcceptsSelf = 512,      // is a member function (has `self` first parameter)
     flagReturnsSelf = 1024,     // return type is `self` (returns the mutated 1st argument), calls can be chainable
     flagReallyUsed = 2048,      // calculated via dfs from used functions; declared but unused functions are not codegenerated
-    flagCompileTimeVal = 4096,  // calculated only at compile-time for constant arguments: `ton("0.05")`, `stringCrc32`, and others
+    flagCompileTimeVal = 4096,  // calculated only at compile-time for constant arguments: `ton("0.05")`, `"str".crc32()`, and others
     flagAllowAnyWidthT = 16384, // for built-in generic functions that <T> is not restricted to be 1-slot type
     flagManualOnBounce = 32768, // for onInternalMessage, don't insert "if (isBounced) return"
   };

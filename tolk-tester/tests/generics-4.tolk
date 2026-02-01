@@ -154,7 +154,7 @@ fun test5() {
     __expect_type(Parameters { bounce: false, body: beginCell(), init: { value: 123, data: 123 } }, "Parameters<builder, int>");
 
     __expect_type(createParameters(true, null, null), "Parameters<null, null>");
-    __expect_type(createParameters(true, beginCell(), "123"), "Parameters<builder, slice>");
+    __expect_type(createParameters(true, beginCell(), "123"), "Parameters<builder, string>");
 
     __expect_type(createParameters(true, null, null).body, "null");
     __expect_type(createParameters(true, 123, null).body, "int");

@@ -134,7 +134,7 @@ fun test101() {
     __expect_type((1, [1]), "(int, array<int>)");
 
     __expect_type((rand ? [1,2] : [3, null]) as array<int?>, "array<int?>");
-    __expect_type(rand ? [""] : [] as array<slice>, "array<slice>");
+    __expect_type(rand ? [""] : [] as array<string>, "array<string>");
     __expect_type(rand ? [] : [""] as tuple, "array<unknown>");
 
     __expect_type(array<int> [], "array<int>");
@@ -143,7 +143,7 @@ fun test101() {
     __expect_type(array<Point> [{}, {y: 30}], "array<Point>");
 
     __expect_type((rand ? array<int?> [1,2] : array<int?> [3, null]), "array<int?>");
-    __expect_type(rand ? [""] : array<slice> [], "array<slice>");
+    __expect_type(rand ? [""] : array<string> [], "array<string>");
     __expect_type(rand ? [] : tuple [""], "array<unknown>");
 
     t1.push(123);

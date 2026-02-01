@@ -1,4 +1,5 @@
 import "@stdlib/lisp-lists"
+import "@stdlib/strings"
 
 struct Point {
     x: int8 = 10
@@ -15,6 +16,13 @@ struct WithArrays {
     a1: array<WithRef>
     a2: array<bool?>?
     after: int32
+}
+
+struct WithStrings {
+    s: string
+    sopt: string?
+    sref: Cell<string>
+    sarr: array<string>
 }
 
 @overflow1023_policy("suppress")
@@ -178,9 +186,9 @@ fun test8() {
 @method_id(109)
 fun test9() {
     var a1: array<RemainingBitsAndRefs> = [
-        "",
+        createEmptySlice(),
         array<int32> [1,2].toCell().beginParse(),
-        "hello",
+        "hello".literalSlice(),
         array<(coins, coins, coins, coins, cell)> [(0,ton("0.05"),0,0,createEmptyCell()), (1,1,1,1,createEmptyCell()), (2,2,2,2,createEmptyCell())].toCell().beginParse(),
     ];
     var back = array<RemainingBitsAndRefs>.fromCell(a1.toCell());
@@ -190,7 +198,7 @@ fun test9() {
         back.get(0).isEmpty(),
         back.get(1).isEmpty(),
         array<int32>.fromSlice(back.get(1)),
-        back.get(2).bitsEqual("hello"),
+        back.get(2).bitsEqual("hello".literalSlice()),
         last.first().1,
         last.last().4.beginParse().isEmpty(),
     )
@@ -336,6 +344,55 @@ fun test16() {
     )
 }
 
+@method_id(117)
+fun test17() {
+    var o1: WithStrings = {
+        s: "hello",
+        sopt: StringBuilder{}.append("one").append("two").build(),
+        sref: "obed".toCell(),
+        sarr: ["one", "two"],
+    };
+    val back1 = o1.toCell().load();
+    assert (back1.s.equalTo("hello")) throw 123;
+    assert ((back1.sopt as unknown as cell).depth() == 1) throw 123;
+    assert (back1.sref.load().beginParse().bitsEqual("obed".literalSlice())) throw 123;
+    assert (back1.sarr.last().beginParse().bitsEqual("two".literalSlice())) throw 123;
+
+    val manual = beginCell()
+        .storeRef(beginCell().storeSlice("hello".literalSlice()).endCell())
+        .storeMaybeRef(beginCell().storeSlice("one".literalSlice()).storeRef(beginCell().storeSlice("two".literalSlice()).endCell()).endCell())
+        .storeRef(beginCell().storeRef(beginCell().storeSlice("obed".literalSlice()).endCell()).endCell())
+        .storeUint(2, 8)
+        .storeMaybeRef(beginCell()
+            .storeMaybeRef(null)
+            .storeRef(beginCell().storeSlice("one".literalSlice()).endCell())
+            .storeRef(beginCell().storeSlice("two".literalSlice()).endCell())
+            .endCell())
+        .endCell();
+
+    val o2 = WithStrings {
+        s: "",
+        sopt: null,
+        sref: "".toCell(),
+        sarr: ["1", "2", "3", "4", "5"]
+    }.toCell().load();
+
+    return (
+        o1.toCell().hash() == manual.hash(),
+        o2.sopt,
+        o2.sref.load().calculateLength(),
+        o2.sarr.size(),
+        o2.sarr.last().hash() & 0xFFFF,
+    )
+}
+
+@method_id(118)
+fun test18() {
+    var list = lisp_list<string> ["1", "2"];
+    list.prependHead("0");
+    return list.toCell().load().calculateSize();
+}
+
 
 fun main() {
     return (
@@ -364,4 +421,6 @@ fun main() {
 @testcase | 114 |     | 9
 @testcase | 115 |     | 0 9999 0 4
 @testcase | 116 |     | 2 [ 3 (null) ] [ 4 (null) ]
+@testcase | 117 |     | -1 (null) 0 5 18792
+@testcase | 118 |     | 3
  */

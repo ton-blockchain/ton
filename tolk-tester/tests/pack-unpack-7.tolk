@@ -205,7 +205,7 @@ fun WillBeManuallyInvoked<T>.unpackFromSlice(mutate s: slice) {
 
 @method_id(101)
 fun test1() {
-    var t: StorWithStr = { a: 10, str: "abc", b: 20 };
+    var t: StorWithStr = { a: 10, str: "abc".literalSlice(), b: 20 };
     var c = t.toCell();
     var back = c.load();
     return ((t.b == back.b) & (t.str.bitsEqual(back.str)), back.str.remainingBitsCount(), c.hash() & 0xFFFF);
@@ -213,7 +213,7 @@ fun test1() {
 
 @method_id(102)
 fun test2() {
-    var s = ("" as TelegramString, "" as TelegramString);
+    var s = (createEmptySlice() as TelegramString, "".literalSlice() as TelegramString);
     return beginCell().storeAny(s).endCell().beginParse().remainingBitsCount();
 }
 
@@ -337,7 +337,7 @@ fun test13() {
 
 
 fun main() {
-    __expect_type("" as TelegramString, "TelegramString");
+    __expect_type(createEmptySlice() as TelegramString, "TelegramString");
 }
 
 /**

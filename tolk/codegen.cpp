@@ -18,6 +18,7 @@
 #include "compilation-errors.h"
 #include "compiler-state.h"
 #include "type-system.h"
+#include "td/utils/misc.h"
 
 namespace tolk {
 
@@ -330,6 +331,37 @@ bool Op::generate_code_step(Stack& stack) {
         return true;
       }
       stack.o << AsmOp::Const(origin, "x{" + str_const + "} PUSHSLICE");
+      stack.push_new_var(left[0]);
+      return true;
+    }
+    case _SnakeStringConst: {
+      auto p = next->var_info[left[0]];
+      if (!p || p->is_unused()) {
+        return true;
+      }
+      // str_const is an original string "abcd", calc str_hex "61626364"
+      std::string str_hex = td::hex_encode(td::Slice(str_const.data(), str_const.size()));
+      int hex_len = static_cast<int>(str_hex.size());
+      int MAX_CHUNK_HEX = 254;  // 127 bytes = 254 hex chars = 1016 bits
+
+      if (hex_len <= MAX_CHUNK_HEX) {
+        // most strings are small, it's just a TVM cell with no refs inside
+        stack.o << AsmOp::Const(origin, "<b x{" + str_hex + "} s, b> PUSHREF");
+      } else {
+        // make a snake string with refs: "head".ref("middle".ref("tail"))
+        // Fift output is: <b x{tail} s, b> <b x{middle} s, swap ref, b> ... PUSHREF
+        std::vector<std::string_view> chunks;
+        for (int i = 0; i < hex_len; i += MAX_CHUNK_HEX) {
+          chunks.push_back(std::string_view(str_hex).substr(i, MAX_CHUNK_HEX));
+        }
+
+        std::string fift_code = "<b x{" + std::string(chunks.back()) + "} s, b>";
+        for (int i = static_cast<int>(chunks.size()) - 2; i >= 0; --i) {
+          fift_code += " <b x{" + std::string(chunks[i]) + "} s, swap ref, b>";
+        }
+        fift_code += " PUSHREF";
+        stack.o << AsmOp::Const(origin, fift_code);
+      }
       stack.push_new_var(left[0]);
       return true;
     }

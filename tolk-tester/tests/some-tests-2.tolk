@@ -62,7 +62,7 @@ fun testDumpDontPolluteStack() {
     debug.printString(s);
     debug.dumpStack();
     debug.printString("my");
-    return (f, s.remainingBitsCount());
+    return (f, s.beginParse().remainingBitsCount());
 }
 
 @method_id(93)
@@ -124,9 +124,10 @@ fun test96(p: Point) {
   testDumpDontPolluteStack() PROC:<{
     ...
     DUMPSTK
-    x{6d79} PUSHSLICE	//  f s '5
-    STRDUMP DROP
-    SBITS	//  f '6
+    x{6d79} PUSHSLICE
+    STRDUMP DROP        //  f s
+    CTOS                //  f '6
+    SBITS	            //  f '7
   }>
 """
 

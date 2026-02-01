@@ -409,7 +409,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
   }
 
   static ExprFlow infer_string_const(V<ast_string_const> v, FlowContext&& flow, bool used_as_condition) {
-    assign_inferred_type(v, TypeDataSlice::create());
+    assign_inferred_type(v, TypeDataString::create());
     return ExprFlow(std::move(flow), used_as_condition);
   }
 
