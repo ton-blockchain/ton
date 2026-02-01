@@ -22,7 +22,7 @@ jobs:
       run: |
         sudo apt update
         sudo apt install -y build-essential git cmake ninja-build ccache libgsl-dev libblas-dev libgslcblas0
-        mkdir ~/.ccache 3pp
+        mkdir ~/.ccache
 
     - name: Install clang-21
       run: |
@@ -31,13 +31,6 @@ jobs:
         echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
         sudo apt-get -y update
         sudo apt-get install -y clang-21
-
-    - name: Cache 3pp
-      id: cache-3pp
-      uses: actions/cache@v4
-      with:
-        path: 3pp
-        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-3pp-${{ hashFiles('**/assembly/native/build-ubuntu-appimages.sh') }}
 
     - name: Restore cache TON
       uses: actions/cache/restore@v4
