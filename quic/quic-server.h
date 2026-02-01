@@ -59,6 +59,29 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
                                                             std::unique_ptr<Callback> callback, td::Slice alpn = "ton",
                                                             td::Slice bind_host = "0.0.0.0");
 
+  struct Stats {
+    struct Entry {
+      size_t total_conns = 1;
+      QuicConnectionStats impl_stats = {};
+
+      Entry operator+(const Entry &other) const {
+        Entry res = {.total_conns = total_conns + other.total_conns, .impl_stats = impl_stats + other.impl_stats};
+        res.impl_stats.mean_rtt = (total_conns * impl_stats.mean_rtt + other.total_conns * impl_stats.mean_rtt) / (total_conns + other.total_conns);
+        return res;
+      }
+
+      Entry operator-(const Entry &other) const {
+        Entry res = {.total_conns = total_conns - other.total_conns, .impl_stats = impl_stats - other.impl_stats};
+        res.impl_stats.mean_rtt = impl_stats.mean_rtt;
+        return res;
+      }
+
+    } summary = {};
+    std::unordered_map<QuicConnectionId, Entry> per_conn = {};
+  };
+
+  void collect_stats(td::Promise<Stats> P);
+
  protected:
   void start_up() override;
   void tear_down() override;
