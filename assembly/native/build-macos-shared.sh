@@ -33,8 +33,8 @@ else
 fi
 
 export NONINTERACTIVE=1
-brew install ninja pkg-config automake automake@1.16 libtool autoconf gnutls m4
-export PATH="$(brew --prefix automake@1.16)/bin:/usr/local/opt/ccache/libexec:$PATH"
+brew install ninja pkg-config automake libtool autoconf gnutls m4
+export PATH=/usr/local/opt/ccache/libexec:$PATH
 
 if [ "$(uname)" = "Darwin" ]; then
   if [ "$MACOS_MAJOR" -ge 15 ]; then
@@ -113,3 +113,4 @@ if [ "$with_artifacts" = true ]; then
   cp -R crypto/fift/lib artifacts/
   chmod -R +x artifacts/*
 fi
+
