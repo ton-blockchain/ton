@@ -96,8 +96,8 @@ else()
         COMMAND ${CMAKE_COMMAND} -E rm -f ${MHD_LIBRARY}
         COMMAND ${CMAKE_COMMAND} -E touch ${MHD_SOURCE_DIR}/aclocal.m4
         COMMAND ${MSYS2_BASH} -lc "./configure --enable-static --disable-tests --disable-benchmark --disable-shared --disable-https --with-pic --disable-doc"
-        COMMAND ${MSYS2_BASH} -lc "make clean ACLOCAL=:"
-        COMMAND ${MSYS2_BASH} -lc "make -j16 ACLOCAL=:"
+        COMMAND ${MSYS2_BASH} -lc "make clean ACLOCAL=: AUTOMAKE=: AUTOCONF=: AUTOHEADER=:"
+        COMMAND ${MSYS2_BASH} -lc "make -j16 ACLOCAL=: AUTOMAKE=: AUTOCONF=: AUTOHEADER=:"
         COMMENT "Build libmicrohttpd"
         DEPENDS ${MHD_SOURCE_DIR}
         OUTPUT ${MHD_LIBRARY}
