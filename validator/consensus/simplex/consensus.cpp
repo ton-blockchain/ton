@@ -201,10 +201,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     }
 
     auto parent = co_await get_resolved_candidate(candidate->parent_id);
-    if (candidate->parent_id != parent.id) {
-      // FIXME: Report misbehavior
-      co_return {};
-    }
+    CHECK(candidate->parent_id == parent.id);
 
     auto resolved_candidate = td::make_ref<Candidate>(parent.id, candidate);
     auto validation_result =
