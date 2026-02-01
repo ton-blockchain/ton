@@ -62,6 +62,10 @@ if [ ! -f "$ROOT_DIR/third-party/libmicrohttpd/configure" ]; then
 fi
 if [ ! -f "$ROOT_DIR/third-party/libmicrohttpd/configure" ] && [ -f "$ROOT_DIR/third-party/libmicrohttpd/configure.ac" ]; then
   echo "Generating libmicrohttpd configure script..."
+  echo "Normalizing libmicrohttpd m4 line endings..."
+  (cd "$ROOT_DIR/third-party/libmicrohttpd" && \
+    find . -maxdepth 3 -type f \( -name "*.m4" -o -name "configure.ac" -o -name "acinclude.m4" \) -print0 | \
+    xargs -0 sed -i 's/\r$//')
   (cd "$ROOT_DIR/third-party/libmicrohttpd" && autoreconf -fi)
 fi
 
