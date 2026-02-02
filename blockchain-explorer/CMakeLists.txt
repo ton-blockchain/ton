@@ -1,5 +1,9 @@
 option(NIX "Use \"ON\" for a static build." OFF)
 
+if (USE_EMSCRIPTEN OR EMSCRIPTEN)
+  return()
+endif()
+
 set(BLOCHAIN_EXPLORER_SOURCE
     blockchain-explorer.cpp
     blockchain-explorer.hpp
@@ -11,7 +15,7 @@ set(BLOCHAIN_EXPLORER_SOURCE
 
 add_executable(blockchain-explorer ${BLOCHAIN_EXPLORER_SOURCE})
 
-if (NOT MHD_FOUND)
+if (NOT MHD_FOUND AND NOT USE_EMSCRIPTEN AND NOT EMSCRIPTEN)
   message(FATAL_ERROR "libmicrohttpd not found; ensure the submodule is present and BuildMHD.cmake ran.")
 endif()
 
