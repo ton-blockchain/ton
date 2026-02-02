@@ -66,7 +66,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
 
       Entry operator+(const Entry &other) const {
         Entry res = {.total_conns = total_conns + other.total_conns, .impl_stats = impl_stats + other.impl_stats};
-        res.impl_stats.mean_rtt = (total_conns * impl_stats.mean_rtt + other.total_conns * impl_stats.mean_rtt) / (total_conns + other.total_conns);
+        res.impl_stats.mean_rtt = (total_conns * impl_stats.mean_rtt + other.total_conns * other.impl_stats.mean_rtt) / (total_conns + other.total_conns);
         return res;
       }
 

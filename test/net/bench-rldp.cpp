@@ -23,6 +23,7 @@
 #include "adnl/adnl-test-loopback-implementation.h"
 #include "adnl/adnl.h"
 #include "keys/keys.hpp"
+#include "metrics/prometheus-exporter.h"
 #include "quic/quic-sender.h"
 #include "rldp/rldp.h"
 #include "rldp2/rldp.h"
@@ -74,6 +75,7 @@ struct Config {
   td::uint32 max_inflight = 0;  // 0 = unlimited
   double timeout = 60.0;
   double test_timeout = 5.0;  // Global test timeout
+  bool prometheus = false;
 
   // Network mode options
   td::IPAddress local_addr;
@@ -364,8 +366,12 @@ void run_server(Config config) {
   td::actor::ActorOwn<ton::rldp::Rldp> rldp1;
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
   td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
+  td::actor::ActorOwn<ton::PrometheusExporter> exporter;
 
   scheduler.run_in_context([&] {
+    if (config.prometheus)
+      exporter = ton::PrometheusExporter::listen(19777);
+
     keyring = ton::keyring::Keyring::create(db_root);
     network_manager = ton::adnl::AdnlNetworkManager::create(static_cast<td::uint16>(config.local_addr.get_port()));
     adnl = ton::adnl::Adnl::create(db_root, keyring.get());
@@ -403,6 +409,8 @@ void run_server(Config config) {
         "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
     // Use send_lambda to properly start the coroutine task
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, local_id);
+    if (config.prometheus)
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::add_collector_actor, quic_sender.get());
 
     td::actor::send_closure(adnl, &ton::adnl::Adnl::subscribe, local_id, "B",
                             std::make_unique<Server>(config.response_size));
@@ -427,11 +435,15 @@ void run_client(Config config) {
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
   td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
   td::actor::ActorOwn<BenchmarkRunner> runner;
+  td::actor::ActorOwn<ton::PrometheusExporter> exporter;
 
   ton::adnl::AdnlNodeIdShort src;
   ton::adnl::AdnlNodeIdShort dst;
 
   scheduler.run_in_context([&] {
+    if (config.prometheus)
+      exporter = ton::PrometheusExporter::listen(29777);
+
     keyring = ton::keyring::Keyring::create(db_root);
     network_manager = ton::adnl::AdnlNetworkManager::create(static_cast<td::uint16>(config.local_addr.get_port()));
     adnl = ton::adnl::Adnl::create(db_root, keyring.get());
@@ -468,6 +480,8 @@ void run_client(Config config) {
         "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
     // Use send_lambda to properly start the coroutine task
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, src);
+    if (config.prometheus)
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::add_collector_actor, quic_sender.get());
 
     // Add server as static node
     dst = ton::adnl::AdnlNodeIdShort{server_public_key().compute_short_id()};
@@ -599,6 +613,10 @@ int main(int argc, char* argv[]) {
   });
   p.add_checked_option('s', "server-addr", "server address (ip:port) for client mode", [&](td::Slice arg) {
     TRY_STATUS(config.server_addr.init_host_port(arg.str()));
+    return td::Status::OK();
+  });
+  p.add_checked_option('p', "prometheus", "enable prometheus exporter", [&]() {
+    config.prometheus = true;
     return td::Status::OK();
   });
 

@@ -21,6 +21,7 @@
 #include "auto/tl/ton_api.h"
 #include "common/errorcode.h"
 #include "keyring/keyring.h"
+#include "metrics/metrics-collectors.h"
 #include "td/actor/actor.h"
 #include "td/utils/port/IPAddress.h"
 
@@ -46,7 +47,8 @@ class AdnlExtServer : public td::actor::Actor {
   virtual ~AdnlExtServer() = default;
 };
 
-class AdnlSenderInterface : public td::actor::Actor {
+// TODO(avevad): use virtual inheritance against td::actor::Actor / ton::metrics:CollectorActor
+class AdnlSenderInterface : public metrics::CollectorActor {
  public:
   virtual ~AdnlSenderInterface() = default;
 
@@ -58,6 +60,7 @@ class AdnlSenderInterface : public td::actor::Actor {
                              td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice data,
                              td::uint64 max_answer_size) = 0;
   virtual void get_conn_ip_str(AdnlNodeIdShort l_id, AdnlNodeIdShort p_id, td::Promise<td::string> promise) = 0;
+  void collect(td::Promise<metrics::MetricSet> P) override {}
 };
 
 class AdnlTunnel : public td::actor::Actor {};

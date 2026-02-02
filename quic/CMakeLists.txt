@@ -4,7 +4,7 @@ target_include_directories(quic PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
     ${OPENSSL_INCLUDE_DIR}
 )
-target_link_libraries(quic PUBLIC tl_api tdutils tdactor ngtcp2_static ngtcp2_crypto_ossl_static OpenSSL::SSL OpenSSL::Crypto ton_crypto_core)
+target_link_libraries(quic PUBLIC tl_api tdutils tdactor metrics ngtcp2_static ngtcp2_crypto_ossl_static OpenSSL::SSL OpenSSL::Crypto ton_crypto_core)
 
 # FIXME: enable or delete
 # add_executable(quic-example-client quic-example-client.cpp)
