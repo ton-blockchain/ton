@@ -612,6 +612,33 @@ fun test46() {
     )
 }
 
+@method_id(147)
+fun test47() {
+    var ce = createEmptyCell();
+    var c1 = beginCell().storeUint(1, 32).endCell();
+    var c2 = beginCell().storeUint(2, 32).endCell();
+    var c3 = beginCell().storeUint(2, 32).storeRef(ce).endCell();
+    return (
+        ce == ce,
+        ce == c1,
+        ce == c2,
+        ce == c3,
+        c1 == c1,
+        c1 == c2,
+        c1 == c3,
+        c2 == c2,
+        c2 == c3,
+        c3 == c3,
+        c3 == ce,
+        c1 != c2,
+        c1 != c1,
+        777,
+        c1.beginParse().hash() == beginCell().storeUint(1, 32).hash(),
+        c1.beginParse().hash() == c1.hash(),
+        c1.beginParse().hash() == c1.beginParse().hash(),
+    )
+}
+
 fun main(): int {
     return 0;
 }
@@ -663,6 +690,7 @@ fun main(): int {
 @testcase | 143 |     | 2 -1 0
 @testcase | 144 |     | 0 0 0 0 -1 3820012610 -1 0 0
 @testcase | 146 |     | 64898 64898 30460 59911 15354 54467 54467 54467 15533 16598 20076 64898 64898 30460 11765
+@testcase | 147 |     | -1 0 0 0 -1 0 0 -1 0 -1 0 -1 0 777 -1 -1 -1
 
 We test that consequtive storeInt/storeUint with constants are joined into a single number
 

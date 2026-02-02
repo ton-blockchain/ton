@@ -679,7 +679,7 @@ fun cell.hash(self): uint256
 /// The result is the same as [cell.hash] for a cell containing data and references from this slice.
 @pure
 fun slice.hash(self): uint256
-    asm "HASHSU"
+    asm "NEWC" "STSLICE" "HASHBU"
 
 /// Computes the hash of a builder and returns it as a 256-bit unsigned integer.
 /// The same as "transform builder to cell + calc hash of that cell", but without cell creation.
@@ -692,6 +692,12 @@ fun builder.hash(self): uint256
 @pure
 fun slice.bitsHash(self): uint256
     asm "SHA256U"
+
+/// Checks whether two cells are equal by comparing their hashes.
+/// Used internally by the compiler for operators `==` and `!=` on cells.
+@pure
+fun cell.hashEqual(self, another: cell): bool
+    asm "HASHCU" "SWAP" "HASHCU" "EQUAL"
 
 /// Checks the Ed25519-`signature` of a `hash` (a 256-bit unsigned integer, usually computed as the hash of some data)
 /// using `publicKey` (also represented by a 256-bit unsigned integer).

@@ -609,6 +609,20 @@ fun test134(): int {
     return -1;
 }
 
+fun replaceCell(mutate cArg: cell): cell { cArg = createEmptyCell(); return cArg }
+fun replaceInt(mutate iArg: int): int { iArg = 0; return iArg }
+
+@method_id(135)
+fun test135() {
+    var i = 1;
+    var c = beginCell().storeUint(1, 32).endCell();
+    return (
+        i == replaceInt(mutate i),
+        c == replaceCell(mutate c),
+    )
+}
+
+
 fun main(){
     // mark used to codegen them
     load_next;
@@ -649,6 +663,7 @@ fun main(){
 @testcase | 132 |    | 42
 @testcase | 133 |    | 7
 @testcase | 134 |    | 1
+@testcase | 135 |    | 0 0
 
 @fif_codegen
 """

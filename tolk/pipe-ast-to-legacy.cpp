@@ -955,12 +955,13 @@ static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, 
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
   if (t == tok_eq || t == tok_neq) {
-    if (v->get_lhs()->inferred_type->unwrap_alias()->try_as<TypeDataAddress>() && v->get_rhs()->inferred_type->unwrap_alias()->try_as<TypeDataAddress>()) {
-      FunctionPtr f_sliceEq = lookup_function("slice.bitsEqual");
-      std::vector ir_lhs_slice = pre_compile_expr(v->get_lhs(), code);
-      std::vector ir_rhs_slice = pre_compile_expr(v->get_rhs(), code);
-      std::vector rvect = code.create_tmp_var(TypeDataBool::create(), v, "(addr-eq)");
-      code.emplace_back(v, Op::_Call, rvect, std::vector{ir_lhs_slice[0], ir_rhs_slice[0]}, f_sliceEq);
+    bool both_addr = v->get_lhs()->inferred_type->unwrap_alias()->try_as<TypeDataAddress>() && v->get_rhs()->inferred_type->unwrap_alias()->try_as<TypeDataAddress>();
+    bool both_cell = v->get_lhs()->inferred_type->unwrap_alias()->try_as<TypeDataCell>() && v->get_rhs()->inferred_type->unwrap_alias()->try_as<TypeDataCell>();
+    if (both_addr || both_cell) {
+      FunctionPtr f_eq = both_addr ? lookup_function("slice.bitsEqual") : lookup_function("cell.hashEqual");
+      std::vector args_vars = pre_compile_tensor(code, {v->get_lhs(), v->get_rhs()});
+      std::vector rvect = code.create_tmp_var(TypeDataBool::create(), v, "(eq-operator)");
+      code.emplace_back(v, Op::_Call, rvect, std::vector{args_vars[0], args_vars[1]}, f_eq);
       if (t == tok_neq) {
         FunctionPtr not_sym = lookup_function("!b_");
         code.emplace_back(v, Op::_Call, rvect, rvect, not_sym);
