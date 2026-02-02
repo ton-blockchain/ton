@@ -99,7 +99,7 @@ class ASTReplicator final {
     return createV<ast_reference>(v->range, clone(v->get_identifier()), v->has_instantiationTs() ? clone(v->get_instantiationTs()) : nullptr);
   }
   static V<ast_local_var_lhs> clone(V<ast_local_var_lhs> v) {
-    return createV<ast_local_var_lhs>(v->range, clone(v->get_identifier()), clone(v->type_node), v->is_immutable, v->is_lateinit, v->marked_as_redef);
+    return createV<ast_local_var_lhs>(v->range, clone(v->get_identifier()), clone(v->type_node), v->is_immutable, v->is_lateinit);
   }
   static V<ast_local_vars_declaration> clone(V<ast_local_vars_declaration> v) {
     return createV<ast_local_vars_declaration>(v->range, clone(v->get_expr()));

@@ -387,7 +387,6 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
         if (str == "const") return tok_const;
         if (str == "false") return tok_false;
         if (str == "match") return tok_match;
-        if (str == "redef") return tok_redef;
         if (str == "while") return tok_while;
         if (str == "break") return tok_break;
         if (str == "throw") return tok_throw;

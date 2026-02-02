@@ -626,18 +626,17 @@ public:
 template<>
 // ast_local_var_lhs is one variable inside `var` declaration
 // example: `var x = 0;` then "x" is local var lhs
-// example: `val (x: int, [y redef], _) = rhs` then "x" and "y" and "_" are
+// example: `val (x: int, [y], _) = rhs` then "x" and "y" and "_" are
 // it's a leaf from expression's point of view, though technically has an "identifier" child
 struct Vertex<ast_local_var_lhs> final : ASTExprLeaf {
 private:
   V<ast_identifier> identifier;
 
 public:
-  LocalVarPtr var_ref = nullptr;    // filled on resolve identifiers; for `redef` points to declared above; for underscore, name is empty
+  LocalVarPtr var_ref = nullptr;    // filled on resolve identifiers; for underscore, name is empty
   AnyTypeV type_node;               // exists for `var x: int = rhs`, otherwise nullptr
   bool is_immutable;                // declared via 'val', not 'var'
   bool is_lateinit;                 // var st: Storage lateinit (no assignment)
-  bool marked_as_redef;             // var (existing_var redef, new_var: int) = ...
 
   V<ast_identifier> get_identifier() const { return identifier; }
   std::string_view get_name() const { return identifier->name; }     // empty for underscore
@@ -645,9 +644,9 @@ public:
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_var_ref(LocalVarPtr var_ref);
 
-  Vertex(SrcRange range, V<ast_identifier> identifier, AnyTypeV type_node, bool is_immutable, bool is_lateinit, bool marked_as_redef)
+  Vertex(SrcRange range, V<ast_identifier> identifier, AnyTypeV type_node, bool is_immutable, bool is_lateinit)
     : ASTExprLeaf(ast_local_var_lhs, range)
-    , identifier(identifier), type_node(type_node), is_immutable(is_immutable), is_lateinit(is_lateinit), marked_as_redef(marked_as_redef) {}
+    , identifier(identifier), type_node(type_node), is_immutable(is_immutable), is_lateinit(is_lateinit) {}
 };
 
 template<>

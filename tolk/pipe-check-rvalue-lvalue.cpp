@@ -255,15 +255,6 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v);
   }
 
-  void visit(V<ast_local_var_lhs> v) override {
-    if (v->marked_as_redef) {
-      tolk_assert(v->var_ref);
-      if (v->var_ref->is_immutable()) {
-        err("`redef` for immutable variable").fire(v, cur_f);
-      }
-    }
-  }
-
   void visit(V<ast_reference> v) override {
     if (v->is_lvalue) {
       on_reference_used_as_lvalue(v->sym, v->range);

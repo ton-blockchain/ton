@@ -36,7 +36,6 @@ enum TokenType {
   tok_const,
   tok_var,
   tok_val,
-  tok_redef,
   tok_mutate,
   tok_self,
 

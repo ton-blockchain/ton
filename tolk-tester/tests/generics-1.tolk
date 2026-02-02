@@ -36,7 +36,6 @@ fun test102(): (int, int, int, [int, int], Wrapper< Wrapper<int8> >) {
     var _: int = getTwo();
     var b = getTwo() as int;
     var c: int = 1 ? getTwo() : getTwo();
-    var c redef = getTwo();
     var d: int = match (1 as int|slice|builder) { int => getTwo(), slice => getTwo(), builder => getTwo() };
     var ab_tens = (0, (1, 2));
     ab_tens.0 = getTwo();

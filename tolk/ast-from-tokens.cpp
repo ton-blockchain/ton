@@ -553,15 +553,11 @@ static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable, bool al
     auto v_ident = parse_identifier(lex, "variable name");
     range.end(v_ident->range);
     AnyTypeV declared_type = nullptr;
-    bool marked_as_redef = false;
     bool is_lateinit = false;
     if (lex.tok() == tok_colon) {
       lex.next();
       declared_type = parse_type_from_tokens(lex);
       range.end(declared_type->range);
-    } else if (lex.tok() == tok_redef) {
-      lex.next();
-      marked_as_redef = true;
     }
     if (lex.tok() == tok_semicolon && allow_lateinit) {
       if (declared_type == nullptr) {
@@ -569,7 +565,7 @@ static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable, bool al
       }
       is_lateinit = true;
     }
-    return createV<ast_local_var_lhs>(range, v_ident, declared_type, is_immutable, is_lateinit, marked_as_redef);
+    return createV<ast_local_var_lhs>(range, v_ident, declared_type, is_immutable, is_lateinit);
   }
   if (lex.tok() == tok_underscore) {
     SrcRange range = lex.cur_range();
@@ -580,7 +576,7 @@ static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable, bool al
       declared_type = parse_type_from_tokens(lex);
       range.end(declared_type->range);
     }
-    return createV<ast_local_var_lhs>(range, createV<ast_identifier>(range, ""), declared_type, true, false, false);
+    return createV<ast_local_var_lhs>(range, createV<ast_identifier>(range, ""), declared_type, true, false);
   }
   lex.unexpected("variable name");
 }

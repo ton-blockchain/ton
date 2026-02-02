@@ -350,9 +350,7 @@ public:
 class ClearStateAfterInlineInPlace final : public ASTVisitorFunctionBody {
 
   void visit(V<ast_local_var_lhs> v) override {
-    if (!v->marked_as_redef) {
-      v->var_ref->mutate()->assign_ir_idx({});
-    }
+    v->var_ref->mutate()->assign_ir_idx({});
   }
 
 public:
@@ -1706,11 +1704,6 @@ static std::vector<var_idx_t> process_null_keyword(V<ast_null_keyword> v, CodeBl
 }
 
 static std::vector<var_idx_t> process_local_var(V<ast_local_var_lhs> v, CodeBlob& code, TypePtr target_type) {
-  if (v->marked_as_redef) {
-    std::vector rvect = pre_compile_symbol(v->var_ref, code, v, nullptr);
-    return transition_to_target_type(std::move(rvect), code, target_type, v);
-  }
-
   tolk_assert(v->var_ref->ir_idx.empty());
   v->var_ref->mutate()->assign_ir_idx(code.create_var(v->inferred_type, v, v->var_ref->name));
   std::vector rvect = v->var_ref->ir_idx;

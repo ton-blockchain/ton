@@ -436,12 +436,8 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // at the moment of inferring left side of assignment, we don't know type of rhs (since lhs is executed first)
     // so, mark `v` as "not inferred"
     // later, v's inferred_type will be reassigned; see process_assignment_lhs_after_infer_rhs()
-    if (v->marked_as_redef) {
-      assign_inferred_type(v, v->var_ref->declared_type);
-    } else {
-      assign_inferred_type(v, v->type_node ? v->type_node->resolved_type : TypeDataNotInferred::create());
-      flow.register_known_type(SinkExpression(v->var_ref), TypeDataNotInferred::create());    // "not inferred" before assigned
-    }
+    assign_inferred_type(v, v->type_node ? v->type_node->resolved_type : TypeDataNotInferred::create());
+    flow.register_known_type(SinkExpression(v->var_ref), TypeDataNotInferred::create());    // "not inferred" before assigned
     return ExprFlow(std::move(flow), used_as_condition);
   }
 
@@ -518,9 +514,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
       return;
     }
 
-    // inside `var v: int = rhs` / `var _ = rhs` / `var v redef = rhs` (lhs is "v" / "_" / "v")
+    // inside `var v: int = rhs` / `var _ = rhs` (lhs is "v" / "_")
     if (auto lhs_var = lhs->try_as<ast_local_var_lhs>()) {
-      TypePtr declared_type = lhs_var->marked_as_redef ? lhs_var->var_ref->declared_type : lhs_var->type_node ? lhs_var->type_node->resolved_type : nullptr;
+      TypePtr declared_type = lhs_var->type_node ? lhs_var->type_node->resolved_type : nullptr;
       if (!declared_type) {
         assign_inferred_type(lhs_var, rhs_type);
         assign_inferred_type(lhs_var->var_ref, rhs_type);

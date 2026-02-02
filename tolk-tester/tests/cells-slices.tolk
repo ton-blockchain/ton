@@ -106,7 +106,7 @@ fun test8() {
     var uri_builder = beginCell();
     var fresh = uri_builder;
     var uri_slice = fresh.storeSlice(".json".literalSlice()).endCell().beginParse();
-    var fresh redef = uri_builder;
+    fresh = uri_builder;
     var image_slice = fresh.storeSlice(".png".literalSlice()).endCell().beginParse();
     return (uri_builder.bitsCount(), uri_slice.remainingBitsCount(), image_slice.remainingBitsCount());
 }

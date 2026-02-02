@@ -514,17 +514,6 @@ fun test47() {
     return (result, 100, result.1, 100, t2 as (int, int)?);
 }
 
-fun test48() {
-    var t1: int? = getNullableInt();
-    if (t1 != null) {
-        var (t1 redef, t2) = (10, 5);
-        return t1 + t2;
-        var t2 redef = getNullableInt()!;
-        return t1 + t2;
-    }
-    return -1;
-}
-
 fun test49(x: int?) {
     while (x == null) {
         x = getNullableInt();
@@ -829,8 +818,6 @@ fun main(x: int?): int {
 @testcase | 166 |       | 2 -1
 
 @stderr warning: expression of type `int` can never be `null`, this condition is always true
-@stderr warning: unreachable code
-@stderr var t2 redef = getNullableInt()!;
 
 @fif_codegen        eq55<int?>() PROC:<{
 @fif_codegen_avoid  eq55<int>() PROC:<{

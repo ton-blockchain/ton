@@ -472,14 +472,10 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       return;
     }
 
-    // inside `var v: int = rhs` / `var _ = rhs` / `var v redef = rhs` (lhs is "v" / "_" / "v")
+    // inside `var v: int = rhs` / `var _ = rhs` (lhs is "v" / "_")
     if (auto lhs_var = lhs->try_as<ast_local_var_lhs>()) {
-      TypePtr declared_type = lhs_var->type_node ? lhs_var->type_node->resolved_type : nullptr;
-      if (lhs_var->marked_as_redef) {
-        tolk_assert(lhs_var->var_ref && lhs_var->var_ref->declared_type);
-        declared_type = lhs_var->var_ref->declared_type;
-      }
-      if (declared_type) {
+      if (lhs_var->type_node) {
+        TypePtr declared_type = lhs_var->type_node->resolved_type;
         if (!declared_type->can_rhs_be_assigned(rhs_type)) {
           err_type_mismatch("can not assign {src} to variable of type {dst}", rhs_type, declared_type).fire(err_loc, cur_f);
         }

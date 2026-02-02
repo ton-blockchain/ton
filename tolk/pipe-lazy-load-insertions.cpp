@@ -862,13 +862,11 @@ class CollectAllLazyObjectsAndFieldsVisitor final : public ASTVisitorFunctionBod
 
       if (auto lhs_var_decl = v->get_lhs()->try_as<ast_local_vars_declaration>()) {
         auto lhs_var = lhs_var_decl->get_expr()->try_as<ast_local_var_lhs>();
-        if (!lhs_var->marked_as_redef) {
-          // collect usages of a lazy var inside the same block statement where it's declared
-          LocalVarPtr var_ref = lhs_var->var_ref;
-          ExprUsagesWhileCollecting var_usages = collect_expr_usages_in_block(var_ref->name, SinkExpression(var_ref), var_ref->declared_type, parent_block);
-          LazyVarInFunction lazy_var(cur_f, var_ref, rhs_lazy, std::move(var_usages));
-          functions_with_lazy_vars[cur_f].emplace_back(std::move(lazy_var));
-        }
+        // collect usages of a lazy var inside the same block statement where it's declared
+        LocalVarPtr var_ref = lhs_var->var_ref;
+        ExprUsagesWhileCollecting var_usages = collect_expr_usages_in_block(var_ref->name, SinkExpression(var_ref), var_ref->declared_type, parent_block);
+        LazyVarInFunction lazy_var(cur_f, var_ref, rhs_lazy, std::move(var_usages));
+        functions_with_lazy_vars[cur_f].emplace_back(std::move(lazy_var));
       }
     }
 

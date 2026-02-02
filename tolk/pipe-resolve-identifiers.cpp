@@ -130,20 +130,8 @@ class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
   }
 
   void visit(V<ast_local_var_lhs> v) override {
-    if (v->marked_as_redef) {
-      const Symbol* sym = current_scope.lookup_symbol(v->get_name());
-      if (sym == nullptr) {
-        err("`redef` for unknown variable").fire(v, cur_f);
-      }
-      LocalVarPtr var_ref = sym->try_as<LocalVarPtr>();
-      if (!var_ref) {
-        err("`redef` for unknown variable").fire(v, cur_f);
-      }
-      v->mutate()->assign_var_ref(var_ref);
-    } else {
-      LocalVarPtr var_ref = create_local_var_sym(v->get_name(), v, v->type_node, v->is_immutable, v->is_lateinit);
-      v->mutate()->assign_var_ref(var_ref);
-    }
+    LocalVarPtr var_ref = create_local_var_sym(v->get_name(), v, v->type_node, v->is_immutable, v->is_lateinit);
+    v->mutate()->assign_var_ref(var_ref);
   }
 
   void visit(V<ast_assign> v) override {
