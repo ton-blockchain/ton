@@ -268,6 +268,9 @@ class TypeNodesVisitorResolver {
         visit_symbol(alias_ref);
       }
       if (alias_ref->is_generic_alias() && !allow_without_type_arguments) {
+        if (alias_ref->genericTs->size_no_defaults() == 0) {    // `type U<T = int>`: use all defaults
+          return instantiate_generic_type_or_fire(cur_f, range, TypeDataAlias::create(alias_ref), {});
+        }
         err_generic_type_used_without_T(alias_ref->as_human_readable()).fire(range, cur_f);
       }
       return TypeDataAlias::create(alias_ref);
@@ -277,6 +280,9 @@ class TypeNodesVisitorResolver {
         visit_symbol(struct_ref);
       }
       if (struct_ref->is_generic_struct() && !allow_without_type_arguments) {
+        if (struct_ref->genericTs->size_no_defaults() == 0) {   // `struct Resp<T = cell>`: use all defaults
+          return instantiate_generic_type_or_fire(cur_f, range, TypeDataStruct::create(struct_ref), {});
+        }
         err_generic_type_used_without_T(struct_ref->as_human_readable()).fire(range, cur_f);
       }
       return TypeDataStruct::create(struct_ref);
@@ -520,7 +526,8 @@ class ResolveTypesInsideFunctionVisitor final : public ASTVisitorFunctionBody {
           }
           obj_type_node = createV<ast_type_triangle_args>(obj_ref->range, std::move(inner_and_args));
         }
-        TypePtr type_as_reference = finalize_type_node(obj_type_node);
+        // allow without type arguments, like `Maybe.none()` for `type Maybe<T>`, type arguments will be inferred
+        TypePtr type_as_reference = finalize_type_node(obj_type_node, true);
         const Symbol* type_as_symbol = new TypeReferenceUsedAsSymbol(static_cast<std::string>(obj_type_name), obj_ref->get_identifier(), type_as_reference);
         obj_ref->mutate()->assign_sym(type_as_symbol);
       }

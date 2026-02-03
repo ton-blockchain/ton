@@ -333,26 +333,30 @@ static V<ast_identifier> parse_identifier(Lexer& lex, const char* str_expected) 
   return createV<ast_identifier>(range, name);
 }
 
+static V<ast_genericsT_item> parse_genericsT_item(Lexer& lex) {
+  lex.check(tok_identifier, "T");
+  SrcRange rangeT = lex.cur_range();
+  std::string_view nameT = lex.cur_str();
+  lex.next();
+  AnyTypeV default_type = nullptr;
+  if (lex.tok() == tok_assign) {          // <T = int?>
+    lex.next();
+    default_type = parse_type_expression(lex);
+    rangeT.end(default_type->range);
+  }
+  return createV<ast_genericsT_item>(rangeT, nameT, default_type);
+}
+
 static V<ast_genericsT_list> parse_genericsT_list(Lexer& lex) {
   SrcRange range = lex.range_start();
-  std::vector<AnyV> genericsT_items;
   lex.expect(tok_lt, "`<`");
-  while (true) {
-    lex.check(tok_identifier, "T");
-    SrcRange rangeT = lex.cur_range();
-    std::string_view nameT = lex.cur_str();
+  std::vector<AnyV> genericsT_items(1, parse_genericsT_item(lex));
+  while (lex.tok() == tok_comma) {
     lex.next();
-    AnyTypeV default_type = nullptr;
-    if (lex.tok() == tok_assign) {          // <T = int?>
-      lex.next();
-      default_type = parse_type_expression(lex);
-      rangeT.end(default_type->range);
-    }
-    genericsT_items.emplace_back(createV<ast_genericsT_item>(rangeT, nameT, default_type));
-    if (lex.tok() != tok_comma) {
+    if (lex.tok() == tok_gt) {   // trailing comma
       break;
     }
-    lex.next();
+    genericsT_items.push_back(parse_genericsT_item(lex));
   }
 
   lex.check(tok_gt, "`>`");

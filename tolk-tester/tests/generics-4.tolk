@@ -26,7 +26,11 @@ struct WithVoid<T = void> {
     f2: T;
 }
 
-fun eqVoid<T = void>(o: WithVoid<T>) { return o; }
+fun eqVoid<T = void,>(o: WithVoid<T>) { return o; }
+
+fun alwaysVoid(w: WithVoid) {
+    __expect_type(w.f2, "void");
+}
 
 struct MyInit<TInit> {
     value: coins;
@@ -81,6 +85,12 @@ fun MultipleWithDefaults<T1, T2, T3, T4>.method2<U1, U2 = int>(self): [T4, U1?, 
 
 type ParametrizedInt<T1, T2 = slice> = int
 
+type AllDefaultsAlias<T = builder,> = T
+
+fun AllDefaultsAlias.inferNoT(self) {
+    __expect_type(self, "AllDefaultsAlias<builder>");
+}
+
 @noinline
 fun mySend<TBody = void, TInit = void>(p: Parameters<TBody, TInit>): int {
     var total = 0;
@@ -128,7 +138,8 @@ fun test3() {
     __expect_type(eqVoid({f1:10,f2:20}), "WithVoid<int>");
     __expect_type(eqVoid({f1:10,f2:null}), "WithVoid<null>");
 
-    var a: WithVoid<void> = {f1:10};
+    var a: WithVoid = {f1:10};
+    alwaysVoid(a);
     return (a, WithVoid{f1:20}, eqVoid({f1:30}), 777, eqVoid({f1:40,f2:40}));
 }
 
@@ -142,6 +153,9 @@ fun test4() {
     __expect_type(WithDef1{}.body, "null");
     __expect_type(WithDef1{body: null}.body, "null");
     __expect_type(WithDef1{body: 123}.body, "int?");
+
+    var wdn: WithDef1 = {};
+    __expect_type(wdn, "WithDef1<null>");
 
     return (getBodyOf({body: null}), getBodyOf({}), WithDef1{});
 }
@@ -182,6 +196,10 @@ fun test7() {
     __expect_type(Parameters{ bounce: false, body: 123 }.genericIntVoid<builder, cell>(), "(cell?, builder?)");
     __expect_type(Parameters{ bounce: false }.body, "void");
     Parameters{ bounce: false }.body.assertIsVoid();
+
+    __expect_type(Container1<Parameters> { item: { bounce: false } }, "Container1<Parameters<void, void>>");
+    __expect_type(Container1<Parameters<void, int>> { item: { bounce: false } }, "Container1<Parameters<void, int>>");
+    __expect_type(Container1<Parameters<void, AllDefaultsAlias>> { item: { bounce: false } }, "Container1<Parameters<void, AllDefaultsAlias<builder>>>");
 
     var v1 = mySend({ bounce: true });
     var v2 = mySend({ bounce: false, body: 123, init: beginCell() });
@@ -236,6 +254,9 @@ fun main() {
 
     __expect_type(12 as ParametrizedInt<builder>, "ParametrizedInt<builder, slice>");
     __expect_type(12 as ParametrizedInt<builder, cell>, "ParametrizedInt<builder, cell>");
+
+    var de: (AllDefaultsAlias, AllDefaultsAlias<cell>) = (beginCell(), createEmptyCell());
+    __expect_type(de.0, "AllDefaultsAlias<builder>");
 }
 
 /**

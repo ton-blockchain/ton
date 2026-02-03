@@ -415,6 +415,9 @@ int TypeDataNotInferred::get_type_id() const {
 //
 
 std::string TypeDataAlias::as_human_readable() const {
+  if (alias_ref->is_generic_alias()) {
+    return alias_ref->name + alias_ref->genericTs->as_human_readable();
+  }
   return alias_ref->name;
 }
 
@@ -468,6 +471,9 @@ std::string TypeDataGenericTypeWithTs::as_human_readable() const {
 }
 
 std::string TypeDataStruct::as_human_readable() const {
+  if (struct_ref->is_generic_struct()) {
+    return struct_ref->name + struct_ref->genericTs->as_human_readable();
+  }
   return struct_ref->name;
 }
 

@@ -141,6 +141,11 @@ static Error err_method_or_field_not_found(TypePtr receiver_type, std::string_vi
   return err("method `{}` not found", field_name);
 }
 
+// make an error when can't deduce generic T for a type, e.g. `x is Wrapper` or `Maybe.create()` (T missing and non deducible)
+static Error err_cannot_deduce_genericT(TypePtr t_generic) {
+  return err("can not deduce type arguments for `{}`, provide them manually", t_generic);
+}
+
 // safe version of std::stoi that does not crash on long numbers
 static bool try_parse_string_to_int(std::string_view str, int& out) {
   auto result = std::from_chars(str.data(), str.data() + str.size(), out);
@@ -801,7 +806,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         rhs_type = inst_rhs_type;
         v->type_node->mutate()->assign_resolved_type(rhs_type);
       } else {
-        err("can not deduce type arguments for `{}`, provide them manually", t_struct->struct_ref).fire(v->type_node, cur_f);
+        err_cannot_deduce_genericT(t_struct).fire(v->type_node, cur_f);
       }
     }
     if (const auto* t_alias = rhs_type->try_as<TypeDataAlias>(); t_alias && t_alias->alias_ref->is_generic_alias()) {
@@ -810,16 +815,16 @@ class InferTypesAndCallsAndFieldsVisitor final {
         rhs_type = inst_rhs_type;
         v->type_node->mutate()->assign_resolved_type(rhs_type);
       } else {
-        err("can not deduce type arguments for `{}`, provide them manually", t_alias->alias_ref).fire(v->type_node, cur_f);
+        err_cannot_deduce_genericT(t_alias).fire(v->type_node, cur_f);
       }
     }
     // we could also support auto-inferring type arguments for `v is map` and `v is array`,
     // but it's more complicated than useful; maybe, think of simplifying "try_pick_*" in the future
     if (const auto* t_map = rhs_type->try_as<TypeDataMapKV>(); t_map && t_map->has_genericT_inside()) {
-      err("can not deduce type arguments for `{}`, provide them manually", rhs_type).fire(v->type_node, cur_f);
+      err_cannot_deduce_genericT(rhs_type).fire(v->type_node, cur_f);
     }
     if (const auto* t_array = rhs_type->try_as<TypeDataArray>(); t_array && t_array->has_genericT_inside()) {
-      err("can not deduce type arguments for `{}`, provide them manually", rhs_type).fire(v->type_node, cur_f);
+      err_cannot_deduce_genericT(rhs_type).fire(v->type_node, cur_f);
     }
 
     TypePtr expr_type = v->get_expr()->inferred_type;
@@ -1035,6 +1040,22 @@ class InferTypesAndCallsAndFieldsVisitor final {
             return ExprFlow(std::move(flow), used_as_condition);
           }
         }
+        // `Maybe.value(123)` or `Maybe.none()` where it's a generic `type Maybe<T>`
+        if (const TypeDataAlias* r_aliasT = receiver_type->try_as<TypeDataAlias>(); r_aliasT && r_aliasT->alias_ref->is_generic_alias()) {
+          if (const TypeDataAlias* hint_same = hint ? hint->try_as<TypeDataAlias>() : nullptr; hint_same && hint_same->alias_ref->base_alias_ref == r_aliasT->alias_ref) {
+            receiver_type = hint;   // assigned to `var v: Maybe<int> = Maybe.none()` or similar same hint
+          } else {
+            err_cannot_deduce_genericT(r_aliasT).fire(v->get_obj(), cur_f);
+          }
+        }
+        // `Pair.create(a, b)` where it's a generic `struct Pair<T1, T2>`
+        if (const TypeDataStruct* r_structT = receiver_type->unwrap_alias()->try_as<TypeDataStruct>(); r_structT && r_structT->struct_ref->is_generic_struct()) {
+          if (const TypeDataStruct* hint_same = hint ? hint->unwrap_alias()->try_as<TypeDataStruct>() : nullptr; hint_same && hint_same->struct_ref->base_struct_ref == r_structT->struct_ref) {
+            receiver_type = hint;   // assigned to `var p: Pair<int, bool> = Pair.create(...)`
+          } else {
+            err_cannot_deduce_genericT(r_structT).fire(v->get_obj(), cur_f);
+          }
+        }
         std::tie(fun_ref, substitutedTs) = choose_only_method_to_call(cur_f, v_ident->range, receiver_type, field_name);
         if (!fun_ref) {
           err_method_or_field_not_found(receiver_type, field_name, out_f_called != nullptr, true).fire(v_ident, cur_f);
@@ -1160,7 +1181,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     if (callee->kind == ast_reference) {
       flow = infer_reference(callee->as<ast_reference>(), std::move(flow), false, nullptr, &fun_ref).out_flow;
     } else if (callee->kind == ast_dot_access) {
-      flow = infer_dot_access(callee->as<ast_dot_access>(), std::move(flow), false, nullptr, &fun_ref, &self_obj).out_flow;
+      flow = infer_dot_access(callee->as<ast_dot_access>(), std::move(flow), false, hint, &fun_ref, &self_obj).out_flow;
     } else {
       flow = infer_any_expr(callee, std::move(flow), false).out_flow;
     }
@@ -1397,7 +1418,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
             exact_type = inst_exact_type;
             v_arm->pattern_type_node->mutate()->assign_resolved_type(exact_type);
           } else {
-            err("can not deduce type arguments for `{}`, provide them manually", t_struct->struct_ref).fire(v_arm->pattern_type_node, cur_f);
+            err_cannot_deduce_genericT(t_struct).fire(v_arm->pattern_type_node, cur_f);
           }
         }
         if (const auto* t_alias = exact_type->try_as<TypeDataAlias>(); t_alias && t_alias->alias_ref->is_generic_alias()) {
@@ -1406,7 +1427,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
             exact_type = inst_exact_type;
             v_arm->pattern_type_node->mutate()->assign_resolved_type(exact_type);
           } else {
-            err("can not deduce type arguments for `{}`, provide them manually", t_alias->alias_ref).fire(v_arm->pattern_type_node, cur_f);
+            err_cannot_deduce_genericT(t_alias).fire(v_arm->pattern_type_node, cur_f);
           }
         }
         arm_flow.register_known_type(s_expr, exact_type);
