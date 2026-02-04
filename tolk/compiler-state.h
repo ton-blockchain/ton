@@ -100,6 +100,8 @@ public:
   void clear();
 };
 
+class ErrorCollector;  // forward declaration
+
 // CompilerState contains a mutable state that is changed while the compilation is going on.
 // It's a "global state" of all compilation.
 // Historically, in FunC, this global state was spread along many global C++ variables.
@@ -119,6 +121,8 @@ struct CompilerState {
   std::vector<StructPtr> all_structs;
   std::vector<EnumDefPtr> all_enums;
   AllRegisteredSrcFiles all_src_files;
+
+  ErrorCollector* error_collector = nullptr;  // when set, errors can be collected instead of thrown
 
   bool is_verbosity(int gt_eq) const { return settings.verbosity >= gt_eq; }
 };

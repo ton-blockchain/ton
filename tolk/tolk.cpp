@@ -39,8 +39,11 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
   define_builtins();
   lexer_init();
 
-  // on any error, an exception is thrown, and the message is printed out below
-  // (currently, only a single error can be printed)
+  // enable error collecting for check stages (multiple errors can be reported):
+  // - if used err("...").fire() — execution is stopped immediately (it's `throw`)
+  // - if used err("...").collect() — added to a collector and reported before codegen to IR
+  ErrorCollector error_collector;
+  G.error_collector = &error_collector;
   try {
     pipeline_discover_and_parse_sources("@stdlib/common.tolk", entrypoint_filename);
 
@@ -59,6 +62,26 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
     pipeline_optimize_boolean_expressions();
     pipeline_detect_inline_in_place();
     pipeline_check_serialized_fields();
+
+    // return errors, if any
+    if (!error_collector.empty()) {
+      return TolkCompilationResult{
+        .errors = error_collector.flush(),
+        .fatal_msg = "",
+        .fift_code = "",
+      };
+    }
+    // output warnings to console, if any collected
+    if (!G.settings.show_errors_as_json) {
+      for (const ThrownParseError& err : error_collector.flush()) {
+        if (err.is_warning) {
+          err.output_to_console(std::cerr);
+        }
+      }
+    }
+    G.error_collector = nullptr;
+
+    // the following pipes can't operate if any previous errors exist
     pipeline_lazy_load_insertions();
     pipeline_transform_onInternalMessage();
     pipeline_convert_ast_to_legacy_Expr_Op();
@@ -74,17 +97,19 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
       .fift_code = os_fif.str(),
     };
 
+  } catch (const ThrownParseError& error) {
+    // append `err("...").fire()` to earlier `err("...").collect()`
+    error_collector.add(error);
+    return TolkCompilationResult{
+      .errors = error_collector.flush(),
+      .fatal_msg = "",
+      .fift_code = "",
+    };
+
   } catch (const Fatal& fatal) {
     return TolkCompilationResult{
       .errors = {},
       .fatal_msg = fatal.message,
-      .fift_code = "",
-    };
-
-  } catch (const ThrownParseError& error) {
-    return TolkCompilationResult{
-      .errors = {error},
-      .fatal_msg = "",
       .fift_code = "",
     };
 

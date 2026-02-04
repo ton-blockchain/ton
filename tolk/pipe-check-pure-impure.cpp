@@ -41,24 +41,20 @@ class CheckImpureOperationsInPureFunctionVisitor final : public ASTVisitorFuncti
 
   void visit(V<ast_function_call> v) override {
     // v is `globalF(args)` / `globalF<int>(args)` / `obj.method(args)` / `local_var(args)` / `getF()(args)`
-    if (!v->fun_maybe) {
-      // `local_var(args)` is always impure, no considerations about what's there at runtime
-      err_impure_operation_inside_pure_function().fire(v, cur_f);
-    }
-
-    if (!v->fun_maybe->is_marked_as_pure()) {
-      err_impure_operation_inside_pure_function().fire(v, cur_f);
+    // `local_var(args)` is always impure, no considerations about what's there at runtime
+    if (!v->fun_maybe || !v->fun_maybe->is_marked_as_pure()) {
+      err_impure_operation_inside_pure_function().collect(v, cur_f);
     }
 
     parent::visit(v);
   }
 
   void visit(V<ast_throw_statement> v) override {
-    err_impure_operation_inside_pure_function().fire(v, cur_f);
+    err_impure_operation_inside_pure_function().collect(v, cur_f);
   }
 
   void visit(V<ast_assert_statement> v) override {
-    err_impure_operation_inside_pure_function().fire(v, cur_f);
+    err_impure_operation_inside_pure_function().collect(v, cur_f);
   }
 
 public:

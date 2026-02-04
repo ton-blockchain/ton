@@ -51,10 +51,10 @@ static Error err_modifying_readonly_field(StructPtr struct_ref, StructFieldPtr f
 // it's not a generic function (ensured earlier at type inferring) and has some more restrictions
 static void validate_function_used_as_noncall(FunctionPtr cur_f, AnyExprV v, FunctionPtr fun_ref) {
   if (!fun_ref->arg_order.empty() || !fun_ref->ret_order.empty()) {
-    err("saving `{}` into a variable will most likely lead to invalid usage, since it changes the order of variables on the stack", fun_ref).fire(v, cur_f);
+    err("saving `{}` into a variable will most likely lead to invalid usage, since it changes the order of variables on the stack", fun_ref).collect(v, cur_f);
   }
   if (fun_ref->has_mutate_params()) {
-    err("saving `{}` into a variable is impossible, since it has `mutate` parameters and thus can only be called directly", fun_ref).fire(v, cur_f);
+    err("saving `{}` into a variable is impossible, since it has `mutate` parameters and thus can only be called directly", fun_ref).collect(v, cur_f);
   }
 }
 
@@ -66,125 +66,125 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
     if (LocalVarPtr var_ref = sym->try_as<LocalVarPtr>()) {
       // deny `v = rhs` / `mutate v` / `v.field = rhs` / etc. if v is immutable
       if (var_ref->is_immutable()) {
-        err_modifying_immutable_variable(var_ref).fire(range, cur_f);
+        err_modifying_immutable_variable(var_ref).collect(range, cur_f);
       }
       var_ref->mutate()->assign_used_as_lval();
 
     } else if (sym->try_as<GlobalConstPtr>()) {
       // deny `SOME_CONST = rhs` / `mutate CONST_TENSOR.0` / etc.
-      err("modifying immutable constant").fire(range, cur_f);
+      err("modifying immutable constant").collect(range, cur_f);
 
     } else if (sym->try_as<GlobalVarPtr>()) {
       // fire on `global = rhs` in a @pure function: it's easier to do this check here,
       // because it's very similar to checking immutable variables, especially `(global!).field = rhs`
       if (cur_f->is_marked_as_pure()) {
-        err("modifying a global in a pure function").fire(range, cur_f);
+        err("modifying a global in a pure function").collect(range, cur_f);
       }
 
     } else if (sym->try_as<const TypeReferenceUsedAsSymbol*>()) {
       // `Point.create = f` or `Enum.value = v`
-      err("invalid left side of assignment").fire(range, cur_f);
+      err("invalid left side of assignment").collect(range, cur_f);
     }
   }
 
   void visit(V<ast_braced_expression> v) override {
     if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("braced expression").fire(v, cur_f);
+      err_cannot_be_used_as_lvalue("braced expression").collect(v, cur_f);
     }
     parent::visit(v);
   }
 
   void visit(V<ast_assign> v) override {
     if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("assignment").fire(v, cur_f);
+      err_cannot_be_used_as_lvalue("assignment").collect(v, cur_f);
     }
     parent::visit(v);
   }
 
   void visit(V<ast_set_assign> v) override {
     if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("assignment").fire(v, cur_f);
+      err_cannot_be_used_as_lvalue("assignment").collect(v, cur_f);
     }
     parent::visit(v);
   }
 
   void visit(V<ast_binary_operator> v) override {
     if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("operator " + static_cast<std::string>(v->operator_name)).fire(v, cur_f);
+      err_cannot_be_used_as_lvalue("operator " + static_cast<std::string>(v->operator_name)).collect(v, cur_f);
     }
     parent::visit(v);
   }
 
   void visit(V<ast_unary_operator> v) override {
     if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("operator " + static_cast<std::string>(v->operator_name)).fire(v, cur_f);
+      err_cannot_be_used_as_lvalue("operator " + static_cast<std::string>(v->operator_name)).collect(v, cur_f);
     }
     parent::visit(v);
   }
 
   void visit(V<ast_ternary_operator> v) override {
     if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("operator ?:").fire(v, cur_f);
+      err_cannot_be_used_as_lvalue("operator ?:").collect(v, cur_f);
     }
     parent::visit(v);
   }
 
   void visit(V<ast_null_coalesce_operator> v) override {
     if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("operator ??").fire(v, cur_f);
+      err_cannot_be_used_as_lvalue("operator ??").collect(v, cur_f);
     }
     parent::visit(v);
   }
 
   void visit(V<ast_cast_as_operator> v) override {
     if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("operator `as`").fire(v, cur_f);
+      err_cannot_be_used_as_lvalue("operator `as`").collect(v, cur_f);
     }
     parent::visit(v->get_expr());
   }
 
   void visit(V<ast_is_type_operator> v) override {
     if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue(v->is_negated ? "operator !is" : "operator is").fire(v, cur_f);
+      err_cannot_be_used_as_lvalue(v->is_negated ? "operator !is" : "operator is").collect(v, cur_f);
     }
     parent::visit(v->get_expr());
   }
 
   void visit(V<ast_not_null_operator> v) override {
     if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("operator `!`").fire(v, cur_f);
+      err_cannot_be_used_as_lvalue("operator `!`").collect(v, cur_f);
     }
     parent::visit(v->get_expr());
   }
 
   void visit(V<ast_lazy_operator> v) override {
     if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("lazy expression").fire(v, cur_f);
+      err_cannot_be_used_as_lvalue("lazy expression").collect(v, cur_f);
     }
     parent::visit(v->get_expr());
   }
 
   void visit(V<ast_int_const> v) override {
     if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("literal").fire(v, cur_f);
+      err_cannot_be_used_as_lvalue("literal").collect(v, cur_f);
     }
   }
 
   void visit(V<ast_string_const> v) override {
     if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("literal").fire(v, cur_f);
+      err_cannot_be_used_as_lvalue("literal").collect(v, cur_f);
     }
   }
 
   void visit(V<ast_bool_const> v) override {
     if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("literal").fire(v, cur_f);
+      err_cannot_be_used_as_lvalue("literal").collect(v, cur_f);
     }
   }
 
   void visit(V<ast_null_keyword> v) override {
     if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("literal").fire(v, cur_f);
+      err_cannot_be_used_as_lvalue("literal").collect(v, cur_f);
     }
   }
 
@@ -201,7 +201,7 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
             const TypeDataStruct* obj_type = as_dot->get_obj()->inferred_type->unwrap_alias()->try_as<TypeDataStruct>();
             tolk_assert(obj_type);
             if (field_ref->is_readonly) {
-              err_modifying_readonly_field(obj_type->struct_ref, field_ref).fire(as_dot, cur_f);
+              err_modifying_readonly_field(obj_type->struct_ref, field_ref).collect(as_dot, cur_f);
             }
           }
 
@@ -230,7 +230,7 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
 
   void visit(V<ast_function_call> v) override {
     if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("function call").fire(v, cur_f);
+      err_cannot_be_used_as_lvalue("function call").collect(v, cur_f);
     }
     if (!v->fun_maybe) {
       parent::visit(v->get_callee());
@@ -248,7 +248,7 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
 
   void visit(V<ast_match_expression> v) override {
     if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("`match` expression").fire(v, cur_f);
+      err_cannot_be_used_as_lvalue("`match` expression").collect(v, cur_f);
     }
     parent::visit(v);
   }
@@ -266,14 +266,14 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
 
   void visit(V<ast_lambda_fun> v) override {
     if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("lambda").fire(v, cur_f);
+      err_cannot_be_used_as_lvalue("lambda").collect(v, cur_f);
     }
     // we don't traverse body: just detect `fun(){} = rhs`
   }
 
   void visit(V<ast_underscore> v) override {
     if (v->is_rvalue) {
-      err("`_` can't be used as a value; it's a placeholder for a left side of assignment").fire(v, cur_f);
+      err("`_` can't be used as a value; it's a placeholder for a left side of assignment").collect(v, cur_f);
     }
   }
 

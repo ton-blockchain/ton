@@ -52,10 +52,10 @@ GNU_ATTRIBUTE_NOINLINE
 static void check_map_TKey_TValue(SrcRange range, TypePtr TKey, TypePtr TValue) {
   std::string because_msg;
   if (!check_mapKV_TKey_is_valid(TKey, because_msg)) {
-    err("invalid `map`: type `{}` can not be used as a key\n{}", TKey, because_msg).fire(range);
+    err("invalid `map`: type `{}` can not be used as a key\n{}", TKey, because_msg).collect(range);
   } 
   if (!check_mapKV_TValue_is_valid(TValue, because_msg)) {
-    err("invalid `map`: type `{}` can not be used as a value\n{}", TValue, because_msg).fire(range);
+    err("invalid `map`: type `{}` can not be used as a value\n{}", TValue, because_msg).collect(range);
   } 
 }
 
@@ -78,7 +78,7 @@ static void check_mapKV_inside_type(AnyTypeV type_node) {
 // given `enum Role: int8` check colon type (not struct/slice etc.)
 static void check_enum_colon_type_to_be_intN(AnyTypeV colon_type_node) {
   if (!colon_type_node->resolved_type->try_as<TypeDataIntN>() && !colon_type_node->resolved_type->try_as<TypeDataCoins>()) {
-    err("serialization type of `enum` must be intN: `int8` / `uint32` / etc.").fire(colon_type_node);
+    err("serialization type of `enum` must be intN: `int8` / `uint32` / etc.").collect(colon_type_node);
   }
 }
 
@@ -107,7 +107,7 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
     PackSize size = estimate_serialization_size(t_struct);
     if ((size.max_bits > 1023 || size.max_refs > 4) && !size.is_unpredictable_infinity()) {
       if (struct_ref->overflow1023_policy == StructData::Overflow1023Policy::not_specified) {
-        err_theoretical_overflow_1023(struct_ref, size).fire(struct_ref->ident_anchor);
+        err_theoretical_overflow_1023(struct_ref, size).collect(struct_ref->ident_anchor);
       }
     }
     // don't check Cell<T> fields for overflow of T: it would be checked on load() or other interaction with T
@@ -135,7 +135,8 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
     std::string because_msg;
     if (!check_struct_can_be_packed_or_unpacked(serialized_type, is_pack, &because_msg)) {
       std::string via_name = fun_ref->is_method() ? fun_ref->method_name : fun_ref->base_fun_ref->name;
-      err("auto-serialization via {}() is not available for type `{}`\n{}", via_name, serialized_type, because_msg).fire(v, cur_f);
+      err("auto-serialization via {}() is not available for type `{}`\n{}", via_name, serialized_type, because_msg).collect(v, cur_f);
+      return;  // don't check overflow if serialization is not available
     }
 
     check_type_fits_cell_or_has_policy(serialized_type);

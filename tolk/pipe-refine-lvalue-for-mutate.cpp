@@ -58,7 +58,7 @@ class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBod
       for (int i = 0; i < v->get_num_args(); ++i) {
         auto v_arg = v->get_arg(i);
         if (v_arg->passed_as_mutate) {
-          err("`mutate` used for non-mutate parameter").fire(v_arg);
+          err("`mutate` used for non-mutate parameter").collect(v_arg);
         }
       }
       return;
@@ -82,7 +82,7 @@ class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBod
       const LocalVarData& p_sym = fun_ref->parameters[delta_self + i];
       auto arg_i = v->get_arg(i);
       if (p_sym.is_mutate_parameter() != arg_i->passed_as_mutate) {
-        err_invalid_mutate_arg_passed(fun_ref, p_sym, arg_i->passed_as_mutate, arg_i->get_expr()).fire(arg_i, cur_f);
+        err_invalid_mutate_arg_passed(fun_ref, p_sym, arg_i->passed_as_mutate, arg_i->get_expr()).collect(arg_i, cur_f);
       }
       parent::visit(arg_i);
     }

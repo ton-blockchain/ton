@@ -115,9 +115,9 @@ static void check_function_argument_mutate_back(FunctionPtr cur_f, TypePtr param
 
   if (!ok) {
     if (is_obj_of_dot_call) {
-      err("can not call method for mutate `{}` with object of type `{}`, because mutation is not type compatible", param_type, orig_type).fire(ith_arg, cur_f);
+      err("can not call method for mutate `{}` with object of type `{}`, because mutation is not type compatible", param_type, orig_type).collect(ith_arg, cur_f);
     } else {
-      err("can not pass `{}` to mutate `{}`, because mutation is not type compatible", orig_type, param_type).fire(ith_arg, cur_f);
+      err("can not pass `{}` to mutate `{}`, because mutation is not type compatible", orig_type, param_type).collect(ith_arg, cur_f);
     }
   }
 }
@@ -143,7 +143,7 @@ static void handle_possible_compiler_internal_call(FunctionPtr cur_f, V<ast_func
     tolk_assert(v_expected_str && "invalid __expect_type");
     TypePtr expr_type = v->get_arg(0)->inferred_type;
     if (v_expected_str->str_val != expr_type->as_human_readable()) {
-      err("__expect_type failed: expected `{}`, got `{}`", v_expected_str->str_val, expr_type).fire(v, cur_f);
+      err("__expect_type failed: expected `{}`, got `{}`", v_expected_str->str_val, expr_type).collect(v, cur_f);
     }
   }
 }
@@ -226,11 +226,11 @@ static void check_declared_packToBuilder(FunctionPtr f_pack) {
                          && f_pack->get_param(1).declared_type == TypeDataBuilder::create()
                          && f_pack->inferred_return_type->equal_to(TypeDataVoid::create());
   if (!declared_correctly) {
-    err("method `{}` is declared incorrectly\n""hint: it must accept 2 parameters and return nothing:\n""> fun {}(self, mutate b: builder)", f_pack, f_pack).fire(f_pack->ident_anchor, f_pack);
+    err("method `{}` is declared incorrectly\n""hint: it must accept 2 parameters and return nothing:\n""> fun {}(self, mutate b: builder)", f_pack, f_pack).collect(f_pack->ident_anchor, f_pack);
   }
   bool is_receiver_ok = f_pack->receiver_type->try_as<TypeDataAlias>() || f_pack->receiver_type->try_as<TypeDataStruct>() || f_pack->receiver_type->try_as<TypeDataEnum>();
   if (!is_receiver_ok) {
-    err("this method can not be declared for type `{}`\n""hint: custom pack/unpack can be declared only for type aliases and structures", f_pack->receiver_type).fire(f_pack->ident_anchor, f_pack);
+    err("this method can not be declared for type `{}`\n""hint: custom pack/unpack can be declared only for type aliases and structures", f_pack->receiver_type).collect(f_pack->ident_anchor, f_pack);
   }
 }
 
@@ -241,11 +241,11 @@ static void check_declared_unpackFromSlice(FunctionPtr f_unpack) {
                          && f_unpack->get_param(0).declared_type == TypeDataSlice::create()
                          && f_unpack->inferred_return_type->equal_to(f_unpack->receiver_type);
   if (!declared_correctly) {
-    err("method `{}` is declared incorrectly\n""hint: it must accept 1 parameter and return an object:\n""> fun {}(mutate s: slice): {}", f_unpack, f_unpack, f_unpack->receiver_type).fire(f_unpack->ident_anchor, f_unpack);
+    err("method `{}` is declared incorrectly\n""hint: it must accept 1 parameter and return an object:\n""> fun {}(mutate s: slice): {}", f_unpack, f_unpack, f_unpack->receiver_type).collect(f_unpack->ident_anchor, f_unpack);
   }
   bool is_receiver_ok = f_unpack->receiver_type->try_as<TypeDataAlias>() || f_unpack->receiver_type->try_as<TypeDataStruct>() || f_unpack->receiver_type->try_as<TypeDataEnum>();
   if (!is_receiver_ok) {
-    err("this method can not be declared for type `{}`\n""hint: custom pack/unpack can be declared only for type aliases and structures", f_unpack->receiver_type).fire(f_unpack->ident_anchor, f_unpack);
+    err("this method can not be declared for type `{}`\n""hint: custom pack/unpack can be declared only for type aliases and structures", f_unpack->receiver_type).collect(f_unpack->ident_anchor, f_unpack);
   }
 }
 
@@ -267,7 +267,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     }
     // using += for other types (e.g. `tensorVar += tensorVar`) is not allowed
     if (!types_ok) {
-      err_cannot_apply_operator(v->operator_name, lhs, rhs).fire(v->operator_range, cur_f);
+      err_cannot_apply_operator(v->operator_name, lhs, rhs).collect(v->operator_range, cur_f);
     }
   }
 
@@ -278,12 +278,12 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     switch (v->tok) {
       case tok_logical_not:
         if (!expect_integer(rhs) && !expect_boolean(rhs)) {
-          err_cannot_apply_operator(v->operator_name, rhs).fire(v->operator_range, cur_f);
+          err_cannot_apply_operator(v->operator_name, rhs).collect(v->operator_range, cur_f);
         }
         break;
       default:
         if (!expect_integer(rhs)) {
-          err_cannot_apply_operator(v->operator_name, rhs).fire(v->operator_range, cur_f);
+          err_cannot_apply_operator(v->operator_name, rhs).collect(v->operator_range, cur_f);
         }
     }
   }
@@ -304,11 +304,11 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
         bool not_integer_comparison = false;
         if (!check_eq_neq_operator(lhs->inferred_type, rhs->inferred_type, not_integer_comparison)) {
           if (lhs->inferred_type->equal_to(rhs->inferred_type)) {  // compare slice with slice, int? with int?
-            err("type `{}` can not be compared with `== !=`", lhs->inferred_type).fire(v->operator_range, cur_f);
+            err("type `{}` can not be compared with `== !=`", lhs->inferred_type).collect(v->operator_range, cur_f);
           } else {
-            err_cannot_apply_operator(v->operator_name, lhs, rhs).fire(v->operator_range, cur_f);
+            err_cannot_apply_operator(v->operator_name, lhs, rhs).collect(v->operator_range, cur_f);
           }
-        } 
+        }
         if (not_integer_comparison) {    // special handling at IR generation like for `address`
           v->mutate()->assign_fun_ref(nullptr);
         }
@@ -321,7 +321,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       case tok_geq:
       case tok_spaceship:
         if (!expect_integer(lhs) || !expect_integer(rhs)) {
-          err_cannot_apply_operator(v->operator_name, lhs, rhs).fire(v->operator_range, cur_f);
+          err_cannot_apply_operator(v->operator_name, lhs, rhs).collect(v->operator_range, cur_f);
         }
         break;
       // & | ^ are "overloaded" both for integers and booleans, (int & bool) is NOT allowed
@@ -332,7 +332,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
         bool both_int = expect_integer(lhs) && expect_integer(rhs);
         bool both_bool = expect_boolean(lhs) && expect_boolean(rhs);
         if (!both_int && !both_bool) {
-          err_cannot_apply_operator(v->operator_name, lhs, rhs).fire(v->operator_range, cur_f);
+          err_cannot_apply_operator(v->operator_name, lhs, rhs).collect(v->operator_range, cur_f);
         }
         break;
       }
@@ -342,7 +342,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
         bool lhs_ok = expect_integer(lhs) || expect_boolean(lhs);
         bool rhs_ok = expect_integer(rhs) || expect_boolean(rhs);
         if (!lhs_ok || !rhs_ok) {
-          err_cannot_apply_operator(v->operator_name, lhs, rhs).fire(v->operator_range, cur_f);
+          err_cannot_apply_operator(v->operator_name, lhs, rhs).collect(v->operator_range, cur_f);
         }
         break;
       }
@@ -350,7 +350,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       // they are allowed for intN (int16 + int32 is ok) and always "fall back" to general int
       default:
         if (!expect_integer(lhs) || !expect_integer(rhs)) {
-          err_cannot_apply_operator(v->operator_name, lhs, rhs).fire(v->operator_range, cur_f);
+          err_cannot_apply_operator(v->operator_name, lhs, rhs).collect(v->operator_range, cur_f);
         }
     }
   }
@@ -366,7 +366,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       if (to_union && to_union->or_null && cast_from->can_be_casted_with_as_operator(to_union->or_null)) {
         hint = "\n""use an intermediate cast: `xxx as " + to_union->or_null->as_human_readable() + " as " + cast_to->as_human_readable() + "`";
       }
-      err("type `{}` can not be cast to `{}`{}", cast_from, cast_to, hint).fire(v, cur_f);
+      err("type `{}` can not be cast to `{}`{}", cast_from, cast_to, hint).collect(v, cur_f);
     }
   }
 
@@ -375,7 +375,8 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     TypePtr rhs_type = v->type_node->resolved_type;
 
     if (rhs_type->unwrap_alias()->try_as<TypeDataUnion>()) {   // `v is T1 | T2` / `v is T?` is disallowed
-      err("union types are not allowed, use concrete types in `is`").fire(v, cur_f);
+      err("union types are not allowed, use concrete types in `is`").collect(v, cur_f);
+      return;
     }
 
     if ((v->is_always_true && !v->is_negated) || (v->is_always_false && v->is_negated)) {
@@ -383,9 +384,10 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     }
     if ((v->is_always_false && !v->is_negated) || (v->is_always_true && v->is_negated)) {
       if (v->get_expr()->inferred_type == TypeDataUnknown::create()) {
-        err("operator `is` does not work for `unknown`, it works for union types only").fire(v, cur_f);
+        err("operator `is` does not work for `unknown`, it works for union types only").collect(v, cur_f);
+      } else {
+        err("{} of type `{}` can never be `{}`, this condition is always {}", expression_as_string(v->get_expr()), v->get_expr()->inferred_type, rhs_type, v->is_always_true).warning(v, cur_f);
       }
-      err("{} of type `{}` can never be `{}`, this condition is always {}", expression_as_string(v->get_expr()), v->get_expr()->inferred_type, rhs_type, v->is_always_true).warning(v, cur_f);
     }
   }
 
@@ -394,7 +396,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
 
     if (v->get_expr()->inferred_type == TypeDataNullLiteral::create()) {
       // operator `!` used for always-null (proven by smart casts, for example), it's an error
-      err("operator `!` used for always null expression").fire(v, cur_f);
+      err("operator `!` used for always null expression").collect(v, cur_f);
     }
     // if operator `!` used for non-nullable, probably a warning should be printed
   }
@@ -411,7 +413,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
         auto arg_i = v->get_arg(i)->get_expr();
         TypePtr param_type = f_callable->params_types[i];
         if (!param_type->can_rhs_be_assigned(arg_i->inferred_type)) {
-          err_type_mismatch("can not pass {src} to {dst}", arg_i->inferred_type, param_type).fire(arg_i, cur_f);
+          err_type_mismatch("can not pass {src} to {dst}", arg_i->inferred_type, param_type).collect(arg_i, cur_f);
         }
       }
       return;
@@ -425,7 +427,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       const LocalVarData& param_0 = fun_ref->parameters[0];
       TypePtr param_type = param_0.declared_type;
       if (!param_type->can_rhs_be_assigned(self_obj->inferred_type)) {
-        err("can not call method for `{}` with object of type `{}`", param_type, self_obj->inferred_type).fire(self_obj, cur_f);
+        err("can not call method for `{}` with object of type `{}`", param_type, self_obj->inferred_type).collect(self_obj, cur_f);
       }
       if (param_0.is_mutate_parameter()) {
         check_function_argument_mutate_back(cur_f, param_type, self_obj, true);
@@ -438,7 +440,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       V<ast_argument> arg_i = v->get_arg(i);
       TypePtr param_type = param_i.declared_type;
       if (!param_type->can_rhs_be_assigned(arg_i->inferred_type)) {
-        err_type_mismatch("can not pass {src} to {dst}", arg_i->inferred_type, param_type).fire(arg_i, cur_f);
+        err_type_mismatch("can not pass {src} to {dst}", arg_i->inferred_type, param_type).collect(arg_i, cur_f);
       }
       if (param_i.is_mutate_parameter()) {
         check_function_argument_mutate_back(cur_f, param_type, arg_i->get_expr(), false);
@@ -475,11 +477,11 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       if (lhs_var->type_node) {
         TypePtr declared_type = lhs_var->type_node->resolved_type;
         if (!declared_type->can_rhs_be_assigned(rhs_type)) {
-          err_type_mismatch("can not assign {src} to variable of type {dst}", rhs_type, declared_type).fire(err_loc, cur_f);
+          err_type_mismatch("can not assign {src} to variable of type {dst}", rhs_type, declared_type).collect(err_loc, cur_f);
         }
       } else {
         if (rhs_type == TypeDataNullLiteral::create()) {
-          err_assign_always_null_to_variable(lhs_var->var_ref->try_as<LocalVarPtr>(), corresponding_maybe_rhs && corresponding_maybe_rhs->kind == ast_null_keyword).fire(err_loc, cur_f);
+          err_assign_always_null_to_variable(lhs_var->var_ref->try_as<LocalVarPtr>(), corresponding_maybe_rhs && corresponding_maybe_rhs->kind == ast_null_keyword).collect(err_loc, cur_f);
         }
       }
       return;
@@ -490,10 +492,12 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     if (auto lhs_tensor = lhs->try_as<ast_tensor>()) {
       const TypeDataTensor* rhs_type_tensor = rhs_type->unwrap_alias()->try_as<TypeDataTensor>();
       if (!rhs_type_tensor) {
-        err("can not assign `{}` to a tensor", rhs_type).fire(err_loc, cur_f);
+        err("can not assign `{}` to a tensor", rhs_type).collect(err_loc, cur_f);
+        return;
       }
       if (lhs_tensor->size() != rhs_type_tensor->size()) {
-        err("can not assign `{}`, sizes mismatch", rhs_type).fire(err_loc, cur_f);
+        err("can not assign `{}`, sizes mismatch", rhs_type).collect(err_loc, cur_f);
+        return;
       }
       V<ast_tensor> rhs_tensor_maybe = corresponding_maybe_rhs ? corresponding_maybe_rhs->try_as<ast_tensor>() : nullptr;
       for (int i = 0; i < lhs_tensor->size(); ++i) {
@@ -507,11 +511,11 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     // for strange lhs like `f() = rhs` type checking will pass, but will fail lvalue check later
     if (!lhs->inferred_type->can_rhs_be_assigned(rhs_type)) {
       if (lhs->try_as<ast_reference>()) {
-        err_type_mismatch("can not assign {src} to variable of type {dst}", rhs_type, lhs->inferred_type).fire(err_loc, cur_f);
+        err_type_mismatch("can not assign {src} to variable of type {dst}", rhs_type, lhs->inferred_type).collect(err_loc, cur_f);
       } else if (lhs->try_as<ast_dot_access>()) {
-        err_type_mismatch("can not assign {src} to field of type {dst}", rhs_type, lhs->inferred_type).fire(err_loc, cur_f);
+        err_type_mismatch("can not assign {src} to field of type {dst}", rhs_type, lhs->inferred_type).collect(err_loc, cur_f);
       } else {
-        err_type_mismatch("can not assign {src} to {dst}", rhs_type, lhs->inferred_type).fire(err_loc, cur_f);
+        err_type_mismatch("can not assign {src} to {dst}", rhs_type, lhs->inferred_type).collect(err_loc, cur_f);
       }
     }
   }
@@ -521,14 +525,14 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
 
     if (cur_f->does_return_self()) {
       if (!is_expr_valid_as_return_self(v->get_return_value())) {
-        err("invalid return from `self` function").fire(v, cur_f);
+        err("invalid return from `self` function").collect(v, cur_f);
       }
       return;
     }
 
     TypePtr expr_type = v->get_return_value()->inferred_type;
     if (!cur_f->inferred_return_type->can_rhs_be_assigned(expr_type)) {
-      err_type_mismatch("can not convert type {src} to return type {dst}", expr_type, cur_f->inferred_return_type).fire(v->get_return_value(), cur_f);
+      err_type_mismatch("can not convert type {src} to return type {dst}", expr_type, cur_f->inferred_return_type).collect(v->get_return_value(), cur_f);
     }
   }
 
@@ -553,7 +557,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
 
     AnyExprV cond = v->get_cond();
     if (!expect_integer(cond) && !expect_boolean(cond)) {
-      err("can not use `{}` as a boolean condition", cond->inferred_type).fire(cond, cur_f);
+      err("can not use `{}` as a boolean condition", cond->inferred_type).collect(cond, cur_f);
     }
 
     if (cond->is_always_true || cond->is_always_false) {
@@ -578,7 +582,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       }
       for (AnyExprV v_item : v->get_items()) {
         if (!ith_hint->can_rhs_be_assigned(v_item->inferred_type)) {
-          err("type `{}` is not assignable to `{}`", v_item->inferred_type, ith_hint).fire(v_item, cur_f);
+          err("type `{}` is not assignable to `{}`", v_item->inferred_type, ith_hint).collect(v_item, cur_f);
         }
       }
     }
@@ -605,64 +609,66 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       switch (v_arm->pattern_kind) {
         case MatchArmKind::exact_type: {
           if (has_expr_arm) {
-            err("can not mix type and expression patterns in `match`").fire(v_arm->get_pattern_expr(), cur_f);
+            err("can not mix type and expression patterns in `match`").collect(v_arm->get_pattern_expr(), cur_f);
           }
           if (has_else_arm) {
-            err("`else` branch should be the last").fire(v_arm->get_pattern_expr(), cur_f);
+            err("`else` branch should be the last").collect(v_arm->get_pattern_expr(), cur_f);
           }
           has_type_arm = true;
 
           TypePtr lhs_type = v_arm->pattern_type_node->resolved_type;   // `lhs_type => ...`
           if (lhs_type->unwrap_alias()->try_as<TypeDataUnion>()) {
-            err("wrong pattern matching: union types are not allowed, use concrete types in `match`").fire(v_arm->get_pattern_expr(), cur_f);
+            err("wrong pattern matching: union types are not allowed, use concrete types in `match`").collect(v_arm->get_pattern_expr(), cur_f);
           }
           bool can_happen = (subject_union && subject_union->has_variant_equal_to(lhs_type)) ||
                            (!subject_union && subject_type->equal_to(lhs_type));
           if (!can_happen) {
-            err("wrong pattern matching: `{}` is not a variant of `{}`", lhs_type, subject_type).fire(v_arm->get_pattern_expr(), cur_f);
+            err("wrong pattern matching: `{}` is not a variant of `{}`", lhs_type, subject_type).collect(v_arm->get_pattern_expr(), cur_f);
           }
           auto it_mentioned = std::find_if(covered_types.begin(), covered_types.end(), [lhs_type](TypePtr existing) {
             return existing->equal_to(lhs_type);
           });
           if (it_mentioned != covered_types.end()) {
-            err("wrong pattern matching: duplicated `{}`", lhs_type).fire(v_arm->get_pattern_expr(), cur_f);
+            err("wrong pattern matching: duplicated `{}`", lhs_type).collect(v_arm->get_pattern_expr(), cur_f);
           }
           covered_types.push_back(lhs_type);
           break;
         }
         case MatchArmKind::const_expression: {
           if (has_type_arm) {
-            err("can not mix type and expression patterns in `match`").fire(v_arm->get_pattern_expr(), cur_f);
+            err("can not mix type and expression patterns in `match`").collect(v_arm->get_pattern_expr(), cur_f);
           }
           if (has_else_arm) {
-            err("`else` branch should be the last").fire(v_arm->get_pattern_expr(), cur_f);
+            err("`else` branch should be the last").collect(v_arm->get_pattern_expr(), cur_f);
           }
           has_expr_arm = true;
           TypePtr pattern_type = v_arm->get_pattern_expr()->inferred_type;
           bool not_integer_comparison = false;
           if (!check_eq_neq_operator(pattern_type, subject_type, not_integer_comparison)) {
             if (pattern_type->equal_to(subject_type)) {   // `match` over `slice` etc., where operator `==` can't be applied
-              err("wrong pattern matching: can not compare type `{}` in `match`", subject_type).fire(v_arm->get_pattern_expr(), cur_f);
+              err("wrong pattern matching: can not compare type `{}` in `match`", subject_type).collect(v_arm->get_pattern_expr(), cur_f);
             } else {
-              err("wrong pattern matching: can not compare type `{}` with match subject of type `{}`", v_arm->get_pattern_expr()->inferred_type, v_subject->inferred_type).fire(v_arm->get_pattern_expr(), cur_f);
+              err("wrong pattern matching: can not compare type `{}` with match subject of type `{}`", v_arm->get_pattern_expr()->inferred_type, v_subject->inferred_type).collect(v_arm->get_pattern_expr(), cur_f);
             }
           }
           if (subject_enum) {
             auto l_dot = v_arm->get_pattern_expr()->try_as<ast_dot_access>();
             if (!l_dot || !l_dot->is_target_enum_member()) {    // match (someColor) { anotherColor => } 
-              err("wrong pattern matching: `match` should contain members of a enum").fire(v_arm->get_pattern_expr(), cur_f);
+              err("wrong pattern matching: `match` should contain members of a enum").collect(v_arm->get_pattern_expr(), cur_f);
+            } else {
+              EnumMemberPtr member_ref = std::get<EnumMemberPtr>(l_dot->target);
+              if (std::find(covered_enum.begin(), covered_enum.end(), member_ref) != covered_enum.end()) {
+                err("wrong pattern matching: duplicated enum member in `match`").collect(v_arm->get_pattern_expr(), cur_f);
+              } else {
+                covered_enum.push_back(member_ref);
+              }
             }
-            EnumMemberPtr member_ref = std::get<EnumMemberPtr>(l_dot->target);
-            if (std::find(covered_enum.begin(), covered_enum.end(), member_ref) != covered_enum.end()) {
-              err("wrong pattern matching: duplicated enum member in `match`").fire(v_arm->get_pattern_expr(), cur_f);
-            }
-            covered_enum.push_back(member_ref);
           }
           break;
         }
         default:
           if (has_else_arm) {
-            err("duplicated `else` branch").fire(v_arm->get_pattern_expr(), cur_f);
+            err("duplicated `else` branch").collect(v_arm->get_pattern_expr(), cur_f);
           }
           if (has_type_arm) {
             // `else` is not allowed in `match` by type, but we don't fire an error here,
@@ -675,7 +681,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
 
     // only `else` branch
     if (has_else_arm && !has_type_arm && !has_expr_arm) {
-      err("`match` contains only `else`, but no variants").fire(v->keyword_range(), cur_f);
+      err("`match` contains only `else`, but no variants").collect(v->keyword_range(), cur_f);
     }
 
     // fire if `match` by type is not exhaustive
@@ -692,7 +698,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
           missing += "`" + variant->as_human_readable() + "`";
         }
       }
-      err("`match` does not cover all possible types; missing types are: {}", missing).fire(v->keyword_range(), cur_f);
+      err("`match` does not cover all possible types; missing types are: {}", missing).collect(v->keyword_range(), cur_f);
     }
     // fire if `match` by enum is not exhaustive
     if (has_expr_arm && subject_enum && !has_else_arm && subject_enum->enum_ref->members.size() != covered_enum.size()) {
@@ -705,20 +711,20 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
           missing += member_ref->name;
         }
       }
-      err("`match` does not cover all possible enum members; missing members are: {}", missing).fire(v->keyword_range(), cur_f);
+      err("`match` does not cover all possible enum members; missing members are: {}", missing).collect(v->keyword_range(), cur_f);
     }
     // fire if `match` by enum covers all cases, but contains `else`
     // (note that `else` for types could exist for a lazy match; for non-lazy, it's fired later)
     if (has_expr_arm && subject_enum && has_else_arm && subject_enum->enum_ref->members.size() == covered_enum.size()) {
       for (int i = 0; i < v->get_arms_count(); ++i) {
         if (auto v_arm = v->get_arm(i); v_arm->pattern_kind == MatchArmKind::else_branch) {
-          err("`match` already covers all possible enum members, `else` is invalid").fire(v_arm->get_pattern_expr(), cur_f);
+          err("`match` already covers all possible enum members, `else` is invalid").collect(v_arm->get_pattern_expr(), cur_f);
         }
       }
     }
     // `match` by expression, if it's not a statement, should have `else` or cover all values
     if (!v->is_statement() && !v->is_exhaustive) {
-      err("`match` expression should have `else` branch").fire(v->keyword_range(), cur_f);
+      err("`match` expression should have `else` branch").collect(v->keyword_range(), cur_f);
     }
   }
 
@@ -726,7 +732,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v->get_init_val());
 
     if (!v->field_ref->declared_type->can_rhs_be_assigned(v->get_init_val()->inferred_type)) {
-      err_type_mismatch("can not assign {src} to field of type {dst}", v->get_init_val()->inferred_type, v->field_ref->declared_type).fire(v->get_init_val(), cur_f);
+      err_type_mismatch("can not assign {src} to field of type {dst}", v->get_init_val()->inferred_type, v->field_ref->declared_type).collect(v->get_init_val(), cur_f);
     }
   }
 
@@ -735,7 +741,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
 
     AnyExprV cond = v->get_cond();
     if (!expect_integer(cond) && !expect_boolean(cond)) {
-      err("can not use `{}` as a boolean condition", cond->inferred_type).fire(cond, cur_f);
+      err("can not use `{}` as a boolean condition", cond->inferred_type).collect(cond, cur_f);
     }
 
     if (cond->is_always_true || cond->is_always_false) {
@@ -751,7 +757,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
 
     AnyExprV cond = v->get_cond();
     if (!expect_integer(cond)) {
-      err("condition of `repeat` must be an integer, got `{}`", cond->inferred_type).fire(cond, cur_f);
+      err("condition of `repeat` must be an integer, got `{}`", cond->inferred_type).collect(cond, cur_f);
     }
   }
 
@@ -760,7 +766,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
 
     AnyExprV cond = v->get_cond();
     if (!expect_integer(cond) && !expect_boolean(cond)) {
-      err("can not use `{}` as a boolean condition", cond->inferred_type).fire(cond, cur_f);
+      err("can not use `{}` as a boolean condition", cond->inferred_type).collect(cond, cur_f);
     }
 
     if (cond->is_always_true || cond->is_always_false) {
@@ -776,7 +782,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
 
     AnyExprV cond = v->get_cond();
     if (!expect_integer(cond) && !expect_boolean(cond)) {
-      err("can not use `{}` as a boolean condition", cond->inferred_type).fire(cond, cur_f);
+      err("can not use `{}` as a boolean condition", cond->inferred_type).collect(cond, cur_f);
     }
 
     if (cond->is_always_true || cond->is_always_false) {
@@ -791,7 +797,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v);
 
     if (!expect_thrown_code(v->get_thrown_code()->inferred_type)) {
-      err("excNo of `throw` must be an integer, got `{}`", v->get_thrown_code()->inferred_type).fire(v->get_thrown_code(), cur_f);
+      err("excNo of `throw` must be an integer, got `{}`", v->get_thrown_code()->inferred_type).collect(v->get_thrown_code(), cur_f);
     }
     if (v->has_thrown_arg()) {
       // exception arg could be anything (even a struct), it's casted to unknown
@@ -803,10 +809,10 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
 
     AnyExprV cond = v->get_cond();
     if (!expect_integer(cond) && !expect_boolean(cond)) {
-      err("can not use `{}` as a boolean condition", cond->inferred_type).fire(cond, cur_f);
+      err("can not use `{}` as a boolean condition", cond->inferred_type).collect(cond, cur_f);
     }
     if (!expect_thrown_code(v->get_thrown_code()->inferred_type)) {
-      err("thrown excNo of `assert` must be an integer, got `{}`", v->get_thrown_code()->inferred_type).fire(v->get_thrown_code(), cur_f);
+      err("thrown excNo of `assert` must be an integer, got `{}`", v->get_thrown_code()->inferred_type).collect(v->get_thrown_code(), cur_f);
     }
 
     if (cond->is_always_true || cond->is_always_false) {
@@ -837,7 +843,7 @@ public:
   void on_exit_function(V<ast_function_declaration> v_function) override {
     if (cur_f->is_implicit_return() && cur_f->declared_return_type) {
       if (!cur_f->declared_return_type->can_rhs_be_assigned(TypeDataVoid::create()) || cur_f->does_return_self()) {
-        err("missing return").fire(SrcRange::empty_at_end(v_function->get_body()->range), cur_f);
+        err("missing return").collect(SrcRange::empty_at_end(v_function->get_body()->range), cur_f);
       }
     }
 
@@ -848,7 +854,7 @@ public:
 
         TypePtr inferred_type = param_ref->default_value->inferred_type;
         if (!param_ref->declared_type->can_rhs_be_assigned(inferred_type)) {
-          err_type_mismatch("can not assign {src} to {dst}", inferred_type, param_ref->declared_type).fire(param_ref->default_value, cur_f);
+          err_type_mismatch("can not assign {src} to {dst}", inferred_type, param_ref->declared_type).collect(param_ref->default_value, cur_f);
         }
       }
     }
@@ -872,7 +878,7 @@ public:
     if (const_ref->declared_type) {     // `const a: int = ...`
       TypePtr inferred_type = const_ref->init_value->inferred_type;
       if (!const_ref->declared_type->can_rhs_be_assigned(inferred_type)) {
-        err_type_mismatch("can not assign {src} to {dst}", inferred_type, const_ref->declared_type).fire(const_ref->init_value);
+        err_type_mismatch("can not assign {src} to {dst}", inferred_type, const_ref->declared_type).collect(const_ref->init_value);
       }
     }
   }
@@ -883,7 +889,7 @@ public:
 
     TypePtr inferred_type = field_ref->default_value->inferred_type;
     if (!field_ref->declared_type->can_rhs_be_assigned(inferred_type)) {
-      err_type_mismatch("can not assign {src} to {dst}", inferred_type, field_ref->declared_type).fire(field_ref->default_value);
+      err_type_mismatch("can not assign {src} to {dst}", inferred_type, field_ref->declared_type).collect(field_ref->default_value);
     }
   }
 
@@ -897,7 +903,7 @@ public:
                    || m_type->try_as<TypeDataIntN>()
                    || m_type->try_as<TypeDataEnum>();
     if (!is_integer) {
-      err("enum member is `{}`, not `int`\n""hint: all enums must be integers", m_type).fire(member_ref->init_value);
+      err("enum member is `{}`, not `int`\n""hint: all enums must be integers", m_type).collect(member_ref->init_value);
     }
   }
 };

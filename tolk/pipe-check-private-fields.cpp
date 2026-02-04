@@ -54,7 +54,7 @@ class CheckPrivateFieldsUsageVisitor final : public ASTVisitorFunctionBody {
       const TypeDataStruct* obj_type = v->get_obj()->inferred_type->unwrap_alias()->try_as<TypeDataStruct>();
       tolk_assert(obj_type);
       if (field_ref->is_private && !is_private_field_usage_allowed(cur_f, obj_type->struct_ref)) {
-        err_private_field_used_outside_method(obj_type->struct_ref, field_ref).fire(v, cur_f);
+        err_private_field_used_outside_method(obj_type->struct_ref, field_ref).collect(v, cur_f);
       }
     }
   }
@@ -67,7 +67,7 @@ class CheckPrivateFieldsUsageVisitor final : public ASTVisitorFunctionBody {
       auto v_field = v->get_body()->get_field(i);
       StructFieldPtr field_ref = v_field->field_ref;
       if (field_ref->is_private && !is_private_field_usage_allowed(cur_f, v->struct_ref)) {
-        err_private_field_used_outside_method(v->struct_ref, field_ref).fire(v_field, cur_f);
+        err_private_field_used_outside_method(v->struct_ref, field_ref).collect(v_field, cur_f);
       }
     }
   }
