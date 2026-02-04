@@ -75,7 +75,6 @@ enum ASTNodeKind {
   ast_type_triangle_args,
   // expressions
   ast_empty_expression,
-  ast_parenthesized_expression,
   ast_braced_expression,
   ast_braced_yield_result,
   ast_artificial_aux_vertex,
@@ -225,12 +224,15 @@ struct ASTNodeExpressionBase : ASTNodeBase {
   bool is_lvalue: 1 = false;
   bool is_always_true: 1 = false;     // inside `if`, `while`, ternary condition, `== null`, etc.
   bool is_always_false: 1 = false;    // (when expression is guaranteed to be always true or always false)
+  bool was_parenthesized: 1 = false;  // (x) sets this flag on x; used for precedence diagnostics
 
   ASTNodeExpressionBase* mutate() const { return const_cast<ASTNodeExpressionBase*>(this); }
   void assign_inferred_type(TypePtr type);
   void assign_rvalue_true();
   void assign_lvalue_true();
   void assign_always_true_or_false(int flow_true_false_state);
+  void assign_range(SrcRange new_range) { const_cast<SrcRange&>(range) = new_range; }
+  void assign_was_parenthesized() { was_parenthesized = true; }
 
   ASTNodeExpressionBase(ASTNodeKind kind, SrcRange range) : ASTNodeBase(kind, range) {}
 };
@@ -518,16 +520,6 @@ struct Vertex<ast_empty_expression> final : ASTExprLeaf {
 
 
 template<>
-// ast_parenthesized_expression is something surrounded embraced by (parenthesis)
-// example: `(1)`, `((f()))` (two nested)
-struct Vertex<ast_parenthesized_expression> final : ASTExprUnary {
-  AnyExprV get_expr() const { return child; }
-
-  Vertex(SrcRange range, AnyExprV expr)
-    : ASTExprUnary(ast_parenthesized_expression, range, expr) {}
-};
-
-template<>
 // ast_braced_expression is a sequence, but in a context of expression (it has a type)
 // it can contain arbitrary statements inside
 // it can occur only in special places within the input code, not anywhere
@@ -567,10 +559,10 @@ struct Vertex<ast_artificial_aux_vertex> final : ASTExprUnary {
 };
 
 template<>
-// ast_tensor is a set of expressions embraced by (parenthesis)
+// ast_tensor is a set of expressions embraced by (parentheses)
 // in most languages, it's called "tuple", but in TVM, "tuple" is a TVM primitive, that's why "tensor"
 // example: `(1, 2)`, `(1, (2, 3))` (nested), `()` (empty tensor)
-// note, that `(1)` is not a tensor, it's a parenthesized expression
+// note, that `(1)` is not a tensor, it's just `1` (parentheses don't exist in AST)
 // a tensor of N elements occupies N slots on a stack (opposed to TVM tuple primitive, 1 slot)
 struct Vertex<ast_tensor> final : ASTExprVararg {
   const std::vector<AnyExprV>& get_items() const { return children; }
@@ -772,7 +764,7 @@ public:
 };
 
 template<>
-// ast_function_call is "calling some lhs with parenthesis", lhs is arbitrary expression (callee)
+// ast_function_call is "calling some lhs with parentheses", lhs is arbitrary expression (callee)
 // example: `globalF()` then callee is reference
 // example: `globalF<int>()` then callee is reference (with instantiation Ts filled)
 // example: `local_var()` then callee is reference (points to local var, filled at resolve identifiers)

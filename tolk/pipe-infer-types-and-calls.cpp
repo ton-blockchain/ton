@@ -368,8 +368,6 @@ class InferTypesAndCallsAndFieldsVisitor final {
         return infer_not_null_operator(v->as<ast_not_null_operator>(), std::move(flow), used_as_condition);
       case ast_lazy_operator:
         return infer_lazy_operator(v->as<ast_lazy_operator>(), std::move(flow), used_as_condition);
-      case ast_parenthesized_expression:
-        return infer_parenthesized(v->as<ast_parenthesized_expression>(), std::move(flow), used_as_condition, hint);
       case ast_braced_expression:
         return infer_braced_expression(v->as<ast_braced_expression>(), std::move(flow), used_as_condition, hint);
       case ast_reference:
@@ -488,10 +486,6 @@ class InferTypesAndCallsAndFieldsVisitor final {
       }
       assign_inferred_type(lhs, TypeDataShapedTuple::create(std::move(types_list)));
 
-    } else if (auto lhs_par = lhs->try_as<ast_parenthesized_expression>()) {
-      flow = infer_left_side_of_assignment(lhs_par->get_expr(), std::move(flow));
-      assign_inferred_type(lhs, lhs_par->get_expr()->inferred_type);
-
     } else {
       flow = infer_any_expr(lhs, std::move(flow), false).out_flow;
       if (extract_sink_expression_from_vertex(lhs)) {
@@ -558,13 +552,6 @@ class InferTypesAndCallsAndFieldsVisitor final {
         types_list.push_back(lhs_square->get_item(i)->inferred_type);
       }
       assign_inferred_type(lhs, TypeDataShapedTuple::create(std::move(types_list)));
-      return;
-    }
-
-    // `(v) = (rhs)`, just surrounded by parenthesis
-    if (auto lhs_par = lhs->try_as<ast_parenthesized_expression>()) {
-      process_assignment_lhs_after_infer_rhs(lhs_par->get_expr(), rhs_type, out_flow);
-      assign_inferred_type(lhs, lhs_par->get_expr());
       return;
     }
 
@@ -877,12 +864,6 @@ class InferTypesAndCallsAndFieldsVisitor final {
     ExprFlow lazy_expr = infer_any_expr(v->get_expr(), std::move(flow), used_as_condition);
     assign_inferred_type(v, v->get_expr());   // there is no Lazy<T>, so `lazy expr` is just typeof expr
     return lazy_expr;
-  }
-
-  ExprFlow infer_parenthesized(V<ast_parenthesized_expression> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {
-    ExprFlow after_expr = infer_any_expr(v->get_expr(), std::move(flow), used_as_condition, hint);
-    assign_inferred_type(v, v->get_expr());
-    return after_expr;
   }
 
   ExprFlow infer_braced_expression(V<ast_braced_expression> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {

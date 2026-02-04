@@ -206,8 +206,6 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
           }
 
           leftmost_obj = as_dot->get_obj();
-        } else if (auto as_par = leftmost_obj->try_as<ast_parenthesized_expression>()) {
-          leftmost_obj = as_par->get_expr();
         } else if (auto as_cast = leftmost_obj->try_as<ast_cast_as_operator>()) {
           leftmost_obj = as_cast->get_expr();
         } else if (auto as_nn = leftmost_obj->try_as<ast_not_null_operator>()) {

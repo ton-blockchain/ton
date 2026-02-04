@@ -45,7 +45,6 @@ class ASTStringifier final : public ASTVisitor {
     {ast_type_triangle_args, "ast_type_triangle_args"},
     // expressions
     {ast_empty_expression, "ast_empty_expression"},
-    {ast_parenthesized_expression, "ast_parenthesized_expression"},
     {ast_braced_expression, "ast_braced_expression"},
     {ast_braced_yield_result, "ast_braced_yield_result"},
     {ast_artificial_aux_vertex, "ast_artificial_aux_vertex"},
@@ -318,7 +317,6 @@ public:
       case ast_type_triangle_args:            return handle_vertex(v->as<ast_type_triangle_args>());
       // expressions
       case ast_empty_expression:              return handle_vertex(v->as<ast_empty_expression>());
-      case ast_parenthesized_expression:      return handle_vertex(v->as<ast_parenthesized_expression>());
       case ast_braced_expression:             return handle_vertex(v->as<ast_braced_expression>());
       case ast_braced_yield_result:           return handle_vertex(v->as<ast_braced_yield_result>());
       case ast_artificial_aux_vertex:         return handle_vertex(v->as<ast_artificial_aux_vertex>());

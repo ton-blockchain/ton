@@ -399,9 +399,6 @@ static bool is_ternary_arg_trivial_for_condsel(AnyExprV v, bool require_1slot = 
       v->kind == ast_null_keyword || v->kind == ast_reference) {
     return true;
   }
-  if (auto v_par = v->try_as<ast_parenthesized_expression>()) {
-    return is_ternary_arg_trivial_for_condsel(v_par->get_expr(), require_1slot);
-  }
   if (auto v_dot = v->try_as<ast_dot_access>()) {
     TypePtr obj_type = v_dot->get_obj()->inferred_type;
     if (obj_type && !obj_type->unwrap_alias()->try_as<TypeDataShapedTuple>()) {   // `t.0` for tuples is a runtime call, not trivial
@@ -1830,8 +1827,6 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr targ
       return process_dot_access(v->as<ast_dot_access>(), code, target_type, lval_ctx);
     case ast_function_call:
       return process_function_call(v->as<ast_function_call>(), code, target_type, lval_ctx);
-    case ast_parenthesized_expression:
-      return pre_compile_expr(v->as<ast_parenthesized_expression>()->get_expr(), code, target_type, lval_ctx);
     case ast_braced_expression:
       return process_braced_expression(v->as<ast_braced_expression>(), code, target_type);
     case ast_tensor:

@@ -71,11 +71,7 @@ class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBod
       // for `b.storeInt()`, `b` should become lvalue, since `storeInt` is a method mutating self
       // but: `beginCell().storeInt()`, then `beginCell()` is not lvalue
       // (it will be extracted as tmp var when transforming AST to IR)
-      AnyExprV leftmost_obj = v->get_self_obj();
-      while (auto as_par = leftmost_obj->try_as<ast_parenthesized_expression>()) {
-        leftmost_obj = as_par->get_expr();
-      }
-      bool will_be_extracted_as_tmp_var = leftmost_obj->kind == ast_function_call;
+      bool will_be_extracted_as_tmp_var = v->get_self_obj()->kind == ast_function_call;
       if (!will_be_extracted_as_tmp_var) {
         // marking obj as lvalue will ensure in a later pass that it's valid, not `(v as int).method()`
         mark_lvalue_AnyV(v->get_self_obj());

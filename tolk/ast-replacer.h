@@ -95,7 +95,6 @@ protected:
 
   // expressions
   virtual AnyExprV replace(V<ast_empty_expression> v)          { return replace_children(v); }
-  virtual AnyExprV replace(V<ast_parenthesized_expression> v)  { return replace_children(v); }
   virtual AnyExprV replace(V<ast_braced_expression> v)         { return replace_children(v); }
   virtual AnyExprV replace(V<ast_braced_yield_result> v)       { return replace_children(v); }
   virtual AnyExprV replace(V<ast_artificial_aux_vertex> v)     { return replace_children(v); }
@@ -144,7 +143,6 @@ protected:
   AnyExprV replace(AnyExprV v) final {
     switch (v->kind) {
       case ast_empty_expression:                return replace(v->as<ast_empty_expression>());
-      case ast_parenthesized_expression:        return replace(v->as<ast_parenthesized_expression>());
       case ast_braced_expression:               return replace(v->as<ast_braced_expression>());
       case ast_braced_yield_result:             return replace(v->as<ast_braced_yield_result>());
       case ast_artificial_aux_vertex:           return replace(v->as<ast_artificial_aux_vertex>());

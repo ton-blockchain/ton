@@ -181,9 +181,6 @@ class CheckMutationNotHappensTwiceVisitor final : public ASTVisitorFunctionBody 
         return process_lvalue(lhs_call->get_self_obj(), called_f);
       }
     }
-    if (auto lhs_par = lhs->try_as<ast_parenthesized_expression>()) {
-      return process_lvalue(lhs_par->get_expr(), called_f);
-    }
 
     // note, that for `x = rhs` we ALLOW rhs to mutate x, because assignment happens after evaluating rhs;
     // for example, `b = b.storeInt()` is common and correct;

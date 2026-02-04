@@ -476,10 +476,6 @@ SinkExpression extract_sink_expression_from_vertex(AnyExprV v, bool allow_global
     }
   }
 
-  if (auto as_par = v->try_as<ast_parenthesized_expression>()) {
-    return extract_sink_expression_from_vertex(as_par->get_expr(), allow_global_vars);
-  }
-
   if (auto as_assign = v->try_as<ast_assign>()) {
     return extract_sink_expression_from_vertex(as_assign->get_lhs(), allow_global_vars);
   }

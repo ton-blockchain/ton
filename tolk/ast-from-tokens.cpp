@@ -54,14 +54,14 @@ static bool is_add_or_sub_binary_op(TokenType tok) {
 static Error err_lower_precedence(std::string_view op_lower, std::string_view op_higher) {
   return err("{} has lower precedence than {}"
               ", probably this code won't work as you expected.  "
-              "Use parenthesis: either (... {} ...) to evaluate it first, or (... {} ...) to suppress this error.",
+              "Use parentheses: either (... {} ...) to evaluate it first, or (... {} ...) to suppress this error.",
               op_lower, op_higher, op_lower, op_higher);
 }
 
 // make an error for a case "arg1 & arg2 | arg3"
 static Error err_mix_and_or_no_parenthesis(std::string_view op1, std::string_view op2) {
-  return err("mixing {} with {} without parenthesis may lead to accidental errors.  "
-              "Use parenthesis to emphasize operator precedence.",
+  return err("mixing {} with {} without parentheses may lead to accidental errors.  "
+              "Use parentheses to emphasize operator precedence.",
               op1, op2);
 }
 
@@ -77,26 +77,29 @@ static Error err_no_decrement_operator() {
 
 // diagnose when bitwise operators are used in a probably wrong way due to tricky precedence
 // example: "flags & 0xFF != 0" is equivalent to "flags & 1", most likely it's unexpected
-// the only way to suppress this error for the programmer is to use parenthesis
-// (how do we detect presence of parenthesis? simple: (0!=1) is ast_parenthesized_expr{ast_binary_operator},
-//  that's why if rhs->type == ast_binary_operator, it's not surrounded by parenthesis)
+// the only way to suppress this error for the programmer is to use parentheses
+// (how do we detect presence of parentheses? by checking `vertex->was_parenthesized` flag)
 static void diagnose_bitwise_precedence(SrcRange range, std::string_view operator_name, AnyExprV lhs, AnyExprV rhs) {
   // handle "flags & 0xFF != 0" (rhs = "0xFF != 0")
-  if (rhs->kind == ast_binary_operator && is_comparison_binary_op(rhs->as<ast_binary_operator>()->tok)) {
-    err_lower_precedence(operator_name, rhs->as<ast_binary_operator>()->operator_name).fire(range);
+  if (auto rhs_op = rhs->try_as<ast_binary_operator>(); rhs_op && !rhs->was_parenthesized) {
+    if (is_comparison_binary_op(rhs_op->tok)) {
+      err_lower_precedence(operator_name, rhs_op->operator_name).fire(range);
+    }
   }
 
   // handle "0 != flags & 0xFF" (lhs = "0 != flags")
-  if (lhs->kind == ast_binary_operator && is_comparison_binary_op(lhs->as<ast_binary_operator>()->tok)) {
-    err_lower_precedence(operator_name, lhs->as<ast_binary_operator>()->operator_name).fire(range);
+  if (auto lhs_op = lhs->try_as<ast_binary_operator>(); lhs_op && !lhs->was_parenthesized) {
+    if (is_comparison_binary_op(lhs_op->tok)) {
+      err_lower_precedence(operator_name, lhs_op->operator_name).fire(range);
+    }
   }
 }
 
 // similar to above, but detect potentially invalid usage of && and ||
-// since anyway, using parenthesis when both && and || occur in the same expression,
+// since anyway, using parentheses when both && and || occur in the same expression,
 // && and || have equal operator precedence in Tolk
 static void diagnose_and_or_precedence(SrcRange range, AnyExprV lhs, TokenType rhs_tok, std::string_view rhs_operator_name) {
-  if (auto lhs_op = lhs->try_as<ast_binary_operator>()) {
+  if (auto lhs_op = lhs->try_as<ast_binary_operator>(); lhs_op && !lhs->was_parenthesized) {
     // handle "arg1 & arg2 | arg3" (lhs = "arg1 & arg2")
     if (is_bitwise_binary_op(lhs_op->tok) && is_bitwise_binary_op(rhs_tok) && lhs_op->tok != rhs_tok) {
       err_mix_and_or_no_parenthesis(lhs_op->operator_name, rhs_operator_name).fire(range);
@@ -111,8 +114,10 @@ static void diagnose_and_or_precedence(SrcRange range, AnyExprV lhs, TokenType r
 
 // diagnose "a << 8 + 1" (equivalent to "a << 9", probably unexpected)
 static void diagnose_addition_in_bitshift(SrcRange range, std::string_view bitshift_operator_name, AnyExprV rhs) {
-  if (rhs->kind == ast_binary_operator && is_add_or_sub_binary_op(rhs->as<ast_binary_operator>()->tok)) {
-    err_lower_precedence(bitshift_operator_name, rhs->as<ast_binary_operator>()->operator_name).fire(range);
+  if (auto rhs_op = rhs->try_as<ast_binary_operator>(); rhs_op && !rhs->was_parenthesized) {
+    if (is_add_or_sub_binary_op(rhs_op->tok)) {
+      err_lower_precedence(bitshift_operator_name, rhs_op->operator_name).fire(range);
+    }
   }
 }
 
@@ -186,6 +191,17 @@ static std::string parse_tok_string_const(std::string_view text, SrcRange cur_ra
     }
   }
   return unescaped;
+}
+
+// when we meet `(expr)` in parentheses, we keep `expr` in AST,
+// but mark it with a boolean flag `was_parenthesized` (used for precedence diagnostics)
+// and extend its range to include outer parentheses (for underline in error messages)
+// (previously we had ast_parenthesized_expression which caused bugs when forgotten to handle)
+static AnyExprV create_parenthesized_expression(SrcRange parens_range, AnyExprV v_in_parens) {
+  // okay to use const_cast — we inject into existing vertex instead of creating a new one
+  const_cast<SrcRange&>(v_in_parens->mutate()->range) = parens_range;
+  v_in_parens->mutate()->was_parenthesized = true;
+  return v_in_parens;
 }
 
 
@@ -943,7 +959,7 @@ static AnyExprV parse_expr100(Lexer& lex) {
       if (lex.tok() == tok_clpar) {
         range.end(lex.cur_range());
         lex.next();
-        return createV<ast_parenthesized_expression>(range, first);
+        return create_parenthesized_expression(range, first);
       }
       std::vector<AnyExprV> items(1, first);
       while (lex.tok() == tok_comma) {
@@ -956,9 +972,9 @@ static AnyExprV parse_expr100(Lexer& lex) {
       lex.check(tok_clpar, "`)`");
       range.end(lex.cur_range());
       lex.next();
-      if (items.size() == 1) {      // we can reach here for 1 element with trailing comma: `(item, )`
-        return items[0];            // then just return item, not a 1-element tensor,
-      }                             // since 1-element tensors won't be type compatible with item's type
+      if (items.size() == 1) {
+        return create_parenthesized_expression(range, items[0]);  // treat `(item,)` like `(item)`
+      }
       return createV<ast_tensor>(range, std::move(items));
     }
     case tok_opbracket: {           // `[1, 2]` (not `array<int> [1, 2]`)
@@ -1154,7 +1170,8 @@ static AnyExprV parse_expr40(Lexer& lex) {
     if (t == tok_as) {
       lhs = createV<ast_cast_as_operator>(range, lhs, rhs_type);
     } else {
-      bool is_negated = lhs->kind == ast_not_null_operator;   // `a !is ...`, now lhs = `a!`
+      // detect `a !is T`, which is parsed as `a! is T` (lhs = `a!`), don't confuse with `(a!) is T`
+      bool is_negated = lhs->kind == ast_not_null_operator && !lhs->was_parenthesized;
       if (is_negated) {
         lhs = lhs->as<ast_not_null_operator>()->get_expr();
       }

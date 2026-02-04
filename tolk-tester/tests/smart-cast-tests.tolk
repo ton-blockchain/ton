@@ -208,7 +208,7 @@ fun test20() {
     var t = (getNullableInt(), getNullableInt());
     if (t.0 != null && t.1 != null) {
         __expect_type(t.0, "int");
-        __expect_type(t.1, "int");
+        __expect_type(((t)).1, "int");
         return t.0 + t.1;
     }
     t.0 = 10;
@@ -278,7 +278,7 @@ fun test26() {
         getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt()];
     if (~(x.0 = rand())) { return; }
     if ((x.1 = rand()) < (x.2 = rand())) { return; }
-    else if (!(x.2 <=> (x.3 = rand()))) { return; }
+    else if (!(x.2 <=> ((x).3 = rand()))) { return; }
     x.5 = (x.4 = rand()) ? (x.6 = rand()) : (x.6 = rand());
     if ((x.7 = rand()) as int) { return; }
     if (((((x.8 = rand()) != null)))) { return; }
@@ -322,10 +322,10 @@ fun test30(initial5: bool) {
                 t.1.1.0 = 4;
             }
             __expect_type(t.1.1.0, "int");
-            __expect_type(t.1.1.1, "int?");
+            __expect_type((((t).1).1).1, "int?");
             __expect_type(t.1.0, "int?");
-            t.1.1.1 = 3;
-            t.1.0 = 2;
+            ((t.1).1).1 = 3;
+            (t.1).0 = 2;
             __expect_type(t.1.1.1, "int");
             __expect_type(t.1.0, "int");
         }

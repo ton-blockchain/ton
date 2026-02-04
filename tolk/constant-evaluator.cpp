@@ -521,9 +521,6 @@ public:
     if (auto v_string = v->try_as<ast_string_const>()) {
       return ConstValString{v_string->str_val};
     }
-    if (auto v_par = v->try_as<ast_parenthesized_expression>()) {
-      return eval_any_v_or_fire(v_par->get_expr());
-    }
     if (auto v_un = v->try_as<ast_unary_operator>()) {
       return handle_unary_operator(v_un);
     }

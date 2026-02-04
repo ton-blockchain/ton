@@ -29,9 +29,6 @@ static std::string expression_as_string(AnyExprV v) {
       return "variable `" + static_cast<std::string>(v_ref->get_identifier()->name) + "`";
     }
   }
-  if (auto v_par = v->try_as<ast_parenthesized_expression>()) {
-    return expression_as_string(v_par->get_expr());
-  }
   return "expression";
 }
 
@@ -154,9 +151,6 @@ static void handle_possible_compiler_internal_call(FunctionPtr cur_f, V<ast_func
 // detect `if (x = 1)` having its condition to fire a warning;
 // note that `if ((x = f()) == null)` and other usages of assignment is rvalue is okay
 static bool is_assignment_inside_condition(AnyExprV cond) {
-  while (auto v_par = cond->try_as<ast_parenthesized_expression>()) {
-    cond = v_par->get_expr();
-  }
   return cond->kind == ast_assign || cond->kind == ast_set_assign;
 }
 

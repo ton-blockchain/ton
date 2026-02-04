@@ -77,9 +77,6 @@ class ASTReplicator final {
   static V<ast_empty_expression> clone(V<ast_empty_expression> v) {
     return createV<ast_empty_expression>(v->range);
   }
-  static V<ast_parenthesized_expression> clone(V<ast_parenthesized_expression> v) {
-    return createV<ast_parenthesized_expression>(v->range, clone(v->get_expr()));
-  }
   static V<ast_braced_expression> clone(V<ast_braced_expression> v) {
     return createV<ast_braced_expression>(v->range, clone(v->get_block_statement()));
   }
@@ -282,7 +279,6 @@ class ASTReplicator final {
   static AnyExprV clone(AnyExprV v) {
     switch (v->kind) {
       case ast_empty_expression:                return clone(v->as<ast_empty_expression>());
-      case ast_parenthesized_expression:        return clone(v->as<ast_parenthesized_expression>());
       case ast_braced_expression:               return clone(v->as<ast_braced_expression>());
       case ast_braced_yield_result:             return clone(v->as<ast_braced_yield_result>());
       case ast_artificial_aux_vertex:           return clone(v->as<ast_artificial_aux_vertex>());
