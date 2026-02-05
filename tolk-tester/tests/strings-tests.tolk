@@ -1,5 +1,6 @@
 import "@stdlib/lisp-lists"
 import "@stdlib/strings"
+import "@stdlib/reflection"
 
 const ABCD = "abcd" as string
 
@@ -75,7 +76,7 @@ fun string.bytesToArray(self): array<uint8> {
   return bytes;
 }
 
-fun getName<T>() { return T.typeName() }
+fun getName<T>() { return reflect.typeNameOf<T>() }
 
 type EmptyTensor = ()
 
@@ -111,10 +112,10 @@ fun main() {
   assert(i_crc32 == 2235694568 && i_crc32 == 0x8541fde8) throw 107;
   assert(i_crc16 == 52550 && i_crc16 == 0xCD46) throw 108;
   assert(getName<int8>().equalsWhenNoSnakeData("int8")) throw 109;
-  assert(getName<int8>().equalsWhenNoSnakeData(int8.typeName())) throw 109;
-  assert(EmptyTensor.typeName().beginParse().loadUint(88) == 83932693928210635055918962) throw 110;
+  assert(getName<int8>().equalsWhenNoSnakeData(reflect.typeNameOf<int8>())) throw 109;
+  assert(reflect.typeNameOf<EmptyTensor>().beginParse().loadUint(88) == 83932693928210635055918962) throw 110;
   assert(int176.fromSlice(getName<(int, map<bool,bool>)>().beginParse()) == 15119865017903399349236740405018280815773870593949225) throw 111;
-  assert((176 as int176, 176).typeNameOfObject().equalsWhenNoSnakeData("(int176, int)")) throw 112;
+  assert(reflect.typeNameOfObject((176 as int176, 176)).equalsWhenNoSnakeData("(int176, int)")) throw 112;
   return 0;
 }
 
@@ -232,7 +233,7 @@ fun test11() {
     """new
 "line""".calculateLength(),
     """a"\n\\"\"'\'b\"""".equalTo("a\"\n\\\"\"\''b\""),
-    StringBuilder.typeName().calculateLength(),
+    reflect.typeNameOf<StringBuilder>().calculateLength(),
   )
 }
 

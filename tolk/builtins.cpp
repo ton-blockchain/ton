@@ -1360,8 +1360,8 @@ static AsmOp compile_T_from_tuple(std::vector<VarDescr>& res, std::vector<VarDes
   return exec_op(origin, op_un_tuple, 1, n_slots);
 }
 
-// fun sizeof<T>(anything: T): int;        // (returns the number of stack elements)
-static AsmOp compile_any_object_sizeof(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
+// fun reflect.stackSizeOfObject<T>(anything: T): int;
+static AsmOp compile_reflect_stackSizeOfObject(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 1);
   int n = static_cast<int>(args.size());
   res[0].set_const(n);
@@ -1370,6 +1370,13 @@ static AsmOp compile_any_object_sizeof(std::vector<VarDescr>& res, std::vector<V
   }
   return AsmOp::IntConst(origin, td::make_refint(n));
 }
+
+// fun reflect.stackSizeOf<T>(): int;
+std::vector<var_idx_t> generate_reflect_stackSizeOf(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
+  TypePtr typeT = called_f->substitutedTs->typeT_at(0);
+  return {code.create_int(origin, typeT->get_width_on_stack(), "(stack-w)")};
+}
+
 
 // fun ton(amount: slice): coins; ton("0.05") replaced by 50000000 at compile-time
 // same for stringCrc32(constString: slice) and others
@@ -1418,7 +1425,8 @@ GenerateOpsImpl generate_slice_loadAny;
 GenerateOpsImpl generate_T_fromCell;
 GenerateOpsImpl generate_T_forceLoadLazyObject;
 GenerateOpsImpl generate_slice_skipAny;
-GenerateOpsImpl generate_T_estimatePackSize;
+GenerateOpsImpl generate_reflect_estimateSerializationOf;
+GenerateOpsImpl generate_reflect_serializationPrefixOf;
 
 GenerateOpsImpl generate_createMessage;
 GenerateOpsImpl generate_createExternalLogMessage;
@@ -1491,6 +1499,7 @@ void define_builtins() {
   // these types are defined in stdlib, currently unknown
   // see patch_builtins_after_stdlib_loaded() below
   TypePtr debug = TypeDataUnknown::create();
+  TypePtr reflect = TypeDataUnknown::create();
   TypePtr CellT = TypeDataUnknown::create();
   TypePtr PackOptions = TypeDataUnknown::create();
   TypePtr UnpackOptions = TypeDataUnknown::create();
@@ -1659,12 +1668,6 @@ void define_builtins() {
   define_builtin_func("address", {String}, TypeDataAddress::internal(), nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
-  define_builtin_method("T.typeName", typeT, {}, String, declReceiverT,
-                              compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("T.typeNameOfObject", typeT, {typeT}, String, declReceiverT,
-                              compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
 
   // string compile-time methods: "hello".crc32(), "hello".sha256(), etc.
   define_builtin_method("string.crc32", String, {String}, Int, nullptr,
@@ -1784,8 +1787,26 @@ void define_builtins() {
   define_builtin_method("debug.dumpStack", debug, {}, Unit, nullptr,
                                 compile_dumpstk,
                                 0);
-  define_builtin_func("sizeof", {typeT}, TypeDataInt::create(), declGenericT,
-                                compile_any_object_sizeof,
+
+  // reflect — compile-time type introspection;
+  // a couple of its methods are "consteval" and can be used in constants / fields defaults / etc.
+  define_builtin_method("reflect.typeNameOf", reflect, {}, String, declGenericT,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("reflect.typeNameOfObject", reflect, {typeT}, String, declGenericT,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("reflect.stackSizeOf", reflect, {}, Int, declGenericT,
+                                generate_reflect_stackSizeOf,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("reflect.stackSizeOfObject", reflect, {typeT}, Int, declGenericT,
+                                compile_reflect_stackSizeOfObject,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("reflect.serializationPrefixOf", reflect, {}, TypeDataTensor::create({Int, Int}), declGenericT,
+                                generate_reflect_serializationPrefixOf,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("reflect.estimateSerializationOf", typeT, {}, TypeDataTensor::create({Int, Int, Int, Int}), declGenericT,
+                                generate_reflect_estimateSerializationOf,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
 
   // serialization/deserialization methods to/from cells (or, more low-level, slices/builders)
@@ -1799,15 +1820,6 @@ void define_builtins() {
   define_builtin_method("T.fromSlice", typeT, {Slice, UnpackOptions}, typeT, declReceiverT,
                                 generate_T_fromSlice,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("T.estimatePackSize", typeT, {}, TypeDataTensor::create({TypeDataInt::create(), TypeDataInt::create(), TypeDataInt::create(), TypeDataInt::create()}), declReceiverT,
-                                generate_T_estimatePackSize,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("T.getDeclaredPackPrefix", typeT, {}, Int, declReceiverT,
-                                compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("T.getDeclaredPackPrefixLen", typeT, {}, Int, declReceiverT,
-                                compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("T.forceLoadLazyObject", typeT, {typeT}, Slice, declReceiverT,
                                 generate_T_forceLoadLazyObject,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
@@ -1985,6 +1997,17 @@ void patch_builtins_after_stdlib_loaded() {
   lookup_function("debug.print")->mutate()->receiver_type = debug;
   lookup_function("debug.printString")->mutate()->receiver_type = debug;
   lookup_function("debug.dumpStack")->mutate()->receiver_type = debug;
+
+  const Symbol* sym_reflect = lookup_global_symbol("reflect");
+  if (sym_reflect) {   // if `@stdlib/reflect` was imported from somewhere (it couldn't be used without import)
+    TypePtr reflect = TypeDataStruct::create(sym_reflect->try_as<StructPtr>());
+    lookup_function("reflect.typeNameOf")->mutate()->receiver_type = reflect;
+    lookup_function("reflect.typeNameOfObject")->mutate()->receiver_type = reflect;
+    lookup_function("reflect.stackSizeOf")->mutate()->receiver_type = reflect;
+    lookup_function("reflect.stackSizeOfObject")->mutate()->receiver_type = reflect;
+    lookup_function("reflect.serializationPrefixOf")->mutate()->receiver_type = reflect;
+    lookup_function("reflect.estimateSerializationOf")->mutate()->receiver_type = reflect;
+  }
 
   StructPtr struct_ref_AddressShardingOptions = lookup_global_symbol("AddressShardingOptions")->try_as<StructPtr>();
   StructPtr struct_ref_AutoDeployAddress = lookup_global_symbol("AutoDeployAddress")->try_as<StructPtr>();

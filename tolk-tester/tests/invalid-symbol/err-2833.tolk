@@ -1,10 +1,12 @@
+import "@stdlib/reflection"
+
 struct Point {
     x: int8;
     y: int8;
 }
 
 fun main() {
-    return Point.getDeclaredPackPrefix();
+    return reflect.serializationPrefixOf<Point>();
 }
 
 /**

@@ -1,3 +1,5 @@
+import "@stdlib/reflection"
+
 type Tup2Int = [int, MInt];
 type Tensor2Int = (int, MInt);
 type MInt = int;
@@ -246,7 +248,7 @@ fun getT() { return (1, 2); }
 
 @method_id(120)
 fun test120() {
-    return (getT().0 = 3, getT().0 = sizeof(getT()) * 2, [getT().0 = 5, getT().0 = 6]);
+    return (getT().0 = 3, getT().0 = reflect.stackSizeOfObject(getT()) * 2, [getT().0 = 5, getT().0 = 6]);
 }
 
 global t121: (int, int);

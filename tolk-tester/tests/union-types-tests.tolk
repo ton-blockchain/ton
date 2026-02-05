@@ -1,3 +1,5 @@
+import "@stdlib/reflection"
+
 type MInt = int
 type MNull = | null
 type MSlice = slice
@@ -786,7 +788,7 @@ fun test62() {
         ((5 as int32) as int32 | int64).toTuple(),
         ((5 as int64) as int32 | int64).toTuple(),
         myFromTuple<int32 | int64>([10, 48] as tuple) is int64,
-        myFromTuple<int32 | int64>([10, 48] as tuple).typeNameOfObject().beginParse().bitsEqual("int32 | int64".literalSlice()),
+        reflect.typeNameOfObject(myFromTuple<int32 | int64>([10, 48] as tuple)).beginParse().bitsEqual("int32 | int64".literalSlice()),
     ) 
 }
 

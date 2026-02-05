@@ -139,7 +139,9 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
       return;  // don't check overflow if serialization is not available
     }
 
-    check_type_fits_cell_or_has_policy(serialized_type);
+    if (!fun_ref->name.starts_with("reflect.")) {
+      check_type_fits_cell_or_has_policy(serialized_type);
+    }
   }
 
   void visit(V<ast_local_var_lhs> v) override {

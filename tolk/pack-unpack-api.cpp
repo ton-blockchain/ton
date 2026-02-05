@@ -282,10 +282,10 @@ bool is_serialization_builtin_function(FunctionPtr fun_ref, TypePtr* serialized_
   std::string_view f_name = fun_ref->base_fun_ref->name;
   
   if (f_name == "Cell<T>.load" || f_name == "T.fromSlice" || f_name == "T.fromCell" || f_name == "T.toCell" ||
-      f_name == "T.loadAny" || f_name == "slice.skipAny" || f_name == "slice.loadAny" || f_name == "builder.storeAny" || f_name == "T.estimatePackSize" ||
+      f_name == "T.loadAny" || f_name == "slice.skipAny" || f_name == "slice.loadAny" || f_name == "builder.storeAny" || f_name == "reflect.estimateSerializationOf" ||
       f_name == "createMessage" || f_name == "createExternalLogMessage") {
     *serialized_type = fun_ref->substitutedTs->typeT_at(0);
-    *is_pack = f_name == "T.toCell" || f_name == "builder.storeAny" || f_name == "T.estimatePackSize" || f_name == "createMessage" || f_name == "createExternalLogMessage";
+    *is_pack = f_name == "T.toCell" || f_name == "builder.storeAny" || f_name == "reflect.estimateSerializationOf" || f_name == "createMessage" || f_name == "createExternalLogMessage";
     return true;
   }
   return false;
@@ -516,7 +516,7 @@ PackSize estimate_serialization_size(TypePtr any_type) {
   return ctx.estimate_any(any_type);
 }
 
-std::vector<var_idx_t> generate_T_estimatePackSize(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
+std::vector<var_idx_t> generate_reflect_estimateSerializationOf(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr typeT = called_f->substitutedTs->typeT_at(0);
   PackSize pack_size = estimate_serialization_size(typeT);
 
@@ -527,6 +527,22 @@ std::vector<var_idx_t> generate_T_estimatePackSize(FunctionPtr called_f, CodeBlo
   code.emplace_back(origin, Op::_IntConst, std::vector{ir_tensor[3]}, td::make_refint(pack_size.max_refs));
 
   return ir_tensor;
+}
+
+std::vector<var_idx_t> generate_reflect_serializationPrefixOf(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
+  TypePtr typeT = called_f->substitutedTs->typeT_at(0);
+  const TypeDataStruct* t_struct = typeT->unwrap_alias()->try_as<TypeDataStruct>();
+  if (!t_struct || !t_struct->struct_ref->opcode.exists()) {
+    err("type `{}` does not have a serialization prefix", typeT).fire(origin);
+  }
+  if (get_custom_pack_unpack_function(typeT)) {
+    err("type `{}` has a custom serializer", typeT).fire(origin);
+  }
+
+  return {
+    code.create_int(origin, t_struct->struct_ref->opcode.pack_prefix, "(prefix)"),
+    code.create_int(origin, t_struct->struct_ref->opcode.prefix_len, "(prefix-len)")
+  };
 }
 
 } // namespace tolk

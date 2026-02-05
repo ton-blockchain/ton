@@ -1,5 +1,6 @@
 import "@stdlib/lisp-lists"
 import "@stdlib/strings"
+import "@stdlib/reflection"
 
 struct Point {
     x: int8 = 10
@@ -325,7 +326,7 @@ fun test14() {
 @method_id(115)
 fun test15() {
     // estimation gives "unpredictable infinity" since it's custom logic via packToBuilder
-    return lisp_list<int8>.estimatePackSize()
+    return reflect.estimateSerializationOf<lisp_list<int8>>()
 }
 
 type ArrayList8 = array<lisp_list<int8>>

@@ -1,3 +1,5 @@
+import "@stdlib/reflection"
+
 type MInt = int
 type MSlice = slice
 
@@ -41,7 +43,7 @@ const int32OrCoins: int32 | coins = ton("0.05");
 const intOrSlice = 5 as int|slice;
 const int32Or128 = (7 as int32) as int32 | int128;
 
-const nameOfAddress = address.typeName()
+const nameOfAddress = reflect.typeNameOf<address>()
 
 fun iget1(): int { return int1; }
 fun iget2(): int { return int2; }
@@ -242,7 +244,7 @@ fun test17() {
     __expect_type(nameOfAddress, "string");
     return (
         nameOfAddress.beginParse().bitsEqual("address".beginParse()),
-        nameOfAddress.beginParse().typeNameOfObject().beginParse().bitsEqual("slice".literalSlice())
+        reflect.typeNameOfObject(nameOfAddress.beginParse()).beginParse().bitsEqual("slice".literalSlice())
     )
 }
 

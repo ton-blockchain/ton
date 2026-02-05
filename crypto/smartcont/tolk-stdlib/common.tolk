@@ -191,23 +191,6 @@ struct Cell<T> {
     private readonly tvmCell: cell
 }
 
-/// Get human-readable type name of any T for logging or low-level purposes.
-/// Example:
-/// ```
-/// debug.printString(int.typeName());  // "int"
-/// ```
-@pure
-fun T.typeName(): string
-    builtin
-
-/// Get human-readable type name of any object for logging or low-level purposes.
-/// Example:
-/// ```
-/// debug.printString(42.typeNameOfObject());   // "int"
-/// ```
-@pure
-fun T.typeNameOfObject(self): string
-    builtin
 
 /**
     Array manipulation primitives.
@@ -538,18 +521,6 @@ fun slice.skipAny<T>(mutate self, options: UnpackOptions = {}): self
 fun builder.storeAny<T>(mutate self, v: T, options: PackOptions = {}): self
     builtin
 
-/// Returns serialization prefix of a struct. Works at compile-time.
-/// Example: for `struct (0xF0) AssetRegular { ... }` will return `240`.
-@pure
-fun T.getDeclaredPackPrefix(): int
-    builtin
-
-/// Returns serialization prefix length of a struct. Works at compile-time.
-/// Example: for `struct (0xF0) AssetRegular { ... }` will return `16`.
-@pure
-fun T.getDeclaredPackPrefixLen(): int
-    builtin
-
 /// Forces an object created by `lazy` to load fully. Returns the remaining slice (having read all fields).
 /// Since `options.assertEndAfterReading` is ignored by `lazy` (fields are loaded on demand),
 /// this method can help you overcome this, if you really need to check input consistency.
@@ -800,15 +771,6 @@ fun slice.depth(self): int
 @pure
 fun builder.depth(self): int
     asm "BDEPTH"
-
-/// Returns the number of stack slots `anyVariable` occupies (works at compile-time).
-/// - sizeof(nullableInt) = 1, because `int?` is 1 TVM slot holding either NULL or a value.
-/// - sizeof(somePoint) = 2 for `struct Point { x:int, y:int }`: two fields one slot per each.
-/// 
-/// Useful for debugging or when preparing stack contents for RUNVM.
-@pure
-fun sizeof<T>(anyVariable: T): int
-    builtin
 
 
 /**

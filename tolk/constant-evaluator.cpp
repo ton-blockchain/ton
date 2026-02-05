@@ -17,6 +17,7 @@
 #include "constant-evaluator.h"
 #include "ast.h"
 #include "compilation-errors.h"
+#include "generics-helpers.h"
 #include "type-system.h"
 #include "openssl/digest.hpp"
 #include "crypto/common/util.h"
@@ -235,20 +236,14 @@ static bool extract_string_literal_from_v(AnyExprV v, std::string& out) {
 static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_function_call> v, std::string_view f_name) {
   TypePtr receiver = v->fun_maybe->receiver_type;
 
-  // static compile-time methods like `MyStruct.getDeclaredPackPrefix()` have 0 args
-  if (v->get_num_args() == 0) {
+  // reflection — compile-time introspection;
+  // most methods of `reflect` are not "consteval", only a couple are, to be used in constants
+  if (v->fun_maybe->is_static_method() && receiver->try_as<TypeDataStruct>()) {
     f_name = v->fun_maybe->method_name;
 
-    if (f_name == "getDeclaredPackPrefix" || f_name == "getDeclaredPackPrefixLen") {
-      const TypeDataStruct* t_struct = receiver->try_as<TypeDataStruct>();
-      if (!t_struct || !t_struct->struct_ref->opcode.exists()) {
-        err("type `{}` does not have a serialization prefix", receiver).fire(v);
-      }
-      uint64_t val = f_name.ends_with('x') ? t_struct->struct_ref->opcode.pack_prefix : t_struct->struct_ref->opcode.prefix_len;
-      return ConstValInt{td::make_refint(val)};
-    }
-    if (f_name == "typeName" || f_name == "typeNameOfObject") {
-      return ConstValString{receiver->as_human_readable()};
+    if (f_name == "typeNameOf" || f_name == "typeNameOfObject") {
+      TypePtr typeT = v->fun_maybe->substitutedTs->typeT_at(0);
+      return ConstValString{typeT->as_human_readable()};
     }
   }
 
