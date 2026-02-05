@@ -123,6 +123,7 @@ static td::Result<std::string> compile_internal(char *config_json) {
   json.key_value("fiftCode", fift_res.fiftCode);
   json.key_value("codeBoc64", JsonPrettyOutput::Unescaped{fift_res.codeBoc64});
   json.key_value("codeHashHex", JsonPrettyOutput::Unescaped{fift_res.codeHashHex});
+  json.key_value("tolkVersion", JsonPrettyOutput::Unescaped{TOLK_VERSION});
   json.key_value("stderr", errs.str());
   json.end_object();
 
@@ -153,7 +154,7 @@ static CompilerSettings::FsReadCallback wrap_wasm_read_callback(WasmFsReadCallba
 
 extern "C" {
 
-const char* version() {
+const char* tolk_version() {
   std::ostringstream result_json_str;
   JsonPrettyOutput json(result_json_str);
   json.start_object();
