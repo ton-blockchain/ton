@@ -41,18 +41,56 @@
 
 using namespace tolk;
 
+enum LongOnlyOptions {
+  OPT_BOC_OUTPUT = 256,
+  OPT_PATH_MAPPING,
+  OPT_EXPERIMENTAL,
+  OPT_NO_STACK_COMMENTS,
+  OPT_NO_LINE_COMMENTS,
+  OPT_JSON_ERRORS,
+};
+
+static struct option long_options[] = {
+  {"output", required_argument, nullptr, 'o'},
+  {"boc-output", required_argument, nullptr, OPT_BOC_OUTPUT},
+  {"opt-level", required_argument, nullptr, 'O'},
+  {"path-mapping", required_argument, nullptr, OPT_PATH_MAPPING},
+  {"experimental", required_argument, nullptr, OPT_EXPERIMENTAL},
+  {"no-stack-comments", no_argument, nullptr, OPT_NO_STACK_COMMENTS},
+  {"no-line-comments", no_argument, nullptr, OPT_NO_LINE_COMMENTS},
+  {"json-errors", no_argument, nullptr, OPT_JSON_ERRORS},
+  {"verbose", no_argument, nullptr, 'e'},
+  {"version", no_argument, nullptr, 'V'},
+  {"help", no_argument, nullptr, 'h'},
+  {nullptr, 0, nullptr, 0}
+};
+
 void usage(const char* progname) {
   std::cerr
       << "usage: " << progname << " [options] <filename.tolk>\n"
-         "\tGenerates Fift TVM assembler code from a .tolk file\n"
-         "-o<fif-filename>\tWrites generated code into specified .fif file instead of stdout\n"
-         "-b<boc-filename>\tGenerate Fift instructions to save TVM bytecode into .boc file\n"
-         "-O<level>\tSets optimization level (2 by default)\n"
-         "-x<option-names>\tEnables experimental options, comma-separated\n"
-         "-S\tDon't include stack layout comments into Fift output\n"
-         "-L\tDon't include original lines from Tolk src into Fift output\n"
-         "-e\tIncreases verbosity level (extra output into stderr)\n"
-         "-v\tOutput version of Tolk and exit\n";
+            "\tGenerates Fift TVM assembler code from a .tolk file\n"
+         "-o, --output <fif-filename>\n"
+            "\tWrite generated code into specified .fif file instead of stdout\n"
+         "--boc-output <boc-filename>\n"
+            "\tGenerate Fift instructions to save TVM bytecode into .boc file\n"
+         "-O, --opt-level <level>\n"
+            "\tSet optimization level (2 by default)\n"
+         "--path-mapping <mapping>\n"
+            "\tRegister @name -> path mapping (e.g. @mylib=/path/to/lib)\n"
+         "--experimental <options>\n"
+            "\tEnable experimental options, comma-separated\n"
+         "--no-stack-comments\n"
+            "\tDon't include stack layout comments into Fift output\n"
+         "--no-line-comments\n"
+            "\tDon't include original lines from Tolk src into Fift output\n"
+         "--json-errors\n"
+            "\tShow compilation errors in JSON (not human-readable) format\n"
+         "-e, --verbose\n"
+            "\tIncrease verbosity level (extra output into stderr)\n"
+         "-v, --version\n"
+            "\tOutput version of Tolk and exit\n"
+         "-h, --help\n"
+            "\tShow this help message\n";
   std::exit(2);
 }
 
@@ -250,38 +288,39 @@ static void compilation_succeed_output_fift(std::ostream& fif_os, const std::str
 
 int main(int argc, char* const argv[]) {
   int i;
-  while ((i = getopt(argc, argv, "o:b:O:p:x:SLjevh")) != -1) {
+  while ((i = getopt_long(argc, argv, "o:O:evVh", long_options, nullptr)) != -1) {
     switch (i) {
       case 'o':
         G.settings.output_filename = optarg;
         break;
-      case 'b':
+      case OPT_BOC_OUTPUT:
         G.settings.boc_output_filename = optarg;
         break;
       case 'O':
         G.settings.optimization_level = std::max(0, atoi(optarg));
         break;
-      case 'p':
+      case OPT_PATH_MAPPING:
         if (!G.settings.parse_path_mapping_cmd_arg(optarg)) {
           return 2;   // the error was printed to std::cerr
         }
         break;
-      case 'x':
+      case OPT_EXPERIMENTAL:
         G.settings.parse_experimental_options_cmd_arg(optarg);
         break;
-      case 'S':
+      case OPT_NO_STACK_COMMENTS:
         G.settings.stack_layout_comments = false;
         break;
-      case 'L':
+      case OPT_NO_LINE_COMMENTS:
         G.settings.tolk_src_as_line_comments = false;
         break;
-      case 'j':
+      case OPT_JSON_ERRORS:
         G.settings.show_errors_as_json = true;
         break;
       case 'e':
         G.settings.verbosity++;
         break;
       case 'v':
+      case 'V':
         std::cout << "Tolk compiler v" << TOLK_VERSION << std::endl;
         std::cout << "Build commit: " << GitMetadata::CommitSHA1() << std::endl;
         std::cout << "Build date: " << GitMetadata::CommitDate() << std::endl;

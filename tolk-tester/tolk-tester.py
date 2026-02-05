@@ -302,7 +302,7 @@ class TolkTestFile:
             elif line.startswith("@experimental_options"):
                 self.more_cmd_line_options += ["-x", line[22:]]
             elif line.startswith("@path_mapping"):
-                self.more_cmd_line_options += ["-p", line[14:].replace('{DIR}', os.path.dirname(self.tolk_filename))]
+                self.more_cmd_line_options += ["--path-mapping", line[14:].replace('{DIR}', os.path.dirname(self.tolk_filename))]
             self.line_idx = self.line_idx + 1
 
         if len(self.input_output) == 0 and not self.compilation_should_fail:
@@ -343,7 +343,7 @@ class TolkTestFile:
     def run_and_check(self):
         cmd_args = [TOLK_EXECUTABLE, "-o", self.get_compiled_fif_filename()] + self.more_cmd_line_options
         if not self.enable_tolk_lines_comments:
-            cmd_args = cmd_args + ["-L"]
+            cmd_args = cmd_args + ["--no-line-comments"]
         res = subprocess.run(cmd_args + [self.tolk_filename], capture_output=True, timeout=10)
         exit_code = res.returncode
         stderr = str(res.stderr, "utf-8")
