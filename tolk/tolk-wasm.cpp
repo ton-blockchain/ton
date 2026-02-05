@@ -71,6 +71,7 @@ static td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(entrypoint_filename, config.get_required_string_field("entrypointFileName"));
   TRY_RESULT(experimental_options, config.get_optional_string_field("experimentalOptions", ""));
   TRY_RESULT(show_errors_as_json, config.get_optional_bool_field("jsonErrors", false));
+  TRY_RESULT(check_only_no_output, config.get_optional_bool_field("checkOnly", false));
   // note that `pathMappings` are handled on a client-side (in tolk-js) only
 
   G.settings.verbosity = 0;
@@ -78,6 +79,7 @@ static td::Result<std::string> compile_internal(char *config_json) {
   G.settings.stack_layout_comments = stack_comments;
   G.settings.tolk_src_as_line_comments = src_line_comments;
   G.settings.show_errors_as_json = show_errors_as_json;
+  G.settings.check_only_no_output = check_only_no_output;
   if (!experimental_options.empty()) {
     G.settings.parse_experimental_options_cmd_arg(experimental_options.c_str());
   }
@@ -85,7 +87,7 @@ static td::Result<std::string> compile_internal(char *config_json) {
   std::ostringstream errs;
   std::cerr.rdbuf(errs.rdbuf());
 
-  TolkCompilationResult result = tolk_proceed(entrypoint_filename);
+  TolkCompilationResult result = tolk_proceed(entrypoint_filename, G.settings.check_only_no_output);
   if (!result.fatal_msg.empty()) {
     // no location or errors in json, just a message "fatal", something unexpected happened
     return td::Status::Error(td::Slice(result.fatal_msg.c_str()));
@@ -101,6 +103,17 @@ static td::Result<std::string> compile_internal(char *config_json) {
     } else {                                // { status: "error", message: "one formatted multiline string" }
       output_errors_all_human_readable(json, result.errors);
     }
+    json.end_object();
+    return result_json_str.str();
+  }
+
+  // for IDE in background: all checks passed, skip codegen
+  if (G.settings.check_only_no_output) {
+    std::ostringstream result_json_str;
+    JsonPrettyOutput json(result_json_str);
+    json.start_object();
+    json.key_value("status", "ok");
+    json.key_value("stderr", errs.str());
     json.end_object();
     return result_json_str.str();
   }

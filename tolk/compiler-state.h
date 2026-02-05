@@ -62,6 +62,7 @@ struct CompilerSettings {
   bool stack_layout_comments = true;
   bool tolk_src_as_line_comments = true;
   bool show_errors_as_json = false;
+  bool check_only_no_output = false;
 
   std::string output_filename;
   std::string boc_output_filename;
@@ -137,6 +138,6 @@ struct TolkCompilationResult {
   std::string fift_code;      // fift code exists only if no compilation errors
 };
 
-TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename);
+TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename, bool check_only_no_output);
 
 }  // namespace tolk

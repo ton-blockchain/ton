@@ -48,6 +48,7 @@ enum LongOnlyOptions {
   OPT_NO_STACK_COMMENTS,
   OPT_NO_LINE_COMMENTS,
   OPT_JSON_ERRORS,
+  OPT_CHECK_ONLY,
 };
 
 static struct option long_options[] = {
@@ -59,6 +60,7 @@ static struct option long_options[] = {
   {"no-stack-comments", no_argument, nullptr, OPT_NO_STACK_COMMENTS},
   {"no-line-comments", no_argument, nullptr, OPT_NO_LINE_COMMENTS},
   {"json-errors", no_argument, nullptr, OPT_JSON_ERRORS},
+  {"check-only", no_argument, nullptr, OPT_CHECK_ONLY},
   {"verbose", no_argument, nullptr, 'e'},
   {"version", no_argument, nullptr, 'V'},
   {"help", no_argument, nullptr, 'h'},
@@ -85,6 +87,8 @@ void usage(const char* progname) {
             "\tDon't include original lines from Tolk src into Fift output\n"
          "--json-errors\n"
             "\tShow compilation errors in JSON (not human-readable) format\n"
+         "--check-only\n"
+            "\tCheck sources for errors without generating code (for IDE in background)\n"
          "-e, --verbose\n"
             "\tIncrease verbosity level (extra output into stderr)\n"
          "-v, --version\n"
@@ -316,6 +320,9 @@ int main(int argc, char* const argv[]) {
       case OPT_JSON_ERRORS:
         G.settings.show_errors_as_json = true;
         break;
+      case OPT_CHECK_ONLY:
+        G.settings.check_only_no_output = true;
+        break;
       case 'e':
         G.settings.verbosity++;
         break;
@@ -369,7 +376,7 @@ int main(int argc, char* const argv[]) {
 
   G.settings.read_callback = fs_read_callback;
 
-  TolkCompilationResult result = tolk_proceed(argv[optind]);
+  TolkCompilationResult result = tolk_proceed(argv[optind], G.settings.check_only_no_output);
   if (!result.fatal_msg.empty()) {
     compilation_failed_with_fatal(result.fatal_msg);
     return 2;

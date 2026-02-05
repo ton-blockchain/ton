@@ -34,7 +34,7 @@ namespace tolk {
 
 void define_builtins();
 
-TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
+TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename, bool check_only_no_output) {
   type_system_init();
   define_builtins();
   lexer_init();
@@ -84,6 +84,16 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
     // the following pipes can't operate if any previous errors exist
     pipeline_lazy_load_insertions();
     pipeline_transform_onInternalMessage();
+
+    // for IDE in background: all checks passed, skip codegen
+    if (check_only_no_output) {
+      return TolkCompilationResult{
+        .errors = {},
+        .fatal_msg = "",
+        .fift_code = "",
+      };
+    }
+
     pipeline_convert_ast_to_legacy_Expr_Op();
 
     pipeline_find_unused_symbols();
