@@ -299,8 +299,6 @@ class TolkTestFile:
                 self.fif_codegen.append(TolkTestCaseFifCodegen(self.parse_string_value(lines), False))
             elif line.startswith("@code_hash"):
                 self.expected_hash = TolkTestCaseExpectedHash(self.parse_string_value(lines, False)[0])
-            elif line.startswith("@experimental_options"):
-                self.more_cmd_line_options += ["-x", line[22:]]
             elif line.startswith("@path_mapping"):
                 self.more_cmd_line_options += ["--path-mapping", line[14:].replace('{DIR}', os.path.dirname(self.tolk_filename))]
             self.line_idx = self.line_idx + 1

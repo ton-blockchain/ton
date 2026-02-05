@@ -25,23 +25,6 @@
 
 namespace tolk {
 
-// with cmd option -x, the user can pass experimental options to use
-class ExperimentalOption {
-  friend struct CompilerSettings;
-
-  const std::string_view name;
-  bool enabled = false;
-  const char* deprecated_from_v = nullptr;  // when an option becomes deprecated (after the next compiler release),
-  const char* deprecated_reason = nullptr;  // but the user still passes it, we'll warn to stderr
-
-public:
-  explicit ExperimentalOption(std::string_view name) : name(name) {}
-
-  void mark_deprecated(const char* deprecated_from_v, const char* deprecated_reason);
-
-  explicit operator bool() const { return enabled; }
-};
-
 // Custom path mappings that allow imports "@third_party/utils", mapped to "/absolute/folder/utils".
 // Each mapping is appended by a cmd line option, they are resolved before calculating realpath.
 // Note, that in wasm (in tolk-js), path mappings are handled in a different way, in a JS resolver.
@@ -72,12 +55,7 @@ struct CompilerSettings {
 
   FsReadCallback read_callback;
 
-  // ExperimentalOption some_option{"some-option"};
-
-  void enable_experimental_option(std::string_view name);
-  void parse_experimental_options_cmd_arg(const std::string& cmd_arg);
   bool parse_path_mapping_cmd_arg(const std::string& cmd_arg);
-
   std::string_view get_path_mapping(std::string_view at_prefix) const;
 };
 

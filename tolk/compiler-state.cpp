@@ -22,11 +22,6 @@ namespace tolk {
 
 CompilerState G; // the only mutable global variable in tolk internals
 
-void ExperimentalOption::mark_deprecated(const char* deprecated_from_v, const char* deprecated_reason) {
-  this->deprecated_from_v = deprecated_from_v;
-  this->deprecated_reason = deprecated_reason;
-}
-
 std::string_view PersistentHeapAllocator::copy_string_to_persistent_memory(std::string_view str_in_tmp_memory) {
   size_t len = str_in_tmp_memory.size();
   char* allocated = new char[len];
@@ -38,32 +33,6 @@ std::string_view PersistentHeapAllocator::copy_string_to_persistent_memory(std::
 
 void PersistentHeapAllocator::clear() {
   head = nullptr;
-}
-
-void CompilerSettings::enable_experimental_option(std::string_view name) {
-  ExperimentalOption* to_enable = nullptr;
-
-  // if (name == some_option.name) {
-    // to_enable = &some_option;
-  // }
-
-  if (to_enable == nullptr) {
-    std::cerr << "unknown experimental option: " << name << std::endl;
-  } else if (to_enable->deprecated_from_v) {
-    std::cerr << "experimental option " << name << " "
-              << "is deprecated since Tolk v" << to_enable->deprecated_from_v
-              << ": " << to_enable->deprecated_reason << std::endl;
-  } else {
-    to_enable->enabled = true;
-  }
-}
-
-void CompilerSettings::parse_experimental_options_cmd_arg(const std::string& cmd_arg) {
-  std::istringstream stream(cmd_arg);
-  std::string token;
-  while (std::getline(stream, token, ',')) {
-    enable_experimental_option(token);
-  }
 }
 
 bool CompilerSettings::parse_path_mapping_cmd_arg(const std::string& cmd_arg) {

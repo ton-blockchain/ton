@@ -69,7 +69,6 @@ static td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(stack_comments, config.get_optional_bool_field("withStackComments", false));
   TRY_RESULT(src_line_comments, config.get_optional_bool_field("withSrcLineComments", false));
   TRY_RESULT(entrypoint_filename, config.get_required_string_field("entrypointFileName"));
-  TRY_RESULT(experimental_options, config.get_optional_string_field("experimentalOptions", ""));
   TRY_RESULT(show_errors_as_json, config.get_optional_bool_field("jsonErrors", false));
   TRY_RESULT(check_only_no_output, config.get_optional_bool_field("checkOnly", false));
   // note that `pathMappings` are handled on a client-side (in tolk-js) only
@@ -80,9 +79,6 @@ static td::Result<std::string> compile_internal(char *config_json) {
   G.settings.tolk_src_as_line_comments = src_line_comments;
   G.settings.show_errors_as_json = show_errors_as_json;
   G.settings.check_only_no_output = check_only_no_output;
-  if (!experimental_options.empty()) {
-    G.settings.parse_experimental_options_cmd_arg(experimental_options.c_str());
-  }
 
   std::ostringstream errs;
   std::cerr.rdbuf(errs.rdbuf());

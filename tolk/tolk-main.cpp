@@ -44,7 +44,6 @@ using namespace tolk;
 enum LongOnlyOptions {
   OPT_BOC_OUTPUT = 256,
   OPT_PATH_MAPPING,
-  OPT_EXPERIMENTAL,
   OPT_NO_STACK_COMMENTS,
   OPT_NO_LINE_COMMENTS,
   OPT_JSON_ERRORS,
@@ -56,7 +55,6 @@ static struct option long_options[] = {
   {"boc-output", required_argument, nullptr, OPT_BOC_OUTPUT},
   {"opt-level", required_argument, nullptr, 'O'},
   {"path-mapping", required_argument, nullptr, OPT_PATH_MAPPING},
-  {"experimental", required_argument, nullptr, OPT_EXPERIMENTAL},
   {"no-stack-comments", no_argument, nullptr, OPT_NO_STACK_COMMENTS},
   {"no-line-comments", no_argument, nullptr, OPT_NO_LINE_COMMENTS},
   {"json-errors", no_argument, nullptr, OPT_JSON_ERRORS},
@@ -79,8 +77,6 @@ void usage(const char* progname) {
             "\tSet optimization level (2 by default)\n"
          "--path-mapping <mapping>\n"
             "\tRegister @name -> path mapping (e.g. @mylib=/path/to/lib)\n"
-         "--experimental <options>\n"
-            "\tEnable experimental options, comma-separated\n"
          "--no-stack-comments\n"
             "\tDon't include stack layout comments into Fift output\n"
          "--no-line-comments\n"
@@ -307,9 +303,6 @@ int main(int argc, char* const argv[]) {
         if (!G.settings.parse_path_mapping_cmd_arg(optarg)) {
           return 2;   // the error was printed to std::cerr
         }
-        break;
-      case OPT_EXPERIMENTAL:
-        G.settings.parse_experimental_options_cmd_arg(optarg);
         break;
       case OPT_NO_STACK_COMMENTS:
         G.settings.stack_layout_comments = false;
