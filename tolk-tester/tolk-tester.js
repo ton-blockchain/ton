@@ -287,7 +287,13 @@ class TolkTestFile {
         this.line_idx = 0
 
         while (this.line_idx < lines.length) {
-            const line = lines[this.line_idx]
+            let line = lines[this.line_idx]
+            // support both "@tag" and "// @tag" syntax
+            if (line.startsWith("// @") && !line.startsWith("// @testcase")) {
+                line = line.substring(3)
+                lines[this.line_idx] = line
+            }
+
             if (line.startsWith('@testcase')) {
                 let s = line.split("|").map(p => p.trim())
                 if (s.length !== 4)
@@ -295,6 +301,8 @@ class TolkTestFile {
                 this.input_output.push(new TolkTestCaseInputOutput(s[1], s[2], s[3]))
             } else if (line.startsWith('@compilation_should_fail')) {
                 this.compilation_should_fail = true
+            } else if (line.startsWith('@stderr_avoid')) {
+                this.stderr_includes.push(new TolkTestCaseStderr(this.parse_string_value(lines), true))
             } else if (line.startsWith('@stderr')) {
                 this.stderr_includes.push(new TolkTestCaseStderr(this.parse_string_value(lines), false))
             } else if (line.startsWith("@fif_codegen_avoid")) {

@@ -275,6 +275,11 @@ class TolkTestFile:
 
         while self.line_idx < len(lines):
             line = lines[self.line_idx]
+            # support both "@tag" and "// @tag" syntax
+            if line.startswith("// @") and not line.startswith("// @testcase"):
+                line = line[3:]
+                lines[self.line_idx] = line
+
             if line.startswith("@testcase"):
                 s = [x.strip() for x in line.split("|")]
                 if len(s) != 4:
@@ -282,6 +287,8 @@ class TolkTestFile:
                 self.input_output.append(TolkTestCaseInputOutput(s[1], s[2], s[3]))
             elif line.startswith("@compilation_should_fail"):
                 self.compilation_should_fail = True
+            elif line.startswith("@stderr_avoid"):
+                self.stderr_includes.append(TolkTestCaseStderr(self.parse_string_value(lines), True))
             elif line.startswith("@stderr"):
                 self.stderr_includes.append(TolkTestCaseStderr(self.parse_string_value(lines), False))
             elif line.startswith("@fif_codegen_avoid"):

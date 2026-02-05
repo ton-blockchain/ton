@@ -13,4 +13,5 @@ fun main(a: A) {
 /**
 @compilation_should_fail
 @stderr can not assign `[int, int]` to field of type `array<slice>`
+@stderr_avoid ok
  */

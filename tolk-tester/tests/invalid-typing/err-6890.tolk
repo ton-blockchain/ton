@@ -4,17 +4,16 @@ struct Point {
 }
 
 fun main() {
-    // ok
-    [] as [];
-    [] as []?;
-    [] as [] | int;
-    [] as array<unknown>;
-    [] as array<array<int>>;
-    [] as array<array<int>>?;
-    [] as array<array<int>> | int;
-    [] as lisp_list<int>;
-    [] as lisp_list<int>?;
-    [] as lisp_list<int> | int;
+    [] as [];                           // ok
+    [] as []?;                          // ok
+    [] as [] | int;                     // ok
+    [] as array<unknown>;               // ok
+    [] as array<array<int>>;            // ok
+    [] as array<array<int>>?;           // ok
+    [] as array<array<int>> | int;      // ok
+    [] as lisp_list<int>;               // ok
+    [] as lisp_list<int>?;              // ok
+    [] as lisp_list<int> | int;         // ok
     // err
     [] as Point | int;
 }
@@ -22,4 +21,5 @@ fun main() {
 /**
 @compilation_should_fail
 @stderr type `array<unknown>` can not be cast to `Point | int`
+@stderr_avoid ok
  */

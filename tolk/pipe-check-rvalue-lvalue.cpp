@@ -70,15 +70,15 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
       }
       var_ref->mutate()->assign_used_as_lval();
 
-    } else if (sym->try_as<GlobalConstPtr>()) {
+    } else if (GlobalConstPtr const_ref = sym->try_as<GlobalConstPtr>()) {
       // deny `SOME_CONST = rhs` / `mutate CONST_TENSOR.0` / etc.
-      err("modifying immutable constant").collect(range, cur_f);
+      err("modifying immutable constant `{}`", const_ref->name).collect(range, cur_f);
 
-    } else if (sym->try_as<GlobalVarPtr>()) {
+    } else if (GlobalVarPtr glob_ref = sym->try_as<GlobalVarPtr>()) {
       // fire on `global = rhs` in a @pure function: it's easier to do this check here,
       // because it's very similar to checking immutable variables, especially `(global!).field = rhs`
       if (cur_f->is_marked_as_pure()) {
-        err("modifying a global in a pure function").collect(range, cur_f);
+        err("modifying a global `{}` in a pure function", glob_ref->name).collect(range, cur_f);
       }
 
     } else if (sym->try_as<const TypeReferenceUsedAsSymbol*>()) {
