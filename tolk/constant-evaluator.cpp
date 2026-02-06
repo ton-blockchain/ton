@@ -245,6 +245,22 @@ static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_funct
       TypePtr typeT = v->fun_maybe->substitutedTs->typeT_at(0);
       return ConstValString{typeT->as_human_readable()};
     }
+
+    if (f_name == "sourceLocation") {
+      SrcRange::DecodedRange d = v->range.decode_offsets();
+      StructPtr s_SourceLocation = v->fun_maybe->declared_return_type->try_as<TypeDataStruct>()->struct_ref;
+      return ConstValObject{s_SourceLocation, {
+        ConstValInt{td::make_refint(d.start_line_no)},
+        ConstValInt{td::make_refint(d.start_char_no)},
+        ConstValString{v->range.get_src_file()->realpath},
+      }};
+    }
+
+    if (f_name == "sourceLocationAsString") {
+      SrcRange::DecodedRange d = v->range.decode_offsets();
+      std::string loc_str = v->range.get_src_file()->realpath + ":" + std::to_string(d.start_line_no) + ":" + std::to_string(d.start_char_no);
+      return ConstValString{std::move(loc_str)};
+    }
   }
 
   // string methods: "hello".crc32(), "hello".sha256(), etc.
@@ -492,6 +508,13 @@ class ConstExpressionEvaluator {
       }                                          // type inferring and type checking
       if (ConstValShapedTuple* lhs_shaped = std::get_if<ConstValShapedTuple>(&lhs)) {
         return lhs_shaped->items[index_at];
+      }
+    }
+    if (v->is_target_struct_field()) {      // constObj.field
+      ConstValExpression lhs = unwrap_const_cast(eval_any_v_or_fire(v->get_obj()));
+      if (ConstValObject* lhs_obj = std::get_if<ConstValObject>(&lhs)) {
+        StructFieldPtr field = std::get<StructFieldPtr>(v->target);
+        return lhs_obj->fields[field->field_idx];
       }
     }
     if (v->is_target_enum_member()) {       // Color.Red

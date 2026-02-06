@@ -64,3 +64,40 @@ fun reflect.serializationPrefixOf<T>(): (int, int)
 @pure
 fun reflect.estimateSerializationOf<T>(): (int, int, int, int)
     builtin
+
+/// Source location information, resolved at compile time.
+/// See [reflect.sourceLocation] for examples.
+struct SourceLocation {
+    lineNo: int
+    charNo: int
+    fileName: string
+}
+
+/// Returns the source location where this function is called.
+/// Can be used to retrieve current file/line, similar to __FILE__ in some languages.
+/// Example:
+/// ```
+/// var curLineNo = reflect.sourceLocation().lineNo
+/// ```
+/// When used as a default parameter value, captures the caller's location.
+/// Example:
+/// ```
+/// fun log(msg: string, loc: SourceLocation = reflect.sourceLocation()) {
+///     debug.print(loc.lineNo);
+/// }
+///
+/// fun demo() {
+///     log("a");    // prints K — current line no
+///     log("b");    // prints K+1
+/// }
+/// ```
+@pure
+fun reflect.sourceLocation(): SourceLocation
+    builtin
+
+/// Behaves like [reflect.sourceLocation], but returns a string "fileName:lineNo:charNo".
+/// `fileName` contains the full (real) path of the source file.
+/// Being used as a default parameter value, captures the caller's location.
+@pure
+fun reflect.sourceLocationAsString(): string
+    builtin

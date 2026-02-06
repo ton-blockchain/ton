@@ -1508,6 +1508,7 @@ void define_builtins() {
   TypePtr OutMessage = TypeDataUnknown::create();
   TypePtr AddressShardingOptions = TypeDataUnknown::create();
   TypePtr AutoDeployAddress = TypeDataUnknown::create();
+  TypePtr SourceLocation = TypeDataUnknown::create();
   const GenericsDeclaration* declTBody = new GenericsDeclaration(std::vector<GenericsDeclaration::ItemT>{{"TBody", nullptr}}, 0);
 
   // builtin operators
@@ -1808,6 +1809,12 @@ void define_builtins() {
   define_builtin_method("reflect.estimateSerializationOf", typeT, {}, TypeDataTensor::create({Int, Int, Int, Int}), declGenericT,
                                 generate_reflect_estimateSerializationOf,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("reflect.sourceLocation", reflect, {}, SourceLocation, nullptr,
+                                compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
+  define_builtin_method("reflect.sourceLocationAsString", reflect, {}, String, nullptr,
+                                compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
 
   // serialization/deserialization methods to/from cells (or, more low-level, slices/builders)
   // they work with structs (or, more low-level, with arbitrary types)
@@ -2007,6 +2014,12 @@ void patch_builtins_after_stdlib_loaded() {
     lookup_function("reflect.stackSizeOfObject")->mutate()->receiver_type = reflect;
     lookup_function("reflect.serializationPrefixOf")->mutate()->receiver_type = reflect;
     lookup_function("reflect.estimateSerializationOf")->mutate()->receiver_type = reflect;
+
+    StructPtr struct_ref_SourceLocation = lookup_global_symbol("SourceLocation")->try_as<StructPtr>();
+    TypePtr SourceLocation = TypeDataStruct::create(struct_ref_SourceLocation);
+    lookup_function("reflect.sourceLocation")->mutate()->declared_return_type = SourceLocation;
+    lookup_function("reflect.sourceLocation")->mutate()->receiver_type = reflect;
+    lookup_function("reflect.sourceLocationAsString")->mutate()->receiver_type = reflect;
   }
 
   StructPtr struct_ref_AddressShardingOptions = lookup_global_symbol("AddressShardingOptions")->try_as<StructPtr>();
