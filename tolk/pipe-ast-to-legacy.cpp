@@ -353,6 +353,15 @@ class ClearStateAfterInlineInPlace final : public ASTVisitorFunctionBody {
     v->var_ref->mutate()->assign_ir_idx({});
   }
 
+  void visit(V<ast_try_catch_statement> v) override {
+    for (AnyExprV v_catch_var : v->get_catch_expr()->get_items()) {
+      if (auto v_ref = v_catch_var->try_as<ast_reference>(); v_ref && v_ref->sym) {
+        v_ref->sym->try_as<LocalVarPtr>()->mutate()->assign_ir_idx({});
+      }
+    }
+    parent::visit(v);
+  }
+
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     tolk_assert(false);
@@ -1900,12 +1909,30 @@ static void process_block_statement(V<ast_block_statement> v, CodeBlob& code) {
 }
 
 static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) {
-  std::vector ir_thrown_code = pre_compile_expr(v->get_thrown_code(), code);
-  std::vector ir_cond = pre_compile_expr(v->get_cond(), code);
-  tolk_assert(ir_cond.size() == 1 && ir_thrown_code.size() == 1);
+  bool excno_is_const = true;
+  try { eval_expression_if_const_or_fire(v->get_thrown_code()); }
+  catch (...) { excno_is_const = false; }
 
-  std::vector args_throwifnot = { ir_thrown_code[0], ir_cond[0] };
-  gen_op_call(code, TypeDataVoid::create(), v, std::move(args_throwifnot), lookup_function("__throw_ifnot"), "(throw-call)");
+  if (excno_is_const) {
+    // all practical cases: `assert(cond) throw SOME_ERR_CODE`, it's safe to put it on a stack
+    std::vector ir_thrown_code = pre_compile_expr(v->get_thrown_code(), code);
+    std::vector ir_cond = pre_compile_expr(v->get_cond(), code);
+    tolk_assert(ir_cond.size() == 1 && ir_thrown_code.size() == 1);
+
+    std::vector args_throwifnot = { ir_thrown_code[0], ir_cond[0] };
+    gen_op_call(code, TypeDataVoid::create(), v, std::move(args_throwifnot), lookup_function("__throw_ifnot"), "(throw-call)");
+
+  } else {
+    // weird case: `assert(cond) throw fn()`, fn may throw or produce side effects, call it if `!cond`
+    std::vector ir_cond = pre_compile_expr(v->get_cond(), code);
+    Op& if_op = code.emplace_back(v, Op::_If, ir_cond);
+    code.push_set_cur(if_op.block0);
+    code.close_pop_cur(v);
+    code.push_set_cur(if_op.block1);
+    std::vector ir_thrown_code = pre_compile_expr(v->get_thrown_code(), code);
+    code.emplace_back(v, Op::_Call, std::vector<var_idx_t>{}, ir_thrown_code, lookup_function("__throw")).set_impure_flag();
+    code.close_pop_cur(v);
+  }
 }
 
 static void process_catch_variable(AnyExprV v_catch_var, CodeBlob& code) {
@@ -2005,7 +2032,9 @@ static void process_while_statement(V<ast_while_statement> v, CodeBlob& code) {
 static void process_throw_statement(V<ast_throw_statement> v, CodeBlob& code) {
   if (v->has_thrown_arg()) {
     FunctionPtr builtin_sym = lookup_function("__throw_arg");
-    std::vector args_vars = pre_compile_tensor(code, {v->get_thrown_arg(), v->get_thrown_code()}, nullptr, {TypeDataUnknown::create(), TypeDataInt::create()});
+    // evaluate `throw (code, arg)` in ltr, in case evaluation throws an exception
+    std::vector args_vars = pre_compile_tensor(code, {v->get_thrown_code(), v->get_thrown_arg()}, nullptr, {TypeDataInt::create(), TypeDataUnknown::create()});
+    args_vars = {args_vars[1], args_vars[0]};   // but reverse them on a stack to match TVM order
     gen_op_call(code, TypeDataVoid::create(), v, std::move(args_vars), builtin_sym, "(throw-call)");
   } else {
     FunctionPtr builtin_sym = lookup_function("__throw");
