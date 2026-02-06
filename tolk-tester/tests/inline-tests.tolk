@@ -100,7 +100,6 @@ fun foo_big(x: int): int {
     return x;
 }
 
-@noinline
 fun foo_big_not_annotated_called_once(x: int): int {
     __expect_inline(true);     // called only once, inline
     x = x * 10 + 1; x = x * 10 + 1; x = x * 10 + 1; x = x * 10 + 1; x = x * 10 + 1; x = x * 10 + 1; x = x * 10 + 1;
@@ -188,7 +187,7 @@ fun builder.store32(mutate self, v: int32): self {
 }
 
 fun sum(a: int, b: int) {
-    __expect_inline(true);
+    __expect_inline(false);     // because it's never called
     return a + b;
 }
 

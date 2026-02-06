@@ -296,8 +296,7 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
   return f_sym;
 }
 
-static void iterate_through_file_symbols(const SrcFile* file) {
-  static std::unordered_set<const SrcFile*> seen;
+static void iterate_through_file_symbols(const SrcFile* file, std::unordered_set<const SrcFile*>& seen) {
   if (!seen.insert(file).second) {
     return;
   }
@@ -307,8 +306,7 @@ static void iterate_through_file_symbols(const SrcFile* file) {
     switch (v->kind) {
       case ast_import_directive:
         // on `import "another-file.tolk"`, register symbols from that file at first
-        // (for instance, it can calculate constants, which are used in init_val of constants in current file below import)
-        iterate_through_file_symbols(v->as<ast_import_directive>()->file);
+        iterate_through_file_symbols(v->as<ast_import_directive>()->file, seen);
         break;
 
       case ast_constant_declaration:
@@ -336,9 +334,9 @@ static void iterate_through_file_symbols(const SrcFile* file) {
 }
 
 void pipeline_register_global_symbols() {
-  for (const SrcFile* file : G.all_src_files) {
-    iterate_through_file_symbols(file);
-  }
+  std::unordered_set<const SrcFile*> seen;
+  iterate_through_file_symbols(G.all_src_files.get_stdlib_common_file(), seen);
+  iterate_through_file_symbols(G.all_src_files.get_entrypoint_file(), seen);
 }
 
 FunctionPtr pipeline_register_instantiated_generic_function(FunctionPtr base_fun_ref, AnyV cloned_v, std::string&& name, const GenericsSubstitutions* substitutedTs) {

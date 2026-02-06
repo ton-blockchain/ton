@@ -2225,8 +2225,11 @@ public:
 };
 
 void pipeline_convert_ast_to_legacy_Expr_Op() {
-  visit_ast_of_all_functions<UpdateArgRetOrderConsideringStackWidth>();
-  visit_ast_of_all_functions<ConvertASTToLegacyOpVisitor>();
+  UpdateArgRetOrderConsideringStackWidth asm_updater;
+  visit_ast_of_all_functions(asm_updater);
+
+  ConvertASTToLegacyOpVisitor ir_converter;
+  visit_ast_of_all_functions(ir_converter);
 }
 
 } // namespace tolk

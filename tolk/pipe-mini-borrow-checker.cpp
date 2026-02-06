@@ -204,7 +204,8 @@ public:
 };
 
 void pipeline_mini_borrow_checker_for_mutate() {
-  visit_ast_of_all_functions<CheckMutationNotHappensTwiceVisitor>();
+  CheckMutationNotHappensTwiceVisitor visitor;
+  visit_ast_of_all_functions(visitor);
 }
 
 } // namespace tolk

@@ -9,14 +9,6 @@ fun A.getA1(self) {
     return self.a1;
 }
 
-fun AOrB.doMatch(self) {
-    __expect_inline(true);
-    match (self) {
-        A => {}
-        B => {}
-    }
-}
-
 struct Fields9 {
     f1: uint8; f2: uint8; f3: uint8;
     f4: uint8; f5: uint8; f6: uint8;

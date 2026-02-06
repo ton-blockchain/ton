@@ -290,7 +290,8 @@ public:
 };
 
 void pipeline_check_rvalue_lvalue() {
-  visit_ast_of_all_functions<CheckRValueLvalueVisitor>();
+  CheckRValueLvalueVisitor visitor;
+  visit_ast_of_all_functions(visitor);
 }
 
 } // namespace tolk

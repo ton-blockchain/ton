@@ -346,7 +346,8 @@ public:
 };
 
 void pipeline_calculate_rvalue_lvalue() {
-  visit_ast_of_all_functions<CalculateRvalueLvalueVisitor>();
+  CalculateRvalueLvalueVisitor visitor;
+  visit_ast_of_all_functions(visitor);
 }
 
 void mark_lvalue_AnyV(AnyV v) {

@@ -65,6 +65,8 @@ class AllRegisteredSrcFiles {
 public:
   const SrcFile* get_file(int file_id) const { return all_src_files.at(file_id); }
   const SrcFile* find_file(const std::string& realpath) const;
+  const SrcFile* get_stdlib_common_file() const { return all_src_files.at(0); }
+  const SrcFile* get_entrypoint_file() const { return all_src_files.at(1); }
 
   const SrcFile* locate_and_register_source_file(const std::string& filename, AnyV v_import_filename);
   SrcFile* get_next_unparsed_file();

@@ -91,7 +91,8 @@ void pipeline_check_constant_expressions() {
     }
   }
 
-  visit_ast_of_all_functions<ConstantExpressionsChecker>();
+  ConstantExpressionsChecker visitor;
+  visit_ast_of_all_functions(visitor);
 }
 
 } // namespace tolk

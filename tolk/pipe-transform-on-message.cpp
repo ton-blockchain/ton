@@ -119,7 +119,8 @@ public:
 };
 
 void pipeline_transform_onInternalMessage() {
-  replace_ast_of_all_functions<TransformOnInternalMessageReplacer>();
+  TransformOnInternalMessageReplacer replacer;
+  replace_ast_of_all_functions(replacer);
 }
 
 } // namespace tolk

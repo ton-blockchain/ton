@@ -232,8 +232,7 @@ const std::vector<StructPtr>& get_all_declared_structs();
 const std::vector<EnumDefPtr>& get_all_declared_enums();
 
 template<class BodyVisitorT>
-void visit_ast_of_all_functions() {
-  BodyVisitorT visitor;
+void visit_ast_of_all_functions(BodyVisitorT& visitor) {
   const std::vector<FunctionPtr>& all = get_all_not_builtin_functions();
   for (size_t i = 0; i < all.size(); ++i) { // NOLINT(*-loop-convert)
     FunctionPtr fun_ref = all[i];   // not range-base loop to prevent iterator invalidation (push_back at generics)

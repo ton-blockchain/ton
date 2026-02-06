@@ -179,7 +179,8 @@ public:
 };
 
 void pipeline_optimize_boolean_expressions() {
-  replace_ast_of_all_functions<OptimizerBooleanExpressionsReplacer>();
+  OptimizerBooleanExpressionsReplacer replacer;
+  replace_ast_of_all_functions(replacer);
 }
 
 } // namespace tolk

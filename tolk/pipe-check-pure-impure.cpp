@@ -64,7 +64,8 @@ public:
 };
 
 void pipeline_check_pure_impure_operations() {
-  visit_ast_of_all_functions<CheckImpureOperationsInPureFunctionVisitor>();
+  CheckImpureOperationsInPureFunctionVisitor visitor;
+  visit_ast_of_all_functions(visitor);
 }
 
 } // namespace tolk

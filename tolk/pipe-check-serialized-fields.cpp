@@ -161,7 +161,8 @@ public:
 };
 
 void pipeline_check_serialized_fields() {
-  visit_ast_of_all_functions<CheckSerializedFieldsAndTypesVisitor>();
+  CheckSerializedFieldsAndTypesVisitor visitor;
+  visit_ast_of_all_functions(visitor);
 
   for (StructPtr struct_ref : get_all_declared_structs()) {
     for (StructFieldPtr field_ref : struct_ref->fields) {

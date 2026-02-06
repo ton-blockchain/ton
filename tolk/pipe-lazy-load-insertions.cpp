@@ -1029,9 +1029,12 @@ public:
 };
 
 void pipeline_lazy_load_insertions() {
-  visit_ast_of_all_functions<CollectAllLazyObjectsAndFieldsVisitor>();
-  replace_ast_of_all_functions<LazyLoadInsertionsReplacer>();
-  visit_ast_of_all_functions<CheckExpectLazyAssertionsVisitor>();
+  CollectAllLazyObjectsAndFieldsVisitor collector;
+  visit_ast_of_all_functions(collector);
+  LazyLoadInsertionsReplacer replacer;
+  replace_ast_of_all_functions(replacer);
+  CheckExpectLazyAssertionsVisitor checker;
+  visit_ast_of_all_functions(checker);
   functions_with_lazy_vars.clear();
 }
 

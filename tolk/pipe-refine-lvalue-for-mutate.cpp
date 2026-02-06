@@ -96,7 +96,8 @@ public:
 };
 
 void pipeline_refine_lvalue_for_mutate_arguments() {
-  visit_ast_of_all_functions<RefineLvalueForMutateArgumentsVisitor>();
+  RefineLvalueForMutateArgumentsVisitor visitor;
+  visit_ast_of_all_functions(visitor);
 }
 
 } // namespace tolk

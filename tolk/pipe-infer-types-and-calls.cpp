@@ -1908,7 +1908,8 @@ static void infer_and_save_type_of_constant(GlobalConstPtr const_ref) {
 
 void pipeline_infer_types_and_calls_and_fields() {
   // loop over user-defined functions
-  visit_ast_of_all_functions<LaunchInferTypesAndMethodsOnce>();
+  LaunchInferTypesAndMethodsOnce launcher;
+  visit_ast_of_all_functions(launcher);
 
   // assign inferred_type to built-in functions like __throw() 
   for (FunctionPtr fun_ref : get_all_builtin_functions()) {

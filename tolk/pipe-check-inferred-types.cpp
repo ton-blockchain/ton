@@ -909,9 +909,9 @@ public:
 };
 
 void pipeline_check_inferred_types() {
-  visit_ast_of_all_functions<CheckInferredTypesVisitor>();
-
   CheckInferredTypesVisitor visitor;
+  visit_ast_of_all_functions(visitor);
+
   for (GlobalConstPtr const_ref : get_all_declared_constants()) {
     visitor.start_visiting_constant(const_ref);
   }

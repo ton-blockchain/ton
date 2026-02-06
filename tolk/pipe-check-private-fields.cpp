@@ -79,7 +79,8 @@ public:
 };
 
 void pipeline_check_private_fields_usage() {
-  visit_ast_of_all_functions<CheckPrivateFieldsUsageVisitor>();
+  CheckPrivateFieldsUsageVisitor visitor;
+  visit_ast_of_all_functions(visitor);
 }
 
 } // namespace tolk

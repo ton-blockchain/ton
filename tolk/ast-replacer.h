@@ -228,11 +228,10 @@ const std::vector<StructPtr>& get_all_declared_structs();
 const std::vector<EnumDefPtr>& get_all_declared_enums();
 
 template<class BodyReplacerT>
-void replace_ast_of_all_functions() {
-  BodyReplacerT visitor;
+void replace_ast_of_all_functions(BodyReplacerT& replacer) {
   for (FunctionPtr fun_ref : get_all_not_builtin_functions()) {
-    if (visitor.should_visit_function(fun_ref)) {
-      visitor.start_replacing_in_function(fun_ref, fun_ref->ast_root->as<ast_function_declaration>());
+    if (replacer.should_visit_function(fun_ref)) {
+      replacer.start_replacing_in_function(fun_ref, fun_ref->ast_root->as<ast_function_declaration>());
     }
   }
 }
