@@ -48,8 +48,8 @@ void patch_builtins_after_stdlib_loaded();
  * Example: `type A<T> = Ok<T>`, then `Ok<T>` is not ready yet, it's left as TypeDataGenericTypeWithTs.
  */
 
-static std::unordered_map<StructPtr, bool> visited_structs;
-static std::unordered_map<AliasDefPtr, bool> visited_aliases;
+static thread_local std::unordered_map<StructPtr, bool> visited_structs;
+static thread_local std::unordered_map<AliasDefPtr, bool> visited_aliases;
 
 static Error err_unknown_type_name(std::string_view text) {
   if (text == "auto") {
@@ -397,7 +397,7 @@ public:
   }
 
   static void visit_symbol(AliasDefPtr alias_ref) {
-    static std::vector<AliasDefPtr> called_stack;
+    static thread_local std::vector<AliasDefPtr> called_stack;
 
     // prevent recursion like `type A = B; type B = A` (we can't create TypeDataAlias without a resolved underlying type)
     bool contains = std::find(called_stack.begin(), called_stack.end(), alias_ref) != called_stack.end();
@@ -701,7 +701,7 @@ class InfiniteStructSizeDetector {
   };
 
   static void check_struct_for_infinite_size(StructPtr struct_ref) {
-    static std::vector<StructPtr> called_stack;
+    static thread_local std::vector<StructPtr> called_stack;
 
     bool contains = std::find(called_stack.begin(), called_stack.end(), struct_ref) != called_stack.end();
     if (contains) {
@@ -724,6 +724,9 @@ public:
 };
 
 void pipeline_resolve_types_and_aliases() {
+  visited_structs.clear();
+  visited_aliases.clear();
+
   ResolveTypesInsideFunctionVisitor visitor;
 
   for (const SrcFile* file : G.all_src_files) {
@@ -761,8 +764,6 @@ void pipeline_resolve_types_and_aliases() {
   }
 
   InfiniteStructSizeDetector::detect_and_fire_if_any_struct_is_infinite();
-  visited_structs.clear();
-  visited_aliases.clear();
 
   patch_builtins_after_stdlib_loaded();
 }

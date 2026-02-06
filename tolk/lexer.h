@@ -236,6 +236,4 @@ public:
   void error(const std::string& err_msg) const;
 };
 
-void lexer_init();
-
 }  // namespace tolk

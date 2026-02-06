@@ -600,7 +600,7 @@ struct LazyVarInFunction {
   }
 };
 
-static std::unordered_map<FunctionPtr, std::vector<LazyVarInFunction>> functions_with_lazy_vars;
+static thread_local std::unordered_map<FunctionPtr, std::vector<LazyVarInFunction>> functions_with_lazy_vars;
 
 
 static ExprUsagesWhileCollecting collect_expr_usages_in_block(std::string name_for_debugging, SinkExpression s_expr, TypePtr expr_type, V<ast_block_statement> v_block);

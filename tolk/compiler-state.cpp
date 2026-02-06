@@ -15,25 +15,10 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "compiler-state.h"
+#include "compiler-settings.h"
 #include <iostream>
-#include <sstream>
 
 namespace tolk {
-
-CompilerState G; // the only mutable global variable in tolk internals
-
-std::string_view PersistentHeapAllocator::copy_string_to_persistent_memory(std::string_view str_in_tmp_memory) {
-  size_t len = str_in_tmp_memory.size();
-  char* allocated = new char[len];
-  memcpy(allocated, str_in_tmp_memory.data(), str_in_tmp_memory.size());
-  auto new_chunk = std::make_unique<ChunkInHeap>(allocated, std::move(head));
-  head = std::move(new_chunk);
-  return {head->allocated, len};
-}
-
-void PersistentHeapAllocator::clear() {
-  head = nullptr;
-}
 
 bool CompilerSettings::parse_path_mapping_cmd_arg(const std::string& cmd_arg) {
   std::string::size_type pos = cmd_arg.find('=');

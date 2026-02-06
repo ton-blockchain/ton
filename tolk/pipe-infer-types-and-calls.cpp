@@ -1865,7 +1865,7 @@ public:
 // when analyzing `f()`, we need to infer what fun_ref=g returns
 // (if `g` is generic, it was already instantiated, so fun_ref=g<int> is here)
 static void infer_and_save_return_type_of_function(FunctionPtr fun_ref) {
-  static std::vector<FunctionPtr> called_stack;
+  static thread_local std::vector<FunctionPtr> called_stack;
 
   tolk_assert(!fun_ref->is_generic_function() && !fun_ref->is_type_inferring_done());
   // if `g` has return type declared, like `fun g(): int { ... }`, don't traverse its body
@@ -1892,7 +1892,7 @@ static void infer_and_save_return_type_of_function(FunctionPtr fun_ref) {
 // example: `const a = 1 + b;`
 // when analyzing `a`, we need to infer what type const_ref=b has
 static void infer_and_save_type_of_constant(GlobalConstPtr const_ref) {
-  static std::vector<GlobalConstPtr> called_stack;
+  static thread_local std::vector<GlobalConstPtr> called_stack;
 
   // prevent recursion like `const a = b; const b = a`
   bool contains = std::find(called_stack.begin(), called_stack.end(), const_ref) != called_stack.end();

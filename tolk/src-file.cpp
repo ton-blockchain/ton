@@ -17,6 +17,7 @@
 #include "src-file.h"
 #include "compilation-errors.h"
 #include "compiler-state.h"
+#include "compiler-settings.h"
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -38,7 +39,7 @@ const SrcFile* AllRegisteredSrcFiles::find_file(const std::string& realpath) con
 const SrcFile* AllRegisteredSrcFiles::locate_and_register_source_file(const std::string& filename, AnyV v_import_filename) {
   bool is_stdlib = filename.size() > 8 && filename.starts_with("@stdlib/");
 
-  td::Result<std::string> path = G.settings.read_callback(CompilerSettings::FsReadCallbackKind::Realpath, filename.c_str());
+  td::Result<std::string> path = G_settings.read_callback(CompilerSettings::FsReadCallbackKind::Realpath, filename.c_str());
   if (path.is_error()) {
     if (v_import_filename) {
       err("Failed to import: {}", path.move_as_error().message().str()).fire(v_import_filename);
@@ -51,7 +52,7 @@ const SrcFile* AllRegisteredSrcFiles::locate_and_register_source_file(const std:
     return file;
   }
 
-  td::Result<std::string> text = G.settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, realpath.c_str());
+  td::Result<std::string> text = G_settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, realpath.c_str());
   if (text.is_error()) {
     if (v_import_filename) {
       err("Failed to import: {}", text.move_as_error().message().str()).fire(v_import_filename);
@@ -61,7 +62,7 @@ const SrcFile* AllRegisteredSrcFiles::locate_and_register_source_file(const std:
 
   int file_id = static_cast<int>(all_src_files.size());   // SrcFile::file_id is the index in all files
   SrcFile* created = new SrcFile(file_id, is_stdlib, std::move(realpath), text.move_as_ok());
-  if (G.is_verbosity(1)) {
+  if (G_settings.verbosity >= 1) {
     std::cerr << "register file_id " << created->file_id << " " << created->realpath << std::endl;
   }
   all_src_files.push_back(created);

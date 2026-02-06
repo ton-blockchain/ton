@@ -17,6 +17,7 @@
 #include "tolk.h"
 #include "compilation-errors.h"
 #include "compiler-state.h"
+#include "compiler-settings.h"
 #include "type-system.h"
 #include "generics-helpers.h"
 #include "ast.h"
@@ -88,7 +89,7 @@ void FunctionBodyAsm::compile(AsmOpList& dest, AnyV origin) const {
 // the option `-O2` (turned on by default) enables optimizations (particularly, peephole ones);
 // if so, some asm instructions are generated to be transformed later (they are not valid to Fift as-is)
 static bool will_run_peephole() {
-  return G.settings.optimization_level >= 2;
+  return G_settings.optimization_level >= 2;
 }
 
 static std::string op_postfix_N_untuple(std::string cmd, int n_slots) {

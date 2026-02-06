@@ -39,7 +39,7 @@ static Error err_not_a_constant_expression() {
   return err("not a constant expression");
 }
 
-static std::unordered_map<GlobalConstPtr, ConstValExpression> computed_constants_cache;
+static thread_local std::unordered_map<GlobalConstPtr, ConstValExpression> computed_constants_cache;
 
 
 // parse address like "EQCRDM9h4k3UJdOePPuyX40mCgA4vxge5Dc5vjBR8djbEKC5"
@@ -633,7 +633,7 @@ ConstValExpression eval_and_cache_const_init_val(GlobalConstPtr const_ref) {
 }
 
 std::vector<td::RefInt256> calculate_enum_members_with_values(EnumDefPtr enum_ref) {
-  static std::vector<EnumDefPtr> called_stack;
+  static thread_local std::vector<EnumDefPtr> called_stack;
 
   // prevent recursion like `enum Color { v = Another.item } enum Another { item = Color.v }`
   // (unlike constants, enums initializers were not checked earlier for recursion)
@@ -673,6 +673,10 @@ std::vector<td::RefInt256> calculate_enum_members_with_values(EnumDefPtr enum_re
 // a non-constant expression: `a + b` / `foo()`, will fire (and can be wrapped by try/catch)
 ConstValExpression eval_expression_if_const_or_fire(AnyExprV v) {
   return ConstExpressionEvaluator::eval_any_v_or_fire(v);
+}
+
+void clear_computed_constants_cache() {
+  computed_constants_cache.clear();
 }
 
 } // namespace tolk

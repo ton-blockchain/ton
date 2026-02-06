@@ -777,8 +777,4 @@ public:
 };
 
 
-// --------------------------------------------
-
-void type_system_init();
-
 } // namespace tolk

@@ -55,7 +55,7 @@ std::vector<var_idx_t> pre_compile_symbol(const Symbol* sym, CodeBlob& code, Any
 void process_any_statement(AnyV v, CodeBlob& code);
 std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr from_type, TypePtr dest_type, AnyV origin);
 
-static AnyV stmt_before_immediate_return = nullptr;
+static thread_local AnyV stmt_before_immediate_return = nullptr;
 
 // The goal of VarsModificationWatcher is to detect such cases: `return (x, x += y, x)`.
 // Without any changes, ops will be { _Call '2 = +('0_x, '1_y); _Return '0_x, '2, '0_x } - incorrect.
@@ -98,7 +98,7 @@ public:
   }
 };
 
-static VarsModificationWatcher vars_modification_watcher;
+static thread_local VarsModificationWatcher vars_modification_watcher;
 
 
 static int calc_offset_on_stack(const TypeDataTensor* t_tensor, int index_at) {

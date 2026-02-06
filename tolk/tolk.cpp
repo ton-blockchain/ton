@@ -25,19 +25,38 @@
 */
 #include "pipeline.h"
 #include "compiler-state.h"
+#include "compiler-settings.h"
 #include "compilation-errors.h"
-#include "lexer.h"
-#include "type-system.h"
 #include <sstream>
+#include <mutex>
 
 namespace tolk {
 
-void define_builtins();
+// G_settings is filled by tolk-main or tolk-wasm before calling tolk_proceed()
+thread_local CompilerSettings G_settings;
+// G is the per-compilation mutable state
+thread_local CompilerState G;
 
-TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename, bool check_only_no_output) {
-  type_system_init();
-  define_builtins();
-  lexer_init();
+// prototypes of functions initializing/resetting global state and pointers
+void define_builtins();
+void type_system_init();
+void lexer_init();
+void clear_computed_constants_cache();
+
+
+TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
+  // one-time global initialization (thread-safe, shared across all threads):
+  // type system singletons and lexer trie are immutable after creation
+  static std::once_flag init_flag;
+  std::call_once(init_flag, [] {
+    type_system_init();
+    lexer_init();
+  });
+
+  // reset per-compilation mutable state to allow successive compilation within each thread
+  G = CompilerState{};
+  clear_computed_constants_cache();
+  define_builtins();    // add built-in functions into G.symtable
 
   // enable error collecting for check stages (multiple errors can be reported):
   // - if used err("...").fire() — execution is stopped immediately (it's `throw`)
@@ -72,7 +91,7 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename, bool 
       };
     }
     // output warnings to console, if any collected
-    if (!G.settings.show_errors_as_json) {
+    if (!G_settings.show_errors_as_json) {
       for (const ThrownParseError& err : error_collector.flush()) {
         if (err.is_warning) {
           err.output_to_console(std::cerr);
@@ -86,7 +105,7 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename, bool 
     pipeline_transform_onInternalMessage();
 
     // for IDE in background: all checks passed, skip codegen
-    if (check_only_no_output) {
+    if (G_settings.check_only_no_output) {
       return TolkCompilationResult{
         .errors = {},
         .fatal_msg = "",

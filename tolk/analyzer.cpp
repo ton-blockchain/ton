@@ -17,7 +17,7 @@
 #include "ast.h"
 #include "tolk.h"
 #include "compilation-errors.h"
-#include "compiler-state.h"
+#include "compiler-settings.h"
 #include "type-system.h"
 
 namespace tolk {
@@ -759,7 +759,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
       tolk_assert(left.size() == right.size());
       for (std::size_t i = 0; i < right.size(); i++) {
         const VarDescr* ov = values[right[i]];
-        if (!ov && G.is_verbosity(5)) {
+        if (!ov && G_settings.verbosity >= 5) {
           std::cerr << "FATAL: error in assignment at right component #" << i << " (no value for _" << right[i] << ")"
                     << std::endl;
           for (auto x : left) {

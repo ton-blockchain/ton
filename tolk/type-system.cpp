@@ -19,7 +19,6 @@
 #include "generics-helpers.h"
 #include "compiler-state.h"
 #include <charconv>
-#include <unordered_map>
 
 namespace tolk {
 
@@ -52,30 +51,22 @@ public:
  * Every type actually contained inside a union, has type_id.
  * Some type_id are predefined (1 = int, etc.), but all user-defined types are assigned type_id.
  */
-class TypeIdCalculation {
-  static int last_type_id;
-  static std::unordered_map<TypePtr, int> map_ptr_to_type_id;
-
-public:
+struct TypeIdCalculation {
   static int assign_type_id(TypePtr self) {
     // type_id is calculated without aliases, based on "equal to";
     // for instance, `UserId` / `OwnerId` / `int` will have the same type_id without any runtime conversion
-    auto it = std::find_if(map_ptr_to_type_id.begin(), map_ptr_to_type_id.end(), [self](std::pair<TypePtr, int> existing) {
+    auto it = std::find_if(G.map_type_to_id.begin(), G.map_type_to_id.end(), [self](std::pair<TypePtr, int> existing) {
       return existing.first->equal_to(self);
     });
-    if (it != map_ptr_to_type_id.end()) {
+    if (it != G.map_type_to_id.end()) {
       return it->second;
     }
 
-    int type_id = ++last_type_id;
-    map_ptr_to_type_id[self] = type_id;
+    int type_id = ++G.last_type_id;
+    G.map_type_to_id[self] = type_id;
     return type_id;
   }
 };
-
-
-int TypeIdCalculation::last_type_id = 128;       // below 128 reserved for built-in types
-std::unordered_map<TypePtr, int> TypeIdCalculation::map_ptr_to_type_id;
 
 TypePtr TypeDataInt::singleton;
 TypePtr TypeDataBool::singleton;

@@ -25,6 +25,7 @@
 */
 #include "tolk-version.h"
 #include "compiler-state.h"
+#include "compiler-settings.h"
 #include "td/utils/port/path.h"
 #include <getopt.h>
 #include <fstream>
@@ -189,14 +190,14 @@ td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind ki
     case CompilerSettings::FsReadCallbackKind::Realpath: {
       std::string path;
       if (query[0] == '@' && strlen(query) > 8 && !strncmp(query, "@stdlib/", 8)) {
-        path = G.settings.stdlib_folder + static_cast<std::string>(query + 7);
+        path = G_settings.stdlib_folder + static_cast<std::string>(query + 7);
       } else if (query[0] == '@') {
         const char* slash = strchr(query, '/');
         if (slash == nullptr || slash[1] == '\0') {
           return td::Status::Error("import path with @ prefix must specify a file, e.g. @third_party/math-utils");
         }
         std::string_view at_prefix(query, slash);
-        std::string_view abs_folder = G.settings.get_path_mapping(at_prefix);
+        std::string_view abs_folder = G_settings.get_path_mapping(at_prefix);
         if (abs_folder.empty()) {
           return td::Status::Error("path mapping " + std::string{at_prefix} + " was not registered");
         }
@@ -252,7 +253,7 @@ static void compilation_failed_output_errors(const std::vector<ThrownParseError>
   constexpr int CONSOLE_ERROR_LIMIT = 20;
   int shown = 0;
 
-  if (G.settings.show_errors_as_json) {
+  if (G_settings.show_errors_as_json) {
     JsonPrettyOutput json(std::cerr);
     json.start_object();
     json.key_value("status", "error");
@@ -281,7 +282,7 @@ static void compilation_failed_with_fatal(const std::string& message) {
 
 static void compilation_succeed_output_fift(std::ostream& fif_os, const std::string& fift_code) {
   fif_os << fift_code;
-  if (G.settings.show_errors_as_json) {
+  if (G_settings.show_errors_as_json) {
     std::cerr << R"({"status":"ok"})";
   }
 }
@@ -291,33 +292,33 @@ int main(int argc, char* const argv[]) {
   while ((i = getopt_long(argc, argv, "o:O:evVh", long_options, nullptr)) != -1) {
     switch (i) {
       case 'o':
-        G.settings.output_filename = optarg;
+        G_settings.output_filename = optarg;
         break;
       case OPT_BOC_OUTPUT:
-        G.settings.boc_output_filename = optarg;
+        G_settings.boc_output_filename = optarg;
         break;
       case 'O':
-        G.settings.optimization_level = std::max(0, atoi(optarg));
+        G_settings.optimization_level = std::max(0, atoi(optarg));
         break;
       case OPT_PATH_MAPPING:
-        if (!G.settings.parse_path_mapping_cmd_arg(optarg)) {
+        if (!G_settings.parse_path_mapping_cmd_arg(optarg)) {
           return 2;   // the error was printed to std::cerr
         }
         break;
       case OPT_NO_STACK_COMMENTS:
-        G.settings.stack_layout_comments = false;
+        G_settings.stack_layout_comments = false;
         break;
       case OPT_NO_LINE_COMMENTS:
-        G.settings.tolk_src_as_line_comments = false;
+        G_settings.tolk_src_as_line_comments = false;
         break;
       case OPT_JSON_ERRORS:
-        G.settings.show_errors_as_json = true;
+        G_settings.show_errors_as_json = true;
         break;
       case OPT_CHECK_ONLY:
-        G.settings.check_only_no_output = true;
+        G_settings.check_only_no_output = true;
         break;
       case 'e':
-        G.settings.verbosity++;
+        G_settings.verbosity++;
         break;
       case 'v':
       case 'V':
@@ -332,10 +333,10 @@ int main(int argc, char* const argv[]) {
   }
 
   std::ofstream fif_out_file;
-  if (!G.settings.output_filename.empty()) {    // if not set, fif code will be output to std::cout
-    fif_out_file.open(G.settings.output_filename);
+  if (!G_settings.output_filename.empty()) {    // if not set, fif code will be output to std::cout
+    fif_out_file.open(G_settings.output_filename);
     if (!fif_out_file.is_open()) {
-      std::cerr << "Failed to create output file " << G.settings.output_filename << std::endl;
+      std::cerr << "Failed to create output file " << G_settings.output_filename << std::endl;
       return 2;
     }
   }
@@ -348,18 +349,18 @@ int main(int argc, char* const argv[]) {
       std::cerr << "Environment variable TOLK_STDLIB is invalid: " << res.move_as_error().message().c_str() << std::endl;
       return 2;
     }
-    G.settings.stdlib_folder = env_var;
+    G_settings.stdlib_folder = env_var;
   } else {
-    G.settings.stdlib_folder = auto_discover_stdlib_folder();
+    G_settings.stdlib_folder = auto_discover_stdlib_folder();
   }
-  if (G.settings.stdlib_folder.empty()) {
+  if (G_settings.stdlib_folder.empty()) {
     std::cerr << "Failed to discover Tolk stdlib.\n"
                  "Probably, you have a non-standard Tolk installation.\n"
                  "Please, provide env variable TOLK_STDLIB referencing to tolk-stdlib/ folder.\n";
     return 2;
   }
-  if (G.is_verbosity(2)) {
-    std::cerr << "stdlib folder: " << G.settings.stdlib_folder << std::endl;
+  if (G_settings.verbosity >= 2) {
+    std::cerr << "stdlib folder: " << G_settings.stdlib_folder << std::endl;
   }
 
   if (optind != argc - 1) {
@@ -367,9 +368,9 @@ int main(int argc, char* const argv[]) {
     return 2;
   }
 
-  G.settings.read_callback = fs_read_callback;
+  G_settings.read_callback = fs_read_callback;
 
-  TolkCompilationResult result = tolk_proceed(argv[optind], G.settings.check_only_no_output);
+  TolkCompilationResult result = tolk_proceed(argv[optind]);
   if (!result.fatal_msg.empty()) {
     compilation_failed_with_fatal(result.fatal_msg);
     return 2;

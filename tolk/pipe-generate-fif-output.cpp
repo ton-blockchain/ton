@@ -27,6 +27,7 @@
 #include "src-file.h"
 #include "ast.h"
 #include "compiler-state.h"
+#include "compiler-settings.h"
 #include "type-system.h"
 
 namespace tolk {
@@ -153,41 +154,41 @@ static void output_asm_code_for_fun(std::ostream& os, FunctionPtr fun_ref, std::
 
 static void generate_output_func(std::ostream& os, FunctionPtr fun_ref) {
   tolk_assert(fun_ref->is_code_function());
-  if (G.is_verbosity(2)) {
+  if (G_settings.verbosity >= 2) {
     std::cerr << "\n\n=========================\nfunction " << fun_ref->name << " : " << fun_ref->inferred_return_type->as_human_readable() << std::endl;
   }
 
   CodeBlob* code = std::get<FunctionBodyCode*>(fun_ref->body)->code;
-  if (G.is_verbosity(3)) {
+  if (G_settings.verbosity >= 3) {
     code->print(std::cerr, 0);
   }
   code->prune_unreachable_code();
-  if (G.is_verbosity(5)) {
+  if (G_settings.verbosity >= 5) {
     std::cerr << "after prune_unreachable: \n";
     code->print(std::cerr, 0);
   }
   for (int i = 0; i < 8; i++) {
     code->compute_used_code_vars();
-    if (G.is_verbosity(4)) {
+    if (G_settings.verbosity >= 4) {
       std::cerr << "after compute_used_vars: \n";
       code->print(std::cerr, 6);
     }
     code->fwd_analyze();
-    if (G.is_verbosity(5)) {
+    if (G_settings.verbosity >= 5) {
       std::cerr << "after fwd_analyze: \n";
       code->print(std::cerr, 6);
     }
     code->prune_unreachable_code();
-    if (G.is_verbosity(5)) {
+    if (G_settings.verbosity >= 5) {
       std::cerr << "after prune_unreachable: \n";
       code->print(std::cerr, 6);
     }
   }
   code->mark_noreturn();
-  if (G.is_verbosity(3)) {
+  if (G_settings.verbosity >= 3) {
     // code->print(std::cerr, 15);
   }
-  if (G.is_verbosity(2)) {
+  if (G_settings.verbosity >= 2) {
     std::cerr << "\n---------- resulting code for " << fun_ref->name << " -------------\n";
   }
   int mode = 0;
@@ -199,18 +200,18 @@ static void generate_output_func(std::ostream& os, FunctionPtr fun_ref) {
   }
 
   std::vector<AsmOp> asm_code = code->generate_asm_code(mode);
-  if (G.settings.optimization_level >= 2) {
+  if (G_settings.optimization_level >= 2) {
     asm_code = optimize_asm_code(std::move(asm_code));
   }
   output_asm_code_for_fun(
     os,
     fun_ref,
     std::move(asm_code),
-    G.settings.stack_layout_comments,
-    G.settings.tolk_src_as_line_comments
+    G_settings.stack_layout_comments,
+    G_settings.tolk_src_as_line_comments
   );
 
-  if (G.is_verbosity(2)) {
+  if (G_settings.verbosity >= 2) {
     std::cerr << "--------------\n";
   }
 }
@@ -235,7 +236,7 @@ void pipeline_generate_fif_output(std::ostream& os) {
   int n_inlined_in_place = 0;
   for (FunctionPtr fun_ref : G.all_functions) {
     if (fun_ref->is_asm_function() || !fun_ref->does_need_codegen()) {
-      if (G.is_verbosity(2) && fun_ref->is_code_function()) {
+      if (G_settings.verbosity >= 2 && fun_ref->is_code_function()) {
         std::cerr << fun_ref->name << ": code not generated, function does not need codegen\n";
       }
       n_inlined_in_place += fun_ref->is_inlined_in_place() && fun_ref->is_really_used();
@@ -269,7 +270,7 @@ void pipeline_generate_fif_output(std::ostream& os) {
 
   for (GlobalVarPtr var_ref : G.all_global_vars) {
     if (!var_ref->is_really_used()) {
-      if (G.is_verbosity(2)) {
+      if (G_settings.verbosity >= 2) {
         std::cerr << var_ref->name << ": variable not generated, it's unused\n";
       }
       continue;
@@ -286,8 +287,8 @@ void pipeline_generate_fif_output(std::ostream& os) {
   }
 
   os << "}END>c\n";
-  if (!G.settings.boc_output_filename.empty()) {
-    os << "boc>B \"" << G.settings.boc_output_filename << "\" B>file\n";
+  if (!G_settings.boc_output_filename.empty()) {
+    os << "boc>B \"" << G_settings.boc_output_filename << "\" B>file\n";
   }
 }
 
