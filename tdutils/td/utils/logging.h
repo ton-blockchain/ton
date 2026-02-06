@@ -166,7 +166,7 @@ struct LogOptions {
   }
 };
 
-extern LogOptions log_options;
+extern TD_THREAD_LOCAL LogOptions log_options;
 inline int set_verbosity_level(int level) {
   return log_options.set_level(level);
 }
@@ -212,8 +212,8 @@ class NullLog : public LogInterface {
   }
 };
 
-extern LogInterface *const default_log_interface;
-extern LogInterface *log_interface;
+extern TD_THREAD_LOCAL LogInterface *const default_log_interface;
+extern TD_THREAD_LOCAL LogInterface *log_interface;
 
 using OnFatalErrorCallback = void (*)(CSlice message);
 void set_log_fatal_error_callback(OnFatalErrorCallback callback);

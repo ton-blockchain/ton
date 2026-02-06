@@ -52,7 +52,7 @@ int VERBOSITY_NAME(fd) = VERBOSITY_NAME(DEBUG) + 9;
 int VERBOSITY_NAME(actor) = VERBOSITY_NAME(DEBUG) + 10;
 int VERBOSITY_NAME(sqlite) = VERBOSITY_NAME(DEBUG) + 10;
 
-LogOptions log_options;
+TD_THREAD_LOCAL LogOptions log_options;
 
 TD_THREAD_LOCAL const char *Logger::tag_ = nullptr;
 TD_THREAD_LOCAL const char *Logger::tag2_ = nullptr;
@@ -270,10 +270,10 @@ class DefaultLog : public LogInterface {
 };
 static DefaultLog default_log;
 
-LogInterface *const default_log_interface = &default_log;
-LogInterface *log_interface = default_log_interface;
+TD_THREAD_LOCAL LogInterface *const default_log_interface = &default_log;
+TD_THREAD_LOCAL LogInterface *log_interface = default_log_interface;
 
-static OnFatalErrorCallback on_fatal_error_callback = nullptr;
+TD_THREAD_LOCAL static OnFatalErrorCallback on_fatal_error_callback = nullptr;
 
 void set_log_fatal_error_callback(OnFatalErrorCallback callback) {
   on_fatal_error_callback = callback;
