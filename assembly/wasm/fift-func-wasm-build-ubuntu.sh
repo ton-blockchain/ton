@@ -68,7 +68,7 @@ if [ ! -f "3pp_emscripten/openssl_em" ]; then
   mkdir -p 3pp_emscripten
   git clone https://github.com/openssl/openssl 3pp_emscripten/openssl_em
   cd 3pp_emscripten/openssl_em || exit
-  emconfigure ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test no-tests no-fuzz-afl no-fuzz-libfuzzer enable-quic
+  emconfigure ./Configure linux-generic32 no-shared no-dso no-unit-test no-tests no-fuzz-afl no-fuzz-libfuzzer enable-quic
   sed -i 's/CROSS_COMPILE=.*/CROSS_COMPILE=/g' Makefile
   sed -i 's/-ldl//g' Makefile
   sed -i 's/-O3/-Os/g' Makefile

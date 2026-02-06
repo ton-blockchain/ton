@@ -17,12 +17,6 @@ test/regression-tests.cache/
 .vscode
 .DS_Store
 dev/
-libmicrohttpd-0.9.77-w32-bin/
-readline-5.0-1-lib/
-libsodium-1.0.18-stable-msvc.zip
-libmicrohttpd-0.9.77-w32-bin.zip
-openssl-3.5.zip
-readline-5.0-1-lib.zip
 
 # Python files
 .venv
@@ -38,3 +32,4 @@ build-mingw64/
 build-ucrt64/
 build/
 3pp_emscripten/
+/android-ndk-r27d-linux.zip
