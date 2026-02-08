@@ -35,8 +35,7 @@ class ManagerFacadeImpl : public ManagerFacade {
     params.collator_opts = opts_->get_collator_options();
     // TODO: support accelerator (use CollationManager)
     auto [task, promise] = td::actor::StartedTask<BlockCandidate>::make_bridge();
-    run_collate_query(std::move(params), manager_, td::Timestamp::in(10.0), std::move(cancellation_token),
-                      std::move(promise));
+    run_collate_query(std::move(params), manager_, std::move(cancellation_token), std::move(promise));
     auto candidate = co_await std::move(task);
     co_return GeneratedCandidate{.candidate = std::move(candidate), .self_collated = true};
   }
