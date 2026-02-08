@@ -56,6 +56,7 @@ class Collator final : public td::actor::Actor {
  private:
   using LtCellRef = block::LtCellRef;
   using NewOutMsg = block::NewOutMsg;
+  CollateParams params_;
   const ShardIdFull shard_;
   ton::BlockId new_id{workchainInvalid, 0, 0};
   bool busy_{false};
@@ -71,25 +72,13 @@ class Collator final : public td::actor::Actor {
   bool inbound_queues_empty_{false};
   bool libraries_changed_{false};
   bool prev_key_block_exists_{false};
-  bool is_hardfork_{false};
-  BlockIdExt min_mc_block_id;
-  std::vector<BlockIdExt> prev_blocks;
+  const std::vector<BlockIdExt>& prev_blocks;
   std::vector<Ref<ShardState>> prev_states;
   std::vector<Ref<BlockData>> prev_block_data;
-  Ed25519_PublicKey created_by_;
-  Ref<CollatorOptions> collator_opts_;
-  Ref<block::ValidatorSet> validator_set_;
   td::actor::ActorId<ValidatorManager> manager;
   td::Timestamp timeout;
   td::Timestamp queue_cleanup_timeout_, soft_timeout_, medium_timeout_;
   td::Promise<BlockCandidate> main_promise;
-  adnl::AdnlNodeIdShort collator_node_id_ = adnl::AdnlNodeIdShort::zero();
-  bool skip_store_candidate_ = false;
-  Ref<BlockData> optimistic_prev_block_;
-  std::vector<Ref<BlockData>> preloaded_prev_block_data_;
-  std::vector<Ref<vm::Cell>> preloaded_prev_block_state_roots_;
-  bool is_new_consensus_ = false;
-  int attempt_idx_;
   bool allow_repeat_collation_ = false;
   ton::BlockSeqno last_block_seqno{0};
   ton::BlockSeqno prev_mc_block_seqno{0};
