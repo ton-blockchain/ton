@@ -39,6 +39,9 @@ struct CollateParams {
   adnl::AdnlNodeIdShort collator_node_id = adnl::AdnlNodeIdShort::zero();
   bool skip_store_candidate = false;
   int attempt_idx = 0;
+  td::optional<double> utime = {};
+  td::Timestamp hard_timeout = td::Timestamp::in(10.0);
+  td::Timestamp soft_timeout = {};
 
   // Optional - if empty, blocks and states are taken from manager
   // If not empty, should be the same size as prev
@@ -114,7 +117,7 @@ void run_check_proof_link_query(BlockIdExt id, td::Ref<ProofLink> proof, td::act
                                 td::Timestamp timeout, td::Promise<BlockHandle> promise);
 void run_validate_query(BlockCandidate candidate, ValidateParams params, td::actor::ActorId<ValidatorManager> manager,
                         td::Timestamp timeout, td::Promise<ValidateCandidateResult> promise);
-void run_collate_query(CollateParams params, td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
+void run_collate_query(CollateParams params, td::actor::ActorId<ValidatorManager> manager,
                        td::CancellationToken cancellation_token, td::Promise<BlockCandidate> promise);
 void run_liteserver_query(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager,
                           td::actor::ActorId<LiteServerCache> cache, td::Promise<td::BufferSlice> promise);

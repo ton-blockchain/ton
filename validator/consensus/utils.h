@@ -8,7 +8,8 @@
 
 #include "interfaces/block.h"
 #include "td/actor/common.h"
-#include "td/actor/coro_task.h"
+#include "td/actor/coro_utils.h"
+#include "td/utils/CancellationToken.h"
 #include "td/utils/Status.h"
 #include "ton/ton-types.h"
 
@@ -29,11 +30,7 @@ class SharedFuture {
 
   td::actor::Task<T> get() {
     if (is_resolved) {
-      if (value_.has_value()) {
-        co_return *value_;
-      } else {
-        co_return get_error();
-      }
+      co_return value_.clone();
     }
 
     auto [awaiter, promise] = td::actor::StartedTask<T>::make_bridge();
@@ -41,21 +38,13 @@ class SharedFuture {
 
     if (promises_.size() == 1) {
       CHECK(future_.valid());
-      td::Result<T> result = co_await std::move(future_).wrap();
-
+      auto token = cancellation_.get_cancellation_token();
+      auto result = co_await std::move(future_).wrap();
+      co_await token.check();
+      value_ = std::move(result);
       is_resolved = true;
-
-      if (result.is_error()) {
-        promises_[0].set_error(result.move_as_error());
-        for (size_t i = 1; i < promises_.size(); i++) {
-          promises_[i].set_error(get_error());
-        }
-      } else {
-        value_.emplace(result.move_as_ok());
-        for (auto& p : promises_) {
-          auto value_copy = *value_;
-          p.set_result(std::move(value_copy));
-        }
+      for (auto& p : promises_) {
+        p.set_result(value_.clone());
       }
     }
 
@@ -63,14 +52,33 @@ class SharedFuture {
   }
 
  private:
-  auto get_error() {
-    return td::Status::Error("SharedFuture<T> already resolved with error");
-  }
-
   bool is_resolved = false;
-  std::optional<T> value_;
+  td::Result<T> value_;
   td::actor::StartedTask<T> future_;
   std::vector<td::Promise<T>> promises_;
+  td::CancellationTokenSource cancellation_;
 };
+
+constexpr int AWAIT_TIMEOUT_CODE = 6520;
+
+template <typename T>
+td::actor::Task<T> await_with_timeout(td::actor::Task<T> task, td::Timestamp timeout) {
+  auto [task_result, promise] = td::actor::StartedTask<T>::make_bridge();
+  auto promise_ptr = std::make_shared<td::Promise<T>>(std::move(promise));
+  if (timeout) {
+    auto worker_timeout = [](td::Timestamp timeout, std::shared_ptr<td::Promise<T>> promise_ptr) -> td::actor::Task<> {
+      co_await td::actor::coro_sleep(timeout);
+      promise_ptr->set_error(td::Status::Error(AWAIT_TIMEOUT_CODE, "await timeout"));
+      co_return {};
+    };
+    worker_timeout(timeout, promise_ptr).start().detach();
+  }
+  auto worker_wait = [](td::actor::Task<T> task, std::shared_ptr<td::Promise<T>> promise_ptr) -> td::actor::Task<> {
+    promise_ptr->set_result(co_await std::move(task).wrap());
+    co_return {};
+  };
+  worker_wait(std::move(task), std::move(promise_ptr)).start().detach();
+  co_return co_await std::move(task_result);
+}
 
 }  // namespace ton::validator::consensus

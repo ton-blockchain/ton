@@ -197,7 +197,7 @@ void run_validate_query(BlockCandidate candidate, ValidateParams params, td::act
       .release();
 }
 
-void run_collate_query(CollateParams params, td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
+void run_collate_query(CollateParams params, td::actor::ActorId<ValidatorManager> manager,
                        td::CancellationToken cancellation_token, td::Promise<BlockCandidate> promise) {
   BlockSeqno seqno = 0;
   for (auto& p : params.prev) {
@@ -207,7 +207,7 @@ void run_collate_query(CollateParams params, td::actor::ActorId<ValidatorManager
   }
   td::actor::create_actor<Collator>(PSTRING() << "collate" << params.shard.to_str() << ":" << (seqno + 1)
                                               << (params.attempt_idx ? "_" + td::to_string(params.attempt_idx) : ""),
-                                    std::move(params), std::move(manager), timeout, std::move(cancellation_token),
+                                    std::move(params), std::move(manager), std::move(cancellation_token),
                                     std::move(promise))
       .release();
 }

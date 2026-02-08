@@ -157,7 +157,7 @@ void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
                                   .prev = prev,
                                   .creator = created_by,
                                   .validator_set = val_set},
-                    actor_id(this), td::Timestamp::in(10.0), {}, std::move(P));
+                    actor_id(this), {}, std::move(P));
 }
 
 void ValidatorManagerImpl::validate_fake(BlockCandidate candidate, std::vector<BlockIdExt> prev, BlockIdExt last,
