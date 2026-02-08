@@ -40,8 +40,7 @@ class ValidatorGroup : public IValidatorGroup {
   void generate_block_candidate_cont(validatorsession::BlockSourceInfo source_info,
                                      td::Promise<GeneratedCandidate> promise, td::CancellationToken cancellation_token);
   void validate_block_candidate(validatorsession::BlockSourceInfo source_info, BlockCandidate block,
-                                td::Promise<std::pair<CandidateAccept, bool>> promise,
-                                td::optional<BlockCandidate> optimistic_prev_block);
+                                td::Promise<std::pair<CandidateAccept, bool>> promise);
   void accept_block_candidate(validatorsession::BlockSourceInfo source_info, td::BufferSlice block, RootHash root_hash,
                               FileHash file_hash, std::vector<BlockSignature> signatures,
                               validatorsession::ValidatorSessionStats stats, td::Promise<td::Unit> promise);
@@ -53,11 +52,6 @@ class ValidatorGroup : public IValidatorGroup {
                               FileHash collated_data_file_hash, td::Promise<BlockCandidate> promise);
   BlockIdExt create_next_block_id(RootHash root_hash, FileHash file_hash) const;
   BlockId create_next_block_id_simple() const;
-
-  void generate_block_optimistic(validatorsession::BlockSourceInfo source_info, td::BufferSlice prev_block,
-                                 RootHash prev_root_hash, FileHash prev_file_hash,
-                                 td::Promise<GeneratedCandidate> promise);
-  void generated_block_optimistic(validatorsession::BlockSourceInfo source_info, td::Result<GeneratedCandidate> R);
 
   void start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id) override;
   void create_session() override;
@@ -197,21 +191,6 @@ class ValidatorGroup : public IValidatorGroup {
   std::map<BlockIdExt, adnl::AdnlNodeIdShort> block_collator_node_id_;
 
   void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data);
-
-  struct OptimisticGeneration {
-    td::uint32 round = 0;
-    BlockIdExt prev;
-    td::optional<GeneratedCandidate> result;
-    td::CancellationTokenSource cancellation_token_source;
-    std::vector<td::Promise<GeneratedCandidate>> promises;
-
-    ~OptimisticGeneration() {
-      for (auto &promise : promises) {
-        promise.set_error(td::Status::Error(ErrorCode::cancelled, "Cancelled"));
-      }
-    }
-  };
-  std::unique_ptr<OptimisticGeneration> optimistic_generation_;
 };
 
 td::actor::ActorOwn<IValidatorGroup> IValidatorGroup::create_catchain(
@@ -267,25 +246,6 @@ void ValidatorGroup::generate_block_candidate(validatorsession::BlockSourceInfo 
                             std::move(R));
   };
 
-  if (optimistic_generation_ && prev_block_ids_.size() == 1 && optimistic_generation_->prev == prev_block_ids_[0] &&
-      optimistic_generation_->round == round_id) {
-    if (optimistic_generation_->result) {
-      P.set_value(optimistic_generation_->result.value().clone());
-    } else {
-      optimistic_generation_->promises.push_back(
-          [=, SelfId = actor_id(this), P = std::move(P),
-           cancellation_token =
-               cancellation_token_source_.get_cancellation_token()](td::Result<GeneratedCandidate> R) mutable {
-            if (R.is_error()) {
-              td::actor::send_closure(SelfId, &ValidatorGroup::generate_block_candidate_cont, source_info, std::move(P),
-                                      std::move(cancellation_token));
-            } else {
-              P.set_value(R.move_as_ok());
-            }
-          });
-    }
-    return;
-  }
   generate_block_candidate_cont(source_info, std::move(P), cancellation_token_source_.get_cancellation_token());
 }
 
@@ -328,54 +288,21 @@ void ValidatorGroup::generated_block_candidate(validatorsession::BlockSourceInfo
 }
 
 void ValidatorGroup::validate_block_candidate(validatorsession::BlockSourceInfo source_info, BlockCandidate block,
-                                              td::Promise<std::pair<CandidateAccept, bool>> promise,
-                                              td::optional<BlockCandidate> optimistic_prev_block) {
+                                              td::Promise<std::pair<CandidateAccept, bool>> promise) {
   if (destroying_) {
     promise.set_error(td::Status::Error("validator session finished"));
     return;
   }
-  bool is_optimistic = (bool)optimistic_prev_block;
-  if (is_optimistic && shard_.is_masterchain()) {
-    promise.set_error(td::Status::Error("no optimistic validation in masterchain"));
-    return;
-  }
   td::uint32 round_id = source_info.priority.round;
-  if (!is_optimistic) {
-    update_round_id(round_id);
-  }
+  update_round_id(round_id);
   if (round_id < last_known_round_id_) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "too old"));
-    return;
-  }
-  if (is_optimistic && round_id > last_known_round_id_ + 1) {
-    promise.set_error(td::Status::Error(ErrorCode::notready, "too new"));
-    return;
-  }
-  if (is_optimistic && shard_.is_masterchain()) {
-    promise.set_error(td::Status::Error("optimistic validation in masterchain is not supported"));
     return;
   }
 
   auto next_block_id = create_next_block_id(block.id.root_hash, block.id.file_hash);
   block.id = next_block_id;
   auto prev = prev_block_ids_;
-  if (is_optimistic) {
-    if (round_id > last_known_round_id_) {
-      ++block.id.id.seqno;
-    }
-    optimistic_prev_block.value().id.id = block.id.id;
-    --optimistic_prev_block.value().id.id.seqno;
-    if (round_id == last_known_round_id_) {
-      if (prev_block_ids_ != std::vector<BlockIdExt>{optimistic_prev_block.value().id}) {
-        promise.set_error(td::Status::Error("wrong prev block for optimistic validation"));
-        return;
-      }
-      optimistic_prev_block = {};
-      is_optimistic = false;
-    } else {
-      prev = {optimistic_prev_block.value().id};
-    }
-  }
 
   CacheKey cache_key = block_to_cache_key(block);
   auto it = approved_candidates_cache_.find(cache_key);
@@ -388,21 +315,18 @@ void ValidatorGroup::validate_block_candidate(validatorsession::BlockSourceInfo 
   adnl::AdnlNodeIdShort collator_node_id =
       it2 == block_collator_node_id_.end() ? adnl::AdnlNodeIdShort::zero() : it2->second;
 
-  auto P = td::PromiseCreator::lambda([=, SelfId = actor_id(this), block = block.clone(),
-                                       optimistic_prev_block = is_optimistic ? optimistic_prev_block.value().clone()
-                                                                             : td::optional<BlockCandidate>{},
-                                       promise = std::move(promise), collation_manager = collation_manager_](
-                                          td::Result<ValidateCandidateResult> R) mutable {
+  auto P = td::PromiseCreator::lambda([=, SelfId = actor_id(this), block = block.clone(), promise = std::move(promise),
+                                       collation_manager =
+                                           collation_manager_](td::Result<ValidateCandidateResult> R) mutable {
     if (R.is_error()) {
       auto S = R.move_as_error();
       if (S.code() != ErrorCode::timeout && S.code() != ErrorCode::notready) {
         LOG(ERROR) << "failed to validate candidate: " << S;
       }
       delay_action(
-          [SelfId, source_info, block = std::move(block), promise = std::move(promise),
-           optimistic_prev_block = std::move(optimistic_prev_block)]() mutable {
+          [SelfId, source_info, block = std::move(block), promise = std::move(promise)]() mutable {
             td::actor::send_closure(SelfId, &ValidatorGroup::validate_block_candidate, std::move(source_info),
-                                    std::move(block), std::move(promise), std::move(optimistic_prev_block));
+                                    std::move(block), std::move(promise));
           },
           td::Timestamp::in(0.1));
     } else {
@@ -433,20 +357,12 @@ void ValidatorGroup::validate_block_candidate(validatorsession::BlockSourceInfo 
     return;
   }
   VLOG(VALIDATOR_DEBUG) << "validating block candidate " << next_block_id;
-  td::Ref<BlockData> optimistic_prev_block_data;
-  if (is_optimistic) {
-    TRY_RESULT_PROMISE_PREFIX_ASSIGN(
-        P, optimistic_prev_block_data,
-        create_block(optimistic_prev_block.value().id, std::move(optimistic_prev_block.value().data)),
-        "failed to parse optimistic prev block: ");
-  }
   run_validate_query(std::move(block),
                      ValidateParams{.shard = shard_,
                                     .min_masterchain_block_id = min_masterchain_block_id_,
                                     .prev = std::move(prev),
                                     .validator_set = validator_set_,
                                     .local_validator_id = local_id_,
-                                    .optimistic_prev_block = optimistic_prev_block_data,
                                     .parallel_validation = opts_.get()->get_parallel_validation()},
                      manager_, td::Timestamp::in(15.0), std::move(P));
 }
@@ -515,10 +431,6 @@ void ValidatorGroup::accept_block_candidate(validatorsession::BlockSourceInfo so
   prev_block_ids_ = std::vector<BlockIdExt>{next_block_id};
   cached_collated_block_ = nullptr;
   cancellation_token_source_.cancel();
-  if (optimistic_generation_ && optimistic_generation_->round == last_known_round_id_ &&
-      optimistic_generation_->prev != next_block_id) {
-    optimistic_generation_ = {};
-  }
 }
 
 void ValidatorGroup::accept_block_query(BlockIdExt block_id, td::Ref<BlockData> block, std::vector<BlockIdExt> prev,
@@ -555,75 +467,11 @@ void ValidatorGroup::get_approved_candidate(PublicKey source, RootHash root_hash
                           std::move(promise));
 }
 
-void ValidatorGroup::generate_block_optimistic(validatorsession::BlockSourceInfo source_info,
-                                               td::BufferSlice prev_block, RootHash prev_root_hash,
-                                               FileHash prev_file_hash, td::Promise<GeneratedCandidate> promise) {
-  if (destroying_) {
-    promise.set_error(td::Status::Error("validator session finished"));
-    return;
-  }
-  if (shard_.is_masterchain()) {
-    promise.set_error(td::Status::Error("no optimistic generation in masterchain"));
-    return;
-  }
-  if (last_known_round_id_ + 1 != source_info.priority.round) {
-    promise.set_error(td::Status::Error("too old round"));
-    return;
-  }
-  if (optimistic_generation_ && optimistic_generation_->round >= source_info.priority.round) {
-    promise.set_error(td::Status::Error("optimistic generation already in progress"));
-    return;
-  }
-  BlockIdExt block_id{create_next_block_id_simple(), prev_root_hash, prev_file_hash};
-  optimistic_generation_ = std::make_unique<OptimisticGeneration>();
-  optimistic_generation_->round = source_info.priority.round;
-  optimistic_generation_->prev = BlockIdExt{create_next_block_id_simple(), prev_root_hash, prev_file_hash};
-  optimistic_generation_->promises.push_back(std::move(promise));
-
-  td::Promise<GeneratedCandidate> P = [=, SelfId = actor_id(this)](td::Result<GeneratedCandidate> R) {
-    td::actor::send_closure(SelfId, &ValidatorGroup::generated_block_optimistic, source_info, std::move(R));
-  };
-  LOG(WARNING) << "Optimistically generating next block after " << block_id.to_str();
-  td::uint64 max_answer_size = config_.max_block_size + config_.max_collated_data_size + 1024;
-  td::actor::send_closure(collation_manager_, &CollationManager::collate_block_optimistic, shard_,
-                          min_masterchain_block_id_, block_id, std::move(prev_block),
-                          Ed25519_PublicKey{local_id_full_.ed25519_value().raw()}, source_info.priority, validator_set_,
-                          max_answer_size, optimistic_generation_->cancellation_token_source.get_cancellation_token(),
-                          std::move(P));
-}
-
-void ValidatorGroup::generated_block_optimistic(validatorsession::BlockSourceInfo source_info,
-                                                td::Result<GeneratedCandidate> R) {
-  if (!optimistic_generation_ || optimistic_generation_->round != source_info.priority.round) {
-    return;
-  }
-  if (R.is_error()) {
-    LOG(WARNING) << "Optimistic generation failed: " << R.move_as_error();
-    for (auto &promise : optimistic_generation_->promises) {
-      promise.set_error(R.error().clone());
-    }
-    optimistic_generation_ = {};
-    return;
-  }
-  GeneratedCandidate c = R.move_as_ok();
-  if (!c.self_collated) {
-    block_collator_node_id_[c.candidate.id] = adnl::AdnlNodeIdShort{c.collator_node_id};
-  }
-  optimistic_generation_->result = std::move(c);
-  for (auto &promise : optimistic_generation_->promises) {
-    promise.set_result(optimistic_generation_->result.value().clone());
-  }
-  optimistic_generation_->promises.clear();
-}
-
 void ValidatorGroup::update_round_id(td::uint32 round) {
   if (last_known_round_id_ >= round) {
     return;
   }
   last_known_round_id_ = round;
-  if (optimistic_generation_ && optimistic_generation_->round < round) {
-    optimistic_generation_ = {};
-  }
 }
 
 BlockIdExt ValidatorGroup::create_next_block_id(RootHash root_hash, FileHash file_hash) const {
@@ -667,7 +515,7 @@ std::unique_ptr<validatorsession::ValidatorSession::Callback> ValidatorGroup::ma
                                sha256_bits256(collated_data.as_slice()), data.clone(), collated_data.clone()};
 
       td::actor::send_closure(id_, &ValidatorGroup::validate_block_candidate, std::move(source_info),
-                              std::move(candidate), std::move(P), td::optional<BlockCandidate>{});
+                              std::move(candidate), std::move(P));
     }
     void on_generate_slot(validatorsession::BlockSourceInfo source_info,
                           td::Promise<GeneratedCandidate> promise) override {
@@ -701,25 +549,14 @@ std::unique_ptr<validatorsession::ValidatorSession::Callback> ValidatorGroup::ma
     void generate_block_optimistic(validatorsession::BlockSourceInfo source_info, td::BufferSlice prev_block,
                                    RootHash prev_root_hash, FileHash prev_file_hash,
                                    td::Promise<GeneratedCandidate> promise) override {
-      td::actor::send_closure(id_, &ValidatorGroup::generate_block_optimistic, source_info, std::move(prev_block),
-                              prev_root_hash, prev_file_hash, std::move(promise));
+      promise.set_error(td::Status::Error("optimistic generation is not supported"));
     }
     void on_optimistic_candidate(validatorsession::BlockSourceInfo source_info,
                                  validatorsession::ValidatorSessionRootHash root_hash, td::BufferSlice data,
                                  td::BufferSlice collated_data, PublicKey prev_source,
                                  validatorsession::ValidatorSessionRootHash prev_root_hash, td::BufferSlice prev_data,
                                  td::BufferSlice prev_collated_data) override {
-      BlockCandidate candidate{Ed25519_PublicKey{source_info.source.ed25519_value().raw()},
-                               BlockIdExt{0, 0, 0, root_hash, sha256_bits256(data.as_slice())},
-                               sha256_bits256(collated_data.as_slice()), data.clone(), collated_data.clone()};
-      BlockCandidate prev_candidate{Ed25519_PublicKey{prev_source.ed25519_value().raw()},
-                                    BlockIdExt{0, 0, 0, prev_root_hash, sha256_bits256(prev_data.as_slice())},
-                                    sha256_bits256(prev_collated_data.as_slice()), prev_data.clone(),
-                                    prev_collated_data.clone()};
-
-      td::actor::send_closure(
-          id_, &ValidatorGroup::validate_block_candidate, std::move(source_info), std::move(candidate),
-          [](td::Result<std::pair<CandidateAccept, bool>>) mutable {}, std::move(prev_candidate));
+      LOG(WARNING) << "Optimistic validation is not supported";
     }
 
    private:

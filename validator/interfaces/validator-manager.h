@@ -136,7 +136,6 @@ struct CollationStats {
 
   struct WorkTimeStats {
     td::RealCpuTimer::Time total;
-    td::RealCpuTimer::Time optimistic_apply;
     td::RealCpuTimer::Time queue_cleanup;
     td::RealCpuTimer::Time prelim_storage_stat;
     td::RealCpuTimer::Time trx_tvm;
@@ -148,8 +147,7 @@ struct CollationStats {
     td::RealCpuTimer::Time create_block_candidate;
 
     std::string to_str(bool is_cpu) const {
-      return PSTRING() << "total=" << total.get(is_cpu) << " optimistic_apply=" << optimistic_apply.get(is_cpu)
-                       << " queue_cleanup=" << queue_cleanup.get(is_cpu)
+      return PSTRING() << "total=" << total.get(is_cpu) << " queue_cleanup=" << queue_cleanup.get(is_cpu)
                        << " prelim_storage_stat=" << prelim_storage_stat.get(is_cpu)
                        << " trx_tvm=" << trx_tvm.get(is_cpu) << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
                        << " trx_other=" << trx_other.get(is_cpu)
@@ -203,14 +201,13 @@ struct ValidationStats {
 
   struct WorkTimeStats {
     td::RealCpuTimer::Time total;
-    td::RealCpuTimer::Time optimistic_apply;
     td::RealCpuTimer::Time trx_tvm;
     td::RealCpuTimer::Time trx_storage_stat;
     td::RealCpuTimer::Time trx_other;
 
     std::string to_str(bool is_cpu) const {
-      return PSTRING() << "total=" << total.get(is_cpu) << " optimistic_apply=" << optimistic_apply.get(is_cpu)
-                       << " trx_tvm=" << trx_tvm.get(is_cpu) << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
+      return PSTRING() << "total=" << total.get(is_cpu) << " trx_tvm=" << trx_tvm.get(is_cpu)
+                       << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
                        << " trx_other=" << trx_other.get(is_cpu);
     }
   };
