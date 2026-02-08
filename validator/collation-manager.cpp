@@ -38,16 +38,16 @@ void CollationManager::collate_block(ShardIdFull shard, BlockIdExt min_mastercha
                                      td::uint64 max_answer_size, td::CancellationToken cancellation_token,
                                      td::Promise<GeneratedCandidate> promise) {
   if (shard.is_masterchain()) {
-    run_collate_query(
-        CollateParams{.shard = shard,
-                      .min_masterchain_block_id = min_masterchain_block_id,
-                      .prev = std::move(prev),
-                      .creator = creator,
-                      .validator_set = std::move(validator_set),
-                      .collator_opts = opts_->get_collator_options()},
-        manager_, td::Timestamp::in(10.0), std::move(cancellation_token), promise.wrap([](BlockCandidate&& candidate) {
-          return GeneratedCandidate{.candidate = std::move(candidate), .is_cached = false, .self_collated = true};
-        }));
+    run_collate_query(CollateParams{.shard = shard,
+                                    .min_masterchain_block_id = min_masterchain_block_id,
+                                    .prev = std::move(prev),
+                                    .creator = creator,
+                                    .validator_set = std::move(validator_set),
+                                    .collator_opts = opts_->get_collator_options()},
+                      manager_, std::move(cancellation_token), promise.wrap([](BlockCandidate&& candidate) {
+                        return GeneratedCandidate{
+                            .candidate = std::move(candidate), .is_cached = false, .self_collated = true};
+                      }));
     return;
   }
   collate_shard_block(shard, min_masterchain_block_id, std::move(prev), creator, priority, std::move(validator_set),
@@ -126,16 +126,16 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
   }
 
   if (selected_collator.is_zero() && s->self_collate) {
-    run_collate_query(
-        CollateParams{.shard = shard,
-                      .min_masterchain_block_id = min_masterchain_block_id,
-                      .prev = std::move(prev),
-                      .creator = creator,
-                      .validator_set = std::move(validator_set),
-                      .collator_opts = opts_->get_collator_options()},
-        manager_, td::Timestamp::in(10.0), std::move(cancellation_token), promise.wrap([](BlockCandidate&& candidate) {
-          return GeneratedCandidate{.candidate = std::move(candidate), .is_cached = false, .self_collated = true};
-        }));
+    run_collate_query(CollateParams{.shard = shard,
+                                    .min_masterchain_block_id = min_masterchain_block_id,
+                                    .prev = std::move(prev),
+                                    .creator = creator,
+                                    .validator_set = std::move(validator_set),
+                                    .collator_opts = opts_->get_collator_options()},
+                      manager_, std::move(cancellation_token), promise.wrap([](BlockCandidate&& candidate) {
+                        return GeneratedCandidate{
+                            .candidate = std::move(candidate), .is_cached = false, .self_collated = true};
+                      }));
     return;
   }
 

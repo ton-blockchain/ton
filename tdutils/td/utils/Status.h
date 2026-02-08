@@ -454,6 +454,11 @@ inline StringBuilder &operator<<(StringBuilder &string_builder, const Status &st
   return status.print(string_builder);
 }
 
+template <class T>
+concept Cloneable = requires(const T &x) {
+  { x.clone() } -> std::same_as<T>;
+};
+
 // Forward declarations for Result wrappers
 template <class T>
 struct ResultUnwrap;
@@ -632,9 +637,19 @@ class Result {
     return std::move(value_);
   }
 
-  Result<T> clone() const TD_WARN_UNUSED_RESULT {
+  TD_WARN_UNUSED_RESULT Result<T> clone() const
+    requires(Cloneable<T>)
+  {
     if (is_ok()) {
-      return Result<T>(ok());  // TODO: return clone(ok());
+      return Result<T>(ok().clone());
+    }
+    return error().clone();
+  }
+  TD_WARN_UNUSED_RESULT Result<T> clone() const
+    requires(!Cloneable<T> && std::is_copy_constructible_v<T>)
+  {
+    if (is_ok()) {
+      return Result<T>(ok());
     }
     return error().clone();
   }
