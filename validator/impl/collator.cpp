@@ -192,44 +192,14 @@ void Collator::start_up() {
   }
   busy_ = true;
   step = 1;
-  if (!is_masterchain()) {
-    // 2. learn latest masterchain state and block id
-    LOG(DEBUG) << "sending get_top_masterchain_state_block() to Manager";
-    ++pending;
-    auto token = perf_log_.start_action("get_top_masterchain_state_block");
-    if (!params_.is_hardfork) {
-      td::actor::send_closure_later(manager, &ValidatorManager::get_top_masterchain_state_block,
-                                    [self = get_self(), token = std::move(token)](
-                                        td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) mutable {
-                                      LOG(DEBUG) << "got answer to get_top_masterchain_state_block";
-                                      td::actor::send_closure_later(std::move(self), &Collator::after_get_mc_state,
-                                                                    std::move(res), std::move(token));
-                                    });
-    } else {
-      td::actor::send_closure_later(
-          manager, &ValidatorManager::get_shard_state_from_db_short, params_.min_masterchain_block_id,
-          [self = get_self(), block_id = params_.min_masterchain_block_id,
-           token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
-            LOG(DEBUG) << "got answer to get_top_masterchain_state_block";
-            if (res.is_error()) {
-              td::actor::send_closure_later(std::move(self), &Collator::after_get_mc_state, res.move_as_error(),
-                                            std::move(token));
-            } else {
-              td::actor::send_closure_later(std::move(self), &Collator::after_get_mc_state,
-                                            std::make_pair(Ref<MasterchainState>(res.move_as_ok()), block_id),
-                                            std::move(token));
-            }
-          });
-    }
-  }
-  // 3. load previous block(s) and corresponding state(s)
+  // 2. load previous block(s) and corresponding state(s)
   prev_states.resize(prev_blocks.size());
   prev_block_data.resize(prev_blocks.size());
   load_prev_states_blocks();
   if (params_.is_hardfork) {
     LOG(WARNING) << "generating a hardfork block";
   }
-  // 4. load external messages
+  // 3. load external messages
   if (!params_.is_hardfork) {
     LOG(DEBUG) << "sending get_external_messages() query to Manager";
     ++pending;
@@ -244,7 +214,7 @@ void Collator::start_up() {
         });
   }
   if (is_masterchain() && !params_.is_hardfork) {
-    // 5. load shard block info messages
+    // 4. load shard block info messages
     LOG(DEBUG) << "sending get_shard_blocks_for_collator() query to Manager";
     ++pending;
     auto token = perf_log_.start_action("get_shard_blocks_for_collator");
@@ -256,7 +226,7 @@ void Collator::start_up() {
                                                                   std::move(res), std::move(token));
                                   });
   }
-  // 6. get storage stat cache
+  // 5. get storage stat cache
   ++pending;
   LOG(DEBUG) << "sending get_storage_stat_cache() query to Manager";
   td::actor::send_closure_later(manager, &ValidatorManager::get_storage_stat_cache,
@@ -267,7 +237,7 @@ void Collator::start_up() {
                                                                 &Collator::after_get_storage_stat_cache, std::move(res),
                                                                 std::move(token));
                                 });
-  // 7. set timeout
+  // 6. set timeout
   alarm_timestamp() = timeout;
   CHECK(pending);
 }
@@ -281,6 +251,7 @@ void Collator::load_prev_states_blocks() {
   for (int i = 0; (unsigned)i < prev_blocks.size(); i++) {
     // 3.1. load state
     ++pending;
+    ++pending_prev_states_;
     if (params_.prev_block_state_roots.empty()) {
       LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
       auto token = perf_log_.start_action(PSTRING() << "wait_block_state #" << i);
@@ -655,6 +626,7 @@ void Collator::after_get_mc_state(td::Result<std::pair<Ref<MasterchainState>, Bl
 void Collator::after_get_shard_state(int idx, td::Result<Ref<ShardState>> res, td::PerfLogAction token) {
   LOG(WARNING) << "in Collator::after_get_shard_state(" << idx << ")";
   --pending;
+  --pending_prev_states_;
   token.finish(res);
   if (res.is_error()) {
     fatal_error(res.move_as_error());
@@ -676,8 +648,68 @@ void Collator::after_get_shard_state(int idx, td::Result<Ref<ShardState>> res, t
     if (!preprocess_prev_mc_state()) {
       return;
     }
+  } else if (pending_prev_states_ == 0) {
+    BlockIdExt prev_mc_ref;
+    for (size_t i = 0; i < prev_states.size(); ++i) {
+      auto block_id = prev_states[i]->get_master_ref();
+      if (block_id && (!prev_mc_ref.is_masterchain() || prev_mc_ref.seqno() < block_id.value().seqno())) {
+        prev_mc_ref = block_id.value();
+      }
+    }
+    request_top_masterchain_state(prev_mc_ref);
   }
   check_pending();
+}
+
+/**
+ * Request top masterchain block from manager.
+ * Make sure that it is not earlier than parent's mc ref and min_mc_block_id.
+ *
+ * @param prev_mc_ref Masterchain block referenced from the previous block.
+ */
+void Collator::request_top_masterchain_state(BlockIdExt prev_mc_ref) {
+  CHECK(!is_masterchain());
+  LOG(DEBUG) << "sending get_top_masterchain_state_block() to Manager";
+  ++pending;
+  auto token = perf_log_.start_action("get_top_masterchain_state_block");
+  if (params_.is_hardfork) {
+    td::actor::send_closure_later(
+        manager, &ValidatorManager::get_shard_state_from_db_short, params_.min_masterchain_block_id,
+        [self = get_self(), block_id = params_.min_masterchain_block_id,
+         token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
+          LOG(DEBUG) << "got answer to get_top_masterchain_state_block";
+          if (res.is_error()) {
+            td::actor::send_closure_later(std::move(self), &Collator::after_get_mc_state, res.move_as_error(),
+                                          std::move(token));
+          } else {
+            td::actor::send_closure_later(std::move(self), &Collator::after_get_mc_state,
+                                          std::make_pair(Ref<MasterchainState>(res.move_as_ok()), block_id),
+                                          std::move(token));
+          }
+        });
+    return;
+  }
+
+  BlockIdExt min_block_id = params_.min_masterchain_block_id;
+  if (prev_mc_ref.is_masterchain() && prev_mc_ref.seqno() > min_block_id.seqno()) {
+    min_block_id = prev_mc_ref;
+  }
+  td::actor::send_closure_later(
+      manager, &ValidatorManager::wait_block_state_short, min_block_id, priority(), timeout, false,
+      [self = get_self(), manager = manager, token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
+        if (res.is_error()) {
+          td::actor::send_closure_later(std::move(self), &Collator::after_get_mc_state, res.move_as_error(),
+                                        std::move(token));
+          return;
+        }
+        td::actor::send_closure_later(
+            manager, &ValidatorManager::get_top_masterchain_state_block,
+            [self, token = std::move(token)](td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) mutable {
+              LOG(DEBUG) << "got answer to get_top_masterchain_state_block";
+              td::actor::send_closure_later(std::move(self), &Collator::after_get_mc_state, std::move(res),
+                                            std::move(token));
+            });
+      });
 }
 
 /**
