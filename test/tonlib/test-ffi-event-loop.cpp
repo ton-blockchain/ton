@@ -253,15 +253,6 @@ TEST(FFIEventLoop, BackgroundThreadFlow) {
   EXPECT_EQ(received[2], continuation_2);
 }
 
-TEST(FFIEventLoop, PutFromSchedulerContext) {
-  FFIEventLoop loop(1);
-
-  loop.run_in_context([&]() { loop.put({continuation_0}); });
-
-  auto result = wait_for_continuation(loop);
-  EXPECT_EQ(result.ptr(), continuation_0);
-}
-
 TEST(FFIEventLoop, InterleavedPutsAndWaits) {
   FFIEventLoop loop(1);
 

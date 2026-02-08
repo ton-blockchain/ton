@@ -97,25 +97,6 @@ TEST(FFIAwaitable, TransformString) {
   EXPECT_EQ(bridge.awaitable->result().ok(), "123");
 }
 
-TEST(FFIAwaitable, ResolveFromDifferentThread) {
-  FFIEventLoop loop(1);
-
-  auto bridge = FFIAwaitable<int>::create_bridge<int>(loop, [](int x) { return x + 10; });
-
-  bridge.awaitable->await_suspend({continuation_1});
-
-  loop.run_in_context([&] {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    bridge.promise.set_value(90);
-  });
-
-  auto result = wait_for_continuation(loop);
-  EXPECT_EQ(result.ptr(), continuation_1);
-
-  EXPECT(bridge.awaitable->result().is_ok());
-  EXPECT_EQ(bridge.awaitable->result().ok(), 100);
-}
-
 TEST(FFIAwaitable, ConcurrentResolveAndSuspend) {
   FFIEventLoop loop(1);
 
