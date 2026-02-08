@@ -853,31 +853,21 @@ static V<ast_match_arm> parse_match_arm(Lexer& lex) {
   }
   lex.expect(tok_double_arrow, "`=>`");
 
-  V<ast_braced_expression> body = nullptr;
-  if (lex.tok() == tok_opbrace) {         // pattern => { ... }
-    AnyV v_block = parse_statement(lex);
-    body = createV<ast_braced_expression>(v_block->range, v_block);
-  } else if (lex.tok() == tok_throw) {    // pattern => throw 123 (allow without braces)
-    AnyV v_throw = parse_throw_expression(lex);
-    AnyV v_block = createV<ast_block_statement>(v_throw->range, {v_throw});
-    body = createV<ast_braced_expression>(v_block->range, v_block);
-  } else if (lex.tok() == tok_return) {   // pattern => return 123 (allow without braces, like throw)
-    SrcRange block_range = lex.range_start();
-    lex.next();
-    AnyExprV return_value = parse_expr(lex);
-    block_range.end(return_value->range);
-    AnyV v_return = createV<ast_return_statement>(block_range, return_value);
-    AnyV v_block = createV<ast_block_statement>(v_return->range, {v_return});
-    body = createV<ast_braced_expression>(v_block->range, v_block);
-  } else {
-    AnyExprV unbraced_expr = parse_expr(lex);
-    AnyV v_block = createV<ast_block_statement>(unbraced_expr->range, {createV<ast_braced_yield_result>(unbraced_expr->range, unbraced_expr)});
-    body = createV<ast_braced_expression>(unbraced_expr->range, v_block);
+  V<ast_block_statement> v_block = nullptr;
+  if (lex.tok() == tok_opbrace) {       // `1 => { ... }`
+    v_block = parse_block_statement(lex);
+  } else try {                          // `1 => x + y` and other expressions
+    AnyExprV inner_expr = parse_expr(lex);
+    v_block = createV<ast_block_statement>(inner_expr->range, {createV<ast_braced_yield_result>(inner_expr->range, inner_expr)});
+  } catch (const ThrownParseError&) {   // `1 => throw 123` and other statements (without semicolon!)
+    AnyV inner_stmt = parse_statement(lex);
+    v_block = createV<ast_block_statement>(inner_stmt->range, {inner_stmt});
   }
+  auto body = createV<ast_braced_expression>(v_block->range, v_block);
 
   range.end(body->range);
   if (pattern_expr == nullptr) {  // for match by type / default case, empty vertex, not nullptr
-    pattern_expr = createV<ast_empty_expression>(SrcRange::empty_at_start(range));
+    pattern_expr = createV<ast_empty_expression>(SrcRange::span(range, 4));
   }
   return createV<ast_match_arm>(range, pattern_kind, exact_type, pattern_expr, body);
 }
