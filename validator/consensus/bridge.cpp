@@ -53,11 +53,20 @@ class ManagerFacadeImpl : public ManagerFacade {
   td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, size_t creator_idx,
                                  td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode,
                                  bool apply) override {
-    auto [task, promise] = td::actor::StartedTask<>::make_bridge();
-    run_accept_block_query(id, std::move(data), {}, validator_set_, std::move(signatures), send_broadcast_mode, apply,
-                           manager_, std::move(promise));
-    auto result = co_await std::move(task).wrap();
-    LOG_CHECK(!result.is_error()) << "Failed to accept finalized block " << result.move_as_error();
+    while (true) {
+      auto [task, promise] = td::actor::StartedTask<>::make_bridge();
+      run_accept_block_query(id, data, {}, validator_set_, signatures, send_broadcast_mode, apply, manager_,
+                             std::move(promise));
+      auto result = co_await std::move(task).wrap();
+      if (result.is_ok() || result.error().code() == ErrorCode::cancelled) {
+        break;
+      }
+      LOG_CHECK(result.error().code() == ErrorCode::timeout || result.error().code() == ErrorCode::notready)
+          << "Failed to accept finalized block " << id.to_str() << " : " << result.error();
+      LOG(WARNING) << "Failed to accept finalized block " << id.to_str() << ", retrying : " << result.error();
+      send_broadcast_mode = 0;
+      co_await td::actor::coro_sleep(td::Timestamp::in(1.0));
+    }
     co_return {};
   }
 
