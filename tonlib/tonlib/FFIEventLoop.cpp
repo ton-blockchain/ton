@@ -8,7 +8,7 @@ FFIEventLoop::FFIEventLoop(int threads) : scheduler_(td::actor::Scheduler({threa
 }
 
 FFIEventLoop::~FFIEventLoop() {
-  actor_counter_.wait_zero();
+  CHECK(object_counter_.is_zero());
   scheduler_.run_in_context([] { td::actor::SchedulerContext::get().stop(); });
   scheduler_thread_.join();
 }
@@ -46,7 +46,7 @@ std::optional<Continuation> FFIEventLoop::wait(double timeout) {
 }
 
 td::unique_ptr<td::Guard> FFIEventLoop::new_actor() {
-  return actor_counter_.new_actor();
+  return object_counter_.new_actor();
 }
 
 void FFIEventLoop::put(Continuation continuation) {

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <condition_variable>
 #include <optional>
 #include <thread>
 
@@ -9,35 +8,21 @@
 
 namespace tonlib {
 
-// FIXME: Add a graceful event loop shutdown mechanism and replace this with std::atomic<size_t> to
-//        only detect missing tonlib_*_destroy calls.
-class ActorCounter {
+class ObjectCounter {
  public:
-  ActorCounter() = default;
+  ObjectCounter() = default;
 
   td::unique_ptr<td::Guard> new_actor() {
     ++this->count_;
-    return td::create_lambda_guard([this] {
-      size_t new_value = --count_;
-      if (new_value == 0) {
-        std::lock_guard lk(m_);
-        cv_.notify_all();
-      }
-    });
+    return td::create_lambda_guard([this] { --this->count_; });
   }
 
-  void wait_zero() {
-    if (count_ == 0) {
-      return;
-    }
-    std::unique_lock<std::mutex> lk(m_);
-    cv_.wait(lk, [&] { return count_ == 0; });
+  bool is_zero() {
+    return count_ == 0;
   }
 
  private:
-  std::atomic<size_t> count_ = 0;
-  std::mutex m_;
-  std::condition_variable cv_;
+  size_t count_ = 0;
 };
 
 struct Continuation {
@@ -79,7 +64,7 @@ class FFIEventLoop {
   td::actor::Scheduler scheduler_;
   std::thread scheduler_thread_{};
 
-  ActorCounter actor_counter_{};
+  ObjectCounter object_counter_{};
   std::atomic<bool> is_cancelled_ = false;
 
   td::MpscPollableQueue<uintptr_t> queue_{};

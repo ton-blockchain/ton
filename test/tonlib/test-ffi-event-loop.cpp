@@ -109,57 +109,14 @@ TEST(FFIEventLoop, MultiplePuts) {
   EXPECT(!result4.has_value());
 }
 
-TEST(FFIEventLoop, ActorCounterBlocksDestructor) {
-  bool guard_destroyed = false;
+TEST(FFIEventLoop, ObjectCounter) {
+  FFIEventLoop loop(1);
 
-  std::thread actor_thread;
+  auto guard1 = loop.new_actor();
+  auto guard2 = loop.new_actor();
 
-  auto elapsed = measure_time([&] {
-    FFIEventLoop loop(1);
-
-    auto guard = loop.new_actor();
-
-    actor_thread = std::thread([guard = std::move(guard), &guard_destroyed]() mutable {
-      std::this_thread::sleep_for(std::chrono::milliseconds(20));
-      guard_destroyed = true;
-      // The reset is supposed to happen before FFIEventLoop destructor exits, so TSAN won't not say
-      // that `EXPECT(guard_destroyed)` later is a data race.
-      guard.reset();
-    });
-  });
-
-  EXPECT(guard_destroyed);
-  EXPECT_APPROXIMATE_TIME(elapsed, 20, 15);
-
-  actor_thread.join();
-}
-
-TEST(FFIEventLoop, MultipleActors) {
-  bool all_destroyed = false;
-
-  std::thread destroyer;
-
-  auto elapsed = measure_time([&] {
-    FFIEventLoop loop(1);
-
-    std::vector<td::unique_ptr<td::Guard>> guards;
-    guards.push_back(loop.new_actor());
-    guards.push_back(loop.new_actor());
-    guards.push_back(loop.new_actor());
-
-    destroyer = std::thread([guards = std::move(guards), &all_destroyed]() mutable {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      guards[0].reset();
-      guards[1].reset();
-      all_destroyed = true;
-      guards[2].reset();
-    });
-  });
-
-  EXPECT(all_destroyed);
-  EXPECT_APPROXIMATE_TIME(elapsed, 10, 15);
-
-  destroyer.join();
+  guard1.reset();
+  guard2.reset();
 }
 
 TEST(FFIEventLoop, RunInContext) {
