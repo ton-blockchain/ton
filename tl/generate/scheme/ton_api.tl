@@ -1021,8 +1021,6 @@ shardBlockVerifier.confirmBlocks blocks:(vector tonNode.blockIdExt) = shardBlock
 ---functions---
 collatorNode.generateBlock shard:tonNode.shardId cc_seqno:int prev_blocks:(vector tonNode.blockIdExt)
     creator:int256 round:int first_block_round:int priority:int = collatorNode.Candidate;
-collatorNode.generateBlockOptimistic shard:tonNode.shardId cc_seqno:int prev_blocks:(vector tonNode.blockIdExt)
-    creator:int256 round:int first_block_round:int priority:int = collatorNode.Candidate;
 collatorNode.requestBlockCallback flags:# block_id:tonNode.BlockIdExt = collatorNode.Candidate;
 collatorNode.ping flags:# = collatorNode.Pong;
 

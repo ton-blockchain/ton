@@ -40,9 +40,6 @@ struct CollateParams {
   bool skip_store_candidate = false;
   int attempt_idx = 0;
 
-  // Optional - used for optimistic collation
-  Ref<BlockData> optimistic_prev_block = {};
-
   // Optional - if empty, blocks and states are taken from manager
   // If not empty, should be the same size as prev
   std::vector<Ref<BlockData>> prev_block_data = {};
@@ -59,9 +56,6 @@ struct ValidateParams {
   PublicKeyHash local_validator_id = PublicKeyHash::zero();
 
   bool is_fake = false;
-
-  // Optional - used for validation of optimistic candidates
-  Ref<BlockData> optimistic_prev_block = {};
 
   bool parallel_validation = false;
   bool is_new_consensus = false;
