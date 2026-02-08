@@ -25,14 +25,6 @@ auto measure_time(auto&& func) {
   return std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 }
 
-Continuation wait_for_continuation(FFIEventLoop& loop) {
-  std::optional<Continuation> result;
-  while (!result.has_value()) {
-    result = loop.wait(-1);
-  }
-  return *result;
-}
-
 TEST(FFIEventLoop, WaitTimeout) {
   FFIEventLoop loop(1);
   auto elapsed = measure_time([&] {
@@ -59,7 +51,7 @@ TEST(FFIEventLoop, WaitThenPut) {
   });
 
   auto elapsed = measure_time([&] {
-    auto result = wait_for_continuation(loop);
+    auto result = *loop.wait(-1);
     EXPECT_EQ(result.ptr(), continuation_1);
   });
 
@@ -208,7 +200,7 @@ TEST(FFIEventLoop, ConcurrentPuts) {
 
   std::set<const void*> received;
   for (int i = 0; i < num_threads * puts_per_thread; ++i) {
-    auto result = wait_for_continuation(loop);
+    auto result = *loop.wait(-1);
     received.insert(result.ptr());
   }
 
