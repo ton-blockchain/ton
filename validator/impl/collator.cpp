@@ -190,16 +190,6 @@ void Collator::start_up() {
       return;
     }
   }
-  if (params_.optimistic_prev_block.not_null()) {
-    if (prev_blocks.size() != 1) {
-      fatal_error(-666, "optimistic prev block is not null, which is not allowed after merge");
-      return;
-    }
-    if (prev_blocks[0] != params_.optimistic_prev_block->block_id()) {
-      fatal_error(-666, "optimistic prev block is not null, but has invalid block id");
-      return;
-    }
-  }
   busy_ = true;
   step = 1;
   if (!is_masterchain()) {
@@ -235,13 +225,7 @@ void Collator::start_up() {
   // 3. load previous block(s) and corresponding state(s)
   prev_states.resize(prev_blocks.size());
   prev_block_data.resize(prev_blocks.size());
-  if (params_.optimistic_prev_block.is_null()) {
-    load_prev_states_blocks();
-  } else {
-    if (!process_optimistic_prev_block()) {
-      return;
-    }
-  }
+  load_prev_states_blocks();
   if (params_.is_hardfork) {
     LOG(WARNING) << "generating a hardfork block";
   }
@@ -331,54 +315,6 @@ void Collator::load_prev_states_blocks() {
       }
     }
   }
-}
-
-/**
- * Write optimistic prev block as block data, load previous state to apply Merkle update to it
- */
-bool Collator::process_optimistic_prev_block() {
-  std::vector<BlockIdExt> prev_prev;
-  BlockIdExt mc_blkid;
-  bool after_split;
-  auto S =
-      block::unpack_block_prev_blk_try(params_.optimistic_prev_block->root_cell(),
-                                       params_.optimistic_prev_block->block_id(), prev_prev, mc_blkid, after_split);
-  if (S.is_error()) {
-    return fatal_error(S.move_as_error_prefix("failed to unpack optimistic prev block: "));
-  }
-  // 3.1. load state
-  if (prev_prev.size() == 1) {
-    LOG(DEBUG) << "sending wait_block_state() query for " << prev_prev[0].to_str() << " to Manager (opt)";
-    ++pending;
-    auto token = perf_log_.start_action("opt wait_block_state");
-    td::actor::send_closure_later(
-        manager, &ValidatorManager::wait_block_state_short, prev_prev[0], priority(), timeout, false,
-        [self = get_self(), token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
-          LOG(DEBUG) << "got answer to wait_block_state query (opt)";
-          td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_state_optimistic, std::move(res),
-                                        std::move(token));
-        });
-  } else {
-    CHECK(prev_prev.size() == 2);
-    LOG(DEBUG) << "sending wait_block_state_merge() query for " << prev_prev[0].to_str() << " and "
-               << prev_prev[1].to_str() << " to Manager (opt)";
-    ++pending;
-    auto token = perf_log_.start_action("opt wait_block_state_merge");
-    td::actor::send_closure_later(
-        manager, &ValidatorManager::wait_block_state_merge, prev_prev[0], prev_prev[1], priority(), timeout,
-        [self = get_self(), token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
-          LOG(DEBUG) << "got answer to wait_block_state_merge query (opt)";
-          td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_state_optimistic, std::move(res),
-                                        std::move(token));
-        });
-  }
-  // 3.2. load block
-  LOG(DEBUG) << "use optimistic prev block " << prev_blocks[0].to_str();
-  ++pending;
-  auto token = perf_log_.start_action(PSTRING() << "opt wait_block_data");
-  td::actor::send_closure_later(actor_id(this), &Collator::after_get_block_data, 0, params_.optimistic_prev_block,
-                                std::move(token));
-  return true;
 }
 
 /**
@@ -825,31 +761,6 @@ void Collator::after_get_storage_stat_cache(td::Result<std::function<td::Ref<vm:
     storage_stat_cache_ = res.move_as_ok();
   }
   check_pending();
-}
-
-/**
- * Callback function called after retrieving previous state for optimistic prev block
- *
- * @param res The retrieved state.
- */
-void Collator::after_get_shard_state_optimistic(td::Result<Ref<ShardState>> res, td::PerfLogAction token) {
-  LOG(DEBUG) << "in Collator::after_get_shard_state_optimistic()";
-  token.finish(res);
-  if (res.is_error()) {
-    fatal_error(res.move_as_error());
-    return;
-  }
-  td::RealCpuTimer timer;
-  work_timer_.resume();
-  auto state = res.move_as_ok();
-  auto S = state.write().apply_block(params_.optimistic_prev_block->block_id(), params_.optimistic_prev_block);
-  if (S.is_error()) {
-    fatal_error(S.move_as_error_prefix("apply error: "));
-    return;
-  }
-  work_timer_.pause();
-  stats_.work_time.optimistic_apply = timer.elapsed_both();
-  after_get_shard_state(0, std::move(state), {});
 }
 
 /**
