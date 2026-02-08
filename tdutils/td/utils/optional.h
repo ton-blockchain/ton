@@ -59,11 +59,11 @@ class optional {
     return impl_.is_ok();
   }
   T &value() {
-    DCHECK(*this);
+    LOG_CHECK(*this) << "Empty optional";
     return impl_.ok_ref();
   }
   const T &value() const {
-    DCHECK(*this);
+    LOG_CHECK(*this) << "Empty optional";
     return impl_.ok_ref();
   }
   T &value_force() {
@@ -76,7 +76,6 @@ class optional {
     return value();
   }
   T unwrap() {
-    CHECK(*this);
     auto res = std::move(value());
     impl_ = {};
     return res;
