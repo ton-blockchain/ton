@@ -365,7 +365,7 @@ class TestManagerFacade : public ManagerFacade {
     if (prev_seqno != 0) {
       CHECK(params.prev_block_data.size() == 1 && params.prev_block_data[0]->block_id() == params.prev[0]);
     }
-    double gen_utime = td::Clocks::system();
+    double gen_utime = params.utime ? params.utime.value() : td::Clocks::system();
 
     block::gen::BlockInfo::Record info;
     info.version = 0;

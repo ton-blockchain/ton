@@ -62,21 +62,17 @@ static constexpr int MAX_ATTEMPTS = 5;
  *
  * @param params Collator parameters
  * @param manager The ActorId of the ValidatorManager.
- * @param timeout The timeout for the collator.
  * @param cancellation_token Token to cancel collation.
  * @param promise The promise to return the result.
  */
-Collator::Collator(CollateParams params, td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
+Collator::Collator(CollateParams params, td::actor::ActorId<ValidatorManager> manager,
                    td::CancellationToken cancellation_token, td::Promise<BlockCandidate> promise)
     : params_(std::move(params))
     , shard_(params_.shard)
     , prev_blocks(params_.prev)
     , manager(manager)
-    , timeout(timeout)
+    , timeout_(params_.hard_timeout)
     // default timeout is 10 seconds, declared in validator/validator-group.cpp:generate_block_candidate:run_collate_query
-    , queue_cleanup_timeout_(td::Timestamp::at(timeout.at() - 5.0))
-    , soft_timeout_(td::Timestamp::at(timeout.at() - 3.0))
-    , medium_timeout_(td::Timestamp::at(timeout.at() - 1.5))
     , main_promise(std::move(promise))
     , perf_timer_("collate", 0.1,
                   [manager](double duration) {
@@ -86,6 +82,13 @@ Collator::Collator(CollateParams params, td::actor::ActorId<ValidatorManager> ma
   if (params_.collator_opts.is_null()) {
     params_.collator_opts = Ref<CollatorOptions>{true};
   }
+  if (!params_.soft_timeout) {
+    params.soft_timeout = params_.hard_timeout;
+  }
+  double t = params.soft_timeout.in();
+  queue_cleanup_timeout_ = td::Timestamp::in(t * 0.25);
+  internal_msg_timeout_ = td::Timestamp::in(t * 0.5);
+  external_msg_timeout_ = td::Timestamp::in(t * 0.75);
 }
 
 /**
@@ -238,7 +241,7 @@ void Collator::start_up() {
                                                                 std::move(token));
                                 });
   // 6. set timeout
-  alarm_timestamp() = timeout;
+  alarm_timestamp() = timeout_;
   CHECK(pending);
 }
 
@@ -256,7 +259,7 @@ void Collator::load_prev_states_blocks() {
       LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
       auto token = perf_log_.start_action(PSTRING() << "wait_block_state #" << i);
       td::actor::send_closure_later(
-          manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(), timeout, false,
+          manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(), timeout_, false,
           [self = get_self(), i, token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
             LOG(DEBUG) << "got answer to wait_block_state query #" << i;
             td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_state, i, std::move(res),
@@ -274,7 +277,7 @@ void Collator::load_prev_states_blocks() {
         LOG(DEBUG) << "sending wait_block_data() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
         auto token = perf_log_.start_action(PSTRING() << "wait_block_data #" << i);
         td::actor::send_closure_later(
-            manager, &ValidatorManager::wait_block_data_short, prev_blocks[i], priority(), timeout,
+            manager, &ValidatorManager::wait_block_data_short, prev_blocks[i], priority(), timeout_,
             [self = get_self(), i, token = std::move(token)](td::Result<Ref<BlockData>> res) mutable {
               LOG(DEBUG) << "got answer to wait_block_data query #" << i;
               td::actor::send_closure_later(std::move(self), &Collator::after_get_block_data, i, std::move(res),
@@ -351,12 +354,11 @@ bool Collator::fatal_error(td::Status error) {
   LOG(ERROR) << "cannot generate block candidate for " << show_shard(shard_) << " : " << error.to_string();
   if (busy_) {
     if (allow_repeat_collation_ && error.code() != ErrorCode::cancelled && params_.attempt_idx + 1 < MAX_ATTEMPTS &&
-        !params_.is_hardfork && !timeout.is_in_past()) {
+        !params_.is_hardfork && !timeout_.is_in_past()) {
       CollateParams new_params = params_;
       ++new_params.attempt_idx;
       LOG(WARNING) << "Repeating collation (attempt #" << new_params.attempt_idx << ")";
-      run_collate_query(std::move(new_params), manager, td::Timestamp::in(10.0), std::move(cancellation_token_),
-                        std::move(main_promise));
+      run_collate_query(std::move(new_params), manager, std::move(cancellation_token_), std::move(main_promise));
     } else {
       LOG(INFO) << "collation failed in " << perf_timer_.elapsed() << " s " << error;
       LOG(INFO) << perf_log_;
@@ -485,7 +487,7 @@ bool Collator::request_aux_mc_state(BlockSeqno seqno, Ref<MasterchainStateQ>& st
   ++pending;
   auto token = perf_log_.start_action(PSTRING() << "auxiliary wait_block_state " << blkid.seqno());
   td::actor::send_closure_later(
-      manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout, false,
+      manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout_, false,
       [self = get_self(), blkid, token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
         LOG(DEBUG) << "got answer to wait_block_state query for " << blkid.to_str();
         td::actor::send_closure_later(std::move(self), &Collator::after_get_aux_shard_state, blkid, std::move(res),
@@ -607,7 +609,7 @@ void Collator::after_get_mc_state(td::Result<std::pair<Ref<MasterchainState>, Bl
     ++pending;
     auto token = perf_log_.start_action("wait_block_data #-1");
     td::actor::send_closure_later(
-        manager, &ValidatorManager::wait_block_data_short, mc_block_id_, priority(), timeout,
+        manager, &ValidatorManager::wait_block_data_short, mc_block_id_, priority(), timeout_,
         [self = get_self(), token = std::move(token)](td::Result<Ref<BlockData>> res) mutable {
           LOG(DEBUG) << "got answer to wait_block_data query #-1";
           td::actor::send_closure_later(std::move(self), &Collator::after_get_block_data, -1, std::move(res),
@@ -695,7 +697,7 @@ void Collator::request_top_masterchain_state(BlockIdExt prev_mc_ref) {
     min_block_id = prev_mc_ref;
   }
   td::actor::send_closure_later(
-      manager, &ValidatorManager::wait_block_state_short, min_block_id, priority(), timeout, false,
+      manager, &ValidatorManager::wait_block_state_short, min_block_id, priority(), timeout_, false,
       [self = get_self(), manager = manager, token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
         if (res.is_error()) {
           td::actor::send_closure_later(std::move(self), &Collator::after_get_mc_state, res.move_as_error(),
@@ -958,7 +960,7 @@ bool Collator::request_neighbor_msg_queues() {
   ++pending;
   auto token = perf_log_.start_action("neighbor_msg_queues");
   td::actor::send_closure_later(
-      manager, &ValidatorManager::wait_neighbor_msg_queue_proofs, shard_, std::move(top_blocks), timeout,
+      manager, &ValidatorManager::wait_neighbor_msg_queue_proofs, shard_, std::move(top_blocks), timeout_,
       [self = get_self(),
        token = std::move(token)](td::Result<std::map<BlockIdExt, Ref<OutMsgQueueProof>>> res) mutable {
         td::actor::send_closure_later(std::move(self), &Collator::got_neighbor_msg_queues, std::move(res),
@@ -2133,14 +2135,14 @@ bool Collator::init_utime() {
   prev_now_ = prev_state_utime_;
   // Extend collator timeout if previous block is too old
   td::Timestamp new_timeout = td::Timestamp::in(std::min(30.0, (td::Clocks::system() - (double)prev_now_) / 2));
-  if (timeout < new_timeout) {
-    timeout = new_timeout;
-    alarm_timestamp() = timeout;
+  if (timeout_ < new_timeout) {
+    timeout_ = new_timeout;
+    alarm_timestamp() = timeout_;
   }
 
   auto prev = std::max<td::uint32>(config_->utime, prev_now_);
-  now_ms_ =
-      std::max((td::uint64)(prev + (allow_same_timestamp_ ? 0 : 1)) * 1000, (td::uint64)(td::Clocks::system() * 1000));
+  double now = params_.utime ? params_.utime.value() : td::Clocks::system();
+  now_ms_ = std::max((td::uint64)(prev + (allow_same_timestamp_ ? 0 : 1)) * 1000, (td::uint64)(now * 1000));
   now_ = (UnixTime)(now_ms_ / 1000);
   if (now_ > now_upper_limit_) {
     return fatal_error(
@@ -3774,7 +3776,7 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
     block_limit_class_ = std::max(block_limit_class_, block_limit_status_->classify());
     return 3;
   }
-  if (soft_timeout_.is_in_past(td::Timestamp::now())) {
+  if (internal_msg_timeout_.is_in_past(td::Timestamp::now())) {
     LOG(WARNING) << "soft timeout reached, stop processing new messages";
     block_full_ = true;
     return 3;
@@ -4183,7 +4185,7 @@ bool Collator::process_inbound_internal_messages() {
                                      << block_full_comment(*block_limit_status_, block::ParamLimits::cl_normal) << "\n";
       break;
     }
-    if (soft_timeout_.is_in_past(td::Timestamp::now())) {
+    if (internal_msg_timeout_.is_in_past(td::Timestamp::now())) {
       block_full_ = true;
       LOG(WARNING) << "soft timeout reached, stop processing inbound internal messages";
       stats_.limits_log += PSTRING() << "INBOUND_INT_MESSAGES: timeout\n";
@@ -4251,7 +4253,7 @@ bool Collator::process_inbound_external_messages() {
                                      << block_full_comment(*block_limit_status_, block::ParamLimits::cl_soft) << "\n";
       break;
     }
-    if (medium_timeout_.is_in_past(td::Timestamp::now())) {
+    if (external_msg_timeout_.is_in_past(td::Timestamp::now())) {
       LOG(WARNING) << "medium timeout reached, stop processing inbound external messages";
       stats_.limits_log += PSTRING() << "INBOUND_EXT_MESSAGES: timeout\n";
       break;
@@ -4388,7 +4390,7 @@ bool Collator::process_dispatch_queue() {
                                        << "\n";
         return register_dispatch_queue_op(true);
       }
-      if (soft_timeout_.is_in_past(td::Timestamp::now())) {
+      if (internal_msg_timeout_.is_in_past(td::Timestamp::now())) {
         block_full_ = true;
         LOG(WARNING) << "soft timeout reached, stop processing dispatch queue";
         stats_.limits_log += PSTRING() << "DISPATCH_QUEUE_STAGE_" << iter << ": timeout\n";
