@@ -117,7 +117,6 @@ class Collator final : public td::actor::Actor {
  private:
   void start_up() override;
   void load_prev_states_blocks();
-  bool process_optimistic_prev_block();
   void alarm() override;
   int verbosity{3 * 0};
   int verify{1};
@@ -277,7 +276,6 @@ class Collator final : public td::actor::Actor {
   void after_get_shard_blocks(td::Result<std::vector<Ref<ShardTopBlockDescription>>> res, td::PerfLogAction token);
   void after_get_storage_stat_cache(td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res,
                                     td::PerfLogAction token);
-  void after_get_shard_state_optimistic(td::Result<Ref<ShardState>> res, td::PerfLogAction token);
   bool preprocess_prev_mc_state();
   bool register_mc_state(Ref<MasterchainStateQ> other_mc_state);
   bool request_aux_mc_state(BlockSeqno seqno, Ref<MasterchainStateQ>& state);
