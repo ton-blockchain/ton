@@ -2,27 +2,12 @@
 
 namespace tonlib {
 
-namespace {
-
-class ClientWrapper : public EngineConsoleClient {
- public:
-  ClientWrapper(td::IPAddress address, ton::PublicKey server_public_key, ton::PrivateKey client_private_key,
-                td::unique_ptr<td::Guard> actor_counter)
-      : EngineConsoleClient(address, server_public_key, client_private_key), actor_counter_(std::move(actor_counter)) {
-  }
-
- private:
-  td::unique_ptr<td::Guard> actor_counter_;
-};
-
-}  // namespace
-
 FFIEngineConsoleClient::FFIEngineConsoleClient(FFIEventLoop& loop, td::IPAddress address,
                                                ton::PublicKey server_public_key, ton::PrivateKey client_private_key)
-    : loop_(loop) {
+    : loop_(loop), counter_(loop.new_actor()) {
   loop_.run_in_context([&] {
-    client_ = td::actor::create_actor<ClientWrapper>("EngineConsoleClient", address, server_public_key,
-                                                     client_private_key, loop.new_actor());
+    client_ = td::actor::create_actor<EngineConsoleClient>("EngineConsoleClient", address, server_public_key,
+                                                           client_private_key);
   });
 }
 
