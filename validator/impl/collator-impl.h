@@ -74,6 +74,7 @@ class Collator final : public td::actor::Actor {
   bool prev_key_block_exists_{false};
   const std::vector<BlockIdExt>& prev_blocks;
   std::vector<Ref<ShardState>> prev_states;
+  size_t pending_prev_states_{0};
   std::vector<Ref<BlockData>> prev_block_data;
   td::actor::ActorId<ValidatorManager> manager;
   td::Timestamp timeout;
@@ -272,6 +273,7 @@ class Collator final : public td::actor::Actor {
   void check_pending();
   void after_get_mc_state(td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res, td::PerfLogAction token);
   void after_get_shard_state(int idx, td::Result<Ref<ShardState>> res, td::PerfLogAction token);
+  void request_top_masterchain_state(BlockIdExt prev_mc_ref);
   void after_get_block_data(int idx, td::Result<Ref<BlockData>> res, td::PerfLogAction token);
   void after_get_shard_blocks(td::Result<std::vector<Ref<ShardTopBlockDescription>>> res, td::PerfLogAction token);
   void after_get_storage_stat_cache(td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res,
