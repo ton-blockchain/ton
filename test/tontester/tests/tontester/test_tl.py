@@ -147,7 +147,7 @@ def test_to_dict(pubk: Pub_unenc, block: TonNode_blockIdExt):
         "@type": "adnl.packetContents",
         "rand1": "AQE=",
         "flags": 1,
-        "from_": {"@type": "pub.unenc", "data": "EhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhI="},
+        "from": {"@type": "pub.unenc", "data": "EhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhI="},
         "messages": [],
         "seqno": 0,
         "confirm_seqno": 0,
@@ -182,7 +182,7 @@ def test_from_dict(pubk: Pub_unenc):
             "@type": "adnl.packetContents",
             "rand1": "AQE=",
             "flags": 1,
-            "from_": {"@type": "pub.unenc", "data": "EhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhI="},
+            "from": {"@type": "pub.unenc", "data": "EhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhI="},
             "rand2": "AQE=",
         }
     )

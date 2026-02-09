@@ -8,7 +8,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: 'recursive'
 
@@ -32,8 +32,7 @@ jobs:
 
       - name: Build TON
         run: |
-          git submodule sync --recursive
-          git submodule update
+          git submodule sync --recursive; git submodule update;
           cp assembly/native/build-macos-shared.sh .
           chmod +x build-macos-shared.sh
           ./build-macos-shared.sh -t -c

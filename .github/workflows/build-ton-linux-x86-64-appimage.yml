@@ -8,7 +8,7 @@ jobs:
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         submodules: 'recursive'
 
@@ -36,13 +36,6 @@ jobs:
       with:
         path: 3pp
         key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-3pp-${{ hashFiles('**/assembly/native/build-ubuntu-appimages.sh') }}
-
-    - name: Cache OpenSSL
-      id: cache-openssl
-      uses: actions/cache@v4
-      with:
-        path: openssl_3
-        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-openssl_3-${{ hashFiles('**/assembly/native/build-ubuntu-appimages.sh') }}
 
     - name: Restore cache TON
       uses: actions/cache/restore@v4

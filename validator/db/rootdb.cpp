@@ -227,7 +227,7 @@ void RootDb::get_block_candidate_by_block_id(BlockIdExt id, td::Promise<BlockCan
       });
 }
 
-void RootDb::store_block_state(BlockHandle handle, td::Ref<ShardState> state,
+void RootDb::store_block_state(BlockHandle handle, td::Ref<ShardState> state, vm::StoreCellHint hint,
                                td::Promise<td::Ref<ShardState>> promise) {
   if (handle->moved_to_archive()) {
     promise.set_value(std::move(state));
@@ -254,7 +254,8 @@ void RootDb::store_block_state(BlockHandle handle, td::Ref<ShardState> state,
         td::actor::send_closure(b, &ArchiveManager::update_handle, std::move(handle), std::move(P));
       }
     });
-    td::actor::send_closure(cell_db_, &CellDb::store_cell, handle->id(), state->root_cell(), std::move(P));
+    td::actor::send_closure(cell_db_, &CellDb::store_cell, handle->id(), state->root_cell(), std::move(hint),
+                            std::move(P));
   } else {
     get_block_state(handle, std::move(promise));
   }
@@ -319,7 +320,8 @@ void RootDb::get_block_state(ConstBlockHandle handle, td::Promise<td::Ref<ShardS
 
 void RootDb::store_block_state_part(BlockId effective_block, td::Ref<vm::Cell> cell,
                                     td::Promise<td::Ref<vm::DataCell>> promise) {
-  td::actor::send_closure(cell_db_, &CellDb::store_cell, BlockIdExt{effective_block}, cell, std::move(promise));
+  td::actor::send_closure(cell_db_, &CellDb::store_cell, BlockIdExt{effective_block}, cell, vm::StoreCellHint{},
+                          std::move(promise));
 }
 
 void RootDb::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {

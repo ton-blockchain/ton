@@ -548,8 +548,8 @@ void ValidatorSessionImpl::candidate_decision_ok(td::uint32 round, ValidatorSess
   td::actor::send_closure(keyring_, &keyring::Keyring::sign_message, local_id(), std::move(data), std::move(P));
 }
 
-void ValidatorSessionImpl::candidate_approved_signed(td::uint32 round, ValidatorSessionCandidateId hash,
-                                                     double ok_from, td::BufferSlice signature) {
+void ValidatorSessionImpl::candidate_approved_signed(td::uint32 round, ValidatorSessionCandidateId hash, double ok_from,
+                                                     td::BufferSlice signature) {
   pending_approve_.erase(hash);
   approved_[hash] = std::pair<double, td::BufferSlice>{ok_from, std::move(signature)};
 

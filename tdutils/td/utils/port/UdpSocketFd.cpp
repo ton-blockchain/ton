@@ -804,7 +804,8 @@ Result<IPAddress> UdpSocketFd::get_local_address() const {
 
   sockaddr_storage addr{};
   socklen_t len = sizeof addr;
-  if (getsockname(get_native_fd().fd(), reinterpret_cast<sockaddr *>(&addr), &len) != 0)
+  auto sock = get_native_fd().socket();
+  if (getsockname(sock, reinterpret_cast<sockaddr *>(&addr), &len) != 0)
     return Status::Error("getsockname failed");
 
   TRY_STATUS(result.init_sockaddr(reinterpret_cast<sockaddr *>(&addr), len));

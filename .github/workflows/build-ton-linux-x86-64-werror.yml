@@ -8,7 +8,7 @@ jobs:
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         submodules: 'recursive'
 
@@ -44,12 +44,12 @@ jobs:
 
     - name: Check spaces at EOL
       run: |
-        ! git grep --cached -Il '\s$' :!example/android/third_party
+        ! git grep --cached -Il '\s$'
 
     - name: Check C++ formatting
       run: |
         # TODO: Run clang-format only on changed files.
-        clang-format-21 -i $(git ls-files '*.h' '*.hpp' '*.cpp' ':!^example/android/third_party' ':!^tolk/')
+        clang-format-21 -i $(git ls-files '*.h' '*.hpp' '*.cpp' ':!^tolk/')
         git diff --exit-code
 
     - name: Prepare Python environment
