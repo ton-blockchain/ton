@@ -1574,6 +1574,10 @@ static std::vector<var_idx_t> process_square_brackets(V<ast_square_brackets> v, 
   }
   std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(pack-tuple)");
 
+  // note that for every constructor of `[...]` (array, lisp_list, etc.) we still make a shape at low-level,
+  // then this shape is transitioned to a constructor type;
+  // for example, having `lisp_list<int> [1,2]`, make a shape (TVM tuple) [1,2] at first;
+  // we need this to handle nested modifications, like `[x, x+=2, x]` via "watched vars" with IR copying
   std::vector<TypePtr> items_types;
   items_types.reserve(v->size());
   for (int i = 0; i < v->size(); ++i) {

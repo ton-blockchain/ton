@@ -254,9 +254,8 @@ BoolState calculate_bool_lca(BoolState a, BoolState b) {
 // example for a ternary operator: `var v = cond ? someSlice : someCell` (no hint) will give a compilation error,
 // but `var v: HINT = <same>` is okay, if hint is valid;
 // for instance, `var v: int = cond ? someInt32 : someInt64` is ok: no unification
-TypeInferringUnifyStrategy::TypeInferringUnifyStrategy(TypePtr hint, bool allow_hint_be_unknown) {
-  bool is_valid_hint = hint != nullptr && hint != TypeDataNotInferred::create() && !hint->has_genericT_inside()
-                   && (hint != TypeDataUnknown::create() || allow_hint_be_unknown);
+TypeInferringUnifyStrategy::TypeInferringUnifyStrategy(TypePtr hint) {
+  bool is_valid_hint = hint != nullptr && hint != TypeDataNotInferred::create() && hint != TypeDataUnknown::create() && !hint->has_genericT_inside();
   if (is_valid_hint) {
     dest_hint = hint;
   }

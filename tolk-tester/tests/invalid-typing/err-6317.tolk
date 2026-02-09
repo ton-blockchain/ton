@@ -6,5 +6,6 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr type `array<string>` is not assignable to `array<int>`
+@stderr invalid `[...]` constructor: can not convert `string` to `int`
+@stderr_avoid __expect_type
  */

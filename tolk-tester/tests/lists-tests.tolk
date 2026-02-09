@@ -174,8 +174,8 @@ fun test108() {
     var l5 = [1, 2] as lisp_list<int>;
     var l6 = [1, 2] as lisp_list<int>;
     var l7 = [1, 2] as lisp_list<int>;
-    l1 = l2 = l3 = [];
-    (l4, l5) = ([], []);
+    (l1, l2, l3) = ([], [], []);
+    l4 = l5 = [];
     [l6, l7] = [[], []];
     return (l1, l2, l3, l4, l5, l6, l7);
 }
@@ -184,7 +184,7 @@ fun test108() {
 fun test109() {
     var n = [10] as lisp_list<int>;
     var nn = [[]] as [[]];
-    var eq = eq([n] = nn);
+    var eq = eq([n] = [[]]);
     return (n, eq);
 }
 
@@ -309,7 +309,7 @@ fun test118() {
 fun test119() {
     var l1: lisp_list<int?>;
     var l2: lisp_list<Point?>;
-    return (eq(l1 = l2 = []), l1, l2, l1.isEmpty());
+    return (eq(((l1, l2) = ([], [])).0), l1, l2, l1.isEmpty());
 }
 
 @method_id(120)
@@ -420,7 +420,7 @@ fun main() {
 @testcase | 106 |       | 7
 @testcase | 107 |       | 3 2 3 [ 1 2 3 ] [ 1 2 ]
 @testcase | 108 |       | (null) (null) (null) (null) (null) (null) (null)
-@testcase | 109 |       | (null) [ [] ]
+@testcase | 109 |       | (null) [ (null) ]
 @testcase | 110 |       | [ 3 2 1 ] [ 1 2 3 ]
 @testcase | 111 |       | 3 6 -1 [ 4 5 6 4 5 6 3 2 1 ] [ 2 3 ] [ 5 [ 6 (null) ] ] (null) -1
 @testcase | 112 |       | 3 21
@@ -431,7 +431,7 @@ fun main() {
 @testcase | 116 |       | [ 20 0 ] [ [ 10 -1 ] [ 20 0 ] ] [ [ 2 -1 ] [ [ 3 0 ] (null) ] ]
 @testcase | 117 |       | 100 200 [ [ 10 20 ] (null) ] (null) 20 -1
 @testcase | 118 |       | [ [ 10 70 130 ] [ (null) (null) 0 ] [ 10 20 130 ] ] 10 20 -1
-@testcase | 119 |       | [] (null) (null) -1
+@testcase | 119 |       | (null) (null) (null) -1
 @testcase | 120 |       | [ (null) 2 3 ] [ [ 10 20 130 ] [ (null) (null) 0 ] ] 10 20 130 -1 0 0
 @testcase | 121 |       | 41
 @testcase | 122 |       | -1

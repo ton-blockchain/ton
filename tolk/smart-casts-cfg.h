@@ -39,7 +39,7 @@ class TypeInferringUnifyStrategy {
   bool different_types_became_union = false;
 
 public:
-  explicit TypeInferringUnifyStrategy(TypePtr hint, bool allow_hint_be_unknown = false);
+  explicit TypeInferringUnifyStrategy(TypePtr hint);
   void unify_with(TypePtr next);
 
   TypePtr get_result() const { return unified_result; }

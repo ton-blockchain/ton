@@ -153,6 +153,18 @@ fun test_store_builder() {
     return (tensor.0.bitsCount(), tensor.1.bitsCount(), tensor.2.bitsCount());
 }
 
+@method_id(29)
+fun test_create_array() {
+    var x = 1;
+    return [ x, x += 2, x, eq(mul2(mutate x, 5)), x];
+}
+
+@method_id(30)
+fun test_create_list(): lisp_list<int> {
+    var x = 1;
+    return [ x, x += 2, x, eq(mul2(mutate x, 5)), x];
+}
+
 fun main() {
 }
 
@@ -177,6 +189,8 @@ fun main() {
 @testcase | 26 |     | 64 111 111 32
 @testcase | 27 |     | 64 32 32 1
 @testcase | 28 |     | 0 32 32
+@testcase | 29 |     | [ 1 3 3 10 10 ]
+@testcase | 30 |     | [ 1 [ 3 [ 3 [ 10 [ 10 (null) ] ] ] ] ]
 
 @fif_codegen
 """
@@ -190,5 +204,5 @@ fun main() {
   test_assign_tensor_global() PROC:<{   // x.0 x.1
 """
 
-@code_hash 54507350030003588837959563408669825079893928922592627660327958097203688051706
+@code_hash 26091155161104874813263002527217687033955786000794282001589519657984604142940
 */

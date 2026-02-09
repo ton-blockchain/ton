@@ -380,6 +380,7 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
   const TypeDataArray* dest_array = dest_type->try_as<TypeDataArray>();
   const TypeDataShapedTuple* from_shaped = from_type->try_as<TypeDataShapedTuple>();
   const TypeDataShapedTuple* dest_shaped = dest_type->try_as<TypeDataShapedTuple>();
+  const TypeDataMapKV* dest_mapKV = dest_type->try_as<TypeDataMapKV>();
 
   // transform an array to another array
   // - `array<int>` to `array<int?>`
@@ -470,6 +471,16 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
       code.emplace_back(origin, Op::_Call, ir_result_arr, std::move(ir_args_push), lookup_function("array<T>.push"));
     }
     return ir_result_arr;
+  }
+
+  // transform a shape to a map
+  // - `[]` to `map<int32, bool>` and any other empty map
+  // - `[ [1, true] ]` to `map<int32, bool>` (non-empty map) not supported yet, checked earlier
+  if (from_shaped && dest_mapKV) {
+    tolk_assert(from_shaped->size() == 0 && rvect.size() == 1);
+    std::vector ir_result_map = code.create_tmp_var(TypeDataNullLiteral::create(), origin, "(map)");
+    code.emplace_back(origin, Op::_Call, ir_result_map, std::vector<var_idx_t>{}, lookup_function("createEmptyMap"));
+    return ir_result_map;
   }
 
   // handle structs and typed cells (which are also structs in stdlib)

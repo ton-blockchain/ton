@@ -703,13 +703,6 @@ bool TypeDataArray::can_rhs_be_assigned(TypePtr rhs) const {
   if (const TypeDataArray* rhs_array = rhs->try_as<TypeDataArray>()) {
     return innerT->can_rhs_be_assigned(rhs_array->innerT);
   }
-  if (const TypeDataShapedTuple* rhs_shaped = rhs->try_as<TypeDataShapedTuple>()) {
-    bool all_assignable = true;
-    for (TypePtr rhs_ith : rhs_shaped->items) {
-      all_assignable &= innerT->can_rhs_be_assigned(rhs_ith);
-    }
-    return all_assignable;
-  }
   if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
     return can_rhs_be_assigned(rhs_alias->underlying_type);
   }
@@ -779,16 +772,6 @@ bool TypeDataStruct::can_rhs_be_assigned(TypePtr rhs) const {
   }
   if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
     return can_rhs_be_assigned(rhs_alias->underlying_type);
-  }
-  if (const TypeDataShapedTuple* rhs_shaped = rhs->try_as<TypeDataShapedTuple>()) {
-    if (struct_ref->is_instantiation_of_LispListT()) {    // someList = [1, 2, 3]
-      TypePtr list_T = struct_ref->substitutedTs->typeT_at(0);
-      bool all_assignable = true;
-      for (TypePtr ith : rhs_shaped->items) {
-        all_assignable &= list_T->can_rhs_be_assigned(ith);
-      }
-      return all_assignable;
-    }
   }
   return rhs == TypeDataNever::create();
 }
@@ -1044,23 +1027,6 @@ bool TypeDataShapedTuple::can_be_casted_with_as_operator(TypePtr cast_to) const 
       all_castable &= items[i]->can_be_casted_with_as_operator(to_shaped->items[i]);
     }
     return all_castable;
-  }
-  if (const TypeDataArray* to_array = cast_to->try_as<TypeDataArray>()) {
-    bool all_castable = true;
-    for (TypePtr ith : items) {
-      all_castable &= ith->can_be_casted_with_as_operator(to_array->innerT);
-    }
-    return all_castable;
-  }
-  if (const TypeDataStruct* to_struct = cast_to->try_as<TypeDataStruct>()) {
-    if (to_struct->struct_ref->is_instantiation_of_LispListT()) {
-      TypePtr list_T = to_struct->struct_ref->substitutedTs->typeT_at(0);
-      bool all_castable = true;
-      for (TypePtr ith : items) {
-        all_castable &= ith->can_be_casted_with_as_operator(list_T);
-      }
-      return all_castable;
-    }
   }
   if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {
     return to_union->calculate_exact_variant_to_fit_rhs(this);

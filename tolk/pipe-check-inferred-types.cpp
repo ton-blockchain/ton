@@ -569,22 +569,49 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
   }
 
   void visit(V<ast_square_brackets> v) override {
-    // `array<int> []` / `lisp_list<int> [1,2,3]` / `tuple [1, "aba"]`
-    if (v->type_node) {
-      TypePtr hint = v->type_node->resolved_type->unwrap_alias();
-      TypePtr ith_hint = nullptr;
-      if (const TypeDataArray* h_array = hint->try_as<TypeDataArray>()) {
-        ith_hint = h_array->innerT;
-      } else if (const TypeDataStruct* h_struct = hint->try_as<TypeDataStruct>(); h_struct && h_struct->struct_ref->is_instantiation_of_LispListT()) {
-        ith_hint = h_struct->struct_ref->substitutedTs->typeT_at(0);
-      } else {
-        tolk_assert(false);
-      }
+    // `[...]` was inferred based on
+    // - inline hint `T [...]`
+    // - hint from context `var f: lisp_list<int> = [1,2]`
+    // - no hint, it's `array<unified>`
+    // we need to check every item inside `[...]` for type compatibility
+    TypePtr hint = v->inferred_type->unwrap_alias();
+
+    if (const TypeDataArray* h_array = hint->try_as<TypeDataArray>()) {
       for (AnyExprV v_item : v->get_items()) {
-        if (!ith_hint->can_rhs_be_assigned(v_item->inferred_type)) {
-          err("type `{}` is not assignable to `{}`", v_item->inferred_type, ith_hint).collect(v_item, cur_f);
+        if (!h_array->innerT->can_rhs_be_assigned(v_item->inferred_type)) {
+          err_type_mismatch("invalid `[...]` constructor: can not convert {src} to {dst}", v_item->inferred_type, h_array->innerT).collect(v_item, cur_f);
         }
       }
+
+    } else if (const TypeDataStruct* h_struct = hint->try_as<TypeDataStruct>(); h_struct && h_struct->struct_ref->is_instantiation_of_LispListT()) {
+      TypePtr typeT = h_struct->struct_ref->substitutedTs->typeT_at(0);
+      for (AnyExprV v_item : v->get_items()) {
+        if (!typeT->can_rhs_be_assigned(v_item->inferred_type)) {
+          err_type_mismatch("invalid `[...]` constructor: can not convert {src} to {dst}", v_item->inferred_type, typeT).collect(v_item, cur_f);
+        }
+      }
+
+    } else if (const TypeDataMapKV* h_map = hint->try_as<TypeDataMapKV>()) {
+      for (AnyExprV ith_v : v->get_items()) {
+        // for `map`, every item must be `[k,v]`, e.g. `map<int32, bool> [ [1,true], [2,false] ]`
+        auto ith_square = ith_v->try_as<ast_square_brackets>();
+        if (!ith_square || ith_square->size() != 2) {
+          err("invalid `[...]` constructor for `map`: each item must be `[key, value]`\n""example:\n""> var m: map<int32, bool> = [ [1,true], [2,false] ];").collect(ith_v, cur_f);
+        } else {
+          if (!h_map->TKey->can_rhs_be_assigned(ith_square->get_item(0)->inferred_type)) {
+            err_type_mismatch("invalid `[...]` constructor: can not convert {src} to {dst}", ith_square->get_item(0)->inferred_type, h_map->TKey).collect(ith_square->get_item(0), cur_f);
+          }
+          if (!h_map->TValue->can_rhs_be_assigned(ith_square->get_item(1)->inferred_type)) {
+            err_type_mismatch("invalid `[...]` constructor: can not convert {src} to {dst}", ith_square->get_item(1)->inferred_type, h_map->TValue).collect(ith_square->get_item(1), cur_f);
+          }
+          // ... but actually, we accept only `[]` (empty map); `[...]` may be supported in the future
+          err("`[...]` for `map` is not supported yet, only `[]` is allowed (empty map)").collect(ith_v, cur_f);
+        }
+      }
+
+    } else {
+      // a shaped tuple `var f: [int, int] = [1, "aba"]` as inferred as `[int, string]`
+      // and gives a type checker error automatically if not assignable
     }
 
     parent::visit(v);

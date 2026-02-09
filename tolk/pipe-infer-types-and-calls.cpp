@@ -1314,11 +1314,12 @@ class InferTypesAndCallsAndFieldsVisitor final {
   }
 
   ExprFlow infer_square_brackets(V<ast_square_brackets> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {
-    // `array<int> []` / `lisp_list<int> [1,2,3]` / `tuple [1, "aba"]`
+    // `array<int> []` / `lisp_list<int> [1,2,3]` / `tuple [1, "aba"]` / `map<int32, bool> []`
     if (v->type_node) {
       TypePtr provided_type = v->type_node->resolved_type->unwrap_alias();
       bool is_valid_constructor = provided_type->try_as<TypeDataArray>()
-                              || (provided_type->try_as<TypeDataStruct>() && provided_type->try_as<TypeDataStruct>()->struct_ref->is_instantiation_of_LispListT());
+                              || (provided_type->try_as<TypeDataStruct>() && provided_type->try_as<TypeDataStruct>()->struct_ref->is_instantiation_of_LispListT())
+                              || (provided_type->try_as<TypeDataMapKV>());
       if (is_valid_constructor) {
         hint = v->type_node->resolved_type;
       } else {
@@ -1331,6 +1332,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     const TypeDataStruct* hint_lisp_list = hint ? try_pick_T_from_hint<TypeDataStruct>(hint, [](const TypeDataStruct* check) {
       return check->struct_ref->is_instantiation_of_LispListT();
     }) : nullptr;
+    const TypeDataMapKV* hint_mapKV = hint ? try_pick_T_from_hint<TypeDataMapKV>(hint) : nullptr;
 
     std::vector<TypePtr> types_list;
     types_list.reserve(v->size());
@@ -1339,6 +1341,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       TypePtr ith_hint = hint_array ? hint_array->innerT :
                          hint_shaped && i < hint_shaped->size() ? hint_shaped->items[i] :
                          hint_lisp_list ? hint_lisp_list->struct_ref->substitutedTs->typeT_at(0) :
+                         hint_mapKV ? TypeDataShapedTuple::create({hint_mapKV->TKey, hint_mapKV->TValue}) :
                          nullptr;
       flow = infer_any_expr(item, std::move(flow), false, ith_hint).out_flow;
       types_list.emplace_back(item->inferred_type);
@@ -1348,25 +1351,37 @@ class InferTypesAndCallsAndFieldsVisitor final {
     }
 
     if (v->type_node) {
-      // `array<int> []` / `tuple [1,"aba"]`
+      // `array<int> []` / `tuple [1, "aba"]` — keep type_node as-is, preserving aliases
+      // if types are incompatible, like `array<int> [1, "aba"]`, it's reported later by a type checker
       assign_inferred_type(v, v->type_node->resolved_type);
-    } else if (hint_shaped || hint_lisp_list) {
-      // `var x: [int] = [0]` / `f([1,2])` (where f's param is `lisp_list<T>`)
+    } else if (hint_array && !hint_array->has_genericT_inside()) {
+      // `var x: array<int> = [...]`, infer `[...]` as `array<int>`
+      assign_inferred_type(v, hint_array);
+    } else if (hint_lisp_list && !hint_lisp_list->has_genericT_inside()) {
+      // `var x: lisp_list<int> = [...]`, infer `[...]` as `lisp_list<int>`
+      assign_inferred_type(v, hint_lisp_list);
+    } else if (hint_mapKV && !hint_mapKV->has_genericT_inside()) {
+      // `var x: map<int32, bool> = []`
+      assign_inferred_type(v, hint_mapKV);
+    } else if (hint_shaped) {
+      // `var x: [int] = [0]` / `f([1,""])` (where f's param is `[int,string]`)
       assign_inferred_type(v, TypeDataShapedTuple::create(std::move(types_list)));
     } else if (v->empty()) {
-      // just `[]` is `array<unknown>`, but for `[] as array<slice>` take it
-      assign_inferred_type(v, hint_array ? hint_array : TypeDataArray::create(TypeDataUnknown::create()));
+      // just `[]` is `array<unknown>`
+      assign_inferred_type(v, TypeDataArray::create(TypeDataUnknown::create()));
     } else {
-      // for `[1, null]` infer `array<int?>` unless a hint is provided
-      TypeInferringUnifyStrategy unifier(hint_array ? hint_array->innerT : nullptr, true);
+      // for `[...]` without a hint, infer array<unified>, exactly as it's done for `return` or a ternary:
+      // - `[1,2,3]` is `array<int>`
+      // - `[1, null]` is `array<int?>`
+      // - `[1, "aba"]` is `array<int | string>`, and fire
+      TypeInferringUnifyStrategy unifier(nullptr);
       for (int i = 0; i < v->size(); ++i) {
         unifier.unify_with(types_list[i]);
       }
       if (unifier.became_union_without_hint()) {
         err("type of `[...]` is `array<{}>`; probably, it's not what you expected\n""specify the array's type manually\n""example:\n""> var x = array<unknown> [...]", unifier.get_result()).fire(v, cur_f);
       }
-      TypePtr t_array = TypeDataArray::create(unifier.get_result());
-      assign_inferred_type(v, t_array);
+      assign_inferred_type(v, TypeDataArray::create(unifier.get_result()));
     }
     return ExprFlow(std::move(flow), used_as_condition);
   }

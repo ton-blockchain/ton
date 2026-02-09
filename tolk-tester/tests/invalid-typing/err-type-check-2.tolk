@@ -78,7 +78,7 @@ fun incompatibleAddress(any: any_address, usual: address) {
     usual = any;
 }
 
-// @stderr type `int68` is not assignable to `int32`
+// @stderr can not convert `int68` to `int32`
 fun incompatibleSquareList() {
     lisp_list<int32> [1 as int, 3 as int32, 5 as int68];
 }

@@ -148,6 +148,21 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
     check_mapKV_inside_type(v->type_node);
   }
 
+  void visit(V<ast_is_type_operator> v) override {
+    check_mapKV_inside_type(v->type_node);
+    parent::visit(v);
+  }
+
+  void visit(V<ast_cast_as_operator> v) override {
+    check_mapKV_inside_type(v->type_node);
+    parent::visit(v);
+  }
+
+  void visit(V<ast_square_brackets> v) override {
+    check_mapKV_inside_type(v->type_node);
+    parent::visit(v);
+  }
+
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();

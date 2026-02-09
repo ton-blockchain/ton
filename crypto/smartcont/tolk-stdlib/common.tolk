@@ -809,9 +809,14 @@ fun debug.dumpStack(): void
 
 /// Returns an empty typed map. It's essentially "PUSHNULL", since TVM NULL represents an empty map.
 /// ```
+/// // old way, deprecated:
 /// var m: map<int8, int32> = createEmptyMap();
+///
+/// // new way, preferred:
+/// var m: map<int8, int32> = [];
 /// ```
 @pure
+@deprecated("use `[]` instead of `createEmptyMap`")
 fun createEmptyMap<K, V>(): map<K, V>
     builtin
 

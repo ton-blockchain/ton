@@ -357,8 +357,8 @@ fun test116() {
     var a4: array<int?> = [];
     var a5: array<int | slice | null> = [];
 
-    a1 = a2 = [Point{}];
-    a3 = a4 = a5 = [null, null];
+    a2 = a1 = [Point{}];
+    (a3, a4, a5) = ([null, null], [null, null], [null, null]);
 
     return (a1, a2, a3, a4, a5);
 }
@@ -542,7 +542,7 @@ fun test127() {
     arr.concatWith([4, 5]);
     arr.concatWith<int>([]);
     arr.concatWith([6 as int8, 7 as int8]);
-    arr.concatWith([8 as int64] as array<int32>);
+    arr.concatWith([8 as int32] as array<int32>);
     return arr;
 }
 
