@@ -306,6 +306,7 @@ ngtcp2_path QuicConnectionPImpl::make_path() const {
                 .addrlen = static_cast<ngtcp2_socklen>(local_address_.get_sockaddr_len())},
       .remote = {.addr = const_cast<ngtcp2_sockaddr*>(remote_address_.get_sockaddr()),
                  .addrlen = static_cast<ngtcp2_socklen>(remote_address_.get_sockaddr_len())},
+      .user_data = nullptr,
   };
 }
 

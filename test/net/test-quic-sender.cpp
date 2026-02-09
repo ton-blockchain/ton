@@ -1013,8 +1013,8 @@ TEST(QuicFairness, TwoConnectionsFairBandwidth) {
       avg1 += t;
     for (double t : completion2)
       avg2 += t;
-    avg1 /= completion1.size();
-    avg2 /= completion2.size();
+    avg1 /= static_cast<double>(completion1.size());
+    avg2 /= static_cast<double>(completion2.size());
 
     LOG(INFO) << "Fairness test: sender1 completed " << completion1.size() << " queries, avg time " << avg1 << "s";
     LOG(INFO) << "Fairness test: sender2 completed " << completion2.size() << " queries, avg time " << avg2 << "s";
