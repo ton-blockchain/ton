@@ -56,6 +56,34 @@ optionalFields
 
 trueField has_feature:true other:int = TrueField;
 
+mangledFieldsBaseTypes
+  from:int
+  list:string
+  self:bytes
+  bytes:int128
+  = MangledFieldsBaseTypes;
+
+mangledFieldsVectorBaseTypes
+  from:vector<int>
+  list:vector<string>
+  self:vector<bytes>
+  bytes:vector<int256>
+  = MangledFieldsVectorBaseTypes;
+
+mangledFieldsObjects
+  from:SimpleObject
+  list:TestVariant
+  self:SimpleObject
+  bytes:TestVariant
+  = MangledFieldsObjects;
+
+mangledFieldsVectorObjects
+  from:vector<SimpleObject>
+  list:vector<TestVariant>
+  self:vector<SimpleObject>
+  bytes:vector<TestVariant>
+  = MangledFieldsVectorObjects;
+
 ---functions---
 
 query id:int data:string = AllPrimitives;
