@@ -387,6 +387,9 @@ td::Status BroadcastsTwostep::process_broadcast(OverlayImpl *overlay, adnl::Adnl
     VLOG(TWOSTEP_INFO) << "twostep FINISH receiver " << *bcast << " decoded=true elapsed=" << bcast->debug.elapsed();
     broadcasts_.erase(it);
     overlay->register_delivered_broadcast(broadcast_id);
+    if (broadcast->data_hash_ != td::sha256_bits256(R.data)) {
+      return td::Status::Error(ErrorCode::protoviolation, "broadcast data hash mismatch");
+    }
     check_and_deliver(overlay, src_keyhash, check_result, std::move(R.data));
   }
   return td::Status::OK();

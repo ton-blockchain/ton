@@ -3758,7 +3758,7 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
       auto dest_prefix = block::tlb::MsgAddressInt::get_prefix(dest);
       CHECK(env.emitted_lt && env.emitted_lt.value() == msg.lt);
       ok = enqueue_transit_message(std::move(msg.msg), std::move(msg_env), src_prefix, src_prefix, dest_prefix,
-                                   std::move(env.fwd_fee_remaining), std::move(env.metadata), msg.lt);
+                                   std::move(env.fwd_fee_remaining), std::move(env.metadata), msg.lt, true);
     } else {
       ok = enqueue_message(std::move(msg), std::move(fwd_fees), src_addr, defer);
     }
@@ -3850,7 +3850,8 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
  * @param dest_prefix The prefix of the destination account ID.
  * @param fwd_fee_remaining The remaining forward fee.
  * @param msg_metadata Metadata of the message.
- * @param emitted_lt If present - the message was taken from DispatchQueue, and msg_env will have this emitted_lt.
+ * @param emitted_lt If present - the message was originally taken from DispatchQueue, and msg_env will have this emitted_lt.
+ * @param from_dispatch_queue The message was taken from dispatch queue in this block.
  *
  * @returns True if the transit message is successfully enqueued, false otherwise.
  */
@@ -3858,15 +3859,15 @@ bool Collator::enqueue_transit_message(Ref<vm::Cell> msg, Ref<vm::Cell> old_msg_
                                        ton::AccountIdPrefixFull prev_prefix, ton::AccountIdPrefixFull cur_prefix,
                                        ton::AccountIdPrefixFull dest_prefix, td::RefInt256 fwd_fee_remaining,
                                        td::optional<block::MsgMetadata> msg_metadata,
-                                       td::optional<LogicalTime> emitted_lt) {
-  bool from_dispatch_queue = (bool)emitted_lt;
+                                       td::optional<LogicalTime> emitted_lt, bool from_dispatch_queue) {
   if (from_dispatch_queue) {
+    CHECK(emitted_lt);
     LOG(DEBUG) << "enqueueing message from dispatch queue " << msg->get_hash().bits().to_hex(256)
                << ", emitted_lt=" << emitted_lt.value();
   } else {
     LOG(DEBUG) << "enqueueing transit message " << msg->get_hash().bits().to_hex(256);
   }
-  bool requeue = !from_dispatch_queue && is_our_address(prev_prefix) && !from_dispatch_queue;
+  bool requeue = !from_dispatch_queue && is_our_address(prev_prefix);
   // 1. perform hypercube routing
   auto route_info = block::perform_hypercube_routing(cur_prefix, dest_prefix, shard_);
   if ((unsigned)route_info.first > 96 || (unsigned)route_info.second > 96) {
@@ -4129,7 +4130,7 @@ bool Collator::process_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalT
     // destination is outside our shard, relay transit message
     // (very similar to enqueue_message())
     if (!enqueue_transit_message(std::move(env.msg), std::move(msg_env), cur_prefix, next_prefix, dest_prefix,
-                                 std::move(env.fwd_fee_remaining), std::move(env.metadata))) {
+                                 std::move(env.fwd_fee_remaining), std::move(env.metadata), env.emitted_lt, false)) {
       return fatal_error("cannot enqueue transit internal message with key "s + key.to_hex(352));
     }
     return !our || delete_out_msg_queue_msg(key);

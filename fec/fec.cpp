@@ -48,13 +48,13 @@ tl_object_ptr<ton_api::fec_Type> FecType::tl() const {
 }
 
 td::Result<std::unique_ptr<td::fec::Decoder>> FecType::create_decoder() const {
-  std::unique_ptr<td::fec::Decoder> res;
+  td::Result<std::unique_ptr<td::fec::Decoder>> res;
   type_.visit(td::overloaded(
       [&](const Empty &obj) { UNREACHABLE(); },
       [&](const td::fec::RaptorQEncoder::Parameters &obj) { res = td::fec::RaptorQDecoder::create(obj); },
       [&](const td::fec::RoundRobinEncoder::Parameters &obj) { res = td::fec::RoundRobinDecoder::create(obj); },
       [&](const td::fec::OnlineEncoder::Parameters &obj) { res = td::fec::OnlineDecoder::create(obj); }));
-  return std::move(res);
+  return res;
 }
 
 td::Result<std::unique_ptr<td::fec::Encoder>> FecType::create_encoder(td::BufferSlice data) {

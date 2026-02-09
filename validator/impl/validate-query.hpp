@@ -218,7 +218,7 @@ class ValidateQuery : public td::actor::Actor {
   UnixTime prev_now_{~0u}, now_{~0u};
   td::optional<td::uint64> now_ms_;
 
-  ton::Bits256 rand_seed_;
+  td::Bits256 rand_seed_ = td::Bits256::zero();
   std::vector<block::StoragePrices> storage_prices_;
   block::StoragePhaseConfig storage_phase_cfg_{&storage_prices_};
   block::ComputePhaseConfig compute_phase_cfg_;

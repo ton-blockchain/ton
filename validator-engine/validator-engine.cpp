@@ -5217,6 +5217,7 @@ int main(int argc, char *argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
 
   td::set_default_failure_signal_handler().ensure();
+  td::set_log_fatal_error_callback([](td::CSlice s) { std::cerr << "FATAL_ERROR: " << s.c_str() << std::endl; });
 
   td::actor::ActorOwn<ValidatorEngine> x;
   td::unique_ptr<td::LogInterface> logger_;

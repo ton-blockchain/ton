@@ -372,7 +372,7 @@ class Collator final : public td::actor::Actor {
   bool enqueue_transit_message(Ref<vm::Cell> msg, Ref<vm::Cell> old_msg_env, ton::AccountIdPrefixFull prev_prefix,
                                ton::AccountIdPrefixFull cur_prefix, ton::AccountIdPrefixFull dest_prefix,
                                td::RefInt256 fwd_fee_remaining, td::optional<block::MsgMetadata> msg_metadata,
-                               td::optional<LogicalTime> emitted_lt = {});
+                               td::optional<LogicalTime> emitted_lt, bool from_dispatch_queue);
   bool delete_out_msg_queue_msg(td::ConstBitPtr key);
   bool insert_in_msg(Ref<vm::Cell> in_msg);
   bool insert_out_msg(Ref<vm::Cell> out_msg);

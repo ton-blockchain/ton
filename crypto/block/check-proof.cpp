@@ -53,7 +53,7 @@ td::Status check_block_header_proof(td::Ref<vm::Cell> root, ton::BlockIdExt blki
     *save_lt = info.end_lt;
   }
   if (store_state_hash_to) {
-    vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
+    vm::CellSlice upd_cs{vm::NoVm(), blk.state_update};
     if (!(upd_cs.is_special() && upd_cs.prefetch_long(8) == 4  // merkle update
           && upd_cs.size_ext() == 0x20228)) {
       return td::Status::Error("invalid Merkle update in block header");

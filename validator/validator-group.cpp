@@ -758,11 +758,10 @@ void ValidatorGroup::create_session() {
 
   td::actor::send_closure(rldp_, &rldp::Rldp::add_id, local_adnl_id_);
   td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_adnl_id_);
-  td::actor::send_closure(quic_, &quic::QuicSender::add_local_id, local_adnl_id_);
+  // td::actor::send_closure(quic_, &quic::QuicSender::add_local_id, local_adnl_id_);
   rldp_limit_guard_ = rldp2::PeersMtuLimitGuard(rldp2_, local_adnl_id_, adnl_ids,
                                                 config_.max_block_size + config_.max_collated_data_size + 1024);
 
-  // FIXME: we currently use quic here for tests. Use option or something
   td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender;
   if (config_.use_quic) {
     adnl_sender = quic_;
