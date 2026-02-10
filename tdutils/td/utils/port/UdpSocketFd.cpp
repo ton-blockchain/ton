@@ -1023,7 +1023,7 @@ Status UdpSocketFd::receive_messages(MutableSpan<InboundMessage> messages, size_
     if (out.error) {
       *out.error = std::move(msg.error);
     }
-    out.data = buf.back().as_mutable_slice();
+    out.data = buf.back().as_slice();
     out.gso_size = 0;
     count++;
   }
