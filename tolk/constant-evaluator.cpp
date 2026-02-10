@@ -252,7 +252,7 @@ static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_funct
       return ConstValObject{s_SourceLocation, {
         ConstValInt{td::make_refint(d.start_line_no)},
         ConstValInt{td::make_refint(d.start_char_no)},
-        ConstValString{v->range.get_src_file()->extract_short_name()},
+        ConstValString{v->range.get_src_file()->realpath},
       }};
     }
   }
