@@ -81,4 +81,77 @@ private:
   std::vector<std::shared_ptr<Collector>> collectors_;
 };
 
+template<typename ValueType>
+class AtomicGauge : public Collector {
+public:
+  explicit AtomicGauge(std::string name, std::optional<std::string> help = std::nullopt);
+  MetricSet collect() final;
+
+  void set(ValueType value);
+  void add(ValueType value);
+
+private:
+  const std::string name_;
+  const std::optional<std::string> help_;
+  std::atomic<ValueType> value_ = {ValueType()};
+};
+
+template<typename ValueType>
+class AtomicCounter : public Collector {
+public:
+  explicit AtomicCounter(std::string name, std::optional<std::string> help = std::nullopt);
+  MetricSet collect() final;
+
+  void set(ValueType value);
+  void add(ValueType value);
+
+private:
+  const std::string name_;
+  const std::optional<std::string> help_;
+  std::atomic<ValueType> value_ = {ValueType()};
+};
+
+template <typename ValueType>
+AtomicGauge<ValueType>::AtomicGauge(std::string name, std::optional<std::string> help) : name_(std::move(name)), help_(std::move(help)) {
+}
+
+template <typename ValueType>
+MetricSet AtomicGauge<ValueType>::collect() {
+  auto value = value_.load();
+  return {{MetricFamily::make_scalar(name_, "gauge", value, help_)}};
+}
+
+template <typename ValueType>
+void AtomicGauge<ValueType>::set(ValueType value) {
+  value_.store(value);
+}
+
+template <typename ValueType>
+void AtomicGauge<ValueType>::add(ValueType value){
+  value_.fetch_add(value);
+}
+
+
+template <typename ValueType>
+AtomicCounter<ValueType>::AtomicCounter(std::string name, std::optional<std::string> help) : name_(std::move(name)), help_(std::move(help)) {
+}
+
+template <typename ValueType>
+MetricSet AtomicCounter<ValueType>::collect() {
+  auto value = value_.load();
+  return {{MetricFamily::make_scalar(name_, "counter", value, help_)}};
+}
+
+template <typename ValueType>
+void AtomicCounter<ValueType>::set(ValueType value){
+  auto old = value_.exchange(value);
+  CHECK(value >= old);
+}
+
+template <typename ValueType>
+void AtomicCounter<ValueType>::add(ValueType value) {
+  CHECK(value >= 0);
+  value_.fetch_add(value);
+}
+
 }

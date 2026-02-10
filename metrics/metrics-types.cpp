@@ -84,11 +84,11 @@ MetricFamily MetricFamily::label(const LabelSet &extension) && {
   return {.name = std::move(name), .type = std::move(type), .help = std::move(help), .metrics = std::move(new_metrics)};
 }
 
-MetricFamily MetricFamily::make_scalar(std::string name, std::string type, double value) {
+MetricFamily MetricFamily::make_scalar(std::string name, std::string type, double value, std::optional<std::string> help) {
   return MetricFamily{
     .name = name,
     .type = type,
-    .help = std::nullopt,
+    .help = help,
     .metrics = {Metric{
       .suffix = "",
       .label_set = {},

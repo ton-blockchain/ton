@@ -29,6 +29,8 @@ int main() {
   td::actor::ActorOwn<ExampleActor> example;
   scheduler.run_in_context([&] {
     exporter = PrometheusExporter::listen();
+    td::actor::send_closure(exporter.get(), &PrometheusExporter::add_collector_actor, exporter.get());
+
     example = td::actor::create_actor<ExampleActor>("example");
     td::actor::send_closure(exporter.get(), &PrometheusExporter::add_collector_actor, example.get());
   });

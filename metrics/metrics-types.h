@@ -42,7 +42,7 @@ struct MetricFamily {
   [[nodiscard]] MetricFamily wrap(std::string prefix) &&;
   [[nodiscard]] MetricFamily label(const LabelSet &extension) &&;
 
-  static MetricFamily make_scalar(std::string name, std::string type, double value);
+  static MetricFamily make_scalar(std::string name, std::string type, double value, std::optional<std::string> help = std::nullopt);
 };
 
 struct MetricSet {
