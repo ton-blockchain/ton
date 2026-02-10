@@ -21,7 +21,6 @@
 #include "auto/tl/ton_api.h"
 #include "common/errorcode.h"
 #include "keyring/keyring.h"
-#include "metrics/metrics-collectors.h"
 #include "td/actor/actor.h"
 #include "td/utils/port/IPAddress.h"
 
