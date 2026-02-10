@@ -18,6 +18,7 @@
 */
 #pragma once
 
+#include <list>
 #include <map>
 
 #include "adnl/adnl.h"
@@ -43,7 +44,7 @@ class Overlay;
 class OverlayManager : public Overlays {
  public:
   OverlayManager(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                 td::actor::ActorId<dht::Dht> dht);
+                 td::actor::ActorId<dht::Dht> dht, OverlayManagerBufferLimits buffer_limits = {});
   void start_up() override;
   void save_to_db(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id, std::vector<OverlayNode> nodes);
 
@@ -121,6 +122,37 @@ class OverlayManager : public Overlays {
     OverlayMemberCertificate member_certificate;
   };
   std::map<adnl::AdnlNodeIdShort, std::map<OverlayIdShort, OverlayDescription>> overlays_;
+
+  struct BufferedRequest {
+    adnl::AdnlNodeIdShort src;
+    adnl::AdnlNodeIdShort dst;
+    OverlayIdShort overlay_id;
+    td::BufferSlice data;
+    std::optional<td::Promise<td::BufferSlice>> promise;
+    std::list<BufferedRequest>::iterator next_for_overlay;
+  };
+
+  struct OverlayBufferKey {
+    adnl::AdnlNodeIdShort local_id;
+    OverlayIdShort overlay_id;
+
+    std::strong_ordering operator<=>(const OverlayBufferKey &other) const = default;
+  };
+
+  struct RequestBuffer {
+    std::list<BufferedRequest> requests;
+    std::map<OverlayBufferKey, std::list<BufferedRequest>::iterator> overlay_heads;
+    td::uint32 total_packets = 0;
+    td::uint64 total_data_size = 0;
+
+    void evict_oldest();
+    void add_request(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, OverlayIdShort overlay_id,
+                     td::BufferSlice data, std::optional<td::Promise<td::BufferSlice>> promise);
+    std::vector<BufferedRequest> extract_for_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id);
+  };
+
+  RequestBuffer buffered_requests_;
+  OverlayManagerBufferLimits buffer_limits_;
 
   std::string db_root_;
 

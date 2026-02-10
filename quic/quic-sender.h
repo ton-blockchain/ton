@@ -57,6 +57,8 @@ class QuicSender : public adnl::AdnlSenderInterface {
 
   td::actor::Task<td::Unit> send_message_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                               td::BufferSlice data);
+  td::actor::Task<td::Unit> send_message_coro_inner(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
+                                                    td::BufferSlice data);
   td::actor::Task<td::BufferSlice> send_query_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                                    std::string name, td::Timestamp timeout, td::BufferSlice data,
                                                    std::optional<td::uint64> limit);
@@ -69,7 +71,7 @@ class QuicSender : public adnl::AdnlSenderInterface {
 
   void on_connected(td::actor::ActorId<QuicServer> server, QuicConnectionId cid, adnl::AdnlNodeIdShort local_id,
                     td::SecureString peer_public_key, bool is_outbound);
-  void on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id, td::BufferSlice data);
+  void on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id, td::Result<td::BufferSlice> data);
   void on_closed(QuicConnectionId cid);
 
   void on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id, ton_api::quic_query& query);

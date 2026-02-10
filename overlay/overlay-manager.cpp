@@ -37,6 +37,93 @@ namespace ton {
 
 namespace overlay {
 
+void OverlayManager::RequestBuffer::evict_oldest() {
+  if (requests.empty()) {
+    return;
+  }
+
+  auto &oldest = requests.front();
+  if (oldest.promise.has_value()) {
+    oldest.promise->set_error(
+        td::Status::Error(ErrorCode::protoviolation, PSTRING() << "bad overlay_id " << oldest.overlay_id));
+  }
+
+  OverlayBufferKey key{oldest.dst, oldest.overlay_id};
+
+  auto head_it = overlay_heads.find(key);
+  if (head_it != overlay_heads.end() && head_it->second == requests.begin()) {
+    if (oldest.next_for_overlay != requests.end()) {
+      overlay_heads[key] = oldest.next_for_overlay;
+    } else {
+      overlay_heads.erase(head_it);
+    }
+  }
+
+  total_data_size -= oldest.data.size();
+  total_packets--;
+  requests.pop_front();
+}
+
+void OverlayManager::RequestBuffer::add_request(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
+                                                OverlayIdShort overlay_id, td::BufferSlice data,
+                                                std::optional<td::Promise<td::BufferSlice>> promise) {
+  OverlayBufferKey key{dst, overlay_id};
+
+  requests.push_back(BufferedRequest{src, dst, overlay_id, std::move(data), std::move(promise), requests.end()});
+  auto new_req_it = std::prev(requests.end());
+
+  auto head_it = overlay_heads.find(key);
+  if (head_it != overlay_heads.end()) {
+    auto it = head_it->second;
+    while (it->next_for_overlay != requests.end()) {
+      it = it->next_for_overlay;
+    }
+    it->next_for_overlay = new_req_it;
+  } else {
+    overlay_heads[key] = new_req_it;
+  }
+
+  total_data_size += new_req_it->data.size();
+  total_packets++;
+}
+
+std::vector<OverlayManager::BufferedRequest> OverlayManager::RequestBuffer::extract_for_overlay(
+    adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id) {
+  OverlayBufferKey key{local_id, overlay_id};
+  std::vector<BufferedRequest> result;
+
+  auto head_it = overlay_heads.find(key);
+  if (head_it == overlay_heads.end()) {
+    return result;
+  }
+
+  std::vector<std::list<BufferedRequest>::iterator> to_remove;
+  auto it = head_it->second;
+  while (it != requests.end()) {
+    auto next = it->next_for_overlay;
+    BufferedRequest req;
+    req.src = it->src;
+    req.dst = it->dst;
+    req.overlay_id = it->overlay_id;
+    req.data = std::move(it->data);
+    req.promise = std::move(it->promise);
+    req.next_for_overlay = requests.end();
+
+    total_data_size -= req.data.size();
+    total_packets--;
+    result.push_back(std::move(req));
+    to_remove.push_back(it);
+    it = next;
+  }
+
+  for (auto it : to_remove) {
+    requests.erase(it);
+  }
+
+  overlay_heads.erase(head_it);
+  return result;
+}
+
 void OverlayManager::update_dht_node(td::actor::ActorId<dht::Dht> dht) {
   dht_node_ = dht;
   for (auto &X : overlays_) {
@@ -65,6 +152,19 @@ void OverlayManager::register_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdS
                             std::make_unique<AdnlCallback>(actor_id(this)));
   }
   overlays_[local_id][overlay_id] = OverlayDescription{std::move(overlay), std::move(cert)};
+
+  auto buffered = buffered_requests_.extract_for_overlay(local_id, overlay_id);
+  if (!buffered.empty()) {
+    VLOG(OVERLAY_INFO) << this << ": flushing " << buffered.size() << " buffered requests for " << overlay_id << "@"
+                       << local_id;
+    for (auto &req : buffered) {
+      if (req.promise.has_value()) {
+        receive_query(req.src, req.dst, std::move(req.data), std::move(req.promise.value()));
+      } else {
+        receive_message(req.src, req.dst, std::move(req.data));
+      }
+    }
+  }
 
   if (!with_db_) {
     return;
@@ -163,12 +263,13 @@ void OverlayManager::create_semiprivate_overlay(adnl::AdnlNodeIdShort local_id, 
 void OverlayManager::receive_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) {
   OverlayIdShort overlay_id;
   tl_object_ptr<ton_api::overlay_messageExtra> extra;
-  auto R = fetch_tl_prefix<ton_api::overlay_messageWithExtra>(data, true);
+  td::Slice parsed_data = data;
+  auto R = fetch_tl_prefix<ton_api::overlay_messageWithExtra>(parsed_data, true);
   if (R.is_ok()) {
     overlay_id = OverlayIdShort{R.ok()->overlay_};
     extra = std::move(R.ok()->extra_);
   } else {
-    auto R2 = fetch_tl_prefix<ton_api::overlay_message>(data, true);
+    auto R2 = fetch_tl_prefix<ton_api::overlay_message>(parsed_data, true);
     if (R2.is_ok()) {
       overlay_id = OverlayIdShort{R2.ok()->overlay_};
     } else {
@@ -186,9 +287,19 @@ void OverlayManager::receive_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeId
   auto it2 = it->second.find(overlay_id);
   if (it2 == it->second.end()) {
     VLOG(OVERLAY_NOTICE) << this << ": message to localid is not in overlay " << overlay_id << "@" << dst;
+
+    if (buffer_limits_.max_packets != 0 && buffer_limits_.max_data_size > data.size()) {
+      while (buffered_requests_.total_packets >= buffer_limits_.max_packets ||
+             buffered_requests_.total_data_size + data.size() > buffer_limits_.max_data_size) {
+        buffered_requests_.evict_oldest();
+      }
+
+      buffered_requests_.add_request(src, dst, overlay_id, std::move(data), std::nullopt);
+    }
     return;
   }
 
+  data.confirm_read(data.size() - parsed_data.size());
   td::actor::send_closure(it2->second.overlay, &Overlay::update_throughput_in_ctr, src, data.size(), false, false);
   td::actor::send_closure(it2->second.overlay, &Overlay::receive_message, src, std::move(extra), std::move(data));
 }
@@ -197,12 +308,13 @@ void OverlayManager::receive_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdSh
                                    td::Promise<td::BufferSlice> promise) {
   OverlayIdShort overlay_id;
   tl_object_ptr<ton_api::overlay_messageExtra> extra;
-  auto R = fetch_tl_prefix<ton_api::overlay_queryWithExtra>(data, true);
+  td::Slice parsed_data = data;
+  auto R = fetch_tl_prefix<ton_api::overlay_queryWithExtra>(parsed_data, true);
   if (R.is_ok()) {
     overlay_id = OverlayIdShort{R.ok()->overlay_};
     extra = std::move(R.ok()->extra_);
   } else {
-    auto R2 = fetch_tl_prefix<ton_api::overlay_query>(data, true);
+    auto R2 = fetch_tl_prefix<ton_api::overlay_query>(parsed_data, true);
     if (R2.is_ok()) {
       overlay_id = OverlayIdShort{R2.ok()->overlay_};
     } else {
@@ -222,10 +334,21 @@ void OverlayManager::receive_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdSh
   auto it2 = it->second.find(overlay_id);
   if (it2 == it->second.end()) {
     VLOG(OVERLAY_NOTICE) << this << ": query to localid not in overlay " << overlay_id << "@" << dst << " from " << src;
-    promise.set_error(td::Status::Error(ErrorCode::protoviolation, PSTRING() << "bad overlay_id " << overlay_id));
+
+    if (buffer_limits_.max_packets != 0 && buffer_limits_.max_data_size > data.size()) {
+      while (buffered_requests_.total_packets >= buffer_limits_.max_packets ||
+             buffered_requests_.total_data_size + data.size() > buffer_limits_.max_data_size) {
+        buffered_requests_.evict_oldest();
+      }
+
+      buffered_requests_.add_request(src, dst, overlay_id, std::move(data), std::move(promise));
+    } else {
+      promise.set_error(td::Status::Error(ErrorCode::protoviolation, PSTRING() << "bad overlay_id " << overlay_id));
+    }
     return;
   }
 
+  data.confirm_read(data.size() - parsed_data.size());
   td::actor::send_closure(it2->second.overlay, &Overlay::update_throughput_in_ctr, src, data.size(), true, false);
   promise = [overlay = it2->second.overlay.get(), promise = std::move(promise),
              src](td::Result<td::BufferSlice> R) mutable {
@@ -406,13 +529,15 @@ void OverlayManager::get_overlay_random_peers(adnl::AdnlNodeIdShort local_id, Ov
 }
 
 td::actor::ActorOwn<Overlays> Overlays::create(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-                                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht) {
-  return td::actor::create_actor<OverlayManager>("overlaymanager", db_root, keyring, adnl, dht);
+                                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht,
+                                               OverlayManagerBufferLimits buffer_limits) {
+  return td::actor::create_actor<OverlayManager>("overlaymanager", db_root, keyring, adnl, dht, buffer_limits);
 }
 
 OverlayManager::OverlayManager(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht)
-    : db_root_(db_root), keyring_(keyring), adnl_(adnl), dht_node_(dht) {
+                               td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht,
+                               OverlayManagerBufferLimits buffer_limits)
+    : buffer_limits_(buffer_limits), db_root_(db_root), keyring_(keyring), adnl_(adnl), dht_node_(dht) {
 }
 
 void OverlayManager::start_up() {

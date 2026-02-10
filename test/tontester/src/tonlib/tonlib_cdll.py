@@ -8,6 +8,11 @@ class TonlibCDLL:
     def __init__(self, cdll_path: Path):
         tonlib = ctypes.CDLL(cdll_path)
 
+        client_set_verbosity_level = tonlib.tonlib_client_set_verbosity_level
+        client_set_verbosity_level.restype = None
+        client_set_verbosity_level.argtypes = [ctypes.c_int]
+        self.client_set_verbosity_level = cast(Callable[[int], None], client_set_verbosity_level)
+
         event_loop_create = tonlib.tonlib_event_loop_create
         event_loop_create.restype = ctypes.c_void_p
         event_loop_create.argtypes = [ctypes.c_int]

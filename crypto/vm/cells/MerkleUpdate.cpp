@@ -26,9 +26,13 @@ namespace detail {
 class MerkleUpdateApply {
  public:
   Ref<Cell> apply(Ref<Cell> from, Ref<Cell> update_from, Ref<Cell> update_to, td::uint32 from_level,
-                  td::uint32 to_level) {
+                  td::uint32 to_level, StoreCellHint *hint = nullptr) {
     if (from_level != from->get_level()) {
       return {};
+    }
+    hint_ = hint;
+    if (hint_ != nullptr) {
+      *hint_ = StoreCellHint{};
     }
     dfs_both(from, update_from, from_level);
     return dfs(update_to, to_level);
@@ -38,6 +42,7 @@ class MerkleUpdateApply {
   using Key = std::pair<Cell::Hash, int>;
   td::HashMap<Cell::Hash, Ref<Cell>> known_cells_;
   td::HashMap<Key, Ref<Cell>> ready_cells_;
+  StoreCellHint *hint_ = nullptr;
 
   void dfs_both(Ref<Cell> original, Ref<Cell> update_from, int merkle_depth) {
     CellSlice cs_update_from(NoVm(), update_from);
@@ -57,8 +62,12 @@ class MerkleUpdateApply {
     CellSlice cs(NoVm(), cell);
     if (cs.special_type() == Cell::SpecialType::PrunnedBranch) {
       if ((int)cell->get_level() == merkle_depth + 1) {
-        auto it = known_cells_.find(cell->get_hash(merkle_depth));
+        CellHash hash = cell->get_hash(merkle_depth);
+        auto it = known_cells_.find(hash);
         if (it != known_cells_.end()) {
+          if (hint_ != nullptr) {
+            hint_->prev_state_cells.insert(hash);
+          }
           return it->second;
         }
         return {};
@@ -157,7 +166,7 @@ td::Status MerkleUpdate::may_apply(Ref<Cell> from, Ref<Cell> update) {
   return td::Status::OK();
 }
 
-Ref<Cell> MerkleUpdate::apply(Ref<Cell> from, Ref<Cell> update) {
+Ref<Cell> MerkleUpdate::apply(Ref<Cell> from, Ref<Cell> update, StoreCellHint *hint) {
   if (update->get_level() != 0 || from->get_level() != 0) {
     return {};
   }
@@ -167,17 +176,18 @@ Ref<Cell> MerkleUpdate::apply(Ref<Cell> from, Ref<Cell> update) {
   }
   auto update_from = cs.fetch_ref();
   auto update_to = cs.fetch_ref();
-  return apply_raw(std::move(from), std::move(update_from), std::move(update_to), 0, 0);
+  return apply_raw(std::move(from), std::move(update_from), std::move(update_to), 0, 0, hint);
 }
 
 Ref<Cell> MerkleUpdate::apply_raw(Ref<Cell> from, Ref<Cell> update_from, Ref<Cell> update_to, td::uint32 from_level,
-                                  td::uint32 to_level) {
+                                  td::uint32 to_level, StoreCellHint *hint) {
   if (from->get_hash(from_level) != update_from->get_hash(from_level)) {
     LOG(DEBUG) << "invalid Merkle update: expected old value hash = " << update_from->get_hash(from_level).to_hex()
                << ", applied to value with hash = " << from->get_hash(from_level).to_hex();
     return {};
   }
-  return detail::MerkleUpdateApply().apply(from, std::move(update_from), std::move(update_to), from_level, to_level);
+  return detail::MerkleUpdateApply().apply(from, std::move(update_from), std::move(update_to), from_level, to_level,
+                                           hint);
 }
 
 std::pair<Ref<Cell>, Ref<Cell>> MerkleUpdate::generate_raw(Ref<Cell> from, Ref<Cell> to, CellUsageTree *usage_tree) {

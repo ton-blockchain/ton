@@ -243,4 +243,8 @@ td::BufferSlice RawCandidate::serialize() const {
   return std::visit(td::overloaded(empty_fn, block_fn), block);
 }
 
+bool RawCandidate::is_empty() const {
+  return std::holds_alternative<BlockIdExt>(block);
+}
+
 }  // namespace ton::validator::consensus

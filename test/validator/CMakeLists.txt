@@ -7,4 +7,4 @@ target_link_libraries(test-runtime PRIVATE
     td-test-main
 )
 
-add_test(test-runtime test-runtime)
+ton_test(test-runtime)

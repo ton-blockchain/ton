@@ -50,7 +50,7 @@ class Db : public td::actor::Actor {
                                    td::Promise<BlockCandidate> promise) = 0;
   virtual void get_block_candidate_by_block_id(BlockIdExt id, td::Promise<BlockCandidate> promise) = 0;
 
-  virtual void store_block_state(BlockHandle handle, td::Ref<ShardState> state,
+  virtual void store_block_state(BlockHandle handle, td::Ref<ShardState> state, vm::StoreCellHint hint,
                                  td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void store_block_state_from_data(BlockHandle handle, td::Ref<BlockData> block,
                                            td::Promise<td::Ref<ShardState>> promise) = 0;

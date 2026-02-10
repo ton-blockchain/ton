@@ -108,7 +108,12 @@ class ValidatorManagerImpl : public ValidatorManager {
   void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override {
     UNREACHABLE();
   }
-  void new_block_broadcast(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override {
+  void new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, td::Promise<td::Unit> promise) override {
+    UNREACHABLE();
+  }
+  void wait_state_by_prev_blocks(BlockIdExt block_id, std::vector<BlockIdExt> prev_blocks,
+                                 td::Promise<td::Ref<ShardState>> promise) override;
+  void validate_block_broadcast_signatures(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override {
     UNREACHABLE();
   }
 
@@ -167,7 +172,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void get_block_handle(BlockIdExt id, bool force, td::Promise<BlockHandle> promise) override;
 
-  void set_block_state(BlockHandle handle, td::Ref<ShardState> state,
+  void set_block_state(BlockHandle handle, td::Ref<ShardState> state, vm::StoreCellHint hint,
                        td::Promise<td::Ref<ShardState>> promise) override {
     UNREACHABLE();
   }

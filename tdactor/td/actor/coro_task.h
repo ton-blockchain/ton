@@ -279,6 +279,15 @@ struct promise_type : promise_value<td::Result<T>> {
     return wrap_and_resume_on_current(std::move(wrapped.value));
   }
 
+  template <class U>
+  auto await_transform(Traced<Task<U>>&& traced) noexcept {
+    return trace_and_resume_on_current(std::move(traced.value).start_immediate(), std::move(traced.trace));
+  }
+  template <class U>
+  auto await_transform(Traced<StartedTask<U>>&& traced) noexcept {
+    return trace_and_resume_on_current(std::move(traced.value), std::move(traced.trace));
+  }
+
   template <class Aw>
   auto await_transform(Aw&& aw) noexcept {
     return wrap_and_resume_on_current(std::forward<Aw>(aw));
@@ -369,6 +378,10 @@ struct [[nodiscard]] Task {
   auto wrap() && {
     return Wrapped<Task>{std::move(*this)};
   }
+
+  auto trace(std::string t) && {
+    return Traced<Task>{std::move(*this), std::move(t)};
+  }
 };
 
 template <class T = Unit>
@@ -447,6 +460,10 @@ struct [[nodiscard]] StartedTask {
     return Wrapped<StartedTask>{std::move(*this)};
   }
 
+  auto trace(std::string t) && {
+    return Traced<StartedTask>{std::move(*this), std::move(t)};
+  }
+
   template <class F>
   auto then(F&& f) && {
     using Self = StartedTask<T>;
@@ -456,11 +473,8 @@ struct [[nodiscard]] StartedTask {
     using U = detail::UnwrapTDResult<Ret>::Type;
     return [](Self task, FDecayed fn) mutable -> Task<U> {
       co_await become_lightweight();
-      auto value = co_await std::move(task).wrap();
-      if (value.is_error()) {
-        co_return value.move_as_error();
-      }
-      co_return co_await detail::make_awaitable(fn(value.move_as_ok()));
+      auto value = co_await std::move(task);
+      co_return co_await detail::make_awaitable(fn(std::move(value)));
     }(std::move(*this), std::forward<F>(f));
   }
 

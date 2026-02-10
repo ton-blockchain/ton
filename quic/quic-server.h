@@ -23,6 +23,9 @@ struct QuicConnectionPImpl;
 struct StreamOptions {
   std::optional<td::uint64> max_size;
   td::Timestamp timeout = td::Timestamp::never();
+  double timeout_seconds = 0.0;
+  td::uint64 query_size = 0;
+  td::uint32 query_magic = 0;
 };
 
 class QuicServer : public td::actor::Actor, public td::ObserverBase {
@@ -30,8 +33,9 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   class Callback {
    public:
     virtual void on_connected(QuicConnectionId cid, td::SecureString peer_public_key, bool is_outbound) = 0;
-    virtual void on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) = 0;
+    virtual td::Status on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) = 0;
     virtual void on_closed(QuicConnectionId cid) = 0;
+    virtual void on_stream_closed(QuicConnectionId cid, QuicStreamID sid) = 0;
     virtual void set_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options) {
     }
     virtual ~Callback() = default;
@@ -90,6 +94,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     td::IPAddress remote_address;
     QuicConnectionId cid;
     std::optional<QuicConnectionId> temp_cid;
+    std::optional<std::pair<td::IPAddress, td::BufferSlice>> blocked_packet;
     bool is_outbound;
     friend td::StringBuilder &operator<<(td::StringBuilder &sb, const ConnectionState &state) {
       sb << "Connection{" << (state.is_outbound ? "to" : "from") << " " << state.remote_address;
@@ -105,7 +110,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void update_alarm();
   void update_alarm_for(ConnectionState &state);
   void drain_ingress();
-  void flush_egress_for(ConnectionState &state, EgressData data = {.stream_data = std::nullopt});
+  void flush_egress_for(ConnectionState &state, EgressData data = EgressData{});
   void flush_egress_all();
 
   std::shared_ptr<ConnectionState> find_connection(const QuicConnectionId &cid);

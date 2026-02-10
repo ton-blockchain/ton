@@ -292,10 +292,18 @@ if (NOT WIN32)
   target_link_libraries(ton_crypto_core PUBLIC dl z)
 endif()
 target_include_directories(ton_crypto_core SYSTEM PUBLIC $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>)
+# Ensure OpenSSL is built before ton_crypto_core
+if (TARGET OpenSSL)
+  add_dependencies(ton_crypto_core OpenSSL)
+endif()
 
 add_library(ton_crypto STATIC ${TON_CRYPTO_SOURCE})
 target_include_directories(ton_crypto PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
 target_link_libraries(ton_crypto PUBLIC ${OPENSSL_CRYPTO_LIBRARY} ton_crypto_core ton_block)
+# Ensure OpenSSL is built before ton_crypto
+if (TARGET OpenSSL)
+  add_dependencies(ton_crypto OpenSSL)
+endif()
 if (USE_EMSCRIPTEN)
   target_link_options(ton_crypto PRIVATE -fexceptions)
   target_compile_options(ton_crypto PRIVATE -fexceptions)
@@ -312,6 +320,10 @@ target_include_directories(ton_crypto SYSTEM PUBLIC $<BUILD_INTERFACE:${OPENSSL_
 
 add_dependencies(ton_crypto blst)
 add_dependencies(ton_crypto_core secp256k1)
+if (TARGET sodium)
+  add_dependencies(ton_crypto sodium)
+  add_dependencies(ton_crypto_core sodium)
+endif()
 
 target_include_directories(ton_crypto PRIVATE ${BLST_INCLUDE_DIR})
 target_link_libraries(ton_crypto PRIVATE ${BLST_LIB})
@@ -369,6 +381,10 @@ add_library(ton_block STATIC ${BLOCK_SOURCE})
 target_include_directories(ton_block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/block> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
 target_link_libraries(ton_block PUBLIC ton_crypto_core tdactor tl_api)
+if (MINGW)
+  # Resolve circular static linking between ton_block and ton_crypto on MinGW.
+  target_link_libraries(ton_block PUBLIC ton_crypto)
+endif()
 if (USE_EMSCRIPTEN)
   target_link_options(ton_block PRIVATE -fexceptions)
   target_compile_options(ton_block PRIVATE -fexceptions)
@@ -377,6 +393,10 @@ endif()
 add_executable(func func/func-main.cpp ${FUNC_LIB_SOURCE})
 target_include_directories(func PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_link_libraries(func PUBLIC ton_crypto src_parser git)
+if (MINGW)
+  # Ensure ton_crypto appears after ton_block in link order to resolve VM symbols.
+  target_link_libraries(func PRIVATE ton_crypto)
+endif()
 if (WINGETOPT_FOUND)
   target_link_libraries_system(func wingetopt)
 endif()
@@ -422,18 +442,12 @@ if (JEMALLOC_FOUND)
   target_compile_definitions(mintless-proof-generator PRIVATE -DTON_USE_JEMALLOC=1)
 endif()
 
-set(TURN_OFF_LSAN cd .)
-if (TON_USE_ASAN AND NOT WIN32)
-  set(TURN_OFF_LSAN export LSAN_OPTIONS=detect_leaks=0)
-endif()
-
 file(MAKE_DIRECTORY smartcont/auto)
 if (NOT CMAKE_CROSSCOMPILING OR USE_EMSCRIPTEN)
   set(GENERATE_TLB_CMD tlbc)
   if (NOT USE_EMSCRIPTEN)
     add_custom_command(
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/block
-      COMMAND ${TURN_OFF_LSAN}
       COMMAND ${GENERATE_TLB_CMD} -o block-auto -n block::gen -z block.tlb
       COMMENT "Generate block tlb source files"
       OUTPUT ${TLB_BLOCK_AUTO}
@@ -442,7 +456,6 @@ if (NOT CMAKE_CROSSCOMPILING OR USE_EMSCRIPTEN)
   else()
     add_custom_command(
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/block
-      COMMAND ${TURN_OFF_LSAN}
       COMMENT "Generate block tlb source files"
       OUTPUT ${TLB_BLOCK_AUTO}
       DEPENDS tlbc block/block.tlb

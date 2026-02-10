@@ -47,6 +47,10 @@ class CellDbReader {
   virtual td::Result<std::vector<Ref<DataCell>>> load_bulk(td::Span<td::Slice> hashes) = 0;
 };
 
+struct StoreCellHint {
+  td::HashSet<CellHash> prev_state_cells;
+};
+
 class DynamicBagOfCellsDb {
  public:
   virtual ~DynamicBagOfCellsDb() = default;
@@ -95,7 +99,7 @@ class DynamicBagOfCellsDb {
   virtual void inc(const Ref<Cell> &old_root) = 0;
   virtual void dec(const Ref<Cell> &old_root) = 0;
 
-  virtual td::Status prepare_commit() = 0;
+  virtual td::Status prepare_commit(StoreCellHint hint = {}) = 0;
   virtual Stats get_stats_diff() = 0;
   virtual td::Result<Stats> get_stats() {
     return Stats{};
@@ -155,7 +159,8 @@ class DynamicBagOfCellsDb {
 
   virtual void load_cell_async(td::Slice hash, std::shared_ptr<AsyncExecutor> executor,
                                td::Promise<Ref<DataCell>> promise) = 0;
-  virtual void prepare_commit_async(std::shared_ptr<AsyncExecutor> executor, td::Promise<td::Unit> promise) = 0;
+  virtual void prepare_commit_async(std::shared_ptr<AsyncExecutor> executor, StoreCellHint hint,
+                                    td::Promise<td::Unit> promise) = 0;
 };
 
 }  // namespace vm

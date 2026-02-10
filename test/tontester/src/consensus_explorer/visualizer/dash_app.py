@@ -5,8 +5,8 @@ from dash import Dash, dcc, html, Input, Output, State, callback_context, no_upd
 import plotly.graph_objects as go  # pyright: ignore[reportMissingTypeStubs]
 from dash.exceptions import PreventUpdate
 
-from .figure_builder import FigureBuilder
 from ..parser import Parser
+from .figure_builder import FigureBuilder
 
 
 @final
