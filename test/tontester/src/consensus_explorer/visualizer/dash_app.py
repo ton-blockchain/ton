@@ -229,6 +229,7 @@ class DashApp:
         slot_to: int | None,
         show_empty_v: list[str] | None,
         selected: dict[str, str | int],
+        href: str | None,
     ) -> tuple[go.Figure, dict[str, str | int]]:
         slot_from = slot_from or 0
         slot_to = slot_to or slot_from
@@ -260,9 +261,18 @@ class DashApp:
             cur_slot = selected.get("slot") if selected else None
             slot_nums = {s.slot for s in slots}
             if selected.get("valgroup_id") != group or cur_slot not in slot_nums:
-                non_empty = [s for s in slots if not s.is_empty]
-                pick = non_empty[0].slot if non_empty else slots[0].slot
-                selected = {"valgroup_id": group, "slot": pick}
+                url_slot: int | None = None
+                url_params = self._parse_url_params(href)
+                url_slot_value = url_params.get("slot")
+                if url_params.get("valgroup_id") == group and isinstance(url_slot_value, int):
+                    url_slot = url_slot_value
+
+                if url_slot is not None and url_slot in slot_nums:
+                    selected = {"valgroup_id": group, "slot": url_slot}
+                else:
+                    non_empty = [s for s in slots if not s.is_empty]
+                    pick = non_empty[0].slot if non_empty else slots[0].slot
+                    selected = {"valgroup_id": group, "slot": pick}
 
         fig = self._builder.build_summary(group, slot_from, slot_to, show_empty)
         return fig, selected
@@ -337,6 +347,7 @@ class DashApp:
             Input("slot-to", "value"),
             Input("show-empty", "value"),
             State("selected", "data"),
+            State("url", "href"),
         )(self._update_summary)
 
         self._app.callback(  # pyright: ignore[reportUnknownMemberType]
