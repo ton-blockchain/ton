@@ -20,6 +20,7 @@ from tonapi.ton_api import (
     Consensus_stats_candidateReceived,
     Consensus_simplex_notarizeVote,
     Consensus_simplex_finalizeVote,
+    Consensus_stats_empty,
 )
 
 
@@ -73,6 +74,7 @@ class ParserSessionStats(Parser):
                 is_empty=False,
                 slot_start_est_ms=float("inf"),
                 block_id_ext=None,
+                parent_block=None,
                 collator=None,
             )
 
@@ -115,9 +117,11 @@ class ParserSessionStats(Parser):
         )
         self._slot_events.setdefault(slot_id, {}).setdefault(v_id, {})[label] = ev
 
-        if isinstance(event, Consensus_stats_collateFinished):
-            assert event.block is not None
-            slot_data.block_id_ext = f"({event.block.workchain},{self._shard_to_hex(event.block.shard)},{event.block.seqno}):{event.block.root_hash.hex().upper()}:{event.block.file_hash.hex().upper()}"
+        if isinstance(event, Consensus_stats_candidateReceived):
+            if event.block is not None and not isinstance(event.block, Consensus_stats_empty):
+                assert event.block.id is not None
+                slot_data.block_id_ext = f"({event.block.id.workchain},{self._shard_to_hex(event.block.id.shard)},{event.block.id.seqno}):{event.block.id.root_hash.hex().upper()}:{event.block.id.file_hash.hex().upper()}"
+                slot_data.parent_block = str(event.parent)
 
         if label == "candidate_received":
             self._events.append(ev)

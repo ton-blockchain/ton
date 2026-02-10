@@ -312,6 +312,8 @@ class DetailFigureBuilder:
             title += f" · collator={self._slot.collator}"
         if self._slot.block_id_ext:
             title += f"<br>block={self._slot.block_id_ext}"
+        if self._slot.parent_block:
+            title += f"<br>parent_block={self._slot.parent_block}"
 
         validators = sorted({e.validator for e in events if e.validator is not None})
         x_title = "t - slot_start_est (ms)" if self._time_mode == "rel" else "Time (UTC)"
@@ -338,7 +340,6 @@ class DetailFigureBuilder:
                 categoryorder="array",
                 categoryarray=["__slot__"] + validators,
             ),
-            margin=dict(l=130, r=20, t=60, b=55),
             dragmode="pan",
         )
 

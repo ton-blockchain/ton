@@ -8,6 +8,7 @@ class SlotData:
     is_empty: bool
     slot_start_est_ms: float
     block_id_ext: str | None
+    parent_block: str | None
     collator: int | str | None
 
     def block_id(self) -> str | None:
