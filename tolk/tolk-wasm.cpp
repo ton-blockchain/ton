@@ -116,18 +116,35 @@ static td::Result<std::string> compile_internal(char *config_json) {
     return result_json_str.str();
   }
 
+  // an external wrapper should handle not only `@stdlib/`, but also `@fiftlib/`;
+  // in tolk-js particularly, .fif files are embedded into distribution, next to tolk-stdlib/ folder
+  TRY_RESULT(fift_fif, G_settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, "@fiftlib/Fift.fif"));
+  TRY_RESULT(asm_fif,  G_settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, "@fiftlib/Asm.fif"));
+
   // Fift is not thread-safe, so we invoke `compile_asm_program()` with a mutex.
   // This is acceptable, because Fift compilation is very fast compared to tolk_proceed (which is fully parallel).
   static std::mutex fift_mutex;
   std::lock_guard<std::mutex> fift_lock(fift_mutex);
 
-  TRY_RESULT(fift_res, fift::compile_asm_program(std::move(result.fift_code), "/fiftlib/"));
+  td::Result<fift::CompiledProgramOutput> fift_result = fift::compile_asm_program(result.fift_code, std::move(fift_fif), std::move(asm_fif));
+  if (fift_result.is_error()) {
+    std::ostringstream result_json_str;
+    JsonPrettyOutput json(result_json_str);
+    json.start_object();
+    json.key_value("status", "error");
+    json.key_value("message", fift_result.move_as_error().message().str());
+    json.key_value("fiftCode", result.fift_code);     // return fiftCode even if Fift couldn't process it
+    json.key_value("tolkVersion", JsonPrettyOutput::Unescaped{TOLK_VERSION});
+    json.end_object();
+    return result_json_str.str();
+  }
+  fift::CompiledProgramOutput fift_res = fift_result.move_as_ok();
 
   std::ostringstream result_json_str;
   JsonPrettyOutput json(result_json_str);
   json.start_object();
   json.key_value("status", "ok");
-  json.key_value("fiftCode", fift_res.fiftCode);
+  json.key_value("fiftCode", result.fift_code);
   json.key_value("codeBoc64", JsonPrettyOutput::Unescaped{fift_res.codeBoc64});
   json.key_value("codeHashHex", JsonPrettyOutput::Unescaped{fift_res.codeHashHex});
   json.key_value("tolkVersion", JsonPrettyOutput::Unescaped{TOLK_VERSION});
