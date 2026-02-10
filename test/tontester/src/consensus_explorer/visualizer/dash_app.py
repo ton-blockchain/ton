@@ -74,31 +74,6 @@ class DashApp:
 
         return slot_from, slot_to
 
-    def _pick_default_selected_for_group(
-        self,
-        group: str,
-        slot_from: int | None,
-        slot_to: int | None,
-        show_empty_v: list[str] | None,
-    ) -> dict[str, str | int]:
-        slot_from, slot_to = self._normalize_slot_range(group, slot_from, slot_to)
-        show_empty = "yes" in (show_empty_v or [])
-
-        slots = [
-            s
-            for s in self._data.slots
-            if s.valgroup_id == group
-            and slot_from <= s.slot <= slot_to
-            and (show_empty or not s.is_empty)
-        ]
-
-        if not slots:
-            return {"valgroup_id": group, "slot": slot_from}
-
-        non_empty = [s for s in slots if not s.is_empty]
-        pick = non_empty[0].slot if non_empty else slots[0].slot
-        return {"valgroup_id": group, "slot": pick}
-
     @classmethod
     def _selected_from_url(cls, href: str | None) -> dict[str, str | int] | None:
         url_params = cls._parse_url_params(href)
@@ -306,9 +281,7 @@ class DashApp:
             return {"valgroup_id": group, "slot": int(url_selected["slot"])}
 
         if selected.get("valgroup_id") != group:
-            picked = self._pick_default_selected_for_group(group, slot_from, slot_to, show_empty_v)
-            if picked != selected:
-                return picked
+            return {"valgroup_id": group, "slot": 0}
 
         raise PreventUpdate
 
