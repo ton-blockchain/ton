@@ -1,7 +1,7 @@
 from typing import cast, final
 from urllib.parse import parse_qs, urlencode
 
-from dash import Dash, dcc, html, Input, Output, State, callback_context
+from dash import Dash, dcc, html, Input, Output, State, callback_context, no_update, NoUpdate
 import plotly.graph_objects as go  # pyright: ignore[reportMissingTypeStubs]
 from dash.exceptions import PreventUpdate
 
@@ -41,7 +41,10 @@ class DashApp:
         if "valgroup_id" in params:
             result["valgroup_id"] = params["valgroup_id"][0]
         if "slot" in params:
-            result["slot"] = int(params["slot"][0])
+            try:
+                result["slot"] = int(params["slot"][0])
+            except (TypeError, ValueError):
+                pass
         return result
 
     @staticmethod
@@ -52,6 +55,58 @@ class DashApp:
         if slot is not None:
             params["slot"] = str(slot)
         return f"?{urlencode(params)}" if params else ""
+
+    def _normalize_slot_range(
+        self,
+        group: str,
+        slot_from: int | None,
+        slot_to: int | None,
+    ) -> tuple[int, int]:
+        slot_from = slot_from or 0
+        slot_to = slot_to or slot_from
+
+        group_slots = [s for s in self._data.slots if s.valgroup_id == group]
+        max_slot = max((s.slot for s in group_slots), default=0)
+        slot_from = max(0, min(int(slot_from), max_slot))
+        slot_to = max(0, min(int(slot_to), max_slot))
+        if slot_to < slot_from:
+            slot_to = slot_from
+
+        return slot_from, slot_to
+
+    def _pick_default_selected_for_group(
+        self,
+        group: str,
+        slot_from: int | None,
+        slot_to: int | None,
+        show_empty_v: list[str] | None,
+    ) -> dict[str, str | int]:
+        slot_from, slot_to = self._normalize_slot_range(group, slot_from, slot_to)
+        show_empty = "yes" in (show_empty_v or [])
+
+        slots = [
+            s
+            for s in self._data.slots
+            if s.valgroup_id == group
+            and slot_from <= s.slot <= slot_to
+            and (show_empty or not s.is_empty)
+        ]
+
+        if not slots:
+            return {"valgroup_id": group, "slot": slot_from}
+
+        non_empty = [s for s in slots if not s.is_empty]
+        pick = non_empty[0].slot if non_empty else slots[0].slot
+        return {"valgroup_id": group, "slot": pick}
+
+    @classmethod
+    def _selected_from_url(cls, href: str | None) -> dict[str, str | int] | None:
+        url_params = cls._parse_url_params(href)
+        valgroup_id = url_params.get("valgroup_id")
+        slot = url_params.get("slot")
+        if isinstance(valgroup_id, str) and isinstance(slot, int):
+            return {"valgroup_id": valgroup_id, "slot": slot}
+        return None
 
     def run(self, debug: bool = True, host: str = "127.0.0.1", port: int = 8050) -> None:
         self._setup_layout()
@@ -222,77 +277,81 @@ class DashApp:
 
         raise PreventUpdate
 
+    def _update_selected(
+        self,
+        href: str | None,
+        group: str | None,
+        clickData: dict[str, list[dict[str, int | dict[str, int] | list[str | int]]]] | None,
+        prev_clicks: int | None,
+        next_clicks: int | None,
+        selected: dict[str, str | int] | None,
+    ) -> dict[str, str | int]:
+        if not group:
+            raise PreventUpdate
+
+        selected = selected or {"valgroup_id": "", "slot": 0}
+
+        ctx = callback_context
+        triggered_id = cast(str, ctx.triggered_id)
+        assert isinstance(triggered_id, str)
+
+        if triggered_id == "summary":
+            return self._update_selection_from_click(clickData, group)
+
+        if triggered_id in ("prev-slot-btn", "next-slot-btn"):
+            return self._navigate_slot(prev_clicks, next_clicks, selected)
+
+        url_selected = self._selected_from_url(href)
+        if url_selected and url_selected["valgroup_id"] == group and url_selected != selected:
+            return {"valgroup_id": group, "slot": int(url_selected["slot"])}
+
+        if selected.get("valgroup_id") != group:
+            picked = self._pick_default_selected_for_group(group, slot_from, slot_to, show_empty_v)
+            if picked != selected:
+                return picked
+
+        raise PreventUpdate
+
     def _update_summary(
         self,
-        group: str,
+        group: str | None,
         slot_from: int | None,
         slot_to: int | None,
         show_empty_v: list[str] | None,
-        selected: dict[str, str | int],
-        href: str | None,
-    ) -> tuple[go.Figure, dict[str, str | int]]:
-        slot_from = slot_from or 0
-        slot_to = slot_to or slot_from
+    ) -> go.Figure:
+        if not group:
+            raise PreventUpdate
 
-        group_slots = [s for s in self._data.slots if s.valgroup_id == group]
-        max_slot = max((s.slot for s in group_slots), default=0)
-        slot_from = max(0, min(int(slot_from), max_slot))
-        slot_to = max(0, min(int(slot_to), max_slot))
-        if slot_to < slot_from:
-            slot_to = slot_from
-
+        slot_from, slot_to = self._normalize_slot_range(group, slot_from, slot_to)
         show_empty = "yes" in (show_empty_v or [])
-
-        slots = [
-            s
-            for s in self._data.slots
-            if s.valgroup_id == group
-            and slot_from <= s.slot <= slot_to
-            and (show_empty or not s.is_empty)
-        ]
-
-        if selected and selected.get("valgroup_id") == group:
-            fig = self._builder.build_summary(group, slot_from, slot_to, show_empty)
-            return fig, selected
-
-        if not slots:
-            selected = {"valgroup_id": group, "slot": slot_from}
-        else:
-            cur_slot = selected.get("slot") if selected else None
-            slot_nums = {s.slot for s in slots}
-            if selected.get("valgroup_id") != group or cur_slot not in slot_nums:
-                url_slot: int | None = None
-                url_params = self._parse_url_params(href)
-                url_slot_value = url_params.get("slot")
-                if url_params.get("valgroup_id") == group and isinstance(url_slot_value, int):
-                    url_slot = url_slot_value
-
-                if url_slot is not None and url_slot in slot_nums:
-                    selected = {"valgroup_id": group, "slot": url_slot}
-                else:
-                    non_empty = [s for s in slots if not s.is_empty]
-                    pick = non_empty[0].slot if non_empty else slots[0].slot
-                    selected = {"valgroup_id": group, "slot": pick}
-
-        fig = self._builder.build_summary(group, slot_from, slot_to, show_empty)
-        return fig, selected
+        return self._builder.build_summary(group, slot_from, slot_to, show_empty)
 
     def _update_detail(
         self,
         selected: dict[str, str | int],
         time_mode: str,
-    ) -> tuple[go.Figure, str]:
+    ) -> tuple[go.Figure, str, str | NoUpdate]:
         valgroup_id = selected["valgroup_id"]
         assert isinstance(valgroup_id, str)
         slot = int(selected["slot"])
 
         fig = self._builder.build_detail(valgroup_id, slot, time_mode)
-        return fig, f"selected: {valgroup_id} slot {slot}"
+        ctx = callback_context
+        triggered_id = cast(str | None, ctx.triggered_id)
+
+        if not valgroup_id or triggered_id == "time-mode":
+            return fig, f"selected: {valgroup_id} slot {slot}", no_update
+
+        return (
+            fig,
+            f"selected: {valgroup_id} slot {slot}",
+            self._build_url_search(valgroup_id, slot),
+        )
 
     def _navigate_slot(
         self,
-        _prev: int,
-        _next: int,
+        _prev: int | None,
+        _next: int | None,
         selected: dict[str, str | int],
     ) -> dict[str, str | int]:
         ctx = callback_context
@@ -311,15 +370,6 @@ class DashApp:
 
         raise PreventUpdate
 
-    def _update_selected_from_url(self, href: str | None) -> dict[str, str | int]:
-        url_params = self._parse_url_params(href)
-        if not url_params:
-            raise PreventUpdate
-        return {"valgroup_id": url_params["valgroup_id"], "slot": int(url_params["slot"])}
-
-    def _update_url_href(self, selected: dict[str, str | int]) -> str:
-        return self._build_url_search(str(selected["valgroup_id"]), int(selected["slot"]))
-
     def _setup_callbacks(self) -> None:
         self._app.callback(  # pyright: ignore[reportUnknownMemberType]
             Output("group", "options"),
@@ -328,46 +378,27 @@ class DashApp:
         )(self.update_data)
 
         self._app.callback(  # pyright: ignore[reportUnknownMemberType]
-            Output("selected", "data", allow_duplicate=True),
+            Output("selected", "data"),
             Input("url", "href"),
-            prevent_initial_call=True,
-        )(self._update_selected_from_url)
-
-        self._app.callback(  # pyright: ignore[reportUnknownMemberType]
-            Output("url", "search", allow_duplicate=True),
-            Input("selected", "data"),
-            prevent_initial_call=True,
-        )(self._update_url_href)
+            Input("group", "value"),
+            Input("summary", "clickData"),
+            Input("prev-slot-btn", "n_clicks"),
+            Input("next-slot-btn", "n_clicks"),
+            State("selected", "data"),
+        )(self._update_selected)
 
         self._app.callback(  # pyright: ignore[reportUnknownMemberType]
             Output("summary", "figure"),
-            Output("selected", "data"),
             Input("group", "value"),
             Input("slot-from", "value"),
             Input("slot-to", "value"),
             Input("show-empty", "value"),
-            State("selected", "data"),
-            State("url", "href"),
         )(self._update_summary)
-
-        self._app.callback(  # pyright: ignore[reportUnknownMemberType]
-            Output("selected", "data", allow_duplicate=True),
-            Input("summary", "clickData"),
-            State("group", "value"),
-            prevent_initial_call=True,
-        )(self._update_selection_from_click)
 
         self._app.callback(  # pyright: ignore[reportUnknownMemberType]
             Output("detail", "figure"),
             Output("selection", "children"),
+            Output("url", "search"),
             Input("selected", "data"),
             Input("time-mode", "value"),
         )(self._update_detail)
-
-        self._app.callback(  # pyright: ignore[reportUnknownMemberType]
-            Output("selected", "data", allow_duplicate=True),
-            Input("prev-slot-btn", "n_clicks"),
-            Input("next-slot-btn", "n_clicks"),
-            State("selected", "data"),
-            prevent_initial_call=True,
-        )(self._navigate_slot)
