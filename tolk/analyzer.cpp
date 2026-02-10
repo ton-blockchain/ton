@@ -17,7 +17,7 @@
 #include "ast.h"
 #include "tolk.h"
 #include "compilation-errors.h"
-#include "compiler-state.h"
+#include "compiler-settings.h"
 #include "type-system.h"
 
 namespace tolk {
@@ -311,6 +311,7 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
   switch (cl) {
     case _IntConst:
     case _SliceConst:
+    case _SnakeStringConst:
     case _GlobVar:
     case _Call:
     case _CallInd:
@@ -522,6 +523,7 @@ bool prune_unreachable(std::unique_ptr<Op>& ops) {
   switch (op.cl) {
     case Op::_IntConst:
     case Op::_SliceConst:
+    case Op::_SnakeStringConst:
     case Op::_GlobVar:
     case Op::_SetGlob:
     case Op::_CallInd:
@@ -707,6 +709,10 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
       values.add_newval(left[0]).set_const(str_const);
       break;
     }
+    case _SnakeStringConst: {
+      values.add_newval(left[0]).set_const(str_const);
+      break;
+    }
     case _Call: {
       prepare_args(values);
       if (!f_sym->is_code_function()) {
@@ -755,7 +761,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
       tolk_assert(left.size() == right.size());
       for (std::size_t i = 0; i < right.size(); i++) {
         const VarDescr* ov = values[right[i]];
-        if (!ov && G.is_verbosity(5)) {
+        if (!ov && G_settings.verbosity >= 5) {
           std::cerr << "FATAL: error in assignment at right component #" << i << " (no value for _" << right[i] << ")"
                     << std::endl;
           for (auto x : left) {
@@ -882,6 +888,7 @@ bool Op::mark_noreturn() {
     case _Import:
     case _IntConst:
     case _SliceConst:
+    case _SnakeStringConst:
     case _Let:
     case _Tuple:
     case _UnTuple:

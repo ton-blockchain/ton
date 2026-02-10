@@ -20,6 +20,7 @@
 #include "compiler-state.h"
 #include "generics-helpers.h"
 #include "pack-unpack-serializers.h"
+#include "contract-directive.h"
 #include "td/utils/crypto.h"
 #include <unordered_set>
 
@@ -94,9 +95,34 @@ static void validate_arg_ret_order_of_asm_function(V<ast_asm_body> v_body, int n
   }
 }
 
+static AbiAnnotationForSymbol* parse_abi_annotation(V<ast_annotation> v_annotation) {
+  if (v_annotation == nullptr) {
+    return nullptr;
+  }
+  tolk_assert(v_annotation->get_arg()->get_items().size() == 1);
+
+  AbiAnnotationForSymbol* abi = new AbiAnnotationForSymbol;
+  auto v_object = v_annotation->get_arg()->get_items().front()->try_as<ast_object_literal>();
+  tolk_assert(v_object);
+  for (int i = 0; i < v_object->get_body()->get_num_fields(); ++i) {
+    V<ast_object_field> v_field = v_object->get_body()->get_field(i);
+    std::string_view name = v_field->get_field_name();
+
+    // todo test somewhere @abi({minimalMsgValue}) — seems ok if such a global const exists
+    if (name == "minimalMsgValue") abi->minimalMsgValue = v_field->get_init_val();
+    else if (name == "preferredSendMode") abi->preferredSendMode = v_field->get_init_val();
+    else if (name == "description") abi->description = v_field->get_init_val();
+    else if (name != "custom")
+      err("unknown property `{}` in `@abi` annotation", name).fire(v_field->get_field_identifier());
+  }
+
+  return abi;
+}
+
 static GlobalConstPtr register_constant(V<ast_constant_declaration> v) {
   V<ast_identifier> v_ident = v->get_identifier();
-  GlobalConstData* c_sym = new GlobalConstData(static_cast<std::string>(v_ident->name), v_ident, v->type_node, v->get_init_value());
+  const AbiAnnotationForSymbol* abi_annotation = parse_abi_annotation(v->abi_annotation);
+  GlobalConstData* c_sym = new GlobalConstData(static_cast<std::string>(v_ident->name), v_ident, v->type_node, v->get_init_value(), abi_annotation);
 
   G.symtable.add_global_symbol(c_sym);
   G.all_constants.push_back(c_sym);
@@ -148,7 +174,8 @@ static EnumDefPtr register_enum(V<ast_enum_declaration> v) {
   }
 
   V<ast_identifier> v_ident = v->get_identifier();
-  EnumDefData* e_sym = new EnumDefData(static_cast<std::string>(v_ident->name), v_ident, v->colon_type, std::move(members));
+  const AbiAnnotationForSymbol* abi_annotation = parse_abi_annotation(v->abi_annotation);
+  EnumDefData* e_sym = new EnumDefData(static_cast<std::string>(v_ident->name), v_ident, v->colon_type, std::move(members), abi_annotation);
 
   G.symtable.add_global_symbol(e_sym);
   G.all_enums.push_back(e_sym);
@@ -165,13 +192,17 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
     auto v_field = v_body->get_field(i);
     V<ast_identifier> v_ident = v_field->get_identifier();
     std::string field_name = static_cast<std::string>(v_ident->name);
+    const AbiAnnotationForSymbol* abi_annotation = parse_abi_annotation(v_field->abi_annotation);
 
     for (StructFieldPtr prev : fields) {
       if (prev->name == field_name) {
         err("redeclaration of field `{}`", field_name).fire(v_field);
       }
     }
-    fields.emplace_back(new StructFieldData(std::move(field_name), v_ident, i, v_field->is_private, v_field->is_readonly, v_field->type_node, v_field->default_value));
+    fields.emplace_back(new StructFieldData(std::move(field_name), v_ident, i, v_field->is_private, v_field->is_readonly, v_field->type_node, v_field->default_value, abi_annotation));
+  }
+  if (fields.size() > 254) {
+    err("too big struct (more than 254 fields)").fire(v->get_identifier());
   }
 
   PackOpcode opcode(0, 0);
@@ -197,8 +228,9 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
   if (name.empty()) {
     name = v_ident->name;
   }
+  const AbiAnnotationForSymbol* abi_annotation = parse_abi_annotation(v->abi_annotation);
   const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
-  StructData* s_sym = new StructData(std::move(name), v_ident, std::move(fields), opcode, v->overflow1023_policy, genericTs, substitutedTs, v);
+  StructData* s_sym = new StructData(std::move(name), v_ident, std::move(fields), opcode, v->overflow1023_policy, abi_annotation, genericTs, substitutedTs, v);
   s_sym->base_struct_ref = base_struct_ref;   // for `Container<int>`, here is `Container<T>`
 
   G.symtable.add_global_symbol(s_sym);
@@ -250,8 +282,9 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
   }
 
   const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
+  const AbiAnnotationForSymbol* abi_annotation = parse_abi_annotation(v->abi_annotation);
   FunctionBody f_body = v->get_body()->kind == ast_block_statement ? static_cast<FunctionBody>(new FunctionBodyCode) : static_cast<FunctionBody>(new FunctionBodyAsm);
-  FunctionData* f_sym = new FunctionData(std::move(name), v_ident, std::move(method_name), v->receiver_type_node, v->return_type_node, std::move(parameters), 0, v->inline_mode, genericTs, substitutedTs, f_body, v);
+  FunctionData* f_sym = new FunctionData(std::move(name), v_ident, std::move(method_name), v->receiver_type_node, v->return_type_node, std::move(parameters), 0, v->inline_mode, genericTs, substitutedTs, abi_annotation, f_body, v);
   f_sym->base_fun_ref = base_fun_ref;   // for `f<int>`, here is `f<T>`; for a lambda, a containing function
 
   if (auto v_asm = v->get_body()->try_as<ast_asm_body>()) {
@@ -282,7 +315,7 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
 
   if (!f_sym->receiver_type_node) {
     G.symtable.add_function(f_sym);
-  } else if (!substitutedTs) {
+  } else {
     G.all_methods.push_back(f_sym);
   }
   G.all_functions.push_back(f_sym);
@@ -293,8 +326,7 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
   return f_sym;
 }
 
-static void iterate_through_file_symbols(const SrcFile* file) {
-  static std::unordered_set<const SrcFile*> seen;
+static void iterate_through_file_symbols(const SrcFile* file, bool is_imported, std::unordered_set<const SrcFile*>& seen) {
   if (!seen.insert(file).second) {
     return;
   }
@@ -304,8 +336,11 @@ static void iterate_through_file_symbols(const SrcFile* file) {
     switch (v->kind) {
       case ast_import_directive:
         // on `import "another-file.tolk"`, register symbols from that file at first
-        // (for instance, it can calculate constants, which are used in init_val of constants in current file below import)
-        iterate_through_file_symbols(v->as<ast_import_directive>()->file);
+        iterate_through_file_symbols(v->as<ast_import_directive>()->file, true, seen);
+        break;
+      case ast_contract_directive:
+        tolk_assert(!file->has_contract_directive());
+        file->mutate()->assign_contract_directive(parse_contract_directive(v));
         break;
 
       case ast_constant_declaration:
@@ -323,9 +358,28 @@ static void iterate_through_file_symbols(const SrcFile* file) {
       case ast_struct_declaration:
         register_struct(v->as<ast_struct_declaration>());
         break;
-      case ast_function_declaration:
-        register_function(v->as<ast_function_declaration>());
+      case ast_function_declaration: {
+        auto v_fun = v->as<ast_function_declaration>();
+        bool is_entrypoint = v_fun->flags & FunctionData::flagIsEntrypoint;    // fun main / onInternalMessage / onBouncedMessage
+        bool is_get_method = v_fun->flags & FunctionData::flagContractGetter;  // get fun xxx
+        if (is_entrypoint || is_get_method) {
+          // when importing a file with `contract`, its onInternalMessage and getters are not imported
+          // it allows having multiple contracts and importing one another, "seeing" only declarations
+          // it also allows writing external scripts: `import "contract"` + `fun main` doesn't conflict
+          if (is_imported && file->has_contract_directive()) {
+            break;    // v_fun->fun_ref is left nullptr in AST
+          }
+          // if the main input file has `contract`, it should contain all getters within,
+          // we do not allow `import "something"` having `get fun` inside
+          // we force all getters to be visible at a glance, in the main file
+          const SrcFile* entrypoint_file = G.all_src_files.get_entrypoint_file();
+          if (entrypoint_file->has_contract_directive() && file != entrypoint_file) {
+            err("all contract entrypoints must be placed in the contract file `{}`\n""hint: keep `onInternalMessage` and `get fun` just below `contract`, not in other files", entrypoint_file->extract_short_name()).fire(v_fun->get_identifier());
+          }
+        }
+        register_function(v_fun);
         break;
+      }
       default:
         break;
     }
@@ -333,9 +387,9 @@ static void iterate_through_file_symbols(const SrcFile* file) {
 }
 
 void pipeline_register_global_symbols() {
-  for (const SrcFile* file : G.all_src_files) {
-    iterate_through_file_symbols(file);
-  }
+  std::unordered_set<const SrcFile*> seen;
+  iterate_through_file_symbols(G.all_src_files.get_stdlib_common_file(), false, seen);
+  iterate_through_file_symbols(G.all_src_files.get_entrypoint_file(), false, seen);
 }
 
 FunctionPtr pipeline_register_instantiated_generic_function(FunctionPtr base_fun_ref, AnyV cloned_v, std::string&& name, const GenericsSubstitutions* substitutedTs) {

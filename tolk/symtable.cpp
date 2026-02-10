@@ -230,16 +230,21 @@ StructFieldPtr StructData::find_field(std::string_view field_name) const {
   return nullptr;
 }
 
-// formats opcode as "x{...}" or "b{...}"
-std::string StructData::PackOpcode::format_as_slice() const {
+// formats opcode as hex-bin "0x..." / "0b..." or as a Fift slice "x{...}" / "b{...}"
+std::string StructData::PackOpcode::format_as_string(bool as_fift_slice) const {
   const int base = prefix_len % 4 == 0 ? 16 : 2;
   const int s_len = base == 16 ? prefix_len / 4 : prefix_len;
   const char* digits = "0123456789abcdef";
 
-  std::string result(s_len + 3, '0');
-  result[0] = base == 16 ? 'x' : 'b';
-  result[1] = '{';
-  result[s_len + 3 - 1] = '}';
+  std::string result(s_len + 2 + as_fift_slice, '0');
+  if (as_fift_slice) {
+    result[0] = base == 16 ? 'x' : 'b';
+    result[1] = '{';
+    result[s_len + 3 - 1] = '}';
+  } else {
+    result[0] = '0';
+    result[1] = base == 16 ? 'x' : 'b';
+  }
   int64_t opcode = pack_prefix;
   for (int i = s_len - 1; i >= 0 && opcode != 0; --i) {
     result[2 + i] = digits[opcode % base];
@@ -265,10 +270,6 @@ static Error err_redefinition_of_symbol(const Symbol* previous) {
     return err("redefinition of a symbol from stdlib");
   }
   return err("redefinition of symbol, previous was at: {}", previous->ident_anchor->range.stringify_start_location(false));
-}
-
-void GlobalSymbolTable::clear() {
-  entries.clear();
 }
 
 void GlobalSymbolTable::add_global_symbol(const Symbol* sym) {

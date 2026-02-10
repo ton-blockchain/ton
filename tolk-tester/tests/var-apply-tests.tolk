@@ -127,8 +127,8 @@ fun testVarApply2() {
     return sizer(t);
 }
 
-fun getTupleLastGetter<X>(): (tuple) -> X {
-    return X.last<X>;
+fun array<X>.getTupleLastGetter(): (tuple) -> X {
+    return array<X>.last;
 }
 
 @method_id(106)
@@ -136,16 +136,16 @@ fun testVarApply3() {
     var t = createEmptyTuple();
     t.push(1);
     t.push([2]);
-    var getIntAt = t.get<int>;
-    var getTupleFirstInt = createEmptyTuple().first<MInt>;
-    var getTupleLastTuple = getTupleLastGetter<tuple>();
-    return (getIntAt(t, 0), getTupleFirstInt(t), getTupleLastTuple(t), getTupleLastGetter<tuple>()(t));
+    var getElemAt = t.get;
+    var getTupleFirstInt = createEmptyTuple().first;
+    var getTupleLastTuple = tuple.getTupleLastGetter();
+    return (getElemAt(t, 0), getTupleFirstInt(t), getTupleLastTuple(t), tuple.getTupleLastGetter()(t));
 }
 
 @method_id(107)
 fun testIndexedAccessApply() {
     var functions1 = (beginCell, endCell);
-    var functions2 = [beginParse];
+    var functions2 = [beginParse] as [cell -> slice];
     var b = functions1.0().storeInt(1, 16);
     b.storeInt(1, 16);
     return functions2.0(functions1.1(b)).loadInt(32);
@@ -159,7 +159,8 @@ fun testCallingNotNull() {
     var n4: () -> MIntN = getNullable4;
     var creator: (() -> builder?)? = myBeginCell;
     var end2: [int, (MBuilder -> cell)?] = [0, endCell];
-    var c: cell = end2.1!((creator!()!)!.storeInt(getNullable4()!, 32));
+    var builderN = (creator!()!);
+    var c: cell = end2.1!(builderN!.storeInt(getNullable4()!, 32));
     return c.beginParse().loadInt(32);
 }
 
@@ -171,7 +172,7 @@ fun sumOfTensorIfNotNull(t: (int, int)?) {
 @method_id(109)
 fun testTypeTransitionOfVarCall() {
     var summer = sumOfTensorIfNotNull;
-    var hh1 = [1, null];
+    var hh1 = [1, null] as [int, null];
     var tt1 = (3, 4);
     return (summer(null), summer((1,2)), summer(hh1.1), summer(tt1));
 }
@@ -304,8 +305,8 @@ fun testMethodsOfGenericStruct() {
     var creator1 = Wrapper<int8>.createFrom<int>;
     var w1 = creator1(10);
     __expect_type(w1, "Wrapper<int8>");
-    var creator2 = Wrapper<coins?>.createFrom<int?>;
-    var w2 = creator2(null as int16?);
+    var creator2 = Wrapper<coins?>.createFrom<int>;
+    var w2 = creator2((null as int16?)!);
     __expect_type(w2, "Wrapper<coins?>");
     var eq = Wrapper<int8>.equalsNotNull<coins?>;
     __expect_type(eq, "(Wrapper<int8>, Wrapper<coins?>) -> bool");
@@ -333,7 +334,7 @@ fun getTupleCreator() { return tupleCreator }
 @method_id(120)
 fun testNoInlineSaving() {
     var creator = getTupleCreator();
-    __expect_type(creator, "() -> tuple");
+    __expect_type(creator, "() -> array<unknown>");
     return creator();
 }
 

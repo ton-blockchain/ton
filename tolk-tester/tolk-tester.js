@@ -287,7 +287,13 @@ class TolkTestFile {
         this.line_idx = 0
 
         while (this.line_idx < lines.length) {
-            const line = lines[this.line_idx]
+            let line = lines[this.line_idx]
+            // support both "@tag" and "// @tag" syntax
+            if (line.startsWith("// @")) {
+                line = line.substring(3)
+                lines[this.line_idx] = line
+            }
+
             if (line.startsWith('@testcase')) {
                 let s = line.split("|").map(p => p.trim())
                 if (s.length !== 4)

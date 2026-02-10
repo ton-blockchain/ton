@@ -62,17 +62,19 @@ AnnotationKind Vertex<ast_annotation>::parse_kind(std::string_view name) {
   if (name == "@method_id") {
     return AnnotationKind::method_id;
   }
-  if (name == "@deprecated") {
-    return AnnotationKind::deprecated;
-  }
-  if (name == "@custom") {
-    return AnnotationKind::custom;
-  }
   if (name == "@overflow1023_policy") {
     return AnnotationKind::overflow1023_policy;
   }
   if (name == "@on_bounced_policy") {
     return AnnotationKind::on_bounced_policy;
+  }
+  if (name == "@abi") {
+    return AnnotationKind::abi;
+  }
+
+  // no special treating, allow with or without arguments, don't analyze
+  if (name == "@custom" || name == "@test" || name == "@deprecated") {
+    return AnnotationKind::custom;
   }
   return AnnotationKind::unknown;
 }

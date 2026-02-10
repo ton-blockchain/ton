@@ -1,3 +1,5 @@
+import "@stdlib/reflection"
+
 struct JustInt32 {
     value: int32;
 }
@@ -10,9 +12,16 @@ struct JustMaybeInt32 {
     value: MaybeInt32;
 }
 
+struct Point {
+    x: int8
+    y: int8
+}
+
+struct (0x1234) EmptyOpcode16
+
 fun T.estimate(): [int, int, int, int] {
     // convert a tensor to a tuple for better output readability
-    val (minBits, maxBits, minRefs, maxRefs) = T.estimatePackSize();
+    val (minBits, maxBits, minRefs, maxRefs) = reflect.estimateSerializationOf<T>();
     return [minBits, maxBits, minRefs, maxRefs];
 }
 
@@ -131,7 +140,7 @@ type Test7_or = | Test7_1 | Test7_2 | Test7_3
 
 @method_id(107)
 fun test7() {
-    assert((Test7_1{} as Test7_or).toCell().beginParse().remainingBitsCount() == Test7_or.estimatePackSize().0, 400);
+    assert((Test7_1{} as Test7_or).toCell().beginParse().remainingBitsCount() == reflect.estimateSerializationOf<Test7_or>().0, 400);
     return (Test7_1.estimate(), Test7_or.estimate());
 }
 
@@ -201,8 +210,8 @@ fun test11() {
 
 @method_id(120)
 fun test20() {
-    return (Test7_1 .getDeclaredPackPrefixLen(), Test7_1 .getDeclaredPackPrefix(),
-        CellInner8_1.getDeclaredPackPrefixLen(), CellInner8_1.getDeclaredPackPrefix());
+    return (reflect.serializationPrefixLenOf<Test7_1>(), reflect.serializationPrefixOf<Test7_1>(),
+        reflect.serializationPrefixLenOf<CellInner8_1>(), reflect.serializationPrefixOf<CellInner8_1>());
 }
 
 enum Color { Red, Green, Blue }
@@ -238,8 +247,36 @@ fun test22() {
     )
 }
 
+@method_id(123)
+fun test23() {
+    return (
+        array<int8>.estimate(),
+        array<array<RemainingBitsAndRefs>>.estimate(),
+    )
+}
+
+type EmptyShape = []
+type MyShape1 = [int32?, Point, EmptyShape, EmptyOpcode16, Cell<[]>?, int8]
+
+@method_id(124)
+fun test24() {
+    return (
+        MyShape1.estimate(),
+        EmptyShape.estimate(),
+    )
+}
+
+@method_id(125)
+fun test25() {
+    return (
+        string.estimate(),
+        Cell<string>.estimate(),
+        array<string>.estimate(),
+    )
+}
+
 fun main() {
-    __expect_type(int8.estimatePackSize(), "(int, int, int, int)");
+    __expect_type(reflect.estimateSerializationOf<int8>(), "(int, int, int, int)");
 }
 
 /**
@@ -257,4 +294,7 @@ fun main() {
 @testcase | 120 | | 16 4128 1 1
 @testcase | 121 | | [ 2 2 0 0 ] [ 9 9 0 0 ] [ 6 6 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 123 123 0 0 ] [ 123 123 0 0 ] 
 @testcase | 122 | | [ 267 267 0 0 ] [ 2 267 0 0 ] [ 267 267 0 0 ] [ 1 268 0 0 ] [ 267 267 0 0 ] [ 2 267 0 0 ] [ 2 523 0 0 ] [ 1 524 0 0 ] 
+@testcase | 123 | | [ 9 9 0 1 ] [ 9 9 0 1 ]
+@testcase | 124 | | [ 42 74 0 1 ] [ 0 0 0 0 ]
+@testcase | 125 | | [ 0 0 1 1 ] [ 0 0 1 1 ] [ 9 9 0 1 ]
  */

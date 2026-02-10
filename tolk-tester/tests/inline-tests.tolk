@@ -258,8 +258,8 @@ fun tuple.pushPoint(mutate self, p: Point) {
 
 fun tuple.popPoint(mutate self): Point {
     __expect_inline(true);
-    var y = self.pop<int>();
-    return {x: self.pop(), y};
+    var y = self.pop() as int;
+    return {x: self.pop() as int, y};
 }
 
 @method_id(110)
@@ -471,8 +471,8 @@ fun usedIn10ButDeclaredBelow(x: int) {
     x{00000005} STSLICECONST    //  '3
     25 PUSHINT                  //  '3 '9
     SWAP                        //  x self
-    x{0000001900000019} STSLICECONST  //  x '3
-    SWAP                        //  '3 x
+    x{0000001900000019} STSLICECONST  //  x '15
+    SWAP                        //  '15 x
   }>
 """
 
@@ -481,7 +481,7 @@ fun usedIn10ButDeclaredBelow(x: int) {
   test9() PROC:<{               //  x
     0 PUSHINT                   //  p1.x p1.y=0
     s0 s1 PUSH2                 //  p1.x p1.y=0 p2.x=0 p2.y
-    NIL                         //  x p1.y=0 p2.x=0 p2.y self
+    0 TUPLE                     //  x p1.y=0 p2.x=0 p2.y self
     s0 s4 XCHG2                 //  p2.y p1.y=0 p2.x=0 self x
     TPUSH                       //  p2.y p1.y=0 p2.x=0 self
     ROT                         //  p2.y p2.x=0 self p1.y=0
@@ -492,13 +492,13 @@ fun usedIn10ButDeclaredBelow(x: int) {
     TPUSH                       //  self
     TPOP                        //  self y
     SWAP                        //  y self
-    TPOP                        //  '36 self '35
-    SWAP                        //  '36 '35 self
-    TPOP                        //  '36 '35 self y
-    SWAP                        //  '36 '35 y self
-    TPOP                        //  '36 '35 '50 t '49
-    s3 s4 XCHG                  //  '35 '36 '50 t '49
-    -ROT                        //  '35 '36 '49 '50 t
+    TPOP                        //  '26 self '25
+    SWAP                        //  '26 '25 self
+    TPOP                        //  '26 '25 self y
+    SWAP                        //  '26 '25 y self
+    TPOP                        //  '26 '25 '36 t '35
+    s3 s4 XCHG                  //  '25 '26 '36 t '35
+    -ROT                        //  '25 '26 '35 '36 t
   }>
 """
 

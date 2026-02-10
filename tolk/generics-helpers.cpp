@@ -173,11 +173,16 @@ void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, T
         consider_next_condition(p_tensor->items[i], a_tensor->items[i]);
       }
     }
-  } else if (const auto* p_tuple = param_type->try_as<TypeDataBrackets>()) {
+  } else if (const auto* p_array = param_type->try_as<TypeDataArray>()) {
+    // `arg: array<T>` called as `f(arrOfUnknown)` => T is unknown
+    if (const auto* a_array = arg_type->unwrap_alias()->try_as<TypeDataArray>()) {
+      consider_next_condition(p_array->innerT, a_array->innerT);
+    }
+  } else if (const auto* p_shaped = param_type->try_as<TypeDataShapedTuple>()) {
     // `arg: [int, T]` called as `f([5, cs])` => T is slice
-    if (const auto* a_tuple = arg_type->unwrap_alias()->try_as<TypeDataBrackets>(); a_tuple && a_tuple->size() == p_tuple->size()) {
-      for (int i = 0; i < a_tuple->size(); ++i) {
-        consider_next_condition(p_tuple->items[i], a_tuple->items[i]);
+    if (const auto* a_shaped = arg_type->unwrap_alias()->try_as<TypeDataShapedTuple>()) {
+      for (int i = 0; i < p_shaped->size() && i < a_shaped->size(); ++i) {
+        consider_next_condition(p_shaped->items[i], a_shaped->items[i]);
       }
     }
   } else if (const auto* p_callable = param_type->try_as<TypeDataFunCallable>()) {
@@ -456,7 +461,7 @@ FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstituti
     }
     TypePtr new_return_type = replace_genericT_with_deduced(fun_ref->declared_return_type, allocatedTs);
     TypePtr new_receiver_type = replace_genericT_with_deduced(fun_ref->receiver_type, allocatedTs);
-    FunctionData* new_fun_ref = new FunctionData(new_name, nullptr, fun_ref->method_name, new_receiver_type, new_return_type, std::move(new_parameters), fun_ref->flags, fun_ref->inline_mode, nullptr, allocatedTs, fun_ref->body, fun_ref->ast_root);
+    FunctionData* new_fun_ref = new FunctionData(new_name, nullptr, fun_ref->method_name, new_receiver_type, new_return_type, std::move(new_parameters), fun_ref->flags, fun_ref->inline_mode, nullptr, allocatedTs, nullptr, fun_ref->body, fun_ref->ast_root);
     new_fun_ref->arg_order = fun_ref->arg_order;
     new_fun_ref->ret_order = fun_ref->ret_order;
     new_fun_ref->base_fun_ref = fun_ref;
@@ -557,7 +562,7 @@ FunctionPtr instantiate_lambda_function(AnyV v_lambda, FunctionPtr parent_fun_re
   return lambda_ref;  
 }
 
-// a function `tuple.push<T>(self, v: T) asm "TPUSH"` can't be called with T=Point (2 stack slots);
+// a function `myFunPTuplePush<T>(self, v: T) asm "TPUSH"` can't be called with T=Point (2 stack slots);
 // almost all asm/built-in generic functions expect one stack slot, but there are exceptions
 bool is_allowed_asm_generic_function_with_non1_width_T(FunctionPtr fun_ref, int idxT) {
   // if a built-in function is marked with a special flag

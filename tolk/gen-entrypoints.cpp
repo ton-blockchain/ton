@@ -63,7 +63,7 @@ std::vector<var_idx_t> AuxData_OnInternalMessage_getField::generate_get_InMessag
   else if (field_name == "valueExtra")         idx = 8;
   tolk_assert(idx != -1);
 
-  std::vector ir_msgparam = code.create_tmp_var(TypeDataInt::create(), origin, field_name.data());
+  std::vector ir_msgparam = code.create_tmp_var(TypeDataInt::create(), origin, "(inmsg-field)");
   code.emplace_back(origin, Op::_Call, ir_msgparam, std::vector{code.create_int(origin, idx, "(param-idx)")}, lookup_function("__InMessage.getInMsgParam"));
 
   if (field_name == "originalForwardFee") {

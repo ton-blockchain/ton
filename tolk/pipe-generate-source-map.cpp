@@ -1,3 +1,4 @@
+#include "compiler-settings.h"
 #include "tolk.h"
 #include "pipeline.h"
 #include "compiler-state.h"
@@ -11,7 +12,7 @@ namespace tolk {
 static std::string extract_assert_condition(const std::string& assert_str);
 
 void pipeline_generate_source_map(std::ostream& debug_out) {
-  if (!G.settings.collect_source_map) {
+  if (!G_settings.collect_source_map) {
     return;
   }
 
@@ -120,22 +121,22 @@ void pipeline_generate_source_map(std::ostream& debug_out) {
           var_array_value_object("is_temporary", td::JsonBool(true));
         }
 
-        if (var.parent_type != nullptr) {
-          const auto union_parent = var.parent_type->try_as<TypeDataUnion>();
-          if (union_parent != nullptr) {
-            td::JsonBuilder parent_type_builder;
-            auto parent_type_array_builder = parent_type_builder.enter_array();
-
-            for (auto variant : union_parent->variants) {
-              auto array_value = parent_type_array_builder.enter_value();
-              array_value << variant->as_human_readable();
-            }
-
-            parent_type_array_builder.leave();
-            var_array_value_object("possible_qualifier_types",
-                                   td::JsonRaw(parent_type_builder.string_builder().as_cslice()));
-          }
-        }
+        // if (var.parent_type != nullptr) {
+        //   const auto union_parent = var.parent_type->try_as<TypeDataUnion>();
+        //   if (union_parent != nullptr) {
+        //     td::JsonBuilder parent_type_builder;
+        //     auto parent_type_array_builder = parent_type_builder.enter_array();
+        //
+        //     for (auto variant : union_parent->variants) {
+        //       auto array_value = parent_type_array_builder.enter_value();
+        //       array_value << variant->as_human_readable();
+        //     }
+        //
+        //     parent_type_array_builder.leave();
+        //     var_array_value_object("possible_qualifier_types",
+        //                            td::JsonRaw(parent_type_builder.string_builder().as_cslice()));
+        //   }
+        // }
 
         if (!value.empty()) {
           var_array_value_object("constant_value", value);

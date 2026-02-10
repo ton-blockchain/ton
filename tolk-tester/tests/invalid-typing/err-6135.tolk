@@ -9,4 +9,5 @@ fun cantAssignIntNToCoins(n: int8, c: coins) {
 @stderr can not assign `coins` to variable of type `int8`
 @stderr n = c;
 @stderr hint: use `as` operator for UNSAFE casting: `<some_expr> as int8`
+@stderr_avoid ok
  */

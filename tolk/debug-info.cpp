@@ -2,16 +2,17 @@
 #include <ast.h>
 #include <compiler-state.h>
 #include "ast-stringifier.h"
+#include "compiler-settings.h"
 
 namespace tolk {
 
 void insert_call_debug_info(AnyV origin, ASTNodeKind kind, CodeBlob& code, const std:: string& called_name, CallKind call_kind) {
-  if (!G.settings.collect_source_map) {
+  if (!G_settings.collect_source_map) {
     return;
   }
 
   insert_debug_info(origin, kind, code);
-  if (G.settings.collect_source_map && G.source_map.size() > 0) {
+  if (G_settings.collect_source_map && G.source_map.size() > 0) {
     auto& last_entry = G.source_map.at(G.source_map.size() - 1);
     last_entry.entry_or_leave_name = called_name;
     if (call_kind == CallKind::BeforeFunctionCall) {
@@ -33,7 +34,7 @@ void insert_call_debug_info(AnyV origin, ASTNodeKind kind, CodeBlob& code, const
 }
 
 void insert_debug_info(AnyV origin, ASTNodeKind kind, CodeBlob& code, bool is_leave, std::string descr) {
-  if (!G.settings.collect_source_map) {
+  if (!G_settings.collect_source_map) {
     return;
   }
 

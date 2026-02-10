@@ -4,9 +4,11 @@ set(TOLK_SOURCE
         symtable.cpp
         compilation-errors.cpp
         compiler-state.cpp
+        abi.cpp
         ast.cpp
         ast-from-tokens.cpp
         constant-evaluator.cpp
+        contract-directive.cpp
 		gen-entrypoints.cpp
         pack-unpack-api.cpp
         pack-unpack-serializers.cpp
@@ -34,7 +36,9 @@ set(TOLK_SOURCE
         pipe-find-unused-symbols.cpp
         pipe-generate-fif-output.cpp
         pipe-generate-source-map.cpp
+        pipe-collect-abi.cpp
         type-system.cpp
+        type-transition.cpp
         smart-casts-cfg.cpp
         generics-helpers.cpp
         lazy-helpers.cpp
@@ -68,7 +72,7 @@ if (USE_EMSCRIPTEN)
   target_link_libraries(tolkfiftlib PUBLIC fift-lib git)
   target_link_options(tolkfiftlib PRIVATE
           -sEXPORTED_RUNTIME_METHODS=FS,ccall,cwrap,UTF8ToString,stringToUTF8,lengthBytesUTF8,addFunction,removeFunction,setValue
-          -sEXPORTED_FUNCTIONS=_tolk_compile,_version,_malloc,_free,_setThrew
+          -sEXPORTED_FUNCTIONS=_tolk_compile,_tolk_version,_malloc,_free,_setThrew
           -sEXPORT_NAME=CompilerModule
           -sERROR_ON_UNDEFINED_SYMBOLS=0
           -sFILESYSTEM=1 -lnodefs.js

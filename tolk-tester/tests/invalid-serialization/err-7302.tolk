@@ -2,7 +2,7 @@ struct A{}
 type StructAndNot = A | int8;
 
 fun f() {
-    var o = lazy StructAndNot.fromSlice("");   // neg5
+    var o = lazy StructAndNot.fromSlice(createEmptySlice());
     __expect_lazy("");
     match (o) {
         A => {}

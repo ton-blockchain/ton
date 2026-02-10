@@ -60,8 +60,11 @@ static Error err_type_used_as_symbol(V<ast_identifier> v) {
   }
 }
 
+GNU_ATTRIBUTE_NOINLINE
 static Error err_using_self_not_in_method(FunctionPtr cur_f) {
-  if (cur_f->is_static_method()) {
+  if (!cur_f) {
+    return err("using `self` outside a function");
+  } else if (cur_f->is_static_method()) {
     return err("using `self` in a static method");
   } else {
     return err("using `self` in a regular function (not a method)");
@@ -127,20 +130,8 @@ class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
   }
 
   void visit(V<ast_local_var_lhs> v) override {
-    if (v->marked_as_redef) {
-      const Symbol* sym = current_scope.lookup_symbol(v->get_name());
-      if (sym == nullptr) {
-        err("`redef` for unknown variable").fire(v, cur_f);
-      }
-      LocalVarPtr var_ref = sym->try_as<LocalVarPtr>();
-      if (!var_ref) {
-        err("`redef` for unknown variable").fire(v, cur_f);
-      }
-      v->mutate()->assign_var_ref(var_ref);
-    } else {
-      LocalVarPtr var_ref = create_local_var_sym(v->get_name(), v, v->type_node, v->is_immutable, v->is_lateinit);
-      v->mutate()->assign_var_ref(var_ref);
-    }
+    LocalVarPtr var_ref = create_local_var_sym(v->get_name(), v, v->type_node, v->is_immutable, v->is_lateinit);
+    v->mutate()->assign_var_ref(var_ref);
   }
 
   void visit(V<ast_assign> v) override {
@@ -285,6 +276,7 @@ public:
       if (field_ref->has_default_value()) {
         parent::visit(field_ref->default_value);
       }
+      visit_abi_annotation_above(field_ref->abi_annotation);
     }
   }
 
@@ -296,29 +288,43 @@ public:
       }
     }
   }
+
+  void visit_abi_annotation_above(const AbiAnnotationForSymbol* abi_annotation) {
+    if (abi_annotation != nullptr) {
+      if (abi_annotation->minimalMsgValue)      parent::visit(abi_annotation->minimalMsgValue);
+      if (abi_annotation->preferredSendMode)    parent::visit(abi_annotation->preferredSendMode);
+      if (abi_annotation->description)          parent::visit(abi_annotation->description);
+    }
+  }
 };
 
 void pipeline_resolve_identifiers_and_assign_symbols() {
   AssignSymInsideFunctionVisitor visitor;
   for (const SrcFile* file : G.all_src_files) {
     for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
-      if (auto v_func = v->try_as<ast_function_declaration>(); v_func && !v_func->is_builtin_function()) {
-        tolk_assert(v_func->fun_ref);
-        if (visitor.should_visit_function(v_func->fun_ref)) {
-          visitor.start_visiting_function(v_func->fun_ref, v_func);
+      if (auto v_fun = v->try_as<ast_function_declaration>()) {
+        // v_fun->fun_ref may be nullptr if it's `get fun` implicitly imported and ignored because of `contract`
+        if (v_fun->fun_ref && visitor.should_visit_function(v_fun->fun_ref)) {
+          visitor.start_visiting_function(v_fun->fun_ref, v_fun);
+        }
+        if (v_fun->fun_ref) {
+          visitor.visit_abi_annotation_above(v_fun->fun_ref->abi_annotation);
         }
 
       } else if (auto v_const = v->try_as<ast_constant_declaration>()) {
         tolk_assert(v_const->const_ref);
         visitor.start_visiting_constant(v_const->const_ref);
+        visitor.visit_abi_annotation_above(v_const->const_ref->abi_annotation);
 
       } else if (auto v_struct = v->try_as<ast_struct_declaration>()) {
         tolk_assert(v_struct->struct_ref);
         visitor.start_visiting_struct_fields(v_struct->struct_ref);
+        visitor.visit_abi_annotation_above(v_struct->struct_ref->abi_annotation);
 
       } else if (auto v_enum = v->try_as<ast_enum_declaration>()) {
         tolk_assert(v_enum->enum_ref);
         visitor.start_visiting_enum_members(v_enum->enum_ref);
+        visitor.visit_abi_annotation_above(v_enum->enum_ref->abi_annotation);
       }
     }
   }

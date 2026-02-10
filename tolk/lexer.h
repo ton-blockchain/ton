@@ -36,7 +36,6 @@ enum TokenType {
   tok_const,
   tok_var,
   tok_val,
-  tok_redef,
   tok_mutate,
   tok_self,
 
@@ -126,6 +125,7 @@ enum TokenType {
   tok_double_arrow,
   tok_as,
   tok_is,
+  tok_double_question,
 
   tok_tolk,
   tok_semver,
@@ -235,7 +235,5 @@ public:
   GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
   void error(const std::string& err_msg) const;
 };
-
-void lexer_init();
 
 }  // namespace tolk

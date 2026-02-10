@@ -14,7 +14,6 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "tolk.h"
 #include "ast.h"
 #include "ast-aux-data.h"
 #include "ast-replacer.h"
@@ -34,9 +33,10 @@
 
 namespace tolk {
 
-// handle all functions having a prototype `fun f(var: InMessage)` (for testing purposes)
+// detect `onInternalMessage` with a single parameter
+// (there are other valid forms accepting raw slices, they are not transformed)
 static bool is_onInternalMessage(FunctionPtr fun_ref) {
-  if (fun_ref->is_entrypoint() || fun_ref->has_tvm_method_id()) {
+  if (fun_ref->is_entrypoint() && (fun_ref->name == "main" || fun_ref->name == "onInternalMessage")) {
     if (fun_ref->get_num_params() == 1) {
       const auto* t_param = fun_ref->get_param(0).declared_type->try_as<TypeDataStruct>();
       return t_param && t_param->struct_ref->name == "InMessage";
@@ -109,7 +109,8 @@ public:
 };
 
 void pipeline_transform_onInternalMessage() {
-  replace_ast_of_all_functions<TransformOnInternalMessageReplacer>();
+  TransformOnInternalMessageReplacer replacer;
+  replace_ast_of_all_functions(replacer);
 }
 
 } // namespace tolk

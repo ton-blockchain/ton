@@ -32,8 +32,9 @@ fun getMyAddressDev(): address
 @inline
 fun getAddressShard(address: address, shardLen: int): int {
     // Skip workchain, load shard prefix
-    (address as slice).skipBits(3 + 8);
-    return (address as slice).loadUint(shardLen);
+    var s = address as slice;
+    s.skipBits(3 + 8);
+    return s.loadUint(shardLen);
 }
 
 @inline

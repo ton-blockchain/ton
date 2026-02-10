@@ -4,7 +4,7 @@ type MsgEitherCounter = Counter7Increment | Counter7Decrement;
 
 fun f() {
     // because .toCell()
-    var msg = lazy MsgEitherCounter.fromSlice("");  // neg9
+    var msg = lazy MsgEitherCounter.fromSlice(createEmptySlice());
     match (msg) {
         Counter7Increment => {}
         Counter7Decrement => {}

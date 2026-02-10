@@ -213,7 +213,7 @@ fun test10() {
 fun test11() {
     try {
         createExternalLogMessage({
-            dest: ExtOutLogBucket { topic: "asdf" as bits248 }  // wrong bits count
+            dest: ExtOutLogBucket { topic: "asdf".literalSlice() as bits248 }  // wrong bits count
         });
         return 0;
     } catch (excno) {

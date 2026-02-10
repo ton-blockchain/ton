@@ -34,11 +34,8 @@ fun test1(x: int, y: int) {
     __expect_type((1, 2, ), "(int, int)");
     __expect_type((1, ), "int");
     __expect_type((((1,)),), "int");
-    __expect_type([1, 2], "[int, int]");
-    __expect_type([1, 2, ], "[int, int]");
-    __expect_type([1, ], "[int]");
-    __expect_type([((1, ), ), ], "[int]");
-    __expect_type([[[1, ], ], ], "[[[int]]]");
+    __expect_type([((1, ), ), ], "array<int>");
+    __expect_type([[[1, ], ], ], "array<array<array<int>>>");
 }
 
 fun test2(x: int, y: bool) {
@@ -70,19 +67,22 @@ fun test4(x: int) {
 }
 
 fun test5(x: int) {
-    __expect_type([], "[]");
-    __expect_type([x], "[int]");
-    __expect_type([x, x >= 1], "[int, bool]");
-    __expect_type([x, x >= 1, null as slice?], "[int, bool, slice?]");
-    __expect_type((x, [x], [[x], x]), "(int, [int], [[int], int])");
+    __expect_type([], "array<unknown>");
+    __expect_type([x], "array<int>");
+    __expect_type([x, null], "array<int?>");
+    __expect_type([null], "array<null>");
+    __expect_type([x, x >= 1] as tuple, "tuple");
+    __expect_type([x, x >= 1] as array<unknown>, "array<unknown>");
+    __expect_type([x as unknown, (x >= 1) as unknown], "array<unknown>");
+    __expect_type([x] as [int], "[int]");
     __expect_type(contract.getOriginalBalanceWithExtraCurrencies(), "[coins, ExtraCurrenciesMap]");
 }
 
 fun test6() {
     var t = createEmptyTuple();
-    __expect_type(t, "tuple");
+    __expect_type(t, "array<unknown>");
     t.push(1);
-    __expect_type(t, "tuple");
+    __expect_type(t, "array<unknown>");
 }
 
 fun test7() {
@@ -95,7 +95,7 @@ fun test7() {
     // __expect_type(eq<(int, slice)>, "(int, slice) -> (int, slice)");
 }
 
-fun unnamed_args(_: int, _: slice, _: int) {
+fun unnamed_args(_: int, _: string, _: int) {
     return true;
 }
 
@@ -113,6 +113,22 @@ fun test9() {
     __expect_type(alwaysThrows, "() -> never");
     __expect_type(alwaysThrowsNotAnnotated(), "never");
     __expect_type(alwaysThrowsNotAnnotated2(), "never");
+}
+
+fun test10(i: int) {
+    var tail: slice? = null;
+    __expect_type(tail, "null");
+    repeat (10) {
+        __expect_type(tail, "slice?");
+        if (tail == null) {
+            tail = createEmptySlice();
+        } else {
+            tail = null;
+        }
+        __expect_type(tail, "slice?");
+        tail!.remainingBitsCount();
+    }
+    __expect_type(tail, "slice?");
 }
 
 

@@ -3,9 +3,10 @@ fun assign0(mutate x: uint8) {
 }
 
 fun testCantPassDifferentIntN(x: int8) {
-    assign0(mutate (x as int));             // ok
-    assign0(mutate (x as uint8));           // ok
-    assign0(mutate ((x as int64) as int));  // ok
+    // all of them are incorrent, some due to `as` lvalue, the last due to type incompatibility
+    assign0(mutate (x as int));
+    assign0(mutate (x as uint8));
+    assign0(mutate ((x as int64) as int));
     assign0(mutate x);
 }
 
@@ -13,4 +14,6 @@ fun testCantPassDifferentIntN(x: int8) {
 @compilation_should_fail
 @stderr can not pass `int8` to `uint8`
 @stderr assign0(mutate x);
+@stderr can not pass `int8` to mutate `uint8`, because mutation is not type compatible
+@stderr operator `as` can not be used as lvalue
  */

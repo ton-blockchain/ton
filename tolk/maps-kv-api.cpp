@@ -120,7 +120,7 @@ bool check_mapKV_TKey_is_valid(TypePtr TKey, std::string& because_msg) {
     because_msg = "because it does not specify keyLen for a dictionary\n""hint: use `address` if a key is an internal address\n""hint: use `bits128` and similar if a key represents fixed-width data";
     return false;
   }
-  if (!check_struct_can_be_packed_or_unpacked(TKey, false, because_msg)) {
+  if (!check_struct_can_be_packed_or_unpacked(TKey, false, &because_msg)) {
     because_msg = "because it can not be serialized to slice\n" + because_msg;
     return false;
   }
@@ -147,7 +147,7 @@ bool check_mapKV_TValue_is_valid(TypePtr TValue, std::string& because_msg) {
     return true;
   }
   // or something that can be packed to/from slice
-  if (!check_struct_can_be_packed_or_unpacked(TValue, false, because_msg)) {
+  if (!check_struct_can_be_packed_or_unpacked(TValue, false, &because_msg)) {
     because_msg = "because it can not be serialized\n" + because_msg;
     return false;
   }

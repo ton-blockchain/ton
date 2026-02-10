@@ -167,8 +167,8 @@ static TypePtr calculate_type_lca(TypePtr a, TypePtr b, bool* became_union = nul
     return a;
   }
 
-  if (a == TypeDataUnknown::create() || b == TypeDataUnknown::create()) {
-    return TypeDataUnknown::create();
+  if (a == TypeDataNotInferred::create() || b == TypeDataNotInferred::create()) {
+    return TypeDataNotInferred::create();
   }
 
   if (a == TypeDataNever::create()) {
@@ -183,6 +183,10 @@ static TypePtr calculate_type_lca(TypePtr a, TypePtr b, bool* became_union = nul
   }
   if (b == TypeDataNullLiteral::create()) {
     return TypeDataUnion::create_nullable(a);
+  }
+
+  if (a == TypeDataUnknown::create() || b == TypeDataUnknown::create()) {
+    return TypeDataUnknown::create();
   }
 
   const auto* tensor1 = a->try_as<TypeDataTensor>();
@@ -200,42 +204,11 @@ static TypePtr calculate_type_lca(TypePtr a, TypePtr b, bool* became_union = nul
     return TypeDataTensor::create(std::move(types_lca));
   }
 
-  const auto* tuple1 = a->try_as<TypeDataBrackets>();
-  const auto* tuple2 = b->try_as<TypeDataBrackets>();
-  if (tuple1 && tuple2 && tuple1->size() == tuple2->size()) {
-    std::vector<TypePtr> types_lca;
-    types_lca.reserve(tuple1->size());
-    for (int i = 0; i < tuple1->size(); ++i) {
-      TypePtr next = calculate_type_lca(tuple1->items[i], tuple2->items[i], became_union);
-      if (next == nullptr) {
-        return nullptr;
-      }
-      types_lca.push_back(next);
-    }
-    return TypeDataBrackets::create(std::move(types_lca));
-  }
-
   TypePtr resulting_union = TypeDataUnion::create(std::vector{a, b});
   if (became_union != nullptr && !a->equal_to(resulting_union) && !b->equal_to(resulting_union)) {
     *became_union = true;
   }
   return resulting_union;
-}
-
-// when `var v = rhs`, `v` is `unknown` before assignment (before rhs->inferred_type is assigned to it);
-// when `var (v1,v2,v3) = rhs`, left side is `(unknown,unknown,unknown)`
-static bool is_type_unknown_from_var_lhs_decl(TypePtr t) {
-  if (t == TypeDataUnknown::create()) {
-    return true;
-  }
-  if (const auto* t_tensor = t->try_as<TypeDataTensor>()) {
-    bool all_unknown = true;
-    for (TypePtr item : t_tensor->items) {
-      all_unknown &=is_type_unknown_from_var_lhs_decl(item);
-    }
-    return all_unknown;
-  }
-  return false;
 }
 
 // merge (unify) of two sign states: what sign do we definitely have
@@ -283,8 +256,12 @@ BoolState calculate_bool_lca(BoolState a, BoolState b) {
 void TypeInferringUnifyStrategy::unify_with(TypePtr next, TypePtr dest_hint) {
   // example: `var r = ... ? int8 : int16`, will be inferred as `int8 | int16` (via unification)
   // but `var r: int = ... ? int8 : int16`, will be inferred as `int` (it's dest_hint)
-  if (dest_hint && !is_type_unknown_from_var_lhs_decl(dest_hint) && !dest_hint->unwrap_alias()->try_as<TypeDataUnion>()) {
-    if (dest_hint->can_rhs_be_assigned(next)) {
+  if (dest_hint) {
+    if (const TypeDataUnion* dest_union = dest_hint->unwrap_alias()->try_as<TypeDataUnion>()) {
+      if (TypePtr dest_variant = dest_union->calculate_exact_variant_to_fit_rhs(next)) {
+        next = dest_variant;
+      }
+    } else if (dest_hint->can_rhs_be_assigned(next)) {
       next = dest_hint;
     }
   }
@@ -408,6 +385,10 @@ FlowContext FlowContext::merge_flow(FlowContext&& c1, FlowContext&& c2) {
 TypePtr calculate_type_subtract_rhs_type(TypePtr type, TypePtr subtract_type) {
   const TypeDataUnion* lhs_union = type->unwrap_alias()->try_as<TypeDataUnion>();
   if (!lhs_union) {
+    // `unknown` - `null` = `unknown`
+    if (type == TypeDataUnknown::create() && subtract_type == TypeDataNullLiteral::create()) {
+      return TypeDataUnknown::create();
+    }
     return TypeDataNever::create();
   }
 
@@ -447,10 +428,17 @@ TypePtr calculate_type_subtract_rhs_type(TypePtr type, TypePtr subtract_type) {
 // example: `x.1.2` is { var_ref: x, index_path: 2<<8 + 3 }
 // example: `x!.1!.2` is the same
 // not SinkExpressions: `globalVar` / `f()` / `obj.method().1`
-SinkExpression extract_sink_expression_from_vertex(AnyExprV v) {
+SinkExpression extract_sink_expression_from_vertex(AnyExprV v, bool allow_global_vars) {
+  if (allow_global_vars) {
+    v = unwrap_not_null_operator(v);
+  }
+
   if (auto as_ref = v->try_as<ast_reference>()) {
     if (LocalVarPtr var_ref = as_ref->sym->try_as<LocalVarPtr>()) {
       return SinkExpression(var_ref);
+    }
+    if (GlobalVarPtr glob_ref = as_ref->sym->try_as<GlobalVarPtr>(); glob_ref && allow_global_vars) {
+      return SinkExpression(reinterpret_cast<LocalVarPtr>(glob_ref));
     }
   }
 
@@ -472,15 +460,14 @@ SinkExpression extract_sink_expression_from_vertex(AnyExprV v) {
       if (LocalVarPtr var_ref = as_ref->sym->try_as<LocalVarPtr>(); var_ref && index_path) {
         return SinkExpression(var_ref, index_path);
       }
+      if (GlobalVarPtr glob_ref = as_ref->sym->try_as<GlobalVarPtr>(); glob_ref && index_path && allow_global_vars) {
+        return SinkExpression(reinterpret_cast<LocalVarPtr>(glob_ref), index_path);
+      }
     }
   }
 
-  if (auto as_par = v->try_as<ast_parenthesized_expression>()) {
-    return extract_sink_expression_from_vertex(as_par->get_expr());
-  }
-
   if (auto as_assign = v->try_as<ast_assign>()) {
-    return extract_sink_expression_from_vertex(as_assign->get_lhs());
+    return extract_sink_expression_from_vertex(as_assign->get_lhs(), allow_global_vars);
   }
 
   if (auto as_decl = v->try_as<ast_local_vars_declaration>()) {
@@ -515,8 +502,8 @@ TypePtr calc_declared_type_before_smart_cast(AnyExprV v) {
       if (const auto* t_tensor = obj_type->try_as<TypeDataTensor>()) {
         return t_tensor->items[index_at];
       }
-      if (const auto* t_tuple = obj_type->try_as<TypeDataBrackets>()) {
-        return t_tuple->items[index_at];
+      if (const auto* t_shaped = obj_type->try_as<TypeDataShapedTuple>()) {
+        return t_shaped->items[index_at];
       }
     }
   }

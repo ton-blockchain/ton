@@ -53,24 +53,17 @@ fun test104(x: MIntN) {
 @method_id(105)
 fun test105() {
     var xy: (int?, MIntN) = (5, null);
-    var ab = [1 ? [xy.0, xy.1] : null];
+    var ab = [1 ? [xy.0, xy.1] : null] as [[int?, int?]?];
     ab.0!.0 = intOr0(ab.0!.0);
     ab.0!.1 = intOr0(ab.0!.1);
     return ab.0!.0! + ab.0!.1!;
 }
 
-global gTup106: tuple?;
-global gInt106: MIntN;
-
 @method_id(106)
 fun test106() {
-    gInt106 = 0;
-    gInt106! += 5;
     var int106: int? = 0;
-    var gTup106 = createEmptyTuple();
-    gTup106!.push(createEmptyTuple());
-    (gTup106!.0 as tuple?)!.push(0 as int?);
-    tuplePush(mutate gTup106!, gInt106);
+    var gTup106 = [createEmptyTuple()] as [tuple]?;
+    tuple.push(mutate gTup106!.0, 0 as int?);
     tuplePush(mutate gTup106!.0, int106! += 1);
     return (gTup106 == null, null != gTup106, gTup106, gTup106!.0 as tuple?);
 }
@@ -81,7 +74,7 @@ fun test107() {
     b!.storeInt(1, 32).storeInt(2, 32);
     b = b!.storeInt(3, 32);
     storeInt(mutate b!, 4, 32);
-    (b! as builder).storeInt(5, 32);
+    builder.storeInt(mutate b!, 5, 32);
     return b!.bitsCount();
 }
 
@@ -114,7 +107,7 @@ fun main(x: int?, y: MIntN) {
 @testcase | 103 | 10  | -1 0 10
 @testcase | 104 | 8   | -90 (null)
 @testcase | 105 |     | 5
-@testcase | 106 |     | 0 -1 [ [ 0 1 ] 5 ] [ 0 1 ]
+@testcase | 106 |     | 0 -1 [ [ 0 1 ] ] [ 0 1 ]
 @testcase | 107 |     | 160
 @testcase | 108 |     | 4
 @testcase | 109 |     | [ 3 4 ] 3 4

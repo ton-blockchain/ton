@@ -47,6 +47,12 @@ struct Symbol {
   void check_import_exists_when_used_from(FunctionPtr cur_f, AnyV usage) const;
 };
 
+struct AbiAnnotationForSymbol {
+  AnyExprV minimalMsgValue = nullptr;
+  AnyExprV preferredSendMode = nullptr;
+  AnyExprV description = nullptr;
+};
+
 struct LocalVarData final : Symbol {
   enum {
     flagMutateParameter = 1,    // parameter was declared with `mutate` keyword
@@ -122,7 +128,7 @@ struct FunctionData final : Symbol {
     flagAcceptsSelf = 512,      // is a member function (has `self` first parameter)
     flagReturnsSelf = 1024,     // return type is `self` (returns the mutated 1st argument), calls can be chainable
     flagReallyUsed = 2048,      // calculated via dfs from used functions; declared but unused functions are not codegenerated
-    flagCompileTimeVal = 4096,  // calculated only at compile-time for constant arguments: `ton("0.05")`, `stringCrc32`, and others
+    flagCompileTimeVal = 4096,  // calculated only at compile-time for constant arguments: `ton("0.05")`, `"str".crc32()`, and others
     flagAllowAnyWidthT = 16384, // for built-in generic functions that <T> is not restricted to be 1-slot type
     flagManualOnBounce = 32768, // for onInternalMessage, don't insert "if (isBounced) return"
   };
@@ -145,11 +151,12 @@ struct FunctionData final : Symbol {
 
   const GenericsDeclaration* genericTs;
   const GenericsSubstitutions* substitutedTs;
+  const AbiAnnotationForSymbol* abi_annotation;
   FunctionPtr base_fun_ref = nullptr;             // for `f<int>`, here is `f<T>`; for a lambda, a containing function
   FunctionBody body;
   AnyV ast_root;                                  // V<ast_function_declaration> for user-defined (not builtin)
 
-  FunctionData(std::string name, AnyV ident_anchor, std::string method_name, AnyTypeV receiver_type_node, AnyTypeV return_type_node, std::vector<LocalVarData> parameters, int initial_flags, FunctionInlineMode inline_mode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
+  FunctionData(std::string name, AnyV ident_anchor, std::string method_name, AnyTypeV receiver_type_node, AnyTypeV return_type_node, std::vector<LocalVarData> parameters, int initial_flags, FunctionInlineMode inline_mode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, const AbiAnnotationForSymbol* abi_annotation, FunctionBody body, AnyV ast_root)
     : Symbol(std::move(name), ident_anchor)
     , flags(initial_flags)
     , inline_mode(inline_mode)
@@ -159,10 +166,11 @@ struct FunctionData final : Symbol {
     , return_type_node(return_type_node)
     , genericTs(genericTs)
     , substitutedTs(substitutedTs)
+    , abi_annotation(abi_annotation)
     , body(body)
     , ast_root(ast_root) {
   }
-  FunctionData(std::string name, AnyV ident_anchor, std::string method_name, TypePtr receiver_type, TypePtr declared_return_type, std::vector<LocalVarData> parameters, int initial_flags, FunctionInlineMode inline_mode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
+  FunctionData(std::string name, AnyV ident_anchor, std::string method_name, TypePtr receiver_type, TypePtr declared_return_type, std::vector<LocalVarData> parameters, int initial_flags, FunctionInlineMode inline_mode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, const AbiAnnotationForSymbol* abi_annotation, FunctionBody body, AnyV ast_root)
     : Symbol(std::move(name), ident_anchor)
     , flags(initial_flags)
     , inline_mode(inline_mode)
@@ -174,6 +182,7 @@ struct FunctionData final : Symbol {
     , declared_return_type(declared_return_type)
     , genericTs(genericTs)
     , substitutedTs(substitutedTs)
+    , abi_annotation(abi_annotation)
     , body(body)
     , ast_root(ast_root) {
   }
@@ -259,11 +268,13 @@ struct GlobalConstData final : Symbol {
   TypePtr declared_type = nullptr;    // = resolved type_node
   TypePtr inferred_type = nullptr;
   AnyExprV init_value;
+  const AbiAnnotationForSymbol* abi_annotation;
 
-  GlobalConstData(std::string name, AnyV ident_anchor, AnyTypeV type_node, AnyExprV init_value)
+  GlobalConstData(std::string name, AnyV ident_anchor, AnyTypeV type_node, AnyExprV init_value, const AbiAnnotationForSymbol* abi_annotation)
     : Symbol(std::move(name), ident_anchor)
     , type_node(type_node)
-    , init_value(init_value) {
+    , init_value(init_value)
+    , abi_annotation(abi_annotation) {
   }
 
   GlobalConstData* mutate() const { return const_cast<GlobalConstData*>(this); }
@@ -306,6 +317,7 @@ struct StructFieldData final : Symbol {
   AnyTypeV type_node;
   TypePtr declared_type = nullptr;      // = resolved type_node
   AnyExprV default_value;               // nullptr if no default
+  const AbiAnnotationForSymbol* abi_annotation;
 
   bool has_default_value() const { return default_value != nullptr; }
 
@@ -313,13 +325,14 @@ struct StructFieldData final : Symbol {
   void assign_resolved_type(TypePtr declared_type);
   void assign_default_value(AnyExprV default_value);
 
-  StructFieldData(std::string name, AnyV ident_anchor, int field_idx, bool is_private, bool is_readonly, AnyTypeV type_node, AnyExprV default_value)
+  StructFieldData(std::string name, AnyV ident_anchor, int field_idx, bool is_private, bool is_readonly, AnyTypeV type_node, AnyExprV default_value, const AbiAnnotationForSymbol* abi_annotation)
     : Symbol(std::move(name), ident_anchor)
     , field_idx(field_idx)
     , is_private(is_private)
     , is_readonly(is_readonly)
     , type_node(type_node)
-    , default_value(default_value) {
+    , default_value(default_value)
+    , abi_annotation(abi_annotation) {
   }
 };
 
@@ -338,12 +351,13 @@ struct StructData final : Symbol {
 
     bool exists() const { return prefix_len != 0; }
 
-    std::string format_as_slice() const;    // "x{...}" (or "b{...}")
+    std::string format_as_string(bool as_fift_slice) const;  // "0x..." / "0b..." or "x{...}" / "b{...}"
   };
 
   std::vector<StructFieldPtr> fields;
   PackOpcode opcode;
   Overflow1023Policy overflow1023_policy;
+  const AbiAnnotationForSymbol* abi_annotation;
 
   const GenericsDeclaration* genericTs;
   const GenericsSubstitutions* substitutedTs;
@@ -356,15 +370,20 @@ struct StructData final : Symbol {
 
   bool is_generic_struct() const { return genericTs != nullptr; }
   bool is_instantiation_of_generic_struct() const { return substitutedTs != nullptr; }
+  // some predefined structs from stdlib
+  bool is_instantiation_of_CellT() const           { return substitutedTs != nullptr && base_struct_ref->name == "Cell"; }
+  bool is_instantiation_of_LispListT() const       { return substitutedTs != nullptr && base_struct_ref->name == "lisp_list"; }
+  bool is_instantiation_of_UnsafeBodyNoRef() const { return substitutedTs != nullptr && base_struct_ref->name == "UnsafeBodyNoRef"; }
 
   StructData* mutate() const { return const_cast<StructData*>(this); }
   void assign_resolved_genericTs(const GenericsDeclaration* genericTs);
 
-  StructData(std::string name, AnyV ident_anchor, std::vector<StructFieldPtr>&& fields, PackOpcode opcode, Overflow1023Policy overflow1023_policy, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
+  StructData(std::string name, AnyV ident_anchor, std::vector<StructFieldPtr>&& fields, PackOpcode opcode, Overflow1023Policy overflow1023_policy, const AbiAnnotationForSymbol* abi_annotation, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
     : Symbol(std::move(name), ident_anchor)
     , fields(std::move(fields))
     , opcode(opcode)
     , overflow1023_policy(overflow1023_policy)
+    , abi_annotation(abi_annotation)
     , genericTs(genericTs)
     , substitutedTs(substitutedTs)
     , ast_root(ast_root) {
@@ -395,13 +414,15 @@ struct EnumDefData final : Symbol {
   AnyTypeV colon_type_node;             // nullptr if no serialization type after `:`
   TypePtr colon_type = nullptr;         // = resolved colon_type_node
   std::vector<EnumMemberPtr> members;
+  const AbiAnnotationForSymbol* abi_annotation;
 
   EnumMemberPtr find_member(std::string_view member_name) const;
 
-  EnumDefData(std::string name, AnyV ident_anchor, AnyTypeV colon_type_node, std::vector<EnumMemberPtr>&& members)
+  EnumDefData(std::string name, AnyV ident_anchor, AnyTypeV colon_type_node, std::vector<EnumMemberPtr>&& members, const AbiAnnotationForSymbol* abi_annotation)
     : Symbol(std::move(name), ident_anchor)
     , colon_type_node(colon_type_node)
-    , members(std::move(members)) {
+    , members(std::move(members))
+    , abi_annotation(abi_annotation) {
   }
 
   std::string as_human_readable() const;
@@ -427,7 +448,6 @@ class GlobalSymbolTable {
   }
 
 public:
-  void clear();
   void add_global_symbol(const Symbol* sym);
   void add_function(FunctionPtr f_sym) { add_global_symbol(f_sym); }
 

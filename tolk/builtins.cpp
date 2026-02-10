@@ -17,6 +17,7 @@
 #include "tolk.h"
 #include "compilation-errors.h"
 #include "compiler-state.h"
+#include "compiler-settings.h"
 #include "type-system.h"
 #include "generics-helpers.h"
 #include "ast.h"
@@ -42,13 +43,13 @@ static std::vector<LocalVarData> define_builtin_parameters(const std::vector<Typ
 }
 
 static void define_builtin_func(const std::string& name, const std::vector<TypePtr>& params_types, TypePtr return_type, const GenericsDeclaration* genericTs, const std::function<FunctionBodyBuiltinAsmOp::CompileToAsmOpImpl>& func, int flags) {
-  auto* f_sym = new FunctionData(name, {}, "", nullptr, return_type, define_builtin_parameters(params_types, flags), flags, FunctionInlineMode::notCalculated, genericTs, nullptr, new FunctionBodyBuiltinAsmOp(func), nullptr);
+  auto* f_sym = new FunctionData(name, {}, "", nullptr, return_type, define_builtin_parameters(params_types, flags), flags, FunctionInlineMode::notCalculated, genericTs, nullptr, nullptr, new FunctionBodyBuiltinAsmOp(func), nullptr);
   G.symtable.add_function(f_sym);
   G.all_builtins.push_back(f_sym);
 }
 
 static void define_builtin_func(const std::string& name, const std::vector<TypePtr>& params_types, TypePtr return_type, const GenericsDeclaration* genericTs, const std::function<FunctionBodyBuiltinGenerateOps::GenerateOpsImpl>& func, int flags) {
-  auto* f_sym = new FunctionData(name, {}, "", nullptr, return_type, define_builtin_parameters(params_types, flags), flags, FunctionInlineMode::notCalculated, genericTs, nullptr, new FunctionBodyBuiltinGenerateOps(func), nullptr);
+  auto* f_sym = new FunctionData(name, {}, "", nullptr, return_type, define_builtin_parameters(params_types, flags), flags, FunctionInlineMode::notCalculated, genericTs, nullptr, nullptr, new FunctionBodyBuiltinGenerateOps(func), nullptr);
   G.symtable.add_function(f_sym);
   G.all_builtins.push_back(f_sym);
 }
@@ -56,7 +57,7 @@ static void define_builtin_func(const std::string& name, const std::vector<TypeP
 static void define_builtin_method(const std::string& name, TypePtr receiver_type, const std::vector<TypePtr>& params_types, TypePtr return_type, const GenericsDeclaration* genericTs, const std::function<FunctionBodyBuiltinAsmOp::CompileToAsmOpImpl>& func, int flags,
                                 std::initializer_list<int> arg_order = {}, std::initializer_list<int> ret_order = {}) {
   std::string method_name = name.substr(name.find('.') + 1);
-  auto* f_sym = new FunctionData(name, {}, std::move(method_name), receiver_type, return_type, define_builtin_parameters(params_types, flags), flags, FunctionInlineMode::notCalculated, genericTs, nullptr, new FunctionBodyBuiltinAsmOp(func), nullptr);
+  auto* f_sym = new FunctionData(name, {}, std::move(method_name), receiver_type, return_type, define_builtin_parameters(params_types, flags), flags, FunctionInlineMode::notCalculated, genericTs, nullptr, nullptr, new FunctionBodyBuiltinAsmOp(func), nullptr);
   f_sym->arg_order = arg_order;
   f_sym->ret_order = ret_order;
   G.symtable.add_function(f_sym);
@@ -66,7 +67,7 @@ static void define_builtin_method(const std::string& name, TypePtr receiver_type
 
 void define_builtin_method(const std::string& name, TypePtr receiver_type, const std::vector<TypePtr>& params_types, TypePtr return_type, const GenericsDeclaration* genericTs, const std::function<FunctionBodyBuiltinGenerateOps::GenerateOpsImpl>& func, int flags) {
   std::string method_name = name.substr(name.find('.') + 1);
-  auto* f_sym = new FunctionData(name, {}, std::move(method_name), receiver_type, return_type, define_builtin_parameters(params_types, flags), flags, FunctionInlineMode::notCalculated, genericTs, nullptr, new FunctionBodyBuiltinGenerateOps(func), nullptr);
+  auto* f_sym = new FunctionData(name, {}, std::move(method_name), receiver_type, return_type, define_builtin_parameters(params_types, flags), flags, FunctionInlineMode::notCalculated, genericTs, nullptr, nullptr, new FunctionBodyBuiltinGenerateOps(func), nullptr);
   G.symtable.add_function(f_sym);
   G.all_builtins.push_back(f_sym);
   G.all_methods.push_back(f_sym);
@@ -85,6 +86,28 @@ void FunctionBodyAsm::compile(AsmOpList& dest, AnyV origin) const {
   }
 }
 
+// the option `-O2` (turned on by default) enables optimizations (particularly, peephole ones);
+// if so, some asm instructions are generated to be transformed later (they are not valid to Fift as-is)
+static bool will_run_peephole() {
+  return G_settings.optimization_level >= 2;
+}
+
+static std::string op_postfix_N_untuple(std::string cmd, int n_slots) {
+  if (n_slots != 1) {
+    cmd += " ";
+    cmd += std::to_string(n_slots);
+    cmd += n_slots < 16 ? " UNTUPLE" : " PUSHINT UNTUPLEVAR";
+  }
+  return cmd;
+}
+
+static std::string op_prefix_N_tuple(std::string cmd, int n_slots) {
+  if (n_slots != 1) {
+    std::string prefix = std::to_string(n_slots) + (n_slots < 16 ? " TUPLE " : " PUSHINT TUPLEVAR ");
+    cmd = prefix + cmd;
+  }
+  return cmd;
+}
 
 /*
  * 
@@ -94,6 +117,10 @@ void FunctionBodyAsm::compile(AsmOpList& dest, AnyV origin) const {
 
 int emulate_negate(int a) {
   int f = VarDescr::_Pos | VarDescr::_Neg;
+  if ((a & f) && (~a & f)) {
+    a ^= f;
+  }
+  f = VarDescr::_Bit | VarDescr::_Bool;
   if ((a & f) && (~a & f)) {
     a ^= f;
   }
@@ -131,9 +158,9 @@ int emulate_sub(int a, int b) {
 }
 
 int emulate_mul(int a, int b) {
-  if ((b & VarDescr::ConstOne) == VarDescr::ConstOne) {
+  if ((b & (VarDescr::_NonZero | VarDescr::_Bit)) == (VarDescr::_NonZero | VarDescr::_Bit)) {
     return a;
-  } else if ((a & VarDescr::ConstOne) == VarDescr::ConstOne) {
+  } else if ((a & (VarDescr::_NonZero | VarDescr::_Bit)) == (VarDescr::_NonZero | VarDescr::_Bit)) {
     return b;
   }
   int u = a & b, v = a | b;
@@ -153,6 +180,11 @@ int emulate_mul(int a, int b) {
   } else if (!(~v & (VarDescr::_Pos | VarDescr::_Neg))) {
     r |= VarDescr::_Neg;
   }
+  if (u & (VarDescr::_Bit | VarDescr::_Bool)) {
+    r |= VarDescr::_Bit;
+  } else if (!(~v & (VarDescr::_Bit | VarDescr::_Bool))) {
+    r |= VarDescr::_Bool;
+  }
   r |= v & VarDescr::_Even;
   r |= u & (VarDescr::_Odd | VarDescr::_NonZero);
   return r;
@@ -169,6 +201,7 @@ int emulate_bitwise_and(int a, int b) {
     return VarDescr::ConstZero;
   }
   r |= both & (VarDescr::_Even | VarDescr::_Odd);
+  r |= both & (VarDescr::_Bit | VarDescr::_Bool);
   if (both & VarDescr::_Odd) {
     r |= VarDescr::_NonZero;
   }
@@ -224,7 +257,7 @@ int emulate_bitwise_not(int a) {
   if ((a2 & f) && (~a2 & f)) {
     a2 ^= f;
   }
-  a2 &= ~(VarDescr::_Zero | VarDescr::_NonZero | VarDescr::_Pos | VarDescr::_Neg);
+  a2 &= ~(VarDescr::_Zero | VarDescr::_NonZero | VarDescr::_Bit | VarDescr::_Pos | VarDescr::_Neg);
   if ((a & VarDescr::_Neg) && (a & VarDescr::_NonZero)) {
     a2 |= VarDescr::_Pos;
   }
@@ -247,9 +280,9 @@ int emulate_lshift(int a, int b) {
 }
 
 int emulate_div(int a, int b) {
-  if ((b & VarDescr::ConstOne) == VarDescr::ConstOne) {
+  if ((b & (VarDescr::_NonZero | VarDescr::_Bit)) == (VarDescr::_NonZero | VarDescr::_Bit)) {
     return a;
-  } else if ((b & VarDescr::ConstOne) == VarDescr::ConstOne) {
+  } else if ((b & (VarDescr::_NonZero | VarDescr::_Bool)) == (VarDescr::_NonZero | VarDescr::_Bool)) {
     return emulate_negate(a);
   }
   if (b & VarDescr::_Zero) {
@@ -272,6 +305,11 @@ int emulate_div(int a, int b) {
   } else if (!(~v & (VarDescr::_Pos | VarDescr::_Neg))) {
     r |= VarDescr::_Neg;
   }
+  if (u & (VarDescr::_Bit | VarDescr::_Bool)) {
+    r |= VarDescr::_Bit;
+  } else if (!(~v & (VarDescr::_Bit | VarDescr::_Bool))) {
+    r |= VarDescr::_Bool;
+  }
   return r;
 }
 
@@ -288,7 +326,9 @@ int emulate_rshift(int a, int b) {
 }
 
 int emulate_mod(int a, int b, int round_mode = -1) {
-  if ((b & VarDescr::ConstOne) == VarDescr::ConstOne) {
+  if ((b & (VarDescr::_NonZero | VarDescr::_Bit)) == (VarDescr::_NonZero | VarDescr::_Bit)) {
+    return VarDescr::ConstZero;
+  } else if ((b & (VarDescr::_NonZero | VarDescr::_Bool)) == (VarDescr::_NonZero | VarDescr::_Bool)) {
     return VarDescr::ConstZero;
   }
   if (b & VarDescr::_Zero) {
@@ -309,6 +349,14 @@ int emulate_mod(int a, int b, int round_mode = -1) {
     r |= b & (VarDescr::_Pos | VarDescr::_Neg);
   } else if (round_mode > 0) {
     r |= emulate_negate(b) & (VarDescr::_Pos | VarDescr::_Neg);
+  }
+  if (a & (VarDescr::_Bit | VarDescr::_Bool)) {
+    if (r & VarDescr::_Pos) {
+      r |= VarDescr::_Bit;
+    }
+    if (r & VarDescr::_Neg) {
+      r |= VarDescr::_Bool;
+    }
   }
   if (b & VarDescr::_Even) {
     r |= a & (VarDescr::_Even | VarDescr::_Odd);
@@ -350,29 +398,19 @@ bool VarDescr::always_neq(const VarDescr& other) const {
          (always_odd() && other.always_even());
 }
 
-AsmOp exec_op(AnyV origin, std::string op) {
-  return AsmOp::Custom(origin, op);
-}
-
-AsmOp exec_op(AnyV origin, std::string op, int args, int retv = 1) {
+static AsmOp exec_op(AnyV origin, std::string op, int args, int retv = 1) {
   return AsmOp::Custom(origin, op, args, retv);
 }
 
-AsmOp exec_arg_op(AnyV origin, std::string op, long long arg, int args, int retv) {
+static AsmOp exec_arg_op(AnyV origin, std::string op, long long arg, int args, int retv = 1) {
   std::ostringstream os;
   os << arg << ' ' << op;
   return AsmOp::Custom(origin, os.str(), args, retv);
 }
 
-AsmOp exec_arg_op(AnyV origin, std::string op, td::RefInt256 arg, int args, int retv) {
+static AsmOp exec_arg_op(AnyV origin, std::string op, td::RefInt256 arg, int args, int retv = 1) {
   std::ostringstream os;
   os << arg << ' ' << op;
-  return AsmOp::Custom(origin, os.str(), args, retv);
-}
-
-AsmOp exec_arg2_op(AnyV origin, std::string op, long long imm1, long long imm2, int args, int retv) {
-  std::ostringstream os;
-  os << imm1 << ' ' << imm2 << ' ' << op;
   return AsmOp::Custom(origin, os.str(), args, retv);
 }
 
@@ -496,7 +534,7 @@ static AsmOp compile_logical_not(std::vector<VarDescr>& res, std::vector<VarDesc
   // but we do insert a fake instruction `BOOLNOT` instead of `NOT` for future peephole optimizations;
   // for instance, `BOOLNOT + N THROWIF` => `N THROWIFNOT`, but for `NOT` (generally) it's incorrect;
   // un-optimized `BOOLNOT` are later replaced with a regular `NOT`
-  return for_int_arg ? exec_op(origin, "0 EQINT", 1) : exec_op(origin, "BOOLNOT", 1);
+  return for_int_arg || !will_run_peephole() ? exec_op(origin, "0 EQINT", 1) : exec_op(origin, "BOOLNOT", 1);
 }
 
 static AsmOp compile_bitwise_and(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
@@ -959,7 +997,7 @@ static AsmOp compile_cmp_int(std::vector<VarDescr>& res, std::vector<VarDescr>& 
 static AsmOp compile_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.empty() && args.size() == 1);
   VarDescr& x = args[0];
-  if (x.is_int_const() && x.int_const >= 0) {
+  if (x.is_int_const() && x.int_const >= 0 && x.int_const < (will_run_peephole() ? 65536 : 2048)) {
     // in Fift assembler, "N THROW" is valid if N < 2048; for big N (particularly, widely used 0xFFFF)
     // we now still generate "N THROW", and later, in optimizer, transform it to "PUSHINT" + "THROWANY"
     x.unused();
@@ -1101,7 +1139,7 @@ static AsmOp compile_store_int(std::vector<VarDescr>& res, std::vector<VarDescr>
   // purpose: to merge consecutive `b.storeUint(0, 1).storeUint(1, 1)` into one "1 PUSHINT + 2 STU",
   // when constant arguments are passed, keep them as a separate (fake) instruction, to be handled by optimizer later
   bool value_and_len_is_const = z.is_int_const() && x.is_int_const();
-  if (value_and_len_is_const && x.int_const >= 0 && z.int_const > 0 && z.int_const <= 256 && G.settings.optimization_level >= 2) {
+  if (value_and_len_is_const && x.int_const >= 0 && z.int_const > 0 && z.int_const <= 256 && will_run_peephole()) {
     // don't handle negative numbers or potential overflow, merging them is incorrect
     int len = static_cast<int>(z.int_const->to_long());
     if (x.int_const->fits_bits(len, sgnd)) {
@@ -1142,11 +1180,11 @@ static AsmOp compile_store_bool(std::vector<VarDescr>& res, std::vector<VarDescr
   auto& v = args[1];
   // same purpose as for storeInt/storeUint above
   // (particularly, `b.storeUint(const_int,32).storeBool(const_bool)` will be joined)
-  if (v.is_int_const() && v.int_const == 0 && G.settings.optimization_level >= 2) {
+  if (v.is_int_const() && v.int_const == 0 && will_run_peephole()) {
     v.unused();
     return AsmOp::Custom(origin, "MY_store_intU 0 1", 1);
   }
-  if (v.is_int_const() && v.int_const == -1 && G.settings.optimization_level >= 2) {
+  if (v.is_int_const() && v.int_const == -1 && will_run_peephole()) {
     v.unused();
     return AsmOp::Custom(origin, "MY_store_intU 1 1", 1);
   }
@@ -1159,7 +1197,7 @@ static AsmOp compile_store_coins(std::vector<VarDescr>& res, std::vector<VarDesc
   auto& v = args[1];
   // same purpose as for storeInt/storeUint above
   // (particularly, `b.storeUint(const_int,32).storeCoins(const_zero)` will be joined)
-  if (v.is_int_const() && v.int_const == 0 && G.settings.optimization_level >= 2) {
+  if (v.is_int_const() && v.int_const == 0 && will_run_peephole()) {
     v.unused();
     return AsmOp::Custom(origin, "MY_store_intU 0 4", 1);
   }
@@ -1189,11 +1227,11 @@ static AsmOp compile_slice_sdbeginsq(std::vector<VarDescr>& res, std::vector<Var
   auto& prefix = args[1];
   auto& prefix_len = args[2];
   if (prefix.is_int_const() && prefix.int_const >= 0 && prefix.int_const->signed_fits_bits(50) &&
-      prefix_len.is_int_const() && prefix_len.int_const > 0 && prefix_len.int_const->signed_fits_bits(16)) {
+      prefix_len.is_int_const() && prefix_len.int_const > 0 && prefix_len.int_const < 1024) {
     prefix.unused();
     prefix_len.unused();
     StructData::PackOpcode opcode(prefix.int_const->to_long(), static_cast<int>(prefix_len.int_const->to_long()));
-    return AsmOp::Custom(origin, opcode.format_as_slice() + " SDBEGINSQ", 0, 1);
+    return AsmOp::Custom(origin, opcode.format_as_string(true) + " SDBEGINSQ", 0, 1);
   }
   err("slice.tryStripPrefix can be used only with constant arguments").fire(origin);
 }
@@ -1205,7 +1243,7 @@ static AsmOp compile_skip_bits_in_slice(std::vector<VarDescr>& res, std::vector<
   // same technique as for storeUint:
   // consecutive `s.skipBits(8).skipBits(const_var_16)` will be joined into a single 24
   // to track this, represent it as a separate fake instruction to be detected by optimizer later
-  if (len.is_int_const() && len.int_const >= 0 && G.settings.optimization_level >= 2) {
+  if (len.is_int_const() && len.int_const >= 0 && len.int_const < 1024 && will_run_peephole()) {
     len.unused();
     return AsmOp::Custom(origin, "MY_skip_bits " + len.int_const->to_dec_string(), 1);
   }
@@ -1213,26 +1251,69 @@ static AsmOp compile_skip_bits_in_slice(std::vector<VarDescr>& res, std::vector<
 }
 
 
-// fun tuple.get<X>(t: tuple, index: int): X   asm "INDEXVAR";
-static AsmOp compile_tuple_get(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
-  tolk_assert(args.size() == 2 && res.size() == 1);
+// fun array<T>.get(self, index: int): T
+static AsmOp compile_array_get(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
+  tolk_assert(args.size() == 2);
+  int n_slots = static_cast<int>(res.size());
   auto& y = args[1];
   if (y.is_int_const() && y.int_const >= 0 && y.int_const < 16) {
     y.unused();
-    return exec_arg_op(origin, "INDEX", y.int_const, 1, 1);
+    return exec_arg_op(origin, op_postfix_N_untuple("INDEX", n_slots), y.int_const, 1, n_slots);
   }
-  return exec_op(origin, "INDEXVAR", 2, 1);
+  return exec_op(origin, op_postfix_N_untuple("INDEXVAR", n_slots), 2, n_slots);
 }
 
-// fun tuple.set<X>(mutate self: tuple, value: X, index: int): void   asm "SETINDEXVAR";
-static AsmOp compile_tuple_set_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
-  tolk_assert(args.size() == 3 && res.size() == 1);
-  auto& y = args[2];
+// fun array<T>.set(mutate self, value: T, index: int): void
+static AsmOp compile_array_set_at(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
+  tolk_assert(args.size() >= 2 && res.size() == 1);
+  int n_slots = static_cast<int>(args.size() - 2);
+  auto& y = args.back();
   if (y.is_int_const() && y.int_const >= 0 && y.int_const < 16) {
     y.unused();
-    return exec_arg_op(origin, "SETINDEX", y.int_const, 1, 1);
+    return exec_op(origin, op_prefix_N_tuple(y.int_const->to_dec_string() + " SETINDEX", n_slots), n_slots + 1, 1);
   }
-  return exec_op(origin, "SETINDEXVAR", 2, 1);
+  if (n_slots == 1) {
+    return exec_op(origin, "SETINDEXVAR", 3, 1);
+  }
+  if (n_slots < 1 || n_slots > 16) {
+    err("array.set is supported for 1..16 slots ({} stack slots here)", n_slots).fire(origin);
+  }
+  std::string prefix_N_tuple_stack = std::to_string(n_slots) + " 1 BLKSWAP " + std::to_string(n_slots) + (n_slots > 15 ? " PUSHINT TUPLEVAR " : " TUPLE ") + "SWAP ";  
+  return exec_op(origin, prefix_N_tuple_stack + "SETINDEXVAR", n_slots + 2, 1);
+}
+
+// fun array<T>.push(mutate self, value: T): void;
+static AsmOp compile_array_push(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
+  tolk_assert(res.size() == 1);
+  int n_slots = static_cast<int>(args.size() - 1);
+  return exec_op(origin, op_prefix_N_tuple("TPUSH", n_slots), n_slots, 1);
+}
+
+// fun array<T>.size(self): int;
+static AsmOp compile_array_size(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
+  tolk_assert(res.size() == 1 && args.size() == 1);
+  return exec_op(origin, "TLEN", 1, 1);
+}
+
+// fun array<T>.last(self): T;
+static AsmOp compile_array_last(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
+  tolk_assert(args.size() == 1);
+  int n_slots = static_cast<int>(res.size());
+  return exec_op(origin, op_postfix_N_untuple("LAST", n_slots), 1, n_slots);
+}
+
+// fun array<T>.first(self): T;
+static AsmOp compile_array_first(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
+  tolk_assert(args.size() == 1);
+  int n_slots = static_cast<int>(res.size());
+  return exec_op(origin, op_postfix_N_untuple("FIRST", n_slots), 1, n_slots);
+}
+
+// fun array<T>.pop(mutate self): T;
+static AsmOp compile_array_pop(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
+  tolk_assert(res.size() >= 1 && args.size() == 1);
+  int n_slots = static_cast<int>(res.size() - 1);
+  return exec_op(origin, op_postfix_N_untuple("TPOP", n_slots), 1, n_slots + 1);
 }
 
 // fun debug.dumpStack(): void   asm "DUMPSTK";
@@ -1240,9 +1321,10 @@ static AsmOp compile_dumpstk(std::vector<VarDescr>&, std::vector<VarDescr>&, Any
   return AsmOp::Custom(origin, "DUMPSTK", 0, 0);
 }
 
-// fun debug.printString<T>(x: T): void   asm "STRDUMP";
+// fun debug.printString(x: string): void   asm "STRDUMP";
 static AsmOp compile_strdump(std::vector<VarDescr>&, std::vector<VarDescr>&, AnyV origin) {
-  return AsmOp::Custom(origin, "STRDUMP DROP", 1, 1);
+  // a string (a parameter) is a TVM cell, which may be a snake string actually, it dumps the first chunk
+  return AsmOp::Custom(origin, "CTOS STRDUMP DROP", 1, 0);
 }
 
 // fun debug.print<T>(x: T): void;
@@ -1263,24 +1345,24 @@ static AsmOp compile_debug_print_to_string(std::vector<VarDescr>&, std::vector<V
   return AsmOp::Custom(origin, cmd, n, n);
 }
 
-// fun T.toTuple(self): tuple;    (T can be any number of slots, it works for structs and tensors)
+// fun T.toTuple(self): array<unknown>;    (T can be any number of slots, it works for structs and tensors)
 static AsmOp compile_T_to_tuple(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 1);
   int n_slots = static_cast<int>(args.size());
-  std::string op_make_tuple = std::to_string(n_slots) + (n_slots > 15 ? " PUSHINT TUPLEVAR" : " TUPLE");
+  std::string op_make_tuple = std::to_string(n_slots) + (n_slots > 15 ? " PUSHINT TUPLEVAR" : " TUPLE");  
   return exec_op(origin, op_make_tuple, n_slots, 1);
 }
 
-// fun T.fromTuple(t: tuple): T;
+// fun T.fromTuple(t: array<unknown>): T;
 static AsmOp compile_T_from_tuple(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(args.size() == 1);
   int n_slots = static_cast<int>(res.size());
-  std::string op_un_tuple = std::to_string(n_slots) + (n_slots > 15 ? " PUSHINT UNTUPLEVAR" : " UNTUPLE");
+  std::string op_un_tuple = std::to_string(n_slots) + (n_slots > 15 ? " PUSHINT UNTUPLEVAR" : " UNTUPLE");  
   return exec_op(origin, op_un_tuple, 1, n_slots);
 }
 
-// fun sizeof<T>(anything: T): int;        // (returns the number of stack elements)
-static AsmOp compile_any_object_sizeof(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
+// fun reflect.stackSizeOfObject<T>(anything: T): int;
+static AsmOp compile_reflect_stackSizeOfObject(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 1);
   int n = static_cast<int>(args.size());
   res[0].set_const(n);
@@ -1289,6 +1371,13 @@ static AsmOp compile_any_object_sizeof(std::vector<VarDescr>& res, std::vector<V
   }
   return AsmOp::IntConst(origin, td::make_refint(n));
 }
+
+// fun reflect.stackSizeOf<T>(): int;
+std::vector<var_idx_t> generate_reflect_stackSizeOf(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
+  TypePtr typeT = called_f->substitutedTs->typeT_at(0);
+  return {code.create_int(origin, typeT->get_width_on_stack(), "(stack-w)")};
+}
+
 
 // fun ton(amount: slice): coins; ton("0.05") replaced by 50000000 at compile-time
 // same for stringCrc32(constString: slice) and others
@@ -1306,12 +1395,21 @@ static AsmOp compile_push_null(std::vector<VarDescr>&, std::vector<VarDescr>&, A
 // fun __isNull<X>(X arg): bool
 static AsmOp compile_is_null(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(args.size() == 1 && res.size() == 1);
+  auto &x = args[0], &r = res[0];
+  if (x.always_null() || x.always_not_null()) {
+    x.unused();
+    r.set_const(x.always_null() ? -1 : 0);
+    return push_const(origin, r.int_const);
+  }
   res[0].val = VarDescr::ValBool;
   return exec_op(origin, "ISNULL", 1, 1);
 }
 
 // fun __expect_type(<expression>, "<expected_type>"): void;
-static AsmOp compile_expect_type(std::vector<VarDescr>&, std::vector<VarDescr>&, AnyV origin) {
+static AsmOp compile_expect_type(std::vector<VarDescr>&, std::vector<VarDescr>& args, AnyV origin) {
+  for (VarDescr& a : args) {
+    a.unused();
+  }
   // handled by type checker, does nothing at runtime
   return AsmOp::Nop(origin);
 }
@@ -1328,7 +1426,9 @@ GenerateOpsImpl generate_slice_loadAny;
 GenerateOpsImpl generate_T_fromCell;
 GenerateOpsImpl generate_T_forceLoadLazyObject;
 GenerateOpsImpl generate_slice_skipAny;
-GenerateOpsImpl generate_T_estimatePackSize;
+GenerateOpsImpl generate_reflect_estimateSerializationOf;
+GenerateOpsImpl generate_reflect_serializationPrefixOf;
+GenerateOpsImpl generate_reflect_serializationPrefixLenOf;
 
 GenerateOpsImpl generate_createMessage;
 GenerateOpsImpl generate_createExternalLogMessage;
@@ -1379,16 +1479,17 @@ CompileToAsmOpImpl compile_dict_delGet;
 void define_builtins() {
   using namespace std::placeholders;
 
+  TypePtr typeT = TypeDataGenericT::create("T");
   TypePtr Unit = TypeDataVoid::create();
   TypePtr Int = TypeDataInt::create();
   TypePtr Bool = TypeDataBool::create();
   TypePtr Slice = TypeDataSlice::create();
+  TypePtr String = TypeDataString::create();
   TypePtr Builder = TypeDataBuilder::create();
   TypePtr Address = TypeDataAddress::internal();
-  TypePtr Tuple = TypeDataTuple::create();
+  TypePtr ArrayOfT = TypeDataArray::create(typeT);
   TypePtr Never = TypeDataNever::create();
 
-  TypePtr typeT = TypeDataGenericT::create("T");
   const GenericsDeclaration* declGenericT = new GenericsDeclaration(std::vector<GenericsDeclaration::ItemT>{{"T", nullptr}}, 0);
   const GenericsDeclaration* declReceiverT = new GenericsDeclaration(std::vector<GenericsDeclaration::ItemT>{{"T", nullptr}}, 1);
 
@@ -1400,6 +1501,7 @@ void define_builtins() {
   // these types are defined in stdlib, currently unknown
   // see patch_builtins_after_stdlib_loaded() below
   TypePtr debug = TypeDataUnknown::create();
+  TypePtr reflect = TypeDataUnknown::create();
   TypePtr CellT = TypeDataUnknown::create();
   TypePtr PackOptions = TypeDataUnknown::create();
   TypePtr UnpackOptions = TypeDataUnknown::create();
@@ -1408,6 +1510,7 @@ void define_builtins() {
   TypePtr OutMessage = TypeDataUnknown::create();
   TypePtr AddressShardingOptions = TypeDataUnknown::create();
   TypePtr AutoDeployAddress = TypeDataUnknown::create();
+  TypePtr SourceLocation = TypeDataUnknown::create();
   const GenericsDeclaration* declTBody = new GenericsDeclaration(std::vector<GenericsDeclaration::ItemT>{{"TBody", nullptr}}, 0);
 
   // builtin operators
@@ -1547,33 +1650,74 @@ void define_builtins() {
   define_builtin_func("ton", {TypeDataUnknown::create()}, TypeDataCoins::create(), nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
-  define_builtin_func("stringCrc32", {TypeDataUnknown::create()}, TypeDataInt::create(), nullptr,
+  define_builtin_func("stringCrc32", {String}, Int, nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
-  define_builtin_func("stringCrc16", {TypeDataUnknown::create()}, TypeDataInt::create(), nullptr,
+  define_builtin_func("stringCrc16", {String}, Int, nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
-  define_builtin_func("stringSha256", {TypeDataUnknown::create()}, TypeDataInt::create(), nullptr,
+  define_builtin_func("stringSha256", {String}, Int, nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
-  define_builtin_func("stringSha256_32", {TypeDataUnknown::create()}, TypeDataInt::create(), nullptr,
+  define_builtin_func("stringSha256_32", {String}, Int, nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
-  define_builtin_func("stringToBase256", {TypeDataUnknown::create()}, TypeDataInt::create(), nullptr,
+  define_builtin_func("stringToBase256", {String}, Int, nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
-  define_builtin_func("stringHexToSlice", {TypeDataUnknown::create()}, TypeDataSlice::create(), nullptr,
+  define_builtin_func("stringHexToSlice", {String}, Slice, nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
-  define_builtin_func("address", {TypeDataUnknown::create()}, TypeDataAddress::internal(), nullptr,
+  define_builtin_func("address", {String}, TypeDataAddress::internal(), nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
-  define_builtin_method("T.typeName", typeT, {}, TypeDataSlice::create(), declReceiverT,
+
+  // string compile-time methods: "hello".crc32(), "hello".sha256(), etc.
+  define_builtin_method("string.crc32", String, {String}, Int, nullptr,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("T.typeNameOfObject", typeT, {typeT}, TypeDataSlice::create(), declReceiverT,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
+  define_builtin_method("string.crc16", String, {String}, Int, nullptr,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
+  define_builtin_method("string.sha256", String, {String}, Int, nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
+  define_builtin_method("string.sha256_32", String, {String}, Int, nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
+  define_builtin_method("string.hexToSlice", String, {String}, Slice, nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
+  define_builtin_method("string.toBase256", String, {String}, Int, nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
+  define_builtin_method("string.literalSlice", String, {String}, Slice, nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
+
+  // array<T> — a TVM tuple under the hood
+  // implemented as built-in functions to support variable-width T (not 1-slot values are backed by sub-tuples)
+  define_builtin_method("array<T>.get", ArrayOfT, {ArrayOfT, Int}, typeT, declReceiverT,
+                              compile_array_get,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("array<T>.set", ArrayOfT, {ArrayOfT, typeT, Int}, Unit, declReceiverT,
+                              compile_array_set_at,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("array<T>.push", ArrayOfT, {ArrayOfT, typeT}, Unit, declReceiverT,
+                              compile_array_push,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("array<T>.size", ArrayOfT, {ArrayOfT}, Int, declReceiverT,
+                              compile_array_size,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("array<T>.last", ArrayOfT, {ArrayOfT}, typeT, declReceiverT,
+                              compile_array_last,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("array<T>.first", ArrayOfT, {ArrayOfT}, typeT, declReceiverT,
+                              compile_array_first,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("array<T>.pop", ArrayOfT, {ArrayOfT}, typeT, declReceiverT,
+                              compile_array_pop,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
 
   // functions from stdlib marked as `builtin`, implemented at compiler level for optimizations
   // (for example, `loadInt(1)` is `1 LDI`, but `loadInt(n)` for non-constant requires it be on a stack and `LDIX`)
@@ -1631,12 +1775,6 @@ void define_builtins() {
   define_builtin_method("builder.storeCoins", Builder, {Builder, TypeDataCoins::create()}, Unit, nullptr,
                               compile_store_coins,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf);
-  define_builtin_method("tuple.get", Tuple, {Tuple, Int}, typeT, declGenericT,
-                              compile_tuple_get,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
-  define_builtin_method("tuple.set", Tuple, {Tuple, typeT, Int}, Unit, declGenericT,
-                              compile_tuple_set_at,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf);
   define_builtin_method("address.buildSameAddressInAnotherShard", Address, {Address, AddressShardingOptions}, Builder, nullptr,
                                 generate_address_buildInAnotherShard,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
@@ -1646,15 +1784,39 @@ void define_builtins() {
   define_builtin_method("debug.print", debug, {typeT}, Unit, declGenericT,
                                 compile_debug_print_to_string,
                                 FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("debug.printString", debug, {typeT}, Unit, declGenericT,
+  define_builtin_method("debug.printString", debug, {String}, Unit, nullptr,
                                 compile_strdump,
                                 0);
   define_builtin_method("debug.dumpStack", debug, {}, Unit, nullptr,
                                 compile_dumpstk,
                                 0);
-  define_builtin_func("sizeof", {typeT}, TypeDataInt::create(), declGenericT,
-                                compile_any_object_sizeof,
+
+  // reflect — compile-time type introspection;
+  // a couple of its methods are "consteval" and can be used in constants / fields defaults / etc.
+  define_builtin_method("reflect.typeNameOf", reflect, {}, String, declGenericT,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("reflect.typeNameOfObject", reflect, {typeT}, String, declGenericT,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("reflect.stackSizeOf", reflect, {}, Int, declGenericT,
+                                generate_reflect_stackSizeOf,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("reflect.stackSizeOfObject", reflect, {typeT}, Int, declGenericT,
+                                compile_reflect_stackSizeOfObject,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("reflect.serializationPrefixOf", reflect, {}, Int, declGenericT,
+                                generate_reflect_serializationPrefixOf,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("reflect.serializationPrefixLenOf", reflect, {}, Int, declGenericT,
+                                generate_reflect_serializationPrefixLenOf,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("reflect.estimateSerializationOf", typeT, {}, TypeDataTensor::create({TypeDataInt::create(), TypeDataInt::create(), TypeDataInt::create(), TypeDataInt::create()}), declGenericT,
+                                generate_reflect_estimateSerializationOf,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("reflect.sourceLocation", reflect, {}, SourceLocation, nullptr,
+                                compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
 
   // serialization/deserialization methods to/from cells (or, more low-level, slices/builders)
   // they work with structs (or, more low-level, with arbitrary types)
@@ -1667,18 +1829,6 @@ void define_builtins() {
   define_builtin_method("T.fromSlice", typeT, {Slice, UnpackOptions}, typeT, declReceiverT,
                                 generate_T_fromSlice,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("T.estimatePackSize", typeT, {}, TypeDataTensor::create({TypeDataInt::create(), TypeDataInt::create(), TypeDataInt::create(), TypeDataInt::create()}), declReceiverT,
-                                generate_T_estimatePackSize,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("T.getDeclaredPackPrefix", typeT, {}, Int, declReceiverT,
-                                compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("T.__typeName2", typeT, {}, Slice, declReceiverT,
-                                compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("T.getDeclaredPackPrefixLen", typeT, {}, Int, declReceiverT,
-                                compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("T.forceLoadLazyObject", typeT, {typeT}, Slice, declReceiverT,
                                 generate_T_forceLoadLazyObject,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
@@ -1694,10 +1844,10 @@ void define_builtins() {
   define_builtin_method("builder.storeAny", Builder, {Builder, typeT, PackOptions}, Builder, declGenericT,
                                 generate_builder_storeAny,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("T.toTuple", typeT, {typeT}, Tuple, declReceiverT,
+  define_builtin_method("T.toTuple", typeT, {typeT}, TypeDataArray::create(TypeDataUnknown::create()), declReceiverT,
                                 compile_T_to_tuple,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("T.fromTuple", typeT, {Tuple}, typeT, declReceiverT,
+  define_builtin_method("T.fromTuple", typeT, {TypeDataArray::create(TypeDataUnknown::create())}, typeT, declReceiverT,
                                 compile_T_from_tuple,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
 
@@ -1720,13 +1870,13 @@ void define_builtins() {
   // functions not presented in stdlib at all
   // used in tolk-tester to check/expose internal compiler state
   // each of them is handled in a special way, search by its name
-  define_builtin_func("__expect_type", {TypeDataUnknown::create(), Slice}, Unit, nullptr,
+  define_builtin_func("__expect_type", {typeT, String}, Unit, declGenericT,
                                 compile_expect_type,
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
   define_builtin_func("__expect_inline", {Bool}, Unit, nullptr,
                                 compile_expect_type,
                                 FunctionData::flagMarkedAsPure);
-  define_builtin_func("__expect_lazy", {Slice}, Unit, nullptr,
+  define_builtin_func("__expect_lazy", {String}, Unit, nullptr,
                                 compile_expect_type,
                                 FunctionData::flagMarkedAsPure);
 
@@ -1856,6 +2006,23 @@ void patch_builtins_after_stdlib_loaded() {
   lookup_function("debug.print")->mutate()->receiver_type = debug;
   lookup_function("debug.printString")->mutate()->receiver_type = debug;
   lookup_function("debug.dumpStack")->mutate()->receiver_type = debug;
+
+  const Symbol* sym_reflect = lookup_global_symbol("reflect");
+  if (sym_reflect) {   // if `@stdlib/reflect` was imported from somewhere (it couldn't be used without import)
+    TypePtr reflect = TypeDataStruct::create(sym_reflect->try_as<StructPtr>());
+    lookup_function("reflect.typeNameOf")->mutate()->receiver_type = reflect;
+    lookup_function("reflect.typeNameOfObject")->mutate()->receiver_type = reflect;
+    lookup_function("reflect.stackSizeOf")->mutate()->receiver_type = reflect;
+    lookup_function("reflect.stackSizeOfObject")->mutate()->receiver_type = reflect;
+    lookup_function("reflect.serializationPrefixOf")->mutate()->receiver_type = reflect;
+    lookup_function("reflect.serializationPrefixLenOf")->mutate()->receiver_type = reflect;
+    lookup_function("reflect.estimateSerializationOf")->mutate()->receiver_type = reflect;
+
+    StructPtr struct_ref_SourceLocation = lookup_global_symbol("SourceLocation")->try_as<StructPtr>();
+    TypePtr SourceLocation = TypeDataStruct::create(struct_ref_SourceLocation);
+    lookup_function("reflect.sourceLocation")->mutate()->declared_return_type = SourceLocation;
+    lookup_function("reflect.sourceLocation")->mutate()->receiver_type = reflect;
+  }
 
   StructPtr struct_ref_AddressShardingOptions = lookup_global_symbol("AddressShardingOptions")->try_as<StructPtr>();
   StructPtr struct_ref_AutoDeployAddress = lookup_global_symbol("AutoDeployAddress")->try_as<StructPtr>();

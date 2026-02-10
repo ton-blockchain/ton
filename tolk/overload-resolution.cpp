@@ -81,9 +81,9 @@ static ShapeScore calculate_shape_score(TypePtr t) {
     return {ShapeKind::Tensor, 1 + d};
   }
 
-  if (const auto* t_brackets = t->try_as<TypeDataBrackets>()) {
+  if (const auto* t_shaped = t->try_as<TypeDataShapedTuple>()) {
     int d = 0;
-    for (TypePtr item : t_brackets->items) {
+    for (TypePtr item : t_shaped->items) {
       d = std::max(d, calculate_shape_score(item).depth);
     }
     return {ShapeKind::Tensor, 1 + d};
@@ -130,18 +130,22 @@ static bool is_more_specific_generic(TypePtr typeA, TypePtr typeB, const Generic
 
 // the main "overload resolution" entrypoint: given `obj.method()`, find best applicable methods;
 // if there are many (no one is better than others), a caller side will emit "ambiguous call"
-std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_receiver, std::string_view called_name) {
+std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_receiver, std::string_view called_name, bool skip_instantiations) {
   // find all methods theoretically applicable; we'll filter them by priority;
   // for instance, if there is `T.method`, it will be instantiated with T=provided_receiver
   std::vector<MethodCallCandidate> viable;
   for (FunctionPtr method_ref : G.all_methods) {
     if (method_ref->method_name == called_name) {
+      if (skip_instantiations && method_ref->is_instantiation_of_generic_function()) {
+        continue;
+      }
+
       TypePtr receiver = method_ref->receiver_type;
       if (receiver->has_genericT_inside()) {
         try {   // check whether exist some T to make it a valid call (probably with type coercion)
           GenericSubstitutionsDeducing deducingTs(method_ref);
           TypePtr replaced = deducingTs.auto_deduce_from_argument(receiver, provided_receiver);
-          if (replaced->can_rhs_be_assigned(provided_receiver)) {
+          if (replaced->can_rhs_be_assigned(provided_receiver) && !replaced->has_genericT_inside()) {
             viable.emplace_back(receiver, replaced, method_ref, deducingTs.flush());
           }
         } catch (...) {}

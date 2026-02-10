@@ -1,3 +1,5 @@
+import "@stdlib/lisp-lists"
+import "@stdlib/strings"
 
 struct JustInt32 {
     v: MInt32
@@ -46,6 +48,25 @@ fun map<K, V>.calculateSize(self) {
         r = self.iterateNext(r);
     }
     return size;
+}
+
+
+struct LinkedMap {
+    values: array<int8>
+    tree: map<int32, LinkedMap>
+}
+
+fun LinkedMap.flattenValuesInto<T>(self, mutate out: array<T>): void {
+    var i = 0;
+    repeat (self.values.size()) {
+        out.push(self.values.get(i));
+        i += 1;
+    }
+    var it = self.tree.findFirst();
+    while (it.isFound) {
+        it.loadValue().flattenValuesInto(mutate out);
+        it = self.tree.iterateNext(it);
+    }
 }
 
 
@@ -333,7 +354,7 @@ fun test26() {
 @method_id(127)
 fun test27() {
     var m = createEmptyMap<int8, slice>();
-    m.set(1, "");
+    m.set(1, createEmptySlice());
     return (m.findFirst().getKey(), m.findFirst().loadValue().remainingBitsCount());
 }
 
@@ -358,7 +379,7 @@ fun test29() {
     val a1 = m.addIfNotExists(1, DataWithCell{a: null, v: 0, p: null, payload: null}.toCell().beginParse());
     val a2 = m.addIfNotExists(2, DataWithCell{a: null, v: 0, p: Point{x:20,y:20}.toCell(), payload: null}.toCell().beginParse());
     val a3 = m.addIfNotExists(3, DataWithCell{a: null, v: 0, p: Point{x:30,y:30}.toCell(), payload: createEmptyCell()}.toCell().beginParse());
-    val r4 = m.replaceAndGetPrevious(4, "");
+    val r4 = m.replaceAndGetPrevious(4, createEmptySlice());
     return (
         a1, a2, a3, r4, 
         DataWithCell.fromSlice(m.mustGet(2)).payload, 
@@ -411,7 +432,8 @@ fun test32() {
     m.set(stringHexToSlice("0304") as bits16, stringHexToSlice("bbbb") as bits16);
     val repl = m.replaceAndGetPrevious(stringHexToSlice("0304") as bits16, stringHexToSlice("0000") as bits16);
     var r = m.iteratePrev(m.findLast());
-    return ((r.getKey() as slice).remainingBitsCount(), (r.getKey() as slice).loadAny<Point>(), (r.loadValue() as slice).remainingBitsCount(), repl.isFound, (repl.loadValue() as slice).loadUint(8));
+    var (ks, vs, rs) = (r.getKey() as slice, r.loadValue() as slice, repl.loadValue() as slice);
+    return (ks.remainingBitsCount(), ks.loadAny<Point>(), (vs).remainingBitsCount(), repl.isFound, (rs).loadUint(8));
 }
 
 @method_id(133)
@@ -422,7 +444,7 @@ fun test33() {
 }
 
 @method_id(134)
-fun test34(z: int) {
+fun test34(z: int): array<unknown> {
     var m = createEmptyMap<uint32, Point3d>();
     m.set(123, {x: 10, y: 10, z});
     return [m.mustGet(123).z, m.addIfNotExists(456, {x: 10, y: z, z}), m.mustGet(456).y];
@@ -542,6 +564,53 @@ fun test42(dyn: int) {
     return t;
 }
 
+@method_id(143)
+fun test43() {
+    var m = createEmptyMap<int32, lisp_list<int16>>();
+    m.set(1, [23, 24]);
+    m.set(2, [5]);
+    m.set(3, []);
+
+    // currently, this won't work without a call to `toCell` (or any other serialization function),
+    // because generic serializers for `lisp_list<T>` won't be instantiated
+    m = m.toCell().beginParse().loadAny<map<int32, lisp_list<int16>>>();
+
+    return (
+        m.mustGet(1),
+        m.mustGet(2),
+        m.mustGet(3),
+    );
+}
+
+@method_id(144)
+fun test44() {
+    var l = LinkedMap {
+        values: [1,2,3],
+        tree: createEmptyMap()
+    };
+    l.tree.set(1, {values: [4, 5], tree: createEmptyMap()});
+    l.tree.set(2, {values: [6, 7], tree: createEmptyMap()});
+
+    var totalValues = [] as array<int>;
+    l.flattenValuesInto(mutate totalValues);
+    return totalValues;
+}
+
+@method_id(145)
+fun test45() {
+    var m = createEmptyMap<int32, string>();
+    m.set(1, "1");
+    m.set(2, "3");
+    m.replaceIfExists(2, "2");
+    m.set(100, StringBuilder{}.append("1").append("0").append("0").build());
+    return (
+        m.get(2).loadValue().beginParse().bitsEqual("2".literalSlice()),
+        m.mustGet(1).calculateLength(),
+        m.mustGet(100).beginParse().remainingBitsAndRefsCount(),
+        m.mustGet(100).calculateLength(),
+    )
+}
+
 
 fun main() {
     __expect_type(createEmptyMap<int8, (int32, int64)>, "() -> map<int8, (int32, int64)>");
@@ -591,6 +660,9 @@ fun main() {
 @testcase | 140 |            | 0 0 -1 777 -1 0 777 (null) typeid-1 (null) 0
 @testcase | 141 |            | 0 -1 -1 0 -1
 @testcase | 142 | 80         | [ 123 12345 80 800 ]
+@testcase | 143 |            | [ 23 [ 24 (null) ] ] [ 5 (null) ] (null)
+@testcase | 144 |            | [ 1 2 3 4 5 6 7 ]
+@testcase | 145 |            | -1 1 8 1 3
 
 @fif_codegen
 """

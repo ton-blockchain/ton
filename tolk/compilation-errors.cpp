@@ -17,6 +17,18 @@
 #include "compilation-errors.h"
 #include "ast.h"
 #include "type-system.h"
+#include "compiler-state.h"
+#include "json-output.h"
+
+/**
+ *   There are two ways to generate a compilation error:
+ *  1) err("...").fire() — throw an error immediately and interrupt compilation, it's [[noreturn]]
+ *  2) err("...").collect() — store errors in a buffer, all collected will be thrown before AST->IR stage
+ *
+ *   Be very careful of using collect()! Bulk errors are tricky. Double-check that no forward logic
+ * relies on this. For example, collecting errors in a type checker (after type inferring) is safe,
+ * but when resolving symbols, if a symbol not found, we can do only fire() — otherwise, nullptr is left.
+ */
 
 namespace tolk {
 
@@ -173,8 +185,38 @@ void Error::warning(SrcRange range, FunctionPtr in_function) const {
   output_compiler_message(std::cerr, true, str_in_function(in_function), range, message);
 }
 
-void ThrownParseError::output_compilation_error(std::ostream& os) const {
+void Error::collect(AnyV at, FunctionPtr in_function) const {
+  tolk_assert(G.error_collector);
+  G.error_collector->add(ThrownParseError(str_in_function(in_function), at->range, message));
+}
+
+void Error::collect(SrcRange range, FunctionPtr in_function) const {
+  tolk_assert(G.error_collector);
+  G.error_collector->add(ThrownParseError(str_in_function(in_function), range, message));
+}
+
+void ThrownParseError::output_to_console(std::ostream& os) const {
   output_compiler_message(os, false, in_function, range, message);
+}
+
+void ThrownParseError::output_to_json(JsonPrettyOutput& json) const {
+  json.start_object();
+  json.key_value("message", message);
+  if (!in_function.empty()) {
+    json.key_value("in_function", in_function);
+  }
+  if (range.is_valid()) {
+    SrcRange::DecodedRange r = range.decode_offsets();
+    json.start_object("range");
+    json.key_value("file_name", range.get_src_file()->realpath);
+    json.key_value("start_line_no", r.start_line_no);
+    json.key_value("start_char_no", r.start_char_no);
+    json.key_value("end_line_no", r.end_line_no);
+    json.key_value("end_char_no", r.end_char_no);
+    json.key_value("text_inside", r.text_inside);
+    json.end_object();
+  }
+  json.end_object();
 }
 
 } // namespace tolk

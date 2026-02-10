@@ -48,10 +48,6 @@
 
 namespace tolk {
 
-// to calculate recursions, at first we populate the call graph
-// (purpose: functions in recursive call chains can't be inlined)
-static std::unordered_map<FunctionPtr, std::vector<FunctionPtr>> call_graph;
-
 static bool is_called_implicitly_by_compiler(FunctionPtr f) {
   if (f->name == "onBouncedMessage") {
     return true;
@@ -266,6 +262,9 @@ class CallGraphBuilderVisitor final : public ASTVisitorFunctionBody {
   }
 
 public:
+  // populated while visiting: maps [ fun_ref -> list of functions it calls ]
+  std::unordered_map<FunctionPtr, std::vector<FunctionPtr>> call_graph;
+
   bool should_visit_function(FunctionPtr fun_ref) override {
     // don't include asm functions, we don't need them in calculations
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
@@ -278,7 +277,9 @@ public:
 
 static void detect_recursive_functions() {
   // 1) build call_graph (and calculate n_times_called also)
-  visit_ast_of_all_functions<CallGraphBuilderVisitor>();
+  CallGraphBuilderVisitor visitor;
+  visit_ast_of_all_functions(visitor);
+  std::unordered_map<FunctionPtr, std::vector<FunctionPtr>> call_graph = std::move(visitor.call_graph);
 
   // 2) using call_graph, detect cycles (the smallest, non-optimized algorithm, okay for our needs)
   for (const auto& it : call_graph) {
@@ -303,8 +304,8 @@ static void detect_recursive_functions() {
 
 void pipeline_detect_inline_in_place() {
   detect_recursive_functions();
-  visit_ast_of_all_functions<DetectIfToInlineFunctionInPlaceVisitor>();
-  call_graph.clear();
+  DetectIfToInlineFunctionInPlaceVisitor visitor;
+  visit_ast_of_all_functions(visitor);
 }
 
 } // namespace tolk

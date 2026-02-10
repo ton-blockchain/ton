@@ -102,7 +102,7 @@ fun main(c: cell) {
     c as Cell<Point>;
     (c as Cell<Point>) as cell;
     (c as Cell<Point?>) as cell?;
-    __expect_type((c as Cell<Point?>?)!, "Cell<Point?>");
+    __expect_type((c as Cell<Point?> as Cell<Point?>?)!, "Cell<Point?>");
     c = c as Cell<Point>;           // Cell<T> implicitly converts to cell
 }
 

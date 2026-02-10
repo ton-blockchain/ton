@@ -200,13 +200,13 @@ fun test112() {
 
 @method_id(113)
 fun test113() {
-    var t = [1, null];      // t.1 is always null
+    var t = [1, null] as [int8, null];      // t.1 is always null
     return isTensorNull(t.1);
 }
 
 @method_id(114)
 fun test114(): ((slice, (cell, [int, slice, tuple]))?, slice?, (int?, bool?)?) {
-    var t = [[null]];
+    var t = [[null]] as [[null]];
     return (t.0.0, t.0.0, t.0.0);
 }
 
@@ -214,8 +214,9 @@ fun test114(): ((slice, (cell, [int, slice, tuple]))?, slice?, (int?, bool?)?) {
 fun test115() {
     var tt = getNullableTensor(null);
     assignFirstComponentNullable(mutate tt, 5);
+    var t0 = getNullableTensor(1);
     return (
-        getNullableTensor(1)!.incrementTensorComponents(),
+        t0!.incrementTensorComponents(),
         sumOfNullableTensorComponents(getNullableTensor(1).incrementNullableTensorComponents().incrementNullableTensorComponents()),
         getNullableTensor(null).incrementNullableTensorComponents(),
         tt,
@@ -282,7 +283,7 @@ fun test122(setNull: bool) {
     if (setNull) {
         assignNullTo(mutate t!.1);
     } else {
-        var rhs = [3, 4];
+        var rhs = [3, 4] as [int, int];
         t!!.1 = rhs;
     }
     return t;
@@ -566,7 +567,7 @@ fun main(){}
   test113() PROC:<{
     1 PUSHINT	//  '2=1
     PUSHNULL	//  '2=1 '3
-    PAIR	//  t
+    2 TUPLE	//  t
     1 INDEX	//  '5
     PUSHNULL	//  '5 '6
     0 PUSHINT	//  '5 '6 '7=0

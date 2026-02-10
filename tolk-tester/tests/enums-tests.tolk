@@ -131,7 +131,7 @@ fun test6(c: Color) {
     val p = c as EPartialAssigned;
     val e = c as EEmpty;
     match (e) { EEmpty => {} }
-    return (p, e, c as int, c as int?, 100 as Color, -100 as EEmpty);
+    return (p, e, c as int, c as int as int?, 100 as Color, -100 as EEmpty);
 }
 
 @method_id(107)

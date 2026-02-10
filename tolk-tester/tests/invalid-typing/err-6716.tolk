@@ -1,4 +1,4 @@
-fun f(d: bits8 = "") {}
+fun f(d: bits8 = "".literalSlice()) {}
 
 /**
 @compilation_should_fail

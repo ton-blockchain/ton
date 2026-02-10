@@ -25,23 +25,43 @@
 */
 #include "pipeline.h"
 #include "compiler-state.h"
-#include "lexer.h"
-#include "ast.h"
-#include "type-system.h"
-#include <fstream>
+#include "compiler-settings.h"
+#include "compilation-errors.h"
+#include <sstream>
+#include <mutex>
 
 namespace tolk {
 
+// G is the per-compilation mutable state
+thread_local CompilerState G;
+// G_settings is filled by tolk-main or tolk-wasm before calling tolk_proceed()
+thread_local CompilerSettings G_settings;
+
+// prototypes of functions initializing/resetting global state and pointers
 void define_builtins();
+void type_system_init();
+void lexer_init();
+void clear_computed_constants_cache();
 
-int tolk_proceed(const std::string &entrypoint_filename, std::ostream& source_map_out) {
-  // on any error, an exception is thrown, and the message is printed out below
-  // (currently, only a single error can be printed)
-  try {
+
+TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename, std::ostream& source_map_out) {
+  // one-time global initialization (thread-safe, shared across all threads):
+  // type system singletons and lexer trie are immutable after creation
+  static std::once_flag init_flag;
+  std::call_once(init_flag, [] {
     type_system_init();
-    define_builtins();
     lexer_init();
+  });
 
+  clear_computed_constants_cache();
+  define_builtins();    // add built-in functions into G.symtable
+
+  // enable error collecting for check stages (multiple errors can be reported):
+  // - if used err("...").fire() — execution is stopped immediately (it's `throw`)
+  // - if used err("...").collect() — added to a collector and reported before codegen to IR
+  ErrorCollector error_collector;
+  G.error_collector = &error_collector;
+  try {
     pipeline_discover_and_parse_sources("@stdlib/common.tolk", entrypoint_filename);
 
     pipeline_register_global_symbols();
@@ -59,25 +79,66 @@ int tolk_proceed(const std::string &entrypoint_filename, std::ostream& source_ma
     pipeline_optimize_boolean_expressions();
     pipeline_detect_inline_in_place();
     pipeline_check_serialized_fields();
+
+    if (!error_collector.empty()) {
+      return TolkCompilationResult{
+        .errors = error_collector.flush(),
+        .fatal_msg = "",
+        .fift_code = "",
+      };
+    }
+    G.error_collector = nullptr;
+
+    // the following pipes can't operate if any previous errors exist
     pipeline_lazy_load_insertions();
     pipeline_transform_onInternalMessage();
+
+    // for IDE in background: all checks passed, skip codegen
+    if (G_settings.check_only_no_output) {
+      return TolkCompilationResult{
+        .errors = {},
+        .fatal_msg = "",
+        .fift_code = "",
+      };
+    }
+
     pipeline_convert_ast_to_legacy_Expr_Op();
 
     pipeline_find_unused_symbols();
-    pipeline_generate_fif_output_to_std_cout();
-    pipeline_generate_source_map(source_map_out);
 
-    return 0;
-  } catch (const Fatal& fatal) {
-    std::cerr << "fatal: " << fatal.message << std::endl;
-    return 2;
+    std::ostringstream os_fif;
+    pipeline_generate_fif_output(os_fif);
+    pipeline_generate_source_map(source_map_out);
+    pipeline_collect_abi_output_to_json_file();
+
+    return TolkCompilationResult{
+      .errors = {},
+      .fatal_msg = "",
+      .fift_code = os_fif.str(),
+    };
+
   } catch (const ThrownParseError& error) {
-    error.output_compilation_error(std::cerr);
-    return 2;
+    // append `err("...").fire()` to earlier `err("...").collect()`
+    error_collector.add(error);
+    return TolkCompilationResult{
+      .errors = error_collector.flush(),
+      .fatal_msg = "",
+      .fift_code = "",
+    };
+
+  } catch (const Fatal& fatal) {
+    return TolkCompilationResult{
+      .errors = {},
+      .fatal_msg = fatal.message,
+      .fift_code = "",
+    };
+
   } catch (const UnexpectedASTNodeKind& error) {
-    std::cerr << "fatal: " << error.message << std::endl;
-    std::cerr << "It's a compiler bug, please report to developers" << std::endl;
-    return 2;
+    return TolkCompilationResult{
+      .errors = {},
+      .fatal_msg = error.message,
+      .fift_code = "",
+    };
   }
 }
 

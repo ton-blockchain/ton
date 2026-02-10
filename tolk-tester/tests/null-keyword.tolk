@@ -7,14 +7,16 @@ fun test1() {
     numbers = listPrepend(2, numbers);
     numbers = listPrepend(3, numbers);
     numbers = listPrepend(4, numbers);
-    var (h: int, numbers redef) = listSplit(numbers!);
-    h += listGetHead(numbers!);
+    var (h: int, new_numbers) = listSplit(numbers!);
+    numbers = new_numbers!;
+    h += listGetHead(numbers);
 
     _ = null;
     (_, _) = (null, null);
     var t = createEmptyTuple();
     do {
-        var (num: int, numbers redef) = listSplit(numbers!);
+        var (num: int, new_numbers) = listSplit(numbers!);
+        numbers = new_numbers;
         t.push(num);
     } while (numbers != null);
 
@@ -66,7 +68,7 @@ fun test7() {
 
 fun test8() {
     __expect_type(null, "null");
-    __expect_type([[null]], "[[null]]");
+    __expect_type([[null]], "array<array<null>>");
     __expect_type(null as tuple?, "tuple?");
     __expect_type(null as [int]?, "[int]?");
     __expect_type(((null)) as (int, int)?, "(int, int)?");
@@ -108,18 +110,18 @@ fun main() {
     CONS	//  numbers
     UNCONS	//  h numbers
     DUP	//  h numbers numbers
-    CAR	//  h numbers '13
+    CAR	//  h numbers '14
 """
 
 @fif_codegen
 """
-   UNTIL:<{
+   UNTIL:<{                     //  numbers h t
       s0 s2 XCHG                //  t h numbers
       UNCONS                    //  t h num numbers
       s3 s3 XCHG2               //  numbers h t num
       TPUSH                     //  numbers h t
       s2 PUSH                   //  numbers h t numbers
-      ISNULL                    //  numbers h t '28
+      ISNULL                    //  numbers h t '30
     }>                          //  numbers h t
 """
 
@@ -135,12 +137,12 @@ fun main() {
   test7() PROC:<{
     ...
     PLDOPTREF	//  b c
-    ISNULL	    //  b '11
-    10 MULCONST	//  b '13
-    SWAP	    //  '13 b
-    ISNULL	    //  '13 '14
-    NOT         // '13 '14
-    ADD	        //  '15
+    ISNULL	    //  b '10
+    10 MULCONST	//  b '12
+    SWAP	    //  '12 b
+    ISNULL	    //  '12 '13
+    NOT         //  '12 '13
+    ADD	        //  '14
   }>
 """
 */

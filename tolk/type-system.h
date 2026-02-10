@@ -57,6 +57,7 @@ protected:
     type_id_address_any = 9,
     type_id_void = 10,
     type_id_coins = 17,
+    type_id_string = 18,
     type_id_never = 19,
     type_id_int8 = 42,
     type_id_int16 = 44,
@@ -103,6 +104,7 @@ public:
 
   virtual int get_type_id() const = 0;
   virtual std::string as_human_readable() const = 0;
+  virtual void as_abi_json(std::string& out) const = 0;
   virtual bool can_rhs_be_assigned(TypePtr rhs) const = 0;
   virtual bool can_be_casted_with_as_operator(TypePtr cast_to) const = 0;
 
@@ -142,6 +144,7 @@ public:
   int get_width_on_stack() const override;
   int get_type_id() const override;
   std::string as_human_readable() const override;
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   bool can_hold_tvm_null_instead() const override;
@@ -162,6 +165,7 @@ public:
 
   int get_type_id() const override { return type_id_int; }
   std::string as_human_readable() const override { return "int"; }
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
 };
@@ -181,6 +185,7 @@ public:
 
   int get_type_id() const override { return type_id_bool; }
   std::string as_human_readable() const override { return "bool"; }
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
 };
@@ -199,6 +204,7 @@ public:
 
   int get_type_id() const override { return type_id_cell; }
   std::string as_human_readable() const override { return "cell"; }
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
 };
@@ -217,6 +223,7 @@ public:
 
   int get_type_id() const override { return type_id_slice; }
   std::string as_human_readable() const override { return "slice"; }
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
 };
@@ -235,26 +242,7 @@ public:
 
   int get_type_id() const override { return type_id_builder; }
   std::string as_human_readable() const override { return "builder"; }
-  bool can_rhs_be_assigned(TypePtr rhs) const override;
-  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
-};
-
-/*
- * `tuple` is TypeDataTuple, representation of TVM tuple.
- * Note, that it's UNTYPED tuple. It occupies 1 stack slot in TVM. Its elements are any TVM values at runtime,
- * so getting its element results in TypeDataUnknown (which must be assigned/cast explicitly).
- */
-class TypeDataTuple final : public TypeData {
-  TypeDataTuple() : TypeData(0) {}
-
-  static TypePtr singleton;
-  friend void type_system_init();
-
-public:
-  static TypePtr create() { return singleton; }
-
-  int get_type_id() const override { return type_id_tuple; }
-  std::string as_human_readable() const override { return "tuple"; }
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
 };
@@ -274,6 +262,28 @@ public:
 
   int get_type_id() const override { return type_id_continuation; }
   std::string as_human_readable() const override { return "continuation"; }
+  void as_abi_json(std::string& out) const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `string` is TypeDataString — a cell containing snake-formatted text data.
+ * Snake format: data bytes in cell, if more data needed — ref to next cell.
+ * At TVM level, string is a cell (1 stack slot).
+ */
+class TypeDataString final : public TypeData {
+  TypeDataString() : TypeData(0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  int get_type_id() const override { return type_id_string; }
+  std::string as_human_readable() const override { return "string"; }
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
 };
@@ -304,8 +314,59 @@ public:
 
   int get_type_id() const override;
   std::string as_human_readable() const override;
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `array<unknown>`, `array<int>`, etc. TypeDataArray, internally represented as a TVM tuple.
+ * It can contain from 0 to 255 elements and occupies 1 stack slot in TVM regardless of its size.
+ * If T is complex (not 1-slot), it's automatically converted to/from a sub-tuple on write/read. 
+ */
+class TypeDataArray final : public TypeData {
+  TypeDataArray(int children_flags, TypePtr innerT)
+    : TypeData(children_flags)
+    , innerT(innerT) {}
+
+public:
+  TypePtr innerT;
+
+  static TypePtr create(TypePtr innerT);
+
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  void as_abi_json(std::string& out) const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
+  bool equal_to(TypePtr rhs) const override;
+};
+
+/*
+ * `[int, slice]` is TypeDataShapedTuple, a TVM 'tuple' under the hood, contained in 1 stack slot.
+ * Unlike TypeDataArray (unknown elements count), its inner structure is known, it has no `push` and other methods.
+ * Note, that an expression `[1, 2]` is `[int, int]`, but being assigned to a variable, replaced with `array<int>`.
+ */
+class TypeDataShapedTuple final : public TypeData {
+  TypeDataShapedTuple(int children_flags, std::vector<TypePtr>&& items)
+    : TypeData(children_flags)
+    , items(std::move(items)) {}
+
+public:
+  std::vector<TypePtr> items;
+
+  int size() const { return static_cast<int>(items.size()); }
+
+  static TypePtr create(std::vector<TypePtr>&& items);
+
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  void as_abi_json(std::string& out) const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
+  bool equal_to(TypePtr rhs) const override;
 };
 
 /*
@@ -325,6 +386,7 @@ public:
 
   int get_type_id() const override { return 0; }
   std::string as_human_readable() const override { return "null"; }
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
 };
@@ -350,6 +412,7 @@ public:
 
   int get_type_id() const override;
   std::string as_human_readable() const override;
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
@@ -375,6 +438,7 @@ public:
   int get_width_on_stack() const override;
   int get_type_id() const override;
   std::string as_human_readable() const override { return nameT; }
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   bool equal_to(TypePtr rhs) const override;
@@ -405,6 +469,7 @@ public:
   int get_width_on_stack() const override;
   int get_type_id() const override;
   std::string as_human_readable() const override;
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
@@ -431,6 +496,7 @@ public:
   int get_width_on_stack() const override;
   int get_type_id() const override;
   std::string as_human_readable() const override;
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   bool can_hold_tvm_null_instead() const override;
@@ -453,6 +519,7 @@ public:
 
   int get_type_id() const override;
   std::string as_human_readable() const override;
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   bool equal_to(TypePtr rhs) const override;
@@ -479,35 +546,11 @@ public:
   int get_width_on_stack() const override;
   int get_type_id() const override;
   std::string as_human_readable() const override;
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
   bool can_hold_tvm_null_instead() const override;
-  bool equal_to(TypePtr rhs) const override;
-};
-
-/*
- * `[int, slice]` is TypeDataBrackets, a TVM 'tuple' under the hood, contained in 1 stack slot.
- * Unlike TypeDataTuple (untyped tuples), it has a predefined inner structure and can be assigned as
- * `var [i, cs] = [0, ""]`  (where i and cs become two separate variables on a stack, int and slice).
- */
-class TypeDataBrackets final : public TypeData {
-  TypeDataBrackets(int children_flags, std::vector<TypePtr>&& items)
-    : TypeData(children_flags)
-    , items(std::move(items)) {}
-
-public:
-  const std::vector<TypePtr> items;
-
-  static TypePtr create(std::vector<TypePtr>&& items);
-
-  int size() const { return static_cast<int>(items.size()); }
-
-  int get_type_id() const override;
-  std::string as_human_readable() const override;
-  bool can_rhs_be_assigned(TypePtr rhs) const override;
-  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
-  TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
   bool equal_to(TypePtr rhs) const override;
 };
 
@@ -533,6 +576,7 @@ public:
 
   int get_type_id() const override;
   std::string as_human_readable() const override;
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   bool equal_to(TypePtr rhs) const override;
@@ -553,6 +597,7 @@ public:
 
   int get_type_id() const override { return type_id_coins; }
   std::string as_human_readable() const override { return "coins"; }
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
 };
@@ -577,6 +622,7 @@ public:
 
   int get_type_id() const override;
   std::string as_human_readable() const override;
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   bool equal_to(TypePtr rhs) const override;
@@ -614,7 +660,7 @@ public:
   // true : `int?`, `slice?`, `StructWith1IntField?`
   // false: `(int, int)?`, `ComplexStruct?`, `()?`
   bool is_primitive_nullable() const {
-    return !has_genericT_inside() && get_width_on_stack() == 1 && or_null != nullptr && or_null->get_width_on_stack() == 1;
+    return get_width_on_stack() == 1 && or_null != nullptr && or_null->get_width_on_stack() == 1;
   }
   bool has_null() const {
     return or_null != nullptr || has_variant_equal_to(TypeDataNullLiteral::create());
@@ -628,6 +674,7 @@ public:
   int get_width_on_stack() const override;
   int get_type_id() const override;
   std::string as_human_readable() const override;
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
@@ -655,6 +702,7 @@ public:
 
   int get_type_id() const override;
   std::string as_human_readable() const override;
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
@@ -679,6 +727,29 @@ public:
 
   int get_type_id() const override;
   std::string as_human_readable() const override { return "unknown"; }
+  void as_abi_json(std::string& out) const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `undefined`, or `not inferred`, is a special type for variables that are in the process of inferring.
+ * For example, `var x: int;` (lateinit), before assigned, it "not inferred" in cfg.
+ * For example, `var x = 4` — a hint for rhs (calculated from rhs) will be "not inferred".
+ * For example, `var (a, b, c) = (1, 2)`, `c` will be left "not inferred" and fired at type checking.
+ */
+class TypeDataNotInferred final : public TypeData {
+  TypeDataNotInferred() : TypeData(0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  int get_type_id() const override;
+  std::string as_human_readable() const override { return "undefined"; }
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
 };
@@ -701,6 +772,7 @@ public:
   int get_width_on_stack() const override;
   int get_type_id() const override { return type_id_never; }
   std::string as_human_readable() const override { return "never"; }
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   bool can_hold_tvm_null_instead() const override;
@@ -724,15 +796,11 @@ public:
   int get_width_on_stack() const override;
   int get_type_id() const override { return type_id_void; }
   std::string as_human_readable() const override { return "void"; }
+  void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
   bool can_hold_tvm_null_instead() const override;
 };
 
-
-// --------------------------------------------
-
-void type_system_init();
-void type_system_cleanup();
 
 } // namespace tolk

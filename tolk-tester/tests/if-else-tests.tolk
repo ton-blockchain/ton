@@ -221,6 +221,67 @@ fun test12(x: int) {
     return t;
 }
 
+@method_id(113)
+fun test13(x: int) {
+    var r = createEmptyTuple();
+    if (!(x is int))     { r.push( 1);  } else { r.push(0) }
+    if (!(x !is int))    { r.push( 3);  } else { r.push(0) }
+    if (!(!(x !is int))) { r.push( 7);  } else { r.push(0) }
+    if (!(x == null))    { r.push(11);  } else { r.push(0) }
+    if (!(x != null))    { r.push(13);  } else { r.push(0) }
+    r.push( (x  is int) ? 17 : 0);
+    r.push(!(x  is int) ? 19 : 0);
+    r.push(!(x !is int) ? 23 : 0);
+    r.push(!(x == null) ? 31 : 0);
+    r.push(!(x != null) ? 37 : 0);
+    return r;
+}
+
+@method_id(114)
+fun test14() {
+    var x: int = 1;
+    if (!(x !is int)) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+@method_id(115)
+fun test15(x: address): bool {
+    if (!(x is address)) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+fun helper16(cond: bool, a: int?, b: int?): int {
+    if (cond ? a != null : b != null) {
+        __expect_type((a, b), "(int?, int?)");
+        if (a != null) {
+            return 1;
+        } else {
+            return 2;
+        }
+    } else {
+        __expect_type((a, b), "(int?, int?)");
+    }
+    return 0;
+}
+
+@method_id(116)
+fun test16() {
+    return (
+        helper16(true, 1, 1),           // 1
+        helper16(true, null, 1),        // 0
+        helper16(false, 1, 1),          // 1
+        helper16(false, null, 1),       // 2
+        helper16(false, 1, null),       // 0
+    )
+}
+
+
 fun main() {
 
 }
@@ -253,6 +314,10 @@ fun main() {
 @testcase | 111 | 5   | 1 [ 456 100 ]
 @testcase | 112 | 10  | [ 123 123 123 123 ]
 @testcase | 112 | -10 | [ 456 ]
+@testcase | 113 | 8   | [ 0 3 0 11 0 17 0 23 31 0 ]
+@testcase | 114 |     | 1
+@testcase | 115 | 0   | 0
+@testcase | 116 |     | 1 0 1 2 0
 
 @fif_codegen
 """
@@ -423,6 +488,21 @@ fun main() {
       TPUSH
       $t SETGLOB
     }>
+  }>
+"""
+
+@fif_codegen
+"""
+  test14() PROC:<{
+    1 PUSHINT
+  }>
+"""
+
+@fif_codegen
+"""
+  test15() PROC:<{
+    DROP
+    FALSE
   }>
 """
 

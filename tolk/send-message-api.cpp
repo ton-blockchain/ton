@@ -25,7 +25,7 @@ std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect,
 
 static bool is_type_UnsafeBodyNoRef_T(TypePtr bodyT) {
   if (const TypeDataStruct* t_struct = bodyT->unwrap_alias()->try_as<TypeDataStruct>()) {
-    if (t_struct->struct_ref->is_instantiation_of_generic_struct() && t_struct->struct_ref->base_struct_ref->name == "UnsafeBodyNoRef") {
+    if (t_struct->struct_ref->is_instantiation_of_UnsafeBodyNoRef()) {
       return true;
     }
   }
@@ -115,7 +115,7 @@ std::vector<var_idx_t> generate_createMessage(FunctionPtr called_f, CodeBlob& co
 
   // since TVM 12, field `bounce` is a union: `bounce: BounceMode | bool`
   std::vector ir_bounce_is_bool = pre_compile_is_type(code, t_bounce, TypeDataBool::create(), ir_bounce, origin, "(bounce-is-bool)");
-
+  
   // field `dest` is `dest: address | AutoDeployAddress | (int8, uint256) | builder`;
   // struct AutoDeployAddress { workchain: int8; stateInit: ContractState | cell; toShard: AddressShardingOptions?; }
   // struct ContractState { code: cell; data: cell; }
@@ -178,7 +178,7 @@ std::vector<var_idx_t> generate_createMessage(FunctionPtr called_f, CodeBlob& co
     code.emplace_back(origin, Op::_Call, ir_not_NoBounce, std::vector{ir_bounce[0], ir_zero}, lookup_function("_!=_"));
     ctx.storeBool(ir_not_NoBounce[0]);
     code.close_pop_cur(origin);
-  }
+  }  
   // fill `bounced:Bool` + `src:MsgAddress` 00
   ctx.storeUint(ir_zero, 1 + 2);
 
