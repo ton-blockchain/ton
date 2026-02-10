@@ -1,0 +1,36 @@
+name: MSYS2 UCRT64 Build
+
+on: [push, pull_request, workflow_dispatch, workflow_call]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: Setup MSYS2 and Install Packages
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+
+      - name: Run Build Script
+        run: |
+          echo "Running in MSYS2 UCRT64 environment!"
+          cp assembly/msys2/build-ucrt64-clang21.sh .
+          chmod +x build-ucrt64-clang21.sh
+          ./build-ucrt64-clang21.sh -a
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@master
+        with:
+          name: ton-msys2-ucrt64
+          path: artifacts

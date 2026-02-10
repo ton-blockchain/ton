@@ -19,6 +19,7 @@ class TLArg:
             "bytes": "bytes_",
         }
 
+        self.unmangled_name: str = name
         self.name: str = MANGLING.get(name, name)
 
         # Default values
