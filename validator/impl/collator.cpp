@@ -702,12 +702,26 @@ void Collator::request_top_masterchain_state(BlockIdExt prev_mc_ref) {
                                         std::move(token));
           return;
         }
+
+        td::Ref<MasterchainState> ref_state{res.move_as_ok()};
+
         td::actor::send_closure_later(
-            manager, &ValidatorManager::get_top_masterchain_state_block,
-            [self, token = std::move(token)](td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res) mutable {
+            manager, &ValidatorManager::get_top_masterchain_state,
+            [self, token = std::move(token),
+             ref_state = std::move(ref_state)](td::Result<Ref<MasterchainState>> res) mutable {
               LOG(DEBUG) << "got answer to get_top_masterchain_state_block";
-              td::actor::send_closure_later(std::move(self), &Collator::after_get_mc_state, std::move(res),
-                                            std::move(token));
+              if (res.is_error()) {
+                td::actor::send_closure_later(std::move(self), &Collator::after_get_mc_state, res.move_as_error(),
+                                              std::move(token));
+                return;
+              }
+
+              auto top_state = res.move_as_ok();
+              if (ref_state->get_seqno() > top_state->get_seqno()) {
+                top_state = ref_state;
+              }
+              td::actor::send_closure_later(std::move(self), &Collator::after_get_mc_state,
+                                            std::pair{top_state, top_state->get_block_id()}, std::move(token));
             });
       });
 }
