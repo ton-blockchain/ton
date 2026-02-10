@@ -131,8 +131,25 @@ private:
   std::atomic<ValueType> value_ = {ValueType()};
 };
 
+template<typename LabelType, typename InstrumentType>
+class Labeled : public Collector {
+public:
+  template<typename ...Args>
+  explicit Labeled(std::string label_name, Args ...args);
+  MetricSet collect() override;
+
+  std::shared_ptr<InstrumentType> label(LabelType label);
+
+private:
+  const std::string label_name_;
+  std::function<std::shared_ptr<InstrumentType>()> make_;
+  std::unordered_map<LabelType, std::shared_ptr<InstrumentType>> instruments_;
+  std::mutex mutex_;
+};
+
 template <typename A>
 void CollectorWrapper::add_collector(td::actor::ActorId<A> collector) {
+  CHECK(!collector.empty());
   collector_closures_.push_back([collector] (MetricsPromise P) {
     td::actor::send_closure(collector, &A::collect, std::move(P));
   });
@@ -185,5 +202,47 @@ void AtomicCounter<ValueType>::add(ValueType value) {
   CHECK(value >= 0);
   value_.fetch_add(value);
 }
+
+template <typename LabelType, typename InstrumentType>
+template <typename ... Args>
+Labeled<LabelType, InstrumentType>::Labeled(std::string label_name, Args... args) : label_name_(std::move(label_name)) {
+  make_ = [t = std::make_tuple(std::move(args)...)] () mutable {
+    return std::apply([](auto&&... xs) {
+      return std::make_shared<InstrumentType>(std::forward<decltype(xs)>(xs)...);
+    }, t);
+  };
+}
+
+template <typename LabelType, typename InstrumentType>
+MetricSet Labeled<LabelType, InstrumentType>::collect(){
+  std::vector<std::pair<LabelType, std::shared_ptr<InstrumentType>>> tmp;
+  {
+    std::unique_lock lock(mutex_);
+    for (auto e : instruments_) {
+      tmp.push_back(std::move(e));
+    }
+  }
+  MetricSet whole_set {{}};
+  for (auto &[l, i] : tmp) {
+    MetricSet metric_set = i->collect();
+    std::string label_str = PSTRING() << l;
+    whole_set = std::move(whole_set).join(std::move(metric_set).label({{{label_name_, label_str}}}));
+  }
+  return whole_set;
+}
+
+template <typename LabelType, typename InstrumentType>
+std::shared_ptr<InstrumentType> Labeled<LabelType, InstrumentType>::label(LabelType label) {
+  std::shared_ptr<InstrumentType> result;
+  {
+    std::unique_lock lock(mutex_);
+    if (!instruments_.contains(label)) {
+      instruments_.insert({label, make_()});
+    }
+    result = instruments_.at(label);
+  }
+  return result;
+}
+
 
 }

@@ -18,6 +18,7 @@
 */
 #pragma once
 
+#include "metrics/metrics-collectors.h"
 #include "td/actor/actor.h"
 #include "td/net/TcpListener.h"
 
@@ -29,7 +30,7 @@ namespace http {
 
 class HttpInboundConnection;
 
-class HttpServer : public td::actor::Actor {
+class HttpServer : public td::actor::Actor, public virtual metrics::CollectorWrapper {
  public:
   class Callback {
    public:
@@ -40,7 +41,14 @@ class HttpServer : public td::actor::Actor {
   };
 
   HttpServer(td::uint16 port, std::shared_ptr<Callback> callback) : port_(port), callback_(std::move(callback)) {
+    add_collector(collector_.get());
+    td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, metrics_.connections);
+    td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, metrics_.connections_total);
+    td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, metrics_.requests_total);
+    td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, metrics_.responses_total);
   }
+
+  void collect(metrics::MetricsPromise P) override { CollectorWrapper::collect(std::move(P)); }
 
   void start_up() override;
   void accepted(td::SocketFd fd);
@@ -49,11 +57,21 @@ class HttpServer : public td::actor::Actor {
     return td::actor::create_actor<HttpServer>("httpserver", port, std::move(callback));
   }
 
+  struct AllMetrics {
+    std::shared_ptr<metrics::AtomicGauge<size_t>> connections = std::make_shared<metrics::AtomicGauge<size_t>>("connections", "Current number of HTTP connections.");
+    std::shared_ptr<metrics::AtomicCounter<size_t>> connections_total = std::make_shared<metrics::AtomicCounter<size_t>>("connections_total", "Total number of HTTP connections encountered.");
+    std::shared_ptr<metrics::AtomicCounter<size_t>> requests_total = std::make_shared<metrics::AtomicCounter<size_t>>("requests_total", "Total number of HTTP requests received.");
+    std::shared_ptr<metrics::Labeled<td::uint32, metrics::AtomicCounter<size_t>>> responses_total = std::make_shared<metrics::Labeled<td::uint32, metrics::AtomicCounter<size_t>>>("code", "responses_total", "Total number of HTTP responses sent.");
+  };
+
  private:
   td::uint16 port_;
   std::shared_ptr<Callback> callback_;
 
   td::actor::ActorOwn<td::TcpInfiniteListener> listener_;
+
+  td::actor::ActorOwn<metrics::MultiCollector> collector_ = metrics::MultiCollector::create("http_server");
+  AllMetrics metrics_{};
 };
 
 }  // namespace http

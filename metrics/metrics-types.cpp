@@ -1,3 +1,6 @@
+#include <unordered_map>
+
+
 #include "td/utils/logging.h"
 
 
@@ -101,12 +104,29 @@ MetricFamily MetricFamily::make_scalar(std::string name, std::string type, doubl
 }
 
 MetricSet MetricSet::join(MetricSet other) && {
-  auto all_families = std::move(families);
-  all_families.reserve(all_families.size() + other.families.size());
-  for (auto &f : other.families)
-    all_families.push_back(std::move(f));
+  std::unordered_map<std::string, MetricFamily> all_families;
+  for (auto &f : families) {
+    all_families.insert({f.name, std::move(f)});
+  }
+  families.resize(0);
+  for (auto &f : other.families) {
+    if (!all_families.contains(f.name)) {
+      all_families.insert({f.name, std::move(f)});
+    } else {
+      auto &f0 = all_families.at(f.name);
+      for (auto &m : f.metrics) {
+        f0.metrics.push_back(std::move(m));
+      }
+    }
+  }
   other.families.resize(0);
-  return {.families = std::move(all_families)};
+
+  std::vector<MetricFamily> all_families_vec;
+  for (auto &[_, f] : all_families) {
+    all_families_vec.push_back(std::move(f));
+  }
+
+  return {.families = std::move(all_families_vec)};
 }
 
 std::string MetricSet::render() && {

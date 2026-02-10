@@ -32,6 +32,7 @@ void PrometheusExporter::HttpCallback::receive_request(RequestPtr request, Paylo
 void PrometheusExporter::start_up(){
   auto callback = std::make_unique<HttpCallback>(actor_id(this));
   http_ = td::actor::create_actor<http::HttpServer>(PSTRING() << "HTTP@0.0.0.0:" << port_, port_, std::move(callback));
+  td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_async_collector<http::HttpServer>, http_.get());
 }
 
 void PrometheusExporter::on_request(RequestPtr request, PayloadPtr, td::Promise<HttpReturn> promise) {
