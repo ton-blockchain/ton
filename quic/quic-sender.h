@@ -11,7 +11,7 @@
 
 namespace ton::quic {
 
-class QuicSender : public adnl::AdnlSenderInterface {
+class QuicSender : public adnl::AdnlSenderInterface, public virtual metrics::AsyncCollector {
  public:
   using AdnlPath = std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>;
 

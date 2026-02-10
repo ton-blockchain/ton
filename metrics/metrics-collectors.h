@@ -2,8 +2,10 @@
 
 #include <functional>
 
+#include "td/actor/ActorId.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/actor/common.h"
+#include "td/actor/coro_task.h"
 
 #include "metrics-types.h"
 
@@ -17,21 +19,33 @@ public:
 
 using MetricsPromise = td::Promise<MetricSet>;
 
-class CollectorActor : public td::actor::Actor {
+// Also implies inheritance from `td::actor::Actor`.
+// However, we cannot inherit actor class right here,
+// because this inheritance should be virtual (but it is not virtual in other places).
+class AsyncCollector {
 public:
-  CollectorActor() = default;
-  virtual void collect(td::Promise<MetricSet> P) = 0;
+  virtual void collect(MetricsPromise P) = 0;
+  virtual ~AsyncCollector() = default;
 };
 
-class CollectorWrapperActor : public CollectorActor {
-public:
-  CollectorWrapperActor() = default;
-  void set_collector(std::shared_ptr<Collector> collector);
+using AsyncCollectorClosure = std::function<void(MetricsPromise)>;
 
-  void collect(td::Promise<MetricSet> P) final;
+// Actors with simple metrics collection should virtually inherit this instead.
+// Also, they **MUST** trivially override `collect` function, because send_closure implementation is not really handy
+// (otherwise `&A::collect` will have type `void (CollectorWrapper::*)(MetricsPromise)`, which is unrelated to
+//  `td::actor::Actor` -- so `send_closure`'s inference of member function class will fail).
+class CollectorWrapper : public AsyncCollector {
+public:
+  CollectorWrapper() = default;
+  void collect(MetricsPromise P) override;
+
+  template<typename A>
+  void add_collector(td::actor::ActorId<A> collector);
 
 private:
-  std::shared_ptr<Collector> wrapped_;
+  td::actor::Task<MetricSet> collect_coro();
+
+  std::vector<AsyncCollectorClosure> collector_closures_;
 };
 
 using SamplerLambda = std::function<std::vector<Sample>()>;
@@ -69,16 +83,22 @@ private:
   CollectorLambda lambda_;
 };
 
-class MultiCollector : public Collector {
+class MultiCollector : public td::actor::Actor, public AsyncCollector {
 public:
   explicit MultiCollector(std::string prefix);
-  MetricSet collect() final;
+  void collect(MetricsPromise P) override;
 
-  void add_collector(std::shared_ptr<Collector> collector);
+  void add_sync_collector(std::shared_ptr<Collector> collector);
+
+  template<std::derived_from<AsyncCollector> A>
+  void add_async_collector(td::actor::ActorId<A> collector);
+
+  static td::actor::ActorOwn<MultiCollector> create(std::string prefix);
 
 private:
   std::string prefix_;
-  std::vector<std::shared_ptr<Collector>> collectors_;
+  std::vector<std::shared_ptr<Collector>> sync_collectors_ = {};
+  std::unique_ptr<CollectorWrapper> async_collector_ = std::make_unique<CollectorWrapper>();
 };
 
 template<typename ValueType>
@@ -110,6 +130,18 @@ private:
   const std::optional<std::string> help_;
   std::atomic<ValueType> value_ = {ValueType()};
 };
+
+template <typename A>
+void CollectorWrapper::add_collector(td::actor::ActorId<A> collector) {
+  collector_closures_.push_back([collector] (MetricsPromise P) {
+    td::actor::send_closure(collector, &A::collect, std::move(P));
+  });
+}
+
+template <std::derived_from<AsyncCollector> A>
+void MultiCollector::add_async_collector(td::actor::ActorId<A> collector) {
+  async_collector_->add_collector(std::move(collector));
+}
 
 template <typename ValueType>
 AtomicGauge<ValueType>::AtomicGauge(std::string name, std::optional<std::string> help) : name_(std::move(name)), help_(std::move(help)) {

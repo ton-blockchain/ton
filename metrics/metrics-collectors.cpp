@@ -4,14 +4,19 @@
 
 namespace ton::metrics {
 
-void CollectorWrapperActor::collect(td::Promise<MetricSet> P) {
-  CHECK(wrapped_ != nullptr);
-  P.set_value(wrapped_->collect());
+void CollectorWrapper::collect(MetricsPromise P) {
+  connect(std::move(P), collect_coro());
 }
 
-void CollectorWrapperActor::set_collector(std::shared_ptr<Collector> collector) {
-  CHECK(wrapped_ == nullptr);
-  wrapped_ = std::move(collector);
+td::actor::Task<MetricSet> CollectorWrapper::collect_coro() {
+  MetricSet whole_set = {};
+  for (auto &f : collector_closures_) {
+    auto [future, promise] = td::actor::StartedTask<metrics::MetricSet>::make_bridge();
+    f(std::move(promise));
+    auto metric_set = co_await std::move(future);
+    whole_set = std::move(whole_set).join(std::move(metric_set));
+  }
+  co_return whole_set;
 }
 
 LambdaGauge::LambdaGauge(std::string metric_name, SamplerLambda lambda, std::optional<std::string> help)
@@ -45,16 +50,25 @@ MetricSet LambdaCollector::collect() {
 MultiCollector::MultiCollector(std::string prefix) : prefix_(std::move(prefix)) {
 }
 
-MetricSet MultiCollector::collect() {
-  auto whole_set = MetricSet {};
-  for (const auto &collector : collectors_) {
-    whole_set = std::move(whole_set).join(collector->collect());
+void MultiCollector::collect(MetricsPromise P) {
+  MetricSet whole_set = {};
+  for (auto &c : sync_collectors_) {
+    auto metric_set = c->collect();
+    whole_set = std::move(whole_set).join(std::move(metric_set));
   }
-  return std::move(whole_set).wrap(prefix_);
+  async_collector_->collect([prefix = this->prefix_, whole_set = std::move(whole_set), P = std::move(P)] (td::Result<MetricSet> R) mutable {
+    auto metric_set = R.move_as_ok();
+    whole_set = std::move(whole_set).join(std::move(metric_set)).wrap(prefix);
+    P.set_result(std::move(whole_set));
+  });
 }
 
-void MultiCollector::add_collector(std::shared_ptr<Collector> collector) {
-  collectors_.push_back(std::move(collector));
+void MultiCollector::add_sync_collector(std::shared_ptr<Collector> collector) {
+  sync_collectors_.push_back(std::move(collector));
+}
+
+td::actor::ActorOwn<MultiCollector> MultiCollector::create(std::string prefix) {
+  return td::actor::create_actor<MultiCollector>(PSTRING() << "MultiCollector:" << prefix, std::move(prefix));
 }
 
 }

@@ -47,8 +47,7 @@ class AdnlExtServer : public td::actor::Actor {
   virtual ~AdnlExtServer() = default;
 };
 
-// TODO(avevad): use virtual inheritance against td::actor::Actor / ton::metrics:CollectorActor
-class AdnlSenderInterface : public metrics::CollectorActor {
+class AdnlSenderInterface : public td::actor::Actor {
  public:
   virtual ~AdnlSenderInterface() = default;
 
@@ -60,7 +59,6 @@ class AdnlSenderInterface : public metrics::CollectorActor {
                              td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice data,
                              td::uint64 max_answer_size) = 0;
   virtual void get_conn_ip_str(AdnlNodeIdShort l_id, AdnlNodeIdShort p_id, td::Promise<td::string> promise) = 0;
-  void collect(td::Promise<metrics::MetricSet> P) override {}
 };
 
 class AdnlTunnel : public td::actor::Actor {};

@@ -60,8 +60,8 @@ Metric Metric::label(LabelSet extension) &&{
   return {.suffix = std::move(suffix), .label_set = std::move(new_label_set), .samples = std::move(samples)};
 }
 
-std::string MetricFamily::render(std::string prefix) && {
-  auto whole_name = concat_names(std::move(prefix), std::move(name));
+std::string MetricFamily::render() && {
+  const auto whole_name = std::move(name);
   std::string result;
   if (help.has_value())
     result += PSTRING() << "# HELP " << whole_name << ' ' << *help << '\n';
@@ -109,10 +109,10 @@ MetricSet MetricSet::join(MetricSet other) && {
   return {.families = std::move(all_families)};
 }
 
-std::string MetricSet::render(const std::string &prefix) && {
+std::string MetricSet::render() && {
   std::string result;
   for (auto &f : families)
-    result += std::move(f).render(prefix);
+    result += std::move(f).render();
   families = {};
   return result;
 }
@@ -132,7 +132,7 @@ MetricSet MetricSet::label(const LabelSet &extension) && {
 }
 
 std::string Exposition::render() && {
-  std::string result = std::move(whole_set).render(prefix);
+  std::string result = std::move(main_set).render();
   result += "# EOF\n";
   return result;
 }

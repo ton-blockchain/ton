@@ -410,7 +410,7 @@ void run_server(Config config) {
     // Use send_lambda to properly start the coroutine task
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, local_id);
     if (config.prometheus)
-      td::actor::send_closure(exporter, &ton::PrometheusExporter::add_collector_actor, quic_sender.get());
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::quic::QuicSender>, quic_sender.get());
 
     td::actor::send_closure(adnl, &ton::adnl::Adnl::subscribe, local_id, "B",
                             std::make_unique<Server>(config.response_size));
@@ -481,7 +481,7 @@ void run_client(Config config) {
     // Use send_lambda to properly start the coroutine task
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, src);
     if (config.prometheus)
-      td::actor::send_closure(exporter, &ton::PrometheusExporter::add_collector_actor, quic_sender.get());
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::quic::QuicSender>, quic_sender.get());
 
     // Add server as static node
     dst = ton::adnl::AdnlNodeIdShort{server_public_key().compute_short_id()};

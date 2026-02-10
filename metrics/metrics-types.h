@@ -38,7 +38,7 @@ struct MetricFamily {
   std::optional<std::string> type, help;
   std::vector<Metric> metrics;
 
-  [[nodiscard]] std::string render(std::string prefix) &&;
+  [[nodiscard]] std::string render() &&;
   [[nodiscard]] MetricFamily wrap(std::string prefix) &&;
   [[nodiscard]] MetricFamily label(const LabelSet &extension) &&;
 
@@ -49,14 +49,13 @@ struct MetricSet {
   std::vector<MetricFamily> families;
 
   [[nodiscard]] MetricSet join(MetricSet other) &&;
-  [[nodiscard]] std::string render(const std::string &prefix) &&;
+  [[nodiscard]] std::string render() &&;
   [[nodiscard]] MetricSet wrap(const std::string &prefix) &&;
   [[nodiscard]] MetricSet label(const LabelSet &extension) &&;
 };
 
 struct Exposition {
-  std::string prefix;
-  MetricSet whole_set;
+  MetricSet main_set;
 
   [[nodiscard]] std::string render() &&;
 };

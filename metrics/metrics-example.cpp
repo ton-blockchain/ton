@@ -2,16 +2,18 @@
 
 using namespace ton;
 
-class ExampleActor : public metrics::CollectorWrapperActor {
+class ExampleActor : public td::actor::Actor, public virtual metrics::CollectorWrapper {
 public:
   ExampleActor() {
-    collectors_->add_collector(time_counter_);
-    collectors_->add_collector(stack_gauge_);
-    set_collector(collectors_);
+    add_collector(collector_.get());
+    td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, time_counter_);
+    td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, stack_gauge_);
   }
 
+  void collect(metrics::MetricsPromise P) override;
+
 private:
-  std::shared_ptr<metrics::MultiCollector> collectors_ = std::make_shared<metrics::MultiCollector>("example");
+  td::actor::ActorOwn<metrics::MultiCollector> collector_ = metrics::MultiCollector::create("example");
   std::shared_ptr<metrics::LambdaCounter> time_counter_ = std::make_shared<metrics::LambdaCounter>("current_time_seconds", [] {
     return std::vector{metrics::Sample{.label_set = {}, .value = td::Timestamp::now().at_unix()}};
   }, "Number of seconds passed since January 1, 1970");
@@ -22,6 +24,10 @@ private:
   });
 };
 
+void ExampleActor::collect(metrics::MetricsPromise P) {
+  CollectorWrapper::collect(std::move(P));
+}
+
 int main() {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
   td::actor::Scheduler scheduler({1});
@@ -29,10 +35,11 @@ int main() {
   td::actor::ActorOwn<ExampleActor> example;
   scheduler.run_in_context([&] {
     exporter = PrometheusExporter::listen();
-    td::actor::send_closure(exporter.get(), &PrometheusExporter::add_collector_actor, exporter.get());
+    void (PrometheusExporter::* f)(td::actor::ActorId<PrometheusExporter>) = &PrometheusExporter::register_collector<PrometheusExporter>;
+    td::actor::send_closure(exporter.get(), f, exporter.get());
 
     example = td::actor::create_actor<ExampleActor>("example");
-    td::actor::send_closure(exporter.get(), &PrometheusExporter::add_collector_actor, example.get());
+    td::actor::send_closure(exporter.get(), &PrometheusExporter::register_collector<ExampleActor>, example.get());
   });
   scheduler.run();
 }
