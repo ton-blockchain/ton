@@ -48,9 +48,18 @@ private:
   std::vector<AsyncCollectorClosure> collector_closures_;
 };
 
+// CRTP helper for all instruments (collector objects).
+template<typename Derived>
+class Instrument : public Collector {
+public:
+  using Ptr = std::shared_ptr<Derived>;
+  template<typename ...Args>
+  static Ptr make(Args &&...);
+};
+
 using SamplerLambda = std::function<std::vector<Sample>()>;
 
-class LambdaGauge : public Collector {
+class LambdaGauge : public Instrument<LambdaGauge> {
 public:
   LambdaGauge(std::string metric_name, SamplerLambda lambda, std::optional<std::string> help = std::nullopt);
   MetricSet collect() final;
@@ -61,7 +70,7 @@ private:
   std::optional<std::string> help_;
 };
 
-class LambdaCounter : public Collector {
+class LambdaCounter : public Instrument<LambdaCounter> {
 public:
   LambdaCounter(std::string metric_name, SamplerLambda lambda, std::optional<std::string> help = std::nullopt);
   MetricSet collect() final;
@@ -74,7 +83,7 @@ private:
 
 using CollectorLambda = std::function<std::vector<MetricFamily>()>;
 
-class LambdaCollector : public Collector {
+class LambdaCollector : public Instrument<LambdaCollector> {
 public:
   explicit LambdaCollector(CollectorLambda lambda);
   MetricSet collect() final;
@@ -85,6 +94,9 @@ private:
 
 class MultiCollector : public td::actor::Actor, public AsyncCollector {
 public:
+  using Own = td::actor::ActorOwn<MultiCollector>;
+  using Ptr = td::actor::ActorId<MultiCollector>;
+
   explicit MultiCollector(std::string prefix);
   void collect(MetricsPromise P) override;
 
@@ -102,7 +114,7 @@ private:
 };
 
 template<typename ValueType>
-class AtomicGauge : public Collector {
+class AtomicGauge : public Instrument<AtomicGauge<ValueType>> {
 public:
   explicit AtomicGauge(std::string name, std::optional<std::string> help = std::nullopt);
   MetricSet collect() final;
@@ -117,7 +129,7 @@ private:
 };
 
 template<typename ValueType>
-class AtomicCounter : public Collector {
+class AtomicCounter : public Instrument<AtomicCounter<ValueType>> {
 public:
   explicit AtomicCounter(std::string name, std::optional<std::string> help = std::nullopt);
   MetricSet collect() final;
@@ -132,7 +144,7 @@ private:
 };
 
 template<typename LabelType, typename InstrumentType>
-class Labeled : public Collector {
+class Labeled : public Instrument<Labeled<LabelType, InstrumentType>> {
 public:
   template<typename ...Args>
   explicit Labeled(std::string label_name, Args ...args);
@@ -153,6 +165,12 @@ void CollectorWrapper::add_collector(td::actor::ActorId<A> collector) {
   collector_closures_.push_back([collector] (MetricsPromise P) {
     td::actor::send_closure(collector, &A::collect, std::move(P));
   });
+}
+
+template <typename Derived>
+template <typename ... Args>
+Instrument<Derived>::Ptr Instrument<Derived>::make(Args&& ...args){
+  return std::make_shared<Derived>(std::forward<Args>(args)...);
 }
 
 template <std::derived_from<AsyncCollector> A>

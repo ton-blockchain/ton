@@ -49,11 +49,11 @@ private:
   td::actor::ActorOwn<http::HttpServer> http_ = {};
   td::actor::ActorOwn<metrics::MultiCollector> main_collector_ = metrics::MultiCollector::create(prefix_);
 
-  td::actor::ActorOwn<metrics::MultiCollector> collector_ = metrics::MultiCollector::create("exporter");
-  std::shared_ptr<metrics::AtomicGauge<size_t>> collectors_ = std::make_shared<metrics::AtomicGauge<size_t>>("collectors", "Current number of exporter's added collectors.");
-  std::shared_ptr<metrics::AtomicCounter<size_t>> collections_total_ = std::make_shared<metrics::AtomicCounter<size_t>>("collections_total", "Total number of collection requests to the exporter.");
-  std::shared_ptr<metrics::AtomicGauge<double>> last_collection_duration_ = std::make_shared<metrics::AtomicGauge<double>>("last_collection_duration_seconds", "Duration of the last collection request to the exporter.");
-  std::shared_ptr<metrics::AtomicGauge<double>> last_collection_timestamp_ = std::make_shared<metrics::AtomicGauge<double>>("last_collection_timestamp_seconds", "Timestamp of the last collection request to the exporter.");
+  metrics::MultiCollector::Own collector_ = metrics::MultiCollector::create("exporter");
+  metrics::AtomicGauge<size_t>::Ptr collectors_ = metrics::AtomicGauge<size_t>::make("collectors", "Current number of exporter's added collectors.");
+  metrics::AtomicCounter<size_t>::Ptr collections_total_ = metrics::AtomicCounter<size_t>::make("collections_total", "Total number of collection requests to the exporter.");
+  metrics::AtomicGauge<double>::Ptr last_collection_duration_ = metrics::AtomicGauge<double>::make("last_collection_duration_seconds", "Duration of the last collection request to the exporter.");
+  metrics::AtomicGauge<double>::Ptr last_collection_timestamp_ = metrics::AtomicGauge<double>::make("last_collection_timestamp_seconds", "Timestamp of the last collection request to the exporter.");
 };
 
 template <std::derived_from<metrics::AsyncCollector> A>

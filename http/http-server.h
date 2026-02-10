@@ -58,10 +58,10 @@ class HttpServer : public td::actor::Actor, public virtual metrics::CollectorWra
   }
 
   struct AllMetrics {
-    std::shared_ptr<metrics::AtomicGauge<size_t>> connections = std::make_shared<metrics::AtomicGauge<size_t>>("connections", "Current number of HTTP connections.");
-    std::shared_ptr<metrics::AtomicCounter<size_t>> connections_total = std::make_shared<metrics::AtomicCounter<size_t>>("connections_total", "Total number of HTTP connections encountered.");
-    std::shared_ptr<metrics::AtomicCounter<size_t>> requests_total = std::make_shared<metrics::AtomicCounter<size_t>>("requests_total", "Total number of HTTP requests received.");
-    std::shared_ptr<metrics::Labeled<td::uint32, metrics::AtomicCounter<size_t>>> responses_total = std::make_shared<metrics::Labeled<td::uint32, metrics::AtomicCounter<size_t>>>("code", "responses_total", "Total number of HTTP responses sent.");
+    metrics::AtomicGauge<size_t>::Ptr connections = std::make_shared<metrics::AtomicGauge<size_t>>("connections", "Current number of HTTP connections.");
+    metrics::AtomicCounter<size_t>::Ptr connections_total = std::make_shared<metrics::AtomicCounter<size_t>>("connections_total", "Total number of HTTP connections encountered.");
+    metrics::AtomicCounter<size_t>::Ptr requests_total = std::make_shared<metrics::AtomicCounter<size_t>>("requests_total", "Total number of HTTP requests received.");
+    metrics::Labeled<td::uint32, metrics::AtomicCounter<size_t>>::Ptr responses_total = metrics::Labeled<td::uint32, metrics::AtomicCounter<size_t>>::make("code", "responses_total", "Total number of HTTP responses sent.");
   };
 
  private:

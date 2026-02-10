@@ -13,11 +13,11 @@ public:
   void collect(metrics::MetricsPromise P) override;
 
 private:
-  td::actor::ActorOwn<metrics::MultiCollector> collector_ = metrics::MultiCollector::create("example");
-  std::shared_ptr<metrics::LambdaCounter> time_counter_ = std::make_shared<metrics::LambdaCounter>("current_time_seconds", [] {
+  metrics::MultiCollector::Own collector_ = metrics::MultiCollector::create("example");
+  metrics::LambdaCounter::Ptr time_counter_ = metrics::LambdaCounter::make("current_time_seconds", [] {
     return std::vector{metrics::Sample{.label_set = {}, .value = td::Timestamp::now().at_unix()}};
   }, "Number of seconds passed since January 1, 1970");
-  std::shared_ptr<metrics::LambdaGauge> stack_gauge_ = std::make_shared<metrics::LambdaGauge>("current_stack_top_bytes", [] {
+  metrics::LambdaGauge::Ptr stack_gauge_ = metrics::LambdaGauge::make("current_stack_top_bytes", [] {
     void *stack_top = &stack_top;
     auto stack_top_addr = reinterpret_cast<uintptr_t>(stack_top);
     return std::vector{metrics::Sample{.label_set = {}, .value = static_cast<double>(stack_top_addr)}};
