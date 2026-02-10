@@ -23,6 +23,7 @@
 #include <vector>
 #include <string>
 #include <stack>
+#include <optional>
 
 /*
     This file is "inherited from FunC" (keep in mind, that Tolk is a fork of FunC compiler, gradually improved)
