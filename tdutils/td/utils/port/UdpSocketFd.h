@@ -19,6 +19,7 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 
 #include "td/utils/Slice.h"
 #include "td/utils/Span.h"
@@ -60,32 +61,43 @@ class UdpSocketFd {
   Result<uint32> maximize_rcv_buffer(uint32 max_buffer_size = 0);
 
   static Result<UdpSocketFd> open(const IPAddress &address) TD_WARN_UNUSED_RESULT;
+  static bool is_gso_supported();
 
   PollableFdInfo &get_poll_info();
   const PollableFdInfo &get_poll_info() const;
   const NativeFd &get_native_fd() const;
   [[nodiscard]] Result<IPAddress> get_local_address() const;
+  [[nodiscard]] Status enable_gro();
+  void enable_mmsg();
+  void disable_mmsg();
+  bool is_mmsg_enabled() const;
 
   void close();
   bool empty() const;
 
   static bool is_critical_read_error(const Status &status);
 
-#if TD_PORT_POSIX
   struct OutboundMessage {
     const IPAddress *to;
     Slice data;
+    size_t gso_size{0};  // 0 means no GSO, >0 enables UDP_SEGMENT
   };
   struct InboundMessage {
     IPAddress *from;
     MutableSlice data;
     Status *error;
+    size_t gso_size{0};
   };
 
   Status send_message(const OutboundMessage &message, bool &is_sent) TD_WARN_UNUSED_RESULT;
-  Status receive_message(InboundMessage &message, bool &is_received) TD_WARN_UNUSED_RESULT;
+  Status receive_message(InboundMessage &message, bool &is_received,
+                         std::vector<BufferSlice> &buf) TD_WARN_UNUSED_RESULT;
 
   Status send_messages(Span<OutboundMessage> messages, size_t &count) TD_WARN_UNUSED_RESULT;
+  Status receive_messages(MutableSpan<InboundMessage> messages, size_t &count,
+                          std::vector<BufferSlice> &buf) TD_WARN_UNUSED_RESULT;
+
+#if TD_PORT_POSIX
   Status receive_messages(MutableSpan<InboundMessage> messages, size_t &count) TD_WARN_UNUSED_RESULT;
 #elif TD_PORT_WINDOWS
   Result<optional<UdpMessage> > receive();

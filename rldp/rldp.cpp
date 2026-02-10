@@ -90,7 +90,7 @@ void RldpIn::answer_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, 
 
 void RldpIn::alarm_query(adnl::AdnlQueryId query_id, TransferId transfer_id) {
   queries_.erase(query_id);
-  max_size_.erase(transfer_id);
+  max_size_.erase(transfer_id ^ TransferId::ones());
 }
 
 void RldpIn::receive_message_part(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, td::BufferSlice data) {
@@ -219,6 +219,7 @@ void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
   if (it != queries_.end()) {
     td::actor::send_closure(it->second, &adnl::AdnlQuery::result, std::move(message.data_));
     queries_.erase(it);
+    max_size_.erase(transfer_id);
   } else {
     VLOG(RLDP_INFO) << "received answer to unknown query " << message.query_id_;
   }

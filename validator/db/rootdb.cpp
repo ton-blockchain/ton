@@ -84,8 +84,8 @@ void RootDb::store_block_signatures(BlockHandle handle, td::Ref<block::BlockSign
           td::actor::send_closure(id, &ArchiveManager::update_handle, std::move(handle), std::move(promise));
         }
       });
-  TRY_RESULT_PROMISE(promise, root, data->serialize(vset));
-  TRY_RESULT_PROMISE(promise, serialized, vm::std_boc_serialize(root));
+  TRY_RESULT_PROMISE(P, root, data->serialize(vset));
+  TRY_RESULT_PROMISE(P, serialized, vm::std_boc_serialize(root));
   td::actor::send_closure(archive_db_, &ArchiveManager::add_temp_file_short, fileref::Signatures{handle->id()},
                           std::move(serialized), std::move(P));
 }

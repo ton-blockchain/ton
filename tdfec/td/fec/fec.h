@@ -105,7 +105,7 @@ class RoundRobinEncoder : public Encoder {
 
 class RoundRobinDecoder : public Decoder {
  public:
-  static std::unique_ptr<RoundRobinDecoder> create(RoundRobinEncoder::Parameters parameters);
+  static Result<std::unique_ptr<RoundRobinDecoder>> create(RoundRobinEncoder::Parameters parameters);
   bool may_try_decode() const override;
   Result<DataWithEncoder> try_decode(bool need_encoder) override;
   Status add_symbol(Symbol symbol) override;
@@ -145,7 +145,7 @@ class RaptorQEncoder : public Encoder {
 
 class RaptorQDecoder : public Decoder {
  public:
-  static std::unique_ptr<RaptorQDecoder> create(RaptorQEncoder::Parameters parameters);
+  static Result<std::unique_ptr<RaptorQDecoder>> create(RaptorQEncoder::Parameters parameters);
   bool may_try_decode() const override;
   Result<DataWithEncoder> try_decode(bool need_encoder) override;
   Status add_symbol(Symbol symbol) override;
@@ -180,7 +180,7 @@ class OnlineEncoder : public Encoder {
 
 class OnlineDecoder : public Decoder {
  public:
-  static std::unique_ptr<OnlineDecoder> create(OnlineEncoder::Parameters parameters);
+  static Result<std::unique_ptr<OnlineDecoder>> create(OnlineEncoder::Parameters parameters);
   bool may_try_decode() const override;
   Result<DataWithEncoder> try_decode(bool need_encoder) override;
   Status add_symbol(Symbol symbol) override;

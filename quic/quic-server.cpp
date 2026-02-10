@@ -1,7 +1,7 @@
-#include <cstring>
+#include <atomic>
 
 #include "td/actor/actor.h"
-#include "td/utils/Random.h"
+#include "td/utils/Timer.h"
 
 #include "quic-pimpl.h"
 #include "quic-server.h"
@@ -11,6 +11,12 @@ namespace ton::quic {
 td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, td::Ed25519::PrivateKey server_key,
                                                                std::unique_ptr<Callback> callback, td::Slice alpn,
                                                                td::Slice bind_host) {
+  return create(port, std::move(server_key), std::move(callback), alpn, bind_host, Options{});
+}
+
+td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, td::Ed25519::PrivateKey server_key,
+                                                               std::unique_ptr<Callback> callback, td::Slice alpn,
+                                                               td::Slice bind_host, Options options) {
   CHECK(callback);
   td::IPAddress local_addr;
   TRY_STATUS(local_addr.init_host_port(bind_host.str(), port));
@@ -19,12 +25,36 @@ td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, td::Ed2
 
   auto name = PSTRING() << "QUIC:" << local_addr;
   return td::actor::create_actor<QuicServer>(td::actor::ActorOptions().with_name(name).with_poll(true), std::move(fd),
-                                             std::move(server_key), td::BufferSlice(alpn), std::move(callback));
+                                             std::move(server_key), td::BufferSlice(alpn), std::move(callback),
+                                             options);
 }
 
 QuicServer::QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::BufferSlice alpn,
-                       std::unique_ptr<Callback> callback)
-    : fd_(std::move(fd)), alpn_(std::move(alpn)), server_key_(std::move(server_key)), callback_(std::move(callback)) {
+                       std::unique_ptr<Callback> callback, Options options)
+    : fd_(std::move(fd))
+    , alpn_(std::move(alpn))
+    , server_key_(std::move(server_key))
+    , gso_enabled_(options.enable_gso && td::UdpSocketFd::is_gso_supported())
+    , cc_algo_(options.cc_algo)
+    , callback_(std::move(callback)) {
+  if (options.enable_gro) {
+    auto gro_status = fd_.enable_gro();
+    if (gro_status.is_ok()) {
+      gro_enabled_ = true;
+    } else {
+      LOG(DEBUG) << "UDP_GRO not enabled: " << gro_status;
+    }
+  }
+  if (!options.enable_mmsg) {
+    fd_.disable_mmsg();
+  } else {
+    fd_.enable_mmsg();
+  }
+  LOG(INFO) << "UDP allowed: GRO=" << (gro_enabled_ ? "on" : "off") << " GSO=" << (gso_enabled_ ? "on" : "off")
+            << " MMSG=" << (fd_.is_mmsg_enabled() ? "on" : "off") << " CC=" << cc_algo_;
+
+  const size_t ingress_buf_size = gro_enabled_ ? kMaxDatagram : DEFAULT_MTU * kMaxBurst;
+  ingress_buffers_.resize(kIngressBatch * ingress_buf_size);
 }
 
 void QuicServer::start_up() {
@@ -48,6 +78,22 @@ void QuicServer::hangup_shared() {
   LOG(ERROR) << "unexpected hangup_shared signal";
 }
 
+void QuicServer::on_connection_updated(ConnectionState &state) {
+  if (!state.in_active_queue) {
+    state.in_active_queue = true;
+    active_connections_.push_back(state.cid);
+  }
+
+  double key = state.impl().get_expiry_timestamp().at();
+  if (state.in_heap()) {
+    timeout_heap_.fix(key, &state);
+  } else {
+    timeout_heap_.insert(key, &state);
+  }
+
+  yield();
+}
+
 std::shared_ptr<QuicServer::ConnectionState> QuicServer::find_connection(const QuicConnectionId &cid) {
   if (auto it = connections_.find(cid); it != connections_.end()) {
     return it->second;
@@ -55,8 +101,9 @@ std::shared_ptr<QuicServer::ConnectionState> QuicServer::find_connection(const Q
   return nullptr;
 }
 
-bool QuicServer::try_close(ConnectionState &state) {
+bool QuicServer::handle_expiry(ConnectionState &state) {
   if (!state.impl().is_expired()) {
+    on_connection_updated(state);
     return false;
   }
   auto R = state.impl().handle_expiry();
@@ -65,23 +112,33 @@ bool QuicServer::try_close(ConnectionState &state) {
     return true;
   }
 
+  // TODO: close more explicitly?
   switch (R.ok()) {
     case QuicConnectionPImpl::ExpiryAction::None:
       LOG(DEBUG) << "expiry None for " << state.remote_address;
       return false;
     case QuicConnectionPImpl::ExpiryAction::ScheduleWrite:
       LOG(DEBUG) << "expiry ScheduleWrite for " << state.remote_address;
-      flush_egress_for(state);
+      on_connection_updated(state);
       return false;
     case QuicConnectionPImpl::ExpiryAction::IdleClose:
       LOG(INFO) << "expiry IdleClose for " << state.remote_address;
       return true;
     case QuicConnectionPImpl::ExpiryAction::Close:
       LOG(INFO) << "expiry Close for " << state.remote_address;
-      flush_egress_for(state);
+      on_connection_updated(state);  // should we?..
       return true;
   }
   return true;
+}
+
+void QuicServer::shutdown_stream(QuicConnectionId cid, QuicStreamID sid) {
+  auto state = find_connection(cid);
+  if (!state) {
+    return;
+  }
+  state->impl().shutdown_stream(sid);
+  on_connection_updated(*state);
 }
 
 void QuicServer::close(QuicConnectionId cid) {
@@ -95,43 +152,78 @@ void QuicServer::close(QuicConnectionId cid) {
   if (state->temp_cid) {
     to_primary_cid_.erase(*state->temp_cid);
   }
+  if (state->in_heap()) {
+    timeout_heap_.erase(state.get());
+  }
   connections_.erase(it);
   callback_->on_closed(cid);
 }
 
 void QuicServer::alarm() {
-  // FIXME: this could be problematic if we have thousands of connections
-  // Maybe add heap like in IoWorker.cpp
-  std::vector<QuicConnectionId> to_erase;
-  for (auto &[cid, state] : connections_) {
-    if (try_close(*state)) {
-      to_erase.push_back(cid);
-      if (state->temp_cid) {
-        to_primary_cid_.erase(*state->temp_cid);
-      }
-      LOG(INFO) << "Close connection: " << *state;
+  loop();
+}
+void QuicServer::handle_timeouts() {
+  double now = td::Timestamp::now().at();
+  while (!timeout_heap_.empty() && timeout_heap_.top_key() <= now) {
+    auto *state = static_cast<ConnectionState *>(timeout_heap_.pop());
+    if (handle_expiry(*state)) {
+      to_erase_connections_.push_back(state->cid);
     }
   }
-  for (auto cid : to_erase) {
-    connections_.erase(cid);
-    callback_->on_closed(cid);
+
+  StreamShutdownList shutdown;
+  callback_->loop(td::Timestamp::now(), shutdown);
+  for (auto &e : shutdown.entries) {
+    shutdown_stream(e.cid, e.sid);
   }
-  update_alarm();
+}
+
+void QuicServer::erase_pending_connections() {
+  for (auto cid : to_erase_connections_) {
+    close(cid);
+  }
+  to_erase_connections_.clear();
+}
+
+void QuicServer::log_stats(std::string reason) {
+  LOG(INFO) << "quic stats (" << reason << "): udp ingress{syscalls=" << ingress_stats_.syscalls
+            << " packets=" << ingress_stats_.packets << " bytes=" << ingress_stats_.bytes
+            << "} egress{syscalls=" << egress_stats_.syscalls << " packets=" << egress_stats_.packets
+            << " bytes=" << egress_stats_.bytes << "}";
+  if (connections_.empty()) {
+    return;
+  }
+  for (auto &[cid, state] : connections_) {
+    log_conn_stats(*state, reason.c_str());
+  }
+}
+
+void QuicServer::log_conn_stats(ConnectionState &state, const char *reason) {
+  constexpr double kNsToMs = 1e-6;
+  auto info = state.impl().get_conn_info();
+  double loss_pct =
+      info.pkt_sent ? (100.0 * static_cast<double>(info.pkt_lost) / static_cast<double>(info.pkt_sent)) : 0.0;
+  LOG(INFO) << "quic stats (" << reason << ") for " << state.remote_address << " cid=" << state.cid
+            << " rtt_ms{smoothed=" << static_cast<double>(info.smoothed_rtt) * kNsToMs
+            << " min=" << static_cast<double>(info.min_rtt) * kNsToMs
+            << " latest=" << static_cast<double>(info.latest_rtt) * kNsToMs
+            << " var=" << static_cast<double>(info.rttvar) * kNsToMs << "}"
+            << " cwnd=" << info.cwnd << " inflight=" << info.bytes_in_flight << " sent=" << info.pkt_sent << "/"
+            << info.bytes_sent << " recv=" << info.pkt_recv << "/" << info.bytes_recv << " lost=" << info.pkt_lost
+            << "/" << info.bytes_lost << " loss=" << loss_pct << "%";
 }
 
 void QuicServer::loop() {
-  LOG(ERROR) << "unexpected loop signal";
+  td::sync_with_poll(fd_);
+  handle_timeouts();
+  drain_ingress();
+  flush_egress();
+  erase_pending_connections();
+  update_alarm();
 }
 
 void QuicServer::notify() {
   td::actor::send_signals(self_id_, td::actor::ActorSignals::wakeup());
-}
-
-void QuicServer::wake_up() {
-  td::sync_with_poll(fd_);
-  drain_ingress();
-  flush_egress_all();
-  update_alarm();
 }
 
 class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
@@ -177,19 +269,22 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
   // Create new connection to handle unknown inbound message
   TRY_RESULT(local_address, fd_.get_local_address());
 
+  QuicConnectionOptions conn_options;
+  conn_options.cc_algo = cc_algo_;
   TRY_RESULT(p_impl, QuicConnectionPImpl::create_server(local_address, msg_in.address, server_key_, alpn_.as_slice(),
-                                                        vc, std::make_unique<PImplCallback>(*this->callback_, false)));
+                                                        vc, std::make_unique<PImplCallback>(*this->callback_, false),
+                                                        conn_options));
 
   QuicConnectionId cid = p_impl->get_primary_scid();
   QuicConnectionId temp_cid = vc.dcid;
 
-  auto state = std::make_shared<ConnectionState>();
-  state->impl_ = std::move(p_impl);
-  state->remote_address = msg_in.address;
-  state->cid = cid;
-  state->temp_cid = temp_cid;
-  state->blocked_packet = std::nullopt;
-  state->is_outbound = false;
+  auto state = std::make_shared<ConnectionState>(ConnectionState{
+      .impl_ = std::move(p_impl),
+      .remote_address = msg_in.address,
+      .cid = cid,
+      .temp_cid = temp_cid,
+      .is_outbound = false,
+  });
   LOG(INFO) << "creating " << *state;
 
   // Store by BOTH current temporary dcid and cid we just generated for the server
@@ -206,218 +301,274 @@ td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::E
   TRY_STATUS(remote_address.init_host_port(host.str(), port));
   TRY_RESULT(local_address, fd_.get_local_address());  // TODO: we may avoid system call here
 
-  TRY_RESULT(p_impl, QuicConnectionPImpl::create_client(local_address, remote_address, std::move(client_key), alpn,
-                                                        std::make_unique<PImplCallback>(*this->callback_, true)));
+  QuicConnectionOptions conn_options;
+  conn_options.cc_algo = cc_algo_;
+  TRY_RESULT(p_impl,
+             QuicConnectionPImpl::create_client(local_address, remote_address, std::move(client_key), alpn,
+                                                std::make_unique<PImplCallback>(*this->callback_, true), conn_options));
   QuicConnectionId cid = p_impl->get_primary_scid();
 
-  auto state = std::make_shared<ConnectionState>();
-  state->impl_ = std::move(p_impl);
-  state->remote_address = remote_address;
-  state->cid = cid;
-  state->temp_cid = std::nullopt;
-  state->blocked_packet = std::nullopt;
-  state->is_outbound = true;
+  auto state = std::make_shared<ConnectionState>(ConnectionState{
+      .impl_ = std::move(p_impl),
+      .remote_address = remote_address,
+      .cid = cid,
+      .temp_cid = {},
+      .is_outbound = true,
+  });
   LOG(INFO) << "creating " << *state;
 
   connections_[cid] = state;
 
-  flush_egress_for(*state);
-  update_alarm_for(*state);
-
+  on_connection_updated(*state);
   return QuicConnectionId(cid);
 }
 
 void QuicServer::drain_ingress() {
   td::PerfWarningTimer w("drain_ingress", 0.1);
-  bool run = true;
-  auto cycle = [this, &run]() -> td::Status {
-    char buf[DEFAULT_MTU];
-    td::MutableSlice slice(buf, buf + DEFAULT_MTU);
-    UdpMessageBuffer msg_in;
-#if TD_PORT_POSIX
-    td::UdpSocketFd::InboundMessage in_msg;
-    in_msg.from = &msg_in.address;
-    in_msg.data = slice;
-    in_msg.error = nullptr;
-    TRY_STATUS(fd_.receive_message(in_msg, run));
+  const size_t buf_size = gro_enabled_ ? kMaxDatagram : DEFAULT_MTU * kMaxBurst;
 
-    if (!run) {
-      return td::Status::OK();
+  std::vector<td::BufferSlice> ingress_data_buffers;  // for Windows receive_messages
+  td::int64 bytes_budget = 10 << 20;                  // 10MB
+  while (bytes_budget > 0) {
+    for (size_t i = 0; i < kIngressBatch; i++) {
+      ingress_errors_[i] = td::Status::OK();
+      ingress_messages_[i].from = &ingress_msg_[i].address;
+      ingress_messages_[i].data =
+          td::MutableSlice(ingress_buffers_.data(), ingress_buffers_.size()).substr(i * buf_size, buf_size);
+      ingress_messages_[i].error = &ingress_errors_[i];
     }
 
-    msg_in.storage = in_msg.data;
-#elif TD_PORT_WINDOWS
-    auto recv_res = fd_.receive();
-    if (recv_res.is_error()) {
-      return recv_res.move_as_error();
+    size_t cnt = 0;
+    auto status =
+        fd_.receive_messages(td::MutableSpan<td::UdpSocketFd::InboundMessage>(ingress_messages_.data(), kIngressBatch),
+                             cnt, ingress_data_buffers);
+    if (cnt == 0) {
+      if (status.is_error()) {
+        LOG(ERROR) << "failed to drain incoming traffic: " << status;
+      }
+      break;
     }
-    auto opt_msg = recv_res.move_as_ok();
-    if (!opt_msg) {
-      run = false;
-      return td::Status::OK();
-    }
-    const auto &recv_msg = opt_msg.value();
-    if (recv_msg.error.is_error()) {
-      LOG(WARNING) << "dropping inbound packet: " << recv_msg.error;
-      return td::Status::OK();
-    }
-    msg_in.address = recv_msg.address;
-    auto recv_slice = recv_msg.data.as_slice();
-    if (recv_slice.size() > slice.size()) {
-      LOG(WARNING) << "dropping inbound packet larger than MTU (" << recv_slice.size() << " > " << slice.size() << ")";
-      return td::Status::OK();
-    }
-    slice.truncate(recv_slice.size());
-    slice.copy_from(recv_slice);
-    msg_in.storage = slice;
-#endif
+    ingress_stats_.syscalls++;
 
-    auto conn_res = get_or_create_connection(msg_in);
-    if (conn_res.is_error()) {
-      LOG(WARNING) << "dropping inbound packet from " << msg_in.address << ": " << conn_res.error();
-      return td::Status::OK();
+    // Debug: log recvmmsg batch details periodically
+    static std::atomic<size_t> ingress_log_counter = 0;
+    if ((ingress_log_counter.fetch_add(1, std::memory_order_relaxed) & 0x3FFF) == 0) {
+      std::map<QuicConnectionId, size_t> conn_to_idx;
+      std::vector<size_t> packet_conn_idx(cnt);
+      for (size_t i = 0; i < cnt; i++) {
+        if (ingress_errors_[i].is_ok()) {
+          auto vc = VersionCid::from_datagram(ingress_messages_[i].data);
+          if (vc.is_ok()) {
+            auto [it, inserted] = conn_to_idx.try_emplace(vc.ok().dcid, conn_to_idx.size());
+            packet_conn_idx[i] = it->second;
+          }
+        }
+      }
+      td::StringBuilder sb;
+      sb << "recvmmsg batch=" << cnt << " conns=" << conn_to_idx.size() << " [";
+      for (size_t i = 0; i < cnt; i++) {
+        if (i > 0) {
+          sb << ", ";
+        }
+        sb << ingress_messages_[i].data.size();
+        if (ingress_messages_[i].gso_size > 0) {
+          sb << "(gro=" << ingress_messages_[i].gso_size << ")";
+        }
+        sb << "/c" << packet_conn_idx[i];
+      }
+      sb << "]";
+      LOG(INFO) << sb.as_cslice();
     }
-    auto state = conn_res.move_as_ok();
 
-    if (auto status = state->impl().handle_ingress(msg_in); status.is_error()) {
-      LOG(WARNING) << "failed to handle ingress from " << *state << ":  " << status;
-      close(state->cid);
-      return td::Status::OK();
+    for (size_t i = 0; i < cnt; i++) {
+      if (ingress_errors_[i].is_error()) {
+        LOG(DEBUG) << "dropping inbound packet from " << ingress_msg_[i].address << ": " << ingress_errors_[i];
+        continue;
+      }
+      bytes_budget -= ingress_messages_[i].data.size();
+      ingress_msg_[i].storage = ingress_messages_[i].data;
+      ingress_stats_.bytes += ingress_msg_[i].storage.size();
+      const size_t segment_size = ingress_messages_[i].gso_size;
+
+      auto handle_packet = [&](UdpMessageBuffer &packet) {
+        ingress_stats_.packets++;
+        auto R = get_or_create_connection(packet);
+        if (R.is_error()) {
+          LOG(WARNING) << "dropping inbound packet from " << packet.address << ": " << R.error();
+          return;
+        }
+        auto state = R.move_as_ok();
+        if (auto handle_status = state->impl().handle_ingress(packet); handle_status.is_error()) {
+          LOG(WARNING) << "failed to handle ingress from " << *state << ":  " << handle_status;
+          close(state->cid);
+          return;
+        }
+        on_connection_updated(*state);
+      };
+
+      if (segment_size > 0 && ingress_msg_[i].storage.size() > segment_size) {
+        size_t offset = 0;
+        while (offset < ingress_msg_[i].storage.size()) {
+          const size_t len = td::min(segment_size, ingress_msg_[i].storage.size() - offset);
+          UdpMessageBuffer segment = ingress_msg_[i];
+          segment.storage = ingress_msg_[i].storage.substr(offset, len);
+          handle_packet(segment);
+          offset += len;
+        }
+      } else {
+        handle_packet(ingress_msg_[i]);
+      }
     }
 
-    return td::Status::OK();
-  };
-
-  while (run) {
-    if (auto status = cycle(); status.is_error()) {
+    if (status.is_error()) {
       LOG(ERROR) << "failed to drain incoming traffic: " << status;
       break;
     }
   }
+  if (bytes_budget <= 0) {
+    yield();
+  }
 }
 
-void QuicServer::flush_egress_for(ConnectionState &state, EgressData data) {
-  if (state.blocked_packet.has_value()) {
-    bool unblocked = false;
-    auto &[packet_addr, packet_data] = *state.blocked_packet;
-#if TD_PORT_POSIX
-    td::UdpSocketFd::OutboundMessage msg{.to = &packet_addr, .data = packet_data};
-    auto status = fd_.send_message(msg, unblocked);
-    if (!status.is_ok() || unblocked) {
-      state.blocked_packet.reset();
-      state.impl_->unblock_streams();
-    }
-#elif TD_PORT_WINDOWS
-    td::UdpMessage msg;
-    msg.address = packet_addr;
-    msg.data = td::BufferSlice(td::Slice(packet_data));
-    fd_.send(std::move(msg));
-    if (auto status = fd_.flush_send(); status.is_error()) {
-      state.blocked_packet.reset();
-      state.impl_->unblock_streams();
-    }
-#endif
+bool QuicServer::flush_pending() {
+  if (pending_batch_count_ == 0) {
+    return true;
   }
 
-  td::PerfWarningTimer w("flush_egress_for", 0.1);
-  if (data.stream_data.has_value()) {
-    auto &stream_data = data.stream_data.value();
-    auto cycle = [this, &state, &stream_data]() -> td::Status {
-      char buf[DEFAULT_MTU];
-      UdpMessageBuffer msg_out;
-      msg_out.storage = td::MutableSlice(buf, DEFAULT_MTU);
-      TRY_STATUS(state.impl().write_stream(msg_out, stream_data.sid, std::move(stream_data.data), stream_data.fin));
+  size_t sent_count = 0;
+  auto status =
+      fd_.send_messages(td::Span<td::UdpSocketFd::OutboundMessage>(egress_messages_.data() + pending_batch_sent_,
+                                                                   pending_batch_count_ - pending_batch_sent_),
+                        sent_count);
 
-      if (msg_out.storage.empty()) {
-        return td::Status::OK();
-      }
-
-#if TD_PORT_POSIX
-      bool sent = false;
-      td::UdpSocketFd::OutboundMessage out_msg;
-      out_msg.to = &msg_out.address;
-      out_msg.data = td::Slice{msg_out.storage};
-      TRY_STATUS(fd_.send_message(out_msg, sent));
-      if (!sent) {
-        state.impl_->block_streams();
-        state.blocked_packet = std::pair{msg_out.address, td::BufferSlice{msg_out.storage}};
-      }
-#elif TD_PORT_WINDOWS
-      td::UdpMessage out_msg;
-      out_msg.address = msg_out.address;
-      out_msg.data = td::BufferSlice(td::Slice(msg_out.storage));
-      fd_.send(std::move(out_msg));
-      TRY_STATUS(fd_.flush_send());
-#endif
-      return td::Status::OK();
-    };
-
-    if (auto status = cycle(); status.is_error()) {
-      LOG(WARNING) << "failed to send stream data: " << status;
-      return;
+  egress_stats_.syscalls++;
+  for (size_t i = pending_batch_sent_; i < pending_batch_sent_ + sent_count; i++) {
+    egress_stats_.bytes += egress_messages_[i].data.size();
+    size_t gso_size = egress_messages_[i].gso_size;
+    if (gso_size > 0 && egress_messages_[i].data.size() > gso_size) {
+      egress_stats_.packets += (egress_messages_[i].data.size() + gso_size - 1) / gso_size;
+    } else {
+      egress_stats_.packets++;
     }
   }
 
-  bool run = true;
-  auto cycle = [this, &state, &run]() -> td::Status {
-    char buf[DEFAULT_MTU];
-    UdpMessageBuffer msg_out;
-    msg_out.storage = td::MutableSlice(buf, DEFAULT_MTU);
-    TRY_STATUS(state.impl().produce_egress(msg_out));
-    run = !msg_out.storage.empty();
+  pending_batch_sent_ += sent_count;
 
-    if (!run) {
-      return td::Status::OK();
+  if (pending_batch_sent_ < pending_batch_count_) {
+    if (status.is_error()) {
+      LOG(WARNING) << "send_messages failed: " << status;
+    }
+    return false;  // blocked, will retry on wakeup
+  }
+
+  // All sent - re-queue connections for more data
+  pending_batch_count_ = 0;
+  pending_batch_sent_ = 0;
+  return true;
+}
+
+bool QuicServer::produce_next_egress(size_t batch_index) {
+  const size_t max_packets = gso_enabled_ ? kMaxBurst : 1;
+  const size_t max_buf = DEFAULT_MTU * max_packets;
+
+  while (!active_connections_.empty()) {
+    auto cid = active_connections_.front();
+    active_connections_.pop_front();
+
+    auto conn = find_connection(cid);
+    if (!conn) {
+      continue;  // stale entry
     }
 
-#if TD_PORT_POSIX
-    td::UdpSocketFd::OutboundMessage out_msg;
-    out_msg.to = &msg_out.address;
-    out_msg.data = td::Slice{msg_out.storage};
-    TRY_STATUS(fd_.send_message(out_msg, run));
-    if (!run) {
-      state.impl_->block_streams();
-      state.blocked_packet = std::pair{msg_out.address, td::BufferSlice{msg_out.storage}};
-    }
-#elif TD_PORT_WINDOWS
-    td::UdpMessage out_msg;
-    out_msg.address = msg_out.address;
-    out_msg.data = td::BufferSlice(td::Slice(msg_out.storage));
-    fd_.send(std::move(out_msg));
-    TRY_STATUS(fd_.flush_send());
-#endif
-    return td::Status::OK();
-  };
+    conn->in_active_queue = false;
 
-  while (run) {
-    if (auto status = cycle(); status.is_error()) {
-      LOG(WARNING) << "failed to flush egress: " << status;
+    auto &batch = egress_batches_[batch_index];
+    batch.storage = td::MutableSlice(egress_buffers_[batch_index].data(), max_buf);
+
+    auto status = conn->impl().produce_egress(batch, gso_enabled_, max_packets);
+    if (status.is_error()) {
+      LOG(WARNING) << "produce_egress failed for " << conn->remote_address << ": " << status;
+      continue;
+    }
+    if (batch.storage.empty()) {
+      continue;  // no data, connection stays out of queue
+    }
+    on_connection_updated(*conn);
+
+    egress_batch_owners_[batch_index] = conn;
+    return true;
+  }
+  return false;
+}
+
+void QuicServer::flush_egress() {
+  td::PerfWarningTimer w("flush_egress_all", 0.1);
+
+  // First flush any pending from previous call
+  if (!flush_pending()) {
+    return;  // still blocked
+  }
+
+  auto active_count = active_connections_.size();
+  auto total_count = connections_.size();
+
+  while (!active_connections_.empty()) {
+    size_t batch_count = 0;
+    while (batch_count < kEgressBatch && produce_next_egress(batch_count)) {
+      batch_count++;
+    }
+    if (batch_count == 0) {
       break;
     }
-  }
-}
 
-void QuicServer::flush_egress_all() {
-  td::PerfWarningTimer w("flush_egress_all", 0.1);
-  // TODO: could be optimized if we support list of connections with nonempty write
-  for (auto &[cid, state] : connections_) {
-    flush_egress_for(*state);
+    // Prepare messages
+    for (size_t i = 0; i < batch_count; i++) {
+      egress_messages_[i].to = &egress_batches_[i].address;
+      egress_messages_[i].data = egress_batches_[i].storage;
+      egress_messages_[i].gso_size = gso_enabled_ ? egress_batches_[i].gso_size : 0;
+    }
+
+    // Debug: log sendmmsg batch details (every 64 batches)
+    static std::atomic<size_t> batch_log_counter = 0;
+    if ((batch_log_counter.fetch_add(1, std::memory_order_relaxed) & 0x3FFF) == 0) {
+      std::map<QuicConnectionId, size_t> conn_to_idx;
+      std::vector<size_t> packet_conn_idx(batch_count);
+      for (size_t i = 0; i < batch_count; i++) {
+        auto [it, inserted] = conn_to_idx.try_emplace(egress_batch_owners_[i]->cid, conn_to_idx.size());
+        packet_conn_idx[i] = it->second;
+      }
+      td::StringBuilder sb;
+      sb << "sendmmsg batch=" << batch_count << " conns=" << conn_to_idx.size() << " [";
+      for (size_t i = 0; i < batch_count; i++) {
+        if (i > 0) {
+          sb << ", ";
+        }
+        sb << egress_batches_[i].storage.size();
+        if (egress_batches_[i].gso_size > 0) {
+          sb << "(gso=" << egress_batches_[i].gso_size << ")";
+        }
+        sb << "/c" << packet_conn_idx[i] << "/s" << egress_batch_owners_[i]->impl().get_last_packet_streams();
+      }
+      sb << "] active/total=" << active_count << "/" << total_count;
+      LOG(INFO) << sb.as_cslice();
+    }
+
+    // Set pending and try to flush
+    pending_batch_count_ = batch_count;
+    pending_batch_sent_ = 0;
+    if (!flush_pending()) {
+      return;  // blocked, will continue on next wakeup
+    }
   }
 }
 
 void QuicServer::update_alarm() {
-  td::PerfWarningTimer w("update_alarm", 0.1);
   td::Timestamp alarm_ts = td::Timestamp::never();
-  for (auto &[cid, state] : connections_) {
-    alarm_ts.relax(state->impl().get_expiry_timestamp());
+  if (!timeout_heap_.empty()) {
+    alarm_ts = td::Timestamp::at(timeout_heap_.top_key());
   }
+  alarm_ts.relax(callback_->next_alarm());
   alarm_timestamp() = alarm_ts;
-}
-
-void QuicServer::update_alarm_for(ConnectionState &state) {
-  // Only decrease global timestamp for now.
-  // May lead to waking up earlier than necessary, but usually correct
-  alarm_timestamp().relax(state.impl().get_expiry_timestamp());
 }
 
 void QuicServer::send_stream_data(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data) {
@@ -447,17 +598,8 @@ td::Result<QuicStreamID> QuicServer::send_stream(QuicConnectionId cid, std::vari
     callback_->set_stream_options(cid, sid, std::get<StreamOptions>(stream));
   }
 
-  if (!data.empty() || is_end) {
-    EgressData::StreamData stream_data;
-    stream_data.sid = sid;
-    stream_data.data = std::move(data);
-    stream_data.fin = is_end;
-    EgressData egress_data;
-    egress_data.stream_data = std::move(stream_data);
-    flush_egress_for(*state, std::move(egress_data));
-    update_alarm_for(*state);
-  }
-
+  TRY_STATUS(state->impl().buffer_stream(sid, std::move(data), is_end));
+  on_connection_updated(*state);
   return sid;
 }
 

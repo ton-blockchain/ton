@@ -374,7 +374,7 @@ void FullNodeFastSyncOverlay::init() {
   };
 
   td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_id_);
-  td::actor::send_closure(quic_, &quic::QuicSender::add_local_id, local_id_);
+  // td::actor::send_closure(quic_, &quic::QuicSender::add_local_id, local_id_);
   rldp_limit_guard_ =
       rldp2::PeersMtuLimitGuard(rldp2_, local_id_, current_validators_adnl_, FullNode::max_block_size() + 1024);
 

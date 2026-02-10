@@ -202,7 +202,7 @@ class FecBenchmark : public td::Benchmark {
 
       std::vector<td::fec::Symbol> symbols;
       auto parameters = encoder->get_parameters();
-      auto decoder = Decoder::create(parameters);
+      auto decoder = Decoder::create(parameters).move_as_ok();
 
       size_t sent_symbols = 0;
       for (td::uint32 j = 0; j < data_.size() / symbol_size_ * 20; j++) {

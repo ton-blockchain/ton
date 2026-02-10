@@ -513,6 +513,17 @@ class Result {
     new (&value_) T(std::forward<ArgsT>(args)...);
     status_ = Status::OK();
   }
+  template <typename S>
+  Result &operator=(Result<S> &&other)
+    requires(!std::is_same_v<S, T>)
+  {
+    if (other.is_error()) {
+      *this = other.move_as_error();
+    } else {
+      *this = other.move_as_ok();
+    }
+    return *this;
+  }
   ~Result() {
     if (status_.is_ok()) {
       value_.~T();

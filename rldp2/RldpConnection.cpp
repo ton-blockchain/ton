@@ -271,10 +271,12 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
 
   auto r_total_size = td::narrow_cast_safe<std::size_t>(part.total_size_);
   if (r_total_size.is_error()) {
+    VLOG(RLDP_INFO) << "Drop bad rldp message: " << r_total_size.move_as_error();
     return;
   }
   auto r_fec_type = ton::fec::FecType::create(std::move(part.fec_type_));
   if (r_fec_type.is_error()) {
+    VLOG(RLDP_INFO) << "Drop bad rldp message: " << r_fec_type.move_as_error();
     return;
   }
 
@@ -292,7 +294,7 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
     max_size = limit_it->max_size;
   }
   if (total_size > max_size) {
-    VLOG(RLDP_INFO) << "Drop too big rldp query " << part.total_size_ << " > " << max_size;
+    VLOG(RLDP_INFO) << "Drop too big rldp message: " << part.total_size_ << " > " << max_size;
     return;
   }
 

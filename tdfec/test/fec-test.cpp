@@ -175,7 +175,7 @@ void fec_test(td::Slice data, size_t max_symbol_size) {
   LOG(ERROR) << "?";
   std::vector<td::fec::Symbol> symbols;
   auto parameters = encoder->get_parameters();
-  auto decoder = Decoder::create(parameters);
+  auto decoder = Decoder::create(parameters).move_as_ok();
 
   LOG(ERROR) << "?";
   size_t sent_symbols = 0;

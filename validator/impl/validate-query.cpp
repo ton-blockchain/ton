@@ -263,7 +263,6 @@ void ValidateQuery::finish_query() {
 void ValidateQuery::start_up() {
   LOG(WARNING) << "validate query for " << block_candidate.id.to_str() << " started";
   alarm_timestamp() = timeout;
-  rand_seed_.set_zero();
   created_by_ = block_candidate.pubkey;
 
   CHECK(id_ == block_candidate.id);
@@ -625,7 +624,7 @@ bool ValidateQuery::init_parse() {
     return reject_query("shard mismatch in the block header");
   }
   state_update_ = blk.state_update;
-  vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
+  vm::CellSlice upd_cs{vm::NoVm(), blk.state_update};
   if (!(upd_cs.is_special() && upd_cs.prefetch_long(8) == 4  // merkle update
         && upd_cs.size_ext() == 0x20228)) {
     return fatal_error("invalid Merkle update in block");
@@ -675,6 +674,9 @@ bool ValidateQuery::init_parse() {
     return reject_query("after_merge value mismatch in block header");
   }
   rand_seed_ = extra.rand_seed;
+  if (rand_seed_.is_zero()) {
+    return reject_query("block candidate "s + id_.to_str() + " has zero rand seed");
+  }
   if (created_by_ != extra.created_by) {
     return reject_query("block candidate "s + id_.to_str() + " has creator " + created_by_.to_hex() +
                         " but the block header contains different value " + extra.created_by.to_hex());
@@ -1127,10 +1129,6 @@ bool ValidateQuery::fetch_config_params() {
       return fatal_error(res.move_as_error());
     }
     storage_prices_ = res.move_as_ok();
-  }
-  {
-    // recover (not generate) rand seed from block header
-    CHECK(!rand_seed_.is_zero());
   }
   block::SizeLimitsConfig size_limits;
   {
@@ -5780,7 +5778,9 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
       }
     }
   }
-  CHECK(money_exported.is_valid());
+  if (!money_exported.is_valid()) {
+    return reject_query("invalid value of total money exported");
+  }
   // check general transaction data
   block::CurrencyCollection old_balance{account.get_balance()};
   if (tag == block::gen::TransactionDescr::trans_merge_prepare ||
@@ -7363,7 +7363,10 @@ Ref<vm::Cell> ValidateQuery::get_virt_state_root(const BlockIdExt& block_id) {
   if (!tlb::unpack_cell(root, block)) {
     return {};
   }
-  vm::CellSlice upd_cs{vm::NoVmSpec(), block.state_update};
+  vm::CellSlice upd_cs{vm::NoVm(), block.state_update};
+  if (!(upd_cs.is_special() && upd_cs.prefetch_long(8) == 4 && upd_cs.size_ext() == 0x20228)) {
+    return {};
+  }
   td::Bits256 state_root_hash = upd_cs.prefetch_ref(1)->get_hash(0).bits();
   it = virt_roots_.find(state_root_hash);
   return it == virt_roots_.end() ? Ref<vm::Cell>{} : it->second;

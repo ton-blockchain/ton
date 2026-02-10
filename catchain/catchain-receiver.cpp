@@ -87,6 +87,12 @@ void CatChainReceiverImpl::deliver_block(CatChainReceivedBlock *block) {
 
 void CatChainReceiverImpl::receive_block(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_api::catchain_block> block,
                                          td::BufferSlice payload) {
+  td::uint32 src_id = block->src_;
+  if (src_id >= get_sources_cnt()) {
+    VLOG(CATCHAIN_WARNING) << this << ": received broken block from " << src << ": bad src " << block->src_;
+    return;
+  }
+
   CatChainBlockHash id = CatChainReceivedBlock::block_hash(this, block, payload);
   CatChainReceivedBlock *B = get_block(id);
   if (B && B->initialized()) {
@@ -106,11 +112,6 @@ void CatChainReceiverImpl::receive_block(adnl::AdnlNodeIdShort src, tl_object_pt
     return;
   }
 
-  td::uint32 src_id = block->src_;
-  if (src_id >= get_sources_cnt()) {
-    VLOG(CATCHAIN_WARNING) << this << ": received broken block from " << src << ": bad src " << block->src_;
-    return;
-  }
   CatChainReceiverSource *source = get_source(src_id);
   if (source->fork_is_found()) {
     if (B == nullptr || !B->has_rev_deps()) {
