@@ -1,13 +1,13 @@
 ## 2026.02 Update
 
-1. Fixed memory leak which caused OOM on LSes
-2. Improved block compression
-3. More stable custom overlays
-4. Fixed a few performance and stability issues
-5. Added Tontester framework
-6. Preparation for upcoming speed up: disabled by default but ready to deploy new broadcast and consensus
+1. Preparation for upcoming network speed up: disabled by default but ready to deploy new broadcast and consensus
+2. Fixed memory leak which causes OOM on LSes
+3. Improved block compression
+4. More stable custom overlays
+5. Fixed a few performance and stability issues
+6. Added Tontester framework
 
-Besides the work of the core team, this update also includes contributions from Vahagn @vah13 and InfiniteSec team [https://x.com/infsec_io](x.com/infsec_io)
+Besides the work of the core team, this update also includes contributions from Vahagn @vah13, InfiniteSec team [https://x.com/infsec_io](x.com/infsec_io) and Christos from [Cantina and Spearbit](cantina.xyz).
 
 ## 2025.12 Update
 
