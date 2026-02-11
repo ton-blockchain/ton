@@ -197,7 +197,7 @@ Result<DataWithEncoder> OnlineDecoder::try_decode(bool need_encoder) {
   if (need_encoder) {
     encoder = RoundRobinEncoder::create(data.copy(), symbol_size_);
   }
-  return DataWithEncoder{std::move(data), nullptr};
+  return DataWithEncoder{std::move(data), std::move(encoder)};
 }
 
 Status OnlineDecoder::add_symbol(Symbol symbol) {
