@@ -49,42 +49,10 @@ if [ -n "${TON_ARCH}" ]; then
   CMAKE_EXTRA_ARGS+=(-DTON_ARCH=${TON_ARCH})
 fi
 
-if [ ! -d "../3pp/zlib" ]; then
-  git clone https://github.com/madler/zlib.git ../3pp/zlib
-  cd ../3pp/zlib || exit
-  zlibPath=`pwd`
-  ./configure --static
-  make -j$(nproc)
-  test $? -eq 0 || { echo "Can't compile zlib"; exit 1; }
-  cd ../../build || exit
-else
-  zlibPath=$(pwd)/../3pp/zlib
-  echo "Using compiled zlib"
-fi
-
-if [ ! -d "../3pp/libmicrohttpd" ]; then
-  git clone https://github.com/ton-blockchain/libmicrohttpd.git ../3pp/libmicrohttpd
-  cd ../3pp/libmicrohttpd || exit
-  libmicrohttpdPath=`pwd`
-  ./configure --enable-static --disable-tests --disable-benchmark --disable-shared --disable-https --with-pic
-  make -j$(nproc)
-  test $? -eq 0 || { echo "Can't compile libmicrohttpd"; exit 1; }
-  cd ../../build || exit
-else
-  libmicrohttpdPath=$(pwd)/../3pp/libmicrohttpd
-  echo "Using compiled libmicrohttpd"
-fi
-
 cmake -GNinja .. \
 -DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
 -DPORTABLE=1 \
 -DCMAKE_BUILD_TYPE=Release \
--DZLIB_FOUND=1 \
--DZLIB_INCLUDE_DIR=$zlibPath \
--DZLIB_LIBRARIES=$zlibPath/libz.a \
--DMHD_FOUND=1 \
--DMHD_INCLUDE_DIR=$libmicrohttpdPath/src/include \
--DMHD_LIBRARY=$libmicrohttpdPath/src/microhttpd/.libs/libmicrohttpd.a \
 "${CMAKE_EXTRA_ARGS[@]}"
 
 

@@ -47,7 +47,7 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
       endif()
       set(CMD ${OPENSSL_ANDROID_ENV}
         /usr/bin/perl ./Configure ${OPENSSL_CONFIGURE_TARGET} --prefix=${OPENSSL_INSTALL_DIR}
-          no-shared no-dso no-engine no-unit-test no-tests no-apps enable-quic --libdir=lib -D__ANDROID_API__=${TON_ANDROID_API})
+          no-shared no-dso no-unit-test no-tests no-apps enable-quic --libdir=lib -D__ANDROID_API__=${TON_ANDROID_API})
     else()
       set(OPENSSL_BINARY_DIR ${TON_THIRD_PARTY_BINARY_DIR}/openssl)
       set(OPENSSL_INCLUDE_DIR ${OPENSSL_BINARY_DIR}/include)
@@ -63,7 +63,7 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
         else()
           set(OPENSSL_DARWIN_TARGET darwin64-x86_64-cc)
         endif()
-        set(CMD ./Configure ${OPENSSL_DARWIN_TARGET} --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests no-apps enable-quic --libdir=lib)
+        set(CMD ./Configure ${OPENSSL_DARWIN_TARGET} --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-unit-test no-tests no-apps enable-quic --libdir=lib)
       elseif (MINGW)
         set(OPENSSL_MINGW_CFLAGS "-DSIO_UDP_NETRESET=SIO_UDP_CONNRESET")
         if ("$ENV{MSYSTEM}" STREQUAL "UCRT64")
@@ -91,9 +91,9 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
           AR=${OPENSSL_AR}
           RANLIB=${OPENSSL_RANLIB}
           CFLAGS=${OPENSSL_MINGW_CFLAGS}
-          perl ./Configure mingw64 --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests no-apps enable-quic --libdir=lib)
+          perl ./Configure mingw64 --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-unit-test no-tests no-apps enable-quic --libdir=lib)
       else()
-        set(CMD ./config --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-engine no-unit-test no-tests enable-quic --libdir=lib)
+        set(CMD ./config --prefix=${OPENSSL_BINARY_DIR} no-shared no-dso no-unit-test no-tests enable-quic --libdir=lib)
       endif()
     endif()
 
@@ -176,7 +176,7 @@ if (NOT OPENSSL_CRYPTO_LIBRARY)
             RANLIB=emranlib
             NM=llvm-nm
             ARFLAGS=rcs
-            ./Configure linux-generic32 no-asm no-shared no-dso no-engine no-unit-test no-tests no-apps no-threads enable-quic
+            ./Configure linux-generic32 no-asm no-shared no-dso no-unit-test no-tests no-apps no-threads enable-quic
           COMMAND sed -i 's/CROSS_COMPILE=.*/CROSS_COMPILE=/g' Makefile
           COMMAND sed -i 's/-ldl//g' Makefile
           COMMAND sed -i 's/-O3/-Os/g' Makefile

@@ -1,7 +1,7 @@
 #/bin/bash
 
 #sudo apt-get update
-#sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libmicrohttpd-dev libjemalloc-dev ccache
+#sudo apt-get install -y build-essential git cmake ninja-build libjemalloc-dev ccache
 
 with_tests=false
 with_artifacts=false

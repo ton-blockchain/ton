@@ -75,7 +75,7 @@ Usually, the response to your pull request will indicate which section it falls 
 Install additional system libraries
 ```bash
   sudo apt-get update
-  sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libmicrohttpd-dev
+  sudo apt-get install -y build-essential git cmake ninja-build
 
   wget https://apt.llvm.org/llvm.sh
   chmod +x llvm.sh
@@ -105,8 +105,8 @@ After installation, also make sure that `cmake` is globally available by adding
 
 Open an elevated (Run as Administrator) `x86-64 Native Tools Command Prompt for VS 2022`, go to the root folder, and execute:
 ```bash
-  copy assembly\native\build-windows.bat .
-  build-windows.bat
+  copy assembly\native\build-windows-2022.bat .
+  build-windows-2022.bat
 ```
 
 ### MSYS2 MinGW64 (x86-64)
@@ -131,7 +131,7 @@ As a result, you will get fully statically compiled TON windows binaries.
 Install additional system libraries on Ubuntu
 ```bash
   sudo apt-get update
-  sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libmicrohttpd-dev
+  sudo apt-get install -y build-essential git cmake ninja-build
 
   wget https://apt.llvm.org/llvm.sh
   chmod +x llvm.sh
@@ -149,8 +149,7 @@ Install additional system libraries on Ubuntu
 ```bash
   sudo apt-get update
   sudo apt-get install -y build-essential git cmake ninja-build automake libtool texinfo autoconf libgflags-dev \
-  zlib1g-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev \
-  libtool autoconf
+  libreadline-dev pkg-config libgsl-dev python3 python3-dev libtool autoconf
 ```
 Compile TON tonlib library
 ```bash

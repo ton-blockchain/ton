@@ -8,7 +8,7 @@ jobs:
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         submodules: 'recursive'
 
@@ -21,21 +21,14 @@ jobs:
     - name: Install system libraries
       run: |
         sudo apt update
-        sudo apt install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev ccache libgsl-dev libblas-dev libgslcblas0
-        mkdir ~/.ccache 3pp
+        sudo apt install -y build-essential git cmake ninja-build ccache libgsl-dev libblas-dev libgslcblas0
+        mkdir ~/.ccache
 
     - name: Install clang-21
       run: |
         wget https://apt.llvm.org/llvm.sh
         chmod +x llvm.sh
         sudo ./llvm.sh 21 clang
-
-    - name: Cache 3pp
-      id: cache-3pp
-      uses: actions/cache@v4
-      with:
-        path: 3pp
-        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-3pp-${{ hashFiles('**/assembly/native/build-ubuntu-appimages.sh') }}
 
     - name: Restore cache TON
       uses: actions/cache/restore@v4

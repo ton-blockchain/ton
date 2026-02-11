@@ -1,8 +1,8 @@
 # Execute these prerequisites first
 # sudo apt update
-# sudo apt install -y build-essential git make cmake ninja-build clang libgflags-dev zlib1g-dev libssl-dev \
-#                    libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev python3-pip \
-#                    nodejs libsodium-dev automake libtool libjemalloc-dev ccache
+# sudo apt install -y build-essential git make cmake ninja-build clang libgflags-dev \
+#                    libreadline-dev pkg-config libgsl-dev python3 python3-dev python3-pip \
+#                    nodejs automake libtool libjemalloc-dev ccache
 
 # wget https://apt.llvm.org/llvm.sh
 # chmod +x llvm.sh
@@ -68,7 +68,7 @@ if [ ! -f "3pp_emscripten/openssl_em" ]; then
   mkdir -p 3pp_emscripten
   git clone https://github.com/openssl/openssl 3pp_emscripten/openssl_em
   cd 3pp_emscripten/openssl_em || exit
-  emconfigure ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test no-tests no-fuzz-afl no-fuzz-libfuzzer enable-quic
+  emconfigure ./Configure linux-generic32 no-shared no-dso no-unit-test no-tests no-fuzz-afl no-fuzz-libfuzzer enable-quic
   sed -i 's/CROSS_COMPILE=.*/CROSS_COMPILE=/g' Makefile
   sed -i 's/-ldl//g' Makefile
   sed -i 's/-O3/-Os/g' Makefile
