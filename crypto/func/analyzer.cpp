@@ -23,9 +23,9 @@
 namespace funC {
 
 /*
- *  
+ *
  *   ANALYZE AND PREPROCESS ABSTRACT CODE
- * 
+ *
  */
 
 void CodeBlob::simplify_var_types() {

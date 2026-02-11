@@ -377,13 +377,14 @@ void CellDbIn::load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promi
       td::Timestamp::now());
 }
 
-void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise<td::Ref<vm::DataCell>> promise) {
+void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, vm::StoreCellHint hint,
+                          td::Promise<td::Ref<vm::DataCell>> promise) {
   if (db_busy_) {
-    action_queue_.push(
-        [self = this, block_id, cell = std::move(cell), promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-          R.ensure();
-          self->store_cell(block_id, std::move(cell), std::move(promise));
-        });
+    action_queue_.push([self = this, block_id, cell = std::move(cell), hint = std::move(hint),
+                        promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+      R.ensure();
+      self->store_cell(block_id, std::move(cell), std::move(hint), std::move(promise));
+    });
     return;
   }
   td::PerfWarningTimer timer{"storecell", 0.1};
@@ -399,13 +400,14 @@ void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promi
 
   boc_->inc(cell);
   db_busy_ = true;
-  boc_->prepare_commit_async(async_executor, [=, this, SelfId = actor_id(this), timer = std::move(timer),
-                                              timer_prepare = td::Timer{}, promise = std::move(promise),
-                                              cell = std::move(cell)](td::Result<td::Unit> Res) mutable {
-    Res.ensure();
-    timer_prepare.pause();
-    td::actor::send_lambda_later(
-        SelfId, [=, this, timer = std::move(timer), promise = std::move(promise), cell = std::move(cell)]() mutable {
+  boc_->prepare_commit_async(
+      async_executor, std::move(hint),
+      [=, this, SelfId = actor_id(this), timer = std::move(timer), timer_prepare = td::Timer{},
+       promise = std::move(promise), cell = std::move(cell)](td::Result<td::Unit> Res) mutable {
+        Res.ensure();
+        timer_prepare.pause();
+        td::actor::send_lambda_later(SelfId, [=, this, timer = std::move(timer), promise = std::move(promise),
+                                              cell = std::move(cell)]() mutable {
           TD_PERF_COUNTER(celldb_store_cell);
           auto empty = get_empty_key_hash();
           auto ER = get_block(empty);
@@ -452,7 +454,7 @@ void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promi
           LOG(DEBUG) << "Stored state " << block_id.to_str();
           release_db();
         });
-  });
+      });
 }
 
 void CellDbIn::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
@@ -790,9 +792,10 @@ void CellDbIn::gc_cont2(BlockHandle handle) {
 
   db_busy_ = true;
   boc_->prepare_commit_async(
-      async_executor, [this, SelfId = actor_id(this), timer_boc = std::move(timer_boc), F = std::move(F), key_hash,
-                       P = std::move(P), N = std::move(N), cell = std::move(cell), timer = std::move(timer),
-                       timer_all = std::move(timer_all), handle](td::Result<td::Unit> R) mutable {
+      async_executor, {},
+      [this, SelfId = actor_id(this), timer_boc = std::move(timer_boc), F = std::move(F), key_hash, P = std::move(P),
+       N = std::move(N), cell = std::move(cell), timer = std::move(timer), timer_all = std::move(timer_all),
+       handle](td::Result<td::Unit> R) mutable {
         R.ensure();
         td::actor::send_lambda_later(
             SelfId,
@@ -1006,8 +1009,10 @@ void CellDb::load_cell(RootHash hash, td::Promise<td::Ref<vm::DataCell>> promise
   }
 }
 
-void CellDb::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, td::Promise<td::Ref<vm::DataCell>> promise) {
-  td::actor::send_closure(cell_db_, &CellDbIn::store_cell, block_id, std::move(cell), std::move(promise));
+void CellDb::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, vm::StoreCellHint hint,
+                        td::Promise<td::Ref<vm::DataCell>> promise) {
+  td::actor::send_closure(cell_db_, &CellDbIn::store_cell, block_id, std::move(cell), std::move(hint),
+                          std::move(promise));
 }
 
 void CellDb::store_block_state_permanent(td::Ref<BlockData> block, td::Promise<td::Ref<vm::DataCell>> promise) {

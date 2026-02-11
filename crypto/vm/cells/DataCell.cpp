@@ -114,11 +114,11 @@ class CellChecker {
     return virtualized_;
   }
 
-  std::array<td::uint16, 4> const& depths() const {
+  const std::array<td::uint16, 4>& depths() const {
     return depth_;
   }
 
-  std::array<CellHash, 4> const& hashes() const {
+  const std::array<CellHash, 4>& hashes() const {
     return hash_;
   }
 

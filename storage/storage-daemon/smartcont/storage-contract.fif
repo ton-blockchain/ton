@@ -1,5 +1,5 @@
 "Asm.fif" include
-// automatically generated from `../../../crypto/smartcont/stdlib.fc` `storage-contract.fc` incl:`constants.fc` 
+// automatically generated from `../../../crypto/smartcont/stdlib.fc` `storage-contract.fc` incl:`constants.fc`
 PROGRAM{
   DECLPROC check_proof
   DECLPROC add_to_balance
@@ -14,21 +14,21 @@ PROGRAM{
     x{D739} s,	//  merkle_hash byte_to_proof file_size cs special
     NOT	//  merkle_hash byte_to_proof file_size cs _7
     IFJMP:<{	//  merkle_hash byte_to_proof file_size cs
-      4 BLKDROP	// 
+      4 BLKDROP	//
       FALSE	//  _8
     }>	//  merkle_hash byte_to_proof file_size cs
     8 LDU	//  merkle_hash byte_to_proof file_size _9 cs
     SWAP	//  merkle_hash byte_to_proof file_size cs _9
     3 NEQINT	//  merkle_hash byte_to_proof file_size cs _13
     IFJMP:<{	//  merkle_hash byte_to_proof file_size cs
-      4 BLKDROP	// 
+      4 BLKDROP	//
       FALSE	//  _14
     }>	//  merkle_hash byte_to_proof file_size cs
     256 LDU	//  merkle_hash byte_to_proof file_size _15 cs
     s0 s4 XCHG	//  cs byte_to_proof file_size _15 merkle_hash
     NEQ	//  cs byte_to_proof file_size _18
     IFJMP:<{	//  cs byte_to_proof file_size
-      3 BLKDROP	// 
+      3 BLKDROP	//
       FALSE	//  _19
     }>	//  cs byte_to_proof file_size
     s0 s2 XCHG	//  file_size byte_to_proof cs
@@ -51,9 +51,9 @@ PROGRAM{
     DICTUGET
     NULLSWAPIFNOT	//  _45 _46
     NIP	//  found?
-    IFJMP:<{	// 
+    IFJMP:<{	//
       TRUE	//  _35
-    }>	// 
+    }>	//
     FALSE	//  _36
   }>
   add_to_balance PROCREF:<{
@@ -91,7 +91,7 @@ PROGRAM{
     1 PUSHINT	//  msg_value in_msg_body cs flags _9=1
     AND	//  msg_value in_msg_body cs _10
     IFJMP:<{	//  msg_value in_msg_body cs
-      3 BLKDROP	// 
+      3 BLKDROP	//
     }>	//  msg_value in_msg_body cs
     LDMSGADDR	//  msg_value in_msg_body _421 _420
     DROP	//  msg_value in_msg_body sender_address
@@ -382,11 +382,11 @@ PROGRAM{
       66 PUSHINT	//  msg _416
       SENDRAWMSG
     }>ELSE<{
-      2DROP	// 
+      2DROP	//
     }>
   }>
   get_storage_contract_data PROC:<{
-    // 
+    //
     c4 PUSH	//  _1
     CTOS	//  ds
     1 LDI	//  _13 ds
@@ -401,18 +401,18 @@ PROGRAM{
     get_client_data CALLDICT	//  active balance provider merkle_hash file_size next_proof rate_per_mb_day max_span last_proof_time client torrent_hash
   }>
   get_torrent_hash PROC:<{
-    // 
+    //
     get_storage_contract_data CALLDICT	//  _12 _13 _14 _15 _16 _17 _18 _19 _20 _21 _22
     10 1 BLKDROP2	//  torrent_hash
   }>
   is_active PROC:<{
-    // 
+    //
     c4 PUSH	//  _0
     CTOS	//  _1
     1 PLDI	//  _3
   }>
   get_next_proof_info PROC:<{
-    // 
+    //
     get_storage_contract_data CALLDICT	//  _12 _13 _14 _15 _16 _17 _18 _19 _20 _21 _22
     2DROP
     s2 POP

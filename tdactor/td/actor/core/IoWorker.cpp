@@ -25,24 +25,24 @@ namespace actor {
 namespace core {
 void IoWorker::start_up() {
 #if TD_PORT_POSIX
-  auto &poll = SchedulerContext::get()->get_poll();
+  auto &poll = SchedulerContext::get().get_poll();
   poll.subscribe(queue_.reader_get_event_fd().get_poll_info().extract_pollable_fd(nullptr), PollFlags::Read());
 #endif
 }
 void IoWorker::tear_down() {
 #if TD_PORT_POSIX
-  auto &poll = SchedulerContext::get()->get_poll();
+  auto &poll = SchedulerContext::get().get_poll();
   poll.unsubscribe(queue_.reader_get_event_fd().get_poll_info().get_pollable_fd_ref());
 #endif
 }
 
 bool IoWorker::run_once(double timeout, bool skip_timeouts) {
-  auto &dispatcher = *SchedulerContext::get();
+  auto &dispatcher = SchedulerContext::get();
 #if TD_PORT_POSIX
-  auto &poll = SchedulerContext::get()->get_poll();
+  auto &poll = SchedulerContext::get().get_poll();
 #endif
-  auto &heap = SchedulerContext::get()->get_heap();
-  auto &debug = SchedulerContext::get()->get_debug();
+  auto &heap = SchedulerContext::get().get_heap();
+  auto &debug = SchedulerContext::get().get_debug();
 
   auto now = Time::now();  // update Time::now_cached()
   while (!heap.empty() && heap.top_key() <= now) {

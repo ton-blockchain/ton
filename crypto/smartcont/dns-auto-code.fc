@@ -25,9 +25,9 @@ cell udict_get_ref_(cell dict, int key_len, int index) asm(index dict key_len) "
   Root cell: [OptRef<1b+1r?>:Hashmap<PfxDict:Slice->UInt<32b>,CatTable>:domains]
          [OptRef<1b+1r?>:Hashmap<UInt<160b>(Time|Hash128)->Slice(DomName)>:gc]
          [UInt<32b>:stdperiod] [Gram:PPReg] [Gram:PPCell] [Gram:PPBit]
-         [UInt<32b>:lasthousekeeping] 
+         [UInt<32b>:lasthousekeeping]
   <CatTable> := HashmapE 256 (~~16~~) ^DNSRecord
-  
+
   STORED DOMAIN NAME SLICE FORMAT: (#ZeroChars<7b>) (Domain name value)
   #Zeros allows to simultaneously store, for example, com\0 and com\0google\0
   That will be stored as \1com\0 and \2com\0google\0 (pfx tree has restricitons)
@@ -75,9 +75,9 @@ cell udict_get_ref_(cell dict, int key_len, int index) asm(index dict key_len) "
 
 global var query_info;
 
-() send_message(slice addr, int tag,   int query_id, 
+() send_message(slice addr, int tag,   int query_id,
                 int   body, int grams, int mode) impure {
-  ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool 
+  ;; int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
   ;;                src:MsgAddress -> 011000 0x18
   var msg = begin_cell()
     .store_uint (0x18, 6)
@@ -175,11 +175,11 @@ int check_owner(cell cat_table, cell owner_info, int src_wc, int src_addr, int s
     int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
     src:MsgAddressInt dest:MsgAddressInt
     value:CurrencyCollection ihr_fee:Grams fwd_fee:Grams
-    created_lt:uint64 created_at:uint32  
+    created_lt:uint64 created_at:uint32
   Internal message data structure:
-    [UInt<32b>:op] [UInt<64b>:query_id] [Ref<1r>:domain] 
+    [UInt<32b>:op] [UInt<64b>:query_id] [Ref<1r>:domain]
     (if not prolong: [Ref<1r>:value->CatTable])
-    
+
 -}
 
 ;; Control operations: permitted only to the owner of this smartcontract
@@ -219,27 +219,27 @@ int check_owner(cell cat_table, cell owner_info, int src_wc, int src_addr, int s
 ;; Must send at least GR$1 more for possible gas fees!
 () recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
   ;; this time very interested in internal messages
-  if (in_msg.slice_bits() < 32) { 
+  if (in_msg.slice_bits() < 32) {
     return ();  ;; simple transfer or short
   }
   slice cs = in_msg_cell.begin_parse();
   int flags = cs~load_uint(4);
-  if (flags & 1) { 
+  if (flags & 1) {
     return ();  ;; bounced messages
   }
   slice s_addr = cs~load_msg_addr();
   (int src_wc, int src_addr) = s_addr.parse_std_addr();
   int op = in_msg~load_uint(32);
-  ifnot (op) { 
+  ifnot (op) {
     return ();   ;; simple transfer with comment
   }
   int query_id = 0;
-  if (in_msg.slice_bits() >= 64) { 
+  if (in_msg.slice_bits() >= 64) {
     query_id = in_msg~load_uint(64);
   }
-  
+
   query_info = (s_addr, query_id, op);
-  
+
   if (op & (1 << 31)) {
     return ();   ;; an answer to our query
   }
@@ -247,15 +247,15 @@ int check_owner(cell cat_table, cell owner_info, int src_wc, int src_addr, int s
     ;; Control operations
     return perform_ctl_op(op, src_wc, src_addr, in_msg);
   }
-  
+
   int qt = (op == 0x72656764) * 1 + (op == 0x70726f6c) * 2 + (op == 0x75706464) * 4 + (op == 0x676f6763) * 8;
   ifnot (qt) { ;; unknown query, return error
     return send_error(0xffffffff);
   }
   qt = - qt;
-  
+
   (cell ctl, cell domdata, cell gc, [int, int, int, int] prices, int nhk, int lhk) = load_data();
-  
+
   if (qt == 8) { ;; 0x676f6763 -> GO, GC! go!!!
     ;; Manual garbage collection iteration
     int max_steps = in_msg~load_int(32);   ;; -1 = infty
@@ -283,7 +283,7 @@ int check_owner(cell cat_table, cell owner_info, int src_wc, int src_addr, int s
   if (fail) {
     return send_error(0xee6f5c30);
   }
-    
+
   int n = now();
   cell cat_table = cell owner_info = null();
   int key = int exp = int zeros = 0;
@@ -309,23 +309,23 @@ int check_owner(cell cat_table, cell owner_info, int src_wc, int src_addr, int s
       }
     }
   }
-  
+
   if (zeros > 4) { ;; too much zero chars (overflow): ov\0
     return send_error(0xef765c30);
   }
 
   ;; ##########################################################################
-  
+
   int err = check_owner(cat_table, owner_info, src_wc, src_addr, qt != 1);
   if (err) {
     return send_error(err);
   }
 
   ;; ##########################################################################
-  
+
   ;; load desired data (reuse old for a "prolong" operation)
   cell data = null();
-  
+
   if (qt != 2) {  ;; not a "prolong", load data dictionary
     data = in_msg~load_ref();
     ;; basic integrity check of (client-provided) dictionary
@@ -356,7 +356,7 @@ int check_owner(cell cat_table, cell owner_info, int src_wc, int src_addr, int s
   if (msg_value - (1 << 30) < price) { ;; gr<p: grams - GR$1 < price
     return send_error(0xe7723c70);
   }
-  
+
   ;; load desired expiration unixtime
   int req_expires_at = in_msg~load_uint(32);
 
@@ -371,11 +371,11 @@ int check_owner(cell cat_table, cell owner_info, int src_wc, int src_addr, int s
     int gckeyN = gckeyO + (stdper << (256 - 32));
     gc~udict_delete?(256, gckeyO); ;; delete old gc entry, add new
     gc~udict_set_builder(256, gckeyN, begin_cell());
-    
+
     housekeeping(ctl, domdata, gc, prices, nhk, lhk, 1);
     return send_ok(price);
   }
-  
+
   ;; ##########################################################################
   if (qt == 1) { ;; 0x72656764 -> regd | register domain
     ifnot (cat_table.null?()) { ;; domain already exists: return alre | 2^31
@@ -398,7 +398,7 @@ int check_owner(cell cat_table, cell owner_info, int src_wc, int src_addr, int s
     return send_ok(price);
   }
   ;; ##########################################################################
-  
+
   return (); ;; should NEVER reach this part of code!
 }
 
@@ -445,7 +445,7 @@ int check_owner(cell cat_table, cell owner_info, int src_wc, int src_addr, int s
   }
   var ds = get_data().begin_parse();
   (_, cell root) = (ds~load_ref(), ds~load_dict());
-  
+
   slice val = null();
   int tail_bits = -1;
   slice tail = domain;
@@ -480,10 +480,10 @@ int check_owner(cell cat_table, cell owner_info, int src_wc, int src_addr, int s
     category = "dns_next_resolver"H; ;; 0x19f02441ee588fdb26ee24b2568dd035c3c9206e11ab979be62e55558a1d17ff
     ;; update: next resolver is now sha256("dns_next_resolver") instead of -1
   }
-  
+
   int pfx_bits = pfx.slice_bits();
-  
-  ;; pfx.slice_bits() will contain 8m, where m is number of bytes in subdomain 
+
+  ;; pfx.slice_bits() will contain 8m, where m is number of bytes in subdomain
   ;;   COUNTING the zero byte (if structurally correct: no multiple-ZB keys)
   ;;   which corresponds to 8m, m=one plus the number of bytes in the subdomain found)
   ifnot (category) {

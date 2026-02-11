@@ -37,7 +37,7 @@ variable hint  hint 0!
 { ."D[" dup ._ ."+..] = " show-D-from+ } : test-from+
 { hint @ ."(hint=" dup ._ .") D[" over ._ ."..] = " show-D-from-hint } : test-from-hint
 { hint @ ."(hint=" dup ._ .") D[" over ._ ."+..] = " show-D-from-hint+ } : test-from-hint+
-{ -16 { 2dup swap execute 1+ } 120 times 2drop } : range-run 
+{ -16 { 2dup swap execute 1+ } 120 times 2drop } : range-run
 { hint ! ' test-from-hint range-run  ' test-from-hint+ range-run } : range-test-hint
 
 { ."------- BIG TEST -------" cr show-D

@@ -289,7 +289,7 @@ public:
   }
 
   void start_visiting_enum_members(EnumDefPtr enum_ref) {
-    // member `Red = Another.Blue`, resolve `Another` 
+    // member `Red = Another.Blue`, resolve `Another`
     for (EnumMemberPtr member_ref : enum_ref->members) {
       if (member_ref->has_init_value()) {
         parent::visit(member_ref->init_value);

@@ -30,6 +30,7 @@ namespace ton {
 namespace validatorsession {
 
 constexpr int VERBOSITY_NAME(VALIDATOR_SESSION_WARNING) = verbosity_WARNING;
+constexpr int VERBOSITY_NAME(VALIDATOR_SESSION_BENCHMARK) = verbosity_WARNING;
 constexpr int VERBOSITY_NAME(VALIDATOR_SESSION_NOTICE) = verbosity_DEBUG;
 constexpr int VERBOSITY_NAME(VALIDATOR_SESSION_INFO) = verbosity_DEBUG;
 constexpr int VERBOSITY_NAME(VALIDATOR_SESSION_DEBUG) = verbosity_DEBUG;
@@ -59,6 +60,7 @@ struct ValidatorSessionOptions {
   td::uint32 max_collated_data_size = 4 << 20;
 
   bool new_catchain_ids = false;
+  bool use_quic = false;
 
   td::uint32 proto_version = 0;
 

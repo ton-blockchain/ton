@@ -216,8 +216,8 @@ type EUint123Alias = EUint123
 @method_id(121)
 fun test21() {
     return (
-        Color.estimate(), EInt9.estimate(), EUint6.estimate(), 
-        EUint1.estimate(), EInt1.estimate(), EInt1.estimate(), 
+        Color.estimate(), EInt9.estimate(), EUint6.estimate(),
+        EUint1.estimate(), EInt1.estimate(), EInt1.estimate(),
         EUint123.estimate(), EUint123Alias.estimate(),
     )
 }
@@ -255,6 +255,6 @@ fun main() {
 @testcase | 110 | | [ 32 9999 0 4 ] [ 33 9999 0 8 ]
 @testcase | 111 | | [ 1023 1023 0 1 ] [ 0 0 2 2 ]
 @testcase | 120 | | 16 4128 1 1
-@testcase | 121 | | [ 2 2 0 0 ] [ 9 9 0 0 ] [ 6 6 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 123 123 0 0 ] [ 123 123 0 0 ] 
-@testcase | 122 | | [ 267 267 0 0 ] [ 2 267 0 0 ] [ 267 267 0 0 ] [ 1 268 0 0 ] [ 267 267 0 0 ] [ 2 267 0 0 ] [ 2 523 0 0 ] [ 1 524 0 0 ] 
+@testcase | 121 | | [ 2 2 0 0 ] [ 9 9 0 0 ] [ 6 6 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 123 123 0 0 ] [ 123 123 0 0 ]
+@testcase | 122 | | [ 267 267 0 0 ] [ 2 267 0 0 ] [ 267 267 0 0 ] [ 1 268 0 0 ] [ 267 267 0 0 ] [ 2 267 0 0 ] [ 2 523 0 0 ] [ 1 524 0 0 ]
  */

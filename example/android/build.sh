@@ -2,72 +2,62 @@
 
 pushd .
 
-SECP256K1_INCLUDE_DIR=$(pwd)/third_party/secp256k1/include
-OPENSSL_DIR=$(pwd)/third_party/crypto/
-LZ4_INCLUDE_DIR=$(pwd)/third_party/lz4/include
+echo "[build.sh] script=$0"
+echo "[build.sh] cwd=$(pwd)"
+
+if [ -z "${ANDROID_NDK_ROOT}" ]; then
+  echo "[build.sh] ANDROID_NDK_ROOT is not set" >&2
+  exit 1
+fi
+if [ ! -f "${ANDROID_NDK_ROOT}/build/cmake/android.toolchain.cmake" ]; then
+  echo "[build.sh] Android toolchain not found at ${ANDROID_NDK_ROOT}/build/cmake/android.toolchain.cmake" >&2
+  exit 1
+fi
+
+echo "[build.sh] ARCH=${ARCH}"
 
 if [ $ARCH == "arm" ]
 then
   ABI="armeabi-v7a"
-  SODIUM_INCLUDE_DIR=$(pwd)/third_party/libsodium/libsodium-android-armv7-a/include
-  SODIUM_LIBRARY_RELEASE=$(pwd)/third_party/libsodium/libsodium-android-armv7-a/lib/libsodium.a
-  SECP256K1_LIBRARY=$(pwd)/third_party/secp256k1/armv7/libsecp256k1.a
-  BLST_LIBRARY=$(pwd)/third_party/blst/armv7/libblst.a
-  LZ4_LIBRARY=$(pwd)/third_party/lz4/armv7/liblz4.a
 elif [ $ARCH == "x86" ]
 then
   ABI=$ARCH
-  SODIUM_INCLUDE_DIR=$(pwd)/third_party/libsodium/libsodium-android-i686/include
-  SODIUM_LIBRARY_RELEASE=$(pwd)/third_party/libsodium/libsodium-android-i686/lib/libsodium.a
-  SECP256K1_LIBRARY=$(pwd)/third_party/secp256k1/i686/libsecp256k1.a
-  BLST_LIBRARY=$(pwd)/third_party/blst/i686/libblst.a
-  LZ4_LIBRARY=$(pwd)/third_party/lz4/i686/liblz4.a
-  TARGET=i686-linux-android21
 elif [ $ARCH == "x86_64" ]
 then
   ABI=$ARCH
-  SODIUM_INCLUDE_DIR=$(pwd)/third_party/libsodium/libsodium-android-westmere/include
-  SODIUM_LIBRARY_RELEASE=$(pwd)/third_party/libsodium/libsodium-android-westmere/lib/libsodium.a
-  SECP256K1_LIBRARY=$(pwd)/third_party/secp256k1/x86-64/libsecp256k1.a
-  BLST_LIBRARY=$(pwd)/third_party/blst/x86-64/libblst.a
-  LZ4_LIBRARY=$(pwd)/third_party/lz4/x86-64/liblz4.a
 elif [ $ARCH == "arm64" ]
 then
   ABI="arm64-v8a"
-  SODIUM_INCLUDE_DIR=$(pwd)/third_party/libsodium/libsodium-android-armv8-a/include
-  SODIUM_LIBRARY_RELEASE=$(pwd)/third_party/libsodium/libsodium-android-armv8-a/lib/libsodium.a
-  SECP256K1_LIBRARY=$(pwd)/third_party/secp256k1/armv8/libsecp256k1.a
-  BLST_LIBRARY=$(pwd)/third_party/blst/armv8/libblst.a
-  LZ4_LIBRARY=$(pwd)/third_party/lz4/armv8/liblz4.a
 fi
 
-ORIG_ARCH=$ARCH
 ARCH=$ABI
+
+ANDROID_PLATFORM_LEVEL="android-32"
+if [ "${ABI}" == "x86" ] || [ "${ABI}" == "x86_64" ]; then
+  ANDROID_PLATFORM_LEVEL="android-30"
+fi
+if [ -z "${ANDROID_PLATFORM_LEVEL}" ]; then
+  ANDROID_PLATFORM_LEVEL="android-21"
+fi
+
+echo "[build.sh] ABI=${ABI}"
+echo "[build.sh] ANDROID_PLATFORM=${ANDROID_PLATFORM_LEVEL}"
+echo "[build.sh] build dir=build-${ARCH}"
 
 mkdir -p build-$ARCH
 cd build-$ARCH
 
+echo "[build.sh] configure (ARCH=${ARCH})"
 cmake .. -GNinja \
 -DTON_ONLY_TONLIB=ON  \
 -DTON_ARCH="" \
--DANDROID_ABI=x86 \
--DANDROID_PLATFORM=android-32 \
+-DANDROID_PLATFORM=${ANDROID_PLATFORM_LEVEL} \
 -DANDROID_NDK=${ANDROID_NDK_ROOT} \
 -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_ROOT}/build/cmake/android.toolchain.cmake  \
 -DCMAKE_BUILD_TYPE=Release \
--DANDROID_ABI=${ABI} \
--DOPENSSL_ROOT_DIR=${OPENSSL_DIR}/${ORIG_ARCH} \
--DSECP256K1_INCLUDE_DIR=${SECP256K1_INCLUDE_DIR} \
--DSECP256K1_LIBRARY=${SECP256K1_LIBRARY} \
--DLZ4_FOUND=1 \
--DLZ4_INCLUDE_DIRS=${LZ4_INCLUDE_DIR} \
--DLZ4_LIBRARIES=${LZ4_LIBRARY} \
--DSODIUM_FOUND=1 \
--DSODIUM_INCLUDE_DIR=${SODIUM_INCLUDE_DIR} \
--DSODIUM_LIBRARY_RELEASE=${SODIUM_LIBRARY_RELEASE} \
--DSODIUM_USE_STATIC_LIBS=1 \
--DBLST_LIB=${BLST_LIBRARY} || exit 1
+-DANDROID_ABI=${ABI} || exit 1
 
+echo "[build.sh] build native-lib (ARCH=${ARCH})"
 ninja native-lib || exit 1
 popd
 

@@ -5,5 +5,5 @@ fun main() {
 /**
 @compilation_should_fail
 @stderr `mutate` is not available in lambdas
-@stderr  ^^^^^^ 
+@stderr  ^^^^^^
  */

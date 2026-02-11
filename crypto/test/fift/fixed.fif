@@ -1,5 +1,5 @@
 1 { 10 * } 70 times constant One
-{ bl word (number) dup 0= abort"invalid fixed-point constant"  
+{ bl word (number) dup 0= abort"invalid fixed-point constant"
   1- { One swap */r } { One * } cond 1 'nop } ::_ F$
 ' + : F+
 ' - : F-

@@ -31,7 +31,7 @@ D <{ 0 INT 0 INT ROT 16 INT SUBDICTUGET }>s dup csr. runvmcode drop
 dup dict>s csr. .dict(16,16) ." <-- SubDict(D,_)" cr
 
 D <{ 0x1 INT 4 INT ROT 16 INT SUBDICTUGET }>s runvmcode drop
-dup dict>s csr. .dict(16,16) ." <-- SubDict(D,0001)" cr 
+dup dict>s csr. .dict(16,16) ." <-- SubDict(D,0001)" cr
 
 D <{ 0x10 INT 8 INT ROT 16 INT SUBDICTUGET }>s runvmcode drop
 dup dict>s csr. .dict(16,16) ." <-- SubDict(D,00010000)" cr

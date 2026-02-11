@@ -139,7 +139,9 @@ struct promise_value : promise_common {
     result = std::forward<TT>(v);
   }
 
-  struct ExternalResult {};
+  struct ExternalResult {
+    explicit ExternalResult() = default;
+  };
   void return_value(ExternalResult&&) noexcept {
   }
 
@@ -162,6 +164,15 @@ template <class T>
 struct promise_type : promise_value<td::Result<T>> {
   static_assert(!std::is_void_v<T>, "Task<void> is not supported; use Task<Unit> instead");
   using Handle = std::coroutine_handle<promise_type>;
+
+  // Bring base class return_value overloads into scope
+  using promise_value<td::Result<T>>::return_value;
+
+  // Allow co_return {}; to work by constructing T{} (e.g., Unit{})
+  // This fixes a bug where co_return {}; was equivalent to co_return td::Status::Error(-1);
+  void return_value(T v) noexcept {
+    this->result = std::move(v);
+  }
 
   auto self() noexcept {
     return Handle::from_promise(*this);
@@ -268,6 +279,15 @@ struct promise_type : promise_value<td::Result<T>> {
     return wrap_and_resume_on_current(std::move(wrapped.value));
   }
 
+  template <class U>
+  auto await_transform(Traced<Task<U>>&& traced) noexcept {
+    return trace_and_resume_on_current(std::move(traced.value).start_immediate(), std::move(traced.trace));
+  }
+  template <class U>
+  auto await_transform(Traced<StartedTask<U>>&& traced) noexcept {
+    return trace_and_resume_on_current(std::move(traced.value), std::move(traced.trace));
+  }
+
   template <class Aw>
   auto await_transform(Aw&& aw) noexcept {
     return wrap_and_resume_on_current(std::forward<Aw>(aw));
@@ -288,7 +308,7 @@ struct promise_type : promise_value<td::Result<T>> {
   }
 };
 
-template <class T>
+template <class T = Unit>
 struct [[nodiscard]] Task {
   using value_type = T;
 
@@ -358,15 +378,23 @@ struct [[nodiscard]] Task {
   auto wrap() && {
     return Wrapped<Task>{std::move(*this)};
   }
+
+  auto trace(std::string t) && {
+    return Traced<Task>{std::move(*this), std::move(t)};
+  }
 };
 
-template <class T>
+template <class T = Unit>
 struct [[nodiscard]] StartedTask {
   using value_type = T;
 
   using promise_type = td::actor::promise_type<T>;
   using Handle = std::coroutine_handle<promise_type>;
   Handle h{};
+
+  bool valid() const {
+    return h.address() != nullptr;
+  }
 
   auto sm() {
     CHECK(h);
@@ -378,14 +406,34 @@ struct [[nodiscard]] StartedTask {
   }
   StartedTask(StartedTask&& o) noexcept : h(std::exchange(o.h, {})) {
   }
-  StartedTask& operator=(StartedTask&& o) = delete;
+  StartedTask& operator=(StartedTask&& o) {
+    if (this != &o) {
+      detach_silent();
+      h = std::exchange(o.h, {});
+    }
+    return *this;
+  }
+
   StartedTask(const StartedTask&) = delete;
   StartedTask& operator=(const StartedTask&) = delete;
 
   ~StartedTask() noexcept {
-    detach();
+    detach_silent();
   }
-  void detach() {
+  void detach(std::string description = "UnknownTask") && {
+    if (!h) {
+      return;
+    }
+    [](auto self, std::string description) -> Task<Unit> {
+      co_await become_lightweight();
+      auto r = co_await std::move(self).wrap();
+      LOG_IF(ERROR, r.is_error()) << "Detached task <" << description << "> failed: " << r.error();
+      co_return td::Unit{};
+    }(std::move(*this), std::move(description))
+                                                  .start_immediate()
+                                                  .detach_silent();
+  }
+  void detach_silent() {
     if (!h) {
       return;
     }
@@ -412,13 +460,17 @@ struct [[nodiscard]] StartedTask {
     return Wrapped<StartedTask>{std::move(*this)};
   }
 
+  auto trace(std::string t) && {
+    return Traced<StartedTask>{std::move(*this), std::move(t)};
+  }
+
   template <class F>
   auto then(F&& f) && {
     using Self = StartedTask<T>;
     using FDecayed = std::decay_t<F>;
     using Awaitable = decltype(detail::make_awaitable(std::declval<FDecayed&>()(std::declval<T&&>())));
     using Ret = decltype(std::declval<Awaitable&>().await_resume());
-    using U = std::conditional_t<TDResultLike<Ret>, decltype(std::declval<Ret&&>().move_as_ok()), Ret>;
+    using U = detail::UnwrapTDResult<Ret>::Type;
     return [](Self task, FDecayed fn) mutable -> Task<U> {
       co_await become_lightweight();
       auto value = co_await std::move(task);

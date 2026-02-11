@@ -78,7 +78,7 @@ class Collator final : public td::actor::Actor {
   std::vector<Ref<BlockData>> prev_block_data;
   Ed25519_PublicKey created_by_;
   Ref<CollatorOptions> collator_opts_;
-  Ref<ValidatorSet> validator_set_;
+  Ref<block::ValidatorSet> validator_set_;
   td::actor::ActorId<ValidatorManager> manager;
   td::Timestamp timeout;
   td::Timestamp queue_cleanup_timeout_, soft_timeout_, medium_timeout_;
@@ -86,6 +86,9 @@ class Collator final : public td::actor::Actor {
   adnl::AdnlNodeIdShort collator_node_id_ = adnl::AdnlNodeIdShort::zero();
   bool skip_store_candidate_ = false;
   Ref<BlockData> optimistic_prev_block_;
+  std::vector<Ref<BlockData>> preloaded_prev_block_data_;
+  std::vector<Ref<vm::Cell>> preloaded_prev_block_state_roots_;
+  bool is_new_consensus_ = false;
   int attempt_idx_;
   bool allow_repeat_collation_ = false;
   ton::BlockSeqno last_block_seqno{0};
@@ -134,6 +137,7 @@ class Collator final : public td::actor::Actor {
   ton::UnixTime now_;
   ton::UnixTime prev_now_;
   ton::UnixTime now_upper_limit_{~0U};
+  td::uint64 now_ms_;
   unsigned out_msg_queue_ops_{}, in_descr_cnt_{}, out_descr_cnt_{};
   Ref<MasterchainStateQ> mc_state_;
   Ref<BlockData> prev_mc_block;
@@ -173,6 +177,7 @@ class Collator final : public td::actor::Actor {
   bool skip_topmsgdescr_{false};
   bool skip_extmsg_{false};
   bool short_dequeue_records_{false};
+  bool allow_same_timestamp_{false};
   td::uint64 overload_history_{0}, underload_history_{0};
   td::uint64 block_size_estimate_{};
   Ref<block::WorkchainInfo> wc_info_;
@@ -367,7 +372,7 @@ class Collator final : public td::actor::Actor {
   bool enqueue_transit_message(Ref<vm::Cell> msg, Ref<vm::Cell> old_msg_env, ton::AccountIdPrefixFull prev_prefix,
                                ton::AccountIdPrefixFull cur_prefix, ton::AccountIdPrefixFull dest_prefix,
                                td::RefInt256 fwd_fee_remaining, td::optional<block::MsgMetadata> msg_metadata,
-                               td::optional<LogicalTime> emitted_lt = {});
+                               td::optional<LogicalTime> emitted_lt, bool from_dispatch_queue);
   bool delete_out_msg_queue_msg(td::ConstBitPtr key);
   bool insert_in_msg(Ref<vm::Cell> in_msg);
   bool insert_out_msg(Ref<vm::Cell> out_msg);

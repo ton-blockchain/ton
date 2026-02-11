@@ -627,10 +627,10 @@ fun test45() {
         otherTup: [] as tuple,
     };
     return WithTensorInside{
-        coords: (1, 2), 
-        tup: [3, 4], 
-        otherCoords: (5, 6), 
-        otherTup: WithTensorInside.fromTuple(inner.toTuple()).toTuple() 
+        coords: (1, 2),
+        tup: [3, 4],
+        otherCoords: (5, 6),
+        otherTup: WithTensorInside.fromTuple(inner.toTuple()).toTuple()
     }.toTuple();
 }
 
@@ -711,7 +711,7 @@ type PointAlias = Point;
 @testcase | 143 |      | 0 0 20 0
 @testcase | 144 |      | [ 10 20 0 ] [ 10 ] [ 0 0 ] 1 -1
 @testcase | 145 |      | [ 1 2 [ 3 4 ] 5 6 typeid-8 [ 10 20 [ -1 -2 ] (null) (null) 0 [] ] ]
-@testcase | 146 |      | 20 [ 11 12 13 14 15 ] 
+@testcase | 146 |      | 20 [ 11 12 13 14 15 ]
 
 @fif_codegen
 """

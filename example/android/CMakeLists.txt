@@ -10,9 +10,9 @@ project(TON_ANDROID VERSION 0.5 LANGUAGES C CXX)
 option(TONLIB_ENABLE_JNI "Enable JNI-compatible TonLib API" ON)
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
-  string(APPEND CMAKE_CXX_FLAGS " -std=c++14 -fno-omit-frame-pointer -ffunction-sections -fdata-sections")
+  string(APPEND CMAKE_CXX_FLAGS " -std=c++20 -fno-omit-frame-pointer -ffunction-sections -fdata-sections")
 else()
-  string(APPEND CMAKE_CXX_FLAGS " -std=c++14 -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations -Wconversion -Wno-sign-conversion -fno-omit-frame-pointer -ffunction-sections -fdata-sections")
+  string(APPEND CMAKE_CXX_FLAGS " -std=c++20 -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations -Wconversion -Wno-sign-conversion -fno-omit-frame-pointer -ffunction-sections -fdata-sections")
 endif()
 if (NOT ${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
   string(APPEND CMAKE_SHARED_LINKER_FLAGS " -Wl,--gc-sections -Wl,--exclude-libs,ALL")
@@ -33,7 +33,6 @@ add_library( # Sets the name of the library.
              native-lib.cpp)
 
 
-list(APPEND CMAKE_FIND_ROOT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/crypto/${ANDROID_ARCH_NAME}")
 set(TON_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 add_subdirectory(${TON_DIR} ton EXCLUDE_FROM_ALL)
 target_link_libraries(native-lib tonlibjson)

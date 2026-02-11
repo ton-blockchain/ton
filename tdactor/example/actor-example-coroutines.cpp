@@ -115,7 +115,7 @@ Task<td::Unit> example_actor() {
     }
     void start_up() override {
       // it is usual actor all coroutines create FROM actor, will be executed ON actor
-      run().start().detach();
+      run().start().detach("example_actor");
     }
     Task<td::Unit> run() {
       state_ = 19;
@@ -233,7 +233,7 @@ Task<td::Unit> example_echo_server() {
     void accept(td::SocketFd fd) override {
       LOG(INFO) << "Accepting new connection";
       auto pipe = td::make_socket_pipe(std::move(fd));
-      spawn_task_actor<EchoConnection>("echo_conn", std::move(pipe)).detach();
+      spawn_task_actor<EchoConnection>("echo_conn", std::move(pipe)).detach("EchoConnection");
     }
   };
 
@@ -338,7 +338,7 @@ Task<td::Unit> example() {
   (co_await run_all_examples().wrap()).ensure();
 
   LOG(INFO) << "Finish example coroutine and stop scheduler";
-  td::actor::SchedulerContext::get()->stop();
+  td::actor::SchedulerContext::get().stop();
   co_return td::Unit();
 }
 

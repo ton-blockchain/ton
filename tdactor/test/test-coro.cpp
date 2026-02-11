@@ -160,11 +160,11 @@ class CoroSpec final : public td::actor::Actor {
     [](Task<td::Unit> test) -> Task<td::Unit> {
       (co_await std::move(test).wrap()).ensure();
       co_await yield_on_current();
-      td::actor::SchedulerContext::get()->stop();
+      td::actor::SchedulerContext::get().stop();
       co_return td::Unit{};
     }(run_all())
                                    .start_immediate()
-                                   .detach();
+                                   .detach("CoroSpec");
   }
 
   Task<td::Unit> unified_queries() {
@@ -473,7 +473,7 @@ class CoroSpec final : public td::actor::Actor {
       }(round)
                                        .start();
       td::usleep_for(td::Random::fast(0, 1000));
-      task.detach();
+      task.detach_silent();
       td::usleep_for(100);
     }
 
@@ -542,12 +542,27 @@ class CoroSpec final : public td::actor::Actor {
   Task<td::Unit> helpers() {
     LOG(INFO) << "=== Task helper ===";
     CHECK(5 == co_await td::actor::detail::make_awaitable(5));
+
     auto get7 = []() -> Task<int> { co_return 7; };
     CHECK(7 == co_await get7());
-    auto square = [](size_t x) -> Task<size_t> { co_return x* x; };
-    auto res = co_await get7().start().then(square);
-    CHECK(res == 49);
-    co_return td::Unit();
+
+    auto square_async = [](size_t x) -> Task<size_t> { co_return x* x; };
+    auto res_async = co_await get7().start().then(square_async);
+    CHECK(res_async == 49);
+
+    auto square_sync = [](size_t x) -> size_t { return x * x; };
+    auto res_sync = co_await get7().start().then(square_sync);
+    CHECK(res_sync == 49);
+
+    auto square_error = [](size_t x) -> td::Result<size_t> { return td::Status::Error("I forgor arithmetic!"); };
+    auto res_error = co_await get7().start().then(square_error).wrap();
+    CHECK(res_error.is_error());
+
+    auto get_error = []() -> Task<> { co_return td::Status::Error("no"); };
+    auto transform = [](td::Unit) -> td::Unit { return {}; };
+    auto res_error_2 = co_await get_error().start().then(transform).wrap();
+    CHECK(res_error_2.is_error());
+
     co_return td::Unit();
   }
 
@@ -816,6 +831,90 @@ class CoroSpec final : public td::actor::Actor {
     co_return td::Unit{};
   }
 
+  Task<td::Unit> test_trace() {
+    LOG(INFO) << "=== test_trace ===";
+
+    // Test trace with error from Task
+    {
+      auto err_task = []() -> Task<int> { co_return td::Status::Error("original error"); };
+      auto outer = [&]() -> Task<int> { co_return co_await err_task().trace("context"); }();
+      auto result = co_await std::move(outer).wrap();
+      expect_true(result.is_error(), "trace propagates error");
+      auto msg = result.error().message().str();
+      expect_true(msg.find("context") != std::string::npos, "trace adds context to error");
+      expect_true(msg.find("original error") != std::string::npos, "trace preserves original message");
+      LOG(INFO) << "Error with trace: " << result.error();
+    }
+
+    // Test trace with success from Task
+    {
+      auto ok_task = []() -> Task<int> { co_return 42; };
+      auto outer = [&]() -> Task<int> { co_return co_await ok_task().trace("context"); }();
+      auto result = co_await std::move(outer).wrap();
+      expect_true(result.is_ok(), "trace passes through success");
+      expect_eq(result.ok(), 42, "trace preserves value");
+    }
+
+    // Test trace with StartedTask
+    {
+      auto err_task = []() -> Task<int> { co_return td::Status::Error("started error"); };
+      auto outer = [&]() -> Task<int> { co_return co_await err_task().start().trace("started context"); }();
+      auto result = co_await std::move(outer).wrap();
+      expect_true(result.is_error(), "trace works with StartedTask");
+      auto msg = result.error().message().str();
+      expect_true(msg.find("started context") != std::string::npos, "trace adds context to StartedTask error");
+    }
+
+    // Test trace with ask()
+    {
+      class ErrActor : public td::actor::Actor {
+       public:
+        Task<int> get_error() {
+          co_return td::Status::Error("actor error");
+        }
+      };
+      auto actor = create_actor<ErrActor>("ErrActor");
+      auto outer = [&]() -> Task<int> { co_return co_await ask(actor, &ErrActor::get_error).trace("ask context"); }();
+      auto result = co_await std::move(outer).wrap();
+      expect_true(result.is_error(), "trace works with ask()");
+      auto msg = result.error().message().str();
+      expect_true(msg.find("ask context") != std::string::npos, "trace adds context to ask() error");
+      LOG(INFO) << "Error with ask().trace(): " << result.error();
+    }
+
+    // Test Status::trace() directly
+    {
+      td::Status err = td::Status::Error("status error");
+      td::Status traced = err.trace("status context");
+      expect_true(traced.is_error(), "Status::trace() preserves error");
+      auto msg = traced.message().str();
+      expect_true(msg.find("status context") != std::string::npos, "Status::trace() adds context");
+      expect_true(msg.find("status error") != std::string::npos, "Status::trace() preserves message");
+
+      td::Status ok = td::Status::OK();
+      td::Status traced_ok = ok.trace("ok context");
+      expect_true(traced_ok.is_ok(), "Status::trace() preserves OK");
+    }
+
+    // Test Result<T>::trace() directly
+    {
+      td::Result<int> err = td::Status::Error("result error");
+      td::Result<int> traced = err.trace("result context");
+      expect_true(traced.is_error(), "Result::trace() preserves error");
+      auto msg = traced.error().message().str();
+      expect_true(msg.find("result context") != std::string::npos, "Result::trace() adds context");
+      expect_true(msg.find("result error") != std::string::npos, "Result::trace() preserves message");
+
+      td::Result<int> ok = 123;
+      td::Result<int> traced_ok = ok.trace("ok context");
+      expect_true(traced_ok.is_ok(), "Result::trace() preserves OK");
+      expect_eq(traced_ok.ok(), 123, "Result::trace() preserves value");
+    }
+
+    LOG(INFO) << "test_trace passed";
+    co_return td::Unit{};
+  }
+
   static Task<td::Unit> slow_task() {
     td::usleep_for(2000000);
     co_return td::Unit{};
@@ -847,6 +946,151 @@ class CoroSpec final : public td::actor::Actor {
     co_return td::Unit{};
   }
 
+  // Test 1: Promise stored in MAILBOX when actor stops
+  // BUG: mailbox.clear() runs AFTER destroy_actor(), context still points to freed actor
+  // FIX: Call actor_execute_context_.clear_actor() after destroy_actor()
+  Task<td::Unit> promise_destroy_in_mailbox() {
+    LOG(INFO) << "=== promise_destroy_in_mailbox ===";
+
+    class Target : public td::actor::Actor {
+     public:
+      explicit Target(StartedTask<int>::ExternalPromise p) : promise_(std::move(p)) {
+      }
+
+      void start_up() override {
+        // Queue the promise to ourselves - it goes to the mailbox
+        send_closure_later(actor_id(this), &Target::receive_promise, std::move(promise_));
+        stop();  // Promise in mailbox destroyed during mailbox.clear() AFTER destroy_actor()
+      }
+
+      void receive_promise(StartedTask<int>::ExternalPromise) {
+        LOG(FATAL) << "Should not reach";
+      }
+
+     private:
+      StartedTask<int>::ExternalPromise promise_;
+    };
+
+    auto [task, promise] = StartedTask<int>::make_bridge();
+    create_actor<Target>("Target", std::move(promise)).release();
+
+    auto result = co_await std::move(task).wrap();
+    expect_true(result.is_error(), "Task should fail");
+    LOG(INFO) << "Got expected error: " << result.error();
+    co_return td::Unit{};
+  }
+
+  // Test 2: Promise stored in ACTOR MEMBER when actor stops
+  // Promise is destroyed during Actor destructor, context might still point to actor
+  Task<td::Unit> promise_destroy_in_actor_member() {
+    LOG(INFO) << "=== promise_destroy_in_actor_member ===";
+
+    class Target : public td::actor::Actor {
+     public:
+      explicit Target(StartedTask<int>::ExternalPromise p) : promise_(std::move(p)) {
+      }
+
+      void start_up() override {
+        // Keep the promise in the actor member, don't move it anywhere
+        stop();  // Promise destroyed during Actor destructor
+      }
+
+     private:
+      StartedTask<int>::ExternalPromise promise_;  // Destroyed BEFORE actor_info_ptr_ (base class)
+    };
+
+    auto [task, promise] = StartedTask<int>::make_bridge();
+    create_actor<Target>("Target", std::move(promise)).release();
+
+    auto result = co_await std::move(task).wrap();
+    expect_true(result.is_error(), "Task should fail");
+    LOG(INFO) << "Got expected error: " << result.error();
+    co_return td::Unit{};
+  }
+
+  Task<td::Unit> actor_task_unwrap_bug() {
+    LOG(INFO) << "=== actor_task_unwrap_bug ===";
+
+    class B : public td::actor::Actor {
+     public:
+      td::actor::Task<> run() {
+        co_await td::actor::coro_sleep(td::Timestamp::in(2.0));
+        co_return td::Status::Error("err");
+      }
+    };
+
+    class A : public td::actor::Actor {
+     public:
+      void start_up() override {
+        b_ = td::actor::create_actor<B>("B");
+        run().start().detach();
+        alarm_timestamp() = td::Timestamp::in(1.0);
+      }
+
+      void alarm() override {
+        b_.release();
+        stop();
+      }
+
+      td::actor::Task<> run() {
+        LOG(ERROR) << "Start";
+        std::vector<td::actor::StartedTask<>> tasks;
+        tasks.push_back(td::actor::ask(b_, &B::run));
+        co_await td::actor::all(std::move(tasks));
+        co_return {};
+      }
+
+      td::actor::ActorOwn<B> b_;
+    };
+
+    td::actor::create_actor<A>("A").release();
+    co_await coro_sleep(td::Timestamp::in(3.0));  // Wait for the scenario to play out
+
+    LOG(INFO) << "actor_task_unwrap_bug test completed";
+    co_return td::Unit{};
+  }
+
+  // Test that co_return {}; works correctly for Task<Unit>
+  // Bug: co_return {}; was equivalent to co_return td::Status::Error(-1);
+  // because {} matched ExternalResult via aggregate initialization
+  Task<td::Unit> co_return_empty_braces() {
+    LOG(INFO) << "=== co_return_empty_braces ===";
+
+    // Test co_return {}; in Task<Unit> - should succeed, not return error
+    auto test_task = []() -> Task<td::Unit> {
+      co_return {};  // This was buggy - was equivalent to co_return td::Status::Error(-1);
+    };
+
+    auto result = co_await test_task().wrap();
+    expect_true(result.is_ok(), "co_return {}; should succeed for Task<Unit>");
+
+    // Also verify co_return td::Unit{}; still works
+    auto test_task2 = []() -> Task<td::Unit> { co_return td::Unit{}; };
+    auto result2 = co_await test_task2().wrap();
+    expect_true(result2.is_ok(), "co_return td::Unit{}; should succeed");
+
+    // Test designated initializers with simple structs
+    struct SimpleStruct {
+      int a;
+      int b;
+    };
+    auto test_designated = []() -> Task<SimpleStruct> { co_return {.a = 1, .b = 2}; };
+    auto result3 = co_await test_designated().wrap();
+    expect_true(result3.is_ok(), "co_return {.a=1, .b=2}; should succeed");
+    expect_eq(result3.ok().a, 1, "designated init .a");
+    expect_eq(result3.ok().b, 2, "designated init .b");
+
+    // Test simple brace init for structs
+    auto test_brace = []() -> Task<SimpleStruct> { co_return {10, 20}; };
+    auto result4 = co_await test_brace().wrap();
+    expect_true(result4.is_ok(), "co_return {10, 20}; should succeed");
+    expect_eq(result4.ok().a, 10, "brace init .a");
+    expect_eq(result4.ok().b, 20, "brace init .b");
+
+    LOG(INFO) << "co_return_empty_braces test passed";
+    co_return td::Unit{};
+  }
+
   // Master runner
   Task<td::Unit> run_all() {
     LOG(ERROR) << "Run tests";
@@ -865,7 +1109,12 @@ class CoroSpec final : public td::actor::Actor {
     co_await helpers();
     co_await combinators();
     co_await try_awaitable();
+    co_await test_trace();
     co_await stop_actor();
+    co_await promise_destroy_in_mailbox();
+    co_await promise_destroy_in_actor_member();
+    co_await co_return_empty_braces();
+    co_await actor_task_unwrap_bug();
 
     (void)co_await ask(logger_, &TestLogger::log, std::string("All tests passed"));
     co_return td::Unit();

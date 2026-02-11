@@ -143,10 +143,10 @@ Status MemoryKeyValue::abort_write_batch() {
 }
 
 Status MemoryKeyValue::begin_transaction() {
-  UNREACHABLE();
+  return Status::OK();
 }
 Status MemoryKeyValue::commit_transaction() {
-  UNREACHABLE();
+  return Status::OK();
 }
 Status MemoryKeyValue::abort_transaction() {
   UNREACHABLE();

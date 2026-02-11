@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "block/mc-config.h"
+#include "block/signature-set.h"
 #include "block/transaction.h"
 #include "common/global-version.h"
 #include "interfaces/validator-manager.h"
@@ -34,7 +35,6 @@
 #include "block-parse.h"
 #include "fabric.h"
 #include "shard.hpp"
-#include "signature-set.hpp"
 
 namespace ton {
 
@@ -135,7 +135,7 @@ class ValidateQuery : public td::actor::Actor {
   std::vector<BlockIdExt> prev_blocks;
   std::vector<Ref<ShardState>> prev_states;
   BlockCandidate block_candidate;
-  td::Ref<ValidatorSet> validator_set_;
+  td::Ref<block::ValidatorSet> validator_set_;
   PublicKeyHash local_validator_id_ = PublicKeyHash::zero();
   td::actor::ActorId<ValidatorManager> manager;
   td::Timestamp timeout;
@@ -165,6 +165,8 @@ class ValidateQuery : public td::actor::Actor {
   int shard_pfx_len_;
   td::Bits256 created_by_;
   Ref<BlockData> optimistic_prev_block_;
+  std::vector<Ref<vm::Cell>> preloaded_prev_block_state_roots_;
+  bool is_new_consensus_ = false;
 
   Ref<vm::Cell> prev_state_root_;
   Ref<vm::Cell> state_root_;
@@ -186,7 +188,6 @@ class ValidateQuery : public td::actor::Actor {
 
   Ref<vm::CellSlice> shard_hashes_;              // from McBlockExtra
   Ref<vm::CellSlice> blk_config_params_;         // from McBlockExtra
-  Ref<BlockSignatureSet> prev_signatures_;       // from McBlockExtra (UNCHECKED)
   Ref<vm::Cell> recover_create_msg_, mint_msg_;  // from McBlockExtra (UNCHECKED)
 
   std::unique_ptr<block::ConfigInfo> config_, new_config_;
@@ -203,6 +204,7 @@ class ValidateQuery : public td::actor::Actor {
 
   int global_id_{0};
   int global_version_{0};
+  bool allow_same_timestamp_{false};
   ton::BlockSeqno vert_seqno_{~0U};
   bool ihr_enabled_{false};
   bool create_stats_enabled_{false};
@@ -214,8 +216,9 @@ class ValidateQuery : public td::actor::Actor {
 
   LogicalTime start_lt_, end_lt_;
   UnixTime prev_now_{~0u}, now_{~0u};
+  td::optional<td::uint64> now_ms_;
 
-  ton::Bits256 rand_seed_;
+  td::Bits256 rand_seed_ = td::Bits256::zero();
   std::vector<block::StoragePrices> storage_prices_;
   block::StoragePhaseConfig storage_phase_cfg_{&storage_prices_};
   block::ComputePhaseConfig compute_phase_cfg_;

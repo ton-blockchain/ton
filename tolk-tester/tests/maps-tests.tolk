@@ -117,7 +117,7 @@ fun test6() {
     m.set(2, 20);
     m.set(3, 30);
     return (
-        m.findKeyGreater(1).getKey(), m.findKeyGreaterOrEqual(1).getKey(), 
+        m.findKeyGreater(1).getKey(), m.findKeyGreaterOrEqual(1).getKey(),
         m.findKeyLess(3).getKey(), m.findKeyLessOrEqual(3).getKey(),
         m.findKeyLess(3).loadValue(), m.findKeyLessOrEqual(3).loadValue(),
         m.findKeyLessOrEqual(3).isFound, m.findKeyGreater(4).isFound,
@@ -324,7 +324,7 @@ fun test26() {
     val f2 = m.deleteAndGetDeleted(1);
     val f3 = m.setAndGetPrevious(1, stringHexToSlice("01010101"));
     return (
-        f1.isFound, f2.isFound, f3.isFound, 
+        f1.isFound, f2.isFound, f3.isFound,
         f1.loadValue().remainingBitsCount(), f2.loadValue().remainingBitsCount(),
         m.mustGet(1).remainingBitsCount(),
     );
@@ -360,8 +360,8 @@ fun test29() {
     val a3 = m.addIfNotExists(3, DataWithCell{a: null, v: 0, p: Point{x:30,y:30}.toCell(), payload: createEmptyCell()}.toCell().beginParse());
     val r4 = m.replaceAndGetPrevious(4, "");
     return (
-        a1, a2, a3, r4, 
-        DataWithCell.fromSlice(m.mustGet(2)).payload, 
+        a1, a2, a3, r4,
+        DataWithCell.fromSlice(m.mustGet(2)).payload,
         m.get(3).loadValue().loadAny<DataWithCell>().p!.load(),
         m.get(3).loadValue().remainingRefsCount(),
         m.findLast().getKey(),
@@ -436,14 +436,14 @@ fun test35() {
     assert (!f1.isFound) throw 123;
     m.get(1).loadValue().set(10, 100);
     assert (m.mustGet(1).isEmpty()) throw 123;      // the previous set() changed a copy
-    
+
     var nested = createEmptyMap<int8, int32>();
     nested.set(1,10).set(2, 20);
     m.replaceIfExists(1, nested);
     nested.set(3, 30);
     assert (nested.calculateSize() == 3) throw 123;
     assert (m.mustGet(1).calculateSize() == 2) throw 123;
-    
+
     val (k1, v2) = (m.mustGet(1).findFirst().getKey(), m.get(1).loadValue().findLast().loadValue());
     val s1 = m.findFirst().loadValue().calculateSize();
     m.mustGet(1).delete(10);
@@ -520,7 +520,7 @@ fun test41() {
 
     val k7 = m.get(-7);
     return (
-        m.exists(8), m.mustGet(111) == HashMode.TotalHash, 
+        m.exists(8), m.mustGet(111) == HashMode.TotalHash,
         k7.isFound, k7.loadValue() == HashMode.NoHash, k7.loadValue() == HashMode.PartialHash
     );
 }
@@ -594,7 +594,7 @@ fun main() {
 
 @fif_codegen
 """
-  test1() PROC:<{               // 
+  test1() PROC:<{               //
     NEWDICT                     //  m
     1 PUSHINT                   //  m '2=1
     x{0000000a} PUSHSLICE
@@ -638,7 +638,7 @@ fun main() {
     SWAP
     267 PUSHINT
     DICTGET
-    9 THROWIFNOT 
+    9 THROWIFNOT
     8 LDI
     ENDS
   }>
@@ -646,7 +646,7 @@ fun main() {
 
 @fif_codegen
 """
-  test16() PROC:<{ 
+  test16() PROC:<{
     NEWDICT
     100 PUSHINT
     x{0a14} PUSHSLICE
@@ -657,7 +657,7 @@ fun main() {
 
 @fif_codegen
 """
-  test25() PROC:<{              // 
+  test25() PROC:<{              //
     NEWDICT                     //  m
     1 PUSHINT                   //  m '2=1
     x{0101} PUSHSLICE           //  m '2=1 '3
@@ -669,7 +669,7 @@ fun main() {
 
 @fif_codegen
 """
-  test30() PROC:<{ 
+  test30() PROC:<{
     NEWDICT
     1 PUSHINT
     <b b> PUSHREF
@@ -680,7 +680,7 @@ fun main() {
 
 @fif_codegen
 """
-  test33() PROC:<{ 
+  test33() PROC:<{
     NEWDICT
     123 PUSHINT
     x{0a0a} PUSHSLICE
@@ -714,7 +714,7 @@ fun main() {
 
 @fif_codegen
 """
-  test36() PROC:<{              // 
+  test36() PROC:<{              //
     x{9FFDE075922FCD6EC7F0A0F3E32D6828C8AE03395763E4C5ECF19503052F1829F45_} PUSHSLICE   //  k
     NEWDICT                     //  k m
     x{0000000a} PUSHSLICE

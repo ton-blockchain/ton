@@ -36,18 +36,21 @@ void TerminalLogInterface::append(CSlice slice, int log_level) {
   } else {
     instance->deactivate_readline();
     std::string color;
-    if (log_level == 0 || log_level == 1) {
-      color = TC_RED;
-    } else if (log_level == 2) {
-      color = TC_YELLOW;
-    } else {
-      color = TC_GREEN;
-    }
-    td::TsCerr() << color << slice << TC_EMPTY;
+    td::TsCerr() << ansi_color_to_str(color_for(log_level)) << slice << td::ansi_color_to_str(AnsiColor::Empty);
     instance->reactivate_readline();
     if (log_level == VERBOSITY_NAME(FATAL)) {
       process_fatal_error(slice);
     }
+  }
+}
+
+AnsiColor TerminalLogInterface::color_for(int log_level) {
+  if (log_level == 0 || log_level == 1) {
+    return AnsiColor::Red;
+  } else if (log_level == 2) {
+    return AnsiColor::Yellow;
+  } else {
+    return AnsiColor::Green;
   }
 }
 
@@ -115,15 +118,15 @@ void TerminalIOImpl::start_up() {
 #endif
 
   if (!no_input_) {
-    td::actor::SchedulerContext::get()->get_poll().subscribe(stdin_.get_poll_info().extract_pollable_fd(this),
-                                                             td::PollFlags::Read());
+    td::actor::SchedulerContext::get().get_poll().subscribe(stdin_.get_poll_info().extract_pollable_fd(this),
+                                                            td::PollFlags::Read());
     loop();
   }
 }
 
 void TerminalIOImpl::tear_down() {
   log_interface = default_log_interface;
-  td::actor::SchedulerContext::get()->get_poll().unsubscribe(stdin_.get_poll_info().get_pollable_fd_ref());
+  td::actor::SchedulerContext::get().get_poll().unsubscribe(stdin_.get_poll_info().get_pollable_fd_ref());
   out_mutex_.lock();
 #ifdef USE_READLINE
   if (use_readline_) {

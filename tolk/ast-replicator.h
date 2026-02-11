@@ -375,7 +375,7 @@ public:
 
   // convert a lambda expression `fun(params) { ... }` into a full function declaration
   // (the instantiated function will be added to G.all_functions and exist as a standalone function)
-  static V<ast_function_declaration> clone_lambda_as_standalone(V<ast_lambda_fun> v_lambda) {      
+  static V<ast_function_declaration> clone_lambda_as_standalone(V<ast_lambda_fun> v_lambda) {
     return createV<ast_function_declaration>(
       v_lambda->range,
       createV<ast_identifier>(v_lambda->keyword_range(), "lambda"),   // it's not a real name, for AST only

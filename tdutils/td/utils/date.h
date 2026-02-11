@@ -1376,14 +1376,14 @@ inline bool operator>=(const month& x, const month& y) NOEXCEPT {
 
 CONSTCD14
 inline months operator-(const month& x, const month& y) NOEXCEPT {
-  auto const d = static_cast<unsigned>(x) - static_cast<unsigned>(y);
+  const auto d = static_cast<unsigned>(x) - static_cast<unsigned>(y);
   return months(d <= 11 ? d : d + 12);
 }
 
 CONSTCD14
 inline month operator+(const month& x, const months& y) NOEXCEPT {
-  auto const mu = static_cast<long long>(static_cast<unsigned>(x)) + y.count() - 1;
-  auto const yr = (mu >= 0 ? mu : mu - 11) / 12;
+  const auto mu = static_cast<long long>(static_cast<unsigned>(x)) + y.count() - 1;
+  const auto yr = (mu >= 0 ? mu : mu - 11) / 12;
   return month{static_cast<unsigned>(mu - yr * 12 + 1)};
 }
 
@@ -1598,15 +1598,15 @@ inline bool operator!=(const weekday& x, const weekday& y) NOEXCEPT {
 
 CONSTCD14
 inline days operator-(const weekday& x, const weekday& y) NOEXCEPT {
-  auto const wdu = x.wd_ - y.wd_;
-  auto const wk = (wdu >= 0 ? wdu : wdu - 6) / 7;
+  const auto wdu = x.wd_ - y.wd_;
+  const auto wk = (wdu >= 0 ? wdu : wdu - 6) / 7;
   return days{wdu - wk * 7};
 }
 
 CONSTCD14
 inline weekday operator+(const weekday& x, const days& y) NOEXCEPT {
-  auto const wdu = static_cast<long long>(static_cast<unsigned>(x.wd_)) + y.count();
-  auto const wk = (wdu >= 0 ? wdu : wdu - 6) / 7;
+  const auto wdu = static_cast<long long>(static_cast<unsigned>(x.wd_)) + y.count();
+  const auto wk = (wdu >= 0 ? wdu : wdu - 6) / 7;
   return weekday{static_cast<unsigned>(wdu - wk * 7)};
 }
 
@@ -2261,13 +2261,13 @@ inline days year_month_day::to_days() const NOEXCEPT {
                 "This algorithm has not been ported to a 16 bit unsigned integer");
   static_assert(std::numeric_limits<int>::digits >= 20,
                 "This algorithm has not been ported to a 16 bit signed integer");
-  auto const y = static_cast<int>(y_) - (m_ <= February);
-  auto const m = static_cast<unsigned>(m_);
-  auto const d = static_cast<unsigned>(d_);
-  auto const era = (y >= 0 ? y : y - 399) / 400;
-  auto const yoe = static_cast<unsigned>(y - era * 400);             // [0, 399]
-  auto const doy = (153 * (m > 2 ? m - 3 : m + 9) + 2) / 5 + d - 1;  // [0, 365]
-  auto const doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;            // [0, 146096]
+  const auto y = static_cast<int>(y_) - (m_ <= February);
+  const auto m = static_cast<unsigned>(m_);
+  const auto d = static_cast<unsigned>(d_);
+  const auto era = (y >= 0 ? y : y - 399) / 400;
+  const auto yoe = static_cast<unsigned>(y - era * 400);             // [0, 399]
+  const auto doy = (153 * (m > 2 ? m - 3 : m + 9) + 2) / 5 + d - 1;  // [0, 365]
+  const auto doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;            // [0, 146096]
   return days{era * 146097 + static_cast<int>(doe) - 719468};
 }
 
@@ -2343,15 +2343,15 @@ inline year_month_day year_month_day::from_days(days dp) NOEXCEPT {
                 "This algorithm has not been ported to a 16 bit unsigned integer");
   static_assert(std::numeric_limits<int>::digits >= 20,
                 "This algorithm has not been ported to a 16 bit signed integer");
-  auto const z = dp.count() + 719468;
-  auto const era = (z >= 0 ? z : z - 146096) / 146097;
-  auto const doe = static_cast<unsigned>(z - era * 146097);                // [0, 146096]
-  auto const yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;  // [0, 399]
-  auto const y = static_cast<days::rep>(yoe) + era * 400;
-  auto const doy = doe - (365 * yoe + yoe / 4 - yoe / 100);  // [0, 365]
-  auto const mp = (5 * doy + 2) / 153;                       // [0, 11]
-  auto const d = doy - (153 * mp + 2) / 5 + 1;               // [1, 31]
-  auto const m = mp < 10 ? mp + 3 : mp - 9;                  // [1, 12]
+  const auto z = dp.count() + 719468;
+  const auto era = (z >= 0 ? z : z - 146096) / 146097;
+  const auto doe = static_cast<unsigned>(z - era * 146097);                // [0, 146096]
+  const auto yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;  // [0, 399]
+  const auto y = static_cast<days::rep>(yoe) + era * 400;
+  const auto doy = doe - (365 * yoe + yoe / 4 - yoe / 100);  // [0, 365]
+  const auto mp = (5 * doy + 2) / 153;                       // [0, 11]
+  const auto d = doy - (153 * mp + 2) / 5 + 1;               // [1, 31]
+  const auto m = mp < 10 ? mp + 3 : mp - 9;                  // [1, 12]
   return year_month_day{date::year{y + (m <= 2)}, date::month(m), date::day(d)};
 }
 
@@ -2473,8 +2473,8 @@ inline bool year_month_weekday::ok() const NOEXCEPT {
 CONSTCD14
 inline year_month_weekday year_month_weekday::from_days(days d) NOEXCEPT {
   sys_days dp{d};
-  auto const wd = date::weekday(dp);
-  auto const ymd = year_month_day(dp);
+  const auto wd = date::weekday(dp);
+  const auto ymd = year_month_day(dp);
   return {ymd.year(), ymd.month(), wd[(static_cast<unsigned>(ymd.day()) - 1) / 7 + 1]};
 }
 
@@ -2597,7 +2597,7 @@ inline bool year_month_weekday_last::ok() const NOEXCEPT {
 
 CONSTCD14
 inline days year_month_weekday_last::to_days() const NOEXCEPT {
-  auto const d = sys_days(y_ / m_ / last);
+  const auto d = sys_days(y_ / m_ / last);
   return (d - (date::weekday{d} - wdl_.weekday())).time_since_epoch();
 }
 
@@ -3068,7 +3068,7 @@ class hh_mm_ss {
 
  private:
   template <class charT, class traits>
-  friend std::basic_ostream<charT, traits>& operator<<(std::basic_ostream<charT, traits>& os, hh_mm_ss const& tod) {
+  friend std::basic_ostream<charT, traits>& operator<<(std::basic_ostream<charT, traits>& os, const hh_mm_ss& tod) {
     if (tod.is_negative())
       os << '-';
     if (tod.h_ < std::chrono::hours{10})
@@ -3092,12 +3092,12 @@ class hh_mm_ss {
                                                               std::chrono::minutes* offset);
 };
 
-inline CONSTCD14 bool is_am(std::chrono::hours const& h) NOEXCEPT {
+inline CONSTCD14 bool is_am(const std::chrono::hours& h) NOEXCEPT {
   using std::chrono::hours;
   return hours{0} <= h && h < hours{12};
 }
 
-inline CONSTCD14 bool is_pm(std::chrono::hours const& h) NOEXCEPT {
+inline CONSTCD14 bool is_pm(const std::chrono::hours& h) NOEXCEPT {
   using std::chrono::hours;
   return hours{12} <= h && h < hours{24};
 }
@@ -3138,7 +3138,7 @@ inline typename std::enable_if<!std::chrono::treat_as_floating_point<typename Du
                                    std::ratio_less<typename Duration::period, days::period>::value,
                                std::basic_ostream<CharT, Traits>&>::type
 operator<<(std::basic_ostream<CharT, Traits>& os, const sys_time<Duration>& tp) {
-  auto const dp = date::floor<days>(tp);
+  const auto dp = date::floor<days>(tp);
   return os << year_month_day(dp) << ' ' << make_time(tp - dp);
 }
 
@@ -3173,8 +3173,8 @@ class string_literal {
  public:
   using const_iterator = const CharT*;
 
-  string_literal(string_literal const&) = default;
-  string_literal& operator=(string_literal const&) = delete;
+  string_literal(const string_literal&) = default;
+  string_literal& operator=(const string_literal&) = delete;
 
   template <std::size_t N1 = 2, class = typename std::enable_if<N1 == N>::type>
   CONSTCD11 string_literal(CharT c) NOEXCEPT : p_{c} {
@@ -3200,7 +3200,7 @@ class string_literal {
   }
 
   template <class CharT2, class = typename std::enable_if<!std::is_same<CharT2, CharT>::value>::type>
-  CONSTCD14 string_literal(string_literal<CharT2, N> const& a) NOEXCEPT : p_{} {
+  CONSTCD14 string_literal(const string_literal<CharT2, N>& a) NOEXCEPT : p_{} {
     for (std::size_t i = 0; i < N; ++i)
       p_[i] = a[i];
   }
@@ -3219,7 +3219,7 @@ class string_literal {
     return p_ + N - 1;
   }
 
-  CONSTCD11 CharT const& operator[](std::size_t n) const NOEXCEPT {
+  CONSTCD11 const CharT& operator[](std::size_t n) const NOEXCEPT {
     return p_[n];
   }
 
@@ -3757,7 +3757,7 @@ std::basic_ostream<CharT, Traits>& to_stream(std::basic_ostream<CharT, Traits>& 
               os.setstate(std::ios::failbit);
 #if !ONLY_C_LOCALE
             tm = std::tm{};
-            auto const& ymd = fds.ymd;
+            const auto& ymd = fds.ymd;
             auto ld = local_days(ymd);
             if (*fmt == 'c') {
               tm.tm_sec = static_cast<int>(fds.tod.seconds().count());
@@ -3789,7 +3789,7 @@ std::basic_ostream<CharT, Traits>& to_stream(std::basic_ostream<CharT, Traits>& 
 
             } else  // *fmt == 'x'
             {
-              auto const& ymd = fds.ymd;
+              const auto& ymd = fds.ymd;
               save_ostream<CharT, Traits> _(os);
               os.fill('0');
               os.flags(std::ios::dec | std::ios::right);
@@ -3884,7 +3884,7 @@ std::basic_ostream<CharT, Traits>& to_stream(std::basic_ostream<CharT, Traits>& 
           if (modified == CharT{}) {
             if (!fds.ymd.ok())
               os.setstate(std::ios::failbit);
-            auto const& ymd = fds.ymd;
+            const auto& ymd = fds.ymd;
             save_ostream<CharT, Traits> _(os);
             os.fill('0');
             os.flags(std::ios::dec | std::ios::right);
@@ -3907,7 +3907,7 @@ std::basic_ostream<CharT, Traits>& to_stream(std::basic_ostream<CharT, Traits>& 
           if (modified == CharT{}) {
             if (!fds.ymd.ok())
               os.setstate(std::ios::failbit);
-            auto const& ymd = fds.ymd;
+            const auto& ymd = fds.ymd;
             save_ostream<CharT, Traits> _(os);
             os.imbue(std::locale::classic());
             os.fill('0');
@@ -4271,7 +4271,7 @@ std::basic_ostream<CharT, Traits>& to_stream(std::basic_ostream<CharT, Traits>& 
           if (modified == CharT{'E'})
             os << CharT{'%'} << modified << *fmt;
           else {
-            auto const& ymd = fds.ymd;
+            const auto& ymd = fds.ymd;
             if (!ymd.ok())
               os.setstate(std::ios::failbit);
             auto ld = local_days(ymd);
@@ -4332,7 +4332,7 @@ std::basic_ostream<CharT, Traits>& to_stream(std::basic_ostream<CharT, Traits>& 
 #if !ONLY_C_LOCALE
             else if (modified == CharT{'O'}) {
               const CharT f[] = {'%', modified, *fmt};
-              auto const& ymd = fds.ymd;
+              const auto& ymd = fds.ymd;
               tm.tm_year = static_cast<int>(ymd.year()) - 1900;
               tm.tm_wday = static_cast<int>(extract_weekday(os, fds));
               if (os.fail())
@@ -4380,7 +4380,7 @@ std::basic_ostream<CharT, Traits>& to_stream(std::basic_ostream<CharT, Traits>& 
           if (modified == CharT{'E'})
             os << CharT{'%'} << modified << *fmt;
           else {
-            auto const& ymd = fds.ymd;
+            const auto& ymd = fds.ymd;
             if (!ymd.ok())
               os.setstate(std::ios::failbit);
             auto ld = local_days(ymd);

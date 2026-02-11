@@ -63,9 +63,12 @@ class ActorId {
     return !empty() && actor_info().is_alive();
   }
 
-  template <class... ArgsT>
-  static ActorId<ActorType> create(ActorOptions &options, ArgsT &&...args) {
-    return ActorId<ActorType>(detail::create_actor<ActorType>(options, std::forward<ArgsT>(args)...));
+  static ActorId<ActorType> create(ActorOptions &options, std::unique_ptr<ActorType> actor) {
+    return ActorId<ActorType>(detail::create_actor<ActorType>(options, std::move(actor)));
+  }
+
+  static ActorId<ActorType> unsafe_create_from_info(core::ActorInfoPtr ptr) {
+    return ActorId<ActorType>(std::move(ptr));
   }
 
   template <class OtherT>
@@ -116,12 +119,12 @@ namespace core {  // for ADL
 template <class SelfT>
 ActorId<SelfT> actor_id(SelfT *self) {
   CHECK(self);
-  CHECK(static_cast<core::Actor *>(self) == &core::ActorExecuteContext::get()->actor());
-  return ActorId<SelfT>(core::ActorExecuteContext::get()->actor().get_actor_info_ptr());
+  CHECK(static_cast<core::Actor *>(self) == &core::ActorExecuteContext::get().actor());
+  return ActorId<SelfT>(core::ActorExecuteContext::get().actor().get_actor_info_ptr());
 }
 
 inline ActorId<> actor_id() {
-  return actor_id(&core::ActorExecuteContext::get()->actor());
+  return actor_id(&core::ActorExecuteContext::get().actor());
 }
 }  // namespace core
 using core::actor_id;

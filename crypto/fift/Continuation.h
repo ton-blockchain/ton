@@ -28,9 +28,9 @@ using td::Ref;
 struct IntCtx;
 
 /*
- * 
+ *
  *    FIFT CONTINUATIONS
- * 
+ *
  */
 
 class FiftCont : public td::CntObject {

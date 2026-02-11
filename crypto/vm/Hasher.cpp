@@ -42,7 +42,8 @@ class HasherImplEVP : public Hasher::HasherImpl {
   td::BufferSlice finish() override {
     td::BufferSlice hash(EVP_MD_CTX_size(ctx_));
     unsigned size;
-    CHECK(EVP_DigestFinal_ex(ctx_, (unsigned char *)hash.data(), &size) || size != hash.size());
+    CHECK(EVP_DigestFinal_ex(ctx_, (unsigned char *)hash.data(), &size))
+    CHECK(size == hash.size());
     return hash;
   }
 

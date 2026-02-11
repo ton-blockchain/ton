@@ -89,12 +89,12 @@ td::Result<std::string> compile_internal(char* config_json) {
 /// said storage after func_compile returns.
 ///
 /// If the callback is not supported, *o_contents and *o_error must be set to NULL.
-typedef void (*CStyleReadFileCallback)(char const* _kind, char const* _data, char** o_contents, char** o_error);
+typedef void (*CStyleReadFileCallback)(const char* _kind, const char* _data, char** o_contents, char** o_error);
 
 funC::ReadCallback::Callback wrapReadCallback(CStyleReadFileCallback _readCallback) {
   funC::ReadCallback::Callback readCallback;
   if (_readCallback) {
-    readCallback = [=](funC::ReadCallback::Kind _kind, char const* _data) -> td::Result<std::string> {
+    readCallback = [=](funC::ReadCallback::Kind _kind, const char* _data) -> td::Result<std::string> {
       char* contents_c = nullptr;
       char* error_c = nullptr;
       _readCallback(funC::ReadCallback::kindString(_kind).data(), _data, &contents_c, &error_c);

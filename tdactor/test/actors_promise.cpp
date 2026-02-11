@@ -215,7 +215,7 @@ TEST(Actor2, actor_lost_promise) {
 
   auto watcher = td::create_shared_destructor([] {
     LOG(ERROR) << "STOP";
-    SchedulerContext::get()->stop();
+    SchedulerContext::get().stop();
   });
   scheduler.run_in_context([watcher = std::move(watcher)] {
     class B : public Actor {
@@ -559,7 +559,7 @@ TEST(ActorCoro, Simple) {
 
   auto watcher = td::create_shared_destructor([] {
     LOG(ERROR) << "STOP";
-    SchedulerContext::get()->stop();
+    SchedulerContext::get().stop();
   });
   scheduler.run_in_context([watcher = std::move(watcher)] {
     create_actor<actor::SampleActor>(ActorOptions().with_name("SampleActor").with_poll(), watcher).release();

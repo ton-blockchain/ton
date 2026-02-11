@@ -42,7 +42,7 @@ fun main() {
 
 @fif_codegen
 """
-  bigThrow() PROC:<{ 
+  bigThrow() PROC:<{
     1222222222222222222222222222222223 PUSHINT
     THROWANY
   }>

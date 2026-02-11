@@ -29,9 +29,9 @@ int lexem_is_special(std::string str) {
 namespace funC {
 
 /*
- * 
+ *
  *   KEYWORD DEFINITION
- * 
+ *
  */
 
 void define_keywords() {

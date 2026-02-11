@@ -191,7 +191,7 @@ inline vector<string> rand_split(Slice str) {
 
 namespace detail {
 
-std::optional<std::string> stringify(auto const &value) {
+std::optional<std::string> stringify(const auto &value) {
   if constexpr (requires(std::ostringstream builder) { builder << value; }) {
     std::ostringstream builder;
     builder << value;
@@ -202,7 +202,7 @@ std::optional<std::string> stringify(auto const &value) {
   return std::nullopt;
 }
 
-inline std::optional<std::string> check(bool condition, char const *msg) {
+inline std::optional<std::string> check(bool condition, const char *msg) {
   if (condition) {
     return std::nullopt;
   }
@@ -210,7 +210,7 @@ inline std::optional<std::string> check(bool condition, char const *msg) {
   return PSTRING() << "Expectation failed: " << msg << "!";
 }
 
-std::optional<std::string> check_eq(auto const &a_value, auto const &b_value, char const *a_expr, char const *b_expr) {
+std::optional<std::string> check_eq(const auto &a_value, const auto &b_value, const char *a_expr, const char *b_expr) {
   if (a_value == b_value) {
     return std::nullopt;
   }

@@ -25,6 +25,7 @@
 #include "block/block-parse.h"
 #include "block/block.h"
 #include "block/mc-config.h"
+#include "block/validator-set.h"
 #include "crypto/openssl/rand.hpp"
 #include "td/db/utils/BlobView.h"
 #include "td/utils/Random.h"
@@ -38,7 +39,6 @@
 #include "fabric.h"
 #include "storage-stat-cache.hpp"
 #include "top-shard-descr.hpp"
-#include "validator-set.hpp"
 
 namespace ton {
 
@@ -85,6 +85,9 @@ Collator::Collator(CollateParams params, td::actor::ActorId<ValidatorManager> ma
     , collator_node_id_(params.collator_node_id)
     , skip_store_candidate_(params.skip_store_candidate)
     , optimistic_prev_block_(std::move(params.optimistic_prev_block))
+    , preloaded_prev_block_data_(std::move(params.prev_block_data))
+    , preloaded_prev_block_state_roots_(std::move(params.prev_block_state_roots))
+    , is_new_consensus_(params.is_new_consensus)
     , attempt_idx_(params.attempt_idx)
     , perf_timer_("collate", 0.1,
                   [manager](double duration) {
@@ -297,30 +300,43 @@ void Collator::start_up() {
  * Load previous states and blocks from DB
  */
 void Collator::load_prev_states_blocks() {
+  CHECK(preloaded_prev_block_data_.empty() || preloaded_prev_block_data_.size() == prev_blocks.size());
+  CHECK(preloaded_prev_block_state_roots_.empty() || preloaded_prev_block_state_roots_.size() == prev_blocks.size());
   for (int i = 0; (unsigned)i < prev_blocks.size(); i++) {
     // 3.1. load state
-    LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
     ++pending;
-    auto token = perf_log_.start_action(PSTRING() << "wait_block_state #" << i);
-    td::actor::send_closure_later(
-        manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(), timeout, false,
-        [self = get_self(), i, token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
-          LOG(DEBUG) << "got answer to wait_block_state query #" << i;
-          td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_state, i, std::move(res),
-                                        std::move(token));
-        });
-    if (prev_blocks[i].seqno()) {
-      // 3.2. load block
-      LOG(DEBUG) << "sending wait_block_data() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
-      ++pending;
-      auto token = perf_log_.start_action(PSTRING() << "wait_block_data #" << i);
+    if (preloaded_prev_block_state_roots_.empty()) {
+      LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
+      auto token = perf_log_.start_action(PSTRING() << "wait_block_state #" << i);
       td::actor::send_closure_later(
-          manager, &ValidatorManager::wait_block_data_short, prev_blocks[i], priority(), timeout,
-          [self = get_self(), i, token = std::move(token)](td::Result<Ref<BlockData>> res) mutable {
-            LOG(DEBUG) << "got answer to wait_block_data query #" << i;
-            td::actor::send_closure_later(std::move(self), &Collator::after_get_block_data, i, std::move(res),
+          manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(), timeout, false,
+          [self = get_self(), i, token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
+            LOG(DEBUG) << "got answer to wait_block_state query #" << i;
+            td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_state, i, std::move(res),
                                           std::move(token));
           });
+    } else {
+      td::actor::send_closure_later(actor_id(this), &Collator::after_get_shard_state, i,
+                                    validator::create_shard_state(prev_blocks[i], preloaded_prev_block_state_roots_[i]),
+                                    td::PerfLogAction{});
+    }
+    if (prev_blocks[i].seqno()) {
+      // 3.2. load block
+      ++pending;
+      if (preloaded_prev_block_data_.empty()) {
+        LOG(DEBUG) << "sending wait_block_data() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
+        auto token = perf_log_.start_action(PSTRING() << "wait_block_data #" << i);
+        td::actor::send_closure_later(
+            manager, &ValidatorManager::wait_block_data_short, prev_blocks[i], priority(), timeout,
+            [self = get_self(), i, token = std::move(token)](td::Result<Ref<BlockData>> res) mutable {
+              LOG(DEBUG) << "got answer to wait_block_data query #" << i;
+              td::actor::send_closure_later(std::move(self), &Collator::after_get_block_data, i, std::move(res),
+                                            std::move(token));
+            });
+      } else {
+        td::actor::send_closure_later(actor_id(this), &Collator::after_get_block_data, i, preloaded_prev_block_data_[i],
+                                      td::PerfLogAction{});
+      }
     }
   }
 }
@@ -879,6 +895,7 @@ bool Collator::unpack_last_mc_state() {
   store_out_msg_queue_size_ = config_->has_capability(ton::capStoreOutMsgQueueSize);
   msg_metadata_enabled_ = config_->has_capability(ton::capMsgMetadata);
   deferring_messages_enabled_ = config_->has_capability(ton::capDeferMessages);
+  allow_same_timestamp_ = global_version_ >= 13;
   full_collated_data_ = config_->has_capability(capFullCollatedData) || collator_opts_->force_full_collated_data;
   LOG(DEBUG) << "full_collated_data is " << full_collated_data_;
   shard_conf_ = std::make_unique<block::ShardConfig>(*config_);
@@ -1920,7 +1937,7 @@ bool Collator::import_new_shard_top_blocks() {
                  << chain_len;
       continue;
     }
-    if (sh_bd->generated_at() >= now_) {
+    if (allow_same_timestamp_ ? sh_bd->generated_at() > now_ : sh_bd->generated_at() >= now_) {
       LOG(DEBUG) << "ShardTopBlockDescr for " << sh_bd->block_id().to_str() << " skipped: it claims to be generated at "
                  << sh_bd->generated_at() << " while it is still " << now_;
       continue;
@@ -2179,7 +2196,9 @@ bool Collator::init_utime() {
   }
 
   auto prev = std::max<td::uint32>(config_->utime, prev_now_);
-  now_ = std::max<td::uint32>(prev + 1, (unsigned)std::time(nullptr));
+  now_ms_ =
+      std::max((td::uint64)(prev + (allow_same_timestamp_ ? 0 : 1)) * 1000, (td::uint64)(td::Clocks::system() * 1000));
+  now_ = (UnixTime)(now_ms_ / 1000);
   if (now_ > now_upper_limit_) {
     return fatal_error(
         "error initializing unix time for the new block: failed to observe end of fsm_split time interval for this "
@@ -3528,7 +3547,7 @@ td::Result<std::unique_ptr<block::transaction::Transaction>> Collator::impl_crea
     if (!trans->compute_phase->accepted) {
       if (external) {
         // inbound external message was not accepted
-        auto const& cp = *trans->compute_phase;
+        const auto& cp = *trans->compute_phase;
         return td::Status::Error(
             -701, PSLICE() << "inbound external message rejected by transaction " << acc->addr.to_hex() << ":\n"
                            << "exitcode=" << cp.exit_code << ", steps=" << cp.vm_steps << ", gas_used=" << cp.gas_used
@@ -3739,7 +3758,7 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
       auto dest_prefix = block::tlb::MsgAddressInt::get_prefix(dest);
       CHECK(env.emitted_lt && env.emitted_lt.value() == msg.lt);
       ok = enqueue_transit_message(std::move(msg.msg), std::move(msg_env), src_prefix, src_prefix, dest_prefix,
-                                   std::move(env.fwd_fee_remaining), std::move(env.metadata), msg.lt);
+                                   std::move(env.fwd_fee_remaining), std::move(env.metadata), msg.lt, true);
     } else {
       ok = enqueue_message(std::move(msg), std::move(fwd_fees), src_addr, defer);
     }
@@ -3831,7 +3850,8 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
  * @param dest_prefix The prefix of the destination account ID.
  * @param fwd_fee_remaining The remaining forward fee.
  * @param msg_metadata Metadata of the message.
- * @param emitted_lt If present - the message was taken from DispatchQueue, and msg_env will have this emitted_lt.
+ * @param emitted_lt If present - the message was originally taken from DispatchQueue, and msg_env will have this emitted_lt.
+ * @param from_dispatch_queue The message was taken from dispatch queue in this block.
  *
  * @returns True if the transit message is successfully enqueued, false otherwise.
  */
@@ -3839,15 +3859,15 @@ bool Collator::enqueue_transit_message(Ref<vm::Cell> msg, Ref<vm::Cell> old_msg_
                                        ton::AccountIdPrefixFull prev_prefix, ton::AccountIdPrefixFull cur_prefix,
                                        ton::AccountIdPrefixFull dest_prefix, td::RefInt256 fwd_fee_remaining,
                                        td::optional<block::MsgMetadata> msg_metadata,
-                                       td::optional<LogicalTime> emitted_lt) {
-  bool from_dispatch_queue = (bool)emitted_lt;
+                                       td::optional<LogicalTime> emitted_lt, bool from_dispatch_queue) {
   if (from_dispatch_queue) {
+    CHECK(emitted_lt);
     LOG(DEBUG) << "enqueueing message from dispatch queue " << msg->get_hash().bits().to_hex(256)
                << ", emitted_lt=" << emitted_lt.value();
   } else {
     LOG(DEBUG) << "enqueueing transit message " << msg->get_hash().bits().to_hex(256);
   }
-  bool requeue = !from_dispatch_queue && is_our_address(prev_prefix) && !from_dispatch_queue;
+  bool requeue = !from_dispatch_queue && is_our_address(prev_prefix);
   // 1. perform hypercube routing
   auto route_info = block::perform_hypercube_routing(cur_prefix, dest_prefix, shard_);
   if ((unsigned)route_info.first > 96 || (unsigned)route_info.second > 96) {
@@ -4110,7 +4130,7 @@ bool Collator::process_inbound_message(Ref<vm::CellSlice> enq_msg, ton::LogicalT
     // destination is outside our shard, relay transit message
     // (very similar to enqueue_message())
     if (!enqueue_transit_message(std::move(env.msg), std::move(msg_env), cur_prefix, next_prefix, dest_prefix,
-                                 std::move(env.fwd_fee_remaining), std::move(env.metadata))) {
+                                 std::move(env.fwd_fee_remaining), std::move(env.metadata), env.emitted_lt, false)) {
       return fatal_error("cannot enqueue transit internal message with key "s + key.to_hex(352));
     }
     return !our || delete_out_msg_queue_msg(key);
@@ -6286,13 +6306,17 @@ bool Collator::create_collated_data() {
   SCOPE_EXIT {
     stats_.work_time.create_collated_data += timer.elapsed_both();
   };
-  // 1. store the set of used shard block descriptions
+  // 1.1 store the set of used shard block descriptions
   if (!used_shard_block_descr_.empty()) {
     auto cell = collate_shard_block_descr_set();
-    if (cell.is_null()) {
-      return true;
-      // return fatal_error("cannot collate the collection of used shard block descriptions");
+    if (cell.not_null()) {
+      collated_roots_.push_back(std::move(cell));
     }
+  }
+  // 1.2 store info for simplex consensus
+  if (is_new_consensus_) {
+    // consensus_extra_data#638eb292 flags:# gen_utime_ms:uint64 = ConsensusExtraData;
+    auto cell = vm::CellBuilder{}.store_long(0x638eb292, 32).store_long(0, 32).store_long(now_ms_, 64).finalize_novm();
     collated_roots_.push_back(std::move(cell));
   }
   if (!full_collated_data_) {
@@ -6411,8 +6435,7 @@ bool Collator::create_block_candidate() {
     if (res.is_error()) {
       return fatal_error(res.move_as_error());
     }
-    int cdata_serialize_mode = consensus_config.proto_version >= 5 ? 2 : 31;
-    auto cdata_res = boc_collated.serialize_to_slice(cdata_serialize_mode);
+    auto cdata_res = boc_collated.serialize_to_slice(2);
     if (cdata_res.is_error()) {
       LOG(ERROR) << "cannot serialize collated data";
       return fatal_error(cdata_res.move_as_error());

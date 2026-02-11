@@ -103,6 +103,7 @@ class CatChain : public td::actor::Actor {
   static td::actor::ActorOwn<CatChain> create(std::unique_ptr<Callback> callback, const CatChainOptions &opts,
                                               td::actor::ActorId<keyring::Keyring> keyring,
                                               td::actor::ActorId<adnl::Adnl> adnl,
+                                              td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender,
                                               td::actor::ActorId<overlay::Overlays> overlay_manager,
                                               std::vector<CatChainNode> ids, const PublicKeyHash &local_id,
                                               const CatChainSessionId &unique_hash, std::string db_root,

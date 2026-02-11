@@ -25,9 +25,9 @@ using namespace std::literals::string_literals;
 namespace funC {
 
 /*
- * 
+ *
  *   EXPRESSIONS
- * 
+ *
  */
 
 Expr* Expr::copy() const {

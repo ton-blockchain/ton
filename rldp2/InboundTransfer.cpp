@@ -51,7 +51,7 @@ td::Result<InboundTransfer::Part *> InboundTransfer::get_part(td::uint32 part_i,
                                          << " total_size=" << fec_type.size() << " part=" << part_i);
     }
 
-    auto decoder = fec_type.create_decoder().move_as_ok();
+    TRY_RESULT(decoder, fec_type.create_decoder());
     auto it = parts_.emplace(part_i, Part{std::move(decoder), RldpReceiver(RldpSender::Config()), offset});
     next_part_++;
     return &it.first->second;

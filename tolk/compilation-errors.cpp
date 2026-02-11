@@ -27,7 +27,7 @@ static std::string str_in_function(FunctionPtr f) {
   if (f->is_lambda()) {
     return "in lambda " + str_in_function(f->base_fun_ref);
   }
-  return "in function `" + f->as_human_readable() + "`"; 
+  return "in function `" + f->as_human_readable() + "`";
 }
 
 void on_assertion_failed(const char *description, const char *file_name, int line_number) {
@@ -158,11 +158,11 @@ Error ErrorBuilder::build() const {
 }
 
 void Error::fire(AnyV at, FunctionPtr in_function) const {
-  throw ThrownParseError(str_in_function(in_function), at->range, message);  
+  throw ThrownParseError(str_in_function(in_function), at->range, message);
 }
 
 void Error::fire(SrcRange range, FunctionPtr in_function) const {
-  throw ThrownParseError(str_in_function(in_function), range, message);  
+  throw ThrownParseError(str_in_function(in_function), range, message);
 }
 
 void Error::warning(AnyV at, FunctionPtr in_function) const {

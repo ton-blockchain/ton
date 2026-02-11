@@ -95,11 +95,11 @@ public:
   static SrcRange overlap(SrcRange start, SrcRange end) {
     return SrcRange(start.file_id, start.start_offset, end.end_offset);
   }
-  
+
   static SrcRange empty_at_start(SrcRange range) {
     return SrcRange(range.file_id, range.start_offset, range.start_offset);
   }
-  
+
   static SrcRange empty_at_end(SrcRange range) {
     return SrcRange(range.file_id, range.end_offset, range.end_offset);
   }

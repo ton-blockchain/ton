@@ -41,6 +41,8 @@ class Client final {
 
   static Response execute(Request&& request);
 
+  void cancel_requests();
+
   ~Client();
   Client(Client&& other);
   Client& operator=(Client&& other);

@@ -260,7 +260,7 @@ static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_funct
 // handling supported operations inside constant expressions
 // (in `const name = ...`, field/param defaults, enum members, etc.)
 class ConstExpressionEvaluator {
-  // `-5` => int(-5), `!true` => false 
+  // `-5` => int(-5), `!true` => false
   static ConstValExpression handle_unary_operator(V<ast_unary_operator> v) {
     ConstValExpression expr = eval_any_v_or_fire(v->get_rhs());
 
@@ -296,7 +296,7 @@ class ConstExpressionEvaluator {
 
   // `2 + 3` => int(5), `10 > 3` => true, `true & false` => 0
   static ConstValExpression handle_binary_operator(V<ast_binary_operator> v) {
-    ConstValExpression expr_lhs = eval_any_v_or_fire(v->get_lhs()); 
+    ConstValExpression expr_lhs = eval_any_v_or_fire(v->get_lhs());
     ConstValExpression expr_rhs = eval_any_v_or_fire(v->get_rhs());
 
     td::RefInt256 lhs;
@@ -306,7 +306,7 @@ class ConstExpressionEvaluator {
       lhs = i_lhs->int_val;
     } else if (const ConstValBool* b_lhs = std::get_if<ConstValBool>(&expr_lhs)) {
       lhs = td::make_refint(b_lhs->bool_val ? -1 : 0);
-    } 
+    }
 
     if (const ConstValInt* i_rhs = std::get_if<ConstValInt>(&expr_rhs)) {
       rhs = i_rhs->int_val;
@@ -385,10 +385,10 @@ class ConstExpressionEvaluator {
     if (!fun_ref || !fun_ref->is_compile_time_const_val()) {
       err_not_a_constant_expression().fire(v);
     }
-    
+
     return parse_vertex_call_to_compile_time_function(v, fun_ref->name);
   }
-  
+
   // `const a = ANOTHER`, or in field default, enum member, etc.
   static ConstValExpression handle_reference(V<ast_reference> v) {
     GlobalConstPtr const_ref = v->sym->try_as<GlobalConstPtr>();
@@ -467,7 +467,7 @@ public:
       std::vector<std::pair<StructFieldPtr, AnyExprV>> fields;
       fields.reserve(v_body->size());
       for (int i = 0; i < v_body->size(); ++i) {
-        AnyExprV field_init_val = v_body->get_field(i)->get_init_val(); 
+        AnyExprV field_init_val = v_body->get_field(i)->get_init_val();
         check_expression_is_constant_or_fire(field_init_val);
         fields.emplace_back(v_body->get_field(i)->field_ref, field_init_val);
       }
@@ -493,7 +493,7 @@ ConstValExpression eval_constant_expression_or_fire(AnyExprV v_expr) {
   if (auto v_int = v_expr->try_as<ast_int_const>()) {
     return ConstValInt{v_int->intval};
   }
-  return ConstExpressionEvaluator::eval_any_v_or_fire(v_expr);  
+  return ConstExpressionEvaluator::eval_any_v_or_fire(v_expr);
 }
 
 ConstValExpression eval_and_cache_const_init_val(GlobalConstPtr const_ref) {

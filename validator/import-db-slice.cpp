@@ -111,53 +111,55 @@ td::Status ArchiveImporter::process_package(std::string path, bool with_masterch
   auto package = std::make_shared<Package>(std::move(p));
 
   td::Status S = td::Status::OK();
-  package->iterate([&](std::string filename, td::BufferSlice, td::uint64 offset) -> bool {
-    auto F = FileReference::create(filename);
-    if (F.is_error()) {
-      S = F.move_as_error();
-      return false;
-    }
-    auto f = F.move_as_ok();
+  package
+      ->iterate([&](std::string filename, td::BufferSlice, td::uint64 offset) -> bool {
+        auto F = FileReference::create(filename);
+        if (F.is_error()) {
+          S = F.move_as_error();
+          return false;
+        }
+        auto f = F.move_as_ok();
 
-    BlockIdExt b;
-    bool is_proof = false;
-    bool ignore = true;
+        BlockIdExt b;
+        bool is_proof = false;
+        bool ignore = true;
 
-    f.ref().visit(td::overloaded(
-        [&](const fileref::Proof &p) {
-          b = p.block_id;
-          ignore = !b.is_masterchain();
-          is_proof = true;
-        },
-        [&](const fileref::ProofLink &p) {
-          b = p.block_id;
-          ignore = b.is_masterchain();
-          is_proof = true;
-        },
-        [&](const fileref::Block &p) {
-          b = p.block_id;
-          ignore = false;
-          is_proof = false;
-        },
-        [&](const auto &) { ignore = true; }));
+        f.ref().visit(td::overloaded(
+            [&](const fileref::Proof &p) {
+              b = p.block_id;
+              ignore = !b.is_masterchain();
+              is_proof = true;
+            },
+            [&](const fileref::ProofLink &p) {
+              b = p.block_id;
+              ignore = b.is_masterchain();
+              is_proof = true;
+            },
+            [&](const fileref::Block &p) {
+              b = p.block_id;
+              ignore = false;
+              is_proof = false;
+            },
+            [&](const auto &) { ignore = true; }));
 
-    if (!ignore && (with_masterchain || !b.is_masterchain())) {
-      if (is_proof) {
-        blocks_[b].proof_pkg = package;
-        blocks_[b].proof_offset = offset;
-      } else {
-        blocks_[b].data_pkg = package;
-        blocks_[b].data_offset = offset;
-      }
-      if (b.is_masterchain()) {
-        masterchain_blocks_[b.seqno()] = b;
-        last_masterchain_seqno_ = std::max(last_masterchain_seqno_, b.seqno());
-      } else {
-        have_shard_blocks_ = true;
-      }
-    }
-    return true;
-  });
+        if (!ignore && (with_masterchain || !b.is_masterchain())) {
+          if (is_proof) {
+            blocks_[b].proof_pkg = package;
+            blocks_[b].proof_offset = offset;
+          } else {
+            blocks_[b].data_pkg = package;
+            blocks_[b].data_offset = offset;
+          }
+          if (b.is_masterchain()) {
+            masterchain_blocks_[b.seqno()] = b;
+            last_masterchain_seqno_ = std::max(last_masterchain_seqno_, b.seqno());
+          } else {
+            have_shard_blocks_ = true;
+          }
+        }
+        return true;
+      })
+      .ignore();
   return S;
 }
 
@@ -290,7 +292,7 @@ void ArchiveImporter::checked_all_masterchain_blocks() {
     return;
   }
   BlockIdExt block_id;
-  CHECK(last_masterchain_state_->get_old_mc_block_id(start_import_seqno_, block_id));
+  CHECK(last_masterchain_state_->get_old_mc_block_id(start_import_seqno_ - 1, block_id));
   td::actor::send_closure(manager_, &ValidatorManager::get_shard_state_from_db_short, block_id,
                           [SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
                             R.ensure();

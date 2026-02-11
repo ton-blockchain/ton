@@ -23,12 +23,15 @@ set(VALIDATOR_DB_SOURCE
   db/staticfilesdb.hpp
   db/db-utils.cpp
   db/db-utils.h
+  db/db-event-publisher.cpp
+  db/db-event-publisher.hpp
 
   db/package.hpp
   db/package.cpp
 )
 
 set(VALIDATOR_HEADERS
+  types.h
   block-handle.hpp
   get-next-key-blocks.h
 
@@ -45,12 +48,10 @@ set(VALIDATOR_HEADERS
   interfaces/out-msg-queue-proof.h
   interfaces/proof.h
   interfaces/shard.h
-  interfaces/signature-set.h
   interfaces/validator-full-id.h
   interfaces/validator-manager.h
-  interfaces/validator-set.h
   invariants.hpp
-  
+
   import-db-slice.hpp
   import-db-slice-local.hpp
   queue-size-counter.hpp
@@ -105,6 +106,23 @@ set(VALIDATOR_SOURCE
 
   manager-init.cpp
   manager.cpp
+
+  consensus/null/consensus.cpp
+  consensus/simplex/bus.cpp
+  consensus/simplex/candidate-resolver.cpp
+  consensus/simplex/certificate.cpp
+  consensus/simplex/consensus.cpp
+  consensus/simplex/pool.cpp
+  consensus/simplex/votes.cpp
+  consensus/block-accepter.cpp
+  consensus/block-producer.cpp
+  consensus/block-validator.cpp
+  consensus/bridge.cpp
+  consensus/bus.cpp
+  consensus/private-overlay.cpp
+  consensus/stats-collector.cpp
+  consensus/types.cpp
+  consensus/utils.cpp
 
   ${VALIDATOR_HEADERS}
 )
@@ -187,31 +205,46 @@ add_library(validator-disk STATIC ${DISK_VALIDATOR_SOURCE})
 add_library(validator-hardfork STATIC ${HARDFORK_VALIDATOR_SOURCE})
 add_library(full-node STATIC ${FULL_NODE_SOURCE})
 
-target_include_directories(validator PUBLIC 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto 
+if (MSVC)
+  # Work around MSVC ICE in consensus/simplex/consensus.cpp by disabling optimizer passes for this TU.
+  # Newer MSVC (17.11 / 19.41+) ICEs with the old workaround, so only apply it to older toolsets.
+  if (MSVC_VERSION LESS 1941)
+    include(CheckCXXCompilerFlag)
+    check_cxx_compiler_flag("/d2ssaoptimizer-" TON_MSVC_HAS_D2SSAOPT)
+    set(TON_MSVC_CONSENSUS_OPTS "/Od" "/GL-")
+    if (TON_MSVC_HAS_D2SSAOPT)
+      list(APPEND TON_MSVC_CONSENSUS_OPTS "/d2ssaoptimizer-")
+    endif()
+    set_source_files_properties(consensus/simplex/consensus.cpp PROPERTIES
+      COMPILE_OPTIONS "${TON_MSVC_CONSENSUS_OPTS}")
+  endif()
+endif()
+
+target_include_directories(validator PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto
   ${OPENSSL_INCLUDE_DIR}
 )
 
-target_include_directories(validator-disk PUBLIC 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto 
+target_include_directories(validator-disk PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto
   ${OPENSSL_INCLUDE_DIR}
   )
 
-target_include_directories(validator-hardfork PUBLIC 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto 
+target_include_directories(validator-hardfork PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto
   ${OPENSSL_INCLUDE_DIR}
   )
 
-target_include_directories(full-node PUBLIC 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto 
+target_include_directories(full-node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto
   ${OPENSSL_INCLUDE_DIR}
   )
 

@@ -148,6 +148,10 @@ void AdnlNetworkManagerImpl::receive_udp_message(td::UdpMessage message, size_t 
         message.address = td::IPAddress{};
       }
       if ((packet.flags & 6) == 6) {
+        if (packet.seqno <= 0 || packet.adnl_start_time < 0) {
+          VLOG(ADNL_WARNING) << this << ": dropping proxy packet: invalid start_time/seqno";
+          return;
+        }
         if (proxy_iface.received.packet_is_delivered(packet.adnl_start_time, packet.seqno)) {
           VLOG(ADNL_WARNING) << this << ": dropping duplicate proxy packet";
           return;

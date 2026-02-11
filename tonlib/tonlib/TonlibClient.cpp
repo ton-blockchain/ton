@@ -16,6 +16,7 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "auto/tl/ton_api.hpp"
 #include "auto/tl/tonlib_api.hpp"
 #include "block/block-auto.h"
 #include "block/check-proof.h"
@@ -127,6 +128,36 @@ auto to_tonlib_api(const ton::BlockIdExt& blk) {
 tonlib_api::object_ptr<tonlib_api::options_configInfo> to_tonlib_api(const TonlibClient::FullConfig& full_config) {
   return tonlib_api::make_object<tonlib_api::options_configInfo>(full_config.wallet_id,
                                                                  full_config.rwallet_init_public_key);
+}
+
+td::Result<tonlib_api::object_ptr<tonlib_api::blocks_BlockSignatures>> to_tonlib_api(
+    const ton::BlockIdExt& blk, td::Ref<block::BlockSignatureSet> sig_set) {
+  if (!sig_set->is_final()) {
+    return td::Status::Error("not final signature set");
+  }
+  tonlib_api::object_ptr<tonlib_api::blocks_BlockSignatures> result;
+  ton::ton_api::downcast_call(*sig_set->tl(),
+                              td::overloaded(
+                                  [&](const ton::ton_api::tonNode_signatureSet_ordinary& obj) {
+                                    std::vector<tonlib_api_ptr<tonlib_api::blocks_signature>> signatures;
+                                    for (const auto& s : obj.signatures_) {
+                                      signatures.push_back(ton::create_tl_object<tonlib_api::blocks_signature>(
+                                          s->who_, s->signature_.as_slice().str()));
+                                    }
+                                    result = ton::create_tl_object<tonlib_api::blocks_blockSignatures>(
+                                        to_tonlib_api(blk), std::move(signatures));
+                                  },
+                                  [&](const ton::ton_api::tonNode_signatureSet_simplex& obj) {
+                                    std::vector<tonlib_api_ptr<tonlib_api::blocks_signature>> signatures;
+                                    for (const auto& s : obj.signatures_) {
+                                      signatures.push_back(ton::create_tl_object<tonlib_api::blocks_signature>(
+                                          s->who_, s->signature_.as_slice().str()));
+                                    }
+                                    result = ton::create_tl_object<tonlib_api::blocks_blockSignatures_simplex>(
+                                        to_tonlib_api(blk), std::move(signatures), obj.session_id_, obj.slot_,
+                                        ton::serialize_tl_object(obj.candidate_, true).as_slice().str());
+                                  }));
+  return result;
 }
 
 class TonlibQueryActor : public td::actor::Actor {
@@ -1491,7 +1522,7 @@ class GetRawAccountState : public td::actor::Actor {
 class GetMasterchainBlockSignatures : public td::actor::Actor {
  public:
   GetMasterchainBlockSignatures(ExtClientRef ext_client_ref, ton::BlockSeqno seqno, td::actor::ActorShared<> parent,
-                                td::Promise<tonlib_api_ptr<tonlib_api::blocks_blockSignatures>>&& promise)
+                                td::Promise<tonlib_api_ptr<tonlib_api::blocks_BlockSignatures>>&& promise)
       : block_id_short_(ton::masterchainId, ton::shardIdAll, seqno)
       , parent_(std::move(parent))
       , promise_(std::move(promise)) {
@@ -1596,7 +1627,7 @@ class GetMasterchainBlockSignatures : public td::actor::Actor {
     }
     auto chain = R.move_as_ok();
     if (chain->from != prev_block_id_ || chain->to != block_id_ || !chain->complete || chain->links.empty() ||
-        chain->last_link().signatures.empty()) {
+        chain->last_link().sig_set.is_null()) {
       abort(td::Status::Error("got invalid proof chain"));
       return;
     }
@@ -1605,12 +1636,7 @@ class GetMasterchainBlockSignatures : public td::actor::Actor {
       abort(std::move(S));
       return;
     }
-    std::vector<tonlib_api_ptr<tonlib_api::blocks_signature>> signatures;
-    for (const auto& s : chain->last_link().signatures) {
-      signatures.push_back(ton::create_tl_object<tonlib_api::blocks_signature>(s.node, s.signature.as_slice().str()));
-    }
-    promise_.set_result(
-        ton::create_tl_object<tonlib_api::blocks_blockSignatures>(to_tonlib_api(block_id_), std::move(signatures)));
+    promise_.set_result(to_tonlib_api(block_id_, chain->last_link().sig_set));
     stop();
   }
 
@@ -1622,7 +1648,7 @@ class GetMasterchainBlockSignatures : public td::actor::Actor {
  private:
   ton::BlockId block_id_short_;
   td::actor::ActorShared<> parent_;
-  td::Promise<tonlib_api_ptr<tonlib_api::blocks_blockSignatures>> promise_;
+  td::Promise<tonlib_api_ptr<tonlib_api::blocks_BlockSignatures>> promise_;
   ExtClient client_;
   ton::BlockIdExt block_id_;
   ton::BlockId prev_block_id_short_;
@@ -6298,7 +6324,7 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getBlockHeader& req
 }
 
 td::Status TonlibClient::do_request(const tonlib_api::blocks_getMasterchainBlockSignatures& request,
-                                    td::Promise<object_ptr<tonlib_api::blocks_blockSignatures>>&& promise) {
+                                    td::Promise<object_ptr<tonlib_api::blocks_BlockSignatures>>&& promise) {
   auto actor_id = actor_id_++;
   actors_[actor_id] = td::actor::create_actor<GetMasterchainBlockSignatures>(
       "GetMasterchainBlockSignatures", client_.get_client(), request.seqno_, actor_shared(this, actor_id),

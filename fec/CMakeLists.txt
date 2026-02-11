@@ -5,9 +5,9 @@ set(FEC_SOURCE
 
 add_library(fec STATIC ${FEC_SOURCE})
 
-target_include_directories(fec PUBLIC 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
+target_include_directories(fec PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
   ${OPENSSL_INCLUDE_DIR}
 )
 target_link_libraries(fec PRIVATE tl_api)

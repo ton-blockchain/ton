@@ -119,4 +119,12 @@ struct optional<T, false> : optional<T, true> {
   ~optional() = default;
 };
 
+template <class T>
+StringBuilder &operator<<(StringBuilder &sb, const optional<T> &v) {
+  if (v) {
+    return sb << "Some{" << v.value() << "}";
+  }
+  return sb << "None";
+}
+
 }  // namespace td

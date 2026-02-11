@@ -23,7 +23,7 @@ $3 "new-wallet" replace-if-null =: file-base
 <b 0 32 u, subwallet-id 32 u,
    file-base +".pk" load-generate-keypair
    constant wallet_pk
-   B, 
+   B,
 b> // data
 null // no libraries
 <b b{0011} s, 3 roll ref, rot ref, swap dict, b>  // create StateInit

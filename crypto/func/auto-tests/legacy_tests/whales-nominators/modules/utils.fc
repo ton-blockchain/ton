@@ -37,8 +37,8 @@ builder store_coins(builder b, int x) asm "STGRAMS";
 () send_std_message(
   slice to_addr,
   int value,
-  int mode, 
-  int op, 
+  int mode,
+  int op,
   int query_id,
   builder content
 ) impure {
@@ -63,8 +63,8 @@ builder store_coins(builder b, int x) asm "STGRAMS";
 () send_empty_std_message(
   slice to_addr,
   int value,
-  int mode, 
-  int op, 
+  int mode,
+  int op,
   int query_id
 ) impure {
 
@@ -87,7 +87,7 @@ builder store_coins(builder b, int x) asm "STGRAMS";
 () send_text_message(
   slice to_addr,
   int value,
-  int mode, 
+  int mode,
   builder content
 ) impure {
 

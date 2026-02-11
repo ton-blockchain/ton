@@ -2203,7 +2203,7 @@ int exec_send_message(VmState* st) {
   };
   compute_fees();
 
-  auto stored_grams_len = [](td::RefInt256 const& x) -> unsigned {
+  auto stored_grams_len = [](const td::RefInt256& x) -> unsigned {
     unsigned bits = x->bit_size(false);
     return 4 + ((bits + 7) & ~7);
   };

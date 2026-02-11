@@ -5,7 +5,7 @@
        3 3 BLKPUSH
        // -ROT OVER ADD ROT OVER ADD -ROT OVER ADD ROT
        s2 s1 PUXC ADD TUCK ADD s2 s1 PUXC ADD SWAP
-       DUP ISPOS 
+       DUP ISPOS
      }>DO<{
        s4 POP s4 POP s4 POP INC
      }>
@@ -33,7 +33,7 @@ drop
      }>
      DUP 250 QFITS ISNAN
    }>UNTIL
-   2DROP s3 POP s3 POP DROP 
+   2DROP s3 POP s3 POP DROP
 }>s dup csr.
 1 { 10 * } 75 times constant One
 { One swap */r } : frac*One

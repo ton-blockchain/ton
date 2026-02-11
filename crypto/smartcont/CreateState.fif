@@ -86,7 +86,7 @@ validators-weight 0!
 } : serialize-adnl-validator
 // ( weight val-cell -- )
 { swap validators-weight +!
-  <s validator-dict 2@ dup 1+ 3 -roll swap 
+  <s validator-dict 2@ dup 1+ 3 -roll swap
   16 udict!+ 0= abort"cannot add validator"
   swap validator-dict 2!
 } : register-validator
@@ -96,7 +96,7 @@ validators-weight 0!
 { -rot 2 pick serialize-adnl-validator register-validator
 } : add-adnl-validator
 // since-ut until-ut main-val-cnt-or-0 --
-{ ?dup 0= { validator# } if 
+{ ?dup 0= { validator# } if
   validator# 0= abort"no initial validators defined"
   rot <b x{12} s, swap 32 u, rot 32 u, validator# 16 u, swap 16 u,
   validators-weight @ 64 u,  validator-dict @ first dict, b>
@@ -145,8 +145,8 @@ variable special-dict
 } : config.storage_prices!
 { 16 << } : sg*
 { 16 <</r } : sg*/
-{ bl word (number) ?dup 0= abort"not a valid 2^16-based fraction" 
-  1- { sg*/ } { sg* } cond 
+{ bl word (number) ?dup 0= abort"not a valid 2^16-based fraction"
+  1- { sg*/ } { sg* } cond
   1 'nop
 } ::_ sg~
 
@@ -173,6 +173,14 @@ variable special-dict
 // round-candidates next-cand-delay-ms consensus-timeout-ms fast-attempts attempt-duration cc-max-deps max-block-size max-collated-size new-cc-ids
 { 8 1 reverse <b x{d701_} s, swap 1 i, swap 8 u, { swap 32 u, } 7 times b> } : make-vsession-params
 { make-vsession-params 29 config! } : config.consensus_params!
+
+// target_rate-ms
+{ <b x{2000} s, swap 32 u, b> } : make-null-consensus-params
+// target-rate-ms slots-per-leader-window first-block-timeout-ms max-leader-window-desync
+{ <b x{21} s, 1 8 u, 4 roll 32 u, 3 roll 32 u, rot 32 u, swap 32 u, b> } : make-simplex-params
+// mc-params shard-params
+{ <b x{10} s, rot dict, swap dict, b> } : make-new-consensus-params-all
+{ make-new-consensus-params-all 30 config! } : config.new_consensus_params_all!
 
 // b [underload soft hard] -- b'
 { untriple 3 roll x{c3} s, 3 roll 32 u, rot 32 u, swap 32 u, } : param_limits,
@@ -216,8 +224,8 @@ variable special-dict
 { /r } : nGram*/
 
 // GR$.17 is equivalent to 170000000
-{ bl word (number) ?dup 0= abort"not a valid Gram amount" 
-  1- { Gram swap */r } { Gram * } cond 
+{ bl word (number) ?dup 0= abort"not a valid Gram amount"
+  1- { Gram swap */r } { Gram * } cond
   1 'nop
 } ::_ GR$
 
@@ -308,7 +316,7 @@ now 86400 / 1+ 86400 * rwallet-start-at !
 // pubkey amount --
 { over ."Key " pubkey>$ type ." -> "
   RWCode2  // code
-  <b 1 32 u, 3 pick 256 u, rwallet-start-at @ 32 u, 
+  <b 1 32 u, 3 pick 256 u, rwallet-start-at @ 32 u,
      3 roll make-rdict dict, b>  // data
   empty_cell  // libs
   3 roll  // balance

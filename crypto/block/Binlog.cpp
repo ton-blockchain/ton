@@ -25,9 +25,9 @@
 
 namespace block {
 /*
- * 
+ *
  *    GENERIC BINLOG (move to separate file)
- * 
+ *
  */
 
 BinlogBuffer::BinlogBuffer(std::unique_ptr<BinlogCallback> cb, std::size_t _max_size, td::FileFd fd)

@@ -56,7 +56,7 @@ class DataCell final : public Cell {
     }
   }
 
-  DataCell(DataCell const&) = delete;
+  DataCell(const DataCell&) = delete;
   DataCell(DataCell&&) = delete;
 
   ~DataCell();
@@ -106,8 +106,8 @@ class DataCell final : public Cell {
     return bit_length_;
   }
 
-  unsigned char const* get_data() const {
-    return reinterpret_cast<unsigned char const*>(trailer_ + sizeof(detail::LevelInfo) * (level_ + 1));
+  const unsigned char* get_data() const {
+    return reinterpret_cast<const unsigned char*>(trailer_ + sizeof(detail::LevelInfo) * (level_ + 1));
   }
 
   Ref<Cell> get_ref(unsigned idx) const {
@@ -171,8 +171,8 @@ class DataCell final : public Cell {
   DataCell(int bit_length, size_t refs_cnt, Cell::SpecialType type, LevelMask level_mask, bool allocated_in_arena,
            bool virtualized);
 
-  detail::LevelInfo const* level_info() const {
-    return reinterpret_cast<detail::LevelInfo const*>(trailer_);
+  const detail::LevelInfo* level_info() const {
+    return reinterpret_cast<const detail::LevelInfo*>(trailer_);
   }
 
   virtual td::uint16 do_get_depth(td::uint32 level) const override {

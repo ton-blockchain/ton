@@ -326,7 +326,7 @@ fun test15() {
         m = i; m = t;
         t = i; t = m;
     }
-    
+
     return (
         i.plus0(), i.plus1(), i.plus2(),
         m.plus0(), m.plus1(), m.plus2(),

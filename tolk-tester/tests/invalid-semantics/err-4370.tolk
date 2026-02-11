@@ -17,5 +17,5 @@ fun test(x: int, y: int) {
 /**
 @compilation_should_fail
 @stderr can not borrow `x` for mutation once again, it is already being mutated by `int.incrementBy`
-@stderr ([y, x] = [0, 0]).0 
+@stderr ([y, x] = [0, 0]).0
  */

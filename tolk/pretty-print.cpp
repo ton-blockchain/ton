@@ -28,7 +28,7 @@ using namespace tolk;
  * Every function should be named `debug_print` and accept a single const-ref argument.
  * The rest will work automatically.
  * No changes for "prettified" classes are required: these functions are fully standalone.
- * 
+ *
  * NOTE! When adding a new function, its argument type should be listed in lldb_addons.py.
  *
  * See .lldbinit and lldb_addons.py.
@@ -250,7 +250,7 @@ std::string debug_print(const AsmOpList* op_list) {
 
 std::string debug_print(const Stack* stack) {
   std::ostringstream os;
-  
+
   if (stack->s.empty()) {
     os << "(empty) ";
   } else {

@@ -10,5 +10,5 @@ fun main(c: Color) {
 
 /**
 @compilation_should_fail
-@stderr field `Red` doesn't exist in type `Color` 
+@stderr field `Red` doesn't exist in type `Color`
  */

@@ -9,7 +9,7 @@
   <hr/>
 </div>
 
-## 
+##
 
 <p align="center">
   <a href="https://tonresear.ch">
@@ -71,21 +71,21 @@ Usually, the response to your pull request will indicate which section it falls 
 
 ## Build TON blockchain
 
-### Ubuntu 20.4, 22.04, 24.04 (x86-64, aarch64)
+### Ubuntu 22.04, 24.04 (x86-64, aarch64)
 Install additional system libraries
 ```bash
   sudo apt-get update
-  sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
-          
+  sudo apt-get install -y build-essential git cmake ninja-build
+
   wget https://apt.llvm.org/llvm.sh
   chmod +x llvm.sh
-  sudo ./llvm.sh 16 all
+  sudo ./llvm.sh 21 clang
 ```
 Compile TON binaries
 ```bash
   cp assembly/native/build-ubuntu-shared.sh .
   chmod +x build-ubuntu-shared.sh
-  ./build-ubuntu-shared.sh  
+  ./build-ubuntu-shared.sh
 ```
 
 ### MacOS 11, 12 (x86-64, aarch64)
@@ -99,25 +99,43 @@ Compile TON binaries
 You need to install `MS Visual Studio 2022` first.
 Go to https://www.visualstudio.com/downloads/ and download `MS Visual Studio 2022 Community`.
 
-Launch installer and select `Desktop development with C++`. 
+Launch installer and select `Desktop development with C++`.
 After installation, also make sure that `cmake` is globally available by adding
 `C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin` to the system `PATH` (adjust the path per your needs).
 
-Open an elevated (Run as Administrator) `x86-64 Native Tools Command Prompt for VS 2022`, go to the root folder and execute: 
+Open an elevated (Run as Administrator) `x86-64 Native Tools Command Prompt for VS 2022`, go to the root folder, and execute:
 ```bash
-  copy assembly\native\build-windows.bat .
-  build-windows.bat
+  copy assembly\native\build-windows-2022.bat .
+  build-windows-2022.bat
 ```
+
+### MSYS2 MinGW64 (x86-64)
+Execute from MinGW64 shell
+```bash
+  cp assembly/msys2/build-mingw64-clang21.sh .
+  chmod +x build-mingw64-clang21.sh
+  ./build-mingw64-clang21.sh -a
+```
+As a result, you will get fully statically compiled TON windows binaries.
+
+### MSYS2 UCRT64 (x86-64)
+Execute from ucrt64 shell
+```bash
+  cp assembly/msys2/build-ucrt64-clang21.sh .
+  chmod +x build-ucrt64-clang21.sh
+  ./build-ucrt64-clang21.sh -a
+```
+As a result, you will get fully statically compiled TON windows binaries.
 
 ### Building TON to WebAssembly
 Install additional system libraries on Ubuntu
 ```bash
   sudo apt-get update
-  sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
-          
+  sudo apt-get install -y build-essential git cmake ninja-build
+
   wget https://apt.llvm.org/llvm.sh
   chmod +x llvm.sh
-  sudo ./llvm.sh 16 all
+  sudo ./llvm.sh 21 clang
 ```
 Compile TON binaries with emscripten
 ```bash
@@ -131,8 +149,7 @@ Install additional system libraries on Ubuntu
 ```bash
   sudo apt-get update
   sudo apt-get install -y build-essential git cmake ninja-build automake libtool texinfo autoconf libgflags-dev \
-  zlib1g-dev libssl-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev \
-  libtool autoconf libsodium-dev libsecp256k1-dev
+  libreadline-dev pkg-config libgsl-dev python3 python3-dev libtool autoconf
 ```
 Compile TON tonlib library
 ```bash
@@ -144,7 +161,7 @@ Compile TON tonlib library
 ### TON portable binaries
 
 Linux portable binaries are wrapped into AppImages, at the same time MacOS portable binaries are statically linked executables.
-Linux and MacOS binaries are available for both x86-64 and arm64 architectures. 
+Linux and MacOS binaries are available for both x86-64 and arm64 architectures.
 
 ## Running tests
 

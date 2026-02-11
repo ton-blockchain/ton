@@ -619,7 +619,7 @@ fun test51(init: int) {
         slice => {
             if (a !is int) {
                 a = a.loadInt(32) as int8;
-            } 
+            }
         }
     }
     __expect_type(a, "int");
@@ -787,7 +787,7 @@ fun test62() {
         ((5 as int64) as int32 | int64).toTuple(),
         myFromTuple<int32 | int64>([10, 48] as tuple) is int64,
         myFromTuple<int32 | int64>([10, 48] as tuple).typeNameOfObject().bitsEqual("int32 | int64"),
-    ) 
+    )
 }
 
 

@@ -27,9 +27,9 @@
 namespace vm {
 
 /*
- * 
+ *
  *  DictionaryBase : basic (common) dictionary manipulation
- * 
+ *
  */
 
 DictionaryBase::DictionaryBase(Ref<CellSlice> _root, int _n, bool validate)
@@ -236,7 +236,7 @@ bool DictionaryFixed::check_fork_raw(Ref<CellSlice> cs_ref, int n) const {
 }
 
 /*
- * 
+ *
  *  Label parser (HmLabel n ~l) for all dictionary types
  *
  */
@@ -408,9 +408,9 @@ int LabelParser::copy_label_prefix_to(td::BitPtr to, int max_len) const {
 }  // namespace dict
 
 /*
- * 
+ *
  *   Usual Dictionary
- * 
+ *
  */
 
 using dict::LabelParser;
@@ -2575,9 +2575,9 @@ bool DictionaryFixed::validate_all() {
 }
 
 /*
- * 
+ *
  *   PREFIX DICTIONARIES
- * 
+ *
  */
 
 std::pair<Ref<CellSlice>, int> PrefixDictionary::lookup_prefix(td::ConstBitPtr key, int key_len) {
@@ -2668,9 +2668,9 @@ Ref<CellSlice> PrefixDictionary::lookup_delete(td::ConstBitPtr key, int key_len)
 }
 
 /*
- * 
+ *
  *   AUGMENTED DICTIONARIES
- * 
+ *
  */
 
 namespace dict {

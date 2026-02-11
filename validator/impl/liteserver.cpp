@@ -25,6 +25,8 @@
 #include "block/block-parse.h"
 #include "block/block.h"
 #include "block/check-proof.h"
+#include "block/signature-set.h"
+#include "block/validator-set.h"
 #include "td/actor/MultiPromise.h"
 #include "td/utils/Random.h"
 #include "td/utils/Slice.h"
@@ -44,8 +46,6 @@
 #include "fabric.h"
 #include "liteserver.hpp"
 #include "shard.hpp"
-#include "signature-set.hpp"
-#include "validator-set.hpp"
 
 namespace ton {
 
@@ -277,6 +277,9 @@ void LiteQuery::perform() {
           [&](lite_api::liteServer_nonfinal_getValidatorGroups& q) {
             this->perform_nonfinal_getValidatorGroups(q.mode_, ShardIdFull{q.wc_, (ShardId)q.shard_});
           },
+          [&](lite_api::liteServer_nonfinal_getPendingShardBlocks& q) {
+            this->perform_nonfinal_getPendingShardBlocks(q.mode_, ShardIdFull{q.wc_, (ShardId)q.shard_});
+          },
           [&](lite_api::liteServer_getOutMsgQueueSizes& q) {
             this->perform_getOutMsgQueueSizes(q.mode_ & 1 ? ShardIdFull(q.wc_, q.shard_) : td::optional<ShardIdFull>());
           },
@@ -439,7 +442,7 @@ void LiteQuery::continue_getBlockHeader(BlockIdExt blkid, int mode, Ref<ton::val
   }
   if (mode & 1) {
     // with state_update
-    vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
+    vm::CellSlice upd_cs{vm::NoVm(), blk.state_update};
     if (!(upd_cs.is_special() && upd_cs.prefetch_long(8) == 4  // merkle update
           && upd_cs.size_ext() == 0x20228)) {
       fatal_error("invalid Merkle update in block");
@@ -547,23 +550,20 @@ void LiteQuery::continue_getZeroState(BlockIdExt blkid, td::BufferSlice state) {
 
 void LiteQuery::perform_sendMessage(td::BufferSlice data) {
   LOG(INFO) << "started a sendMessage(<" << data.size() << " bytes>) liteserver query";
-  auto copy = data.clone();
-  td::actor::send_closure_later(
-      manager_, &ValidatorManager::check_external_message, std::move(copy),
-      [Self = actor_id(this), data = std::move(data), manager = manager_, cache = cache_,
-       cache_key = cache_key_](td::Result<td::Ref<ExtMessage>> res) mutable {
-        if (res.is_error()) {
-          // Don't cache errors
-          td::actor::send_closure(cache, &LiteServerCache::drop_send_message_from_cache, cache_key);
-          td::actor::send_closure(Self, &LiteQuery::abort_query,
-                                  res.move_as_error_prefix("cannot apply external message to current state : "s));
-        } else {
-          LOG(INFO) << "sending an external message to validator manager";
-          td::actor::send_closure_later(manager, &ValidatorManager::send_external_message, res.move_as_ok());
-          auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_sendMsgStatus>(1);
-          td::actor::send_closure(Self, &LiteQuery::finish_query, std::move(b), false);
-        }
-      });
+  td::actor::send_closure(
+      manager_, &ValidatorManager::new_external_message_query, std::move(data),
+      td::PromiseCreator::lambda(
+          [Self = actor_id(this), cache = cache_, cache_key = cache_key_](td::Result<td::Unit> res) mutable {
+            if (res.is_error()) {
+              // Don't cache errors
+              td::actor::send_closure(cache, &LiteServerCache::drop_send_message_from_cache, cache_key);
+              td::actor::send_closure(Self, &LiteQuery::abort_query,
+                                      res.move_as_error_prefix("cannot apply external message to current state : "s));
+            } else {
+              auto b = ton::create_serialize_tl_object<ton::lite_api::liteServer_sendMsgStatus>(1);
+              td::actor::send_closure(Self, &LiteQuery::finish_query, std::move(b), false);
+            }
+          }));
 }
 
 void LiteQuery::get_block_handle_checked(BlockIdExt blkid, td::Promise<ConstBlockHandle> promise) {
@@ -1186,7 +1186,7 @@ bool LiteQuery::make_state_root_proof(Ref<vm::Cell>& proof, Ref<vm::Cell> state_
         block::gen::BlkPrevInfo(info.after_merge).validate_ref(info.prev_ref))) {
     return fatal_error("cannot unpack block header");
   }
-  vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
+  vm::CellSlice upd_cs{vm::NoVm(), blk.state_update};
   if (!(upd_cs.is_special() && upd_cs.prefetch_long(8) == 4  // merkle update
         && upd_cs.size_ext() == 0x20228)) {
     return fatal_error("invalid Merkle update in block");
@@ -2977,7 +2977,7 @@ bool LiteQuery::construct_proof_link_forward_cont(ton::BlockIdExt cur, ton::Bloc
                                    << info.gen_utime << " and cc_seqno " << info.gen_catchain_seqno
                                    << " starting from previous key block " << cur.to_str());
     }
-    auto vset = Ref<ValidatorSetQ>{true, info.gen_catchain_seqno, shard, std::move(nodes)};
+    auto vset = Ref<block::ValidatorSet>{true, info.gen_catchain_seqno, shard, std::move(nodes)};
     if (vset.is_null()) {
       return fatal_error(PSTRING() << "cannot create validator set for block " << next.to_str() << " with utime "
                                    << info.gen_utime << " and cc_seqno " << info.gen_catchain_seqno
@@ -2993,16 +2993,12 @@ bool LiteQuery::construct_proof_link_forward_cont(ton::BlockIdExt cur, ton::Bloc
     }
     // extract signatures
     auto sig_outer_root = vres2.ok().sig_root;
-    block::gen::BlockSignatures::Record sign_rec;
-    block::gen::BlockSignaturesPure::Record sign_pure;
-    if (!(sig_outer_root.not_null() && tlb::unpack_cell(sig_outer_root, sign_rec) &&
-          tlb::csr_unpack(sign_rec.pure_signatures, sign_pure))) {
-      return fatal_error("cannot extract signature set from proof for block "s + next.to_str());
+    auto r_sig_set = block::BlockSignatureSet::fetch(sig_outer_root, vset);
+    if (r_sig_set.is_error()) {
+      return fatal_error(PSTRING() << "cannot extract signature set from proof for block " << next.to_str() << " : "
+                                   << r_sig_set.error().message());
     }
-    auto sigs = BlockSignatureSetQ::fetch(sign_pure.signatures->prefetch_ref());
-    if (sigs.is_null()) {
-      return fatal_error("cannot deserialize signature set from proof for block "s + next.to_str());
-    }
+    td::Ref<block::BlockSignatureSet> sig_set = r_sig_set.move_as_ok();
     // check signatures (sanity check; comment later for better performance)
     /*
     auto S = vset->check_signatures(next.root_hash, next.file_hash, sigs);
@@ -3013,9 +3009,7 @@ bool LiteQuery::construct_proof_link_forward_cont(ton::BlockIdExt cur, ton::Bloc
     */
     // serialize signatures
     auto& link = chain_->new_link(cur, next, info.key_block);
-    link.cc_seqno = info.gen_catchain_seqno;
-    link.validator_set_hash = info.gen_validator_list_hash_short;
-    link.signatures = std::move(sigs.write().signatures());
+    link.sig_set = sig_set;
     // serialize proofs
     if (!(cur_mpb.extract_proof_to(link.proof) && next_mpb.extract_proof_to(link.dest_proof))) {
       return fatal_error("error constructing Merkle proof for forward proof link from "s + cur.to_str() + " to " +
@@ -3119,14 +3113,9 @@ bool LiteQuery::finish_proof_chain(ton::BlockIdExt id) {
       }
       if (link.is_fwd) {
         // serialize forward link
-        std::vector<ton::tl_object_ptr<lite_api::liteServer_signature>> b;
-        for (auto& sig : link.signatures) {
-          b.push_back(create_tl_object<lite_api::liteServer_signature>(sig.node, std::move(sig.signature)));
-        }
         a.push_back(create_tl_object<lite_api::liteServer_blockLinkForward>(
             link.is_key, ton::create_tl_lite_block_id(link.from), ton::create_tl_lite_block_id(link.to),
-            std::move(dest_proof_boc), src_proof_boc.move_as_ok(),
-            create_tl_object<lite_api::liteServer_signatureSet>(link.validator_set_hash, link.cc_seqno, std::move(b))));
+            std::move(dest_proof_boc), src_proof_boc.move_as_ok(), link.sig_set->tl_lite()));
       } else {
         // serialize backward link
         auto state_proof_boc = vm::std_boc_serialize(link.state_proof);
@@ -3736,6 +3725,26 @@ void LiteQuery::perform_nonfinal_getValidatorGroups(int mode, ShardIdFull shard)
   td::actor::send_closure(
       manager_, &ValidatorManager::get_validator_groups_info_for_litequery, maybe_shard,
       [Self = actor_id(this)](td::Result<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> R) {
+        if (R.is_error()) {
+          td::actor::send_closure(Self, &LiteQuery::abort_query, R.move_as_error());
+        } else {
+          td::actor::send_closure_later(Self, &LiteQuery::finish_query, serialize_tl_object(R.move_as_ok(), true),
+                                        false);
+        }
+      });
+}
+
+void LiteQuery::perform_nonfinal_getPendingShardBlocks(int mode, ShardIdFull shard) {
+  bool with_shard = mode & 1;
+  LOG(INFO) << "started a nonfinal.getPendingShardBlocks" << (with_shard ? shard.to_str() : "(all)")
+            << " liteserver query";
+  td::optional<ShardIdFull> maybe_shard;
+  if (with_shard) {
+    maybe_shard = shard;
+  }
+  td::actor::send_closure(
+      manager_, &ValidatorManager::get_pending_shard_blocks_for_litequery, maybe_shard,
+      [Self = actor_id(this)](td::Result<tl_object_ptr<lite_api::liteServer_nonfinal_pendingShardBlocks>> R) {
         if (R.is_error()) {
           td::actor::send_closure(Self, &LiteQuery::abort_query, R.move_as_error());
         } else {

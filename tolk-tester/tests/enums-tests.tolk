@@ -40,8 +40,8 @@ enum Err {
     DisabledId,
 }
 
-struct Box<T> { 
-    value: T 
+struct Box<T> {
+    value: T
 }
 
 fun checkIsBlue(c: Color) {
@@ -83,7 +83,7 @@ fun Color.mapToNumber(self) {
 @method_id(101)
 fun test1() {
     var c = Color.Red;
-    
+
     return (
         checkIsBlue(Color.Blue), checkIsBlue(c), checkIsBlue(Color.createBlue()),
         Color.Blue.isBlue(), Color.Red.isBlue(), Color.createBlue()!!.isBlue(), C_BLUE.isBlue(),
@@ -119,7 +119,7 @@ fun test3() {
 fun test4(chooseGreen: bool) {
     var c: ColorAlias = chooseGreen ? Color.Green : ColorAlias.Blue;
     return (c is Color, (c!) is ColorAlias, ColorAlias.Blue, ColorAlias.createBlue().isBlue(), c);
-} 
+}
 
 @method_id(105)
 fun test5() {
@@ -141,16 +141,16 @@ fun test7() {
         WithColor{c1: -100 as Color, c2: Color.createBlue()}
     )
 }
-    
+
 @method_id(108)
 fun test8() {
     var (c0: Color | int, c1: Color | int) = (Color.Red, 123);
     var (u1, u2) = (Color.Red as Color | int, 0 as Color | int);
     var (b1, b2, b3) = (Color.Red as Color | EPartialAssigned | builder, EPartialAssigned.Max as ColorAlias | builder | EPartialAssigned, beginCell() as builder | Color | EPartialAssigned);
     return (
-        checkIsColor(u1), checkIsColor(u2), 
+        checkIsColor(u1), checkIsColor(u2),
         checkIsColor(b1), checkIsColor(b2), checkIsColor(b3),
-        b2 is EPartialAssigned, 
+        b2 is EPartialAssigned,
         u1,
         match (u1) { int => -100, Color => -200 }
     )
@@ -161,7 +161,7 @@ fun test9() {
     var invalidEx = 0;
     try { invalidEx = (99 as Color).mapToNumber() }
     catch (ex) { invalidEx = ex }
-    
+
     return (
         Color.Red.mapToNumber(), Color.Green.mapToNumber(), Color.Blue.mapToNumber(),
         invalidEx
@@ -283,21 +283,21 @@ fun main(c: Color) {
 @testcase | 107 |     | 0 1 -100 2
 @testcase | 108 |     | -1 0 -1 0 0 -1 0 typeid-1 -200
 @testcase | 109 |     | 100 200 300 5
-@testcase | 110 | 0   | [ 1 1 -100 88 -100 1 ] 
-@testcase | 110 | 1   | [ -100 2 -100 88 2 2 ]  
-@testcase | 110 | 2   | [ -100 3 -100 88 3 3 ]  
-@testcase | 111 | 2   | 0 -1 -1 0  
+@testcase | 110 | 0   | [ 1 1 -100 88 -100 1 ]
+@testcase | 110 | 1   | [ -100 2 -100 88 2 2 ]
+@testcase | 110 | 2   | [ -100 3 -100 88 3 3 ]
+@testcase | 111 | 2   | 0 -1 -1 0
 @testcase | 112 | 0 1 | [ 210 120 ]
 @testcase | 112 | 2 2 | [ 330 310 ]
-@testcase | 113 | -8  | 256 -1 
-@testcase | 113 | 111 | 257 0 
-@testcase | 113 | 10  | 258 0 
-@testcase | 113 | 50  | 0 0 
-@testcase | 114 | 2   | 2 1 0 1000000000 -1 
+@testcase | 113 | -8  | 256 -1
+@testcase | 113 | 111 | 257 0
+@testcase | 113 | 10  | 258 0
+@testcase | 113 | 50  | 0 0
+@testcase | 114 | 2   | 2 1 0 1000000000 -1
 
 @fif_codegen
 """
-  test1() PROC:<{ 
+  test1() PROC:<{
     TRUE
     FALSE
     TRUE
@@ -312,7 +312,7 @@ fun main(c: Color) {
 @fif_codegen
 """
   test2() PROC:<{               //  c
-    DROP                        // 
+    DROP                        //
     -1 PUSHINT                  //  '1=-1
     0 PUSHINT                   //  '1=-1 '2
     0 PUSHINT                   //  '1=-1 '2 '3=0

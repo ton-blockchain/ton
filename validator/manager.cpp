@@ -25,7 +25,9 @@
 #include "downloaders/wait-block-data.hpp"
 #include "downloaders/wait-block-state-merge.hpp"
 #include "downloaders/wait-block-state.hpp"
+#include "interfaces/validator-full-id.h"
 #include "td/actor/MultiPromise.h"
+#include "td/actor/coro_utils.h"
 #include "td/utils/JsonBuilder.h"
 #include "td/utils/Random.h"
 #include "td/utils/buffer.h"
@@ -33,6 +35,7 @@
 #include "td/utils/port/path.h"
 #include "tl-utils/lite-utils.hpp"
 #include "tl/tl_json.h"
+#include "ton/lite-tl.hpp"
 #include "ton/ton-io.hpp"
 #include "ton/ton-tl.hpp"
 #include "validator/stats-merger.h"
@@ -210,7 +213,8 @@ void ValidatorManagerImpl::validate_block(ReceivedBlock block, td::Promise<Block
   run_apply_block_query(block.id, pp.move_as_ok(), block.id, actor_id(this), td::Timestamp::in(10.0), std::move(P));
 }
 
-void ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broadcast, td::Promise<td::Unit> promise) {
+void ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked,
+                                               td::Promise<td::Unit> promise) {
   if (!started_) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "node not started"));
     return;
@@ -220,9 +224,10 @@ void ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broadcast, td::Pro
     return;
   }
   promise = [SelfId = actor_id(this), promise = std::move(promise), block_id = broadcast.block_id,
-             cc_seqno = broadcast.catchain_seqno](td::Result<td::Unit> R) mutable {
-    if (R.is_ok()) {
-      td::actor::send_closure(SelfId, &ValidatorManagerImpl::validated_block_broadcast, block_id, cc_seqno);
+             cc_seqno = broadcast.sig_set->get_catchain_seqno(),
+             is_final = broadcast.sig_set->is_final()](td::Result<td::Unit> R) mutable {
+    if (R.is_ok() && is_final) {
+      td::actor::ask(SelfId, &ValidatorManagerImpl::validated_accepted_block_broadcast, block_id, cc_seqno).detach();
     }
     promise.set_result(std::move(R));
   };
@@ -230,16 +235,39 @@ void ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broadcast, td::Pro
   td::actor::create_actor<ValidateBroadcast>(PSTRING() << "broadcast" << block_id.id.to_str(), std::move(broadcast),
                                              last_masterchain_block_handle_, last_masterchain_state_,
                                              last_known_key_block_handle_, actor_id(this), td::Timestamp::in(20.0),
-                                             std::move(promise))
+                                             std::move(promise), false, signatures_checked)
       .release();
 }
 
-void ValidatorManagerImpl::validated_block_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno) {
+void ValidatorManagerImpl::validate_block_broadcast_signatures(BlockBroadcast broadcast,
+                                                               td::Promise<td::Unit> promise) {
+  if (!started_) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "node not started"));
+    return;
+  }
+  if (!need_monitor(broadcast.block_id.shard_full())) {
+    promise.set_error(td::Status::Error("not monitoring shard"));
+    return;
+  }
+  td::actor::create_actor<ValidateBroadcast>("broadcast-sigcheck", std::move(broadcast), last_masterchain_block_handle_,
+                                             last_masterchain_state_, last_known_key_block_handle_, actor_id(this),
+                                             td::Timestamp::in(2.0), std::move(promise), true)
+      .release();
+}
+
+td::actor::Task<> ValidatorManagerImpl::validated_accepted_block_broadcast(BlockIdExt block_id,
+                                                                           CatchainSeqno cc_seqno) {
   for (auto &[_, collator_node] : collator_nodes_) {
     if (collator_node.can_collate_shard(block_id.shard_full())) {
       td::actor::send_closure(collator_node.actor, &CollatorNode::new_shard_block_accepted, block_id, cc_seqno);
     }
   }
+  if (opts_->nonfinal_ls_queries_enabled()) {
+    co_await td::actor::ask(actor_id(this), &ValidatorManagerImpl::wait_block_state_short, block_id, 0,
+                            td::Timestamp::in(60.0), true);
+  }
+  process_accepted_nonfinal_block(block_id, cc_seqno);
+  co_return td::Unit{};
 }
 
 void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
@@ -248,12 +276,12 @@ void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
   VLOG(VALIDATOR_WARNING) << "completed sync. Validating " << validator_groups_.size() << " groups";
   for (auto &v : validator_groups_) {
     if (!v.second.actor.empty()) {
-      td::actor::send_closure(v.second.actor, &ValidatorGroup::create_session);
+      td::actor::send_closure(v.second.actor, &IValidatorGroup::create_session);
     }
   }
   for (auto &v : next_validator_groups_) {
     if (!v.second.actor.empty()) {
-      td::actor::send_closure(v.second.actor, &ValidatorGroup::create_session);
+      td::actor::send_closure(v.second.actor, &IValidatorGroup::create_session);
     }
   }
 }
@@ -396,104 +424,53 @@ void ValidatorManagerImpl::get_key_block_proof_link(BlockIdExt block_id, td::Pro
   td::actor::send_closure(db_, &Db::get_key_block_proof, block_id, std::move(P));
 }
 
-void ValidatorManagerImpl::new_external_message(td::BufferSlice data, int priority) {
-  if (!validating_masterchain() && collator_nodes_.empty() &&
-      (!is_validator() || !opts_->get_collators_list()->self_collate)) {
-    return;
-  }
-  if (last_masterchain_state_.is_null()) {
-    VLOG(VALIDATOR_NOTICE) << "dropping ext message: validator is not ready";
-    return;
-  }
-  if (ext_msgs_[priority].ext_messages_.size() > (size_t)max_mempool_num()) {
-    return;
-  }
-  auto R = create_ext_message(std::move(data), last_masterchain_state_->get_ext_msg_limits());
-  if (R.is_error()) {
-    VLOG(VALIDATOR_NOTICE) << "dropping bad ext message: " << R.move_as_error();
-    return;
-  }
-  add_external_message(R.move_as_ok(), priority);
-}
-
-void ValidatorManagerImpl::add_external_message(td::Ref<ExtMessage> msg, int priority) {
-  auto &msgs = ext_msgs_[priority];
-  auto message = std::make_unique<MessageExt<ExtMessage>>(msg);
-  auto id = message->ext_id();
-  auto address = message->address();
-  unsigned long per_address_limit = 256;
-  auto it = msgs.ext_addr_messages_.find(address);
-  if (it != msgs.ext_addr_messages_.end() && it->second.size() >= per_address_limit) {
-    return;
-  }
-  auto it2 = ext_messages_hashes_.find(id.hash);
-  if (it2 != ext_messages_hashes_.end()) {
-    int old_priority = it2->second.first;
-    if (old_priority >= priority) {
-      return;
-    }
-    ext_msgs_[old_priority].erase(id);
-  }
-  msgs.ext_messages_.emplace(id, std::move(message));
-  msgs.ext_addr_messages_[address].emplace(id.hash, id);
-  ext_messages_hashes_[id.hash] = {priority, id};
-}
-void ValidatorManagerImpl::check_external_message(td::BufferSlice data, td::Promise<td::Ref<ExtMessage>> promise) {
+td::actor::Task<> ValidatorManagerImpl::new_external_message_broadcast(td::BufferSlice data, int priority) {
   if (!started_) {
-    promise.set_error(td::Status::Error(ErrorCode::notready, "node not synced"));
-    return;
+    co_return td::Status::Error(ErrorCode::notready, "node not synced");
   }
-  auto state = do_get_last_liteserver_state();
-  if (state.is_null()) {
-    promise.set_error(td::Status::Error(ErrorCode::notready, "not ready"));
-    return;
+  auto r_check_result =
+      co_await td::actor::ask(ext_message_pool_, &ExtMessagePool::check_add_external_message, std::move(data), priority,
+                              /* add_to_mempool = */ is_validator() || !collator_nodes_.empty())
+          .wrap();
+  if (r_check_result.is_error()) {
+    VLOG(VALIDATOR_DEBUG) << "Dropping external message broadcast (prio=" << priority
+                          << ") : " << r_check_result.error();
+    co_return r_check_result.move_as_error();
   }
-  auto R = create_ext_message(std::move(data), state->get_ext_msg_limits());
-  if (R.is_error()) {
-    promise.set_error(R.move_as_error_prefix("failed to parse external message: "));
-    return;
+  auto check_result = r_check_result.move_as_ok();
+  auto allow_broadcast = co_await std::move(check_result.wait_allow_broadcast).wrap();
+  if (allow_broadcast.is_error()) {
+    VLOG(VALIDATOR_DEBUG) << "Dropping external message broadcast (prio=" << priority
+                          << ") : " << allow_broadcast.error();
+    co_return allow_broadcast.move_as_error();
   }
-  auto message = R.move_as_ok();
-  WorkchainId wc = message->wc();
-  StdSmcAddress addr = message->addr();
-  if (checked_ext_msg_counter_.get_msg_count(wc, addr) >= max_ext_msg_per_addr()) {
-    promise.set_error(
-        td::Status::Error(PSTRING() << "too many external messages to address " << wc << ":" << addr.to_hex()));
-    return;
-  }
+  VLOG(VALIDATOR_DEBUG) << "Checked external message broadcast to " << check_result.message->wc() << ":"
+                        << check_result.message->addr().to_hex() << " (prio=" << priority << ")";
+  co_return td::Unit{};
+}
 
-  promise = [self = this, wc, addr, promise = std::move(promise),
-             SelfId = actor_id(this)](td::Result<td::Ref<ExtMessage>> R) mutable {
-    td::actor::send_lambda(SelfId, [=, promise = std::move(promise), R = std::move(R)]() mutable {
-      ++(R.is_ok() ? self->total_check_ext_messages_ok_ : self->total_check_ext_messages_error_);
-      TRY_RESULT_PROMISE(promise, message, std::move(R));
-      if (self->checked_ext_msg_counter_.inc_msg_count(wc, addr) > max_ext_msg_per_addr()) {
-        promise.set_error(
-            td::Status::Error(PSTRING() << "too many external messages to address " << wc << ":" << addr.to_hex()));
-        return;
-      }
-      promise.set_result(std::move(message));
-    });
-  };
-  ++ls_stats_check_ext_messages_;
-  run_check_external_message(std::move(message), actor_id(this), std::move(promise));
+td::actor::Task<> ValidatorManagerImpl::new_external_message_query(td::BufferSlice data) {
+  auto [message, wait_allow_broadcast] =
+      co_await td::actor::ask(ext_message_pool_, &ExtMessagePool::check_add_external_message, std::move(data), 0,
+                              /* add_to_mempool = */ is_validator() || !collator_nodes_.empty());
+  new_external_message_query_cont(std::move(message), std::move(wait_allow_broadcast)).start().detach();
+  co_return td::Unit{};
+}
+
+td::actor::Task<> ValidatorManagerImpl::new_external_message_query_cont(td::Ref<ExtMessage> message,
+                                                                        td::actor::StartedTask<> wait_allow_broadcast) {
+  auto result = co_await std::move(wait_allow_broadcast).wrap();
+  if (result.is_error()) {
+    LOG(INFO) << "Cannot send external message to " << message->wc() << ":" << message->addr().to_hex() << " : "
+              << result.error();
+  } else {
+    LOG(INFO) << "Sending external message to " << message->wc() << ":" << message->addr().to_hex();
+    callback_->send_ext_message(message->shard(), message->serialize());
+  }
+  co_return td::Unit{};
 }
 
 void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
-  if (collator_nodes_.empty() && (!is_validator() || !opts_->get_collators_list()->self_collate)) {
-    return;
-  }
-  auto R = create_ihr_message(std::move(data));
-  if (R.is_error()) {
-    VLOG(VALIDATOR_NOTICE) << "dropping bad ihr message: " << R.move_as_error();
-    return;
-  }
-  auto M = std::make_unique<MessageExt<IhrMessage>>(R.move_as_ok());
-  auto id = M->ext_id();
-  if (ihr_messages_hashes_.count(id.hash) == 0) {
-    ihr_messages_.emplace(id, std::move(M));
-    ihr_messages_hashes_.emplace(id.hash, id);
-  }
 }
 
 void ValidatorManagerImpl::new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
@@ -525,16 +502,41 @@ void ValidatorManagerImpl::new_shard_block_description_broadcast(BlockIdExt bloc
                                        actor_id(this), td::Timestamp::in(2.0), std::move(P));
 }
 
-void ValidatorManagerImpl::new_block_candidate_broadcast(BlockIdExt block_id, td::BufferSlice data) {
+td::actor::Task<> ValidatorManagerImpl::new_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
+                                                                      td::BufferSlice data) {
   if (!last_masterchain_block_handle_ || !started_) {
     VLOG(VALIDATOR_DEBUG) << "dropping top shard block broadcast: not inited";
-    return;
+    co_return td::Unit{};
   }
   if (!need_monitor(block_id.shard_full())) {
     VLOG(VALIDATOR_DEBUG) << "dropping block candidate broadcast: not monitoring shard";
-    return;
+    co_return td::Unit{};
   }
-  add_cached_block_data(block_id, std::move(data));
+  add_cached_block_data(block_id, data.clone());
+
+  if (opts_->nonfinal_ls_queries_enabled()) {
+    auto handle = co_await td::actor::ask(actor_id(this), &ValidatorManagerImpl::get_block_handle, block_id, true);
+    Ref<BlockData> block = co_await create_block(block_id, std::move(data));
+    co_await td::actor::ask(actor_id(this), &ValidatorManagerImpl::set_block_data, handle, std::move(block));
+    co_await td::actor::ask(actor_id(this), &ValidatorManagerImpl::wait_block_state, handle, 0, td::Timestamp::in(60.0),
+                            true);
+    VLOG(VALIDATOR_DEBUG) << "Processed candidate broadcast " << block_id.to_str();
+    if (is_valid_nonfinal_group(block_id.shard_full(), cc_seqno)) {
+      NonfinalGroupInfo &info = nonfinal_info_[{block_id.shard_full(), cc_seqno}];
+      if (!info.last_accepted.is_valid() || info.last_accepted.seqno() < block_id.seqno()) {
+        if (!info.last_candidate.is_valid() || info.last_candidate.seqno() < block_id.seqno()) {
+          info.last_candidate = block_id;
+        }
+      }
+    }
+  }
+  if (!db_event_publisher_.empty() && is_valid_nonfinal_group(block_id.shard_full(), cc_seqno)) {
+    VLOG(VALIDATOR_DEBUG) << "DB Event: blockCandidateReceived " << block_id.to_str();
+    td::actor::ask(db_event_publisher_, &DbEventPublisher::publish,
+                   create_tl_object<ton_api::db_event_blockCandidateReceived>(create_tl_block_id(block_id)))
+        .detach();
+  }
+  co_return td::Unit{};
 }
 
 void ValidatorManagerImpl::add_shard_block_description(td::Ref<ShardTopBlockDescription> desc) {
@@ -556,7 +558,13 @@ void ValidatorManagerImpl::add_shard_block_description(td::Ref<ShardTopBlockDesc
   for (auto &[_, actor] : shard_block_retainers_) {
     td::actor::send_closure(actor, &ShardBlockRetainer::new_shard_block_description, desc);
   }
-  if (!is_validator()) {
+  for (auto &[_, collator_node] : collator_nodes_) {
+    if (collator_node.can_collate_shard(desc->shard())) {
+      td::actor::send_closure(collator_node.actor, &CollatorNode::new_shard_block_accepted, desc->block_id(),
+                              desc->catchain_seqno());
+    }
+  }
+  if (!is_validator() && !opts_->nonfinal_ls_queries_enabled()) {
     return;
   }
   auto it = shard_blocks_.find(ShardTopBlockDescriptionId{desc->shard(), desc->catchain_seqno()});
@@ -565,19 +573,30 @@ void ValidatorManagerImpl::add_shard_block_description(td::Ref<ShardTopBlockDesc
     return;
   }
   shard_blocks_[ShardTopBlockDescriptionId{desc->block_id().shard_full(), desc->catchain_seqno()}].latest_desc = desc;
-  VLOG(VALIDATOR_DEBUG) << "new shard block descr for " << desc->block_id();
+  VLOG(VALIDATOR_DEBUG) << "new shard block descr for " << desc->block_id().to_str();
   if (need_monitor(desc->block_id().shard_full())) {
-    auto P = td::PromiseCreator::lambda([](td::Result<td::Ref<ShardState>> R) {
-      if (R.is_error()) {
-        auto S = R.move_as_error();
-        if (S.code() != ErrorCode::timeout && S.code() != ErrorCode::notready) {
-          VLOG(VALIDATOR_NOTICE) << "failed to get shard state: " << S;
-        } else {
-          VLOG(VALIDATOR_DEBUG) << "failed to get shard state: " << S;
+    ShardIdFull shard = desc->shard();
+    shard.shard |= 1;
+    auto top_block = last_masterchain_state_->get_shard_from_config(shard, false);
+    if (top_block.not_null() && desc->block_id().seqno() > top_block->top_block_id().seqno() + 20) {
+      VLOG(VALIDATOR_DEBUG) << "new shard block descr for " << desc->block_id().id.to_str()
+                            << " is too new: last known shard block is " << top_block->top_block_id().id.to_str();
+    } else {
+      auto P = td::PromiseCreator::lambda([block_id = desc->block_id(), cc_seqno = desc->catchain_seqno(),
+                                           SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
+        if (R.is_error()) {
+          auto S = R.move_as_error();
+          if (S.code() != ErrorCode::timeout && S.code() != ErrorCode::notready) {
+            VLOG(VALIDATOR_NOTICE) << "failed to get shard state: " << S;
+          } else {
+            VLOG(VALIDATOR_DEBUG) << "failed to get shard state: " << S;
+          }
+          return;
         }
-      }
-    });
-    wait_block_state_short(desc->block_id(), 0, td::Timestamp::in(60.0), true, std::move(P));
+        td::actor::send_closure(SelfId, &ValidatorManagerImpl::process_accepted_nonfinal_block, block_id, cc_seqno);
+      });
+      wait_block_state_short(desc->block_id(), 0, td::Timestamp::in(60.0), true, std::move(P));
+    }
   }
   if (validating_masterchain()) {
     td::MultiPromise mp;
@@ -594,12 +613,6 @@ void ValidatorManagerImpl::add_shard_block_description(td::Ref<ShardTopBlockDesc
       }
       td::actor::send_closure(SelfId, &ValidatorManagerImpl::set_shard_block_description_ready, std::move(desc));
     });
-  }
-  for (auto &[_, collator_node] : collator_nodes_) {
-    if (collator_node.can_collate_shard(desc->shard())) {
-      td::actor::send_closure(collator_node.actor, &CollatorNode::new_shard_block_accepted, desc->block_id(),
-                              desc->catchain_seqno());
-    }
   }
 }
 
@@ -954,6 +967,24 @@ void ValidatorManagerImpl::wait_block_state_merge(BlockIdExt left_id, BlockIdExt
       .release();
 }
 
+void ValidatorManagerImpl::wait_state_by_prev_blocks(BlockIdExt block_id, std::vector<BlockIdExt> prev_blocks,
+                                                     td::Promise<td::Ref<ShardState>> promise) {
+  if (prev_blocks.empty() || prev_blocks.size() > 2) {
+    promise.set_error(td::Status::Error("invalid prev blocks count for state request"));
+    return;
+  }
+
+  if (prev_blocks.size() == 1) {
+    LOG(DEBUG) << "Requesting state for single prev block " << prev_blocks[0].to_str() << " for " << block_id.to_str();
+    wait_block_state_short(prev_blocks[0], 0, td::Timestamp::in(10.0), false, std::move(promise));
+    return;
+  }
+
+  LOG(DEBUG) << "Requesting merged state for prev blocks " << prev_blocks[0].to_str() << " and "
+             << prev_blocks[1].to_str() << " for " << block_id.to_str();
+  wait_block_state_merge(prev_blocks[0], prev_blocks[1], 0, td::Timestamp::in(10.0), std::move(promise));
+}
+
 void ValidatorManagerImpl::wait_prev_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
                                                  td::Promise<td::Ref<ShardState>> promise) {
   CHECK(handle);
@@ -1027,12 +1058,12 @@ void ValidatorManagerImpl::wait_block_proof_link_short(BlockIdExt block_id, td::
 }
 
 void ValidatorManagerImpl::wait_block_signatures(BlockHandle handle, td::Timestamp timeout,
-                                                 td::Promise<td::Ref<BlockSignatureSet>> promise) {
+                                                 td::Promise<td::Ref<block::BlockSignatureSet>> promise) {
   td::actor::send_closure(db_, &Db::get_block_signatures, handle, std::move(promise));
 }
 
 void ValidatorManagerImpl::wait_block_signatures_short(BlockIdExt block_id, td::Timestamp timeout,
-                                                       td::Promise<td::Ref<BlockSignatureSet>> promise) {
+                                                       td::Promise<td::Ref<block::BlockSignatureSet>> promise) {
   auto P = td::PromiseCreator::lambda(
       [SelfId = actor_id(this), timeout, promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
         if (R.is_error()) {
@@ -1076,65 +1107,11 @@ void ValidatorManagerImpl::wait_block_message_queue_short(BlockIdExt block_id, t
 
 void ValidatorManagerImpl::get_external_messages(
     ShardIdFull shard, td::Promise<std::vector<std::pair<td::Ref<ExtMessage>, int>>> promise) {
-  td::Timer t;
-  size_t processed = 0, deleted = 0;
-  std::vector<std::pair<td::Ref<ExtMessage>, int>> res;
-  MessageId<ExtMessage> left{AccountIdPrefixFull{shard.workchain, shard.shard & (shard.shard - 1)}, Bits256::zero()};
-  size_t total_msgs = 0;
-  td::Random::Fast rnd;
-  for (auto iter = ext_msgs_.rbegin(); iter != ext_msgs_.rend(); ++iter) {
-    std::vector<std::pair<td::Ref<ExtMessage>, int>> cur_res;
-    int priority = iter->first;
-    auto &msgs = iter->second;
-    auto it = msgs.ext_messages_.lower_bound(left);
-    while (it != msgs.ext_messages_.end()) {
-      auto s = it->first;
-      if (!shard_contains(shard, s.dst)) {
-        break;
-      }
-      ++processed;
-      if (it->second->expired()) {
-        msgs.ext_addr_messages_[it->second->address()].erase(it->first.hash);
-        ext_messages_hashes_.erase(it->first.hash);
-        it = msgs.ext_messages_.erase(it);
-        ++deleted;
-        continue;
-      }
-      if (it->second->is_active()) {
-        cur_res.emplace_back(it->second->message(), priority);
-      }
-      it++;
-    }
-    td::random_shuffle(td::as_mutable_span(cur_res), rnd);
-    res.insert(res.end(), cur_res.begin(), cur_res.end());
-    total_msgs += msgs.ext_messages_.size();
-  }
-  LOG(WARNING) << "get_external_messages to shard " << shard.to_str() << " : time=" << t.elapsed()
-               << " result_size=" << res.size() << " processed=" << processed << " expired=" << deleted
-               << " total_size=" << total_msgs;
-  promise.set_value(std::move(res));
+  td::actor::send_closure(ext_message_pool_, &ExtMessagePool::get_external_messages_for_collator, shard,
+                          std::move(promise));
 }
 
 void ValidatorManagerImpl::get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) {
-  std::vector<td::Ref<IhrMessage>> res;
-  MessageId<IhrMessage> left{AccountIdPrefixFull{shard.workchain, shard.shard & (shard.shard - 1)}, Bits256::zero()};
-  auto it = ihr_messages_.lower_bound(left);
-  while (it != ihr_messages_.end()) {
-    auto s = it->first;
-    if (!shard_contains(shard, s.dst)) {
-      break;
-    }
-    if (it->second->expired()) {
-      ihr_messages_hashes_.erase(it->first.hash);
-      it = ihr_messages_.erase(it);
-      continue;
-    }
-    if (it->second->is_active()) {
-      res.push_back(it->second->message());
-    }
-    it++;
-  }
-  promise.set_value(std::move(res));
 }
 
 void ValidatorManagerImpl::get_shard_blocks_for_collator(
@@ -1151,55 +1128,12 @@ void ValidatorManagerImpl::get_shard_blocks_for_collator(
 
 void ValidatorManagerImpl::complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
                                                       std::vector<ExtMessage::Hash> to_delete) {
-  for (auto &hash : to_delete) {
-    auto it = ext_messages_hashes_.find(hash);
-    if (it != ext_messages_hashes_.end()) {
-      int priority = it->second.first;
-      auto msg_id = it->second.second;
-      ext_msgs_[priority].erase(msg_id);
-      ext_messages_hashes_.erase(it);
-    }
-  }
-  unsigned long soft_mempool_limit = 1024;
-  for (auto &hash : to_delay) {
-    auto it = ext_messages_hashes_.find(hash);
-    if (it != ext_messages_hashes_.end()) {
-      int priority = it->second.first;
-      auto msg_id = it->second.second;
-      auto &msgs = ext_msgs_[priority];
-      auto it2 = msgs.ext_messages_.find(msg_id);
-      if ((msgs.ext_messages_.size() < soft_mempool_limit) && it2->second->can_postpone()) {
-        it2->second->postpone();
-      } else {
-        msgs.erase(msg_id);
-        ext_messages_hashes_.erase(it);
-      }
-    }
-  }
+  td::actor::send_closure(ext_message_pool_, &ExtMessagePool::complete_external_messages, std::move(to_delay),
+                          std::move(to_delete));
 }
 
 void ValidatorManagerImpl::complete_ihr_messages(std::vector<IhrMessage::Hash> to_delay,
                                                  std::vector<IhrMessage::Hash> to_delete) {
-  for (auto &hash : to_delete) {
-    auto it = ihr_messages_hashes_.find(hash);
-    if (it != ihr_messages_hashes_.end()) {
-      ihr_messages_.erase(it->second);
-      ihr_messages_hashes_.erase(it);
-    }
-  }
-  for (auto &hash : to_delay) {
-    auto it = ihr_messages_hashes_.find(hash);
-    if (it != ihr_messages_hashes_.end()) {
-      auto it2 = ihr_messages_.find(it->second);
-      CHECK(it2 != ihr_messages_.end());
-      if (it2->second->can_postpone()) {
-        it2->second->postpone();
-      } else {
-        ihr_messages_.erase(it2);
-        ihr_messages_hashes_.erase(it);
-      }
-    }
-  }
 }
 
 void ValidatorManagerImpl::get_block_data_from_db(ConstBlockHandle handle, td::Promise<td::Ref<BlockData>> promise) {
@@ -1396,7 +1330,7 @@ void ValidatorManagerImpl::finished_wait_data(BlockHandle handle, td::Result<td:
   }
 }
 
-void ValidatorManagerImpl::set_block_state(BlockHandle handle, td::Ref<ShardState> state,
+void ValidatorManagerImpl::set_block_state(BlockHandle handle, td::Ref<ShardState> state, vm::StoreCellHint hint,
                                            td::Promise<td::Ref<ShardState>> promise) {
   auto P = td::PromiseCreator::lambda(
       [SelfId = actor_id(this), handle, promise = std::move(promise)](td::Result<td::Ref<ShardState>> R) mutable {
@@ -1407,7 +1341,7 @@ void ValidatorManagerImpl::set_block_state(BlockHandle handle, td::Ref<ShardStat
           td::actor::send_closure(SelfId, &ValidatorManagerImpl::written_handle, std::move(handle), [](td::Unit) {});
         }
       });
-  td::actor::send_closure(db_, &Db::store_block_state, handle, state, std::move(P));
+  td::actor::send_closure(db_, &Db::store_block_state, handle, state, std::move(hint), std::move(P));
 }
 
 void ValidatorManagerImpl::store_block_state_part(BlockId effective_block, td::Ref<vm::Cell> cell,
@@ -1493,9 +1427,10 @@ void ValidatorManagerImpl::set_block_proof_link(BlockHandle handle, td::Ref<Proo
   td::actor::send_closure(db_, &Db::store_zero_state, id, std::move(state), std::move(promise));
 }*/
 
-void ValidatorManagerImpl::set_block_signatures(BlockHandle handle, td::Ref<BlockSignatureSet> signatures,
-                                                td::Promise<td::Unit> promise) {
-  td::actor::send_closure(db_, &Db::store_block_signatures, handle, std::move(signatures), std::move(promise));
+void ValidatorManagerImpl::set_block_signatures(BlockHandle handle, td::Ref<block::BlockSignatureSet> signatures,
+                                                Ref<block::ValidatorSet> vset, td::Promise<td::Unit> promise) {
+  td::actor::send_closure(db_, &Db::store_block_signatures, handle, std::move(signatures), std::move(vset),
+                          std::move(promise));
 }
 
 void ValidatorManagerImpl::set_next_block(BlockIdExt block_id, BlockIdExt next, td::Promise<td::Unit> promise) {
@@ -1518,10 +1453,6 @@ void ValidatorManagerImpl::set_next_block(BlockIdExt block_id, BlockIdExt next, 
 
 void ValidatorManagerImpl::set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
                                                td::uint32 validator_set_hash, td::Promise<td::Unit> promise) {
-  if (!candidates_buffer_.empty()) {
-    td::actor::send_closure(candidates_buffer_, &CandidatesBuffer::add_new_candidate, id,
-                            PublicKey{pubkeys::Ed25519{candidate.pubkey.as_bits256()}}, candidate.collated_file_hash);
-  }
   if (!id.is_masterchain()) {
     add_cached_block_data(id, candidate.data.clone());
   }
@@ -1647,6 +1578,12 @@ void ValidatorManagerImpl::new_block_cont(BlockHandle handle, td::Ref<ShardState
     VLOG(VALIDATOR_DEBUG) << "new block " << handle->id().id.to_str() << " is already processed";
     handle->set_processed();
     promise.set_value(td::Unit());
+  }
+  if (!db_event_publisher_.empty() && !handle->id().is_masterchain()) {
+    VLOG(VALIDATOR_DEBUG) << "DB Event: blockApplied " << handle->id().to_str();
+    td::actor::ask(db_event_publisher_, &DbEventPublisher::publish,
+                   create_tl_object<ton_api::db_event_blockApplied>(create_tl_block_id(handle->id())))
+        .detach();
   }
 }
 
@@ -1843,13 +1780,7 @@ void ValidatorManagerImpl::send_get_next_key_blocks_request(BlockIdExt block_id,
   callback_->get_next_key_blocks(block_id, td::Timestamp::in(10.0), std::move(promise));
 }
 
-void ValidatorManagerImpl::send_external_message(td::Ref<ExtMessage> message) {
-  callback_->send_ext_message(message->shard(), message->serialize());
-  add_external_message(std::move(message), 0);
-}
-
 void ValidatorManagerImpl::send_ihr_message(td::Ref<IhrMessage> message) {
-  callback_->send_ihr_message(message->shard(), message->serialize());
 }
 
 void ValidatorManagerImpl::send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) {
@@ -1902,37 +1833,39 @@ void ValidatorManagerImpl::get_block_proof_link_from_import(BlockIdExt block_id,
         continue;
       }
       auto package = r_package.move_as_ok();
-      package.iterate([&](std::string filename, td::BufferSlice data, td::uint64) -> bool {
-        auto F = FileReference::create(filename);
-        if (F.is_error()) {
-          return true;
-        }
-        auto f = F.move_as_ok();
-        BlockIdExt id;
-        bool is_proof = false;
-        f.ref().visit(td::overloaded(
-            [&](const fileref::Block &p) {
-              id = p.block_id;
-              is_proof = false;
-            },
-            [&](const fileref::Proof &p) {
-              id = p.block_id;
-              is_proof = true;
-            },
-            [&](const fileref::ProofLink &p) {
-              id = p.block_id;
-              is_proof = true;
-            },
-            [&](const auto &) {}));
-        if (is_proof && id == block_id) {
-          result = std::move(data);
-          return false;
-        }
-        if (shard_intersects(id.shard_full(), block_id.shard_full()) && id.seqno() < block_id.seqno()) {
-          stop = true;
-        }
-        return true;
-      });
+      package
+          .iterate([&](std::string filename, td::BufferSlice data, td::uint64) -> bool {
+            auto F = FileReference::create(filename);
+            if (F.is_error()) {
+              return true;
+            }
+            auto f = F.move_as_ok();
+            BlockIdExt id;
+            bool is_proof = false;
+            f.ref().visit(td::overloaded(
+                [&](const fileref::Block &p) {
+                  id = p.block_id;
+                  is_proof = false;
+                },
+                [&](const fileref::Proof &p) {
+                  id = p.block_id;
+                  is_proof = true;
+                },
+                [&](const fileref::ProofLink &p) {
+                  id = p.block_id;
+                  is_proof = true;
+                },
+                [&](const auto &) {}));
+            if (is_proof && id == block_id) {
+              result = std::move(data);
+              return false;
+            }
+            if (shard_intersects(id.shard_full(), block_id.shard_full()) && id.seqno() < block_id.seqno()) {
+              stop = true;
+            }
+            return true;
+          })
+          .ignore();
       if (!result.empty()) {
         promise.set_result(std::move(result));
         return;
@@ -1951,6 +1884,7 @@ void ValidatorManagerImpl::start_up() {
   lite_server_cache_ = create_liteserver_cache_actor(actor_id(this), db_root_);
   token_manager_ = td::actor::create_actor<TokenManager>("tokenmanager");
   storage_stat_cache_ = td::actor::create_actor<StorageStatCache>("storagestatcache");
+  ext_message_pool_ = td::actor::create_actor<ExtMessagePool>("extmessages", opts_, actor_id(this));
   td::mkdir(db_root_ + "/tmp/").ensure();
   td::mkdir(db_root_ + "/catchains/").ensure();
 
@@ -2015,6 +1949,10 @@ void ValidatorManagerImpl::start_up() {
 
   validator_manager_init(opts_, actor_id(this), db_.get(), std::move(P));
 
+  if (!opts_->get_db_event_fifo_path().empty()) {
+    db_event_publisher_ = td::actor::create_actor<DbEventPublisher>("db-events", opts_->get_db_event_fifo_path());
+  }
+
   check_waiters_at_ = td::Timestamp::in(1.0);
   alarm_timestamp().relax(check_waiters_at_);
 }
@@ -2048,23 +1986,6 @@ void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
 
   shard_client_ = std::move(R.clients);
 
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::vector<ValidatorSessionId>> R) {
-    if (R.is_error()) {
-      if (R.error().code() == ErrorCode::notready) {
-        td::actor::send_closure(SelfId, &ValidatorManagerImpl::read_gc_list, std::vector<ValidatorSessionId>{});
-      } else {
-        LOG(FATAL) << "db error: " << R.move_as_error();
-      }
-    } else {
-      td::actor::send_closure(SelfId, &ValidatorManagerImpl::read_gc_list, R.move_as_ok());
-    }
-  });
-  td::actor::send_closure(db_, &Db::get_destroyed_validator_sessions, std::move(P));
-
-  if (opts_->nonfinal_ls_queries_enabled()) {
-    candidates_buffer_ = td::actor::create_actor<CandidatesBuffer>("candidates-buffer", actor_id(this));
-  }
-
   auto Q = td::PromiseCreator::lambda(
       [SelfId = actor_id(this)](td::Result<std::vector<td::Ref<PersistentStateDescription>>> R) {
         if (R.is_error()) {
@@ -2075,13 +1996,10 @@ void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
       });
   td::actor::send_closure(db_, &Db::get_persistent_state_descriptions, std::move(Q));
   update_shard_overlays();
+  finish_start_up();
 }
 
-void ValidatorManagerImpl::read_gc_list(std::vector<ValidatorSessionId> list) {
-  for (auto &v : list) {
-    check_gc_list_.insert(v);
-  }
-
+void ValidatorManagerImpl::finish_start_up() {
   new_masterchain_block();
 
   serializer_ =
@@ -2271,6 +2189,15 @@ void ValidatorManagerImpl::new_masterchain_block() {
     td::actor::send_closure(shard_client_, &ShardClient::new_masterchain_block_notification,
                             last_masterchain_block_handle_, last_masterchain_state_);
   }
+
+  for (const auto &[_, validator_group] : validator_groups_) {
+    auto shard_config = last_masterchain_state_->get_shard_from_config(validator_group.shard);
+    if (!shard_config.is_null()) {
+      td::actor::send_closure(validator_group.actor, &IValidatorGroup::notify_mc_finalized,
+                              shard_config->top_block_id());
+    }
+  }
+
   if (validating_masterchain() || !collator_nodes_.empty()) {
     std::set<ShardIdFull> collating_shards;
     if (validating_masterchain()) {
@@ -2298,6 +2225,7 @@ void ValidatorManagerImpl::new_masterchain_block() {
   for (auto &[_, actor] : shard_block_retainers_) {
     td::actor::send_closure(actor, &ShardBlockRetainer::update_masterchain_state, last_masterchain_state_);
   }
+  td::actor::send_closure(ext_message_pool_, &ExtMessagePool::update_last_masterchain_state, last_masterchain_state_);
   if (last_masterchain_seqno_ % 1024 == 0) {
     LOG(WARNING) << "applied masterchain block " << last_masterchain_block_id_.to_str();
   } else {
@@ -2333,12 +2261,6 @@ void ValidatorManagerImpl::update_shards() {
   auto exp_vec = last_masterchain_state_->get_shards();
   auto config = last_masterchain_state_->get_consensus_config();
   validatorsession::ValidatorSessionOptions opts{config};
-  td::uint32 threshold = 9407194;
-  bool force_group_id_upgrade = last_masterchain_seqno_ == threshold;
-  auto legacy_opts_hash = opts.get_hash();
-  if (last_masterchain_seqno_ >= threshold) {  //TODO move to get_consensus_config()
-    opts.proto_version = std::max<td::uint32>(opts.proto_version, 1);
-  }
   auto opts_hash = opts.get_hash();
 
   std::map<ShardIdFull, std::vector<BlockIdExt>> new_shards;
@@ -2401,8 +2323,7 @@ void ValidatorManagerImpl::update_shards() {
 
   VLOG(VALIDATOR_DEBUG) << "total shards=" << new_shards.size() << " config shards=" << exp_vec.size();
 
-  std::map<ValidatorSessionId, ValidatorGroupEntry> new_validator_groups_;
-  std::map<ValidatorSessionId, ValidatorGroupEntry> new_next_validator_groups_;
+  std::map<ValidatorSessionId, ValidatorGroupEntry> new_validator_groups;
 
   bool force_recover = false;
   {
@@ -2413,41 +2334,24 @@ void ValidatorManagerImpl::update_shards() {
 
   BlockSeqno key_seqno = last_key_block_handle_->id().seqno();
 
-  if (force_group_id_upgrade) {
-    for (auto &desc : new_shards) {
-      auto shard = desc.first;
-      auto prev = desc.second;
-      for (auto &p : prev) {
-        CHECK(p.is_valid());
-      }
-      auto val_set = last_masterchain_state_->get_validator_set(shard);
-      auto validator_id = get_validator(shard, val_set);
-
-      if (!validator_id.is_zero()) {
-        auto legacy_val_group_id = get_validator_set_id(shard, val_set, legacy_opts_hash, key_seqno, opts);
-        auto val_group_id = get_validator_set_id(shard, val_set, opts_hash, key_seqno, opts);
-
-        auto it = validator_groups_.find(legacy_val_group_id);
-        if (it != validator_groups_.end()) {
-          new_validator_groups_.emplace(val_group_id, std::move(it->second));
-        } else {
-          auto it2 = next_validator_groups_.find(legacy_val_group_id);
-          if (it2 != next_validator_groups_.end()) {
-            if (!it2->second.actor.empty()) {
-              td::actor::send_closure(it2->second.actor, &ValidatorGroup::start, prev, last_masterchain_block_id_);
-            }
-            new_validator_groups_.emplace(val_group_id, std::move(it2->second));
-          } else {
-            auto G = create_validator_group(val_group_id, shard, val_set, key_seqno, opts, started_);
-            if (!G.empty()) {
-              td::actor::send_closure(G, &ValidatorGroup::start, prev, last_masterchain_block_id_);
-            }
-            new_validator_groups_.emplace(val_group_id, ValidatorGroupEntry{std::move(G), shard});
-          }
-        }
-      }
+  auto get_or_make_next_group = [&](ShardIdFull shard, ValidatorSessionId id, td::Ref<block::ValidatorSet> val_set) {
+    CHECK(!validator_groups_.contains(id) && !new_validator_groups.contains(id));
+    if (auto it = next_validator_groups_.find(id); it != next_validator_groups_.end()) {
+      return it;
     }
-  }
+
+    auto G = create_validator_group(id, shard, val_set, key_seqno, opts, started_);
+    ValidatorGroupEntry entry{
+        .actor = std::move(G),
+        .shard = shard,
+        .started = false,
+        .cc_seqno = val_set->get_catchain_seqno(),
+    };
+    LOG(INFO) << "Created " << entry.name() << ":" << id;
+    auto [it, success] = next_validator_groups_.emplace(id, std::move(entry));
+    CHECK(success);
+    return it;
+  };
 
   active_validator_groups_master_ = active_validator_groups_shard_ = 0;
   adnl::AdnlNodeIdShort mc_validator_adnl_id = adnl::AdnlNodeIdShort::zero();
@@ -2483,25 +2387,26 @@ void ValidatorManagerImpl::update_shards() {
           }
         }
 
-        VLOG(VALIDATOR_DEBUG) << "validating group " << val_group_id;
-        auto it = validator_groups_.find(val_group_id);
-        if (it != validator_groups_.end()) {
-          new_validator_groups_.emplace(val_group_id, std::move(it->second));
-        } else {
-          auto it2 = next_validator_groups_.find(val_group_id);
-          if (it2 != next_validator_groups_.end()) {
-            if (!it2->second.actor.empty()) {
-              td::actor::send_closure(it2->second.actor, &ValidatorGroup::start, prev, last_masterchain_block_id_);
-            }
-            new_validator_groups_.emplace(val_group_id, std::move(it2->second));
+        auto find_or_create_validator_group = [&] {
+          if (auto it = validator_groups_.find(val_group_id); it != validator_groups_.end()) {
+            auto &entry = new_validator_groups[val_group_id] = std::move(it->second);
+            validator_groups_.erase(it);
+            return &entry;
           } else {
-            auto G = create_validator_group(val_group_id, shard, val_set, key_seqno, opts, started_);
-            if (!G.empty()) {
-              td::actor::send_closure(G, &ValidatorGroup::start, prev, last_masterchain_block_id_);
-            }
-            new_validator_groups_.emplace(val_group_id, ValidatorGroupEntry{std::move(G), shard});
+            auto it2 = get_or_make_next_group(shard, val_group_id, val_set);
+            auto &entry = new_validator_groups[val_group_id] = std::move(it2->second);
+            next_validator_groups_.erase(it2);
+            return &entry;
           }
+        };
+        auto entry = find_or_create_validator_group();
+
+        if (!entry->started) {
+          LOG(INFO) << "Started " << entry->name() << ":" << val_group_id;
+          td::actor::send_closure(entry->actor, &IValidatorGroup::start, prev, last_masterchain_block_id_);
+          entry->started = true;
         }
+
         if (shard.is_masterchain()) {
           mc_validator_adnl_id = adnl::AdnlNodeIdShort{val_set->get_validator(validator_id.bits256_value())->addr};
           if (mc_validator_adnl_id.is_zero()) {
@@ -2520,15 +2425,7 @@ void ValidatorManagerImpl::update_shards() {
     auto validator_id = get_validator(shard, val_set);
     if (!validator_id.is_zero()) {
       auto val_group_id = get_validator_set_id(shard, val_set, opts_hash, key_seqno, opts);
-      auto it = next_validator_groups_.find(val_group_id);
-      if (it != next_validator_groups_.end()) {
-        //CHECK(!it->second.empty());
-        new_next_validator_groups_.emplace(val_group_id, std::move(it->second));
-      } else {
-        new_next_validator_groups_.emplace(
-            val_group_id, ValidatorGroupEntry{
-                              create_validator_group(val_group_id, shard, val_set, key_seqno, opts, started_), shard});
-      }
+      get_or_make_next_group(shard, val_group_id, val_set);
       if (shard.is_masterchain() && mc_validator_adnl_id.is_zero()) {
         mc_validator_adnl_id = adnl::AdnlNodeIdShort{val_set->get_validator(validator_id.bits256_value())->addr};
         if (mc_validator_adnl_id.is_zero()) {
@@ -2538,52 +2435,61 @@ void ValidatorManagerImpl::update_shards() {
     }
   }
 
-  std::vector<td::actor::ActorId<ValidatorGroup>> gc;
-  for (auto &v : validator_groups_) {
-    if (!v.second.actor.empty()) {
-      gc_list_.push_back(v.first);
-      gc.push_back(v.second.actor.release());
-    }
+  for (auto &[id, group] : validator_groups_) {
+    LOG(INFO) << "Destroying active " << group.name() << ":" << id;
+    td::actor::send_closure(group.actor.release(), &IValidatorGroup::destroy);
   }
-  for (auto &v : next_validator_groups_) {
-    if (!v.second.actor.empty()) {
-      gc_list_.push_back(v.first);
-      gc.push_back(v.second.actor.release());
+  validator_groups_ = std::move(new_validator_groups);
+
+  struct CleanupEntry {
+    ValidatorSessionId id;
+    std::string reason;
+  };
+
+  std::vector<CleanupEntry> ids_to_remove;
+  for (auto &[id, tentative_group] : next_validator_groups_) {
+    for (auto &[active_id, active_group] : validator_groups_) {
+      if (active_group.shard.workchain != tentative_group.shard.workchain) {
+        continue;
+      }
+
+      bool shards_equal = active_group.shard.shard == tentative_group.shard.shard;
+      bool shards_related = shard_is_ancestor(active_group.shard.shard, tentative_group.shard.shard) ||
+                            shard_is_ancestor(tentative_group.shard.shard, active_group.shard.shard);
+      bool equal_condition = active_group.cc_seqno >= tentative_group.cc_seqno && shards_equal;
+      bool related_condition = active_group.cc_seqno > tentative_group.cc_seqno && shards_related;
+
+      if (equal_condition || related_condition) {
+        ids_to_remove.push_back({
+            .id = id,
+            .reason = PSTRING() << active_group.name() << ":" << active_id,
+        });
+        break;
+      }
     }
   }
 
-  validator_groups_ = std::move(new_validator_groups_);
-  next_validator_groups_ = std::move(new_next_validator_groups_);
+  for (auto [id, reason] : ids_to_remove) {
+    LOG(INFO) << "Destroying tentative " << next_validator_groups_[id].name() << ":" << id << " because of an active "
+              << reason;
+    td::actor::send_closure(next_validator_groups_[id].actor.release(), &IValidatorGroup::destroy);
+    next_validator_groups_.erase(id);
+  }
 
   if (last_masterchain_state_->rotated_all_shards()) {
-    gc_list_.clear();
-    check_gc_list_.clear();
     CHECK(last_masterchain_block_handle_->received_state());
     auto P = td::PromiseCreator::lambda(
-        [SelfId = actor_id(this), gc = std::move(gc), block_id = last_masterchain_block_id_](td::Result<td::Unit> R) {
+        [SelfId = actor_id(this), block_id = last_masterchain_block_id_](td::Result<td::Unit> R) {
           R.ensure();
-          td::actor::send_closure(SelfId, &ValidatorManagerImpl::written_destroyed_validator_sessions, std::move(gc));
           td::actor::send_closure(SelfId, &ValidatorManagerImpl::updated_init_block, block_id);
         });
     td::actor::send_closure(db_, &Db::update_init_masterchain_block, last_masterchain_block_id_, std::move(P));
-  } else {
-    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), gc = std::move(gc)](td::Result<td::Unit> R) {
-      R.ensure();
-      td::actor::send_closure(SelfId, &ValidatorManagerImpl::written_destroyed_validator_sessions, std::move(gc));
-    });
-    td::actor::send_closure(db_, &Db::update_destroyed_validator_sessions, gc_list_, std::move(P));
   }
   if (!serializer_.empty()) {
     td::actor::send_closure(serializer_, &AsyncStateSerializer::auto_disable_serializer,
                             is_validator() && last_masterchain_state_->get_global_id() == -239);  // mainnet only
   }
   init_shard_block_verifier(mc_validator_adnl_id);
-}
-
-void ValidatorManagerImpl::written_destroyed_validator_sessions(std::vector<td::actor::ActorId<ValidatorGroup>> list) {
-  for (auto &v : list) {
-    td::actor::send_closure(v, &ValidatorGroup::destroy);
-  }
 }
 
 void ValidatorManagerImpl::update_shard_blocks() {
@@ -2621,7 +2527,7 @@ void ValidatorManagerImpl::update_shard_blocks() {
   }
 }
 
-ValidatorSessionId ValidatorManagerImpl::get_validator_set_id(ShardIdFull shard, td::Ref<ValidatorSet> val_set,
+ValidatorSessionId ValidatorManagerImpl::get_validator_set_id(ShardIdFull shard, td::Ref<block::ValidatorSet> val_set,
                                                               td::Bits256 opts_hash, BlockSeqno last_key_block_seqno,
                                                               const validatorsession::ValidatorSessionOptions &opts) {
   std::vector<tl_object_ptr<ton_api::validator_groupMember>> vec;
@@ -2647,28 +2553,31 @@ ValidatorSessionId ValidatorManagerImpl::get_validator_set_id(ShardIdFull shard,
   }
 }
 
-td::actor::ActorOwn<ValidatorGroup> ValidatorManagerImpl::create_validator_group(
-    ValidatorSessionId session_id, ShardIdFull shard, td::Ref<ValidatorSet> validator_set, BlockSeqno key_seqno,
+td::actor::ActorOwn<IValidatorGroup> ValidatorManagerImpl::create_validator_group(
+    ValidatorSessionId session_id, ShardIdFull shard, td::Ref<block::ValidatorSet> validator_set, BlockSeqno key_seqno,
     validatorsession::ValidatorSessionOptions opts, bool init_session) {
-  if (check_gc_list_.count(session_id) == 1) {
-    return td::actor::ActorOwn<ValidatorGroup>{};
-  } else {
-    // Call get_external_messages to cleanup mempool for the shard
-    get_external_messages(shard, [](td::Result<std::vector<std::pair<td::Ref<ExtMessage>, int>>>) {});
+  td::actor::send_closure(ext_message_pool_, &ExtMessagePool::cleanup_external_messages, shard);
 
-    auto validator_id = get_validator(shard, validator_set);
-    CHECK(!validator_id.is_zero());
-    auto descr = validator_set->get_validator(validator_id.bits256_value());
-    CHECK(descr);
-    auto adnl_id = adnl::AdnlNodeIdShort{
-        descr->addr.is_zero() ? ValidatorFullId{descr->key}.compute_short_id().bits256_value() : descr->addr};
-    auto G = td::actor::create_actor<ValidatorGroup>(
-        PSTRING() << "valgroup" << shard.to_str(), shard, validator_id, session_id, validator_set, key_seqno, opts,
-        keyring_, adnl_, rldp_, rldp2_, overlays_, db_root_, actor_id(this), get_collation_manager(adnl_id),
-        init_session, opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()), opts_,
-        opts_->need_monitor(shard, last_masterchain_state_));
-    return G;
+  auto validator_id = get_validator(shard, validator_set);
+  CHECK(!validator_id.is_zero());
+  auto descr = validator_set->get_validator(validator_id.bits256_value());
+  CHECK(descr);
+  auto adnl_id = adnl::AdnlNodeIdShort{
+      descr->addr.is_zero() ? ValidatorFullId{descr->key}.compute_short_id().bits256_value() : descr->addr};
+  auto new_consensus_config = last_masterchain_state_->get_new_consensus_config(shard.workchain);
+  if (new_consensus_config) {
+    return IValidatorGroup::create_bridge(PSTRING() << "valgroup" << shard.to_str(), shard, validator_id, session_id,
+                                          validator_set, key_seqno, new_consensus_config.value(), keyring_, adnl_,
+                                          rldp_, rldp2_, quic_, overlays_, db_root_, actor_id(this),
+                                          get_collation_manager(adnl_id), init_session,
+                                          opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()),
+                                          opts_, opts_->need_monitor(shard, last_masterchain_state_));
   }
+  return IValidatorGroup::create_catchain(
+      PSTRING() << "valgroup" << shard.to_str(), shard, validator_id, session_id, validator_set, key_seqno, opts,
+      keyring_, adnl_, rldp_, rldp2_, quic_, overlays_, db_root_, actor_id(this), get_collation_manager(adnl_id),
+      init_session, opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()), opts_,
+      opts_->need_monitor(shard, last_masterchain_state_));
 }
 
 td::actor::ActorId<CollationManager> ValidatorManagerImpl::get_collation_manager(adnl::AdnlNodeIdShort adnl_id) {
@@ -2806,14 +2715,22 @@ void ValidatorManagerImpl::update_shard_client_block_handle(BlockHandle handle, 
   shard_client_handle_ = std::move(handle);
   auto seqno = shard_client_handle_->id().seqno();
   if (state.not_null()) {
+    shard_client_state_ = state;
     shard_client_shards_ = state->get_shards();
     if (last_liteserver_state_.is_null() || last_liteserver_state_->get_block_id().seqno() < seqno) {
       last_liteserver_state_ = std::move(state);
     }
   }
+  if (!db_event_publisher_.empty()) {
+    VLOG(VALIDATOR_DEBUG) << "DB Event: blockApplied " << shard_client_handle_->id().to_str();
+    td::actor::ask(db_event_publisher_, &DbEventPublisher::publish,
+                   create_tl_object<ton_api::db_event_blockApplied>(create_tl_block_id(shard_client_handle_->id())))
+        .detach();
+  }
   for (auto &c : collator_nodes_) {
     td::actor::send_closure(c.second.actor, &CollatorNode::update_shard_client_handle, shard_client_handle_);
   }
+  cleanup_nonfinal_groups();
   shard_client_update(seqno);
   promise.set_value(td::Unit());
 }
@@ -2929,7 +2846,7 @@ void ValidatorManagerImpl::alarm() {
   alarm_timestamp().relax(check_shard_clients_);
 
   if (log_ls_stats_at_.is_in_past()) {
-    if (!ls_stats_.empty() || ls_stats_check_ext_messages_ != 0) {
+    if (!ls_stats_.empty()) {
       td::StringBuilder sb;
       sb << "Liteserver stats (1 minute):";
       td::uint32 total = 0;
@@ -2940,26 +2857,12 @@ void ValidatorManagerImpl::alarm() {
       if (total > 0) {
         sb << " TOTAL:" << total;
       }
-      if (ls_stats_check_ext_messages_ > 0) {
-        sb << " checkExtMessage:" << ls_stats_check_ext_messages_;
-      }
       LOG(WARNING) << sb.as_cslice();
     }
     ls_stats_.clear();
-    ls_stats_check_ext_messages_ = 0;
     log_ls_stats_at_ = td::Timestamp::in(60.0);
   }
   alarm_timestamp().relax(log_ls_stats_at_);
-  if (cleanup_mempool_at_.is_in_past()) {
-    if (is_validator() || !collator_nodes_.empty()) {
-      get_external_messages(ShardIdFull{masterchainId, shardIdAll},
-                            [](td::Result<std::vector<std::pair<td::Ref<ExtMessage>, int>>>) {});
-      get_external_messages(ShardIdFull{basechainId, shardIdAll},
-                            [](td::Result<std::vector<std::pair<td::Ref<ExtMessage>, int>>>) {});
-    }
-    cleanup_mempool_at_ = td::Timestamp::in(250.0);
-  }
-  alarm_timestamp().relax(cleanup_mempool_at_);
 }
 
 void ValidatorManagerImpl::update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) {
@@ -3010,7 +2913,7 @@ bool ValidatorManagerImpl::validating_masterchain() {
               .is_zero();
 }
 
-PublicKeyHash ValidatorManagerImpl::get_validator(ShardIdFull shard, td::Ref<ValidatorSet> val_set) {
+PublicKeyHash ValidatorManagerImpl::get_validator(ShardIdFull shard, td::Ref<block::ValidatorSet> val_set) {
   for (auto &key : temp_keys_) {
     if (val_set->is_validator(key.bits256_value())) {
       return key;
@@ -3128,8 +3031,6 @@ void ValidatorManagerImpl::prepare_stats(td::Promise<std::vector<std::pair<std::
     sb << "TOTAL:" << total;
     vec.emplace_back(PSTRING() << "total.ls_queries_" << (iter ? "error" : "ok"), sb.as_cslice().str());
   }
-  vec.emplace_back("total.ext_msg_check",
-                   PSTRING() << "ok:" << total_check_ext_messages_ok_ << " error:" << total_check_ext_messages_error_);
   vec.emplace_back("total.collated_blocks.master", PSTRING() << "ok:" << total_collated_blocks_master_ok_
                                                              << " error:" << total_collated_blocks_master_error_);
   vec.emplace_back("total.collated_blocks.shard", PSTRING() << "ok:" << total_collated_blocks_shard_ok_
@@ -3150,6 +3051,7 @@ void ValidatorManagerImpl::prepare_stats(td::Promise<std::vector<std::pair<std::
   vec.emplace_back("stateserializerenabled", serializer_enabled ? "true" : "false");
 
   merger.make_promise("").set_value(std::move(vec));
+  td::actor::send_closure(ext_message_pool_, &ExtMessagePool::prepare_stats, merger.make_promise(""));
 
   if (!serializer_.empty()) {
     td::actor::send_closure(serializer_, &AsyncStateSerializer::prepare_stats, merger.make_promise(""));
@@ -3228,56 +3130,22 @@ void ValidatorManagerImpl::get_block_handle_for_litequery(BlockIdExt block_id, t
 }
 
 void ValidatorManagerImpl::get_block_data_for_litequery(BlockIdExt block_id, td::Promise<td::Ref<BlockData>> promise) {
-  if (candidates_buffer_.empty()) {
-    get_block_handle_for_litequery(
-        block_id, [manager = actor_id(this), promise = std::move(promise)](td::Result<ConstBlockHandle> R) mutable {
-          TRY_RESULT_PROMISE(promise, handle, std::move(R));
-          td::actor::send_closure_later(manager, &ValidatorManager::get_block_data_from_db, std::move(handle),
-                                        std::move(promise));
-        });
-  } else {
-    td::actor::send_closure(
-        candidates_buffer_, &CandidatesBuffer::get_block_data, block_id,
-        [manager = actor_id(this), promise = std::move(promise), block_id](td::Result<td::Ref<BlockData>> R) mutable {
-          if (R.is_ok()) {
-            promise.set_result(R.move_as_ok());
-            return;
-          }
-          td::actor::send_closure(manager, &ValidatorManagerImpl::get_block_handle_for_litequery, block_id,
-                                  [manager, promise = std::move(promise)](td::Result<ConstBlockHandle> R) mutable {
-                                    TRY_RESULT_PROMISE(promise, handle, std::move(R));
-                                    td::actor::send_closure_later(manager, &ValidatorManager::get_block_data_from_db,
-                                                                  std::move(handle), std::move(promise));
-                                  });
-        });
-  }
+  get_block_handle_for_litequery(
+      block_id, [manager = actor_id(this), promise = std::move(promise)](td::Result<ConstBlockHandle> R) mutable {
+        TRY_RESULT_PROMISE(promise, handle, std::move(R));
+        td::actor::send_closure_later(manager, &ValidatorManager::get_block_data_from_db, std::move(handle),
+                                      std::move(promise));
+      });
 }
 
 void ValidatorManagerImpl::get_block_state_for_litequery(BlockIdExt block_id,
                                                          td::Promise<td::Ref<ShardState>> promise) {
-  if (candidates_buffer_.empty()) {
-    get_block_handle_for_litequery(
-        block_id, [manager = actor_id(this), promise = std::move(promise)](td::Result<ConstBlockHandle> R) mutable {
-          TRY_RESULT_PROMISE(promise, handle, std::move(R));
-          td::actor::send_closure_later(manager, &ValidatorManager::get_shard_state_from_db, std::move(handle),
-                                        std::move(promise));
-        });
-  } else {
-    td::actor::send_closure(
-        candidates_buffer_, &CandidatesBuffer::get_block_state, block_id,
-        [manager = actor_id(this), promise = std::move(promise), block_id](td::Result<td::Ref<ShardState>> R) mutable {
-          if (R.is_ok()) {
-            promise.set_result(R.move_as_ok());
-            return;
-          }
-          td::actor::send_closure(manager, &ValidatorManagerImpl::get_block_handle_for_litequery, block_id,
-                                  [manager, promise = std::move(promise)](td::Result<ConstBlockHandle> R) mutable {
-                                    TRY_RESULT_PROMISE(promise, handle, std::move(R));
-                                    td::actor::send_closure_later(manager, &ValidatorManager::get_shard_state_from_db,
-                                                                  std::move(handle), std::move(promise));
-                                  });
-        });
-  }
+  get_block_handle_for_litequery(
+      block_id, [manager = actor_id(this), promise = std::move(promise)](td::Result<ConstBlockHandle> R) mutable {
+        TRY_RESULT_PROMISE(promise, handle, std::move(R));
+        td::actor::send_closure_later(manager, &ValidatorManager::get_shard_state_from_db, std::move(handle),
+                                      std::move(promise));
+      });
 }
 
 void ValidatorManagerImpl::get_block_by_lt_for_litequery(AccountIdPrefixFull account, LogicalTime lt,
@@ -3423,7 +3291,7 @@ void ValidatorManagerImpl::get_validator_groups_info_for_litequery(
   }
   class Actor : public td::actor::Actor {
    public:
-    explicit Actor(std::vector<td::actor::ActorId<ValidatorGroup>> groups,
+    explicit Actor(std::vector<td::actor::ActorId<IValidatorGroup>> groups,
                    td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise)
         : groups_(std::move(groups)), promise_(std::move(promise)) {
     }
@@ -3437,7 +3305,7 @@ void ValidatorManagerImpl::get_validator_groups_info_for_litequery(
       }
       for (auto &x : groups_) {
         td::actor::send_closure(
-            x, &ValidatorGroup::get_validator_group_info_for_litequery,
+            x, &IValidatorGroup::get_validator_group_info_for_litequery,
             [SelfId = actor_id(this)](td::Result<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroupInfo>> R) {
               td::actor::send_closure(SelfId, &Actor::on_result, R.is_ok() ? R.move_as_ok() : nullptr);
             });
@@ -3456,13 +3324,13 @@ void ValidatorManagerImpl::get_validator_groups_info_for_litequery(
     }
 
    private:
-    std::vector<td::actor::ActorId<ValidatorGroup>> groups_;
+    std::vector<td::actor::ActorId<IValidatorGroup>> groups_;
     size_t pending_;
     td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise_;
     tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups> result_ =
         create_tl_object<lite_api::liteServer_nonfinal_validatorGroups>();
   };
-  std::vector<td::actor::ActorId<ValidatorGroup>> groups;
+  std::vector<td::actor::ActorId<IValidatorGroup>> groups;
   for (auto &x : validator_groups_) {
     if (x.second.actor.empty()) {
       continue;
@@ -3473,6 +3341,28 @@ void ValidatorManagerImpl::get_validator_groups_info_for_litequery(
     groups.push_back(x.second.actor.get());
   }
   td::actor::create_actor<Actor>("get-validator-groups-info", std::move(groups), std::move(promise)).release();
+}
+
+void ValidatorManagerImpl::get_pending_shard_blocks_for_litequery(
+    td::optional<ShardIdFull> shard,
+    td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_pendingShardBlocks>> promise) {
+  if (!opts_->nonfinal_ls_queries_enabled()) {
+    promise.set_error(td::Status::Error("query is not allowed"));
+    return;
+  }
+  auto response = create_tl_object<lite_api::liteServer_nonfinal_pendingShardBlocks>();
+  for (auto &[p, info] : nonfinal_info_) {
+    if (shard && !shard_intersects(shard.value(), p.first)) {
+      continue;
+    }
+    if (info.last_accepted.is_valid()) {
+      response->signed_blocks_.push_back(create_tl_lite_block_id(info.last_accepted));
+    }
+    if (info.last_candidate.is_valid()) {
+      response->candidates_.push_back(create_tl_lite_block_id(info.last_candidate));
+    }
+  }
+  promise.set_value(std::move(response));
 }
 
 void ValidatorManagerImpl::update_options(td::Ref<ValidatorManagerOptions> opts) {
@@ -3489,11 +3379,11 @@ void ValidatorManagerImpl::update_options(td::Ref<ValidatorManagerOptions> opts)
     td::actor::send_closure(queue_size_counter_, &QueueSizeCounter::update_options, opts);
   }
   for (auto &group : validator_groups_) {
-    td::actor::send_closure(group.second.actor, &ValidatorGroup::update_options, opts,
+    td::actor::send_closure(group.second.actor, &IValidatorGroup::update_options, opts,
                             opts->need_monitor(group.second.shard, last_masterchain_state_));
   }
   for (auto &group : next_validator_groups_) {
-    td::actor::send_closure(group.second.actor, &ValidatorGroup::update_options, opts,
+    td::actor::send_closure(group.second.actor, &IValidatorGroup::update_options, opts,
                             opts->need_monitor(group.second.shard, last_masterchain_state_));
   }
   for (auto &collator : collator_nodes_) {
@@ -3505,6 +3395,7 @@ void ValidatorManagerImpl::update_options(td::Ref<ValidatorManagerOptions> opts)
   if (!shard_block_verifier_.empty()) {
     td::actor::send_closure(shard_block_verifier_, &ShardBlockVerifier::update_options, opts);
   }
+  td::actor::send_closure(ext_message_pool_, &ExtMessagePool::update_options, opts);
   opts_ = std::move(opts);
 }
 
@@ -3617,7 +3508,7 @@ void ValidatorManagerImpl::add_persistent_state_description(td::Ref<PersistentSt
   while (it != persistent_state_descriptions_.end()) {
     const auto &prev_desc = it->second;
     if (prev_desc->end_time <= now) {
-      for (auto const &[block_id, _] : prev_desc->shard_blocks) {
+      for (const auto &[block_id, _] : prev_desc->shard_blocks) {
         persistent_state_blocks_.erase(block_id);
       }
       it = persistent_state_descriptions_.erase(it);
@@ -3634,7 +3525,7 @@ void ValidatorManagerImpl::add_persistent_state_description_impl(td::Ref<Persist
   }
   LOG(DEBUG) << "Add persistent state description for mc block " << desc->masterchain_id.to_str()
              << " start_time=" << desc->start_time << " end_time=" << desc->end_time;
-  for (auto const &[block_id, _] : desc->shard_blocks) {
+  for (const auto &[block_id, _] : desc->shard_blocks) {
     persistent_state_blocks_[block_id] = desc;
     LOG(DEBUG) << "Persistent state description: shard block " << block_id.to_str();
   }
@@ -3664,9 +3555,9 @@ td::Ref<PersistentStateDescription> ValidatorManagerImpl::get_block_persistent_s
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(
     td::Ref<ValidatorManagerOptions> opts, std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
-    td::actor::ActorId<overlay::Overlays> overlays) {
+    td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays) {
   return td::actor::create_actor<validator::ValidatorManagerImpl>("manager", std::move(opts), db_root, keyring, adnl,
-                                                                  rldp, rldp2, overlays);
+                                                                  rldp, rldp2, quic, overlays);
 }
 
 void ValidatorManagerImpl::log_collate_query_stats(CollationStats stats) {
@@ -3699,29 +3590,6 @@ void ValidatorManagerImpl::register_stats_provider(
 
 void ValidatorManagerImpl::unregister_stats_provider(td::uint64 idx) {
   stats_providers_.erase(idx);
-}
-
-size_t ValidatorManagerImpl::CheckedExtMsgCounter::get_msg_count(WorkchainId wc, StdSmcAddress addr) {
-  before_query();
-  auto it1 = counter_cur_.find({wc, addr});
-  auto it2 = counter_prev_.find({wc, addr});
-  return (it1 == counter_cur_.end() ? 0 : it1->second) + (it2 == counter_prev_.end() ? 0 : it2->second);
-}
-size_t ValidatorManagerImpl::CheckedExtMsgCounter::inc_msg_count(WorkchainId wc, StdSmcAddress addr) {
-  before_query();
-  auto it2 = counter_prev_.find({wc, addr});
-  return (it2 == counter_prev_.end() ? 0 : it2->second) + ++counter_cur_[{wc, addr}];
-}
-void ValidatorManagerImpl::CheckedExtMsgCounter::before_query() {
-  while (cleanup_at_.is_in_past()) {
-    counter_prev_ = std::move(counter_cur_);
-    counter_cur_.clear();
-    if (counter_prev_.empty()) {
-      cleanup_at_ = td::Timestamp::in(max_ext_msg_per_addr_time_window() / 2.0);
-      break;
-    }
-    cleanup_at_ += max_ext_msg_per_addr_time_window() / 2.0;
-  }
 }
 
 template <typename T>
@@ -3767,6 +3635,60 @@ void ValidatorManagerImpl::add_shard_block_retainer(adnl::AdnlNodeIdShort id) {
 
 void ValidatorManagerImpl::iterate_temp_block_handles(std::function<void(const BlockHandleInterface &)> f) {
   td::actor::send_closure(db_, &Db::iterate_temp_block_handles, std::move(f));
+}
+
+bool ValidatorManagerImpl::is_valid_nonfinal_group(ShardIdFull shard, CatchainSeqno cc_seqno) {
+  if (shard_client_state_.is_null() || shard.is_masterchain()) {
+    return false;
+  }
+  return shard_client_state_->get_shard_cc_seqno(shard) <= cc_seqno;
+}
+
+void ValidatorManagerImpl::process_accepted_nonfinal_block(BlockIdExt block_id, CatchainSeqno cc_seqno) {
+  if (!is_valid_nonfinal_group(block_id.shard_full(), cc_seqno)) {
+    return;
+  }
+  if (opts_->nonfinal_ls_queries_enabled()) {
+    NonfinalGroupInfo &info = nonfinal_info_[{block_id.shard_full(), cc_seqno}];
+    if (!info.last_accepted.is_valid() || info.last_accepted.seqno() < block_id.seqno()) {
+      info.last_accepted = block_id;
+      if (info.last_candidate.is_valid() && info.last_candidate.seqno() <= block_id.seqno()) {
+        info.last_candidate = {};
+      }
+    }
+  }
+  if (!db_event_publisher_.empty()) {
+    VLOG(VALIDATOR_DEBUG) << "DB Event: blockSigned " << block_id.to_str();
+    td::actor::ask(db_event_publisher_, &DbEventPublisher::publish,
+                   create_tl_object<ton_api::db_event_blockSigned>(create_tl_block_id(block_id)))
+        .detach();
+  }
+}
+
+void ValidatorManagerImpl::cleanup_nonfinal_groups() {
+  for (auto it = nonfinal_info_.begin(); it != nonfinal_info_.end();) {
+    const auto &[shard, cc_seqno] = it->first;
+    if (!is_valid_nonfinal_group(shard, cc_seqno)) {
+      it = nonfinal_info_.erase(it);
+      continue;
+    }
+    NonfinalGroupInfo &info = it->second;
+    auto desc = shard_client_state_->get_shard_from_config(ShardIdFull(shard.workchain, shard.shard | 1), false);
+    if (desc.not_null()) {
+      BlockSeqno top_seqno = desc->top_block_id().seqno();
+      if (info.last_accepted.is_valid() && info.last_accepted.seqno() <= top_seqno) {
+        info.last_accepted = {};
+      }
+      if (info.last_candidate.is_valid() && info.last_candidate.seqno() <= top_seqno) {
+        info.last_candidate = {};
+      }
+    }
+    if (info.last_accepted.is_valid() || info.last_candidate.is_valid()) {
+      ++it;
+    } else {
+      it = nonfinal_info_.erase(it);
+    }
+  }
 }
 
 }  // namespace validator

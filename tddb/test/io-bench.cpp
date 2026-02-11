@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,13 +14,13 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
@@ -152,7 +152,7 @@ void read_async(td::CSlice path, size_t buffer_size) {
       }
       void on_closed(td::Status status) override {
         LOG(ERROR) << processor.result();
-        td::actor::SchedulerContext::get()->stop();
+        td::actor::SchedulerContext::get().stop();
       }
 
      private:
@@ -520,7 +520,7 @@ void write_async(td::CSlice path, size_t buffer_size) {
         }
       }
       void hangup_shared() override {
-        td::actor::SchedulerContext::get()->stop();
+        td::actor::SchedulerContext::get().stop();
         stop();
       }
     };
@@ -580,7 +580,7 @@ void write_async2(td::CSlice path, size_t buffer_size) {
         worker_.reset();
       }
       void hangup_shared() override {
-        td::actor::SchedulerContext::get()->stop();
+        td::actor::SchedulerContext::get().stop();
         stop();
       }
     };

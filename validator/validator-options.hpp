@@ -49,7 +49,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   double state_ttl() const override {
     return state_ttl_;
   }
-  double max_mempool_num() const override {
+  size_t max_mempool_num() const override {
     return max_mempool_num_;
   }
   double archive_ttl() const override {
@@ -176,6 +176,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool get_parallel_validation() const override {
     return parallel_validation;
   }
+  std::string get_db_event_fifo_path() const override {
+    return db_event_fifo_path_;
+  }
 
   void set_zero_block_id(BlockIdExt block_id) override {
     zero_block_id_ = block_id;
@@ -198,7 +201,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_state_ttl(double value) override {
     state_ttl_ = value;
   }
-  void set_max_mempool_num(double value) override {
+  void set_max_mempool_num(size_t value) override {
     max_mempool_num_ = value;
   }
   void set_archive_ttl(double value) override {
@@ -301,13 +304,16 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_parallel_validation(bool value) override {
     parallel_validation = value;
   }
+  void set_db_event_fifo_path(std::string value) override {
+    db_event_fifo_path_ = std::move(value);
+  }
 
   ValidatorManagerOptionsImpl* make_copy() const override {
     return new ValidatorManagerOptionsImpl(*this);
   }
 
   ValidatorManagerOptionsImpl(BlockIdExt zero_block_id, BlockIdExt init_block_id, bool allow_blockchain_init,
-                              double sync_blocks_before, double block_ttl, double state_ttl, double max_mempool_num,
+                              double sync_blocks_before, double block_ttl, double state_ttl, size_t max_mempool_num,
                               double archive_ttl, double key_proof_ttl, bool initial_sync_disabled)
       : zero_block_id_(zero_block_id)
       , init_block_id_(init_block_id)
@@ -329,7 +335,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   double sync_blocks_before_;
   double block_ttl_;
   double state_ttl_;
-  double max_mempool_num_;
+  size_t max_mempool_num_;
   double archive_ttl_;
   double key_proof_ttl_;
   bool initial_sync_disabled_;
@@ -360,6 +366,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool collator_node_whitelist_enabled_ = false;
   td::Ref<ShardBlockVerifierConfig> shard_block_verifier_config_{true};
   bool parallel_validation = false;
+  std::string db_event_fifo_path_;
 };
 
 }  // namespace validator

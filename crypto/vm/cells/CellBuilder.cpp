@@ -29,9 +29,9 @@ using td::Ref;
 using td::RefAny;
 
 /*
- * 
+ *
  *   CELL BUILDERS
- * 
+ *
  */
 
 CellBuilder::~CellBuilder() {

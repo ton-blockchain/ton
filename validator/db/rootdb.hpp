@@ -45,9 +45,9 @@ class RootDb : public Db {
   void store_block_data(BlockHandle handle, td::Ref<BlockData> block, td::Promise<td::Unit> promise) override;
   void get_block_data(ConstBlockHandle handle, td::Promise<td::Ref<BlockData>> promise) override;
 
-  void store_block_signatures(BlockHandle handle, td::Ref<BlockSignatureSet> data,
+  void store_block_signatures(BlockHandle handle, td::Ref<block::BlockSignatureSet> data, Ref<block::ValidatorSet> vset,
                               td::Promise<td::Unit> promise) override;
-  void get_block_signatures(ConstBlockHandle handle, td::Promise<td::Ref<BlockSignatureSet>> promise) override;
+  void get_block_signatures(ConstBlockHandle handle, td::Promise<td::Ref<block::BlockSignatureSet>> promise) override;
 
   void store_block_proof(BlockHandle handle, td::Ref<Proof> proof, td::Promise<td::Unit> promise) override;
   void get_block_proof(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) override;
@@ -60,7 +60,7 @@ class RootDb : public Db {
                            td::Promise<BlockCandidate> promise) override;
   void get_block_candidate_by_block_id(BlockIdExt id, td::Promise<BlockCandidate> promise) override;
 
-  void store_block_state(BlockHandle handle, td::Ref<ShardState> state,
+  void store_block_state(BlockHandle handle, td::Ref<ShardState> state, vm::StoreCellHint hint,
                          td::Promise<td::Ref<ShardState>> promise) override;
   void store_block_state_from_data(BlockHandle handle, td::Ref<BlockData> block,
                                    td::Promise<td::Ref<ShardState>> promise) override;

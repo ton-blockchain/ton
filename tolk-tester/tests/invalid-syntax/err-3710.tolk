@@ -1,7 +1,7 @@
-struct A { 
-    private readonly a: () 
-    readonly b: () 
-    private private e: () 
+struct A {
+    private readonly a: ()
+    readonly b: ()
+    private private e: ()
 }
 
 /**

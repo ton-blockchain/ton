@@ -229,6 +229,7 @@ void CatChainImpl::on_receiver_started() {
 
 CatChainImpl::CatChainImpl(std::unique_ptr<Callback> callback, const CatChainOptions &opts,
                            td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+                           td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender,
                            td::actor::ActorId<overlay::Overlays> overlay_manager, std::vector<CatChainNode> ids,
                            const PublicKeyHash &local_id, const CatChainSessionId &unique_hash, std::string db_root,
                            std::string db_suffix, bool allow_unsafe_self_blocks_resync)
@@ -248,8 +249,8 @@ CatChainImpl::CatChainImpl(std::unique_ptr<Callback> callback, const CatChainOpt
   blamed_sources_.resize(ids.size(), false);
   top_source_blocks_.resize(ids.size(), nullptr);
 
-  args_ = std::make_unique<Args>(std::move(keyring), std::move(adnl), std::move(overlay_manager), std::move(ids),
-                                 local_id, unique_hash);
+  args_ = std::make_unique<Args>(std::move(keyring), std::move(adnl), std::move(adnl_sender),
+                                 std::move(overlay_manager), std::move(ids), local_id, unique_hash);
 }
 
 void CatChainImpl::alarm() {
@@ -291,7 +292,7 @@ void CatChainImpl::start_up() {
 
   auto cb = std::make_unique<ChainCb>(actor_id(this));
 
-  receiver_ = CatChainReceiverInterface::create(std::move(cb), opts_, args_->keyring, args_->adnl,
+  receiver_ = CatChainReceiverInterface::create(std::move(cb), opts_, args_->keyring, args_->adnl, args_->adnl_sender,
                                                 args_->overlay_manager, args_->ids, args_->local_id, args_->unique_hash,
                                                 db_root_, db_suffix_, allow_unsafe_self_blocks_resync_);
   args_ = nullptr;
@@ -301,13 +302,15 @@ void CatChainImpl::start_up() {
 td::actor::ActorOwn<CatChain> CatChain::create(std::unique_ptr<Callback> callback, const CatChainOptions &opts,
                                                td::actor::ActorId<keyring::Keyring> keyring,
                                                td::actor::ActorId<adnl::Adnl> adnl,
+                                               td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender,
                                                td::actor::ActorId<overlay::Overlays> overlay_manager,
                                                std::vector<CatChainNode> ids, const PublicKeyHash &local_id,
                                                const CatChainSessionId &unique_hash, std::string db_root,
                                                std::string db_suffix, bool allow_unsafe_self_blocks_resync) {
-  return td::actor::create_actor<CatChainImpl>(
-      "catchain", std::move(callback), opts, std::move(keyring), std::move(adnl), std::move(overlay_manager),
-      std::move(ids), local_id, unique_hash, std::move(db_root), std::move(db_suffix), allow_unsafe_self_blocks_resync);
+  return td::actor::create_actor<CatChainImpl>("catchain", std::move(callback), opts, std::move(keyring),
+                                               std::move(adnl), std::move(adnl_sender), std::move(overlay_manager),
+                                               std::move(ids), local_id, unique_hash, std::move(db_root),
+                                               std::move(db_suffix), allow_unsafe_self_blocks_resync);
 }
 
 CatChainBlock *CatChainImpl::get_block(CatChainBlockHash hash) const {

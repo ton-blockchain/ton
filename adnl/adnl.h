@@ -119,6 +119,8 @@ class Adnl : public AdnlSenderInterface {
   virtual void get_addr_list(AdnlNodeIdShort id, td::Promise<AdnlAddressList> promise) = 0;
   virtual void get_self_node(AdnlNodeIdShort id, td::Promise<AdnlNode> promise) = 0;
 
+  virtual void get_peer_node(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id, td::Promise<AdnlNode> promise) = 0;
+
   virtual void create_ext_server(std::vector<AdnlNodeIdShort> ids, std::vector<td::uint16> ports,
                                  td::Promise<td::actor::ActorOwn<AdnlExtServer>> promise) = 0;
   virtual void create_tunnel(AdnlNodeIdShort dst, td::uint32 size,
