@@ -1,19 +1,10 @@
-## 2025.12 Update
+## 2026.02 Update
 
-1. `celldb-v2` enabled by default.
-2. Fast state serializer (sharded serialization) enabled by default.
-3. Using `_` instead of `:` in package filenames for better compatibility with Windows and network protocols.
-4. Introduced parallelism in the validator engine.
-5. Added Python-based testing framework.
-6. Various fixes in emulator, node, TVM, `Asm.fif`.
-7. Introduced improved network traffic compression.
-8. BLST updated.
+1. Fixed memory leak which caused OOM on LSes
+2. Improved block compression
+3. More stable custom overlays
+4. Fixed a few performance and stability issues
+5. Added Tontester framework
+6. Preparation for upcoming speed up: disabled by default but ready to deploy new broadcast and consensus
 
-Internal code changes:
-
-1. Introduced support for coroutines in actors.
-2. Enabled `clang-format` 21.
-3. Removed the virtualization level concept.
-4. Minor code style and cleanliness improvements.
-
-Besides the work of the core team, this update also includes contributions from: @pyAndr3w (`Asm.fif`), @Gusarich (TVM fixes in `arithops`), @Kaladin13 (node fixes).
+Besides the work of the core team, this update also includes contributions from Vahagn @vah13 and InfiniteSec team [https://x.com/infsec_io](x.com/infsec_io)
