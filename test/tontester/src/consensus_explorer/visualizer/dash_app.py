@@ -108,15 +108,15 @@ class DashApp:
                 ),
                 html.Div(
                     [
-                        html.Label(
+                        html.Div(
                             [
                                 "Valgroup: ",
                                 dcc.Dropdown(
                                     id="group",
                                     clearable=False,
-                                    style={"minWidth": "220px"},
                                 ),
-                            ]
+                            ],
+                            style={"flex": "auto", "minWidth": 0},
                         ),
                         html.Label(
                             [
