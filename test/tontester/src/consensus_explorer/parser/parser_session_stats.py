@@ -55,6 +55,8 @@ class ParserSessionStats(Parser):
         self._collated: dict[slot_id_type, dict[str, EventData]] = {}
         self._votes: dict[slot_id_type, dict[str, list[VoteData]]] = {}
         self._total_weights: dict[str, int] = {}
+        self._total_validators: dict[str, int] = {}
+        self._seen_validators: dict[str, set[int]] = {}
         self._slot_events: dict[slot_id_type, dict[int, dict[str, EventData]]] = {}
         self._events: list[EventData] = []
 
@@ -141,16 +143,18 @@ class ParserSessionStats(Parser):
         vote = event.vote
         if isinstance(vote, Consensus_simplex_skipVote):
             slot = vote.slot
-            self._events.append(
-                EventData(
-                    valgroup_id=v_group,
-                    slot=slot,
-                    label="skip_observed",
-                    kind="local",
-                    validator=v_id,
-                    t_ms=t_ms,
-                )
+            ev = EventData(
+                valgroup_id=v_group,
+                slot=slot,
+                label="skip_observed",
+                kind="local",
+                validator=v_id,
+                t_ms=t_ms,
             )
+            self._events.append(ev)
+            self._slot_events.setdefault((v_group, slot), {}).setdefault(v_id, {})[
+                "skip_observed"
+            ] = ev
 
             slot_data = self._get_create_slot(slot, v_group)
             slot_data.is_empty = True
@@ -285,6 +289,56 @@ class ParserSessionStats(Parser):
                         t1_ms=collate_end,
                     )
                 )
+            val_total = self._total_validators.get(slot_id[0])
+            val_has = len(self._seen_validators.get(slot_id[0], set()))
+            if (
+                val_total is not None and val_has < val_total and self._slot_events.get(slot_id)
+            ):  # missing logs for some validators in the group; infer reached events by min observed
+                data: dict[str, float | None] = {
+                    "skip_observed": None,
+                    "notarize_observed": None,
+                    "finalize_observed": None,
+                }
+                for label in data:
+                    min_observed = float("inf")
+                    for events in self._slot_events[slot_id].values():
+                        e = events.get(label)
+                        if e:
+                            min_observed = min(min_observed, e.t_ms)
+                    if min_observed != float("inf"):
+                        data[label] = min_observed
+                for label in data:
+                    value = data[label]
+                    if value is None:
+                        continue
+                    self._events.append(
+                        EventData(
+                            valgroup_id=slot_data.valgroup_id,
+                            slot=slot_data.slot,
+                            label=label.replace("_observed", "_reached"),
+                            kind="reached",
+                            t_ms=value,
+                            validator=None,
+                            t1_ms=None,
+                        )
+                    )
+                    phase_start = None
+                    if label == "notarize_observed" and collate_end is not None:
+                        phase_start = collate_end
+                    if label == "finalize_observed" and data["notarize_observed"] is not None:
+                        phase_start = data["notarize_observed"]
+                    if phase_start is not None:
+                        self._events.append(
+                            EventData(
+                                valgroup_id=slot_data.valgroup_id,
+                                slot=slot_data.slot,
+                                label=label.replace("_observed", ""),
+                                kind="phase",
+                                t_ms=phase_start,
+                                t1_ms=value,
+                            )
+                        )
+                continue
 
             total_weight = self._total_weights[slot_id[0]]
             weight_threshold = (total_weight * 2) // 3 + 1
@@ -376,6 +430,8 @@ class ParserSessionStats(Parser):
         v_id = event_id.idx
         v_weight = event_id.weight
         self._total_weights[v_group] = event_id.total_weight
+        self._total_validators[v_group] = event_id.total_validators
+        self._seen_validators.setdefault(v_group, set()).add(v_id)
 
         def get_slot_leader(slot: int):
             return slot // event_id.slots_per_leader_window % event_id.total_validators
@@ -396,6 +452,8 @@ class ParserSessionStats(Parser):
         self._collated = {}
         self._votes = {}
         self._total_weights = {}
+        self._total_validators = {}
+        self._seen_validators = {}
         self._slot_events = {}
         self._events = []
 
