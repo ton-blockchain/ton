@@ -427,7 +427,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       if (i == 0) {
         expected_parent_id = std::nullopt;
       } else {
-        expected_parent_id = blocks[i].first;
+        expected_parent_id = blocks[i - 1].first;
       }
       if (expected_parent_id != parent_id && !owning_bus()->shard.is_masterchain()) {
         continue;
