@@ -120,6 +120,7 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
             .min_masterchain_block_id = state->min_mc_block_id(),
             .prev = state->block_ids(),
             .creator = Ed25519_PublicKey{bus.local_id.key.ed25519_value().raw()},
+            .skip_store_candidate = true,
             .prev_block_data = state->block_data(),
             .prev_block_state_roots = state->state(),
             .is_new_consensus = true,
