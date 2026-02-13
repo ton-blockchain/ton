@@ -46,7 +46,7 @@ namespace ton {
 namespace overlay {
 
 constexpr int VERBOSITY_NAME(TWOSTEP_WARNING) = verbosity_WARNING;
-constexpr int VERBOSITY_NAME(TWOSTEP_INFO) = verbosity_INFO;
+constexpr int VERBOSITY_NAME(TWOSTEP_INFO) = verbosity_DEBUG;
 constexpr int VERBOSITY_NAME(TWOSTEP_DEBUG) = verbosity_DEBUG;
 
 static constexpr std::size_t FEC_MIN_BYTES = 513;
