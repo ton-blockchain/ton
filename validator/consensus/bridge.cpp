@@ -99,6 +99,10 @@ class ManagerFacadeImpl : public ManagerFacade {
                             std::move(data), mode);
   }
 
+  void update_collator_options(td::Ref<ValidatorManagerOptions> opts) {
+    opts_ = std::move(opts);
+  }
+
  private:
   td::actor::ActorId<ValidatorManager> manager_;
   td::actor::ActorId<CollationManager> collation_manager_;
@@ -187,7 +191,10 @@ class BridgeImpl final : public IValidatorGroup {
   }
 
   virtual void update_options(td::Ref<ValidatorManagerOptions> opts, bool apply_blocks) override {
-    // TODO
+    if (!apply_blocks) {
+      LOG(WARNING) << "Accelerator is not consistently supported with simplex consensus";
+    }
+    td::actor::send_closure(manager_facade_, &ManagerFacadeImpl::update_collator_options, opts);
   }
 
   virtual void get_validator_group_info_for_litequery(
@@ -332,7 +339,7 @@ class BridgeImpl final : public IValidatorGroup {
   bool is_started_ = false;
 
   BridgeCreationParams params_;
-  td::actor::ActorOwn<ManagerFacade> manager_facade_;
+  td::actor::ActorOwn<ManagerFacadeImpl> manager_facade_;
 
   BusHandle bus_;
   td::optional<td::actor::StartedTask<>> stop_waiter_;
