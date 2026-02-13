@@ -188,7 +188,7 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
     auto request = std::make_shared<IncomingOverlayRequest>(peer.idx, std::move(data));
 
     auto task = [](BusHandle bus, auto message, auto promise) -> td::actor::Task<> {
-      auto response = co_await bus.publish(std::move(message)).wrap();
+      auto response = co_await bus.publish(message).wrap();
       if (response.is_ok()) {
         promise.set_value(response.move_as_ok().data);
       } else {
