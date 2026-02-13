@@ -635,7 +635,8 @@ void FullNodeFastSyncOverlays::update_overlays(
     // Update shard overlays
     for (ShardIdFull shard : all_shards) {
       bool receive_broadcasts = monitoring_shards.contains(shard);
-      bool send_twostep_broadcasts = false;
+      // Enable twostep broadcasts by ConfigParam 30
+      bool send_twostep_broadcasts = (bool)state->get_new_consensus_config(shard.workchain);
       auto &overlay = overlays_info.overlays_[shard];
       if (overlay.empty()) {
         overlay = td::actor::create_actor<FullNodeFastSyncOverlay>(
