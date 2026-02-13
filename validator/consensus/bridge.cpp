@@ -45,6 +45,7 @@ class ManagerFacadeImpl : public ManagerFacade {
   td::actor::Task<ValidateCandidateResult> validate_block_candidate(BlockCandidate candidate, ValidateParams params,
                                                                     td::Timestamp timeout) override {
     params.validator_set = validator_set_;
+    params.parallel_validation = opts_->get_parallel_validation();
     auto [task, promise] = td::actor::StartedTask<ValidateCandidateResult>::make_bridge();
     run_validate_query(std::move(candidate), std::move(params), manager_, timeout, std::move(promise));
     co_return co_await std::move(task);
