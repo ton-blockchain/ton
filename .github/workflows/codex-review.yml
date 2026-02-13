@@ -26,7 +26,8 @@ jobs:
         github.event.pull_request.user.login == 'Mustang98' ||
         github.event.pull_request.user.login == 'avevad' ||
         github.event.pull_request.user.login == 'tvorogme' ||
-        github.event.pull_request.user.login == 'krigga'
+        github.event.pull_request.user.login == 'krigga' ||
+        github.event.pull_request.user.login == 'yungwine'
       )
     runs-on: ubuntu-latest
     permissions:
