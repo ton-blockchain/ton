@@ -45,6 +45,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     auto& bus = *owning_bus();
 
     slots_per_leader_window_ = bus.simplex_config.slots_per_leader_window;
+    max_leader_window_desync_ = bus.simplex_config.max_leader_window_desync;
     target_rate_s_ = bus.config.target_rate_ms / 1000.;
     first_block_timeout_s_ = bus.simplex_config.first_block_timeout_ms / 1000.;
     state_.emplace(State(bus.simplex_config.slots_per_leader_window, {}, {}));
@@ -103,6 +104,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   template <>
   void handle(BusHandle, std::shared_ptr<const LeaderWindowObserved> event) {
     auto& bus = *owning_bus();
+    current_window_ = event->start_slot / slots_per_leader_window_;
 
     td::uint32 offset = event->start_slot % slots_per_leader_window_;
     if (offset == 0) {
@@ -150,7 +152,14 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
   template <>
   void handle(BusHandle, std::shared_ptr<const CandidateReceived> event) {
-    auto slot = state_->slot_at(event->candidate->id.slot);
+    td::uint32 slot_idx = event->candidate->id.slot;
+    td::uint32 first_too_new_slot = (current_window_ + max_leader_window_desync_ + 1) * slots_per_leader_window_;
+    if (slot_idx >= first_too_new_slot) {
+      LOG(WARNING) << "Dropping too new candidate from " << event->candidate->leader << " : slot=" << slot_idx
+                   << ", current_window=" << current_window_ * slots_per_leader_window_;
+      return;
+    }
+    auto slot = state_->slot_at(slot_idx);
     if (!slot.has_value()) {
       return;
     }
@@ -232,9 +241,11 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   }
 
   td::uint32 slots_per_leader_window_;
+  td::uint32 max_leader_window_desync_;
   double target_rate_s_;
   double first_block_timeout_s_;
   std::optional<State> state_;
+  td::uint32 current_window_ = 0;
 
   std::multimap<td::Timestamp, td::uint32> skip_timeouts_;
 

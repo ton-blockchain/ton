@@ -286,6 +286,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     auto &bus = *owning_bus();
 
     slots_per_leader_window_ = bus.simplex_config.slots_per_leader_window;
+    max_leader_window_desync_ = bus.simplex_config.max_leader_window_desync;
 
     weight_threshold_ = (bus.total_weight * 2) / 3 + 1;
 
@@ -327,16 +328,25 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   template <>
   void handle(BusHandle, std::shared_ptr<const IncomingProtocolMessage> message) {
     auto &bus = *owning_bus();
+    td::uint32 first_too_new_slot =
+        (now_ / slots_per_leader_window_ + max_leader_window_desync_ + 1) * slots_per_leader_window_;
 
     auto maybe_tl_vote = fetch_tl_object<tl::vote>(message->message.data, true);
     if (maybe_tl_vote.is_ok()) {
       auto tl_vote = maybe_tl_vote.move_as_ok();
       auto maybe_vote = Signed<Vote>::from_tl(std::move(*tl_vote), message->source, bus);
       if (maybe_vote.is_error()) {
+        LOG(WARNING) << "Dropping bad vote from " << message->source << " : " << maybe_vote.move_as_error();
+        return;
+      }
+      auto vote = maybe_vote.move_as_ok();
+      if (vote.vote.referenced_slot() >= first_too_new_slot) {
+        LOG(WARNING) << "Dropping too new vote from " << message->source << " : slot=" << vote.vote.referenced_slot()
+                     << ", current_slot=" << now_;
         return;
       }
 
-      if (handle_vote(message->source.get_using(bus), maybe_vote.move_as_ok())) {
+      if (handle_vote(message->source.get_using(bus), std::move(vote))) {
         store_vote_to_db(message->message.data.clone(), message->source).detach();
       }
     }
@@ -346,12 +356,18 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
       auto tl_certificate = maybe_tl_certificate.move_as_ok();
       auto raw_vote = Vote::from_tl(*tl_certificate->vote_);
 
-      auto slot = state_->slot_at(raw_vote.referenced_slot());
-      if (!slot.has_value()) {
-        return;
-      }
-      if (!slot->state->certs.needs(raw_vote)) {
-        return;
+      bool is_too_new = raw_vote.referenced_slot() >= first_too_new_slot;
+
+      std::optional<State::SlotRef> slot;
+
+      if (!is_too_new) {
+        slot = state_->slot_at(raw_vote.referenced_slot());
+        if (!slot.has_value()) {
+          return;
+        }
+        if (!slot->state->certs.needs(raw_vote)) {
+          return;
+        }
       }
 
       auto maybe_certificate = Certificate<Vote>::from_tl(std::move(*tl_certificate), bus);
@@ -359,6 +375,14 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
         LOG(WARNING) << "Dropping bad certificate from " << message->source << " : "
                      << maybe_certificate.move_as_error();
         return;
+      }
+
+      if (is_too_new) {
+        slot = state_->slot_at(raw_vote.referenced_slot());
+        CHECK(slot.has_value());
+        if (!slot->state->certs.needs(raw_vote)) {
+          return;
+        }
       }
 
       handle_foreign_certificate(*slot, std::move(maybe_certificate.move_as_ok().unique_write()));
@@ -758,6 +782,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   }
 
   td::uint32 slots_per_leader_window_;
+  td::uint32 max_leader_window_desync_;
   ValidatorWeight weight_threshold_ = 0;
   std::optional<State> state_;
 
