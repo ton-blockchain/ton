@@ -32,8 +32,12 @@ std::string ResolveCandidate::contents_to_string() const {
   return PSTRING() << "{id=" << id << "}";
 }
 
-std::string WaitCandidateInfoStored::contents_to_string() const {
-  return PSTRING() << "{id=" << id << ", info=" << wait_candidate_info << ", notar=" << wait_notar_cert << "}";
+std::string StoreCandidate::contents_to_string() const {
+  return PSTRING() << "{id=" << candidate->id << "}";
+}
+
+std::string WaitNotarCertStored::contents_to_string() const {
+  return PSTRING() << "{id=" << id << "}";
 }
 
 namespace {

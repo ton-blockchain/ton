@@ -56,6 +56,7 @@ struct ValidateParams {
   PublicKeyHash local_validator_id = PublicKeyHash::zero();
 
   bool is_fake = false;
+  bool skip_store_candidate = false;
 
   bool parallel_validation = false;
   bool is_new_consensus = false;

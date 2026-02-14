@@ -98,15 +98,6 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
   }
 
   template <>
-  void handle(BusHandle, std::shared_ptr<const CandidateReceived> event) {
-    auto &state = resolve_states_[event->candidate->id];
-    if (!state.data.candidate.has_value()) {
-      state.data.candidate.emplace(event->candidate);
-      store_to_db(event->candidate->id, state).start().detach();
-    }
-  }
-
-  template <>
   void handle(BusHandle, std::shared_ptr<const NotarizationObserved> event) {
     auto &state = resolve_states_[event->id];
     if (!state.data.notar_cert.has_value()) {
@@ -161,17 +152,22 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
   }
 
   template <>
-  td::actor::Task<> process(BusHandle, std::shared_ptr<WaitCandidateInfoStored> request) {
+  td::actor::Task<> process(BusHandle, std::shared_ptr<WaitNotarCertStored> request) {
     ResolveState &state = resolve_states_[request->id];
-    if (request->wait_candidate_info && !state.stored_info_to_db) {
-      auto [task, promise] = td::actor::StartedTask<>::make_bridge();
-      state.stored_info_to_db_waiters.push_back(std::move(promise));
-      co_await std::move(task);
-    }
-    if (request->wait_notar_cert && !state.stored_notar_cert_to_db) {
+    if (!state.stored_notar_cert_to_db) {
       auto [task, promise] = td::actor::StartedTask<>::make_bridge();
       state.stored_notar_cert_to_db_waiters.push_back(std::move(promise));
       co_await std::move(task);
+    }
+    co_return {};
+  }
+
+  template <>
+  td::actor::Task<> process(BusHandle, std::shared_ptr<StoreCandidate> request) {
+    auto &state = resolve_states_[request->candidate->id];
+    if (!state.data.candidate.has_value()) {
+      state.data.candidate.emplace(request->candidate);
+      co_await store_to_db(request->candidate->id, state);
     }
     co_return {};
   }
