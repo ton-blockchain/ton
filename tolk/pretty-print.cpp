@@ -90,6 +90,13 @@ std::string debug_print(EnumDefPtr sym) {
   return "enum " + sym->name;
 }
 
+std::string debug_print(const OpList* list) {
+  if (list->empty()) {
+    return "empty";
+  }
+  return "size=" + std::to_string(list->size());
+}
+
 std::string debug_print(const Op* op) {
   std::ostringstream os;
 

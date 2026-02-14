@@ -466,8 +466,9 @@ static std::vector<std::vector<var_idx_t>> pre_compile_tensor_inner(CodeBlob& co
   struct WatchingVarList {
     struct WatchedVarInfo {
       var_idx_t ir_idx;
-      std::unique_ptr<Op>* saved_cur_ops;  // cur_ops at the time variable was added to watch list
-      size_t saved_stack_depth;            // cur_ops_stack.size() at that moment
+      OpList* saved_list;       // the OpList being built at the time variable was added
+      size_t saved_index;       // index in that OpList (position where Op::_Let will be inserted)
+      size_t saved_stack_depth; // cur_ops_stack.size() at that moment
     };
 
     std::vector<WatchedVarInfo> watched_vars;
@@ -493,17 +494,15 @@ static std::vector<std::vector<var_idx_t>> pre_compile_tensor_inner(CodeBlob& co
           if (existing) {
             // Variable is already watched. Update saved position if we're at the same nesting level,
             // so that subsequent modifications insert Op::_Let after this argument, not before.
-            // Example: `(x, c1 ? x=2 : x=5, x, c2 ? x=20 : x=50, x)` — when processing the 3rd `x`,
-            // update saved_cur_ops so the 2nd ternary inserts Op::_Let after the 1st ternary.
             if (code.cur_ops_stack.size() == existing->saved_stack_depth) {
-              existing->saved_cur_ops = code.cur_ops;
+              existing->saved_list = code.cur_ops;
+              existing->saved_index = code.cur_ops->size();
             }
           } else {
             // Variable is not watched yet. Start watching it: remember current insertion point
             // and nesting level, and register a callback for when this variable is modified.
-            // When modified, on_var_modified() will insert Op::_Let to capture the pre-modified value.
             size_t watch_idx = watched_vars.size();
-            watched_vars.push_back({ir_idx, code.cur_ops, code.cur_ops_stack.size()});
+            watched_vars.push_back({ir_idx, code.cur_ops, code.cur_ops->size(), code.cur_ops_stack.size()});
             vars_modification_watcher.push_callback(ir_idx, [this, &code, watch_idx](AnyV origin, var_idx_t ir_idx) {
               on_var_modified(ir_idx, origin, code, watch_idx);
             });
@@ -524,10 +523,14 @@ static std::vector<std::vector<var_idx_t>> pre_compile_tensor_inner(CodeBlob& co
       // example: `return (x, condition ? x = 9 : x = 10, x)`, we are in "x=9", insert outside ternary;
       // otherwise, insert at current position (standard behavior)
       if (code.cur_ops_stack.size() > info.saved_stack_depth) {
-        std::unique_ptr<Op> next_op = std::move(*info.saved_cur_ops);
-        *info.saved_cur_ops = std::make_unique<Op>(origin, Op::_Let, std::vector{tmp_idx}, std::vector{ir_idx});
-        (*info.saved_cur_ops)->next = std::move(next_op);
-        info.saved_cur_ops = &(*info.saved_cur_ops)->next;
+        info.saved_list->insert(info.saved_list->begin() + static_cast<long>(info.saved_index),
+                                std::make_unique<Op>(origin, Op::_Let, std::vector{tmp_idx}, std::vector{ir_idx}));
+        // adjust indices of all watchers pointing to the same list at or after the insertion point
+        for (auto& w : watched_vars) {
+          if (w.saved_list == info.saved_list && w.saved_index >= info.saved_index) {
+            w.saved_index++;
+          }
+        }
       } else {
         code.emplace_back(origin, Op::_Let, std::vector{tmp_idx}, std::vector{ir_idx});
       }

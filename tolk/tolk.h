@@ -223,6 +223,47 @@ struct CodeBlob;
 
 struct Stack;
 
+struct Op;
+
+struct OpList {
+  std::vector<std::unique_ptr<Op>> list;
+
+  // container interface (forwarding to inner vector)
+  bool empty() const { return list.empty(); }
+  size_t size() const { return list.size(); }
+  std::unique_ptr<Op>& operator[](size_t i) { return list[i]; }
+  const std::unique_ptr<Op>& operator[](size_t i) const { return list[i]; }
+  const std::unique_ptr<Op>& front() const { return list.front(); }
+  std::unique_ptr<Op>& back() { return list.back(); }
+  void push_back(std::unique_ptr<Op> op) { list.push_back(std::move(op)); }
+  void clear() { list.clear(); }
+
+  using iterator = std::vector<std::unique_ptr<Op>>::iterator;
+  using const_iterator = std::vector<std::unique_ptr<Op>>::const_iterator;
+  iterator begin() { return list.begin(); }
+  iterator end() { return list.end(); }
+  const_iterator begin() const { return list.begin(); }
+  const_iterator end() const { return list.end(); }
+  iterator insert(const_iterator pos, std::unique_ptr<Op> op) { return list.insert(pos, std::move(op)); }
+
+  // semantic accessors (defined after Op, since they access Op's members)
+  static std::unique_ptr<Op> make_terminal_nop(AnyV origin);
+  bool is_noreturn() const;
+  bool is_empty_block() const;
+  const VarDescrList& entry_var_info() const;
+  const VarDescrList& exit_var_info() const;
+
+  // IR analysis and codegen (defined in respective .cpp files)
+  void set_entry_var_info(VarDescrList&& front_var_info);
+  void generate_code_all(Stack& stack, size_t from = 0) const;
+  bool compute_used_code_vars(const VarDescrList& var_info, bool edit);
+  VarDescrList fwd_analyze(VarDescrList values) const;
+  bool mark_noreturn();
+  bool prune_unreachable();
+  void mark_function_used_dfs() const;
+  void show(std::ostream& os, const std::vector<TmpVar>& vars, const std::string& indent, int mode = 0) const;
+};
+
 struct Op {
   enum OpKind {
     _Nop,
@@ -248,14 +289,13 @@ struct Op {
   OpKind cl;
   enum { _Disabled = 1, _NoReturn = 2, _Impure = 4, _ArgOrderAlreadyEqualsAsm = 8 };
   int flags;
-  std::unique_ptr<Op> next;
   FunctionPtr f_sym = nullptr;
   GlobalVarPtr g_sym = nullptr;
   AnyV origin;
   VarDescrList var_info;
   std::vector<VarDescr> args;
   std::vector<var_idx_t> left, right;
-  std::unique_ptr<Op> block0, block1;
+  OpList block0, block1;
   td::RefInt256 int_const;
   std::string str_const;
   Op(AnyV origin, OpKind cl) : cl(cl), flags(0), origin(origin) {
@@ -312,9 +352,8 @@ struct Op {
   void show(std::ostream& os, const std::vector<TmpVar>& vars, const std::string& indent, int mode = 0) const;
   void show_var_list(std::ostream& os, const std::vector<var_idx_t>& idx_list, const std::vector<TmpVar>& vars) const;
   void show_var_list(std::ostream& os, const std::vector<VarDescr>& list, const std::vector<TmpVar>& vars) const;
-  static void show_block(std::ostream& os, const Op* block, const std::vector<TmpVar>& vars, const std::string& indent, int mode = 0);
-  bool compute_used_vars(const CodeBlob& code, bool edit);
-  bool std_compute_used_vars(bool disabled = false);
+  bool compute_used_vars(bool edit, const VarDescrList& next_var_info);
+  bool std_compute_used_vars(const VarDescrList& next_var_info, bool disabled = false);
   bool set_var_info(const VarDescrList& new_var_info);
   bool set_var_info(VarDescrList&& new_var_info);
   bool set_var_info_except(const VarDescrList& new_var_info, const std::vector<var_idx_t>& var_list);
@@ -322,19 +361,25 @@ struct Op {
   void prepare_args(VarDescrList values);
   void maybe_swap_builtin_args_to_compile();
   VarDescrList fwd_analyze(VarDescrList values);
-  bool mark_noreturn();
-  bool is_empty() const {
-    return cl == _Nop && !next;
-  }
-  bool generate_code_step(Stack& stack);
-  void generate_code_all(Stack& stack);
-  Op& last() {
-    return next ? next->last() : *this;
-  }
-  const Op& last() const {
-    return next ? next->last() : *this;
-  }
+  bool generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_idx);
 };
+
+// OpList inline methods that need Op to be complete
+inline std::unique_ptr<Op> OpList::make_terminal_nop(AnyV origin) {
+  return std::make_unique<Op>(origin, Op::_Nop);
+}
+inline bool OpList::is_noreturn() const {
+  return !list.empty() && list.front()->noreturn();
+}
+inline bool OpList::is_empty_block() const {
+  return list.empty() || (list.size() == 1 && list.front()->cl == Op::_Nop);
+}
+inline const VarDescrList& OpList::entry_var_info() const {
+  return list.front()->var_info;
+}
+inline const VarDescrList& OpList::exit_var_info() const {
+  return list.back()->var_info;
+}
 
 struct FunctionBodyCode {
   CodeBlob* code = nullptr;
@@ -923,24 +968,17 @@ struct CodeBlob {
   std::vector<LazyVarRefAtCodegen> lazy_variables;
   std::vector<var_idx_t>* inline_rvect_out = nullptr;
   bool inlining_before_immediate_return = false;
-  std::unique_ptr<Op> ops;
-  std::unique_ptr<Op>* cur_ops;
-#ifdef TOLK_DEBUG
-  std::vector<Op*> _vector_of_ops;  // to see it in debugger instead of nested pointers
-#endif
-  std::stack<std::unique_ptr<Op>*> cur_ops_stack;
+  OpList ops;
+  OpList* cur_ops;
+  std::stack<OpList*> cur_ops_stack;
   bool require_callxargs = false;
   explicit CodeBlob(FunctionPtr fun_ref)
     : var_cnt(0), in_var_cnt(0), fun_ref(fun_ref), cur_ops(&ops) {
   }
   template <typename... Args>
   Op& emplace_back(Args&&... args) {
-    Op& res = *(*cur_ops = std::make_unique<Op>(args...));
-    cur_ops = &(res.next);
-#ifdef TOLK_DEBUG
-    _vector_of_ops.push_back(&res);
-#endif
-    return res;
+    cur_ops->push_back(std::make_unique<Op>(args...));
+    return *cur_ops->back();
   }
   std::vector<var_idx_t> create_var(TypePtr var_type, AnyV origin, std::string name);
   std::vector<var_idx_t> create_tmp_var(TypePtr var_type, AnyV origin, const char* purpose) {
@@ -954,14 +992,13 @@ struct CodeBlob {
   }
   var_idx_t create_int(AnyV origin, int64_t value, const char* purpose);
   bool compute_used_code_vars();
-  bool compute_used_code_vars(std::unique_ptr<Op>& ops, const VarDescrList& var_info, bool edit) const;
   void print(std::ostream& os, int flags = 0) const;
-  void push_set_cur(std::unique_ptr<Op>& new_cur_ops) {
+  void push_set_cur(OpList& new_cur_ops) {
     cur_ops_stack.push(cur_ops);
     cur_ops = &new_cur_ops;
   }
   void close_blk(AnyV origin) {
-    *cur_ops = std::make_unique<Op>(origin, Op::_Nop);
+    cur_ops->push_back(OpList::make_terminal_nop(origin));
   }
   void pop_cur() {
     cur_ops = cur_ops_stack.top();

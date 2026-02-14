@@ -283,39 +283,39 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, const std::stri
       os << indent << dis << "REPEAT ";
       show_var_list(os, left, vars);
       os << ' ';
-      show_block(os, block0.get(), vars, indent, mode);
+      block0.show(os, vars, indent, mode);
       os << std::endl;
       break;
     case _If:
       os << indent << dis << "IF ";
       show_var_list(os, left, vars);
       os << ' ';
-      show_block(os, block0.get(), vars, indent, mode);
+      block0.show(os, vars, indent, mode);
       os << " ELSE ";
-      show_block(os, block1.get(), vars, indent, mode);
+      block1.show(os, vars, indent, mode);
       os << std::endl;
       break;
     case _While:
       os << indent << dis << "WHILE ";
       show_var_list(os, left, vars);
       os << ' ';
-      show_block(os, block0.get(), vars, indent, mode);
+      block0.show(os, vars, indent, mode);
       os << " DO ";
-      show_block(os, block1.get(), vars, indent, mode);
+      block1.show(os, vars, indent, mode);
       os << std::endl;
       break;
     case _Until:
       os << indent << dis << "UNTIL ";
       show_var_list(os, left, vars);
       os << ' ';
-      show_block(os, block0.get(), vars, indent, mode);
+      block0.show(os, vars, indent, mode);
       os << std::endl;
       break;
     case _Again:
       os << indent << dis << "AGAIN ";
       show_var_list(os, left, vars);
       os << ' ';
-      show_block(os, block0.get(), vars, indent, mode);
+      block0.show(os, vars, indent, mode);
       os << std::endl;
       break;
     default:
@@ -363,10 +363,10 @@ void Op::show_var_list(std::ostream& os, const std::vector<VarDescr>& list, cons
   }
 }
 
-void Op::show_block(std::ostream& os, const Op* block, const std::vector<TmpVar>& vars, const std::string& indent, int mode) {
+void OpList::show(std::ostream& os, const std::vector<TmpVar>& vars, const std::string& indent, int mode) const {
   os << "{" << std::endl;
   std::string sub_indent = indent + "  ";
-  for (const Op* op = block; op; op = op->next.get()) {
+  for (const auto& op : list) {
     op->show(os, vars, sub_indent, mode);
   }
   os << indent << "}";
@@ -386,7 +386,7 @@ void CodeBlob::print(std::ostream& os, int flags) const {
     }
   }
   os << "------- BEGIN --------\n";
-  for (const Op* op = ops.get(); op; op = op->next.get()) {
+  for (const auto& op : ops) {
     op->show(os, vars, "", flags);
   }
   os << "-------- END ---------\n\n";

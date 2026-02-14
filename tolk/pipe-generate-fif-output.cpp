@@ -167,6 +167,9 @@ static void generate_output_func(std::ostream& os, FunctionPtr fun_ref) {
     std::cerr << "after prune_unreachable: \n";
     code->print(std::cerr, 0);
   }
+  // fixed-point iteration: backward analysis may disable unused ops, forward analysis may discover
+  // constant values, prune may remove unreachable branches — each can enable further optimizations;
+  // in practice, convergence happens in 2-3 iterations, 8 is a safe upper bound
   for (int i = 0; i < 8; i++) {
     code->compute_used_code_vars();
     if (G_settings.verbosity >= 4) {
@@ -192,7 +195,7 @@ static void generate_output_func(std::ostream& os, FunctionPtr fun_ref) {
     std::cerr << "\n---------- resulting code for " << fun_ref->name << " -------------\n";
   }
   int mode = 0;
-  if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif && code->ops->noreturn()) {
+  if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif && code->ops.is_noreturn()) {
     mode |= Stack::_InlineFunc;
   }
   if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif || fun_ref->inline_mode == FunctionInlineMode::inlineRef) {
