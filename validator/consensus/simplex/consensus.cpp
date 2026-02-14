@@ -212,9 +212,11 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     auto parent = co_await get_resolved_candidate(candidate->parent_id);
     CHECK(candidate->parent_id == parent.id);
 
-    auto validation_result = co_await owning_bus().publish<ValidationRequest>(parent.state, candidate).wrap();
+    auto validation_result = co_await owning_bus().publish<ValidationRequest>(parent.state, candidate);
 
-    if (validation_result.is_error()) {
+    if (validation_result.has<CandidateReject>()) {
+      LOG(WARNING) << "Candidate " << candidate->id
+                   << " is rejected: " << validation_result.get<CandidateReject>().reason;
       // FIXME: Report misbehavior
       co_return {};
     }
