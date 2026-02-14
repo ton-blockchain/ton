@@ -43,6 +43,7 @@ class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
           .min_masterchain_block_id = event->state->min_mc_block_id(),
           .prev = event->state->block_ids(),
           .local_validator_id = bus.local_id.short_id,
+          .skip_store_candidate = true,
           .is_new_consensus = true,
           .prev_block_state_roots = event->state->state(),
       };

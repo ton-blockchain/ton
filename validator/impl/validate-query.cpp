@@ -99,6 +99,7 @@ ValidateQuery::ValidateQuery(BlockCandidate candidate, ValidateParams params,
     , shard_pfx_(shard_.shard)
     , shard_pfx_len_(ton::shard_prefix_length(shard_))
     , preloaded_prev_block_state_roots_(std::move(params.prev_block_state_roots))
+    , skip_store_candidate_(params.skip_store_candidate)
     , is_new_consensus_(params.is_new_consensus)
     , perf_timer_("validateblock", 0.1, [manager](double duration) {
       send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
@@ -7464,6 +7465,14 @@ bool ValidateQuery::try_validate() {
  * @returns True.
  */
 bool ValidateQuery::save_candidate() {
+  if (!storage_stat_cache_update_.empty()) {
+    td::actor::send_closure(manager, &ValidatorManager::update_storage_stat_cache,
+                            std::move(storage_stat_cache_update_));
+  }
+  if (skip_store_candidate_) {
+    written_candidate({});
+    return true;
+  }
   auto P = td::PromiseCreator::lambda(
       [SelfId = actor_id(this), token = perf_log_.start_action("set_block_candidate")](td::Result<td::Unit> R) mutable {
         if (R.is_error()) {
@@ -7475,10 +7484,6 @@ bool ValidateQuery::save_candidate() {
 
   td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, id_, block_candidate.clone(),
                           validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(), std::move(P));
-  if (!storage_stat_cache_update_.empty()) {
-    td::actor::send_closure(manager, &ValidatorManager::update_storage_stat_cache,
-                            std::move(storage_stat_cache_update_));
-  }
   return true;
 }
 

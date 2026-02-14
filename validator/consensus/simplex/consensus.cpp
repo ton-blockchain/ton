@@ -192,6 +192,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
   td::actor::Task<> try_notarize(State::SlotRef slot) {
     const auto& candidate = *slot.state->pending_block;
+    auto store_candidate = owning_bus().publish<StoreCandidate>(candidate).start();
 
     auto maybe_misbehavior = co_await owning_bus().publish<WaitForParent>(candidate);
     if (maybe_misbehavior) {
@@ -208,7 +209,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       // FIXME: Report misbehavior
       co_return {};
     }
-    co_await owning_bus().publish<WaitCandidateInfoStored>(candidate->id, true, false);
+    co_await std::move(store_candidate);
 
     slot.state->voted_notar = candidate->id;
 
@@ -222,7 +223,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       co_return {};
     }
 
-    co_await owning_bus().publish<WaitCandidateInfoStored>(event->id, false, true);
+    co_await owning_bus().publish<WaitNotarCertStored>(event->id);
     if (!slot->state->voted_skip && !slot->state->voted_final && slot->state->voted_notar == event->id) {
       owning_bus().publish<BroadcastVote>(FinalizeVote{event->id});
       slot->state->voted_final = true;
