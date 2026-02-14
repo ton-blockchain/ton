@@ -64,6 +64,16 @@ struct Proven {
 };
 
 struct CertificateBundle {
+  bool needs(const Vote &vote) const {
+    return std::visit(
+        [&]<typename T>(const T &v) {
+          auto tuple = std::tie(notarize_, skip_, finalize_);
+          const auto &stored_cert = std::get<const std::optional<CertificateRef<T>> &>(tuple);
+          return !stored_cert.has_value();
+        },
+        vote.vote);
+  }
+
   template <typename T>
   bool store(CertificateRef<T> cert) {
     auto tuple = std::tie(notarize_, skip_, finalize_);
@@ -334,12 +344,24 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     auto maybe_tl_certificate = fetch_tl_object<tl::certificate>(message->message.data, true);
     if (maybe_tl_certificate.is_ok()) {
       auto tl_certificate = maybe_tl_certificate.move_as_ok();
-      auto maybe_certificate = Certificate<Vote>::from_tl(std::move(*tl_certificate), bus);
-      if (maybe_certificate.is_error()) {
+      auto raw_vote = Vote::from_tl(*tl_certificate->vote_);
+
+      auto slot = state_->slot_at(raw_vote.referenced_slot());
+      if (!slot.has_value()) {
+        return;
+      }
+      if (!slot->state->certs.needs(raw_vote)) {
         return;
       }
 
-      handle_foreign_certificate(std::move(maybe_certificate.move_as_ok().unique_write()));
+      auto maybe_certificate = Certificate<Vote>::from_tl(std::move(*tl_certificate), bus);
+      if (maybe_certificate.is_error()) {
+        LOG(WARNING) << "Dropping bad certificate from " << message->source << " : "
+                     << maybe_certificate.move_as_error();
+        return;
+      }
+
+      handle_foreign_certificate(*slot, std::move(maybe_certificate.move_as_ok().unique_write()));
     }
   }
 
@@ -638,22 +660,18 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     }
   }
 
-  void handle_foreign_certificate(Certificate<Vote> &&cert) {
-    auto slot = state_->slot_at(cert.vote.referenced_slot());
-    if (!slot.has_value()) {
-      return;
-    }
-
+  void handle_foreign_certificate(State::SlotRef &slot, Certificate<Vote> &&cert) {
     std::move(cert).consume_and_downcast([&](auto cert) {
-      if (slot->state->certs.store(cert)) {
-        for (const auto &[idx, _] : cert->signatures) {
-          auto add_result = slot->state->votes[idx.value()].add_vote(cert);
-          if (auto misbehavior = add_result.misbehavior) {
-            owning_bus().publish<MisbehaviorReport>(idx, *misbehavior);
-          }
+      bool rc = slot.state->certs.store(cert);
+      CHECK(rc);
+
+      for (const auto &[idx, _] : cert->signatures) {
+        auto add_result = slot.state->votes[idx.value()].add_vote(cert);
+        if (auto misbehavior = add_result.misbehavior) {
+          owning_bus().publish<MisbehaviorReport>(idx, *misbehavior);
         }
-        handle_certificate(*slot, cert);
       }
+      handle_certificate(slot, cert);
     });
   }
 

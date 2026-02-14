@@ -26,7 +26,7 @@ using VoteRef = tl_object_ptr<vote>;
 }  // namespace tl
 
 struct NotarizeVote {
-  static NotarizeVote from_tl(tl::notarizeVote&& vote);
+  static NotarizeVote from_tl(const tl::notarizeVote& vote);
   tl::UnsignedVoteRef to_tl() const;
 
   td::uint32 referenced_slot() const {
@@ -41,7 +41,7 @@ struct NotarizeVote {
 td::StringBuilder& operator<<(td::StringBuilder& sb, const NotarizeVote& vote);
 
 struct FinalizeVote {
-  static FinalizeVote from_tl(tl::finalizeVote&& vote);
+  static FinalizeVote from_tl(const tl::finalizeVote& vote);
   tl::UnsignedVoteRef to_tl() const;
 
   td::uint32 referenced_slot() const {
@@ -56,7 +56,7 @@ struct FinalizeVote {
 td::StringBuilder& operator<<(td::StringBuilder& sb, const FinalizeVote& vote);
 
 struct SkipVote {
-  static SkipVote from_tl(tl::skipVote&& vote);
+  static SkipVote from_tl(const tl::skipVote& vote);
   tl::UnsignedVoteRef to_tl() const;
 
   td::uint32 referenced_slot() const {
@@ -71,7 +71,7 @@ struct SkipVote {
 td::StringBuilder& operator<<(td::StringBuilder& sb, const SkipVote& vote);
 
 struct Vote {
-  static Vote from_tl(tl::UnsignedVote&& vote);
+  static Vote from_tl(const tl::UnsignedVote& vote);
 
   Vote(td::OneOf<NotarizeVote, FinalizeVote, SkipVote> auto vote) : vote(std::move(vote)) {
   }
