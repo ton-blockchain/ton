@@ -167,9 +167,8 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
       CHECK(candidate->parent_id == parent_for_validation_);
 
-      auto validation_result =
-          co_await owning_bus().publish<ValidationRequest>(state_for_validation_, candidate).wrap();
-      validation_result.ensure();
+      auto validation_result = co_await owning_bus().publish<ValidationRequest>(state_for_validation_, candidate);
+      CHECK(validation_result.has<CandidateAccept>());
 
       auto signature_data = create_serialize_tl_object<ton_api::ton_blockId>(candidate->block_id().root_hash,
                                                                              candidate->block_id().file_hash);

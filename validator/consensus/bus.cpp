@@ -88,6 +88,16 @@ std::string ValidationRequest::contents_to_string() const {
   return PSTRING() << "{state=" << state << ", candidate=" << candidate_to_string(candidate) << "}";
 }
 
+std::string ValidationRequest::response_to_string(const ReturnType& result) {
+  std::string str;
+  auto accept_fn = [&](const CandidateAccept& accept) { str = PSTRING() << "CandidateAccept{}"; };
+  auto reject_fn = [&](const CandidateReject& reject) {
+    str = PSTRING() << "CandidateReject{reason=" << reject.reason << "}";
+  };
+  result.visit(td::overloaded(accept_fn, reject_fn));
+  return str;
+}
+
 std::string IncomingProtocolMessage::contents_to_string() const {
   return PSTRING() << "{source=" << source << ", message=" << message_to_string(message) << "}";
 }
