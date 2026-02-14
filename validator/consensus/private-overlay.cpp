@@ -91,8 +91,8 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
       if (adnl_id == local_id_.adnl_id) {
         return;
       }
-      td::actor::send_closure(overlays_, &overlay::Overlays::send_message, adnl_id, local_id_.adnl_id, overlay_id_,
-                              message->message.data.clone());
+      td::actor::send_closure(overlays_, &overlay::Overlays::send_message_via, adnl_id, local_id_.adnl_id, overlay_id_,
+                              message->message.data.clone(), adnl_sender_);
     };
 
     if (message->recipient) {
