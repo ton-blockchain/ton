@@ -105,6 +105,8 @@ size_t NET_GREMLIN_TIMES = 1000000000;
 bool NET_GREMLIN_KILLS_LEADER = false;
 
 std::pair<double, double> DB_DELAY = {0.0, 0.0};
+std::pair<double, double> COLLATION_TIME = {0.0, 0.0};
+std::pair<double, double> VALIDATION_TIME = {0.0, 0.0};
 
 class TestSimplexBus : public simplex::Bus {
  public:
@@ -421,6 +423,8 @@ class TestManagerFacade : public ManagerFacade {
     collated_roots.push_back(std::move(cell));
     td::BufferSlice collated_data = co_await vm::std_boc_serialize_multi(collated_roots, 2);
 
+    co_await td::actor::coro_sleep(td::Timestamp::in(td::Random::fast(COLLATION_TIME.first, COLLATION_TIME.second)));
+
     BlockCandidate candidate(
         params.creator,
         BlockIdExt(BlockId(params.shard, prev_seqno + 1), block_root->get_hash().bits(), td::sha256_bits256(data)),
@@ -441,6 +445,7 @@ class TestManagerFacade : public ManagerFacade {
     CHECK(candidate.id.seqno() == prev_seqno + 1);
     CHECK(params.prev_block_state_roots.size() == 1 &&
           params.prev_block_state_roots[0]->get_hash() == gen_shard_state(prev_seqno)->get_hash());
+    co_await td::actor::coro_sleep(td::Timestamp::in(td::Random::fast(VALIDATION_TIME.first, VALIDATION_TIME.second)));
     co_await store_block_candidate(candidate.clone());
     co_return CandidateAccept{.ok_from_utime = co_await get_candidate_gen_utime_exact(candidate)};
   }
@@ -1035,6 +1040,22 @@ int main(int argc, char *argv[]) {
                          TRY_RESULT_ASSIGN(DB_DELAY, parse_range(arg));
                          if (DB_DELAY.first < 0.0) {
                            return td::Status::Error(PSTRING() << "invalid db delay value " << arg);
+                         }
+                         return td::Status::OK();
+                       });
+  p.add_checked_option('\0', "collation-time", "time it takes to collate a block (range, default: 0)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT_ASSIGN(COLLATION_TIME, parse_range(arg));
+                         if (COLLATION_TIME.first < 0.0) {
+                           return td::Status::Error(PSTRING() << "invalid collation time " << arg);
+                         }
+                         return td::Status::OK();
+                       });
+  p.add_checked_option('\0', "validation-time", "time it takes to validate a block (range, default: 0)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT_ASSIGN(VALIDATION_TIME, parse_range(arg));
+                         if (VALIDATION_TIME.first < 0.0) {
+                           return td::Status::Error(PSTRING() << "invalid validation time " << arg);
                          }
                          return td::Status::OK();
                        });
