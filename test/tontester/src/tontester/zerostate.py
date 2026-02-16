@@ -37,6 +37,7 @@ class NetworkConfig:
     mc_consensus: SimplexConsensusConfig | NullConsensusConfig | None = None
     shard_valgroup_lifetime: int = 250
     shard_consensus: SimplexConsensusConfig | NullConsensusConfig | None = None
+    spam: bool = False
 
 
 @dataclass
@@ -62,6 +63,36 @@ class Zerostate:
 
     def as_validator_config(self):
         return ton_api.Validator_config_global(zero_state=self.as_block())
+
+spammer_on = """
+<{
+  0 PUSHINT
+  DUP
+  24 PUSHINT
+  NEWC
+  6 STU
+  MYADDR
+  STSLICER
+  1000000000 PUSHINT
+  STGRAMS
+  107 STU
+  32 STU
+  ENDC
+  3 PUSHINT
+  SENDRAWMSG
+}>c // code 
+<b b> // data
+empty_cell // libraries
+GR$1000000 // balance
+0 // split_depth
+2 // ticktock
+AllOnes 7 * // address
+6 // mode: create+setaddr
+register_smc
+dup make_special dup constant spam_addr
+."address = " 64x. cr
+"""
+spammer_off = ""
 
 
 _TEMPLATE = """
@@ -191,6 +222,8 @@ Masterchain swap
 ."elector smart contract address = " 2dup .addr cr 2dup 7 .Addr cr
 "elector" +".addr" save-address-verbose
 
+{spammer}
+
 /*
  *
  * Configuration Parameters
@@ -276,6 +309,7 @@ config.new_consensus_params_all!
 }} : collator-entry
 {{ -rot dup sbits rot swap [[ <{{ DICTSET }}>s ]] 0 runvmx abort"dict-insert failed" }} : dict-insert
 
+
 /*
  *
  * SmartContract #5 (Configuration smart contract)
@@ -296,6 +330,7 @@ Masterchain swap
 ."config smart contract address = " 2dup .addr cr 2dup 7 .Addr cr
 "config-master" +".addr" save-address-verbose
 // Other data
+
 
 /*
  *
@@ -352,6 +387,7 @@ def create_zerostate(
             mc_valgroup_lifetime=config.mc_valgroup_lifetime,
             shard_valgroup_lifetime=config.shard_valgroup_lifetime,
             new_consensus_config=new_consensus_config,
+            spammer = spammer_on if config.spam else spammer_off
         ),
         state_dir,
     )
