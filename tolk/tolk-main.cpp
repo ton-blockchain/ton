@@ -189,7 +189,7 @@ static std::string auto_discover_stdlib_folder() {
   return {};
 }
 
-td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind kind, const char* query) {
+td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind kind, const char* query, void* callback_payload) {
   switch (kind) {
     case CompilerSettings::FsReadCallbackKind::Realpath: {
       std::string path;
@@ -249,6 +249,9 @@ td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind ki
       return td::Status::Error("unknown query kind");
     }
   }
+
+  // callback_payload is not used in CLI mode, it's for library mode, see tolk-wasm.cpp
+  static_cast<void>(callback_payload);
 }
 
 GNU_ATTRIBUTE_NOINLINE

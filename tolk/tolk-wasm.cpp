@@ -120,8 +120,8 @@ static td::Result<std::string> compile_internal(char *config_json) {
 
   // an external wrapper should handle not only `@stdlib/`, but also `@fiftlib/`;
   // in tolk-js particularly, .fif files are embedded into distribution, next to tolk-stdlib/ folder
-  TRY_RESULT(fift_fif, G_settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, "@fiftlib/Fift.fif"));
-  TRY_RESULT(asm_fif,  G_settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, "@fiftlib/Asm.fif"));
+  TRY_RESULT(fift_fif, G_settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, "@fiftlib/Fift.fif", G_settings.callback_payload));
+  TRY_RESULT(asm_fif,  G_settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, "@fiftlib/Asm.fif", G_settings.callback_payload));
 
   // Fift is not thread-safe, so we invoke `compile_asm_program()` with a mutex.
   // This is acceptable, because Fift compilation is very fast compared to tolk_proceed (which is fully parallel).
@@ -159,14 +159,15 @@ static td::Result<std::string> compile_internal(char *config_json) {
 /// Callback used to retrieve file contents from a "not file system". See tolk-js for implementation.
 /// The callback must fill either destContents or destError.
 /// The implementor must use malloc() for them and use free() after tolk_compile returns.
-typedef void (*WasmFsReadCallback)(int kind, char const* data, char** destContents, char** destError);
+/// callback_payload is an opaque pointer passed through from tolk_compile(), for caller-side identification.
+typedef void (*WasmFsReadCallback)(int kind, char const* data, char** destContents, char** destError, void* callback_payload);
 
 static CompilerSettings::FsReadCallback wrap_wasm_read_callback(WasmFsReadCallback _readCallback) {
-  return [_readCallback](CompilerSettings::FsReadCallbackKind kind, char const* data) -> td::Result<std::string> {
+  return [_readCallback](CompilerSettings::FsReadCallbackKind kind, char const* data, void* callback_payload) -> td::Result<std::string> {
     char* destContents = nullptr;
     char* destError = nullptr;
     if (_readCallback) {
-      _readCallback(static_cast<int>(kind), data, &destContents, &destError);
+      _readCallback(static_cast<int>(kind), data, &destContents, &destError, callback_payload);
     }
     if (destContents) {
       return destContents;
@@ -191,8 +192,9 @@ const char* tolk_version() {
   return strdup(result_json_str.str().c_str());
 }
 
-const char *tolk_compile(char *config_json, WasmFsReadCallback callback) {
+const char *tolk_compile(char *config_json, WasmFsReadCallback callback, void* callback_payload) {
   G_settings.read_callback = wrap_wasm_read_callback(callback);
+  G_settings.callback_payload = callback_payload;
 
   td::Result<std::string> res = compile_internal(config_json);
 

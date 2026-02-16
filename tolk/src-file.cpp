@@ -39,7 +39,7 @@ const SrcFile* AllRegisteredSrcFiles::find_file(const std::string& realpath) con
 const SrcFile* AllRegisteredSrcFiles::locate_and_register_source_file(const std::string& filename, AnyV v_import_filename) {
   bool is_stdlib = filename.size() > 8 && filename.starts_with("@stdlib/");
 
-  td::Result<std::string> path = G_settings.read_callback(CompilerSettings::FsReadCallbackKind::Realpath, filename.c_str());
+  td::Result<std::string> path = G_settings.read_callback(CompilerSettings::FsReadCallbackKind::Realpath, filename.c_str(), G_settings.callback_payload);
   if (path.is_error()) {
     if (v_import_filename) {
       err("Failed to import: {}", path.move_as_error().message().str()).fire(v_import_filename);
@@ -52,7 +52,7 @@ const SrcFile* AllRegisteredSrcFiles::locate_and_register_source_file(const std:
     return file;
   }
 
-  td::Result<std::string> text = G_settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, realpath.c_str());
+  td::Result<std::string> text = G_settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, realpath.c_str(), G_settings.callback_payload);
   if (text.is_error()) {
     if (v_import_filename) {
       err("Failed to import: {}", text.move_as_error().message().str()).fire(v_import_filename);

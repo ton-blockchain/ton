@@ -36,7 +36,7 @@ struct CompilerPathMapping {
 struct CompilerSettings {
   enum class FsReadCallbackKind { Realpath, ReadFile };
 
-  using FsReadCallback = std::function<td::Result<std::string>(FsReadCallbackKind, const char*)>;
+  using FsReadCallback = std::function<td::Result<std::string>(FsReadCallbackKind, const char*, void* callback_payload)>;
 
   int verbosity = 0;
   int optimization_level = 2;
@@ -53,6 +53,7 @@ struct CompilerSettings {
   std::vector<CompilerPathMapping> path_mappings;    // "@third_party" to "/absolute/folder"
 
   FsReadCallback read_callback;
+  void* callback_payload = nullptr;
 
   bool parse_path_mapping_cmd_arg(const std::string& cmd_arg);
   std::string_view get_path_mapping(std::string_view at_prefix) const;
