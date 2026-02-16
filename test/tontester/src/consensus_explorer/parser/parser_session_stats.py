@@ -76,6 +76,7 @@ class ParserSessionStats(Parser):
                 is_empty=False,
                 slot_start_est_ms=float("inf"),
                 block_id_ext=None,
+                candidate_id=None,
                 parent_block=None,
                 collator=None,
             )
@@ -123,6 +124,7 @@ class ParserSessionStats(Parser):
             if event.block is not None and not isinstance(event.block, Consensus_stats_empty):
                 assert event.block.id is not None
                 slot_data.block_id_ext = f"({event.block.id.workchain},{self._shard_to_hex(event.block.id.shard)},{event.block.id.seqno}):{event.block.id.root_hash.hex().upper()}:{event.block.id.file_hash.hex().upper()}"
+                slot_data.candidate_id = str(event.id)
                 slot_data.parent_block = str(event.parent)
 
         if label == "candidate_received":

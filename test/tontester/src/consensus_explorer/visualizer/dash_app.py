@@ -273,6 +273,8 @@ class DashApp:
             parts.append(f"collator = {slot_data.collator}")
         if slot_data.block_id_ext:
             parts.append(f"block = {slot_data.block_id_ext}")
+        if slot_data.candidate_id:
+            parts.append(f"candidate_id = {slot_data.candidate_id}")
         if slot_data.parent_block:
             parts.append(f"parent_block = {slot_data.parent_block}")
 
