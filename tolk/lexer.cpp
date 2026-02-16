@@ -240,12 +240,12 @@ struct ChunkMultilineString final : ChunkLexerBase {
 };
 
 // An annotation for a function (in the future, for vars also):
-// @inline and others
+// @inline, @test.tags and others
 struct ChunkAnnotation final : ChunkLexerBase {
   bool parse(Lexer* lex) const override {
     const char* str_begin = lex->c_str();
     lex->skip_chars(1);
-    while (std::isalnum(lex->char_at()) || lex->char_at() == '_') {
+    while (std::isalnum(lex->char_at()) || lex->char_at() == '_' || lex->char_at() == '.') {
       lex->skip_chars(1);
     }
 

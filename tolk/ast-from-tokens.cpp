@@ -457,7 +457,6 @@ static AnyV parse_global_var_declaration(Lexer& lex, const std::vector<V<ast_ann
 
   for (auto v_annotation : annotations) {
     switch (v_annotation->kind) {
-      case AnnotationKind::deprecated:
       case AnnotationKind::custom:
         break;
       default:
@@ -485,7 +484,6 @@ static AnyV parse_constant_declaration(Lexer& lex, const std::vector<V<ast_annot
 
   for (auto v_annotation : annotations) {
     switch (v_annotation->kind) {
-      case AnnotationKind::deprecated:
       case AnnotationKind::custom:
         break;
       default:
@@ -519,7 +517,6 @@ static AnyV parse_type_alias_declaration(Lexer& lex, const std::vector<V<ast_ann
 
   for (auto v_annotation : annotations) {
     switch (v_annotation->kind) {
-      case AnnotationKind::deprecated:
       case AnnotationKind::custom:
         break;
       default:
@@ -1578,9 +1575,7 @@ static V<ast_annotation> parse_annotation(Lexer& lex) {
       }
       v_arg = createV<ast_tensor>(range, {});
       break;
-    case AnnotationKind::deprecated:
     case AnnotationKind::custom:
-      // allowed with and without arguments; it's IDE-only, the compiler doesn't analyze @deprecated
       break;
     case AnnotationKind::method_id:
       if (!v_arg || v_arg->size() != 1 || v_arg->get_item(0)->kind != ast_int_const) {
@@ -1736,7 +1731,6 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
         }
         break;
       }
-      case AnnotationKind::deprecated:
       case AnnotationKind::custom:
         break;
 
@@ -1832,7 +1826,6 @@ static AnyV parse_struct_declaration(Lexer& lex, const std::vector<V<ast_annotat
   StructData::Overflow1023Policy overflow1023_policy = StructData::Overflow1023Policy::not_specified;
   for (auto v_annotation : annotations) {
     switch (v_annotation->kind) {
-      case AnnotationKind::deprecated:
       case AnnotationKind::custom:
         break;
       case AnnotationKind::overflow1023_policy: {
@@ -1901,7 +1894,6 @@ static AnyV parse_enum_declaration(Lexer& lex, const std::vector<V<ast_annotatio
 
   for (auto v_annotation : annotations) {
     switch (v_annotation->kind) {
-      case AnnotationKind::deprecated:
       case AnnotationKind::custom:
         break;
       default:

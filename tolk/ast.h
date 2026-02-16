@@ -147,10 +147,9 @@ enum class AnnotationKind {
   noinline,
   method_id,
   pure,
-  deprecated,
-  custom,
   overflow1023_policy,
   on_bounced_policy,
+  custom,
   unknown,
 };
 
