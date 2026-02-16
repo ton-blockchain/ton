@@ -2,30 +2,29 @@ import dataclasses
 import os
 from itertools import islice
 from pathlib import Path
-from typing import final, override, Callable
+from typing import Callable, final, override
 
 from tonapi.ton_api import (
-    Consensus_stats_events,
-    Consensus_stats_timestampedEvent,
-    Consensus_stats_id,
-    Consensus_simplex_stats_voted,
-    Consensus_simplex_stats_certObserved,
-    Consensus_simplex_skipVote,
-    TypeConsensus_stats_Event,
-    Consensus_stats_collateStarted,
-    Consensus_stats_validationStarted,
-    Consensus_stats_validationFinished,
-    Consensus_stats_collateFinished,
-    Consensus_stats_collatedEmpty,
-    Consensus_stats_candidateReceived,
-    Consensus_simplex_notarizeVote,
     Consensus_simplex_finalizeVote,
+    Consensus_simplex_notarizeVote,
+    Consensus_simplex_skipVote,
+    Consensus_simplex_stats_certObserved,
+    Consensus_simplex_stats_voted,
+    Consensus_stats_candidateReceived,
+    Consensus_stats_collatedEmpty,
+    Consensus_stats_collateFinished,
+    Consensus_stats_collateStarted,
     Consensus_stats_empty,
+    Consensus_stats_events,
+    Consensus_stats_id,
+    Consensus_stats_timestampedEvent,
+    Consensus_stats_validationFinished,
+    Consensus_stats_validationStarted,
+    TypeConsensus_stats_Event,
 )
 
-
+from ..models import ConsensusData, EventData, SlotData
 from .parser_base import Parser
-from ..models import ConsensusData, SlotData, EventData
 
 type slot_id_type = tuple[str, int]
 

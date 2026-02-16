@@ -1,6 +1,6 @@
 from multiprocessing import Process
 from pathlib import Path
-from typing import final, cast
+from typing import cast, final
 
 from .parser import ParserSessionStats
 from .visualizer import DashApp

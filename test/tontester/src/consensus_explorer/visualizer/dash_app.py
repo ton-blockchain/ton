@@ -1,8 +1,8 @@
 from typing import cast, final
 from urllib.parse import parse_qs, urlencode
 
-from dash import Dash, dcc, html, Input, Output, State, callback_context, no_update, NoUpdate
 import plotly.graph_objects as go  # pyright: ignore[reportMissingTypeStubs]
+from dash import Dash, Input, NoUpdate, Output, State, callback_context, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 
 from ..models import SlotData
