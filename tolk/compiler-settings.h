@@ -44,6 +44,7 @@ struct CompilerSettings {
   bool tolk_src_as_line_comments = true;
   bool show_errors_as_json = false;
   bool check_only_no_output = false;
+  bool allow_no_entrypoint = false;
 
   std::string output_filename;
   std::string boc_output_filename;

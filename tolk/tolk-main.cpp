@@ -49,6 +49,7 @@ enum LongOnlyOptions {
   OPT_NO_LINE_COMMENTS,
   OPT_JSON_ERRORS,
   OPT_CHECK_ONLY,
+  OPT_ALLOW_NO_ENTRYPOINT,
 };
 
 static struct option long_options[] = {
@@ -60,6 +61,7 @@ static struct option long_options[] = {
   {"no-line-comments", no_argument, nullptr, OPT_NO_LINE_COMMENTS},
   {"json-errors", no_argument, nullptr, OPT_JSON_ERRORS},
   {"check-only", no_argument, nullptr, OPT_CHECK_ONLY},
+  {"allow-no-entrypoint", no_argument, nullptr, OPT_ALLOW_NO_ENTRYPOINT},
   {"verbose", no_argument, nullptr, 'e'},
   {"version", no_argument, nullptr, 'V'},
   {"help", no_argument, nullptr, 'h'},
@@ -86,6 +88,8 @@ void usage(const char* progname) {
             "\tShow compilation errors in JSON (not human-readable) format\n"
          "--check-only\n"
             "\tCheck sources for errors without generating code (for IDE in background)\n"
+         "--allow-no-entrypoint\n"
+            "\tDo not require main/onInternalMessage (e.g. to compile only get-methods)\n"
          "-e, --verbose\n"
             "\tIncrease verbosity level (extra output into stderr)\n"
          "-v, --version\n"
@@ -316,6 +320,9 @@ int main(int argc, char* const argv[]) {
         break;
       case OPT_CHECK_ONLY:
         G_settings.check_only_no_output = true;
+        break;
+      case OPT_ALLOW_NO_ENTRYPOINT:
+        G_settings.allow_no_entrypoint = true;
         break;
       case 'e':
         G_settings.verbosity++;

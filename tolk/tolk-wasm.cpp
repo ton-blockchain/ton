@@ -73,6 +73,7 @@ static td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(entrypoint_filename, config.get_required_string_field("entrypointFileName"));
   TRY_RESULT(show_errors_as_json, config.get_optional_bool_field("jsonErrors", false));
   TRY_RESULT(check_only_no_output, config.get_optional_bool_field("checkOnly", false));
+  TRY_RESULT(allow_no_entrypoint, config.get_optional_bool_field("allowNoEntrypoint", false));
   // note that `pathMappings` are handled on a client-side (in tolk-js) only
 
   G_settings.verbosity = 0;
@@ -81,6 +82,7 @@ static td::Result<std::string> compile_internal(char *config_json) {
   G_settings.tolk_src_as_line_comments = src_line_comments;
   G_settings.show_errors_as_json = show_errors_as_json;
   G_settings.check_only_no_output = check_only_no_output;
+  G_settings.allow_no_entrypoint = allow_no_entrypoint;
 
   std::ostringstream errs;
   std::cerr.rdbuf(errs.rdbuf());

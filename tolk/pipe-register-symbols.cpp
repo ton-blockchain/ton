@@ -270,11 +270,6 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
     f_sym->tvm_method_id = v->tvm_method_id;
   } else if (v->flags & FunctionData::flagContractGetter) {
     f_sym->tvm_method_id = calculate_tvm_method_id_by_func_name(f_identifier);
-    for (FunctionPtr other : G.all_contract_getters) {
-      if (other->tvm_method_id == f_sym->tvm_method_id) {
-        err("GET methods hash collision: `{}` and `{}` produce the same hash. Consider renaming one of these functions.", other, f_sym).fire(v);
-      }
-    }
   } else if (v->flags & FunctionData::flagIsEntrypoint) {
     f_sym->tvm_method_id = calculate_tvm_method_id_for_entrypoint(f_identifier);
   }
@@ -289,9 +284,6 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
     G.all_methods.push_back(f_sym);
   }
   G.all_functions.push_back(f_sym);
-  if (f_sym->is_contract_getter()) {
-    G.all_contract_getters.push_back(f_sym);
-  }
   v->mutate()->assign_fun_ref(f_sym);
   return f_sym;
 }

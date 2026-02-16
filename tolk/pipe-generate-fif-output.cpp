@@ -237,6 +237,7 @@ void pipeline_generate_fif_output(std::ostream& os) {
 
   bool has_main_procedure = false;
   int n_inlined_in_place = 0;
+  std::vector<FunctionPtr> all_contract_getters;
   for (FunctionPtr fun_ref : G.all_functions) {
     if (fun_ref->is_asm_function() || !fun_ref->does_need_codegen()) {
       if (G_settings.verbosity >= 2 && fun_ref->is_code_function()) {
@@ -256,9 +257,18 @@ void pipeline_generate_fif_output(std::ostream& os) {
     } else {
       os << "DECLPROC " << CodeBlob::fift_name(fun_ref) << "\n";
     }
+
+    if (fun_ref->is_contract_getter()) {
+      for (FunctionPtr other : all_contract_getters) {
+        if (other->tvm_method_id == fun_ref->tvm_method_id) {
+          err("GET methods hash collision: `{}` and `{}` produce the same method_id={}. Consider renaming one of these functions.", other, fun_ref, fun_ref->tvm_method_id).fire(fun_ref->ident_anchor);
+        }
+      }
+      all_contract_getters.push_back(fun_ref);
+    }
   }
 
-  if (!has_main_procedure) {
+  if (!has_main_procedure && !G_settings.allow_no_entrypoint) {
     throw Fatal("the contract has no entrypoint; forgot `fun onInternalMessage(...)`?");
   }
 
