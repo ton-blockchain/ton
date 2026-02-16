@@ -270,7 +270,7 @@ void QuicSender::set_udp_offload_options(QuicServer::Options options) {
   server_options_ = options;
 }
 
-void QuicSender::add_local_id(adnl::AdnlNodeIdShort local_id) {
+void QuicSender::add_id(adnl::AdnlNodeIdShort local_id) {
   add_local_id_coro(local_id).start().detach("add local id");
 }
 
@@ -278,6 +278,11 @@ void QuicSender::log_stats(std::string reason) {
   for (auto &it : servers_) {
     td::actor::send_closure(it.second.get(), &QuicServer::log_stats, reason);
   }
+}
+
+void QuicSender::on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id,
+                                td::optional<adnl::AdnlNodeIdShort> peer_id) {
+  // TODO: implement this
 }
 
 QuicSender::Connection::~Connection() {

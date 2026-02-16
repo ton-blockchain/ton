@@ -62,16 +62,15 @@ class CatChainImpl : public CatChain {
   struct Args {
     td::actor::ActorId<keyring::Keyring> keyring;
     td::actor::ActorId<adnl::Adnl> adnl;
-    td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender;
+    td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender;
     td::actor::ActorId<overlay::Overlays> overlay_manager;
     std::vector<CatChainNode> ids;
     PublicKeyHash local_id;
     CatChainSessionId unique_hash;
 
     Args(td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-         td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender,
-         td::actor::ActorId<overlay::Overlays> overlay_manager, std::vector<CatChainNode> ids,
-         const PublicKeyHash &local_id, const CatChainSessionId &unique_hash)
+         td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender, td::actor::ActorId<overlay::Overlays> overlay_manager,
+         std::vector<CatChainNode> ids, const PublicKeyHash &local_id, const CatChainSessionId &unique_hash)
         : keyring(std::move(keyring))
         , adnl(std::move(adnl))
         , adnl_sender(std::move(adnl_sender))
@@ -131,7 +130,7 @@ class CatChainImpl : public CatChain {
   void destroy() override;
   CatChainImpl(std::unique_ptr<Callback> callback, const CatChainOptions &opts,
                td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-               td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender,
+               td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender,
                td::actor::ActorId<overlay::Overlays> overlay_manager, std::vector<CatChainNode> ids,
                const PublicKeyHash &local_id, const CatChainSessionId &unique_hash, std::string db_root,
                std::string db_suffix, bool allow_unsafe_self_blocks_resync);

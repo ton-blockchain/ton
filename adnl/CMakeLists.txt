@@ -25,6 +25,7 @@ set(ADNL_HEADERS
   adnl-query.h
   adnl-proxy-types.h
   adnl-proxy-types.hpp
+  adnl-sender-ex.h
   adnl.h
   utils.hpp
 )
@@ -45,6 +46,7 @@ set(ADNL_SOURCE
   adnl-query.cpp
   adnl-channel.cpp
   adnl-proxy-types.cpp
+  adnl-sender-ex.cpp
   utils.cpp
   ${ADNL_HEADERS}
 )

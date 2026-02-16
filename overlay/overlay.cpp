@@ -373,6 +373,34 @@ void OverlayImpl::alarm() {
   }
 }
 
+void OverlayImpl::start_up() {
+  update_throughput_at_ = td::Timestamp::in(50.0);
+  last_throughput_update_ = td::Timestamp::now();
+
+  if (overlay_type_ == OverlayType::Public) {
+    update_db_at_ = td::Timestamp::in(60.0);
+  }
+  alarm_timestamp() = td::Timestamp::in(1);
+
+  if (!opts_.twostep_broadcast_sender_.empty()) {
+    td::actor::send_closure(opts_.twostep_broadcast_sender_, &adnl::AdnlSenderEx::add_id, local_id_);
+    update_peers_mtu();
+  }
+}
+
+void OverlayImpl::update_peers_mtu() {
+  if (!opts_.twostep_broadcast_sender_.empty()) {
+    td::uint64 mtu = rules_.max_broadcast_size() + 1024;
+    std::vector<adnl::AdnlNodeIdShort> peers;
+    iterate_all_peers([&](const adnl::AdnlNodeIdShort &peer_id, const OverlayPeer &peer) {
+      if (peer.is_permanent_member() && peer_id != local_id_) {
+        peers.push_back(peer_id);
+      }
+    });
+    peers_mtu_guard_ = adnl::PeersMtuGuard{opts_.twostep_broadcast_sender_, local_id_, std::move(peers), mtu};
+  }
+}
+
 void OverlayImpl::receive_dht_nodes(dht::DhtValue v) {
   CHECK(overlay_type_ == OverlayType::Public);
   auto R = fetch_tl_object<ton_api::overlay_nodes>(v.value().clone(), true);
@@ -622,6 +650,7 @@ std::shared_ptr<Certificate> OverlayImpl::get_certificate(PublicKeyHash source) 
 
 void OverlayImpl::set_privacy_rules(OverlayPrivacyRules rules) {
   rules_ = std::move(rules);
+  update_peers_mtu();
 }
 
 bool OverlayImpl::is_delivered(const BroadcastHash &hash) {

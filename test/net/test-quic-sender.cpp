@@ -239,7 +239,7 @@ class TestRunner : public td::actor::Actor {
     node.quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
         "quic-" + name, td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(node.adnl.get()), node.keyring.get());
 
-    td::actor::send_closure(node.quic_sender, &ton::quic::QuicSender::add_local_id, node.id);
+    td::actor::send_closure(node.quic_sender, &ton::quic::QuicSender::add_id, node.id);
 
     co_await td::actor::Yield{};
     co_return std::move(node);
