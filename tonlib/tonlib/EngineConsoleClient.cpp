@@ -74,6 +74,8 @@ bool is_engine_console_query(const ton::tl_object_ptr<ton::ton_api::Function>& f
     case ton::ton_api::engine_validator_sign::ID:
     case ton::ton_api::engine_validator_signOverlayMemberCertificate::ID:
     case ton::ton_api::engine_validator_signShardOverlayCertificate::ID:
+    case ton::ton_api::engine_validator_waitForInitialSync::ID:
+    case ton::ton_api::engine_validator_waitForLiteServer::ID:
       return true;
     default:
       return false;

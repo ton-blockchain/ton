@@ -119,6 +119,12 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   //void create_validate_block(BlockId block, td::BufferSlice data, td::Promise<Block> promise) = 0;
   void sync_complete(td::Promise<td::Unit> promise) override;
+  void wait_liteserver_ready(td::Promise<td::Unit> promise) override {
+    promise.set_value(td::Unit());
+  }
+  void wait_initial_sync(td::Promise<td::Unit> promise) override {
+    promise.set_value(td::Unit());
+  }
   void created_candidate(BlockCandidate candidate);
 
   void get_next_block(BlockIdExt block_id, td::Promise<BlockHandle> promise) override {

@@ -31,6 +31,7 @@
 #include "interfaces/validator-manager.h"
 #include "rldp2/rldp.h"
 #include "td/actor/ActorStats.h"
+#include "td/actor/MultiPromise.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/actor/coro_task.h"
 #include "td/utils/LRUCache.h"
@@ -38,6 +39,7 @@
 #include "td/utils/buffer.h"
 #include "td/utils/port/Poll.h"
 #include "td/utils/port/StdStreams.h"
+#include "ton/ton-io.hpp"
 
 #include "manager-init.h"
 #include "queue-size-counter.hpp"
@@ -322,6 +324,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   //void create_validate_block(BlockId block, td::BufferSlice data, td::Promise<Block> promise) = 0;
   void sync_complete(td::Promise<td::Unit> promise) override;
+  void wait_initial_sync(td::Promise<td::Unit> promise) override;
 
   void get_next_block(BlockIdExt block_id, td::Promise<BlockHandle> promise) override;
   void get_next_key_blocks(BlockIdExt block_id, td::uint32 cnt, td::Promise<std::vector<BlockIdExt>> promise) override;
@@ -356,6 +359,9 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void add_ext_server_id(adnl::AdnlNodeIdShort id) override;
   void add_ext_server_port(td::uint16 port) override;
+  void notify_added_initial_liteservers() override;
+  void wait_liteserver_ready(td::Promise<td::Unit> promise) override;
+
   void run_ext_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) override;
 
   void get_block_handle(BlockIdExt id, bool force, td::Promise<BlockHandle> promise) override;
@@ -649,10 +655,15 @@ class ValidatorManagerImpl : public ValidatorManager {
  private:
   td::actor::ActorOwn<adnl::AdnlExtServer> lite_server_;
   td::actor::ActorOwn<LiteServerCache> lite_server_cache_;
-  std::vector<td::uint16> pending_ext_ports_;
+  std::vector<std::pair<td::uint16, td::Promise<td::Unit>>> pending_ext_ports_;
   std::vector<adnl::AdnlNodeIdShort> pending_ext_ids_;
+  bool liteserver_ready_ = false;
+  td::MultiPromise::InitGuard initial_liteservers_guard_;
+  std::vector<td::Promise<td::Unit>> pending_liteserver_promises_;
+  std::vector<td::Promise<td::Unit>> pending_sync_promises_;
 
   void created_ext_server(td::actor::ActorOwn<adnl::AdnlExtServer> lite_server);
+  void liteserver_ports_bound();
 
  private:
   td::actor::ActorOwn<ShardClient> shard_client_;

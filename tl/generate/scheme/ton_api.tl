@@ -896,6 +896,9 @@ engine.validator.delFastSyncClient adnl_id:int256 = engine.validator.Success;
 engine.validator.setShardBlockVerifierConfig config:engine.validator.shardBlockVerifierConfig = engine.validator.Success;
 engine.validator.showShardBlockVerifierConfig = engine.validator.ShardBlockVerifierConfig;
 
+engine.validator.waitForLiteServer = engine.validator.Success;
+engine.validator.waitForInitialSync = engine.validator.Success;
+
 ---types---
 
 storage.pong = storage.Pong;
