@@ -2980,8 +2980,8 @@ Ref<FiftCont> interpret_prepare(IntCtx& ctx) {
 }
 
 Ref<FiftCont> InterpretCont::run_tail(IntCtx& ctx) const {
-  static Ref<FiftCont> interpret_prepare_ref = td::make_ref<CtxTailWord>(interpret_prepare);
-  static Ref<FiftCont> compile_exec_ref = td::make_ref<CtxTailWord>(interpret_compile_execute);
+  static thread_local Ref<FiftCont> interpret_prepare_ref = td::make_ref<CtxTailWord>(interpret_prepare);
+  static thread_local Ref<FiftCont> compile_exec_ref = td::make_ref<CtxTailWord>(interpret_compile_execute);
   interpret_seekeof(ctx, !ctx.state && !ctx.include_depth());  // seekeof
   if (ctx.stack.pop_bool()) {
     exit_interpret->clear();

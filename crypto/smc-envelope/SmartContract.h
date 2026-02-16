@@ -84,7 +84,7 @@ class SmartContract : public td::CntObject {
     td::optional<vm::Dictionary> libraries;
     td::optional<td::Ref<vm::Tuple>> prev_blocks_info;
 
-    td::BTreeMap<td::uint64, std::pair<void*, const char* (*)(void*, const char*)>> ext_methods = {};
+    vm::ExtMethods ext_methods = {};
 
     Args() {
     }
@@ -103,7 +103,7 @@ class SmartContract : public td::CntObject {
       this->method_id = method_id;
       return std::move(*this);
     }
-    Args&& set_ext_methods(const td::BTreeMap<td::uint64, std::pair<void*, const char* (*)(void*, const char*)>>& ext_methods) {
+    Args&& set_ext_methods(const vm::ExtMethods& ext_methods) {
       this->ext_methods = ext_methods;
       return std::move(*this);
     }

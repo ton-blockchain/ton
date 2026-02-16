@@ -16,6 +16,7 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <algorithm>
 #include <functional>
 #include "vm/debugops.h"
 
@@ -69,17 +70,28 @@ int exec_extcall(VmState* st, CellSlice& cs, unsigned _, [[maybe_unused]] int pf
   if (!st->ext_methods.contains(arg)) {
     VM_LOG(st) << "skip unknown external method with id: " << arg;
   } else {
-    // Serialize current stack to base64 string
+    const auto& method = st->ext_methods.at(arg);
+    Stack& current_stack = st->get_stack();
+    const int original_depth = current_stack.depth();
+    const int requested_items = method.stack_items_count == 255
+                                    ? original_depth
+                                    : std::min<int>(method.stack_items_count, original_depth);
+
+    Stack callback_stack;
+    for (int i = requested_items - 1; i >= 0; --i) {
+      callback_stack.push(current_stack[i]);
+    }
+
+    // Serialize selected stack segment to base64 string
     auto builder = CellBuilder{};
-    st->get_stack().serialize(builder);
+    callback_stack.serialize(builder);
     const auto buf = std_boc_serialize(builder.as_cellslice().get_base_cell()).move_as_ok();
     const auto stack = td::base64_encode(buf);
 
     const char* exec_res = nullptr;
 
     try {
-      const auto& [ctx, callback] = st->ext_methods.at(arg);
-      exec_res = callback(ctx, stack.c_str());
+      exec_res = method.callback(method.ctx, stack.c_str());
     } catch (const std::exception& e) {
       VM_LOG(st) << "cannot execute method with id " << arg << ": " << e.what();
       throw VmError{Excno::fatal};
@@ -96,8 +108,18 @@ int exec_extcall(VmState* st, CellSlice& cs, unsigned _, [[maybe_unused]] int pf
     CellSlice cs{NoVm{}, cell_res};
     new_stack.deserialize(cs);
 
-    Stack& current_stack = st->get_stack();
-    current_stack.set_contents(new_stack);
+    if (requested_items == original_depth) {
+      current_stack.set_contents(std::move(new_stack));
+    } else {
+      Stack merged_stack;
+      for (int i = original_depth - 1; i >= requested_items; --i) {
+        merged_stack.push(current_stack[i]);
+      }
+      for (int i = new_stack.depth() - 1; i >= 0; --i) {
+        merged_stack.push(new_stack[i]);
+      }
+      current_stack.set_contents(std::move(merged_stack));
+    }
   }
 
   return 0;

@@ -235,7 +235,7 @@ std::shared_ptr<const block::Config> try_fetch_config_from_c7(td::Ref<vm::Tuple>
 vm::VmState init_vm(SmartContract::State state, td::Ref<vm::Stack> stack, td::Ref<vm::Tuple> c7, vm::GasLimits gas,
                     bool ignore_chksig, td::Ref<vm::Cell> libraries, int vm_log_verbosity, bool debug_enabled,
                     std::shared_ptr<const block::Config> config, td::LogInterface* logger,
-                    const td::BTreeMap<td::uint64, std::pair<void*, const char* (*)(void*, const char*)>>& ext_methods) {
+                    const vm::ExtMethods& ext_methods) {
   vm::init_vm(debug_enabled).ensure();
   vm::DictionaryBase::get_empty_dictionary();
 
@@ -314,7 +314,7 @@ SmartContract::Answer get_vm_result(const vm::VmState& vm, SmartContract::State 
 int setup_vm(SmartContract::State state, td::Ref<vm::Stack> stack, td::Ref<vm::Tuple> c7, vm::GasLimits gas,
              bool ignore_chksig, td::Ref<vm::Cell> libraries, int vm_log_verbosity, bool debug_enabled,
              std::shared_ptr<const block::Config> config, std::unique_ptr<vm::VmState>& vm,
-             std::unique_ptr<SmartContract::Logger>& logger, const td::BTreeMap<td::uint64, std::pair<void*, const char* (*)(void*, const char*)>>& ext_methods) {
+             std::unique_ptr<SmartContract::Logger>& logger, const vm::ExtMethods& ext_methods) {
   logger = std::make_unique<SmartContract::Logger>();
   logger->clear();
   auto vm_ = init_vm(state, stack, c7, gas, ignore_chksig, libraries, vm_log_verbosity, debug_enabled, config, logger.get(), ext_methods);
@@ -349,7 +349,7 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
                                     vm::GasLimits gas, bool ignore_chksig, td::Ref<vm::Cell> libraries,
                                     int vm_log_verbosity, bool debug_enabled,
                                     std::shared_ptr<const block::Config> config,
-                                    td::BTreeMap<td::uint64, std::pair<void*, const char* (*)(void*, const char*)>> ext_methods) {
+                                    vm::ExtMethods ext_methods) {
   auto gas_credit = gas.gas_credit;
 
   SmartContract::Logger logger;

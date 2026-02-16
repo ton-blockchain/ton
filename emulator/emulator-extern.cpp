@@ -101,15 +101,31 @@ void *emulator_config_create(const char *config_params_boc) {
   return new block::Config(config.move_as_ok());
 }
 
-const char *transaction_emulator_register_extmethod(void* transaction_emulator, int id, void* ctx, ext_func callback) {
+const char *transaction_emulator_register_extmethod(
+    void* transaction_emulator,
+    int id,
+    void* ctx,
+    int stack_items_count,
+    ext_func callback
+) {
   auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
-  emulator->ext_methods.emplace(id, std::make_pair(ctx, callback));
+  const auto normalized_stack_items_count =
+      stack_items_count < 0 ? 0 : (stack_items_count > 255 ? 255 : stack_items_count);
+  emulator->ext_methods.emplace(id, vm::ExtMethod{ctx, callback, static_cast<td::uint8>(normalized_stack_items_count)});
   return "Registered external function";
 }
 
-const char *tvm_emulator_register_extmethod(void* transaction_emulator, int id, void* ctx, ext_func callback) {
+const char *tvm_emulator_register_extmethod(
+    void* transaction_emulator,
+    int id,
+    void* ctx,
+    int stack_items_count,
+    ext_func callback
+) {
   auto emulator = static_cast<emulator::TvmEmulator *>(transaction_emulator);
-  emulator->ext_methods.emplace(id, std::make_pair(ctx, callback));
+  const auto normalized_stack_items_count =
+      stack_items_count < 0 ? 0 : (stack_items_count > 255 ? 255 : stack_items_count);
+  emulator->ext_methods.emplace(id, vm::ExtMethod{ctx, callback, static_cast<td::uint8>(normalized_stack_items_count)});
   return "Registered external function";
 }
 

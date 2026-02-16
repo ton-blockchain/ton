@@ -186,7 +186,7 @@ struct ComputePhaseConfig {
   bool dont_run_precompiled_ = false;
   bool allow_external_unfreeze{false};
   bool disable_anycast{false};
-  td::BTreeMap<td::uint64, std::pair<void*, const char* (*)(void*, const char*)>> ext_methods;
+  vm::ExtMethods ext_methods;
 
   ComputePhaseConfig() : gas_price(0), gas_limit(0), special_gas_limit(0), gas_credit(0) {
     compute_threshold();
