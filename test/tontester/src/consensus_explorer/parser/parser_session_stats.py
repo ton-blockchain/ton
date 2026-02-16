@@ -291,106 +291,65 @@ class ParserSessionStats(Parser):
                 )
             val_total = self._total_validators.get(slot_id[0])
             val_has = len(self._seen_validators.get(slot_id[0], set()))
+            events_min_observed: dict[str, float | None] = {
+                "skip_observed": None,
+                "notarize_observed": None,
+                "finalize_observed": None,
+            }
             if (
                 val_total is not None and val_has < val_total and self._slot_events.get(slot_id)
             ):  # missing logs for some validators in the group; infer reached events by min observed
-                data: dict[str, float | None] = {
-                    "skip_observed": None,
-                    "notarize_observed": None,
-                    "finalize_observed": None,
-                }
-                for label in data:
+                for label in events_min_observed:
                     min_observed = float("inf")
                     for events in self._slot_events[slot_id].values():
                         e = events.get(label)
                         if e:
                             min_observed = min(min_observed, e.t_ms)
                     if min_observed != float("inf"):
-                        data[label] = min_observed
-                for label in data:
-                    value = data[label]
+                        events_min_observed[label] = min_observed
+                for label in events_min_observed:
+                    value = events_min_observed[label]
                     if value is None:
                         continue
-                    self._events.append(
-                        EventData(
-                            valgroup_id=slot_data.valgroup_id,
-                            slot=slot_data.slot,
-                            label=label.replace("_observed", "_reached"),
-                            kind="reached",
-                            t_ms=value,
-                            validator=None,
-                            t1_ms=None,
-                        )
-                    )
-                    phase_start = None
-                    if label == "notarize_observed" and collate_end is not None:
-                        phase_start = collate_end
-                    if label == "finalize_observed" and data["notarize_observed"] is not None:
-                        phase_start = data["notarize_observed"]
-                    if phase_start is not None:
-                        self._events.append(
-                            EventData(
-                                valgroup_id=slot_data.valgroup_id,
-                                slot=slot_data.slot,
-                                label=label.replace("_observed", ""),
-                                kind="phase",
-                                t_ms=phase_start,
-                                t1_ms=value,
-                            )
-                        )
-                continue
+
+            events_reached_time: dict[str, float | None] = {
+                "skip": None,
+                "notarize": None,
+                "finalize": None,
+            }
 
             total_weight = self._total_weights[slot_id[0]]
             weight_threshold = (total_weight * 2) // 3 + 1
 
+            for label in events_reached_time:
+                if slot_id in self._votes and f"{label}_vote" in self._votes[slot_id]:
+                    events_reached_time[label] = self._process_vote_threshold(
+                        votes=self._votes[slot_id][f"{label}_vote"],
+                        weight_threshold=weight_threshold,
+                    )
+
             notarize_reached = None
-            if slot_id in self._votes and "skip_vote" in self._votes[slot_id]:
-                _ = self._process_vote_threshold(
-                    slot_data=slot_data,
-                    votes=self._votes[slot_id]["skip_vote"],
-                    weight_threshold=weight_threshold,
-                    label="skip",
-                    phase_start=None,
-                )
-            if slot_id in self._votes and "notarize_vote" in self._votes[slot_id]:
-                notarize_reached = self._process_vote_threshold(
-                    slot_data=slot_data,
-                    votes=self._votes[slot_id]["notarize_vote"],
-                    weight_threshold=weight_threshold,
-                    label="notarize",
-                    phase_start=collate_end,
-                )
+            for label in events_reached_time:
+                # if we have logs not for all validators, we assume reach events as a better estimate
+                t = events_reached_time.get(label) or float("inf")
+                t = min(t, events_min_observed.get(f"{label}_observed") or float("inf"))
+                if t == float("inf"):
+                    continue
+                if label == "notarize":
+                    notarize_reached = t
+                phase_start = None
+                if label == "notarize":
+                    phase_start = collate_end
+                if label == "finalize":
+                    phase_start = notarize_reached
 
-            if slot_id in self._votes and "finalize_vote" in self._votes[slot_id]:
-                _ = self._process_vote_threshold(
-                    slot_data=slot_data,
-                    votes=self._votes[slot_id]["finalize_vote"],
-                    weight_threshold=weight_threshold,
-                    label="finalize",
-                    phase_start=notarize_reached,
-                )
-
-    def _process_vote_threshold(
-        self,
-        slot_data: SlotData,
-        votes: list[VoteData],
-        weight_threshold: int,
-        label: str,
-        phase_start: float | None,
-    ) -> float | None:
-        current_weight = 0
-        sorted_votes = sorted(votes, key=lambda x: x.t_ms)
-
-        for vote in sorted_votes:
-            current_weight += vote.weight
-            if current_weight >= weight_threshold:
                 self._events.append(
                     EventData(
                         valgroup_id=slot_data.valgroup_id,
                         slot=slot_data.slot,
                         label=f"{label}_reached",
                         kind="reached",
-                        t_ms=vote.t_ms,
+                        t_ms=t,
                         validator=None,
                         t1_ms=None,
                     )
@@ -403,11 +362,21 @@ class ParserSessionStats(Parser):
                             label=label,
                             kind="phase",
                             t_ms=phase_start,
-                            t1_ms=vote.t_ms,
+                            t1_ms=t,
                         )
                     )
-                return vote.t_ms
 
+    @staticmethod
+    def _process_vote_threshold(
+        votes: list[VoteData],
+        weight_threshold: int,
+    ) -> float | None:
+        current_weight = 0
+        sorted_votes = sorted(votes, key=lambda x: x.t_ms)
+        for vote in sorted_votes:
+            current_weight += vote.weight
+            if current_weight >= weight_threshold:
+                return vote.t_ms
         return None
 
     @staticmethod
