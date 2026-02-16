@@ -5,6 +5,7 @@ from dash import Dash, dcc, html, Input, Output, State, callback_context, no_upd
 import plotly.graph_objects as go  # pyright: ignore[reportMissingTypeStubs]
 from dash.exceptions import PreventUpdate
 
+from ..models import SlotData
 from ..parser import Parser
 from .figure_builder import FigureBuilder
 
@@ -232,11 +233,50 @@ class DashApp:
                         "padding": "0 16px 10px 16px",
                     },
                 ),
+                html.Div(
+                    id="detail-slot-meta",
+                    children="detail slot metadata: none",
+                    style={
+                        "margin": "0 16px 8px 16px",
+                        "fontSize": "16px",
+                        "border": "1px solid #ddd",
+                        "borderRadius": "4px",
+                        "padding": "8px 10px",
+                        "whiteSpace": "pre-wrap",
+                        "wordBreak": "break-all",
+                    },
+                ),
                 dcc.Graph(id="detail", config={"scrollZoom": True, "displaylogo": False}),
                 html.Div(style={"height": "12px"}),
             ],
             style={"maxWidth": "1500px", "margin": "0 auto"},
         )
+
+    @staticmethod
+    def _format_slot_meta(
+        valgroup_id: str,
+        slot: int,
+        slot_data: SlotData | None,
+    ) -> str:
+        if not valgroup_id:
+            return "detail slot metadata: none"
+
+        if slot_data is None:
+            return f"valgroup = {valgroup_id} slot = {slot} not found"
+
+        parts = [
+            f"valgroup = {slot_data.valgroup_id}",
+            f"slot = {slot_data.slot}",
+            f"empty = {'yes' if slot_data.is_empty else 'no'}",
+        ]
+        if slot_data.collator is not None:
+            parts.append(f"collator = {slot_data.collator}")
+        if slot_data.block_id_ext:
+            parts.append(f"block = {slot_data.block_id_ext}")
+        if slot_data.parent_block:
+            parts.append(f"parent_block = {slot_data.parent_block}")
+
+        return "\n\n".join(parts)
 
     def _update_selection_from_click(
         self,
@@ -303,21 +343,24 @@ class DashApp:
         self,
         selected: dict[str, str | int],
         time_mode: str,
-    ) -> tuple[go.Figure, str, str | NoUpdate]:
+    ) -> tuple[go.Figure, str, str, str | NoUpdate]:
         valgroup_id = selected["valgroup_id"]
         assert isinstance(valgroup_id, str)
         slot = int(selected["slot"])
 
         fig = self._builder.build_detail(valgroup_id, slot, time_mode)
+        slot_data = self._builder.get_slot(valgroup_id, slot)
+        slot_meta = self._format_slot_meta(valgroup_id, slot, slot_data)
         ctx = callback_context
         triggered_id = cast(str | None, ctx.triggered_id)
 
         if not valgroup_id or triggered_id == "time-mode":
-            return fig, f"selected: {valgroup_id} slot {slot}", no_update
+            return fig, f"selected: {valgroup_id} slot {slot}", slot_meta, no_update
 
         return (
             fig,
             f"selected: {valgroup_id} slot {slot}",
+            slot_meta,
             self._build_url_search(valgroup_id, slot),
         )
 
@@ -371,6 +414,7 @@ class DashApp:
         self._app.callback(  # pyright: ignore[reportUnknownMemberType]
             Output("detail", "figure"),
             Output("selection", "children"),
+            Output("detail-slot-meta", "children"),
             Output("url", "search"),
             Input("selected", "data"),
             Input("time-mode", "value"),

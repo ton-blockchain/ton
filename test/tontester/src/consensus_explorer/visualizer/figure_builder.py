@@ -308,12 +308,6 @@ class DetailFigureBuilder:
         title = f"Detail — valgroup ({self._valgroup_id}) slot {self._slot.slot}"
         if self._slot.is_empty:
             title += " · empty"
-        if self._slot.collator is not None:
-            title += f" · collator={self._slot.collator}"
-        if self._slot.block_id_ext:
-            title += f"<br>block={self._slot.block_id_ext}"
-        if self._slot.parent_block:
-            title += f"<br>parent_block={self._slot.parent_block}"
 
         validators = sorted({e.validator for e in events if e.validator is not None})
         x_title = "t - slot_start_est (ms)" if self._time_mode == "rel" else "Time (UTC)"
@@ -347,6 +341,9 @@ class DetailFigureBuilder:
 class FigureBuilder:
     def __init__(self, data: ConsensusData):
         self._filter: DataFilter = DataFilter(data)
+
+    def get_slot(self, valgroup_id: str, slot: int) -> SlotData | None:
+        return self._filter.get_slot(valgroup_id, slot)
 
     def build_summary(
         self,
