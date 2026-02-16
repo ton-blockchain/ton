@@ -51,6 +51,8 @@ void TcpListener::start_up() {
   // NB: Interface will be changed
   td::actor::SchedulerContext::get().get_poll().subscribe(server_socket_fd_.get_poll_info().extract_pollable_fd(this),
                                                           PollFlags::Read());
+
+  callback_->on_bind();
 }
 
 void TcpListener::tear_down() {
@@ -107,6 +109,9 @@ void TcpInfiniteListener::loop() {
    public:
     Callback(actor::ActorShared<TcpInfiniteListener> parent) : parent_(std::move(parent)) {
     }
+    void on_bind() override {
+      actor::send_closure(parent_, &TcpInfiniteListener::on_bind);
+    }
     void accept(SocketFd fd) override {
       actor::send_closure(parent_, &TcpInfiniteListener::accept, std::move(fd));
     }
@@ -118,6 +123,10 @@ void TcpInfiniteListener::loop() {
   tcp_listener_ = actor::create_actor<TcpListener>(
       actor::ActorOptions().with_name(PSLICE() << "TcpListener" << tag("port", port_)).with_poll(), port_,
       std::make_unique<Callback>(actor_shared(this)), server_address_);
+}
+
+void TcpInfiniteListener::on_bind() {
+  callback_->on_bind();
 }
 
 void TcpInfiniteListener::accept(SocketFd fd) {

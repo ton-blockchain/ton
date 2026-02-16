@@ -746,7 +746,7 @@ void ValidatorManagerImpl::add_ext_server_port(td::uint16 port) {
   if (lite_server_.empty()) {
     pending_ext_ports_.push_back(port);
   } else {
-    td::actor::send_closure(lite_server_, &adnl::AdnlExtServer::add_tcp_port, port);
+    td::actor::send_closure(lite_server_, &adnl::AdnlExtServer::add_tcp_port, port, td::Promise<td::Unit>{});
   }
 }
 
@@ -756,7 +756,7 @@ void ValidatorManagerImpl::created_ext_server(td::actor::ActorOwn<adnl::AdnlExtS
     td::actor::send_closure(lite_server_, &adnl::AdnlExtServer::add_local_id, id);
   }
   for (auto port : pending_ext_ports_) {
-    td::actor::send_closure(lite_server_, &adnl::AdnlExtServer::add_tcp_port, port);
+    td::actor::send_closure(lite_server_, &adnl::AdnlExtServer::add_tcp_port, port, td::Promise<td::Unit>{});
   }
   pending_ext_ids_.clear();
   pending_ext_ports_.clear();
