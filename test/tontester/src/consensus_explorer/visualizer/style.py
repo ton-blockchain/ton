@@ -7,6 +7,7 @@ SYMBOL_MAP = {
 COLOR_MAP = {
     "slot_start_est": "darkcyan",
     "finalize_observed_by_next_leader": "orange",
+    "notarize_observed_by_next_leader": "#274353",
     "skip_reached": "#2ca02c",
     "notarize_reached": "#d62728",
     "finalize_reached": "#B3BD44",

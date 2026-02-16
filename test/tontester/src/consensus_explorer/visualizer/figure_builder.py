@@ -211,6 +211,7 @@ class DetailFigureBuilder:
                         symbol=m.get_symbol(),
                         color=m.get_color(),
                     ),
+                    opacity=0.8,
                     name=m.label,
                     legendgroup=f"slot:{m.label}",
                     showlegend=True,
@@ -288,6 +289,7 @@ class DetailFigureBuilder:
                             symbol=label_events[0].get_symbol(),
                             color=label_events[0].get_color(),
                         ),
+                        opacity=0.8,
                         hovertemplate=(
                             f"valgroup={self._valgroup_id}<br>slot={self._slot.slot}<br>"
                             + f"validator=%{{customdata[2]}}<br>event={label} (kind=%{{customdata[4]}})<br>"

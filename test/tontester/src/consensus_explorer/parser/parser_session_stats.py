@@ -194,6 +194,18 @@ class ParserSessionStats(Parser):
                 )
             )
 
+        if isinstance(vote, Consensus_simplex_notarizeVote) and get_slot_leader(slot + 1) == v_id:
+            self._events.append(
+                EventData(
+                    valgroup_id=v_group,
+                    slot=slot,
+                    label="notarize_observed_by_next_leader",
+                    kind="observed",
+                    t_ms=t_ms,
+                    t1_ms=None,
+                )
+            )
+
     def _parse_vote_event(
         self,
         event: Consensus_simplex_stats_voted,
