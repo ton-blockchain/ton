@@ -168,6 +168,11 @@ static std::string parse_tok_string_const(std::string_view text, SrcRange cur_ra
   std::string unescaped;
   unescaped.reserve(text.size());
   for (size_t i = 0; i < text.size(); ++i) {
+    if (text[i] == '\r' && text[i + 1] == '\n') {   // normalize CRLF line endings to LF
+      unescaped += '\n';
+      ++i;
+      continue;
+    }
     if (text[i] != '\\') {
       unescaped += text[i];
       continue;
@@ -181,7 +186,7 @@ static std::string parse_tok_string_const(std::string_view text, SrcRange cur_ra
       case '\'': unescaped += '\''; break;
       case '"':  unescaped += '"';  break;
       default:
-        err("unknown escape sequence \\{}", std::string_view(&text[i], 1)).fire(cur_range);
+        err("invalid escape sequence \\{}", std::string_view(&text[i], 1)).fire(cur_range);
     }
   }
   return unescaped;
@@ -326,9 +331,11 @@ static AnyTypeV parse_type_from_tokens(Lexer& lex) {
 }
 
 
+
 // --------------------------------------------
-//    parsing @annotations above declarations
+//    parsing @annotations and /// doc comments above declarations
 //
+
 
 AnyExprV parse_expr(Lexer& lex);
 AnyV parse_statement(Lexer& lex);
@@ -385,9 +392,10 @@ static V<ast_annotation> parse_annotation(Lexer& lex) {
         err("expecting `(\"policy_name\")` after {}", name).fire(range);
       }
       break;
-    case AnnotationKind::abi:
-      if (!v_arg || v_arg->size() != 1 || v_arg->get_item(0)->kind != ast_object_literal) {
-        err("expecting an object: `@abi({ ... })`").fire(range);
+    case AnnotationKind::abi_minimalMsgValue:
+    case AnnotationKind::abi_preferredSendMode:
+      if (!v_arg || v_arg->size() != 1) {
+        err("expecting `(expression)` after {}", name).fire(range);
       }
       break;
   }
@@ -401,14 +409,36 @@ static V<ast_annotation> parse_annotation(Lexer& lex) {
 
 struct AnnotationsAbove {
   std::vector<V<ast_annotation>> above;
+  std::string_view doc_lines_buf[100];
+  int n_doc_lines = 0;
 
-  bool empty() const { return above.empty(); }
-  void clear() { above.clear(); }
+  bool empty() const {
+    return above.empty();
+  }
+
+  void collect_doc_comment(Lexer& lex) {
+    if (n_doc_lines < 100) {
+      doc_lines_buf[n_doc_lines++] = lex.cur_str();
+    }
+    lex.next();
+  }
+
+  // return doc_lines in source order and reset all accumulated state
+  DocCommentLines flush() {
+    DocCommentLines result;   // it's std::forward_list
+    for (int i = n_doc_lines - 1; i >= 0; --i) {
+      result.push_front(doc_lines_buf[i]);
+    }
+    above.clear();
+    n_doc_lines = 0;
+    return result;
+  }
 
   void parse_and_append(Lexer& lex) {
     V<ast_annotation> v_annotation = parse_annotation(lex);
 
-    bool deny_duplicates = v_annotation->kind == AnnotationKind::abi;
+    bool deny_duplicates = v_annotation->kind == AnnotationKind::abi_minimalMsgValue
+                        || v_annotation->kind == AnnotationKind::abi_preferredSendMode;
     if (deny_duplicates) {
       for (V<ast_annotation> existing : above) {
         if (existing->kind == v_annotation->kind) {
@@ -529,7 +559,7 @@ static AnyV parse_parameter(Lexer& lex, AnyTypeV self_type, bool in_lambda) {
   return createV<ast_parameter>(range, v_ident, param_type, default_value, declared_as_mutate);
 }
 
-static AnyV parse_global_var_declaration(Lexer& lex, const AnnotationsAbove& annotations) {
+static AnyV parse_global_var_declaration(Lexer& lex, AnnotationsAbove& annotations) {
   SrcRange range = lex.range_start();
   lex.expect(tok_global, "`global`");
   auto v_ident = parse_identifier(lex, "global variable name");
@@ -550,10 +580,11 @@ static AnyV parse_global_var_declaration(Lexer& lex, const AnnotationsAbove& ann
     }
   }
 
+  annotations.flush();
   return createV<ast_global_var_declaration>(range, v_ident, declared_type);
 }
 
-static AnyV parse_constant_declaration(Lexer& lex, const AnnotationsAbove& annotations) {
+static AnyV parse_constant_declaration(Lexer& lex, AnnotationsAbove& annotations) {
   SrcRange range = lex.range_start();
   lex.expect(tok_const, "`const`");
   auto v_ident = parse_identifier(lex, "constant name");
@@ -568,22 +599,19 @@ static AnyV parse_constant_declaration(Lexer& lex, const AnnotationsAbove& annot
     lex.error("multiple declarations are not allowed, split constants on separate lines");
   }
 
-  V<ast_annotation> abi_annotation = nullptr;
   for (auto v_annotation : annotations.above) {
     switch (v_annotation->kind) {
-      case AnnotationKind::abi:
-        abi_annotation = v_annotation;
-        break;
       default:
         err("this annotation is not applicable to a constant").fire(v_annotation);
     }
   }
 
   range.end(init_value->range);
-  return createV<ast_constant_declaration>(range, v_ident, declared_type, init_value, abi_annotation);
+  DocCommentLines doc_lines = annotations.flush();
+  return createV<ast_constant_declaration>(range, v_ident, declared_type, init_value, doc_lines);
 }
 
-static AnyV parse_type_alias_declaration(Lexer& lex, const AnnotationsAbove& annotations) {
+static AnyV parse_type_alias_declaration(Lexer& lex, AnnotationsAbove& annotations) {
   SrcRange range = lex.range_start();
   lex.expect(tok_type, "`type`");
   auto v_ident = parse_identifier(lex, "type name");
@@ -610,6 +638,7 @@ static AnyV parse_type_alias_declaration(Lexer& lex, const AnnotationsAbove& ann
     }
   }
 
+  annotations.flush();
   return createV<ast_type_alias_declaration>(range, v_ident, genericsT_list, underlying_type);
 }
 
@@ -936,31 +965,21 @@ static V<ast_match_arm> parse_match_arm(Lexer& lex) {
   }
   lex.expect(tok_double_arrow, "`=>`");
 
-  V<ast_braced_expression> body = nullptr;
-  if (lex.tok() == tok_opbrace) {         // pattern => { ... }
-    AnyV v_block = parse_statement(lex);
-    body = createV<ast_braced_expression>(v_block->range, v_block);
-  } else if (lex.tok() == tok_throw) {    // pattern => throw 123 (allow without braces)
-    AnyV v_throw = parse_throw_expression(lex);
-    AnyV v_block = createV<ast_block_statement>(v_throw->range, {v_throw});
-    body = createV<ast_braced_expression>(v_block->range, v_block);
-  } else if (lex.tok() == tok_return) {   // pattern => return 123 (allow without braces, like throw)
-    SrcRange block_range = lex.range_start();
-    lex.next();
-    AnyExprV return_value = parse_expr(lex);
-    block_range.end(return_value->range);
-    AnyV v_return = createV<ast_return_statement>(block_range, return_value);
-    AnyV v_block = createV<ast_block_statement>(v_return->range, {v_return});
-    body = createV<ast_braced_expression>(v_block->range, v_block);
-  } else {
-    AnyExprV unbraced_expr = parse_expr(lex);
-    AnyV v_block = createV<ast_block_statement>(unbraced_expr->range, {createV<ast_braced_yield_result>(unbraced_expr->range, unbraced_expr)});
-    body = createV<ast_braced_expression>(unbraced_expr->range, v_block);
+  V<ast_block_statement> v_block = nullptr;
+  if (lex.tok() == tok_opbrace) {       // `1 => { ... }`
+    v_block = parse_block_statement(lex);
+  } else try {                          // `1 => x + y` and other expressions
+    AnyExprV inner_expr = parse_expr(lex);
+    v_block = createV<ast_block_statement>(inner_expr->range, {createV<ast_braced_yield_result>(inner_expr->range, inner_expr)});
+  } catch (const ThrownParseError&) {   // `1 => throw 123` and other statements (without semicolon!)
+    AnyV inner_stmt = parse_statement(lex);
+    v_block = createV<ast_block_statement>(inner_stmt->range, {inner_stmt});
   }
+  auto body = createV<ast_braced_expression>(v_block->range, v_block);
 
   range.end(body->range);
   if (pattern_expr == nullptr) {  // for match by type / default case, empty vertex, not nullptr
-    pattern_expr = createV<ast_empty_expression>(SrcRange::empty_at_start(range));
+    pattern_expr = createV<ast_empty_expression>(SrcRange::span(range, 4));
   }
   return createV<ast_match_arm>(range, pattern_kind, exact_type, pattern_expr, body);
 }
@@ -1633,7 +1652,7 @@ static AnyV parse_asm_func_body(Lexer& lex, V<ast_identifier> name_ident, V<ast_
   return createV<ast_asm_body>(range, std::move(arg_order), std::move(ret_order), std::move(asm_commands));
 }
 
-static AnyV parse_function_declaration(Lexer& lex, const AnnotationsAbove& annotations, bool is_contract_getter) {
+static AnyV parse_function_declaration(Lexer& lex, AnnotationsAbove& annotations, bool is_contract_getter) {
   SrcRange range = lex.range_start();
   lex.expect(tok_fun, "`fun`");
 
@@ -1729,7 +1748,6 @@ static AnyV parse_function_declaration(Lexer& lex, const AnnotationsAbove& annot
 
   int tvm_method_id = FunctionData::EMPTY_TVM_METHOD_ID;
   FunctionInlineMode inline_mode = FunctionInlineMode::notCalculated;
-  V<ast_annotation> abi_annotation = nullptr;
   for (auto v_annotation : annotations.above) {
     switch (v_annotation->kind) {
       case AnnotationKind::inline_simple:
@@ -1767,12 +1785,6 @@ static AnyV parse_function_declaration(Lexer& lex, const AnnotationsAbove& annot
         }
         break;
       }
-      case AnnotationKind::abi:
-        if (!is_contract_getter) {
-          err("this annotation is applicable only to `get fun`").fire(v_annotation);
-        }
-        abi_annotation = v_annotation;
-        break;
 
       default:
         err("this annotation is not applicable to a function").fire(v_annotation);
@@ -1780,11 +1792,12 @@ static AnyV parse_function_declaration(Lexer& lex, const AnnotationsAbove& annot
   }
 
   range.end(v_body->range);
-  return createV<ast_function_declaration>(range, v_ident, v_param_list, v_body, receiver_type, ret_type, genericsT_list, abi_annotation, tvm_method_id, flags, inline_mode);
+  DocCommentLines doc_lines = annotations.flush();
+  return createV<ast_function_declaration>(range, v_ident, v_param_list, v_body, receiver_type, ret_type, genericsT_list, doc_lines, tvm_method_id, flags, inline_mode);
 }
 
 // todo somewhere check that contract is before any declaration
-static AnyV parse_contract_directive(Lexer& lex, const AnnotationsAbove& annotations) {
+static AnyV parse_contract_directive(Lexer& lex, AnnotationsAbove& annotations) {
   SrcRange range = lex.range_start();
   lex.expect(tok_identifier, "`contract`");
 
@@ -1810,12 +1823,13 @@ static AnyV parse_contract_directive(Lexer& lex, const AnnotationsAbove& annotat
     }
   }
 
-  if (!annotations.empty()) {
+  if (!annotations.above.empty()) {
     err("annotations are not applicable to a contract").fire(annotations.above.front());
   }
 
   range.end(lex.cur_range());
   lex.next();
+  annotations.flush();
   return createV<ast_contract_directive>(range, std::move(name_and_items));
 }
 
@@ -1823,8 +1837,12 @@ static AnyV parse_struct_field(Lexer& lex) {
   SrcRange range = lex.range_start();
 
   AnnotationsAbove annotations;
-  while (lex.tok() == tok_annotation_at) {
-    annotations.parse_and_append(lex);
+  while (lex.tok() == tok_annotation_at || lex.tok() == tok_doc_comment) {
+    if (lex.tok() == tok_doc_comment) {
+      annotations.collect_doc_comment(lex);
+    } else {
+      annotations.parse_and_append(lex);
+    }
   }
 
   bool is_private = false;
@@ -1851,18 +1869,15 @@ static AnyV parse_struct_field(Lexer& lex) {
     range.end(default_value->range);
   }
 
-  V<ast_annotation> abi_annotation = nullptr;
   for (auto v_annotation : annotations.above) {
     switch (v_annotation->kind) {
-      case AnnotationKind::abi:
-        abi_annotation = v_annotation;
-        break;
       default:
         err("this annotation is not applicable to a field").fire(v_annotation);
     }
   }
 
-  return createV<ast_struct_field>(range, v_ident, abi_annotation, is_private, is_readonly, default_value, declared_type);
+  DocCommentLines doc_lines = annotations.flush();
+  return createV<ast_struct_field>(range, v_ident, doc_lines, is_private, is_readonly, default_value, declared_type);
 }
 
 static V<ast_struct_body> parse_struct_body(Lexer& lex, V<ast_identifier> name_ident) {
@@ -1887,7 +1902,7 @@ static V<ast_struct_body> parse_struct_body(Lexer& lex, V<ast_identifier> name_i
   return createV<ast_struct_body>(range, std::move(fields));
 }
 
-static AnyV parse_struct_declaration(Lexer& lex, const AnnotationsAbove& annotations) {
+static AnyV parse_struct_declaration(Lexer& lex, AnnotationsAbove& annotations) {
   SrcRange range = lex.range_start();
   lex.expect(tok_struct, "`struct`");
 
@@ -1915,12 +1930,16 @@ static AnyV parse_struct_declaration(Lexer& lex, const AnnotationsAbove& annotat
     genericsT_list = parse_genericsT_list(lex);
   }
 
-  V<ast_annotation> abi_annotation = nullptr;
+  AnyExprV abi_minimalMsgValue = nullptr;
+  AnyExprV abi_preferredSendMode = nullptr;
   StructData::Overflow1023Policy overflow1023_policy = StructData::Overflow1023Policy::not_specified;
   for (auto v_annotation : annotations.above) {
     switch (v_annotation->kind) {
-      case AnnotationKind::abi:
-        abi_annotation = v_annotation;
+      case AnnotationKind::abi_minimalMsgValue:
+        abi_minimalMsgValue = v_annotation->get_arg()->get_item(0);
+        break;
+      case AnnotationKind::abi_preferredSendMode:
+        abi_preferredSendMode = v_annotation->get_arg()->get_item(0);
         break;
       case AnnotationKind::overflow1023_policy: {
         std::string_view str = v_annotation->get_arg()->get_item(0)->as<ast_string_const>()->str_val;
@@ -1938,10 +1957,11 @@ static AnyV parse_struct_declaration(Lexer& lex, const AnnotationsAbove& annotat
 
   auto body = parse_struct_body(lex, v_ident);
   range.end(body->range);
-  return createV<ast_struct_declaration>(range, v_ident, genericsT_list, abi_annotation, overflow1023_policy, opcode, body);
+  DocCommentLines doc_lines = annotations.flush();
+  return createV<ast_struct_declaration>(range, v_ident, genericsT_list, doc_lines, abi_minimalMsgValue, abi_preferredSendMode, overflow1023_policy, opcode, body);
 }
 
-static AnyV parse_enum_member(Lexer& lex) {
+static AnyV parse_enum_member(Lexer& lex, DocCommentLines doc_lines) {
   SrcRange range = lex.range_start();
   auto v_ident = parse_identifier(lex, "member name");
   range.end(v_ident->range);
@@ -1953,16 +1973,20 @@ static AnyV parse_enum_member(Lexer& lex) {
     range.end(init_value->range);
   }
 
-  return createV<ast_enum_member>(range, v_ident, init_value);  
+  return createV<ast_enum_member>(range, v_ident, std::move(doc_lines), init_value);
 }
 
 static V<ast_enum_body> parse_enum_body(Lexer& lex) {
   SrcRange range = lex.range_start();
   lex.expect(tok_opbrace, "`{`");
 
+  AnnotationsAbove annotations;
   std::vector<AnyV> members;
   while (lex.tok() != tok_clbrace) {
-    members.push_back(parse_enum_member(lex));
+    while (lex.tok() == tok_doc_comment) {
+      annotations.collect_doc_comment(lex);
+    }
+    members.push_back(parse_enum_member(lex, annotations.flush()));
     if (lex.tok() == tok_comma || lex.tok() == tok_semicolon) {
       lex.next();
     }
@@ -1974,7 +1998,7 @@ static V<ast_enum_body> parse_enum_body(Lexer& lex) {
   return createV<ast_enum_body>(range, std::move(members));
 }
 
-static AnyV parse_enum_declaration(Lexer& lex, const AnnotationsAbove& annotations) {
+static AnyV parse_enum_declaration(Lexer& lex, AnnotationsAbove& annotations) {
   SrcRange range = lex.range_start();
   lex.expect(tok_enum, "`enum`");
 
@@ -1986,12 +2010,8 @@ static AnyV parse_enum_declaration(Lexer& lex, const AnnotationsAbove& annotatio
     colon_type = parse_type_expression(lex);
   }
 
-  V<ast_annotation> abi_annotation = nullptr;
   for (auto v_annotation : annotations.above) {
     switch (v_annotation->kind) {
-      case AnnotationKind::abi:
-        abi_annotation = v_annotation;
-        break;
       default:
         err("this annotation is not applicable to an enum").fire(v_annotation);
     }
@@ -1999,7 +2019,8 @@ static AnyV parse_enum_declaration(Lexer& lex, const AnnotationsAbove& annotatio
 
   auto body = parse_enum_body(lex);
   range.end(body->range);
-  return createV<ast_enum_declaration>(range, v_ident, colon_type, abi_annotation, body);
+  DocCommentLines doc_lines = annotations.flush();
+  return createV<ast_enum_declaration>(range, v_ident, colon_type, doc_lines, body);
 }
 
 static AnyV parse_tolk_required_version(Lexer& lex) {
@@ -2038,7 +2059,7 @@ static AnyV parse_import_directive(Lexer& lex) {
 
 AnyV parse_src_file_to_ast(const SrcFile* file) {
   std::vector<AnyV> toplevel_declarations;
-  AnnotationsAbove annotations;
+  AnnotationsAbove annotations;   // collected above the next declaration and flushed after creating it
   Lexer lex(file);
   SrcRange range = lex.range_start();
 
@@ -2063,32 +2084,29 @@ AnyV parse_src_file_to_ast(const SrcFile* file) {
         lex.next();  // don't add ast_empty, no need
         break;
 
+      case tok_doc_comment:
+        annotations.collect_doc_comment(lex);
+        break;
       case tok_annotation_at:
         annotations.parse_and_append(lex);
         break;
       case tok_global:
         toplevel_declarations.push_back(parse_global_var_declaration(lex, annotations));
-        annotations.clear();
         break;
       case tok_const:
         toplevel_declarations.push_back(parse_constant_declaration(lex, annotations));
-        annotations.clear();
         break;
       case tok_type:
         toplevel_declarations.push_back(parse_type_alias_declaration(lex, annotations));
-        annotations.clear();
         break;
       case tok_fun:
         toplevel_declarations.push_back(parse_function_declaration(lex, annotations, false));
-        annotations.clear();
         break;
       case tok_struct:
         toplevel_declarations.push_back(parse_struct_declaration(lex, annotations));
-        annotations.clear();
         break;
       case tok_enum:
         toplevel_declarations.push_back(parse_enum_declaration(lex, annotations));
-        annotations.clear();
         break;
 
       case tok_export:
@@ -2100,12 +2118,10 @@ AnyV parse_src_file_to_ast(const SrcFile* file) {
         if (lex.cur_str() == "get") {     // top-level "get", contract getter
           lex.next();
           toplevel_declarations.push_back(parse_function_declaration(lex, annotations, true));
-          annotations.clear();
           break;
         }
         if (lex.cur_str() == "contract") {    // contract header, it's also not a keyword
           toplevel_declarations.push_back(parse_contract_directive(lex, annotations));
-          annotations.clear();
           break;
         }
         // fallthrough

@@ -230,9 +230,6 @@ class ASTReplicator final {
   static V<ast_instantiationT_list> clone(V<ast_instantiationT_list> v) {
     return createV<ast_instantiationT_list>(v->range, clone(v->get_items()));
   }
-  static V<ast_annotation> clone(V<ast_annotation> v) {
-    return createV<ast_annotation>(v->range, v->name, v->kind, clone(v->get_arg()));
-  }
   static V<ast_parameter> clone(V<ast_parameter> v) {
     return createV<ast_parameter>(v->range, clone(v->get_identifier()), clone(v->type_node), v->default_value ? clone(v->default_value) : nullptr,  v->declared_as_mutate);
   }
@@ -240,7 +237,7 @@ class ASTReplicator final {
     return createV<ast_parameter_list>(v->range, clone(v->get_params()));
   }
   static V<ast_struct_field> clone(V<ast_struct_field> v) {
-    return createV<ast_struct_field>(v->range, clone(v->get_identifier()), v->abi_annotation ? clone(v->abi_annotation) : nullptr, v->is_private, v->is_readonly, v->default_value ? clone(v->default_value) : nullptr, clone(v->type_node));
+    return createV<ast_struct_field>(v->range, clone(v->get_identifier()), v->doc_lines, v->is_private, v->is_readonly, v->default_value ? clone(v->default_value) : nullptr, clone(v->type_node));
   }
   static V<ast_struct_body> clone(V<ast_struct_body> v) {
     return createV<ast_struct_body>(v->range, clone(v->get_all_fields()));
@@ -348,7 +345,7 @@ public:
       clone(v_orig->receiver_type_node),
       clone(v_orig->return_type_node),
       v_orig->genericsT_list ? clone(v_orig->genericsT_list) : nullptr,
-      v_orig->abi_annotation ? clone(v_orig->abi_annotation) : nullptr,
+      v_orig->doc_lines,
       v_orig->tvm_method_id,
       v_orig->flags,
       v_orig->inline_mode
@@ -361,7 +358,9 @@ public:
       v_orig->range,
       new_name_ident,
       clone(v_orig->genericsT_list),
-      v_orig->abi_annotation == nullptr ? nullptr : clone(v_orig->abi_annotation),
+      v_orig->doc_lines,
+      v_orig->abi_minimalMsgValue ? clone(v_orig->abi_minimalMsgValue) : nullptr,
+      v_orig->abi_preferredSendMode ? clone(v_orig->abi_preferredSendMode) : nullptr,
       v_orig->overflow1023_policy,
       v_orig->has_opcode() ? static_cast<AnyExprV>(clone(v_orig->get_opcode())) : createV<ast_empty_expression>(v_orig->range),
       clone(v_orig->get_struct_body())
@@ -389,7 +388,7 @@ public:
       nullptr,
       clone(v_lambda->return_type_node),
       nullptr,
-      nullptr,
+      DocCommentLines{},
       FunctionData::EMPTY_TVM_METHOD_ID,
       FunctionData::flagIsLambda,
       FunctionInlineMode::notCalculated

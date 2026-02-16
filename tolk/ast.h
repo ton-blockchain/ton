@@ -151,7 +151,8 @@ enum class AnnotationKind {
   pure,
   overflow1023_policy,
   on_bounced_policy,
-  abi,
+  abi_minimalMsgValue,
+  abi_preferredSendMode,
   custom,
   unknown,
 };
@@ -1325,7 +1326,7 @@ struct Vertex<ast_function_declaration> final : ASTOtherVararg {
   AnyTypeV receiver_type_node;            // for `fun builder.storeInt`, here is `builder`
   AnyTypeV return_type_node;              // if unspecified (nullptr), means "auto infer"
   V<ast_genericsT_list> genericsT_list;   // for non-generics it's nullptr
-  V<ast_annotation> abi_annotation;       // if @abi is above a function/getter (e.g. to provide a description)
+  DocCommentLines doc_lines;              // from /// doc-comments above declaration
   int tvm_method_id;                      // specified via @method_id annotation
   int flags;                              // from enum in FunctionData
   FunctionInlineMode inline_mode;         // from annotations like `@inline` or auto-detected "in-place"
@@ -1337,9 +1338,9 @@ struct Vertex<ast_function_declaration> final : ASTOtherVararg {
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_fun_ref(FunctionPtr fun_ref);
 
-  Vertex(SrcRange range, V<ast_identifier> name_identifier, V<ast_parameter_list> parameters, AnyV body, AnyTypeV receiver_type_node, AnyTypeV return_type_node, V<ast_genericsT_list> genericsT_list, V<ast_annotation> abi_annotation, int tvm_method_id, int flags, FunctionInlineMode inline_mode)
+  Vertex(SrcRange range, V<ast_identifier> name_identifier, V<ast_parameter_list> parameters, AnyV body, AnyTypeV receiver_type_node, AnyTypeV return_type_node, V<ast_genericsT_list> genericsT_list, DocCommentLines doc_lines, int tvm_method_id, int flags, FunctionInlineMode inline_mode)
     : ASTOtherVararg(ast_function_declaration, range, {name_identifier, parameters, body})
-    , receiver_type_node(receiver_type_node), return_type_node(return_type_node), genericsT_list(genericsT_list), abi_annotation(abi_annotation), tvm_method_id(tvm_method_id), flags(flags), inline_mode(inline_mode) {}
+    , receiver_type_node(receiver_type_node), return_type_node(return_type_node), genericsT_list(genericsT_list), doc_lines(std::move(doc_lines)), tvm_method_id(tvm_method_id), flags(flags), inline_mode(inline_mode) {}
 };
 
 template<>
@@ -1366,7 +1367,7 @@ template<>
 struct Vertex<ast_constant_declaration> final : ASTOtherVararg {
   GlobalConstPtr const_ref = nullptr;          // filled after register
   AnyTypeV type_node;                          // exists for `const op: int = rhs`, otherwise nullptr
-  V<ast_annotation> abi_annotation;
+  DocCommentLines doc_lines;                   // from /// doc-comments above declaration
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
   AnyExprV get_init_value() const { return child_as_expr(1); }
@@ -1374,9 +1375,9 @@ struct Vertex<ast_constant_declaration> final : ASTOtherVararg {
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_const_ref(GlobalConstPtr const_ref);
 
-  Vertex(SrcRange range, V<ast_identifier> name_identifier, AnyTypeV type_node, AnyExprV init_value, V<ast_annotation> abi_annotation)
+  Vertex(SrcRange range, V<ast_identifier> name_identifier, AnyTypeV type_node, AnyExprV init_value, DocCommentLines doc_lines)
     : ASTOtherVararg(ast_constant_declaration, range, {name_identifier, init_value})
-    , type_node(type_node), abi_annotation(abi_annotation) {}
+    , type_node(type_node), doc_lines(std::move(doc_lines)) {}
 };
 
 template<>
@@ -1402,7 +1403,7 @@ template<>
 // ast_struct_field is one field at struct declaration
 // example: `struct Point { x: int, y: int }` is struct declaration, its body contains 2 fields
 struct Vertex<ast_struct_field> final : ASTOtherVararg {
-  V<ast_annotation> abi_annotation;
+  DocCommentLines doc_lines;      // from /// doc-comments above field
   bool is_private;                // declared as `private field: int`
   bool is_readonly;               // declared as `readonly field: int`
   AnyTypeV type_node;             // always exists, typing struct fields is mandatory
@@ -1410,9 +1411,9 @@ struct Vertex<ast_struct_field> final : ASTOtherVararg {
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
 
-  Vertex(SrcRange range, V<ast_identifier> name_identifier, V<ast_annotation> abi_annotation, bool is_private, bool is_readonly, AnyExprV default_value, AnyTypeV type_node)
+  Vertex(SrcRange range, V<ast_identifier> name_identifier, DocCommentLines doc_lines, bool is_private, bool is_readonly, AnyExprV default_value, AnyTypeV type_node)
     : ASTOtherVararg(ast_struct_field, range, {name_identifier})
-    , abi_annotation(abi_annotation), is_private(is_private), is_readonly(is_readonly), type_node(type_node), default_value(default_value) {}
+    , doc_lines(std::move(doc_lines)), is_private(is_private), is_readonly(is_readonly), type_node(type_node), default_value(default_value) {}
 };
 
 template<>
@@ -1435,7 +1436,9 @@ template<>
 struct Vertex<ast_struct_declaration> final : ASTOtherVararg {
   StructPtr struct_ref = nullptr;           // filled after register
   V<ast_genericsT_list> genericsT_list;     // exists for `Wrapper<T>`; otherwise, nullptr
-  V<ast_annotation> abi_annotation;
+  DocCommentLines doc_lines;                // from /// doc-comments above declaration
+  AnyExprV abi_minimalMsgValue;             // from @abi.minimalMsgValue(expr)
+  AnyExprV abi_preferredSendMode;           // from @abi.preferredSendMode(expr)
   StructData::Overflow1023Policy overflow1023_policy;
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
@@ -1446,22 +1449,23 @@ struct Vertex<ast_struct_declaration> final : ASTOtherVararg {
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_struct_ref(StructPtr struct_ref);
 
-  Vertex(SrcRange range, V<ast_identifier> name_identifier, V<ast_genericsT_list> genericsT_list, V<ast_annotation> abi_annotation, StructData::Overflow1023Policy overflow1023_policy, AnyExprV opcode, V<ast_struct_body> struct_body)
+  Vertex(SrcRange range, V<ast_identifier> name_identifier, V<ast_genericsT_list> genericsT_list, DocCommentLines doc_lines, AnyExprV abi_minimalMsgValue, AnyExprV abi_preferredSendMode, StructData::Overflow1023Policy overflow1023_policy, AnyExprV opcode, V<ast_struct_body> struct_body)
     : ASTOtherVararg(ast_struct_declaration, range, {name_identifier, opcode, struct_body})
-    , genericsT_list(genericsT_list), abi_annotation(abi_annotation), overflow1023_policy(overflow1023_policy) {}
+    , genericsT_list(genericsT_list), doc_lines(std::move(doc_lines)), abi_minimalMsgValue(abi_minimalMsgValue), abi_preferredSendMode(abi_preferredSendMode), overflow1023_policy(overflow1023_policy) {}
 };
 
 template<>
 // ast_enum_member is one member at enum declaration
 // example: `enum Color { Red = 1, Green, Blue }` is enum declaration, its body contains 3 members
 struct Vertex<ast_enum_member> final : ASTOtherVararg {
-  AnyExprV init_value;         // nullptr if no default
+  DocCommentLines doc_lines; // from /// doc-comments above member
+  AnyExprV init_value;       // nullptr if no default
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
 
-  Vertex(SrcRange range, V<ast_identifier> name_identifier, AnyExprV init_value)
+  Vertex(SrcRange range, V<ast_identifier> name_identifier, DocCommentLines doc_lines, AnyExprV init_value)
     : ASTOtherVararg(ast_enum_member, range, {name_identifier})
-    , init_value(init_value) {}
+    , doc_lines(std::move(doc_lines)), init_value(init_value) {}
 };
 
 template<>
@@ -1483,7 +1487,7 @@ template<>
 struct Vertex<ast_enum_declaration> final : ASTOtherVararg {
   EnumDefPtr enum_ref = nullptr;          // filled after register
   AnyTypeV colon_type = nullptr;          // serialization type after `:` if exists
-  V<ast_annotation> abi_annotation;
+  DocCommentLines doc_lines;              // from /// doc-comments above declaration
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
   auto get_enum_body() const { return children.at(1)->as<ast_enum_body>(); }
@@ -1491,9 +1495,9 @@ struct Vertex<ast_enum_declaration> final : ASTOtherVararg {
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_enum_ref(EnumDefPtr enum_ref);
 
-  Vertex(SrcRange range, V<ast_identifier> name_identifier, AnyTypeV colon_type, V<ast_annotation> abi_annotation, V<ast_enum_body> enum_body)
+  Vertex(SrcRange range, V<ast_identifier> name_identifier, AnyTypeV colon_type, DocCommentLines doc_lines, V<ast_enum_body> enum_body)
     : ASTOtherVararg(ast_enum_declaration, range, {name_identifier, enum_body})
-    , colon_type(colon_type), abi_annotation(abi_annotation) {}
+    , colon_type(colon_type), doc_lines(std::move(doc_lines)) {}
 };
 
 template<>

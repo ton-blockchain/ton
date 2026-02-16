@@ -109,9 +109,10 @@ struct ThrownParseError final : std::exception {
   std::string in_function;
   SrcRange range;
   std::string message;
+  bool is_warning = false;
 
-  ThrownParseError(std::string in_function, SrcRange range, std::string message)
-    : in_function(std::move(in_function)), range(range), message(std::move(message)) {}
+  ThrownParseError(std::string in_function, SrcRange range, std::string message, bool is_warning = false)
+    : in_function(std::move(in_function)), range(range), message(std::move(message)), is_warning(is_warning) {}
 
   const char* what() const noexcept override {
     return message.c_str();
@@ -139,9 +140,7 @@ public:
     errors.push_back(std::move(err));
   }
 
-  bool empty() const {
-    return errors.empty();
-  }
+  bool empty() const;
 
   std::vector<ThrownParseError>&& flush() {
     return std::move(errors);

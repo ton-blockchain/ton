@@ -32,10 +32,10 @@
 
 namespace tolk {
 
-// G is the per-compilation mutable state
-thread_local CompilerState G;
 // G_settings is filled by tolk-main or tolk-wasm before calling tolk_proceed()
 thread_local CompilerSettings G_settings;
+// G is the per-compilation mutable state
+thread_local CompilerState G;
 
 // prototypes of functions initializing/resetting global state and pointers
 void define_builtins();
@@ -80,12 +80,21 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename, std::
     pipeline_detect_inline_in_place();
     pipeline_check_serialized_fields();
 
+    // return errors, if any
     if (!error_collector.empty()) {
       return TolkCompilationResult{
         .errors = error_collector.flush(),
         .fatal_msg = "",
         .fift_code = "",
       };
+    }
+    // output warnings to console, if any collected
+    if (!G_settings.show_errors_as_json) {
+      for (const ThrownParseError& err : error_collector.flush()) {
+        if (err.is_warning) {
+          err.output_to_console(std::cerr);
+        }
+      }
     }
     G.error_collector = nullptr;
 

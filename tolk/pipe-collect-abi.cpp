@@ -39,17 +39,20 @@ class CollectAbiFromBodyVisitor final : public ASTVisitorFunctionBody {
       if (GlobalConstPtr const_ref = v_ref->sym->try_as<GlobalConstPtr>()) {
         abi->register_thrown_error(const_ref);
       }
+    } else if (auto v_dot = v_err_code->try_as<ast_dot_access>()) {
+      if (v_dot->is_target_enum_member()) {
+        EnumDefPtr enum_ref = v_dot->inferred_type->try_as<TypeDataEnum>()->enum_ref;
+        EnumMemberPtr member_ref = std::get<EnumMemberPtr>(v_dot->target);
+        abi->register_thrown_error(enum_ref, member_ref);
+      }
+    } else {
+      ConstValExpression expr;
+      try { expr = eval_expression_if_const_or_fire(v_err_code); }
+      catch (...) { expr = ConstValNullLiteral{}; }
+      if (const ConstValInt* thrown_int = std::get_if<ConstValInt>(&expr)) {
+        abi->register_thrown_error(thrown_int->int_val);
+      }
     }
-    if (auto v_int = v_err_code->try_as<ast_int_const>()) {
-      abi->register_thrown_error(v_int->intval, "");
-    }
-    if (auto v_dot = v_err_code->try_as<ast_dot_access>(); v_dot && v_dot->is_target_enum_member()) {
-      EnumDefPtr enum_ref = v_dot->inferred_type->try_as<TypeDataEnum>()->enum_ref;
-      EnumMemberPtr member_ref = std::get<EnumMemberPtr>(v_dot->target);
-      std::string full_name = enum_ref->name + "." + enum_ref->members[member_ref->member_idx]->name;
-      abi->register_thrown_error(member_ref->computed_value, full_name);
-    }
-    // we do not calculate constant expressions like `throw 100 * 2` — only `throw 100` is exported to ABI
   }
 
   void visit(V<ast_object_literal> v) override {

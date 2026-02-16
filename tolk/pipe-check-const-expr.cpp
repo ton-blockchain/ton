@@ -59,12 +59,9 @@ public:
   }
 };
 
-static void check_abi_annotation_above(const AbiAnnotationForSymbol* abi_annotation) {
-  if (abi_annotation != nullptr) {
-    if (abi_annotation->minimalMsgValue)    check_expression_is_constant_or_fire(abi_annotation->minimalMsgValue);
-    if (abi_annotation->preferredSendMode)  check_expression_is_constant_or_fire(abi_annotation->preferredSendMode);
-    if (abi_annotation->description)        check_expression_is_constant_or_fire(abi_annotation->description);
-  }
+static void check_struct_abi_annotations(StructPtr struct_ref) {
+  if (struct_ref->abi_minimalMsgValue)    check_expression_is_constant_or_fire(struct_ref->abi_minimalMsgValue);
+  if (struct_ref->abi_preferredSendMode)  check_expression_is_constant_or_fire(struct_ref->abi_preferredSendMode);
 }
 
 void pipeline_check_constant_expressions() {
@@ -72,7 +69,6 @@ void pipeline_check_constant_expressions() {
   // non-constant expressions like `const a = foo()` fire an error here
   for (GlobalConstPtr const_ref : get_all_declared_constants()) {
     eval_and_cache_const_init_val(const_ref);
-    check_abi_annotation_above(const_ref->abi_annotation);
   }
   // do the same for default values of struct fields, they must be constant expressions
   for (StructPtr struct_ref : get_all_declared_structs()) {
@@ -80,9 +76,8 @@ void pipeline_check_constant_expressions() {
       if (field_ref->has_default_value() && !struct_ref->is_generic_struct()) {
         check_expression_is_constant_or_fire(field_ref->default_value);
       }
-      check_abi_annotation_above(field_ref->abi_annotation);
     }
-    check_abi_annotation_above(struct_ref->abi_annotation);
+    check_struct_abi_annotations(struct_ref);
   }
   // and for default values of parameters
   for (FunctionPtr fun_ref : get_all_not_builtin_functions()) {
@@ -92,7 +87,6 @@ void pipeline_check_constant_expressions() {
         check_expression_is_constant_or_fire(param_ref->default_value);
       }
     }
-    check_abi_annotation_above(fun_ref->abi_annotation);
   }
   
   // assign `enum` members values (either auto-compute sequentially or use manual initializers)
@@ -101,7 +95,6 @@ void pipeline_check_constant_expressions() {
     for (EnumMemberPtr member_ref : enum_ref->members) {
       member_ref->mutate()->assign_computed_value(values[member_ref->member_idx]);
     }
-    check_abi_annotation_above(enum_ref->abi_annotation);
   }
 
   ConstantExpressionsChecker visitor;

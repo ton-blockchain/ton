@@ -54,41 +54,6 @@ void on_assertion_failed(const char *description, const char *file_name, int lin
   throw Fatal(std::move(message));
 }
 
-GNU_ATTRIBUTE_NOINLINE
-static void output_compiler_message(
-  std::ostream& os,
-  bool is_warning,
-  std::string_view in_function,
-  SrcRange range,
-  std::string_view message
-  ) {
-  std::string loc_text = range.stringify_start_location(true);
-  os << loc_text << ": " << (is_warning ? "warning: " : "error: ");
-
-  if (message.find('\n') == std::string::npos) {
-    // just print a single-line message after "error:"
-    os << message << std::endl;
-  } else {
-    // print "location: line1 \n (spaces) line2 \n ..."
-    std::string loc_spaces(std::min(static_cast<int>(loc_text.size()), 9), ' ');
-    size_t start = 0, end;
-    while ((end = message.find('\n', start)) != std::string::npos) {
-      if (start > 0) {
-        os << loc_spaces << "  ";
-      }
-      os << message.substr(start, end - start) << std::endl;
-      start = end + 1;
-    }
-    if (start < message.size()) {
-      os << loc_spaces << "  " << message.substr(start) << std::endl;
-    }
-  }
-  if (!in_function.empty()) {
-    os << std::endl << "    // " << in_function << std::endl;
-  }
-  range.output_underlined(os);
-}
-
 void ErrorBuilder::push(const char* v) {
   add_arg(v);
 }
@@ -169,6 +134,16 @@ Error ErrorBuilder::build() const {
   return Error(std::move(replaced));
 }
 
+bool ErrorCollector::empty() const {
+  for (const ThrownParseError& err : errors) {
+    if (!err.is_warning) {
+      return false;
+    }
+  }
+  return true;
+}
+
+
 void Error::fire(AnyV at, FunctionPtr in_function) const {
   throw ThrownParseError(str_in_function(in_function), at->range, message);  
 }
@@ -178,11 +153,13 @@ void Error::fire(SrcRange range, FunctionPtr in_function) const {
 }
 
 void Error::warning(AnyV at, FunctionPtr in_function) const {
-  output_compiler_message(std::cerr, true, str_in_function(in_function), at->range, message);
+  tolk_assert(G.error_collector);
+  G.error_collector->add(ThrownParseError(str_in_function(in_function), at->range, message, true));
 }
 
 void Error::warning(SrcRange range, FunctionPtr in_function) const {
-  output_compiler_message(std::cerr, true, str_in_function(in_function), range, message);
+  tolk_assert(G.error_collector);
+  G.error_collector->add(ThrownParseError(str_in_function(in_function), range, message, true));
 }
 
 void Error::collect(AnyV at, FunctionPtr in_function) const {
@@ -196,12 +173,39 @@ void Error::collect(SrcRange range, FunctionPtr in_function) const {
 }
 
 void ThrownParseError::output_to_console(std::ostream& os) const {
-  output_compiler_message(os, false, in_function, range, message);
+  std::string loc_text = range.stringify_start_location(true);
+  os << loc_text << ": " << (is_warning ? "warning: " : "error: ");
+
+  if (message.find('\n') == std::string::npos) {
+    // just print a single-line message after "error:"
+    os << message << std::endl;
+  } else {
+    // print "location: line1 \n (spaces) line2 \n ..."
+    std::string loc_spaces(std::min(static_cast<int>(loc_text.size()), 9), ' ');
+    size_t start = 0, end;
+    while ((end = message.find('\n', start)) != std::string::npos) {
+      if (start > 0) {
+        os << loc_spaces << "  ";
+      }
+      os << message.substr(start, end - start) << std::endl;
+      start = end + 1;
+    }
+    if (start < message.size()) {
+      os << loc_spaces << "  " << message.substr(start) << std::endl;
+    }
+  }
+  if (!in_function.empty()) {
+    os << std::endl << "    // " << in_function << std::endl;
+  }
+  range.output_underlined(os);
 }
 
 void ThrownParseError::output_to_json(JsonPrettyOutput& json) const {
   json.start_object();
   json.key_value("message", message);
+  if (is_warning) {
+    json.key_value("is_warning", true);
+  }
   if (!in_function.empty()) {
     json.key_value("in_function", in_function);
   }

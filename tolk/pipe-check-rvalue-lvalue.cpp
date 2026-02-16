@@ -151,7 +151,9 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
   }
 
   void visit(V<ast_not_null_operator> v) override {
-    // if `x!` is lvalue, then `x` is also lvalue, so check that `x` is ok
+    if (v->is_lvalue) {
+      err_cannot_be_used_as_lvalue("operator `!`").collect(v, cur_f);
+    }
     parent::visit(v->get_expr());
   }
 
@@ -233,10 +235,6 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
     if (!v->fun_maybe) {
       parent::visit(v->get_callee());
     }
-    if (v->fun_maybe && v->fun_maybe->is_marked_as_pure() && !v->is_rvalue) {
-      err("result of a @pure function `{}` is unused, this call will be removed\n", v->fun_maybe).warning(v, cur_f);
-    }
-
     // for `f()` don't visit ast_reference `f`, to detect `f` usage as non-call, like `var cb = f`
     // same for `obj.method()`, don't visit ast_reference method, visit only obj
     if (AnyExprV self_obj = v->get_self_obj()) {

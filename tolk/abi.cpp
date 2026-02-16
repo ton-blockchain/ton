@@ -28,27 +28,67 @@ namespace tolk {
 
 static const char* ABI_SCHEMA_VERSION = "1.0";
 
-static const AbiAnnotationForSymbol* get_abi_annotation_above(TypePtr ty) {
-  if (const TypeDataStruct* t_struct = ty->unwrap_alias()->try_as<TypeDataStruct>()) {
-    return t_struct->struct_ref->abi_annotation;
+// above get methods, we allow `@param` in comments,
+// so a result of parsing doc_lines is ParsedDocComment
+struct ParsedDocComment {
+  std::string description;
+  std::vector<std::pair<std::string_view, std::string>> param_descriptions;
+
+  std::string find_param_description(std::string_view param_name) const {
+    for (const auto& [name, desc] : param_descriptions) {
+      if (name == param_name) {
+        return desc;
+      }
+    }
+    return {};
   }
-  if (const TypeDataEnum* t_enum = ty->unwrap_alias()->try_as<TypeDataEnum>()) {
-    return t_enum->enum_ref->abi_annotation;
+};
+
+static void append_line(std::string& s, std::string_view line) {
+  if (!s.empty()) {
+    s += '\n';
   }
-  return nullptr;
+  s += line;
 }
 
-static std::string_view get_abi_description(const AbiAnnotationForSymbol* abi_annotation) {
-  if (abi_annotation && abi_annotation->description) {
-    if (auto v_str = abi_annotation->description->try_as<ast_string_const>()) {
-      return v_str->str_val;
+static ParsedDocComment parse_doc_comment(const DocCommentLines& doc_lines) {
+  ParsedDocComment result;
+  for (std::string_view line : doc_lines) {
+    if (line.starts_with("@param ") && line.size() > 7) {
+      std::string_view after = line.substr(7);
+      if (size_t sp = after.find(' '); sp != std::string::npos) {
+        std::string_view param_name = after.substr(0, sp);
+        std::string_view param_desc = after.substr(sp + 1);
+        result.param_descriptions.emplace_back(param_name, std::string(param_desc));
+      }
+    } else if (!result.param_descriptions.empty() && !line.empty() && !line.starts_with("@")) {
+      append_line(result.param_descriptions.back().second, line);
+    } else {
+      append_line(result.description, line);
     }
   }
-  return "";
+  return result;
 }
 
-static std::string_view get_abi_description(TypePtr ty) {
-  return get_abi_description(get_abi_annotation_above(ty));
+static std::string get_abi_description(const DocCommentLines& doc_lines) {
+  std::string result;
+  for (std::string_view line : doc_lines) {
+    if (line.starts_with("@")) {    // description is before the first @tag in a doc comment
+      break;
+    }
+    append_line(result, line);
+  }
+  return result;
+}
+
+static std::string get_abi_description(TypePtr ty) {
+  if (const TypeDataStruct* t_struct = ty->unwrap_alias()->try_as<TypeDataStruct>()) {
+    return get_abi_description(t_struct->struct_ref->doc_lines);
+  }
+  if (const TypeDataEnum* t_enum = ty->unwrap_alias()->try_as<TypeDataEnum>()) {
+    return get_abi_description(t_enum->enum_ref->doc_lines);
+  }
+  return {};
 }
 
 static TypePtr normalize_createMessageTy(TypePtr bodyTy) {
@@ -123,9 +163,22 @@ void ContractABI::register_used_symbol(const Symbol* symbol) {
   }
 }
 
+void ContractABI::register_storage(TypePtr storageTy, TypePtr storageAtDeploymentTy) {
+  if (storageTy != nullptr && storageTy != TypeDataNullLiteral::create()) {
+    storage.storageTy = storageTy;
+    register_used_type(storageTy);
+  }
+  if (storageAtDeploymentTy != nullptr && storageAtDeploymentTy != TypeDataNullLiteral::create()) {
+    storage.storageAtDeploymentTy = storageAtDeploymentTy;
+    register_used_type(storageAtDeploymentTy);
+  }
+}
+
 void ContractABI::register_get_method(FunctionPtr fun_ref) {
   tolk_assert(fun_ref->is_contract_getter());
   register_used_type(fun_ref->inferred_full_type);
+
+  ParsedDocComment doc = parse_doc_comment(fun_ref->doc_lines);
 
   std::vector<ABIFunctionParameter> parameters;
   parameters.reserve(fun_ref->get_num_params());
@@ -133,7 +186,8 @@ void ContractABI::register_get_method(FunctionPtr fun_ref) {
     const LocalVarData& param_ref = fun_ref->get_param(i);
     parameters.emplace_back(ABIFunctionParameter{
       .name = param_ref.name,
-      .ty = param_ref.declared_type, 
+      .ty = param_ref.declared_type,
+      .description = doc.find_param_description(param_ref.name),
     });
     register_used_type(param_ref.declared_type);
   }
@@ -143,30 +197,32 @@ void ContractABI::register_get_method(FunctionPtr fun_ref) {
     .name = fun_ref->name,
     .parameters = std::move(parameters),
     .returnTy = fun_ref->inferred_return_type,
-    .description = get_abi_description(fun_ref->abi_annotation), 
+    .description = std::move(doc.description),
   });
   register_used_type(fun_ref->inferred_return_type);
 }
 
 void ContractABI::register_incoming_message(TypePtr bodyTy) {
   // todo I don't like that minimalMsgValue is in @abi above a struct, not in `contract` annotation
-  const AbiAnnotationForSymbol* abi_annotation = get_abi_annotation_above(bodyTy);
   std::optional<int64_t> minimalMsgValue;
   std::optional<int64_t> preferredSendMode;
-  if (abi_annotation && abi_annotation->minimalMsgValue) {
-    ConstValExpression val = unwrap_ConstVal_casts(eval_expression_if_const_or_fire(abi_annotation->minimalMsgValue));
-    tolk_assert(std::holds_alternative<ConstValInt>(val));
-    ConstValInt val_int = std::get<ConstValInt>(val);
-    if (val_int.int_val->fits_bits(63)) {
-      minimalMsgValue = val_int.int_val->to_long();
+  if (const TypeDataStruct* t_struct = bodyTy->unwrap_alias()->try_as<TypeDataStruct>()) {
+    StructPtr struct_ref = t_struct->struct_ref;
+    if (struct_ref->abi_minimalMsgValue) {
+      ConstValExpression val = unwrap_ConstVal_casts(eval_expression_if_const_or_fire(struct_ref->abi_minimalMsgValue));
+      tolk_assert(std::holds_alternative<ConstValInt>(val));
+      ConstValInt val_int = std::get<ConstValInt>(val);
+      if (val_int.int_val->fits_bits(63)) {
+        minimalMsgValue = val_int.int_val->to_long();
+      }
     }
-  }
-  if (abi_annotation && abi_annotation->preferredSendMode) {
-    ConstValExpression val = unwrap_ConstVal_casts(eval_expression_if_const_or_fire(abi_annotation->preferredSendMode));
-    tolk_assert(std::holds_alternative<ConstValInt>(val));
-    ConstValInt val_int = std::get<ConstValInt>(val);
-    if (val_int.int_val->fits_bits(63)) {
-      preferredSendMode = val_int.int_val->to_long();
+    if (struct_ref->abi_preferredSendMode) {
+      ConstValExpression val = unwrap_ConstVal_casts(eval_expression_if_const_or_fire(struct_ref->abi_preferredSendMode));
+      tolk_assert(std::holds_alternative<ConstValInt>(val));
+      ConstValInt val_int = std::get<ConstValInt>(val);
+      if (val_int.int_val->fits_bits(63)) {
+        preferredSendMode = val_int.int_val->to_long();
+      }
     }
   }
   incomingMessages.emplace_back(ABIInternalMessage{
@@ -222,42 +278,40 @@ void ContractABI::register_emitted_event(TypePtr bodyTy) {
   register_used_type(bodyTy);
 }
 
-void ContractABI::register_storage(TypePtr storageTy, TypePtr storageAtDeploymentTy) {
-  if (storageTy != nullptr && storageTy != TypeDataNullLiteral::create()) {
-    storage.storageTy = storageTy;
-    register_used_type(storageTy);
-  }
-  if (storageAtDeploymentTy != nullptr && storageAtDeploymentTy != TypeDataNullLiteral::create()) {
-    storage.storageAtDeploymentTy = storageAtDeploymentTy;
-    register_used_type(storageAtDeploymentTy);
-  }
-}
-
 void ContractABI::register_thrown_error(GlobalConstPtr const_ref) {
   ConstValExpression val = unwrap_ConstVal_casts(eval_and_cache_const_init_val(const_ref));
   tolk_assert(std::holds_alternative<ConstValInt>(val));
 
-  register_thrown_error(std::get<ConstValInt>(val).int_val, const_ref->name);
+  register_thrown_error(ABIThrownErrorKind::constant, std::get<ConstValInt>(val).int_val, const_ref->name);
   register_used_type(const_ref->inferred_type);
 }
 
-void ContractABI::register_thrown_error(const td::RefInt256& error_code, std::string const_name) {
+void ContractABI::register_thrown_error(EnumDefPtr enum_ref, EnumMemberPtr member_ref) {
+  std::string name = enum_ref->name + "." + member_ref->name;
+  register_thrown_error(ABIThrownErrorKind::enumMember, member_ref->computed_value, std::move(name));
+}
+
+void ContractABI::register_thrown_error(const td::RefInt256& err_code) {
+  register_thrown_error(ABIThrownErrorKind::plainInt, err_code, "");
+}
+
+void ContractABI::register_thrown_error(ABIThrownErrorKind kind, const td::RefInt256& error_code, std::string name) {
   if (!error_code->fits_bits(31)) {
     return;
   }
   int errCode = static_cast<int>(error_code->to_long());
 
   // check for duplicates, since this function is called for every `throw` or `assert`
-  // (but not only for errCode: there may be multiple constants with the same errCode, export them all)
-  auto it = std::find_if(thrownErrors.begin(), thrownErrors.end(), [errCode, const_name](const ABIThrownError& e) {
-    return errCode == e.errCode && const_name == e.constName; 
+  auto it = std::find_if(thrownErrors.begin(), thrownErrors.end(), [kind, errCode, name](const ABIThrownError& e) {
+    return kind == e.kind && errCode == e.errCode && name == e.name;
   });
   if (it != thrownErrors.end()) {
     return;
   }
 
   thrownErrors.emplace_back(ABIThrownError{
-    .constName = std::move(const_name),
+    .kind = kind,
+    .name = std::move(name),
     .errCode = errCode,
   });
 }
@@ -266,15 +320,28 @@ void ContractABI::register_constant(GlobalConstPtr const_ref) {
   constants.emplace_back(ABIConstant{
     .name = const_ref->name,
     .value = eval_and_cache_const_init_val(const_ref),
-    .description = get_abi_description(const_ref->abi_annotation),
+    .description = get_abi_description(const_ref->doc_lines),
   });
 }
+
+
+// --------------------------------------------
+//    output ABI to JSON
+//
 
 
 static void to_json(JsonPrettyOutput& out, TypePtr type) {
   std::string type_as_json;
   type->as_abi_json(type_as_json);
   out << type_as_json;
+}
+
+static void to_json(JsonPrettyOutput& out, ABIThrownErrorKind kind) {
+  switch (kind) {
+    case ABIThrownErrorKind::plainInt:    out.write_value("plainInt");    break;
+    case ABIThrownErrorKind::constant:    out.write_value("constant");    break;
+    case ABIThrownErrorKind::enumMember:  out.write_value("enumMember");  break;
+  }
 }
 
 static void to_json(JsonPrettyOutput& out, const ConstValExpression& v) {
@@ -385,8 +452,8 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
         if (field_ref->default_value) {
           json.key_value("defaultValue", eval_field_default_value(field_ref));
         }
-        if (field_ref->abi_annotation && field_ref->abi_annotation->description) {
-          json.key_value("description", get_abi_description(field_ref->abi_annotation));
+        if (!field_ref->doc_lines.empty()) {
+          json.key_value("description", get_abi_description(field_ref->doc_lines));
         }
         // todo clientTy?
         json.end_object();
@@ -414,7 +481,9 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
         json.start_object();
         json.key_value("name", member_ref->name);
         json.key_value("value", member_ref->computed_value);
-        // todo description?
+        if (!member_ref->doc_lines.empty()) {
+          json.key_value("description", get_abi_description(member_ref->doc_lines));
+        }
         json.end_object();
       }
       json.end_array();
@@ -427,6 +496,15 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
     json.end_object();
   }
   json.end_array();
+
+  json.start_object("storage");
+  if (this->storage.storageTy != nullptr) {
+    json.key_value("storageTy", this->storage.storageTy);
+  }
+  if (this->storage.storageAtDeploymentTy != nullptr) {
+    json.key_value("storageAtDeploymentTy", this->storage.storageAtDeploymentTy);
+  }
+  json.end_object();
 
   json.start_array("incomingMessages");
   for (const ABIInternalMessage& m : this->incomingMessages) {
@@ -478,15 +556,6 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
   }
   json.end_array();
 
-  json.start_object("storage");
-  if (this->storage.storageTy != nullptr) {
-    json.key_value("storageTy", this->storage.storageTy);
-  }
-  if (this->storage.storageAtDeploymentTy != nullptr) {
-    json.key_value("storageAtDeploymentTy", this->storage.storageAtDeploymentTy);
-  }
-  json.end_object();
-
   json.start_array("getMethods");
   for (const ABIGetMethod& m : this->getMethods) {
     json.start_object();
@@ -497,7 +566,9 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
       json.start_object();
       json.key_value("name", p.name);
       json.key_value("ty", p.ty);
-      // todo description?
+      if (!p.description.empty()) {
+        json.key_value("description", p.description);
+      }
       // todo default value
       json.end_object();
     }
@@ -517,8 +588,9 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
   });
   for (const ABIThrownError& e : sorted_throws) {
     json.start_object();
-    if (!e.constName.empty()) {
-      json.key_value("constName", e.constName);
+    json.key_value("kind", e.kind);
+    if (!e.name.empty()) {
+      json.key_value("name", e.name);
     }
     json.key_value("errCode", e.errCode);
     json.end_object();

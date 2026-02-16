@@ -255,6 +255,12 @@ static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_funct
         ConstValString{v->range.get_src_file()->realpath},
       }};
     }
+
+    if (f_name == "sourceLocationAsString") {
+      SrcRange::DecodedRange d = v->range.decode_offsets();
+      std::string loc_str = v->range.get_src_file()->realpath + ":" + std::to_string(d.start_line_no) + ":" + std::to_string(d.start_char_no);
+      return ConstValString{std::move(loc_str)};
+    }
   }
 
   // string methods: "hello".crc32(), "hello".sha256(), etc.
@@ -623,10 +629,6 @@ ConstValExpression eval_and_cache_const_init_val(GlobalConstPtr const_ref) {
 ConstValExpression eval_field_default_value(StructFieldPtr field_ref) {
   tolk_assert(field_ref->default_value);
   return ConstExpressionEvaluator::eval_any_v_or_fire(field_ref->default_value);
-}
-
-ConstValExpression eval_AnyExprV_tmp(AnyExprV v) {
-  return ConstExpressionEvaluator::eval_any_v_or_fire(v);
 }
 
 std::vector<td::RefInt256> calculate_enum_members_with_values(EnumDefPtr enum_ref) {

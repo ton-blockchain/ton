@@ -40,6 +40,7 @@ enum TokenType {
   tok_self,
 
   tok_annotation_at,
+  tok_doc_comment,
   tok_colon,
   tok_asm,
   tok_builtin,

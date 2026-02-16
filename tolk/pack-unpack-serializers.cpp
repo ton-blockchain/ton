@@ -1098,7 +1098,7 @@ struct S_Array final : ISerializer {
   // the compiler detects N to always fit one cell: for `int256` it's 3, for `int32` it's 31
   int detect_chunk_size() const {
     PackSize elem_size = EstimateContext().estimate_any(innerT);
-    int fits_in_bits = elem_size.max_bits == 0 ? 255 : 1023 / elem_size.max_bits;
+    int fits_in_bits = elem_size.max_bits == 0 ? 255 : 1022 / elem_size.max_bits;
     int fits_in_refs = elem_size.max_refs == 0 ? 255 : 3 / elem_size.max_refs;
     int chunk_size = std::min(fits_in_bits, fits_in_refs);
     return std::max(1, chunk_size);

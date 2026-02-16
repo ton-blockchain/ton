@@ -372,6 +372,8 @@ struct ExprUsagesWhileCollecting {
       std::vector(struct_ref->fields),
       is_variant_of_union ? StructData::PackOpcode(0, 0) : struct_ref->opcode,
       struct_ref->overflow1023_policy,
+      {},
+      nullptr,
       nullptr,
       nullptr,
       nullptr,
@@ -412,16 +414,12 @@ struct ExprUsagesWhileCollecting {
     // fill future_fields
     for (int field_idx = 0; field_idx < struct_ref->get_num_fields(); ++field_idx) {
       StructFieldPtr orig_field = struct_ref->get_field(field_idx);
-      if (orig_field->name == "(tail)" || orig_field->name == "(gap)") {
-        err("this is a reserved field name, it conflicts with `lazy` internals").fire(orig_field->ident_anchor);
-      }
-
       TypePtr field_type = orig_field->declared_type;
       const ExprUsagesWhileCollecting& field_usages = fields[field_idx];
       bool used_anyhow_but_match = field_usages.is_self_or_field_used_for_reading() || field_usages.is_self_or_child_used_for_writing() || field_usages.is_self_or_field_used_for_toCell();
 
       if (need_immutable_tail && field_idx == last_modified_field_idx + 1) {
-        future_fields.emplace_back(LazyStructLoadInfo::SaveImmutableTail, "(tail)", TypeDataSlice::create());
+        future_fields.emplace_back(LazyStructLoadInfo::SaveImmutableTail, "`tail`", TypeDataSlice::create());
       }
 
       if (field_usages.used_for_matching == 1 && !used_anyhow_but_match && !object_used_as_a_whole && !used_for_toCell && !is_variant_of_union && field_idx == struct_ref->get_num_fields() - 1 &&
@@ -453,7 +451,7 @@ struct ExprUsagesWhileCollecting {
       if (skip_size.min_bits == skip_size.max_bits && skip_size.max_refs == 0 && !skip_size.skipping_is_dangerous) {
         skip_type = TypeDataBitsN::create(skip_size.max_bits, true);
       }
-      future_fields.emplace_back(LazyStructLoadInfo::SkipField, "(gap)", skip_type);
+      future_fields.emplace_back(LazyStructLoadInfo::SkipField, "`gap`", skip_type);
     }
 
     // if we need tail, we should load all fields before it (even if they aren't used)
@@ -494,7 +492,7 @@ struct ExprUsagesWhileCollecting {
     for (int field_idx = 0; field_idx < static_cast<int>(future_fields.size()); ++field_idx) {
       FutureField f = future_fields[field_idx];
       AnyV v_ident = createV<ast_identifier>(SrcRange::undefined(), "");
-      StructFieldPtr created = new StructFieldData(static_cast<std::string>(f.field_name), v_ident, field_idx, false, false, nullptr, nullptr, nullptr);
+      StructFieldPtr created = new StructFieldData(static_cast<std::string>(f.field_name), v_ident, field_idx, false, false, nullptr, nullptr, {});
       created->mutate()->assign_resolved_type(f.field_type);
       hidden_fields.push_back(created);
       ith_field_action.push_back(f.action);
@@ -506,6 +504,8 @@ struct ExprUsagesWhileCollecting {
       std::move(hidden_fields),
       is_variant_of_union ? StructData::PackOpcode(0, 0) : struct_ref->opcode,
       struct_ref->overflow1023_policy,
+      {},
+      nullptr,
       nullptr,
       nullptr,
       nullptr,
@@ -629,7 +629,7 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
       if (!is_subj_of_dot) {
         lazy_expr->on_used_rw(v->is_lvalue);
       }
-      if (!v->is_lvalue && !lazy_expr->expr_type->equal_to(v->inferred_type)) {
+      if (v->is_rvalue && !lazy_expr->expr_type->equal_to(v->inferred_type)) {
         lazy_expr->on_used_reassigned_type();     // e.g. in `A => ...` variable was reassigned and now is `B`
       }
     }
@@ -979,8 +979,11 @@ class CheckExpectLazyAssertionsVisitor final : public ASTVisitorFunctionBody {
     std::string result = "[" + aux_load->var_ref->name + "] ";
     for (int i = 0; i < struct_ref->get_num_fields(); ++i) {
       std::string field_name = struct_ref->get_field(i)->name;
-      if (field_name == "(gap)") {
+      if (field_name == "`gap`") {
         field_name = "(" + struct_ref->get_field(i)->declared_type->as_human_readable() + ")";
+      }
+      if (field_name == "`tail`") {
+        field_name = "(tail)";
       }
       std::string_view action = action_to_str[load_info.ith_field_action[i]];
       if (action != last_action) {

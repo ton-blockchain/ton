@@ -81,7 +81,7 @@ void usage(const char* progname) {
          "-O, --opt-level <level>\n"
             "\tSet optimization level (2 by default)\n"
          "--path-mapping <mapping>\n"
-            "\tRegister @name -> path mapping (e.g. --path-mapping @mylib=/path/to/lib)\n"
+            "\tRegister @name -> path mapping (e.g. @mylib=/path/to/lib)\n"
          "--no-stack-comments\n"
             "\tDon't include stack layout comments into Fift output\n"
          "--no-line-comments\n"

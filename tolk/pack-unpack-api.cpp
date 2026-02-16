@@ -199,7 +199,11 @@ public:
       if (auto why = detect_why_cant_serialize(t_array->innerT, is_pack)) {
         return CantSerializeBecause("because array of type `" + t_array->innerT->as_human_readable() + "` can't be serialized", why.value());
       }
-      if (estimate_serialization_size(t_array->innerT).is_zero()) {
+      PackSize sizeT = estimate_serialization_size(t_array->innerT);
+      if (sizeT.max_refs >= 4 && !sizeT.is_unpredictable_infinity()) {    // one cell is for snaking
+        return CantSerializeBecause("because `" + t_array->innerT->as_human_readable() + "` can exceed 3 refs and won't fit into a cell");
+      }
+      if (sizeT.is_zero()) {
         return CantSerializeBecause("because `" + t_array->innerT->as_human_readable() + "` has zero binary size, and an array can't be deserialized back");
       }
       return {};
@@ -311,12 +315,15 @@ std::vector<var_idx_t> generate_T_toCell(FunctionPtr called_f, CodeBlob& code, A
 // fun builder.storeAny<T>(mutate self, v: T, options: PackOptions = {}): self
 std::vector<var_idx_t> generate_builder_storeAny(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr typeT = called_f->substitutedTs->typeT_at(0);
+  // since this function mutates self, it should put a new `self` in the end, but don't modify the original
+  std::vector ir_self = code.create_tmp_var(TypeDataBuilder::create(), origin, "(self)");
+  code.emplace_back(origin, Op::_Let, ir_self, args[0]);
   insert_call_debug_info(origin, ast_function_call, code, "builder.storeAny", CallKind::EnterInlinedFunction);
-  PackContext ctx(code, origin, args[0], args[2]);   // mutate this builder
+  PackContext ctx(code, origin, ir_self, args[2]);
   ctx.generate_pack_any(typeT, std::vector(args[1]));
   insert_call_debug_info(origin, ast_function_call, code, "builder.storeAny", CallKind::LeaveInlinedFunction);
 
-  return args[0];  // return mutated builder
+  return ir_self;  // return mutated builder
 }
 
 // fun T.fromSlice(rawSlice: slice, options: UnpackOptions): T
@@ -339,12 +346,16 @@ std::vector<var_idx_t> generate_T_fromSlice(FunctionPtr called_f, CodeBlob& code
 // fun slice.loadAny<T>(mutate self, options: UnpackOptions): T
 std::vector<var_idx_t> generate_slice_loadAny(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr typeT = called_f->substitutedTs->typeT_at(0);
-  UnpackContext ctx(code, origin, args[0], args[1]);
+  // since this function mutates self, it should put a new `self` in the end, but don't modify the original
+  std::vector ir_self = code.create_tmp_var(TypeDataSlice::create(), origin, "(self)");
+  code.emplace_back(origin, Op::_Let, ir_self, args[0]);
+
+  UnpackContext ctx(code, origin, ir_self, args[1]);
   std::vector rvect_struct = ctx.generate_unpack_any(typeT);
   tolk_assert(typeT->get_width_on_stack() == static_cast<int>(rvect_struct.size()));
 
   // slice.loadAny() ignores options.assertEndAfterReading, because it's intended to read data in the middle
-  std::vector ir_slice_and_result = args[0];
+  std::vector ir_slice_and_result = ir_self;
   ir_slice_and_result.insert(ir_slice_and_result.end(), rvect_struct.begin(), rvect_struct.end());
   return ir_slice_and_result;
 }
@@ -370,12 +381,15 @@ std::vector<var_idx_t> generate_T_fromCell(FunctionPtr called_f, CodeBlob& code,
 // fun slice.skipAny<T>(mutate self, options: UnpackOptions): self
 std::vector<var_idx_t> generate_slice_skipAny(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
   TypePtr typeT = called_f->substitutedTs->typeT_at(0);
+  // since this function mutates self, it should put a new `self` in the end, but don't modify the original
+  std::vector ir_self = code.create_tmp_var(TypeDataSlice::create(), origin, "(self)");
+  code.emplace_back(origin, Op::_Let, ir_self, args[0]);
   insert_call_debug_info(origin, ast_function_call, code, "slice.skipAny", CallKind::EnterInlinedFunction);
-  UnpackContext ctx(code, origin, args[0], args[1]);    // mutate this slice
+  UnpackContext ctx(code, origin, ir_self, args[1]);
   ctx.generate_skip_any(typeT);
   insert_call_debug_info(origin, ast_function_call, code, "slice.skipAny", CallKind::LeaveInlinedFunction);
 
-  return args[0];  // return mutated slice
+  return ir_self;  // return mutated slice
 }
 
 void generate_lazy_struct_from_slice(CodeBlob& code, AnyV origin, const LazyVariableLoadedState* lazy_variable, const LazyStructLoadInfo& load_info, const std::vector<var_idx_t>& ir_obj) {
@@ -408,7 +422,7 @@ void generate_lazy_struct_from_slice(CodeBlob& code, AnyV origin, const LazyVari
           code.emplace_back(origin, Op::_Let, std::vector(ir_obj.begin() + stack_offset, ir_obj.begin() + stack_offset + stack_width), std::move(ir_field));
           loaded_state->mutate()->on_original_field_loaded(hidden_field);
         } else {
-          tolk_assert(hidden_field->name == "(gap)");
+          tolk_assert(hidden_field->name == "`gap`");
           std::vector ir_gap = ctx.generate_unpack_any(hidden_field->declared_type);
           loaded_state->mutate()->on_aside_field_loaded(hidden_field, std::move(ir_gap));
         }
@@ -467,7 +481,7 @@ std::vector<var_idx_t> generate_lazy_struct_to_cell(CodeBlob& code, AnyV origin,
       } else {
         ctx.generate_pack_any(hidden_field->declared_type, std::move(ir_gap_or_tail));
       }
-      if (hidden_field->name == "(tail)") {
+      if (hidden_field->name == "`tail`") {
         break;
       }
     }
@@ -497,12 +511,14 @@ std::vector<var_idx_t> generate_lazy_object_finish_loading(CodeBlob& code, AnyV 
 
   // the call to `lazy_var.forceLoadLazyObject()` does not do anything: at the moment of analyzing,
   // it had marked all the object as "used", all fields where loaded, and the slice points after the last field;
-  // so, just return the held slice
+  // so, just return the held slice (the copy, to avoid lvalue aliasing)
   static_cast<void>(code);
   static_cast<void>(origin);
   static_cast<void>(ir_obj);
 
-  return lazy_variable->ir_slice;
+  std::vector ir_slice = code.create_tmp_var(TypeDataSlice::create(), origin, "(lazy-slice)");
+  code.emplace_back(origin, Op::_Let, ir_slice, lazy_variable->ir_slice);
+  return ir_slice;
 }
 
 std::vector<var_idx_t> generate_T_forceLoadLazyObject(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {

@@ -95,34 +95,9 @@ static void validate_arg_ret_order_of_asm_function(V<ast_asm_body> v_body, int n
   }
 }
 
-static AbiAnnotationForSymbol* parse_abi_annotation(V<ast_annotation> v_annotation) {
-  if (v_annotation == nullptr) {
-    return nullptr;
-  }
-  tolk_assert(v_annotation->get_arg()->get_items().size() == 1);
-
-  AbiAnnotationForSymbol* abi = new AbiAnnotationForSymbol;
-  auto v_object = v_annotation->get_arg()->get_items().front()->try_as<ast_object_literal>();
-  tolk_assert(v_object);
-  for (int i = 0; i < v_object->get_body()->get_num_fields(); ++i) {
-    V<ast_object_field> v_field = v_object->get_body()->get_field(i);
-    std::string_view name = v_field->get_field_name();
-
-    // todo test somewhere @abi({minimalMsgValue}) — seems ok if such a global const exists
-    if (name == "minimalMsgValue") abi->minimalMsgValue = v_field->get_init_val();
-    else if (name == "preferredSendMode") abi->preferredSendMode = v_field->get_init_val();
-    else if (name == "description") abi->description = v_field->get_init_val();
-    else if (name != "custom")
-      err("unknown property `{}` in `@abi` annotation", name).fire(v_field->get_field_identifier());
-  }
-
-  return abi;
-}
-
 static GlobalConstPtr register_constant(V<ast_constant_declaration> v) {
   V<ast_identifier> v_ident = v->get_identifier();
-  const AbiAnnotationForSymbol* abi_annotation = parse_abi_annotation(v->abi_annotation);
-  GlobalConstData* c_sym = new GlobalConstData(static_cast<std::string>(v_ident->name), v_ident, v->type_node, v->get_init_value(), abi_annotation);
+  GlobalConstData* c_sym = new GlobalConstData(static_cast<std::string>(v_ident->name), v_ident, v->type_node, v->get_init_value(), DocCommentLines(v->doc_lines));
 
   G.symtable.add_global_symbol(c_sym);
   G.all_constants.push_back(c_sym);
@@ -170,12 +145,11 @@ static EnumDefPtr register_enum(V<ast_enum_declaration> v) {
         err("redeclaration of member `{}`", member_name).fire(v_member);
       }
     }
-    members.emplace_back(new EnumMemberData(std::move(member_name), v_ident, i, v_member->init_value));
+    members.emplace_back(new EnumMemberData(std::move(member_name), v_ident, i, v_member->init_value, DocCommentLines(v_member->doc_lines)));
   }
 
   V<ast_identifier> v_ident = v->get_identifier();
-  const AbiAnnotationForSymbol* abi_annotation = parse_abi_annotation(v->abi_annotation);
-  EnumDefData* e_sym = new EnumDefData(static_cast<std::string>(v_ident->name), v_ident, v->colon_type, std::move(members), abi_annotation);
+  EnumDefData* e_sym = new EnumDefData(static_cast<std::string>(v_ident->name), v_ident, v->colon_type, std::move(members), DocCommentLines(v->doc_lines));
 
   G.symtable.add_global_symbol(e_sym);
   G.all_enums.push_back(e_sym);
@@ -192,17 +166,16 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
     auto v_field = v_body->get_field(i);
     V<ast_identifier> v_ident = v_field->get_identifier();
     std::string field_name = static_cast<std::string>(v_ident->name);
-    const AbiAnnotationForSymbol* abi_annotation = parse_abi_annotation(v_field->abi_annotation);
 
     for (StructFieldPtr prev : fields) {
       if (prev->name == field_name) {
         err("redeclaration of field `{}`", field_name).fire(v_field);
       }
     }
-    fields.emplace_back(new StructFieldData(std::move(field_name), v_ident, i, v_field->is_private, v_field->is_readonly, v_field->type_node, v_field->default_value, abi_annotation));
+    fields.emplace_back(new StructFieldData(std::move(field_name), v_ident, i, v_field->is_private, v_field->is_readonly, v_field->type_node, v_field->default_value, DocCommentLines(v_field->doc_lines)));
   }
-  if (fields.size() > 254) {
-    err("too big struct (more than 254 fields)").fire(v->get_identifier());
+  if (fields.size() >= 64) {
+    err("too big struct (64 or more fields)").fire(v->get_identifier());
   }
 
   PackOpcode opcode(0, 0);
@@ -228,9 +201,8 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
   if (name.empty()) {
     name = v_ident->name;
   }
-  const AbiAnnotationForSymbol* abi_annotation = parse_abi_annotation(v->abi_annotation);
   const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
-  StructData* s_sym = new StructData(std::move(name), v_ident, std::move(fields), opcode, v->overflow1023_policy, abi_annotation, genericTs, substitutedTs, v);
+  StructData* s_sym = new StructData(std::move(name), v_ident, std::move(fields), opcode, v->overflow1023_policy, DocCommentLines(v->doc_lines), v->abi_minimalMsgValue, v->abi_preferredSendMode, genericTs, substitutedTs, v);
   s_sym->base_struct_ref = base_struct_ref;   // for `Container<int>`, here is `Container<T>`
 
   G.symtable.add_global_symbol(s_sym);
@@ -282,9 +254,8 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
   }
 
   const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
-  const AbiAnnotationForSymbol* abi_annotation = parse_abi_annotation(v->abi_annotation);
   FunctionBody f_body = v->get_body()->kind == ast_block_statement ? static_cast<FunctionBody>(new FunctionBodyCode) : static_cast<FunctionBody>(new FunctionBodyAsm);
-  FunctionData* f_sym = new FunctionData(std::move(name), v_ident, std::move(method_name), v->receiver_type_node, v->return_type_node, std::move(parameters), 0, v->inline_mode, genericTs, substitutedTs, abi_annotation, f_body, v);
+  FunctionData* f_sym = new FunctionData(std::move(name), v_ident, std::move(method_name), v->receiver_type_node, v->return_type_node, std::move(parameters), 0, v->inline_mode, genericTs, substitutedTs, DocCommentLines(v->doc_lines), f_body, v);
   f_sym->base_fun_ref = base_fun_ref;   // for `f<int>`, here is `f<T>`; for a lambda, a containing function
 
   if (auto v_asm = v->get_body()->try_as<ast_asm_body>()) {

@@ -426,12 +426,10 @@ TypePtr calculate_type_subtract_rhs_type(TypePtr type, TypePtr subtract_type) {
 // example: `x.1` is { var_ref: x, index_path: 2 }
 // example: `x!.1` is the same
 // example: `x.1.2` is { var_ref: x, index_path: 2<<8 + 3 }
-// example: `x!.1!.2` is the same
+// example: `x!.1!.2!` is the same
 // not SinkExpressions: `globalVar` / `f()` / `obj.method().1`
 SinkExpression extract_sink_expression_from_vertex(AnyExprV v, bool allow_global_vars) {
-  if (allow_global_vars) {
-    v = unwrap_not_null_operator(v);
-  }
+  v = unwrap_not_null_operator(v);
 
   if (auto as_ref = v->try_as<ast_reference>()) {
     if (LocalVarPtr var_ref = as_ref->sym->try_as<LocalVarPtr>()) {

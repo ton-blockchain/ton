@@ -27,6 +27,7 @@ namespace tolk {
 struct ABIFunctionParameter {
   std::string_view name;
   TypePtr ty;
+  std::string description;
 };
 
 struct ABIGetMethod {
@@ -34,24 +35,24 @@ struct ABIGetMethod {
   std::string_view name;
   std::vector<ABIFunctionParameter> parameters;
   TypePtr returnTy;
-  std::string_view description;
+  std::string description;
 };
 
 struct ABIInternalMessage {
   TypePtr bodyTy;
-  std::string_view description;
+  std::string description;
   std::optional<int64_t> minimalMsgValue;
   std::optional<int64_t> preferredSendMode;
 };
 
 struct ABIExternalMessage {
   TypePtr bodyTy;
-  std::string_view description;
+  std::string description;
 };
 
 struct ABIOutgoingMessage {
   TypePtr bodyTy;
-  std::string_view description;
+  std::string description;
 };
 
 struct ABIStorage {
@@ -59,15 +60,22 @@ struct ABIStorage {
   TypePtr storageAtDeploymentTy = nullptr;
 };
 
+enum class ABIThrownErrorKind {
+  plainInt,
+  constant,
+  enumMember,
+};
+
 struct ABIThrownError {
-  std::string constName;
+  ABIThrownErrorKind kind;
+  std::string name;           // empty / "CONST_NAME" / "EnumName.MemberName"
   int errCode;
 };
 
 struct ABIConstant {
   std::string_view name;
   ConstValExpression value;
-  std::string_view description;
+  std::string description;
 };
 
 
@@ -80,11 +88,11 @@ struct ContractABI {
   std::unordered_set<TypePtr> used_types;     // to collect unique declarations
   std::vector<const Symbol*> used_symbols;    // structs, aliases, enums
 
+  ABIStorage storage;
   std::vector<ABIInternalMessage> incomingMessages;
   std::vector<ABIExternalMessage> incomingExternal;
   std::vector<ABIOutgoingMessage> outgoingMessages;
   std::vector<ABIOutgoingMessage> emittedEvents;
-  ABIStorage storage;
   std::vector<ABIGetMethod> getMethods;
   std::vector<ABIThrownError> thrownErrors;
   std::vector<ABIConstant> constants;
@@ -97,14 +105,16 @@ struct ContractABI {
 
   void register_used_symbol(const Symbol* sym);
   void register_used_type(TypePtr type);
+  void register_storage(TypePtr storageTy, TypePtr storageAtDeploymentTy);
   void register_get_method(FunctionPtr fun_ref);
   void register_incoming_message(TypePtr bodyTy);
   void register_external_message(TypePtr bodyTy);
   void register_outgoing_message(TypePtr bodyTy);
   void register_emitted_event(TypePtr bodyTy);
-  void register_storage(TypePtr storageTy, TypePtr storageAtDeploymentTy);
   void register_thrown_error(GlobalConstPtr const_ref);
-  void register_thrown_error(const td::RefInt256& error_code, std::string const_name);
+  void register_thrown_error(EnumDefPtr enum_ref, EnumMemberPtr member_ref);
+  void register_thrown_error(const td::RefInt256& err_code);
+  void register_thrown_error(ABIThrownErrorKind kind, const td::RefInt256& error_code, std::string name);
   void register_constant(GlobalConstPtr const_ref);
 
   void to_pretty_json(std::ostream& os) const;

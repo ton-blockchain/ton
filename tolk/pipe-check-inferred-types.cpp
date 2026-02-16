@@ -90,40 +90,34 @@ static void warning_condition_always_true_or_false(FunctionPtr cur_f, SrcRange k
   err("condition of {} is always {}", operator_name, cond->is_always_true).warning(keyword_range, cur_f);
 }
 
-// given `f(x: int)` and a call `f(expr)`, check that expr_type is assignable to `int`
-static void check_function_argument_passed(FunctionPtr cur_f, TypePtr param_type, AnyExprV ith_arg, bool is_obj_of_dot_call) {
-  if (!param_type->can_rhs_be_assigned(ith_arg->inferred_type)) {
-    if (is_obj_of_dot_call) {
-      err("can not call method for `{}` with object of type `{}`", param_type, ith_arg->inferred_type).collect(ith_arg, cur_f);
-    } else {
-      err_type_mismatch("can not pass {src} to {dst}", ith_arg->inferred_type, param_type).collect(ith_arg, cur_f);
-    }
-  }
-}
-
 // given `f(x: mutate int?)` and a call `f(expr)`, check that `int?` is assignable to expr_type
 // (for instance, can't call `f(mutate intVal)`, since f can potentially assign null to it)
 static void check_function_argument_mutate_back(FunctionPtr cur_f, TypePtr param_type, AnyExprV ith_arg, bool is_obj_of_dot_call) {
   // important: use declared_type of variable, not inferred_type: if arg is a smart-casted,
   // it narrows the type, but writeback happens to declared_type, so param_type must be compatible with declared_type
-  TypePtr arg_declared_type = calc_declared_type_before_smart_cast(ith_arg);
-  TypePtr type_to_check = arg_declared_type ? arg_declared_type : ith_arg->inferred_type;
+  TypePtr orig_type = calc_declared_type_before_smart_cast(ith_arg);
+  if (orig_type == nullptr) {
+    orig_type = ith_arg->inferred_type;   // then it's a temporary object, like `f(mutate g().field)`
+  }
 
-  if (!type_to_check->can_rhs_be_assigned(param_type)) {
-    if (is_obj_of_dot_call) {
-      err("can not call method for mutate `{}` with object of type `{}`, because mutation is not type compatible", param_type, type_to_check).collect(ith_arg, cur_f);
-    } else {
-      err("can not pass `{}` to mutate `{}`, because mutation is not type compatible", type_to_check, param_type).collect(ith_arg, cur_f);
+  // while inferring, `f(mutate x)` assigned "type of `x` = param_type of `f`",
+  // and here, in checking mutations, we will emit an error if this back-assignment is incompatible;
+  // we don't allow passing `int` to mutate `coins` and similar: not can_rhs_be_assigned(), but equal_to()
+  bool ok = orig_type->equal_to(param_type);
+  if (!ok) {
+    // the only exception, if we originally have `var x: int|builder`, and `x` is smart-cast to `builder`,
+    // we allow calling method for `builder`; we also don't allow intersection between unions
+    if (const TypeDataUnion* orig_union = orig_type->unwrap_alias()->try_as<TypeDataUnion>()) {
+      TypePtr only_t = orig_union->calculate_exact_variant_to_fit_rhs(param_type);
+      ok = only_t != nullptr && only_t->equal_to(param_type);
     }
   }
 
-  // if both declared_type and param_type are unions but different, writeback may not work correctly
-  // (different stack layouts, for example passing `int|slice|null` smart-casted to `slice?` with no UTag)
-  else if (arg_declared_type) {
-    const auto* decl_union = arg_declared_type->unwrap_alias()->try_as<TypeDataUnion>();
-    const auto* param_union = param_type->unwrap_alias()->try_as<TypeDataUnion>();
-    if (decl_union && param_union && !decl_union->equal_to(param_union)) {
-      err("can not pass `{}` to mutate `{}`, because mutation is not type compatible", type_to_check, param_type).collect(ith_arg, cur_f);
+  if (!ok) {
+    if (is_obj_of_dot_call) {
+      err("can not call method for mutate `{}` with object of type `{}`, because mutation is not type compatible", param_type, orig_type).collect(ith_arg, cur_f);
+    } else {
+      err("can not pass `{}` to mutate `{}`, because mutation is not type compatible", orig_type, param_type).collect(ith_arg, cur_f);
     }
   }
 }
@@ -428,18 +422,24 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     if (self_obj) {
       const LocalVarData& param_0 = fun_ref->parameters[0];
       TypePtr param_type = param_0.declared_type;
-      check_function_argument_passed(cur_f, param_type, self_obj, true);
+      if (!param_type->can_rhs_be_assigned(self_obj->inferred_type)) {
+        err("can not call method for `{}` with object of type `{}`", param_type, self_obj->inferred_type).collect(self_obj, cur_f);
+      }
       if (param_0.is_mutate_parameter()) {
         check_function_argument_mutate_back(cur_f, param_type, self_obj, true);
       }
     }
     for (int i = 0; i < v->get_num_args(); ++i) {
       const LocalVarData& param_i = fun_ref->parameters[delta_self + i];
-      AnyExprV arg_i = v->get_arg(i)->get_expr();
+      // note: we take ast_argument, not get_expr() inside it, because for `f(mutate expr)`,
+      // argument's type is before `mutate` (equal to `f(expr)`), and expr's is after `mutate`
+      V<ast_argument> arg_i = v->get_arg(i);
       TypePtr param_type = param_i.declared_type;
-      check_function_argument_passed(cur_f, param_type, arg_i, false);
+      if (!param_type->can_rhs_be_assigned(arg_i->inferred_type)) {
+        err_type_mismatch("can not pass {src} to {dst}", arg_i->inferred_type, param_type).collect(arg_i, cur_f);
+      }
       if (param_i.is_mutate_parameter()) {
-        check_function_argument_mutate_back(cur_f, param_type, arg_i, false);
+        check_function_argument_mutate_back(cur_f, param_type, arg_i->get_expr(), false);
       }
     }
 
@@ -565,22 +565,49 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
   }
 
   void visit(V<ast_square_brackets> v) override {
-    // `array<int> []` / `lisp_list<int> [1,2,3]` / `tuple [1, "aba"]`
-    if (v->type_node) {
-      TypePtr hint = v->type_node->resolved_type->unwrap_alias();
-      TypePtr ith_hint = nullptr;
-      if (const TypeDataArray* h_array = hint->try_as<TypeDataArray>()) {
-        ith_hint = h_array->innerT;
-      } else if (const TypeDataStruct* h_struct = hint->try_as<TypeDataStruct>(); h_struct && h_struct->struct_ref->is_instantiation_of_LispListT()) {
-        ith_hint = h_struct->struct_ref->substitutedTs->typeT_at(0);
-      } else {
-        tolk_assert(false);
-      }
+    // `[...]` was inferred based on
+    // - inline hint `T [...]`
+    // - hint from context `var f: lisp_list<int> = [1,2]`
+    // - no hint, it's `array<unified>`
+    // we need to check every item inside `[...]` for type compatibility
+    TypePtr hint = v->inferred_type->unwrap_alias();
+
+    if (const TypeDataArray* h_array = hint->try_as<TypeDataArray>()) {
       for (AnyExprV v_item : v->get_items()) {
-        if (!ith_hint->can_rhs_be_assigned(v_item->inferred_type)) {
-          err("type `{}` is not assignable to `{}`", v_item->inferred_type, ith_hint).collect(v_item, cur_f);
+        if (!h_array->innerT->can_rhs_be_assigned(v_item->inferred_type)) {
+          err_type_mismatch("invalid `[...]` constructor: can not convert {src} to {dst}", v_item->inferred_type, h_array->innerT).collect(v_item, cur_f);
         }
       }
+
+    } else if (const TypeDataStruct* h_struct = hint->try_as<TypeDataStruct>(); h_struct && h_struct->struct_ref->is_instantiation_of_LispListT()) {
+      TypePtr typeT = h_struct->struct_ref->substitutedTs->typeT_at(0);
+      for (AnyExprV v_item : v->get_items()) {
+        if (!typeT->can_rhs_be_assigned(v_item->inferred_type)) {
+          err_type_mismatch("invalid `[...]` constructor: can not convert {src} to {dst}", v_item->inferred_type, typeT).collect(v_item, cur_f);
+        }
+      }
+
+    } else if (const TypeDataMapKV* h_map = hint->try_as<TypeDataMapKV>()) {
+      for (AnyExprV ith_v : v->get_items()) {
+        // for `map`, every item must be `[k,v]`, e.g. `map<int32, bool> [ [1,true], [2,false] ]`
+        auto ith_square = ith_v->try_as<ast_square_brackets>();
+        if (!ith_square || ith_square->size() != 2) {
+          err("invalid `[...]` constructor for `map`: each item must be `[key, value]`\n""example:\n""> var m: map<int32, bool> = [ [1,true], [2,false] ];").collect(ith_v, cur_f);
+        } else {
+          if (!h_map->TKey->can_rhs_be_assigned(ith_square->get_item(0)->inferred_type)) {
+            err_type_mismatch("invalid `[...]` constructor: can not convert {src} to {dst}", ith_square->get_item(0)->inferred_type, h_map->TKey).collect(ith_square->get_item(0), cur_f);
+          }
+          if (!h_map->TValue->can_rhs_be_assigned(ith_square->get_item(1)->inferred_type)) {
+            err_type_mismatch("invalid `[...]` constructor: can not convert {src} to {dst}", ith_square->get_item(1)->inferred_type, h_map->TValue).collect(ith_square->get_item(1), cur_f);
+          }
+          // ... but actually, we accept only `[]` (empty map); `[...]` may be supported in the future
+          err("`[...]` for `map` is not supported yet, only `[]` is allowed (empty map)").collect(ith_v, cur_f);
+        }
+      }
+
+    } else {
+      // a shaped tuple `var f: [int, int] = [1, "aba"]` as inferred as `[int, string]`
+      // and gives a type checker error automatically if not assignable
     }
 
     parent::visit(v);
@@ -903,25 +930,17 @@ public:
     }
   }
 
-  void visit_abi_annotation_above(const AbiAnnotationForSymbol* abi_annotation) {
-    if (abi_annotation != nullptr) {
-      if (abi_annotation->minimalMsgValue) {
-        parent::visit(abi_annotation->minimalMsgValue);
-        if (!expect_integer(abi_annotation->minimalMsgValue)) {
-          err("invalid type of `@abi` property").collect(abi_annotation->minimalMsgValue);
-        }
+  void visit_struct_abi_annotations(StructPtr struct_ref) {
+    if (struct_ref->abi_minimalMsgValue) {
+      parent::visit(struct_ref->abi_minimalMsgValue);
+      if (!expect_integer(struct_ref->abi_minimalMsgValue)) {
+        err("invalid type of `@abi.minimalMsgValue` property").collect(struct_ref->abi_minimalMsgValue);
       }
-      if (abi_annotation->preferredSendMode) {
-        parent::visit(abi_annotation->preferredSendMode);
-        if (!expect_integer(abi_annotation->preferredSendMode)) {
-          err("invalid type of `@abi` property").collect(abi_annotation->preferredSendMode);
-        }
-      }
-      if (abi_annotation->description) {
-        parent::visit(abi_annotation->description);
-        if (!abi_annotation->description->inferred_type->equal_to(TypeDataString::create())) {
-          err("invalid type of `@abi` property").collect(abi_annotation->description);
-        }
+    }
+    if (struct_ref->abi_preferredSendMode) {
+      parent::visit(struct_ref->abi_preferredSendMode);
+      if (!expect_integer(struct_ref->abi_preferredSendMode)) {
+        err("invalid type of `@abi.preferredSendMode` property").collect(struct_ref->abi_preferredSendMode);
       }
     }
   }
@@ -931,21 +950,16 @@ void pipeline_check_inferred_types() {
   CheckInferredTypesVisitor visitor;
   visit_ast_of_all_functions(visitor);
 
-  for (FunctionPtr fun_ref : get_all_not_builtin_functions()) {
-    visitor.visit_abi_annotation_above(fun_ref->abi_annotation);
-  }
   for (GlobalConstPtr const_ref : get_all_declared_constants()) {
     visitor.start_visiting_constant(const_ref);
-    visitor.visit_abi_annotation_above(const_ref->abi_annotation);
   }
   for (StructPtr struct_ref : get_all_declared_structs()) {
     for (StructFieldPtr field_ref : struct_ref->fields) {
       if (field_ref->has_default_value() && !struct_ref->is_generic_struct()) {
         visitor.start_visiting_field_default(field_ref);
       }
-      visitor.visit_abi_annotation_above(field_ref->abi_annotation);
     }
-    visitor.visit_abi_annotation_above(struct_ref->abi_annotation);
+    visitor.visit_struct_abi_annotations(struct_ref);
   }
   for (EnumDefPtr enum_ref : get_all_declared_enums()) {
     for (EnumMemberPtr member_ref : enum_ref->members) {
@@ -953,7 +967,6 @@ void pipeline_check_inferred_types() {
         visitor.start_visiting_enum_member(enum_ref, member_ref);
       }
     }
-    visitor.visit_abi_annotation_above(enum_ref->abi_annotation);
   }
 }
 

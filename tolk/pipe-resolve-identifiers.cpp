@@ -276,7 +276,6 @@ public:
       if (field_ref->has_default_value()) {
         parent::visit(field_ref->default_value);
       }
-      visit_abi_annotation_above(field_ref->abi_annotation);
     }
   }
 
@@ -289,12 +288,9 @@ public:
     }
   }
 
-  void visit_abi_annotation_above(const AbiAnnotationForSymbol* abi_annotation) {
-    if (abi_annotation != nullptr) {
-      if (abi_annotation->minimalMsgValue)      parent::visit(abi_annotation->minimalMsgValue);
-      if (abi_annotation->preferredSendMode)    parent::visit(abi_annotation->preferredSendMode);
-      if (abi_annotation->description)          parent::visit(abi_annotation->description);
-    }
+  void visit_struct_abi_annotations(StructPtr struct_ref) {
+    if (struct_ref->abi_minimalMsgValue)    parent::visit(struct_ref->abi_minimalMsgValue);
+    if (struct_ref->abi_preferredSendMode)  parent::visit(struct_ref->abi_preferredSendMode);
   }
 };
 
@@ -307,24 +303,19 @@ void pipeline_resolve_identifiers_and_assign_symbols() {
         if (v_fun->fun_ref && visitor.should_visit_function(v_fun->fun_ref)) {
           visitor.start_visiting_function(v_fun->fun_ref, v_fun);
         }
-        if (v_fun->fun_ref) {
-          visitor.visit_abi_annotation_above(v_fun->fun_ref->abi_annotation);
-        }
 
       } else if (auto v_const = v->try_as<ast_constant_declaration>()) {
         tolk_assert(v_const->const_ref);
         visitor.start_visiting_constant(v_const->const_ref);
-        visitor.visit_abi_annotation_above(v_const->const_ref->abi_annotation);
 
       } else if (auto v_struct = v->try_as<ast_struct_declaration>()) {
         tolk_assert(v_struct->struct_ref);
         visitor.start_visiting_struct_fields(v_struct->struct_ref);
-        visitor.visit_abi_annotation_above(v_struct->struct_ref->abi_annotation);
+        visitor.visit_struct_abi_annotations(v_struct->struct_ref);
 
       } else if (auto v_enum = v->try_as<ast_enum_declaration>()) {
         tolk_assert(v_enum->enum_ref);
         visitor.start_visiting_enum_members(v_enum->enum_ref);
-        visitor.visit_abi_annotation_above(v_enum->enum_ref->abi_annotation);
       }
     }
   }

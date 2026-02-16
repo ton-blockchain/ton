@@ -1206,9 +1206,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
       if (param_type->has_genericT_inside()) {
         param_type = deducingTs.auto_deduce_from_argument(cur_f, self_obj->range, param_type, self_obj->inferred_type);
       }
-      if (param_0.is_mutate_parameter() && !self_obj->inferred_type->equal_to(param_type)) {
+      if (param_0.is_mutate_parameter()) {
         if (SinkExpression s_expr = extract_sink_expression_from_vertex(self_obj)) {
-          assign_inferred_type(self_obj, calc_declared_type_before_smart_cast(self_obj));
+          assign_inferred_type(self_obj, param_type);
           flow.register_known_type(s_expr, param_type);
         }
       }
@@ -1233,10 +1233,10 @@ class InferTypesAndCallsAndFieldsVisitor final {
         param_type = deducingTs.auto_deduce_from_argument(cur_f, arg_i->range, param_type, arg_i->inferred_type);
       }
       assign_inferred_type(v->get_arg(i), arg_i);  // arg itself is an expression
-      if (param_i.is_mutate_parameter() && !arg_i->inferred_type->equal_to(param_type)) {
+      if (param_i.is_mutate_parameter()) {
         if (SinkExpression s_expr = extract_sink_expression_from_vertex(arg_i)) {
-          assign_inferred_type(arg_i, calc_declared_type_before_smart_cast(arg_i));
-          flow.register_known_type(s_expr, param_type);
+          assign_inferred_type(arg_i, param_type);      // note that we unconditionally set cur type = param's type
+          flow.register_known_type(s_expr, param_type); // (this mutate-back will be type checked in a later pass)
         }
       }
     }
@@ -1302,19 +1302,20 @@ class InferTypesAndCallsAndFieldsVisitor final {
       flow = infer_any_expr(item, std::move(flow), false, tensor_hint && i < tensor_hint->size() ? tensor_hint->items[i] : nullptr).out_flow;
       types_list.emplace_back(item->inferred_type);
     }
-    if (types_list.size() > 254) {
-      err("too big tensor (more than 254 elements)").fire(v, cur_f);
+    if (types_list.size() >= 64) {
+      err("too big tensor (64 or more elements)").fire(v, cur_f);
     }
     assign_inferred_type(v, TypeDataTensor::create(std::move(types_list)));
     return ExprFlow(std::move(flow), used_as_condition);
   }
 
   ExprFlow infer_square_brackets(V<ast_square_brackets> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {
-    // `array<int> []` / `lisp_list<int> [1,2,3]` / `tuple [1, "aba"]`
+    // `array<int> []` / `lisp_list<int> [1,2,3]` / `tuple [1, "aba"]` / `map<int32, bool> []`
     if (v->type_node) {
       TypePtr provided_type = v->type_node->resolved_type->unwrap_alias();
       bool is_valid_constructor = provided_type->try_as<TypeDataArray>()
-                              || (provided_type->try_as<TypeDataStruct>() && provided_type->try_as<TypeDataStruct>()->struct_ref->is_instantiation_of_LispListT());
+                              || (provided_type->try_as<TypeDataStruct>() && provided_type->try_as<TypeDataStruct>()->struct_ref->is_instantiation_of_LispListT())
+                              || (provided_type->try_as<TypeDataMapKV>());
       if (is_valid_constructor) {
         hint = v->type_node->resolved_type;
       } else {
@@ -1327,6 +1328,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     const TypeDataStruct* hint_lisp_list = hint ? try_pick_T_from_hint<TypeDataStruct>(hint, [](const TypeDataStruct* check) {
       return check->struct_ref->is_instantiation_of_LispListT();
     }) : nullptr;
+    const TypeDataMapKV* hint_mapKV = hint ? try_pick_T_from_hint<TypeDataMapKV>(hint) : nullptr;
 
     std::vector<TypePtr> types_list;
     types_list.reserve(v->size());
@@ -1335,37 +1337,47 @@ class InferTypesAndCallsAndFieldsVisitor final {
       TypePtr ith_hint = hint_array ? hint_array->innerT :
                          hint_shaped && i < hint_shaped->size() ? hint_shaped->items[i] :
                          hint_lisp_list ? hint_lisp_list->struct_ref->substitutedTs->typeT_at(0) :
+                         hint_mapKV ? TypeDataShapedTuple::create({hint_mapKV->TKey, hint_mapKV->TValue}) :
                          nullptr;
       flow = infer_any_expr(item, std::move(flow), false, ith_hint).out_flow;
       types_list.emplace_back(item->inferred_type);
     }
-    if (types_list.size() > 254) {
-      err("too big tuple (more than 254 elements)").fire(v, cur_f);
+    if (types_list.size() >= 64) {
+      err("too big tuple (64 or more elements)").fire(v, cur_f);
     }
 
     if (v->type_node) {
-      // `array<int> []` / `tuple [1,"aba"]`
+      // `array<int> []` / `tuple [1, "aba"]` — keep type_node as-is, preserving aliases
+      // if types are incompatible, like `array<int> [1, "aba"]`, it's reported later by a type checker
       assign_inferred_type(v, v->type_node->resolved_type);
-    } else if (hint_shaped || hint_lisp_list) {
-      // `var x: [int] = [0]` / `f([1,2])` (where f's param is `lisp_list<T>`)
+    } else if (hint_array && !hint_array->has_genericT_inside()) {
+      // `var x: array<int> = [...]`, infer `[...]` as `array<int>`
+      assign_inferred_type(v, hint_array);
+    } else if (hint_lisp_list && !hint_lisp_list->has_genericT_inside()) {
+      // `var x: lisp_list<int> = [...]`, infer `[...]` as `lisp_list<int>`
+      assign_inferred_type(v, hint_lisp_list);
+    } else if (hint_mapKV && !hint_mapKV->has_genericT_inside()) {
+      // `var x: map<int32, bool> = []`
+      assign_inferred_type(v, hint_mapKV);
+    } else if (hint_shaped) {
+      // `var x: [int] = [0]` / `f([1,""])` (where f's param is `[int,string]`)
       assign_inferred_type(v, TypeDataShapedTuple::create(std::move(types_list)));
     } else if (v->empty()) {
-      // just `[]` is `array<unknown>`, but for `[] as array<slice>` take it
-      assign_inferred_type(v, hint_array ? hint_array : TypeDataArray::create(TypeDataUnknown::create()));
+      // just `[]` is `array<unknown>`
+      assign_inferred_type(v, TypeDataArray::create(TypeDataUnknown::create()));
     } else {
-      // for `[1, null]` infer `array<int?>` unless a hint is provided
-      TypePtr ith_hint = hint_array ? hint_array->innerT : nullptr;
+      // for `[...]` without a hint, infer array<unified>, exactly as it's done for `return` or a ternary:
+      // - `[1,2,3]` is `array<int>`
+      // - `[1, null]` is `array<int?>`
+      // - `[1, "aba"]` is `array<int | string>`, and fire
       TypeInferringUnifyStrategy unifier;
       for (int i = 0; i < v->size(); ++i) {
-        unifier.unify_with(types_list[i], ith_hint);
+        unifier.unify_with(types_list[i]);
       }
       if (unifier.is_union_of_different_types()) {
-        if (hint == nullptr || hint == TypeDataNotInferred::create() || hint->has_genericT_inside()) {
-          err("type of `[...]` is `array<{}>`; probably, it's not what you expected\n""specify the array's type manually\n""examples:\n""> var x: array<unknown> = [...]\n""> var y = [...] as array<unknown>", unifier.get_result()).fire(v, cur_f);
-        }
+        err("type of `[...]` is `array<{}>`; probably, it's not what you expected\n""specify the array's type manually\n""example:\n""> var x = array<unknown> [...]", unifier.get_result()).fire(v, cur_f);
       }
-      TypePtr t_array = TypeDataArray::create(unifier.get_result());
-      assign_inferred_type(v, t_array);
+      assign_inferred_type(v, TypeDataArray::create(unifier.get_result()));
     }
     return ExprFlow(std::move(flow), used_as_condition);
   }
@@ -1655,8 +1667,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
     // second time, to refine all types
     flow = FlowContext::merge_flow(std::move(loop_entry_facts), std::move(body_out));
-    process_any_statement(v->get_body(), flow.clone());
-    return flow;
+    FlowContext body_out2 = process_any_statement(v->get_body(), flow.clone());
+    // merge second body output to account for its effects on the loop state
+    return FlowContext::merge_flow(std::move(flow), std::move(body_out2));
   }
 
   FlowContext process_while_statement(V<ast_while_statement> v, FlowContext&& flow) {
@@ -1668,12 +1681,15 @@ class InferTypesAndCallsAndFieldsVisitor final {
     FlowContext body_out = process_any_statement(v->get_body(), std::move(after_cond.true_flow));
     // second time, to refine all types
     flow = FlowContext::merge_flow(std::move(loop_entry_facts), std::move(body_out));
-    ExprFlow after_cond2 = infer_any_expr(v->get_cond(), std::move(flow), true);
-    v->get_cond()->mutate()->assign_always_true_or_false(after_cond2.get_always_true_false_state());
+    ExprFlow after_cond2 = infer_any_expr(v->get_cond(), flow.clone(), true);
+    FlowContext body_out2 = process_any_statement(v->get_body(), std::move(after_cond2.true_flow));
+    // unlike do_while (where cond is last and already sees body effects), in while cond precedes body,
+    // so merge the second body output back and re-evaluate the condition (third time!)
+    flow = FlowContext::merge_flow(std::move(flow), std::move(body_out2));
+    ExprFlow after_cond3 = infer_any_expr(v->get_cond(), std::move(flow), true);
+    v->get_cond()->mutate()->assign_always_true_or_false(after_cond3.get_always_true_false_state());
 
-    process_any_statement(v->get_body(), std::move(after_cond2.true_flow));
-
-    return std::move(after_cond2.false_flow);
+    return std::move(after_cond3.false_flow);
   }
 
   FlowContext process_do_while_statement(V<ast_do_while_statement> v, FlowContext&& flow) {
@@ -1827,7 +1843,6 @@ public:
   void start_visiting_constant(GlobalConstPtr const_ref) {
     infer_any_expr(const_ref->init_value, FlowContext(), false, const_ref->declared_type);
     const_ref->mutate()->assign_inferred_type(const_ref->declared_type == nullptr ? const_ref->init_value->inferred_type : const_ref->declared_type);
-    visit_abi_annotation_above(const_ref->abi_annotation);
   }
 
   // given struct field `a: int = 2 + 3` infer that default value is int, assign inferred_type to all nodes
@@ -1836,7 +1851,6 @@ public:
       if (field_ref->has_default_value()) {
         infer_any_expr(field_ref->default_value, FlowContext(), false, field_ref->declared_type);
       }
-      visit_abi_annotation_above(field_ref->abi_annotation);
     }
   }
 
@@ -1845,12 +1859,9 @@ public:
     infer_any_expr(member_ref->init_value, FlowContext(), false);
   }
 
-  void visit_abi_annotation_above(const AbiAnnotationForSymbol* abi_annotation) {
-    if (abi_annotation != nullptr) {
-      if (abi_annotation->minimalMsgValue)    infer_any_expr(abi_annotation->minimalMsgValue,   FlowContext(), false); 
-      if (abi_annotation->preferredSendMode)  infer_any_expr(abi_annotation->preferredSendMode, FlowContext(), false); 
-      if (abi_annotation->description)        infer_any_expr(abi_annotation->description,       FlowContext(), false);
-    }
+  void visit_struct_abi_annotations(StructPtr struct_ref) {
+    if (struct_ref->abi_minimalMsgValue)    infer_any_expr(struct_ref->abi_minimalMsgValue,   FlowContext(), false);
+    if (struct_ref->abi_preferredSendMode)  infer_any_expr(struct_ref->abi_preferredSendMode, FlowContext(), false);
   }
 };
 
@@ -1938,7 +1949,7 @@ void pipeline_infer_types_and_calls_and_fields() {
     if (!struct_ref->is_generic_struct()) {
       visitor.start_visiting_struct_fields(struct_ref);
     }
-    visitor.visit_abi_annotation_above(struct_ref->abi_annotation);
+    visitor.visit_struct_abi_annotations(struct_ref);
   }
 
   // infer types for init_value of enum members
@@ -1948,12 +1959,6 @@ void pipeline_infer_types_and_calls_and_fields() {
         visitor.start_visiting_enum_member(member_ref);
       }
     }
-    visitor.visit_abi_annotation_above(enum_ref->abi_annotation);
-  }
-
-  // process @abi annotations for functions and get methods
-  for (FunctionPtr fun_ref : get_all_not_builtin_functions()) {
-    visitor.visit_abi_annotation_above(fun_ref->abi_annotation);
   }
 }
 

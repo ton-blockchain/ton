@@ -314,7 +314,7 @@ class CheckReorderingForAsmArgOrderIsSafeVisitor final : public ASTVisitorFuncti
     parent::visit(v);
   }
 
-  void visit(V<ast_braced_yield_result> v) override {
+  void visit(V<ast_braced_expression> v) override {
     has_side_effects = true;    // e.g., `f(arg1, match(v) { 7 => return 0 })`
     parent::visit(v);           // (treat any "statement-expression" argument as unsafe to reorder)
   }
@@ -406,7 +406,11 @@ static bool is_ternary_arg_trivial_for_condsel(AnyExprV v, bool require_1slot = 
     return true;
   }
   if (auto v_dot = v->try_as<ast_dot_access>()) {
-    return is_ternary_arg_trivial_for_condsel(v_dot->get_obj(), false);
+    TypePtr obj_type = v_dot->get_obj()->inferred_type;
+    if (obj_type && !obj_type->unwrap_alias()->try_as<TypeDataShapedTuple>()) {   // `t.0` for tuples is a runtime call, not trivial
+      return is_ternary_arg_trivial_for_condsel(v_dot->get_obj(), false);
+    }
+    return false;
   }
   if (auto v_cast = v->try_as<ast_not_null_operator>()) {
     return is_ternary_arg_trivial_for_condsel(v_cast->get_expr(), require_1slot);
@@ -470,23 +474,37 @@ static std::vector<std::vector<var_idx_t>> pre_compile_tensor_inner(CodeBlob& co
       res_lists.reserve(n_args);
     }
 
-    bool is_watched(var_idx_t ir_idx) const {
-      for (const auto& w : watched_vars) {
+    WatchedVarInfo* find_watched(var_idx_t ir_idx) {
+      for (auto& w : watched_vars) {
         if (w.ir_idx == ir_idx) {
-          return true;
+          return &w;
         }
       }
-      return false;
+      return nullptr;
     }
 
     void add_and_watch_modifications(std::vector<var_idx_t>&& vars_of_ith_arg, CodeBlob& code) {
       for (var_idx_t ir_idx : vars_of_ith_arg) {
-        if (!code.vars[ir_idx].name.empty() && !is_watched(ir_idx)) {
-          size_t watch_idx = watched_vars.size();
-          watched_vars.push_back({ir_idx, code.cur_ops, code.cur_ops_stack.size()});
-          vars_modification_watcher.push_callback(ir_idx, [this, &code, watch_idx](AnyV origin, var_idx_t ir_idx) {
-            on_var_modified(ir_idx, origin, code, watch_idx);
-          });
+        if (!code.vars[ir_idx].name.empty()) {
+          WatchedVarInfo* existing = find_watched(ir_idx);
+          if (existing) {
+            // Variable is already watched. Update saved position if we're at the same nesting level,
+            // so that subsequent modifications insert Op::_Let after this argument, not before.
+            // Example: `(x, c1 ? x=2 : x=5, x, c2 ? x=20 : x=50, x)` — when processing the 3rd `x`,
+            // update saved_cur_ops so the 2nd ternary inserts Op::_Let after the 1st ternary.
+            if (code.cur_ops_stack.size() == existing->saved_stack_depth) {
+              existing->saved_cur_ops = code.cur_ops;
+            }
+          } else {
+            // Variable is not watched yet. Start watching it: remember current insertion point
+            // and nesting level, and register a callback for when this variable is modified.
+            // When modified, on_var_modified() will insert Op::_Let to capture the pre-modified value.
+            size_t watch_idx = watched_vars.size();
+            watched_vars.push_back({ir_idx, code.cur_ops, code.cur_ops_stack.size()});
+            vars_modification_watcher.push_callback(ir_idx, [this, &code, watch_idx](AnyV origin, var_idx_t ir_idx) {
+              on_var_modified(ir_idx, origin, code, watch_idx);
+            });
+          }
         }
       }
       res_lists.emplace_back(std::move(vars_of_ith_arg));
@@ -1405,12 +1423,14 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     LocalVarPtr param_ref = &fun_ref->get_param(i);
     tolk_assert(param_ref->has_default_value());
     AnyExprV dv = param_ref->default_value;
-    if (auto dv_call = dv->try_as<ast_function_call>(); dv_call && dv_call->fun_maybe->name == "reflect.sourceLocation") {
+    if (auto dv_call = dv->try_as<ast_function_call>()) {
       // reflect.sourceLocation() as default — create a new AST vertex with range = call site
-      auto dv_new = createV<ast_function_call>(v->range, dv_call->get_callee(), dv_call->get_arg_list());
-      dv_new->mutate()->assign_fun_ref(dv_call->fun_maybe, dv_call->dot_obj_is_self);
-      dv_new->mutate()->assign_inferred_type(dv_call->inferred_type);
-      dv = dv_new;
+      if (dv_call->fun_maybe->name == "reflect.sourceLocation" || dv_call->fun_maybe->name == "reflect.sourceLocationAsString") {
+        auto dv_new = createV<ast_function_call>(v->range, dv_call->get_callee(), dv_call->get_arg_list());
+        dv_new->mutate()->assign_fun_ref(dv_call->fun_maybe, dv_call->dot_obj_is_self);
+        dv_new->mutate()->assign_inferred_type(dv_call->inferred_type);
+        dv = dv_new;
+      }
     }
     args.push_back(dv);
   }
@@ -1447,7 +1467,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
   for (int i = 0; i < fun_ref->get_num_params(); ++i) {
     if (fun_ref->parameters[i].is_mutate_parameter()) {
       int orig_i = rev_arg_order.empty() ? i : rev_arg_order[i];
-      lval_ctx_for_arg[orig_i] = has_mutate_self && orig_i == 0 ? &self_lval : &local_lval;
+      lval_ctx_for_arg[orig_i] = has_mutate_self && i == 0 ? &self_lval : &local_lval;
     }
   }
 
@@ -1567,6 +1587,10 @@ static std::vector<var_idx_t> process_square_brackets(V<ast_square_brackets> v, 
   insert_debug_info(v, ast_square_brackets, code);
   std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(pack-tuple)");
 
+  // note that for every constructor of `[...]` (array, lisp_list, etc.) we still make a shape at low-level,
+  // then this shape is transitioned to a constructor type;
+  // for example, having `lisp_list<int> [1,2]`, make a shape (TVM tuple) [1,2] at first;
+  // we need this to handle nested modifications, like `[x, x+=2, x]` via "watched vars" with IR copying
   std::vector<TypePtr> items_types;
   items_types.reserve(v->size());
   for (int i = 0; i < v->size(); ++i) {
@@ -1908,30 +1932,32 @@ static void process_block_statement(V<ast_block_statement> v, CodeBlob& code) {
 }
 
 static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) {
-  const auto cond = v->get_cond();
-  const auto thrown_code = v->get_thrown_code();
-
   insert_debug_info(v, ast_assert_statement, code);
 
-  std::vector ir_thrown_code = pre_compile_expr(thrown_code, code);
+  bool excno_is_const = true;
+  try { eval_expression_if_const_or_fire(v->get_thrown_code()); }
+  catch (...) { excno_is_const = false; }
 
-  // if (G_settings.collect_source_map && G.source_map.size() > 0) {
-  //   auto& last_entry = G.source_map.at(G.source_map.size() - 1);
-  //   last_entry.descr = std::string("thrown-code");
-  // }
+  if (excno_is_const) {
+    // all practical cases: `assert(cond) throw SOME_ERR_CODE`, it's safe to put it on a stack
+    std::vector ir_thrown_code = pre_compile_expr(v->get_thrown_code(), code);
+    std::vector ir_cond = pre_compile_expr(v->get_cond(), code);
+    tolk_assert(ir_cond.size() == 1 && ir_thrown_code.size() == 1);
 
-  std::vector ir_cond = pre_compile_expr(cond, code);
-  tolk_assert(ir_cond.size() == 1 && ir_thrown_code.size() == 1);
+    std::vector args_throwifnot = { ir_thrown_code[0], ir_cond[0] };
+    gen_op_call(code, TypeDataVoid::create(), v, std::move(args_throwifnot), lookup_function("__throw_ifnot"), "(throw-call)");
 
-  std::vector args_throwifnot = { ir_thrown_code[0], ir_cond[0] };
-  gen_op_call(code, TypeDataVoid::create(), v, std::move(args_throwifnot), lookup_function("__throw_ifnot"), "(throw-call)");
-
-  // if (G_settings.collect_source_map && G.source_map.size() > 0) {
-  //   const auto cond_loc = cond->range.get_src_file()->convert_offset(cond->range.get_start_offset());
-  //   auto& last_entry = G.source_map.at(G.source_map.size() - 1);
-  //   last_entry.descr = std::string(cond_loc.line_str);
-  //   last_entry.is_assert_throw = true;
-  // }
+  } else {
+    // weird case: `assert(cond) throw fn()`, fn may throw or produce side effects, call it if `!cond`
+    std::vector ir_cond = pre_compile_expr(v->get_cond(), code);
+    Op& if_op = code.emplace_back(v, Op::_If, ir_cond);
+    code.push_set_cur(if_op.block0);
+    code.close_pop_cur(v);
+    code.push_set_cur(if_op.block1);
+    std::vector ir_thrown_code = pre_compile_expr(v->get_thrown_code(), code);
+    code.emplace_back(v, Op::_Call, std::vector<var_idx_t>{}, ir_thrown_code, lookup_function("__throw")).set_impure_flag();
+    code.close_pop_cur(v);
+  }
 }
 
 static void process_catch_variable(AnyExprV v_catch_var, CodeBlob& code) {
@@ -2036,7 +2062,9 @@ static void process_while_statement(V<ast_while_statement> v, CodeBlob& code) {
 static void process_throw_statement(V<ast_throw_statement> v, CodeBlob& code) {
   if (v->has_thrown_arg()) {
     FunctionPtr builtin_sym = lookup_function("__throw_arg");
-    std::vector args_vars = pre_compile_tensor(code, {v->get_thrown_arg(), v->get_thrown_code()}, nullptr, {TypeDataUnknown::create(), TypeDataInt::create()});
+    // evaluate `throw (code, arg)` in ltr, in case evaluation throws an exception
+    std::vector args_vars = pre_compile_tensor(code, {v->get_thrown_code(), v->get_thrown_arg()}, nullptr, {TypeDataInt::create(), TypeDataUnknown::create()});
+    args_vars = {args_vars[1], args_vars[0]};   // but reverse them on a stack to match TVM order
     gen_op_call(code, TypeDataVoid::create(), v, std::move(args_vars), builtin_sym, "(throw-call)");
   } else {
     FunctionPtr builtin_sym = lookup_function("__throw");
