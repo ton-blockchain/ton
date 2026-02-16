@@ -178,6 +178,19 @@ class DashApp:
                 dcc.Graph(id="summary", config={"scrollZoom": True, "displaylogo": False}),
                 html.Hr(),
                 html.Div(
+                    id="detail-slot-meta",
+                    children="detail slot metadata: none",
+                    style={
+                        "margin": "0 16px 8px 16px",
+                        "fontSize": "16px",
+                        "border": "1px solid #ddd",
+                        "borderRadius": "4px",
+                        "padding": "8px 10px",
+                        "whiteSpace": "pre-wrap",
+                        "wordBreak": "break-all",
+                    },
+                ),
+                html.Div(
                     [
                         html.Label(
                             [
@@ -231,19 +244,6 @@ class DashApp:
                         "flexWrap": "wrap",
                         "alignItems": "center",
                         "padding": "0 16px 10px 16px",
-                    },
-                ),
-                html.Div(
-                    id="detail-slot-meta",
-                    children="detail slot metadata: none",
-                    style={
-                        "margin": "0 16px 8px 16px",
-                        "fontSize": "16px",
-                        "border": "1px solid #ddd",
-                        "borderRadius": "4px",
-                        "padding": "8px 10px",
-                        "whiteSpace": "pre-wrap",
-                        "wordBreak": "break-all",
                     },
                 ),
                 dcc.Graph(id="detail", config={"scrollZoom": True, "displaylogo": False}),
