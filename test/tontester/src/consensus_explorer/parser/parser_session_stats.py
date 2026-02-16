@@ -89,6 +89,7 @@ class ParserSessionStats(Parser):
         t_ms: float,
         v_group: str,
         v_id: int,
+        get_slot_leader: Callable[[int], int],
     ):
         if not isinstance(event, tuple(TARGET_TO_LABEL.keys())):
             return
@@ -102,6 +103,7 @@ class ParserSessionStats(Parser):
         slot_id = (v_group, slot)
 
         slot_data = self._get_create_slot(slot, v_group)
+        slot_data.collator = get_slot_leader(slot)
 
         slot_data.slot_start_est_ms = min(t_ms, slot_data.slot_start_est_ms)
 
@@ -416,7 +418,7 @@ class ParserSessionStats(Parser):
             elif isinstance(ev, Consensus_simplex_stats_certObserved):
                 self._parse_cert_observed(ev, t_ms, v_group, v_id, get_slot_leader)
             else:
-                self._parse_stats_event(ev, t_ms, v_group, v_id)
+                self._parse_stats_event(ev, t_ms, v_group, v_id, get_slot_leader)
 
     def _clear_state(self) -> None:
         self._slots = {}
