@@ -65,9 +65,10 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       auto end_slot = window * slots_per_leader_window_;
       for (td::uint32 i = start_slot; i < end_slot; ++i) {
         auto slot = state_->slot_at(i);
-        if (slot.has_value() && !slot->state->voted_final) {
-          slot->state->voted_skip = true;
-          owning_bus().publish<BroadcastVote>(SkipVote{i});
+        if (slot && !slot->state->voted_skip && !slot->state->voted_final) {
+          timeout_slot_ = i + 1;
+          alarm_timestamp() = td::Timestamp::in(first_block_timeout_s_ + target_rate_s_);
+          break;
         }
       }
     }
