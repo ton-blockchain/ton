@@ -1052,7 +1052,8 @@ td::actor::Task<Ref<vm::DataCell>> CellDb::store_block_state_permanent(Ref<Block
   co_return std::move(result);
 }
 
-td::actor::Task<std::map<BlockIdExt, RootHash>> CellDb::store_block_state_permanent_bulk(std::vector<Ref<BlockData>> blocks) {
+td::actor::Task<std::map<BlockIdExt, RootHash>> CellDb::store_block_state_permanent_bulk(
+    std::vector<Ref<BlockData>> blocks) {
   auto result = co_await ask(cell_db_, &CellDbIn::store_block_state_permanent_bulk, std::move(blocks)).wrap();
   ++(result.is_ok() ? cell_db_statistics_.queries_store_ok_ : cell_db_statistics_.queries_store_error_);
   co_await td::actor::detach_from_actor();

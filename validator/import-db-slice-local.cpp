@@ -97,12 +97,13 @@ td::Status ArchiveImporterLocal::process_package(std::string path) {
   auto package = std::make_shared<Package>(std::move(p));
 
   td::Status S = td::Status::OK();
-  package->iterate([&](std::string filename, td::BufferSlice data, td::uint64) -> bool {
-    auto F = FileReference::create(filename);
-    if (F.is_error()) {
-      return true;
-    }
-    auto f = F.move_as_ok();
+  package
+      ->iterate([&](std::string filename, td::BufferSlice data, td::uint64) -> bool {
+        auto F = FileReference::create(filename);
+        if (F.is_error()) {
+          return true;
+        }
+        auto f = F.move_as_ok();
 
         BlockIdExt block_id;
         bool is_proof = false;
@@ -126,44 +127,45 @@ td::Status ArchiveImporterLocal::process_package(std::string path) {
             },
             [&](const auto &) { ignore = true; }));
 
-    if (ignore || (block_id.is_masterchain() && block_id.seqno() <= last_masterchain_state_->get_seqno())) {
-      return true;
-    }
+        if (ignore || (block_id.is_masterchain() && block_id.seqno() <= last_masterchain_state_->get_seqno())) {
+          return true;
+        }
 
-    if (is_proof) {
-      if (block_id.is_masterchain()) {
-        auto R = create_proof(block_id, std::move(data));
-        if (R.is_error()) {
-          S = R.move_as_error();
-          return false;
+        if (is_proof) {
+          if (block_id.is_masterchain()) {
+            auto R = create_proof(block_id, std::move(data));
+            if (R.is_error()) {
+              S = R.move_as_error();
+              return false;
+            }
+            blocks_[block_id].proof = R.move_as_ok();
+          } else {
+            auto R = create_proof_link(block_id, std::move(data));
+            if (R.is_error()) {
+              S = R.move_as_error();
+              return false;
+            }
+            blocks_[block_id].proof_link = R.move_as_ok();
+          }
+        } else {
+          if (td::sha256_bits256(data) != block_id.file_hash) {
+            S = td::Status::Error(ErrorCode::protoviolation, "bad block file hash");
+            return false;
+          }
+          auto R = create_block(block_id, data.clone());
+          if (R.is_error()) {
+            S = R.move_as_error();
+            return false;
+          }
+          blocks_[block_id].block = R.move_as_ok();
+          blocks_[block_id].data_size = data.size();
         }
-        blocks_[block_id].proof = R.move_as_ok();
-      } else {
-        auto R = create_proof_link(block_id, std::move(data));
-        if (R.is_error()) {
-          S = R.move_as_error();
-          return false;
+        if (block_id.is_masterchain()) {
+          masterchain_blocks_[block_id.seqno()] = block_id;
         }
-        blocks_[block_id].proof_link = R.move_as_ok();
-      }
-    } else {
-      if (td::sha256_bits256(data) != block_id.file_hash) {
-        S = td::Status::Error(ErrorCode::protoviolation, "bad block file hash");
-        return false;
-      }
-      auto R = create_block(block_id, data.clone());
-      if (R.is_error()) {
-        S = R.move_as_error();
-        return false;
-      }
-      blocks_[block_id].block = R.move_as_ok();
-      blocks_[block_id].data_size = data.size();
-    }
-    if (block_id.is_masterchain()) {
-      masterchain_blocks_[block_id.seqno()] = block_id;
-    }
-    return true;
-  }).ignore();
+        return true;
+      })
+      .ignore();
   return S;
 }
 
