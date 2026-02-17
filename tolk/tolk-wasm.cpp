@@ -23,20 +23,18 @@
     exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 */
-#include <sstream>
-
-#include "fift/utils.h"
-#include "td/utils/JsonBuilder.h"
-#include "td/utils/Status.h"
-
+#include "tolk.h"
+#include "tolk-version.h"
 #include "compiler-state.h"
 #include "git.h"
-#include "tolk-version.h"
-#include "tolk.h"
+#include "td/utils/JsonBuilder.h"
+#include "fift/utils.h"
+#include "td/utils/Status.h"
+#include <sstream>
 
 using namespace tolk;
 
-static td::Result<std::string> compile_internal(char* config_json) {
+static td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(input_json, td::json_decode(td::MutableSlice(config_json)))
   td::JsonObject& config = input_json.get_object();
 
@@ -110,7 +108,7 @@ const char* version() {
   return strdup(version_json.string_builder().as_cslice().c_str());
 }
 
-const char* tolk_compile(char* config_json, WasmFsReadCallback callback) {
+const char *tolk_compile(char *config_json, WasmFsReadCallback callback) {
   G.settings.read_callback = wrap_wasm_read_callback(callback);
 
   td::Result<std::string> res = compile_internal(config_json);
@@ -128,4 +126,4 @@ const char* tolk_compile(char* config_json, WasmFsReadCallback callback) {
   return strdup(res_string.c_str());
 }
 
-}  // extern "C"
+} // extern "C"
