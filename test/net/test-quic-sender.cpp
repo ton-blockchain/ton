@@ -947,8 +947,8 @@ TEST(QuicFairness, TwoConnectionsFairBandwidth) {
   run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
     // Both senders send many large queries simultaneously
     // Target: ~50MB per sender to saturate localhost (~200MB/s)
-    constexpr int queries_per_sender = 50;
-    constexpr int query_size = 1024 * 1024;  // 1 MB each = 50 MB total per sender
+    constexpr int queries_per_sender = 100;
+    constexpr int query_size = 1024 * 512;  // 0.5 MB each = 50 MB total per sender
 
     // Create a "hub" node that will receive from two senders
     auto hub = co_await t.create_node("hub", next_port());
