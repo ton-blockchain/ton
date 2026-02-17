@@ -620,6 +620,10 @@ struct [[nodiscard]] Task {
     return std::move(*this).start_without_parent(StartMode::Scheduled);
   }
 
+  auto start() && {
+    return std::move(*this).start_deprecated();
+  }
+
   // Deprecated: use start_immediate_in_current_scope() or co_await instead
   auto start_immediate_deprecated() && {
     return std::move(*this).start_without_parent(StartMode::Immediate);
@@ -634,14 +638,6 @@ struct [[nodiscard]] Task {
   // Automatically uses current coroutine as parent (from TLS), immediate execution
   auto start_immediate_in_current_scope() && {
     return std::move(*this).start_with_current_scope(StartMode::Immediate);
-  }
-
-  // start_detached() - explicitly no parent, scheduled, will be destroyed on completion
-  void start_detached() && {
-    // Just set DETACH_FLAG - don't dec_ref since there's no StartedTask handle
-    h.promise().state_manager_data.set_flag(detail::TaskStateManagerData::DETACH_FLAG);
-    sm().start(h);
-    h = {};
   }
 
   auto start_external() && {

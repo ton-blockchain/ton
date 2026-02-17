@@ -484,7 +484,7 @@ class CoroSpec final : public td::actor::Actor {
         td::usleep_for(td::Random::fast(0, 1000));
         co_return value * 2;
       }(round)
-                                       .start_deprecated();
+                                       .start_in_current_scope();
       td::usleep_for(td::Random::fast(0, 1000));
       auto result = co_await std::move(task);
       CHECK(result == round * 2);
@@ -497,7 +497,7 @@ class CoroSpec final : public td::actor::Actor {
         td::usleep_for(td::Random::fast(0, 1000));
         co_return value * 2;
       }(round)
-                                       .start_deprecated();
+                                       .start_in_current_scope();
       td::usleep_for(td::Random::fast(0, 1000));
       task.detach_silent();
       td::usleep_for(100);
@@ -507,7 +507,7 @@ class CoroSpec final : public td::actor::Actor {
     std::vector<StartedTask<size_t>> many;
     size_t expect = 0;
     for (size_t i = 0; i < 200; i++) {
-      auto t = [](size_t v) -> Task<size_t> { co_return v; }(i).start_deprecated();
+      auto t = [](size_t v) -> Task<size_t> { co_return v; }(i).start_in_current_scope();
       many.push_back(std::move(t));
       expect += i;
     }
@@ -559,7 +559,7 @@ class CoroSpec final : public td::actor::Actor {
     }
     // Explicit start
     {
-      auto t = make_task().start_deprecated();
+      auto t = make_task().start_in_current_scope();
       auto v = co_await std::move(t);  // Tasks propagate errors by default
       expect_eq(v, 7, "await after start");
     }
@@ -573,20 +573,20 @@ class CoroSpec final : public td::actor::Actor {
     CHECK(7 == co_await get7());
 
     auto square_async = [](size_t x) -> Task<size_t> { co_return x* x; };
-    auto res_async = co_await get7().start_deprecated().then(square_async);
+    auto res_async = co_await get7().start_in_current_scope().then(square_async);
     CHECK(res_async == 49);
 
     auto square_sync = [](size_t x) -> size_t { return x * x; };
-    auto res_sync = co_await get7().start_deprecated().then(square_sync);
+    auto res_sync = co_await get7().start_in_current_scope().then(square_sync);
     CHECK(res_sync == 49);
 
     auto square_error = [](size_t x) -> td::Result<size_t> { return td::Status::Error("I forgor arithmetic!"); };
-    auto res_error = co_await get7().start_deprecated().then(square_error).wrap();
+    auto res_error = co_await get7().start_in_current_scope().then(square_error).wrap();
     CHECK(res_error.is_error());
 
     auto get_error = []() -> Task<> { co_return td::Status::Error("no"); };
     auto transform = [](td::Unit) -> td::Unit { return {}; };
-    auto res_error_2 = co_await get_error().start_deprecated().then(transform).wrap();
+    auto res_error_2 = co_await get_error().start_in_current_scope().then(transform).wrap();
     CHECK(res_error_2.is_error());
 
     co_return td::Unit();
@@ -889,7 +889,7 @@ class CoroSpec final : public td::actor::Actor {
     {
       auto result = co_await []() -> Task<int> {
         auto err_task = []() -> Task<int> { co_return td::Status::Error("started error"); };
-        co_return co_await err_task().start_deprecated().trace("started context");
+        co_return co_await err_task().start_in_current_scope().trace("started context");
       }()
                                          .wrap();
       expect_true(result.is_error(), "trace works with StartedTask");
@@ -959,7 +959,7 @@ class CoroSpec final : public td::actor::Actor {
         (void)v;
         co_return td::Status::Error("should not reach here");
       };
-      auto t = outer().start_deprecated();
+      auto t = outer().start_in_current_scope();
       auto r = co_await std::move(t).wrap();
       expect_true(r.is_error(), "trace Task cancellation: expected error");
       expect_eq(r.error().code(), kCancelledCode, "trace Task cancellation: expected cancelled code");
@@ -978,7 +978,7 @@ class CoroSpec final : public td::actor::Actor {
         (void)v;
         co_return td::Status::Error("should not reach here");
       };
-      auto t = outer().start_deprecated();
+      auto t = outer().start_in_current_scope();
       auto r = co_await std::move(t).wrap();
       expect_true(r.is_error(), "trace inline Task cancellation: expected error");
       expect_eq(r.error().code(), kCancelledCode, "trace inline Task cancellation: expected cancelled code");
@@ -1159,7 +1159,7 @@ class CoroSpec final : public td::actor::Actor {
      public:
       void start_up() override {
         b_ = td::actor::create_actor<B>("B");
-        run().start_deprecated().detach();
+        run().start_in_current_scope().detach();
         alarm_timestamp() = td::Timestamp::in(1.0);
       }
 
@@ -1476,7 +1476,7 @@ class CoroSpec final : public td::actor::Actor {
 
     co_await run_case("start_detached completes and cleans up", []() -> Task<td::Unit> {
       auto completed = std::make_shared<std::atomic<bool>>(false);
-      detached_setter(completed).start_detached();
+      detached_setter(completed).start_in_current_scope().detach_silent();
       // Give the scheduler a chance to run the detached task
       for (int i = 0; i < 5 && !completed->load(std::memory_order_acquire); i++) {
         co_await yield_on_current();
@@ -1639,7 +1639,7 @@ class CoroSpec final : public td::actor::Actor {
         co_await sleep_for(10.0);  // Will hang if cancellation doesn't work
         co_return 1;
       };
-      auto t = sleeper().start_deprecated();
+      auto t = sleeper().start_in_current_scope();
 
       co_await sleep_for(0.01);
       t.cancel();
@@ -1657,7 +1657,7 @@ class CoroSpec final : public td::actor::Actor {
         co_return td::Unit{};
       };
 
-      auto t = worker().start_deprecated();
+      auto t = worker().start_in_current_scope();
       co_await yield_on_current();
       t.cancel();
 
@@ -1692,8 +1692,8 @@ class CoroSpec final : public td::actor::Actor {
         co_return td::Unit{};
       };
 
-      auto parent =
-          parent_body(children_started, std::move(g0.task), std::move(g1.task), std::move(g2.task)).start_deprecated();
+      auto parent = parent_body(children_started, std::move(g0.task), std::move(g1.task), std::move(g2.task))
+                        .start_in_current_scope();
 
       // Ensure parent started and registered children before we cancel it.
       bool started_ok = false;
@@ -1758,7 +1758,7 @@ class CoroSpec final : public td::actor::Actor {
         co_return td::Unit{};
       };
 
-      auto t = check_ensure().start_deprecated();
+      auto t = check_ensure().start_in_current_scope();
 
       co_await sleep_for(0.01);
       t.cancel();
@@ -1786,7 +1786,7 @@ class CoroSpec final : public td::actor::Actor {
         co_return td::Unit{};
       };
 
-      auto t = parent().start_deprecated();
+      auto t = parent().start_in_current_scope();
 
       co_await sleep_for(0.01);
       t.cancel();
@@ -1803,7 +1803,7 @@ class CoroSpec final : public td::actor::Actor {
         co_return td::Unit{};
       };
 
-      auto t = sleeper().start_deprecated();
+      auto t = sleeper().start_in_current_scope();
 
       co_await sleep_for(0.01);
       t.cancel();
@@ -1862,7 +1862,7 @@ class CoroSpec final : public td::actor::Actor {
         co_return td::Unit{};
       };
 
-      auto t = worker().start_deprecated();
+      auto t = worker().start_in_current_scope();
 
       bool done = false;
       for (int i = 0; i < 100 && !done; i++) {
@@ -1936,6 +1936,8 @@ class CoroSpec final : public td::actor::Actor {
         co_return td::Unit{};
       };
 
+      // Deliberately parentless: test checks that node is destroyed synchronously
+      // when the last StartedTask ref drops, before this coroutine continues.
       auto t = worker().start_deprecated();
       bool done = false;
       for (int i = 0; i < 100 && !done; i++) {
@@ -2059,7 +2061,7 @@ class CoroSpec final : public td::actor::Actor {
 
       auto parent = [child]() -> Task<int> { co_return co_await child().start_in_current_scope(); };
 
-      auto task = parent().start_deprecated();
+      auto task = parent().start_in_current_scope();
 
       // Let things start
       co_await sleep_for(0.02);
@@ -2102,7 +2104,7 @@ class CoroSpec final : public td::actor::Actor {
 
       auto parent = [child]() -> Task<td::Unit> { co_return co_await child().start_in_current_scope(); };
 
-      auto task = parent().start_deprecated();
+      auto task = parent().start_in_current_scope();
       co_await sleep_for(0.02);
       task.cancel();
       auto r = co_await std::move(task).wrap();
@@ -2112,7 +2114,7 @@ class CoroSpec final : public td::actor::Actor {
       co_return td::Unit{};
     });
 
-    co_await run_case("dropping StartedTask from start_deprecated() cancels the task", [&]() -> Task<td::Unit> {
+    co_await run_case("dropping StartedTask cancels the task", [&]() -> Task<td::Unit> {
       auto ran_to_completion = std::make_shared<std::atomic<bool>>(false);
 
       auto worker = [ran_to_completion]() -> Task<int> {
@@ -2123,7 +2125,7 @@ class CoroSpec final : public td::actor::Actor {
 
       // Drop the StartedTask immediately - should cancel the task
       {
-        auto dropped = worker().start_deprecated();
+        auto dropped = worker().start_in_current_scope();
       }
 
       co_await sleep_for(0.05);
@@ -2171,7 +2173,7 @@ class CoroSpec final : public td::actor::Actor {
         // Should not reach here
         co_return td::Status::Error("should not reach here");
       };
-      auto t = outer().start_deprecated();
+      auto t = outer().start_in_current_scope();
       auto r = co_await std::move(t).wrap();
       expect_true(r.is_error(), "A: expected cancellation error");
       expect_eq(r.error().code(), kCancelledCode, "A: expected Error(653)");
@@ -2190,7 +2192,7 @@ class CoroSpec final : public td::actor::Actor {
         (void)r;
         co_return td::Status::Error("should not reach here");
       };
-      auto t = outer().start_deprecated();
+      auto t = outer().start_in_current_scope();
       auto r = co_await std::move(t).wrap();
       expect_true(r.is_error(), "B: expected cancellation error");
       expect_eq(r.error().code(), kCancelledCode, "B: expected Error(653)");
@@ -2207,7 +2209,7 @@ class CoroSpec final : public td::actor::Actor {
         (void)v;
         co_return td::Status::Error("should not reach here");
       };
-      auto t = outer().start_deprecated();
+      auto t = outer().start_in_current_scope();
       auto r = co_await std::move(t).wrap();
       expect_true(r.is_error(), "C: expected cancellation error");
       expect_eq(r.error().code(), kCancelledCode, "C: expected Error(653)");
@@ -2222,7 +2224,7 @@ class CoroSpec final : public td::actor::Actor {
         co_await td::Status::OK();
         co_return td::Status::Error("should not reach here");
       };
-      auto t = outer().start_deprecated();
+      auto t = outer().start_in_current_scope();
       auto r = co_await std::move(t).wrap();
       expect_true(r.is_error(), "D: expected cancellation error");
       expect_eq(r.error().code(), kCancelledCode, "D: expected Error(653)");
@@ -2239,7 +2241,7 @@ class CoroSpec final : public td::actor::Actor {
         (void)guard;
         co_return td::Status::Error("should not reach here");
       };
-      auto t = outer().start_deprecated();
+      auto t = outer().start_in_current_scope();
       auto r = co_await std::move(t).wrap();
       expect_true(r.is_error(), "E: expected cancellation error");
       expect_eq(r.error().code(), kCancelledCode, "E: expected Error(653)");
@@ -2282,7 +2284,7 @@ class CoroSpec final : public td::actor::Actor {
         co_return td::Unit{};
       };
 
-      auto t = outer().start_deprecated();
+      auto t = outer().start_in_current_scope();
       auto r = co_await std::move(t).wrap();
       expect_true(r.is_error(), "F: expected cancellation error after guard drop");
       expect_eq(r.error().code(), kCancelledCode, "F: expected Error(653)");
@@ -2327,7 +2329,7 @@ class CoroSpec final : public td::actor::Actor {
         co_return td::Unit{};
       };
 
-      auto t = outer().start_deprecated();
+      auto t = outer().start_in_current_scope();
       auto r = co_await std::move(t).wrap();
       expect_true(r.is_error(), "G: expected cancellation error");
       expect_eq(r.error().code(), kCancelledCode, "G: expected Error(653)");
@@ -2360,7 +2362,7 @@ class CoroSpec final : public td::actor::Actor {
         co_return td::Unit{};
       };
 
-      auto t = outer().start_deprecated();
+      auto t = outer().start_in_current_scope();
       co_await sleep_for(0.01);
       t.cancel();
       auto r = co_await std::move(t).wrap();
@@ -2425,7 +2427,7 @@ class CoroSpec final : public td::actor::Actor {
         co_return td::Status::Error("should not reach here");
       };
 
-      auto t = outer().start_deprecated();
+      auto t = outer().start_in_current_scope();
       auto r = co_await std::move(t).wrap();
       expect_true(r.is_error(), "J: expected cancellation after guard drop");
       expect_eq(r.error().code(), kCancelledCode, "J: expected Error(653)");
@@ -2439,7 +2441,7 @@ class CoroSpec final : public td::actor::Actor {
         co_await sleep_for(10.0);
         co_return 42;
       };
-      auto t = worker().start_deprecated();
+      auto t = worker().start_in_current_scope();
       co_await sleep_for(0.01);
       t.cancel();
       auto r = co_await std::move(t).wrap();
@@ -2533,7 +2535,7 @@ class CoroSpec final : public td::actor::Actor {
         started->store(true, std::memory_order_release);
         co_return td::Unit{};
       }(held_handle, started)
-                                                                          .start_deprecated();
+                                                                          .start_in_current_scope();
 
       bool parent_started = co_await wait_until([&] { return started->load(std::memory_order_acquire); });
       expect_true(parent_started, "Parent should start");
@@ -2567,7 +2569,8 @@ class CoroSpec final : public td::actor::Actor {
         finished->store(true, std::memory_order_release);
         co_return td::Unit{};
       }(held_handle, started, finished)
-                                                             .start_detached();
+                                                             .start_in_current_scope()
+                                                             .detach_silent();
 
       bool parent_started = co_await wait_until([&] { return started->load(std::memory_order_acquire); });
       expect_true(parent_started, "Detached parent should start");
@@ -2611,7 +2614,7 @@ class CoroSpec final : public td::actor::Actor {
         parent_started->store(true, std::memory_order_release);
         co_return td::Unit{};
       }(parent_started, parent_external_promise)
-                                                                                             .start_deprecated();
+                                                                                             .start_in_current_scope();
 
       bool started = co_await wait_until([&] { return parent_started->load(std::memory_order_acquire); });
       expect_true(started, "Parent should start");
@@ -2653,7 +2656,7 @@ class CoroSpec final : public td::actor::Actor {
         parent_started->store(true, std::memory_order_release);
         co_return td::Unit{};
       }(parent_started, parent_external_promise)
-                                                                                             .start_deprecated();
+                                                                                             .start_in_current_scope();
 
       bool started = co_await wait_until([&] { return parent_started->load(std::memory_order_acquire); });
       expect_true(started, "Parent should start");
@@ -2695,7 +2698,7 @@ class CoroSpec final : public td::actor::Actor {
         parent_started->store(true, std::memory_order_release);
         co_return td::Unit{};
       }(parent_started, parent_external_promise)
-                                                                                             .start_deprecated();
+                                                                                             .start_in_current_scope();
 
       bool started = co_await wait_until([&] { return parent_started->load(std::memory_order_acquire); });
       expect_true(started, "Parent should start");
@@ -2775,7 +2778,7 @@ class CoroSpec final : public td::actor::Actor {
       started->store(true, std::memory_order_release);
       co_return td::Unit{};
     }(started, external_promise, c.cancel_child_before_detach, c.setup_yields)
-                                              .start_deprecated();
+                                              .start_in_current_scope();
 
     bool parent_started = co_await wait_until([started] { return started->load(std::memory_order_acquire); }, 5000);
     LOG_CHECK(parent_started) << "external-parent repro: parent not started, case_id=" << c.case_id;
@@ -2864,7 +2867,7 @@ class CoroSpec final : public td::actor::Actor {
         co_await sleep_for(60.0);
         co_return td::Unit{};
       }()
-                                 .start_deprecated();
+                                 .start_in_current_scope();
 
       if ((i & 1) == 0) {
         co_await yield_on_current();
@@ -2909,7 +2912,7 @@ class CoroSpec final : public td::actor::Actor {
           co_await sleep_for(60.0);
           co_return td::Unit{};
         }()
-                                   .start_deprecated();
+                                   .start_in_current_scope();
         stats.started_tasks++;
         for (int i = 0; i < cancel_delay_steps; i++) {
           co_await yield_on_current();
@@ -2966,7 +2969,7 @@ class CoroSpec final : public td::actor::Actor {
           co_return td::Unit{};
         }(guard_depth, cancel_inside_guard);
 
-        auto started = std::move(outer).start_deprecated();
+        auto started = std::move(outer).start_in_current_scope();
         stats.started_tasks++;
         auto r = co_await std::move(started).wrap();
         LOG_CHECK(r.is_error() && r.error().code() == kCancelledCode)
@@ -2990,7 +2993,7 @@ class CoroSpec final : public td::actor::Actor {
             co_await sleep_for(0.004);
             co_return td::Unit{};
           };
-          tasks.push_back(worker(i).start_deprecated());
+          tasks.push_back(worker(i).start_in_current_scope());
           stats.started_tasks++;
         }
 
@@ -3038,7 +3041,7 @@ class CoroSpec final : public td::actor::Actor {
           co_return td::Unit{};
         }(work_steps);
 
-        auto started = std::move(parent).start_deprecated();
+        auto started = std::move(parent).start_in_current_scope();
         stats.started_tasks++;
         for (int i = 0; i < cancel_delay_steps; i++) {
           co_await yield_on_current();
@@ -3080,7 +3083,7 @@ class CoroSpec final : public td::actor::Actor {
         co_return 42;
       };
 
-      auto started = fast_task().start_deprecated();
+      auto started = fast_task().start_in_current_scope();
       auto result = co_await with_timeout(std::move(started), 1.0);
 
       expect_true(result.is_ok(), "Task should complete successfully");
@@ -3134,7 +3137,7 @@ class CoroSpec final : public td::actor::Actor {
         co_return 99;
       };
 
-      auto started = fast_task().start_deprecated();
+      auto started = fast_task().start_in_current_scope();
       auto result = co_await with_timeout(std::move(started), td::Timestamp::in(1.0));
 
       expect_true(result.is_ok(), "Task should complete before deadline");

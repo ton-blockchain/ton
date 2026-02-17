@@ -313,14 +313,18 @@ class ActorExecutorBenchmark : public td::Benchmark {
         q.push(ptr, 0);
       }
       void add_token_to_cpu_queue(SchedulerToken token, SchedulerId scheduler_id) override {
-        SchedulerMessage::Raw *raw = reinterpret_cast<SchedulerMessage::Raw *>(token);
-        q.push(SchedulerMessage(SchedulerMessage::acquire_t{}, raw), 0);
+        auto raw = reinterpret_cast<ActorInfoPtr::Raw *>(token);
+        q.push(ActorInfoPtr(ActorInfoPtr::acquire_t{}, raw), 0);
       }
       void set_alarm_timestamp(const ActorInfoPtr &actor_info_ptr) override {
         UNREACHABLE();
       }
       SchedulerId get_scheduler_id() const override {
         return SchedulerId{0};
+      }
+      void register_timer(Ref<TimerNode> ref) override {
+      }
+      void cancel_timer(Ref<TimerNode> ref) override {
       }
       std::deque<ActorInfoPtr> queue;
       td::MpmcQueue<ActorInfoPtr> q{1};

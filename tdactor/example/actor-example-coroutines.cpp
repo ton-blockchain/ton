@@ -402,7 +402,7 @@ int main() {
   SET_VERBOSITY_LEVEL(VERBOSITY_NAME(INFO));
   td::actor::Scheduler scheduler({std::thread::hardware_concurrency()});
 
-  scheduler.run_in_context([&] { example().start_detached(); });
+  scheduler.run_in_context([&] { example().start_deprecated().detach_silent(); });
 
   scheduler.run();
   LOG(INFO) << "DONE";

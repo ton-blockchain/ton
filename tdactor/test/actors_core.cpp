@@ -286,6 +286,10 @@ TEST(Actor2, executor_simple) {
     SchedulerId get_scheduler_id() const override {
       return SchedulerId{0};
     }
+    void register_timer(Ref<TimerNode> ref) override {
+    }
+    void cancel_timer(Ref<TimerNode> ref) override {
+    }
     std::deque<ActorInfoPtr> queue;
   };
   Dispatcher dispatcher;

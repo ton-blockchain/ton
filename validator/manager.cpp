@@ -454,7 +454,7 @@ td::actor::Task<> ValidatorManagerImpl::new_external_message_query(td::BufferSli
   auto [message, wait_allow_broadcast] =
       co_await td::actor::ask(ext_message_pool_, &ExtMessagePool::check_add_external_message, std::move(data), 0,
                               /* add_to_mempool = */ is_validator() || !collator_nodes_.empty());
-  new_external_message_query_cont(std::move(message), std::move(wait_allow_broadcast)).start().detach();
+  new_external_message_query_cont(std::move(message), std::move(wait_allow_broadcast)).start_deprecated().detach();
   co_return td::Unit{};
 }
 

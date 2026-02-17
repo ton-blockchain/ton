@@ -191,7 +191,7 @@ class TestRunner : public td::actor::Actor {
       td::actor::SchedulerContext::get().stop();
       co_return td::Unit{};
     }(test_(*this))
-                                              .start_immediate()
+                                              .start_immediate_deprecated()
                                               .detach("test");
   }
 

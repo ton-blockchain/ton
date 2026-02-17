@@ -37,7 +37,7 @@ struct SchedulerGuard {
       }(done, std::move(task));
 
       // Keep the wrapper running until it flips done; dropping StartedTask would cancel it.
-      std::move(wrapped_task).start_detached();
+      std::move(wrapped_task).start_deprecated().detach_silent();
     });
 
     while (!done->load(std::memory_order_acquire)) {

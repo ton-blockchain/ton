@@ -247,7 +247,7 @@ QuicSender::QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::actor::
 }
 
 void QuicSender::send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) {
-  send_message_coro(src, dst, std::move(data)).start_immediate().detach("quic:send_message");
+  send_message_coro(src, dst, std::move(data)).start_immediate_deprecated().detach("quic:send_message");
 }
 
 void QuicSender::send_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, std::string name,
@@ -271,7 +271,7 @@ void QuicSender::set_udp_offload_options(QuicServer::Options options) {
 }
 
 void QuicSender::add_local_id(adnl::AdnlNodeIdShort local_id) {
-  add_local_id_coro(local_id).start().detach("add local id");
+  add_local_id_coro(local_id).start_deprecated().detach("add local id");
 }
 
 void QuicSender::log_stats(std::string reason) {
@@ -379,7 +379,7 @@ td::actor::Task<std::shared_ptr<QuicSender::Connection>> QuicSender::find_or_cre
 
   if (!connection->init_started) {
     connection->init_started = true;
-    init_connection(path, connection).start().detach("init connection");
+    init_connection(path, connection).start_deprecated().detach("init connection");
   }
 
   co_await std::move(future);
@@ -543,7 +543,7 @@ void QuicSender::on_closed(QuicConnectionId cid) {
 
 void QuicSender::on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
                             ton_api::quic_query &query) {
-  on_inbound_query(connection, stream_id, std::move(query.data_)).start_immediate().detach();
+  on_inbound_query(connection, stream_id, std::move(query.data_)).start_immediate_deprecated().detach();
 }
 
 void QuicSender::on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
