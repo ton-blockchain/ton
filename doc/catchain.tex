@@ -300,7 +300,7 @@ The state update algorithm (independently executed by each process $i$) employed
 \item The algorithm keeps track of $\sigma_{C_i}$, where $C_i$ is the current dependence cone, i.e., the set of all messages $m$ delivered (to the current process $i$). The initial value of $\sigma_{C_i}$ is $\sigma_\emptyset$.
 \item When a new message $m$ is delivered, the value of $\sigma_{D^m}$ is computed by a repeated application of $g$ since $D_m=\bigcup_{m'\in D_m}D^+_{m'}=\bigcup_{m'\in\Max(D_m)}D^+_{m'}$; therefore, if $\Max(D_m)=\{m'_1,\ldots,m'_k\}$, then
   \begin{equation}\label{eq:merge.many}
-    \sigma_{D_m}=g\Bigl(\ldots g\bigl(g(\sigma_{D^+_{m'_1}},\sigma_{D^+_{m'_2}}),\sigma_{D^+_{m'_3}}\bigr),\ldots \sigma_{D^+_{m'_k}}\Bigr)\quad. 
+    \sigma_{D_m}=g\Bigl(\ldots g\bigl(g(\sigma_{D^+_{m'_1}},\sigma_{D^+_{m'_2}}),\sigma_{D^+_{m'_3}}\bigr),\ldots \sigma_{D^+_{m'_k}}\Bigr)\quad.
   \end{equation}
 The set $\Max(D_m)$ is explicitly listed in the header of message $m$ in some fixed order $m'_1$, \dots, $m'_k$; the above formula is applied with respect to this order (so the computation of $D_m$ is deterministic). The first element in this list always is the previous message of the sender of $m$, i.e., if $m=m_{i,s+1}$, then $m'_1=m_{i,s}$.
 \item After that, the value of $\sigma_{D^+_m}$ is computed by an application of $f$: $\sigma_{D^+_m}=f(\sigma_{D_m},m)$. This value is memorized for future use.
@@ -312,7 +312,7 @@ The set $\Max(D_m)$ is explicitly listed in the header of message $m$ in some fi
 \item Once a new message $m$ is generated and locally delivered, so that $C_i$ becomes equal to $D^+_m$, the previously computed value of $\sigma_{C_i}$ is discarded and replaced with $\sigma_{D^+_m}$ computed according to the general algorithm described above. If $g$ is not commutative or not associative (for example, it may happen that $g(x,y)$ and $g(y,x)$ are different but equivalent representations of the same state), then this might lead to a slight change of the current ``virtual'' state of process $i$.
 \item If the lower-level (catchain) protocol reports to the higher-level protocol that a certain process $j\not\in i$ is ``bad'' (i.e., $j$ is found out to have created a fork, cf.~\ptref{sp:bad.proc.set}, or to have knowingly endorsed a fork by another process, cf.~\ptref{sp:no.bad.accept}), then the current (virtual) state $\sigma_{C_i}$ is recomputed from scratch using the new set $C'_i=\bigcup_{\text{$m\in C_i$, $m$ was created by ``good'' process $k$}}D^+_m$ and the ``merge'' function $g$ applied to the set of $\sigma_{D^+_m}$ where $m$ runs through the set of last messages of the processes known to be good (or through the set of maximal elements of this set). The next created outbound message will depend only on the messages from $C'_i$.
 \end{itemize}
-  
+
 \nxsubpoint\emb{Necessity to know the internal state of the other processes}
 Formula \eqref{eq:merge.many} implies that process~$i$ must also keep track of $\sigma_{D^+_m}$ for all messages $m$, created by this process or not. However, this is possible since these internal states are also computed by appropriate applications of the update algorithm. Therefore, BCP computes and remembers all $\sigma_{D^+_m}$ as well.
 
@@ -537,7 +537,7 @@ Now we claim that {\em (each round of) the BCP protocol as described above termi
 \begin{thebibliography}{2}
 \bibitem{Birman}
   {\sc K.~Birman}, {\sl Reliable Distributed Systems: Technologies, Web Services and Applications}, Springer, 2005.
-  
+
 \bibitem{PBFT}
   {\sc M.~Castro, B.~Liskov, et al.}, {\sl Practical byzantine fault tolerance}, {\it Proceedings of the Third Symposium on Operating Systems Design and Implementation\/} (1999), p.~173--186, available at \url{http://pmg.csail.mit.edu/papers/osdi99.pdf}.
 

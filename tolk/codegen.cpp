@@ -28,9 +28,9 @@ static void sanitize_fift_name(std::string &name) {
 }
 
 /*
- * 
+ *
  *   GENERATE TVM STACK CODE
- * 
+ *
  */
 
 StackLayout Stack::vars() const {

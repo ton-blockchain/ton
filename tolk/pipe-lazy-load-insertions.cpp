@@ -297,7 +297,7 @@ struct ExprUsagesWhileCollecting {
   }
 
   void on_used_reassigned_type() {
-    used_reassigned_type++;    
+    used_reassigned_type++;
   }
 
   bool is_self_or_field_used_for_reading() const {
@@ -660,7 +660,7 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
           lazy_expr->on_used_reassigned_type();
         }
         // for `obj.f.method()`, mark lazy_expr=obj.f "used" anyway
-        if (s_expr.index_path) {    
+        if (s_expr.index_path) {
           lazy_expr->on_used_rw(false);
         }
         // if we have `st.save()` / `p.getX()` / `obj.f.method()`, which will be inlined when transforming to IR,

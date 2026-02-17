@@ -371,9 +371,9 @@ Int<false, T> u64(T& val) {
 }
 
 /*
- * 
+ *
  *   non-integer types
- * 
+ *
  */
 
 // cr(Ref<Cell>& cell_ref) for (de)serializing cell references

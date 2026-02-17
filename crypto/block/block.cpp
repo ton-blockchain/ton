@@ -1787,9 +1787,9 @@ void MtCarloComputeShare::gen_vset() {
 }
 
 /*
- * 
+ *
  *    Other block-related functions
- * 
+ *
  */
 
 bool store_UInt7(vm::CellBuilder& cb, unsigned long long value) {
@@ -2068,7 +2068,9 @@ td::Status unpack_block_prev_blk_ext(Ref<vm::Cell> block_root, const ton::BlockI
   block::gen::ExtBlkRef::Record prev1, prev2;
   if (info.after_merge) {
     auto cs = vm::load_cell_slice(std::move(info.prev_ref));
-    CHECK(cs.size_ext() == 0x20000);  // prev_blks_info$_ prev1:^ExtBlkRef prev2:^ExtBlkRef = BlkPrevInfo 1;
+    if (cs.size_ext() != 0x20000) {  // prev_blks_info$_ prev1:^ExtBlkRef prev2:^ExtBlkRef = BlkPrevInfo 1;
+      return td::Status::Error("invalid previous block references in block header");
+    }
     if (!(tlb::unpack_cell(cs.prefetch_ref(0), prev1) && tlb::unpack_cell(cs.prefetch_ref(1), prev2))) {
       return td::Status::Error("cannot unpack two previous block references from block header");
     }
@@ -2133,7 +2135,7 @@ td::Status check_block_header(Ref<vm::Cell> block_root, const ton::BlockIdExt& i
     return td::Status::Error("block has invalid not_master flag in its (Merkelized) header");
   }
   if (store_shard_hash_to) {
-    vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
+    vm::CellSlice upd_cs{vm::NoVm(), blk.state_update};
     if (!(upd_cs.is_special() && upd_cs.prefetch_long(8) == 4  // merkle update
           && upd_cs.size_ext() == 0x20228)) {
       return td::Status::Error("invalid Merkle update in block header");

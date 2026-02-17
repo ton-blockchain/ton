@@ -947,9 +947,9 @@ unsigned long long BagOfCells::get_idx_entry_raw(int index) {
 }
 
 /*
- * 
+ *
  *  Simple BoC serialization/deserialization functions
- * 
+ *
  */
 
 td::Result<Ref<Cell>> std_boc_deserialize(td::Slice data, bool can_be_empty, bool allow_nonzero_level) {
@@ -1040,9 +1040,9 @@ td::Status std_boc_serialize_to_file(Ref<Cell> root, td::FileFd& fd, int mode,
 }
 
 /*
- * 
+ *
  *  Cell storage statistics
- * 
+ *
  */
 
 td::Result<CellStorageStat::CellInfo> CellStorageStat::compute_used_storage(Ref<vm::CellSlice> cs_ref, bool kill_dup,

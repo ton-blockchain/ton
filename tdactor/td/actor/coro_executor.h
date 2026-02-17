@@ -14,7 +14,7 @@ namespace td::actor {
 namespace detail {
 
 inline ActorId<> get_current_actor_id() noexcept {
-  auto context = core::ActorExecuteContext::get();
+  auto context = core::ActorExecuteContext::get_ptr();
   if (context && context->actor_ptr()) {
     return actor_id(context->actor_ptr());
   }
@@ -98,9 +98,7 @@ struct SchedulerExecutor {
   }
   void schedule(std::coroutine_handle<> cont) noexcept {
     auto token = reinterpret_cast<td::actor::core::SchedulerToken>(encode_continuation(cont));
-    auto ctx = td::actor::core::SchedulerContext::get();
-    CHECK(ctx);
-    ctx->add_token_to_cpu_queue(token, td::actor::core::SchedulerId{});
+    td::actor::core::SchedulerContext::get().add_token_to_cpu_queue(token, td::actor::core::SchedulerId{});
   }
 };
 

@@ -655,7 +655,7 @@ struct RldpBasicTest {
     void on_closed() {
       cnt_--;
       if (cnt_ == 0) {
-        td::actor::SchedulerContext::get()->stop();
+        td::actor::SchedulerContext::get().stop();
         //LOG(ERROR) << "STOP";
         stop();
       }
@@ -1318,7 +1318,7 @@ TEST(Torrent, Peer) {
 
   auto info = torrent.get_info();
 
-  auto stop_watcher = td::create_shared_destructor([] { td::actor::SchedulerContext::get()->stop(); });
+  auto stop_watcher = td::create_shared_destructor([] { td::actor::SchedulerContext::get().stop(); });
   auto guard = std::make_shared<std::vector<td::actor::ActorOwn<>>>();
   auto complete_watcher = td::create_shared_destructor([guard] {});
 

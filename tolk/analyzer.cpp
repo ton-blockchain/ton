@@ -30,9 +30,9 @@ static bool does_function_always_throw(FunctionPtr fun_ref) {
 }
 
 /*
- *  
+ *
  *   ANALYZE AND PREPROCESS ABSTRACT CODE
- * 
+ *
  */
 
 bool CodeBlob::compute_used_code_vars() {

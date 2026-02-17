@@ -34,18 +34,12 @@ class CollationManager : public td::actor::Actor {
   }
 
   void start_up() override;
-  void tear_down() override;
   void alarm() override;
 
   void collate_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
-                     Ed25519_PublicKey creator, BlockCandidatePriority priority, td::Ref<ValidatorSet> validator_set,
-                     td::uint64 max_answer_size, td::CancellationToken cancellation_token,
-                     td::Promise<GeneratedCandidate> promise);
-
-  void collate_block_optimistic(ShardIdFull shard, BlockIdExt min_masterchain_block_id, BlockIdExt prev_block_id,
-                                td::BufferSlice prev_block, Ed25519_PublicKey creator, BlockCandidatePriority priority,
-                                td::Ref<ValidatorSet> validator_set, td::uint64 max_answer_size,
-                                td::CancellationToken cancellation_token, td::Promise<GeneratedCandidate> promise);
+                     Ed25519_PublicKey creator, BlockCandidatePriority priority,
+                     td::Ref<block::ValidatorSet> validator_set, td::uint64 max_answer_size,
+                     td::CancellationToken cancellation_token, td::Promise<GeneratedCandidate> promise);
 
   void update_options(td::Ref<ValidatorManagerOptions> opts);
 
@@ -65,9 +59,9 @@ class CollationManager : public td::actor::Actor {
 
   void collate_shard_block(ShardIdFull shard, BlockIdExt min_masterchain_block_id, std::vector<BlockIdExt> prev,
                            Ed25519_PublicKey creator, BlockCandidatePriority priority,
-                           td::Ref<ValidatorSet> validator_set, td::uint64 max_answer_size,
+                           td::Ref<block::ValidatorSet> validator_set, td::uint64 max_answer_size,
                            td::CancellationToken cancellation_token, td::Promise<GeneratedCandidate> promise,
-                           td::Timestamp timeout, bool is_optimistic = false);
+                           td::Timestamp timeout);
 
   void update_collators_list(const CollatorsList& collators_list);
 
@@ -100,14 +94,6 @@ class CollationManager : public td::actor::Actor {
   ShardInfo* select_shard_info(ShardIdFull shard);
   void got_pong(adnl::AdnlNodeIdShort id, td::Result<td::BufferSlice> R);
   void on_collate_query_error(adnl::AdnlNodeIdShort id);
-
-  void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
-
-  struct OptimisticPrevCache {
-    td::BufferSlice block_data;
-    size_t refcnt = 0;
-  };
-  std::map<BlockIdExt, OptimisticPrevCache> optimistic_prev_cache_;
 
   static constexpr double BAN_DURATION = 300.0;
 };

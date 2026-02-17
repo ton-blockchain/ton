@@ -23,37 +23,33 @@ else
   export CCACHE_DISABLE=1
 fi
 
+# Avoid -march=native with shared CI ccache to prevent illegal instructions.
+if [ "${GITHUB_ACTIONS}" = "true" ] || [ "$with_ccache" = true ]; then
+  HOST_ARCH="$(uname -m)"
+  if [ "${HOST_ARCH}" = "x86_64" ]; then
+    TON_ARCH="x86-64"
+  elif [ "${HOST_ARCH}" = "aarch64" ] || [ "${HOST_ARCH}" = "arm64" ]; then
+    TON_ARCH="armv8-a"
+  fi
+fi
+
 if [ ! -d "build" ]; then
   mkdir build
   cd build
 else
-  cd build
+  cd build || exit
   rm -rf .ninja* CMakeCache.txt
 fi
 
-export CC=$(which clang-16)
-export CXX=$(which clang++-16)
-
-if [ ! -d "../openssl_3" ]; then
-  git clone https://github.com/openssl/openssl ../openssl_3
-  cd ../openssl_3
-  opensslPath=`pwd`
-  git checkout openssl-3.1.4
-  ./config
-  make build_libs -j$(nproc)
-  test $? -eq 0 || { echo "Can't compile openssl_3"; exit 1; }
-  cd ../build
-else
-  opensslPath=$(pwd)/../openssl_3
-  echo "Using compiled openssl_3"
+CMAKE_EXTRA_ARGS=()
+if [ -n "${TON_ARCH}" ]; then
+  CMAKE_EXTRA_ARGS+=(-DTON_ARCH=${TON_ARCH})
 fi
 
 cmake -GNinja .. \
--DCMAKE_BUILD_TYPE=Release \
--DPORTABLE=1 \
--DOPENSSL_ROOT_DIR=$opensslPath \
--DOPENSSL_INCLUDE_DIR=$opensslPath/include \
--DOPENSSL_CRYPTO_LIBRARY=$opensslPath/libcrypto.so
+-DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
+-DCMAKE_BUILD_TYPE=Release -DPORTABLE=1 \
+"${CMAKE_EXTRA_ARGS[@]}"
 
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
@@ -110,6 +106,6 @@ if [ "$with_artifacts" = true ]; then
 fi
 
 if [ "$with_tests" = true ]; then
-  cd build
+  cd build || exit
   ctest --output-on-failure --timeout 1800
 fi

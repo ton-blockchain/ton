@@ -22,29 +22,6 @@
 
 namespace ton {
 
-namespace {
-
-constexpr td::uint32 header_size() {
-  return 4;
-}
-
-constexpr td::uint32 max_data_size() {
-  return (1u << 31) - 1;
-}
-
-constexpr td::uint32 max_filename_size() {
-  return (1u << 16) - 1;
-}
-
-constexpr td::uint16 entry_header_magic() {
-  return 0x1e8b;
-}
-
-constexpr td::uint32 package_header_magic() {
-  return 0xae8fdd01;
-}
-}  // namespace
-
 Package::Package(td::FileFd fd) : fd_(std::move(fd)) {
 }
 
@@ -180,20 +157,18 @@ td::Result<Package> Package::open(std::string path, bool read_only, bool create)
   return Package{std::move(fd)};
 }
 
-void Package::iterate(std::function<bool(std::string, td::BufferSlice, td::uint64)> func) {
+td::Status Package::iterate(std::function<bool(std::string, td::BufferSlice, td::uint64)> func) {
   td::uint64 p = 0;
 
   td::uint64 size = fd_.get_size().move_as_ok();
   if (size < header_size()) {
-    LOG(ERROR) << "too short archive";
-    return;
+    return td::Status::Error("too short archive");
   }
   size -= header_size();
   while (p != size) {
     auto R = read(p);
     if (R.is_error()) {
-      LOG(ERROR) << "broken archive: " << R.move_as_error();
-      return;
+      return R.move_as_error_prefix("broken archive: ");
     }
     auto q = R.move_as_ok();
     if (!func(q.first, q.second.clone(), p)) {
@@ -202,6 +177,7 @@ void Package::iterate(std::function<bool(std::string, td::BufferSlice, td::uint6
 
     p = advance(p).move_as_ok();
   }
+  return td::Status::OK();
 }
 
 Package::~Package() {

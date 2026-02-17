@@ -111,7 +111,7 @@ static ShapeScore calculate_shape_score(TypePtr t) {
 
 // tries to find Ts in `pattern` to reach `actual`;
 // example: pattern=`map<K, slice>`, actual=`map<int, slice>` => T=int
-// example: pattern=`Container<T>`, actual=`Container<Container<U>>` => T=Container<U> 
+// example: pattern=`Container<T>`, actual=`Container<Container<U>>` => T=Container<U>
 static bool can_substitute_Ts_to_reach_actual(TypePtr pattern, TypePtr actual, const GenericsDeclaration* genericTs) {
   GenericSubstitutionsDeducing deducingTs(genericTs);
   TypePtr replaced = deducingTs.auto_deduce_from_argument(pattern, actual);
@@ -120,7 +120,7 @@ static bool can_substitute_Ts_to_reach_actual(TypePtr pattern, TypePtr actual, c
 
 // checks whether a generic typeA is more specific than typeB;
 // example: `map<int,V>` dominates `map<K,V>`;
-// example: `map<K, map<K,K>>` dominates `map<K, map<K,V>>` dominates `map<K1, map<K2,V>>`; 
+// example: `map<K, map<K,K>>` dominates `map<K, map<K,V>>` dominates `map<K1, map<K2,V>>`;
 // example: `map<int,V>` and `map<K,slice>` are not comparable;
 static bool is_more_specific_generic(TypePtr typeA, TypePtr typeB, const GenericsDeclaration* genericTsA, const GenericsDeclaration* genericTsB) {
   // exists θ: θ(B)=A && not exists φ: φ(A)=B
@@ -197,7 +197,7 @@ std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_recei
       best_shape = s;
     }
   }
-  
+
   std::vector<MethodCallCandidate> best_by_shape;
   for (const MethodCallCandidate& candidate : viable) {
     if (calculate_shape_score(candidate.original_receiver) == best_shape) {

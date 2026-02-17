@@ -4,5 +4,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr can not pass `(slice) -> int` to `slice` 
+@stderr can not pass `(slice) -> int` to `slice`
  */

@@ -120,16 +120,11 @@ class LogStreamer:
                 return
 
             can_be_multiline = line.startswith(b"\x1b")
-            if len(match.groups()) == 7:
-                level_str, thread_id_str, timestamp, filename, line_number_str, label, message = (
-                    match.groups()
-                )
+            level_str, thread_id_str, timestamp, filename, line_number_str, label, message = (
+                match.groups()
+            )
+            if label is not None:
                 label = label.decode()
-            else:
-                level_str, thread_id_str, timestamp, filename, line_number_str, message = (
-                    match.groups()
-                )
-                label = None
 
             try:
                 level = int(level_str)

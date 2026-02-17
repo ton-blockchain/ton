@@ -72,7 +72,7 @@ _ get_params() method_id {
 _ get_member_balance(slice address) method_id {
     load_base_data();
     load_member(parse_work_addr(address));
-    
+
     member_update_balance();
     return (ctx_member_balance, ctx_member_pending_deposit, ctx_member_pending_withdraw, ctx_member_withdraw);
 }

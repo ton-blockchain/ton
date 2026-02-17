@@ -130,7 +130,7 @@ fun main() {}
 @testcase | 101 | 1 1 1 | 1 2 3
 @testcase | 101 | 1 2 1 | 1 -1 2
 @testcase | 101 | 1 2 3 | 1 -1 -1
-@testcase | 102 |       | [ [ 4 104 ] [ 3 103 ] [ 2 102 ] [ 1 101 ] ] 
+@testcase | 102 |       | [ [ 4 104 ] [ 3 103 ] [ 2 102 ] [ 1 101 ] ]
 @testcase | 103 |       | 1 1 2 1 3 (null)
 @testcase | 104 |       | 12 34 56 78 0
 @testcase | 105 | -1    | 1

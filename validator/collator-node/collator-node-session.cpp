@@ -31,8 +31,9 @@ static BlockSeqno get_next_block_seqno(const std::vector<BlockIdExt>& prev) {
 }
 
 CollatorNodeSession::CollatorNodeSession(ShardIdFull shard, std::vector<BlockIdExt> prev,
-                                         td::Ref<ValidatorSet> validator_set, BlockIdExt min_masterchain_block_id,
-                                         bool can_generate, Ref<MasterchainState> state, adnl::AdnlNodeIdShort local_id,
+                                         td::Ref<block::ValidatorSet> validator_set,
+                                         BlockIdExt min_masterchain_block_id, bool can_generate,
+                                         Ref<MasterchainState> state, adnl::AdnlNodeIdShort local_id,
                                          td::Ref<ValidatorManagerOptions> opts,
                                          td::actor::ActorId<ValidatorManager> manager,
                                          td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp)
@@ -55,7 +56,7 @@ void CollatorNodeSession::start_up() {
             << validator_set_->get_catchain_seqno() << ", next block seqno " << next_block_seqno_;
 
   if (can_generate_) {
-    generate_block(prev_, {}, {}, td::Timestamp::in(10.0), [](td::Result<BlockCandidate>) {});
+    generate_block(prev_, {}, td::Timestamp::in(10.0), [](td::Result<BlockCandidate>) {});
   }
 }
 
@@ -103,7 +104,7 @@ void CollatorNodeSession::new_shard_block_accepted(BlockIdExt block_id, bool can
   }
 
   if (can_generate_) {
-    generate_block(prev_, {}, {}, td::Timestamp::in(10.0), [](td::Result<BlockCandidate>) {});
+    generate_block(prev_, {}, td::Timestamp::in(10.0), [](td::Result<BlockCandidate>) {});
   }
 }
 
@@ -114,11 +115,9 @@ void CollatorNodeSession::update_masterchain_config(td::Ref<MasterchainState> st
 }
 
 void CollatorNodeSession::generate_block(std::vector<BlockIdExt> prev_blocks,
-                                         td::optional<BlockCandidatePriority> o_priority,
-                                         td::Ref<BlockData> o_optimistic_prev_block, td::Timestamp timeout,
+                                         td::optional<BlockCandidatePriority> o_priority, td::Timestamp timeout,
                                          td::Promise<BlockCandidate> promise) {
   bool is_external = !o_priority;
-  bool is_optimistic = o_optimistic_prev_block.not_null();
   BlockSeqno block_seqno = get_next_block_seqno(prev_blocks);
   if (next_block_seqno_ > block_seqno) {
     promise.set_error(td::Status::Error(PSTRING() << "next block seqno " << block_seqno << " is too old, expected "
@@ -136,8 +135,7 @@ void CollatorNodeSession::generate_block(std::vector<BlockIdExt> prev_blocks,
   }
 
   static auto prefix_inner = [](td::StringBuilder& sb, const ShardIdFull& shard, CatchainSeqno cc_seqno,
-                                BlockSeqno block_seqno, const td::optional<BlockCandidatePriority>& o_priority,
-                                bool is_optimistic) {
+                                BlockSeqno block_seqno, const td::optional<BlockCandidatePriority>& o_priority) {
     sb << "generate block query"
        << ": shard=" << shard.to_str() << ", cc_seqno=" << cc_seqno << ", next_block_seqno=" << block_seqno;
     if (o_priority) {
@@ -149,12 +147,9 @@ void CollatorNodeSession::generate_block(std::vector<BlockIdExt> prev_blocks,
     } else {
       sb << " internal";
     }
-    if (is_optimistic) {
-      sb << " opt";
-    }
   };
   auto prefix = [&](td::StringBuilder& sb) {
-    prefix_inner(sb, shard_, validator_set_->get_catchain_seqno(), block_seqno, o_priority, is_optimistic);
+    prefix_inner(sb, shard_, validator_set_->get_catchain_seqno(), block_seqno, o_priority);
   };
 
   auto cache_entry = cache_[prev_blocks];
@@ -212,13 +207,12 @@ void CollatorNodeSession::generate_block(std::vector<BlockIdExt> prev_blocks,
                                   .validator_set = validator_set_,
                                   .collator_opts = opts_->get_collator_options(),
                                   .collator_node_id = local_id_,
-                                  .skip_store_candidate = true,
-                                  .optimistic_prev_block = o_optimistic_prev_block},
+                                  .skip_store_candidate = true},
                     manager_, timeout, cache_entry->cancellation_token_source.get_cancellation_token(),
                     [=, shard = shard_, cc_seqno = validator_set_->get_catchain_seqno(), SelfId = actor_id(this),
                      timer = td::Timer{}](td::Result<BlockCandidate> R) mutable {
                       FLOG(INFO) {
-                        prefix_inner(sb, shard, cc_seqno, block_seqno, o_priority, is_optimistic);
+                        prefix_inner(sb, shard, cc_seqno, block_seqno, o_priority);
                         sb << ": " << (R.is_ok() ? "OK" : R.error().to_string()) << " time=" << timer.elapsed();
                       };
                       td::actor::send_closure(SelfId, &CollatorNodeSession::process_result, cache_entry, std::move(R));
@@ -242,63 +236,9 @@ void CollatorNodeSession::process_result(std::shared_ptr<CacheEntry> cache_entry
 }
 
 void CollatorNodeSession::process_request(adnl::AdnlNodeIdShort src, std::vector<BlockIdExt> prev_blocks,
-                                          BlockCandidatePriority priority, bool is_optimistic, td::Timestamp timeout,
+                                          BlockCandidatePriority priority, td::Timestamp timeout,
                                           td::Promise<BlockCandidate> promise) {
-  if (is_optimistic) {
-    if (prev_blocks.size() != 1) {
-      promise.set_error(td::Status::Error("optimistic collation, expected 1 prev block"));
-      return;
-    }
-    auto it = cache_.find(prev_blocks);
-    if (it == cache_.end() || it->second->started) {
-      BlockIdExt prev_block = prev_blocks[0];
-      td::actor::send_closure(
-          manager_, &ValidatorManager::get_candidate_data_by_block_id_from_db, prev_block,
-          [=, SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
-            td::actor::send_closure(SelfId, &CollatorNodeSession::process_request_optimistic_cont, src, prev_block,
-                                    priority, timeout, std::move(promise), std::move(R));
-          });
-      return;
-    }
-  }
-  generate_block(std::move(prev_blocks), priority, {}, timeout, std::move(promise));
-}
-
-void CollatorNodeSession::process_request_optimistic_cont(adnl::AdnlNodeIdShort src, BlockIdExt prev_block_id,
-                                                          BlockCandidatePriority priority, td::Timestamp timeout,
-                                                          td::Promise<BlockCandidate> promise,
-                                                          td::Result<td::BufferSlice> prev_block_data) {
-  if (prev_block_data.is_ok()) {
-    TRY_RESULT_PROMISE_PREFIX(promise, prev_block, create_block(prev_block_id, prev_block_data.move_as_ok()),
-                              "invalid prev block data in db: ");
-    LOG(INFO) << "got prev block from db for optimistic collation: " << prev_block_id.to_str();
-    generate_block({prev_block_id}, priority, prev_block, timeout, std::move(promise));
-    return;
-  }
-  td::actor::send_closure(
-      rldp_, &rldp2::Rldp::send_query_ex, local_id_, src, "getprevblock",
-      [=, SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
-        td::actor::send_closure(SelfId, &CollatorNodeSession::process_request_optimistic_cont2, prev_block_id, priority,
-                                timeout, std::move(promise), std::move(R));
-      },
-      timeout,
-      create_serialize_tl_object<ton_api::collatorNode_requestBlockCallback>(0, create_tl_block_id(prev_block_id)),
-      max_candidate_size_);
-}
-
-void CollatorNodeSession::process_request_optimistic_cont2(BlockIdExt prev_block_id, BlockCandidatePriority priority,
-                                                           td::Timestamp timeout, td::Promise<BlockCandidate> promise,
-                                                           td::Result<td::BufferSlice> R) {
-  TRY_RESULT_PROMISE_PREFIX(promise, response, std::move(R),
-                            "failed to download prev block data for optimistic collation: ");
-  TRY_RESULT_PROMISE_PREFIX(promise, f, fetch_tl_object<ton_api::collatorNode_Candidate>(response, true),
-                            "failed to download prev block data for optimistic collation: ");
-  TRY_RESULT_PROMISE_PREFIX(promise, candidate, deserialize_candidate(std::move(f), max_candidate_size_),
-                            "failed to download prev block data for optimistic collation: ");
-  TRY_RESULT_PROMISE_PREFIX(promise, prev_block, create_block(prev_block_id, std::move(candidate.data)),
-                            "invalid prev block data from validator: ");
-  LOG(INFO) << "got prev block from validator for optimistic collation: " << prev_block_id.to_str();
-  generate_block({prev_block_id}, priority, prev_block, timeout, std::move(promise));
+  generate_block(std::move(prev_blocks), priority, timeout, std::move(promise));
 }
 
 void CollatorNodeSession::CacheEntry::cancel(td::Status reason) {

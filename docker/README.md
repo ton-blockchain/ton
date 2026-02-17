@@ -8,12 +8,12 @@
 6. [Troubleshooting](#troubleshooting)
 ## Prerequisites
 
-The TON node, whether it is validator or fullnode, requires a public IP address. 
+The TON node, whether it is validator or fullnode, requires a public IP address.
 If your server is within an internal network or kubernetes you have to make sure that the required ports are available from the outside.
 
-Also pay attention at [hardware requirements](https://docs.ton.org/participate/run-nodes/full-node) for TON fullnodes and validators. Pods and StatefulSets in this guide imply these requirements. 
+Also pay attention at [hardware requirements](https://docs.ton.org/participate/run-nodes/full-node) for TON fullnodes and validators. Pods and StatefulSets in this guide imply these requirements.
 
-It is recommended to everyone to read Docker chapter first in order to get a better understanding about TON Docker image and its parameters.  
+It is recommended to everyone to read Docker chapter first in order to get a better understanding about TON Docker image and its parameters.
 
 ## Docker
 
@@ -21,8 +21,8 @@ It is recommended to everyone to read Docker chapter first in order to get a bet
 ```docker pull ghcr.io/ton-blockchain/ton:latest```
 
 ### Configuration
-TON validator-engine supports number of command line parameters, 
-these parameters can be handed over to the container via environment variables. 
+TON validator-engine supports number of command line parameters,
+these parameters can be handed over to the container via environment variables.
 Below is the list of supported arguments and their default values:
 
 | Argument          | Description                                                                                                                                                                               | Mandatory? |                      Default value                      |
@@ -66,7 +66,7 @@ docker run -d --name ton-node -v /data/db:/var/ton-work/db \
 If you don't need Lite-server, then remove -e "LITESERVER=true".
 
 ### Run the node - isolated way
-In production environments it is recommended to use **Port mapping** feature of Docker's default bridge network. 
+In production environments it is recommended to use **Port mapping** feature of Docker's default bridge network.
 When you use port mapping, Docker allocates a specific port on the host to forward traffic to a port inside the container.
 This is ideal for running multiple containers with isolated networks on the same host.
 ```
@@ -82,7 +82,7 @@ docker run -d --name ton-node -v /data/db:/var/ton-work/db \
 -p 443:443/tcp \
 -it ghcr.io/ton-blockchain/ton
 ```
-Adjust ports per your need. 
+Adjust ports per your need.
 Check your firewall configuration and make sure that customized ports (443/udp, 88/tcp and 443/tcp in this example) are publicly available.
 
 ### Verify if TON node is operating correctly
@@ -106,7 +106,7 @@ finished downloading state (-1,8000000000000000,38585739):9E86E166AE7E24BAA22762
 getnextkey: [Error : 651 : not inited]
 getnextkey: [Error : 651 : not inited]
 ```
-As you noticed we have mounted docker volume to a local folder **/data/db**. 
+As you noticed we have mounted docker volume to a local folder **/data/db**.
 Go inside this folder on your server and check if its size is growing (```sudo du -h .*```)
 
 Now connect to the running container:
@@ -164,12 +164,12 @@ docker stop ton-node
 
 ## Kubernetes
 ### Deploy in a quick way (without load balancer)
-If the nodes within your kubernetes cluster have external IPs, 
+If the nodes within your kubernetes cluster have external IPs,
 make sure that the PUBLIC_IP used for validator-engine matches the node's external IP.
 If all Kubernetes nodes are inside DMZ - skip this section.
 
 #### Prepare
-If you are using **flannel** network driver you can find node's IP this way: 
+If you are using **flannel** network driver you can find node's IP this way:
 ```yaml
 kubectl get nodes
 kubectl describe node <NODE_NAME> | grep public-ip
@@ -187,15 +187,15 @@ kubectl delete pod validator-engine-pod
 If IPs do not match, refer to the sections where load balancers are used.
 
 Now do the following:
-* Add a label to this particular node. 
-* By this label our pod will know where to be deployed and what storage to use:  
+* Add a label to this particular node.
+* By this label our pod will know where to be deployed and what storage to use:
 ```
 kubectl label nodes <NODE_NAME> node_type=ton-validator
 ```
 * Replace **<PUBLIC_IP>** (and ports if needed) in file [ton-node-port.yaml](ton-node-port.yaml).
 * Replace **<LOCAL_STORAGE_PATH>** with a real path on host for Persistent Volume.
 * If you change the ports, make sure you specify appropriate env vars in Pod section.
-* If you want to use dynamic storage provisioning via volumeClaimTemplates, feel free to create own StorageClass. 
+* If you want to use dynamic storage provisioning via volumeClaimTemplates, feel free to create own StorageClass.
 
 #### Install
 ```yaml
@@ -224,7 +224,7 @@ or go inside the pod and check if blockchain size is growing:
 kubectl exec --stdin --tty validator-engine-pod -- /bin/bash
 du -h .
 ```
-### Deploy on-premises with metalLB load balancer 
+### Deploy on-premises with metalLB load balancer
 
 Often Kubernetes cluster is located in DMZ, is behind corporate firewall and access is controlled via proxy configuration.
 In this case we can't use  host's network stack (**hostNetwork: true**) within a Pod and must manually proxy the access to the pod.
@@ -323,13 +323,13 @@ Use the commands from the previous chapter to see if node operates properly.
 ```kubectl apply -f ton-aws.yaml```
 
 #### Verify installation
-Use instructions from the previous sections. 
+Use instructions from the previous sections.
 
 ### Deploy on GCP (Google Cloud Platform)
 
 #### Prepare
 * Kubernetes cluster of type Standard (not Autopilot).
-* Premium static IP address. 
+* Premium static IP address.
 * Adjust firewall rules and security groups to allow ports 30001/udp, 30002/tcp and 30003/tcp (default ones).
 * Replace **<PUBLIC_IP>** (and ports if needed) in file [ton-gcp.yaml](ton-gcp.yaml).
 * Adjust StorageClass name. Make sure you are providing fast storage.
@@ -360,7 +360,7 @@ As a result CLB (classic internal Load Balancer) will be created automatically w
 Use instructions from the previous sections.
 
 ## Troubleshooting
-## Docker 
+## Docker
 ### TON node cannot synchronize, constantly see messages [Error : 651 : no nodes] in the log
 
 Start the new container without starting validator-engine:
@@ -380,7 +380,7 @@ identify your PUBLIC_IP:
 ```
 curl -4 ifconfig.me
 ```
-compare if resulted IP coincides with your <PUBLIC_IP>. 
+compare if resulted IP coincides with your <PUBLIC_IP>.
 If it doesn't, exit container and launch it with the correct public IP.
 Then open UDP port (inside the container) you plan to allocate for TON node using netcat utility:
 ```
@@ -393,7 +393,7 @@ echo "test" | nc -u <PUBLIC_IP> 30001
 as a result inside the container you have to receive the "test" message.
 
 If you don't get the message inside the docker container, that means that either your firewall, LoadBalancer, NAT or proxy is blocking it.
-Ask your system administrator for assistance. 
+Ask your system administrator for assistance.
 
 In the same way you can check if TCP port is available:
 
@@ -455,7 +455,7 @@ kubernetes.io/cluster/<YOUR_CLUSTER_NAME>: owner
 ```
 ---
 #### AWS Load Balancer works, but I still see ```[no nodes]``` in validator's log
-It is required to add the security group for the EC2 instances to the load balancer along with the default security group. 
+It is required to add the security group for the EC2 instances to the load balancer along with the default security group.
 It's a misleading that the default security group has "everything open."
 
 Add security group (default name is usually something like 'launch-wizard-1').
@@ -467,7 +467,7 @@ You can also set inbound and outbound rules of new security group to allow ALL p
 
 #### Pending PersistentVolumeClaim ```Waiting for a volume to be created either by the external provisioner 'ebs.csi.aws.com' or manually by the system administrator.```
 
-Solution: 
+Solution:
 
 Configure Amazon EBS CSI driver for working PersistentVolumes in EKS.
 

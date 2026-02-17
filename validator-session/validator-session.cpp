@@ -515,7 +515,7 @@ void ValidatorSessionImpl::candidate_decision_fail(td::uint32 round, ValidatorSe
 }
 
 void ValidatorSessionImpl::candidate_decision_ok(td::uint32 round, ValidatorSessionCandidateId hash, RootHash root_hash,
-                                                 FileHash file_hash, td::uint32 src, td::uint32 ok_from,
+                                                 FileHash file_hash, td::uint32 src, double ok_from,
                                                  double validation_time, bool validation_cached) {
   auto stat = stats_get_candidate_stat(round, description().get_source_id(src), hash);
   if (stat) {
@@ -548,10 +548,10 @@ void ValidatorSessionImpl::candidate_decision_ok(td::uint32 round, ValidatorSess
   td::actor::send_closure(keyring_, &keyring::Keyring::sign_message, local_id(), std::move(data), std::move(P));
 }
 
-void ValidatorSessionImpl::candidate_approved_signed(td::uint32 round, ValidatorSessionCandidateId hash,
-                                                     td::uint32 ok_from, td::BufferSlice signature) {
+void ValidatorSessionImpl::candidate_approved_signed(td::uint32 round, ValidatorSessionCandidateId hash, double ok_from,
+                                                     td::BufferSlice signature) {
   pending_approve_.erase(hash);
-  approved_[hash] = std::pair<td::uint32, td::BufferSlice>{ok_from, std::move(signature)};
+  approved_[hash] = std::pair<double, td::BufferSlice>{ok_from, std::move(signature)};
 
   if (ok_from <= td::Clocks::system()) {
     request_new_block(false);
@@ -813,7 +813,7 @@ void ValidatorSessionImpl::try_approve_block(const SentBlock *block) {
       alarm_timestamp().relax(T);
     }
   } else {
-    approved_[block_id] = std::pair<td::uint32, td::BufferSlice>{0, td::BufferSlice{}};
+    approved_[block_id] = std::pair<double, td::BufferSlice>{0.0, td::BufferSlice{}};
 
     request_new_block(false);
   }
@@ -836,7 +836,7 @@ void ValidatorSessionImpl::get_broadcast_p2p(PublicKeyHash node, ValidatorSessio
       catchain_, &catchain::CatChain::send_query_via, node, "download candidate", std::move(promise), timeout,
       serialize_tl_object(obj, true),
       description().opts().max_block_size + description().opts().max_collated_data_size + MAX_CANDIDATE_EXTRA_SIZE,
-      rldp_);
+      adnl_sender_);
 }
 
 void ValidatorSessionImpl::check_sign_slot() {
@@ -1140,7 +1140,8 @@ ValidatorSessionImpl::ValidatorSessionImpl(catchain::CatChainSessionId session_i
                                            PublicKeyHash local_id, std::vector<ValidatorSessionNode> nodes,
                                            std::unique_ptr<Callback> callback,
                                            td::actor::ActorId<keyring::Keyring> keyring,
-                                           td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp,
+                                           td::actor::ActorId<adnl::Adnl> adnl,
+                                           td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender,
                                            td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
                                            std::string db_suffix, bool allow_unsafe_self_blocks_resync)
     : unique_hash_(session_id)
@@ -1149,11 +1150,11 @@ ValidatorSessionImpl::ValidatorSessionImpl(catchain::CatChainSessionId session_i
     , db_suffix_(db_suffix)
     , keyring_(keyring)
     , adnl_(adnl)
-    , rldp_(rldp)
+    , adnl_sender_(adnl_sender)
     , overlay_manager_(overlays)
     , allow_unsafe_self_blocks_resync_(allow_unsafe_self_blocks_resync) {
   compress_block_candidates_ = opts.proto_version >= 4;
-  allow_optimistic_generation_ = opts.proto_version >= 6;
+  allow_optimistic_generation_ = false;
   description_ = ValidatorSessionDescription::create(std::move(opts), nodes, local_id);
   src_round_candidate_.resize(description_->get_total_nodes());
 }
@@ -1168,8 +1169,8 @@ void ValidatorSessionImpl::start() {
   auto w = description().export_catchain_nodes();
 
   catchain_ = catchain::CatChain::create(make_catchain_callback(), description().opts().catchain_opts, keyring_, adnl_,
-                                         overlay_manager_, std::move(w), local_id(), unique_hash_, db_root_, db_suffix_,
-                                         allow_unsafe_self_blocks_resync_);
+                                         adnl_sender_, overlay_manager_, std::move(w), local_id(), unique_hash_,
+                                         db_root_, db_suffix_, allow_unsafe_self_blocks_resync_);
 
   check_all();
 }
@@ -1255,7 +1256,7 @@ void ValidatorSessionImpl::get_validator_group_info_for_litequery(
 }
 
 void ValidatorSessionImpl::start_up() {
-  CHECK(!rldp_.empty());
+  CHECK(!adnl_sender_.empty());
   cur_round_ = 0;
   round_started_at_ = td::Timestamp::now();
   round_debug_at_ = td::Timestamp::in(60.0);
@@ -1477,11 +1478,11 @@ td::actor::ActorOwn<ValidatorSession> ValidatorSession::create(
     catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,
     std::vector<ValidatorSessionNode> nodes, std::unique_ptr<Callback> callback,
     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-    td::actor::ActorId<rldp2::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
-    std::string db_suffix, bool allow_unsafe_self_blocks_resync) {
-  return td::actor::create_actor<ValidatorSessionImpl>("session", session_id, std::move(opts), local_id,
-                                                       std::move(nodes), std::move(callback), keyring, adnl, rldp,
-                                                       overlays, db_root, db_suffix, allow_unsafe_self_blocks_resync);
+    td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender, td::actor::ActorId<overlay::Overlays> overlays,
+    std::string db_root, std::string db_suffix, bool allow_unsafe_self_blocks_resync) {
+  return td::actor::create_actor<ValidatorSessionImpl>(
+      "session", session_id, std::move(opts), local_id, std::move(nodes), std::move(callback), keyring, adnl,
+      adnl_sender, overlays, db_root, db_suffix, allow_unsafe_self_blocks_resync);
 }
 
 td::Bits256 ValidatorSessionOptions::get_hash() const {
@@ -1519,6 +1520,7 @@ ValidatorSessionOptions::ValidatorSessionOptions(const ValidatorSessionConfig &c
   round_attempt_duration = conf.round_attempt_duration;
   round_candidates = conf.round_candidates;
   new_catchain_ids = conf.new_catchain_ids;
+  use_quic = conf.use_quic;
 }
 
 }  // namespace validatorsession

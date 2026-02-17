@@ -220,6 +220,8 @@ class ArchiveSlice : public td::actor::Actor {
 
   BlockSeqno max_masterchain_seqno();
 
+  td::Status repair_pack_files(std::string path_new, std::string path_old, td::uint32 version, td::uint64 trunc_size);
+
   void update_temp_max_seqno(BlockId id);
   void update_temp_max_seqno(FileReference &ref);
 

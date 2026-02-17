@@ -82,7 +82,7 @@ void pipeline_check_constant_expressions() {
       }
     }
   }
-  
+
   // assign `enum` members values (either auto-compute sequentially or use manual initializers)
   for (EnumDefPtr enum_ref : get_all_declared_enums()) {
     std::vector<td::RefInt256> values = calculate_enum_members_with_values(enum_ref);

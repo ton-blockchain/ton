@@ -150,7 +150,7 @@ def _write_to_dict(tlobject: ParsedTLObject, builder: SourceBuilder, ctx: Import
     for arg in tlobject.args:
         builder.writeln(",")
         if arg.type in BASE_TYPES:
-            builder.write(f"'{arg.name}': ")
+            builder.write(f"'{arg.unmangled_name}': ")
             if arg.type in BASE64_ENCODED_TYPES:
                 ctx.base64_needed = True
                 if arg.is_vector:
@@ -164,11 +164,11 @@ def _write_to_dict(tlobject: ParsedTLObject, builder: SourceBuilder, ctx: Import
                     builder.write("self.{}", arg.name)
         else:
             if arg.is_vector:
-                builder.write(f"'{arg.name}': ")
+                builder.write(f"'{arg.unmangled_name}': ")
                 builder.write(f"[x.to_dict() for x in self.{arg.name}]")
             else:
                 builder.write(
-                    f"**({{'{arg.name}': self.{arg.name}.to_dict()}} "
+                    f"**({{'{arg.unmangled_name}': self.{arg.name}.to_dict()}} "
                     + f"if self.{arg.name} is not None else {{}})"
                 )  # do not write object in json if it's None
 
@@ -231,11 +231,11 @@ def _write_from_dict(
         if not arg.is_vector:
             builder.writeln(
                 f"_{arg.name} = "
-                + f"{deserializer}(d.get('{arg.name}', {arg.default_value_for_from_dict()}))"
+                + f"{deserializer}(d.get('{arg.unmangled_name}', {arg.default_value_for_from_dict()}))"
             )
         else:
             builder.writeln(
-                f"_{arg.name} = tl.deserialize_list(d.get('{arg.name}', []), {deserializer})"
+                f"_{arg.name} = tl.deserialize_list(d.get('{arg.unmangled_name}', []), {deserializer})"
             )
 
     builder.writeln(

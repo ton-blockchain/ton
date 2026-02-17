@@ -340,6 +340,7 @@ static void block_stdin() {
 
   Stacktrace::PrintOptions options;
   options.use_gdb = true;
+  options.use_libbacktrace = true;
   Stacktrace::print_to_stderr(options);
 
 #if TD_PORT_POSIX

@@ -153,7 +153,7 @@ class Certificate {
   const PublicKey &issuer() const;
   const PublicKeyHash issuer_hash() const;
 
-  static td::Result<std::shared_ptr<Certificate>> create(tl_object_ptr<ton_api::overlay_Certificate> cert);
+  static td::Result<std::shared_ptr<Certificate>> create(const tl_object_ptr<ton_api::overlay_Certificate> &cert);
   static tl_object_ptr<ton_api::overlay_Certificate> empty_tl();
 
  private:
@@ -269,6 +269,14 @@ struct OverlayOptions {
   td::uint32 default_permanent_members_flags_ = 0;
   double broadcast_speed_multiplier_ = 1.0;
   bool private_ping_peers_ = false;
+
+  td::actor::ActorId<adnl::AdnlSenderInterface> twostep_broadcast_sender_ = {};
+  bool send_twostep_broadcast_ = false;
+};
+
+struct OverlayManagerBufferLimits {
+  td::uint32 max_packets = 0;
+  td::uint64 max_data_size = 0;
 };
 
 class Overlays : public td::actor::Actor {
@@ -311,7 +319,8 @@ class Overlays : public td::actor::Actor {
   }
 
   static td::actor::ActorOwn<Overlays> create(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-                                              td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht);
+                                              td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht,
+                                              OverlayManagerBufferLimits buffer_limits = {});
 
   virtual void update_dht_node(td::actor::ActorId<dht::Dht> dht) = 0;
 

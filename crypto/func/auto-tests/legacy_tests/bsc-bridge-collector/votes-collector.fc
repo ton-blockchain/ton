@@ -63,7 +63,7 @@ cell load_data() inline_ref {
     }
 
     save_data(external_votings);
-    return send_receipt_message(s_addr, 0x10000 + 6, query_id, 0, 0, 64); ;; thanks 
+    return send_receipt_message(s_addr, 0x10000 + 6, query_id, 0, 0, 64); ;; thanks
 }
 
 () recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
@@ -83,7 +83,7 @@ cell load_data() inline_ref {
     return ();
   }
   int query_id = in_msg~load_uint(64);
- 
+
   if (op == 5) { ;; submit signatures
     int voting_id = in_msg~load_uint(256);
     slice signature = in_msg~load_bits(520);

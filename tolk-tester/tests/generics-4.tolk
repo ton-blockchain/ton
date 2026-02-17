@@ -217,16 +217,16 @@ fun main() {
     __expect_type(cb2, "() -> [int, cell, int, builder]?");
     __expect_type(cb3, "() -> [int, cell, slice, builder]?");
     __expect_type(cb4, "() -> [int, cell, slice, tuple]?");
-    
-    var o2 = MultipleWithDefaults<int, cell>{}; 
-    var o3 = MultipleWithDefaults<int, cell, slice>{}; 
+
+    var o2 = MultipleWithDefaults<int, cell>{};
+    var o3 = MultipleWithDefaults<int, cell, slice>{};
     var o4 = MultipleWithDefaults<int, cell, slice?, tuple>{};
     __expect_type(o2.t, "[int, cell, int?, builder]?");
     __expect_type(o3.t, "[int, cell, slice, builder]?");
     __expect_type(o4.t, "[int, cell, slice?, tuple]?");
-    
+
     __expect_type(o2.getT(), "[int, cell, int?, builder]?");
-    
+
     __expect_type(o4.method1(), "[slice?, int?]");
     __expect_type(o4.method1<Container1<never>>(), "[slice?, Container1<never>?]");
     __expect_type(o4.method2<cell>(), "[tuple, cell?, int?]");

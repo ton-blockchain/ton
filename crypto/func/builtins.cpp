@@ -24,7 +24,7 @@ using namespace std::literals::string_literals;
 /*
  *
  *   SYMBOL VALUES
- * 
+ *
  */
 
 int glob_func_cnt, undef_func_cnt, glob_var_cnt, const_cnt;
@@ -98,9 +98,9 @@ bool SymValAsmFunc::compile(AsmOpList& dest, std::vector<VarDescr>& out, std::ve
 }
 
 /*
- * 
+ *
  *   DEFINE BUILT-IN FUNCTIONS
- * 
+ *
  */
 
 int emulate_negate(int a) {

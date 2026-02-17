@@ -184,7 +184,7 @@ x{6E} @Defop ISNULL
 x{6F0} @Defop(4u) TUPLE
 x{6F00} @Defop NIL
 x{6F01} @Defop SINGLE
-x{6F02} dup @Defop PAIR @Defop CONS 
+x{6F02} dup @Defop PAIR @Defop CONS
 x{6F03} @Defop TRIPLE
 x{6F1} @Defop(4u) INDEX
 x{6F10} dup @Defop FIRST @Defop CAR
@@ -251,7 +251,7 @@ x{7F} @Defop TRUE
     { dup 16 fits
       { <b x{81} s, swap 16 i, }
       { 11 { dup 259 > abort"integer too large" 8 + 2dup fits } until
-        <b x{82} s, over 3 >> 2- 5 u, -rot i, 
+        <b x{82} s, over 3 >> 2- 5 u, -rot i,
       } cond
     } cond
   } cond
@@ -918,24 +918,24 @@ recursive IFELSE-cont2 {
 { 1 { swap @normal? swap IFELSE-cont2 } does @doafter<{ } : @doifelse
 { 1 { swap @normal? IFELSE-cont2 } does @doafter<{ } : @doifnotelse
 {
-  { dup `else eq? 
+  { dup `else eq?
     { drop @doifelse }
     { dup `else: eq?
       { drop IFJMP-cont }
       { @normal? IF-cont
-      } cond 
-    } cond 
-  } @doafter<{ 
+      } cond
+    } cond
+  } @doafter<{
 } : IF:<{
 {
-  { dup `else eq? 
+  { dup `else eq?
     { drop @doifnotelse }
     { dup `else: eq?
       { drop IFNOTJMP-cont }
       { @normal? IFNOT-cont
-      } cond 
-    } cond 
-  } @doafter<{ 
+      } cond
+    } cond
+  } @doafter<{
 } : IFNOT:<{
 
 x{E304} @Defop CONDSEL
@@ -963,12 +963,12 @@ x{EB} dup @Defop AGAINEND @Defop AGAIN:
 { }> PUSHCONT UNTIL } : }>UNTIL
 { { @normal? PUSHCONT UNTIL } @doafter<{ } : UNTIL:<{
 { PUSHCONT { @normal? PUSHCONT WHILE } @doafter<{ } : @dowhile
-{ 
-  { dup `do eq? 
-    { drop @dowhile } 
-    { `do: eq? not abort"`}>DO<{` expected" PUSHCONT WHILEEND 
-    } cond 
-  } @doafter<{ 
+{
+  { dup `do eq?
+    { drop @dowhile }
+    { `do: eq? not abort"`}>DO<{` expected" PUSHCONT WHILEEND
+    } cond
+  } @doafter<{
 } : WHILE:<{
 { }> PUSHCONT AGAIN } : }>AGAIN
 { { @normal? PUSHCONT AGAIN } @doafter<{ } : AGAIN:<{
@@ -988,11 +988,11 @@ x{E31B} dup @Defop AGAINENDBRK @Defop AGAINBRK:
 { { @normal? PUSHCONT UNTILBRK } @doafter<{ } : UNTILBRK:<{
 { PUSHCONT { @normal? PUSHCONT WHILEBRK } @doafter<{ } : @dowhile
 {
-  { dup `do eq? 
-    { drop @dowhile } 
+  { dup `do eq?
+    { drop @dowhile }
     { `do: eq? not abort"`}>DO<{` expected" PUSHCONT WHILEENDBRK
-    } cond 
-  } @doafter<{ 
+    } cond
+  } @doafter<{
 } : WHILEBRK:<{
 { }> PUSHCONT AGAINBRK } : }>AGAINBRK
 { { @normal? PUSHCONT AGAINBRK } @doafter<{ } : AGAINBRK:<{
@@ -1018,8 +1018,8 @@ x{ED1F} @Defop BLESSVARARGS
 { c4 PUSHCTR } : PUSHROOT
 { c4 POPCTR } : POPROOT
 x{ED6} dup @Defop(c) SETCONTCTR @Defop(c) SETCONT
-x{ED7} @Defop(c) SETRETCTR 
-x{ED8} @Defop(c) SETALTCTR 
+x{ED7} @Defop(c) SETRETCTR
+x{ED8} @Defop(c) SETALTCTR
 x{ED9} dup @Defop(c) POPSAVE @Defop(c) POPCTRSAVE
 x{EDA} dup @Defop(c) SAVE @Defop(c) SAVECTR
 x{EDB} dup @Defop(c) SAVEALT @Defop(c) SAVEALTCTR
@@ -1076,7 +1076,7 @@ x{EDFB} @Defop SAMEALTSAVE
 { dup sbits
    { @addop }
    {
-    dup srefs // 
+    dup srefs //
       { ref@ CALLREF }
       { drop }
       cond
@@ -1113,9 +1113,9 @@ x{F2FF} @Defop TRY
 x{F3} @Defop(4u,4u) TRYARGS
 { `catch @endblk } : }>CATCH<{
 { PUSHCONT { @normal? PUSHCONT TRY } @doafter<{ } : @trycatch
-{ 
+{
   { `catch eq? not abort"`}>CATCH<{` expected" @trycatch
-  } @doafter<{ 
+  } @doafter<{
 } : TRY:<{
 //
 // dictionary manipulation
@@ -1265,7 +1265,7 @@ x{F4A1} @Defop DICTUGETJMP
 x{F4A2} @Defop DICTIGETEXEC
 x{F4A3} @Defop DICTUGETEXEC
 { dup sbitrefs tuck 1 > swap 1 <> or abort"not a dictionary" swap 1 u@ over <> abort"not a dictionary" } : @chkdicts
-{ dup null? tuck { <s } ifnot drop not } : @chkdict 
+{ dup null? tuck { <s } ifnot drop not } : @chkdict
 { over @chkdict
   { swap <b x{F4A6_} s, swap ref, swap 10 u, @addopb }
   { nip swap NEWDICT swap PUSHINT }

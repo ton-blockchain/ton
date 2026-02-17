@@ -114,7 +114,7 @@ variable emul-stk
 
 // new s -- ops registered
 { { over null? not } {
-  // .sl .e get-op-list .l cr 
+  // .sl .e get-op-list .l cr
   // get-op-list list-length 100 > abort"too long"
   emul-depth over >
     { over emul-tos swap list-member-eqv? not } { false } cond {
@@ -139,14 +139,14 @@ variable emul-stk
 } : generate-reorder-ops
 
 // old new -- op-list
-{ emul-stk @ op-rlist @ 2swap 
+{ emul-stk @ op-rlist @ 2swap
   swap list>tuple emul-stk ! clear-op-list
   0 generate-reorder-ops get-op-list
   -rot op-rlist ! emul-stk !
 } : generate-reorder
 { parse-stk-list( generate-reorder } :_ SG(
 
-// op-list rewriting according to a ruleset 
+// op-list rewriting according to a ruleset
 // l f l1 l2 -- l' -1 or l f  with l' = l2 + (l - l1)
 { push(3) rot list- { list+ nip nip true } { drop } cond
 } : try-rule
@@ -186,7 +186,7 @@ LIST(
 // helpers for creating Fift source strings for one fift-op
 // i j -- s
 { minmax over { "xchg(" rot (.) $+ +"," swap (.) $+ +")" }
-  { nip dup 1 = { drop "swap" } { 
+  { nip dup 1 = { drop "swap" } {
     ?dup { "xchg0(" swap (.) $+ +")" } { "" } cond
   } cond } cond
 } : source-<xchg>
@@ -202,7 +202,7 @@ LIST(
 } : source-<pop>
 // lit -- s
 { dup string? { char " chr swap $+ char " hold } { (.) } cond
-} : source-<lit> 
+} : source-<lit>
 
 // dictionary with all fift op compilation/source creation
 { 0 swap (compile) } : fop-compile
@@ -228,7 +228,7 @@ variable 'fop-entry-exec
 { dup first dup fift-op-dict @ assq { report-unknown-op } ifnot
   dup second 1+ push(3) count <> abort"incorrect param count"
   nip swap explode dup roll drop 1- roll // o2 .. on entry
-  'fop-entry-exec @ execute 
+  'fop-entry-exec @ execute
 } : process-fift-op
 
 // compile op-list into Fift wordlist
@@ -244,7 +244,7 @@ variable 'fop-entry-exec
 
 // transform op-list into Fift source
 // ls op -- ls'
-{ fift-ops-rewrite 
+{ fift-ops-rewrite
   { 3 [] execute } 'fop-entry-exec !
   null ' process-fift-op foldl
   dup null? { drop "" } { { +" " swap $+ } foldr-ne } cond

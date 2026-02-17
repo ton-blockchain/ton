@@ -562,7 +562,7 @@ void test_binlog(td::Slice data, td::optional<td::Span<LogEvent>> events = {}) {
         res.ensure();
         binlog_writer.close([&](Result<td::Unit> res) {
           res.ensure();
-          td::actor::SchedulerContext::get()->stop();
+          td::actor::SchedulerContext::get().stop();
         });
       });
     });
@@ -613,7 +613,7 @@ void test_binlog(td::Slice data, td::optional<td::Span<LogEvent>> events = {}) {
     scheduler.run_in_context([&]() mutable {
       binlog.replay_async(binlog_reader, [](Result<td::Unit> res) {
         res.ensure();
-        td::actor::SchedulerContext::get()->stop();
+        td::actor::SchedulerContext::get().stop();
       });
     });
 

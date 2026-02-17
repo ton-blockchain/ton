@@ -21,9 +21,9 @@
 namespace funC {
 
 /*
- * 
+ *
  *   ABSTRACT CODE
- * 
+ *
  */
 
 TmpVar::TmpVar(var_idx_t _idx, int _cls, TypeExpr* _type, SymDef* sym, const SrcLocation* loc)

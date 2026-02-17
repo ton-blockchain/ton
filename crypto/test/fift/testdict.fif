@@ -20,10 +20,10 @@
 ( _( 13 169 ) _( 17 289 ) _( 10 100 ) ) mkdict =: Dict
 _( 4 16 ) _( 9 81 ) Dict +dictpair +dictpair =: Dict1
 _( 4 20 ) _( 101 10201 ) Dict +dictpair +dictpair =: Dict2
-."Dict1 = " Dict1 show-dict 
+."Dict1 = " Dict1 show-dict
 Dict1 dict>list .l cr
 Dict1 <s csr. cr
-."Dict2 = " Dict2 show-dict 
+."Dict2 = " Dict2 show-dict
 Dict2 dict>list .l cr
 Dict2 <s csr. cr
 Dict1 Dict2 show-dict-diff

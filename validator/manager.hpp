@@ -25,7 +25,7 @@
 
 #include "collator-node/collator-node.hpp"
 #include "common/refcnt.hpp"
-#include "impl/candidates-buffer.hpp"
+#include "db/db-event-publisher.hpp"
 #include "impl/ext-message-pool.hpp"
 #include "interfaces/db.h"
 #include "interfaces/validator-manager.h"
@@ -33,6 +33,7 @@
 #include "rldp2/rldp.h"
 #include "td/actor/ActorStats.h"
 #include "td/actor/PromiseFuture.h"
+#include "td/actor/coro_task.h"
 #include "td/utils/LRUCache.h"
 #include "td/utils/SharedSlice.h"
 #include "td/utils/buffer.h"
@@ -208,25 +209,29 @@ class ValidatorManagerImpl : public ValidatorManager {
 
  private:
   // VALIDATOR GROUPS
-  ValidatorSessionId get_validator_set_id(ShardIdFull shard, td::Ref<ValidatorSet> val_set, td::Bits256 opts_hash,
-                                          BlockSeqno last_key_block_seqno,
+  ValidatorSessionId get_validator_set_id(ShardIdFull shard, td::Ref<block::ValidatorSet> val_set,
+                                          td::Bits256 opts_hash, BlockSeqno last_key_block_seqno,
                                           const validatorsession::ValidatorSessionOptions &opts);
-  td::actor::ActorOwn<ValidatorGroup> create_validator_group(ValidatorSessionId session_id, ShardIdFull shard,
-                                                             td::Ref<ValidatorSet> validator_set, BlockSeqno key_seqno,
-                                                             validatorsession::ValidatorSessionOptions opts,
-                                                             bool create_catchain);
+  td::actor::ActorOwn<IValidatorGroup> create_validator_group(ValidatorSessionId session_id, ShardIdFull shard,
+                                                              td::Ref<block::ValidatorSet> validator_set,
+                                                              BlockSeqno key_seqno,
+                                                              validatorsession::ValidatorSessionOptions opts,
+                                                              bool create_catchain);
   td::actor::ActorId<CollationManager> get_collation_manager(adnl::AdnlNodeIdShort adnl_id);
 
   struct ValidatorGroupEntry {
-    td::actor::ActorOwn<ValidatorGroup> actor;
+    std::string name() const {
+      return PSTRING() << "validator group " << shard.to_str() << "." << cc_seqno;
+    }
+
+    td::actor::ActorOwn<IValidatorGroup> actor;
     ShardIdFull shard;
+    bool started = false;
+    td::uint32 cc_seqno = 0;
   };
   std::map<ValidatorSessionId, ValidatorGroupEntry> validator_groups_;
   std::map<ValidatorSessionId, ValidatorGroupEntry> next_validator_groups_;
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<CollationManager>> collation_managers_;
-
-  std::set<ValidatorSessionId> check_gc_list_;
-  std::vector<ValidatorSessionId> gc_list_;
 
  private:
   // MASTERCHAIN LAST BLOCK
@@ -241,6 +246,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   BlockHandle shard_client_handle_;
   td::Ref<MasterchainState> shard_client_state_;
   std::vector<td::Ref<McShardHash>> shard_client_shards_;
+  td::Ref<MasterchainState> shard_client_state_;
   td::Ref<MasterchainState> last_liteserver_state_;
 
   td::Ref<MasterchainState> do_get_last_liteserver_state();
@@ -260,7 +266,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void update_shard_overlays();
   void update_shards();
   void update_shard_blocks();
-  void written_destroyed_validator_sessions(std::vector<td::actor::ActorId<ValidatorGroup>> groups);
   void updated_init_block(BlockIdExt last_rotate_block_id) {
     last_rotate_block_id_ = last_rotate_block_id;
   }
@@ -310,8 +315,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void validate_block_proof_rel(BlockIdExt block_id, BlockIdExt rel_block_id, td::BufferSlice proof,
                                 td::Promise<td::Unit> promise) override;
   void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override;
-  void new_block_broadcast(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override;
-  void validated_block_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno);
+  void new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, td::Promise<td::Unit> promise) override;
+  void validate_block_broadcast_signatures(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override;
+  td::actor::Task<> validated_accepted_block_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno);
 
   //void create_validate_block(BlockId block, td::BufferSlice data, td::Promise<Block> promise) = 0;
   void sync_complete(td::Promise<td::Unit> promise) override;
@@ -344,7 +350,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                              td::BufferSlice data) override;
-  void new_block_candidate_broadcast(BlockIdExt block_id, td::BufferSlice data) override;
+  td::actor::Task<> new_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
+                                                  td::BufferSlice data) override;
 
   void add_ext_server_id(adnl::AdnlNodeIdShort id) override;
   void add_ext_server_port(td::uint16 port) override;
@@ -352,7 +359,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void get_block_handle(BlockIdExt id, bool force, td::Promise<BlockHandle> promise) override;
 
-  void set_block_state(BlockHandle handle, td::Ref<ShardState> state,
+  void set_block_state(BlockHandle handle, td::Ref<ShardState> state, vm::StoreCellHint hint,
                        td::Promise<td::Ref<ShardState>> promise) override;
   void store_block_state_part(BlockId effective_block, td::Ref<vm::Cell> cell,
                               td::Promise<td::Ref<vm::DataCell>> promise) override;
@@ -389,12 +396,12 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_block_proof_link_short(BlockIdExt id, td::Timestamp timeout,
                                    td::Promise<td::Ref<ProofLink>> promise) override;
 
-  void set_block_signatures(BlockHandle handle, td::Ref<BlockSignatureSet> signatures,
-                            td::Promise<td::Unit> promise) override;
+  void set_block_signatures(BlockHandle handle, td::Ref<block::BlockSignatureSet> signatures,
+                            Ref<block::ValidatorSet> vset, td::Promise<td::Unit> promise) override;
   void wait_block_signatures(BlockHandle handle, td::Timestamp timeout,
-                             td::Promise<td::Ref<BlockSignatureSet>> promise) override;
+                             td::Promise<td::Ref<block::BlockSignatureSet>> promise) override;
   void wait_block_signatures_short(BlockIdExt id, td::Timestamp timeout,
-                                   td::Promise<td::Ref<BlockSignatureSet>> promise) override;
+                                   td::Promise<td::Ref<block::BlockSignatureSet>> promise) override;
 
   void set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
                            td::uint32 validator_set_hash, td::Promise<td::Unit> promise) override;
@@ -403,6 +410,8 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority, td::Timestamp timeout,
                               td::Promise<td::Ref<ShardState>> promise) override;
+  void wait_state_by_prev_blocks(BlockIdExt block_id, std::vector<BlockIdExt> prev_blocks,
+                                 td::Promise<td::Ref<ShardState>> promise) override;
   void wait_prev_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
                              td::Promise<td::Ref<ShardState>> promise) override;
 
@@ -514,23 +523,24 @@ class ValidatorManagerImpl : public ValidatorManager {
   void start_up() override;
   void init_last_masterchain_state(td::Ref<MasterchainState> state) override;
   void started(ValidatorManagerInitResult result);
-  void read_gc_list(std::vector<ValidatorSessionId> list);
+  void finish_start_up();
 
   bool is_validator();
   bool validating_masterchain();
-  PublicKeyHash get_validator(ShardIdFull shard, td::Ref<ValidatorSet> val_set);
+  PublicKeyHash get_validator(ShardIdFull shard, td::Ref<block::ValidatorSet> val_set);
   bool is_shard_collator(ShardIdFull shard);
 
   ValidatorManagerImpl(td::Ref<ValidatorManagerOptions> opts, std::string db_root,
                        td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                        td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
-                       td::actor::ActorId<overlay::Overlays> overlays)
+                       td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays)
       : opts_(std::move(opts))
       , db_root_(db_root)
       , keyring_(keyring)
       , adnl_(adnl)
       , rldp_(rldp)
       , rldp2_(rldp2)
+      , quic_(quic)
       , overlays_(overlays) {
   }
 
@@ -558,6 +568,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void log_validator_session_stats(validatorsession::ValidatorSessionStats stats) override;
   void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) override;
   void log_end_validator_group_stats(validatorsession::EndValidatorGroupStats stats) override;
+  void log_stats(std::string);
 
   void update_options(td::Ref<ValidatorManagerOptions> opts) override;
 
@@ -605,6 +616,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_validator_groups_info_for_litequery(
       td::optional<ShardIdFull> shard,
       td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise) override;
+  void get_pending_shard_blocks_for_litequery(
+      td::optional<ShardIdFull> shard,
+      td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_pendingShardBlocks>> promise) override;
 
   void add_lite_query_stats(int lite_query_id, bool success) override {
     ++ls_stats_[lite_query_id];
@@ -657,6 +671,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<rldp::Rldp> rldp_;
   td::actor::ActorId<rldp2::Rldp> rldp2_;
+  td::actor::ActorId<quic::QuicSender> quic_;
   td::actor::ActorId<overlay::Overlays> overlays_;
 
   td::actor::ActorOwn<AsyncStateSerializer> serializer_;
@@ -701,8 +716,6 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   size_t active_validator_groups_master_{0}, active_validator_groups_shard_{0};
 
-  td::actor::ActorOwn<CandidatesBuffer> candidates_buffer_;
-
   void log_collate_query_stats(CollationStats stats) override;
   void log_validate_query_stats(ValidationStats stats) override;
   void log_collator_node_response_stats(CollatorNodeResponseStats stats) override;
@@ -743,6 +756,17 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<ShardBlockRetainer>> shard_block_retainers_;
 
   void init_shard_block_verifier(adnl::AdnlNodeIdShort local_id);
+
+  td::actor::ActorOwn<DbEventPublisher> db_event_publisher_;
+
+  struct NonfinalGroupInfo {
+    BlockIdExt last_accepted, last_candidate;
+  };
+  std::map<std::pair<ShardIdFull, CatchainSeqno>, NonfinalGroupInfo> nonfinal_info_;
+
+  bool is_valid_nonfinal_group(ShardIdFull shard, CatchainSeqno cc_seqno);
+  void process_accepted_nonfinal_block(BlockIdExt block_id, CatchainSeqno cc_seqno);
+  void cleanup_nonfinal_groups();
 };
 
 }  // namespace validator

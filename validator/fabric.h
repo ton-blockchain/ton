@@ -34,29 +34,36 @@ struct CollateParams {
   std::vector<BlockIdExt> prev;
   bool is_hardfork = false;
   Ed25519_PublicKey creator{td::Bits256::zero()};
-  td::Ref<ValidatorSet> validator_set = {};
+  td::Ref<block::ValidatorSet> validator_set = {};
   td::Ref<CollatorOptions> collator_opts = {};
   adnl::AdnlNodeIdShort collator_node_id = adnl::AdnlNodeIdShort::zero();
   bool skip_store_candidate = false;
   int attempt_idx = 0;
 
-  // Optional - used for optimistic collation
-  Ref<BlockData> optimistic_prev_block = {};
+  // Optional - if empty, blocks and states are taken from manager
+  // If not empty, should be the same size as prev
+  std::vector<Ref<BlockData>> prev_block_data = {};
+  std::vector<Ref<vm::Cell>> prev_block_state_roots = {};
+
+  bool is_new_consensus = false;
 };
 
 struct ValidateParams {
   ShardIdFull shard;
   BlockIdExt min_masterchain_block_id;
   std::vector<BlockIdExt> prev;
-  td::Ref<ValidatorSet> validator_set = {};
+  td::Ref<block::ValidatorSet> validator_set = {};
   PublicKeyHash local_validator_id = PublicKeyHash::zero();
-  ;
-  bool is_fake = false;
 
-  // Optional - used for validation of optimistic candidates
-  Ref<BlockData> optimistic_prev_block = {};
+  bool is_fake = false;
+  bool skip_store_candidate = false;
 
   bool parallel_validation = false;
+  bool is_new_consensus = false;
+
+  // Optional - if empty, states are taken from manager
+  // If not empty, should be the same size as prev
+  std::vector<Ref<vm::Cell>> prev_block_state_roots = {};
 };
 
 td::actor::ActorOwn<Db> create_db_actor(td::actor::ActorId<ValidatorManager> manager, std::string db_root_,
@@ -68,7 +75,6 @@ td::Result<td::Ref<BlockData>> create_block(BlockIdExt block_id, td::BufferSlice
 td::Result<td::Ref<BlockData>> create_block(ReceivedBlock data);
 td::Result<td::Ref<Proof>> create_proof(BlockIdExt masterchain_block_id, td::BufferSlice proof);
 td::Result<td::Ref<ProofLink>> create_proof_link(BlockIdExt block_id, td::BufferSlice proof);
-td::Result<td::Ref<BlockSignatureSet>> create_signature_set(td::BufferSlice sig_set);
 td::Result<td::Ref<ShardState>> create_shard_state(BlockIdExt block_id, td::BufferSlice data);
 td::Result<td::Ref<ShardState>> create_shard_state(BlockIdExt block_id, td::Ref<vm::Cell> root_cell);
 td::Result<BlockHandle> create_block_handle(td::BufferSlice data);
@@ -79,21 +85,21 @@ td::Result<td::Ref<ExtMessage>> create_ext_message(td::BufferSlice data, block::
 td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data);
 td::Result<std::vector<td::Ref<ShardTopBlockDescription>>> create_new_shard_block_descriptions(td::BufferSlice data);
 
-td::Ref<BlockSignatureSet> create_signature_set(std::vector<BlockSignature> sig_set);
-
 void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                            td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
+                            td::Ref<block::ValidatorSet> validator_set, td::Ref<block::BlockSignatureSet> signatures,
                             int send_broadcast_mode, bool apply, td::actor::ActorId<ValidatorManager> manager,
                             td::Promise<td::Unit> promise);
 void run_fake_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                                 td::Ref<ValidatorSet> validator_set, td::actor::ActorId<ValidatorManager> manager,
-                                 td::Promise<td::Unit> promise);
+                                 td::Ref<block::ValidatorSet> validator_set,
+                                 td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
 void run_hardfork_accept_block_query(BlockIdExt id, td::Ref<BlockData> data,
                                      td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
 void run_broadcast_only_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                                           td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
-                                           td::Ref<BlockSignatureSet> approve_signatures, bool send_block_broadcast,
-                                           td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
+                                           td::Ref<block::ValidatorSet> validator_set,
+                                           td::Ref<block::BlockSignatureSet> signatures,
+                                           td::Ref<block::BlockSignatureSet> approve_signatures,
+                                           bool send_block_broadcast, td::actor::ActorId<ValidatorManager> manager,
+                                           td::Promise<td::Unit> promise);
 void run_apply_block_query(BlockIdExt id, td::Ref<BlockData> block, BlockIdExt masterchain_block_id,
                            td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                            td::Promise<td::Unit> promise);

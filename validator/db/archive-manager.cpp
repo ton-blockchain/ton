@@ -308,7 +308,7 @@ void ArchiveManager::get_file(ConstBlockHandle handle, FileReference ref_id, td:
   }
   if (handle->handle_moved_to_archive()) {
     auto f = get_file_desc(handle->id().shard_full(), get_package_id(handle->masterchain_ref_block()), 0, 0, 0, false);
-    if (f.ok()) {
+    if (f.is_ok()) {
       promise = [=, promise = std::move(promise),
                  file_actor = f.ok()->file_actor_id()](td::Result<td::BufferSlice> R) mutable {
         if (R.is_ok()) {

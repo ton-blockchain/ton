@@ -21,6 +21,7 @@
 #include <ton/ton-tl.hpp>
 
 #include "auto/tl/lite_api.h"
+#include "block/signature-set.h"
 #include "crypto/vm/db/DynamicBagOfCellsDb.h"
 #include "impl/out-msg-queue-proof.hpp"
 #include "validator-session/validator-session-types.h"
@@ -44,6 +45,10 @@ constexpr int VERBOSITY_NAME(VALIDATOR_NOTICE) = verbosity_INFO;
 constexpr int VERBOSITY_NAME(VALIDATOR_INFO) = verbosity_DEBUG;
 constexpr int VERBOSITY_NAME(VALIDATOR_DEBUG) = verbosity_DEBUG;
 constexpr int VERBOSITY_NAME(VALIDATOR_EXTRA_DEBUG) = verbosity_DEBUG + 1;
+
+struct CandidateAccept {
+  double ok_from_utime = 0.0;
+};
 
 struct CandidateReject {
   std::string reason;
@@ -131,7 +136,6 @@ struct CollationStats {
 
   struct WorkTimeStats {
     td::RealCpuTimer::Time total;
-    td::RealCpuTimer::Time optimistic_apply;
     td::RealCpuTimer::Time queue_cleanup;
     td::RealCpuTimer::Time prelim_storage_stat;
     td::RealCpuTimer::Time trx_tvm;
@@ -143,8 +147,7 @@ struct CollationStats {
     td::RealCpuTimer::Time create_block_candidate;
 
     std::string to_str(bool is_cpu) const {
-      return PSTRING() << "total=" << total.get(is_cpu) << " optimistic_apply=" << optimistic_apply.get(is_cpu)
-                       << " queue_cleanup=" << queue_cleanup.get(is_cpu)
+      return PSTRING() << "total=" << total.get(is_cpu) << " queue_cleanup=" << queue_cleanup.get(is_cpu)
                        << " prelim_storage_stat=" << prelim_storage_stat.get(is_cpu)
                        << " trx_tvm=" << trx_tvm.get(is_cpu) << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
                        << " trx_other=" << trx_other.get(is_cpu)
@@ -198,14 +201,13 @@ struct ValidationStats {
 
   struct WorkTimeStats {
     td::RealCpuTimer::Time total;
-    td::RealCpuTimer::Time optimistic_apply;
     td::RealCpuTimer::Time trx_tvm;
     td::RealCpuTimer::Time trx_storage_stat;
     td::RealCpuTimer::Time trx_other;
 
     std::string to_str(bool is_cpu) const {
-      return PSTRING() << "total=" << total.get(is_cpu) << " optimistic_apply=" << optimistic_apply.get(is_cpu)
-                       << " trx_tvm=" << trx_tvm.get(is_cpu) << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
+      return PSTRING() << "total=" << total.get(is_cpu) << " trx_tvm=" << trx_tvm.get(is_cpu)
+                       << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
                        << " trx_other=" << trx_other.get(is_cpu);
     }
   };
@@ -236,13 +238,13 @@ struct CollatorNodeResponseStats {
   }
 };
 
-using ValidateCandidateResult = td::Variant<UnixTime, CandidateReject>;
+using ValidateCandidateResult = td::Variant<CandidateAccept, CandidateReject>;
 
 class ValidatorManager : public ValidatorManagerInterface {
  public:
   virtual void init_last_masterchain_state(td::Ref<MasterchainState> state) {
   }
-  virtual void set_block_state(BlockHandle handle, td::Ref<ShardState> state,
+  virtual void set_block_state(BlockHandle handle, td::Ref<ShardState> state, vm::StoreCellHint hint,
                                td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void store_block_state_part(BlockId effective_block, td::Ref<vm::Cell> cell,
                                       td::Promise<td::Ref<vm::DataCell>> promise) = 0;
@@ -276,20 +278,18 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void wait_block_proof_link_short(BlockIdExt id, td::Timestamp timeout,
                                            td::Promise<td::Ref<ProofLink>> promise) = 0;
 
-  virtual void set_block_signatures(BlockHandle handle, td::Ref<BlockSignatureSet> signatures,
-                                    td::Promise<td::Unit> promise) = 0;
+  virtual void set_block_signatures(BlockHandle handle, td::Ref<block::BlockSignatureSet> signatures,
+                                    Ref<block::ValidatorSet> vset, td::Promise<td::Unit> promise) = 0;
   virtual void wait_block_signatures(BlockHandle handle, td::Timestamp timeout,
-                                     td::Promise<td::Ref<BlockSignatureSet>> promise) = 0;
+                                     td::Promise<td::Ref<block::BlockSignatureSet>> promise) = 0;
   virtual void wait_block_signatures_short(BlockIdExt id, td::Timestamp timeout,
-                                           td::Promise<td::Ref<BlockSignatureSet>> promise) = 0;
+                                           td::Promise<td::Ref<block::BlockSignatureSet>> promise) = 0;
 
   virtual void set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
                                    td::uint32 validator_set_hash, td::Promise<td::Unit> promise) = 0;
   virtual void send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                               td::BufferSlice data, int mode) = 0;
 
-  virtual void wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority,
-                                      td::Timestamp timeout, td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void wait_prev_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
                                      td::Promise<td::Ref<ShardState>> promise) = 0;
 
@@ -384,6 +384,11 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void get_validator_groups_info_for_litequery(
       td::optional<ShardIdFull> shard,
       td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise) = 0;
+  virtual void get_pending_shard_blocks_for_litequery(
+      td::optional<ShardIdFull> shard,
+      td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_pendingShardBlocks>> promise) {
+    promise.set_error(td::Status::Error("not implemented"));
+  }
 
   virtual void add_lite_query_stats(int lite_query_id, bool success) {
   }

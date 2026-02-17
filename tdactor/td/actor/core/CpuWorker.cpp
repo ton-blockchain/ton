@@ -28,7 +28,7 @@ namespace actor {
 namespace core {
 void CpuWorker::run() {
   auto thread_id = get_thread_id();
-  auto &dispatcher = *SchedulerContext::get();
+  auto &dispatcher = SchedulerContext::get();
 
   MpmcWaiter::Slot slot;
   waiter_.init_slot(slot, thread_id);

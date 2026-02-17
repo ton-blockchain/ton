@@ -3,7 +3,7 @@ struct Point {
     y: int8
 }
 
-fun Cell<T>.myMethod<U>(self, v: U): int 
+fun Cell<T>.myMethod<U>(self, v: U): int
     asm "DROP" "HASHCU"
 
 fun main() {

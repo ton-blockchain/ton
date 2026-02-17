@@ -97,7 +97,10 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
   void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override;
-  void new_block_broadcast(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override;
+  void new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, td::Promise<td::Unit> promise) override;
+  void validate_block_broadcast_signatures(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override;
+  void wait_state_by_prev_blocks(BlockIdExt block_id, std::vector<BlockIdExt> prev_blocks,
+                                 td::Promise<td::Ref<ShardState>> promise) override;
 
   //void create_validate_block(BlockId block, td::BufferSlice data, td::Promise<Block> promise) = 0;
   void sync_complete(td::Promise<td::Unit> promise) override;
@@ -134,8 +137,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                              td::BufferSlice data) override;
-  void new_block_candidate_broadcast(BlockIdExt block_id, td::BufferSlice data) override {
-  }
 
   void add_ext_server_id(adnl::AdnlNodeIdShort id) override {
     UNREACHABLE();
@@ -146,7 +147,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void get_block_handle(BlockIdExt id, bool force, td::Promise<BlockHandle> promise) override;
 
-  void set_block_state(BlockHandle handle, td::Ref<ShardState> state,
+  void set_block_state(BlockHandle handle, td::Ref<ShardState> state, vm::StoreCellHint hint,
                        td::Promise<td::Ref<ShardState>> promise) override;
   void store_block_state_part(BlockId effective_block, td::Ref<vm::Cell> cell,
                               td::Promise<td::Ref<vm::DataCell>> promise) override;
@@ -185,12 +186,12 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_block_proof_link_short(BlockIdExt id, td::Timestamp timeout,
                                    td::Promise<td::Ref<ProofLink>> promise) override;
 
-  void set_block_signatures(BlockHandle handle, td::Ref<BlockSignatureSet> signatures,
-                            td::Promise<td::Unit> promise) override;
+  void set_block_signatures(BlockHandle handle, td::Ref<block::BlockSignatureSet> signatures,
+                            Ref<block::ValidatorSet> vset, td::Promise<td::Unit> promise) override;
   void wait_block_signatures(BlockHandle handle, td::Timestamp timeout,
-                             td::Promise<td::Ref<BlockSignatureSet>> promise) override;
+                             td::Promise<td::Ref<block::BlockSignatureSet>> promise) override;
   void wait_block_signatures_short(BlockIdExt id, td::Timestamp timeout,
-                                   td::Promise<td::Ref<BlockSignatureSet>> promise) override;
+                                   td::Promise<td::Ref<block::BlockSignatureSet>> promise) override;
 
   void set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
                            td::uint32 validator_set_hash, td::Promise<td::Unit> promise) override;
@@ -316,9 +317,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void started(ValidatorManagerInitResult result);
 
   void write_fake(BlockCandidate candidate, std::vector<BlockIdExt> prev, BlockIdExt last,
-                  td::Ref<ValidatorSet> val_set);
+                  td::Ref<block::ValidatorSet> val_set);
   void validate_fake(BlockCandidate candidate, std::vector<BlockIdExt> prev, BlockIdExt last,
-                     td::Ref<ValidatorSet> val_set);
+                     td::Ref<block::ValidatorSet> val_set);
   void complete_fake(BlockIdExt candidate_id);
 
   void check_is_hardfork(BlockIdExt block_id, td::Promise<bool> promise) override {
@@ -455,7 +456,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void update_shards();
   void update_shard_blocks();
   void dec_pending_new_blocks();
-  ValidatorSessionId get_validator_set_id(ShardIdFull shard, td::Ref<ValidatorSet> val_set);
+  ValidatorSessionId get_validator_set_id(ShardIdFull shard, td::Ref<block::ValidatorSet> val_set);
 };
 
 }  // namespace validator

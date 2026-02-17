@@ -17,5 +17,5 @@ fun main() {
 /**
 @compilation_should_fail
 @stderr because field `TryHackCompilerByNever.value` of type `never` can't be serialized
-@stderr because type `never` is not serializable  
+@stderr because type `never` is not serializable
  */

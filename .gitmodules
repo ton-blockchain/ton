@@ -1,23 +1,57 @@
 [submodule "third-party/rocksdb"]
 	path = third-party/rocksdb
 	url = https://github.com/facebook/rocksdb.git
+	ignore = all
 [submodule "third-party/crc32c"]
 	path = third-party/crc32c
 	url = https://github.com/google/crc32c
+	ignore = all
 [submodule "third-party/abseil-cpp"]
 	path = third-party/abseil-cpp
 	url = https://github.com/abseil/abseil-cpp.git
 	branch = 20250814.1
+	ignore = all
 [submodule "third-party/libraptorq"]
 	path = third-party/libraptorq
 	url = https://github.com/ton-blockchain/libRaptorQ
 [submodule "third-party/blst"]
 	path = third-party/blst
 	url = https://github.com/supranational/blst.git
+	ignore = all
 [submodule "third-party/secp256k1"]
 	path = third-party/secp256k1
 	url = https://github.com/bitcoin-core/secp256k1
 	branch = v0.3.2
+	ignore = all
 [submodule "third-party/tl-parser"]
 	path = third-party/tl-parser
 	url = https://github.com/ton-blockchain/tl-parser.git
+	ignore = all
+[submodule "third-party/libbacktrace"]
+	path = third-party/libbacktrace
+	url = https://github.com/ianlancetaylor/libbacktrace.git
+	ignore = all
+[submodule "third-party/ngtcp2"]
+	path = third-party/ngtcp2
+	url = https://github.com/ngtcp2/ngtcp2.git
+	ignore = all
+[submodule "third-party/openssl"]
+	path = third-party/openssl
+	url = https://github.com/openssl/openssl
+	ignore = all
+[submodule "third-party/sodium"]
+	path = third-party/sodium
+	url = https://github.com/jedisct1/libsodium.git
+	ignore = all
+[submodule "third-party/lz4"]
+	path = third-party/lz4
+	url = https://github.com/lz4/lz4.git
+	ignore = all
+[submodule "third-party/libmicrohttpd"]
+	path = third-party/libmicrohttpd
+	url = https://github.com/ton-blockchain/libmicrohttpd
+	ignore = all
+[submodule "third-party/zlib"]
+	path = third-party/zlib
+	url = https://github.com/madler/zlib.git
+	ignore = all

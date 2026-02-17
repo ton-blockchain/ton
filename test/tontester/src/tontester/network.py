@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import signal
 import subprocess
 import types
@@ -10,13 +11,14 @@ from ipaddress import IPv4Address
 from pathlib import Path
 from typing import Literal, final, override
 
+from tonapi import ton_api
+
 from tl import TLObject
-from tonlib import TonlibClient, TonlibError
+from tonlib import EngineConsoleClient, TonlibCDLL, TonlibClient, TonlibError, TonlibEventLoop
 
 from .install import Install
 from .key import Key
 from .log_streamer import LogStreamer
-from .tl import ton_api
 from .zerostate import NetworkConfig, Zerostate, create_zerostate
 
 l = logging.getLogger(__name__)
@@ -26,6 +28,10 @@ l = logging.getLogger(__name__)
 class _IPv4AddressAndPort:
     ip: IPv4Address
     port: int
+
+    @property
+    def address(self):
+        return f"{str(self.ip)}:{self.port}"
 
 
 class _Status(IntEnum):
@@ -44,9 +50,17 @@ type DebugType = None | Literal["rr"]
 @final
 class Network:
     class Node(ABC):
-        def __init__(self, network: "Network", name: str):
+        def __init__(
+            self,
+            network: "Network",
+            name: str,
+            install: Install | None = None,
+            env: dict[str, str] | None = None,
+        ):
             self._network: Network = network
             self.name: str = name
+            self._install_override: Install | None = install
+            self._extra_env: dict[str, str] = dict(env or {})
 
             self._directory: Path = self._network._directory / (
                 "node" + str(self._network._node_idx)
@@ -64,7 +78,7 @@ class Network:
 
         @property
         def _install(self):
-            return self._network._install
+            return self._install_override or self._network._install
 
         def _new_network_address(self) -> _IPv4AddressAndPort:
             self._network._port += 1
@@ -83,6 +97,18 @@ class Network:
 
         def _get_or_generate_zerostate(self):
             return self._network._get_or_generate_zerostate()
+
+        @property
+        def _tonlib(self):
+            return self._network._tonlib
+
+        @property
+        def _tonlib_event_loop(self):
+            return self._network._event_loop
+
+        @property
+        def log_path(self):
+            return self._directory / "log"
 
         async def _run(
             self,
@@ -122,8 +148,7 @@ class Network:
             local_config_file = self._directory / "config.json"
             _write_model(local_config_file, local_config)
 
-            log_path = self._directory / "log"
-            l.info(f"Running {self.name} and saving its raw log to {log_path}")
+            l.info(f"Running {self.name} and saving its raw log to {self.log_path}")
 
             cmd_flags = [
                 "--global-config",
@@ -137,20 +162,26 @@ class Network:
 
             match debug:
                 case None:
+                    process_env = os.environ.copy()
+                    process_env.update(self._extra_env)
                     self.__process = await asyncio.create_subprocess_exec(
                         executable,
                         *cmd_flags,
                         cwd=self._directory,
+                        env=process_env,
                         stderr=asyncio.subprocess.PIPE,
                     )
                 case "rr":
                     l.info(f"Recording {self.name} with rr")
+                    process_env = os.environ.copy()
+                    process_env.update(self._extra_env)
                     self.__process = await asyncio.create_subprocess_exec(
                         "rr",
                         "record",
                         executable,
                         *cmd_flags,
                         cwd=self._directory,
+                        env=process_env,
                         stderr=asyncio.subprocess.PIPE,
                     )
 
@@ -158,7 +189,7 @@ class Network:
             self.__process_watcher = asyncio.create_task(process_watcher())
 
             self.__log_streamer = LogStreamer(
-                open(log_path, "wb"),
+                open(self.log_path, "wb"),
                 self.name,
                 self.__process.stderr,
             )
@@ -188,12 +219,24 @@ class Network:
                 await self.__process_watcher
                 await self.__log_streamer.aclose()
 
-    def __init__(self, install: Install, directory: Path):
+                self.__process = None
+                self.__process_watcher = None
+                self.__log_streamer = None
+
+    def __init__(
+        self,
+        install: Install,
+        directory: Path,
+        event_loop: asyncio.AbstractEventLoop | None = None,
+    ):
         self._install = install
         self._directory = directory.absolute()
         self._port = 2000
         self._node_idx = 0
         self._status = _Status.INITED
+
+        self._tonlib = TonlibCDLL(install.tonlibjson)
+        self._event_loop = TonlibEventLoop(self._tonlib, event_loop)
 
         self.__nodes: list[Network.Node] = []
         self.__full_nodes: list[FullNode] = []
@@ -212,10 +255,14 @@ class Network:
         self.__nodes.append(node)
         return node
 
-    def create_full_node(self) -> "FullNode":
+    def create_full_node(
+        self,
+        install: Install | None = None,
+        env: dict[str, str] | None = None,
+    ) -> "FullNode":
         assert self._status < _Status.CLOSED
 
-        node = FullNode(self, f"node-{len(self.__nodes)}")
+        node = FullNode(self, f"node-{len(self.__nodes)}", install=install, env=env)
         self.__nodes.append(node)
         self.__full_nodes.append(node)
         return node
@@ -244,6 +291,8 @@ class Network:
 
         for node in self.__nodes:
             await node.stop()
+
+        await self._event_loop.aclose()
 
     async def __aenter__(self):
         return self
@@ -347,17 +396,26 @@ class DHTNode(Network.Node):
 
 @final
 class FullNode(Network.Node):
-    def __init__(self, network: "Network", name: str):
-        super().__init__(network, name)
+    def __init__(
+        self,
+        network: "Network",
+        name: str,
+        install: Install | None = None,
+        env: dict[str, str] | None = None,
+    ):
+        super().__init__(network, name, install=install, env=env)
 
         KEY_EXPIRATION = (1 << 31) - 1
 
         self._addr = self._new_network_address()
         self._liteserver_addr = self._new_network_address()
+        self._engine_console_addr = self._new_network_address()
 
         self._fullnode_key, _ = self._new_key()
         self._validator_key, _ = self._new_key()
         self._liteserver_key, _ = self._new_key()
+        self._engine_console_server_key, _ = self._new_key()
+        self._engine_console_client_key, _ = self._new_key()
 
         self._local_config = ton_api.Engine_validator_config(
             addrs=[
@@ -400,11 +458,27 @@ class FullNode(Network.Node):
                     port=self._liteserver_addr.port,
                 )
             ],
+            control=[
+                ton_api.Engine_controlInterface(
+                    id=self._engine_console_server_key.id(),
+                    # FIXME: IP?
+                    port=self._engine_console_addr.port,
+                    allowed=[
+                        ton_api.Engine_controlProcess(
+                            id=self._engine_console_client_key.id(),
+                            permissions=15,
+                        )
+                    ],
+                )
+            ],
         )
 
         self._is_initial_validator = False
 
         self._client: TonlibClient | None = None
+        self._engine_console: EngineConsoleClient | None = None
+        self._blockchain_explorer: asyncio.Task[None] | None = None
+        self._static_populated = False
 
     def make_initial_validator(self):
         self._ensure_no_zerostate_yet()
@@ -422,24 +496,24 @@ class FullNode(Network.Node):
     async def run(self, *, debug: DebugType = None):
         zerostate = self._get_or_generate_zerostate()
 
-        static_dir = self._directory / "static"
-        static_dir.mkdir()
-        for state in (zerostate.masterchain, zerostate.shardchain):
-            (static_dir / state.file_hash.hex().upper()).symlink_to(state.file)
+        if not self._static_populated:
+            static_dir = self._directory / "static"
+            static_dir.mkdir()
+            for state in (zerostate.masterchain, zerostate.shardchain):
+                (static_dir / state.file_hash.hex().upper()).symlink_to(state.file)
+            self._static_populated = True
 
         await self._run(
             self._install.validator_engine_exe,
             self._local_config,
             zerostate.as_validator_config(),
-            ["--initial-sync-delay", "5"],
+            ["--initial-sync-delay", "5", "--session-logs", str(self._directory / "session-logs")],
             debug=debug,
         )
 
-    async def tonlib_client(self) -> TonlibClient:
-        if self._client:
-            return self._client
-
-        config = ton_api.Liteclient_config_global(
+    @property
+    def _liteserver_config(self):
+        return ton_api.Liteclient_config_global(
             liteservers=[
                 ton_api.Liteserver_desc(
                     id=self._liteserver_key.public_key,
@@ -450,9 +524,13 @@ class FullNode(Network.Node):
             validator=self._get_or_generate_zerostate().as_validator_config(),
         )
 
+    async def tonlib_client(self) -> TonlibClient:
+        if self._client:
+            return self._client
+
         self._client = TonlibClient(
             ls_index=0,
-            config=config,
+            config=self._liteserver_config,
             cdll_path=self._install.tonlibjson,
             verbosity_level=3,
         )
@@ -460,8 +538,66 @@ class FullNode(Network.Node):
 
         return self._client
 
+    @property
+    def engine_console(self) -> EngineConsoleClient:
+        if self._engine_console is None:
+            self._engine_console = EngineConsoleClient(
+                self._tonlib,
+                self._tonlib_event_loop,
+                ton_api.EngineConsoleClient_config(
+                    address=self._engine_console_addr.address,
+                    server_public_key=self._engine_console_server_key.public_key,
+                    client_private_key=self._engine_console_client_key.private_key,
+                ),
+            )
+        return self._engine_console
+
+    def enable_blockchain_explorer(self):
+        if self._blockchain_explorer is not None:
+            return
+
+        address = self._new_network_address()
+        config_file = self._directory / "explorer_config.json"
+        _write_model(config_file, self._liteserver_config)
+
+        async def explorer():
+            cmd = [
+                str(self._install.blockchain_explorer_exe),
+                "-C",
+                str(config_file),
+                # FIXME: IP?
+                "-H",
+                str(address.port),
+            ]
+            l.info(
+                f"Running blockchain explorer using node '{self.name}' on http://{address.address}/last"
+            )
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=self._directory,
+            )
+            try:
+                _ = await process.wait()
+            except asyncio.CancelledError:
+                try:
+                    process.terminate()
+                except ProcessLookupError:
+                    pass
+                _ = await asyncio.shield(process.wait())
+                raise
+
+        self._blockchain_explorer = asyncio.create_task(explorer())
+
     @override
     async def stop(self):
         if self._client:
             await self._client.aclose()
+        if self._engine_console:
+            await self._engine_console.aclose()
+        if self._blockchain_explorer:
+            _ = self._blockchain_explorer.cancel()
+            try:
+                await self._blockchain_explorer
+            except asyncio.CancelledError:
+                pass
         await super().stop()

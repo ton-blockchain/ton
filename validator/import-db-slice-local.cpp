@@ -104,27 +104,27 @@ td::Status ArchiveImporterLocal::process_package(std::string path) {
     }
     auto f = F.move_as_ok();
 
-    BlockIdExt block_id;
-    bool is_proof = false;
-    bool ignore = true;
+        BlockIdExt block_id;
+        bool is_proof = false;
+        bool ignore = true;
 
-    f.ref().visit(td::overloaded(
-        [&](const fileref::Proof &p) {
-          block_id = p.block_id;
-          ignore = !block_id.is_masterchain();
-          is_proof = true;
-        },
-        [&](const fileref::ProofLink &p) {
-          block_id = p.block_id;
-          ignore = block_id.is_masterchain();
-          is_proof = true;
-        },
-        [&](const fileref::Block &p) {
-          block_id = p.block_id;
-          ignore = false;
-          is_proof = false;
-        },
-        [&](const auto &) { ignore = true; }));
+        f.ref().visit(td::overloaded(
+            [&](const fileref::Proof &p) {
+              block_id = p.block_id;
+              ignore = !block_id.is_masterchain();
+              is_proof = true;
+            },
+            [&](const fileref::ProofLink &p) {
+              block_id = p.block_id;
+              ignore = block_id.is_masterchain();
+              is_proof = true;
+            },
+            [&](const fileref::Block &p) {
+              block_id = p.block_id;
+              ignore = false;
+              is_proof = false;
+            },
+            [&](const auto &) { ignore = true; }));
 
     if (ignore || (block_id.is_masterchain() && block_id.seqno() <= last_masterchain_state_->get_seqno())) {
       return true;
@@ -163,7 +163,7 @@ td::Status ArchiveImporterLocal::process_package(std::string path) {
       masterchain_blocks_[block_id.seqno()] = block_id;
     }
     return true;
-  });
+  }).ignore();
   return S;
 }
 

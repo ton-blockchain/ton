@@ -1,7 +1,6 @@
 set(TON_VALIDATOR_SOURCE
   accept-block.cpp
   block.cpp
-  candidates-buffer.cpp
   check-proof.cpp
   collator.cpp
   config.cpp
@@ -14,14 +13,11 @@ set(TON_VALIDATOR_SOURCE
   out-msg-queue-proof.cpp
   proof.cpp
   shard.cpp
-  signature-set.cpp
   top-shard-descr.cpp
   validate-query.cpp
-  validator-set.cpp
 
   accept-block.hpp
   block.hpp
-  candidates-buffer.hpp
   check-proof.hpp
   collator-impl.h
   collator.h
@@ -35,17 +31,15 @@ set(TON_VALIDATOR_SOURCE
   out-msg-queue-proof.hpp
   proof.hpp
   shard.hpp
-  signature-set.hpp
   top-shard-descr.hpp
-  validate-query.hpp
-  validator-set.hpp)
+  validate-query.hpp)
 
 add_library(ton_validator STATIC ${TON_VALIDATOR_SOURCE})
 
-target_include_directories(ton_validator PUBLIC 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto 
+target_include_directories(ton_validator PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto
   ${OPENSSL_INCLUDE_DIR}
 )
 

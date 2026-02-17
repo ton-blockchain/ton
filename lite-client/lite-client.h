@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,13 +14,13 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
@@ -144,7 +144,7 @@ class TestNode : public td::actor::Actor {
     ton::LogicalTime end_lt{0};
     ton::Bits256 vset_hash;
     Ref<vm::Cell> vset_root;
-    std::shared_ptr<block::ValidatorSet> vset;
+    std::shared_ptr<block::TotalValidatorSet> vset;
     std::map<ton::Bits256, int> vset_map;
     int special_idx{-1};
     std::pair<td::int64, td::int64> created_total, created_special;
@@ -288,14 +288,14 @@ class TestNode : public td::actor::Actor {
   struct LoadValidatorShardSharesState {
     ton::BlockSeqno start_seqno;
     ton::BlockSeqno end_seqno;
-    block::ValidatorSet validator_set;
+    block::TotalValidatorSet validator_set;
     std::unique_ptr<block::CatchainValidatorsConfig> catchain_config;
     std::vector<block::ShardConfig> shard_configs;
     td::uint32 cur_idx = 0, pending = 0, loaded = 0;
     td::Promise<std::map<td::Bits256, td::uint64>> promise;
   };
   void load_validator_shard_shares(ton::BlockSeqno start_seqno, ton::BlockSeqno end_seqno,
-                                   block::ValidatorSet validator_set,
+                                   block::TotalValidatorSet validator_set,
                                    std::unique_ptr<block::CatchainValidatorsConfig> catchain_config,
                                    td::Promise<std::map<td::Bits256, td::uint64>> promise);
   void load_validator_shard_shares_cont(std::shared_ptr<LoadValidatorShardSharesState> state);
@@ -454,7 +454,7 @@ class TestNode : public td::actor::Actor {
   }
   void tear_down() override {
     // FIXME: do not work in windows
-    //td::actor::SchedulerContext::get()->stop();
+    //td::actor::SchedulerContext::get().stop();
   }
 
   void got_result(td::Result<td::BufferSlice> R, td::Promise<td::BufferSlice> promise);

@@ -134,6 +134,7 @@ class CatChainReceiverImpl final : public CatChainReceiver {
 
   CatChainReceiverImpl(std::unique_ptr<Callback> callback, const CatChainOptions &opts,
                        td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+                       td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender,
                        td::actor::ActorId<overlay::Overlays> overlays, const std::vector<CatChainNode> &ids,
                        const PublicKeyHash &local_id, const CatChainBlockHash &unique_hash, std::string db_root,
                        std::string db_suffix, bool allow_unsafe_self_blocks_resync);
@@ -199,6 +200,7 @@ class CatChainReceiverImpl final : public CatChainReceiver {
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
+  td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender_;
   td::actor::ActorId<overlay::Overlays> overlay_manager_;
   overlay::OverlayIdShort overlay_id_;
   overlay::OverlayIdFull overlay_full_id_;

@@ -159,7 +159,7 @@ class Lexer {
   int cur_token_offset = 0;
 
   void update_location() {
-    cur_token_offset = static_cast<int>(p_next - p_start); 
+    cur_token_offset = static_cast<int>(p_next - p_start);
   }
 
 public:

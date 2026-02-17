@@ -32,11 +32,13 @@
 #include "interfaces/persistent-state.h"
 #include "interfaces/proof.h"
 #include "interfaces/shard.h"
-#include "interfaces/validator-set.h"
 #include "overlay/overlays.h"
 #include "td/actor/actor.h"
+#include "td/actor/coro_task.h"
 #include "td/actor/coro_utils.h"
 #include "ton/ton-types.h"
+
+#include "types.h"
 
 namespace ton {
 
@@ -152,6 +154,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual td::Ref<CollatorsList> get_collators_list() const = 0;
   virtual bool check_collator_node_whitelist(adnl::AdnlNodeIdShort id) const = 0;
   virtual td::Ref<ShardBlockVerifierConfig> get_shard_block_verifier_config() const = 0;
+  virtual std::string get_db_event_fifo_path() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -193,6 +196,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_collator_node_whitelist_enabled(bool enabled) = 0;
   virtual void set_shard_block_verifier_config(td::Ref<ShardBlockVerifierConfig> config) = 0;
   virtual void set_parallel_validation(bool value) = 0;
+  virtual void set_db_event_fifo_path(std::string value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(BlockIdExt zero_block_id, BlockIdExt init_block_id,
                                                  bool allow_blockchain_init = false, double sync_blocks_before = 3600,
@@ -270,7 +274,9 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void validate_block_proof_rel(BlockIdExt block_id, BlockIdExt rel_block_id, td::BufferSlice proof,
                                         td::Promise<td::Unit> promise) = 0;
   virtual void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) = 0;
-  virtual void new_block_broadcast(BlockBroadcast broadcast, td::Promise<td::Unit> promise) = 0;
+  virtual void new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked,
+                                   td::Promise<td::Unit> promise) = 0;
+  virtual void validate_block_broadcast_signatures(BlockBroadcast broadcast, td::Promise<td::Unit> promise) = 0;
 
   //virtual void create_validate_block(BlockId block, td::BufferSlice data, td::Promise<Block> promise) = 0;
   virtual void sync_complete(td::Promise<td::Unit> promise) = 0;
@@ -311,7 +317,10 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void new_ihr_message(td::BufferSlice data) = 0;
   virtual void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                      td::BufferSlice data) = 0;
-  virtual void new_block_candidate_broadcast(BlockIdExt block_id, td::BufferSlice data) = 0;
+  virtual td::actor::Task<> new_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
+                                                          td::BufferSlice data) {
+    co_return td::Unit{};
+  }
 
   virtual void add_ext_server_id(adnl::AdnlNodeIdShort id) = 0;
   virtual void add_ext_server_port(td::uint16 port) = 0;
@@ -342,6 +351,10 @@ class ValidatorManagerInterface : public td::actor::Actor {
                                 td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout, bool wait_store,
                                       td::Promise<td::Ref<ShardState>> promise) = 0;
+  virtual void wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority,
+                                      td::Timestamp timeout, td::Promise<td::Ref<ShardState>> promise) = 0;
+  virtual void wait_state_by_prev_blocks(BlockIdExt block_id, std::vector<BlockIdExt> prev_blocks,
+                                         td::Promise<td::Ref<ShardState>> promise) = 0;
 
   virtual void wait_neighbor_msg_queue_proofs(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                               td::Timestamp timeout,

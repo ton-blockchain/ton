@@ -46,10 +46,10 @@ static void check_map_TKey_TValue(SrcRange range, TypePtr TKey, TypePtr TValue) 
   std::string because_msg;
   if (!check_mapKV_TKey_is_valid(TKey, because_msg)) {
     err("invalid `map`: type `{}` can not be used as a key\n{}", TKey, because_msg).fire(range);
-  } 
+  }
   if (!check_mapKV_TValue_is_valid(TValue, because_msg)) {
     err("invalid `map`: type `{}` can not be used as a value\n{}", TValue, because_msg).fire(range);
-  } 
+  }
 }
 
 GNU_ATTRIBUTE_NOINLINE
@@ -120,7 +120,7 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
       check_map_TKey_TValue(v->range, fun_ref->substitutedTs->typeT_at(0), fun_ref->substitutedTs->typeT_at(1));
       return;
     }
-    
+
     TypePtr serialized_type = nullptr;
     bool is_pack = false;
     if (f_name == "Cell<T>.load" || f_name == "T.fromSlice" || f_name == "T.fromCell" || f_name == "T.toCell" ||

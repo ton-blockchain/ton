@@ -21,9 +21,9 @@
 namespace funC {
 
 /*
- * 
+ *
  *   GENERIC STACK TRANSFORMATIONS
- * 
+ *
  */
 
 StackTransform::StackTransform(std::initializer_list<int> list) {

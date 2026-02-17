@@ -36,7 +36,6 @@
 #include "td/actor/core/SchedulerContext.h"
 #include "td/actor/core/SchedulerId.h"
 #include "td/actor/core/SchedulerMessage.h"
-#include "td/utils/AtomicRead.h"
 #include "td/utils/Closure.h"
 #include "td/utils/Heap.h"
 #include "td/utils/List.h"
@@ -84,13 +83,15 @@ struct Debug {
     return need_debug();
   }
   struct Destructor {
-    void operator()(Debug *info) {
-      info->info_.lock().value().is_active = false;
+    void operator()(Debug *debug) {
+      std::lock_guard<std::mutex> lock(debug->info_mutex_);
+      debug->info_.is_active = false;
     }
   };
 
   void read(DebugInfo &info) {
-    info_.read(info);
+    std::lock_guard<std::mutex> lock(info_mutex_);
+    info = info_;
   }
 
   std::unique_ptr<Debug, Destructor> start(td::Slice name) {
@@ -98,17 +99,17 @@ struct Debug {
       return {};
     }
     {
-      auto lock = info_.lock();
-      auto &value = lock.value();
-      value.is_active = true;
-      value.start_at = Time::now();
-      value.set_name(name);
+      std::lock_guard<std::mutex> lock(info_mutex_);
+      info_.is_active = true;
+      info_.start_at = Time::now();
+      info_.set_name(name);
     }
     return std::unique_ptr<Debug, Destructor>(this);
   }
 
  private:
-  AtomicRead<DebugInfo> info_;
+  std::mutex info_mutex_;
+  DebugInfo info_;
 };
 
 struct WorkerInfo {
@@ -217,7 +218,7 @@ class Scheduler {
 
   // Just syntactic sugar
   void stop() {
-    run_in_context([] { SchedulerContext::get()->stop(); });
+    run_in_context([] { SchedulerContext::get().stop(); });
   }
 
   SchedulerId get_scheduler_id() const {
@@ -297,13 +298,13 @@ class Scheduler {
 class ActorMessageHangup : public core::ActorMessageImpl {
  public:
   void run() override {
-    ActorExecuteContext::get()->actor().hangup();
+    ActorExecuteContext::get().actor().hangup();
   }
 };
 class ActorMessageHangupShared : public core::ActorMessageImpl {
  public:
   void run() override {
-    ActorExecuteContext::get()->actor().hangup_shared();
+    ActorExecuteContext::get().actor().hangup_shared();
   }
 };
 }  // namespace core

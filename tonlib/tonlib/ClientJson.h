@@ -37,6 +37,8 @@ class ClientJson final {
 
   static td::CSlice execute(td::Slice request);
 
+  void cancel_requests();
+
  private:
   Client client_;
   std::mutex mutex_;  // for extra_
