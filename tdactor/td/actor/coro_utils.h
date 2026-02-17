@@ -524,6 +524,24 @@ class CoroCoalesce {
   }
 };
 
+// publish_cancel_promise: subscribe to a scope's cancellation via a Promise<Unit>.
+// On cancel: promise is resolved with Unit{}.
+// On normal cleanup (scope completes without cancel): promise is resolved with Error.
+inline void publish_cancel_promise(promise_common& promise, td::Promise<td::Unit> p) {
+  struct CancelPromiseNode : HeapCancelNode {
+    td::Promise<td::Unit> promise_;
+    explicit CancelPromiseNode(td::Promise<td::Unit> promise) : promise_(std::move(promise)) {
+    }
+    void do_cancel() override {
+      promise_.set_value({});
+    }
+    void do_cleanup() override {
+      promise_.set_error(td::Status::Error("scope completed without cancellation"));
+    }
+  };
+  publish_heap_cancel_node(promise, *make_ref<CancelPromiseNode>(std::move(p)));
+}
+
 // with_timeout: await a StartedTask with a timeout.
 // If timeout wins the race, cancel the task and return Error(653, "timeout").
 template <class T>

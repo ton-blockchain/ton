@@ -11,6 +11,7 @@
 #include "td/net/FramedPipe.h"
 #include "td/net/Pipe.h"
 #include "td/net/TcpListener.h"
+#include "td/utils/Random.h"
 #include "td/utils/as.h"
 #include "td/utils/buffer.h"
 #include "td/utils/port/IPAddress.h"
@@ -330,6 +331,7 @@ Task<td::Unit> block_for(double seconds) {
 Task<td::Unit> xsleep_for(double seconds) {
   LOG(INFO) << "sleep for " << seconds << "s";
   co_await sleep_for(seconds);
+  LOG(INFO) << "slept for " << seconds << "s";
   co_return td::Unit();
 }
 
@@ -339,6 +341,49 @@ Task<td::Unit> spawn_two_blocking_tasks() {
   co_await std::move(block_for_1s);
   LOG(INFO) << "first task is ready";
   co_return {};
+}
+
+class WorkForActor final : public td::actor::Actor {
+ public:
+  void run_for(double seconds, td::Promise<td::Unit> promise, PromiseChildLease child_lease) {
+    // or we could just check child_lease->is_cancelled()
+    publish_cancel_promise(*child_lease, [s = actor_shared(this)](td::Result<td::Unit> r) mutable {
+      r.ensure();
+      s.reset();
+    });
+    promise_ = std::move(promise);
+  }
+  void hangup_shared() override {
+    LOG(ERROR) << "hangup";
+    promise_.set_error(td::Status::Error("Cancelled"));
+  }
+
+  td::Promise<td::Unit> promise_;
+};
+
+Task<td::Unit> work_for(double seconds) {
+  auto work_for_actor = create_actor<WorkForActor>("work_for_actor");
+  auto [work_for_task, work_for_promise] = StartedTask<td::Unit>::make_bridge();
+  send_closure(work_for_actor, &WorkForActor::run_for, seconds, std::move(work_for_promise),
+               detail::get_current_promise_child_lease());
+  co_await std::move(work_for_task);
+  co_return td::Unit{};
+}
+
+Task<td::Unit> dfs(int i, int max_i) {
+  if (i > max_i) {
+    co_return td::Unit{};
+  }
+  SCOPE_EXIT {
+    td::usleep_for(td::Random::fast(0, 100000));
+    LOG(INFO) << "dfs " << i;
+  };
+  int l = i * 2 + 1;
+  int r = i * 2 + 2;
+  auto cl = dfs(l, max_i).start_in_current_scope();
+  auto cr = dfs(r, max_i).start_in_current_scope();
+  co_await sleep_for(100);
+  UNREACHABLE();
 }
 
 Task<td::Unit> spawn_two_sleeping_tasks() {
@@ -361,30 +406,32 @@ Task<td::Unit> example_cancellation() {
 
   start = td::Timestamp::now();
   co_await with_timeout(block_for(2).start_in_current_scope(), 1);
-  LOG(INFO) << td::Timestamp::now().at() - start.at() << "s";
+  LOG(INFO) << "block: " << td::Timestamp::now().at() - start.at() << "s";
+
+  start = td::Timestamp::now();
+  co_await with_timeout(work_for(2).start_deprecated(), 1);
+  LOG(INFO) << "work: " << td::Timestamp::now().at() - start.at() << "s";
+
+  auto dfs_coro = dfs(0, 32).start_in_current_scope();
+  co_await sleep_for(0.5);
+  LOG(INFO) << "cancel dfs: start";
+  dfs_coro.cancel();
+  LOG(INFO) << "cancel dfs: end";
 
   co_return {};
 }
 
 Task<td::Unit> run_all_examples() {
   co_await example_cancellation();
-  LOG(ERROR) << "ok.. active=" << (co_await is_active());
+  co_return td::Unit();
+
   co_await example_create();
-  LOG(ERROR) << "ok.. active=" << (co_await is_active());
-  co_await example_create();
-  LOG(ERROR) << "ok.. active=" << (co_await is_active());
   co_await example_communicate();
-  LOG(ERROR) << "ok.. active=" << (co_await is_active());
   co_await example_error_handling();
-  LOG(ERROR) << "ok.. active=" << (co_await is_active());
   co_await example_actor();
-  LOG(ERROR) << "ok.. active=" << (co_await is_active());
   co_await example_all();
-  LOG(ERROR) << "ok.. active=" << (co_await is_active());
   co_await example_echo_server();
-  LOG(ERROR) << "ok.. active=" << (co_await is_active());
   co_await example_cancellation();
-  LOG(ERROR) << "ok.. active=" << (co_await is_active());
   co_return td::Unit();
 }
 

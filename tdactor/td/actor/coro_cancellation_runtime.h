@@ -343,7 +343,7 @@ inline void ParentLink::link_from_promise_child_lease(promise_common& self, Prom
   auto* expected = static_cast<promise_common*>(nullptr);
   CHECK(parent_.compare_exchange_strong(expected, transferred_parent, std::memory_order_release,
                                         std::memory_order_relaxed));
-  bridge::runtime(*transferred_parent).publish_cancel_node(bridge::cancel_node(self));
+  publish_heap_cancel_node(*parent, bridge::cancel_node(self));
 }
 
 inline void ParentLink::release(ReleaseReason reason) {

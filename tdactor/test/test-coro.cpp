@@ -1,6 +1,7 @@
 #include <atomic>
 #include <chrono>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -2133,6 +2134,100 @@ class CoroSpec final : public td::actor::Actor {
                   "Task should be cancelled, not run to completion");
       co_return td::Unit{};
     });
+
+    co_await run_case("DFS cancel completes in topological order", [&]() -> Task<td::Unit> {
+      constexpr int max_i = 300;
+      auto mu = std::make_shared<std::mutex>();
+      auto order = std::make_shared<std::vector<int>>();
+
+      // DFS tree: node i has children 2i+1 (left, stored as local) and 2i+2 (right, awaited).
+      // SCOPE_EXIT is declared before cl, so frame destruction order is:
+      //   cl destroyed (dec_ref → left child frame destroyed recursively) → then SCOPE_EXIT runs.
+      // Right child was already awaited and released. This guarantees topological order.
+      auto dfs = [](auto& self, int i, int max_i, std::shared_ptr<std::mutex> mu,
+                    std::shared_ptr<std::vector<int>> order) -> Task<td::Unit> {
+        if (i > max_i) {
+          co_return td::Unit{};
+        }
+        SCOPE_EXIT {
+          td::usleep_for(td::Random::fast(0, 1000));
+          std::lock_guard<std::mutex> lock(*mu);
+          order->push_back(i);
+        };
+        int l = i * 2 + 1;
+        int r = i * 2 + 2;
+        auto cl = self(self, l, max_i, mu, order).start_in_current_scope();
+        auto cr = self(self, r, max_i, mu, order).start_in_current_scope();
+        co_await sleep_for(100);
+        UNREACHABLE();
+      };
+
+      auto t = dfs(dfs, 0, max_i, mu, order).start_deprecated();
+      co_await sleep_for(0.05);
+      t.cancel();
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "DFS root should be cancelled");
+      expect_eq(r.error().code(), kCancelledCode, "Expected Error(653)");
+
+      // All interior nodes (0..max_i) should have completed
+      expect_eq(static_cast<int>(order->size()), max_i + 1, "All interior nodes should have completed");
+
+      // Check topological order: every node's parent must appear AFTER it
+      std::vector<int> position(max_i + 1, -1);
+      for (int idx = 0; idx < static_cast<int>(order->size()); idx++) {
+        position[(*order)[idx]] = idx;
+      }
+      for (int node = 1; node <= max_i; node++) {
+        int parent = (node - 1) / 2;
+        LOG_CHECK(position[node] < position[parent])
+            << "Node " << node << " (pos " << position[node] << ") should complete before parent " << parent << " (pos "
+            << position[parent] << ")";
+      }
+
+      co_return td::Unit{};
+    });
+
+    co_await run_case("publish_cancel_promise fires on cancellation", [&]() -> Task<td::Unit> {
+      auto fired = std::make_shared<std::atomic<bool>>(false);
+
+      auto worker = [](std::shared_ptr<std::atomic<bool>> fired) -> Task<td::Unit> {
+        auto scope = co_await this_scope();
+        publish_cancel_promise(*scope.get_promise(),
+                               [fired](td::Result<td::Unit>) { fired->store(true, std::memory_order_release); });
+        co_await sleep_for(10.0);
+        co_return td::Unit{};
+      };
+
+      auto t = worker(fired).start_deprecated();
+      co_await sleep_for(0.01);
+      expect_true(!fired->load(std::memory_order_acquire), "Should not fire before cancel");
+      t.cancel();
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "Worker should be cancelled");
+      expect_eq(r.error().code(), kCancelledCode, "Expected Error(653)");
+      expect_true(fired->load(std::memory_order_acquire), "publish_cancel_promise should have fired");
+      co_return td::Unit{};
+    });
+
+    co_await run_case("publish_cancel_promise does not fire cancellation on normal completion",
+                      [&]() -> Task<td::Unit> {
+                        auto was_cancel = std::make_shared<std::atomic<bool>>(false);
+
+                        auto worker = [](std::shared_ptr<std::atomic<bool>> was_cancel) -> Task<td::Unit> {
+                          auto scope = co_await this_scope();
+                          publish_cancel_promise(*scope.get_promise(), [was_cancel](td::Result<td::Unit> r) {
+                            if (r.is_ok()) {
+                              was_cancel->store(true, std::memory_order_release);
+                            }
+                          });
+                          co_return td::Unit{};
+                        };
+
+                        co_await worker(was_cancel);
+                        expect_true(!was_cancel->load(std::memory_order_acquire),
+                                    "Should not fire cancellation on normal completion");
+                        co_return td::Unit{};
+                      });
 
     LOG(INFO) << "cancellation_comprehensive_test completed";
     co_return td::Unit{};
