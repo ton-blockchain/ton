@@ -515,7 +515,7 @@ class Result {
   }
   template <typename S>
   Result &operator=(Result<S> &&other)
-    requires(!std::is_same_v<S, T>)
+    requires(!std::is_same_v<S, T> && !std::is_same_v<Result<S>, T>)
   {
     if (other.is_error()) {
       *this = other.move_as_error();

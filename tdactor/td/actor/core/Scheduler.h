@@ -231,14 +231,16 @@ class Scheduler {
   std::vector<td::thread> cpu_threads_;
   bool is_stopped_{false};
   Poll poll_;
-  KHeap<double> heap_;
+  KHeap<double> heap_;        // Actor alarms
+  KHeap<double> timer_heap_;  // Coroutine timers
   std::unique_ptr<IoWorker> io_worker_;
   bool skip_timeouts_{false};
 
   class ContextImpl : public SchedulerContext {
    public:
     ContextImpl(ActorInfoCreator *creator, SchedulerId scheduler_id, CpuWorkerId cpu_worker_id,
-                SchedulerGroupInfo *scheduler_group, Poll *poll, KHeap<double> *heap, Debug *debug);
+                SchedulerGroupInfo *scheduler_group, Poll *poll, KHeap<double> *heap, KHeap<double> *timer_heap,
+                Debug *debug);
 
     SchedulerId get_scheduler_id() const override;
     void add_to_queue(ActorInfoPtr actor_info_ptr, SchedulerId scheduler_id, bool need_poll) override;
@@ -251,10 +253,13 @@ class Scheduler {
 
     bool has_heap() override;
     KHeap<double> &get_heap() override;
+    KHeap<double> &get_timer_heap() override;
 
     Debug &get_debug() override;
 
     void set_alarm_timestamp(const ActorInfoPtr &actor_info_ptr) override;
+    void register_timer(actor::Ref<actor::TimerNode> ref) override;
+    void cancel_timer(actor::Ref<actor::TimerNode> ref) override;
 
     bool is_stop_requested() override;
     void stop() override;
@@ -271,6 +276,7 @@ class Scheduler {
     Poll *poll_;
 
     KHeap<double> *heap_;
+    KHeap<double> *timer_heap_;
 
     Debug *debug_;
   };
@@ -283,7 +289,7 @@ class Scheduler {
     bool is_io_worker = worker_info.type == WorkerInfo::Type::Io;
     ContextImpl context(&worker_info.actor_info_creator, info_->id, worker_info.cpu_worker_id,
                         scheduler_group_info_.get(), is_io_worker ? &poll_ : nullptr, is_io_worker ? &heap_ : nullptr,
-                        &worker_info.debug);
+                        is_io_worker ? &timer_heap_ : nullptr, &worker_info.debug);
     SchedulerContext::Guard guard(&context);
     f();
   }

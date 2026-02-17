@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <map>
 #include <memory>
 #include <tuple>
@@ -10,6 +11,7 @@
 #include "td/actor/actor.h"
 #include "td/actor/coro_executor.h"
 #include "td/actor/coro_task.h"
+#include "td/actor/coro_timer.h"
 #include "td/actor/coro_types.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
@@ -115,7 +117,6 @@ Task<std::vector<await_result_t<TaskType>>> all(std::vector<TaskType> tasks) {
   co_await become_lightweight();
   std::vector<await_result_t<TaskType>> results;
   results.reserve(tasks.size());
-  // TODO: auto start
   for (auto& task : tasks) {
     results.push_back(co_await std::move(task));
   }
@@ -126,7 +127,6 @@ template <CoroTask TaskType>
 Task<std::vector<await_result_t<Wrapped<TaskType>>>> all_wrap(std::vector<TaskType> tasks) {
   co_await become_lightweight();
   std::vector<await_result_t<Wrapped<TaskType>>> results;
-  // TODO: auto start
   results.reserve(tasks.size());
   for (auto& task : tasks) {
     results.push_back(co_await Wrapped<TaskType>{std::move(task)});
@@ -204,32 +204,32 @@ auto ask_impl(TargetId&& to, MemFn mf, Args&&... args) {
   return std::move(task);
 }
 
-// TODO: move actor_own correctly
 template <bool Later, class TargetId, class MemFn, class... Args>
 auto ask_new_impl(TargetId&& to, MemFn mf, Args&&... args) {
   using Meta = unified_result<MemFn>;
   using T = Meta::type;
   static_assert(Meta::kind == UnifiedKind::TaskReturn, "ask: method must return Task<T>");
+
   if constexpr (Later) {
     auto task = [](auto closure) -> Task<T> {
       co_return co_await detail::run_on_current_actor(closure);
     }(create_delayed_closure(mf, std::forward<Args>(args)...));
     task.set_executor(Executor::on_actor(to));
-    return std::move(task).start();
+    return std::move(task).start_in_current_scope();
   } else {
     std::optional<StartedTask<T>> o_task;
     td::actor::detail::send_immediate(
         to.as_actor_ref(),
         [&] {
           o_task.emplace(detail::run_on_current_actor(create_immediate_closure(mf, std::forward<Args>(args)...))
-                             .start_immediate());
+                             .start_immediate_in_current_scope());
         },
         [&]() {
           auto task = [](auto closure) -> Task<T> {
             co_return co_await detail::run_on_current_actor(closure);
           }(create_delayed_closure(mf, std::forward<Args>(args)...));
           task.set_executor(Executor::on_actor(to));
-          o_task.emplace(std::move(task).start_external());
+          o_task.emplace(std::move(task).start_external_in_current_scope());
           return detail::ActorExecutor::to_message(o_task->h);
         });
     return std::move(*o_task);
@@ -258,12 +258,6 @@ template <class TargetId, class MemFn, class... Args>
   requires AskArgsValid<MemFn, Args...>
 auto ask_immediate(TargetId&& to, MemFn mf, Args&&... args) {
   return ask_impl<false>(std::forward<TargetId>(to), mf, std::forward<Args>(args)...);
-}
-
-template <class TargetId, class MemFn, class... Args>
-  requires AskArgsValid<MemFn, Args...>
-auto ask_promise(TargetId&& to, MemFn mf, Args&&... args) {
-  return ask(std::forward<TargetId>(to), mf, std::forward<Args>(args)...);
 }
 
 template <typename TaskType>
@@ -295,7 +289,7 @@ struct TaskActorBase : public td::actor::core::Actor {
   void loop() final {
     // will be ignored till task_loop is called
     want_loop_ = true;
-    loop_cont_.resume();
+    detail::resume_on_current_tls(loop_cont_);
   }
 
   bool want_loop_{false};
@@ -476,7 +470,7 @@ struct CoroMutex {
     CHECK(--lock_cnt_ == 0);
     if (!pending_.empty()) {
       auto handle = pending_.pop();
-      handle.resume();
+      detail::resume_on_current_tls(handle);
       return;
     }
     is_locked_ = false;
@@ -529,5 +523,76 @@ class CoroCoalesce {
     return p;
   }
 };
+
+// with_timeout: await a StartedTask with a timeout.
+// If timeout wins the race, cancel the task and return Error(653, "timeout").
+template <class T>
+Task<Result<T>> with_timeout(StartedTask<T> task, double seconds) {
+  if (seconds <= 0) {
+    task.cancel();
+    co_return co_await std::move(task).wrap();
+  }
+
+  auto [bridge, promise] = StartedTask<Result<T>>::make_bridge();
+
+  struct State {
+    std::atomic<bool> done{false};
+    typename StartedTask<Result<T>>::ExternalPromise promise;
+    Ref<promise_common> awaited;
+
+    explicit State(promise_common* awaited_promise) : awaited(Ref<promise_common>::share(awaited_promise)) {
+    }
+
+    bool try_mark_done() {
+      return !done.exchange(true);
+    }
+
+    void try_set_result(Result<T> result) {
+      if (try_mark_done()) {
+        promise.set_value(std::move(result));
+      }
+    }
+
+    void try_timeout() {
+      if (!try_mark_done()) {
+        return;
+      }
+      if (awaited) {
+        awaited->cancel();
+      }
+      promise.set_value(Result<T>(Status::Error(653, "timeout")));
+    }
+  };
+
+  auto state = std::make_shared<State>(task.get_promise());
+  state->promise = std::move(promise);
+
+  // Timer: sleep, set timeout
+  auto timer = [](std::shared_ptr<State> state, double s) -> Task<Unit> {
+    co_await sleep_for(s);
+    if (!(co_await is_active())) {
+      co_return Unit{};
+    }
+    state->try_timeout();
+    co_return Unit{};
+  }(state, seconds)
+                                                                 .start_in_current_scope();
+
+  // Main: await task, set result (task cancelled via destructor when main cancelled)
+  auto main = [](std::shared_ptr<State> state, StartedTask<T> task) -> Task<Unit> {
+    auto result = co_await std::move(task).wrap();
+    state->try_set_result(std::move(result));
+    co_return Unit{};
+  }(state, std::move(task))
+                                                                           .start_in_current_scope();
+
+  co_return co_await std::move(bridge);
+}
+
+// Overload that takes a Timestamp instead of seconds
+template <class T>
+Task<Result<T>> with_timeout(StartedTask<T> task, td::Timestamp deadline) {
+  co_return co_await with_timeout(std::move(task), deadline.at() - td::Timestamp::now().at());
+}
 
 }  // namespace td::actor

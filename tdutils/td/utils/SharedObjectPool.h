@@ -201,7 +201,7 @@ class SharedObjectPool {
   ~SharedObjectPool() {
     free_queue_.pop_all(free_queue_reader_);
     size_t free_cnt = 0;
-    while (free_queue_reader_.read()) {
+    while (auto node = free_queue_reader_.read()) {
       free_cnt++;
     }
     LOG_CHECK(free_cnt == allocated_.size()) << free_cnt << " " << allocated_.size();

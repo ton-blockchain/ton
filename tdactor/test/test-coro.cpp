@@ -2,6 +2,7 @@
 #include <chrono>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -26,6 +27,17 @@ inline void expect_eq(const T& a, const U& b, const char* msg) {
 
 inline void expect_true(bool cond, const char* msg) {
   LOG_CHECK(cond) << msg;
+}
+
+template <class Pred>
+Task<bool> wait_until(Pred&& pred, int max_iters = 50) {
+  for (int i = 0; i < max_iters; i++) {
+    if (pred()) {
+      co_return true;
+    }
+    co_await yield_on_current();
+  }
+  co_return pred();
 }
 
 inline void small_sleep_ms(int ms) {
@@ -154,16 +166,32 @@ class TestDatabase final : public td::actor::Actor {
 // 4) Tests grouped by topic
 class CoroSpec final : public td::actor::Actor {
  public:
+  explicit CoroSpec(bool run_external_parent_repro_only = false)
+      : run_external_parent_repro_only_(run_external_parent_repro_only) {
+  }
+
   void start_up() override {
     logger_ = td::actor::create_actor<TestLogger>("TestLogger").release();
     db_ = td::actor::create_actor<TestDatabase>("TestDatabase", logger_).release();
+    if (run_external_parent_repro_only_) {
+      [](Task<td::Unit> test) -> Task<td::Unit> {
+        (co_await std::move(test).wrap()).ensure();
+        co_await yield_on_current();
+        td::actor::SchedulerContext::get().stop();
+        co_return td::Unit{};
+      }(external_parent_scope_repro_localize())
+                                     .start_immediate_deprecated()
+                                     .detach("CoroSpecRepro");
+      return;
+    }
+
     [](Task<td::Unit> test) -> Task<td::Unit> {
       (co_await std::move(test).wrap()).ensure();
       co_await yield_on_current();
       td::actor::SchedulerContext::get().stop();
       co_return td::Unit{};
     }(run_all())
-                                   .start_immediate()
+                                   .start_immediate_deprecated()
                                    .detach("CoroSpec");
   }
 
@@ -217,7 +245,6 @@ class CoroSpec final : public td::actor::Actor {
       check_value(co_await ask_immediate(args...));
       LOG(INFO) << "meta_ask: co_try(ask(args...))";
       check_value(co_await ask(args...));
-      // check(co_await ask_new(args...));
 
       auto [bridge_task, bridge_promise] = StartedTask<td::Unit>::make_bridge();
       auto promise = [&](auto value) {
@@ -255,7 +282,6 @@ class CoroSpec final : public td::actor::Actor {
                                                    .wrap());
 
       LOG(INFO) << "meta_ask_err: co_try(ask(args...))";
-      // check(co_await ask_new(args...));
       co_return td::Unit{};
     };
 
@@ -458,7 +484,7 @@ class CoroSpec final : public td::actor::Actor {
         td::usleep_for(td::Random::fast(0, 1000));
         co_return value * 2;
       }(round)
-                                       .start();
+                                       .start_deprecated();
       td::usleep_for(td::Random::fast(0, 1000));
       auto result = co_await std::move(task);
       CHECK(result == round * 2);
@@ -471,7 +497,7 @@ class CoroSpec final : public td::actor::Actor {
         td::usleep_for(td::Random::fast(0, 1000));
         co_return value * 2;
       }(round)
-                                       .start();
+                                       .start_deprecated();
       td::usleep_for(td::Random::fast(0, 1000));
       task.detach_silent();
       td::usleep_for(100);
@@ -481,7 +507,7 @@ class CoroSpec final : public td::actor::Actor {
     std::vector<StartedTask<size_t>> many;
     size_t expect = 0;
     for (size_t i = 0; i < 200; i++) {
-      auto t = [](size_t v) -> Task<size_t> { co_return v; }(i).start();
+      auto t = [](size_t v) -> Task<size_t> { co_return v; }(i).start_deprecated();
       many.push_back(std::move(t));
       expect += i;
     }
@@ -533,7 +559,7 @@ class CoroSpec final : public td::actor::Actor {
     }
     // Explicit start
     {
-      auto t = make_task().start();
+      auto t = make_task().start_deprecated();
       auto v = co_await std::move(t);  // Tasks propagate errors by default
       expect_eq(v, 7, "await after start");
     }
@@ -547,20 +573,20 @@ class CoroSpec final : public td::actor::Actor {
     CHECK(7 == co_await get7());
 
     auto square_async = [](size_t x) -> Task<size_t> { co_return x* x; };
-    auto res_async = co_await get7().start().then(square_async);
+    auto res_async = co_await get7().start_deprecated().then(square_async);
     CHECK(res_async == 49);
 
     auto square_sync = [](size_t x) -> size_t { return x * x; };
-    auto res_sync = co_await get7().start().then(square_sync);
+    auto res_sync = co_await get7().start_deprecated().then(square_sync);
     CHECK(res_sync == 49);
 
     auto square_error = [](size_t x) -> td::Result<size_t> { return td::Status::Error("I forgor arithmetic!"); };
-    auto res_error = co_await get7().start().then(square_error).wrap();
+    auto res_error = co_await get7().start_deprecated().then(square_error).wrap();
     CHECK(res_error.is_error());
 
     auto get_error = []() -> Task<> { co_return td::Status::Error("no"); };
     auto transform = [](td::Unit) -> td::Unit { return {}; };
-    auto res_error_2 = co_await get_error().start().then(transform).wrap();
+    auto res_error_2 = co_await get_error().start_deprecated().then(transform).wrap();
     CHECK(res_error_2.is_error());
 
     co_return td::Unit();
@@ -687,7 +713,7 @@ class CoroSpec final : public td::actor::Actor {
     // Test try_unwrap() method on StartedTask
     {
       auto ok_task = []() -> Task<int> { co_return 456; };
-      auto started = ok_task().start_immediate();
+      auto started = ok_task().start_immediate_deprecated();
       int v = co_await std::move(started);
       expect_eq(v, 456, "try_unwrap() unwraps ok value from StartedTask");
     }
@@ -696,7 +722,7 @@ class CoroSpec final : public td::actor::Actor {
     {
       auto err_task = []() -> Task<int> { co_return td::Status::Error("test error"); };
       auto outer = [err_task]() -> Task<int> {
-        auto started = err_task().start_immediate();
+        auto started = err_task().start_immediate_deprecated();
         int x = co_await std::move(started);
         co_return x + 1;  // should never reach
       }();
@@ -794,7 +820,7 @@ class CoroSpec final : public td::actor::Actor {
     // Test Task default co_await (propagates errors)
     {
       auto inner = []() -> Task<int> { co_return 888; };
-      auto outer = [&inner]() -> Task<int> {
+      auto outer = [inner]() -> Task<int> {
         int x = co_await inner();  // Default: propagates errors, returns T
         co_return x + 1;
       }();
@@ -806,7 +832,7 @@ class CoroSpec final : public td::actor::Actor {
     // Test Task default co_await error propagation
     {
       auto inner = []() -> Task<int> { co_return td::Status::Error("task error"); };
-      auto outer = [&inner]() -> Task<int> {
+      auto outer = [inner]() -> Task<int> {
         int x = co_await inner();  // Default: propagates error
         co_return x + 1;           // should never reach
       }();
@@ -817,7 +843,7 @@ class CoroSpec final : public td::actor::Actor {
     // Test Task::wrap() to prevent error propagation
     {
       auto inner = []() -> Task<int> { co_return td::Status::Error("wrapped task error"); };
-      auto outer = [&inner]() -> Task<td::Result<int>> {
+      auto outer = [inner]() -> Task<td::Result<int>> {
         auto full_result = co_await inner().wrap();  // Explicit: no propagation
         expect_true(full_result.is_error(), "Task::wrap() preserves error");
         co_return full_result;
@@ -836,9 +862,11 @@ class CoroSpec final : public td::actor::Actor {
 
     // Test trace with error from Task
     {
-      auto err_task = []() -> Task<int> { co_return td::Status::Error("original error"); };
-      auto outer = [&]() -> Task<int> { co_return co_await err_task().trace("context"); }();
-      auto result = co_await std::move(outer).wrap();
+      auto result = co_await []() -> Task<int> {
+        auto err_task = []() -> Task<int> { co_return td::Status::Error("original error"); };
+        co_return co_await err_task().trace("context");
+      }()
+                                         .wrap();
       expect_true(result.is_error(), "trace propagates error");
       auto msg = result.error().message().str();
       expect_true(msg.find("context") != std::string::npos, "trace adds context to error");
@@ -848,18 +876,22 @@ class CoroSpec final : public td::actor::Actor {
 
     // Test trace with success from Task
     {
-      auto ok_task = []() -> Task<int> { co_return 42; };
-      auto outer = [&]() -> Task<int> { co_return co_await ok_task().trace("context"); }();
-      auto result = co_await std::move(outer).wrap();
+      auto result = co_await []() -> Task<int> {
+        auto ok_task = []() -> Task<int> { co_return 42; };
+        co_return co_await ok_task().trace("context");
+      }()
+                                         .wrap();
       expect_true(result.is_ok(), "trace passes through success");
       expect_eq(result.ok(), 42, "trace preserves value");
     }
 
     // Test trace with StartedTask
     {
-      auto err_task = []() -> Task<int> { co_return td::Status::Error("started error"); };
-      auto outer = [&]() -> Task<int> { co_return co_await err_task().start().trace("started context"); }();
-      auto result = co_await std::move(outer).wrap();
+      auto result = co_await []() -> Task<int> {
+        auto err_task = []() -> Task<int> { co_return td::Status::Error("started error"); };
+        co_return co_await err_task().start_deprecated().trace("started context");
+      }()
+                                         .wrap();
       expect_true(result.is_error(), "trace works with StartedTask");
       auto msg = result.error().message().str();
       expect_true(msg.find("started context") != std::string::npos, "trace adds context to StartedTask error");
@@ -874,8 +906,10 @@ class CoroSpec final : public td::actor::Actor {
         }
       };
       auto actor = create_actor<ErrActor>("ErrActor");
-      auto outer = [&]() -> Task<int> { co_return co_await ask(actor, &ErrActor::get_error).trace("ask context"); }();
-      auto result = co_await std::move(outer).wrap();
+      auto result = co_await [](td::actor::ActorOwn<ErrActor> actor) -> Task<int> {
+        co_return co_await ask(actor, &ErrActor::get_error).trace("ask context");
+      }(std::move(actor))
+                                                                            .wrap();
       expect_true(result.is_error(), "trace works with ask()");
       auto msg = result.error().message().str();
       expect_true(msg.find("ask context") != std::string::npos, "trace adds context to ask() error");
@@ -909,6 +943,46 @@ class CoroSpec final : public td::actor::Actor {
       td::Result<int> traced_ok = ok.trace("ok context");
       expect_true(traced_ok.is_ok(), "Result::trace() preserves OK");
       expect_eq(traced_ok.ok(), 123, "Result::trace() preserves value");
+    }
+
+    // Test fast-path cancellation on .trace() with Task
+    {
+      constexpr int kCancelledCode = td::actor::kCancelledCode;
+      auto outer = []() -> Task<td::Unit> {
+        auto scope = co_await this_scope();
+        auto ready_task = []() -> Task<int> { co_return 42; };
+        auto child = ready_task().start_immediate_in_current_scope();
+        co_await yield_on_current();
+        scope.cancel();
+        // Even though child is ready, cancellation should win on traced await
+        auto v = co_await std::move(child).trace("should not matter");
+        (void)v;
+        co_return td::Status::Error("should not reach here");
+      };
+      auto t = outer().start_deprecated();
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "trace Task cancellation: expected error");
+      expect_eq(r.error().code(), kCancelledCode, "trace Task cancellation: expected cancelled code");
+      LOG(INFO) << "fast-path cancellation on .trace() with Task: PASSED";
+    }
+
+    // Test fast-path cancellation on .trace() with ready Task (inline)
+    {
+      constexpr int kCancelledCode = td::actor::kCancelledCode;
+      auto outer = []() -> Task<td::Unit> {
+        auto scope = co_await this_scope();
+        scope.cancel();
+        auto ready_task = []() -> Task<int> { co_return 42; };
+        // Task started and awaited inline via trace — cancellation should be caught
+        auto v = co_await ready_task().trace("should not matter");
+        (void)v;
+        co_return td::Status::Error("should not reach here");
+      };
+      auto t = outer().start_deprecated();
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "trace inline Task cancellation: expected error");
+      expect_eq(r.error().code(), kCancelledCode, "trace inline Task cancellation: expected cancelled code");
+      LOG(INFO) << "fast-path cancellation on .trace() inline Task: PASSED";
     }
 
     LOG(INFO) << "test_trace passed";
@@ -1085,7 +1159,7 @@ class CoroSpec final : public td::actor::Actor {
      public:
       void start_up() override {
         b_ = td::actor::create_actor<B>("B");
-        run().start().detach();
+        run().start_deprecated().detach();
         alarm_timestamp() = td::Timestamp::in(1.0);
       }
 
@@ -1150,6 +1224,35 @@ class CoroSpec final : public td::actor::Actor {
     expect_eq(result4.ok().b, 20, "brace init .b");
 
     LOG(INFO) << "co_return_empty_braces test passed";
+    co_return td::Unit{};
+  }
+
+  // Test sleep_for - lightweight timer using IoWorker heap
+  Task<td::Unit> sleep_for_test() {
+    LOG(INFO) << "=== sleep_for_test ===";
+
+    auto start = td::Timestamp::now();
+
+    // Sleep for 100ms
+    co_await sleep_for(0.1);
+
+    auto elapsed = td::Timestamp::now().at() - start.at();
+    LOG(INFO) << "Slept for " << elapsed << " seconds (expected ~0.1)";
+
+    // Should have slept at least 90ms (allow some margin)
+    expect_true(elapsed >= 0.09, "sleep_for should wait at least 90ms");
+    // Should not have slept too long (allow up to 200ms for slow CI)
+    expect_true(elapsed < 0.2, "sleep_for should not wait too long");
+
+    // Regression: immediate-ready path must not dereference an uninitialized timer registration.
+    auto immediate_start = td::Timestamp::now();
+    for (int i = 0; i < 1000; i++) {
+      co_await sleep_until(td::Timestamp::at(0));
+    }
+    auto immediate_elapsed = td::Timestamp::now().at() - immediate_start.at();
+    expect_true(immediate_elapsed < 0.2, "Immediate-ready sleep should complete quickly");
+
+    LOG(INFO) << "sleep_for_test passed";
     co_return td::Unit{};
   }
 
@@ -1242,6 +1345,1838 @@ class CoroSpec final : public td::actor::Actor {
     co_return td::Unit{};
   }
 
+  // === Structured Concurrency Tests ===
+
+  // Helper coroutine - child that increments counter after sleeping
+  static Task<int> child_task(std::shared_ptr<std::atomic<int>> counter, double sleep_time, int return_value) {
+    co_await coro_sleep(td::Timestamp::in(sleep_time));
+    counter->fetch_add(1, std::memory_order_relaxed);
+    co_return return_value;
+  }
+
+  // === Structured Concurrency Helper Functions ===
+  // (Using functions with arguments instead of lambda captures for safety)
+
+  static Task<bool> test_scope_validity() {
+    auto scope = co_await this_scope();
+    co_return bool(scope);
+  }
+
+  static Task<int> sleeping_child(std::shared_ptr<std::atomic<bool>> flag, double sleep_time) {
+    co_await coro_sleep(td::Timestamp::in(sleep_time));
+    flag->store(true, std::memory_order_release);
+    co_return 1;
+  }
+
+  static Task<int> parent_with_one_child(std::shared_ptr<std::atomic<bool>> child_completed) {
+    sleeping_child(child_completed, 0.05).start_in_current_scope().detach_silent();
+    co_return 42;
+  }
+
+  static Task<int> parent_with_two_children(std::shared_ptr<std::atomic<int>> child_count) {
+    child_task(child_count, 0.02, 1).start_in_current_scope().detach_silent();
+    child_task(child_count, 0.03, 2).start_in_current_scope().detach_silent();
+    co_return 100;
+  }
+
+  static Task<int> tls_after_yield() {
+    co_await yield_on_current();
+    auto* current = detail::get_current_promise();
+    co_return current != nullptr ? 1 : 0;
+  }
+
+  static Task<int> yielding_child() {
+    co_await yield_on_current();
+    co_return 42;
+  }
+
+  static Task<int> tls_safety_parent() {
+    auto* before = detail::get_current_promise();
+    auto child = yielding_child().start_immediate_deprecated();
+    auto* after = detail::get_current_promise();
+    if (before != after) {
+      co_return -1;
+    }
+    auto child_result = co_await std::move(child).wrap();
+    co_return child_result.is_ok() ? child_result.ok() : -2;
+  }
+
+  static Task<td::Unit> detached_setter(std::shared_ptr<std::atomic<bool>> flag) {
+    flag->store(true, std::memory_order_release);
+    co_return td::Unit{};
+  }
+
+  static Task<int> grandchild_task(std::shared_ptr<std::atomic<bool>> done_flag) {
+    co_await coro_sleep(td::Timestamp::in(0.03));
+    done_flag->store(true, std::memory_order_release);
+    co_return 7;
+  }
+
+  static Task<int> middle_parent(std::shared_ptr<std::atomic<bool>> grandchild_done) {
+    grandchild_task(grandchild_done).start_in_current_scope().detach_silent();
+    co_return 3;
+  }
+
+  static Task<int> grandparent_task(std::shared_ptr<std::atomic<bool>> grandchild_done) {
+    middle_parent(grandchild_done).start_in_current_scope().detach_silent();
+    co_return 1;
+  }
+
+  static Task<int> stress_child(std::shared_ptr<std::atomic<int>> counter, int index) {
+    co_await coro_sleep(td::Timestamp::in(0.01 + (index % 5) * 0.005));
+    counter->fetch_add(1, std::memory_order_relaxed);
+    co_return index;
+  }
+
+  static Task<int> stress_parent(std::shared_ptr<std::atomic<int>> counter, int num_children) {
+    for (int i = 0; i < num_children; i++) {
+      stress_child(counter, i).start_in_current_scope().detach_silent();
+    }
+    co_return 999;
+  }
+
+  Task<td::Unit> structured_concurrency_test() {
+    LOG(INFO) << "=== structured_concurrency_test ===";
+
+    auto run_case = [&](const char* name, auto make_test) -> Task<td::Unit> {
+      auto r = co_await make_test().wrap();
+      r.ensure();
+      LOG(INFO) << name << ": PASSED";
+      co_return td::Unit{};
+    };
+
+    co_await run_case("this_scope() returns valid scope", []() -> Task<td::Unit> {
+      expect_true(co_await test_scope_validity(), "this_scope() should return valid scope");
+      co_return td::Unit{};
+    });
+
+    co_await run_case("parent waits for 1 child", []() -> Task<td::Unit> {
+      auto child_completed = std::make_shared<std::atomic<bool>>(false);
+      expect_eq(co_await parent_with_one_child(child_completed), 42, "Parent result should be correct");
+      expect_true(child_completed->load(std::memory_order_acquire), "Parent should wait for child");
+      co_return td::Unit{};
+    });
+
+    co_await run_case("parent waits for 2 children", []() -> Task<td::Unit> {
+      auto child_count = std::make_shared<std::atomic<int>>(0);
+      expect_eq(co_await parent_with_two_children(child_count), 100, "Parent result should be correct");
+      expect_eq(child_count->load(), 2, "Both children should complete");
+      co_return td::Unit{};
+    });
+
+    co_await run_case("TLS is set after scheduler resume", []() -> Task<td::Unit> {
+      expect_eq(co_await tls_after_yield(), 1, "TLS should be set after scheduler resume");
+      co_return td::Unit{};
+    });
+
+    co_await run_case("start_immediate restores caller TLS", []() -> Task<td::Unit> {
+      expect_eq(co_await tls_safety_parent(), 42, "start_immediate should restore TLS and child should complete");
+      co_return td::Unit{};
+    });
+
+    co_await run_case("start_detached completes and cleans up", []() -> Task<td::Unit> {
+      auto completed = std::make_shared<std::atomic<bool>>(false);
+      detached_setter(completed).start_detached();
+      // Give the scheduler a chance to run the detached task
+      for (int i = 0; i < 5 && !completed->load(std::memory_order_acquire); i++) {
+        co_await yield_on_current();
+      }
+      expect_true(completed->load(std::memory_order_acquire), "Detached task should complete");
+      co_return td::Unit{};
+    });
+
+    co_await run_case("nested scopes (grandparent → parent → child) wait correctly", []() -> Task<td::Unit> {
+      auto grandchild_done = std::make_shared<std::atomic<bool>>(false);
+      expect_eq(co_await grandparent_task(grandchild_done), 1, "Grandparent result should be correct");
+      expect_true(grandchild_done->load(std::memory_order_acquire),
+                  "Grandchild should complete before grandparent returns");
+      co_return td::Unit{};
+    });
+
+    co_await run_case("concurrent child completion stress", []() -> Task<td::Unit> {
+      constexpr int NUM_CHILDREN = 20;
+      auto completion_count = std::make_shared<std::atomic<int>>(0);
+      expect_eq(co_await stress_parent(completion_count, NUM_CHILDREN), 999, "Parent result should be correct");
+      expect_eq(completion_count->load(), NUM_CHILDREN, "All children should complete");
+      co_return td::Unit{};
+    });
+
+    co_await run_case("TLS matches this_scope() on scheduler path", []() -> Task<td::Unit> {
+      auto r = co_await []() -> Task<int> {
+        co_await detach_from_actor();
+
+        auto scope = co_await this_scope();
+        auto* tls = detail::get_current_promise();
+        if (!tls || tls != scope.get_promise()) {
+          co_return 0;
+        }
+
+        co_await yield_on_current();
+        auto* tls2 = detail::get_current_promise();
+        co_return (tls2 && tls2 == scope.get_promise()) ? 1 : 0;
+      }()
+                                    .wrap();
+
+      expect_ok(r, "Scheduler TLS test should not error");
+      expect_eq(r.ok(), 1, "TLS should match current promise on scheduler resumes");
+      co_return td::Unit{};
+    });
+
+    co_await run_case("ask() promise path preserves scope tracking", []() -> Task<td::Unit> {
+      class PromiseScopeActor final : public td::actor::Actor {
+       public:
+        void run(std::shared_ptr<std::atomic<bool>> done, td::Promise<td::Unit> promise) {
+          done_ = std::move(done);
+          promise_ = std::move(promise);
+          alarm_timestamp() = td::Timestamp::in(0.03);
+        }
+        void alarm() override {
+          done_->store(true, std::memory_order_release);
+          promise_.set_value(td::Unit{});
+          stop();
+        }
+
+       private:
+        std::shared_ptr<std::atomic<bool>> done_;
+        td::Promise<td::Unit> promise_;
+      };
+
+      auto done = std::make_shared<std::atomic<bool>>(false);
+      auto actor = td::actor::create_actor<PromiseScopeActor>("PromiseScopeActor").release();
+
+      (co_await [done, actor]() -> Task<td::Unit> {
+        auto scope = co_await this_scope();
+        expect_true(detail::get_current_promise() == scope.get_promise(), "TLS should match scope before ask()");
+        auto req = ask(actor, &PromiseScopeActor::run, done);
+        req.detach_silent();
+        co_return td::Unit{};
+      }()
+                                       .wrap())
+          .ensure();
+
+      expect_true(done->load(std::memory_order_acquire), "Parent should wait for ask()-connected work via scope");
+      co_return td::Unit{};
+    });
+
+    co_await run_case("parent error waits for children before completing", []() -> Task<td::Unit> {
+      auto child_completed = std::make_shared<std::atomic<bool>>(false);
+      auto r = co_await [child_completed]() -> Task<td::Unit> {
+        sleeping_child(child_completed, 0.03).start_in_current_scope().detach_silent();
+        co_return td::Status::Error(123, "parent error");
+      }()
+                                                   .wrap();
+
+      expect_true(r.is_error(), "Parent should return error");
+      expect_eq(r.error().code(), 123, "Parent error code should be preserved");
+      expect_true(child_completed->load(std::memory_order_acquire), "Child should complete before parent finishes");
+      co_return td::Unit{};
+    });
+
+    co_await run_case("ask() Task-return remote coroutine TLS + resume location", []() -> Task<td::Unit> {
+      class AskCoroTlsActor final : public td::actor::Actor {
+       public:
+        Task<int> check_tls_and_yield() {
+          auto scope = co_await this_scope();
+          auto* p0 = detail::get_current_promise();
+          if (!p0 || p0 != scope.get_promise()) {
+            co_return 0;
+          }
+          co_await yield_on_current();
+          auto* p1 = detail::get_current_promise();
+          co_return (p1 && p1 == scope.get_promise()) ? 1 : 0;
+        }
+      };
+
+      auto remote = td::actor::create_actor<AskCoroTlsActor>("AskCoroTlsActor").release();
+      auto caller_before = td::actor::detail::get_current_actor_id();
+
+      auto r = co_await ask(remote, &AskCoroTlsActor::check_tls_and_yield).wrap();
+      expect_ok(r, "ask(remote Task) should not error");
+      expect_eq(r.ok(), 1, "Remote coroutine TLS should match its promise across yield");
+
+      auto caller_after = td::actor::detail::get_current_actor_id();
+      expect_eq(caller_after, caller_before, "Awaiting ask(remote Task) should resume on caller actor");
+      co_return td::Unit{};
+    });
+
+    LOG(INFO) << "structured_concurrency_test passed";
+    co_return td::Unit{};
+  }
+
+  // =============================================================================
+  // Cancellation tests
+  // =============================================================================
+  Task<td::Unit> cancellation_comprehensive_test() {
+    LOG(INFO) << "=== cancellation_comprehensive_test ===";
+
+    constexpr int kCancelledCode = td::actor::kCancelledCode;
+
+    auto run_case = [&](const char* name, auto make_test) -> Task<td::Unit> {
+      LOG(INFO) << "Running: " << name;
+      auto start_time = td::Timestamp::now();
+      auto r = co_await make_test().wrap();
+      r.ensure();
+      auto elapsed = td::Timestamp::now().at() - start_time.at();
+      LOG_CHECK(elapsed < 1.0) << name << " took too long: " << elapsed << "s";
+      LOG(INFO) << name << ": PASSED";
+      co_return td::Unit{};
+    };
+
+    struct Gate {
+      StartedTask<td::Unit> task;
+      StartedTask<td::Unit>::ExternalPromise promise;
+      void open() {
+        promise.set_value(td::Unit{});
+      }
+    };
+    auto make_gate = []() -> Gate {
+      auto [t, p] = StartedTask<td::Unit>::make_bridge();
+      return Gate{std::move(t), std::move(p)};
+    };
+
+    co_await run_case("cancelled task returns Error(653) on resume boundary", [&]() -> Task<td::Unit> {
+      auto sleeper = []() -> Task<int> {
+        co_await sleep_for(10.0);  // Will hang if cancellation doesn't work
+        co_return 1;
+      };
+      auto t = sleeper().start_deprecated();
+
+      co_await sleep_for(0.01);
+      t.cancel();
+
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "Expected cancelled error");
+      expect_eq(r.error().code(), kCancelledCode, "Expected Error(653) from cancellation");
+      co_return td::Unit{};
+    });
+
+    co_await run_case("cancel works after immediate-ready sleep", [&]() -> Task<td::Unit> {
+      auto worker = []() -> Task<td::Unit> {
+        co_await sleep_until(td::Timestamp::at(0));
+        co_await sleep_for(10.0);
+        co_return td::Unit{};
+      };
+
+      auto t = worker().start_deprecated();
+      co_await yield_on_current();
+      t.cancel();
+
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "Expected cancellation error");
+      expect_eq(r.error().code(), kCancelledCode, "Expected Error(653) from cancellation");
+      co_return td::Unit{};
+    });
+
+    co_await run_case("cancel parent while awaiting 1 of N children (no UAF, waits for all)", [&]() -> Task<td::Unit> {
+      auto g0 = make_gate();
+      auto g1 = make_gate();
+      auto g2 = make_gate();
+
+      auto children_started = std::make_shared<std::atomic<bool>>(false);
+
+      auto parent_body = [](std::shared_ptr<std::atomic<bool>> children_started, StartedTask<td::Unit> t0,
+                            StartedTask<td::Unit> t1, StartedTask<td::Unit> t2) -> Task<td::Unit> {
+        auto child_body = [](StartedTask<td::Unit> gate_task) -> Task<td::Unit> {
+          co_await std::move(gate_task);
+          co_return td::Unit{};
+        };
+
+        auto awaited_child = child_body(std::move(t0)).start_in_current_scope();
+        child_body(std::move(t1)).start_in_current_scope().detach_silent();
+        child_body(std::move(t2)).start_in_current_scope().detach_silent();
+
+        children_started->store(true, std::memory_order_release);
+
+        // Await one child. If parent is cancelled, it will finish with Error(653) at the resume boundary.
+        (void)co_await std::move(awaited_child).wrap();
+        co_return td::Unit{};
+      };
+
+      auto parent =
+          parent_body(children_started, std::move(g0.task), std::move(g1.task), std::move(g2.task)).start_deprecated();
+
+      // Ensure parent started and registered children before we cancel it.
+      bool started_ok = false;
+      for (int i = 0; i < 100 && !started_ok; i++) {
+        started_ok = children_started->load(std::memory_order_acquire);
+        if (!started_ok) {
+          co_await yield_on_current();
+        }
+      }
+      expect_true(started_ok, "Parent should start and spawn children");
+
+      parent.cancel();
+
+      // Let the awaited child complete first; parent should *not* become ready yet (still has other children).
+      g0.open();
+      for (int i = 0; i < 5; i++) {
+        co_await yield_on_current();
+      }
+      expect_true(!parent.await_ready(), "Parent should still be waiting for remaining children");
+
+      g1.open();
+      g2.open();
+
+      auto r = co_await std::move(parent).wrap();
+      expect_true(r.is_error(), "Expected parent cancellation error");
+      expect_eq(r.error().code(), kCancelledCode, "Expected Error(653) on parent cancellation");
+      co_return td::Unit{};
+    });
+
+    // Test is_active() and ensure_active() Kotlin-like API
+    co_await run_case("is_active() returns true when not cancelled", [&]() -> Task<td::Unit> {
+      bool active = co_await is_active();
+      expect_true(active, "is_active() should return true when not cancelled");
+      co_return td::Unit{};
+    });
+
+    co_await run_case("push-down cancellation sets child cancelled flag", [&]() -> Task<td::Unit> {
+      auto child = []() -> Task<td::Unit> {
+        co_await sleep_for(10.0);  // Will hang if cancellation doesn't work
+        co_return td::Unit{};
+      };
+
+      auto t = child().start_in_current_scope();
+
+      co_await sleep_for(0.01);
+      t.cancel();
+
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "Child should see cancellation");
+      co_return td::Unit{};
+    });
+
+    co_await run_case("ensure_active() passes when not cancelled", [&]() -> Task<td::Unit> {
+      co_await ensure_active();  // Should not throw
+      co_return td::Unit{};
+    });
+
+    co_await run_case("ensure_active() throws cancellation when cancelled", [&]() -> Task<td::Unit> {
+      auto check_ensure = []() -> Task<td::Unit> {
+        co_await sleep_for(10.0);  // Will hang if cancellation doesn't work
+        co_await ensure_active();  // Should abort with Error(653)
+        co_return td::Unit{};
+      };
+
+      auto t = check_ensure().start_deprecated();
+
+      co_await sleep_for(0.01);
+      t.cancel();
+
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "Expected cancellation error");
+      expect_eq(r.error().code(), kCancelledCode, "Expected Error(653)");
+      co_return td::Unit{};
+    });
+
+    // Test push-down cancellation to children
+    co_await run_case("cancel propagates to nested children (push-down)", [&]() -> Task<td::Unit> {
+      auto grandchild = []() -> Task<td::Unit> {
+        co_await sleep_for(10.0);  // Will hang if cancellation doesn't work
+        co_return td::Unit{};
+      };
+
+      auto child = [&]() -> Task<td::Unit> {
+        co_await grandchild().start_in_current_scope();
+        co_return td::Unit{};
+      };
+
+      auto parent = [&]() -> Task<td::Unit> {
+        co_await child().start_in_current_scope();
+        co_return td::Unit{};
+      };
+
+      auto t = parent().start_deprecated();
+
+      co_await sleep_for(0.01);
+      t.cancel();
+
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "Parent should be cancelled");
+      co_return td::Unit{};
+    });
+
+    // Test timer cancellation when scope cancels
+    co_await run_case("sleep_for wakes up when scope is cancelled", [&]() -> Task<td::Unit> {
+      auto sleeper = []() -> Task<td::Unit> {
+        co_await sleep_for(10.0);  // Will hang if cancellation doesn't work
+        co_return td::Unit{};
+      };
+
+      auto t = sleeper().start_deprecated();
+
+      co_await sleep_for(0.01);
+      t.cancel();
+
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "Sleeper should be cancelled");
+      expect_eq(r.error().code(), kCancelledCode, "Expected Error(653)");
+      co_return td::Unit{};
+    });
+
+    // Repro: cancellation should not touch a completed awaiter
+    co_await run_case("cancel does not call on_cancel after awaiter resume", [&]() -> Task<td::Unit> {
+      struct LateCancelNode : HeapCancelNode {
+        std::atomic<bool> active{true};
+        std::atomic<bool> late_cancel{false};
+
+        void do_cancel() override {
+          if (!active.load(std::memory_order_acquire)) {
+            late_cancel.store(true, std::memory_order_release);
+          }
+        }
+        void do_cleanup() override {
+          active.store(false, std::memory_order_release);
+        }
+      };
+
+      struct LateCancelAwaitable {
+        Ref<LateCancelNode> node;
+
+        bool await_ready() const noexcept {
+          return false;
+        }
+        void await_suspend(std::coroutine_handle<> h) noexcept {
+          node = make_ref<LateCancelNode>();
+          auto* promise = detail::get_current_promise();
+          if (promise) {
+            publish_heap_cancel_node(*promise, *node);
+          }
+          detail::SchedulerExecutor{}.schedule(h);
+        }
+        bool await_resume() noexcept {
+          bool cancelled = !node->disarm();
+          node.reset();
+          return cancelled;
+        }
+      };
+
+      auto node = make_ref<LateCancelNode>();
+      auto test_ref = node.share();
+      std::atomic<bool> awaiter_done{false};
+
+      auto worker = [node = std::move(node), &awaiter_done]() mutable -> Task<td::Unit> {
+        co_await LateCancelAwaitable{std::move(node)};
+        awaiter_done.store(true, std::memory_order_release);
+        co_await sleep_for(10.0);
+        co_return td::Unit{};
+      };
+
+      auto t = worker().start_deprecated();
+
+      bool done = false;
+      for (int i = 0; i < 100 && !done; i++) {
+        done = awaiter_done.load(std::memory_order_acquire);
+        if (!done) {
+          co_await yield_on_current();
+        }
+      }
+      expect_true(done, "Awaiter should complete before cancellation");
+
+      t.cancel();
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "Expected cancellation");
+
+      expect_true(!test_ref->late_cancel.load(std::memory_order_acquire),
+                  "on_cancel must not be called after awaiter has resumed");
+      co_return td::Unit{};
+    });
+
+    co_await run_case("double publish does not leak or double-cleanup node", [&]() -> Task<td::Unit> {
+      struct PublishStats {
+        std::atomic<int> cancel_calls{0};
+        std::atomic<int> cleanup_calls{0};
+        std::atomic<int> destroy_calls{0};
+      };
+
+      struct PublishNode final : HeapCancelNode {
+        std::shared_ptr<PublishStats> stats;
+        explicit PublishNode(std::shared_ptr<PublishStats> s) : stats(std::move(s)) {
+        }
+        ~PublishNode() override {
+          stats->destroy_calls.fetch_add(1, std::memory_order_relaxed);
+        }
+        void do_cancel() override {
+          stats->cancel_calls.fetch_add(1, std::memory_order_relaxed);
+        }
+        void do_cleanup() override {
+          stats->cleanup_calls.fetch_add(1, std::memory_order_relaxed);
+        }
+      };
+
+      struct DoublePublishAwaitable {
+        std::shared_ptr<PublishStats> stats;
+        std::shared_ptr<std::atomic<bool>> awaiter_done;
+        Ref<PublishNode> cancel_node;
+
+        bool await_ready() const noexcept {
+          return false;
+        }
+        void await_suspend(std::coroutine_handle<> h) noexcept {
+          cancel_node = make_ref<PublishNode>(stats);
+          auto* promise = detail::get_current_promise();
+          CHECK(promise);
+          publish_heap_cancel_node(*promise, *cancel_node);
+          publish_heap_cancel_node(*promise, *cancel_node);
+          detail::SchedulerExecutor{}.schedule(h);
+        }
+        void await_resume() noexcept {
+          cancel_node->disarm();
+          cancel_node.reset();
+          awaiter_done->store(true, std::memory_order_release);
+        }
+      };
+
+      auto stats = std::make_shared<PublishStats>();
+      auto awaiter_done = std::make_shared<std::atomic<bool>>(false);
+
+      auto worker = [stats, awaiter_done]() -> Task<td::Unit> {
+        co_await DoublePublishAwaitable{stats, awaiter_done, {}};
+        co_await sleep_for(10.0);
+        co_return td::Unit{};
+      };
+
+      auto t = worker().start_deprecated();
+      bool done = false;
+      for (int i = 0; i < 100 && !done; i++) {
+        done = awaiter_done->load(std::memory_order_acquire);
+        if (!done) {
+          co_await yield_on_current();
+        }
+      }
+      expect_true(done, "Awaiter should complete before cancellation");
+
+      t.cancel();
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "Expected cancellation");
+      expect_eq(r.error().code(), kCancelledCode, "Expected Error(653)");
+
+      expect_eq(stats->cancel_calls.load(std::memory_order_acquire), 0,
+                "Cancel callback must not run after awaiter disarm");
+      expect_eq(stats->cleanup_calls.load(std::memory_order_acquire), 0,
+                "Cleanup callback must not run after awaiter disarm");
+      expect_eq(stats->destroy_calls.load(std::memory_order_acquire), 1, "Node must be destroyed exactly once");
+      co_return td::Unit{};
+    });
+
+    // Test cancellation propagation via ask()
+    co_await run_case("cancellation propagates through ask() to remote actor task", [&]() -> Task<td::Unit> {
+      class SlowActor final : public td::actor::Actor {
+       public:
+        Task<int> slow_method(std::shared_ptr<std::atomic<bool>> started,
+                              std::shared_ptr<std::atomic<bool>> saw_cancel) {
+          started->store(true, std::memory_order_release);
+
+          // Check cancellation periodically while "working"
+          for (int i = 0; i < 100; i++) {
+            if (!(co_await is_active())) {
+              saw_cancel->store(true, std::memory_order_release);
+              co_return -1;
+            }
+            co_await sleep_for(0.01);  // 10ms
+          }
+          co_return 42;
+        }
+      };
+
+      auto actor = td::actor::create_actor<SlowActor>("SlowActor").release();
+      auto started = std::make_shared<std::atomic<bool>>(false);
+      auto saw_cancel = std::make_shared<std::atomic<bool>>(false);
+
+      auto t = ask(actor, &SlowActor::slow_method, started, saw_cancel);
+
+      // Wait for actor to start
+      bool started_ok = co_await wait_until([&] { return started->load(std::memory_order_acquire); }, 5000);
+      expect_true(started_ok, "Actor method should start");
+
+      // Cancel the ask
+      t.cancel();
+
+      // Wait for result
+      auto r = co_await std::move(t).wrap();
+
+      // The task should be cancelled (Error 653)
+      expect_true(r.is_error(), "ask() should return error when cancelled");
+      expect_eq(r.error().code(), kCancelledCode, "Expected Error(653)");
+
+      // The remote task should have seen the cancellation
+      // (it may or may not have, depending on timing, so just log it)
+      LOG(INFO) << "Remote task saw cancellation: " << (saw_cancel->load(std::memory_order_acquire) ? "yes" : "no");
+
+      co_return td::Unit{};
+    });
+
+    // Test that cancellation propagates through ask() to the remote coroutine
+    co_await run_case("ask() cancellation propagates to remote coroutine", [&]() -> Task<td::Unit> {
+      class SleepActor final : public td::actor::Actor {
+       public:
+        Task<int> slow_method() {
+          co_await sleep_for(10.0);  // Will hang if cancellation doesn't work
+          co_return 42;
+        }
+      };
+
+      auto actor = td::actor::create_actor<SleepActor>("SleepActor").release();
+      auto t = ask(actor, &SleepActor::slow_method);
+
+      co_await sleep_for(0.01);
+      t.cancel();
+
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "ask() should return error when cancelled");
+      expect_eq(r.error().code(), kCancelledCode, "Expected Error(653)");
+      co_return td::Unit{};
+    });
+
+    // Test that child cannot catch cancellation via .wrap() to prevent its own cancellation
+    // When parent is cancelled, child is also cancelled, so even if child uses .wrap() on grandchild,
+    // the child itself will still be cancelled at the resume boundary.
+    co_await run_case("child cannot catch cancellation to prevent grandchild cancellation", [&]() -> Task<td::Unit> {
+      auto child_caught_error = std::make_shared<std::atomic<bool>>(false);
+      auto child_continued_after_wrap = std::make_shared<std::atomic<bool>>(false);
+
+      auto grandchild = []() -> Task<int> {
+        // Use a long sleep - will be cancelled
+        co_await sleep_for(10.0);
+        co_return 42;
+      };
+
+      auto child = [grandchild, child_caught_error, child_continued_after_wrap]() -> Task<int> {
+        auto gc = grandchild().start_in_current_scope();
+
+        // Child tries to catch the grandchild's cancellation with .wrap()
+        auto result = co_await std::move(gc).wrap();
+
+        // This code should NOT run because child itself is cancelled at the resume boundary
+        child_continued_after_wrap->store(true, std::memory_order_release);
+
+        if (result.is_error()) {
+          child_caught_error->store(true, std::memory_order_release);
+          co_return -100;  // Child tries to "handle" the error
+        }
+        co_return result.ok();
+      };
+
+      auto parent = [child]() -> Task<int> { co_return co_await child().start_in_current_scope(); };
+
+      auto task = parent().start_deprecated();
+
+      // Let things start
+      co_await sleep_for(0.02);
+
+      // Cancel the parent
+      task.cancel();
+
+      auto result = co_await std::move(task).wrap();
+
+      // Parent should be cancelled
+      expect_true(result.is_error(), "Parent should be cancelled");
+      expect_eq(result.error().code(), kCancelledCode, "Parent error should be 653");
+
+      // Child should NOT have continued after .wrap() - it was cancelled at the resume boundary
+      expect_true(!child_continued_after_wrap->load(std::memory_order_acquire),
+                  "Child should NOT continue after .wrap() because it is also cancelled");
+      expect_true(!child_caught_error->load(std::memory_order_acquire), "Child should NOT catch the error via .wrap()");
+
+      co_return td::Unit{};
+    });
+
+    co_await run_case("wrap() on child returns cancellation error when parent cancelled", [&]() -> Task<td::Unit> {
+      auto inner_cancelled = std::make_shared<std::atomic<bool>>(false);
+
+      auto inner_task = [inner_cancelled]() -> Task<int> {
+        co_await sleep_for(10.0);
+        co_return 42;
+      };
+
+      auto child = [inner_task, inner_cancelled]() -> Task<td::Unit> {
+        auto inner = inner_task().start_in_current_scope();
+        auto result = co_await std::move(inner).wrap();
+
+        // If we get here, the wrap() result should be a cancellation error
+        if (result.is_error() && result.error().code() == kCancelledCode) {
+          inner_cancelled->store(true, std::memory_order_release);
+        }
+        co_return td::Unit{};
+      };
+
+      auto parent = [child]() -> Task<td::Unit> { co_return co_await child().start_in_current_scope(); };
+
+      auto task = parent().start_deprecated();
+      co_await sleep_for(0.02);
+      task.cancel();
+      auto r = co_await std::move(task).wrap();
+
+      expect_true(r.is_error(), "Parent should be cancelled");
+      expect_eq(r.error().code(), kCancelledCode, "Parent error should be 653");
+      co_return td::Unit{};
+    });
+
+    co_await run_case("dropping StartedTask from start_deprecated() cancels the task", [&]() -> Task<td::Unit> {
+      auto ran_to_completion = std::make_shared<std::atomic<bool>>(false);
+
+      auto worker = [ran_to_completion]() -> Task<int> {
+        co_await sleep_for(10.0);
+        ran_to_completion->store(true, std::memory_order_release);
+        co_return 42;
+      };
+
+      // Drop the StartedTask immediately - should cancel the task
+      {
+        auto dropped = worker().start_deprecated();
+      }
+
+      co_await sleep_for(0.05);
+      expect_true(!ran_to_completion->load(std::memory_order_acquire),
+                  "Task should be cancelled, not run to completion");
+      co_return td::Unit{};
+    });
+
+    LOG(INFO) << "cancellation_comprehensive_test completed";
+    co_return td::Unit{};
+  }
+
+  // =============================================================================
+  // ignore_cancellation() tests
+  // =============================================================================
+  Task<td::Unit> ignore_cancellation_test() {
+    LOG(INFO) << "=== ignore_cancellation_test ===";
+
+    constexpr int kCancelledCode = td::actor::kCancelledCode;
+
+    auto run_case = [&](const char* name, auto make_test) -> Task<td::Unit> {
+      LOG(INFO) << "Running: " << name;
+      auto start_time = td::Timestamp::now();
+      auto r = co_await make_test().wrap();
+      r.ensure();
+      auto elapsed = td::Timestamp::now().at() - start_time.at();
+      LOG_CHECK(elapsed < 1.0) << name << " took too long: " << elapsed << "s";
+      LOG(INFO) << name << ": PASSED";
+      co_return td::Unit{};
+    };
+
+    // A: Fast-path cancellation on ready Task
+    co_await run_case("fast-path cancellation on ready Task", [&]() -> Task<td::Unit> {
+      auto ready_task = []() -> Task<int> { co_return 42; };
+      auto outer = [&]() -> Task<td::Unit> {
+        auto scope = co_await this_scope();
+        auto child = ready_task().start_immediate_in_current_scope();
+        // Wait for child to complete
+        co_await yield_on_current();
+        // Now cancel ourselves — next co_await should detect it
+        scope.cancel();
+        // Even though child is ready with value, cancellation wins
+        auto v = co_await std::move(child);
+        (void)v;
+        // Should not reach here
+        co_return td::Status::Error("should not reach here");
+      };
+      auto t = outer().start_deprecated();
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "A: expected cancellation error");
+      expect_eq(r.error().code(), kCancelledCode, "A: expected Error(653)");
+      co_return td::Unit{};
+    });
+
+    // B: Fast-path cancellation on .wrap()
+    co_await run_case("fast-path cancellation on .wrap()", [&]() -> Task<td::Unit> {
+      auto ready_task = []() -> Task<int> { co_return 42; };
+      auto outer = [&]() -> Task<td::Unit> {
+        auto scope = co_await this_scope();
+        auto child = ready_task().start_immediate_in_current_scope();
+        co_await yield_on_current();
+        scope.cancel();
+        auto r = co_await std::move(child).wrap();
+        (void)r;
+        co_return td::Status::Error("should not reach here");
+      };
+      auto t = outer().start_deprecated();
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "B: expected cancellation error");
+      expect_eq(r.error().code(), kCancelledCode, "B: expected Error(653)");
+      co_return td::Unit{};
+    });
+
+    // C: Fast-path cancellation on Result
+    co_await run_case("fast-path cancellation on Result", [&]() -> Task<td::Unit> {
+      auto outer = []() -> Task<td::Unit> {
+        auto scope = co_await this_scope();
+        scope.cancel();
+        td::Result<int> ok_result = 42;
+        auto v = co_await std::move(ok_result);
+        (void)v;
+        co_return td::Status::Error("should not reach here");
+      };
+      auto t = outer().start_deprecated();
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "C: expected cancellation error");
+      expect_eq(r.error().code(), kCancelledCode, "C: expected Error(653)");
+      co_return td::Unit{};
+    });
+
+    // D: Fast-path cancellation on Status
+    co_await run_case("fast-path cancellation on Status", [&]() -> Task<td::Unit> {
+      auto outer = []() -> Task<td::Unit> {
+        auto scope = co_await this_scope();
+        scope.cancel();
+        co_await td::Status::OK();
+        co_return td::Status::Error("should not reach here");
+      };
+      auto t = outer().start_deprecated();
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "D: expected cancellation error");
+      expect_eq(r.error().code(), kCancelledCode, "D: expected Error(653)");
+      co_return td::Unit{};
+    });
+
+    // E: cancel-before-enter — co_await ignore_cancellation() fails, task terminates
+    co_await run_case("cancel-before-enter terminates task", [&]() -> Task<td::Unit> {
+      auto outer = []() -> Task<td::Unit> {
+        auto scope = co_await this_scope();
+        scope.cancel();
+        // Cancellation already set, ignore attempt should fail → task terminates
+        auto guard = co_await ignore_cancellation();
+        (void)guard;
+        co_return td::Status::Error("should not reach here");
+      };
+      auto t = outer().start_deprecated();
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "E: expected cancellation error");
+      expect_eq(r.error().code(), kCancelledCode, "E: expected Error(653)");
+      co_return td::Unit{};
+    });
+
+    // F: enter-before-cancel — guard wins, deferred propagation, flush on drop
+    co_await run_case("enter-before-cancel defers propagation", [&]() -> Task<td::Unit> {
+      auto child_saw_cancel = std::make_shared<std::atomic<bool>>(false);
+
+      auto outer = [child_saw_cancel]() -> Task<td::Unit> {
+        auto scope = co_await this_scope();
+
+        auto child = [child_saw_cancel]() -> Task<td::Unit> {
+          co_await sleep_for(10.0);
+          child_saw_cancel->store(true, std::memory_order_release);
+          co_return td::Unit{};
+        };
+        auto started_child = child().start_in_current_scope();
+
+        {
+          auto guard = co_await ignore_cancellation();
+          // Cancel while guard is active — should defer propagation
+          scope.cancel();
+
+          // Inside guard: is_active() should return true (IGNORED suppresses)
+          bool active = co_await is_active();
+          expect_true(active, "F: is_active() should be true inside guard");
+
+          // Child should NOT have been cancelled yet (propagation deferred)
+          co_await yield_on_current();
+          expect_true(!child_saw_cancel->load(std::memory_order_acquire),
+                      "F: child should not see cancel while guard is active");
+          // Guard drops here → leave_ignore → flush deferred propagation → child cancelled
+        }
+
+        // After guard drop, we're effectively cancelled, next co_await terminates
+        auto r = co_await std::move(started_child).wrap();
+        (void)r;
+        co_return td::Unit{};
+      };
+
+      auto t = outer().start_deprecated();
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "F: expected cancellation error after guard drop");
+      expect_eq(r.error().code(), kCancelledCode, "F: expected Error(653)");
+      co_return td::Unit{};
+    });
+
+    // G: Nested guards — inner drop doesn't flush, outer does
+    co_await run_case("nested guards: inner drop doesn't flush", [&]() -> Task<td::Unit> {
+      auto child_cancelled = std::make_shared<std::atomic<bool>>(false);
+
+      auto outer = [child_cancelled]() -> Task<td::Unit> {
+        auto scope = co_await this_scope();
+
+        auto child = [child_cancelled]() -> Task<td::Unit> {
+          co_await sleep_for(10.0);
+          child_cancelled->store(true, std::memory_order_release);
+          co_return td::Unit{};
+        };
+        auto started_child = child().start_in_current_scope();
+
+        {
+          auto guard1 = co_await ignore_cancellation();
+          scope.cancel();
+
+          {
+            auto guard2 = co_await ignore_cancellation();
+            // Still inside nested guard, should be active
+            bool active = co_await is_active();
+            expect_true(active, "G: is_active() true in nested guard");
+            // guard2 drops here — inner drop, doesn't flush
+          }
+
+          // After inner drop, still have outer guard — no flush yet
+          co_await yield_on_current();
+          expect_true(!child_cancelled->load(std::memory_order_acquire),
+                      "G: child should not be cancelled after inner guard drop");
+          // guard1 drops here → outermost → flush → child cancelled
+        }
+
+        auto r = co_await std::move(started_child).wrap();
+        (void)r;
+        co_return td::Unit{};
+      };
+
+      auto t = outer().start_deprecated();
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "G: expected cancellation error");
+      expect_eq(r.error().code(), kCancelledCode, "G: expected Error(653)");
+      co_return td::Unit{};
+    });
+
+    // H: Publish-vs-cancel race — child always cancelled exactly once (idempotent on_cancel)
+    co_await run_case("publish-vs-cancel: child cancelled exactly once", [&]() -> Task<td::Unit> {
+      struct CountingNode : HeapCancelNode {
+        std::atomic<int> cancel_count{0};
+        void do_cancel() override {
+          cancel_count.fetch_add(1, std::memory_order_relaxed);
+        }
+        void do_cleanup() override {
+        }
+      };
+
+      auto node = make_ref<CountingNode>();
+      auto node_ref = node.share();
+
+      auto outer = [node = std::move(node)]() mutable -> Task<td::Unit> {
+        auto* promise = (co_await this_scope()).get_promise();
+        // Publish node into our topology
+        publish_heap_cancel_node(*promise, *node);
+        // Disarm so on_cancel won't fire from normal cancel path... actually we want it to fire
+        // Let's not disarm, and let cancel trigger it
+        co_await sleep_for(10.0);
+        node->disarm();
+        node.reset();
+        co_return td::Unit{};
+      };
+
+      auto t = outer().start_deprecated();
+      co_await sleep_for(0.01);
+      t.cancel();
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "H: expected cancellation");
+      // on_cancel should have been called exactly once (idempotent via disarm)
+      expect_eq(node_ref->cancel_count.load(std::memory_order_acquire), 1,
+                "H: on_cancel should be called exactly once");
+      co_return td::Unit{};
+    });
+
+    // I: Counter boundary — IGNORED bit doesn't corrupt child_count
+    co_await run_case("IGNORED bit doesn't corrupt child_count", [&]() -> Task<td::Unit> {
+      auto outer = []() -> Task<td::Unit> {
+        auto scope = co_await this_scope();
+        auto* promise = scope.get_promise();
+        auto initial_count = promise->cancellation_.child_count_relaxed_for_test();
+
+        {
+          auto guard = co_await ignore_cancellation();
+          // Child count should not have changed from entering ignore
+          auto count_in_guard = promise->cancellation_.child_count_relaxed_for_test();
+          expect_eq(count_in_guard, initial_count, "I: child_count unchanged by ignore");
+
+          // Add a child ref and verify it works correctly with IGNORED set
+          promise->cancellation_.add_child_ref();
+          auto count_with_child = promise->cancellation_.child_count_relaxed_for_test();
+          expect_eq(count_with_child, initial_count + 1, "I: child_count incremented correctly with IGNORED");
+          promise->cancellation_.release_child_ref(*promise, CancellationRuntime::ChildReleasePolicy::NoComplete);
+        }
+
+        auto final_count = promise->cancellation_.child_count_relaxed_for_test();
+        expect_eq(final_count, initial_count, "I: child_count restored after guard drop");
+        co_return td::Unit{};
+      };
+
+      co_await outer();
+      co_return td::Unit{};
+    });
+
+    // J: is_active/ensure_active inside guard — returns true while guard is active
+    co_await run_case("is_active/ensure_active inside guard", [&]() -> Task<td::Unit> {
+      auto outer = []() -> Task<td::Unit> {
+        auto scope = co_await this_scope();
+
+        {
+          auto guard = co_await ignore_cancellation();
+          scope.cancel();
+
+          // Inside guard with cancellation pending but ignored
+          bool active = co_await is_active();
+          expect_true(active, "J: is_active() should be true inside guard even after cancel");
+
+          co_await ensure_active();  // Should NOT terminate (guard active)
+        }
+
+        // After guard drop, effectively cancelled — is_active returns false
+        bool active = co_await is_active();
+        expect_true(!active, "J: is_active() should be false after guard drop");
+
+        // ensure_active() should terminate the task
+        co_await ensure_active();
+        co_return td::Status::Error("should not reach here");
+      };
+
+      auto t = outer().start_deprecated();
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "J: expected cancellation after guard drop");
+      expect_eq(r.error().code(), kCancelledCode, "J: expected Error(653)");
+      co_return td::Unit{};
+    });
+
+    // K: Regression — existing cancellation tests still work (covered by cancellation_comprehensive_test)
+    // Just verify basic cancel-and-await still works
+    co_await run_case("regression: basic cancel-and-await", [&]() -> Task<td::Unit> {
+      auto worker = []() -> Task<int> {
+        co_await sleep_for(10.0);
+        co_return 42;
+      };
+      auto t = worker().start_deprecated();
+      co_await sleep_for(0.01);
+      t.cancel();
+      auto r = co_await std::move(t).wrap();
+      expect_true(r.is_error(), "K: expected cancellation");
+      expect_eq(r.error().code(), kCancelledCode, "K: expected Error(653)");
+      co_return td::Unit{};
+    });
+
+    LOG(INFO) << "ignore_cancellation_test completed";
+    co_return td::Unit{};
+  }
+
+  // Test PromiseChildLease RAII and thread-safety
+  Task<td::Unit> cancellation_promise_child_lease_test() {
+    LOG(INFO) << "=== cancellation_promise_child_lease_test ===";
+
+    // Test 1: PromiseChildLease keeps scope alive via child_count
+    co_await []() -> Task<td::Unit> {
+      auto scope = co_await this_scope();
+      auto* promise = scope.get_promise();
+      CHECK(promise);
+
+      auto initial_count = promise->cancellation_.child_count_relaxed_for_test();
+
+      {
+        auto handle = detail::get_current_promise_child_lease();
+        auto count_after_handle = promise->cancellation_.child_count_relaxed_for_test();
+        expect_eq(count_after_handle, initial_count + 1, "Handle should increment child_count");
+      }
+
+      auto count_after_destroy = promise->cancellation_.child_count_relaxed_for_test();
+      expect_eq(count_after_destroy, initial_count, "Destroying handle should decrement child_count");
+
+      co_return td::Unit{};
+    }();
+    LOG(INFO) << "Handle RAII child_count: PASSED";
+
+    // Test 2: PromiseChildLease promise reports cancellation correctly
+    co_await []() -> Task<td::Unit> {
+      auto scope = co_await this_scope();
+      auto* promise = scope.get_promise();
+      CHECK(promise);
+
+      auto handle = detail::get_current_promise_child_lease();
+
+      // Initially not cancelled
+      expect_true(handle && !handle->is_cancelled(), "Handle should not be cancelled initially");
+
+      // Set cancelled flag
+      promise->cancel();
+
+      // Now should be cancelled
+      expect_true(handle && handle->is_cancelled(), "Handle should see cancellation");
+
+      co_return td::Unit{};
+    }();
+    LOG(INFO) << "Handle is_cancelled() works correctly: PASSED";
+
+    // Test 3: Move assignment decrements old handle's count
+    co_await []() -> Task<td::Unit> {
+      auto scope = co_await this_scope();
+      auto* promise = scope.get_promise();
+      CHECK(promise);
+
+      auto initial_count = promise->cancellation_.child_count_relaxed_for_test();
+
+      auto handle1 = detail::get_current_promise_child_lease();
+      auto count_with_h1 = promise->cancellation_.child_count_relaxed_for_test();
+      expect_eq(count_with_h1, initial_count + 1, "handle1 should add 1");
+
+      auto handle2 = detail::get_current_promise_child_lease();
+      auto count_with_h2 = promise->cancellation_.child_count_relaxed_for_test();
+      expect_eq(count_with_h2, initial_count + 2, "handle2 should add 1 more");
+
+      handle1 = std::move(handle2);
+      auto count_after_move = promise->cancellation_.child_count_relaxed_for_test();
+      expect_eq(count_after_move, initial_count + 1, "Move assignment should decrement old count");
+
+      co_return td::Unit{};
+    }();
+    LOG(INFO) << "Handle move assignment RAII: PASSED";
+
+    // Test 4: Releasing last handle after parent final_suspend wakes parent
+    co_await []() -> Task<td::Unit> {
+      auto held_handle = std::make_shared<PromiseChildLease>();
+      auto started = std::make_shared<std::atomic<bool>>(false);
+
+      auto parent = [](std::shared_ptr<PromiseChildLease> held_handle,
+                       std::shared_ptr<std::atomic<bool>> started) -> Task<td::Unit> {
+        *held_handle = detail::get_current_promise_child_lease();
+        started->store(true, std::memory_order_release);
+        co_return td::Unit{};
+      }(held_handle, started)
+                                                                          .start_deprecated();
+
+      bool parent_started = co_await wait_until([&] { return started->load(std::memory_order_acquire); });
+      expect_true(parent_started, "Parent should start");
+
+      for (int i = 0; i < 5; i++) {
+        co_await yield_on_current();
+      }
+      expect_true(!parent.await_ready(), "Parent should wait while handle is held");
+
+      *held_handle = PromiseChildLease{};
+
+      bool ready = co_await wait_until([&] { return parent.await_ready(); });
+      expect_true(ready, "Parent should become ready after last handle release");
+
+      auto r = co_await std::move(parent).wrap();
+      expect_ok(r, "Parent should complete after last handle release");
+      co_return td::Unit{};
+    }();
+    LOG(INFO) << "Last-handle wake-up: PASSED";
+
+    // Test 5: External handle can outlive detached creator frame safely
+    co_await []() -> Task<td::Unit> {
+      auto held_handle = std::make_shared<PromiseChildLease>();
+      auto started = std::make_shared<std::atomic<bool>>(false);
+      auto finished = std::make_shared<std::atomic<bool>>(false);
+
+      [](std::shared_ptr<PromiseChildLease> held_handle, std::shared_ptr<std::atomic<bool>> started,
+         std::shared_ptr<std::atomic<bool>> finished) -> Task<td::Unit> {
+        *held_handle = detail::get_current_promise_child_lease();
+        started->store(true, std::memory_order_release);
+        finished->store(true, std::memory_order_release);
+        co_return td::Unit{};
+      }(held_handle, started, finished)
+                                                             .start_detached();
+
+      bool parent_started = co_await wait_until([&] { return started->load(std::memory_order_acquire); });
+      expect_true(parent_started, "Detached parent should start");
+      bool parent_finished = co_await wait_until([&] { return finished->load(std::memory_order_acquire); });
+      expect_true(parent_finished, "Detached parent should finish body");
+
+      for (int i = 0; i < 10; i++) {
+        if (*held_handle) {
+          (void)(*held_handle)->is_cancelled();
+        }
+        co_await yield_on_current();
+      }
+
+      *held_handle = PromiseChildLease{};
+      expect_true(held_handle->get() == nullptr, "Handle should be released");
+      for (int i = 0; i < 5; i++) {
+        co_await yield_on_current();
+      }
+      co_return td::Unit{};
+    }();
+    LOG(INFO) << "Detached frame lifetime with external handle: PASSED";
+
+    // Test 6: start_external_with_parent_scope keeps parent waiting until external completion
+    co_await []() -> Task<td::Unit> {
+      using ExternalPromise = StartedTask<td::Unit>::ExternalPromise;
+
+      auto parent_started = std::make_shared<std::atomic<bool>>(false);
+      auto parent_external_promise = std::make_shared<std::optional<ExternalPromise>>();
+
+      auto parent =
+          [](std::shared_ptr<std::atomic<bool>> parent_started,
+             std::shared_ptr<std::optional<ExternalPromise>> parent_external_promise) -> Task<td::Unit> {
+        auto lease = detail::get_current_promise_child_lease();
+
+        auto external_child = []() -> Task<td::Unit> {
+          co_return typename Task<td::Unit>::promise_type::ExternalResult{};
+        }();
+        parent_external_promise->emplace(&external_child.h.promise());
+
+        std::move(external_child).start_external_with_parent_scope(std::move(lease)).detach_silent();
+        parent_started->store(true, std::memory_order_release);
+        co_return td::Unit{};
+      }(parent_started, parent_external_promise)
+                                                                                             .start_deprecated();
+
+      bool started = co_await wait_until([&] { return parent_started->load(std::memory_order_acquire); });
+      expect_true(started, "Parent should start");
+      expect_true(parent_external_promise->has_value(), "External promise should be initialized");
+
+      for (int i = 0; i < 5; i++) {
+        co_await yield_on_current();
+      }
+      expect_true(!parent.await_ready(), "Parent should wait until external child completion");
+
+      parent_external_promise->value().set_value(td::Unit{});
+      bool ready = co_await wait_until([&] { return parent.await_ready(); });
+      expect_true(ready, "Parent should become ready after external child completion");
+
+      auto r = co_await std::move(parent).wrap();
+      expect_ok(r, "Parent should complete after external child completion");
+      co_return td::Unit{};
+    }();
+    LOG(INFO) << "start_external_with_parent_scope parent wait: PASSED";
+
+    // Test 7: start_external_with_parent_scope + set_error still wakes parent
+    co_await []() -> Task<td::Unit> {
+      using ExternalPromise = StartedTask<td::Unit>::ExternalPromise;
+
+      auto parent_started = std::make_shared<std::atomic<bool>>(false);
+      auto parent_external_promise = std::make_shared<std::optional<ExternalPromise>>();
+
+      auto parent =
+          [](std::shared_ptr<std::atomic<bool>> parent_started,
+             std::shared_ptr<std::optional<ExternalPromise>> parent_external_promise) -> Task<td::Unit> {
+        auto lease = detail::get_current_promise_child_lease();
+
+        auto external_child = []() -> Task<td::Unit> {
+          co_return typename Task<td::Unit>::promise_type::ExternalResult{};
+        }();
+        parent_external_promise->emplace(&external_child.h.promise());
+
+        std::move(external_child).start_external_with_parent_scope(std::move(lease)).detach_silent();
+        parent_started->store(true, std::memory_order_release);
+        co_return td::Unit{};
+      }(parent_started, parent_external_promise)
+                                                                                             .start_deprecated();
+
+      bool started = co_await wait_until([&] { return parent_started->load(std::memory_order_acquire); });
+      expect_true(started, "Parent should start");
+      expect_true(parent_external_promise->has_value(), "External promise should be initialized");
+
+      for (int i = 0; i < 5; i++) {
+        co_await yield_on_current();
+      }
+      expect_true(!parent.await_ready(), "Parent should wait until external child completion");
+
+      parent_external_promise->value().set_error(td::Status::Error("external_child_error"));
+      bool ready = co_await wait_until([&] { return parent.await_ready(); });
+      expect_true(ready, "Parent should become ready after external child error completion");
+
+      auto r = co_await std::move(parent).wrap();
+      expect_ok(r, "Parent should complete after external child error completion");
+      co_return td::Unit{};
+    }();
+    LOG(INFO) << "start_external_with_parent_scope set_error wake-up: PASSED";
+
+    // Test 8: dropping ExternalPromise triggers deleter path and wakes parent
+    co_await []() -> Task<td::Unit> {
+      using ExternalPromise = StartedTask<td::Unit>::ExternalPromise;
+
+      auto parent_started = std::make_shared<std::atomic<bool>>(false);
+      auto parent_external_promise = std::make_shared<std::optional<ExternalPromise>>();
+
+      auto parent =
+          [](std::shared_ptr<std::atomic<bool>> parent_started,
+             std::shared_ptr<std::optional<ExternalPromise>> parent_external_promise) -> Task<td::Unit> {
+        auto lease = detail::get_current_promise_child_lease();
+
+        auto external_child = []() -> Task<td::Unit> {
+          co_return typename Task<td::Unit>::promise_type::ExternalResult{};
+        }();
+        parent_external_promise->emplace(&external_child.h.promise());
+
+        std::move(external_child).start_external_with_parent_scope(std::move(lease)).detach_silent();
+        parent_started->store(true, std::memory_order_release);
+        co_return td::Unit{};
+      }(parent_started, parent_external_promise)
+                                                                                             .start_deprecated();
+
+      bool started = co_await wait_until([&] { return parent_started->load(std::memory_order_acquire); });
+      expect_true(started, "Parent should start");
+      expect_true(parent_external_promise->has_value(), "External promise should be initialized");
+
+      for (int i = 0; i < 5; i++) {
+        co_await yield_on_current();
+      }
+      expect_true(!parent.await_ready(), "Parent should wait until external child completion");
+
+      parent_external_promise->reset();
+      bool ready = co_await wait_until([&] { return parent.await_ready(); });
+      expect_true(ready, "Parent should become ready after ExternalPromise drop");
+
+      auto r = co_await std::move(parent).wrap();
+      expect_ok(r, "Parent should complete after ExternalPromise drop");
+      co_return td::Unit{};
+    }();
+    LOG(INFO) << "start_external_with_parent_scope drop promise wake-up: PASSED";
+
+    LOG(INFO) << "cancellation_promise_child_lease_test passed";
+    co_return td::Unit{};
+  }
+
+  enum class ExternalParentAction : uint8_t { SetValue = 0, SetError = 1, DropPromise = 2 };
+
+  struct ExternalParentReproCase {
+    int case_id{0};
+    int repeat{0};
+    bool cancel_parent{false};
+    bool cancel_child_before_detach{false};
+    int setup_yields{0};
+    int action_yields{0};
+    ExternalParentAction action{ExternalParentAction::SetValue};
+  };
+
+  static const char* external_parent_action_name(ExternalParentAction action) {
+    switch (action) {
+      case ExternalParentAction::SetValue:
+        return "set_value";
+      case ExternalParentAction::SetError:
+        return "set_error";
+      case ExternalParentAction::DropPromise:
+        return "drop_promise";
+    }
+    return "unknown";
+  }
+
+  Task<td::Unit> external_parent_scope_repro_case(ExternalParentReproCase c) {
+    using ExternalPromise = StartedTask<td::Unit>::ExternalPromise;
+
+    LOG(INFO) << "external-parent repro case begin id=" << c.case_id << " repeat=" << c.repeat
+              << " cancel_parent=" << c.cancel_parent << " cancel_child_before_detach=" << c.cancel_child_before_detach
+              << " setup_yields=" << c.setup_yields << " action_yields=" << c.action_yields
+              << " action=" << external_parent_action_name(c.action);
+
+    auto started = std::make_shared<std::atomic<bool>>(false);
+    auto external_promise = std::make_shared<std::optional<ExternalPromise>>();
+
+    auto parent = [](std::shared_ptr<std::atomic<bool>> started,
+                     std::shared_ptr<std::optional<ExternalPromise>> external_promise, bool cancel_child_before_detach,
+                     int setup_yields) -> Task<td::Unit> {
+      auto lease = detail::get_current_promise_child_lease();
+      auto external_child = []() -> Task<td::Unit> {
+        co_return typename Task<td::Unit>::promise_type::ExternalResult{};
+      }();
+      external_promise->emplace(&external_child.h.promise());
+
+      auto started_child = std::move(external_child).start_external_with_parent_scope(std::move(lease));
+      for (int i = 0; i < setup_yields; i++) {
+        co_await yield_on_current();
+      }
+      if (cancel_child_before_detach) {
+        started_child.cancel();
+      }
+      started_child.detach_silent();
+      started->store(true, std::memory_order_release);
+      co_return td::Unit{};
+    }(started, external_promise, c.cancel_child_before_detach, c.setup_yields)
+                                              .start_deprecated();
+
+    bool parent_started = co_await wait_until([started] { return started->load(std::memory_order_acquire); }, 5000);
+    LOG_CHECK(parent_started) << "external-parent repro: parent not started, case_id=" << c.case_id;
+    LOG_CHECK(external_promise->has_value())
+        << "external-parent repro: missing external promise, case_id=" << c.case_id;
+
+    for (int i = 0; i < c.action_yields; i++) {
+      co_await yield_on_current();
+    }
+
+    if (c.cancel_parent) {
+      parent.cancel();
+    }
+
+    switch (c.action) {
+      case ExternalParentAction::SetValue:
+        external_promise->value().set_value(td::Unit{});
+        break;
+      case ExternalParentAction::SetError:
+        external_promise->value().set_error(td::Status::Error("external_parent_repro_error"));
+        break;
+      case ExternalParentAction::DropPromise:
+        external_promise->reset();
+        break;
+    }
+
+    bool parent_ready = co_await wait_until([&parent] { return parent.await_ready(); }, 5000);
+    LOG_CHECK(parent_ready) << "external-parent repro: parent stalled, case_id=" << c.case_id;
+
+    auto r = co_await std::move(parent).wrap();
+    if (c.cancel_parent) {
+      if (r.is_error()) {
+        LOG_CHECK(r.error().code() == kCancelledCode)
+            << "external-parent repro: unexpected error code, case_id=" << c.case_id;
+        LOG(INFO) << "external-parent repro case cancel outcome id=" << c.case_id << ": err653";
+      } else {
+        LOG(INFO) << "external-parent repro case cancel outcome id=" << c.case_id << ": ok";
+      }
+    } else {
+      LOG_CHECK(r.is_ok()) << "external-parent repro: expected OK parent, case_id=" << c.case_id;
+    }
+
+    LOG(INFO) << "external-parent repro case done id=" << c.case_id;
+    co_return td::Unit{};
+  }
+
+  Task<td::Unit> external_parent_scope_repro_localize() {
+    LOG(INFO) << "=== external_parent_scope_repro_localize ===";
+
+    int case_id = 0;
+    constexpr int kRepeatsPerConfig = 16;
+    for (int cancel_parent = 0; cancel_parent <= 1; cancel_parent++) {
+      for (int cancel_child = 0; cancel_child <= 1; cancel_child++) {
+        for (int action = 0; action <= 2; action++) {
+          for (int setup_yields = 0; setup_yields <= 2; setup_yields++) {
+            for (int action_yields = 0; action_yields <= 2; action_yields++) {
+              for (int repeat = 0; repeat < kRepeatsPerConfig; repeat++) {
+                case_id++;
+                co_await external_parent_scope_repro_case(ExternalParentReproCase{
+                    .case_id = case_id,
+                    .repeat = repeat,
+                    .cancel_parent = cancel_parent != 0,
+                    .cancel_child_before_detach = cancel_child != 0,
+                    .setup_yields = setup_yields,
+                    .action_yields = action_yields,
+                    .action = static_cast<ExternalParentAction>(action),
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    LOG(INFO) << "external_parent_scope_repro_localize completed all cases";
+    co_return td::Unit{};
+  }
+
+  // Regression: scheduled sleep_for cancellation must be safe under heavy races.
+  Task<td::Unit> scheduled_sleep_cancel_stress_test() {
+    LOG(INFO) << "=== scheduled_sleep_cancel_stress_test ===";
+
+    constexpr int kIterations = 5000;
+    for (int i = 0; i < kIterations; i++) {
+      auto started = []() -> Task<td::Unit> {
+        co_await sleep_for(60.0);
+        co_return td::Unit{};
+      }()
+                                 .start_deprecated();
+
+      if ((i & 1) == 0) {
+        co_await yield_on_current();
+      } else {
+        co_await sleep_for(0.0005);
+      }
+
+      started.cancel();
+      auto r = co_await std::move(started).wrap();
+      expect_true(r.is_error(), "scheduled sleep_for task should be cancelled");
+      expect_eq(r.error().code(), kCancelledCode, "scheduled sleep_for should return cancelled error");
+    }
+
+    LOG(INFO) << "scheduled_sleep_cancel_stress_test passed";
+    co_return td::Unit{};
+  }
+
+  // Serious randomized cancellation stress with fixed deterministic configuration.
+  Task<td::Unit> cancellation_serious_stress_test() {
+    LOG(INFO) << "=== cancellation_serious_stress_test ===";
+
+    constexpr int kIterations = 10000;
+    constexpr td::uint64 kBaseSeed = 0xC0FFEE1234ULL;
+
+    struct StressStats {
+      td::uint64 started_tasks{0};
+      td::uint64 cancel_calls{0};
+      td::uint64 completed_ok{0};
+      td::uint64 completed_err653{0};
+    };
+    StressStats stats;
+    auto started_at = td::Timestamp::now();
+
+    for (int iter = 0; iter < kIterations; iter++) {
+      auto seed = kBaseSeed ^ (static_cast<td::uint64>(iter + 1) * 0x9e3779b97f4a7c15ULL);
+      td::Random::Xorshift128plus rnd(seed);
+      auto scenario = rnd.fast(0, 3);
+
+      if (scenario == 0) {
+        auto cancel_delay_steps = rnd.fast(0, 8);
+        auto started = []() -> Task<td::Unit> {
+          co_await sleep_for(60.0);
+          co_return td::Unit{};
+        }()
+                                   .start_deprecated();
+        stats.started_tasks++;
+        for (int i = 0; i < cancel_delay_steps; i++) {
+          co_await yield_on_current();
+        }
+        started.cancel();
+        stats.cancel_calls++;
+        auto r = co_await std::move(started).wrap();
+        LOG_CHECK(r.is_error() && r.error().code() == kCancelledCode)
+            << "serious stress: suspended cancel scenario expected err653, iter=" << iter << " seed=" << seed;
+        stats.completed_err653++;
+      } else if (scenario == 1) {
+        auto guard_depth = rnd.fast(0, 2);
+        auto cancel_inside_guard = rnd.fast(0, 1) == 1;
+
+        auto outer = [](int guard_depth_arg, bool cancel_inside_guard_arg) -> Task<td::Unit> {
+          auto scope = co_await this_scope();
+          auto child = []() -> Task<td::Unit> {
+            for (int i = 0; i < 8; i++) {
+              co_await sleep_for(0.0004);
+              co_await yield_on_current();
+            }
+            co_return td::Unit{};
+          };
+          auto started_child = child().start_in_current_scope();
+
+          bool active_inside_guard = false;
+          if (guard_depth_arg == 0) {
+            if (cancel_inside_guard_arg) {
+              scope.cancel();
+            }
+          } else if (guard_depth_arg == 1) {
+            auto guard = co_await ignore_cancellation();
+            if (cancel_inside_guard_arg) {
+              scope.cancel();
+            }
+            active_inside_guard = co_await is_active();
+          } else {
+            auto guard1 = co_await ignore_cancellation();
+            auto guard2 = co_await ignore_cancellation();
+            if (cancel_inside_guard_arg) {
+              scope.cancel();
+            }
+            active_inside_guard = co_await is_active();
+          }
+
+          if (guard_depth_arg > 0 && cancel_inside_guard_arg) {
+            LOG_CHECK(active_inside_guard) << "serious stress: expected active inside ignore guard";
+          }
+          if (!cancel_inside_guard_arg) {
+            scope.cancel();
+          }
+
+          (void)co_await std::move(started_child).wrap();
+          co_return td::Unit{};
+        }(guard_depth, cancel_inside_guard);
+
+        auto started = std::move(outer).start_deprecated();
+        stats.started_tasks++;
+        auto r = co_await std::move(started).wrap();
+        LOG_CHECK(r.is_error() && r.error().code() == kCancelledCode)
+            << "serious stress: ignore scenario expected err653, iter=" << iter << " seed=" << seed
+            << " guard_depth=" << guard_depth << " cancel_inside_guard=" << cancel_inside_guard;
+        stats.completed_err653++;
+      } else if (scenario == 2) {
+        auto task_count = rnd.fast(8, 20);
+        std::vector<StartedTask<td::Unit>> tasks;
+        tasks.reserve(static_cast<size_t>(task_count));
+
+        for (int i = 0; i < task_count; i++) {
+          auto worker = [](int worker_i) -> Task<td::Unit> {
+            for (int step = 0; step < 3; step++) {
+              if (((worker_i + step) & 1) == 0) {
+                co_await yield_on_current();
+              } else {
+                co_await sleep_for(0.0003);
+              }
+            }
+            co_await sleep_for(0.004);
+            co_return td::Unit{};
+          };
+          tasks.push_back(worker(i).start_deprecated());
+          stats.started_tasks++;
+        }
+
+        for (int spin = 0, spins = rnd.fast(0, 4); spin < spins; spin++) {
+          co_await yield_on_current();
+        }
+
+        for (int i = 0; i < task_count; i++) {
+          if (rnd.fast(0, 3) != 0) {
+            tasks[static_cast<size_t>(i)].cancel();
+            stats.cancel_calls++;
+          }
+        }
+
+        for (auto& task : tasks) {
+          auto r = co_await std::move(task).wrap();
+          if (r.is_error()) {
+            LOG_CHECK(r.error().code() == kCancelledCode)
+                << "serious stress: timer scenario unexpected error code, iter=" << iter << " seed=" << seed;
+            stats.completed_err653++;
+          } else {
+            stats.completed_ok++;
+          }
+        }
+      } else {
+        auto cancel_delay_steps = rnd.fast(0, 4);
+        auto work_steps = rnd.fast(2, 8);
+
+        auto parent = [](int work_steps_arg) -> Task<td::Unit> {
+          auto grandchild = [](int work_steps_inner) -> Task<td::Unit> {
+            for (int i = 0; i < work_steps_inner; i++) {
+              if ((i & 1) == 0) {
+                co_await sleep_for(0.0005);
+              } else {
+                co_await yield_on_current();
+              }
+            }
+            co_return td::Unit{};
+          };
+          auto child = [](Task<td::Unit> grandchild_task) -> Task<td::Unit> {
+            co_await std::move(grandchild_task).start_in_current_scope();
+            co_return td::Unit{};
+          };
+          co_await child(grandchild(work_steps_arg)).start_in_current_scope();
+          co_return td::Unit{};
+        }(work_steps);
+
+        auto started = std::move(parent).start_deprecated();
+        stats.started_tasks++;
+        for (int i = 0; i < cancel_delay_steps; i++) {
+          co_await yield_on_current();
+        }
+        started.cancel();
+        stats.cancel_calls++;
+
+        auto r = co_await std::move(started).wrap();
+        LOG_CHECK(r.is_error() && r.error().code() == kCancelledCode)
+            << "serious stress: nested cancel scenario expected err653, iter=" << iter << " seed=" << seed;
+        stats.completed_err653++;
+      }
+
+      if ((iter + 1) % 2000 == 0) {
+        LOG(INFO) << "cancellation_serious_stress_test progress: " << (iter + 1) << "/" << kIterations;
+      }
+    }
+
+    LOG_CHECK(stats.started_tasks == stats.completed_ok + stats.completed_err653)
+        << "serious stress: completion mismatch started=" << stats.started_tasks << " ok=" << stats.completed_ok
+        << " err653=" << stats.completed_err653;
+
+    auto elapsed = td::Timestamp::now().at() - started_at.at();
+    LOG(INFO) << "cancellation_serious_stress_test stats: started=" << stats.started_tasks
+              << " cancel_calls=" << stats.cancel_calls << " ok=" << stats.completed_ok
+              << " err653=" << stats.completed_err653 << " elapsed=" << elapsed << "s";
+    LOG(INFO) << "cancellation_serious_stress_test passed";
+    co_return td::Unit{};
+  }
+
+  // Test with_timeout()
+  Task<td::Unit> with_timeout_test() {
+    LOG(INFO) << "=== with_timeout_test ===";
+
+    // Test 1: Task completes before timeout
+    co_await []() -> Task<td::Unit> {
+      auto fast_task = []() -> Task<int> {
+        co_await sleep_for(0.01);
+        co_return 42;
+      };
+
+      auto started = fast_task().start_deprecated();
+      auto result = co_await with_timeout(std::move(started), 1.0);
+
+      expect_true(result.is_ok(), "Task should complete successfully");
+      expect_eq(result.ok(), 42, "Task should return correct value");
+
+      co_return td::Unit{};
+    }();
+    LOG(INFO) << "Task completes before timeout: PASSED";
+
+    // Test 2: Timeout fires and cancels task
+    co_await []() -> Task<td::Unit> {
+      auto slow_task = []() -> Task<int> {
+        co_await sleep_for(10.0);  // Will hang if timeout doesn't work
+        co_return 42;
+      };
+
+      auto start_time = td::Timestamp::now();
+      auto started = slow_task().start_in_current_scope();
+      auto result = co_await with_timeout(std::move(started), 0.05);
+      auto elapsed = td::Timestamp::now().at() - start_time.at();
+
+      expect_true(result.is_error(), "Task should be cancelled by timeout");
+      expect_eq(result.error().code(), 653, "Error should be cancellation (653)");
+      expect_true(elapsed < 1.0, "Should not wait for full 10 seconds");
+
+      co_return td::Unit{};
+    }();
+    LOG(INFO) << "Timeout fires and cancels task: PASSED";
+
+    // Test 3: Zero/negative timeout immediately cancels
+    co_await []() -> Task<td::Unit> {
+      auto task = []() -> Task<int> {
+        co_await sleep_for(10.0);
+        co_return 42;
+      };
+
+      auto started = task().start_in_current_scope();
+      auto result = co_await with_timeout(std::move(started), 0.0);
+
+      expect_true(result.is_error(), "Zero timeout should cancel immediately");
+      expect_eq(result.error().code(), 653, "Error should be cancellation (653)");
+
+      co_return td::Unit{};
+    }();
+    LOG(INFO) << "Zero timeout cancels immediately: PASSED";
+
+    // Test 4: with_timeout with Timestamp overload
+    co_await []() -> Task<td::Unit> {
+      auto fast_task = []() -> Task<int> {
+        co_await sleep_for(0.01);
+        co_return 99;
+      };
+
+      auto started = fast_task().start_deprecated();
+      auto result = co_await with_timeout(std::move(started), td::Timestamp::in(1.0));
+
+      expect_true(result.is_ok(), "Task should complete before deadline");
+      expect_eq(result.ok(), 99, "Task should return correct value");
+
+      co_return td::Unit{};
+    }();
+    LOG(INFO) << "with_timeout(Timestamp) overload: PASSED";
+
+    LOG(INFO) << "with_timeout_test passed";
+    co_return td::Unit{};
+  }
+
+  // Test to confirm SCOPE_EXIT vs final_suspend timing
+  Task<td::Unit> scope_exit_timing_test() {
+    LOG(INFO) << "=== scope_exit_timing_test ===";
+
+    struct Logger {
+      const char* name;
+      Logger(const char* n) : name(n) {
+        LOG(INFO) << "  [" << name << "] constructed";
+      }
+      ~Logger() {
+        LOG(INFO) << "  [" << name << "] DESTROYED";
+      }
+    };
+
+    auto test_coro = []() -> Task<int> {
+      Logger local("local_in_coro");
+      LOG(INFO) << "  [coro] before co_return";
+      co_return 42;
+      // After co_return: when does ~Logger run vs final_suspend?
+    };
+
+    LOG(INFO) << "Starting test coroutine...";
+    auto result = co_await test_coro();
+    LOG(INFO) << "Test coroutine returned: " << result;
+
+    LOG(INFO) << "scope_exit_timing_test passed";
+    co_return td::Unit{};
+  }
+
   // Master runner
   Task<td::Unit> run_all() {
     LOG(ERROR) << "Run tests";
@@ -1266,24 +3201,46 @@ class CoroSpec final : public td::actor::Actor {
     co_await promise_destroy_in_actor_member();
     co_await co_return_empty_braces();
     co_await actor_ref_uaf();       // UAF test - demonstrates need for ActorRef
+    co_await sleep_for_test();      // Lightweight timer test
     co_await coro_mutex_test();     // CoroMutex mutual exclusion test
     co_await coro_coalesce_test();  // CoroCoalesce coalescing test
     co_await actor_task_unwrap_bug();
+    co_await structured_concurrency_test();            // Structured concurrency tests
+    co_await cancellation_comprehensive_test();        // Cancellation semantics documentation
+    co_await ignore_cancellation_test();               // ignore_cancellation() guard semantics
+    co_await cancellation_promise_child_lease_test();  // PromiseChildLease RAII and thread-safety
+    co_await cancellation_serious_stress_test();       // Heavy randomized cancellation stress
+    co_await scheduled_sleep_cancel_stress_test();
+    co_await scope_exit_timing_test();  // Test SCOPE_EXIT vs final_suspend timing
+    co_await with_timeout_test();       // with_timeout() function
 
     (void)co_await ask(logger_, &TestLogger::log, std::string("All tests passed"));
     co_return td::Unit();
   }
 
  private:
+  bool run_external_parent_repro_only_{false};
   td::actor::ActorId<TestDatabase> db_;
   td::actor::ActorId<TestLogger> logger_;
 };
 
 // 5) Runner
-int main() {
+int main(int argc, char** argv) {
+  bool run_external_parent_repro_only = false;
+  for (int i = 1; i < argc; i++) {
+    auto arg = std::string_view(argv[i]);
+    if (arg == "--repro-external-parent") {
+      run_external_parent_repro_only = true;
+      continue;
+    }
+    LOG(ERROR) << "Unknown argument: " << std::string(arg);
+    return 1;
+  }
+
   SET_VERBOSITY_LEVEL(VERBOSITY_NAME(INFO));
   td::actor::Scheduler scheduler({4});
-  scheduler.run_in_context([&] { td::actor::create_actor<CoroSpec>("CoroSpec").release(); });
+  scheduler.run_in_context(
+      [&] { td::actor::create_actor<CoroSpec>("CoroSpec", run_external_parent_repro_only).release(); });
   scheduler.run();
   return 0;
 }

@@ -38,7 +38,7 @@ Task<td::Unit> example_create() {
     td::usleep_for(1000000);
     co_return 17;
   }()
-                                        .start_immediate();
+                                        .start_immediate_deprecated();
   CHECK(value3.await_ready());
   CHECK(17 == (co_await std::move(value3)));
 
@@ -48,7 +48,7 @@ Task<td::Unit> example_create() {
     td::usleep_for(1000000);
     co_return 17;
   }()
-                                        .start();
+                                        .start_deprecated();
   CHECK(!value4.await_ready());
   CHECK(17 == (co_await std::move(value4)));
 
@@ -115,7 +115,7 @@ Task<td::Unit> example_actor() {
     }
     void start_up() override {
       // it is usual actor all coroutines create FROM actor, will be executed ON actor
-      run().start().detach("example_actor");
+      run().start_deprecated().detach("example_actor");
     }
     Task<td::Unit> run() {
       state_ = 19;
@@ -147,7 +147,7 @@ Task<td::Unit> example_all() {
       td::usleep_for(1000000);
       co_return i* i;
     }(i)
-                                 .start());
+                                 .start_deprecated());
   }
   auto vv = co_await all(std::move(v));
   for (int i = 0; i < n; i++) {
@@ -322,13 +322,69 @@ Task<td::Unit> example_echo_server() {
   co_return td::Unit();
 }
 
+Task<td::Unit> block_for(double seconds) {
+  LOG(INFO) << "block for " << seconds << "s";
+  td::usleep_for(static_cast<td::int32>(seconds * 1000000));
+  co_return td::Unit();
+}
+Task<td::Unit> xsleep_for(double seconds) {
+  LOG(INFO) << "sleep for " << seconds << "s";
+  co_await sleep_for(seconds);
+  co_return td::Unit();
+}
+
+Task<td::Unit> spawn_two_blocking_tasks() {
+  auto block_for_2s = block_for(2).start_in_current_scope();
+  auto block_for_1s = block_for(1).start_in_current_scope();
+  co_await std::move(block_for_1s);
+  LOG(INFO) << "first task is ready";
+  co_return {};
+}
+
+Task<td::Unit> spawn_two_sleeping_tasks() {
+  auto sleep_for_2s = xsleep_for(2).start_in_current_scope();
+  auto sleep_for_1s = xsleep_for(1).start_in_current_scope();
+  co_await std::move(sleep_for_1s);
+  LOG(INFO) << "first task is ready";
+  co_return {};
+}
+
+Task<td::Unit> example_cancellation() {
+  LOG(INFO) << "We wait for all tasks in scope";
+  auto start = td::Timestamp::now();
+  co_await spawn_two_blocking_tasks();
+  LOG(INFO) << td::Timestamp::now().at() - start.at() << "s";
+
+  start = td::Timestamp::now();
+  co_await spawn_two_sleeping_tasks();
+  LOG(INFO) << td::Timestamp::now().at() - start.at() << "s";
+
+  start = td::Timestamp::now();
+  co_await with_timeout(block_for(2).start_in_current_scope(), 1);
+  LOG(INFO) << td::Timestamp::now().at() - start.at() << "s";
+
+  co_return {};
+}
+
 Task<td::Unit> run_all_examples() {
+  co_await example_cancellation();
+  LOG(ERROR) << "ok.. active=" << (co_await is_active());
   co_await example_create();
+  LOG(ERROR) << "ok.. active=" << (co_await is_active());
+  co_await example_create();
+  LOG(ERROR) << "ok.. active=" << (co_await is_active());
   co_await example_communicate();
+  LOG(ERROR) << "ok.. active=" << (co_await is_active());
   co_await example_error_handling();
+  LOG(ERROR) << "ok.. active=" << (co_await is_active());
   co_await example_actor();
+  LOG(ERROR) << "ok.. active=" << (co_await is_active());
   co_await example_all();
+  LOG(ERROR) << "ok.. active=" << (co_await is_active());
   co_await example_echo_server();
+  LOG(ERROR) << "ok.. active=" << (co_await is_active());
+  co_await example_cancellation();
+  LOG(ERROR) << "ok.. active=" << (co_await is_active());
   co_return td::Unit();
 }
 
@@ -346,7 +402,7 @@ int main() {
   SET_VERBOSITY_LEVEL(VERBOSITY_NAME(INFO));
   td::actor::Scheduler scheduler({std::thread::hardware_concurrency()});
 
-  scheduler.run_in_context([&] { (void)example().start(); });
+  scheduler.run_in_context([&] { example().start_detached(); });
 
   scheduler.run();
   LOG(INFO) << "DONE";

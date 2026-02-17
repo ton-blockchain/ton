@@ -22,6 +22,7 @@
 #include "td/actor/core/CpuWorker.h"
 #include "td/actor/core/Scheduler.h"  // FIXME: afer LocalQueue is in a separate file
 #include "td/actor/core/SchedulerContext.h"
+#include "td/actor/coro_task.h"
 
 namespace td {
 namespace actor {
@@ -42,16 +43,24 @@ void CpuWorker::run() {
       }
       auto encoded = reinterpret_cast<uintptr_t>(token);
       if ((encoded & 1u) == 0u) {
-        // Regular actor message
-        auto raw_message = reinterpret_cast<SchedulerMessage::Raw *>(token);
-        SchedulerMessage message(SchedulerMessage::acquire_t{}, raw_message);
+        // Regular actor message - clear TLS to avoid stale coroutine context
+        actor::detail::set_current_promise(nullptr);
+        auto raw_message = reinterpret_cast<ActorInfoPtr::Raw *>(token);
+        ActorInfoPtr message(ActorInfoPtr::acquire_t{}, raw_message);
         auto lock = debug.start(message->get_name());
         ActorExecutor executor(*message, dispatcher, ActorExecutor::Options().with_from_queue());
       } else {
         // Coroutine continuation
-        auto h = std::coroutine_handle<>::from_address(reinterpret_cast<void *>(encoded & ~uintptr_t(1)));
         auto lock = debug.start("coro");
-        h.resume();
+        if (actor::detail::is_promise_encoded(encoded)) {
+          // Promise-encoded: resume with promise TLS.
+          auto *promise = actor::detail::decode_promise(encoded);
+          actor::detail::resume_with_tls(promise->self_handle_, promise);
+        } else {
+          // Handle-encoded: resume with root TLS.
+          auto h = actor::detail::decode_continuation(encoded);
+          actor::detail::resume_root(h);
+        }
       }
     } else {
       waiter_.wait(slot);

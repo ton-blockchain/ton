@@ -21,10 +21,44 @@
 #include "td/actor/core/CpuWorker.h"
 #include "td/actor/core/IoWorker.h"
 #include "td/actor/core/Scheduler.h"
+#include "td/actor/coro_task.h"
+#include "td/actor/coro_timer.h"
 
 namespace td {
 namespace actor {
 namespace core {
+
+actor::Ref<actor::TimerNode> SchedulerMessage::as_timer_node() {
+  CHECK(is_timer_register() || is_timer_cancel());
+  auto *node = reinterpret_cast<actor::TimerNode *>(data_ & ~kTimerTagMask);
+  data_ = 0;
+  return actor::Ref<actor::TimerNode>::adopt(node);
+}
+
+void SchedulerMessage::reset() {
+  if (is_actor()) {
+    as_actor();
+  } else if (is_timer_register() || is_timer_cancel()) {
+    as_timer_node();
+  }
+}
+
+SchedulerMessage::~SchedulerMessage() {
+  reset();
+}
+
+SchedulerMessage SchedulerMessage::timer_register(actor::Ref<actor::TimerNode> ref) {
+  SchedulerMessage m;
+  m.data_ = encode_timer_node(ref.release(), kTimerRegisterTag);
+  return m;
+}
+
+SchedulerMessage SchedulerMessage::timer_cancel(actor::Ref<actor::TimerNode> ref) {
+  SchedulerMessage m;
+  m.data_ = encode_timer_node(ref.release(), kTimerCancelTag);
+  return m;
+}
+
 std::atomic<bool> debug;
 void set_debug(bool flag) {
   debug = flag;
@@ -132,7 +166,13 @@ void Scheduler::do_stop() {
 
   io_worker_.reset();
   poll_.clear();
+  // Actor heap - unpin actors
   heap_.for_each([](auto &key, auto &node) { ActorInfo::from_heap_node(node)->unpin(); });
+
+  // Timer heap - ~TimerNode destroys continuations and releases timer nodes
+  timer_heap_.for_each([](auto &key, auto &node) {
+    TimerNode::from_heap_node(node);  // adopt + drop
+  });
 
   std::unique_lock<std::mutex> lock(scheduler_group_info_->active_scheduler_count_mutex);
   scheduler_group_info_->active_scheduler_count--;
@@ -140,13 +180,15 @@ void Scheduler::do_stop() {
 }
 
 Scheduler::ContextImpl::ContextImpl(ActorInfoCreator *creator, SchedulerId scheduler_id, CpuWorkerId cpu_worker_id,
-                                    SchedulerGroupInfo *scheduler_group, Poll *poll, KHeap<double> *heap, Debug *debug)
+                                    SchedulerGroupInfo *scheduler_group, Poll *poll, KHeap<double> *heap,
+                                    KHeap<double> *timer_heap, Debug *debug)
     : creator_(creator)
     , scheduler_id_(scheduler_id)
     , cpu_worker_id_(cpu_worker_id)
     , scheduler_group_(scheduler_group)
     , poll_(poll)
     , heap_(heap)
+    , timer_heap_(timer_heap)
     , debug_(debug) {
 }
 
@@ -212,6 +254,10 @@ KHeap<double> &Scheduler::ContextImpl::get_heap() {
   CHECK(has_heap());
   return *heap_;
 }
+KHeap<double> &Scheduler::ContextImpl::get_timer_heap() {
+  CHECK(timer_heap_ != nullptr);
+  return *timer_heap_;
+}
 Debug &Scheduler::ContextImpl::get_debug() {
   return *debug_;
 }
@@ -245,6 +291,29 @@ void Scheduler::ContextImpl::set_alarm_timestamp(const ActorInfoPtr &actor_info_
   }
 }
 
+void Scheduler::ContextImpl::register_timer(actor::Ref<actor::TimerNode> ref) {
+  if (timer_heap_) {
+    get_timer_heap().insert(ref->get_deadline().at(), ref.release());
+  } else {
+    auto scheduler_id = get_scheduler_id();
+    auto &info = scheduler_group()->schedulers.at(scheduler_id.value());
+    info.io_queue->writer_put(SchedulerMessage::timer_register(std::move(ref)));
+  }
+}
+
+void Scheduler::ContextImpl::cancel_timer(actor::Ref<actor::TimerNode> ref) {
+  if (timer_heap_) {
+    if (ref->in_heap()) {
+      auto heap_ref = TimerNode::from_heap_node(ref.get());
+      get_timer_heap().erase(heap_ref.get());
+    }
+  } else {
+    auto scheduler_id = get_scheduler_id();
+    auto &info = scheduler_group()->schedulers.at(scheduler_id.value());
+    info.io_queue->writer_put(SchedulerMessage::timer_cancel(std::move(ref)));
+  }
+}
+
 bool Scheduler::ContextImpl::is_stop_requested() {
   return scheduler_group()->is_stop_requested;
 }
@@ -266,6 +335,17 @@ void Scheduler::ContextImpl::stop() {
     }
   }
 }
+static void destroy_token(SchedulerToken raw) {
+  auto encoded = reinterpret_cast<uintptr_t>(raw);
+  if ((encoded & 1u) == 0u) {
+    ActorInfoPtr(ActorInfoPtr::acquire_t{}, reinterpret_cast<ActorInfoPtr::Raw *>(raw));
+  } else if (actor::detail::is_promise_encoded(encoded)) {
+    actor::detail::decode_promise(encoded)->self_handle_.destroy();
+  } else {
+    actor::detail::decode_continuation(encoded).destroy();
+  }
+}
+
 void Scheduler::close_scheduler_group(SchedulerGroupInfo &group_info) {
   //LOG(DEBUG) << "close scheduler group";
   // Cannot close scheduler group before somebody asked to stop them
@@ -300,8 +380,7 @@ void Scheduler::close_scheduler_group(SchedulerGroupInfo &group_info) {
           break;
         }
         while (n-- > 0) {
-          auto message = io_queue.reader_get_unsafe();
-          // message's destructor is called
+          io_queue.reader_get_unsafe().reset();
           queues_are_empty = false;
         }
       }
@@ -314,15 +393,7 @@ void Scheduler::close_scheduler_group(SchedulerGroupInfo &group_info) {
           if (!cpu_queue.try_pop(raw_message)) {
             break;
           }
-          auto encoded = reinterpret_cast<uintptr_t>(raw_message);
-          if ((encoded & 1u) == 0u) {
-            SchedulerMessage::Raw *raw = reinterpret_cast<SchedulerMessage::Raw *>(raw_message);
-            SchedulerMessage(SchedulerMessage::acquire_t{}, raw);
-          } else {
-            auto h = std::coroutine_handle<>::from_address(reinterpret_cast<void *>(encoded & ~uintptr_t(1)));
-            h.destroy();
-          }
-          // message's destructor is called
+          destroy_token(raw_message);
           queues_are_empty = false;
         }
       }
@@ -333,15 +404,7 @@ void Scheduler::close_scheduler_group(SchedulerGroupInfo &group_info) {
           if (!cpu_queue.try_pop(raw_message, get_thread_id())) {
             break;
           }
-          auto encoded = reinterpret_cast<uintptr_t>(raw_message);
-          if ((encoded & 1u) == 0u) {
-            SchedulerMessage::Raw *raw = reinterpret_cast<SchedulerMessage::Raw *>(raw_message);
-            SchedulerMessage(SchedulerMessage::acquire_t{}, raw);
-          } else {
-            auto h = std::coroutine_handle<>::from_address(reinterpret_cast<void *>(encoded & ~uintptr_t(1)));
-            h.destroy();
-          }
-          // message's destructor is called
+          destroy_token(raw_message);
           queues_are_empty = false;
         }
       }

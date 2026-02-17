@@ -32,6 +32,7 @@ struct HeapNode {
   void remove() {
     pos_ = -1;
   }
+
   int pos_ = -1;
 };
 

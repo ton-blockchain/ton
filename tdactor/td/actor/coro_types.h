@@ -6,7 +6,15 @@
 #include <type_traits>
 #include <utility>
 
+#include "td/utils/Status.h"
+
 namespace td::actor {
+
+inline constexpr int kCancelledCode = 653;
+
+inline td::Status cancelled_status() {
+  return td::Status::Error(kCancelledCode, "cancelled");
+}
 
 template <class R>
 concept TDResultLike = requires(R r) {
@@ -29,7 +37,75 @@ concept CoroTask = requires(T t) {
   { t.await_resume() };
 };
 
+// Forward declarations for structured concurrency
+struct promise_common;
+
 namespace detail {
+
+// Thread-local current promise for structured concurrency
+inline thread_local promise_common* current_promise_ = nullptr;
+
+inline promise_common* get_current_promise() {
+  return current_promise_;
+}
+
+inline void set_current_promise(promise_common* p) {
+  current_promise_ = p;
+}
+
+template <class P>
+inline promise_common* to_promise_common(std::coroutine_handle<P> h) noexcept {
+  return static_cast<promise_common*>(&h.promise());
+}
+
+template <class P>
+inline void set_current_promise(std::coroutine_handle<P> h) noexcept {
+  set_current_promise(to_promise_common(h));
+}
+
+// RAII guard for TLS - saves current value and restores on destruction
+// Use this around .resume() calls to prevent stale TLS from leaking
+class TlsGuard {
+  promise_common* old_value_;
+
+ public:
+  explicit TlsGuard(promise_common* new_value) : old_value_(current_promise_) {
+    current_promise_ = new_value;
+  }
+  ~TlsGuard() {
+    current_promise_ = old_value_;
+  }
+  TlsGuard(const TlsGuard&) = delete;
+  TlsGuard& operator=(const TlsGuard&) = delete;
+};
+
+// Centralized raw-resume helpers.
+// Callers should not call .resume() directly; use one of these wrappers.
+template <class P>
+inline void resume_with_tls(std::coroutine_handle<P> h, promise_common* promise) noexcept {
+  TlsGuard guard(promise);
+  h.resume();
+}
+
+inline void resume_with_tls(std::coroutine_handle<> h, promise_common* promise) noexcept {
+  TlsGuard guard(promise);
+  h.resume();
+}
+
+template <class P>
+inline void resume_with_own_promise(std::coroutine_handle<P> h) noexcept {
+  resume_with_tls(h, to_promise_common(h));
+}
+
+template <class P>
+inline void resume_on_current_tls(std::coroutine_handle<P> h) noexcept {
+  resume_with_tls(h, get_current_promise());
+}
+
+inline void resume_root(std::coroutine_handle<> h) noexcept {
+  resume_with_tls(h, nullptr);
+}
+
 template <typename T>
 struct UnwrapTDResult {
   using Type = T;
@@ -96,14 +172,32 @@ auto make_awaitable(X&& x) {
   }
 }
 
+// Token encoding scheme for scheduler queue:
+// - Bit 0 = 1: coroutine token (vs actor message at 0)
+// - Bit 1 = 0: handle-encoded (just coroutine handle, no TLS info)
+// - Bit 1 = 1: promise-encoded (promise_common*, can set TLS)
+
 inline uintptr_t encode_continuation(std::coroutine_handle<> h) noexcept {
   auto p = h.address();
   auto v = reinterpret_cast<uintptr_t>(p);
-  return v | 1u;
+  return v | 1u;  // Bits: ...01 = handle-encoded continuation
+}
+
+inline uintptr_t encode_promise(promise_common* p) noexcept {
+  auto v = reinterpret_cast<uintptr_t>(p);
+  return v | 3u;  // Bits: ...11 = promise-encoded continuation
+}
+
+inline bool is_promise_encoded(uintptr_t token) noexcept {
+  return (token & 3u) == 3u;
 }
 
 inline std::coroutine_handle<> decode_continuation(uintptr_t token) noexcept {
   return std::coroutine_handle<>::from_address(reinterpret_cast<void*>(token & ~uintptr_t(1)));
+}
+
+inline promise_common* decode_promise(uintptr_t token) noexcept {
+  return reinterpret_cast<promise_common*>(token & ~uintptr_t(3));
 }
 
 }  // namespace detail

@@ -19,10 +19,13 @@
 #include "td/actor/core/ActorExecutor.h"
 #include "td/actor/core/IoWorker.h"
 #include "td/actor/core/Scheduler.h"
+#include "td/actor/coro_timer.h"
+#include "td/actor/coro_types.h"
 
 namespace td {
 namespace actor {
 namespace core {
+
 void IoWorker::start_up() {
 #if TD_PORT_POSIX
   auto &poll = SchedulerContext::get().get_poll();
@@ -42,9 +45,12 @@ bool IoWorker::run_once(double timeout, bool skip_timeouts) {
   auto &poll = SchedulerContext::get().get_poll();
 #endif
   auto &heap = SchedulerContext::get().get_heap();
+  auto &timer_heap = SchedulerContext::get().get_timer_heap();
   auto &debug = SchedulerContext::get().get_debug();
 
   auto now = Time::now();  // update Time::now_cached()
+
+  // Process expired actor alarms
   while (!heap.empty() && heap.top_key() <= now) {
     auto *heap_node = heap.pop();
     auto *actor_info = ActorInfo::from_heap_node(heap_node);
@@ -59,19 +65,40 @@ bool IoWorker::run_once(double timeout, bool skip_timeouts) {
     }
   }
 
+  // Process expired timers
+  while (!timer_heap.empty() && timer_heap.top_key() <= now) {
+    auto *heap_node = timer_heap.pop();
+    actor::TimerNode::process_expired(actor::TimerNode::from_heap_node(heap_node), dispatcher);
+  }
+
   const int size = queue_.reader_wait_nonblock();
   for (int i = 0; i < size; i++) {
     auto message = queue_.reader_get_unsafe();
     if (!message) {
       return false;
     }
-    if (message->state().get_flags_unsafe().is_shared()) {
-      // should check actors timeout
-      dispatcher.set_alarm_timestamp(message);
+
+    // Handle timer registration messages
+    if (message.is_timer_register()) {
+      actor::TimerNode::process_register(message.as_timer_node(), timer_heap);
       continue;
     }
-    auto lock = debug.start(message->get_name());
-    ActorExecutor executor(*message, dispatcher, ActorExecutor::Options().with_from_queue().with_has_poll(true));
+
+    // Handle timer cancellation messages
+    if (message.is_timer_cancel()) {
+      actor::TimerNode::process_cancel(message.as_timer_node(), timer_heap);
+      continue;
+    }
+
+    // Handle actor messages
+    auto actor_msg = message.as_actor();
+    if (actor_msg->state().get_flags_unsafe().is_shared()) {
+      // should check actors timeout
+      dispatcher.set_alarm_timestamp(actor_msg);
+      continue;
+    }
+    auto lock = debug.start(actor_msg->get_name());
+    ActorExecutor executor(*actor_msg, dispatcher, ActorExecutor::Options().with_from_queue().with_has_poll(true));
   }
   queue_.reader_flush();
 
@@ -81,6 +108,9 @@ bool IoWorker::run_once(double timeout, bool skip_timeouts) {
     auto wakeup_timestamp = Timestamp::in(timeout);
     if (!heap.empty()) {
       wakeup_timestamp.relax(Timestamp::at(heap.top_key()));
+    }
+    if (!timer_heap.empty()) {
+      wakeup_timestamp.relax(Timestamp::at(timer_heap.top_key()));
     }
     timeout_ms = static_cast<int>(wakeup_timestamp.in() * 1000) + 1;
     if (timeout_ms < 0) {
