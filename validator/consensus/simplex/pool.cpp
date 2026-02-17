@@ -300,10 +300,6 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     for (const auto &vote : bus.bootstrap_votes) {
       handle_vote(vote.validator.get_using(bus), vote.clone());
     }
-
-    if (first_nonannounced_window_ == 0) {
-      maybe_publish_new_leader_window().start().detach();
-    }
   }
 
   template <>
@@ -320,9 +316,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
 
     reschedule_standstill_resolution();
     is_started_ = true;
-    if (leader_window_observation_) {
-      owning_bus().publish(std::move(leader_window_observation_));
-    }
+    advance_present();
   }
 
   template <>
@@ -556,6 +550,9 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   }
 
   void advance_present() {
+    if (!is_started_) {
+      return;
+    }
     while (true) {
       auto slot = state_->slot_at(now_);
       if (slot->state->is_notarized() || slot->state->is_skipped()) {
@@ -586,10 +583,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
       CHECK(maybe_base.has_value());
       base = maybe_base.value();
     }
-    leader_window_observation_ = std::make_shared<LeaderWindowObserved>(now_, base);
-    if (is_started_) {
-      owning_bus().publish(std::move(leader_window_observation_));
-    }
+    owning_bus().publish(std::make_shared<LeaderWindowObserved>(now_, base));
     co_return {};
   }
 
@@ -787,7 +781,6 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   std::optional<State> state_;
 
   bool is_started_ = false;
-  std::shared_ptr<LeaderWindowObserved> leader_window_observation_;
   td::uint32 now_ = 0;
 
   std::set<td::uint32> skip_intervals_;
