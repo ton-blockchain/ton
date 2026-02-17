@@ -407,7 +407,8 @@ class ParserSessionStats(Parser):
             if isinstance(e.event, Consensus_stats_id):
                 event_id = e.event
                 break
-        assert event_id, "Event ID not found in events list"
+        if event_id is None:
+            return
 
         v_group = f"{event_id.workchain},{self._shard_to_hex(event_id.shard)}.{event_id.cc_seqno}"
 
