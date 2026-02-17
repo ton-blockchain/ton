@@ -406,6 +406,9 @@ td::actor::Task<bool> ArchiveImporterLocal::try_advance_shard_client_seqno() {
   for (const BlockIdExt &block_id : blocks_to_import) {
     blocks_to_apply_shards_.emplace_back(block_id, mc_block->block_id());
     blocks_[block_id].import = true;
+    if (blocks_[block_id].proof_link.is_null()) {
+      co_return td::Status::Error(PSTRING() << "no proof link for block " << block_id.to_str());
+    }
   }
   co_return true;
 }
