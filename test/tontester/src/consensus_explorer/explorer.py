@@ -1,8 +1,11 @@
+import argparse
+import os
 from multiprocessing import Process
 from pathlib import Path
 from typing import cast, final
 
 from .parser import GroupParser, ParserSessionStats
+from .validator_set_info import ValidatorSetInfoProvider
 from .visualizer import DashApp
 
 
@@ -36,8 +39,6 @@ class ConsensusExplorer:
 
 
 def _main():
-    import argparse
-
     parser = argparse.ArgumentParser()
     source = parser.add_mutually_exclusive_group(required=True)
     _ = source.add_argument("--logs", nargs="+", help="Paths to log files or directory")
@@ -56,6 +57,16 @@ def _main():
     _ = parser.add_argument(
         "--port", type=int, default=8050, help="Port to bind to (default: 8050)"
     )
+    _ = parser.add_argument(
+        "--block-explorer-url",
+        default=os.getenv("CONSENSUS_EXPLORER_URL", ""),
+        help=("Block explorer base url (for validator set lookup), e.g. http://127.0.0.1:8081"),
+    )
+    _ = parser.add_argument(
+        "--show-validator-set-bin",
+        default=os.getenv("CONSENSUS_EXPLORER_SHOW_VALIDATOR_SET_BIN", ""),
+        help=("Path to show-validator-set binary (default: build/utils/show-validator-set)"),
+    )
 
     args = parser.parse_args()
 
@@ -65,6 +76,12 @@ def _main():
     stats_dir_str = cast(str | None, args.stats_dir)
 
     hostname_regex = cast(str, args.hostname_regex)
+
+    vset_provider = None
+    block_explorer_url = cast(str, args.block_explorer_url)
+    show_validator_set_bin = cast(str, args.show_validator_set_bin)
+    if block_explorer_url and Path(show_validator_set_bin).exists():
+        vset_provider = ValidatorSetInfoProvider(block_explorer_url, show_validator_set_bin)
 
     if stats_dir_str:
         db_path_str = cast(str | None, args.db)
@@ -80,14 +97,14 @@ def _main():
         file_index.install_callback(cached_parser)
 
         with file_index:
-            app = DashApp(cached_parser)
+            app = DashApp(cached_parser, vset_provider)
             app.run(debug=True, host=host, port=port)
     else:
         logs = cast(list[str], args.logs)
         log_paths = [Path(log) for log in logs]
         if len(log_paths) == 1 and log_paths[0].is_dir():
             log_paths = [p for p in log_paths[0].iterdir()]
-        app = DashApp(ParserSessionStats(log_paths, hostname_regex))
+        app = DashApp(ParserSessionStats(log_paths, hostname_regex), vset_provider)
         app.run(debug=True, host=host, port=port)
 
 

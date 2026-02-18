@@ -8,13 +8,17 @@ from dash.exceptions import PreventUpdate
 
 from ..models import ConsensusData, SlotData
 from ..parser import GroupParser
+from ..validator_set_info import ValidatorSetInfoProvider
 from .figure_builder import FigureBuilder
 
 
 @final
 class DashApp:
-    def __init__(self, parser: GroupParser):
+    def __init__(
+        self, parser: GroupParser, vset_info_provider: ValidatorSetInfoProvider | None = None
+    ):
         self._parser = parser
+        self._vset_provider = vset_info_provider
         self._current_group: str | None = None
         self._data: ConsensusData | None = None
         self._builder: FigureBuilder | None = None
@@ -92,6 +96,12 @@ class DashApp:
         if isinstance(valgroup_id, str) and isinstance(slot, int):
             return {"valgroup_id": valgroup_id, "slot": slot}
         return None
+
+    def _update_group_validator_set(self, group: str | None) -> str:
+        if not group or not self._vset_provider:
+            return ""
+        assert self._data
+        return self._vset_provider.get_validator_set_text(group, self._data.slots)
 
     def run(self, debug: bool = True, host: str = "127.0.0.1", port: int = 8050) -> None:
         self._setup_layout()
@@ -181,6 +191,26 @@ class DashApp:
                         "flexWrap": "wrap",
                         "alignItems": "center",
                         "padding": "12px 16px",
+                    },
+                ),
+                html.Div(
+                    [
+                        html.Pre(
+                            id="group-validator-set",
+                            children="validator set info: none",
+                            style={
+                                "margin": "0",
+                                "fontSize": "14px",
+                                "border": "1px solid #ddd",
+                                "borderRadius": "4px",
+                                "padding": "8px 10px",
+                                "whiteSpace": "pre-wrap",
+                                "overflowX": "auto",
+                            },
+                        )
+                    ],
+                    style={
+                        "margin": "0 16px 10px 16px",
                     },
                 ),
                 dcc.Store(id="selected", data={"valgroup_id": "", "slot": 0}),
@@ -406,6 +436,11 @@ class DashApp:
             Output("group", "value"),
             Input("url", "href"),
         )(self.update_data)
+
+        self._app.callback(  # pyright: ignore[reportUnknownMemberType]
+            Output("group-validator-set", "children"),
+            Input("group", "value"),
+        )(self._update_group_validator_set)
 
         self._app.callback(  # pyright: ignore[reportUnknownMemberType]
             Output("selected", "data"),
