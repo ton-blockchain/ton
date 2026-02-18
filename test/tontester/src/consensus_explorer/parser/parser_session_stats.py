@@ -1,3 +1,4 @@
+import base64
 import dataclasses
 import gzip
 import io
@@ -9,6 +10,9 @@ from pathlib import Path
 from typing import Callable, final, override
 
 from tonapi.ton_api import (
+    Consensus_candidateId,
+    Consensus_candidateParent,
+    Consensus_candidateWithoutParents,
     Consensus_simplex_finalizeVote,
     Consensus_simplex_notarizeVote,
     Consensus_simplex_skipVote,
@@ -54,6 +58,10 @@ def open_stats_file(path: Path) -> io.TextIOWrapper:
     if path.suffix == ".gz":
         return gzip.open(path, "rt", encoding="utf-8", errors="ignore")
     return open(path, "r", encoding="utf-8", errors="ignore")
+
+
+def format_candidate_id(id: Consensus_candidateId):
+    return f"{{{id.slot}, {base64.b64encode(id.hash).decode()}}}"
 
 
 @final
@@ -158,8 +166,18 @@ class ParserSessionStats(GroupParser):
             if event.block is not None and not isinstance(event.block, Consensus_stats_empty):
                 assert event.block.id is not None
                 slot_data.block_id_ext = f"({event.block.id.workchain},{self._shard_to_hex(event.block.id.shard)},{event.block.id.seqno}):{event.block.id.root_hash.hex().upper()}:{event.block.id.file_hash.hex().upper()}"
-            slot_data.candidate_id = str(event.id)
-            slot_data.parent_block = str(event.parent)
+            assert event.id is not None
+
+            slot_data.candidate_id = format_candidate_id(event.id)
+
+            match event.parent:
+                case Consensus_candidateParent(id=id):
+                    assert id is not None
+                    slot_data.parent_block = format_candidate_id(id)
+                case Consensus_candidateWithoutParents():
+                    slot_data.parent_block = "genesis"
+                case None:
+                    assert False
 
         if label == "candidate_received":
             self._events.append(ev)

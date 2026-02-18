@@ -222,7 +222,8 @@ class DashApp:
                     children="detail slot metadata: none",
                     style={
                         "margin": "0 16px 8px 16px",
-                        "fontSize": "16px",
+                        "fontSize": "14px",
+                        "fontFamily": "monospace",
                         "border": "1px solid #ddd",
                         "borderRadius": "4px",
                         "padding": "8px 10px",
@@ -318,7 +319,7 @@ class DashApp:
         if slot_data.parent_block:
             parts.append(f"parent_block = {slot_data.parent_block}")
 
-        return "\n\n".join(parts)
+        return "\n".join(parts)
 
     def _update_selection_from_click(
         self,
