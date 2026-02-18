@@ -300,10 +300,6 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     for (const auto &vote : bus.bootstrap_votes) {
       handle_vote(vote.validator.get_using(bus), vote.clone());
     }
-
-    if (first_nonannounced_window_ == 0) {
-      maybe_publish_new_leader_window().start().detach();
-    }
   }
 
   template <>
@@ -320,9 +316,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
 
     reschedule_standstill_resolution();
     is_started_ = true;
-    if (leader_window_observation_) {
-      owning_bus().publish(std::move(leader_window_observation_));
-    }
+    advance_present();
   }
 
   template <>
@@ -556,6 +550,9 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   }
 
   void advance_present() {
+    if (!is_started_) {
+      return;
+    }
     while (true) {
       auto slot = state_->slot_at(now_);
       if (slot->state->is_notarized() || slot->state->is_skipped()) {
@@ -564,32 +561,36 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
         break;
       }
     }
-    maybe_publish_new_leader_window().start().detach();
+    if (!publishing_new_leader_window_) {
+      td::uint32 new_window = now_ / slots_per_leader_window_;
+      if (first_nonannounced_window_ <= new_window) {
+        publishing_new_leader_window_ = true;
+        publish_new_leader_window(new_window).start().detach();
+      }
+    }
   }
 
-  td::actor::Task<> maybe_publish_new_leader_window() {
-    td::uint32 now_save = now_;
-    td::uint32 new_window = now_ / slots_per_leader_window_;
-    if (new_window < first_nonannounced_window_) {
-      co_return {};
+  td::actor::Task<> publish_new_leader_window(td::uint32 new_window) {
+    for (;;) {
+      co_await owning_bus()->db->set(
+          create_serialize_tl_object<ton_api::consensus_simplex_db_key_poolState>(),
+          create_serialize_tl_object<ton_api::consensus_simplex_db_poolState>(new_window + 1));
+      td::uint32 cur_window = now_ / slots_per_leader_window_;
+      if (cur_window == new_window) {
+        break;
+      }
+      new_window = cur_window;
     }
     first_nonannounced_window_ = new_window + 1;
-    co_await store_pool_state_to_db();
-
-    if (now_save != now_) {
-      co_return {};
-    }
-
     ParentId base = {};
     if (now_ != 0) {
       auto maybe_base = state_->slot_at(now_)->state->available_base;
       CHECK(maybe_base.has_value());
       base = maybe_base.value();
     }
-    leader_window_observation_ = std::make_shared<LeaderWindowObserved>(now_, base);
-    if (is_started_) {
-      owning_bus().publish(std::move(leader_window_observation_));
-    }
+    owning_bus().publish(std::make_shared<LeaderWindowObserved>(
+        now_, base, new_window > 0 && first_slot_after_skips_ > (new_window - 1) * slots_per_leader_window_));
+    publishing_new_leader_window_ = false;
     co_return {};
   }
 
@@ -728,6 +729,10 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
       skip_intervals_.insert(i + 1);
     }
 
+    if (first_slot_after_skips_ <= i) {
+      first_slot_after_skips_ = i + 1;
+    }
+
     if (auto base = slot.state->available_base) {
       next_slot.state->add_available_base(*base);
     }
@@ -775,24 +780,18 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
                                                  std::move(serialized), (int)validator_id.value()));
   }
 
-  td::actor::Task<> store_pool_state_to_db() {
-    co_return co_await owning_bus()->db->set(
-        create_serialize_tl_object<ton_api::consensus_simplex_db_key_poolState>(),
-        create_serialize_tl_object<ton_api::consensus_simplex_db_poolState>(first_nonannounced_window_));
-  }
-
   td::uint32 slots_per_leader_window_;
   td::uint32 max_leader_window_desync_;
   ValidatorWeight weight_threshold_ = 0;
   std::optional<State> state_;
 
   bool is_started_ = false;
-  std::shared_ptr<LeaderWindowObserved> leader_window_observation_;
   td::uint32 now_ = 0;
+  td::uint32 first_nonannounced_window_ = 0;
+  td::uint32 first_slot_after_skips_ = 0;
+  bool publishing_new_leader_window_ = false;
 
   std::set<td::uint32> skip_intervals_;
-
-  td::uint32 first_nonannounced_window_ = 0;
 
   ParentId last_finalized_block_;
   std::optional<FinalCertRef> last_final_cert_;

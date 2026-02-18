@@ -35,6 +35,7 @@ struct FinalizationObserved {
 struct LeaderWindowObserved {
   td::uint32 start_slot;
   ParentId base;
+  bool had_skips;
 
   std::string contents_to_string() const;
 };

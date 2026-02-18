@@ -24,15 +24,8 @@ struct SlotState {
   bool voted_final = false;
 };
 
-struct WindowState {
-  WindowState(td::Unit) {
-  }
-
-  bool had_timeouts = false;
-};
-
 class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
-  using State = ConsensusState<WindowState, SlotState, td::Unit, td::Unit>;
+  using State = ConsensusState<td::Unit, SlotState, td::Unit, td::Unit>;
 
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
@@ -48,6 +41,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     max_leader_window_desync_ = bus.simplex_config.max_leader_window_desync;
     target_rate_s_ = bus.config.target_rate_ms / 1000.;
     first_block_timeout_s_ = bus.simplex_config.first_block_timeout_ms / 1000.;
+    first_block_timeout_after_skips_s_ = bus.simplex_config.first_block_timeout_ms / 1000.;
     state_.emplace(State(bus.simplex_config.slots_per_leader_window, {}, {}));
     load_from_db();
 
@@ -72,9 +66,10 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       auto end_slot = window * slots_per_leader_window_;
       for (td::uint32 i = start_slot; i < end_slot; ++i) {
         auto slot = state_->slot_at(i);
-        if (slot.has_value() && !slot->state->voted_final) {
-          slot->state->voted_skip = true;
-          owning_bus().publish<BroadcastVote>(SkipVote{i});
+        if (slot && !slot->state->voted_skip && !slot->state->voted_final) {
+          timeout_slot_ = i + 1;
+          alarm_timestamp() = td::Timestamp::in(first_block_timeout_s_ + target_rate_s_);
+          break;
         }
       }
     }
@@ -113,41 +108,29 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       }
     }
 
-    // FIXME: Use had_timeouts in determining timeout duration.
-    auto timeout_at = td::Timestamp::in(first_block_timeout_s_ + target_rate_s_);
-    skip_timeouts_.emplace(timeout_at, event->start_slot - offset);
-    alarm_timestamp().relax(timeout_at);
+    if (timeout_slot_ <= event->start_slot) {
+      timeout_slot_ = event->start_slot + 1;
+      alarm_timestamp() = td::Timestamp::in(
+          (event->had_skips ? first_block_timeout_after_skips_s_ : first_block_timeout_s_) + target_rate_s_);
+    }
   }
 
   void alarm() override {
-    while (!skip_timeouts_.empty() && skip_timeouts_.begin()->first.is_in_past()) {
-      auto [ts, slot_idx] = *skip_timeouts_.begin();
-      skip_timeouts_.erase(skip_timeouts_.begin());
-
-      auto slot = state_->slot_at(slot_idx);
-      td::uint32 offset = slot_idx % slots_per_leader_window_;
-
-      if (!slot || slot->state->voted_final) {
-        if (offset + 1 != slots_per_leader_window_) {
-          skip_timeouts_.emplace(ts.in(target_rate_s_), slot_idx + 1);
-        }
-        continue;
-      }
-
-      slot->window->had_timeouts = true;
-
-      for (td::uint32 i = 0; i < slots_per_leader_window_; ++i) {
-        auto affected_slot = slot->window->slots[i];
-        if (!affected_slot->voted_final) {
-          owning_bus().publish<BroadcastVote>(SkipVote{slot_idx - offset + i});
-          affected_slot->voted_skip = true;
-        }
+    td::uint32 range_start = timeout_slot_ - 1;
+    td::uint32 window_start = range_start - range_start % slots_per_leader_window_;
+    td::uint32 window_end = window_start + slots_per_leader_window_;
+    auto window = state_->window_at(range_start);
+    if (!window) {
+      return;
+    }
+    for (td::uint32 i = range_start; i < window_end; ++i) {
+      auto affected_slot = (*window)->slots[i - window_start];
+      if (!affected_slot->voted_final) {
+        owning_bus().publish<BroadcastVote>(SkipVote{i});
+        affected_slot->voted_skip = true;
       }
     }
-
-    if (!skip_timeouts_.empty()) {
-      alarm_timestamp().relax(skip_timeouts_.begin()->first);
-    }
+    timeout_slot_ = window_end;
   }
 
   template <>
@@ -234,6 +217,11 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       co_return {};
     }
 
+    if (timeout_slot_ <= event->id.slot) {
+      timeout_slot_ = event->id.slot + 1;
+      alarm_timestamp() = td::Timestamp::in(target_rate_s_);
+    }
+
     co_await owning_bus().publish<WaitNotarCertStored>(event->id);
     if (!slot->state->voted_skip && !slot->state->voted_final && slot->state->voted_notar == event->id) {
       owning_bus().publish<BroadcastVote>(FinalizeVote{event->id});
@@ -244,12 +232,12 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
   td::uint32 slots_per_leader_window_;
   td::uint32 max_leader_window_desync_;
+  td::uint32 timeout_slot_ = 0;
   double target_rate_s_;
   double first_block_timeout_s_;
+  double first_block_timeout_after_skips_s_;
   std::optional<State> state_;
   td::uint32 current_window_ = 0;
-
-  std::multimap<td::Timestamp, td::uint32> skip_timeouts_;
 
   struct ResolvedCandidate {
     ParentId id;
