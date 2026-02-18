@@ -536,7 +536,7 @@ inline void ParentScopeLease::publish_cancel_promise(td::Promise<td::Unit> p) {
       promise_.set_error(td::Status::Error("scope completed without cancellation"));
     }
   };
-  publish_heap_cancel_node(*make_ref<CancelPromiseNode>(std::move(p)));
+  publish_heap_cancel_node(*td::actor::make_ref<CancelPromiseNode>(std::move(p)));
 }
 
 // with_timeout: await a StartedTask with a timeout.
