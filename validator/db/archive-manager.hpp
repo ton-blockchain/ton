@@ -63,7 +63,7 @@ class ArchiveManager : public td::actor::Actor {
   void truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise);
   //void truncate_continue(BlockSeqno masterchain_seqno, td::Promise<td::Unit> promise);
 
-  void run_gc(UnixTime mc_ts, UnixTime gc_ts, double archive_ttl);
+  void run_gc(td::Ref<MasterchainState> shard_client_state, UnixTime gc_ts, double archive_ttl);
 
   /* from LTDB */
   void get_block_by_unix_time(AccountIdPrefixFull account_id, UnixTime ts, td::Promise<ConstBlockHandle> promise);
@@ -77,7 +77,6 @@ class ArchiveManager : public td::actor::Actor {
   void start_up() override;
   void alarm() override;
 
-  void commit_transaction();
   void set_async_mode(bool mode, td::Promise<td::Unit> promise);
 
   void set_current_shard_split_depth(td::uint32 value) {
@@ -184,8 +183,6 @@ class ArchiveManager : public td::actor::Actor {
   td::actor::ActorOwn<ArchiveLru> archive_lru_;
   BlockSeqno finalized_up_to_{0};
   bool async_mode_ = false;
-  bool huge_transaction_started_ = false;
-  td::uint32 huge_transaction_size_ = 0;
   td::uint32 cur_shard_split_depth_ = 0;
 
   DbStatistics statistics_;
@@ -201,6 +198,7 @@ class ArchiveManager : public td::actor::Actor {
   std::map<std::pair<BlockSeqno, FileHash>, PermState> perm_states_;  // Mc block seqno, hash -> state
 
   void load_package(PackageId seqno);
+  td::actor::ActorOwn<ArchiveSlice> create_archive_slice(const PackageId &id, td::uint32 shard_split_depth);
   void delete_package(PackageId seqno, td::Promise<td::Unit> promise);
   void deleted_package(PackageId seqno, td::Promise<td::Unit> promise);
   void get_handle_cont(BlockIdExt block_id, PackageId id, td::Promise<BlockHandle> promise);
@@ -244,7 +242,12 @@ class ArchiveManager : public td::actor::Actor {
 
   void update_permanent_slices();
 
-  static constexpr double TEMP_PACKAGES_TTL = 3600;
+  void run_gc_temp_cont(PackageId id, td::Ref<MasterchainState> shard_client_state,
+                        std::map<ShardIdFull, BlockSeqno> max_seqnos);
+
+  static constexpr td::uint32 TEMP_PACKAGES_PERIOD = 3600;
+  static constexpr td::uint32 TEMP_PACKAGES_TTL = 3600;
+  static constexpr td::uint32 TEMP_PACKAGES_HARD_TTL = 3600 * 4;
 };
 
 }  // namespace validator

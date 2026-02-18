@@ -662,11 +662,21 @@ void ArchiveManager::load_package(PackageId id) {
     }
   }
 
-  desc.file = td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false, 0, db_root_,
-                                                    archive_lru_.get(), statistics_);
+  desc.file = create_archive_slice(id, 0);
 
   m.emplace(id, std::move(desc));
   update_permanent_slices();
+}
+
+td::actor::ActorOwn<ArchiveSlice> ArchiveManager::create_archive_slice(const PackageId &id,
+                                                                       td::uint32 shard_split_depth) {
+  auto actor = td::actor::create_actor<ArchiveSlice>(
+      PSTRING() << "slice." << (id.temp ? "temp." : (id.key ? "key." : "")) << id.id, id.id, id.key, id.temp, false,
+      shard_split_depth, db_root_, archive_lru_.get(), statistics_);
+  if (async_mode_) {
+    td::actor::send_closure(actor, &ArchiveSlice::set_async_mode, true, [](td::Result<td::Unit>) {});
+  }
+  return actor;
 }
 
 td::Result<const ArchiveManager::FileDescription *> ArchiveManager::get_file_desc(ShardIdFull shard, PackageId id,
@@ -698,9 +708,7 @@ const ArchiveManager::FileDescription *ArchiveManager::add_file_desc(ShardIdFull
   FileDescription new_desc{id, false};
   td::mkdir(db_root_ + id.path()).ensure();
   std::string prefix = PSTRING() << db_root_ << id.path() << id.name();
-  new_desc.file = td::actor::create_actor<ArchiveSlice>("slice", id.id, id.key, id.temp, false,
-                                                        id.key || id.temp ? 0 : cur_shard_split_depth_, db_root_,
-                                                        archive_lru_.get(), statistics_);
+  new_desc.file = create_archive_slice(id, id.key || id.temp ? 0 : cur_shard_split_depth_);
   const FileDescription &desc = f.emplace(id, std::move(new_desc));
   if (!id.temp) {
     update_desc(f, desc, shard, seqno, ts, lt);
@@ -1000,24 +1008,33 @@ void ArchiveManager::alarm() {
   }
 }
 
-void ArchiveManager::run_gc(UnixTime mc_ts, UnixTime gc_ts, double archive_ttl) {
-  auto p = get_temp_package_id_by_unixtime((double)mc_ts - TEMP_PACKAGES_TTL);
-  std::vector<PackageId> vec;
+void ArchiveManager::run_gc(td::Ref<MasterchainState> shard_client_state, UnixTime gc_ts, double archive_ttl) {
+  auto p = get_temp_package_id_by_unixtime(shard_client_state->get_unix_time() - TEMP_PACKAGES_TTL);
+  std::vector<PackageId> to_delete;
   for (auto &x : temp_files_) {
     if (x.first < p) {
-      vec.push_back(x.first);
-    } else {
-      break;
+      to_delete.push_back(x.first);
+      continue;
+    }
+    if (!x.second.deleted && x.first.id < (UnixTime)td::Clocks::system() - TEMP_PACKAGES_HARD_TTL &&
+        x.first != temp_files_.rbegin()->first) {
+      td::actor::send_closure(
+          x.second.file_actor_id(), &ArchiveSlice::get_temp_max_seqnos,
+          [=, id = x.first, SelfId = actor_id(this)](td::Result<std::map<ShardIdFull, BlockSeqno>> R) {
+            if (R.is_error()) {
+              return;
+            }
+            td::actor::send_closure(SelfId, &ArchiveManager::run_gc_temp_cont, id, shard_client_state, R.move_as_ok());
+          });
     }
   }
-  if (vec.size() > 1) {
-    vec.resize(vec.size() - 1, PackageId::empty(false, true));
-
-    for (auto &x : vec) {
+  if (to_delete.size() > 1) {
+    to_delete.pop_back();
+    for (auto &x : to_delete) {
       delete_package(x, [](td::Unit) {});
     }
   }
-  vec.clear();
+  to_delete.clear();
 
   if (archive_ttl > 0) {
     for (auto &f : files_) {
@@ -1030,18 +1047,32 @@ void ArchiveManager::run_gc(UnixTime mc_ts, UnixTime gc_ts, double archive_ttl) 
         continue;
       }
       if ((double)it->second.ts < (double)gc_ts - archive_ttl) {
-        vec.push_back(f.first);
+        to_delete.push_back(f.first);
       }
     }
-    if (vec.size() > 1) {
-      vec.resize(vec.size() - 1, PackageId::empty(false, true));
+    if (to_delete.size() > 1) {
+      to_delete.resize(to_delete.size() - 1, PackageId::empty(false, true));
 
-      for (auto &x : vec) {
+      for (auto &x : to_delete) {
         LOG(ERROR) << "WARNING: deleting package " << x.id;
         delete_package(x, [](td::Unit) {});
       }
     }
   }
+}
+
+void ArchiveManager::run_gc_temp_cont(PackageId id, td::Ref<MasterchainState> shard_client_state,
+                                      std::map<ShardIdFull, BlockSeqno> max_seqnos) {
+  if (!temp_files_.count(id)) {
+    return;
+  }
+  for (const auto &[shard, seqno] : max_seqnos) {
+    auto desc = shard_client_state->get_shard_from_config(ShardIdFull{shard.workchain, shard.shard | 1}, false);
+    if (desc.not_null() && seqno + 16 > desc->top_block_id().seqno()) {
+      return;
+    }
+  }
+  delete_package(id, [](td::Unit) {});
 }
 
 void ArchiveManager::persistent_state_gc(std::pair<BlockSeqno, FileHash> last) {
@@ -1146,7 +1177,7 @@ PackageId ArchiveManager::get_temp_package_id() const {
 }
 
 PackageId ArchiveManager::get_temp_package_id_by_unixtime(UnixTime ts) const {
-  return PackageId{ts - (ts % 3600), false, true};
+  return PackageId{ts - (ts % TEMP_PACKAGES_PERIOD), false, true};
 }
 
 PackageId ArchiveManager::get_key_package_id(BlockSeqno seqno) const {
@@ -1205,23 +1236,8 @@ void ArchiveManager::get_archive_slice(td::uint64 archive_id, td::uint64 offset,
   td::actor::send_closure(f->file_actor_id(), &ArchiveSlice::get_slice, archive_id, offset, limit, std::move(promise));
 }
 
-void ArchiveManager::commit_transaction() {
-  if (!async_mode_ || huge_transaction_size_++ >= 100) {
-    index_->commit_transaction().ensure();
-    if (async_mode_) {
-      huge_transaction_size_ = 0;
-      huge_transaction_started_ = false;
-    }
-  }
-}
-
 void ArchiveManager::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
   async_mode_ = mode;
-  if (!async_mode_ && huge_transaction_started_) {
-    index_->commit_transaction().ensure();
-    huge_transaction_size_ = 0;
-    huge_transaction_started_ = false;
-  }
 
   td::MultiPromise mp;
   auto ig = mp.init_guard();
