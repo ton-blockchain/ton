@@ -1,5 +1,9 @@
 import dataclasses
+import gzip
+import io
+import logging
 import os
+import re
 from itertools import islice
 from pathlib import Path
 from typing import Callable, final, override
@@ -24,7 +28,7 @@ from tonapi.ton_api import (
 )
 
 from ..models import ConsensusData, EventData, SlotData
-from .parser_base import Parser
+from .parser_base import GroupParser
 
 type slot_id_type = tuple[str, int]
 
@@ -46,10 +50,24 @@ TARGET_TO_LABEL = {
 }
 
 
+def open_stats_file(path: Path) -> io.TextIOWrapper:
+    if path.suffix == ".gz":
+        return gzip.open(path, "rt", encoding="utf-8", errors="ignore")
+    return open(path, "r", encoding="utf-8", errors="ignore")
+
+
 @final
-class ParserSessionStats(Parser):
-    def __init__(self, logs_path: list[Path], with_cache: bool = True):
+class ParserSessionStats(GroupParser):
+    def __init__(
+        self,
+        logs_path: list[Path],
+        hostname_regex: str,
+        with_cache: bool = True,
+        target_group_hash: bytes | None = None,
+    ):
         self._logs_path = logs_path
+        self._target_group_hash = target_group_hash
+        self._hostname_regex = re.compile(hostname_regex)
         self._slots: dict[slot_id_type, SlotData] = {}
         self._collated: dict[slot_id_type, dict[str, EventData]] = {}
         self._votes: dict[slot_id_type, dict[str, list[VoteData]]] = {}
@@ -432,6 +450,12 @@ class ParserSessionStats(Parser):
             else:
                 self._parse_stats_event(ev, t_ms, v_group, v_id, get_slot_leader)
 
+    def _extract_hostname(self, path: Path) -> str:
+        m = self._hostname_regex.search(str(path))
+        if m is None:
+            return path.name
+        return m.group(1)
+
     def _clear_state(self) -> None:
         self._slots = {}
         self._collated = {}
@@ -442,7 +466,6 @@ class ParserSessionStats(Parser):
         self._slot_events = {}
         self._events = []
 
-    @override
     def parse(self) -> ConsensusData:
         files_changed = False
 
@@ -457,34 +480,51 @@ class ParserSessionStats(Parser):
         if not files_changed and self._cache_result:
             return self._cache_result
 
+        merged: dict[str, dict[bytes, list[Consensus_stats_timestampedEvent]]] = {}
+
         for log_file in self._logs_path:
-            with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
-                events_by_groups: dict[bytes, list[Consensus_stats_timestampedEvent]] = {}
-                start_line = 0
-                if self.with_cache and log_file in self._cache_lines:
-                    start_line = self._cache_lines[log_file]
-                current_line = start_line
-                for line in islice(f, start_line, None):
-                    current_line += 1
-                    if not line.startswith('{"@type":"consensus.stats.events"'):
-                        continue
+            hostname = self._extract_hostname(log_file)
+            try:
+                with open_stats_file(log_file) as f:
+                    events_by_groups: dict[bytes, list[Consensus_stats_timestampedEvent]] = {}
+                    start_line = 0
+                    if self.with_cache and log_file in self._cache_lines:
+                        start_line = self._cache_lines[log_file]
+                    current_line = start_line
+                    for line in islice(f, start_line, None):
+                        current_line += 1
+                        if not line.startswith('{"@type":"consensus.stats.events"'):
+                            continue
 
-                    events = Consensus_stats_events.from_json(line)
+                        events = Consensus_stats_events.from_json(line)
 
-                    events_by_groups.setdefault(events.id, []).extend(events.events)
+                        if (
+                            self._target_group_hash is not None
+                            and events.id != self._target_group_hash
+                        ):
+                            continue
 
-                if self.with_cache:
-                    self._cache_lines[log_file] = current_line
-                    # merge old events with new ones
-                    old_events = self._raw_events.get(log_file, {})
-                    events_by_groups = {
-                        k: old_events.get(k, []) + events_by_groups.get(k, [])
-                        for k in set(old_events) | set(events_by_groups)
-                    }
-                    self._raw_events[log_file] = events_by_groups
+                        events_by_groups.setdefault(events.id, []).extend(events.events)
 
-                for events in events_by_groups.values():
-                    self._process_group_events(events)
+                    if self.with_cache:
+                        self._cache_lines[log_file] = current_line
+                        # merge old events with new ones
+                        old_events = self._raw_events.get(log_file, {})
+                        events_by_groups = {
+                            k: old_events.get(k, []) + events_by_groups.get(k, [])
+                            for k in set(old_events) | set(events_by_groups)
+                        }
+                        self._raw_events[log_file] = events_by_groups
+
+                    host_groups = merged.setdefault(hostname, {})
+                    for group_hash, group_events in events_by_groups.items():
+                        host_groups.setdefault(group_hash, []).extend(group_events)
+            except OSError | FileNotFoundError | gzip.BadGzipFile:
+                logging.warning(f"Failed to read log file {log_file}", stack_info=True)
+
+        for host_groups in merged.values():
+            for events in host_groups.values():
+                self._process_group_events(events)
 
         self._infer_slot_phases()
         self._infer_slot_events()
@@ -497,3 +537,18 @@ class ParserSessionStats(Parser):
         self._clear_state()
 
         return result
+
+    @override
+    def list_groups(self) -> list[str]:
+        data = self.parse()
+        return sorted(set(s.valgroup_id for s in data.slots))
+
+    @override
+    def parse_group(self, valgroup_name: str) -> ConsensusData:
+        data = self.parse()
+        if self._target_group_hash is not None:
+            return data
+        return ConsensusData(
+            slots=[s for s in data.slots if s.valgroup_id == valgroup_name],
+            events=[e for e in data.events if e.valgroup_id == valgroup_name],
+        )

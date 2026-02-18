@@ -1,6 +1,22 @@
 from dataclasses import dataclass
 
 
+@dataclass(frozen=True)
+class GroupInfo:
+    valgroup_hash: bytes
+    catchain_seqno: int
+    workchain: int
+    shard: int
+
+    @property
+    def valgroup_name(self) -> str:
+        shard_hex = f"{self.shard & 0xFFFFFFFFFFFFFFFF:016x}"
+        return f"{self.workchain},{shard_hex}.{self.catchain_seqno}"
+
+
+type GroupId = bytes | GroupInfo
+
+
 @dataclass
 class SlotData:
     valgroup_id: str

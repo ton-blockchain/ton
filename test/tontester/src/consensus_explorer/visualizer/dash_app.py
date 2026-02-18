@@ -1,3 +1,4 @@
+import threading
 from typing import cast, final
 from urllib.parse import parse_qs, urlencode
 
@@ -5,23 +6,30 @@ import plotly.graph_objects as go  # pyright: ignore[reportMissingTypeStubs]
 from dash import Dash, Input, NoUpdate, Output, State, callback_context, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 
-from ..models import SlotData
-from ..parser import Parser
+from ..models import ConsensusData, SlotData
+from ..parser import GroupParser
 from .figure_builder import FigureBuilder
 
 
 @final
 class DashApp:
-    def __init__(self, parser: Parser):
+    def __init__(self, parser: GroupParser):
         self._parser = parser
-        self._data = self._parser.parse()
-        self._builder: FigureBuilder = FigureBuilder(self._data)
+        self._current_group: str | None = None
+        self._data: ConsensusData | None = None
+        self._builder: FigureBuilder | None = None
         self._app: Dash = Dash(__name__)
+        self._update_lock = threading.Lock()
+
+    def _load_group(self, group: str) -> None:
+        with self._update_lock:
+            if self._current_group != group or self._builder is None:
+                self._current_group = group
+                self._data = self._parser.parse_group(group)
+                self._builder = FigureBuilder(self._data)
 
     def update_data(self, href: str | None):
-        self._data = self._parser.parse()
-        self._builder = FigureBuilder(self._data)
-        valgroups = sorted(set(s.valgroup_id for s in self._data.slots))
+        valgroups = self._parser.list_groups()
         options = [{"label": g, "value": g} for g in valgroups]
 
         url_params = self._parse_url_params(href)
@@ -66,8 +74,9 @@ class DashApp:
         slot_from = slot_from or 0
         slot_to = slot_to or slot_from
 
-        group_slots = [s for s in self._data.slots if s.valgroup_id == group]
-        max_slot = max((s.slot for s in group_slots), default=0)
+        self._load_group(group)
+        assert self._data is not None
+        max_slot = max((s.slot for s in self._data.slots), default=0)
         slot_from = max(0, min(int(slot_from), max_slot))
         slot_to = max(0, min(int(slot_to), max_slot))
         if slot_to < slot_from:
@@ -339,6 +348,7 @@ class DashApp:
 
         slot_from, slot_to = self._normalize_slot_range(group, slot_from, slot_to)
         show_empty = "yes" in (show_empty_v or [])
+        assert self._builder is not None
         return self._builder.build_summary(group, slot_from, slot_to, show_empty)
 
     def _update_detail(
@@ -350,6 +360,8 @@ class DashApp:
         assert isinstance(valgroup_id, str)
         slot = int(selected["slot"])
 
+        self._load_group(valgroup_id)
+        assert self._builder is not None
         fig = self._builder.build_detail(valgroup_id, slot, time_mode)
         slot_data = self._builder.get_slot(valgroup_id, slot)
         slot_meta = self._format_slot_meta(valgroup_id, slot, slot_data)

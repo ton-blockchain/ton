@@ -1,4 +1,4 @@
-from .parser_base import Parser
+from .parser_base import GroupParser
 from .parser_session_stats import ParserSessionStats
 
-__all__ = ["ParserSessionStats", "Parser"]
+__all__ = ["ParserSessionStats", "GroupParser"]

@@ -3,7 +3,11 @@ from abc import ABC, abstractmethod
 from ..models import ConsensusData
 
 
-class Parser(ABC):
+class GroupParser(ABC):
     @abstractmethod
-    def parse(self) -> ConsensusData:
+    def list_groups(self) -> list[str]:
+        pass
+
+    @abstractmethod
+    def parse_group(self, valgroup_name: str) -> ConsensusData:
         pass
