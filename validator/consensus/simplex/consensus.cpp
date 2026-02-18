@@ -41,6 +41,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     max_leader_window_desync_ = bus.simplex_config.max_leader_window_desync;
     target_rate_s_ = bus.config.target_rate_ms / 1000.;
     first_block_timeout_s_ = bus.simplex_config.first_block_timeout_ms / 1000.;
+    first_block_timeout_after_skips_s_ = bus.simplex_config.first_block_timeout_ms / 1000.;
     state_.emplace(State(bus.simplex_config.slots_per_leader_window, {}, {}));
     load_from_db();
 
@@ -109,7 +110,8 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
     if (timeout_slot_ <= event->start_slot) {
       timeout_slot_ = event->start_slot + 1;
-      alarm_timestamp() = td::Timestamp::in(first_block_timeout_s_ + target_rate_s_);
+      alarm_timestamp() = td::Timestamp::in(
+          (event->had_skips ? first_block_timeout_after_skips_s_ : first_block_timeout_s_) + target_rate_s_);
     }
   }
 
@@ -233,6 +235,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   td::uint32 timeout_slot_ = 0;
   double target_rate_s_;
   double first_block_timeout_s_;
+  double first_block_timeout_after_skips_s_;
   std::optional<State> state_;
   td::uint32 current_window_ = 0;
 

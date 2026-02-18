@@ -21,7 +21,7 @@ std::string FinalizationObserved::contents_to_string() const {
 }
 
 std::string LeaderWindowObserved::contents_to_string() const {
-  return PSTRING() << "{start_slot=" << start_slot << ", base=" << base << "}";
+  return PSTRING() << "{start_slot=" << start_slot << ", base=" << base << ", had_skips=" << had_skips << "}";
 }
 
 std::string WaitForParent::contents_to_string() const {

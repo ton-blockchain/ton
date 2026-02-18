@@ -588,7 +588,8 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
       CHECK(maybe_base.has_value());
       base = maybe_base.value();
     }
-    owning_bus().publish(std::make_shared<LeaderWindowObserved>(now_, base));
+    owning_bus().publish(std::make_shared<LeaderWindowObserved>(
+        now_, base, new_window > 0 && first_slot_after_skips_ > (new_window - 1) * slots_per_leader_window_));
     publishing_new_leader_window_ = false;
     co_return {};
   }
@@ -728,6 +729,10 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
       skip_intervals_.insert(i + 1);
     }
 
+    if (first_slot_after_skips_ <= i) {
+      first_slot_after_skips_ = i + 1;
+    }
+
     if (auto base = slot.state->available_base) {
       next_slot.state->add_available_base(*base);
     }
@@ -783,6 +788,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   bool is_started_ = false;
   td::uint32 now_ = 0;
   td::uint32 first_nonannounced_window_ = 0;
+  td::uint32 first_slot_after_skips_ = 0;
   bool publishing_new_leader_window_ = false;
 
   std::set<td::uint32> skip_intervals_;
