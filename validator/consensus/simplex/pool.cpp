@@ -561,22 +561,27 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
         break;
       }
     }
-    maybe_publish_new_leader_window().start().detach();
+    if (!publishing_new_leader_window_) {
+      td::uint32 new_window = now_ / slots_per_leader_window_;
+      if (first_nonannounced_window_ <= new_window) {
+        publishing_new_leader_window_ = true;
+        publish_new_leader_window(new_window).start().detach();
+      }
+    }
   }
 
-  td::actor::Task<> maybe_publish_new_leader_window() {
-    td::uint32 now_save = now_;
-    td::uint32 new_window = now_ / slots_per_leader_window_;
-    if (new_window < first_nonannounced_window_) {
-      co_return {};
+  td::actor::Task<> publish_new_leader_window(td::uint32 new_window) {
+    while (true) {
+      co_await owning_bus()->db->set(
+          create_serialize_tl_object<ton_api::consensus_simplex_db_key_poolState>(),
+          create_serialize_tl_object<ton_api::consensus_simplex_db_poolState>(new_window + 1));
+      td::uint32 cur_window = now_ / slots_per_leader_window_;
+      if (cur_window == new_window) {
+        break;
+      }
+      new_window = cur_window;
     }
     first_nonannounced_window_ = new_window + 1;
-    co_await store_pool_state_to_db();
-
-    if (now_save != now_) {
-      co_return {};
-    }
-
     ParentId base = {};
     if (now_ != 0) {
       auto maybe_base = state_->slot_at(now_)->state->available_base;
@@ -584,6 +589,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
       base = maybe_base.value();
     }
     owning_bus().publish(std::make_shared<LeaderWindowObserved>(now_, base));
+    publishing_new_leader_window_ = false;
     co_return {};
   }
 
@@ -769,12 +775,6 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
                                                  std::move(serialized), (int)validator_id.value()));
   }
 
-  td::actor::Task<> store_pool_state_to_db() {
-    co_return co_await owning_bus()->db->set(
-        create_serialize_tl_object<ton_api::consensus_simplex_db_key_poolState>(),
-        create_serialize_tl_object<ton_api::consensus_simplex_db_poolState>(first_nonannounced_window_));
-  }
-
   td::uint32 slots_per_leader_window_;
   td::uint32 max_leader_window_desync_;
   ValidatorWeight weight_threshold_ = 0;
@@ -786,6 +786,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   std::set<td::uint32> skip_intervals_;
 
   td::uint32 first_nonannounced_window_ = 0;
+  bool publishing_new_leader_window_ = false;
 
   ParentId last_finalized_block_;
   std::optional<FinalCertRef> last_final_cert_;
