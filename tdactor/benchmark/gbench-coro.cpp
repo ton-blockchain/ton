@@ -188,7 +188,7 @@ static void BM_GetCurrentParentScopeLease(benchmark::State& state) {
     co_await detach_from_actor();
     td::int64 sum = 0;
     while (state.KeepRunning()) {
-      auto lease = current_parent_scope_lease();
+      auto lease = current_scope_lease();
       sum += static_cast<td::int64>(lease && lease.is_cancelled());
       benchmark::DoNotOptimize(sum);
     }
@@ -217,7 +217,7 @@ static void BM_StartImmediateInParentScopeWithLease(benchmark::State& state) {
     co_await detach_from_actor();
     td::int64 sum = 0;
     while (state.KeepRunning()) {
-      auto lease = current_parent_scope_lease();
+      auto lease = current_scope_lease();
       auto started = []() -> Task<int> { co_return 1; }().start_immediate_in_parent_scope(std::move(lease));
       sum += (co_await SkipAwaitTransform{std::move(started)}).move_as_ok();
     }

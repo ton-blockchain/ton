@@ -346,8 +346,8 @@ Task<td::Unit> spawn_two_blocking_tasks() {
 class WorkForActor final : public td::actor::Actor {
  public:
   void run_for(double seconds, td::Promise<td::Unit> promise, ParentScopeLease child_lease) {
-    // or we could just check child_lease->is_cancelled()
-    publish_cancel_promise(*child_lease, [s = actor_shared(this)](td::Result<td::Unit> r) mutable {
+    // or we could just check child_lease.is_cancelled()
+    child_lease.publish_cancel_promise([s = actor_shared(this)](td::Result<td::Unit> r) mutable {
       r.ensure();
       s.reset();
     });
@@ -364,8 +364,7 @@ class WorkForActor final : public td::actor::Actor {
 Task<td::Unit> work_for(double seconds) {
   auto work_for_actor = create_actor<WorkForActor>("work_for_actor");
   auto [work_for_task, work_for_promise] = StartedTask<td::Unit>::make_bridge();
-  send_closure(work_for_actor, &WorkForActor::run_for, seconds, std::move(work_for_promise),
-               current_parent_scope_lease());
+  send_closure(work_for_actor, &WorkForActor::run_for, seconds, std::move(work_for_promise), current_scope_lease());
   co_await std::move(work_for_task);
   co_return td::Unit{};
 }

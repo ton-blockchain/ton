@@ -230,7 +230,7 @@ inline bool should_finish_due_to_cancellation(const promise_common& self) {
 }
 }  // namespace bridge
 
-inline ParentScopeLease current_parent_scope_lease() {
+inline ParentScopeLease current_scope_lease() {
   auto* p = detail::get_current_promise();
   if (!p) {
     return ParentScopeLease{};
@@ -615,13 +615,13 @@ struct [[nodiscard]] Task {
 
   // Preferred: auto-peek parent scope from TLS
   auto start_in_parent_scope() && {
-    return std::move(*this).start_impl(current_parent_scope_lease(), StartMode::Scheduled);
+    return std::move(*this).start_impl(current_scope_lease(), StartMode::Scheduled);
   }
   auto start_immediate_in_parent_scope() && {
-    return std::move(*this).start_impl(current_parent_scope_lease(), StartMode::Immediate);
+    return std::move(*this).start_impl(current_scope_lease(), StartMode::Immediate);
   }
   auto start_external_in_parent_scope() && {
-    return std::move(*this).start_impl(current_parent_scope_lease(), StartMode::External);
+    return std::move(*this).start_impl(current_scope_lease(), StartMode::External);
   }
 
   // Explicit parent scope
@@ -886,12 +886,12 @@ void custom_connect(P&& p, StartedTask<T>&& mt) noexcept {
 
 template <class P, class T>
 void custom_connect(P&& p, Task<T>&& task, Lazy = {}) noexcept {
-  connect(std::forward<P>(p), std::move(task).start_in_parent_scope(current_parent_scope_lease()));
+  connect(std::forward<P>(p), std::move(task).start_in_parent_scope(current_scope_lease()));
 }
 
 template <class P, class T>
 void custom_connect(P&& p, Task<T>&& task, Immediate) noexcept {
-  connect(std::forward<P>(p), std::move(task).start_immediate_in_parent_scope(current_parent_scope_lease()));
+  connect(std::forward<P>(p), std::move(task).start_immediate_in_parent_scope(current_scope_lease()));
 }
 
 }  // namespace td::actor

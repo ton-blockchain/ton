@@ -112,9 +112,9 @@ class SleepAwaitable {
     auto [a, b] = TimerNode::create(handle, deadline_);
     core::SchedulerContext::get().register_timer(std::move(a));
     timer_ref_ = std::move(b);
-    auto* promise = detail::get_current_promise();
-    if (promise) {
-      publish_heap_cancel_node(*promise, *timer_ref_);
+    auto lease = current_scope_lease();
+    if (lease) {
+      lease.publish_heap_cancel_node(*timer_ref_);
     }
   }
 

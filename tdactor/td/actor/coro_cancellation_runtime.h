@@ -9,6 +9,11 @@
 #include "td/actor/coro_ref.h"
 #include "td/utils/common.h"
 
+namespace td {
+template <class T>
+class Promise;
+}  // namespace td
+
 namespace td::actor {
 
 struct promise_common;
@@ -40,6 +45,10 @@ class ParentScopeLease {
     return bool(ptr_);
   }
   bool is_cancelled() const;
+
+  void publish_heap_cancel_node(CancelNode& node);
+  void publish_cancel_promise(td::Promise<td::Unit> p);
+  ParentScopeLease copy() const;
 
  private:
   friend struct CancellationRuntime;
@@ -355,20 +364,15 @@ struct CancellationRuntime {
   ParentLink parent_link_{};
 };
 
-inline void publish_heap_cancel_node(promise_common& p, CancelNode& node) {
-  bridge::runtime(p).publish_cancel_node(node);
-}
-
 inline void ParentLink::link_from_parent_scope_lease(promise_common& self, ParentScopeLease parent_scope_ref) {
-  auto* parent = parent_scope_ref.get();
-  if (!parent) {
+  if (!parent_scope_ref) {
     return;
   }
+  parent_scope_ref.publish_heap_cancel_node(bridge::cancel_node(self));
   auto* transferred_parent = parent_scope_ref.release();
   auto* expected = static_cast<promise_common*>(nullptr);
   CHECK(parent_.compare_exchange_strong(expected, transferred_parent, std::memory_order_release,
                                         std::memory_order_relaxed));
-  publish_heap_cancel_node(*parent, bridge::cancel_node(self));
 }
 
 inline void ParentLink::release(ReleaseReason reason) {
@@ -392,6 +396,18 @@ inline bool ParentScopeLease::is_cancelled() const {
 inline ParentScopeLease bridge::make_parent_scope_lease(promise_common& p) {
   bridge::runtime(p).add_child_ref();
   return ParentScopeLease(&p);
+}
+
+inline void ParentScopeLease::publish_heap_cancel_node(CancelNode& node) {
+  CHECK(ptr_);
+  bridge::runtime(*ptr_).publish_cancel_node(node);
+}
+
+inline ParentScopeLease ParentScopeLease::copy() const {
+  if (!ptr_) {
+    return {};
+  }
+  return bridge::make_parent_scope_lease(*ptr_);
 }
 
 }  // namespace td::actor

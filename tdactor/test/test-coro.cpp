@@ -1839,9 +1839,9 @@ class CoroSpec final : public td::actor::Actor {
         }
         void await_suspend(std::coroutine_handle<> h) noexcept {
           node = make_ref<LateCancelNode>();
-          auto* promise = detail::get_current_promise();
-          if (promise) {
-            publish_heap_cancel_node(*promise, *node);
+          auto lease = current_scope_lease();
+          if (lease) {
+            lease.publish_heap_cancel_node(*node);
           }
           detail::SchedulerExecutor{}.schedule(h);
         }
@@ -1915,10 +1915,10 @@ class CoroSpec final : public td::actor::Actor {
         }
         void await_suspend(std::coroutine_handle<> h) noexcept {
           cancel_node = make_ref<PublishNode>(stats);
-          auto* promise = detail::get_current_promise();
-          CHECK(promise);
-          publish_heap_cancel_node(*promise, *cancel_node);
-          publish_heap_cancel_node(*promise, *cancel_node);
+          auto lease = current_scope_lease();
+          CHECK(lease);
+          lease.publish_heap_cancel_node(*cancel_node);
+          lease.publish_heap_cancel_node(*cancel_node);
           detail::SchedulerExecutor{}.schedule(h);
         }
         void await_resume() noexcept {
@@ -2191,9 +2191,8 @@ class CoroSpec final : public td::actor::Actor {
       auto fired = std::make_shared<std::atomic<bool>>(false);
 
       auto worker = [](std::shared_ptr<std::atomic<bool>> fired) -> Task<td::Unit> {
-        auto scope = co_await this_scope();
-        publish_cancel_promise(*scope.get_promise(),
-                               [fired](td::Result<td::Unit>) { fired->store(true, std::memory_order_release); });
+        current_scope_lease().publish_cancel_promise(
+            [fired](td::Result<td::Unit>) { fired->store(true, std::memory_order_release); });
         co_await sleep_for(10.0);
         co_return td::Unit{};
       };
@@ -2214,8 +2213,7 @@ class CoroSpec final : public td::actor::Actor {
                         auto was_cancel = std::make_shared<std::atomic<bool>>(false);
 
                         auto worker = [](std::shared_ptr<std::atomic<bool>> was_cancel) -> Task<td::Unit> {
-                          auto scope = co_await this_scope();
-                          publish_cancel_promise(*scope.get_promise(), [was_cancel](td::Result<td::Unit> r) {
+                          current_scope_lease().publish_cancel_promise([was_cancel](td::Result<td::Unit> r) {
                             if (r.is_ok()) {
                               was_cancel->store(true, std::memory_order_release);
                             }
@@ -2446,9 +2444,7 @@ class CoroSpec final : public td::actor::Actor {
       auto node_ref = node.share();
 
       auto outer = [node = std::move(node)]() mutable -> Task<td::Unit> {
-        auto* promise = (co_await this_scope()).get_promise();
-        // Publish node into our topology
-        publish_heap_cancel_node(*promise, *node);
+        current_scope_lease().publish_heap_cancel_node(*node);
         // Disarm so on_cancel won't fire from normal cancel path... actually we want it to fire
         // Let's not disarm, and let cancel trigger it
         co_await sleep_for(10.0);
@@ -2562,7 +2558,7 @@ class CoroSpec final : public td::actor::Actor {
       auto initial_count = promise->cancellation_.child_count_relaxed_for_test();
 
       {
-        auto handle = current_parent_scope_lease();
+        auto handle = current_scope_lease();
         auto count_after_handle = promise->cancellation_.child_count_relaxed_for_test();
         expect_eq(count_after_handle, initial_count + 1, "Handle should increment child_count");
       }
@@ -2580,7 +2576,7 @@ class CoroSpec final : public td::actor::Actor {
       auto* promise = scope.get_promise();
       CHECK(promise);
 
-      auto handle = current_parent_scope_lease();
+      auto handle = current_scope_lease();
 
       // Initially not cancelled
       expect_true(handle && !handle.is_cancelled(), "Handle should not be cancelled initially");
@@ -2603,11 +2599,11 @@ class CoroSpec final : public td::actor::Actor {
 
       auto initial_count = promise->cancellation_.child_count_relaxed_for_test();
 
-      auto handle1 = current_parent_scope_lease();
+      auto handle1 = current_scope_lease();
       auto count_with_h1 = promise->cancellation_.child_count_relaxed_for_test();
       expect_eq(count_with_h1, initial_count + 1, "handle1 should add 1");
 
-      auto handle2 = current_parent_scope_lease();
+      auto handle2 = current_scope_lease();
       auto count_with_h2 = promise->cancellation_.child_count_relaxed_for_test();
       expect_eq(count_with_h2, initial_count + 2, "handle2 should add 1 more");
 
@@ -2626,7 +2622,7 @@ class CoroSpec final : public td::actor::Actor {
 
       auto parent = [](std::shared_ptr<ParentScopeLease> held_handle,
                        std::shared_ptr<std::atomic<bool>> started) -> Task<td::Unit> {
-        *held_handle = current_parent_scope_lease();
+        *held_handle = current_scope_lease();
         started->store(true, std::memory_order_release);
         co_return td::Unit{};
       }(held_handle, started)
@@ -2659,7 +2655,7 @@ class CoroSpec final : public td::actor::Actor {
 
       [](std::shared_ptr<ParentScopeLease> held_handle, std::shared_ptr<std::atomic<bool>> started,
          std::shared_ptr<std::atomic<bool>> finished) -> Task<td::Unit> {
-        *held_handle = current_parent_scope_lease();
+        *held_handle = current_scope_lease();
         started->store(true, std::memory_order_release);
         finished->store(true, std::memory_order_release);
         co_return td::Unit{};
@@ -2698,7 +2694,7 @@ class CoroSpec final : public td::actor::Actor {
       auto parent =
           [](std::shared_ptr<std::atomic<bool>> parent_started,
              std::shared_ptr<std::optional<ExternalPromise>> parent_external_promise) -> Task<td::Unit> {
-        auto lease = current_parent_scope_lease();
+        auto lease = current_scope_lease();
 
         auto external_child = []() -> Task<td::Unit> {
           co_return typename Task<td::Unit>::promise_type::ExternalResult{};
@@ -2740,7 +2736,7 @@ class CoroSpec final : public td::actor::Actor {
       auto parent =
           [](std::shared_ptr<std::atomic<bool>> parent_started,
              std::shared_ptr<std::optional<ExternalPromise>> parent_external_promise) -> Task<td::Unit> {
-        auto lease = current_parent_scope_lease();
+        auto lease = current_scope_lease();
 
         auto external_child = []() -> Task<td::Unit> {
           co_return typename Task<td::Unit>::promise_type::ExternalResult{};
@@ -2782,7 +2778,7 @@ class CoroSpec final : public td::actor::Actor {
       auto parent =
           [](std::shared_ptr<std::atomic<bool>> parent_started,
              std::shared_ptr<std::optional<ExternalPromise>> parent_external_promise) -> Task<td::Unit> {
-        auto lease = current_parent_scope_lease();
+        auto lease = current_scope_lease();
 
         auto external_child = []() -> Task<td::Unit> {
           co_return typename Task<td::Unit>::promise_type::ExternalResult{};
@@ -2856,7 +2852,7 @@ class CoroSpec final : public td::actor::Actor {
     auto parent = [](std::shared_ptr<std::atomic<bool>> started,
                      std::shared_ptr<std::optional<ExternalPromise>> external_promise, bool cancel_child_before_detach,
                      int setup_yields) -> Task<td::Unit> {
-      auto lease = current_parent_scope_lease();
+      auto lease = current_scope_lease();
       auto external_child = []() -> Task<td::Unit> {
         co_return typename Task<td::Unit>::promise_type::ExternalResult{};
       }();
