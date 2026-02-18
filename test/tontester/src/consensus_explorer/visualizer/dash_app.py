@@ -100,7 +100,8 @@ class DashApp:
     def _update_group_validator_set(self, group: str | None) -> str:
         if not group or not self._vset_provider:
             return ""
-        assert self._data
+        self._load_group(group)
+        assert self._data is not None
         return self._vset_provider.get_validator_set_text(group, self._data.slots)
 
     def run(self, debug: bool = True, host: str = "127.0.0.1", port: int = 8050) -> None:

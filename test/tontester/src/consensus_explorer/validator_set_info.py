@@ -1,3 +1,4 @@
+import json
 import math
 import re
 import subprocess
@@ -5,10 +6,10 @@ import tempfile
 from collections.abc import Sequence
 from html import unescape
 from pathlib import Path
-from typing import final
-from urllib.error import URLError
+from typing import final, cast
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
-from urllib.request import Request, urlopen
+
+import requests
 
 from .models import SlotData
 
@@ -18,12 +19,19 @@ class ValidatorSetInfoProvider:
     _MASTERCHAIN_WORKCHAIN = -1
     _MASTERCHAIN_SHARD_HEX = "8000000000000000"
     _VALGROUP_RE = re.compile(r"^(?P<workchain>-?\d+),(?P<shard>[0-9a-fA-F]+)\.(?P<cc_seqno>\d+)$")
+    _ROW_RE = re.compile(r"^\s*(\d+)\s+\S+\s+([0-9a-fA-F]{64})\s+\d+\s*$")
 
     def __init__(
-        self, explorer_url: str | None = None, show_validator_set_bin: str | Path | None = None
+        self,
+        explorer_url: str | None = None,
+        show_validator_set_bin: str | Path | None = None,
+        validator_names_json: str | Path | None = None,
     ):
-        self._explorer_url = explorer_url.rstrip("/") if explorer_url else ""
-        self._show_validator_set_bin = self._resolve_show_validator_set_bin(show_validator_set_bin)
+        self._explorer_url: str | None = explorer_url.rstrip("/") if explorer_url else ""
+        self._show_validator_set_bin: Path | None = self._resolve_show_validator_set_bin(
+            show_validator_set_bin
+        )
+        self._validator_names: dict[str, str] = self._load_validator_names(validator_names_json)
 
     @staticmethod
     def _resolve_show_validator_set_bin(path: str | Path | None) -> Path | None:
@@ -36,6 +44,20 @@ class ValidatorSetInfoProvider:
         if default_in_cwd.exists():
             return default_in_cwd
         return None
+
+    @staticmethod
+    def _load_validator_names(path: str | Path | None) -> dict[str, str]:
+        if not path:
+            return {}
+
+        names_path = Path(path)
+        try:
+            raw_json = names_path.read_text(encoding="utf-8")
+            parsed = cast(dict[str, str], json.loads(raw_json))
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+        return parsed
 
     @classmethod
     def _parse_valgroup_id(cls, valgroup_id: str) -> tuple[int, str, int] | None:
@@ -64,16 +86,16 @@ class ValidatorSetInfoProvider:
         return max(0, int(start_ms // 1000))
 
     @staticmethod
-    def _fetch_text(url: str) -> str:
-        request = Request(url, headers={"User-Agent": "consensus-explorer/1.0"})
-        with urlopen(request, timeout=20) as response:
-            return response.read().decode("utf-8", errors="ignore")
+    def _fetch_text(url: str, timeout: int) -> str:
+        resp = requests.get(url, headers={"User-Agent": "consensus-explorer/1.0"}, timeout=timeout)
+        resp.raise_for_status()
+        return resp.content.decode("utf-8", errors="ignore")
 
     @staticmethod
-    def _fetch_bytes(url: str) -> bytes:
-        request = Request(url, headers={"User-Agent": "consensus-explorer/1.0"})
-        with urlopen(request, timeout=40) as response:
-            return response.read()
+    def _fetch_bytes(url: str, timeout: int) -> bytes:
+        resp = requests.get(url, headers={"User-Agent": "consensus-explorer/1.0"}, timeout=timeout)
+        resp.raise_for_status()
+        return resp.content
 
     @staticmethod
     def _extract_prev_key_block_href(page: str) -> str | None:
@@ -158,6 +180,26 @@ class ValidatorSetInfoProvider:
             raise RuntimeError(f"{self._show_validator_set_bin} returned empty output")
         return output
 
+    @classmethod
+    def _parse_validator_rows(cls, output: str) -> list[tuple[int, str]]:
+        rows: list[tuple[int, str]] = []
+        for line in output.splitlines():
+            match = cls._ROW_RE.match(line)
+            if match is not None:
+                rows.append((int(match.group(1)), match.group(2)))
+                continue
+        return rows
+
+    def _build_table(self, output: str) -> str:
+        rows = self._parse_validator_rows(output)
+        if not rows:
+            raise RuntimeError("failed to parse validator rows from show-validator-set output")
+
+        table_lines = ["idx | adnl | name"]
+        for idx, adnl in rows:
+            table_lines.append(f"{idx} | {adnl} | {self._validator_names.get(adnl, '')}")
+        return "\n".join(table_lines)
+
     def _fetch_validator_set_info(
         self,
         valgroup_id: str,
@@ -179,13 +221,13 @@ class ValidatorSetInfoProvider:
         )
         search_url = f"{self._explorer_url}/search?{search_query}"
 
-        search_page = self._fetch_text(search_url)
+        search_page = self._fetch_text(search_url, timeout=20)
         prev_key_block_href = self._extract_prev_key_block_href(search_page)
         if prev_key_block_href is None:
             raise RuntimeError("prev_key_block_seqno link was not found in explorer search page")
 
         key_block_url = urljoin(f"{self._explorer_url}/", prev_key_block_href)
-        key_block_page = self._fetch_text(key_block_url)
+        key_block_page = self._fetch_text(key_block_url, timeout=20)
 
         key_block_seqno = self._extract_seqno_from_href(prev_key_block_href)
         if key_block_seqno is None:
@@ -208,7 +250,7 @@ class ValidatorSetInfoProvider:
             }
         )
         download_url = f"{self._explorer_url}/download?{download_query}"
-        block_data = self._fetch_bytes(download_url)
+        block_data = self._fetch_bytes(download_url, timeout=40)
         if not block_data:
             raise RuntimeError("downloaded key block is empty")
 
@@ -221,6 +263,7 @@ class ValidatorSetInfoProvider:
                 group_shard_hex=group_shard_hex,
                 cc_seqno=cc_seqno,
             )
+        validator_set_table = self._build_table(validator_set_output)
 
         return "\n".join(
             [
@@ -230,7 +273,7 @@ class ValidatorSetInfoProvider:
                 f"roothash = {root_hash}",
                 f"filehash = {file_hash}",
                 "",
-                validator_set_output,
+                validator_set_table,
             ]
         )
 
@@ -238,7 +281,7 @@ class ValidatorSetInfoProvider:
         if not self._explorer_url:
             return "validator set info: explorer url is not configured"
 
-        if not self._show_validator_set_bin:
+        if self._show_validator_set_bin is None:
             return "validator set info: show-validator-set binary is not configured"
 
         parsed_group = self._parse_valgroup_id(valgroup_id)
@@ -258,7 +301,7 @@ class ValidatorSetInfoProvider:
                 group_shard_hex=group_shard_hex,
                 cc_seqno=cc_seqno,
             )
-        except URLError as exc:
+        except requests.HTTPError as exc:
             return f"validator set info error for {valgroup_id}: explorer request failed ({exc})"
         except Exception as exc:
             return f"validator set info error for {valgroup_id}: {exc}"

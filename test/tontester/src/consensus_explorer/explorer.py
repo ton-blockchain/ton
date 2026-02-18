@@ -67,6 +67,11 @@ def _main():
         default=os.getenv("CONSENSUS_EXPLORER_SHOW_VALIDATOR_SET_BIN", ""),
         help=("Path to show-validator-set binary (default: build/utils/show-validator-set)"),
     )
+    _ = parser.add_argument(
+        "--validator-names-json",
+        default=os.getenv("CONSENSUS_EXPLORER_VALIDATOR_NAMES_JSON", ""),
+        help='Path to json map {"adnl": "name"} used for validator names',
+    )
 
     args = parser.parse_args()
 
@@ -80,8 +85,18 @@ def _main():
     vset_provider = None
     block_explorer_url = cast(str, args.block_explorer_url)
     show_validator_set_bin = cast(str, args.show_validator_set_bin)
-    if block_explorer_url and Path(show_validator_set_bin).exists():
-        vset_provider = ValidatorSetInfoProvider(block_explorer_url, show_validator_set_bin)
+    validator_names_json = cast(str, args.validator_names_json)
+    if block_explorer_url and show_validator_set_bin:
+        if not Path(show_validator_set_bin).exists():
+            parser.error(f"show-validator-set binary not found at {show_validator_set_bin}")
+
+        if validator_names_json:
+            if not Path(validator_names_json).exists():
+                parser.error(f"Validator names json not found at {validator_names_json}")
+
+        vset_provider = ValidatorSetInfoProvider(
+            block_explorer_url, show_validator_set_bin, validator_names_json
+        )
 
     if stats_dir_str:
         db_path_str = cast(str | None, args.db)
