@@ -1,0 +1,29 @@
+"Disasm.fif" include
+"Asm.fif" include
+
+PROGRAM{
+    DECLPROC foo1
+    DECLPROC foo4
+    DECLPROC main
+    foo1 PROC:<{ DUP 137 PUSHINT MUL PAIR }>
+    foo4 PROC:<{ UNPAIR SWAP DIV }>
+    main PROC:<{ 70 PUSHINT DIV }>
+}END>c constant code-1
+
+// add lib cell to vmlibs
+<b code-1 ref, b> <s code-1 hashu @vmlibs @ 256 udict! drop @vmlibs !
+
+// Lib in pushref
+<{
+   <b 2 8 u, code-1 hashu 256 u, b>spec PUSHREF
+}>c <s disasm cr
+
+
+// Lib in pushrefslice
+<{
+   <b 2 8 u, code-1 hashu 256 u, b>spec PUSHREFSLICE
+}>c <s disasm cr
+
+// Code cell is lib cell
+<b 2 8 u, code-1 hashu 256 u, b>spec disasmc
+
