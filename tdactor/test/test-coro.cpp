@@ -185,7 +185,6 @@ class CoroSpec final : public td::actor::Actor {
                                      .detach("CoroSpecRepro");
       return;
     }
-
     [](Task<td::Unit> test) -> Task<td::Unit> {
       (co_await std::move(test).wrap()).ensure();
       co_await yield_on_current();
@@ -2814,6 +2813,120 @@ class CoroSpec final : public td::actor::Actor {
     co_return td::Unit{};
   }
 
+  Task<td::Unit> task_cancellation_source_test() {
+    LOG(INFO) << "=== task_cancellation_source_test ===";
+
+    constexpr int kCancelledCode = td::actor::kCancelledCode;
+
+    // Detached source can mint leases incrementally and cancel all children.
+    co_await [&]() -> Task<td::Unit> {
+      auto source = TaskCancellationSource::create_detached();
+      std::vector<StartedTask<td::Unit>> children;
+      children.reserve(4);
+
+      for (int i = 0; i < 4; i++) {
+        children.push_back([]() -> Task<td::Unit> {
+          co_await sleep_for(10.0);
+          co_return td::Unit{};
+        }()
+                                       .start_in_parent_scope(source.get_scope_lease()));
+      }
+
+      source.cancel();
+
+      for (auto& child : children) {
+        auto r = co_await std::move(child).wrap();
+        expect_true(r.is_error(), "Detached source child should be cancelled");
+        expect_eq(r.error().code(), kCancelledCode, "Detached source child cancellation code should be 653");
+      }
+      co_return td::Unit{};
+    }();
+    LOG(INFO) << "TaskCancellationSource detached fanout cancel: PASSED";
+
+    // Destructor path should also cancel children.
+    co_await [&]() -> Task<td::Unit> {
+      StartedTask<td::Unit> child;
+      {
+        auto source = TaskCancellationSource::create_detached();
+        child = []() -> Task<td::Unit> {
+          co_await sleep_for(10.0);
+          co_return td::Unit{};
+        }()
+                            .start_in_parent_scope(source.get_scope_lease());
+      }
+
+      auto r = co_await std::move(child).wrap();
+      expect_true(r.is_error(), "Source destructor should cancel child");
+      expect_eq(r.error().code(), kCancelledCode, "Source destructor cancellation code should be 653");
+      co_return td::Unit{};
+    }();
+    LOG(INFO) << "TaskCancellationSource destructor cancel: PASSED";
+
+    // Move-only ownership should work.
+    co_await [&]() -> Task<td::Unit> {
+      auto source1 = TaskCancellationSource::create_detached();
+      auto source2 = std::move(source1);
+
+      auto child = []() -> Task<td::Unit> {
+        co_await sleep_for(10.0);
+        co_return td::Unit{};
+      }()
+                               .start_in_parent_scope(source2.get_scope_lease());
+
+      source2.cancel();
+      auto r = co_await std::move(child).wrap();
+      expect_true(r.is_error(), "Moved TaskCancellationSource should still cancel child");
+      expect_eq(r.error().code(), kCancelledCode, "Moved TaskCancellationSource cancellation code should be 653");
+      co_return td::Unit{};
+    }();
+    LOG(INFO) << "TaskCancellationSource move semantics: PASSED";
+
+    // StartedTask move assignment should cancel previously owned unfinished task.
+    co_await [&]() -> Task<td::Unit> {
+      auto completed = std::make_shared<std::atomic<bool>>(false);
+      StartedTask<td::Unit> slot = [completed]() -> Task<td::Unit> {
+        co_await sleep_for(0.2);
+        completed->store(true, std::memory_order_release);
+        co_return td::Unit{};
+      }()
+                                                        .start_in_parent_scope();
+
+      auto replacement = []() -> Task<td::Unit> { co_return td::Unit{}; }().start_immediate_without_scope();
+      slot = std::move(replacement);
+
+      co_await sleep_for(0.3);
+      expect_true(!completed->load(std::memory_order_acquire),
+                  "Move-assigned-out StartedTask should be cancelled, not detached-running");
+
+      auto r = co_await std::move(slot).wrap();
+      expect_ok(r, "Replacement task should still complete");
+      co_return td::Unit{};
+    }();
+    LOG(INFO) << "StartedTask move assignment cancels old task: PASSED";
+
+    // Linked source should hold exactly one parent child-count lease.
+    co_await [&]() -> Task<td::Unit> {
+      auto scope = co_await this_scope();
+      auto* promise = scope.get_promise();
+      CHECK(promise);
+      auto initial_count = promise->cancellation_.child_count_relaxed_for_test();
+
+      auto source = TaskCancellationSource::create_linked();
+      auto count_with_source = promise->cancellation_.child_count_relaxed_for_test();
+      expect_eq(count_with_source, initial_count + 1, "Linked source should add one parent child-count lease");
+
+      source.cancel();
+      auto count_after_cancel = promise->cancellation_.child_count_relaxed_for_test();
+      expect_eq(count_after_cancel, initial_count, "Cancelling linked source should release parent child-count lease");
+
+      co_return td::Unit{};
+    }();
+    LOG(INFO) << "TaskCancellationSource linked parent lease: PASSED";
+
+    LOG(INFO) << "task_cancellation_source_test passed";
+    co_return td::Unit{};
+  }
+
   enum class ExternalParentAction : uint8_t { SetValue = 0, SetError = 1, DropPromise = 2 };
 
   struct ExternalParentReproCase {
@@ -3303,6 +3416,7 @@ class CoroSpec final : public td::actor::Actor {
     co_await cancellation_comprehensive_test();       // Cancellation semantics documentation
     co_await ignore_cancellation_test();              // ignore_cancellation() guard semantics
     co_await cancellation_parent_scope_lease_test();  // ParentScopeLease RAII and thread-safety
+    co_await task_cancellation_source_test();         // TaskCancellationSource lifecycle and propagation
     co_await cancellation_serious_stress_test();      // Heavy randomized cancellation stress
     co_await scheduled_sleep_cancel_stress_test();
     co_await scope_exit_timing_test();  // Test SCOPE_EXIT vs final_suspend timing

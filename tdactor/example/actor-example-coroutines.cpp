@@ -369,6 +369,39 @@ Task<td::Unit> work_for(double seconds) {
   co_return td::Unit{};
 }
 
+Task<td::Unit> example_task_cancellation_source() {
+  LOG(INFO) << "TaskCancellationSource: incremental fanout and cancel";
+
+  auto source = TaskCancellationSource::create_linked();
+  std::vector<StartedTask<td::Unit>> workers;
+  workers.reserve(3);
+
+  for (int i = 0; i < 3; i++) {
+    workers.push_back([i]() -> Task<td::Unit> {
+      LOG(INFO) << "worker " << i << ": started";
+      co_await sleep_for(10.0);
+      LOG(INFO) << "worker " << i << ": finished";
+      co_return td::Unit{};
+    }()
+                                   .start_in_parent_scope(source.get_scope_lease()));
+  }
+
+  co_await sleep_for(0.05);
+  LOG(INFO) << "TaskCancellationSource: cancel()";
+  source.cancel();
+
+  for (auto& worker : workers) {
+    auto r = co_await std::move(worker).wrap();
+    if (r.is_error()) {
+      LOG(INFO) << "worker cancelled: " << r.error();
+    } else {
+      LOG(INFO) << "worker completed";
+    }
+  }
+
+  co_return td::Unit{};
+}
+
 Task<td::Unit> dfs(int i, int max_i) {
   if (i > max_i) {
     co_return td::Unit{};
@@ -422,6 +455,7 @@ Task<td::Unit> example_cancellation() {
 
 Task<td::Unit> run_all_examples() {
   co_await example_cancellation();
+  co_await example_task_cancellation_source();
   co_return td::Unit();
 
   co_await example_create();

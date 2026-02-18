@@ -747,7 +747,7 @@ struct [[nodiscard]] StartedTask {
   }
   StartedTask& operator=(StartedTask&& o) {
     if (this != &o) {
-      detach_silent();
+      reset();
       h = std::exchange(o.h, {});
     }
     return *this;
@@ -757,6 +757,9 @@ struct [[nodiscard]] StartedTask {
   StartedTask& operator=(const StartedTask&) = delete;
 
   ~StartedTask() noexcept {
+    reset();
+  }
+  void reset() {
     // A completed task has already run final_suspend and has no live children.
     // Avoid redundant cancel() on this common path.
     if (h && !await_ready()) {
@@ -870,6 +873,63 @@ struct [[nodiscard]] StartedTask {
     auto started_task = std::move(task).start_external_in_parent_scope();
     return std::make_pair(std::move(started_task), std::move(bridge_promise));
   }
+};
+
+class TaskCancellationSource {
+ public:
+  TaskCancellationSource() = default;
+  TaskCancellationSource(TaskCancellationSource&&) noexcept = default;
+  TaskCancellationSource& operator=(TaskCancellationSource&&) noexcept = default;
+  TaskCancellationSource(const TaskCancellationSource&) = delete;
+  TaskCancellationSource& operator=(const TaskCancellationSource&) = delete;
+
+  static TaskCancellationSource create_linked() {
+    auto scope = current_scope_lease();
+    CHECK(scope);
+    return create_impl(std::move(scope));
+  }
+
+  static TaskCancellationSource create_detached() {
+    return create_impl(ParentScopeLease{});
+  }
+
+  ParentScopeLease get_scope_lease() {
+    auto* promise = root_.get_promise();
+    CHECK(promise);
+    // We know that the task is not finished. This is the only reason it is OK to get scope from outside the coroutine.
+    return bridge::make_parent_scope_lease(*promise);
+  }
+
+  void cancel() {
+    root_.reset();
+    external_ = {};
+  }
+
+  explicit operator bool() const {
+    return root_.valid();
+  }
+
+  ~TaskCancellationSource() {
+    cancel();
+  }
+
+ private:
+  static TaskCancellationSource create_impl(ParentScopeLease parent_scope) {
+    auto task = []() -> Task<td::Unit> { co_return Task<td::Unit>::promise_type::ExternalResult{}; }();
+    task.set_executor(Executor::on_scheduler());
+
+    TaskCancellationSource source;
+    source.external_ = StartedTask<td::Unit>::ExternalPromise(&task.h.promise());
+    if (parent_scope) {
+      source.root_ = std::move(task).start_external_in_parent_scope(std::move(parent_scope));
+    } else {
+      source.root_ = std::move(task).start_external_without_scope();
+    }
+    return source;
+  }
+
+  StartedTask<td::Unit>::ExternalPromise external_;
+  StartedTask<td::Unit> root_;
 };
 
 template <class P, class T>
