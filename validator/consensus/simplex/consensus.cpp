@@ -93,6 +93,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   template <>
   void handle(BusHandle, std::shared_ptr<const FinalizationObserved> event) {
     state_->notify_finalized(event->id.slot);
+    last_finalized_candidate_ = event->id;
     finalize_blocks(event->id, event->certificate).start().detach();
   }
 
@@ -244,6 +245,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
   td::uint32 slots_per_leader_window_;
   td::uint32 max_leader_window_desync_;
+  ParentId last_finalized_candidate_ = std::nullopt;
   double target_rate_s_;
   double first_block_timeout_s_;
   std::optional<State> state_;
@@ -290,7 +292,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   }
 
   td::actor::Task<ResolvedCandidate> get_resolved_candidate_inner(ParentId id) {
-    if (!id.has_value() || finalized_blocks_.contains(*id)) {
+    if (!id.has_value() || (finalized_blocks_.contains(*id) && last_finalized_candidate_ != id)) {
       std::vector<BlockIdExt> block;
       auto genesis = co_await genesis_.get();
       if (id.has_value()) {
