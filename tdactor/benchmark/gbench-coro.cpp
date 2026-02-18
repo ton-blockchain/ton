@@ -37,7 +37,7 @@ struct SchedulerGuard {
       }(done, std::move(task));
 
       // Keep the wrapper running until it flips done; dropping StartedTask would cancel it.
-      std::move(wrapped_task).start_deprecated().detach_silent();
+      std::move(wrapped_task).start_without_scope().detach_silent();
     });
 
     while (!done->load(std::memory_order_acquire)) {
@@ -160,7 +160,7 @@ static void BM_StartedTaskAwait(benchmark::State& state) {
     co_await detach_from_actor();
     td::int64 sum = 0;
     while (state.KeepRunning()) {
-      sum += (co_await SkipAwaitTransform{simple_task().start_immediate_deprecated()}).move_as_ok();
+      sum += (co_await SkipAwaitTransform{simple_task().start_immediate_without_scope()}).move_as_ok();
     }
     benchmark::DoNotOptimize(sum);
 
@@ -174,7 +174,7 @@ static void BM_ScheduledTaskAwait(benchmark::State& state) {
     co_await detach_from_actor();
     td::int64 sum = 0;
     while (state.KeepRunning()) {
-      sum += (co_await SkipAwaitTransform{simple_task().start_deprecated()}).move_as_ok();
+      sum += (co_await SkipAwaitTransform{simple_task().start_without_scope()}).move_as_ok();
     }
     benchmark::DoNotOptimize(sum);
 
@@ -183,49 +183,49 @@ static void BM_ScheduledTaskAwait(benchmark::State& state) {
 }
 BENCHMARK(BM_ScheduledTaskAwait)->UseRealTime()->MeasureProcessCPUTime();
 
-static void BM_GetCurrentPromiseChildLease(benchmark::State& state) {
+static void BM_GetCurrentParentScopeLease(benchmark::State& state) {
   coro_benchmark(state, [](auto& state) -> Task<td::Unit> {
     co_await detach_from_actor();
     td::int64 sum = 0;
     while (state.KeepRunning()) {
-      auto lease = detail::get_current_promise_child_lease();
-      sum += static_cast<td::int64>(lease && lease->is_cancelled());
-      benchmark::DoNotOptimize(lease.get());
+      auto lease = current_parent_scope_lease();
+      sum += static_cast<td::int64>(lease && lease.is_cancelled());
+      benchmark::DoNotOptimize(sum);
     }
     benchmark::DoNotOptimize(sum);
     co_return td::Unit();
   });
 }
-BENCHMARK(BM_GetCurrentPromiseChildLease)->UseRealTime()->MeasureProcessCPUTime();
+BENCHMARK(BM_GetCurrentParentScopeLease)->UseRealTime()->MeasureProcessCPUTime();
 
-static void BM_StartImmediateInCurrentScope(benchmark::State& state) {
+static void BM_StartImmediateInParentScope(benchmark::State& state) {
   coro_benchmark(state, [](auto& state) -> Task<td::Unit> {
     co_await detach_from_actor();
     td::int64 sum = 0;
     while (state.KeepRunning()) {
-      auto started = []() -> Task<int> { co_return 1; }().start_immediate_in_current_scope();
+      auto started = []() -> Task<int> { co_return 1; }().start_immediate_in_parent_scope();
       sum += (co_await SkipAwaitTransform{std::move(started)}).move_as_ok();
     }
     benchmark::DoNotOptimize(sum);
     co_return td::Unit();
   });
 }
-BENCHMARK(BM_StartImmediateInCurrentScope)->UseRealTime()->MeasureProcessCPUTime();
+BENCHMARK(BM_StartImmediateInParentScope)->UseRealTime()->MeasureProcessCPUTime();
 
-static void BM_StartImmediateWithParentLease(benchmark::State& state) {
+static void BM_StartImmediateInParentScopeWithLease(benchmark::State& state) {
   coro_benchmark(state, [](auto& state) -> Task<td::Unit> {
     co_await detach_from_actor();
     td::int64 sum = 0;
     while (state.KeepRunning()) {
-      auto lease = detail::get_current_promise_child_lease();
-      auto started = []() -> Task<int> { co_return 1; }().start_immediate_with_parent_scope(std::move(lease));
+      auto lease = current_parent_scope_lease();
+      auto started = []() -> Task<int> { co_return 1; }().start_immediate_in_parent_scope(std::move(lease));
       sum += (co_await SkipAwaitTransform{std::move(started)}).move_as_ok();
     }
     benchmark::DoNotOptimize(sum);
     co_return td::Unit();
   });
 }
-BENCHMARK(BM_StartImmediateWithParentLease)->UseRealTime()->MeasureProcessCPUTime();
+BENCHMARK(BM_StartImmediateInParentScopeWithLease)->UseRealTime()->MeasureProcessCPUTime();
 
 static void BM_CancelStartedSleepFor(benchmark::State& state) {
   coro_benchmark(state, [](auto& state) -> Task<td::Unit> {
@@ -236,7 +236,7 @@ static void BM_CancelStartedSleepFor(benchmark::State& state) {
         co_await sleep_for(3600.0);
         co_return td::Unit{};
       }()
-                                 .start_immediate_in_current_scope();
+                                 .start_immediate_in_parent_scope();
 
       started.cancel();
       auto result = co_await std::move(started).wrap();
@@ -266,13 +266,13 @@ static void BM_CancelParentFanoutSleep(benchmark::State& state) {
             co_await sleep_for(3600.0);
             co_return td::Unit{};
           }(started_children)
-                                                                  .start_immediate_in_current_scope()
+                                                                  .start_immediate_in_parent_scope()
                                                                   .detach_silent();
         }
         co_await sleep_for(3600.0);
         co_return td::Unit{};
       }(&started_children, fanout)
-                                                    .start_immediate_deprecated();
+                                                    .start_immediate_without_scope();
 
       CHECK(started_children.load(std::memory_order_relaxed) == fanout);
       parent.cancel();
@@ -298,7 +298,7 @@ static void BM_CancelStartedYieldLoop(benchmark::State& state) {
           co_await yield_on_current();
         }
       }()
-                                 .start_immediate_in_current_scope();
+                                 .start_immediate_in_parent_scope();
 
       started.cancel();
       auto result = co_await std::move(started).wrap();
@@ -324,7 +324,7 @@ static void BM_CancelStartedYieldLoopScheduled(benchmark::State& state) {
           co_await yield_on_current();
         }
       }(&entered)
-                                                               .start_deprecated();
+                                                               .start_without_scope();
 
       while (!entered.load(std::memory_order_acquire)) {
         co_await yield_on_current();
@@ -358,14 +358,14 @@ static void BM_CancelParentFanoutYieldLoop(benchmark::State& state) {
               co_await yield_on_current();
             }
           }(started_children_ptr)
-                                                           .start_immediate_in_current_scope()
+                                                           .start_immediate_in_parent_scope()
                                                            .detach_silent();
         }
         while (true) {
           co_await yield_on_current();
         }
       }(fanout, &started_children)
-                                                                                     .start_immediate_deprecated();
+                                                                                     .start_immediate_without_scope();
 
       CHECK(started_children == fanout);
       parent.cancel();
@@ -554,7 +554,7 @@ static void BM_ConcurrentTasks(benchmark::State& state) {
       std::vector<StartedTask<int>> tasks;
       tasks.reserve(num_tasks_int);
       for (int i = 0; i < num_tasks_int; ++i) {
-        tasks.emplace_back([](int i) -> Task<int> { co_return i * 2; }(i).start_deprecated());
+        tasks.emplace_back([](int i) -> Task<int> { co_return i * 2; }(i).start_without_scope());
       }
       int total = 0;
       for (auto& task : tasks) {
@@ -905,7 +905,7 @@ static void BM_HttpRequestHandler(benchmark::State& state) {
       // Launch concurrent requests
       for (int i = 0; i < concurrent_requests; ++i) {
         // TODO or lazy coroutine?
-        auto task = RequestHandler::handle_request(db.get(), request_counter).start_deprecated();
+        auto task = RequestHandler::handle_request(db.get(), request_counter).start_without_scope();
         requests.emplace_back(std::move(task));
       }
 

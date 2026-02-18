@@ -230,20 +230,18 @@ inline bool should_finish_due_to_cancellation(const promise_common& self) {
 }
 }  // namespace bridge
 
-namespace detail {
-inline PromiseChildLease get_current_promise_child_lease() {
-  auto* p = get_current_promise();
+inline ParentScopeLease current_parent_scope_lease() {
+  auto* p = detail::get_current_promise();
   if (!p) {
-    return PromiseChildLease{};
+    return ParentScopeLease{};
   }
-  return bridge::make_promise_child_lease(*p);
+  return bridge::make_parent_scope_lease(*p);
 }
-}  // namespace detail
 
-class CoroutineScope {
+class CancelScope {
  public:
-  CoroutineScope() = default;
-  explicit CoroutineScope(promise_common* promise) : promise_(promise) {
+  CancelScope() = default;
+  explicit CancelScope(promise_common* promise) : promise_(promise) {
   }
 
   bool is_cancelled() const {
@@ -451,7 +449,7 @@ struct promise_type : promise_value<td::Result<T>> {
   template <class U>
   auto await_transform(Task<U>&& task) noexcept {
     return unwrap_and_resume_on_current(
-        std::move(task).start_immediate_with_parent_scope(bridge::make_promise_child_lease(*this)));
+        std::move(task).start_immediate_in_parent_scope(bridge::make_parent_scope_lease(*this)));
   }
   template <class U>
   auto await_transform(StartedTask<U>&& task) noexcept {
@@ -462,7 +460,7 @@ struct promise_type : promise_value<td::Result<T>> {
   template <class U>
   auto await_transform(Wrapped<Task<U>>&& wrapped) noexcept {
     return wrap_and_resume_on_current(
-        std::move(wrapped.value).start_immediate_with_parent_scope(bridge::make_promise_child_lease(*this)));
+        std::move(wrapped.value).start_immediate_in_parent_scope(bridge::make_parent_scope_lease(*this)));
   }
   template <class U>
   auto await_transform(Wrapped<StartedTask<U>>&& wrapped) noexcept {
@@ -473,7 +471,7 @@ struct promise_type : promise_value<td::Result<T>> {
   template <class U>
   auto await_transform(Traced<Task<U>>&& traced) noexcept {
     return trace_and_resume_on_current(
-        std::move(traced.value).start_immediate_with_parent_scope(bridge::make_promise_child_lease(*this)),
+        std::move(traced.value).start_immediate_in_parent_scope(bridge::make_parent_scope_lease(*this)),
         std::move(traced.trace));
   }
   template <class U>
@@ -487,7 +485,7 @@ struct promise_type : promise_value<td::Result<T>> {
   }
 
   auto await_transform(ThisScope) noexcept {
-    return detail::ReadyAwaitable<CoroutineScope>{CoroutineScope{this}};
+    return detail::ReadyAwaitable<CancelScope>{CancelScope{this}};
   }
 
   auto await_transform(IsActive) noexcept {
@@ -576,7 +574,7 @@ struct promise_type : promise_value<td::Result<T>> {
     }
     if (!warned.exchange(true, std::memory_order_relaxed)) {
       LOG(WARNING) << "Awaiting StartedTask without parent scope inside a scoped coroutine. "
-                      "Use start_in_current_scope() to register parent scope.";
+                      "Use start_in_parent_scope() to register parent scope.";
     }
 #endif
   }
@@ -615,68 +613,54 @@ struct [[nodiscard]] Task {
     h = {};
   }
 
-  // Deprecated: use start_in_current_scope() or co_await instead
-  auto start_deprecated() && {
-    return std::move(*this).start_without_parent(StartMode::Scheduled);
+  // Preferred: auto-peek parent scope from TLS
+  auto start_in_parent_scope() && {
+    return std::move(*this).start_impl(current_parent_scope_lease(), StartMode::Scheduled);
+  }
+  auto start_immediate_in_parent_scope() && {
+    return std::move(*this).start_impl(current_parent_scope_lease(), StartMode::Immediate);
+  }
+  auto start_external_in_parent_scope() && {
+    return std::move(*this).start_impl(current_parent_scope_lease(), StartMode::External);
   }
 
-  auto start() && {
-    return std::move(*this).start_deprecated();
+  // Explicit parent scope
+  auto start_in_parent_scope(ParentScopeLease scope) && {
+    return std::move(*this).start_impl(std::move(scope), StartMode::Scheduled);
+  }
+  auto start_immediate_in_parent_scope(ParentScopeLease scope) && {
+    return std::move(*this).start_impl(std::move(scope), StartMode::Immediate);
+  }
+  auto start_external_in_parent_scope(ParentScopeLease scope) && {
+    return std::move(*this).start_impl(std::move(scope), StartMode::External);
   }
 
-  // Deprecated: use start_immediate_in_current_scope() or co_await instead
-  auto start_immediate_deprecated() && {
-    return std::move(*this).start_without_parent(StartMode::Immediate);
+  // No parent scope
+  auto start_without_scope() && {
+    return std::move(*this).start_registered(StartMode::Scheduled);
   }
-
-  // Automatically uses current coroutine as parent (from TLS), scheduled
-  // Use this when you need to start a task and the scope is implicit (e.g., in ask())
-  auto start_in_current_scope() && {
-    return std::move(*this).start_with_current_scope(StartMode::Scheduled);
+  auto start_immediate_without_scope() && {
+    return std::move(*this).start_registered(StartMode::Immediate);
   }
-
-  // Automatically uses current coroutine as parent (from TLS), immediate execution
-  auto start_immediate_in_current_scope() && {
-    return std::move(*this).start_with_current_scope(StartMode::Immediate);
-  }
-
-  auto start_external() && {
+  auto start_external_without_scope() && {
     return std::move(*this).start_registered(StartMode::External);
   }
 
-  // Automatically uses current coroutine as parent (from TLS), external start
-  auto start_external_in_current_scope() && {
-    return std::move(*this).start_with_current_scope(StartMode::External);
+  [[deprecated("use start_in_parent_scope() or start_without_scope()")]]
+  auto start() && {
+    return std::move(*this).start_without_scope();
   }
 
-  // Scheduled start with explicit parent scope
-  auto start_with_parent_scope(PromiseChildLease parent_scope_ref) && {
-    return std::move(*this).start_with_promise_child_lease(std::move(parent_scope_ref), StartMode::Scheduled);
-  }
-
-  // Immediate start with explicit parent scope
-  auto start_immediate_with_parent_scope(PromiseChildLease parent_scope_ref) && {
-    return std::move(*this).start_with_promise_child_lease(std::move(parent_scope_ref), StartMode::Immediate);
-  }
-
-  // External start with explicit parent scope
-  auto start_external_with_parent_scope(PromiseChildLease parent_scope_ref) && {
-    return std::move(*this).start_with_promise_child_lease(std::move(parent_scope_ref), StartMode::External);
+  ParentScopeLease lease() {
+    CHECK(h);
+    return bridge::make_parent_scope_lease(h.promise());
   }
 
  private:
-  StartedTask<T> start_without_parent(StartMode mode) && {
-    return std::move(*this).start_registered(mode);
-  }
-
-  StartedTask<T> start_with_current_scope(StartMode mode) && {
-    return std::move(*this).start_with_promise_child_lease(detail::get_current_promise_child_lease(), mode);
-  }
-
-  StartedTask<T> start_with_promise_child_lease(PromiseChildLease parent_scope_ref, StartMode mode) && {
-    if (parent_scope_ref) {
+  StartedTask<T> start_impl(ParentScopeLease scope, StartMode mode) && {
+    if (scope) {
       auto& promise = h.promise();
-      promise.cancellation_.set_parent_promise_child_lease(promise, std::move(parent_scope_ref));
+      promise.cancellation_.set_parent_lease(promise, std::move(scope));
     }
     return std::move(*this).start_registered(mode);
   }
@@ -790,7 +774,7 @@ struct [[nodiscard]] StartedTask {
       LOG_IF(ERROR, r.is_error()) << "Detached task <" << description << "> failed: " << r.error();
       co_return td::Unit{};
     }(std::move(*this), std::move(description))
-                                                  .start_immediate_in_current_scope()
+                                                  .start_immediate_in_parent_scope()
                                                   .detach_silent();
   }
   void detach_silent() {
@@ -882,11 +866,8 @@ struct [[nodiscard]] StartedTask {
   static std::pair<StartedTask, ExternalPromise> make_bridge() {
     auto task = []() -> Task<T> { co_return typename promise_type::ExternalResult{}; }();
     task.set_executor(Executor::on_scheduler());
-    auto& promise = task.h.promise();
-    promise.cancellation_.set_parent_promise_child_lease(promise, detail::get_current_promise_child_lease());
-
-    auto bridge_promise = ExternalPromise(&promise);
-    auto started_task = std::move(task).start_external();
+    auto bridge_promise = ExternalPromise(&task.h.promise());
+    auto started_task = std::move(task).start_external_in_parent_scope();
     return std::make_pair(std::move(started_task), std::move(bridge_promise));
   }
 };
@@ -905,13 +886,12 @@ void custom_connect(P&& p, StartedTask<T>&& mt) noexcept {
 
 template <class P, class T>
 void custom_connect(P&& p, Task<T>&& task, Lazy = {}) noexcept {
-  connect(std::forward<P>(p), std::move(task).start_with_parent_scope(detail::get_current_promise_child_lease()));
+  connect(std::forward<P>(p), std::move(task).start_in_parent_scope(current_parent_scope_lease()));
 }
 
 template <class P, class T>
 void custom_connect(P&& p, Task<T>&& task, Immediate) noexcept {
-  connect(std::forward<P>(p),
-          std::move(task).start_immediate_with_parent_scope(detail::get_current_promise_child_lease()));
+  connect(std::forward<P>(p), std::move(task).start_immediate_in_parent_scope(current_parent_scope_lease()));
 }
 
 }  // namespace td::actor

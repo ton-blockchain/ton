@@ -5,7 +5,7 @@
 - Parent waits for all children in `final_suspend`.
 - `StartedTask` destructor cancels coroutine and its children.
 - Small state, simple rules, no cross-thread resume from handle destruction.
-- Explicit lifetime ownership via parent scope leases (`PromiseChildLease`) for scopes that may outlive creator frames.
+- Explicit lifetime ownership via parent scope leases (`ParentScopeLease`) for scopes that may outlive creator frames.
 - `ignore_cancellation()` guard to temporarily suppress cancellation propagation.
 
 ## Core State
@@ -77,23 +77,23 @@ struct ParentLink {
   enum class ReleaseReason : uint8_t { ChildCompleted, Teardown };
 
   void link(promise_common& self, promise_common* parent);
-  void link_from_promise_child_lease(promise_common& self, PromiseChildLease parent_scope_ref);
+  void link_from_parent_scope_lease(promise_common& self, ParentScopeLease parent_scope_ref);
   void release(ReleaseReason reason);
 };
 ```
 
 - `link()` — increments parent's child count, publishes self into parent's topology.
-- `link_from_promise_child_lease()` — transfers ownership of an existing child-count lease (no extra increment).
+- `link_from_parent_scope_lease()` — transfers ownership of an existing child-count lease (no extra increment).
 - `release(ChildCompleted)` — decrements parent child count and may complete a waiting parent.
 - `release(Teardown)` — decrements parent child count but never completes (preserves the "no resume from non-scheduler threads" rule).
 
-### PromiseChildLease
+### ParentScopeLease
 
 ```cpp
-using PromiseChildLease = std::unique_ptr<promise_common, PromiseChildLeaseDeleter>;
+using ParentScopeLease = std::unique_ptr<promise_common, ParentScopeLeaseDeleter>;
 ```
 
-Holds one child-count lease on a parent scope. Destructor decrements the count and may complete a waiting parent. Created via `make_promise_child_lease()`. Used by `start_with_parent_scope()` and friends to pass scope ownership across non-coroutine boundaries.
+Holds one child-count lease on a parent scope. Destructor decrements the count and may complete a waiting parent. Created via `make_parent_scope_lease()`. Used by `start_with_parent_scope()` and friends to pass scope ownership across non-coroutine boundaries.
 
 ### bridge namespace
 
@@ -104,9 +104,9 @@ Breaks the circular dependency between `promise_common` (which contains `Cancell
 - `should_finish_due_to_cancellation()` — delegation.
 
 ## Invariants
-- Child count counts **all child scopes**, including `PromiseChildLease` refs.
+- Child count counts **all child scopes**, including `ParentScopeLease` refs.
 - Detaching a `StartedTask` handle does **not** detach it from the parent scope.
-- `PromiseChildLease` destructor decrements the count and may complete a waiting parent, but completion is always **scheduled** (never inline resume).
+- `ParentScopeLease` destructor decrements the count and may complete a waiting parent, but completion is always **scheduled** (never inline resume).
 - `ParentLink::release(Teardown)` is used from `on_last_ref_teardown()` to preserve the "no resume from non-scheduler threads" rule.
 - When IGNORED is set, `cancel()` sets the CANCELLED flag but skips the topology walk. The deferred walk happens in `leave_ignore()`.
 
@@ -121,12 +121,11 @@ All coroutine resume paths use centralized helpers in `coro_types.h`, never raw 
 
 ## Cancellation Contract
 - Structured cancellation guarantees apply to scoped starts:
-  - `start(scope)`
-  - `start_immediate(scope)`
-  - `start_in_current_scope()`
-  - `start_immediate_in_current_scope()`
-  - `start_*_with_parent_scope(...)`
-- Legacy unscoped starts (`start_deprecated()`, `start_immediate_deprecated()`) are compatibility APIs and should not be relied on for parent-await cancellation propagation.
+  - `start_in_parent_scope()` / `start_in_parent_scope(scope)`
+  - `start_immediate_in_parent_scope()` / `start_immediate_in_parent_scope(scope)`
+  - `start_external_in_parent_scope()` / `start_external_in_parent_scope(scope)`
+- Unscoped starts (`start_without_scope()`, `start_immediate_without_scope()`) do not participate in parent-await cancellation propagation.
+- `start()` is deprecated and equivalent to `start_without_scope()`.
 - `HeapCancelNode` is the extension point for **custom external resources** (timers, IO, etc.) that need to participate in cancellation. They are published into the scope's topology and receive `on_cancel()`/`on_cleanup()` callbacks.
 - Cancellation is **scheduler/actor-context-affine**: `promise_common::cancel()` expects an active `SchedulerContext`, and timer cancel callbacks rely on this context for message routing.
 

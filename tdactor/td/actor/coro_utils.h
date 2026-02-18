@@ -215,21 +215,21 @@ auto ask_new_impl(TargetId&& to, MemFn mf, Args&&... args) {
       co_return co_await detail::run_on_current_actor(closure);
     }(create_delayed_closure(mf, std::forward<Args>(args)...));
     task.set_executor(Executor::on_actor(to));
-    return std::move(task).start_in_current_scope();
+    return std::move(task).start_in_parent_scope();
   } else {
     std::optional<StartedTask<T>> o_task;
     td::actor::detail::send_immediate(
         to.as_actor_ref(),
         [&] {
           o_task.emplace(detail::run_on_current_actor(create_immediate_closure(mf, std::forward<Args>(args)...))
-                             .start_immediate_in_current_scope());
+                             .start_immediate_in_parent_scope());
         },
         [&]() {
           auto task = [](auto closure) -> Task<T> {
             co_return co_await detail::run_on_current_actor(closure);
           }(create_delayed_closure(mf, std::forward<Args>(args)...));
           task.set_executor(Executor::on_actor(to));
-          o_task.emplace(std::move(task).start_external_in_current_scope());
+          o_task.emplace(std::move(task).start_external_in_parent_scope());
           return detail::ActorExecutor::to_message(o_task->h);
         });
     return std::move(*o_task);
@@ -594,7 +594,7 @@ Task<Result<T>> with_timeout(StartedTask<T> task, double seconds) {
     state->try_timeout();
     co_return Unit{};
   }(state, seconds)
-                                                                 .start_in_current_scope();
+                                                                 .start_in_parent_scope();
 
   // Main: await task, set result (task cancelled via destructor when main cancelled)
   auto main = [](std::shared_ptr<State> state, StartedTask<T> task) -> Task<Unit> {
@@ -602,7 +602,7 @@ Task<Result<T>> with_timeout(StartedTask<T> task, double seconds) {
     state->try_set_result(std::move(result));
     co_return Unit{};
   }(state, std::move(task))
-                                                                           .start_in_current_scope();
+                                                                           .start_in_parent_scope();
 
   co_return co_await std::move(bridge);
 }

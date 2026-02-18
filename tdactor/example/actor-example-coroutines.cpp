@@ -39,7 +39,7 @@ Task<td::Unit> example_create() {
     td::usleep_for(1000000);
     co_return 17;
   }()
-                                        .start_immediate_deprecated();
+                                        .start_immediate_without_scope();
   CHECK(value3.await_ready());
   CHECK(17 == (co_await std::move(value3)));
 
@@ -49,7 +49,7 @@ Task<td::Unit> example_create() {
     td::usleep_for(1000000);
     co_return 17;
   }()
-                                        .start_deprecated();
+                                        .start_without_scope();
   CHECK(!value4.await_ready());
   CHECK(17 == (co_await std::move(value4)));
 
@@ -116,7 +116,7 @@ Task<td::Unit> example_actor() {
     }
     void start_up() override {
       // it is usual actor all coroutines create FROM actor, will be executed ON actor
-      run().start_deprecated().detach("example_actor");
+      run().start_without_scope().detach("example_actor");
     }
     Task<td::Unit> run() {
       state_ = 19;
@@ -148,7 +148,7 @@ Task<td::Unit> example_all() {
       td::usleep_for(1000000);
       co_return i* i;
     }(i)
-                                 .start_deprecated());
+                                 .start_without_scope());
   }
   auto vv = co_await all(std::move(v));
   for (int i = 0; i < n; i++) {
@@ -336,8 +336,8 @@ Task<td::Unit> xsleep_for(double seconds) {
 }
 
 Task<td::Unit> spawn_two_blocking_tasks() {
-  auto block_for_2s = block_for(2).start_in_current_scope();
-  auto block_for_1s = block_for(1).start_in_current_scope();
+  auto block_for_2s = block_for(2).start_in_parent_scope();
+  auto block_for_1s = block_for(1).start_in_parent_scope();
   co_await std::move(block_for_1s);
   LOG(INFO) << "first task is ready";
   co_return {};
@@ -345,7 +345,7 @@ Task<td::Unit> spawn_two_blocking_tasks() {
 
 class WorkForActor final : public td::actor::Actor {
  public:
-  void run_for(double seconds, td::Promise<td::Unit> promise, PromiseChildLease child_lease) {
+  void run_for(double seconds, td::Promise<td::Unit> promise, ParentScopeLease child_lease) {
     // or we could just check child_lease->is_cancelled()
     publish_cancel_promise(*child_lease, [s = actor_shared(this)](td::Result<td::Unit> r) mutable {
       r.ensure();
@@ -365,7 +365,7 @@ Task<td::Unit> work_for(double seconds) {
   auto work_for_actor = create_actor<WorkForActor>("work_for_actor");
   auto [work_for_task, work_for_promise] = StartedTask<td::Unit>::make_bridge();
   send_closure(work_for_actor, &WorkForActor::run_for, seconds, std::move(work_for_promise),
-               detail::get_current_promise_child_lease());
+               current_parent_scope_lease());
   co_await std::move(work_for_task);
   co_return td::Unit{};
 }
@@ -380,15 +380,15 @@ Task<td::Unit> dfs(int i, int max_i) {
   };
   int l = i * 2 + 1;
   int r = i * 2 + 2;
-  auto cl = dfs(l, max_i).start_in_current_scope();
-  auto cr = dfs(r, max_i).start_in_current_scope();
+  auto cl = dfs(l, max_i).start_in_parent_scope();
+  auto cr = dfs(r, max_i).start_in_parent_scope();
   co_await sleep_for(100);
   UNREACHABLE();
 }
 
 Task<td::Unit> spawn_two_sleeping_tasks() {
-  auto sleep_for_2s = xsleep_for(2).start_in_current_scope();
-  auto sleep_for_1s = xsleep_for(1).start_in_current_scope();
+  auto sleep_for_2s = xsleep_for(2).start_in_parent_scope();
+  auto sleep_for_1s = xsleep_for(1).start_in_parent_scope();
   co_await std::move(sleep_for_1s);
   LOG(INFO) << "first task is ready";
   co_return {};
@@ -405,14 +405,14 @@ Task<td::Unit> example_cancellation() {
   LOG(INFO) << td::Timestamp::now().at() - start.at() << "s";
 
   start = td::Timestamp::now();
-  co_await with_timeout(block_for(2).start_in_current_scope(), 1);
+  co_await with_timeout(block_for(2).start_in_parent_scope(), 1);
   LOG(INFO) << "block: " << td::Timestamp::now().at() - start.at() << "s";
 
   start = td::Timestamp::now();
-  co_await with_timeout(work_for(2).start_deprecated(), 1);
+  co_await with_timeout(work_for(2).start_without_scope(), 1);
   LOG(INFO) << "work: " << td::Timestamp::now().at() - start.at() << "s";
 
-  auto dfs_coro = dfs(0, 32).start_in_current_scope();
+  auto dfs_coro = dfs(0, 32).start_in_parent_scope();
   co_await sleep_for(0.5);
   LOG(INFO) << "cancel dfs: start";
   dfs_coro.cancel();
@@ -449,7 +449,7 @@ int main() {
   SET_VERBOSITY_LEVEL(VERBOSITY_NAME(INFO));
   td::actor::Scheduler scheduler({std::thread::hardware_concurrency()});
 
-  scheduler.run_in_context([&] { example().start_deprecated().detach_silent(); });
+  scheduler.run_in_context([&] { example().start_without_scope().detach_silent(); });
 
   scheduler.run();
   LOG(INFO) << "DONE";

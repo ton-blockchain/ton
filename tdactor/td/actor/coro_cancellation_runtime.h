@@ -26,15 +26,40 @@ CancelNode& cancel_node(promise_common& self);
 bool should_finish_due_to_cancellation(const promise_common& self);
 }  // namespace bridge
 
-struct PromiseChildLeaseDeleter {
-  void operator()(promise_common* p) const;
-};
-// Holds one child-count lease on promise.
-using PromiseChildLease = std::unique_ptr<promise_common, PromiseChildLeaseDeleter>;
+class ParentScopeLease;
 
 namespace bridge {
-PromiseChildLease make_promise_child_lease(promise_common& p);
+ParentScopeLease make_parent_scope_lease(promise_common& p);
 }  // namespace bridge
+
+class ParentScopeLease {
+ public:
+  ParentScopeLease() = default;
+
+  explicit operator bool() const {
+    return bool(ptr_);
+  }
+  bool is_cancelled() const;
+
+ private:
+  friend struct CancellationRuntime;
+  friend struct ParentLink;
+  friend ParentScopeLease bridge::make_parent_scope_lease(promise_common&);
+
+  struct Deleter {
+    void operator()(promise_common* p) const;
+  };
+  std::unique_ptr<promise_common, Deleter> ptr_;
+
+  explicit ParentScopeLease(promise_common* p) : ptr_(p) {
+  }
+  promise_common* release() {
+    return ptr_.release();
+  }
+  promise_common* get() const {
+    return ptr_.get();
+  }
+};
 
 // Pure state machine: cancel flag + child count + waiting flag.
 // No dependencies on promise_common — can be unit-tested in isolation.
@@ -107,7 +132,7 @@ struct ParentLink {
  public:
   enum class ReleaseReason : uint8_t { ChildCompleted, Teardown };
 
-  void link_from_promise_child_lease(promise_common& self, PromiseChildLease parent_scope_ref);
+  void link_from_parent_scope_lease(promise_common& self, ParentScopeLease parent_scope_ref);
   void release(ReleaseReason reason);
   bool has_parent() const {
     return parent_.load(std::memory_order_acquire) != nullptr;
@@ -242,8 +267,8 @@ struct CancellationRuntime {
     parent_link_.release(ParentLink::ReleaseReason::ChildCompleted);
   }
 
-  void set_parent_promise_child_lease(promise_common& self, PromiseChildLease parent_scope_ref) {
-    parent_link_.link_from_promise_child_lease(self, std::move(parent_scope_ref));
+  void set_parent_lease(promise_common& self, ParentScopeLease parent_scope_ref) {
+    parent_link_.link_from_parent_scope_lease(self, std::move(parent_scope_ref));
   }
 
   void publish_cancel_node(CancelNode& node) {
@@ -334,7 +359,7 @@ inline void publish_heap_cancel_node(promise_common& p, CancelNode& node) {
   bridge::runtime(p).publish_cancel_node(node);
 }
 
-inline void ParentLink::link_from_promise_child_lease(promise_common& self, PromiseChildLease parent_scope_ref) {
+inline void ParentLink::link_from_parent_scope_lease(promise_common& self, ParentScopeLease parent_scope_ref) {
   auto* parent = parent_scope_ref.get();
   if (!parent) {
     return;
@@ -356,14 +381,17 @@ inline void ParentLink::release(ReleaseReason reason) {
   bridge::runtime(*parent).release_child_ref(*parent, policy);
 }
 
-// PromiseChildLease helpers (after promise_common is defined)
-inline void PromiseChildLeaseDeleter::operator()(promise_common* p) const {
+inline void ParentScopeLease::Deleter::operator()(promise_common* p) const {
   bridge::runtime(*p).release_child_ref(*p, CancellationRuntime::ChildReleasePolicy::MayComplete);
 }
 
-inline PromiseChildLease bridge::make_promise_child_lease(promise_common& p) {
+inline bool ParentScopeLease::is_cancelled() const {
+  return ptr_ && bridge::should_finish_due_to_cancellation(*ptr_);
+}
+
+inline ParentScopeLease bridge::make_parent_scope_lease(promise_common& p) {
   bridge::runtime(p).add_child_ref();
-  return PromiseChildLease(&p);
+  return ParentScopeLease(&p);
 }
 
 }  // namespace td::actor
