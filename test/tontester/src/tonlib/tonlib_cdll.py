@@ -101,3 +101,5 @@ class TonlibCDLL:
         response_get_response.restype = ctypes.c_char_p
         response_get_response.argtypes = [ctypes.c_void_p]
         self.response_get_response = cast(Callable[[int], bytes], response_get_response)
+
+        self.client_set_verbosity_level(3)
