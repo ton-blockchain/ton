@@ -603,4 +603,8 @@ td::Result<QuicStreamID> QuicServer::send_stream(QuicConnectionId cid, std::vari
   return sid;
 }
 
+void QuicServer::change_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options) {
+  callback_->set_stream_options(cid, sid, options);
+}
+
 }  // namespace ton::quic

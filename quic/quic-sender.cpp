@@ -15,9 +15,8 @@ static td::uint32 get_magic(const td::BufferSlice &data) {
 
 class QuicSender::ServerCallback final : public QuicServer::Callback {
  public:
-  ServerCallback(adnl::AdnlNodeIdShort local_id, td::actor::ActorId<QuicSender> sender,
-                 std::optional<td::uint64> inbound_stream_max_size)
-      : local_id_(local_id), sender_(sender), inbound_stream_max_size_(inbound_stream_max_size) {
+  ServerCallback(adnl::AdnlNodeIdShort local_id, td::actor::ActorId<QuicSender> sender)
+      : local_id_(local_id), sender_(sender) {
   }
 
   void on_connected(QuicConnectionId cid, td::SecureString peer_public_key, bool is_outbound) override {
@@ -28,12 +27,11 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
   }
 
   td::Status on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) override {
-    // TODO: some limit for input connections
     auto [state_ptr, inserted] = get_or_create_stream(cid, sid);
-    auto &state = *state_ptr;
-    if (inserted && inbound_stream_max_size_.has_value()) {
-      apply_stream_options(state, StreamOptions{.max_size = inbound_stream_max_size_});
+    if (inserted) {
+      td::actor::send_closure(sender_, &QuicSender::init_stream_mtu, cid, sid);
     }
+    auto &state = *state_ptr;
     if (state.is_failed()) {
       LOG(INFO) << "got data for closed stream, ignore cid=" << cid << " sid=" << sid;
       return td::Status::Error("stream failed");
@@ -140,7 +138,6 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
 
   adnl::AdnlNodeIdShort local_id_;
   td::actor::ActorId<QuicSender> sender_;
-  std::optional<td::uint64> inbound_stream_max_size_;
   std::map<QuicConnectionId, std::map<QuicStreamID, StreamState>> streams_;
   td::KHeap<double> timeout_heap_;
 
@@ -282,7 +279,7 @@ void QuicSender::log_stats(std::string reason) {
 
 void QuicSender::on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id,
                                 td::optional<adnl::AdnlNodeIdShort> peer_id) {
-  // TODO: implement this
+
 }
 
 QuicSender::Connection::~Connection() {
@@ -305,7 +302,7 @@ td::actor::Task<td::Unit> QuicSender::send_message_coro_inner(adnl::AdnlNodeIdSh
                                                               td::BufferSlice data) {
   auto conn = co_await find_or_create_connection({src, dst});
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_message>(std::move(data));
-  co_await td::actor::ask(conn->server, &QuicServer::send_stream, conn->cid, StreamOptions{}, std::move(wire_data),
+  co_await td::actor::ask(conn->server, &QuicServer::send_stream, conn->cid, StreamOptions{get_peer_mtu(src, dst)}, std::move(wire_data),
                           true);
   co_return td::Unit{};
 }
@@ -321,8 +318,11 @@ td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdSho
   auto server = conn->server;
   // create stream explicitly to avoid race with response
   auto timeout_seconds = timeout ? timeout.at() - td::Time::now() : 0.0;
+  auto stream_limit = get_peer_mtu(src, dst);
+  if (limit.has_value())
+    stream_limit = std::min(stream_limit, *limit);
   auto stream_id = co_await td::actor::ask(server, &QuicServer::open_stream, cid,
-                                           StreamOptions{.max_size = limit,
+                                           StreamOptions{.max_size = stream_limit,
                                                          .timeout = timeout,
                                                          .timeout_seconds = timeout_seconds,
                                                          .query_size = query_size,
@@ -331,6 +331,7 @@ td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdSho
   CHECK(conn->responses.emplace(stream_id, std::move(answer_promise)).second);
   conn = nullptr;  // don't keep connection, it may disconnect during our wait
   co_await td::actor::ask(server, &QuicServer::send_stream, cid, stream_id, std::move(wire_data), true);
+  LOG(INFO) << "sent out query";
   co_return co_await std::move(future);
 }
 
@@ -359,7 +360,7 @@ td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) 
 
   auto server = co_await QuicServer::create(
       port, td::Ed25519::PrivateKey(local_keys_.at(local_id).as_octet_string()),
-      std::make_unique<ServerCallback>(local_id, actor_id(this), server_options_.inbound_stream_max_size), "ton",
+      std::make_unique<ServerCallback>(local_id, actor_id(this)), "ton",
       "0.0.0.0", server_options_);
   servers_[local_id] = std::move(server);
 
@@ -436,6 +437,13 @@ td::actor::Task<td::Unit> QuicSender::init_connection_inner(AdnlPath path, std::
   conn->server = server;
   CHECK(by_cid_.emplace(connection_id, conn).second);
   co_return td::Unit{};
+}
+
+void QuicSender::init_stream_mtu(QuicConnectionId cid, QuicStreamID sid) {
+  auto [src, dst] = by_cid_.at(cid)->path;
+  auto mtu = get_peer_mtu(src, dst);
+  auto server = servers_.at(src).get();
+  td::actor::send_closure(server, &QuicServer::change_stream_options, cid, sid, StreamOptions{mtu});
 }
 
 void QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicConnectionId cid,
