@@ -78,6 +78,8 @@ class QuicSender : public adnl::AdnlSenderEx {
   td::actor::Task<td::Unit> init_connection(AdnlPath path, std::shared_ptr<Connection> connection);
   td::actor::Task<td::Unit> init_connection_inner(AdnlPath path, std::shared_ptr<Connection> conn);
 
+  void init_stream_mtu(QuicConnectionId cid, QuicStreamID sid);
+
   void on_connected(td::actor::ActorId<QuicServer> server, QuicConnectionId cid, adnl::AdnlNodeIdShort local_id,
                     td::SecureString peer_public_key, bool is_outbound);
   void on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id, td::Result<td::BufferSlice> data);
