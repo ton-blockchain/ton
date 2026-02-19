@@ -656,6 +656,34 @@ struct [[nodiscard]] Task {
     return bridge::make_parent_scope_lease(h.promise());
   }
 
+  template <class F>
+  auto then(F&& f) && {
+    using Self = Task<T>;
+    using FDecayed = std::decay_t<F>;
+    using Awaitable = decltype(detail::make_awaitable(std::declval<FDecayed&>()(std::declval<T&&>())));
+    using Ret = decltype(std::declval<Awaitable&>().await_resume());
+    using U = detail::UnwrapTDResult<Ret>::Type;
+    return [](Self task, FDecayed fn) mutable -> Task<U> {
+      co_await become_lightweight();
+      auto value = co_await std::move(task);
+      co_return co_await detail::make_awaitable(fn(std::move(value)));
+    }(std::move(*this), std::forward<F>(f));
+  }
+
+  template <class F>
+  auto transform(F&& f) && {
+    using Self = Task<T>;
+    using FDecayed = std::decay_t<F>;
+    using Awaitable = decltype(detail::make_awaitable(std::declval<FDecayed&>()(std::declval<td::Result<T>&&>())));
+    using Ret = decltype(std::declval<Awaitable&>().await_resume());
+    using U = detail::UnwrapTDResult<Ret>::Type;
+    return [](Self task, FDecayed fn) mutable -> Task<U> {
+      co_await become_lightweight();
+      auto value = co_await std::move(task).wrap();
+      co_return co_await detail::make_awaitable(fn(std::move(value)));
+    }(std::move(*this), std::forward<F>(f));
+  }
+
  private:
   StartedTask<T> start_impl(ParentScopeLease scope, StartMode mode) && {
     if (scope) {
