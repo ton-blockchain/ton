@@ -332,7 +332,6 @@ td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdSho
   CHECK(conn->responses.emplace(stream_id, std::move(answer_promise)).second);
   conn = nullptr;  // don't keep connection, it may disconnect during our wait
   co_await td::actor::ask(server, &QuicServer::send_stream, cid, stream_id, std::move(wire_data), true);
-  LOG(INFO) << "sent out query";
   co_return co_await std::move(future);
 }
 
@@ -455,6 +454,11 @@ void QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicConnect
     return;
   }
   auto peer_id = r_peer_id.move_as_ok();
+
+  if (get_peer_mtu(local_id, peer_id) == 0) {
+    LOG(WARNING) << "Dropping connection for MTU 0 path [" << local_id << ';' << peer_id << ']';
+    return;
+  }
 
   auto path = AdnlPath{local_id, peer_id};
   std::shared_ptr<Connection> connection;
