@@ -4,7 +4,7 @@ namespace tonlib {
 
 FFIEventLoop::FFIEventLoop(int threads) : scheduler_(td::actor::Scheduler({threads})) {
   queue_.init();
-  scheduler_thread_ = std::thread([&] { scheduler_.run(); });
+  scheduler_thread_ = td::thread([&] { scheduler_.run(); });
 }
 
 FFIEventLoop::~FFIEventLoop() {
