@@ -202,17 +202,7 @@ class Scheduler {
 
   void start();
 
-  template <class F>
-  void run_in_context(F &&f) {
-    run_in_context_impl(*info_->io_worker, std::forward<F>(f));
-  }
-
   bool run(double timeout);
-
-  // Just syntactic sugar
-  void stop() {
-    run_in_context([] { SchedulerContext::get().stop(); });
-  }
 
   SchedulerId get_scheduler_id() const {
     return info_->id;
@@ -269,7 +259,7 @@ class Scheduler {
   };
 
   template <class F>
-  void run_in_context_impl(WorkerInfo &worker_info, F &&f) {
+  auto run_in_context_impl(WorkerInfo &worker_info, F &&f) {
 #if TD_PORT_WINDOWS
     td::detail::Iocp::Guard iocp_guard(&scheduler_group_info_->iocp);
 #endif
@@ -278,12 +268,22 @@ class Scheduler {
                         scheduler_group_info_.get(), is_io_worker ? &poll_ : nullptr, is_io_worker ? &heap_ : nullptr,
                         &worker_info.debug);
     SchedulerContext::Guard guard(&context);
-    f();
+    return f();
   }
 
   void do_stop();
 
  public:
+  template <class F>
+  auto run_in_context(F &&f) {
+    return run_in_context_impl(*info_->io_worker, std::forward<F>(f));
+  }
+
+  // Just syntactic sugar
+  void stop() {
+    run_in_context([] { SchedulerContext::get().stop(); });
+  }
+
   static void close_scheduler_group(SchedulerGroupInfo &group_info);
 };
 
