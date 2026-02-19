@@ -100,7 +100,7 @@ class HttpQueryRunner {
         Self->finish(nullptr);
       }
     });
-    scheduler_ptr->run_in_context_external([&]() { func(std::move(P)); });
+    scheduler_ptr->run_in_context([&]() { func(std::move(P)); });
   }
   void finish(MHD_Response* response) {
     std::unique_lock<std::mutex> lock(mutex_);

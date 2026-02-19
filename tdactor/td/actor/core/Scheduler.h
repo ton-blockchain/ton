@@ -207,13 +207,6 @@ class Scheduler {
     run_in_context_impl(*info_->io_worker, std::forward<F>(f));
   }
 
-  template <class F>
-  void run_in_context_external(F &&f) {
-    WorkerInfo info;
-    info.type = WorkerInfo::Type::Cpu;
-    run_in_context_impl(*info_->io_worker, std::forward<F>(f));
-  }
-
   bool run(double timeout);
 
   // Just syntactic sugar
