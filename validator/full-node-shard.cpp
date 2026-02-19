@@ -628,7 +628,8 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
 
 void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getOutMsgQueueProof &query,
                                       td::Promise<td::BufferSlice> promise) {
-  std::vector<BlockIdExt> blocks;
+  promise.set_error(td::Status::Error("not supported yet"));
+  /*std::vector<BlockIdExt> blocks;
   for (const auto &x : query.blocks_) {
     BlockIdExt id = create_block_id(x);
     if (!id.is_valid_ext()) {
@@ -671,7 +672,7 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
         td::actor::create_actor<BuildOutMsgQueueProof>("buildqueueproof", dst_shard, std::move(blocks), limits, manager,
                                                        std::move(P))
             .release();
-      });
+      });*/
 }
 
 void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadPersistentStateSliceV2 &query,

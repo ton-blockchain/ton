@@ -656,13 +656,17 @@ td::Status Account::init_account_storage_stat(Ref<vm::Cell> dict_root) {
   if (!storage_dict_hash) {
     return td::Status::Error("cannot init storage dict: storage_dict_hash is not set");
   }
-  // Root of AccountStorage is not counted in AccountStorageStat
-  if (storage_used.cells < 1 || storage_used.bits < storage->size()) {
-    return td::Status::Error(PSTRING() << "storage_used is too small: cells=" << storage_used.cells
-                                       << " bits=" << storage_used.bits << " storage_root_bits=" << storage->size());
+  auto storage_for_stat = storage_without_extra_currencies(storage);
+  if (storage_for_stat.is_null()) {
+    return td::Status::Error("cannot init storage dict: invalid storage");
   }
-  AccountStorageStat new_stat(std::move(dict_root), storage->prefetch_all_refs(), storage_used.cells - 1,
-                              storage_used.bits - storage->size());
+  // Root of AccountStorage is not counted in AccountStorageStat
+  if (storage_used.cells < 1 || storage_used.bits < storage_for_stat->size()) {
+    return td::Status::Error(PSTRING() << "storage_used is too small: cells=" << storage_used.cells << " bits="
+                                       << storage_used.bits << " storage_root_bits=" << storage_for_stat->size());
+  }
+  AccountStorageStat new_stat(std::move(dict_root), storage_for_stat->prefetch_all_refs(), storage_used.cells - 1,
+                              storage_used.bits - storage_for_stat->size());
   TRY_RESULT(root_hash, new_stat.get_dict_hash());
   if (storage_dict_hash.value() != root_hash) {
     return td::Status::Error(PSTRING() << "invalid storage dict hash: computed " << root_hash.to_hex() << ", found "
@@ -877,11 +881,17 @@ bool Transaction::unpack_input_msg(bool ihr_delivered, const ActionPhaseConfig* 
       if (cfg->global_version >= 12) {
         ihr_fee = td::zero_refint();
         in_msg_extra_flags = tlb::t_Grams.as_integer(in_msg_info.extra_flags);
+        if (in_msg_extra_flags.is_null()) {
+          return false;
+        }
         new_bounce_format = in_msg_extra_flags->get_bit(0);
         new_bounce_format_full_body = in_msg_extra_flags->get_bit(1);
       } else {
         // Legacy: extra_flags was previously ihr_fee
         ihr_fee = tlb::t_Grams.as_integer(in_msg_info.extra_flags);
+        if (ihr_fee.is_null()) {
+          return false;
+        }
       }
       if (ihr_delivered) {
         in_fwd_fee = std::move(ihr_fee);
@@ -1464,7 +1474,8 @@ bool Transaction::prepare_rand_seed(td::BitArray<256>& rand_seed, const ComputeP
   if (cfg.global_version >= 8) {
     (data.bits() + 256).copy_from(account.addr.cbits(), 256);
   } else {
-    (data.bits() + 256).copy_from(account.addr_rewrite.cbits(), 256);
+    (data.bits() + 256).copy_from(account.addr_rewrite.cbits(), 32);
+    (data.bits() + 256 + 32).copy_from(account.addr.cbits(), 256 - 32);
   }
   rand_seed.clear();
   data.compute_sha256(rand_seed);
@@ -2689,13 +2700,16 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
     } else {
       fwd_fee = tlb::t_Grams.as_integer(info.fwd_fee);
       ihr_fee = cfg.global_version >= 12 ? td::zero_refint() : tlb::t_Grams.as_integer(info.extra_flags);
+      if (fwd_fee.is_null() || ihr_fee.is_null()) {
+        return -1;
+      }
     }
     if (cfg.disable_ihr_flag) {
       info.ihr_disabled = true;
     }
     if (cfg.global_version >= 12) {
       td::RefInt256 extra_flags = tlb::t_Grams.as_integer(info.extra_flags);
-      if (td::cmp(extra_flags & td::make_refint(3), extra_flags) != 0) {
+      if (extra_flags.is_null() || td::cmp(extra_flags & td::make_refint(3), extra_flags) != 0) {
         LOG(DEBUG) << "invalid extra_flags in a proposed outbound message";
         return check_skip_invalid(45);
       }
