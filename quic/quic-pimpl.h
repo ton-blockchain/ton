@@ -52,6 +52,10 @@ struct VersionCid {
   QuicConnectionId scid{};
 
   static td::Result<VersionCid> from_datagram(td::Slice datagram) {
+    if (datagram.size() == 0) {
+      return td::Status::Error("empty datagram");
+    }
+
     ngtcp2_version_cid vc;
     int rv = ngtcp2_pkt_decode_version_cid(&vc, reinterpret_cast<const uint8_t*>(datagram.data()), datagram.size(),
                                            QuicConnectionId::MAX_SIZE);

@@ -53,6 +53,8 @@ class QuicSender : public adnl::AdnlSenderEx {
 
   static constexpr int NODE_PORT_OFFSET = 1000;
 
+  static constexpr size_t DEFAULT_STREAM_SIZE_LIMIT = 1 * 1024 * 1024; // 1 MiB
+
   td::actor::ActorId<adnl::AdnlPeerTable> adnl_;
   td::actor::ActorId<keyring::Keyring> keyring_;
   QuicServer::Options server_options_;
@@ -77,6 +79,8 @@ class QuicSender : public adnl::AdnlSenderEx {
   td::actor::Task<std::shared_ptr<Connection>> find_or_create_connection(AdnlPath path);
   td::actor::Task<td::Unit> init_connection(AdnlPath path, std::shared_ptr<Connection> connection);
   td::actor::Task<td::Unit> init_connection_inner(AdnlPath path, std::shared_ptr<Connection> conn);
+
+  void init_stream_mtu(QuicConnectionId cid, QuicStreamID sid);
 
   void on_connected(td::actor::ActorId<QuicServer> server, QuicConnectionId cid, adnl::AdnlNodeIdShort local_id,
                     td::SecureString peer_public_key, bool is_outbound);
