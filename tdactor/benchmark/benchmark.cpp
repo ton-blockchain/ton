@@ -1428,7 +1428,7 @@ class ChainedSpawn : public td::Benchmark {
     auto sch = td::thread([&] { scheduler.run(); });
 
     Sem sem;
-    scheduler.run_in_context_external([&] {
+    scheduler.run_in_context([&] {
       for (int i = 0; i < n; i++) {
         td::actor::create_actor<Task>(td::actor::ActorOptions().with_name("Task").with_poll(use_io_), 1000, &sem)
             .release();
@@ -1475,7 +1475,7 @@ class ChainedSpawnInplace : public td::Benchmark {
     auto sch = td::thread([&] { scheduler.run(); });
 
     Sem sem;
-    scheduler.run_in_context_external([&] {
+    scheduler.run_in_context([&] {
       for (int i = 0; i < n; i++) {
         td::actor::create_actor<Task>(td::actor::ActorOptions().with_name("Task").with_poll(use_io_), 1000, &sem)
             .release();
@@ -1526,7 +1526,7 @@ class PingPong : public td::Benchmark {
     auto sch = td::thread([&] { scheduler.run(); });
 
     Sem sem;
-    scheduler.run_in_context_external([&] {
+    scheduler.run_in_context([&] {
       for (int i = 0; i < n; i++) {
         auto a = td::actor::create_actor<Task>(td::actor::ActorOptions().with_name("Task").with_poll(use_io_), &sem)
                      .release();
@@ -1571,7 +1571,7 @@ class SpawnMany : public td::Benchmark {
     td::actor::Scheduler scheduler{{8}};
     Sem sem;
     auto sch = td::thread([&] { scheduler.run(); });
-    scheduler.run_in_context_external([&] {
+    scheduler.run_in_context([&] {
       for (int i = 0; i < n; i++) {
         int spawn_cnt = 10000;
         for (int j = 0; j < spawn_cnt; j++) {
@@ -1622,7 +1622,7 @@ class YieldMany : public td::Benchmark {
     auto sch = td::thread([&] { scheduler.run(); });
     unsigned tasks = tasks_per_cpu * cpu_n;
     Sem sem;
-    scheduler.run_in_context_external([&] {
+    scheduler.run_in_context([&] {
       for (int i = 0; i < n; i++) {
         for (unsigned j = 0; j < tasks; j++) {
           td::actor::create_actor<Task>(td::actor::ActorOptions().with_name("Task").with_poll(use_io_), num_yield, &sem)
@@ -1632,7 +1632,7 @@ class YieldMany : public td::Benchmark {
       }
     });
 
-    scheduler.run_in_context_external([&] { td::actor::SchedulerContext::get().stop(); });
+    scheduler.run_in_context([&] { td::actor::SchedulerContext::get().stop(); });
     sch.join();
   }
 
