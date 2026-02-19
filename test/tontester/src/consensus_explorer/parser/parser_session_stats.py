@@ -31,7 +31,7 @@ from tonapi.ton_api import (
     TypeConsensus_stats_Event,
 )
 
-from ..models import ConsensusData, EventData, SlotData
+from ..models import ConsensusData, EventData, SlotData, GroupData, UnnamedGroupInfo, GroupInfo
 from .parser_base import GroupParser
 
 type slot_id_type = tuple[str, int]
@@ -451,15 +451,18 @@ class ParserSessionStats(GroupParser):
 
     def _process_group_events(
         self,
+        group_id: bytes,
         events: list[Consensus_stats_timestampedEvent],
-    ):
+    ) -> GroupData:
         event_id: Consensus_stats_id | None = None
+        min_ts = float("inf")
         for e in events:
+            min_ts = min(min_ts, e.ts)
             if isinstance(e.event, Consensus_stats_id):
                 event_id = e.event
                 break
         if event_id is None:
-            return
+            return UnnamedGroupInfo(valgroup_hash=group_id, group_start_est=min_ts)
 
         v_group = f"{event_id.workchain},{self._shard_to_hex(event_id.shard)}.{event_id.cc_seqno}"
 
@@ -483,6 +486,14 @@ class ParserSessionStats(GroupParser):
                 self._parse_cert_observed(ev, t_ms, v_group, v_id, get_slot_leader)
             else:
                 self._parse_stats_event(ev, t_ms, v_group, v_id)
+
+        return GroupInfo(
+            valgroup_hash=group_id,
+            catchain_seqno=event_id.cc_seqno,
+            workchain=event_id.workchain,
+            shard=event_id.shard,
+            group_start_est=min_ts,
+        )
 
     def _extract_hostname(self, path: Path) -> str:
         m = self._hostname_regex.search(str(path))
@@ -557,14 +568,25 @@ class ParserSessionStats(GroupParser):
             except OSError | FileNotFoundError | gzip.BadGzipFile:
                 logging.warning(f"Failed to read log file {log_file}", stack_info=True)
 
+        groups: dict[bytes, GroupData] = {}
+
         for host_groups in merged.values():
-            for events in host_groups.values():
-                self._process_group_events(events)
+            for group_id, events in host_groups.items():
+                group_info = self._process_group_events(group_id, events)
+                if group_id not in groups:
+                    groups[group_id] = group_info
+                else:
+                    if isinstance(groups[group_id], UnnamedGroupInfo) and isinstance(
+                        group_info, GroupInfo
+                    ):
+                        groups[group_id] = group_info
 
         self._infer_slot_phases()
         self._infer_slot_events()
 
-        result = ConsensusData(slots=list(self._slots.values()), events=self._events)
+        result = ConsensusData(
+            groups=list(groups.values()), slots=list(self._slots.values()), events=self._events
+        )
 
         if self.with_cache:
             self._cache_result = result
@@ -574,9 +596,9 @@ class ParserSessionStats(GroupParser):
         return result
 
     @override
-    def list_groups(self) -> list[str]:
+    def list_groups(self) -> list[GroupData]:
         data = self.parse()
-        return sorted(set(s.valgroup_id for s in data.slots))
+        return data.groups
 
     @override
     def parse_group(self, valgroup_name: str) -> ConsensusData:
@@ -584,6 +606,7 @@ class ParserSessionStats(GroupParser):
         if self._target_group_hash is not None:
             return data
         return ConsensusData(
+            groups=[g for g in data.groups if g.valgroup_name == valgroup_name],
             slots=[s for s in data.slots if s.valgroup_id == valgroup_name],
             events=[e for e in data.events if e.valgroup_id == valgroup_name],
         )

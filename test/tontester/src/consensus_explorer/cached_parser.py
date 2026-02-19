@@ -1,10 +1,11 @@
+import base64
 import threading
 from collections import OrderedDict
 from pathlib import Path
 from typing import final, override
 
 from .file_index import FileIndex, FileIndexCallback
-from .models import ConsensusData, GroupInfo
+from .models import ConsensusData, GroupData
 from .parser import GroupParser
 from .parser.parser_session_stats import ParserSessionStats
 
@@ -30,25 +31,19 @@ class CachedGroupParser(GroupParser, FileIndexCallback):
             self._dirty_groups.discard(valgroup_hash)
             return was_dirty
 
-    def _get_named_groups(self) -> list[GroupInfo]:
-        all_groups = self._file_index.get_all_groups()
-        return [g for g in all_groups if isinstance(g, GroupInfo)]
-
-    def _resolve_name(self, valgroup_name: str) -> bytes | None:
-        for info in self._get_named_groups():
+    def _resolve_name(self, valgroup_name: str) -> bytes:
+        for info in self._file_index.get_all_groups():
             if info.valgroup_name == valgroup_name:
                 return info.valgroup_hash
-        return None
+        return base64.b64decode(valgroup_name)
 
     @override
-    def list_groups(self) -> list[str]:
-        return sorted(info.valgroup_name for info in self._get_named_groups())
+    def list_groups(self) -> list[GroupData]:
+        return self._file_index.get_all_groups()
 
     @override
     def parse_group(self, valgroup_name: str) -> ConsensusData:
         valgroup_hash = self._resolve_name(valgroup_name)
-        if valgroup_hash is None:
-            return ConsensusData(slots=[], events=[])
 
         dirty = self._pop_dirty(valgroup_hash)
 

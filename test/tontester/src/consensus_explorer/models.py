@@ -1,3 +1,4 @@
+import base64
 from dataclasses import dataclass
 
 
@@ -7,6 +8,7 @@ class GroupInfo:
     catchain_seqno: int
     workchain: int
     shard: int
+    group_start_est: float
 
     @property
     def valgroup_name(self) -> str:
@@ -14,7 +16,17 @@ class GroupInfo:
         return f"{self.workchain},{shard_hex}.{self.catchain_seqno}"
 
 
-type GroupId = bytes | GroupInfo
+@dataclass(frozen=True)
+class UnnamedGroupInfo:
+    valgroup_hash: bytes
+    group_start_est: float
+
+    @property
+    def valgroup_name(self) -> str:
+        return base64.b64encode(self.valgroup_hash).decode()
+
+
+type GroupData = UnnamedGroupInfo | GroupInfo
 
 
 @dataclass
@@ -55,5 +67,6 @@ class EventData:
 
 @dataclass
 class ConsensusData:
+    groups: list[GroupData]
     slots: list[SlotData]
     events: list[EventData]

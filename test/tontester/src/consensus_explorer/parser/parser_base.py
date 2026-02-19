@@ -1,11 +1,11 @@
 from abc import ABC, abstractmethod
 
-from ..models import ConsensusData
+from ..models import ConsensusData, GroupData
 
 
 class GroupParser(ABC):
     @abstractmethod
-    def list_groups(self) -> list[str]:
+    def list_groups(self) -> list[GroupData]:
         pass
 
     @abstractmethod

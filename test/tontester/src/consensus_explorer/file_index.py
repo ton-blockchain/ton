@@ -7,7 +7,7 @@ from typing import Protocol, TypedDict, cast, final
 from tonapi.ton_api import Consensus_stats_events, Consensus_stats_id
 from watchfiles._rust_notify import RustNotify
 
-from .models import GroupId, GroupInfo
+from .models import GroupData, GroupInfo, UnnamedGroupInfo
 from .parser.parser_session_stats import open_stats_file
 
 
@@ -41,7 +41,8 @@ class FileIndex:
                 valgroup_hash BLOB NOT NULL UNIQUE,
                 catchain_seqno INTEGER,
                 workchain INTEGER,
-                shard INTEGER
+                shard INTEGER,
+                group_start_est REAL
             );
             CREATE TABLE IF NOT EXISTS files (
                 file_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,8 +74,8 @@ class FileIndex:
             self._thread = None
 
     @staticmethod
-    def _scan_file_for_groups(path: Path) -> set[GroupId]:
-        groups: set[GroupId] = set()
+    def _scan_file_for_groups(path: Path) -> set[GroupData]:
+        groups: set[GroupData] = set()
         try:
             with open_stats_file(path) as f:
                 for line in f:
@@ -83,7 +84,9 @@ class FileIndex:
                     parsed = Consensus_stats_events.from_json(line)
                     valgroup_hash = parsed.id
                     found_id = False
+                    min_ts = float("inf")
                     for te in parsed.events:
+                        min_ts = min(min_ts, te.ts)
                         if isinstance(te.event, Consensus_stats_id):
                             groups.add(
                                 GroupInfo(
@@ -91,12 +94,18 @@ class FileIndex:
                                     catchain_seqno=te.event.cc_seqno,
                                     workchain=te.event.workchain,
                                     shard=te.event.shard,
+                                    group_start_est=min_ts,
                                 )
                             )
                             found_id = True
                             break
                     if not found_id:
-                        groups.add(valgroup_hash)
+                        groups.add(
+                            UnnamedGroupInfo(
+                                valgroup_hash=valgroup_hash,
+                                group_start_est=min_ts,
+                            )
+                        )
         except (OSError, gzip.BadGzipFile):
             pass
         return groups
@@ -150,25 +159,32 @@ class FileIndex:
                 valgroup_hash = group_id_val.valgroup_hash
                 _ = cursor.execute(
                     """
-                    INSERT INTO groups (valgroup_hash, catchain_seqno, workchain, shard)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO groups (valgroup_hash, catchain_seqno, workchain, shard, group_start_est)
+                    VALUES (?, ?, ?, ?, ?)
                     ON CONFLICT(valgroup_hash) DO UPDATE SET
                     catchain_seqno = COALESCE(excluded.catchain_seqno, catchain_seqno),
                     workchain = COALESCE(excluded.workchain, workchain),
-                    shard = COALESCE(excluded.shard, shard)
+                    shard = COALESCE(excluded.shard, shard),
+                    group_start_est = MIN(COALESCE(group_start_est, excluded.group_start_est), excluded.group_start_est)
                     """,
                     (
                         valgroup_hash,
                         group_id_val.catchain_seqno,
                         group_id_val.workchain,
                         group_id_val.shard,
+                        group_id_val.group_start_est,
                     ),
                 )
             else:
-                valgroup_hash = group_id_val
+                valgroup_hash = group_id_val.valgroup_hash
                 _ = cursor.execute(
-                    "INSERT OR IGNORE INTO groups (valgroup_hash) VALUES (?)",
-                    (valgroup_hash,),
+                    """
+                    INSERT INTO groups (valgroup_hash, group_start_est)
+                    VALUES (?, ?)
+                    ON CONFLICT(valgroup_hash) DO UPDATE SET
+                    group_start_est = MIN(COALESCE(group_start_est, excluded.group_start_est), excluded.group_start_est)
+                    """,
+                    (valgroup_hash, group_id_val.group_start_est),
                 )
 
             class GroupRow(TypedDict):
@@ -296,17 +312,20 @@ class FileIndex:
         )
         return [Path(row["file_name"]) for row in cast(list[Row], cursor.fetchall())]
 
-    def get_all_groups(self) -> list[GroupId]:
+    def get_all_groups(self) -> list[GroupData]:
         class Row(TypedDict):
             valgroup_hash: bytes
             catchain_seqno: int | None
             workchain: int | None
             shard: int | None
+            group_start_est: float
 
         conn = self._connect()
         cursor = conn.cursor()
-        _ = cursor.execute("SELECT valgroup_hash, catchain_seqno, workchain, shard FROM groups")
-        result: list[GroupId] = []
+        _ = cursor.execute(
+            "SELECT valgroup_hash, catchain_seqno, workchain, shard, group_start_est FROM groups"
+        )
+        result: list[GroupData] = []
         for row in cast(list[Row], cursor.fetchall()):
             if (
                 row["catchain_seqno"] is not None
@@ -319,8 +338,9 @@ class FileIndex:
                         catchain_seqno=row["catchain_seqno"],
                         workchain=row["workchain"],
                         shard=row["shard"],
+                        group_start_est=row["group_start_est"],
                     )
                 )
             else:
-                result.append(row["valgroup_hash"])
+                result.append(UnnamedGroupInfo(row["valgroup_hash"], row["group_start_est"]))
         return result

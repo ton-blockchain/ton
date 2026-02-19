@@ -1,4 +1,6 @@
+import math
 import threading
+from datetime import datetime, timezone
 from typing import cast, final
 from urllib.parse import parse_qs, urlencode
 
@@ -6,7 +8,7 @@ import plotly.graph_objects as go  # pyright: ignore[reportMissingTypeStubs]
 from dash import Dash, Input, NoUpdate, Output, State, callback_context, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 
-from ..models import ConsensusData, SlotData
+from ..models import ConsensusData, SlotData, GroupData
 from ..parser import GroupParser
 from ..validator_set_info import ValidatorSetInfoProvider
 from .figure_builder import FigureBuilder
@@ -32,15 +34,69 @@ class DashApp:
                 self._data = self._parser.parse_group(group)
                 self._builder = FigureBuilder(self._data)
 
-    def update_data(self, href: str | None):
+    @classmethod
+    def _normalize_time_seconds(cls, value: str | None) -> float | None:
+        if value is None:
+            return None
+
+        raw_value = value.strip()
+        if not raw_value:
+            return None
+
+        try:
+            return float(raw_value)
+        except ValueError:
+            pass
+
+        iso_value = f"{raw_value[:-1]}+00:00" if raw_value.endswith("Z") else raw_value
+        try:
+            parsed_dt = datetime.fromisoformat(iso_value)
+        except ValueError:
+            return None
+
+        if parsed_dt.tzinfo is None:
+            parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
+
+        return parsed_dt.timestamp()
+
+    def _filter_groups_by_time(
+        self,
+        groups: list[GroupData],
+        time_from: str | None,
+        time_until: str | None,
+    ) -> list[GroupData]:
+        start_from = self._normalize_time_seconds(time_from)
+        start_until = self._normalize_time_seconds(time_until)
+
+        filtered: list[GroupData] = []
+        for group in groups:
+            if start_from is not None and group.group_start_est < start_from:
+                continue
+            if start_until is not None and group.group_start_est > start_until:
+                continue
+            filtered.append(group)
+
+        return filtered
+
+    def update_data(
+        self,
+        href: str | None,
+        time_from: str | None,
+        time_until: str | None,
+    ):
         valgroups = self._parser.list_groups()
-        options = [{"label": g, "value": g} for g in valgroups]
+        if time_from is not None or time_until is not None:
+            valgroups = self._filter_groups_by_time(valgroups, time_from, time_until)
+        valgroups_names = sorted([g.valgroup_name for g in valgroups])
+        options = [{"label": g, "value": g} for g in valgroups_names]
 
         url_params = self._parse_url_params(href)
-        if "valgroup_id" in url_params and url_params["valgroup_id"] in valgroups:
+        if "valgroup_id" in url_params and url_params["valgroup_id"] in valgroups_names:
             value = str(url_params["valgroup_id"])
+        # elif current_group and current_group in valgroups:
+        #     value = current_group
         else:
-            value = valgroups[0] if valgroups else ""
+            value = valgroups_names[0] if valgroups_names else ""
 
         return options, value
 
@@ -138,6 +194,30 @@ class DashApp:
                                 ),
                             ],
                             style={"flex": "auto", "minWidth": 0},
+                        ),
+                        html.Label(
+                            [
+                                "Time from: ",
+                                dcc.Input(
+                                    id="time-from",
+                                    type="text",
+                                    debounce=True,
+                                    placeholder="unix or ISO",
+                                    style={"width": "100px"},
+                                ),
+                            ]
+                        ),
+                        html.Label(
+                            [
+                                "Time until: ",
+                                dcc.Input(
+                                    id="time-until",
+                                    type="text",
+                                    debounce=True,
+                                    placeholder="unix or ISO",
+                                    style={"width": "100px"},
+                                ),
+                            ]
                         ),
                         html.Label(
                             [
@@ -437,6 +517,8 @@ class DashApp:
             Output("group", "options"),
             Output("group", "value"),
             Input("url", "href"),
+            Input("time-from", "value"),
+            Input("time-until", "value"),
         )(self.update_data)
 
         self._app.callback(  # pyright: ignore[reportUnknownMemberType]
