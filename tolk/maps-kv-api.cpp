@@ -227,11 +227,11 @@ public:
 
       if (exact_key != nullptr) {
         std::vector ir_builder = code.create_tmp_var(TypeDataBuilder::create(), origin, "(map-keyB)");
-        code.emplace_back(origin, Op::_Call, ir_builder, std::vector<var_idx_t>{}, lookup_function("beginCell"));
+        code.add_call(origin, ir_builder, {}, lookup_function("beginCell"));
         PackContext ctx(code, origin, ir_builder, create_default_PackOptions(code, origin));
         ctx.generate_pack_any(TKey, std::vector(*exact_key));
         std::vector ir_slice = code.create_tmp_var(TypeDataSlice::create(), origin, "(map-key)");
-        code.emplace_back(origin, Op::_Call, ir_slice, ir_builder, lookup_function("builder.toSlice"));
+        code.add_call(origin, ir_slice, ir_builder, lookup_function("builder.toSlice"));
         key_irv = ir_slice[0];
       }
     }
@@ -255,7 +255,7 @@ public:
 
       if (exact_value != nullptr) {
         std::vector ir_builder = code.create_tmp_var(TypeDataBuilder::create(), origin, "(valueB)");
-        code.emplace_back(origin, Op::_Call, ir_builder, std::vector<var_idx_t>{}, lookup_function("beginCell"));
+        code.add_call(origin, ir_builder, {}, lookup_function("beginCell"));
         PackContext ctx(code, origin, ir_builder, create_default_PackOptions(code, origin));
         ctx.generate_pack_any(TValue, std::vector(*exact_value));
         value_irv = ir_builder[0];
@@ -274,18 +274,18 @@ static std::vector<var_idx_t> construct_MapEntry_with_non_trivial_key(CodeBlob& 
   tolk_assert(ir_entry.size() == 3); // slice value, slice key, isFound
 
   std::vector ir_key = code.create_tmp_var(TKey, origin, "(entry-key)");
-  Op& if_found = code.emplace_back(origin, Op::_If, std::vector{ir_entry[2]});
+  Op& if_found = code.add_if_else(origin, {ir_entry[2]});
   {
     code.push_set_cur(if_found.block0);
     UnpackContext ctx(code, origin, std::vector(ir_entry.begin() + 1, ir_entry.begin() + 2), create_default_UnpackOptions(code, origin));
     std::vector ir_unpacked_key = ctx.generate_unpack_any(TKey);
-    code.emplace_back(origin, Op::_Let, ir_key, std::move(ir_unpacked_key));
+    code.add_let(origin, ir_key, std::move(ir_unpacked_key));
     code.close_pop_cur(origin);
   }
   {
     code.push_set_cur(if_found.block1);
     for (var_idx_t ith_null : ir_key) {
-      code.emplace_back(origin, Op::_Let, std::vector{ith_null}, std::vector{ir_entry[1]});
+      code.add_let(origin, {ith_null}, {ir_entry[1]});
     }
     code.close_pop_cur(origin);
   }
@@ -460,7 +460,7 @@ std::vector<var_idx_t> generate_mapKV_exists(FunctionPtr called_f, CodeBlob& cod
 
   std::vector ir_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataSlice::create(), TypeDataInt::create()}), origin, "(lookup)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(origin, Op::_Call, ir_lookup, std::move(dict_args), lookup_function("__dict.get"));
+  code.add_call(origin, ir_lookup, std::move(dict_args), lookup_function("__dict.get"));
 
   return {ir_lookup[1]};    // isFound from (sliceOrNull isFound)
 }
@@ -472,7 +472,7 @@ std::vector<var_idx_t> generate_mapKV_get(FunctionPtr called_f, CodeBlob& code, 
 
   std::vector ir_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataSlice::create(), TypeDataInt::create()}), origin, "(lookup)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(origin, Op::_Call, ir_lookup, std::move(dict_args), lookup_function("__dict.get"));
+  code.add_call(origin, ir_lookup, std::move(dict_args), lookup_function("__dict.get"));
 
   // in all functions where we return MapLookupResult:
   // on a stack we have (slice, found) - exactly the shape of MapLookupResult<TValue>;
@@ -490,11 +490,10 @@ std::vector<var_idx_t> generate_mapKV_mustGet(FunctionPtr called_f, CodeBlob& co
 
   std::vector ir_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataSlice::create(), TypeDataInt::create()}), origin, "(lookup)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(origin, Op::_Call, ir_lookup, std::move(dict_args), lookup_function("__dict.get"));
+  code.add_call(origin, ir_lookup, std::move(dict_args), lookup_function("__dict.get"));
 
   std::vector args_throwifnot = { args[2][0], ir_lookup[1] };
-  Op& op_assert = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args_throwifnot), lookup_function("__throw_ifnot"));
-  op_assert.set_impure_flag();
+  code.add_call(origin, {}, std::move(args_throwifnot), lookup_function("__throw_ifnot"));
   // later on, preceding `NULLSWAPIFNOT` will be removed if possible by a peephole optimization
 
   std::vector ir_slice(ir_lookup.begin(), ir_lookup.begin() + 1);
@@ -519,7 +518,7 @@ std::vector<var_idx_t> generate_mapKV_set(FunctionPtr called_f, CodeBlob& code, 
   DictKeyValue kv(code, origin, TKey, &args[1], TValue, &args[2], true);
 
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_value_val(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(origin, Op::_Call, args[0], std::move(dict_args), lookup_function("__dict.set"));
+  code.add_call(origin, args[0], std::move(dict_args), lookup_function("__dict.set"));
 
   return args[0];   // return mutated map
 }
@@ -532,7 +531,7 @@ std::vector<var_idx_t> generate_mapKV_setGet(FunctionPtr called_f, CodeBlob& cod
 
   std::vector ir_map_and_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataSlice::create(), TypeDataInt::create()}), origin, "(map-and-lookup)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_value_val(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(origin, Op::_Call, ir_map_and_lookup, std::move(dict_args), lookup_function("__dict.setGet"));
+  code.add_call(origin, ir_map_and_lookup, std::move(dict_args), lookup_function("__dict.setGet"));
 
   return ir_map_and_lookup;    
 }
@@ -545,7 +544,7 @@ std::vector<var_idx_t> generate_mapKV_replace(FunctionPtr called_f, CodeBlob& co
 
   std::vector ir_map_and_was_added = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataBool::create()}), origin, "(map-and-was-added)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_value_val(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(origin, Op::_Call, ir_map_and_was_added, std::move(dict_args), lookup_function("__dict.replace"));
+  code.add_call(origin, ir_map_and_was_added, std::move(dict_args), lookup_function("__dict.replace"));
 
   return ir_map_and_was_added;
 }
@@ -558,7 +557,7 @@ std::vector<var_idx_t> generate_mapKV_replaceGet(FunctionPtr called_f, CodeBlob&
 
   std::vector ir_map_and_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataSlice::create(), TypeDataInt::create()}), origin, "(map-and-lookup)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_value_val(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(origin, Op::_Call, ir_map_and_lookup, std::move(dict_args), lookup_function("__dict.replaceGet"));
+  code.add_call(origin, ir_map_and_lookup, std::move(dict_args), lookup_function("__dict.replaceGet"));
 
   return ir_map_and_lookup;
 }
@@ -571,7 +570,7 @@ std::vector<var_idx_t> generate_mapKV_add(FunctionPtr called_f, CodeBlob& code, 
 
   std::vector ir_map_and_was_added = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataBool::create()}), origin, "(map-and-was-added)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_value_val(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(origin, Op::_Call, ir_map_and_was_added, std::move(dict_args), lookup_function("__dict.add"));
+  code.add_call(origin, ir_map_and_was_added, std::move(dict_args), lookup_function("__dict.add"));
 
   return ir_map_and_was_added;
 }
@@ -584,7 +583,7 @@ std::vector<var_idx_t> generate_mapKV_addGet(FunctionPtr called_f, CodeBlob& cod
 
   std::vector ir_map_and_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataSlice::create(), TypeDataInt::create()}), origin, "(lookup)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_value_val(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(origin, Op::_Call, ir_map_and_lookup, std::move(dict_args), lookup_function("__dict.addGet"));
+  code.add_call(origin, ir_map_and_lookup, std::move(dict_args), lookup_function("__dict.addGet"));
 
   return ir_map_and_lookup;
 }
@@ -596,7 +595,7 @@ std::vector<var_idx_t> generate_mapKV_del(FunctionPtr called_f, CodeBlob& code, 
 
   std::vector ir_map_and_was_deleted = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataBool::create()}), origin, "(map-and-was-added)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(origin, Op::_Call, ir_map_and_was_deleted, std::move(dict_args), lookup_function("__dict.del"));
+  code.add_call(origin, ir_map_and_was_deleted, std::move(dict_args), lookup_function("__dict.del"));
 
   return ir_map_and_was_deleted;
 }
@@ -608,7 +607,7 @@ std::vector<var_idx_t> generate_mapKV_delGet(FunctionPtr called_f, CodeBlob& cod
 
   std::vector ir_map_and_lookup = code.create_tmp_var(TypeDataTensor::create({TypeDataCell::create(), TypeDataSlice::create(), TypeDataInt::create()}), origin, "(lookup)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(origin, Op::_Call, ir_map_and_lookup, std::move(dict_args), lookup_function("__dict.delGet"));
+  code.add_call(origin, ir_map_and_lookup, std::move(dict_args), lookup_function("__dict.delGet"));
 
   return ir_map_and_lookup;
 }
@@ -621,7 +620,7 @@ std::vector<var_idx_t> generate_mapKV_findFirst(FunctionPtr called_f, CodeBlob& 
   // on a stack (ir_entry) we will have: either (x k −1) or (null null 0)
   std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getMin"));
+  code.add_call(origin, ir_entry, std::move(dict_args), lookup_function("__dict.getMin"));
 
   return finalize_ir_MapEntry(code, origin, std::move(ir_entry), TKey);
 }
@@ -633,7 +632,7 @@ std::vector<var_idx_t> generate_mapKV_findLast(FunctionPtr called_f, CodeBlob& c
   
   std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getMax"));
+  code.add_call(origin, ir_entry, std::move(dict_args), lookup_function("__dict.getMax"));
 
   return finalize_ir_MapEntry(code, origin, std::move(ir_entry), TKey);
 }
@@ -645,7 +644,7 @@ std::vector<var_idx_t> generate_mapKV_findKeyGreater(FunctionPtr called_f, CodeB
   
   std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getNext"));
+  code.add_call(origin, ir_entry, std::move(dict_args), lookup_function("__dict.getNext"));
 
   return finalize_ir_MapEntry(code, origin, std::move(ir_entry), TKey);
 }
@@ -657,7 +656,7 @@ std::vector<var_idx_t> generate_mapKV_findKeyGreaterOrEqual(FunctionPtr called_f
   
   std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getNextEq"));
+  code.add_call(origin, ir_entry, std::move(dict_args), lookup_function("__dict.getNextEq"));
 
   return finalize_ir_MapEntry(code, origin, std::move(ir_entry), TKey);
 }
@@ -669,7 +668,7 @@ std::vector<var_idx_t> generate_mapKV_findKeyLess(FunctionPtr called_f, CodeBlob
   
   std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getPrev"));
+  code.add_call(origin, ir_entry, std::move(dict_args), lookup_function("__dict.getPrev"));
 
   return finalize_ir_MapEntry(code, origin, std::move(ir_entry), TKey);
 }
@@ -681,7 +680,7 @@ std::vector<var_idx_t> generate_mapKV_findKeyLessOrEqual(FunctionPtr called_f, C
   
   std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getPrevEq"));
+  code.add_call(origin, ir_entry, std::move(dict_args), lookup_function("__dict.getPrevEq"));
 
   return finalize_ir_MapEntry(code, origin, std::move(ir_entry), TKey);
 }
@@ -694,7 +693,7 @@ std::vector<var_idx_t> generate_mapKV_iterateNext(FunctionPtr called_f, CodeBlob
   
   std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getNext"));
+  code.add_call(origin, ir_entry, std::move(dict_args), lookup_function("__dict.getNext"));
 
   return finalize_ir_MapEntry(code, origin, std::move(ir_entry), TKey);
 }
@@ -707,7 +706,7 @@ std::vector<var_idx_t> generate_mapKV_iteratePrev(FunctionPtr called_f, CodeBlob
   
   std::vector ir_entry = create_ir_MapEntry(code, origin);
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.emplace_back(origin, Op::_Call, ir_entry, std::move(dict_args), lookup_function("__dict.getPrev"));
+  code.add_call(origin, ir_entry, std::move(dict_args), lookup_function("__dict.getPrev"));
 
   return finalize_ir_MapEntry(code, origin, std::move(ir_entry), TKey);
 }

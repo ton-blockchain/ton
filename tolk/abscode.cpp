@@ -441,7 +441,7 @@ var_idx_t CodeBlob::create_int(AnyV origin, int64_t value, const char* purpose) 
 #endif
   var_idx_t ir_int = var_cnt;
   var_cnt++;
-  emplace_back(origin, Op::_IntConst, std::vector{ir_int}, td::make_refint(value));
+  add_int_const(origin, {ir_int}, td::make_refint(value));
   return ir_int;
 }
 

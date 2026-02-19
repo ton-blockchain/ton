@@ -133,8 +133,7 @@ class LValContext {
     // for 1-slot globals int/cell/slice, assigning to them is just SETGLOB
     // same for tensors, if they are fully rewritten in an expression: `gTensor = (5,6)`
     void apply_fully_rewrite(CodeBlob& code, AnyV origin) const {
-      Op& op = code.emplace_back(origin, Op::_SetGlob, std::vector<var_idx_t>{}, ir_global, glob_ref);
-      op.set_impure_flag();
+      code.add_set_glob_var(origin, ir_global, glob_ref);
     }
 
     // for N-slot globals tensor/struct/union, assigning to their parts, like `gTensor.1 = 6`
@@ -143,12 +142,11 @@ class LValContext {
       std::vector local_ir_idx = pre_compile_symbol(glob_ref, code, origin, nullptr);
       for (size_t i = 0; i < local_ir_idx.size(); ++i) {
         if (was_modified_by_let[i]) {
-          code.emplace_back(origin, Op::_Let, std::vector{local_ir_idx[i]}, std::vector{ir_global[i]});
+          code.add_let(origin, {local_ir_idx[i]}, {ir_global[i]});
         }
       }
 
-      Op& op = code.emplace_back(origin, Op::_SetGlob, std::vector<var_idx_t>{}, local_ir_idx, glob_ref);
-      op.set_impure_flag();
+      code.add_set_glob_var(origin, std::move(local_ir_idx), glob_ref);
     }
   };
 
@@ -167,12 +165,12 @@ class LValContext {
       LValContext local_lval;
       std::vector tuple_ir_idx = pre_compile_expr(shaped_obj, code, nullptr, &local_lval);
       std::vector index_ir_idx = code.create_tmp_var(TypeDataInt::create(), origin, "(tuple-idx)");
-      code.emplace_back(origin, Op::_IntConst, index_ir_idx, td::make_refint(index_at));
+      code.add_int_const(origin, index_ir_idx, td::make_refint(index_at));
       std::vector field_ir_idx = code.create_tmp_var(t_shaped->items[index_at], origin, "(tuple-field)");
-      code.emplace_back(origin, Op::_Call, field_ir_idx, std::vector{tuple_ir_idx[0], index_ir_idx[0]}, lookup_function("array<T>.get"));
+      code.add_call(origin, field_ir_idx, {tuple_ir_idx[0], index_ir_idx[0]}, lookup_function("array<T>.get"));
       for (size_t i = 0; i < field_ir_idx.size(); ++i) {
         if (was_modified_by_let[i]) {
-          code.emplace_back(origin, Op::_Let, std::vector{field_ir_idx[i]}, std::vector{ir_field[i]});
+          code.add_let(origin, {field_ir_idx[i]}, {ir_field[i]});
         }
       }
 
@@ -182,7 +180,7 @@ class LValContext {
       ir_args.insert(ir_args.end(), tuple_ir_idx.begin(), tuple_ir_idx.end());
       ir_args.insert(ir_args.end(), field_ir_idx.begin(), field_ir_idx.end());
       ir_args.insert(ir_args.end(), index_ir_idx.begin(), index_ir_idx.end());
-      code.emplace_back(origin, Op::_Call, tuple_ir_idx, std::move(ir_args), lookup_function("array<T>.set"));
+      code.add_call(origin, tuple_ir_idx, std::move(ir_args), lookup_function("array<T>.set"));
       local_lval.after_let(std::move(tuple_ir_idx), code, origin);
     }
   };
@@ -201,7 +199,7 @@ class LValContext {
       std::vector field_ir_idx(obj_ir_idx.begin() + stack_offset, obj_ir_idx.begin() + stack_offset + static_cast<int>(ir_field.size()));
 
       vars_modification_watcher.trigger_callbacks(field_ir_idx, origin);
-      code.emplace_back(origin, Op::_Let, field_ir_idx, ir_field);
+      code.add_let(origin, field_ir_idx, ir_field);
       local_lval.after_let(std::move(field_ir_idx), code, origin);
     }
   };
@@ -524,7 +522,7 @@ static std::vector<std::vector<var_idx_t>> pre_compile_tensor_inner(CodeBlob& co
       // otherwise, insert at current position (standard behavior)
       if (code.cur_ops_stack.size() > info.saved_stack_depth) {
         info.saved_list->insert(info.saved_list->begin() + static_cast<long>(info.saved_index),
-                                std::make_unique<Op>(origin, Op::_Let, std::vector{tmp_idx}, std::vector{ir_idx}));
+                                Op::make_let(origin, {tmp_idx}, {ir_idx}));
         // adjust indices of all watchers pointing to the same list at or after the insertion point
         for (auto& w : watched_vars) {
           if (w.saved_list == info.saved_list && w.saved_index >= info.saved_index) {
@@ -532,7 +530,7 @@ static std::vector<std::vector<var_idx_t>> pre_compile_tensor_inner(CodeBlob& co
           }
         }
       } else {
-        code.emplace_back(origin, Op::_Let, std::vector{tmp_idx}, std::vector{ir_idx});
+        code.add_let(origin, {tmp_idx}, {ir_idx});
       }
 
       for (std::vector<var_idx_t>& prev_vars : res_lists) {
@@ -580,7 +578,7 @@ static std::vector<var_idx_t> pre_compile_tensor(CodeBlob& code, const std::vect
   bool need_copy = lval_ctx != nullptr && lval_ctx->is_rval_inside_lval();
   if (need_copy && !args.empty()) {
     std::vector ir_copy = code.create_tmp_var(TypeDataTensor::create(std::move(target_types)), args[0], "(tensor-lval-copy)");
-    code.emplace_back(args[0], Op::_Let, ir_copy, std::move(res));
+    code.add_let(args[0], ir_copy, std::move(res));
     res = std::move(ir_copy);
   }
   return res;
@@ -597,14 +595,14 @@ static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, AnyExprV lhs, AnyE
     const TypeDataShapedTuple* r_shaped = rhs->inferred_type->unwrap_alias()->try_as<TypeDataShapedTuple>();
     tolk_assert(l_shaped && r_shaped && l_shaped->size() == r_shaped->size());
     std::vector rvect = code.create_tmp_var(TypeDataTensor::create(std::vector(r_shaped->size(), TypeDataUnknown::create())), rhs, "(unpack-tuple)");
-    code.emplace_back(lhs, Op::_UnTuple, rvect, ir_right);
+    code.add_un_tuple(lhs, rvect, ir_right);
     int stack_offset = 0;
     for (int i = 0; i < l_shaped->size(); ++i) {
       int ith_w = l_shaped->items[i]->get_width_on_stack();
       std::vector ith_lvect(ir_left.begin() + stack_offset, ir_left.begin() + stack_offset + ith_w);
       std::vector ith_rvect = transition_to_target_type({rvect[i]}, code, TypeDataUnknown::create(), r_shaped->items[i], rhs);
       ith_rvect = transition_to_target_type(std::move(ith_rvect), code, r_shaped->items[i], l_shaped->items[i], rhs);
-      code.emplace_back(lhs, Op::_Let, ith_lvect, ith_rvect);
+      code.add_let(lhs, ith_lvect, ith_rvect);
       stack_offset += ith_w;
     }
     local_lval.after_let(std::move(ir_left), code, lhs);
@@ -616,7 +614,7 @@ static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, AnyExprV lhs, AnyE
   vars_modification_watcher.trigger_callbacks(ir_left, lhs);
   std::vector ir_right = pre_compile_expr(rhs, code, nullptr);
   std::vector ir_assignable = transition_to_target_type(std::vector(ir_right), code, rhs->inferred_type, lhs->inferred_type, rhs);
-  code.emplace_back(lhs, Op::_Let, ir_left, std::move(ir_assignable));
+  code.add_let(lhs, ir_left, std::move(ir_assignable));
   local_lval.after_let(std::move(ir_left), code, lhs);
   return ir_right;
 }
@@ -631,46 +629,33 @@ std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, Ty
   if (!lhs_union && expr_type == TypeDataUnknown::create() && cmp_type == TypeDataNullLiteral::create()) {
     // `unknown == null`, it works even though `unknown` is not a union
     tolk_assert(expr_ir_idx.size() == 1);
-    code.emplace_back(origin, Op::_Call, ir_result, expr_ir_idx, isnull_sym);
+    code.add_call(origin, ir_result, expr_ir_idx, isnull_sym);
   } else if (!lhs_union) {
     // `int` is `int` / `int` is `builder`, it's compile-time, either 0, or -1
     bool types_eq = expr_type->equal_to(cmp_type);
-    code.emplace_back(origin, Op::_IntConst, ir_result, td::make_refint(types_eq ? -1 : 0));
+    code.add_int_const(origin, ir_result, td::make_refint(types_eq ? -1 : 0));
   } else if (lhs_union->is_primitive_nullable() && cmp_type == TypeDataNullLiteral::create()) {
     // `int?` is `null` for primitive 1-slot nullables, they hold either value of TVM NULL, no extra union tag slot
-    code.emplace_back(origin, Op::_Call, ir_result, expr_ir_idx, isnull_sym);
+    code.add_call(origin, ir_result, expr_ir_idx, isnull_sym);
   } else if (lhs_union->is_primitive_nullable()) {
     // `int?` is `int` (check for null actually) / `int?` is `builder` (compile-time false actually)
     bool cant_happen = lhs_union->or_null->get_type_id() != cmp_type->get_type_id();
     if (cant_happen) {
-      code.emplace_back(origin, Op::_IntConst, ir_result, td::make_refint(0));
+      code.add_int_const(origin, ir_result, td::make_refint(0));
     } else {
-      code.emplace_back(origin, Op::_Call, ir_result, expr_ir_idx, isnull_sym);
-      code.emplace_back(origin, Op::_Call, ir_result, ir_result, not_sym);
+      code.add_call(origin, ir_result, expr_ir_idx, isnull_sym);
+      code.add_call(origin, ir_result, ir_result, not_sym);
     }
   } else {
     // `int | slice` is `int`, check type id
     std::vector ir_typeid = code.create_tmp_var(TypeDataInt::create(), origin, "(type-id)");
-    code.emplace_back(origin, Op::_IntConst, ir_typeid, td::make_refint(cmp_type->get_type_id()));
-    code.emplace_back(origin, Op::_Call, ir_result, std::vector{ir_typeid[0], expr_ir_idx.back()}, eq_sym);
+    code.add_int_const(origin, ir_typeid, td::make_refint(cmp_type->get_type_id()));
+    code.add_call(origin, ir_result, {ir_typeid[0], expr_ir_idx.back()}, eq_sym);
   }
 
   return ir_result;
 }
 
-static std::vector<var_idx_t> gen_op_call(CodeBlob& code, TypePtr ret_type, AnyV origin,
-                                          std::vector<var_idx_t>&& args_vars, FunctionPtr fun_ref, const char* debug_desc,
-                                          bool arg_order_already_equals_asm = false) {
-  std::vector rvect = code.create_tmp_var(ret_type, origin, debug_desc);
-  Op& op = code.emplace_back(origin, Op::_Call, rvect, std::move(args_vars), fun_ref);
-  if (!fun_ref->is_marked_as_pure()) {
-    op.set_impure_flag();
-  }
-  if (arg_order_already_equals_asm) {
-    op.set_arg_order_already_equals_asm_flag();
-  }
-  return rvect;
-}
 
 static std::vector<var_idx_t> gen_compile_time_code_instead_of_fun_call(CodeBlob& code, V<ast_function_call> v_call, const std::vector<std::vector<var_idx_t>>& vars_per_arg) {
   FunctionPtr called_f = v_call->fun_maybe;
@@ -710,7 +695,7 @@ std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_
       param_i.mutate()->assign_ir_idx(std::vector(vars_per_arg[i]));
     } else {
       std::vector ir_ith_param = code.create_var(param_i.declared_type, origin, param_i.name);
-      code.emplace_back(origin, Op::_Let, ir_ith_param, vars_per_arg[i]);
+      code.add_let(origin, ir_ith_param, vars_per_arg[i]);
       param_i.mutate()->assign_ir_idx(std::move(ir_ith_param));
     }
   }
@@ -742,7 +727,7 @@ std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_
         mutated_vars.insert(mutated_vars.end(), p_sym.ir_idx.begin(), p_sym.ir_idx.end());
       }
     }
-    code.emplace_back(origin, Op::_Let, rvect_call, std::move(mutated_vars));
+    code.add_let(origin, rvect_call, std::move(mutated_vars));
   }
 
   ClearStateAfterInlineInPlace visitor;
@@ -761,32 +746,32 @@ std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_
 static std::pair<TypePtr, std::vector<var_idx_t>> pre_compile_constant_expression(const ConstValExpression& value, CodeBlob& code, AnyV origin) {
   if (const ConstValInt* val = std::get_if<ConstValInt>(&value)) {
     std::vector rvect = code.create_tmp_var(TypeDataInt::create(), origin, "(int-const)");
-    code.emplace_back(origin, Op::_IntConst, rvect, val->int_val);
+    code.add_int_const(origin, rvect, val->int_val);
     return {TypeDataInt::create(), rvect};
   }
   if (const ConstValBool* val = std::get_if<ConstValBool>(&value)) {
     std::vector rvect = code.create_tmp_var(TypeDataBool::create(), origin, "(bool-const)");
-    code.emplace_back(origin, Op::_Call, rvect, std::vector<var_idx_t>{}, lookup_function(val->bool_val ? "__true" : "__false"));
+    code.add_call(origin, rvect, {}, lookup_function(val->bool_val ? "__true" : "__false"));
     return {TypeDataBool::create(), rvect};
   }
   if (const ConstValSlice* val = std::get_if<ConstValSlice>(&value)) {
     std::vector rvect = code.create_tmp_var(TypeDataSlice::create(), origin, "(slice-const)");
-    code.emplace_back(origin, Op::_SliceConst, rvect, val->str_hex);
+    code.add_slice_const(origin, rvect, val->str_hex);
     return {TypeDataSlice::create(), rvect};
   }
   if (const ConstValString* val = std::get_if<ConstValString>(&value)) {
     std::vector rvect = code.create_tmp_var(TypeDataString::create(), origin, "(str-const)");
-    code.emplace_back(origin, Op::_SnakeStringConst, rvect, val->str_val);
+    code.add_string_const(origin, rvect, val->str_val);
     return {TypeDataString::create(), rvect};
   }
   if (const ConstValAddress* val = std::get_if<ConstValAddress>(&value)) {
     std::vector rvect = code.create_tmp_var(TypeDataAddress::internal(), origin, "(addr-const)");
-    code.emplace_back(origin, Op::_SliceConst, rvect, val->std_addr_hex);
+    code.add_slice_const(origin, rvect, val->std_addr_hex);
     return {TypeDataAddress::internal(), rvect};
   }
   if (std::get_if<ConstValNullLiteral>(&value)) {
     std::vector rvect = code.create_tmp_var(TypeDataNullLiteral::create(), origin, "(null-literal)");
-    code.emplace_back(origin, Op::_Call, rvect, std::vector<var_idx_t>{}, lookup_function("__null"));
+    code.add_call(origin, rvect, {}, lookup_function("__null"));
     return {TypeDataNullLiteral::create(), rvect};
   }
 
@@ -811,7 +796,7 @@ static std::pair<TypePtr, std::vector<var_idx_t>> pre_compile_constant_expressio
     }
     TypePtr t_shaped = TypeDataShapedTuple::create(std::move(items_types));
     std::vector ir_shaped = code.create_tmp_var(t_shaped, origin, "(shaped-const)");
-    code.emplace_back(origin, Op::_Tuple, ir_shaped, std::move(rvect));
+    code.add_to_tuple(origin, ir_shaped, std::move(rvect));
     return {t_shaped, ir_shaped};
   }
   if (const ConstValObject* val = std::get_if<ConstValObject>(&value)) {
@@ -855,7 +840,7 @@ std::vector<var_idx_t> pre_compile_symbol(const Symbol* sym, CodeBlob& code, Any
     // `globalVar` is used for reading, just create local IR var to represent its value, Op::_GlobVar will fill it
     // note, that global tensors are stored as a tuple an unpacked to N vars on read, N determined by declared_type
     std::vector local_ir_idx = code.create_var(glob_ref->declared_type, origin, "g_" + glob_ref->name);
-    code.emplace_back(origin, Op::_GlobVar, local_ir_idx, std::vector<var_idx_t>{}, glob_ref);
+    code.add_read_glob_var(origin, local_ir_idx, glob_ref);
     if (lval_ctx) {   // `g = rhs` or `g.0 = rhs`
       // for just an assignment `g = rhs`, Op::_GlobVar will be disabled, GETGLOB won't be generated:
       // we use ir vars to generate SETGLOB whenever they are modified
@@ -867,7 +852,7 @@ std::vector<var_idx_t> pre_compile_symbol(const Symbol* sym, CodeBlob& code, Any
   // referencing a function (not calling it! using as a callback, works similar to a global var)
   if (FunctionPtr fun_ref = sym->try_as<FunctionPtr>()) {
     std::vector rvect = code.create_tmp_var(fun_ref->inferred_full_type, origin, "(glob-var-fun)");
-    code.emplace_back(origin, Op::_GlobVar, rvect, std::vector<var_idx_t>{}, fun_ref);
+    code.add_read_glob_var(origin, rvect, fun_ref);
     return rvect;
   }
 
@@ -902,7 +887,7 @@ static std::vector<var_idx_t> process_assignment(V<ast_assign> v, CodeBlob& code
   if (need_copy) {
     std::vector ir_n_slots(rvect.size(), TypeDataUnknown::create());
     std::vector ir_copy = code.create_tmp_var(TypeDataTensor::create(std::move(ir_n_slots)), v, "(lval-copy)");
-    code.emplace_back(v, Op::_Let, ir_copy, std::move(rvect));
+    code.add_let(v, ir_copy, std::move(rvect));
     rvect = std::move(ir_copy);
   }
   // rvect is IR of rhs: for example, `nullablePoint = null` then rhs is size=1 (just `null`),
@@ -924,9 +909,9 @@ static std::vector<var_idx_t> process_set_assign(V<ast_set_assign> v, CodeBlob& 
   args_vars.insert(args_vars.end(), ir_lhs.begin(), ir_lhs.end());
   args_vars.insert(args_vars.end(), ir_rhs.begin(), ir_rhs.end());
   std::vector ir_result = code.create_tmp_var(v->inferred_type, v, "(set-assign)");
-  code.emplace_back(v, Op::_Call, ir_result, std::move(args_vars), v->fun_ref);
+  code.add_call(v, ir_result, std::move(args_vars), v->fun_ref);
 
-  code.emplace_back(v, Op::_Let, ir_lhs, ir_result);   // += and others for math only, transition not required
+  code.add_let(v, ir_lhs, ir_result);   // += and others for math only, transition not required
   local_lval.after_let(std::move(ir_lhs), code, v);
 
   return transition_to_target_type(std::move(ir_result), code, target_type, v);
@@ -937,7 +922,8 @@ static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, 
 
   if (v->fun_ref) {   // almost all operators, fun_ref was assigned at type inferring
     std::vector args_vars = pre_compile_tensor(code, {v->get_lhs(), v->get_rhs()});
-    std::vector rvect = gen_op_call(code, v->inferred_type, v, std::move(args_vars), v->fun_ref, "(binary-op)");
+    std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(binary-op)");
+    code.add_call(v, rvect, std::move(args_vars), v->fun_ref);
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
   if (t == tok_logical_and || t == tok_logical_or) {
@@ -954,12 +940,12 @@ static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, 
     std::vector ir_cond = pre_compile_expr(v->get_lhs(), code, nullptr);
     tolk_assert(ir_cond.size() == 1);
     std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(ternary)");
-    Op& if_op = code.emplace_back(v, Op::_If, ir_cond);
+    Op& if_op = code.add_if_else(v, ir_cond);
     code.push_set_cur(if_op.block0);
-    code.emplace_back(v, Op::_Let, rvect, pre_compile_expr(t == tok_logical_and ? v_b_ne_0 : v_1, code, nullptr));
+    code.add_let(v, rvect, pre_compile_expr(t == tok_logical_and ? v_b_ne_0 : v_1, code, nullptr));
     code.close_pop_cur(v);
     code.push_set_cur(if_op.block1);
-    code.emplace_back(v, Op::_Let, rvect, pre_compile_expr(t == tok_logical_and ? v_0 : v_b_ne_0, code, nullptr));
+    code.add_let(v, rvect, pre_compile_expr(t == tok_logical_and ? v_0 : v_b_ne_0, code, nullptr));
     code.close_pop_cur(v);
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
@@ -970,10 +956,10 @@ static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, 
       FunctionPtr f_eq = both_addr ? lookup_function("slice.bitsEqual") : lookup_function("cell.hashEqual");
       std::vector args_vars = pre_compile_tensor(code, {v->get_lhs(), v->get_rhs()});
       std::vector rvect = code.create_tmp_var(TypeDataBool::create(), v, "(eq-operator)");
-      code.emplace_back(v, Op::_Call, rvect, std::vector{args_vars[0], args_vars[1]}, f_eq);
+      code.add_call(v, rvect, {args_vars[0], args_vars[1]}, f_eq);
       if (t == tok_neq) {
         FunctionPtr not_sym = lookup_function("!b_");
-        code.emplace_back(v, Op::_Call, rvect, rvect, not_sym);
+        code.add_call(v, rvect, rvect, not_sym);
       }
       return transition_to_target_type(std::move(rvect), code, target_type, v);
     }
@@ -984,7 +970,8 @@ static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, 
 
 static std::vector<var_idx_t> process_unary_operator(V<ast_unary_operator> v, CodeBlob& code, TypePtr target_type) {
   std::vector rhs_vars = pre_compile_expr(v->get_rhs(), code, nullptr);
-  std::vector rvect = gen_op_call(code, v->inferred_type, v, std::move(rhs_vars), v->fun_ref, "(unary-op)");
+  std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(unary-op)");
+  code.add_call(v, rvect, std::move(rhs_vars), v->fun_ref);
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
@@ -994,21 +981,21 @@ static std::vector<var_idx_t> process_ternary_operator(V<ast_ternary_operator> v
   std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(ternary)");
 
   if (v->get_cond()->is_always_true) {
-    code.emplace_back(v->get_when_true(), Op::_Let, rvect, pre_compile_expr(v->get_when_true(), code, v->inferred_type));
+    code.add_let(v->get_when_true(), rvect, pre_compile_expr(v->get_when_true(), code, v->inferred_type));
   } else if (v->get_cond()->is_always_false) {
-    code.emplace_back(v->get_when_false(), Op::_Let, rvect, pre_compile_expr(v->get_when_false(), code, v->inferred_type));
+    code.add_let(v->get_when_false(), rvect, pre_compile_expr(v->get_when_false(), code, v->inferred_type));
   } else if (v->inferred_type->get_width_on_stack() == 1 && is_ternary_arg_trivial_for_condsel(v->get_when_true()) && is_ternary_arg_trivial_for_condsel(v->get_when_false())) {
     std::vector ir_true = pre_compile_expr(v->get_when_true(), code, v->inferred_type);
     std::vector ir_false = pre_compile_expr(v->get_when_false(), code, v->inferred_type);
     std::vector condsel_args = { ir_cond[0], ir_true[0], ir_false[0] };
-    code.emplace_back(v, Op::_Call, rvect, std::move(condsel_args), lookup_function("__condsel"));
+    code.add_call(v, rvect, std::move(condsel_args), lookup_function("__condsel"));
   } else {
-    Op& if_op = code.emplace_back(v, Op::_If, ir_cond);
+    Op& if_op = code.add_if_else(v, ir_cond);
     code.push_set_cur(if_op.block0);
-    code.emplace_back(v->get_when_true(), Op::_Let, rvect, pre_compile_expr(v->get_when_true(), code, v->inferred_type));
+    code.add_let(v->get_when_true(), rvect, pre_compile_expr(v->get_when_true(), code, v->inferred_type));
     code.close_pop_cur(v->get_when_true());
     code.push_set_cur(if_op.block1);
-    code.emplace_back(v->get_when_false(), Op::_Let, rvect, pre_compile_expr(v->get_when_false(), code, v->inferred_type));
+    code.add_let(v->get_when_false(), rvect, pre_compile_expr(v->get_when_false(), code, v->inferred_type));
     code.close_pop_cur(v->get_when_false());
   }
 
@@ -1024,26 +1011,26 @@ static std::vector<var_idx_t> process_null_coalesce_operator(V<ast_null_coalesce
   if (lhs_type == TypeDataNullLiteral::create()) {
     // `null ?? rhs` — lhs is always null, no IF ELSE, just return rhs
     std::vector ir_rhs = pre_compile_expr(v->get_rhs(), code, v->inferred_type);
-    code.emplace_back(v, Op::_Let, rvect, std::move(ir_rhs));
+    code.add_let(v, rvect, std::move(ir_rhs));
   } else if (without_null_type == TypeDataNever::create()) {
     // `1 ?? rhs` — lhs can never be null, don't even call rhs, just return lhs
     ir_lhs = transition_to_target_type(std::move(ir_lhs), code, lhs_type, v->inferred_type, v);
-    code.emplace_back(v, Op::_Let, rvect, std::move(ir_lhs));
+    code.add_let(v, rvect, std::move(ir_lhs));
   } else {
     // regular situation: `lhs ?? rhs`, need a runtime branch
     std::vector ir_is_null = pre_compile_is_type(code, lhs_type, TypeDataNullLiteral::create(), ir_lhs, v, "(lhs-is-null)");
-    Op& if_op = code.emplace_back(v, Op::_If, ir_is_null);
+    Op& if_op = code.add_if_else(v, ir_is_null);
     {
       code.push_set_cur(if_op.block0);
       std::vector ir_rhs = pre_compile_expr(v->get_rhs(), code, v->inferred_type);
-      code.emplace_back(v, Op::_Let, rvect, std::move(ir_rhs));
+      code.add_let(v, rvect, std::move(ir_rhs));
       code.close_pop_cur(v);
     }
     {
       code.push_set_cur(if_op.block1);
       ir_lhs = transition_to_target_type(std::move(ir_lhs), code, lhs_type, without_null_type, v);
       ir_lhs = transition_to_target_type(std::move(ir_lhs), code, without_null_type, v->inferred_type, v);
-      code.emplace_back(v, Op::_Let, rvect, std::move(ir_lhs));
+      code.add_let(v, rvect, std::move(ir_lhs));
       code.close_pop_cur(v);
     }
   }
@@ -1058,7 +1045,7 @@ static std::vector<var_idx_t> process_cast_as_operator(V<ast_cast_as_operator> v
   bool need_copy = lval_ctx != nullptr && lval_ctx->is_rval_inside_lval();
   if (need_copy) {
     std::vector ir_copy = code.create_tmp_var(child_target_type, v, "(cast-lval-copy)");
-    code.emplace_back(v, Op::_Let, ir_copy, std::move(rvect));
+    code.add_let(v, ir_copy, std::move(rvect));
     rvect = std::move(ir_copy);
   }
   return transition_to_target_type(std::move(rvect), code, target_type, v);
@@ -1075,7 +1062,7 @@ static std::vector<var_idx_t> process_is_type_operator(V<ast_is_type_operator> v
 
   if (v->is_negated) {
     FunctionPtr not_sym = lookup_function("!b_");
-    code.emplace_back(v, Op::_Call, ir_result, ir_result, not_sym);
+    code.add_call(v, ir_result, ir_result, not_sym);
   }
   return transition_to_target_type(std::move(ir_result), code, target_type, v);
 }
@@ -1112,15 +1099,15 @@ static std::vector<var_idx_t> process_lazy_operator(V<ast_lazy_operator> v, Code
   bool has_passed_options = false;
   if (f_name == "T.fromSlice") {
     std::vector passed_slice = pre_compile_expr(v_call->get_arg(0)->get_expr(), code);
-    code.emplace_back(v, Op::_Let, ir_slice, std::move(passed_slice));
+    code.add_let(v, ir_slice, std::move(passed_slice));
     has_passed_options = v_call->get_num_args() == 2;
   } else if (f_name == "T.fromCell") {
     std::vector ir_cell = pre_compile_expr(v_call->get_arg(0)->get_expr(), code);
-    code.emplace_back(v, Op::_Call, ir_slice, ir_cell, lookup_function("cell.beginParse"));
+    code.add_call(v, ir_slice, ir_cell, lookup_function("cell.beginParse"));
     has_passed_options = v_call->get_num_args() == 2;
   } else if (f_name == "Cell<T>.load") {
     std::vector ir_cell = pre_compile_expr(v_call->get_callee()->try_as<ast_dot_access>()->get_obj(), code);
-    code.emplace_back(v, Op::_Call, ir_slice, ir_cell, lookup_function("cell.beginParse"));
+    code.add_call(v, ir_slice, ir_cell, lookup_function("cell.beginParse"));
     has_passed_options = v_call->get_num_args() == 1;
   } else {
     tolk_assert(false);
@@ -1136,7 +1123,8 @@ static std::vector<var_idx_t> process_lazy_operator(V<ast_lazy_operator> v, Code
   // they will be loaded by separate AST aux vertices;
   // same for unions: `val msg = lazy MyMsgUnion`, msg is N+1 nulls, but next lazy `match` will transition slots,
   // which will be filled by loads
-  std::vector ir_null = gen_op_call(code, TypeDataNullLiteral::create(), v, {}, lookup_function("__null"), "(init-null)");
+  std::vector ir_null = code.create_tmp_var(TypeDataNullLiteral::create(), v, "(init-null)");
+  code.add_call(v, ir_null, {}, lookup_function("__null"));
   std::vector ir_initial_nulls(v->dest_var_ref->ir_idx.size(), ir_null[0]);
   return transition_to_target_type(std::move(ir_initial_nulls), code, target_type, v);
 }
@@ -1207,20 +1195,20 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
         std::vector ith_ir_idx = pre_compile_expr(v_ith_arm->get_pattern_expr(), code);
         tolk_assert(ir_subj.size() == 1 && ith_ir_idx.size() == 1);
         eq_ith_ir_idx = code.create_tmp_var(TypeDataBool::create(), v_ith_arm, "(arm-cond-eq)");
-        code.emplace_back(v_ith_arm, Op::_Call, eq_ith_ir_idx, std::vector{ir_subj[0], ith_ir_idx[0]}, eq_fn);
+        code.add_call(v_ith_arm, eq_ith_ir_idx, {ir_subj[0], ith_ir_idx[0]}, eq_fn);
       }
-      if_op = &code.emplace_back(v_ith_arm, Op::_If, std::move(eq_ith_ir_idx));
+      if_op = &code.add_if_else(v_ith_arm, std::move(eq_ith_ir_idx));
       code.push_set_cur(if_op->block0);
     }
 
     if (v->is_statement()) {
       pre_compile_expr(v_ith_arm->get_body(), code);
       if (v == stmt_before_immediate_return) {
-        code.emplace_back(v_ith_arm, Op::_Return);
+        code.add_return(v_ith_arm);
       }
     } else {
       std::vector arm_ir_idx = pre_compile_expr(v_ith_arm->get_body(), code, v->inferred_type);
-      code.emplace_back(v, Op::_Let, ir_result, std::move(arm_ir_idx));
+      code.add_let(v, ir_result, std::move(arm_ir_idx));
     }
 
     if (!inside_last_branch) {
@@ -1233,8 +1221,7 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
   // if it was user-defined, we've inserted its body already
   // if it's auto-generated "unreachable", insert "N THROW"
   if (implicit_else_unreachable_throw) {
-    Op& op_throw = code.emplace_back(v, Op::_Call, std::vector<var_idx_t>{}, std::vector{code.create_int(v, implicit_else_unreachable_throw, "(throw-else)")}, lookup_function("__throw"));
-    op_throw.set_impure_flag();
+    code.add_call(v, {}, {code.create_int(v, implicit_else_unreachable_throw, "(throw-else)")}, lookup_function("__throw"));
   }
 
   // close all outer IFs
@@ -1308,9 +1295,9 @@ static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& 
       std::vector tuple_ir_idx = pre_compile_expr(v->get_obj(), code, nullptr, lval_ctx);
       if (lval_ctx) lval_ctx->exit_rval_inside_lval();
       std::vector index_ir_idx = code.create_tmp_var(TypeDataInt::create(), v->get_identifier(), "(tuple-idx)");
-      code.emplace_back(v, Op::_IntConst, index_ir_idx, td::make_refint(index_at));
+      code.add_int_const(v, index_ir_idx, td::make_refint(index_at));
       std::vector rvect = code.create_tmp_var(t_shaped->items[index_at], v, "(tuple-field)");
-      code.emplace_back(v, Op::_Call, rvect, std::vector{tuple_ir_idx[0], index_ir_idx[0]}, lookup_function("array<T>.get"));
+      code.add_call(v, rvect, {tuple_ir_idx[0], index_ir_idx[0]}, lookup_function("array<T>.get"));
       // for `tupleVar.0 = rhs`, we have read the 0-th elem into rvect; on any modifications, emit asm SETINDEX
       if (lval_ctx && extract_sink_expression_from_vertex(v, true)) {
         // the inserted call to "array.get" will just be disabled, since a result of a pure function is unused
@@ -1337,7 +1324,7 @@ static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& 
     EnumMemberPtr member_ref = std::get<EnumMemberPtr>(v->target);
     tolk_assert(!member_ref->computed_value.is_null());
     std::vector enum_ir_idx = code.create_tmp_var(TypeDataInt::create(), v->get_identifier(), "(enum-member)");
-    code.emplace_back(v, Op::_IntConst, enum_ir_idx, member_ref->computed_value);
+    code.add_int_const(v, enum_ir_idx, member_ref->computed_value);
     return transition_to_target_type(std::move(enum_ir_idx), code, target_type, v);
   }
 
@@ -1370,8 +1357,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     if (args_vars.size() >= 254 || rvect.size() >= 254) {
       err("too many arguments on a stack for an indirect call").fire(v->get_callee());
     }
-    Op& op = code.emplace_back(v, Op::_CallInd, rvect, std::move(args_vars));
-    op.set_impure_flag();
+    code.add_indirect_invoke(v, rvect, std::move(args_vars));
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
   // `ton("0.05")` and others, we even don't need to calculate ir_idx for arguments, just replace with constexpr
@@ -1485,7 +1471,8 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
   } else if (fun_ref->is_inlined_in_place() && fun_ref->is_code_function()) {
     rvect = gen_inline_fun_call_in_place(code, op_call_type, v, v->fun_maybe, v->get_self_obj(), v == stmt_before_immediate_return, vars_per_arg);
   } else {
-    rvect = gen_op_call(code, op_call_type, v, std::move(args_vars), fun_ref, "(fun-call)", arg_order_already_equals_asm);
+    rvect = code.create_tmp_var(op_call_type, v, "(fun-call)");
+    code.add_call(v, rvect, std::move(args_vars), fun_ref, arg_order_already_equals_asm);
   }
 
   // `x.inc().inc()` — mutating chaining was called in lval context, here we get `x` expression in an outer call;
@@ -1508,7 +1495,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     }
     int n_left_size = static_cast<int>(left.size());
     vars_modification_watcher.trigger_callbacks(left, v);
-    code.emplace_back(v, Op::_Let, left, std::vector(rvect.begin(), rvect.begin() + n_left_size));
+    code.add_let(v, left, std::vector(rvect.begin(), rvect.begin() + n_left_size));
     local_lval.after_let(std::vector(left), code, v);
     self_lval.after_let(std::move(left), code, v);
     rvect = std::vector(rvect.begin() + n_left_size, rvect.end());
@@ -1537,7 +1524,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     bool need_copy = lval_ctx != nullptr;     // `Box{ v: a }.id().v = 123` should not alias `a` on a stack
     if (need_copy) {
       std::vector ir_copy = code.create_tmp_var(fun_ref->receiver_type, v, "(self-lval-copy)");
-      code.emplace_back(args[0], Op::_Let, ir_copy, std::move(rvect));
+      code.add_let(args[0], ir_copy, std::move(rvect));
       rvect = std::move(ir_copy);
     }
     // for return-self, rvect holds declared-type-width vars (not narrowed by smart cast),
@@ -1590,7 +1577,7 @@ static std::vector<var_idx_t> process_square_brackets(V<ast_square_brackets> v, 
 
   std::vector<TypePtr> target_types(v->size(), TypeDataUnknown::create());
   std::vector res = pre_compile_tensor(code, v->get_items(), nullptr, target_types);
-  code.emplace_back(v, Op::_Tuple, rvect, std::move(res));
+  code.add_to_tuple(v, rvect, std::move(res));
   rvect = transition_to_target_type(std::move(rvect), code, t_shaped, v->inferred_type, v);
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
@@ -1628,7 +1615,7 @@ static std::vector<var_idx_t> process_object_literal_shuffled(V<ast_object_liter
       if (v_field->get_field_name() == field_ref->name) {
         exists_in_literal = true;
         std::vector literal_field_rvect(literal_rvect.begin() + tensor_offset, literal_rvect.begin() + tensor_offset + tensor_item_width);
-        code.emplace_back(v, Op::_Let, std::move(field_rvect), std::move(literal_field_rvect));
+        code.add_let(v, std::move(field_rvect), std::move(literal_field_rvect));
         break;
       }
       tensor_offset += tensor_item_width;
@@ -1639,7 +1626,7 @@ static std::vector<var_idx_t> process_object_literal_shuffled(V<ast_object_liter
 
     tolk_assert(field_ref->has_default_value());
     std::vector def_rvect = pre_compile_expr(field_ref->default_value, code, field_ref->declared_type);
-    code.emplace_back(v, Op::_Let, std::move(field_rvect), std::move(def_rvect));
+    code.add_let(v, std::move(field_rvect), std::move(def_rvect));
   }
 
   return transition_to_target_type(std::move(rvect), code, target_type, v);
@@ -1697,13 +1684,13 @@ static std::vector<var_idx_t> process_object_literal(V<ast_object_literal> v, Co
 static std::vector<var_idx_t> process_lambda_fun(V<ast_lambda_fun> v, CodeBlob& code, TypePtr target_type) {
   tolk_assert(v->lambda_ref);
   std::vector rvect = code.create_tmp_var(v->lambda_ref->inferred_full_type, v, "(glob-var-lambda)");
-  code.emplace_back(v, Op::_GlobVar, rvect, std::vector<var_idx_t>{}, v->lambda_ref);
+  code.add_read_glob_var(v, rvect, v->lambda_ref);
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
 static std::vector<var_idx_t> process_int_const(V<ast_int_const> v, CodeBlob& code, TypePtr target_type) {
   std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(int-const)");
-  code.emplace_back(v, Op::_IntConst, rvect, v->intval);
+  code.add_int_const(v, rvect, v->intval);
   // here, like everywhere, even for just `int`, there might be a potential transition due to union types
   // example: passing `1` to `int | slice` puts actually "1 5" on a stack (1 for value, 5 for UTag = type_id of `int`)
   return transition_to_target_type(std::move(rvect), code, target_type, v);
@@ -1711,19 +1698,19 @@ static std::vector<var_idx_t> process_int_const(V<ast_int_const> v, CodeBlob& co
 
 static std::vector<var_idx_t> process_string_const(V<ast_string_const> v, CodeBlob& code, TypePtr target_type) {
   std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(str-const)");
-  code.emplace_back(v, Op::_SnakeStringConst, rvect, v->str_val);   // if long, will be transfomed to snake
+  code.add_string_const(v, rvect, v->str_val);   // if long, will be transfomed to snake
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
 static std::vector<var_idx_t> process_bool_const(V<ast_bool_const> v, CodeBlob& code, TypePtr target_type) {
-  FunctionPtr builtin_sym = lookup_function(v->bool_val ? "__true" : "__false");
-  std::vector rvect = gen_op_call(code, v->inferred_type, v, {}, builtin_sym, "(bool-const)");
+  std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(bool-const)");
+  code.add_call(v, rvect, {}, lookup_function(v->bool_val ? "__true" : "__false"));
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
 static std::vector<var_idx_t> process_null_keyword(V<ast_null_keyword> v, CodeBlob& code, TypePtr target_type) {
-  FunctionPtr builtin_sym = lookup_function("__null");
-  std::vector rvect = gen_op_call(code, v->inferred_type, v, {}, builtin_sym, "(null-literal)");
+  std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(null-literal)");
+  code.add_call(v, rvect, {}, lookup_function("__null"));
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
@@ -1927,17 +1914,17 @@ static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) 
     tolk_assert(ir_cond.size() == 1 && ir_thrown_code.size() == 1);
 
     std::vector args_throwifnot = { ir_thrown_code[0], ir_cond[0] };
-    gen_op_call(code, TypeDataVoid::create(), v, std::move(args_throwifnot), lookup_function("__throw_ifnot"), "(throw-call)");
+    code.add_call(v, {}, std::move(args_throwifnot), lookup_function("__throw_ifnot"));
 
   } else {
     // weird case: `assert(cond) throw fn()`, fn may throw or produce side effects, call it if `!cond`
     std::vector ir_cond = pre_compile_expr(v->get_cond(), code);
-    Op& if_op = code.emplace_back(v, Op::_If, ir_cond);
+    Op& if_op = code.add_if_else(v, ir_cond);
     code.push_set_cur(if_op.block0);
     code.close_pop_cur(v);
     code.push_set_cur(if_op.block1);
     std::vector ir_thrown_code = pre_compile_expr(v->get_thrown_code(), code);
-    code.emplace_back(v, Op::_Call, std::vector<var_idx_t>{}, ir_thrown_code, lookup_function("__throw")).set_impure_flag();
+    code.add_call(v, {}, ir_thrown_code, lookup_function("__throw"));
     code.close_pop_cur(v);
   }
 }
@@ -1952,7 +1939,7 @@ static void process_catch_variable(AnyExprV v_catch_var, CodeBlob& code) {
 
 static void process_try_catch_statement(V<ast_try_catch_statement> v, CodeBlob& code) {
   code.require_callxargs = true;
-  Op& try_catch_op = code.emplace_back(v, Op::_TryCatch);
+  Op& try_catch_op = code.add_try_catch(v);
   code.push_set_cur(try_catch_op.block0);
   process_any_statement(v->get_try_body(), code);
   code.close_pop_cur(v->get_try_body());
@@ -1970,7 +1957,7 @@ static void process_try_catch_statement(V<ast_try_catch_statement> v, CodeBlob& 
 
 static void process_repeat_statement(V<ast_repeat_statement> v, CodeBlob& code) {
   std::vector tmp_vars = pre_compile_expr(v->get_cond(), code, nullptr);
-  Op& repeat_op = code.emplace_back(v, Op::_Repeat, tmp_vars);
+  Op& repeat_op = code.add_repeat_loop(v, tmp_vars);
   code.push_set_cur(repeat_op.block0);
   process_any_statement(v->get_body(), code);
   code.close_pop_cur(v->get_body());
@@ -1989,17 +1976,17 @@ static void process_if_statement(V<ast_if_statement> v, CodeBlob& code) {
     return;
   }
 
-  Op& if_op = code.emplace_back(v, Op::_If, std::move(ir_cond));
+  Op& if_op = code.add_if_else(v, std::move(ir_cond));
   code.push_set_cur(if_op.block0);
   process_any_statement(v->get_if_body(), code);
   if (v == stmt_before_immediate_return) {
-    code.emplace_back(v->get_if_body(), Op::_Return);
+    code.add_return(v->get_if_body());
   }
   code.close_pop_cur(v->get_if_body());
   code.push_set_cur(if_op.block1);
   process_any_statement(v->get_else_body(), code);
   if (v == stmt_before_immediate_return) {
-    code.emplace_back(v->get_else_body(), Op::_Return);
+    code.add_return(v->get_else_body());
   }
   code.close_pop_cur(v->get_else_body());
   if (v->is_ifnot) {      // pre-optimized to generate IFNOT instead of IF
@@ -2008,7 +1995,7 @@ static void process_if_statement(V<ast_if_statement> v, CodeBlob& code) {
 }
 
 static void process_do_while_statement(V<ast_do_while_statement> v, CodeBlob& code) {
-  Op& until_op = code.emplace_back(v, Op::_Until);
+  Op& until_op = code.add_until_loop(v);
   code.push_set_cur(until_op.block0);
   process_any_statement(v->get_body(), code);
 
@@ -2020,13 +2007,13 @@ static void process_do_while_statement(V<ast_do_while_statement> v, CodeBlob& co
   // optimizations like `while (a > 0)` -> `until (!(a > 0))` -> `until (a < 1)` are implemented as peephole
   FunctionPtr f_not = cond->inferred_type->equal_to(TypeDataBool::create()) ? lookup_function("!b_") : lookup_function("!_");
   std::vector ir_until = code.create_tmp_var(TypeDataInt::create(), cond, "(until-cond)");
-  code.emplace_back(cond, Op::_Call, ir_until, std::move(ir_cond), f_not);
+  code.add_call(cond, ir_until, std::move(ir_cond), f_not);
   until_op.left = std::move(ir_until);
   code.close_pop_cur(v->get_body());
 }
 
 static void process_while_statement(V<ast_while_statement> v, CodeBlob& code) {
-  Op& while_op = code.emplace_back(v, Op::_While);
+  Op& while_op = code.add_while_loop(v);
   code.push_set_cur(while_op.block0);
   while_op.left = pre_compile_expr(v->get_cond(), code, nullptr);
   tolk_assert(while_op.left.size() == 1);
@@ -2038,15 +2025,13 @@ static void process_while_statement(V<ast_while_statement> v, CodeBlob& code) {
 
 static void process_throw_statement(V<ast_throw_statement> v, CodeBlob& code) {
   if (v->has_thrown_arg()) {
-    FunctionPtr builtin_sym = lookup_function("__throw_arg");
     // evaluate `throw (code, arg)` in ltr, in case evaluation throws an exception
     std::vector args_vars = pre_compile_tensor(code, {v->get_thrown_code(), v->get_thrown_arg()}, nullptr, {TypeDataInt::create(), TypeDataUnknown::create()});
     args_vars = {args_vars[1], args_vars[0]};   // but reverse them on a stack to match TVM order
-    gen_op_call(code, TypeDataVoid::create(), v, std::move(args_vars), builtin_sym, "(throw-call)");
+    code.add_call(v, {}, std::move(args_vars), lookup_function("__throw_arg"));
   } else {
-    FunctionPtr builtin_sym = lookup_function("__throw");
     std::vector args_vars = pre_compile_tensor(code, {v->get_thrown_code()});
-    gen_op_call(code, TypeDataVoid::create(), v, std::move(args_vars), builtin_sym, "(throw-call)");
+    code.add_call(v, {}, std::move(args_vars), lookup_function("__throw"));
   }
 }
 
@@ -2076,9 +2061,9 @@ static void process_return_statement(V<ast_return_statement> v, CodeBlob& code) 
 
   // if fun_ref is called and inlined into a parent, assign a result instead of generating a return statement
   if (code.inline_rvect_out) {
-    code.emplace_back(v, Op::_Let, *code.inline_rvect_out, std::move(return_vars));
+    code.add_let(v, *code.inline_rvect_out, std::move(return_vars));
   } else {
-    code.emplace_back(v, Op::_Return, std::move(return_vars));
+    code.add_return(v, std::move(return_vars));
   }
 }
 
@@ -2095,7 +2080,7 @@ static void append_implicit_return_statement(CodeBlob& code) {
       }
     }
   }
-  code.emplace_back(code.fun_ref->ident_anchor, Op::_Return, std::move(mutated_vars));
+  code.add_return(code.fun_ref->ident_anchor, std::move(mutated_vars));
 }
 
 
@@ -2143,7 +2128,7 @@ static void convert_function_body_to_CodeBlob(FunctionPtr fun_ref, FunctionBodyC
     rvect_import.insert(rvect_import.end(), ir_param.begin(), ir_param.end());
     param_i.mutate()->assign_ir_idx(std::move(ir_param));
   }
-  blob->emplace_back(fun_ref->ident_anchor, Op::_Import, rvect_import);
+  blob->add_import_fun_params(fun_ref->ident_anchor, rvect_import);
   blob->in_var_cnt = blob->var_cnt;
   tolk_assert(blob->var_cnt == total_arg_width);
 

@@ -1628,10 +1628,10 @@ void define_builtins() {
                                 0);
   define_builtin_func("__InMessage.originalForwardFee", ParamsInt2, Int, nullptr,
                                 compile_calc_InMessage_originalForwardFee,
-                                0);
+                                FunctionData::flagMarkedAsPure);
   define_builtin_func("__InMessage.getInMsgParam", ParamsInt1, Int, nullptr,
                                 compile_calc_InMessage_getInMsgParam,
-                                0);
+                                FunctionData::flagMarkedAsPure);
   define_builtin_method("builder.__storeVarInt", Builder, {Builder, Int, Int, Bool}, Unit, nullptr,
                                 compile_store_varint,   // not exposed to stdlib, used in auto-serialization
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf);
@@ -1641,7 +1641,7 @@ void define_builtins() {
                                 {}, {1, 0});
   define_builtin_func("__condsel", ParamsInt3, Int, nullptr,
                               compile_ternary_as_condsel,
-                                0);
+                                FunctionData::flagMarkedAsPure);
 
   // compile-time only functions, evaluated essentially at compile-time, no runtime implementation
   // they are placed in stdlib and marked as `builtin`
@@ -1852,10 +1852,10 @@ void define_builtins() {
 
   define_builtin_func("createMessage", {CreateMessageOptions}, OutMessage, declTBody,
                                 generate_createMessage,
-                                FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
   define_builtin_func("createExternalLogMessage", {CreateExternalLogMessageOptions}, OutMessage, declTBody,
                                 generate_createExternalLogMessage,
-                                FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("AutoDeployAddress.buildAddress", AutoDeployAddress, {AutoDeployAddress}, Builder, nullptr,
                                 generate_AutoDeployAddress_buildAddress,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
@@ -1962,35 +1962,35 @@ void define_builtins() {
   TypePtr LookupSliceFound = TypeDataTensor::create({TypeDataSlice::create(), TypeDataInt::create()});
 
   define_builtin_func("__dict.get", {KeySliceOrInt, PlainDict, TypeDataInt::create()}, LookupSliceFound, nullptr,
-                                  compile_dict_get, 0);
+                                  compile_dict_get, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.getMin", {PlainDict}, TypeDataTensor::create({ValueSlice, KeySliceOrInt, ValueFound}), nullptr,
-                                  compile_dict_getMin, 0);
+                                  compile_dict_getMin, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.getMax", {PlainDict}, TypeDataTensor::create({ValueSlice, KeySliceOrInt, ValueFound}), nullptr,
-                                  compile_dict_getMax, 0);
+                                  compile_dict_getMax, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.getNext", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_getNext, 0);
+                                  compile_dict_getNext, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.getNextEq", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_getNextEq, 0);
+                                  compile_dict_getNextEq, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.getPrev", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_getPrev, 0);
+                                  compile_dict_getPrev, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.getPrevEq", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_getPrevEq, 0);
+                                  compile_dict_getPrevEq, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.set", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, PlainDict, nullptr,
-                                  compile_dict_set, 0);
+                                  compile_dict_set, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.setGet", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, LookupSliceFound}), nullptr,
-                                  compile_dict_setGet, 0);
+                                  compile_dict_setGet, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.replace", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_replace, 0);
+                                  compile_dict_replace, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.replaceGet", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, LookupSliceFound}), nullptr,
-                                  compile_dict_replaceGet, 0);
+                                  compile_dict_replaceGet, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.add", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_add, 0);
+                                  compile_dict_add, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.addGet", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, LookupSliceFound}), nullptr,
-                                  compile_dict_addGet, 0);
+                                  compile_dict_addGet, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.del", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_del, 0);
+                                  compile_dict_del, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.delGet", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, LookupSliceFound}), nullptr,
-                                  compile_dict_delGet, 0);
+                                  compile_dict_delGet, FunctionData::flagMarkedAsPure);
 }
 
 // there are some built-in functions that operate on types declared in stdlib (like Cell<T>)

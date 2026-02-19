@@ -235,8 +235,17 @@ struct OpList {
   const std::unique_ptr<Op>& operator[](size_t i) const { return list[i]; }
   const std::unique_ptr<Op>& front() const { return list.front(); }
   std::unique_ptr<Op>& back() { return list.back(); }
-  void push_back(std::unique_ptr<Op> op) { list.push_back(std::move(op)); }
   void clear() { list.clear(); }
+
+  Op& push_back(std::unique_ptr<Op> op) {
+    list.push_back(std::move(op));
+    return *list.back();
+  }
+  template<typename... Args>
+  Op& push_back(Args&&... args) {
+    list.push_back(std::make_unique<Op>(std::forward<Args>(args)...));
+    return *list.back();
+  }
 
   using iterator = std::vector<std::unique_ptr<Op>>::iterator;
   using const_iterator = std::vector<std::unique_ptr<Op>>::const_iterator;
@@ -298,41 +307,13 @@ struct Op {
   OpList block0, block1;
   td::RefInt256 int_const;
   std::string str_const;
-  Op(AnyV origin, OpKind cl) : cl(cl), flags(0), origin(origin) {
+  Op(AnyV origin, OpKind cl, std::vector<var_idx_t> left = {}) : cl(cl), flags(0), origin(origin), left(std::move(left)) {
   }
-  Op(AnyV origin, OpKind cl, const std::vector<var_idx_t>& left)
-      : cl(cl), flags(0), origin(origin), left(left) {
-  }
-  Op(AnyV origin, OpKind cl, std::vector<var_idx_t>&& left)
-      : cl(cl), flags(0), origin(origin), left(std::move(left)) {
-  }
-  Op(AnyV origin, OpKind cl, const std::vector<var_idx_t>& left, td::RefInt256 int_const)
-      : cl(cl), flags(0), origin(origin), left(left), int_const(std::move(int_const)) {
-  }
-  Op(AnyV origin, OpKind cl, const std::vector<var_idx_t>& left, std::string str_const)
-      : cl(cl), flags(0), origin(origin), left(left), str_const(std::move(str_const)) {
-  }
-  Op(AnyV origin, OpKind cl, const std::vector<var_idx_t>& left, const std::vector<var_idx_t>& right)
-      : cl(cl), flags(0), origin(origin), left(left), right(right) {
-  }
-  Op(AnyV origin, OpKind cl, std::vector<var_idx_t>&& left, std::vector<var_idx_t>&& right)
-      : cl(cl), flags(0), origin(origin), left(std::move(left)), right(std::move(right)) {
-  }
-  Op(AnyV origin, OpKind cl, const std::vector<var_idx_t>& left, const std::vector<var_idx_t>& right,
-     FunctionPtr _fun)
-      : cl(cl), flags(0), f_sym(_fun), origin(origin), left(left), right(right) {
-  }
-  Op(AnyV origin, OpKind cl, std::vector<var_idx_t>&& left, std::vector<var_idx_t>&& right,
-     FunctionPtr fun_ref)
-      : cl(cl), flags(0), f_sym(fun_ref), origin(origin), left(std::move(left)), right(std::move(right)) {
-  }
-  Op(AnyV origin, OpKind cl, const std::vector<var_idx_t>& left, const std::vector<var_idx_t>& right,
-     GlobalVarPtr glob_ref)
-      : cl(cl), flags(0), g_sym(glob_ref), origin(origin), left(left), right(right) {
-  }
-  Op(AnyV origin, OpKind cl, std::vector<var_idx_t>&& left, std::vector<var_idx_t>&& right,
-     GlobalVarPtr _gvar)
-      : cl(cl), flags(0), g_sym(_gvar), origin(origin), left(std::move(left)), right(std::move(right)) {
+
+  static std::unique_ptr<Op> make_let(AnyV origin, std::vector<var_idx_t> dst, std::vector<var_idx_t> src) {
+    auto op = std::make_unique<Op>(origin, _Let, std::move(dst));
+    op->right = std::move(src);
+    return op;
   }
 
   bool disabled() const { return flags & _Disabled; }
@@ -975,10 +956,77 @@ struct CodeBlob {
   explicit CodeBlob(FunctionPtr fun_ref)
     : var_cnt(0), in_var_cnt(0), fun_ref(fun_ref), cur_ops(&ops) {
   }
-  template <typename... Args>
-  Op& emplace_back(Args&&... args) {
-    cur_ops->push_back(std::make_unique<Op>(args...));
-    return *cur_ops->back();
+  void add_call(AnyV origin, std::vector<var_idx_t> ret, std::vector<var_idx_t> args, FunctionPtr called_f,
+                bool arg_order_already_equals_asm = false) {
+    Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_Call, std::move(ret)));
+    op.right = std::move(args);
+    op.f_sym = called_f;
+    if (!called_f->is_marked_as_pure()) op.set_impure_flag();
+    if (arg_order_already_equals_asm) op.set_arg_order_already_equals_asm_flag();
+  }
+  void add_indirect_invoke(AnyV origin, std::vector<var_idx_t> ret, std::vector<var_idx_t> args) {
+    Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_CallInd, std::move(ret)));
+    op.right = std::move(args);
+    op.set_impure_flag();
+  }
+  void add_let(AnyV origin, std::vector<var_idx_t> dst, std::vector<var_idx_t> src) {
+    Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_Let, std::move(dst)));
+    op.right = std::move(src);
+  }
+  void add_int_const(AnyV origin, std::vector<var_idx_t> dst, td::RefInt256 value) {
+    Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_IntConst, std::move(dst)));
+    op.int_const = std::move(value);
+  }
+  void add_slice_const(AnyV origin, std::vector<var_idx_t> dst, std::string hex) {
+    Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_SliceConst, std::move(dst)));
+    op.str_const = std::move(hex);
+  }
+  void add_string_const(AnyV origin, std::vector<var_idx_t> dst, std::string value) {
+    Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_SnakeStringConst, std::move(dst)));
+    op.str_const = std::move(value);
+  }
+  void add_read_glob_var(AnyV origin, std::vector<var_idx_t> dst, GlobalVarPtr g) {
+    Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_GlobVar, std::move(dst)));
+    op.g_sym = g;
+  }
+  void add_read_glob_var(AnyV origin, std::vector<var_idx_t> dst, FunctionPtr f) {
+    Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_GlobVar, std::move(dst)));
+    op.f_sym = f;
+  }
+  void add_set_glob_var(AnyV origin, std::vector<var_idx_t> src, GlobalVarPtr g) {
+    Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_SetGlob));
+    op.right = std::move(src);
+    op.g_sym = g;
+    op.set_impure_flag();
+  }
+  void add_import_fun_params(AnyV origin, std::vector<var_idx_t> ir_params) {
+    cur_ops->push_back(std::make_unique<Op>(origin, Op::_Import, std::move(ir_params)));
+  }
+  void add_return(AnyV origin, std::vector<var_idx_t> ir_return = {}) {
+    cur_ops->push_back(std::make_unique<Op>(origin, Op::_Return, std::move(ir_return)));
+  }
+  void add_to_tuple(AnyV origin, std::vector<var_idx_t> dst, std::vector<var_idx_t> src) {
+    Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_Tuple, std::move(dst)));
+    op.right = std::move(src);
+  }
+  void add_un_tuple(AnyV origin, std::vector<var_idx_t> dst, std::vector<var_idx_t> src) {
+    Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_UnTuple, std::move(dst)));
+    op.right = std::move(src);
+  }
+  Op& add_if_else(AnyV origin, std::vector<var_idx_t> cond) {
+    return cur_ops->push_back(std::make_unique<Op>(origin, Op::_If, std::move(cond)));
+  }
+  Op& add_while_loop(AnyV origin) {
+    return cur_ops->push_back(std::make_unique<Op>(origin, Op::_While));
+  }
+  Op& add_until_loop(AnyV origin) {
+    return cur_ops->push_back(std::make_unique<Op>(origin, Op::_Until));
+  }
+  Op& add_repeat_loop(AnyV origin, std::vector<var_idx_t> count) {
+    return cur_ops->push_back(std::make_unique<Op>(origin, Op::_Repeat, std::move(count)));
+  }
+  Op& add_try_catch(AnyV origin) {
+    return cur_ops->push_back(std::make_unique<Op>(origin, Op::_TryCatch));
   }
   std::vector<var_idx_t> create_var(TypePtr var_type, AnyV origin, std::string name);
   std::vector<var_idx_t> create_tmp_var(TypePtr var_type, AnyV origin, const char* purpose) {
