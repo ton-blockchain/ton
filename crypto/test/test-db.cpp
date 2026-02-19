@@ -71,7 +71,7 @@ class ActorExecutor : public vm::DynamicBagOfCellsDb::AsyncExecutor {
     thread_ = td::thread([this]() { scheduler_.run(); });
   }
   ~ActorExecutor() {
-    scheduler_.run_in_context_external([&] { send_closure(worker_, &Worker::close); });
+    scheduler_.run_in_context([&] { send_closure(worker_, &Worker::close); });
     thread_.join();
   }
   std::string describe() const override {
@@ -105,8 +105,7 @@ class ActorExecutor : public vm::DynamicBagOfCellsDb::AsyncExecutor {
     if (context) {
       td::actor::create_actor<Runner>("executeasync", std::move(f)).release();
     } else {
-      scheduler_.run_in_context_external(
-          [&] { td::actor::create_actor<Runner>("executeasync", std::move(f)).release(); });
+      scheduler_.run_in_context([&] { td::actor::create_actor<Runner>("executeasync", std::move(f)).release(); });
     }
   }
 
@@ -115,8 +114,7 @@ class ActorExecutor : public vm::DynamicBagOfCellsDb::AsyncExecutor {
     if (context) {
       td::actor::send_closure(worker_, &Worker::execute_sync, std::move(f));
     } else {
-      scheduler_.run_in_context_external(
-          [&] { td::actor::send_closure(worker_, &Worker::execute_sync, std::move(f)); });
+      scheduler_.run_in_context([&] { td::actor::send_closure(worker_, &Worker::execute_sync, std::move(f)); });
     }
   }
 
