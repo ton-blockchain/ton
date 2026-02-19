@@ -168,8 +168,8 @@ class Scheduler {
   }
 
   template <class F>
-  void run_in_context(F &&f) {
-    schedulers_[0]->run_in_context(std::forward<F>(f));
+  auto run_in_context(F &&f) {
+    return schedulers_[0]->run_in_context(std::forward<F>(f));
   }
 
   void stop() {
