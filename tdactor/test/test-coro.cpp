@@ -650,6 +650,16 @@ class CoroSpec final : public td::actor::Actor {
       LOG(ERROR) << "all() error handling test passed";
     }
 
+    // Regression: all_wrap(Result, Result) must compile and keep errors wrapped
+    {
+      auto tuple = co_await all_wrap(td::Result<int>(11), td::Result<int>(td::Status::Error("wrapped result error")));
+      auto first = std::move(std::get<0>(tuple));
+      auto second = std::move(std::get<1>(tuple));
+      expect_true(first.is_ok(), "all_wrap(Result, Result) keeps first result");
+      expect_eq(11, first.move_as_ok(), "all_wrap(Result, Result) keeps ok value");
+      expect_true(second.is_error(), "all_wrap(Result, Result) keeps second error");
+    }
+
     // Test collect_results with all successful tasks
     {
       auto task1 = []() -> Task<int> { co_return 1; };
@@ -730,59 +740,78 @@ class CoroSpec final : public td::actor::Actor {
       expect_true(result.is_error(), "try_unwrap() propagates error from StartedTask");
     }
 
-    // Test explicit child(...) wrapper for StartedTask
+    // Test explicit .child() wrapper for StartedTask
     {
       auto ok_task = []() -> Task<int> { co_return 777; };
       auto outer = [ok_task]() -> Task<int> {
         auto started = ok_task().start_in_parent_scope();
-        co_return co_await child(std::move(started));
+        co_return co_await std::move(started).child();
       }();
       auto result = co_await std::move(outer).wrap();
-      expect_true(result.is_ok(), "child(...) unwraps value from child StartedTask");
-      expect_eq(result.move_as_ok(), 777, "child(...) returns correct value");
+      expect_true(result.is_ok(), ".child() unwraps value from child StartedTask");
+      expect_eq(result.move_as_ok(), 777, ".child() returns correct value");
     }
 
-    // Test child(...).trace(...) path
+    // Test .child().trace(...) path
     {
       auto err_task = []() -> Task<int> { co_return td::Status::Error("child trace test"); };
       auto outer = [err_task]() -> Task<int> {
         auto started = err_task().start_in_parent_scope();
-        co_return co_await child(std::move(started)).trace("child trace context");
+        co_return co_await std::move(started).child().trace("child trace context");
       }();
       auto result = co_await std::move(outer).wrap();
-      expect_true(result.is_error(), "child(...).trace(...) propagates error");
+      expect_true(result.is_error(), ".child().trace(...) propagates error");
       auto msg = result.error().message().str();
-      expect_true(msg.find("child trace context") != std::string::npos, "child(...).trace(...) adds context");
+      expect_true(msg.find("child trace context") != std::string::npos, ".child().trace(...) adds context");
     }
 
-    // Test explicit unlinked(...) wrapper for StartedTask
+    // Test explicit .unlinked() wrapper for StartedTask
     {
       auto ok_task = []() -> Task<int> { co_return 888; };
       auto started = ok_task().start_immediate_without_scope();
-      int v = co_await unlinked(std::move(started));
-      expect_eq(v, 888, "unlinked(...) unwraps value from StartedTask");
+      int v = co_await std::move(started).unlinked();
+      expect_eq(v, 888, ".unlinked() unwraps value from StartedTask");
     }
 
-    // Test unlinked(...).wrap(...) path
+    // Test .unlinked().wrap(...) path
     {
       auto err_task = []() -> Task<int> { co_return td::Status::Error("unlinked wrap test"); };
       auto started = err_task().start_immediate_without_scope();
-      auto result = co_await unlinked(std::move(started)).wrap();
-      expect_true(result.is_error(), "unlinked(...).wrap(...) returns error Result");
+      auto result = co_await std::move(started).unlinked().wrap();
+      expect_true(result.is_error(), ".unlinked().wrap(...) returns error Result");
     }
 
-    // child(Task) is identity helper
+    // Test trace+wrap mode: trace().wrap()
+    {
+      auto err_task = []() -> Task<int> { co_return td::Status::Error("trace wrap test 1"); };
+      auto started = err_task().start_in_parent_scope();
+      auto result = co_await std::move(started).child().trace("trace wrap context 1").wrap();
+      expect_true(result.is_error(), "trace().wrap() returns error Result");
+      auto msg = result.error().message().str();
+      expect_true(msg.find("trace wrap context 1") != std::string::npos, "trace().wrap() adds trace context");
+    }
+
+    // Test trace+wrap mode: wrap().trace()
+    {
+      auto err_task = []() -> Task<int> { co_return td::Status::Error("trace wrap test 2"); };
+      auto result = co_await err_task().unlinked().wrap().trace("trace wrap context 2");
+      expect_true(result.is_error(), "wrap().trace() returns error Result");
+      auto msg = result.error().message().str();
+      expect_true(msg.find("trace wrap context 2") != std::string::npos, "wrap().trace() adds trace context");
+    }
+
+    // Task.child() preserves Task await semantics
     {
       auto ok_task = []() -> Task<int> { co_return 321; };
-      int v = co_await child(ok_task());
-      expect_eq(v, 321, "child(Task) preserves normal Task await semantics");
+      int v = co_await ok_task().child();
+      expect_eq(v, 321, "Task.child() preserves normal Task await semantics");
     }
 
-    // unlinked(Task) starts without parent scope and awaits as unlinked StartedTask
+    // Task.unlinked() awaits without parent scope
     {
       auto ok_task = []() -> Task<int> { co_return 654; };
-      int v = co_await unlinked(ok_task());
-      expect_eq(v, 654, "unlinked(Task) unwraps value");
+      int v = co_await ok_task().unlinked();
+      expect_eq(v, 654, "Task.unlinked() unwraps value");
     }
 
     // Test co_try() with Result<T> values (non-awaitable)

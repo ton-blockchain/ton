@@ -2,6 +2,7 @@
 
 #include <coroutine>
 #include <optional>
+#include <string>
 #include <type_traits>
 #include <utility>
 
@@ -103,21 +104,27 @@ std::coroutine_handle<> await_suspend_wrapped(Body* body, Aw& aw, std::coroutine
   return await_suspend_to(aw, r_handle);
 }
 
-template <class Aw>
-struct TaskUnwrapAwaiter {
+template <class Aw, AwaiterUnwrapMode UnwrapMode, AwaiterTraceMode TraceMode = AwaiterTraceMode::NoTrace>
+struct TaskAwaiter {};
+
+template <class Aw, AwaiterTraceMode TraceMode>
+struct TaskAwaiter<Aw, AwaiterUnwrapMode::Unwrap, TraceMode> {
   using A = std::remove_cvref_t<Aw>;
   using Res = decltype(std::declval<A&>().await_resume());
   using Ok = decltype(std::declval<Res&&>().move_as_ok());
 
-  [[no_unique_address]] A aw;
+  static_assert(TDResultLike<Res>, "unwrap awaiter requires td::Result-like await_resume()");
 
-  using Cache = std::conditional_t<has_peek<Aw>, td::Unit, std::optional<Ok>>;
-  [[no_unique_address]] Cache ok_;
+  [[no_unique_address]] A aw;
+  [[no_unique_address]] std::conditional_t<TraceMode == AwaiterTraceMode::Trace, std::string, td::Unit> trace_text_{};
+
+  using Cache = std::conditional_t<has_peek<A>, td::Unit, std::optional<Ok>>;
+  [[no_unique_address]] Cache ok_{};
 
   bool await_ready() noexcept {
     if (bridge::should_finish_due_to_cancellation_tls())
       return false;
-    if constexpr (has_peek<Aw>) {
+    if constexpr (has_peek<A>) {
       if (aw.await_ready() && !aw.await_resume_peek().is_error()) {
         return true;
       }
@@ -127,17 +134,25 @@ struct TaskUnwrapAwaiter {
 
   template <class OuterPromise>
   std::coroutine_handle<> route_resume(std::coroutine_handle<OuterPromise> h) noexcept {
-    if constexpr (has_peek<Aw>) {
+    auto route_error = [&](auto&& error) -> std::coroutine_handle<> {
+      if constexpr (TraceMode == AwaiterTraceMode::Trace) {
+        return h.promise().route_finish(std::forward<decltype(error)>(error).trace(std::move(trace_text_)));
+      } else {
+        return h.promise().route_finish(std::forward<decltype(error)>(error));
+      }
+    };
+
+    if constexpr (has_peek<A>) {
       const Res& r = aw.await_resume_peek();
       if (r.is_error()) {
         auto rr = aw.await_resume();
-        return h.promise().route_finish(std::move(rr).move_as_error());
+        return route_error(std::move(rr).move_as_error());
       }
       return h.promise().route_resume();
     } else {
       Res r = aw.await_resume();
       if (r.is_error()) {
-        return h.promise().route_finish(std::move(r).move_as_error());
+        return route_error(std::move(r).move_as_error());
       }
       ok_.emplace(std::move(r).move_as_ok());
       return h.promise().route_resume();
@@ -150,7 +165,7 @@ struct TaskUnwrapAwaiter {
   }
 
   Ok await_resume() noexcept {
-    if constexpr (!has_peek<Aw>) {
+    if constexpr (!has_peek<A>) {
       if (ok_) {
         return std::move(*ok_);
       }
@@ -160,12 +175,16 @@ struct TaskUnwrapAwaiter {
   }
 };
 
-template <class Aw>
-struct TaskWrapAwaiter {
+template <class Aw, AwaiterTraceMode TraceMode>
+struct TaskAwaiter<Aw, AwaiterUnwrapMode::Wrap, TraceMode> {
   using A = std::remove_cvref_t<Aw>;
   using Res = decltype(std::declval<A&>().await_resume());
 
+  static_assert(TraceMode != AwaiterTraceMode::Trace || TDResultLike<Res>,
+                "trace() is supported only for td::Result-like awaitables");
+
   [[no_unique_address]] A aw;
+  [[no_unique_address]] std::conditional_t<TraceMode == AwaiterTraceMode::Trace, std::string, td::Unit> trace_text_{};
 
   bool await_ready() noexcept {
     if (bridge::should_finish_due_to_cancellation_tls())
@@ -183,66 +202,19 @@ struct TaskWrapAwaiter {
     return await_suspend_wrapped(this, aw, h);
   }
 
-  Res await_resume() noexcept {
-    return aw.await_resume();
-  }
-};
-
-template <class Aw>
-struct TaskTraceAwaiter {
-  using A = std::remove_cvref_t<Aw>;
-  using Res = decltype(std::declval<A&>().await_resume());
-  using Ok = decltype(std::declval<Res&&>().move_as_ok());
-
-  [[no_unique_address]] A aw;
-  std::string trace;
-
-  using Cache = std::conditional_t<has_peek<Aw>, td::Unit, std::optional<Ok>>;
-  [[no_unique_address]] Cache ok_;
-
-  bool await_ready() noexcept {
-    if (bridge::should_finish_due_to_cancellation_tls())
-      return false;
-    if constexpr (has_peek<Aw>) {
-      if (aw.await_ready() && !aw.await_resume_peek().is_error()) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  template <class OuterPromise>
-  std::coroutine_handle<> route_resume(std::coroutine_handle<OuterPromise> h) noexcept {
-    if constexpr (has_peek<Aw>) {
-      const Res& r = aw.await_resume_peek();
-      if (r.is_error()) {
-        auto rr = aw.await_resume();
-        return h.promise().route_finish(std::move(rr).move_as_error().trace(trace));
-      }
-      return h.promise().route_resume();
+  decltype(auto) await_resume() noexcept {
+    if constexpr (std::is_void_v<Res>) {
+      aw.await_resume();
+      return;
     } else {
       Res r = aw.await_resume();
-      if (r.is_error()) {
-        return h.promise().route_finish(std::move(r).move_as_error().trace(trace));
+      if constexpr (TraceMode == AwaiterTraceMode::Trace) {
+        if (r.is_error()) {
+          return Res{std::move(r).move_as_error().trace(std::move(trace_text_))};
+        }
       }
-      ok_.emplace(std::move(r).move_as_ok());
-      return h.promise().route_resume();
+      return r;
     }
-  }
-
-  template <class OuterPromise>
-  std::coroutine_handle<> await_suspend(std::coroutine_handle<OuterPromise> h) noexcept {
-    return await_suspend_wrapped(this, aw, h);
-  }
-
-  Ok await_resume() noexcept {
-    if constexpr (!has_peek<Aw>) {
-      if (ok_) {
-        return std::move(*ok_);
-      }
-    }
-    Res r = aw.await_resume();
-    return std::move(r).move_as_ok();
   }
 };
 
@@ -306,17 +278,18 @@ struct ResultWrapAwaiter {
 //    as if using co_return error; so `co_await get_error();` is equivalent to `co_return get_error();`.
 template <IsAwaitable Aw>
 [[nodiscard]] auto unwrap_and_resume_on_current(Aw&& aw_) noexcept {
-  return detail::TaskUnwrapAwaiter<Aw>{std::forward<Aw>(aw_), {}};
+  return detail::TaskAwaiter<Aw, AwaiterUnwrapMode::Unwrap>{std::forward<Aw>(aw_)};
 }
 
 template <IsAwaitable Aw>
 [[nodiscard]] auto wrap_and_resume_on_current(Aw&& aw_) noexcept {
-  return detail::TaskWrapAwaiter<Aw>{std::forward<Aw>(aw_)};
+  return detail::TaskAwaiter<Aw, AwaiterUnwrapMode::Wrap>{std::forward<Aw>(aw_)};
 }
 
-template <IsAwaitable Aw>
-[[nodiscard]] auto trace_and_resume_on_current(Aw&& aw_, std::string trace) noexcept {
-  return detail::TaskTraceAwaiter<Aw>{std::forward<Aw>(aw_), std::move(trace), {}};
+template <AwaiterUnwrapMode UnwrapMode, AwaiterTraceMode TraceMode, IsAwaitable Aw>
+[[nodiscard]] auto make_task_awaiter(
+    Aw&& aw_, std::conditional_t<TraceMode == AwaiterTraceMode::Trace, std::string, td::Unit> trace_text) noexcept {
+  return detail::TaskAwaiter<Aw, UnwrapMode, TraceMode>{std::forward<Aw>(aw_), std::move(trace_text)};
 }
 
 template <class T>

@@ -99,6 +99,9 @@ template <class Awaitable>
 using await_result_t =
     decltype(std::declval<Task<td::Unit>::promise_type>().await_transform(std::declval<Awaitable>()).await_resume());
 
+template <class Awaitable>
+using wrap_awaitable_t = decltype(std::declval<Awaitable>().wrap());
+
 template <class... Awaitables, std::enable_if_t<(sizeof...(Awaitables) > 1), int> = 0>
 auto all(Awaitables&&... awaitables) -> Task<std::tuple<await_result_t<Awaitables>...>> {
   co_await become_lightweight();
@@ -106,10 +109,10 @@ auto all(Awaitables&&... awaitables) -> Task<std::tuple<await_result_t<Awaitable
 }
 
 template <class... Awaitables, std::enable_if_t<(sizeof...(Awaitables) > 1), int> = 0>
-auto all_wrap(Awaitables&&... awaitables) -> Task<std::tuple<await_result_t<Wrapped<Awaitables>>...>> {
+auto all_wrap(Awaitables&&... awaitables) -> Task<std::tuple<await_result_t<wrap_awaitable_t<Awaitables>>...>> {
   co_await become_lightweight();
-  co_return std::tuple<await_result_t<Wrapped<Awaitables>>...>{
-      co_await Wrapped{std::forward<Awaitables>(awaitables)}...};
+  co_return std::tuple<await_result_t<wrap_awaitable_t<Awaitables>>...>{
+      co_await std::forward<Awaitables>(awaitables).wrap()...};
 }
 
 template <CoroTask TaskType>
@@ -124,12 +127,12 @@ Task<std::vector<await_result_t<TaskType>>> all(std::vector<TaskType> tasks) {
 }
 
 template <CoroTask TaskType>
-Task<std::vector<await_result_t<Wrapped<TaskType>>>> all_wrap(std::vector<TaskType> tasks) {
+Task<std::vector<await_result_t<wrap_awaitable_t<TaskType>>>> all_wrap(std::vector<TaskType> tasks) {
   co_await become_lightweight();
-  std::vector<await_result_t<Wrapped<TaskType>>> results;
+  std::vector<await_result_t<wrap_awaitable_t<TaskType>>> results;
   results.reserve(tasks.size());
   for (auto& task : tasks) {
-    results.push_back(co_await Wrapped<TaskType>{std::move(task)});
+    results.push_back(co_await std::move(task).wrap());
   }
   co_return results;
 }

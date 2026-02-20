@@ -3,6 +3,7 @@
 #include <concepts>
 #include <coroutine>
 #include <cstdint>
+#include <string>
 #include <type_traits>
 #include <utility>
 
@@ -207,42 +208,50 @@ struct [[nodiscard]] SkipAwaitTransform {
   [[no_unique_address]] T awaitable;
 };
 
-template <class T>
-struct Wrapped {
-  [[no_unique_address]] T value;
-};
+enum class AwaiterLinkMode : uint8_t { Auto, Child, Unlinked };
+enum class AwaiterUnwrapMode : uint8_t { Unwrap, Wrap };
+enum class AwaiterTraceMode : uint8_t { NoTrace, Trace };
 
-template <class T>
-struct Traced {
+template <class T, AwaiterLinkMode LinkMode = AwaiterLinkMode::Auto,
+          AwaiterUnwrapMode UnwrapMode = AwaiterUnwrapMode::Unwrap,
+          AwaiterTraceMode TraceMode = AwaiterTraceMode::NoTrace>
+struct [[nodiscard]] AwaiterOptions {
   [[no_unique_address]] T value;
-  std::string trace;
-};
-
-template <class T>
-struct [[nodiscard]] ChildAwait {
-  [[no_unique_address]] T value;
+  [[no_unique_address]] std::conditional_t<TraceMode == AwaiterTraceMode::Trace, std::string, td::Unit> trace_text_{};
 
   auto wrap() && {
-    return ChildAwait<Wrapped<T>>{Wrapped<T>{std::move(value)}};
+    return std::move(*this).template rebind<LinkMode, AwaiterUnwrapMode::Wrap, TraceMode>(std::move(trace_text_));
+  }
+  auto trace(std::string t) && {
+    return std::move(*this).template rebind<LinkMode, UnwrapMode, AwaiterTraceMode::Trace>(std::move(t));
+  }
+  auto child() && {
+    static_assert(LinkMode != AwaiterLinkMode::Unlinked, "child() can't be used after unlinked()");
+    return std::move(*this).template rebind<AwaiterLinkMode::Child, UnwrapMode, TraceMode>(std::move(trace_text_));
+  }
+  auto unlinked() && {
+    static_assert(LinkMode != AwaiterLinkMode::Child, "unlinked() can't be used after child()");
+    return std::move(*this).template rebind<AwaiterLinkMode::Unlinked, UnwrapMode, TraceMode>(std::move(trace_text_));
   }
 
-  auto trace(std::string t) && {
-    return ChildAwait<Traced<T>>{Traced<T>{std::move(value), std::move(t)}};
+ private:
+  template <AwaiterLinkMode NewLinkMode, AwaiterUnwrapMode NewUnwrapMode, AwaiterTraceMode NewTraceMode, class Trace>
+  auto rebind(Trace&& trace) && {
+    return AwaiterOptions<T, NewLinkMode, NewUnwrapMode, NewTraceMode>{std::move(value), std::forward<Trace>(trace)};
   }
 };
 
 template <class T>
-struct [[nodiscard]] UnlinkedAwait {
-  [[no_unique_address]] T value;
+using Wrapped = AwaiterOptions<T, AwaiterLinkMode::Auto, AwaiterUnwrapMode::Wrap>;
 
-  auto wrap() && {
-    return UnlinkedAwait<Wrapped<T>>{Wrapped<T>{std::move(value)}};
-  }
+template <class T>
+using Traced = AwaiterOptions<T, AwaiterLinkMode::Auto, AwaiterUnwrapMode::Unwrap, AwaiterTraceMode::Trace>;
 
-  auto trace(std::string t) && {
-    return UnlinkedAwait<Traced<T>>{Traced<T>{std::move(value), std::move(t)}};
-  }
-};
+template <class T>
+using ChildAwait = AwaiterOptions<T, AwaiterLinkMode::Child>;
+
+template <class T>
+using UnlinkedAwait = AwaiterOptions<T, AwaiterLinkMode::Unlinked>;
 
 struct [[nodiscard]] Yield {};
 

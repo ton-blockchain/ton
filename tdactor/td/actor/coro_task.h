@@ -336,17 +336,21 @@ struct Task;
 template <class T>
 struct StartedTask;
 
-template <class T>
-[[nodiscard]] Task<T> child(Task<T>&& task);
+namespace detail {
 
 template <class T>
-[[nodiscard]] UnlinkedAwait<StartedTask<T>> unlinked(Task<T>&& task);
+struct IsTaskAwaitable : std::false_type {};
 
 template <class T>
-[[nodiscard]] ChildAwait<StartedTask<T>> child(StartedTask<T>&& task);
+struct IsTaskAwaitable<Task<T>> : std::true_type {};
 
 template <class T>
-[[nodiscard]] UnlinkedAwait<StartedTask<T>> unlinked(StartedTask<T>&& task);
+struct IsTaskAwaitable<StartedTask<T>> : std::true_type {};
+
+template <class T>
+inline constexpr bool IsTaskAwaitableV = IsTaskAwaitable<std::remove_cvref_t<T>>::value;
+
+}  // namespace detail
 
 template <class T>
 struct promise_type : promise_value<td::Result<T>> {
@@ -436,12 +440,7 @@ struct promise_type : promise_value<td::Result<T>> {
   }
   template <class U>
   auto await_transform(td::ResultWrap<U> wrapped) noexcept {
-    return await_transform(Wrapped<Result<U>>{std::move(wrapped.result)});
-  }
-
-  template <class U>
-  auto await_transform(Wrapped<td::Result<U>> wrapped) noexcept {
-    return result_awaiter_wrap(std::move(wrapped.value));
+    return result_awaiter_wrap(std::move(wrapped.result));
   }
 
   template <class U>
@@ -460,44 +459,19 @@ struct promise_type : promise_value<td::Result<T>> {
 
   template <class U>
   auto await_transform(Task<U>&& task) noexcept {
-    return unwrap_and_resume_on_current(
-        std::move(task).start_immediate_in_parent_scope(bridge::make_parent_scope_lease(*this)));
+    return await_transform(AwaiterOptions<Task<U>>{std::move(task)});
   }
   template <class U>
   [[deprecated("co_await StartedTask is legacy; use std::move(task).child() or std::move(task).unlinked()")]]
   auto await_transform(StartedTask<U>&& task) noexcept {
-    debug_check_scoped_started_task_await(task.get_promise());
-    return unwrap_and_resume_on_current(std::move(task));
-  }
-  template <class Aw>
-  auto await_transform(ChildAwait<Aw>&& child_task) noexcept {
-    return await_child_adapter(std::move(child_task.value));
-  }
-  template <class Aw>
-  auto await_transform(UnlinkedAwait<Aw>&& unlinked_task) noexcept {
-    return await_unlinked_adapter(std::move(unlinked_task.value));
+    return await_transform(AwaiterOptions<StartedTask<U>>{std::move(task)});
   }
 
-  template <class U>
-  auto await_transform(Wrapped<Task<U>>&& wrapped) noexcept {
-    return wrap_and_resume_on_current(
-        std::move(wrapped.value).start_immediate_in_parent_scope(bridge::make_parent_scope_lease(*this)));
-  }
-  template <class U>
-  auto await_transform(Wrapped<StartedTask<U>>&& wrapped) noexcept {
-    debug_check_scoped_started_task_await(wrapped.value.get_promise());
-    return wrap_and_resume_on_current(std::move(wrapped.value));
-  }
-
-  template <class U>
-  auto await_transform(Traced<Task<U>>&& traced) noexcept {
-    return trace_and_resume_on_current(
-        std::move(traced.value).start_immediate_in_parent_scope(bridge::make_parent_scope_lease(*this)),
-        std::move(traced.trace));
-  }
-  template <class U>
-  auto await_transform(Traced<StartedTask<U>>&& traced) noexcept {
-    return trace_and_resume_on_current(std::move(traced.value), std::move(traced.trace));
+  template <class Aw, AwaiterLinkMode LinkMode, AwaiterUnwrapMode UnwrapMode, AwaiterTraceMode TraceMode>
+    requires(detail::IsTaskAwaitableV<Aw>)
+  auto await_transform(AwaiterOptions<Aw, LinkMode, UnwrapMode, TraceMode>&& options) noexcept {
+    auto started = normalize_task_awaitable<LinkMode>(std::move(options.value));
+    return make_task_awaiter<UnwrapMode, TraceMode>(std::move(started), std::move(options.trace_text_));
   }
 
   template <class Aw>
@@ -550,7 +524,7 @@ struct promise_type : promise_value<td::Result<T>> {
     return IgnoreCancellationAwaiter{this};
   }
 
-  // API used by TaskWrapAwaiter and TaskUnwrapAwaiter
+  // API used by TaskAwaiter specializations
   bool is_immediate_execution_always_allowed() const noexcept {
     return this->state_manager_data.executor.is_immediate_execution_always_allowed();
   }
@@ -584,37 +558,23 @@ struct promise_type : promise_value<td::Result<T>> {
   }
 
  private:
-  template <class U>
-  auto await_child_adapter(StartedTask<U>&& task) noexcept {
-    check_child_started_task_await(task);
-    return unwrap_and_resume_on_current(std::move(task));
+  template <AwaiterLinkMode LinkMode, class U>
+  auto normalize_task_awaitable(Task<U>&& task) noexcept {
+    if constexpr (LinkMode == AwaiterLinkMode::Unlinked) {
+      return std::move(task).start_immediate_without_scope();
+    } else {
+      return std::move(task).start_immediate_in_parent_scope(bridge::make_parent_scope_lease(*this));
+    }
   }
 
-  template <class U>
-  auto await_child_adapter(Wrapped<StartedTask<U>>&& wrapped) noexcept {
-    check_child_started_task_await(wrapped.value);
-    return wrap_and_resume_on_current(std::move(wrapped.value));
-  }
-
-  template <class U>
-  auto await_child_adapter(Traced<StartedTask<U>>&& traced) noexcept {
-    check_child_started_task_await(traced.value);
-    return trace_and_resume_on_current(std::move(traced.value), std::move(traced.trace));
-  }
-
-  template <class U>
-  auto await_unlinked_adapter(StartedTask<U>&& task) noexcept {
-    return unwrap_and_resume_on_current(std::move(task));
-  }
-
-  template <class U>
-  auto await_unlinked_adapter(Wrapped<StartedTask<U>>&& wrapped) noexcept {
-    return wrap_and_resume_on_current(std::move(wrapped.value));
-  }
-
-  template <class U>
-  auto await_unlinked_adapter(Traced<StartedTask<U>>&& traced) noexcept {
-    return trace_and_resume_on_current(std::move(traced.value), std::move(traced.trace));
+  template <AwaiterLinkMode LinkMode, class U>
+  auto normalize_task_awaitable(StartedTask<U>&& task) noexcept {
+    if constexpr (LinkMode == AwaiterLinkMode::Child) {
+      check_child_started_task_await(task);
+    } else if constexpr (LinkMode == AwaiterLinkMode::Auto) {
+      debug_check_scoped_started_task_await(task.get_promise());
+    }
+    return std::move(task);
   }
 
   template <class U>
@@ -824,11 +784,11 @@ struct [[nodiscard]] Task {
   }
 
   auto child() && {
-    return std::move(*this);
+    return ChildAwait<Task>{std::move(*this)};
   }
 
   auto unlinked() && {
-    return UnlinkedAwait<StartedTask<T>>{std::move(*this).start_immediate_without_scope()};
+    return UnlinkedAwait<Task>{std::move(*this)};
   }
 };
 
@@ -994,26 +954,6 @@ struct [[nodiscard]] StartedTask {
     return std::make_pair(std::move(started_task), std::move(bridge_promise));
   }
 };
-
-template <class T>
-[[nodiscard]] Task<T> child(Task<T>&& task) {
-  return std::move(task).child();
-}
-
-template <class T>
-[[nodiscard]] ChildAwait<StartedTask<T>> child(StartedTask<T>&& task) {
-  return std::move(task).child();
-}
-
-template <class T>
-[[nodiscard]] UnlinkedAwait<StartedTask<T>> unlinked(Task<T>&& task) {
-  return std::move(task).unlinked();
-}
-
-template <class T>
-[[nodiscard]] UnlinkedAwait<StartedTask<T>> unlinked(StartedTask<T>&& task) {
-  return std::move(task).unlinked();
-}
 
 class TaskCancellationSource {
  public:
