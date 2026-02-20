@@ -34,6 +34,11 @@ class MetricCollectorImpl : public runtime::SpawnsWith<Bus>, public runtime::Con
   }
 
   template <>
+  void handle(BusHandle, std::shared_ptr<const StopRequested>) {
+    stop();
+  }
+
+  template <>
   void handle(BusHandle, std::shared_ptr<const TraceEvent> event) {
     auto ev = event->event.get();
     using consensus::stats::CollectibleEvent;
