@@ -146,6 +146,9 @@ struct ParentLink {
   bool has_parent() const {
     return parent_.load(std::memory_order_acquire) != nullptr;
   }
+  bool is_parent(const promise_common* parent) const {
+    return parent_.load(std::memory_order_acquire) == parent;
+  }
 
  private:
   std::atomic<promise_common*> parent_{nullptr};
@@ -270,6 +273,10 @@ struct CancellationRuntime {
 
   bool has_parent_scope() const {
     return parent_link_.has_parent();
+  }
+
+  bool is_parent(const promise_common* parent) const {
+    return parent_link_.is_parent(parent);
   }
 
   void notify_parent_child_completed() {

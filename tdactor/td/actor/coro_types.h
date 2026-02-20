@@ -218,6 +218,32 @@ struct Traced {
   std::string trace;
 };
 
+template <class T>
+struct [[nodiscard]] ChildAwait {
+  [[no_unique_address]] T value;
+
+  auto wrap() && {
+    return ChildAwait<Wrapped<T>>{Wrapped<T>{std::move(value)}};
+  }
+
+  auto trace(std::string t) && {
+    return ChildAwait<Traced<T>>{Traced<T>{std::move(value), std::move(t)}};
+  }
+};
+
+template <class T>
+struct [[nodiscard]] UnlinkedAwait {
+  [[no_unique_address]] T value;
+
+  auto wrap() && {
+    return UnlinkedAwait<Wrapped<T>>{Wrapped<T>{std::move(value)}};
+  }
+
+  auto trace(std::string t) && {
+    return UnlinkedAwait<Traced<T>>{Traced<T>{std::move(value), std::move(t)}};
+  }
+};
+
 struct [[nodiscard]] Yield {};
 
 }  // namespace td::actor
