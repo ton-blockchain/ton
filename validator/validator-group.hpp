@@ -55,6 +55,8 @@ class IValidatorGroup : public td::actor::Actor {
       td::actor::ActorId<CollationManager> collation_manager, bool create_session, bool allow_unsafe_self_blocks_resync,
       td::Ref<ValidatorManagerOptions> opts, bool monitoring_shard);
 
+  static td::actor::Task<> cleanup_old_consensus_db(td::Ref<MasterchainState> mc_state, std::string db_root);
+
   virtual void start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id) = 0;
   virtual void create_session() = 0;
 
