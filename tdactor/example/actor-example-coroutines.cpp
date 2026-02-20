@@ -81,7 +81,7 @@ Task<td::Unit> example_communicate() {
   CHECK(289 == (co_await std::move(value6)));
   StartedTask<int> value7 = ask(worker, &Worker::square_promise, 17);
   CHECK(289 == (co_await std::move(value7)));
-  StartedTask<int> value8 = ask(worker, &Worker::square_task, 17);
+  Task<int> value8 = ask(worker, &Worker::square_task, 17);
   CHECK(289 == (co_await std::move(value8)));
   co_return td::Unit();
 }

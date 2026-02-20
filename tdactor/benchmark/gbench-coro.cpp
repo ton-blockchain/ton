@@ -715,10 +715,10 @@ static void BM_Ask(benchmark::State& state) {
             switch (method) {
               case AskMethod::Task:
               case AskMethod::TaskWrap:
-                tasks.emplace_back(ask(actors[i], &BenchActor::compute_task, 42 + i));
+                tasks.emplace_back(ask(actors[i], &BenchActor::compute_task, 42 + i).start_in_parent_scope());
                 break;
               case AskMethod::TaskNew:
-                tasks.emplace_back(ask_new(actors[i], &BenchActor::compute_task, 42 + i));
+                tasks.emplace_back(ask_new(actors[i], &BenchActor::compute_task, 42 + i).start_in_parent_scope());
                 break;
               case AskMethod::Promise:
                 tasks.emplace_back(ask(actors[i], &BenchActor::compute_promise, 42 + i));
@@ -1123,7 +1123,7 @@ static void BM_PubSubConcurrent(benchmark::State& state) {
       std::vector<StartedTask<int>> tasks;
       tasks.reserve(num_publishers);
       for (auto& pub : publishers) {
-        tasks.emplace_back(ask(pub, &Publisher::produce, messages_per_publisher));
+        tasks.emplace_back(ask(pub, &Publisher::produce, messages_per_publisher).start_in_parent_scope());
       }
 
       int delivered_sum = 0;
@@ -1174,7 +1174,7 @@ static void BM_ConcurrentAsks(benchmark::State& state) {
       tasks.reserve(num_actors);
 
       for (auto& actor : actors) {
-        tasks.emplace_back(ask(actor, &BenchActor::compute_task, 42));
+        tasks.emplace_back(ask(actor, &BenchActor::compute_task, 42).start_in_parent_scope());
       }
 
       for (auto& task : tasks) {

@@ -196,12 +196,12 @@ auto ask_impl(TargetId&& to, MemFn mf, Args&&... args) {
 
   if constexpr (Meta::kind == UnifiedKind::TaskReturn) {
     return ask_new_impl<Later>(std::forward<TargetId>(to), mf, std::forward<Args>(args)...);
+  } else {
+    auto [task, promise] = StartedTask<TT>::make_bridge();
+    td::actor::internal::send_closure_dispatch<Later>(std::forward<TargetId>(to), mf, std::forward<Args>(args)...,
+                                                      std::move(promise));
+    return std::move(task);
   }
-
-  auto [task, promise] = StartedTask<TT>::make_bridge();
-  td::actor::internal::send_closure_dispatch<Later>(std::forward<TargetId>(to), mf, std::forward<Args>(args)...,
-                                                    std::move(promise));
-  return std::move(task);
 }
 
 template <bool Later, class TargetId, class MemFn, class... Args>
@@ -211,12 +211,14 @@ auto ask_new_impl(TargetId&& to, MemFn mf, Args&&... args) {
   static_assert(Meta::kind == UnifiedKind::TaskReturn, "ask: method must return Task<T>");
 
   if constexpr (Later) {
+    // ask(Task-return) stays lazy.
     auto task = [](auto closure) -> Task<T> {
       co_return co_await detail::run_on_current_actor(closure);
     }(create_delayed_closure(mf, std::forward<Args>(args)...));
     task.set_executor(Executor::on_actor(to));
-    return std::move(task).start_in_parent_scope();
+    return task;
   } else {
+    // ask_immediate(Task-return): preserve legacy eager fast path via send_immediate.
     std::optional<StartedTask<T>> o_task;
     td::actor::detail::send_immediate(
         to.as_actor_ref(),
@@ -373,7 +375,7 @@ struct TaskActor : public detail::TaskActorBase {
 template <class ActorT, class... ArgsT>
 auto spawn_task_actor(td::Slice name, ArgsT... args) {
   auto actor = td::actor::create_actor<ActorT>(name, std::forward<ArgsT>(args)...).release();
-  return ask(std::move(actor), &ActorT::task_loop);
+  return ask(std::move(actor), &ActorT::task_loop).start_in_parent_scope();
 }
 
 inline StartedTask<td::Unit> coro_sleep(td::Timestamp t) {

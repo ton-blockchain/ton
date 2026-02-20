@@ -1171,7 +1171,7 @@ class CoroSpec final : public td::actor::Actor {
       td::actor::Task<> run() {
         LOG(ERROR) << "Start";
         std::vector<td::actor::StartedTask<>> tasks;
-        tasks.push_back(td::actor::ask(b_, &B::run));
+        tasks.push_back(td::actor::ask(b_, &B::run).start_in_parent_scope());
         co_await td::actor::all(std::move(tasks));
         co_return {};
       }
@@ -1283,7 +1283,7 @@ class CoroSpec final : public td::actor::Actor {
     constexpr int num_tasks = 20;
     std::vector<StartedTask<td::Unit>> tasks;
     for (int i = 0; i < num_tasks; i++) {
-      tasks.push_back(ask(actor, &MutexActor::critical_section));
+      tasks.push_back(ask(actor, &MutexActor::critical_section).start_in_parent_scope());
     }
 
     for (auto& t : tasks) {
@@ -1327,7 +1327,7 @@ class CoroSpec final : public td::actor::Actor {
     constexpr int num_queries = 10;
     std::vector<StartedTask<int>> tasks;
     for (int i = 0; i < num_queries; i++) {
-      tasks.push_back(ask(actor, &CoalesceActor::query, 21));
+      tasks.push_back(ask(actor, &CoalesceActor::query, 21).start_in_parent_scope());
     }
 
     // Wait for all queries
@@ -1985,7 +1985,7 @@ class CoroSpec final : public td::actor::Actor {
       auto started = std::make_shared<std::atomic<bool>>(false);
       auto saw_cancel = std::make_shared<std::atomic<bool>>(false);
 
-      auto t = ask(actor, &SlowActor::slow_method, started, saw_cancel);
+      auto t = ask(actor, &SlowActor::slow_method, started, saw_cancel).start_in_parent_scope();
 
       // Wait for actor to start
       bool started_ok = co_await wait_until([&] { return started->load(std::memory_order_acquire); }, 5000);
@@ -2019,7 +2019,7 @@ class CoroSpec final : public td::actor::Actor {
       };
 
       auto actor = td::actor::create_actor<SleepActor>("SleepActor").release();
-      auto t = ask(actor, &SleepActor::slow_method);
+      auto t = ask(actor, &SleepActor::slow_method).start_in_parent_scope();
 
       co_await sleep_for(0.01);
       t.cancel();
