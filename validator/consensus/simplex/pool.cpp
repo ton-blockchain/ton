@@ -270,7 +270,7 @@ struct SlotState {
 };
 
 class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
-  using State = ConsensusState<td::Unit, SlotState, td::Unit, const Bus &>;
+  using State = ConsensusState<SlotState, const Bus &>;
 
   struct Request {
     CandidateId id;
@@ -290,7 +290,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
 
     weight_threshold_ = (bus.total_weight * 2) / 3 + 1;
 
-    state_.emplace(State(bus.simplex_config.slots_per_leader_window, {}, bus));
+    state_.emplace(State(bus));
     state_->slot_at(0)->state->available_base = ParentId{};
 
     LOG(INFO) << "Validator group started. We are " << bus.local_id << " with weight " << bus.local_id.weight
