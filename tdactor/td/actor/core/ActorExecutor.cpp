@@ -298,6 +298,7 @@ void ActorExecutor::flush_context_flags() {
       actor_info_.set_alarm_timestamp(Timestamp::never());
       dispatcher_.set_alarm_timestamp(actor_info_.actor().get_actor_info_ptr());
     }
+    actor_info_.cancel_coro_cancel_nodes();
     flags_.set_closed(true);
     if (!flags_.get_signals().has_signal(ActorSignals::Signal::StartUp)) {
       auto message_timer = actor_stats_.create_message_timer();

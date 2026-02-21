@@ -4,9 +4,12 @@
 #include <coroutine>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <utility>
+#include <vector>
 
 #include "td/actor/coro_ref.h"
+#include "td/utils/List.h"
 #include "td/utils/common.h"
 
 namespace td {
@@ -142,7 +145,7 @@ struct ParentLink {
   enum class ReleaseReason : uint8_t { ChildCompleted, Teardown };
 
   void link_from_parent_scope_lease(promise_common& self, ParentScopeLease parent_scope_ref);
-  void release(ReleaseReason reason);
+  void release(CancelNode& self, ReleaseReason reason);
   bool has_parent() const {
     return parent_.load(std::memory_order_acquire) != nullptr;
   }
@@ -154,22 +157,20 @@ struct ParentLink {
   std::atomic<promise_common*> parent_{nullptr};
 };
 
+struct TopologyTag {};
+struct ActorCancelTag {};
+
 // Lifecycle:
 //   Creator holds initial ref (refs_=1).
 //   on_publish() adds topology ref.
 //   on_cleanup() drops topology ref.
 //   on_zero_refs() destroys the node.
-struct CancelNode {
+struct CancelNode : td::TaggedListNode<TopologyTag>, td::TaggedListNode<ActorCancelTag> {
   friend struct CancellationRuntime;
   template <class T>
   friend struct Ref;
-
-  CancelNode* next{nullptr};
-
-  bool try_publish_once() {
-    bool expected = false;
-    return published_.compare_exchange_strong(expected, true, std::memory_order_acq_rel, std::memory_order_acquire);
-  }
+  template <class Tag>
+  friend struct CancelTopology;
 
   virtual ~CancelNode() = default;
   virtual void on_cancel() {
@@ -195,7 +196,6 @@ struct CancelNode {
 
  private:
   std::atomic<uint32_t> refs_;
-  std::atomic<bool> published_{false};
 };
 
 struct HeapCancelNode : CancelNode {
@@ -231,6 +231,94 @@ struct HeapCancelNode : CancelNode {
 
  private:
   std::atomic<bool> armed_{true};
+};
+
+template <class Tag>
+struct CancelTopology {
+  enum class PublishResult : uint8_t { Published, AlreadyInList };
+
+  PublishResult publish_raw(CancelNode& node) {
+    auto& hook = static_cast<td::TaggedListNode<Tag>&>(node);
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!hook.empty())
+      return PublishResult::AlreadyInList;
+    node.on_publish();
+    head_.put(&hook);
+    return PublishResult::Published;
+  }
+
+  bool unpublish_raw(CancelNode& node) {
+    auto& hook = static_cast<td::TaggedListNode<Tag>&>(node);
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (hook.empty())
+      return false;
+    hook.remove();
+    return true;
+  }
+
+  template <class HoldFn>
+  void snapshot(std::vector<CancelNode*>& out, HoldFn&& hold_fn) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto* it = head_.begin(); it != head_.end(); it = it->get_next()) {
+      auto* node = static_cast<CancelNode*>(it);
+      hold_fn(*node);
+      out.push_back(node);
+    }
+  }
+
+  template <class HoldFn>
+  void drain(std::vector<CancelNode*>& out, HoldFn&& hold_fn) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto* it = head_.begin(); it != head_.end();) {
+      auto* next = it->get_next();
+      auto* node = static_cast<CancelNode*>(it);
+      hold_fn(*node);
+      it->remove();
+      out.push_back(node);
+      it = next;
+    }
+  }
+
+  template <class IsCancelledFn>
+  bool publish_and_maybe_cancel(CancelNode& node, IsCancelledFn&& is_cancelled) {
+    if (publish_raw(node) != PublishResult::Published) {
+      return false;
+    }
+    if (is_cancelled()) {
+      node.on_cancel();
+    }
+    return true;
+  }
+
+  bool unpublish_and_cleanup(CancelNode& node) {
+    if (!unpublish_raw(node)) {
+      return false;
+    }
+    node.on_cleanup();
+    return true;
+  }
+
+  void cancel_snapshot() {
+    std::vector<CancelNode*> nodes;
+    snapshot(nodes, [](CancelNode& node) { node.add_ref(); });
+    for (auto* node : nodes) {
+      node->on_cancel();
+      node->dec_ref();
+    }
+  }
+
+  void drain_cleanup() {
+    std::vector<CancelNode*> nodes;
+    drain(nodes, [](CancelNode& node) { node.add_ref(); });
+    for (auto* node : nodes) {
+      node->on_cleanup();
+      node->dec_ref();
+    }
+  }
+
+ private:
+  td::TaggedListNode<Tag> head_;
+  std::mutex mutex_;
 };
 
 struct CancellationRuntime {
@@ -279,21 +367,23 @@ struct CancellationRuntime {
     return parent_link_.is_parent(parent);
   }
 
-  void notify_parent_child_completed() {
-    parent_link_.release(ParentLink::ReleaseReason::ChildCompleted);
+  void notify_parent_child_completed(CancelNode& self) {
+    // Child completion can drop topology ref; keep the node alive until release path returns.
+    self.add_ref();
+    parent_link_.release(self, ParentLink::ReleaseReason::ChildCompleted);
+    self.dec_ref();
   }
 
   void set_parent_lease(promise_common& self, ParentScopeLease parent_scope_ref) {
     parent_link_.link_from_parent_scope_lease(self, std::move(parent_scope_ref));
   }
 
+  void unpublish_cancel_node(CancelNode& node) {
+    topology_.unpublish_and_cleanup(node);
+  }
+
   void publish_cancel_node(CancelNode& node) {
-    if (topology_.publish(node) != Topology::PublishResult::Published) {
-      return;
-    }
-    if (state_.is_effectively_cancelled_seq_cst()) {
-      node.on_cancel();
-    }
+    topology_.publish_and_maybe_cancel(node, [&] { return state_.is_effectively_cancelled_seq_cst(); });
   }
 
   bool try_enter_ignore() {
@@ -316,58 +406,21 @@ struct CancellationRuntime {
     }
   }
 
-  void on_last_ref_teardown() {
-    parent_link_.release(ParentLink::ReleaseReason::Teardown);
-    topology_.for_each_acquire([](CancelNode& n) { n.on_cleanup(); });
+  void on_last_ref_teardown(CancelNode& self) {
+    parent_link_.release(self, ParentLink::ReleaseReason::Teardown);
+    topology_.drain_cleanup();
   }
 
  private:
   void cancel_topology_with_self_ref(CancelNode& self) {
     self.add_ref();
-    topology_.for_each_seq_cst([](CancelNode& n) { n.on_cancel(); });
+    topology_.cancel_snapshot();
     self.dec_ref();
   }
 
-  struct Topology {
-    enum class PublishResult : uint8_t { Published, AlreadyPublished };
-
-    PublishResult publish(CancelNode& node) {
-      if (!node.try_publish_once()) {
-        return PublishResult::AlreadyPublished;
-      }
-      DCHECK(node.next == nullptr);
-      node.on_publish();
-      auto* head = head_.load(std::memory_order_seq_cst);
-      do {
-        node.next = head;
-      } while (!head_.compare_exchange_weak(head, &node, std::memory_order_seq_cst, std::memory_order_seq_cst));
-      return PublishResult::Published;
-    }
-
-    template <class Fn>
-    void for_each_seq_cst(Fn&& fn) const {
-      for (auto* node = head_.load(std::memory_order_seq_cst); node;) {
-        auto* next = node->next;
-        fn(*node);
-        node = next;
-      }
-    }
-
-    template <class Fn>
-    void for_each_acquire(Fn&& fn) const {
-      for (auto* node = head_.load(std::memory_order_acquire); node;) {
-        auto* next = node->next;
-        fn(*node);
-        node = next;
-      }
-    }
-
-    std::atomic<CancelNode*> head_{nullptr};
-  };
-
   uint32_t ignored_depth_{0};
   CancellationState state_{};
-  Topology topology_{};
+  CancelTopology<TopologyTag> topology_{};
   ParentLink parent_link_{};
 };
 
@@ -382,10 +435,13 @@ inline void ParentLink::link_from_parent_scope_lease(promise_common& self, Paren
                                         std::memory_order_relaxed));
 }
 
-inline void ParentLink::release(ReleaseReason reason) {
+inline void ParentLink::release(CancelNode& self, ReleaseReason reason) {
   auto* parent = parent_.exchange(nullptr, std::memory_order_acq_rel);
   if (!parent) {
     return;
+  }
+  if (reason == ReleaseReason::ChildCompleted) {
+    bridge::runtime(*parent).unpublish_cancel_node(self);
   }
   auto policy = reason == ReleaseReason::ChildCompleted ? CancellationRuntime::ChildReleasePolicy::MayComplete
                                                         : CancellationRuntime::ChildReleasePolicy::NoComplete;

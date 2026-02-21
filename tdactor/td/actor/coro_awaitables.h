@@ -6,6 +6,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "td/actor/coro_cancellation_runtime.h"
 #include "td/actor/coro_executor.h"
 #include "td/actor/coro_types.h"
 #include "td/utils/Status.h"
@@ -47,6 +48,12 @@ struct WrappedCoroutine {
           return false;
         }
         std::coroutine_handle<> await_suspend(std::coroutine_handle<promise_type> self) noexcept {
+          if constexpr (std::is_base_of_v<promise_common, OuterPromise>) {
+            auto actor_ref = p->outer.promise().state_manager_data.executor.actor_ref_or_empty();
+            if (actor_ref) {
+              actor_ref.actor_info().unpublish_coro_cancel_node(p->outer.promise());
+            }
+          }
           // Set TLS to outer promise before resuming it (for structured concurrency)
           set_current_promise(p->outer);
           auto next = p->body->route_resume(p->outer);
@@ -86,6 +93,12 @@ template <class BodyT, class OuterPromiseT>
 
 template <class BodyT, class OuterPromiseT>
 [[nodiscard]] std::coroutine_handle<> wrap_coroutine(BodyT* body, std::coroutine_handle<OuterPromiseT> outer) noexcept {
+  if constexpr (std::is_base_of_v<promise_common, OuterPromiseT>) {
+    auto actor_ref = outer.promise().state_manager_data.executor.actor_ref_or_empty();
+    if (actor_ref) {
+      actor_ref.actor_info().publish_coro_cancel_node(outer.promise());
+    }
+  }
   auto tmp = make_wrapped_coroutine(body, outer);
   return std::exchange(tmp.h, {});
 }

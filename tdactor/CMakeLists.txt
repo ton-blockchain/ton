@@ -1,6 +1,7 @@
 #SOURCE SETS
 set(TDACTOR_SOURCE
   td/actor/core/ActorExecutor.cpp
+  td/actor/core/ActorInfo.cpp
   td/actor/core/ActorTypeStat.cpp
   td/actor/core/CpuWorker.cpp
   td/actor/core/IoWorker.cpp

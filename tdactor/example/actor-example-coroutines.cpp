@@ -41,7 +41,7 @@ Task<td::Unit> example_create() {
   }()
                                         .start_immediate_without_scope();
   CHECK(value3.await_ready());
-  CHECK(17 == (co_await std::move(value3)));
+  CHECK(17 == (co_await std::move(value3).unlinked()));
 
   LOG(INFO) << "start than co_await";
   // Task is started on scheduler
@@ -51,7 +51,7 @@ Task<td::Unit> example_create() {
   }()
                                         .start_without_scope();
   CHECK(!value4.await_ready());
-  CHECK(17 == (co_await std::move(value4)));
+  CHECK(17 == (co_await std::move(value4).unlinked()));
 
   StartedTask<int> value5 = spawn_actor("worker", []() -> Task<int> {
     // This code will be run on some actor
@@ -78,9 +78,9 @@ Task<td::Unit> example_communicate() {
   auto worker = create_actor<Worker>("worker");
 
   StartedTask<int> value6 = ask(worker, &Worker::square, 17);
-  CHECK(289 == (co_await std::move(value6)));
+  CHECK(289 == (co_await std::move(value6).child()));
   StartedTask<int> value7 = ask(worker, &Worker::square_promise, 17);
-  CHECK(289 == (co_await std::move(value7)));
+  CHECK(289 == (co_await std::move(value7).child()));
   Task<int> value8 = ask(worker, &Worker::square_task, 17);
   CHECK(289 == (co_await std::move(value8)));
   co_return td::Unit();
@@ -439,6 +439,7 @@ Task<td::Unit> example_cancellation() {
   start = td::Timestamp::now();
   co_await with_timeout(block_for(2).start_in_parent_scope(), 1);
   LOG(INFO) << "block: " << td::Timestamp::now().at() - start.at() << "s";
+  //FIXME: must wait 1.0
 
   start = td::Timestamp::now();
   co_await with_timeout(work_for(2).start_without_scope(), 1);
@@ -456,7 +457,6 @@ Task<td::Unit> example_cancellation() {
 Task<td::Unit> run_all_examples() {
   co_await example_cancellation();
   co_await example_task_cancellation_source();
-  co_return td::Unit();
 
   co_await example_create();
   co_await example_communicate();
@@ -464,7 +464,6 @@ Task<td::Unit> run_all_examples() {
   co_await example_actor();
   co_await example_all();
   co_await example_echo_server();
-  co_await example_cancellation();
   co_return td::Unit();
 }
 

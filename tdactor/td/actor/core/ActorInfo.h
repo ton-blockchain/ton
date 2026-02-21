@@ -21,6 +21,7 @@
 #include "td/actor/core/ActorMailbox.h"
 #include "td/actor/core/ActorState.h"
 #include "td/actor/core/ActorTypeStat.h"
+#include "td/actor/coro_cancellation_runtime.h"
 #include "td/utils/Heap.h"
 #include "td/utils/List.h"
 #include "td/utils/SharedObjectPool.h"
@@ -92,6 +93,12 @@ class ActorInfo : private HeapNode, private ListNode {
     }
   }
 
+  // Actor-affine coroutine cancellation topology:
+  // nodes waiting to be resumed on this actor can register here and get cancelled when actor closes.
+  bool publish_coro_cancel_node(::td::actor::CancelNode &node);
+  bool unpublish_coro_cancel_node(::td::actor::CancelNode &node);
+  void cancel_coro_cancel_nodes();
+
   ActorState &state() {
     return state_;
   }
@@ -137,6 +144,9 @@ class ActorInfo : private HeapNode, private ListNode {
   td::uint64 in_queue_since_{0};
   td::uint32 actor_stat_id_{0};
   std::atomic<td::uint32> actor_ref_cnt_{1};
+
+  ::td::actor::CancelTopology<::td::actor::ActorCancelTag> coro_cancel_topology_;
+  std::atomic<bool> coro_cancelled_{false};
 };
 
 }  // namespace core

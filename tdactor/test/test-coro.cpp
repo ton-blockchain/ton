@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "td/actor/actor.h"
+#include "td/actor/core/ActorInfo.h"
 #include "td/actor/coro.h"
 #include "td/utils/Random.h"
 #include "td/utils/port/sleep.h"
@@ -740,6 +741,44 @@ class CoroSpec final : public td::actor::Actor {
       expect_true(result.is_error(), "try_unwrap() propagates error from StartedTask");
     }
 
+    // Default co_await StartedTask auto-attaches current scope.
+    {
+      auto probe_scope = []() -> Task<bool> {
+        co_await sleep_for(0.005);
+        auto scope = co_await this_scope();
+        CHECK(scope);
+        co_return scope.get_promise()->cancellation_.has_parent_scope();
+      };
+
+      auto outer = [probe_scope]() -> Task<bool> {
+        auto started = probe_scope().start_immediate_without_scope();
+        co_return co_await std::move(started);
+      }();
+
+      auto result = co_await std::move(outer).wrap();
+      expect_true(result.is_ok(), "default co_await StartedTask returns value");
+      expect_true(result.move_as_ok(), "default co_await StartedTask links parent scope");
+    }
+
+    // .unlinked() keeps StartedTask detached from parent scope.
+    {
+      auto probe_scope = []() -> Task<bool> {
+        co_await sleep_for(0.005);
+        auto scope = co_await this_scope();
+        CHECK(scope);
+        co_return scope.get_promise()->cancellation_.has_parent_scope();
+      };
+
+      auto outer = [probe_scope]() -> Task<bool> {
+        auto started = probe_scope().start_immediate_without_scope();
+        co_return co_await std::move(started).unlinked();
+      }();
+
+      auto result = co_await std::move(outer).wrap();
+      expect_true(result.is_ok(), ".unlinked() StartedTask returns value");
+      expect_true(!result.move_as_ok(), ".unlinked() keeps StartedTask without parent scope");
+    }
+
     // Test explicit .child() wrapper for StartedTask
     {
       auto ok_task = []() -> Task<int> { co_return 777; };
@@ -750,6 +789,25 @@ class CoroSpec final : public td::actor::Actor {
       auto result = co_await std::move(outer).wrap();
       expect_true(result.is_ok(), ".child() unwraps value from child StartedTask");
       expect_eq(result.move_as_ok(), 777, ".child() returns correct value");
+    }
+
+    // .child() enforces child semantics by attaching unscoped StartedTask when possible.
+    {
+      auto probe_scope = []() -> Task<bool> {
+        co_await sleep_for(0.005);
+        auto scope = co_await this_scope();
+        CHECK(scope);
+        co_return scope.get_promise()->cancellation_.has_parent_scope();
+      };
+
+      auto outer = [probe_scope]() -> Task<bool> {
+        auto started = probe_scope().start_immediate_without_scope();
+        co_return co_await std::move(started).child();
+      }();
+
+      auto result = co_await std::move(outer).wrap();
+      expect_true(result.is_ok(), ".child() StartedTask returns value");
+      expect_true(result.move_as_ok(), ".child() links unscoped StartedTask to parent scope");
     }
 
     // Test .child().trace(...) path
@@ -1895,6 +1953,94 @@ class CoroSpec final : public td::actor::Actor {
       auto r = co_await std::move(t).wrap();
       expect_true(r.is_error(), "Sleeper should be cancelled");
       expect_eq(r.error().code(), kCancelledCode, "Expected Error(653)");
+      co_return td::Unit{};
+    });
+
+    co_await run_case("infinite wait is cancelled when actor is stopped", [&]() -> Task<td::Unit> {
+      class InfiniteWaitActor final : public td::actor::Actor {
+       public:
+        Task<td::Unit> wait_forever(std::shared_ptr<std::atomic<bool>> started) {
+          started->store(true, std::memory_order_release);
+          co_await sleep_for(1000.0);
+          co_return td::Unit{};
+        }
+        void request_stop() {
+          stop();
+        }
+      };
+
+      auto started = std::make_shared<std::atomic<bool>>(false);
+      auto actor = td::actor::create_actor<InfiniteWaitActor>("InfiniteWaitActor").release();
+      auto t = ask(actor, &InfiniteWaitActor::wait_forever, started).start_in_parent_scope();
+
+      bool started_ok = co_await wait_until([&] { return started->load(std::memory_order_acquire); }, 5000);
+      expect_true(started_ok, "Infinite wait coroutine should start");
+
+      send_closure(actor, &InfiniteWaitActor::request_stop);
+
+      auto timed_wrap = co_await with_timeout(std::move(t), 0.5).wrap();
+      expect_true(timed_wrap.is_ok(), "with_timeout wrapper should complete");
+
+      auto r = timed_wrap.move_as_ok();
+      expect_true(r.is_error(), "Stopping actor should end infinite wait with an error");
+      expect_eq(r.error().code(), kCancelledCode, "Expected Error(653) from cancellation");
+      expect_true(r.error().message().str() != "timeout", "Must be actor-stop cancellation, not watchdog timeout");
+      co_return td::Unit{};
+    });
+
+    co_await run_case("actor cancelled publish path cancels without immediate cleanup", [&]() -> Task<td::Unit> {
+      struct PublishStats {
+        std::atomic<int> cancel_calls{0};
+        std::atomic<int> cleanup_calls{0};
+        std::atomic<int> destroy_calls{0};
+      };
+
+      struct PublishNode final : HeapCancelNode {
+        std::shared_ptr<PublishStats> stats;
+        explicit PublishNode(std::shared_ptr<PublishStats> s) : stats(std::move(s)) {
+        }
+        ~PublishNode() override {
+          stats->destroy_calls.fetch_add(1, std::memory_order_relaxed);
+        }
+        void do_cancel() override {
+          stats->cancel_calls.fetch_add(1, std::memory_order_relaxed);
+        }
+        void do_cleanup() override {
+          stats->cleanup_calls.fetch_add(1, std::memory_order_relaxed);
+        }
+      };
+
+      class DummyActor final : public td::actor::Actor {};
+
+      auto stats = std::make_shared<PublishStats>();
+      auto node = make_ref<PublishNode>(stats);
+
+      td::actor::core::ActorState::Flags flags;
+      auto actor_info =
+          std::make_unique<td::actor::core::ActorInfo>(std::make_unique<DummyActor>(), flags, "DummyActorInfo", 0);
+
+      actor_info->cancel_coro_cancel_nodes();
+      bool published = actor_info->publish_coro_cancel_node(*node);
+      expect_true(published, "publish should still register node in actor topology");
+      expect_eq(stats->cancel_calls.load(std::memory_order_acquire), 1,
+                "publish after actor cancel must trigger cancellation");
+      expect_eq(stats->cleanup_calls.load(std::memory_order_acquire), 0,
+                "cancel callback must not force immediate cleanup");
+
+      bool second_publish = actor_info->publish_coro_cancel_node(*node);
+      expect_true(!second_publish, "second publish must report already-linked node");
+      expect_eq(stats->cancel_calls.load(std::memory_order_acquire), 1, "double publish must not double-cancel");
+
+      bool unpublished = actor_info->unpublish_coro_cancel_node(*node);
+      expect_true(unpublished, "cancelled node should still be unpublishable");
+      bool second_unpublish = actor_info->unpublish_coro_cancel_node(*node);
+      expect_true(!second_unpublish, "double unpublish should report no-op");
+
+      node.reset();
+      expect_eq(stats->destroy_calls.load(std::memory_order_acquire), 1, "node should be destroyed exactly once");
+
+      actor_info->dec_ref();
+      actor_info.reset();
       co_return td::Unit{};
     });
 

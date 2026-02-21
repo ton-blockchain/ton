@@ -22,21 +22,24 @@
 
 namespace td {
 
-struct ListNode {
-  ListNode *next;
-  ListNode *prev;
-  ListNode() {
+struct DefaultListTag {};
+
+template <class Tag = DefaultListTag>
+struct TaggedListNode {
+  TaggedListNode *next;
+  TaggedListNode *prev;
+  TaggedListNode() {
     clear();
   }
 
-  ~ListNode() {
+  ~TaggedListNode() {
     remove();
   }
 
-  ListNode(const ListNode &) = delete;
-  ListNode &operator=(const ListNode &) = delete;
+  TaggedListNode(const TaggedListNode &) = delete;
+  TaggedListNode &operator=(const TaggedListNode &) = delete;
 
-  ListNode(ListNode &&other) {
+  TaggedListNode(TaggedListNode &&other) {
     if (other.empty()) {
       clear();
     } else {
@@ -44,7 +47,7 @@ struct ListNode {
     }
   }
 
-  ListNode &operator=(ListNode &&other) {
+  TaggedListNode &operator=(TaggedListNode &&other) {
     if (this == &other) {
       return *this;
     }
@@ -58,7 +61,7 @@ struct ListNode {
     return *this;
   }
 
-  void connect(ListNode *to) {
+  void connect(TaggedListNode *to) {
     CHECK(to != nullptr);
     next = to;
     to->prev = this;
@@ -69,25 +72,24 @@ struct ListNode {
     clear();
   }
 
-  void put(ListNode *other) {
+  void put(TaggedListNode *other) {
     DCHECK(other->empty());
     put_unsafe(other);
   }
 
-  void put_back(ListNode *other) {
+  void put_back(TaggedListNode *other) {
     DCHECK(other->empty());
     prev->connect(other);
     other->connect(this);
   }
 
-  ListNode *get() {
-    ListNode *result = prev;
+  TaggedListNode *get() {
+    TaggedListNode *result = prev;
     if (result == this) {
       return nullptr;
     }
     result->prev->connect(this);
     result->clear();
-    // this->connect(result->next);
     return result;
   }
 
@@ -95,16 +97,16 @@ struct ListNode {
     return next == this;
   }
 
-  ListNode *begin() {
+  TaggedListNode *begin() {
     return next;
   }
-  ListNode *end() {
+  TaggedListNode *end() {
     return this;
   }
-  ListNode *get_next() {
+  TaggedListNode *get_next() {
     return next;
   }
-  ListNode *get_prev() {
+  TaggedListNode *get_prev() {
     return prev;
   }
 
@@ -114,16 +116,18 @@ struct ListNode {
     prev = this;
   }
 
-  void init_from(ListNode &&other) {
-    ListNode *head = other.prev;
+  void init_from(TaggedListNode &&other) {
+    TaggedListNode *head = other.prev;
     other.remove();
     head->put_unsafe(this);
   }
 
-  void put_unsafe(ListNode *other) {
+  void put_unsafe(TaggedListNode *other) {
     other->connect(next);
     this->connect(other);
   }
 };
+
+using ListNode = TaggedListNode<>;
 
 }  // namespace td

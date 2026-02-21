@@ -201,6 +201,13 @@ struct Executor {
   void schedule(std::coroutine_handle<P> cont) noexcept {
     return visit([&](auto& v) { return v.schedule(std::move(cont)); }, executor_);
   }
+
+  ActorRef<> actor_ref_or_empty() const noexcept {
+    if (auto* actor_executor = std::get_if<ActorExecutor>(&executor_)) {
+      return actor_executor->actor_ref;
+    }
+    return {};
+  }
 };
 
 template <class P>

@@ -158,7 +158,7 @@ struct promise_common : CancelNode {
     add_ref();
   }
   void on_zero_refs() override {
-    cancellation_.on_last_ref_teardown();
+    cancellation_.on_last_ref_teardown(*this);
     self_handle_.destroy();
   }
 
@@ -179,7 +179,7 @@ struct promise_common : CancelNode {
   std::pair<std::coroutine_handle<>, bool> mark_done() {
     auto ready = state_manager_data.on_ready();
     if (ready.should_notify_parent) {
-      cancellation_.notify_parent_child_completed();
+      cancellation_.notify_parent_child_completed(*this);
     }
     return {ready.continuation, ready.should_dec_ref};
   }
@@ -572,13 +572,35 @@ struct promise_type : promise_value<td::Result<T>> {
     if constexpr (LinkMode == AwaiterLinkMode::Child) {
       check_child_started_task_await(task);
     } else if constexpr (LinkMode == AwaiterLinkMode::Auto) {
-      debug_check_scoped_started_task_await(task.get_promise());
+      auto was_ready = maybe_attach_started_task_scope(task);
+      debug_check_scoped_started_task_await(task.get_promise(), was_ready);
     }
     return std::move(task);
   }
 
   template <class U>
-  void check_child_started_task_await(StartedTask<U>& task) const {
+  bool maybe_attach_started_task_scope(StartedTask<U>& task) {
+    auto was_ready = task.await_ready();
+    if (was_ready || !this->cancellation_.has_parent_scope()) {
+      return was_ready;
+    }
+
+    auto* inner = task.get_promise();
+    if (!inner || inner->cancellation_.has_parent_scope()) {
+      return false;
+    }
+
+    inner->cancellation_.set_parent_lease(*inner, bridge::make_parent_scope_lease(*this));
+    if (task.await_ready()) {
+      // If task completed during attach, release the transient parent child-ref now.
+      inner->cancellation_.notify_parent_child_completed(*inner);
+      return true;
+    }
+    return false;
+  }
+
+  template <class U>
+  void check_child_started_task_await(StartedTask<U>& task) {
     CHECK(task.valid());
     auto* inner = task.get_promise();
     CHECK(inner);
@@ -588,6 +610,17 @@ struct promise_type : promise_value<td::Result<T>> {
     }
     if (task.await_ready()) {
       return;
+    }
+    if (!inner->cancellation_.has_parent_scope()) {
+      inner->cancellation_.set_parent_lease(*inner, bridge::make_parent_scope_lease(*this));
+      if (task.await_ready()) {
+        // If task completed during attach, release the transient parent child-ref now.
+        inner->cancellation_.notify_parent_child_completed(*inner);
+        return;
+      }
+      if (inner->cancellation_.is_parent(this)) {
+        return;
+      }
     }
     if (inner->cancellation_.is_parent(this)) {
       return;
@@ -599,8 +632,8 @@ struct promise_type : promise_value<td::Result<T>> {
                   "Use unlinked() for explicit unsafe await.";
   }
 
-  void debug_check_scoped_started_task_await(promise_common* inner) const {
-    if (!this->cancellation_.has_parent_scope() || !inner || inner->cancellation_.has_parent_scope()) {
+  void debug_check_scoped_started_task_await(promise_common* inner, bool inner_ready) const {
+    if (inner_ready || !this->cancellation_.has_parent_scope() || !inner || inner->cancellation_.has_parent_scope()) {
       return;
     }
 #ifdef TD_DEBUG
