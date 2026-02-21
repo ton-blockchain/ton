@@ -72,11 +72,25 @@ struct WaitNotarCertStored {
   std::string contents_to_string() const;
 };
 
+struct ResolveState {
+  struct Result {
+    ChainStateRef state;
+    std::optional<double> gen_utime_exact = std::nullopt;
+  };
+
+  using ReturnType = Result;
+
+  ParentId id;
+
+  std::string contents_to_string() const;
+  static std::string response_to_string(const ReturnType&);
+};
+
 class Bus : public consensus::Bus {
  public:
   using Parent = consensus::Bus;
   using Events = td::TypeList<BroadcastVote, NotarizationObserved, FinalizationObserved, LeaderWindowObserved,
-                              WaitForParent, ResolveCandidate, StoreCandidate, WaitNotarCertStored>;
+                              WaitForParent, ResolveCandidate, StoreCandidate, WaitNotarCertStored, ResolveState>;
 
   Bus() = default;
 
@@ -110,6 +124,10 @@ struct Consensus {
 };
 
 struct CandidateResolver {
+  static void register_in(runtime::Runtime&);
+};
+
+struct StateResolver {
   static void register_in(runtime::Runtime&);
 };
 

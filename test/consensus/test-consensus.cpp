@@ -681,6 +681,7 @@ class TestConsensus : public td::actor::Actor {
     simplex::CandidateResolver::register_in(runtime);
     simplex::Consensus::register_in(runtime);
     simplex::Pool::register_in(runtime);
+    simplex::StateResolver::register_in(runtime);
 
     inst.manager_facade = td::actor::create_actor<TestManagerFacade>(
         PSTRING() << "ManagerFacade." << node_idx << "." << instance_idx, node_idx, instance_idx, validator_set_,
