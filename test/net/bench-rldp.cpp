@@ -341,12 +341,12 @@ void run_loopback(Config config) {
     auto pk1 = ton::PrivateKey{ton::privkeys::Ed25519::random()};
     auto pub1 = pk1.compute_public_key();
     src = ton::adnl::AdnlNodeIdShort{pub1.compute_short_id()};
-    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Unit) {});
+    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Result<>) {});
 
     auto pk2 = ton::PrivateKey{ton::privkeys::Ed25519::random()};
     auto pub2 = pk2.compute_public_key();
     dst = ton::adnl::AdnlNodeIdShort{pub2.compute_short_id()};
-    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Unit) {});
+    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Result<>) {});
 
     auto addr = ton::adnl::TestLoopbackNetworkManager::generate_dummy_addr_list();
 
@@ -428,7 +428,7 @@ void run_server(Config config) {
                             std::move(cat_mask), 0);
 
     auto local_id = ton::adnl::AdnlNodeIdShort{server_public_key().compute_short_id()};
-    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, server_private_key(), true, [](td::Unit) {});
+    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, server_private_key(), true, [](td::Result<>) {});
 
     ton::adnl::AdnlAddressList addr_list;
     addr_list.add_udp_address(self_addr).ensure();
@@ -506,7 +506,7 @@ void run_client(Config config) {
     auto client_priv_key = client_private_key(config.client_id);
     src = ton::adnl::AdnlNodeIdShort{client_priv_key.compute_public_key().compute_short_id()};
     td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(client_priv_key), true,
-                            [](td::Unit) {});
+                            [](td::Result<>) {});
 
     ton::adnl::AdnlAddressList local_addr_list;
     local_addr_list.add_udp_address(self_addr).ensure();

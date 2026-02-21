@@ -141,7 +141,7 @@ void CatChainReceiverImpl::receive_block(adnl::AdnlNodeIdShort src, tl_object_pt
   create_block(std::move(block), td::SharedSlice{payload.as_slice()});
 
   if (!opts_.debug_disable_db) {
-    db_.set(id, std::move(raw_data), [](td::Unit) {}, 1.0);
+    db_.set(id, std::move(raw_data), [](td::Result<>) {}, 1.0);
   }
   block_written_to_db(id);
 }

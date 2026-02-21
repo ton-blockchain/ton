@@ -697,13 +697,13 @@ TEST(Actor2, actor_function_result) {
           LOG_IF(ERROR, y.is_error()) << y.error();
           send_closure(self, &A::on_result, 3, y.ok());
         });
-        send_closure(b_, &B::query_async, 2, [self = actor_id(this)](uint32 y) {
+        send_closure(b_, &B::query_async, 2, [self = actor_id(this)](td::Result<uint32> y) {
           CHECK(!self.empty());
-          send_closure(self, &A::on_result, 2, y);
+          send_closure(self, &A::on_result, 2, std::move(y));
         });
-        send_closure_later(b_, &B::query_async, 5, [self = actor_id(this)](uint32 y) {
+        send_closure_later(b_, &B::query_async, 5, [self = actor_id(this)](td::Result<uint32> y) {
           CHECK(!self.empty());
-          send_closure(self, &A::on_result, 5, y);
+          send_closure(self, &A::on_result, 5, std::move(y));
         });
         auto future = future_send_closure(b_, &B::query, 7);
         future.finish(td::promise_send_closure(actor_id(this), &A::on_result, 7));

@@ -644,7 +644,7 @@ class BlockSha256Actors {
 
       for (auto it = begin; it != end; it++) {
         create_actor<Worker>(ActorOptions().with_name(PSLICE() << "Worker#"), watcher,
-                             td::Promise<>([&, it](td::Unit) { f(*it); }))
+                             td::Promise<>([&, it](td::Result<>) { f(*it); }))
             .release();
       }
     });

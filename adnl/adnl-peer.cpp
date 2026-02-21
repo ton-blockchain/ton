@@ -66,7 +66,7 @@ void AdnlPeerPairImpl::alarm() {
       item.priority_addr_list = priority_addr_list_;
 
       td::actor::send_closure(peer_table_, &AdnlPeerTable::write_new_addr_list_to_db, local_id_, peer_id_short_,
-                              std::move(item), [](td::Unit) {});
+                              std::move(item), [](td::Result<>) {});
     }
     next_db_update_at_ = td::Timestamp::in(td::Random::fast(60.0, 120.0));
   }

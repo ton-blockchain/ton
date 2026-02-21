@@ -899,7 +899,7 @@ class RldpHttpProxy : public td::actor::Actor {
           ton::dht::DhtValue dht_value{std::move(dht_key_description), td::BufferSlice{serv_id.as_slice()}, ttl,
                                        td::BufferSlice("")};
 
-          td::actor::send_closure(dht_, &ton::dht::Dht::set_value, std::move(dht_value), [](td::Unit) {});
+          td::actor::send_closure(dht_, &ton::dht::Dht::set_value, std::move(dht_value), [](td::Result<>) {});
         }
       }
     }
@@ -1007,7 +1007,7 @@ class RldpHttpProxy : public td::actor::Actor {
       {
         auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
         auto pub = pk.compute_public_key();
-        td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), true, [](td::Unit) {});
+        td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), true, [](td::Result<>) {});
         local_id_ = ton::adnl::AdnlNodeIdShort{pub.compute_short_id()};
         td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub}, addr_list,
                                 static_cast<td::uint8>(0));
@@ -1019,7 +1019,7 @@ class RldpHttpProxy : public td::actor::Actor {
       {
         auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
         auto pub = pk.compute_public_key();
-        td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), true, [](td::Unit) {});
+        td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), true, [](td::Result<>) {});
         dht_id_ = ton::adnl::AdnlNodeIdShort{pub.compute_short_id()};
         td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub}, addr_list,
                                 static_cast<td::uint8>(0));
