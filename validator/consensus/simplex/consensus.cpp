@@ -41,7 +41,8 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     slots_per_leader_window_ = bus.simplex_config.slots_per_leader_window;
     max_leader_window_desync_ = bus.simplex_config.max_leader_window_desync;
     target_rate_s_ = bus.config.target_rate_ms / 1000.;
-    first_block_timeout_s_ = bus.simplex_config.first_block_timeout_ms / 1000.;
+    default_first_block_timeout_s_ = bus.simplex_config.first_block_timeout_ms / 1000.;
+    first_block_timeout_s_ = default_first_block_timeout_s_;
     state_.emplace(State({}));
     load_from_db();
 
@@ -98,14 +99,24 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   template <>
   void handle(BusHandle, std::shared_ptr<const LeaderWindowObserved> event) {
     auto& bus = *owning_bus();
-    current_window_ = event->start_slot / slots_per_leader_window_;
+    td::uint32 new_window = event->start_slot / slots_per_leader_window_;
+
+    if (previous_window_had_skip_) {
+      first_block_timeout_s_ =
+          std::min(first_block_timeout_s_ * bus.first_block_timeout_multipler, bus.first_block_max_timeout_s);
+    } else {
+      first_block_timeout_s_ = default_first_block_timeout_s_;
+    }
 
     td::uint32 offset = event->start_slot % slots_per_leader_window_;
     if (offset == 0) {
+      previous_window_had_skip_ = false;
+
       if (bus.collator_schedule->is_expected_collator(bus.local_id.idx, event->start_slot)) {
         start_generation(event->base, event->start_slot).start().detach();
       }
     }
+    current_window_ = new_window;
 
     if (timeout_slot_ <= event->start_slot) {
       timeout_slot_ = event->start_slot + 1;
@@ -123,6 +134,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       if (slot && !slot->state->voted_final) {
         owning_bus().publish<BroadcastVote>(SkipVote{i});
         slot->state->voted_skip = true;
+        previous_window_had_skip_ = true;
       }
     }
     timeout_slot_ = window_end;
@@ -244,7 +256,9 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   td::Timestamp timeout_base_;
   td::uint32 timeout_slot_ = 0;  // By alarm_timestamp(), slots < timeout_slot_ should be notarized.
   double target_rate_s_;
+  double default_first_block_timeout_s_;
   double first_block_timeout_s_;
+  bool previous_window_had_skip_ = false;
   std::optional<State> state_;
   td::uint32 current_window_ = 0;
 

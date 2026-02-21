@@ -89,8 +89,8 @@ class Bus : public consensus::Bus {
   td::uint32 first_nonannounced_window = 0;
 
   // FIXME: These should come from validator options
-  double max_backoff_delay_s = 100;
-  double timeout_increase_factor = 1.05;
+  double first_block_timeout_multipler = 1.05;
+  double first_block_max_timeout_s = 100;
   double standstill_timeout_s = 10;
 
   // Candidate resolution timeout settings
