@@ -114,6 +114,7 @@ set(VALIDATOR_SOURCE
   consensus/simplex/consensus.cpp
   consensus/simplex/metric-collector.cpp
   consensus/simplex/pool.cpp
+  consensus/simplex/state-resolver.cpp
   consensus/simplex/stats.cpp
   consensus/simplex/votes.cpp
   consensus/block-accepter.cpp
