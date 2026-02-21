@@ -150,12 +150,12 @@ class LambdaPromise : public PromiseInterface<ValueT> {
   using ArgT = ValueT;
   void set_value(ValueT &&value) override {
     CHECK(has_lambda_.get());
-    do_ok(std::move(value));
+    ok_(Result<ValueT>{std::move(value)});
     has_lambda_ = false;
   }
   void set_error(Status &&error) override {
     CHECK(has_lambda_.get());
-    do_error(std::move(error));
+    ok_(Result<ValueT>{std::move(error)});
     has_lambda_ = false;
   }
 
@@ -165,7 +165,7 @@ class LambdaPromise : public PromiseInterface<ValueT> {
   LambdaPromise &operator=(LambdaPromise &&other) = default;
   ~LambdaPromise() override {
     if (has_lambda_.get()) {
-      do_error(Status::Error("Lost promise"));
+      ok_(Result<ValueT>{Status::Error("Lost promise")});
     }
   }
 
@@ -176,23 +176,6 @@ class LambdaPromise : public PromiseInterface<ValueT> {
  private:
   FunctionT ok_;
   MovableValue<bool> has_lambda_{false};
-
-  template <class F = FunctionT>
-  std::enable_if_t<is_callable<F, Result<ValueT>>::value, void> do_error(Status &&status) {
-    ok_(Result<ValueT>(std::move(status)));
-  }
-  template <class Y, class F = FunctionT>
-  std::enable_if_t<!is_callable<F, Result<ValueT>>::value, void> do_error(Y &&status) {
-    ok_(Auto());
-  }
-  template <class F = FunctionT>
-  std::enable_if_t<is_callable<F, Result<ValueT>>::value, void> do_ok(ValueT &&result) {
-    ok_(Result<ValueT>(std::move(result)));
-  }
-  template <class F = FunctionT>
-  std::enable_if_t<!is_callable<F, Result<ValueT>>::value, void> do_ok(ValueT &&result) {
-    ok_(std::move(result));
-  }
 };
 
 template <class T = void, class F = void, std::enable_if_t<std::is_same<T, void>::value, bool> has_t = false>
