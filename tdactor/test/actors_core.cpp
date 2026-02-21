@@ -676,7 +676,7 @@ TEST(Actor2, actor_function_result) {
         return x * x;
       }
       void query_async(uint32 x, td::Promise<uint32> promise) {
-        promise(x * x);
+        promise.set_value(x * x);
       }
     };
     class A : public Actor {

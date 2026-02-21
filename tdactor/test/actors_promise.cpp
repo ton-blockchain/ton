@@ -65,7 +65,7 @@ TEST(Actor, promise) {
   {
     std::unique_ptr<int> res;
     Promise<td::Unit> x = [a = std::make_unique<int>(5), &res](td::Result<>) mutable { res = std::move(a); };
-    x(td::Unit());
+    x.set_value({});
     CHECK(*res == 5);
   }
 

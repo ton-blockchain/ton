@@ -57,7 +57,7 @@ class AsyncApply : public td::actor::Actor {
   }
 
   void start_up() override {
-    promise_(std::move(value_));
+    promise_.set_result(std::move(value_));
     stop();
   }
 

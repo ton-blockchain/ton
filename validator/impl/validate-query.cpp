@@ -206,7 +206,7 @@ bool ValidateQuery::fatal_error(td::Status error) {
       errorlog::ErrorLog::log_file(block_candidate.data.clone());
       errorlog::ErrorLog::log_file(block_candidate.collated_data.clone());
     }
-    main_promise(std::move(error));
+    main_promise.set_error(std::move(error));
   }
   stop();
   return false;
