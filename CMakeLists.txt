@@ -543,6 +543,8 @@ function(ton_test TEST_NAME)
   add_dependencies(all-tests ${TEST_NAME})
 endfunction()
 
+enable_testing()
+
 set(TDUTILS_MIME_TYPE OFF CACHE BOOL "Generate mime type conversion")
 add_subdirectory(tdutils)
 if (TARGET lz4 AND TARGET tdutils)
@@ -728,7 +730,6 @@ target_link_libraries(all_tests INTERFACE tdutils tdactor tdnet tdfec ton_db ton
 endif()
 #END internal
 
-enable_testing()
 set(TEST_OPTIONS "--regression ${CMAKE_CURRENT_SOURCE_DIR}/test/regression-tests.ans --filter -Bench")
 separate_arguments(TEST_OPTIONS)
 ton_test(test-ed25519)
