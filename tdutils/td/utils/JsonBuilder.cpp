@@ -69,81 +69,166 @@ StringBuilder &operator<<(StringBuilder &sb, const JsonRawString &val) {
   return sb;
 }
 
+namespace detail {
+
+enum class JsonByteKind : uint8_t {
+  Plain = 0,     // safe ASCII [0x20..0x7E] except '"' and '\\'
+  Quote,         // '"'
+  Backslash,     // '\\'
+  Backspace,     // '\b'
+  Formfeed,      // '\f'
+  Newline,       // '\n'
+  CarriageRet,   // '\r'
+  Tab,           // '\t'
+  Control,       // other control chars <= 0x1F
+  Utf8           // >= 0x80
+};
+
+constexpr std::array<JsonByteKind, 256> make_json_byte_kind_table() {
+  std::array<JsonByteKind, 256> t{};
+
+  // Default: control for all, потом переопределим
+  for (size_t i = 0; i < 256; ++i) {
+    t[i] = (i >= 0x80) ? JsonByteKind::Utf8 : JsonByteKind::Control;
+  }
+
+  // Printable ASCII (safe by default)
+  for (size_t i = 0x20; i <= 0x7E; ++i) {
+    t[i] = JsonByteKind::Plain;
+  }
+
+  // Escaped specials
+  t[static_cast<unsigned char>('"')]  = JsonByteKind::Quote;
+  t[static_cast<unsigned char>('\\')] = JsonByteKind::Backslash;
+  t[static_cast<unsigned char>('\b')] = JsonByteKind::Backspace;
+  t[static_cast<unsigned char>('\f')] = JsonByteKind::Formfeed;
+  t[static_cast<unsigned char>('\n')] = JsonByteKind::Newline;
+  t[static_cast<unsigned char>('\r')] = JsonByteKind::CarriageRet;
+  t[static_cast<unsigned char>('\t')] = JsonByteKind::Tab;
+
+  return t;
+}
+
+inline constexpr auto JSON_BYTE_KIND = make_json_byte_kind_table();
+
+}  // namespace detail
+
 StringBuilder &operator<<(StringBuilder &sb, const JsonString &val) {
+  using detail::JsonByteKind;
+  using detail::JSON_BYTE_KIND;
+
+  const char *s = val.str_.begin();
+  const size_t len = val.str_.size();
+
+  // Минимальный reserve (дальше будет дорастать при необходимости)
+  (void)sb.reserve(len + 2);
+
   sb << '"';
-  SCOPE_EXIT {
-    sb << '"';
+
+  size_t chunk_start = 0;
+
+  auto flush_chunk = [&](size_t end_pos) {
+    if (end_pos > chunk_start) {
+      sb << Slice(s + chunk_start, end_pos - chunk_start);
+    }
   };
-  auto *s = val.str_.begin();
-  auto len = val.str_.size();
 
-  for (size_t pos = 0; pos < len; pos++) {
-    auto ch = static_cast<unsigned char>(s[pos]);
-    switch (ch) {
-      case '"':
-        sb << '\\' << '"';
+  for (size_t pos = 0; pos < len; ++pos) {
+    const unsigned char ch = static_cast<unsigned char>(s[pos]);
+    const JsonByteKind kind = JSON_BYTE_KIND[ch];
+
+    // Hot path: обычный ASCII
+    if (kind == JsonByteKind::Plain) {
+      continue;
+    }
+
+    // Сбрасываем накопленный plain chunk
+    flush_chunk(pos);
+
+    switch (kind) {
+      case JsonByteKind::Quote:
+        sb << Slice("\\\"", 2);
         break;
-      case '\\':
-        sb << '\\' << '\\';
+      case JsonByteKind::Backslash:
+        sb << Slice("\\\\", 2);
         break;
-      case '\b':
-        sb << '\\' << 'b';
+      case JsonByteKind::Backspace:
+        sb << Slice("\\b", 2);
         break;
-      case '\f':
-        sb << '\\' << 'f';
+      case JsonByteKind::Formfeed:
+        sb << Slice("\\f", 2);
         break;
-      case '\n':
-        sb << '\\' << 'n';
+      case JsonByteKind::Newline:
+        sb << Slice("\\n", 2);
         break;
-      case '\r':
-        sb << '\\' << 'r';
+      case JsonByteKind::CarriageRet:
+        sb << Slice("\\r", 2);
         break;
-      case '\t':
-        sb << '\\' << 't';
+      case JsonByteKind::Tab:
+        sb << Slice("\\t", 2);
         break;
-      default:
-        if (ch <= 31) {
-          sb << JsonOneChar(s[pos]);
+
+      case JsonByteKind::Control:
+        sb << JsonOneChar(s[pos]);
+        break;
+
+      case JsonByteKind::Utf8: {
+        // UTF-8 decode branch (с unsigned char)
+        int a = static_cast<unsigned char>(s[pos]);
+        CHECK((a & 0x40) != 0);
+
+        CHECK(pos + 1 < len);
+        int b = static_cast<unsigned char>(s[++pos]);
+        CHECK((b & 0xc0) == 0x80);
+
+        if ((a & 0x20) == 0) {
+          CHECK((a & 0x1e) > 0);
+          sb << JsonChar(((a & 0x1f) << 6) | (b & 0x3f));
           break;
         }
-        if (128 <= ch) {
-          int a = s[pos];
-          CHECK((a & 0x40) != 0);
 
-          CHECK(pos + 1 < len);
-          int b = s[++pos];
-          CHECK((b & 0xc0) == 0x80);
-          if ((a & 0x20) == 0) {
-            CHECK((a & 0x1e) > 0);
-            sb << JsonChar(((a & 0x1f) << 6) | (b & 0x3f));
-            break;
-          }
+        CHECK(pos + 1 < len);
+        int c = static_cast<unsigned char>(s[++pos]);
+        CHECK((c & 0xc0) == 0x80);
 
-          CHECK(pos + 1 < len);
-          int c = s[++pos];
-          CHECK((c & 0xc0) == 0x80);
-          if ((a & 0x10) == 0) {
-            CHECK(((a & 0x0f) | (b & 0x20)) > 0);
-            sb << JsonChar(((a & 0x0f) << 12) | ((b & 0x3f) << 6) | (c & 0x3f));
-            break;
-          }
-
-          CHECK(pos + 1 < len);
-          int d = s[++pos];
-          CHECK((d & 0xc0) == 0x80);
-          if ((a & 0x08) == 0) {
-            CHECK(((a & 0x07) | (b & 0x30)) > 0);
-            sb << JsonChar(((a & 0x07) << 18) | ((b & 0x3f) << 12) | ((c & 0x3f) << 6) | (d & 0x3f));
-            break;
-          }
-
-          UNREACHABLE();
+        if ((a & 0x10) == 0) {
+          CHECK(((a & 0x0f) | (b & 0x20)) > 0);
+          sb << JsonChar(((a & 0x0f) << 12) | ((b & 0x3f) << 6) | (c & 0x3f));
           break;
         }
-        sb << s[pos];
+
+        CHECK(pos + 1 < len);
+        int d = static_cast<unsigned char>(s[++pos]);
+        CHECK((d & 0xc0) == 0x80);
+
+        if ((a & 0x08) == 0) {
+          CHECK(((a & 0x07) | (b & 0x30)) > 0);
+          sb << JsonChar(((a & 0x07) << 18) |
+                         ((b & 0x3f) << 12) |
+                         ((c & 0x3f) << 6) |
+                         (d & 0x3f));
+          break;
+        }
+
+        UNREACHABLE();
+        break;
+      }
+
+      case JsonByteKind::Plain:
+        // unreachable due to fast path above
+        UNREACHABLE();
         break;
     }
+
+    chunk_start = pos + 1;
   }
+
+  // flush tail
+  if (chunk_start < len) {
+    sb << Slice(s + chunk_start, len - chunk_start);
+  }
+
+  sb << '"';
   return sb;
 }
 

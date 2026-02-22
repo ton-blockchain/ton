@@ -111,6 +111,20 @@ class StringBuilder {
     return *this << static_cast<const void *>(ptr);
   }
 
+  bool reserve() {
+    if (end_ptr_ > current_ptr_) {
+      return true;
+    }
+    return reserve_inner(RESERVED_SIZE);
+  }
+
+  bool reserve(size_t size) {
+    if (end_ptr_ > current_ptr_ && static_cast<size_t>(end_ptr_ - current_ptr_) >= size) {
+      return true;
+    }
+    return reserve_inner(size);
+  }
+
  private:
   char *begin_ptr_;
   char *current_ptr_;
@@ -125,18 +139,6 @@ class StringBuilder {
     return *this;
   }
 
-  bool reserve() {
-    if (end_ptr_ > current_ptr_) {
-      return true;
-    }
-    return reserve_inner(RESERVED_SIZE);
-  }
-  bool reserve(size_t size) {
-    if (end_ptr_ > current_ptr_ && static_cast<size_t>(end_ptr_ - current_ptr_) >= size) {
-      return true;
-    }
-    return reserve_inner(size);
-  }
   bool reserve_inner(size_t size);
 };
 

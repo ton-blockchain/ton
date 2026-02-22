@@ -673,6 +673,13 @@ bool tvm_emulator_set_libraries(void *tvm_emulator, const char *libs_boc) {
   return true;
 }
 
+struct C7Cache {
+  size_t hash;
+  std::shared_ptr<block::Config> global_config;
+};
+
+thread_local C7Cache c7_cache{};
+
 bool tvm_emulator_set_c7(void *tvm_emulator, const char *address, uint32_t unixtime, uint64_t balance, const char *rand_seed_hex, const char *config_boc) {
   auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
   auto std_address = block::StdAddress::parse(td::Slice(address));
@@ -683,18 +690,34 @@ bool tvm_emulator_set_c7(void *tvm_emulator, const char *address, uint32_t unixt
   
   std::shared_ptr<block::Config> global_config;
   if (config_boc != nullptr) {
-    auto config_params_cell = boc_b64_to_cell(config_boc);
-    if (config_params_cell.is_error()) {
-      LOG(ERROR) << "Can't deserialize config params boc: " << config_params_cell.move_as_error();
-      return false;
-    }
-    global_config = std::make_shared<block::Config>(
-        config_params_cell.move_as_ok(), td::Bits256::zero(),
+    auto config_slice = td::Slice(config_boc);
+    auto config_hash = std::hash<std::string_view>{}(
+        std::string_view(config_slice.data(), config_slice.size())
+    );
+
+    if (c7_cache.hash != config_hash) {
+      auto config_params_cell_res = boc_b64_to_cell(config_boc);
+      if (config_params_cell_res.is_error()) {
+        LOG(ERROR) << "Can't deserialize config params boc: " << config_params_cell_res.move_as_error();
+        return false;
+      }
+      vm::Ref<vm::Cell> config_params_cell = config_params_cell_res.move_as_ok();
+
+      global_config = std::make_shared<block::Config>(
+        config_params_cell, td::Bits256::zero(),
         block::Config::needWorkchainInfo | block::Config::needSpecialSmc | block::Config::needCapabilities);
-    auto unpack_res = global_config->unpack();
-    if (unpack_res.is_error()) {
-      LOG(ERROR) << "Can't unpack config params";
-      return false;
+      auto unpack_res = global_config->unpack();
+      if (unpack_res.is_error()) {
+        LOG(ERROR) << "Can't unpack config params";
+        return false;
+      }
+
+      c7_cache = {
+        .hash = config_hash,
+        .global_config = global_config,
+      };
+    } else {
+      global_config = c7_cache.global_config;
     }
   }
 
