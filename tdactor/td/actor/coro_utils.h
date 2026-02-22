@@ -606,7 +606,7 @@ Task<Result<T>> with_timeout(StartedTask<T> task, double seconds) {
   }(state, std::move(task))
                                                                            .start_in_parent_scope();
 
-  co_return co_await std::move(bridge);
+  co_return co_await std::move(bridge).child();
 }
 
 // Overload that takes a Timestamp instead of seconds
