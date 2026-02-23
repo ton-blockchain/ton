@@ -62,7 +62,7 @@ class FFIEventLoop {
 
  private:
   td::actor::Scheduler scheduler_;
-  std::thread scheduler_thread_{};
+  td::thread scheduler_thread_{};
 
   ObjectCounter object_counter_{};
   std::atomic<bool> is_cancelled_ = false;
