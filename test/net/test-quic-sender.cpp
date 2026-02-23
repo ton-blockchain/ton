@@ -831,9 +831,6 @@ TEST(QuicSender, LargeQueryWithSmallLimit) {
     auto a = co_await t.create_node("lg-a", next_port());
     auto b = co_await t.create_node("lg-b", next_port());
 
-    td::actor::send_closure(a.quic_sender, &ton::quic::QuicSender::set_default_mtu, 1 << 21);
-    td::actor::send_closure(b.quic_sender, &ton::quic::QuicSender::set_default_mtu, 1 << 21);
-
     t.add_peer(a, b);
     t.add_peer(b, a);
 
@@ -844,7 +841,7 @@ TEST(QuicSender, LargeQueryWithSmallLimit) {
     // Send very large query (1MB) with small response limit (100 bytes)
     // This should cause buffering and potentially trigger -219 when stream is shutdown
     std::string huge_data(1 << 20, 'X');  // 1MB
-    auto result = co_await t.send_query_ex(a, b, huge_data, 30.0, 100).wrap();
+    auto result = co_await t.send_query_ex(a, b, huge_data, 30.0, 2000).wrap();
 
     LOG(INFO) << "LargeQueryWithSmallLimit result: "
               << (result.is_ok() ? "OK (unexpected)" : result.error().to_string());

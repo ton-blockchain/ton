@@ -158,7 +158,7 @@ void QuicServer::close(QuicConnectionId cid) {
   }
   if (flood_control_.has_value()) {
     auto flood_addr = state->remote_address.get_ip_host();
-    if (--flood_map_[flood_addr] == 0) {
+    if (flood_map_.contains(flood_addr) && --flood_map_.at(flood_addr) == 0) {
       flood_map_.erase(flood_addr);
     }
   }

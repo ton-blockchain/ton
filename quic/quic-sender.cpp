@@ -279,7 +279,6 @@ void QuicSender::log_stats(std::string reason) {
 
 void QuicSender::on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id,
                                 td::optional<adnl::AdnlNodeIdShort> peer_id) {
-
 }
 
 QuicSender::Connection::~Connection() {
@@ -302,8 +301,8 @@ td::actor::Task<td::Unit> QuicSender::send_message_coro_inner(adnl::AdnlNodeIdSh
                                                               td::BufferSlice data) {
   auto conn = co_await find_or_create_connection({src, dst});
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_message>(std::move(data));
-  co_await td::actor::ask(conn->server, &QuicServer::send_stream, conn->cid, StreamOptions{get_peer_mtu(src, dst)}, std::move(wire_data),
-                          true);
+  co_await td::actor::ask(conn->server, &QuicServer::send_stream, conn->cid, StreamOptions{get_peer_mtu(src, dst)},
+                          std::move(wire_data), true);
   co_return td::Unit{};
 }
 
@@ -357,10 +356,9 @@ td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) 
     co_return td::Unit{};  // already added
   }
 
-  auto server = co_await QuicServer::create(
-      port, td::Ed25519::PrivateKey(local_keys_.at(local_id).as_octet_string()),
-      std::make_unique<ServerCallback>(local_id, actor_id(this)), "ton",
-      "0.0.0.0", server_options_);
+  auto server = co_await QuicServer::create(port, td::Ed25519::PrivateKey(local_keys_.at(local_id).as_octet_string()),
+                                            std::make_unique<ServerCallback>(local_id, actor_id(this)), "ton",
+                                            "0.0.0.0", server_options_);
   servers_[local_id] = std::move(server);
 
   co_return td::Unit{};
