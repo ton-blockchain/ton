@@ -1,4 +1,3 @@
-import math
 import threading
 from datetime import datetime, timezone
 from typing import cast, final
@@ -453,6 +452,8 @@ class DashApp:
         group: str | None,
         slot_from: int | None,
         slot_to: int | None,
+        time_from: str | None,
+        time_until: str | None,
         show_empty_v: list[str] | None,
     ) -> go.Figure:
         if not group:
@@ -460,8 +461,12 @@ class DashApp:
 
         slot_from, slot_to = self._normalize_slot_range(group, slot_from, slot_to)
         show_empty = "yes" in (show_empty_v or [])
+        start_from = self._normalize_time_seconds(time_from)
+        start_until = self._normalize_time_seconds(time_until)
         assert self._builder is not None
-        return self._builder.build_summary(group, slot_from, slot_to, show_empty)
+        return self._builder.build_summary(
+            group, slot_from, slot_to, show_empty, start_from, start_until
+        )
 
     def _update_detail(
         self,
@@ -480,7 +485,7 @@ class DashApp:
         ctx = callback_context
         triggered_id = cast(str | None, ctx.triggered_id)
 
-        if not valgroup_id or triggered_id == "time-mode":
+        if not valgroup_id or triggered_id in ("time-mode", "time-from", "time-until"):
             return fig, f"selected: {valgroup_id} slot {slot}", slot_meta, no_update
 
         return (
@@ -541,6 +546,8 @@ class DashApp:
             Input("group", "value"),
             Input("slot-from", "value"),
             Input("slot-to", "value"),
+            Input("time-from", "value"),
+            Input("time-until", "value"),
             Input("show-empty", "value"),
         )(self._update_summary)
 
