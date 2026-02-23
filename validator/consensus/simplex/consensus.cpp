@@ -41,7 +41,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   void start_up() override {
     auto [awaiter, promise] = td::actor::StartedTask<StartEvent>::make_bridge();
     genesis_promise_ = std::move(promise);
-    genesis_ = std::move(awaiter);
+    genesis_.emplace(std::move(awaiter));
 
     auto& bus = *owning_bus();
 
@@ -265,7 +265,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   std::map<ParentId, ResolvedCandidateEntry> block_data_state_cache_;
 
   td::Promise<StartEvent> genesis_promise_;
-  td::actor::SharedFuture<StartEvent> genesis_;
+  std::optional<td::actor::SharedFuture<StartEvent>> genesis_;
 
   td::actor::Task<ResolvedCandidate> get_resolved_candidate(ParentId id) {
     ResolvedCandidateEntry& entry = block_data_state_cache_[id];
@@ -293,7 +293,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   td::actor::Task<ResolvedCandidate> get_resolved_candidate_inner(ParentId id) {
     if (!id.has_value() || finalized_blocks_.contains(*id)) {
       std::vector<BlockIdExt> block;
-      auto genesis = co_await genesis_.get();
+      auto genesis = co_await genesis_->get();
       if (id.has_value()) {
         auto candidate = (co_await owning_bus().publish<ResolveCandidate>(*id)).candidate;
         block = {candidate->block_id()};

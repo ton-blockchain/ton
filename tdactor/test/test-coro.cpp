@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "td/actor/SharedFuture.h"
 #include "td/actor/actor.h"
 #include "td/actor/core/ActorInfo.h"
 #include "td/actor/coro.h"
@@ -3174,6 +3175,119 @@ TEST_CORO(Coro, external_parent_scope_repro) {
   }
   co_return td::Unit{};
 }
+
+// SharedFuture tests
+
+TEST_CORO_ACTOR(Coro, shared_future_single_get) {
+ public:
+  Task<td::Unit> run() {
+    if (!sf_) {
+      sf_.emplace([]() -> Task<int> { co_return 42; }());
+    }
+    auto val = co_await sf_->get();
+    expect_eq(val, 42, "single get should return 42");
+    co_return td::Unit{};
+  }
+
+ private:
+  std::optional<SharedFuture<int>> sf_;
+};
+
+TEST_CORO_ACTOR(Coro, shared_future_multiple_getters) {
+ public:
+  Task<td::Unit> run() {
+    if (!sf_) {
+      sf_.emplace([]() -> Task<int> {
+        co_await yield_on_current();
+        co_return 7;
+      }());
+    }
+    auto a = sf_->get();
+    auto b = sf_->get();
+    auto sa = std::move(a).start_immediate_in_parent_scope();
+    auto sb = std::move(b).start_immediate_in_parent_scope();
+    auto va = co_await std::move(sa).child();
+    auto vb = co_await std::move(sb).child();
+    expect_eq(va, 7, "getter a should return 7");
+    expect_eq(vb, 7, "getter b should return 7");
+    co_return td::Unit{};
+  }
+
+ private:
+  std::optional<SharedFuture<int>> sf_;
+};
+
+TEST_CORO_ACTOR(Coro, shared_future_get_after_ready) {
+ public:
+  Task<td::Unit> run() {
+    if (!sf_) {
+      sf_.emplace([]() -> Task<int> { co_return 99; }());
+    }
+    auto v1 = co_await sf_->get();
+    auto v2 = co_await sf_->get();
+    expect_eq(v1, 99, "first get");
+    expect_eq(v2, 99, "cached get");
+    co_return td::Unit{};
+  }
+
+ private:
+  std::optional<SharedFuture<int>> sf_;
+};
+
+TEST_CORO_ACTOR(Coro, shared_future_propagate_cancel_true) {
+ public:
+  Task<td::Unit> run() {
+    if (!sf_) {
+      sf_.emplace([]() -> Task<td::Unit> {
+        while (true) {
+          co_await yield_on_current();
+        }
+        co_return td::Unit{};
+      }());
+    }
+    auto getter = sf_->get(true);
+    auto started = std::move(getter).start_immediate_in_parent_scope();
+    co_await yield_on_current();
+    started.cancel();
+    auto r = co_await std::move(started).wrap();
+    expect_true(r.is_error(), "get(true) should return error after cancel propagation");
+    co_return td::Unit{};
+  }
+
+ private:
+  std::optional<SharedFuture<td::Unit>> sf_;
+};
+
+TEST_CORO_ACTOR(Coro, shared_future_propagate_cancel_false) {
+ public:
+  Task<td::Unit> run() {
+    if (!inner_done_) {
+      inner_done_ = std::make_shared<std::atomic<bool>>(false);
+    }
+    if (!sf_) {
+      sf_.emplace([](std::shared_ptr<std::atomic<bool>> done) -> Task<td::Unit> {
+        co_await yield_on_current();
+        co_await yield_on_current();
+        done->store(true, std::memory_order_relaxed);
+        co_return td::Unit{};
+      }(inner_done_));
+    }
+    auto getter = sf_->get(false);
+    auto started = std::move(getter).start_immediate_without_scope();
+    co_await yield_on_current();
+    started.cancel();
+    // get() was cancelled but underlying future should NOT be cancelled.
+    // Wait for the underlying to complete normally.
+    co_await wait_until([this] { return inner_done_->load(std::memory_order_relaxed); }, 300);
+    expect_true(inner_done_->load(std::memory_order_relaxed),
+                "propagate_cancel=false: underlying future should complete normally");
+    co_return td::Unit{};
+  }
+
+ private:
+  std::shared_ptr<std::atomic<bool>> inner_done_;
+  std::optional<SharedFuture<td::Unit>> sf_;
+};
 
 // 5) Runner
 int main(int argc, char** argv) {

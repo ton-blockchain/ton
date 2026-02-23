@@ -45,7 +45,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   void start_up() {
     auto [awaiter, promise] = td::actor::StartedTask<StartEvent>::make_bridge();
     genesis_promise_ = std::move(promise);
-    genesis_ = std::move(awaiter);
+    genesis_.emplace(std::move(awaiter));
 
     auto& bus = *owning_bus();
 
@@ -125,7 +125,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   }
 
   td::actor::Task<> start_generation() {
-    auto state = (co_await genesis_.get())->state;
+    auto state = (co_await genesis_->get())->state;
     owning_bus().publish<OurLeaderWindowStarted>(std::nullopt, state, 0, std::numeric_limits<td::uint32>::max(),
                                                  td::Timestamp::now());
     co_return {};
@@ -149,7 +149,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     try_validate_blocks_running_ = true;
 
     if (state_for_validation_.is_null()) {
-      state_for_validation_ = (co_await genesis_.get())->state;
+      state_for_validation_ = (co_await genesis_->get())->state;
     }
 
     auto& bus = *owning_bus();
@@ -221,7 +221,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   }
 
   td::Promise<StartEvent> genesis_promise_;
-  td::actor::SharedFuture<StartEvent> genesis_;
+  std::optional<td::actor::SharedFuture<StartEvent>> genesis_;
 
   std::set<PeerValidatorId> seen_handshakes_;
 

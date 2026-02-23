@@ -26,6 +26,25 @@ inline void run_coro_test(td::actor::Task<td::Unit> task) {
   td::actor::create_actor<Runner>("CoroTestRunner", std::move(task)).release();
 }
 
+template <class TestActor>
+inline void run_coro_actor_test() {
+  class Runner final : public td::actor::Actor {
+   public:
+    void start_up() override {
+      auto actor = td::actor::create_actor<TestActor>("CoroActorTest");
+      [](td::actor::ActorOwn<TestActor> actor) -> td::actor::Task<td::Unit> {
+        (co_await td::actor::ask(actor, &TestActor::run).wrap()).ensure();
+        co_await td::actor::yield_on_current();
+        td::actor::SchedulerContext::get().stop();
+        co_return td::Unit{};
+      }(std::move(actor))
+                                                      .start_immediate_without_scope()
+                                                      .detach("CoroActorTestRunner");
+    }
+  };
+  td::actor::create_actor<Runner>("CoroActorTestRunner").release();
+}
+
 #define TEST_CORO_IMPL(test_name)                                                         \
   static ::td::actor::Task<td::Unit> TD_CONCAT(coro_body_, test_name)();                  \
   TEST_IMPL(test_name) {                                                                  \
@@ -37,3 +56,15 @@ inline void run_coro_test(td::actor::Task<td::Unit> task) {
   static ::td::actor::Task<td::Unit> TD_CONCAT(coro_body_, test_name)()
 
 #define TEST_CORO(test_case_name, test_name) TEST_CORO_IMPL(TEST_NAME(test_case_name, test_name))
+
+#define TEST_CORO_ACTOR_IMPL(test_name)                                                          \
+  class TD_CONCAT(coro_actor_, test_name);                                                       \
+  TEST_IMPL(test_name) {                                                                         \
+    SET_VERBOSITY_LEVEL(VERBOSITY_NAME(INFO));                                                   \
+    td::actor::Scheduler scheduler({4});                                                         \
+    scheduler.run_in_context([&] { run_coro_actor_test<TD_CONCAT(coro_actor_, test_name)>(); }); \
+    scheduler.run();                                                                             \
+  }                                                                                              \
+  class TD_CONCAT(coro_actor_, test_name) final : public ::td::actor::Actor
+
+#define TEST_CORO_ACTOR(test_case_name, test_name) TEST_CORO_ACTOR_IMPL(TEST_NAME(test_case_name, test_name))

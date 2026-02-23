@@ -413,10 +413,15 @@ struct CoroMutex {
     Lock(CoroMutex* m) : mutex_(m) {
     }
     ~Lock() {
-      if (mutex_)
-        mutex_->unlock();
+      reset();
     }
     Lock(Lock&& o) noexcept : mutex_(std::exchange(o.mutex_, nullptr)) {
+    }
+    void reset() {
+      if (mutex_) {
+        mutex_->unlock();
+        mutex_ = nullptr;
+      }
     }
     Lock& operator=(Lock&&) = delete;
     Lock(const Lock&) = delete;
@@ -429,10 +434,14 @@ struct CoroMutex {
   bool await_ready() {
     return !is_locked_;
   }
-  Lock await_resume() {
+  Lock lock_unsafe() {
     CHECK(++lock_cnt_ == 1);
     is_locked_ = true;
     return Lock{this};
+  }
+
+  Lock await_resume() {
+    return lock_unsafe();
   }
 
   template <class OuterPromise>
