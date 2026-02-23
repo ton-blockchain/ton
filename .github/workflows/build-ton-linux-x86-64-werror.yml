@@ -29,7 +29,7 @@ jobs:
         wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
         echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
         sudo apt -y update
-        sudo apt install -y clang-21
+        sudo apt install -y clang-21 clang-format-21
 
     # TODO: Preserve ccache cache between runs once we get rid of warning suppression mappings.
 
