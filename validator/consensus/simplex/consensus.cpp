@@ -6,6 +6,7 @@
 
 #include "consensus/simplex/state.h"
 #include "consensus/utils.h"
+#include "td/actor/SharedFuture.h"
 #include "td/actor/coro_utils.h"
 
 #include "bus.h"
@@ -264,7 +265,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   std::map<ParentId, ResolvedCandidateEntry> block_data_state_cache_;
 
   td::Promise<StartEvent> genesis_promise_;
-  SharedFuture<StartEvent> genesis_;
+  td::actor::SharedFuture<StartEvent> genesis_;
 
   td::actor::Task<ResolvedCandidate> get_resolved_candidate(ParentId id) {
     ResolvedCandidateEntry& entry = block_data_state_cache_[id];
