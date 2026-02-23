@@ -31,6 +31,13 @@ if(PkgConfig_FOUND)
     target_include_directories(gbench-coro PRIVATE ${GBENCH_INCLUDE_DIRS})
     target_compile_options(gbench-coro PRIVATE ${GBENCH_CFLAGS_OTHER})
 
+    add_executable(gbench-mutex gbench-mutex.cpp)
+    target_link_libraries(gbench-mutex tdutils)
+    target_link_directories(gbench-mutex PRIVATE ${GBENCH_LIBRARY_DIRS})
+    target_link_libraries(gbench-mutex -lbenchmark)
+    target_include_directories(gbench-mutex PRIVATE ${GBENCH_INCLUDE_DIRS})
+    target_compile_options(gbench-mutex PRIVATE ${GBENCH_CFLAGS_OTHER})
+
     message(STATUS "Google Benchmark found via pkg-config - gbench-coro target enabled")
 
     # Check for Folly

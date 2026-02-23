@@ -246,6 +246,7 @@ set(TDUTILS_SOURCE
   td/utils/Slice-decl.h
   td/utils/Slice.h
   td/utils/Span.h
+  td/utils/Mutex.h
   td/utils/SpinLock.h
   td/utils/StackAllocator.h
   td/utils/Status.h
@@ -311,6 +312,7 @@ set(TDUTILS_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/List.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/log.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/misc.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/Mutex.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/MpmcQueue.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/MpmcWaiter.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/MpscLinkQueue.cpp
