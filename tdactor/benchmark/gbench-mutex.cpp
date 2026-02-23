@@ -47,7 +47,7 @@ static void BM_Uncontended_SpinLock(benchmark::State &state) {
 }
 
 BENCHMARK(BM_Uncontended_SpinLock);
-BENCHMARK_TEMPLATE(BM_Uncontended, td::Mutex);
+BENCHMARK_TEMPLATE(BM_Uncontended, td::TinyMutex);
 BENCHMARK_TEMPLATE(BM_Uncontended, std::mutex);
 BENCHMARK_TEMPLATE(BM_Uncontended, TicketLock);
 
@@ -84,7 +84,7 @@ static void BM_Contended_SpinLock(benchmark::State &state) {
 }
 
 BENCHMARK(BM_Contended_SpinLock)->Threads(2)->Threads(4)->Threads(8);
-BENCHMARK_TEMPLATE(BM_Contended, td::Mutex)->Threads(2)->Threads(4)->Threads(8);
+BENCHMARK_TEMPLATE(BM_Contended, td::TinyMutex)->Threads(2)->Threads(4)->Threads(8);
 BENCHMARK_TEMPLATE(BM_Contended, std::mutex)->Threads(2)->Threads(4)->Threads(8);
 BENCHMARK_TEMPLATE(BM_Contended, TicketLock)->Threads(2)->Threads(4)->Threads(8);
 
@@ -126,7 +126,7 @@ static void BM_ContendedWithWork_SpinLock(benchmark::State &state) {
 }
 
 BENCHMARK(BM_ContendedWithWork_SpinLock)->Threads(2)->Threads(4)->Threads(8);
-BENCHMARK_TEMPLATE(BM_ContendedWithWork, td::Mutex)->Threads(2)->Threads(4)->Threads(8);
+BENCHMARK_TEMPLATE(BM_ContendedWithWork, td::TinyMutex)->Threads(2)->Threads(4)->Threads(8);
 BENCHMARK_TEMPLATE(BM_ContendedWithWork, std::mutex)->Threads(2)->Threads(4)->Threads(8);
 BENCHMARK_TEMPLATE(BM_ContendedWithWork, TicketLock)->Threads(2)->Threads(4)->Threads(8);
 

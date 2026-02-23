@@ -9,13 +9,13 @@
 #if !TD_THREAD_UNSUPPORTED
 
 TEST(Mutex, basic) {
-  td::Mutex m;
+  td::TinyMutex m;
   m.lock();
   m.unlock();
 }
 
 TEST(Mutex, try_lock) {
-  td::Mutex m;
+  td::TinyMutex m;
   ASSERT_TRUE(m.try_lock());
   ASSERT_TRUE(!m.try_lock());
   m.unlock();
@@ -24,7 +24,7 @@ TEST(Mutex, try_lock) {
 }
 
 TEST(Mutex, two_threads) {
-  td::Mutex m;
+  td::TinyMutex m;
   std::atomic<int> counter{0};
   constexpr int N = 100000;
 
@@ -49,7 +49,7 @@ TEST(Mutex, two_threads) {
 }
 
 TEST(Mutex, many_threads) {
-  td::Mutex m;
+  td::TinyMutex m;
   std::atomic<int> counter{0};
   constexpr int threads_n = 8;
   constexpr int N = 50000;
@@ -71,7 +71,7 @@ TEST(Mutex, many_threads) {
 }
 
 TEST(Mutex, protects_data) {
-  td::Mutex m;
+  td::TinyMutex m;
   int shared = 0;
   constexpr int threads_n = 4;
   constexpr int N = 100000;

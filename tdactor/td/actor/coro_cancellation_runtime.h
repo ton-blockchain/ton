@@ -10,6 +10,7 @@
 
 #include "td/actor/coro_ref.h"
 #include "td/utils/List.h"
+#include "td/utils/Mutex.h"
 #include "td/utils/common.h"
 
 namespace td {
@@ -239,7 +240,7 @@ struct CancelTopology {
 
   PublishResult publish_raw(CancelNode& node) {
     auto& hook = static_cast<td::TaggedListNode<Tag>&>(node);
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<td::TinyMutex> lock(mutex_);
     if (!hook.empty())
       return PublishResult::AlreadyInList;
     node.on_publish();
@@ -249,7 +250,7 @@ struct CancelTopology {
 
   bool unpublish_raw(CancelNode& node) {
     auto& hook = static_cast<td::TaggedListNode<Tag>&>(node);
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<td::TinyMutex> lock(mutex_);
     if (hook.empty())
       return false;
     hook.remove();
@@ -258,7 +259,7 @@ struct CancelTopology {
 
   template <class HoldFn>
   void snapshot(std::vector<CancelNode*>& out, HoldFn&& hold_fn) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<td::TinyMutex> lock(mutex_);
     for (auto* it = head_.begin(); it != head_.end(); it = it->get_next()) {
       auto* node = static_cast<CancelNode*>(it);
       hold_fn(*node);
@@ -268,7 +269,7 @@ struct CancelTopology {
 
   template <class HoldFn>
   void drain(std::vector<CancelNode*>& out, HoldFn&& hold_fn) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<td::TinyMutex> lock(mutex_);
     for (auto* it = head_.begin(); it != head_.end();) {
       auto* next = it->get_next();
       auto* node = static_cast<CancelNode*>(it);
@@ -318,7 +319,7 @@ struct CancelTopology {
 
  private:
   td::TaggedListNode<Tag> head_;
-  std::mutex mutex_;
+  td::TinyMutex mutex_;
 };
 
 struct CancellationRuntime {

@@ -8,7 +8,7 @@ namespace td {
 //   0 = unlocked
 //   1 = locked, no known waiters
 //   2 = locked, contended (may have waiters)
-class Mutex {
+class TinyMutex {
  public:
   void lock() noexcept {
     int expected = 0;
