@@ -159,6 +159,66 @@ class DashApp:
         assert self._data is not None
         return self._vset_provider.get_validator_set_text(group, self._data.slots)
 
+    def _update_group_stats(self, group: str | None) -> str:
+        if not group:
+            return "group stats: none"
+
+        self._load_group(group)
+        assert self._data is not None
+
+        group_events = [e for e in self._data.events if e.valgroup_id == group]
+        group_slots = {s.slot: s for s in self._data.slots if s.valgroup_id == group}
+
+        skip_slots = {e.slot for e in group_events if e.label == "skip_observed"}
+        finalized_block_slots = sorted(
+            slot
+            for slot in {e.slot for e in group_events if e.label == "finalize_reached"}
+            if slot in group_slots and not group_slots[slot].is_empty
+        )
+
+        collate_started_by_slot: dict[int, float] = {}
+        for e in group_events:
+            if e.label != "collation":
+                continue
+            collate_started_by_slot[e.slot] = e.t_ms
+
+        finalized_with_collate = [
+            (slot, collate_started_by_slot[slot])
+            for slot in finalized_block_slots
+            if slot in collate_started_by_slot
+        ]
+        delta_entries = [
+            (prev_slot, cur_slot, cur_t - prev_t)
+            for (prev_slot, prev_t), (cur_slot, cur_t) in zip(
+                finalized_with_collate, finalized_with_collate[1:]
+            )
+        ]
+
+        avg_delta = (sum(x[2] for x in delta_entries) / len(delta_entries)) if delta_entries else None
+        min_delta_slots = min(delta_entries, key=lambda x: x[2]) if delta_entries else None
+        max_delta_slots = max(delta_entries, key=lambda x: x[2]) if delta_entries else None
+
+        min_slot_text = (
+            f"{min_delta_slots[0]} -> {min_delta_slots[1]}" if min_delta_slots else "n/a"
+        )
+        max_slot_text = (
+            f"{max_delta_slots[0]} -> {max_delta_slots[1]}" if max_delta_slots else "n/a"
+        )
+
+        return "\n".join(
+            [
+                f"valgroup = {group}",
+                (
+                    "slots with skip_observed"
+                    f" ({len(skip_slots)}) = {skip_slots}"
+                ),
+                "collation start delta for neighboring finalized blocks:",
+                f"min = {round(min_delta_slots[2], 3) if min_delta_slots else 'n/a'} ms for slots {min_slot_text}",
+                f"avg = {avg_delta:.3f} ms",
+                f"max = {round(max_delta_slots[2], 3) if max_delta_slots else 'n/a'} ms for slots {max_slot_text}",
+            ]
+        )
+
     def run(self, debug: bool = True, host: str = "127.0.0.1", port: int = 8050) -> None:
         self._setup_layout()
         self._setup_callbacks()
@@ -271,6 +331,26 @@ class DashApp:
                         "flexWrap": "wrap",
                         "alignItems": "center",
                         "padding": "12px 16px",
+                    },
+                ),
+                html.Div(
+                    [
+                        html.Pre(
+                            id="group-stats",
+                            children="group stats: none",
+                            style={
+                                "margin": "0",
+                                "fontSize": "14px",
+                                "border": "1px solid #ddd",
+                                "borderRadius": "4px",
+                                "padding": "8px 10px",
+                                "whiteSpace": "pre-wrap",
+                                "overflowX": "auto",
+                            },
+                        )
+                    ],
+                    style={
+                        "margin": "0 16px 10px 16px",
                     },
                 ),
                 html.Div(
@@ -525,6 +605,11 @@ class DashApp:
             Input("time-from", "value"),
             Input("time-until", "value"),
         )(self.update_data)
+
+        self._app.callback(  # pyright: ignore[reportUnknownMemberType]
+            Output("group-stats", "children"),
+            Input("group", "value"),
+        )(self._update_group_stats)
 
         self._app.callback(  # pyright: ignore[reportUnknownMemberType]
             Output("group-validator-set", "children"),
