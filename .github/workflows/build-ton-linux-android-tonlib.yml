@@ -18,13 +18,13 @@ jobs:
         sudo apt-get install -y build-essential git cmake ninja-build automake libtool texinfo autoconf libgflags-dev \
         libreadline-dev pkg-config libgsl-dev python3 python3-dev libtool autoconf
 
-    -  name: Install llvm-21
-       run: |
+    - name: Install llvm-21
+      run: |
         lsb_release -a
         wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-        echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
-        sudo apt-get -y update
-        sudo apt-get install -y clang-21
+        echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+        sudo apt -y update
+        sudo apt install -y clang-21
 
     - name: Cache Android NDK
       id: cache-android-ndk
