@@ -832,7 +832,7 @@ TEST(QuicSender, LargeQueryWithSmallLimit) {
     auto b = co_await t.create_node("lg-b", next_port());
 
     td::actor::send_closure(a.quic_sender, &ton::quic::QuicSender::set_default_mtu, 1 << 21);
-    td::actor::send_closure(a.quic_sender, &ton::quic::QuicSender::set_default_mtu, 1 << 21);
+    td::actor::send_closure(b.quic_sender, &ton::quic::QuicSender::set_default_mtu, 1 << 21);
 
     t.add_peer(a, b);
     t.add_peer(b, a);
