@@ -87,6 +87,12 @@ void CatChainReceiverImpl::deliver_block(CatChainReceivedBlock *block) {
 
 void CatChainReceiverImpl::receive_block(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_api::catchain_block> block,
                                          td::BufferSlice payload) {
+  td::uint32 src_id = block->src_;
+  if (src_id >= get_sources_cnt()) {
+    VLOG(CATCHAIN_WARNING) << this << ": received broken block from " << src << ": bad src " << block->src_;
+    return;
+  }
+
   CatChainBlockHash id = CatChainReceivedBlock::block_hash(this, block, payload);
   CatChainReceivedBlock *B = get_block(id);
   if (B && B->initialized()) {
@@ -106,11 +112,6 @@ void CatChainReceiverImpl::receive_block(adnl::AdnlNodeIdShort src, tl_object_pt
     return;
   }
 
-  td::uint32 src_id = block->src_;
-  if (src_id >= get_sources_cnt()) {
-    VLOG(CATCHAIN_WARNING) << this << ": received broken block from " << src << ": bad src " << block->src_;
-    return;
-  }
   CatChainReceiverSource *source = get_source(src_id);
   if (source->fork_is_found()) {
     if (B == nullptr || !B->has_rev_deps()) {
@@ -527,8 +528,7 @@ void CatChainReceiverImpl::start_up() {
   overlay_options.private_ping_peers_ = true;
   overlay_options.twostep_broadcast_sender_ = adnl_sender_;
   // Uncomment this to enable sending twostep broadcasts in catchain overlays:
-  // FIXME: we uncommented this line just for QUIC testing
-  overlay_options.send_twostep_broadcast_ = true;
+  // overlay_options.send_twostep_broadcast_ = true;
   td::actor::send_closure(overlay_manager_, &overlay::Overlays::create_private_overlay_ex,
                           get_source(local_idx_)->get_adnl_id(), overlay_full_id_.clone(), std::move(ids),
                           make_callback(), overlay::OverlayPrivacyRules{0, 0, std::move(root_keys)},

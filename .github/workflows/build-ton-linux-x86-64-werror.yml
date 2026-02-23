@@ -8,7 +8,7 @@ jobs:
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v6
       with:
         submodules: 'recursive'
 
@@ -21,7 +21,7 @@ jobs:
     - name: Install system libraries
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev libjemalloc-dev
+        sudo apt-get install -y build-essential git cmake ninja-build libjemalloc-dev
 
     - name: Install Clang 21
       run: |
@@ -44,12 +44,12 @@ jobs:
 
     - name: Check spaces at EOL
       run: |
-        ! git grep --cached -Il '\s$' :!example/android/third_party
+        ! git grep --cached -Il '\s$'
 
     - name: Check C++ formatting
       run: |
         # TODO: Run clang-format only on changed files.
-        clang-format-21 -i $(git ls-files '*.h' '*.hpp' '*.cpp' ':!^example/android/third_party' ':!^tolk/')
+        clang-format-21 -i $(git ls-files '*.h' '*.hpp' '*.cpp' ':!^tolk/')
         git diff --exit-code
 
     - name: Prepare Python environment

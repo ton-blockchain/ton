@@ -14,7 +14,6 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include <atomic>
 #include <memory>
 #include <thread>
 
@@ -52,13 +51,11 @@ const ton::PublicKey& server_public_key() {
   static auto key = server_private_key().compute_public_key();
   return key;
 }
-const ton::PrivateKey& client_private_key() {
-  static auto key = make_private_key(2);
-  return key;
+ton::PrivateKey client_private_key(td::uint32 client_id = 0) {
+  return make_private_key(static_cast<td::uint8>(2 + client_id));
 }
-const ton::PublicKey& client_public_key() {
-  static auto key = client_private_key().compute_public_key();
-  return key;
+ton::PublicKey client_public_key(td::uint32 client_id = 0) {
+  return client_private_key(client_id).compute_public_key();
 }
 }  // namespace
 
@@ -68,6 +65,7 @@ enum class Protocol { rldp1, rldp2, quic };
 struct Config {
   Mode mode = Mode::loopback;
   Protocol protocol = Protocol::rldp2;
+  td::uint32 client_id = 0;
   td::uint32 threads = 7;
   td::uint32 query_size = 1024;
   td::uint32 response_size = 1024;
@@ -75,10 +73,15 @@ struct Config {
   td::uint32 max_inflight = 0;  // 0 = unlimited
   double timeout = 60.0;
   double test_timeout = 5.0;  // Global test timeout
+  bool enable_gso = true;
+  bool enable_gro = true;
+  bool enable_mmsg = true;
+  ton::quic::CongestionControlAlgo cc_algo = ton::quic::CongestionControlAlgo::Bbr;
   bool prometheus = false;
 
   // Network mode options
   td::IPAddress local_addr;
+  td::IPAddress public_addr;
   td::IPAddress server_addr;
 };
 
@@ -144,6 +147,9 @@ class BenchmarkRunner : public td::actor::Actor {
   }
 
   void alarm() override {
+    if (exit_pending_) {
+      std::_Exit(0);
+    }
     if (test_timeout_at_.is_in_past()) {
       LOG(ERROR) << "Test timeout reached after " << config_.test_timeout << "s";
       LOG(ERROR) << "Sent: " << sent_ << ", Received: " << received_ << ", Errors: " << errors_
@@ -171,6 +177,7 @@ class BenchmarkRunner : public td::actor::Actor {
   td::uint32 errors_ = 0;
   td::uint32 inflight_ = 0;
   td::Timestamp test_timeout_at_;
+  bool exit_pending_{false};
 
   std::vector<double> query_start_times_;
   std::vector<double> latencies_;
@@ -263,8 +270,41 @@ class BenchmarkRunner : public td::actor::Actor {
       LOG(ERROR) << "    max: " << td::format::as_time(latencies_.back());
     }
 
+    if (config_.protocol == Protocol::quic) {
+      auto quic_sender = td::actor::actor_dynamic_cast<ton::quic::QuicSender>(rldp_);
+      td::actor::send_closure(quic_sender, &ton::quic::QuicSender::log_stats, "bench-complete");
+      exit_pending_ = true;
+      alarm_timestamp() = td::Timestamp::in(0.2);
+      return;
+    }
+
     std::_Exit(0);
   }
+};
+
+class StatsReporter : public td::actor::Actor {
+ public:
+  StatsReporter(td::actor::ActorId<ton::quic::QuicSender> quic_sender, std::string reason, bool enabled,
+                double interval_sec)
+      : quic_sender_(quic_sender), reason_(std::move(reason)), enabled_(enabled), interval_sec_(interval_sec) {
+  }
+
+  void start_up() override {
+    alarm_timestamp() = td::Timestamp::in(interval_sec_);
+  }
+
+  void alarm() override {
+    if (enabled_ && !quic_sender_.empty()) {
+      td::actor::send_closure(quic_sender_, &ton::quic::QuicSender::log_stats, reason_);
+    }
+    alarm_timestamp() = td::Timestamp::in(interval_sec_);
+  }
+
+ private:
+  td::actor::ActorId<ton::quic::QuicSender> quic_sender_;
+  std::string reason_;
+  bool enabled_{false};
+  double interval_sec_{10.0};
 };
 
 void run_loopback(Config config) {
@@ -281,6 +321,7 @@ void run_loopback(Config config) {
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
   td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
   td::actor::ActorOwn<BenchmarkRunner> runner;
+  td::actor::ActorOwn<StatsReporter> stats_reporter;
 
   ton::adnl::AdnlNodeIdShort src;
   ton::adnl::AdnlNodeIdShort dst;
@@ -327,9 +368,17 @@ void run_loopback(Config config) {
     // Create QUIC sender for loopback testing
     quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
         "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_udp_offload_options,
+                            ton::quic::QuicServer::Options{.enable_gso = config.enable_gso,
+                                                           .enable_gro = config.enable_gro,
+                                                           .enable_mmsg = config.enable_mmsg,
+                                                           .cc_algo = config.cc_algo});
     // Add both local IDs to QUIC sender
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, src);
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, dst);
+
+    stats_reporter = td::actor::create_actor<StatsReporter>(
+        "quic-stats-loopback", quic_sender.get(), "loopback-periodic", config.protocol == Protocol::quic, 10.0);
 
     td::actor::send_closure(adnl, &ton::adnl::Adnl::subscribe, dst, "B",
                             std::make_unique<Server>(config.response_size));
@@ -366,6 +415,7 @@ void run_server(Config config) {
   td::actor::ActorOwn<ton::rldp::Rldp> rldp1;
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
   td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
+  td::actor::ActorOwn<StatsReporter> stats_reporter;
   td::actor::ActorOwn<ton::PrometheusExporter> exporter;
 
   scheduler.run_in_context([&] {
@@ -380,14 +430,15 @@ void run_server(Config config) {
 
     ton::adnl::AdnlCategoryMask cat_mask;
     cat_mask[0] = true;
-    td::actor::send_closure(network_manager, &ton::adnl::AdnlNetworkManager::add_self_addr, config.local_addr,
+    const auto& self_addr = config.public_addr.is_valid() ? config.public_addr : config.local_addr;
+    td::actor::send_closure(network_manager, &ton::adnl::AdnlNetworkManager::add_self_addr, self_addr,
                             std::move(cat_mask), 0);
 
     auto local_id = ton::adnl::AdnlNodeIdShort{server_public_key().compute_short_id()};
     td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, server_private_key(), true, [](td::Unit) {});
 
     ton::adnl::AdnlAddressList addr_list;
-    addr_list.add_udp_address(config.local_addr).ensure();
+    addr_list.add_udp_address(self_addr).ensure();
     addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
     addr_list.set_reinit_date(ton::adnl::Adnl::adnl_start_time());
 
@@ -408,6 +459,11 @@ void run_server(Config config) {
     // Start QUIC sender (uses ADNL keys for TLS via RPK)
     quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
         "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_udp_offload_options,
+                            ton::quic::QuicServer::Options{.enable_gso = config.enable_gso,
+                                                           .enable_gro = config.enable_gro,
+                                                           .enable_mmsg = config.enable_mmsg,
+                                                           .cc_algo = config.cc_algo});
     // Use send_lambda to properly start the coroutine task
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, local_id);
     if (config.prometheus)
@@ -416,6 +472,9 @@ void run_server(Config config) {
     td::actor::send_closure(adnl, &ton::adnl::Adnl::subscribe, local_id, "B",
                             std::make_unique<Server>(config.response_size));
 
+    stats_reporter = td::actor::create_actor<StatsReporter>("quic-stats-server", quic_sender.get(), "server-periodic",
+                                                            config.protocol == Protocol::quic, 10.0);
+
     LOG(ERROR) << "Server listening on " << config.local_addr;
   });
 
@@ -423,7 +482,7 @@ void run_server(Config config) {
 }
 
 void run_client(Config config) {
-  std::string db_root = "tmp-dir-bench-rldp-client";
+  std::string db_root = "tmp-dir-bench-rldp-client-" + std::to_string(config.client_id);
   td::rmrf(db_root).ignore();
   td::mkdir(db_root).ensure();
 
@@ -437,6 +496,7 @@ void run_client(Config config) {
   td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
   td::actor::ActorOwn<BenchmarkRunner> runner;
   td::actor::ActorOwn<ton::PrometheusExporter> exporter;
+  td::actor::ActorOwn<StatsReporter> stats_reporter;
 
   ton::adnl::AdnlNodeIdShort src;
   ton::adnl::AdnlNodeIdShort dst;
@@ -454,19 +514,22 @@ void run_client(Config config) {
 
     ton::adnl::AdnlCategoryMask cat_mask;
     cat_mask[0] = true;
-    td::actor::send_closure(network_manager, &ton::adnl::AdnlNetworkManager::add_self_addr, config.local_addr,
+    const auto& self_addr = config.public_addr.is_valid() ? config.public_addr : config.local_addr;
+    td::actor::send_closure(network_manager, &ton::adnl::AdnlNetworkManager::add_self_addr, self_addr,
                             std::move(cat_mask), 0);
 
-    src = ton::adnl::AdnlNodeIdShort{client_private_key().compute_public_key().compute_short_id()};
-    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, client_private_key(), true, [](td::Unit) {});
+    auto client_priv_key = client_private_key(config.client_id);
+    src = ton::adnl::AdnlNodeIdShort{client_priv_key.compute_public_key().compute_short_id()};
+    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(client_priv_key), true,
+                            [](td::Unit) {});
 
     ton::adnl::AdnlAddressList local_addr_list;
-    local_addr_list.add_udp_address(config.local_addr).ensure();
+    local_addr_list.add_udp_address(self_addr).ensure();
     local_addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
     local_addr_list.set_reinit_date(ton::adnl::Adnl::adnl_start_time());
 
     td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id,
-                            ton::adnl::AdnlNodeIdFull{client_private_key().compute_public_key()}, local_addr_list,
+                            ton::adnl::AdnlNodeIdFull{client_public_key(config.client_id)}, local_addr_list,
                             td::uint8(0));
 
     auto max_size = std::max(config.query_size, config.response_size) + 1024;
@@ -481,10 +544,18 @@ void run_client(Config config) {
 
     quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
         "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_udp_offload_options,
+                            ton::quic::QuicServer::Options{.enable_gso = config.enable_gso,
+                                                           .enable_gro = config.enable_gro,
+                                                           .enable_mmsg = config.enable_mmsg,
+                                                           .cc_algo = config.cc_algo});
     // Use send_lambda to properly start the coroutine task
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, src);
     if (config.prometheus)
       td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::quic::QuicSender>, quic_sender.get());
+
+    stats_reporter = td::actor::create_actor<StatsReporter>("quic-stats-client", quic_sender.get(), "client-periodic",
+                                                            config.protocol == Protocol::quic, 10.0);
 
     // Add server as static node
     dst = ton::adnl::AdnlNodeIdShort{server_public_key().compute_short_id()};
@@ -569,6 +640,30 @@ int main(int argc, char* argv[]) {
     config.protocol = Protocol::quic;
     return td::Status::OK();
   });
+  p.add_checked_option('\0', "no-gso", "disable UDP GSO for QUIC", [&]() {
+    config.enable_gso = false;
+    return td::Status::OK();
+  });
+  p.add_checked_option('\0', "no-gro", "disable UDP GRO for QUIC", [&]() {
+    config.enable_gro = false;
+    return td::Status::OK();
+  });
+  p.add_checked_option('\0', "no-mmsg", "disable UDP sendmmsg/recvmmsg for QUIC", [&]() {
+    config.enable_mmsg = false;
+    return td::Status::OK();
+  });
+  p.add_checked_option('\0', "cc", "congestion control algorithm: cubic, reno, bbr (default: bbr)", [&](td::Slice arg) {
+    if (arg == "cubic") {
+      config.cc_algo = ton::quic::CongestionControlAlgo::Cubic;
+    } else if (arg == "reno") {
+      config.cc_algo = ton::quic::CongestionControlAlgo::Reno;
+    } else if (arg == "bbr") {
+      config.cc_algo = ton::quic::CongestionControlAlgo::Bbr;
+    } else {
+      return td::Status::Error("unknown congestion control algorithm, use: cubic, reno, bbr");
+    }
+    return td::Status::OK();
+  });
   p.add_checked_option('t', "threads", "number of threads (default: 7)", [&](td::Slice arg) {
     TRY_RESULT(v, td::to_integer_safe<td::uint32>(arg));
     config.threads = v;
@@ -606,12 +701,21 @@ int main(int argc, char* argv[]) {
     config.mode = Mode::client;
     return td::Status::OK();
   });
+  p.add_checked_option('\0', "client-id", "client ID for unique key generation (default: 0)", [&](td::Slice arg) {
+    TRY_RESULT(v, td::to_integer_safe<td::uint32>(arg));
+    config.client_id = v;
+    return td::Status::OK();
+  });
   p.add_checked_option('\0', "both", "run server and client in same process", [&]() {
     config.mode = Mode::both;
     return td::Status::OK();
   });
   p.add_checked_option('a', "addr", "local address (ip:port)", [&](td::Slice arg) {
     TRY_STATUS(config.local_addr.init_host_port(arg.str()));
+    return td::Status::OK();
+  });
+  p.add_checked_option('\0', "public-addr", "public address to advertise (ip:port)", [&](td::Slice arg) {
+    TRY_STATUS(config.public_addr.init_host_port(arg.str()));
     return td::Status::OK();
   });
   p.add_checked_option('s', "server-addr", "server address (ip:port) for client mode", [&](td::Slice arg) {
@@ -664,7 +768,8 @@ int main(int argc, char* argv[]) {
   }
   LOG(ERROR) << "Starting benchmark (mode: " << mode_str << ", protocol: " << protocol_name(config.protocol) << ")";
   LOG(ERROR) << "Server public key: " << td::base64_encode(server_public_key().ed25519_value().raw().as_slice());
-  LOG(ERROR) << "Client public key: " << td::base64_encode(client_public_key().ed25519_value().raw().as_slice());
+  LOG(ERROR) << "Client public key (id=" << config.client_id
+             << "): " << td::base64_encode(client_public_key(config.client_id).ed25519_value().raw().as_slice());
 
   switch (config.mode) {
     case Mode::loopback:

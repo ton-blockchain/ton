@@ -178,7 +178,7 @@ td::Result<Ref<MessageQueue>> ShardStateQ::message_queue() const {
   return Ref<MessageQueue>(Ref<MessageQueueQ>{true, blkid, std::move(out_queue_info)});
 }
 
-td::Status ShardStateQ::apply_block(BlockIdExt newid, td::Ref<BlockData> block) {
+td::Status ShardStateQ::apply_block(BlockIdExt newid, td::Ref<BlockData> block, vm::StoreCellHint* hint) {
   if (block.is_null()) {
     return td::Status::Error(-666, "the block to be applied to a previous state is absent");
   }
@@ -202,10 +202,13 @@ td::Status ShardStateQ::apply_block(BlockIdExt newid, td::Ref<BlockData> block) 
     return td::Status::Error(-666, "invalid shardchain block header for block "s + block->block_id().id.to_str());
   }
   Ref<vm::Cell> update = cs.prefetch_ref(2);  // Merkle update
-  auto next_state_root = vm::MerkleUpdate::apply(root, update);
+  auto next_state_root = vm::MerkleUpdate::apply(root, update, hint);
   if (next_state_root.is_null()) {
     return td::Status::Error("cannot apply Merkle update from block "s + block->block_id().id.to_str() +
                              " to previous state");
+  }
+  if (hint != nullptr && fake_merge_) {
+    hint->prev_state_cells.erase(root->get_hash());
   }
   blkid = block->block_id();
   // boc.reset();  // keep old lazy static bag of cells in case undeserialized branches are inherited by the current state
@@ -399,8 +402,8 @@ td::Status MasterchainStateQ::mc_reinit() {
   return td::Status::OK();
 }
 
-td::Status MasterchainStateQ::apply_block(BlockIdExt id, td::Ref<BlockData> block) {
-  auto err = ShardStateQ::apply_block(id, block);
+td::Status MasterchainStateQ::apply_block(BlockIdExt id, td::Ref<BlockData> block, vm::StoreCellHint* hint) {
+  auto err = ShardStateQ::apply_block(id, block, hint);
   if (err.is_error()) {
     return err;
   }

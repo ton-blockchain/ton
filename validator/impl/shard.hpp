@@ -93,7 +93,7 @@ class ShardStateQ : virtual public ShardState {
   td::Status validate_deep() const override;
   ShardStateQ* make_copy() const override;
   td::Result<Ref<MessageQueue>> message_queue() const override;
-  td::Status apply_block(BlockIdExt id, Ref<BlockData> block) override;
+  td::Status apply_block(BlockIdExt id, Ref<BlockData> block, vm::StoreCellHint* hint) override;
   td::Result<Ref<ShardState>> merge_with(const ShardState& with) const override;
   td::Result<std::pair<Ref<ShardState>, Ref<ShardState>>> split() const override;
   td::Result<td::BufferSlice> serialize() const override;
@@ -109,7 +109,7 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
   MasterchainStateQ(const BlockIdExt& _id, td::BufferSlice _data);
   MasterchainStateQ(const BlockIdExt& _id, Ref<vm::Cell> _root, td::BufferSlice _data = {});
   virtual ~MasterchainStateQ() = default;
-  td::Status apply_block(BlockIdExt id, Ref<BlockData> block) override;
+  td::Status apply_block(BlockIdExt id, Ref<BlockData> block, vm::StoreCellHint* hint) override;
   Ref<block::ValidatorSet> get_validator_set(ShardIdFull shard) const override;
   Ref<block::ValidatorSet> get_next_validator_set(ShardIdFull shard) const override;
   Ref<block::ValidatorSet> get_total_validator_set(int next) const override;  // next = -1 -> prev, next = 0 -> cur

@@ -33,11 +33,11 @@ struct CandidateAndCert {
       return td::Status::Error("Notar cert was not requested but was provided");
     }
 
-    auto id = RawCandidateId::from_tl(request.id_);
+    auto id = CandidateId::from_tl(request.id_);
     CandidateAndCert result;
 
     if (!entry.candidate_.empty()) {
-      TRY_RESULT(candidate, RawCandidate::deserialize(entry.candidate_, bus));
+      TRY_RESULT(candidate, Candidate::deserialize(entry.candidate_, bus));
       if (candidate->id != id) {
         return td::Status::Error("Candidate id mismatch");
       }
@@ -52,7 +52,7 @@ struct CandidateAndCert {
   }
 
   tl::CandidateAndCertRef to_tl(const tl::requestCandidate &request) {
-    auto id = RawCandidateId::from_tl(request.id_);
+    auto id = CandidateId::from_tl(request.id_);
 
     td::BufferSlice serialized_candidate;
     if (request.want_candidate_ && candidate.has_value()) {
@@ -77,7 +77,7 @@ struct CandidateAndCert {
     }
   }
 
-  std::optional<RawCandidateRef> candidate = std::nullopt;
+  std::optional<CandidateRef> candidate = std::nullopt;
   std::optional<NotarCertRef> notar_cert = std::nullopt;
 };
 
@@ -98,15 +98,6 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
   }
 
   template <>
-  void handle(BusHandle, std::shared_ptr<const CandidateReceived> event) {
-    auto &state = resolve_states_[event->candidate->id];
-    if (!state.data.candidate.has_value()) {
-      state.data.candidate.emplace(event->candidate);
-      store_to_db(event->candidate->id, state).start().detach();
-    }
-  }
-
-  template <>
   void handle(BusHandle, std::shared_ptr<const NotarizationObserved> event) {
     auto &state = resolve_states_[event->id];
     if (!state.data.notar_cert.has_value()) {
@@ -118,7 +109,7 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
   template <>
   td::actor::Task<ProtocolMessage> process(BusHandle, std::shared_ptr<IncomingOverlayRequest> event) {
     auto request = co_await fetch_tl_object<tl::requestCandidate>(event->request.data, true);
-    auto id = RawCandidateId::from_tl(request->id_);
+    auto id = CandidateId::from_tl(request->id_);
 
     auto it = resolve_states_.find(id);
     if (it == resolve_states_.end()) {
@@ -161,14 +152,9 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
   }
 
   template <>
-  td::actor::Task<> process(BusHandle, std::shared_ptr<WaitCandidateInfoStored> request) {
+  td::actor::Task<> process(BusHandle, std::shared_ptr<WaitNotarCertStored> request) {
     ResolveState &state = resolve_states_[request->id];
-    if (request->wait_candidate_info && !state.stored_info_to_db) {
-      auto [task, promise] = td::actor::StartedTask<>::make_bridge();
-      state.stored_info_to_db_waiters.push_back(std::move(promise));
-      co_await std::move(task);
-    }
-    if (request->wait_notar_cert && !state.stored_notar_cert_to_db) {
+    if (!state.stored_notar_cert_to_db) {
       auto [task, promise] = td::actor::StartedTask<>::make_bridge();
       state.stored_notar_cert_to_db_waiters.push_back(std::move(promise));
       co_await std::move(task);
@@ -176,8 +162,18 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
     co_return {};
   }
 
+  template <>
+  td::actor::Task<> process(BusHandle, std::shared_ptr<StoreCandidate> request) {
+    auto &state = resolve_states_[request->candidate->id];
+    if (!state.data.candidate.has_value()) {
+      state.data.candidate.emplace(request->candidate);
+      co_await store_to_db(request->candidate->id, state);
+    }
+    co_return {};
+  }
+
  private:
-  td::actor::Task<> try_load_candidate_data_from_db(RawCandidateId id) {
+  td::actor::Task<> try_load_candidate_data_from_db(CandidateId id) {
     ResolveState &state = resolve_states_[id];
     if (state.candidate_info_from_db.has_value() && !state.data.candidate.has_value()) {
       ResolveState::CandidateInfo &info = *state.candidate_info_from_db;
@@ -188,8 +184,8 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
       if (r_candidate.is_error()) {
         LOG(WARNING) << "Failed to load block candidate data from db: " << r_candidate.move_as_error();
       } else {
-        state.data.candidate = td::make_ref<RawCandidate>(CandidateId(id, info.block_id), info.parent, info.leader_id,
-                                                          r_candidate.move_as_ok(), std::move(info.signature));
+        state.data.candidate = td::make_ref<Candidate>(id, info.parent, info.leader_id, r_candidate.move_as_ok(),
+                                                       std::move(info.signature));
         state.stored_data_to_db = true;
       }
       state.candidate_info_from_db = std::nullopt;
@@ -197,7 +193,7 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
     co_return {};
   }
 
-  td::actor::Task<ResolveCandidate::Result> resolve_candidate_inner(BusHandle bus, RawCandidateId id) {
+  td::actor::Task<ResolveCandidate::Result> resolve_candidate_inner(BusHandle bus, CandidateId id) {
     co_await try_load_candidate_data_from_db(id);
     ResolveState &state = resolve_states_[id];
     double timeout_s = bus->candidate_resolve_initial_timeout_s;
@@ -251,7 +247,7 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
       auto value = fetch_tl_object<ton_api::consensus_simplex_db_candidateResolver_notarCert>(value_str, true)
                        .ensure()
                        .move_as_ok();
-      RawCandidateId id = RawCandidateId::from_tl(key->candidateId_);
+      CandidateId id = CandidateId::from_tl(key->candidateId_);
       auto notar_cert = NotarCert::from_tl(std::move(*value->notar_), NotarizeVote{id}, bus).ensure().move_as_ok();
       ResolveState &state = resolve_states_[id];
       state.stored_notar_cert_to_db = true;
@@ -267,7 +263,7 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
       auto value = fetch_tl_object<ton_api::consensus_simplex_db_candidateResolver_candidateInfo>(value_str, true)
                        .ensure()
                        .move_as_ok();
-      RawCandidateId id = RawCandidateId::from_tl(key->candidateId_);
+      CandidateId id = CandidateId::from_tl(key->candidateId_);
       PeerValidatorId leader_id((size_t)value->leader_id_);
       auto hash_data = CandidateHashData::from_tl(std::move(*value->candidate_hash_data_));
       BlockIdExt block_id = hash_data.block();
@@ -275,8 +271,8 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
       ResolveState &state = resolve_states_[id];
       state.stored_info_to_db = true;
       if (std::holds_alternative<CandidateHashData::EmptyCandidate>(hash_data.candidate)) {
-        state.data.candidate = td::make_ref<RawCandidate>(CandidateId(id, block_id), hash_data.parent, leader_id,
-                                                          block_id, std::move(value->signature_));
+        state.data.candidate =
+            td::make_ref<Candidate>(id, hash_data.parent, leader_id, block_id, std::move(value->signature_));
         state.stored_data_to_db = true;
       } else {
         state.candidate_info_from_db = ResolveState::CandidateInfo{
@@ -300,7 +296,7 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
       PeerValidatorId leader_id;
       BlockIdExt block_id;
       FileHash collated_file_hash;
-      RawParentId parent;
+      ParentId parent;
       td::BufferSlice signature;
     };
     std::optional<CandidateInfo> candidate_info_from_db;
@@ -314,29 +310,35 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
       return data.candidate.has_value() && data.notar_cert.has_value();
     }
 
-    tl::RequestCandidateRef make_request(const RawCandidateId &id) const {
+    tl::RequestCandidateRef make_request(const CandidateId &id) const {
       return create_tl_object<tl::requestCandidate>(id.to_tl(), !data.candidate.has_value(),
                                                     !data.notar_cert.has_value());
     }
   };
 
-  td::actor::Task<> store_to_db(RawCandidateId id, ResolveState &state) {
+  td::actor::Task<> store_to_db(CandidateId id, ResolveState &state) {
+    bool storing_info = false, storing_data = false, storing_cert = false;
     std::vector<td::actor::StartedTask<>> tasks;
     if (state.data.candidate.has_value()) {
       auto &cand = *state.data.candidate;
       if (!state.stored_info_to_db) {
+        storing_info = true;
         auto key =
             create_serialize_tl_object<ton_api::consensus_simplex_db_key_candidateResolver_candidateInfo>(id.to_tl());
         auto value = create_serialize_tl_object<ton_api::consensus_simplex_db_candidateResolver_candidateInfo>(
             (int)cand->leader.value(), cand->hash_data().to_tl(), cand->signature.clone());
         tasks.push_back(owning_bus()->db->set(std::move(key), std::move(value)).start());
       }
-      if (!state.stored_data_to_db && std::holds_alternative<BlockCandidate>(cand->block)) {
-        tasks.push_back(td::actor::ask(owning_bus()->manager, &ManagerFacade::store_block_candidate,
-                                       std::get<BlockCandidate>(cand->block).clone()));
+      if (!state.stored_data_to_db) {
+        storing_data = true;
+        if (std::holds_alternative<BlockCandidate>(cand->block)) {
+          tasks.push_back(td::actor::ask(owning_bus()->manager, &ManagerFacade::store_block_candidate,
+                                         std::get<BlockCandidate>(cand->block).clone()));
+        }
       }
     }
     if (!state.stored_notar_cert_to_db && state.data.notar_cert.has_value()) {
+      storing_cert = true;
       auto &notar = *state.data.notar_cert;
       auto key = create_serialize_tl_object<ton_api::consensus_simplex_db_key_candidateResolver_notarCert>(id.to_tl());
       auto value = create_serialize_tl_object<ton_api::consensus_simplex_db_candidateResolver_notarCert>(
@@ -346,15 +348,17 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
 
     co_await td::actor::all(std::move(tasks));
 
-    if (state.data.candidate.has_value()) {
+    if (storing_info) {
       state.stored_info_to_db = true;
       for (auto &p : state.stored_info_to_db_waiters) {
         p.set_value(td::Unit{});
       }
       state.stored_info_to_db_waiters.clear();
+    }
+    if (storing_data) {
       state.stored_data_to_db = true;
     }
-    if (state.data.notar_cert.has_value()) {
+    if (storing_cert) {
       state.stored_notar_cert_to_db = true;
       for (auto &p : state.stored_notar_cert_to_db_waiters) {
         p.set_value(td::Unit{});
@@ -364,7 +368,7 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
     co_return {};
   }
 
-  std::map<RawCandidateId, ResolveState> resolve_states_;
+  std::map<CandidateId, ResolveState> resolve_states_;
 };
 
 }  // namespace

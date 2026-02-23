@@ -58,7 +58,6 @@ AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::
   state_keep_old_hash_.clear();
   state_old_hash_.clear();
   state_hash_.clear();
-  CHECK(prev_.size() > 0);
 }
 
 AcceptBlockQuery::AcceptBlockQuery(AcceptBlockQuery::IsFake fake, BlockIdExt id, td::Ref<BlockData> data,
@@ -81,7 +80,6 @@ AcceptBlockQuery::AcceptBlockQuery(AcceptBlockQuery::IsFake fake, BlockIdExt id,
   state_keep_old_hash_.clear();
   state_old_hash_.clear();
   state_hash_.clear();
-  CHECK(prev_.size() > 0);
 }
 
 AcceptBlockQuery::AcceptBlockQuery(ForceFork ffork, BlockIdExt id, td::Ref<BlockData> data,
@@ -134,7 +132,7 @@ bool AcceptBlockQuery::precheck_header() {
   if (res.is_error()) {
     return fatal_error("invalid block header in AcceptBlock: "s + res.to_string());
   }
-  if (is_fork_) {
+  if (prev_.size() == 0) {
     prev_ = prev;
   } else if (prev_ != prev) {
     return fatal_error("invalid previous block reference(s) in block header");
@@ -203,7 +201,7 @@ bool AcceptBlockQuery::create_new_proof() {
     return fatal_error("non-masterchain block header of "s + id_.to_str() + " announces this block to be a key block");
   }
   // 3. check state update
-  vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
+  vm::CellSlice upd_cs{vm::NoVm(), blk.state_update};
   if (!(upd_cs.is_special() && upd_cs.prefetch_long(8) == 4  // merkle update
         && upd_cs.size_ext() == 0x20228)) {
     return fatal_error("invalid Merkle update in block");
@@ -389,10 +387,6 @@ void AcceptBlockQuery::start_up() {
     fatal_error("a non-fake AcceptBlockQuery for a forced fork block");
     return;
   }
-  if (!is_fork_ && prev_.empty()) {
-    fatal_error("no previous blocks passed to AcceptBlockQuery");
-    return;
-  }
   if (is_fork_ && !is_masterchain()) {
     fatal_error("cannot accept a non-masterchain fork block");
     return;
@@ -562,7 +556,8 @@ void AcceptBlockQuery::got_prev_state(td::Ref<ShardState> state) {
 
   state_keep_old_hash_ = state_->root_hash();
 
-  auto err = state_.write().apply_block(id_, data_);
+  vm::StoreCellHint hint;
+  auto err = state_.write().apply_block(id_, data_, &hint);
   if (err.is_error()) {
     abort_query(std::move(err));
     return;
@@ -570,7 +565,7 @@ void AcceptBlockQuery::got_prev_state(td::Ref<ShardState> state) {
 
   handle_->set_split(state_->before_split());
 
-  td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, state_,
+  td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, state_, std::move(hint),
                           [SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
                             check_send_error(SelfId, R) ||
                                 td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::written_state, R.move_as_ok());

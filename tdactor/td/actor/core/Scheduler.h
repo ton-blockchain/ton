@@ -36,7 +36,6 @@
 #include "td/actor/core/SchedulerContext.h"
 #include "td/actor/core/SchedulerId.h"
 #include "td/actor/core/SchedulerMessage.h"
-#include "td/utils/AtomicRead.h"
 #include "td/utils/Closure.h"
 #include "td/utils/Heap.h"
 #include "td/utils/List.h"
@@ -84,13 +83,15 @@ struct Debug {
     return need_debug();
   }
   struct Destructor {
-    void operator()(Debug *info) {
-      info->info_.lock().value().is_active = false;
+    void operator()(Debug *debug) {
+      std::lock_guard<std::mutex> lock(debug->info_mutex_);
+      debug->info_.is_active = false;
     }
   };
 
   void read(DebugInfo &info) {
-    info_.read(info);
+    std::lock_guard<std::mutex> lock(info_mutex_);
+    info = info_;
   }
 
   std::unique_ptr<Debug, Destructor> start(td::Slice name) {
@@ -98,17 +99,17 @@ struct Debug {
       return {};
     }
     {
-      auto lock = info_.lock();
-      auto &value = lock.value();
-      value.is_active = true;
-      value.start_at = Time::now();
-      value.set_name(name);
+      std::lock_guard<std::mutex> lock(info_mutex_);
+      info_.is_active = true;
+      info_.start_at = Time::now();
+      info_.set_name(name);
     }
     return std::unique_ptr<Debug, Destructor>(this);
   }
 
  private:
-  AtomicRead<DebugInfo> info_;
+  std::mutex info_mutex_;
+  DebugInfo info_;
 };
 
 struct WorkerInfo {
@@ -201,24 +202,7 @@ class Scheduler {
 
   void start();
 
-  template <class F>
-  void run_in_context(F &&f) {
-    run_in_context_impl(*info_->io_worker, std::forward<F>(f));
-  }
-
-  template <class F>
-  void run_in_context_external(F &&f) {
-    WorkerInfo info;
-    info.type = WorkerInfo::Type::Cpu;
-    run_in_context_impl(*info_->io_worker, std::forward<F>(f));
-  }
-
   bool run(double timeout);
-
-  // Just syntactic sugar
-  void stop() {
-    run_in_context([] { SchedulerContext::get().stop(); });
-  }
 
   SchedulerId get_scheduler_id() const {
     return info_->id;
@@ -275,7 +259,7 @@ class Scheduler {
   };
 
   template <class F>
-  void run_in_context_impl(WorkerInfo &worker_info, F &&f) {
+  auto run_in_context_impl(WorkerInfo &worker_info, F &&f) {
 #if TD_PORT_WINDOWS
     td::detail::Iocp::Guard iocp_guard(&scheduler_group_info_->iocp);
 #endif
@@ -284,12 +268,22 @@ class Scheduler {
                         scheduler_group_info_.get(), is_io_worker ? &poll_ : nullptr, is_io_worker ? &heap_ : nullptr,
                         &worker_info.debug);
     SchedulerContext::Guard guard(&context);
-    f();
+    return f();
   }
 
   void do_stop();
 
  public:
+  template <class F>
+  auto run_in_context(F &&f) {
+    return run_in_context_impl(*info_->io_worker, std::forward<F>(f));
+  }
+
+  // Just syntactic sugar
+  void stop() {
+    run_in_context([] { SchedulerContext::get().stop(); });
+  }
+
   static void close_scheduler_group(SchedulerGroupInfo &group_info);
 };
 

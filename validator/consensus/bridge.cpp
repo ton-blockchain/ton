@@ -7,11 +7,9 @@
 #include "quic/quic-sender.h"
 #include "td/db/RocksDb.h"
 #include "td/utils/port/path.h"
-#include "validator-session/validator-session-types.h"
 #include "validator/consensus/null/bus.h"
 #include "validator/consensus/simplex/bus.h"
 #include "validator/fabric.h"
-#include "validator/full-node.h"
 #include "validator/validator-group.hpp"
 
 #include "runtime.h"
@@ -47,19 +45,29 @@ class ManagerFacadeImpl : public ManagerFacade {
   td::actor::Task<ValidateCandidateResult> validate_block_candidate(BlockCandidate candidate, ValidateParams params,
                                                                     td::Timestamp timeout) override {
     params.validator_set = validator_set_;
+    params.parallel_validation = opts_->get_parallel_validation();
     auto [task, promise] = td::actor::StartedTask<ValidateCandidateResult>::make_bridge();
     run_validate_query(std::move(candidate), std::move(params), manager_, timeout, std::move(promise));
     co_return co_await std::move(task);
   }
 
-  td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                                 size_t creator_idx, td::Ref<block::BlockSignatureSet> signatures,
-                                 int send_broadcast_mode, bool apply) override {
-    auto [task, promise] = td::actor::StartedTask<>::make_bridge();
-    run_accept_block_query(id, std::move(data), std::move(prev), validator_set_, std::move(signatures),
-                           send_broadcast_mode, apply, manager_, std::move(promise));
-    auto result = co_await std::move(task).wrap();
-    LOG_CHECK(!result.is_error()) << "Failed to accept finalized block " << result.move_as_error();
+  td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, size_t creator_idx,
+                                 td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode,
+                                 bool apply) override {
+    while (true) {
+      auto [task, promise] = td::actor::StartedTask<>::make_bridge();
+      run_accept_block_query(id, data, {}, validator_set_, signatures, send_broadcast_mode, apply, manager_,
+                             std::move(promise));
+      auto result = co_await std::move(task).wrap();
+      if (result.is_ok() || result.error().code() == ErrorCode::cancelled) {
+        break;
+      }
+      LOG_CHECK(result.error().code() == ErrorCode::timeout || result.error().code() == ErrorCode::notready)
+          << "Failed to accept finalized block " << id.to_str() << " : " << result.error();
+      LOG(WARNING) << "Failed to accept finalized block " << id.to_str() << ", retrying : " << result.error();
+      send_broadcast_mode = 0;
+      co_await td::actor::coro_sleep(td::Timestamp::in(1.0));
+    }
     co_return {};
   }
 
@@ -86,15 +94,14 @@ class ManagerFacadeImpl : public ManagerFacade {
                                       validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash());
   }
 
-  void log_validator_session_stats(validatorsession::ValidatorSessionStats stats) override {
-    stats.cc_seqno = validator_set_->get_catchain_seqno();
-    td::actor::send_closure(manager_, &ValidatorManager::log_validator_session_stats, std::move(stats));
-  }
-
   void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data, int mode) override {
     td::actor::send_closure(manager_, &ValidatorManager::send_block_candidate_broadcast, id,
                             validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
                             std::move(data), mode);
+  }
+
+  void update_collator_options(td::Ref<ValidatorManagerOptions> opts) {
+    opts_ = std::move(opts);
   }
 
  private:
@@ -172,11 +179,10 @@ class BridgeImpl final : public IValidatorGroup {
       : is_create_session_called_(params.is_create_session_called), params_(std::move(params)) {
   }
 
-  virtual void start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id) override {
+  virtual void start(std::vector<BlockIdExt> blocks, BlockIdExt min_mc_block_id) override {
     CHECK(!is_start_called_);
     is_start_called_ = true;
-    start_event_ = std::make_shared<Start>(prev, min_masterchain_block_id);
-    maybe_start_group();
+    resolve_state_and_start(blocks, min_mc_block_id).start().detach();
   }
 
   virtual void create_session() override {
@@ -186,7 +192,10 @@ class BridgeImpl final : public IValidatorGroup {
   }
 
   virtual void update_options(td::Ref<ValidatorManagerOptions> opts, bool apply_blocks) override {
-    // TODO
+    if (!apply_blocks) {
+      LOG(WARNING) << "Accelerator is not consistently supported with simplex consensus";
+    }
+    td::actor::send_closure(manager_facade_, &ManagerFacadeImpl::update_collator_options, opts);
   }
 
   virtual void get_validator_group_info_for_litequery(
@@ -276,7 +285,7 @@ class BridgeImpl final : public IValidatorGroup {
     BlockProducer::register_in(runtime);
     BlockValidator::register_in(runtime);
     PrivateOverlay::register_in(runtime);
-    StatsCollector::register_in(runtime);
+    TraceCollector::register_in(runtime);
 
     if (is_simplex) {
       auto simplex_bus = std::static_pointer_cast<simplex::Bus>(bus);
@@ -285,6 +294,7 @@ class BridgeImpl final : public IValidatorGroup {
       simplex::CandidateResolver::register_in(runtime);
       simplex::Consensus::register_in(runtime);
       simplex::Pool::register_in(runtime);
+      simplex::MetricCollector::register_in(runtime);
 
       bus_ = runtime.start(simplex_bus, params_.name);
     } else {
@@ -310,8 +320,15 @@ class BridgeImpl final : public IValidatorGroup {
     co_return td::Unit{};
   }
 
+  td::actor::Task<> resolve_state_and_start(std::vector<BlockIdExt> blocks, BlockIdExt min_mc_block_id) {
+    auto state = co_await ChainState::from_manager(manager_facade_.get(), params_.shard, blocks, min_mc_block_id);
+    start_event_ = std::make_shared<Start>(state);
+    maybe_start_group();
+    co_return {};
+  }
+
   void maybe_start_group() {
-    if (!is_create_session_called_ || !is_start_called_ || is_started_) {
+    if (!is_create_session_called_ || !is_start_called_ || !start_event_ || is_started_) {
       return;
     }
     is_started_ = true;
@@ -323,7 +340,7 @@ class BridgeImpl final : public IValidatorGroup {
   bool is_started_ = false;
 
   BridgeCreationParams params_;
-  td::actor::ActorOwn<ManagerFacade> manager_facade_;
+  td::actor::ActorOwn<ManagerFacadeImpl> manager_facade_;
 
   BusHandle bus_;
   td::optional<td::actor::StartedTask<>> stop_waiter_;

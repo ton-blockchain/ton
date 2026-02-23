@@ -19,14 +19,14 @@ struct BroadcastVote {
 };
 
 struct NotarizationObserved {
-  RawCandidateId id;
+  CandidateId id;
   NotarCertRef certificate;
 
   std::string contents_to_string() const;
 };
 
 struct FinalizationObserved {
-  RawCandidateId id;
+  CandidateId id;
   FinalCertRef certificate;
 
   std::string contents_to_string() const;
@@ -34,7 +34,7 @@ struct FinalizationObserved {
 
 struct LeaderWindowObserved {
   td::uint32 start_slot;
-  RawParentId base;
+  ParentId base;
 
   std::string contents_to_string() const;
 };
@@ -42,31 +42,33 @@ struct LeaderWindowObserved {
 struct WaitForParent {
   using ReturnType = std::optional<MisbehaviorRef>;
 
-  RawCandidateRef candidate;
+  CandidateRef candidate;
 
   std::string contents_to_string() const;
 };
 
 struct ResolveCandidate {
   struct Result {
-    RawCandidateRef candidate;
+    CandidateRef candidate;
     NotarCertRef notar;
   };
 
   using ReturnType = Result;
 
-  RawCandidateId id;
+  CandidateId id;
 
   std::string contents_to_string() const;
 };
 
-struct WaitCandidateInfoStored {
+struct StoreCandidate {
   using ReturnType = td::Unit;
+  CandidateRef candidate;
+  std::string contents_to_string() const;
+};
 
-  RawCandidateId id;
-  bool wait_candidate_info = false;
-  bool wait_notar_cert = false;
-
+struct WaitNotarCertStored {
+  using ReturnType = td::Unit;
+  CandidateId id;
   std::string contents_to_string() const;
 };
 
@@ -74,7 +76,7 @@ class Bus : public consensus::Bus {
  public:
   using Parent = consensus::Bus;
   using Events = td::TypeList<BroadcastVote, NotarizationObserved, FinalizationObserved, LeaderWindowObserved,
-                              WaitForParent, ResolveCandidate, WaitCandidateInfoStored>;
+                              WaitForParent, ResolveCandidate, StoreCandidate, WaitNotarCertStored>;
 
   Bus() = default;
 
@@ -108,6 +110,10 @@ struct Consensus {
 };
 
 struct CandidateResolver {
+  static void register_in(runtime::Runtime&);
+};
+
+struct MetricCollector {
   static void register_in(runtime::Runtime&);
 };
 

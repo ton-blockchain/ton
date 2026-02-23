@@ -146,7 +146,7 @@ std::string TD_TL_writer_jni_cpp::gen_type_fetch(const std::string &field_name, 
   if (!(tree_type->flags & tl::FLAG_BARE)) {
     if (is_type_bare(t)) {
       if (field_name != "") {
-        std::fprintf(stderr, "Do not use non-bare fields with bare type %s\n", name.c_str());
+        //        std::fprintf(stderr, "Do not use non-bare fields with bare type %s\n", name.c_str());
         //        assert(false);
       }
     }
@@ -347,7 +347,7 @@ std::string TD_TL_writer_jni_cpp::gen_type_store(const std::string &field_name, 
   if (!(tree_type->flags & tl::FLAG_BARE)) {
     if (storer_type == 0) {
       if (is_type_bare(t)) {
-        std::fprintf(stderr, "Do not use non-bare fields with bare type %s\n", name.c_str());
+        //        std::fprintf(stderr, "Do not use non-bare fields with bare type %s\n", name.c_str());
         //        assert(false);
       }
     }

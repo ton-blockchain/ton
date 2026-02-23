@@ -272,7 +272,9 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void validate_block_proof_rel(BlockIdExt block_id, BlockIdExt rel_block_id, td::BufferSlice proof,
                                         td::Promise<td::Unit> promise) = 0;
   virtual void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) = 0;
-  virtual void new_block_broadcast(BlockBroadcast broadcast, td::Promise<td::Unit> promise) = 0;
+  virtual void new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked,
+                                   td::Promise<td::Unit> promise) = 0;
+  virtual void validate_block_broadcast_signatures(BlockBroadcast broadcast, td::Promise<td::Unit> promise) = 0;
 
   //virtual void create_validate_block(BlockId block, td::BufferSlice data, td::Promise<Block> promise) = 0;
   virtual void sync_complete(td::Promise<td::Unit> promise) = 0;
@@ -347,6 +349,10 @@ class ValidatorManagerInterface : public td::actor::Actor {
                                 td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout, bool wait_store,
                                       td::Promise<td::Ref<ShardState>> promise) = 0;
+  virtual void wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority,
+                                      td::Timestamp timeout, td::Promise<td::Ref<ShardState>> promise) = 0;
+  virtual void wait_state_by_prev_blocks(BlockIdExt block_id, std::vector<BlockIdExt> prev_blocks,
+                                         td::Promise<td::Ref<ShardState>> promise) = 0;
 
   virtual void wait_neighbor_msg_queue_proofs(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                               td::Timestamp timeout,

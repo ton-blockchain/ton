@@ -1,13 +1,12 @@
 from multiprocessing import Process
 from pathlib import Path
-from typing import final, cast
-import os
+from typing import cast, final
 
-from .parser import ParserLogs
+from .parser import ParserSessionStats
 from .visualizer import DashApp
 
 
-def target(parser: ParserLogs, debug: bool, host: str, port: int):
+def target(parser: ParserSessionStats, debug: bool, host: str, port: int):
     DashApp(parser).run(debug, host, port)
 
 
@@ -23,7 +22,7 @@ class ConsensusExplorer:
         self.__process = Process(
             target=target,
             kwargs={
-                "parser": ParserLogs(self._logs_path),
+                "parser": ParserSessionStats(self._logs_path),
                 "debug": False,
                 "host": self._host,
                 "port": self._port,
@@ -40,9 +39,15 @@ def _main():
     import argparse
 
     parser = argparse.ArgumentParser()
-    _ = parser.add_argument("--logs", nargs="+", required=True, help="Paths to log files or directory")
-    _ = parser.add_argument("--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)")
-    _ = parser.add_argument("--port", type=int, default=8050, help="Port to bind to (default: 8050)")
+    _ = parser.add_argument(
+        "--logs", nargs="+", required=True, help="Paths to log files or directory"
+    )
+    _ = parser.add_argument(
+        "--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)"
+    )
+    _ = parser.add_argument(
+        "--port", type=int, default=8050, help="Port to bind to (default: 8050)"
+    )
 
     args = parser.parse_args()
     logs = cast(list[str], args.logs)
@@ -52,7 +57,7 @@ def _main():
     log_paths = [Path(log) for log in logs]
     if len(log_paths) == 1 and log_paths[0].is_dir():
         log_paths = [p for p in log_paths[0].iterdir()]
-    app = DashApp(ParserLogs(log_paths))
+    app = DashApp(ParserSessionStats(log_paths))
 
     app.run(debug=True, host=host, port=port)
 

@@ -463,7 +463,8 @@ void DownloadShardState::written_shard_state_file() {
     R.ensure();
     td::actor::send_closure(SelfId, &DownloadShardState::written_shard_state, R.move_as_ok());
   });
-  td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, std::move(state_), std::move(P));
+  td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, std::move(state_), vm::StoreCellHint{},
+                          std::move(P));
 }
 
 void DownloadShardState::written_shard_state(td::Ref<ShardState> state) {

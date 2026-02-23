@@ -14,6 +14,7 @@
 #include "td/db/KeyValueAsync.h"
 #include "ton/ton-types.h"
 
+#include "chain-state.h"
 #include "manager-facade.h"
 #include "runtime.h"
 #include "types.h"
@@ -21,29 +22,19 @@
 namespace ton::validator::consensus {
 
 struct Start {
-  std::vector<BlockIdExt> first_block_parents;
-  BlockIdExt min_masterchain_block_id;
+  ChainStateRef state;
 
   std::string contents_to_string() const;
-  std::vector<BlockIdExt> convert_id_to_blocks(ParentId parent) const;
 };
 
 using StartEvent = std::shared_ptr<const Start>;
 
 struct StopRequested {};
 
-struct BlockFinalized {
-  CandidateId candidate;
-  bool final_signatures;
-
-  std::string contents_to_string() const;
-};
-
 struct FinalizeBlock {
   using ReturnType = td::Unit;
 
-  RawCandidateRef candidate;
-  ParentId parent_id;
+  CandidateRef candidate;
   td::Ref<block::BlockSignatureSet> signatures;
 
   std::string contents_to_string() const;
@@ -51,13 +42,10 @@ struct FinalizeBlock {
 
 struct OurLeaderWindowStarted {
   ParentId base;
+  ChainStateRef state;
   td::uint32 start_slot;
   td::uint32 end_slot;
   td::Timestamp start_time;
-
-  // Optional - if empty, get it from manager
-  std::vector<td::Ref<vm::Cell>> prev_block_state_roots = {};
-  std::vector<td::Ref<BlockData>> prev_block_data = {};
 
   std::string contents_to_string() const;
 };
@@ -69,7 +57,7 @@ struct OurLeaderWindowAborted {
 };
 
 struct CandidateGenerated {
-  RawCandidateRef candidate;
+  CandidateRef candidate;
   std::optional<adnl::AdnlNodeIdShort> collator_id;
 
   std::string contents_to_string() const;
@@ -77,22 +65,19 @@ struct CandidateGenerated {
 
 // The only guarantee is that the candidate has a valid signature from `candidate->leader`.
 struct CandidateReceived {
-  RawCandidateRef candidate;
+  CandidateRef candidate;
 
   std::string contents_to_string() const;
 };
 
-// Checks that if candidate contains a block, then BlockCandidate is a valid block built on top of
-// the parent. Note that empty blocks are always (locally) valid because of an assert in Candidate
-// constructor.
 struct ValidationRequest {
-  using ReturnType = td::Unit;
+  using ReturnType = ValidateCandidateResult;
 
+  ChainStateRef state;
   CandidateRef candidate;
-  // Optional - if empty, get it from manager
-  std::vector<td::Ref<vm::Cell>> prev_block_state_roots = {};
 
   std::string contents_to_string() const;
+  static std::string response_to_string(const ReturnType&);
 };
 
 struct IncomingProtocolMessage {
@@ -149,23 +134,8 @@ struct MisbehaviorReport {
   std::string contents_to_string() const;
 };
 
-struct StatsTargetReached {
-  enum Target {
-    CollateStarted,
-    CollateFinished,
-    CandidateReceived,
-    ValidateStarted,
-    ValidateFinished,
-    NotarObserved,
-    FinalObserved,
-  };
-
-  StatsTargetReached(Target target, td::uint32 slot) : target(target), slot(slot), timestamp(td::Timestamp::now()) {
-  }
-
-  Target target;
-  td::uint32 slot;
-  td::Timestamp timestamp;
+struct TraceEvent {
+  std::unique_ptr<const stats::Event> event;
 
   std::string contents_to_string() const;
 };
@@ -183,11 +153,10 @@ class Db {
 
 class Bus : public runtime::Bus {
  public:
-  using Events =
-      td::TypeList<Start, StopRequested, BlockFinalized, FinalizeBlock, OurLeaderWindowStarted, OurLeaderWindowAborted,
-                   CandidateGenerated, CandidateReceived, ValidationRequest, IncomingProtocolMessage,
-                   OutgoingProtocolMessage, IncomingOverlayRequest, OutgoingOverlayRequest, BlockFinalizedInMasterchain,
-                   MisbehaviorReport, StatsTargetReached>;
+  using Events = td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, OurLeaderWindowAborted,
+                              CandidateGenerated, CandidateReceived, ValidationRequest, IncomingProtocolMessage,
+                              OutgoingProtocolMessage, IncomingOverlayRequest, OutgoingOverlayRequest,
+                              BlockFinalizedInMasterchain, MisbehaviorReport, TraceEvent>;
 
   Bus() = default;
   ~Bus() override {
@@ -239,7 +208,7 @@ struct PrivateOverlay {
   static void register_in(runtime::Runtime&);
 };
 
-struct StatsCollector {
+struct TraceCollector {
   static void register_in(runtime::Runtime&);
 };
 

@@ -2,6 +2,10 @@ import base64
 
 from generated.test_schema import (
     AllPrimitives,
+    MangledFieldsBaseTypes,
+    MangledFieldsObjects,
+    MangledFieldsVectorBaseTypes,
+    MangledFieldsVectorObjects,
     NestedObject,
     ObjectQueryRequest,
     OptionalFields,
@@ -504,3 +508,90 @@ def test_object_request_defaults():
     req = ObjectQueryRequest.from_dict(d)
 
     assert req.obj is None
+
+
+def test_mangled_fields_all_cases():
+    test_cases = [
+        (
+            MangledFieldsBaseTypes(
+                from_=42,
+                list_="test string",
+                self_=b"test bytes",
+                bytes_=b"\x01" * 16,
+            ),
+            {
+                "@type": "mangledFieldsBaseTypes",
+                "from": 42,
+                "list": "test string",
+                "self": base64.b64encode(b"test bytes").decode(),
+                "bytes": base64.b64encode(b"\x01" * 16).decode(),
+            },
+        ),
+        (
+            MangledFieldsVectorBaseTypes(
+                from_=[1, 2, 3],
+                list_=["a", "b", "c"],
+                self_=[b"x", b"y"],
+                bytes_=[b"\x01" * 32, b"\x02" * 32],
+            ),
+            {
+                "@type": "mangledFieldsVectorBaseTypes",
+                "from": [1, 2, 3],
+                "list": ["a", "b", "c"],
+                "self": [
+                    base64.b64encode(b"x").decode(),
+                    base64.b64encode(b"y").decode(),
+                ],
+                "bytes": [
+                    base64.b64encode(b"\x01" * 32).decode(),
+                    base64.b64encode(b"\x02" * 32).decode(),
+                ],
+            },
+        ),
+        (
+            MangledFieldsObjects(
+                from_=SimpleObject(id=1, name="obj1"),
+                list_=VariantA(value=100),
+                self_=SimpleObject(id=2, name="obj2"),
+                bytes_=VariantB(text="test"),
+            ),
+            {
+                "@type": "mangledFieldsObjects",
+                "from": {"@type": "simpleObject", "id": 1, "name": "obj1"},
+                "list": {"@type": "variantA", "value": 100},
+                "self": {"@type": "simpleObject", "id": 2, "name": "obj2"},
+                "bytes": {"@type": "variantB", "text": "test"},
+            },
+        ),
+        (
+            MangledFieldsVectorObjects(
+                from_=[SimpleObject(id=1, name="a"), SimpleObject(id=2, name="b")],
+                list_=[VariantA(value=10), VariantB(text="x")],
+                self_=[SimpleObject(id=3, name="c")],
+                bytes_=[VariantC(flag=True), VariantA(value=20)],
+            ),
+            {
+                "@type": "mangledFieldsVectorObjects",
+                "from": [
+                    {"@type": "simpleObject", "id": 1, "name": "a"},
+                    {"@type": "simpleObject", "id": 2, "name": "b"},
+                ],
+                "list": [
+                    {"@type": "variantA", "value": 10},
+                    {"@type": "variantB", "text": "x"},
+                ],
+                "self": [
+                    {"@type": "simpleObject", "id": 3, "name": "c"},
+                ],
+                "bytes": [
+                    {"@type": "variantC", "flag": True},
+                    {"@type": "variantA", "value": 20},
+                ],
+            },
+        ),
+    ]
+
+    for obj, expected_dict in test_cases:
+        assert obj.to_dict() == expected_dict
+        roundtrip_dict = type(obj).from_dict(expected_dict).to_dict()
+        assert roundtrip_dict == expected_dict

@@ -20,7 +20,7 @@ std::string block_candidate_to_string(const BlockCandidate& candidate) {
                    << ", pubkey=" << candidate.pubkey.as_bits256() << "}";
 }
 
-std::string candidate_to_string(const td::OneOf<RawCandidateRef, CandidateRef> auto& candidate) {
+std::string candidate_to_string(const CandidateRef& candidate) {
   auto block_fn = [](const BlockCandidate& block) { return block_candidate_to_string(block); };
   auto empty_fn = [](const BlockIdExt& id) { return PSTRING() << id.to_str() << " (referenced)"; };
 
@@ -58,25 +58,7 @@ std::string block_signature_set_to_string(const td::Ref<block::BlockSignatureSet
 }  // namespace
 
 std::string Start::contents_to_string() const {
-  std::vector<std::string> blocks;
-  for (const auto& block : first_block_parents) {
-    blocks.push_back(block.to_str());
-  }
-
-  return PSTRING() << "{first_block_parents=" << blocks
-                   << ", min_masterchain_block_id=" << min_masterchain_block_id.to_str() << "}";
-}
-
-std::vector<BlockIdExt> Start::convert_id_to_blocks(ParentId parent) const {
-  if (parent.has_value()) {
-    return {parent->block};
-  } else {
-    return first_block_parents;
-  }
-}
-
-std::string BlockFinalized::contents_to_string() const {
-  return PSTRING() << "{candidate=" << candidate << ", final_sigs=" << final_signatures << "}";
+  return PSTRING() << "{state=" << state << "}";
 }
 
 std::string FinalizeBlock::contents_to_string() const {
@@ -85,7 +67,8 @@ std::string FinalizeBlock::contents_to_string() const {
 }
 
 std::string OurLeaderWindowStarted::contents_to_string() const {
-  return PSTRING() << "{base=" << base << ", start_slot=" << start_slot << ", end_slot=" << end_slot << "}";
+  return PSTRING() << "{base=" << base << ", state=" << state << ", start_slot=" << start_slot
+                   << ", end_slot=" << end_slot << ", start_time=" << start_time.at_unix() << "}";
 }
 
 std::string OurLeaderWindowAborted::contents_to_string() const {
@@ -102,7 +85,17 @@ std::string CandidateReceived::contents_to_string() const {
 }
 
 std::string ValidationRequest::contents_to_string() const {
-  return PSTRING() << "{candidate=" << candidate_to_string(candidate) << "}";
+  return PSTRING() << "{state=" << state << ", candidate=" << candidate_to_string(candidate) << "}";
+}
+
+std::string ValidationRequest::response_to_string(const ReturnType& result) {
+  std::string str;
+  auto accept_fn = [&](const CandidateAccept& accept) { str = PSTRING() << "CandidateAccept{}"; };
+  auto reject_fn = [&](const CandidateReject& reject) {
+    str = PSTRING() << "CandidateReject{reason=" << reject.reason << "}";
+  };
+  result.visit(td::overloaded(accept_fn, reject_fn));
+  return str;
 }
 
 std::string IncomingProtocolMessage::contents_to_string() const {
@@ -139,17 +132,8 @@ std::string MisbehaviorReport::contents_to_string() const {
   return PSTRING() << "{id=" << id << "}";
 }
 
-std::string StatsTargetReached::contents_to_string() const {
-  auto targets = std::to_array<const char*>({
-      "CollateStarted",
-      "CollateFinished",
-      "CandidateReceived",
-      "ValidateStarted",
-      "ValidateFinished",
-      "NotarObserved",
-      "FinalObserved",
-  });
-  return PSTRING() << "{target=" << targets[target] << ", slot=" << slot << ", timestamp=" << timestamp.at() << "}";
+std::string TraceEvent::contents_to_string() const {
+  return PSTRING() << "{event=" << event->to_string() << "}";
 }
 
 }  // namespace ton::validator::consensus

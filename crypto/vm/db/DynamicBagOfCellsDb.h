@@ -20,6 +20,7 @@
 #include <thread>
 
 #include "td/actor/PromiseFuture.h"
+#include "td/actor/coro_task.h"
 #include "td/db/KeyValue.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
@@ -45,6 +46,10 @@ class CellDbReader {
   virtual ~CellDbReader() = default;
   virtual td::Result<Ref<DataCell>> load_cell(td::Slice hash) = 0;
   virtual td::Result<std::vector<Ref<DataCell>>> load_bulk(td::Span<td::Slice> hashes) = 0;
+};
+
+struct StoreCellHint {
+  td::HashSet<CellHash> prev_state_cells;
 };
 
 class DynamicBagOfCellsDb {
@@ -95,7 +100,7 @@ class DynamicBagOfCellsDb {
   virtual void inc(const Ref<Cell> &old_root) = 0;
   virtual void dec(const Ref<Cell> &old_root) = 0;
 
-  virtual td::Status prepare_commit() = 0;
+  virtual td::Status prepare_commit(StoreCellHint hint = {}) = 0;
   virtual Stats get_stats_diff() = 0;
   virtual td::Result<Stats> get_stats() {
     return Stats{};
@@ -155,7 +160,13 @@ class DynamicBagOfCellsDb {
 
   virtual void load_cell_async(td::Slice hash, std::shared_ptr<AsyncExecutor> executor,
                                td::Promise<Ref<DataCell>> promise) = 0;
-  virtual void prepare_commit_async(std::shared_ptr<AsyncExecutor> executor, td::Promise<td::Unit> promise) = 0;
+  td::actor::Task<Ref<DataCell>> load_cell_async(td::Slice hash, std::shared_ptr<AsyncExecutor> executor) {
+    auto [task, promise] = td::actor::StartedTask<Ref<DataCell>>::make_bridge();
+    load_cell_async(hash, std::move(executor), std::move(promise));
+    co_return co_await std::move(task);
+  }
+  virtual void prepare_commit_async(std::shared_ptr<AsyncExecutor> executor, StoreCellHint hint,
+                                    td::Promise<td::Unit> promise) = 0;
 };
 
 }  // namespace vm

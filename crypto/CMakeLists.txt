@@ -220,6 +220,8 @@ set(BLOCK_SOURCE
   block/validator-set.cpp
   block/signature-set.h
   block/signature-set.cpp
+
+  common/stats.cpp
 )
 
 set(SMC_ENVELOPE_SOURCE
@@ -289,29 +291,45 @@ target_include_directories(ton_crypto_core PUBLIC $<BUILD_INTERFACE:${CMAKE_CURR
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
 target_link_libraries(ton_crypto_core PUBLIC ${OPENSSL_CRYPTO_LIBRARY} tdutils tddb_utils)
 if (NOT WIN32)
-  target_link_libraries(ton_crypto_core PUBLIC dl z)
+  target_link_libraries(ton_crypto_core PUBLIC ${CMAKE_DL_LIBS} ${ZLIB_LIBRARIES})
 endif()
 target_include_directories(ton_crypto_core SYSTEM PUBLIC $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>)
+# Ensure OpenSSL is built before ton_crypto_core
+if (TARGET OpenSSL)
+  add_dependencies(ton_crypto_core OpenSSL)
+endif()
 
 add_library(ton_crypto STATIC ${TON_CRYPTO_SOURCE})
 target_include_directories(ton_crypto PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
 target_link_libraries(ton_crypto PUBLIC ${OPENSSL_CRYPTO_LIBRARY} ton_crypto_core ton_block)
+# Ensure OpenSSL is built before ton_crypto
+if (TARGET OpenSSL)
+  add_dependencies(ton_crypto OpenSSL)
+endif()
 if (USE_EMSCRIPTEN)
   target_link_options(ton_crypto PRIVATE -fexceptions)
   target_compile_options(ton_crypto PRIVATE -fexceptions)
 endif()
 if (NOT WIN32)
-  find_library(DL dl)
-  if (DL)
-    target_link_libraries(ton_crypto PUBLIC dl z)
-  else()
-    target_link_libraries(ton_crypto PUBLIC z)
+  if (CMAKE_DL_LIBS)
+    target_link_libraries(ton_crypto PUBLIC ${CMAKE_DL_LIBS})
+  endif()
+  if (ZLIB_LIBRARIES)
+    target_link_libraries(ton_crypto PUBLIC ${ZLIB_LIBRARIES})
   endif()
 endif()
 target_include_directories(ton_crypto SYSTEM PUBLIC $<BUILD_INTERFACE:${OPENSSL_INCLUDE_DIR}>)
 
 add_dependencies(ton_crypto blst)
 add_dependencies(ton_crypto_core secp256k1)
+if (TARGET zlib)
+  add_dependencies(ton_crypto zlib)
+  add_dependencies(ton_crypto_core zlib)
+endif()
+if (TARGET sodium)
+  add_dependencies(ton_crypto sodium)
+  add_dependencies(ton_crypto_core sodium)
+endif()
 
 target_include_directories(ton_crypto PRIVATE ${BLST_INCLUDE_DIR})
 target_link_libraries(ton_crypto PRIVATE ${BLST_LIB})
@@ -369,6 +387,10 @@ add_library(ton_block STATIC ${BLOCK_SOURCE})
 target_include_directories(ton_block PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/block> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
 target_link_libraries(ton_block PUBLIC ton_crypto_core tdactor tl_api)
+if (MINGW)
+  # Resolve circular static linking between ton_block and ton_crypto on MinGW.
+  target_link_libraries(ton_block PUBLIC ton_crypto)
+endif()
 if (USE_EMSCRIPTEN)
   target_link_options(ton_block PRIVATE -fexceptions)
   target_compile_options(ton_block PRIVATE -fexceptions)
@@ -377,6 +399,10 @@ endif()
 add_executable(func func/func-main.cpp ${FUNC_LIB_SOURCE})
 target_include_directories(func PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_link_libraries(func PUBLIC ton_crypto src_parser git)
+if (MINGW)
+  # Ensure ton_crypto appears after ton_block in link order to resolve VM symbols.
+  target_link_libraries(func PRIVATE ton_crypto)
+endif()
 if (WINGETOPT_FOUND)
   target_link_libraries_system(func wingetopt)
 endif()

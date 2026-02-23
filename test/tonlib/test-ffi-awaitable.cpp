@@ -14,14 +14,6 @@ static constexpr Tag tags[2];
 static constexpr const void* continuation_0 = &tags[0];
 static constexpr const void* continuation_1 = &tags[1];
 
-Continuation wait_for_continuation(FFIEventLoop& loop) {
-  std::optional<Continuation> result;
-  while (!result.has_value()) {
-    result = loop.wait(-1);
-  }
-  return *result;
-}
-
 TEST(FFIAwaitable, CreateResolvedWithValue) {
   FFIEventLoop loop(1);
   auto awaitable = FFIAwaitable<int>::create_resolved(loop, 42);
@@ -97,25 +89,6 @@ TEST(FFIAwaitable, TransformString) {
   EXPECT_EQ(bridge.awaitable->result().ok(), "123");
 }
 
-TEST(FFIAwaitable, ResolveFromDifferentThread) {
-  FFIEventLoop loop(1);
-
-  auto bridge = FFIAwaitable<int>::create_bridge<int>(loop, [](int x) { return x + 10; });
-
-  bridge.awaitable->await_suspend({continuation_1});
-
-  loop.run_in_context([&] {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    bridge.promise.set_value(90);
-  });
-
-  auto result = wait_for_continuation(loop);
-  EXPECT_EQ(result.ptr(), continuation_1);
-
-  EXPECT(bridge.awaitable->result().is_ok());
-  EXPECT_EQ(bridge.awaitable->result().ok(), 100);
-}
-
 TEST(FFIAwaitable, ConcurrentResolveAndSuspend) {
   FFIEventLoop loop(1);
 
@@ -131,7 +104,7 @@ TEST(FFIAwaitable, ConcurrentResolveAndSuspend) {
     promise.set_value(777);
   });
 
-  auto result = wait_for_continuation(loop);
+  auto result = *loop.wait(-1);
   EXPECT_EQ(result.ptr(), continuation_0);
 
   suspender.join();
@@ -204,7 +177,7 @@ TEST(FFIAwaitable, DestroyConcurrentWithResolve) {
     bridge.awaitable->destroy();
   });
 
-  auto result = wait_for_continuation(loop);
+  auto result = *loop.wait(-1);
 
   resolver.join();
   destroyer.join();

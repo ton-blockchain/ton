@@ -5,8 +5,8 @@ RUN apt-get update && \
         apt-get clean && \
         apt-get update && \
         apt install libc-bin && \
-        apt-get install -y build-essential cmake clang openssl libssl-dev zlib1g-dev gperf wget git \
-        ninja-build libsodium-dev libmicrohttpd-dev liblz4-dev pkg-config autoconf automake libtool \
+        apt-get install -y build-essential cmake clang gperf wget git \
+        ninja-build pkg-config autoconf automake libtool \
         libjemalloc-dev lsb-release software-properties-common gnupg
 
 RUN wget https://apt.llvm.org/llvm.sh && \

@@ -15,6 +15,7 @@
 #include "td/utils/logging.h"
 
 #include "bus.h"
+#include "stats.h"
 
 namespace ton::validator::consensus {
 
@@ -90,8 +91,8 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
       if (adnl_id == local_id_.adnl_id) {
         return;
       }
-      td::actor::send_closure(overlays_, &overlay::Overlays::send_message, adnl_id, local_id_.adnl_id, overlay_id_,
-                              message->message.data.clone());
+      td::actor::send_closure(overlays_, &overlay::Overlays::send_message_via, adnl_id, local_id_.adnl_id, overlay_id_,
+                              message->message.data.clone(), adnl_sender_);
     };
 
     if (message->recipient) {
@@ -169,7 +170,7 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
 
     auto& bus = *owning_bus();
     auto peer = short_id_to_peer_.at(src);
-    auto maybe_candidate = RawCandidate::deserialize(std::move(data), bus, peer.idx);
+    auto maybe_candidate = Candidate::deserialize(std::move(data), bus, peer.idx);
 
     if (!maybe_candidate.is_ok()) {
       // FIXME: If we actually collected signed broadcast parts, we could have produced a
@@ -178,10 +179,7 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
                    << maybe_candidate.move_as_error();
       return;
     }
-
-    // FIXME: We should first check with consensus if slot makes sense and candidate is expected and
-    //        only then publish stats target.
-    owning_bus().publish<StatsTargetReached>(StatsTargetReached::CandidateReceived, maybe_candidate.ok()->id.slot);
+    owning_bus().publish<TraceEvent>(stats::CandidateReceived::create(maybe_candidate.ok(), false));
     owning_bus().publish<CandidateReceived>(maybe_candidate.move_as_ok());
   }
 
@@ -190,7 +188,7 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
     auto request = std::make_shared<IncomingOverlayRequest>(peer.idx, std::move(data));
 
     auto task = [](BusHandle bus, auto message, auto promise) -> td::actor::Task<> {
-      auto response = co_await bus.publish(std::move(message)).wrap();
+      auto response = co_await bus.publish(message).wrap();
       if (response.is_ok()) {
         promise.set_value(response.move_as_ok().data);
       } else {

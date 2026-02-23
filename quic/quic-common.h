@@ -39,6 +39,12 @@ struct QuicConnectionStats {
   }
 };
 
+enum class CongestionControlAlgo {
+  Cubic,  // default
+  Reno,
+  Bbr,
+};
+
 struct QuicConnectionId {
   static constexpr size_t MAX_SIZE = 20;
 
@@ -101,10 +107,23 @@ struct QuicConnectionId {
 struct UdpMessageBuffer {
   td::MutableSlice storage;
   td::IPAddress address;
+  size_t gso_size{0};
 };
 
 inline td::StringBuilder& operator<<(td::StringBuilder& sb, const QuicConnectionId& cid) {
   return sb << td::hex_encode(cid.as_slice());
+}
+
+inline td::StringBuilder& operator<<(td::StringBuilder& sb, CongestionControlAlgo algo) {
+  switch (algo) {
+    case CongestionControlAlgo::Cubic:
+      return sb << "cubic";
+    case CongestionControlAlgo::Reno:
+      return sb << "reno";
+    case CongestionControlAlgo::Bbr:
+      return sb << "bbr";
+  }
+  return sb << "unknown";
 }
 
 }  // namespace ton::quic

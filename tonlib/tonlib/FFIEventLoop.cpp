@@ -4,11 +4,11 @@ namespace tonlib {
 
 FFIEventLoop::FFIEventLoop(int threads) : scheduler_(td::actor::Scheduler({threads})) {
   queue_.init();
-  scheduler_thread_ = std::thread([&] { scheduler_.run(); });
+  scheduler_thread_ = td::thread([&] { scheduler_.run(); });
 }
 
 FFIEventLoop::~FFIEventLoop() {
-  actor_counter_.wait_zero();
+  CHECK(object_counter_.is_zero());
   scheduler_.run_in_context([] { td::actor::SchedulerContext::get().stop(); });
   scheduler_thread_.join();
 }
@@ -46,7 +46,7 @@ std::optional<Continuation> FFIEventLoop::wait(double timeout) {
 }
 
 td::unique_ptr<td::Guard> FFIEventLoop::new_actor() {
-  return actor_counter_.new_actor();
+  return object_counter_.new_actor();
 }
 
 void FFIEventLoop::put(Continuation continuation) {

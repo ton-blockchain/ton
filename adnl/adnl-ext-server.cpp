@@ -66,9 +66,10 @@ void AdnlInboundConnection::inited_crypto(td::Result<td::BufferSlice> R) {
     stop();
     return;
   }
-  auto S = init_crypto(R.move_as_ok().as_slice());
+  auto init_data = R.move_as_ok();
+  auto S = init_crypto(init_data.as_slice());
   if (S.is_error()) {
-    LOG(ERROR) << "failed to init crypto (2): " << R.move_as_error();
+    LOG(ERROR) << "failed to init crypto (2): " << S;
     stop();
     return;
   }

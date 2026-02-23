@@ -63,6 +63,15 @@ td::Result<std::pair<T, T>> parse_int_range(td::Slice s) {
   return std::make_pair(x, y);
 }
 
+Ref<vm::Cell> make_ext_blk_ref(BlockIdExt block_id, LogicalTime lt) {
+  vm::CellBuilder cb;
+  cb.store_long_bool(lt, 64);
+  cb.store_long_bool(block_id.seqno(), 32);
+  cb.store_bits_bool(block_id.root_hash);
+  cb.store_bits_bool(block_id.file_hash);
+  return cb.finalize_novm();
+}
+
 CatchainSeqno CC_SEQNO = 123;
 BlockIdExt MIN_MC_BLOCK_ID{masterchainId, shardIdAll, 0,
                            from_hex("AAAAAAAABBBBBBBBCCCCCCCCDDDDDDDDAAAAAAAABBBBBBBBCCCCCCCCDDDDDDDD"),
@@ -96,6 +105,8 @@ size_t NET_GREMLIN_TIMES = 1000000000;
 bool NET_GREMLIN_KILLS_LEADER = false;
 
 std::pair<double, double> DB_DELAY = {0.0, 0.0};
+std::pair<double, double> COLLATION_TIME = {0.0, 0.0};
+std::pair<double, double> VALIDATION_TIME = {0.0, 0.0};
 
 class TestSimplexBus : public simplex::Bus {
  public:
@@ -126,8 +137,7 @@ class TestOverlay : public td::actor::Actor {
   }
 
   td::actor::Task<> send_message(PeerValidator src, size_t src_instance_idx, size_t dst_idx, td::BufferSlice message);
-  td::actor::Task<> send_candidate(PeerValidator src, size_t src_instance_idx, size_t dst_idx,
-                                   RawCandidateRef candidate);
+  td::actor::Task<> send_candidate(PeerValidator src, size_t src_instance_idx, size_t dst_idx, CandidateRef candidate);
   td::actor::Task<td::BufferSlice> send_query(PeerValidator src, size_t src_instance_idx, size_t dst_idx,
                                               td::BufferSlice message);
 
@@ -250,7 +260,7 @@ class TestOverlayNode : public runtime::SpawnsWith<Bus>, public runtime::Connect
     owning_bus().publish<IncomingProtocolMessage>(src.idx, std::move(data));
   }
 
-  void receive_candidate(RawCandidateRef candidate) {
+  void receive_candidate(CandidateRef candidate) {
     owning_bus().publish<CandidateReceived>(candidate);
   }
 
@@ -280,7 +290,7 @@ td::actor::Task<> TestOverlay::send_message(PeerValidator src, size_t src_instan
 }
 
 td::actor::Task<> TestOverlay::send_candidate(PeerValidator src, size_t src_instance_idx, size_t dst_idx,
-                                              RawCandidateRef candidate) {
+                                              CandidateRef candidate) {
   co_await before_receive(src.idx.value(), src_instance_idx, dst_idx, true);
   for (const auto &instance : nodes_[dst_idx]) {
     if (instance.actor.empty() || instance.disabled) {
@@ -332,10 +342,12 @@ class CandidateStorage : public td::actor::Actor {
 
 class TestManagerFacade : public ManagerFacade {
  public:
-  explicit TestManagerFacade(size_t node_idx, size_t instance_idx, td::actor::ActorId<TestConsensus> test_consensus,
+  explicit TestManagerFacade(size_t node_idx, size_t instance_idx, Ref<block::ValidatorSet> validator_set,
+                             td::actor::ActorId<TestConsensus> test_consensus,
                              td::actor::ActorId<CandidateStorage> candidate_storage)
       : node_idx_(node_idx)
       , instance_idx_(instance_idx)
+      , validator_set_(validator_set)
       , test_consensus_(test_consensus)
       , candidate_storage_(candidate_storage) {
   }
@@ -353,14 +365,44 @@ class TestManagerFacade : public ManagerFacade {
     if (prev_seqno != 0) {
       CHECK(params.prev_block_data.size() == 1 && params.prev_block_data[0]->block_id() == params.prev[0]);
     }
+    double gen_utime = td::Clocks::system();
 
-    td::Bits256 rand_data;
-    td::Random::secure_bytes(rand_data.as_slice());
-    td::Ref<vm::Cell> block_info = vm::CellBuilder{}.store_bytes(rand_data.as_slice()).finalize_novm();
+    block::gen::BlockInfo::Record info;
+    info.version = 0;
+    info.not_master = !SHARD.is_masterchain();
+    info.after_merge = info.before_split = info.after_split = false;
+    info.want_split = info.want_merge = false;
+    info.key_block = info.vert_seqno_incr = false;
+    info.flags = 0;
+    info.seq_no = prev_seqno + 1;
+    info.vert_seq_no = 0;
+
+    vm::CellBuilder cb;
+    block::ShardId{SHARD}.serialize(cb);
+    info.shard = cb.as_cellslice_ref();
+
+    info.gen_utime = (UnixTime)gen_utime;
+    info.start_lt = (LogicalTime)info.seq_no * 1000;
+    info.end_lt = (LogicalTime)info.seq_no * 1000 + 1;
+    info.gen_validator_list_hash_short = validator_set_->get_validator_set_hash();
+    info.gen_catchain_seqno = validator_set_->get_catchain_seqno();
+    info.min_ref_mc_seqno = MIN_MC_BLOCK_ID.seqno();
+    info.prev_key_block_seqno = MIN_MC_BLOCK_ID.seqno();
+    if (!SHARD.is_masterchain()) {
+      info.master_ref = make_ext_blk_ref(MIN_MC_BLOCK_ID, 0);
+    }
+    info.prev_ref = make_ext_blk_ref(params.prev[0], (LogicalTime)prev_seqno * 1000 + 1);
+    td::Ref<vm::Cell> block_info;
+    CHECK(block::gen::pack_cell(block_info, info));
+
     td::Ref<vm::Cell> value_flow = vm::CellBuilder{}.finalize_novm();
     td::Ref<vm::Cell> merkle_update =
         vm::CellBuilder::create_merkle_update(gen_shard_state(prev_seqno), gen_shard_state(prev_seqno + 1));
-    td::Ref<vm::Cell> block_extra = vm::CellBuilder{}.finalize_novm();
+
+    td::Bits256 rand_data;
+    td::Random::secure_bytes(rand_data.as_slice());
+    td::Ref<vm::Cell> block_extra = vm::CellBuilder{}.store_bytes(rand_data.as_slice()).finalize_novm();
+
     td::Ref<vm::Cell> block_root = vm::CellBuilder{}
                                        .store_long(0x11ef55aa, 32)
                                        .store_long(-111, 32)
@@ -376,10 +418,12 @@ class TestManagerFacade : public ManagerFacade {
     auto cell = vm::CellBuilder{}
                     .store_long(0x638eb292, 32)
                     .store_long(0, 32)
-                    .store_long((td::uint64)(td::Clocks::system() * 1000.0), 64)
+                    .store_long((td::uint64)(gen_utime * 1000.0), 64)
                     .finalize_novm();
     collated_roots.push_back(std::move(cell));
     td::BufferSlice collated_data = co_await vm::std_boc_serialize_multi(collated_roots, 2);
+
+    co_await td::actor::coro_sleep(td::Timestamp::in(td::Random::fast(COLLATION_TIME.first, COLLATION_TIME.second)));
 
     BlockCandidate candidate(
         params.creator,
@@ -401,13 +445,14 @@ class TestManagerFacade : public ManagerFacade {
     CHECK(candidate.id.seqno() == prev_seqno + 1);
     CHECK(params.prev_block_state_roots.size() == 1 &&
           params.prev_block_state_roots[0]->get_hash() == gen_shard_state(prev_seqno)->get_hash());
+    co_await td::actor::coro_sleep(td::Timestamp::in(td::Random::fast(VALIDATION_TIME.first, VALIDATION_TIME.second)));
     co_await store_block_candidate(candidate.clone());
     co_return CandidateAccept{.ok_from_utime = co_await get_candidate_gen_utime_exact(candidate)};
   }
 
-  td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                                 size_t creator_idx, td::Ref<block::BlockSignatureSet> signatures,
-                                 int send_broadcast_mode, bool apply) override;
+  td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, size_t creator_idx,
+                                 td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode,
+                                 bool apply) override;
 
   td::actor::Task<td::Ref<vm::Cell>> wait_block_state_root(BlockIdExt block_id, td::Timestamp timeout) override;
   td::actor::Task<td::Ref<BlockData>> wait_block_data(BlockIdExt block_id, td::Timestamp timeout) override;
@@ -427,6 +472,7 @@ class TestManagerFacade : public ManagerFacade {
  private:
   size_t node_idx_;
   size_t instance_idx_;
+  Ref<block::ValidatorSet> validator_set_;
   td::actor::ActorId<TestConsensus> test_consensus_;
   td::actor::ActorId<CandidateStorage> candidate_storage_;
 };
@@ -637,8 +683,8 @@ class TestConsensus : public td::actor::Actor {
     simplex::Pool::register_in(runtime);
 
     inst.manager_facade = td::actor::create_actor<TestManagerFacade>(
-        PSTRING() << "ManagerFacade." << node_idx << "." << instance_idx, node_idx, instance_idx, actor_id(this),
-        inst.candidate_storage.get());
+        PSTRING() << "ManagerFacade." << node_idx << "." << instance_idx, node_idx, instance_idx, validator_set_,
+        actor_id(this), inst.candidate_storage.get());
     auto [stop_task, stop_promise] = td::actor::StartedTask<>::make_bridge();
     auto bus = std::make_shared<TestSimplexBus>();
     inst.stop_waiter = std::move(stop_task);
@@ -667,7 +713,7 @@ class TestConsensus : public td::actor::Actor {
                              PSTRING() << "consensus." << node_idx << "." << instance_idx);
     inst.status = Instance::Running;
     inst.bus.publish<BlockFinalizedInMasterchain>(last_accepted_block_);
-    inst.bus.publish<Start>(std::vector{FIRST_PARENT}, MIN_MC_BLOCK_ID);
+    inst.bus.publish<Start>(ChainState::from_zerostate(FIRST_PARENT, gen_shard_state(0), MIN_MC_BLOCK_ID));
     LOG(ERROR) << "Starting node #" << node_idx << "." << instance_idx;
   }
 
@@ -850,9 +896,9 @@ class TestConsensus : public td::actor::Actor {
   bool finishing_ = false;
 };
 
-td::actor::Task<> TestManagerFacade::accept_block(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                                                  size_t creator_idx, td::Ref<block::BlockSignatureSet> signatures,
-                                                  int send_broadcast_mode, bool apply) {
+td::actor::Task<> TestManagerFacade::accept_block(BlockIdExt id, td::Ref<BlockData> data, size_t creator_idx,
+                                                  td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode,
+                                                  bool apply) {
   CHECK(id.shard_full() == SHARD);
   LOG(WARNING) << "Accept block #" << id.seqno() << " (" << (signatures->is_final() ? "final" : "notarize")
                << " signatures), creator_idx=" << creator_idx;
@@ -994,6 +1040,22 @@ int main(int argc, char *argv[]) {
                          TRY_RESULT_ASSIGN(DB_DELAY, parse_range(arg));
                          if (DB_DELAY.first < 0.0) {
                            return td::Status::Error(PSTRING() << "invalid db delay value " << arg);
+                         }
+                         return td::Status::OK();
+                       });
+  p.add_checked_option('\0', "collation-time", "time it takes to collate a block (range, default: 0)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT_ASSIGN(COLLATION_TIME, parse_range(arg));
+                         if (COLLATION_TIME.first < 0.0) {
+                           return td::Status::Error(PSTRING() << "invalid collation time " << arg);
+                         }
+                         return td::Status::OK();
+                       });
+  p.add_checked_option('\0', "validation-time", "time it takes to validate a block (range, default: 0)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT_ASSIGN(VALIDATION_TIME, parse_range(arg));
+                         if (VALIDATION_TIME.first < 0.0) {
+                           return td::Status::Error(PSTRING() << "invalid validation time " << arg);
                          }
                          return td::Status::OK();
                        });

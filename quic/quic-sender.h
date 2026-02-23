@@ -1,12 +1,13 @@
 #pragma once
 
+#include <string>
+
 #include "adnl/adnl-peer-table.h"
 #include "adnl/adnl.h"
 #include "keyring/keyring.h"
 #include "metrics/metrics-collectors.h"
 #include "td/actor/coro_task.h"
 
-#include "openssl-utils.h"
 #include "quic-server.h"
 
 namespace ton::quic {
@@ -15,7 +16,8 @@ class QuicSender : public adnl::AdnlSenderInterface, public virtual metrics::Asy
  public:
   using AdnlPath = std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>;
 
-  explicit QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::actor::ActorId<keyring::Keyring> keyring);
+  explicit QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::actor::ActorId<keyring::Keyring> keyring,
+                      QuicServer::Options options = {});
   ~QuicSender() override = default;
 
   void send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) override;
@@ -27,7 +29,9 @@ class QuicSender : public adnl::AdnlSenderInterface, public virtual metrics::Asy
   void get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id,
                        td::Promise<td::string> promise) override;
 
+  void set_udp_offload_options(QuicServer::Options options);
   void add_local_id(adnl::AdnlNodeIdShort local_id);
+  void log_stats(std::string reason = "stats");
 
   struct Stats {
     struct Entry {
@@ -66,6 +70,7 @@ class QuicSender : public adnl::AdnlSenderInterface, public virtual metrics::Asy
 
   td::actor::ActorId<adnl::AdnlPeerTable> adnl_;
   td::actor::ActorId<keyring::Keyring> keyring_;
+  QuicServer::Options server_options_;
 
   std::map<AdnlPath, std::shared_ptr<Connection>> outbound_;
   std::map<AdnlPath, std::shared_ptr<Connection>> inbound_;

@@ -269,7 +269,7 @@ td::Result<td::BufferSlice> WaitBlockData::generate_proof_link(BlockIdExt id, td
         (!info.not_master || tlb::unpack_cell(info.master_ref, mcref)))) {
     return td::Status::Error("cannot unpack block header");
   }
-  vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
+  vm::CellSlice upd_cs{vm::NoVm(), blk.state_update};
 
   auto proof = vm::MerkleProof::generate(block_root, usage_tree.get());
   vm::CellBuilder cb;

@@ -6,9 +6,8 @@ from unittest.mock import Mock
 
 import pytest
 from tonapi import ton_api
-from tonlib.engine_console import LocalError, RemoteError
 
-from tonlib import EngineConsoleClient
+from tonlib import EngineConsoleClient, LocalError, RemoteError
 
 MOCK_LOOP_PTR = 12345
 MOCK_CONSOLE_PTR = 67890

@@ -194,6 +194,9 @@ td::Result<std::vector<td::Ref<OutMsgQueueProof>>> OutMsgQueueProof::fetch(Shard
         TRY_RESULT_ASSIGN(state_root_hash, unpack_block_state_proof(blocks[i], block_state_proof));
       }
       auto state_root = vm::MerkleProof::virtualize(queue_proofs[i]);
+      if (state_root.is_null()) {
+        return td::Status::Error("invalid state proof");
+      }
       if (state_root->get_hash().as_slice() != state_root_hash.as_slice()) {
         return td::Status::Error("state root hash mismatch");
       }

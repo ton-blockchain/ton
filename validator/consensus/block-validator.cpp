@@ -7,7 +7,7 @@
 #include "td/actor/coro_utils.h"
 
 #include "bus.h"
-#include "utils.h"
+#include "stats.h"
 
 namespace ton::validator::consensus {
 
@@ -17,60 +17,49 @@ class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
-  void start_up() override {
-    auto [awaiter, promise] = td::actor::StartedTask<StartEvent>::make_bridge();
-    genesis_promise_ = std::move(promise);
-    genesis_ = std::move(awaiter);
-  }
-
   template <>
   void handle(BusHandle, std::shared_ptr<const StopRequested>) {
     stop();
   }
 
   template <>
-  void handle(BusHandle, std::shared_ptr<const Start> event) {
-    genesis_promise_.set_value(std::move(event));
-  }
-
-  template <>
-  td::actor::Task<> process(BusHandle, std::shared_ptr<ValidationRequest> event) {
+  td::actor::Task<ValidateCandidateResult> process(BusHandle, std::shared_ptr<ValidationRequest> event) {
     auto& bus = *owning_bus();
 
-    td::uint32 slot = event->candidate->id.slot;
+    owning_bus().publish<TraceEvent>(stats::ValidationStarted::create(event->candidate->id));
 
-    if (std::holds_alternative<BlockIdExt>(event->candidate->block)) {
-      co_return {};
-    }
-    const auto& candidate = std::get<BlockCandidate>(event->candidate->block);
-
-    auto genesis = co_await genesis_.get();
-
-    ValidateParams validate_params{
-        .shard = bus.shard,
-        .min_masterchain_block_id = genesis->min_masterchain_block_id,
-        .prev = genesis->convert_id_to_blocks(event->candidate->parent_id),
-        .local_validator_id = bus.local_id.short_id,
-        .is_new_consensus = true,
-        .prev_block_state_roots = event->prev_block_state_roots,
+    auto empty_fn = [&](BlockIdExt block) -> td::actor::Task<ValidateCandidateResult> {
+      if (block != event->state->as_normal()) {
+        co_return CandidateReject{
+            .reason = "Wrong referenced block in empty candidate",
+            .proof = td::BufferSlice(),
+        };
+      }
+      co_return CandidateAccept{};
     };
+    auto block_fn = [&](const BlockCandidate& block) -> td::actor::Task<ValidateCandidateResult> {
+      ValidateParams validate_params{
+          .shard = bus.shard,
+          .min_masterchain_block_id = event->state->min_mc_block_id(),
+          .prev = event->state->block_ids(),
+          .local_validator_id = bus.local_id.short_id,
+          .skip_store_candidate = true,
+          .is_new_consensus = true,
+          .prev_block_state_roots = event->state->state(),
+      };
+      co_return co_await td::actor::ask(bus.manager, &ManagerFacade::validate_block_candidate, block.clone(),
+                                        std::move(validate_params), td::Timestamp::in(60.0));
+    };
+    auto validation_result = co_await std::visit(td::overloaded(block_fn, empty_fn), event->candidate->block);
 
-    owning_bus().publish<StatsTargetReached>(StatsTargetReached::ValidateStarted, slot);
-
-    auto validation_result =
-        co_await td::actor::ask(bus.manager, &ManagerFacade::validate_block_candidate, candidate.clone(),
-                                std::move(validate_params), td::Timestamp::in(60.0));
-
-    owning_bus().publish<StatsTargetReached>(StatsTargetReached::ValidateFinished, slot);
+    owning_bus().publish<TraceEvent>(stats::ValidationFinished::create(event->candidate->id));
 
     if (validation_result.has<CandidateReject>()) {
-      auto error = td::Status::Error(0, validation_result.get<CandidateReject>().reason);
-
       if (event->candidate->leader == bus.local_id.idx) {
-        LOG(ERROR) << "BUG! Candidate " << event->candidate->id << " is self-rejected: " << error;
+        LOG(ERROR) << "BUG! Candidate " << event->candidate->id
+                   << " is self-rejected: " << validation_result.get<CandidateReject>().reason;
       }
-
-      co_return error;
+      co_return validation_result;
     }
 
     td::Timestamp ok_from = td::Timestamp::at_unix(validation_result.get<CandidateAccept>().ok_from_utime);
@@ -79,13 +68,8 @@ class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
                 << " s";
       co_await td::actor::coro_sleep(ok_from);
     }
-
-    co_return {};
+    co_return validation_result;
   }
-
- private:
-  td::Promise<StartEvent> genesis_promise_;
-  SharedFuture<StartEvent> genesis_;
 };
 
 }  // namespace
