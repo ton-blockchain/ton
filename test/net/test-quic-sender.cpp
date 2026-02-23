@@ -808,9 +808,9 @@ TEST(QuicSender, ResponseSizeLimit) {
     ASSERT_EQ(resp1.as_slice(), td::Slice("Qnormal"));
 
     // Send large query with small response size limit
-    // Query data is 1000 bytes, response will be same size (echo), but limit is 100
-    std::string large_data(1000, 'X');
-    auto result = co_await t.send_query_ex(a, b, large_data, 10.0, 100).wrap();
+    // Query data is 10000 bytes, response will be same size (echo), but limit is 2000
+    std::string large_data(10000, 'X');
+    auto result = co_await t.send_query_ex(a, b, large_data, 10.0, 2000).wrap();
 
     LOG(INFO) << "ResponseSizeLimit result: " << (result.is_ok() ? "OK (unexpected)" : result.error().to_string());
     ASSERT_TRUE(result.is_error());
