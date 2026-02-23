@@ -297,7 +297,7 @@ class DashApp:
                                 dcc.Input(
                                     id="slot-to",
                                     type="number",
-                                    value=80,
+                                    value=1000,
                                     min=0,
                                     step=1,
                                     style={"width": "110px"},
