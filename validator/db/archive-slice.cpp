@@ -167,6 +167,36 @@ void PackageWriter::sync_now() {
   }
 }
 
+void PackageWriter::append_multi(std::vector<std::pair<std::string, td::BufferSlice>> files,
+                                 td::Promise<std::pair<std::vector<td::uint64>, td::uint64>> promise) {
+  std::vector<td::uint64> offsets;
+  td::uint64 size;
+  offsets.reserve(files.size());
+  td::uint64 total_size = 0;
+  td::Timestamp start, end;
+  {
+    auto p = package_.lock();
+    if (!p) {
+      promise.set_error(td::Status::Error("Package is closed"));
+      return;
+    }
+    start = td::Timestamp::now();
+    for (auto &[filename, data] : files) {
+      total_size += data.size();
+      td::uint64 offset = p->append(std::move(filename), std::move(data), false);
+      offsets.push_back(offset);
+    }
+    size = p->size();
+    end = td::Timestamp::now();
+  }
+  if (statistics_) {
+    statistics_->record_write((end.at() - start.at()) * 1e6, total_size);
+  }
+  sync([=, promise = std::move(promise), offsets = std::move(offsets)](td::Result<td::Unit>) mutable {
+    promise.set_value(std::make_pair(std::move(offsets), size));
+  });
+}
+
 class PackageReader : public td::actor::Actor {
  public:
   PackageReader(std::shared_ptr<Package> package, td::uint64 offset,
@@ -325,6 +355,50 @@ void ArchiveSlice::update_handle(BlockHandle handle, td::Promise<td::Unit> promi
   });
 }
 
+td::actor::Task<> ArchiveSlice::add_block(BlockHandle handle,
+                                          std::vector<std::pair<FileReference, td::BufferSlice>> files) {
+  if (destroyed_) {
+    co_return td::Status::Error(ErrorCode::notready, "package already gc'd");
+  }
+  CHECK(!key_blocks_only_);
+  CHECK(!temp_);
+  before_query();
+  begin_async_query_impl();
+  SCOPE_EXIT {
+    end_async_query();
+  };
+  auto p = co_await choose_package(handle, true);
+  std::vector<std::pair<std::string, td::BufferSlice>> files_to_add;
+  std::vector<FileReference> files_to_add_refs;
+  for (auto &[file_ref, data] : files) {
+    std::string value;
+    auto r = kv_->get(file_ref.hash().to_hex(), value).ensure().move_as_ok();
+    if (r == td::KeyValue::GetStatus::NotFound) {
+      files_to_add.emplace_back(file_ref.filename(), std::move(data));
+      files_to_add_refs.push_back(file_ref);
+    }
+  }
+  auto [offsets, pack_size] = co_await td::actor::ask(p->writer, &PackageWriter::append_multi, std::move(files_to_add));
+  begin_transaction();
+  if (sliced_mode_) {
+    kv_->set(PSTRING() << "status." << p->idx, td::to_string(pack_size)).ensure();
+  } else {
+    CHECK(!p->idx);
+    kv_->set("status", td::to_string(pack_size)).ensure();
+  }
+  for (size_t i = 0; i < offsets.size(); ++i) {
+    kv_->set(files_to_add_refs.at(i).hash().to_hex(), td::to_string(offsets.at(i))).ensure();
+  }
+  handle->set_handle_moved_to_archive();
+  handle->set_moved_to_archive();
+  handle->set_applied();
+  auto [task, promise] = td::actor::StartedTask<>::make_bridge();
+  add_handle(handle, std::move(promise));
+  co_await std::move(task);
+  co_await commit_transaction_coro();
+  co_return {};
+}
+
 void ArchiveSlice::add_file(BlockHandle handle, FileReference ref_id, td::BufferSlice data,
                             td::Promise<td::Unit> promise) {
   if (destroyed_) {
@@ -332,11 +406,7 @@ void ArchiveSlice::add_file(BlockHandle handle, FileReference ref_id, td::Buffer
     return;
   }
   before_query();
-  TRY_RESULT_PROMISE(
-      promise, p,
-      choose_package(
-          handle ? handle->id().is_masterchain() ? handle->id().seqno() : handle->masterchain_ref_block() : 0,
-          handle ? handle->id().shard_full() : ShardIdFull{masterchainId}, true));
+  TRY_RESULT_PROMISE(promise, p, choose_package(handle, true));
   std::string value;
   auto R = kv_->get(ref_id.hash().to_hex(), value);
   R.ensure();
@@ -439,11 +509,7 @@ void ArchiveSlice::get_file(ConstBlockHandle handle, FileReference ref_id, td::P
     return;
   }
   auto offset = td::to_integer<td::uint64>(value);
-  TRY_RESULT_PROMISE(
-      promise, p,
-      choose_package(
-          handle ? handle->id().is_masterchain() ? handle->id().seqno() : handle->masterchain_ref_block() : 0,
-          handle ? handle->id().shard_full() : ShardIdFull{masterchainId}, false));
+  TRY_RESULT_PROMISE(promise, p, choose_package(handle, false));
   promise = begin_async_query(std::move(promise));
   auto P = td::PromiseCreator::lambda(
       [promise = std::move(promise)](td::Result<std::pair<std::string, td::BufferSlice>> R) mutable {
@@ -827,11 +893,15 @@ void ArchiveSlice::do_close() {
 
 template <typename T>
 td::Promise<T> ArchiveSlice::begin_async_query(td::Promise<T> promise) {
-  ++active_queries_;
+  begin_async_query_impl();
   return [SelfId = actor_id(this), promise = std::move(promise)](td::Result<T> R) mutable {
     td::actor::send_closure(SelfId, &ArchiveSlice::end_async_query);
     promise.set_result(std::move(R));
   };
+}
+
+void ArchiveSlice::begin_async_query_impl() {
+  ++active_queries_;
 }
 
 void ArchiveSlice::end_async_query() {
@@ -861,6 +931,12 @@ void ArchiveSlice::commit_transaction(td::Promise<td::Unit> promise) {
     transaction_commit_pending_ = true;
     td::actor::send_closure_later(actor_id(this), &ArchiveSlice::commit_transaction_now);
   }
+}
+
+td::actor::Task<> ArchiveSlice::commit_transaction_coro() {
+  auto [task, promise] = td::actor::StartedTask<>::make_bridge();
+  commit_transaction(std::move(promise));
+  co_return co_await std::move(task);
 }
 
 void ArchiveSlice::commit_transaction_now() {
@@ -945,6 +1021,14 @@ td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(BlockSeqno 
   } else {
     return &packages_[it->second];
   }
+}
+
+td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(const ConstBlockHandle &handle, bool force) {
+  if (handle) {
+    return choose_package(handle->id().is_masterchain() ? handle->id().seqno() : handle->masterchain_ref_block(),
+                          handle->id().shard_full(), force);
+  }
+  return choose_package(0, ShardIdFull{masterchainId}, true);
 }
 
 void ArchiveSlice::add_package(td::uint32 seqno, ShardIdFull shard_prefix, td::uint64 size, td::uint32 version) {

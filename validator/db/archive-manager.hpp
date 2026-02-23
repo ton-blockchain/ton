@@ -34,6 +34,8 @@ class ArchiveManager : public td::actor::Actor {
 
   void add_handle(BlockHandle handle, td::Promise<td::Unit> promise);
   void update_handle(BlockHandle handle, td::Promise<td::Unit> promise);
+  td::actor::Task<> move_block_to_archive(BlockHandle handle,
+                                          std::vector<std::pair<FileReference, td::BufferSlice>> files);
   void add_file(BlockHandle handle, FileReference ref_id, td::BufferSlice data, td::Promise<td::Unit> promise);
   void add_key_block_proof(BlockSeqno seqno, UnixTime ts, LogicalTime lt, FileReference ref_id, td::BufferSlice data,
                            td::Promise<td::Unit> promise);
@@ -182,7 +184,7 @@ class ArchiveManager : public td::actor::Actor {
   FileMap files_, key_files_, temp_files_;
   td::actor::ActorOwn<ArchiveLru> archive_lru_;
   BlockSeqno finalized_up_to_{0};
-  bool async_mode_ = false;
+  bool async_mode_ = true;
   td::uint32 cur_shard_split_depth_ = 0;
 
   DbStatistics statistics_;

@@ -2115,11 +2115,7 @@ bool ValidatorManagerImpl::out_of_sync() {
 }
 
 void ValidatorManagerImpl::prestart_sync() {
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
-    R.ensure();
-    td::actor::send_closure(SelfId, &ValidatorManagerImpl::download_next_archive);
-  });
-  td::actor::send_closure(db_, &Db::set_async_mode, true, std::move(P));
+  download_next_archive();
 }
 
 void ValidatorManagerImpl::download_next_archive() {
@@ -2185,12 +2181,7 @@ void ValidatorManagerImpl::checked_archive_slice(BlockSeqno new_last_mc_seqno, B
 
 void ValidatorManagerImpl::finish_prestart_sync() {
   to_import_.clear();
-
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
-    R.ensure();
-    td::actor::send_closure(SelfId, &ValidatorManagerImpl::completed_prestart_sync);
-  });
-  td::actor::send_closure(db_, &Db::set_async_mode, false, std::move(P));
+  completed_prestart_sync();
 }
 
 void ValidatorManagerImpl::completed_prestart_sync() {
