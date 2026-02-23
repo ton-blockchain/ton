@@ -36,7 +36,7 @@ FROM ubuntu:24.04
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y wget curl libatomic1 openssl libsodium-dev libmicrohttpd-dev liblz4-dev libjemalloc-dev htop \
-    net-tools netcat iptraf-ng jq tcpdump pv plzip && \
+    net-tools jq tcpdump pv plzip && \
     rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /var/ton-work/db /var/ton-work/scripts /usr/share/ton/smartcont/auto /usr/lib/fift/
