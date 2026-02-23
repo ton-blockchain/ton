@@ -28,14 +28,11 @@ jobs:
         sudo apt-get install -y build-essential git cmake ninja-build libjemalloc-dev ccache
         mkdir ~/.ccache
 
-    - if: matrix.os != 'ubuntu-24.04-arm'
-      name: Install llvm-21
+    - if: matrix.os != 'ubuntu-24.04'
       run: |
-        lsb_release -a
-        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-        echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
-        sudo apt-get -y update
-        sudo apt-get install -y clang-21
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x llvm.sh
+        sudo ./llvm.sh 21 clang
 
     - if: matrix.os == 'ubuntu-24.04-arm'
       name: Install llvm-21
