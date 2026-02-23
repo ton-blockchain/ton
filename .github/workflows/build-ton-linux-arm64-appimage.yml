@@ -4,7 +4,7 @@ on: [push, pull_request, workflow_dispatch, workflow_call]
 
 jobs:
   build:
-    runs-on: ubuntu-22.04-arm
+    runs-on: ubuntu-24.04-arm
 
     steps:
     - name: Check out repository
@@ -24,13 +24,13 @@ jobs:
         sudo apt install -y build-essential git cmake ninja-build ccache libgsl-dev libblas-dev libgslcblas0
         mkdir ~/.ccache
 
-    - name: Install clang-21
+    - name: Install llvm-21
       run: |
         lsb_release -a
         wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-        echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
-        sudo apt-get -y update
-        sudo apt-get install -y clang-21
+        echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+        sudo apt -y update
+        sudo apt install -y clang-21
 
     - name: Restore cache TON
       uses: actions/cache/restore@v4

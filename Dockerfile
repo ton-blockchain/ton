@@ -1,18 +1,19 @@
-FROM ubuntu:22.04 AS builder
+FROM ubuntu:24.04 AS builder
 ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && \
+RUN apt update && \
         rm /var/lib/dpkg/info/libc-bin.* && \
-        apt-get clean && \
-        apt-get update && \
-        apt install libc-bin && \
-        apt-get install -y build-essential cmake clang gperf wget git \
+        apt clean && \
+        apt update && \
+        apt install -y libc-bin curl gnupg2 build-essential cmake gperf wget git \
         ninja-build pkg-config autoconf automake libtool \
-        libjemalloc-dev lsb-release software-properties-common gnupg
-
-RUN wget https://apt.llvm.org/llvm.sh && \
-    chmod +x llvm.sh && \
-    ./llvm.sh 21 all && \
-    rm -rf /var/lib/apt/lists/*
+        libjemalloc-dev lsb-release software-properties-common gnupg && \
+        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - && \
+        echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" | tee /etc/apt/sources.list.d/llvm.list && \
+        apt -y update && \
+        sudo apt install -y clang-21 && \
+        ln /usr/bin/clang-21 /usr/bin/clang && \
+        ln /usr/bin/clang++-21 /usr/bin/clang++ && \
+        rm -rf /var/lib/apt/lists/*
 
 ENV CC=/usr/bin/clang-21
 ENV CXX=/usr/bin/clang++-21
@@ -31,7 +32,7 @@ RUN mkdir build && \
     generate-random-id dht-server lite-client tolk rldp-http-proxy dht-server proxy-liteserver create-state \
     blockchain-explorer emulator tonlibjson http-proxy adnl-proxy dht-ping-servers dht-resolve
 
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y wget curl libatomic1 openssl libsodium-dev libmicrohttpd-dev liblz4-dev libjemalloc-dev htop \

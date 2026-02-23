@@ -1,4 +1,4 @@
-name: Docker Ubuntu 22.04 branch image
+name: Docker Ubuntu 24.04 branch image
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ env:
 
 jobs:
   build-arm64:
-    runs-on: ubuntu-22.04-arm
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Check out repository
         uses: actions/checkout@v6

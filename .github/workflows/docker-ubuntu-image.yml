@@ -1,4 +1,4 @@
-name: Docker Ubuntu 22.04 image
+name: Docker Ubuntu 24.04 image
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ env:
 
 jobs:
   build-arm64:
-    runs-on: ubuntu-22.04-arm
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -95,7 +95,7 @@ jobs:
           tags:  ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.TAG }}-amd64
 
   merge:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     needs:
       - build-amd64
       - build-arm64

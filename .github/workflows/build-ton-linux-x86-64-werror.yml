@@ -23,11 +23,13 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y build-essential git cmake ninja-build libjemalloc-dev
 
-    - name: Install Clang 21
+    - name: Install llvm-21
       run: |
-        wget https://apt.llvm.org/llvm.sh
-        chmod +x llvm.sh
-        sudo ./llvm.sh 21 all
+        lsb_release -a
+        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+        echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+        sudo apt -y update
+        sudo apt install -y clang-21
 
     # TODO: Preserve ccache cache between runs once we get rid of warning suppression mappings.
 
