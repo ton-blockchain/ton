@@ -108,9 +108,8 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
       if (failed_) {
         return td::Status::Error("stream already failed");
       }
-      auto max_size = options_.max_size.value_or(DEFAULT_STREAM_SIZE_LIMIT);
-      if (options_.max_size.has_value() && builder_.size() > max_size) {
-        return td::Status::Error(PSLICE() << "stream size limit exceeded: max=" << max_size
+      if (options_.max_size.has_value() && builder_.size() > *options_.max_size) {
+        return td::Status::Error(PSLICE() << "stream size limit exceeded: max=" << *options_.max_size
                                           << " received=" << builder_.size() << " query_size=" << options_.query_size
                                           << " query_magic=" << td::format::as_hex(options_.query_magic));
       }
@@ -321,7 +320,7 @@ td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdSho
   auto timeout_seconds = timeout ? timeout.at() - td::Time::now() : 0.0;
   auto stream_limit = get_peer_mtu(src, dst);
   if (limit.has_value())
-    stream_limit = std::min(stream_limit, *limit);
+    stream_limit = std::max(stream_limit, *limit);
   auto stream_id = co_await td::actor::ask(server, &QuicServer::open_stream, cid,
                                            StreamOptions{.max_size = stream_limit,
                                                          .timeout = timeout,
