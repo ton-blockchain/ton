@@ -294,8 +294,8 @@ void RootDb::store_block_state_from_data(BlockHandle handle, td::Ref<BlockData> 
 void RootDb::store_block_state_from_data_bulk(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise) {
   td::actor::send_closure(
       cell_db_, &CellDb::store_block_state_permanent_bulk, std::move(blocks),
-      [SelfId = actor_id(this), b = archive_db_.get(),
-       promise = std::move(promise)](td::Result<std::map<BlockIdExt, RootHash>> R) mutable {
+      td::PromiseCreator::lambda([SelfId = actor_id(this), b = archive_db_.get(),
+                                  promise = std::move(promise)](td::Result<std::map<BlockIdExt, RootHash>> R) mutable {
         TRY_RESULT_PROMISE(promise, state_root_hashes, std::move(R));
         td::MultiPromise mp;
         auto ig = mp.init_guard();
@@ -310,7 +310,7 @@ void RootDb::store_block_state_from_data_bulk(std::vector<td::Ref<BlockData>> bl
                 td::actor::send_closure(b, &ArchiveManager::update_handle, std::move(handle), std::move(p));
               });
         }
-      });
+      }));
 }
 
 void RootDb::get_block_state(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) {
