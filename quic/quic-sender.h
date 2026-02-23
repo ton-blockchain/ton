@@ -53,8 +53,6 @@ class QuicSender : public adnl::AdnlSenderEx {
 
   static constexpr int NODE_PORT_OFFSET = 1000;
 
-  static constexpr size_t DEFAULT_STREAM_SIZE_LIMIT = 1 * 1024 * 1024; // 1 MiB
-
   td::actor::ActorId<adnl::AdnlPeerTable> adnl_;
   td::actor::ActorId<keyring::Keyring> keyring_;
   QuicServer::Options server_options_;
