@@ -84,7 +84,7 @@ struct CandidateAndCert {
 struct BlockchainState;
 using BlockchainStateRef = td::Ref<BlockchainState>;
 
-class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
+class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
@@ -373,7 +373,7 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
 
 }  // namespace
 
-void CandidateResolver::register_in(runtime::Runtime &runtime) {
+void CandidateResolver::register_in(td::actor::Runtime &runtime) {
   runtime.register_actor<CandidateResolverImpl>("CandidateResolver");
 }
 
