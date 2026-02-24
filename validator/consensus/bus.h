@@ -11,12 +11,12 @@
 #include "overlay/overlays.h"
 #include "quic/quic-sender.h"
 #include "rldp2/rldp.h"
+#include "td/actor/BusRuntime.h"
 #include "td/db/KeyValueAsync.h"
 #include "ton/ton-types.h"
 
 #include "chain-state.h"
 #include "manager-facade.h"
-#include "runtime.h"
 #include "types.h"
 
 namespace ton::validator::consensus {
