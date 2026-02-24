@@ -176,21 +176,23 @@ class DashApp:
             if slot in group_slots and not group_slots[slot].is_empty
         )
 
-        collate_started_by_slot: dict[int, float] = {}
+        min_candidate_received_by_slot: dict[int, float] = {}
         for e in group_events:
-            if e.label != "collation":
+            if e.label != "candidate_received":
                 continue
-            collate_started_by_slot[e.slot] = e.t_ms
+            known_ts = min_candidate_received_by_slot.get(e.slot)
+            if known_ts is None or e.t_ms < known_ts:
+                min_candidate_received_by_slot[e.slot] = e.t_ms
 
-        finalized_with_collate = [
-            (slot, collate_started_by_slot[slot])
+        finalized_with_candidate_received = [
+            (slot, min_candidate_received_by_slot[slot])
             for slot in finalized_block_slots
-            if slot in collate_started_by_slot
+            if slot in min_candidate_received_by_slot
         ]
         delta_entries = [
             (prev_slot, cur_slot, cur_t - prev_t)
             for (prev_slot, prev_t), (cur_slot, cur_t) in zip(
-                finalized_with_collate, finalized_with_collate[1:]
+                finalized_with_candidate_received, finalized_with_candidate_received[1:]
             )
         ]
 
@@ -212,9 +214,9 @@ class DashApp:
                     "slots with skip_observed"
                     f" ({len(skip_slots)}) = {skip_slots}"
                 ),
-                "collation start delta for neighboring finalized blocks:",
+                "delta between minimum candidate_received for neighboring finalized blocks:",
                 f"min = {round(min_delta_slots[2], 3) if min_delta_slots else 'n/a'} ms for slots {min_slot_text}",
-                f"avg = {avg_delta:.3f} ms",
+                f"avg = {avg_delta:.3f} ms" if avg_delta is not None else "avg = n/a",
                 f"max = {round(max_delta_slots[2], 3) if max_delta_slots else 'n/a'} ms for slots {max_slot_text}",
             ]
         )
