@@ -117,7 +117,8 @@ void FullNodeFastSyncOverlay::process_block_broadcast_with_state(PublicKeyHash s
 }
 
 void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_outMsgQueueProofBroadcast &query) {
-  if (src == local_id_.pubkey_hash()) {
+  // Not supported yet
+  /*if (src == local_id_.pubkey_hash()) {
     return;  // dropping broadcast from self
   }
   BlockIdExt block_id = create_block_id(query.block_);
@@ -144,7 +145,7 @@ void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonN
   LOG(INFO) << "got tonNode.outMsgQueueProofBroadcast to " << shard_id.to_str() << " from " << block_id.to_str()
             << ", msgs=" << proof->msg_count_ << ", size=" << tl_proof->queue_proofs_.size();
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::add_out_msg_queue_proof, shard_id,
-                          std::move(proof));
+                          std::move(proof));*/
 }
 
 void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
@@ -309,7 +310,8 @@ void FullNodeFastSyncOverlay::collect_validator_telemetry(std::string filename) 
 }
 
 void FullNodeFastSyncOverlay::send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcast) {
-  if (!inited_) {
+  // Not supported yet
+  /*if (!inited_) {
     return;
   }
   auto B = create_serialize_tl_object<ton_api::tonNode_outMsgQueueProofBroadcast>(
@@ -322,7 +324,7 @@ void FullNodeFastSyncOverlay::send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQ
                         << " from " << broadcast->block_id.to_str() << ", msgs=" << broadcast->msg_count
                         << " bytes=" << broadcast->queue_proofs.size();
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
-                          local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), std::move(B));
+                          local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), std::move(B));*/
 }
 
 void FullNodeFastSyncOverlay::start_up() {
@@ -619,7 +621,7 @@ void FullNodeFastSyncOverlays::update_overlays(
           if (std::binary_search(root_public_keys_.begin(), root_public_keys_.end(),
                                  certificate.issued_by().compute_short_id())) {
             changed_certificate = true;
-            overlays_info.current_certificate_ = it->second.front();
+            overlays_info.current_certificate_ = certificate;
             break;
           }
         }

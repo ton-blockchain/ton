@@ -147,7 +147,7 @@ struct ShardIdFull {
 struct AccountIdPrefixFull {
   WorkchainId workchain;
   AccountIdPrefix account_id_prefix;
-  AccountIdPrefixFull() : workchain(workchainInvalid) {
+  AccountIdPrefixFull() : workchain(workchainInvalid), account_id_prefix(0) {
   }
   AccountIdPrefixFull(WorkchainId workchain, AccountIdPrefix prefix) : workchain(workchain), account_id_prefix(prefix) {
   }

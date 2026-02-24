@@ -600,7 +600,11 @@ void ValidatorManagerMasterchainStarter::truncated() {
 
 void ValidatorManagerMasterchainStarter::truncated_next() {
   if (has_new_hardforks_) {
-    handle_->set_next(*opts_->get_hardforks().rbegin());
+    BlockIdExt hardfork = *opts_->get_hardforks().rbegin();
+    LOG_CHECK(handle_->id().seqno() + 1 == hardfork.seqno())
+        << "Last masterchain block seqno = " << handle_->id().seqno() << ", but the new hardfork has seqno "
+        << hardfork.seqno();
+    handle_->set_next(hardfork);
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
       R.ensure();
       td::actor::send_closure(SelfId, &ValidatorManagerMasterchainStarter::written_next);

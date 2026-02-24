@@ -184,6 +184,11 @@ void FullNodeCustomOverlay::process_block_candidate_broadcast(PublicKeyHash src,
 }
 
 void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
+  if (!block_senders_.count(adnl::AdnlNodeIdShort(src))) {
+    VLOG(FULL_NODE_DEBUG) << "Dropping shard block description broadcast in private overlay \"" << name_
+                          << "\" from unauthorized sender " << src;
+    return;
+  }
   BlockIdExt block_id = create_block_id(query.block_->block_);
   VLOG(FULL_NODE_DEBUG) << "Received newShardBlockBroadcast in custom overlay \"" << name_ << "\" from " << src << ": "
                         << block_id.to_str();
