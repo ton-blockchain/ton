@@ -510,21 +510,21 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   void handle_vote(const PeerValidator &validator, Signed<NotarizeVote> vote, State::SlotRef &slot) {
     auto new_weight = (slot.state->notarize_weight[vote.vote.id] += validator.weight);
     if (!slot.state->is_notarized() && new_weight >= weight_threshold_) {
-      handle_certificate(slot, slot.state->create_cert(vote.vote));
+      handle_our_certificate(slot, slot.state->create_cert(vote.vote));
     }
   }
 
   void handle_vote(const PeerValidator &validator, Signed<SkipVote> vote, State::SlotRef &slot) {
     auto new_weight = (slot.state->skip_weight += validator.weight);
     if (!slot.state->is_skipped() && new_weight >= weight_threshold_) {
-      handle_certificate(slot, slot.state->create_cert(vote.vote));
+      handle_our_certificate(slot, slot.state->create_cert(vote.vote));
     }
   }
 
   void handle_vote(const PeerValidator &validator, Signed<FinalizeVote> vote, State::SlotRef &slot) {
     auto new_weight = (slot.state->finalize_weight[vote.vote.id] += validator.weight);
     if (!slot.state->is_finalized() && new_weight >= weight_threshold_) {
-      handle_certificate(slot, slot.state->create_cert(vote.vote));
+      handle_our_certificate(slot, slot.state->create_cert(vote.vote));
     }
   }
 
@@ -686,26 +686,31 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
 
   void handle_foreign_certificate(State::SlotRef &slot, Certificate<Vote> &&cert) {
     std::move(cert).consume_and_downcast([&](auto cert) {
-      bool rc = slot.state->certs.store(cert);
-      CHECK(rc);
-
       for (const auto &[idx, _] : cert->signatures) {
         auto add_result = slot.state->votes[idx.value()].add_vote(cert);
         if (auto misbehavior = add_result.misbehavior) {
           owning_bus().publish<MisbehaviorReport>(idx, *misbehavior);
         }
       }
-      handle_certificate(slot, cert);
+      handle_our_certificate(slot, cert);
     });
   }
 
-  void handle_certificate(State::SlotRef &slot, NotarCertRef cert) {
-    slot.state->certs.notarize_ = cert;
-    auto id = cert->vote.id;
+  template <typename T>
+  void handle_our_certificate(State::SlotRef &slot, CertificateRef<T> cert) {
+    bool rc = slot.state->certs.store(cert);
+    CHECK(rc);
 
     log_certificate(cert, *owning_bus());
     owning_bus().publish<OutgoingProtocolMessage>(std::nullopt, cert->serialize());
     owning_bus().publish<TraceEvent>(stats::CertObserved::create(cert->vote));
+
+    handle_certificate(slot, cert);
+  }
+
+  void handle_certificate(State::SlotRef &slot, NotarCertRef cert) {
+    auto id = cert->vote.id;
+
     owning_bus().publish<NotarizationObserved>(id, cert);
 
     next_nonskipped_slot_after(id.slot).state->add_available_base(id);
@@ -715,12 +720,8 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   }
 
   void handle_certificate(State::SlotRef &slot, SkipCertRef cert) {
-    slot.state->certs.skip_ = cert;
     auto i = slot.i;
 
-    log_certificate(cert, *owning_bus());
-    owning_bus().publish<OutgoingProtocolMessage>(std::nullopt, cert->serialize());
-    owning_bus().publish<TraceEvent>(stats::CertObserved::create(cert->vote));
     auto next_slot = next_nonskipped_slot_after(i);
 
     skip_intervals_.erase(i);
@@ -737,11 +738,8 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   }
 
   void handle_certificate(State::SlotRef &slot, FinalCertRef cert) {
-    slot.state->certs.finalize_ = cert;
     auto id = cert->vote.id;
 
-    log_certificate(cert, *owning_bus());
-    owning_bus().publish<TraceEvent>(stats::CertObserved::create(cert->vote));
     CHECK(!slot.state->is_skipped());
     CHECK(slot.state->notarized_block().value_or(id) == id);
     if (!slot.state->is_notarized()) {
