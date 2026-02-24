@@ -100,8 +100,12 @@ class StateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
     if (!id.has_value() || finalized_blocks_.contains(*id)) {
       std::vector<BlockIdExt> block;
       auto genesis = co_await genesis_.get();
+      std::optional<double> gen_utime_exact;
       if (id.has_value()) {
         auto candidate = (co_await owning_bus().publish<ResolveCandidate>(*id)).candidate;
+        if (auto* block = std::get_if<BlockCandidate>(&candidate->block)) {
+          gen_utime_exact = get_candidate_gen_utime_exact(*block).move_as_ok();
+        }
         block = {candidate->block_id()};
       } else {
         block = genesis->state->block_ids();
@@ -110,6 +114,7 @@ class StateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
                                                      genesis->state->min_mc_block_id());
       co_return ResolvedState{
           .state = state,
+          .gen_utime_exact = gen_utime_exact,
       };
     }
 
