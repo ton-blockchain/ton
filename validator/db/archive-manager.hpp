@@ -40,11 +40,11 @@ class ArchiveManager : public td::actor::Actor {
   void add_key_block_proof(BlockSeqno seqno, UnixTime ts, LogicalTime lt, FileReference ref_id, td::BufferSlice data,
                            td::Promise<td::Unit> promise);
   void add_temp_file_short(FileReference ref_id, td::BufferSlice data, td::Promise<td::Unit> promise);
-  void get_handle(BlockIdExt block_id, td::Promise<BlockHandle> promise);
+  td::actor::Task<BlockHandle> get_handle(BlockIdExt block_id);
   void get_key_block_proof(FileReference ref_id, td::Promise<td::BufferSlice> promise);
-  void get_temp_file_short(FileReference ref_id, td::Promise<td::BufferSlice> promise);
-  void get_file_short(FileReference ref_id, td::Promise<td::BufferSlice> promise);
-  void get_file(ConstBlockHandle handle, FileReference ref_id, td::Promise<td::BufferSlice> promise);
+  td::actor::Task<td::BufferSlice> get_temp_file_short(FileReference ref_id);
+  td::actor::Task<td::BufferSlice> get_file_short(FileReference ref_id);
+  td::actor::Task<td::BufferSlice> get_file(ConstBlockHandle handle, FileReference ref_id);
 
   void add_zero_state(BlockIdExt block_id, td::BufferSlice data, td::Promise<td::Unit> promise);
   void add_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
@@ -203,9 +203,6 @@ class ArchiveManager : public td::actor::Actor {
   td::actor::ActorOwn<ArchiveSlice> create_archive_slice(const PackageId &id, td::uint32 shard_split_depth);
   void delete_package(PackageId seqno, td::Promise<td::Unit> promise);
   void deleted_package(PackageId seqno, td::Promise<td::Unit> promise);
-  void get_handle_cont(BlockIdExt block_id, PackageId id, td::Promise<BlockHandle> promise);
-  void get_handle_finish(BlockHandle handle, td::Promise<BlockHandle> promise);
-  void get_temp_file_short_cont(FileReference ref_id, PackageId idx, td::Promise<td::BufferSlice> promise);
 
   td::Result<const FileDescription *> get_file_desc(ShardIdFull shard, PackageId id, BlockSeqno seqno, UnixTime ts,
                                                     LogicalTime lt, bool force);
