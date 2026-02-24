@@ -34,6 +34,7 @@
 #include "auto/tl/ton_api.hpp"
 #include "auto/tl/ton_api_json.h"
 #include "dht/dht.h"
+#include "metrics/prometheus-exporter.h"
 #include "quic/quic-sender.h"
 #include "rldp/rldp.h"
 #include "rldp2/rldp.h"
@@ -173,6 +174,7 @@ class ValidatorEngine : public td::actor::Actor {
   ton::adnl::AdnlNodeIdShort full_node_id_ = ton::adnl::AdnlNodeIdShort::zero();
   std::map<td::uint16, td::actor::ActorOwn<ton::validator::fullnode::FullNodeMaster>> full_node_masters_;
   td::actor::ActorOwn<ton::adnl::AdnlExtServer> control_ext_server_;
+  td::actor::ActorOwn<ton::PrometheusExporter> exporter_;
 
   std::string local_config_ = "";
   std::string global_config_ = "ton-global.config";
