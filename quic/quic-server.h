@@ -43,7 +43,6 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     bool enable_gro = true;
     bool enable_mmsg = true;
     CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
-    std::optional<td::uint64> inbound_stream_max_size = std::nullopt;
   };
   class Callback {
    public:
@@ -67,6 +66,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
 
   td::Result<QuicStreamID> send_stream(QuicConnectionId cid, std::variant<QuicStreamID, StreamOptions> stream,
                                        td::BufferSlice data, bool is_end);
+  void change_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options);
 
   td::Result<QuicConnectionId> connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key, td::Slice alpn);
 

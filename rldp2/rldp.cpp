@@ -94,7 +94,7 @@ void RldpIn::send_message_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort ds
   auto B = serialize_tl_object(create_tl_object<ton_api::rldp_message>(id, std::move(data)), true);
 
   auto transfer_id = get_random_transfer_id();
-  send_closure(create_connection(src, dst), &RldpConnectionActor::send, transfer_id, std::move(B), timeout);
+  send_closure(create_connection(src, dst, false), &RldpConnectionActor::send, transfer_id, std::move(B), timeout);
 }
 
 void RldpIn::send_query_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, std::string name,
@@ -106,7 +106,7 @@ void RldpIn::send_query_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
   auto B = serialize_tl_object(create_tl_object<ton_api::rldp_query>(query_id, max_answer_size, date, std::move(data)),
                                true);
 
-  auto connection = create_connection(src, dst);
+  auto connection = create_connection(src, dst, false);
   auto transfer_id = get_random_transfer_id();
   auto response_transfer_id = get_responce_transfer_id(transfer_id);
   send_closure(connection, &RldpConnectionActor::set_receive_limits, response_transfer_id, timeout, max_answer_size);
@@ -119,33 +119,34 @@ void RldpIn::answer_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, 
                           adnl::AdnlQueryId query_id, TransferId transfer_id, td::BufferSlice data) {
   auto B = serialize_tl_object(create_tl_object<ton_api::rldp_answer>(query_id, std::move(data)), true);
 
-  send_closure(create_connection(src, dst), &RldpConnectionActor::send, transfer_id, std::move(B), timeout);
+  send_closure(create_connection(src, dst, false), &RldpConnectionActor::send, transfer_id, std::move(B), timeout);
 }
 
 void RldpIn::receive_message_part(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, td::BufferSlice data) {
-  send_closure(create_connection(local_id, source), &RldpConnectionActor::receive_raw, std::move(data));
+  auto connection = create_connection(local_id, source, true);
+  if (connection.empty()) {
+    return;
+  }
+  send_closure(connection, &RldpConnectionActor::receive_raw, std::move(data));
 }
 
-td::actor::ActorId<RldpConnectionActor> RldpIn::create_connection(adnl::AdnlNodeIdShort src,
-                                                                  adnl::AdnlNodeIdShort dst) {
-  auto it = connections_.find(std::make_pair(src, dst));
+td::actor::ActorId<RldpConnectionActor> RldpIn::create_connection(adnl::AdnlNodeIdShort local_id,
+                                                                  adnl::AdnlNodeIdShort peer_id, bool incoming) {
+  auto it = connections_.find(std::make_pair(local_id, peer_id));
   if (it != connections_.end()) {
     return it->second.get();
   }
-  auto connection = td::actor::create_actor<RldpConnectionActor>("RldpConnection", actor_id(this), src, dst, adnl_);
-  td::actor::send_closure(connection, &RldpConnectionActor::set_default_mtu, get_peer_mtu(src, dst));
-  auto res = connection.get();
-  connections_[std::make_pair(src, dst)] = std::move(connection);
-  return res;
-}
-
-td::uint64 RldpIn::get_peer_mtu(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id) {
-  td::uint64 mtu = custom_default_mtu_ ? custom_default_mtu_.value() : RldpConnection::DEFAULT_MTU;
-  auto it = custom_peer_mtu_.find({local_id, peer_id});
-  if (it != custom_peer_mtu_.end()) {
-    mtu = std::max(mtu, *it->second.rbegin());
+  td::uint64 mtu = get_peer_mtu(local_id, peer_id);
+  if (mtu == 0 && incoming) {
+    VLOG(RLDP_INFO) << "dropping incoming packet " << local_id << " <- " << peer_id << " : peer not allowed";
+    return {};
   }
-  return mtu;
+  auto connection =
+      td::actor::create_actor<RldpConnectionActor>("RldpConnection", actor_id(this), local_id, peer_id, adnl_);
+  td::actor::send_closure(connection, &RldpConnectionActor::set_default_mtu, mtu);
+  auto res = connection.get();
+  connections_[std::make_pair(local_id, peer_id)] = std::move(connection);
+  return res;
 }
 
 void RldpIn::receive_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, TransferId transfer_id,
@@ -235,34 +236,26 @@ void RldpIn::get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p
   td::actor::send_closure(adnl_, &adnl::AdnlPeerTable::get_conn_ip_str, l_id, p_id, std::move(promise));
 }
 
-void RldpIn::set_default_mtu(td::uint64 mtu) {
-  custom_default_mtu_ = mtu;
-  for (auto &[p, connection] : connections_) {
-    td::actor::send_closure(connection, &RldpConnectionActor::set_default_mtu, get_peer_mtu(p.first, p.second));
-  }
-}
-
-void RldpIn::add_peer_mtu_limit(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu) {
-  custom_peer_mtu_[{local_id, peer_id}].insert(mtu);
-  auto it = connections_.find({local_id, peer_id});
-  if (it != connections_.end()) {
+void RldpIn::on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id, td::optional<adnl::AdnlNodeIdShort> peer_id) {
+  auto update_mtu = [&](const auto &it) {
     auto &[p, connection] = *it;
     td::actor::send_closure(connection, &RldpConnectionActor::set_default_mtu, get_peer_mtu(p.first, p.second));
+  };
+  if (local_id && peer_id) {
+    auto it = connections_.find({local_id.value(), peer_id.value()});
+    if (it != connections_.end()) {
+      update_mtu(it);
+    }
+    return;
   }
-}
-
-void RldpIn::remove_peer_mtu_limit(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu) {
-  auto &map = custom_peer_mtu_[{local_id, peer_id}];
-  auto it = map.find(mtu);
-  CHECK(it != map.end());
-  map.erase(it);
-  if (map.empty()) {
-    custom_peer_mtu_.erase({local_id, peer_id});
-  }
-  auto it2 = connections_.find({local_id, peer_id});
-  if (it2 != connections_.end()) {
-    auto &[p, connection] = *it2;
-    td::actor::send_closure(connection, &RldpConnectionActor::set_default_mtu, get_peer_mtu(p.first, p.second));
+  auto it =
+      local_id ? connections_.lower_bound({local_id.value(), adnl::AdnlNodeIdShort::zero()}) : connections_.begin();
+  while (it != connections_.end()) {
+    if (local_id && it->first.second != local_id.value()) {
+      break;
+    }
+    update_mtu(it);
+    ++it;
   }
 }
 
