@@ -958,8 +958,8 @@ TEST(QuicFairness, TwoConnectionsFairBandwidth) {
 
     // Both senders send many large queries simultaneously
     // Target: ~50MB per sender to saturate localhost (~200MB/s)
-    constexpr int queries_per_sender = 50;
-    constexpr int query_size = 1024 * 1024;  // 1 MB each = 50 MB total per sender
+    constexpr int queries_per_sender = 100;
+    constexpr int query_size = 1024 * 512;  // 0.5 MB each = 50 MB total per sender
 
     std::vector<td::actor::StartedTask<td::BufferSlice>> tasks1, tasks2;
     auto start = td::Timestamp::now();

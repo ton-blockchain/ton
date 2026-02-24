@@ -86,9 +86,7 @@ AcceptBlockQuery::AcceptBlockQuery(ForceFork ffork, BlockIdExt id, td::Ref<Block
                                    td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
-    , signatures_(block::BlockSignatureSet::create_ordinary(std::vector<BlockSignature>{},
-                                                            validator_set_->get_catchain_seqno(),
-                                                            validator_set_->get_validator_set_hash()))
+    , signatures_(block::BlockSignatureSet::create_ordinary(std::vector<BlockSignature>{}, 0, 0))
     , is_fake_(true)
     , is_fork_(true)
     , manager_(manager)
@@ -410,9 +408,10 @@ void AcceptBlockQuery::start_up() {
 void AcceptBlockQuery::got_block_handle(BlockHandle handle) {
   VLOG(VALIDATOR_DEBUG) << "got_block_handle()";
   handle_ = std::move(handle);
-  if (handle_->received() && handle_->received_state() && (handle_->inited_signatures() || !signatures_->is_final()) &&
-      handle_->inited_split_after() && handle_->inited_merge_before() && handle_->inited_prev() &&
-      handle_->inited_logical_time() && handle_->inited_state_root_hash() &&
+  if (handle_->received() && handle_->received_state() &&
+      (handle_->inited_signatures() || !signatures_->is_final() || is_fork_) && handle_->inited_split_after() &&
+      handle_->inited_merge_before() && handle_->inited_prev() && handle_->inited_logical_time() &&
+      handle_->inited_state_root_hash() &&
       (is_masterchain() ? handle_->inited_proof() && handle_->is_applied() && handle_->inited_is_key_block()
                         : handle_->inited_proof_link()) &&
       send_broadcast_mode_ == 0) {
@@ -463,7 +462,7 @@ void AcceptBlockQuery::got_block_handle_cont() {
 
 void AcceptBlockQuery::written_block_data() {
   VLOG(VALIDATOR_DEBUG) << "written_block_data()";
-  if (handle_->inited_signatures() || !signatures_->is_final()) {
+  if (handle_->inited_signatures() || !signatures_->is_final() || is_fork_) {
     written_block_signatures();
     return;
   }
