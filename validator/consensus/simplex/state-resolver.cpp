@@ -21,7 +21,7 @@ using db_key_finalizedBlockRef = tl_object_ptr<db_key_finalizedBlock>;
 
 namespace {
 
-class StateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
+class StateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
   using ResolvedState = ResolveState::Result;
 
  public:
@@ -204,7 +204,7 @@ class StateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
 
 }  // namespace
 
-void StateResolver::register_in(runtime::Runtime& runtime) {
+void StateResolver::register_in(td::actor::Runtime& runtime) {
   runtime.register_actor<StateResolverImpl>("StateResolver");
 }
 

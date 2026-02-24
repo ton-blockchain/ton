@@ -13,7 +13,7 @@ namespace ton::validator::consensus {
 
 namespace {
 
-class BlockAccepterImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
+class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
@@ -69,7 +69,7 @@ class BlockAccepterImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
 
 }  // namespace
 
-void BlockAccepter::register_in(runtime::Runtime& runtime) {
+void BlockAccepter::register_in(td::actor::Runtime& runtime) {
   runtime.register_actor<BlockAccepterImpl>("BlockAccepter");
 }
 

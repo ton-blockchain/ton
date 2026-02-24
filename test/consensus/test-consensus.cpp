@@ -172,7 +172,7 @@ class TestOverlay : public td::actor::Actor {
 
 td::actor::ActorOwn<TestOverlay> test_overlay;
 
-class TestOverlayNode : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
+class TestOverlayNode : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
@@ -861,7 +861,7 @@ class TestConsensus : public td::actor::Actor {
   }
 
   struct Instance {
-    runtime::Runtime runtime;
+    td::actor::Runtime runtime;
     td::actor::ActorOwn<TestManagerFacade> manager_facade;
     simplex::BusHandle bus;
 

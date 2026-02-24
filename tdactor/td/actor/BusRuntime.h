@@ -20,7 +20,7 @@
 #include "td/utils/logging.h"
 #include "td/utils/type_traits.h"
 
-namespace ton::runtime {
+namespace td::actor {
 
 namespace detail {
 
@@ -640,12 +640,12 @@ class Runtime {
   std::shared_ptr<detail::Runtime> impl_ = std::make_shared<detail::Runtime>();
 };
 
-#define TON_RUNTIME_DEFINE_EVENT_HANDLER()                                                            \
-  template <::td::In<ConnectToBuses> B, ::ton::runtime::detail::ValidPublishTargetFor<B> E>           \
-  constexpr void handle(::ton::runtime::BusHandle<B> bus, ::std::shared_ptr<E const> event) = delete; \
-                                                                                                      \
-  template <::td::In<ConnectToBuses> B, ::ton::runtime::detail::ValidRequestFor<B> E>                 \
-  constexpr td::actor::Task<typename E::ReturnType> process(::ton::runtime::BusHandle<B> bus,         \
+#define TON_RUNTIME_DEFINE_EVENT_HANDLER()                                                         \
+  template <::td::In<ConnectToBuses> B, ::td::actor::detail::ValidPublishTargetFor<B> E>           \
+  constexpr void handle(::td::actor::BusHandle<B> bus, ::std::shared_ptr<E const> event) = delete; \
+                                                                                                   \
+  template <::td::In<ConnectToBuses> B, ::td::actor::detail::ValidRequestFor<B> E>                 \
+  constexpr td::actor::Task<typename E::ReturnType> process(::td::actor::BusHandle<B> bus,         \
                                                             ::std::shared_ptr<E> request) = delete;
 
-}  // namespace ton::runtime
+}  // namespace td::actor

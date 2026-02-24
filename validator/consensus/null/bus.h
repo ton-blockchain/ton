@@ -38,10 +38,10 @@ class Bus : public consensus::Bus {
   }
 };
 
-using BusHandle = runtime::BusHandle<Bus>;
+using BusHandle = td::actor::BusHandle<Bus>;
 
 struct Consensus {
-  static void register_in(runtime::Runtime&);
+  static void register_in(td::actor::Runtime&);
 };
 
 }  // namespace ton::validator::consensus::null

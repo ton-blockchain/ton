@@ -1,7 +1,7 @@
 #include "td/actor/BusRuntime.h"
 #include "td/utils/tests.h"
 
-namespace ton::runtime::test_simple_message_to_self {
+namespace td::actor::test_simple_message_to_self {
 namespace {
 
 // We want to spawn a MainBus and SampleActor with it. SampleActor publishes an event, which it then
@@ -58,9 +58,9 @@ TEST(Runtime, SimpleMessageToSelf) {
 }
 
 }  // namespace
-}  // namespace ton::runtime::test_simple_message_to_self
+}  // namespace td::actor::test_simple_message_to_self
 
-namespace ton::runtime::test_bus_tree {
+namespace td::actor::test_bus_tree {
 namespace {
 
 // We want to create and then destroy the following bus tree:
@@ -187,9 +187,9 @@ TEST(Runtime, BusTree) {
 }
 
 }  // namespace
-}  // namespace ton::runtime::test_bus_tree
+}  // namespace td::actor::test_bus_tree
 
-namespace ton::runtime::test_inheritance {
+namespace td::actor::test_inheritance {
 namespace {
 
 struct ParentBus : Bus {
@@ -330,9 +330,9 @@ TEST(Runtime, Inheritance) {
 }
 
 }  // namespace
-}  // namespace ton::runtime::test_inheritance
+}  // namespace td::actor::test_inheritance
 
-namespace ton::runtime::test_runtime_lifetime {
+namespace td::actor::test_runtime_lifetime {
 namespace {
 // Lifetime of detail::Runtime should be extended while there are running actors even if user-facing
 // Runtime is destroyed.
@@ -418,9 +418,9 @@ TEST(Runtime, Lifetime) {
 }
 
 }  // namespace
-}  // namespace ton::runtime::test_runtime_lifetime
+}  // namespace td::actor::test_runtime_lifetime
 
-namespace ton::runtime::test_requests {
+namespace td::actor::test_requests {
 namespace {
 
 struct MainBus : Bus {
@@ -504,4 +504,4 @@ TEST(Runtime, Requests) {
 }
 
 }  // namespace
-}  // namespace ton::runtime::test_requests
+}  // namespace td::actor::test_requests
