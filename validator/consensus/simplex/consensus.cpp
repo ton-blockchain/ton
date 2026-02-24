@@ -20,6 +20,7 @@ struct SlotState {
 
   std::optional<CandidateRef> pending_block;
   std::optional<CandidateId> voted_notar;
+  std::optional<CandidateId> notar_cert;
   bool voted_skip = false;
   bool voted_final = false;
 };
@@ -204,6 +205,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     slot.state->voted_notar = candidate->id;
 
     owning_bus().publish<BroadcastVote>(NotarizeVote{candidate->id});
+    try_vote_final(slot);  // If we've observed NotarCert already, it might be possible to vote final.
     co_return {};
   }
 
@@ -233,11 +235,18 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
           (timeout_slot_ - current_window_ * slots_per_leader_window_) * target_rate_s_, timeout_base_);
     }
 
-    if (!slot->state->voted_skip && !slot->state->voted_final && slot->state->voted_notar == event->id) {
-      owning_bus().publish<BroadcastVote>(FinalizeVote{event->id});
-      slot->state->voted_final = true;
-    }
+    slot->state->notar_cert = event->id;
+    try_vote_final(*slot);
     co_return {};
+  }
+
+  void try_vote_final(State::SlotRef slot) {
+    CHECK(slot.state->voted_notar || slot.state->notar_cert);
+
+    if (!slot.state->voted_skip && !slot.state->voted_final && slot.state->voted_notar == slot.state->notar_cert) {
+      owning_bus().publish<BroadcastVote>(FinalizeVote{*slot.state->voted_notar});
+      slot.state->voted_final = true;
+    }
   }
 
   td::uint32 slots_per_leader_window_;
