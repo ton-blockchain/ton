@@ -758,7 +758,7 @@ void ValidatorManagerImpl::created_ext_server(td::actor::ActorOwn<adnl::AdnlExtS
 }
 
 void ValidatorManagerImpl::run_ext_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
-  if (!started_) {
+  if (!started_ && !opts_->get_unsynced_liteserver()) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "node not synced"));
     return;
   }
@@ -1355,9 +1355,9 @@ void ValidatorManagerImpl::set_block_state_from_data(BlockHandle handle, td::Ref
   td::actor::send_closure(db_, &Db::store_block_state_from_data, handle, block, std::move(promise));
 }
 
-void ValidatorManagerImpl::set_block_state_from_data_preliminary(std::vector<td::Ref<BlockData>> blocks,
-                                                                 td::Promise<td::Unit> promise) {
-  td::actor::send_closure(db_, &Db::store_block_state_from_data_preliminary, std::move(blocks), std::move(promise));
+void ValidatorManagerImpl::set_block_state_from_data_bulk(std::vector<td::Ref<BlockData>> blocks,
+                                                          td::Promise<td::Unit> promise) {
+  td::actor::send_closure(db_, &Db::store_block_state_from_data_bulk, std::move(blocks), std::move(promise));
 }
 
 void ValidatorManagerImpl::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
@@ -2115,11 +2115,7 @@ bool ValidatorManagerImpl::out_of_sync() {
 }
 
 void ValidatorManagerImpl::prestart_sync() {
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
-    R.ensure();
-    td::actor::send_closure(SelfId, &ValidatorManagerImpl::download_next_archive);
-  });
-  td::actor::send_closure(db_, &Db::set_async_mode, false, std::move(P));
+  download_next_archive();
 }
 
 void ValidatorManagerImpl::download_next_archive() {
@@ -2146,12 +2142,13 @@ void ValidatorManagerImpl::download_next_archive() {
     }
   });
   if (to_import_files.empty()) {
-    td::actor::create_actor<ArchiveImporter>("archiveimport", db_root_, last_masterchain_state_, seqno, opts_,
-                                             actor_id(this), std::move(to_import_files), std::move(P))
+    td::actor::create_actor<ArchiveImporter>(PSTRING() << "archiveimport." << seqno, db_root_, last_masterchain_state_,
+                                             seqno, opts_, actor_id(this), std::move(to_import_files), std::move(P))
         .release();
   } else {
-    td::actor::create_actor<ArchiveImporterLocal>("archiveimport", db_root_, last_masterchain_state_, seqno, opts_,
-                                                  actor_id(this), std::move(to_import_files), std::move(P))
+    td::actor::create_actor<ArchiveImporterLocal>(PSTRING() << "archiveimport." << seqno, db_root_,
+                                                  last_masterchain_state_, seqno, opts_, actor_id(this), db_.get(),
+                                                  std::move(to_import_files), std::move(P))
         .release();
   }
 }
@@ -2184,12 +2181,7 @@ void ValidatorManagerImpl::checked_archive_slice(BlockSeqno new_last_mc_seqno, B
 
 void ValidatorManagerImpl::finish_prestart_sync() {
   to_import_.clear();
-
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
-    R.ensure();
-    td::actor::send_closure(SelfId, &ValidatorManagerImpl::completed_prestart_sync);
-  });
-  td::actor::send_closure(db_, &Db::set_async_mode, false, std::move(P));
+  completed_prestart_sync();
 }
 
 void ValidatorManagerImpl::completed_prestart_sync() {
@@ -2798,8 +2790,8 @@ void ValidatorManagerImpl::state_serializer_update(BlockSeqno seqno) {
 void ValidatorManagerImpl::alarm() {
   try_advance_gc_masterchain_block();
   alarm_timestamp() = td::Timestamp::in(1.0);
-  if (shard_client_handle_ && gc_masterchain_handle_) {
-    td::actor::send_closure(db_, &Db::run_gc, shard_client_handle_->unix_time(), gc_masterchain_handle_->unix_time(),
+  if (shard_client_state_.not_null() && gc_masterchain_handle_) {
+    td::actor::send_closure(db_, &Db::run_gc, shard_client_state_, gc_masterchain_handle_->unix_time(),
                             opts_->archive_ttl());
   }
   if (log_status_at_.is_in_past()) {

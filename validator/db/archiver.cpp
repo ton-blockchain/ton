@@ -9,7 +9,7 @@
     TON Blockchain Library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Lesser General Public License for more details.
+    GNU Lesser General Public License for more etails.
 
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
@@ -31,146 +31,53 @@ BlockArchiver::BlockArchiver(BlockHandle handle, td::actor::ActorId<ArchiveManag
 }
 
 void BlockArchiver::start_up() {
+  run().start().detach();
+}
+
+td::actor::Task<> BlockArchiver::run() {
+  auto result = co_await run_inner().wrap();
+  if (result.is_error()) {
+    VLOG(VALIDATOR_WARNING) << "failed to archive block " << handle_->id() << ": " << result.error();
+  } else {
+    VLOG(VALIDATOR_DEBUG) << "finished archiving block in " << timer_.elapsed() << " s";
+  }
+  promise_.set_result(std::move(result));
+  stop();
+  co_return {};
+}
+
+td::actor::Task<> BlockArchiver::run_inner() {
   VLOG(VALIDATOR_DEBUG) << "started block archiver for " << handle_->id().to_str();
   if (handle_->moved_to_archive()) {
     VLOG(VALIDATOR_DEBUG) << "already moved";
-    finish_query();
-    return;
+    co_return {};
   }
   if (handle_->id().is_masterchain()) {
-    td::actor::send_closure(db_, &Db::get_block_state, handle_,
-                            [SelfId = actor_id(this), archive = archive_](td::Result<td::Ref<ShardState>> R) {
-                              R.ensure();
-                              td::Ref<MasterchainState> state{R.move_as_ok()};
-                              td::uint32 monitor_min_split = state->monitor_min_split_depth(basechainId);
-                              td::actor::send_closure(archive, &ArchiveManager::set_current_shard_split_depth,
-                                                      monitor_min_split);
-                              td::actor::send_closure(SelfId, &BlockArchiver::move_handle);
-                            });
-  } else {
-    move_handle();
+    auto state = td::Ref<MasterchainState>{co_await td::actor::ask(db_, &Db::get_block_state, handle_)};
+    td::uint32 monitor_min_split = state->monitor_min_split_depth(basechainId);
+    td::actor::send_closure(archive_, &ArchiveManager::set_current_shard_split_depth, monitor_min_split);
   }
-}
-
-void BlockArchiver::move_handle() {
-  VLOG(VALIDATOR_DEBUG) << "move_handle";
-  if (handle_->handle_moved_to_archive()) {
-    moved_handle();
-  } else {
-    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
-      R.ensure();
-      td::actor::send_closure(SelfId, &BlockArchiver::moved_handle);
-    });
-    td::actor::send_closure(archive_, &ArchiveManager::add_handle, handle_, std::move(P));
+  std::vector<FileReference> file_refs;
+  if (handle_->received()) {
+    file_refs.push_back(fileref::Block{handle_->id()});
   }
-}
-
-void BlockArchiver::moved_handle() {
-  VLOG(VALIDATOR_DEBUG) << "moved_handle";
-  CHECK(handle_->handle_moved_to_archive());
-  if (handle_->moved_to_archive()) {
-    finish_query();
-    return;
+  if (handle_->inited_proof()) {
+    file_refs.push_back(fileref::Proof{handle_->id()});
   }
-
-  if (!handle_->inited_proof()) {
-    written_proof();
-    return;
+  if (handle_->inited_proof_link()) {
+    file_refs.push_back(fileref::ProofLink{handle_->id()});
   }
-
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
-    R.ensure();
-    td::actor::send_closure(SelfId, &BlockArchiver::got_proof, R.move_as_ok());
-  });
-
-  td::actor::send_closure(archive_, &ArchiveManager::get_file, handle_, fileref::Proof{handle_->id()}, std::move(P));
-}
-
-void BlockArchiver::got_proof(td::BufferSlice data) {
-  VLOG(VALIDATOR_DEBUG) << "got_proof";
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
-    R.ensure();
-    td::actor::send_closure(SelfId, &BlockArchiver::written_proof);
-  });
-  td::actor::send_closure(archive_, &ArchiveManager::add_file, handle_, fileref::Proof{handle_->id()}, std::move(data),
-                          std::move(P));
-}
-
-void BlockArchiver::written_proof() {
-  VLOG(VALIDATOR_DEBUG) << "written_proof";
-  if (!handle_->inited_proof_link()) {
-    written_proof_link();
-    return;
+  std::vector<td::actor::StartedTask<std::pair<FileReference, td::BufferSlice>>> tasks;
+  for (FileReference ref : file_refs) {
+    tasks.push_back(td::actor::ask(archive_, &ArchiveManager::get_file, handle_, ref)
+                        .then([ref](td::BufferSlice data) { return std::make_pair(ref, std::move(data)); })
+                        .start());
   }
-
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
-    R.ensure();
-    td::actor::send_closure(SelfId, &BlockArchiver::got_proof_link, R.move_as_ok());
-  });
-
-  td::actor::send_closure(archive_, &ArchiveManager::get_file, handle_, fileref::ProofLink{handle_->id()},
-                          std::move(P));
-}
-
-void BlockArchiver::got_proof_link(td::BufferSlice data) {
-  VLOG(VALIDATOR_DEBUG) << "got_proof_link";
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
-    R.ensure();
-    td::actor::send_closure(SelfId, &BlockArchiver::written_proof_link);
-  });
-  td::actor::send_closure(archive_, &ArchiveManager::add_file, handle_, fileref::ProofLink{handle_->id()},
-                          std::move(data), std::move(P));
-}
-
-void BlockArchiver::written_proof_link() {
-  VLOG(VALIDATOR_DEBUG) << "written_proof_link";
-  if (!handle_->received()) {
-    written_block_data();
-    return;
-  }
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
-    R.ensure();
-    td::actor::send_closure(SelfId, &BlockArchiver::got_block_data, R.move_as_ok());
-  });
-
-  td::actor::send_closure(archive_, &ArchiveManager::get_file, handle_, fileref::Block{handle_->id()}, std::move(P));
-}
-
-void BlockArchiver::got_block_data(td::BufferSlice data) {
-  VLOG(VALIDATOR_DEBUG) << "got_block_data";
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
-    R.ensure();
-    td::actor::send_closure(SelfId, &BlockArchiver::written_block_data);
-  });
-  td::actor::send_closure(archive_, &ArchiveManager::add_file, handle_, fileref::Block{handle_->id()}, std::move(data),
-                          std::move(P));
-}
-
-void BlockArchiver::written_block_data() {
-  VLOG(VALIDATOR_DEBUG) << "written_block_data";
-  handle_->set_moved_to_archive();
-
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
-    R.ensure();
-    td::actor::send_closure(SelfId, &BlockArchiver::finish_query);
-  });
-  td::actor::send_closure(archive_, &ArchiveManager::update_handle, handle_, std::move(P));
-}
-
-void BlockArchiver::finish_query() {
-  VLOG(VALIDATOR_DEBUG) << "finished archiving block in " << timer_.elapsed() << " s";
-  if (promise_) {
-    promise_.set_value(td::Unit());
-  }
-  stop();
-}
-
-void BlockArchiver::abort_query(td::Status reason) {
-  VLOG(VALIDATOR_WARNING) << "failed to archive block " << handle_->id() << ": " << reason;
-  if (promise_) {
-    promise_.set_error(std::move(reason));
-  }
-  stop();
+  VLOG(VALIDATOR_DEBUG) << "loading data";
+  std::vector<std::pair<FileReference, td::BufferSlice>> files = co_await td::actor::all(std::move(tasks));
+  VLOG(VALIDATOR_DEBUG) << "loaded data";
+  co_await td::actor::ask(archive_, &ArchiveManager::move_block_to_archive, handle_, std::move(files));
+  co_return {};
 }
 
 }  // namespace validator

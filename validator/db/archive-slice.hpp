@@ -77,14 +77,14 @@ class PackageWriter : public td::actor::Actor {
       : package_(std::move(package)), async_mode_(async_mode), statistics_(std::move(statistics)) {
   }
 
+  void tear_down() override;
   void append(std::string filename, td::BufferSlice data, td::Promise<std::pair<td::uint64, td::uint64>> promise);
+  void append_multi(std::vector<std::pair<std::string, td::BufferSlice>> files,
+                    td::Promise<std::pair<std::vector<td::uint64>, td::uint64>> promise);
   void set_async_mode(bool mode, td::Promise<td::Unit> promise) {
     async_mode_ = mode;
     if (!async_mode_) {
-      auto p = package_.lock();
-      if (p) {
-        p->sync();
-      }
+      sync_now();
     }
     promise.set_value(td::Unit());
   }
@@ -92,7 +92,12 @@ class PackageWriter : public td::actor::Actor {
  private:
   std::weak_ptr<Package> package_;
   bool async_mode_ = false;
+  bool sync_pending_ = false;
+  std::vector<td::Promise<td::Unit>> sync_waiters_;
   std::shared_ptr<PackageStatistics> statistics_;
+
+  void sync(td::Promise<td::Unit> promise);
+  void sync_now();
 };
 
 class ArchiveLru;
@@ -102,10 +107,13 @@ class ArchiveSlice : public td::actor::Actor {
   ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, bool finalized, td::uint32 shard_split_depth,
                std::string db_root, td::actor::ActorId<ArchiveLru> archive_lru, DbStatistics statistics = {});
 
+  void tear_down() override;
+
   void get_archive_id(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, td::Promise<td::uint64> promise);
 
   void add_handle(BlockHandle handle, td::Promise<td::Unit> promise);
   void update_handle(BlockHandle handle, td::Promise<td::Unit> promise);
+  td::actor::Task<> add_block(BlockHandle handle, std::vector<std::pair<FileReference, td::BufferSlice>> files);
   void add_file(BlockHandle handle, FileReference ref_id, td::BufferSlice data, td::Promise<td::Unit> promise);
   void get_handle(BlockIdExt block_id, td::Promise<BlockHandle> promise);
   void get_temp_handle(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise);
@@ -131,16 +139,20 @@ class ArchiveSlice : public td::actor::Actor {
   void close_files();
 
   void iterate_block_handles(std::function<void(const BlockHandleInterface &)> f);
+  void get_temp_max_seqnos(td::Promise<std::map<ShardIdFull, BlockSeqno>> promise);
 
  private:
   void before_query();
   void do_close();
   template <typename T>
   td::Promise<T> begin_async_query(td::Promise<T> promise);
+  void begin_async_query_impl();
   void end_async_query();
 
   void begin_transaction();
-  void commit_transaction();
+  void commit_transaction(td::Promise<td::Unit> promise);
+  td::actor::Task<> commit_transaction_coro();
+  void commit_transaction_now();
 
   void add_file_cont(size_t idx, FileReference ref_id, td::uint64 offset, td::uint64 size,
                      td::Promise<td::Unit> promise);
@@ -160,9 +172,10 @@ class ArchiveSlice : public td::actor::Actor {
 
   bool destroyed_ = false;
   bool async_mode_ = false;
-  bool huge_transaction_started_ = false;
+  bool transaction_started_ = false;
+  std::vector<td::Promise<td::Unit>> transaction_commit_waiters_;
+  bool transaction_commit_pending_ = false;
   bool sliced_mode_{false};
-  td::uint32 huge_transaction_size_ = 0;
   td::uint32 slice_size_{100};
   bool shard_separated_{false};
   td::uint32 shard_split_depth_ = 0;
@@ -197,7 +210,11 @@ class ArchiveSlice : public td::actor::Actor {
   std::vector<PackageInfo> packages_;
   std::map<std::pair<BlockSeqno, ShardIdFull>, td::uint32> id_to_package_;
 
+  std::map<ShardIdFull, BlockSeqno> temp_max_seqnos_;
+  bool temp_max_seqnos_ready_ = false;
+
   td::Result<PackageInfo *> choose_package(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, bool force);
+  td::Result<PackageInfo *> choose_package(const ConstBlockHandle &handle, bool force);
   void add_package(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, td::uint64 size, td::uint32 version);
   void truncate_shard(BlockSeqno masterchain_seqno, ShardIdFull shard, td::uint32 cutoff_seqno, Package *pack);
   bool truncate_block(BlockSeqno masterchain_seqno, BlockIdExt block_id, td::uint32 cutoff_seqno, Package *pack);
@@ -210,6 +227,9 @@ class ArchiveSlice : public td::actor::Actor {
   BlockSeqno max_masterchain_seqno();
 
   td::Status repair_pack_files(std::string path_new, std::string path_old, td::uint32 version, td::uint64 trunc_size);
+
+  void update_temp_max_seqno(BlockId id);
+  void update_temp_max_seqno(FileReference &ref);
 
   static constexpr td::uint32 default_package_version() {
     return 1;

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <variant>
 
+#include "td/actor/ActorRef.h"
 #include "td/actor/actor.h"
 #include "td/actor/core/SchedulerContext.h"
 #include "td/actor/core/SchedulerId.h"
@@ -45,15 +46,23 @@ class ActorMessageCoroutineSafe : public core::ActorMessageImpl {
 // - resume_or_schedule - if we are already executing we may continue otherwise schedule.
 
 struct ActorExecutor {
-  td::actor::ActorId<> actor;
+  td::actor::ActorRef<> actor_ref;
+
   bool is_immediate_execution_allowed() const noexcept {
-    return actor == get_current_actor_id();
+    if (actor_ref.empty()) {
+      return false;
+    }
+    auto* current = core::ActorExecuteContext::get_ptr();
+    return current && current->actor_ptr() == actor_ref.actor_info().actor_ptr();
   }
   bool is_immediate_execution_always_allowed() const noexcept {
     return false;
   }
   template <class P>
   [[nodiscard]] std::coroutine_handle<> resume_or_schedule(std::coroutine_handle<P> cont) noexcept {
+    if (actor_ref.empty()) {
+      return cont.promise().route_finish(td::Status::Error("Actor destroyed"));
+    }
     if (is_immediate_execution_allowed()) {
       return cont;
     }
@@ -66,16 +75,19 @@ struct ActorExecutor {
   }
   template <class P>
   [[nodiscard]] std::coroutine_handle<> execute_or_schedule(std::coroutine_handle<P> cont) noexcept {
+    if (actor_ref.empty()) {
+      return cont.promise().route_finish(td::Status::Error("Actor destroyed"));
+    }
     if (is_immediate_execution_allowed()) {
       return cont;
     }
     td::actor::detail::send_immediate(
-        actor.as_actor_ref(), [&] { cont.resume(); }, [&]() { return to_message(std::move(cont)); });
+        actor_ref.as_actor_ref(), [&] { cont.resume(); }, [&]() { return to_message(std::move(cont)); });
     return std::noop_coroutine();
   }
   template <class P>
   void schedule(std::coroutine_handle<P> cont) noexcept {
-    td::actor::detail::send_message_later(actor.as_actor_ref(), to_message(std::move(cont)));
+    td::actor::detail::send_message_later(actor_ref.as_actor_ref(), to_message(std::move(cont)));
   }
 };
 
@@ -125,11 +137,11 @@ struct Executor {
   std::variant<AnyExecutor, ActorExecutor, SchedulerExecutor> executor_{SchedulerExecutor{}};
 
   static Executor on_actor(td::actor::ActorId<> actor) noexcept {
-    return {ActorExecutor{std::move(actor)}};
+    return {ActorExecutor{td::actor::ActorRef<>::try_from(actor)}};
   }
   template <class T>
   static Executor on_actor(const td::actor::ActorOwn<T>& actor) noexcept {
-    return {ActorExecutor{actor.get()}};
+    return on_actor(actor.get());
   }
   static Executor on_scheduler() noexcept {
     return {SchedulerExecutor{}};
