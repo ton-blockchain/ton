@@ -1,5 +1,5 @@
+#include "td/actor/BusRuntime.h"
 #include "td/utils/tests.h"
-#include "validator/consensus/runtime.h"
 
 namespace ton::runtime::test_simple_message_to_self {
 namespace {

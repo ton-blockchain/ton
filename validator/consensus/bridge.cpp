@@ -11,8 +11,6 @@
 #include "validator/fabric.h"
 #include "validator/validator-group.hpp"
 
-#include "runtime.h"
-
 namespace ton::validator {
 
 namespace consensus {
