@@ -5638,13 +5638,15 @@ int main(int argc, char *argv[]) {
   p.add_option('\0', "db-event-fifo", "path to FIFO pipe for publishing DB events", [&](td::Slice s) {
     acts.push_back([&x, s = s.str()]() { td::actor::send_closure(x, &ValidatorEngine::set_db_event_fifo_path, s); });
   });
-  p.add_checked_option('\0', "quic-flood-control", "per-IP limit for QUIC connections (-1 to disable)", [&](td::Slice arg) {
-    TRY_RESULT(l, td::to_integer_safe<int64_t>(arg));
-    acts.push_back([&, l = l >= 0 ? std::optional<size_t>{l} : std::optional<size_t>{std::nullopt}] {
-      td::actor::send_closure(x, &ValidatorEngine::set_quic_options, ton::quic::QuicServer::Options{.flood_control = l});
-    });
-    return td::Status::OK();
-  });
+  p.add_checked_option(
+      '\0', "quic-flood-control", "per-IP limit for QUIC connections (-1 to disable)", [&](td::Slice arg) {
+        TRY_RESULT(l, td::to_integer_safe<int64_t>(arg));
+        acts.push_back([&, l = l >= 0 ? std::optional<size_t>{l} : std::optional<size_t>{std::nullopt}] {
+          td::actor::send_closure(x, &ValidatorEngine::set_quic_options,
+                                  ton::quic::QuicServer::Options{.flood_control = l});
+        });
+        return td::Status::OK();
+      });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();
