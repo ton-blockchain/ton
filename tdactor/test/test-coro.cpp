@@ -44,6 +44,22 @@ Task<bool> wait_until(Pred&& pred, int max_iters = 50) {
   co_return pred();
 }
 
+Task<td::Unit> run_forever_mark_lifetime(std::shared_ptr<std::atomic<bool>> started,
+                                         std::shared_ptr<std::atomic<bool>> destroyed) {
+  struct MarkDestroyed {
+    std::shared_ptr<std::atomic<bool>> flag;
+    ~MarkDestroyed() {
+      flag->store(true, std::memory_order_release);
+    }
+  } mark_destroyed{std::move(destroyed)};
+
+  started->store(true, std::memory_order_release);
+  while (true) {
+    co_await yield_on_current();
+  }
+  co_return td::Unit{};
+}
+
 inline void small_sleep_ms(int ms) {
   std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }
@@ -251,6 +267,39 @@ static Task<int> stress_parent(std::shared_ptr<std::atomic<int>> counter, int nu
     stress_child(counter, i).start_in_parent_scope().detach_silent();
   }
   co_return 999;
+}
+
+static Task<td::Unit> unit_after(double seconds) {
+  co_await sleep_for(seconds);
+  co_return td::Unit{};
+}
+
+static Task<td::Unit> increment_after(std::shared_ptr<std::atomic<int>> counter, double seconds) {
+  co_await sleep_for(seconds);
+  counter->fetch_add(1, std::memory_order_seq_cst);
+  co_return td::Unit{};
+}
+
+static Task<td::Unit> set_flag_after(std::shared_ptr<std::atomic<bool>> flag, double seconds) {
+  co_await sleep_for(seconds);
+  flag->store(true, std::memory_order_release);
+  co_return td::Unit{};
+}
+
+static Task<int> value_after(double seconds, int value) {
+  co_await sleep_for(seconds);
+  co_return value;
+}
+
+static Task<int> value_after_and_set_flag(std::shared_ptr<std::atomic<bool>> flag, double seconds, int value) {
+  co_await sleep_for(seconds);
+  flag->store(true, std::memory_order_release);
+  co_return value;
+}
+
+static Task<int> error_after(double seconds, int code, std::string message) {
+  co_await sleep_for(seconds);
+  co_return td::Status::Error(code, std::move(message));
 }
 
 // === Cancellation Test Helpers ===
@@ -2844,11 +2893,154 @@ TEST_CORO(Coro, task_cancellation_source) {
     auto count_with_source = promise->cancellation_.child_count_relaxed_for_test();
     expect_eq(count_with_source, initial_count + 1, "Linked source should add one parent child-count lease");
 
-    source.cancel();
+    co_await source.cancel_and_join();
     auto count_after_cancel = promise->cancellation_.child_count_relaxed_for_test();
-    expect_eq(count_after_cancel, initial_count, "Cancelling linked source should release parent child-count lease");
+    expect_eq(count_after_cancel, initial_count, "Joined linked source should release parent child-count lease");
     co_return td::Unit{};
   }();
+
+  co_return td::Unit{};
+}
+
+TEST_CORO(Coro, task_group) {
+  constexpr int kCancelledCode = td::actor::kCancelledCode;
+
+  // start() + join() should wait for started children.
+  {
+    auto group = TaskGroup::linked();
+    auto done = std::make_shared<std::atomic<int>>(0);
+    std::vector<StartedTask<td::Unit>> started_tasks;
+    started_tasks.reserve(3);
+
+    for (int i = 0; i < 3; i++) {
+      started_tasks.push_back(group.start(increment_after(done, 0.02)));
+    }
+
+    auto join_result = co_await group.join().wrap();
+    expect_ok(join_result, "TaskGroup join should complete");
+    for (auto& task : started_tasks) {
+      auto child = co_await std::move(task).wrap();
+      expect_ok(child, "TaskGroup started child should complete");
+    }
+    expect_eq(done->load(std::memory_order_seq_cst), 3, "TaskGroup join should wait for started children");
+  }
+
+  // Returned StartedTask can be detached by caller.
+  {
+    auto group = TaskGroup::linked();
+    auto done = std::make_shared<std::atomic<bool>>(false);
+    auto started = group.start(set_flag_after(done, 0.02));
+    std::move(started).detach_silent();
+
+    auto join_result = co_await group.join().wrap();
+    expect_ok(join_result, "TaskGroup join should complete with detached child");
+    bool completed = co_await wait_until([done] { return done->load(std::memory_order_acquire); });
+    expect_true(completed, "Detached child should complete under TaskGroup");
+  }
+
+  // cancel_and_join should cancel active children.
+  {
+    auto group = TaskGroup::linked();
+    auto started = group.start(unit_after(10.0));
+
+    auto join_result = co_await group.cancel_and_join().wrap();
+    expect_ok(join_result, "cancel_and_join should complete");
+
+    auto child = co_await std::move(started).wrap();
+    expect_true(child.is_error(), "cancel_and_join should cancel child");
+    expect_eq(child.error().code(), kCancelledCode, "cancel_and_join child cancellation code should be 653");
+  }
+
+  // Explicit join call.
+  {
+    auto group = TaskGroup::linked();
+    auto started = group.start(unit_after(0.01));
+    std::move(started).detach_silent();
+    auto join_result = co_await group.join().wrap();
+    expect_ok(join_result, "TaskGroup explicit join should complete");
+  }
+
+  {
+    auto group = TaskGroup::linked();
+    auto child_started = std::make_shared<std::atomic<bool>>(false);
+    auto child_destroyed = std::make_shared<std::atomic<bool>>(false);
+
+    auto started = run_forever_mark_lifetime(child_started, child_destroyed)
+                       .start_immediate_in_parent_scope(group.get_scope_lease());
+    expect_true(child_started->load(std::memory_order_acquire), "Child must start before cancellation");
+    expect_true(!child_destroyed->load(std::memory_order_acquire), "Child should be alive before cancellation");
+
+    auto join_result = co_await group.cancel_and_join().wrap();
+    expect_ok(join_result, "TaskGroup join should complete");
+    expect_true(child_destroyed->load(std::memory_order_acquire),
+                "Repro: join returned before child locals were destroyed");
+    started.reset();
+  }
+
+  co_return td::Unit{};
+}
+
+TEST_CORO(Coro, task_group_combinators) {
+  // any(): first success wins and cancels losers.
+  {
+    auto slow_finished = std::make_shared<std::atomic<bool>>(false);
+    std::vector<Task<int>> tasks;
+    tasks.push_back(error_after(0.01, 901, "fail"));
+    tasks.push_back(value_after(0.02, 7));
+    tasks.push_back(value_after_and_set_flag(slow_finished, 1.0, 11));
+
+    auto result = co_await any<int>(std::move(tasks)).wrap();
+    expect_ok(result, "any should return first successful result");
+    expect_eq(result.ok(), 7, "any should return winner value");
+    expect_true(!slow_finished->load(std::memory_order_acquire), "any should cancel slow loser");
+  }
+
+  // any(): all failures return error.
+  {
+    std::vector<Task<int>> tasks;
+    tasks.push_back(error_after(0.01, 910, "e1"));
+    tasks.push_back(error_after(0.02, 911, "e2"));
+
+    auto result = co_await any<int>(std::move(tasks)).wrap();
+    expect_true(result.is_error(), "any should return error when all tasks fail");
+  }
+
+  // all_fail_fast(): first error cancels siblings.
+  {
+    auto slow_finished = std::make_shared<std::atomic<bool>>(false);
+    std::vector<Task<int>> tasks;
+    tasks.push_back(error_after(0.02, 920, "boom"));
+    tasks.push_back(value_after_and_set_flag(slow_finished, 1.0, 42));
+
+    auto result = co_await all_fail_fast<int>(std::move(tasks)).wrap();
+    expect_true(result.is_error(), "all_fail_fast should return first non-cancel error");
+    expect_eq(result.error().code(), 920, "all_fail_fast should preserve first failure code");
+    expect_true(!slow_finished->load(std::memory_order_acquire), "all_fail_fast should cancel slow sibling");
+  }
+
+  // all_fail_fast(): all successes preserve input order.
+  {
+    std::vector<Task<int>> tasks;
+    tasks.push_back(value_after(0.03, 1));
+    tasks.push_back(value_after(0.01, 2));
+    tasks.push_back(value_after(0.02, 3));
+
+    auto result = co_await all_fail_fast<int>(std::move(tasks)).wrap();
+    expect_ok(result, "all_fail_fast should succeed when all children succeed");
+    expect_eq(result.ok().size(), 3u, "all_fail_fast should return all results");
+    expect_eq(result.ok()[0], 1, "all_fail_fast should keep index 0 value");
+    expect_eq(result.ok()[1], 2, "all_fail_fast should keep index 1 value");
+    expect_eq(result.ok()[2], 3, "all_fail_fast should keep index 2 value");
+  }
+
+  // empty inputs should fail fast with explicit errors.
+  {
+    auto any_empty = co_await any<int>(std::vector<Task<int>>{}).wrap();
+    expect_true(any_empty.is_error(), "any should reject empty input");
+
+    auto all_empty = co_await all_fail_fast<int>(std::vector<Task<int>>{}).wrap();
+    expect_true(all_empty.is_error(), "all_fail_fast should reject empty input");
+  }
 
   co_return td::Unit{};
 }

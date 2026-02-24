@@ -988,50 +988,95 @@ struct [[nodiscard]] StartedTask {
   }
 };
 
-class TaskCancellationSource {
+class TaskGroup {
  public:
-  TaskCancellationSource() = default;
-  TaskCancellationSource(TaskCancellationSource&&) noexcept = default;
-  TaskCancellationSource& operator=(TaskCancellationSource&&) noexcept = default;
-  TaskCancellationSource(const TaskCancellationSource&) = delete;
-  TaskCancellationSource& operator=(const TaskCancellationSource&) = delete;
+  TaskGroup() = default;
+  TaskGroup(TaskGroup&&) noexcept = default;
+  TaskGroup& operator=(TaskGroup&&) noexcept = default;
+  TaskGroup(const TaskGroup&) = delete;
+  TaskGroup& operator=(const TaskGroup&) = delete;
 
-  static TaskCancellationSource create_linked() {
+  static TaskGroup linked() {
     auto scope = current_scope_lease();
     CHECK(scope);
     return create_impl(std::move(scope));
   }
 
-  static TaskCancellationSource create_detached() {
+  static TaskGroup detached() {
     return create_impl(ParentScopeLease{});
   }
 
+  // Compatibility aliases.
+  static TaskGroup create_linked() {
+    return linked();
+  }
+
+  static TaskGroup create_detached() {
+    return detached();
+  }
+
+  ParentScopeLease lease() {
+    return get_scope_lease();
+  }
+
   ParentScopeLease get_scope_lease() {
+    CHECK(!closed_);
     auto* promise = root_.get_promise();
     CHECK(promise);
     // We know that the task is not finished. This is the only reason it is OK to get scope from outside the coroutine.
     return bridge::make_parent_scope_lease(*promise);
   }
 
+  template <class T>
+  StartedTask<T> start(Task<T> task) {
+    CHECK(!closed_);
+    return std::move(task).start_in_parent_scope(get_scope_lease());
+  }
+
   void cancel() {
-    root_.reset();
-    external_ = {};
+    if (root_.valid()) {
+      root_.cancel();
+    }
+  }
+
+  Task<td::Unit> join() {
+    CHECK(!joined_);
+    joined_ = true;
+    closed_ = true;
+    if (external_) {
+      external_.set_value(td::Unit{});
+      external_ = {};
+    }
+    return await_root(std::move(root_));
+  }
+
+  Task<td::Unit> cancel_and_join() {
+    cancel();
+    return join();
   }
 
   explicit operator bool() const {
     return root_.valid();
   }
 
-  ~TaskCancellationSource() {
-    cancel();
+  ~TaskGroup() {
+    cleanup();
   }
 
  private:
-  static TaskCancellationSource create_impl(ParentScopeLease parent_scope) {
+  static Task<td::Unit> await_root(StartedTask<td::Unit> root) {
+    auto result = co_await std::move(root).wrap();
+    if (result.is_error() && result.error().code() != kCancelledCode) {
+      co_return result.move_as_error();
+    }
+    co_return td::Unit{};
+  }
+
+  static TaskGroup create_impl(ParentScopeLease parent_scope) {
     auto task = []() -> Task<td::Unit> { co_return Task<td::Unit>::promise_type::ExternalResult{}; }();
     task.set_executor(Executor::on_scheduler());
 
-    TaskCancellationSource source;
+    TaskGroup source;
     source.external_ = StartedTask<td::Unit>::ExternalPromise(&task.h.promise());
     if (parent_scope) {
       source.root_ = std::move(task).start_external_in_parent_scope(std::move(parent_scope));
@@ -1041,9 +1086,21 @@ class TaskCancellationSource {
     return source;
   }
 
+  void cleanup() {
+    cancel();
+    root_.reset();
+    external_ = {};
+    closed_ = true;
+    joined_ = true;
+  }
+
   StartedTask<td::Unit>::ExternalPromise external_;
   StartedTask<td::Unit> root_;
+  bool closed_{false};
+  bool joined_{false};
 };
+
+using TaskCancellationSource = TaskGroup;
 
 template <class P, class T>
 void custom_connect(P&& p, StartedTask<T>&& mt) noexcept {

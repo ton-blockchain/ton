@@ -3,6 +3,8 @@
 #include <atomic>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -13,6 +15,7 @@
 #include "td/actor/coro_task.h"
 #include "td/actor/coro_timer.h"
 #include "td/actor/coro_types.h"
+#include "td/utils/Mutex.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
 #include "td/utils/VectorQueue.h"
@@ -622,6 +625,150 @@ Task<Result<T>> with_timeout(StartedTask<T> task, double seconds) {
 template <class T>
 Task<Result<T>> with_timeout(StartedTask<T> task, td::Timestamp deadline) {
   co_return co_await with_timeout(std::move(task), deadline.at() - td::Timestamp::now().at());
+}
+
+template <class T>
+Task<T> any(std::vector<Task<T>> tasks) {
+  if (tasks.empty()) {
+    co_return td::Status::Error("any: empty tasks");
+  }
+
+  auto group = TaskGroup::linked();
+  auto [winner_task, winner_promise] = StartedTask<T>::make_bridge();
+  struct State {
+    td::TinyMutex mutex;
+    size_t remaining{0};
+    bool resolved{false};
+    std::optional<td::Status> first_error;
+    typename StartedTask<T>::ExternalPromise winner;
+
+    State(size_t count, typename StartedTask<T>::ExternalPromise promise)
+        : remaining(count), winner(std::move(promise)) {
+    }
+  };
+  auto state = std::make_shared<State>(tasks.size(), std::move(winner_promise));
+
+  for (auto& task : tasks) {
+    auto waiter = [](Task<T> task, std::shared_ptr<State> state) -> Task<td::Unit> {
+      auto result = co_await std::move(task).wrap();
+      std::optional<T> value;
+      std::optional<td::Status> error;
+      {
+        std::lock_guard<td::TinyMutex> guard(state->mutex);
+        if (state->resolved) {
+          co_return td::Unit{};
+        }
+
+        if (result.is_ok()) {
+          state->resolved = true;
+          value.emplace(result.move_as_ok());
+        } else {
+          if (!state->first_error) {
+            state->first_error = result.error().clone();
+          }
+          CHECK(state->remaining > 0);
+          state->remaining--;
+          if (state->remaining == 0) {
+            state->resolved = true;
+            if (state->first_error) {
+              error = state->first_error->clone();
+            } else {
+              error = td::Status::Error("any: all tasks failed");
+            }
+          }
+        }
+      }
+
+      if (value) {
+        state->winner.set_value(std::move(*value));
+      } else if (error) {
+        state->winner.set_error(std::move(*error));
+      }
+      co_return td::Unit{};
+    }(std::move(task), state);
+    group.start(std::move(waiter)).detach_silent();
+  }
+
+  auto winner = co_await std::move(winner_task).wrap();
+  if (winner.is_ok()) {
+    group.cancel();
+  }
+  co_await group.join();
+  co_return std::move(winner);
+}
+
+template <class T>
+Task<std::vector<T>> all_fail_fast(std::vector<Task<T>> tasks) {
+  if (tasks.empty()) {
+    co_return td::Status::Error("all_fail_fast: empty tasks");
+  }
+
+  auto group = TaskGroup::linked();
+  auto [ready_task, ready_promise] = StartedTask<td::Unit>::make_bridge();
+  struct State {
+    td::TinyMutex mutex;
+    size_t remaining{0};
+    bool ready_signaled{false};
+    std::vector<std::optional<td::Result<T>>> results;
+    typename StartedTask<td::Unit>::ExternalPromise ready;
+
+    State(size_t count, typename StartedTask<td::Unit>::ExternalPromise promise)
+        : remaining(count), results(count), ready(std::move(promise)) {
+    }
+  };
+  auto state = std::make_shared<State>(tasks.size(), std::move(ready_promise));
+
+  for (size_t i = 0; i < tasks.size(); i++) {
+    auto waiter = [](size_t index, Task<T> task, std::shared_ptr<State> state) -> Task<td::Unit> {
+      auto result = co_await std::move(task).wrap();
+      std::optional<td::Status> fail_fast_error;
+      bool set_ready_ok = false;
+      {
+        std::lock_guard<td::TinyMutex> guard(state->mutex);
+        bool should_fail_fast = !state->ready_signaled && result.is_error() && result.error().code() != kCancelledCode;
+        if (should_fail_fast) {
+          fail_fast_error = result.error().clone();
+        }
+
+        CHECK(index < state->results.size());
+        state->results[index] = std::move(result);
+
+        CHECK(state->remaining > 0);
+        state->remaining--;
+        if (should_fail_fast) {
+          state->ready_signaled = true;
+        } else if (!state->ready_signaled && state->remaining == 0) {
+          state->ready_signaled = true;
+          set_ready_ok = true;
+        }
+      }
+
+      if (fail_fast_error) {
+        state->ready.set_error(std::move(*fail_fast_error));
+      } else if (set_ready_ok) {
+        state->ready.set_value(td::Unit{});
+      }
+      co_return td::Unit{};
+    }(i, std::move(tasks[i]), state);
+    group.start(std::move(waiter)).detach_silent();
+  }
+
+  auto ready = co_await std::move(ready_task).wrap();
+  if (ready.is_error()) {
+    group.cancel();
+  }
+  co_await group.join();
+  if (ready.is_error()) {
+    co_return ready.move_as_error();
+  }
+
+  std::vector<td::Result<T>> collected;
+  collected.reserve(state->results.size());
+  for (auto& result : state->results) {
+    CHECK(result.has_value());
+    collected.push_back(std::move(*result));
+  }
+  co_return collect(std::move(collected));
 }
 
 }  // namespace td::actor
