@@ -23,7 +23,7 @@ class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
   }
 
   template <>
-  td::actor::Task<> process(BusHandle, std::shared_ptr<ValidationRequest> event) {
+  td::actor::Task<ValidateCandidateResult> process(BusHandle, std::shared_ptr<ValidationRequest> event) {
     auto& bus = *owning_bus();
 
     owning_bus().publish<TraceEvent>(stats::ValidationStarted::create(event->candidate->id));
@@ -43,6 +43,7 @@ class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
           .min_masterchain_block_id = event->state->min_mc_block_id(),
           .prev = event->state->block_ids(),
           .local_validator_id = bus.local_id.short_id,
+          .skip_store_candidate = true,
           .is_new_consensus = true,
           .prev_block_state_roots = event->state->state(),
       };
@@ -54,13 +55,11 @@ class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
     owning_bus().publish<TraceEvent>(stats::ValidationFinished::create(event->candidate->id));
 
     if (validation_result.has<CandidateReject>()) {
-      auto error = td::Status::Error(0, validation_result.get<CandidateReject>().reason);
-
       if (event->candidate->leader == bus.local_id.idx) {
-        LOG(ERROR) << "BUG! Candidate " << event->candidate->id << " is self-rejected: " << error;
+        LOG(ERROR) << "BUG! Candidate " << event->candidate->id
+                   << " is self-rejected: " << validation_result.get<CandidateReject>().reason;
       }
-
-      co_return error;
+      co_return validation_result;
     }
 
     td::Timestamp ok_from = td::Timestamp::at_unix(validation_result.get<CandidateAccept>().ok_from_utime);
@@ -69,8 +68,7 @@ class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
                 << " s";
       co_await td::actor::coro_sleep(ok_from);
     }
-
-    co_return {};
+    co_return validation_result;
   }
 };
 

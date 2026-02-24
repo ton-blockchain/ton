@@ -98,15 +98,6 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
   }
 
   template <>
-  void handle(BusHandle, std::shared_ptr<const CandidateReceived> event) {
-    auto &state = resolve_states_[event->candidate->id];
-    if (!state.data.candidate.has_value()) {
-      state.data.candidate.emplace(event->candidate);
-      store_to_db(event->candidate->id, state).start().detach();
-    }
-  }
-
-  template <>
   void handle(BusHandle, std::shared_ptr<const NotarizationObserved> event) {
     auto &state = resolve_states_[event->id];
     if (!state.data.notar_cert.has_value()) {
@@ -161,17 +152,22 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
   }
 
   template <>
-  td::actor::Task<> process(BusHandle, std::shared_ptr<WaitCandidateInfoStored> request) {
+  td::actor::Task<> process(BusHandle, std::shared_ptr<WaitNotarCertStored> request) {
     ResolveState &state = resolve_states_[request->id];
-    if (request->wait_candidate_info && !state.stored_info_to_db) {
-      auto [task, promise] = td::actor::StartedTask<>::make_bridge();
-      state.stored_info_to_db_waiters.push_back(std::move(promise));
-      co_await std::move(task);
-    }
-    if (request->wait_notar_cert && !state.stored_notar_cert_to_db) {
+    if (!state.stored_notar_cert_to_db) {
       auto [task, promise] = td::actor::StartedTask<>::make_bridge();
       state.stored_notar_cert_to_db_waiters.push_back(std::move(promise));
       co_await std::move(task);
+    }
+    co_return {};
+  }
+
+  template <>
+  td::actor::Task<> process(BusHandle, std::shared_ptr<StoreCandidate> request) {
+    auto &state = resolve_states_[request->candidate->id];
+    if (!state.data.candidate.has_value()) {
+      state.data.candidate.emplace(request->candidate);
+      co_await store_to_db(request->candidate->id, state);
     }
     co_return {};
   }
@@ -321,22 +317,28 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
   };
 
   td::actor::Task<> store_to_db(CandidateId id, ResolveState &state) {
+    bool storing_info = false, storing_data = false, storing_cert = false;
     std::vector<td::actor::StartedTask<>> tasks;
     if (state.data.candidate.has_value()) {
       auto &cand = *state.data.candidate;
       if (!state.stored_info_to_db) {
+        storing_info = true;
         auto key =
             create_serialize_tl_object<ton_api::consensus_simplex_db_key_candidateResolver_candidateInfo>(id.to_tl());
         auto value = create_serialize_tl_object<ton_api::consensus_simplex_db_candidateResolver_candidateInfo>(
             (int)cand->leader.value(), cand->hash_data().to_tl(), cand->signature.clone());
         tasks.push_back(owning_bus()->db->set(std::move(key), std::move(value)).start());
       }
-      if (!state.stored_data_to_db && std::holds_alternative<BlockCandidate>(cand->block)) {
-        tasks.push_back(td::actor::ask(owning_bus()->manager, &ManagerFacade::store_block_candidate,
-                                       std::get<BlockCandidate>(cand->block).clone()));
+      if (!state.stored_data_to_db) {
+        storing_data = true;
+        if (std::holds_alternative<BlockCandidate>(cand->block)) {
+          tasks.push_back(td::actor::ask(owning_bus()->manager, &ManagerFacade::store_block_candidate,
+                                         std::get<BlockCandidate>(cand->block).clone()));
+        }
       }
     }
     if (!state.stored_notar_cert_to_db && state.data.notar_cert.has_value()) {
+      storing_cert = true;
       auto &notar = *state.data.notar_cert;
       auto key = create_serialize_tl_object<ton_api::consensus_simplex_db_key_candidateResolver_notarCert>(id.to_tl());
       auto value = create_serialize_tl_object<ton_api::consensus_simplex_db_candidateResolver_notarCert>(
@@ -346,15 +348,17 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
 
     co_await td::actor::all(std::move(tasks));
 
-    if (state.data.candidate.has_value()) {
+    if (storing_info) {
       state.stored_info_to_db = true;
       for (auto &p : state.stored_info_to_db_waiters) {
         p.set_value(td::Unit{});
       }
       state.stored_info_to_db_waiters.clear();
+    }
+    if (storing_data) {
       state.stored_data_to_db = true;
     }
-    if (state.data.notar_cert.has_value()) {
+    if (storing_cert) {
       state.stored_notar_cert_to_db = true;
       for (auto &p : state.stored_notar_cert_to_db_waiters) {
         p.set_value(td::Unit{});

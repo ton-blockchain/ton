@@ -71,12 +71,13 @@ struct CandidateReceived {
 };
 
 struct ValidationRequest {
-  using ReturnType = td::Unit;
+  using ReturnType = ValidateCandidateResult;
 
   ChainStateRef state;
   CandidateRef candidate;
 
   std::string contents_to_string() const;
+  static std::string response_to_string(const ReturnType&);
 };
 
 struct IncomingProtocolMessage {

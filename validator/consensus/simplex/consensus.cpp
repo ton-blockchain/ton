@@ -6,6 +6,7 @@
 
 #include "consensus/simplex/state.h"
 #include "consensus/utils.h"
+#include "td/actor/SharedFuture.h"
 #include "td/actor/coro_utils.h"
 
 #include "bus.h"
@@ -45,6 +46,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     auto& bus = *owning_bus();
 
     slots_per_leader_window_ = bus.simplex_config.slots_per_leader_window;
+    max_leader_window_desync_ = bus.simplex_config.max_leader_window_desync;
     target_rate_s_ = bus.config.target_rate_ms / 1000.;
     first_block_timeout_s_ = bus.simplex_config.first_block_timeout_ms / 1000.;
     state_.emplace(State(bus.simplex_config.slots_per_leader_window, {}, {}));
@@ -103,6 +105,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   template <>
   void handle(BusHandle, std::shared_ptr<const LeaderWindowObserved> event) {
     auto& bus = *owning_bus();
+    current_window_ = event->start_slot / slots_per_leader_window_;
 
     td::uint32 offset = event->start_slot % slots_per_leader_window_;
     if (offset == 0) {
@@ -150,7 +153,14 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
   template <>
   void handle(BusHandle, std::shared_ptr<const CandidateReceived> event) {
-    auto slot = state_->slot_at(event->candidate->id.slot);
+    td::uint32 slot_idx = event->candidate->id.slot;
+    td::uint32 first_too_new_slot = (current_window_ + max_leader_window_desync_ + 1) * slots_per_leader_window_;
+    if (slot_idx >= first_too_new_slot) {
+      LOG(WARNING) << "Dropping too new candidate from " << event->candidate->leader << " : slot=" << slot_idx
+                   << ", current_window=" << current_window_ * slots_per_leader_window_;
+      return;
+    }
+    auto slot = state_->slot_at(slot_idx);
     if (!slot.has_value()) {
       return;
     }
@@ -192,6 +202,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
   td::actor::Task<> try_notarize(State::SlotRef slot) {
     const auto& candidate = *slot.state->pending_block;
+    auto store_candidate = owning_bus().publish<StoreCandidate>(candidate).start();
 
     auto maybe_misbehavior = co_await owning_bus().publish<WaitForParent>(candidate);
     if (maybe_misbehavior) {
@@ -202,13 +213,15 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     auto parent = co_await get_resolved_candidate(candidate->parent_id);
     CHECK(candidate->parent_id == parent.id);
 
-    auto validation_result = co_await owning_bus().publish<ValidationRequest>(parent.state, candidate).wrap();
+    auto validation_result = co_await owning_bus().publish<ValidationRequest>(parent.state, candidate);
 
-    if (validation_result.is_error()) {
+    if (validation_result.has<CandidateReject>()) {
+      LOG(WARNING) << "Candidate " << candidate->id
+                   << " is rejected: " << validation_result.get<CandidateReject>().reason;
       // FIXME: Report misbehavior
       co_return {};
     }
-    co_await owning_bus().publish<WaitCandidateInfoStored>(candidate->id, true, false);
+    co_await std::move(store_candidate);
 
     slot.state->voted_notar = candidate->id;
 
@@ -222,7 +235,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       co_return {};
     }
 
-    co_await owning_bus().publish<WaitCandidateInfoStored>(event->id, false, true);
+    co_await owning_bus().publish<WaitNotarCertStored>(event->id);
     if (!slot->state->voted_skip && !slot->state->voted_final && slot->state->voted_notar == event->id) {
       owning_bus().publish<BroadcastVote>(FinalizeVote{event->id});
       slot->state->voted_final = true;
@@ -231,9 +244,11 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   }
 
   td::uint32 slots_per_leader_window_;
+  td::uint32 max_leader_window_desync_;
   double target_rate_s_;
   double first_block_timeout_s_;
   std::optional<State> state_;
+  td::uint32 current_window_ = 0;
 
   std::multimap<td::Timestamp, td::uint32> skip_timeouts_;
 
@@ -250,7 +265,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   std::map<ParentId, ResolvedCandidateEntry> block_data_state_cache_;
 
   td::Promise<StartEvent> genesis_promise_;
-  SharedFuture<StartEvent> genesis_;
+  td::actor::SharedFuture<StartEvent> genesis_;
 
   td::actor::Task<ResolvedCandidate> get_resolved_candidate(ParentId id) {
     ResolvedCandidateEntry& entry = block_data_state_cache_[id];
@@ -427,7 +442,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       if (i == 0) {
         expected_parent_id = std::nullopt;
       } else {
-        expected_parent_id = blocks[i].first;
+        expected_parent_id = blocks[i - 1].first;
       }
       if (expected_parent_id != parent_id && !owning_bus()->shard.is_masterchain()) {
         continue;

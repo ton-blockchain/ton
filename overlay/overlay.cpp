@@ -537,7 +537,7 @@ BroadcastCheckResult OverlayImpl::check_source_eligible(const PublicKeyHash &sou
     return BroadcastCheckResult::Forbidden;
   }
   auto r = rules_.check_rules(source, size, is_fec);
-  if (!cert || r == BroadcastCheckResult::Allowed) {
+  if (!cert || r == BroadcastCheckResult::Allowed || overlay_type_ == OverlayType::FixedMemberList) {
     return r;
   }
   td::Bits256 cert_hash = get_tl_object_sha_bits256(cert->tl());

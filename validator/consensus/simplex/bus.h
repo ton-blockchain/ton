@@ -60,13 +60,15 @@ struct ResolveCandidate {
   std::string contents_to_string() const;
 };
 
-struct WaitCandidateInfoStored {
+struct StoreCandidate {
   using ReturnType = td::Unit;
+  CandidateRef candidate;
+  std::string contents_to_string() const;
+};
 
+struct WaitNotarCertStored {
+  using ReturnType = td::Unit;
   CandidateId id;
-  bool wait_candidate_info = false;
-  bool wait_notar_cert = false;
-
   std::string contents_to_string() const;
 };
 
@@ -74,7 +76,7 @@ class Bus : public consensus::Bus {
  public:
   using Parent = consensus::Bus;
   using Events = td::TypeList<BroadcastVote, NotarizationObserved, FinalizationObserved, LeaderWindowObserved,
-                              WaitForParent, ResolveCandidate, WaitCandidateInfoStored>;
+                              WaitForParent, ResolveCandidate, StoreCandidate, WaitNotarCertStored>;
 
   Bus() = default;
 

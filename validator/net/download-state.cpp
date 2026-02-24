@@ -210,7 +210,7 @@ void DownloadState::got_block_state_description(td::BufferSlice data) {
             if (client_.empty()) {
               td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_,
                                       overlay_id_, "download state", std::move(P), td::Timestamp::in(3.0),
-                                      std::move(query), FullNode::max_state_size(), rldp_);
+                                      std::move(query), FullNode::max_zerostate_size(), rldp_);
             } else {
               td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "download state",
                                       create_serialize_tl_object_suffix<ton_api::tonNode_query>(std::move(query)),
@@ -256,8 +256,7 @@ void DownloadState::request_total_size() {
           create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_), effective_shard_));
   if (client_.empty()) {
     td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_, overlay_id_,
-                            "get size", std::move(P), td::Timestamp::in(3.0), std::move(query),
-                            FullNode::max_state_size(), rldp_);
+                            "get size", std::move(P), td::Timestamp::in(3.0), std::move(query), 1024, rldp_);
   } else {
     td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "get size",
                             create_serialize_tl_object_suffix<ton_api::tonNode_query>(std::move(query)),
@@ -326,8 +325,8 @@ void DownloadState::got_block_state_part(td::BufferSlice data, td::uint32 reques
       sum_, part_size);
   if (client_.empty()) {
     td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_, overlay_id_,
-                            "download state", std::move(P), td::Timestamp::in(20.0), std::move(query),
-                            FullNode::max_state_size(), rldp_);
+                            "download state", std::move(P), td::Timestamp::in(20.0), std::move(query), part_size + 1024,
+                            rldp_);
   } else {
     td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "download state",
                             create_serialize_tl_object_suffix<ton_api::tonNode_query>(std::move(query)),

@@ -81,8 +81,8 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
       if (adnl_id == local_id_.adnl_id) {
         return;
       }
-      td::actor::send_closure(overlays_, &overlay::Overlays::send_message, adnl_id, local_id_.adnl_id, overlay_id_,
-                              message->message.data.clone());
+      td::actor::send_closure(overlays_, &overlay::Overlays::send_message_via, adnl_id, local_id_.adnl_id, overlay_id_,
+                              message->message.data.clone(), adnl_sender_);
     };
 
     if (message->recipient) {
@@ -178,7 +178,7 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
     auto request = std::make_shared<IncomingOverlayRequest>(peer.idx, std::move(data));
 
     auto task = [](BusHandle bus, auto message, auto promise) -> td::actor::Task<> {
-      auto response = co_await bus.publish(std::move(message)).wrap();
+      auto response = co_await bus.publish(message).wrap();
       if (response.is_ok()) {
         promise.set_value(response.move_as_ok().data);
       } else {

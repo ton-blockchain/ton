@@ -108,8 +108,9 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
       if (failed_) {
         return td::Status::Error("stream already failed");
       }
-      if (options_.max_size.has_value() && builder_.size() > *options_.max_size) {
-        return td::Status::Error(PSLICE() << "stream size limit exceeded: max=" << *options_.max_size
+      auto max_size = options_.max_size.value_or(DEFAULT_STREAM_SIZE_LIMIT);
+      if (options_.max_size.has_value() && builder_.size() > max_size) {
+        return td::Status::Error(PSLICE() << "stream size limit exceeded: max=" << max_size
                                           << " received=" << builder_.size() << " query_size=" << options_.query_size
                                           << " query_magic=" << td::format::as_hex(options_.query_magic));
       }

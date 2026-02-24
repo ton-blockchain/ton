@@ -2,11 +2,11 @@ from multiprocessing import Process
 from pathlib import Path
 from typing import cast, final
 
-from .parser import ParserLogs
+from .parser import ParserSessionStats
 from .visualizer import DashApp
 
 
-def target(parser: ParserLogs, debug: bool, host: str, port: int):
+def target(parser: ParserSessionStats, debug: bool, host: str, port: int):
     DashApp(parser).run(debug, host, port)
 
 
@@ -22,7 +22,7 @@ class ConsensusExplorer:
         self.__process = Process(
             target=target,
             kwargs={
-                "parser": ParserLogs(self._logs_path),
+                "parser": ParserSessionStats(self._logs_path),
                 "debug": False,
                 "host": self._host,
                 "port": self._port,
@@ -57,7 +57,7 @@ def _main():
     log_paths = [Path(log) for log in logs]
     if len(log_paths) == 1 and log_paths[0].is_dir():
         log_paths = [p for p in log_paths[0].iterdir()]
-    app = DashApp(ParserLogs(log_paths))
+    app = DashApp(ParserSessionStats(log_paths))
 
     app.run(debug=True, host=host, port=port)
 

@@ -55,6 +55,10 @@ td::Slice get_word(td::Slice& str, const char* delims, const char* specials) {
 }  // namespace
 
 td::Result<vm::StackEntry> parse_stack_entry_in(td::Slice& str, bool prefix_only) {
+  auto* vsi = VmStateInterface::get();
+  if (vsi && !vsi->register_op()) {
+    return td::Status::Error("too big stack");
+  }
   auto word = get_word(str, " \t", "[()]");
   if (word.empty()) {
     return td::Status::Error("stack value expected instead of end-of-line");
