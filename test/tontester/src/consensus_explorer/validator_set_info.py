@@ -6,7 +6,7 @@ import tempfile
 from collections.abc import Sequence
 from html import unescape
 from pathlib import Path
-from typing import final, cast
+from typing import cast, final
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 import requests

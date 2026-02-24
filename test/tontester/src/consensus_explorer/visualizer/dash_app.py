@@ -7,7 +7,7 @@ import plotly.graph_objects as go  # pyright: ignore[reportMissingTypeStubs]
 from dash import Dash, Input, NoUpdate, Output, State, callback_context, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 
-from ..models import ConsensusData, SlotData, GroupData
+from ..models import ConsensusData, GroupData, SlotData
 from ..parser import GroupParser
 from ..validator_set_info import ValidatorSetInfoProvider
 from .figure_builder import FigureBuilder

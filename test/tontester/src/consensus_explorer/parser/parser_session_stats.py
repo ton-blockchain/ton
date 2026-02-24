@@ -18,6 +18,7 @@ from tonapi.ton_api import (
     Consensus_simplex_skipVote,
     Consensus_simplex_stats_certObserved,
     Consensus_simplex_stats_voted,
+    Consensus_stats_block,
     Consensus_stats_candidateReceived,
     Consensus_stats_collatedEmpty,
     Consensus_stats_collateFinished,
@@ -28,12 +29,11 @@ from tonapi.ton_api import (
     Consensus_stats_timestampedEvent,
     Consensus_stats_validationFinished,
     Consensus_stats_validationStarted,
-    TypeConsensus_stats_Event,
-    Consensus_stats_block,
     TonNode_blockIdExt,
+    TypeConsensus_stats_Event,
 )
 
-from ..models import ConsensusData, EventData, SlotData, GroupData, UnnamedGroupInfo, GroupInfo
+from ..models import ConsensusData, EventData, GroupData, GroupInfo, SlotData, UnnamedGroupInfo
 from .parser_base import GroupParser
 
 type slot_id_type = tuple[str, int]
