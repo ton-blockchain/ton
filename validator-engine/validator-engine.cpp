@@ -2156,6 +2156,7 @@ void ValidatorEngine::start_rldp() {
   CHECK(!peer_table.empty());
   CHECK(!keyring_.empty());
   quic_ = td::actor::create_actor<ton::quic::QuicSender>("QuicSender", peer_table, keyring_.get());
+  //td::actor::send_closure(quic_.get(), &ton::quic::QuicSender::set_quic_options, ton::quic::QuicServer::Options{.flood_control = })
   td::actor::send_closure(rldp_, &ton::rldp::Rldp::set_default_mtu, 2048);
   td::actor::send_closure(rldp2_, &ton::rldp2::Rldp::set_default_mtu, 2048);
   started_rldp();
@@ -5636,6 +5637,13 @@ int main(int argc, char *argv[]) {
   });
   p.add_option('\0', "db-event-fifo", "path to FIFO pipe for publishing DB events", [&](td::Slice s) {
     acts.push_back([&x, s = s.str()]() { td::actor::send_closure(x, &ValidatorEngine::set_db_event_fifo_path, s); });
+  });
+  p.add_checked_option('\0', "quic-flood-control", "per-IP limit for QUIC connections (-1 to disable)", [&](td::Slice arg) {
+    TRY_RESULT(l, td::to_integer_safe<int64_t>(arg));
+    acts.push_back([&, l = l >= 0 ? std::optional<size_t>{l} : std::optional<size_t>{std::nullopt}] {
+      td::actor::send_closure(x, &ValidatorEngine::set_quic_options, ton::quic::QuicServer::Options{.flood_control = l});
+    });
+    return td::Status::OK();
   });
   auto S = p.run(argc, argv);
   if (S.is_error()) {

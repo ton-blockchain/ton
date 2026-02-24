@@ -420,6 +420,9 @@ class ValidatorEngine : public td::actor::Actor {
   void set_ratelimit_medium(size_t count) {
     full_node_options_.ratelimit_medium_ = count;
   }
+  void set_quic_options(ton::quic::QuicServer::Options options) {
+    td::actor::send_closure(quic_.get(), &ton::quic::QuicSender::set_quic_options, options);
+  }
 
   void start_up() override;
   ValidatorEngine() {
