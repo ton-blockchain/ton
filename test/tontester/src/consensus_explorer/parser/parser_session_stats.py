@@ -29,6 +29,8 @@ from tonapi.ton_api import (
     Consensus_stats_validationFinished,
     Consensus_stats_validationStarted,
     TypeConsensus_stats_Event,
+    Consensus_stats_block,
+    TonNode_blockIdExt,
 )
 
 from ..models import ConsensusData, EventData, SlotData, GroupData, UnnamedGroupInfo, GroupInfo
@@ -60,8 +62,16 @@ def open_stats_file(path: Path) -> io.TextIOWrapper:
     return open(path, "r", encoding="utf-8", errors="ignore")
 
 
-def format_candidate_id(id: Consensus_candidateId):
-    return f"{{{id.slot}, {base64.b64encode(id.hash).decode()}}}"
+def _shard_to_hex(sh: int) -> str:
+    return f"{sh & 0xFFFFFFFFFFFFFFFF:016x}"
+
+
+def format_candidate_id(id_: Consensus_candidateId):
+    return f"{{{id_.slot}, {base64.b64encode(id_.hash).decode()}}}"
+
+
+def format_block_id(id_: TonNode_blockIdExt):
+    return f"({id_.workchain},{_shard_to_hex(id_.shard)},{id_.seqno}):{id_.root_hash.hex().upper()}:{id_.file_hash.hex().upper()}"
 
 
 @final
@@ -163,17 +173,22 @@ class ParserSessionStats(GroupParser):
         self._slot_events.setdefault(slot_id, {}).setdefault(v_id, {})[label] = ev
 
         if isinstance(event, Consensus_stats_candidateReceived):
-            if event.block is not None and not isinstance(event.block, Consensus_stats_empty):
-                assert event.block.id is not None
-                slot_data.block_id_ext = f"({event.block.id.workchain},{self._shard_to_hex(event.block.id.shard)},{event.block.id.seqno}):{event.block.id.root_hash.hex().upper()}:{event.block.id.file_hash.hex().upper()}"
+            match event.block:
+                case Consensus_stats_empty():
+                    slot_data.block_id_ext = "empty"
+                case Consensus_stats_block(id=id_):
+                    assert id_ is not None
+                    slot_data.block_id_ext = format_block_id(id_)
+                case None:
+                    assert False
             assert event.id is not None
 
             slot_data.candidate_id = format_candidate_id(event.id)
 
             match event.parent:
-                case Consensus_candidateParent(id=id):
-                    assert id is not None
-                    slot_data.parent_block = format_candidate_id(id)
+                case Consensus_candidateParent(id=id_):
+                    assert id_ is not None
+                    slot_data.parent_block = format_candidate_id(id_)
                 case Consensus_candidateWithoutParents():
                     slot_data.parent_block = "genesis"
                 case None:
@@ -445,10 +460,6 @@ class ParserSessionStats(GroupParser):
                 return vote.t_ms
         return None
 
-    @staticmethod
-    def _shard_to_hex(sh: int) -> str:
-        return f"{sh & 0xFFFFFFFFFFFFFFFF:016x}"
-
     def _process_group_events(
         self,
         group_id: bytes,
@@ -464,7 +475,7 @@ class ParserSessionStats(GroupParser):
         if event_id is None:
             return UnnamedGroupInfo(valgroup_hash=group_id, group_start_est=min_ts)
 
-        v_group = f"{event_id.workchain},{self._shard_to_hex(event_id.shard)}.{event_id.cc_seqno}"
+        v_group = f"{event_id.workchain},{_shard_to_hex(event_id.shard)}.{event_id.cc_seqno}"
 
         v_id = event_id.idx
         v_weight = event_id.weight

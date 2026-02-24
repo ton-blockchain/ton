@@ -169,11 +169,16 @@ class DashApp:
         group_events = [e for e in self._data.events if e.valgroup_id == group]
         group_slots = {s.slot: s for s in self._data.slots if s.valgroup_id == group}
 
-        skip_slots = {e.slot for e in group_events if e.label == "skip_observed"}
+        skip_slots = sorted({e.slot for e in group_events if e.label == "skip_observed"})
+        empty_block_slots = sorted(
+            {slot for slot in group_slots if group_slots[slot].block_id_ext == "empty"}
+        )
         finalized_block_slots = sorted(
             slot
             for slot in {e.slot for e in group_events if e.label == "finalize_reached"}
-            if slot in group_slots and not group_slots[slot].is_empty
+            if slot in group_slots
+            and not group_slots[slot].is_empty
+            and group_slots[slot].block_id_ext != "empty"
         )
 
         min_candidate_received_by_slot: dict[int, float] = {}
@@ -196,7 +201,9 @@ class DashApp:
             )
         ]
 
-        avg_delta = (sum(x[2] for x in delta_entries) / len(delta_entries)) if delta_entries else None
+        avg_delta = (
+            (sum(x[2] for x in delta_entries) / len(delta_entries)) if delta_entries else None
+        )
         min_delta_slots = min(delta_entries, key=lambda x: x[2]) if delta_entries else None
         max_delta_slots = max(delta_entries, key=lambda x: x[2]) if delta_entries else None
 
@@ -210,10 +217,8 @@ class DashApp:
         return "\n".join(
             [
                 f"valgroup = {group}",
-                (
-                    "slots with skip_observed"
-                    f" ({len(skip_slots)}) = {skip_slots}"
-                ),
+                f"slots with skip_observed ({len(skip_slots)}) = {skip_slots}",
+                f"slots with empty blocks ({len(empty_block_slots)}) = {empty_block_slots}",
                 "delta between minimum candidate_received for neighboring finalized blocks:",
                 f"min = {round(min_delta_slots[2], 3) if min_delta_slots else 'n/a'} ms for slots {min_slot_text}",
                 f"avg = {avg_delta:.3f} ms" if avg_delta is not None else "avg = n/a",
