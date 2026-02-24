@@ -130,21 +130,22 @@ void RldpIn::receive_message_part(adnl::AdnlNodeIdShort source, adnl::AdnlNodeId
   send_closure(connection, &RldpConnectionActor::receive_raw, std::move(data));
 }
 
-td::actor::ActorId<RldpConnectionActor> RldpIn::create_connection(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
-                                                                  bool incoming) {
-  auto it = connections_.find(std::make_pair(src, dst));
+td::actor::ActorId<RldpConnectionActor> RldpIn::create_connection(adnl::AdnlNodeIdShort local_id,
+                                                                  adnl::AdnlNodeIdShort peer_id, bool incoming) {
+  auto it = connections_.find(std::make_pair(local_id, peer_id));
   if (it != connections_.end()) {
     return it->second.get();
   }
-  td::uint64 mtu = get_peer_mtu(src, dst);
+  td::uint64 mtu = get_peer_mtu(local_id, peer_id);
   if (mtu == 0 && incoming) {
-    VLOG(RLDP_INFO) << "dropping incoming packet " << src << " -> " << dst << " : peer not allowed";
+    VLOG(RLDP_INFO) << "dropping incoming packet " << local_id << " <- " << peer_id << " : peer not allowed";
     return {};
   }
-  auto connection = td::actor::create_actor<RldpConnectionActor>("RldpConnection", actor_id(this), src, dst, adnl_);
+  auto connection =
+      td::actor::create_actor<RldpConnectionActor>("RldpConnection", actor_id(this), local_id, peer_id, adnl_);
   td::actor::send_closure(connection, &RldpConnectionActor::set_default_mtu, mtu);
   auto res = connection.get();
-  connections_[std::make_pair(src, dst)] = std::move(connection);
+  connections_[std::make_pair(local_id, peer_id)] = std::move(connection);
   return res;
 }
 

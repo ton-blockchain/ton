@@ -52,7 +52,7 @@ class AdnlSenderEx : public AdnlSenderInterface {
   td::uint64 default_mtu_ = Adnl::get_mtu();
 
   struct LocalIdMtu {
-    td::uint64 mtu;
+    td::uint64 mtu = 0;
     std::map<AdnlNodeIdShort, std::multiset<td::uint64>> mtu_peers;
   };
   std::map<AdnlNodeIdShort, LocalIdMtu> mtu_local_ids_;

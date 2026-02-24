@@ -111,8 +111,8 @@ class RldpIn : public RldpImpl {
 
   std::set<adnl::AdnlNodeIdShort> local_ids_;
 
-  td::actor::ActorId<RldpConnectionActor> create_connection(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
-                                                            bool incoming);
+  td::actor::ActorId<RldpConnectionActor> create_connection(adnl::AdnlNodeIdShort local_id,
+                                                            adnl::AdnlNodeIdShort peer_id, bool incoming);
 };
 
 }  // namespace rldp2
