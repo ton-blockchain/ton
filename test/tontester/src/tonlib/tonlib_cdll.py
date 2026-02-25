@@ -102,4 +102,27 @@ class TonlibCDLL:
         response_get_response.argtypes = [ctypes.c_void_p]
         self.response_get_response = cast(Callable[[int], bytes], response_get_response)
 
-        self.client_set_verbosity_level(3)
+        client_json_create = tonlib.tonlib_client_json_create
+        client_json_create.restype = ctypes.c_void_p
+        client_json_create.argtypes = []
+        self.client_json_create = cast(Callable[[], int], client_json_create)
+
+        client_json_send = tonlib.tonlib_client_json_send
+        client_json_send.restype = None
+        client_json_send.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+        self.client_json_send = cast(Callable[[int, bytes], None], client_json_send)
+
+        client_json_receive = tonlib.tonlib_client_json_receive
+        client_json_receive.restype = ctypes.c_char_p
+        client_json_receive.argtypes = [ctypes.c_void_p, ctypes.c_double]
+        self.client_json_receive = cast(Callable[[int, float], bytes | None], client_json_receive)
+
+        client_json_cancel_requests = tonlib.tonlib_client_json_cancel_requests
+        client_json_cancel_requests.restype = None
+        client_json_cancel_requests.argtypes = [ctypes.c_void_p]
+        self.client_json_cancel_requests = cast(Callable[[int], None], client_json_cancel_requests)
+
+        client_json_destroy = tonlib.tonlib_client_json_destroy
+        client_json_destroy.restype = None
+        client_json_destroy.argtypes = [ctypes.c_void_p]
+        self.client_json_destroy = cast(Callable[[int], None], client_json_destroy)
