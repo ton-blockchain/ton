@@ -2,8 +2,10 @@
 
 #include <atomic>
 #include <coroutine>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <new>
 #include <optional>
 #include <type_traits>
 #include <utility>
@@ -18,6 +20,11 @@
 
 namespace td::actor {
 
+struct promise_common;
+
+template <class T>
+struct promise_type;
+
 namespace detail {
 
 struct TaskStateManagerData {
@@ -29,7 +36,6 @@ struct TaskStateManagerData {
     READY_FLAG = 1,
     STARTED_FLAG = 2,
     SUSPEND_FLAG = 4,
-    DETACH_FLAG = 8,
   };
 
   uint8_t set_flag(uint8_t new_flag) noexcept {
@@ -44,13 +50,10 @@ struct TaskStateManagerData {
     bool should_notify_parent;
   };
 
-  // Returns completion routing and ownership transitions for finalization.
-  // First caller that marks READY wins; duplicate callers receive no-op work.
+  // Called exactly once per coroutine lifetime — either from final_suspend (normal/error)
+  // or from finish_if_cancelled (cancellation). Returns completion routing.
   [[nodiscard]] ReadyResult on_ready() {
-    auto old_flags = flags.fetch_or(READY_FLAG, std::memory_order_acq_rel);
-    if (old_flags & READY_FLAG) {
-      return {std::noop_coroutine(), false, false};
-    }
+    auto old_flags = set_flag(READY_FLAG);
 
     if (!(old_flags & STARTED_FLAG)) {
       return {continuation, false, true};
@@ -60,13 +63,161 @@ struct TaskStateManagerData {
     if (old_flags & SUSPEND_FLAG) {
       next = continuation;
     }
-    // Always dec_ref when started - the coroutine's own reference
     return {next, true, true};
   }
 
   void set_executor(Executor new_executor) noexcept {
     executor = std::move(new_executor);
   }
+};
+
+struct TaskControlBase : CancelNode {
+  using CancelNode::add_ref;
+  using CancelNode::dec_ref;
+
+  static constexpr uint32_t kMagic = 0xC020C070;  // "coro ctrl"
+
+  TaskControlBase() = default;
+  ~TaskControlBase() override = default;
+
+  void check_magic() const {
+    LOG_CHECK(magic_ == kMagic) << "TaskControl magic mismatch — heap allocation was elided (HALO). "
+                                   "This coroutine framework requires heap-allocated frames.";
+  }
+
+  virtual std::coroutine_handle<> get_handle() const = 0;
+
+  bool try_destroy_frame() {
+    if (!std::exchange(frame_destroyed_, true)) {
+      get_handle().destroy();
+      return true;
+    }
+    return false;
+  }
+
+  void on_cancel() override {
+    cancel();
+  }
+  void on_cleanup() override {
+    dec_ref();
+  }
+  void on_publish() override {
+    add_ref();
+  }
+
+  bool should_finish_due_to_cancellation() const {
+    return cancellation.should_finish_due_to_cancellation();
+  }
+
+  void cancel() {
+    CHECK(core::SchedulerContext::get_ptr());
+    cancellation.cancel(*this);
+  }
+
+  std::coroutine_handle<> complete_inline() {
+    auto ready = state_manager_data.on_ready();
+
+    TaskControlBase* parent = nullptr;
+    if (ready.should_notify_parent) {
+      parent = cancellation.take_parent_for_child_completed(*this);
+    }
+
+    add_ref();
+    try_destroy_frame();
+
+    if (ready.should_dec_ref) {
+      dec_ref();
+    }
+    if (parent) {
+      parent->cancellation.release_child_ref(*parent, CancellationRuntime::ChildReleasePolicy::MayComplete);
+    }
+    dec_ref();
+    return ready.continuation;
+  }
+
+  void complete_scheduled() {
+    auto continuation = complete_inline();
+    if (continuation && continuation != std::noop_coroutine()) {
+      SchedulerExecutor{}.schedule(continuation);
+    }
+  }
+
+  TaskStateManagerData state_manager_data{};
+  CancellationRuntime cancellation{};
+
+ private:
+  uint32_t magic_{kMagic};
+  bool frame_destroyed_{false};
+};
+
+// TaskControl<T> is placed directly before the coroutine frame in the same allocation.
+// Layout: [allocation_base ... padding] [TaskControl<T>] [coroutine frame]
+// This avoids a separate heap allocation while letting the control outlive the frame.
+template <class T>
+struct TaskControl : TaskControlBase {
+  std::coroutine_handle<promise_type<T>> handle() const {
+    auto* frame = reinterpret_cast<const char*>(this) + sizeof(TaskControl);
+    return std::coroutine_handle<promise_type<T>>::from_address(const_cast<char*>(frame));
+  }
+
+  promise_type<T>& promise() const {
+    return handle().promise();
+  }
+
+  std::coroutine_handle<> get_handle() const override;
+
+  void set_result(td::Result<T>&& r) {
+    result_.emplace(std::move(r));
+  }
+
+  td::Result<T> extract_result() {
+    CHECK(result_);
+    return std::move(*result_);
+  }
+
+  const td::Result<T>& peek_result() const {
+    CHECK(result_);
+    return *result_;
+  }
+
+  void on_zero_refs() override;
+
+  void free_allocation() noexcept {
+    auto* base = allocation_base_;
+    auto align = allocation_align_;
+    std::destroy_at(this);
+    ::operator delete(base, std::align_val_t(align));
+  }
+
+  static TaskControl* from_frame(void* frame_ptr) noexcept {
+    return reinterpret_cast<TaskControl*>(static_cast<char*>(frame_ptr) - sizeof(TaskControl));
+  }
+
+  static void* allocate(std::size_t frame_size) {
+    return allocate_impl(frame_size, alignof(std::max_align_t));
+  }
+
+  static void* allocate_aligned(std::size_t frame_size, std::size_t frame_alignment) {
+    return allocate_impl(frame_size, frame_alignment);
+  }
+
+ private:
+  static void* allocate_impl(std::size_t frame_size, std::size_t frame_alignment) {
+    auto align = std::max(frame_alignment, alignof(TaskControl));
+    auto total = sizeof(TaskControl) + frame_size + align - 1;
+    void* base = ::operator new(total, std::align_val_t(align));
+    auto raw = reinterpret_cast<std::uintptr_t>(base) + sizeof(TaskControl);
+    auto frame_addr = (raw + align - 1) & ~(align - 1);
+    auto* control = reinterpret_cast<TaskControl*>(frame_addr - sizeof(TaskControl));
+    new (control) TaskControl();
+    control->allocation_base_ = base;
+    control->allocation_align_ = align;
+    return reinterpret_cast<void*>(frame_addr);
+  }
+
+  std::optional<td::Result<T>> result_;
+  void* allocation_base_{nullptr};
+  std::size_t allocation_align_{alignof(std::max_align_t)};
 };
 
 template <class P>
@@ -101,10 +252,6 @@ struct TaskStateManager {
     return data->executor.execute_or_schedule(self);
   }
 
-  void on_detach(Self self) {
-    self.promise().dec_ref();
-  }
-
  private:
   void set_is_started() {
     data->flags.fetch_or(Data::STARTED_FLAG, std::memory_order_relaxed);
@@ -128,142 +275,88 @@ struct StartedTaskStateManager {
     auto old_flags = data->set_flag(Data::SUSPEND_FLAG);
     return (old_flags & Data::READY_FLAG) ? new_continuation : std::noop_coroutine();
   }
-
-  void on_detach(Self self) {
-    data->set_flag(Data::DETACH_FLAG);
-    // Always dec_ref - StartedTask is releasing its reference
-    self.promise().dec_ref();
-  }
 };
 
 }  // namespace detail
 
-struct promise_common;
+struct promise_common {
+  detail::TaskControlBase* control_{nullptr};
 
-struct promise_common : CancelNode {
-  using CancelNode::add_ref;
-  using CancelNode::dec_ref;
-
-  detail::TaskStateManagerData state_manager_data;
-  CancellationRuntime cancellation_{};
-  std::coroutine_handle<> self_handle_{};
-
-  void on_cancel() override {
-    cancellation_.cancel(*this);
-  }
-  void on_cleanup() override {
-    dec_ref();
-  }
-  void on_publish() override {
-    add_ref();
-  }
-  void on_zero_refs() override {
-    cancellation_.on_last_ref_teardown(*this);
-    self_handle_.destroy();
+  std::coroutine_handle<> get_handle() const {
+    DCHECK(control_);
+    return control_->get_handle();
   }
 
-  bool is_cancelled() const {
-    return cancellation_.is_cancelled();
+  detail::TaskControlBase& control() {
+    DCHECK(control_);
+    return *control_;
   }
-
-  bool should_finish_due_to_cancellation() const {
-    return cancellation_.should_finish_due_to_cancellation();
-  }
-
-  void cancel() {
-    // Cancellation walk and timer cancel callbacks require scheduler context.
-    CHECK(core::SchedulerContext::get_ptr());
-    cancellation_.cancel(*this);
-  }
-
-  std::pair<std::coroutine_handle<>, bool> mark_done() {
-    auto ready = state_manager_data.on_ready();
-    if (ready.should_notify_parent) {
-      cancellation_.notify_parent_child_completed(*this);
-    }
-    return {ready.continuation, ready.should_dec_ref};
-  }
-
-  std::coroutine_handle<> complete_inline() {
-    auto [continuation, should_dec_ref] = mark_done();
-    if (should_dec_ref) {
-      dec_ref();
-    }
-    return continuation;
-  }
-
-  std::coroutine_handle<> complete_scheduled() {
-    auto [continuation, should_dec_ref] = mark_done();
-    // Schedule continuation BEFORE dec_ref (dec_ref might destroy frame)
-    if (continuation && continuation != std::noop_coroutine()) {
-      detail::SchedulerExecutor{}.schedule(continuation);
-    }
-    if (should_dec_ref) {
-      dec_ref();
-    }
-    return std::noop_coroutine();
+  const detail::TaskControlBase& control() const {
+    DCHECK(control_);
+    return *control_;
   }
 };
 
-// Token encoding uses bottom 2 bits, so promise_common must be 4-byte aligned
-static_assert(alignof(promise_common) >= 4, "promise_common must be 4-byte aligned for token encoding");
+// Token encoding uses bottom 2 bits, so TaskControlBase must be 4-byte aligned
+static_assert(alignof(detail::TaskControlBase) >= 4, "TaskControlBase must be 4-byte aligned for token encoding");
 
 namespace bridge {
-inline CancellationRuntime& runtime(promise_common& self) {
-  return self.cancellation_;
+inline CancellationRuntime& runtime(detail::TaskControlBase& self) {
+  return self.cancellation;
 }
 
-inline const CancellationRuntime& runtime(const promise_common& self) {
-  return self.cancellation_;
+inline const CancellationRuntime& runtime(const detail::TaskControlBase& self) {
+  return self.cancellation;
 }
 
-inline std::coroutine_handle<> complete_scheduled(promise_common& self) {
-  return self.complete_scheduled();
+inline void complete_scheduled(detail::TaskControlBase& self) {
+  self.complete_scheduled();
 }
 
-inline CancelNode& cancel_node(promise_common& self) {
-  return self;
+inline bool should_finish_due_to_cancellation(const detail::TaskControlBase& self) {
+  return self.cancellation.should_finish_due_to_cancellation();
 }
 
-inline bool should_finish_due_to_cancellation(const promise_common& self) {
-  return self.should_finish_due_to_cancellation();
+inline bool should_finish_due_to_cancellation_tls() {
+  auto* ctrl = detail::get_current_ctrl();
+  return ctrl && should_finish_due_to_cancellation(*ctrl);
 }
 }  // namespace bridge
 
 inline ParentScopeLease current_scope_lease() {
-  auto* p = detail::get_current_promise();
-  if (!p) {
+  auto* ctrl = detail::get_current_ctrl();
+  if (!ctrl) {
     return ParentScopeLease{};
   }
-  return bridge::make_parent_scope_lease(*p);
+  return bridge::make_parent_scope_lease(*ctrl);
 }
 
 class CancelScope {
  public:
   CancelScope() = default;
-  explicit CancelScope(promise_common* promise) : promise_(promise) {
+  explicit CancelScope(detail::TaskControlBase* ctrl) : ctrl_(ctrl) {
   }
 
   bool is_cancelled() const {
-    return promise_ && promise_->is_cancelled();
+    return ctrl_ && ctrl_->cancellation.is_cancelled();
   }
 
   void cancel() {
-    if (promise_) {
-      promise_->cancel();
+    if (ctrl_) {
+      ctrl_->cancel();
     }
   }
 
   explicit operator bool() const {
-    return promise_ != nullptr;
+    return ctrl_ != nullptr;
   }
 
-  promise_common* get_promise() const {
-    return promise_;
+  detail::TaskControlBase* get_ctrl() const {
+    return ctrl_;
   }
 
  private:
-  promise_common* promise_{nullptr};
+  detail::TaskControlBase* ctrl_{nullptr};
 };
 
 // Markers for co_await
@@ -289,15 +382,15 @@ inline IgnoreCancellation ignore_cancellation() {
 }
 
 struct CancellationGuard {
-  promise_common* promise_{};
+  detail::TaskControlBase* ctrl_{};
   CancellationGuard() = default;
-  explicit CancellationGuard(promise_common* p) : promise_(p) {
+  explicit CancellationGuard(detail::TaskControlBase* c) : ctrl_(c) {
   }
   ~CancellationGuard() {
-    if (promise_)
-      promise_->cancellation_.leave_ignore(*promise_);
+    if (ctrl_)
+      ctrl_->cancellation.leave_ignore(*ctrl_);
   }
-  CancellationGuard(CancellationGuard&& o) noexcept : promise_(std::exchange(o.promise_, nullptr)) {
+  CancellationGuard(CancellationGuard&& o) noexcept : ctrl_(std::exchange(o.ctrl_, nullptr)) {
   }
   CancellationGuard& operator=(CancellationGuard&&) = delete;
 };
@@ -305,30 +398,6 @@ struct CancellationGuard {
 // Tags for connect execution mode
 struct Immediate {};
 struct Lazy {};
-
-template <class ResultT>
-struct promise_value : promise_common {
-  [[no_unique_address]] ResultT result;
-
-  template <class TT>
-  void return_value(TT&& v) noexcept {
-    result = std::forward<TT>(v);
-  }
-
-  struct ExternalResult {
-    explicit ExternalResult() = default;
-  };
-  void return_value(ExternalResult&&) noexcept {
-  }
-
-  void unhandled_exception() noexcept {
-    result = td::Status::Error("unhandled exception in coroutine");
-  }
-
-  ResultT extract_result() noexcept {
-    return std::move(result);
-  }
-};
 
 template <class T>
 struct Task;
@@ -353,17 +422,60 @@ inline constexpr bool IsTaskAwaitableV = IsTaskAwaitable<std::remove_cvref_t<T>>
 }  // namespace detail
 
 template <class T>
-struct promise_type : promise_value<td::Result<T>> {
+struct promise_type : promise_common {
   static_assert(!std::is_void_v<T>, "Task<void> is not supported; use Task<Unit> instead");
   using Handle = std::coroutine_handle<promise_type>;
+  using Control = detail::TaskControl<T>;
 
-  // Bring base class return_value overloads into scope
-  using promise_value<td::Result<T>>::return_value;
+  // we allocate Control in the same memory chunk as the promise
+  static void* operator new(std::size_t size) {
+    return Control::allocate(size);
+  }
 
-  // Allow co_return {}; to work by constructing T{} (e.g., Unit{})
-  // This fixes a bug where co_return {}; was equivalent to co_return td::Status::Error(-1);
-  void return_value(T v) noexcept {
-    this->result = std::move(v);
+  static void* operator new(std::size_t size, std::align_val_t alignment) {
+    return Control::allocate_aligned(size, static_cast<std::size_t>(alignment));
+  }
+
+  // do nothing in delete, actual memory will be allocated later and is owned by Control
+  static void operator delete(void*) noexcept {
+  }
+  static void operator delete(void*, std::size_t, std::align_val_t) noexcept {
+  }
+
+  Control* typed_control() const noexcept {
+    return static_cast<Control*>(this->control_);
+  }
+  auto& state_data() {
+    return typed_control()->state_manager_data;
+  }
+  auto& executor() {
+    return state_data().executor;
+  }
+
+  struct ExternalResult {
+    explicit ExternalResult() = default;
+  };
+
+  promise_type() = default;
+
+  ~promise_type() = default;
+
+  void return_value(T value) noexcept {
+    set_completion_result(td::Result<T>{std::move(value)});
+  }
+
+  template <class TT>
+  void return_value(TT&& v) noexcept
+    requires(!std::is_same_v<std::remove_cvref_t<TT>, T> && !std::is_same_v<std::remove_cvref_t<TT>, ExternalResult>)
+  {
+    set_completion_result(td::Result<T>{std::forward<TT>(v)});
+  }
+
+  void return_value(ExternalResult&&) noexcept {
+  }
+
+  void unhandled_exception() noexcept {
+    set_completion_result(td::Status::Error("unhandled exception in coroutine"));
   }
 
   auto self() noexcept {
@@ -379,7 +491,10 @@ struct promise_type : promise_value<td::Result<T>> {
 
   Task<T> get_return_object() noexcept {
     auto h = Handle::from_promise(*this);
-    this->self_handle_ = h;  // Store for TLS-aware scheduling
+    auto* c = Control::from_frame(h.address());
+    c->check_magic();
+    CHECK(reinterpret_cast<const char*>(c) + sizeof(Control) == static_cast<const char*>(h.address()));
+    this->control_ = c;
     return Task<T>{h};
   }
 
@@ -394,11 +509,11 @@ struct promise_type : promise_value<td::Result<T>> {
       }
 
       std::coroutine_handle<> await_suspend(Handle self) noexcept {
-        auto& promise = self.promise();
-        if (promise.cancellation_.try_wait_for_children()) {
+        auto& ctrl = *Control::from_frame(self.address());
+        if (ctrl.cancellation.try_wait_for_children()) {
           return std::noop_coroutine();
         }
-        return promise.complete_inline();
+        return ctrl.complete_inline();
       }
 
       void await_resume() noexcept {
@@ -409,11 +524,11 @@ struct promise_type : promise_value<td::Result<T>> {
   }
 
   auto await_transform(detail::YieldOn y) {
-    this->state_manager_data.set_executor(y.executor);
+    state_data().set_executor(y.executor);
     return y;
   }
   auto await_transform(detail::ResumeOn y) {
-    this->state_manager_data.set_executor(y.executor);
+    state_data().set_executor(y.executor);
     return y;
   }
 
@@ -423,7 +538,7 @@ struct promise_type : promise_value<td::Result<T>> {
   }
 
   auto await_transform(Yield) noexcept {
-    return yield_on(this->state_manager_data.executor);
+    return yield_on(executor());
   }
 
   auto await_transform(std::suspend_always) noexcept {
@@ -480,11 +595,11 @@ struct promise_type : promise_value<td::Result<T>> {
   }
 
   auto await_transform(ThisScope) noexcept {
-    return detail::ReadyAwaitable<CancelScope>{CancelScope{this}};
+    return detail::ReadyAwaitable<CancelScope>{CancelScope{this->control_}};
   }
 
   auto await_transform(IsActive) noexcept {
-    return detail::ReadyAwaitable<bool>{!this->should_finish_due_to_cancellation()};
+    return detail::ReadyAwaitable<bool>{!this->control_->should_finish_due_to_cancellation()};
   }
 
   auto await_transform(EnsureActive) noexcept {
@@ -492,7 +607,7 @@ struct promise_type : promise_value<td::Result<T>> {
       promise_type* promise;
 
       bool await_ready() noexcept {
-        return !promise->should_finish_due_to_cancellation();
+        return !promise->control_->should_finish_due_to_cancellation();
       }
 
       std::coroutine_handle<> await_suspend(std::coroutine_handle<promise_type> handle) noexcept {
@@ -510,7 +625,7 @@ struct promise_type : promise_value<td::Result<T>> {
       promise_type* promise;
 
       bool await_ready() noexcept {
-        return promise->cancellation_.try_enter_ignore();
+        return promise->control_->cancellation.try_enter_ignore();
       }
 
       std::coroutine_handle<> await_suspend(std::coroutine_handle<promise_type> h) noexcept {
@@ -518,7 +633,7 @@ struct promise_type : promise_value<td::Result<T>> {
       }
 
       CancellationGuard await_resume() noexcept {
-        return CancellationGuard{promise};
+        return CancellationGuard{promise->control_};
       }
     };
     return IgnoreCancellationAwaiter{this};
@@ -526,44 +641,60 @@ struct promise_type : promise_value<td::Result<T>> {
 
   // API used by TaskAwaiter specializations
   bool is_immediate_execution_always_allowed() const noexcept {
-    return this->state_manager_data.executor.is_immediate_execution_always_allowed();
+    return executor().is_immediate_execution_always_allowed();
   }
 
   std::optional<std::coroutine_handle<>> finish_if_cancelled() {
-    if (!this->should_finish_due_to_cancellation()) {
+    if (!this->control_->should_finish_due_to_cancellation()) {
       return std::nullopt;
     }
-    this->result = cancelled_status();
-    if (this->cancellation_.try_wait_for_children()) {
+    set_completion_result(cancelled_status());
+    if (this->control_->cancellation.try_wait_for_children()) {
       return std::noop_coroutine();
     }
-    return this->complete_inline();
+    return typed_control()->complete_inline();
   }
 
   std::coroutine_handle<> route_resume() {
     if (auto h = finish_if_cancelled()) {
       return *h;
     }
-    return this->state_manager_data.executor.resume_or_schedule(self());
+    return executor().resume_or_schedule(self());
   }
 
   std::coroutine_handle<> route_schedule() {
-    this->state_manager_data.executor.schedule(self());
+    executor().schedule(self());
     return std::noop_coroutine();
   }
 
   std::coroutine_handle<> route_finish(td::Result<T> r) {
-    this->return_value(std::move(r));
+    set_completion_result(std::move(r));
     return final_suspend().await_suspend(self());
   }
 
  private:
+  void set_completion_result(td::Result<T> result) noexcept {
+    typed_control()->set_result(std::move(result));
+  }
+
+  template <class U>
+  bool attach_parent_scope_and_notify_if_ready(StartedTask<U>& task, detail::TaskControlBase& inner_ctrl) {
+    CHECK(!inner_ctrl.cancellation.has_parent_scope());
+    inner_ctrl.cancellation.set_parent_lease(inner_ctrl, bridge::make_parent_scope_lease(*this->control_));
+    if (!task.await_ready()) {
+      return false;
+    }
+    // If task completed during attach, release the transient parent child-ref now.
+    inner_ctrl.cancellation.notify_parent_child_completed(inner_ctrl);
+    return true;
+  }
+
   template <AwaiterLinkMode LinkMode, class U>
   auto normalize_task_awaitable(Task<U>&& task) noexcept {
     if constexpr (LinkMode == AwaiterLinkMode::Unlinked) {
       return std::move(task).start_immediate_without_scope();
     } else {
-      return std::move(task).start_immediate_in_parent_scope(bridge::make_parent_scope_lease(*this));
+      return std::move(task).start_immediate_in_parent_scope(bridge::make_parent_scope_lease(*this->control_));
     }
   }
 
@@ -573,7 +704,7 @@ struct promise_type : promise_value<td::Result<T>> {
       check_child_started_task_await(task);
     } else if constexpr (LinkMode == AwaiterLinkMode::Auto) {
       auto was_ready = maybe_attach_started_task_scope(task);
-      debug_check_scoped_started_task_await(task.get_promise(), was_ready);
+      debug_check_scoped_started_task_await(task.valid() ? &task.ctrl() : nullptr, was_ready);
     }
     return std::move(task);
   }
@@ -581,59 +712,39 @@ struct promise_type : promise_value<td::Result<T>> {
   template <class U>
   bool maybe_attach_started_task_scope(StartedTask<U>& task) {
     auto was_ready = task.await_ready();
-    if (was_ready || !this->cancellation_.has_parent_scope()) {
+    if (was_ready || !this->control_->cancellation.has_parent_scope()) {
       return was_ready;
     }
 
-    auto* inner = task.get_promise();
-    if (!inner || inner->cancellation_.has_parent_scope()) {
+    auto& inner_ctrl = task.ctrl();
+    if (inner_ctrl.cancellation.has_parent_scope()) {
       return false;
     }
 
-    inner->cancellation_.set_parent_lease(*inner, bridge::make_parent_scope_lease(*this));
-    if (task.await_ready()) {
-      // If task completed during attach, release the transient parent child-ref now.
-      inner->cancellation_.notify_parent_child_completed(*inner);
-      return true;
-    }
-    return false;
+    return attach_parent_scope_and_notify_if_ready(task, inner_ctrl);
   }
 
   template <class U>
   void check_child_started_task_await(StartedTask<U>& task) {
     CHECK(task.valid());
-    auto* inner = task.get_promise();
-    CHECK(inner);
-
-    if (inner->cancellation_.is_parent(this)) {
-      return;
-    }
     if (task.await_ready()) {
       return;
     }
-    if (!inner->cancellation_.has_parent_scope()) {
-      inner->cancellation_.set_parent_lease(*inner, bridge::make_parent_scope_lease(*this));
-      if (task.await_ready()) {
-        // If task completed during attach, release the transient parent child-ref now.
-        inner->cancellation_.notify_parent_child_completed(*inner);
-        return;
-      }
-      if (inner->cancellation_.is_parent(this)) {
-        return;
-      }
-    }
-    if (inner->cancellation_.is_parent(this)) {
+    auto& inner_ctrl = task.ctrl();
+    if (inner_ctrl.cancellation.is_parent(this->control_)) {
       return;
     }
-    if (task.await_ready()) {
-      return;
+    if (!inner_ctrl.cancellation.has_parent_scope()) {
+      attach_parent_scope_and_notify_if_ready(task, inner_ctrl);
     }
-    LOG(FATAL) << "Awaiting non-child StartedTask via child(). "
-                  "Use unlinked() for explicit unsafe await.";
+    LOG_CHECK(task.await_ready() || inner_ctrl.cancellation.is_parent(this->control_))
+        << "Awaiting non-child StartedTask via child(). "
+           "Use unlinked() for explicit unsafe await.";
   }
 
-  void debug_check_scoped_started_task_await(promise_common* inner, bool inner_ready) const {
-    if (inner_ready || !this->cancellation_.has_parent_scope() || !inner || inner->cancellation_.has_parent_scope()) {
+  void debug_check_scoped_started_task_await(detail::TaskControlBase* inner_ctrl, bool inner_ready) const {
+    if (inner_ready || !this->control_->cancellation.has_parent_scope() || !inner_ctrl ||
+        inner_ctrl->cancellation.has_parent_scope()) {
       return;
     }
 #ifdef TD_DEBUG
@@ -649,37 +760,103 @@ struct promise_type : promise_value<td::Result<T>> {
   }
 };
 
+template <class T>
+inline std::coroutine_handle<> detail::TaskControl<T>::get_handle() const {
+  return handle();
+}
+
+template <class T>
+inline void detail::TaskControl<T>::on_zero_refs() {
+  cancellation.on_last_ref_teardown(*this);
+  try_destroy_frame();
+  free_allocation();
+}
+
+template <class Derived, class T>
+struct TaskHandle {
+  using Control = detail::TaskControl<T>;
+  Ref<Control> control_;
+
+  Control& ctrl() const {
+    DCHECK(control_);
+    return *control_;
+  }
+
+  td::Result<T> await_resume() noexcept {
+    return ctrl().extract_result();
+  }
+
+  const td::Result<T>& await_resume_peek() const noexcept {
+    return ctrl().peek_result();
+  }
+
+  auto wrap() && {
+    return Wrapped<Derived>{std::move(self())};
+  }
+
+  auto trace(std::string t) && {
+    return Traced<Derived>{std::move(self()), std::move(t)};
+  }
+
+  auto child() && {
+    return ChildAwait<Derived>{std::move(self())};
+  }
+
+  auto unlinked() && {
+    return UnlinkedAwait<Derived>{std::move(self())};
+  }
+
+  template <class F>
+  auto then(F&& f) && {
+    using FDecayed = std::decay_t<F>;
+    using Awaitable = decltype(detail::make_awaitable(std::declval<FDecayed&>()(std::declval<T&&>())));
+    using Ret = decltype(std::declval<Awaitable&>().await_resume());
+    using U = detail::UnwrapTDResult<Ret>::Type;
+    return [](Derived task, FDecayed fn) mutable -> Task<U> {
+      co_await become_lightweight();
+      auto value = co_await std::move(task);
+      co_return co_await detail::make_awaitable(fn(std::move(value)));
+    }(std::move(self()), std::forward<F>(f));
+  }
+
+ private:
+  Derived& self() {
+    return *static_cast<Derived*>(this);
+  }
+};
+
 template <class T = Unit>
-struct [[nodiscard]] Task {
+struct [[nodiscard]] Task : TaskHandle<Task<T>, T> {
   using value_type = T;
 
   using promise_type = td::actor::promise_type<T>;
   using Handle = std::coroutine_handle<promise_type>;
   enum class StartMode : uint8_t { Scheduled, Immediate, External };
-  Handle h{};
+  using Control = detail::TaskControl<T>;
 
   Task() = default;
-  explicit Task(Handle hh) : h(hh) {
+  explicit Task(Handle hh) {
+    this->control_ = Ref<Control>::adopt(Control::from_frame(hh.address()));
   }
-  Task(Task&& o) noexcept : h(std::exchange(o.h, {})) {
-  }
+  Task(Task&&) noexcept = default;
   Task& operator=(Task&& o) = delete;
   Task(const Task&) = delete;
   Task& operator=(const Task&) = delete;
 
-  auto sm() {
-    return detail::TaskStateManager<promise_type>{&h.promise().state_manager_data};
+  promise_type& promise() const {
+    return this->ctrl().promise();
+  }
+  Handle handle() const {
+    return this->ctrl().handle();
   }
 
-  ~Task() noexcept {
-    detach();
+  auto sm() {
+    return detail::TaskStateManager<promise_type>{&this->ctrl().state_manager_data};
   }
+
+  ~Task() noexcept = default;
   void detach() {
-    if (!h) {
-      return;
-    }
-    sm().on_detach(h);
-    h = {};
+    this->control_.reset();
   }
 
   // Preferred: auto-peek parent scope from TLS
@@ -721,22 +898,7 @@ struct [[nodiscard]] Task {
   }
 
   ParentScopeLease lease() {
-    CHECK(h);
-    return bridge::make_parent_scope_lease(h.promise());
-  }
-
-  template <class F>
-  auto then(F&& f) && {
-    using Self = Task<T>;
-    using FDecayed = std::decay_t<F>;
-    using Awaitable = decltype(detail::make_awaitable(std::declval<FDecayed&>()(std::declval<T&&>())));
-    using Ret = decltype(std::declval<Awaitable&>().await_resume());
-    using U = detail::UnwrapTDResult<Ret>::Type;
-    return [](Self task, FDecayed fn) mutable -> Task<U> {
-      co_await become_lightweight();
-      auto value = co_await std::move(task);
-      co_return co_await detail::make_awaitable(fn(std::move(value)));
-    }(std::move(*this), std::forward<F>(f));
+    return bridge::make_parent_scope_lease(this->ctrl());
   }
 
   template <class F>
@@ -756,25 +918,26 @@ struct [[nodiscard]] Task {
  private:
   StartedTask<T> start_impl(ParentScopeLease scope, StartMode mode) && {
     if (scope) {
-      auto& promise = h.promise();
-      promise.cancellation_.set_parent_lease(promise, std::move(scope));
+      auto& ctrl = this->ctrl();
+      ctrl.cancellation.set_parent_lease(ctrl, std::move(scope));
     }
     return std::move(*this).start_registered(mode);
   }
 
   StartedTask<T> start_registered(StartMode mode) && {
-    h.promise().add_ref();  // For StartedTask, before start
+    this->ctrl().add_ref();  // coroutine's own ref, decremented on completion
     run_registered_start(mode);
-    return StartedTask<T>{std::exchange(h, {})};
+    return StartedTask<T>{std::move(this->control_)};
   }
 
   void run_registered_start(StartMode mode) {
+    auto h = handle();
     switch (mode) {
       case StartMode::Scheduled:
         sm().start(h);
         break;
       case StartMode::Immediate: {
-        detail::TlsGuard guard(&h.promise());
+        detail::TlsGuard guard(h.promise().control_);
         sm().start_immediate(h);
         break;
       }
@@ -786,74 +949,46 @@ struct [[nodiscard]] Task {
 
  public:
   void set_executor(Executor new_executor) {
-    CHECK(h);
     sm().set_executor(std::move(new_executor));
   }
 
-  constexpr bool await_ready() noexcept {
+  bool await_ready() noexcept {
     return sm().is_ready();
   }
 
   std::coroutine_handle<> await_suspend(std::coroutine_handle<> continuation) noexcept {
-    CHECK(h);
-    return sm().on_suspend_and_start(h, continuation);
-  }
-  td::Result<T> await_resume() noexcept {
-    CHECK(h);
-    return h.promise().extract_result();
-  }
-
-  const td::Result<T>& await_resume_peek() const noexcept {
-    CHECK(h);
-    return h.promise().result;
-  }
-
-  auto wrap() && {
-    return Wrapped<Task>{std::move(*this)};
-  }
-
-  auto trace(std::string t) && {
-    return Traced<Task>{std::move(*this), std::move(t)};
-  }
-
-  auto child() && {
-    return ChildAwait<Task>{std::move(*this)};
-  }
-
-  auto unlinked() && {
-    return UnlinkedAwait<Task>{std::move(*this)};
+    return sm().on_suspend_and_start(handle(), continuation);
   }
 };
 
 template <class T = Unit>
-struct [[nodiscard]] StartedTask {
+struct [[nodiscard]] StartedTask : TaskHandle<StartedTask<T>, T> {
   using value_type = T;
 
   using promise_type = td::actor::promise_type<T>;
   using Handle = std::coroutine_handle<promise_type>;
-  Handle h{};
+  using Control = detail::TaskControl<T>;
 
   bool valid() const {
-    return h.address() != nullptr;
+    return bool(this->control_);
   }
 
   auto sm() {
-    CHECK(h);
-    return detail::StartedTaskStateManager<promise_type>{&h.promise().state_manager_data};
+    return detail::StartedTaskStateManager<promise_type>{&this->ctrl().state_manager_data};
   }
-  promise_common* get_promise() {
-    return h ? &h.promise() : nullptr;
+  Handle handle() const {
+    return this->ctrl().handle();
   }
   StartedTask() = default;
-  explicit StartedTask(Handle hh) : h(hh) {
-    CHECK(h);
+  explicit StartedTask(Ref<Control> ctrl) {
+    CHECK(ctrl);
+    this->control_ = std::move(ctrl);
   }
-  StartedTask(StartedTask&& o) noexcept : h(std::exchange(o.h, {})) {
-  }
+  StartedTask(StartedTask&&) noexcept = default;
   StartedTask& operator=(StartedTask&& o) {
     if (this != &o) {
       reset();
-      h = std::exchange(o.h, {});
+      this->control_ = std::move(o.control_);
     }
     return *this;
   }
@@ -865,15 +1000,13 @@ struct [[nodiscard]] StartedTask {
     reset();
   }
   void reset() {
-    // A completed task has already run final_suspend and has no live children.
-    // Avoid redundant cancel() on this common path.
-    if (h && !await_ready()) {
+    if (this->control_ && !await_ready()) {
       cancel();
     }
     detach_silent();
   }
   void detach(std::string description = "UnknownTask") && {
-    if (!h) {
+    if (!this->control_) {
       return;
     }
     [](auto self, std::string description) -> Task<Unit> {
@@ -886,11 +1019,7 @@ struct [[nodiscard]] StartedTask {
                                                   .detach_silent();
   }
   void detach_silent() {
-    if (!h) {
-      return;
-    }
-    sm().on_detach(h);
-    h = {};
+    this->control_.reset();
   }
   bool await_ready() noexcept {
     return sm().is_ready();
@@ -899,49 +1028,10 @@ struct [[nodiscard]] StartedTask {
   std::coroutine_handle<> await_suspend(std::coroutine_handle<> continuation) noexcept {
     return sm().on_suspend(continuation);
   }
-  td::Result<T> await_resume() noexcept {
-    return h.promise().extract_result();
-  }
 
-  const td::Result<T>& await_resume_peek() const noexcept {
-    CHECK(h);
-    return h.promise().result;
-  }
-
-  auto wrap() && {
-    return Wrapped<StartedTask>{std::move(*this)};
-  }
-
-  auto trace(std::string t) && {
-    return Traced<StartedTask>{std::move(*this), std::move(t)};
-  }
-
-  auto child() && {
-    return ChildAwait<StartedTask>{std::move(*this)};
-  }
-
-  auto unlinked() && {
-    return UnlinkedAwait<StartedTask>{std::move(*this)};
-  }
-
-  template <class F>
-  auto then(F&& f) && {
-    using Self = StartedTask<T>;
-    using FDecayed = std::decay_t<F>;
-    using Awaitable = decltype(detail::make_awaitable(std::declval<FDecayed&>()(std::declval<T&&>())));
-    using Ret = decltype(std::declval<Awaitable&>().await_resume());
-    using U = detail::UnwrapTDResult<Ret>::Type;
-    return [](Self task, FDecayed fn) mutable -> Task<U> {
-      co_await become_lightweight();
-      auto value = co_await std::move(task);
-      co_return co_await detail::make_awaitable(fn(std::move(value)));
-    }(std::move(*this), std::forward<F>(f));
-  }
-
-  // Cancel this task and all its children
   void cancel() {
-    if (h) {
-      h.promise().cancel();
+    if (this->control_ && !sm().is_ready()) {
+      this->ctrl().cancel();
     }
   }
 
@@ -982,7 +1072,7 @@ struct [[nodiscard]] StartedTask {
   static std::pair<StartedTask, ExternalPromise> make_bridge() {
     auto task = []() -> Task<T> { co_return typename promise_type::ExternalResult{}; }();
     task.set_executor(Executor::on_scheduler());
-    auto bridge_promise = ExternalPromise(&task.h.promise());
+    auto bridge_promise = ExternalPromise(&task.promise());
     auto started_task = std::move(task).start_external_in_parent_scope();
     return std::make_pair(std::move(started_task), std::move(bridge_promise));
   }
@@ -1021,10 +1111,8 @@ class TaskGroup {
 
   ParentScopeLease get_scope_lease() {
     CHECK(!closed_);
-    auto* promise = root_.get_promise();
-    CHECK(promise);
-    // We know that the task is not finished. This is the only reason it is OK to get scope from outside the coroutine.
-    return bridge::make_parent_scope_lease(*promise);
+    CHECK(root_.valid());
+    return bridge::make_parent_scope_lease(root_.ctrl());
   }
 
   template <class T>
@@ -1077,12 +1165,8 @@ class TaskGroup {
     task.set_executor(Executor::on_scheduler());
 
     TaskGroup source;
-    source.external_ = StartedTask<td::Unit>::ExternalPromise(&task.h.promise());
-    if (parent_scope) {
-      source.root_ = std::move(task).start_external_in_parent_scope(std::move(parent_scope));
-    } else {
-      source.root_ = std::move(task).start_external_without_scope();
-    }
+    source.external_ = StartedTask<td::Unit>::ExternalPromise(&task.promise());
+    source.root_ = std::move(task).start_external_in_parent_scope(std::move(parent_scope));
     return source;
   }
 

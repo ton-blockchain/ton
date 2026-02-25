@@ -16,12 +16,8 @@ namespace td::actor {
 struct promise_common;
 
 namespace bridge {
-bool should_finish_due_to_cancellation(const promise_common& self);
-
-inline bool should_finish_due_to_cancellation_tls() {
-  auto* p = detail::get_current_promise();
-  return p && should_finish_due_to_cancellation(*p);
-}
+bool should_finish_due_to_cancellation(const detail::TaskControlBase& self);
+bool should_finish_due_to_cancellation_tls();
 }  // namespace bridge
 
 namespace detail {
@@ -49,13 +45,13 @@ struct WrappedCoroutine {
         }
         std::coroutine_handle<> await_suspend(std::coroutine_handle<promise_type> self) noexcept {
           if constexpr (std::is_base_of_v<promise_common, OuterPromise>) {
-            auto actor_ref = p->outer.promise().state_manager_data.executor.actor_ref_or_empty();
+            auto actor_ref = p->outer.promise().control().state_manager_data.executor.actor_ref_or_empty();
             if (actor_ref) {
-              actor_ref.actor_info().unpublish_coro_cancel_node(p->outer.promise());
+              actor_ref.actor_info().unpublish_coro_cancel_node(p->outer.promise().control());
             }
           }
-          // Set TLS to outer promise before resuming it (for structured concurrency)
-          set_current_promise(p->outer);
+          // Set TLS to outer control block before resuming it (for structured concurrency)
+          set_current_ctrl(p->outer);
           auto next = p->body->route_resume(p->outer);
           self.destroy();
           return next;
@@ -94,9 +90,9 @@ template <class BodyT, class OuterPromiseT>
 template <class BodyT, class OuterPromiseT>
 [[nodiscard]] std::coroutine_handle<> wrap_coroutine(BodyT* body, std::coroutine_handle<OuterPromiseT> outer) noexcept {
   if constexpr (std::is_base_of_v<promise_common, OuterPromiseT>) {
-    auto actor_ref = outer.promise().state_manager_data.executor.actor_ref_or_empty();
+    auto actor_ref = outer.promise().control().state_manager_data.executor.actor_ref_or_empty();
     if (actor_ref) {
-      actor_ref.actor_info().publish_coro_cancel_node(outer.promise());
+      actor_ref.actor_info().publish_coro_cancel_node(outer.promise().control());
     }
   }
   auto tmp = make_wrapped_coroutine(body, outer);

@@ -5,6 +5,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <unistd.h>
 #include <utility>
 #include <vector>
 
@@ -34,24 +35,25 @@ inline void expect_true(bool cond, const char* msg) {
 }
 
 template <class Pred>
-Task<bool> wait_until(Pred&& pred, int max_iters = 50) {
-  for (int i = 0; i < max_iters; i++) {
-    if (pred()) {
-      co_return true;
-    }
+Task<td::Unit> wait_until(Pred&& pred, const char* msg = "wait_until timed out", double timeout_sec = 1.0) {
+  auto deadline = td::Timestamp::in(timeout_sec);
+  while (!pred()) {
+    LOG_CHECK(!deadline.is_in_past()) << msg;
     co_await yield_on_current();
   }
-  co_return pred();
+  co_return td::Unit{};
 }
+
+struct MarkDestroyedFlag {
+  std::shared_ptr<std::atomic<bool>> flag;
+  ~MarkDestroyedFlag() {
+    flag->store(true, std::memory_order_release);
+  }
+};
 
 Task<td::Unit> run_forever_mark_lifetime(std::shared_ptr<std::atomic<bool>> started,
                                          std::shared_ptr<std::atomic<bool>> destroyed) {
-  struct MarkDestroyed {
-    std::shared_ptr<std::atomic<bool>> flag;
-    ~MarkDestroyed() {
-      flag->store(true, std::memory_order_release);
-    }
-  } mark_destroyed{std::move(destroyed)};
+  MarkDestroyedFlag mark_destroyed{std::move(destroyed)};
 
   started->store(true, std::memory_order_release);
   while (true) {
@@ -215,7 +217,7 @@ static Task<int> parent_with_two_children(std::shared_ptr<std::atomic<int>> chil
 
 static Task<int> tls_after_yield() {
   co_await yield_on_current();
-  auto* current = detail::get_current_promise();
+  auto* current = detail::get_current_ctrl();
   co_return current != nullptr ? 1 : 0;
 }
 
@@ -225,9 +227,9 @@ static Task<int> yielding_child() {
 }
 
 static Task<int> tls_safety_parent() {
-  auto* before = detail::get_current_promise();
+  auto* before = detail::get_current_ctrl();
   auto child = yielding_child().start_immediate_without_scope();
-  auto* after = detail::get_current_promise();
+  auto* after = detail::get_current_ctrl();
   if (before != after) {
     co_return -1;
   }
@@ -353,25 +355,8 @@ struct ExternalParentReproCase {
   ExternalParentAction action{ExternalParentAction::SetValue};
 };
 
-static const char* external_parent_action_name(ExternalParentAction action) {
-  switch (action) {
-    case ExternalParentAction::SetValue:
-      return "set_value";
-    case ExternalParentAction::SetError:
-      return "set_error";
-    case ExternalParentAction::DropPromise:
-      return "drop_promise";
-  }
-  return "unknown";
-}
-
 static Task<td::Unit> external_parent_scope_repro_case(ExternalParentReproCase c) {
   using ExternalPromise = StartedTask<td::Unit>::ExternalPromise;
-
-  LOG(INFO) << "external-parent repro case begin id=" << c.case_id << " repeat=" << c.repeat
-            << " cancel_parent=" << c.cancel_parent << " cancel_child_before_detach=" << c.cancel_child_before_detach
-            << " setup_yields=" << c.setup_yields << " action_yields=" << c.action_yields
-            << " action=" << external_parent_action_name(c.action);
 
   auto started = std::make_shared<std::atomic<bool>>(false);
   auto external_promise = std::make_shared<std::optional<ExternalPromise>>();
@@ -383,7 +368,7 @@ static Task<td::Unit> external_parent_scope_repro_case(ExternalParentReproCase c
     auto external_child = []() -> Task<td::Unit> {
       co_return typename Task<td::Unit>::promise_type::ExternalResult{};
     }();
-    external_promise->emplace(&external_child.h.promise());
+    external_promise->emplace(&external_child.promise());
 
     auto started_child = std::move(external_child).start_external_in_parent_scope(std::move(lease));
     for (int i = 0; i < setup_yields; i++) {
@@ -398,8 +383,7 @@ static Task<td::Unit> external_parent_scope_repro_case(ExternalParentReproCase c
   }(started, external_promise, c.cancel_child_before_detach, c.setup_yields)
                                             .start_in_parent_scope();
 
-  bool parent_started = co_await wait_until([started] { return started->load(std::memory_order_acquire); }, 5000);
-  LOG_CHECK(parent_started) << "external-parent repro: parent not started, case_id=" << c.case_id;
+  co_await wait_until([started] { return started->load(std::memory_order_acquire); }, "parent not started");
   LOG_CHECK(external_promise->has_value()) << "external-parent repro: missing external promise, case_id=" << c.case_id;
 
   for (int i = 0; i < c.action_yields; i++) {
@@ -422,23 +406,19 @@ static Task<td::Unit> external_parent_scope_repro_case(ExternalParentReproCase c
       break;
   }
 
-  bool parent_ready = co_await wait_until([&parent] { return parent.await_ready(); }, 5000);
-  LOG_CHECK(parent_ready) << "external-parent repro: parent stalled, case_id=" << c.case_id;
+  co_await wait_until([&parent] { return parent.await_ready(); }, "parent stalled");
 
   auto r = co_await std::move(parent).wrap();
   if (c.cancel_parent) {
     if (r.is_error()) {
       LOG_CHECK(r.error().code() == td::actor::kCancelledCode)
           << "external-parent repro: unexpected error code, case_id=" << c.case_id;
-      LOG(INFO) << "external-parent repro case cancel outcome id=" << c.case_id << ": err653";
     } else {
-      LOG(INFO) << "external-parent repro case cancel outcome id=" << c.case_id << ": ok";
     }
   } else {
     LOG_CHECK(r.is_ok()) << "external-parent repro: expected OK parent, case_id=" << c.case_id;
   }
 
-  LOG(INFO) << "external-parent repro case done id=" << c.case_id;
   co_return td::Unit{};
 }
 
@@ -505,13 +485,13 @@ TEST_CORO(Coro, TLS_matches_this_scope_on_scheduler_path) {
   auto r = co_await []() -> Task<int> {
     co_await detach_from_actor();
     auto scope = co_await this_scope();
-    auto* tls = detail::get_current_promise();
-    if (!tls || tls != scope.get_promise()) {
+    auto* tls = detail::get_current_ctrl();
+    if (!tls || tls != scope.get_ctrl()) {
       co_return 0;
     }
     co_await yield_on_current();
-    auto* tls2 = detail::get_current_promise();
-    co_return (tls2 && tls2 == scope.get_promise()) ? 1 : 0;
+    auto* tls2 = detail::get_current_ctrl();
+    co_return (tls2 && tls2 == scope.get_ctrl()) ? 1 : 0;
   }()
                                 .wrap();
   expect_ok(r, "Scheduler TLS test should not error");
@@ -543,7 +523,7 @@ TEST_CORO(Coro, ask_promise_path_preserves_scope_tracking) {
 
   (co_await [done, actor]() -> Task<td::Unit> {
     auto scope = co_await this_scope();
-    expect_true(detail::get_current_promise() == scope.get_promise(), "TLS should match scope before ask()");
+    expect_true(detail::get_current_ctrl() == scope.get_ctrl(), "TLS should match scope before ask()");
     auto req = ask(actor, &PromiseScopeActor::run, done);
     req.detach_silent();
     co_return td::Unit{};
@@ -573,13 +553,13 @@ TEST_CORO(Coro, ask_Task_return_remote_coroutine_TLS_resume_location) {
    public:
     Task<int> check_tls_and_yield() {
       auto scope = co_await this_scope();
-      auto* p0 = detail::get_current_promise();
-      if (!p0 || p0 != scope.get_promise()) {
+      auto* p0 = detail::get_current_ctrl();
+      if (!p0 || p0 != scope.get_ctrl()) {
         co_return 0;
       }
       co_await yield_on_current();
-      auto* p1 = detail::get_current_promise();
-      co_return (p1 && p1 == scope.get_promise()) ? 1 : 0;
+      auto* p1 = detail::get_current_ctrl();
+      co_return (p1 && p1 == scope.get_ctrl()) ? 1 : 0;
     }
   };
 
@@ -655,14 +635,8 @@ TEST_CORO(Coro, cancel_parent_while_awaiting_1_of_N_children) {
   auto parent =
       parent_body(children_started, std::move(g0.task), std::move(g1.task), std::move(g2.task)).start_in_parent_scope();
 
-  bool started_ok = false;
-  for (int i = 0; i < 100 && !started_ok; i++) {
-    started_ok = children_started->load(std::memory_order_acquire);
-    if (!started_ok) {
-      co_await yield_on_current();
-    }
-  }
-  expect_true(started_ok, "Parent should start and spawn children");
+  co_await wait_until([&] { return children_started->load(std::memory_order_acquire); },
+                      "Parent should start and spawn children");
   parent.cancel();
   g0.open();
   for (int i = 0; i < 5; i++) {
@@ -771,8 +745,7 @@ TEST_CORO(Coro, infinite_wait_cancelled_when_actor_stopped) {
   auto actor = td::actor::create_actor<InfiniteWaitActor>("InfiniteWaitActor").release();
   auto t = ask(actor, &InfiniteWaitActor::wait_forever, started).start_in_parent_scope();
 
-  bool started_ok = co_await wait_until([&] { return started->load(std::memory_order_acquire); }, 5000);
-  expect_true(started_ok, "Infinite wait coroutine should start");
+  co_await wait_until([&] { return started->load(std::memory_order_acquire); }, "Infinite wait coroutine should start");
   send_closure(actor, &InfiniteWaitActor::request_stop);
 
   auto timed_wrap = co_await with_timeout(std::move(t), 0.5).wrap();
@@ -882,13 +855,8 @@ TEST_CORO(Coro, cancel_does_not_call_on_cancel_after_awaiter_resume) {
   };
 
   auto t = worker().start_in_parent_scope();
-  bool done = false;
-  for (int i = 0; i < 100 && !done; i++) {
-    done = awaiter_done.load(std::memory_order_acquire);
-    if (!done)
-      co_await yield_on_current();
-  }
-  expect_true(done, "Awaiter should complete before cancellation");
+  co_await wait_until([&] { return awaiter_done.load(std::memory_order_acquire); },
+                      "Awaiter should complete before cancellation");
   t.cancel();
   auto r = co_await std::move(t).wrap();
   expect_true(r.is_error(), "Expected cancellation");
@@ -948,17 +916,14 @@ TEST_CORO(Coro, double_publish_does_not_leak_or_double_cleanup) {
     co_return td::Unit{};
   };
   auto t = worker().start_without_scope();
-  bool done = false;
-  for (int i = 0; i < 100 && !done; i++) {
-    done = awaiter_done->load(std::memory_order_acquire);
-    if (!done)
-      co_await yield_on_current();
-  }
-  expect_true(done, "Awaiter should complete before cancellation");
+  co_await wait_until([&] { return awaiter_done->load(std::memory_order_acquire); },
+                      "Awaiter should complete before cancellation");
   t.cancel();
   auto r = co_await std::move(t).wrap();
   expect_true(r.is_error(), "Expected cancellation");
   expect_eq(r.error().code(), kCancelledCode, "Expected Error(653)");
+  co_await wait_until([&] { return stats->destroy_calls.load(std::memory_order_acquire) == 1; },
+                      "Node must be destroyed exactly once");
   expect_eq(stats->cancel_calls.load(std::memory_order_acquire), 0,
             "Cancel callback must not run after awaiter disarm");
   expect_eq(stats->cleanup_calls.load(std::memory_order_acquire), 0,
@@ -987,8 +952,7 @@ TEST_CORO(Coro, cancellation_propagates_through_ask_to_remote) {
   auto started = std::make_shared<std::atomic<bool>>(false);
   auto saw_cancel = std::make_shared<std::atomic<bool>>(false);
   auto t = ask(actor, &SlowActor::slow_method, started, saw_cancel).start_in_parent_scope();
-  bool started_ok = co_await wait_until([&] { return started->load(std::memory_order_acquire); }, 5000);
-  expect_true(started_ok, "Actor method should start");
+  co_await wait_until([&] { return started->load(std::memory_order_acquire); }, "Actor method should start");
   t.cancel();
   auto r = co_await std::move(t).wrap();
   expect_true(r.is_error(), "ask() should return error when cancelled");
@@ -1353,18 +1317,18 @@ TEST_CORO(Coro, publish_vs_cancel_child_cancelled_exactly_once) {
 TEST_CORO(Coro, IGNORED_bit_doesnt_corrupt_child_count) {
   auto outer = []() -> Task<td::Unit> {
     auto scope = co_await this_scope();
-    auto* promise = scope.get_promise();
-    auto initial_count = promise->cancellation_.child_count_relaxed_for_test();
+    auto* ctrl = scope.get_ctrl();
+    auto initial_count = ctrl->cancellation.child_count_relaxed_for_test();
     {
       auto guard = co_await ignore_cancellation();
-      auto count_in_guard = promise->cancellation_.child_count_relaxed_for_test();
+      auto count_in_guard = ctrl->cancellation.child_count_relaxed_for_test();
       expect_eq(count_in_guard, initial_count, "child_count unchanged by ignore");
-      promise->cancellation_.add_child_ref();
-      auto count_with_child = promise->cancellation_.child_count_relaxed_for_test();
+      ctrl->cancellation.add_child_ref();
+      auto count_with_child = ctrl->cancellation.child_count_relaxed_for_test();
       expect_eq(count_with_child, initial_count + 1, "child_count incremented correctly with IGNORED");
-      promise->cancellation_.release_child_ref(*promise, CancellationRuntime::ChildReleasePolicy::NoComplete);
+      ctrl->cancellation.release_child_ref(*ctrl, CancellationRuntime::ChildReleasePolicy::NoComplete);
     }
-    auto final_count = promise->cancellation_.child_count_relaxed_for_test();
+    auto final_count = ctrl->cancellation.child_count_relaxed_for_test();
     expect_eq(final_count, initial_count, "child_count restored after guard drop");
     co_return td::Unit{};
   };
@@ -1579,6 +1543,7 @@ TEST_CORO(Coro, asks) {
   auto db = td::actor::create_actor<TestDatabase>("TestDatabase", logger.get());
 
   co_await Yield{};
+  expect_eq(co_await ask(db, &TestDatabase::square, 4), static_cast<size_t>(16), "warmup ask result");
   for (int i = 0; i < 16; i++) {
     auto immediate = ask_immediate(db, &TestDatabase::square, 4);
     expect_true(immediate.await_ready(), "immediate ask is ready");
@@ -1913,7 +1878,7 @@ TEST_CORO(Coro, try_awaitable) {
       co_await sleep_for(0.005);
       auto scope = co_await this_scope();
       CHECK(scope);
-      co_return scope.get_promise()->cancellation_.has_parent_scope();
+      co_return scope.get_ctrl()->cancellation.has_parent_scope();
     };
 
     auto outer = [probe_scope]() -> Task<bool> {
@@ -1932,7 +1897,7 @@ TEST_CORO(Coro, try_awaitable) {
       co_await sleep_for(0.005);
       auto scope = co_await this_scope();
       CHECK(scope);
-      co_return scope.get_promise()->cancellation_.has_parent_scope();
+      co_return scope.get_ctrl()->cancellation.has_parent_scope();
     };
 
     auto outer = [probe_scope]() -> Task<bool> {
@@ -1963,7 +1928,7 @@ TEST_CORO(Coro, try_awaitable) {
       co_await sleep_for(0.005);
       auto scope = co_await this_scope();
       CHECK(scope);
-      co_return scope.get_promise()->cancellation_.has_parent_scope();
+      co_return scope.get_ctrl()->cancellation.has_parent_scope();
     };
 
     auto outer = [probe_scope]() -> Task<bool> {
@@ -2556,29 +2521,29 @@ TEST_CORO(Coro, cancellation_parent_scope_lease) {
   // Test 1: ParentScopeLease keeps scope alive via child_count
   co_await []() -> Task<td::Unit> {
     auto scope = co_await this_scope();
-    auto* promise = scope.get_promise();
-    CHECK(promise);
+    auto* ctrl = scope.get_ctrl();
+    CHECK(ctrl);
 
-    auto initial_count = promise->cancellation_.child_count_relaxed_for_test();
+    auto initial_count = ctrl->cancellation.child_count_relaxed_for_test();
     {
       auto handle = current_scope_lease();
-      auto count_after_handle = promise->cancellation_.child_count_relaxed_for_test();
+      auto count_after_handle = ctrl->cancellation.child_count_relaxed_for_test();
       expect_eq(count_after_handle, initial_count + 1, "Handle should increment child_count");
     }
-    auto count_after_destroy = promise->cancellation_.child_count_relaxed_for_test();
+    auto count_after_destroy = ctrl->cancellation.child_count_relaxed_for_test();
     expect_eq(count_after_destroy, initial_count, "Destroying handle should decrement child_count");
     co_return td::Unit{};
   }();
 
-  // Test 2: ParentScopeLease promise reports cancellation correctly
+  // Test 2: ParentScopeLease reports cancellation correctly
   co_await []() -> Task<td::Unit> {
     auto scope = co_await this_scope();
-    auto* promise = scope.get_promise();
-    CHECK(promise);
+    auto* ctrl = scope.get_ctrl();
+    CHECK(ctrl);
 
     auto handle = current_scope_lease();
     expect_true(handle && !handle.is_cancelled(), "Handle should not be cancelled initially");
-    promise->cancel();
+    ctrl->cancel();
     expect_true(handle && handle.is_cancelled(), "Handle should see cancellation");
     co_return td::Unit{};
   }();
@@ -2586,20 +2551,20 @@ TEST_CORO(Coro, cancellation_parent_scope_lease) {
   // Test 3: Move assignment decrements old handle's count
   co_await []() -> Task<td::Unit> {
     auto scope = co_await this_scope();
-    auto* promise = scope.get_promise();
-    CHECK(promise);
+    auto* ctrl = scope.get_ctrl();
+    CHECK(ctrl);
 
-    auto initial_count = promise->cancellation_.child_count_relaxed_for_test();
+    auto initial_count = ctrl->cancellation.child_count_relaxed_for_test();
     auto handle1 = current_scope_lease();
-    auto count_with_h1 = promise->cancellation_.child_count_relaxed_for_test();
+    auto count_with_h1 = ctrl->cancellation.child_count_relaxed_for_test();
     expect_eq(count_with_h1, initial_count + 1, "handle1 should add 1");
 
     auto handle2 = current_scope_lease();
-    auto count_with_h2 = promise->cancellation_.child_count_relaxed_for_test();
+    auto count_with_h2 = ctrl->cancellation.child_count_relaxed_for_test();
     expect_eq(count_with_h2, initial_count + 2, "handle2 should add 1 more");
 
     handle1 = std::move(handle2);
-    auto count_after_move = promise->cancellation_.child_count_relaxed_for_test();
+    auto count_after_move = ctrl->cancellation.child_count_relaxed_for_test();
     expect_eq(count_after_move, initial_count + 1, "Move assignment should decrement old count");
     co_return td::Unit{};
   }();
@@ -2617,8 +2582,7 @@ TEST_CORO(Coro, cancellation_parent_scope_lease) {
     }(held_handle, started)
                                                                         .start_in_parent_scope();
 
-    bool parent_started = co_await wait_until([&] { return started->load(std::memory_order_acquire); });
-    expect_true(parent_started, "Parent should start");
+    co_await wait_until([&] { return started->load(std::memory_order_acquire); }, "Parent should start");
 
     for (int i = 0; i < 5; i++) {
       co_await yield_on_current();
@@ -2627,8 +2591,7 @@ TEST_CORO(Coro, cancellation_parent_scope_lease) {
 
     *held_handle = ParentScopeLease{};
 
-    bool ready = co_await wait_until([&] { return parent.await_ready(); });
-    expect_true(ready, "Parent should become ready after last handle release");
+    co_await wait_until([&] { return parent.await_ready(); }, "Parent should become ready after last handle release");
 
     auto r = co_await std::move(parent).wrap();
     expect_ok(r, "Parent should complete after last handle release");
@@ -2651,10 +2614,9 @@ TEST_CORO(Coro, cancellation_parent_scope_lease) {
                                                            .start_in_parent_scope()
                                                            .detach_silent();
 
-    bool parent_started = co_await wait_until([&] { return started->load(std::memory_order_acquire); });
-    expect_true(parent_started, "Detached parent should start");
-    bool parent_finished = co_await wait_until([&] { return finished->load(std::memory_order_acquire); });
-    expect_true(parent_finished, "Detached parent should finish body");
+    co_await wait_until([&] { return started->load(std::memory_order_acquire); }, "Detached parent should start");
+    co_await wait_until([&] { return finished->load(std::memory_order_acquire); },
+                        "Detached parent should finish body");
 
     for (int i = 0; i < 10; i++) {
       if (*held_handle) {
@@ -2686,7 +2648,7 @@ TEST_CORO(Coro, cancellation_parent_scope_lease) {
       auto external_child = []() -> Task<td::Unit> {
         co_return typename Task<td::Unit>::promise_type::ExternalResult{};
       }();
-      parent_external_promise->emplace(&external_child.h.promise());
+      parent_external_promise->emplace(&external_child.promise());
 
       std::move(external_child).start_external_in_parent_scope(std::move(lease)).detach_silent();
       parent_started->store(true, std::memory_order_release);
@@ -2694,8 +2656,7 @@ TEST_CORO(Coro, cancellation_parent_scope_lease) {
     }(parent_started, parent_external_promise)
                                                                                            .start_in_parent_scope();
 
-    bool started = co_await wait_until([&] { return parent_started->load(std::memory_order_acquire); });
-    expect_true(started, "Parent should start");
+    co_await wait_until([&] { return parent_started->load(std::memory_order_acquire); }, "Parent should start");
     expect_true(parent_external_promise->has_value(), "External promise should be initialized");
 
     for (int i = 0; i < 5; i++) {
@@ -2704,8 +2665,8 @@ TEST_CORO(Coro, cancellation_parent_scope_lease) {
     expect_true(!parent.await_ready(), "Parent should wait until external child completion");
 
     parent_external_promise->value().set_value(td::Unit{});
-    bool ready = co_await wait_until([&] { return parent.await_ready(); });
-    expect_true(ready, "Parent should become ready after external child completion");
+    co_await wait_until([&] { return parent.await_ready(); },
+                        "Parent should become ready after external child completion");
 
     auto r = co_await std::move(parent).wrap();
     expect_ok(r, "Parent should complete after external child completion");
@@ -2727,7 +2688,7 @@ TEST_CORO(Coro, cancellation_parent_scope_lease) {
       auto external_child = []() -> Task<td::Unit> {
         co_return typename Task<td::Unit>::promise_type::ExternalResult{};
       }();
-      parent_external_promise->emplace(&external_child.h.promise());
+      parent_external_promise->emplace(&external_child.promise());
 
       std::move(external_child).start_external_in_parent_scope(std::move(lease)).detach_silent();
       parent_started->store(true, std::memory_order_release);
@@ -2735,8 +2696,7 @@ TEST_CORO(Coro, cancellation_parent_scope_lease) {
     }(parent_started, parent_external_promise)
                                                                                            .start_in_parent_scope();
 
-    bool started = co_await wait_until([&] { return parent_started->load(std::memory_order_acquire); });
-    expect_true(started, "Parent should start");
+    co_await wait_until([&] { return parent_started->load(std::memory_order_acquire); }, "Parent should start");
     expect_true(parent_external_promise->has_value(), "External promise should be initialized");
 
     for (int i = 0; i < 5; i++) {
@@ -2745,8 +2705,8 @@ TEST_CORO(Coro, cancellation_parent_scope_lease) {
     expect_true(!parent.await_ready(), "Parent should wait until external child completion");
 
     parent_external_promise->value().set_error(td::Status::Error("external_child_error"));
-    bool ready = co_await wait_until([&] { return parent.await_ready(); });
-    expect_true(ready, "Parent should become ready after external child error completion");
+    co_await wait_until([&] { return parent.await_ready(); },
+                        "Parent should become ready after external child error completion");
 
     auto r = co_await std::move(parent).wrap();
     expect_ok(r, "Parent should complete after external child error completion");
@@ -2768,7 +2728,7 @@ TEST_CORO(Coro, cancellation_parent_scope_lease) {
       auto external_child = []() -> Task<td::Unit> {
         co_return typename Task<td::Unit>::promise_type::ExternalResult{};
       }();
-      parent_external_promise->emplace(&external_child.h.promise());
+      parent_external_promise->emplace(&external_child.promise());
 
       std::move(external_child).start_external_in_parent_scope(std::move(lease)).detach_silent();
       parent_started->store(true, std::memory_order_release);
@@ -2776,8 +2736,7 @@ TEST_CORO(Coro, cancellation_parent_scope_lease) {
     }(parent_started, parent_external_promise)
                                                                                            .start_in_parent_scope();
 
-    bool started = co_await wait_until([&] { return parent_started->load(std::memory_order_acquire); });
-    expect_true(started, "Parent should start");
+    co_await wait_until([&] { return parent_started->load(std::memory_order_acquire); }, "Parent should start");
     expect_true(parent_external_promise->has_value(), "External promise should be initialized");
 
     for (int i = 0; i < 5; i++) {
@@ -2786,8 +2745,7 @@ TEST_CORO(Coro, cancellation_parent_scope_lease) {
     expect_true(!parent.await_ready(), "Parent should wait until external child completion");
 
     parent_external_promise->reset();
-    bool ready = co_await wait_until([&] { return parent.await_ready(); });
-    expect_true(ready, "Parent should become ready after ExternalPromise drop");
+    co_await wait_until([&] { return parent.await_ready(); }, "Parent should become ready after ExternalPromise drop");
 
     auto r = co_await std::move(parent).wrap();
     expect_ok(r, "Parent should complete after ExternalPromise drop");
@@ -2885,16 +2843,16 @@ TEST_CORO(Coro, task_cancellation_source) {
   // Linked source should hold exactly one parent child-count lease.
   co_await [&]() -> Task<td::Unit> {
     auto scope = co_await this_scope();
-    auto* promise = scope.get_promise();
-    CHECK(promise);
-    auto initial_count = promise->cancellation_.child_count_relaxed_for_test();
+    auto* ctrl = scope.get_ctrl();
+    CHECK(ctrl);
+    auto initial_count = ctrl->cancellation.child_count_relaxed_for_test();
 
     auto source = TaskCancellationSource::create_linked();
-    auto count_with_source = promise->cancellation_.child_count_relaxed_for_test();
+    auto count_with_source = ctrl->cancellation.child_count_relaxed_for_test();
     expect_eq(count_with_source, initial_count + 1, "Linked source should add one parent child-count lease");
 
     co_await source.cancel_and_join();
-    auto count_after_cancel = promise->cancellation_.child_count_relaxed_for_test();
+    auto count_after_cancel = ctrl->cancellation.child_count_relaxed_for_test();
     expect_eq(count_after_cancel, initial_count, "Joined linked source should release parent child-count lease");
     co_return td::Unit{};
   }();
@@ -2934,8 +2892,8 @@ TEST_CORO(Coro, task_group) {
 
     auto join_result = co_await group.join().wrap();
     expect_ok(join_result, "TaskGroup join should complete with detached child");
-    bool completed = co_await wait_until([done] { return done->load(std::memory_order_acquire); });
-    expect_true(completed, "Detached child should complete under TaskGroup");
+    co_await wait_until([done] { return done->load(std::memory_order_acquire); },
+                        "Detached child should complete under TaskGroup");
   }
 
   // cancel_and_join should cancel active children.
@@ -3470,7 +3428,7 @@ TEST_CORO_ACTOR(Coro, shared_future_propagate_cancel_false) {
     started.cancel();
     // get() was cancelled but underlying future should NOT be cancelled.
     // Wait for the underlying to complete normally.
-    co_await wait_until([this] { return inner_done_->load(std::memory_order_relaxed); }, 300);
+    co_await wait_until([this] { return inner_done_->load(std::memory_order_relaxed); });
     expect_true(inner_done_->load(std::memory_order_relaxed),
                 "propagate_cancel=false: underlying future should complete normally");
     co_return td::Unit{};
@@ -3480,6 +3438,701 @@ TEST_CORO_ACTOR(Coro, shared_future_propagate_cancel_false) {
   std::shared_ptr<std::atomic<bool>> inner_done_;
   std::optional<SharedFuture<td::Unit>> sf_;
 };
+
+// ===== Bug reproduction tests for ControlHeader split-lifetime =====
+//
+// These tests target bugs in complete_cancelled_with_frame_destroy():
+//   1. Parent topology traversal holds CancelNode* while child destroys its frame
+//   2. CancelNode refcount orphan → on_zero_refs on destroyed frame (double destroy)
+
+// Helper: a child that waits on a gate, running on a scheduler worker thread.
+static Task<td::Unit> gate_child_lightweight(Gate& gate, std::shared_ptr<std::atomic<bool>> started,
+                                             std::shared_ptr<std::atomic<bool>> destroyed) {
+  MarkDestroyedFlag mark{std::move(destroyed)};
+
+  co_await become_lightweight();
+  started->store(true, std::memory_order_release);
+  co_await std::move(gate.task).wrap();
+  co_return td::Unit{};
+}
+
+// Helper: a child that yields N times on any worker thread then completes.
+static Task<td::Unit> yield_n_lightweight(int n, std::shared_ptr<std::atomic<bool>> destroyed) {
+  MarkDestroyedFlag mark{std::move(destroyed)};
+
+  co_await become_lightweight();
+  for (int i = 0; i < n; i++) {
+    co_await yield_on_current();
+  }
+  co_return td::Unit{};
+}
+
+// Bug 1: Race between parent cancel_snapshot and child frame destruction.
+//
+// Scenario: Parent has N children on worker threads. Parent calls cancel(), which
+// takes a topology snapshot and iterates: on_cancel() then dec_ref() for each.
+// Concurrently, a child's awaiter completes on a worker thread → route_resume()
+// sees CANCELLED → complete_cancelled_with_frame_destroy() destroys the frame.
+// The parent's snapshot still holds a raw CancelNode* to that destroyed child.
+// Subsequent on_cancel()/dec_ref() on the snapshot entry accesses destroyed CancelNode
+// (virtual dispatch through destroyed vtable → UB).
+//
+// ASan won't catch this because the memory is deferred (not freed). But under
+// concurrency stress, the destroyed vtable dispatch can cause wrong function calls
+// or segfaults.
+TEST_CORO(Coro, cancel_frame_destroy_topology_race) {
+  constexpr int kIterations = 5000;
+  constexpr int kChildrenPerIter = 8;
+
+  for (int iter = 0; iter < kIterations; iter++) {
+    auto group = TaskGroup::linked();
+    std::vector<Gate> gates;
+    std::vector<std::shared_ptr<std::atomic<bool>>> started_flags;
+    std::vector<StartedTask<td::Unit>> children;
+
+    gates.reserve(kChildrenPerIter);
+    started_flags.reserve(kChildrenPerIter);
+    children.reserve(kChildrenPerIter);
+
+    for (int i = 0; i < kChildrenPerIter; i++) {
+      gates.push_back(make_gate());
+      started_flags.push_back(std::make_shared<std::atomic<bool>>(false));
+      auto destroyed = std::make_shared<std::atomic<bool>>(false);
+      children.push_back(group.start(gate_child_lightweight(gates.back(), started_flags.back(), destroyed)));
+    }
+
+    // Wait for all children to reach their gate suspension on worker threads.
+    for (int i = 0; i < kChildrenPerIter; i++) {
+      co_await wait_until([&, i] { return started_flags[i]->load(std::memory_order_acquire); },
+                          "Child should reach gate suspension before cancellation");
+    }
+
+    // Open all gates (children will try to complete on worker threads)
+    // AND cancel the group (parent walks topology on this actor thread).
+    // The race window: between gate opening → child's route_resume → frame destroy
+    // vs. parent's cancel_snapshot → on_cancel/dec_ref on same CancelNode.
+    for (auto& gate : gates) {
+      gate.open();
+    }
+    auto join_result = co_await group.cancel_and_join().wrap();
+    expect_ok(join_result, "cancel_frame_destroy_topology_race: join failed");
+
+    for (auto& child : children) {
+      (void)co_await std::move(child).wrap();
+    }
+  }
+
+  co_return td::Unit{};
+}
+
+// Bug 1 variant: become_lightweight children that yield 0-2 times.
+// Parent cancels from actor thread while children complete on worker threads.
+TEST_CORO(Coro, cancel_frame_destroy_cross_thread_stress) {
+  constexpr int kIterations = 5000;
+
+  for (int iter = 0; iter < kIterations; iter++) {
+    auto group = TaskGroup::linked();
+    auto d1 = std::make_shared<std::atomic<bool>>(false);
+    auto d2 = std::make_shared<std::atomic<bool>>(false);
+    auto d3 = std::make_shared<std::atomic<bool>>(false);
+
+    auto c1 = group.start(yield_n_lightweight(0, d1));
+    auto c2 = group.start(yield_n_lightweight(1, d2));
+    auto c3 = group.start(yield_n_lightweight(2, d3));
+
+    // Yield to let children start on worker threads.
+    co_await yield_on_current();
+
+    // Cancel while children may be mid-completion on other threads.
+    auto join_result = co_await group.cancel_and_join().wrap();
+    expect_ok(join_result, "cancel_frame_destroy_cross_thread_stress: join failed");
+
+    (void)co_await std::move(c1).wrap();
+    (void)co_await std::move(c2).wrap();
+    (void)co_await std::move(c3).wrap();
+  }
+
+  co_return td::Unit{};
+}
+
+// Bug 2 regression: cancel-and-destroy path must stay safe for StartedTask consumers.
+//
+// After cancel_and_join(), child frame may already be destroyed while StartedTask is
+// still held by the parent test body. Awaiting/resetting that StartedTask must be safe
+// and must return the cancellation result from persistent control state.
+TEST_CORO(Coro, cancel_frame_destroy_orphan_ref_drain) {
+  constexpr int kIterations = 2000;
+
+  for (int iter = 0; iter < kIterations; iter++) {
+    auto group = TaskGroup::linked();
+    auto child_started = std::make_shared<std::atomic<bool>>(false);
+    auto child_destroyed = std::make_shared<std::atomic<bool>>(false);
+
+    auto started = group.start(run_forever_mark_lifetime(child_started, child_destroyed));
+    co_await wait_until([&] { return child_started->load(std::memory_order_acquire); });
+    expect_true(started.valid(), "child should be live before cancellation");
+
+    auto join_result = co_await group.cancel_and_join().wrap();
+    expect_ok(join_result, "cancel_frame_destroy_orphan_ref_drain: join failed");
+    expect_true(child_destroyed->load(std::memory_order_acquire), "child locals must be destroyed before join returns");
+    expect_true(started.await_ready(), "StartedTask should be ready after cancel_and_join");
+
+    auto child_result = co_await std::move(started).wrap();
+    expect_true(child_result.is_error(), "cancelled child should return cancellation error");
+    expect_eq(child_result.error().code(), kCancelledCode, "cancelled child code should be 653");
+  }
+
+  co_return td::Unit{};
+}
+
+// ===== Destruction order tests =====
+//
+// Verify that child coroutine locals are destroyed before parent coroutine locals
+// across all completion paths: normal return, error, cancellation, detach.
+//
+// Approach: a shared atomic counter (DestroyOrder) is passed from parent to child.
+// Each side holds a guard that records its destruction sequence number.
+// Parent's destructor asserts that all children were already destroyed (their
+// sequence numbers are smaller).
+
+struct DestroyOrder {
+  std::atomic<int> seq{0};
+  std::atomic<int> violations{0};
+
+  int next() {
+    return seq.fetch_add(1, std::memory_order_acq_rel);
+  }
+};
+
+struct DestroyGuard {
+  std::shared_ptr<DestroyOrder> order;
+  int* slot;
+
+  DestroyGuard(std::shared_ptr<DestroyOrder> o, int& s) : order(std::move(o)), slot(&s) {
+  }
+  ~DestroyGuard() {
+    *slot = order->next();
+  }
+  DestroyGuard(DestroyGuard&&) = default;
+  DestroyGuard& operator=(DestroyGuard&&) = delete;
+  DestroyGuard(const DestroyGuard&) = delete;
+  DestroyGuard& operator=(const DestroyGuard&) = delete;
+};
+
+struct OrderChecker {
+  int parent_seq{-1};
+  std::vector<int*> child_slots;
+  std::shared_ptr<DestroyOrder> order;
+
+  OrderChecker(std::shared_ptr<DestroyOrder> o) : order(std::move(o)) {
+  }
+
+  ~OrderChecker() {
+    for (auto* slot : child_slots) {
+      if (*slot < 0 || *slot >= parent_seq) {
+        order->violations.fetch_add(1, std::memory_order_relaxed);
+      }
+    }
+  }
+};
+
+// Normal co_return: child completes before parent, both destroyed in order.
+TEST_CORO(Coro, destroy_order_normal_return) {
+  auto order = std::make_shared<DestroyOrder>();
+  int parent_seq = -1;
+  int child_seq = -1;
+
+  auto child = [](std::shared_ptr<DestroyOrder> o, int& seq) -> Task<int> {
+    DestroyGuard guard(std::move(o), seq);
+    co_return 42;
+  };
+
+  auto parent = [&]() -> Task<td::Unit> {
+    DestroyGuard guard(order, parent_seq);
+    int result = co_await child(order, child_seq);
+    expect_eq(result, 42, "child should return 42");
+    co_return td::Unit{};
+  };
+
+  co_await parent();
+  expect_true(child_seq >= 0 && parent_seq >= 0, "both should be destroyed");
+  expect_true(child_seq < parent_seq, "child destroyed before parent");
+
+  co_return td::Unit{};
+}
+
+// Error path: child returns error, parent still destroyed after child.
+TEST_CORO(Coro, destroy_order_child_error) {
+  auto order = std::make_shared<DestroyOrder>();
+  int parent_seq = -1;
+  int child_seq = -1;
+
+  auto child = [](std::shared_ptr<DestroyOrder> o, int& seq) -> Task<td::Unit> {
+    DestroyGuard guard(std::move(o), seq);
+    co_return td::Status::Error("child error");
+  };
+
+  auto parent = [&]() -> Task<td::Unit> {
+    DestroyGuard guard(order, parent_seq);
+    auto r = co_await child(order, child_seq).wrap();
+    expect_true(r.is_error(), "child should fail");
+    co_return td::Unit{};
+  };
+
+  co_await parent();
+  expect_true(child_seq < parent_seq, "child destroyed before parent on error path");
+
+  co_return td::Unit{};
+}
+
+// Cancellation: parent is cancelled while child is running.
+TEST_CORO(Coro, destroy_order_cancellation) {
+  auto order = std::make_shared<DestroyOrder>();
+  int parent_seq = -1;
+  int child_seq = -1;
+  auto child_started = std::make_shared<std::atomic<bool>>(false);
+
+  auto child = [](std::shared_ptr<DestroyOrder> o, int& seq,
+                  std::shared_ptr<std::atomic<bool>> started) -> Task<td::Unit> {
+    DestroyGuard guard(std::move(o), seq);
+    started->store(true, std::memory_order_release);
+    while (true) {
+      co_await yield_on_current();
+    }
+  };
+
+  auto parent = [&]() -> Task<td::Unit> {
+    DestroyGuard guard(order, parent_seq);
+    co_await child(order, child_seq, child_started);
+    co_return td::Unit{};
+  };
+
+  auto t = parent().start_in_parent_scope();
+  co_await wait_until([&] { return child_started->load(std::memory_order_acquire); }, "child should start");
+  t.cancel();
+  auto r = co_await std::move(t).wrap();
+  expect_true(r.is_error(), "cancelled parent should return error");
+  expect_true(child_seq >= 0 && parent_seq >= 0, "both should be destroyed after cancel");
+  expect_true(child_seq < parent_seq, "child destroyed before parent on cancel path");
+
+  co_return td::Unit{};
+}
+
+// Multiple children: all children destroyed before parent.
+TEST_CORO(Coro, destroy_order_multiple_children) {
+  auto order = std::make_shared<DestroyOrder>();
+  int parent_seq = -1;
+  constexpr int N = 5;
+  int child_seqs[N];
+  for (auto& s : child_seqs)
+    s = -1;
+
+  auto child = [](std::shared_ptr<DestroyOrder> o, int& seq, int value) -> Task<int> {
+    DestroyGuard guard(std::move(o), seq);
+    co_await yield_on_current();
+    co_return value;
+  };
+
+  auto parent = [&]() -> Task<td::Unit> {
+    DestroyGuard guard(order, parent_seq);
+    for (int i = 0; i < N; i++) {
+      int v = co_await child(order, child_seqs[i], i * 10);
+      expect_eq(v, i * 10, "child value mismatch");
+    }
+    co_return td::Unit{};
+  };
+
+  co_await parent();
+  for (int i = 0; i < N; i++) {
+    expect_true(child_seqs[i] >= 0, "child should be destroyed");
+    expect_true(child_seqs[i] < parent_seq, "child destroyed before parent");
+  }
+
+  co_return td::Unit{};
+}
+
+// Concurrent children via TaskGroup: all destroyed before group join returns.
+TEST_CORO(Coro, destroy_order_task_group) {
+  auto order = std::make_shared<DestroyOrder>();
+  int parent_seq = -1;
+  constexpr int N = 4;
+  std::vector<int> child_seqs(N, -1);
+
+  auto parent = [&]() -> Task<td::Unit> {
+    DestroyGuard guard(order, parent_seq);
+    auto group = TaskGroup::linked();
+    for (int i = 0; i < N; i++) {
+      auto t = [](std::shared_ptr<DestroyOrder> o, int& seq) -> Task<td::Unit> {
+        DestroyGuard g(std::move(o), seq);
+        co_await yield_on_current();
+        co_return td::Unit{};
+      }(order, child_seqs[i]);
+      group.start(std::move(t)).detach_silent();
+    }
+    co_await group.join();
+    co_return td::Unit{};
+  };
+
+  co_await parent();
+  for (int i = 0; i < N; i++) {
+    expect_true(child_seqs[i] >= 0, "group child should be destroyed");
+    expect_true(child_seqs[i] < parent_seq, "group child destroyed before parent");
+  }
+
+  co_return td::Unit{};
+}
+
+// TaskGroup cancel_and_join: children destroyed before join returns.
+TEST_CORO(Coro, destroy_order_task_group_cancel) {
+  auto order = std::make_shared<DestroyOrder>();
+  int parent_seq = -1;
+  constexpr int N = 4;
+  std::vector<int> child_seqs(N, -1);
+  auto all_started = std::make_shared<std::atomic<int>>(0);
+
+  auto parent = [&]() -> Task<td::Unit> {
+    DestroyGuard guard(order, parent_seq);
+    auto group = TaskGroup::linked();
+    for (int i = 0; i < N; i++) {
+      auto t = [](std::shared_ptr<DestroyOrder> o, int& seq,
+                  std::shared_ptr<std::atomic<int>> started) -> Task<td::Unit> {
+        DestroyGuard g(std::move(o), seq);
+        started->fetch_add(1, std::memory_order_release);
+        while (true) {
+          co_await yield_on_current();
+        }
+      }(order, child_seqs[i], all_started);
+      group.start(std::move(t)).detach_silent();
+    }
+    co_await wait_until([&] { return all_started->load(std::memory_order_acquire) == N; }, "all children should start");
+    co_await group.cancel_and_join();
+    co_return td::Unit{};
+  };
+
+  co_await parent();
+  for (int i = 0; i < N; i++) {
+    expect_true(child_seqs[i] >= 0, "cancelled group child should be destroyed");
+    expect_true(child_seqs[i] < parent_seq, "cancelled group child destroyed before parent");
+  }
+
+  co_return td::Unit{};
+}
+
+// Nested: grandchild destroyed before child, child before parent.
+TEST_CORO(Coro, destroy_order_nested) {
+  auto order = std::make_shared<DestroyOrder>();
+  int parent_seq = -1;
+  int child_seq = -1;
+  int grandchild_seq = -1;
+
+  auto grandchild = [](std::shared_ptr<DestroyOrder> o, int& seq) -> Task<int> {
+    DestroyGuard guard(std::move(o), seq);
+    co_await yield_on_current();
+    co_return 99;
+  };
+
+  auto child = [&](std::shared_ptr<DestroyOrder> o, int& seq) -> Task<int> {
+    DestroyGuard guard(std::move(o), seq);
+    co_return co_await grandchild(order, grandchild_seq);
+  };
+
+  auto parent = [&]() -> Task<td::Unit> {
+    DestroyGuard guard(order, parent_seq);
+    int v = co_await child(order, child_seq);
+    expect_eq(v, 99, "grandchild value");
+    co_return td::Unit{};
+  };
+
+  co_await parent();
+  expect_true(grandchild_seq < child_seq, "grandchild destroyed before child");
+  expect_true(child_seq < parent_seq, "child destroyed before parent");
+
+  co_return td::Unit{};
+}
+
+// Nested cancellation: cancel parent → child → grandchild, all in order.
+TEST_CORO(Coro, destroy_order_nested_cancel) {
+  auto order = std::make_shared<DestroyOrder>();
+  int parent_seq = -1;
+  int child_seq = -1;
+  int grandchild_seq = -1;
+  auto deepest_started = std::make_shared<std::atomic<bool>>(false);
+
+  auto grandchild = [](std::shared_ptr<DestroyOrder> o, int& seq,
+                       std::shared_ptr<std::atomic<bool>> started) -> Task<td::Unit> {
+    DestroyGuard guard(std::move(o), seq);
+    started->store(true, std::memory_order_release);
+    while (true) {
+      co_await yield_on_current();
+    }
+  };
+
+  auto child = [&](std::shared_ptr<DestroyOrder> o, int& seq) -> Task<td::Unit> {
+    DestroyGuard guard(std::move(o), seq);
+    co_await grandchild(order, grandchild_seq, deepest_started);
+    co_return td::Unit{};
+  };
+
+  auto parent = [&]() -> Task<td::Unit> {
+    DestroyGuard guard(order, parent_seq);
+    co_await child(order, child_seq);
+    co_return td::Unit{};
+  };
+
+  auto t = parent().start_in_parent_scope();
+  co_await wait_until([&] { return deepest_started->load(std::memory_order_acquire); }, "grandchild should start");
+  t.cancel();
+  auto r = co_await std::move(t).wrap();
+  expect_true(r.is_error(), "cancelled");
+  expect_true(grandchild_seq < child_seq, "grandchild destroyed before child on cancel");
+  expect_true(child_seq < parent_seq, "child destroyed before parent on cancel");
+
+  co_return td::Unit{};
+}
+
+// StartedTask detach: child outlives the co_await but is still destroyed.
+TEST_CORO(Coro, destroy_order_started_task_detach) {
+  auto order = std::make_shared<DestroyOrder>();
+  int parent_seq = -1;
+  int child_seq = -1;
+  auto child_started = std::make_shared<std::atomic<bool>>(false);
+
+  auto parent = [&]() -> Task<td::Unit> {
+    DestroyGuard guard(order, parent_seq);
+    auto group = TaskGroup::linked();
+    auto t = [](std::shared_ptr<DestroyOrder> o, int& seq,
+                std::shared_ptr<std::atomic<bool>> started) -> Task<td::Unit> {
+      DestroyGuard g(std::move(o), seq);
+      started->store(true, std::memory_order_release);
+      co_await yield_on_current();
+      co_await yield_on_current();
+      co_return td::Unit{};
+    }(order, child_seq, child_started);
+    group.start(std::move(t)).detach_silent();
+    co_await wait_until([&] { return child_started->load(std::memory_order_acquire); }, "detached child started");
+    co_await group.join();
+    // child_seq should be set by now (group waited for it)
+    expect_true(child_seq >= 0, "detached child should be destroyed before join returns");
+    co_return td::Unit{};
+  };
+
+  co_await parent();
+  expect_true(child_seq < parent_seq, "detached child destroyed before parent");
+
+  co_return td::Unit{};
+}
+
+// Stress: many iterations to catch ordering races.
+TEST_CORO(Coro, destroy_order_stress) {
+  constexpr int kIterations = 2000;
+
+  for (int iter = 0; iter < kIterations; iter++) {
+    auto order = std::make_shared<DestroyOrder>();
+    int parent_seq = -1;
+    int child_seq = -1;
+
+    bool do_cancel = (iter % 3) == 0;
+    bool do_error = (iter % 3) == 1;
+
+    auto child = [](std::shared_ptr<DestroyOrder> o, int& seq, bool fail) -> Task<td::Unit> {
+      DestroyGuard guard(std::move(o), seq);
+      co_await yield_on_current();
+      if (fail) {
+        co_return td::Status::Error("intentional");
+      }
+      co_return td::Unit{};
+    };
+
+    auto parent = [&]() -> Task<td::Unit> {
+      DestroyGuard guard(order, parent_seq);
+      co_await child(order, child_seq, do_error).wrap();
+      co_return td::Unit{};
+    };
+
+    if (do_cancel) {
+      auto t = parent().start_in_parent_scope();
+      co_await yield_on_current();
+      t.cancel();
+      (void)co_await std::move(t).wrap();
+    } else {
+      (void)co_await parent().wrap();
+    }
+
+    if (child_seq >= 0 && parent_seq >= 0) {
+      LOG_CHECK(child_seq < parent_seq) << "destroy_order_stress: child=" << child_seq << " parent=" << parent_seq
+                                        << " iter=" << iter;
+    }
+  }
+
+  co_return td::Unit{};
+}
+
+// Lightweight children on worker threads: verify ordering under cross-thread completion.
+TEST_CORO(Coro, destroy_order_lightweight_cross_thread) {
+  constexpr int kIterations = 1000;
+
+  for (int iter = 0; iter < kIterations; iter++) {
+    auto order = std::make_shared<DestroyOrder>();
+    int parent_seq = -1;
+    int c1_seq = -1;
+    int c2_seq = -1;
+
+    auto parent = [&]() -> Task<td::Unit> {
+      DestroyGuard guard(order, parent_seq);
+      auto group = TaskGroup::linked();
+
+      auto light_child = [](std::shared_ptr<DestroyOrder> o, int& seq) -> Task<td::Unit> {
+        DestroyGuard g(std::move(o), seq);
+        co_await become_lightweight();
+        co_await yield_on_current();
+        co_return td::Unit{};
+      };
+
+      group.start(light_child(order, c1_seq)).detach_silent();
+      group.start(light_child(order, c2_seq)).detach_silent();
+      co_await group.join();
+      co_return td::Unit{};
+    };
+
+    co_await parent();
+    LOG_CHECK(c1_seq >= 0 && c1_seq < parent_seq)
+        << "lightweight child 1 order: c1=" << c1_seq << " parent=" << parent_seq;
+    LOG_CHECK(c2_seq >= 0 && c2_seq < parent_seq)
+        << "lightweight child 2 order: c2=" << c2_seq << " parent=" << parent_seq;
+  }
+
+  co_return td::Unit{};
+}
+
+// Lightweight children cancelled from actor thread while completing on worker threads.
+TEST_CORO(Coro, destroy_order_lightweight_cancel_stress) {
+  constexpr int kIterations = 1000;
+
+  for (int iter = 0; iter < kIterations; iter++) {
+    auto order = std::make_shared<DestroyOrder>();
+    int parent_seq = -1;
+    int c1_seq = -1;
+    int c2_seq = -1;
+    auto started = std::make_shared<std::atomic<int>>(0);
+
+    auto parent = [&]() -> Task<td::Unit> {
+      DestroyGuard guard(order, parent_seq);
+      auto group = TaskGroup::linked();
+
+      auto light_child = [](std::shared_ptr<DestroyOrder> o, int& seq,
+                            std::shared_ptr<std::atomic<int>> s) -> Task<td::Unit> {
+        DestroyGuard g(std::move(o), seq);
+        co_await become_lightweight();
+        s->fetch_add(1, std::memory_order_release);
+        while (true) {
+          co_await yield_on_current();
+        }
+      };
+
+      group.start(light_child(order, c1_seq, started)).detach_silent();
+      group.start(light_child(order, c2_seq, started)).detach_silent();
+      co_await wait_until([&] { return started->load(std::memory_order_acquire) >= 2; },
+                          "lightweight children started");
+      co_await group.cancel_and_join();
+      co_return td::Unit{};
+    };
+
+    co_await parent();
+    LOG_CHECK(c1_seq >= 0 && c1_seq < parent_seq) << "cancel stress child 1: c1=" << c1_seq << " parent=" << parent_seq;
+    LOG_CHECK(c2_seq >= 0 && c2_seq < parent_seq) << "cancel stress child 2: c2=" << c2_seq << " parent=" << parent_seq;
+  }
+
+  co_return td::Unit{};
+}
+
+// ========================================
+// destroy_token shutdown bugs
+// ========================================
+
+// Bug: Scheduler.cpp destroy_token() calls ctrl->get_handle().destroy()
+// for ctrl-encoded tokens without setting frame_destroyed_. This means
+// on_zero_refs() (triggered by a surviving Ref<TaskControl>) will
+// try_mark_frame_destroyed() → true → double handle.destroy().
+TEST_CORO(Coro, try_destroy_frame_prevents_double_destroy) {
+  auto child = [](std::shared_ptr<int> p) -> Task<int> { co_return *p; };
+
+  auto arg = std::make_shared<int>(42);
+  std::weak_ptr<int> weak = arg;
+  auto started = child(std::move(arg)).start_immediate_without_scope();
+
+  // complete_inline() already eagerly destroyed the frame
+  expect_true(weak.expired(), "frame already destroyed at completion");
+
+  // try_destroy_frame() must be a no-op (no double-destroy):
+  bool destroyed = started.ctrl().try_destroy_frame();
+  expect_true(!destroyed, "try_destroy_frame should be no-op after completion");
+
+  started.detach_silent();
+  co_return td::Unit{};
+}
+
+TEST_CORO(Coro, try_destroy_frame_then_on_zero_refs) {
+  auto child = [](std::shared_ptr<int> p) -> Task<int> { co_return *p; };
+
+  auto arg = std::make_shared<int>(42);
+  std::weak_ptr<int> weak = arg;
+  auto started = child(std::move(arg)).start_immediate_without_scope();
+
+  // Frame already eagerly destroyed by complete_inline()
+  expect_true(weak.expired(), "frame eagerly destroyed at completion");
+
+  // Drop the Ref → on_zero_refs sees frame_destroyed_=true → skips to free_allocation
+  started.detach_silent();
+  co_return td::Unit{};
+}
+
+// ========================================
+// Child local lifetime in normal completion
+// ========================================
+
+// Uses usleep in the destructor to widen the timing window.
+// If child frame destruction is lazy (happens after parent resumes),
+// the parent would observe destroyed==false.
+
+// Coroutine ARGUMENT (parameter) — stored in the frame, destroyed only when
+// the frame is destroyed (on_zero_refs), NOT at co_return time.
+// Coroutine LOCALS are destroyed at co_return (before final_suspend).
+struct SlowDestroyArg {
+  std::shared_ptr<std::atomic<bool>> flag;
+  explicit SlowDestroyArg(std::shared_ptr<std::atomic<bool>> f) : flag(std::move(f)) {
+  }
+  ~SlowDestroyArg() {
+    if (flag) {
+      usleep(10000);  // 10ms sleep IN the destructor
+      flag->store(true, std::memory_order_release);
+    }
+  }
+  SlowDestroyArg(SlowDestroyArg&&) = default;
+  SlowDestroyArg& operator=(SlowDestroyArg&&) = default;
+};
+
+// Coroutine arguments live in the frame. They should be destroyed when
+// the child completes, before the parent can observe the result.
+// BUG: arguments are only destroyed when the last Ref drops (on_zero_refs),
+// so if a StartedTask handle survives, arguments outlive child completion.
+TEST_CORO(Coro, child_argument_destroyed_before_parent_observes_result) {
+  auto destroyed = std::make_shared<std::atomic<bool>>(false);
+
+  auto child = [](SlowDestroyArg arg) -> Task<int> { co_return 42; };
+
+  auto started = child(SlowDestroyArg{destroyed}).start_immediate_without_scope();
+
+  // Child completed — result is available
+  expect_true(started.await_ready(), "child should be completed");
+  int result = started.await_resume().move_as_ok();
+  expect_eq(result, 42, "correct result");
+
+  // Invariant: child arguments should be destroyed before parent observes result
+  expect_true(destroyed->load(std::memory_order_acquire), "child argument should be destroyed after child completes");
+
+  started.detach_silent();
+  co_return td::Unit{};
+}
 
 // 5) Runner
 int main(int argc, char** argv) {

@@ -44,7 +44,7 @@ void CpuWorker::run() {
       auto encoded = reinterpret_cast<uintptr_t>(token);
       if ((encoded & 1u) == 0u) {
         // Regular actor message - clear TLS to avoid stale coroutine context
-        actor::detail::set_current_promise(nullptr);
+        actor::detail::set_current_ctrl(nullptr);
         auto raw_message = reinterpret_cast<ActorInfoPtr::Raw *>(token);
         ActorInfoPtr message(ActorInfoPtr::acquire_t{}, raw_message);
         auto lock = debug.start(message->get_name());
@@ -52,10 +52,10 @@ void CpuWorker::run() {
       } else {
         // Coroutine continuation
         auto lock = debug.start("coro");
-        if (actor::detail::is_promise_encoded(encoded)) {
-          // Promise-encoded: resume with promise TLS.
-          auto *promise = actor::detail::decode_promise(encoded);
-          actor::detail::resume_with_tls(promise->self_handle_, promise);
+        if (actor::detail::is_ctrl_encoded(encoded)) {
+          // Ctrl-encoded: resume with control block TLS.
+          auto *ctrl = actor::detail::decode_ctrl(encoded);
+          actor::detail::resume_with_tls(ctrl->get_handle(), ctrl);
         } else {
           // Handle-encoded: resume with root TLS.
           auto h = actor::detail::decode_continuation(encoded);

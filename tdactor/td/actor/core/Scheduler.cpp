@@ -339,8 +339,8 @@ static void destroy_token(SchedulerToken raw) {
   auto encoded = reinterpret_cast<uintptr_t>(raw);
   if ((encoded & 1u) == 0u) {
     ActorInfoPtr(ActorInfoPtr::acquire_t{}, reinterpret_cast<ActorInfoPtr::Raw *>(raw));
-  } else if (actor::detail::is_promise_encoded(encoded)) {
-    actor::detail::decode_promise(encoded)->self_handle_.destroy();
+  } else if (actor::detail::is_ctrl_encoded(encoded)) {
+    actor::detail::decode_ctrl(encoded)->try_destroy_frame();
   } else {
     actor::detail::decode_continuation(encoded).destroy();
   }

@@ -238,7 +238,7 @@ auto ask_new_impl(TargetId&& to, MemFn mf, Args&&... args) {
           }(create_delayed_closure(mf, std::forward<Args>(args)...));
           task.set_executor(Executor::on_actor(to));
           o_task.emplace(std::move(task).start_external_in_parent_scope());
-          return detail::ActorExecutor::to_message(o_task->h);
+          return detail::ActorExecutor::to_message(o_task->handle());
         });
     return std::move(*o_task);
   }
@@ -570,9 +570,9 @@ Task<Result<T>> with_timeout(StartedTask<T> task, double seconds) {
   struct State {
     std::atomic<bool> done{false};
     typename StartedTask<Result<T>>::ExternalPromise promise;
-    Ref<promise_common> awaited;
+    Ref<detail::TaskControlBase> awaited;
 
-    explicit State(promise_common* awaited_promise) : awaited(Ref<promise_common>::share(awaited_promise)) {
+    explicit State(detail::TaskControlBase* ctrl) : awaited(Ref<detail::TaskControlBase>::share(ctrl)) {
     }
 
     bool try_mark_done() {
@@ -596,7 +596,7 @@ Task<Result<T>> with_timeout(StartedTask<T> task, double seconds) {
     }
   };
 
-  auto state = std::make_shared<State>(task.get_promise());
+  auto state = std::make_shared<State>(&task.ctrl());
   state->promise = std::move(promise);
 
   // Timer: sleep, set timeout

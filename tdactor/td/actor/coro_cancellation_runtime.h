@@ -4,7 +4,6 @@
 #include <coroutine>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <utility>
 #include <vector>
 
@@ -20,25 +19,27 @@ class Promise;
 
 namespace td::actor {
 
-struct promise_common;
 struct CancellationRuntime;
 struct CancelNode;
 
-// Bridge: operations CancellationRuntime needs on promise_common.
-// Breaks the circular dependency (promise_common contains CancellationRuntime).
-// All functions are defined in coro_task.h after promise_common is complete.
+namespace detail {
+struct TaskControlBase;
+}  // namespace detail
+
+// Bridge: operations CancellationRuntime needs on TaskControlBase.
+// Breaks the circular dependency (TaskControlBase contains CancellationRuntime).
+// All functions are defined in coro_task.h after TaskControlBase is complete.
 namespace bridge {
-CancellationRuntime& runtime(promise_common& self);
-const CancellationRuntime& runtime(const promise_common& self);
-std::coroutine_handle<> complete_scheduled(promise_common& self);
-CancelNode& cancel_node(promise_common& self);
-bool should_finish_due_to_cancellation(const promise_common& self);
+CancellationRuntime& runtime(detail::TaskControlBase& self);
+const CancellationRuntime& runtime(const detail::TaskControlBase& self);
+void complete_scheduled(detail::TaskControlBase& self);
+bool should_finish_due_to_cancellation(const detail::TaskControlBase& self);
 }  // namespace bridge
 
 class ParentScopeLease;
 
 namespace bridge {
-ParentScopeLease make_parent_scope_lease(promise_common& p);
+ParentScopeLease make_parent_scope_lease(detail::TaskControlBase& ctrl);
 }  // namespace bridge
 
 class ParentScopeLease {
@@ -57,25 +58,24 @@ class ParentScopeLease {
  private:
   friend struct CancellationRuntime;
   friend struct ParentLink;
-  friend ParentScopeLease bridge::make_parent_scope_lease(promise_common&);
+  friend ParentScopeLease bridge::make_parent_scope_lease(detail::TaskControlBase&);
 
   struct Deleter {
-    void operator()(promise_common* p) const;
+    void operator()(detail::TaskControlBase* p) const;
   };
-  std::unique_ptr<promise_common, Deleter> ptr_;
+  std::unique_ptr<detail::TaskControlBase, Deleter> ptr_;
 
-  explicit ParentScopeLease(promise_common* p) : ptr_(p) {
+  explicit ParentScopeLease(detail::TaskControlBase* p) : ptr_(p) {
   }
-  promise_common* release() {
+  detail::TaskControlBase* release() {
     return ptr_.release();
   }
-  promise_common* get() const {
+  detail::TaskControlBase* get() const {
     return ptr_.get();
   }
 };
 
 // Pure state machine: cancel flag + child count + waiting flag.
-// No dependencies on promise_common — can be unit-tested in isolation.
 struct CancellationState {
   static constexpr uint32_t CANCELLED = 1u << 31;
   static constexpr uint32_t WAITING = 1u << 30;
@@ -143,19 +143,24 @@ struct CancellationState {
 
 struct ParentLink {
  public:
+  ~ParentLink() {
+    DCHECK(parent_.load(std::memory_order_relaxed) == nullptr);
+  }
+
   enum class ReleaseReason : uint8_t { ChildCompleted, Teardown };
 
-  void link_from_parent_scope_lease(promise_common& self, ParentScopeLease parent_scope_ref);
+  void link_from_parent_scope_lease(CancelNode& self, ParentScopeLease parent_scope_ref);
+  detail::TaskControlBase* detach_for_child_completed(CancelNode& self);
   void release(CancelNode& self, ReleaseReason reason);
   bool has_parent() const {
     return parent_.load(std::memory_order_acquire) != nullptr;
   }
-  bool is_parent(const promise_common* parent) const {
+  bool is_parent(const detail::TaskControlBase* parent) const {
     return parent_.load(std::memory_order_acquire) == parent;
   }
 
  private:
-  std::atomic<promise_common*> parent_{nullptr};
+  std::atomic<detail::TaskControlBase*> parent_{nullptr};
 };
 
 struct TopologyTag {};
@@ -168,12 +173,16 @@ struct ActorCancelTag {};
 //   on_zero_refs() destroys the node.
 struct CancelNode : td::TaggedListNode<TopologyTag>, td::TaggedListNode<ActorCancelTag> {
   friend struct CancellationRuntime;
+  friend struct ParentLink;
   template <class T>
   friend struct Ref;
   template <class Tag>
   friend struct CancelTopology;
 
-  virtual ~CancelNode() = default;
+  virtual ~CancelNode() {
+    DCHECK(static_cast<td::TaggedListNode<TopologyTag>*>(this)->empty());
+    DCHECK(static_cast<td::TaggedListNode<ActorCancelTag>*>(this)->empty());
+  }
   virtual void on_cancel() {
   }
   virtual void on_cleanup() {
@@ -299,22 +308,27 @@ struct CancelTopology {
     return true;
   }
 
-  void cancel_snapshot() {
+  template <class CollectFn, class ActionFn>
+  void batch(CollectFn&& collect_fn, ActionFn&& action_fn) {
     std::vector<CancelNode*> nodes;
-    snapshot(nodes, [](CancelNode& node) { node.add_ref(); });
+    collect_fn(nodes, [](CancelNode& node) { node.add_ref(); });
     for (auto* node : nodes) {
-      node->on_cancel();
+      action_fn(*node);
       node->dec_ref();
     }
   }
 
+  void cancel_snapshot() {
+    batch([&](auto& out, auto fn) { snapshot(out, fn); }, [](CancelNode& n) { n.on_cancel(); });
+  }
+
   void drain_cleanup() {
-    std::vector<CancelNode*> nodes;
-    drain(nodes, [](CancelNode& node) { node.add_ref(); });
-    for (auto* node : nodes) {
-      node->on_cleanup();
-      node->dec_ref();
-    }
+    batch([&](auto& out, auto fn) { drain(out, fn); }, [](CancelNode& n) { n.on_cleanup(); });
+  }
+
+  bool empty() {
+    std::lock_guard<td::TinyMutex> lock(mutex_);
+    return head_.begin() == head_.end();
   }
 
  private:
@@ -350,7 +364,7 @@ struct CancellationRuntime {
     state_.add_child_ref();
   }
 
-  void release_child_ref(promise_common& self, ChildReleasePolicy policy) {
+  void release_child_ref(detail::TaskControlBase& self, ChildReleasePolicy policy) {
     if (state_.release_child_ref() && policy == ChildReleasePolicy::MayComplete) {
       bridge::complete_scheduled(self);
     }
@@ -364,18 +378,19 @@ struct CancellationRuntime {
     return parent_link_.has_parent();
   }
 
-  bool is_parent(const promise_common* parent) const {
+  bool is_parent(const detail::TaskControlBase* parent) const {
     return parent_link_.is_parent(parent);
   }
 
   void notify_parent_child_completed(CancelNode& self) {
-    // Child completion can drop topology ref; keep the node alive until release path returns.
-    self.add_ref();
     parent_link_.release(self, ParentLink::ReleaseReason::ChildCompleted);
-    self.dec_ref();
   }
 
-  void set_parent_lease(promise_common& self, ParentScopeLease parent_scope_ref) {
+  detail::TaskControlBase* take_parent_for_child_completed(CancelNode& self) {
+    return parent_link_.detach_for_child_completed(self);
+  }
+
+  void set_parent_lease(CancelNode& self, ParentScopeLease parent_scope_ref) {
     parent_link_.link_from_parent_scope_lease(self, std::move(parent_scope_ref));
   }
 
@@ -407,49 +422,79 @@ struct CancellationRuntime {
     }
   }
 
+  void drain_topology() {
+    topology_.drain_cleanup();
+  }
+
   void on_last_ref_teardown(CancelNode& self) {
     parent_link_.release(self, ParentLink::ReleaseReason::Teardown);
-    topology_.drain_cleanup();
+    drain_topology();
+  }
+
+  bool is_cancel_topology_traversal_active() const {
+    return cancel_traversal_depth_.load(std::memory_order_acquire) != 0;
+  }
+
+  bool has_published_cancel_nodes() {
+    return !topology_.empty();
   }
 
  private:
   void cancel_topology_with_self_ref(CancelNode& self) {
+    cancel_traversal_depth_.fetch_add(1, std::memory_order_acq_rel);
     self.add_ref();
     topology_.cancel_snapshot();
     self.dec_ref();
+    cancel_traversal_depth_.fetch_sub(1, std::memory_order_acq_rel);
   }
 
   uint32_t ignored_depth_{0};
+  std::atomic<uint32_t> cancel_traversal_depth_{0};
   CancellationState state_{};
   CancelTopology<TopologyTag> topology_{};
   ParentLink parent_link_{};
 };
 
-inline void ParentLink::link_from_parent_scope_lease(promise_common& self, ParentScopeLease parent_scope_ref) {
+inline void ParentLink::link_from_parent_scope_lease(CancelNode& self, ParentScopeLease parent_scope_ref) {
   if (!parent_scope_ref) {
     return;
   }
-  parent_scope_ref.publish_heap_cancel_node(bridge::cancel_node(self));
+  parent_scope_ref.publish_heap_cancel_node(self);
   auto* transferred_parent = parent_scope_ref.release();
-  auto* expected = static_cast<promise_common*>(nullptr);
+  auto* expected = static_cast<detail::TaskControlBase*>(nullptr);
   CHECK(parent_.compare_exchange_strong(expected, transferred_parent, std::memory_order_release,
                                         std::memory_order_relaxed));
 }
 
+inline detail::TaskControlBase* ParentLink::detach_for_child_completed(CancelNode& self) {
+  auto* parent = parent_.load(std::memory_order_acquire);
+  if (!parent) {
+    return nullptr;
+  }
+  // Unpublish can drop topology ref; keep the node alive through unpublish.
+  self.add_ref();
+  bridge::runtime(*parent).unpublish_cancel_node(self);
+  auto* result = parent_.exchange(nullptr, std::memory_order_acq_rel);
+  self.dec_ref();
+  return result;
+}
+
 inline void ParentLink::release(CancelNode& self, ReleaseReason reason) {
-  auto* parent = parent_.exchange(nullptr, std::memory_order_acq_rel);
+  detail::TaskControlBase* parent;
+  if (reason == ReleaseReason::ChildCompleted) {
+    parent = detach_for_child_completed(self);
+  } else {
+    parent = parent_.exchange(nullptr, std::memory_order_acq_rel);
+  }
   if (!parent) {
     return;
-  }
-  if (reason == ReleaseReason::ChildCompleted) {
-    bridge::runtime(*parent).unpublish_cancel_node(self);
   }
   auto policy = reason == ReleaseReason::ChildCompleted ? CancellationRuntime::ChildReleasePolicy::MayComplete
                                                         : CancellationRuntime::ChildReleasePolicy::NoComplete;
   bridge::runtime(*parent).release_child_ref(*parent, policy);
 }
 
-inline void ParentScopeLease::Deleter::operator()(promise_common* p) const {
+inline void ParentScopeLease::Deleter::operator()(detail::TaskControlBase* p) const {
   bridge::runtime(*p).release_child_ref(*p, CancellationRuntime::ChildReleasePolicy::MayComplete);
 }
 
@@ -457,9 +502,9 @@ inline bool ParentScopeLease::is_cancelled() const {
   return ptr_ && bridge::should_finish_due_to_cancellation(*ptr_);
 }
 
-inline ParentScopeLease bridge::make_parent_scope_lease(promise_common& p) {
-  bridge::runtime(p).add_child_ref();
-  return ParentScopeLease(&p);
+inline ParentScopeLease bridge::make_parent_scope_lease(detail::TaskControlBase& ctrl) {
+  bridge::runtime(ctrl).add_child_ref();
+  return ParentScopeLease(&ctrl);
 }
 
 inline void ParentScopeLease::publish_heap_cancel_node(CancelNode& node) {

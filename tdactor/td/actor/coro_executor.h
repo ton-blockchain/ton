@@ -24,7 +24,7 @@ inline ActorId<> get_current_actor_id() noexcept {
 
 template <class P>
 [[nodiscard]] std::coroutine_handle<> continue_with_tls(std::coroutine_handle<P> cont) noexcept {
-  set_current_promise(cont);
+  set_current_ctrl(cont);
   return cont;
 }
 
@@ -124,9 +124,9 @@ struct SchedulerExecutor {
   }
   template <class P>
   void schedule(std::coroutine_handle<P> cont) noexcept {
-    // Encode promise pointer so CpuWorker can set TLS before resuming
-    auto* promise = to_promise_common(cont);
-    auto token = reinterpret_cast<td::actor::core::SchedulerToken>(encode_promise(promise));
+    // Encode control block pointer so CpuWorker can set TLS before resuming
+    auto* ctrl = cont.promise().control_;
+    auto token = reinterpret_cast<td::actor::core::SchedulerToken>(encode_ctrl(ctrl));
     td::actor::core::SchedulerContext::get().add_token_to_cpu_queue(token, td::actor::core::SchedulerId{});
   }
 
