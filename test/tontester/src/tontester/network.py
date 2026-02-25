@@ -296,7 +296,7 @@ class Network:
         for node in self.__nodes:
             await node.stop()
 
-        await self._event_loop.aclose()
+        self._event_loop.close()
 
     async def __aenter__(self):
         return self
@@ -597,7 +597,7 @@ class FullNode(Network.Node):
         if self._client:
             await self._client.aclose()
         if self._engine_console:
-            await self._engine_console.aclose()
+            self._engine_console.close()
         if self._blockchain_explorer:
             _ = self._blockchain_explorer.cancel()
             try:
