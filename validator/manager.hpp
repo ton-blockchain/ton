@@ -730,6 +730,10 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void iterate_temp_block_handles(std::function<void(const BlockHandleInterface &)> f) override;
 
+  void sync_temp_archive(td::Promise<> promise) override {
+    td::actor::send_closure(db_, &Db::sync_temp_archive, std::move(promise));
+  }
+
   struct Collator {
     td::actor::ActorOwn<CollatorNode> actor;
     std::set<ShardIdFull> shards;

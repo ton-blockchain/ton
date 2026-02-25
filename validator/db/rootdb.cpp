@@ -612,6 +612,10 @@ void RootDb::iterate_temp_block_handles(std::function<void(const BlockHandleInte
   td::actor::send_closure(archive_db_, &ArchiveManager::iterate_temp_block_handles, std::move(f));
 }
 
+void RootDb::sync_temp_archive(td::Promise<> promise) {
+  td::actor::send_closure(archive_db_, &ArchiveManager::sync_temp_archive, std::move(promise));
+}
+
 }  // namespace validator
 
 }  // namespace ton

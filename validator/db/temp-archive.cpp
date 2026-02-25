@@ -27,7 +27,7 @@ static td::BufferSlice db_key_block_handle(const BlockIdExt& block_id) {
 }
 
 static td::BufferSlice db_key_file(const FileReference& file_ref) {
-  return create_serialize_tl_object<ton_api::db_temp_key_file>(file_ref.hash());
+  return create_serialize_tl_object<ton_api::db_temp_key_file>(file_ref.tl());
 }
 
 static td::BufferSlice db_key_gc_list(UnixTime ts, td::Slice key) {
@@ -66,16 +66,12 @@ td::Result<BlockHandle> TempArchive::get_handle(BlockIdExt block_id) {
   return create_block_handle(std::move(value.value())).ensure().move_as_ok();
 }
 
-td::actor::Task<> TempArchive::add_file(FileReference file_ref, td::BufferSlice data, bool sync) {
+void TempArchive::add_file(FileReference file_ref, td::BufferSlice data) {
   auto key = db_key_file(file_ref);
   if (!db_get(key.clone())) {
     db_set(db_key_gc_list((UnixTime)td::Clocks::system(), key), {});
     db_set(std::move(key), std::move(data));
   }
-  if (sync) {
-    co_await db_sync();
-  }
-  co_return {};
 }
 
 void TempArchive::update_handle(BlockHandle handle) {
@@ -130,6 +126,18 @@ void TempArchive::gc(UnixTime gc_ts) {
   }
 }
 
+td::actor::Task<> TempArchive::sync() {
+  co_return co_await td::actor::ask(db_writer_, &DbWriter::sync);
+}
+
+void TempArchive::remove_handle(BlockIdExt block_id) {
+  db_erase(db_key_block_handle(block_id));
+}
+
+void TempArchive::remove_file(FileReference file_ref) {
+  db_erase(db_key_file(file_ref));
+}
+
 td::optional<td::BufferSlice> TempArchive::db_get(td::BufferSlice key) {
   auto it = db_pending_writes_.find(key);
   if (it != db_pending_writes_.end()) {
@@ -154,10 +162,6 @@ void TempArchive::db_set(td::BufferSlice key, td::BufferSlice value) {
 void TempArchive::db_erase(td::BufferSlice key) {
   db_pending_writes_[key.clone()] = {td::optional<td::BufferSlice>{}, db_write_idx_};
   td::actor::send_closure(db_writer_, &DbWriter::erase, std::move(key), db_write_idx_++);
-}
-
-td::actor::Task<> TempArchive::db_sync() {
-  co_return co_await td::actor::ask(db_writer_, &DbWriter::sync);
 }
 
 void TempArchive::db_for_each_in_range(td::BufferSlice range_begin, td::BufferSlice range_end,

@@ -126,8 +126,18 @@ td::actor::Task<> ArchiveManager::move_block_to_archive(BlockHandle handle,
     }
   }
 
+  std::vector<FileReference> file_refs;
+  file_refs.reserve(files.size());
+  for (auto &[file_ref, _] : files) {
+    file_refs.push_back(file_ref);
+  }
   tasks.push_back(td::actor::ask(f->file_actor_id(), &ArchiveSlice::add_block, handle, std::move(files)));
   co_await td::actor::all(std::move(tasks));
+
+  td::actor::send_closure(temp_archive_, &TempArchive::remove_handle, handle->id());
+  for (auto &file_ref : file_refs) {
+    td::actor::send_closure(temp_archive_, &TempArchive::remove_file, std::move(file_ref));
+  }
   co_return {};
 }
 
@@ -143,7 +153,7 @@ void ArchiveManager::add_file(BlockHandle handle, FileReference ref_id, td::Buff
     td::MultiPromise mp;
     auto ig = mp.init_guard();
     ig.add_promise(std::move(promise));
-    td::actor::send_closure(temp_archive_, &TempArchive::add_file, ref_id, data.clone(), false, ig.get_promise());
+    td::actor::send_closure(temp_archive_, &TempArchive::add_file, ref_id, data.clone(), ig.get_promise());
     if (copy_to_key) {
       auto f2 = get_file_desc(handle->id().shard_full(), get_key_package_id(handle->masterchain_ref_block()),
                               handle->id().seqno(), handle->unix_time(), handle->logical_time(), true);
@@ -186,8 +196,12 @@ void ArchiveManager::add_key_block_proof(UnixTime ts, BlockSeqno seqno, LogicalT
 
 void ArchiveManager::add_temp_file_short(FileReference ref_id, td::BufferSlice data, bool sync,
                                          td::Promise<td::Unit> promise) {
-  td::actor::send_closure(temp_archive_, &TempArchive::add_file, std::move(ref_id), std::move(data), sync,
-                          std::move(promise));
+  td::actor::send_closure(temp_archive_, &TempArchive::add_file, std::move(ref_id), std::move(data));
+  if (sync) {
+    td::actor::send_closure(temp_archive_, &TempArchive::sync, std::move(promise));
+  } else {
+    promise.set_value(td::Unit{});
+  }
 }
 
 td::actor::Task<BlockHandle> ArchiveManager::get_handle(BlockIdExt block_id) {
@@ -902,13 +916,34 @@ void ArchiveManager::start_up() {
   if (!opts_->get_disable_rocksdb_stats()) {
     statistics_.init();
   }
-  temp_archive_ = td::actor::create_actor<TempArchive>("temp-archive", db_root_ + "/files/temp-archive/", statistics_);
   td::RocksDbOptions db_options;
   db_options.statistics = statistics_.rocksdb_statistics;
   index_ = std::make_shared<td::RocksDb>(
       td::RocksDb::open(db_root_ + "/files/globalindex", std::move(db_options)).move_as_ok());
   std::string value;
-  auto v = index_->get(create_serialize_tl_object<ton_api::db_files_index_key>().as_slice(), value);
+
+  td::uint32 stored_version;
+  auto v = index_->get("db_version", value);
+  v.ensure();
+  if (v.move_as_ok() == td::KeyValue::GetStatus::Ok) {
+    stored_version = td::to_integer_safe<td::uint32>(value).ensure().move_as_ok();
+  } else {
+    stored_version = 0;
+  }
+  LOG_CHECK(stored_version <= DB_VERSION) << "Outdated node software: stored archive db version is " << stored_version
+                                          << ", supported version is " << DB_VERSION;
+  if (stored_version != DB_VERSION) {
+    index_->begin_transaction().ensure();
+    if (stored_version == 0) {
+      // Make sure that node cannot start after downgrade to an older version
+      index_->set("finalizedupto", "X").ensure();
+    }
+    index_->set("db_version", td::to_string(DB_VERSION)).ensure();
+    index_->commit_transaction().ensure();
+  }
+
+  temp_archive_ = td::actor::create_actor<TempArchive>("temp-archive", db_root_ + "/files/temp-archive/", statistics_);
+  v = index_->get(create_serialize_tl_object<ton_api::db_files_index_key>().as_slice(), value);
   v.ensure();
   if (v.move_as_ok() == td::KeyValue::GetStatus::Ok) {
     auto R = fetch_tl_object<ton_api::db_files_index_value>(value, true);
@@ -924,14 +959,6 @@ void ArchiveManager::start_up() {
     for (auto &d : x->temp_packages_) {
       load_package(PackageId{static_cast<td::uint32>(d), false, true});
     }
-  }
-
-  v = index_->get("finalizedupto", value);
-  v.ensure();
-  if (v.move_as_ok() == td::KeyValue::GetStatus::Ok) {
-    auto R = td::to_integer_safe<td::uint32>(value);
-    R.ensure();
-    finalized_up_to_ = R.move_as_ok();
   }
 
   td::WalkPath::run(db_root_ + "/archive/states/", [&](td::CSlice fname, td::WalkPath::Type t) -> void {
@@ -1287,6 +1314,10 @@ void ArchiveManager::iterate_temp_block_handles(std::function<void(const BlockHa
     td::actor::send_closure(file.file_actor_id(), &ArchiveSlice::iterate_block_handles, f);
   }
   td::actor::send_closure(temp_archive_, &TempArchive::iterate_block_handles, f);
+}
+
+void ArchiveManager::sync_temp_archive(td::Promise<> promise) {
+  td::actor::send_closure(temp_archive_, &TempArchive::sync, std::move(promise));
 }
 
 void ArchiveManager::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) {

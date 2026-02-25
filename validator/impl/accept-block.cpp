@@ -360,7 +360,7 @@ void AcceptBlockQuery::finish_query() {
     CHECK(handle_->inited_proof_link());
   }
   if (promise_) {
-    promise_.set_value(td::Unit());
+    td::actor::send_closure(manager_, &ValidatorManager::sync_temp_archive, std::move(promise_));
   }
   stop();
 }

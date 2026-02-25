@@ -149,6 +149,7 @@ class RootDb : public Db {
       td::Promise<std::vector<td::Ref<PersistentStateDescription>>> promise) override;
 
   void iterate_temp_block_handles(std::function<void(const BlockHandleInterface &)> f) override;
+  void sync_temp_archive(td::Promise<> promise) override;
 
  private:
   td::actor::ActorId<ValidatorManager> validator_manager_;

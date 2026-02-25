@@ -435,6 +435,10 @@ class ValidatorManagerImpl : public ValidatorManager {
     opts_ = std::move(opts);
   }
 
+  void sync_temp_archive(td::Promise<> promise) override {
+    td::actor::send_closure(db_, &Db::sync_temp_archive, std::move(promise));
+  }
+
  private:
   PublicKeyHash local_id_;
 

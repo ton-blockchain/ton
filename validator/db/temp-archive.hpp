@@ -36,10 +36,14 @@ class TempArchive : public td::actor::Actor {
 
   td::Result<td::BufferSlice> get_file(FileReference file_ref);
   td::Result<BlockHandle> get_handle(BlockIdExt block_id);
-  td::actor::Task<> add_file(FileReference file_ref, td::BufferSlice data, bool sync);
+  void add_file(FileReference file_ref, td::BufferSlice data);
   void update_handle(BlockHandle handle);
   void iterate_block_handles(std::function<void(const BlockHandleInterface&)> f);
   void gc(UnixTime gc_ts);
+  td::actor::Task<> sync();
+
+  void remove_handle(BlockIdExt block_id);
+  void remove_file(FileReference file_ref);
 
  private:
   std::string db_path_;
@@ -48,7 +52,6 @@ class TempArchive : public td::actor::Actor {
   td::optional<td::BufferSlice> db_get(td::BufferSlice key);
   void db_set(td::BufferSlice key, td::BufferSlice value);
   void db_erase(td::BufferSlice key);
-  td::actor::Task<> db_sync();
   void db_for_each_in_range(td::BufferSlice range_begin, td::BufferSlice range_end,
                             std::function<bool(td::Slice, td::Slice)> f);
 

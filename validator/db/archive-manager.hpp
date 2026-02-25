@@ -89,6 +89,7 @@ class ArchiveManager : public td::actor::Actor {
   void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise);
 
   void iterate_temp_block_handles(std::function<void(const BlockHandleInterface &)> f);
+  void sync_temp_archive(td::Promise<> promise);
 
   static constexpr td::uint32 archive_size() {
     return 20000;
@@ -184,7 +185,6 @@ class ArchiveManager : public td::actor::Actor {
   };
   FileMap files_, key_files_, temp_files_;
   td::actor::ActorOwn<ArchiveLru> archive_lru_;
-  BlockSeqno finalized_up_to_{0};
   bool async_mode_ = true;
   td::uint32 cur_shard_split_depth_ = 0;
   td::actor::ActorOwn<TempArchive> temp_archive_;
@@ -249,6 +249,7 @@ class ArchiveManager : public td::actor::Actor {
   static constexpr td::uint32 TEMP_PACKAGES_PERIOD = 3600;
   static constexpr td::uint32 TEMP_PACKAGES_TTL = 3600;
   static constexpr td::uint32 TEMP_PACKAGES_HARD_TTL = 3600 * 4;
+  static constexpr td::uint32 DB_VERSION = 1;
 };
 
 }  // namespace validator

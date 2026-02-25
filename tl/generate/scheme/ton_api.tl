@@ -625,7 +625,7 @@ db.event.blockSigned block_id:tonNode.blockIdExt = db.Event;
 db.event.blockCandidateReceived block_id:tonNode.blockIdExt = db.Event;
 
 db.temp.key.blockHandle block_id:tonNode.blockIdExt = db.temp.Key;
-db.temp.key.file hash:int256 = db.temp.Key;
+db.temp.key.file file_ref:db.filedb.Key = db.temp.Key;
 db.temp.key.gcList = db.temp.Key;
 
 ---functions---

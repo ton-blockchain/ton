@@ -3695,10 +3695,12 @@ void ValidatorManagerImpl::process_accepted_nonfinal_block(BlockIdExt block_id, 
     }
   }
   if (!db_event_publisher_.empty()) {
-    VLOG(VALIDATOR_DEBUG) << "DB Event: blockSigned " << block_id.to_str();
-    td::actor::ask(db_event_publisher_, &DbEventPublisher::publish,
-                   create_tl_object<ton_api::db_event_blockSigned>(create_tl_block_id(block_id)))
-        .detach();
+    sync_temp_archive([publisher = db_event_publisher_.get(), block_id](td::Result<>) {
+      VLOG(VALIDATOR_DEBUG) << "DB Event: blockSigned " << block_id.to_str();
+      td::actor::ask(publisher, &DbEventPublisher::publish,
+                     create_tl_object<ton_api::db_event_blockSigned>(create_tl_block_id(block_id)))
+          .detach();
+    });
   }
 }
 

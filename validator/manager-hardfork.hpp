@@ -507,6 +507,10 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
 
+  void sync_temp_archive(td::Promise<> promise) override {
+    td::actor::send_closure(db_, &Db::sync_temp_archive, std::move(promise));
+  }
+
  private:
   td::Ref<ValidatorManagerOptions> opts_;
 

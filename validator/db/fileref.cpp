@@ -276,6 +276,12 @@ FileReferenceShort FileReference::shortref() const {
   return h;
 }
 
+tl_object_ptr<ton_api::db_filedb_Key> FileReference::tl() const {
+  tl_object_ptr<ton_api::db_filedb_Key> f;
+  ref_.visit([&](const auto& obj) { f = obj.tl(); });
+  return f;
+}
+
 td::Bits256 FileReference::hash() const {
   FileHash h;
   ref_.visit([&](const auto& obj) { h = obj.hash(); });
