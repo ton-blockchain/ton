@@ -58,6 +58,7 @@ class ShardBlockVerifier : public td::actor::Actor {
   td::actor::ActorId<rldp2::Rldp> rldp_;
 
   td::Ref<ShardBlockVerifierConfig> config_;
+  std::set<adnl::AdnlNodeIdShort> all_trusted_nodes_;
 
   td::Timestamp send_subscribe_at_ = td::Timestamp::never();
 

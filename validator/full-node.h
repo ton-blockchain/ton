@@ -119,8 +119,8 @@ class FullNode : public td::actor::Actor {
   static constexpr td::uint32 max_proof_size() {
     return 4 << 20;
   }
-  static constexpr td::uint64 max_state_size() {
-    return 4ull << 30;
+  static constexpr td::uint64 max_zerostate_size() {
+    return 16 << 20;
   }
   enum { broadcast_mode_public = 1, broadcast_mode_fast_sync = 2, broadcast_mode_custom = 4 };
 

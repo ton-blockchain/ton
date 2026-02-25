@@ -374,8 +374,8 @@ void run_loopback(Config config) {
                                                            .enable_mmsg = config.enable_mmsg,
                                                            .cc_algo = config.cc_algo});
     // Add both local IDs to QUIC sender
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, src);
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, dst);
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, src);
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, dst);
 
     stats_reporter = td::actor::create_actor<StatsReporter>(
         "quic-stats-loopback", quic_sender.get(), "loopback-periodic", config.protocol == Protocol::quic, 10.0);
@@ -469,7 +469,7 @@ void run_server(Config config) {
                                                            .enable_mmsg = config.enable_mmsg,
                                                            .cc_algo = config.cc_algo});
     // Use send_lambda to properly start the coroutine task
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, local_id);
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, local_id);
     if (config.prometheus)
       td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::quic::QuicSender>,
                               quic_sender.get());
@@ -559,7 +559,7 @@ void run_client(Config config) {
                                                            .enable_mmsg = config.enable_mmsg,
                                                            .cc_algo = config.cc_algo});
     // Use send_lambda to properly start the coroutine task
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, src);
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, src);
     if (config.prometheus)
       td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::quic::QuicSender>,
                               quic_sender.get());

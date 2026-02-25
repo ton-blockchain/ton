@@ -37,18 +37,9 @@ class BlockArchiver : public td::actor::Actor {
   BlockArchiver(BlockHandle handle, td::actor::ActorId<ArchiveManager> archive_db, td::actor::ActorId<Db> db,
                 td::Promise<td::Unit> promise);
 
-  void abort_query(td::Status error);
-
   void start_up() override;
-  void move_handle();
-  void moved_handle();
-  void got_proof(td::BufferSlice data);
-  void written_proof();
-  void got_proof_link(td::BufferSlice data);
-  void written_proof_link();
-  void got_block_data(td::BufferSlice data);
-  void written_block_data();
-  void finish_query();
+  td::actor::Task<> run();
+  td::actor::Task<> run_inner();
 
  private:
   BlockHandle handle_;

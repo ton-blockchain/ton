@@ -48,6 +48,17 @@ class LRUCache {
   bool contains(const K& key) const {
     return cache_.contains(key);
   }
+  size_t size() const {
+    return cache_.size();
+  }
+  bool empty() const {
+    return !cache_.empty();
+  }
+  void clear() {
+    cache_.clear();
+    total_weight_ = 0;
+    // lru_ is updated in Entry destructor
+  }
 
   bool put(const K& key, V value, bool update = true, uint64 weight = 1) {
     bool added = false;
@@ -85,6 +96,15 @@ class LRUCache {
       cleanup();
     }
     return result;
+  }
+
+  void erase(const K& key) {
+    auto it = cache_.find(key);
+    if (it == cache_.end()) {
+      return;
+    }
+    total_weight_ -= (*it)->weight;
+    cache_.erase(it);  // ListNodes are updated in the destructor
   }
 
  private:

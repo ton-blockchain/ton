@@ -244,8 +244,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   BlockHandle last_key_block_handle_;
   BlockHandle last_known_key_block_handle_;
   BlockHandle shard_client_handle_;
-  std::vector<td::Ref<McShardHash>> shard_client_shards_;
   td::Ref<MasterchainState> shard_client_state_;
+  std::vector<td::Ref<McShardHash>> shard_client_shards_;
   td::Ref<MasterchainState> last_liteserver_state_;
 
   td::Ref<MasterchainState> do_get_last_liteserver_state();
@@ -364,8 +364,7 @@ class ValidatorManagerImpl : public ValidatorManager {
                               td::Promise<td::Ref<vm::DataCell>> promise) override;
   void set_block_state_from_data(BlockHandle handle, td::Ref<BlockData> block,
                                  td::Promise<td::Ref<ShardState>> promise) override;
-  void set_block_state_from_data_preliminary(std::vector<td::Ref<BlockData>> blocks,
-                                             td::Promise<td::Unit> promise) override;
+  void set_block_state_from_data_bulk(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise) override;
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) override;
   void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                    td::BufferSlice state, td::Promise<td::Unit> promise) override;

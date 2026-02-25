@@ -2138,7 +2138,10 @@ void LiteQuery::continue_lookupBlockWithProof_getHeaderProof(Ref<ton::validator:
         prev_blkid = p;
       }
     }
-    CHECK(prev_blkid.is_valid());
+    if (!prev_blkid.is_valid()) {
+      fatal_error("failed to choose previous block");
+      return;
+    }
     get_block_handle_checked(prev_blkid, [Self = actor_id(this), masterchain_ref_seqno,
                                           manager = manager_](td::Result<ConstBlockHandle> R) mutable {
       if (R.is_error()) {

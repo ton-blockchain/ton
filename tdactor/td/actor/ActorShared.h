@@ -82,9 +82,9 @@ class ActorShared {
     return &id_;
   }
 
-  detail::ActorRef as_actor_ref() const {
+  detail::ActorTarget as_actor_ref() const {
     CHECK(!empty());
-    return detail::ActorRef(*id_.actor_info_ptr(), token_);
+    return detail::ActorTarget(*id_.actor_info_ptr(), token_);
   }
 
  private:
