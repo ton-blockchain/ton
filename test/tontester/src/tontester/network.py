@@ -532,12 +532,7 @@ class FullNode(Network.Node):
         if self._client:
             return self._client
 
-        self._client = TonlibClient(
-            ls_index=0,
-            config=self._liteserver_config,
-            cdll_path=self._install.tonlibjson,
-            verbosity_level=3,
-        )
+        self._client = TonlibClient(self._tonlib, self._liteserver_config)
         await self._client.init()
 
         return self._client
