@@ -28,8 +28,11 @@ namespace http {
 
 class HttpInboundConnection : public HttpConnection {
  public:
-  HttpInboundConnection(td::SocketFd fd, std::shared_ptr<HttpServer::Callback> http_callback, HttpServer::AllMetrics metrics)
-  : HttpConnection(std::move(fd), nullptr, false), http_callback_(std::move(http_callback)), metrics_(std::move(metrics)) {
+  HttpInboundConnection(td::SocketFd fd, std::shared_ptr<HttpServer::Callback> http_callback,
+                        HttpServer::AllMetrics metrics)
+      : HttpConnection(std::move(fd), nullptr, false)
+      , http_callback_(std::move(http_callback))
+      , metrics_(std::move(metrics)) {
     metrics_.connections->add(1);
     metrics_.connections_total->add(1);
   }

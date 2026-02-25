@@ -42,7 +42,8 @@ struct MetricFamily {
   [[nodiscard]] MetricFamily wrap(std::string prefix) &&;
   [[nodiscard]] MetricFamily label(const LabelSet &extension) &&;
 
-  static MetricFamily make_scalar(std::string name, std::string type, double value, std::optional<std::string> help = std::nullopt);
+  static MetricFamily make_scalar(std::string name, std::string type, double value,
+                                  std::optional<std::string> help = std::nullopt);
 };
 
 struct MetricSet {
@@ -61,4 +62,4 @@ struct Exposition {
 };
 
 std::string concat_names(std::string name1, std::string name2);
-}
+}  // namespace ton::metrics

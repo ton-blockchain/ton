@@ -1,8 +1,6 @@
 #include <unordered_map>
 
-
 #include "td/utils/logging.h"
-
 
 #include "metrics-types.h"
 
@@ -43,7 +41,8 @@ std::string LabelSet::render() && {
 }
 
 std::string Sample::render(const std::string &metric_name, LabelSet metric_label_set) && {
-  return PSTRING() << metric_name << std::move(metric_label_set).join(std::move(label_set)).render() << ' ' << value << '\n';
+  return PSTRING() << metric_name << std::move(metric_label_set).join(std::move(label_set)).render() << ' ' << value
+                   << '\n';
 }
 
 std::string Metric::render(std::string family_name) && {
@@ -56,7 +55,7 @@ std::string Metric::render(std::string family_name) && {
   return result;
 }
 
-Metric Metric::label(LabelSet extension) &&{
+Metric Metric::label(LabelSet extension) && {
   auto new_label_set = std::move(label_set);
   for (auto &l : extension.labels)
     new_label_set.labels.push_back(std::move(l));
@@ -77,7 +76,10 @@ std::string MetricFamily::render() && {
 }
 
 MetricFamily MetricFamily::wrap(std::string prefix) && {
-  return {.name = concat_names(std::move(prefix), std::move(name)), .type = std::move(type), .help = std::move(help), .metrics = std::move(metrics)};
+  return {.name = concat_names(std::move(prefix), std::move(name)),
+          .type = std::move(type),
+          .help = std::move(help),
+          .metrics = std::move(metrics)};
 }
 
 MetricFamily MetricFamily::label(const LabelSet &extension) && {
@@ -87,20 +89,13 @@ MetricFamily MetricFamily::label(const LabelSet &extension) && {
   return {.name = std::move(name), .type = std::move(type), .help = std::move(help), .metrics = std::move(new_metrics)};
 }
 
-MetricFamily MetricFamily::make_scalar(std::string name, std::string type, double value, std::optional<std::string> help) {
+MetricFamily MetricFamily::make_scalar(std::string name, std::string type, double value,
+                                       std::optional<std::string> help) {
   return MetricFamily{
-    .name = name,
-    .type = type,
-    .help = help,
-    .metrics = {Metric{
-      .suffix = "",
-      .label_set = {},
-      .samples = {Sample{
-        .label_set = {},
-        .value = value
-      }}
-    }}
-  };
+      .name = name,
+      .type = type,
+      .help = help,
+      .metrics = {Metric{.suffix = "", .label_set = {}, .samples = {Sample{.label_set = {}, .value = value}}}}};
 }
 
 MetricSet MetricSet::join(MetricSet other) && {
@@ -157,4 +152,4 @@ std::string Exposition::render() && {
   return result;
 }
 
-}
+}  // namespace ton::metrics

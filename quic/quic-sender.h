@@ -37,7 +37,7 @@ class QuicSender : public adnl::AdnlSenderInterface, public virtual metrics::Asy
     struct Entry {
       QuicServer::Stats::Entry server_stats = {};
 
-      Entry operator+(const Entry &other) const {
+      Entry operator+(const Entry& other) const {
         return {.server_stats = server_stats + other.server_stats};
       }
 

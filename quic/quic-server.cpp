@@ -141,13 +141,10 @@ void QuicServer::shutdown_stream(QuicConnectionId cid, QuicStreamID sid) {
   on_connection_updated(*state);
 }
 
-void QuicServer::collect_stats(td::Promise<Stats> P){
+void QuicServer::collect_stats(td::Promise<Stats> P) {
   Stats stats;
   for (auto &[id, conn] : connections_) {
-    Stats::Entry entry {
-      .total_conns = 1,
-      .impl_stats = conn->impl_->get_stats()
-    };
+    Stats::Entry entry{.total_conns = 1, .impl_stats = conn->impl_->get_stats()};
     stats.summary = stats.summary + entry;
     stats.per_conn[id] = entry;
   }

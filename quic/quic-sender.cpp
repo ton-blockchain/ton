@@ -282,18 +282,18 @@ void QuicSender::log_stats(std::string reason) {
 
 std::vector<metrics::MetricFamily> QuicSender::Stats::Entry::dump() const {
   return {
-    metrics::MetricFamily::make_scalar("conns", "gauge", server_stats.total_conns),
-    metrics::MetricFamily::make_scalar("rx_bytes_total", "counter", server_stats.impl_stats.bytes_rx),
-    metrics::MetricFamily::make_scalar("tx_bytes_total", "counter", server_stats.impl_stats.bytes_tx),
-    metrics::MetricFamily::make_scalar("lost_bytes_total", "counter", server_stats.impl_stats.bytes_lost),
-    metrics::MetricFamily::make_scalar("unacked_bytes", "gauge", server_stats.impl_stats.bytes_unacked),
-    metrics::MetricFamily::make_scalar("unsent_bytes", "gauge", server_stats.impl_stats.bytes_unsent),
-    metrics::MetricFamily::make_scalar("open_sids", "gauge", server_stats.impl_stats.open_sids),
-    metrics::MetricFamily::make_scalar("mean_rtt", "gauge", server_stats.impl_stats.mean_rtt),
+      metrics::MetricFamily::make_scalar("conns", "gauge", server_stats.total_conns),
+      metrics::MetricFamily::make_scalar("rx_bytes_total", "counter", server_stats.impl_stats.bytes_rx),
+      metrics::MetricFamily::make_scalar("tx_bytes_total", "counter", server_stats.impl_stats.bytes_tx),
+      metrics::MetricFamily::make_scalar("lost_bytes_total", "counter", server_stats.impl_stats.bytes_lost),
+      metrics::MetricFamily::make_scalar("unacked_bytes", "gauge", server_stats.impl_stats.bytes_unacked),
+      metrics::MetricFamily::make_scalar("unsent_bytes", "gauge", server_stats.impl_stats.bytes_unsent),
+      metrics::MetricFamily::make_scalar("open_sids", "gauge", server_stats.impl_stats.open_sids),
+      metrics::MetricFamily::make_scalar("mean_rtt", "gauge", server_stats.impl_stats.mean_rtt),
   };
 }
 
-std::vector<metrics::MetricFamily> QuicSender::Stats::dump() const{
+std::vector<metrics::MetricFamily> QuicSender::Stats::dump() const {
   auto summary_set = metrics::MetricSet{.families = summary.dump()};
   auto whole_per_path_set = metrics::MetricSet{};
   for (const auto &[path, entry] : per_path) {
@@ -305,7 +305,7 @@ std::vector<metrics::MetricFamily> QuicSender::Stats::dump() const{
   return std::move(summary_set).wrap("summary").join(std::move(whole_per_path_set).wrap("per_path")).families;
 }
 
-td::actor::Task<QuicSender::Stats> QuicSender::collect_stats(){
+td::actor::Task<QuicSender::Stats> QuicSender::collect_stats() {
   Stats stats;
   for (auto &[_, server] : servers_) {
     auto serv_stats = co_await td::actor::ask(server, &QuicServer::collect_stats);
@@ -318,10 +318,11 @@ td::actor::Task<QuicSender::Stats> QuicSender::collect_stats(){
 }
 
 // TODO(avevad): remove obsolete Stats and collect metrics directly
-void QuicSender::collect(td::Promise<metrics::MetricSet> P){
-  td::actor::send_closure(actor_id(this), &QuicSender::collect_stats, td::make_promise([P = std::move(P)](td::Result<Stats> R) mutable  {
-      P.set_value(metrics::MetricSet{.families = R.move_as_ok().dump()}.wrap("quic"));
-  }));
+void QuicSender::collect(td::Promise<metrics::MetricSet> P) {
+  td::actor::send_closure(actor_id(this), &QuicSender::collect_stats,
+                          td::make_promise([P = std::move(P)](td::Result<Stats> R) mutable {
+                            P.set_value(metrics::MetricSet{.families = R.move_as_ok().dump()}.wrap("quic"));
+                          }));
 }
 
 QuicSender::Connection::~Connection() {
@@ -330,7 +331,7 @@ QuicSender::Connection::~Connection() {
   }
 }
 
-void QuicSender::start_up(){
+void QuicSender::start_up() {
   AdnlSenderInterface::start_up();
   alarm_timestamp() = td::Timestamp::now();
 }

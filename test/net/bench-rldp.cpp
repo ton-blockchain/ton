@@ -420,8 +420,12 @@ void run_server(Config config) {
 
   scheduler.run_in_context([&] {
     if (config.prometheus) {
-      exporter = ton::PrometheusExporter::listen(19777);
-      td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::PrometheusExporter>, exporter.get());
+      td::IPAddress addr;
+      addr.init_host_port("127.0.0.1:19777").ensure();
+      exporter = ton::PrometheusExporter::create();
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::listen, addr);
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::PrometheusExporter>,
+                              exporter.get());
     }
     keyring = ton::keyring::Keyring::create(db_root);
     network_manager = ton::adnl::AdnlNetworkManager::create(static_cast<td::uint16>(config.local_addr.get_port()));
@@ -467,7 +471,8 @@ void run_server(Config config) {
     // Use send_lambda to properly start the coroutine task
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, local_id);
     if (config.prometheus)
-      td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::quic::QuicSender>, quic_sender.get());
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::quic::QuicSender>,
+                              quic_sender.get());
 
     td::actor::send_closure(adnl, &ton::adnl::Adnl::subscribe, local_id, "B",
                             std::make_unique<Server>(config.response_size));
@@ -503,8 +508,12 @@ void run_client(Config config) {
 
   scheduler.run_in_context([&] {
     if (config.prometheus) {
-      exporter = ton::PrometheusExporter::listen(29777);
-      td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::PrometheusExporter>, exporter.get());
+      td::IPAddress addr;
+      addr.init_host_port("127.0.0.1:29777").ensure();
+      exporter = ton::PrometheusExporter::create();
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::listen, addr);
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::PrometheusExporter>,
+                              exporter.get());
     }
 
     keyring = ton::keyring::Keyring::create(db_root);
@@ -552,7 +561,8 @@ void run_client(Config config) {
     // Use send_lambda to properly start the coroutine task
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, src);
     if (config.prometheus)
-      td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::quic::QuicSender>, quic_sender.get());
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::quic::QuicSender>,
+                              quic_sender.get());
 
     stats_reporter = td::actor::create_actor<StatsReporter>("quic-stats-client", quic_sender.get(), "client-periodic",
                                                             config.protocol == Protocol::quic, 10.0);

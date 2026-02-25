@@ -474,6 +474,8 @@ class ValidatorEngine : public td::actor::Actor {
   void alarm() override;
   void run();
 
+  void export_metrics(td::IPAddress address);
+
   void get_current_validator_perm_key(td::Promise<std::pair<ton::PublicKey, size_t>> promise);
 
   void try_add_adnl_node(ton::PublicKeyHash pub, AdnlCategory cat, td::Promise<td::Unit> promise);

@@ -12,7 +12,7 @@
 namespace ton::metrics {
 
 class Collector {
-public:
+ public:
   virtual MetricSet collect() = 0;
   virtual ~Collector() = default;
 };
@@ -23,7 +23,7 @@ using MetricsPromise = td::Promise<MetricSet>;
 // However, we cannot inherit actor class right here,
 // because this inheritance should be virtual (but it is not virtual in other places).
 class AsyncCollector {
-public:
+ public:
   virtual void collect(MetricsPromise P) = 0;
   virtual ~AsyncCollector() = default;
 };
@@ -35,47 +35,47 @@ using AsyncCollectorClosure = std::function<void(MetricsPromise)>;
 // (otherwise `&A::collect` will have type `void (CollectorWrapper::*)(MetricsPromise)`, which is unrelated to
 //  `td::actor::Actor` -- so `send_closure`'s inference of member function class will fail).
 class CollectorWrapper : public AsyncCollector {
-public:
+ public:
   CollectorWrapper() = default;
   void collect(MetricsPromise P) override;
 
-  template<typename A>
+  template <typename A>
   void add_collector(td::actor::ActorId<A> collector);
 
-private:
+ private:
   td::actor::Task<MetricSet> collect_coro();
 
   std::vector<AsyncCollectorClosure> collector_closures_;
 };
 
 // CRTP helper for all instruments (collector objects).
-template<typename Derived>
+template <typename Derived>
 class Instrument : public Collector {
-public:
+ public:
   using Ptr = std::shared_ptr<Derived>;
-  template<typename ...Args>
+  template <typename... Args>
   static Ptr make(Args &&...);
 };
 
 using SamplerLambda = std::function<std::vector<Sample>()>;
 
 class LambdaGauge : public Instrument<LambdaGauge> {
-public:
+ public:
   LambdaGauge(std::string metric_name, SamplerLambda lambda, std::optional<std::string> help = std::nullopt);
   MetricSet collect() final;
 
-private:
+ private:
   std::string metric_name_;
   SamplerLambda lambda_;
   std::optional<std::string> help_;
 };
 
 class LambdaCounter : public Instrument<LambdaCounter> {
-public:
+ public:
   LambdaCounter(std::string metric_name, SamplerLambda lambda, std::optional<std::string> help = std::nullopt);
   MetricSet collect() final;
 
-private:
+ private:
   std::string metric_name_;
   SamplerLambda lambda_;
   std::optional<std::string> help_;
@@ -84,16 +84,16 @@ private:
 using CollectorLambda = std::function<std::vector<MetricFamily>()>;
 
 class LambdaCollector : public Instrument<LambdaCollector> {
-public:
+ public:
   explicit LambdaCollector(CollectorLambda lambda);
   MetricSet collect() final;
 
-private:
+ private:
   CollectorLambda lambda_;
 };
 
 class MultiCollector : public td::actor::Actor, public AsyncCollector {
-public:
+ public:
   using Own = td::actor::ActorOwn<MultiCollector>;
   using Ptr = td::actor::ActorId<MultiCollector>;
 
@@ -102,57 +102,57 @@ public:
 
   void add_sync_collector(std::shared_ptr<Collector> collector);
 
-  template<std::derived_from<AsyncCollector> A>
+  template <std::derived_from<AsyncCollector> A>
   void add_async_collector(td::actor::ActorId<A> collector);
 
   static td::actor::ActorOwn<MultiCollector> create(std::string prefix);
 
-private:
+ private:
   std::string prefix_;
   std::vector<std::shared_ptr<Collector>> sync_collectors_ = {};
   std::unique_ptr<CollectorWrapper> async_collector_ = std::make_unique<CollectorWrapper>();
 };
 
-template<typename ValueType>
+template <typename ValueType>
 class AtomicGauge : public Instrument<AtomicGauge<ValueType>> {
-public:
+ public:
   explicit AtomicGauge(std::string name, std::optional<std::string> help = std::nullopt);
   MetricSet collect() final;
 
   void set(ValueType value);
   void add(ValueType value);
 
-private:
+ private:
   const std::string name_;
   const std::optional<std::string> help_;
   std::atomic<ValueType> value_ = {ValueType()};
 };
 
-template<typename ValueType>
+template <typename ValueType>
 class AtomicCounter : public Instrument<AtomicCounter<ValueType>> {
-public:
+ public:
   explicit AtomicCounter(std::string name, std::optional<std::string> help = std::nullopt);
   MetricSet collect() final;
 
   void set(ValueType value);
   void add(ValueType value);
 
-private:
+ private:
   const std::string name_;
   const std::optional<std::string> help_;
   std::atomic<ValueType> value_ = {ValueType()};
 };
 
-template<typename LabelType, typename InstrumentType>
+template <typename LabelType, typename InstrumentType>
 class Labeled : public Instrument<Labeled<LabelType, InstrumentType>> {
-public:
-  template<typename ...Args>
-  explicit Labeled(std::string label_name, Args ...args);
+ public:
+  template <typename... Args>
+  explicit Labeled(std::string label_name, Args... args);
   MetricSet collect() override;
 
   std::shared_ptr<InstrumentType> label(LabelType label);
 
-private:
+ private:
   const std::string label_name_;
   std::function<std::shared_ptr<InstrumentType>()> make_;
   std::unordered_map<LabelType, std::shared_ptr<InstrumentType>> instruments_;
@@ -162,14 +162,13 @@ private:
 template <typename A>
 void CollectorWrapper::add_collector(td::actor::ActorId<A> collector) {
   CHECK(!collector.empty());
-  collector_closures_.push_back([collector] (MetricsPromise P) {
-    td::actor::send_closure(collector, &A::collect, std::move(P));
-  });
+  collector_closures_.push_back(
+      [collector](MetricsPromise P) { td::actor::send_closure(collector, &A::collect, std::move(P)); });
 }
 
 template <typename Derived>
-template <typename ... Args>
-Instrument<Derived>::Ptr Instrument<Derived>::make(Args&& ...args){
+template <typename... Args>
+Instrument<Derived>::Ptr Instrument<Derived>::make(Args &&...args) {
   return std::make_shared<Derived>(std::forward<Args>(args)...);
 }
 
@@ -179,7 +178,8 @@ void MultiCollector::add_async_collector(td::actor::ActorId<A> collector) {
 }
 
 template <typename ValueType>
-AtomicGauge<ValueType>::AtomicGauge(std::string name, std::optional<std::string> help) : name_(std::move(name)), help_(std::move(help)) {
+AtomicGauge<ValueType>::AtomicGauge(std::string name, std::optional<std::string> help)
+    : name_(std::move(name)), help_(std::move(help)) {
 }
 
 template <typename ValueType>
@@ -194,13 +194,13 @@ void AtomicGauge<ValueType>::set(ValueType value) {
 }
 
 template <typename ValueType>
-void AtomicGauge<ValueType>::add(ValueType value){
+void AtomicGauge<ValueType>::add(ValueType value) {
   value_.fetch_add(value);
 }
 
-
 template <typename ValueType>
-AtomicCounter<ValueType>::AtomicCounter(std::string name, std::optional<std::string> help) : name_(std::move(name)), help_(std::move(help)) {
+AtomicCounter<ValueType>::AtomicCounter(std::string name, std::optional<std::string> help)
+    : name_(std::move(name)), help_(std::move(help)) {
 }
 
 template <typename ValueType>
@@ -210,7 +210,7 @@ MetricSet AtomicCounter<ValueType>::collect() {
 }
 
 template <typename ValueType>
-void AtomicCounter<ValueType>::set(ValueType value){
+void AtomicCounter<ValueType>::set(ValueType value) {
   auto old = value_.exchange(value);
   CHECK(value >= old);
 }
@@ -222,17 +222,16 @@ void AtomicCounter<ValueType>::add(ValueType value) {
 }
 
 template <typename LabelType, typename InstrumentType>
-template <typename ... Args>
+template <typename... Args>
 Labeled<LabelType, InstrumentType>::Labeled(std::string label_name, Args... args) : label_name_(std::move(label_name)) {
-  make_ = [t = std::make_tuple(std::move(args)...)] () mutable {
-    return std::apply([](auto&&... xs) {
-      return std::make_shared<InstrumentType>(std::forward<decltype(xs)>(xs)...);
-    }, t);
+  make_ = [t = std::make_tuple(std::move(args)...)]() mutable {
+    return std::apply([](auto &&...xs) { return std::make_shared<InstrumentType>(std::forward<decltype(xs)>(xs)...); },
+                      t);
   };
 }
 
 template <typename LabelType, typename InstrumentType>
-MetricSet Labeled<LabelType, InstrumentType>::collect(){
+MetricSet Labeled<LabelType, InstrumentType>::collect() {
   std::vector<std::pair<LabelType, std::shared_ptr<InstrumentType>>> tmp;
   {
     std::unique_lock lock(mutex_);
@@ -240,7 +239,7 @@ MetricSet Labeled<LabelType, InstrumentType>::collect(){
       tmp.push_back(std::move(e));
     }
   }
-  MetricSet whole_set {{}};
+  MetricSet whole_set{{}};
   for (auto &[l, i] : tmp) {
     MetricSet metric_set = i->collect();
     std::string label_str = PSTRING() << l;
@@ -262,5 +261,4 @@ std::shared_ptr<InstrumentType> Labeled<LabelType, InstrumentType>::label(LabelT
   return result;
 }
 
-
-}
+}  // namespace ton::metrics

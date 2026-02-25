@@ -20,21 +20,27 @@ struct QuicConnectionStats {
   int64_t total_sids = 0, open_sids = 0;
   double mean_rtt = 0;
 
-  QuicConnectionStats operator+(const QuicConnectionStats &other) const {
+  QuicConnectionStats operator+(const QuicConnectionStats& other) const {
     return {
-      .bytes_rx = bytes_rx + other.bytes_rx, .bytes_tx = bytes_tx + other.bytes_tx,
-      .bytes_lost = bytes_lost + other.bytes_lost, .bytes_unacked = bytes_unacked + other.bytes_unacked,
-      .bytes_unsent = bytes_unsent + other.bytes_unsent, .total_sids = total_sids + other.total_sids,
-      .open_sids = open_sids + other.open_sids
+        .bytes_rx = bytes_rx + other.bytes_rx,
+        .bytes_tx = bytes_tx + other.bytes_tx,
+        .bytes_lost = bytes_lost + other.bytes_lost,
+        .bytes_unacked = bytes_unacked + other.bytes_unacked,
+        .bytes_unsent = bytes_unsent + other.bytes_unsent,
+        .total_sids = total_sids + other.total_sids,
+        .open_sids = open_sids + other.open_sids,
     };
   }
 
-  QuicConnectionStats operator-(const QuicConnectionStats &other) const {
+  QuicConnectionStats operator-(const QuicConnectionStats& other) const {
     return {
-      .bytes_rx = bytes_rx - other.bytes_rx, .bytes_tx = bytes_tx - other.bytes_tx,
-      .bytes_lost = bytes_lost - other.bytes_lost, .bytes_unacked = bytes_unacked - other.bytes_unacked,
-      .bytes_unsent = bytes_unsent - other.bytes_unsent, .total_sids = total_sids - other.total_sids,
-      .open_sids = open_sids - other.open_sids
+        .bytes_rx = bytes_rx - other.bytes_rx,
+        .bytes_tx = bytes_tx - other.bytes_tx,
+        .bytes_lost = bytes_lost - other.bytes_lost,
+        .bytes_unacked = bytes_unacked - other.bytes_unacked,
+        .bytes_unsent = bytes_unsent - other.bytes_unsent,
+        .total_sids = total_sids - other.total_sids,
+        .open_sids = open_sids - other.open_sids,
     };
   }
 };

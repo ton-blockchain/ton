@@ -1,6 +1,6 @@
-#include "metrics-collectors.h"
-
 #include <functional>
+
+#include "metrics-collectors.h"
 
 namespace ton::metrics {
 
@@ -20,7 +20,7 @@ td::actor::Task<MetricSet> CollectorWrapper::collect_coro() {
 }
 
 LambdaGauge::LambdaGauge(std::string metric_name, SamplerLambda lambda, std::optional<std::string> help)
-  : metric_name_(std::move(metric_name)), lambda_(std::move(lambda)), help_(std::move(help)) {
+    : metric_name_(std::move(metric_name)), lambda_(std::move(lambda)), help_(std::move(help)) {
 }
 
 MetricSet LambdaGauge::collect() {
@@ -30,7 +30,7 @@ MetricSet LambdaGauge::collect() {
 }
 
 LambdaCounter::LambdaCounter(std::string metric_name, SamplerLambda lambda, std::optional<std::string> help)
-  : metric_name_(std::move(metric_name)), lambda_(std::move(lambda)), help_(std::move(help)) {
+    : metric_name_(std::move(metric_name)), lambda_(std::move(lambda)), help_(std::move(help)) {
 }
 
 MetricSet LambdaCounter::collect() {
@@ -56,11 +56,12 @@ void MultiCollector::collect(MetricsPromise P) {
     auto metric_set = c->collect();
     whole_set = std::move(whole_set).join(std::move(metric_set));
   }
-  async_collector_->collect([prefix = this->prefix_, whole_set = std::move(whole_set), P = std::move(P)] (td::Result<MetricSet> R) mutable {
-    auto metric_set = R.move_as_ok();
-    whole_set = std::move(whole_set).join(std::move(metric_set)).wrap(prefix);
-    P.set_result(std::move(whole_set));
-  });
+  async_collector_->collect(
+      [prefix = this->prefix_, whole_set = std::move(whole_set), P = std::move(P)](td::Result<MetricSet> R) mutable {
+        auto metric_set = R.move_as_ok();
+        whole_set = std::move(whole_set).join(std::move(metric_set)).wrap(prefix);
+        P.set_result(std::move(whole_set));
+      });
 }
 
 void MultiCollector::add_sync_collector(std::shared_ptr<Collector> collector) {
@@ -71,4 +72,4 @@ td::actor::ActorOwn<MultiCollector> MultiCollector::create(std::string prefix) {
   return td::actor::create_actor<MultiCollector>(PSTRING() << "MultiCollector:" << prefix, std::move(prefix));
 }
 
-}
+}  // namespace ton::metrics

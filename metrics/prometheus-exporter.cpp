@@ -5,15 +5,15 @@
 
 namespace ton {
 
-td::actor::ActorOwn<PrometheusExporter> PrometheusExporter::listen(uint16_t port, std::string prefix) {
-  return td::actor::create_actor<PrometheusExporter>(PSTRING() << "PROM@0.0.0.0:" << port, port, std::move(prefix));
+td::actor::ActorOwn<PrometheusExporter> PrometheusExporter::create(std::string prefix) {
+  return td::actor::create_actor<PrometheusExporter>(PSTRING() << "PROM@" << prefix, std::move(prefix));
 }
 
 void PrometheusExporter::collect(metrics::MetricsPromise P) {
   CollectorWrapper::collect(std::move(P));
 }
 
-PrometheusExporter::PrometheusExporter(uint16_t port, std::string prefix) : port_(port), prefix_(std::move(prefix)) {
+PrometheusExporter::PrometheusExporter(std::string prefix) : prefix_(std::move(prefix)) {
   add_collector(collector_.get());
   td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, collectors_);
   td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, collections_total_);
@@ -22,17 +22,21 @@ PrometheusExporter::PrometheusExporter(uint16_t port, std::string prefix) : port
 }
 
 PrometheusExporter::HttpCallback::HttpCallback(td::actor::ActorId<PrometheusExporter> exporter)
-  : exporter_(std::move(exporter)) {
+    : exporter_(std::move(exporter)) {
 }
 
-void PrometheusExporter::HttpCallback::receive_request(RequestPtr request, PayloadPtr payload, td::Promise<HttpReturn> promise) {
-  td::actor::send_closure(exporter_, &PrometheusExporter::on_request, std::move(request), std::move(payload), std::move(promise));
+void PrometheusExporter::HttpCallback::receive_request(RequestPtr request, PayloadPtr payload,
+                                                       td::Promise<HttpReturn> promise) {
+  td::actor::send_closure(exporter_, &PrometheusExporter::on_request, std::move(request), std::move(payload),
+                          std::move(promise));
 }
 
-void PrometheusExporter::start_up(){
+void PrometheusExporter::listen(td::IPAddress addr) {
+  CHECK(http_.empty());
   auto callback = std::make_unique<HttpCallback>(actor_id(this));
-  http_ = td::actor::create_actor<http::HttpServer>(PSTRING() << "HTTP@0.0.0.0:" << port_, port_, std::move(callback));
-  td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_async_collector<http::HttpServer>, http_.get());
+  http_ = td::actor::create_actor<http::HttpServer>(PSTRING() << "HTTP@" << addr, addr, std::move(callback));
+  td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_async_collector<http::HttpServer>,
+                          http_.get());
 }
 
 void PrometheusExporter::on_request(RequestPtr request, PayloadPtr, td::Promise<HttpReturn> promise) {
@@ -64,13 +68,14 @@ void PrometheusExporter::on_request(RequestPtr request, PayloadPtr, td::Promise<
   auto now = td::Timestamp::now().at_unix();
   collections_total_->add(1);
   last_collection_timestamp_->set(now);
-  td::actor::send_closure(main_collector_.get(), &metrics::MultiCollector::collect, td::make_promise([this, payload, then = now] (td::Result<metrics::MetricSet> R) {
-    metrics::MetricSet whole_set = R.move_as_ok();
-    auto exposition = metrics::Exposition {.main_set = std::move(whole_set)};
-    payload->add_chunk(td::BufferSlice{std::move(exposition).render()});
-    payload->complete_parse();
-    last_collection_duration_->set(td::Timestamp::now().at_unix() - then);
-  }));
+  td::actor::send_closure(main_collector_.get(), &metrics::MultiCollector::collect,
+                          td::make_promise([this, payload, then = now](td::Result<metrics::MetricSet> R) {
+                            metrics::MetricSet whole_set = R.move_as_ok();
+                            auto exposition = metrics::Exposition{.main_set = std::move(whole_set)};
+                            payload->add_chunk(td::BufferSlice{std::move(exposition).render()});
+                            payload->complete_parse();
+                            last_collection_duration_->set(td::Timestamp::now().at_unix() - then);
+                          }));
 }
 
-}
+}  // namespace ton
