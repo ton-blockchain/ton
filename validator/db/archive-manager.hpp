@@ -21,6 +21,7 @@
 #include "interfaces/persistent-state.h"
 
 #include "archive-slice.hpp"
+#include "temp-archive.hpp"
 
 namespace ton {
 
@@ -39,7 +40,7 @@ class ArchiveManager : public td::actor::Actor {
   void add_file(BlockHandle handle, FileReference ref_id, td::BufferSlice data, td::Promise<td::Unit> promise);
   void add_key_block_proof(BlockSeqno seqno, UnixTime ts, LogicalTime lt, FileReference ref_id, td::BufferSlice data,
                            td::Promise<td::Unit> promise);
-  void add_temp_file_short(FileReference ref_id, td::BufferSlice data, td::Promise<td::Unit> promise);
+  void add_temp_file_short(FileReference ref_id, td::BufferSlice data, bool sync, td::Promise<td::Unit> promise);
   td::actor::Task<BlockHandle> get_handle(BlockIdExt block_id);
   void get_key_block_proof(FileReference ref_id, td::Promise<td::BufferSlice> promise);
   td::actor::Task<td::BufferSlice> get_temp_file_short(FileReference ref_id);
@@ -186,6 +187,7 @@ class ArchiveManager : public td::actor::Actor {
   BlockSeqno finalized_up_to_{0};
   bool async_mode_ = true;
   td::uint32 cur_shard_split_depth_ = 0;
+  td::actor::ActorOwn<TempArchive> temp_archive_;
 
   DbStatistics statistics_;
 

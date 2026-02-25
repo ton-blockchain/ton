@@ -87,7 +87,7 @@ void RootDb::store_block_signatures(BlockHandle handle, td::Ref<block::BlockSign
   TRY_RESULT_PROMISE(P, root, data->serialize(vset));
   TRY_RESULT_PROMISE(P, serialized, vm::std_boc_serialize(root));
   td::actor::send_closure(archive_db_, &ArchiveManager::add_temp_file_short, fileref::Signatures{handle->id()},
-                          std::move(serialized), std::move(P));
+                          std::move(serialized), false, std::move(P));
 }
 
 void RootDb::get_block_signatures(ConstBlockHandle handle, td::Promise<td::Ref<block::BlockSignatureSet>> promise) {
@@ -184,12 +184,12 @@ void RootDb::store_block_candidate(BlockCandidate candidate, td::Promise<td::Uni
   td::MultiPromise mp;
   auto ig = mp.init_guard();
   ig.add_promise(std::move(promise));
-  td::actor::send_closure(archive_db_, &ArchiveManager::add_temp_file_short,
-                          fileref::Candidate{source, candidate.id, candidate.collated_file_hash}, std::move(obj),
-                          ig.get_promise());
   td::actor::send_closure(archive_db_, &ArchiveManager::add_temp_file_short, fileref::CandidateRef{candidate.id},
                           create_serialize_tl_object<ton_api::db_candidate_id>(
                               source.tl(), create_tl_block_id(candidate.id), candidate.collated_file_hash),
+                          false, ig.get_promise());
+  td::actor::send_closure(archive_db_, &ArchiveManager::add_temp_file_short,
+                          fileref::Candidate{source, candidate.id, candidate.collated_file_hash}, std::move(obj), true,
                           ig.get_promise());
 }
 
