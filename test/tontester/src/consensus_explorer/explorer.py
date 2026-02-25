@@ -1,4 +1,3 @@
-import argparse
 import os
 from multiprocessing import Process
 from pathlib import Path
@@ -39,6 +38,8 @@ class ConsensusExplorer:
 
 
 def _main():
+    import argparse
+
     parser = argparse.ArgumentParser()
     source = parser.add_mutually_exclusive_group(required=True)
     _ = source.add_argument("--logs", nargs="+", help="Paths to log files or directory")
@@ -72,6 +73,9 @@ def _main():
         default=os.getenv("CONSENSUS_EXPLORER_VALIDATOR_NAMES_JSON", ""),
         help='Path to json map {"adnl": "name"} used for validator names',
     )
+    _ = parser.add_argument(
+        "--web-root", default="/", help="Web root for the Dash app (default: /)"
+    )
 
     args = parser.parse_args()
 
@@ -98,6 +102,10 @@ def _main():
             block_explorer_url, show_validator_set_bin, validator_names_json
         )
 
+    def run_app(parser: GroupParser):
+        app = DashApp(parser, vset_provider, cast(str, args.web_root))
+        app.run(debug=True, host=host, port=port)
+
     if stats_dir_str:
         db_path_str = cast(str | None, args.db)
 
@@ -112,15 +120,13 @@ def _main():
         file_index.install_callback(cached_parser)
 
         with file_index:
-            app = DashApp(cached_parser, vset_provider)
-            app.run(debug=True, host=host, port=port)
+            run_app(cached_parser)
     else:
         logs = cast(list[str], args.logs)
         log_paths = [Path(log) for log in logs]
         if len(log_paths) == 1 and log_paths[0].is_dir():
             log_paths = [p for p in log_paths[0].iterdir()]
-        app = DashApp(ParserSessionStats(log_paths, hostname_regex), vset_provider)
-        app.run(debug=True, host=host, port=port)
+        run_app(ParserSessionStats(log_paths, hostname_regex))
 
 
 if __name__ == "__main__":

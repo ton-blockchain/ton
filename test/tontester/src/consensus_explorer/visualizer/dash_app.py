@@ -16,14 +16,17 @@ from .figure_builder import FigureBuilder
 @final
 class DashApp:
     def __init__(
-        self, parser: GroupParser, vset_info_provider: ValidatorSetInfoProvider | None = None
+        self,
+        parser: GroupParser,
+        vset_info_provider: ValidatorSetInfoProvider | None = None,
+        web_root: str = "/",
     ):
         self._parser = parser
         self._vset_provider = vset_info_provider
         self._current_group: str | None = None
         self._data: ConsensusData | None = None
         self._builder: FigureBuilder | None = None
-        self._app: Dash = Dash(__name__)
+        self._app: Dash = Dash(__name__, url_base_pathname=web_root)
         self._update_lock = threading.Lock()
 
     def _load_group(self, group: str) -> None:
