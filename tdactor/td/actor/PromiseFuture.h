@@ -244,9 +244,6 @@ class Promise {
   void reset() {
     promise_.reset();
   }
-  std::unique_ptr<PromiseInterface<T>> release() {
-    return std::move(promise_);
-  }
 
   Promise() = default;
   explicit Promise(std::unique_ptr<PromiseInterface<T>> promise) : promise_(std::move(promise)) {
