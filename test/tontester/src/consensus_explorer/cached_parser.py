@@ -25,12 +25,6 @@ class CachedGroupParser(GroupParser, FileIndexCallback):
         with self._lock:
             self._dirty_groups |= changed_groups
 
-    def _pop_dirty(self, valgroup_hash: bytes) -> bool:
-        with self._lock:
-            was_dirty = valgroup_hash in self._dirty_groups
-            self._dirty_groups.discard(valgroup_hash)
-            return was_dirty
-
     def _resolve_name(self, valgroup_name: str) -> bytes:
         for info in self._file_index.get_all_groups():
             if info.valgroup_name == valgroup_name:
@@ -45,12 +39,14 @@ class CachedGroupParser(GroupParser, FileIndexCallback):
     def parse_group(self, valgroup_name: str) -> ConsensusData:
         valgroup_hash = self._resolve_name(valgroup_name)
 
-        dirty = self._pop_dirty(valgroup_hash)
+        with self._lock:
+            dirty = valgroup_hash in self._dirty_groups
+            self._dirty_groups.discard(valgroup_hash)
 
-        if not dirty and valgroup_hash in self._cache:
-            entry = self._cache[valgroup_hash]
-            self._cache.move_to_end(valgroup_hash)
-            return entry
+            if not dirty and valgroup_hash in self._cache:
+                entry = self._cache[valgroup_hash]
+                self._cache.move_to_end(valgroup_hash)
+                return entry
 
         log_paths: list[Path] = self._file_index.get_files_for_group(valgroup_hash)
 
@@ -62,10 +58,11 @@ class CachedGroupParser(GroupParser, FileIndexCallback):
         )
         data = parser.parse()
 
-        self._cache[valgroup_hash] = data
-        self._cache.move_to_end(valgroup_hash)
+        with self._lock:
+            self._cache[valgroup_hash] = data
+            self._cache.move_to_end(valgroup_hash)
 
-        while len(self._cache) > self._cache_size:
-            _ = self._cache.popitem(last=False)
+            while len(self._cache) > self._cache_size:
+                _ = self._cache.popitem(last=False)
 
         return data

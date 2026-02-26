@@ -285,7 +285,7 @@ class FileIndex:
         changed_hashes: set[bytes] = set()
         paths = list(self._stats_dir.iterdir())
         for i, path in enumerate(paths):
-            disk_files.add(str(path))
+            disk_files.add(str(path.resolve()))
             changed_hashes |= self._index_file(path, conn, i, len(paths))
 
         for file_name in db_files - disk_files:
@@ -298,19 +298,19 @@ class FileIndex:
         class Row(TypedDict):
             file_name: str
 
-        conn = self._connect()
-        cursor = conn.cursor()
-        _ = cursor.execute(
-            """
-            SELECT f.file_name
-            FROM files f
-            JOIN group_files gf ON f.file_id = gf.file_id
-            JOIN groups g ON g.group_id = gf.group_id
-            WHERE g.valgroup_hash = ?
-            """,
-            (valgroup_hash,),
-        )
-        return [Path(row["file_name"]) for row in cast(list[Row], cursor.fetchall())]
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            _ = cursor.execute(
+                """
+                SELECT f.file_name
+                FROM files f
+                JOIN group_files gf ON f.file_id = gf.file_id
+                JOIN groups g ON g.group_id = gf.group_id
+                WHERE g.valgroup_hash = ?
+                """,
+                (valgroup_hash,),
+            )
+            return [Path(row["file_name"]) for row in cast(list[Row], cursor.fetchall())]
 
     def get_all_groups(self) -> list[GroupData]:
         class Row(TypedDict):
@@ -320,27 +320,27 @@ class FileIndex:
             shard: int | None
             group_start_est: float
 
-        conn = self._connect()
-        cursor = conn.cursor()
-        _ = cursor.execute(
-            "SELECT valgroup_hash, catchain_seqno, workchain, shard, group_start_est FROM groups"
-        )
-        result: list[GroupData] = []
-        for row in cast(list[Row], cursor.fetchall()):
-            if (
-                row["catchain_seqno"] is not None
-                and row["workchain"] is not None
-                and row["shard"] is not None
-            ):
-                result.append(
-                    GroupInfo(
-                        valgroup_hash=row["valgroup_hash"],
-                        catchain_seqno=row["catchain_seqno"],
-                        workchain=row["workchain"],
-                        shard=row["shard"],
-                        group_start_est=row["group_start_est"],
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            _ = cursor.execute(
+                "SELECT valgroup_hash, catchain_seqno, workchain, shard, group_start_est FROM groups"
+            )
+            result: list[GroupData] = []
+            for row in cast(list[Row], cursor.fetchall()):
+                if (
+                    row["catchain_seqno"] is not None
+                    and row["workchain"] is not None
+                    and row["shard"] is not None
+                ):
+                    result.append(
+                        GroupInfo(
+                            valgroup_hash=row["valgroup_hash"],
+                            catchain_seqno=row["catchain_seqno"],
+                            workchain=row["workchain"],
+                            shard=row["shard"],
+                            group_start_est=row["group_start_est"],
+                        )
                     )
-                )
-            else:
-                result.append(UnnamedGroupInfo(row["valgroup_hash"], row["group_start_est"]))
-        return result
+                else:
+                    result.append(UnnamedGroupInfo(row["valgroup_hash"], row["group_start_est"]))
+            return result
