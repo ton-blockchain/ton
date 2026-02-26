@@ -2058,7 +2058,6 @@ void ValidatorEngine::start() {
   load_collators_list();
   load_shard_block_verifier_config();
   read_config_ = true;
-  exporter_ = ton::PrometheusExporter::create();
   td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::register_collector<ton::PrometheusExporter>,
                           exporter_.get());
   start_adnl();
