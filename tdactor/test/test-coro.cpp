@@ -3211,6 +3211,55 @@ TEST_CORO(Coro, scheduled_sleep_cancel_stress) {
   co_return td::Unit{};
 }
 
+TEST_CORO(Coro, sleep_awaitable_timer_ref_race_scenario2_repro) {
+#ifdef TD_TSAN
+  constexpr int kIterations = 8000;
+#else
+  constexpr int kIterations = 200;
+#endif
+  constexpr int kTaskCount = 16;
+
+  for (int iter = 0; iter < kIterations; iter++) {
+    std::vector<StartedTask<td::Unit>> tasks;
+    tasks.reserve(kTaskCount);
+
+    for (int i = 0; i < kTaskCount; i++) {
+      tasks.push_back([](int worker_i) -> Task<td::Unit> {
+        for (int step = 0; step < 3; step++) {
+          if (((worker_i + step) & 1) == 0) {
+            co_await yield_on_current();
+          } else {
+            co_await sleep_for(0.0003);
+          }
+        }
+        co_await sleep_for(0.004);
+        co_return td::Unit{};
+      }(i)
+                                              .start_in_parent_scope());
+    }
+
+    for (int spin = 0; spin < (iter & 3); spin++) {
+      co_await yield_on_current();
+    }
+
+    for (int i = 0; i < kTaskCount; i++) {
+      if (((iter + i) & 3) != 0) {
+        tasks[static_cast<size_t>(i)].cancel();
+      }
+    }
+
+    for (auto& task : tasks) {
+      auto result = co_await std::move(task).wrap();
+      if (result.is_error()) {
+        expect_eq(result.error().code(), kCancelledCode,
+                  "sleep_awaitable_timer_ref_race_scenario2_repro: expected cancelled code");
+      }
+    }
+  }
+
+  co_return td::Unit{};
+}
+
 TEST_CORO(Coro, scope_exit_timing) {
   struct Logger {
     const char* name;

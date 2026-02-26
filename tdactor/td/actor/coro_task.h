@@ -1041,10 +1041,12 @@ struct [[nodiscard]] StartedTask : TaskHandle<StartedTask<T>, T> {
     }
 
     void set_value(T&& value) override {
+      LOG_CHECK(promise) << "ExternalPromise::set_value called more than once";
       promise.release()->external_return_value(std::move(value));
     }
 
     void set_error(Status&& error) override {
+      LOG_CHECK(promise) << "ExternalPromise::set_error called more than once";
       promise.release()->external_return_value(std::move(error));
     }
 

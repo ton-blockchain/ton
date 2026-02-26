@@ -110,12 +110,13 @@ class SleepAwaitable {
 
   void await_suspend(std::coroutine_handle<> handle) {
     auto [a, b] = TimerNode::create(handle, deadline_);
-    core::SchedulerContext::get().register_timer(std::move(a));
     timer_ref_ = std::move(b);
     auto lease = current_scope_lease();
     if (lease) {
       lease.publish_heap_cancel_node(*timer_ref_);
     }
+    // register timer here, so there is no race
+    core::SchedulerContext::get().register_timer(std::move(a));
   }
 
   void await_resume() noexcept {
