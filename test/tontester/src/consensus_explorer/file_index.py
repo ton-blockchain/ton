@@ -1,4 +1,5 @@
 import gzip
+import json
 import sqlite3
 import threading
 from pathlib import Path
@@ -81,7 +82,10 @@ class FileIndex:
                 for line in f:
                     if not line.startswith('{"@type":"consensus.stats.events"'):
                         continue
-                    parsed = Consensus_stats_events.from_json(line)
+                    try:
+                        parsed = Consensus_stats_events.from_json(line)
+                    except json.decoder.JSONDecodeError:
+                        continue
                     valgroup_hash = parsed.id
                     found_id = False
                     min_ts = float("inf")
