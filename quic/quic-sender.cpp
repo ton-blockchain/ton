@@ -321,6 +321,8 @@ void QuicSender::collect(td::Promise<metrics::MetricSet> P) {
                           td::make_promise([P = std::move(P)](td::Result<Stats> R) mutable {
                             P.set_value(metrics::MetricSet{.families = R.move_as_ok().dump()}.wrap("quic"));
                           }));
+}
+
 void QuicSender::on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id,
                                 td::optional<adnl::AdnlNodeIdShort> peer_id) {
 }
