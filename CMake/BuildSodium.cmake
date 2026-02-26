@@ -9,7 +9,7 @@ set(SODIUM_BINARY_DIR ${TON_THIRD_PARTY_BINARY_DIR}/sodium)
 set(SODIUM_BUILD_DIR ${SODIUM_BINARY_DIR}/src)
 
 if (USE_EMSCRIPTEN OR EMSCRIPTEN)
-  set(SODIUM_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/3pp_emscripten/libsodium)
+  set(SODIUM_ROOT_DIR ${CMAKE_BINARY_DIR}/3pp_emscripten/libsodium)
   if (EXISTS ${SODIUM_ROOT_DIR}/lib/libsodium.a)
     set(SODIUM_LIBRARY ${SODIUM_ROOT_DIR}/lib/libsodium.a)
     set(SODIUM_INCLUDE_DIR ${SODIUM_ROOT_DIR}/include)
