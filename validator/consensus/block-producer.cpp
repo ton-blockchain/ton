@@ -91,11 +91,11 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
     td::Timestamp start_time = event->start_time;
     double target_rate = bus.config.target_rate_ms / 1000.0;
     double hard_timeout = std::max(target_rate * 3.0, 5.0);
-    double collate_before = target_rate * 0.1;
+    double start_collate_before = bus.shard.is_masterchain() ? 0.0 : target_rate;
 
     for (td::uint32 slot = event->start_slot; current_leader_window_ == window && slot < event->end_slot; ++slot) {
       td::Timestamp slot_start = start_time + target_rate * (slot - event->start_slot);
-      co_await td::actor::coro_sleep(slot_start - collate_before);
+      co_await td::actor::coro_sleep(slot_start - start_collate_before);
       if (current_leader_window_ != window) {
         break;
       }
@@ -110,11 +110,16 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
             .skip_store_candidate = true,
             .utime = slot_start.at_unix(),
             .hard_timeout = slot_start + hard_timeout,
-            .soft_timeout = slot_start + target_rate,
             .prev_block_data = state->block_data(),
             .prev_block_state_roots = state->state(),
             .is_new_consensus = true,
         };
+        if (bus.shard.is_masterchain()) {
+          params.soft_timeout = slot_start + target_rate;
+        } else {
+          params.soft_timeout = slot_start;
+          params.wait_externals_until = slot_start;
+        }
         block_generation = td::actor::ask(bus.manager, &ManagerFacade::collate_block, std::move(params),
                                           cancellation_source_.get_cancellation_token());
         owning_bus().publish<TraceEvent>(stats::CollateStarted::create(slot));

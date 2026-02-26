@@ -238,6 +238,13 @@ struct CollatorNodeResponseStats {
   }
 };
 
+struct ExtMsgCallback {
+  ShardIdFull shard;
+  std::function<void(td::Ref<ExtMessage>, int)> callback;
+  td::CancellationToken cancellation_token;
+  td::Timestamp timeout;
+};
+
 using ValidateCandidateResult = td::Variant<CandidateAccept, CandidateReject>;
 
 class ValidatorManager : public ValidatorManagerInterface {
@@ -297,7 +304,7 @@ class ValidatorManager : public ValidatorManagerInterface {
                                         td::Promise<td::Ref<MessageQueue>> promise) = 0;
   virtual void wait_block_message_queue_short(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                               td::Promise<td::Ref<MessageQueue>> promise) = 0;
-  virtual void get_external_messages(ShardIdFull shard,
+  virtual void get_external_messages(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback,
                                      td::Promise<std::vector<std::pair<td::Ref<ExtMessage>, int>>> promise) = 0;
   virtual void get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) = 0;
   virtual void get_shard_blocks_for_collator(BlockIdExt masterchain_block_id,

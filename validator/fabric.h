@@ -42,6 +42,7 @@ struct CollateParams {
   td::optional<double> utime = {};
   td::Timestamp hard_timeout = td::Timestamp::in(10.0);
   td::Timestamp soft_timeout = {};
+  td::Timestamp wait_externals_until = {};
 
   // Optional - if empty, blocks and states are taken from manager
   // If not empty, should be the same size as prev

@@ -1107,9 +1107,10 @@ void ValidatorManagerImpl::wait_block_message_queue_short(BlockIdExt block_id, t
 }
 
 void ValidatorManagerImpl::get_external_messages(
-    ShardIdFull shard, td::Promise<std::vector<std::pair<td::Ref<ExtMessage>, int>>> promise) {
+    ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback,
+    td::Promise<std::vector<std::pair<td::Ref<ExtMessage>, int>>> promise) {
   td::actor::send_closure(ext_message_pool_, &ExtMessagePool::get_external_messages_for_collator, shard,
-                          std::move(promise));
+                          std::move(callback), std::move(promise));
 }
 
 void ValidatorManagerImpl::get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) {

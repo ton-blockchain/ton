@@ -58,7 +58,7 @@ class SharedFuture {
 constexpr int AWAIT_TIMEOUT_CODE = 6520;
 
 template <typename T>
-Task<T> await_with_timeout(Task<T> task, Timestamp timeout) {
+Task<T> await_with_timeout(StartedTask<T> task, Timestamp timeout) {
   auto [task_result, promise] = StartedTask<T>::make_bridge();
   auto promise_ptr = std::make_shared<Promise<T>>(std::move(promise));
   if (timeout) {
@@ -69,12 +69,17 @@ Task<T> await_with_timeout(Task<T> task, Timestamp timeout) {
     };
     worker_timeout(timeout, promise_ptr).start().detach();
   }
-  auto worker_wait = [](Task<T> task, std::shared_ptr<Promise<T>> promise_ptr) -> Task<> {
+  auto worker_wait = [](StartedTask<T> task, std::shared_ptr<Promise<T>> promise_ptr) -> Task<> {
     promise_ptr->set_result(co_await std::move(task).wrap());
     co_return {};
   };
   worker_wait(std::move(task), std::move(promise_ptr)).start().detach();
   co_return co_await std::move(task_result);
+}
+
+template <typename T>
+Task<T> await_with_timeout(Task<T> task, Timestamp timeout) {
+  co_return co_await await_with_timeout(std::move(task).start(), timeout);
 }
 
 }  // namespace td::actor

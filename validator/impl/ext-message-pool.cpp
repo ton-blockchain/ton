@@ -49,7 +49,8 @@ td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_add_external_
   co_return result.move_as_ok();
 }
 
-std::vector<std::pair<td::Ref<ExtMessage>, int>> ExtMessagePool::get_external_messages_for_collator(ShardIdFull shard) {
+std::vector<std::pair<td::Ref<ExtMessage>, int>> ExtMessagePool::get_external_messages_for_collator(
+    ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) {
   td::Timer t;
   size_t processed = 0, deleted = 0;
   std::vector<std::pair<td::Ref<ExtMessage>, int>> res;
@@ -112,6 +113,10 @@ std::vector<std::pair<td::Ref<ExtMessage>, int>> ExtMessagePool::get_external_me
                  << " result_size=" << res.size() << " processed=" << processed << " expired=" << deleted
                  << " total_size=" << total_msgs;
   }
+  if (callback) {
+    alarm_timestamp().relax(callback->timeout);
+    callbacks_.push_back(std::move(callback));
+  }
   return res;
 }
 
@@ -161,6 +166,13 @@ void ExtMessagePool::alarm() {
     cleanup_mempool_at_ = td::Timestamp::in(250.0);
   }
   alarm_timestamp().relax(cleanup_mempool_at_);
+  std::erase_if(callbacks_, [&](const std::unique_ptr<ExtMsgCallback> &callback) -> bool {
+    if (callback->timeout && callback->timeout.is_in_past()) {
+      return true;
+    }
+    alarm_timestamp().relax(callback->timeout);
+    return false;
+  });
 }
 
 void ExtMessagePool::add_message_to_mempool(td::Ref<ExtMessage> message, int priority,
@@ -197,6 +209,15 @@ void ExtMessagePool::add_message_to_mempool(td::Ref<ExtMessage> message, int pri
   msgs.ext_addr_messages_[address].emplace(id.hash, id);
   ext_messages_hashes_[id.hash] = {priority, id};
   LOG(INFO) << "adding message addr=" << wc << ":" << addr.to_hex() << " prio=" << priority << " to mempool";
+  std::erase_if(callbacks_, [&](const std::unique_ptr<ExtMsgCallback> &callback) -> bool {
+    if (callback->cancellation_token.check().is_error()) {
+      return true;
+    }
+    if (shard_contains(callback->shard, message->shard())) {
+      callback->callback(message, priority);
+    }
+    return false;
+  });
 }
 
 td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_message(td::Ref<ExtMessage> message,
