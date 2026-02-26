@@ -486,7 +486,7 @@ struct OnActor {
   }
 
  private:
-  actor::detail::ActorRef actor_id_;
+  actor::detail::ActorTarget actor_id_;
 };
 
 immediate_task check_h() {

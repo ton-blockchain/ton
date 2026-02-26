@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
-#include "quic/quic-sender.h"
 #include "td/db/RocksDb.h"
 #include "td/utils/port/path.h"
 #include "validator/consensus/null/bus.h"
@@ -168,8 +167,7 @@ struct BridgeCreationParams {
 
   ValidatorSessionId session_id;
   td::actor::ActorId<overlay::Overlays> overlays;
-  td::actor::ActorId<rldp2::Rldp> rldp2;
-  td::actor::ActorId<quic::QuicSender> quic;
+  td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender;
   std::string db_root;
 };
 
@@ -269,8 +267,7 @@ class BridgeImpl final : public IValidatorGroup {
 
     bus->session_id = params_.session_id;
     bus->overlays = params_.overlays;
-    bus->rldp2 = params_.rldp2;
-    bus->quic = params_.quic;
+    bus->adnl_sender = params_.adnl_sender;
 
     bus->populate_collator_schedule();
 
@@ -361,11 +358,10 @@ td::actor::ActorOwn<IValidatorGroup> IValidatorGroup::create_bridge(
     td::Slice name, ShardIdFull shard, PublicKeyHash local_id, ValidatorSessionId session_id,
     td::Ref<block::ValidatorSet> validator_set, BlockSeqno last_key_block_seqno, NewConsensusConfig config,
     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-    td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
-    td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
-    td::actor::ActorId<ValidatorManager> validator_manager, td::actor::ActorId<CollationManager> collation_manager,
-    bool create_session, bool allow_unsafe_self_blocks_resync, td::Ref<ValidatorManagerOptions> opts,
-    bool monitoring_shard) {
+    td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender, td::actor::ActorId<overlay::Overlays> overlays,
+    std::string db_root, td::actor::ActorId<ValidatorManager> validator_manager,
+    td::actor::ActorId<CollationManager> collation_manager, bool create_session, bool allow_unsafe_self_blocks_resync,
+    td::Ref<ValidatorManagerOptions> opts, bool monitoring_shard) {
   auto name_with_seqno =
       std::string(name.begin(), name.end()) + "." + std::to_string(validator_set->get_catchain_seqno());
   consensus::BridgeCreationParams params{
@@ -381,8 +377,7 @@ td::actor::ActorOwn<IValidatorGroup> IValidatorGroup::create_bridge(
       .config = std::move(config),
       .session_id = std::move(session_id),
       .overlays = overlays,
-      .rldp2 = rldp2,
-      .quic = quic,
+      .adnl_sender = adnl_sender,
       .db_root = db_root,
   };
   return td::actor::create_actor<consensus::BridgeImpl>(name_with_seqno, std::move(params));

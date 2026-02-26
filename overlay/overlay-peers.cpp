@@ -352,8 +352,9 @@ void OverlayImpl::send_random_peers_v2_cont(adnl::AdnlNodeIdShort src, OverlayNo
                                             td::Promise<td::BufferSlice> promise) {
   std::vector<tl_object_ptr<ton_api::overlay_nodeV2>> vec;
   if (announce_self_) {
-    CHECK(is_persistent_node(node.adnl_id_short()) || !node.certificate()->empty());
-    vec.emplace_back(node.tl_v2());
+    if (overlay_type_ == OverlayType::Public || is_persistent_node(local_id_) || !node.certificate()->empty()) {
+      vec.emplace_back(node.tl_v2());
+    }
   }
 
   td::uint32 max_iterations = nodes_to_send() + 16;

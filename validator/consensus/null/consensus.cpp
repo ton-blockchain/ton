@@ -5,6 +5,7 @@
  */
 
 #include "consensus/utils.h"
+#include "td/actor/SharedFuture.h"
 #include "td/actor/coro_utils.h"
 
 #include "bus.h"
@@ -220,7 +221,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   }
 
   td::Promise<StartEvent> genesis_promise_;
-  SharedFuture<StartEvent> genesis_;
+  td::actor::SharedFuture<StartEvent> genesis_;
 
   std::set<PeerValidatorId> seen_handshakes_;
 

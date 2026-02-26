@@ -285,14 +285,14 @@ class Ref {
   Ref& operator=(Ref<S>&& r);
   const typename RefValue<T>::Type* operator->() const {
     if (!ptr) {
-      CHECK(ptr && "deferencing null Ref");
+      LOG_CHECK(ptr) << "dereferencing null Ref<" << typeid(T).name() << ">";
       throw NullRef{};
     }
     return RefValue<T>::make_const_ptr(ptr);
   }
   const typename RefValue<T>::Type& operator*() const {
     if (!ptr) {
-      CHECK(ptr && "deferencing null Ref");
+      LOG_CHECK(ptr) << "dereferencing null Ref<" << typeid(T).name() << ">";
       throw NullRef{};
     }
     return RefValue<T>::make_const_ref(ptr);

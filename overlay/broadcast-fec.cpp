@@ -99,9 +99,13 @@ class BroadcastFec : public td::ListNode {
     return std::move(D.data);
   }
 
-  td::BufferSlice get_part(td::uint32 seqno) {
-    CHECK(ready_);
-    CHECK(encoder_ != nullptr);
+  td::Result<td::BufferSlice> get_part(td::uint32 seqno) {
+    if (!ready_ || encoder_ == nullptr) {
+      return td::Status::Error(ErrorCode::notready, "encoder not ready");
+    }
+    if (seqno >= encoder_->get_info().ready_symbol_count) {
+      return td::Status::Error(ErrorCode::notready, "encoder not ready");
+    }
     auto R = encoder_->gen_symbol(seqno);
     CHECK(R.id == seqno);
     return std::move(R.data);
@@ -508,9 +512,13 @@ td::Status BroadcastsFec::process_broadcast(OverlayImpl *overlay, adnl::AdnlNode
   auto broadcast_hash = bcast.hash_;
   auto part_hash = compute_broadcast_part_id(broadcast_hash, part_data_hash, broadcast->seqno_);
   TRY_RESULT(cert, Certificate::create(std::move(broadcast->certificate_)));
-  td::uint32 seqno = static_cast<td::uint32>(broadcast->seqno_);
+  auto seqno = static_cast<td::uint32>(broadcast->seqno_);
+  TRY_RESULT(part_data, bcast.get_part(seqno));
+  if (part_data_hash != td::sha256_bits256(part_data)) {
+    return td::Status::Error(ErrorCode::protoviolation, "wrong part data hash");
+  }
   BroadcastFecPart part(broadcast_hash, part_hash, source, std::move(cert), bcast.data_hash_, bcast.fec_type_.size(),
-                        bcast.flags_, part_data_hash, bcast.get_part(seqno), seqno, bcast.fec_type_, bcast.date_,
+                        bcast.flags_, part_data_hash, std::move(part_data), seqno, bcast.fec_type_, bcast.date_,
                         std::move(broadcast->signature_), true, src_peer_id);
   TRY_STATUS(part.run_checks(overlay, &bcast));
   TRY_STATUS(part.run(overlay, bcast));

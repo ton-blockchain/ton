@@ -43,7 +43,6 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     bool enable_gro = true;
     bool enable_mmsg = true;
     CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
-    std::optional<td::uint64> inbound_stream_max_size = std::nullopt;
   };
   class Callback {
    public:
@@ -67,6 +66,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
 
   td::Result<QuicStreamID> send_stream(QuicConnectionId cid, std::variant<QuicStreamID, StreamOptions> stream,
                                        td::BufferSlice data, bool is_end);
+  void change_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options);
 
   td::Result<QuicConnectionId> connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key, td::Slice alpn);
 
@@ -74,8 +74,11 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void close(QuicConnectionId cid);
   void log_stats(std::string reason = "stats");
 
+  constexpr static size_t DEFAULT_FLOOD_CONTROL = 10;
+
   QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::BufferSlice alpn,
-             std::unique_ptr<Callback> callback, Options options);
+             std::unique_ptr<Callback> callback, Options options,
+             std::optional<size_t> flood_control = DEFAULT_FLOOD_CONTROL);
 
   static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, td::Ed25519::PrivateKey server_key,
                                                             std::unique_ptr<Callback> callback, td::Slice alpn = "ton",
@@ -146,6 +149,8 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   bool gso_enabled_{true};
   bool gro_enabled_{false};
   CongestionControlAlgo cc_algo_{CongestionControlAlgo::Cubic};
+  std::optional<size_t> flood_control_;
+  std::unordered_map<std::string, size_t> flood_map_;
 
   std::unique_ptr<Callback> callback_;
   td::actor::ActorId<QuicServer> self_id_;

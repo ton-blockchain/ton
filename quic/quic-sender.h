@@ -3,7 +3,7 @@
 #include <string>
 
 #include "adnl/adnl-peer-table.h"
-#include "adnl/adnl.h"
+#include "adnl/adnl-sender-ex.h"
 #include "keyring/keyring.h"
 #include "td/actor/coro_task.h"
 
@@ -11,7 +11,7 @@
 
 namespace ton::quic {
 
-class QuicSender : public adnl::AdnlSenderInterface {
+class QuicSender : public adnl::AdnlSenderEx {
  public:
   using AdnlPath = std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>;
 
@@ -29,8 +29,12 @@ class QuicSender : public adnl::AdnlSenderInterface {
                        td::Promise<td::string> promise) override;
 
   void set_udp_offload_options(QuicServer::Options options);
-  void add_local_id(adnl::AdnlNodeIdShort local_id);
+  void add_id(adnl::AdnlNodeIdShort local_id) override;
   void log_stats(std::string reason = "stats");
+
+ protected:
+  void on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id,
+                      td::optional<adnl::AdnlNodeIdShort> peer_id) override;
 
  private:
   struct Connection {
@@ -48,6 +52,8 @@ class QuicSender : public adnl::AdnlSenderInterface {
   class ServerCallback;
 
   static constexpr int NODE_PORT_OFFSET = 1000;
+
+  static constexpr size_t DEFAULT_STREAM_SIZE_LIMIT = 1 * 1024 * 1024;  // 1 MiB
 
   td::actor::ActorId<adnl::AdnlPeerTable> adnl_;
   td::actor::ActorId<keyring::Keyring> keyring_;
@@ -73,6 +79,8 @@ class QuicSender : public adnl::AdnlSenderInterface {
   td::actor::Task<std::shared_ptr<Connection>> find_or_create_connection(AdnlPath path);
   td::actor::Task<td::Unit> init_connection(AdnlPath path, std::shared_ptr<Connection> connection);
   td::actor::Task<td::Unit> init_connection_inner(AdnlPath path, std::shared_ptr<Connection> conn);
+
+  void init_stream_mtu(QuicConnectionId cid, QuicStreamID sid);
 
   void on_connected(td::actor::ActorId<QuicServer> server, QuicConnectionId cid, adnl::AdnlNodeIdShort local_id,
                     td::SecureString peer_public_key, bool is_outbound);
