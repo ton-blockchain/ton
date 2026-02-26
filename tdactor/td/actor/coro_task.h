@@ -135,7 +135,9 @@ struct promise_value : promise_common {
   [[no_unique_address]] ResultT result;
 
   template <class TT>
-  void return_value(TT&& v) noexcept {
+  void return_value(TT&& v) noexcept
+    requires requires { result = std::forward<TT>(v); }
+  {
     result = std::forward<TT>(v);
   }
 
