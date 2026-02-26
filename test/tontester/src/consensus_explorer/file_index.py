@@ -219,28 +219,32 @@ class FileIndex:
             return set()
         file_id = rows[0]["file_id"]
 
-        class GroupFileRow(TypedDict):
-            group_id: int
+        class HashRow(TypedDict):
+            valgroup_hash: bytes
 
-        _ = cursor.execute("SELECT group_id FROM group_files WHERE file_id = ?", (file_id,))
-        group_rows = cast(list[GroupFileRow], cursor.fetchall())
-
-        changed_hashes: set[bytes] = set()
-        for row in group_rows:
-
-            class HashRow(TypedDict):
-                valgroup_hash: bytes
-
-            _ = cursor.execute(
-                "SELECT valgroup_hash FROM groups WHERE group_id = ?",
-                (row["group_id"],),
-            )
-            hash_row = cast(HashRow | None, cursor.fetchone())
-            if hash_row is not None:
-                changed_hashes.add(hash_row["valgroup_hash"])
+        _ = cursor.execute(
+            """
+            SELECT g.valgroup_hash
+            FROM groups g
+            JOIN group_files gf ON g.group_id = gf.group_id
+            WHERE gf.file_id = ?
+            """,
+            (file_id,),
+        )
+        changed_hashes = {row["valgroup_hash"] for row in cast(list[HashRow], cursor.fetchall())}
 
         _ = cursor.execute("DELETE FROM group_files WHERE file_id = ?", (file_id,))
         _ = cursor.execute("DELETE FROM files WHERE file_id = ?", (file_id,))
+        _ = cursor.execute(
+            """
+            DELETE FROM groups
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM group_files gf
+                WHERE gf.group_id = groups.group_id
+            )
+            """
+        )
         conn.commit()
         return changed_hashes
 
