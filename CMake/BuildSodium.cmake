@@ -32,11 +32,11 @@ elseif (MSVC)
   set(SODIUM_FOUND TRUE CACHE BOOL "Sodium found" FORCE)
   file(MAKE_DIRECTORY ${SODIUM_BINARY_DIR}/lib)
   file(MAKE_DIRECTORY ${SODIUM_BINARY_DIR}/obj)
-  file(TO_NATIVE_PATH "${SODIUM_BINARY_DIR}/lib/" SODIUM_MSVC_OUT_DIR)
-  file(TO_NATIVE_PATH "${SODIUM_BINARY_DIR}/obj/" SODIUM_MSVC_INT_DIR)
+  set(SODIUM_MSVC_OUT_DIR "${SODIUM_BINARY_DIR}/lib/")
+  set(SODIUM_MSVC_INT_DIR "${SODIUM_BINARY_DIR}/obj/")
   if (NOT EXISTS "${SODIUM_LIBRARY}")
     execute_process(
-      COMMAND msbuild libsodium.vcxproj /p:Configuration=ReleaseLIB /p:Platform=x64 -p:PlatformToolset=v143 /p:OutDir=${SODIUM_MSVC_OUT_DIR} /p:IntDir=${SODIUM_MSVC_INT_DIR}
+      COMMAND msbuild libsodium.vcxproj /p:Configuration=ReleaseLIB /p:Platform=x64 /p:PlatformToolset=v143 /p:OutDir=${SODIUM_MSVC_OUT_DIR} /p:IntDir=${SODIUM_MSVC_INT_DIR}
       WORKING_DIRECTORY ${SODIUM_PROJECT_DIR}
       RESULT_VARIABLE SODIUM_BUILD_RESULT
     )
@@ -46,7 +46,7 @@ elseif (MSVC)
   endif()
   add_custom_command(
     WORKING_DIRECTORY ${SODIUM_PROJECT_DIR}
-    COMMAND msbuild libsodium.vcxproj /p:Configuration=ReleaseLIB /p:Platform=x64 -p:PlatformToolset=v143 /p:OutDir=${SODIUM_MSVC_OUT_DIR} /p:IntDir=${SODIUM_MSVC_INT_DIR}
+    COMMAND msbuild libsodium.vcxproj /p:Configuration=ReleaseLIB /p:Platform=x64 /p:PlatformToolset=v143 /p:OutDir=${SODIUM_MSVC_OUT_DIR} /p:IntDir=${SODIUM_MSVC_INT_DIR}
     COMMENT "Build sodium (MSVC)"
     DEPENDS ${SODIUM_SOURCE_DIR}
     OUTPUT ${SODIUM_LIBRARY}

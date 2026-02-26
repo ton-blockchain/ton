@@ -164,8 +164,8 @@ else()
     set(LZ4_LIBRARY_DIRS ${LZ4_BINARY_DIR}/lib)
     file(MAKE_DIRECTORY ${LZ4_BINARY_DIR}/lib)
     file(MAKE_DIRECTORY ${LZ4_BINARY_DIR}/obj)
-    file(TO_NATIVE_PATH "${LZ4_BINARY_DIR}/lib/" LZ4_MSVC_OUT_DIR)
-    file(TO_NATIVE_PATH "${LZ4_BINARY_DIR}/obj/" LZ4_MSVC_INT_DIR)
+    set(LZ4_MSVC_OUT_DIR "${LZ4_BINARY_DIR}/lib/")
+    set(LZ4_MSVC_INT_DIR "${LZ4_BINARY_DIR}/obj/")
   else()
     set(LZ4_LIBRARY ${LZ4_BINARY_DIR}/lib/liblz4.a)
   endif()
@@ -173,7 +173,7 @@ else()
   if (MSVC)
     if (NOT EXISTS "${LZ4_LIBRARY}")
       execute_process(
-        COMMAND msbuild liblz4.vcxproj /p:Configuration=Release /p:Platform=x64 -p:PlatformToolset=v143 /p:OutDir=${LZ4_MSVC_OUT_DIR} /p:IntDir=${LZ4_MSVC_INT_DIR}
+        COMMAND msbuild liblz4.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:OutDir=${LZ4_MSVC_OUT_DIR} /p:IntDir=${LZ4_MSVC_INT_DIR}
         WORKING_DIRECTORY ${LZ4_PROJECT_DIR}
         RESULT_VARIABLE LZ4_BUILD_RESULT
       )
@@ -183,7 +183,7 @@ else()
     endif()
     add_custom_command(
         WORKING_DIRECTORY ${LZ4_PROJECT_DIR}
-        COMMAND msbuild liblz4.vcxproj /p:Configuration=Release /p:Platform=x64 -p:PlatformToolset=v143 /p:OutDir=${LZ4_MSVC_OUT_DIR} /p:IntDir=${LZ4_MSVC_INT_DIR}
+        COMMAND msbuild liblz4.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /p:OutDir=${LZ4_MSVC_OUT_DIR} /p:IntDir=${LZ4_MSVC_INT_DIR}
         COMMENT "Build lz4 (MSVC)"
         DEPENDS ${LZ4_SOURCE_DIR}
         OUTPUT ${LZ4_LIBRARY}

@@ -36,8 +36,8 @@ elseif (MSVC)
   set(MHD_INCLUDE_DIR ${MHD_SOURCE_DIR}/src/include)
   file(MAKE_DIRECTORY ${MHD_BINARY_DIR}/lib)
   file(MAKE_DIRECTORY ${MHD_BINARY_DIR}/obj)
-  file(TO_NATIVE_PATH "${MHD_BINARY_DIR}/lib/" MHD_MSVC_OUT_DIR)
-  file(TO_NATIVE_PATH "${MHD_BINARY_DIR}/obj/" MHD_MSVC_INT_DIR)
+  set(MHD_MSVC_OUT_DIR "${MHD_BINARY_DIR}/lib/")
+  set(MHD_MSVC_INT_DIR "${MHD_BINARY_DIR}/obj/")
 
   set(MHD_MSBUILD_ARGS
     libmicrohttpd.vcxproj
@@ -47,7 +47,7 @@ elseif (MSVC)
     /p:IntDir=${MHD_MSVC_INT_DIR}
   )
   if (MHD_MSVC_TOOLSET)
-    list(APPEND MHD_MSBUILD_ARGS -p:PlatformToolset=${MHD_MSVC_TOOLSET})
+    list(APPEND MHD_MSBUILD_ARGS /p:PlatformToolset=${MHD_MSVC_TOOLSET})
   endif()
 
   if (NOT EXISTS "${MHD_LIBRARY}")

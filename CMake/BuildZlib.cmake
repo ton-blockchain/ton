@@ -39,11 +39,11 @@ if (MSVC)
   set(ZLIB_INCLUDE_DIR ${ZLIB_SOURCE_DIR})
   file(MAKE_DIRECTORY ${ZLIB_BINARY_DIR}/lib)
   file(MAKE_DIRECTORY ${ZLIB_BINARY_DIR}/obj)
-  file(TO_NATIVE_PATH "${ZLIB_BINARY_DIR}/lib/" ZLIB_MSVC_OUT_DIR)
-  file(TO_NATIVE_PATH "${ZLIB_BINARY_DIR}/obj/" ZLIB_MSVC_INT_DIR)
+  set(ZLIB_MSVC_OUT_DIR "${ZLIB_BINARY_DIR}/lib/")
+  set(ZLIB_MSVC_INT_DIR "${ZLIB_BINARY_DIR}/obj/")
   if (NOT EXISTS "${ZLIB_LIBRARY}")
     execute_process(
-      COMMAND msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:Platform=x64 -p:PlatformToolset=v142 /p:OutDir=${ZLIB_MSVC_OUT_DIR} /p:IntDir=${ZLIB_MSVC_INT_DIR}
+      COMMAND msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:Platform=x64 /p:PlatformToolset=v142 /p:OutDir=${ZLIB_MSVC_OUT_DIR} /p:IntDir=${ZLIB_MSVC_INT_DIR}
       WORKING_DIRECTORY ${ZLIB_PROJECT_DIR}
       RESULT_VARIABLE ZLIB_BUILD_RESULT
     )
@@ -53,7 +53,7 @@ if (MSVC)
   endif()
   add_custom_command(
     WORKING_DIRECTORY ${ZLIB_PROJECT_DIR}
-    COMMAND msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:Platform=x64 -p:PlatformToolset=v142 /p:OutDir=${ZLIB_MSVC_OUT_DIR} /p:IntDir=${ZLIB_MSVC_INT_DIR}
+    COMMAND msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:Platform=x64 /p:PlatformToolset=v142 /p:OutDir=${ZLIB_MSVC_OUT_DIR} /p:IntDir=${ZLIB_MSVC_INT_DIR}
     COMMENT "Build zlib (MSVC)"
     DEPENDS ${ZLIB_SOURCE_DIR}
     OUTPUT ${ZLIB_LIBRARY}
