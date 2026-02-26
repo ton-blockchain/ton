@@ -38,7 +38,7 @@ class HttpInboundConnection : public HttpConnection {
   }
 
   ~HttpInboundConnection() override {
-    metrics_.connections->add(-1);
+    metrics_.connections->sub(1);
   }
 
   td::Status receive_eof() override {

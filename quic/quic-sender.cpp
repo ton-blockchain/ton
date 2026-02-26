@@ -309,6 +309,8 @@ td::actor::Task<QuicSender::Stats> QuicSender::collect_stats() {
     auto serv_stats = co_await td::actor::ask(server, &QuicServer::collect_stats);
     stats.summary = stats.summary + Stats::Entry{.server_stats = serv_stats.summary};
     for (auto &[id, conn_stats] : serv_stats.per_conn) {
+      if (!by_cid_.contains(id))
+        continue;
       stats.per_path[by_cid_[id]->path] = Stats::Entry{.server_stats = conn_stats};
     }
   }

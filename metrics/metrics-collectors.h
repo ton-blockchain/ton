@@ -121,6 +121,7 @@ class AtomicGauge : public Instrument<AtomicGauge<ValueType>> {
 
   void set(ValueType value);
   void add(ValueType value);
+  void sub(ValueType value);
 
  private:
   const std::string name_;
@@ -196,6 +197,11 @@ void AtomicGauge<ValueType>::set(ValueType value) {
 template <typename ValueType>
 void AtomicGauge<ValueType>::add(ValueType value) {
   value_.fetch_add(value);
+}
+
+template <typename ValueType>
+void AtomicGauge<ValueType>::sub(ValueType value) {
+  value_.fetch_sub(value);
 }
 
 template <typename ValueType>
