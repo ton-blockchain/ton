@@ -117,6 +117,9 @@ class FileIndex:
     def _index_file(
         self, path: Path, conn: sqlite3.Connection, file_idx: int, file_count: int
     ) -> set[bytes]:
+        if not path.exists():
+            return set()
+
         path = path.resolve()
         file_name = str(path)
 
