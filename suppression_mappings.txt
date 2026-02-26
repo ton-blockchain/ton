@@ -25,11 +25,6 @@ src:*/crypto/vm/large-boc-serializer.cpp
 src:*/tdactor/td/actor/ActorStats.cpp
 src:*/validator/full-node-fast-sync-overlays.cpp
 
-[unused-but-set-variable]
-src:*/tdtl/td/tl/tl_config.cpp
-src:*/tdtl/td/tl/tl_generate.cpp
-src:*/tdutils/test/misc.cpp
-
 [return-type]
 src:*/tl/generate/tl_writer_hpp.cpp
 

@@ -414,7 +414,7 @@ void write_class(tl_outputer &out, const tl_type *t, const std::set<std::string>
     out.append(w.gen_class_end());
   }
 
-  int written_constructors = 0;
+  [[maybe_unused]] int written_constructors = 0;
   for (std::size_t i = 0; i < t->constructors_num; i++) {
     if (w.is_combinator_supported(t->constructors[i])) {
       if (optimize_one_constructor) {
