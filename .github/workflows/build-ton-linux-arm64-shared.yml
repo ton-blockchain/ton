@@ -28,7 +28,7 @@ jobs:
         sudo apt-get install -y build-essential git cmake ninja-build libjemalloc-dev ccache
         mkdir ~/.ccache
 
-    - if: matrix.os != 'ubuntu-24.04'
+    - if: matrix.os != 'ubuntu-24.04-arm'
       run: |
         wget https://apt.llvm.org/llvm.sh
         chmod +x llvm.sh
