@@ -8,13 +8,18 @@ set(LZ4_SOURCE_DIR ${TON_THIRD_PARTY_SOURCE_DIR}/lz4)
 set(LZ4_BINARY_DIR ${TON_THIRD_PARTY_BINARY_DIR}/lz4)
 
 if (USE_EMSCRIPTEN OR EMSCRIPTEN)
-  set(LZ4_BINARY_DIR ${LZ4_SOURCE_DIR})
+  set(LZ4_BINARY_DIR ${TON_THIRD_PARTY_BINARY_DIR}/lz4-emscripten)
+  set(LZ4_BUILD_DIR ${LZ4_BINARY_DIR}/src)
   set(LZ4_LIBRARY ${LZ4_BINARY_DIR}/lib/liblz4.a)
   set(LZ4_INCLUDE_DIRS ${LZ4_SOURCE_DIR}/lib)
+  file(MAKE_DIRECTORY ${LZ4_BINARY_DIR}/lib)
   add_custom_command(
-      WORKING_DIRECTORY ${LZ4_SOURCE_DIR}
-      COMMAND emmake make clean
-      COMMAND emmake make -j16 CC=emcc AR=emar RANLIB=emranlib
+      WORKING_DIRECTORY ${LZ4_BINARY_DIR}
+      COMMAND ${CMAKE_COMMAND} -E rm -rf ${LZ4_BUILD_DIR}
+      COMMAND ${CMAKE_COMMAND} -E copy_directory ${LZ4_SOURCE_DIR} ${LZ4_BUILD_DIR}
+      COMMAND emmake make -C ${LZ4_BUILD_DIR} clean
+      COMMAND emmake make -C ${LZ4_BUILD_DIR} -j16 CC=emcc AR=emar RANLIB=emranlib
+      COMMAND ${CMAKE_COMMAND} -E copy ${LZ4_BUILD_DIR}/lib/liblz4.a ${LZ4_LIBRARY}
       COMMENT "Build lz4 with emscripten"
       DEPENDS ${LZ4_SOURCE_DIR}/lib/lz4.c
       OUTPUT ${LZ4_LIBRARY}
@@ -22,6 +27,7 @@ if (USE_EMSCRIPTEN OR EMSCRIPTEN)
 elseif (ANDROID)
   set(LZ4_BINARY_DIR ${TON_ANDROID_THIRD_PARTY_DIR}/lz4/${TON_ANDROID_ARCH_DIR})
   set(LZ4_BUILD_DIR ${LZ4_BINARY_DIR}/cmake)
+  set(LZ4_CMAKE_SOURCE_DIR ${LZ4_BINARY_DIR}/src)
   set(LZ4_INCLUDE_DIRS ${TON_ANDROID_THIRD_PARTY_DIR}/lz4/include)
   set(LZ4_LIBRARY ${LZ4_BINARY_DIR}/lib/liblz4.a)
   set(LZ4_ARCH_STAMP ${LZ4_BINARY_DIR}/.android_arch)
@@ -42,6 +48,7 @@ elseif (ANDROID)
   endif()
 
   file(MAKE_DIRECTORY ${LZ4_BUILD_DIR})
+  file(MAKE_DIRECTORY ${LZ4_CMAKE_SOURCE_DIR})
   file(MAKE_DIRECTORY ${LZ4_BINARY_DIR}/lib)
 
   set(LZ4_NEEDS_BUILD FALSE)
@@ -63,11 +70,33 @@ elseif (ANDROID)
     file(MAKE_DIRECTORY ${LZ4_BUILD_DIR})
     execute_process(
       COMMAND ${CMAKE_COMMAND} -E echo "Patching LZ4 CMakeLists.txt"
+    )
+    execute_process(
+      COMMAND ${CMAKE_COMMAND} -E rm -rf ${LZ4_CMAKE_SOURCE_DIR}
+      RESULT_VARIABLE LZ4_PREP_RESULT
+    )
+    if (NOT LZ4_PREP_RESULT EQUAL 0)
+      message(FATAL_ERROR "LZ4 source cleanup failed with code ${LZ4_PREP_RESULT}")
+    endif()
+    execute_process(
+      COMMAND ${CMAKE_COMMAND} -E copy_directory ${LZ4_SOURCE_DIR} ${LZ4_CMAKE_SOURCE_DIR}
+      RESULT_VARIABLE LZ4_COPY_RESULT
+    )
+    if (NOT LZ4_COPY_RESULT EQUAL 0)
+      message(FATAL_ERROR "LZ4 source copy failed with code ${LZ4_COPY_RESULT}")
+    endif()
+    execute_process(
       COMMAND ${CMAKE_COMMAND}
-        -DLZ4_CMAKE_FILE=${LZ4_SOURCE_DIR}/build/cmake/CMakeLists.txt
+        -DLZ4_CMAKE_FILE=${LZ4_CMAKE_SOURCE_DIR}/build/cmake/CMakeLists.txt
         -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/PatchLZ4.cmake
+      RESULT_VARIABLE LZ4_PATCH_RESULT
+    )
+    if (NOT LZ4_PATCH_RESULT EQUAL 0)
+      message(FATAL_ERROR "LZ4 patch failed with code ${LZ4_PATCH_RESULT}")
+    endif()
+    execute_process(
       COMMAND ${CMAKE_COMMAND}
-        -S ${LZ4_SOURCE_DIR}/build/cmake
+        -S ${LZ4_CMAKE_SOURCE_DIR}/build/cmake
         -B ${LZ4_BUILD_DIR}
         ${LZ4_ANDROID_CMAKE_ARGS}
         -DLZ4_BUILD_CLI=OFF
@@ -96,13 +125,17 @@ elseif (ANDROID)
     file(WRITE ${LZ4_ARCH_STAMP} "${LZ4_ARCH_EXPECTED}\n")
   endif()
   add_custom_command(
-      WORKING_DIRECTORY ${LZ4_BUILD_DIR}
+      WORKING_DIRECTORY ${LZ4_BINARY_DIR}
       COMMAND ${CMAKE_COMMAND} -E echo "Patching LZ4 CMakeLists.txt"
+      COMMAND ${CMAKE_COMMAND} -E rm -rf ${LZ4_BUILD_DIR}
+      COMMAND ${CMAKE_COMMAND} -E make_directory ${LZ4_BUILD_DIR}
+      COMMAND ${CMAKE_COMMAND} -E rm -rf ${LZ4_CMAKE_SOURCE_DIR}
+      COMMAND ${CMAKE_COMMAND} -E copy_directory ${LZ4_SOURCE_DIR} ${LZ4_CMAKE_SOURCE_DIR}
       COMMAND ${CMAKE_COMMAND}
-        -DLZ4_CMAKE_FILE=${LZ4_SOURCE_DIR}/build/cmake/CMakeLists.txt
+        -DLZ4_CMAKE_FILE=${LZ4_CMAKE_SOURCE_DIR}/build/cmake/CMakeLists.txt
         -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/PatchLZ4.cmake
       COMMAND ${CMAKE_COMMAND}
-        -S ${LZ4_SOURCE_DIR}/build/cmake
+        -S ${LZ4_CMAKE_SOURCE_DIR}/build/cmake
         -B ${LZ4_BUILD_DIR}
         ${LZ4_ANDROID_CMAKE_ARGS}
         -DLZ4_BUILD_CLI=OFF
@@ -127,8 +160,12 @@ else()
 
   if (MSVC)
     set(LZ4_PROJECT_DIR ${LZ4_SOURCE_DIR}/build/VS2022/liblz4)
-    set(LZ4_LIBRARY ${LZ4_PROJECT_DIR}/bin/x64_Release/liblz4_static.lib)
-    set(LZ4_LIBRARY_DIRS ${LZ4_PROJECT_DIR}/bin/x64_Release)
+    set(LZ4_LIBRARY ${LZ4_BINARY_DIR}/lib/liblz4_static.lib)
+    set(LZ4_LIBRARY_DIRS ${LZ4_BINARY_DIR}/lib)
+    file(MAKE_DIRECTORY ${LZ4_BINARY_DIR}/lib)
+    file(MAKE_DIRECTORY ${LZ4_BINARY_DIR}/obj)
+    file(TO_NATIVE_PATH "${LZ4_BINARY_DIR}/lib/" LZ4_MSVC_OUT_DIR)
+    file(TO_NATIVE_PATH "${LZ4_BINARY_DIR}/obj/" LZ4_MSVC_INT_DIR)
   else()
     set(LZ4_LIBRARY ${LZ4_BINARY_DIR}/lib/liblz4.a)
   endif()
@@ -136,7 +173,7 @@ else()
   if (MSVC)
     if (NOT EXISTS "${LZ4_LIBRARY}")
       execute_process(
-        COMMAND msbuild liblz4.vcxproj /p:Configuration=Release /p:Platform=x64 -p:PlatformToolset=v143
+        COMMAND msbuild liblz4.vcxproj /p:Configuration=Release /p:Platform=x64 -p:PlatformToolset=v143 /p:OutDir=${LZ4_MSVC_OUT_DIR} /p:IntDir=${LZ4_MSVC_INT_DIR}
         WORKING_DIRECTORY ${LZ4_PROJECT_DIR}
         RESULT_VARIABLE LZ4_BUILD_RESULT
       )
@@ -146,13 +183,14 @@ else()
     endif()
     add_custom_command(
         WORKING_DIRECTORY ${LZ4_PROJECT_DIR}
-        COMMAND msbuild liblz4.vcxproj /p:Configuration=Release /p:Platform=x64 -p:PlatformToolset=v143
+        COMMAND msbuild liblz4.vcxproj /p:Configuration=Release /p:Platform=x64 -p:PlatformToolset=v143 /p:OutDir=${LZ4_MSVC_OUT_DIR} /p:IntDir=${LZ4_MSVC_INT_DIR}
         COMMENT "Build lz4 (MSVC)"
         DEPENDS ${LZ4_SOURCE_DIR}
         OUTPUT ${LZ4_LIBRARY}
     )
   else()
     set(LZ4_BUILD_DIR ${LZ4_BINARY_DIR}/cmake)
+    set(LZ4_CMAKE_SOURCE_DIR ${LZ4_BINARY_DIR}/src)
     set(LZ4_CMAKE_GENERATOR_ARGS)
     if (CMAKE_GENERATOR)
       list(APPEND LZ4_CMAKE_GENERATOR_ARGS -G "${CMAKE_GENERATOR}")
@@ -165,16 +203,21 @@ else()
     endif()
 
     file(MAKE_DIRECTORY ${LZ4_BUILD_DIR})
+    file(MAKE_DIRECTORY ${LZ4_CMAKE_SOURCE_DIR})
     file(MAKE_DIRECTORY ${LZ4_BINARY_DIR}/lib)
 
     add_custom_command(
-        WORKING_DIRECTORY ${LZ4_BUILD_DIR}
+        WORKING_DIRECTORY ${LZ4_BINARY_DIR}
         COMMAND ${CMAKE_COMMAND} -E echo "Patching LZ4 CMakeLists.txt"
+        COMMAND ${CMAKE_COMMAND} -E rm -rf ${LZ4_BUILD_DIR}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${LZ4_BUILD_DIR}
+        COMMAND ${CMAKE_COMMAND} -E rm -rf ${LZ4_CMAKE_SOURCE_DIR}
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${LZ4_SOURCE_DIR} ${LZ4_CMAKE_SOURCE_DIR}
         COMMAND ${CMAKE_COMMAND}
-          -DLZ4_CMAKE_FILE=${LZ4_SOURCE_DIR}/build/cmake/CMakeLists.txt
+          -DLZ4_CMAKE_FILE=${LZ4_CMAKE_SOURCE_DIR}/build/cmake/CMakeLists.txt
           -P ${CMAKE_CURRENT_SOURCE_DIR}/CMake/PatchLZ4.cmake
         COMMAND ${CMAKE_COMMAND}
-          -S ${LZ4_SOURCE_DIR}/build/cmake
+          -S ${LZ4_CMAKE_SOURCE_DIR}/build/cmake
           -B ${LZ4_BUILD_DIR}
           ${LZ4_CMAKE_GENERATOR_ARGS}
           -DLZ4_BUILD_CLI=OFF
