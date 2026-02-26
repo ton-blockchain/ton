@@ -209,6 +209,9 @@ using core::ActorTypeStat;
 using core::ActorTypeStatManager;
 using core::ActorTypeStats;
 
+template <class T>
+struct Task;
+
 // Some helper functions. Not part of public interface and not part
 // of namespace core
 namespace detail {
@@ -361,6 +364,10 @@ struct unwrap_result {
 };
 template <class T>
 struct unwrap_result<td::Result<T>> {
+  using type = T;
+};
+template <class T>
+struct unwrap_result<td::actor::Task<T>> {
   using type = T;
 };
 template <class T>

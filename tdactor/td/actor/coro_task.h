@@ -155,9 +155,6 @@ struct promise_value : promise_common {
 };
 
 template <class T>
-struct Task;
-
-template <class T>
 struct StartedTask;
 
 template <class T>

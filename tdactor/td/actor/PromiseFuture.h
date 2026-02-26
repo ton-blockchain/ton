@@ -27,8 +27,39 @@
 #include "td/utils/common.h"
 #include "td/utils/invoke.h"  // for tuple_for_each
 #include "td/utils/logging.h"
+#include "td/utils/type_traits.h"
 
 namespace td {
+
+template <class T = Unit>
+class PromiseInterface {
+ public:
+  using ValueType = T;
+  PromiseInterface() = default;
+  PromiseInterface(const PromiseInterface &) = delete;
+  PromiseInterface &operator=(const PromiseInterface &) = delete;
+  PromiseInterface(PromiseInterface &&) = default;
+  PromiseInterface &operator=(PromiseInterface &&) = default;
+  virtual ~PromiseInterface() = default;
+
+  virtual void set_value(T &&value) {
+    set_result(std::move(value));
+  }
+  virtual void set_error(Status &&error) {
+    set_result(std::move(error));
+  }
+  virtual void set_result(Result<T> &&result) {
+    if (result.is_ok()) {
+      set_value(result.move_as_ok());
+    } else {
+      set_error(result.move_as_error());
+    }
+  }
+};
+
+template <class T = Unit>
+class Promise;
+
 namespace detail {
 template <typename T>
 struct GetArg : public GetArg<decltype(&T::operator())> {};
@@ -75,75 +106,27 @@ struct DropResult<Result<T>> {
 
 template <class T>
 using drop_result_t = typename DropResult<T>::type;
+
+template <typename T, typename Arg>
+concept IsPromiseInterface =
+    std::convertible_to<T, const td::PromiseInterface<Arg> &> || std::same_as<std::remove_cvref_t<T>, td::Promise<Arg>>;
+
+template <typename F, typename T>
+concept GoodExplicitLambda = requires(std::remove_cvref_t<F> f, td::Result<T> result) { f(std::move(result)); };
+
+template <typename RawF>
+struct GoodImplicitLambdaHelper {
+  using F = std::remove_cvref_t<RawF>;
+
+  static constexpr bool value =
+      requires(F f) { f(std::declval<td::Result<detail::drop_result_t<detail::get_arg_t<F>>>>()); };
+};
+
+template <typename F>
+concept GoodImplicitLambda = GoodImplicitLambdaHelper<F>::value;
+
 }  // namespace detail
 
-template <class T = Unit>
-class PromiseInterface {
- public:
-  using ValueType = T;
-  PromiseInterface() = default;
-  PromiseInterface(const PromiseInterface &) = delete;
-  PromiseInterface &operator=(const PromiseInterface &) = delete;
-  PromiseInterface(PromiseInterface &&) = default;
-  PromiseInterface &operator=(PromiseInterface &&) = default;
-  virtual ~PromiseInterface() = default;
-
-  virtual void set_value(T &&value) {
-    set_result(std::move(value));
-  }
-  virtual void set_error(Status &&error) {
-    set_result(std::move(error));
-  }
-  virtual void set_result(Result<T> &&result) {
-    if (result.is_ok()) {
-      set_value(result.move_as_ok());
-    } else {
-      set_error(result.move_as_error());
-    }
-  }
-
-  void operator()(T &&value) {
-    set_value(std::move(value));
-  }
-  void operator()(Status &&error) {
-    set_error(std::move(error));
-  }
-  void operator()(Result<T> &&result) {
-    set_result(std::move(result));
-  }
-};
-template <class T = Unit>
-class Promise;
-
-constexpr std::false_type is_promise_interface(...) {
-  return {};
-}
-template <class T>
-constexpr std::true_type is_promise_interface(const PromiseInterface<T> &promise) {
-  return {};
-}
-template <class T>
-constexpr std::true_type is_promise_interface(const Promise<T> &promise) {
-  return {};
-}
-
-template <class F>
-constexpr bool is_promise_interface() {
-  return decltype(is_promise_interface(std::declval<F>()))::value;
-}
-
-constexpr std::false_type is_promise_interface_ptr(...) {
-  return {};
-}
-template <class T>
-constexpr std::true_type is_promise_interface_ptr(const unique_ptr<T> &promise) {
-  return {};
-}
-
-template <class F>
-constexpr bool is_promise_interface_ptr() {
-  return decltype(is_promise_interface_ptr(std::declval<F>()))::value;
-}
 template <class ValueT, class FunctionT>
 class LambdaPromise : public PromiseInterface<ValueT> {
  public:
@@ -178,37 +161,30 @@ class LambdaPromise : public PromiseInterface<ValueT> {
   MovableValue<bool> has_lambda_{false};
 };
 
-template <class T = void, class F = void, std::enable_if_t<std::is_same<T, void>::value, bool> has_t = false>
-auto lambda_promise(F &&f) {
-  return LambdaPromise<detail::drop_result_t<detail::get_arg_t<std::decay_t<F>>>, std::decay_t<F>>(std::forward<F>(f));
-}
-template <class T = void, class F = void, std::enable_if_t<!std::is_same<T, void>::value, bool> has_t = true>
-auto lambda_promise(F &&f) {
-  return LambdaPromise<T, std::decay_t<F>>(std::forward<F>(f));
+template <detail::GoodImplicitLambda FMaybeRef>
+auto lambda_promise(FMaybeRef &&f) {
+  using F = std::remove_cvref_t<FMaybeRef>;
+  return LambdaPromise<detail::drop_result_t<detail::get_arg_t<F>>, F>(std::forward<FMaybeRef>(f));
 }
 
-template <class T, class F, std::enable_if_t<is_promise_interface<F>(), bool> from_promise_inerface = true>
-auto &&promise_interface(F &&f) {
+template <typename T, detail::GoodExplicitLambda<T> F>
+auto lambda_promise(F &&f) {
+  return LambdaPromise<T, std::remove_cvref_t<F>>(std::forward<F>(f));
+}
+
+template <class T, detail::IsPromiseInterface<T> F>
+decltype(auto) promise_interface(F &&f) {
   return std::forward<F>(f);
 }
 
-template <class T, class F, std::enable_if_t<!is_promise_interface<F>(), bool> from_promise_inerface = false>
+template <class T, detail::GoodExplicitLambda<T> F>
+  requires(!detail::IsPromiseInterface<F, T>)
 auto promise_interface(F &&f) {
-  return lambda_promise<T>(std::forward<F>(f));
-}
-
-template <class T, class F, std::enable_if_t<is_promise_interface_ptr<F>(), bool> from_promise_inerface = true>
-auto promise_interface_ptr(F &&f) {
-  return std::forward<F>(f);
-}
-template <class T, class F, std::enable_if_t<!is_promise_interface_ptr<F>(), bool> from_promise_inerface = false>
-auto promise_interface_ptr(F &&f) {
-  return std::make_unique<std::decay_t<decltype(promise_interface<T>(std::forward<F>(f)))>>(
-      promise_interface<T>(std::forward<F>(f)));
+  return lambda_promise<T, std::remove_cvref_t<F>>(std::forward<F>(f));
 }
 
 template <class T>
-class Promise {
+class Promise final {
  public:
   using ArgT = T;
   void set_value(T &&value) {
@@ -233,26 +209,22 @@ class Promise {
     auto promise = std::exchange(promise_, nullptr);
     promise->set_result(std::move(result));
   }
-  template <class S>
-  void operator()(S &&result) {
-    if (!promise_) {
-      return;
-    }
-    auto promise = std::exchange(promise_, nullptr);
-    promise->operator()(std::forward<S>(result));
-  }
   void reset() {
     promise_.reset();
   }
 
   Promise() = default;
-  explicit Promise(std::unique_ptr<PromiseInterface<T>> promise) : promise_(std::move(promise)) {
-  }
 
   Promise &operator=(Promise &&) = default;
   Promise(Promise &&) = default;
-  template <class F>
-  Promise(F &&f) : promise_(promise_interface_ptr<T>(std::forward<F>(f))) {
+
+  template <detail::IsPromiseInterface<T> Interface>
+    requires(!std::is_lvalue_reference_v<Interface>)
+  Promise(Interface &&iface) : promise_(std::make_unique<Interface>(std::move(iface))) {
+  }
+
+  template <detail::GoodExplicitLambda<T> F>
+  Promise(F &&f) : promise_(std::make_unique<LambdaPromise<T, std::remove_cvref_t<F>>>(std::forward<F>(f))) {
   }
 
   explicit operator bool() {
@@ -492,6 +464,8 @@ constexpr decltype(auto) connect(L &&l, R &&r) noexcept {
   } else if constexpr (requires { custom_connect(std::forward<L>(l), std::forward<R>(r)); }) {
     // ADL will find overloads defined in the namespaces of L or R
     return custom_connect(std::forward<L>(l), std::forward<R>(r));
+  } else if constexpr (requires { std::forward<L>(l).set_result(std::forward<R>(r)); }) {
+    return std::forward<L>(l).set_result(std::forward<R>(r));
   } else if constexpr (requires { std::forward<L>(l)(std::forward<R>(r)); }) {
     return std::forward<L>(l)(std::forward<R>(r));
   } else {
