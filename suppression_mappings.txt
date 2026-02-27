@@ -1,6 +1,3 @@
-[deprecated-literal-operator]
-src:*/tdutils/td/utils/date.h
-
 [missing-field-initializers]
 src:*/emulator/test/emulator-tests.cpp
 
