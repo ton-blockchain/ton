@@ -505,3 +505,65 @@ TEST(Runtime, Requests) {
 
 }  // namespace
 }  // namespace td::actor::test_requests
+
+namespace td::actor::test_unregistered_buses {
+namespace {
+
+// During `register_actor` phase, the only bus we register is RootBus. Check that other buses work.
+
+struct RootBus : Bus {
+  ~RootBus() {
+    td::actor::SchedulerContext::get().stop();
+  }
+
+  struct Dummy {};
+
+  using Events = td::TypeList<Dummy>;
+};
+
+struct InheritedRootBus : RootBus {
+  using Parent = RootBus;
+  using Events = td::TypeList<>;
+};
+
+struct ChildBus : Bus {
+  struct Ping {
+    int value;
+  };
+
+  using Events = td::TypeList<Ping>;
+};
+
+bool g_ping_received = false;
+
+class Controller : public SpawnsWith<RootBus>, public ConnectsTo<RootBus, ChildBus> {
+ public:
+  TON_RUNTIME_DEFINE_EVENT_HANDLER();
+
+  void start_up() override {
+    auto child = owning_bus().create_child("child", std::make_shared<ChildBus>());
+    child.publish<ChildBus::Ping>(42);
+  }
+
+  template <>
+  void handle(BusHandle<ChildBus> bus, std::shared_ptr<const ChildBus::Ping> event) {
+    EXPECT_EQ(event->value, 42);
+    g_ping_received = true;
+    stop();
+  }
+};
+
+TEST(Runtime, UnregisteredChildBus) {
+  td::actor::Scheduler scheduler({1});
+
+  Runtime runtime;
+  runtime.register_actor<Controller>("Controller");
+
+  scheduler.run_in_context([&] { runtime.start(std::make_shared<InheritedRootBus>()); });
+  scheduler.run();
+
+  EXPECT(g_ping_received);
+}
+
+}  // namespace
+}  // namespace td::actor::test_unregistered_buses
