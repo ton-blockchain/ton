@@ -2276,6 +2276,46 @@ TEST_CORO(Coro, stop_actor) {
   co_return td::Unit{};
 }
 
+TEST_CORO(Coro, ask_dead_actor_after_stop_returns_error_not_crash) {
+  class DeadAskTarget : public td::actor::Actor {
+   public:
+    explicit DeadAskTarget(std::shared_ptr<std::atomic<bool>> destroyed) : destroyed_(std::move(destroyed)) {
+    }
+
+    ~DeadAskTarget() override {
+      destroyed_->store(true, std::memory_order_release);
+    }
+
+    void kill() {
+      stop();
+    }
+
+    Task<int> compute(int x) {
+      co_return x* x;
+    }
+
+   private:
+    std::shared_ptr<std::atomic<bool>> destroyed_;
+  };
+
+  auto destroyed = std::make_shared<std::atomic<bool>>(false);
+  auto target = create_actor<DeadAskTarget>("dead_ask_target", destroyed);
+  auto target_id = target.get();
+  send_closure(target_id, &DeadAskTarget::kill);
+  target.release();
+
+  co_await wait_until([&] { return destroyed->load(std::memory_order_acquire); },
+                      "target actor should be destroyed before asking it");
+
+  auto second = co_await ask(target_id, &DeadAskTarget::compute, 4).wrap();
+  expect_true(second.is_error(), "ask() on dead actor must return an error");
+
+  auto started = ask(target_id, &DeadAskTarget::compute, 0).start_in_parent_scope();
+  auto r = co_await std::move(started).wrap();
+  expect_true(r.is_error(), "scheduled ask() on dead actor must return an error");
+
+  co_return td::Unit{};
+}
 TEST_CORO(Coro, promise_destroy_in_mailbox) {
   class Target : public td::actor::Actor {
    public:
