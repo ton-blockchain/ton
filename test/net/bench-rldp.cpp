@@ -366,7 +366,7 @@ void run_loopback(Config config) {
     // Create QUIC sender for loopback testing
     quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
         "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_udp_offload_options,
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_quic_options,
                             ton::quic::QuicServer::Options{.enable_gso = config.enable_gso,
                                                            .enable_gro = config.enable_gro,
                                                            .enable_mmsg = config.enable_mmsg,
@@ -452,7 +452,7 @@ void run_server(Config config) {
     // Start QUIC sender (uses ADNL keys for TLS via RPK)
     quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
         "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_udp_offload_options,
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_quic_options,
                             ton::quic::QuicServer::Options{.enable_gso = config.enable_gso,
                                                            .enable_gro = config.enable_gro,
                                                            .enable_mmsg = config.enable_mmsg,
@@ -529,7 +529,7 @@ void run_client(Config config) {
 
     quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
         "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_udp_offload_options,
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_quic_options,
                             ton::quic::QuicServer::Options{.enable_gso = config.enable_gso,
                                                            .enable_gro = config.enable_gro,
                                                            .enable_mmsg = config.enable_mmsg,

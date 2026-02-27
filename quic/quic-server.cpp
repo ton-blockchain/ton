@@ -30,13 +30,13 @@ td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, td::Ed2
 }
 
 QuicServer::QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::BufferSlice alpn,
-                       std::unique_ptr<Callback> callback, Options options, std::optional<size_t> flood_control)
+                       std::unique_ptr<Callback> callback, Options options)
     : fd_(std::move(fd))
     , alpn_(std::move(alpn))
     , server_key_(std::move(server_key))
     , gso_enabled_(options.enable_gso && td::UdpSocketFd::is_gso_supported())
     , cc_algo_(options.cc_algo)
-    , flood_control_(std::move(flood_control))
+    , flood_control_(options.flood_control)
     , callback_(std::move(callback)) {
   if (options.enable_gro) {
     auto gro_status = fd_.enable_gro();

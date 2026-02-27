@@ -264,7 +264,7 @@ void QuicSender::get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdSho
   connect(std::move(promise), get_conn_ip_str_coro(l_id, p_id));
 }
 
-void QuicSender::set_udp_offload_options(QuicServer::Options options) {
+void QuicSender::set_quic_options(QuicServer::Options options) {
   server_options_ = options;
 }
 

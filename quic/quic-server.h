@@ -43,6 +43,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     bool enable_gro = true;
     bool enable_mmsg = true;
     CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
+    std::optional<size_t> flood_control = DEFAULT_FLOOD_CONTROL;
   };
   class Callback {
    public:
@@ -77,8 +78,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   constexpr static size_t DEFAULT_FLOOD_CONTROL = 10;
 
   QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::BufferSlice alpn,
-             std::unique_ptr<Callback> callback, Options options,
-             std::optional<size_t> flood_control = DEFAULT_FLOOD_CONTROL);
+             std::unique_ptr<Callback> callback, Options options);
 
   static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, td::Ed25519::PrivateKey server_key,
                                                             std::unique_ptr<Callback> callback, td::Slice alpn = "ton",
