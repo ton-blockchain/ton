@@ -1153,6 +1153,43 @@ class CoroSpec final : public td::actor::Actor {
     co_return td::Unit{};
   }
 
+  Task<td::Unit> ask_dead_actor() {
+    LOG(INFO) << "=== ask_dead_actor ===";
+
+    class DeadAskTarget : public td::actor::Actor {
+     public:
+      explicit DeadAskTarget(std::shared_ptr<std::atomic<bool>> destroyed) : destroyed_(std::move(destroyed)) {
+      }
+      ~DeadAskTarget() override {
+        destroyed_->store(true, std::memory_order_release);
+      }
+      void kill() {
+        stop();
+      }
+      Task<int> compute(int x) {
+        co_return x* x;
+      }
+
+     private:
+      std::shared_ptr<std::atomic<bool>> destroyed_;
+    };
+
+    auto destroyed = std::make_shared<std::atomic<bool>>(false);
+    auto target = create_actor<DeadAskTarget>("dead_ask_target", destroyed);
+    auto target_id = target.get();
+    send_closure(target_id, &DeadAskTarget::kill);
+    target.release();
+
+    while (!destroyed->load(std::memory_order_acquire)) {
+      co_await yield_on_current();
+    }
+
+    auto result = co_await ask(target_id, &DeadAskTarget::compute, 4).wrap();
+    expect_true(result.is_error(), "ask() on dead actor must return an error");
+
+    co_return td::Unit{};
+  }
+
   // Master runner
   Task<td::Unit> run_all() {
     LOG(ERROR) << "Run tests";
@@ -1170,6 +1207,7 @@ class CoroSpec final : public td::actor::Actor {
     co_await lifecycle();
     co_await helpers();
     co_await combinators();
+    co_await ask_dead_actor();
     co_await try_awaitable();
     co_await test_trace();
     co_await stop_actor();
