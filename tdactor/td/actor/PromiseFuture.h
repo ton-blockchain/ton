@@ -285,40 +285,12 @@ class Promise {
   std::unique_ptr<PromiseInterface<T>> promise_;
 };
 
-namespace detail {
-template <class... ArgsT>
-class JoinPromise : public PromiseInterface<Unit> {
- public:
-  explicit JoinPromise(ArgsT &&...arg) : promises_(std::forward<ArgsT>(arg)...) {
-  }
-  void set_value(Unit &&) override {
-    tuple_for_each(promises_, [](auto &promise) { promise.set_value(Unit()); });
-  }
-  void set_error(Status &&error) override {
-    tuple_for_each(promises_, [&error](auto &promise) { promise.set_error(error.clone()); });
-  }
-
- private:
-  std::tuple<std::decay_t<ArgsT>...> promises_;
-};
-}  // namespace detail
 
 class PromiseCreator {
  public:
-  struct Ignore {
-    void operator()(Status &&error) {
-      error.ignore();
-    }
-  };
-
   template <class OkT>
   static auto lambda(OkT &&ok) {
     return lambda_promise(std::forward<OkT>(ok));
-  }
-
-  template <class... ArgsT>
-  static Promise<> join(ArgsT &&...args) {
-    return Promise<>(std::make_unique<detail::JoinPromise<ArgsT...>>(std::forward<ArgsT>(args)...));
   }
 };
 
