@@ -258,7 +258,7 @@ TEST(Crypto, md5) {
 
   for (std::size_t i = 0; i < strings.size(); i++) {
     td::string output(16, '\0');
-    td::md5(strings[i], output);
+    TD_SUPPRESS("-Wdeprecated-declarations", td::md5(strings[i], output));
     ASSERT_STREQ(answers[i], td::base64_encode(output));
   }
 }

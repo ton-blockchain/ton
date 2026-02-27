@@ -18,7 +18,6 @@ src:*/validator/full-node-fast-sync-overlays.cpp
 src:*/tl/generate/tl_writer_hpp.cpp
 
 [deprecated-declarations]
-src:*/tdutils/test/crypto.cpp
 src:*/third-party/rocksdb/db/memtable.cc
 
 [implicit-int-conversion]
