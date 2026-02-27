@@ -128,6 +128,13 @@ else()
       set(MHD_AR ${CMAKE_AR})
       set(MHD_RANLIB ${CMAKE_RANLIB})
     endif()
+    if (NOT MHD_RANLIB)
+      find_program(MHD_RANLIB ranlib)
+    endif()
+    set(MHD_POST_INSTALL_COMMANDS)
+    if (MHD_RANLIB)
+      list(APPEND MHD_POST_INSTALL_COMMANDS COMMAND ${MHD_RANLIB} ${MHD_LIBRARY})
+    endif()
 
     add_custom_command(
       WORKING_DIRECTORY ${MHD_BINARY_DIR}
@@ -174,7 +181,7 @@ else()
         AUTOCONF=:
         AUTOHEADER=:
         make install
-      COMMAND ${MHD_RANLIB} ${MHD_LIBRARY}
+      ${MHD_POST_INSTALL_COMMANDS}
       COMMENT "Build libmicrohttpd"
       DEPENDS ${MHD_SOURCE_DIR}
       OUTPUT ${MHD_LIBRARY}

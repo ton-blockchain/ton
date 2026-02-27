@@ -70,6 +70,9 @@ else()
     set(ZLIB_AR ${CMAKE_AR})
     set(ZLIB_RANLIB ${CMAKE_RANLIB})
   endif()
+  if (NOT ZLIB_RANLIB)
+    find_program(ZLIB_RANLIB ranlib)
+  endif()
 
   set(ZLIB_INCLUDE_DIR ${ZLIB_BINARY_DIR}/include)
   set(ZLIB_LIBRARY ${ZLIB_BINARY_DIR}/lib/libz.a)
@@ -101,6 +104,10 @@ else()
       OUTPUT ${ZLIB_LIBRARY}
     )
   else()
+    set(ZLIB_POST_INSTALL_COMMANDS)
+    if (ZLIB_RANLIB)
+      list(APPEND ZLIB_POST_INSTALL_COMMANDS COMMAND ${ZLIB_RANLIB} ${ZLIB_LIBRARY})
+    endif()
     add_custom_command(
       WORKING_DIRECTORY ${ZLIB_BINARY_DIR}
       COMMAND ${CMAKE_COMMAND} -E rm -rf ${ZLIB_BUILD_DIR}
@@ -130,7 +137,7 @@ else()
         RANLIB=${ZLIB_RANLIB}
         CFLAGS=${ZLIB_CFLAGS}
         make install
-      COMMAND ${ZLIB_RANLIB} ${ZLIB_LIBRARY}
+      ${ZLIB_POST_INSTALL_COMMANDS}
       COMMENT "Build zlib"
       DEPENDS ${ZLIB_SOURCE_DIR}
       OUTPUT ${ZLIB_LIBRARY}
