@@ -2058,6 +2058,8 @@ void ValidatorEngine::start() {
   load_collators_list();
   load_shard_block_verifier_config();
   read_config_ = true;
+  td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::register_collector<ton::PrometheusExporter>,
+                          exporter_.get());
   start_adnl();
 }
 
@@ -2156,6 +2158,8 @@ void ValidatorEngine::start_rldp() {
   CHECK(!peer_table.empty());
   CHECK(!keyring_.empty());
   quic_ = td::actor::create_actor<ton::quic::QuicSender>("QuicSender", peer_table, keyring_.get());
+  td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::register_collector<ton::quic::QuicSender>,
+                          quic_.get());
   td::actor::send_closure(rldp_, &ton::rldp::Rldp::set_default_mtu, 2048);
   td::actor::send_closure(rldp2_, &ton::rldp2::Rldp::set_default_mtu, 2048);
   started_rldp();
@@ -5138,6 +5142,10 @@ void ValidatorEngine::run() {
   load_config(std::move(P));
 }
 
+void ValidatorEngine::export_metrics(td::IPAddress address) {
+  td::actor::send_closure(exporter_, &ton::PrometheusExporter::listen, address);
+}
+
 void ValidatorEngine::get_current_validator_perm_key(td::Promise<std::pair<ton::PublicKey, size_t>> promise) {
   if (state_.is_null()) {
     promise.set_error(td::Status::Error(ton::ErrorCode::notready, "not started"));
@@ -5637,6 +5645,13 @@ int main(int argc, char *argv[]) {
   });
   p.add_option('\0', "db-event-fifo", "path to FIFO pipe for publishing DB events", [&](td::Slice s) {
     acts.push_back([&x, s = s.str()]() { td::actor::send_closure(x, &ValidatorEngine::set_db_event_fifo_path, s); });
+  });
+  p.add_checked_option('\0', "exporter-address", "address to bind for HTTP metrics exporter", [&](td::Slice arg) {
+    td::BufferSlice buff{arg};
+    td::IPAddress addr;
+    TRY_STATUS(addr.init_host_port(td::CSlice{buff.as_slice()}));
+    acts.push_back([&x, addr] { td::actor::send_closure(x, &ValidatorEngine::export_metrics, addr); });
+    return td::Status::OK();
   });
   auto S = p.run(argc, argv);
   if (S.is_error()) {

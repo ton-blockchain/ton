@@ -5,13 +5,14 @@
 #include "adnl/adnl-peer-table.h"
 #include "adnl/adnl-sender-ex.h"
 #include "keyring/keyring.h"
+#include "metrics/metrics-collectors.h"
 #include "td/actor/coro_task.h"
 
 #include "quic-server.h"
 
 namespace ton::quic {
 
-class QuicSender : public adnl::AdnlSenderEx {
+class QuicSender : public adnl::AdnlSenderEx, public virtual metrics::AsyncCollector {
  public:
   using AdnlPath = std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>;
 
@@ -31,6 +32,24 @@ class QuicSender : public adnl::AdnlSenderEx {
   void set_udp_offload_options(QuicServer::Options options);
   void add_id(adnl::AdnlNodeIdShort local_id) override;
   void log_stats(std::string reason = "stats");
+
+  struct Stats {
+    struct Entry {
+      QuicServer::Stats::Entry server_stats = {};
+
+      Entry operator+(const Entry& other) const {
+        return {.server_stats = server_stats + other.server_stats};
+      }
+
+      [[nodiscard]] std::vector<metrics::MetricFamily> dump() const;
+    } summary = {};
+    std::map<AdnlPath, Entry> per_path;
+
+    [[nodiscard]] std::vector<metrics::MetricFamily> dump() const;
+  };
+
+  td::actor::Task<Stats> collect_stats();
+  void collect(td::Promise<metrics::MetricSet> P) override;
 
  protected:
   void on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id,
@@ -65,6 +84,8 @@ class QuicSender : public adnl::AdnlSenderEx {
 
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<QuicServer>> servers_;
   std::map<adnl::AdnlNodeIdShort, td::Ed25519::PrivateKey> local_keys_;
+
+  void start_up() override;
 
   td::actor::Task<td::Unit> send_message_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                               td::BufferSlice data);

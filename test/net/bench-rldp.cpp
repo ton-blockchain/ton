@@ -22,6 +22,7 @@
 #include "adnl/adnl-test-loopback-implementation.h"
 #include "adnl/adnl.h"
 #include "keys/keys.hpp"
+#include "metrics/prometheus-exporter.h"
 #include "quic/quic-sender.h"
 #include "rldp/rldp.h"
 #include "rldp2/rldp.h"
@@ -76,6 +77,7 @@ struct Config {
   bool enable_gro = true;
   bool enable_mmsg = true;
   ton::quic::CongestionControlAlgo cc_algo = ton::quic::CongestionControlAlgo::Bbr;
+  bool prometheus = false;
 
   // Network mode options
   td::IPAddress local_addr;
@@ -414,8 +416,17 @@ void run_server(Config config) {
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
   td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
   td::actor::ActorOwn<StatsReporter> stats_reporter;
+  td::actor::ActorOwn<ton::PrometheusExporter> exporter;
 
   scheduler.run_in_context([&] {
+    if (config.prometheus) {
+      td::IPAddress addr;
+      addr.init_host_port("127.0.0.1:19777").ensure();
+      exporter = ton::PrometheusExporter::create();
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::listen, addr);
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::PrometheusExporter>,
+                              exporter.get());
+    }
     keyring = ton::keyring::Keyring::create(db_root);
     network_manager = ton::adnl::AdnlNetworkManager::create(static_cast<td::uint16>(config.local_addr.get_port()));
     adnl = ton::adnl::Adnl::create(db_root, keyring.get());
@@ -459,6 +470,9 @@ void run_server(Config config) {
                                                            .cc_algo = config.cc_algo});
     // Use send_lambda to properly start the coroutine task
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, local_id);
+    if (config.prometheus)
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::quic::QuicSender>,
+                              quic_sender.get());
 
     td::actor::send_closure(adnl, &ton::adnl::Adnl::subscribe, local_id, "B",
                             std::make_unique<Server>(config.response_size));
@@ -486,12 +500,22 @@ void run_client(Config config) {
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
   td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
   td::actor::ActorOwn<BenchmarkRunner> runner;
+  td::actor::ActorOwn<ton::PrometheusExporter> exporter;
   td::actor::ActorOwn<StatsReporter> stats_reporter;
 
   ton::adnl::AdnlNodeIdShort src;
   ton::adnl::AdnlNodeIdShort dst;
 
   scheduler.run_in_context([&] {
+    if (config.prometheus) {
+      td::IPAddress addr;
+      addr.init_host_port("127.0.0.1:29777").ensure();
+      exporter = ton::PrometheusExporter::create();
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::listen, addr);
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::PrometheusExporter>,
+                              exporter.get());
+    }
+
     keyring = ton::keyring::Keyring::create(db_root);
     network_manager = ton::adnl::AdnlNetworkManager::create(static_cast<td::uint16>(config.local_addr.get_port()));
     adnl = ton::adnl::Adnl::create(db_root, keyring.get());
@@ -536,6 +560,9 @@ void run_client(Config config) {
                                                            .cc_algo = config.cc_algo});
     // Use send_lambda to properly start the coroutine task
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, src);
+    if (config.prometheus)
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::quic::QuicSender>,
+                              quic_sender.get());
 
     stats_reporter = td::actor::create_actor<StatsReporter>("quic-stats-client", quic_sender.get(), "client-periodic",
                                                             config.protocol == Protocol::quic, 10.0);
@@ -703,6 +730,10 @@ int main(int argc, char* argv[]) {
   });
   p.add_checked_option('s', "server-addr", "server address (ip:port) for client mode", [&](td::Slice arg) {
     TRY_STATUS(config.server_addr.init_host_port(arg.str()));
+    return td::Status::OK();
+  });
+  p.add_checked_option('p', "prometheus", "enable prometheus exporter", [&]() {
+    config.prometheus = true;
     return td::Status::OK();
   });
 
