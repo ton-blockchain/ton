@@ -279,3 +279,7 @@ std::optional<std::string> check_eq(const auto &a_value, const auto &b_value, co
   };                                                                                                                 \
   ::td::RegisterTest<test_name> TD_CONCAT(test_instance_, TD_CONCAT(test_name, __LINE__))(TD_DEFINE_STR(test_name)); \
   void test_name::run()
+
+#define REGISTER_TEST(test_case_name, test_name)          \
+  ::td::RegisterTest<test_name> TD_CONCAT(test_instance_, \
+                                          __LINE__)(TD_DEFINE_STR(TD_CONCAT(test_case_name, TD_CONCAT(_, test_name))))
