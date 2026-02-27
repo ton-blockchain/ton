@@ -1,3 +1,5 @@
+import threading
+from datetime import datetime, timezone
 from typing import cast, final
 from urllib.parse import parse_qs, urlencode
 
@@ -5,30 +7,98 @@ import plotly.graph_objects as go  # pyright: ignore[reportMissingTypeStubs]
 from dash import Dash, Input, NoUpdate, Output, State, callback_context, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 
-from ..models import SlotData
-from ..parser import Parser
+from ..models import ConsensusData, GroupData, SlotData
+from ..parser import GroupParser
+from ..validator_set_info import ValidatorSetInfoProvider
 from .figure_builder import FigureBuilder
 
 
 @final
 class DashApp:
-    def __init__(self, parser: Parser):
+    def __init__(
+        self,
+        parser: GroupParser,
+        vset_info_provider: ValidatorSetInfoProvider | None = None,
+        web_root: str = "/",
+    ):
         self._parser = parser
-        self._data = self._parser.parse()
-        self._builder: FigureBuilder = FigureBuilder(self._data)
-        self._app: Dash = Dash(__name__)
+        self._vset_provider = vset_info_provider
+        self._current_group: str | None = None
+        self._data: ConsensusData | None = None
+        self._builder: FigureBuilder | None = None
+        self._app: Dash = Dash(__name__, url_base_pathname=web_root)
+        self._update_lock = threading.Lock()
 
-    def update_data(self, href: str | None):
-        self._data = self._parser.parse()
-        self._builder = FigureBuilder(self._data)
-        valgroups = sorted(set(s.valgroup_id for s in self._data.slots))
-        options = [{"label": g, "value": g} for g in valgroups]
+    def _load_group(self, group: str) -> None:
+        with self._update_lock:
+            if self._current_group != group or self._builder is None:
+                self._current_group = group
+                self._data = self._parser.parse_group(group)
+                self._builder = FigureBuilder(self._data)
+
+    @classmethod
+    def _normalize_time_seconds(cls, value: str | None) -> float | None:
+        if value is None:
+            return None
+
+        raw_value = value.strip()
+        if not raw_value:
+            return None
+
+        try:
+            return float(raw_value)
+        except ValueError:
+            pass
+
+        iso_value = f"{raw_value[:-1]}+00:00" if raw_value.endswith("Z") else raw_value
+        try:
+            parsed_dt = datetime.fromisoformat(iso_value)
+        except ValueError:
+            return None
+
+        if parsed_dt.tzinfo is None:
+            parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
+
+        return parsed_dt.timestamp()
+
+    def _filter_groups_by_time(
+        self,
+        groups: list[GroupData],
+        time_from: str | None,
+        time_until: str | None,
+    ) -> list[GroupData]:
+        start_from = self._normalize_time_seconds(time_from)
+        start_until = self._normalize_time_seconds(time_until)
+
+        filtered: list[GroupData] = []
+        for group in groups:
+            if start_from is not None and group.group_start_est < start_from:
+                continue
+            if start_until is not None and group.group_start_est > start_until:
+                continue
+            filtered.append(group)
+
+        return filtered
+
+    def update_data(
+        self,
+        href: str | None,
+        time_from: str | None,
+        time_until: str | None,
+    ):
+        valgroups = self._parser.list_groups()
+        if time_from is not None or time_until is not None:
+            valgroups = self._filter_groups_by_time(valgroups, time_from, time_until)
+        valgroups_names = sorted([g.valgroup_name for g in valgroups])
+        options = [{"label": g, "value": g} for g in valgroups_names]
 
         url_params = self._parse_url_params(href)
-        if "valgroup_id" in url_params and url_params["valgroup_id"] in valgroups:
+        if "valgroup_id" in url_params and url_params["valgroup_id"] in valgroups_names:
             value = str(url_params["valgroup_id"])
+        # elif current_group and current_group in valgroups:
+        #     value = current_group
         else:
-            value = valgroups[0] if valgroups else ""
+            value = valgroups_names[0] if valgroups_names else ""
 
         return options, value
 
@@ -66,8 +136,9 @@ class DashApp:
         slot_from = slot_from or 0
         slot_to = slot_to or slot_from
 
-        group_slots = [s for s in self._data.slots if s.valgroup_id == group]
-        max_slot = max((s.slot for s in group_slots), default=0)
+        self._load_group(group)
+        assert self._data is not None
+        max_slot = max((s.slot for s in self._data.slots), default=0)
         slot_from = max(0, min(int(slot_from), max_slot))
         slot_to = max(0, min(int(slot_to), max_slot))
         if slot_to < slot_from:
@@ -83,6 +154,80 @@ class DashApp:
         if isinstance(valgroup_id, str) and isinstance(slot, int):
             return {"valgroup_id": valgroup_id, "slot": slot}
         return None
+
+    def _update_group_validator_set(self, group: str | None) -> str:
+        if not group or not self._vset_provider:
+            return ""
+        self._load_group(group)
+        assert self._data is not None
+        return self._vset_provider.get_validator_set_text(group, self._data.slots)
+
+    def _update_group_stats(self, group: str | None) -> str:
+        if not group:
+            return "group stats: none"
+
+        self._load_group(group)
+        assert self._data is not None
+
+        group_events = [e for e in self._data.events if e.valgroup_id == group]
+        group_slots = {s.slot: s for s in self._data.slots if s.valgroup_id == group}
+
+        skip_slots = sorted({e.slot for e in group_events if e.label == "skip_observed"})
+        empty_block_slots = sorted(
+            {slot for slot in group_slots if group_slots[slot].block_id_ext == "empty"}
+        )
+        finalized_block_slots = sorted(
+            slot
+            for slot in {e.slot for e in group_events if e.label == "finalize_reached"}
+            if slot in group_slots
+            and not group_slots[slot].is_empty
+            and group_slots[slot].block_id_ext != "empty"
+        )
+
+        min_candidate_received_by_slot: dict[int, float] = {}
+        for e in group_events:
+            if e.label != "candidate_received":
+                continue
+            known_ts = min_candidate_received_by_slot.get(e.slot)
+            if known_ts is None or e.t_ms < known_ts:
+                min_candidate_received_by_slot[e.slot] = e.t_ms
+
+        finalized_with_candidate_received = [
+            (slot, min_candidate_received_by_slot[slot])
+            for slot in finalized_block_slots
+            if slot in min_candidate_received_by_slot
+        ]
+        delta_entries = [
+            (prev_slot, cur_slot, cur_t - prev_t)
+            for (prev_slot, prev_t), (cur_slot, cur_t) in zip(
+                finalized_with_candidate_received, finalized_with_candidate_received[1:]
+            )
+        ]
+
+        avg_delta = (
+            (sum(x[2] for x in delta_entries) / len(delta_entries)) if delta_entries else None
+        )
+        min_delta_slots = min(delta_entries, key=lambda x: x[2]) if delta_entries else None
+        max_delta_slots = max(delta_entries, key=lambda x: x[2]) if delta_entries else None
+
+        min_slot_text = (
+            f"{min_delta_slots[0]} -> {min_delta_slots[1]}" if min_delta_slots else "n/a"
+        )
+        max_slot_text = (
+            f"{max_delta_slots[0]} -> {max_delta_slots[1]}" if max_delta_slots else "n/a"
+        )
+
+        return "\n".join(
+            [
+                f"valgroup = {group}",
+                f"slots with skip_observed ({len(skip_slots)}) = {skip_slots}",
+                f"slots with empty blocks ({len(empty_block_slots)}) = {empty_block_slots}",
+                "delta between minimum candidate_received for neighboring finalized blocks:",
+                f"min = {round(min_delta_slots[2], 3) if min_delta_slots else 'n/a'} ms for slots {min_slot_text}",
+                f"avg = {avg_delta:.3f} ms" if avg_delta is not None else "avg = n/a",
+                f"max = {round(max_delta_slots[2], 3) if max_delta_slots else 'n/a'} ms for slots {max_slot_text}",
+            ]
+        )
 
     def run(self, debug: bool = True, host: str = "127.0.0.1", port: int = 8050) -> None:
         self._setup_layout()
@@ -121,6 +266,30 @@ class DashApp:
                         ),
                         html.Label(
                             [
+                                "Time from: ",
+                                dcc.Input(
+                                    id="time-from",
+                                    type="text",
+                                    debounce=True,
+                                    placeholder="unix or ISO",
+                                    style={"width": "100px"},
+                                ),
+                            ]
+                        ),
+                        html.Label(
+                            [
+                                "Time until: ",
+                                dcc.Input(
+                                    id="time-until",
+                                    type="text",
+                                    debounce=True,
+                                    placeholder="unix or ISO",
+                                    style={"width": "100px"},
+                                ),
+                            ]
+                        ),
+                        html.Label(
+                            [
                                 "Slot from: ",
                                 dcc.Input(
                                     id="slot-from",
@@ -138,7 +307,7 @@ class DashApp:
                                 dcc.Input(
                                     id="slot-to",
                                     type="number",
-                                    value=80,
+                                    value=1000,
                                     min=0,
                                     step=1,
                                     style={"width": "110px"},
@@ -174,6 +343,46 @@ class DashApp:
                         "padding": "12px 16px",
                     },
                 ),
+                html.Div(
+                    [
+                        html.Pre(
+                            id="group-stats",
+                            children="group stats: none",
+                            style={
+                                "margin": "0",
+                                "fontSize": "14px",
+                                "border": "1px solid #ddd",
+                                "borderRadius": "4px",
+                                "padding": "8px 10px",
+                                "whiteSpace": "pre-wrap",
+                                "overflowX": "auto",
+                            },
+                        )
+                    ],
+                    style={
+                        "margin": "0 16px 10px 16px",
+                    },
+                ),
+                html.Div(
+                    [
+                        html.Pre(
+                            id="group-validator-set",
+                            children="validator set info: none",
+                            style={
+                                "margin": "0",
+                                "fontSize": "14px",
+                                "border": "1px solid #ddd",
+                                "borderRadius": "4px",
+                                "padding": "8px 10px",
+                                "whiteSpace": "pre-wrap",
+                                "overflowX": "auto",
+                            },
+                        )
+                    ],
+                    style={
+                        "margin": "0 16px 10px 16px",
+                    },
+                ),
                 dcc.Store(id="selected", data={"valgroup_id": "", "slot": 0}),
                 dcc.Graph(id="summary", config={"scrollZoom": True, "displaylogo": False}),
                 html.Hr(),
@@ -182,7 +391,8 @@ class DashApp:
                     children="detail slot metadata: none",
                     style={
                         "margin": "0 16px 8px 16px",
-                        "fontSize": "16px",
+                        "fontSize": "14px",
+                        "fontFamily": "monospace",
                         "border": "1px solid #ddd",
                         "borderRadius": "4px",
                         "padding": "8px 10px",
@@ -278,7 +488,7 @@ class DashApp:
         if slot_data.parent_block:
             parts.append(f"parent_block = {slot_data.parent_block}")
 
-        return "\n\n".join(parts)
+        return "\n".join(parts)
 
     def _update_selection_from_click(
         self,
@@ -332,6 +542,8 @@ class DashApp:
         group: str | None,
         slot_from: int | None,
         slot_to: int | None,
+        time_from: str | None,
+        time_until: str | None,
         show_empty_v: list[str] | None,
     ) -> go.Figure:
         if not group:
@@ -339,7 +551,12 @@ class DashApp:
 
         slot_from, slot_to = self._normalize_slot_range(group, slot_from, slot_to)
         show_empty = "yes" in (show_empty_v or [])
-        return self._builder.build_summary(group, slot_from, slot_to, show_empty)
+        start_from = self._normalize_time_seconds(time_from)
+        start_until = self._normalize_time_seconds(time_until)
+        assert self._builder is not None
+        return self._builder.build_summary(
+            group, slot_from, slot_to, show_empty, start_from, start_until
+        )
 
     def _update_detail(
         self,
@@ -350,13 +567,15 @@ class DashApp:
         assert isinstance(valgroup_id, str)
         slot = int(selected["slot"])
 
+        self._load_group(valgroup_id)
+        assert self._builder is not None
         fig = self._builder.build_detail(valgroup_id, slot, time_mode)
         slot_data = self._builder.get_slot(valgroup_id, slot)
         slot_meta = self._format_slot_meta(valgroup_id, slot, slot_data)
         ctx = callback_context
         triggered_id = cast(str | None, ctx.triggered_id)
 
-        if not valgroup_id or triggered_id == "time-mode":
+        if not valgroup_id or triggered_id in ("time-mode", "time-from", "time-until"):
             return fig, f"selected: {valgroup_id} slot {slot}", slot_meta, no_update
 
         return (
@@ -393,7 +612,19 @@ class DashApp:
             Output("group", "options"),
             Output("group", "value"),
             Input("url", "href"),
+            Input("time-from", "value"),
+            Input("time-until", "value"),
         )(self.update_data)
+
+        self._app.callback(  # pyright: ignore[reportUnknownMemberType]
+            Output("group-stats", "children"),
+            Input("group", "value"),
+        )(self._update_group_stats)
+
+        self._app.callback(  # pyright: ignore[reportUnknownMemberType]
+            Output("group-validator-set", "children"),
+            Input("group", "value"),
+        )(self._update_group_validator_set)
 
         self._app.callback(  # pyright: ignore[reportUnknownMemberType]
             Output("selected", "data"),
@@ -410,6 +641,8 @@ class DashApp:
             Input("group", "value"),
             Input("slot-from", "value"),
             Input("slot-to", "value"),
+            Input("time-from", "value"),
+            Input("time-until", "value"),
             Input("show-empty", "value"),
         )(self._update_summary)
 
