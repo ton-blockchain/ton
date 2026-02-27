@@ -147,6 +147,10 @@ else()
         AR=${MHD_AR}
         RANLIB=${MHD_RANLIB}
         CFLAGS=${MHD_CFLAGS}
+        ACLOCAL=:
+        AUTOMAKE=:
+        AUTOCONF=:
+        AUTOHEADER=:
         make clean
       COMMAND ${CMAKE_COMMAND} -E chdir ${MHD_BUILD_DIR} ${CMAKE_COMMAND} -E env
         CC=${MHD_CC}
@@ -154,6 +158,10 @@ else()
         AR=${MHD_AR}
         RANLIB=${MHD_RANLIB}
         CFLAGS=${MHD_CFLAGS}
+        ACLOCAL=:
+        AUTOMAKE=:
+        AUTOCONF=:
+        AUTOHEADER=:
         make -j16
       COMMAND ${CMAKE_COMMAND} -E chdir ${MHD_BUILD_DIR} ${CMAKE_COMMAND} -E env
         CC=${MHD_CC}
@@ -161,6 +169,10 @@ else()
         AR=${MHD_AR}
         RANLIB=${MHD_RANLIB}
         CFLAGS=${MHD_CFLAGS}
+        ACLOCAL=:
+        AUTOMAKE=:
+        AUTOCONF=:
+        AUTOHEADER=:
         make install
       COMMAND ${MHD_RANLIB} ${MHD_LIBRARY}
       COMMENT "Build libmicrohttpd"
