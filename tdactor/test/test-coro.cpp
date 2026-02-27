@@ -2449,6 +2449,134 @@ TEST_CORO(Coro, coro_mutex) {
   co_return td::Unit{};
 }
 
+TEST_CORO(Coro, coro_mutex_cancelled_waiter_should_not_resume_successfully) {
+  class MutexCancelActor : public td::actor::Actor {
+   public:
+    Task<int> run_repro() {
+      auto guard = mutex_.lock_unsafe();
+
+      waiter_ = waiter_body().start_in_parent_scope();
+      co_await yield_on_current();
+      co_await yield_on_current();
+
+      waiter_.cancel();
+      guard.reset();
+
+      co_return co_await std::move(waiter_);
+    }
+
+   private:
+    Task<int> waiter_body() {
+      auto lock = co_await mutex_.lock();
+      co_return 42;
+    }
+
+    CoroMutex mutex_;
+    StartedTask<int> waiter_;
+  };
+
+  auto actor = create_actor<MutexCancelActor>("MutexCancelActor");
+  auto result = co_await ask(actor, &MutexCancelActor::run_repro).wrap();
+  expect_true(result.is_error(), "Cancelled mutex waiter should complete with cancellation");
+  expect_eq(result.error().code(), kCancelledCode, "Cancelled mutex waiter should report 653");
+  co_return td::Unit{};
+}
+
+TEST_CORO(Coro, coro_mutex_blocked_child_prevents_prompt_cancel_and_join) {
+  class MutexGroupActor : public td::actor::Actor {
+   public:
+    Task<int> run_repro() {
+      auto guard = mutex_.lock_unsafe();
+      auto group = TaskGroup::linked();
+
+      auto child = group.start(waiter_body());
+      co_await yield_on_current();
+      co_await yield_on_current();
+
+      auto join_started = group.cancel_and_join().start_in_parent_scope();
+      co_await yield_on_current();
+      bool join_ready_before_unlock = join_started.await_ready();
+
+      guard.reset();
+
+      auto join_result = co_await std::move(join_started).wrap();
+      auto child_result = co_await std::move(child).wrap();
+
+      int mask = 0;
+      if (join_ready_before_unlock) {
+        mask |= 1;
+      }
+      if (join_result.is_ok()) {
+        mask |= 2;
+      }
+      if (child_result.is_error() && child_result.error().code() == kCancelledCode) {
+        mask |= 4;
+      }
+      co_return mask;
+    }
+
+   private:
+    Task<td::Unit> waiter_body() {
+      auto lock = co_await mutex_.lock();
+      co_return td::Unit{};
+    }
+
+    CoroMutex mutex_;
+  };
+
+  auto actor = create_actor<MutexGroupActor>("MutexGroupActor");
+  auto mask_result = co_await ask(actor, &MutexGroupActor::run_repro).wrap();
+  expect_ok(mask_result, "ask(run_repro) should complete");
+
+  auto mask = mask_result.ok();
+  expect_true((mask & 1) != 0, "cancel_and_join should become ready before mutex unlock");
+  expect_true((mask & 2) != 0, "cancel_and_join should still complete successfully");
+  expect_true((mask & 4) != 0, "cancelled blocked child should report 653");
+  co_return td::Unit{};
+}
+
+TEST_CORO(Coro, coro_mutex_cancelled_waiter_does_not_leak_lock_token) {
+  class MutexRelockActor : public td::actor::Actor {
+   public:
+    Task<td::Unit> run_repro() {
+      auto guard = mutex_.lock_unsafe();
+
+      auto waiter = waiter_body().start_in_parent_scope();
+      co_await yield_on_current();
+      waiter.cancel();
+      guard.reset();
+
+      auto waiter_result = co_await std::move(waiter).wrap();
+      expect_true(waiter_result.is_error(), "cancelled waiter should return error");
+      if (waiter_result.is_error()) {
+        expect_eq(waiter_result.error().code(), kCancelledCode, "cancelled waiter should report 653");
+      }
+
+      auto relock = relock_body().start_in_parent_scope();
+      auto relock_result = co_await with_timeout(std::move(relock), 0.02);
+      expect_true(relock_result.is_ok(), "mutex should be acquirable after cancelled waiter");
+      co_return td::Unit{};
+    }
+
+   private:
+    Task<td::Unit> waiter_body() {
+      auto lock = co_await mutex_.lock();
+      co_return td::Unit{};
+    }
+    Task<td::Unit> relock_body() {
+      auto lock = co_await mutex_.lock();
+      co_return td::Unit{};
+    }
+
+    CoroMutex mutex_;
+  };
+
+  auto actor = create_actor<MutexRelockActor>("MutexRelockActor");
+  auto result = co_await ask(actor, &MutexRelockActor::run_repro).wrap();
+  expect_ok(result, "mutex should not leak lock token after cancelled waiter");
+  co_return td::Unit{};
+}
+
 TEST_CORO(Coro, coro_coalesce) {
   class CoalesceActor : public td::actor::Actor {
    public:
@@ -3377,6 +3505,13 @@ TEST_CORO(Coro, external_parent_scope_repro) {
 
 // SharedFuture tests
 
+static Task<int> shared_future_delayed_value(std::shared_ptr<std::atomic<bool>> done, int value) {
+  co_await yield_on_current();
+  co_await yield_on_current();
+  done->store(true, std::memory_order_release);
+  co_return value;
+}
+
 TEST_CORO_ACTOR(Coro, shared_future_single_get) {
  public:
   Task<td::Unit> run() {
@@ -3486,6 +3621,74 @@ TEST_CORO_ACTOR(Coro, shared_future_propagate_cancel_false) {
  private:
   std::shared_ptr<std::atomic<bool>> inner_done_;
   std::optional<SharedFuture<td::Unit>> sf_;
+};
+
+TEST_CORO_ACTOR(Coro, shared_future_cancelled_waiter_returns_cancelled_after_value_ready) {
+ public:
+  Task<td::Unit> run() {
+    if (!producer_done_) {
+      producer_done_ = std::make_shared<std::atomic<bool>>(false);
+    }
+    if (!sf_) {
+      sf_.emplace(shared_future_delayed_value(producer_done_, 314));
+    }
+
+    auto getter = sf_->get(false).start_immediate_without_scope();
+    co_await yield_on_current();
+    getter.cancel();
+
+    co_await wait_until([this] { return producer_done_->load(std::memory_order_acquire); },
+                        "shared_future_cancelled_waiter: producer should complete");
+
+    auto r = co_await std::move(getter).wrap();
+    expect_true(r.is_error(), "Cancelled SharedFuture waiter should return cancellation error");
+    if (r.is_error()) {
+      expect_eq(r.error().code(), kCancelledCode, "Cancelled SharedFuture waiter code should be 653");
+    }
+    co_return td::Unit{};
+  }
+
+ private:
+  std::shared_ptr<std::atomic<bool>> producer_done_;
+  std::optional<SharedFuture<int>> sf_;
+};
+
+TEST_CORO_ACTOR(Coro, shared_future_cancelled_and_alive_waiters_split_results) {
+ public:
+  Task<td::Unit> run() {
+    if (!producer_done_) {
+      producer_done_ = std::make_shared<std::atomic<bool>>(false);
+    }
+    if (!sf_) {
+      sf_.emplace(shared_future_delayed_value(producer_done_, 2718));
+    }
+
+    auto cancelled = sf_->get(false).start_immediate_without_scope();
+    auto alive = sf_->get(false).start_immediate_without_scope();
+    co_await yield_on_current();
+    cancelled.cancel();
+
+    co_await wait_until([this] { return producer_done_->load(std::memory_order_acquire); },
+                        "shared_future_mixed_waiters: producer should complete");
+
+    auto cancelled_result = co_await std::move(cancelled).wrap();
+    auto alive_result = co_await std::move(alive).wrap();
+
+    expect_true(cancelled_result.is_error(), "Cancelled waiter should not get ready value");
+    if (cancelled_result.is_error()) {
+      expect_eq(cancelled_result.error().code(), kCancelledCode, "Cancelled waiter should report 653");
+    }
+
+    expect_ok(alive_result, "Alive waiter should get shared value");
+    if (alive_result.is_ok()) {
+      expect_eq(alive_result.ok(), 2718, "Alive waiter should receive expected value");
+    }
+    co_return td::Unit{};
+  }
+
+ private:
+  std::shared_ptr<std::atomic<bool>> producer_done_;
+  std::optional<SharedFuture<int>> sf_;
 };
 
 // ===== Bug reproduction tests for ControlHeader split-lifetime =====

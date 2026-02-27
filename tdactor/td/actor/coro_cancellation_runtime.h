@@ -21,6 +21,8 @@ namespace td::actor {
 
 struct CancellationRuntime;
 struct CancelNode;
+template <class T>
+struct Task;
 
 namespace detail {
 struct TaskControlBase;
@@ -53,6 +55,7 @@ class ParentScopeLease {
 
   void publish_heap_cancel_node(CancelNode& node);
   void publish_cancel_promise(td::Promise<td::Unit> p);
+  void publish_cancel_task(Task<td::Unit> task);
   ParentScopeLease copy() const;
 
  private:

@@ -434,61 +434,70 @@ struct CoroMutex {
     CoroMutex* mutex_;
   };
 
-  bool await_ready() {
-    return !is_locked_;
-  }
+  struct WaiterState {
+    explicit WaiterState(typename StartedTask<Lock>::ExternalPromise promise) : promise_(std::move(promise)) {
+    }
+
+    bool try_set_lock(CoroMutex* mutex) {
+      if (claimed_) {
+        return false;
+      }
+      claimed_ = true;
+      promise_.set_value(mutex->lock_unsafe());
+      return true;
+    }
+
+    bool try_set_cancelled() {
+      if (claimed_) {
+        return false;
+      }
+      claimed_ = true;
+      promise_.set_error(cancelled_status());
+      return true;
+    }
+
+   private:
+    bool claimed_{false};
+    typename StartedTask<Lock>::ExternalPromise promise_;
+  };
   Lock lock_unsafe() {
     CHECK(++lock_cnt_ == 1);
     is_locked_ = true;
     return Lock{this};
   }
 
-  Lock await_resume() {
-    return lock_unsafe();
-  }
-
-  template <class OuterPromise>
-  std::coroutine_handle<> route_resume(std::coroutine_handle<OuterPromise> h) noexcept {
-    return h.promise().route_schedule();
-  }
-
-  template <class OuterPromise>
-  std::coroutine_handle<> await_suspend(std::coroutine_handle<OuterPromise> h) noexcept {
-    auto r_handle = detail::wrap_coroutine(this, h);
-    pending_.push(r_handle);
-    return std::noop_coroutine();
-  }
-
-  struct LockAwaitable {
-    CoroMutex* m;
-    bool await_ready() {
-      return m->await_ready();
+  [[nodiscard]] Task<Lock> lock() {
+    if (!is_locked_) {
+      co_return lock_unsafe();
     }
-    template <class OuterPromise>
-    void await_suspend(std::coroutine_handle<OuterPromise> h) noexcept {
-      m->await_suspend(h);
-    }
-    Lock await_resume() {
-      return m->await_resume();
-    }
-  };
 
-  [[nodiscard]] SkipAwaitTransform<LockAwaitable> lock() {
-    return {LockAwaitable{this}};
+    auto [task, promise] = StartedTask<Lock>::make_bridge();
+    auto waiter = std::make_shared<WaiterState>(std::move(promise));
+    pending_.push(waiter);
+    if (auto lease = current_scope_lease()) {
+      lease.publish_cancel_task(cancel_waiter(waiter));
+    }
+    co_return co_await std::move(task).child();
   }
 
  private:
+  static Task<td::Unit> cancel_waiter(std::shared_ptr<WaiterState> waiter) {
+    waiter->try_set_cancelled();
+    co_return td::Unit{};
+  }
+
   bool is_locked_{false};
   int lock_cnt_{0};
-  VectorQueue<std::coroutine_handle<>> pending_;
+  VectorQueue<std::shared_ptr<WaiterState>> pending_;
 
   void unlock() {
     CHECK(is_locked_);
     CHECK(--lock_cnt_ == 0);
-    if (!pending_.empty()) {
-      auto handle = pending_.pop();
-      detail::resume_on_current_tls(handle);
-      return;
+    while (!pending_.empty()) {
+      auto waiter = pending_.pop();
+      if (waiter->try_set_lock(this)) {
+        return;
+      }
     }
     is_locked_ = false;
   }
@@ -554,6 +563,18 @@ inline void ParentScopeLease::publish_cancel_promise(td::Promise<td::Unit> p) {
     }
   };
   publish_heap_cancel_node(*td::actor::make_ref<CancelPromiseNode>(std::move(p)));
+}
+
+inline void ParentScopeLease::publish_cancel_task(Task<td::Unit> task) {
+  struct CancelTaskNode : HeapCancelNode {
+    Task<td::Unit> task_;
+    explicit CancelTaskNode(Task<td::Unit> task) : task_(std::move(task)) {
+    }
+    void do_cancel() override {
+      std::move(task_).start_without_scope().detach_silent();
+    }
+  };
+  publish_heap_cancel_node(*td::actor::make_ref<CancelTaskNode>(std::move(task)));
 }
 
 // with_timeout: await a StartedTask with a timeout.
