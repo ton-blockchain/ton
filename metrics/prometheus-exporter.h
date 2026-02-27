@@ -13,7 +13,7 @@ class PrometheusExporter final : public td::actor::Actor, public virtual metrics
 
   void collect(metrics::MetricsPromise P) override;
 
-  template <std::derived_from<AsyncCollector> A>
+  template <std::derived_from<metrics::AsyncCollector> A>
   void register_collector(td::actor::ActorId<A> collector);
 
   void listen(td::IPAddress addr);
