@@ -1,9 +1,3 @@
-[implicit-int-float-conversion]
-src:*/overlay/overlay.cpp
-src:*/tdactor/td/actor/ActorStats.cpp
-src:*/tdactor/td/actor/ActorStats.h
-src:*/tonlib/test/online.cpp
-
 [unused-variable]
 src:*/crypto/block/precompiled-smc/PrecompiledSmartContract.cpp
 src:*/crypto/test/test-db.cpp

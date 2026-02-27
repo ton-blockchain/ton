@@ -771,7 +771,8 @@ void test_dns(Client& client, const Wallet& giver_wallet) {
       if (state.sync_utime >= info.valid_until) {
         LOG(FATAL) << "Query expired";
       }
-      LOG(INFO) << "time left to wait: " << td::format::as_time(info.valid_until - state.sync_utime);
+      LOG(INFO) << "time left to wait: "
+                << td::format::as_time(static_cast<double>(info.valid_until - state.sync_utime));
       client.receive(1);
     }
   };
