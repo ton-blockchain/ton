@@ -257,6 +257,8 @@ class Promise final {
   std::unique_ptr<PromiseInterface<T>> promise_;
 };
 
+template <detail::GoodImplicitLambda F>
+Promise(F &&f) -> Promise<detail::drop_result_t<detail::get_arg_t<std::remove_cvref_t<F>>>>;
 
 class PromiseCreator {
  public:
