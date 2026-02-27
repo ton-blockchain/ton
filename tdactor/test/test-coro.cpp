@@ -2316,6 +2316,269 @@ TEST_CORO(Coro, ask_dead_actor_after_stop_returns_error_not_crash) {
 
   co_return td::Unit{};
 }
+
+TEST_CORO(Coro, on_actor_guard_auto_and_explicit_touch) {
+  class GuardActor : public td::actor::Actor {
+   public:
+    Task<td::Unit> run() {
+      OnActorGuard guard;
+      guard.touch("guard must be bound on first touch");
+      co_await yield_on_current();
+      guard.touch("guard must stay on actor");
+      co_return td::Unit{};
+    }
+  };
+
+  auto actor = create_actor<GuardActor>("GuardActor");
+  auto result = co_await ask(actor, &GuardActor::run).wrap();
+  expect_ok(result, "OnActorGuard should pass on normal actor path");
+  co_return td::Unit{};
+}
+
+#if 0  // TODO(coro): Re-enable after destructor actor-affinity semantics are fixed.
+// Known failing state: if actor stop/cancellation wins while await is suspended,
+// coroutine-local destructors may run off the original actor.
+TEST_CORO(Coro, stop_actor_coroutine_local_destructor_actor_affinity) {
+  struct LocalDtorProbe {
+    OnActorGuard guard;
+    std::shared_ptr<std::atomic<int>> on_expected_actor;
+    std::shared_ptr<std::atomic<int>> off_expected_actor;
+    std::shared_ptr<std::atomic<int>> after_actor_destroy;
+    std::shared_ptr<std::atomic<bool>> actor_destroyed;
+
+    ~LocalDtorProbe() {
+      if (actor_destroyed && actor_destroyed->load(std::memory_order_acquire)) {
+        after_actor_destroy->fetch_add(1, std::memory_order_acq_rel);
+      }
+      if (guard.is_current()) {
+        on_expected_actor->fetch_add(1, std::memory_order_acq_rel);
+      } else {
+        off_expected_actor->fetch_add(1, std::memory_order_acq_rel);
+      }
+    }
+  };
+
+  class DtorAffinityActor : public td::actor::Actor {
+   public:
+    DtorAffinityActor(std::shared_ptr<std::atomic<int>> on_expected_actor, std::shared_ptr<std::atomic<int>> off_expected_actor,
+                      std::shared_ptr<std::atomic<int>> after_actor_destroy,
+                      std::shared_ptr<std::atomic<bool>> actor_destroyed)
+        : on_expected_actor_(std::move(on_expected_actor))
+        , off_expected_actor_(std::move(off_expected_actor))
+        , after_actor_destroy_(std::move(after_actor_destroy))
+        , actor_destroyed_(std::move(actor_destroyed)) {
+    }
+
+    ~DtorAffinityActor() override {
+      actor_destroyed_->store(true, std::memory_order_release);
+    }
+
+    void start_up() override {
+      alarm_timestamp() = td::Timestamp::in(0.05);
+    }
+
+    void alarm() override {
+      stop();
+    }
+
+    Task<td::Unit> query() {
+      OnActorGuard explicit_guard(actor_id(this));
+      LocalDtorProbe probe{
+          explicit_guard,
+          on_expected_actor_,
+          off_expected_actor_,
+          after_actor_destroy_,
+          actor_destroyed_,
+      };
+      explicit_guard.touch("query should execute on target actor before await");
+      auto task = slow_task();
+      task.set_executor(Executor::on_scheduler());
+      co_await std::move(task);
+      co_return td::Unit{};
+    }
+
+   private:
+    std::shared_ptr<std::atomic<int>> on_expected_actor_;
+    std::shared_ptr<std::atomic<int>> off_expected_actor_;
+    std::shared_ptr<std::atomic<int>> after_actor_destroy_;
+    std::shared_ptr<std::atomic<bool>> actor_destroyed_;
+  };
+
+  auto on_expected_actor = std::make_shared<std::atomic<int>>(0);
+  auto off_expected_actor = std::make_shared<std::atomic<int>>(0);
+  auto after_actor_destroy = std::make_shared<std::atomic<int>>(0);
+  auto actor_destroyed = std::make_shared<std::atomic<bool>>(false);
+
+  auto actor = create_actor<DtorAffinityActor>("DtorAffinityActor", on_expected_actor, off_expected_actor, after_actor_destroy,
+                                               actor_destroyed);
+  auto r = co_await ask(actor, &DtorAffinityActor::query).wrap();
+  expect_true(r.is_error(), "Stopped actor query should fail");
+
+  auto on_cnt = on_expected_actor->load(std::memory_order_acquire);
+  auto off_cnt = off_expected_actor->load(std::memory_order_acquire);
+  auto after_cnt = after_actor_destroy->load(std::memory_order_acquire);
+  LOG(INFO) << "dtor affinity stats: on_actor=" << on_cnt << " off_actor=" << off_cnt
+            << " after_actor_destroy=" << after_cnt;
+  expect_eq(on_cnt + off_cnt, 1, "Coroutine local destructor should run exactly once");
+  expect_true(on_cnt == 1, "Coroutine local destructor should run on target actor");
+  expect_true(after_cnt == 0, "Coroutine local destructor should run before actor destructor");
+  co_return td::Unit{};
+}
+#endif
+
+#if 0  // TODO(coro): Re-enable after cancelled-await local destructor affinity is fixed.
+TEST_CORO(Coro, stop_actor_cancelled_await_local_destructor_guard_touch) {
+  struct GuardedLocalDtor {
+    OnActorGuard guard;
+
+    explicit GuardedLocalDtor(OnActorGuard in_guard) : guard(std::move(in_guard)) {
+    }
+
+    ~GuardedLocalDtor() {
+      guard.touch("cancelled await local destructor must run on actor");
+    }
+  };
+
+  class CancelledAwaitActor : public td::actor::Actor {
+   public:
+    void start_up() override {
+      alarm_timestamp() = td::Timestamp::in(0.05);
+    }
+
+    void alarm() override {
+      stop();
+    }
+
+    Task<td::Unit> query() {
+      GuardedLocalDtor guarded{OnActorGuard(actor_id(this))};
+
+      auto task = slow_task();
+      task.set_executor(Executor::on_scheduler());
+      co_await std::move(task);
+      co_return td::Unit{};
+    }
+  };
+
+  auto actor = create_actor<CancelledAwaitActor>("CancelledAwaitActor");
+  auto r = co_await ask(actor, &CancelledAwaitActor::query).wrap();
+  expect_true(r.is_error(), "Stopped actor query should fail");
+  co_return td::Unit{};
+}
+#endif
+
+TEST_CORO(Coro, cross_actor_error_unwrap_local_destructor_guard_touch) {
+  struct GuardedLocalDtor {
+    OnActorGuard guard;
+
+    explicit GuardedLocalDtor(OnActorGuard in_guard) : guard(std::move(in_guard)) {
+    }
+
+    ~GuardedLocalDtor() {
+      guard.touch("error unwrap local destructor must run on actor");
+    }
+  };
+
+  class ErrorActor : public td::actor::Actor {
+   public:
+    Task<td::Unit> fail() {
+      co_return td::Status::Error("remote fail");
+    }
+  };
+
+  class AwaitErrorActor : public td::actor::Actor {
+   public:
+    Task<td::Unit> query(ActorId<ErrorActor> remote) {
+      GuardedLocalDtor guarded{OnActorGuard{}};
+      guarded.guard.touch("error unwrap local guard must bind on actor before await");
+      co_await ask(remote, &ErrorActor::fail);
+      co_return td::Unit{};
+    }
+  };
+
+  auto remote = create_actor<ErrorActor>("ErrorActor");
+  auto waiter = create_actor<AwaitErrorActor>("AwaitErrorActor");
+  auto r = co_await ask(waiter, &AwaitErrorActor::query, remote.get()).wrap();
+  expect_true(r.is_error(), "Cross-actor error should fail");
+  co_return td::Unit{};
+}
+
+#if 0  // TODO(coro): Re-enable after cross-actor executor error destructor affinity is fixed.
+TEST_CORO(Coro, cross_actor_executor_error_unwrap_local_destructor_guard_touch) {
+  struct GuardedLocalDtor {
+    OnActorGuard guard;
+
+    explicit GuardedLocalDtor(OnActorGuard in_guard) : guard(std::move(in_guard)) {
+    }
+
+    ~GuardedLocalDtor() {
+      guard.touch("cross-actor executor error local destructor must run on actor");
+    }
+  };
+
+  class HopActor : public td::actor::Actor {
+  };
+
+  class AwaitCrossActorTaskErrorActor : public td::actor::Actor {
+   public:
+    Task<td::Unit> query(ActorId<HopActor> remote) {
+      GuardedLocalDtor guarded{OnActorGuard(actor_id(this))};
+
+      auto task = []() -> Task<td::Unit> {
+        co_await yield_on_current();
+        co_return td::Status::Error("cross-actor task fail");
+      }();
+      task.set_executor(Executor::on_actor(remote));
+      co_await std::move(task);
+      co_return td::Unit{};
+    }
+  };
+
+  auto remote = create_actor<HopActor>("HopActor");
+  auto waiter = create_actor<AwaitCrossActorTaskErrorActor>("AwaitCrossActorTaskErrorActor");
+  auto r = co_await ask(waiter, &AwaitCrossActorTaskErrorActor::query, remote.get()).wrap();
+  expect_true(r.is_error(), "Cross-actor task error should fail");
+  co_return td::Unit{};
+}
+#endif
+
+#if 0  // TODO(coro): Re-enable after suspended ask-error destructor affinity is fixed.
+TEST_CORO(Coro, cross_actor_ask_error_suspended_local_destructor_guard_touch) {
+  struct GuardedLocalDtor {
+    OnActorGuard guard;
+
+    explicit GuardedLocalDtor(OnActorGuard in_guard) : guard(std::move(in_guard)) {
+    }
+
+    ~GuardedLocalDtor() {
+      guard.touch("cross-actor suspended ask error local destructor must run on actor");
+    }
+  };
+
+  class ErrorActor : public td::actor::Actor {
+   public:
+    Task<td::Unit> fail_suspended() {
+      co_await yield_on_current();
+      co_return td::Status::Error("remote suspended fail");
+    }
+  };
+
+  class AwaitErrorActor : public td::actor::Actor {
+   public:
+    Task<td::Unit> query(ActorId<ErrorActor> remote) {
+      GuardedLocalDtor guarded{OnActorGuard(actor_id(this))};
+      co_await ask(remote, &ErrorActor::fail_suspended);
+      co_return td::Unit{};
+    }
+  };
+
+  auto remote = create_actor<ErrorActor>("ErrorActorSuspended");
+  auto waiter = create_actor<AwaitErrorActor>("AwaitErrorActorSuspended");
+  auto r = co_await ask(waiter, &AwaitErrorActor::query, remote.get()).wrap();
+  expect_true(r.is_error(), "Cross-actor suspended ask error should fail");
+  co_return td::Unit{};
+}
+#endif
+
 TEST_CORO(Coro, promise_destroy_in_mailbox) {
   class Target : public td::actor::Actor {
    public:

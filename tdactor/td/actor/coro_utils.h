@@ -22,6 +22,22 @@
 
 namespace td::actor {
 
+class OnActorGuard {
+ public:
+  void touch(td::Slice message = "OnActorGuard: call must stay on actor") {
+    auto current = detail::get_current_actor_id();
+    LOG_CHECK(!current.empty()) << message;
+    if (!actor_id_) {
+      actor_id_ = std::move(current);
+      return;
+    }
+    LOG_CHECK(*actor_id_ == current) << message;
+  }
+
+ private:
+  std::optional<td::actor::ActorId<>> actor_id_;
+};
+
 namespace detail {
 
 template <class M>
@@ -461,12 +477,14 @@ struct CoroMutex {
     typename StartedTask<Lock>::ExternalPromise promise_;
   };
   Lock lock_unsafe() {
+    actor_guard_.touch("CoroMutex: lock_unsafe must be called on actor and same actor");
     CHECK(++lock_cnt_ == 1);
     is_locked_ = true;
     return Lock{this};
   }
 
   [[nodiscard]] Task<Lock> lock() {
+    actor_guard_.touch("CoroMutex: lock must be called on actor and same actor");
     if (!is_locked_) {
       co_return lock_unsafe();
     }
@@ -489,8 +507,10 @@ struct CoroMutex {
   bool is_locked_{false};
   int lock_cnt_{0};
   VectorQueue<std::shared_ptr<WaiterState>> pending_;
+  OnActorGuard actor_guard_;
 
   void unlock() {
+    actor_guard_.touch("CoroMutex: unlock must be called on actor and same actor");
     CHECK(is_locked_);
     CHECK(--lock_cnt_ == 0);
     while (!pending_.empty()) {
