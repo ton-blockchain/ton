@@ -151,7 +151,7 @@ class PerfLog {
     std::string name;
     double begin{};
     double end{};
-    td::Status status;
+    td::Status status{};
   };
   std::vector<Entry> entries_;
   friend class PerfLogAction;

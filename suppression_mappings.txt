@@ -1,8 +1,3 @@
-[missing-designated-field-initializers]
-src:*/tdutils/td/utils/Timer.cpp
-src:*/validator/db/permanent-celldb/permanent-celldb-utils.cpp
-src:*/validator/validator-options.cpp
-
 [implicit-int-float-conversion]
 src:*/overlay/overlay.cpp
 src:*/tdactor/td/actor/ActorStats.cpp
