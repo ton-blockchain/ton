@@ -66,9 +66,6 @@ src:*/validator/db/archive-manager.cpp
 src:*/tonlib/tonlib/TonlibClient.cpp
 src:*/validator/impl/liteserver.cpp
 
-[unused-result]
-src:*/crypto/test/test-cells.cpp
-
 [deprecated-enum-float-conversion]
 src:*/validator/impl/liteserver.cpp
 
