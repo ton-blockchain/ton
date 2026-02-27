@@ -439,8 +439,15 @@ TEST(Emulator, wallet_int_and_ext_msg) {
 
   // emulate external message
   {
-    auto ext_body = wallet->make_a_gift_message(
-        priv_key, utime + 60, {ton::WalletV3::Gift{block::StdAddress(0, ton::StdSmcAddress()), 1 * Ton}});
+    ton::WalletV3::Gift gift{
+        .destination = block::StdAddress(0, ton::StdSmcAddress()),
+        .gramms = 1 * Ton,
+        .extra_currencies = {},
+        .message = "",
+        .body = {},
+        .init_state = {},
+    };
+    auto ext_body = wallet->make_a_gift_message(priv_key, utime + 60, {gift});
     CHECK(ext_body.is_ok());
     auto ext_msg = ton::GenericAccount::create_ext_message(address, {}, ext_body.move_as_ok());
     auto ext_msg_boc = td::base64_encode(std_boc_serialize(ext_msg).move_as_ok());

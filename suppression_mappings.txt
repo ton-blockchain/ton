@@ -1,6 +1,3 @@
-[missing-field-initializers]
-src:*/emulator/test/emulator-tests.cpp
-
 [missing-designated-field-initializers]
 src:*/tdutils/td/utils/Timer.cpp
 src:*/validator/db/permanent-celldb/permanent-celldb-utils.cpp
