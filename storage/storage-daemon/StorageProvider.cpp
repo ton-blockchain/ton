@@ -468,7 +468,7 @@ void StorageProvider::after_contract_downloaded(ContractAddress address, td::Tim
   }
   auto& contract = it->second;
   td::actor::send_closure(storage_manager_, &StorageManager::set_active_upload, contract.torrent_hash, true,
-                          [SelfId = actor_id(this), address](td::Result<td::Unit> R) {
+                          [SelfId = actor_id(this)](td::Result<td::Unit> R) {
                             if (R.is_error()) {
                               LOG(ERROR) << "Set active upload: " << R.move_as_error();
                               return;
