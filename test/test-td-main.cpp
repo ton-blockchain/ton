@@ -27,12 +27,15 @@
 */
 #include <cstring>
 
+#include "td/utils/Time.h"
 #include "td/utils/misc.h"
 #include "td/utils/port/signals.h"
 #include "td/utils/tests.h"
 
 int main(int argc, char **argv) {
+  td::Time::allow_freezes();
   td::set_default_failure_signal_handler().ensure();
+
   // TODO port OptionParser to Windows
   auto &runner = td::TestsRunner::get_default();
   runner.set_pretty_output(true);
