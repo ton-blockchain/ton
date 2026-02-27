@@ -568,6 +568,7 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
   // ===== Event wiring =====
   void wire_bus(std::shared_ptr<BusTreeNode> node) {
     CHECK(node);
+    CHECK(bus_parents_.contains(node->type_id));
 
     // First, we create all actors that spawn on the added bus.
     std::vector<std::unique_ptr<BusListeningActor>> spawned_actors;
