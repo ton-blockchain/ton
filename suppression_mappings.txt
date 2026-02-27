@@ -52,9 +52,6 @@ src:*/third-party/rocksdb/port/mmap.cc
 src:*/catchain/catchain-receiver.cpp
 src:*/crypto/block/block-parse.cpp
 
-[unused-function]
-src:*/crypto/vm/db/DynamicBagOfCellsDb.cpp
-
 [logical-op-parentheses]
 src:*/validator/import-db-slice-local.cpp
 
