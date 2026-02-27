@@ -60,9 +60,6 @@ src:*/validator/db/archive-manager.cpp
 src:*/tonlib/tonlib/TonlibClient.cpp
 src:*/validator/impl/liteserver.cpp
 
-[deprecated-enum-float-conversion]
-src:*/validator/impl/liteserver.cpp
-
 [unused-lambda-capture]
 src:*/lite-client/lite-client.cpp
 src:*/storage/storage-daemon/StorageProvider.cpp
