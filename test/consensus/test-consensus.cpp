@@ -569,7 +569,7 @@ class TestConsensus : public td::actor::Actor {
         }
       }
     }
-    co_return td::Unit{};
+    co_return {};
   }
 
   td::actor::Task<> wait_block_accepted(BlockIdExt block_id) {
@@ -611,12 +611,12 @@ class TestConsensus : public td::actor::Actor {
       PrivateKey node_pk{privkeys::Ed25519::random()};
       node.public_key = node_pk.compute_public_key();
       node.node_id = node.public_key.compute_short_id();
-      td::actor::send_closure(keyring_, &keyring::Keyring::add_key, std::move(node_pk), true, [](td::Unit) {});
+      td::actor::send_closure(keyring_, &keyring::Keyring::add_key, std::move(node_pk), true, [](td::Result<>) {});
 
       PrivateKey adnl_pk{privkeys::Ed25519::random()};
       node.adnl_id_full = adnl::AdnlNodeIdFull{adnl_pk.compute_public_key()};
       node.adnl_id = node.adnl_id_full.compute_short_id();
-      td::actor::send_closure(keyring_, &keyring::Keyring::add_key, std::move(adnl_pk), true, [](td::Unit) {});
+      td::actor::send_closure(keyring_, &keyring::Keyring::add_key, std::move(adnl_pk), true, [](td::Result<>) {});
 
       node.weight = 11;
 

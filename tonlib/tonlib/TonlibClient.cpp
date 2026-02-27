@@ -2078,42 +2078,46 @@ class RunEmulator : public TonlibQueryActor {
     auto query = ton::lite_api::liteServer_listBlockTransactions(std::move(lite_block), mode, req_count,
                                                                  std::move(after), false, true);
 
-    client_.send_query(std::move(query), [self = this, mode, lt, root_hash = block_id_.id.root_hash](
-                                             lite_api_ptr<ton::lite_api::liteServer_blockTransactions>&& bTxes) {
-      if (!bTxes) {
-        self->check(td::Status::Error("liteServer.blockTransactions is null"));
-        return;
-      }
+    client_.send_query(
+        std::move(query), [self = this, mode, lt, root_hash = block_id_.id.root_hash](
+                              td::Result<lite_api_ptr<ton::lite_api::liteServer_blockTransactions>> maybe_bTxes) {
+          if (maybe_bTxes.is_error()) {
+            self->check(maybe_bTxes.move_as_error_prefix("Failed to get block transactions: "));
+            return;
+          }
 
-      self->check(check_block_transactions_proof(bTxes, mode, lt, self->request_.address.addr, root_hash, req_count));
+          auto bTxes = maybe_bTxes.move_as_ok();
 
-      std::int64_t last_lt = 0;
-      for (auto& id : bTxes->ids_) {
-        last_lt = id->lt_;
-        if (id->account_ != self->request_.address.addr) {
-          continue;
-        }
+          self->check(
+              check_block_transactions_proof(bTxes, mode, lt, self->request_.address.addr, root_hash, req_count));
 
-        if (id->lt_ == self->request_.lt && id->hash_ == self->request_.hash) {
-          self->incomplete_ = false;
-        }
+          std::int64_t last_lt = 0;
+          for (auto& id : bTxes->ids_) {
+            last_lt = id->lt_;
+            if (id->account_ != self->request_.address.addr) {
+              continue;
+            }
 
-        self->transactions_.push_back({});
-        self->get_transaction(id->lt_, id->hash_, [self, i = self->transactions_.size() - 1](auto transaction) {
-          self->set_transaction(i, std::move(transaction));
+            if (id->lt_ == self->request_.lt && id->hash_ == self->request_.hash) {
+              self->incomplete_ = false;
+            }
+
+            self->transactions_.push_back({});
+            self->get_transaction(id->lt_, id->hash_, [self, i = self->transactions_.size() - 1](auto transaction) {
+              self->set_transaction(i, std::move(transaction));
+            });
+
+            if (!self->incomplete_) {
+              return;
+            }
+          }
+
+          if (bTxes->incomplete_) {
+            self->check(self->get_transactions(last_lt));
+          } else {
+            self->check(td::Status::Error("Transaction not found"));
+          }
         });
-
-        if (!self->incomplete_) {
-          return;
-        }
-      }
-
-      if (bTxes->incomplete_) {
-        self->check(self->get_transactions(last_lt));
-      } else {
-        self->check(td::Status::Error("Transaction not found"));
-      }
-    });
     return td::Status::OK();
   }
 

@@ -273,7 +273,7 @@ class CoroSpec final : public td::actor::Actor {
 
     check(co_await ask_new(uni, &Uni::get_task));
 
-    static_assert(td::is_promise_interface<StartedTask<int>::ExternalPromise>());
+    static_assert(td::detail::IsPromiseInterface<StartedTask<int>::ExternalPromise, int>);
 
     auto check_send_closure = [&](auto&& f) -> Task<td::Unit> {
       auto [task, task_promise] = StartedTask<Value>::make_bridge();

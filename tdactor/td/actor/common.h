@@ -209,6 +209,9 @@ using core::ActorTypeStat;
 using core::ActorTypeStatManager;
 using core::ActorTypeStats;
 
+template <class T>
+struct Task;
+
 // Some helper functions. Not part of public interface and not part
 // of namespace core
 namespace detail {
@@ -364,6 +367,10 @@ struct unwrap_result<td::Result<T>> {
   using type = T;
 };
 template <class T>
+struct unwrap_result<td::actor::Task<T>> {
+  using type = T;
+};
+template <class T>
 using unwrap_result_t = typename unwrap_result<T>::type;
 
 template <class ClosureT, class PromiseT>
@@ -376,13 +383,13 @@ void send_closure_with_promise(ActorTarget actor_ref, ClosureT &&closure, Promis
         actor_ref,
         [&closure, &promise = promise_i]() mutable {
           run_on_current_actor(closure);
-          promise(td::Unit());
+          promise.set_value(td::Unit());
         },
         [&closure, &promise = promise_i]() mutable {
           return ActorMessageCreator::lambda(
               [closure = to_delayed_closure(std::move(closure)), promise = std::move(promise)]() mutable {
                 run_on_current_actor(closure);
-                promise(td::Unit());
+                promise.set_value(td::Unit());
               });
         });
   } else {
@@ -410,7 +417,7 @@ void send_closure_with_promise_later(ActorTarget actor_ref, ClosureT &&closure, 
         ActorMessageCreator::lambda([closure = to_delayed_closure(std::move(closure)),
                                      promise = promise_interface<td::Unit>(std::forward<PromiseT>(promise))]() mutable {
           run_on_current_actor(closure);
-          promise(td::Unit());
+          promise.set_value({});
         }));
   } else {
     using ResultType = unwrap_result_t<RawResultType>;

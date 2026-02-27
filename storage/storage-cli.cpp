@@ -459,7 +459,6 @@ class StorageCli : public td::actor::Actor {
                                                         std::move(callback), std::move(context), nullptr,
                                                         ton::SpeedLimiters{}, should_download);
     td::TerminalIO::out() << "Torrent #" << ptr->id << " started\n";
-    promise.release().release();
     if (promise) {
       promise.set_value(td::Unit());
     }

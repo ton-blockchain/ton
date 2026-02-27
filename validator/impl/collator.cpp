@@ -363,7 +363,7 @@ bool Collator::fatal_error(td::Status error) {
       finalize_stats();
       stats_.status = error.clone();
       td::actor::send_closure(manager, &ValidatorManager::log_collate_query_stats, std::move(stats_));
-      main_promise(std::move(error));
+      main_promise.set_error(std::move(error));
     }
     busy_ = false;
   }
@@ -6496,7 +6496,7 @@ void Collator::return_block_candidate(td::Result<td::Unit> saved, td::PerfLogAct
     finalize_stats();
     stats_.status = td::Status::OK();
     td::actor::send_closure(manager, &ValidatorManager::log_collate_query_stats, std::move(stats_));
-    main_promise(block_candidate->clone());
+    main_promise.set_value(block_candidate->clone());
     busy_ = false;
     stop();
   }

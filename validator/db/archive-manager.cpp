@@ -1063,7 +1063,7 @@ void ArchiveManager::run_gc(td::Ref<MasterchainState> shard_client_state, UnixTi
   if (to_delete.size() > 1) {
     to_delete.pop_back();
     for (auto &x : to_delete) {
-      delete_package(x, [](td::Unit) {});
+      delete_package(x, [](td::Result<>) {});
     }
   }
   to_delete.clear();
@@ -1087,7 +1087,7 @@ void ArchiveManager::run_gc(td::Ref<MasterchainState> shard_client_state, UnixTi
 
       for (auto &x : to_delete) {
         LOG(ERROR) << "WARNING: deleting package " << x.id;
-        delete_package(x, [](td::Unit) {});
+        delete_package(x, [](td::Result<>) {});
       }
     }
   }
@@ -1104,7 +1104,7 @@ void ArchiveManager::run_gc_temp_cont(PackageId id, td::Ref<MasterchainState> sh
       return;
     }
   }
-  delete_package(id, [](td::Unit) {});
+  delete_package(id, [](td::Result<>) {});
 }
 
 void ArchiveManager::persistent_state_gc(std::pair<BlockSeqno, FileHash> last) {
