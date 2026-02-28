@@ -2029,7 +2029,6 @@ void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
         }
       });
   td::actor::send_closure(db_, &Db::get_persistent_state_descriptions, std::move(Q));
-  IValidatorGroup::cleanup_old_consensus_db(last_masterchain_state_, db_root_).start().detach();
   update_shard_overlays();
   finish_start_up();
 }
