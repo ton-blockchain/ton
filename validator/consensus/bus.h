@@ -11,12 +11,12 @@
 #include "overlay/overlays.h"
 #include "quic/quic-sender.h"
 #include "rldp2/rldp.h"
+#include "td/actor/BusRuntime.h"
 #include "td/db/KeyValueAsync.h"
 #include "ton/ton-types.h"
 
 #include "chain-state.h"
 #include "manager-facade.h"
-#include "runtime.h"
 #include "types.h"
 
 namespace ton::validator::consensus {
@@ -151,7 +151,7 @@ class Db {
   virtual td::actor::Task<> set(td::BufferSlice key, td::BufferSlice value) = 0;
 };
 
-class Bus : public runtime::Bus {
+class Bus : public td::actor::Bus {
  public:
   using Events = td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, OurLeaderWindowAborted,
                               CandidateGenerated, CandidateReceived, ValidationRequest, IncomingProtocolMessage,
@@ -189,26 +189,26 @@ class Bus : public runtime::Bus {
   td::Promise<td::Unit> stop_promise;
 };
 
-using BusHandle = runtime::BusHandle<Bus>;
+using BusHandle = td::actor::BusHandle<Bus>;
 
 struct BlockAccepter {
-  static void register_in(runtime::Runtime&);
+  static void register_in(td::actor::Runtime&);
 };
 
 struct BlockProducer {
-  static void register_in(runtime::Runtime&);
+  static void register_in(td::actor::Runtime&);
 };
 
 struct BlockValidator {
-  static void register_in(runtime::Runtime&);
+  static void register_in(td::actor::Runtime&);
 };
 
 struct PrivateOverlay {
-  static void register_in(runtime::Runtime&);
+  static void register_in(td::actor::Runtime&);
 };
 
 struct TraceCollector {
-  static void register_in(runtime::Runtime&);
+  static void register_in(td::actor::Runtime&);
 };
 
 }  // namespace ton::validator::consensus

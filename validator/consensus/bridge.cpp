@@ -11,8 +11,6 @@
 #include "validator/fabric.h"
 #include "validator/validator-group.hpp"
 
-#include "runtime.h"
-
 namespace ton::validator {
 
 namespace consensus {
@@ -276,7 +274,7 @@ class BridgeImpl final : public IValidatorGroup {
     stop_waiter_ = std::move(stop_waiter);
     bus->stop_promise = std::move(stop_promise);
 
-    runtime::Runtime runtime;
+    td::actor::Runtime runtime;
     BlockAccepter::register_in(runtime);
     BlockProducer::register_in(runtime);
     BlockValidator::register_in(runtime);

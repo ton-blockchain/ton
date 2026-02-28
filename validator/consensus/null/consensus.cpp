@@ -38,7 +38,7 @@ struct SlotState {
   bool finalized = false;
 };
 
-class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
+class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
@@ -241,7 +241,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
 }  // namespace
 
-void Consensus::register_in(runtime::Runtime& runtime) {
+void Consensus::register_in(td::actor::Runtime& runtime) {
   runtime.register_actor<ConsensusImpl>("NullConsensus");
 }
 

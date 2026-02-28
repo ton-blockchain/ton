@@ -269,7 +269,7 @@ struct SlotState {
   std::optional<ParentId> available_base;
 };
 
-class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
+class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
   using State = ConsensusState<SlotState, const Bus &>;
 
   struct Request {
@@ -795,7 +795,7 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
 
 }  // namespace
 
-void Pool::register_in(runtime::Runtime &runtime) {
+void Pool::register_in(td::actor::Runtime &runtime) {
   runtime.register_actor<PoolImpl>("SimplexPool");
 }
 

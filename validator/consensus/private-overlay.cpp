@@ -27,7 +27,7 @@ using RequestErrorRef = tl_object_ptr<requestError>;
 
 namespace {
 
-class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
+class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
@@ -201,7 +201,7 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
 
 }  // namespace
 
-void PrivateOverlay::register_in(runtime::Runtime& runtime) {
+void PrivateOverlay::register_in(td::actor::Runtime& runtime) {
   runtime.register_actor<PrivateOverlayImpl>("PrivateOverlay");
 }
 
