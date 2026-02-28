@@ -6,6 +6,7 @@ set(TON_THIRD_PARTY_BINARY_DIR "${CMAKE_BINARY_DIR}/third-party")
 
 set(ZLIB_SOURCE_DIR ${TON_THIRD_PARTY_SOURCE_DIR}/zlib)
 set(ZLIB_BINARY_DIR ${TON_THIRD_PARTY_BINARY_DIR}/zlib)
+set(ZLIB_BUILD_DIR ${ZLIB_BINARY_DIR}/src)
 
 if (ZLIB_FOUND)
   if (NOT ZLIB_LIBRARY AND ZLIB_LIBRARIES)
@@ -32,60 +33,17 @@ if (ZLIB_FOUND)
   endif()
 endif()
 
-if (ANDROID)
-  set(ZLIB_BINARY_DIR ${TON_ANDROID_THIRD_PARTY_DIR}/zlib/${TON_ANDROID_ARCH_DIR})
-  set(ZLIB_INCLUDE_DIR ${ZLIB_BINARY_DIR}/include)
-  set(ZLIB_LIBRARY ${ZLIB_BINARY_DIR}/lib/libz.a)
-
-  file(MAKE_DIRECTORY ${ZLIB_BINARY_DIR})
-  file(MAKE_DIRECTORY ${ZLIB_BINARY_DIR}/lib)
-  file(MAKE_DIRECTORY ${ZLIB_BINARY_DIR}/include)
-
-  if (CMAKE_C_FLAGS)
-    set(ZLIB_CFLAGS "${CMAKE_C_FLAGS} -fPIC")
-  else()
-    set(ZLIB_CFLAGS "-fPIC")
-  endif()
-  add_custom_command(
-      WORKING_DIRECTORY ${ZLIB_SOURCE_DIR}
-      COMMAND ${CMAKE_COMMAND} -E rm -f ${ZLIB_LIBRARY}
-      COMMAND ${CMAKE_COMMAND} -E env
-        CC=${TON_ANDROID_CC}
-        AR=${TON_ANDROID_AR}
-        RANLIB=${TON_ANDROID_RANLIB}
-        CFLAGS=${ZLIB_CFLAGS}
-        ./configure --static --prefix=${ZLIB_BINARY_DIR}
-      COMMAND ${CMAKE_COMMAND} -E env
-        CC=${TON_ANDROID_CC}
-        AR=${TON_ANDROID_AR}
-        RANLIB=${TON_ANDROID_RANLIB}
-        CFLAGS=${ZLIB_CFLAGS}
-        make clean
-      COMMAND ${CMAKE_COMMAND} -E env
-        CC=${TON_ANDROID_CC}
-        AR=${TON_ANDROID_AR}
-        RANLIB=${TON_ANDROID_RANLIB}
-        CFLAGS=${ZLIB_CFLAGS}
-        make -j16
-      COMMAND ${CMAKE_COMMAND} -E env
-        CC=${TON_ANDROID_CC}
-        AR=${TON_ANDROID_AR}
-        RANLIB=${TON_ANDROID_RANLIB}
-        CFLAGS=${ZLIB_CFLAGS}
-        make install
-      COMMAND ${TON_ANDROID_RANLIB} ${ZLIB_LIBRARY}
-      COMMENT "Build zlib (Android)"
-      DEPENDS ${ZLIB_SOURCE_DIR}
-      OUTPUT ${ZLIB_LIBRARY}
-  )
-elseif (MSVC)
+if (MSVC)
   set(ZLIB_PROJECT_DIR ${ZLIB_SOURCE_DIR}/contrib/vstudio/vc14)
-  set(ZLIB_MSVC_OUT_DIR ${ZLIB_PROJECT_DIR}/x64/ZlibStatReleaseWithoutAsm)
-  set(ZLIB_LIBRARY ${ZLIB_MSVC_OUT_DIR}/zlibstat.lib)
+  set(ZLIB_LIBRARY ${ZLIB_BINARY_DIR}/lib/zlibstat.lib)
   set(ZLIB_INCLUDE_DIR ${ZLIB_SOURCE_DIR})
+  file(MAKE_DIRECTORY ${ZLIB_BINARY_DIR}/lib)
+  file(MAKE_DIRECTORY ${ZLIB_BINARY_DIR}/obj)
+  set(ZLIB_MSVC_OUT_DIR "${ZLIB_BINARY_DIR}/lib/")
+  set(ZLIB_MSVC_INT_DIR "${ZLIB_BINARY_DIR}/obj/")
   if (NOT EXISTS "${ZLIB_LIBRARY}")
     execute_process(
-      COMMAND msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:Platform=x64 -p:PlatformToolset=v142
+      COMMAND msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:Platform=x64 /p:PlatformToolset=v142 /p:OutDir=${ZLIB_MSVC_OUT_DIR} /p:IntDir=${ZLIB_MSVC_INT_DIR}
       WORKING_DIRECTORY ${ZLIB_PROJECT_DIR}
       RESULT_VARIABLE ZLIB_BUILD_RESULT
     )
@@ -94,19 +52,33 @@ elseif (MSVC)
     endif()
   endif()
   add_custom_command(
-      WORKING_DIRECTORY ${ZLIB_PROJECT_DIR}
-      COMMAND msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:Platform=x64 -p:PlatformToolset=v142
-      COMMENT "Build zlib (MSVC)"
-      DEPENDS ${ZLIB_SOURCE_DIR}
-      OUTPUT ${ZLIB_LIBRARY}
+    WORKING_DIRECTORY ${ZLIB_PROJECT_DIR}
+    COMMAND msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:Platform=x64 /p:PlatformToolset=v142 /p:OutDir=${ZLIB_MSVC_OUT_DIR} /p:IntDir=${ZLIB_MSVC_INT_DIR}
+    COMMENT "Build zlib (MSVC)"
+    DEPENDS ${ZLIB_SOURCE_DIR}
+    OUTPUT ${ZLIB_LIBRARY}
   )
 else()
+  if (ANDROID)
+    set(ZLIB_BINARY_DIR ${TON_ANDROID_THIRD_PARTY_DIR}/zlib/${TON_ANDROID_ARCH_DIR})
+    set(ZLIB_BUILD_DIR ${ZLIB_BINARY_DIR}/src)
+    set(ZLIB_CC ${TON_ANDROID_CC})
+    set(ZLIB_AR ${TON_ANDROID_AR})
+    set(ZLIB_RANLIB ${TON_ANDROID_RANLIB})
+  else()
+    set(ZLIB_CC ${CMAKE_C_COMPILER})
+    set(ZLIB_AR ${CMAKE_AR})
+    set(ZLIB_RANLIB ${CMAKE_RANLIB})
+  endif()
+  if (NOT ZLIB_RANLIB)
+    find_program(ZLIB_RANLIB ranlib)
+  endif()
+
   set(ZLIB_INCLUDE_DIR ${ZLIB_BINARY_DIR}/include)
   set(ZLIB_LIBRARY ${ZLIB_BINARY_DIR}/lib/libz.a)
-
-  file(MAKE_DIRECTORY ${ZLIB_BINARY_DIR})
   file(MAKE_DIRECTORY ${ZLIB_BINARY_DIR}/lib)
-  file(MAKE_DIRECTORY ${ZLIB_BINARY_DIR}/include)
+  file(MAKE_DIRECTORY ${ZLIB_INCLUDE_DIR})
+  file(MAKE_DIRECTORY ${ZLIB_BUILD_DIR})
 
   if (CMAKE_C_FLAGS)
     set(ZLIB_CFLAGS "${CMAKE_C_FLAGS} -fPIC")
@@ -120,47 +92,55 @@ else()
       message(FATAL_ERROR "bash not found in PATH; ensure MSYS2 is in PATH.")
     endif()
     add_custom_command(
-        WORKING_DIRECTORY ${ZLIB_SOURCE_DIR}
-        COMMAND ${CMAKE_COMMAND} -E rm -f ${ZLIB_LIBRARY}
-        COMMAND ${MSYS2_BASH} -lc "CC=${CMAKE_C_COMPILER} AR=${CMAKE_AR} RANLIB=${CMAKE_RANLIB} CFLAGS='${ZLIB_CFLAGS}' ./configure --static --prefix=${ZLIB_BINARY_DIR}"
-        COMMAND ${MSYS2_BASH} -lc "CC=${CMAKE_C_COMPILER} AR=${CMAKE_AR} RANLIB=${CMAKE_RANLIB} CFLAGS='${ZLIB_CFLAGS}' make clean"
-        COMMAND ${MSYS2_BASH} -lc "CC=${CMAKE_C_COMPILER} AR=${CMAKE_AR} RANLIB=${CMAKE_RANLIB} CFLAGS='${ZLIB_CFLAGS}' make -j16"
-        COMMAND ${MSYS2_BASH} -lc "CC=${CMAKE_C_COMPILER} AR=${CMAKE_AR} RANLIB=${CMAKE_RANLIB} CFLAGS='${ZLIB_CFLAGS}' make install"
-        COMMENT "Build zlib"
-        DEPENDS ${ZLIB_SOURCE_DIR}
-        OUTPUT ${ZLIB_LIBRARY}
+      WORKING_DIRECTORY ${ZLIB_BINARY_DIR}
+      COMMAND ${CMAKE_COMMAND} -E rm -rf ${ZLIB_BUILD_DIR}
+      COMMAND ${CMAKE_COMMAND} -E copy_directory ${ZLIB_SOURCE_DIR} ${ZLIB_BUILD_DIR}
+      COMMAND ${MSYS2_BASH} -lc "cd '${ZLIB_BUILD_DIR}' && CC='${ZLIB_CC}' AR='${ZLIB_AR}' RANLIB='${ZLIB_RANLIB}' CFLAGS='${ZLIB_CFLAGS}' ./configure --static --prefix='${ZLIB_BINARY_DIR}'"
+      COMMAND ${MSYS2_BASH} -lc "cd '${ZLIB_BUILD_DIR}' && CC='${ZLIB_CC}' AR='${ZLIB_AR}' RANLIB='${ZLIB_RANLIB}' CFLAGS='${ZLIB_CFLAGS}' make clean"
+      COMMAND ${MSYS2_BASH} -lc "cd '${ZLIB_BUILD_DIR}' && CC='${ZLIB_CC}' AR='${ZLIB_AR}' RANLIB='${ZLIB_RANLIB}' CFLAGS='${ZLIB_CFLAGS}' make -j16"
+      COMMAND ${MSYS2_BASH} -lc "cd '${ZLIB_BUILD_DIR}' && CC='${ZLIB_CC}' AR='${ZLIB_AR}' RANLIB='${ZLIB_RANLIB}' CFLAGS='${ZLIB_CFLAGS}' make install"
+      COMMENT "Build zlib"
+      DEPENDS ${ZLIB_SOURCE_DIR}
+      OUTPUT ${ZLIB_LIBRARY}
     )
   else()
+    set(ZLIB_POST_INSTALL_COMMANDS)
+    if (ZLIB_RANLIB)
+      list(APPEND ZLIB_POST_INSTALL_COMMANDS COMMAND ${ZLIB_RANLIB} ${ZLIB_LIBRARY})
+    endif()
     add_custom_command(
-        WORKING_DIRECTORY ${ZLIB_SOURCE_DIR}
-        COMMAND ${CMAKE_COMMAND} -E rm -f ${ZLIB_LIBRARY}
-        COMMAND ${CMAKE_COMMAND} -E env
-          CC=${CMAKE_C_COMPILER}
-          AR=${CMAKE_AR}
-          RANLIB=${CMAKE_RANLIB}
-          CFLAGS=${ZLIB_CFLAGS}
-          ./configure --static --prefix=${ZLIB_BINARY_DIR}
-        COMMAND ${CMAKE_COMMAND} -E env
-          CC=${CMAKE_C_COMPILER}
-          AR=${CMAKE_AR}
-          RANLIB=${CMAKE_RANLIB}
-          CFLAGS=${ZLIB_CFLAGS}
-          make clean
-        COMMAND ${CMAKE_COMMAND} -E env
-          CC=${CMAKE_C_COMPILER}
-          AR=${CMAKE_AR}
-          RANLIB=${CMAKE_RANLIB}
-          CFLAGS=${ZLIB_CFLAGS}
-          make -j16
-        COMMAND ${CMAKE_COMMAND} -E env
-          CC=${CMAKE_C_COMPILER}
-          AR=${CMAKE_AR}
-          RANLIB=${CMAKE_RANLIB}
-          CFLAGS=${ZLIB_CFLAGS}
-          make install
-        COMMENT "Build zlib"
-        DEPENDS ${ZLIB_SOURCE_DIR}
-        OUTPUT ${ZLIB_LIBRARY}
+      WORKING_DIRECTORY ${ZLIB_BINARY_DIR}
+      COMMAND ${CMAKE_COMMAND} -E rm -rf ${ZLIB_BUILD_DIR}
+      COMMAND ${CMAKE_COMMAND} -E copy_directory ${ZLIB_SOURCE_DIR} ${ZLIB_BUILD_DIR}
+      COMMAND ${CMAKE_COMMAND} -E rm -f ${ZLIB_LIBRARY}
+      COMMAND ${CMAKE_COMMAND} -E chdir ${ZLIB_BUILD_DIR} ${CMAKE_COMMAND} -E env
+        CC=${ZLIB_CC}
+        AR=${ZLIB_AR}
+        RANLIB=${ZLIB_RANLIB}
+        CFLAGS=${ZLIB_CFLAGS}
+        ./configure --static --prefix=${ZLIB_BINARY_DIR}
+      COMMAND ${CMAKE_COMMAND} -E chdir ${ZLIB_BUILD_DIR} ${CMAKE_COMMAND} -E env
+        CC=${ZLIB_CC}
+        AR=${ZLIB_AR}
+        RANLIB=${ZLIB_RANLIB}
+        CFLAGS=${ZLIB_CFLAGS}
+        make clean
+      COMMAND ${CMAKE_COMMAND} -E chdir ${ZLIB_BUILD_DIR} ${CMAKE_COMMAND} -E env
+        CC=${ZLIB_CC}
+        AR=${ZLIB_AR}
+        RANLIB=${ZLIB_RANLIB}
+        CFLAGS=${ZLIB_CFLAGS}
+        make -j16
+      COMMAND ${CMAKE_COMMAND} -E chdir ${ZLIB_BUILD_DIR} ${CMAKE_COMMAND} -E env
+        CC=${ZLIB_CC}
+        AR=${ZLIB_AR}
+        RANLIB=${ZLIB_RANLIB}
+        CFLAGS=${ZLIB_CFLAGS}
+        make install
+      ${ZLIB_POST_INSTALL_COMMANDS}
+      COMMENT "Build zlib"
+      DEPENDS ${ZLIB_SOURCE_DIR}
+      OUTPUT ${ZLIB_LIBRARY}
     )
   endif()
 endif()

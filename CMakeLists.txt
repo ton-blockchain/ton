@@ -127,7 +127,7 @@ include(BuildSodium)
 include(BuildLZ4)
 
 if (USE_EMSCRIPTEN OR EMSCRIPTEN)
-  set(SODIUM_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/3pp_emscripten/libsodium CACHE PATH "Sodium root directory" FORCE)
+  set(SODIUM_ROOT_DIR ${CMAKE_BINARY_DIR}/3pp_emscripten/libsodium CACHE PATH "Sodium root directory" FORCE)
   if (EXISTS ${SODIUM_ROOT_DIR}/lib/libsodium.a)
     set(SODIUM_LIBRARY_PATH ${SODIUM_ROOT_DIR}/lib/libsodium.a)
     set(SODIUM_INCLUDE_PATH ${SODIUM_ROOT_DIR}/include)
@@ -241,7 +241,7 @@ if (USE_QUIC)
   # Set OpenSSL paths to use our custom-built OpenSSL with QUIC support
   # Use CACHE variables to override find_package(OpenSSL) behavior
   if (USE_EMSCRIPTEN OR EMSCRIPTEN)
-    set(OPENSSL_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/3pp_emscripten/openssl_em CACHE PATH "OpenSSL root directory" FORCE)
+    set(OPENSSL_ROOT_DIR ${CMAKE_BINARY_DIR}/3pp_emscripten/openssl_em CACHE PATH "OpenSSL root directory" FORCE)
     set(OPENSSL_INCLUDE_DIR ${OPENSSL_ROOT_DIR}/include CACHE PATH "OpenSSL include directory" FORCE)
     set(OPENSSL_CRYPTO_LIBRARY ${OPENSSL_ROOT_DIR}/libcrypto.a CACHE FILEPATH "OpenSSL crypto library" FORCE)
     set(OPENSSL_SSL_LIBRARY ${OPENSSL_ROOT_DIR}/libssl.a CACHE FILEPATH "OpenSSL SSL library" FORCE)
