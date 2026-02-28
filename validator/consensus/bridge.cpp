@@ -326,7 +326,7 @@ class BridgeImpl final : public IValidatorGroup {
   }
 
   void maybe_start_group() {
-    if (!is_create_session_called_ || !is_start_called_ || !start_event_ || is_started_) {
+    if (!bus_ || !is_create_session_called_ || !is_start_called_ || !start_event_ || is_started_) {
       return;
     }
     is_started_ = true;
