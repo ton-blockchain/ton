@@ -1537,13 +1537,13 @@ td::Status GetAdnlStatsQuery::receive(td::BufferSlice data) {
       print_packets("total", peer->packets_total_);
 
       sb << "      Last in packet: ";
-      if (peer->last_in_packet_ts_) {
+      if (peer->last_in_packet_ts_ != 0) {
         sb << now - peer->last_in_packet_ts_ << " s ago";
       } else {
         sb << "never";
       }
       sb << "    Last out packet: ";
-      if (peer->last_out_packet_ts_) {
+      if (peer->last_out_packet_ts_ != 0) {
         sb << now - peer->last_out_packet_ts_ << " s ago";
       } else {
         sb << "never";

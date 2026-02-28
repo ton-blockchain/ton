@@ -75,8 +75,8 @@ class LiteQuery : public td::actor::Actor {
   td::BufferSlice lookup_prev_header_proof_;
 
  public:
+  constexpr static double default_timeout_msec = 4500;  // 4.5 seconds
   enum {
-    default_timeout_msec = 4500,      // 4.5 seconds
     max_transaction_count = 16,       // fetch at most 16 transactions in one query
     client_method_gas_limit = 300000  // gas limit for liteServer.runSmcMethod
   };

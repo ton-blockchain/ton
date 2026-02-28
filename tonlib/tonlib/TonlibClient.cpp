@@ -6359,25 +6359,25 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getOutMsgQueueSizes
   client_.with_last_block(
       [=, self = this, promise = std::move(promise)](td::Result<LastBlockState> r_last_block) mutable {
         TRY_RESULT_PROMISE_PREFIX(promise, last_block, std::move(r_last_block), "get last block failed: ");
-        do_request(tonlib_api::blocks_getShards(to_tonlib_api(last_block.last_block_id)),
-                   [=, mc_blkid = last_block.last_block_id,
-                    promise = std::move(promise)](td::Result<object_ptr<tonlib_api::blocks_shards>> R) mutable {
-                     TRY_RESULT_PROMISE_PREFIX(promise, shards, std::move(R), "get shards failed: ");
-                     std::vector<ton::BlockIdExt> blocks;
-                     if (!(req_mode & 1) || ton::shard_intersects(mc_blkid.shard_full(), req_shard)) {
-                       blocks.push_back(mc_blkid);
-                     }
-                     for (const auto& shard : shards->shards_) {
-                       TRY_RESULT_PROMISE(promise, block_id, to_block_id(*shard));
-                       if (!(req_mode & 1) || ton::shard_intersects(block_id.shard_full(), req_shard)) {
-                         blocks.push_back(block_id);
-                       }
-                     }
-                     auto actor_id = self->actor_id_++;
-                     self->actors_[actor_id] = td::actor::create_actor<GetOutMsgQueueSizes>(
-                         "GetOutMsgQueueSizes", self->client_.get_client(), std::move(blocks),
-                         actor_shared(this, actor_id), std::move(promise));
-                   });
+        td::Promise P = [=, mc_blkid = last_block.last_block_id,
+                         promise = std::move(promise)](td::Result<object_ptr<tonlib_api::blocks_shards>> R) mutable {
+          TRY_RESULT_PROMISE_PREFIX(promise, shards, std::move(R), "get shards failed: ");
+          std::vector<ton::BlockIdExt> blocks;
+          if (!(req_mode & 1) || ton::shard_intersects(mc_blkid.shard_full(), req_shard)) {
+            blocks.push_back(mc_blkid);
+          }
+          for (const auto& shard : shards->shards_) {
+            TRY_RESULT_PROMISE(promise, block_id, to_block_id(*shard));
+            if (!(req_mode & 1) || ton::shard_intersects(block_id.shard_full(), req_shard)) {
+              blocks.push_back(block_id);
+            }
+          }
+          auto actor_id = self->actor_id_++;
+          self->actors_[actor_id] = td::actor::create_actor<GetOutMsgQueueSizes>(
+              "GetOutMsgQueueSizes", self->client_.get_client(), std::move(blocks), actor_shared(self, actor_id),
+              std::move(promise));
+        };
+        self->do_request(tonlib_api::blocks_getShards(to_tonlib_api(last_block.last_block_id)), std::move(P));
       });
   return td::Status::OK();
 }
