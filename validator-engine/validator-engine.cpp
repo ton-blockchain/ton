@@ -5227,7 +5227,6 @@ int main(int argc, char *argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
 
   td::set_default_failure_signal_handler().ensure();
-  td::set_log_fatal_error_callback([](td::CSlice s) { std::cerr << "FATAL_ERROR: " << s.c_str() << std::endl; });
 
   td::actor::ActorOwn<ValidatorEngine> x;
   td::unique_ptr<td::LogInterface> logger_;
@@ -5291,6 +5290,7 @@ int main(int argc, char *argv[]) {
     }
     logger_ = td::TsFileLog::create(fname.str()).move_as_ok();
     td::log_interface = logger_.get();
+    td::set_log_fatal_error_callback([](td::CSlice s) { std::cerr << "FATAL_ERROR: " << s.c_str() << std::endl; });
   });
   p.add_checked_option('s', "state-ttl", "state will be gc'd after this time (in seconds) default=86400",
                        [&](td::Slice fname) {
