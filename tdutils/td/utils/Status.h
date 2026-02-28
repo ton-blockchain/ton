@@ -516,7 +516,7 @@ class Result {
     status_ = Status::OK();
   }
   template <typename S>
-    requires(!std::is_same_v<S, T> && requires(T &t, S &&s) { t = std::move(s); })
+    requires(!std::is_same_v<S, T> && !std::is_same_v<Result<S>, T> && requires(T &t, S &&s) { t = std::move(s); })
   Result &operator=(Result<S> &&other) {
     if (other.is_error()) {
       *this = other.move_as_error();
