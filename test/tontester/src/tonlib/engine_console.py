@@ -33,26 +33,26 @@ class EngineConsoleClient:
 
     def __del__(self):
         assert self._console == 0, (
-            "EngineConsoleClient not destroyed. Call 'aclose' before destroying the object."
+            "EngineConsoleClient not destroyed. Call 'close' before destroying the object."
         )
 
-    async def aclose(self) -> None:
+    def close(self) -> None:
         if self._console == 0:
             return
 
         self._tonlib.engine_console_destroy(self._console)
         self._console = 0
 
-    async def __aenter__(self):
+    def __enter__(self):
         return self
 
-    async def __aexit__(
+    def __exit__(
         self,
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
         exc_tb: traceback.TracebackException | None,
     ):
-        await self.aclose()
+        self.close()
 
     async def request(self, request: TLRequest) -> JSONSerializable:
         response = self._tonlib.engine_console_request(self._console, request.to_json().encode())

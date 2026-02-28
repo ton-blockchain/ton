@@ -296,7 +296,7 @@ class Network:
         for node in self.__nodes:
             await node.stop()
 
-        await self._event_loop.aclose()
+        self._event_loop.close()
 
     async def __aenter__(self):
         return self
@@ -532,12 +532,7 @@ class FullNode(Network.Node):
         if self._client:
             return self._client
 
-        self._client = TonlibClient(
-            ls_index=0,
-            config=self._liteserver_config,
-            cdll_path=self._install.tonlibjson,
-            verbosity_level=3,
-        )
+        self._client = TonlibClient(self._tonlib, self._liteserver_config)
         await self._client.init()
 
         return self._client
@@ -597,7 +592,7 @@ class FullNode(Network.Node):
         if self._client:
             await self._client.aclose()
         if self._engine_console:
-            await self._engine_console.aclose()
+            self._engine_console.close()
         if self._blockchain_explorer:
             _ = self._blockchain_explorer.cancel()
             try:

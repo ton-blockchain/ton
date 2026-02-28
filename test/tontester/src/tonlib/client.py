@@ -1,53 +1,42 @@
 import asyncio
 import logging
 import traceback
-from pathlib import Path
+from typing import final
 
 from tonapi import ton_api, tonlib_api
 
+from .tonlib_cdll import TonlibCDLL
 from .tonlibjson import TonLib
 
 logger = logging.getLogger(__name__)
 
 
+@final
 class TonlibClient:
     def __init__(
         self,
-        ls_index: int,
+        tonlib: TonlibCDLL,
         config: ton_api.Liteclient_config_global,
-        cdll_path: Path,
         loop: asyncio.AbstractEventLoop | None = None,
-        verbosity_level: int = 0,
     ):
-        self.ls_index: int = ls_index
-        self._config: ton_api.Liteclient_config_global = config
-        self._cdll_path: Path = cdll_path
-        self._loop: asyncio.AbstractEventLoop | None = loop
-        self._verbosity_level: int = verbosity_level
+        self._config = config
+        self._tonlib = tonlib
+        self._loop = loop
         self._tonlib_wrapper: TonLib | None = None
 
-    @property
-    def local_config(self) -> ton_api.Liteclient_config_global:
-        local = ton_api.Liteclient_config_global.from_json(self._config.to_json())
-        local.liteservers = [local.liteservers[self.ls_index]]
-        return local
+    def __del__(self):
+        if self._tonlib_wrapper is not None:
+            logger.warning(
+                "TonlibClient not destroyed. Call 'aclose' before destroying the object."
+            )
 
     async def init(self) -> None:
-        if self._tonlib_wrapper:
-            logger.warning("init is already done")
-            return
-        event_loop = self._loop or asyncio.get_running_loop()
-        self._tonlib_wrapper = TonLib(
-            event_loop,
-            self.ls_index,
-            self._cdll_path,
-            self._verbosity_level,
-        )
+        assert self._tonlib_wrapper is None
 
         request = tonlib_api.InitRequest(
             options=tonlib_api.Options(
                 config=tonlib_api.Config(
-                    config=self.local_config.to_json(),
+                    config=self._config.to_json(),
                     blockchain_name="",
                     use_callbacks_for_network=False,
                     ignore_cache=False,
@@ -56,9 +45,13 @@ class TonlibClient:
             )
         )
 
-        _ = await self._tonlib_wrapper.execute(request)
-
-        logger.info(f"TonLib #{self.ls_index:03d} inited successfully")
+        tonlib_wrapper = TonLib(self._tonlib, self._loop)
+        try:
+            _ = await tonlib_wrapper.execute(request)
+        except BaseException:
+            await asyncio.shield(tonlib_wrapper.aclose())
+            raise
+        self._tonlib_wrapper = tonlib_wrapper
 
     async def aclose(self):
         if self._tonlib_wrapper is not None:
@@ -75,10 +68,7 @@ class TonlibClient:
         exc_val: BaseException | None,
         exc_tb: traceback.TracebackException | None,
     ):
-        await self.aclose()
-
-    def __await__(self):
-        return self.init().__await__()
+        await asyncio.shield(self.aclose())
 
     async def sync_tonlib(self) -> tonlib_api.Ton_blockIdExt:
         assert self._tonlib_wrapper is not None

@@ -1,16 +1,16 @@
 import asyncio
-import ctypes
 import json
 import logging
 import typing
 from dataclasses import dataclass
 from enum import Enum, auto
-from pathlib import Path
-from typing import override
+from typing import final, override
 
 from tonapi import tonlib_api
 
 from tl import JSONSerializable, TLObject
+
+from .tonlib_cdll import TonlibCDLL
 
 logger = logging.getLogger(__name__)
 
@@ -47,59 +47,23 @@ class _Status(Enum):
     CRASHED = auto()
 
 
+@final
 class TonLib:
     def __init__(
         self,
-        loop: asyncio.AbstractEventLoop,
-        ls_index: int,
-        cdll_path: Path,
-        verbosity_level: int = 0,
+        tonlib: TonlibCDLL,
+        loop: asyncio.AbstractEventLoop | None,
     ):
-        tonlib = ctypes.CDLL(cdll_path)
-
-        tonlib_client_set_verbosity_level = tonlib.tonlib_client_set_verbosity_level
-        tonlib_client_set_verbosity_level.restype = None
-        tonlib_client_set_verbosity_level.argtypes = [ctypes.c_int]
-
-        tonlib_client_set_verbosity_level(verbosity_level)
-
-        tonlib_json_client_receive = tonlib.tonlib_client_json_receive
-        tonlib_json_client_receive.restype = ctypes.c_char_p
-        tonlib_json_client_receive.argtypes = [ctypes.c_void_p, ctypes.c_double]
-        self._tonlib_json_client_receive: typing.Callable[[int, float], bytes | None] = (
-            tonlib_json_client_receive
-        )
-
-        tonlib_json_client_send = tonlib.tonlib_client_json_send
-        tonlib_json_client_send.restype = None
-        tonlib_json_client_send.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
-        self._tonlib_json_client_send: typing.Callable[[int, bytes], None] = tonlib_json_client_send
-
-        tonlib_json_client_destroy = tonlib.tonlib_client_json_destroy
-        tonlib_json_client_destroy.restype = None
-        tonlib_json_client_destroy.argtypes = [ctypes.c_void_p]
-        self._tonlib_json_client_destroy: typing.Callable[[int], None] = tonlib_json_client_destroy
-
-        tonlib_json_client_cancel_requests = tonlib.tonlib_client_json_cancel_requests
-        tonlib_json_client_cancel_requests.restype = None
-        tonlib_json_client_cancel_requests.argtypes = [ctypes.c_void_p]
-        self._tonlib_json_client_cancel_requests: typing.Callable[[int], None] = (
-            tonlib_json_client_cancel_requests
-        )
-
-        self._request_id: int = 0
+        self._request_id = 0
         self._futures: dict[str, asyncio.Future[JSONSerializable]] = {}
-        self._loop: asyncio.AbstractEventLoop = loop
-        self._ls_index: int = ls_index
-        self._state: _Status = _Status.NONE
+        self._loop = loop or asyncio.get_running_loop()
+        self._state = _Status.NONE
+        self._tonlib = tonlib
 
         self._work_notification: asyncio.Event = asyncio.Event()
-        self._read_results_task: asyncio.Task[None] = self._loop.create_task(self._read_results())
 
-        tonlib_json_client_create = tonlib.tonlib_client_json_create
-        tonlib_json_client_create.restype = ctypes.c_void_p
-        tonlib_json_client_create.argtypes = []
-        self._client: int = tonlib_json_client_create()
+        self._client = self._tonlib.client_json_create()
+        self._read_results_task: asyncio.Task[None] = self._loop.create_task(self._read_results())
 
     def __del__(self):
         assert self._client == 0, (
@@ -109,7 +73,7 @@ class TonLib:
     def _send(self, query: JSONSerializable):
         assert self._is_working
         q = json.dumps(query).encode("utf-8")
-        self._tonlib_json_client_send(self._client, q)
+        self._tonlib.client_json_send(self._client, q)
 
     def _next_request_id(self):
         result = str(self._request_id)
@@ -139,14 +103,14 @@ class TonLib:
 
     def _receive(self) -> _Payload[JSONSerializable] | None:
         # Make it painfully obvious (and non-optionated) if request cancelling fails.
-        result = self._tonlib_json_client_receive(self._client, 60)
+        result = self._tonlib.client_json_receive(self._client, 60)
         if result is None:
             return None
         return _Payload(typing.cast(JSONSerializable, json.loads(result.decode("utf-8"))))
 
     async def aclose(self):
         try:
-            self._tonlib_json_client_cancel_requests(self._client)
+            self._tonlib.client_json_cancel_requests(self._client)
             self._state = _Status.FINISHED
             self._work_notification.set()
             await self._read_results_task
@@ -154,7 +118,7 @@ class TonLib:
                 if not f.done():
                     f.set_exception(asyncio.CancelledError())
         finally:
-            self._tonlib_json_client_destroy(self._client)
+            self._tonlib.client_json_destroy(self._client)
             self._client = 0
 
     async def _read_results(self):
