@@ -39,14 +39,12 @@ tl_object_ptr<ton_api::collatorNode_Candidate> serialize_candidate(const BlockCa
                                   << " compressed_size=" << block.data.size() + block.collated_data.size();
     return res;
   }
-  size_t decompressed_size;
-  td::BufferSlice compressed =
-      validatorsession::compress_candidate_data(block.data, block.collated_data, decompressed_size,
-                                                k_called_from_collator_node, block.id.root_hash)
-          .move_as_ok();
-  return create_tl_object<ton_api::collatorNode_compressedCandidate>(
+  td::BufferSlice compressed = validatorsession::compress_candidate_data(
+                                   block.data, block.collated_data, k_called_from_collator_node, block.id.root_hash)
+                                   .move_as_ok();
+  return create_tl_object<ton_api::collatorNode_compressedCandidateV2>(
       0, PublicKey{pubkeys::Ed25519{block.pubkey.as_bits256()}}.tl(), create_tl_block_id(block.id),
-      (int)decompressed_size, std::move(compressed));
+      std::move(compressed));
 }
 
 td::Result<BlockCandidate> deserialize_candidate(tl_object_ptr<ton_api::collatorNode_Candidate> f,
