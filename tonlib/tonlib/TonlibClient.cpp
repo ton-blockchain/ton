@@ -2078,42 +2078,46 @@ class RunEmulator : public TonlibQueryActor {
     auto query = ton::lite_api::liteServer_listBlockTransactions(std::move(lite_block), mode, req_count,
                                                                  std::move(after), false, true);
 
-    client_.send_query(std::move(query), [self = this, mode, lt, root_hash = block_id_.id.root_hash](
-                                             lite_api_ptr<ton::lite_api::liteServer_blockTransactions>&& bTxes) {
-      if (!bTxes) {
-        self->check(td::Status::Error("liteServer.blockTransactions is null"));
-        return;
-      }
+    client_.send_query(
+        std::move(query), [self = this, mode, lt, root_hash = block_id_.id.root_hash](
+                              td::Result<lite_api_ptr<ton::lite_api::liteServer_blockTransactions>> maybe_bTxes) {
+          if (maybe_bTxes.is_error()) {
+            self->check(maybe_bTxes.move_as_error_prefix("Failed to get block transactions: "));
+            return;
+          }
 
-      self->check(check_block_transactions_proof(bTxes, mode, lt, self->request_.address.addr, root_hash, req_count));
+          auto bTxes = maybe_bTxes.move_as_ok();
 
-      std::int64_t last_lt = 0;
-      for (auto& id : bTxes->ids_) {
-        last_lt = id->lt_;
-        if (id->account_ != self->request_.address.addr) {
-          continue;
-        }
+          self->check(
+              check_block_transactions_proof(bTxes, mode, lt, self->request_.address.addr, root_hash, req_count));
 
-        if (id->lt_ == self->request_.lt && id->hash_ == self->request_.hash) {
-          self->incomplete_ = false;
-        }
+          std::int64_t last_lt = 0;
+          for (auto& id : bTxes->ids_) {
+            last_lt = id->lt_;
+            if (id->account_ != self->request_.address.addr) {
+              continue;
+            }
 
-        self->transactions_.push_back({});
-        self->get_transaction(id->lt_, id->hash_, [self, i = self->transactions_.size() - 1](auto transaction) {
-          self->set_transaction(i, std::move(transaction));
+            if (id->lt_ == self->request_.lt && id->hash_ == self->request_.hash) {
+              self->incomplete_ = false;
+            }
+
+            self->transactions_.push_back({});
+            self->get_transaction(id->lt_, id->hash_, [self, i = self->transactions_.size() - 1](auto transaction) {
+              self->set_transaction(i, std::move(transaction));
+            });
+
+            if (!self->incomplete_) {
+              return;
+            }
+          }
+
+          if (bTxes->incomplete_) {
+            self->check(self->get_transactions(last_lt));
+          } else {
+            self->check(td::Status::Error("Transaction not found"));
+          }
         });
-
-        if (!self->incomplete_) {
-          return;
-        }
-      }
-
-      if (bTxes->incomplete_) {
-        self->check(self->get_transactions(last_lt));
-      } else {
-        self->check(td::Status::Error("Transaction not found"));
-      }
-    });
     return td::Status::OK();
   }
 
@@ -6355,25 +6359,25 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getOutMsgQueueSizes
   client_.with_last_block(
       [=, self = this, promise = std::move(promise)](td::Result<LastBlockState> r_last_block) mutable {
         TRY_RESULT_PROMISE_PREFIX(promise, last_block, std::move(r_last_block), "get last block failed: ");
-        do_request(tonlib_api::blocks_getShards(to_tonlib_api(last_block.last_block_id)),
-                   [=, mc_blkid = last_block.last_block_id,
-                    promise = std::move(promise)](td::Result<object_ptr<tonlib_api::blocks_shards>> R) mutable {
-                     TRY_RESULT_PROMISE_PREFIX(promise, shards, std::move(R), "get shards failed: ");
-                     std::vector<ton::BlockIdExt> blocks;
-                     if (!(req_mode & 1) || ton::shard_intersects(mc_blkid.shard_full(), req_shard)) {
-                       blocks.push_back(mc_blkid);
-                     }
-                     for (const auto& shard : shards->shards_) {
-                       TRY_RESULT_PROMISE(promise, block_id, to_block_id(*shard));
-                       if (!(req_mode & 1) || ton::shard_intersects(block_id.shard_full(), req_shard)) {
-                         blocks.push_back(block_id);
-                       }
-                     }
-                     auto actor_id = self->actor_id_++;
-                     self->actors_[actor_id] = td::actor::create_actor<GetOutMsgQueueSizes>(
-                         "GetOutMsgQueueSizes", self->client_.get_client(), std::move(blocks),
-                         actor_shared(this, actor_id), std::move(promise));
-                   });
+        td::Promise P = [=, mc_blkid = last_block.last_block_id,
+                         promise = std::move(promise)](td::Result<object_ptr<tonlib_api::blocks_shards>> R) mutable {
+          TRY_RESULT_PROMISE_PREFIX(promise, shards, std::move(R), "get shards failed: ");
+          std::vector<ton::BlockIdExt> blocks;
+          if (!(req_mode & 1) || ton::shard_intersects(mc_blkid.shard_full(), req_shard)) {
+            blocks.push_back(mc_blkid);
+          }
+          for (const auto& shard : shards->shards_) {
+            TRY_RESULT_PROMISE(promise, block_id, to_block_id(*shard));
+            if (!(req_mode & 1) || ton::shard_intersects(block_id.shard_full(), req_shard)) {
+              blocks.push_back(block_id);
+            }
+          }
+          auto actor_id = self->actor_id_++;
+          self->actors_[actor_id] = td::actor::create_actor<GetOutMsgQueueSizes>(
+              "GetOutMsgQueueSizes", self->client_.get_client(), std::move(blocks), actor_shared(self, actor_id),
+              std::move(promise));
+        };
+        self->do_request(tonlib_api::blocks_getShards(to_tonlib_api(last_block.last_block_id)), std::move(P));
       });
   return td::Status::OK();
 }

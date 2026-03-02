@@ -172,7 +172,7 @@ int main(int argc, char *argv[]) {
         auto pub1 = pk1.compute_public_key();
         n.adnl_id_full = ton::adnl::AdnlNodeIdFull{pub1};
         n.adnl_id = ton::adnl::AdnlNodeIdShort{pub1.compute_short_id()};
-        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Unit) {});
+        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Result<>) {});
         td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr,
                                 static_cast<td::uint8>(0));
         td::actor::send_closure(network_manager, &ton::adnl::TestLoopbackNetworkManager::add_node_id, n.adnl_id, true,
@@ -183,7 +183,7 @@ int main(int argc, char *argv[]) {
         n.id_full = pub2;
         n.id = pub2.compute_short_id();
         n.pk = pk2;
-        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Unit) {});
+        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Result<>) {});
 
         LOG(DEBUG) << "created node " << n.adnl_id << " " << n.id;
 
@@ -203,7 +203,7 @@ int main(int argc, char *argv[]) {
         auto pub1 = pk1.compute_public_key();
         n.adnl_id_full = ton::adnl::AdnlNodeIdFull{pub1};
         n.adnl_id = ton::adnl::AdnlNodeIdShort{pub1.compute_short_id()};
-        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Unit) {});
+        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Result<>) {});
         td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr,
                                 static_cast<td::uint8>(0));
         td::actor::send_closure(network_manager, &ton::adnl::TestLoopbackNetworkManager::add_node_id, n.adnl_id, true,
@@ -214,7 +214,7 @@ int main(int argc, char *argv[]) {
         n.id_full = pub2;
         n.id = pub2.compute_short_id();
         n.pk = pk2;
-        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Unit) {});
+        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Result<>) {});
 
         LOG(DEBUG) << "created node " << n.adnl_id << " " << n.id;
         all_nodes.push_back(&n);
@@ -356,7 +356,7 @@ int main(int argc, char *argv[]) {
         auto pub1 = pk1.compute_public_key();
         n.adnl_id_full = ton::adnl::AdnlNodeIdFull{pub1};
         n.adnl_id = ton::adnl::AdnlNodeIdShort{pub1.compute_short_id()};
-        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Unit) {});
+        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Result<>) {});
         td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr,
                                 static_cast<td::uint8>(0));
         td::actor::send_closure(network_manager, &ton::adnl::TestLoopbackNetworkManager::add_node_id, n.adnl_id, true,
@@ -367,7 +367,7 @@ int main(int argc, char *argv[]) {
         n.id_full = pub2;
         n.id = pub2.compute_short_id();
         n.pk = pk2;
-        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Unit) {});
+        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Result<>) {});
 
         LOG(DEBUG) << "created node " << n.adnl_id << " " << n.id;
 

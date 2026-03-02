@@ -21,6 +21,10 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
+  void start_up() {
+    target_rate_ = owning_bus()->config.target_rate_ms / 1000.;
+  }
+
   template <>
   void handle(BusHandle, std::shared_ptr<const Start> event) {
     td::uint32 seqno = event->state->next_seqno() - 1;
@@ -204,6 +208,7 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
 
   BlockSeqno last_consensus_finalized_seqno_ = 0;
   BlockSeqno last_mc_finalized_seqno_ = 0;
+  double target_rate_;
 };
 
 }  // namespace
