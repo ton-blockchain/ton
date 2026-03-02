@@ -1,11 +1,10 @@
-name: Ubuntu TON build (shared, x86-64)
+name: Ubuntu TON build (x86-64)
 
 on:
   pull_request:
     branches: [master, testnet]
     types: [opened, reopened, synchronize, ready_for_review]
   push:
-    branches: [master, testnet]
   workflow_dispatch:
   workflow_call:
 
