@@ -391,7 +391,9 @@ td::actor::Task<> ArchiveSlice::add_block(BlockHandle handle,
   }
   handle->set_handle_moved_to_archive();
   handle->set_moved_to_archive();
-  handle->set_applied();
+  if (!handle->id().is_masterchain()) {
+    handle->set_applied();
+  }
   auto [task, promise] = td::actor::StartedTask<>::make_bridge();
   add_handle(handle, std::move(promise));
   co_await std::move(task);

@@ -5,7 +5,6 @@
  */
 
 #include "td/db/RocksDb.h"
-#include "td/utils/filesystem.h"
 #include "td/utils/port/path.h"
 #include "validator/consensus/null/bus.h"
 #include "validator/consensus/simplex/bus.h"
@@ -307,11 +306,11 @@ class BridgeImpl final : public IValidatorGroup {
  private:
   td::actor::Task<> destroy_inner() {
     if (bus_) {
-      LOG(WARNING) << "Destroying validator group";
+      LOG(INFO) << "Destroying validator group";
       bus_.publish<StopRequested>();
       bus_ = {};
       co_await std::move(stop_waiter_.value());
-      LOG(WARNING) << "Consensus bus stopped";
+      LOG(INFO) << "Consensus bus stopped";
       td::rmrf(db_path()).ignore();
     }
     stop();
@@ -382,56 +381,6 @@ td::actor::ActorOwn<IValidatorGroup> IValidatorGroup::create_bridge(
       .db_root = db_root,
   };
   return td::actor::create_actor<consensus::BridgeImpl>(name_with_seqno, std::move(params));
-}
-
-td::actor::Task<> IValidatorGroup::cleanup_old_consensus_db(td::Ref<MasterchainState> mc_state, std::string db_root) {
-  co_await td::actor::detach_from_actor();
-  std::string consensus_dir = db_root + "/consensus/";
-  auto r_stat = td::stat(consensus_dir);
-  if (r_stat.is_error() || !r_stat.ok().is_dir_) {
-    co_return {};
-  }
-  bool root_dir = true;
-  auto S = td::WalkPath::run(consensus_dir, [&](td::CSlice path, td::WalkPath::Type t) -> td::WalkPath::Action {
-    if (t != td::WalkPath::Type::EnterDir) {
-      return td::WalkPath::Action::Continue;
-    }
-    if (root_dir) {
-      root_dir = false;
-      return td::WalkPath::Action::Continue;
-    }
-    auto parse_name = [](td::Slice name) -> td::Result<std::pair<ShardIdFull, CatchainSeqno>> {
-      // Name format: consensus.<wc>.<shard>.<cc_seqno>.<hash>
-      std::vector<td::Slice> parts = td::full_split(name, '.');
-      if (parts.size() != 5 || parts[0] != "consensus") {
-        return td::Status::Error("invalid name");
-      }
-      TRY_RESULT(wc, td::to_integer_safe<WorkchainId>(parts[1]));
-      TRY_RESULT(shard, td::to_integer_safe<ShardId>(parts[2]));
-      TRY_RESULT(cc_seqno, td::to_integer_safe<CatchainSeqno>(parts[3]));
-      return std::make_pair(ShardIdFull(wc, shard), cc_seqno);
-    };
-    auto pos = path.rfind(TD_DIR_SLASH);
-    td::Slice name = pos == td::CSlice::npos ? td::Slice(path) : path.substr(pos + 1);
-    auto r_parsed = parse_name(name);
-    if (r_parsed.is_error()) {
-      LOG(WARNING) << "Unexpected directory name in consensus/ : " << name;
-      return td::WalkPath::Action::SkipDir;
-    }
-    auto [shard, cc_seqno] = r_parsed.move_as_ok();
-    if (cc_seqno + 2 < mc_state->get_shard_cc_seqno(shard)) {
-      LOG(WARNING) << "Deleting outdated consensus db " << name;
-      auto S = td::rmrf(path);
-      if (S.is_error()) {
-        LOG(WARNING) << "Failed to delete " << name << ": " << S;
-      }
-    }
-    return td::WalkPath::Action::SkipDir;
-  });
-  if (S.is_error()) {
-    LOG(ERROR) << "Cleanup old consensus db: " << S;
-  }
-  co_return {};
 }
 
 }  // namespace ton::validator

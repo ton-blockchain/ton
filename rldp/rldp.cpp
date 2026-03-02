@@ -119,7 +119,7 @@ void RldpIn::process_message_part(adnl::AdnlNodeIdShort source, adnl::AdnlNodeId
     if (ite == max_size_.end()) {
       td::uint64 mtu = get_peer_mtu(local_id, source);
       if (static_cast<td::uint64>(part.total_size_) > mtu) {
-        VLOG(RLDP_NOTICE) << "dropping too big rldp packet of size=" << part.total_size_ << " default_mtu=" << mtu;
+        VLOG(RLDP_DEBUG) << "dropping too big rldp packet of size=" << part.total_size_ << " default_mtu=" << mtu;
         return;
       }
     } else {
