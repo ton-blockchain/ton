@@ -35,8 +35,7 @@ class ManagerFacadeImpl : public ManagerFacade {
     params.collator_opts = opts_->get_collator_options();
     // TODO: support accelerator (use CollationManager)
     auto [task, promise] = td::actor::StartedTask<BlockCandidate>::make_bridge();
-    run_collate_query(std::move(params), manager_, td::Timestamp::in(10.0), std::move(cancellation_token),
-                      std::move(promise));
+    run_collate_query(std::move(params), manager_, std::move(cancellation_token), std::move(promise));
     auto candidate = co_await std::move(task);
     co_return GeneratedCandidate{.candidate = std::move(candidate), .self_collated = true};
   }
@@ -291,6 +290,7 @@ class BridgeImpl final : public IValidatorGroup {
       simplex::CandidateResolver::register_in(runtime);
       simplex::Consensus::register_in(runtime);
       simplex::Pool::register_in(runtime);
+      simplex::StateResolver::register_in(runtime);
       simplex::MetricCollector::register_in(runtime);
 
       bus_ = runtime.start(simplex_bus, params_.name);
@@ -325,7 +325,7 @@ class BridgeImpl final : public IValidatorGroup {
   }
 
   void maybe_start_group() {
-    if (!is_create_session_called_ || !is_start_called_ || !start_event_ || is_started_) {
+    if (!bus_ || !is_create_session_called_ || !is_start_called_ || !start_event_ || is_started_) {
       return;
     }
     is_started_ = true;

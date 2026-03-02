@@ -1,20 +1,3 @@
-[deprecated-literal-operator]
-src:*/tdutils/td/utils/date.h
-
-[missing-field-initializers]
-src:*/emulator/test/emulator-tests.cpp
-
-[missing-designated-field-initializers]
-src:*/tdutils/td/utils/Timer.cpp
-src:*/validator/db/permanent-celldb/permanent-celldb-utils.cpp
-src:*/validator/validator-options.cpp
-
-[implicit-int-float-conversion]
-src:*/overlay/overlay.cpp
-src:*/tdactor/td/actor/ActorStats.cpp
-src:*/tdactor/td/actor/ActorStats.h
-src:*/tonlib/test/online.cpp
-
 [unused-variable]
 src:*/crypto/block/precompiled-smc/PrecompiledSmartContract.cpp
 src:*/crypto/test/test-db.cpp
@@ -25,16 +8,10 @@ src:*/crypto/vm/large-boc-serializer.cpp
 src:*/tdactor/td/actor/ActorStats.cpp
 src:*/validator/full-node-fast-sync-overlays.cpp
 
-[unused-but-set-variable]
-src:*/tdtl/td/tl/tl_config.cpp
-src:*/tdtl/td/tl/tl_generate.cpp
-src:*/tdutils/test/misc.cpp
-
 [return-type]
 src:*/tl/generate/tl_writer_hpp.cpp
 
 [deprecated-declarations]
-src:*/tdutils/test/crypto.cpp
 src:*/third-party/rocksdb/db/memtable.cc
 
 [implicit-int-conversion]
@@ -68,27 +45,3 @@ src:*/third-party/rocksdb/port/mmap.cc
 [unused-const-variable]
 src:*/catchain/catchain-receiver.cpp
 src:*/crypto/block/block-parse.cpp
-
-[unused-function]
-src:*/crypto/vm/db/DynamicBagOfCellsDb.cpp
-
-[logical-op-parentheses]
-src:*/validator/import-db-slice-local.cpp
-
-[float-conversion]
-src:*/validator-engine-console/validator-engine-console-query.cpp
-src:*/validator/db/archive-manager.cpp
-
-[deprecated-this-capture]
-src:*/tonlib/tonlib/TonlibClient.cpp
-src:*/validator/impl/liteserver.cpp
-
-[unused-result]
-src:*/crypto/test/test-cells.cpp
-
-[deprecated-enum-float-conversion]
-src:*/validator/impl/liteserver.cpp
-
-[unused-lambda-capture]
-src:*/lite-client/lite-client.cpp
-src:*/storage/storage-daemon/StorageProvider.cpp

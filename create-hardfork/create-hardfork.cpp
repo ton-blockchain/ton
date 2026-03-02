@@ -233,13 +233,13 @@ class HardforkCreator : public td::actor::Actor {
 
       void initial_read_complete(ton::validator::BlockHandle handle) override {
         td::actor::send_closure(id_, &ton::validator::ValidatorManager::sync_complete,
-                                td::PromiseCreator::lambda([](td::Unit) {}));
+                                td::PromiseCreator::lambda([](td::Result<>) {}));
       }
     };
 
     td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::install_callback,
                             std::make_unique<Callback>(validator_manager_.get(), tdescr_save_, tdescr_pfx_),
-                            td::PromiseCreator::lambda([](td::Unit) {}));
+                            td::PromiseCreator::lambda([](td::Result<>) {}));
   }
 };
 

@@ -1,12 +1,14 @@
+import os
 from multiprocessing import Process
 from pathlib import Path
 from typing import cast, final
 
-from .parser import ParserSessionStats
+from .parser import GroupParser, ParserSessionStats
+from .validator_set_info import ValidatorSetInfoProvider
 from .visualizer import DashApp
 
 
-def target(parser: ParserSessionStats, debug: bool, host: str, port: int):
+def target(parser: GroupParser, debug: bool, host: str, port: int):
     DashApp(parser).run(debug, host, port)
 
 
@@ -22,7 +24,7 @@ class ConsensusExplorer:
         self.__process = Process(
             target=target,
             kwargs={
-                "parser": ParserSessionStats(self._logs_path),
+                "parser": ParserSessionStats(self._logs_path, "(.*)"),
                 "debug": False,
                 "host": self._host,
                 "port": self._port,
@@ -39,8 +41,16 @@ def _main():
     import argparse
 
     parser = argparse.ArgumentParser()
+    source = parser.add_mutually_exclusive_group(required=True)
+    _ = source.add_argument("--logs", nargs="+", help="Paths to log files or directory")
+    _ = source.add_argument(
+        "--stats-dir", help="Directory with gzipped session stats files (watched for changes)"
+    )
+    _ = parser.add_argument("--db", help="Path to SQLite database (default: <stats-dir>/index.db)")
     _ = parser.add_argument(
-        "--logs", nargs="+", required=True, help="Paths to log files or directory"
+        "--hostname-regex",
+        default=r"^(.*)$",
+        help="Regex with capture group to extract hostname from filename",
     )
     _ = parser.add_argument(
         "--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)"
@@ -48,18 +58,75 @@ def _main():
     _ = parser.add_argument(
         "--port", type=int, default=8050, help="Port to bind to (default: 8050)"
     )
+    _ = parser.add_argument(
+        "--block-explorer-url",
+        default=os.getenv("CONSENSUS_EXPLORER_URL", ""),
+        help=("Block explorer base url (for validator set lookup), e.g. http://127.0.0.1:8081"),
+    )
+    _ = parser.add_argument(
+        "--show-validator-set-bin",
+        default=os.getenv("CONSENSUS_EXPLORER_SHOW_VALIDATOR_SET_BIN", ""),
+        help=("Path to show-validator-set binary (default: build/utils/show-validator-set)"),
+    )
+    _ = parser.add_argument(
+        "--validator-names-json",
+        default=os.getenv("CONSENSUS_EXPLORER_VALIDATOR_NAMES_JSON", ""),
+        help='Path to json map {"adnl": "name"} used for validator names',
+    )
+    _ = parser.add_argument(
+        "--web-root", default="/", help="Web root for the Dash app (default: /)"
+    )
 
     args = parser.parse_args()
-    logs = cast(list[str], args.logs)
+
     host = cast(str, args.host)
     port = cast(int, args.port)
 
-    log_paths = [Path(log) for log in logs]
-    if len(log_paths) == 1 and log_paths[0].is_dir():
-        log_paths = [p for p in log_paths[0].iterdir()]
-    app = DashApp(ParserSessionStats(log_paths))
+    stats_dir_str = cast(str | None, args.stats_dir)
 
-    app.run(debug=True, host=host, port=port)
+    hostname_regex = cast(str, args.hostname_regex)
+
+    vset_provider = None
+    block_explorer_url = cast(str, args.block_explorer_url)
+    show_validator_set_bin = cast(str, args.show_validator_set_bin)
+    validator_names_json = cast(str, args.validator_names_json)
+    if block_explorer_url and show_validator_set_bin:
+        if not Path(show_validator_set_bin).exists():
+            parser.error(f"show-validator-set binary not found at {show_validator_set_bin}")
+
+        if validator_names_json:
+            if not Path(validator_names_json).exists():
+                parser.error(f"Validator names json not found at {validator_names_json}")
+
+        vset_provider = ValidatorSetInfoProvider(
+            block_explorer_url, show_validator_set_bin, validator_names_json
+        )
+
+    def run_app(parser: GroupParser):
+        app = DashApp(parser, vset_provider, cast(str, args.web_root))
+        app.run(debug=True, host=host, port=port)
+
+    if stats_dir_str:
+        db_path_str = cast(str | None, args.db)
+
+        from .cached_parser import CachedGroupParser
+        from .file_index import FileIndex
+
+        stats_dir = Path(stats_dir_str)
+        db_path = Path(db_path_str) if db_path_str else stats_dir / "index.db"
+
+        file_index = FileIndex(stats_dir, db_path)
+        cached_parser = CachedGroupParser(file_index, hostname_regex)
+        file_index.install_callback(cached_parser)
+
+        with file_index:
+            run_app(cached_parser)
+    else:
+        logs = cast(list[str], args.logs)
+        log_paths = [Path(log) for log in logs]
+        if len(log_paths) == 1 and log_paths[0].is_dir():
+            log_paths = [p for p in log_paths[0].iterdir()]
+        run_app(ParserSessionStats(log_paths, hostname_regex))
 
 
 if __name__ == "__main__":

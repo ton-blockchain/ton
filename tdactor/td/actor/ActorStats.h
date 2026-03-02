@@ -23,7 +23,7 @@ class ActorStats : public td::actor::Actor {
     }
     double get_duration(double inv_ticks_per_second) const {
       if (first_) {
-        return std::max(1.0, (Clocks::rdtsc() - first_ts_) * inv_ticks_per_second);
+        return std::max(1.0, static_cast<double>(Clocks::rdtsc() - first_ts_) * inv_ticks_per_second);
       }
       return 1.0;
     }

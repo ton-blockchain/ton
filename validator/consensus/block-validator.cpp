@@ -9,6 +9,19 @@
 #include "bus.h"
 #include "stats.h"
 
+namespace td {
+
+td::StringBuilder& operator<<(td::StringBuilder& sb, const std::optional<ton::BlockIdExt>& id) {
+  if (id.has_value()) {
+    sb << id->to_str();
+  } else {
+    sb << "genesis";
+  }
+  return sb;
+}
+
+}  // namespace td
+
 namespace ton::validator::consensus {
 
 namespace {
@@ -20,6 +33,24 @@ class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
   template <>
   void handle(BusHandle, std::shared_ptr<const StopRequested>) {
     stop();
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const Start> event) {
+    on_new_accepted_block(event->state->as_normal());
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const FinalizeBlock> event) {
+    on_new_accepted_block(event->candidate->block_id());
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const BlockFinalizedInMasterchain> event) {
+    if (event->block.shard_full() != owning_bus()->shard || event->block.seqno() == 0) {
+      return;
+    }
+    on_new_accepted_block(event->block);
   }
 
   template <>
@@ -38,6 +69,20 @@ class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
       co_return CandidateAccept{};
     };
     auto block_fn = [&](const BlockCandidate& block) -> td::actor::Task<ValidateCandidateResult> {
+      if (bus.shard.is_masterchain()) {
+        auto expected_seqno = event->state->as_normal();
+        while (last_accepted_block_ < expected_seqno) {
+          auto [awaiter, promise] = td::actor::StartedTask<>::make_bridge();
+          next_block_promises_.push_back(std::move(promise));
+          co_await std::move(awaiter);
+        }
+        if (expected_seqno < last_accepted_block_) {
+          co_return td::Status::Error(PSTRING()
+                                      << "Candidate " << event->candidate->id << " builds upon " << expected_seqno
+                                      << " but we already finalized " << last_accepted_block_);
+        }
+      }
+
       ValidateParams validate_params{
           .shard = bus.shard,
           .min_masterchain_block_id = event->state->min_mc_block_id(),
@@ -70,6 +115,20 @@ class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
     }
     co_return validation_result;
   }
+
+ private:
+  void on_new_accepted_block(std::optional<BlockIdExt> block) {
+    if (last_accepted_block_ < block) {
+      last_accepted_block_ = block;
+      auto next_block_promises = std::move(next_block_promises_);
+      for (auto& promise : next_block_promises) {
+        promise.set_value({});
+      }
+    }
+  }
+
+  std::optional<BlockIdExt> last_accepted_block_;
+  std::vector<td::Promise<>> next_block_promises_;
 };
 
 }  // namespace

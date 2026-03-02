@@ -298,7 +298,7 @@ void FullNodeImpl::update_shard_actor(ShardIdFull shard, bool active) {
 }
 
 void FullNodeImpl::sync_completed() {
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::sync_complete, [](td::Unit) {});
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::sync_complete, [](td::Result<>) {});
 }
 
 void FullNodeImpl::send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data) {
@@ -669,7 +669,7 @@ void FullNodeImpl::start_up() {
       auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
       local_id_ = pk.compute_short_id();
 
-      td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), true, [](td::Unit) {});
+      td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), true, [](td::Result<>) {});
     } else {
       local_id_ = adnl_id_.pubkey_hash();
     }

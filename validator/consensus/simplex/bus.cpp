@@ -40,6 +40,15 @@ std::string WaitNotarCertStored::contents_to_string() const {
   return PSTRING() << "{id=" << id << "}";
 }
 
+std::string ResolveState::contents_to_string() const {
+  return PSTRING() << "{id=" << id << "}";
+}
+
+std::string ResolveState::response_to_string(const ReturnType &result) {
+  return PSTRING() << "ResolvedState{state=" << *result.state << ", gen_utime_exact="
+                   << (result.gen_utime_exact ? (PSTRING() << *result.gen_utime_exact) : "nullopt") << "}";
+}
+
 namespace {
 
 class SimplexCollatorSchedule : public CollatorSchedule {

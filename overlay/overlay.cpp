@@ -741,8 +741,8 @@ void TrafficStats::add_packet(td::uint64 size, bool in) {
 }
 
 void TrafficStats::normalize(double elapsed) {
-  out_bytes = static_cast<td::uint64>(out_bytes / elapsed);
-  in_bytes = static_cast<td::uint64>(in_bytes / elapsed);
+  out_bytes = static_cast<td::uint64>(static_cast<double>(out_bytes) / elapsed);
+  in_bytes = static_cast<td::uint64>(static_cast<double>(in_bytes) / elapsed);
   out_packets = static_cast<td::uint32>(out_packets / elapsed);
   in_packets = static_cast<td::uint32>(in_packets / elapsed);
 }
