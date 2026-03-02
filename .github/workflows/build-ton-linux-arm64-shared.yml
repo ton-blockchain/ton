@@ -1,6 +1,17 @@
 name: Ubuntu TON build (shared, arm64)
 
-on: [push, pull_request, workflow_dispatch, workflow_call]
+on:
+  pull_request:
+    branches: [master, testnet]
+    types: [opened, reopened, synchronize, ready_for_review]
+  push:
+    branches: [master, testnet]
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
