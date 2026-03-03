@@ -55,12 +55,12 @@ jobs:
 
     - name: Check spaces at EOL
       run: |
-        ! git grep --cached -Il '\s$'
+        ! git grep --cached -Il '\s$' -- ':!third-party/**'
 
     - name: Check C++ formatting
       run: |
         # TODO: Run clang-format only on changed files.
-        clang-format-21 -i $(git ls-files '*.h' '*.hpp' '*.cpp' ':!^tolk/')
+        clang-format-21 -i $(git ls-files '*.h' '*.hpp' '*.cpp' ':!^tolk/' ':!^third-party/')
         git diff --exit-code
 
     - name: Prepare Python environment
