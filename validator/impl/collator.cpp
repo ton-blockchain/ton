@@ -2383,7 +2383,7 @@ td::actor::Task<> Collator::do_collate() {
   auto token = perf_log_.start_action("do_collate");
   auto result = co_await do_collate_inner().wrap();
   if (result.is_error()) {
-    fatal_error(result.move_as_error());
+    fatal_error(result.error().clone());
   }
   token.finish(result.move_as_status());
   co_return {};
