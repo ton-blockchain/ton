@@ -9,9 +9,19 @@
 #include "td/actor/coro_task.h"
 #include "td/actor/coro_types.h"
 #include "td/utils/Heap.h"
+#include "td/utils/ThreadSafeCounter.h"
 #include "td/utils/Time.h"
 
 namespace td::actor {
+
+namespace detail {
+
+inline td::ThreadSafeCounter& published_sleep_timer_nodes_counter() {
+  static td::ThreadSafeCounter counter;
+  return counter;
+}
+
+}  // namespace detail
 
 struct TimerNode : public HeapNode, public HeapCancelNode {
   enum State : uint8_t { WAITING = 0, FIRED = 1, CANCELLED = 2 };
@@ -44,11 +54,23 @@ struct TimerNode : public HeapNode, public HeapCancelNode {
     return state_.load(std::memory_order_acquire) == CANCELLED;
   }
 
+  static td::int64 published_in_cancel_topology_count_for_test() {
+    return detail::published_sleep_timer_nodes_counter().sum();
+  }
+
+  void publish_in_owner(detail::TaskControlBase& owner_ctrl) {
+    owner_ctrl.add_ref();
+    owner_link_.attach(&owner_ctrl);
+    detail::published_sleep_timer_nodes_counter().add(1);
+    owner_ctrl.cancellation.publish_cancel_node(*this);
+  }
+
   void do_cancel() override {
     auto* context = core::SchedulerContext::get_ptr();
     // Timer cancel routing uses scheduler context for queueing cancel messages.
     CHECK(context);
     if (auto cont = try_claim(CANCELLED)) {
+      unpublish_from_owner();
       add_ref();  // for cancel message
       context->cancel_timer(Ref<TimerNode>::adopt(this));
       detail::resume_on_current_tls(cont);
@@ -61,6 +83,7 @@ struct TimerNode : public HeapNode, public HeapCancelNode {
 
   static void process_expired(Ref<TimerNode> ref, core::SchedulerContext& dispatcher) {
     if (auto cont = ref->try_claim(FIRED)) {
+      ref->unpublish_from_owner();
       detail::resume_root(cont);
     }
   }
@@ -80,7 +103,20 @@ struct TimerNode : public HeapNode, public HeapCancelNode {
     }
   }
 
+  void do_cleanup() override {
+    if (auto* owner = owner_link_.take_owner()) {
+      owner->dec_ref();
+    }
+    detail::published_sleep_timer_nodes_counter().add(-1);
+  }
+
  private:
+  void unpublish_from_owner() {
+    if (auto* owner = owner_link_.unpublish_and_take_owner(*this)) {
+      owner->dec_ref();
+    }
+  }
+
   // initial_refs=2: one for scheduler (register_timer), one for awaiter (timer_ref_).
   // A third ref is added if published to a cancellation topology (on_publish).
   TimerNode(std::coroutine_handle<> cont, Timestamp deadline)
@@ -89,6 +125,7 @@ struct TimerNode : public HeapNode, public HeapCancelNode {
 
   std::coroutine_handle<> continuation_;
   std::atomic<State> state_{WAITING};
+  CancelTopologyLink owner_link_;
   Timestamp deadline_;
 };
 
@@ -111,9 +148,8 @@ class SleepAwaitable {
   void await_suspend(std::coroutine_handle<> handle) {
     auto [a, b] = TimerNode::create(handle, deadline_);
     timer_ref_ = std::move(b);
-    auto lease = current_scope_lease();
-    if (lease) {
-      lease.publish_heap_cancel_node(*timer_ref_);
+    if (auto* owner_ctrl = detail::get_current_ctrl()) {
+      timer_ref_->publish_in_owner(*owner_ctrl);
     }
     // register timer here, so there is no race
     core::SchedulerContext::get().register_timer(std::move(a));

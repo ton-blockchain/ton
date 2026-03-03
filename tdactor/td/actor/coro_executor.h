@@ -29,17 +29,25 @@ template <class P>
 }
 
 template <class P>
+[[nodiscard]] std::coroutine_handle<> resume_on_bound_or_continue(std::coroutine_handle<P> cont) noexcept {
+  return cont.promise().route_resume_on_bound_executor();
+}
+
+template <class P>
 [[nodiscard]] std::coroutine_handle<> fail_actor_destroyed(std::coroutine_handle<P> cont) noexcept {
-  return cont.promise().route_finish(td::Status::Error("Actor destroyed"));
+  // we resume immediately because it won't be possible to schedule this corutine in any meaningful way;
+  cont.promise().typed_control()->try_store_result(td::Status::Error("Actor destroyed"));
+  return cont.promise().route_resume_on_bound_executor();
 }
 
 template <class P>
 class ActorMessageCoroutineSafe : public core::ActorMessageImpl {
  public:
   explicit ActorMessageCoroutineSafe(std::coroutine_handle<P> continuation) : continuation_(continuation) {
+    set_survives_close();
   }
   void run() override {
-    resume_with_own_promise(continuation_);
+    resume_on_current_tls(continuation_.promise().route_resume_on_bound_executor());
     continuation_ = {};
   }
   ~ActorMessageCoroutineSafe() override;
@@ -59,6 +67,12 @@ class ActorMessageCoroutineSafe : public core::ActorMessageImpl {
 struct ActorExecutor {
   td::actor::ActorRef<> actor_ref;
 
+  bool is_actor() const noexcept {
+    return true;
+  }
+  bool can_schedule() const noexcept {
+    return !actor_ref.empty();
+  }
   bool is_immediate_execution_allowed() const noexcept {
     if (actor_ref.empty()) {
       return false;
@@ -75,7 +89,7 @@ struct ActorExecutor {
       return fail_actor_destroyed(cont);
     }
     if (is_immediate_execution_allowed()) {
-      return continue_with_tls(cont);
+      return resume_on_bound_or_continue(cont);
     }
     schedule(std::move(cont));
     return std::noop_coroutine();
@@ -90,10 +104,10 @@ struct ActorExecutor {
       return fail_actor_destroyed(cont);
     }
     if (is_immediate_execution_allowed()) {
-      return continue_with_tls(cont);
+      return resume_on_bound_or_continue(cont);
     }
     td::actor::detail::send_immediate(
-        actor_ref.as_actor_ref(), [&] { resume_with_own_promise(cont); },
+        actor_ref.as_actor_ref(), [&] { resume_on_current_tls(resume_on_bound_or_continue(cont)); },
         [&]() { return to_message(std::move(cont)); });
     return std::noop_coroutine();
   }
@@ -108,6 +122,12 @@ struct ActorExecutor {
 };
 
 struct SchedulerExecutor {
+  bool is_actor() const noexcept {
+    return false;
+  }
+  bool can_schedule() const noexcept {
+    return true;
+  }
   bool is_immediate_execution_allowed() const noexcept {
     return get_current_actor_id().empty();
   }
@@ -121,7 +141,7 @@ struct SchedulerExecutor {
   template <class P>
   [[nodiscard]] std::coroutine_handle<> execute_or_schedule(std::coroutine_handle<P> cont) noexcept {
     if (is_immediate_execution_allowed()) {
-      return continue_with_tls(cont);
+      return resume_on_bound_or_continue(cont);
     }
     schedule(std::move(cont));
     return std::noop_coroutine();
@@ -135,13 +155,19 @@ struct SchedulerExecutor {
   }
 
   // Overload for type-erased handles - can't get promise, use handle-based encoding
-  void schedule(std::coroutine_handle<> cont) noexcept {
+  void schedule_without_type(std::coroutine_handle<> cont) noexcept {
     auto token = reinterpret_cast<td::actor::core::SchedulerToken>(encode_continuation(cont));
     td::actor::core::SchedulerContext::get().add_token_to_cpu_queue(token, td::actor::core::SchedulerId{});
   }
 };
 
 struct AnyExecutor {
+  bool is_actor() const noexcept {
+    return false;
+  }
+  bool can_schedule() const noexcept {
+    return true;
+  }
   bool is_immediate_execution_allowed() const noexcept {
     return true;
   }
@@ -154,7 +180,7 @@ struct AnyExecutor {
   }
   template <class P>
   [[nodiscard]] std::coroutine_handle<> execute_or_schedule(std::coroutine_handle<P> cont) noexcept {
-    return continue_with_tls(cont);
+    return resume_on_bound_or_continue(cont);
   }
   template <class P>
   void schedule(std::coroutine_handle<P> cont) noexcept {
@@ -192,6 +218,12 @@ struct Executor {
   bool is_immediate_execution_always_allowed() const noexcept {
     return visit([](auto& v) { return v.is_immediate_execution_always_allowed(); }, executor_);
   }
+  bool can_schedule() const noexcept {
+    return visit([](const auto& v) { return v.can_schedule(); }, executor_);
+  }
+  bool is_actor() const noexcept {
+    return visit([](const auto& v) { return v.is_actor(); }, executor_);
+  }
   template <class P>
   [[nodiscard]] std::coroutine_handle<> resume_or_schedule(std::coroutine_handle<P> cont) noexcept {
     return visit([&](auto& v) { return v.resume_or_schedule(std::move(cont)); }, executor_);
@@ -217,7 +249,7 @@ struct Executor {
 template <class P>
 ActorMessageCoroutineSafe<P>::~ActorMessageCoroutineSafe() {
   if (continuation_) {
-    SchedulerExecutor{}.schedule(continuation_.promise().route_finish(td::Status::Error("Actor destroyed")));
+    SchedulerExecutor{}.schedule_without_type(fail_actor_destroyed(continuation_));
   }
 }
 
@@ -244,12 +276,6 @@ struct YieldOn {
   }
   template <class P>
   std::coroutine_handle<> await_suspend(std::coroutine_handle<P> self) noexcept {
-    // Check cancellation before yielding - if cancelled, abort with error
-    if constexpr (requires { self.promise().finish_if_cancelled(); }) {
-      if (auto h = self.promise().finish_if_cancelled()) {
-        return *h;
-      }
-    }
     executor.schedule(std::move(self));
     return std::noop_coroutine();
   }

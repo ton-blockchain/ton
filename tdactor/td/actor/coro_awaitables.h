@@ -131,8 +131,9 @@ struct TaskAwaiter<Aw, AwaiterUnwrapMode::Unwrap, TraceMode> {
   [[no_unique_address]] Cache ok_{};
 
   bool await_ready() noexcept {
-    if (bridge::should_finish_due_to_cancellation_tls())
+    if (bridge::should_finish_due_to_cancellation_tls()) {
       return false;
+    }
     if constexpr (has_peek<A>) {
       if (aw.await_ready() && !aw.await_resume_peek().is_error()) {
         return true;
@@ -157,14 +158,14 @@ struct TaskAwaiter<Aw, AwaiterUnwrapMode::Unwrap, TraceMode> {
         auto rr = aw.await_resume();
         return route_error(std::move(rr).move_as_error());
       }
-      return h.promise().route_resume();
+      return h.promise().route_resume_from_external();
     } else {
       Res r = aw.await_resume();
       if (r.is_error()) {
         return route_error(std::move(r).move_as_error());
       }
       ok_.emplace(std::move(r).move_as_ok());
-      return h.promise().route_resume();
+      return h.promise().route_resume_from_external();
     }
   }
 
@@ -196,14 +197,15 @@ struct TaskAwaiter<Aw, AwaiterUnwrapMode::Wrap, TraceMode> {
   [[no_unique_address]] std::conditional_t<TraceMode == AwaiterTraceMode::Trace, std::string, td::Unit> trace_text_{};
 
   bool await_ready() noexcept {
-    if (bridge::should_finish_due_to_cancellation_tls())
+    if (bridge::should_finish_due_to_cancellation_tls()) {
       return false;
+    }
     return aw.await_ready();
   }
 
   template <class OuterPromise>
   std::coroutine_handle<> route_resume(std::coroutine_handle<OuterPromise> h) noexcept {
-    return h.promise().route_resume();
+    return h.promise().route_resume_from_external();
   }
 
   template <class OuterPromise>
@@ -227,6 +229,8 @@ struct TaskAwaiter<Aw, AwaiterUnwrapMode::Wrap, TraceMode> {
   }
 };
 
+// ResultUnwrapAwaiter and ResultWrapAwaiter are do not wrapped into TaskAwaiter for performance reason. So they must
+// handle cancellation
 template <class R>
 struct ResultUnwrapAwaiter {
   using Res = std::remove_cvref_t<R>;
@@ -235,21 +239,18 @@ struct ResultUnwrapAwaiter {
   Res result;
 
   bool await_ready() noexcept {
-    if (bridge::should_finish_due_to_cancellation_tls())
+    if (bridge::should_finish_due_to_cancellation_tls()) {
       return false;
+    }
     return result.is_ok();
   }
 
   template <class Promise>
   std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> h) noexcept {
-    if (auto cancel_h = h.promise().finish_if_cancelled()) {
-      return *cancel_h;
-    }
     if (result.is_error()) {
-      h.promise().return_value(std::move(result).move_as_error());
-      return h.promise().final_suspend().await_suspend(h);
+      h.promise().typed_control()->try_store_result(std::move(result).move_as_error());
     }
-    return h;
+    return h.promise().route_resume_from_external();
   }
 
   Ok await_resume() noexcept {
@@ -264,14 +265,15 @@ struct ResultWrapAwaiter {
   Res result;
 
   bool await_ready() noexcept {
-    if (bridge::should_finish_due_to_cancellation_tls())
+    if (bridge::should_finish_due_to_cancellation_tls()) {
       return false;
+    }
     return true;
   }
 
   template <class Promise>
   std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> h) noexcept {
-    return h.promise().finish_if_cancelled().value_or(h);
+    return h.promise().route_resume_from_external();  // It will find cancellation and handle it
   }
 
   Res await_resume() noexcept {

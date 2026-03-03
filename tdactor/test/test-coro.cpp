@@ -103,7 +103,7 @@ struct BoolReturningAwaitable {
   bool await_suspend(std::coroutine_handle<> h) noexcept {
     stored_handle = h;
     if (should_suspend) {
-      detail::SchedulerExecutor{}.schedule(h);
+      detail::SchedulerExecutor{}.schedule_without_type(h);
     }
     return should_suspend;
   }
@@ -125,7 +125,7 @@ struct VoidReturningAwaitable {
   }
   void await_suspend(std::coroutine_handle<> h) noexcept {
     stored_handle = h;
-    detail::SchedulerExecutor{}.schedule(h);
+    detail::SchedulerExecutor{}.schedule_without_type(h);
   }
   int await_resume() noexcept {
     return value;
@@ -370,7 +370,7 @@ static Task<td::Unit> external_parent_scope_repro_case(ExternalParentReproCase c
     }();
     external_promise->emplace(&external_child.promise());
 
-    auto started_child = std::move(external_child).start_external_in_parent_scope(std::move(lease));
+    auto started_child = detail::TaskAccess::start_external(std::move(external_child), std::move(lease));
     for (int i = 0; i < setup_yields; i++) {
       co_await yield_on_current();
     }
@@ -834,7 +834,7 @@ TEST_CORO(Coro, cancel_does_not_call_on_cancel_after_awaiter_resume) {
       if (lease) {
         lease.publish_heap_cancel_node(*node);
       }
-      detail::SchedulerExecutor{}.schedule(h);
+      detail::SchedulerExecutor{}.schedule_without_type(h);
     }
     bool await_resume() noexcept {
       bool cancelled = !node->disarm();
@@ -899,7 +899,7 @@ TEST_CORO(Coro, double_publish_does_not_leak_or_double_cleanup) {
       CHECK(lease);
       lease.publish_heap_cancel_node(*cancel_node);
       lease.publish_heap_cancel_node(*cancel_node);
-      detail::SchedulerExecutor{}.schedule(h);
+      detail::SchedulerExecutor{}.schedule_without_type(h);
     }
     void await_resume() noexcept {
       cancel_node->disarm();
@@ -1695,6 +1695,16 @@ TEST_CORO(Coro, concurrency2) {
   co_return td::Unit();
 }
 
+TEST_CORO(Coro, spawn_actor_does_not_leave_helper_actor_alive) {
+  auto before = spawn_actor_helper_alive_count_for_test();
+  auto result = co_await spawn_actor("helper", []() -> Task<int> { co_return 7; }());
+  expect_eq(result, 7, "spawn_actor should return task result");
+  co_await yield_on_current();
+  auto after = spawn_actor_helper_alive_count_for_test();
+  expect_eq(after, before, "spawn_actor helper actor should not stay alive after completion");
+  co_return td::Unit{};
+}
+
 TEST_CORO(Coro, lifecycle) {
   auto make_task = []() -> Task<int> { co_return 7; };
 
@@ -2335,12 +2345,9 @@ TEST_CORO(Coro, on_actor_guard_auto_and_explicit_touch) {
   co_return td::Unit{};
 }
 
-#if 0  // TODO(coro): Re-enable after destructor actor-affinity semantics are fixed.
-// Known failing state: if actor stop/cancellation wins while await is suspended,
-// coroutine-local destructors may run off the original actor.
 TEST_CORO(Coro, stop_actor_coroutine_local_destructor_actor_affinity) {
   struct LocalDtorProbe {
-    OnActorGuard guard;
+    td::actor::ActorId<> expected_actor;
     std::shared_ptr<std::atomic<int>> on_expected_actor;
     std::shared_ptr<std::atomic<int>> off_expected_actor;
     std::shared_ptr<std::atomic<int>> after_actor_destroy;
@@ -2350,7 +2357,7 @@ TEST_CORO(Coro, stop_actor_coroutine_local_destructor_actor_affinity) {
       if (actor_destroyed && actor_destroyed->load(std::memory_order_acquire)) {
         after_actor_destroy->fetch_add(1, std::memory_order_acq_rel);
       }
-      if (guard.is_current()) {
+      if (detail::get_current_actor_id() == expected_actor) {
         on_expected_actor->fetch_add(1, std::memory_order_acq_rel);
       } else {
         off_expected_actor->fetch_add(1, std::memory_order_acq_rel);
@@ -2360,7 +2367,8 @@ TEST_CORO(Coro, stop_actor_coroutine_local_destructor_actor_affinity) {
 
   class DtorAffinityActor : public td::actor::Actor {
    public:
-    DtorAffinityActor(std::shared_ptr<std::atomic<int>> on_expected_actor, std::shared_ptr<std::atomic<int>> off_expected_actor,
+    DtorAffinityActor(std::shared_ptr<std::atomic<int>> on_expected_actor,
+                      std::shared_ptr<std::atomic<int>> off_expected_actor,
                       std::shared_ptr<std::atomic<int>> after_actor_destroy,
                       std::shared_ptr<std::atomic<bool>> actor_destroyed)
         : on_expected_actor_(std::move(on_expected_actor))
@@ -2382,15 +2390,11 @@ TEST_CORO(Coro, stop_actor_coroutine_local_destructor_actor_affinity) {
     }
 
     Task<td::Unit> query() {
-      OnActorGuard explicit_guard(actor_id(this));
+      OnActorGuard guard;
+      guard.touch("query should execute on target actor before await");
       LocalDtorProbe probe{
-          explicit_guard,
-          on_expected_actor_,
-          off_expected_actor_,
-          after_actor_destroy_,
-          actor_destroyed_,
+          actor_id(this), on_expected_actor_, off_expected_actor_, after_actor_destroy_, actor_destroyed_,
       };
-      explicit_guard.touch("query should execute on target actor before await");
       auto task = slow_task();
       task.set_executor(Executor::on_scheduler());
       co_await std::move(task);
@@ -2409,8 +2413,8 @@ TEST_CORO(Coro, stop_actor_coroutine_local_destructor_actor_affinity) {
   auto after_actor_destroy = std::make_shared<std::atomic<int>>(0);
   auto actor_destroyed = std::make_shared<std::atomic<bool>>(false);
 
-  auto actor = create_actor<DtorAffinityActor>("DtorAffinityActor", on_expected_actor, off_expected_actor, after_actor_destroy,
-                                               actor_destroyed);
+  auto actor = create_actor<DtorAffinityActor>("DtorAffinityActor", on_expected_actor, off_expected_actor,
+                                               after_actor_destroy, actor_destroyed);
   auto r = co_await ask(actor, &DtorAffinityActor::query).wrap();
   expect_true(r.is_error(), "Stopped actor query should fail");
 
@@ -2424,9 +2428,7 @@ TEST_CORO(Coro, stop_actor_coroutine_local_destructor_actor_affinity) {
   expect_true(after_cnt == 0, "Coroutine local destructor should run before actor destructor");
   co_return td::Unit{};
 }
-#endif
 
-#if 0  // TODO(coro): Re-enable after cancelled-await local destructor affinity is fixed.
 TEST_CORO(Coro, stop_actor_cancelled_await_local_destructor_guard_touch) {
   struct GuardedLocalDtor {
     OnActorGuard guard;
@@ -2450,7 +2452,8 @@ TEST_CORO(Coro, stop_actor_cancelled_await_local_destructor_guard_touch) {
     }
 
     Task<td::Unit> query() {
-      GuardedLocalDtor guarded{OnActorGuard(actor_id(this))};
+      GuardedLocalDtor guarded{OnActorGuard{}};
+      guarded.guard.touch("cancelled await local guard must bind on actor before await");
 
       auto task = slow_task();
       task.set_executor(Executor::on_scheduler());
@@ -2464,7 +2467,6 @@ TEST_CORO(Coro, stop_actor_cancelled_await_local_destructor_guard_touch) {
   expect_true(r.is_error(), "Stopped actor query should fail");
   co_return td::Unit{};
 }
-#endif
 
 TEST_CORO(Coro, cross_actor_error_unwrap_local_destructor_guard_touch) {
   struct GuardedLocalDtor {
@@ -2502,7 +2504,6 @@ TEST_CORO(Coro, cross_actor_error_unwrap_local_destructor_guard_touch) {
   co_return td::Unit{};
 }
 
-#if 0  // TODO(coro): Re-enable after cross-actor executor error destructor affinity is fixed.
 TEST_CORO(Coro, cross_actor_executor_error_unwrap_local_destructor_guard_touch) {
   struct GuardedLocalDtor {
     OnActorGuard guard;
@@ -2515,13 +2516,13 @@ TEST_CORO(Coro, cross_actor_executor_error_unwrap_local_destructor_guard_touch) 
     }
   };
 
-  class HopActor : public td::actor::Actor {
-  };
+  class HopActor : public td::actor::Actor {};
 
   class AwaitCrossActorTaskErrorActor : public td::actor::Actor {
    public:
     Task<td::Unit> query(ActorId<HopActor> remote) {
-      GuardedLocalDtor guarded{OnActorGuard(actor_id(this))};
+      GuardedLocalDtor guarded{OnActorGuard{}};
+      guarded.guard.touch("cross-actor executor error guard must bind on actor before await");
 
       auto task = []() -> Task<td::Unit> {
         co_await yield_on_current();
@@ -2539,9 +2540,7 @@ TEST_CORO(Coro, cross_actor_executor_error_unwrap_local_destructor_guard_touch) 
   expect_true(r.is_error(), "Cross-actor task error should fail");
   co_return td::Unit{};
 }
-#endif
 
-#if 0  // TODO(coro): Re-enable after suspended ask-error destructor affinity is fixed.
 TEST_CORO(Coro, cross_actor_ask_error_suspended_local_destructor_guard_touch) {
   struct GuardedLocalDtor {
     OnActorGuard guard;
@@ -2565,7 +2564,8 @@ TEST_CORO(Coro, cross_actor_ask_error_suspended_local_destructor_guard_touch) {
   class AwaitErrorActor : public td::actor::Actor {
    public:
     Task<td::Unit> query(ActorId<ErrorActor> remote) {
-      GuardedLocalDtor guarded{OnActorGuard(actor_id(this))};
+      GuardedLocalDtor guarded{OnActorGuard{}};
+      guarded.guard.touch("cross-actor suspended ask error guard must bind on actor before await");
       co_await ask(remote, &ErrorActor::fail_suspended);
       co_return td::Unit{};
     }
@@ -2577,7 +2577,49 @@ TEST_CORO(Coro, cross_actor_ask_error_suspended_local_destructor_guard_touch) {
   expect_true(r.is_error(), "Cross-actor suspended ask error should fail");
   co_return td::Unit{};
 }
-#endif
+
+struct FinalSuspendFrameArgProbe {
+  OnActorGuard guard;
+
+  FinalSuspendFrameArgProbe() {
+    guard.touch("final-suspend probe must be created on actor");
+  }
+
+  FinalSuspendFrameArgProbe(const FinalSuspendFrameArgProbe&) = delete;
+  FinalSuspendFrameArgProbe& operator=(const FinalSuspendFrameArgProbe&) = delete;
+  FinalSuspendFrameArgProbe(FinalSuspendFrameArgProbe&&) noexcept = default;
+  FinalSuspendFrameArgProbe& operator=(FinalSuspendFrameArgProbe&&) noexcept = default;
+
+  ~FinalSuspendFrameArgProbe() {
+    guard.touch("final_suspend waiting-for-children frame argument destructor must run on actor");
+  }
+};
+
+static Task<td::Unit> final_suspend_child_wait_probe_task(FinalSuspendFrameArgProbe probe) {
+  auto child = []() -> Task<td::Unit> {
+    co_await coro_sleep(td::Timestamp::in(0.03));
+    co_return td::Unit{};
+  }();
+  child.set_executor(Executor::on_scheduler());
+  std::move(child).start_in_parent_scope().detach_silent();
+  co_return td::Unit{};
+}
+
+TEST_CORO(Coro, final_suspend_waiting_for_child_destroys_frame_on_actor) {
+  class FinalSuspendWaitActor : public td::actor::Actor {
+   public:
+    Task<td::Unit> query() {
+      FinalSuspendFrameArgProbe probe;
+      co_await final_suspend_child_wait_probe_task(std::move(probe));
+      co_return td::Unit{};
+    }
+  };
+
+  auto actor = create_actor<FinalSuspendWaitActor>("FinalSuspendWaitActor");
+  auto r = co_await ask(actor, &FinalSuspendWaitActor::query).wrap();
+  expect_ok(r, "query should complete");
+  co_return td::Unit{};
+}
 
 TEST_CORO(Coro, promise_destroy_in_mailbox) {
   class Target : public td::actor::Actor {
@@ -2721,6 +2763,77 @@ TEST_CORO(Coro, sleep_for) {
   co_return td::Unit{};
 }
 
+TEST_CORO(Coro, coro_sleep_does_not_leave_helper_actor_alive) {
+  auto before = coro_sleep_helper_alive_count_for_test();
+  co_await coro_sleep(td::Timestamp::in(0.01));
+  co_await yield_on_current();
+  auto after = coro_sleep_helper_alive_count_for_test();
+  expect_eq(after, before, "coro_sleep helper actor should not stay alive after alarm");
+  co_return td::Unit{};
+}
+
+TEST_CORO(Coro, sleep_for_success_does_not_retain_cancel_node) {
+  auto before = td::actor::TimerNode::published_in_cancel_topology_count_for_test();
+  co_await sleep_for(0.001);
+  auto after = td::actor::TimerNode::published_in_cancel_topology_count_for_test();
+
+  expect_eq(after, before, "Completed sleep_for should not retain a published cancel-topology timer node");
+  co_return td::Unit{};
+}
+
+TEST_CORO(Coro, sleep_for_fire_then_actor_stop_does_not_retain_cancel_node) {
+  class BlockedSleepActor final : public td::actor::Actor {
+   public:
+    Task<td::Unit> sleep_then_mark(std::shared_ptr<std::atomic<bool>> started,
+                                   std::shared_ptr<std::atomic<bool>> after_await) {
+      started->store(true, std::memory_order_release);
+      co_await sleep_for(0.05);
+      after_await->store(true, std::memory_order_release);
+      co_return td::Unit{};
+    }
+
+    void block(std::shared_ptr<std::atomic<bool>> blocking_started, double seconds) {
+      blocking_started->store(true, std::memory_order_release);
+      td::usleep_for(static_cast<int>(seconds * 1000000));
+    }
+
+    void request_stop() {
+      stop();
+    }
+  };
+
+  auto started = std::make_shared<std::atomic<bool>>(false);
+  auto blocking_started = std::make_shared<std::atomic<bool>>(false);
+  auto after_await = std::make_shared<std::atomic<bool>>(false);
+
+  auto before = td::actor::TimerNode::published_in_cancel_topology_count_for_test();
+  auto actor = td::actor::create_actor<BlockedSleepActor>("BlockedSleepActor").release();
+  auto t = ask(actor, &BlockedSleepActor::sleep_then_mark, started, after_await).start_without_scope();
+
+  co_await wait_until([&] { return started->load(std::memory_order_acquire); }, "sleeping actor task should start");
+
+  send_closure(actor, &BlockedSleepActor::block, blocking_started, 0.2);
+  co_await wait_until([&] { return blocking_started->load(std::memory_order_acquire); }, "actor should enter block()");
+
+  send_closure(actor, &BlockedSleepActor::request_stop);
+
+  auto timer_fire_deadline = td::Timestamp::in(0.1);
+  co_await wait_until([&] { return timer_fire_deadline.is_in_past(); },
+                      "sleep timer should fire while actor is blocked", 0.3);
+  co_await wait_until([&] { return t.await_ready(); }, "sleep task should finish after actor stop");
+
+  expect_true(!after_await->load(std::memory_order_acquire),
+              "sleep continuation should not reach code after co_await once actor is stopped");
+  expect_eq(td::actor::TimerNode::published_in_cancel_topology_count_for_test(), before,
+            "Timer node should self-unpublish even if outer coroutine never resumes from sleep");
+
+  auto r = co_await std::move(t).wrap();
+  expect_true(r.is_error(), "stopped actor sleep task should fail");
+  expect_eq(td::actor::TimerNode::published_in_cancel_topology_count_for_test(), before,
+            "Timer node count should stay at baseline after task handle cleanup");
+  co_return td::Unit{};
+}
+
 TEST_CORO(Coro, coro_mutex) {
   class MutexActor : public td::actor::Actor {
    public:
@@ -2797,7 +2910,7 @@ TEST_CORO(Coro, coro_mutex_blocked_child_prevents_prompt_cancel_and_join) {
       co_await yield_on_current();
 
       auto join_started = group.cancel_and_join().start_in_parent_scope();
-      co_await yield_on_current();
+      co_await sleep_for(0.01);
       bool join_ready_before_unlock = join_started.await_ready();
 
       guard.reset();
@@ -3064,7 +3177,7 @@ TEST_CORO(Coro, cancellation_parent_scope_lease) {
     co_return td::Unit{};
   }();
 
-  // Test 6: start_external_in_parent_scope keeps parent waiting until external completion
+  // Test 6: internal external scoped start keeps parent waiting until external completion
   co_await []() -> Task<td::Unit> {
     using ExternalPromise = StartedTask<td::Unit>::ExternalPromise;
 
@@ -3081,7 +3194,7 @@ TEST_CORO(Coro, cancellation_parent_scope_lease) {
       }();
       parent_external_promise->emplace(&external_child.promise());
 
-      std::move(external_child).start_external_in_parent_scope(std::move(lease)).detach_silent();
+      detail::TaskAccess::start_external(std::move(external_child), std::move(lease)).detach_silent();
       parent_started->store(true, std::memory_order_release);
       co_return td::Unit{};
     }(parent_started, parent_external_promise)
@@ -3104,7 +3217,7 @@ TEST_CORO(Coro, cancellation_parent_scope_lease) {
     co_return td::Unit{};
   }();
 
-  // Test 7: start_external_in_parent_scope + set_error still wakes parent
+  // Test 7: internal external scoped start + set_error still wakes parent
   co_await []() -> Task<td::Unit> {
     using ExternalPromise = StartedTask<td::Unit>::ExternalPromise;
 
@@ -3121,7 +3234,7 @@ TEST_CORO(Coro, cancellation_parent_scope_lease) {
       }();
       parent_external_promise->emplace(&external_child.promise());
 
-      std::move(external_child).start_external_in_parent_scope(std::move(lease)).detach_silent();
+      detail::TaskAccess::start_external(std::move(external_child), std::move(lease)).detach_silent();
       parent_started->store(true, std::memory_order_release);
       co_return td::Unit{};
     }(parent_started, parent_external_promise)
@@ -3161,7 +3274,7 @@ TEST_CORO(Coro, cancellation_parent_scope_lease) {
       }();
       parent_external_promise->emplace(&external_child.promise());
 
-      std::move(external_child).start_external_in_parent_scope(std::move(lease)).detach_silent();
+      detail::TaskAccess::start_external(std::move(external_child), std::move(lease)).detach_silent();
       parent_started->store(true, std::memory_order_release);
       co_return td::Unit{};
     }(parent_started, parent_external_promise)
@@ -3815,6 +3928,12 @@ static Task<int> shared_future_delayed_value(std::shared_ptr<std::atomic<bool>> 
   co_return value;
 }
 
+static Task<int> shared_future_slow_value(std::shared_ptr<std::atomic<bool>> done, double seconds, int value) {
+  co_await sleep_for(seconds);
+  done->store(true, std::memory_order_release);
+  co_return value;
+}
+
 TEST_CORO_ACTOR(Coro, shared_future_single_get) {
  public:
   Task<td::Unit> run() {
@@ -3986,6 +4105,40 @@ TEST_CORO_ACTOR(Coro, shared_future_cancelled_and_alive_waiters_split_results) {
     if (alive_result.is_ok()) {
       expect_eq(alive_result.ok(), 2718, "Alive waiter should receive expected value");
     }
+    co_return td::Unit{};
+  }
+
+ private:
+  std::shared_ptr<std::atomic<bool>> producer_done_;
+  std::optional<SharedFuture<int>> sf_;
+};
+
+TEST_CORO_ACTOR(Coro, shared_future_timeout_then_wait_again) {
+ public:
+  Task<td::Unit> run() {
+    if (!producer_done_) {
+      producer_done_ = std::make_shared<std::atomic<bool>>(false);
+    }
+    if (!sf_) {
+      sf_.emplace(shared_future_slow_value(producer_done_, 0.1, 4242));
+    }
+
+    auto first_wait = sf_->get(false).start_immediate_without_scope();
+    auto first_result = co_await with_timeout(std::move(first_wait), 0.01);
+    expect_true(first_result.is_error(), "First SharedFuture wait should time out");
+    if (first_result.is_error()) {
+      expect_eq(first_result.error().message().str(), "timeout", "First SharedFuture wait should report timeout");
+    }
+    expect_true(!producer_done_->load(std::memory_order_acquire),
+                "Producer should keep running after a timed out SharedFuture waiter");
+
+    auto second_wait = sf_->get(false).start_immediate_without_scope();
+    auto second_result = co_await with_timeout(std::move(second_wait), 1.0);
+    expect_ok(second_result, "Second SharedFuture wait should observe the original value");
+    if (second_result.is_ok()) {
+      expect_eq(second_result.ok(), 4242, "Second SharedFuture wait should return the shared result");
+    }
+    expect_true(producer_done_->load(std::memory_order_acquire), "Producer should finish normally");
     co_return td::Unit{};
   }
 
@@ -4686,6 +4839,48 @@ TEST_CORO(Coro, child_argument_destroyed_before_parent_observes_result) {
   expect_true(destroyed->load(std::memory_order_acquire), "child argument should be destroyed after child completes");
 
   started.detach_silent();
+  co_return td::Unit{};
+}
+
+Task<td::Unit> wait_inf() {
+  LOG_CHECK(false) << "wait_inf() should never be started";
+  co_return td::Unit{};
+}
+TEST_CORO(Coro, cancel_before_co_await) {
+  auto task = []() -> Task<td::Unit> {
+    LOG(ERROR) << "Start";
+    td::usleep_for(100000);
+    LOG(ERROR) << "Start wait inf";
+    co_await wait_inf().unlinked();
+    LOG(ERROR) << "Finish wait inf";
+    co_return td::Unit{};
+  }()
+                          .start_without_scope();
+  co_await sleep_for(0.01);
+  LOG(ERROR) << "Cancel";
+  task.cancel();
+  auto r = co_await std::move(task).wrap();
+  expect_true(r.is_error(), "Expected cancelled error");
+  expect_eq(r.error().code(), kCancelledCode, "Expected Error(653) from cancellation");
+  co_return td::Unit{};
+}
+
+TEST_CORO(Coro, cancel_before_co_await2) {
+  auto task = []() -> Task<td::Unit> {
+    LOG(ERROR) << "Start";
+    td::usleep_for(100000);
+    LOG(ERROR) << "Start wait inf";
+    co_await wait_inf();
+    LOG(ERROR) << "Finish wait inf";
+    co_return td::Unit{};
+  }()
+                          .start_without_scope();
+  co_await sleep_for(0.01);
+  LOG(ERROR) << "Cancel";
+  task.cancel();
+  auto r = co_await std::move(task).wrap();
+  expect_true(r.is_error(), "Expected cancelled error");
+  expect_eq(r.error().code(), kCancelledCode, "Expected Error(653) from cancellation");
   co_return td::Unit{};
 }
 

@@ -18,12 +18,27 @@
 #include "td/utils/Mutex.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
+#include "td/utils/ThreadSafeCounter.h"
 #include "td/utils/VectorQueue.h"
 
 namespace td::actor {
 
 class OnActorGuard {
  public:
+  OnActorGuard() = default;
+  OnActorGuard(const OnActorGuard&) = delete;
+  OnActorGuard& operator=(const OnActorGuard&) = delete;
+  OnActorGuard(OnActorGuard&& other) noexcept : actor_id_(std::move(other.actor_id_)) {
+    other.actor_id_.reset();
+  }
+  OnActorGuard& operator=(OnActorGuard&& other) noexcept {
+    if (this != &other) {
+      actor_id_ = std::move(other.actor_id_);
+      other.actor_id_.reset();
+    }
+    return *this;
+  }
+
   void touch(td::Slice message = "OnActorGuard: call must stay on actor") {
     auto current = detail::get_current_actor_id();
     LOG_CHECK(!current.empty()) << message;
@@ -79,7 +94,25 @@ struct is_task : std::false_type {};
 template <class T>
 struct is_task<Task<T>> : std::true_type {};
 
+inline td::ThreadSafeCounter& spawn_actor_helper_alive_counter() {
+  static td::ThreadSafeCounter counter;
+  return counter;
+}
+
+inline td::ThreadSafeCounter& coro_sleep_helper_alive_counter() {
+  static td::ThreadSafeCounter counter;
+  return counter;
+}
+
 }  // namespace detail
+
+inline td::int64 spawn_actor_helper_alive_count_for_test() {
+  return detail::spawn_actor_helper_alive_counter().sum();
+}
+
+inline td::int64 coro_sleep_helper_alive_count_for_test() {
+  return detail::coro_sleep_helper_alive_counter().sum();
+}
 
 template <class T>
 td::Result<std::vector<T>> collect(std::vector<td::Result<T>>&& results) {
@@ -253,7 +286,7 @@ auto ask_new_impl(TargetId&& to, MemFn mf, Args&&... args) {
             co_return co_await detail::run_on_current_actor(closure);
           }(create_delayed_closure(mf, std::forward<Args>(args)...));
           task.set_executor(Executor::on_actor(to));
-          o_task.emplace(std::move(task).start_external_in_parent_scope());
+          o_task.emplace(detail::TaskAccess::start_external(std::move(task), current_scope_lease()));
           return detail::ActorExecutor::to_message(o_task->handle());
         });
     return std::move(*o_task);
@@ -292,14 +325,27 @@ auto spawn_actor(td::Slice name, TaskType task) {
 
   struct TaskAwaiter : public td::actor::Actor {
     TaskAwaiter(TaskType task, PromiseType promise) : task_(std::move(task)), promise_(std::move(promise)) {
+      detail::spawn_actor_helper_alive_counter().add(1);
+    }
+    ~TaskAwaiter() override {
+      detail::spawn_actor_helper_alive_counter().add(-1);
     }
 
    private:
     TaskType task_;
     PromiseType promise_;
-    void start_up() {
+    Task<td::Unit> await_and_stop() {
+      auto task = std::move(task_);
+      auto promise = std::move(promise_);
+      auto result = co_await std::move(task).wrap();
+      promise.set_result(std::move(result));
+      stop();
+      co_return td::Unit{};
+    }
+
+    void start_up() override {
       task_.set_executor(Executor::on_current_actor());
-      connect(std::move(promise_), std::move(task_));
+      await_and_stop().start_immediate_without_scope().detach("spawn_actor helper");
     }
   };
   td::actor::create_actor<TaskAwaiter>(name, std::move(task), std::move(result_promise)).release();
@@ -405,6 +451,10 @@ inline StartedTask<td::Unit> coro_sleep(td::Timestamp t) {
   struct S : public td::actor::Actor {
     S(td::actor::StartedTask<td::Unit>::ExternalPromise promise, td::Timestamp t)
         : promise_(std::move(promise)), t_(t) {
+      detail::coro_sleep_helper_alive_counter().add(1);
+    }
+    ~S() override {
+      detail::coro_sleep_helper_alive_counter().add(-1);
     }
 
    private:
@@ -415,6 +465,7 @@ inline StartedTask<td::Unit> coro_sleep(td::Timestamp t) {
     }
     void alarm() override {
       promise_.set_value(td::Unit{});
+      stop();
     }
   };
   create_actor<S>("sleep", std::move(promise), t).release();

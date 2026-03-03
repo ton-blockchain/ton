@@ -23,6 +23,19 @@ namespace td {
 namespace actor {
 namespace core {
 
+namespace {
+
+void drain_closed_mailbox_in_order(ActorMailbox& mailbox) {
+  // Closed actors never execute message bodies. We still destroy queued messages
+  // in mailbox order to preserve deterministic teardown behavior.
+  mailbox.pop_all();
+  while (mailbox.reader().read()) {
+    // drop
+  }
+}
+
+}  // namespace
+
 namespace gdb {
 
 #ifdef TON_INSERT_GDB_HOOKS
@@ -52,6 +65,11 @@ void hook_message_run(ActorMailbox&, ActorMessage&, auto&& continuation) {
 void ActorExecutor::send_immediate(ActorMessage message) {
   CHECK(can_send_immediate());
   if (is_closed()) {
+    if (!message.survives_close()) {
+      return;
+    }
+    actor_info_.mailbox().push(std::move(message));
+    pending_signals_.add_signal(ActorSignals::Message);
     return;
   }
   if (message.is_big()) {
@@ -78,10 +96,10 @@ void ActorExecutor::send_immediate(ActorSignals signals) {
 }
 
 void ActorExecutor::send(ActorMessage message) {
-  if (is_closed()) {
+  if (is_closed() && !message.survives_close()) {
     return;
   }
-  if (can_send_immediate()) {
+  if (!is_closed() && can_send_immediate()) {
     //LOG(ERROR) << "AE::send immediate";
     return send_immediate(std::move(message));
   }
@@ -189,10 +207,10 @@ void ActorExecutor::finish() noexcept {
 
     //LOG(ERROR) << tag("in_queue", flags().is_in_queue()) << tag("has_signals", flags().has_signals());
     if (flags_.is_closed()) {
-      // Writing to mailbox and closing actor may happen concurrently
-      // We must ensure that all messages in mailbox will be deleted
-      // Note that an ActorExecute may have to delete messages that was added by itself.
-      actor_info_.mailbox().clear();
+      auto* old_actor = actor_execute_context_.actor_ptr();
+      actor_execute_context_.set_actor(actor_info_.actor_ptr());
+      drain_closed_mailbox_in_order(actor_info_.mailbox());
+      actor_execute_context_.set_actor(old_actor);
     } else {
       // No need to add closed actor into queue.
       if (flags().has_signals() && !flags().is_in_queue()) {

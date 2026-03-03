@@ -20,6 +20,7 @@
 #include <atomic>
 #include <deque>
 #include <memory>
+#include <vector>
 
 #include "td/actor/ActorStats.h"
 #include "td/actor/PromiseFuture.h"
@@ -402,6 +403,94 @@ TEST(Actor2, executor_simple) {
     sb.clear();
     dispatcher.queue.clear();
   }
+}
+
+TEST(Actor2, closed_executor_survives_close_messages_are_drained_without_run) {
+  using namespace td::actor;
+  using namespace td::actor::core;
+
+  struct Dispatcher : public SchedulerDispatcher {
+    void add_to_queue(ActorInfoPtr ptr, SchedulerId scheduler_id, bool need_poll) override {
+      queue.push_back(std::move(ptr));
+    }
+    void add_token_to_cpu_queue(SchedulerToken token, SchedulerId scheduler_id) override {
+      UNREACHABLE();
+    }
+    void set_alarm_timestamp(const ActorInfoPtr &actor_info_ptr) override {
+      UNREACHABLE();
+    }
+    SchedulerId get_scheduler_id() const override {
+      return SchedulerId{0};
+    }
+    void register_timer(Ref<TimerNode> ref) override {
+    }
+    void cancel_timer(Ref<TimerNode> ref) override {
+    }
+
+    std::deque<ActorInfoPtr> queue;
+  };
+
+  struct ProbeState {
+    std::vector<int> events;
+    int runs{0};
+  };
+
+  class ProbeMessage : public ActorMessageImpl {
+   public:
+    ProbeMessage(std::shared_ptr<ProbeState> state, int id, bool survives_close) : state_(std::move(state)), id_(id) {
+      if (survives_close) {
+        set_survives_close();
+      }
+    }
+    ~ProbeMessage() override {
+      state_->events.push_back(-id_);
+    }
+    void run() override {
+      state_->runs++;
+      state_->events.push_back(id_);
+    }
+
+   private:
+    std::shared_ptr<ProbeState> state_;
+    int id_{0};
+  };
+
+  class TestActor : public Actor {
+   public:
+    void close() {
+      stop();
+    }
+  };
+
+  Dispatcher dispatcher;
+  auto probe = std::make_shared<ProbeState>();
+
+  ActorInfoCreator actor_info_creator;
+  auto actor = actor_info_creator.create(
+      std::make_unique<TestActor>(), ActorInfoCreator::Options().on_scheduler(SchedulerId{0}).with_name("TestActor"));
+  dispatcher.add_to_queue(actor, SchedulerId{0}, false);
+  {
+    ActorExecutor executor(*actor, dispatcher, ActorExecutor::Options().with_from_queue());
+  }
+
+  {
+    ActorExecutor executor(*actor, dispatcher, ActorExecutor::Options());
+    executor.send(detail::ActorMessageCreator::lambda(
+        [&] { static_cast<TestActor &>(ActorExecuteContext::get().actor()).close(); }));
+  }
+  CHECK(!actor->has_actor());
+
+  {
+    ActorExecutor executor(*actor, dispatcher, ActorExecutor::Options());
+    executor.send(ActorMessage(std::make_unique<ProbeMessage>(probe, 1, false)));
+    executor.send(ActorMessage(std::make_unique<ProbeMessage>(probe, 2, true)));
+  }
+  dispatcher.queue.clear();
+
+  CHECK(probe->runs == 0);
+  CHECK(probe->events.size() == 2);
+  CHECK(probe->events[0] == -1);
+  CHECK(probe->events[1] == -2);
 }
 
 using namespace td::actor;

@@ -35,6 +35,13 @@ class ActorMessageImpl : private MpscLinkQueueImpl::Node {
   virtual ~ActorMessageImpl() = default;
   virtual void run() = 0;
 
+  bool survives_close() const {
+    return survives_close_;
+  }
+  void set_survives_close(bool value = true) {
+    survives_close_ = value;
+  }
+
  private:
   friend class ActorMessage;
 
@@ -49,6 +56,7 @@ class ActorMessageImpl : private MpscLinkQueueImpl::Node {
 
   uint64 link_token_{EmptyLinkToken};
   bool is_big_{false};
+  bool survives_close_{false};
 };
 
 class ActorMessage {
@@ -76,6 +84,12 @@ class ActorMessage {
   }
   void set_big() {
     impl_->is_big_ = true;
+  }
+  bool survives_close() const {
+    return impl_->survives_close();
+  }
+  void set_survives_close() {
+    impl_->set_survives_close();
   }
 
  private:

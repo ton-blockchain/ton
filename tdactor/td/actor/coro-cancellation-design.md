@@ -5,6 +5,8 @@
 - Parent waits for all children in `final_suspend`.
 - `StartedTask` destructor cancels coroutine and its children.
 - Child locals are destroyed before parent resumes (all paths: normal, error, cancel).
+- Actor-bound suspended coroutines are cancelled automatically when the actor stops.
+- Actor-affine coroutine teardown still runs with actor context even after the actor is closed.
 - Explicit lifetime ownership via `ParentScopeLease` for scopes that may outlive creator frames.
 - `ignore_cancellation()` guard to temporarily suppress cancellation propagation.
 
@@ -24,7 +26,7 @@ A cancelled coroutine must destroy its locals before the parent resumes. But ext
 
 `Task<T>` and `StartedTask<T>` hold a `Ref<TaskControl<T>>` — ref-counted pointer to the control block. `promise_common` stores a raw `TaskControlBase*` back-pointer (set in `get_return_object()`) for non-template access.
 
-The control block is ref-counted. The frame can be destroyed independently (via `try_mark_frame_destroyed`). The allocation is freed only when the last ref drops (`on_zero_refs`).
+The control block is ref-counted. The frame can be destroyed independently (via `try_destroy_frame()`). The allocation is freed only when the last ref drops (`on_zero_refs`).
 
 ### HALO Detection
 
@@ -32,11 +34,15 @@ Compilers may apply Heap Allocation eLision Optimization (HALO), placing corouti
 
 `TaskControlBase` writes a magic cookie (`0xC020C070`) at construction. `get_return_object()` checks it via `check_magic()`. If HALO elided the allocation, the cookie is absent and a fatal error fires immediately.
 
-### Exceptions and Frame Destruction
+### Resume-Boundary Cancellation and Frame Destruction
 
-C++ exceptions are slow. The cancellation path avoids them entirely — `finish_if_cancelled()` publishes the cancelled result and destroys the frame directly via `coroutine_handle::destroy()`, without resuming the coroutine body or unwinding via exceptions.
+C++ exceptions are not used for cancellation. Cancellation is observed at resume boundaries instead:
 
-This means coroutine locals are destroyed by the frame destructor, not by stack unwinding. The ordering guarantee (child locals destroyed before parent resumes) is maintained because `complete_cancelled_with_frame_destroy()` calls `h.destroy()` before releasing the parent child-ref.
+- awaiters check `should_finish_due_to_cancellation_tls()` in `await_ready()` and force the slow path when cancellation is pending;
+- `route_resume_on_bound_executor()` is the single re-entry gate that publishes `cancelled_status()` when needed and enters `final_suspend()` if a terminal result is already available;
+- frame destruction happens from the normal completion paths (`complete_inline()` / `on_zero_refs()`), not from a separate cancel-only frame-destroy helper.
+
+Coroutine locals are still destroyed by the frame destructor, not by stack unwinding. The ordering guarantee (child locals destroyed before parent resumes) is maintained because `complete_inline()` destroys the frame before releasing the parent child-ref.
 
 ## Type Hierarchy
 
@@ -53,7 +59,7 @@ CancelNode (ref-counted, intrusive list node)
 - `CancellationRuntime` — state, topology, parent link.
 - `magic_` — HALO detection cookie.
 - `frame_destroyed_` — single-destroy guard.
-- `cancel()`, `should_finish_due_to_cancellation()`, `mark_done()`, `complete_inline()`, `complete_scheduled()` — core completion/cancellation logic (moved from `promise_common`).
+- `cancel()`, `should_finish_due_to_cancellation()`, `route_resume_from_external()`, `route_resume_on_bound_executor()`, `complete_inline()`, `complete_scheduled()` — core completion/cancellation logic.
 
 `TaskControl<T>` adds:
 - `result_` — `std::optional<td::Result<T>>`, persists after frame destroy.
@@ -101,7 +107,10 @@ Key queries:
 
 ## Topology
 
-`CancelTopology<Tag>` — mutex-protected intrusive linked list of `CancelNode`s. Templated on tag for independent lists (topology list, actor cancel list).
+`CancelTopology<Tag>` — mutex-protected intrusive linked list of `CancelNode`s. Templated on tag for independent lists:
+
+- `TopologyTag` — per-task cancellation topology for child scopes and heap cancel nodes.
+- `ActorCancelTag` — per-actor topology for coroutines currently suspended on actor-bound external work.
 
 Operations:
 - `publish_and_maybe_cancel(node, is_cancelled_fn)` — add to list, cancel immediately if scope is already cancelled.
@@ -110,6 +119,8 @@ Operations:
 - `drain_cleanup()` — remove all nodes, ref-hold, call `on_cleanup()` on each, dec-ref.
 
 `cancel_snapshot` and `drain_cleanup` use a shared `batch()` template that handles the ref-hold→action→dec-ref loop.
+
+`ActorInfo` owns `CancelTopology<ActorCancelTag> coro_cancel_topology_` plus `coro_cancelled_`. `wrap_coroutine()` publishes the suspended outer task control into this actor topology, and the wrapper's `final_suspend()` unpublishes it when the await completes.
 
 ## ParentLink
 
@@ -149,25 +160,31 @@ Holds one child-count lease on a parent scope's control block. Destructor decrem
    - If children remain → suspend (WAITING set). Last child completes parent via `complete_scheduled()`.
    - If no children → `complete_inline()`: notify parent, resume continuation.
 
-### Cancellation (finish_if_cancelled)
+### Cancellation / Resume Boundary
 
-1. Awaiter resume checks `should_finish_due_to_cancellation()`.
-2. `finish_if_cancelled()` publishes cancelled result, then decides the path:
-   - If children remain (`try_wait_for_children()`), suspend — last child will complete parent later.
-   - If a cancel topology walk is active with published nodes, use `complete_inline()` — nodes must observe cancel before teardown.
-   - Otherwise, `complete_cancelled_with_frame_destroy()`:
-     a. Calls `on_ready()` to get completion routing.
-     b. Detaches parent link (but does not release child-ref yet).
-     c. Takes self-ref, marks frame destroyed, runs `on_last_ref_teardown` (topology drain), calls `h.destroy()`.
-     d. Releases coroutine's own ref and parent child-ref **after** frame destruction.
-     e. Returns continuation.
+1. `cancel()` sets `CANCELLED`. If `IGNORED` is not active, it immediately walks the task topology via `cancel_snapshot()`.
+2. Awaiters notice cancellation through `should_finish_due_to_cancellation_tls()` and route back through `route_resume_from_external()` instead of consuming a ready result inline.
+3. `route_resume_on_bound_executor()` is the canonical completion gate:
+   - If the scope is cancelled, it stores `cancelled_status()` unless another terminal result is already present.
+   - If any terminal result is present (cancelled, error, externally supplied), it enters `final_suspend()`.
+   - Otherwise it continues the coroutine body on the bound executor with TLS restored.
+4. `final_suspend()` either waits for children or calls `complete_inline()`.
+5. `complete_inline()` marks the task ready, detaches the parent link for child completion, destroys the frame, releases refs, then returns the continuation.
 
-The frame-destroy path enforces: **child locals are destroyed before parent resumes**.
+The normal completion path therefore also enforces the cancellation ordering guarantee: **child locals are destroyed before parent resumes**.
+
+### Actor Stop / Closed Actor Path
+
+1. When an actor-bound coroutine suspends on external work, `wrap_coroutine()` publishes its `TaskControlBase` into the owning actor's `coro_cancel_topology_`.
+2. `ActorExecutor::flush_context_flags()` calls `cancel_coro_cancel_nodes()` before setting the actor's `Closed` flag and before `tear_down()`.
+3. Resumes back to the actor use `ActorMessageCoroutineSafe`, which marks the continuation message as `survives_close()`.
+4. If the actor closes before that continuation runs, closed-mailbox draining destroys the safe message under actor context. Its destructor calls `fail_actor_destroyed()`, which synchronously re-enters `route_resume_on_bound_executor()` and may drive `final_suspend()` / frame destruction immediately.
+5. This is why suspended actor coroutines are cancelled automatically on actor stop, and why actor-affine coroutine locals/destructors can still run with actor context even after close.
 
 ### on_zero_refs (last ref drop)
 
 1. `on_last_ref_teardown()` — release parent link (Teardown), drain topology.
-2. `try_mark_frame_destroyed()` — if frame not already destroyed, destroy it.
+2. `try_destroy_frame()` — if frame not already destroyed, destroy it.
 3. `free_allocation()` — destruct control, free backing memory.
 
 ## Operations
@@ -231,8 +248,9 @@ Breaks circular dependency between `TaskControlBase` (which contains `Cancellati
 
 ## Cancellation Contract
 
-- Structured cancellation applies to scoped starts: `start_in_parent_scope()`, `start_immediate_in_parent_scope()`, `start_external_in_parent_scope()`.
+- Structured cancellation applies to scoped starts, including internal external-scoped starts.
 - Unscoped starts (`start_without_scope()`, etc.) do not participate in parent cancellation.
+- Actor-bound external suspension participates in actor-local cancellation even without a parent scope.
 - `HeapCancelNode` is the extension point for custom external resources (timers, IO).
 - Cancellation is scheduler/actor-context-affine: `TaskControlBase::cancel()` requires an active `SchedulerContext`.
 
@@ -255,7 +273,7 @@ Token encoding for scheduler queue uses bottom 2 bits:
 
 - Child count counts all child scopes, including `ParentScopeLease` refs.
 - Detaching a `StartedTask` handle does not detach from parent scope.
-- `ParentScopeLease` destructor may complete a waiting parent, but completion is always scheduled.
+- `ParentScopeLease` destructor may complete a waiting parent, but completion is routed via `complete_scheduled()` and therefore resumes on the parent's bound executor (inline if already on that executor, otherwise scheduled).
 - `ParentLink::release(Teardown)` never completes parent (no resume from non-scheduler threads).
 - When IGNORED is set, `cancel()` sets CANCELLED but skips topology walk. Deferred to `leave_ignore()`.
 - Child locals are destroyed before parent resumes in all completion paths (normal, error, cancellation).

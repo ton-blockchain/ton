@@ -86,7 +86,8 @@ struct TaskControlBase : CancelNode {
   }
 
   virtual std::coroutine_handle<> get_handle() const = 0;
-
+  virtual void route_resume_from_external() = 0;
+  virtual std::coroutine_handle<> route_resume_on_bound_executor() = 0;
   bool try_destroy_frame() {
     if (!std::exchange(frame_destroyed_, true)) {
       get_handle().destroy();
@@ -119,7 +120,7 @@ struct TaskControlBase : CancelNode {
 
     TaskControlBase* parent = nullptr;
     if (ready.should_notify_parent) {
-      parent = cancellation.take_parent_for_child_completed(*this);
+      parent = cancellation.take_parent_on_child_completed(*this);
     }
 
     add_ref();
@@ -136,10 +137,7 @@ struct TaskControlBase : CancelNode {
   }
 
   void complete_scheduled() {
-    auto continuation = complete_inline();
-    if (continuation && continuation != std::noop_coroutine()) {
-      SchedulerExecutor{}.schedule(continuation);
-    }
+    route_resume_from_external();
   }
 
   TaskStateManagerData state_manager_data{};
@@ -165,8 +163,17 @@ struct TaskControl : TaskControlBase {
   }
 
   std::coroutine_handle<> get_handle() const override;
-
+  void route_resume_from_external() override;
+  std::coroutine_handle<> route_resume_on_bound_executor() override;
   void set_result(td::Result<T>&& r) {
+    CHECK(!result_);
+    result_.emplace(std::move(r));
+  }
+
+  void try_store_result(td::Result<T>&& r) {
+    if (result_) {
+      return;
+    }
     result_.emplace(std::move(r));
   }
 
@@ -178,6 +185,10 @@ struct TaskControl : TaskControlBase {
   const td::Result<T>& peek_result() const {
     CHECK(result_);
     return *result_;
+  }
+
+  bool has_result() const {
+    return result_.has_value();
   }
 
   void on_zero_refs() override;
@@ -407,6 +418,11 @@ struct StartedTask;
 
 namespace detail {
 
+struct TaskAccess {
+  template <class T>
+  static StartedTask<T> start_external(Task<T>&& task, ParentScopeLease scope);
+};
+
 template <class T>
 struct IsTaskAwaitable : std::false_type {};
 
@@ -509,8 +525,9 @@ struct promise_type : promise_common {
       }
 
       std::coroutine_handle<> await_suspend(Handle self) noexcept {
+        // NB: we may enter this function twice, it should be ok. Last one will complete_inline
         auto& ctrl = *Control::from_frame(self.address());
-        if (ctrl.cancellation.try_wait_for_children()) {
+        if (ctrl.cancellation.begin_waiting_for_children()) {
           return std::noop_coroutine();
         }
         return ctrl.complete_inline();
@@ -611,7 +628,7 @@ struct promise_type : promise_common {
       }
 
       std::coroutine_handle<> await_suspend(std::coroutine_handle<promise_type> handle) noexcept {
-        return handle.promise().finish_if_cancelled().value_or(std::noop_coroutine());
+        return handle.promise().route_resume_from_external();
       }
 
       void await_resume() noexcept {
@@ -629,7 +646,7 @@ struct promise_type : promise_common {
       }
 
       std::coroutine_handle<> await_suspend(std::coroutine_handle<promise_type> h) noexcept {
-        return h.promise().finish_if_cancelled().value_or(std::noop_coroutine());
+        return h.promise().route_resume_from_external();
       }
 
       CancellationGuard await_resume() noexcept {
@@ -644,32 +661,30 @@ struct promise_type : promise_common {
     return executor().is_immediate_execution_always_allowed();
   }
 
-  std::optional<std::coroutine_handle<>> finish_if_cancelled() {
-    if (!this->control_->should_finish_due_to_cancellation()) {
-      return std::nullopt;
+  void finish_if_cancelled() {
+    if (this->control_->should_finish_due_to_cancellation()) {
+      typed_control()->try_store_result(cancelled_status());
     }
-    set_completion_result(cancelled_status());
-    if (this->control_->cancellation.try_wait_for_children()) {
-      return std::noop_coroutine();
-    }
-    return typed_control()->complete_inline();
   }
 
-  std::coroutine_handle<> route_resume() {
-    if (auto h = finish_if_cancelled()) {
-      return *h;
-    }
+  std::coroutine_handle<> route_resume_from_external() {
     return executor().resume_or_schedule(self());
   }
 
-  std::coroutine_handle<> route_schedule() {
-    executor().schedule(self());
-    return std::noop_coroutine();
+  std::coroutine_handle<> route_resume_on_bound_executor() {
+    if (this->control_->should_finish_due_to_cancellation()) {
+      typed_control()->try_store_result(cancelled_status());
+    }
+    if (typed_control()->has_result()) {
+      return final_suspend().await_suspend(self());
+    }
+    // Caller guarantees we are already executing on the bound executor.
+    return detail::continue_with_tls(self());
   }
 
   std::coroutine_handle<> route_finish(td::Result<T> r) {
-    set_completion_result(std::move(r));
-    return final_suspend().await_suspend(self());
+    typed_control()->try_store_result(std::move(r));
+    return route_resume_from_external();
   }
 
  private:
@@ -680,18 +695,21 @@ struct promise_type : promise_common {
   template <class U>
   bool attach_parent_scope_and_notify_if_ready(StartedTask<U>& task, detail::TaskControlBase& inner_ctrl) {
     CHECK(!inner_ctrl.cancellation.has_parent_scope());
-    inner_ctrl.cancellation.set_parent_lease(inner_ctrl, bridge::make_parent_scope_lease(*this->control_));
+    inner_ctrl.cancellation.attach_parent_scope(inner_ctrl, bridge::make_parent_scope_lease(*this->control_));
     if (!task.await_ready()) {
       return false;
     }
     // If task completed during attach, release the transient parent child-ref now.
-    inner_ctrl.cancellation.notify_parent_child_completed(inner_ctrl);
+    inner_ctrl.cancellation.release_parent_on_child_completed(inner_ctrl);
     return true;
   }
 
   template <AwaiterLinkMode LinkMode, class U>
   auto normalize_task_awaitable(Task<U>&& task) noexcept {
     if constexpr (LinkMode == AwaiterLinkMode::Unlinked) {
+      if (this->control_->should_finish_due_to_cancellation()) {
+        task.ctrl().cancel();
+      }
       return std::move(task).start_immediate_without_scope();
     } else {
       return std::move(task).start_immediate_in_parent_scope(bridge::make_parent_scope_lease(*this->control_));
@@ -763,6 +781,16 @@ struct promise_type : promise_common {
 template <class T>
 inline std::coroutine_handle<> detail::TaskControl<T>::get_handle() const {
   return handle();
+}
+
+template <class T>
+inline void detail::TaskControl<T>::route_resume_from_external() {
+  detail::resume_on_current_tls(handle().promise().route_resume_from_external());
+}
+
+template <class T>
+inline std::coroutine_handle<> detail::TaskControl<T>::route_resume_on_bound_executor() {
+  return handle().promise().route_resume_on_bound_executor();
 }
 
 template <class T>
@@ -866,9 +894,6 @@ struct [[nodiscard]] Task : TaskHandle<Task<T>, T> {
   auto start_immediate_in_parent_scope() && {
     return std::move(*this).start_impl(current_scope_lease(), StartMode::Immediate);
   }
-  auto start_external_in_parent_scope() && {
-    return std::move(*this).start_impl(current_scope_lease(), StartMode::External);
-  }
 
   // Explicit parent scope
   auto start_in_parent_scope(ParentScopeLease scope) && {
@@ -877,9 +902,6 @@ struct [[nodiscard]] Task : TaskHandle<Task<T>, T> {
   auto start_immediate_in_parent_scope(ParentScopeLease scope) && {
     return std::move(*this).start_impl(std::move(scope), StartMode::Immediate);
   }
-  auto start_external_in_parent_scope(ParentScopeLease scope) && {
-    return std::move(*this).start_impl(std::move(scope), StartMode::External);
-  }
 
   // No parent scope
   auto start_without_scope() && {
@@ -887,9 +909,6 @@ struct [[nodiscard]] Task : TaskHandle<Task<T>, T> {
   }
   auto start_immediate_without_scope() && {
     return std::move(*this).start_registered(StartMode::Immediate);
-  }
-  auto start_external_without_scope() && {
-    return std::move(*this).start_registered(StartMode::External);
   }
 
   [[deprecated("use start_in_parent_scope() or start_without_scope()")]]
@@ -916,10 +935,16 @@ struct [[nodiscard]] Task : TaskHandle<Task<T>, T> {
   }
 
  private:
+  friend struct detail::TaskAccess;
+
+  StartedTask<T> start_external_impl(ParentScopeLease scope) && {
+    return std::move(*this).start_impl(std::move(scope), StartMode::External);
+  }
+
   StartedTask<T> start_impl(ParentScopeLease scope, StartMode mode) && {
     if (scope) {
       auto& ctrl = this->ctrl();
-      ctrl.cancellation.set_parent_lease(ctrl, std::move(scope));
+      ctrl.cancellation.attach_parent_scope(ctrl, std::move(scope));
     }
     return std::move(*this).start_registered(mode);
   }
@@ -1075,7 +1100,7 @@ struct [[nodiscard]] StartedTask : TaskHandle<StartedTask<T>, T> {
     auto task = []() -> Task<T> { co_return typename promise_type::ExternalResult{}; }();
     task.set_executor(Executor::on_scheduler());
     auto bridge_promise = ExternalPromise(&task.promise());
-    auto started_task = std::move(task).start_external_in_parent_scope();
+    auto started_task = detail::TaskAccess::start_external(std::move(task), current_scope_lease());
     return std::make_pair(std::move(started_task), std::move(bridge_promise));
   }
 };
@@ -1168,7 +1193,7 @@ class TaskGroup {
 
     TaskGroup source;
     source.external_ = StartedTask<td::Unit>::ExternalPromise(&task.promise());
-    source.root_ = std::move(task).start_external_in_parent_scope(std::move(parent_scope));
+    source.root_ = detail::TaskAccess::start_external(std::move(task), std::move(parent_scope));
     return source;
   }
 
@@ -1209,5 +1234,14 @@ template <class P, class T>
 void custom_connect(P&& p, Task<T>&& task, Immediate) noexcept {
   connect(std::forward<P>(p), std::move(task).start_immediate_in_parent_scope(current_scope_lease()));
 }
+
+namespace detail {
+
+template <class T>
+StartedTask<T> TaskAccess::start_external(Task<T>&& task, ParentScopeLease scope) {
+  return std::move(task).start_external_impl(std::move(scope));
+}
+
+}  // namespace detail
 
 }  // namespace td::actor

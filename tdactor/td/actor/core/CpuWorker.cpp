@@ -55,7 +55,7 @@ void CpuWorker::run() {
         if (actor::detail::is_ctrl_encoded(encoded)) {
           // Ctrl-encoded: resume with control block TLS.
           auto *ctrl = actor::detail::decode_ctrl(encoded);
-          actor::detail::resume_with_tls(ctrl->get_handle(), ctrl);
+          actor::detail::resume_with_tls(ctrl->route_resume_on_bound_executor(), ctrl);
         } else {
           // Handle-encoded: resume with root TLS.
           auto h = actor::detail::decode_continuation(encoded);
