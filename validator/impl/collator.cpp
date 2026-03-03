@@ -6656,6 +6656,9 @@ void Collator::got_new_external_message(Ref<ExtMessage> ext_msg, int priority) {
   if (!params_.wait_externals_until || params_.wait_externals_until.is_in_past()) {
     return;
   }
+  if (registered_ext_msgs_.contains(ext_msg->hash())) {
+    return;
+  }
   ++stats_.ext_msgs_total;
   auto S = register_external_message(ext_msg, priority);
   if (S.is_error()) {
