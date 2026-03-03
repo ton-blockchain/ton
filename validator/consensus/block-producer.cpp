@@ -143,6 +143,9 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
                        << ", don't generate empty block";
           --slot;
           start_time = td::Timestamp::now();
+          if (r_candidate.error().code() != td::actor::AWAIT_TIMEOUT_CODE) {
+            block_generation_active = false;
+          }
           continue;
         }
         if (r_candidate.is_ok()) {
