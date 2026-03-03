@@ -442,7 +442,7 @@ void run_server(Config config) {
     td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, server_private_key(), true, [](td::Result<>) {});
 
     ton::adnl::AdnlAddressList addr_list;
-    addr_list.add_udp_address(self_addr).ensure();
+    addr_list.add_udp_adnl_address(self_addr).ensure();
     addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
     addr_list.set_reinit_date(ton::adnl::Adnl::adnl_start_time());
 
@@ -533,7 +533,7 @@ void run_client(Config config) {
                             [](td::Result<>) {});
 
     ton::adnl::AdnlAddressList local_addr_list;
-    local_addr_list.add_udp_address(self_addr).ensure();
+    local_addr_list.add_udp_adnl_address(self_addr).ensure();
     local_addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
     local_addr_list.set_reinit_date(ton::adnl::Adnl::adnl_start_time());
 
@@ -570,7 +570,7 @@ void run_client(Config config) {
     // Add server as static node
     dst = ton::adnl::AdnlNodeIdShort{server_public_key().compute_short_id()};
     ton::adnl::AdnlAddressList server_addr_list;
-    server_addr_list.add_udp_address(config.server_addr).ensure();
+    server_addr_list.add_udp_adnl_address(config.server_addr).ensure();
     server_addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
     server_addr_list.set_reinit_date(0);
 

@@ -94,7 +94,8 @@ Config::Config(const ton::ton_api::engine_validator_config &config) {
                   priority_categories.push_back(td::narrow_cast<td::uint8>(cat));
                 }
               }
-            }));
+            },
+            [&](const auto &) { UNREACHABLE(); }));
 
     config_add_network_addr(in_ip, out_ip, std::move(proxy), categories, priority_categories).ensure();
   }
@@ -688,17 +689,13 @@ void DhtServer::add_addr(const Config::Addr &addr, const Config::AddrCats &cats)
 
   for (auto cat : cats.cats) {
     CHECK(cat >= 0);
-    ton::adnl::AdnlAddress x = ton::adnl::AdnlAddressImpl::create(
-        ton::create_tl_object<ton::ton_api::adnl_address_udp>(cats.in_addr.get_ipv4(), cats.in_addr.get_port()));
-    addr_lists_[cat].add_addr(std::move(x));
+    addr_lists_[cat].add_udp_adnl_address(cats.in_addr).ensure();
     addr_lists_[cat].set_version(ts);
     addr_lists_[cat].set_reinit_date(ton::adnl::Adnl::adnl_start_time());
   }
   for (auto cat : cats.priority_cats) {
     CHECK(cat >= 0);
-    ton::adnl::AdnlAddress x = ton::adnl::AdnlAddressImpl::create(
-        ton::create_tl_object<ton::ton_api::adnl_address_udp>(cats.in_addr.get_ipv4(), cats.in_addr.get_port()));
-    prio_addr_lists_[cat].add_addr(std::move(x));
+    prio_addr_lists_[cat].add_udp_adnl_address(cats.in_addr).ensure();
     prio_addr_lists_[cat].set_version(ts);
     prio_addr_lists_[cat].set_reinit_date(ton::adnl::Adnl::adnl_start_time());
   }
