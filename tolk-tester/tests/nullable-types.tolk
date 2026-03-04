@@ -104,7 +104,9 @@ fun test110() {
     var t : (int, Point?) = (0, {x: 10, y: 20});
     t.1!.y += 30;
     __expect_type(t.1, "Point?");
-    (t.1!, 0).0 = {x: 100, y: 200}; // does not modify `t.1`, since `(...).0` is a tmp lval
+    // this modifies `t.1`, not it's too hard for smart casts to follow, so `t.1` is left nullable
+    (t.1, 0).0 = {x: 100, y: 200};
+    __expect_type(t.1, "Point?");
     return (t.1 == null, t.1);
 }
 
@@ -127,5 +129,5 @@ fun main(x: int?, y: MIntN) {
 @testcase | 107 |     | 160
 @testcase | 108 |     | 4
 @testcase | 109 |     | [ 3 4 ] 3 4
-@testcase | 110 |     | 0 10 50 typeid-1
+@testcase | 110 |     | 0 100 200 typeid-1
  */

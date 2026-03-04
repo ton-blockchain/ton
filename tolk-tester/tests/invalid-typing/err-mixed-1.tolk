@@ -31,7 +31,7 @@ fun errSemanticsValConst() {
     increment(mutate MY_CONST);
 }
 
-// @stderr literal can not be used as lvalue
+// @stderr can not mutate a temporary expression
 fun errSemanticsLiteral() {
     increment(mutate 30);
 }

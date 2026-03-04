@@ -125,7 +125,6 @@ fun errCantBorrowInSquareAssign(x89: int, y: int) {
     x89 += (y = x89);                                 // ok
     x89.add(([y] = [x89]).0);                     // ok
     x89.add(([y] = [x89]).0);                     // ok
-    x89.add(((eq((x89, 1).0 = x89 + 10), 1).0));  // ok
 
     x89.add(([y, x89] = [0, 0]).0);
 }
@@ -139,7 +138,6 @@ fun errCantBorrowInVeryComplex() {
     xy5.0 += (xy5.1 = xy5.0);                                  // ok
     xy5.0.add(([xy5.1] = [xy5.0]).0);                      // ok
     xy5.0.add(([xy5.1] = [xy5.0]).0);                      // ok
-    xy5.0.add(((eq((xy5.0, 1).0 = xy5.0 + 10), 1).0));     // ok
 
     var eqVoid = eq<void>;
     eqVoid(xy5.0.add(([xy5.1, (xy5.0.add(1), xy5.0).1] = [0, 0]).0));
@@ -154,11 +152,9 @@ struct Point {
 fun Point.copy(self) { return self }
 fun Point.mut(mutate self) { return self }
 
-// @stderr can not borrow `p03` for mutation, because `p03.x` is already being mutated by `assignment operator`
+// @stderr can not assign to a temporary expression
+// @stderr p03.mut().x
 fun cantBorrowAfterReturnMutateSelf(p03: Point) {
-    p03.x += (p03.copy().x = 5);        // ok
-    p03.x += (p03.copy().x += 5);       // ok
-
     p03.x += (p03.mut().x = 5);
 }
 
@@ -167,7 +163,8 @@ struct JustX { x: int }
 fun JustX.id(self): self { return self; }
 fun JustX.bump(mutate self) { self.x += 1; }
 
-// @stderr can not borrow `a19.0` for mutation once again, it is already being mutated by `JustX.bump`
+// @stderr can not mutate a temporary expression
+// @stderr (a19.0 = JustX{x: 10}).id()
 fun cantBorrowWithSelfFunction() {
     var a19: [JustX] = [JustX { x: 0 }];
     (a19.0 = JustX{x: 10}).id().bump();
@@ -175,7 +172,13 @@ fun cantBorrowWithSelfFunction() {
 
 global t107: (int, int);
 
-// @stderr can not borrow `t107` for mutation, because `t107.0` is already being mutated by `assignment operator`
-fun cantBorrowWhenAssignmentInField() {
-    ((t107 = (1, 2)).0, (t107 = (3, 4)).1, ) = (5, 6, );
+fun (int, int).increment(mutate self) {
+    self.0 += 1;
+    self.1 += 1;
+}
+
+// @stderr can not borrow `x33` for mutation once again, it is already being mutated by `(int,int).increment`
+fun errCantBorrowViaTensorIndex() {
+    var x33 = 0;
+    ((x33, x33).0, (x33, x33).1).increment();
 }

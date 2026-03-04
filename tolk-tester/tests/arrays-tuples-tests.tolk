@@ -488,9 +488,6 @@ fun test124() {
     setPointYInUnion(mutate sh.2, 200);
     setPointYInUnion(mutate sh.3, 200);
 
-    (sh.3 as unknown as (int, int)).0 = -888;   // no effect, works on tmp rvalue
-    (sh.3 as unknown as Point).y = -888;        // same, no effect
-
     __expect_type(sh.4, "int | (int, int, int)");
     if (sh.4 is int) {
         sh.4 = (0, 0, sh.4);

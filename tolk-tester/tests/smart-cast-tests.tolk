@@ -242,13 +242,6 @@ fun test22() {
     return t.0 + t.1.0 + t.1.1;
 }
 
-@method_id(123)
-fun test23() {
-    var (x: int?, y: int?, z: int?) = (getNullableInt(), getNullableInt(), getNullableInt());
-    ((x = 1, 0).0, (y = 2, 1).0) = (3, z = 4);
-    return x + y + z;
-}
-
 @method_id(124)
 fun test24(x: int?) {
     if (x == null) {
@@ -795,7 +788,6 @@ fun main(x: int?): int {
 /**
 @testcase | 0   | 1     | 1
 @testcase | 111 |       | 10
-@testcase | 123 |       | 7
 @testcase | 124 | 4     | 6
 @testcase | 124 | null  | 15
 @testcase | 130 | -1    | 20

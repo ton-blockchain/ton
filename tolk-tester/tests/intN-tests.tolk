@@ -216,22 +216,6 @@ fun test14(firstComponent: int8?): (int, int16)? {
     return firstComponent! < 10 ? null : (firstComponent! as int, 2 as int16);
 }
 
-@noinline
-fun assign0<T>(mutate v: T) { v = 0; }
-
-@method_id(115)
-fun test15() {
-    var t = createEmptyTuple();
-    t.push(1);
-    t.push(2);
-    t.push(3);
-    // these statements have no effect, they work on a tmp rvalue
-    assign0<int8>(mutate (t as unknown as [int8]).0);
-    assign0<uint16>(mutate (t as unknown as [int, uint16]).1);
-    assign0<int>(mutate (t as unknown as [unknown, slice, int]).2);
-    return t;
-}
-
 fun main() {
     var t = createEmptyTuple();
     __expect_type(t.get(0) as int1, "int1");
@@ -254,11 +238,6 @@ fun main() {
 @testcase | 111 |      | [ 1000000000 1000000000 1000000000 -321123456789 321123456798 1100000000 ]
 @testcase | 114 | 5    | (null) (null) 0
 @testcase | 114 | 15   | 15 2 typeid-1
-@testcase | 115 |      | [ 1 2 3 ]
-
-@fif_codegen DECLPROC assign0<int8>()
-@fif_codegen DECLPROC assign0<uint16>()
-@fif_codegen DECLPROC assign0<int>()
 
 @fif_codegen
 """

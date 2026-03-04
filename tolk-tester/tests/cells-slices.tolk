@@ -147,11 +147,11 @@ fun test11() {
     var size5 = s.remainingBitsCount();
 
     var s32 = stringHexToSlice("00000000");
-    // all these calls do not modify `s32`, they modify a temporary object (and a pure call is removed)
-    (s32, 0).0.skipBits(32);
-    (s32!, 0).0.skipBits(32);
-    (s32 as slice, 0).0.skipBits(32);
-    ((_, _) = (1, s32)).1.skipBits(32);
+    // this call modifes `s32`
+    (s32, 0).0.skipBits(8);
+    // but this will be denied as "can not mutate a temporary exression"
+    // (s32!, 0).0.skipBits(8);
+    // (s32 as slice, 0).0.skipBits(8);
 
     return (n1, n2, size1, size2, size3, size4, size5, s32.remainingBitsCount());
 }
@@ -653,7 +653,7 @@ fun main(): int {
 @testcase | 107 |     | 72 40 72
 @testcase | 108 |     | 0 40 32
 @testcase | 110 |     | 64 3 0 0 -1 0 100 -1
-@testcase | 111 |     | 2 3 224 192 160 128 96 32
+@testcase | 111 |     | 2 3 224 192 160 128 96 24
 @testcase | 112 |     | 9 100
 @testcase | 113 |     | [ 3 128 5 ] [ 2 96 3 ] 444
 @testcase | 114 | -1  | -1 0 -1

@@ -5,6 +5,8 @@ enum Color { Red, Green, Blue }
 
 struct Point { a: int; b: int; }
 
+fun Point.assign(mutate self) { }
+
 // @stderr can not apply operator `==` to `Color` and `int`
 // @stderr can not apply operator `+` to `Color` and `int`
 fun errEnumAndInt(c: Color) {
@@ -55,4 +57,10 @@ struct Gen<T> {
 fun instantiateToInvalidPlus() {
     var c: Gen<int8> = {};
     return c;
+}
+
+// @stderr can not mutate a temporary expression
+fun canNotMutateNonEmptyObject() {
+    var (a, b) = (0, 0);
+    Point {a, b}.assign();
 }

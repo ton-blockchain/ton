@@ -343,42 +343,6 @@ fun testReceiverAndNot() {
     return (a1, a2);
 }
 
-global callOrder: tuple;
-
-fun int.assign(mutate self, v: int) {
-    self = v;
-}
-
-fun getTensor_12() {
-    callOrder.push(12);
-    return (1, 2);
-}
-
-fun getIntValue5() {
-    callOrder.push(5);
-    return 5;
-}
-
-@method_id(118)
-fun testNoExtraFunCallsOnMutate() {
-    callOrder = createEmptyTuple();
-    getTensor_12().0.assign(getIntValue5());
-    return callOrder;
-}
-
-fun blockchain.getTuple(self): [int, int] {
-    callOrder.push(8);
-    return [1, 2];
-}
-
-@method_id(119)
-fun testNoExtraFunCallsAlso() {
-    callOrder = createEmptyTuple();
-    var s = blockchain{};
-    s.getTuple().1.assign(100);
-    return (s, callOrder);
-}
-
 global g120: OnlyNullableTensor;
 
 fun setFirstOfTensor(mutate x: (int, int)) {
@@ -396,46 +360,6 @@ fun testMutateNotNullGlobal(setNull: bool) {
     return g120
 }
 
-struct Box121 {
-    v: int
-}
-
-fun Box121.inc(mutate self): self {
-    self.v += 1;
-    return self;
-}
-
-fun Box121.mix(mutate self, mutate x: int) {
-    self.v = self.v * 100 + x;
-}
-
-@method_id(121)
-fun testMutateSelfNested() {
-    // total 4663439
-    var a = Box121{ v: 7 };
-    var b = Box121{ v: 8 };
-    a.mix(mutate b.inc().v);
-    return (a.v, b.v);
-}
-
-struct Counter122 { v: int }
-
-fun Counter122.inc(mutate self): self { self.v += 1; return self; }
-fun Counter122.combine(mutate self, mutate x: int, mutate y: int) {
-    self.v = self.v + x + y;
-    x -= 5;
-    y -= 5;
-}
-
-@method_id(122)
-fun test122() {
-    var a = Counter122{v: 100};
-    var b = Counter122{v: 10};
-    var c = Counter122{v: 1};
-    a.combine(mutate b.inc().inc().v, mutate c.inc().inc().v);
-    return (a.v, b.v, c.v);
-}
-
 struct Box123 { v: int }
 
 fun Box123.id(self): self { return self }
@@ -448,146 +372,19 @@ fun Box123.doubleMutWithArgOrder(mutate self, mutate x: int): void asm (x self)
     "111 PUSHINT"   // new self.v
     "222 PUSHINT"   // new x
 
-@method_id(123)
-fun test123() {
-    var a = Box123{v: 100};
-    var b = Box123{v: 10};
-    a.inc().addMut(mutate b.inc().v);
-    return (a.v, b.v);
-}
-
-struct Box124 {
-    v: int
-}
-
-@inline
-fun Box124.id(self): self {     // not mutate
-    return self;
-}
-
-fun Box124.inc(mutate self): self {
-    self.v += 1;
-    return self;
-}
-
-@method_id(124)
-fun test124() {
-    var a = 100;
-    var b = Box124{ v: a }.id().inc();
-    Box124{ v: a }.v = 500;
-    Box124{ v: a }.v.incrementInPlace(10);
-    Box124{ v: a }.id().v = 500;
-    b.v.incrementInPlace(1);
-    return (a, b);
-}
-
-global calls125: int;
-
-struct Inner125 { v: int = 0 }
-struct Outer125 { inner: Inner125 = {} }
-
-fun makeOuter(): Outer125 {
-    calls125 += 1;
-    return {}
-}
-
-fun Inner125.bump(mutate self): self {
-    self.v += 10;
-    return self;
-}
-
-@method_id(125)
-fun test125() {
-    calls125 = 0;
-    var j = makeOuter().inner.bump().bump();
-    j.bump();
-    return (calls125, j.v);
-}
-
-@method_id(126)
-fun test126(k: int): (int, int) {
-    var x = k;
-    var b = Box123{ v: increment(mutate x) }.inc().inc();
-    return (x, b.v);
-}
-
-global g127: Box123;
-
-@method_id(127)
-fun test127(k: int) {
-    g127 = Box123{ v: k };
-    val t = g127.id().inc().inc();
-    return (g127.v, t.v);
-}
-
 @method_id(128)
 fun test128() {
     var a1: Box123 = { v: 1 };
-    var a2: Box123 = { v: 1 };
     var b1: Box123 = { v: 2 };
-    var b2: Box123 = { v: 2 };
-
     a1.doubleMutWithArgOrder(mutate b1.v);
-    a2.doubleMutWithArgOrder(mutate b2.id().v);
-    return (a1, a2, b1, b2);
+    return (a1, b1);
 }
-
-struct B129 { x: int }
-
-fun mk129(mutate w: int, v: int): B129 { w += 1; return { x: v }; }
-fun B129.id(self): self { return self; }
-
-fun int.inc(mutate self) { self += 1; }
-
-@method_id(129)
-fun test129() {
-    var b: B129 = { x: 0 };
-    var w = 0;
-    ((b = mk129(mutate w, 7))).id().x.inc();
-    return (w, b.x);
-}
-
-@method_id(130)
-fun test130() {
-    var sh: [B129?] = [null];
-    var w = 0;
-    (sh.0 = mk129(mutate w, 10))!.id().x += 1;
-    // w is mutated once; sh.0.x is modified via return-self writeback
-    return (w, sh.0!!.x);
-}
-
-fun (int, int).id(self): self { return self; }
-fun int.setOne(mutate self, dummy: int) { self = 1; }
-
-@method_id(131)
-fun test131() {
-    var p = (7, 9);
-    p.id().id().id().0.setOne(p.id().id().1 = 5);   // set p.0 = 1, set p.1 = 5
-    return p;
-}
-
-
-
-// return-self wrapper in narrowed union branch: type check, width transition, writeback tracking
 
 struct UA { x: int }
 struct UB { y: int }
 type UnionAB = UA | UB;
 
 fun UnionAB.id(self): self { return self; }
-fun UnionAB.toUA(mutate self) { self = UA { x: 1 }; }
-
-fun int?.idNullable(self): self { return self; }
-fun int?.assign42(mutate self) { self = 42; }
-
-@method_id(132)
-fun test132(): int {
-    var x: int? = 10;
-    if (x != null) {        // return-self wrapper in narrowed union branch
-        x.idNullable().assign42();
-    }
-    return x;
-}
 
 @method_id(133)
 fun test133(): int {
@@ -596,16 +393,6 @@ fun test133(): int {
         var copy: UnionAB = sh.0.id();
         if (copy is UB) { return copy.y; }
     }
-    return -1;
-}
-
-@method_id(134)
-fun test134(): int {
-    var sh: [UnionAB] = [UB { y: 7 }];
-    if (sh.0 is UB) {       // return-self in narrowed, chained via id(), mutated, and writes back to a shape
-        sh.0.id().toUA();
-    }
-    if (sh.0 is UA) { return sh.0.x; }
     return -1;
 }
 
@@ -645,24 +432,10 @@ fun main(){
 @testcase | 114 |    | 1 2 4
 @testcase | 115 |    | 13 2
 @testcase | 117 |    | 30 0 30 40
-@testcase | 118 |    | [ 12 5 ]
-@testcase | 119 |    | [ 8 ]
 @testcase | 120 | 0  | 1 20 typeid-1
 @testcase | 120 | -1 | (null) (null) 0
-@testcase | 121 |    | 709 9
-@testcase | 122 |    | 115 7 -2
-@testcase | 123 |    | 112 11
-@testcase | 124 |    | 100 102
-@testcase | 125 |    | 1 30
-@testcase | 126 | 7  | 8 10
-@testcase | 127 | 7  | 9 9
-@testcase | 128 |    | 111 111 222 222
-@testcase | 129 |    | 1 8
-@testcase | 130 |    | 1 11
-@testcase | 131 |    | 1 5
-@testcase | 132 |    | 42
+@testcase | 128 |    | 111 222
 @testcase | 133 |    | 7
-@testcase | 134 |    | 1
 @testcase | 135 |    | 0 0
 
 @fif_codegen
@@ -717,15 +490,6 @@ fun main(){
     OVER
     0 PUSHINT                   //  a1.f1=30 a2.f2=40 a2.f1=30 a1.f2=0
     s0 s2 XCHG                  //  a1.f1=30 a1.f2=0 a2.f1=30 a2.f2=40
-  }>
-"""
-
-@fif_codegen
-"""
-  test131() PROC:<{
-    5 PUSHINT
-    1 PUSHINT
-    SWAP
   }>
 """
 

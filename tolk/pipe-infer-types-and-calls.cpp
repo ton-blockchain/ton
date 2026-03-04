@@ -133,7 +133,14 @@ static Error err_method_or_field_not_found(TypePtr receiver_type, std::string_vi
     return err("field `{}` doesn't exist in type `{}`", field_name, receiver_type);
   } 
   if (std::vector<FunctionPtr> other = lookup_methods_with_name(field_name); !other.empty()) {
-    return err("method `{}` not found for type `{}`\n(but it exists for type `{}`)", field_name, receiver_type, other.front()->receiver_type);
+    std::string candidate_receivers;
+    for (FunctionPtr m : other) {
+      if (!candidate_receivers.empty()) candidate_receivers += ", ";
+      candidate_receivers += "`";
+      candidate_receivers += m->receiver_type->as_human_readable();
+      candidate_receivers += "`";
+    }
+    return err("method `{}` not found for type `{}`\n(but it exists for {} {})", field_name, receiver_type, other.size() == 1 ? "type" : "types", candidate_receivers);
   }
   if (const Symbol* sym = lookup_global_symbol(field_name); sym && sym->try_as<FunctionPtr>()) {
     return err("method `{}` not found, but there is a global function named `{}`\n(a function should be called `foo(arg)`, not `arg.foo()`)", field_name, field_name);

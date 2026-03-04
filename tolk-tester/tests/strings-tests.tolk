@@ -301,13 +301,6 @@ fun test14() {
   )
 }
 
-@method_id(115)
-fun test15() {
-  counter = 0;
-  val s = makeWrap().sb.append("a").append("b").build();
-  return (counter, s.equalTo("ab"));
-}
-
 @method_id(116)
 fun test16() {
   // all lhs of `crc16` are constant expressions, therefore it works
@@ -379,7 +372,6 @@ fun test19() {
 @testcase | 112 |     | -1 -1 -1 -1 -1 31
 @testcase | 113 |     | 27
 @testcase | 114 |     | -1 0 0 0 -1 -1 0 -1 0 -1 0 -1 0 0 -1 -1 -1 0 0 -1 0 -1
-@testcase | 115 |     | 1 -1
 @testcase | 116 |     | 43062 43062 43062 43062 43062
 @testcase | 117 |     | 1633837924
 @testcase | 118 |     | -1 -1 -1 -1

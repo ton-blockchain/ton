@@ -310,19 +310,6 @@ fun test124(setNull: bool) {
     return t;
 }
 
-global g125: int;
-fun getT125(): (int, (int, int)?, (int?, int)?) { return (g125 += 1, null, null); }
-
-@method_id(125)
-fun test125() {
-    g125 = 0;
-    getT125().1 = null;
-    getT125().2 = (1, 2);
-    (getT125()!! as (int, (int, int)?, (int?, int)?)).2 = null;
-    // test that nothing left on a stack
-    return g125;
-}
-
 @method_id(126)
 fun test126() {
     var tt1: (int, null, int) = (1, null, 2);
@@ -531,30 +518,29 @@ fun main(){}
 @testcase | 123 |      | 1 3 4 typeid-3
 @testcase | 124 | 0    | 1 3 4 typeid-3 4 (null) (null) 0
 @testcase | 124 | -1   | 1 (null) (null) 0 4 (null) (null) 0
-@testcase | 125 |      | 3
 @testcase | 126 |      | 1 (null) 2
 @testcase | 127 | 1    | 1 (null) (null) 0 2
 @testcase | 127 | 2    | 1 2 3 typeid-1 4
 @testcase | 127 | 3    | 1 (null) (null) 0 5
-@testcase | 128 | 1    | 1 (null) (null) 0 2 typeid-6
+@testcase | 128 | 1    | 1 (null) (null) 0 2 typeid-5
 @testcase | 128 | 2    | (null) (null) (null) (null) (null) 0
-@testcase | 128 | 3    | 1 2 3 typeid-1 4 typeid-6
+@testcase | 128 | 3    | 1 2 3 typeid-1 4 typeid-5
 @testcase | 129 | 0    | 5 5 0 -1 1 2 0 -1
 @testcase | 129 | -1   | 5 5 0 -1 (null) (null) 0 -1
 @testcase | 130 | 0    | 1 2 3 typeid-1
 @testcase | 130 | -1   | 1 (null) (null) 0
-@testcase | 131 |      | typeid-7 777 0 777 777 777 0 0 typeid-7 typeid-7 777 typeid-7 typeid-7 typeid-8 777
+@testcase | 131 |      | typeid-6 777 0 777 777 777 0 0 typeid-6 typeid-6 777 typeid-6 typeid-6 typeid-7 777
 @testcase | 132 |      | -1 0 -1 0 777 (null) (null) -1 0 0
 @testcase | 133 |      | 60
 @testcase | 134 |      | 11 21 typeid-1
-@testcase | 135 |      | [ 10 ] [ (null) ] (null) 777 10 typeid-9 (null) typeid-9 (null) 0 777 10 typeid-10 (null) typeid-10 (null) 0 777 0 0 -1 0 0 -1 0 0 -1 777 0 -1 0 0 -1 0
+@testcase | 135 |      | [ 10 ] [ (null) ] (null) 777 10 typeid-8 (null) typeid-8 (null) 0 777 10 typeid-9 (null) typeid-9 (null) 0 777 0 0 -1 0 0 -1 0 0 -1 777 0 -1 0 0 -1 0
 @testcase | 136 | 9    | 9 0
 @testcase | 136 | null | (null) -1
-@testcase | 140 | 8 9  | 8 9 typeid-11 (null) (null) 0
+@testcase | 140 | 8 9  | 8 9 typeid-10 (null) (null) 0
 @testcase | 141 |      | (null) 10
 @testcase | 142 |      | 3 3 1 2
 @testcase | 143 | -1 0 | 1 2 1 3 777 (null) (null) (null) (null) 0
-@testcase | 143 | 0 -1 | 1 (null) 0 3 777 1 2 1 3 typeid-12
+@testcase | 143 | 0 -1 | 1 (null) 0 3 777 1 2 1 3 typeid-11
 
 @fif_codegen
 """

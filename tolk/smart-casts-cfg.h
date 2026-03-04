@@ -205,7 +205,8 @@ struct ExprFlow {
 std::ostream& operator<<(std::ostream& os, const FactsAboutExpr& facts);
 std::ostream& operator<<(std::ostream& os, const FlowContext& flow);
 TypePtr calculate_type_subtract_rhs_type(TypePtr type, TypePtr subtract_type);
-SinkExpression extract_sink_expression_from_vertex(AnyExprV v, bool allow_global_vars = false);
+SinkExpression extract_sink_expression_from_vertex(AnyExprV v);
+bool is_valid_lvalue_path(AnyExprV v, std::vector<SinkExpression>* out_sinks = nullptr, bool inside_dot_obj = false);
 TypePtr calc_declared_type_before_smart_cast(AnyExprV v);
 TypePtr calc_smart_cast_type_on_assignment(TypePtr lhs_declared_type, TypePtr rhs_inferred_type);
 

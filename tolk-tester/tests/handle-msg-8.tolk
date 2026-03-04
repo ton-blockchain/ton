@@ -19,7 +19,7 @@ fun onInternalMessage(in: InMessage) {
   onInternalMessage() PROC:<{
     2 LDU
     NIP                     	//  in.body
-    2 PLDU                  	//  '8
+    2 PLDU                  	//  '7
   }>
 """
 */

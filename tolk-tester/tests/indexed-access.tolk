@@ -186,12 +186,6 @@ fun getConstTuple(): Tup2Int {
     return [1,2];
 }
 
-@noinline
-fun testCodegenNoPureIndexedAccess() {
-    (getConstTuple().1, getConstTuple().0) = (3, 4);
-    return 0;
-}
-
 @method_id(113)
 fun test113() {
     var x = [[1, 2]] as [[int,uint256]];
@@ -244,13 +238,6 @@ fun testCodegenIndexPostfix2(x: (int, (int, int), int)) {
     return (y.2, y.0, y.1.1);
 }
 
-fun getT() { return (1, 2); }
-
-@method_id(120)
-fun test120() {
-    return (getT().0 = 3, getT().0 = reflect.stackSizeOfObject(getT()) * 2, [getT().0 = 5, getT().0 = 6]);
-}
-
 global t121: (int, int);
 
 @method_id(121)
@@ -291,9 +278,6 @@ fun test124(zero: int) {
     var t = createEmptyTuple();
     t.push(-100);
     t.set(0, zero);
-    // these statements have no effect, as a mutating method is called not on a sink object
-    (t as unknown as [int]).0.increment();
-    increment(mutate (t as unknown as [int, int, int]).0);
     return t;
 }
 
@@ -316,7 +300,6 @@ fun test126() {
 }
 
 fun main(){
-    testCodegenNoPureIndexedAccess();
 }
 
 
@@ -340,7 +323,6 @@ fun main(){
 @testcase | 117 |       | 7
 @testcase | 118 | 1 2   | 2 1
 @testcase | 119 | 1 2 3 4 | 4 1 3
-@testcase | 120 |       | 3 4 [ 5 6 ]
 @testcase | 121 |       | 1 1 [ [ 2 2 ] ]
 @testcase | 122 | 1 2   | -1 -1 0 -1 -1 0
 @testcase | 123 |       | [ [ 100 100 ] ]
@@ -394,13 +376,6 @@ fun main(){
     $gTup GETGLOB               //  t1 t2 g_gTup
     $gTens GETGLOB
     2 UNTUPLE                   //  t1 t2 g_gTup g_gTens.0 g_gTens.1
-  }>
-"""
-
-@fif_codegen
-"""
-  testCodegenNoPureIndexedAccess() PROC:<{
-    0 PUSHINT  // '8=0
   }>
 """
 
