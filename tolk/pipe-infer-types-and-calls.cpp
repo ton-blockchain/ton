@@ -1123,6 +1123,12 @@ class InferTypesAndCallsAndFieldsVisitor final {
       err_method_or_field_not_found(dot_obj->inferred_type, field_name, out_f_called != nullptr, false).fire(v_ident, cur_f);
     }
 
+    // for methods (which are extension functions), `import` must exist, same as for regular functions/types
+    bool allow_no_import = fun_ref->is_builtin() || fun_ref->ident_anchor->range.is_file_id_same_or_stdlib_common(v->range);
+    if (!allow_no_import) {
+      fun_ref->check_import_exists_when_used_from(cur_f, v_ident);
+    }
+
     // if `fun T.copy(self)` and reference `int.copy` — all generic parameters are determined by the receiver, we know it
     if (fun_ref->is_generic_function() && fun_ref->genericTs->size() == fun_ref->genericTs->n_from_receiver) {
       tolk_assert(substitutedTs.typeT_at(0) != nullptr);

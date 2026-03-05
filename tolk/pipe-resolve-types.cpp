@@ -187,8 +187,9 @@ class TypeNodesVisitorResolver {
         }
         if (const Symbol* sym = lookup_global_symbol(text)) {
           if (TypePtr custom_type = try_resolve_user_defined_type(cur_f, v->range, sym, allow_without_type_arguments)) {
+            bool already_resolved = v->resolved_type != nullptr;
             bool allow_no_import = sym->is_builtin() || sym->ident_anchor->range.is_file_id_same_or_stdlib_common(v->range);
-            if (!allow_no_import) {
+            if (!allow_no_import && !already_resolved) {
               sym->check_import_exists_when_used_from(cur_f, v);
             }
             return custom_type;
