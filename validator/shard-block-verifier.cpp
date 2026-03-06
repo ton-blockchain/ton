@@ -94,6 +94,10 @@ void ShardBlockVerifier::update_config(td::Ref<ShardBlockVerifierConfig> new_con
       }
     }
   }
+  all_trusted_nodes_.clear();
+  for (auto& shard : config_->shards) {
+    all_trusted_nodes_.insert(shard.trusted_nodes.begin(), shard.trusted_nodes.end());
+  }
 
   alarm_timestamp().relax(send_subscribe_at_ = td::Timestamp::now());
 }
@@ -119,8 +123,13 @@ void ShardBlockVerifier::alarm() {
 }
 
 void ShardBlockVerifier::process_message(adnl::AdnlNodeIdShort src, td::BufferSlice data) {
+  if (!all_trusted_nodes_.contains(src)) {
+    LOG(INFO) << "Message from " << src << " : unknown src";
+    return;
+  }
   auto r_obj = fetch_tl_object<ton_api::shardBlockVerifier_confirmBlocks>(data, true);
   if (r_obj.is_error()) {
+    LOG(INFO) << "Message from " << src << " : " << r_obj.move_as_error();
     return;
   }
   for (const auto& b : r_obj.ok()->blocks_) {

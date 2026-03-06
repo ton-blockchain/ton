@@ -198,12 +198,14 @@ class TestOverlayNode : public runtime::SpawnsWith<Bus>, public runtime::Connect
       CHECK(message->recipient.value() != bus->local_id.idx);
       td::actor::ask(test_overlay, &TestOverlay::send_message, bus->local_id, instance_idx_,
                      message->recipient->value(), message->message.data.clone())
+          .start_in_parent_scope()
           .detach_silent();
     } else {
       for (size_t i = 0; i < bus->validator_set.size(); ++i) {
         if (bus->local_id.idx.value() != i) {
           td::actor::ask(test_overlay, &TestOverlay::send_message, bus->local_id, instance_idx_, i,
                          message->message.data.clone())
+              .start_in_parent_scope()
               .detach_silent();
         }
       }
@@ -215,6 +217,7 @@ class TestOverlayNode : public runtime::SpawnsWith<Bus>, public runtime::Connect
     for (size_t i = 0; i < bus->validator_set.size(); ++i) {
       if (bus->local_id.idx.value() != i) {
         td::actor::ask(test_overlay, &TestOverlay::send_candidate, bus->local_id, instance_idx_, i, event->candidate)
+            .start_in_parent_scope()
             .detach_silent();
       }
     }
@@ -365,7 +368,7 @@ class TestManagerFacade : public ManagerFacade {
     if (prev_seqno != 0) {
       CHECK(params.prev_block_data.size() == 1 && params.prev_block_data[0]->block_id() == params.prev[0]);
     }
-    double gen_utime = td::Clocks::system();
+    double gen_utime = params.utime ? params.utime.value() : td::Clocks::system();
 
     block::gen::BlockInfo::Record info;
     info.version = 0;
@@ -569,7 +572,7 @@ class TestConsensus : public td::actor::Actor {
         }
       }
     }
-    co_return td::Unit{};
+    co_return {};
   }
 
   td::actor::Task<> wait_block_accepted(BlockIdExt block_id) {
@@ -611,12 +614,12 @@ class TestConsensus : public td::actor::Actor {
       PrivateKey node_pk{privkeys::Ed25519::random()};
       node.public_key = node_pk.compute_public_key();
       node.node_id = node.public_key.compute_short_id();
-      td::actor::send_closure(keyring_, &keyring::Keyring::add_key, std::move(node_pk), true, [](td::Unit) {});
+      td::actor::send_closure(keyring_, &keyring::Keyring::add_key, std::move(node_pk), true, [](td::Result<>) {});
 
       PrivateKey adnl_pk{privkeys::Ed25519::random()};
       node.adnl_id_full = adnl::AdnlNodeIdFull{adnl_pk.compute_public_key()};
       node.adnl_id = node.adnl_id_full.compute_short_id();
-      td::actor::send_closure(keyring_, &keyring::Keyring::add_key, std::move(adnl_pk), true, [](td::Unit) {});
+      td::actor::send_closure(keyring_, &keyring::Keyring::add_key, std::move(adnl_pk), true, [](td::Result<>) {});
 
       node.weight = 11;
 
@@ -681,6 +684,7 @@ class TestConsensus : public td::actor::Actor {
     simplex::CandidateResolver::register_in(runtime);
     simplex::Consensus::register_in(runtime);
     simplex::Pool::register_in(runtime);
+    simplex::StateResolver::register_in(runtime);
 
     inst.manager_facade = td::actor::create_actor<TestManagerFacade>(
         PSTRING() << "ManagerFacade." << node_idx << "." << instance_idx, node_idx, instance_idx, validator_set_,

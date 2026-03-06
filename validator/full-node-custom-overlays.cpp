@@ -184,6 +184,11 @@ void FullNodeCustomOverlay::process_block_candidate_broadcast(PublicKeyHash src,
 }
 
 void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
+  if (!block_senders_.count(adnl::AdnlNodeIdShort(src))) {
+    VLOG(FULL_NODE_DEBUG) << "Dropping shard block description broadcast in private overlay \"" << name_
+                          << "\" from unauthorized sender " << src;
+    return;
+  }
   BlockIdExt block_id = create_block_id(query.block_->block_);
   VLOG(FULL_NODE_DEBUG) << "Received newShardBlockBroadcast in custom overlay \"" << name_ << "\" from " << src << ": "
                         << block_id.to_str();
@@ -330,7 +335,6 @@ void FullNodeCustomOverlay::init() {
       std::make_unique<Callback>(actor_id(this)), rules,
       PSTRING() << R"({ "type": "custom-overlay", "name": ")" << td::format::Escaped{name_} << R"(" })",
       overlay_options);
-  rldp_limit_guard_ = rldp2::PeersMtuLimitGuard(rldp2_, local_id_, nodes_, FullNode::max_block_size() + 1024);
 
   inited_ = true;
 }

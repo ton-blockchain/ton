@@ -119,18 +119,11 @@ td::Result<FecType> FecType::create(tl_object_ptr<ton_api::fec_Type> obj) {
   if (symbols_count != (data_size + symbol_size - 1) / symbol_size) {
     return td::Status::Error("invalid fec type: wrong symbols_count");
   }
+  if (obj->get_id() != ton_api::fec_raptorQ::ID) {
+    return td::Status::Error("invalid fec type: only RaptorQ is allowed");
+  }
   FecType T;
-  ton_api::downcast_call(*obj,
-                         td::overloaded(
-                             [&](const ton_api::fec_raptorQ &obj) {
-                               T.type_ = td::fec::RaptorQEncoder::Parameters{data_size, symbol_size, symbols_count};
-                             },
-                             [&](const ton_api::fec_roundRobin &obj) {
-                               T.type_ = td::fec::RoundRobinEncoder::Parameters{data_size, symbol_size, symbols_count};
-                             },
-                             [&](const ton_api::fec_online &obj) {
-                               T.type_ = td::fec::OnlineEncoder::Parameters{data_size, symbol_size, symbols_count};
-                             }));
+  T.type_ = td::fec::RaptorQEncoder::Parameters{data_size, symbol_size, symbols_count};
   return T;
 }
 

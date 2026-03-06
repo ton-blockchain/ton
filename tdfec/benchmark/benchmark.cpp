@@ -292,9 +292,7 @@ int main(void) {
   bench(FecBenchmark<td::fec::RaptorQEncoder, td::fec::RaptorQDecoder>(512, 20, "RaptorQ"));
 
   bench(FecBenchmark<td::fec::RaptorQEncoder, td::fec::RaptorQDecoder>(200, 1000, "RaptorQ"));
-  bench(FecBenchmark<td::fec::OnlineEncoder, td::fec::OnlineDecoder>(200, 1000, "Online"));
   for (int symbol_size = 32; symbol_size <= 8192; symbol_size *= 2) {
-    bench(FecBenchmark<td::fec::OnlineEncoder, td::fec::OnlineDecoder>(symbol_size, 50000, "Online"));
     bench(FecBenchmark<td::fec::RaptorQEncoder, td::fec::RaptorQDecoder>(symbol_size, 50000, "RaptorQ"));
   }
 

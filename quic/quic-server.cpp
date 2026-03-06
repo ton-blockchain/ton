@@ -30,12 +30,13 @@ td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, td::Ed2
 }
 
 QuicServer::QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::BufferSlice alpn,
-                       std::unique_ptr<Callback> callback, Options options)
+                       std::unique_ptr<Callback> callback, Options options, std::optional<size_t> flood_control)
     : fd_(std::move(fd))
     , alpn_(std::move(alpn))
     , server_key_(std::move(server_key))
     , gso_enabled_(options.enable_gso && td::UdpSocketFd::is_gso_supported())
     , cc_algo_(options.cc_algo)
+    , flood_control_(std::move(flood_control))
     , callback_(std::move(callback)) {
   if (options.enable_gro) {
     auto gro_status = fd_.enable_gro();
@@ -141,6 +142,16 @@ void QuicServer::shutdown_stream(QuicConnectionId cid, QuicStreamID sid) {
   on_connection_updated(*state);
 }
 
+void QuicServer::collect_stats(td::Promise<Stats> P) {
+  Stats stats;
+  for (auto &[id, conn] : connections_) {
+    Stats::Entry entry{.total_conns = 1, .impl_stats = conn->impl_->get_stats()};
+    stats.summary = stats.summary + entry;
+    stats.per_conn[id] = entry;
+  }
+  return P.set_value(std::move(stats));
+}
+
 void QuicServer::close(QuicConnectionId cid) {
   auto it = connections_.find(cid);
   if (it == connections_.end()) {
@@ -154,6 +165,12 @@ void QuicServer::close(QuicConnectionId cid) {
   }
   if (state->in_heap()) {
     timeout_heap_.erase(state.get());
+  }
+  if (flood_control_.has_value()) {
+    auto flood_addr = state->remote_address.get_ip_host();
+    if (flood_map_.contains(flood_addr) && --flood_map_.at(flood_addr) == 0) {
+      flood_map_.erase(flood_addr);
+    }
   }
   connections_.erase(it);
   callback_->on_closed(cid);
@@ -266,6 +283,11 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
     return connection;
   }
 
+  auto flood_addr = msg_in.address.get_ip_host();
+  if (flood_control_.has_value() && flood_map_.contains(flood_addr) && flood_map_.at(flood_addr) >= *flood_control_) {
+    return td::Status::Error("flood control overflow");
+  }
+
   // Create new connection to handle unknown inbound message
   TRY_RESULT(local_address, fd_.get_local_address());
 
@@ -292,6 +314,10 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
   to_primary_cid_[*state->temp_cid] = state->cid;
   // TODO: remove by both cids
 
+  if (flood_control_.has_value()) {
+    flood_map_[flood_addr]++;
+  }
+
   return state;
 }
 
@@ -300,6 +326,11 @@ td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::E
   td::IPAddress remote_address;
   TRY_STATUS(remote_address.init_host_port(host.str(), port));
   TRY_RESULT(local_address, fd_.get_local_address());  // TODO: we may avoid system call here
+
+  auto flood_addr = remote_address.get_ip_host();
+  if (flood_control_.has_value() && flood_map_.contains(flood_addr) && flood_map_.at(flood_addr) >= *flood_control_) {
+    return td::Status::Error("flood control overflow");
+  }
 
   QuicConnectionOptions conn_options;
   conn_options.cc_algo = cc_algo_;
@@ -318,6 +349,10 @@ td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::E
   LOG(INFO) << "creating " << *state;
 
   connections_[cid] = state;
+
+  if (flood_control_.has_value()) {
+    flood_map_[flood_addr]++;
+  }
 
   on_connection_updated(*state);
   return QuicConnectionId(cid);
@@ -601,6 +636,10 @@ td::Result<QuicStreamID> QuicServer::send_stream(QuicConnectionId cid, std::vari
   TRY_STATUS(state->impl().buffer_stream(sid, std::move(data), is_end));
   on_connection_updated(*state);
   return sid;
+}
+
+void QuicServer::change_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options) {
+  callback_->set_stream_options(cid, sid, options);
 }
 
 }  // namespace ton::quic

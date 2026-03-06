@@ -127,10 +127,10 @@ void ApplyBlock::got_block_handle(BlockHandle handle) {
     td::actor::send_closure(manager_, &ValidatorManager::set_block_data, handle_, block_, std::move(P));
   } else {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle = handle_](td::Result<td::Ref<BlockData>> R) {
-      CHECK(handle->received());
       if (R.is_error()) {
         td::actor::send_closure(SelfId, &ApplyBlock::abort_query, R.move_as_error());
       } else {
+        CHECK(handle->received());
         td::actor::send_closure(SelfId, &ApplyBlock::written_block_data);
       }
     });

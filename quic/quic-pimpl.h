@@ -52,6 +52,10 @@ struct VersionCid {
   QuicConnectionId scid{};
 
   static td::Result<VersionCid> from_datagram(td::Slice datagram) {
+    if (datagram.size() == 0) {
+      return td::Status::Error("empty datagram");
+    }
+
     ngtcp2_version_cid vc;
     int rv = ngtcp2_pkt_decode_version_cid(&vc, reinterpret_cast<const uint8_t*>(datagram.data()), datagram.size(),
                                            QuicConnectionId::MAX_SIZE);
@@ -134,6 +138,8 @@ struct QuicConnectionPImpl {
     }
   }
 
+  QuicConnectionStats get_stats();
+
  private:
   td::IPAddress local_address_;
   td::IPAddress remote_address_;
@@ -164,6 +170,7 @@ struct QuicConnectionPImpl {
   openssl_ptr<ngtcp2_conn, &ngtcp2_conn_del> conn_;
   ngtcp2_crypto_conn_ref conn_ref_{};
 
+  size_t sids_encountered = 0;
   std::unordered_map<QuicStreamID, OutboundStreamState> streams_;
   std::deque<QuicStreamID> ready_streams_;
   QuicStreamID write_sid_ = -1;

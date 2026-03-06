@@ -239,7 +239,7 @@ class TestRunner : public td::actor::Actor {
     node.quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
         "quic-" + name, td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(node.adnl.get()), node.keyring.get());
 
-    td::actor::send_closure(node.quic_sender, &ton::quic::QuicSender::add_local_id, node.id);
+    td::actor::send_closure(node.quic_sender, &ton::quic::QuicSender::add_id, node.id);
 
     co_await td::actor::Yield{};
     co_return std::move(node);
@@ -706,6 +706,7 @@ TEST(QuicSender, LargeScale) {
       if ((i + 1) % 100 == 0) {
         LOG(INFO) << "Created " << (i + 1) << " nodes";
       }
+      td::actor::send_closure(nodes[i].quic_sender, &ton::quic::QuicSender::set_default_mtu, 2 * query_size);
     }
 
     LOG(INFO) << "Setting up peer connections...";
@@ -807,9 +808,9 @@ TEST(QuicSender, ResponseSizeLimit) {
     ASSERT_EQ(resp1.as_slice(), td::Slice("Qnormal"));
 
     // Send large query with small response size limit
-    // Query data is 1000 bytes, response will be same size (echo), but limit is 100
-    std::string large_data(1000, 'X');
-    auto result = co_await t.send_query_ex(a, b, large_data, 10.0, 100).wrap();
+    // Query data is 10000 bytes, response will be same size (echo), but limit is 2000
+    std::string large_data(10000, 'X');
+    auto result = co_await t.send_query_ex(a, b, large_data, 10.0, 2000).wrap();
 
     LOG(INFO) << "ResponseSizeLimit result: " << (result.is_ok() ? "OK (unexpected)" : result.error().to_string());
     ASSERT_TRUE(result.is_error());
@@ -840,7 +841,7 @@ TEST(QuicSender, LargeQueryWithSmallLimit) {
     // Send very large query (1MB) with small response limit (100 bytes)
     // This should cause buffering and potentially trigger -219 when stream is shutdown
     std::string huge_data(1 << 20, 'X');  // 1MB
-    auto result = co_await t.send_query_ex(a, b, huge_data, 30.0, 100).wrap();
+    auto result = co_await t.send_query_ex(a, b, huge_data, 30.0, 2000).wrap();
 
     LOG(INFO) << "LargeQueryWithSmallLimit result: "
               << (result.is_ok() ? "OK (unexpected)" : result.error().to_string());
@@ -941,12 +942,20 @@ TEST(QuicSender, NoResponseTimeout) {
 // Test: Two connections sending large data should get approximately equal bandwidth
 TEST(QuicFairness, TwoConnectionsFairBandwidth) {
   run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    // Both senders send many large queries simultaneously
+    // Target: ~50MB per sender to saturate localhost (~200MB/s)
+    constexpr int queries_per_sender = 100;
+    constexpr int query_size = 1024 * 512;  // 0.5 MB each = 50 MB total per sender
+
     // Create a "hub" node that will receive from two senders
     auto hub = co_await t.create_node("hub", next_port());
+    td::actor::send_closure(hub.quic_sender, &ton::quic::QuicSender::set_default_mtu, 2 * query_size);
 
     // Create two sender nodes
     auto sender1 = co_await t.create_node("s1", next_port());
     auto sender2 = co_await t.create_node("s2", next_port());
+    td::actor::send_closure(sender1.quic_sender, &ton::quic::QuicSender::set_default_mtu, 2 * query_size);
+    td::actor::send_closure(sender2.quic_sender, &ton::quic::QuicSender::set_default_mtu, 2 * query_size);
 
     // Set up peer connections
     t.add_peer(sender1, hub);
@@ -955,11 +964,6 @@ TEST(QuicFairness, TwoConnectionsFairBandwidth) {
     t.add_peer(hub, sender2);
 
     co_await td::actor::coro_sleep(td::Timestamp::in(0.2));
-
-    // Both senders send many large queries simultaneously
-    // Target: ~50MB per sender to saturate localhost (~200MB/s)
-    constexpr int queries_per_sender = 50;
-    constexpr int query_size = 1024 * 1024;  // 1 MB each = 50 MB total per sender
 
     std::vector<td::actor::StartedTask<td::BufferSlice>> tasks1, tasks2;
     auto start = td::Timestamp::now();
@@ -1037,17 +1041,19 @@ TEST(QuicFairness, TwoConnectionsFairBandwidth) {
 // Test: Multiple streams within one connection should interleave fairly
 TEST(QuicFairness, MultipleStreamsFairBandwidth) {
   run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    // Open multiple streams (queries) simultaneously with large data
+    constexpr int num_streams = 20;
+    constexpr int query_size = 512 * 1024;  // 512 KB each = 10 MB total
+
     auto server = co_await t.create_node("srv", next_port());
     auto client = co_await t.create_node("cli", next_port());
+    td::actor::send_closure(server.quic_sender, &ton::quic::QuicSender::set_default_mtu, 2 * query_size);
+    td::actor::send_closure(client.quic_sender, &ton::quic::QuicSender::set_default_mtu, 2 * query_size);
 
     t.add_peer(client, server);
     t.add_peer(server, client);
 
     co_await td::actor::coro_sleep(td::Timestamp::in(0.2));
-
-    // Open multiple streams (queries) simultaneously with large data
-    constexpr int num_streams = 20;
-    constexpr int query_size = 512 * 1024;  // 512 KB each = 10 MB total
 
     std::vector<td::actor::StartedTask<td::BufferSlice>> tasks;
     auto start = td::Timestamp::now();
@@ -1099,21 +1105,23 @@ TEST(QuicFairness, MultipleStreamsFairBandwidth) {
 // Test: Many connections should all make progress (no starvation)
 TEST(QuicFairness, ManyConnectionsNoStarvation) {
   run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    constexpr int queries_per_sender = 20;
+    constexpr int query_size = 256 * 1024;  // 256 KB each = 5 MB per sender = 50 MB total
+
     auto hub = co_await t.create_node("hub", next_port());
+    td::actor::send_closure(hub.quic_sender, &ton::quic::QuicSender::set_default_mtu, 2 * query_size);
 
     constexpr int num_senders = 10;
     std::vector<TestNode> senders;
 
     for (int i = 0; i < num_senders; i++) {
       senders.push_back(co_await t.create_node("s" + std::to_string(i), next_port()));
+      td::actor::send_closure(senders.back().quic_sender, &ton::quic::QuicSender::set_default_mtu, 2 * query_size);
       t.add_peer(senders.back(), hub);
       t.add_peer(hub, senders.back());
     }
 
     co_await td::actor::coro_sleep(td::Timestamp::in(0.3));
-
-    constexpr int queries_per_sender = 20;
-    constexpr int query_size = 256 * 1024;  // 256 KB each = 5 MB per sender = 50 MB total
 
     std::vector<std::vector<td::actor::StartedTask<td::BufferSlice>>> all_tasks(num_senders);
     auto start = td::Timestamp::now();

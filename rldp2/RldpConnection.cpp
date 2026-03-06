@@ -122,6 +122,10 @@ void RldpConnection::send(TransferId transfer_id, td::BufferSlice data, td::Time
     limit.transfer_id = transfer_id;
     limit.max_size = 0;
     limit.is_inbound = false;
+    if (limits_set_.contains(limit)) {
+      VLOG(RLDP_WARNING) << "Dropping outbound transfer: duplicate transfer_id";
+      return;
+    }
     add_limit(timeout, limit);
   }
   outbound_transfers_.emplace(transfer_id, OutboundTransfer{std::move(data)});
@@ -279,6 +283,12 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
     VLOG(RLDP_INFO) << "Drop bad rldp message: " << r_fec_type.move_as_error();
     return;
   }
+  auto r_seqno = td::narrow_cast_safe<td::uint32>(part.seqno_);
+  if (r_seqno.is_error()) {
+    VLOG(RLDP_INFO) << "Drop bad rldp message: " << r_seqno.move_as_error();
+    return;
+  }
+  td::uint32 seqno = r_seqno.move_as_ok();
 
   auto total_size = r_total_size.move_as_ok();
 
@@ -317,8 +327,8 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
       }
       return {};
     }
-    if (in_part->receiver.on_received(part.seqno_ + 1, td::Timestamp::now())) {
-      TRY_STATUS_PREFIX(in_part->decoder->add_symbol({static_cast<td::uint32>(part.seqno_), std::move(part.data_)}),
+    if (in_part->receiver.on_received(seqno + 1, td::Timestamp::now())) {
+      TRY_STATUS_PREFIX(in_part->decoder->add_symbol({seqno, std::move(part.data_)}),
                         td::Status::Error(ErrorCode::protoviolation, "invalid symbol"));
       if (in_part->decoder->may_try_decode()) {
         auto r_data = in_part->decoder->try_decode(false);

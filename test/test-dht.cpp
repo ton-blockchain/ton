@@ -85,7 +85,7 @@ int main() {
         dht_configR.ensure();
         dht_config = dht_configR.move_as_ok();
       }
-      td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Unit) {});
+      td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Result<>) {});
       td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr,
                               static_cast<td::uint8>(0));
       td::actor::send_closure(network_manager, &ton::adnl::TestLoopbackNetworkManager::add_node_id, src, true, true);
@@ -362,7 +362,7 @@ int main() {
     dht_value.update_signature(key_dec->sign(dht_value.to_sign()).move_as_ok());
 
     remaining++;
-    auto P = td::PromiseCreator::lambda([&](td::Result<td::Unit> R) {
+    auto P = td::PromiseCreator::lambda([&](td::Result<> R) {
       R.ensure();
       remaining--;
     });

@@ -333,7 +333,8 @@ class CandidateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::C
         storing_data = true;
         if (std::holds_alternative<BlockCandidate>(cand->block)) {
           tasks.push_back(td::actor::ask(owning_bus()->manager, &ManagerFacade::store_block_candidate,
-                                         std::get<BlockCandidate>(cand->block).clone()));
+                                         std::get<BlockCandidate>(cand->block).clone())
+                              .start_in_parent_scope());
         }
       }
     }

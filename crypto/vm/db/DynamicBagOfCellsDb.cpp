@@ -85,13 +85,6 @@ struct CellInfo {
     }
   };
 };
-bool operator<(const CellInfo &a, td::Slice b) {
-  return a.key().as_slice() < b;
-}
-
-bool operator<(td::Slice a, const CellInfo &b) {
-  return a < b.key().as_slice();
-}
 
 class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreator {
  public:
@@ -695,14 +688,6 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
       }
       bool operator<(const CellInfo2 &other) const {
         return key() < other.key();
-      }
-
-      friend bool operator<(const CellInfo2 &a, td::Slice b) {
-        return a.key().as_slice() < b;
-      }
-
-      friend bool operator<(td::Slice a, const CellInfo2 &b) {
-        return a < b.key().as_slice();
       }
 
       struct Eq {

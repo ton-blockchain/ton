@@ -151,7 +151,6 @@ class ValidateQuery : public td::actor::Actor {
   bool full_collated_data_{false};
   bool prev_key_block_exists_{false};
   bool debug_checks_{false};
-  bool outq_cleanup_partial_{false};
   bool parallel_accounts_validation_{false};
   bool parallel_accounts_validation_pending_{false};
   bool check_account_failed_{false};

@@ -316,7 +316,7 @@ class TestNode : public td::actor::Actor {
 
       void initial_read_complete(ton::validator::BlockHandle handle) override {
         td::actor::send_closure(id_, &ton::validator::ValidatorManager::sync_complete,
-                                td::PromiseCreator::lambda([](td::Unit) {}));
+                                td::PromiseCreator::lambda([](td::Result<>) {}));
       }
       void send_shard_block_info(ton::BlockIdExt block_id, ton::CatchainSeqno cc_seqno, td::BufferSlice data) override {
         ++tdescr_cnt_;
@@ -338,7 +338,7 @@ class TestNode : public td::actor::Actor {
 
     td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::install_callback,
                             std::make_unique<Callback>(validator_manager_.get(), tdescr_save_, tdescr_pfx_),
-                            td::PromiseCreator::lambda([](td::Unit) {}));
+                            td::PromiseCreator::lambda([](td::Result<>) {}));
   }
 };
 

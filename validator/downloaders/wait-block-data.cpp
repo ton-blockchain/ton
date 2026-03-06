@@ -187,6 +187,7 @@ void WaitBlockData::loaded_block_data(td::Ref<BlockData> block) {
                             });
     return;
   }
+  // After send_get_block_request, inited_proof() == true for masterchain (see DownloadBlock/DownloadBlockNew)
   checked_proof_link();
 }
 

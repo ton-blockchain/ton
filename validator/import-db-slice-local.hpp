@@ -17,8 +17,7 @@
 #pragma once
 
 #include "td/actor/actor.h"
-#include "td/utils/port/path.h"
-#include "validator/db/package.hpp"
+#include "td/actor/coro_task.h"
 #include "validator/interfaces/validator-manager.h"
 
 namespace ton {
@@ -29,49 +28,45 @@ class ArchiveImporterLocal : public td::actor::Actor {
  public:
   ArchiveImporterLocal(std::string db_root, td::Ref<MasterchainState> state, BlockSeqno shard_client_seqno,
                        td::Ref<ValidatorManagerOptions> opts, td::actor::ActorId<ValidatorManager> manager,
-                       std::vector<std::string> to_import_files,
+                       td::actor::ActorId<Db> db, std::vector<std::string> to_import_files,
                        td::Promise<std::pair<BlockSeqno, BlockSeqno>> promise);
   void start_up() override;
 
-  void abort_query(td::Status error);
-  void finish_query();
+  td::actor::Task<td::Unit> run();
+  td::actor::Task<td::Unit> run_inner();
 
+  void read_files();
   td::Status process_package(std::string path);
 
-  void process_masterchain_blocks();
-  void process_masterchain_blocks_cont();
+  td::actor::Task<td::Unit> process_masterchain_blocks();
+  td::actor::Task<td::Unit> import_first_key_block();
+  td::actor::Task<td::Unit> check_masterchain_proofs();
 
-  void import_first_key_block();
-  void checked_key_block_proof(BlockHandle handle);
-  void applied_key_block(td::Ref<MasterchainState> state);
+  td::actor::Task<td::Unit> process_shard_blocks();
+  td::actor::Task<bool> try_advance_shard_client_seqno();
 
-  void checked_masterchain_proofs();
-  void got_shard_client_state(td::Ref<MasterchainState> state);
+  td::actor::Task<td::Unit> store_data();
+  td::actor::Task<td::Unit> store_block_data(td::Ref<BlockData> block);
 
-  void try_advance_shard_client_seqno();
-  void try_advance_shard_client_seqno_cont(td::Ref<BlockData> mc_block);
+  td::actor::Task<td::Unit> apply_blocks();
+  td::actor::Task<td::Unit> apply_blocks_async(const std::vector<std::pair<BlockIdExt, BlockIdExt>>& blocks);
 
-  void processed_shard_blocks();
-  void store_data();
-  void apply_next_masterchain_block();
-  void applied_next_masterchain_block(td::Ref<MasterchainState> state);
-
-  void apply_shard_blocks();
-  void applied_shard_blocks();
-
-  void apply_shard_block(BlockIdExt block_id, BlockIdExt mc_block_id, td::Promise<td::Unit> promise);
-  void apply_shard_block_cont1(BlockHandle handle, BlockIdExt mc_block_id, td::Promise<td::Unit> promise);
-  void apply_shard_block_cont2(BlockHandle handle, BlockIdExt mc_block_id, td::Promise<td::Unit> promise);
-  void check_shard_block_applied(BlockIdExt block_id, td::Promise<td::Unit> promise);
+  td::actor::Task<BlockHandle> apply_block_async_1(BlockIdExt block_id, BlockIdExt mc_block_id);
+  td::actor::Task<td::Unit> apply_block_async_2(BlockHandle handle);
+  td::actor::Task<td::Unit> apply_block_async_3(BlockHandle handle);
+  td::actor::Task<td::Unit> apply_block_async_4(BlockHandle handle);
 
  private:
   std::string db_root_;
   td::Ref<MasterchainState> last_masterchain_state_;
   BlockSeqno shard_client_seqno_;
+  BlockSeqno final_masterchain_state_seqno_ = 0;
+  BlockSeqno final_shard_client_seqno_ = 0;
 
   td::Ref<ValidatorManagerOptions> opts_;
 
   td::actor::ActorId<ValidatorManager> manager_;
+  td::actor::ActorId<Db> db_;
 
   std::vector<std::string> to_import_files_;
   td::Promise<std::pair<BlockSeqno, BlockSeqno>> promise_;
@@ -80,6 +75,7 @@ class ArchiveImporterLocal : public td::actor::Actor {
     td::Ref<BlockData> block;
     td::Ref<Proof> proof;
     td::Ref<ProofLink> proof_link;
+    size_t data_size = 0;
     bool import = false;
   };
   std::map<BlockIdExt, BlockInfo> blocks_;
@@ -87,13 +83,16 @@ class ArchiveImporterLocal : public td::actor::Actor {
 
   td::Ref<MasterchainState> shard_client_state_;
   BlockSeqno new_shard_client_seqno_;
-  BlockSeqno current_shard_client_seqno_;
   std::set<BlockIdExt> visited_shard_blocks_;
   std::set<BlockIdExt> new_zerostates_;
+  std::vector<std::pair<BlockIdExt, BlockIdExt>> blocks_to_apply_mc_;
+  std::vector<std::pair<BlockIdExt, BlockIdExt>> blocks_to_apply_shards_;
 
   std::map<BlockSeqno, std::pair<BlockIdExt, std::vector<BlockIdExt>>> shard_configs_;
 
   bool imported_any_ = false;
+  size_t total_imported_blocks_ = 0;
+  td::uint64 total_imported_size_ = 0;
 
   td::PerfWarningTimer perf_timer_;
 };

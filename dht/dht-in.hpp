@@ -38,7 +38,7 @@ class DhtMemberImpl : public DhtMember {
     DhtKeyValueLru(DhtValue value) : kv_(std::move(value)) {
     }
     DhtValue kv_;
-    static inline DhtKeyValueLru *from_list_node(ListNode *node) {
+    static inline DhtKeyValueLru *from_list_node(td::ListNode *node) {
       return static_cast<DhtKeyValueLru *>(node);
     }
   };

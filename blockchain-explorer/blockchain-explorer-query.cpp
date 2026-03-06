@@ -41,6 +41,7 @@
 #include "vm/cellops.h"
 #include "vm/cells/MerkleProof.h"
 #include "vm/cp0.h"
+#include "vm/memo.h"
 #include "vm/vm.h"
 
 #include "blockchain-explorer-http.hpp"
@@ -1299,6 +1300,8 @@ HttpQueryRunMethod::HttpQueryRunMethod(std::map<std::string, std::string> opts, 
   }
   it = opts.find("params");
   if (it != opts.end()) {
+    vm::FakeVmStateLimits fstate(1000);
+    vm::VmStateInterface::Guard guard(&fstate);
     auto R3 = vm::parse_stack_entries(it->second);
     if (R3.is_error()) {
       error_ = R3.move_as_error();
@@ -1365,6 +1368,8 @@ void HttpQueryRunMethod::got_result(td::BufferSlice data) {
         return A.finish();
       }
       auto cs = vm::load_cell_slice(r_cell.move_as_ok());
+      vm::FakeVmStateLimits fstate(1000);
+      vm::VmStateInterface::Guard guard(&fstate);
       td::Ref<vm::Stack> stack;
       if (!(vm::Stack::deserialize_to(cs, stack, 0) && cs.empty_ext())) {
         A.abort("VM result boc cannot be deserialized");

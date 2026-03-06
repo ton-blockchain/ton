@@ -183,8 +183,7 @@ class Bus : public runtime::Bus {
   td::Ref<CollatorSchedule> collator_schedule;
 
   td::actor::ActorId<overlay::Overlays> overlays;
-  td::actor::ActorId<rldp2::Rldp> rldp2;
-  td::actor::ActorId<quic::QuicSender> quic;
+  td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender;
   std::unique_ptr<Db> db;
 
   td::Promise<td::Unit> stop_promise;

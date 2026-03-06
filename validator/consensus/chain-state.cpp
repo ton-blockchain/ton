@@ -31,10 +31,11 @@ td::actor::Task<td::Ref<ChainState>> ChainState::from_manager(td::actor::ActorId
   std::vector<td::actor::StartedTask<td::Ref<BlockData>>> wait_block_data;
   for (auto block : blocks) {
     wait_state_root.push_back(
-        td::actor::ask(manager, &ManagerFacade::wait_block_state_root, block, td::Timestamp::in(10.0)));
+        td::actor::ask(manager, &ManagerFacade::wait_block_state_root, block, td::Timestamp::in(10.0))
+            .start_in_parent_scope());
     if (block.seqno() != 0) {
-      wait_block_data.push_back(
-          td::actor::ask(manager, &ManagerFacade::wait_block_data, block, td::Timestamp::in(10.0)));
+      wait_block_data.push_back(td::actor::ask(manager, &ManagerFacade::wait_block_data, block, td::Timestamp::in(10.0))
+                                    .start_in_parent_scope());
     }
   }
   auto states = co_await td::actor::all(std::move(wait_state_root));

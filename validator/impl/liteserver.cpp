@@ -2138,7 +2138,10 @@ void LiteQuery::continue_lookupBlockWithProof_getHeaderProof(Ref<ton::validator:
         prev_blkid = p;
       }
     }
-    CHECK(prev_blkid.is_valid());
+    if (!prev_blkid.is_valid()) {
+      fatal_error("failed to choose previous block");
+      return;
+    }
     get_block_handle_checked(prev_blkid, [Self = actor_id(this), masterchain_ref_seqno,
                                           manager = manager_](td::Result<ConstBlockHandle> R) mutable {
       if (R.is_error()) {
@@ -3392,7 +3395,7 @@ void LiteQuery::perform_getBlockOutMsgQueueSize(int mode, BlockIdExt blkid) {
     fatal_error("invalid BlockIdExt");
     return;
   }
-  set_continuation([=]() -> void { finish_getBlockOutMsgQueueSize(); });
+  set_continuation([this]() -> void { finish_getBlockOutMsgQueueSize(); });
   request_block_data_state(blkid);
 }
 
@@ -3462,7 +3465,7 @@ void LiteQuery::perform_getDispatchQueueInfo(int mode, BlockIdExt blkid, StdSmcA
     fatal_error("invalid max_accounts");
     return;
   }
-  set_continuation([=]() -> void { finish_getDispatchQueueInfo(after_addr, max_accounts); });
+  set_continuation([=, this]() -> void { finish_getDispatchQueueInfo(after_addr, max_accounts); });
   request_block_data_state(blkid);
 }
 
@@ -3568,7 +3571,7 @@ void LiteQuery::perform_getDispatchQueueMessages(int mode, BlockIdExt blkid, Std
     fatal_error("invalid max_messages");
     return;
   }
-  set_continuation([=]() -> void { finish_getDispatchQueueMessages(addr, lt, max_messages); });
+  set_continuation([=, this]() -> void { finish_getDispatchQueueMessages(addr, lt, max_messages); });
   request_block_data_state(blkid);
 }
 

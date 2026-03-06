@@ -117,7 +117,8 @@ void FullNodeFastSyncOverlay::process_block_broadcast_with_state(PublicKeyHash s
 }
 
 void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_outMsgQueueProofBroadcast &query) {
-  if (src == local_id_.pubkey_hash()) {
+  // Not supported yet
+  /*if (src == local_id_.pubkey_hash()) {
     return;  // dropping broadcast from self
   }
   BlockIdExt block_id = create_block_id(query.block_);
@@ -144,7 +145,7 @@ void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonN
   LOG(INFO) << "got tonNode.outMsgQueueProofBroadcast to " << shard_id.to_str() << " from " << block_id.to_str()
             << ", msgs=" << proof->msg_count_ << ", size=" << tl_proof->queue_proofs_.size();
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::add_out_msg_queue_proof, shard_id,
-                          std::move(proof));
+                          std::move(proof));*/
 }
 
 void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
@@ -309,7 +310,8 @@ void FullNodeFastSyncOverlay::collect_validator_telemetry(std::string filename) 
 }
 
 void FullNodeFastSyncOverlay::send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcast) {
-  if (!inited_) {
+  // Not supported yet
+  /*if (!inited_) {
     return;
   }
   auto B = create_serialize_tl_object<ton_api::tonNode_outMsgQueueProofBroadcast>(
@@ -322,7 +324,7 @@ void FullNodeFastSyncOverlay::send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQ
                         << " from " << broadcast->block_id.to_str() << ", msgs=" << broadcast->msg_count
                         << " bytes=" << broadcast->queue_proofs.size();
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
-                          local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), std::move(B));
+                          local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), std::move(B));*/
 }
 
 void FullNodeFastSyncOverlay::start_up() {
@@ -373,10 +375,7 @@ void FullNodeFastSyncOverlay::init() {
     td::actor::ActorId<FullNodeFastSyncOverlay> node_;
   };
 
-  td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_id_);
-  // td::actor::send_closure(quic_, &quic::QuicSender::add_local_id, local_id_);
-  rldp_limit_guard_ =
-      rldp2::PeersMtuLimitGuard(rldp2_, local_id_, current_validators_adnl_, FullNode::max_block_size() + 1024);
+  td::actor::send_closure(adnl_sender_, &adnl::AdnlSenderEx::add_id, local_id_);
 
   overlay::OverlayPrivacyRules rules{overlay::Overlays::max_fec_broadcast_size(),
                                      overlay::CertificateFlags::AllowFec | overlay::CertificateFlags::Trusted,
@@ -384,15 +383,13 @@ void FullNodeFastSyncOverlay::init() {
   std::string scope = PSTRING() << R"({ "type": "fast-sync", "shard_id": )" << shard_.shard
                                 << ", \"workchain_id\": " << shard_.workchain << " }";
   overlay::OverlayOptions options;
-  bool is_validator = std::find(current_validators_adnl_.begin(), current_validators_adnl_.end(), local_id_) !=
-                      current_validators_adnl_.end();
   if (!shard_.is_masterchain()) {
     options.default_permanent_members_flags_ = overlay::OverlayMemberFlags::DoNotReceiveBroadcasts;
   }
   options.local_overlay_member_flags_ = receive_broadcasts_ ? 0 : overlay::OverlayMemberFlags::DoNotReceiveBroadcasts;
   options.max_slaves_in_semiprivate_overlay_ = FullNode::MAX_FAST_SYNC_OVERLAY_CLIENTS;
   options.broadcast_speed_multiplier_ = broadcast_speed_multiplier_;
-  options.twostep_broadcast_sender_ = rldp2_;
+  options.twostep_broadcast_sender_ = adnl_sender_;
   options.send_twostep_broadcast_ = send_twostep_broadcasts_;
   td::actor::send_closure(overlays_, &overlay::Overlays::create_semiprivate_overlay, local_id_,
                           overlay_id_full_.clone(), current_validators_adnl_, root_public_keys_, member_certificate_,
@@ -440,22 +437,15 @@ void FullNodeFastSyncOverlay::set_member_certificate(overlay::OverlayMemberCerti
   }
 }
 
-void FullNodeFastSyncOverlay::set_receive_broadcasts(bool value) {
-  if (value == receive_broadcasts_) {
+void FullNodeFastSyncOverlay::set_params(bool receive_broadcasts, bool send_twostep_broadcasts,
+                                         td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender) {
+  if (receive_broadcasts == receive_broadcasts_ && send_twostep_broadcasts == send_twostep_broadcasts_ &&
+      adnl_sender == adnl_sender_) {
     return;
   }
-  receive_broadcasts_ = value;
-  if (inited_) {
-    td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_, overlay_id_);
-    init();
-  }
-}
-
-void FullNodeFastSyncOverlay::set_send_twostep_broadcasts(bool value) {
-  if (value == send_twostep_broadcasts_) {
-    return;
-  }
-  send_twostep_broadcasts_ = value;
+  receive_broadcasts_ = receive_broadcasts;
+  send_twostep_broadcasts_ = send_twostep_broadcasts;
+  adnl_sender_ = adnl_sender;
   if (inited_) {
     td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_, overlay_id_);
     init();
@@ -619,7 +609,7 @@ void FullNodeFastSyncOverlays::update_overlays(
           if (std::binary_search(root_public_keys_.begin(), root_public_keys_.end(),
                                  certificate.issued_by().compute_short_id())) {
             changed_certificate = true;
-            overlays_info.current_certificate_ = it->second.front();
+            overlays_info.current_certificate_ = certificate;
             break;
           }
         }
@@ -636,17 +626,20 @@ void FullNodeFastSyncOverlays::update_overlays(
     for (ShardIdFull shard : all_shards) {
       bool receive_broadcasts = monitoring_shards.contains(shard);
       // Enable twostep broadcasts by ConfigParam 30
-      bool send_twostep_broadcasts = (bool)state->get_new_consensus_config(shard.workchain);
+      auto new_consensus_config = state->get_new_consensus_config(shard.workchain);
+      bool send_twostep_broadcasts = (bool)new_consensus_config;
+      bool use_quic = new_consensus_config && new_consensus_config.value().use_quic;
+      td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender =
+          use_quic ? td::actor::ActorId<adnl::AdnlSenderEx>{quic} : rldp2;
       auto &overlay = overlays_info.overlays_[shard];
       if (overlay.empty()) {
         overlay = td::actor::create_actor<FullNodeFastSyncOverlay>(
             PSTRING() << "FastSyncOv" << shard.to_str(), local_id, shard, zero_state_file_hash, root_public_keys_,
             current_validators_adnl_, overlays_info.current_certificate_, receive_broadcasts, send_twostep_broadcasts,
-            broadcast_speed_multiplier, keyring, adnl, rldp2, quic, overlays, validator_manager, full_node);
+            broadcast_speed_multiplier, keyring, adnl, adnl_sender, overlays, validator_manager, full_node);
       } else {
-        td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_receive_broadcasts, receive_broadcasts);
-        td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_send_twostep_broadcasts,
-                                send_twostep_broadcasts);
+        td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_params, receive_broadcasts,
+                                send_twostep_broadcasts, adnl_sender);
         if (changed_certificate) {
           td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_member_certificate,
                                   overlays_info.current_certificate_);

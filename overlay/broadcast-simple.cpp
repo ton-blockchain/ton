@@ -66,7 +66,7 @@ class BroadcastSimple : public td::ListNode {
   td::BufferSlice serialize();
   td::BufferSlice to_sign();
 
-  static BroadcastSimple *from_list_node(ListNode *node) {
+  static BroadcastSimple *from_list_node(td::ListNode *node) {
     return static_cast<BroadcastSimple *>(node);
   }
 

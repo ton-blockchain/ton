@@ -57,7 +57,7 @@ void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
   LOG(ERROR) << "running collate query";
   run_collate_query(
       CollateParams{.shard = shard_id, .min_masterchain_block_id = block_id, .prev = prev, .is_hardfork = true},
-      actor_id(this), td::Timestamp::in(10.0), {}, std::move(P));
+      actor_id(this), {}, std::move(P));
 }
 
 void ValidatorManagerImpl::created_candidate(BlockCandidate candidate) {

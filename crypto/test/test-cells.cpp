@@ -447,7 +447,6 @@ TEST(RefInt, main) {
   auto x = "10000000000000000000000"_ri256;
   td::RefInt256 y{true, -239}, z{false};
   auto v = x + y;
-  std::move(v);
   os << x << " + " << y << " = " << x + y << std::endl;
   os << x << " - " << y << " = " << x - y << std::endl;
   os << x << " * " << y << " = " << x * y << std::endl;

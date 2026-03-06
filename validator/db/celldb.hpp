@@ -69,7 +69,8 @@ class CellDbIn : public CellDbBase {
                   td::Promise<td::Ref<vm::DataCell>> promise);
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise);
   void store_block_state_permanent(td::Ref<BlockData> block, td::Promise<td::Ref<vm::DataCell>> promise);
-  void store_block_state_permanent_bulk(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise);
+  void store_block_state_permanent_bulk(std::vector<td::Ref<BlockData>> blocks,
+                                        td::Promise<std::map<BlockIdExt, RootHash>> promise);
 
   void migrate_cell(td::Bits256 hash);
 
@@ -198,7 +199,7 @@ class CellDb : public CellDbBase {
   td::actor::Task<Ref<vm::DataCell>> load_cell(RootHash hash);
   td::actor::Task<Ref<vm::DataCell>> store_cell(BlockIdExt block_id, Ref<vm::Cell> cell, vm::StoreCellHint hint);
   td::actor::Task<Ref<vm::DataCell>> store_block_state_permanent(Ref<BlockData> block);
-  td::actor::Task<> store_block_state_permanent_bulk(std::vector<Ref<BlockData>> blocks);
+  td::actor::Task<std::map<BlockIdExt, RootHash>> store_block_state_permanent_bulk(std::vector<Ref<BlockData>> blocks);
   void update_snapshot(std::unique_ptr<td::KeyValueReader> snapshot) {
     CHECK(!opts_->get_celldb_in_memory());
     if (!started_) {
