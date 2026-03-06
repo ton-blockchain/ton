@@ -217,15 +217,6 @@ endfunction()
 crc32_scope()
 set(CRC32C_FOUND 1)
 
-option(USE_COROUTINES "experimental support of coroutines" OFF)
-if (USE_COROUTINES)
-  if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    set(TD_HAVE_COROUTINES 1)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcoroutines-ts")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
-  endif()
-endif()
-
 option(USE_LIBRAPTORQ "use libraptorq for tests" OFF)
 if (USE_LIBRAPTORQ)
   set(USE_LZ4 OFF CACHE BOOL "use lz4")
@@ -543,6 +534,8 @@ function(ton_test TEST_NAME)
   add_dependencies(all-tests ${TEST_NAME})
 endfunction()
 
+enable_testing()
+
 set(TDUTILS_MIME_TYPE OFF CACHE BOOL "Generate mime type conversion")
 add_subdirectory(tdutils)
 if (TARGET lz4 AND TARGET tdutils)
@@ -728,7 +721,6 @@ target_link_libraries(all_tests INTERFACE tdutils tdactor tdnet tdfec ton_db ton
 endif()
 #END internal
 
-enable_testing()
 set(TEST_OPTIONS "--regression ${CMAKE_CURRENT_SOURCE_DIR}/test/regression-tests.ans --filter -Bench")
 separate_arguments(TEST_OPTIONS)
 ton_test(test-ed25519)
