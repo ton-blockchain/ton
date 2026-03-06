@@ -183,6 +183,17 @@ class DashApp:
 
         self._load_group(group)
         assert self._data is not None
+        group_info = next((g for g in self._data.groups if g.valgroup_name == group), None)
+        group_start_est = "n/a"
+        if group_info is not None:
+            group_start_est = str(group_info.group_start_est)
+            try:
+                group_start_est = (
+                    f"{group_info.group_start_est} "
+                    f"({datetime.fromtimestamp(group_info.group_start_est, timezone.utc).isoformat()})"
+                )
+            except Exception:
+                pass
 
         group_events = [e for e in self._data.events if e.valgroup_id == group]
         group_slots = {s.slot: s for s in self._data.slots if s.valgroup_id == group}
@@ -235,6 +246,7 @@ class DashApp:
         return "\n".join(
             [
                 f"valgroup = {group}",
+                f"group start estimate = {group_start_est}",
                 f"slots with skip_observed ({len(skip_slots)}) = {skip_slots}",
                 f"slots with empty blocks ({len(empty_block_slots)}) = {empty_block_slots}",
                 "delta between minimum candidate_received for neighboring finalized blocks:",
