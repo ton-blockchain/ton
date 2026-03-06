@@ -151,6 +151,9 @@ td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_dat
   }
   TRY_RESULT(block_data, vm::std_boc_serialize(roots[0], 31));
   roots.erase(roots.begin());
+  if (roots.empty()) {
+    return td::Status::Error("No collated-data roots found");
+  }
   TRY_RESULT(collated_data, vm::std_boc_serialize_multi(std::move(roots), 2));
   LOG(DEBUG) << "Decompressing block candidate " << (improved_compression ? "V2:" : ":") << compressed.size() << " -> "
              << block_data.size() + collated_data.size();
