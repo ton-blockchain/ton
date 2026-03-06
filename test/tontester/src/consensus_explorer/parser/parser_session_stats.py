@@ -576,7 +576,7 @@ class ParserSessionStats(GroupParser):
                     host_groups = merged.setdefault(hostname, {})
                     for group_hash, group_events in events_by_groups.items():
                         host_groups.setdefault(group_hash, []).extend(group_events)
-            except OSError | FileNotFoundError | gzip.BadGzipFile:
+            except (OSError, FileNotFoundError, gzip.BadGzipFile):
                 logging.warning(f"Failed to read log file {log_file}", stack_info=True)
 
         groups: dict[bytes, GroupData] = {}
