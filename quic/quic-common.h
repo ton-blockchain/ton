@@ -14,6 +14,43 @@
 namespace ton::quic {
 using QuicStreamID = int64_t;
 
+struct QuicConnectionStats {
+  int64_t bytes_rx = 0, bytes_tx = 0, bytes_lost = 0;
+  int64_t bytes_unacked = 0, bytes_unsent = 0;
+  int64_t total_sids = 0, open_sids = 0;
+  double mean_rtt = 0;
+
+  QuicConnectionStats operator+(const QuicConnectionStats& other) const {
+    return {
+        .bytes_rx = bytes_rx + other.bytes_rx,
+        .bytes_tx = bytes_tx + other.bytes_tx,
+        .bytes_lost = bytes_lost + other.bytes_lost,
+        .bytes_unacked = bytes_unacked + other.bytes_unacked,
+        .bytes_unsent = bytes_unsent + other.bytes_unsent,
+        .total_sids = total_sids + other.total_sids,
+        .open_sids = open_sids + other.open_sids,
+    };
+  }
+
+  QuicConnectionStats operator-(const QuicConnectionStats& other) const {
+    return {
+        .bytes_rx = bytes_rx - other.bytes_rx,
+        .bytes_tx = bytes_tx - other.bytes_tx,
+        .bytes_lost = bytes_lost - other.bytes_lost,
+        .bytes_unacked = bytes_unacked - other.bytes_unacked,
+        .bytes_unsent = bytes_unsent - other.bytes_unsent,
+        .total_sids = total_sids - other.total_sids,
+        .open_sids = open_sids - other.open_sids,
+    };
+  }
+};
+
+enum class CongestionControlAlgo {
+  Cubic,  // default
+  Reno,
+  Bbr,
+};
+
 struct QuicConnectionId {
   static constexpr size_t MAX_SIZE = 20;
 
@@ -76,10 +113,23 @@ struct QuicConnectionId {
 struct UdpMessageBuffer {
   td::MutableSlice storage;
   td::IPAddress address;
+  size_t gso_size{0};
 };
 
 inline td::StringBuilder& operator<<(td::StringBuilder& sb, const QuicConnectionId& cid) {
   return sb << td::hex_encode(cid.as_slice());
+}
+
+inline td::StringBuilder& operator<<(td::StringBuilder& sb, CongestionControlAlgo algo) {
+  switch (algo) {
+    case CongestionControlAlgo::Cubic:
+      return sb << "cubic";
+    case CongestionControlAlgo::Reno:
+      return sb << "reno";
+    case CongestionControlAlgo::Bbr:
+      return sb << "bbr";
+  }
+  return sb << "unknown";
 }
 
 }  // namespace ton::quic

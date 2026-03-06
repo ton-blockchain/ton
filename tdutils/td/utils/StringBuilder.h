@@ -54,6 +54,7 @@ inline td::Slice ansi_color_to_str(AnsiColor color) {
       TD_ENUMERATE_ANSI_COLORS(DEFINE_ANSI_COLOR_TO_STR)
 #undef DEFINE_ANSI_COLOR_TO_STR
   }
+  return "";
 }
 
 class StringBuilder {

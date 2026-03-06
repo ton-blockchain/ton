@@ -33,7 +33,7 @@ else
 fi
 
 export NONINTERACTIVE=1
-brew install ninja libmicrohttpd pkg-config automake libtool autoconf gnutls
+brew install ninja pkg-config automake libtool autoconf gnutls
 export PATH=/usr/local/opt/ccache/libexec:$PATH
 
 if [ "$(uname)" = "Darwin" ]; then

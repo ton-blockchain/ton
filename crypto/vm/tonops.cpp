@@ -2100,6 +2100,12 @@ int exec_send_message(VmState* st) {
       // Legacy: extra_flags was previously ihr_fee
       user_ihr_fee = block::tlb::t_Grams.as_integer(info.extra_flags);
     }
+    if (user_fwd_fee.is_null()) {
+      user_fwd_fee = td::zero_refint();
+    }
+    if (user_ihr_fee.is_null()) {
+      user_ihr_fee = td::zero_refint();
+    }
   }
 
   bool is_masterchain = parse_addr_workchain(*my_addr) == -1 || (!ext_msg && parse_addr_workchain(*dest) == -1);

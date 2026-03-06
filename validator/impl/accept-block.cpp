@@ -58,7 +58,6 @@ AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::
   state_keep_old_hash_.clear();
   state_old_hash_.clear();
   state_hash_.clear();
-  CHECK(prev_.size() > 0);
 }
 
 AcceptBlockQuery::AcceptBlockQuery(AcceptBlockQuery::IsFake fake, BlockIdExt id, td::Ref<BlockData> data,
@@ -81,16 +80,13 @@ AcceptBlockQuery::AcceptBlockQuery(AcceptBlockQuery::IsFake fake, BlockIdExt id,
   state_keep_old_hash_.clear();
   state_old_hash_.clear();
   state_hash_.clear();
-  CHECK(prev_.size() > 0);
 }
 
 AcceptBlockQuery::AcceptBlockQuery(ForceFork ffork, BlockIdExt id, td::Ref<BlockData> data,
                                    td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
-    , signatures_(block::BlockSignatureSet::create_ordinary(std::vector<BlockSignature>{},
-                                                            validator_set_->get_catchain_seqno(),
-                                                            validator_set_->get_validator_set_hash()))
+    , signatures_(block::BlockSignatureSet::create_ordinary(std::vector<BlockSignature>{}, 0, 0))
     , is_fake_(true)
     , is_fork_(true)
     , manager_(manager)
@@ -134,7 +130,7 @@ bool AcceptBlockQuery::precheck_header() {
   if (res.is_error()) {
     return fatal_error("invalid block header in AcceptBlock: "s + res.to_string());
   }
-  if (is_fork_) {
+  if (prev_.size() == 0) {
     prev_ = prev;
   } else if (prev_ != prev) {
     return fatal_error("invalid previous block reference(s) in block header");
@@ -203,7 +199,7 @@ bool AcceptBlockQuery::create_new_proof() {
     return fatal_error("non-masterchain block header of "s + id_.to_str() + " announces this block to be a key block");
   }
   // 3. check state update
-  vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
+  vm::CellSlice upd_cs{vm::NoVm(), blk.state_update};
   if (!(upd_cs.is_special() && upd_cs.prefetch_long(8) == 4  // merkle update
         && upd_cs.size_ext() == 0x20228)) {
     return fatal_error("invalid Merkle update in block");
@@ -389,10 +385,6 @@ void AcceptBlockQuery::start_up() {
     fatal_error("a non-fake AcceptBlockQuery for a forced fork block");
     return;
   }
-  if (!is_fork_ && prev_.empty()) {
-    fatal_error("no previous blocks passed to AcceptBlockQuery");
-    return;
-  }
   if (is_fork_ && !is_masterchain()) {
     fatal_error("cannot accept a non-masterchain fork block");
     return;
@@ -416,9 +408,10 @@ void AcceptBlockQuery::start_up() {
 void AcceptBlockQuery::got_block_handle(BlockHandle handle) {
   VLOG(VALIDATOR_DEBUG) << "got_block_handle()";
   handle_ = std::move(handle);
-  if (handle_->received() && handle_->received_state() && (handle_->inited_signatures() || !signatures_->is_final()) &&
-      handle_->inited_split_after() && handle_->inited_merge_before() && handle_->inited_prev() &&
-      handle_->inited_logical_time() && handle_->inited_state_root_hash() &&
+  if (handle_->received() && handle_->received_state() &&
+      (handle_->inited_signatures() || !signatures_->is_final() || is_fork_) && handle_->inited_split_after() &&
+      handle_->inited_merge_before() && handle_->inited_prev() && handle_->inited_logical_time() &&
+      handle_->inited_state_root_hash() &&
       (is_masterchain() ? handle_->inited_proof() && handle_->is_applied() && handle_->inited_is_key_block()
                         : handle_->inited_proof_link()) &&
       send_broadcast_mode_ == 0) {
@@ -469,7 +462,7 @@ void AcceptBlockQuery::got_block_handle_cont() {
 
 void AcceptBlockQuery::written_block_data() {
   VLOG(VALIDATOR_DEBUG) << "written_block_data()";
-  if (handle_->inited_signatures() || !signatures_->is_final()) {
+  if (handle_->inited_signatures() || !signatures_->is_final() || is_fork_) {
     written_block_signatures();
     return;
   }

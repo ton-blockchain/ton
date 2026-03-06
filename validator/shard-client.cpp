@@ -119,7 +119,7 @@ void ShardClient::applied_all_shards() {
 void ShardClient::saved_to_db() {
   CHECK(masterchain_block_handle_);
   td::actor::send_closure(manager_, &ValidatorManager::update_shard_client_block_handle, masterchain_block_handle_,
-                          std::move(masterchain_state_), [](td::Unit) {});
+                          std::move(masterchain_state_), [](td::Result<>) {});
   masterchain_state_.clear();
   if (promise_) {
     promise_.set_value(td::Unit());

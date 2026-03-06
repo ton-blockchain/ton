@@ -1,10 +1,21 @@
 name: Windows TON build (portable, x86-64)
 
-on: [push, pull_request, workflow_dispatch, workflow_call]
+on:
+  pull_request:
+    branches: [master, testnet]
+    types: [opened, reopened, synchronize, ready_for_review]
+  push:
+    branches: [master, testnet]
+  workflow_dispatch:
+  workflow_call:
 
 defaults:
   run:
     shell: cmd
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -17,7 +28,7 @@ jobs:
           systeminfo | findstr /B /C:"OS Name" /C:"OS Version"
 
       - name: Check out current repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           submodules: 'recursive'
 

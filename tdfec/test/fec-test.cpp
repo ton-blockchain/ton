@@ -175,7 +175,7 @@ void fec_test(td::Slice data, size_t max_symbol_size) {
   LOG(ERROR) << "?";
   std::vector<td::fec::Symbol> symbols;
   auto parameters = encoder->get_parameters();
-  auto decoder = Decoder::create(parameters);
+  auto decoder = Decoder::create(parameters).move_as_ok();
 
   LOG(ERROR) << "?";
   size_t sent_symbols = 0;
@@ -197,18 +197,6 @@ void fec_test(td::Slice data, size_t max_symbol_size) {
     }
   }
   UNREACHABLE();
-}
-
-TEST(Fec, RoundRobin) {
-  const size_t max_symbol_size = 200;
-  std::string data = td::rand_string('a', 'z', max_symbol_size * 400);
-  fec_test<td::fec::RoundRobinEncoder, td::fec::RoundRobinDecoder>(data, max_symbol_size);
-}
-
-TEST(Fec, Online) {
-  const size_t max_symbol_size = 200;
-  std::string data = td::rand_string('a', 'z', max_symbol_size * 50000);
-  fec_test<td::fec::OnlineEncoder, td::fec::OnlineDecoder>(data, max_symbol_size);
 }
 
 #if USE_LIBRAPTORQ

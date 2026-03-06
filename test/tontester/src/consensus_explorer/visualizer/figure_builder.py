@@ -85,9 +85,12 @@ class SummaryFigureBuilder:
         markers: list[EventData],
         slot_from: int,
         slot_to: int,
+        time_from: float | None = None,
+        time_until: float | None = None,
     ) -> go.Figure:
         self._add_bars(segments)
         self._add_markers(markers)
+        self._add_period_bounds(time_from, time_until)
         self._configure_layout(slot_from, slot_to)
         return self._fig
 
@@ -173,6 +176,21 @@ class SummaryFigureBuilder:
             dragmode="pan",
         )
 
+    def _add_period_bounds(self, time_from: float | None, time_until: float | None) -> None:
+        for ts, label in ((time_from, "time from"), (time_until, "time until")):
+            if ts is None:
+                continue
+
+            _ = self._fig.add_vrect(  # pyright: ignore[reportUnknownMemberType]
+                x0=datetime.fromtimestamp(ts, tz=timezone.utc),
+                x1=datetime.fromtimestamp(ts, tz=timezone.utc),
+                line_width=2,
+                line_dash="dash",
+                line_color="red",
+                annotation_text=label,
+                annotation_position="top left",
+            )
+
 
 @final
 class DetailFigureBuilder:
@@ -211,6 +229,7 @@ class DetailFigureBuilder:
                         symbol=m.get_symbol(),
                         color=m.get_color(),
                     ),
+                    opacity=0.8,
                     name=m.label,
                     legendgroup=f"slot:{m.label}",
                     showlegend=True,
@@ -229,14 +248,6 @@ class DetailFigureBuilder:
         events_by_label = DataFilter.group_events_by_label(events)
 
         for label in sorted(events_by_label.keys()):
-            if label not in (
-                "block_validation",
-                "finalization",
-                "collation",
-                "skip_observed",
-                "candidate_received",
-            ):
-                continue
             label_events = events_by_label[label]
 
             if self._time_mode == "abs":
@@ -263,7 +274,7 @@ class DetailFigureBuilder:
                 ],
             )
 
-            if label not in ("skip_observed", "candidate_received"):
+            if label_events[0].t1_ms:  # event has end time
                 _ = self._fig.add_trace(  # pyright: ignore[reportUnknownMemberType]
                     go.Bar(
                         orientation="h",
@@ -271,6 +282,7 @@ class DetailFigureBuilder:
                         x=x,
                         y=[e.validator for e in label_events],
                         marker=dict(color=label_events[0].get_color()),
+                        opacity=0.8,
                         hovertemplate=(
                             f"valgroup={self._valgroup_id}<br>slot={self._slot.slot}<br>"
                             + f"validator=%{{customdata[2]}}<br>event={label} (kind=%{{customdata[4]}})<br>"
@@ -295,6 +307,7 @@ class DetailFigureBuilder:
                             symbol=label_events[0].get_symbol(),
                             color=label_events[0].get_color(),
                         ),
+                        opacity=0.8,
                         hovertemplate=(
                             f"valgroup={self._valgroup_id}<br>slot={self._slot.slot}<br>"
                             + f"validator=%{{customdata[2]}}<br>event={label} (kind=%{{customdata[4]}})<br>"
@@ -315,10 +328,6 @@ class DetailFigureBuilder:
         title = f"Detail — valgroup ({self._valgroup_id}) slot {self._slot.slot}"
         if self._slot.is_empty:
             title += " · empty"
-        if self._slot.collator is not None:
-            title += f" · collator={self._slot.collator}"
-        if self._slot.block_id_ext:
-            title += f"<br>block={self._slot.block_id_ext}"
 
         validators = sorted({e.validator for e in events if e.validator is not None})
         x_title = "t - slot_start_est (ms)" if self._time_mode == "rel" else "Time (UTC)"
@@ -345,7 +354,6 @@ class DetailFigureBuilder:
                 categoryorder="array",
                 categoryarray=["__slot__"] + validators,
             ),
-            margin=dict(l=130, r=20, t=60, b=55),
             dragmode="pan",
         )
 
@@ -354,12 +362,17 @@ class FigureBuilder:
     def __init__(self, data: ConsensusData):
         self._filter: DataFilter = DataFilter(data)
 
+    def get_slot(self, valgroup_id: str, slot: int) -> SlotData | None:
+        return self._filter.get_slot(valgroup_id, slot)
+
     def build_summary(
         self,
         valgroup_id: str,
         slot_from: int,
         slot_to: int,
         show_empty: bool,
+        time_from: float | None = None,
+        time_until: float | None = None,
     ) -> go.Figure:
         slots = self._filter.filter_slots(valgroup_id, slot_from, slot_to, show_empty)
         slot_set = {s.slot for s in slots}
@@ -379,7 +392,7 @@ class FigureBuilder:
         )
 
         builder = SummaryFigureBuilder(valgroup_id, slot_dict)
-        return builder.build(segments, markers, slot_from, slot_to)
+        return builder.build(segments, markers, slot_from, slot_to, time_from, time_until)
 
     def build_detail(
         self,

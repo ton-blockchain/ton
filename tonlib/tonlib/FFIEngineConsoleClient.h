@@ -31,6 +31,7 @@ class FFIEngineConsoleClient {
 
  private:
   FFIEventLoop& loop_;
+  td::unique_ptr<td::Guard> counter_;
   td::actor::ActorOwn<EngineConsoleClient> client_;
 };
 

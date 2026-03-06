@@ -10,6 +10,7 @@
 #include "checksum.h"
 #include "misbehavior.h"
 #include "state.h"
+#include "stats.h"
 
 namespace ton::validator::consensus::simplex {
 
@@ -63,6 +64,16 @@ struct Proven {
 };
 
 struct CertificateBundle {
+  bool needs(const Vote &vote) const {
+    return std::visit(
+        [&]<typename T>(const T &v) {
+          auto tuple = std::tie(notarize_, skip_, finalize_);
+          const auto &stored_cert = std::get<const std::optional<CertificateRef<T>> &>(tuple);
+          return !stored_cert.has_value();
+        },
+        vote.vote);
+  }
+
   template <typename T>
   bool store(CertificateRef<T> cert) {
     auto tuple = std::tie(notarize_, skip_, finalize_);
@@ -222,7 +233,7 @@ struct SlotState {
     return certs.notarize_.has_value();
   }
 
-  std::optional<RawCandidateId> notarized_block() const {
+  std::optional<CandidateId> notarized_block() const {
     if (certs.notarize_.has_value()) {
       return (*certs.notarize_)->vote.id;
     }
@@ -240,7 +251,7 @@ struct SlotState {
     return certs.finalize_.has_value();
   }
 
-  void add_available_base(RawParentId parent) {
+  void add_available_base(ParentId parent) {
     // If we have multiple bases, choose one coming from the highest slot to maximize the chance of
     // forward-progress.
     if (!available_base.has_value() || parent >= *available_base) {
@@ -252,20 +263,20 @@ struct SlotState {
   CertificateBundle certs;
 
   ValidatorWeight skip_weight = 0;
-  std::map<RawCandidateId, ValidatorWeight> notarize_weight;
-  std::map<RawCandidateId, ValidatorWeight> finalize_weight;
+  std::map<CandidateId, ValidatorWeight> notarize_weight;
+  std::map<CandidateId, ValidatorWeight> finalize_weight;
 
-  std::optional<RawParentId> available_base;
+  std::optional<ParentId> available_base;
 };
 
 class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
-  using State = ConsensusState<td::Unit, SlotState, td::Unit, const Bus &>;
+  using State = ConsensusState<SlotState, const Bus &>;
 
   struct Request {
-    RawCandidateId id;
-    RawParentId parent;
+    CandidateId id;
+    ParentId parent;
     td::Promise<std::optional<MisbehaviorRef>> promise;
-    RawCandidateRef candidate_for_proof;
+    CandidateRef candidate_for_proof;
   };
 
  public:
@@ -275,11 +286,12 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     auto &bus = *owning_bus();
 
     slots_per_leader_window_ = bus.simplex_config.slots_per_leader_window;
+    max_leader_window_desync_ = bus.simplex_config.max_leader_window_desync;
 
     weight_threshold_ = (bus.total_weight * 2) / 3 + 1;
 
-    state_.emplace(State(bus.simplex_config.slots_per_leader_window, {}, bus));
-    state_->slot_at(0)->state->available_base = RawParentId{};
+    state_.emplace(State(bus));
+    state_->slot_at(0)->state->available_base = ParentId{};
 
     LOG(INFO) << "Validator group started. We are " << bus.local_id << " with weight " << bus.local_id.weight
               << " out of " << bus.total_weight;
@@ -287,10 +299,6 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     first_nonannounced_window_ = bus.first_nonannounced_window;
     for (const auto &vote : bus.bootstrap_votes) {
       handle_vote(vote.validator.get_using(bus), vote.clone());
-    }
-
-    if (first_nonannounced_window_ == 0) {
-      maybe_publish_new_leader_window().start().detach();
     }
   }
 
@@ -301,26 +309,38 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
 
   template <>
   void handle(BusHandle, std::shared_ptr<const Start>) {
+    auto &bus = *owning_bus();
+    owning_bus().publish<TraceEvent>(consensus::stats::Id::create(
+        bus.shard, bus.cc_seqno, bus.local_id.idx.value(), bus.validator_set.size(), bus.local_id.weight,
+        bus.total_weight, bus.simplex_config.slots_per_leader_window));
+
     reschedule_standstill_resolution();
     is_started_ = true;
-    if (leader_window_observation_) {
-      owning_bus().publish(std::move(leader_window_observation_));
-    }
+    advance_present();
   }
 
   template <>
   void handle(BusHandle, std::shared_ptr<const IncomingProtocolMessage> message) {
     auto &bus = *owning_bus();
+    td::uint32 first_too_new_slot =
+        (now_ / slots_per_leader_window_ + max_leader_window_desync_ + 1) * slots_per_leader_window_;
 
     auto maybe_tl_vote = fetch_tl_object<tl::vote>(message->message.data, true);
     if (maybe_tl_vote.is_ok()) {
       auto tl_vote = maybe_tl_vote.move_as_ok();
       auto maybe_vote = Signed<Vote>::from_tl(std::move(*tl_vote), message->source, bus);
       if (maybe_vote.is_error()) {
+        LOG(WARNING) << "Dropping bad vote from " << message->source << " : " << maybe_vote.move_as_error();
+        return;
+      }
+      auto vote = maybe_vote.move_as_ok();
+      if (vote.vote.referenced_slot() >= first_too_new_slot) {
+        LOG(WARNING) << "Dropping too new vote from " << message->source << " : slot=" << vote.vote.referenced_slot()
+                     << ", current_slot=" << now_;
         return;
       }
 
-      if (handle_vote(message->source.get_using(bus), maybe_vote.move_as_ok())) {
+      if (handle_vote(message->source.get_using(bus), std::move(vote))) {
         store_vote_to_db(message->message.data.clone(), message->source).detach();
       }
     }
@@ -328,12 +348,38 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     auto maybe_tl_certificate = fetch_tl_object<tl::certificate>(message->message.data, true);
     if (maybe_tl_certificate.is_ok()) {
       auto tl_certificate = maybe_tl_certificate.move_as_ok();
+      auto raw_vote = Vote::from_tl(*tl_certificate->vote_);
+
+      bool is_too_new = raw_vote.referenced_slot() >= first_too_new_slot;
+
+      std::optional<State::SlotRef> slot;
+
+      if (!is_too_new) {
+        slot = state_->slot_at(raw_vote.referenced_slot());
+        if (!slot.has_value()) {
+          return;
+        }
+        if (!slot->state->certs.needs(raw_vote)) {
+          return;
+        }
+      }
+
       auto maybe_certificate = Certificate<Vote>::from_tl(std::move(*tl_certificate), bus);
       if (maybe_certificate.is_error()) {
+        LOG(WARNING) << "Dropping bad certificate from " << message->source << " : "
+                     << maybe_certificate.move_as_error();
         return;
       }
 
-      handle_foreign_certificate(std::move(maybe_certificate.move_as_ok().unique_write()));
+      if (is_too_new) {
+        slot = state_->slot_at(raw_vote.referenced_slot());
+        CHECK(slot.has_value());
+        if (!slot->state->certs.needs(raw_vote)) {
+          return;
+        }
+      }
+
+      handle_foreign_certificate(*slot, std::move(maybe_certificate.move_as_ok().unique_write()));
     }
   }
 
@@ -464,26 +510,28 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   void handle_vote(const PeerValidator &validator, Signed<NotarizeVote> vote, State::SlotRef &slot) {
     auto new_weight = (slot.state->notarize_weight[vote.vote.id] += validator.weight);
     if (!slot.state->is_notarized() && new_weight >= weight_threshold_) {
-      handle_certificate(slot, slot.state->create_cert(vote.vote));
+      handle_our_certificate(slot, slot.state->create_cert(vote.vote));
     }
   }
 
   void handle_vote(const PeerValidator &validator, Signed<SkipVote> vote, State::SlotRef &slot) {
     auto new_weight = (slot.state->skip_weight += validator.weight);
     if (!slot.state->is_skipped() && new_weight >= weight_threshold_) {
-      handle_certificate(slot, slot.state->create_cert(vote.vote));
+      handle_our_certificate(slot, slot.state->create_cert(vote.vote));
     }
   }
 
   void handle_vote(const PeerValidator &validator, Signed<FinalizeVote> vote, State::SlotRef &slot) {
     auto new_weight = (slot.state->finalize_weight[vote.vote.id] += validator.weight);
     if (!slot.state->is_finalized() && new_weight >= weight_threshold_) {
-      handle_certificate(slot, slot.state->create_cert(vote.vote));
+      handle_our_certificate(slot, slot.state->create_cert(vote.vote));
     }
   }
 
   td::actor::Task<> handle_our_vote(Vote vote) {
     auto &bus = *owning_bus();
+
+    owning_bus().publish<TraceEvent>(stats::Voted::create(vote));
 
     auto vote_to_sign = serialize_tl_object(vote.to_tl(), true);
     auto data_to_sign = create_serialize_tl_object<consensus::tl::dataToSign>(bus.session_id, std::move(vote_to_sign));
@@ -502,6 +550,9 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   }
 
   void advance_present() {
+    if (!is_started_) {
+      return;
+    }
     while (true) {
       auto slot = state_->slot_at(now_);
       if (slot->state->is_notarized() || slot->state->is_skipped()) {
@@ -510,32 +561,35 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
         break;
       }
     }
-    maybe_publish_new_leader_window().start().detach();
+    if (!publishing_new_leader_window_) {
+      td::uint32 new_window = now_ / slots_per_leader_window_;
+      if (first_nonannounced_window_ <= new_window) {
+        publishing_new_leader_window_ = true;
+        publish_new_leader_window(new_window).start().detach();
+      }
+    }
   }
 
-  td::actor::Task<> maybe_publish_new_leader_window() {
-    td::uint32 now_save = now_;
-    td::uint32 new_window = now_ / slots_per_leader_window_;
-    if (new_window < first_nonannounced_window_) {
-      co_return {};
+  td::actor::Task<> publish_new_leader_window(td::uint32 new_window) {
+    while (true) {
+      co_await owning_bus()->db->set(
+          create_serialize_tl_object<ton_api::consensus_simplex_db_key_poolState>(),
+          create_serialize_tl_object<ton_api::consensus_simplex_db_poolState>(new_window + 1));
+      td::uint32 cur_window = now_ / slots_per_leader_window_;
+      if (cur_window == new_window) {
+        break;
+      }
+      new_window = cur_window;
     }
     first_nonannounced_window_ = new_window + 1;
-    co_await store_pool_state_to_db();
-
-    if (now_save != now_) {
-      co_return {};
-    }
-
-    RawParentId base = {};
+    ParentId base = {};
     if (now_ != 0) {
       auto maybe_base = state_->slot_at(now_)->state->available_base;
       CHECK(maybe_base.has_value());
       base = maybe_base.value();
     }
-    leader_window_observation_ = std::make_shared<LeaderWindowObserved>(now_, base);
-    if (is_started_) {
-      owning_bus().publish(std::move(leader_window_observation_));
-    }
+    owning_bus().publish(std::make_shared<LeaderWindowObserved>(now_, base));
+    publishing_new_leader_window_ = false;
     co_return {};
   }
 
@@ -630,33 +684,34 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     }
   }
 
-  void handle_foreign_certificate(Certificate<Vote> &&cert) {
-    auto slot = state_->slot_at(cert.vote.referenced_slot());
-    if (!slot.has_value()) {
-      return;
-    }
-
+  void handle_foreign_certificate(State::SlotRef &slot, Certificate<Vote> &&cert) {
     std::move(cert).consume_and_downcast([&](auto cert) {
-      if (slot->state->certs.store(cert)) {
-        for (const auto &[idx, _] : cert->signatures) {
-          auto add_result = slot->state->votes[idx.value()].add_vote(cert);
-          if (auto misbehavior = add_result.misbehavior) {
-            owning_bus().publish<MisbehaviorReport>(idx, *misbehavior);
-          }
+      for (const auto &[idx, _] : cert->signatures) {
+        auto add_result = slot.state->votes[idx.value()].add_vote(cert);
+        if (auto misbehavior = add_result.misbehavior) {
+          owning_bus().publish<MisbehaviorReport>(idx, *misbehavior);
         }
-        handle_certificate(*slot, cert);
       }
+      handle_our_certificate(slot, cert);
     });
   }
 
-  void handle_certificate(State::SlotRef &slot, NotarCertRef cert) {
-    slot.state->certs.notarize_ = cert;
-    auto id = cert->vote.id;
+  template <typename T>
+  void handle_our_certificate(State::SlotRef &slot, CertificateRef<T> cert) {
+    bool rc = slot.state->certs.store(cert);
+    CHECK(rc);
 
     log_certificate(cert, *owning_bus());
     owning_bus().publish<OutgoingProtocolMessage>(std::nullopt, cert->serialize());
+    owning_bus().publish<TraceEvent>(stats::CertObserved::create(cert->vote));
+
+    handle_certificate(slot, cert);
+  }
+
+  void handle_certificate(State::SlotRef &slot, NotarCertRef cert) {
+    auto id = cert->vote.id;
+
     owning_bus().publish<NotarizationObserved>(id, cert);
-    owning_bus().publish<StatsTargetReached>(StatsTargetReached::NotarObserved, id.slot);
 
     next_nonskipped_slot_after(id.slot).state->add_available_base(id);
 
@@ -665,11 +720,8 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   }
 
   void handle_certificate(State::SlotRef &slot, SkipCertRef cert) {
-    slot.state->certs.skip_ = cert;
     auto i = slot.i;
 
-    log_certificate(cert, *owning_bus());
-    owning_bus().publish<OutgoingProtocolMessage>(std::nullopt, cert->serialize());
     auto next_slot = next_nonskipped_slot_after(i);
 
     skip_intervals_.erase(i);
@@ -686,10 +738,8 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
   }
 
   void handle_certificate(State::SlotRef &slot, FinalCertRef cert) {
-    slot.state->certs.finalize_ = cert;
     auto id = cert->vote.id;
 
-    log_certificate(cert, *owning_bus());
     CHECK(!slot.state->is_skipped());
     CHECK(slot.state->notarized_block().value_or(id) == id);
     if (!slot.state->is_notarized()) {
@@ -699,7 +749,6 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
     last_finalized_block_ = id;
     last_final_cert_ = cert;
     first_nonfinalized_slot_ = id.slot + 1;
-    owning_bus().publish<StatsTargetReached>(StatsTargetReached::FinalObserved, id.slot);
     owning_bus().publish<FinalizationObserved>(id, cert);
 
     if (now_ <= id.slot) {
@@ -724,25 +773,20 @@ class PoolImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus
                                                  std::move(serialized), (int)validator_id.value()));
   }
 
-  td::actor::Task<> store_pool_state_to_db() {
-    co_return co_await owning_bus()->db->set(
-        create_serialize_tl_object<ton_api::consensus_simplex_db_key_poolState>(),
-        create_serialize_tl_object<ton_api::consensus_simplex_db_poolState>(first_nonannounced_window_));
-  }
-
   td::uint32 slots_per_leader_window_;
+  td::uint32 max_leader_window_desync_;
   ValidatorWeight weight_threshold_ = 0;
   std::optional<State> state_;
 
   bool is_started_ = false;
-  std::shared_ptr<LeaderWindowObserved> leader_window_observation_;
   td::uint32 now_ = 0;
 
   std::set<td::uint32> skip_intervals_;
 
   td::uint32 first_nonannounced_window_ = 0;
+  bool publishing_new_leader_window_ = false;
 
-  RawParentId last_finalized_block_;
+  ParentId last_finalized_block_;
   std::optional<FinalCertRef> last_final_cert_;
   td::uint32 first_nonfinalized_slot_ = 0;
 

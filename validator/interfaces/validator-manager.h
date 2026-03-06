@@ -136,7 +136,6 @@ struct CollationStats {
 
   struct WorkTimeStats {
     td::RealCpuTimer::Time total;
-    td::RealCpuTimer::Time optimistic_apply;
     td::RealCpuTimer::Time queue_cleanup;
     td::RealCpuTimer::Time prelim_storage_stat;
     td::RealCpuTimer::Time trx_tvm;
@@ -148,8 +147,7 @@ struct CollationStats {
     td::RealCpuTimer::Time create_block_candidate;
 
     std::string to_str(bool is_cpu) const {
-      return PSTRING() << "total=" << total.get(is_cpu) << " optimistic_apply=" << optimistic_apply.get(is_cpu)
-                       << " queue_cleanup=" << queue_cleanup.get(is_cpu)
+      return PSTRING() << "total=" << total.get(is_cpu) << " queue_cleanup=" << queue_cleanup.get(is_cpu)
                        << " prelim_storage_stat=" << prelim_storage_stat.get(is_cpu)
                        << " trx_tvm=" << trx_tvm.get(is_cpu) << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
                        << " trx_other=" << trx_other.get(is_cpu)
@@ -203,14 +201,13 @@ struct ValidationStats {
 
   struct WorkTimeStats {
     td::RealCpuTimer::Time total;
-    td::RealCpuTimer::Time optimistic_apply;
     td::RealCpuTimer::Time trx_tvm;
     td::RealCpuTimer::Time trx_storage_stat;
     td::RealCpuTimer::Time trx_other;
 
     std::string to_str(bool is_cpu) const {
-      return PSTRING() << "total=" << total.get(is_cpu) << " optimistic_apply=" << optimistic_apply.get(is_cpu)
-                       << " trx_tvm=" << trx_tvm.get(is_cpu) << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
+      return PSTRING() << "total=" << total.get(is_cpu) << " trx_tvm=" << trx_tvm.get(is_cpu)
+                       << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
                        << " trx_other=" << trx_other.get(is_cpu);
     }
   };
@@ -253,8 +250,8 @@ class ValidatorManager : public ValidatorManagerInterface {
                                       td::Promise<td::Ref<vm::DataCell>> promise) = 0;
   virtual void set_block_state_from_data(BlockHandle handle, td::Ref<BlockData> block,
                                          td::Promise<td::Ref<ShardState>> promise) = 0;
-  virtual void set_block_state_from_data_preliminary(std::vector<td::Ref<BlockData>> blocks,
-                                                     td::Promise<td::Unit> promise) = 0;
+  virtual void set_block_state_from_data_bulk(std::vector<td::Ref<BlockData>> blocks,
+                                              td::Promise<td::Unit> promise) = 0;
   virtual void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) = 0;
   virtual void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                            PersistentStateType type, td::BufferSlice state,

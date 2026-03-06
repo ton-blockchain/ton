@@ -34,6 +34,7 @@
 #include "auto/tl/ton_api.hpp"
 #include "auto/tl/ton_api_json.h"
 #include "dht/dht.h"
+#include "metrics/prometheus-exporter.h"
 #include "quic/quic-sender.h"
 #include "rldp/rldp.h"
 #include "rldp2/rldp.h"
@@ -173,6 +174,7 @@ class ValidatorEngine : public td::actor::Actor {
   ton::adnl::AdnlNodeIdShort full_node_id_ = ton::adnl::AdnlNodeIdShort::zero();
   std::map<td::uint16, td::actor::ActorOwn<ton::validator::fullnode::FullNodeMaster>> full_node_masters_;
   td::actor::ActorOwn<ton::adnl::AdnlExtServer> control_ext_server_;
+  td::actor::ActorOwn<ton::PrometheusExporter> exporter_;
 
   std::string local_config_ = "";
   std::string global_config_ = "ton-global.config";
@@ -241,6 +243,7 @@ class ValidatorEngine : public td::actor::Actor {
   bool celldb_preload_all_ = false;
   bool celldb_in_memory_ = false;
   bool celldb_disable_bloom_filter_ = false;
+  bool unsynced_liteserver_ = false;
   td::optional<double> catchain_max_block_delay_, catchain_max_block_delay_slow_;
   bool read_config_ = false;
   bool started_keyring_ = false;
@@ -350,6 +353,9 @@ class ValidatorEngine : public td::actor::Actor {
   void set_celldb_disable_bloom_filter(bool value) {
     celldb_disable_bloom_filter_ = value;
   }
+  void set_unsynced_liteserver(bool value) {
+    unsynced_liteserver_ = value;
+  }
   void set_catchain_max_block_delay(double value) {
     catchain_max_block_delay_ = value;
   }
@@ -419,6 +425,7 @@ class ValidatorEngine : public td::actor::Actor {
 
   void start_up() override;
   ValidatorEngine() {
+    exporter_ = ton::PrometheusExporter::create();
   }
 
   // load config
@@ -471,6 +478,8 @@ class ValidatorEngine : public td::actor::Actor {
 
   void alarm() override;
   void run();
+
+  void export_metrics(td::IPAddress address);
 
   void get_current_validator_perm_key(td::Promise<std::pair<ton::PublicKey, size_t>> promise);
 

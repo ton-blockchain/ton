@@ -25,14 +25,6 @@ auto measure_time(auto&& func) {
   return std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 }
 
-Continuation wait_for_continuation(FFIEventLoop& loop) {
-  std::optional<Continuation> result;
-  while (!result.has_value()) {
-    result = loop.wait(-1);
-  }
-  return *result;
-}
-
 TEST(FFIEventLoop, WaitTimeout) {
   FFIEventLoop loop(1);
   auto elapsed = measure_time([&] {
@@ -59,7 +51,7 @@ TEST(FFIEventLoop, WaitThenPut) {
   });
 
   auto elapsed = measure_time([&] {
-    auto result = wait_for_continuation(loop);
+    auto result = *loop.wait(-1);
     EXPECT_EQ(result.ptr(), continuation_1);
   });
 
@@ -117,57 +109,14 @@ TEST(FFIEventLoop, MultiplePuts) {
   EXPECT(!result4.has_value());
 }
 
-TEST(FFIEventLoop, ActorCounterBlocksDestructor) {
-  bool guard_destroyed = false;
+TEST(FFIEventLoop, ObjectCounter) {
+  FFIEventLoop loop(1);
 
-  std::thread actor_thread;
+  auto guard1 = loop.new_actor();
+  auto guard2 = loop.new_actor();
 
-  auto elapsed = measure_time([&] {
-    FFIEventLoop loop(1);
-
-    auto guard = loop.new_actor();
-
-    actor_thread = std::thread([guard = std::move(guard), &guard_destroyed]() mutable {
-      std::this_thread::sleep_for(std::chrono::milliseconds(20));
-      guard_destroyed = true;
-      // The reset is supposed to happen before FFIEventLoop destructor exits, so TSAN won't not say
-      // that `EXPECT(guard_destroyed)` later is a data race.
-      guard.reset();
-    });
-  });
-
-  EXPECT(guard_destroyed);
-  EXPECT_APPROXIMATE_TIME(elapsed, 20, 15);
-
-  actor_thread.join();
-}
-
-TEST(FFIEventLoop, MultipleActors) {
-  bool all_destroyed = false;
-
-  std::thread destroyer;
-
-  auto elapsed = measure_time([&] {
-    FFIEventLoop loop(1);
-
-    std::vector<td::unique_ptr<td::Guard>> guards;
-    guards.push_back(loop.new_actor());
-    guards.push_back(loop.new_actor());
-    guards.push_back(loop.new_actor());
-
-    destroyer = std::thread([guards = std::move(guards), &all_destroyed]() mutable {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      guards[0].reset();
-      guards[1].reset();
-      all_destroyed = true;
-      guards[2].reset();
-    });
-  });
-
-  EXPECT(all_destroyed);
-  EXPECT_APPROXIMATE_TIME(elapsed, 10, 15);
-
-  destroyer.join();
+  guard1.reset();
+  guard2.reset();
 }
 
 TEST(FFIEventLoop, RunInContext) {
@@ -208,7 +157,7 @@ TEST(FFIEventLoop, ConcurrentPuts) {
 
   std::set<const void*> received;
   for (int i = 0; i < num_threads * puts_per_thread; ++i) {
-    auto result = wait_for_continuation(loop);
+    auto result = *loop.wait(-1);
     received.insert(result.ptr());
   }
 
@@ -251,15 +200,6 @@ TEST(FFIEventLoop, BackgroundThreadFlow) {
   EXPECT_EQ(received[0], continuation_0);
   EXPECT_EQ(received[1], continuation_1);
   EXPECT_EQ(received[2], continuation_2);
-}
-
-TEST(FFIEventLoop, PutFromSchedulerContext) {
-  FFIEventLoop loop(1);
-
-  loop.run_in_context([&]() { loop.put({continuation_0}); });
-
-  auto result = wait_for_continuation(loop);
-  EXPECT_EQ(result.ptr(), continuation_0);
 }
 
 TEST(FFIEventLoop, InterleavedPutsAndWaits) {

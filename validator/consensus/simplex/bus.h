@@ -19,14 +19,14 @@ struct BroadcastVote {
 };
 
 struct NotarizationObserved {
-  RawCandidateId id;
+  CandidateId id;
   NotarCertRef certificate;
 
   std::string contents_to_string() const;
 };
 
 struct FinalizationObserved {
-  RawCandidateId id;
+  CandidateId id;
   FinalCertRef certificate;
 
   std::string contents_to_string() const;
@@ -34,7 +34,7 @@ struct FinalizationObserved {
 
 struct LeaderWindowObserved {
   td::uint32 start_slot;
-  RawParentId base;
+  ParentId base;
 
   std::string contents_to_string() const;
 };
@@ -42,39 +42,55 @@ struct LeaderWindowObserved {
 struct WaitForParent {
   using ReturnType = std::optional<MisbehaviorRef>;
 
-  RawCandidateRef candidate;
+  CandidateRef candidate;
 
   std::string contents_to_string() const;
 };
 
 struct ResolveCandidate {
   struct Result {
-    RawCandidateRef candidate;
+    CandidateRef candidate;
     NotarCertRef notar;
   };
 
   using ReturnType = Result;
 
-  RawCandidateId id;
+  CandidateId id;
 
   std::string contents_to_string() const;
 };
 
-struct WaitCandidateInfoStored {
+struct StoreCandidate {
   using ReturnType = td::Unit;
+  CandidateRef candidate;
+  std::string contents_to_string() const;
+};
 
-  RawCandidateId id;
-  bool wait_candidate_info = false;
-  bool wait_notar_cert = false;
+struct WaitNotarCertStored {
+  using ReturnType = td::Unit;
+  CandidateId id;
+  std::string contents_to_string() const;
+};
+
+struct ResolveState {
+  struct Result {
+    ChainStateRef state;
+    std::optional<double> gen_utime_exact = std::nullopt;
+  };
+
+  using ReturnType = Result;
+
+  ParentId id;
 
   std::string contents_to_string() const;
+  static std::string response_to_string(const ReturnType&);
 };
 
 class Bus : public consensus::Bus {
  public:
   using Parent = consensus::Bus;
   using Events = td::TypeList<BroadcastVote, NotarizationObserved, FinalizationObserved, LeaderWindowObserved,
-                              WaitForParent, ResolveCandidate, WaitCandidateInfoStored>;
+                              WaitForParent, ResolveCandidate, StoreCandidate, WaitNotarCertStored, ResolveState>;
 
   Bus() = default;
 
@@ -87,8 +103,8 @@ class Bus : public consensus::Bus {
   td::uint32 first_nonannounced_window = 0;
 
   // FIXME: These should come from validator options
-  double max_backoff_delay_s = 100;
-  double timeout_increase_factor = 1.05;
+  double first_block_timeout_multipler = 1.05;
+  double first_block_max_timeout_s = 100;
   double standstill_timeout_s = 10;
 
   // Candidate resolution timeout settings
@@ -108,6 +124,14 @@ struct Consensus {
 };
 
 struct CandidateResolver {
+  static void register_in(runtime::Runtime&);
+};
+
+struct StateResolver {
+  static void register_in(runtime::Runtime&);
+};
+
+struct MetricCollector {
   static void register_in(runtime::Runtime&);
 };
 

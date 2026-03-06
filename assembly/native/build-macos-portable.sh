@@ -59,45 +59,12 @@ else
   export CCACHE_DISABLE=1
 fi
 
-if [ ! -d "../3pp/zlib" ]; then
-  git clone https://github.com/madler/zlib.git ../3pp/zlib
-  cd ../3pp/zlib || exit
-  zlibPath=`pwd`
-  ./configure --static
-  make -j4 CC="$CC" CFLAGS="--sysroot=$SDKROOT"
-  test $? -eq 0 || { echo "Can't compile zlib"; exit 1; }
-  cd ../../build || exit
-else
-  zlibPath=$(pwd)/../3pp/zlib
-  echo "Using compiled zlib"
-fi
-
-if [ ! -d "../3pp/libmicrohttpd" ]; then
-  git clone https://github.com/ton-blockchain/libmicrohttpd.git ../3pp/libmicrohttpd
-  cd ../3pp/libmicrohttpd || exit
-  libmicrohttpdPath=`pwd`
-  ./configure --enable-static --disable-tests --disable-benchmark --disable-shared --disable-https --with-pic
-  make -j4 CC="$CC" CFLAGS="--sysroot=$SDKROOT"
-  test $? -eq 0 || { echo "Can't compile libmicrohttpd"; exit 1; }
-  cd ../../build || exit
-else
-  libmicrohttpdPath=$(pwd)/../3pp/libmicrohttpd
-  echo "Using compiled libmicrohttpd"
-fi
-
 cmake -GNinja .. \
 -DPORTABLE=1 \
 -DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=$OSX_TARGET \
 -DCMAKE_CXX_FLAGS="-nostdinc++ -isystem ${SDKROOT}/usr/include/c++/v1 -isystem ${SDKROOT}/usr/include" \
 -DCMAKE_SYSROOT="$(xcrun --show-sdk-path)" \
--DCMAKE_BUILD_TYPE=Release \
--DZLIB_FOUND=1 \
--DZLIB_INCLUDE_DIR=$zlibPath \
--DZLIB_LIBRARIES=$zlibPath/libz.a \
--DMHD_FOUND=1 \
--DMHD_INCLUDE_DIR=$libmicrohttpdPath/src/include \
--DMHD_LIBRARY=$libmicrohttpdPath/src/microhttpd/.libs/libmicrohttpd.a
-
+-DCMAKE_BUILD_TYPE=Release
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 

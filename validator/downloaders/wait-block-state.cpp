@@ -363,13 +363,19 @@ void WaitBlockState::force_read_from_db() {
 }
 
 void WaitBlockState::got_state_from_net(td::BufferSlice data) {
-  auto R = create_shard_state(handle_->id(), data.clone());
-  if (R.is_error()) {
-    LOG(WARNING) << "received bad state from net: " << R.move_as_error();
+  auto r_root = vm::std_boc_deserialize(data);
+  if (r_root.is_error()) {
+    LOG(WARNING) << "received bad state from net: " << r_root.move_as_error();
     start();
     return;
   }
-  auto state = R.move_as_ok();
+  auto r_state = create_shard_state(handle_->id(), r_root.move_as_ok());
+  if (r_state.is_error()) {
+    LOG(WARNING) << "received bad state from net: " << r_state.move_as_error();
+    start();
+    return;
+  }
+  auto state = r_state.move_as_ok();
 
   if (handle_->id().id.seqno == 0) {
     handle_->set_state_root_hash(handle_->id().root_hash);

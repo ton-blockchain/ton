@@ -1079,7 +1079,7 @@ VirtualCell::LoadedCell load_cell_slice_impl(Ref<Cell> cell, bool* can_be_specia
     }
     auto r_loaded_cell = cell->load_cell();
     if (r_loaded_cell.is_error()) {
-      throw VmError{Excno::cell_und, "failed to load cell"};
+      throw VmError{Excno::cell_und, PSTRING() << "failed to load cell: " << r_loaded_cell.error().message()};
     }
     auto loaded_cell = r_loaded_cell.move_as_ok();
     if (loaded_cell.data_cell->special_type() == DataCell::SpecialType::PrunnedBranch) {

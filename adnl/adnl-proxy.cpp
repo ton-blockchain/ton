@@ -160,6 +160,10 @@ void Receiver::receive_from_client(td::IPAddress addr, td::BufferSlice data) {
   }
 
   if ((f.flags & 6) == 6) {
+    if (f.seqno <= 0 || f.adnl_start_time < 0) {
+      LOG(INFO) << "proxy: dropping message from client: invalid start_time/seqno";
+      return;
+    }
     if (received_.packet_is_delivered(f.adnl_start_time, f.seqno)) {
       LOG(INFO) << "proxy: dropping message from client: duplicate packet (or old seqno/start_time)";
       return;

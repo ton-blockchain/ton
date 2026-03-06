@@ -172,7 +172,7 @@ bool CheckProof::init_parse(bool is_aux) {
   if (info.not_master != !shard.is_masterchain()) {
     return fatal_error("block has invalid not_master flag in its (Merkelized) header");
   }
-  vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
+  vm::CellSlice upd_cs{vm::NoVm(), blk.state_update};
   if (!(upd_cs.is_special() && upd_cs.prefetch_long(8) == 4  // merkle update
         && upd_cs.size_ext() == 0x20228)) {
     return fatal_error("invalid Merkle update in block");

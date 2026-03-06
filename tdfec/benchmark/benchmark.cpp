@@ -202,7 +202,7 @@ class FecBenchmark : public td::Benchmark {
 
       std::vector<td::fec::Symbol> symbols;
       auto parameters = encoder->get_parameters();
-      auto decoder = Decoder::create(parameters);
+      auto decoder = Decoder::create(parameters).move_as_ok();
 
       size_t sent_symbols = 0;
       for (td::uint32 j = 0; j < data_.size() / symbol_size_ * 20; j++) {
@@ -292,9 +292,7 @@ int main(void) {
   bench(FecBenchmark<td::fec::RaptorQEncoder, td::fec::RaptorQDecoder>(512, 20, "RaptorQ"));
 
   bench(FecBenchmark<td::fec::RaptorQEncoder, td::fec::RaptorQDecoder>(200, 1000, "RaptorQ"));
-  bench(FecBenchmark<td::fec::OnlineEncoder, td::fec::OnlineDecoder>(200, 1000, "Online"));
   for (int symbol_size = 32; symbol_size <= 8192; symbol_size *= 2) {
-    bench(FecBenchmark<td::fec::OnlineEncoder, td::fec::OnlineDecoder>(symbol_size, 50000, "Online"));
     bench(FecBenchmark<td::fec::RaptorQEncoder, td::fec::RaptorQDecoder>(symbol_size, 50000, "RaptorQ"));
   }
 

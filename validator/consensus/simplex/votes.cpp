@@ -11,8 +11,8 @@
 
 namespace ton::validator::consensus::simplex {
 
-NotarizeVote NotarizeVote::from_tl(tl::notarizeVote&& vote) {
-  return {RawCandidateId::from_tl(vote.id_)};
+NotarizeVote NotarizeVote::from_tl(const tl::notarizeVote& vote) {
+  return {CandidateId::from_tl(vote.id_)};
 }
 
 tl::UnsignedVoteRef NotarizeVote::to_tl() const {
@@ -23,8 +23,8 @@ td::StringBuilder& operator<<(td::StringBuilder& sb, const NotarizeVote& vote) {
   return sb << "NotarizeVote{id=" << vote.id << "}";
 }
 
-FinalizeVote FinalizeVote::from_tl(tl::finalizeVote&& vote) {
-  return {RawCandidateId::from_tl(vote.id_)};
+FinalizeVote FinalizeVote::from_tl(const tl::finalizeVote& vote) {
+  return {CandidateId::from_tl(vote.id_)};
 }
 
 tl::UnsignedVoteRef FinalizeVote::to_tl() const {
@@ -35,7 +35,7 @@ td::StringBuilder& operator<<(td::StringBuilder& sb, const FinalizeVote& vote) {
   return sb << "FinalizeVote{id=" << vote.id << "}";
 }
 
-SkipVote SkipVote::from_tl(tl::skipVote&& vote) {
+SkipVote SkipVote::from_tl(const tl::skipVote& vote) {
   return {static_cast<td::uint32>(vote.slot_)};
 }
 
@@ -47,15 +47,16 @@ td::StringBuilder& operator<<(td::StringBuilder& sb, const SkipVote& vote) {
   return sb << "SkipVote{slot=" << vote.slot << "}";
 }
 
-Vote Vote::from_tl(tl::UnsignedVote&& vote) {
-  auto notarize_fn = [&](tl::notarizeVote& tl_vote) -> Vote { return NotarizeVote::from_tl(std::move(tl_vote)); };
-  auto finalize_fn = [&](tl::finalizeVote& tl_vote) -> Vote { return FinalizeVote::from_tl(std::move(tl_vote)); };
-  auto skip_fn = [&](tl::skipVote& tl_vote) -> Vote { return SkipVote::from_tl(std::move(tl_vote)); };
+Vote Vote::from_tl(const tl::UnsignedVote& vote) {
+  auto notarize_fn = [&](const tl::notarizeVote& tl_vote) -> Vote { return NotarizeVote::from_tl(tl_vote); };
+  auto finalize_fn = [&](const tl::finalizeVote& tl_vote) -> Vote { return FinalizeVote::from_tl(tl_vote); };
+  auto skip_fn = [&](const tl::skipVote& tl_vote) -> Vote { return SkipVote::from_tl(tl_vote); };
 
   // FIXME: This doesn't work:
   // return ton_api::downcast_call(vote, td::overloaded(notarize_fn, finalize_fn, skip_fn));
   std::optional<Vote> result;
-  ton_api::downcast_call(vote, [&](auto& vote) { result = td::overloaded(notarize_fn, finalize_fn, skip_fn)(vote); });
+  ton_api::downcast_call(const_cast<tl::UnsignedVote&>(vote),
+                         [&](auto& vote) { result = td::overloaded(notarize_fn, finalize_fn, skip_fn)(vote); });
   return *result;
 }
 

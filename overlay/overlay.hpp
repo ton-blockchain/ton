@@ -187,15 +187,7 @@ class OverlayImpl : public Overlay {
   void get_self_node(td::Promise<OverlayNode> promise);
 
   void alarm() override;
-  void start_up() override {
-    update_throughput_at_ = td::Timestamp::in(50.0);
-    last_throughput_update_ = td::Timestamp::now();
-
-    if (overlay_type_ == OverlayType::Public) {
-      update_db_at_ = td::Timestamp::in(60.0);
-    }
-    alarm_timestamp() = td::Timestamp::in(1);
-  }
+  void start_up() override;
 
   void on_ping_result(adnl::AdnlNodeIdShort peer, bool success, double store_ping_time = -1.0);
   void receive_random_peers(adnl::AdnlNodeIdShort src, td::Result<td::BufferSlice> R, double elapsed);
@@ -375,6 +367,7 @@ class OverlayImpl : public Overlay {
   bool is_root_public_key(const PublicKeyHash &key) const;
   bool has_good_peers() const;
   size_t neighbours_cnt() const;
+  void update_peers_mtu();
 
   void finish_dht_query() {
     if (!next_dht_store_query_) {
@@ -473,6 +466,7 @@ class OverlayImpl : public Overlay {
   TrafficStats total_traffic_responses, total_traffic_responses_ctr;
 
   OverlayOptions opts_;
+  adnl::PeersMtuGuard peers_mtu_guard_;
 
   struct CachedCertificate : td::ListNode {
     CachedCertificate(PublicKeyHash source, td::Bits256 cert_hash) : source(source), cert_hash(cert_hash) {

@@ -10,11 +10,11 @@
 #include "adnl/adnl-node-id.hpp"
 #include "auto/tl/ton_api.h"
 #include "overlay/overlays.h"
-#include "rldp2/rldp-utils.h"
 #include "td/utils/Status.h"
 #include "td/utils/logging.h"
 
 #include "bus.h"
+#include "stats.h"
 
 namespace ton::validator::consensus {
 
@@ -34,14 +34,8 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
   void start_up() override {
     auto& bus = *owning_bus();
     overlays_ = bus.overlays;
-    rldp2_ = bus.rldp2;
-    quic_ = bus.quic;
     local_id_ = bus.local_id;
-    if (bus.config.use_quic) {
-      adnl_sender_ = quic_;
-    } else {
-      adnl_sender_ = rldp2_;
-    }
+    adnl_sender_ = bus.adnl_sender;
 
     std::vector<adnl::AdnlNodeIdShort> overlay_nodes;
     std::vector<td::Bits256> overlay_nodes_tl;
@@ -55,10 +49,7 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
       authorized_keys.emplace(peer.short_id, overlay::Overlays::max_fec_broadcast_size());
     }
 
-    td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, local_id_.adnl_id);
-    rldp_limit_guard_ = rldp2::PeersMtuLimitGuard(rldp2_, local_id_.adnl_id, overlay_nodes,
-                                                  bus.config.max_block_size + bus.config.max_collated_data_size + 1024);
-    td::actor::send_closure(quic_, &quic::QuicSender::add_local_id, local_id_.adnl_id);
+    td::actor::send_closure(adnl_sender_, &adnl::AdnlSenderEx::add_id, local_id_.adnl_id);
 
     auto overlay_seed = create_tl_object<tl::overlayId>(bus.session_id, std::move(overlay_nodes_tl));
     auto overlay_full_id = overlay::OverlayIdFull{serialize_tl_object(overlay_seed, true)};
@@ -90,8 +81,8 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
       if (adnl_id == local_id_.adnl_id) {
         return;
       }
-      td::actor::send_closure(overlays_, &overlay::Overlays::send_message, adnl_id, local_id_.adnl_id, overlay_id_,
-                              message->message.data.clone());
+      td::actor::send_closure(overlays_, &overlay::Overlays::send_message_via, adnl_id, local_id_.adnl_id, overlay_id_,
+                              message->message.data.clone(), adnl_sender_);
     };
 
     if (message->recipient) {
@@ -169,7 +160,7 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
 
     auto& bus = *owning_bus();
     auto peer = short_id_to_peer_.at(src);
-    auto maybe_candidate = RawCandidate::deserialize(std::move(data), bus, peer.idx);
+    auto maybe_candidate = Candidate::deserialize(std::move(data), bus, peer.idx);
 
     if (!maybe_candidate.is_ok()) {
       // FIXME: If we actually collected signed broadcast parts, we could have produced a
@@ -178,10 +169,7 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
                    << maybe_candidate.move_as_error();
       return;
     }
-
-    // FIXME: We should first check with consensus if slot makes sense and candidate is expected and
-    //        only then publish stats target.
-    owning_bus().publish<StatsTargetReached>(StatsTargetReached::CandidateReceived, maybe_candidate.ok()->id.slot);
+    owning_bus().publish<TraceEvent>(stats::CandidateReceived::create(maybe_candidate.ok(), false));
     owning_bus().publish<CandidateReceived>(maybe_candidate.move_as_ok());
   }
 
@@ -190,7 +178,7 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
     auto request = std::make_shared<IncomingOverlayRequest>(peer.idx, std::move(data));
 
     auto task = [](BusHandle bus, auto message, auto promise) -> td::actor::Task<> {
-      auto response = co_await bus.publish(std::move(message)).wrap();
+      auto response = co_await bus.publish(message).wrap();
       if (response.is_ok()) {
         promise.set_value(response.move_as_ok().data);
       } else {
@@ -204,11 +192,8 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
   }
 
   td::actor::ActorId<overlay::Overlays> overlays_;
-  td::actor::ActorId<rldp2::Rldp> rldp2_;
-  td::actor::ActorId<quic::QuicSender> quic_;
-  td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender_;
+  td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender_;
   overlay::OverlayIdShort overlay_id_;
-  rldp2::PeersMtuLimitGuard rldp_limit_guard_;
   PeerValidator local_id_;
   std::map<adnl::AdnlNodeIdShort, PeerValidator> adnl_id_to_peer_;
   std::map<PublicKeyHash, PeerValidator> short_id_to_peer_;

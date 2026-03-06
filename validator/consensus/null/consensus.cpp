@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
+#include "consensus/utils.h"
+#include "td/actor/SharedFuture.h"
 #include "td/actor/coro_utils.h"
 
 #include "bus.h"
@@ -26,7 +28,6 @@ struct SlotState {
     total_signed_weight += validator.weight;
   }
 
-  std::optional<RawCandidateRef> raw_candidate;
   std::optional<CandidateRef> candidate;
 
   std::vector<BlockSignature> signatures;
@@ -42,6 +43,10 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
   void start_up() {
+    auto [awaiter, promise] = td::actor::StartedTask<StartEvent>::make_bridge();
+    genesis_promise_ = std::move(promise);
+    genesis_ = std::move(awaiter);
+
     auto& bus = *owning_bus();
 
     validator_count_ = bus.validator_set.size();
@@ -51,7 +56,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     is_leader_ = bus.local_id.idx == leader_;
 
     if (bus.validator_set.size() == 1) {
-      try_start_generation();
+      start_generation().start().detach();
     } else if (is_leader_) {
       send_message({}, create_tl_object<tl::handshake>());
     } else {
@@ -62,6 +67,11 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   template <>
   void handle(BusHandle, std::shared_ptr<const StopRequested>) {
     stop();
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const Start> event) {
+    genesis_promise_.set_value(std::move(event));
   }
 
   template <>
@@ -94,8 +104,8 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
   void handle_message(PeerValidatorId source, tl::handshake& handshake) {
     if (is_leader_) {
-      if (seen_handshakes_.insert(source).second) {
-        try_start_generation();
+      if (seen_handshakes_.insert(source).second && seen_handshakes_.size() == validator_count_ - 1) {
+        start_generation().start().detach();
       }
     } else {
       send_message(leader_, create_tl_object<tl::handshake>());
@@ -114,17 +124,17 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     try_finalize_blocks();
   }
 
-  void try_start_generation() {
-    if (seen_handshakes_.size() == validator_count_ - 1) {
-      owning_bus().publish<OurLeaderWindowStarted>(std::nullopt, 0, std::numeric_limits<td::uint32>::max(),
-                                                   td::Timestamp::now());
-    }
+  td::actor::Task<> start_generation() {
+    auto state = (co_await genesis_.get())->state;
+    owning_bus().publish<OurLeaderWindowStarted>(std::nullopt, state, 0, std::numeric_limits<td::uint32>::max(),
+                                                 td::Timestamp::now());
+    co_return {};
   }
 
-  td::actor::Task<> on_new_candidate(RawCandidateRef candidate) {
+  td::actor::Task<> on_new_candidate(CandidateRef candidate) {
     SlotState& state = get_or_create_slot_state(candidate->id.slot);
-    CHECK(!state.raw_candidate.has_value());
-    state.raw_candidate = candidate;
+    CHECK(!state.candidate.has_value());
+    state.candidate = candidate;
 
     co_await try_validate_blocks();
     try_finalize_blocks();
@@ -138,6 +148,10 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     }
     try_validate_blocks_running_ = true;
 
+    if (state_for_validation_.is_null()) {
+      state_for_validation_ = (co_await genesis_.get())->state;
+    }
+
     auto& bus = *owning_bus();
 
     while (true) {
@@ -147,21 +161,18 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       }
       SlotState& state = it->second;
       CHECK(!state.validated);
-      if (!state.raw_candidate.has_value()) {
+      if (!state.candidate.has_value()) {
         break;
       }
-      const auto& raw_candidate = *state.raw_candidate;
+      const auto& candidate = *state.candidate;
 
-      CHECK(raw_candidate->parent_id == parent_for_validation_);
+      CHECK(candidate->parent_id == parent_for_validation_);
 
-      CandidateRef candidate = td::make_ref<Candidate>(parent_for_validation_, raw_candidate);
-      state.candidate = candidate;
+      auto validation_result = co_await owning_bus().publish<ValidationRequest>(state_for_validation_, candidate);
+      CHECK(validation_result.has<CandidateAccept>());
 
-      auto validation_result = co_await owning_bus().publish<ValidationRequest>(candidate).wrap();
-      validation_result.ensure();
-
-      auto signature_data = create_serialize_tl_object<ton_api::ton_blockId>(candidate->id.block.root_hash,
-                                                                             candidate->id.block.file_hash);
+      auto signature_data = create_serialize_tl_object<ton_api::ton_blockId>(candidate->block_id().root_hash,
+                                                                             candidate->block_id().file_hash);
       auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id.short_id,
                                                std::move(signature_data));
 
@@ -171,7 +182,10 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       send_message({}, create_tl_object<tl::signature>(candidate->id.slot, std::move(signature)));
 
       ++next_slot_to_validate_;
-      parent_for_validation_ = raw_candidate->id;
+      if (auto block = std::get_if<BlockCandidate>(&candidate->block)) {
+        state_for_validation_ = state_for_validation_->apply(*block);
+      }
+      parent_for_validation_ = candidate->id;
       if (state.finalized) {
         block_states_.erase(it);
       }
@@ -193,8 +207,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
         break;
       }
       auto& bus = owning_bus();
-      bus.publish<BlockFinalized>((*state.raw_candidate)->id);
-      bus.publish<FinalizeBlock>(*state.raw_candidate, (*state.candidate)->parent_id,
+      bus.publish<FinalizeBlock>(*state.candidate,
                                  block::BlockSignatureSet::create_ordinary(std::move(state.signatures), bus->cc_seqno,
                                                                            bus->validator_set_hash))
           .start()
@@ -207,6 +220,9 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     }
   }
 
+  td::Promise<StartEvent> genesis_promise_;
+  td::actor::SharedFuture<StartEvent> genesis_;
+
   std::set<PeerValidatorId> seen_handshakes_;
 
   size_t validator_count_ = 0;
@@ -218,6 +234,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
   bool try_validate_blocks_running_ = false;
   ParentId parent_for_validation_;
+  ChainStateRef state_for_validation_;
   td::uint32 next_slot_to_validate_ = 0;
   td::uint32 next_slot_to_finalize_ = 0;
 };

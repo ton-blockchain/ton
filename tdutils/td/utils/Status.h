@@ -466,11 +466,13 @@ class Result {
   using ValueT = T;
   Result() : status_(Status::Error<-1>()) {
   }
-  template <class S, std::enable_if_t<!std::is_same<std::decay_t<S>, Result>::value, int> = 0>
+  template <typename S>
+    requires(!std::same_as<std::decay_t<S>, Result> && std::constructible_from<T, S &&>)
   Result(S &&x) : status_(), value_(std::forward<S>(x)) {
   }
   struct emplace_t {};
   template <class... ArgsT>
+    requires std::constructible_from<T, ArgsT...>
   Result(emplace_t, ArgsT &&...args) : status_(), value_(std::forward<ArgsT>(args)...) {
   }
   Result(Status &&status) : status_(std::move(status)) {
@@ -512,6 +514,16 @@ class Result {
     }
     new (&value_) T(std::forward<ArgsT>(args)...);
     status_ = Status::OK();
+  }
+  template <typename S>
+    requires(!std::is_same_v<S, T> && !std::is_same_v<Result<S>, T> && requires(T &t, S &&s) { t = std::move(s); })
+  Result &operator=(Result<S> &&other) {
+    if (other.is_error()) {
+      *this = other.move_as_error();
+    } else {
+      *this = other.move_as_ok();
+    }
+    return *this;
   }
   ~Result() {
     if (status_.is_ok()) {

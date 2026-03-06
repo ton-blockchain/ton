@@ -76,8 +76,8 @@ static td::Result<std::vector<td::int32>> process_queue(
 
   block::OutputQueueMerger queue_merger{dst_shard, std::move(neighbors)};
   std::vector<td::int32> msg_count(blocks.size());
-  td::int32 msg_count_total = 0;
-  bool limit_reached = false;
+  td::uint32 msg_count_total = 0;
+  bool limit_reached = limits.max_bytes == 0 || limits.max_msgs == 0;
 
   while (!queue_merger.is_eof()) {
     auto kv = queue_merger.extract_cur();
@@ -95,7 +95,7 @@ static td::Result<std::vector<td::int32>> process_queue(
 
     dfs_cs(*kv->msg);
     TRY_STATUS_PREFIX(check_no_prunned(*kv->msg), "invalid message proof: ")
-    if (estimated_proof_size >= limits.max_bytes || msg_count_total >= (long long)limits.max_msgs) {
+    if (estimated_proof_size >= limits.max_bytes || msg_count_total >= limits.max_msgs) {
       limit_reached = true;
     }
   }
@@ -194,6 +194,9 @@ td::Result<std::vector<td::Ref<OutMsgQueueProof>>> OutMsgQueueProof::fetch(Shard
         TRY_RESULT_ASSIGN(state_root_hash, unpack_block_state_proof(blocks[i], block_state_proof));
       }
       auto state_root = vm::MerkleProof::virtualize(queue_proofs[i]);
+      if (state_root.is_null()) {
+        return td::Status::Error("invalid state proof");
+      }
       if (state_root->get_hash().as_slice() != state_root_hash.as_slice()) {
         return td::Status::Error("state root hash mismatch");
       }

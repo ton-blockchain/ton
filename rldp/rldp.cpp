@@ -90,7 +90,7 @@ void RldpIn::answer_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, 
 
 void RldpIn::alarm_query(adnl::AdnlQueryId query_id, TransferId transfer_id) {
   queries_.erase(query_id);
-  max_size_.erase(transfer_id);
+  max_size_.erase(transfer_id ^ TransferId::ones());
 }
 
 void RldpIn::receive_message_part(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, td::BufferSlice data) {
@@ -111,15 +111,15 @@ void RldpIn::process_message_part(adnl::AdnlNodeIdShort source, adnl::AdnlNodeId
       VLOG(RLDP_INFO) << "dropping new part";
       return;
     }
-    if (static_cast<td::uint64>(part.total_size_) > mtu()) {
-      VLOG(RLDP_NOTICE) << "dropping too big rldp packet of size=" << part.total_size_ << " mtu=" << mtu();
+    if (static_cast<td::uint64>(part.total_size_) > global_mtu()) {
+      VLOG(RLDP_NOTICE) << "dropping too big rldp packet of size=" << part.total_size_ << " mtu=" << global_mtu();
       return;
     }
     auto ite = max_size_.find(part.transfer_id_);
     if (ite == max_size_.end()) {
-      if (static_cast<td::uint64>(part.total_size_) > default_mtu_) {
-        VLOG(RLDP_NOTICE) << "dropping too big rldp packet of size=" << part.total_size_
-                          << " default_mtu=" << default_mtu_;
+      td::uint64 mtu = get_peer_mtu(local_id, source);
+      if (static_cast<td::uint64>(part.total_size_) > mtu) {
+        VLOG(RLDP_DEBUG) << "dropping too big rldp packet of size=" << part.total_size_ << " default_mtu=" << mtu;
         return;
       }
     } else {
@@ -219,6 +219,7 @@ void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
   if (it != queries_.end()) {
     td::actor::send_closure(it->second, &adnl::AdnlQuery::result, std::move(message.data_));
     queries_.erase(it);
+    max_size_.erase(transfer_id);
   } else {
     VLOG(RLDP_INFO) << "received answer to unknown query " << message.query_id_;
   }

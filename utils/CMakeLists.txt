@@ -21,4 +21,8 @@ target_link_libraries(proxy-liteserver tdutils tdactor adnl dht tl_api ton_crypt
 add_executable(prepare-ls-slice-config prepare-ls-slice-config.cpp)
 target_link_libraries(prepare-ls-slice-config tdutils tdactor adnl dht tl_api ton_crypto git lite-client-common)
 
+add_executable(show-validator-set show-validator-set.cpp)
+target_link_libraries(show-validator-set tl_api ton_crypto ton_block keys)
+target_include_directories(show-validator-set PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..)
+
 install(TARGETS generate-random-id proxy-liteserver RUNTIME DESTINATION bin)

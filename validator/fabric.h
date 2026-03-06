@@ -39,9 +39,9 @@ struct CollateParams {
   adnl::AdnlNodeIdShort collator_node_id = adnl::AdnlNodeIdShort::zero();
   bool skip_store_candidate = false;
   int attempt_idx = 0;
-
-  // Optional - used for optimistic collation
-  Ref<BlockData> optimistic_prev_block = {};
+  td::optional<double> utime = {};
+  td::Timestamp hard_timeout = td::Timestamp::in(10.0);
+  td::Timestamp soft_timeout = {};
 
   // Optional - if empty, blocks and states are taken from manager
   // If not empty, should be the same size as prev
@@ -59,9 +59,7 @@ struct ValidateParams {
   PublicKeyHash local_validator_id = PublicKeyHash::zero();
 
   bool is_fake = false;
-
-  // Optional - used for validation of optimistic candidates
-  Ref<BlockData> optimistic_prev_block = {};
+  bool skip_store_candidate = false;
 
   bool parallel_validation = false;
   bool is_new_consensus = false;
@@ -120,7 +118,7 @@ void run_check_proof_link_query(BlockIdExt id, td::Ref<ProofLink> proof, td::act
                                 td::Timestamp timeout, td::Promise<BlockHandle> promise);
 void run_validate_query(BlockCandidate candidate, ValidateParams params, td::actor::ActorId<ValidatorManager> manager,
                         td::Timestamp timeout, td::Promise<ValidateCandidateResult> promise);
-void run_collate_query(CollateParams params, td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
+void run_collate_query(CollateParams params, td::actor::ActorId<ValidatorManager> manager,
                        td::CancellationToken cancellation_token, td::Promise<BlockCandidate> promise);
 void run_liteserver_query(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager,
                           td::actor::ActorId<LiteServerCache> cache, td::Promise<td::BufferSlice> promise);

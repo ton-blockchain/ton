@@ -39,7 +39,7 @@ struct Certificate : td::CntObject {
   Certificate(T vote, std::vector<VoteSignature> signatures) : vote(vote), signatures(std::move(signatures)) {
   }
 
-  td::Ref<block::BlockSignatureSet> to_signature_set(const RawCandidateRef& candidate, const Bus& bus) const
+  td::Ref<block::BlockSignatureSet> to_signature_set(const CandidateRef& candidate, const Bus& bus) const
     requires td::OneOf<T, NotarizeVote, FinalizeVote>;
 
   tl::VoteSignatureSetRef to_tl_vote_signature_set() const;

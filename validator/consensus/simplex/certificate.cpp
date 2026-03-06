@@ -73,8 +73,7 @@ td::BufferSlice Certificate<T>::serialize() const {
 }
 
 template <ValidVote T>
-td::Ref<block::BlockSignatureSet> Certificate<T>::to_signature_set(const RawCandidateRef& candidate,
-                                                                   const Bus& bus) const
+td::Ref<block::BlockSignatureSet> Certificate<T>::to_signature_set(const CandidateRef& candidate, const Bus& bus) const
   requires td::OneOf<T, NotarizeVote, FinalizeVote>
 {
   CHECK(candidate->id == vote.id);

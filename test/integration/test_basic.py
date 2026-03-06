@@ -31,9 +31,10 @@ async def main():
             node.announce_to(dht)
             nodes.append(node)
 
-        await dht.run()
-        for node in nodes:
-            await node.run()
+        async with asyncio.TaskGroup() as start_group:
+            _ = start_group.create_task(dht.run())
+            for node in nodes:
+                _ = start_group.create_task(node.run())
 
         await network.wait_mc_block(seqno=1)
 

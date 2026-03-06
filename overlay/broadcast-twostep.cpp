@@ -46,7 +46,7 @@ namespace ton {
 namespace overlay {
 
 constexpr int VERBOSITY_NAME(TWOSTEP_WARNING) = verbosity_WARNING;
-constexpr int VERBOSITY_NAME(TWOSTEP_INFO) = verbosity_INFO;
+constexpr int VERBOSITY_NAME(TWOSTEP_INFO) = verbosity_DEBUG;
 constexpr int VERBOSITY_NAME(TWOSTEP_DEBUG) = verbosity_DEBUG;
 
 static constexpr std::size_t FEC_MIN_BYTES = 513;
@@ -387,6 +387,9 @@ td::Status BroadcastsTwostep::process_broadcast(OverlayImpl *overlay, adnl::Adnl
     VLOG(TWOSTEP_INFO) << "twostep FINISH receiver " << *bcast << " decoded=true elapsed=" << bcast->debug.elapsed();
     broadcasts_.erase(it);
     overlay->register_delivered_broadcast(broadcast_id);
+    if (broadcast->data_hash_ != td::sha256_bits256(R.data)) {
+      return td::Status::Error(ErrorCode::protoviolation, "broadcast data hash mismatch");
+    }
     check_and_deliver(overlay, src_keyhash, check_result, std::move(R.data));
   }
   return td::Status::OK();

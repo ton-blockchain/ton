@@ -1033,7 +1033,7 @@ Ref<McShardDescr> McShardDescr::from_block(Ref<vm::Cell> block_root, Ref<vm::Cel
     return {};
   }
   // TODO: use a suitable vm::MerkleUpdate method here
-  vm::CellSlice cs(vm::NoVmSpec(), rec.state_update);
+  vm::CellSlice cs(vm::NoVm(), rec.state_update);
   if (!cs.is_valid() || cs.special_type() != vm::Cell::SpecialType::MerkleUpdate) {
     LOG(ERROR) << "state update in a block is not a Merkle update";
     return {};

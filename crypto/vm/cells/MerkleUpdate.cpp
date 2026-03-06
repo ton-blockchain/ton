@@ -218,6 +218,7 @@ td::Status MerkleUpdate::validate(Ref<Cell> update) {
   if (cs.special_type() != Cell::SpecialType::MerkleUpdate) {
     return td::Status::Error("not a MerkleUpdate cell");
   }
+  // Checking fields in MerkleUpdate root is not required, as they are checked in DataCell::create
   auto update_from = cs.fetch_ref();
   auto update_to = cs.fetch_ref();
   return validate_raw(std::move(update_from), std::move(update_to), 0, 0);

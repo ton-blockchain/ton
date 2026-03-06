@@ -21,7 +21,7 @@
 #include <map>
 
 #include "adnl/adnl-node-id.hpp"
-#include "adnl/adnl.h"
+#include "adnl/adnl-sender-ex.h"
 #include "auto/tl/ton_api.h"
 #include "dht/dht.h"
 #include "td/actor/PromiseFuture.h"
@@ -127,6 +127,14 @@ class OverlayPrivacyRules {
     } else {
       return it->second >= size ? BroadcastCheckResult::Allowed : BroadcastCheckResult::Forbidden;
     }
+  }
+
+  td::uint32 max_broadcast_size() const {
+    td::uint32 size = max_unath_size_;
+    for (const auto &[_, x] : authorized_keys_) {
+      size = std::max(size, x);
+    }
+    return size;
   }
 
  private:
@@ -270,7 +278,7 @@ struct OverlayOptions {
   double broadcast_speed_multiplier_ = 1.0;
   bool private_ping_peers_ = false;
 
-  td::actor::ActorId<adnl::AdnlSenderInterface> twostep_broadcast_sender_ = {};
+  td::actor::ActorId<adnl::AdnlSenderEx> twostep_broadcast_sender_ = {};
   bool send_twostep_broadcast_ = false;
 };
 

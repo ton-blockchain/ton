@@ -39,8 +39,6 @@ PACMAN_PKGS=(
   ${PKG_PREFIX}-ninja
   ${PKG_PREFIX}-cmake
   ${PKG_PREFIX}-pkgconf
-  ${PKG_PREFIX}-zlib
-  ${PKG_PREFIX}-libmicrohttpd
   autoconf automake libtool m4 make git diffutils autogen
 )
 
@@ -51,6 +49,24 @@ if ! clang++ --version | grep -q "clang version 21"; then
   echo "Error: clang 21 not found in PATH. Check your MSYS2 packages." >&2
   clang++ --version >&2
   exit 1
+fi
+
+if [ ! -f "$ROOT_DIR/third-party/zlib/configure" ]; then
+  echo "Initializing zlib submodule..."
+  git -C "$ROOT_DIR" submodule update --init --recursive third-party/zlib
+fi
+
+if [ ! -f "$ROOT_DIR/third-party/libmicrohttpd/configure" ]; then
+  echo "Initializing libmicrohttpd submodule..."
+  git -C "$ROOT_DIR" submodule update --init --recursive third-party/libmicrohttpd
+fi
+if [ ! -f "$ROOT_DIR/third-party/libmicrohttpd/configure" ] && [ -f "$ROOT_DIR/third-party/libmicrohttpd/configure.ac" ]; then
+  echo "Generating libmicrohttpd configure script..."
+  echo "Normalizing libmicrohttpd m4 line endings..."
+  (cd "$ROOT_DIR/third-party/libmicrohttpd" && \
+    find . -maxdepth 3 -type f \( -name "*.m4" -o -name "configure.ac" -o -name "acinclude.m4" \) -print0 | \
+    xargs -0 sed -i 's/\r$//')
+  (cd "$ROOT_DIR/third-party/libmicrohttpd" && autoreconf -fi)
 fi
 
 cd third-party/openssl

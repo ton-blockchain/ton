@@ -49,7 +49,7 @@ class CollatorNode : public td::actor::Actor {
   void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
   void process_generate_block_query(adnl::AdnlNodeIdShort src, ShardIdFull shard, CatchainSeqno cc_seqno,
                                     std::vector<BlockIdExt> prev_blocks, BlockCandidatePriority priority,
-                                    bool is_optimistic, td::Timestamp timeout, td::Promise<BlockCandidate> promise);
+                                    td::Timestamp timeout, td::Promise<BlockCandidate> promise);
   void process_ping(adnl::AdnlNodeIdShort src, ton_api::collatorNode_ping& ping, td::Promise<td::BufferSlice> promise);
 
   bool can_collate_shard(ShardIdFull shard) const;

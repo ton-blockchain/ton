@@ -442,7 +442,7 @@ void LiteQuery::continue_getBlockHeader(BlockIdExt blkid, int mode, Ref<ton::val
   }
   if (mode & 1) {
     // with state_update
-    vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
+    vm::CellSlice upd_cs{vm::NoVm(), blk.state_update};
     if (!(upd_cs.is_special() && upd_cs.prefetch_long(8) == 4  // merkle update
           && upd_cs.size_ext() == 0x20228)) {
       fatal_error("invalid Merkle update in block");
@@ -1186,7 +1186,7 @@ bool LiteQuery::make_state_root_proof(Ref<vm::Cell>& proof, Ref<vm::Cell> state_
         block::gen::BlkPrevInfo(info.after_merge).validate_ref(info.prev_ref))) {
     return fatal_error("cannot unpack block header");
   }
-  vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
+  vm::CellSlice upd_cs{vm::NoVm(), blk.state_update};
   if (!(upd_cs.is_special() && upd_cs.prefetch_long(8) == 4  // merkle update
         && upd_cs.size_ext() == 0x20228)) {
     return fatal_error("invalid Merkle update in block");
@@ -2138,7 +2138,10 @@ void LiteQuery::continue_lookupBlockWithProof_getHeaderProof(Ref<ton::validator:
         prev_blkid = p;
       }
     }
-    CHECK(prev_blkid.is_valid());
+    if (!prev_blkid.is_valid()) {
+      fatal_error("failed to choose previous block");
+      return;
+    }
     get_block_handle_checked(prev_blkid, [Self = actor_id(this), masterchain_ref_seqno,
                                           manager = manager_](td::Result<ConstBlockHandle> R) mutable {
       if (R.is_error()) {
@@ -3392,7 +3395,7 @@ void LiteQuery::perform_getBlockOutMsgQueueSize(int mode, BlockIdExt blkid) {
     fatal_error("invalid BlockIdExt");
     return;
   }
-  set_continuation([=]() -> void { finish_getBlockOutMsgQueueSize(); });
+  set_continuation([this]() -> void { finish_getBlockOutMsgQueueSize(); });
   request_block_data_state(blkid);
 }
 
@@ -3462,7 +3465,7 @@ void LiteQuery::perform_getDispatchQueueInfo(int mode, BlockIdExt blkid, StdSmcA
     fatal_error("invalid max_accounts");
     return;
   }
-  set_continuation([=]() -> void { finish_getDispatchQueueInfo(after_addr, max_accounts); });
+  set_continuation([=, this]() -> void { finish_getDispatchQueueInfo(after_addr, max_accounts); });
   request_block_data_state(blkid);
 }
 
@@ -3568,7 +3571,7 @@ void LiteQuery::perform_getDispatchQueueMessages(int mode, BlockIdExt blkid, Std
     fatal_error("invalid max_messages");
     return;
   }
-  set_continuation([=]() -> void { finish_getDispatchQueueMessages(addr, lt, max_messages); });
+  set_continuation([=, this]() -> void { finish_getDispatchQueueMessages(addr, lt, max_messages); });
   request_block_data_state(blkid);
 }
 

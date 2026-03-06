@@ -76,9 +76,9 @@ class ActorOwn {
     return &id_;
   }
 
-  detail::ActorRef as_actor_ref() const {
+  detail::ActorTarget as_actor_ref() const {
     CHECK(!empty());
-    return detail::ActorRef(*id_.actor_info_ptr(), 0);
+    return detail::ActorTarget(*id_.actor_info_ptr(), 0);
   }
 
  private:

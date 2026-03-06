@@ -30,41 +30,6 @@ IF %errorlevel% NEQ 0 (
 )
 SET PATH=%PATH%;C:\Program Files\NASM
 
-if not exist "third_libs" (
-    mkdir "third_libs"
-)
-cd third_libs
-
-set third_libs=%cd%
-echo %third_libs%
-set "third_party=%ROOT_DIR%\third-party"
-
-if not exist "zlib" (
-  git clone https://github.com/madler/zlib.git
-  cd zlib
-  git checkout v1.3.1
-  cd contrib\vstudio\vc14
-  msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:platform=x64 -p:PlatformToolset=v142
-  cd ..\..\..\..
-) else (
-  echo Using zlib...
-)
-
-if not exist "libmicrohttpd" (
-  git clone https://github.com/Karlson2k/libmicrohttpd.git
-  cd libmicrohttpd
-  git checkout v1.0.1
-  cd w32\VS2019
-  msbuild libmicrohttpd.vcxproj /p:Configuration=Release-static /p:platform=x64 -p:PlatformToolset=v142
-  IF %errorlevel% NEQ 0 (
-    echo Can't compile libmicrohttpd
-    exit /b %errorlevel%
-  )
-  cd ../../..
-) else (
-  echo Using libmicrohttpd...
-)
-
 cd ..
 echo Current dir %cd%
 
@@ -74,12 +39,6 @@ cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
 -DCCACHE_FOUND= ^
 -DCMAKE_CXX_COMPILER_LAUNCHER= ^
 -DPORTABLE=1 ^
--DMHD_FOUND=1 ^
--DMHD_LIBRARY=%third_libs%\libmicrohttpd\w32\VS2019\Output\x64\libmicrohttpd.lib ^
--DMHD_INCLUDE_DIR=%third_libs%\libmicrohttpd\src\include ^
--DZLIB_FOUND=1 ^
--DZLIB_INCLUDE_DIR=%third_libs%\zlib ^
--DZLIB_LIBRARIES=%third_libs%\zlib\contrib\vstudio\vc14\x64\ZlibStatReleaseWithoutAsm\zlibstat.lib ^
 -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj" ..
 
 IF %errorlevel% NEQ 0 (

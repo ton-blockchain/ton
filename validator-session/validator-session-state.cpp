@@ -311,7 +311,7 @@ const ValidatorSessionRoundState* ValidatorSessionRoundState::merge(ValidatorSes
   td::uint32 f_att[2] = {};
   td::uint32 f_cnt = 0;
 
-  for (td::uint32 i = att_vec->size(); i > 0; i--) {
+  for (td::uint32 i = att_vec ? att_vec->size() : 0; i > 0; i--) {
     auto b = att_vec->at(i - 1);
     if (f_cnt <= 1) {
       bool found;

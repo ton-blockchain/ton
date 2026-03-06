@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import signal
 import subprocess
 import types
@@ -49,9 +50,17 @@ type DebugType = None | Literal["rr"]
 @final
 class Network:
     class Node(ABC):
-        def __init__(self, network: "Network", name: str):
+        def __init__(
+            self,
+            network: "Network",
+            name: str,
+            install: Install | None = None,
+            env: dict[str, str] | None = None,
+        ):
             self._network: Network = network
             self.name: str = name
+            self._install_override: Install | None = install
+            self._extra_env: dict[str, str] = dict(env or {})
 
             self._directory: Path = self._network._directory / (
                 "node" + str(self._network._node_idx)
@@ -69,7 +78,7 @@ class Network:
 
         @property
         def _install(self):
-            return self._network._install
+            return self._install_override or self._network._install
 
         def _new_network_address(self) -> _IPv4AddressAndPort:
             self._network._port += 1
@@ -100,6 +109,10 @@ class Network:
         @property
         def log_path(self):
             return self._directory / "log"
+
+        @property
+        def session_log_path(self):
+            return self._directory / "session-logs"
 
         async def _run(
             self,
@@ -153,20 +166,26 @@ class Network:
 
             match debug:
                 case None:
+                    process_env = os.environ.copy()
+                    process_env.update(self._extra_env)
                     self.__process = await asyncio.create_subprocess_exec(
                         executable,
                         *cmd_flags,
                         cwd=self._directory,
+                        env=process_env,
                         stderr=asyncio.subprocess.PIPE,
                     )
                 case "rr":
                     l.info(f"Recording {self.name} with rr")
+                    process_env = os.environ.copy()
+                    process_env.update(self._extra_env)
                     self.__process = await asyncio.create_subprocess_exec(
                         "rr",
                         "record",
                         executable,
                         *cmd_flags,
                         cwd=self._directory,
+                        env=process_env,
                         stderr=asyncio.subprocess.PIPE,
                     )
 
@@ -240,10 +259,14 @@ class Network:
         self.__nodes.append(node)
         return node
 
-    def create_full_node(self) -> "FullNode":
+    def create_full_node(
+        self,
+        install: Install | None = None,
+        env: dict[str, str] | None = None,
+    ) -> "FullNode":
         assert self._status < _Status.CLOSED
 
-        node = FullNode(self, f"node-{len(self.__nodes)}")
+        node = FullNode(self, f"node-{len(self.__nodes)}", install=install, env=env)
         self.__nodes.append(node)
         self.__full_nodes.append(node)
         return node
@@ -377,8 +400,14 @@ class DHTNode(Network.Node):
 
 @final
 class FullNode(Network.Node):
-    def __init__(self, network: "Network", name: str):
-        super().__init__(network, name)
+    def __init__(
+        self,
+        network: "Network",
+        name: str,
+        install: Install | None = None,
+        env: dict[str, str] | None = None,
+    ):
+        super().__init__(network, name, install=install, env=env)
 
         KEY_EXPIRATION = (1 << 31) - 1
 
@@ -482,7 +511,7 @@ class FullNode(Network.Node):
             self._install.validator_engine_exe,
             self._local_config,
             zerostate.as_validator_config(),
-            ["--initial-sync-delay", "5", "--session-logs", str(self._directory / "session-logs")],
+            ["--initial-sync-delay", "5", "--session-logs", str(self.session_log_path)],
             debug=debug,
         )
 

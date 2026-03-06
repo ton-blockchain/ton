@@ -196,10 +196,12 @@ void FullNodeShardImpl::try_get_next_block(td::Timestamp timeout, td::Promise<Re
 
 void FullNodeShardImpl::got_next_block(td::Result<BlockHandle> R) {
   if (R.is_error()) {
-    if (R.error().code() == ErrorCode::timeout || R.error().code() == ErrorCode::notready) {
-      get_next_block();
-      return;
+    if (R.error().code() != ErrorCode::timeout && R.error().code() != ErrorCode::notready) {
+      LOG(WARNING) << "Failed to get next block: " << R.move_as_error();
     }
+    delay_action([SelfId = actor_id(this)]() { td::actor::send_closure(SelfId, &FullNodeShardImpl::get_next_block); },
+                 td::Timestamp::in(0.1));
+    return;
   }
   attempt_ = 0;
   R.ensure();
@@ -626,7 +628,8 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
 
 void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getOutMsgQueueProof &query,
                                       td::Promise<td::BufferSlice> promise) {
-  std::vector<BlockIdExt> blocks;
+  promise.set_error(td::Status::Error("not supported yet"));
+  /*std::vector<BlockIdExt> blocks;
   for (const auto &x : query.blocks_) {
     BlockIdExt id = create_block_id(x);
     if (!id.is_valid_ext()) {
@@ -669,7 +672,7 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
         td::actor::create_actor<BuildOutMsgQueueProof>("buildqueueproof", dst_shard, std::move(blocks), limits, manager,
                                                        std::move(P))
             .release();
-      });
+      });*/
 }
 
 void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadPersistentStateSliceV2 &query,
