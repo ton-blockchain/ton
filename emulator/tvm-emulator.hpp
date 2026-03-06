@@ -15,6 +15,7 @@ class TvmEmulator {
   std::unique_ptr<ton::SmartContract::Logger> logger{};
 public:
   vm::ExtMethods ext_methods;
+  vm::MissingLibraryHandler missing_library_handler;
   using Answer = ton::SmartContract::Answer;
 
   TvmEmulator(td::Ref<vm::Cell> code, td::Ref<vm::Cell> data): smc_({code, data}) {
@@ -22,6 +23,10 @@ public:
 
   void register_ext_method(td::uint64 method_id, void* ctx, vm::ExtMethodCallback method, td::uint8 stack_items_count = 255) {
     ext_methods[method_id] = vm::ExtMethod{ctx, method, stack_items_count};
+  }
+
+  void register_missing_library_handler(void* ctx, vm::MissingLibraryCallback callback) {
+    missing_library_handler = {ctx, callback};
   }
 
   void set_vm_verbosity_level(int vm_log_verbosity) {
@@ -75,7 +80,11 @@ public:
   }
 
   int run_get_method_debug(int method_id, td::Ref<vm::Stack> stack) {
-    return smc_.run_get_method_debug(args_.set_stack(stack).set_method_id(method_id).set_ext_methods(ext_methods), vm, logger);
+    return smc_.run_get_method_debug(args_.set_stack(stack)
+                                         .set_method_id(method_id)
+                                         .set_ext_methods(ext_methods)
+                                         .set_missing_library_handler(missing_library_handler),
+                                     vm, logger);
   }
 
   Answer sbs_result() {
@@ -87,16 +96,23 @@ public:
 
   Answer run_get_method(int method_id, td::Ref<vm::Stack> stack) {
     ton::SmartContract::Args args = args_;
-    return smc_.run_get_method(args.set_stack(stack).set_method_id(method_id).set_ext_methods(ext_methods));
+    return smc_.run_get_method(args.set_stack(stack)
+                                   .set_method_id(method_id)
+                                   .set_ext_methods(ext_methods)
+                                   .set_missing_library_handler(missing_library_handler));
   }
 
   Answer send_external_message(td::Ref<vm::Cell> message_body) {
-    return smc_.send_external_message(message_body, args_);
+    ton::SmartContract::Args args = args_;
+    return smc_.send_external_message(
+        message_body, args.set_ext_methods(ext_methods).set_missing_library_handler(missing_library_handler));
   }
 
   Answer send_internal_message(td::Ref<vm::Cell> message_body, uint64_t amount) {
     ton::SmartContract::Args args = args_;
-    return smc_.send_internal_message(message_body, args.set_amount(amount));
+    return smc_.send_internal_message(
+        message_body,
+        args.set_amount(amount).set_ext_methods(ext_methods).set_missing_library_handler(missing_library_handler));
   }
 };
 }

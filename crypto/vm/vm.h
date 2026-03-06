@@ -32,6 +32,7 @@ namespace vm {
 
 using td::Ref;
 using ExtMethodCallback = const char* (*)(void*, const char*);
+using MissingLibraryCallback = void (*)(void*, const char*);
 
 struct ExtMethod {
   void* ctx{nullptr};
@@ -40,6 +41,12 @@ struct ExtMethod {
 };
 
 using ExtMethods = td::BTreeMap<td::uint64, ExtMethod>;
+
+struct MissingLibraryHandler {
+  void* ctx{nullptr};
+  MissingLibraryCallback callback{nullptr};
+};
+
 struct GasLimits {
   static constexpr long long infty = (1ULL << 63) - 1;
   long long gas_max, gas_limit, gas_credit, gas_remaining, gas_base;
@@ -129,6 +136,7 @@ class VmState final : public VmStateInterface {
 
  public:
   ExtMethods ext_methods;
+  MissingLibraryHandler missing_library_handler;
   enum {
     cell_load_gas_price = 100,
     cell_reload_gas_price = 25,

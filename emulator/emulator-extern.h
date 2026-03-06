@@ -96,6 +96,7 @@ EMULATOR_EXPORT bool transaction_emulator_set_debug_enabled(void *transaction_em
 EMULATOR_EXPORT bool transaction_emulator_set_prev_blocks_info(void *transaction_emulator, const char* info_boc);
 
 typedef const char* (*ext_func)(void*, const char*);
+typedef void (*missing_library_func)(void*, const char*);
 EMULATOR_EXPORT const char *transaction_emulator_register_extmethod(
     void *transaction_emulator,
     int id,
@@ -109,6 +110,16 @@ EMULATOR_EXPORT const char *tvm_emulator_register_extmethod(
     void* ctx,
     int stack_items_count,
     ext_func callback
+);
+EMULATOR_EXPORT const char *transaction_emulator_register_missing_library_callback(
+    void *transaction_emulator,
+    void *ctx,
+    missing_library_func callback
+);
+EMULATOR_EXPORT const char *tvm_emulator_register_missing_library_callback(
+    void *tvm_emulator,
+    void *ctx,
+    missing_library_func callback
 );
 
 /**

@@ -85,6 +85,7 @@ class SmartContract : public td::CntObject {
     td::optional<td::Ref<vm::Tuple>> prev_blocks_info;
 
     vm::ExtMethods ext_methods = {};
+    vm::MissingLibraryHandler missing_library_handler = {};
 
     Args() {
     }
@@ -105,6 +106,10 @@ class SmartContract : public td::CntObject {
     }
     Args&& set_ext_methods(const vm::ExtMethods& ext_methods) {
       this->ext_methods = ext_methods;
+      return std::move(*this);
+    }
+    Args&& set_missing_library_handler(vm::MissingLibraryHandler missing_library_handler) {
+      this->missing_library_handler = missing_library_handler;
       return std::move(*this);
     }
     Args&& set_limits(vm::GasLimits limits) {

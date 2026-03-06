@@ -129,6 +129,26 @@ const char *tvm_emulator_register_extmethod(
   return "Registered external function";
 }
 
+const char *transaction_emulator_register_missing_library_callback(
+    void *transaction_emulator,
+    void *ctx,
+    missing_library_func callback
+) {
+  auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
+  emulator->missing_library_handler = vm::MissingLibraryHandler{ctx, callback};
+  return "Registered missing library callback";
+}
+
+const char *tvm_emulator_register_missing_library_callback(
+    void *tvm_emulator,
+    void *ctx,
+    missing_library_func callback
+) {
+  auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  emulator->register_missing_library_handler(ctx, callback);
+  return "Registered missing library callback";
+}
+
 const char *transaction_emulator_emulate_transaction_prepare(const char *shard_account_boc, const char *message_boc,
                                                              emulator::TransactionEmulator *emulator,
                                                              td::Ref<vm::Cell> &message_cell, block::Account &account,

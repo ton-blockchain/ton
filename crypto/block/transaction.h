@@ -187,6 +187,7 @@ struct ComputePhaseConfig {
   bool allow_external_unfreeze{false};
   bool disable_anycast{false};
   vm::ExtMethods ext_methods;
+  vm::MissingLibraryHandler missing_library_handler;
 
   ComputePhaseConfig() : gas_price(0), gas_limit(0), special_gas_limit(0), gas_credit(0) {
     compute_threshold();

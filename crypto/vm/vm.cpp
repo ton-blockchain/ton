@@ -706,7 +706,12 @@ Ref<Cell> VmState::load_library(td::ConstBitPtr hash) {
       return lib;
     }
   }
-  missing_library = td::Bits256{hash};
+  auto missing = td::Bits256{hash};
+  if (missing_library_handler.callback != nullptr) {
+    auto missing_hex = missing.to_hex();
+    missing_library_handler.callback(missing_library_handler.ctx, missing_hex.c_str());
+  }
+  missing_library = missing;
   return {};
 }
 

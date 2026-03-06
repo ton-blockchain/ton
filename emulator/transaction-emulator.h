@@ -40,6 +40,7 @@ class TransactionEmulator {
 
 public:
   vm::ExtMethods ext_methods;
+  vm::MissingLibraryHandler missing_library_handler;
 
   TransactionEmulator(std::shared_ptr<block::Config> config, int vm_log_verbosity = 0) :
     config_(std::move(config)), libraries_(256), vm_log_verbosity_(vm_log_verbosity),

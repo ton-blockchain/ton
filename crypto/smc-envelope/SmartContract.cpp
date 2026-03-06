@@ -235,7 +235,7 @@ std::shared_ptr<const block::Config> try_fetch_config_from_c7(td::Ref<vm::Tuple>
 vm::VmState init_vm(SmartContract::State state, td::Ref<vm::Stack> stack, td::Ref<vm::Tuple> c7, vm::GasLimits gas,
                     bool ignore_chksig, td::Ref<vm::Cell> libraries, int vm_log_verbosity, bool debug_enabled,
                     std::shared_ptr<const block::Config> config, td::LogInterface* logger,
-                    const vm::ExtMethods& ext_methods) {
+                    const vm::ExtMethods& ext_methods, const vm::MissingLibraryHandler& missing_library_handler) {
   vm::init_vm(debug_enabled).ensure();
   vm::DictionaryBase::get_empty_dictionary();
 
@@ -261,6 +261,7 @@ vm::VmState init_vm(SmartContract::State state, td::Ref<vm::Stack> stack, td::Re
   int global_version = config ? config->get_global_version() : ton::SUPPORTED_VERSION;
   vm::VmState vm{state.code, global_version, std::move(stack), gas, 1, state.data, log};
   vm.ext_methods = ext_methods;
+  vm.missing_library_handler = missing_library_handler;
   vm.set_c7(std::move(c7));
   vm.set_chksig_always_succeed(ignore_chksig);
   if (!libraries.is_null()) {
@@ -314,10 +315,12 @@ SmartContract::Answer get_vm_result(const vm::VmState& vm, SmartContract::State 
 int setup_vm(SmartContract::State state, td::Ref<vm::Stack> stack, td::Ref<vm::Tuple> c7, vm::GasLimits gas,
              bool ignore_chksig, td::Ref<vm::Cell> libraries, int vm_log_verbosity, bool debug_enabled,
              std::shared_ptr<const block::Config> config, std::unique_ptr<vm::VmState>& vm,
-             std::unique_ptr<SmartContract::Logger>& logger, const vm::ExtMethods& ext_methods) {
+             std::unique_ptr<SmartContract::Logger>& logger, const vm::ExtMethods& ext_methods,
+             const vm::MissingLibraryHandler& missing_library_handler) {
   logger = std::make_unique<SmartContract::Logger>();
   logger->clear();
-  auto vm_ = init_vm(state, stack, c7, gas, ignore_chksig, libraries, vm_log_verbosity, debug_enabled, config, logger.get(), ext_methods);
+  auto vm_ = init_vm(state, stack, c7, gas, ignore_chksig, libraries, vm_log_verbosity, debug_enabled, config,
+                     logger.get(), ext_methods, missing_library_handler);
   if (vm_.get_code().is_null() || stack.is_null()) {
     return static_cast<int>(vm::Excno::fatal);  // no ~ for unhandled exceptions
   }
@@ -349,11 +352,12 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
                                     vm::GasLimits gas, bool ignore_chksig, td::Ref<vm::Cell> libraries,
                                     int vm_log_verbosity, bool debug_enabled,
                                     std::shared_ptr<const block::Config> config,
-                                    vm::ExtMethods ext_methods) {
+                                    vm::ExtMethods ext_methods, vm::MissingLibraryHandler missing_library_handler) {
   auto gas_credit = gas.gas_credit;
 
   SmartContract::Logger logger;
-  auto vm = init_vm(state, stack, c7, gas, ignore_chksig, libraries, vm_log_verbosity, debug_enabled, config, &logger, ext_methods);
+  auto vm = init_vm(state, stack, c7, gas, ignore_chksig, libraries, vm_log_verbosity, debug_enabled, config,
+                    &logger, ext_methods, missing_library_handler);
 
   try {
     vm.run();
@@ -422,7 +426,8 @@ SmartContract::Answer SmartContract::run_method(Args args) {
   auto res =
       run_smartcont(get_state(), args.stack.unwrap(), args.c7.unwrap(), args.limits.unwrap(), args.ignore_chksig,
                     args.libraries ? args.libraries.unwrap().get_root_cell() : td::Ref<vm::Cell>{},
-                    args.vm_log_verbosity_level, args.debug_enabled, args.config ? args.config.value() : nullptr, args.ext_methods);
+                    args.vm_log_verbosity_level, args.debug_enabled, args.config ? args.config.value() : nullptr,
+                    args.ext_methods, args.missing_library_handler);
   state_ = res.new_state;
   return res;
 }
@@ -432,7 +437,7 @@ SmartContract::Answer SmartContract::run_get_method(Args args) const {
   return run_smartcont(get_state(), args.stack.unwrap(), args.c7.unwrap(), args.limits.unwrap(), args.ignore_chksig,
                        args.libraries ? args.libraries.unwrap().get_root_cell() : td::Ref<vm::Cell>{},
                        args.vm_log_verbosity_level, args.debug_enabled, args.config ? args.config.value() : nullptr,
-                       args.ext_methods);
+                       args.ext_methods, args.missing_library_handler);
 }
 
 int SmartContract::run_get_method_debug(Args args, std::unique_ptr<vm::VmState>& vm, std::unique_ptr<Logger>& logger) const {
@@ -440,7 +445,7 @@ int SmartContract::run_get_method_debug(Args args, std::unique_ptr<vm::VmState>&
   return setup_vm(get_state(), args.stack.unwrap(), args.c7.unwrap(), args.limits.unwrap(), args.ignore_chksig,
                   args.libraries ? args.libraries.unwrap().get_root_cell() : td::Ref<vm::Cell>{},
                   args.vm_log_verbosity_level, args.debug_enabled, args.config ? args.config.value() : nullptr, vm, logger,
-                  args.ext_methods);
+                  args.ext_methods, args.missing_library_handler);
 }
 
 SmartContract::Answer SmartContract::run_get_method(td::Slice method, Args args) const {

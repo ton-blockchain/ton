@@ -1939,6 +1939,7 @@ std::optional<Transaction::PrepareComputePhaseResult> Transaction::prepare_compu
   }
   vm::VmState vm{new_code, cfg.global_version, std::move(stack), gas, 1, new_data, vm_log, compute_vm_libraries(cfg)};
   vm.ext_methods = cfg.ext_methods;
+  vm.missing_library_handler = cfg.missing_library_handler;
   vm.set_max_data_depth(cfg.max_vm_data_depth);
   vm.set_c7(prepare_vm_c7(cfg));  // tuple with SmartContractInfo
   vm.set_chksig_always_succeed(cfg.ignore_chksig);
