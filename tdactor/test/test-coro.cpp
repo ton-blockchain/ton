@@ -1699,7 +1699,7 @@ TEST_CORO(Coro, spawn_actor_does_not_leave_helper_actor_alive) {
   auto before = spawn_actor_helper_alive_count_for_test();
   auto result = co_await spawn_actor("helper", []() -> Task<int> { co_return 7; }());
   expect_eq(result, 7, "spawn_actor should return task result");
-  co_await yield_on_current();
+  co_await sleep_for(0.01);
   auto after = spawn_actor_helper_alive_count_for_test();
   expect_eq(after, before, "spawn_actor helper actor should not stay alive after completion");
   co_return td::Unit{};
@@ -2575,6 +2575,303 @@ TEST_CORO(Coro, cross_actor_ask_error_suspended_local_destructor_guard_touch) {
   auto waiter = create_actor<AwaitErrorActor>("AwaitErrorActorSuspended");
   auto r = co_await ask(waiter, &AwaitErrorActor::query, remote.get()).wrap();
   expect_true(r.is_error(), "Cross-actor suspended ask error should fail");
+  co_return td::Unit{};
+}
+
+struct MeshStressGate {
+  std::shared_ptr<std::atomic<bool>> armed{std::make_shared<std::atomic<bool>>(false)};
+  std::shared_ptr<std::atomic<bool>> released{std::make_shared<std::atomic<bool>>(false)};
+  int caller_index{-1};
+  int callee_index{-1};
+};
+
+class MeshStressActor final : public td::actor::Actor {
+ public:
+  MeshStressActor(std::shared_ptr<std::atomic<int>> destroyed_count, std::shared_ptr<std::atomic<bool>> destroyed_flag,
+                  std::shared_ptr<MeshStressGate> gate)
+      : destroyed_count_(std::move(destroyed_count))
+      , destroyed_flag_(std::move(destroyed_flag))
+      , gate_(std::move(gate)) {
+  }
+
+  ~MeshStressActor() override {
+    destroyed_count_->fetch_add(1, std::memory_order_acq_rel);
+    destroyed_flag_->store(true, std::memory_order_release);
+  }
+
+  Task<td::Unit> init(std::vector<ActorId<MeshStressActor>> peers, int index) {
+    peers_ = std::move(peers);
+    index_ = index;
+    co_return td::Unit{};
+  }
+
+  void request_stop() {
+    stop();
+  }
+
+  Task<int> run_chain(int remaining, int value, int flavor) {
+    OnActorGuard guard;
+    guard.touch("mesh stress chain should start on actor");
+
+    if ((flavor & 1) == 0) {
+      co_await yield_on_current();
+    } else {
+      co_await sleep_for(0.0002);
+    }
+    guard.touch("mesh stress chain should stay on actor after first await");
+
+    if ((flavor & 2) != 0) {
+      auto scheduler_hop = []() -> Task<td::Unit> {
+        co_await yield_on_current();
+        co_return td::Unit{};
+      }();
+      scheduler_hop.set_executor(Executor::on_scheduler());
+      co_await std::move(scheduler_hop);
+      guard.touch("mesh stress chain should return to actor after scheduler hop");
+    }
+
+    if (remaining <= 0) {
+      co_return value + index_;
+    }
+
+    auto next_index = static_cast<int>((index_ + 1) % static_cast<int>(peers_.size()));
+    if (gate_ != nullptr && index_ == gate_->caller_index && next_index == gate_->callee_index &&
+        !gate_->armed->exchange(true, std::memory_order_acq_rel)) {
+      while (!gate_->released->load(std::memory_order_acquire)) {
+        co_await yield_on_current();
+      }
+    }
+
+    auto next = peers_[static_cast<size_t>(next_index)];
+    auto next_result =
+        co_await ask(next, &MeshStressActor::run_chain, remaining - 1, value + index_ + 1, flavor + 1).wrap();
+    if (next_result.is_error()) {
+      co_return next_result.move_as_error();
+    }
+
+    guard.touch("mesh stress chain should return to caller actor after nested ask");
+    co_return next_result.ok() + 1;
+  }
+
+ private:
+  std::vector<ActorId<MeshStressActor>> peers_;
+  int index_{0};
+  std::shared_ptr<std::atomic<int>> destroyed_count_;
+  std::shared_ptr<std::atomic<bool>> destroyed_flag_;
+  std::shared_ptr<MeshStressGate> gate_;
+};
+
+static int mesh_chain_expected_result(int mesh_size, int index, int remaining, int value) {
+  if (remaining <= 0) {
+    return value + index;
+  }
+  auto next_index = (index + 1) % mesh_size;
+  return mesh_chain_expected_result(mesh_size, next_index, remaining - 1, value + index + 1) + 1;
+}
+
+TEST_CORO(Coro, actor_nested_ask_stopped_target_self_waking_repro) {
+  auto gate = std::make_shared<MeshStressGate>();
+  gate->caller_index = 0;
+  gate->callee_index = 1;
+
+  auto timer_baseline = td::actor::TimerNode::published_in_cancel_topology_count_for_test();
+  auto spawn_helper_baseline = spawn_actor_helper_alive_count_for_test();
+  auto sleep_helper_baseline = coro_sleep_helper_alive_count_for_test();
+
+  auto destroyed_count = std::make_shared<std::atomic<int>>(0);
+  std::vector<std::shared_ptr<std::atomic<bool>>> destroyed_flags;
+  std::vector<ActorOwn<MeshStressActor>> owners;
+  std::vector<ActorId<MeshStressActor>> ids;
+  destroyed_flags.reserve(4);
+  owners.reserve(4);
+  ids.reserve(4);
+
+  for (int i = 0; i < 4; i++) {
+    destroyed_flags.push_back(std::make_shared<std::atomic<bool>>(false));
+    auto owner = create_actor<MeshStressActor>("MeshActorNestedRepro", destroyed_count, destroyed_flags.back(), gate);
+    ids.push_back(owner.get());
+    owners.push_back(std::move(owner));
+  }
+
+  for (int i = 0; i < 4; i++) {
+    auto init_result = co_await ask(ids[static_cast<size_t>(i)], &MeshStressActor::init, ids, i).wrap();
+    expect_ok(init_result, "nested ask repro init should complete");
+  }
+
+  auto root = ask(ids[2], &MeshStressActor::run_chain, 4, 50, 1).start_in_parent_scope();
+  co_await wait_until([&] { return gate->armed->load(std::memory_order_acquire); },
+                      "nested ask repro should pause before asking actor 1");
+  send_closure(ids[1], &MeshStressActor::request_stop);
+  co_await wait_until([&] { return destroyed_flags[1]->load(std::memory_order_acquire); },
+                      "nested ask repro actor 1 should be destroyed before release", 1.0);
+  gate->released->store(true, std::memory_order_release);
+  co_await wait_until([&] { return root.await_ready(); }, "nested ask repro root should finish after actor 1 stop",
+                      1.0);
+
+  auto result = co_await std::move(root).wrap();
+  expect_true(result.is_error(), "nested ask repro should fail after actor 1 stop");
+
+  owners.clear();
+  co_await wait_until([&] { return destroyed_count->load(std::memory_order_acquire) == 4; },
+                      "nested ask repro actors should all be destroyed", 1.0);
+  co_await wait_until(
+      [&] { return td::actor::TimerNode::published_in_cancel_topology_count_for_test() == timer_baseline; },
+      "nested ask repro timer nodes should return to baseline", 1.0);
+  expect_eq(spawn_actor_helper_alive_count_for_test(), spawn_helper_baseline,
+            "nested ask repro should not leak spawn_actor helpers");
+  expect_eq(coro_sleep_helper_alive_count_for_test(), sleep_helper_baseline,
+            "nested ask repro should not leak coro_sleep helpers");
+  co_return td::Unit{};
+}
+
+TEST_CORO(Coro, cross_actor_ask_self_waking_stress) {
+  constexpr int kIterations = 300;
+  constexpr td::uint64 kBaseSeed = 0xC0A55A1122334455ULL;
+
+  auto timer_baseline = td::actor::TimerNode::published_in_cancel_topology_count_for_test();
+  auto spawn_helper_baseline = spawn_actor_helper_alive_count_for_test();
+  auto sleep_helper_baseline = coro_sleep_helper_alive_count_for_test();
+
+  for (int iter = 0; iter < kIterations; iter++) {
+    auto seed = kBaseSeed ^ (static_cast<td::uint64>(iter + 1) * 0x9e3779b97f4a7c15ULL);
+    td::Random::Xorshift128plus rnd(seed);
+    auto mesh_size = rnd.fast(3, 6);
+    auto root_index = rnd.fast(0, mesh_size - 1);
+    auto remaining = rnd.fast(0, mesh_size * 2 + 2);
+    auto value = rnd.fast(1, 200);
+    auto flavor = rnd.fast(0, 3);
+
+    auto destroyed_count = std::make_shared<std::atomic<int>>(0);
+    auto gate = std::make_shared<MeshStressGate>();
+    std::vector<std::shared_ptr<std::atomic<bool>>> destroyed_flags;
+    std::vector<ActorOwn<MeshStressActor>> owners;
+    std::vector<ActorId<MeshStressActor>> ids;
+    destroyed_flags.reserve(static_cast<size_t>(mesh_size));
+    owners.reserve(static_cast<size_t>(mesh_size));
+    ids.reserve(static_cast<size_t>(mesh_size));
+
+    for (int actor_index = 0; actor_index < mesh_size; actor_index++) {
+      destroyed_flags.push_back(std::make_shared<std::atomic<bool>>(false));
+      auto owner = create_actor<MeshStressActor>("MeshActorCrossStress", destroyed_count, destroyed_flags.back(), gate);
+      ids.push_back(owner.get());
+      owners.push_back(std::move(owner));
+    }
+
+    for (int actor_index = 0; actor_index < mesh_size; actor_index++) {
+      auto init_result =
+          co_await ask(ids[static_cast<size_t>(actor_index)], &MeshStressActor::init, ids, actor_index).wrap();
+      LOG_CHECK(init_result.is_ok()) << "cross ask stress init should complete, iter=" << iter << " seed=" << seed
+                                     << " actor=" << actor_index;
+    }
+
+    auto result =
+        co_await ask(ids[static_cast<size_t>(root_index)], &MeshStressActor::run_chain, remaining, value, flavor)
+            .wrap();
+    LOG_CHECK(result.is_ok()) << "cross ask stress root should succeed, iter=" << iter << " seed=" << seed
+                              << " root=" << root_index << " remaining=" << remaining << " value=" << value
+                              << " flavor=" << flavor;
+    auto expected = mesh_chain_expected_result(mesh_size, root_index, remaining, value);
+    LOG_CHECK(result.ok() == expected) << "cross ask stress result mismatch, iter=" << iter << " seed=" << seed
+                                       << " mesh_size=" << mesh_size << " root=" << root_index
+                                       << " remaining=" << remaining << " value=" << value << " flavor=" << flavor
+                                       << " got=" << result.ok() << " expected=" << expected;
+
+    owners.clear();
+    co_await wait_until([&] { return destroyed_count->load(std::memory_order_acquire) == mesh_size; },
+                        "cross ask stress actors should all be destroyed", 1.0);
+    co_await wait_until(
+        [&] { return td::actor::TimerNode::published_in_cancel_topology_count_for_test() == timer_baseline; },
+        "cross ask stress timer nodes should return to baseline", 1.0);
+    LOG_CHECK(spawn_actor_helper_alive_count_for_test() == spawn_helper_baseline)
+        << "cross ask stress leaked spawn_actor helpers, iter=" << iter << " seed=" << seed;
+    LOG_CHECK(coro_sleep_helper_alive_count_for_test() == sleep_helper_baseline)
+        << "cross ask stress leaked coro_sleep helpers, iter=" << iter << " seed=" << seed;
+
+    if ((iter + 1) % 100 == 0) {
+      LOG(INFO) << "cross_actor_ask_self_waking_stress progress: " << (iter + 1) << "/" << kIterations;
+    }
+  }
+
+  co_return td::Unit{};
+}
+
+TEST_CORO(Coro, actor_stop_nested_ask_self_waking_stress) {
+  constexpr int kIterations = 200;
+  constexpr td::uint64 kBaseSeed = 0x5A0F1122AABBCCDDULL;
+
+  auto timer_baseline = td::actor::TimerNode::published_in_cancel_topology_count_for_test();
+  auto spawn_helper_baseline = spawn_actor_helper_alive_count_for_test();
+  auto sleep_helper_baseline = coro_sleep_helper_alive_count_for_test();
+
+  for (int iter = 0; iter < kIterations; iter++) {
+    auto seed = kBaseSeed ^ (static_cast<td::uint64>(iter + 1) * 0x9e3779b97f4a7c15ULL);
+    td::Random::Xorshift128plus rnd(seed);
+    auto mesh_size = rnd.fast(4, 7);
+    auto victim_index = rnd.fast(0, mesh_size - 1);
+    auto caller_index = (victim_index + mesh_size - 1) % mesh_size;
+    auto root_index = (victim_index + mesh_size - 2) % mesh_size;
+    auto remaining = rnd.fast(2, mesh_size + 3);
+    auto value = rnd.fast(1, 200);
+    auto flavor = rnd.fast(0, 3);
+
+    auto destroyed_count = std::make_shared<std::atomic<int>>(0);
+    auto gate = std::make_shared<MeshStressGate>();
+    gate->caller_index = caller_index;
+    gate->callee_index = victim_index;
+
+    std::vector<std::shared_ptr<std::atomic<bool>>> destroyed_flags;
+    std::vector<ActorOwn<MeshStressActor>> owners;
+    std::vector<ActorId<MeshStressActor>> ids;
+    destroyed_flags.reserve(static_cast<size_t>(mesh_size));
+    owners.reserve(static_cast<size_t>(mesh_size));
+    ids.reserve(static_cast<size_t>(mesh_size));
+
+    for (int actor_index = 0; actor_index < mesh_size; actor_index++) {
+      destroyed_flags.push_back(std::make_shared<std::atomic<bool>>(false));
+      auto owner = create_actor<MeshStressActor>("MeshActorStopStress", destroyed_count, destroyed_flags.back(), gate);
+      ids.push_back(owner.get());
+      owners.push_back(std::move(owner));
+    }
+
+    for (int actor_index = 0; actor_index < mesh_size; actor_index++) {
+      auto init_result =
+          co_await ask(ids[static_cast<size_t>(actor_index)], &MeshStressActor::init, ids, actor_index).wrap();
+      LOG_CHECK(init_result.is_ok()) << "actor stop stress init should complete, iter=" << iter << " seed=" << seed
+                                     << " actor=" << actor_index;
+    }
+
+    auto started = ask(ids[static_cast<size_t>(root_index)], &MeshStressActor::run_chain, remaining, value, flavor)
+                       .start_in_parent_scope();
+    co_await wait_until([&] { return gate->armed->load(std::memory_order_acquire); },
+                        "actor stop stress should pause before asking stopped actor", 1.0);
+    send_closure(ids[static_cast<size_t>(victim_index)], &MeshStressActor::request_stop);
+    co_await wait_until(
+        [&] { return destroyed_flags[static_cast<size_t>(victim_index)]->load(std::memory_order_acquire); },
+        "actor stop stress victim should be destroyed before release", 1.0);
+    gate->released->store(true, std::memory_order_release);
+    co_await wait_until([&] { return started.await_ready(); }, "actor stop stress root should finish", 1.0);
+
+    auto result = co_await std::move(started).wrap();
+    LOG_CHECK(result.is_error()) << "actor stop stress root should fail, iter=" << iter << " seed=" << seed
+                                 << " mesh_size=" << mesh_size << " root=" << root_index << " victim=" << victim_index
+                                 << " remaining=" << remaining << " value=" << value << " flavor=" << flavor;
+
+    owners.clear();
+    co_await wait_until([&] { return destroyed_count->load(std::memory_order_acquire) == mesh_size; },
+                        "actor stop stress actors should all be destroyed", 1.0);
+    co_await wait_until(
+        [&] { return td::actor::TimerNode::published_in_cancel_topology_count_for_test() == timer_baseline; },
+        "actor stop stress timer nodes should return to baseline", 1.0);
+    LOG_CHECK(spawn_actor_helper_alive_count_for_test() == spawn_helper_baseline)
+        << "actor stop stress leaked spawn_actor helpers, iter=" << iter << " seed=" << seed;
+    LOG_CHECK(coro_sleep_helper_alive_count_for_test() == sleep_helper_baseline)
+        << "actor stop stress leaked coro_sleep helpers, iter=" << iter << " seed=" << seed;
+
+    if ((iter + 1) % 50 == 0) {
+      LOG(INFO) << "actor_stop_nested_ask_self_waking_stress progress: " << (iter + 1) << "/" << kIterations;
+    }
+  }
+
   co_return td::Unit{};
 }
 
@@ -3482,6 +3779,22 @@ TEST_CORO(Coro, task_group) {
   co_return td::Unit{};
 }
 
+TEST_CORO(Coro, task_cancellation_source_destructor_after_cancel) {
+  constexpr int kIterations = 200;
+
+  for (int iter = 0; iter < kIterations; iter++) {
+    {
+      auto source = TaskCancellationSource::create_detached();
+      source.cancel();
+      for (int i = 0; i < 8; i++) {
+        co_await yield_on_current();
+      }
+    }
+  }
+
+  co_return td::Unit{};
+}
+
 TEST_CORO(Coro, task_group_combinators) {
   // any(): first success wins and cancels losers.
   {
@@ -3888,6 +4201,23 @@ TEST_CORO(Coro, with_timeout) {
     co_return td::Unit{};
   }();
 
+  co_return td::Unit{};
+}
+
+TEST_CORO(Coro, with_timeout_success_not_delayed_by_timer_child) {
+  auto fast_task = []() -> Task<int> {
+    co_await sleep_for(0.01);
+    co_return 42;
+  };
+
+  auto started = fast_task().start_in_parent_scope();
+  auto start_time = td::Timestamp::now();
+  auto result = co_await with_timeout(std::move(started), 0.25);
+  auto elapsed = td::Timestamp::now().at() - start_time.at();
+
+  expect_true(result.is_ok(), "Fast task should complete successfully");
+  expect_eq(result.ok(), 42, "Fast task should return correct value");
+  expect_true(elapsed < 0.10, "with_timeout should not wait for the timer child after main task success");
   co_return td::Unit{};
 }
 

@@ -694,15 +694,13 @@ Task<Result<T>> with_timeout(StartedTask<T> task, double seconds) {
   // Timer: sleep, set timeout
   auto timer = [](std::shared_ptr<State> state, double s) -> Task<Unit> {
     co_await sleep_for(s);
-    if (!(co_await is_active())) {
-      co_return Unit{};
-    }
     state->try_timeout();
     co_return Unit{};
   }(state, seconds)
                                                                  .start_in_parent_scope();
 
   // Main: await task, set result (task cancelled via destructor when main cancelled)
+  // NB: currently we want it to work with StartedTask
   auto main = [](std::shared_ptr<State> state, StartedTask<T> task) -> Task<Unit> {
     auto result = co_await std::move(task).wrap();
     state->try_set_result(std::move(result));
