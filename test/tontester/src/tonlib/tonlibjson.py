@@ -176,6 +176,8 @@ class TonLib:
 
                 result = result.value
                 assert isinstance(result, dict)
+                if "@extra" not in result:
+                    continue  # support callback on update from tonlib
                 assert isinstance(result["@extra"], str)
                 request_id = result["@extra"]
                 future = self._futures.get(request_id, None)
