@@ -475,7 +475,9 @@ void AcceptBlockQuery::written_block_data() {
 
 void AcceptBlockQuery::written_block_signatures() {
   VLOG(VALIDATOR_DEBUG) << "written_block_signatures()";
-  handle_->set_merge(prev_.size() == 2);
+  if (!prev_.empty()) {
+    handle_->set_merge(prev_.size() == 2);
+  }
 
   for (auto& p : prev_) {
     handle_->set_prev(p);
