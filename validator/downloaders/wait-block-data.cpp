@@ -187,7 +187,7 @@ void WaitBlockData::loaded_block_data(td::Ref<BlockData> block) {
                             });
     return;
   }
-  // After send_get_block_request, inited_proof() == true for masterchain (see DownloadBlock/DownloadBlockNew)
+  // After send_get_block_request, inited_proof() == true for masterchain (see DownloadBlockNew)
   checked_proof_link();
 }
 
@@ -272,7 +272,7 @@ td::Result<td::BufferSlice> WaitBlockData::generate_proof_link(BlockIdExt id, td
   }
   vm::CellSlice upd_cs{vm::NoVm(), blk.state_update};
 
-  auto proof = vm::MerkleProof::generate(block_root, usage_tree.get());
+  TRY_RESULT(proof, vm::MerkleProof::generate(block_root, usage_tree.get()));
   vm::CellBuilder cb;
   td::Ref<vm::Cell> bs_cell;
   if (!(cb.store_long_bool(0xc3, 8)               // block_proof#c3

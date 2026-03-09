@@ -4,7 +4,9 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
+#include "consensus/stats.h"
 #include "consensus/utils.h"
+#include "td/actor/SharedFuture.h"
 #include "td/actor/coro_utils.h"
 
 #include "bus.h"
@@ -134,6 +136,9 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     SlotState& state = get_or_create_slot_state(candidate->id.slot);
     CHECK(!state.candidate.has_value());
     state.candidate = candidate;
+    if (candidate->leader != owning_bus()->local_id.idx) {
+      owning_bus().publish<TraceEvent>(stats::CandidateReceived::create(candidate, false));
+    }
 
     co_await try_validate_blocks();
     try_finalize_blocks();
@@ -220,7 +225,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   }
 
   td::Promise<StartEvent> genesis_promise_;
-  SharedFuture<StartEvent> genesis_;
+  td::actor::SharedFuture<StartEvent> genesis_;
 
   std::set<PeerValidatorId> seen_handshakes_;
 

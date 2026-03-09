@@ -23,7 +23,6 @@
 #include "interfaces/validator-manager.h"
 #include "quic/quic-sender.h"
 #include "rldp/rldp.h"
-#include "rldp2/rldp-utils.h"
 #include "rldp2/rldp.h"
 #include "validator-session/validator-session.h"
 
@@ -41,8 +40,8 @@ class IValidatorGroup : public td::actor::Actor {
       td::Slice name, ShardIdFull shard, PublicKeyHash local_id, ValidatorSessionId session_id,
       td::Ref<block::ValidatorSet> validator_set, BlockSeqno last_key_block_seqno,
       validatorsession::ValidatorSessionOptions config, td::actor::ActorId<keyring::Keyring> keyring,
-      td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
-      td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
+      td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender,
+      td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
       td::actor::ActorId<ValidatorManager> validator_manager, td::actor::ActorId<CollationManager> collation_manager,
       bool create_session, bool allow_unsafe_self_blocks_resync, td::Ref<ValidatorManagerOptions> opts,
       bool monitoring_shard);
@@ -51,11 +50,10 @@ class IValidatorGroup : public td::actor::Actor {
       td::Slice name, ShardIdFull shard, PublicKeyHash local_id, ValidatorSessionId session_id,
       td::Ref<block::ValidatorSet> validator_set, BlockSeqno last_key_block_seqno, NewConsensusConfig config,
       td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-      td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
-      td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
-      td::actor::ActorId<ValidatorManager> validator_manager, td::actor::ActorId<CollationManager> collation_manager,
-      bool create_session, bool allow_unsafe_self_blocks_resync, td::Ref<ValidatorManagerOptions> opts,
-      bool monitoring_shard);
+      td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender, td::actor::ActorId<overlay::Overlays> overlays,
+      std::string db_root, td::actor::ActorId<ValidatorManager> validator_manager,
+      td::actor::ActorId<CollationManager> collation_manager, bool create_session, bool allow_unsafe_self_blocks_resync,
+      td::Ref<ValidatorManagerOptions> opts, bool monitoring_shard);
 
   virtual void start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id) = 0;
   virtual void create_session() = 0;

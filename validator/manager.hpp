@@ -232,6 +232,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::map<ValidatorSessionId, ValidatorGroupEntry> validator_groups_;
   std::map<ValidatorSessionId, ValidatorGroupEntry> next_validator_groups_;
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<CollationManager>> collation_managers_;
+  std::set<ValidatorSessionId> destroyed_validator_sessions_;
 
  private:
   // MASTERCHAIN LAST BLOCK
@@ -244,8 +245,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   BlockHandle last_key_block_handle_;
   BlockHandle last_known_key_block_handle_;
   BlockHandle shard_client_handle_;
-  std::vector<td::Ref<McShardHash>> shard_client_shards_;
   td::Ref<MasterchainState> shard_client_state_;
+  std::vector<td::Ref<McShardHash>> shard_client_shards_;
   td::Ref<MasterchainState> last_liteserver_state_;
 
   td::Ref<MasterchainState> do_get_last_liteserver_state();
@@ -265,8 +266,12 @@ class ValidatorManagerImpl : public ValidatorManager {
   void update_shard_overlays();
   void update_shards();
   void update_shard_blocks();
-  void updated_init_block(BlockIdExt last_rotate_block_id) {
+  void updated_init_block(BlockIdExt last_rotate_block_id,
+                          std::set<ValidatorSessionId> old_destroyed_validator_sessions) {
     last_rotate_block_id_ = last_rotate_block_id;
+    for (const auto &s : old_destroyed_validator_sessions) {
+      destroyed_validator_sessions_.erase(s);
+    }
   }
   void got_next_gc_masterchain_handle(BlockHandle handle);
   void got_next_gc_masterchain_state(BlockHandle handle, td::Ref<MasterchainState> state);
@@ -364,8 +369,7 @@ class ValidatorManagerImpl : public ValidatorManager {
                               td::Promise<td::Ref<vm::DataCell>> promise) override;
   void set_block_state_from_data(BlockHandle handle, td::Ref<BlockData> block,
                                  td::Promise<td::Ref<ShardState>> promise) override;
-  void set_block_state_from_data_preliminary(std::vector<td::Ref<BlockData>> blocks,
-                                             td::Promise<td::Unit> promise) override;
+  void set_block_state_from_data_bulk(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise) override;
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) override;
   void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                    td::BufferSlice state, td::Promise<td::Unit> promise) override;
@@ -523,6 +527,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void start_up() override;
   void init_last_masterchain_state(td::Ref<MasterchainState> state) override;
   void started(ValidatorManagerInitResult result);
+  void got_destroyed_validator_sessions(std::vector<ValidatorSessionId> sessions);
   void finish_start_up();
 
   bool is_validator();

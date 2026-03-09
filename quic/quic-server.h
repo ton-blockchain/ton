@@ -43,7 +43,6 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     bool enable_gro = true;
     bool enable_mmsg = true;
     CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
-    std::optional<td::uint64> inbound_stream_max_size = std::nullopt;
   };
   class Callback {
    public:
@@ -67,6 +66,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
 
   td::Result<QuicStreamID> send_stream(QuicConnectionId cid, std::variant<QuicStreamID, StreamOptions> stream,
                                        td::BufferSlice data, bool is_end);
+  void change_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options);
 
   td::Result<QuicConnectionId> connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key, td::Slice alpn);
 
@@ -86,6 +86,31 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, td::Ed25519::PrivateKey server_key,
                                                             std::unique_ptr<Callback> callback, td::Slice alpn,
                                                             td::Slice bind_host, Options options);
+
+  struct Stats {
+    struct Entry {
+      size_t total_conns = 1;
+      QuicConnectionStats impl_stats = {};
+
+      Entry operator+(const Entry &other) const {
+        Entry res = {.total_conns = total_conns + other.total_conns, .impl_stats = impl_stats + other.impl_stats};
+        res.impl_stats.mean_rtt = (static_cast<double>(total_conns) * impl_stats.mean_rtt +
+                                   static_cast<double>(other.total_conns) * other.impl_stats.mean_rtt) /
+                                  static_cast<double>(total_conns + other.total_conns);
+        return res;
+      }
+
+      Entry operator-(const Entry &other) const {
+        Entry res = {.total_conns = total_conns - other.total_conns, .impl_stats = impl_stats - other.impl_stats};
+        res.impl_stats.mean_rtt = impl_stats.mean_rtt;
+        return res;
+      }
+
+    } summary = {};
+    std::unordered_map<QuicConnectionId, Entry> per_conn = {};
+  };
+
+  void collect_stats(td::Promise<Stats> P);
 
  protected:
   void start_up() override;

@@ -85,7 +85,7 @@ class TonlibClient : public td::actor::Actor {
 
     auto status = do_request(std::forward<T>(request), std::move(new_promise));
     if (status.is_error()) {
-      new_promise.operator()(std::move(status));
+      new_promise.set_error(status.move_as_error());
     }
   }
 

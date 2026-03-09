@@ -42,8 +42,6 @@
 
 namespace ton {
 
-int collator_settings = 0;
-
 namespace validator {
 using td::Ref;
 using namespace std::literals::string_literals;
@@ -62,21 +60,17 @@ static constexpr int MAX_ATTEMPTS = 5;
  *
  * @param params Collator parameters
  * @param manager The ActorId of the ValidatorManager.
- * @param timeout The timeout for the collator.
  * @param cancellation_token Token to cancel collation.
  * @param promise The promise to return the result.
  */
-Collator::Collator(CollateParams params, td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
+Collator::Collator(CollateParams params, td::actor::ActorId<ValidatorManager> manager,
                    td::CancellationToken cancellation_token, td::Promise<BlockCandidate> promise)
     : params_(std::move(params))
     , shard_(params_.shard)
     , prev_blocks(params_.prev)
     , manager(manager)
-    , timeout(timeout)
+    , timeout_(params_.hard_timeout)
     // default timeout is 10 seconds, declared in validator/validator-group.cpp:generate_block_candidate:run_collate_query
-    , queue_cleanup_timeout_(td::Timestamp::at(timeout.at() - 5.0))
-    , soft_timeout_(td::Timestamp::at(timeout.at() - 3.0))
-    , medium_timeout_(td::Timestamp::at(timeout.at() - 1.5))
     , main_promise(std::move(promise))
     , perf_timer_("collate", 0.1,
                   [manager](double duration) {
@@ -86,6 +80,13 @@ Collator::Collator(CollateParams params, td::actor::ActorId<ValidatorManager> ma
   if (params_.collator_opts.is_null()) {
     params_.collator_opts = Ref<CollatorOptions>{true};
   }
+  if (!params_.soft_timeout) {
+    params_.soft_timeout = params_.hard_timeout;
+  }
+  double t = params_.soft_timeout.in();
+  queue_cleanup_timeout_ = td::Timestamp::in(t * 0.25);
+  internal_msg_timeout_ = td::Timestamp::in(t * 0.5);
+  external_msg_timeout_ = td::Timestamp::in(t * 0.75);
 }
 
 /**
@@ -238,7 +239,7 @@ void Collator::start_up() {
                                                                 std::move(token));
                                 });
   // 6. set timeout
-  alarm_timestamp() = timeout;
+  alarm_timestamp() = timeout_;
   CHECK(pending);
 }
 
@@ -256,7 +257,7 @@ void Collator::load_prev_states_blocks() {
       LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
       auto token = perf_log_.start_action(PSTRING() << "wait_block_state #" << i);
       td::actor::send_closure_later(
-          manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(), timeout, false,
+          manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(), timeout_, false,
           [self = get_self(), i, token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
             LOG(DEBUG) << "got answer to wait_block_state query #" << i;
             td::actor::send_closure_later(std::move(self), &Collator::after_get_shard_state, i, std::move(res),
@@ -274,7 +275,7 @@ void Collator::load_prev_states_blocks() {
         LOG(DEBUG) << "sending wait_block_data() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
         auto token = perf_log_.start_action(PSTRING() << "wait_block_data #" << i);
         td::actor::send_closure_later(
-            manager, &ValidatorManager::wait_block_data_short, prev_blocks[i], priority(), timeout,
+            manager, &ValidatorManager::wait_block_data_short, prev_blocks[i], priority(), timeout_,
             [self = get_self(), i, token = std::move(token)](td::Result<Ref<BlockData>> res) mutable {
               LOG(DEBUG) << "got answer to wait_block_data query #" << i;
               td::actor::send_closure_later(std::move(self), &Collator::after_get_block_data, i, std::move(res),
@@ -351,19 +352,18 @@ bool Collator::fatal_error(td::Status error) {
   LOG(ERROR) << "cannot generate block candidate for " << show_shard(shard_) << " : " << error.to_string();
   if (busy_) {
     if (allow_repeat_collation_ && error.code() != ErrorCode::cancelled && params_.attempt_idx + 1 < MAX_ATTEMPTS &&
-        !params_.is_hardfork && !timeout.is_in_past()) {
+        !params_.is_hardfork && !timeout_.is_in_past()) {
       CollateParams new_params = params_;
       ++new_params.attempt_idx;
       LOG(WARNING) << "Repeating collation (attempt #" << new_params.attempt_idx << ")";
-      run_collate_query(std::move(new_params), manager, td::Timestamp::in(10.0), std::move(cancellation_token_),
-                        std::move(main_promise));
+      run_collate_query(std::move(new_params), manager, std::move(cancellation_token_), std::move(main_promise));
     } else {
       LOG(INFO) << "collation failed in " << perf_timer_.elapsed() << " s " << error;
       LOG(INFO) << perf_log_;
       finalize_stats();
       stats_.status = error.clone();
       td::actor::send_closure(manager, &ValidatorManager::log_collate_query_stats, std::move(stats_));
-      main_promise(std::move(error));
+      main_promise.set_error(std::move(error));
     }
     busy_ = false;
   }
@@ -415,7 +415,7 @@ void Collator::check_pending() {
       if (!try_collate()) {
         fatal_error("cannot create new block");
       }
-    } catch (vm::VmError vme) {
+    } catch (vm::VmError& vme) {
       fatal_error(td::Status::Error(PSLICE() << vme.get_msg()));
     }
   }
@@ -485,7 +485,7 @@ bool Collator::request_aux_mc_state(BlockSeqno seqno, Ref<MasterchainStateQ>& st
   ++pending;
   auto token = perf_log_.start_action(PSTRING() << "auxiliary wait_block_state " << blkid.seqno());
   td::actor::send_closure_later(
-      manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout, false,
+      manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout_, false,
       [self = get_self(), blkid, token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
         LOG(DEBUG) << "got answer to wait_block_state query for " << blkid.to_str();
         td::actor::send_closure_later(std::move(self), &Collator::after_get_aux_shard_state, blkid, std::move(res),
@@ -607,7 +607,7 @@ void Collator::after_get_mc_state(td::Result<std::pair<Ref<MasterchainState>, Bl
     ++pending;
     auto token = perf_log_.start_action("wait_block_data #-1");
     td::actor::send_closure_later(
-        manager, &ValidatorManager::wait_block_data_short, mc_block_id_, priority(), timeout,
+        manager, &ValidatorManager::wait_block_data_short, mc_block_id_, priority(), timeout_,
         [self = get_self(), token = std::move(token)](td::Result<Ref<BlockData>> res) mutable {
           LOG(DEBUG) << "got answer to wait_block_data query #-1";
           td::actor::send_closure_later(std::move(self), &Collator::after_get_block_data, -1, std::move(res),
@@ -695,7 +695,7 @@ void Collator::request_top_masterchain_state(BlockIdExt prev_mc_ref) {
     min_block_id = prev_mc_ref;
   }
   td::actor::send_closure_later(
-      manager, &ValidatorManager::wait_block_state_short, min_block_id, priority(), timeout, false,
+      manager, &ValidatorManager::wait_block_state_short, min_block_id, priority(), timeout_, false,
       [self = get_self(), manager = manager, token = std::move(token)](td::Result<Ref<ShardState>> res) mutable {
         if (res.is_error()) {
           td::actor::send_closure_later(std::move(self), &Collator::after_get_mc_state, res.move_as_error(),
@@ -958,7 +958,7 @@ bool Collator::request_neighbor_msg_queues() {
   ++pending;
   auto token = perf_log_.start_action("neighbor_msg_queues");
   td::actor::send_closure_later(
-      manager, &ValidatorManager::wait_neighbor_msg_queue_proofs, shard_, std::move(top_blocks), timeout,
+      manager, &ValidatorManager::wait_neighbor_msg_queue_proofs, shard_, std::move(top_blocks), timeout_,
       [self = get_self(),
        token = std::move(token)](td::Result<std::map<BlockIdExt, Ref<OutMsgQueueProof>>> res) mutable {
         td::actor::send_closure_later(std::move(self), &Collator::got_neighbor_msg_queues, std::move(res),
@@ -2133,14 +2133,14 @@ bool Collator::init_utime() {
   prev_now_ = prev_state_utime_;
   // Extend collator timeout if previous block is too old
   td::Timestamp new_timeout = td::Timestamp::in(std::min(30.0, (td::Clocks::system() - (double)prev_now_) / 2));
-  if (timeout < new_timeout) {
-    timeout = new_timeout;
-    alarm_timestamp() = timeout;
+  if (timeout_ < new_timeout) {
+    timeout_ = new_timeout;
+    alarm_timestamp() = timeout_;
   }
 
   auto prev = std::max<td::uint32>(config_->utime, prev_now_);
-  now_ms_ =
-      std::max((td::uint64)(prev + (allow_same_timestamp_ ? 0 : 1)) * 1000, (td::uint64)(td::Clocks::system() * 1000));
+  double now = params_.utime ? params_.utime.value() : td::Clocks::system();
+  now_ms_ = std::max((td::uint64)(prev + (allow_same_timestamp_ ? 0 : 1)) * 1000, (td::uint64)(now * 1000));
   now_ = (UnixTime)(now_ms_ / 1000);
   if (now_ > now_upper_limit_) {
     return fatal_error(
@@ -3774,7 +3774,7 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
     block_limit_class_ = std::max(block_limit_class_, block_limit_status_->classify());
     return 3;
   }
-  if (soft_timeout_.is_in_past(td::Timestamp::now())) {
+  if (internal_msg_timeout_.is_in_past(td::Timestamp::now())) {
     LOG(WARNING) << "soft timeout reached, stop processing new messages";
     block_full_ = true;
     return 3;
@@ -3884,7 +3884,7 @@ bool Collator::enqueue_transit_message(Ref<vm::Cell> msg, Ref<vm::Cell> old_msg_
     LOG(DEBUG) << "inserting into outbound queue message with (lt,key)=(" << start_lt << "," << key.to_hex() << ")";
     ok = out_msg_queue_->set_builder(key.bits(), 352, cb, vm::Dictionary::SetMode::Add);
     ++out_msg_queue_size_;
-  } catch (vm::VmError) {
+  } catch (vm::VmError&) {
     ok = false;
   }
   if (!ok) {
@@ -3908,7 +3908,7 @@ bool Collator::delete_out_msg_queue_msg(td::ConstBitPtr key) {
     queue_rec = out_msg_queue_->lookup_delete(key, 352);
     CHECK(out_msg_queue_size_ > 0);
     --out_msg_queue_size_;
-  } catch (vm::VmError err) {
+  } catch (vm::VmError& err) {
     LOG(ERROR) << "error deleting from out_msg_queue dictionary: " << err.get_msg();
   }
   if (queue_rec.is_null()) {
@@ -4183,7 +4183,7 @@ bool Collator::process_inbound_internal_messages() {
                                      << block_full_comment(*block_limit_status_, block::ParamLimits::cl_normal) << "\n";
       break;
     }
-    if (soft_timeout_.is_in_past(td::Timestamp::now())) {
+    if (internal_msg_timeout_.is_in_past(td::Timestamp::now())) {
       block_full_ = true;
       LOG(WARNING) << "soft timeout reached, stop processing inbound internal messages";
       stats_.limits_log += PSTRING() << "INBOUND_INT_MESSAGES: timeout\n";
@@ -4251,7 +4251,7 @@ bool Collator::process_inbound_external_messages() {
                                      << block_full_comment(*block_limit_status_, block::ParamLimits::cl_soft) << "\n";
       break;
     }
-    if (medium_timeout_.is_in_past(td::Timestamp::now())) {
+    if (external_msg_timeout_.is_in_past(td::Timestamp::now())) {
       LOG(WARNING) << "medium timeout reached, stop processing inbound external messages";
       stats_.limits_log += PSTRING() << "INBOUND_EXT_MESSAGES: timeout\n";
       break;
@@ -4388,7 +4388,7 @@ bool Collator::process_dispatch_queue() {
                                        << "\n";
         return register_dispatch_queue_op(true);
       }
-      if (soft_timeout_.is_in_past(td::Timestamp::now())) {
+      if (internal_msg_timeout_.is_in_past(td::Timestamp::now())) {
         block_full_ = true;
         LOG(WARNING) << "soft timeout reached, stop processing dispatch queue";
         stats_.limits_log += PSTRING() << "DISPATCH_QUEUE_STAGE_" << iter << ": timeout\n";
@@ -4628,7 +4628,7 @@ bool Collator::insert_in_msg(Ref<vm::Cell> in_msg) {
   bool ok;
   try {
     ok = in_msg_dict->set(msg->get_hash().bits(), 256, cs, vm::Dictionary::SetMode::Add);
-  } catch (vm::VmError) {
+  } catch (vm::VmError&) {
     LOG(ERROR) << "cannot add an InMsg into InMsgDescr dictionary!";
     ok = false;
   }
@@ -4682,7 +4682,7 @@ bool Collator::insert_out_msg(Ref<vm::Cell> out_msg) {
 bool Collator::insert_out_msg(Ref<vm::Cell> out_msg, td::ConstBitPtr msg_hash) {
   bool ok;
   try {
-    ok = out_msg_dict->set(msg_hash, 256, load_cell_slice(std::move(out_msg)), vm::Dictionary::SetMode::Add);
+    ok = out_msg_dict->set(msg_hash, 256, load_cell_slice(out_msg), vm::Dictionary::SetMode::Add);
   } catch (vm::VmError&) {
     ok = false;
   }
@@ -4790,7 +4790,7 @@ bool Collator::enqueue_message(block::NewOutMsg msg, td::RefInt256 fwd_fees_rema
                << ")";
     ok = out_msg_queue_->set_builder(key.bits(), 352, cb, vm::Dictionary::SetMode::Add);
     ++out_msg_queue_size_;
-  } catch (vm::VmError) {
+  } catch (vm::VmError&) {
     ok = false;
   }
   if (!ok) {
@@ -5401,7 +5401,7 @@ bool Collator::try_fetch_new_config(const ton::StdSmcAddress& cfg_addr, Ref<vm::
  *
  * @returns The weight of the history.
  */
-static int history_weight(td::uint64 history) {
+int Collator::history_weight(td::uint64 history) {
   return td::count_bits64(history & 0xffff) * 3 + td::count_bits64(history & 0xffff0000) * 2 +
          td::count_bits64(history & 0xffff00000000) - (3 + 2 + 1) * 16 * 2 / 3;
 }
@@ -5453,15 +5453,6 @@ bool Collator::check_block_overload() {
     overload_history_ |= 1;
     LOG(INFO) << "setting overload history because out_msg_queue reached force split limit (" << out_msg_queue_size_
               << " >= " << FORCE_SPLIT_QUEUE_SIZE << ")";
-  }
-  if (collator_settings & 1) {
-    LOG(INFO) << "want_split manually set";
-    want_split_ = true;
-    return true;
-  } else if (collator_settings & 2) {
-    LOG(INFO) << "want_merge manually set";
-    want_merge_ = true;
-    return true;
   }
   char buffer[17];
   if (history_weight(overload_history_) >= 0) {
@@ -5786,10 +5777,11 @@ bool Collator::create_shard_state() {
     CHECK(block::tlb::t_ShardState.validate_ref(1000000, state_root));
   }
   LOG(INFO) << "creating Merkle update for the ShardState";
-  state_update = vm::MerkleUpdate::generate(prev_state_root_, state_root, state_usage_tree_.get());
-  if (state_update.is_null()) {
+  auto r_state_update = vm::MerkleUpdate::generate(prev_state_root_, state_root, state_usage_tree_.get());
+  if (r_state_update.is_error()) {
     return fatal_error("cannot create Merkle update for ShardState");
   }
+  state_update = r_state_update.move_as_ok();
   if (verbosity > 2) {
     FLOG(INFO) {
       sb << "Merkle Update for ShardState: ";
@@ -6277,11 +6269,12 @@ bool Collator::create_collated_data() {
     }
 
     state_usage_tree_->set_use_mark_for_is_loaded(false);
-    Ref<vm::Cell> state_proof = vm::MerkleProof::generate(
+    auto r_state_proof = vm::MerkleProof::generate(
         prev_state_root_, [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
-    if (state_proof.is_null()) {
+    if (r_state_proof.is_error()) {
       return fatal_error("cannot generate Merkle proof for previous state");
     }
+    auto state_proof = r_state_proof.move_as_ok();
     if (after_merge_) {
       bool special;
       auto cs = vm::load_cell_slice_special(state_proof, special);
@@ -6298,17 +6291,19 @@ bool Collator::create_collated_data() {
   }
   // 4. Proofs for message queues
   for (vm::MerkleProofBuilder& mpb : neighbor_proof_builders_) {
-    Ref<vm::Cell> proof = vm::MerkleProof::generate(
+    auto r_proof = vm::MerkleProof::generate(
         mpb.original_root(), [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
-    if (proof.is_null()) {
+    if (r_proof.is_error()) {
       return fatal_error("cannot generate Merkle proof for neighbor");
     }
+    auto proof = r_proof.move_as_ok();
     auto it = proofs.emplace(mpb.root()->get_hash().bits(), proof);
     if (!it.second) {
-      it.first->second = vm::MerkleProof::combine(it.first->second, std::move(proof));
-      if (it.first->second.is_null()) {
+      auto r_combine = vm::MerkleProof::combine(it.first->second, std::move(proof));
+      if (r_combine.is_error()) {
         return fatal_error("cannot combine merkle proofs");
       }
+      it.first->second = r_combine.move_as_ok();
     }
   }
 
@@ -6321,11 +6316,12 @@ bool Collator::create_collated_data() {
     if (!dict.add_to_collated_data) {
       continue;
     }
-    Ref<vm::Cell> proof = vm::MerkleProof::generate(
+    auto r_proof = vm::MerkleProof::generate(
         dict.mpb.original_root(), [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
-    if (proof.is_null()) {
+    if (r_proof.is_error()) {
       return fatal_error("cannot generate Merkle proof for neighbor");
     }
+    auto proof = r_proof.move_as_ok();
     // account_storage_dict_proof#37c1e3fc proof:^Cell = AccountStorageDictProof;
     collated_roots_.push_back(vm::CellBuilder()
                                   .store_long(block::gen::AccountStorageDictProof::cons_tag[0], 32)
@@ -6403,8 +6399,7 @@ bool Collator::create_block_candidate() {
   if (need_out_msg_queue_broadcasts) {
     // we can't generate two proofs at the same time for the same root (it is not currently supported by cells)
     // so we have can't reuse new state and have to regenerate it with merkle update
-    auto new_state = vm::MerkleUpdate::apply(prev_state_root_pure_, state_update);
-    CHECK(new_state.not_null());
+    auto new_state = vm::MerkleUpdate::apply(prev_state_root_pure_, state_update).ensure().move_as_ok();
     CHECK(new_state->get_hash() == state_root->get_hash());
     CHECK(shard_conf_);
     auto neighbor_list = shard_conf_->get_neighbor_shard_hash_ids(shard_);
@@ -6496,7 +6491,7 @@ void Collator::return_block_candidate(td::Result<td::Unit> saved, td::PerfLogAct
     finalize_stats();
     stats_.status = td::Status::OK();
     td::actor::send_closure(manager, &ValidatorManager::log_collate_query_stats, std::move(stats_));
-    main_promise(block_candidate->clone());
+    main_promise.set_value(block_candidate->clone());
     busy_ = false;
     stop();
   }

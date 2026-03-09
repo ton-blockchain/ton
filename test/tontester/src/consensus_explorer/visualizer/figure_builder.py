@@ -85,9 +85,12 @@ class SummaryFigureBuilder:
         markers: list[EventData],
         slot_from: int,
         slot_to: int,
+        time_from: float | None = None,
+        time_until: float | None = None,
     ) -> go.Figure:
         self._add_bars(segments)
         self._add_markers(markers)
+        self._add_period_bounds(time_from, time_until)
         self._configure_layout(slot_from, slot_to)
         return self._fig
 
@@ -172,6 +175,21 @@ class SummaryFigureBuilder:
             ),
             dragmode="pan",
         )
+
+    def _add_period_bounds(self, time_from: float | None, time_until: float | None) -> None:
+        for ts, label in ((time_from, "time from"), (time_until, "time until")):
+            if ts is None:
+                continue
+
+            _ = self._fig.add_vrect(  # pyright: ignore[reportUnknownMemberType]
+                x0=datetime.fromtimestamp(ts, tz=timezone.utc),
+                x1=datetime.fromtimestamp(ts, tz=timezone.utc),
+                line_width=2,
+                line_dash="dash",
+                line_color="red",
+                annotation_text=label,
+                annotation_position="top left",
+            )
 
 
 @final
@@ -353,6 +371,8 @@ class FigureBuilder:
         slot_from: int,
         slot_to: int,
         show_empty: bool,
+        time_from: float | None = None,
+        time_until: float | None = None,
     ) -> go.Figure:
         slots = self._filter.filter_slots(valgroup_id, slot_from, slot_to, show_empty)
         slot_set = {s.slot for s in slots}
@@ -372,7 +392,7 @@ class FigureBuilder:
         )
 
         builder = SummaryFigureBuilder(valgroup_id, slot_dict)
-        return builder.build(segments, markers, slot_from, slot_to)
+        return builder.build(segments, markers, slot_from, slot_to, time_from, time_until)
 
     def build_detail(
         self,

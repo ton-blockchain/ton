@@ -278,7 +278,7 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
   }
   template <class T>
   T check_result(T&& to_check) {
-    CHECK(status_.is_ok());
+    CHECK(!has_error_.load());
     if (to_check.is_error()) {
       std::lock_guard<std::mutex> guard(status_mutex_);
       has_error_.store(true);

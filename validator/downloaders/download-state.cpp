@@ -39,7 +39,7 @@ class SplitStateDeserializer {
     CHECK(split_depth <= 63 && shard_prefix_length < static_cast<int>(split_depth));
 
     try {
-      TRY_RESULT(header, vm::MerkleProof::try_virtualize(wrapped_header));
+      TRY_RESULT(header, vm::MerkleProof::virtualize(wrapped_header));
 
       if (RootHash{header->get_hash().bits()} != root_hash) {
         return td::Status::Error("Hash mismatch in split state header");

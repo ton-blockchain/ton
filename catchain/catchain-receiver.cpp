@@ -141,7 +141,7 @@ void CatChainReceiverImpl::receive_block(adnl::AdnlNodeIdShort src, tl_object_pt
   create_block(std::move(block), td::SharedSlice{payload.as_slice()});
 
   if (!opts_.debug_disable_db) {
-    db_.set(id, std::move(raw_data), [](td::Unit) {}, 1.0);
+    db_.set(id, std::move(raw_data), [](td::Result<>) {}, 1.0);
   }
   block_written_to_db(id);
 }
@@ -463,7 +463,7 @@ void CatChainReceiverImpl::debug_add_fork(td::BufferSlice payload, CatChainBlock
 CatChainReceiverImpl::CatChainReceiverImpl(std::unique_ptr<Callback> callback, const CatChainOptions &opts,
                                            td::actor::ActorId<keyring::Keyring> keyring,
                                            td::actor::ActorId<adnl::Adnl> adnl,
-                                           td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender,
+                                           td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender,
                                            td::actor::ActorId<overlay::Overlays> overlay_manager,
                                            const std::vector<CatChainNode> &ids, const PublicKeyHash &local_id,
                                            const CatChainSessionId &unique_hash, std::string db_root,
@@ -659,7 +659,7 @@ void CatChainReceiverImpl::read_db() {
 
 td::actor::ActorOwn<CatChainReceiverInterface> CatChainReceiverInterface::create(
     std::unique_ptr<Callback> callback, const CatChainOptions &opts, td::actor::ActorId<keyring::Keyring> keyring,
-    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender,
+    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender,
     td::actor::ActorId<overlay::Overlays> overlay_manager, const std::vector<CatChainNode> &ids,
     const PublicKeyHash &local_id, const CatChainSessionId &unique_hash, std::string db_root, std::string db_suffix,
     bool allow_unsafe_self_blocks_resync) {

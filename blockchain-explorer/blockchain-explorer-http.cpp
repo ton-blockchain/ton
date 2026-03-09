@@ -368,12 +368,12 @@ HttpAnswer& HttpAnswer::operator<<(AccountCell acc_c) {
   block::CurrencyCollection balance = block::CurrencyCollection::zero();
   try {
     auto state_root = vm::MerkleProof::virtualize(acc_c.q_roots[1]);
-    if (state_root.is_null()) {
+    if (state_root.is_error()) {
       abort("account state proof is invalid");
       return *this;
     }
     block::gen::ShardStateUnsplit::Record sstate;
-    if (!(tlb::unpack_cell(std::move(state_root), sstate))) {
+    if (!(tlb::unpack_cell(state_root.move_as_ok(), sstate))) {
       abort("cannot unpack state header");
       return *this;
     }
@@ -417,10 +417,10 @@ HttpAnswer& HttpAnswer::operator<<(AccountCell acc_c) {
                       << acc_c.addr.addr.to_hex() << " must be empty, but it is not");
       return *this;
     }
-  } catch (vm::VmError err) {
+  } catch (vm::VmError& err) {
     abort(PSTRING() << "error while traversing account proof : " << err.get_msg());
     return *this;
-  } catch (vm::VmVirtError err) {
+  } catch (vm::VmVirtError& err) {
     abort(PSTRING() << "virtualization error while traversing account proof : " << err.get_msg());
     return *this;
   }
@@ -475,11 +475,12 @@ HttpAnswer& HttpAnswer::operator<<(BlockHeaderCell head_c) {
   vm::CellSlice cs{vm::NoVm(), head_c.root};
   auto block_id = head_c.block_id;
   try {
-    auto virt_root = vm::MerkleProof::virtualize(head_c.root);
-    if (virt_root.is_null()) {
+    auto r_virt_root = vm::MerkleProof::virtualize(head_c.root);
+    if (r_virt_root.is_error()) {
       abort("invalid merkle proof");
       return *this;
     }
+    auto virt_root = r_virt_root.move_as_ok();
     ton::RootHash vhash{virt_root->get_hash().bits()};
     std::vector<ton::BlockIdExt> prev;
     ton::BlockIdExt mc_blkid;
@@ -536,10 +537,10 @@ HttpAnswer& HttpAnswer::operator<<(BlockHeaderCell head_c) {
     }
     *this << "<tr><th>masterchain block</th><td>" << mc_blkid << "</td></tr>\n"
           << "</table></div>";
-  } catch (vm::VmError err) {
+  } catch (vm::VmError& err) {
     abort(PSTRING() << "error processing header : " << err.get_msg());
     return *this;
-  } catch (vm::VmVirtError err) {
+  } catch (vm::VmVirtError& err) {
     abort(PSTRING() << "error processing header : " << err.get_msg());
     return *this;
   }

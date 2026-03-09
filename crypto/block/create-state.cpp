@@ -595,13 +595,17 @@ void interpret_set_config_param(vm::Stack& stack) {
   int x = stack.pop_smallint_range(0x7fffffff, 0x80000000);
   Ref<vm::Cell> value = stack.pop_cell();
   if (verbosity > 2 && x >= 0) {
+    unsigned cfg_idx = static_cast<unsigned>(x);
     std::cerr << "setting configuration parameter #" << x << " to ";
     // vm::load_cell_slice(value).print_rec(std::cerr);
-    block::gen::ConfigParam{x}.print_ref(std::cerr, value);
+    block::gen::ConfigParam{cfg_idx}.print_ref(std::cerr, value);
     std::cerr << std::endl;
   }
-  if (x >= 0 && !block::gen::ConfigParam{x}.validate_ref(value)) {
-    throw fift::IntError{"invalid value for indicated configuration parameter"};
+  if (x >= 0) {
+    unsigned cfg_idx = static_cast<unsigned>(x);
+    if (!block::gen::ConfigParam{cfg_idx}.validate_ref(value)) {
+      throw fift::IntError{"invalid value for indicated configuration parameter"};
+    }
   }
   if (!config_dict.set_ref(td::BitArray<32>{x}, std::move(value))) {
     throw fift::IntError{"cannot set value of configuration parameter (value too long?)"};
@@ -612,12 +616,18 @@ void interpret_check_config_param(vm::Stack& stack) {
   int x = stack.pop_smallint_range(0x7fffffff, 0x80000000);
   Ref<vm::Cell> value = stack.pop_cell();
   if (verbosity > 2 && x >= 0) {
+    unsigned cfg_idx = static_cast<unsigned>(x);
     std::cerr << "checking validity as configuration parameter #" << x << " of ";
     // vm::load_cell_slice(value).print_rec(std::cerr);
-    block::gen::ConfigParam{x}.print_ref(std::cerr, value);
+    block::gen::ConfigParam{cfg_idx}.print_ref(std::cerr, value);
     std::cerr << std::endl;
   }
-  stack.push_bool(x < 0 || block::gen::ConfigParam{x}.validate_ref(value));
+  if (x < 0) {
+    stack.push_bool(true);
+    return;
+  }
+  unsigned cfg_idx = static_cast<unsigned>(x);
+  stack.push_bool(block::gen::ConfigParam{cfg_idx}.validate_ref(value));
 }
 
 void interpret_is_shard_state(vm::Stack& stack) {

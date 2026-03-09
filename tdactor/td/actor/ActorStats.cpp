@@ -64,7 +64,7 @@ std::string ActorStats::prepare_stats() {
       auto &since = timed_stat.get_stat(now.at());
       auto duration = since.get_duration(estimated_inv_ticks_per_second);
       if (since.first_) {
-        res -= since.first_.value();
+        res -= static_cast<double>(since.first_.value());
       }
       if (td::ends_with(name, ".duration")) {
         res *= estimated_inv_ticks_per_second;

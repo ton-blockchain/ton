@@ -1,15 +1,24 @@
+import base64
 import dataclasses
+import gzip
+import io
+import logging
 import os
+import re
 from itertools import islice
 from pathlib import Path
 from typing import Callable, final, override
 
 from tonapi.ton_api import (
+    Consensus_candidateId,
+    Consensus_candidateParent,
+    Consensus_candidateWithoutParents,
     Consensus_simplex_finalizeVote,
     Consensus_simplex_notarizeVote,
     Consensus_simplex_skipVote,
     Consensus_simplex_stats_certObserved,
     Consensus_simplex_stats_voted,
+    Consensus_stats_block,
     Consensus_stats_candidateReceived,
     Consensus_stats_collatedEmpty,
     Consensus_stats_collateFinished,
@@ -20,11 +29,12 @@ from tonapi.ton_api import (
     Consensus_stats_timestampedEvent,
     Consensus_stats_validationFinished,
     Consensus_stats_validationStarted,
+    TonNode_blockIdExt,
     TypeConsensus_stats_Event,
 )
 
-from ..models import ConsensusData, EventData, SlotData
-from .parser_base import Parser
+from ..models import ConsensusData, EventData, GroupData, GroupInfo, SlotData, UnnamedGroupInfo
+from .parser_base import GroupParser
 
 type slot_id_type = tuple[str, int]
 
@@ -46,15 +56,42 @@ TARGET_TO_LABEL = {
 }
 
 
+def open_stats_file(path: Path) -> io.TextIOWrapper:
+    if path.suffix == ".gz":
+        return gzip.open(path, "rt", encoding="utf-8", errors="ignore")
+    return open(path, "r", encoding="utf-8", errors="ignore")
+
+
+def _shard_to_hex(sh: int) -> str:
+    return f"{sh & 0xFFFFFFFFFFFFFFFF:016x}"
+
+
+def format_candidate_id(id_: Consensus_candidateId):
+    return f"{{{id_.slot}, {base64.b64encode(id_.hash).decode()}}}"
+
+
+def format_block_id(id_: TonNode_blockIdExt):
+    return f"({id_.workchain},{_shard_to_hex(id_.shard)},{id_.seqno}):{id_.root_hash.hex().upper()}:{id_.file_hash.hex().upper()}"
+
+
 @final
-class ParserSessionStats(Parser):
-    def __init__(self, logs_path: list[Path], with_cache: bool = True):
+class ParserSessionStats(GroupParser):
+    def __init__(
+        self,
+        logs_path: list[Path],
+        hostname_regex: str,
+        with_cache: bool = True,
+        target_group_hash: bytes | None = None,
+    ):
         self._logs_path = logs_path
+        self._target_group_hash = target_group_hash
+        self._hostname_regex = re.compile(hostname_regex)
         self._slots: dict[slot_id_type, SlotData] = {}
         self._collated: dict[slot_id_type, dict[str, EventData]] = {}
         self._votes: dict[slot_id_type, dict[str, list[VoteData]]] = {}
         self._total_weights: dict[str, int] = {}
         self._total_validators: dict[str, int] = {}
+        self._slots_per_leader_window: dict[str, int] = {}
         self._seen_validators: dict[str, set[int]] = {}
         self._slot_events: dict[slot_id_type, dict[int, dict[str, EventData]]] = {}
         self._events: list[EventData] = []
@@ -80,7 +117,23 @@ class ParserSessionStats(Parser):
                 collator=None,
             )
 
-        return self._slots[slot_id]
+        slot_data = self._slots[slot_id]
+        if slot_data.collator is None:
+            slot_data.collator = self._calculate_slot_collator(v_group, slot)
+
+        return slot_data
+
+    def _calculate_slot_collator(self, v_group: str, slot: int) -> int | None:
+        slots_per_leader_window = self._slots_per_leader_window.get(v_group)
+        total_validators = self._total_validators.get(v_group)
+        if (
+            slots_per_leader_window is None
+            or slots_per_leader_window <= 0
+            or total_validators is None
+            or total_validators <= 0
+        ):
+            return None
+        return slot // slots_per_leader_window % total_validators
 
     def _parse_stats_event(
         self,
@@ -88,7 +141,6 @@ class ParserSessionStats(Parser):
         t_ms: float,
         v_group: str,
         v_id: int,
-        get_slot_leader: Callable[[int], int],
     ):
         if not isinstance(event, tuple(TARGET_TO_LABEL.keys())):
             return
@@ -102,7 +154,6 @@ class ParserSessionStats(Parser):
         slot_id = (v_group, slot)
 
         slot_data = self._get_create_slot(slot, v_group)
-        slot_data.collator = get_slot_leader(slot)
 
         slot_data.slot_start_est_ms = min(t_ms, slot_data.slot_start_est_ms)
 
@@ -122,11 +173,26 @@ class ParserSessionStats(Parser):
         self._slot_events.setdefault(slot_id, {}).setdefault(v_id, {})[label] = ev
 
         if isinstance(event, Consensus_stats_candidateReceived):
-            if event.block is not None and not isinstance(event.block, Consensus_stats_empty):
-                assert event.block.id is not None
-                slot_data.block_id_ext = f"({event.block.id.workchain},{self._shard_to_hex(event.block.id.shard)},{event.block.id.seqno}):{event.block.id.root_hash.hex().upper()}:{event.block.id.file_hash.hex().upper()}"
-            slot_data.candidate_id = str(event.id)
-            slot_data.parent_block = str(event.parent)
+            match event.block:
+                case Consensus_stats_empty():
+                    slot_data.block_id_ext = "empty"
+                case Consensus_stats_block(id=id_):
+                    assert id_ is not None
+                    slot_data.block_id_ext = format_block_id(id_)
+                case None:
+                    assert False
+            assert event.id is not None
+
+            slot_data.candidate_id = format_candidate_id(event.id)
+
+            match event.parent:
+                case Consensus_candidateParent(id=id_):
+                    assert id_ is not None
+                    slot_data.parent_block = format_candidate_id(id_)
+                case Consensus_candidateWithoutParents():
+                    slot_data.parent_block = "genesis"
+                case None:
+                    assert False
 
         if label == "candidate_received":
             self._events.append(ev)
@@ -394,28 +460,28 @@ class ParserSessionStats(Parser):
                 return vote.t_ms
         return None
 
-    @staticmethod
-    def _shard_to_hex(sh: int) -> str:
-        return f"{sh & 0xFFFFFFFFFFFFFFFF:016x}"
-
     def _process_group_events(
         self,
+        group_id: bytes,
         events: list[Consensus_stats_timestampedEvent],
-    ):
+    ) -> GroupData:
         event_id: Consensus_stats_id | None = None
+        min_ts = float("inf")
         for e in events:
+            min_ts = min(min_ts, e.ts)
             if isinstance(e.event, Consensus_stats_id):
                 event_id = e.event
                 break
         if event_id is None:
-            return
+            return UnnamedGroupInfo(valgroup_hash=group_id, group_start_est=min_ts)
 
-        v_group = f"{event_id.workchain},{self._shard_to_hex(event_id.shard)}.{event_id.cc_seqno}"
+        v_group = f"{event_id.workchain},{_shard_to_hex(event_id.shard)}.{event_id.cc_seqno}"
 
         v_id = event_id.idx
         v_weight = event_id.weight
         self._total_weights[v_group] = event_id.total_weight
         self._total_validators[v_group] = event_id.total_validators
+        self._slots_per_leader_window[v_group] = event_id.slots_per_leader_window
         self._seen_validators.setdefault(v_group, set()).add(v_id)
 
         def get_slot_leader(slot: int):
@@ -430,7 +496,21 @@ class ParserSessionStats(Parser):
             elif isinstance(ev, Consensus_simplex_stats_certObserved):
                 self._parse_cert_observed(ev, t_ms, v_group, v_id, get_slot_leader)
             else:
-                self._parse_stats_event(ev, t_ms, v_group, v_id, get_slot_leader)
+                self._parse_stats_event(ev, t_ms, v_group, v_id)
+
+        return GroupInfo(
+            valgroup_hash=group_id,
+            catchain_seqno=event_id.cc_seqno,
+            workchain=event_id.workchain,
+            shard=event_id.shard,
+            group_start_est=min_ts,
+        )
+
+    def _extract_hostname(self, path: Path) -> str:
+        m = self._hostname_regex.search(str(path))
+        if m is None:
+            return path.name
+        return m.group(1)
 
     def _clear_state(self) -> None:
         self._slots = {}
@@ -438,11 +518,11 @@ class ParserSessionStats(Parser):
         self._votes = {}
         self._total_weights = {}
         self._total_validators = {}
+        self._slots_per_leader_window = {}
         self._seen_validators = {}
         self._slot_events = {}
         self._events = []
 
-    @override
     def parse(self) -> ConsensusData:
         files_changed = False
 
@@ -457,39 +537,67 @@ class ParserSessionStats(Parser):
         if not files_changed and self._cache_result:
             return self._cache_result
 
+        merged: dict[str, dict[bytes, list[Consensus_stats_timestampedEvent]]] = {}
+
         for log_file in self._logs_path:
-            with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
-                events_by_groups: dict[bytes, list[Consensus_stats_timestampedEvent]] = {}
-                start_line = 0
-                if self.with_cache and log_file in self._cache_lines:
-                    start_line = self._cache_lines[log_file]
-                current_line = start_line
-                for line in islice(f, start_line, None):
-                    current_line += 1
-                    if not line.startswith('{"@type":"consensus.stats.events"'):
-                        continue
+            hostname = self._extract_hostname(log_file)
+            try:
+                with open_stats_file(log_file) as f:
+                    events_by_groups: dict[bytes, list[Consensus_stats_timestampedEvent]] = {}
+                    start_line = 0
+                    if self.with_cache and log_file in self._cache_lines:
+                        start_line = self._cache_lines[log_file]
+                    current_line = start_line
+                    for line in islice(f, start_line, None):
+                        current_line += 1
+                        if not line.startswith('{"@type":"consensus.stats.events"'):
+                            continue
 
-                    events = Consensus_stats_events.from_json(line)
+                        events = Consensus_stats_events.from_json(line)
 
-                    events_by_groups.setdefault(events.id, []).extend(events.events)
+                        if (
+                            self._target_group_hash is not None
+                            and events.id != self._target_group_hash
+                        ):
+                            continue
 
-                if self.with_cache:
-                    self._cache_lines[log_file] = current_line
-                    # merge old events with new ones
-                    old_events = self._raw_events.get(log_file, {})
-                    events_by_groups = {
-                        k: old_events.get(k, []) + events_by_groups.get(k, [])
-                        for k in set(old_events) | set(events_by_groups)
-                    }
-                    self._raw_events[log_file] = events_by_groups
+                        events_by_groups.setdefault(events.id, []).extend(events.events)
 
-                for events in events_by_groups.values():
-                    self._process_group_events(events)
+                    if self.with_cache:
+                        self._cache_lines[log_file] = current_line
+                        # merge old events with new ones
+                        old_events = self._raw_events.get(log_file, {})
+                        events_by_groups = {
+                            k: old_events.get(k, []) + events_by_groups.get(k, [])
+                            for k in set(old_events) | set(events_by_groups)
+                        }
+                        self._raw_events[log_file] = events_by_groups
+
+                    host_groups = merged.setdefault(hostname, {})
+                    for group_hash, group_events in events_by_groups.items():
+                        host_groups.setdefault(group_hash, []).extend(group_events)
+            except OSError | FileNotFoundError | gzip.BadGzipFile:
+                logging.warning(f"Failed to read log file {log_file}", stack_info=True)
+
+        groups: dict[bytes, GroupData] = {}
+
+        for host_groups in merged.values():
+            for group_id, events in host_groups.items():
+                group_info = self._process_group_events(group_id, events)
+                if group_id not in groups:
+                    groups[group_id] = group_info
+                else:
+                    if isinstance(groups[group_id], UnnamedGroupInfo) and isinstance(
+                        group_info, GroupInfo
+                    ):
+                        groups[group_id] = group_info
 
         self._infer_slot_phases()
         self._infer_slot_events()
 
-        result = ConsensusData(slots=list(self._slots.values()), events=self._events)
+        result = ConsensusData(
+            groups=list(groups.values()), slots=list(self._slots.values()), events=self._events
+        )
 
         if self.with_cache:
             self._cache_result = result
@@ -497,3 +605,19 @@ class ParserSessionStats(Parser):
         self._clear_state()
 
         return result
+
+    @override
+    def list_groups(self) -> list[GroupData]:
+        data = self.parse()
+        return data.groups
+
+    @override
+    def parse_group(self, valgroup_name: str) -> ConsensusData:
+        data = self.parse()
+        if self._target_group_hash is not None:
+            return data
+        return ConsensusData(
+            groups=[g for g in data.groups if g.valgroup_name == valgroup_name],
+            slots=[s for s in data.slots if s.valgroup_id == valgroup_name],
+            events=[e for e in data.events if e.valgroup_id == valgroup_name],
+        )

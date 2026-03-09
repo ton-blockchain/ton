@@ -56,13 +56,13 @@ class FFIEventLoop {
   void put(Continuation continuation);
 
   template <typename Func>
-  void run_in_context(Func&& func) {
-    scheduler_.run_in_context(std::forward<Func>(func));
+  auto run_in_context(Func&& func) {
+    return scheduler_.run_in_context(std::forward<Func>(func));
   }
 
  private:
   td::actor::Scheduler scheduler_;
-  std::thread scheduler_thread_{};
+  td::thread scheduler_thread_{};
 
   ObjectCounter object_counter_{};
   std::atomic<bool> is_cancelled_ = false;

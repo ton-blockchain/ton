@@ -1489,8 +1489,6 @@ td::Status GetAdnlStatsQuery::receive(td::BufferSlice data) {
     };
     print_local_id_packets("Decrypted packets (recent)", local_id->packets_recent_->decrypted_packets_);
     print_local_id_packets("Dropped packets   (recent)", local_id->packets_recent_->dropped_packets_);
-    print_local_id_packets("Decrypted packets (total)", local_id->packets_total_->decrypted_packets_);
-    print_local_id_packets("Dropped packets   (total)", local_id->packets_total_->dropped_packets_);
     sb << "  PEERS (" << local_id->peers_.size() << "):\n";
     std::sort(local_id->peers_.begin(), local_id->peers_.end(),
               [](const ton::tl_object_ptr<ton::ton_api::adnl_stats_peerPair> &a,
@@ -1537,13 +1535,13 @@ td::Status GetAdnlStatsQuery::receive(td::BufferSlice data) {
       print_packets("total", peer->packets_total_);
 
       sb << "      Last in packet: ";
-      if (peer->last_in_packet_ts_) {
+      if (peer->last_in_packet_ts_ != 0) {
         sb << now - peer->last_in_packet_ts_ << " s ago";
       } else {
         sb << "never";
       }
       sb << "    Last out packet: ";
-      if (peer->last_out_packet_ts_) {
+      if (peer->last_out_packet_ts_ != 0) {
         sb << now - peer->last_out_packet_ts_ << " s ago";
       } else {
         sb << "never";

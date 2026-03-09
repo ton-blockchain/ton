@@ -131,7 +131,7 @@ class StorageDaemon : public td::actor::Actor {
     auto generate_public_key = [&]() -> PublicKey {
       auto pk = PrivateKey{privkeys::Ed25519::random()};
       auto pub = pk.compute_public_key();
-      td::actor::send_closure(keyring_, &keyring::Keyring::add_key, std::move(pk), false, [](td::Unit) {});
+      td::actor::send_closure(keyring_, &keyring::Keyring::add_key, std::move(pk), false, [](td::Result<>) {});
       return pub;
     };
     {

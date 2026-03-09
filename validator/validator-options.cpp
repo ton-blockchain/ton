@@ -63,8 +63,12 @@ td::Status CollatorsList::unpack(const ton_api::engine_validator_collatorsList& 
 
 CollatorsList CollatorsList::default_list() {
   CollatorsList list;
-  list.shards.push_back(
-      {.shard_id = ShardIdFull{basechainId, shardIdAll}, .select_mode = mode_random, .self_collate = true});
+  list.shards.push_back({
+      .shard_id = ShardIdFull{basechainId, shardIdAll},
+      .select_mode = mode_random,
+      .collators = {},
+      .self_collate = true,
+  });
   list.self_collate = true;
   return list;
 }

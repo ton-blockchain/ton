@@ -74,12 +74,12 @@ int main() {
     auto pk1 = ton::PrivateKey{ton::privkeys::Ed25519::random()};
     auto pub1 = pk1.compute_public_key();
     src = ton::adnl::AdnlNodeIdShort{pub1.compute_short_id()};
-    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Unit) {});
+    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Result<>) {});
 
     auto pk2 = ton::PrivateKey{ton::privkeys::Ed25519::random()};
     auto pub2 = pk2.compute_public_key();
     dst = ton::adnl::AdnlNodeIdShort{pub2.compute_short_id()};
-    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Unit) {});
+    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Result<>) {});
 
     auto addr = ton::adnl::TestLoopbackNetworkManager::generate_dummy_addr_list();
 
