@@ -1198,6 +1198,7 @@ class TonlibCli : public td::actor::Actor {
                                auto r_cell = vm::std_boc_deserialize(cell.cell_->bytes_);
                                if (r_cell.is_error()) {
                                  sb << "<INVALID_CELL>";
+                                 return;
                                }
                                bool spec = true;
                                auto cs = vm::load_cell_slice_special(r_cell.move_as_ok(), spec);
@@ -1209,6 +1210,7 @@ class TonlibCli : public td::actor::Actor {
                                auto r_cell = vm::std_boc_deserialize(cell.slice_->bytes_);
                                if (r_cell.is_error()) {
                                  sb << "<INVALID_CELL>";
+                                 return;
                                }
                                auto cs = vm::load_cell_slice(r_cell.move_as_ok());
                                std::stringstream ss;
@@ -1893,7 +1895,8 @@ class TonlibCli : public td::actor::Actor {
                  }
                  std::ostringstream os;
                  if (param >= 0) {
-                   block::gen::ConfigParam{param}.print_ref(4096, os, cell);
+                   unsigned cfg_param = static_cast<unsigned>(param);
+                   block::gen::ConfigParam{cfg_param}.print_ref(4096, os, cell);
                    os << "\n";
                  }
                  vm::load_cell_slice(cell).print_rec(4096, os);
@@ -2203,13 +2206,14 @@ class TonlibCli : public td::actor::Actor {
 
   void transfer2(bool estimate_fees, td::Result<tonlib_api::object_ptr<tonlib_api::query_info>> r_info,
                  td::Promise<td::Unit> cmd_promise) {
+    TRY_RESULT_PROMISE(cmd_promise, info, std::move(r_info));
     if (estimate_fees) {
-      send_query(make_object<tonlib_api::query_estimateFees>(r_info.ok()->id_, true), cmd_promise.wrap([](auto&& info) {
+      send_query(make_object<tonlib_api::query_estimateFees>(info->id_, true), cmd_promise.wrap([](auto&& info) {
         td::TerminalIO::out() << "Extimated fees: " << to_string(info);
         return td::Unit();
       }));
     } else {
-      send_query(make_object<tonlib_api::query_send>(r_info.ok()->id_), cmd_promise.wrap([](auto&& info) {
+      send_query(make_object<tonlib_api::query_send>(info->id_), cmd_promise.wrap([](auto&& info) {
         td::TerminalIO::out() << "Transfer sent: " << to_string(info);
         return td::Unit();
       }));

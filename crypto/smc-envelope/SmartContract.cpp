@@ -29,13 +29,13 @@
 #include "transaction.h"
 
 namespace ton {
-int SmartContract::Answer::output_actions_count(td::Ref<vm::Cell> list) {
+unsigned SmartContract::Answer::output_actions_count(td::Ref<vm::Cell> list) {
   int i = -1;
   do {
     ++i;
     list = load_cell_slice(std::move(list)).prefetch_ref();
   } while (list.not_null());
-  return i;
+  return static_cast<unsigned>(i);
 }
 namespace {
 

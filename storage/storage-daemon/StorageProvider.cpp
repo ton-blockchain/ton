@@ -258,7 +258,11 @@ void StorageProvider::process_transaction(tl_object_ptr<tonlib_api::raw_transact
       continue;
     }
     td::Ref<vm::Cell> body = r_body.move_as_ok();
-    vm::CellSlice cs = vm::load_cell_slice(body);
+    vm::CellSlice cs = vm::load_cell_slice_quiet(body);
+    if (!cs.is_valid()) {
+      LOG(ERROR) << "Invalid message body in tonlib response";
+      continue;
+    }
     if (cs.size() >= 32) {
       long long op_code = cs.prefetch_ulong(32);
       // const op::offer_storage_contract = 0x107c49ef; -- old versions

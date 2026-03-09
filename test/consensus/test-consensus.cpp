@@ -769,7 +769,7 @@ class TestConsensus : public td::actor::Actor {
           (!last_accepted_block_leader_idx_ || last_accepted_block_leader_idx_.value() != node_idx)) {
         continue;
       }
-      for (size_t inst_idx = 0; inst_idx < nodes_[inst_idx].instances.size(); ++inst_idx) {
+      for (size_t inst_idx = 0; inst_idx < nodes_[node_idx].instances.size(); ++inst_idx) {
         if (nodes_[node_idx].instances[inst_idx].status == Instance::Running) {
           ++cnt;
           if (td::Random::fast(1, cnt) == 1) {
@@ -815,7 +815,7 @@ class TestConsensus : public td::actor::Actor {
           (!last_accepted_block_leader_idx_ || last_accepted_block_leader_idx_.value() != node_idx)) {
         continue;
       }
-      for (size_t inst_idx = 0; inst_idx < nodes_[inst_idx].instances.size(); ++inst_idx) {
+      for (size_t inst_idx = 0; inst_idx < nodes_[node_idx].instances.size(); ++inst_idx) {
         if (!nodes_[node_idx].instances[inst_idx].net_gremlin_active) {
           ++cnt;
           if (td::Random::fast(1, cnt) == 1) {

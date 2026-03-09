@@ -47,7 +47,6 @@
 #include "ton/ton-types.h"
 #include "validator-session/validator-session.h"
 #include "validator/fabric.h"
-#include "validator/impl/collator.h"
 #include "validator/manager-disk.h"
 
 #if TD_DARWIN || TD_LINUX
@@ -115,9 +114,6 @@ class TestNode : public td::actor::Actor {
   void set_top_descr_prefix(std::string tdescr_pfx) {
     tdescr_pfx_ = tdescr_pfx;
     tdescr_save_ = true;
-  }
-  void set_collator_flags(int flags) {
-    ton::collator_settings |= flags;
   }
   void start_up() override {
   }
@@ -416,10 +412,6 @@ int main(int argc, char *argv[]) {
     td::actor::send_closure(x, &TestNode::set_shard, ton::ShardIdFull{workchain, shard ? shard : ton::shardIdAll});
     return td::Status::OK();
   });
-  p.add_option('S', "want-split", "forces setting want_split in the header of new shard block",
-               [&]() { td::actor::send_closure(x, &TestNode::set_collator_flags, 1); });
-  p.add_option('G', "want-merge", "forces setting want_merge in the header of new shard block",
-               [&]() { td::actor::send_closure(x, &TestNode::set_collator_flags, 2); });
   p.add_option('s', "save-top-descr", "saves generated shard top block description into files with specified prefix",
                [&](td::Slice arg) { td::actor::send_closure(x, &TestNode::set_top_descr_prefix, arg.str()); });
   p.add_checked_option('T', "top-block", "BlockIdExt of top block (new block will be generated atop of it)",

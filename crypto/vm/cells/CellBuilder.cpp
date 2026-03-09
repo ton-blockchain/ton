@@ -310,7 +310,7 @@ bool CellBuilder::store_long_bool(long long val, unsigned val_bits) {
 }
 
 bool CellBuilder::store_long_rchk_bool(long long val, unsigned val_bits) {
-  if (val_bits > 64 || !can_extend_by(val_bits)) {
+  if (val_bits == 0 || val_bits > 64 || !can_extend_by(val_bits)) {
     return false;
   }
   if (val_bits < 64 && (val < static_cast<long long>(std::numeric_limits<td::uint64>::max() << (val_bits - 1)) ||

@@ -191,7 +191,7 @@ void StateDb::update_hardforks(std::vector<BlockIdExt> blocks, td::Promise<td::U
 
   kv_->begin_write_batch().ensure();
   kv_->set(key.as_slice(), create_serialize_tl_object<ton_api::db_state_hardforks>(std::move(vec))).ensure();
-  kv_->commit_write_batch();
+  kv_->commit_write_batch().ensure();
 
   promise.set_value(td::Unit());
 }

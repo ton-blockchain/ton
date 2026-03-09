@@ -32,6 +32,7 @@
 #include "vm/cells/MerkleProof.h"
 #include "vm/cells/MerkleUpdate.h"
 
+#include "collator-impl.h"
 #include "fabric.h"
 #include "storage-stat-cache.hpp"
 #include "top-shard-descr.hpp"
@@ -573,6 +574,12 @@ bool ValidateQuery::init_parse() {
   is_key_block_ = info.key_block;
   prev_key_seqno_ = info.prev_key_block_seqno;
   REJECT_UNLESS(after_split_ == info.after_split);
+  REJECT_UNLESS_MSG(validator_set_->get_catchain_seqno() == info.gen_catchain_seqno,
+                    PSTRING() << "block header declares cc_seqno " << info.gen_catchain_seqno << ", expected "
+                              << validator_set_->get_catchain_seqno());
+  REJECT_UNLESS_MSG(validator_set_->get_validator_set_hash() == info.gen_validator_list_hash_short,
+                    PSTRING() << "block header declares validator set hash " << info.gen_validator_list_hash_short
+                              << ", expected " << validator_set_->get_validator_set_hash());
   if (is_key_block_) {
     LOG(INFO) << "validating key block " << id_.to_str();
   }
@@ -659,10 +666,11 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     if (cs.special_type() != vm::Cell::SpecialType::MerkleProof) {
       return reject_query("it is a special cell, but not a Merkle proof root");
     }
-    auto virt_root = vm::MerkleProof::virtualize(croot);
-    if (virt_root.is_null()) {
+    auto r_virt_root = vm::MerkleProof::virtualize(croot);
+    if (r_virt_root.is_error()) {
       return reject_query("invalid Merkle proof");
     }
+    auto virt_root = r_virt_root.move_as_ok();
     RootHash virt_hash{virt_root->get_hash().bits()};
     LOG(DEBUG) << "collated datum # " << idx << " is a Merkle proof with root hash " << virt_hash.to_hex();
     auto ins = virt_roots_.emplace(virt_hash, std::move(virt_root));
@@ -689,10 +697,11 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     }
     // account_storage_dict_proof#37c1e3fc proof:^Cell = AccountStorageDictProof;
     Ref<vm::Cell> proof = cs.prefetch_ref();
-    auto virt_root = vm::MerkleProof::virtualize(proof);
-    if (virt_root.is_null()) {
+    auto r_virt_root = vm::MerkleProof::virtualize(proof);
+    if (r_virt_root.is_error()) {
       return reject_query("invalid Merkle proof in AccountStorageDictProof");
     }
+    auto virt_root = r_virt_root.move_as_ok();
     LOG(DEBUG) << "collated datum # " << idx << " is an AccountStorageDictProof with hash "
                << virt_root->get_hash().to_hex();
     if (!virt_account_storage_dicts_.emplace(virt_root->get_hash().bits(), virt_root).second) {
@@ -1421,10 +1430,11 @@ bool ValidateQuery::compute_next_state() {
   if (res.is_error()) {
     return reject_query("state update cannot be applied: "s + res.move_as_error().to_string());
   }
-  state_root_ = vm::MerkleUpdate::apply(prev_state_root_, state_update_);
-  if (state_root_.is_null()) {
+  auto r_state_root = vm::MerkleUpdate::apply(prev_state_root_, state_update_);
+  if (r_state_root.is_error()) {
     return reject_query("cannot apply Merkle update from block to compute new state");
   }
+  state_root_ = r_state_root.move_as_ok();
   Bits256 state_hash{state_root_->get_hash().bits()};
   if (state_hash != state_hash_) {
     return reject_query("next state hash mismatch for block "s + id_.to_str() + " : block header declares " +
@@ -2136,6 +2146,7 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
                           " cannot have before_split set immediately after");
     }
   }
+  REJECT_UNLESS_MSG(wc_info, PSTRING() << "shard " << shard.to_str() << " in unknown workchain");
   unsigned depth = ton::shard_prefix_length(shard);
   bool split_cond = ((info.want_split_ || depth < wc_info->min_split) && depth < wc_info->max_split && depth < 60);
   bool merge_cond = !info.before_split_ && depth > wc_info->min_split &&
@@ -2220,6 +2231,8 @@ bool ValidateQuery::check_shard_layout() {
   }
   auto ccvc = new_config_->get_catchain_validators_config();
   const auto& wc_set = new_config_->get_workchain_list();
+  REJECT_UNLESS_MSG(ccvc.shard_cc_lifetime != 0, "shard_cc_lifetime in the new config is zero");
+  REJECT_UNLESS_MSG(ccvc.mc_cc_lifetime != 0, "mc_cc_lifetime in the new config is zero");
   update_shard_cc_ = is_key_block_ || (now_ / ccvc.shard_cc_lifetime > prev_now_ / ccvc.shard_cc_lifetime);
   if (update_shard_cc_) {
     LOG(INFO) << "catchain_seqno of all shards must be updated";
@@ -3675,6 +3688,7 @@ bool ValidateQuery::check_account_dispatch_queue_update(td::Bits256 addr, Ref<vm
       account_expected_defer_all_messages_.insert(addr);
     }
   }
+  accounts_with_dispatch_queue_diff_.insert(addr);
   if (old_dict_size > 0 && max_removed_lt != 0) {
     ++processed_account_dispatch_queues_;
   }
@@ -4584,7 +4598,7 @@ bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_ms
         return reject_query(PSTRING() << "msg_export_deferred_tr for OutMsg with key " << key.to_hex(256)
                                       << " does not have emitted_lt in MsgEnvelope");
       }
-      if (env.emitted_lt.value() < start_lt_ || env.emitted_lt.value() > end_lt_) {
+      if (env.emitted_lt.value() < start_lt_ || env.emitted_lt.value() >= end_lt_) {
         return reject_query(PSTRING() << "emitted_lt for msg_export_deferred_tr with key " << key.to_hex(256)
                                       << " is not between start and end lt of the block");
       }
@@ -4936,10 +4950,10 @@ bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_ms
                             " that has not been yet processed by the corresponding neighbor");
       }
       if (deliver_lt != import_lt) {
-        LOG(WARNING) << "msg_export_deq OutMsg entry with key " << key.to_hex(256)
-                     << " claims the dequeued message with next hop "
-                     << next_prefix.to_str() + " has been delivered in block with end_lt=" << import_lt
-                     << " while the correct value is " << deliver_lt;
+        return reject_query(PSTRING() << "msg_export_deq OutMsg entry with key " << key.to_hex(256)
+                                      << " claims the dequeued message with next hop "
+                                      << next_prefix.to_str() + " has been delivered in block with end_lt=" << import_lt
+                                      << " while the correct value is " << deliver_lt);
       }
       break;
     }
@@ -6158,6 +6172,10 @@ bool ValidateQuery::CheckAccountTxs::try_check() {
     }
   } catch (vm::VmError& err) {
     return fatal_error(err.get_msg(), -666);
+  } catch (vm::CellBuilder::CellCreateError&) {
+    return reject_query("cell create error");
+  } catch (vm::CellBuilder::CellWriteError&) {
+    return reject_query("cell write error");
   } catch (vm::VmVirtError& err) {
     return reject_query(err.get_msg());
   }
@@ -6203,7 +6221,10 @@ bool ValidateQuery::CheckAccountTxs::fatal_error(std::string err_msg, int err_co
 ValidateQuery::CheckAccountTxs::Context ValidateQuery::load_check_account_transactions_context(
     const StdSmcAddress& address) {
   CheckAccountTxs::Context ctx{};
-  if (account_expected_defer_all_messages_.count(address)) {
+  if (!accounts_with_dispatch_queue_diff_.contains(address) && ps_.dispatch_queue_->lookup(address).not_null()) {
+    account_expected_defer_all_messages_.insert(address);
+  }
+  if (account_expected_defer_all_messages_.contains(address)) {
     ctx.defer_all_messages = true;
   }
   return ctx;
@@ -6681,6 +6702,14 @@ bool ValidateQuery::check_new_state() {
                                     << " is not compatible with the old underload history " << ps_.underload_history_);
     }
   }
+  bool expected_want_split = Collator::history_weight(ns_.overload_history_) >= 0;
+  bool expected_want_merge = !expected_want_split && Collator::history_weight(ns_.underload_history_) >= 0;
+  REJECT_UNLESS_MSG(want_split_ == expected_want_split,
+                    PSTRING() << "new block's want_split=" << want_split_ << ", expected " << expected_want_split
+                              << " based on overload history " << ns_.overload_history_);
+  REJECT_UNLESS_MSG(want_merge_ == expected_want_merge,
+                    PSTRING() << "new block's want_merge=" << want_merge_ << ", expected " << expected_want_merge
+                              << " based on underload history " << ns_.underload_history_);
   // total_balance:CurrencyCollection
   // total_validator_fees:CurrencyCollection
   block::CurrencyCollection total_balance, total_validator_fees, old_total_validator_fees(ps_.total_validator_fees_);
@@ -7485,6 +7514,10 @@ bool ValidateQuery::try_validate() {
     }
   } catch (vm::VmError& err) {
     return fatal_error(-666, err.get_msg());
+  } catch (vm::CellBuilder::CellCreateError&) {
+    return reject_query("cell create error");
+  } catch (vm::CellBuilder::CellWriteError&) {
+    return reject_query("cell write error");
   } catch (vm::VmVirtError& err) {
     return reject_query(err.get_msg());
   }

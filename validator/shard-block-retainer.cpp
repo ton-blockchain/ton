@@ -71,8 +71,8 @@ void ShardBlockRetainer::update_masterchain_state(td::Ref<MasterchainState> stat
         adnl::AdnlNodeIdShort adnl_id{val.addr};
         if (adnl_id.is_zero()) {
           adnl_id = adnl::AdnlNodeIdShort{ValidatorFullId{val.key}.short_id()};
-          validator_adnl_ids_.insert(adnl_id);
         }
+        validator_adnl_ids_.insert(adnl_id);
       }
     }
     LOG(INFO) << "Updating validator set: " << validator_adnl_ids_.size() << " adnl ids";

@@ -25,10 +25,10 @@ namespace vm {
 namespace detail {
 class MerkleUpdateApply {
  public:
-  Ref<Cell> apply(Ref<Cell> from, Ref<Cell> update_from, Ref<Cell> update_to, td::uint32 from_level,
-                  td::uint32 to_level, StoreCellHint *hint = nullptr) {
+  td::Result<Ref<Cell>> apply(Ref<Cell> from, Ref<Cell> update_from, Ref<Cell> update_to, td::uint32 from_level,
+                              td::uint32 to_level, StoreCellHint *hint = nullptr) {
     if (from_level != from->get_level()) {
-      return {};
+      return td::Status::Error("level mismatch");
     }
     hint_ = hint;
     if (hint_ != nullptr) {
@@ -58,7 +58,7 @@ class MerkleUpdateApply {
     }
   }
 
-  Ref<Cell> dfs(Ref<Cell> cell, int merkle_depth) {
+  td::Result<Ref<Cell>> dfs(Ref<Cell> cell, int merkle_depth) {
     CellSlice cs(NoVm(), cell);
     if (cs.special_type() == Cell::SpecialType::PrunnedBranch) {
       if ((int)cell->get_level() == merkle_depth + 1) {
@@ -70,7 +70,7 @@ class MerkleUpdateApply {
           }
           return it->second;
         }
-        return {};
+        return td::Status::Error(PSTRING() << "unknown prunned branch " << hash.to_hex());
       }
       return cell;
     }
@@ -87,10 +87,7 @@ class MerkleUpdateApply {
     CellBuilder cb;
     cb.store_bits(cs.fetch_bits(cs.size()));
     for (unsigned i = 0; i < cs.size_refs(); i++) {
-      auto ref = dfs(cs.prefetch_ref(i), child_merkle_depth);
-      if (ref.is_null()) {
-        return {};
-      }
+      TRY_RESULT(ref, dfs(cs.prefetch_ref(i), child_merkle_depth));
       cb.store_ref(std::move(ref));
     }
     auto res = cb.finalize(cs.is_special());
@@ -166,43 +163,43 @@ td::Status MerkleUpdate::may_apply(Ref<Cell> from, Ref<Cell> update) {
   return td::Status::OK();
 }
 
-Ref<Cell> MerkleUpdate::apply(Ref<Cell> from, Ref<Cell> update, StoreCellHint *hint) {
+td::Result<Ref<Cell>> MerkleUpdate::apply(Ref<Cell> from, Ref<Cell> update, StoreCellHint *hint) {
   if (update->get_level() != 0 || from->get_level() != 0) {
-    return {};
+    return td::Status::Error("roots have non-zero level");
   }
   CellSlice cs(NoVm(), std::move(update));
   if (cs.special_type() != Cell::SpecialType::MerkleUpdate) {
-    return {};
+    return td::Status::Error("not a MerkleUpdate special cell");
   }
   auto update_from = cs.fetch_ref();
   auto update_to = cs.fetch_ref();
   return apply_raw(std::move(from), std::move(update_from), std::move(update_to), 0, 0, hint);
 }
 
-Ref<Cell> MerkleUpdate::apply_raw(Ref<Cell> from, Ref<Cell> update_from, Ref<Cell> update_to, td::uint32 from_level,
-                                  td::uint32 to_level, StoreCellHint *hint) {
+td::Result<Ref<Cell>> MerkleUpdate::apply_raw(Ref<Cell> from, Ref<Cell> update_from, Ref<Cell> update_to,
+                                              td::uint32 from_level, td::uint32 to_level, StoreCellHint *hint) {
   if (from->get_hash(from_level) != update_from->get_hash(from_level)) {
-    LOG(DEBUG) << "invalid Merkle update: expected old value hash = " << update_from->get_hash(from_level).to_hex()
-               << ", applied to value with hash = " << from->get_hash(from_level).to_hex();
-    return {};
+    return td::Status::Error(PSTRING() << "invalid Merkle update: expected old value hash = "
+                                       << update_from->get_hash(from_level).to_hex()
+                                       << ", applied to value with hash = " << from->get_hash(from_level).to_hex());
   }
   return detail::MerkleUpdateApply().apply(from, std::move(update_from), std::move(update_to), from_level, to_level,
                                            hint);
 }
 
-std::pair<Ref<Cell>, Ref<Cell>> MerkleUpdate::generate_raw(Ref<Cell> from, Ref<Cell> to, CellUsageTree *usage_tree) {
+td::Result<std::pair<Ref<Cell>, Ref<Cell>>> MerkleUpdate::generate_raw(Ref<Cell> from, Ref<Cell> to,
+                                                                       CellUsageTree *usage_tree) {
   // create Merkle update cell->new_cell
-  auto update_to = MerkleProof::generate_raw(to, [tree = usage_tree](const Ref<Cell> &cell) {
-    auto loaded_cell = cell->load_cell().move_as_ok();  // FIXME
-    if (loaded_cell.data_cell->size_refs() == 0) {
-      return false;
-    }
-    return !loaded_cell.tree_node.empty() && loaded_cell.tree_node.mark_path(tree);
-  });
+  TRY_RESULT(update_to, MerkleProof::generate_raw(to, [tree = usage_tree](const Ref<Cell> &cell) {
+               auto loaded_cell = cell->load_cell().move_as_ok();  // FIXME
+               if (loaded_cell.data_cell->size_refs() == 0) {
+                 return false;
+               }
+               return !loaded_cell.tree_node.empty() && loaded_cell.tree_node.mark_path(tree);
+             }));
   usage_tree->set_use_mark_for_is_loaded(true);
-  auto update_from = MerkleProof::generate_raw(from, usage_tree);
-
-  return {std::move(update_from), std::move(update_to)};
+  TRY_RESULT(update_from, MerkleProof::generate_raw(from, usage_tree));
+  return std::make_pair(std::move(update_from), std::move(update_to));
 }
 
 td::Status MerkleUpdate::validate_raw(Ref<Cell> update_from, Ref<Cell> update_to, td::uint32 from_level,
@@ -224,16 +221,11 @@ td::Status MerkleUpdate::validate(Ref<Cell> update) {
   return validate_raw(std::move(update_from), std::move(update_to), 0, 0);
 }
 
-Ref<Cell> MerkleUpdate::generate(Ref<Cell> from, Ref<Cell> to, CellUsageTree *usage_tree) {
-  auto from_level = from->get_level();
-  auto to_level = to->get_level();
-  if (from_level != 0 || to_level != 0) {
-    return {};
+td::Result<Ref<Cell>> MerkleUpdate::generate(Ref<Cell> from, Ref<Cell> to, CellUsageTree *usage_tree) {
+  if (from->get_level() != 0 || to->get_level() != 0) {
+    return td::Status::Error("roots have non-zero level");
   }
-  auto res = generate_raw(std::move(from), std::move(to), usage_tree);
-  if (res.first.is_null() || res.second.is_null()) {
-    return {};
-  }
+  TRY_RESULT(res, generate_raw(std::move(from), std::move(to), usage_tree));
   return CellBuilder::create_merkle_update(res.first, res.second);
 }
 
@@ -511,13 +503,9 @@ class MerkleCombine {
 };
 }  // namespace detail
 
-Ref<Cell> MerkleUpdate::combine(Ref<Cell> ab, Ref<Cell> bc) {
+td::Result<Ref<Cell>> MerkleUpdate::combine(Ref<Cell> ab, Ref<Cell> bc) {
   detail::MerkleCombine combine(ab, bc);
-  auto res = combine.run();
-  if (res.is_error()) {
-    return {};
-  }
-  return res.move_as_ok();
+  return combine.run();
 }
 
 }  // namespace vm

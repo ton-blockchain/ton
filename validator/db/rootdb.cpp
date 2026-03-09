@@ -549,7 +549,8 @@ void RootDb::get_key_block_proof_link(BlockIdExt block_id, td::Promise<td::Ref<P
       promise.set_result(create_proof_link(block_id, R.move_as_ok()));
     }
   });
-  td::actor::send_closure(archive_db_, &ArchiveManager::get_key_block_proof, fileref::Proof{block_id}, std::move(P));
+  td::actor::send_closure(archive_db_, &ArchiveManager::get_key_block_proof, fileref::ProofLink{block_id},
+                          std::move(P));
 }
 
 void RootDb::check_key_block_proof_exists(BlockIdExt block_id, td::Promise<bool> promise) {

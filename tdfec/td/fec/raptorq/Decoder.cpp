@@ -40,6 +40,9 @@ Status Decoder::add_symbol(SymbolRef symbol) {
   if (symbol.data.size() != symbol_size_) {
     return Status::Error("Symbol has invalid length");
   }
+  if (symbol.id >= (1 << 24)) {
+    return Status::Error("Too big symbol id");
+  }
   if (symbol.id < p_.K) {
     add_small_symbol(symbol);
     return Status::OK();

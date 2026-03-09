@@ -2032,8 +2032,9 @@ int parse_addr_workchain(CellSlice cs) {
   bool is_var = cs.fetch_ulong(1);
   if (cs.fetch_ulong(1) == 1) {  // Anycast
     unsigned depth;
-    cs.fetch_uint_leq(30, depth);
-    cs.skip_first(depth);
+    if (cs.fetch_uint_leq(30, depth)) {
+      cs.skip_first(depth);
+    }
   }
 
   if (is_var) {
