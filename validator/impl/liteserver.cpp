@@ -2490,7 +2490,7 @@ void LiteQuery::finish_listBlockTransactions(int mode, int req_count) {
       try {
         value = acc_dict.extract_value(
             acc_dict.vm::DictionaryFixed::lookup_nearest_key(cur_addr.bits(), 256, !reverse, allow_same));
-      } catch (vm::VmError err) {
+      } catch (vm::VmError& err) {
         fatal_error("error while traversing account block dictionary: "s + err.get_msg());
         return;
       }
@@ -2515,7 +2515,7 @@ void LiteQuery::finish_listBlockTransactions(int mode, int req_count) {
         try {
           tvalue = trans_dict.extract_value_ref(
               trans_dict.vm::DictionaryFixed::lookup_nearest_key(cur_trans.bits(), 64, !reverse));
-        } catch (vm::VmError err) {
+        } catch (vm::VmError& err) {
           fatal_error("error while traversing transaction dictionary of an AccountBlock: "s + err.get_msg());
           return;
         }
@@ -2538,7 +2538,7 @@ void LiteQuery::finish_listBlockTransactions(int mode, int req_count) {
         ++count;
       }
     }
-  } catch (vm::VmError err) {
+  } catch (vm::VmError& err) {
     fatal_error("error while parsing AccountBlocks of block "s + base_blk_id_.to_str() + " : " + err.get_msg());
     return;
   }
@@ -2644,7 +2644,7 @@ void LiteQuery::finish_listBlockTransactionsExt(int mode, int req_count) {
       try {
         value = acc_dict.extract_value(
             acc_dict.vm::DictionaryFixed::lookup_nearest_key(cur_addr.bits(), 256, !reverse, allow_same));
-      } catch (vm::VmError err) {
+      } catch (vm::VmError& err) {
         fatal_error("error while traversing account block dictionary: "s + err.get_msg());
         return;
       }
@@ -2669,7 +2669,7 @@ void LiteQuery::finish_listBlockTransactionsExt(int mode, int req_count) {
         try {
           tvalue = trans_dict.extract_value_ref(
               trans_dict.vm::DictionaryFixed::lookup_nearest_key(cur_trans.bits(), 64, !reverse));
-        } catch (vm::VmError err) {
+        } catch (vm::VmError& err) {
           fatal_error("error while traversing transaction dictionary of an AccountBlock: "s + err.get_msg());
           return;
         }
@@ -2688,7 +2688,7 @@ void LiteQuery::finish_listBlockTransactionsExt(int mode, int req_count) {
         return;
       }
     }
-  } catch (vm::VmError err) {
+  } catch (vm::VmError& err) {
     fatal_error("error while parsing AccountBlocks of block "s + base_blk_id_.to_str() + " : " + err.get_msg());
     return;
   }

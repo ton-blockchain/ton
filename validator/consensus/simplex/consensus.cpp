@@ -5,6 +5,7 @@
  */
 
 #include "consensus/simplex/state.h"
+#include "consensus/stats.h"
 #include "consensus/utils.h"
 #include "td/actor/coro_utils.h"
 
@@ -163,7 +164,9 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     }
 
     slot->state->pending_block = candidate;
-
+    if (candidate->leader != owning_bus()->local_id.idx) {
+      owning_bus().publish<TraceEvent>(stats::CandidateReceived::create(candidate, false));
+    }
     try_notarize(*slot).start().detach();
   }
 

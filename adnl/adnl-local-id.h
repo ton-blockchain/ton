@@ -124,7 +124,7 @@ class AdnlLocalId : public td::actor::Actor {
     std::map<td::IPAddress, Counter> dropped_packets;
 
     tl_object_ptr<ton_api::adnl_stats_localIdPackets> tl(bool all = true) const;
-  } packet_stats_cur_, packet_stats_prev_, packet_stats_total_;
+  } packet_stats_cur_, packet_stats_prev_;
   void add_decrypted_packet_stats(td::IPAddress addr);
   void add_dropped_packet_stats(td::IPAddress addr);
   void prepare_packet_stats();

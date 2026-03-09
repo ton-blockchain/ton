@@ -323,7 +323,7 @@ char* allocate_in_arena(size_t size) {
   thread_local td::MutableSlice batch;
 
   auto aligned_size = (size + 7) / 8 * 8;
-  if (batch.size() < size) {
+  if (batch.size() < aligned_size) {
     batch = td::MutableSlice(new char[batch_size], batch_size);
   }
   auto res = batch.begin();

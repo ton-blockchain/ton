@@ -317,22 +317,17 @@ void AdnlLocalId::get_stats(bool all, td::Promise<tl_object_ptr<ton_api::adnl_st
   }
   prepare_packet_stats();
   stats->packets_recent_ = packet_stats_prev_.tl();
-  stats->packets_total_ = packet_stats_total_.tl(all);
-  stats->packets_total_->ts_start_ = (double)Adnl::adnl_start_time();
-  stats->packets_total_->ts_end_ = td::Clocks::system();
   promise.set_result(std::move(stats));
 }
 
 void AdnlLocalId::add_decrypted_packet_stats(td::IPAddress addr) {
   prepare_packet_stats();
   packet_stats_cur_.decrypted_packets[addr].inc();
-  packet_stats_total_.decrypted_packets[addr].inc();
 }
 
 void AdnlLocalId::add_dropped_packet_stats(td::IPAddress addr) {
   prepare_packet_stats();
   packet_stats_cur_.dropped_packets[addr].inc();
-  packet_stats_total_.dropped_packets[addr].inc();
 }
 
 void AdnlLocalId::prepare_packet_stats() {

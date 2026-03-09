@@ -545,7 +545,8 @@ std::vector<SerializablePart> split_shard_state(ShardId shard_id, td::Ref<vm::Ce
     }
   }
 
-  auto accounts_proof = vm::MerkleProof::generate_raw(unwrapped_accounts_root, accounts_cut.get());
+  auto accounts_proof =
+      vm::MerkleProof::generate_raw(unwrapped_accounts_root, accounts_cut.get()).ensure().move_as_ok();
 
   // Build header
   unsplit_shard_state.accounts = accounts_proof;

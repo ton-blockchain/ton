@@ -202,11 +202,7 @@ td::Status ShardStateQ::apply_block(BlockIdExt newid, td::Ref<BlockData> block, 
     return td::Status::Error(-666, "invalid shardchain block header for block "s + block->block_id().id.to_str());
   }
   Ref<vm::Cell> update = cs.prefetch_ref(2);  // Merkle update
-  auto next_state_root = vm::MerkleUpdate::apply(root, update, hint);
-  if (next_state_root.is_null()) {
-    return td::Status::Error("cannot apply Merkle update from block "s + block->block_id().id.to_str() +
-                             " to previous state");
-  }
+  TRY_RESULT(next_state_root, vm::MerkleUpdate::apply(root, update, hint));
   if (hint != nullptr && fake_merge_) {
     hint->prev_state_cells.erase(root->get_hash());
   }

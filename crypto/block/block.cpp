@@ -178,12 +178,12 @@ bool StdAddress::operator==(const StdAddress& other) const {
          testnet == other.testnet;
 }
 
-int parse_hex_digit(int c) {
+static int parse_hex_digit(int c) {
   if (c >= '0' && c <= '9') {
     return c - '0';
   }
   c |= 0x20;
-  if (c >= 'a' && c <= 'z') {
+  if (c >= 'a' && c <= 'f') {
     return c - 'a' + 10;
   }
   return -1;
@@ -1873,7 +1873,8 @@ bool check_one_config_param(Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key, td::
   } else if (idx < 0) {
     return true;
   }
-  bool ok = block::gen::ConfigParam{idx}.validate_ref(1024, std::move(cell));
+  unsigned cfg_idx = static_cast<unsigned>(idx);
+  bool ok = block::gen::ConfigParam{cfg_idx}.validate_ref(1024, std::move(cell));
   if (!ok) {
     LOG(ERROR) << "configuration parameter #" << idx << " is invalid";
   }
@@ -2028,9 +2029,9 @@ td::Status unpack_block_prev_blk_try(Ref<vm::Cell> block_root, const ton::BlockI
                                      ton::BlockIdExt* fetch_blkid) {
   try {
     return unpack_block_prev_blk_ext(std::move(block_root), id, prev, mc_blkid, after_split, fetch_blkid);
-  } catch (vm::VmError err) {
+  } catch (vm::VmError& err) {
     return td::Status::Error(std::string{"error while processing Merkle proof: "} + err.get_msg());
-  } catch (vm::VmVirtError err) {
+  } catch (vm::VmVirtError& err) {
     return td::Status::Error(std::string{"error while processing Merkle proof: "} + err.get_msg());
   }
 }
@@ -2232,9 +2233,9 @@ td::Result<Ref<vm::Cell>> get_block_transaction_try(Ref<vm::Cell> block_root, to
                                                     const ton::StdSmcAddress& addr, ton::LogicalTime lt) {
   try {
     return get_block_transaction(std::move(block_root), workchain, addr, lt);
-  } catch (vm::VmError err) {
+  } catch (vm::VmError& err) {
     return td::Status::Error(std::string{"error while extracting transaction from block : "} + err.get_msg());
-  } catch (vm::VmVirtError err) {
+  } catch (vm::VmVirtError& err) {
     return td::Status::Error(std::string{"virtualization error while traversing transaction proof : "} + err.get_msg());
   }
 }
@@ -2383,9 +2384,10 @@ bool parse_hex_hash(const char* str, const char* end, td::Bits256& hash) {
     int c = *str++, x = c - '0';
     if (x < 0) {
       return false;
-    } else if (x > 10) {
+    }
+    if (x >= 10) {
       x = (c | 0x20) - ('a' - 10);
-      if (x < 10 || x > 16) {
+      if (x < 10 || x >= 16) {
         return false;
       }
     }

@@ -31,25 +31,22 @@ class MerkleProof {
 
   // works with proofs wrapped in MerkleProof special cell
   // cells must have zero level
-  static Ref<Cell> generate(Ref<Cell> cell, IsPrunnedFunction is_prunned);
-  static Ref<Cell> generate(Ref<Cell> cell, CellUsageTree *usage_tree);
+  static td::Result<Ref<Cell>> generate(Ref<Cell> cell, IsPrunnedFunction is_prunned);
+  static td::Result<Ref<Cell>> generate(Ref<Cell> cell, CellUsageTree *usage_tree);
 
   // cell must have zero level and must be a MerkleProof
-  static Ref<Cell> virtualize(Ref<Cell> cell);
-  static td::Result<Ref<Cell>> try_virtualize(Ref<Cell> cell);
+  static td::Result<Ref<Cell>> virtualize(Ref<Cell> cell);
 
-  static Ref<Cell> combine(Ref<Cell> a, Ref<Cell> b);
-  static td::Result<Ref<Cell>> combine_status(Ref<Cell> a, Ref<Cell> b);
-  static Ref<Cell> combine_fast(Ref<Cell> a, Ref<Cell> b);
-  static td::Result<Ref<Cell>> combine_fast_status(Ref<Cell> a, Ref<Cell> b);
+  static td::Result<Ref<Cell>> combine(Ref<Cell> a, Ref<Cell> b);
+  static td::Result<Ref<Cell>> combine_fast(Ref<Cell> a, Ref<Cell> b);
 
-  // works with upwrapped proofs
+  // works with unwrapped proofs
   // works fine with cell of non-zero level, but this is not supported (yet?) in MerkeProof special cell
-  static Ref<Cell> generate_raw(Ref<Cell> cell, IsPrunnedFunction is_prunned);
-  static Ref<Cell> generate_raw(Ref<Cell> cell, CellUsageTree *usage_tree);
+  static td::Result<Ref<Cell>> generate_raw(Ref<Cell> cell, IsPrunnedFunction is_prunned);
+  static td::Result<Ref<Cell>> generate_raw(Ref<Cell> cell, CellUsageTree *usage_tree);
   static Ref<Cell> virtualize_raw(Ref<Cell> cell, td::uint32 effective_level);
-  static Ref<Cell> combine_raw(Ref<Cell> a, Ref<Cell> b);
-  static Ref<Cell> combine_fast_raw(Ref<Cell> a, Ref<Cell> b);
+  static td::Result<Ref<Cell>> combine_raw(Ref<Cell> a, Ref<Cell> b);
+  static td::Result<Ref<Cell>> combine_fast_raw(Ref<Cell> a, Ref<Cell> b);
 };
 
 class MerkleProofBuilder {
@@ -58,7 +55,7 @@ class MerkleProofBuilder {
 
  public:
   MerkleProofBuilder() = default;
-  MerkleProofBuilder(Ref<Cell> root);
+  explicit MerkleProofBuilder(Ref<Cell> root);
   Ref<Cell> init(Ref<Cell> root);
   bool clear();
   Ref<Cell> root() const {

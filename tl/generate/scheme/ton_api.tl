@@ -161,7 +161,7 @@ adnl.stats.localIdPackets ts_start:double ts_end:double
     decrypted_packets:(vector adnl.stats.ipPackets) dropped_packets:(vector adnl.stats.ipPackets) = adnl.stats.LocalIdPackets;
 adnl.stats.localId short_id:int256
     current_decrypt:(vector adnl.stats.ipPackets)
-    packets_recent:adnl.stats.localIdPackets packets_total:adnl.stats.localIdPackets
+    packets_recent:adnl.stats.localIdPackets
     peers:(vector adnl.stats.peerPair) = adnl.stats.LocalId;
 adnl.stats timestamp:double local_ids:(vector adnl.stats.localId) = adnl.Stats;
 
@@ -524,8 +524,6 @@ tonNode.getCapabilities = tonNode.Capabilities;
 tonNode.slave.sendExtMessage message:tonNode.externalMessage = tonNode.Success;
 
 tonNode.query = Object;
-
-tonNode.requestFastSyncOverlayMemberCertificate sign_by:int256 adnl_id:int256 slot:int = overlay.MemberCertificate;
 
 ---types---
 
