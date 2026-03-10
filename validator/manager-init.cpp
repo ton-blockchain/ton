@@ -496,17 +496,19 @@ void ValidatorManagerMasterchainStarter::got_hardforks(std::vector<BlockIdExt> v
   }
   has_new_hardforks_ = true;
 
-  auto b = *h.rbegin();
-  if (handle_->id().seqno() + 1 < b.seqno()) {
+  auto hardfork = *h.rbegin();
+  LOG_CHECK(handle_->id().seqno() + 1 == hardfork.seqno()) << "Last masterchain block seqno = " << handle_->id().seqno()
+                                                           << ", but the new hardfork has seqno " << hardfork.seqno();
+  if (handle_->id().seqno() + 1 < hardfork.seqno()) {
     truncated();
     return;
   }
-  if (b.seqno() <= gc_handle_->id().seqno()) {
+  if (hardfork.seqno() <= gc_handle_->id().seqno()) {
     LOG(FATAL) << "cannot start: new hardfork is on too old block (already gc'd)";
     return;
   }
 
-  got_truncate_block_seqno(b.seqno() - 1);
+  got_truncate_block_seqno(hardfork.seqno() - 1);
 }
 
 void ValidatorManagerMasterchainStarter::got_truncate_block_seqno(BlockSeqno seqno) {
@@ -601,9 +603,6 @@ void ValidatorManagerMasterchainStarter::truncated() {
 void ValidatorManagerMasterchainStarter::truncated_next() {
   if (has_new_hardforks_) {
     BlockIdExt hardfork = *opts_->get_hardforks().rbegin();
-    LOG_CHECK(handle_->id().seqno() + 1 == hardfork.seqno())
-        << "Last masterchain block seqno = " << handle_->id().seqno() << ", but the new hardfork has seqno "
-        << hardfork.seqno();
     handle_->set_next(hardfork);
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
       R.ensure();
