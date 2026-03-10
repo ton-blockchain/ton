@@ -52,14 +52,6 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
   }
 
   template <>
-  void handle(BusHandle, std::shared_ptr<const OurLeaderWindowAborted> event) {
-    // Sanity check: consensus and us should agree on the start slot.
-    CHECK(current_leader_window_ == event->start_slot);
-    current_leader_window_ = std::nullopt;
-    cancellation_source_ = td::CancellationTokenSource();
-  }
-
-  template <>
   void handle(BusHandle, std::shared_ptr<const BlockFinalizedInMasterchain> event) {
     last_mc_finalized_seqno_ = std::max(event->block.seqno(), last_mc_finalized_seqno_);
     last_consensus_finalized_seqno_ = std::max(last_mc_finalized_seqno_, last_consensus_finalized_seqno_);
@@ -161,6 +153,10 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
       ++slot;
       parent = id;
       target_time = td::Timestamp::in(target_rate_, target_time);
+    }
+
+    if (current_leader_window_ == window) {
+      current_leader_window_ = std::nullopt;
     }
 
     co_return {};
