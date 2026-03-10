@@ -46,6 +46,8 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
 
   template <>
   void handle(BusHandle, std::shared_ptr<const OurLeaderWindowStarted> event) {
+    CHECK(current_leader_window_ < event->start_slot);
+
     current_leader_window_ = event->start_slot;
     cancellation_source_ = td::CancellationTokenSource();
     generate_candidates(event).start().detach();
