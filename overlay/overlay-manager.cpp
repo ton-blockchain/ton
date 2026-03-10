@@ -288,8 +288,8 @@ void OverlayManager::receive_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeId
   if (it2 == it->second.end()) {
     VLOG(OVERLAY_NOTICE) << this << ": message to localid is not in overlay " << overlay_id << "@" << dst;
 
-    if (buffer_limits_.max_packets != 0 && buffer_limits_.max_data_size > data.size()) {
-      while (buffered_requests_.total_packets >= buffer_limits_.max_packets ||
+    if (buffer_limits_.max_packets != 0 && buffer_limits_.max_data_size >= data.size()) {
+      while (buffered_requests_.total_packets > buffer_limits_.max_packets ||
              buffered_requests_.total_data_size + data.size() > buffer_limits_.max_data_size) {
         buffered_requests_.evict_oldest();
       }
@@ -335,8 +335,8 @@ void OverlayManager::receive_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdSh
   if (it2 == it->second.end()) {
     VLOG(OVERLAY_NOTICE) << this << ": query to localid not in overlay " << overlay_id << "@" << dst << " from " << src;
 
-    if (buffer_limits_.max_packets != 0 && buffer_limits_.max_data_size > data.size()) {
-      while (buffered_requests_.total_packets >= buffer_limits_.max_packets ||
+    if (buffer_limits_.max_packets != 0 && buffer_limits_.max_data_size >= data.size()) {
+      while (buffered_requests_.total_packets > buffer_limits_.max_packets ||
              buffered_requests_.total_data_size + data.size() > buffer_limits_.max_data_size) {
         buffered_requests_.evict_oldest();
       }

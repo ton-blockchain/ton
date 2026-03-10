@@ -39,12 +39,7 @@ ShardTopBlockDescrQ* ShardTopBlockDescrQ::make_copy() const {
 }
 
 td::Status ShardTopBlockDescrQ::unpack_one_proof(BlockIdExt& cur_id, Ref<vm::Cell> proof_root, bool is_head) {
-  auto virt_root = vm::MerkleProof::virtualize(proof_root);
-  if (virt_root.is_null()) {
-    return td::Status::Error(-666, "link for block "s + cur_id.to_str() + " inside ShardTopBlockDescr of " +
-                                       block_id_.to_str() +
-                                       " does not contain a valid Merkle proof for the block header");
-  }
+  TRY_RESULT(virt_root, vm::MerkleProof::virtualize(proof_root));
   RootHash virt_hash{virt_root->get_hash().bits()};
   if (virt_hash != cur_id.root_hash) {
     return td::Status::Error(-666, "link for block "s + cur_id.to_str() + " inside ShardTopBlockDescr of " +
@@ -178,7 +173,7 @@ td::Status ShardTopBlockDescrQ::unpack() {
     FLOG(INFO) {
       sb << "invalid ShardTopBlockDescr: ";
       block::gen::t_TopBlockDescr.print_ref(sb, root_);
-      vm::load_cell_slice(root_).print_rec(sb);
+      vm::load_cell_slice_special(root_).print_rec(sb);
     };
     return td::Status::Error(-666, "Shard top block description is not a valid TopBlockDescr TL-B object");
   }
@@ -210,15 +205,15 @@ td::Status ShardTopBlockDescrQ::unpack() {
   // unpack proof link chain
   auto chain = std::move(rec.chain);
   BlockIdExt cur_id = block_id_;
-  for (int i = 0; i < rec.len; i++) {
-    CHECK(chain->size_ext() == (i == rec.len - 1 ? 0x10000u : 0x20000u));
-    auto proof = chain->prefetch_ref();
-    proof_roots_.push_back(proof);
-    if (i < rec.len - 1) {
-      chain = vm::load_cell_slice_ref(chain->prefetch_ref(1));
-    }
+  for (unsigned i = 0; i < rec.len; i++) {
     try {
-      auto res = unpack_one_proof(cur_id, std::move(proof), i == rec.len - 1);
+      CHECK(chain->size_ext() == (i + 1 == rec.len ? 0x10000u : 0x20000u));
+      auto proof = chain->prefetch_ref();
+      proof_roots_.push_back(proof);
+      if (i + 1 < rec.len) {
+        chain = vm::load_cell_slice_ref(chain->prefetch_ref(1));
+      }
+      auto res = unpack_one_proof(cur_id, std::move(proof), i + 1 == rec.len);
       if (res.is_error()) {
         return res;
       }
@@ -498,8 +493,11 @@ Ref<block::McShardHash> ShardTopBlockDescrQ::get_prev_descr(int pos, int sum_cnt
       (unsigned)(pos + sum_cnt) > size()) {
     return {};
   }
-  auto virt_root = vm::MerkleProof::virtualize(proof_roots_.at(pos));
-  auto res = block::McShardHash::from_block(std::move(virt_root), chain_blk_ids_.at(pos).file_hash);
+  auto r_virt_root = vm::MerkleProof::virtualize(proof_roots_.at(pos));
+  if (r_virt_root.is_error()) {
+    return {};
+  }
+  auto res = block::McShardHash::from_block(r_virt_root.move_as_ok(), chain_blk_ids_.at(pos).file_hash);
   if (res.not_null()) {
     auto& total_fees = res.write().fees_collected_;
     auto& funds_created = res.write().funds_created_;

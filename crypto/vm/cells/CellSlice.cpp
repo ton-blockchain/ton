@@ -446,6 +446,15 @@ bool CellSlice::fetch_bool_to(int& res) {
   }
 }
 
+bool CellSlice::fetch_bool_to(unsigned& res) {
+  if (!have(1)) {
+    return false;
+  } else {
+    res = (unsigned)fetch_ulong(1);
+    return true;
+  }
+}
+
 bool CellSlice::fetch_bool_to(int& res, int mask) {
   if (!have(1)) {
     return false;
@@ -803,14 +812,6 @@ bool CellSlice::begins_with(unsigned bits, unsigned long long value) const {
   return have(bits) && !((prefetch_ulong(bits) ^ value) & ((1ULL << bits) - 1));
 }
 
-bool CellSlice::begins_with(unsigned long long value) const {
-  return begins_with(63 - td::count_leading_zeroes_non_zero64(value), value);
-}
-
-bool CellSlice::begins_with_skip(unsigned long long value) {
-  return begins_with_skip(63 - td::count_leading_zeroes_non_zero64(value), value);
-}
-
 bool CellSlice::only_first(unsigned bits, unsigned refs) {
   if (!have(bits, refs)) {
     return false;
@@ -1070,8 +1071,11 @@ std::ostream& operator<<(std::ostream& os, Ref<CellSlice> cs_ref) {
 
 // If can_be_special is not null, then it is allowed to load special cell
 // Flag whether loaded cell is actually special will be stored into can_be_special
-VirtualCell::LoadedCell load_cell_slice_impl(Ref<Cell> cell, bool* can_be_special) {
+static VirtualCell::LoadedCell load_cell_slice_impl(Ref<Cell> cell, bool* can_be_special, bool quiet = false) {
   auto* vm_state_interface = VmStateInterface::get();
+  if (vm_state_interface && vm_state_interface->is_actual_tvm()) {
+    quiet = false;
+  }
   bool library_loaded = false;
   while (true) {
     if (vm_state_interface && !library_loaded) {
@@ -1079,6 +1083,9 @@ VirtualCell::LoadedCell load_cell_slice_impl(Ref<Cell> cell, bool* can_be_specia
     }
     auto r_loaded_cell = cell->load_cell();
     if (r_loaded_cell.is_error()) {
+      if (quiet) {
+        return {};
+      }
       throw VmError{Excno::cell_und, PSTRING() << "failed to load cell: " << r_loaded_cell.error().message()};
     }
     auto loaded_cell = r_loaded_cell.move_as_ok();
@@ -1094,6 +1101,9 @@ VirtualCell::LoadedCell load_cell_slice_impl(Ref<Cell> cell, bool* can_be_specia
         if (vm_state_interface) {
           if (vm_state_interface->get_global_version() >= 5) {
             if (library_loaded) {
+              if (quiet) {
+                return {};
+              }
               throw VmError{Excno::cell_und, "failed to load library cell: recursive library cells are not allowed"};
             }
             library_loaded = true;
@@ -1106,12 +1116,24 @@ VirtualCell::LoadedCell load_cell_slice_impl(Ref<Cell> cell, bool* can_be_specia
             can_be_special = nullptr;
             continue;
           }
+          if (quiet) {
+            return {};
+          }
           throw VmError{Excno::cell_und, "failed to load library cell"};
+        }
+        if (quiet) {
+          return {};
         }
         throw VmError{Excno::cell_und, "failed to load library cell (no vm_state_interface available)"};
       } else if (loaded_cell.data_cell->special_type() == DataCell::SpecialType::PrunnedBranch) {
         CHECK(loaded_cell.effective_level >= loaded_cell.data_cell->get_level());
+        if (quiet) {
+          return {};
+        }
         throw VmError{Excno::cell_und, "trying to load prunned cell"};
+      }
+      if (quiet) {
+        return {};
       }
       throw VmError{Excno::cell_und, "unexpected special cell"};
     }
@@ -1123,12 +1145,29 @@ CellSlice load_cell_slice(const Ref<Cell>& cell) {
   return CellSlice{load_cell_slice_impl(cell, nullptr)};
 }
 
+CellSlice load_cell_slice_quiet(const Ref<Cell>& cell) {
+  return CellSlice{load_cell_slice_impl(cell, nullptr, true)};
+}
+
 CellSlice load_cell_slice_special(const Ref<Cell>& cell, bool& special) {
+  return CellSlice{load_cell_slice_impl(cell, &special)};
+}
+
+CellSlice load_cell_slice_special(const Ref<Cell>& cell) {
+  bool special;
   return CellSlice{load_cell_slice_impl(cell, &special)};
 }
 
 Ref<CellSlice> load_cell_slice_ref(const Ref<Cell>& cell) {
   return Ref<CellSlice>{true, CellSlice(load_cell_slice_impl(cell, nullptr))};
+}
+
+Ref<CellSlice> load_cell_slice_ref_quiet(const Ref<Cell>& cell) {
+  auto loaded = load_cell_slice_impl(cell, nullptr, true);
+  if (loaded.data_cell.is_null()) {
+    return {};
+  }
+  return Ref<CellSlice>{true, std::move(loaded)};
 }
 
 Ref<CellSlice> load_cell_slice_ref_special(const Ref<Cell>& cell, bool& special) {

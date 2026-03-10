@@ -1333,15 +1333,15 @@ void ValidatorManagerImpl::finished_wait_data(BlockHandle handle, td::Result<td:
 
 void ValidatorManagerImpl::set_block_state(BlockHandle handle, td::Ref<ShardState> state, vm::StoreCellHint hint,
                                            td::Promise<td::Ref<ShardState>> promise) {
-  auto P = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), handle, promise = std::move(promise)](td::Result<td::Ref<ShardState>> R) mutable {
-        if (R.is_error()) {
-          promise.set_error(R.move_as_error());
-        } else {
-          promise.set_value(R.move_as_ok());
-          td::actor::send_closure(SelfId, &ValidatorManagerImpl::written_handle, std::move(handle), [](td::Unit) {});
-        }
-      });
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle,
+                                       promise = std::move(promise)](td::Result<td::Ref<ShardState>> R) mutable {
+    if (R.is_error()) {
+      promise.set_error(R.move_as_error());
+    } else {
+      promise.set_value(R.move_as_ok());
+      td::actor::send_closure(SelfId, &ValidatorManagerImpl::written_handle, std::move(handle), [](td::Result<>) {});
+    }
+  });
   td::actor::send_closure(db_, &Db::store_block_state, handle, state, std::move(hint), std::move(P));
 }
 
@@ -1385,42 +1385,42 @@ void ValidatorManagerImpl::store_zero_state_file(BlockIdExt block_id, td::Buffer
 }
 
 void ValidatorManagerImpl::set_block_data(BlockHandle handle, td::Ref<BlockData> data, td::Promise<td::Unit> promise) {
-  auto P = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), data, handle, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-        if (R.is_error()) {
-          promise.set_error(R.move_as_error());
-        } else {
-          promise.set_value(td::Unit());
-          td::actor::send_closure(SelfId, &ValidatorManagerImpl::written_handle, std::move(handle), [](td::Unit) {});
-        }
-      });
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), data, handle,
+                                       promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+    if (R.is_error()) {
+      promise.set_error(R.move_as_error());
+    } else {
+      promise.set_value(td::Unit());
+      td::actor::send_closure(SelfId, &ValidatorManagerImpl::written_handle, std::move(handle), [](td::Result<>) {});
+    }
+  });
   td::actor::send_closure(db_, &Db::store_block_data, handle, std::move(data), std::move(P));
 }
 
 void ValidatorManagerImpl::set_block_proof(BlockHandle handle, td::Ref<Proof> proof, td::Promise<td::Unit> promise) {
-  auto P = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), handle, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-        if (R.is_error()) {
-          promise.set_error(R.move_as_error());
-        } else {
-          promise.set_value(td::Unit());
-          td::actor::send_closure(SelfId, &ValidatorManagerImpl::written_handle, std::move(handle), [](td::Unit) {});
-        }
-      });
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle,
+                                       promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+    if (R.is_error()) {
+      promise.set_error(R.move_as_error());
+    } else {
+      promise.set_value(td::Unit());
+      td::actor::send_closure(SelfId, &ValidatorManagerImpl::written_handle, std::move(handle), [](td::Result<>) {});
+    }
+  });
   td::actor::send_closure(db_, &Db::store_block_proof, handle, std::move(proof), std::move(P));
 }
 
 void ValidatorManagerImpl::set_block_proof_link(BlockHandle handle, td::Ref<ProofLink> proof,
                                                 td::Promise<td::Unit> promise) {
-  auto P = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), handle, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-        if (R.is_error()) {
-          promise.set_error(R.move_as_error());
-        } else {
-          promise.set_value(td::Unit());
-          td::actor::send_closure(SelfId, &ValidatorManagerImpl::written_handle, std::move(handle), [](td::Unit) {});
-        }
-      });
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle,
+                                       promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+    if (R.is_error()) {
+      promise.set_error(R.move_as_error());
+    } else {
+      promise.set_value(td::Unit());
+      td::actor::send_closure(SelfId, &ValidatorManagerImpl::written_handle, std::move(handle), [](td::Result<>) {});
+    }
+  });
   td::actor::send_closure(db_, &Db::store_block_proof_link, handle, std::move(proof), std::move(P));
 }
 
@@ -2030,6 +2030,17 @@ void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
       });
   td::actor::send_closure(db_, &Db::get_persistent_state_descriptions, std::move(Q));
   update_shard_overlays();
+
+  td::actor::send_closure(db_, &Db::get_destroyed_validator_sessions,
+                          [SelfId = actor_id(this)](td::Result<std::vector<ValidatorSessionId>> R) {
+                            R.ensure();
+                            td::actor::send_closure(SelfId, &ValidatorManagerImpl::got_destroyed_validator_sessions,
+                                                    R.move_as_ok());
+                          });
+}
+
+void ValidatorManagerImpl::got_destroyed_validator_sessions(std::vector<ValidatorSessionId> sessions) {
+  destroyed_validator_sessions_.insert(sessions.begin(), sessions.end());
   finish_start_up();
 }
 
@@ -2362,6 +2373,7 @@ void ValidatorManagerImpl::update_shards() {
 
   auto get_or_make_next_group = [&](ShardIdFull shard, ValidatorSessionId id, td::Ref<block::ValidatorSet> val_set) {
     CHECK(!validator_groups_.contains(id) && !new_validator_groups.contains(id));
+    CHECK(!destroyed_validator_sessions_.contains(id));
     if (auto it = next_validator_groups_.find(id); it != next_validator_groups_.end()) {
       return it;
     }
@@ -2399,6 +2411,9 @@ void ValidatorManagerImpl::update_shards() {
       if (!validator_id.is_zero()) {
         ++(shard.is_masterchain() ? active_validator_groups_master_ : active_validator_groups_shard_);
         auto val_group_id = get_validator_set_id(shard, val_set, opts_hash, key_seqno, opts);
+        if (destroyed_validator_sessions_.contains(val_group_id)) {
+          continue;
+        }
 
         if (force_recover) {
           auto r = opts_->check_unsafe_catchain_rotate(last_masterchain_seqno_, val_set->get_catchain_seqno());
@@ -2451,6 +2466,9 @@ void ValidatorManagerImpl::update_shards() {
     auto validator_id = get_validator(shard, val_set);
     if (!validator_id.is_zero()) {
       auto val_group_id = get_validator_set_id(shard, val_set, opts_hash, key_seqno, opts);
+      if (destroyed_validator_sessions_.contains(val_group_id)) {
+        continue;
+      }
       get_or_make_next_group(shard, val_group_id, val_set);
       if (shard.is_masterchain() && mc_validator_adnl_id.is_zero()) {
         mc_validator_adnl_id = adnl::AdnlNodeIdShort{val_set->get_validator(validator_id.bits256_value())->addr};
@@ -2461,9 +2479,12 @@ void ValidatorManagerImpl::update_shards() {
     }
   }
 
+  std::vector<td::actor::ActorId<IValidatorGroup>> to_destroy;
+
   for (auto &[id, group] : validator_groups_) {
     LOG(INFO) << "Destroying active " << group.name() << ":" << id;
-    td::actor::send_closure(group.actor.release(), &IValidatorGroup::destroy);
+    to_destroy.push_back(group.actor.release());
+    destroyed_validator_sessions_.insert(id);
   }
   validator_groups_ = std::move(new_validator_groups);
 
@@ -2498,18 +2519,38 @@ void ValidatorManagerImpl::update_shards() {
   for (auto [id, reason] : ids_to_remove) {
     LOG(INFO) << "Destroying tentative " << next_validator_groups_[id].name() << ":" << id << " because of an active "
               << reason;
-    td::actor::send_closure(next_validator_groups_[id].actor.release(), &IValidatorGroup::destroy);
+    to_destroy.push_back(next_validator_groups_[id].actor.release());
+    destroyed_validator_sessions_.insert(id);
     next_validator_groups_.erase(id);
   }
+  auto destroy_sessions = [to_destroy = std::move(to_destroy)]() {
+    for (const auto &s : to_destroy) {
+      td::actor::send_closure(s, &IValidatorGroup::destroy);
+    }
+  };
 
   if (last_masterchain_state_->rotated_all_shards()) {
     CHECK(last_masterchain_block_handle_->received_state());
     auto P = td::PromiseCreator::lambda(
-        [SelfId = actor_id(this), block_id = last_masterchain_block_id_](td::Result<td::Unit> R) {
+        [SelfId = actor_id(this), db = db_.get(), block_id = last_masterchain_block_id_,
+         destroy_sessions = std::move(destroy_sessions),
+         old_destroyed_validator_sessions = destroyed_validator_sessions_](td::Result<td::Unit> R) mutable {
           R.ensure();
-          td::actor::send_closure(SelfId, &ValidatorManagerImpl::updated_init_block, block_id);
+          td::actor::send_closure(db, &Db::update_destroyed_validator_sessions, std::vector<ValidatorSessionId>{},
+                                  [](td::Result<>) {});
+          td::actor::send_closure(SelfId, &ValidatorManagerImpl::updated_init_block, block_id,
+                                  std::move(old_destroyed_validator_sessions));
+          destroy_sessions();
         });
     td::actor::send_closure(db_, &Db::update_init_masterchain_block, last_masterchain_block_id_, std::move(P));
+  } else {
+    td::actor::send_closure(
+        db_, &Db::update_destroyed_validator_sessions,
+        std::vector<ValidatorSessionId>(destroyed_validator_sessions_.begin(), destroyed_validator_sessions_.end()),
+        [destroy_sessions = std::move(destroy_sessions)](td::Result<> R) {
+          R.ensure();
+          destroy_sessions();
+        });
   }
   if (!serializer_.empty()) {
     td::actor::send_closure(serializer_, &AsyncStateSerializer::auto_disable_serializer,
@@ -3277,7 +3318,8 @@ void ValidatorManagerImpl::process_lookup_block_for_litequery_error(AccountIdPre
       err = td::Status::Error(ErrorCode::notready, PSTRING() << "block " << handle->id().to_str() << " is not applied");
     }
   }
-  if (account.is_masterchain()) {
+  if (last_masterchain_state_.is_null()) {
+  } else if (account.is_masterchain()) {
     if (value > (type == 0
                      ? last_masterchain_state_->get_logical_time()
                      : (type == 1 ? last_masterchain_state_->get_unix_time() : last_masterchain_state_->get_seqno()))) {

@@ -587,28 +587,28 @@ void BlockDbImpl::get_top_block_id(ton::ShardIdFull shard, int authority, td::Pr
   LOG(DEBUG) << "in BlockDb::get_top_block_id()";
   auto it = block_info.upper_bound(ton::BlockId{shard, std::numeric_limits<td::uint32>::max()});
   if (it != block_info.begin() && ton::ShardIdFull{(--it)->first} == shard) {
-    promise(it->second->blk);
+    promise.set_result(it->second->blk);
     return;
   }
   if (shard.is_masterchain()) {
-    promise(ton::BlockIdExt{ton::BlockId{ton::masterchainId, 1ULL << 63, 0}});
+    promise.set_result(ton::BlockIdExt{ton::BlockId{ton::masterchainId, 1ULL << 63, 0}});
     return;
   }
-  promise(td::Status::Error(-666));
+  promise.set_result(td::Status::Error(-666));
 }
 
 void BlockDbImpl::get_top_block_state_id(ton::ShardIdFull shard, int authority, td::Promise<ton::BlockIdExt> promise) {
   LOG(DEBUG) << "in BlockDb::get_top_block_state_id()";
   auto it = state_info.upper_bound(ton::BlockId{shard, std::numeric_limits<td::uint32>::max()});
   if (it != state_info.begin() && ton::ShardIdFull{(--it)->first} == shard) {
-    promise(it->second->blk);
+    promise.set_result(it->second->blk);
     return;
   }
   if (shard.is_masterchain() && zerostate.not_null()) {
-    promise(zerostate->blk);
+    promise.set_result(zerostate->blk);
     return;
   }
-  promise(td::Status::Error(-666, "no state for given workchain found in database"));
+  promise.set_result(td::Status::Error(-666, "no state for given workchain found in database"));
 }
 
 void BlockDbImpl::get_block_by_id(ton::BlockId blk_id, bool need_data, td::Promise<td::Ref<FileInfo>> promise) {
@@ -620,14 +620,14 @@ void BlockDbImpl::get_block_by_id(ton::BlockId blk_id, bool need_data, td::Promi
       LOG(DEBUG) << "loading data for block " << blk_id.to_str();
       auto res = load_data(it->second.write());
       if (res.is_error()) {
-        promise(std::move(res));
+        promise.set_result(std::move(res));
         return;
       }
     }
-    promise(it->second);
+    promise.set_result(it->second);
     return;
   }
-  promise(td::Status::Error(-666, "block not found in database"));
+  promise.set_result(td::Status::Error(-666, "block not found in database"));
 }
 
 void BlockDbImpl::get_state_by_id(ton::BlockId blk_id, bool need_data, td::Promise<td::Ref<FileInfo>> promise) {
@@ -639,11 +639,11 @@ void BlockDbImpl::get_state_by_id(ton::BlockId blk_id, bool need_data, td::Promi
       LOG(DEBUG) << "loading data for state " << blk_id.to_str();
       auto res = load_data(it->second.write());
       if (res.is_error()) {
-        promise(std::move(res));
+        promise.set_result(std::move(res));
         return;
       }
     }
-    promise(it->second);
+    promise.set_result(it->second);
     return;
   }
   if (zerostate.not_null() && blk_id == zerostate->blk.id) {
@@ -652,14 +652,14 @@ void BlockDbImpl::get_state_by_id(ton::BlockId blk_id, bool need_data, td::Promi
       LOG(DEBUG) << "loading data for zerostate";
       auto res = load_data(zerostate.write());
       if (res.is_error()) {
-        promise(std::move(res));
+        promise.set_result(std::move(res));
         return;
       }
     }
-    promise(zerostate);
+    promise.set_result(zerostate);
     return;
   }
-  promise(td::Status::Error(-666, "requested state not found in database"));
+  promise.set_result(td::Status::Error(-666, "requested state not found in database"));
 }
 
 void BlockDbImpl::get_out_queue_info_by_id(ton::BlockId blk_id, td::Promise<td::Ref<OutputQueueInfoDescr>> promise) {
@@ -667,7 +667,7 @@ void BlockDbImpl::get_out_queue_info_by_id(ton::BlockId blk_id, td::Promise<td::
              << blk_id.seqno << ")";
   auto it = state_info.find(blk_id);
   if (it == state_info.end()) {
-    promise(td::Status::Error(
+    promise.set_result(td::Status::Error(
         -666, std::string{"cannot obtain output queue info for block "} + blk_id.to_str() + " : cannot load state"));
     return;
   }
@@ -675,14 +675,14 @@ void BlockDbImpl::get_out_queue_info_by_id(ton::BlockId blk_id, td::Promise<td::
     LOG(DEBUG) << "loading data for state " << blk_id.to_str();
     auto res = load_data(it->second.write());
     if (res.is_error()) {
-      promise(std::move(res));
+      promise.set_result(std::move(res));
       return;
     }
   }
   auto it2 = block_info.find(blk_id);
   if (it2 == block_info.end()) {
-    promise(td::Status::Error(-666, std::string{"cannot obtain output queue info for block "} + blk_id.to_str() +
-                                        " : cannot load block description"));
+    promise.set_result(td::Status::Error(-666, std::string{"cannot obtain output queue info for block "} +
+                                                   blk_id.to_str() + " : cannot load block description"));
     return;
   }
   vm::StaticBagOfCellsDbLazy::Options options;
@@ -690,38 +690,38 @@ void BlockDbImpl::get_out_queue_info_by_id(ton::BlockId blk_id, td::Promise<td::
   if (res.is_error()) {
     td::Status err = res.move_as_error();
     LOG(ERROR) << "cannot deserialize state for block " << blk_id.to_str() << " : " << err.to_string();
-    promise(std::move(err));
+    promise.set_result(std::move(err));
     return;
   }
   auto static_boc = res.move_as_ok();
   auto rc = static_boc->get_root_count();
   if (rc.is_error()) {
-    promise(rc.move_as_error());
+    promise.set_result(rc.move_as_error());
     return;
   }
   if (rc.move_as_ok() != 1) {
-    promise(td::Status::Error(-668, std::string{"state for block "} + blk_id.to_str() + " is invalid"));
+    promise.set_result(td::Status::Error(-668, std::string{"state for block "} + blk_id.to_str() + " is invalid"));
     return;
   }
   auto res3 = static_boc->get_root_cell(0);
   if (res3.is_error()) {
-    promise(res3.move_as_error());
+    promise.set_result(res3.move_as_error());
     return;
   }
   auto state_root = res3.move_as_ok();
   if (it->second->blk.root_hash != state_root->get_hash().bits()) {
-    promise(td::Status::Error(
+    promise.set_result(td::Status::Error(
         -668, std::string{"state for block "} + blk_id.to_str() + " is invalid : state root hash mismatch"));
     return;
   }
   vm::CellSlice cs = vm::load_cell_slice(state_root);
   if (!cs.have(64, 1) || cs.prefetch_ulong(32) != 0x9023afde) {
-    promise(td::Status::Error(-668, std::string{"state for block "} + blk_id.to_str() + " is invalid"));
+    promise.set_result(td::Status::Error(-668, std::string{"state for block "} + blk_id.to_str() + " is invalid"));
     return;
   }
   auto out_queue_info = cs.prefetch_ref();
-  promise(Ref<OutputQueueInfoDescr>{true, blk_id, it2->second->blk.root_hash.cbits(), state_root->get_hash().bits(),
-                                    std::move(out_queue_info)});
+  promise.set_result(Ref<OutputQueueInfoDescr>{true, blk_id, it2->second->blk.root_hash.cbits(),
+                                               state_root->get_hash().bits(), std::move(out_queue_info)});
 }
 
 void BlockDbImpl::get_object_by_file_hash(FileHash file_hash, bool need_data, bool force_file_load,
@@ -730,14 +730,14 @@ void BlockDbImpl::get_object_by_file_hash(FileHash file_hash, bool need_data, bo
     if (need_data && zerostate->data.is_null()) {
       auto res = load_data(zerostate.write());
       if (res.is_error()) {
-        promise(std::move(res));
+        promise.set_result(std::move(res));
         return;
       }
     }
-    promise(zerostate);
+    promise.set_result(zerostate);
     return;
   }
-  promise(td::Status::Error(-666));
+  promise.set_result(td::Status::Error(-666));
 }
 
 void BlockDbImpl::get_object_by_root_hash(RootHash root_hash, bool need_data, bool force_file_load,
@@ -746,14 +746,14 @@ void BlockDbImpl::get_object_by_root_hash(RootHash root_hash, bool need_data, bo
     if (need_data && zerostate->data.is_null()) {
       auto res = load_data(zerostate.write());
       if (res.is_error()) {
-        promise(std::move(res));
+        promise.set_result(std::move(res));
         return;
       }
     }
-    promise(zerostate);
+    promise.set_result(zerostate);
     return;
   }
-  promise(td::Status::Error(-666));
+  promise.set_result(td::Status::Error(-666));
 }
 
 void BlockDbImpl::save_new_block(ton::BlockIdExt id, td::BufferSlice data, int authority,
@@ -764,7 +764,7 @@ void BlockDbImpl::save_new_block(ton::BlockIdExt id, td::BufferSlice data, int a
   // ...
   auto save_res = save_db_file(id.file_hash, data, FMode::chk_if_exists | FMode::overwrite | FMode::chk_file_hash);
   if (save_res.is_error()) {
-    promise(std::move(save_res));
+    promise.set_result(std::move(save_res));
     return;
   }
   auto sz = data.size();
@@ -776,7 +776,7 @@ void BlockDbImpl::save_new_block(ton::BlockIdExt id, td::BufferSlice data, int a
   }
   lev.commit();
   bb.flush();
-  promise(td::Unit{});
+  promise.set_result(td::Unit{});
 }
 
 void BlockDbImpl::save_new_state(ton::BlockIdExt id, td::BufferSlice data, int authority,
@@ -787,7 +787,7 @@ void BlockDbImpl::save_new_state(ton::BlockIdExt id, td::BufferSlice data, int a
   // ...
   auto save_res = save_db_file(id.file_hash, data, FMode::chk_if_exists | FMode::overwrite | FMode::chk_file_hash);
   if (save_res.is_error()) {
-    promise(std::move(save_res));
+    promise.set_result(std::move(save_res));
     return;
   }
   auto sz = data.size();
@@ -799,7 +799,7 @@ void BlockDbImpl::save_new_state(ton::BlockIdExt id, td::BufferSlice data, int a
   }
   lev.commit();
   bb.flush();
-  promise(td::Unit{});
+  promise.set_result(td::Unit{});
 }
 
 td::Status BlockDbImpl::load_data(FileInfo& file_info, bool force) {

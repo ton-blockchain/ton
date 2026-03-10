@@ -217,6 +217,7 @@ void AdnlPeerTableImpl::send_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, std
 }
 
 void AdnlPeerTableImpl::add_id_ex(AdnlNodeIdFull id, AdnlAddressList addr_list, td::uint8 cat, td::uint32 mode) {
+  CHECK(id.pubkey().is_ed25519());
   auto a = id.compute_short_id();
   VLOG(ADNL_INFO) << "adnl: adding local id " << a;
 

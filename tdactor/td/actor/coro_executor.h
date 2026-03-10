@@ -87,7 +87,11 @@ struct ActorExecutor {
   }
   template <class P>
   void schedule(std::coroutine_handle<P> cont) noexcept {
-    td::actor::detail::send_message_later(actor_ref.as_actor_ref(), to_message(std::move(cont)));
+    auto message = to_message(std::move(cont));
+    if (actor_ref.empty()) {
+      return;
+    }
+    td::actor::detail::send_message_later(actor_ref.as_actor_ref(), std::move(message));
   }
 };
 

@@ -169,7 +169,6 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
                    << maybe_candidate.move_as_error();
       return;
     }
-    owning_bus().publish<TraceEvent>(stats::CandidateReceived::create(maybe_candidate.ok(), false));
     owning_bus().publish<CandidateReceived>(maybe_candidate.move_as_ok());
   }
 

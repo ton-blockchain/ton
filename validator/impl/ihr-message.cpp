@@ -77,10 +77,7 @@ td::Result<Ref<IhrMessageQ>> IhrMessageQ::create_ihr_message(td::BufferSlice dat
     return td::Status::Error("IHR message does not contain a valid source BlockIdExt");
   }
   try {
-    auto virt_root = vm::MerkleProof::virtualize(proof);
-    if (virt_root.is_null()) {
-      return td::Status::Error("IHR message does not contain a valid Merkle proof");
-    }
+    TRY_RESULT(virt_root, vm::MerkleProof::virtualize(proof));
     RootHash virt_hash{virt_root->get_hash().bits()};
     if (virt_hash != blkid.root_hash) {
       return td::Status::Error("IHR message contains a Merkle proof with incorrect root hash: expected " +
@@ -121,9 +118,9 @@ td::Result<Ref<IhrMessageQ>> IhrMessageQ::create_ihr_message(td::BufferSlice dat
       return td::Status::Error(
           "IHR message contains an invalid proof with MsgEnvelope not pointing to the message included");
     }
-  } catch (vm::VmError err) {
+  } catch (vm::VmError& err) {
     return td::Status::Error("error while processing Merkle proof provided in IHR message: "s + err.get_msg());
-  } catch (vm::VmVirtError err) {
+  } catch (vm::VmVirtError& err) {
     return td::Status::Error("error while processing Merkle proof provided in IHR message: "s + err.get_msg());
   }
   return Ref<IhrMessageQ>{true, std::move(data), std::move(ihr_msg), blkid, dest_prefix};

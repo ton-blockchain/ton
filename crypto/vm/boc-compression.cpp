@@ -89,12 +89,12 @@ td::RefInt256 extract_balance_from_depth_balance_info(vm::CellSlice& cs) {
     return td::RefInt256{};
   }
 
-  int split_depth;
+  unsigned split_depth;
   Ref<vm::CellSlice> balance_cs_ref;
   if (!block::gen::t_DepthBalanceInfo.unpack_depth_balance(cs, split_depth, balance_cs_ref)) {
     return td::RefInt256{};
   }
-  if (split_depth != 0) {
+  if (split_depth != 0u) {
     return td::RefInt256{};
   }
   if (!cs.empty()) {
@@ -592,6 +592,8 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
       if (cell_refs_cnt[i] == 1) {
         cell_refs_cnt[i] = 0;
         cell_data_length[i] = 0;
+      } else if (cell_refs_cnt[i] > 1) {
+        return td::Status::Error("BOC decompression failed: pruned branch cannot have references");
       }
     } else {
       // Check enough bits for data length metadata
@@ -855,6 +857,9 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
   // Recursive build of right subtree under MerkleUpdate, pairing with the left subtree and computing sum diffs.
   const auto build_right_under_mu = [&](auto&& self, size_t right_idx, size_t left_idx,
                                         td::RefInt256* sum_diff_out) -> td::Status {
+    if (left_idx != kNoNode && nodes[left_idx].is_null()) {
+      return td::Status::Error("BOC decompression failed: missing reconstructed left node under MerkleUpdate");
+    }
     if (nodes[right_idx].not_null()) {
       if (left_idx != kNoNode && sum_diff_out) {
         vm::CellSlice cs_left(NoVm(), nodes[left_idx]);

@@ -462,7 +462,8 @@ td::Status CollatorNode::check_mc_config() {
     if (idx < 0) {
       return true;
     }
-    if (!block::gen::ConfigParam{idx}.validate_ref(1024, std::move(param))) {
+    unsigned cfg_idx = static_cast<unsigned>(idx);
+    if (!block::gen::ConfigParam{cfg_idx}.validate_ref(1024, std::move(param))) {
       S = td::Status::Error(PSTRING() << "unknown ConfigParam " << idx);
       return false;
     }

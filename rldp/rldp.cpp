@@ -72,6 +72,12 @@ void RldpIn::send_query_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
   auto transfer_id = transfer(src, dst, timeout, std::move(B));
   max_size_[transfer_id ^ TransferId::ones()] = max_answer_size;
 
+  promise = [promise = std::move(promise), max_answer_size](td::Result<td::BufferSlice> R) mutable {
+    if (R.is_ok() && R.ok().size() > max_answer_size) {
+      R = td::Status::Error("too big answer");
+    }
+    promise.set_result(std::move(R));
+  };
   auto Q = adnl::AdnlQuery::create(
       std::move(promise),
       [SelfId = actor_id(this), transfer_id](adnl::AdnlQueryId query_id) {
@@ -105,6 +111,11 @@ void RldpIn::receive_message_part(adnl::AdnlNodeIdShort source, adnl::AdnlNodeId
 
 void RldpIn::process_message_part(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id,
                                   ton_api::rldp_messagePart &part) {
+  auto F = fec::FecType::create(std::move(part.fec_type_));
+  if (F.is_error()) {
+    VLOG(RLDP_NOTICE) << "received bad fec type: " << F.move_as_error();
+    return;
+  }
   auto it = receivers_.find(part.transfer_id_);
   if (it == receivers_.end()) {
     if (part.part_ != 0) {
@@ -119,7 +130,7 @@ void RldpIn::process_message_part(adnl::AdnlNodeIdShort source, adnl::AdnlNodeId
     if (ite == max_size_.end()) {
       td::uint64 mtu = get_peer_mtu(local_id, source);
       if (static_cast<td::uint64>(part.total_size_) > mtu) {
-        VLOG(RLDP_NOTICE) << "dropping too big rldp packet of size=" << part.total_size_ << " default_mtu=" << mtu;
+        VLOG(RLDP_DEBUG) << "dropping too big rldp packet of size=" << part.total_size_ << " default_mtu=" << mtu;
         return;
       }
     } else {
@@ -148,13 +159,8 @@ void RldpIn::process_message_part(adnl::AdnlNodeIdShort source, adnl::AdnlNodeId
                                                     td::Timestamp::in(60.0), actor_id(this), adnl_, std::move(P)));
     it = receivers_.find(part.transfer_id_);
   }
-  auto F = fec::FecType::create(std::move(part.fec_type_));
-  if (F.is_ok()) {
-    td::actor::send_closure(it->second, &RldpTransferReceiver::receive_part, F.move_as_ok(), part.part_,
-                            part.total_size_, part.seqno_, std::move(part.data_));
-  } else {
-    VLOG(RLDP_NOTICE) << "received bad fec type: " << F.move_as_error();
-  }
+  td::actor::send_closure(it->second, &RldpTransferReceiver::receive_part, F.move_as_ok(), part.part_, part.total_size_,
+                          part.seqno_, std::move(part.data_));
 }
 
 void RldpIn::process_message_part(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id,
@@ -195,12 +201,15 @@ void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), source, local_id,
                                        timeout = td::Timestamp::at_unix(message.timeout_), query_id = message.query_id_,
                                        max_answer_size = static_cast<td::uint64>(message.max_answer_size_),
-                                       transfer_id](td::Result<td::BufferSlice> R) {
+                                       transfer_id](td::Result<td::BufferSlice> R) mutable {
     if (R.is_ok()) {
       auto data = R.move_as_ok();
       if (data.size() > max_answer_size) {
         VLOG(RLDP_NOTICE) << "rldp query failed: answer too big";
       } else {
+        if (!timeout || td::Timestamp::in(60.0) < timeout) {
+          timeout = td::Timestamp::in(60.0);
+        }
         td::actor::send_closure(SelfId, &RldpIn::answer_query, local_id, source, timeout, query_id,
                                 transfer_id ^ TransferId::ones(), std::move(data));
       }

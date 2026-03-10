@@ -23,6 +23,15 @@ namespace ton {
 
 namespace http {
 
+HttpServer::HttpServer(td::IPAddress address, std::shared_ptr<Callback> callback)
+    : address_(address), callback_(std::move(callback)) {
+  add_collector(collector_.get());
+  td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, metrics_.connections);
+  td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, metrics_.connections_total);
+  td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, metrics_.requests_total);
+  td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, metrics_.responses_total);
+}
+
 void HttpServer::start_up() {
   class Callback : public td::TcpListener::Callback {
    private:
@@ -31,19 +40,27 @@ void HttpServer::start_up() {
    public:
     Callback(td::actor::ActorId<HttpServer> id) : id_(id) {
     }
+
     void accept(td::SocketFd fd) override {
       td::actor::send_closure(id_, &HttpServer::accepted, std::move(fd));
     }
   };
 
   listener_ = td::actor::create_actor<td::TcpInfiniteListener>(
-      td::actor::ActorOptions().with_name("listener").with_poll(), port_, std::make_unique<Callback>(actor_id(this)));
+      td::actor::ActorOptions().with_name("listener").with_poll(), address_.get_port(),
+      std::make_unique<Callback>(actor_id(this)), address_.get_ip_host());
 }
 
 void HttpServer::accepted(td::SocketFd fd) {
   td::actor::create_actor<HttpInboundConnection>(td::actor::ActorOptions().with_name("inhttpconn").with_poll(),
-                                                 std::move(fd), callback_)
+                                                 std::move(fd), callback_, metrics_)
       .release();
+}
+
+td::IPAddress HttpServer::make_any_address(td::uint16 port) {
+  td::IPAddress addr;
+  addr.init_ipv4_port("0.0.0.0", port).ensure();
+  return addr;
 }
 
 }  // namespace http

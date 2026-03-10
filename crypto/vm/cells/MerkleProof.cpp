@@ -33,7 +33,7 @@ class MerkleProofImpl {
   explicit MerkleProofImpl(CellUsageTree *usage_tree) : usage_tree_(usage_tree) {
   }
 
-  Ref<Cell> create_from(Ref<Cell> cell) {
+  td::Result<Ref<Cell>> create_from(Ref<Cell> cell) {
     if (!is_prunned_) {
       CHECK(usage_tree_);
       dfs_usage_tree(cell, usage_tree_->root_id());
@@ -42,9 +42,9 @@ class MerkleProofImpl {
     try {
       return dfs(cell, cell->get_level());
     } catch (CellBuilder::CellWriteError &) {
-      return {};
+      return td::Status::Error("failed to generate Merkle proof: cell write error");
     } catch (CellBuilder::CellCreateError &) {
-      return {};
+      return td::Status::Error("failed to generate Merkle proof: cell create error");
     }
   }
 
@@ -98,11 +98,11 @@ class MerkleProofImpl {
 };
 }  // namespace detail
 
-Ref<Cell> MerkleProof::generate_raw(Ref<Cell> cell, IsPrunnedFunction is_prunned) {
+td::Result<Ref<Cell>> MerkleProof::generate_raw(Ref<Cell> cell, IsPrunnedFunction is_prunned) {
   return detail::MerkleProofImpl(is_prunned).create_from(cell);
 }
 
-Ref<Cell> MerkleProof::generate_raw(Ref<Cell> cell, CellUsageTree *usage_tree) {
+td::Result<Ref<Cell>> MerkleProof::generate_raw(Ref<Cell> cell, CellUsageTree *usage_tree) {
   return detail::MerkleProofImpl(usage_tree).create_from(cell);
 }
 
@@ -110,49 +110,43 @@ Ref<Cell> MerkleProof::virtualize_raw(Ref<Cell> cell, td::uint32 effective_level
   return cell->virtualize(effective_level);
 }
 
-Ref<Cell> MerkleProof::generate(Ref<Cell> cell, IsPrunnedFunction is_prunned) {
-  int cell_level = cell->get_level();
-  if (cell_level != 0) {
-    return {};
+td::Result<Ref<Cell>> MerkleProof::generate(Ref<Cell> cell, IsPrunnedFunction is_prunned) {
+  if (cell.is_null()) {
+    return td::Status::Error("failed to generate Merkle proof: cell is null");
   }
-  auto raw = generate_raw(std::move(cell), is_prunned);
+  if (cell->get_level() != 0) {
+    return td::Status::Error("failed to generate Merkle proof: level is not 0");
+  }
+  TRY_RESULT(raw, generate_raw(std::move(cell), is_prunned));
   return CellBuilder::create_merkle_proof(std::move(raw));
 }
 
-Ref<Cell> MerkleProof::generate(Ref<Cell> cell, CellUsageTree *usage_tree) {
-  int cell_level = cell->get_level();
-  if (cell_level != 0) {
-    return {};
+td::Result<Ref<Cell>> MerkleProof::generate(Ref<Cell> cell, CellUsageTree *usage_tree) {
+  if (cell.is_null()) {
+    return td::Status::Error("failed to generate Merkle proof: cell is null");
   }
-  auto raw = generate_raw(std::move(cell), usage_tree);
-  if (raw.is_null()) {
-    return {};
+  if (cell->get_level() != 0) {
+    return td::Status::Error("failed to generate Merkle proof: level is not 0");
   }
+  TRY_RESULT(raw, generate_raw(std::move(cell), usage_tree));
   return CellBuilder::create_merkle_proof(std::move(raw));
 }
 
-td::Result<Ref<Cell>> unpack_proof(Ref<Cell> cell) {
-  CHECK(cell.not_null());
-  td::uint8 level = static_cast<td::uint8>(cell->get_level());
-  if (level != 0) {
-    return td::Status::Error("Level of MerkleProof must be zero");
+static td::Result<Ref<Cell>> unpack_proof(Ref<Cell> cell) {
+  if (cell.is_null()) {
+    return td::Status::Error("failed to unpack Merkle proof: cell is null");
+  }
+  if (cell->get_level()) {
+    return td::Status::Error("failed to unpack Merkle proof: level of MerkleProof must be zero");
   }
   CellSlice cs(NoVm(), std::move(cell));
   if (cs.special_type() != Cell::SpecialType::MerkleProof) {
-    return td::Status::Error("Not a MekleProof cell");
+    return td::Status::Error("failed to unpack Merkle proof: not a MerkleProof cell");
   }
   return cs.fetch_ref();
 }
 
-Ref<Cell> MerkleProof::virtualize(Ref<Cell> cell) {
-  auto r_raw = unpack_proof(std::move(cell));
-  if (r_raw.is_error()) {
-    return {};
-  }
-  return virtualize_raw(r_raw.move_as_ok(), 0);
-}
-
-td::Result<Ref<Cell>> MerkleProof::try_virtualize(Ref<Cell> cell) {
+td::Result<Ref<Cell>> MerkleProof::virtualize(Ref<Cell> cell) {
   TRY_RESULT(unpacked_cell, unpack_proof(std::move(cell)));
   return unpacked_cell->virtualize(0);
 }
@@ -164,7 +158,8 @@ class MerkleProofCombineFast {
   td::Result<Ref<Cell>> run() {
     if (a_.is_null()) {
       return b_;
-    } else if (b_.is_null()) {
+    }
+    if (b_.is_null()) {
       return a_;
     }
     TRY_RESULT_ASSIGN(a_, unpack_proof(a_));
@@ -225,7 +220,8 @@ class MerkleProofCombine {
   td::Result<Ref<Cell>> run() {
     if (a_.is_null()) {
       return b_;
-    } else if (b_.is_null()) {
+    }
+    if (b_.is_null()) {
       return a_;
     }
     TRY_RESULT_ASSIGN(a_, unpack_proof(a_));
@@ -339,44 +335,20 @@ class MerkleProofCombine {
   }
 };
 
-Ref<Cell> MerkleProof::combine(Ref<Cell> a, Ref<Cell> b) {
-  auto res = MerkleProofCombine(std::move(a), std::move(b)).run();
-  if (res.is_error()) {
-    return {};
-  }
-  return res.move_as_ok();
-}
-
-td::Result<Ref<Cell>> MerkleProof::combine_status(Ref<Cell> a, Ref<Cell> b) {
+td::Result<Ref<Cell>> MerkleProof::combine(Ref<Cell> a, Ref<Cell> b) {
   return MerkleProofCombine(std::move(a), std::move(b)).run();
 }
 
-Ref<Cell> MerkleProof::combine_fast(Ref<Cell> a, Ref<Cell> b) {
-  auto res = MerkleProofCombineFast(std::move(a), std::move(b)).run();
-  if (res.is_error()) {
-    return {};
-  }
-  return res.move_as_ok();
-}
-
-td::Result<Ref<Cell>> MerkleProof::combine_fast_status(Ref<Cell> a, Ref<Cell> b) {
+td::Result<Ref<Cell>> MerkleProof::combine_fast(Ref<Cell> a, Ref<Cell> b) {
   return MerkleProofCombineFast(std::move(a), std::move(b)).run();
 }
 
-Ref<Cell> MerkleProof::combine_raw(Ref<Cell> a, Ref<Cell> b) {
-  auto res = MerkleProofCombine(std::move(a), std::move(b)).run_raw();
-  if (res.is_error()) {
-    return {};
-  }
-  return res.move_as_ok();
+td::Result<Ref<Cell>> MerkleProof::combine_raw(Ref<Cell> a, Ref<Cell> b) {
+  return MerkleProofCombine(std::move(a), std::move(b)).run_raw();
 }
 
-Ref<Cell> MerkleProof::combine_fast_raw(Ref<Cell> a, Ref<Cell> b) {
-  auto res = MerkleProofCombineFast(std::move(a), std::move(b)).run_raw();
-  if (res.is_error()) {
-    return {};
-  }
-  return res.move_as_ok();
+td::Result<Ref<Cell>> MerkleProof::combine_fast_raw(Ref<Cell> a, Ref<Cell> b) {
+  return MerkleProofCombineFast(std::move(a), std::move(b)).run_raw();
 }
 
 MerkleProofBuilder::MerkleProofBuilder(Ref<Cell> root)
@@ -399,11 +371,7 @@ bool MerkleProofBuilder::clear() {
 }
 
 td::Result<Ref<Cell>> MerkleProofBuilder::extract_proof() const {
-  Ref<Cell> proof = MerkleProof::generate(orig_root, usage_tree.get());
-  if (proof.is_null()) {
-    return td::Status::Error("cannot create Merkle proof");
-  }
-  return proof;
+  return MerkleProof::generate(orig_root, usage_tree.get());
 }
 
 bool MerkleProofBuilder::extract_proof_to(Ref<Cell> &proof_root) const {

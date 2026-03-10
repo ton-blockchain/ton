@@ -77,8 +77,8 @@ class Collator final : public td::actor::Actor {
   size_t pending_prev_states_{0};
   std::vector<Ref<BlockData>> prev_block_data;
   td::actor::ActorId<ValidatorManager> manager;
-  td::Timestamp timeout;
-  td::Timestamp queue_cleanup_timeout_, soft_timeout_, medium_timeout_;
+  td::Timestamp timeout_;
+  td::Timestamp queue_cleanup_timeout_, external_msg_timeout_, internal_msg_timeout_;
   td::Promise<BlockCandidate> main_promise;
   bool allow_repeat_collation_ = false;
   ton::BlockSeqno last_block_seqno{0};
@@ -93,8 +93,8 @@ class Collator final : public td::actor::Actor {
   static constexpr bool shard_splitting_enabled = true;
 
  public:
-  Collator(CollateParams params, td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
-           td::CancellationToken cancellation_token, td::Promise<BlockCandidate> promise);
+  Collator(CollateParams params, td::actor::ActorId<ValidatorManager> manager, td::CancellationToken cancellation_token,
+           td::Promise<BlockCandidate> promise);
   ~Collator() override = default;
   bool is_busy() const {
     return busy_;
@@ -413,6 +413,7 @@ class Collator final : public td::actor::Actor {
 
  public:
   static td::uint32 get_skip_externals_queue_size();
+  static int history_weight(td::uint64 history);
 
  private:
   td::RealCpuTimer work_timer_{true};

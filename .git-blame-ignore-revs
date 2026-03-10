@@ -1,0 +1,8 @@
+# Reformat entire codebase (except Tolk) with clang-format 21
+f262baeaba892f17b8f612f97b919a2b25e83bf0
+
+# Ask clang-format to insert new line at EOF and use west const
+381b4b32305816f0600ce841599b2dfed3bf4d7c
+
+# Remove spaces at EOL
+3b32ebde0cfa5ee6fbfd21ee628290dd636923bf

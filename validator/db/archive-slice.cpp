@@ -379,6 +379,9 @@ td::actor::Task<> ArchiveSlice::add_block(BlockHandle handle,
     }
   }
   auto [offsets, pack_size] = co_await td::actor::ask(p->writer, &PackageWriter::append_multi, std::move(files_to_add));
+  if (destroyed_) {
+    co_return td::Status::Error(ErrorCode::notready, "package already gc'd");
+  }
   begin_transaction();
   if (sliced_mode_) {
     kv_->set(PSTRING() << "status." << p->idx, td::to_string(pack_size)).ensure();
@@ -391,7 +394,9 @@ td::actor::Task<> ArchiveSlice::add_block(BlockHandle handle,
   }
   handle->set_handle_moved_to_archive();
   handle->set_moved_to_archive();
-  handle->set_applied();
+  if (!handle->id().is_masterchain()) {
+    handle->set_applied();
+  }
   auto [task, promise] = td::actor::StartedTask<>::make_bridge();
   add_handle(handle, std::move(promise));
   co_await std::move(task);

@@ -47,7 +47,6 @@
 #include "ton/ton-types.h"
 #include "validator-session/validator-session.h"
 #include "validator/fabric.h"
-#include "validator/impl/collator.h"
 #include "validator/manager-hardfork.h"
 
 #if TD_DARWIN || TD_LINUX
@@ -107,9 +106,6 @@ class HardforkCreator : public td::actor::Actor {
   void set_top_descr_prefix(std::string tdescr_pfx) {
     tdescr_pfx_ = tdescr_pfx;
     tdescr_save_ = true;
-  }
-  void set_collator_flags(int flags) {
-    ton::collator_settings |= flags;
   }
   void start_up() override {
   }
@@ -233,13 +229,13 @@ class HardforkCreator : public td::actor::Actor {
 
       void initial_read_complete(ton::validator::BlockHandle handle) override {
         td::actor::send_closure(id_, &ton::validator::ValidatorManager::sync_complete,
-                                td::PromiseCreator::lambda([](td::Unit) {}));
+                                td::PromiseCreator::lambda([](td::Result<>) {}));
       }
     };
 
     td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::install_callback,
                             std::make_unique<Callback>(validator_manager_.get(), tdescr_save_, tdescr_pfx_),
-                            td::PromiseCreator::lambda([](td::Unit) {}));
+                            td::PromiseCreator::lambda([](td::Result<>) {}));
   }
 };
 

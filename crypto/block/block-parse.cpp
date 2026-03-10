@@ -130,6 +130,9 @@ ton::AccountIdPrefixFull MsgAddressInt::get_prefix(vm::CellSlice&& cs) {
     }
     case 5: {   // addr_std$10, anycast=just$1 (Anycast)
       t &= 31;  // depth:(## 5)
+      if (t <= 0 || t > 30) {
+        break;
+      }
       unsigned long long rewrite;
       if (cs.advance(8) && cs.fetch_uint_to(t, rewrite)  // rewrite_pfx:(bits depth)
           && cs.fetch_int_to(8, workchain)               // workchain_id:int8
@@ -151,6 +154,9 @@ ton::AccountIdPrefixFull MsgAddressInt::get_prefix(vm::CellSlice&& cs) {
     }
     case 7: {   // addr_var$11, anycast=just$1 (Anycast)
       t &= 31;  // depth:(## 5)
+      if (t <= 0 || t > 30) {
+        break;
+      }
       int len;
       unsigned long long rewrite;
       if (cs.advance(8) && cs.fetch_uint_to(t, rewrite)  // rewrite_pfx:(bits depth)
@@ -203,6 +209,9 @@ bool MsgAddressInt::extract_std_address(vm::CellSlice& cs, ton::WorkchainId& wor
     }
     case 5: {   // addr_std$10, anycast=just$1 (Anycast)
       t &= 31;  // depth:(## 5)
+      if (t <= 0 || t > 30) {
+        break;
+      }
       unsigned long long rewrite;
       if (cs.advance(8) && cs.fetch_uint_to(t, rewrite)  // rewrite_pfx:(bits depth)
           && cs.fetch_int_to(8, workchain)               // workchain_id:int8
@@ -223,6 +232,9 @@ bool MsgAddressInt::extract_std_address(vm::CellSlice& cs, ton::WorkchainId& wor
     }
     case 7: {   // addr_var$11, anycast=just$1 (Anycast)
       t &= 31;  // depth:(## 5)
+      if (t <= 0 || t > 30) {
+        break;
+      }
       int len;
       unsigned long long rewrite;
       if (cs.advance(8) && cs.fetch_uint_to(t, rewrite)  // rewrite_pfx:(bits depth)

@@ -49,7 +49,7 @@ class SmartContract : public td::CntObject {
     td::int64 gas_used;
     td::optional<td::Bits256> missing_library;
     std::string vm_log;
-    static int output_actions_count(td::Ref<vm::Cell> list);
+    static unsigned output_actions_count(td::Ref<vm::Cell> list);
   };
 
   struct Args {

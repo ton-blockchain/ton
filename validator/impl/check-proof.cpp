@@ -142,11 +142,12 @@ bool CheckProof::init_parse(bool is_aux) {
     sig_weight_ = 0;
     sig_set_ = {};
   }
-  auto virt_root = vm::MerkleProof::virtualize(proof.root);
-  if (virt_root.is_null()) {
+  auto r_virt_root = vm::MerkleProof::virtualize(proof.root);
+  if (r_virt_root.is_error()) {
     return fatal_error("block proof for block "s + proof_blk_id.to_str() +
                        " does not contain a valid Merkle proof for the block header");
   }
+  auto virt_root = r_virt_root.move_as_ok();
   RootHash virt_hash{virt_root->get_hash().bits()};
   if (virt_hash != proof_blk_id.root_hash) {
     return fatal_error("block proof for block "s + proof_blk_id.to_str() +

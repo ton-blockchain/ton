@@ -40,10 +40,7 @@ td::Result<TorrentMeta> TorrentMeta::deserialize(td::Slice data) {
     }
   }
   if (res.root_proof.not_null()) {
-    auto root = vm::MerkleProof::virtualize(res.root_proof);
-    if (root.is_null()) {
-      return td::Status::Error("Root proof is not a merkle proof");
-    }
+    TRY_RESULT(root, vm::MerkleProof::virtualize(res.root_proof));
     if (root->get_hash().as_slice() != res.info.root_hash.as_slice()) {
       return td::Status::Error("Root proof hash mismatch");
     }
