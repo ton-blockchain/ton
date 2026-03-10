@@ -29,7 +29,7 @@ class QuicSender : public adnl::AdnlSenderEx, public virtual metrics::AsyncColle
   void get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id,
                        td::Promise<td::string> promise) override;
 
-  void set_udp_offload_options(QuicServer::Options options);
+  void set_quic_options(QuicServer::Options options);
   void add_id(adnl::AdnlNodeIdShort local_id) override;
   void log_stats(std::string reason = "stats");
 
