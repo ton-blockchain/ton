@@ -153,7 +153,7 @@ TEST(Fec, RaptorQRandomSymbols) {
   auto decoder = td::raptorq::Decoder::create(parameters).move_as_ok();
   std::string symbol(parameters.symbol_size, '\0');
   for (size_t i = 0; i < parameters.symbols_count + 10; i++) {
-    auto id = td::Random::fast_uint32();
+    auto id = td::Random::fast_uint32() % (1u << 24);
     encoder->gen_symbol(id, symbol);
     decoder->add_symbol({id, td::Slice(symbol)});
     if (decoder->may_try_decode()) {
