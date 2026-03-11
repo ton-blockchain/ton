@@ -56,6 +56,7 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
   }
   void on_stream_closed(QuicConnectionId cid, QuicStreamID sid) override {
     erase_stream(cid, sid);
+    td::actor::send_closure(sender_, &QuicSender::on_stream_closed, cid, sid);
   }
 
   void set_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options) override {
@@ -589,6 +590,20 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
   LOG(ERROR) << "malformed message from CID:" << cid << " SID:" << stream_id << " size:" << data.size()
              << " tl_id:" << td::format::as_hex(get_magic(data))
              << " head:" << td::format::as_hex_dump<4>(data.as_slice().truncate(32));
+}
+
+void QuicSender::on_stream_closed(QuicConnectionId cid, QuicStreamID stream_id) {
+  auto it = by_cid_.find(cid);
+  if (it == by_cid_.end()) {
+    return;
+  }
+  auto connection = it->second;
+  auto resp_it = connection->responses.find(stream_id);
+  if (resp_it == connection->responses.end()) {
+    return;
+  }
+  resp_it->second.set_error(td::Status::Error("stream closed"));
+  connection->responses.erase(resp_it);
 }
 
 void QuicSender::on_closed(QuicConnectionId cid) {
