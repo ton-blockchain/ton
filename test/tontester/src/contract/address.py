@@ -18,12 +18,14 @@ class SMCAddress(Address):
             # Address((-1, b'\x11\x01\xff...'))
             self.wc = address[0]
             self.hash_part = address[1]
+            assert len(self.hash_part) == 32
             return
         if isinstance(address, SMCAddress):
             self.wc = address.wc
             self.hash_part = address.hash_part
             return
         if self._parse_hex(address):
+            assert len(self.hash_part) == 32
             return
         if self._parse_b64(address):
             return
