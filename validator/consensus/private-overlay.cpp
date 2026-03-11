@@ -41,12 +41,13 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     std::vector<td::Bits256> overlay_nodes_tl;
     std::map<PublicKeyHash, td::uint32> authorized_keys;
 
+    td::uint32 max_broadcast_size = bus.config.max_block_size + bus.config.max_collated_data_size + (1 << 20);
     for (const auto& peer : bus.validator_set) {
       adnl_id_to_peer_[peer.adnl_id] = peer;
       short_id_to_peer_[peer.short_id] = peer;
       overlay_nodes.push_back(peer.adnl_id);
       overlay_nodes_tl.push_back(peer.short_id.bits256_value());
-      authorized_keys.emplace(peer.short_id, overlay::Overlays::max_fec_broadcast_size());
+      authorized_keys.emplace(peer.short_id, max_broadcast_size);
     }
 
     td::actor::send_closure(adnl_sender_, &adnl::AdnlSenderEx::add_id, local_id_.adnl_id);
