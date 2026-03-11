@@ -75,6 +75,10 @@ struct QuicConnectionPImpl {
     IdleClose,
     Close,
   };
+  struct InitialCidState {
+    QuicConnectionId primary_scid;
+    td::vector<QuicConnectionId> scids;
+  };
   class Callback {
    public:
     struct HandshakeCompletedEvent {
@@ -87,6 +91,8 @@ struct QuicConnectionPImpl {
     };
 
     virtual void set_connection_id(QuicConnectionId cid) = 0;
+    virtual void on_local_cid_issued(QuicConnectionId cid) = 0;
+    virtual void on_local_cid_retired(QuicConnectionId cid) = 0;
     virtual void on_handshake_completed(HandshakeCompletedEvent event) = 0;
     virtual td::Status on_stream_data(StreamDataEvent event) = 0;
     virtual void on_stream_closed(QuicStreamID sid) = 0;
@@ -121,7 +127,7 @@ struct QuicConnectionPImpl {
   [[nodiscard]] bool is_expired() const;
   [[nodiscard]] td::Result<ExpiryAction> handle_expiry();
 
-  [[nodiscard]] QuicConnectionId get_primary_scid() const;
+  [[nodiscard]] td::Result<InitialCidState> take_initial_cid_state();
 
   void shutdown_stream(QuicStreamID sid);
 
@@ -169,6 +175,7 @@ struct QuicConnectionPImpl {
   openssl_ptr<ngtcp2_crypto_ossl_ctx, &ngtcp2_crypto_ossl_ctx_del> ossl_ctx_;
   openssl_ptr<ngtcp2_conn, &ngtcp2_conn_del> conn_;
   ngtcp2_crypto_conn_ref conn_ref_{};
+  bool local_cid_callbacks_enabled_{false};
 
   size_t sids_encountered = 0;
   std::unordered_map<QuicStreamID, OutboundStreamState> streams_;
@@ -209,7 +216,7 @@ struct QuicConnectionPImpl {
     uint64_t unsent_before = 0;
   };
 
-  void commit_write(UdpMessageBuffer& msg_out, size_t n_write, size_t gso_size);
+  void commit_write(UdpMessageBuffer& msg_out, size_t n_write, size_t gso_size, const ngtcp2_path& path);
   void prepare_stream_write(QuicStreamID sid, bool padding, StreamWriteContext& ctx, std::vector<ngtcp2_vec>& datav);
   void finish_stream_write(QuicStreamID sid, const StreamWriteContext& ctx, ngtcp2_ssize pdatalen);
   void start_batch();
@@ -226,6 +233,7 @@ struct QuicConnectionPImpl {
                                        void* stream_user_data);
 
   ngtcp2_path make_path() const;
+  ngtcp2_path make_path(const td::IPAddress& remote) const;
 
   static ngtcp2_tstamp now_ts();
 
@@ -238,10 +246,13 @@ struct QuicConnectionPImpl {
   int on_acked_stream_data_offset(int64_t stream_id, uint64_t offset, uint64_t datalen);
   int on_stream_close(int64_t stream_id);
   int on_extend_max_stream_data(QuicStreamID sid);
+  int on_get_new_connection_id(ngtcp2_cid* cid, uint8_t* token, size_t cidlen);
+  int on_remove_connection_id(const ngtcp2_cid* cid);
 
   static void rand_cb(uint8_t* dest, size_t destlen, const ngtcp2_rand_ctx* rand_ctx);
   static int get_new_connection_id_cb(ngtcp2_conn* conn, ngtcp2_cid* cid, uint8_t* token, size_t cidlen,
                                       void* user_data);
+  static int remove_connection_id_cb(ngtcp2_conn* conn, const ngtcp2_cid* cid, void* user_data);
   static int handshake_completed_cb(ngtcp2_conn* conn, void* user_data);
   static int recv_stream_data_cb(ngtcp2_conn* /*conn*/, uint32_t flags, int64_t stream_id, uint64_t offset,
                                  const uint8_t* data, size_t datalen, void* user_data, void* stream_user_data);
