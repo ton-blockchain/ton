@@ -511,7 +511,14 @@ class FullNode(Network.Node):
             self._install.validator_engine_exe,
             self._local_config,
             zerostate.as_validator_config(),
-            ["--initial-sync-delay", "5", "--session-logs", str(self.session_log_path)],
+            [
+                "--initial-sync-delay",
+                "5",
+                "--session-logs",
+                str(self.session_log_path),
+                "--quic-flood-control",
+                "-1",
+            ],
             debug=debug,
         )
 
