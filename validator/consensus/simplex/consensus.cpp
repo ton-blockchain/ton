@@ -92,6 +92,7 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
   void handle(BusHandle, std::shared_ptr<const LeaderWindowObserved> event) {
     auto& bus = *owning_bus();
     td::uint32 new_window = event->start_slot / slots_per_leader_window_;
+    current_window_ = new_window;
 
     if (previous_window_had_skip_) {
       first_block_timeout_s_ =
@@ -108,7 +109,6 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
         start_generation(event->base, event->start_slot).start().detach();
       }
     }
-    current_window_ = new_window;
 
     if (timeout_slot_ <= event->start_slot) {
       timeout_slot_ = event->start_slot + 1;
@@ -178,6 +178,11 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
       start_time = std::max(start_time, td::Timestamp::at_unix(*parent.gen_utime_exact + target_rate_s_));
       start_time = std::min(start_time, td::Timestamp::in(target_rate_s_));
     }
+
+    if (current_window_ != start_slot / slots_per_leader_window_) {
+      co_return {};
+    }
+
     owning_bus().publish<OurLeaderWindowStarted>(base, parent.state, start_slot, start_slot + slots_per_leader_window_,
                                                  start_time);
     co_return {};
