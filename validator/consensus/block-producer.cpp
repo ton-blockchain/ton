@@ -46,17 +46,11 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
 
   template <>
   void handle(BusHandle, std::shared_ptr<const OurLeaderWindowStarted> event) {
+    CHECK(current_leader_window_ < event->start_slot);
+
     current_leader_window_ = event->start_slot;
     cancellation_source_ = td::CancellationTokenSource();
     generate_candidates(event).start().detach();
-  }
-
-  template <>
-  void handle(BusHandle, std::shared_ptr<const OurLeaderWindowAborted> event) {
-    // Sanity check: consensus and us should agree on the start slot.
-    CHECK(current_leader_window_ == event->start_slot);
-    current_leader_window_ = std::nullopt;
-    cancellation_source_ = td::CancellationTokenSource();
   }
 
   template <>
@@ -161,6 +155,10 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
       ++slot;
       parent = id;
       target_time = td::Timestamp::in(target_rate_, target_time);
+    }
+
+    if (current_leader_window_ == window) {
+      current_leader_window_ = std::nullopt;
     }
 
     co_return {};

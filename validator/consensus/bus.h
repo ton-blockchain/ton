@@ -50,12 +50,6 @@ struct OurLeaderWindowStarted {
   std::string contents_to_string() const;
 };
 
-struct OurLeaderWindowAborted {
-  td::uint32 start_slot;
-
-  std::string contents_to_string() const;
-};
-
 struct CandidateGenerated {
   CandidateRef candidate;
   std::optional<adnl::AdnlNodeIdShort> collator_id;
@@ -153,10 +147,10 @@ class Db {
 
 class Bus : public td::actor::Bus {
  public:
-  using Events = td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, OurLeaderWindowAborted,
-                              CandidateGenerated, CandidateReceived, ValidationRequest, IncomingProtocolMessage,
-                              OutgoingProtocolMessage, IncomingOverlayRequest, OutgoingOverlayRequest,
-                              BlockFinalizedInMasterchain, MisbehaviorReport, TraceEvent>;
+  using Events =
+      td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, CandidateGenerated, CandidateReceived,
+                   ValidationRequest, IncomingProtocolMessage, OutgoingProtocolMessage, IncomingOverlayRequest,
+                   OutgoingOverlayRequest, BlockFinalizedInMasterchain, MisbehaviorReport, TraceEvent>;
 
   Bus() = default;
   ~Bus() override {
