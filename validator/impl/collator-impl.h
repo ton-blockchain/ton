@@ -421,6 +421,7 @@ class Collator final : public td::actor::Actor {
 
  public:
   static td::uint32 get_skip_externals_queue_size();
+  static int history_weight(td::uint64 history);
 
  private:
   td::RealCpuTimer work_timer_{true};

@@ -1982,7 +1982,7 @@ void TestNode::dns_resolve_finish(ton::WorkchainId workchain, ton::StdSmcAddress
           block::tlb::t_MsgAddressInt.extract_std_address(std::move(nx_address), nx_wc, nx_addr))) {
       LOG(ERROR) << "cannot parse next resolver info for " << domain.substr(qdomain.size() - pos - 1);
       std::ostringstream out;
-      vm::load_cell_slice(value).print_rec(print_limit_, out);
+      vm::load_cell_slice_special(value).print_rec(print_limit_, out);
       td::TerminalIO::err() << out.str() << std::endl;
       return;
     }
@@ -2416,11 +2416,12 @@ void TestNode::got_one_transaction(ton::BlockIdExt req_blkid, ton::BlockIdExt bl
   }
   auto proof_root = P.move_as_ok();
   try {
-    auto block_root = vm::MerkleProof::virtualize(std::move(proof_root));
-    if (block_root.is_null()) {
+    auto r_block_root = vm::MerkleProof::virtualize(std::move(proof_root));
+    if (r_block_root.is_error()) {
       LOG(ERROR) << "transaction block proof is invalid";
       return;
     }
+    auto block_root = r_block_root.move_as_ok();
     auto res1 = block::check_block_header_proof(block_root, blkid);
     if (res1.is_error()) {
       LOG(ERROR) << "error in transaction block header proof : " << res1.move_as_error().to_string();
@@ -2450,10 +2451,10 @@ void TestNode::got_one_transaction(ton::BlockIdExt req_blkid, ton::BlockIdExt bl
                  << " but received data has " << root->get_hash().bits().to_hex(256);
       return;
     }
-  } catch (vm::VmError err) {
+  } catch (vm::VmError& err) {
     LOG(ERROR) << "error while traversing block transaction proof : " << err.get_msg();
     return;
-  } catch (vm::VmVirtError err) {
+  } catch (vm::VmVirtError& err) {
     LOG(ERROR) << "virtualization error while traversing block transaction proof : " << err.get_msg();
     return;
   }
@@ -2866,12 +2867,7 @@ void TestNode::got_config_params(ton::BlockIdExt req_blkid, int mode, std::strin
           block::check_extract_state_proof(blkid, f->state_proof_.as_slice(), f->config_proof_.as_slice()),
           PSLICE() << "masterchain state proof for " << blkid.to_str() << " is invalid :");
     } else {
-      block = vm::MerkleProof::virtualize(config_proof);
-      if (block.is_null()) {
-        promise.set_error(
-            td::Status::Error("cannot virtualize configuration proof constructed from key block "s + blkid.to_str()));
-        return;
-      }
+      TRY_RESULT_PROMISE_ASSIGN(promise, block, vm::MerkleProof::virtualize(config_proof));
       //TRY_STATUS_PROMISE_PREFIX(promise, block::check_block_header_proof(block, blkid),
       //                          PSLICE() << "incorrect header for key block " << blkid.to_str());
     }
@@ -2905,7 +2901,8 @@ void TestNode::got_config_params(ton::BlockIdExt req_blkid, int mode, std::strin
         } else {
           std::ostringstream os;
           if (i >= 0) {
-            block::gen::ConfigParam{i}.print_ref(print_limit_, os, value);
+            unsigned cfg_idx = static_cast<unsigned>(i);
+            block::gen::ConfigParam{cfg_idx}.print_ref(print_limit_, os, value);
             os << std::endl;
           }
           vm::load_cell_slice(value).print_rec(print_limit_, os);
@@ -2923,7 +2920,8 @@ void TestNode::got_config_params(ton::BlockIdExt req_blkid, int mode, std::strin
         } else {
           std::ostringstream os;
           if (i >= 0) {
-            block::gen::ConfigParam{i}.print_ref(print_limit_, os, value);
+            unsigned cfg_idx = static_cast<unsigned>(i);
+            block::gen::ConfigParam{cfg_idx}.print_ref(print_limit_, os, value);
             os << std::endl;
           }
           vm::load_cell_slice(value).print_rec(print_limit_, os);
@@ -3252,12 +3250,7 @@ void TestNode::got_block_header_raw(td::BufferSlice res, td::Promise<TestNode::B
   bool ok = false;
   td::Status E;
   try {
-    auto virt_root = vm::MerkleProof::virtualize(root);
-    if (virt_root.is_null()) {
-      promise.set_error(td::Status::Error(PSLICE() << "block header proof for block " << blk_id.to_str()
-                                                   << " is not a valid Merkle proof"));
-      return;
-    }
+    TRY_RESULT_PROMISE(promise, virt_root, vm::MerkleProof::virtualize(root));
     ok = true;
     promise.set_result(BlockHdrInfo{blk_id, std::move(root), std::move(virt_root), f->mode_});
     return;
@@ -3334,15 +3327,15 @@ void TestNode::got_block_header(ton::BlockIdExt blkid, td::BufferSlice data, int
   cs.print_rec(print_limit_, outp);
   td::TerminalIO::out() << outp.str();
   try {
-    auto virt_root = vm::MerkleProof::virtualize(root);
-    if (virt_root.is_null()) {
+    auto r_virt_root = vm::MerkleProof::virtualize(root);
+    if (r_virt_root.is_error()) {
       LOG(ERROR) << " block header proof for block " << blkid.to_str() << " is not a valid Merkle proof";
       return;
     }
-    show_block_header(blkid, std::move(virt_root), mode);
-  } catch (vm::VmError err) {
+    show_block_header(blkid, r_virt_root.move_as_ok(), mode);
+  } catch (vm::VmError& err) {
     LOG(ERROR) << "error processing header for " << blkid.to_str() << " : " << err.get_msg();
-  } catch (vm::VmVirtError err) {
+  } catch (vm::VmVirtError& err) {
     LOG(ERROR) << "error processing header for " << blkid.to_str() << " : " << err.get_msg();
   }
   show_new_blkids();
@@ -3551,7 +3544,7 @@ void TestNode::got_creator_stats(ton::BlockIdExt req_blkid, ton::BlockIdExt blki
       status->data_proof = std::move(data_root);
     } else {
       TRY_RESULT_PROMISE_PREFIX(promise, data_proof2,
-                                vm::MerkleProof::combine_fast_status(status->data_proof, std::move(data_root)),
+                                vm::MerkleProof::combine_fast(status->data_proof, std::move(data_root)),
                                 "cannot combine Merkle proofs for creator data");
       status->data_proof = std::move(data_proof2);
     }
@@ -3639,12 +3632,14 @@ void TestNode::continue_check_validator_load(ton::BlockIdExt blkid1, Ref<vm::Cel
           return;
         }
         auto res = R.move_as_ok();
-        root1 = vm::MerkleProof::combine_fast(std::move(root1), std::move(res.first.state_proof));
-        root2 = vm::MerkleProof::combine_fast(std::move(root2), std::move(res.second.state_proof));
-        if (root1.is_null() || root2.is_null()) {
+        auto r_root1 = vm::MerkleProof::combine_fast(std::move(root1), std::move(res.first.state_proof));
+        auto r_root2 = vm::MerkleProof::combine_fast(std::move(root2), std::move(res.second.state_proof));
+        if (r_root1.is_error() || r_root2.is_error()) {
           LOG(ERROR) << "cannot merge block header proof with block state proof";
           return;
         }
+        root1 = r_root1.move_as_ok();
+        root2 = r_root2.move_as_ok();
         auto info1 = std::make_unique<ValidatorLoadInfo>(blkid1, std::move(root1), std::move(res.first.config_proof),
                                                          std::move(res.first.config));
         auto info2 = std::make_unique<ValidatorLoadInfo>(blkid2, std::move(root2), std::move(res.second.config_proof),
@@ -3726,9 +3721,12 @@ bool TestNode::load_creator_stats(std::unique_ptr<TestNode::ValidatorLoadInfo> l
           return;
         }
         // merge
-        load_to->state_proof =
-            vm::MerkleProof::combine_fast(std::move(load_to->state_proof), std::move(res->state_proof));
-        load_to->data_proof = vm::MerkleProof::combine_fast(std::move(load_to->data_proof), std::move(res->data_proof));
+        TRY_RESULT_PROMISE_ASSIGN(
+            promise, load_to->state_proof,
+            vm::MerkleProof::combine_fast(std::move(load_to->state_proof), std::move(res->state_proof)));
+        TRY_RESULT_PROMISE_ASSIGN(
+            promise, load_to->data_proof,
+            vm::MerkleProof::combine_fast(std::move(load_to->data_proof), std::move(res->data_proof)));
         promise.set_result(std::move(load_to));
       }));
 }
@@ -4249,13 +4247,11 @@ td::Status TestNode::write_val_create_proof(TestNode::ValidatorLoadInfo& info1, 
 }
 
 td::Status TestNode::ValidatorLoadInfo::check_header_proof(ton::UnixTime* save_utime, ton::LogicalTime* save_lt) const {
-  auto state_virt_root = vm::MerkleProof::virtualize(std::move(data_proof));
-  if (state_virt_root.is_null()) {
-    return td::Status::Error("account state proof is invalid");
-  }
+  TRY_RESULT(state_virt_root, vm::MerkleProof::virtualize(std::move(data_proof)));
   td::Bits256 state_hash = state_virt_root->get_hash().bits();
-  TRY_STATUS(block::check_block_header_proof(vm::MerkleProof::virtualize(state_proof), blk_id, &state_hash, true,
-                                             save_utime, save_lt));
+  TRY_RESULT(proof_virt_root, vm::MerkleProof::virtualize(state_proof));
+  TRY_STATUS(
+      block::check_block_header_proof(std::move(proof_virt_root), blk_id, &state_hash, true, save_utime, save_lt));
   return td::Status::OK();
 }
 
@@ -4284,10 +4280,7 @@ static bool visit(Ref<vm::CellSlice> cs_ref) {
 
 td::Result<Ref<vm::Cell>> TestNode::ValidatorLoadInfo::build_proof(int idx, td::Bits256* save_pubkey) const {
   try {
-    auto state_virt_root = vm::MerkleProof::virtualize(std::move(data_proof));
-    if (state_virt_root.is_null()) {
-      return td::Status::Error("account state proof is invalid");
-    }
+    TRY_RESULT(state_virt_root, vm::MerkleProof::virtualize(std::move(data_proof)));
     vm::MerkleProofBuilder pb{std::move(state_virt_root)};
     TRY_RESULT(cfg, block::Config::extract_from_state(pb.root()));
     visit(cfg->get_config_param(28));
@@ -4616,10 +4609,7 @@ td::Status TestNode::ValidatorLoadInfo::init_check_proofs() {
     if (lt != end_lt) {
       return td::Status::Error(PSLICE() << "incorrect block logical time: declared " << end_lt << ", actual " << lt);
     }
-    auto vstate = vm::MerkleProof::virtualize(data_proof);
-    if (vstate.is_null()) {
-      return td::Status::Error(PSLICE() << "cannot virtualize state of block " << blk_id.to_str());
-    }
+    TRY_RESULT(vstate, vm::MerkleProof::virtualize(data_proof));
     TRY_RESULT_PREFIX_ASSIGN(config, block::Config::extract_from_state(vstate, 0), "cannot unpack configuration:");
     auto vset_root = config->get_config_param(34);
     if (vset_root.is_null()) {

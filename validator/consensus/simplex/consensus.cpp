@@ -5,6 +5,7 @@
  */
 
 #include "consensus/simplex/state.h"
+#include "consensus/stats.h"
 #include "consensus/utils.h"
 #include "td/actor/coro_utils.h"
 
@@ -25,7 +26,7 @@ struct SlotState {
   bool voted_final = false;
 };
 
-class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
+class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
   using State = ConsensusState<SlotState, td::Unit>;
 
  public:
@@ -163,7 +164,9 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     }
 
     slot->state->pending_block = candidate;
-
+    if (candidate->leader != owning_bus()->local_id.idx) {
+      owning_bus().publish<TraceEvent>(stats::CandidateReceived::create(candidate, false));
+    }
     try_notarize(*slot).start().detach();
   }
 
@@ -263,7 +266,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
 }  // namespace
 
-void Consensus::register_in(runtime::Runtime& runtime) {
+void Consensus::register_in(td::actor::Runtime& runtime) {
   runtime.register_actor<ConsensusImpl>("SimplexConsensus");
 }
 

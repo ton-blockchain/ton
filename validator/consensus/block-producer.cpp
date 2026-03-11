@@ -17,7 +17,7 @@ namespace ton::validator::consensus {
 
 namespace {
 
-class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
+class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
@@ -218,7 +218,7 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
 
 }  // namespace
 
-void BlockProducer::register_in(runtime::Runtime& runtime) {
+void BlockProducer::register_in(td::actor::Runtime& runtime) {
   runtime.register_actor<BlockProducerImpl>("BlockProducer");
 }
 

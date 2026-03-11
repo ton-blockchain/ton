@@ -26,7 +26,7 @@ namespace ton::validator::consensus {
 
 namespace {
 
-class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
+class BlockValidatorImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
@@ -59,16 +59,17 @@ class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
 
     owning_bus().publish<TraceEvent>(stats::ValidationStarted::create(event->candidate->id));
 
-    auto empty_fn = [&](BlockIdExt block) -> td::actor::Task<ValidateCandidateResult> {
-      if (block != event->state->as_normal()) {
-        co_return CandidateReject{
+    ValidateCandidateResult validation_result;
+    if (event->candidate->is_empty()) {
+      if (event->candidate->block_id() != event->state->as_normal()) {
+        validation_result = CandidateReject{
             .reason = "Wrong referenced block in empty candidate",
             .proof = td::BufferSlice(),
         };
       }
-      co_return CandidateAccept{};
-    };
-    auto block_fn = [&](const BlockCandidate& block) -> td::actor::Task<ValidateCandidateResult> {
+      validation_result = CandidateAccept{};
+    } else {
+      const BlockCandidate& block = std::get<BlockCandidate>(event->candidate->block);
       if (bus.shard.is_masterchain()) {
         auto expected_seqno = event->state->as_normal();
         while (last_accepted_block_ < expected_seqno) {
@@ -92,10 +93,9 @@ class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
           .is_new_consensus = true,
           .prev_block_state_roots = event->state->state(),
       };
-      co_return co_await td::actor::ask(bus.manager, &ManagerFacade::validate_block_candidate, block.clone(),
-                                        std::move(validate_params), td::Timestamp::in(60.0));
-    };
-    auto validation_result = co_await std::visit(td::overloaded(block_fn, empty_fn), event->candidate->block);
+      validation_result = co_await td::actor::ask(bus.manager, &ManagerFacade::validate_block_candidate, block.clone(),
+                                                  std::move(validate_params), td::Timestamp::in(60.0));
+    }
 
     owning_bus().publish<TraceEvent>(stats::ValidationFinished::create(event->candidate->id));
 
@@ -133,7 +133,7 @@ class BlockValidatorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
 
 }  // namespace
 
-void BlockValidator::register_in(runtime::Runtime& runtime) {
+void BlockValidator::register_in(td::actor::Runtime& runtime) {
   runtime.register_actor<BlockValidatorImpl>("BlockValidator");
 }
 

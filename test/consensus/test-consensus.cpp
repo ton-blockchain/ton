@@ -8,9 +8,9 @@
 #include "auto/tl/ton_api.h"
 #include "block/block.h"
 #include "block/validator-set.h"
-#include "consensus/runtime.h"
 #include "consensus/simplex/bus.h"
 #include "consensus/utils.h"
+#include "td/actor/BusRuntime.h"
 #include "td/actor/coro_utils.h"
 #include "td/db/MemoryKeyValue.h"
 #include "td/utils/OptionParser.h"
@@ -172,7 +172,7 @@ class TestOverlay : public td::actor::Actor {
 
 td::actor::ActorOwn<TestOverlay> test_overlay;
 
-class TestOverlayNode : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
+class TestOverlayNode : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
@@ -769,7 +769,7 @@ class TestConsensus : public td::actor::Actor {
           (!last_accepted_block_leader_idx_ || last_accepted_block_leader_idx_.value() != node_idx)) {
         continue;
       }
-      for (size_t inst_idx = 0; inst_idx < nodes_[inst_idx].instances.size(); ++inst_idx) {
+      for (size_t inst_idx = 0; inst_idx < nodes_[node_idx].instances.size(); ++inst_idx) {
         if (nodes_[node_idx].instances[inst_idx].status == Instance::Running) {
           ++cnt;
           if (td::Random::fast(1, cnt) == 1) {
@@ -815,7 +815,7 @@ class TestConsensus : public td::actor::Actor {
           (!last_accepted_block_leader_idx_ || last_accepted_block_leader_idx_.value() != node_idx)) {
         continue;
       }
-      for (size_t inst_idx = 0; inst_idx < nodes_[inst_idx].instances.size(); ++inst_idx) {
+      for (size_t inst_idx = 0; inst_idx < nodes_[node_idx].instances.size(); ++inst_idx) {
         if (!nodes_[node_idx].instances[inst_idx].net_gremlin_active) {
           ++cnt;
           if (td::Random::fast(1, cnt) == 1) {
@@ -861,7 +861,7 @@ class TestConsensus : public td::actor::Actor {
   }
 
   struct Instance {
-    runtime::Runtime runtime;
+    td::actor::Runtime runtime;
     td::actor::ActorOwn<TestManagerFacade> manager_facade;
     simplex::BusHandle bus;
 

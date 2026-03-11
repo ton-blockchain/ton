@@ -294,7 +294,9 @@ The bounced message has the same 0th and 1st bits in `extra_flags` as the origin
 
 ### Transaction changes
 - `end_status` of a transaction is now correctly set to `uninit` when the account is frozen with `frozen_hash` equal to its address.
-- Message flag `+2` now correctly works when sending fails because of invalid `src` (code `35`).
+- Message flag `+2` now correctly works when sending fails because of invalid `src` (code `35`), invalid libraries in `StateInit` or invalid mode.
+- Fix `fwd_fee` for bounced messages with extra currencies: now extra currency dict is not charged.
+- Correctly set `destroyed` flag in transaction when the account is deleted in storage phase.
 
 ### Other changes
 - Block timestamps are now non-strictly increasing. Block timestamp now can be equal to the timestamp of:

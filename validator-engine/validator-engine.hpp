@@ -274,6 +274,7 @@ class ValidatorEngine : public td::actor::Actor {
 
   std::set<ton::CatchainSeqno> unsafe_catchains_;
   std::map<ton::BlockSeqno, std::pair<ton::CatchainSeqno, td::uint32>> unsafe_catchain_rotations_;
+  ton::quic::QuicServer::Options quic_options_ = {};
 
  public:
   static constexpr td::uint8 max_cat() {
@@ -422,6 +423,9 @@ class ValidatorEngine : public td::actor::Actor {
   void set_ratelimit_medium(size_t count) {
     full_node_options_.ratelimit_medium_ = count;
   }
+  void set_quic_options(ton::quic::QuicServer::Options options) {
+    quic_options_ = std::move(options);
+  }
 
   void start_up() override;
   ValidatorEngine() {
@@ -522,9 +526,6 @@ class ValidatorEngine : public td::actor::Actor {
   void issue_fast_sync_overlay_certificate(ton::PublicKeyHash issue_by, ton::adnl::AdnlNodeIdShort issue_to,
                                            td::uint32 flags, td::int32 slot, td::int32 expire_at,
                                            td::Promise<ton::overlay::OverlayMemberCertificate> promise);
-  void process_fast_sync_overlay_certificate_request(ton::PublicKeyHash issue_by, ton::adnl::AdnlNodeIdShort issue_to,
-                                                     td::uint32 flags, td::int32 slot, td::int32 expire_at,
-                                                     td::Promise<ton::overlay::OverlayMemberCertificate> promise);
   ton::PublicKeyHash find_local_validator_for_cert_issuing();
 
   std::string custom_overlays_config_file() const {

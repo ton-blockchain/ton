@@ -184,12 +184,15 @@ void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), source, local_id,
                                        timeout = td::Timestamp::at_unix(message.timeout_), query_id = message.query_id_,
                                        max_answer_size = static_cast<td::uint64>(message.max_answer_size_),
-                                       transfer_id](td::Result<td::BufferSlice> R) {
+                                       transfer_id](td::Result<td::BufferSlice> R) mutable {
     if (R.is_ok()) {
       auto data = R.move_as_ok();
       if (data.size() > max_answer_size) {
         VLOG(RLDP_NOTICE) << "rldp query failed: answer too big";
       } else {
+        if (!timeout || td::Timestamp::in(60.0) < timeout) {
+          timeout = td::Timestamp::in(60.0);
+        }
         td::actor::send_closure(SelfId, &RldpIn::answer_query, local_id, source, timeout, query_id,
                                 transfer_id ^ TransferId::ones(), std::move(data));
       }

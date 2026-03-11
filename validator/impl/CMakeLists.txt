@@ -20,7 +20,6 @@ set(TON_VALIDATOR_SOURCE
   block.hpp
   check-proof.hpp
   collator-impl.h
-  collator.h
   config.hpp
   external-message.hpp
   ext-message-pool.hpp
