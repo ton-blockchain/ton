@@ -161,9 +161,9 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::install_con
   if (bootstrap_routed_cid.has_value()) {
     auto [__, bootstrap_inserted] = bootstrap_routes_.emplace(
         BootstrapRouteKey{.remote_address = remote_address, .routed_cid = *bootstrap_routed_cid}, state->cid);
-    if (bootstrap_inserted) {
-      state->bootstrap_routed_cid = bootstrap_routed_cid;
-    }
+    LOG_CHECK(bootstrap_inserted) << "Duplicate bootstrap route " << *bootstrap_routed_cid << " from "
+                                  << remote_address;
+    state->bootstrap_routed_cid = bootstrap_routed_cid;
   }
 
   std::set<QuicConnectionId> startup_cids;
