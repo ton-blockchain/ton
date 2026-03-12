@@ -31,6 +31,12 @@ using db_key_poolStateRef = tl_object_ptr<db_key_poolState>;
 using db_poolState = ton_api::consensus_simplex_db_poolState;
 using db_poolStateRef = tl_object_ptr<db_poolState>;
 
+using db_key_candidateResolver_notarCert = ton_api::consensus_simplex_db_key_candidateResolver_notarCert;
+using db_key_candidateResolver_notarCertRef = tl_object_ptr<db_key_candidateResolver_notarCert>;
+
+using db_candidateResolver_notarCert = ton_api::consensus_simplex_db_candidateResolver_notarCert;
+using db_candidateResolver_notarCertRef = tl_object_ptr<db_candidateResolver_notarCert>;
+
 }  // namespace tl
 
 namespace {
@@ -145,6 +151,18 @@ class DbImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<B
       };
 
       ton_api::downcast_call(*value, td::overloaded(legacy_fn, our_vote_fn, cert_fn));
+    }
+
+    auto notar_certs = bus.db->get_by_prefix(tl::db_key_candidateResolver_notarCert::ID);
+
+    for (auto& [key_str, value_str] : notar_certs) {
+      auto key = fetch_tl_object<tl::db_key_candidateResolver_notarCert>(key_str, true).ensure().move_as_ok();
+      CandidateId id = CandidateId::from_tl(key->candidateId_);
+
+      auto value = fetch_tl_object<tl::db_candidateResolver_notarCert>(value_str, true).ensure().move_as_ok();
+
+      auto cert = NotarCert::from_tl(std::move(*value->notar_), NotarizeVote{id}, bus).ensure().move_as_ok();
+      certs.push_back(std::move(cert.unique_write()).consume_and_upcast());
     }
 
     std::sort(our_votes.begin(), our_votes.end());

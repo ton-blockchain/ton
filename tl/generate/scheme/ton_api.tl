@@ -1211,6 +1211,8 @@ consensus.simplex.db.poolState first_nonannounced_window:int = consensus.simplex
 consensus.simplex.db.key.finalizedBlock candidateId:consensus.candidateId = consensus.simplex.db.key.FinalizedBlock;
 consensus.simplex.db.finalizedBlock block_id:tonNode.blockIdExt parent:consensus.CandidateParent is_final:Bool = consensus.simplex.db.FinalizedBlock;
 
+consensus.simplex.db.key.candidate candidateId:consensus.candidateId = consensus.simplex.db.key.Candidate;
+
 consensus.simplex.db.key.candidateResolver.candidateInfo candidateId:consensus.candidateId = consensus.simplex.db.key.candidateResolver.CandidateInfo;
 consensus.simplex.db.candidateResolver.candidateInfo leader_id:int candidate_hash_data:consensus.CandidateHashData signature:bytes = consensus.simplex.db.candidateResolver.CandidateInfo;
 consensus.simplex.db.key.candidateResolver.notarCert candidateId:consensus.candidateId = consensus.simplex.db.key.candidateResolver.NotarCert;

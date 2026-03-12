@@ -52,10 +52,6 @@ std::string StoreCandidate::contents_to_string() const {
   return PSTRING() << "{id=" << candidate->id << "}";
 }
 
-std::string WaitNotarCertStored::contents_to_string() const {
-  return PSTRING() << "{id=" << id << "}";
-}
-
 std::string ResolveState::contents_to_string() const {
   return PSTRING() << "{id=" << id << "}";
 }

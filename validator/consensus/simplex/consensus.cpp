@@ -242,8 +242,6 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
       co_return {};
     }
 
-    co_await owning_bus().publish<WaitNotarCertStored>(event->id);
-
     if (timeout_slot_ <= event->id.slot + 1) {
       if ((event->id.slot + 1) % slots_per_leader_window_ == 0) {
         // If we are at the end of the window, we defer setting timeout to LeaderWindowObserved.
