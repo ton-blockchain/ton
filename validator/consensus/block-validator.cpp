@@ -30,6 +30,12 @@ class BlockValidatorImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
+  void tear_down() override {
+    for (auto& p : next_block_promises_) {
+      p.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
+    }
+  }
+
   template <>
   void handle(BusHandle, std::shared_ptr<const StopRequested>) {
     stop();

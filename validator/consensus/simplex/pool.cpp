@@ -339,6 +339,12 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
     }
   }
 
+  void tear_down() override {
+    for (auto &r : requests_) {
+      r.promise.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
+    }
+  }
+
   template <>
   void handle(BusHandle, std::shared_ptr<const StopRequested>) {
     stop();

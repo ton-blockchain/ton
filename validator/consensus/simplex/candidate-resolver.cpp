@@ -111,6 +111,17 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
     load_from_db();
   }
 
+  void tear_down() override {
+    for (auto &[_, s] : state_) {
+      for (auto &p : s.resolve_awaiters) {
+        p.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
+      }
+      for (auto &p : s.store_awaiters) {
+        p.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
+      }
+    }
+  }
+
   template <>
   void handle(BusHandle, std::shared_ptr<const StopRequested>) {
     stop();

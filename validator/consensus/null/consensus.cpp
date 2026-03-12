@@ -65,6 +65,10 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     }
   }
 
+  void tear_down() override {
+    genesis_promise_.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
+  }
+
   template <>
   void handle(BusHandle, std::shared_ptr<const StopRequested>) {
     stop();
