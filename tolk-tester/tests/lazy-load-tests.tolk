@@ -2135,15 +2135,15 @@ fun main() {
 @fif_codegen
 """
   demo311() PROC:<{             //
-    777 PUSHINT                 //  '6=777
-    contract.getFakeData() CALLDICT       //  '7
+    777 PUSHINT                 //  '1=777
+    contract.getFakeData() CALLDICT       //  '2
     CTOS                        //  lazyS
     1 LDI                       //  '13 lazyS
     NIP                         //  lazyS
     320 PUSHINT                 //  lazyS '14=320
     PLDSLICEX                   //  '15
     PUSHNULL                    //  '15 st.extensions
-    NEWC
+    NEWC                        //  '15 st.extensions b
     b{0} STSLICECONST           //  '15 st.extensions b
     s1 s2 XCHG                  //  st.extensions '15 b
     STSLICE                     //  st.extensions b

@@ -553,8 +553,8 @@ fun main(){}
 @fif_codegen
 """
   test113() PROC:<{
-    1 PUSHINT	//  '2=1
-    PUSHNULL	//  '2=1 '3
+    1 PUSHINT	//  '1=1
+    PUSHNULL	//  '1=1 '2
     2 TUPLE	//  t
     1 INDEX	//  '5
     PUSHNULL	//  '5 '6

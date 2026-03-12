@@ -858,12 +858,12 @@ fun main() {
 @fif_codegen
 """
   test104() PROC:<{             // 
-    1 PUSHINT                   //  '2=1
-    2 PUSHINT                   //  '2=1 '3=2
-    PUSHNULL                    //  '2=1 '3=2 '4
-    3 PUSHINT                   //  '2=1 '3=2 '4 '5=3
-    PUSHNULL                    //  '2=1 '3=2 '4 '5=3 '6
-    4 PUSHINT                   //  '2=1 '3=2 '4 '5=3 '6 '7=4
+    1 PUSHINT                   //  '1=1
+    2 PUSHINT                   //  '1=1 '2=2
+    PUSHNULL                    //  '1=1 '2=2 '3
+    3 PUSHINT                   //  '1=1 '2=2 '3 '4=3
+    PUSHNULL                    //  '1=1 '2=2 '3 '4=3 '5
+    4 PUSHINT                   //  '1=1 '2=2 '3 '4=3 '5 '6=4
     6 TUPLE                     //  a
     DUP                         //  a a
     2 INDEX                     //  a '9
@@ -900,9 +900,9 @@ fun main() {
 @fif_codegen
 """
   test134() PROC:<{            	// 
-    1 PUSHINT               	//  '5=1
+    1 PUSHINT               	//  '4=1
     1 TUPLE                 	//  ai
-    1 PUSHINT               	//  ai '8=1
+    1 PUSHINT               	//  ai '7=1
     1 TUPLE                 	//  an t
     SWAP                    	//  t an
   }>

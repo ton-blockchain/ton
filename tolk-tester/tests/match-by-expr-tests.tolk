@@ -315,12 +315,12 @@ fun main() {
 """
   test3() PROC:<{       //  init
     DUP                 // init init
-    isGt10() CALLDICT   // init '2
-    -1 EQINT	        // init '5
+    isGt10() CALLDICT   // init '1
+    -1 EQINT	        // init '4
     IF:<{	            // init
-      10 PUSHINT	    // init '3=10
+      10 PUSHINT	    // init '2=10
     }>ELSE<{	        // init
-      20 PUSHINT	    // init '3=20
+      20 PUSHINT	    // init '2=20
     }>	                // init r1
 """
 

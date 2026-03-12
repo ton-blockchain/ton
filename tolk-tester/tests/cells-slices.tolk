@@ -742,7 +742,7 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 @fif_codegen
 """
   test22() PROC:<{
-    NEWC                    	//  '2
+    NEWC                    	//  '0
     NEWC                    	//  b1 b2
     SWAP                        //  b2 b1
     x{000808} STSLICECONST      //  b2 b1

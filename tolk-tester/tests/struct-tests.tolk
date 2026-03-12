@@ -790,7 +790,7 @@ type PointAlias = Point;
 @fif_codegen
 """
   test35() PROC:<{              //
-    getXPure() CALLDICT         //  '2
+    getXPure() CALLDICT         //  '0
     getYPure() CALLDICT         //  p.x p.y
   }>
 """
@@ -800,7 +800,7 @@ type PointAlias = Point;
   test36() PROC:<{              //
     0 TUPLE                     //  g_t_impure
     $t_impure SETGLOB           //
-    getYImpure() CALLDICT       //  '4
+    getYImpure() CALLDICT       //  '2
     getXImpure() CALLDICT       //  p.y p.x
     $t_impure GETGLOB           //  p.y p.x g_t_impure
     s1 s2 XCHG                  //  p.x p.y g_t_impure

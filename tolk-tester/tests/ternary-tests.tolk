@@ -262,7 +262,7 @@ fun main() {}
 @fif_codegen
 """
   test105() PROC:<{             //  getX
-    10 PUSHINT                  //  getX '3=10
+    10 PUSHINT                  //  getX '1=10
     20 PUSHINT                  //  getX p.x=10 p.y=20
     CONDSEL                     //  '5
   }>

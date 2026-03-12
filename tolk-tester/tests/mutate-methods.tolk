@@ -451,7 +451,7 @@ fun main(){
     ...
     incrementTwoInPlace() CALLDICT        //  x y sum1
     -ROT
-    10 PUSHINT  //  sum1 x y '10=10
+    10 PUSHINT  //  sum1 x y '9=10
     int.incrementTwoInPlace() CALLDICT        //  sum1 x y sum2
     s1 s3 s0 XCHG3       //  x y sum1 sum2
   }>
@@ -485,7 +485,7 @@ fun main(){
 @fif_codegen
 """
   testReceiverAndNot() PROC:<{  //
-    30 PUSHINT                  //  '6=30
+    30 PUSHINT                  //  '2=30
     40 PUSHINT                  //  obj.f1=30 obj.f2=40
     OVER
     0 PUSHINT                   //  a1.f1=30 a2.f2=40 a2.f1=30 a1.f2=0

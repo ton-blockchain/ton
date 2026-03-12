@@ -572,15 +572,15 @@ static std::vector<var_idx_t> pre_compile_tensor(CodeBlob& code, const std::vect
 static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, AnyExprV lhs, AnyExprV rhs) {
   // [lhs] = rhs; it's un-tuple to N left vars
   if (lhs->kind == ast_square_brackets) {
-    LValContext local_lval;
-    std::vector ir_left = pre_compile_tensor(code, lhs->as<ast_square_brackets>()->get_items(), &local_lval);
-    vars_modification_watcher.trigger_callbacks(ir_left, lhs);
-    std::vector ir_right = pre_compile_expr(rhs, code);
     const TypeDataShapedTuple* l_shaped = lhs->inferred_type->unwrap_alias()->try_as<TypeDataShapedTuple>();
     const TypeDataShapedTuple* r_shaped = rhs->inferred_type->unwrap_alias()->try_as<TypeDataShapedTuple>();
     tolk_assert(l_shaped && r_shaped && l_shaped->size() == r_shaped->size());
+    std::vector ir_right = pre_compile_expr(rhs, code);
     std::vector rvect = code.create_tmp_var(TypeDataTensor::create(std::vector(r_shaped->size(), TypeDataUnknown::create())), rhs, "(unpack-tuple)");
     code.add_un_tuple(lhs, rvect, ir_right);
+    LValContext local_lval;
+    std::vector ir_left = pre_compile_tensor(code, lhs->as<ast_square_brackets>()->get_items(), &local_lval);
+    vars_modification_watcher.trigger_callbacks(ir_left, lhs);
     int stack_offset = 0;
     for (int i = 0; i < l_shaped->size(); ++i) {
       int ith_w = l_shaped->items[i]->get_width_on_stack();
@@ -594,11 +594,13 @@ static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, AnyExprV lhs, AnyE
     return ir_right;
   }
   // lhs = rhs (resulting IR vars is rhs)
+  // note, that we calculate RHS at first; earlier lhs was calculated first, to support "someF().field = calc()",
+  // but since lvalues are restricted to strict paths (v.0.nested, etc.), function calls not allowed in lhs
+  std::vector ir_right = pre_compile_expr(rhs, code, nullptr);
+  std::vector ir_assignable = transition_to_target_type(std::vector(ir_right), code, rhs->inferred_type, lhs->inferred_type, rhs);
   LValContext local_lval;
   std::vector ir_left = pre_compile_expr(lhs, code, nullptr, &local_lval);
   vars_modification_watcher.trigger_callbacks(ir_left, lhs);
-  std::vector ir_right = pre_compile_expr(rhs, code, nullptr);
-  std::vector ir_assignable = transition_to_target_type(std::vector(ir_right), code, rhs->inferred_type, lhs->inferred_type, rhs);
   code.add_let(lhs, ir_left, std::move(ir_assignable));
   local_lval.after_let(std::move(ir_left), code, lhs);
   return ir_right;
@@ -1096,7 +1098,7 @@ static std::vector<var_idx_t> process_lazy_operator(V<ast_lazy_operator> v, Code
   // which will be filled by loads
   std::vector ir_null = code.create_tmp_var(TypeDataNullLiteral::create(), v, "(init-null)");
   code.add_call(v, ir_null, {}, lookup_function("__null"));
-  std::vector ir_initial_nulls(v->dest_var_ref->ir_idx.size(), ir_null[0]);
+  std::vector ir_initial_nulls(v->dest_var_ref->declared_type->get_width_on_stack(), ir_null[0]);
   return transition_to_target_type(std::move(ir_initial_nulls), code, target_type, v);
 }
 

@@ -450,9 +450,9 @@ fun usedIn10ButDeclaredBelow(x: int) {
 @fif_codegen
 """
   test5() PROC:<{               //
-    c4 PUSH                     //  '7
+    c4 PUSH                     //  '4
     CTOS                        //  s
-    LDSTDADDR                   //  '11 s
+    LDSTDADDR                   //  '8 s
 """
 
 @fif_codegen
@@ -504,9 +504,9 @@ fun usedIn10ButDeclaredBelow(x: int) {
 @fif_codegen
 """
   test10() PROC:<{
-    5 PUSHINT                   //  '3=5
-    DUP                         //  '3=5 y=5
-    NEWC
+    5 PUSHINT                   //  '0=5
+    DUP                         //  '0=5 y=5
+    NEWC                        //  '0=5 y=5 '10
     x{00000005} STSLICECONST    //  a=5 b=5 c
     BBITS                       //  a=5 b=5 '18
   }>

@@ -126,26 +126,26 @@ fun main() {}
 """
   test6() PROC:<{               //
     b{010000000000001111} PUSHSLICE     //  s
-    b{00} SDBEGINSQ             //  s '8
+    b{00} SDBEGINSQ             //  s '6
     IF:<{                       //  s
-      8 LDI                     //  '12 s
+      8 LDI                     //  '10 s
       42 PUSHINT                //  'USlot1 s 'UTag=42
     }>ELSE<{                    //  s
-      b{01} SDBEGINSQ           //  s '8
+      b{01} SDBEGINSQ           //  s '6
       IF:<{                     //  s
-        16 LDI                  //  '17 s
+        16 LDI                  //  '15 s
         44 PUSHINT              //  'USlot1 s 'UTag=44
       }>ELSE<{                  //  s
-        b{10} SDBEGINSQ         //  s '8
+        b{10} SDBEGINSQ         //  s '6
         IF:<{                   //  s
-          32 LDI                //  '22 s
+          32 LDI                //  '20 s
           46 PUSHINT            //  'USlot1 s 'UTag=46
         }>ELSE<{                //  s
-          b{11} SDBEGINSQ       //  s '8
+          b{11} SDBEGINSQ       //  s '6
           IFNOTJMP:<{           //  s
             63 THROW
           }>
-          64 LDI                //  '27 s
+          64 LDI                //  '25 s
           48 PUSHINT            //  'USlot1 s 'UTag=48
         }>
       }>

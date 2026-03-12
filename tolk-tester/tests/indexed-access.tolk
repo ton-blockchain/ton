@@ -333,34 +333,34 @@ fun main(){
 @fif_codegen
 """
   testCodegenSimple() PROC:<{
-    1 PUSHINT                   //  '2=1
+    1 PUSHINT                   //  '1=1
     1 TUPLE                     //  t1
     2 PUSHINT                   //  t1 '7=2
     0 SETINDEX                  //  t1
     x{} PUSHSLICE
     STRDUMP DROP                //  t1
-    1 PUSHINT                   //  t1 '12=1
-    1 TUPLE                     //  t1 '11
+    1 PUSHINT                   //  t1 '11=1
+    1 TUPLE                     //  t1 '10
     1 TUPLE                     //  t1 t2
-    2 PUSHINT                   //  t1 t2 '16=2
-    OVER                        //  t1 t2 '16=2 t2
+    2 PUSHINT                   //  t1 t2 '17=2
+    OVER                        //  t1 t2 '17=2 t2
     0 INDEX                     //  t1 t2 '21=2 '19
     SWAP                        //  t1 t2 '19 '21=2
     0 SETINDEX                  //  t1 t2 '23
     0 SETINDEX                  //  t1 t2
     x{} PUSHSLICE
     STRDUMP DROP                //  t1 t2
-    1 PUSHINT                   //  t1 t2 '27=1
+    1 PUSHINT                   //  t1 t2 '26=1
     1 TUPLE                     //  t1 t2 g_gTup
     $gTup SETGLOB               //  t1 t2
-    2 PUSHINT                   //  t1 t2 '30=2
+    2 PUSHINT                   //  t1 t2 '31=2
     $gTup GETGLOB               //  t1 t2 '34=2 g_gTup
     SWAP                        //  t1 t2 g_gTup '34=2
     0 SETINDEX                  //  t1 t2 g_gTup
     $gTup SETGLOB               //  t1 t2
     x{} PUSHSLICE
     STRDUMP DROP                //  t1 t2
-    1 PUSHINT                   //  t1 t2 '38=1
+    1 PUSHINT                   //  t1 t2 '36=1
     2 PUSHINT                   //  t1 t2 g_gTens.0=1 g_gTens.1=2
     2 TUPLE
     $gTens SETGLOB              //  t1 t2
