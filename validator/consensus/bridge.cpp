@@ -146,7 +146,11 @@ class DbImpl : public Db {
     return result;
   }
   td::actor::Task<> set(td::BufferSlice key, td::BufferSlice value) override {
-    co_return co_await writer_.set(std::move(key), std::move(value));
+    auto result = co_await writer_.set(std::move(key), std::move(value)).wrap();
+    if (result.is_error() && result.error().code() != ErrorCode::cancelled) {
+      result.ensure();
+    }
+    co_return std::move(result);
   }
 
  private:
