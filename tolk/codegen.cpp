@@ -872,13 +872,13 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
       catch_stack.push_new_var(left[0]);
       catch_stack.push_new_var(left[1]);
       stack.rearrange_top(origin, catch_vars, catch_last);
-      stack.o << AsmOp::Custom(origin, "<{");
+      stack.o << AsmOp::Custom(origin, "CONT:<{");
       if (block1.is_noreturn()) {
         catch_stack.mode |= Stack::_NeedRetAlt;
       }
       block1.generate_code_all(catch_stack);
       catch_stack.drop_vars_except(origin, next_op.var_info);
-      stack.o << AsmOp::Custom(origin, "}>CONT");
+      stack.o << AsmOp::Custom(origin, "}>");
       stack.o << AsmOp::Custom(origin, "0b10111010 SETCONTMANY");
       for (size_t begin = catch_vars.size(), end = begin; end > 0; end = begin) {
         begin = end >= block_size ? end - block_size : 0;
@@ -887,7 +887,7 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
         stack.o << AsmOp::Custom(origin, "SETCONTVARARGS");
       }
       stack.s.erase(stack.s.end() - catch_vars.size(), stack.s.end());
-      stack.o << AsmOp::Custom(origin, "<{");
+      stack.o << AsmOp::Custom(origin, "CONT:<{");
       if (block0.is_noreturn()) {
         stack.mode |= Stack::_NeedRetAlt;
       }
@@ -897,7 +897,7 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
       } else if (!block1.is_noreturn()) {
         stack.merge_state(origin, catch_stack);
       }
-      stack.o << AsmOp::Custom(origin, "}>CONT");
+      stack.o << AsmOp::Custom(origin, "}>");
       stack.o << AsmOp::Custom(origin, "c1 PUSH");
       stack.o << AsmOp::Custom(origin, "COMPOSALT");
       stack.o << AsmOp::Custom(origin, "SWAP");

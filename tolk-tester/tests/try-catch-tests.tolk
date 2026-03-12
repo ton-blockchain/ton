@@ -450,9 +450,17 @@ fun main() {
 
 @fif_codegen
 """
-<{
+CONT:<{
   11 PUSHPOW2
   THROWANY
-}>CONT
+}>
+"""
+
+@fif_codegen
+"""
+foo_inline() PROCINLINE:<{
+  CONT:<{
+    c2 SAVE
+    SAMEALTSAVE
 """
 */
