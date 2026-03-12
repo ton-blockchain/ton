@@ -5904,7 +5904,12 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getShards& request,
             return td::Status::Error("cannot unpack block extra of block " + blk_id.to_str());
           }
           auto data_csr = vm::load_cell_slice_ref(data_cell.move_as_ok());
-          if (data_csr->prefetch_ref()->get_hash() != mc_extra.shard_hashes->prefetch_ref()->get_hash()) {
+          auto data_ref = data_csr->prefetch_ref();
+          auto proof_ref = mc_extra.shard_hashes->prefetch_ref();
+          if (data_ref.is_null() || proof_ref.is_null()) {
+              return td::Status::Error("Block shards data or proof missing root reference");
+          }
+          if (data_ref->get_hash() != proof_ref->get_hash()) {
             return td::Status::Error("Block shards data and proof hashes don't match");
           }
 
