@@ -1201,7 +1201,9 @@ consensus.simplex.certificate vote:consensus.simplex.UnsignedVote signatures:con
 consensus.simplex.candidateAndCert candidate:bytes notar:bytes = consensus.simplex.CandidateAndCert;
 
 consensus.simplex.db.key.vote vote_hash:int256 = consensus.simplex.db.key.Vote;
-consensus.simplex.db.vote data:bytes node_idx:int = consensus.simplex.db.Vote;
+consensus.simplex.db.voteLegacy#ac53c421 data:bytes node_idx:int = consensus.simplex.db.Vote;
+consensus.simplex.db.ourVote vote:consensus.simplex.UnsignedVote seqno:long = consensus.simplex.db.Vote;
+consensus.simplex.db.cert cert:consensus.simplex.Certificate = consensus.simplex.db.Vote;
 
 consensus.simplex.db.key.poolState = consensus.simplex.db.key.PoolState;
 consensus.simplex.db.poolState first_nonannounced_window:int = consensus.simplex.db.PoolState;

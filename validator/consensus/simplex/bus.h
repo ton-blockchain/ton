@@ -13,6 +13,8 @@
 namespace ton::validator::consensus::simplex {
 
 struct BroadcastVote {
+  using ReturnType = td::Unit;
+
   Vote vote;
 
   std::string contents_to_string() const;
@@ -33,6 +35,8 @@ struct FinalizationObserved {
 };
 
 struct LeaderWindowObserved {
+  using ReturnType = td::Unit;
+
   td::uint32 start_slot;
   ParentId base;
 
@@ -86,20 +90,30 @@ struct ResolveState {
   static std::string response_to_string(const ReturnType&);
 };
 
+struct SaveCertificate {
+  using ReturnType = td::Unit;
+
+  CertificateRef<Vote> cert;
+
+  std::string contents_to_string() const;
+};
+
 class Bus : public consensus::Bus {
  public:
   using Parent = consensus::Bus;
-  using Events = td::TypeList<BroadcastVote, NotarizationObserved, FinalizationObserved, LeaderWindowObserved,
-                              WaitForParent, ResolveCandidate, StoreCandidate, WaitNotarCertStored, ResolveState>;
+  using Events =
+      td::TypeList<BroadcastVote, NotarizationObserved, FinalizationObserved, LeaderWindowObserved, WaitForParent,
+                   ResolveCandidate, StoreCandidate, WaitNotarCertStored, ResolveState, SaveCertificate>;
 
   Bus() = default;
 
   void populate_collator_schedule() override;
-  void load_bootstrap_state();
 
   NewConsensusConfig::Simplex simplex_config;
 
-  std::vector<Signed<Vote>> bootstrap_votes;
+  std::vector<CertificateRef<Vote>> bootstrap_certificates;
+  std::vector<Vote> bootstrap_votes;
+
   td::uint32 first_nonannounced_window = 0;
 
   // FIXME: These should come from validator options
@@ -132,6 +146,10 @@ struct StateResolver {
 };
 
 struct MetricCollector {
+  static void register_in(td::actor::Runtime&);
+};
+
+struct Db {
   static void register_in(td::actor::Runtime&);
 };
 

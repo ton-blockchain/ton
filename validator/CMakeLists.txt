@@ -112,6 +112,7 @@ set(VALIDATOR_SOURCE
   consensus/simplex/candidate-resolver.cpp
   consensus/simplex/certificate.cpp
   consensus/simplex/consensus.cpp
+  consensus/simplex/db.cpp
   consensus/simplex/metric-collector.cpp
   consensus/simplex/pool.cpp
   consensus/simplex/state-resolver.cpp

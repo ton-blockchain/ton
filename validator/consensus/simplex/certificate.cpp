@@ -54,6 +54,15 @@ td::Result<td::Ref<Certificate<Vote>>> Certificate<T>::from_tl(tl::certificate&&
 }
 
 template <ValidVote T>
+td::CntObject* Certificate<T>::make_copy() const {
+  std::vector<VoteSignature> copied_signatures;
+  for (const auto& sig : signatures) {
+    copied_signatures.emplace_back(VoteSignature{sig.validator, sig.signature.clone()});
+  }
+  return new Certificate<T>(vote, std::move(copied_signatures));
+}
+
+template <ValidVote T>
 tl::VoteSignatureSetRef Certificate<T>::to_tl_vote_signature_set() const {
   std::vector<tl::VoteSignatureRef> tl_sigs;
   for (const auto& [validator, signature] : signatures) {
@@ -89,6 +98,17 @@ td::Ref<block::BlockSignatureSet> Certificate<T>::to_signature_set(const Candida
   }
   return fn(std::move(block_signatures), bus.cc_seqno, bus.validator_set_hash, bus.session_id, vote.id.slot,
             candidate->hash_data().to_tl());
+}
+
+template <ValidVote T>
+td::Ref<Certificate<Vote>> Certificate<T>::consume_and_upcast() &&
+  requires(!std::same_as<T, Vote>)
+{
+  std::vector<Certificate<Vote>::VoteSignature> casted_signatures;
+  for (auto& sig : signatures) {
+    casted_signatures.emplace_back(sig.validator, std::move(sig.signature));
+  }
+  return td::make_ref<Certificate<Vote>>(vote, std::move(casted_signatures));
 }
 
 template struct Certificate<NotarizeVote>;

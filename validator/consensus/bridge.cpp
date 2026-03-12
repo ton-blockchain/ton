@@ -283,10 +283,10 @@ class BridgeImpl final : public IValidatorGroup {
 
     if (is_simplex) {
       auto simplex_bus = std::static_pointer_cast<simplex::Bus>(bus);
-      simplex_bus->load_bootstrap_state();
 
       simplex::CandidateResolver::register_in(runtime);
       simplex::Consensus::register_in(runtime);
+      simplex::Db::register_in(runtime);
       simplex::Pool::register_in(runtime);
       simplex::StateResolver::register_in(runtime);
       simplex::MetricCollector::register_in(runtime);
