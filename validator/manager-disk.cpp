@@ -834,7 +834,12 @@ void ValidatorManagerImpl::set_next_block(BlockIdExt block_id, BlockIdExt next, 
 }
 
 void ValidatorManagerImpl::set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
-                                               td::uint32 validator_set_hash, td::Promise<td::Unit> promise) {
+                                               td::uint32 validator_set_hash, bool cache_only,
+                                               td::Promise<td::Unit> promise) {
+  if (cache_only) {
+    promise.set_value(td::Unit{});
+    return;
+  }
   td::actor::send_closure(db_, &Db::store_block_candidate, std::move(candidate), std::move(promise));
 }
 

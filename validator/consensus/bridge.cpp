@@ -87,7 +87,8 @@ class ManagerFacadeImpl : public ManagerFacade {
     candidate.out_msg_queue_proof_broadcasts = {};
     BlockIdExt block_id = candidate.id;
     co_return co_await td::actor::ask(manager_, &ValidatorManager::set_block_candidate, block_id, std::move(candidate),
-                                      validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash());
+                                      validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
+                                      false);
   }
 
   void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data, int mode) override {

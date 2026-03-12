@@ -382,7 +382,7 @@ void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data
     td::Promise<td::Unit> P =
         new_promise.wrap([block = block.clone()](td::Unit&&) mutable -> BlockCandidate { return std::move(block); });
     td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, block.id, std::move(block), cc_seqno,
-                            val_set_hash, std::move(P));
+                            val_set_hash, false, std::move(P));
   };
   if (!shard.is_valid_ext()) {
     new_promise.set_error(td::Status::Error(PSTRING() << "invalid shard " << shard.to_str()));
