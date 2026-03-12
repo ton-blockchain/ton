@@ -91,6 +91,12 @@ class ManagerFacadeImpl : public ManagerFacade {
                                       false);
   }
 
+  void cache_block_candidate(BlockCandidate candidate) override {
+    td::actor::send_closure(manager_, &ValidatorManager::set_block_candidate, candidate.id, std::move(candidate),
+                            validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
+                            /*cache_only=*/true, [](td::Result<>) {});
+  }
+
   void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data, int mode) override {
     td::actor::send_closure(manager_, &ValidatorManager::send_block_candidate_broadcast, id,
                             validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),

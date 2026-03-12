@@ -92,8 +92,12 @@ class BlockValidatorImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
           .is_new_consensus = true,
           .prev_block_state_roots = event->state->state(),
       };
-      co_return co_await td::actor::ask(bus.manager, &ManagerFacade::validate_block_candidate, block.clone(),
-                                        std::move(validate_params), td::Timestamp::in(60.0));
+      auto result = co_await td::actor::ask(bus.manager, &ManagerFacade::validate_block_candidate, block.clone(),
+                                            std::move(validate_params), td::Timestamp::in(60.0));
+      if (result.has<CandidateAccept>()) {
+        td::actor::send_closure(bus.manager, &ManagerFacade::cache_block_candidate, block.clone());
+      }
+      co_return result;
     };
     auto validation_result = co_await std::visit(td::overloaded(block_fn, empty_fn), event->candidate->block);
 
