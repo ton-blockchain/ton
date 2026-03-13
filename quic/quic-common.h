@@ -75,6 +75,7 @@ struct QuicConnectionId {
   }
 
   static QuicConnectionId random(size_t size = MAX_SIZE) {
+    CHECK(size <= MAX_SIZE);
     QuicConnectionId cid;
     cid.datalen_ = size;
     td::Random::secure_bytes(cid.as_mutable_slice());
