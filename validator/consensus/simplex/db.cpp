@@ -16,9 +16,6 @@ using db_key_voteRef = tl_object_ptr<db_key_vote>;
 using db_ourVote = ton_api::consensus_simplex_db_ourVote;
 using db_ourVoteRef = tl_object_ptr<db_ourVote>;
 
-using db_voteLegacy = ton_api::consensus_simplex_db_voteLegacy;
-using db_voteLegacyRef = tl_object_ptr<db_voteLegacy>;
-
 using db_cert = ton_api::consensus_simplex_db_cert;
 using db_certRef = tl_object_ptr<db_cert>;
 
@@ -137,12 +134,6 @@ class DbImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<B
 
       auto value = fetch_tl_object<tl::db_Vote>(value_str, true).move_as_ok();
 
-      auto legacy_fn = [&](tl::db_voteLegacy& vote) {
-        if (static_cast<size_t>(vote.node_idx_) == bus.local_id.idx.value()) {
-          auto signed_vote = Signed<Vote>::deserialize(vote.data_, bus.local_id.idx, bus).move_as_ok();
-          our_votes.push_back(OurVote{-1, signed_vote.vote});
-        }
-      };
       auto our_vote_fn = [&](tl::db_ourVote& vote) {
         our_votes.push_back(OurVote{vote.seqno_, Vote::from_tl(*vote.vote_)});
       };
@@ -150,21 +141,8 @@ class DbImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<B
         certs.push_back(Certificate<Vote>::from_tl(std::move(*vote.cert_), bus).move_as_ok());
       };
 
-      ton_api::downcast_call(*value, td::overloaded(legacy_fn, our_vote_fn, cert_fn));
+      ton_api::downcast_call(*value, td::overloaded(our_vote_fn, cert_fn));
     }
-
-    auto notar_certs = bus.db->get_by_prefix(tl::db_key_candidateResolver_notarCert::ID);
-
-    for (auto& [key_str, value_str] : notar_certs) {
-      auto key = fetch_tl_object<tl::db_key_candidateResolver_notarCert>(key_str, true).ensure().move_as_ok();
-      CandidateId id = CandidateId::from_tl(key->candidateId_);
-
-      auto value = fetch_tl_object<tl::db_candidateResolver_notarCert>(value_str, true).ensure().move_as_ok();
-
-      auto cert = NotarCert::from_tl(std::move(*value->notar_), NotarizeVote{id}, bus).ensure().move_as_ok();
-      certs.push_back(std::move(cert.unique_write()).consume_and_upcast());
-    }
-
     std::sort(our_votes.begin(), our_votes.end());
     if (!our_votes.empty()) {
       next_seqno_ = our_votes.back().seqno + 1;

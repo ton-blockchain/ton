@@ -330,37 +330,14 @@ td::actor::Task<td::BufferSlice> TestOverlay::send_query(PeerValidator src, size
 
 class TestConsensus;
 
-class CandidateStorage : public td::actor::Actor {
- public:
-  td::actor::Task<BlockCandidate> load_block_candidate(PublicKey source, BlockIdExt block_id,
-                                                       FileHash collated_data_hash) {
-    auto it = candidates_.find({source.ed25519_value().raw(), block_id, collated_data_hash});
-    if (it == candidates_.end()) {
-      co_return td::Status::Error("no candidate in db");
-    }
-    co_return it->second.clone();
-  }
-
-  td::actor::Task<> store_block_candidate(BlockCandidate candidate) {
-    std::tuple key{candidate.pubkey.as_bits256(), candidate.id, candidate.collated_file_hash};
-    candidates_.emplace(key, std::move(candidate));
-    co_return {};
-  }
-
- private:
-  std::map<std::tuple<td::Bits256, BlockIdExt, FileHash>, BlockCandidate> candidates_;
-};
-
 class TestManagerFacade : public ManagerFacade {
  public:
   explicit TestManagerFacade(size_t node_idx, size_t instance_idx, Ref<block::ValidatorSet> validator_set,
-                             td::actor::ActorId<TestConsensus> test_consensus,
-                             td::actor::ActorId<CandidateStorage> candidate_storage)
+                             td::actor::ActorId<TestConsensus> test_consensus)
       : node_idx_(node_idx)
       , instance_idx_(instance_idx)
       , validator_set_(validator_set)
-      , test_consensus_(test_consensus)
-      , candidate_storage_(candidate_storage) {
+      , test_consensus_(test_consensus) {
   }
 
   td::actor::Task<GeneratedCandidate> collate_block(CollateParams params,
@@ -440,9 +417,7 @@ class TestManagerFacade : public ManagerFacade {
         params.creator,
         BlockIdExt(BlockId(params.shard, prev_seqno + 1), block_root->get_hash().bits(), td::sha256_bits256(data)),
         td::sha256_bits256(collated_data), data.clone(), collated_data.clone());
-    if (!params.skip_store_candidate) {
-      co_await store_block_candidate(candidate.clone());
-    }
+    CHECK(params.skip_store_candidate);
     co_return GeneratedCandidate{.candidate = std::move(candidate), .is_cached = false, .self_collated = true};
   }
 
@@ -457,7 +432,6 @@ class TestManagerFacade : public ManagerFacade {
     CHECK(params.prev_block_state_roots.size() == 1 &&
           params.prev_block_state_roots[0]->get_hash() == gen_shard_state(prev_seqno)->get_hash());
     co_await td::actor::coro_sleep(td::Timestamp::in(td::Random::fast(VALIDATION_TIME.first, VALIDATION_TIME.second)));
-    co_await store_block_candidate(candidate.clone());
     co_return CandidateAccept{.ok_from_utime = co_await get_candidate_gen_utime_exact(candidate)};
   }
 
@@ -468,24 +442,11 @@ class TestManagerFacade : public ManagerFacade {
   td::actor::Task<td::Ref<vm::Cell>> wait_block_state_root(BlockIdExt block_id, td::Timestamp timeout) override;
   td::actor::Task<td::Ref<BlockData>> wait_block_data(BlockIdExt block_id, td::Timestamp timeout) override;
 
-  td::actor::Task<BlockCandidate> load_block_candidate(PublicKey source, BlockIdExt block_id,
-                                                       FileHash collated_data_hash) override {
-    co_return co_await td::actor::ask(candidate_storage_, &CandidateStorage::load_block_candidate, source, block_id,
-                                      collated_data_hash);
-  }
-
-  td::actor::Task<> store_block_candidate(BlockCandidate candidate) override {
-    candidate.out_msg_queue_proof_broadcasts = {};
-    co_return co_await td::actor::ask(candidate_storage_, &CandidateStorage::store_block_candidate,
-                                      std::move(candidate));
-  }
-
  private:
   size_t node_idx_;
   size_t instance_idx_;
   Ref<block::ValidatorSet> validator_set_;
   td::actor::ActorId<TestConsensus> test_consensus_;
-  td::actor::ActorId<CandidateStorage> candidate_storage_;
 };
 
 class TestDbImpl : public consensus::Db {
@@ -647,8 +608,6 @@ class TestConsensus : public td::actor::Actor {
       for (size_t i = 0; i < n_instances; ++i) {
         Instance inst;
         inst.db_inner = std::make_shared<TestDbImpl::DbInner>();
-        inst.candidate_storage =
-            td::actor::create_actor<CandidateStorage>(PSTRING() << "ManagerFacade." << idx << "." << i);
         node.instances.push_back(std::move(inst));
       }
     }
@@ -702,9 +661,9 @@ class TestConsensus : public td::actor::Actor {
     simplex::StateResolver::register_in(runtime);
     simplex::Db::register_in(runtime);
 
-    inst.manager_facade = td::actor::create_actor<TestManagerFacade>(
-        PSTRING() << "ManagerFacade." << node_idx << "." << instance_idx, node_idx, instance_idx, validator_set_,
-        actor_id(this), inst.candidate_storage.get());
+    inst.manager_facade =
+        td::actor::create_actor<TestManagerFacade>(PSTRING() << "ManagerFacade." << node_idx << "." << instance_idx,
+                                                   node_idx, instance_idx, validator_set_, actor_id(this));
     auto [stop_task, stop_promise] = td::actor::StartedTask<>::make_bridge();
     auto bus = std::make_shared<TestSimplexBus>();
     inst.stop_waiter = std::move(stop_task);
@@ -884,7 +843,6 @@ class TestConsensus : public td::actor::Actor {
 
     BlockSeqno last_accepted_block = FIRST_PARENT.seqno();
     std::shared_ptr<TestDbImpl::DbInner> db_inner;
-    td::actor::ActorOwn<CandidateStorage> candidate_storage;
 
     enum Status { Stopped, Running, Stopping };
     Status status = Stopped;

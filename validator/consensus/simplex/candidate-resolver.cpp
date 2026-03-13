@@ -196,19 +196,10 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
   }
 
  private:
-  struct LegacyLoadData {
-    PeerValidatorId leader_id;
-    BlockIdExt block_id;
-    FileHash collated_file_hash;
-    ParentId parent;
-    td::BufferSlice signature;
-  };
-
   struct CandidateState {
     bool candidate_in_db = false;
     bool candidate_stored = false;
     CandidateAndCert candidate_and_cert;
-    std::optional<LegacyLoadData> legacy_load_data;
 
     std::vector<td::Promise<td::Unit>> resolve_awaiters;
     std::vector<td::Promise<td::Unit>> store_awaiters;
@@ -241,29 +232,9 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
       CandidateId id = CandidateId::from_tl(key->candidateId_);
       auto &state = state_[id];
 
-      ++candidate_count;
-
       if (value_str.empty()) {
+        ++candidate_count;
         state.candidate_in_db = true;
-        continue;
-      }
-
-      auto value = fetch_tl_object<tl::db_candidateResolver_candidateInfo>(value_str, true).move_as_ok();
-      PeerValidatorId leader_id((size_t)value->leader_id_);
-      auto hash_data = CandidateHashData::from_tl(std::move(*value->candidate_hash_data_));
-      BlockIdExt block_id = hash_data.block();
-
-      if (std::holds_alternative<CandidateHashData::EmptyCandidate>(hash_data.candidate)) {
-        state.candidate_and_cert.candidate =
-            td::make_ref<Candidate>(id, hash_data.parent, leader_id, block_id, std::move(value->signature_));
-      } else {
-        state.legacy_load_data = LegacyLoadData{
-            .leader_id = leader_id,
-            .block_id = block_id,
-            .collated_file_hash = std::get<CandidateHashData::FullCandidate>(hash_data.candidate).collated_file_hash,
-            .parent = hash_data.parent,
-            .signature = std::move(value->signature_),
-        };
       }
     }
 
@@ -276,22 +247,6 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
 
     if (state.candidate_and_cert.candidate.has_value()) {
       co_return true;
-    }
-
-    if (state.legacy_load_data) {
-      auto &load_data = *state.legacy_load_data;
-      auto r_candidate = co_await td::actor::ask(bus.manager, &ManagerFacade::load_block_candidate,
-                                                 load_data.leader_id.get_using(bus).key, load_data.block_id,
-                                                 load_data.collated_file_hash)
-                             .wrap();
-      state.legacy_load_data = std::nullopt;
-      if (r_candidate.is_error()) {
-        LOG(WARNING) << "Failed to load block candidate data from db: " << r_candidate.move_as_error();
-      } else {
-        state.candidate_and_cert.candidate = td::make_ref<Candidate>(
-            id, load_data.parent, load_data.leader_id, r_candidate.move_as_ok(), std::move(load_data.signature));
-        co_return true;
-      }
     }
 
     if (state.candidate_in_db) {
