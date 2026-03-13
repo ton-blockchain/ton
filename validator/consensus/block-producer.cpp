@@ -126,6 +126,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
         };
         auto block_candidate = co_await td::actor::ask(bus.manager, &ManagerFacade::collate_block, std::move(params),
                                                        cancellation_source_.get_cancellation_token());
+        td::actor::send_closure(bus.manager, &ManagerFacade::cache_block_candidate, block_candidate.candidate.clone());
 
         state = state->apply(block_candidate.candidate);
 

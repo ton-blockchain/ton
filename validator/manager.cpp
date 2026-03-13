@@ -1453,9 +1453,14 @@ void ValidatorManagerImpl::set_next_block(BlockIdExt block_id, BlockIdExt next, 
 }
 
 void ValidatorManagerImpl::set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
-                                               td::uint32 validator_set_hash, td::Promise<td::Unit> promise) {
+                                               td::uint32 validator_set_hash, bool cache_only,
+                                               td::Promise<td::Unit> promise) {
   if (!id.is_masterchain()) {
     add_cached_block_data(id, candidate.data.clone());
+  }
+  if (cache_only) {
+    promise.set_value(td::Unit{});
+    return;
   }
   LOG(INFO) << "Got candidate " << id.to_str() << " with " << candidate.out_msg_queue_proof_broadcasts.size()
             << " out msg queue proof broadcasts";

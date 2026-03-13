@@ -185,6 +185,9 @@ class TestOverlayNode : public td::actor::SpawnsWith<Bus>, public td::actor::Con
   void tear_down() override {
     td::actor::send_closure(test_overlay, &TestOverlay::unregister_node, owning_bus()->local_id.idx.value(),
                             instance_idx_);
+    for (auto &[_, query] : active_queries_) {
+      td::actor::send_closure(query, &Query::set_result, td::Status::Error(ErrorCode::cancelled, "cancelled"));
+    }
   }
 
   template <>
@@ -223,37 +226,19 @@ class TestOverlayNode : public td::actor::SpawnsWith<Bus>, public td::actor::Con
   template <>
   td::actor::Task<ProtocolMessage> process(BusHandle bus, std::shared_ptr<OutgoingOverlayRequest> message) {
     auto [task, promise] = td::actor::StartedTask<ProtocolMessage>::make_bridge();
-    auto promise_ptr = std::make_shared<td::Promise<ProtocolMessage>>(std::move(promise));
-    process_query_inner1(bus, message, promise_ptr).start().detach();
-    process_query_inner2(bus, message, promise_ptr).start().detach();
-    co_return co_await std::move(task);
-  }
-
-  td::actor::Task<> process_query_inner1(BusHandle bus, std::shared_ptr<OutgoingOverlayRequest> message,
-                                         std::shared_ptr<td::Promise<ProtocolMessage>> promise_ptr) {
-    if (message->timeout) {
-      co_await td::actor::coro_sleep(message->timeout);
-      if (*promise_ptr) {
-        promise_ptr->set_error(td::Status::Error(ErrorCode::timeout, "timeout"));
-      }
-    }
-    co_return {};
-  }
-
-  td::actor::Task<> process_query_inner2(BusHandle bus, std::shared_ptr<OutgoingOverlayRequest> message,
-                                         std::shared_ptr<td::Promise<ProtocolMessage>> promise_ptr) {
-    auto r_response = co_await td::actor::ask(test_overlay, &TestOverlay::send_query, bus->local_id, instance_idx_,
-                                              message->destination.value(), message->request.data.clone())
-                          .wrap();
-    if (r_response.is_ok() && *promise_ptr) {
-      td::BufferSlice response = r_response.move_as_ok();
-      if (fetch_tl_object<ton_api::consensus_requestError>(response, true).is_ok()) {
-        promise_ptr->set_error(td::Status::Error("Peer returned an error"));
-      } else {
-        promise_ptr->set_value(ProtocolMessage{std::move(response)});
-      }
-    }
-    co_return {};
+    auto query = td::actor::create_actor<Query>("q", std::move(promise), message->timeout).release();
+    size_t idx = next_query_idx_++;
+    active_queries_[idx] = query;
+    td::actor::send_closure(test_overlay, &TestOverlay::send_query, bus->local_id, instance_idx_,
+                            message->destination.value(), message->request.data.clone(),
+                            td::PromiseCreator::lambda([query](td::Result<td::BufferSlice> R) {
+                              if (R.is_ok()) {
+                                td::actor::send_closure(query, &Query::set_result, ProtocolMessage{R.move_as_ok()});
+                              }
+                            }));
+    auto result = co_await std::move(task).wrap();
+    active_queries_.erase(idx);
+    co_return result;
   }
 
   void receive_message(PeerValidator src, td::BufferSlice data) {
@@ -274,7 +259,33 @@ class TestOverlayNode : public td::actor::SpawnsWith<Bus>, public td::actor::Con
   }
 
  private:
+  class Query : public td::actor::Actor {
+   public:
+    Query(td::Promise<ProtocolMessage> promise, td::Timestamp timeout)
+        : promise_(std::move(promise)), timeout_(timeout) {
+    }
+
+    void start_up() override {
+      alarm_timestamp() = timeout_;
+    }
+
+    void set_result(td::Result<ProtocolMessage> R) {
+      promise_.set_result(std::move(R));
+      stop();
+    }
+
+    void alarm() override {
+      set_result(td::Status::Error(ErrorCode::timeout, "timeout"));
+    }
+
+   private:
+    td::Promise<ProtocolMessage> promise_;
+    td::Timestamp timeout_;
+  };
+
   size_t instance_idx_ = 0;
+  std::map<size_t, td::actor::ActorId<Query>> active_queries_;
+  size_t next_query_idx_ = 0;
 };
 
 td::actor::Task<> TestOverlay::send_message(PeerValidator src, size_t src_instance_idx, size_t dst_idx,
@@ -492,11 +503,6 @@ class TestDbImpl : public consensus::Db {
   }
   ~TestDbImpl() override = default;
 
-  void disable() {
-    std::scoped_lock lock(db_->mutex);
-    disabled_ = true;
-  }
-
   std::optional<td::BufferSlice> get(td::Slice key) const override {
     auto it = snapshot_.find(td::BufferSlice{key});
     if (it == snapshot_.end()) {
@@ -517,9 +523,6 @@ class TestDbImpl : public consensus::Db {
   td::actor::Task<> set(td::BufferSlice key, td::BufferSlice value) override {
     co_await td::actor::coro_sleep(td::Timestamp::in(td::Random::fast(DB_DELAY.first, DB_DELAY.second)));
     std::scoped_lock lock(db_->mutex);
-    if (disabled_) {
-      co_return td::Status::Error("db is disabled");
-    }
     db_->map[std::move(key)] = std::move(value);
     co_return {};
   }
@@ -527,7 +530,6 @@ class TestDbImpl : public consensus::Db {
  private:
   std::map<td::BufferSlice, td::BufferSlice> snapshot_;
   std::shared_ptr<DbInner> db_;
-  bool disabled_ = false;
 };
 
 class TestConsensus : public td::actor::Actor {
@@ -664,9 +666,25 @@ class TestConsensus : public td::actor::Actor {
       run_net_gremlin().start().detach();
     }
 
+    run_write_status().start().detach();
+
     co_await td::actor::coro_sleep(td::Timestamp::in(DURATION));
 
     co_return co_await finalize();
+  }
+
+  td::actor::Task<> run_write_status() {
+    while (!finishing_) {
+      std::string s;
+      for (auto &n : nodes_) {
+        for (auto &inst : n.instances) {
+          s += "-X"[inst.status == Instance::Running];
+        }
+      }
+      LOG(ERROR) << s;
+      co_await td::actor::coro_sleep(td::Timestamp::in(1.0));
+    }
+    co_return {};
   }
 
   void start_instance(size_t node_idx, size_t instance_idx) {
@@ -682,6 +700,7 @@ class TestConsensus : public td::actor::Actor {
     simplex::Consensus::register_in(runtime);
     simplex::Pool::register_in(runtime);
     simplex::StateResolver::register_in(runtime);
+    simplex::Db::register_in(runtime);
 
     inst.manager_facade = td::actor::create_actor<TestManagerFacade>(
         PSTRING() << "ManagerFacade." << node_idx << "." << instance_idx, node_idx, instance_idx, validator_set_,
@@ -709,7 +728,6 @@ class TestConsensus : public td::actor::Actor {
     bus->validator_set_hash = validator_set_->get_validator_set_hash();
     bus->populate_collator_schedule();
     bus->db = std::make_unique<TestDbImpl>(inst.db_inner);
-    bus->load_bootstrap_state();
     inst.bus = runtime.start(std::static_pointer_cast<simplex::Bus>(bus),
                              PSTRING() << "consensus." << node_idx << "." << instance_idx);
     inst.status = Instance::Running;
@@ -731,7 +749,6 @@ class TestConsensus : public td::actor::Actor {
     }
     LOG(ERROR) << "Stopping node #" << node_idx << "." << instance_idx;
     inst.bus.publish<StopRequested>();
-    dynamic_cast<TestDbImpl &>(*inst.bus->db).disable();
     inst.bus = {};
     inst.status = Instance::Stopping;
     co_await std::move(*inst.stop_waiter);

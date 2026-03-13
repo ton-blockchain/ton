@@ -43,7 +43,7 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
-  void start_up() {
+  void start_up() override {
     auto [awaiter, promise] = td::actor::StartedTask<StartEvent>::make_bridge();
     genesis_promise_ = std::move(promise);
     genesis_ = std::move(awaiter);
@@ -63,6 +63,10 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     } else {
       send_message(leader_, create_tl_object<tl::handshake>());
     }
+  }
+
+  void tear_down() override {
+    genesis_promise_.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
   }
 
   template <>

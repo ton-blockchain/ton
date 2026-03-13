@@ -61,7 +61,7 @@ struct ActorExecutor {
   template <class P>
   [[nodiscard]] std::coroutine_handle<> resume_or_schedule(std::coroutine_handle<P> cont) noexcept {
     if (actor_ref.empty()) {
-      return cont.promise().route_finish(td::Status::Error("Actor destroyed"));
+      return cont.promise().route_finish(td::Status::Error(/* ErrorCode::cancelled */ 653, "Actor destroyed"));
     }
     if (is_immediate_execution_allowed()) {
       return cont;
@@ -76,7 +76,7 @@ struct ActorExecutor {
   template <class P>
   [[nodiscard]] std::coroutine_handle<> execute_or_schedule(std::coroutine_handle<P> cont) noexcept {
     if (actor_ref.empty()) {
-      return cont.promise().route_finish(td::Status::Error("Actor destroyed"));
+      return cont.promise().route_finish(td::Status::Error(/* ErrorCode::cancelled */ 653, "Actor destroyed"));
     }
     if (is_immediate_execution_allowed()) {
       return cont;
@@ -186,7 +186,8 @@ struct Executor {
 template <class P>
 ActorMessageCoroutineSafe<P>::~ActorMessageCoroutineSafe() {
   if (continuation_) {
-    SchedulerExecutor{}.schedule(continuation_.promise().route_finish(td::Status::Error("Actor destroyed")));
+    SchedulerExecutor{}.schedule(
+        continuation_.promise().route_finish(td::Status::Error(/* ErrorCode::cancelled */ 653, "Actor destroyed")));
   }
 }
 

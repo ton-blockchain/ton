@@ -29,6 +29,8 @@ class ManagerFacade : public td::actor::Actor {
   virtual td::actor::Task<BlockCandidate> load_block_candidate(PublicKey source, BlockIdExt block_id,
                                                                FileHash collated_data_hash) = 0;
   virtual td::actor::Task<> store_block_candidate(BlockCandidate candidate) = 0;
+  virtual void cache_block_candidate(BlockCandidate candidate) {
+  }
 
   virtual void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data, int mode) {
   }
