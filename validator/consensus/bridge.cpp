@@ -77,20 +77,6 @@ class ManagerFacadeImpl : public ManagerFacade {
     co_return co_await td::actor::ask(manager_, &ValidatorManager::wait_block_data_short, block_id, 0, timeout);
   }
 
-  td::actor::Task<BlockCandidate> load_block_candidate(PublicKey source, BlockIdExt block_id,
-                                                       FileHash collated_data_hash) override {
-    co_return co_await td::actor::ask(manager_, &ValidatorManager::get_block_candidate_from_db, source, block_id,
-                                      collated_data_hash);
-  }
-
-  td::actor::Task<> store_block_candidate(BlockCandidate candidate) override {
-    candidate.out_msg_queue_proof_broadcasts = {};
-    BlockIdExt block_id = candidate.id;
-    co_return co_await td::actor::ask(manager_, &ValidatorManager::set_block_candidate, block_id, std::move(candidate),
-                                      validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
-                                      false);
-  }
-
   void cache_block_candidate(BlockCandidate candidate) override {
     td::actor::send_closure(manager_, &ValidatorManager::set_block_candidate, candidate.id, std::move(candidate),
                             validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
