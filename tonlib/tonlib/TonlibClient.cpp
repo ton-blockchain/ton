@@ -4783,8 +4783,10 @@ td::Result<vm::StackEntry> from_tonlib_api(tonlib_api::tvm_StackEntry& entry) {
               return TonlibError::EmptyField("slice");
             }
             TRY_RESULT(res, vm::std_boc_deserialize(cell.slice_->bytes_));
-            auto slice = vm::load_cell_slice_ref(std::move(res));
-            return vm::StackEntry{std::move(slice)};
+            return TRY_VM([&]() -> td::Result<vm::StackEntry> {
+              auto slice = vm::load_cell_slice_ref(std::move(res));
+              return vm::StackEntry{std::move(slice)};
+            }());
           },
           [&](tonlib_api::tvm_stackEntryCell& cell) -> td::Result<vm::StackEntry> {
             if (!cell.cell_) {
