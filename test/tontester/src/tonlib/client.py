@@ -1,10 +1,10 @@
 import asyncio
 import logging
 import traceback
-from pathlib import Path
 
 from tonapi import ton_api, tonlib_api
 
+from .tonlib_cdll import TonlibCDLL
 from .tonlibjson import TonLib
 
 logger = logging.getLogger(__name__)
@@ -15,13 +15,13 @@ class TonlibClient:
         self,
         ls_index: int,
         config: ton_api.Liteclient_config_global,
-        cdll_path: Path,
+        tonlib: TonlibCDLL,
         loop: asyncio.AbstractEventLoop | None = None,
         verbosity_level: int = 0,
     ):
         self.ls_index: int = ls_index
         self._config: ton_api.Liteclient_config_global = config
-        self._cdll_path: Path = cdll_path
+        self._tonlib: TonlibCDLL = tonlib
         self._loop: asyncio.AbstractEventLoop | None = loop
         self._verbosity_level: int = verbosity_level
         self._tonlib_wrapper: TonLib | None = None
@@ -40,7 +40,7 @@ class TonlibClient:
         self._tonlib_wrapper = TonLib(
             event_loop,
             self.ls_index,
-            self._cdll_path,
+            self._tonlib,
             self._verbosity_level,
         )
 
