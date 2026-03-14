@@ -9,7 +9,6 @@ from typing import cast
 
 import pytest
 from tonapi import ton_api
-from tonlib.tonlib_cdll import TonlibCDLL
 from tontester.install import Install
 
 from tl import JSONSerializable
@@ -66,7 +65,7 @@ def tonlib_client() -> TonlibClient:
 
     return TonlibClient(
         config=ton_api.Liteclient_config_global.from_dict(config),
-        tonlib=TonlibCDLL(install.tonlibjson),
+        tonlib=install.tonlibjson,
     )
 
 

@@ -1,9 +1,10 @@
-from functools import cache
 import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import final
+
+from tonlib import TonlibCDLL
 
 
 @final
@@ -11,6 +12,7 @@ class Install:
     def __init__(self, build_dir: Path, source_dir: Path):
         self._build_dir = build_dir.absolute()
         self._source_dir = source_dir.absolute()
+        self._tonlibjson = None
 
     @property
     def build_dir(self):
@@ -49,14 +51,16 @@ class Install:
 
     @property
     def tonlibjson(self):
-        if sys.platform.startswith("linux"):
-            name = "tonlib/libtonlibjson.so"
-        elif sys.platform == "darwin":
-            name = "tonlib/libtonlibjson.dylib"
-        else:
-            raise RuntimeError(f"Unsupported platform: {sys.platform}")
+        if self._tonlibjson is None:
+            if sys.platform.startswith("linux"):
+                name = "tonlib/libtonlibjson.so"
+            elif sys.platform == "darwin":
+                name = "tonlib/libtonlibjson.dylib"
+            else:
+                raise RuntimeError(f"Unsupported platform: {sys.platform}")
+            self._tonlibjson = TonlibCDLL(self.build_dir / name)
 
-        return self.build_dir / name
+        return self._tonlibjson
 
 
 def run_fift(install: Install, code: str, working_dir: Path):

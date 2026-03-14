@@ -14,7 +14,7 @@ from typing import Literal, final, override
 from tonapi import ton_api
 
 from tl import TLObject
-from tonlib import EngineConsoleClient, TonlibCDLL, TonlibClient, TonlibError, TonlibEventLoop
+from tonlib import EngineConsoleClient, TonlibClient, TonlibError, TonlibEventLoop
 
 from .install import Install
 from .key import Key
@@ -239,7 +239,7 @@ class Network:
         self._node_idx = 0
         self._status = _Status.INITED
 
-        self._tonlib = TonlibCDLL(install.tonlibjson)
+        self._tonlib = install.tonlibjson
         self._event_loop = TonlibEventLoop(self._tonlib, event_loop)
 
         self.__nodes: list[Network.Node] = []
