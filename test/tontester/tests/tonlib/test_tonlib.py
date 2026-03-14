@@ -65,9 +65,7 @@ def tonlib_client() -> TonlibClient:
     install = Install(repo_root / "build", repo_root)
 
     return TonlibClient(
-        verbosity_level=5,
         config=ton_api.Liteclient_config_global.from_dict(config),
-        ls_index=0,
         tonlib=TonlibCDLL(install.tonlibjson),
     )
 

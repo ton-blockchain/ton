@@ -50,16 +50,11 @@ class TonLib:
     def __init__(
         self,
         loop: asyncio.AbstractEventLoop,
-        ls_index: int,
         tonlib: TonlibCDLL,
-        verbosity_level: int = 0,
     ):
-        tonlib.client_set_verbosity_level(verbosity_level)
-
         self._request_id: int = 0
         self._futures: dict[str, asyncio.Future[JSONSerializable]] = {}
         self._loop: asyncio.AbstractEventLoop = loop
-        self._ls_index: int = ls_index
         self._tonlib: TonlibCDLL = tonlib
         self._state: _Status = _Status.NONE
 

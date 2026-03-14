@@ -1,3 +1,4 @@
+from functools import cache
 import os
 import subprocess
 import sys

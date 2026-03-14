@@ -539,12 +539,7 @@ class FullNode(Network.Node):
         if self._client:
             return self._client
 
-        self._client = TonlibClient(
-            ls_index=0,
-            config=self._liteserver_config,
-            tonlib=self._tonlib,
-            verbosity_level=3,
-        )
+        self._client = TonlibClient(self._liteserver_config, self._tonlib)
         await self._client.init()
 
         return self._client
