@@ -1,9 +1,6 @@
 [return-type]
 src:*/tl/generate/tl_writer_hpp.cpp
 
-[implicit-int-conversion]
-src:*/crypto/vm/boc.cpp
-
 [implicit-int-float-conversion]
 src:*/third-party/rocksdb/include/rocksdb/utilities/table_properties_collectors.h
 
