@@ -20,10 +20,9 @@ cmake --build build --target simulation -j$(nproc)
 
 | Флаг CMake | Назначение |
 |---|---|
-| `-DWITH_SIMULATION=ON` | Включает цель `ConsensusHarness` в `simulation/CMakeLists.txt` |
+| `-DWITH_SIMULATION=ON` | Включает цель `simulation/CMakeLists.txt` |
+| `-DGRAPH_LOGGING_ENABLED=1` | Компилирует `GraphLogger` в режиме записи |
 | `-DCMAKE_BUILD_TYPE=Debug` | Включает символы для lldb/gdb |
-
-> `GRAPH_LOGGING_ENABLED` — переменная окружения (не CMake-флаг); управляет записью в файл во время выполнения.
 
 ---
 

@@ -19,7 +19,7 @@
    - `nodeId` — UUID (по умолчанию) или детерминированный из `{sessionId, slot, validatorIdx, voteType}`.
    - `sessionId` — `bus.session_id` (изолирует прогон).
    - `slot` — номер слота Simplex-консенсуса.
-   - `tsMs` — `static_cast<int64_t>(td::Clocks::system() * 1000.0)` (wall-clock миллисекунды).
+   - `tsMs` — `td::Timestamp::now().at() * 1000` (миллисекунды).
    - `validator` — `PeerValidatorId::value()` (индекс в наборе валидаторов).
    - `voteType` — `notarize | finalize | skip`.
    - `candidateId` — хэш кандидата (из `CandidateId`).
