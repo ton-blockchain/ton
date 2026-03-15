@@ -1,3 +1,0 @@
-[1/2] Building CXX object simulation/CMakeFiles/simulation_graph_logger.dir/GraphLogger.cpp.obj
-[2/2] Linking CXX static library simulation\libsimulation_graph_logger.a
-NINJA_EXIT:0

@@ -12,8 +12,7 @@ add_library(simulation_graph_logger STATIC
 target_include_directories(simulation_graph_logger
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}          # for ton/ton-types.h
-    ${CMAKE_SOURCE_DIR}/crypto   # for common/refcnt.hpp (pulled in by bitstring.h)
+    ${CMAKE_SOURCE_DIR}    # for ton/ton-types.h and crypto/common/bitstring.h
     # td/utils/* comes transitively from linking tdutils (PUBLIC include)
 )
 
