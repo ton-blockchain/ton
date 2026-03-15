@@ -9,17 +9,21 @@ add_library(simulation_graph_logger STATIC
   GraphLogger.h
 )
 
+if (MSVC)
+  set_target_properties(simulation_graph_logger PROPERTIES
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+  )
+  target_compile_options(simulation_graph_logger PRIVATE /DTD_WINDOWS=1 /EHsc /bigobj)
+endif()
+
 target_include_directories(simulation_graph_logger
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}          # for ton/ton-types.h
-    ${CMAKE_SOURCE_DIR}/crypto   # for common/refcnt.hpp (pulled in by bitstring.h)
-    # td/utils/* comes transitively from linking tdutils (PUBLIC include)
 )
 
 target_link_libraries(simulation_graph_logger
   PUBLIC
-    tdutils   # hex_encode, Random, Slice
+    $<$<BOOL:${WIN32}>:bcrypt>
 )
 
 set_target_properties(simulation_graph_logger PROPERTIES
@@ -42,10 +46,14 @@ if(WITH_SIMULATION)
   target_link_libraries(ConsensusHarness
     PRIVATE
       simulation_graph_logger
-      tdutils
-      tdactor
-      validator        # pulls in consensus/ transitively
   )
+
+  if (MSVC)
+    set_target_properties(ConsensusHarness PROPERTIES
+      MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    )
+    target_compile_options(ConsensusHarness PRIVATE /DTD_WINDOWS=1 /EHsc /bigobj)
+  endif()
 
   set_target_properties(ConsensusHarness PROPERTIES
     CXX_STANDARD 20

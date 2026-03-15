@@ -7,10 +7,24 @@
 #include "GraphLogger.h"
 
 #include <cstdlib>
+#include <iomanip>
 #include <sstream>
 
-#include "td/utils/Random.h"
-#include "td/utils/misc.h"
+#ifdef _WIN32
+#  include <windows.h>
+#  include <bcrypt.h>
+#  pragma comment(lib, "bcrypt.lib")
+static void secure_random_bytes(uint8_t* buf, size_t len) {
+  BCryptGenRandom(nullptr, reinterpret_cast<PUCHAR>(buf),
+                  static_cast<ULONG>(len), BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+}
+#else
+#  include <fstream>
+static void secure_random_bytes(uint8_t* buf, size_t len) {
+  std::ifstream urandom("/dev/urandom", std::ios::binary);
+  urandom.read(reinterpret_cast<char*>(buf), static_cast<std::streamsize>(len));
+}
+#endif
 
 namespace ton::simulation {
 
@@ -18,17 +32,28 @@ namespace ton::simulation {
 // helpers
 // ---------------------------------------------------------------------------
 
-std::string bits256_to_hex(const td::Bits256& b) {
-  return td::hex_encode(b.as_slice());
+static std::string bytes_to_hex(const uint8_t* data, size_t len) {
+  static constexpr char hex[] = "0123456789abcdef";
+  std::string out;
+  out.reserve(len * 2);
+  for (size_t i = 0; i < len; ++i) {
+    out += hex[(data[i] >> 4) & 0xf];
+    out += hex[data[i] & 0xf];
+  }
+  return out;
+}
+
+std::string bits256_to_hex(const std::array<uint8_t, 32>& b) {
+  return bytes_to_hex(b.data(), b.size());
 }
 
 std::string make_node_id() {
   uint8_t buf[16];
-  td::Random::secure_bytes(buf, sizeof(buf));
+  secure_random_bytes(buf, sizeof(buf));
   // version 4, variant bits
-  buf[6] = (buf[6] & 0x0f) | 0x40;
-  buf[8] = (buf[8] & 0x3f) | 0x80;
-  return td::hex_encode(td::Slice(buf, sizeof(buf)));
+  buf[6] = static_cast<uint8_t>((buf[6] & 0x0f) | 0x40);
+  buf[8] = static_cast<uint8_t>((buf[8] & 0x3f) | 0x80);
+  return bytes_to_hex(buf, sizeof(buf));
 }
 
 namespace {

@@ -4,17 +4,28 @@
 
 #include "GraphLogger.h"
 #include <cstdio>
+#include <cstring>
 
-int main() {
-    simulation::GraphLogger::init("harness-session", "trace.ndjson");
+using namespace ton::simulation;
 
-    simulation::GraphEntry e;
-    e.node_id   = simulation::make_node_id();
-    e.type      = "HarnessStart";
-    e.ts_ms     = 0;
-    e.slot      = 0;
+int main(int argc, char* argv[]) {
+    const char* scenario = "equivocation";
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--scenario") == 0 && i + 1 < argc) {
+            scenario = argv[++i];
+        }
+    }
 
-    simulation::GraphLogger::emit(e);
-    std::printf("ConsensusHarness: trace written to trace.ndjson\n");
+    GraphLogger::instance().init("harness-session", "simulation/trace.ndjson");
+
+    GraphEntry e;
+    e.node_id  = make_node_id();
+    e.type     = "HarnessStart";
+    e.ts_ms    = 0;
+    e.slot     = 0;
+    e.outcome  = scenario;
+
+    GraphLogger::instance().emit(e);
+    std::printf("ConsensusHarness: scenario=%s, trace written to simulation/trace.ndjson\n", scenario);
     return 0;
 }

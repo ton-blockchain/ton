@@ -6,13 +6,12 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <fstream>
 #include <mutex>
 #include <optional>
 #include <string>
-
-#include "ton/ton-types.h"  // td::Bits256 = td::BitArray<256>
 
 namespace ton::simulation {
 
@@ -39,8 +38,8 @@ struct GraphEntry {
   std::optional<int64_t> edge_weight;        // for :cert / :accepted
 };
 
-// Formats a Bits256 value as a 64-character lowercase hex string.
-std::string bits256_to_hex(const td::Bits256& b);
+// Formats a 32-byte array as a 64-character lowercase hex string.
+std::string bits256_to_hex(const std::array<uint8_t, 32>& b);
 
 // Generates a random UUID v4 formatted as 32 lowercase hex chars (no dashes).
 std::string make_node_id();
