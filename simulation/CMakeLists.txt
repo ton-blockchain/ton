@@ -43,8 +43,7 @@ if(WITH_SIMULATION)
     PRIVATE
       simulation_graph_logger
       tdutils
-      tdactor
-      validator        # pulls in consensus/ transitively
+      # validator/tdactor added when full TON build is available
   )
 
   set_target_properties(ConsensusHarness PROPERTIES

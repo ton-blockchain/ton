@@ -1,60 +1,12 @@
--- Use openssl: C:/GitHub/tonGraph/build/third-party/openssl/lib/libcrypto.a
--- CMAKE_BUILD_TYPE is set to Debug
--- Could NOT find uring (missing: uring_LIBRARIES uring_INCLUDE_DIR) 
--- Enabling RTTI in all builds
--- ROCKSDB_PLUGINS: 
--- ROCKSDB PLUGINS TO BUILD 
--- JNI library is disabled
--- Could NOT find Libev (missing: LIBEV_LIBRARY LIBEV_INCLUDE_DIR) (Required is at least version "4.11")
--- summary of build options:
-
-    Package version: 1.18.0
-    Library version: 23:1:7
-    Install prefix:  C:/Program Files (x86)/TON
-    Target system:   Windows
-    Compiler:
-      Build type:     Debug
-      C compiler:     C:/msys64/ucrt64/bin/clang.exe
-      CFLAGS:         -g 
-      C++ compiler:   C:/msys64/ucrt64/bin/clang++.exe
-      CXXFLAGS:       -g 
-      WARNCFLAGS:       -Wextra -Wall -Wconversion -Winline -Wmissing-declarations -Wmissing-prototypes -Wnested-externs -Wpointer-arith -Wshadow -Wundef -Wwrite-strings -Waddress -Wattributes -Wcast-align -Wdeclaration-after-statement -Wdiv-by-zero -Wempty-body -Wendif-labels -Wfloat-equal -Wformat-nonliteral -Wformat-security -Wmissing-field-initializers -Wmissing-noreturn -Wno-format-nonliteral -Wredundant-decls -Wsign-conversion -Wstrict-prototypes -Wunreachable-code -Wunused-macros -Wunused-parameter -Wvla -Wshorten-64-to-32 -Wlanguage-extension-token -Wpragmas -Wunreachable-code-break -Wheader-guard -Wsometimes-uninitialized -Wmissing-variable-declarations
-      WARNCXXFLAGS:     -Wall -Wformat-security -Wno-extern-c-compat -Wsometimes-uninitialized -Wno-noexcept-type
-    Library:
-      Shared:         ON
-      Static:         ON
-    Test:
-      Build Test:     OFF
-    Libs:
-      OpenSSL:        TRUE (LIBS='C:/GitHub/tonGraph/build/third-party/openssl/lib/libssl.a;C:/GitHub/tonGraph/build/third-party/openssl/lib/libcrypto.a')
-      Libev:          FALSE (LIBS='')
-      Libnghttp3:     TRUE (LIBS='C:/msys64/ucrt64/lib/libnghttp3.dll.a')
-      GnuTLS:         FALSE (LIBS='')
-      BoringSSL:      FALSE (LIBS='')
-      Picotls:        FALSE (LIBS='')
-      wolfSSL:        FALSE (LIBS='')
-      Jemalloc:        (LIBS='')
-      Libbrotlienc:   TRUE (LIBS='C:/msys64/ucrt64/lib/libbrotlienc.dll.a')
-      Libbrotlidec:   TRUE (LIBS='C:/msys64/ucrt64/lib/libbrotlidec.dll.a')
-
--- Use Secp256k1: C:/GitHub/tonGraph/build/third-party/secp256k1/lib/libsecp256k1.a
--- Building libbacktrace from: C:/GitHub/tonGraph/third-party/libbacktrace
--- Using preconfigured zlib: C:/GitHub/tonGraph/build/third-party/zlib/lib/libz.a
--- Could NOT find ccache
--- Using zlib C:/GitHub/tonGraph/build/third-party/zlib/lib/libz.a
--- Could NOT find LATEX (missing: LATEX_COMPILER) 
--- Found ZLIB: C:/GitHub/tonGraph/build/third-party/zlib/include C:/GitHub/tonGraph/build/third-party/zlib/lib/libz.a
--- libbacktrace target not found, using basic backtrace
--- Found LZ4 C:/GitHub/tonGraph/build/third-party/lz4/lib/liblz4.a C:/GitHub/tonGraph/third-party/lz4/lib
--- Checking for module 'benchmark'
---   Package 'benchmark' not found
--- Google Benchmark not found via pkg-config - gbench-coro target disabled
--- Could NOT find Readline (missing: READLINE_INCLUDE_DIR READLINE_LIBRARY) 
--- Could NOT find Readline (this is NOT an error)
--- Using Sodium C:/GitHub/tonGraph/build/third-party/sodium/lib/libsodium.a
--- Could NOT find GSL (missing: GSL_INCLUDE_DIR GSL_LIBRARY GSL_CBLAS_LIBRARY) (found version "")
--- Could NOT find BLAS (missing: BLAS_LIBRARIES) 
--- Configuring done (0.7s)
--- Generating done (1.1s)
--- Build files have been written to: C:/GitHub/tonGraph/build
-CMAKE_EXIT:0
+-- The C compiler identification is Clang 21.1.8
+-- The CXX compiler identification is Clang 21.1.8
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: C:/msys64/ucrt64/bin/clang.exe - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/msys64/ucrt64/bin/clang++.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
