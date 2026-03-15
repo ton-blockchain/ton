@@ -1,12 +1,3 @@
-[unused-variable]
-src:*/crypto/block/precompiled-smc/PrecompiledSmartContract.cpp
-src:*/crypto/test/test-db.cpp
-src:*/crypto/test/test-smartcont.cpp
-src:*/crypto/tl/tlbc-gen-cpp.cpp
-src:*/crypto/vm/large-boc-serializer.cpp
-src:*/tdactor/td/actor/ActorStats.cpp
-src:*/validator/full-node-fast-sync-overlays.cpp
-
 [return-type]
 src:*/tl/generate/tl_writer_hpp.cpp
 

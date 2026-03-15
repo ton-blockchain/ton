@@ -2116,12 +2116,10 @@ TEST(TonDb, DynamicBocIncSimple) {
       return;
     }
     //LOG(ERROR) << "POP ROOT";
-    auto begin_stats = kv->get_usage_stats();
     auto cell = db->load_cell(queue.pop().as_slice()).move_as_ok();
     db->dec(cell);
     vm::CellStorer cell_storer(*kv);
     db->commit(cell_storer);
-    auto end_stats = kv->get_usage_stats();
     db->set_loader(std::make_unique<vm::CellLoader>(kv));
     //LOG(ERROR) << end_stats - begin_stats;
     //LOG(ERROR) << "CELLS IN DB: " << kv->count("").move_as_ok();
