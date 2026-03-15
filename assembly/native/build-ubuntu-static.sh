@@ -106,6 +106,9 @@ rm -f libemulator.a
 ranlib libemulator.a
 
 rm -f libtolk.a
+/usr/lib/llvm-16/bin/llvm-objcopy \
+  tolk/libtolkfiftlib.a \
+  libtolk.a
 
 cd ..
 
