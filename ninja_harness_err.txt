@@ -1,2 +1,0 @@
-ninja: error: 'third-party/zlib/lib/libz.a' missing and no known rule to make it
-ninja: error: 'third-party/zlib/lib/libz.a', needed by 'simulation/ConsensusHarness.exe', missing and no known rule to make it
