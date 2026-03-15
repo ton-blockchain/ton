@@ -61,6 +61,30 @@ find_first_existing() {
   return 1
 }
 
+query_static_link_archives() {
+  ninja -t query "$1" | awk '/^[[:space:]]+\| .*\.a$/ {print $2}' | sort -u
+}
+
+create_bundled_archive() {
+  local output="$1"
+  shift
+
+  rm -f "$output"
+  {
+    echo "create $output"
+    for archive in "$@"; do
+      if [ -f "$archive" ]; then
+        echo "addlib $archive"
+      fi
+    done
+    if [ -n "$sodium_static_lib" ]; then echo "addlib $sodium_static_lib"; fi
+    if [ -n "$zlib_static_lib" ]; then echo "addlib $zlib_static_lib"; fi
+    echo "save"
+    echo "end"
+  } | llvm-ar -M
+  ranlib "$output"
+}
+
 multiarch_triplet="$($CC -print-multiarch 2>/dev/null || true)"
 sodium_candidates=()
 zlib_candidates=()
@@ -87,28 +111,17 @@ test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 ninja emulator tolkfiftlib
 test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 
-emulator_deps=$(ninja -n -v emulator | tr ' ' '\n' | grep '\.a$' | sort -u)
+mapfile -t emulator_deps < <(query_static_link_archives test-emulator)
+mapfile -t tolk_deps < <(query_static_link_archives crypto/fift)
 
-rm -f libemulator.a
-{
-  echo "create libemulator.a"
-  echo "addlib emulator/libemulator_static.a"
-  echo "addlib emulator/libemulator.a"
-  for a in $emulator_deps; do
-    echo "addlib $a"
-  done
-  if [ -n "$sodium_static_lib" ]; then echo "addlib $sodium_static_lib"; fi
-  if [ -f "$OPENSSL_CRYPTO_A" ]; then echo "addlib $OPENSSL_CRYPTO_A"; fi
-  if [ -n "$zlib_static_lib" ]; then echo "addlib $zlib_static_lib"; fi
-  echo "save"
-  echo "end"
-} | llvm-ar -M
-ranlib libemulator.a
+create_bundled_archive libemulator.a "${emulator_deps[@]}"
 
-rm -f libtolk.a
+rm -f libtolk.a libtolkfiftlib-renamed.a
 /usr/lib/llvm-16/bin/llvm-objcopy \
   tolk/libtolkfiftlib.a \
-  libtolk.a
+  libtolkfiftlib-renamed.a
+create_bundled_archive libtolk.a libtolkfiftlib-renamed.a "${tolk_deps[@]}"
+rm -f libtolkfiftlib-renamed.a
 
 cd ..
 
