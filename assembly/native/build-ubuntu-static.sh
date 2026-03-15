@@ -51,6 +51,29 @@ else
   echo "Using compiled openssl_3"
 fi
 
+find_first_existing() {
+  for candidate in "$@"; do
+    if [ -f "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+multiarch_triplet="$($CC -print-multiarch 2>/dev/null || true)"
+sodium_candidates=()
+zlib_candidates=()
+if [ -n "$multiarch_triplet" ]; then
+  sodium_candidates+=("/usr/lib/${multiarch_triplet}/libsodium.a" "/lib/${multiarch_triplet}/libsodium.a")
+  zlib_candidates+=("/usr/lib/${multiarch_triplet}/libz.a" "/lib/${multiarch_triplet}/libz.a")
+fi
+sodium_candidates+=(/usr/lib/x86_64-linux-gnu/libsodium.a /usr/lib/aarch64-linux-gnu/libsodium.a /usr/local/lib/libsodium.a)
+zlib_candidates+=(/usr/lib/x86_64-linux-gnu/libz.a /usr/lib/aarch64-linux-gnu/libz.a /usr/lib/libz.a)
+
+sodium_static_lib="$(find_first_existing "${sodium_candidates[@]}" || true)"
+zlib_static_lib="$(find_first_existing "${zlib_candidates[@]}" || true)"
+
 cmake -GNinja -DTON_USE_JEMALLOC=ON .. \
 -DCMAKE_BUILD_TYPE=Release \
 -DOPENSSL_ROOT_DIR=$opensslPath \
@@ -74,19 +97,15 @@ rm -f libemulator.a
   for a in $emulator_deps; do
     echo "addlib $a"
   done
-  if [ -f /usr/lib/x86_64-linux-gnu/libsodium.a ]; then echo "addlib /usr/lib/x86_64-linux-gnu/libsodium.a"; fi
+  if [ -n "$sodium_static_lib" ]; then echo "addlib $sodium_static_lib"; fi
   if [ -f "$OPENSSL_CRYPTO_A" ]; then echo "addlib $OPENSSL_CRYPTO_A"; fi
-  if [ -f /usr/lib/x86_64-linux-gnu/libz.a ]; then echo "addlib /usr/lib/x86_64-linux-gnu/libz.a"; fi
+  if [ -n "$zlib_static_lib" ]; then echo "addlib $zlib_static_lib"; fi
   echo "save"
   echo "end"
 } | llvm-ar -M
 ranlib libemulator.a
 
 rm -f libtolk.a
-/usr/lib/llvm-16/bin/llvm-objcopy \
-  --redefine-sym version=tolk_version \
-  tolk/libtolkfiftlib.a \
-  libtolk.a
 
 cd ..
 
