@@ -30,13 +30,13 @@ td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, td::Ed2
 }
 
 QuicServer::QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::BufferSlice alpn,
-                       std::unique_ptr<Callback> callback, Options options, std::optional<size_t> flood_control)
+                       std::unique_ptr<Callback> callback, Options options)
     : fd_(std::move(fd))
     , alpn_(std::move(alpn))
     , server_key_(std::move(server_key))
     , gso_enabled_(options.enable_gso && td::UdpSocketFd::is_gso_supported())
     , cc_algo_(options.cc_algo)
-    , flood_control_(std::move(flood_control))
+    , flood_control_(options.flood_control)
     , callback_(std::move(callback)) {
   if (options.enable_gro) {
     auto gro_status = fd_.enable_gro();
@@ -93,6 +93,106 @@ void QuicServer::on_connection_updated(ConnectionState &state) {
   }
 
   yield();
+}
+
+void QuicServer::bind_cid(const QuicConnectionId &primary_cid, const QuicConnectionId &cid) {
+  auto connection = find_connection(primary_cid);
+  LOG_CHECK(connection) << "Can't bind CID for unknown primary cid " << primary_cid;
+  LOG_CHECK(!cid_to_primary_cid_.contains(cid)) << "CID collision while binding " << cid << " to " << primary_cid;
+
+  auto [_, routed_inserted] = connection->routed_cids.insert(cid);
+  LOG_CHECK(routed_inserted) << "Duplicate routed CID " << cid << " for primary " << primary_cid;
+
+  auto [__, mapping_inserted] = cid_to_primary_cid_.emplace(cid, primary_cid);
+  LOG_CHECK(mapping_inserted) << "Failed to insert CID mapping " << cid << " -> " << primary_cid;
+}
+
+void QuicServer::unbind_cid(const QuicConnectionId &primary_cid, const QuicConnectionId &cid) {
+  auto connection = find_connection(primary_cid);
+  LOG_CHECK(connection) << "Can't unbind CID for unknown primary cid " << primary_cid;
+
+  auto it = cid_to_primary_cid_.find(cid);
+  LOG_CHECK(it != cid_to_primary_cid_.end()) << "Missing CID mapping for " << cid;
+  LOG_CHECK(it->second == primary_cid) << "CID " << cid << " is mapped to " << it->second << ", not " << primary_cid;
+
+  auto erased = connection->routed_cids.erase(cid);
+  LOG_CHECK(erased == 1) << "Missing routed CID " << cid << " for primary " << primary_cid;
+  cid_to_primary_cid_.erase(it);
+}
+
+void QuicServer::unbind_all_cids(ConnectionState &state) {
+  if (state.bootstrap_routed_cid.has_value()) {
+    auto bootstrap_it = bootstrap_routes_.find(
+        BootstrapRouteKey{.remote_address = state.remote_address, .routed_cid = *state.bootstrap_routed_cid});
+    LOG_CHECK(bootstrap_it != bootstrap_routes_.end())
+        << "Missing bootstrap route " << *state.bootstrap_routed_cid << " from " << state.remote_address;
+    LOG_CHECK(bootstrap_it->second == state.cid)
+        << "Bootstrap route " << *state.bootstrap_routed_cid << " from " << state.remote_address << " is mapped to "
+        << bootstrap_it->second << ", not " << state.cid;
+    bootstrap_routes_.erase(bootstrap_it);
+  }
+  for (const auto &cid : state.routed_cids) {
+    auto it = cid_to_primary_cid_.find(cid);
+    LOG_CHECK(it != cid_to_primary_cid_.end()) << "Missing CID mapping for " << cid;
+    LOG_CHECK(it->second == state.cid) << "CID " << cid << " is mapped to " << it->second << ", not " << state.cid;
+    cid_to_primary_cid_.erase(it);
+  }
+  state.routed_cids.clear();
+}
+
+td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::install_connection(
+    std::unique_ptr<QuicConnectionPImpl> p_impl, const td::IPAddress &remote_address, bool is_outbound,
+    std::optional<QuicConnectionId> bootstrap_routed_cid) {
+  TRY_RESULT(initial_cid_state, p_impl->take_initial_cid_state());
+
+  auto state = std::make_shared<ConnectionState>(ConnectionState{
+      .impl_ = std::move(p_impl),
+      .remote_address = remote_address,
+      .cid = initial_cid_state.primary_scid,
+      .bootstrap_routed_cid = {},
+      .routed_cids = {},
+      .is_outbound = is_outbound,
+  });
+  LOG(INFO) << "creating " << *state;
+
+  auto [_, inserted] = connections_.emplace(state->cid, state);
+  LOG_CHECK(inserted) << "Duplicate primary CID " << state->cid;
+
+  if (bootstrap_routed_cid.has_value()) {
+    auto [__, bootstrap_inserted] = bootstrap_routes_.emplace(
+        BootstrapRouteKey{.remote_address = remote_address, .routed_cid = *bootstrap_routed_cid}, state->cid);
+    LOG_CHECK(bootstrap_inserted) << "Duplicate bootstrap route " << *bootstrap_routed_cid << " from "
+                                  << remote_address;
+    state->bootstrap_routed_cid = bootstrap_routed_cid;
+  }
+
+  std::set<QuicConnectionId> startup_cids;
+  startup_cids.insert(state->cid);
+  for (const auto &local_cid : initial_cid_state.scids) {
+    startup_cids.insert(local_cid);
+  }
+
+  for (const auto &cid : startup_cids) {
+    bind_cid(state->cid, cid);
+  }
+
+  return state;
+}
+
+void QuicServer::on_local_cid_issued(const QuicConnectionId &primary_cid, const QuicConnectionId &cid) {
+  bind_cid(primary_cid, cid);
+}
+
+void QuicServer::on_local_cid_retired(const QuicConnectionId &primary_cid, const QuicConnectionId &cid) {
+  unbind_cid(primary_cid, cid);
+}
+
+bool QuicServer::is_first_packet_for_new_connection(td::Slice datagram) const {
+  if (datagram.empty()) {
+    return false;
+  }
+  ngtcp2_pkt_hd hd;
+  return ngtcp2_accept(&hd, reinterpret_cast<const uint8_t *>(datagram.data()), datagram.size()) == 0;
 }
 
 std::shared_ptr<QuicServer::ConnectionState> QuicServer::find_connection(const QuicConnectionId &cid) {
@@ -160,9 +260,7 @@ void QuicServer::close(QuicConnectionId cid) {
   }
   auto state = it->second;
   LOG(INFO) << "Close connection: " << *state;
-  if (state->temp_cid) {
-    to_primary_cid_.erase(*state->temp_cid);
-  }
+  unbind_all_cids(*state);
   if (state->in_heap()) {
     timeout_heap_.erase(state.get());
   }
@@ -245,12 +343,18 @@ void QuicServer::notify() {
 
 class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
  public:
-  explicit PImplCallback(QuicServer::Callback &callback, bool is_outbound)
-      : callback_(callback), is_outbound_(is_outbound) {
+  explicit PImplCallback(QuicServer &server, bool is_outbound)
+      : server_(server), callback_(*server.callback_), is_outbound_(is_outbound) {
   }
 
   void set_connection_id(QuicConnectionId cid) override {
     cid_ = cid;
+  }
+  void on_local_cid_issued(QuicConnectionId cid) override {
+    server_.on_local_cid_issued(cid_, cid);
+  }
+  void on_local_cid_retired(QuicConnectionId cid) override {
+    server_.on_local_cid_retired(cid_, cid);
   }
 
   void on_handshake_completed(HandshakeCompletedEvent event) override {
@@ -265,6 +369,7 @@ class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
   }
 
  private:
+  QuicServer &server_;
   QuicServer::Callback &callback_;
   QuicConnectionId cid_;
   bool is_outbound_;
@@ -274,13 +379,22 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
     const UdpMessageBuffer &msg_in) {
   TRY_RESULT(vc, VersionCid::from_datagram(td::Slice(msg_in.storage)));
 
-  auto primary_cid = vc.dcid;
-  if (auto it = to_primary_cid_.find(primary_cid); it != to_primary_cid_.end()) {
-    primary_cid = it->second;
+  if (auto it = cid_to_primary_cid_.find(vc.dcid); it != cid_to_primary_cid_.end()) {
+    auto connection = find_connection(it->second);
+    LOG_CHECK(connection) << "Found stale CID mapping " << vc.dcid << " -> " << it->second;
+    return connection;
   }
 
-  if (auto connection = find_connection(primary_cid)) {
+  auto bootstrap_key = BootstrapRouteKey{.remote_address = msg_in.address, .routed_cid = vc.dcid};
+  if (auto it = bootstrap_routes_.find(bootstrap_key); it != bootstrap_routes_.end()) {
+    auto connection = find_connection(it->second);
+    LOG_CHECK(connection) << "Found stale bootstrap route " << vc.dcid << " from " << msg_in.address << " -> "
+                          << it->second;
     return connection;
+  }
+
+  if (!is_first_packet_for_new_connection(td::Slice(msg_in.storage))) {
+    return td::Status::Error("unknown cid for non-initial packet");
   }
 
   auto flood_addr = msg_in.address.get_ip_host();
@@ -293,26 +407,10 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
 
   QuicConnectionOptions conn_options;
   conn_options.cc_algo = cc_algo_;
+  auto pimpl_callback = std::make_unique<PImplCallback>(*this, false);
   TRY_RESULT(p_impl, QuicConnectionPImpl::create_server(local_address, msg_in.address, server_key_, alpn_.as_slice(),
-                                                        vc, std::make_unique<PImplCallback>(*this->callback_, false),
-                                                        conn_options));
-
-  QuicConnectionId cid = p_impl->get_primary_scid();
-  QuicConnectionId temp_cid = vc.dcid;
-
-  auto state = std::make_shared<ConnectionState>(ConnectionState{
-      .impl_ = std::move(p_impl),
-      .remote_address = msg_in.address,
-      .cid = cid,
-      .temp_cid = temp_cid,
-      .is_outbound = false,
-  });
-  LOG(INFO) << "creating " << *state;
-
-  // Store by BOTH current temporary dcid and cid we just generated for the server
-  connections_[state->cid] = state;
-  to_primary_cid_[*state->temp_cid] = state->cid;
-  // TODO: remove by both cids
+                                                        vc, std::move(pimpl_callback), conn_options));
+  TRY_RESULT(state, install_connection(std::move(p_impl), msg_in.address, false, vc.dcid));
 
   if (flood_control_.has_value()) {
     flood_map_[flood_addr]++;
@@ -334,28 +432,17 @@ td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::E
 
   QuicConnectionOptions conn_options;
   conn_options.cc_algo = cc_algo_;
-  TRY_RESULT(p_impl,
-             QuicConnectionPImpl::create_client(local_address, remote_address, std::move(client_key), alpn,
-                                                std::make_unique<PImplCallback>(*this->callback_, true), conn_options));
-  QuicConnectionId cid = p_impl->get_primary_scid();
-
-  auto state = std::make_shared<ConnectionState>(ConnectionState{
-      .impl_ = std::move(p_impl),
-      .remote_address = remote_address,
-      .cid = cid,
-      .temp_cid = {},
-      .is_outbound = true,
-  });
-  LOG(INFO) << "creating " << *state;
-
-  connections_[cid] = state;
+  auto pimpl_callback = std::make_unique<PImplCallback>(*this, true);
+  TRY_RESULT(p_impl, QuicConnectionPImpl::create_client(local_address, remote_address, std::move(client_key), alpn,
+                                                        std::move(pimpl_callback), conn_options));
+  TRY_RESULT(state, install_connection(std::move(p_impl), remote_address, true, std::nullopt));
 
   if (flood_control_.has_value()) {
     flood_map_[flood_addr]++;
   }
 
   on_connection_updated(*state);
-  return QuicConnectionId(cid);
+  return QuicConnectionId(state->cid);
 }
 
 void QuicServer::drain_ingress() {
@@ -412,7 +499,7 @@ void QuicServer::drain_ingress() {
         sb << "/c" << packet_conn_idx[i];
       }
       sb << "]";
-      LOG(INFO) << sb.as_cslice();
+      LOG(DEBUG) << sb.as_cslice();
     }
 
     for (size_t i = 0; i < cnt; i++) {
@@ -585,7 +672,7 @@ void QuicServer::flush_egress() {
         sb << "/c" << packet_conn_idx[i] << "/s" << egress_batch_owners_[i]->impl().get_last_packet_streams();
       }
       sb << "] active/total=" << active_count << "/" << total_count;
-      LOG(INFO) << sb.as_cslice();
+      LOG(DEBUG) << sb.as_cslice();
     }
 
     // Set pending and try to flush

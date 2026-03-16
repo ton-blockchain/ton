@@ -36,6 +36,9 @@ class QuicHttpServer : public td::actor::Actor {
       td::actor::send_closure(server_, &QuicHttpServer::on_closed, cid);
     }
 
+    void on_stream_closed(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid) override {
+    }
+
    private:
     td::actor::ActorId<QuicHttpServer> server_;
   };

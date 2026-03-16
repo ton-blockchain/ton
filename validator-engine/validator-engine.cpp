@@ -2158,6 +2158,7 @@ void ValidatorEngine::start_rldp() {
   CHECK(!peer_table.empty());
   CHECK(!keyring_.empty());
   quic_ = td::actor::create_actor<ton::quic::QuicSender>("QuicSender", peer_table, keyring_.get());
+  td::actor::send_closure(quic_.get(), &ton::quic::QuicSender::set_quic_options, quic_options_);
   td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::register_collector<ton::quic::QuicSender>,
                           quic_.get());
   td::actor::send_closure(rldp_, &ton::rldp::Rldp::set_default_mtu, 2048);
@@ -5621,6 +5622,15 @@ int main(int argc, char *argv[]) {
     acts.push_back([&x, addr] { td::actor::send_closure(x, &ValidatorEngine::export_metrics, addr); });
     return td::Status::OK();
   });
+  p.add_checked_option(
+      '\0', "quic-flood-control", "per-IP limit for QUIC connections (-1 to disable)", [&](td::Slice arg) {
+        TRY_RESULT(l, td::to_integer_safe<int64_t>(arg));
+        acts.push_back([&, l = l >= 0 ? std::optional<size_t>{l} : std::optional<size_t>{std::nullopt}] {
+          td::actor::send_closure(x, &ValidatorEngine::set_quic_options,
+                                  ton::quic::QuicServer::Options{.flood_control = l});
+        });
+        return td::Status::OK();
+      });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();

@@ -39,7 +39,7 @@ td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_cli
   TRY_STATUS(p_impl->init_tls_client_rpk(client_key, alpn));
   TRY_STATUS(p_impl->init_quic_client());
 
-  p_impl->callback_->set_connection_id(p_impl->get_primary_scid());
+  p_impl->callback_->set_connection_id(p_impl->primary_scid_);
 
   return std::move(p_impl);
 }
@@ -53,7 +53,7 @@ td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_ser
   TRY_STATUS(p_impl->init_tls_server_rpk(server_key, alpn));
   TRY_STATUS(p_impl->init_quic_server(vc));
 
-  p_impl->callback_->set_connection_id(p_impl->get_primary_scid());
+  p_impl->callback_->set_connection_id(p_impl->primary_scid_);
 
   return std::move(p_impl);
 }
@@ -154,7 +154,9 @@ void QuicConnectionPImpl::setup_settings_and_params(ngtcp2_settings& settings, n
   settings.max_stream_window = options.max_stream_window;
 
   static constexpr ngtcp2_cc_algo CC_ALGO_MAP[] = {NGTCP2_CC_ALGO_CUBIC, NGTCP2_CC_ALGO_RENO, NGTCP2_CC_ALGO_BBR};
-  settings.cc_algo = CC_ALGO_MAP[static_cast<int>(options.cc_algo)];
+  auto cc_alg_id = static_cast<size_t>(options.cc_algo);
+  CHECK(cc_alg_id < std::size(CC_ALGO_MAP));
+  settings.cc_algo = CC_ALGO_MAP[cc_alg_id];
 
   ngtcp2_transport_params_default(&params);
   params.max_idle_timeout = options.idle_timeout;
@@ -183,6 +185,7 @@ void QuicConnectionPImpl::setup_ngtcp2_callbacks(ngtcp2_callbacks& callbacks, bo
 
   callbacks.rand = rand_cb;
   callbacks.get_new_connection_id = get_new_connection_id_cb;
+  callbacks.remove_connection_id = remove_connection_id_cb;
   callbacks.handshake_completed = handshake_completed_cb;
   callbacks.recv_stream_data = recv_stream_data_cb;
   callbacks.acked_stream_data_offset = acked_stream_data_offset_cb;
@@ -301,18 +304,23 @@ void QuicConnectionPImpl::try_enqueue_stream(QuicStreamID sid) {
 }
 
 ngtcp2_path QuicConnectionPImpl::make_path() const {
+  return make_path(remote_address_);
+}
+
+ngtcp2_path QuicConnectionPImpl::make_path(const td::IPAddress& remote) const {
   return {
       .local = {.addr = const_cast<ngtcp2_sockaddr*>(local_address_.get_sockaddr()),
                 .addrlen = static_cast<ngtcp2_socklen>(local_address_.get_sockaddr_len())},
-      .remote = {.addr = const_cast<ngtcp2_sockaddr*>(remote_address_.get_sockaddr()),
-                 .addrlen = static_cast<ngtcp2_socklen>(remote_address_.get_sockaddr_len())},
+      .remote = {.addr = const_cast<ngtcp2_sockaddr*>(remote.get_sockaddr()),
+                 .addrlen = static_cast<ngtcp2_socklen>(remote.get_sockaddr_len())},
       .user_data = nullptr,
   };
 }
 
-void QuicConnectionPImpl::commit_write(UdpMessageBuffer& msg_out, size_t n_write, size_t gso_size) {
+void QuicConnectionPImpl::commit_write(UdpMessageBuffer& msg_out, size_t n_write, size_t gso_size,
+                                       const ngtcp2_path& path) {
   msg_out.storage.truncate(n_write);
-  msg_out.address = remote_address_;
+  msg_out.address.init_sockaddr(reinterpret_cast<sockaddr*>(path.remote.addr), path.remote.addrlen).ignore();
   msg_out.gso_size = gso_size;
 }
 
@@ -460,13 +468,13 @@ td::Status QuicConnectionPImpl::produce_egress(UdpMessageBuffer& msg_out, bool u
   }
 
   ngtcp2_conn_update_pkt_tx_time(conn(), ts);
-  commit_write(msg_out, static_cast<size_t>(n_write), gso_size);
+  commit_write(msg_out, static_cast<size_t>(n_write), gso_size, path);
 
   return td::Status::OK();
 }
 
 td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in) {
-  ngtcp2_path path = make_path();
+  ngtcp2_path path = make_path(msg_in.address);
   ngtcp2_pkt_info pi{};
   int rv = ngtcp2_conn_read_pkt(conn(), &path, &pi, reinterpret_cast<uint8_t*>(msg_in.storage.data()),
                                 msg_in.storage.size(), now_ts());
@@ -474,7 +482,8 @@ td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in) {
     return td::Status::OK();
   }
   if (rv == NGTCP2_ERR_DROP_CONN || ngtcp2_err_is_fatal(rv)) {
-    return td::Status::Error(PSTRING() << "ngtcp2_conn_read_pkt failed: " << rv);
+    return td::Status::Error(PSTRING() << "ngtcp2_conn_read_pkt failed: " << rv
+                                       << " tls_alert=" << (int)ngtcp2_conn_get_tls_alert(conn()));
   }
   return td::Status::OK();
 }
@@ -485,8 +494,27 @@ ngtcp2_conn_info QuicConnectionPImpl::get_conn_info() const {
   return info;
 }
 
-QuicConnectionId QuicConnectionPImpl::get_primary_scid() const {
-  return primary_scid_;
+td::Result<QuicConnectionPImpl::InitialCidState> QuicConnectionPImpl::take_initial_cid_state() {
+  LOG_CHECK(!local_cid_callbacks_enabled_) << "Initial CID state already taken";
+
+  td::vector<QuicConnectionId> scids;
+  auto num_scids = ngtcp2_conn_get_scid(conn(), nullptr);
+  if (num_scids == 0) {
+    local_cid_callbacks_enabled_ = true;
+    return InitialCidState{.primary_scid = primary_scid_, .scids = {}};
+  }
+
+  std::vector<ngtcp2_cid> scids_raw(num_scids);
+  CHECK(ngtcp2_conn_get_scid(conn(), scids_raw.data()) == num_scids);
+
+  scids.reserve(scids_raw.size());
+  for (const auto& scid : scids_raw) {
+    TRY_RESULT(cid, QuicConnectionId::from_raw(scid.data, scid.datalen));
+    scids.push_back(cid);
+  }
+
+  local_cid_callbacks_enabled_ = true;
+  return InitialCidState{.primary_scid = primary_scid_, .scids = std::move(scids)};
 }
 
 void QuicConnectionPImpl::shutdown_stream(QuicStreamID sid) {
@@ -656,15 +684,41 @@ int QuicConnectionPImpl::on_extend_max_stream_data(QuicStreamID sid) {
   return 0;
 }
 
+int QuicConnectionPImpl::on_get_new_connection_id(ngtcp2_cid* cid, uint8_t* token, size_t cidlen) {
+  QuicConnectionId new_cid = QuicConnectionId::random(cidlen);
+  *cid = QuicConnectionIdAccess::to_ngtcp2(new_cid);
+  if (local_cid_callbacks_enabled_) {
+    callback_->on_local_cid_issued(new_cid);
+  }
+  td::Random::secure_bytes(td::MutableSlice(token, NGTCP2_STATELESS_RESET_TOKENLEN));
+  return 0;
+}
+
+int QuicConnectionPImpl::on_remove_connection_id(const ngtcp2_cid* cid) {
+  auto cid_r = QuicConnectionId::from_raw(cid->data, cid->datalen);
+  if (cid_r.is_error()) {
+    LOG(ERROR) << "remove_connection_id received invalid cid";
+    return NGTCP2_ERR_CALLBACK_FAILURE;
+  }
+  if (local_cid_callbacks_enabled_) {
+    callback_->on_local_cid_retired(cid_r.move_as_ok());
+  }
+  return 0;
+}
+
 void QuicConnectionPImpl::rand_cb(uint8_t* dest, size_t destlen, const ngtcp2_rand_ctx* rand_ctx) {
   td::Random::secure_bytes(td::MutableSlice(dest, destlen));
 }
 
-int QuicConnectionPImpl::get_new_connection_id_cb(ngtcp2_conn* conn, ngtcp2_cid* cid, uint8_t* token, size_t cidlen,
+int QuicConnectionPImpl::get_new_connection_id_cb(ngtcp2_conn* /*conn*/, ngtcp2_cid* cid, uint8_t* token, size_t cidlen,
                                                   void* user_data) {
-  *cid = QuicConnectionIdAccess::to_ngtcp2(QuicConnectionId::random(cidlen));
-  td::Random::secure_bytes(td::MutableSlice(token, NGTCP2_STATELESS_RESET_TOKENLEN));
-  return 0;
+  auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
+  return pimpl->on_get_new_connection_id(cid, token, cidlen);
+}
+
+int QuicConnectionPImpl::remove_connection_id_cb(ngtcp2_conn* /*conn*/, const ngtcp2_cid* cid, void* user_data) {
+  auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
+  return pimpl->on_remove_connection_id(cid);
 }
 
 int QuicConnectionPImpl::handshake_completed_cb(ngtcp2_conn* conn, void* user_data) {

@@ -408,7 +408,7 @@ class ValidatorManagerImpl : public ValidatorManager {
                                    td::Promise<td::Ref<block::BlockSignatureSet>> promise) override;
 
   void set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
-                           td::uint32 validator_set_hash, td::Promise<td::Unit> promise) override;
+                           td::uint32 validator_set_hash, bool cache_only, td::Promise<td::Unit> promise) override;
   void send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                       td::BufferSlice data, int mode) override;
 

@@ -29,7 +29,7 @@ class QuicSender : public adnl::AdnlSenderEx, public virtual metrics::AsyncColle
   void get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id,
                        td::Promise<td::string> promise) override;
 
-  void set_udp_offload_options(QuicServer::Options options);
+  void set_quic_options(QuicServer::Options options);
   void add_id(adnl::AdnlNodeIdShort local_id) override;
   void log_stats(std::string reason = "stats");
 
@@ -72,8 +72,6 @@ class QuicSender : public adnl::AdnlSenderEx, public virtual metrics::AsyncColle
 
   static constexpr int NODE_PORT_OFFSET = 1000;
 
-  static constexpr size_t DEFAULT_STREAM_SIZE_LIMIT = 1 * 1024 * 1024;  // 1 MiB
-
   td::actor::ActorId<adnl::AdnlPeerTable> adnl_;
   td::actor::ActorId<keyring::Keyring> keyring_;
   QuicServer::Options server_options_;
@@ -106,6 +104,7 @@ class QuicSender : public adnl::AdnlSenderEx, public virtual metrics::AsyncColle
   void on_connected(td::actor::ActorId<QuicServer> server, QuicConnectionId cid, adnl::AdnlNodeIdShort local_id,
                     td::SecureString peer_public_key, bool is_outbound);
   void on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id, td::Result<td::BufferSlice> data);
+  void on_stream_closed(QuicConnectionId cid, QuicStreamID stream_id);
   void on_closed(QuicConnectionId cid);
 
   void on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id, ton_api::quic_query& query);

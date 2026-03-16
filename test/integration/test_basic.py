@@ -14,6 +14,7 @@ async def main():
     working_dir.mkdir(exist_ok=True)
 
     install = Install(repo_root / "build", repo_root)
+    install.tonlibjson.client_set_verbosity_level(3)
 
     logging.basicConfig(
         level=logging.INFO,

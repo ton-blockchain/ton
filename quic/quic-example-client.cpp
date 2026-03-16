@@ -24,20 +24,22 @@ class QuicTester : public td::actor::Actor {
 
     td::Status on_stream(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid, td::BufferSlice data,
                          bool is_end) override {
-      std::cout.flush();
+      LOG(INFO) << "received " << data.size() << " bytes on stream " << sid;
       std::cout.write(data.data(), static_cast<std::streamsize>(data.size()));
       std::cout.flush();
 
       if (is_end) {
-        LOG(INFO) << "stream ended";
-        std::exit(0);
+        LOG(INFO) << "stream " << sid << " ended";
+        td::actor::send_closure(tester_, &QuicTester::on_response_complete);
       }
       return td::Status::OK();
     }
 
     void on_closed(ton::quic::QuicConnectionId cid) override {
-      LOG(INFO) << "connection closed";
-      std::exit(0);
+      td::actor::send_closure(tester_, &QuicTester::on_closed, cid);
+    }
+
+    void on_stream_closed(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid) override {
     }
 
    private:
@@ -73,27 +75,31 @@ class QuicTester : public td::actor::Actor {
     }
 
     send_closure(server_, &ton::quic::QuicServer::connect, host_.as_slice(), port_, client_key_copy_r.move_as_ok(),
-                 alpn_.as_slice(), [](auto R) {
-                   if (R.is_error()) {
-                     LOG(ERROR) << "connection failed: " << R.error();
-                     std::exit(1);
-                   }
-                 });
+                 alpn_.as_slice());
   }
 
   void on_connected(ton::quic::QuicConnectionId cid) {
-    td::actor::send_closure(
-        server_.get(), &ton::quic::QuicServer::open_stream, cid,
-        td::PromiseCreator::lambda([server = server_.get(), cid](td::Result<ton::quic::QuicStreamID> R) {
-          if (R.is_error()) {
-            LOG(ERROR) << "open_stream failed: " << R.error();
-            std::exit(1);
-          }
-          auto sid = R.move_as_ok();
-          td::actor::send_closure(server, &ton::quic::QuicServer::send_stream_data, cid, sid,
-                                  td::BufferSlice("GET /\r\n"));
-          td::actor::send_closure(server, &ton::quic::QuicServer::send_stream_end, cid, sid);
-        }));
+    LOG(INFO) << "sending request";
+    send_closure(server_, &ton::quic::QuicServer::send_stream, cid,
+                 std::variant<ton::quic::QuicStreamID, ton::quic::StreamOptions>{ton::quic::StreamOptions{}},
+                 td::BufferSlice("GET /\r\n"), true);
+  }
+
+  void on_closed(ton::quic::QuicConnectionId cid) {
+    if (response_complete_) {
+      return;
+    }
+    LOG(ERROR) << "connection " << cid << " closed before response completed";
+    std::exit(1);
+  }
+
+  void on_response_complete() {
+    if (response_complete_) {
+      return;
+    }
+    response_complete_ = true;
+    LOG(INFO) << "test passed";
+    std::exit(0);
   }
 
  private:
@@ -103,6 +109,7 @@ class QuicTester : public td::actor::Actor {
   int local_port_;
   td::Ed25519::PrivateKey client_key_;
 
+  bool response_complete_{false};
   td::actor::ActorOwn<ton::quic::QuicServer> server_;
 };
 

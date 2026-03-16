@@ -27,7 +27,7 @@ using RequestErrorRef = tl_object_ptr<requestError>;
 
 namespace {
 
-class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
+class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
@@ -41,12 +41,13 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
     std::vector<td::Bits256> overlay_nodes_tl;
     std::map<PublicKeyHash, td::uint32> authorized_keys;
 
+    td::uint32 max_broadcast_size = bus.config.max_block_size + bus.config.max_collated_data_size + (1 << 20);
     for (const auto& peer : bus.validator_set) {
       adnl_id_to_peer_[peer.adnl_id] = peer;
       short_id_to_peer_[peer.short_id] = peer;
       overlay_nodes.push_back(peer.adnl_id);
       overlay_nodes_tl.push_back(peer.short_id.bits256_value());
-      authorized_keys.emplace(peer.short_id, overlay::Overlays::max_fec_broadcast_size());
+      authorized_keys.emplace(peer.short_id, max_broadcast_size);
     }
 
     td::actor::send_closure(adnl_sender_, &adnl::AdnlSenderEx::add_id, local_id_.adnl_id);
@@ -99,10 +100,11 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
   td::actor::Task<ProtocolMessage> process(BusHandle, std::shared_ptr<OutgoingOverlayRequest> message) {
     auto [awaiter, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
     auto dst = message->destination.get_using(*owning_bus()).adnl_id;
+    // FIXME: Pass max response size from the caller.
     td::actor::send_closure(
         overlays_, &overlay::Overlays::send_query_via, dst, local_id_.adnl_id, overlay_id_, "", std::move(promise),
         message->timeout, std::move(message->request.data),
-        owning_bus()->config.max_block_size + owning_bus()->config.max_collated_data_size + (1 << 13), adnl_sender_);
+        owning_bus()->config.max_block_size + owning_bus()->config.max_collated_data_size + (1 << 20), adnl_sender_);
     auto response = co_await std::move(awaiter);
     if (fetch_tl_object<tl::requestError>(response, true).is_ok()) {
       co_return td::Status::Error("Peer returned an error");
@@ -200,7 +202,7 @@ class PrivateOverlayImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
 
 }  // namespace
 
-void PrivateOverlay::register_in(runtime::Runtime& runtime) {
+void PrivateOverlay::register_in(td::actor::Runtime& runtime) {
   runtime.register_actor<PrivateOverlayImpl>("PrivateOverlay");
 }
 

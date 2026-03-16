@@ -56,6 +56,7 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
   }
   void on_stream_closed(QuicConnectionId cid, QuicStreamID sid) override {
     erase_stream(cid, sid);
+    td::actor::send_closure(sender_, &QuicSender::on_stream_closed, cid, sid);
   }
 
   void set_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options) override {
@@ -108,9 +109,8 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
       if (failed_) {
         return td::Status::Error("stream already failed");
       }
-      auto max_size = options_.max_size.value_or(DEFAULT_STREAM_SIZE_LIMIT);
-      if (options_.max_size.has_value() && builder_.size() > max_size) {
-        return td::Status::Error(PSLICE() << "stream size limit exceeded: max=" << max_size
+      if (options_.max_size.has_value() && builder_.size() > options_.max_size) {
+        return td::Status::Error(PSLICE() << "stream size limit exceeded: max=" << *options_.max_size
                                           << " received=" << builder_.size() << " query_size=" << options_.query_size
                                           << " query_magic=" << td::format::as_hex(options_.query_magic));
       }
@@ -264,7 +264,7 @@ void QuicSender::get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdSho
   connect(std::move(promise), get_conn_ip_str_coro(l_id, p_id));
 }
 
-void QuicSender::set_udp_offload_options(QuicServer::Options options) {
+void QuicSender::set_quic_options(QuicServer::Options options) {
   server_options_ = options;
 }
 
@@ -370,11 +370,8 @@ td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdSho
   auto server = conn->server;
   // create stream explicitly to avoid race with response
   auto timeout_seconds = timeout ? timeout.at() - td::Time::now() : 0.0;
-  auto stream_limit = get_peer_mtu(src, dst);
-  if (limit.has_value())
-    stream_limit = std::max(stream_limit, *limit);
   auto stream_id = co_await td::actor::ask(server, &QuicServer::open_stream, cid,
-                                           StreamOptions{.max_size = stream_limit,
+                                           StreamOptions{.max_size = limit,
                                                          .timeout = timeout,
                                                          .timeout_seconds = timeout_seconds,
                                                          .query_size = query_size,
@@ -490,7 +487,12 @@ td::actor::Task<td::Unit> QuicSender::init_connection_inner(AdnlPath path, std::
 }
 
 void QuicSender::init_stream_mtu(QuicConnectionId cid, QuicStreamID sid) {
-  auto [src, dst] = by_cid_.at(cid)->path;
+  auto it = by_cid_.find(cid);
+  if (it == by_cid_.end()) {
+    LOG(ERROR) << "Unknown CID:" << cid << " SID:" << sid;
+    return;
+  }
+  auto [src, dst] = it->second->path;
   auto mtu = get_peer_mtu(src, dst);
   auto server = servers_.at(src).get();
   td::actor::send_closure(server, &QuicServer::change_stream_options, cid, sid, StreamOptions{mtu});
@@ -589,6 +591,20 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
   LOG(ERROR) << "malformed message from CID:" << cid << " SID:" << stream_id << " size:" << data.size()
              << " tl_id:" << td::format::as_hex(get_magic(data))
              << " head:" << td::format::as_hex_dump<4>(data.as_slice().truncate(32));
+}
+
+void QuicSender::on_stream_closed(QuicConnectionId cid, QuicStreamID stream_id) {
+  auto it = by_cid_.find(cid);
+  if (it == by_cid_.end()) {
+    return;
+  }
+  auto connection = it->second;
+  auto resp_it = connection->responses.find(stream_id);
+  if (resp_it == connection->responses.end()) {
+    return;
+  }
+  resp_it->second.set_error(td::Status::Error("stream closed"));
+  connection->responses.erase(resp_it);
 }
 
 void QuicSender::on_closed(QuicConnectionId cid) {
