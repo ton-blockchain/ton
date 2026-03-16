@@ -659,6 +659,9 @@ void ValidatorManagerImpl::loaded_msg_queue_to_masterchain(td::Ref<ShardTopBlock
 }
 
 void ValidatorManagerImpl::set_shard_block_description_ready(td::Ref<ShardTopBlockDescription> desc) {
+  if (!desc->may_be_valid(last_masterchain_block_handle_, last_masterchain_state_)) {
+    return;
+  }
   auto id = ShardTopBlockDescriptionId{desc->block_id().shard_full(), desc->catchain_seqno()};
   auto it = shard_blocks_.find(id);
   if (it == shard_blocks_.end()) {

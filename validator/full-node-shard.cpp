@@ -157,6 +157,7 @@ void FullNodeShardImpl::update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promis
   adnl_id_ = adnl_id;
   local_id_ = adnl_id_.pubkey_hash();
   create_overlay();
+  promise.set_value(td::Unit{});
 }
 
 void FullNodeShardImpl::set_active(bool active) {
@@ -1169,23 +1170,26 @@ void FullNodeShardImpl::sign_new_certificate(PublicKeyHash sign_by) {
       overlay::CertificateFlags::Trusted | overlay::CertificateFlags::AllowFec, td::BufferSlice{}};
   auto to_sign = cert.to_sign(overlay_id_, local_id_);
 
-  auto P = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), cert = std::move(cert)](td::Result<std::pair<td::BufferSlice, PublicKey>> R) mutable {
-        if (R.is_error()) {
-          // ignore
-          VLOG(FULL_NODE_WARNING) << "failed to create certificate: failed to sign: " << R.move_as_error();
-        } else {
-          auto p = R.move_as_ok();
-          cert.set_signature(std::move(p.first));
-          cert.set_issuer(p.second);
-          td::actor::send_closure(SelfId, &FullNodeShardImpl::signed_new_certificate, std::move(cert));
-        }
-      });
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), cert = std::move(cert), local_id = local_id_](
+                                          td::Result<std::pair<td::BufferSlice, PublicKey>> R) mutable {
+    if (R.is_error()) {
+      // ignore
+      VLOG(FULL_NODE_WARNING) << "failed to create certificate: failed to sign: " << R.move_as_error();
+    } else {
+      auto p = R.move_as_ok();
+      cert.set_signature(std::move(p.first));
+      cert.set_issuer(p.second);
+      td::actor::send_closure(SelfId, &FullNodeShardImpl::signed_new_certificate, std::move(cert), local_id);
+    }
+  });
   td::actor::send_closure(keyring_, &ton::keyring::Keyring::sign_add_get_public_key, sign_by, std::move(to_sign),
                           std::move(P));
 }
 
-void FullNodeShardImpl::signed_new_certificate(ton::overlay::Certificate cert) {
+void FullNodeShardImpl::signed_new_certificate(overlay::Certificate cert, PublicKeyHash local_id) {
+  if (local_id != local_id_) {
+    return;
+  }
   LOG(WARNING) << "updated certificate";
   cert_ = std::make_shared<overlay::Certificate>(std::move(cert));
   td::actor::send_closure(overlays_, &overlay::Overlays::update_certificate, adnl_id_, overlay_id_, local_id_, cert_);

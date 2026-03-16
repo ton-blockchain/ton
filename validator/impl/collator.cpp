@@ -2333,8 +2333,6 @@ bool Collator::init_value_create() {
  * Performs the collation of the new block.
  */
 bool Collator::do_collate() {
-  // After do_collate started it will not be interrupted by timeout
-  alarm_timestamp() = td::Timestamp::never();
   auto token = perf_log_.start_action("do_collate");
   td::Status status = td::Status::Error("some error");
   SCOPE_EXIT {

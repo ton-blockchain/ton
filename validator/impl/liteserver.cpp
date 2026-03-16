@@ -1330,8 +1330,11 @@ void LiteQuery::finish_getAccountState(td::BufferSlice shard_proof) {
       return;
     }
     auto rconfig = config.move_as_ok();
-    acc_state_promise_.set_value(
-        std::make_tuple(std::move(acc_csr), sstate.gen_utime, sstate.gen_lt, std::move(rconfig)));
+    if (acc_state_promise_) {
+      acc_state_promise_.set_value(
+          std::make_tuple(std::move(acc_csr), sstate.gen_utime, sstate.gen_lt, std::move(rconfig)));
+      stop();
+    }
     return;
   }
 
