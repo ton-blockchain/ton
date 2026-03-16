@@ -29,6 +29,17 @@
 
    > **Протокол**: сервер использует **NDJSON** (одна JSON-строка на сообщение), не LSP Content-Length фреймирование.
 
+   > **Альтернатива (bash/Git Bash)** — прямой pipe без скрипта:
+   > ```bash
+   > echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}}
+   > {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}' \
+   >   | uvx mcp-server-neo4j \
+   >       --uri "neo4j+s://9d0c0b8b.databases.neo4j.io" \
+   >       --username "neo4j" \
+   >       --password "<password>" \
+   >       --database "neo4j"
+   > ```
+
    Ожидаемый ответ в stdout:
    ```json
    {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"experimental":{},"tools":{"listChanged":false}},"serverInfo":{"name":"mcp-neo4j","version":"1.26.0"}}}
@@ -40,7 +51,32 @@
    INFO - mcp-neo4j - Neo4j MCP服务器启动成功
    ```
 
-4. **Схема `.env`**
+4. **Известные проблемы скриптов (Windows PowerShell 5)**
+
+   **`Join-Path` с тремя аргументами** — не работает в PS 5, только в PS 6+:
+   ```powershell
+   # PS 5 — падает:
+   $envFile = Join-Path $PSScriptRoot ".." ".env"
+   # Правильно:
+   $envFile = Join-Path (Split-Path $PSScriptRoot -Parent) ".env"
+   ```
+
+   **Оператор `??` (null-coalescing)** — не работает в PS 5:
+   ```powershell
+   # PS 5 — падает:
+   $uri = $env:AURA_NEO4J_URI ?? $env:NEO4J_URI
+   # Правильно:
+   function Coalesce { foreach ($v in $args) { if ($v) { return $v } } }
+   $uri = Coalesce $env:AURA_NEO4J_URI $env:NEO4J_URI
+   ```
+
+   **`Process.ReadToEnd()` deadlock** — `_test-mcp-init.ps1` зависает при попытке читать stdout/stderr после `Kill()` через `RedirectStandardOutput`. Правильный подход — pipe через stdin напрямую:
+   ```powershell
+   $messages | uvx mcp-server-neo4j --uri $uri ...
+   ```
+   Оба фикса уже внесены в `scripts/`.
+
+5. **Схема `.env`**
 
    ```env
    AURA_NEO4J_URI=neo4j+s://<your-aura-id>.databases.neo4j.io
