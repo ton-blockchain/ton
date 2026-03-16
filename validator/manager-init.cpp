@@ -347,8 +347,9 @@ td::actor::Task<ValidatorManagerInitResult> ValidatorManagerMasterchainStarter::
   while (true) {
     if (!handle_->received_state()) {
       LOG(ERROR) << "db inconsistent: last state " << handle_->id().to_str() << " not received";
-      auto result = co_await td::actor::ask(manager_, &ValidatorManager::wait_block_state, handle_, 1, td::Timestamp::in(600.0),
-                              true).wrap();
+      auto result = co_await td::actor::ask(manager_, &ValidatorManager::wait_block_state, handle_, 1,
+                                            td::Timestamp::in(600.0), true)
+                        .wrap();
       if (result.is_error()) {
         LOG(ERROR) << "wait state error: " << result.move_as_error();
         continue;
