@@ -1,13 +1,13 @@
 /**
  * simulation/relay.mjs
  *
- * Reads simulation/trace.ndjson (one JSON object per line) and forwards
- * each entry to Neo4j Aura via AuraGraphReporter.writeEntries().
+ * Reads simulation/trace.ndjson (one JSON object per line) and writes
+ * each entry into Neo4j Aura directly via neo4j-driver (no TypeScript build needed).
  *
  * Usage:
  *   node simulation/relay.mjs
  *
- * Env vars (required unless GRAPH_LOGGING_ENABLED=0):
+ * Env vars (required):
  *   NEO4J_URI       bolt-URI, e.g. neo4j+s://xxxx.databases.neo4j.io
  *   NEO4J_USER      neo4j
  *   NEO4J_PASSWORD  <your-password>
@@ -15,97 +15,125 @@
  * Optional:
  *   GRAPH_LOG_FILE  path to the NDJSON trace file (default: simulation/trace.ndjson)
  *   RELAY_WATCH     set to "1" to keep watching the file for new lines (tail mode)
+ *   NEO4J_DATABASE  target database name (default: neo4j)
  */
 
 import { createReadStream, statSync, watchFile } from 'node:fs';
 import { createInterface } from 'node:readline';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
-// Resolve path relative to repo root (one level up from simulation/)
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
-const repoRoot = resolve(__dirname, '..');
+// ── Resolve paths ─────────────────────────────────────────────────────────
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const repoRoot  = resolve(__dirname, '..');
 
-// ── Import AuraGraphReporter from teleGraph ──────────────────────────────
-// Adjust this path if teleGraph is installed differently (npm workspace, etc.)
-const { AuraGraphReporter } = await import(
-  resolve(repoRoot, '../teleGraph/src/util/graphLogger/AuraGraphReporter.ts')
-).catch(() =>
-  // Fallback: try compiled JS output
-  import(resolve(repoRoot, '../teleGraph/dist/util/graphLogger/AuraGraphReporter.js'))
-);
+// neo4j-driver lives in teleGraph's node_modules (sibling repo)
+const require = createRequire(import.meta.url);
+const neo4j = require(resolve(repoRoot, '../teleGraph/node_modules/neo4j-driver'));
+
+// ── Load .env from repo root (if present) ────────────────────────────────
+try {
+  const envPath = resolve(repoRoot, '.env');
+  const envText = require('node:fs').readFileSync(envPath, 'utf8');
+  for (const line of envText.split(/\r?\n/)) {
+    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/);
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+  }
+  console.log('[relay] loaded .env');
+} catch {
+  // .env is optional
+}
 
 // ── Config ────────────────────────────────────────────────────────────────
 const NEO4J_URI      = process.env.NEO4J_URI      ?? '';
 const NEO4J_USER     = process.env.NEO4J_USER     ?? 'neo4j';
 const NEO4J_PASSWORD = process.env.NEO4J_PASSWORD ?? '';
+const NEO4J_DB       = process.env.NEO4J_DATABASE ?? 'neo4j';
 const TRACE_FILE     = process.env.GRAPH_LOG_FILE ?? resolve(__dirname, 'trace.ndjson');
 const WATCH_MODE     = process.env.RELAY_WATCH === '1';
 
 if (!NEO4J_URI || !NEO4J_PASSWORD) {
-  console.error('[relay] Missing NEO4J_URI or NEO4J_PASSWORD. Set them in .env or as env vars.');
+  console.error('[relay] ERROR: NEO4J_URI and NEO4J_PASSWORD must be set in .env or environment.');
+  console.error('[relay] Example .env:');
+  console.error('  NEO4J_URI=neo4j+s://xxxx.databases.neo4j.io');
+  console.error('  NEO4J_USER=neo4j');
+  console.error('  NEO4J_PASSWORD=your-password');
   process.exit(1);
 }
 
-// ── Init reporter ─────────────────────────────────────────────────────────
-AuraGraphReporter.init({
-  uri:      NEO4J_URI,
-  user:     NEO4J_USER,
-  password: NEO4J_PASSWORD,
-  database: 'neo4j',
-  isEnabled: true,
-  batchSize: 200,
-  flushIntervalMs: 500,
-});
+// ── Neo4j driver ──────────────────────────────────────────────────────────
+const driver = neo4j.driver(
+  NEO4J_URI,
+  neo4j.auth.basic(NEO4J_USER, NEO4J_PASSWORD),
+  { disableLosslessIntegers: true },
+);
 
-// ── Convert a GraphEntry (C++ NDJSON line) to AuraLogEvent ───────────────
-function toAuraLogEvent(entry) {
-  const {
-    nodeId,
-    sessionId,
-    type,
-    tsMs,
-    slot,
-    candidateId,
-    validatorIdx,
-    voteType,
-    outcome,
-    parentNodeId,
-    edgeType,
-    edgeSlot,
-    edgeWeight,
-  } = entry;
-
-  // Build edge props (carried on the relationship, not the node)
-  const requestProps = { tsMs, slot: edgeSlot ?? slot };
-  if (edgeWeight != null) requestProps.weight = edgeWeight;
-
-  // Build node props
-  const nodeProps = {
-    fnName: type,      // AuraGraphReporter uses fnName as the primary display name
-    sessionId,
-    type,
-    slot,
-    tsMs,
-    depth: 0,          // depth is not tracked here — queries use tsMs ordering
-  };
-  if (candidateId  != null) nodeProps.candidateId  = candidateId;
-  if (validatorIdx != null) nodeProps.validatorIdx  = validatorIdx;
-  if (voteType     != null) nodeProps.voteType      = voteType;
-  if (outcome      != null) nodeProps.outcome       = outcome;
-
-  return {
-    nodeid:       nodeId,
-    parentNodeid: parentNodeId,
-    edgeType:     edgeType ?? 'call',
-    requestProps,
-    responseProps: {},
-    nodeProps,
-    labels: [type],
-  };
+try {
+  await driver.verifyConnectivity();
+  console.log(`[relay] connected to ${NEO4J_URI}`);
+} catch (e) {
+  console.error('[relay] cannot connect to Neo4j:', e.message);
+  await driver.close();
+  process.exit(1);
 }
 
-// ── Stream processor ─────────────────────────────────────────────────────
+// ── Cypher: upsert one GraphEntry as a node (+ optional edge to parent) ──
+const UPSERT_CYPHER = `
+MERGE (n:GraphNode {nodeId: $nodeId})
+ON CREATE SET
+  n.sessionId    = $sessionId,
+  n.type         = $type,
+  n.tsMs         = $tsMs,
+  n.slot         = $slot,
+  n.candidateId  = $candidateId,
+  n.validatorIdx = $validatorIdx,
+  n.voteType     = $voteType,
+  n.outcome      = $outcome
+WITH n
+CALL {
+  WITH n
+  MATCH (p:GraphNode {nodeId: $parentNodeId})
+  WHERE $parentNodeId IS NOT NULL
+  MERGE (p)-[e:EDGE {edgeType: $edgeType}]->(n)
+  ON CREATE SET e.slot = $edgeSlot, e.weight = $edgeWeight
+  RETURN count(e) AS edgeCount
+}
+RETURN n.nodeId AS id
+`;
+
+async function writeEntries(entries) {
+  if (entries.length === 0) return;
+  const session = driver.session({ database: NEO4J_DB });
+  try {
+    const tx = session.beginTransaction();
+    for (const e of entries) {
+      tx.run(UPSERT_CYPHER, {
+        nodeId:       e.nodeId       ?? null,
+        sessionId:    e.sessionId    ?? null,
+        type:         e.type         ?? null,
+        tsMs:         e.tsMs         ?? 0,
+        slot:         e.slot         ?? 0,
+        candidateId:  e.candidateId  ?? null,
+        validatorIdx: e.validatorIdx ?? null,
+        voteType:     e.voteType     ?? null,
+        outcome:      e.outcome      ?? null,
+        parentNodeId: e.parentNodeId ?? null,
+        edgeType:     e.edgeType     ?? null,
+        edgeSlot:     e.edgeSlot     ?? e.slot ?? 0,
+        edgeWeight:   e.edgeWeight   ?? null,
+      });
+    }
+    await tx.commit();
+    console.log(`[relay] wrote ${entries.length} node(s) to Neo4j`);
+  } catch (e) {
+    console.error('[relay] write failed:', e.message);
+  } finally {
+    await session.close();
+  }
+}
+
+// ── Stream processor ──────────────────────────────────────────────────────
 async function processStream(stream) {
   const rl = createInterface({ input: stream, crlfDelay: Infinity });
   const batch = [];
@@ -113,20 +141,14 @@ async function processStream(stream) {
   for await (const line of rl) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    let entry;
     try {
-      entry = JSON.parse(trimmed);
-    } catch (e) {
+      batch.push(JSON.parse(trimmed));
+    } catch {
       console.warn('[relay] malformed line, skipping:', trimmed.slice(0, 80));
-      continue;
     }
-    batch.push(toAuraLogEvent(entry));
   }
 
-  if (batch.length > 0) {
-    AuraGraphReporter.writeEntries(batch);
-    console.log(`[relay] queued ${batch.length} entries`);
-  }
+  await writeEntries(batch);
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────
@@ -136,6 +158,7 @@ try {
   statSync(TRACE_FILE);
 } catch {
   console.error(`[relay] file not found: ${TRACE_FILE}`);
+  await driver.close();
   process.exit(1);
 }
 
@@ -153,8 +176,7 @@ if (WATCH_MODE) {
     await processStream(stream);
   });
 } else {
-  // Give the reporter time to flush before exiting
-  await new Promise((r) => setTimeout(r, 3000));
+  await driver.close();
   console.log('[relay] done');
   process.exit(0);
 }

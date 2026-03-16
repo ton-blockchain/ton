@@ -40,3 +40,6 @@ build-windows-2022.bat
 
 # Visual Studio
 .vs/
+
+# Secrets
+.env
