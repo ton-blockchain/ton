@@ -46,19 +46,16 @@ try {
 }
 
 // ── Config ────────────────────────────────────────────────────────────────
-const NEO4J_URI      = process.env.NEO4J_URI      ?? '';
-const NEO4J_USER     = process.env.NEO4J_USER     ?? 'neo4j';
-const NEO4J_PASSWORD = process.env.NEO4J_PASSWORD ?? '';
-const NEO4J_DB       = process.env.NEO4J_DATABASE ?? 'neo4j';
+const NEO4J_URI      = process.env.AURA_NEO4J_URI      ?? process.env.NEO4J_URI      ?? '';
+const NEO4J_USER     = process.env.AURA_NEO4J_USER     ?? process.env.NEO4J_USER     ?? 'neo4j';
+const NEO4J_PASSWORD = process.env.AURA_NEO4J_PASSWORD ?? process.env.NEO4J_PASSWORD ?? '';
+const NEO4J_DB       = process.env.AURA_NEO4J_DATABASE ?? process.env.NEO4J_DATABASE ?? 'neo4j';
 const TRACE_FILE     = process.env.GRAPH_LOG_FILE ?? resolve(__dirname, 'trace.ndjson');
 const WATCH_MODE     = process.env.RELAY_WATCH === '1';
 
 if (!NEO4J_URI || !NEO4J_PASSWORD) {
   console.error('[relay] ERROR: NEO4J_URI and NEO4J_PASSWORD must be set in .env or environment.');
-  console.error('[relay] Example .env:');
-  console.error('  NEO4J_URI=neo4j+s://xxxx.databases.neo4j.io');
-  console.error('  NEO4J_USER=neo4j');
-  console.error('  NEO4J_PASSWORD=your-password');
+  console.error('[relay] Supported variable names: AURA_NEO4J_URI / NEO4J_URI, AURA_NEO4J_PASSWORD / NEO4J_PASSWORD');
   process.exit(1);
 }
 
