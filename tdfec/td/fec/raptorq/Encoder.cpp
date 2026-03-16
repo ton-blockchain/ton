@@ -58,6 +58,9 @@ Status Encoder::gen_symbol(uint32 id, MutableSlice slice) {
   if (!has_precalc()) {
     return Status::Error("Precalc is not finished");
   }
+  if (slice.size() != (*raw_encoder_).symbol_size()) {
+    return Status::Error("Symbol size mismatch");
+  }
   (*raw_encoder_).gen_symbol(id + p_.K_padded - p_.K, slice);
   return Status::OK();
 }

@@ -25,9 +25,7 @@ Result<std::unique_ptr<Decoder>> Decoder::create(Encoder::Parameters p) {
   return std::make_unique<Decoder>(rfc_p, p.symbol_size, p.data_size);
 }
 Decoder::Decoder(const Rfc::Parameters &p, size_t symbol_size, size_t data_size) : p_(p) {
-  mask_ = vector<bool>(p.K, false);
-  mask_size_ = 0;
-  data_ = BufferSlice(p.K * symbol_size);
+  small_symbols_mask_.assign(p.K, false);
   data_size_ = data_size;
   symbol_size_ = symbol_size;
 }
@@ -36,21 +34,35 @@ bool Decoder::may_try_decode() const {
   return may_decode_;
 }
 
-Status Decoder::add_symbol(SymbolRef symbol) {
+Status Decoder::add_symbol(fec::Symbol symbol) {
   if (symbol.data.size() != symbol_size_) {
     return Status::Error("Symbol has invalid length");
   }
   if (symbol.id >= (1 << 24)) {
     return Status::Error("Too big symbol id");
   }
+  if (result_) {
+    return Status::OK();
+  }
   if (symbol.id < p_.K) {
-    add_small_symbol(symbol);
-    return Status::OK();
+    if (small_symbols_mask_[symbol.id]) {
+      return Status::OK();
+    }
+    small_symbols_mask_[symbol.id] = true;
+  } else {
+    if (symbols_.size() >= p_.K + 10) {
+      return Status::OK();
+    }
+    symbol.id += p_.K_padded - p_.K;
+    if (!big_symbols_set_.insert(symbol.id).second) {
+      return Status::OK();
+    }
   }
-  if (mask_size_ + slow_symbols_set_.size() >= p_.K + 10) {
-    return Status::OK();
+  if (made_symbol_refs_) {
+    symbol_refs_.push_back({symbol.id, symbol.data.as_slice()});
   }
-  add_big_symbol(symbol);
+  symbols_.push_back(std::move(symbol));
+  may_decode_ = symbols_.size() >= p_.K;
   return Status::OK();
 }
 
@@ -60,22 +72,34 @@ Result<Decoder::DataWithEncoder> Decoder::try_decode(bool need_encoder) {
   }
 
   optional<RawEncoder> raw_encoder;
-  if (mask_size_ < p_.K) {
-    flush_symbols();
-    may_decode_ = false;
-    TRY_RESULT(C, Solver::run(p_, symbols_));
-    raw_encoder = RawEncoder(p_, std::move(C));
-    for (uint32 i = 0; i < p_.K; i++) {
-      if (!mask_[i]) {
-        (*raw_encoder).gen_symbol(i, data_.as_slice().substr(i * symbol_size_, symbol_size_));
-        mask_[i] = true;
-        mask_size_++;
+  if (!result_) {
+    BufferSlice data(data_size_);
+    size_t small_symbols_count = 0;
+    for (auto &[i, s] : symbols_) {
+      if (i < p_.K) {
+        ++small_symbols_count;
+        MutableSlice to =
+            data.as_slice().substr(i * symbol_size_, std::min(symbol_size_, data_size_ - i * symbol_size_));
+        to.copy_from(s.as_slice().substr(0, to.size()));
       }
     }
+    if (small_symbols_count < p_.K) {
+      make_symbol_refs();
+      may_decode_ = false;
+      TRY_RESULT(C, Solver::run(p_, symbol_refs_));
+      raw_encoder = RawEncoder(p_, std::move(C));
+      for (uint32 i = 0; i < p_.K; i++) {
+        if (!small_symbols_mask_[i]) {
+          (*raw_encoder)
+              .gen_symbol(
+                  i, data.as_slice().substr(i * symbol_size_, std::min(symbol_size_, data_size_ - i * symbol_size_)));
+        }
+      }
+    }
+    result_ = std::move(data);
   }
 
-  auto data = data_.from_slice(data_.as_slice().truncate(data_size_));
-
+  BufferSlice data = result_.value().clone();
   std::unique_ptr<Encoder> encoder;
   if (need_encoder) {
     encoder = std::make_unique<Encoder>(p_, symbol_size_, data.copy(), std::move(raw_encoder));
@@ -84,70 +108,18 @@ Result<Decoder::DataWithEncoder> Decoder::try_decode(bool need_encoder) {
   return DataWithEncoder{std::move(data), std::move(encoder)};
 }
 
-void Decoder::add_small_symbol(SymbolRef symbol) {
-  if (mask_[symbol.id]) {
+void Decoder::make_symbol_refs() {
+  if (made_symbol_refs_) {
     return;
   }
-  mask_size_++;
-  mask_[symbol.id] = true;
-  auto slice = data_.as_slice().substr(symbol.id * symbol_size_, symbol_size_);
-  slice.copy_from(symbol.data);
-
-  if (flush_symbols_) {
-    symbols_.push_back({symbol.id, slice});
+  made_symbol_refs_ = true;
+  for (auto &[i, s] : symbols_) {
+    symbol_refs_.push_back({i, s.as_slice()});
   }
-  update_may_decode();
-}
-
-void Decoder::add_big_symbol(SymbolRef symbol) {
-  if (!slow_path_) {
-    on_first_slow_path();
-  }
-  symbol.id += p_.K_padded - p_.K;
-
-  if (slow_symbols_set_.size() == slow_symbols_) {
-    // Got at least p.K + 10 different symbols
-    return;
-  }
-  size_t offset = slow_symbols_set_.size() * symbol_size_;
-  if (!slow_symbols_set_.insert(symbol.id).second) {
-    return;
-  }
-  auto slice = buffer_.as_slice().substr(offset, symbol_size_);
-  slice.copy_from(symbol.data);
-  symbols_.push_back({symbol.id, slice});
-  update_may_decode();
-}
-
-void Decoder::update_may_decode() {
-  size_t total_symbols = mask_size_ + slow_symbols_set_.size();
-  if (total_symbols < p_.K) {
-    return;
-  }
-  may_decode_ = true;
-}
-
-void Decoder::on_first_slow_path() {
-  slow_path_ = true;
-
-  slow_symbols_ = p_.K + 10 - mask_size_;
-  buffer_ = BufferSlice(slow_symbols_ * symbol_size_);
-  symbols_.reserve(p_.K + 10);
-}
-
-void Decoder::flush_symbols() {
-  if (flush_symbols_) {
-    return;
-  }
-  flush_symbols_ = true;
-  zero_symbol_ = std::string(symbol_size_, '\0');
+  zero_symbol_ = BufferSlice(symbol_size_);
+  zero_symbol_.as_slice().fill('\0');
   for (uint32 i = p_.K; i < p_.K_padded; i++) {
-    symbols_.push_back({i, Slice(zero_symbol_)});
-  }
-  for (uint32 i = 0; i < p_.K; i++) {
-    if (mask_[i]) {
-      symbols_.push_back({i, data_.as_slice().substr(i * symbol_size_, symbol_size_)});
-    }
+    symbol_refs_.push_back({i, zero_symbol_.as_slice()});
   }
 }
 }  // namespace raptorq
