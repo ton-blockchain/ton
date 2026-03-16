@@ -182,6 +182,7 @@ class ArchiveSlice : public td::actor::Actor {
 
   enum Status { st_closed, st_open, st_want_close } status_ = st_closed;
   size_t active_queries_ = 0;
+  std::vector<td::Promise<>> query_finish_waiters_;
 
   std::string db_root_;
   td::actor::ActorId<ArchiveLru> archive_lru_;
@@ -207,7 +208,7 @@ class ArchiveSlice : public td::actor::Actor {
     td::uint32 idx;
     td::uint32 version;
   };
-  std::vector<PackageInfo> packages_;
+  std::vector<std::unique_ptr<PackageInfo>> packages_;
   std::map<std::pair<BlockSeqno, ShardIdFull>, td::uint32> id_to_package_;
 
   std::map<ShardIdFull, BlockSeqno> temp_max_seqnos_;
