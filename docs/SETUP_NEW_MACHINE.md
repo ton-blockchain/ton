@@ -15,6 +15,8 @@
 
 При установке Visual Studio выбери компонент **"Desktop development with C++"**.
 
+прочитать https://github.com/ton-blockchain/ton#windows-10-11-server-x86-64
+
 ---
 
 ## 2. Добавить CMake в PATH
