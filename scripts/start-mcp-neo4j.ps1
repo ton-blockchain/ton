@@ -31,4 +31,5 @@ if (-not $env:NEO4J_URI -or -not $env:NEO4J_PASSWORD) {
   Write-Error 'Missing NEO4J_URI/NEO4J_PASSWORD (or AURA_NEO4J_URI/AURA_NEO4J_PASSWORD) in .env'
 }
 
-uvx mcp-server-neo4j
+$db = if ($env:NEO4J_DATABASE) { $env:NEO4J_DATABASE } elseif ($env:AURA_NEO4J_DATABASE) { $env:AURA_NEO4J_DATABASE } else { 'neo4j' }
+uvx mcp-server-neo4j --uri $env:NEO4J_URI --username $env:NEO4J_USER --password $env:NEO4J_PASSWORD --database $db
