@@ -15,6 +15,7 @@ test/regression-tests.cache/
 .cache
 .idea
 .vscode
+.vs
 .DS_Store
 dev/
 
