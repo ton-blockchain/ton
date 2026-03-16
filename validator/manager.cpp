@@ -2540,12 +2540,9 @@ void ValidatorManagerImpl::update_shards() {
   if (last_masterchain_state_->rotated_all_shards()) {
     CHECK(last_masterchain_block_handle_->received_state());
     auto P = td::PromiseCreator::lambda(
-        [SelfId = actor_id(this), db = db_.get(), block_id = last_masterchain_block_id_,
-         destroy_sessions = std::move(destroy_sessions),
+        [SelfId = actor_id(this), block_id = last_masterchain_block_id_, destroy_sessions = std::move(destroy_sessions),
          old_destroyed_validator_sessions = destroyed_validator_sessions_](td::Result<td::Unit> R) mutable {
           R.ensure();
-          td::actor::send_closure(db, &Db::update_destroyed_validator_sessions, std::vector<ValidatorSessionId>{},
-                                  [](td::Result<>) {});
           td::actor::send_closure(SelfId, &ValidatorManagerImpl::updated_init_block, block_id,
                                   std::move(old_destroyed_validator_sessions));
           destroy_sessions();
@@ -2599,6 +2596,20 @@ void ValidatorManagerImpl::update_shard_blocks() {
     } else {
       ++it;
     }
+  }
+}
+
+void ValidatorManagerImpl::updated_init_block(BlockIdExt last_rotate_block_id,
+                                              std::set<ValidatorSessionId> old_destroyed_validator_sessions) {
+  last_rotate_block_id_ = last_rotate_block_id;
+  for (const auto &s : old_destroyed_validator_sessions) {
+    destroyed_validator_sessions_.erase(s);
+  }
+  if (!old_destroyed_validator_sessions.empty()) {
+    td::actor::send_closure(
+        db_, &Db::update_destroyed_validator_sessions,
+        std::vector<ValidatorSessionId>(destroyed_validator_sessions_.begin(), destroyed_validator_sessions_.end()),
+        [](td::Result<> R) { R.ensure(); });
   }
 }
 
