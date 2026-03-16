@@ -39,6 +39,8 @@ struct Certificate : td::CntObject {
   Certificate(T vote, std::vector<VoteSignature> signatures) : vote(vote), signatures(std::move(signatures)) {
   }
 
+  CntObject* make_copy() const override;
+
   td::Ref<block::BlockSignatureSet> to_signature_set(const CandidateRef& candidate, const Bus& bus) const
     requires td::OneOf<T, NotarizeVote, FinalizeVote>;
 
@@ -59,6 +61,9 @@ struct Certificate : td::CntObject {
     };
     return std::visit(visitor, vote.vote);
   }
+
+  td::Ref<Certificate<Vote>> consume_and_upcast() &&
+    requires(!std::same_as<T, Vote>);
 
   T vote;
   std::vector<VoteSignature> signatures;

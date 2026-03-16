@@ -1,0 +1,15 @@
+{
+  "servers": {
+    "neo4j-aura": {
+      "type": "stdio",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/start-mcp-neo4j.ps1"
+      ]
+    }
+  }
+}

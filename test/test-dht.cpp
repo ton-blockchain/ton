@@ -319,9 +319,11 @@ int main() {
 
     obj->nodes_.clear();
     {
-      td::BufferSlice x{64};
+      td::BufferSlice x{32};
       td::Random::secure_bytes(x.as_slice());
-      auto pk2 = ton::PrivateKey{ton::privkeys::Unenc{x.clone()}};
+      auto pk2 = ton::PrivateKey{ton::privkeys::Ed25519{x.clone()}};
+      auto to_sign = ton::create_serialize_tl_object<ton::ton_api::overlay_node_toSign>(
+          ton::adnl::AdnlNodeIdShort{pk2.compute_short_id()}.tl(), overlay_short_id.tl(), date);
       n = ton::create_tl_object<ton::ton_api::overlay_node>(
           pk2.compute_public_key().tl(), overlay_short_id.tl(), date,
           pk2.create_decryptor().move_as_ok()->sign(to_sign.as_slice()).move_as_ok());

@@ -14,7 +14,8 @@ test/regression-tests.cache/
 **/*build*/
 .cache
 .idea
-.vscode
+.vscode/*
+!.vscode/mcp.json
 .DS_Store
 dev/
 
@@ -33,3 +34,13 @@ build-ucrt64/
 build/
 3pp_emscripten/
 /android-ndk-r27d-linux.zip
+
+# Windows build artifacts
+artifacts/
+build-windows-2022.bat
+
+# Visual Studio
+.vs/
+
+# Secrets
+.env

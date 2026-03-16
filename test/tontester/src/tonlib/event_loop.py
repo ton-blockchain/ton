@@ -30,10 +30,10 @@ class TonlibEventLoop:
 
     def __del__(self):
         assert self._loop == 0, (
-            "EventLoop not destroyed. Call 'aclose' before destroying the object."
+            "EventLoop not destroyed. Call 'close' before destroying the object."
         )
 
-    async def aclose(self) -> None:
+    def close(self) -> None:
         if self._loop == 0:
             return
 
@@ -50,16 +50,16 @@ class TonlibEventLoop:
             self._tonlib.event_loop_destroy(self._loop)
             self._loop = 0
 
-    async def __aenter__(self):
+    def __enter__(self):
         return self
 
-    async def __aexit__(
+    def __exit__(
         self,
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
         exc_tb: traceback.TracebackException | None,
     ):
-        await self.aclose()
+        self.close()
 
     def _set_resolved(self, future: asyncio.Future[None]):
         if not future.done():

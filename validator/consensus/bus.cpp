@@ -71,10 +71,6 @@ std::string OurLeaderWindowStarted::contents_to_string() const {
                    << ", end_slot=" << end_slot << ", start_time=" << start_time.at_unix() << "}";
 }
 
-std::string OurLeaderWindowAborted::contents_to_string() const {
-  return PSTRING() << "{start_slot=" << start_slot << "}";
-}
-
 std::string CandidateGenerated::contents_to_string() const {
   return PSTRING() << "{candidate=" << candidate_to_string(candidate)
                    << ", collator_id=" << (collator_id.has_value() ? (PSTRING() << *collator_id) : "none") << "}";

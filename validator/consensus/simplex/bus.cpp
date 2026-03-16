@@ -8,6 +8,22 @@
 
 namespace ton::validator::consensus::simplex {
 
+namespace {
+
+std::string certificate_to_string(const CertificateRef<Vote> &cert) {
+  std::string ids;
+  for (const auto &signature : cert->signatures) {
+    if (!ids.empty()) {
+      ids += ",";
+    }
+    ids += std::to_string(signature.validator.value());
+  }
+
+  return PSTRING() << "Certificate{vote=" << cert->vote << ", signatures=[" << ids << "]}";
+}
+
+}  // namespace
+
 std::string BroadcastVote::contents_to_string() const {
   return PSTRING() << "{vote=" << vote << "}";
 }
@@ -36,10 +52,6 @@ std::string StoreCandidate::contents_to_string() const {
   return PSTRING() << "{id=" << candidate->id << "}";
 }
 
-std::string WaitNotarCertStored::contents_to_string() const {
-  return PSTRING() << "{id=" << id << "}";
-}
-
 std::string ResolveState::contents_to_string() const {
   return PSTRING() << "{id=" << id << "}";
 }
@@ -47,6 +59,10 @@ std::string ResolveState::contents_to_string() const {
 std::string ResolveState::response_to_string(const ReturnType &result) {
   return PSTRING() << "ResolvedState{state=" << *result.state << ", gen_utime_exact="
                    << (result.gen_utime_exact ? (PSTRING() << *result.gen_utime_exact) : "nullopt") << "}";
+}
+
+std::string SaveCertificate::contents_to_string() const {
+  return PSTRING() << "{cert=" << certificate_to_string(cert) << "}";
 }
 
 namespace {
@@ -71,22 +87,6 @@ class SimplexCollatorSchedule : public CollatorSchedule {
 void Bus::populate_collator_schedule() {
   auto validators = static_cast<td::uint32>(validator_set.size());
   collator_schedule = td::make_ref<SimplexCollatorSchedule>(simplex_config.slots_per_leader_window, validators);
-}
-
-void Bus::load_bootstrap_state() {
-  auto pool_state_str = db->get(create_serialize_tl_object<ton_api::consensus_simplex_db_key_poolState>());
-  if (pool_state_str.has_value()) {
-    auto pool_state =
-        fetch_tl_object<ton_api::consensus_simplex_db_poolState>(*pool_state_str, true).ensure().move_as_ok();
-    first_nonannounced_window = pool_state->first_nonannounced_window_;
-  }
-
-  auto votes = db->get_by_prefix(ton_api::consensus_simplex_db_key_vote::ID);
-  for (auto &[_, data] : votes) {
-    auto f = fetch_tl_object<ton_api::consensus_simplex_db_vote>(data, true).ensure().move_as_ok();
-    PeerValidatorId validator{static_cast<size_t>(f->node_idx_)};
-    bootstrap_votes.push_back(Signed<Vote>::deserialize(f->data_, validator, *this).move_as_ok());
-  }
 }
 
 }  // namespace ton::validator::consensus::simplex

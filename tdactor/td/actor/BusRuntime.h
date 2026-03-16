@@ -20,7 +20,7 @@
 #include "td/utils/logging.h"
 #include "td/utils/type_traits.h"
 
-namespace ton::runtime {
+namespace td::actor {
 
 namespace detail {
 
@@ -283,7 +283,7 @@ class BusHandle {
 
     // Now, we just call `node_->runtime._wire_bus<B>({}, child);` but since Runtime is not defined
     // yet, we need a forward-declared method to do this for us.
-    wire_bus(child);
+    wire_bus<Child>(child);
 
     BusHandle<Child> child_handle(child, std::static_pointer_cast<Child>(child->bus),
                                   std::static_pointer_cast<BusImpl<Child>>(child->bus_impl));
@@ -332,6 +332,7 @@ class BusHandle {
       : node_(std::move(node)), bus_(std::move(bus)), impl_(std::move(impl)) {
   }
 
+  template <BusType Child>
   static void wire_bus(std::shared_ptr<BusTreeNode> node);
 
   std::shared_ptr<BusTreeNode> node_;
@@ -442,14 +443,18 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
     started_ = true;
 
     auto root_bus = std::make_shared<BusTreeNode>(shared_from_this(), name.empty() ? "" : std::string(name) + ".", bus);
+    register_bus_parents<B>(root_bus->type_id);
     wire_bus(root_bus);
     auto bus_impl = std::static_pointer_cast<BusImpl<B>>(root_bus->bus_impl);
 
     return BusHandle<B>{{}, std::move(root_bus), std::move(bus), std::move(bus_impl)};
   }
 
-  template <typename B>
+  template <typename B, typename Child>
   void _wire_bus(td::Badge<BusHandle<B>>, std::shared_ptr<BusTreeNode> node) {
+    CHECK(node->type_id == get_bus_id<Child>());
+    register_bus_parents<Child>(node->type_id);
+
     wire_bus(node);
   }
 
@@ -555,8 +560,13 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
   template <typename A, typename B>
   std::unique_ptr<BusListeningActor> create_actor_instance(std::shared_ptr<BusTreeNode> node) {
     auto installer = std::make_shared<ListenerInstallerImpl<A>>();
-    auto instance = std::make_unique<A>();
     auto bus = std::static_pointer_cast<B>(node->bus);
+    std::unique_ptr<A> instance;
+    if constexpr (std::constructible_from<A>) {
+      instance = std::make_unique<A>();
+    } else {
+      instance = std::make_unique<A>(*bus);
+    }
     auto bus_impl = std::static_pointer_cast<BusImpl<B>>(node->bus_impl);
     instance->owning_bus_ = BusHandle<B>({}, std::move(node), bus, bus_impl);
     instance->installer_ = installer;
@@ -568,6 +578,7 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
   // ===== Event wiring =====
   void wire_bus(std::shared_ptr<BusTreeNode> node) {
     CHECK(node);
+    CHECK(bus_parents_.contains(node->type_id));
 
     // First, we create all actors that spawn on the added bus.
     std::vector<std::unique_ptr<BusListeningActor>> spawned_actors;
@@ -611,8 +622,9 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
 };
 
 template <BusType B>
+template <BusType Child>
 void BusHandle<B>::wire_bus(std::shared_ptr<BusTreeNode> node) {
-  node->runtime->_wire_bus<B>({}, std::move(node));
+  node->runtime->_wire_bus<B, Child>({}, std::move(node));
 }
 
 }  // namespace detail
@@ -640,12 +652,12 @@ class Runtime {
   std::shared_ptr<detail::Runtime> impl_ = std::make_shared<detail::Runtime>();
 };
 
-#define TON_RUNTIME_DEFINE_EVENT_HANDLER()                                                            \
-  template <::td::In<ConnectToBuses> B, ::ton::runtime::detail::ValidPublishTargetFor<B> E>           \
-  constexpr void handle(::ton::runtime::BusHandle<B> bus, ::std::shared_ptr<E const> event) = delete; \
-                                                                                                      \
-  template <::td::In<ConnectToBuses> B, ::ton::runtime::detail::ValidRequestFor<B> E>                 \
-  constexpr td::actor::Task<typename E::ReturnType> process(::ton::runtime::BusHandle<B> bus,         \
+#define TON_RUNTIME_DEFINE_EVENT_HANDLER()                                                         \
+  template <::td::In<ConnectToBuses> B, ::td::actor::detail::ValidPublishTargetFor<B> E>           \
+  constexpr void handle(::td::actor::BusHandle<B> bus, ::std::shared_ptr<E const> event) = delete; \
+                                                                                                   \
+  template <::td::In<ConnectToBuses> B, ::td::actor::detail::ValidRequestFor<B> E>                 \
+  constexpr td::actor::Task<typename E::ReturnType> process(::td::actor::BusHandle<B> bus,         \
                                                             ::std::shared_ptr<E> request) = delete;
 
-}  // namespace ton::runtime
+}  // namespace td::actor

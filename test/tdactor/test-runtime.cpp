@@ -1,7 +1,7 @@
+#include "td/actor/BusRuntime.h"
 #include "td/utils/tests.h"
-#include "validator/consensus/runtime.h"
 
-namespace ton::runtime::test_simple_message_to_self {
+namespace td::actor::test_simple_message_to_self {
 namespace {
 
 // We want to spawn a MainBus and SampleActor with it. SampleActor publishes an event, which it then
@@ -58,9 +58,9 @@ TEST(Runtime, SimpleMessageToSelf) {
 }
 
 }  // namespace
-}  // namespace ton::runtime::test_simple_message_to_self
+}  // namespace td::actor::test_simple_message_to_self
 
-namespace ton::runtime::test_bus_tree {
+namespace td::actor::test_bus_tree {
 namespace {
 
 // We want to create and then destroy the following bus tree:
@@ -187,9 +187,9 @@ TEST(Runtime, BusTree) {
 }
 
 }  // namespace
-}  // namespace ton::runtime::test_bus_tree
+}  // namespace td::actor::test_bus_tree
 
-namespace ton::runtime::test_inheritance {
+namespace td::actor::test_inheritance {
 namespace {
 
 struct ParentBus : Bus {
@@ -330,9 +330,9 @@ TEST(Runtime, Inheritance) {
 }
 
 }  // namespace
-}  // namespace ton::runtime::test_inheritance
+}  // namespace td::actor::test_inheritance
 
-namespace ton::runtime::test_runtime_lifetime {
+namespace td::actor::test_runtime_lifetime {
 namespace {
 // Lifetime of detail::Runtime should be extended while there are running actors even if user-facing
 // Runtime is destroyed.
@@ -418,9 +418,9 @@ TEST(Runtime, Lifetime) {
 }
 
 }  // namespace
-}  // namespace ton::runtime::test_runtime_lifetime
+}  // namespace td::actor::test_runtime_lifetime
 
-namespace ton::runtime::test_requests {
+namespace td::actor::test_requests {
 namespace {
 
 struct MainBus : Bus {
@@ -504,4 +504,114 @@ TEST(Runtime, Requests) {
 }
 
 }  // namespace
-}  // namespace ton::runtime::test_requests
+}  // namespace td::actor::test_requests
+
+namespace td::actor::test_unregistered_buses {
+namespace {
+
+// During `register_actor` phase, the only bus we register is RootBus. Check that other buses work.
+
+struct RootBus : Bus {
+  ~RootBus() {
+    td::actor::SchedulerContext::get().stop();
+  }
+
+  struct Dummy {};
+
+  using Events = td::TypeList<Dummy>;
+};
+
+struct InheritedRootBus : RootBus {
+  using Parent = RootBus;
+  using Events = td::TypeList<>;
+};
+
+struct ChildBus : Bus {
+  struct Ping {
+    int value;
+  };
+
+  using Events = td::TypeList<Ping>;
+};
+
+bool g_ping_received = false;
+
+class Controller : public SpawnsWith<RootBus>, public ConnectsTo<RootBus, ChildBus> {
+ public:
+  TON_RUNTIME_DEFINE_EVENT_HANDLER();
+
+  void start_up() override {
+    auto child = owning_bus().create_child("child", std::make_shared<ChildBus>());
+    child.publish<ChildBus::Ping>(42);
+  }
+
+  template <>
+  void handle(BusHandle<ChildBus> bus, std::shared_ptr<const ChildBus::Ping> event) {
+    EXPECT_EQ(event->value, 42);
+    g_ping_received = true;
+    stop();
+  }
+};
+
+TEST(Runtime, UnregisteredChildBus) {
+  td::actor::Scheduler scheduler({1});
+
+  Runtime runtime;
+  runtime.register_actor<Controller>("Controller");
+
+  scheduler.run_in_context([&] { runtime.start(std::make_shared<InheritedRootBus>()); });
+  scheduler.run();
+
+  EXPECT(g_ping_received);
+}
+
+}  // namespace
+}  // namespace td::actor::test_unregistered_buses
+
+namespace td::actor::test_actor_constructor {
+namespace {
+
+struct RootBus : Bus {
+  ~RootBus() {
+    td::actor::SchedulerContext::get().stop();
+  }
+
+  struct Dummy {};
+
+  using Events = td::TypeList<Dummy>;
+
+  std::string hello;
+};
+
+bool g_good = false;
+
+class RootActor : public SpawnsWith<RootBus>, public ConnectsTo<RootBus> {
+ public:
+  TON_RUNTIME_DEFINE_EVENT_HANDLER();
+
+  RootActor(RootBus& bus) {
+    bus.hello = "world";
+  }
+
+  void start_up() {
+    if (owning_bus()->hello == "world") {
+      g_good = true;
+    }
+    stop();
+  }
+};
+
+TEST(Runtime, ActorCanTakeBusInConstructor) {
+  td::actor::Scheduler scheduler({1});
+
+  Runtime runtime;
+  runtime.register_actor<RootActor>("RootActor");
+
+  scheduler.run_in_context([&] { runtime.start(std::make_shared<RootBus>()); });
+  scheduler.run();
+
+  EXPECT(g_good);
+}
+
+}  // namespace
+}  // namespace td::actor::test_actor_constructor
