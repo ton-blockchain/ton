@@ -102,7 +102,7 @@
 
 5. Запустить `node simulation/relay.mjs` — подробнее: **[CPP_LOGGING.md](CPP_LOGGING.md)**.
 
-6. Агент запрашивает граф через MCP (см. [MCP_NEO4J_AURA.md](MCP_NEO4J_AURA.md)) и проверяет нужные рёбра/узлы:
+6. Запросить граф через MCP (см. [MCP_NEO4J_AURA.md](MCP_NEO4J_AURA.md)) и проверить нужные рёбра/узлы:
    - Изолировать последний прогон: [#last-session](CYPHER_QUERIES.md#last-session).
    - Проверить аномалии: [#equivocation](CYPHER_QUERIES.md#equivocation), [#dual-cert](CYPHER_QUERIES.md#dual-cert).
    - Очистить граф при необходимости: [#clean](CYPHER_QUERIES.md#clean).

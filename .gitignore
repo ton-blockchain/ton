@@ -14,7 +14,8 @@ test/regression-tests.cache/
 **/*build*/
 .cache
 .idea
-.vscode
+.vscode/*
+!.vscode/mcp.json
 .DS_Store
 dev/
 
