@@ -1,9 +1,10 @@
 #include "gettx_api.h"
 #include "transaction-lookup.h"
+#include "transaction-json.h"
+#include "block-tx-extractor.h"
 #include "td/utils/Status.h"
+#include "td/utils/JsonBuilder.h"
 #include <memory>
-#include <sstream>
-#include <iomanip>
 
 extern "C" {
 
@@ -113,59 +114,71 @@ gettx_result_t gettx_lookup(gettx_handle_t handle,
 
     auto transactions = tx_result.move_as_ok();
 
-    // Build JSON output
-    std::ostringstream json;
-    json << "{\n";
-    json << "  \"transactions\": [\n";
-    for (size_t i = 0; i < transactions.size(); i++) {
-      const auto& tx = transactions[i];
-      json << "    {\n";
-
-      // transaction_id
-      json << "      \"transaction_id\": {\n";
-      json << "        \"account\": \"" << tx.account_addr.to_hex() << "\",\n";
-      json << "        \"lt\": " << tx.lt << ",\n";
-      json << "        \"hash\": \"" << tx.hash.to_hex() << "\"\n";
-      json << "      },\n";
-
-      // fee
-      json << "      \"fee\": " << tx.total_fees << ",\n";
-
-      // utime
-      json << "      \"utime\": " << tx.utime << ",\n";
-
-      // in_msg
-      json << "      \"in_msg\": ";
-      if (!tx.in_msg.empty()) {
-        auto in_msg_b64 = td::base64_encode(tx.in_msg.as_slice());
-        json << "\"" << in_msg_b64 << "\",\n";
-      } else {
-        json << "null,\n";
-      }
-
-      // out_msgs
-      json << "      \"out_msgs\": [";
-      for (size_t j = 0; j < tx.out_msgs.size(); j++) {
-        auto out_msg_b64 = td::base64_encode(tx.out_msgs[j].as_slice());
-        json << "\"" << out_msg_b64 << "\"";
-        if (j < tx.out_msgs.size() - 1) {
-          json << ", ";
+    // Build JSON output using JsonBuilder
+    auto json_str = td::json_encode<std::string>(td::json_object([&](auto& o) {
+      o("transactions", td::json_array([&](auto& arr) {
+        for (const auto& tx : transactions) {
+          ton::gettx::serialize_transaction(arr.enter_value(), tx);
         }
-      }
-      json << "],\n";
-
-      // transaction data
-      auto data_b64 = td::base64_encode(tx.data.as_slice());
-      json << "      \"data\": \"" << data_b64 << "\",\n";
-
-      json << "      \"block\": \"" << tx.block_id.to_str() << "\"\n";
-      json << "    }" << (i < transactions.size() - 1 ? "," : "") << "\n";
-    }
-    json << "  ]\n";
-    json << "}\n";
+      }));
+    }));
 
     // Allocate and return the JSON string
-    std::string json_str = json.str();
+    result.json_data = strdup(json_str.c_str());
+    result.error_code = 0;
+    result.error_msg = nullptr;
+
+    return result;
+
+  } catch (const std::exception& e) {
+    result.error_code = -100;
+    result.error_msg = strdup(e.what());
+    return result;
+  } catch (...) {
+    result.error_code = -101;
+    result.error_msg = strdup("Unknown error");
+    return result;
+  }
+}
+
+gettx_result_t gettx_lookup_block(gettx_handle_t handle, unsigned mc_seqno) {
+  gettx_result_t result = {nullptr, 0, nullptr};
+
+  if (!handle) {
+    result.error_code = -1;
+    result.error_msg = strdup("Invalid handle");
+    return result;
+  }
+
+  try {
+    auto* lookup = static_cast<ton::gettx::TransactionLookup*>(handle);
+
+    // Get block transactions using the new method
+    auto block_result = lookup->get_block_transactions(mc_seqno);
+
+    if (block_result.is_error()) {
+      result.error_code = -6;
+      std::string error_msg = block_result.move_as_error().message().str();
+      result.error_msg = strdup(error_msg.c_str());
+      return result;
+    }
+
+    auto block_data = block_result.move_as_ok();
+
+    // Build JSON output using JsonBuilder
+    auto json_str = td::json_encode<std::string>(td::json_object([&](auto& o) {
+      o("mc_seqno", td::JsonLong(block_data.mc_seqno));
+      o("mc_block_id", block_data.mc_block_id.to_str());
+      o("shard_count", td::JsonLong(block_data.shard_count));
+      o("total_transactions", td::JsonLong(block_data.total_transactions));
+      o("transactions", td::json_array([&](auto& arr) {
+        for (const auto& tx : block_data.transactions) {
+          ton::gettx::serialize_transaction(arr.enter_value(), tx);
+        }
+      }));
+    }));
+
+    // Allocate and return the JSON string
     result.json_data = strdup(json_str.c_str());
     result.error_code = 0;
     result.error_msg = nullptr;

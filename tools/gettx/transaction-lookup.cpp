@@ -1,4 +1,6 @@
 #include "transaction-lookup.h"
+#include "shard-iterator.h"
+#include "block-tx-extractor.h"
 #include "crypto/block/block-parse.h"
 #include "crypto/block/block-auto.h"
 #include "crypto/block/block-db.h"
@@ -234,6 +236,175 @@ td::Result<std::vector<TransactionLookup::Transaction>> TransactionLookup::get_t
   }
 
   return transactions;
+}
+
+td::Result<TransactionLookup::BlockTransactionsData> TransactionLookup::get_block_transactions(ton::BlockSeqno mc_seqno) {
+  BlockTransactionsData result;
+  result.mc_seqno = mc_seqno;
+
+  // Find package containing this masterchain block
+  ton::ShardIdFull mc_shard{ton::masterchainId, ton::shardIdAll};
+  auto pkg_result = db_index_->find_package_by_seqno(mc_shard, mc_seqno);
+  if (pkg_result.is_error()) {
+    return td::Status::Error("Failed to find package for masterchain block");
+  }
+  const auto* pkg_info = pkg_result.ok();
+
+  // Open package
+  ton::gettx::PackageReader reader(db_root_, pkg_info);
+  auto status = reader.open();
+  if (status.is_error()) {
+    return td::Status::Error("Failed to open package");
+  }
+
+  // Get masterchain block data
+  auto block_result = reader.get_block_data_by_seqno(mc_shard, mc_seqno);
+  if (block_result.is_error()) {
+    return td::Status::Error("Failed to get masterchain block");
+  }
+  auto [mc_block_id, mc_block_data] = block_result.move_as_ok();
+  result.mc_block_id = mc_block_id;
+
+  // Extract shard blocks from this masterchain block
+  auto shards_result = ton::gettx::ShardBlockIterator::extract_shard_blocks(mc_block_data);
+  if (shards_result.is_error()) {
+    return td::Status::Error("Failed to extract shard blocks");
+  }
+  auto shards = shards_result.move_as_ok();
+  result.shard_count = shards.size();
+
+  // Collect all transactions from MC block and shards
+  // First, extract from masterchain block
+  auto mc_tx_result = ton::gettx::BlockTransactionExtractor::extract_all_transactions(mc_block_id, mc_block_data);
+  if (mc_tx_result.is_ok()) {
+    auto mc_tx_infos = mc_tx_result.move_as_ok();
+    for (const auto& tx_info : mc_tx_infos) {
+      Transaction tx;
+      tx.workchain = tx_info.workchain;
+      tx.account_addr = tx_info.account_addr;
+      tx.lt = tx_info.lt;
+      tx.hash = tx_info.hash;
+      tx.utime = tx_info.utime;
+      tx.total_fees = tx_info.total_fees;
+      tx.block_id = tx_info.block_id;
+      tx.root = tx_info.root;
+
+      // Serialize transaction data
+      if (tx.root.not_null()) {
+        auto tx_boc = vm::std_boc_serialize(tx.root);
+        if (tx_boc.is_ok()) {
+          tx.data = tx_boc.move_as_ok();
+        }
+
+        // Extract in_msg and out_msgs (reuse logic from get_transactions)
+        block::gen::Transaction::Record trans;
+        if (tlb::unpack_cell(tx.root, trans)) {
+          if (trans.r1.in_msg.not_null() && trans.r1.in_msg->prefetch_ref().not_null()) {
+            auto in_msg_ref = trans.r1.in_msg->prefetch_ref();
+            auto in_msg_boc = vm::std_boc_serialize(in_msg_ref);
+            if (in_msg_boc.is_ok()) {
+              tx.in_msg = in_msg_boc.move_as_ok();
+            }
+          }
+
+          if (trans.r1.out_msgs.not_null()) {
+            vm::Dictionary out_dict{trans.r1.out_msgs, 15};
+            for (auto iter = out_dict.begin(); iter != out_dict.end(); ++iter) {
+              auto out_msg_cs = (*iter).second;
+              if (out_msg_cs.not_null() && out_msg_cs->size_refs() > 0) {
+                auto out_msg_ref = out_msg_cs->prefetch_ref();
+                if (out_msg_ref.not_null()) {
+                  auto out_msg_boc = vm::std_boc_serialize(out_msg_ref);
+                  if (out_msg_boc.is_ok()) {
+                    tx.out_msgs.push_back(out_msg_boc.move_as_ok());
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      result.transactions.push_back(std::move(tx));
+    }
+  }
+
+  // Then, extract from each shard block
+  for (const auto& shard : shards) {
+    ton::ShardIdFull shard_full{shard.workchain, shard.shard};
+    auto shard_pkg_result = db_index_->find_package_by_seqno(shard_full, shard.seqno);
+    if (shard_pkg_result.is_error()) {
+      continue;
+    }
+    const auto* shard_pkg_info = shard_pkg_result.ok();
+
+    ton::gettx::PackageReader shard_reader(db_root_, shard_pkg_info);
+    auto shard_status = shard_reader.open();
+    if (shard_status.is_error()) {
+      continue;
+    }
+
+    auto shard_block_result = shard_reader.get_block_data_by_seqno(shard_full, shard.seqno);
+    if (shard_block_result.is_error()) {
+      continue;
+    }
+    auto [shard_block_id, shard_block_data] = shard_block_result.move_as_ok();
+
+    auto shard_tx_result = ton::gettx::BlockTransactionExtractor::extract_all_transactions(shard_block_id, shard_block_data);
+    if (shard_tx_result.is_ok()) {
+      auto shard_tx_infos = shard_tx_result.move_as_ok();
+      for (const auto& tx_info : shard_tx_infos) {
+        Transaction tx;
+        tx.workchain = tx_info.workchain;
+        tx.account_addr = tx_info.account_addr;
+        tx.lt = tx_info.lt;
+        tx.hash = tx_info.hash;
+        tx.utime = tx_info.utime;
+        tx.total_fees = tx_info.total_fees;
+        tx.block_id = tx_info.block_id;
+        tx.root = tx_info.root;
+
+        if (tx.root.not_null()) {
+          auto tx_boc = vm::std_boc_serialize(tx.root);
+          if (tx_boc.is_ok()) {
+            tx.data = tx_boc.move_as_ok();
+          }
+
+          block::gen::Transaction::Record trans;
+          if (tlb::unpack_cell(tx.root, trans)) {
+            if (trans.r1.in_msg.not_null() && trans.r1.in_msg->prefetch_ref().not_null()) {
+              auto in_msg_ref = trans.r1.in_msg->prefetch_ref();
+              auto in_msg_boc = vm::std_boc_serialize(in_msg_ref);
+              if (in_msg_boc.is_ok()) {
+                tx.in_msg = in_msg_boc.move_as_ok();
+              }
+            }
+
+            if (trans.r1.out_msgs.not_null()) {
+              vm::Dictionary out_dict{trans.r1.out_msgs, 15};
+              for (auto iter = out_dict.begin(); iter != out_dict.end(); ++iter) {
+                auto out_msg_cs = (*iter).second;
+                if (out_msg_cs.not_null() && out_msg_cs->size_refs() > 0) {
+                  auto out_msg_ref = out_msg_cs->prefetch_ref();
+                  if (out_msg_ref.not_null()) {
+                    auto out_msg_boc = vm::std_boc_serialize(out_msg_ref);
+                    if (out_msg_boc.is_ok()) {
+                      tx.out_msgs.push_back(out_msg_boc.move_as_ok());
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        result.transactions.push_back(std::move(tx));
+      }
+    }
+  }
+
+  result.total_transactions = result.transactions.size();
+  return result;
 }
 
 }  // namespace gettx

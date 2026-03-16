@@ -39,6 +39,14 @@ class TransactionLookup {
   // Initialize the lookup system
   td::Status init();
 
+  struct BlockTransactionsData {
+    ton::BlockSeqno mc_seqno;
+    ton::BlockIdExt mc_block_id;
+    size_t shard_count;
+    size_t total_transactions;
+    std::vector<Transaction> transactions;
+  };
+
   // Get transactions for an account starting from a given logical time
   // Returns up to 'count' transactions going backwards in time
   td::Result<std::vector<Transaction>> get_transactions(
@@ -47,6 +55,10 @@ class TransactionLookup {
       ton::LogicalTime lt,
       const td::Bits256& hash,
       unsigned count);
+
+  // Get all transactions from a masterchain block by seqno
+  // Returns metadata plus all transactions from MC block and all shard blocks
+  td::Result<BlockTransactionsData> get_block_transactions(ton::BlockSeqno mc_seqno);
 
  private:
   std::string db_root_;

@@ -62,8 +62,7 @@ target_include_directories(gettx_shared
     ${CMAKE_SOURCE_DIR}/tdutils/db
 )
 
-# Link libraries normally - don't use whole-archive which can cause issues
-# with undefined symbols from TL objects
+# Link libraries - use validator (superset of validator-db) to avoid duplicate symbols
 target_link_libraries(gettx_shared
   PRIVATE
     tdutils
@@ -73,7 +72,7 @@ target_link_libraries(gettx_shared
     tl-utils
     ton_db
     ton_block
-    validator-db
+    validator
 )
 
 target_compile_features(gettx_shared PRIVATE cxx_std_20)

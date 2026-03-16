@@ -1,4 +1,5 @@
 #include "transaction-lookup.h"
+#include "transaction-json.h"
 #include "shard-iterator.h"
 #include "block-tx-extractor.h"
 #include "db-index.h"
@@ -206,39 +207,7 @@ int run_tx_subcommand(int argc, char* argv[]) {
 
     root("transactions", td::json_array([&](auto& arr) {
       for (const auto& tx : transactions) {
-        arr(td::json_object([&](auto& tx_obj) {
-          // transaction_id
-          tx_obj("transaction_id", td::json_object([&](auto& tx_id_obj) {
-            tx_id_obj("account", tx.account_addr.to_hex());
-            tx_id_obj("lt", static_cast<td::int64>(tx.lt));
-            tx_id_obj("hash", tx.hash.to_hex());
-          }));
-
-          // other fields
-          tx_obj("fee", static_cast<td::int64>(tx.total_fees));
-          tx_obj("utime", static_cast<td::int64>(tx.utime));
-
-          // in_msg
-          if (!tx.in_msg.empty()) {
-            auto in_msg_b64 = td::base64_encode(tx.in_msg.as_slice());
-            tx_obj("in_msg", in_msg_b64);
-          } else {
-            tx_obj("in_msg", td::JsonNull());
-          }
-
-          // out_msgs
-          tx_obj("out_msgs", td::json_array([&](auto& out_msgs_array) {
-            for (const auto& msg : tx.out_msgs) {
-              auto msg_b64 = td::base64_encode(msg.as_slice());
-              out_msgs_array(msg_b64);
-            }
-          }));
-
-          // transaction data
-          auto data_b64 = td::base64_encode(tx.data.as_slice());
-          tx_obj("data", data_b64);
-          tx_obj("block", tx.block_id.to_str());
-        }));
+        ton::gettx::serialize_transaction(arr.enter_value(), tx);
       }
     }));
 
@@ -286,138 +255,37 @@ int run_block_subcommand(int argc, char* argv[]) {
 
   std::cerr << "DEBUG: Looking up masterchain block seqno=" << mc_seqno << "\n";
 
-  // Initialize DbIndexReader
-  ton::gettx::DbIndexReader db_index(db_path, include_deleted);
-  auto init_status = db_index.open();
+  // Initialize TransactionLookup
+  ton::gettx::TransactionLookup lookup(db_path, include_deleted);
+  auto init_status = lookup.init();
   if (init_status.is_error()) {
     std::cerr << "Error: Failed to initialize: " << init_status.message().str() << std::endl;
     return 1;
   }
 
-  // Find package containing this masterchain block
-  ton::ShardIdFull mc_shard{ton::masterchainId, ton::shardIdAll};
-  auto pkg_result = db_index.find_package_by_seqno(mc_shard, mc_seqno);
-  if (pkg_result.is_error()) {
-    std::cerr << "Error: " << pkg_result.move_as_error().message().str() << std::endl;
-    return 1;
-  }
-  const auto* pkg_info = pkg_result.move_as_ok();
-  std::cerr << "DEBUG: Found package id=" << pkg_info->id.id << "\n";
-
-  // Open package
-  ton::gettx::PackageReader reader(db_path, pkg_info);
-  auto status = reader.open();
-  if (status.is_error()) {
-    std::cerr << "Error: Failed to open package: " << status.message().str() << std::endl;
-    return 1;
-  }
-
-  // Get masterchain block data
-  auto block_result = reader.get_block_data_by_seqno(mc_shard, mc_seqno);
+  // Get block transactions using the reusable method
+  auto block_result = lookup.get_block_transactions(mc_seqno);
   if (block_result.is_error()) {
-    std::cerr << "Error: Failed to get masterchain block: " << block_result.move_as_error().message().str() << std::endl;
+    std::cerr << "Error: " << block_result.move_as_error().message().str() << std::endl;
     return 1;
   }
-  auto [mc_block_id, mc_block_data] = block_result.move_as_ok();
-  std::cerr << "DEBUG: Got masterchain block: " << mc_block_id.to_str() << " size=" << mc_block_data.size() << " bytes\n";
+  auto block_data = block_result.move_as_ok();
 
-  // Extract shard blocks from this masterchain block
-  auto shards_result = ton::gettx::ShardBlockIterator::extract_shard_blocks(mc_block_data);
-  if (shards_result.is_error()) {
-    std::cerr << "Error: Failed to extract shard blocks: " << shards_result.move_as_error().message().str() << std::endl;
-    return 1;
-  }
-  auto shards = shards_result.move_as_ok();
-  std::cerr << "DEBUG: Found " << shards.size() << " shard blocks\n";
-
-  // Collect all transactions from all shards AND the masterchain block itself
-  std::vector<ton::gettx::BlockTransactionExtractor::TransactionInfo> all_transactions;
-
-  // First, extract transactions from the masterchain block itself
-  std::cerr << "DEBUG: Extracting transactions from masterchain block\n";
-  auto mc_tx_result = ton::gettx::BlockTransactionExtractor::extract_all_transactions(mc_block_id, mc_block_data);
-  if (mc_tx_result.is_error()) {
-    std::cerr << "Warning: Failed to extract transactions from masterchain block: "
-              << mc_tx_result.move_as_error().message().str() << "\n";
-  } else {
-    auto mc_txs = mc_tx_result.move_as_ok();
-    std::cerr << "DEBUG: Extracted " << mc_txs.size() << " transactions from masterchain block\n";
-    all_transactions.insert(all_transactions.end(), mc_txs.begin(), mc_txs.end());
-  }
-
-  // Then, extract transactions from each shard block
-  for (const auto& shard : shards) {
-    std::cerr << "DEBUG: Processing shard wc=" << shard.workchain
-              << " shard=0x" << std::hex << shard.shard << std::dec
-              << " seqno=" << shard.seqno << "\n";
-
-    // Find package containing this shard block
-    ton::ShardIdFull shard_full{shard.workchain, shard.shard};
-    auto shard_pkg_result = db_index.find_package_by_seqno(shard_full, shard.seqno);
-    if (shard_pkg_result.is_error()) {
-      std::cerr << "Warning: Failed to find package for shard " << shard.workchain
-                << ":0x" << std::hex << shard.shard << std::dec << ":" << shard.seqno
-                << " - " << shard_pkg_result.move_as_error().message().str() << "\n";
-      continue;
-    }
-    const auto* shard_pkg_info = shard_pkg_result.move_as_ok();
-
-    // Open package for this shard
-    ton::gettx::PackageReader shard_reader(db_path, shard_pkg_info);
-    auto shard_status = shard_reader.open();
-    if (shard_status.is_error()) {
-      std::cerr << "Warning: Failed to open package for shard: " << shard_status.message().str() << "\n";
-      continue;
-    }
-
-    // Get shard block data
-    auto shard_block_result = shard_reader.get_block_data_by_seqno(shard_full, shard.seqno);
-    if (shard_block_result.is_error()) {
-      std::cerr << "Warning: Failed to get shard block data: " << shard_block_result.move_as_error().message().str() << "\n";
-      continue;
-    }
-    auto [shard_block_id, shard_block_data] = shard_block_result.move_as_ok();
-    std::cerr << "DEBUG: Got shard block: " << shard_block_id.to_str() << " size=" << shard_block_data.size() << " bytes\n";
-
-    // Extract all transactions from this shard block
-    auto tx_result = ton::gettx::BlockTransactionExtractor::extract_all_transactions(shard_block_id, shard_block_data);
-    if (tx_result.is_error()) {
-      std::cerr << "Warning: Failed to extract transactions from shard block: " << tx_result.move_as_error().message().str() << "\n";
-      continue;
-    }
-    auto txs = tx_result.move_as_ok();
-    std::cerr << "DEBUG: Extracted " << txs.size() << " transactions from this shard\n";
-
-    // Add to all transactions
-    all_transactions.insert(all_transactions.end(), txs.begin(), txs.end());
-  }
-
-  std::cerr << "DEBUG: Total " << all_transactions.size() << " transactions across all shards\n";
+  std::cerr << "DEBUG: Got masterchain block: " << block_data.mc_block_id.to_str() << "\n";
+  std::cerr << "DEBUG: Found " << block_data.shard_count << " shard blocks\n";
+  std::cerr << "DEBUG: Total " << block_data.total_transactions << " transactions across all shards\n";
 
   // Output results as JSON
   td::JsonBuilder jb;
   auto root = jb.enter_object();
-  root("mc_seqno", static_cast<td::int64>(mc_seqno));
-  root("mc_block_id", mc_block_id.to_str());
-  root("shard_count", static_cast<td::int64>(shards.size()));
-  root("total_transactions", static_cast<td::int64>(all_transactions.size()));
+  root("mc_seqno", static_cast<td::int64>(block_data.mc_seqno));
+  root("mc_block_id", block_data.mc_block_id.to_str());
+  root("shard_count", static_cast<td::int64>(block_data.shard_count));
+  root("total_transactions", static_cast<td::int64>(block_data.total_transactions));
 
   root("transactions", td::json_array([&](auto& arr) {
-    for (const auto& tx : all_transactions) {
-      arr(td::json_object([&](auto& tx_obj) {
-        // transaction_id
-        tx_obj("transaction_id", td::json_object([&](auto& tx_id_obj) {
-          tx_id_obj("account", tx.account_addr.to_hex());
-          tx_id_obj("lt", static_cast<td::int64>(tx.lt));
-          tx_id_obj("hash", tx.hash.to_hex());
-        }));
-
-        // other fields
-        tx_obj("workchain", tx.workchain);
-        tx_obj("fee", static_cast<td::int64>(tx.total_fees));
-        tx_obj("utime", static_cast<td::int64>(tx.utime));
-        tx_obj("block", tx.block_id.to_str());
-      }));
+    for (const auto& tx : block_data.transactions) {
+      ton::gettx::serialize_transaction(arr.enter_value(), tx);
     }
   }));
 

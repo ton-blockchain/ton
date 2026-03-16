@@ -2,14 +2,13 @@
 Python bindings for gettx - TON transaction lookup tool
 
 This module provides a Python interface to lookup transactions and blocks
-from TON validator databases using the gettx executable.
+from TON validator databases using the FFI wrapper (libgettx.so).
 """
 
+import ctypes
 import json
-import os
 import pathlib
-import subprocess
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 
 
 class GetTxError(Exception):
@@ -18,50 +17,90 @@ class GetTxError(Exception):
 
 
 class GetTxClient:
-    """Wrapper for the gettx executable"""
+    """Wrapper using FFI to call libgettx.so shared library"""
 
-    def __init__(self, executable_path: Optional[str] = None):
+    def __init__(self, lib_path: Optional[str] = None):
         """
-        Locate the gettx executable
+        Initialize the FFI client
 
         Args:
-            executable_path: Path to the gettx executable. If None, searches in standard locations.
+            lib_path: Path to libgettx.so shared library. If None, searches in standard locations.
         """
-        if executable_path is None:
-            executable_path = self._find_executable()
+        if lib_path is None:
+            lib_path = self._find_library()
 
-        self._executable = executable_path
+        self._lib = ctypes.CDLL(lib_path)
+        self._handle = None
         self._db_path: Optional[str] = None
         self._include_deleted = False
 
-    def _find_executable(self) -> str:
-        """Find the gettx executable in standard locations"""
-        # Check build directory (from script location: tools/gettx/)
+        # Define result structure
+        class GetTxResult(ctypes.Structure):
+            _fields_ = [
+                ("json_data", ctypes.c_char_p),
+                ("error_code", ctypes.c_int),
+                ("error_msg", ctypes.c_char_p),
+            ]
+
+        self._GetTxResult = GetTxResult
+
+        # Configure function signatures
+        self._lib.gettx_create.argtypes = [ctypes.c_char_p, ctypes.c_int]
+        self._lib.gettx_create.restype = ctypes.c_void_p
+
+        self._lib.gettx_lookup.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_ulonglong,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        self._lib.gettx_lookup.restype = self._GetTxResult
+
+        self._lib.gettx_lookup_block.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint,
+        ]
+        self._lib.gettx_lookup_block.restype = self._GetTxResult
+
+        self._lib.gettx_free_result.argtypes = [ctypes.POINTER(self._GetTxResult)]
+        self._lib.gettx_free_result.restype = None
+
+        self._lib.gettx_destroy.argtypes = [ctypes.c_void_p]
+        self._lib.gettx_destroy.restype = None
+
+    def _find_library(self) -> str:
+        """Find the libgettx.so shared library"""
         script_dir = pathlib.Path(__file__).parent
-        build_exe = script_dir.parent.parent / "build" / "tools" / "gettx" / "gettx"
-        if build_exe.exists():
-            return str(build_exe)
+        build_lib = script_dir.parent.parent / "build" / "tools" / "gettx" / "libgettx.so"
+        if build_lib.exists():
+            return str(build_lib)
 
-        # Check if script is in build directory
-        if "build" in script_dir.parts:
-            # Try relative path from build dir
-            build_exe = script_dir / "gettx"
-            if build_exe.exists():
-                return str(build_exe)
+        # Check common library paths
+        common_paths = [
+            "/usr/lib/x86_64-linux-gnu/libgettx.so",
+            "/usr/local/lib/libgettx.so",
+        ]
 
-        # Check current directory
-        if os.path.exists("gettx"):
-            return "gettx"
+        for path in common_paths:
+            if pathlib.Path(path).exists():
+                return path
 
-        # Check system PATH
-        for path_dir in os.environ.get("PATH", "").split(os.pathsep):
-            exe_path = os.path.join(path_dir, "gettx")
-            if os.path.exists(exe_path) and os.access(exe_path, os.X_OK):
-                return exe_path
+        # Try LD_LIBRARY_PATH
+        import os
+        lib_path = os.environ.get('LD_LIBRARY_PATH')
+        if lib_path:
+            for name in ['libgettx.so', 'libgettx.so.1']:
+                full_path = os.path.join(lib_path, name)
+                if os.path.exists(full_path):
+                    return full_path
 
         raise FileNotFoundError(
-            "Could not find gettx executable. Please build it first or specify executable_path.\n"
-            "Build with: cd build && cmake --build . --target gettx"
+            "Cannot find libgettx.so shared library. "
+            "Please build it first or specify lib_path.\n"
+            "Build with: cd build && cmake --build . --target gettx\n"
+            "Then look for: build/tools/gettx/libgettx.so"
         )
 
     def open(self, db_path: str, include_deleted: bool = False) -> None:
@@ -72,11 +111,21 @@ class GetTxClient:
             db_path: Path to the validator database root directory
             include_deleted: If True, include packages marked as deleted in search
         """
+        if self._handle is not None:
+            self.close()
+
         self._db_path = db_path
         self._include_deleted = include_deleted
 
+        self._handle = self._lib.gettx_create(db_path.encode('utf-8'), int(include_deleted))
+        if not self._handle:
+            raise GetTxError(f"Failed to create gettx context for database: {db_path}")
+
     def close(self) -> None:
         """Close the database and free resources"""
+        if self._handle is not None:
+            self._lib.gettx_destroy(self._handle)
+            self._handle = None
         self._db_path = None
 
     def __enter__(self):
@@ -84,55 +133,6 @@ class GetTxClient:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
-
-    def _run_command(self, args: List[str]) -> Dict[str, Any]:
-        """
-        Run gettx command and parse JSON output
-
-        Args:
-            args: Command arguments (without subcommand)
-
-        Returns:
-            Parsed JSON output
-
-        Raises:
-            GetTxError: If the command fails
-        """
-        if self._db_path is None:
-            raise GetTxError("Database not opened. Call open() first.")
-
-        cmd = [self._executable]
-        cmd.extend(args)
-        cmd.extend(["--db-path", self._db_path])
-
-        if self._include_deleted:
-            cmd.append("--include-deleted")
-
-        try:
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=True
-            )
-
-            # Parse JSON from stdout (stderr contains debug messages)
-            return json.loads(result.stdout)
-
-        except subprocess.CalledProcessError as e:
-            # Include both stdout and stderr in error message
-            error_msg = f"Exit code {e.returncode}"
-            if e.stderr:
-                error_msg += f" - stderr: {e.stderr.strip()}"
-            if e.stdout:
-                error_msg += f" - stdout: {e.stdout.strip()}"
-            raise GetTxError(f"gettx command failed: {error_msg}")
-
-        except json.JSONDecodeError as e:
-            # Provide more context about parsing failure
-            stdout_preview = result.stdout[:200] if result.stdout else "(empty)"
-            raise GetTxError(f"Failed to parse JSON output: {e}\nOutput preview: {stdout_preview}")
 
     def get_transactions(
         self,
@@ -143,13 +143,13 @@ class GetTxClient:
         count: int = 10
     ) -> Dict[str, Any]:
         """
-        Lookup transactions from the database (tx subcommand)
+        Lookup transactions from the database using FFI
 
         Args:
             workchain: Workchain ID (e.g., -1 for masterchain)
-            address: Account address in hex format
+            address: Account address in base64url format
             logical_time: Logical time of the transaction
-            tx_hash: Transaction hash in hex format
+            tx_hash: Transaction hash in base64 or base64url format
             count: Number of transactions to retrieve (default: 10)
 
         Returns:
@@ -172,23 +172,39 @@ class GetTxClient:
         Raises:
             GetTxError: If the lookup fails
         """
-        args = [
-            "tx",
-            "--workchain", str(workchain),
-            "--address", address,
-            "--lt", str(logical_time),
-            "--hash", tx_hash,
-            "--count", str(count)
-        ]
+        if self._handle is None:
+            raise GetTxError("Database not opened. Call open() first.")
 
-        return self._run_command(args)
+        result = self._lib.gettx_lookup(
+            self._handle,
+            workchain,
+            address.encode('utf-8'),
+            logical_time,
+            tx_hash.encode('utf-8'),
+            count
+        )
+
+        try:
+            if result.error_code != 0:
+                error_msg = result.error_msg.decode('utf-8') if result.error_msg else "Unknown error"
+                raise GetTxError(f"gettx_lookup failed (code {result.error_code}): {error_msg}")
+
+            if not result.json_data:
+                raise GetTxError("gettx_lookup returned empty data")
+
+            data = json.loads(result.json_data.decode('utf-8'))
+            return data
+
+        finally:
+            # Always free the result
+            self._lib.gettx_free_result(ctypes.byref(result))
 
     def get_block_transactions(
         self,
         mc_seqno: int
     ) -> Dict[str, Any]:
         """
-        Get all transactions from a masterchain block by seqno (block subcommand)
+        Get all transactions from a masterchain block by seqno using FFI
 
         Args:
             mc_seqno: Masterchain block sequence number
@@ -200,30 +216,34 @@ class GetTxClient:
                 "mc_block_id": "...",
                 "shard_count": ...,
                 "total_transactions": ...,
-                "transactions": [
-                    {
-                        "transaction_id": {"account": "...", "lt": ..., "hash": "..."},
-                        "workchain": ...,
-                        "fee": ...,
-                        "utime": ...,
-                        "in_msg": "..." or None,
-                        "out_msgs": ["...", ...],
-                        "data": "...",
-                        "block": "..."
-                    },
-                    ...
-                ]
+                "transactions": [...]
             }
 
         Raises:
             GetTxError: If the lookup fails
         """
-        args = [
-            "block",
-            "--seqno", str(mc_seqno)
-        ]
+        if self._handle is None:
+            raise GetTxError("Database not opened. Call open() first.")
 
-        return self._run_command(args)
+        result = self._lib.gettx_lookup_block(
+            self._handle,
+            mc_seqno
+        )
+
+        try:
+            if result.error_code != 0:
+                error_msg = result.error_msg.decode('utf-8') if result.error_msg else "Unknown error"
+                raise GetTxError(f"gettx_lookup_block failed (code {result.error_code}): {error_msg}")
+
+            if not result.json_data:
+                raise GetTxError("gettx_lookup_block returned empty data")
+
+            data = json.loads(result.json_data.decode('utf-8'))
+            return data
+
+        finally:
+            # Always free the result
+            self._lib.gettx_free_result(ctypes.byref(result))
 
 
 # Global client instance
@@ -245,9 +265,9 @@ def get_transactions(
     Args:
         db_path: Path to the validator database root directory
         workchain: Workchain ID (e.g., -1 for masterchain)
-        address: Account address in hex format
+        address: Account address in base64url format
         logical_time: Logical time of the transaction
-        tx_hash: Transaction hash in hex format
+        tx_hash: Transaction hash in base64 or base64url format
         count: Number of transactions to retrieve (default: 10)
         include_deleted: If True, include packages marked as deleted in search (default: False)
 
@@ -258,9 +278,9 @@ def get_transactions(
         >>> result = get_transactions(
         ...     db_path="/var/ton/db",
         ...     workchain=-1,
-        ...     address="34517C7BDF5187C55AF4F8B61FDC321588C7AB768DEE24B006DF29106458D7CF",
+        ...     address="Ef80UXx731GHxVr0-LYf3DIViMerdo3uJLAG3ykQZFjXz2kW",
         ...     logical_time=2000001,
-        ...     tx_hash="EBD5D309774BAC43AD60907BEA1AC08B9AF1D9F27CD24165F0CC1E7EB2E33585",
+        ...     tx_hash="69XTCXdLrEOtYJB76hrAi5rx2fJ80kFl8MwefrLjNYU=",
         ...     count=1
         ... )
         >>> print(result['transactions'][0]['transaction_id']['hash'])
@@ -322,7 +342,7 @@ if __name__ == "__main__":
         print(f"  block <db_path> <mc_seqno>")
         print(f"      Get all transactions from a masterchain block by seqno")
         print(f"\nExamples:")
-        print(f"  {sys.argv[0]} tx /var/ton/db -1 34517C7BDF5187C55AF4F8B61FDC321588C7AB768DEE24B006DF29106458D7CF 2000001 EBD5D309774BAC43AD60907BEA1AC08B9AF1D9F27CD24165F0CC1E7EB2E33585 1")
+        print(f"  {sys.argv[0]} tx /var/ton/db -1 Ef80UXx731GHxVr0-LYf3DIViMerdo3uJLAG3ykQZFjXz2kW 2000001 69XTCXdLrEOtYJB76hrAi5rx2fJ80kFl8MwefrLjNYU= 1")
         print(f"  {sys.argv[0]} block /var/ton/db 2")
         sys.exit(1)
 

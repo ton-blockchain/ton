@@ -27,6 +27,11 @@ gettx_result_t gettx_lookup(gettx_handle_t handle,
                            const char* hash,
                            unsigned count);
 
+// Lookup all transactions from a masterchain block by seqno
+// Returns result structure that must be freed with gettx_free_result
+gettx_result_t gettx_lookup_block(gettx_handle_t handle,
+                                  unsigned mc_seqno);
+
 // Free a result structure
 void gettx_free_result(gettx_result_t* result);
 
