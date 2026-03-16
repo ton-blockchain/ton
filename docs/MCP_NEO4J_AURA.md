@@ -15,37 +15,30 @@
    Стартер:
    - читает `.env` из корня репозитория,
    - маппит `AURA_NEO4J_*` → `NEO4J_*`,
-   - запускает `uvx mcp-server-neo4j`.
+   - запускает `uvx mcp-server-neo4j --uri ... --username ... --password ... --database ...`.
+
+   > **Важно**: `mcp-server-neo4j` читает credentials **только из CLI-флагов** — переменные окружения игнорирует. Стартер явно передаёт их через `--uri/--username/--password/--database`.
 
    После открытия репозитория в IDE агент должен увидеть MCP-сервер `neo4j-aura` как tool.
 
-   > **Статус**: `uvx` v0.9.7 доступен, `.env` заполнен, оба конфига валидны.
-   >
-   > **Важно**: `mcp-server-neo4j` читает только CLI-флаги (`--uri`, `--username`, `--password`, `--database`), переменные окружения игнорирует. Стартер `start-mcp-neo4j.ps1` маппит их и передаёт явно.
+   > **Статус**: проверено 2026-03-16. `uvx` v0.9.7, `.env` заполнен, оба конфига валидны, handshake успешен.
 
 3. **Проверка подключения с кредами из `.env`**
-   Запустить сервер, передав переменные из `.env` (`NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`),
-   после чего отправить тестовый `initialize` запрос по протоколу MCP.
 
-   Ожидаемый ответ:
+   Запустить `scripts/_test-mcp-init.ps1` — он читает `.env`, стартует сервер с явными флагами и отправляет `initialize` + `notifications/initialized`.
+
+   > **Протокол**: сервер использует **NDJSON** (одна JSON-строка на сообщение), не LSP Content-Length фреймирование.
+
+   Ожидаемый ответ в stdout:
    ```json
-   {
-     "jsonrpc": "2.0",
-     "id": 1,
-     "result": {
-       "protocolVersion": "2024-11-05",
-       "capabilities": {
-         "experimental": {},
-         "tools": { "listChanged": false }
-       },
-       "serverInfo": {
-         "name": "mcp-neo4j",
-         "version": "1.26.0"
-       }
-     }
-   }
+   {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"experimental":{},"tools":{"listChanged":false}},"serverInfo":{"name":"mcp-neo4j","version":"1.26.0"}}}
    ```
-   В логах stderr также может быть зафиксировано успешное подключение.
+
+   Ожидаемые строки в stderr:
+   ```
+   INFO - mcp-neo4j - 正在启动Neo4j MCP服务器
+   INFO - mcp-neo4j - Neo4j MCP服务器启动成功
+   ```
 
 4. **Схема `.env`**
 
@@ -72,5 +65,5 @@
 
 ---
 
-*(Примечание: `relay.mjs` пишет узлы напрямую в Neo4j через `AuraGraphReporter`, не используя MCP.  
+*(Примечание: `relay.mjs` пишет узлы напрямую в Neo4j через `AuraGraphReporter`, не используя MCP.
  MCP нужен исключительно для удобства разработки — «общение» с графом через Cypher прямо из агента.)*
