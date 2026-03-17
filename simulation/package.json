@@ -1,0 +1,12 @@
+{
+  "name": "consensus-relay",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "NDJSON trace → Neo4j Aura relay for ConsensusHarness",
+  "scripts": {
+    "relay": "node relay.mjs"
+  },
+  "dependencies": {
+    "neo4j-driver": "^5.0.0"
+  }
+}

@@ -108,9 +108,7 @@ if (GraphLogger::instance().is_enabled()) {
 ```js
 import { createInterface } from 'node:readline';
 import { createReadStream } from 'node:fs';
-import { AuraGraphReporter } from '../teleGraph/src/util/graphLogger/AuraGraphReporter.js';
-// или через пакет:
-// import { AuraGraphReporter } from '@telegraph/aura-reporter';
+import { AuraGraphReporter } from './AuraGraphReporter.js';
 
 const rl = createInterface({ input: createReadStream('simulation/trace.ndjson') });
 
