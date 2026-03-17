@@ -195,10 +195,7 @@ td::Result<std::shared_ptr<StaticBagOfCellsDb>> StaticBagOfCellsDbBaseline::crea
 
 td::Result<std::shared_ptr<StaticBagOfCellsDb>> StaticBagOfCellsDbBaseline::create(td::Slice data) {
   BagOfCells boc;
-  TRY_RESULT(x, boc.deserialize(data));
-  if (x <= 0) {
-    return td::Status::Error("failed to deserialize");
-  }
+  TRY_STATUS(boc.deserialize(data));
   std::vector<Ref<Cell>> roots(boc.get_root_count());
   for (int i = 0; i < boc.get_root_count(); i++) {
     roots[i] = boc.get_root_cell(i);

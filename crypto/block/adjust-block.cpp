@@ -76,7 +76,7 @@ td::Ref<vm::Cell> load_block(std::string filename, ton::BlockIdExt& id) {
   if (res.is_error()) {
     throw IntError{PSTRING() << "cannot deserialize bag-of-cells " << res.move_as_error()};
   }
-  if (res.move_as_ok() <= 0 || boc.get_root_cell().is_null()) {
+  if (boc.get_root_cell().is_null()) {
     throw IntError{"cannot deserialize bag-of-cells"};
   }
   auto root = boc.get_root_cell();

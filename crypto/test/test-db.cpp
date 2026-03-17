@@ -890,6 +890,26 @@ TEST(TonDb, BocFuzz) {
           .move_as_ok())
       .ensure_error();
 }
+
+TEST(TonDb, BocDeserializeTruncated) {
+  td::Random::Xorshift128plus rnd{123};
+  auto serialized = serialize_boc(gen_random_cell(8, rnd), 31);
+  CHECK(serialized.size() > 1);
+
+  auto truncated = td::Slice{serialized}.substr(0, serialized.size() - 1);
+
+  // Truncated data deserialization causes error
+  vm::BagOfCells boc;
+  boc.deserialize(truncated).ensure_error();
+  vm::std_boc_deserialize(truncated).ensure_error();
+  vm::std_boc_deserialize_multi(truncated).ensure_error();
+
+  // Empty data deserializes into empty vector of roots
+  td::BufferSlice empty;
+  auto empty_roots = vm::std_boc_deserialize_multi(empty.as_slice()).move_as_ok();
+  CHECK(empty_roots.empty());
+}
+
 void test_parse_prefix(td::Slice boc) {
   for (size_t i = 0; i <= boc.size(); i++) {
     auto prefix = boc.substr(0, i);
