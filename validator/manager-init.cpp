@@ -413,6 +413,7 @@ td::actor::Task<ValidatorManagerInitResult> ValidatorManagerMasterchainStarter::
 
     BlockSeqno truncate_seqno = new_hardfork.seqno() - 1;
     co_await truncate(truncate_seqno);
+    CHECK(handle_->id().seqno() + 1 == new_hardfork.seqno());
     handle_->set_next(new_hardfork);
     co_await handle_->flush(manager_, handle_);
     co_await td::actor::ask(db_, &Db::update_hardforks, hardforks);
