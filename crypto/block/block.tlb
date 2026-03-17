@@ -779,7 +779,6 @@ consensus_config_v4#d9 flags:(## 6) { flags = 0 } use_quic:Bool new_catchain_ids
 _ CatchainConfig = ConfigParam 28;
 _ ConsensusConfig = ConfigParam 29;
 
-null_consensus_config#20 flags:(## 7) use_quic:Bool target_rate_ms:uint32 = NewConsensusConfig;
 simplex_config#21 flags:(## 7) use_quic:Bool
   target_rate_ms:uint32 slots_per_leader_window:uint32
   first_block_timeout_ms:uint32 max_leader_window_desync:uint32 = NewConsensusConfig;
