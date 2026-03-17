@@ -295,13 +295,21 @@ static void compilation_succeed_after_output_done() {
 
 int main(int argc, char* const argv[]) {
   int i;
-  while ((i = getopt_long(argc, argv, "o:O:evVh", long_options, nullptr)) != -1) {
+  while ((i = getopt_long(argc, argv, "o:t:TO:evVh", long_options, nullptr)) != -1) {
     switch (i) {
       case 'o':
         G_settings.output_filename = optarg;
         break;
       case OPT_BOC_OUTPUT:
         G_settings.boc_output_filename = optarg;
+        break;
+      case 't':
+        G_settings.emit_typescript = true;
+        G_settings.typescript_output_filename = optarg;
+        break;
+      case 'T':
+        G_settings.emit_typescript = true;
+        // empty filename means stdout
         break;
       case 'O':
         G_settings.optimization_level = std::max(0, atoi(optarg));
