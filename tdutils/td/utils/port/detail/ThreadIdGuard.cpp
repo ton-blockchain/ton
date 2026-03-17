@@ -31,7 +31,7 @@ class ThreadIdManager {
     std::lock_guard<std::mutex> guard(mutex_);
     if (unused_thread_ids_.empty()) {
       ++max_thread_id_;
-      CHECK(max_thread_id_ < MAX_THREADS);
+      CHECK(max_thread_id_ < (int)MAX_THREADS);
       return max_thread_id_;
     }
     auto it = unused_thread_ids_.begin();
@@ -50,8 +50,6 @@ class ThreadIdManager {
   std::mutex mutex_;
   std::set<int32> unused_thread_ids_;
   int32 max_thread_id_ = 0;
-
-  static constexpr int32 MAX_THREADS = 256;
 };
 static ThreadIdManager thread_id_manager;
 

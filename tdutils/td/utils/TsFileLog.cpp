@@ -62,11 +62,10 @@ class TsFileLog : public LogInterface {
     std::atomic<bool> is_inited{false};
     int id;
   };
-  static constexpr int MAX_THREAD_ID = 256;
-  td::int64 rotate_threshold_;
+  int64 rotate_threshold_;
   bool redirect_stderr_;
   std::string path_;
-  std::array<Info, MAX_THREAD_ID> logs_;
+  std::array<Info, MAX_THREADS> logs_;
 
   LogInterface *get_current_logger() {
     auto *info = get_current_info();
