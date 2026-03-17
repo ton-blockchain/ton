@@ -10,6 +10,7 @@
 #include "validator/consensus/simplex/bus.h"
 #include "validator/fabric.h"
 #include "validator/validator-group.hpp"
+#include "GraphLogger.h"
 
 namespace ton::validator {
 
@@ -279,6 +280,8 @@ class BridgeImpl final : public IValidatorGroup {
     TraceCollector::register_in(runtime);
 
     if (is_simplex) {
+      simulation::GraphLogger::instance().init();
+
       auto simplex_bus = std::static_pointer_cast<simplex::Bus>(bus);
 
       simplex::CandidateResolver::register_in(runtime);

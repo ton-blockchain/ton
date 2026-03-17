@@ -193,6 +193,12 @@ async function dispatch(session, ev) {
     case 'Block':          /* handled via FinalizeCert */ break;
     case 'SkipVote':       return handleSkipVote(session, ev);
     case 'SkipCert':       /* no separate node */ break;
+    case 'VoteCast':
+      if (ev.voteType === 'notarize') return handleNotarizeVote(session, ev);
+      if (ev.voteType === 'finalize') return handleFinalizeVote(session, ev);
+      if (ev.voteType === 'skip')     return handleSkipVote(session, ev);
+      console.warn('[relay] VoteCast with unknown voteType:', ev.voteType);
+      break;
     case 'SessionStart':   console.log(`[relay] session=${ev.sessionId} scenario=${ev.scenario}`); break;
     case 'SessionEnd':     console.log(`[relay] done: finalized=${ev.finalizedBlocks} skipped=${ev.skippedSlots}`); break;
     case 'Receive':        /* informational only */ break;

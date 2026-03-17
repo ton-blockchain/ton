@@ -10,6 +10,7 @@
 //   ConsensusHarness --scenario equivocation
 //   ConsensusHarness --scenario message_withholding
 //   ConsensusHarness --scenario byzantine_leader
+//   ConsensusHarness --scenario notarize_skip_split
 //   ConsensusHarness --scenario all --assert-anomalies
 
 #include "GraphLogger.h"
@@ -78,7 +79,7 @@ static std::string validator_id(int idx) {
 
 // ── Byzantine modes ────────────────────────────────────────────────────────
 
-enum class ByzantineMode { None, DoubleVote, DropPropose, SplitPropose };
+enum class ByzantineMode { None, DoubleVote, DropPropose, SplitPropose, NotarizeSkipSplit };
 
 struct NetworkRule {
   ByzantineMode mode{ByzantineMode::None};
@@ -181,6 +182,46 @@ static void run_slot(SimState& sim, uint32_t slot) {
     return;
   }
 
+  // NotarizeSkipSplit: Byzantine validator casts both NotarizeVote AND SkipVote on the same slot.
+  // pool.cpp check_invariants() does NOT detect this pair → misbehavior goes unreported.
+  // Network split: byz + validators {1,2} notarize (quorum=3 → NotarizeCert forms);
+  //                byz + validator {3} receive Skip hint (only 2 Skip votes → no SkipCert).
+  // Result: block finalizes, equivocation invisible to the protocol.
+  if (mode == ByzantineMode::NotarizeSkipSplit) {
+    // Byzantine validator votes NotarizeVote(cand) — seen by the notarize group
+    emit("NotarizeVote", {{"validatorIdx", (int64_t)byz},
+                          {"candidateId", cand}});
+    // Byzantine validator ALSO votes SkipVote on the same slot — the undetected conflict
+    emit("SkipVote",     {{"validatorIdx", (int64_t)byz}});
+    notarize_count++;  // byz contributes one notarize to the quorum
+
+    // Validators 1 and 2 notarize honestly (they received the candidate)
+    for (int v = 0; v < N; v++) {
+      if (v == byz || v == 3) continue;  // byz already handled; v=3 only got Skip hint
+      emit("NotarizeVote", {{"validatorIdx", (int64_t)v},
+                            {"candidateId", cand}});
+      notarize_count++;
+    }
+
+    // Validator 3 was fed a Skip hint by the Byzantine validator and votes Skip
+    emit("SkipVote", {{"validatorIdx", (int64_t)3}});
+    // Skip tally: byz + validator 3 = 2 < THRESHOLD=3 → no SkipCert
+
+    // NotarizeCert forms (byz + 1 + 2 = 3 = THRESHOLD)
+    emit("NotarizeCert", {{"candidateId", cand},
+                          {"weight", (int64_t)notarize_count}});
+    for (int v = 0; v < N; v++) {
+      if (v == 3) continue;  // validator 3 voted Skip, won't finalize
+      emit("FinalizeVote", {{"validatorIdx", (int64_t)v},
+                            {"candidateId", cand}});
+    }
+    emit("FinalizeCert", {{"candidateId", cand},
+                          {"weight", (int64_t)(N - 1)}});
+    emit("Block", {{"candidateId", cand}});
+    sim.finalized_blocks++;
+    return;
+  }
+
   // Honest validators that received the candidate notarize it
   for (int v = 0; v < N; v++) {
     if (!received[v]) continue;
@@ -264,6 +305,13 @@ static bool assert_byzantine_leader(const SimState& sim) {
   return sim.skipped_slots > 0;
 }
 
+static bool assert_notarize_skip_split(const SimState& sim) {
+  // Block must finalize — the equivocation (Notarize+Skip from same validator)
+  // does not prevent consensus, but also goes undetected by pool.cpp check_invariants().
+  // In the graph: validator:byz has both [:notarize] and [:skip] edges on the same slot.
+  return sim.finalized_blocks > 0;
+}
+
 // ── Main ────────────────────────────────────────────────────────────────────
 
 int main(int argc, char* argv[]) {
@@ -290,9 +338,10 @@ int main(int argc, char* argv[]) {
     SimState sim = run_scenario(name, rule);
     if (assert_anomalies) {
       bool anomaly = false;
-      if (name == "equivocation")       anomaly = assert_equivocation(sim);
-      if (name == "message_withholding") anomaly = assert_withholding(sim);
-      if (name == "byzantine_leader")    anomaly = assert_byzantine_leader(sim);
+      if (name == "equivocation")          anomaly = assert_equivocation(sim);
+      if (name == "message_withholding")   anomaly = assert_withholding(sim);
+      if (name == "byzantine_leader")      anomaly = assert_byzantine_leader(sim);
+      if (name == "notarize_skip_split")   anomaly = assert_notarize_skip_split(sim);
       if (!anomaly) {
         std::cerr << "[Harness] ASSERTION FAILED: anomaly not observed for " << name << "\n";
         ok = false;
@@ -308,6 +357,11 @@ int main(int argc, char* argv[]) {
 
   // Scenario 3: Byzantine leader (idx=0) sends different candidates to different groups
   run("byzantine_leader", NetworkRule{ByzantineMode::SplitPropose, 0, {1, 2}, {3}, 0});
+
+  // Scenario 4: Byzantine validator (idx=0) casts NotarizeVote AND SkipVote on same slot.
+  // Demonstrates gap in pool.cpp check_invariants(): Notarize+Skip pair is not detected.
+  // In the graph: validator:0 has both [:notarize] and [:skip] edges on every slot.
+  run("notarize_skip_split", NetworkRule{ByzantineMode::NotarizeSkipSplit, 0, {}, {}, 0});
 
   if (!ok) {
     std::cerr << "[Harness] Some assertions failed.\n";
