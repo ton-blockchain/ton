@@ -307,7 +307,7 @@ include(CheckCXXCompilerFlag)
 set(CMAKE_THREAD_PREFER_PTHREAD ON)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
-find_package(PkgConfig REQUIRED)
+find_package(PkgConfig)
 
 if (MINGW)
   option(TON_USE_STATIC_ZLIB "Prefer static zlib on MinGW to avoid runtime DLLs" ON)

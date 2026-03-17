@@ -38,3 +38,10 @@ build/
 3pp_emscripten/
 /android-ndk-r27d-linux.zip
 sheets_credentials.json
+
+# Local Windows configure scripts
+configure.bat
+configure.ps1
+CMakeLists.txt
+*.txt
+CMakeLists.txt

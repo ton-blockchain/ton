@@ -23,7 +23,7 @@ cmake --build build --target simulation -j$(nproc)
 
 ---
 
-## Известные проблемы сборки на Windows (VS 2026)
+## Известные проблемы сборки на Windows (VS 2022)
 
 ### 1. OpenSSL: неправильный Perl
 
@@ -39,7 +39,7 @@ CMake Error at CMake/BuildOpenSSL.cmake:127: OpenSSL config failed with code 2
 
 ```powershell
 $env:PATH = 'C:\Strawberry\perl\bin;' + $env:PATH
-cmd /c '"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" && cmake -B build -DWITH_SIMULATION=ON'
+cmd /c '"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" && cmake -B build -DWITH_SIMULATION=ON'
 ```
 
 > Если `$(nproc)` не работает в PowerShell — замени на конкретное число, например `-j8`.
@@ -74,7 +74,7 @@ COMMAND msbuild zlibstat.vcxproj ... /p:PlatformToolset=v143 ...
 ```powershell
 # PowerShell, из корня tonGraph/
 $env:PATH = 'C:\Strawberry\perl\bin;' + $env:PATH
-cmd /c '"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" && cmake -B build -DWITH_SIMULATION=ON'
+cmd /c '"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" && cmake -B build -DWITH_SIMULATION=ON'
 ```
 
 Время configure: ~6 минут (OpenSSL + zlib собираются при первом запуске).
