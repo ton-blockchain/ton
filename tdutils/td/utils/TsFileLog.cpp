@@ -62,7 +62,7 @@ class TsFileLog : public LogInterface {
     std::atomic<bool> is_inited{false};
     int id;
   };
-  static constexpr int MAX_THREAD_ID = 128;
+  static constexpr int MAX_THREAD_ID = 256;
   td::int64 rotate_threshold_;
   bool redirect_stderr_;
   std::string path_;

@@ -53,7 +53,7 @@ class ThreadLocalStorage {
     T value{};
     char padding[TD_CONCURRENCY_PAD];
   };
-  static constexpr int32 MAX_THREAD_ID = 128;
+  static constexpr int32 MAX_THREAD_ID = 256;
   std::atomic<int32> max_thread_id_{MAX_THREAD_ID};
   std::array<Node, MAX_THREAD_ID> nodes_;
 
