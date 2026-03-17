@@ -15,6 +15,8 @@
 
 **Сценарий:** `ConsensusHarness --scenario equivocation`
 
+**Инвариант:** [INVARIANTS.md#equivocation](INVARIANTS.md#equivocation)
+
 **Детектирование (Cypher):** [CYPHER_QUERIES.md#equivocation](CYPHER_QUERIES.md#equivocation)
 
 **Классификация контеста:** Consensus implementation bug — safety violation.
@@ -27,6 +29,8 @@
 Все валидаторы по таймауту шлют `SkipVote`, слот пропускается — прогресс заблокирован.
 
 **Сценарий:** `ConsensusHarness --scenario message_withholding`
+
+**Инвариант:** [INVARIANTS.md#withholding](INVARIANTS.md#withholding)
 
 **Детектирование (Cypher):** [CYPHER_QUERIES.md#withholding](CYPHER_QUERIES.md#withholding)
 
@@ -41,6 +45,8 @@
 
 **Сценарий:** `ConsensusHarness --scenario byzantine_leader`
 
+**Инвариант:** [INVARIANTS.md#byzantine-leader](INVARIANTS.md#byzantine-leader)
+
 **Детектирование (Cypher):** [CYPHER_QUERIES.md#byzantine-leader](CYPHER_QUERIES.md#byzantine-leader)
 
 **Классификация контеста:** Consensus bug — safety + liveness violation.
@@ -51,6 +57,8 @@
 
 **Описание:** Два валидатора финализируют разные блоки в одном `slot` — нарушение safety.
 Возникает при Byzantine quorum или ошибке в логике сертификации.
+
+**Инвариант:** [INVARIANTS.md#state-divergence](INVARIANTS.md#state-divergence)
 
 **Детектирование (Cypher):** [CYPHER_QUERIES.md#dual-cert](CYPHER_QUERIES.md#dual-cert)
 
@@ -63,6 +71,8 @@
 **Описание:** Валидатор «забывает» ранее выданный `NotarizeVote` (локed кандидат)
 и голосует за другой кандидат в том же `slot`. Аналог surround vote в Ethereum.
 
+**Инвариант:** [INVARIANTS.md#amnesia](INVARIANTS.md#amnesia)
+
 **Детектирование (Cypher):** [CYPHER_QUERIES.md#amnesia](CYPHER_QUERIES.md#amnesia)
 
 **Классификация контеста:** Consensus bug — safety violation (lock bypass).
@@ -73,6 +83,8 @@
 
 **Описание:** `NotarizeVote` доставляется до `Propose` в одном `slot`.
 Если реализация не защищена от out-of-order, возможна некорректная обработка.
+
+**Инвариант:** [INVARIANTS.md#out-of-order](INVARIANTS.md#out-of-order)
 
 **Детектирование (Cypher):** [CYPHER_QUERIES.md#out-of-order](CYPHER_QUERIES.md#out-of-order)
 
@@ -89,6 +101,8 @@ bandwidth (~1 Gbps на типичном железе).
 **Проверка:** Измерить число входящих сообщений на честный узел при Byzantine отправителе
 за N слотов. Должно быть O(1) на слот, не O(слоты).
 
+**Инвариант:** [INVARIANTS.md#linear-flood](INVARIANTS.md#linear-flood)
+
 **Классификация контеста:** Resource-exhaustion bug — явно в скоупе (`linear-in-time messages`).
 
 ---
@@ -97,6 +111,8 @@ bandwidth (~1 Gbps на типичном железе).
 
 **Описание:** Обработка одного входящего сообщения занимает O(N²) по числу валидаторов.
 При N=100 (лимит репро) это 10 000 операций на сообщение — реалистичный DoS.
+
+**Инвариант:** [INVARIANTS.md#superlinear](INVARIANTS.md#superlinear)
 
 **Классификация контеста:** Resource-exhaustion bug (superlinear resource growth).
 

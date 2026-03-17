@@ -141,12 +141,3 @@ import { watchFile } from 'node:fs';
 
 ---
 
-## Переменные окружения
-
-| Переменная | По умолчанию | Описание |
-|---|---|---|
-| `GRAPH_LOGGING_ENABLED` | `1` | `0` — отключает emit |
-| `GRAPH_LOG_FILE` | `simulation/trace.ndjson` | Путь к выходному файлу |
-| `NEO4J_URI` | — | bolt-URI для relay.mjs (из `.env`) |
-| `NEO4J_USER` | — | пользователь Neo4j |
-| `NEO4J_PASSWORD` | — | пароль Neo4j |

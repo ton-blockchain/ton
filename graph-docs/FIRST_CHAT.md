@@ -84,16 +84,6 @@ Corpus для fuzzer берётся из:
 - Перехваченных реальных сообщений с testnet (через ADNL-трейс)
 - Сгенерированных мутаций из существующих unit-тестов
 
-### 3. Классические BFT-сценарии как синтетические тест-кейсы
-
-| Сценарий | Что логировать | Cypher-запрос на аномалию |
-|---|---|---|
-| **Equivocation** — валидатор шлёт два разных `vote` за один раунд | `vote.blockHash`, `vote.validatorId`, `vote.round` | Два узла `Vote` с одним `validatorId` + `round`, разным `blockHash` |
-| **Message withholding** — валидатор получает `propose`, не отвечает `vote` | Тайминг `propose.tsMs` → `vote.tsMs` | Узел `Propose` без дочернего `Vote` за > `timeout` мс |
-| **Amnesia attack** — валидатор «забывает» lock и голосует за другой блок | Последовательность `lock` → `unlock` → `vote` | Ребро `[:set]` на `locked_block`, затем `[:vote]` с другим `blockHash` |
-| **Network partition** — 2 группы валидаторов изолированы | `received_by` список в каждом сообщении | Два `Commit`-узла с разными `blockHash` в одном `round` |
-| **Timing attack на timeout** | `tsMs` каждого сообщения относительно `round_start` | Сообщения, прибывающие ровно в окно `[timeout-ε, timeout+ε]` |
-| **Byzantine leader** — proposer шлёт разные блоки разным валидаторам | `propose.blockHash` per target validator | Несколько `Propose`-узлов от одного `leader` в одном `round` |
 
 ### 4. Дифференциальное тестирование против эталонной реализации
 
