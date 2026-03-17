@@ -25,7 +25,7 @@ void GraphLogger::init() {
   const char* path_env = std::getenv("GRAPH_LOG_FILE");
   path_ = path_env ? path_env : "simulation/trace.ndjson";
 
-  file_ = std::fopen(path_.c_str(), "a");
+  file_ = std::fopen(path_.c_str(), "w");
   if (!file_) {
     fprintf(stderr, "[GraphLogger] Cannot open log file: %s\n", path_.c_str());
     enabled_ = false;

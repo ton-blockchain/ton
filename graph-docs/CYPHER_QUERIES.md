@@ -274,3 +274,88 @@ MATCH (n) DETACH DELETE n
 ```
 
 > Используй с осторожностью. Для изоляции конкретного прогона лучше фильтруй по `sessionId`.
+
+---
+
+## Аномалии ConsensusHarness — верифицированные запросы
+
+Запросы проверены на данных `ConsensusHarness --scenario all` (4 сессии, 10 слотов каждая).
+Трасса: `simulation/trace.ndjson` → `relay.mjs --clear`.
+
+| Сессия | Сценарий | finalizedBlocks | skippedSlots |
+|--------|----------|-----------------|--------------|
+| `dc1938bb` | equivocation | 10 | 0 |
+| `33355d2e` | message_withholding | 9 | 1 |
+| `57e62334` | byzantine_leader | 7 | 3 |
+| `bb1a73fc` | notarize_skip_split | 10 | 0 |
+
+---
+
+### #notarize-skip-split — Notarize+Skip от одного валидатора в одном слоте
+
+Детектирует дыру в `pool.cpp check_invariants()`: пара Notarize+Skip не проверяется.
+Ожидаемый результат: только сессия `notarize_skip_split`, validator 0, слоты 0–9.
+
+```cypher
+MATCH (v:Validator)-[n:notarize]->(c:Candidate)
+MATCH (v)-[sk:skip]->(se:SkipEvent)
+WHERE n.slot = sk.slot
+RETURN v.sessionId AS session, v.validatorIdx AS validator, n.slot AS slot
+ORDER BY session, validator, slot
+```
+
+**Результат (2026-03-17):**
+
+| session | validator | slot |
+|---------|-----------|------|
+| `bb1a73fc-edac-43b5-a476-eced1b5bed57` | 0 | 0 |
+| `bb1a73fc-edac-43b5-a476-eced1b5bed57` | 0 | 1 |
+| … | 0 | 2–9 |
+
+Только сессия `notarize_skip_split` — шума нет.
+
+---
+
+### #double-notarize — Double-notarize: два голоса за разные candidateId в одном слоте
+
+Ожидаемый результат: только сессия `equivocation`, validator 0, слоты 0–9.
+
+```cypher
+MATCH (v:Validator)-[n1:notarize]->(c1:Candidate)
+MATCH (v)-[n2:notarize]->(c2:Candidate)
+WHERE n1.slot = n2.slot AND c1.nodeId < c2.nodeId
+RETURN v.sessionId AS session, v.validatorIdx AS validator,
+       n1.slot AS slot, c1.candidateId AS cand1, c2.candidateId AS cand2
+ORDER BY session, validator, slot
+```
+
+**Результат (2026-03-17):**
+
+| session | validator | slot | cand1 | cand2 |
+|---------|-----------|------|-------|-------|
+| `dc1938bb-2a75-4eaf-aeb8-81c237eb95c3` | 0 | 0 | `cand:0` | `cand:0:B` |
+| `dc1938bb-2a75-4eaf-aeb8-81c237eb95c3` | 0 | 1 | `cand:1` | `cand:1:B` |
+| … | 0 | 2–9 | `cand:N` | `cand:N:B` |
+
+---
+
+### #cert-with-skip — Safety violation: NotarizeCert сформирован, но участник кворума голосовал Skip
+
+Показывает случаи, где один из нотаризирующих валидаторов одновременно слал SkipVote на тот же слот.
+Ожидаемый результат: только сессия `notarize_skip_split`, validator 0, слоты 0–9.
+
+```cypher
+MATCH (cert:Cert)<-[:cert]-(:Candidate)<-[:notarize {slot: cert.slot}]-(v:Validator)
+MATCH (v)-[:skip {slot: cert.slot}]->(:SkipEvent)
+RETURN cert.sessionId AS session, v.validatorIdx AS validator,
+       cert.slot AS slot, cert.candidateId AS certifiedCand
+ORDER BY session, slot
+```
+
+**Результат (2026-03-17):**
+
+| session | validator | slot | certifiedCand |
+|---------|-----------|------|---------------|
+| `bb1a73fc-edac-43b5-a476-eced1b5bed57` | 0 | 0 | `cand:0` |
+| `bb1a73fc-edac-43b5-a476-eced1b5bed57` | 0 | 1 | `cand:1` |
+| … | 0 | 2–9 | `cand:N` |

@@ -146,6 +146,7 @@ static void run_slot(SimState& sim, uint32_t slot) {
   // ── 2. NotarizeVotes ────────────────────────────────────────────────────
   int notarize_count = 0;
   std::string cand_b = candidate_id(slot, "B");  // for split/equivocation
+  std::vector<bool> did_notarize(N, false);       // track per-validator to avoid SkipVote collision
 
   // DoubleVote: Byzantine validator votes for BOTH cand and cand_b
   if (mode == ByzantineMode::DoubleVote) {
@@ -166,19 +167,25 @@ static void run_slot(SimState& sim, uint32_t slot) {
                        {"candidateId", cand_a}});
       emit("NotarizeVote", {{"validatorIdx", (int64_t)v},
                             {"candidateId", cand_a}});
+      did_notarize[v] = true;
     }
     for (int v : sim.rule.group_b) {
       emit("Receive", {{"validatorIdx", (int64_t)v},
                        {"candidateId", cand_b}});
       emit("NotarizeVote", {{"validatorIdx", (int64_t)v},
                             {"candidateId", cand_b}});
+      did_notarize[v] = true;
     }
-    // No quorum → slot will be skipped
+    // No quorum → only validators who did NOT notarize vote Skip
+    // (honest validators who notarized don't also skip — that would be equivocation)
     sim.skipped_slots++;
+    int skip_weight = 0;
     for (int v = 0; v < N; v++) {
+      if (did_notarize[v]) continue;
       emit("SkipVote", {{"validatorIdx", (int64_t)v}});
+      skip_weight++;
     }
-    emit("SkipCert", {{"weight", (int64_t)N}});
+    emit("SkipCert", {{"weight", (int64_t)skip_weight}});
     return;
   }
 
@@ -228,6 +235,7 @@ static void run_slot(SimState& sim, uint32_t slot) {
     if (mode == ByzantineMode::DoubleVote && v == byz) continue;  // already handled
     emit("NotarizeVote", {{"validatorIdx", (int64_t)v},
                           {"candidateId", cand}});
+    did_notarize[v] = true;
     notarize_count++;
   }
 
@@ -246,11 +254,14 @@ static void run_slot(SimState& sim, uint32_t slot) {
     emit("Block", {{"candidateId", cand}});
     sim.finalized_blocks++;
   } else {
-    // Not enough votes → skip
+    // Not enough votes → only validators who did NOT notarize vote Skip
+    int skip_weight = 0;
     for (int v = 0; v < N; v++) {
+      if (did_notarize[v]) continue;
       emit("SkipVote", {{"validatorIdx", (int64_t)v}});
+      skip_weight++;
     }
-    emit("SkipCert", {{"weight", (int64_t)N}});
+    emit("SkipCert", {{"weight", (int64_t)skip_weight}});
     sim.skipped_slots++;
   }
 }

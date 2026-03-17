@@ -209,7 +209,9 @@ async function dispatch(session, ev) {
 // ── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const tracePath = process.argv[2] || path.resolve(__dir, 'trace.ndjson');
+  const args = process.argv.slice(2);
+  const clearFlag = args.includes('--clear');
+  const tracePath = args.find(a => !a.startsWith('--')) || path.resolve(__dir, 'trace.ndjson');
 
   if (!fs.existsSync(tracePath)) {
     console.error(`[relay] trace file not found: ${tracePath}`);
@@ -222,6 +224,12 @@ async function main() {
 
   await driver.verifyConnectivity();
   const session = driver.session({ database: DATABASE });
+
+  if (clearFlag) {
+    console.log('[relay] --clear: deleting all nodes and relationships...');
+    await runQuery(session, 'MATCH (n) DETACH DELETE n');
+    console.log('[relay] graph cleared.');
+  }
 
   const rl = readline.createInterface({
     input: fs.createReadStream(tracePath),
