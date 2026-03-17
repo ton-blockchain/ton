@@ -11,6 +11,8 @@
 #include "state.h"
 #include "stats.h"
 
+#include "GraphLogger.h"
+
 namespace ton::validator::consensus::simplex {
 
 namespace {
@@ -526,6 +528,19 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
         return false;
       }
 
+      // Capture fields before the vote is moved into add_vote.
+      // Equivocation baseline: каждый (validatorIdx, slot, voteType) — ровно 1 ребро [:notarize/:finalize/:skip]
+      // Аномалия: два VoteCast от одного validatorIdx с одним slot и разными candidateId или разными voteType.
+      const auto g_slot = static_cast<int64_t>(vote.vote.referenced_slot());
+      const auto g_vidx = static_cast<int64_t>(validator.idx.value());
+      std::string g_cid;
+      if constexpr (!std::same_as<VoteT, SkipVote>) {
+        g_cid = vote.vote.id.hash.to_hex();
+      }
+      constexpr const char* g_vtype = std::same_as<VoteT, NotarizeVote> ? "notarize"
+                                    : std::same_as<VoteT, FinalizeVote>  ? "finalize"
+                                                                         : "skip";
+
       auto add_result = slot->state->votes[validator.idx.value()].add_vote(std::move(vote));
 
       if (auto misbehavior = add_result.misbehavior) {
@@ -541,6 +556,13 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
       }
 
       if (add_result.is_applied) {
+        simulation::GraphLogger::instance().emit("VoteCast", {
+            {"validatorIdx", g_vidx},
+            {"slot", g_slot},
+            {"voteType", std::string(g_vtype)},
+            {"candidateId", g_cid},
+            {"sessionId", owning_bus()->session_id.to_hex()},
+        });
         handle_typed_vote(validator, std::move(vote), *slot);
         return true;
       }

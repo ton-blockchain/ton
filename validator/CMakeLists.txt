@@ -118,6 +118,7 @@ set(VALIDATOR_SOURCE
   consensus/simplex/state-resolver.cpp
   consensus/simplex/stats.cpp
   consensus/simplex/votes.cpp
+  ../simulation/GraphLogger.cpp
   consensus/block-accepter.cpp
   consensus/block-producer.cpp
   consensus/block-validator.cpp
@@ -226,6 +227,7 @@ target_include_directories(validator PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../simulation
   ${OPENSSL_INCLUDE_DIR}
 )
 
