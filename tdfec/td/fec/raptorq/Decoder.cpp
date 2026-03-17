@@ -49,6 +49,7 @@ Status Decoder::add_symbol(fec::Symbol symbol) {
       return Status::OK();
     }
     small_symbols_mask_[symbol.id] = true;
+    ++small_symbols_count_;
   } else {
     if (symbols_.size() >= p_.K + 10) {
       return Status::OK();
@@ -74,26 +75,23 @@ Result<Decoder::DataWithEncoder> Decoder::try_decode(bool need_encoder) {
   optional<RawEncoder> raw_encoder;
   if (!result_) {
     BufferSlice data(data_size_);
-    size_t small_symbols_count = 0;
-    for (auto &[i, s] : symbols_) {
-      if (i < p_.K) {
-        ++small_symbols_count;
-        MutableSlice to =
-            data.as_slice().substr(i * symbol_size_, std::min(symbol_size_, data_size_ - i * symbol_size_));
-        to.copy_from(s.as_slice().substr(0, to.size()));
+    if (small_symbols_count_ == p_.K) {
+      for (auto &[i, s] : symbols_) {
+        if (i < p_.K) {
+          MutableSlice to =
+              data.as_slice().substr(i * symbol_size_, std::min(symbol_size_, data_size_ - i * symbol_size_));
+          to.copy_from(s.as_slice().substr(0, to.size()));
+        }
       }
-    }
-    if (small_symbols_count < p_.K) {
+    } else {
       make_symbol_refs();
       may_decode_ = false;
       TRY_RESULT(C, Solver::run(p_, symbol_refs_));
       raw_encoder = RawEncoder(p_, std::move(C));
       for (uint32 i = 0; i < p_.K; i++) {
-        if (!small_symbols_mask_[i]) {
-          (*raw_encoder)
-              .gen_symbol(
-                  i, data.as_slice().substr(i * symbol_size_, std::min(symbol_size_, data_size_ - i * symbol_size_)));
-        }
+        (*raw_encoder)
+            .gen_symbol(
+                i, data.as_slice().substr(i * symbol_size_, std::min(symbol_size_, data_size_ - i * symbol_size_)));
       }
     }
     result_ = std::move(data);

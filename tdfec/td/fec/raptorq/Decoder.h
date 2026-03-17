@@ -47,6 +47,7 @@ class Decoder {
   bool may_decode_{false};
   std::vector<fec::Symbol> symbols_;
   vector<bool> small_symbols_mask_;
+  size_t small_symbols_count_{0};
   std::set<uint32> big_symbols_set_;
   size_t data_size_;
   optional<BufferSlice> result_;
