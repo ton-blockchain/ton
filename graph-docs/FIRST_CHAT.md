@@ -1,9 +1,5 @@
 # Первый чат: графовое логирование для поиска уязвимостей TON Consensus
 
-## Можно ли искать уязвимости TON Consensus через графовое логирование?
-
-**Короткий ответ: да, концептуально подход мощный, но потребуется отдельная адаптация — текущая реализация в teleGraph заточена под Telegram Web, а не под C++ код валидатора.**
-
 ### Что уже есть и что применимо
 
 Инфраструктура (GRAPH_LOGGING_PLAN.md, WORKER_LOGGING.md, CYPHER_QUERIES.md) даёт:
@@ -17,49 +13,6 @@
 | **Cypher-запросы** (`#frontier`, `#store-history`) | Поиск аномалий в графе: необычные пути, отсутствующие рёбра, циклы |
 | **Lane/thread разметка** | Визуализация параллельных validator threads |
 
-### Конкретные классы уязвимостей, детектируемых графом
-
-**1. Нарушение порядка сообщений (Message Reordering)**
-```cypher
-// Найти случаи, где vote пришёл раньше propose
-MATCH (v:Vote)-[r1]->(round:Round), (p:Propose)-[r2]->(round)
-WHERE r1.tsMs < r2.tsMs
-RETURN v, p, round
-```
-
-**2. Equivocation (двойное голосование)**
-```cypher
-// Валидатор проголосовал за два разных блока в одном раунде
-MATCH (v1:Vote {validatorId: $vid})-[:for]->(b1:Block),
-      (v2:Vote {validatorId: $vid})-[:for]->(b2:Block)
-WHERE v1.round = v2.round AND b1.blockHash <> b2.blockHash
-RETURN v1, v2, b1, b2
-```
-
-**3. State divergence (расхождение состояния)**
-```cypher
-// Два валидатора имеют разный committed state после одного раунда
-MATCH (s1:State {validatorId: $v1})-[:after]->(r:Round),
-      (s2:State {validatorId: $v2})-[:after]->(r)
-WHERE s1.stateHash <> s2.stateHash
-RETURN s1, s2, r
-```
-
-**4. Liveness attack (блокировка прогресса)**
-```cypher
-// Раунды без финализации блока
-MATCH (r:Round)
-WHERE NOT (r)<-[:finalized]-(:Block)
-RETURN r ORDER BY r.roundNum
-```
-
-**5. Недостижимые ветки (мёртвый код в state machine)**
-```cypher
-// Состояния, никогда не посещённые за N прогонов
-MATCH (s:ConsensusState)
-WHERE NOT (s)<-[:transition]-()
-RETURN s
-```
 
 ### Практический план адаптации
 
@@ -70,10 +23,7 @@ RETURN s
 - Отправлять буфер в Neo4j через HTTP API (или через существующий `AuraGraphReporter` как relay)
 - Cypher-запросы из CYPHER_QUERIES.md работают as-is после адаптации лейблов
 
-**B. Симуляция протокола в TypeScript**
-- Переписать state machine консенсуса на TS, обернув каждый переход в `AuraGraphReporter.logCall()`
-- Прогнать fuzzing-сценарии (Byzantine validators, network partitions, delayed messages)
-- Анализировать граф на аномалии
+
 
 **C. Статический анализ кода через граф**
 - Парсить C++ AST → граф вызовов в Neo4j
@@ -95,7 +45,6 @@ RETURN s
 
 ---
 
-## Откуда взять тест-кейсы (вариант A: инструментация через обёртки)?
 
 ### 1. Готовые тест-кейсы в самом репозитории TON
 
