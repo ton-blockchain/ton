@@ -18,6 +18,7 @@ test/regression-tests.cache/
 .vs
 .env
 simulation/node_modules
+simulation/trace.ndjson
 .DS_Store
 dev/
 
