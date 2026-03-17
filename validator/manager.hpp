@@ -267,12 +267,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void update_shards();
   void update_shard_blocks();
   void updated_init_block(BlockIdExt last_rotate_block_id,
-                          std::set<ValidatorSessionId> old_destroyed_validator_sessions) {
-    last_rotate_block_id_ = last_rotate_block_id;
-    for (const auto &s : old_destroyed_validator_sessions) {
-      destroyed_validator_sessions_.erase(s);
-    }
-  }
+                          std::set<ValidatorSessionId> old_destroyed_validator_sessions);
   void got_next_gc_masterchain_handle(BlockHandle handle);
   void got_next_gc_masterchain_state(BlockHandle handle, td::Ref<MasterchainState> state);
   void advance_gc(BlockHandle handle, td::Ref<MasterchainState> state);

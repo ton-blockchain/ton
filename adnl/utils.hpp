@@ -47,6 +47,7 @@ class RateLimiter {
   }
 
   bool take() {
+    last_take_at_ = td::Timestamp::now();
     while (remaining_ < capacity_ && increment_at_.is_in_past()) {
       ++remaining_;
       increment_at_ += period_;
@@ -68,11 +69,20 @@ class RateLimiter {
     return increment_at_;
   }
 
+  td::Timestamp last_take_at() const {
+    return last_take_at_;
+  }
+
+  double period() const {
+    return period_;
+  }
+
  private:
   td::uint32 capacity_;
   double period_;
   td::uint32 remaining_;
   td::Timestamp increment_at_ = td::Timestamp::never();
+  td::Timestamp last_take_at_ = td::Timestamp::now();
 };
 
 }  // namespace adnl

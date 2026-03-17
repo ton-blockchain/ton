@@ -130,6 +130,9 @@ class AdnlLocalId : public td::actor::Actor {
   void prepare_packet_stats();
 
   void publish_address_list();
+
+  td::Timestamp publish_address_list_at_ = td::Timestamp::now();
+  td::Timestamp cleanup_rate_limiter_at_ = td::Timestamp::never();
 };
 
 inline td::StringBuilder &operator<<(td::StringBuilder &sb, const AdnlLocalId::PrintId &id) {
