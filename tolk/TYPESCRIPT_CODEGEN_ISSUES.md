@@ -1,120 +1,198 @@
-# TypeScript Codegen Issues
+# TypeScript Codegen — Issues & Status
 
-Issues identified during code review and testing of the TypeScript codegen for Tolk.
+## Build Status
 
-## Critical Issues
+✅ **Compiles successfully** with CMake on Ubuntu 24.04 (g++ 13.3, cmake 3.28)
+✅ **All 8 pack-unpack test files** produce TypeScript output without crashes
+✅ **stdlib types are now filtered** — only user-defined structs/enums are exported
 
-### 1. Missing `TypeDataInt` Handler (plain `int` type)
-**Status:** ✅ FIXED  
-**Severity:** High  
-**File:** `ts-type-mapping.h`
-
-The plain `int` type (257-bit TVM integer) was not handled in `get_ts_type_info()`.
-
-**Fix applied:** Added handler for `TypeDataInt`:
-```cpp
-if (type->try_as<TypeDataInt>()) {
-    info.ts_type = "bigint";
-    info.load_expr = "slice.loadIntBig(257)";
-    info.store_expr = "builder.storeInt(src." + field_name + ", 257)";
-    return info;
-}
+### Build instructions
+```bash
+mkdir -p build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release -DTON_ONLY_TONLIB=ON
+make tolk -j$(nproc)
 ```
 
-### 2. BitsN Type Mismatch
-**Status:** ✅ FIXED  
-**Severity:** Medium  
-**File:** `ts-type-mapping.h`
+### Usage
+```bash
+# Output TypeScript to stdout (after Fift code)
+./tolk -T contract.tolk
 
-For non-byte-aligned `bitsN` types, the codegen was using `Buffer` as the TypeScript type, but `Slice.loadBits()` returns `BitString`, not `Buffer`.
-
-**Fix applied:**
-- Changed non-byte-aligned bitsN to use `BitString` type
-- Added `needs_import_bitstring` flag to `TsTypeInfo`
-- Updated `pipe-generate-ts-output.cpp` to include `BitString` import when needed
-
-## Medium Issues
-
-### 3. Internal/Stdlib Structs in Output
-**Status:** OPEN  
-**Severity:** Low  
-**File:** `pipe-generate-ts-output.cpp`
-
-Internal stdlib structs like `contract`, `blockchain`, `random`, `PackOptions`, `UnpackOptions` are included in the generated output. These should be filtered out or marked as internal.
-
-**Current filtering:**
-```cpp
-if (struct_ref->name.find("__") == 0) continue;  // Only filters "__" prefix
+# Write TypeScript to a file
+./tolk -t bindings.ts contract.tolk
 ```
 
-**Suggested fix:** Also filter known stdlib structs, or add a flag to mark them.
+---
 
-### 4. Generic Store Expression Missing Type Assertion
-**Status:** OPEN  
-**Severity:** Low  
-**File:** `ts-type-mapping.h`
+## What Works (Correctly Generated)
 
-For generic nullables with the 1-bit flag pattern, the store expression uses a comma operator which may confuse TypeScript:
-```cpp
-info.store_expr = "src." + field_name + " !== null ? (builder.storeBit(true), " + inner.store_expr + ") : builder.storeBit(false)";
-```
+### Simple Struct Types
+- `int8`..`int32` → `number` with `loadInt`/`storeInt`
+- `uint8`..`uint32` → `number` with `loadUint`/`storeUint`
+- `int33`..`int257` → `bigint` with `loadIntBig`/`storeInt`
+- `uint33`..`uint256` → `bigint` with `loadUintBig`/`storeUint`
+- `bool` → `boolean` with `loadBoolean`/`storeBit`
+- `coins` → `bigint` with `loadCoins`/`storeCoins`
+- `varint16/32`, `varuint16/32` → `bigint` with `loadVarIntBig`/`storeVarInt`
 
-This should probably be an IIFE or split into multiple statements.
+### Address Types
+- `address` → `Address` with `loadAddress`/`storeAddress`
+- `any_address` → `Address | ExternalAddress | null` with `loadAddressAny`/`storeAddress`
 
-## Code Quality Issues
+### Cell/Ref Types
+- `cell` → `Cell` with `loadRef`/`storeRef`
+- `Cell<T>` (typed cell refs) → `Cell` with `loadRef`/`storeRef`
+- `slice` → `Slice`
+- `builder` → `Builder`
 
-### 5. Missing Import for BitString
-**Status:** ✅ FIXED  
-**File:** `ts-type-mapping.h`, `pipe-generate-ts-output.cpp`
+### Bytes/Bits Types
+- `bytesN` → `Buffer` with `loadBuffer`/`storeBuffer`
+- `bitsN` (byte-aligned) → `Buffer` with `loadBuffer`/`storeBuffer`
+- `bitsN` (non-byte-aligned) → `BitString` with `loadBits`/`storeBits`
 
-Added `needs_import_bitstring` flag to `TsTypeInfo` and updated import generation.
+### RemainingBitsAndRefs
+- `RemainingBitsAndRefs` → `Slice` with `slice.clone()`
 
-### 6. Dictionary Load/Store Incomplete
-**Status:** OPEN  
-**File:** `ts-type-mapping.h`
+### Enums
+- Simple enums with explicit values → TypeScript `enum` with numeric values
+- Enum fields in structs → proper load/store with backing type cast
+- `enum E: int8 { ... }` → loads/stores with the specified backing type
 
-The Dictionary handling generates incomplete code:
-```cpp
-info.load_expr = "Dictionary.load(/* key dict, value dict */)";
-```
+### Opcodes
+- `struct(0xABCD) Name { ... }` → opcode constant, `$$type` discriminator, load/store with opcode check
 
-This needs proper key/value serializers to be generated.
+### Nested Struct References
+- Struct fields referencing other structs → calls `loadOtherStruct(slice)` / `storeOtherStruct(src.field)(builder)`
 
-### 7. Complex Union Load/Store Not Implemented
-**Status:** OPEN  
-**File:** `ts-type-mapping.h`
+### Nullable Primitive Types
+- `int32?` → `number | null` with bit flag
+- `address?` → `Address | null` with `loadMaybeAddress`/`storeAddress`
+- `cell?` → `Cell | null` with `loadMaybeRef`/`storeMaybeRef`
 
-Full union types (not just nullable) have placeholder comments:
-```cpp
-info.load_expr = "/* union load - check opcodes */";
-info.store_expr = "/* union store - switch on $$type */";
-```
+### Import Generation
+- Only imports what's needed (`Address`, `Cell`, `Dictionary`, `BitString`)
+- Always imports `Builder` and `Slice`
 
-## Verification Checklist
+### Stdlib Filtering
+- ✅ Fixed: stdlib types (`contract`, `blockchain`, `PackOptions`, `UnpackOptions`, `ContractState`, etc.) are now excluded
+- ✅ Fixed: Generic stdlib instantiations (`Cell<T>`, `MapLookupResult<T>`) are excluded
 
-- [x] Build compiles without errors
-- [x] New CLI flags `-t` and `-T` work
-- [x] Basic struct serialization generates correctly
-- [x] Enum serialization generates correctly  
-- [x] Opcode constants generate correctly
-- [x] IntN types (int32, uint64, etc.) generate correctly
-- [x] Plain `int` type handled (FIXED)
-- [x] BitsN type mapping correct (FIXED)
-- [x] Cell<T> generates correctly (outputs `Cell` — correct for @ton/core)
-- [ ] Dictionary serialization complete
-- [ ] Union serialization complete
+---
 
-## Fixes Applied in This Review
+## Known Limitations (Placeholders in Output)
 
-1. **TypeDataInt handler** - Added support for plain `int` type → `bigint` with 257-bit operations
-2. **BitString type** - Non-byte-aligned bitsN now correctly uses `BitString` type instead of `Buffer`
-3. **BitString import** - Added `needs_import_bitstring` flag and conditional import generation
-4. **-T flag output** - Fixed TypeScript output to stdout when using `-T` flag without `-t`
+### 1. Union Type Load/Store — Priority: HIGH
+**Status:** Placeholder comments (`/* union load - check opcodes */`)
 
-## Testing Notes
+Union types like `int8 | int256`, `Cell<TwoInts32AndCoins> | Cell<JustInt32>`, `coins | uint64` generate correct TypeScript type annotations but lack load/store implementations.
 
-Tested with:
-- `pack-unpack-1.tolk` - Basic structs, Cell<T>
-- `pack-unpack-8.tolk` - Enums with various backing types
+**What's needed:**
+- For opcode-discriminated unions: generate `switch` on opcode prefix
+- For auto-prefixed unions (2-bit, 3-bit tags): generate bit-prefix matching
+- For `Either<L, R>` pattern: generate 1-bit tag check
 
-All test files compile and produce TypeScript output, though some features generate placeholder code.
+**Affected structs across test files:** `IntAndEitherInt8Or256`, `MsgSinglePrefix48`, `IntAndEither32OrRef64`, `IntAndEither8OrMaybe256`, `IntAndEitherMaybe8Or256`, `IntAndMaybeMaybe8`, `SomeBytesFields.f4`, `IntAndRestEitherCellOrRefCell.rest`, `DifferentMix3.bod`, `WithNullableMaps.m4`, `WithEnumsUnion.u`
+
+### 2. Complex Nullable Load/Store — Priority: MEDIUM
+**Status:** Placeholder comments (`/* complex nullable: T | null */`)
+
+Nullable types where the inner type is a struct (not a primitive) don't have load/store implementations.
+
+**What's needed:**
+- For `StructType?`: generate 1-bit flag + struct load/store
+- For `(int32, int64)?`: handle tuple nullables (requires tuple support first)
+
+**Affected:** `DifferentIntsWithMaybe.jmiMaybe`, `DifferentMix1.ja2m`, `DifferentMix3.tim`, `DifferentMix3.pairm`
+
+### 3. Tuple Types — Priority: MEDIUM
+**Status:** Maps to `unknown /* (int32, int64) */`
+
+Tensor/tuple types `(T1, T2, ...)` are not yet mapped to TypeScript types.
+
+**Possible approaches:**
+- Map to TypeScript tuples: `[number, bigint]`
+- Generate inline load/store for each element
+- Handle nested tuples recursively
+
+**Affected:** `DifferentMix3.pairm`, `WithMaps.m2` (key type `JustInt32`, value type `(int8, int8)`)
+
+### 4. Custom Pack/Unpack (Type Aliases with Methods) — Priority: LOW
+**Status:** Falls through to underlying type, ignoring custom pack/unpack methods
+
+Types like `TelegramString`, `Custom8`, `MyBorderedInt`, `UnsafeColor` that define `.packToBuilder()` and `.unpackFromSlice()` are treated as their underlying type.
+
+**What's needed:** Detect when a type alias has custom pack/unpack methods and either:
+- Generate a note that custom serialization is used
+- Skip these fields with a comment
+- Or implement some form of custom function references
+
+### 5. Map Serialization — Priority: LOW
+**Status:** Dict type annotation works, but load/store are placeholder-quality
+
+`map<K, V>` generates `Dictionary<TsK, TsV>` but the load/store use generic placeholders that don't specify key/value serializers.
+
+**What's needed:** Generate proper `Dictionary.Keys.*` and `Dictionary.Values.*` specifications.
+
+### 6. Void/Unit Type Fields — Priority: LOW  
+**Status:** Maps to `unknown /* () */`
+
+Fields with type `()` (void/unit) like `MyCustomNothing`, `MagicGlobalModifier` are shown as unknown. These are used for side-effect-only custom serialization.
+
+---
+
+## Files Modified
+
+### New Files
+- `tolk/pipe-generate-ts-output.cpp` — Main codegen pipeline stage
+- `tolk/ts-type-mapping.h` — Type mapping and load/store expression generation
+
+### Modified Files
+- `tolk/compiler-state.h` — Added `emit_typescript`, `typescript_output_filename`, `generated_typescript_code` to `CompilerSettings`
+- `tolk/pipeline.h` — Added `pipeline_generate_ts_output()` declaration
+- `tolk/tolk.cpp` — Called `pipeline_generate_ts_output()` after Fift output
+- `tolk/tolk-main.cpp` — Added `-t<file>` and `-T` CLI flags
+- `tolk/tolk-wasm.cpp` — Added `emitTypescript` option for WASM builds
+- `tolk/CMakeLists.txt` — Added `pipe-generate-ts-output.cpp` to sources
+
+### Test/Reference Files
+- `tolk/tests/expected-ts-output/pack-unpack-{1..8}.ts` — Expected TypeScript output for each test fixture
+- `tolk/tests/actual-ts-output/pack-unpack-{1..8}.ts` — Current actual output (for comparison)
+
+---
+
+## Architecture Notes
+
+### Pipeline Position
+`pipeline_generate_ts_output()` runs **after** all type checking and Fift generation are complete. It reads the fully resolved type system and generates TypeScript as a separate output stream.
+
+### Type Mapping Strategy
+The type mapping in `ts-type-mapping.h` uses `try_as<>()` pattern matching on `TypeData*` subclasses. Each type maps to:
+- A TypeScript type string
+- A load expression (reading from Slice)
+- A store expression (writing to Builder)
+- Import flags (which @ton/core types are needed)
+
+### Stdlib Filtering
+Uses `SrcFile::is_stdlib_file` to detect stdlib types. Both direct stdlib types and generic instantiations of stdlib types (e.g., `Cell<T>`, `MapLookupResult<T>`) are filtered.
+
+### Design Alignment with TON Ecosystem
+- Output follows `@ton/core` conventions
+- Load/store function naming matches `tlb-codegen` patterns
+- Opcode handling uses `$$type` discriminator (Tact convention)
+- `loadX`/`storeX` function pair pattern
+
+---
+
+## Next Steps (Priority Order)
+
+1. **Union load/store** — The biggest gap. Need to examine how Tolk resolves union type tags at the AST level and generate corresponding TypeScript switch/if chains.
+
+2. **Complex nullable load/store** — Once unions work, complex nullables (which are internally `T | null` unions) should follow naturally.
+
+3. **Tuple type support** — Map `(T1, T2)` to TypeScript tuples `[ts_T1, ts_T2]` with sequential load/store.
+
+4. **Map key/value serializers** — Use `Dictionary.Keys.Int(bits)` / `Dictionary.Values.BigInt(bits)` etc.
+
+5. **Type alias custom serialization** — Detect and handle custom pack/unpack methods.
+
+6. **Version string** — Use actual compiler version instead of hardcoded "1.2".

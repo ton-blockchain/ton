@@ -47,11 +47,34 @@
 #include "compiler-settings.h"
 #include "type-system.h"
 #include "ts-type-mapping.h"
+#include "ast.h"
+#include "src-file.h"
 #include <sstream>
 #include <fstream>
 #include <set>
 
 namespace tolk {
+
+// Check if a symbol (struct/enum) is from the stdlib (should not be exported)
+static bool is_from_stdlib(const Symbol* sym) {
+    if (sym->is_builtin()) return true;
+    if (sym->ident_anchor == nullptr) return true;
+    const SrcFile* file = sym->ident_anchor->range.get_src_file();
+    return file != nullptr && file->is_stdlib_file;
+}
+
+// Check if a struct should be skipped for codegen
+static bool should_skip_struct(StructPtr struct_ref) {
+    // Skip generic structs (only generate instantiated versions)
+    if (struct_ref->is_generic_struct()) return true;
+    // Skip stdlib internal structs
+    if (is_from_stdlib(struct_ref)) return true;
+    // Skip instantiated generic structs from stdlib (Cell<T>, MapLookupResult<T>, etc.)
+    if (struct_ref->is_instantiation_of_generic_struct() &&
+        struct_ref->base_struct_ref != nullptr &&
+        is_from_stdlib(struct_ref->base_struct_ref)) return true;
+    return false;
+}
 
 // Collect all required imports based on types used
 static void collect_imports(StructPtr struct_ref, 
@@ -173,10 +196,7 @@ std::string generate_typescript_output() {
     
     // First pass: collect import requirements
     for (StructPtr struct_ref : G.all_structs) {
-        // Skip generic structs (only generate instantiated versions)
-        if (struct_ref->is_generic_struct()) continue;
-        // Skip stdlib internal structs
-        if (struct_ref->name.find("__") == 0) continue;
+        if (should_skip_struct(struct_ref)) continue;
         
         collect_imports(struct_ref, need_address, need_cell, need_dictionary, need_bitstring);
     }
@@ -198,7 +218,7 @@ std::string generate_typescript_output() {
     
     // Generate enums first (structs may reference them)
     for (EnumDefPtr enum_ref : G.all_enums) {
-        if (enum_ref->name.find("__") == 0) continue;
+        if (is_from_stdlib(enum_ref)) continue;
         
         output << "// === " << enum_ref->name << " ===\n";
         output << generate_enum(enum_ref);
@@ -207,12 +227,7 @@ std::string generate_typescript_output() {
     
     // Generate structs
     for (StructPtr struct_ref : G.all_structs) {
-        // Skip generic structs
-        if (struct_ref->is_generic_struct()) continue;
-        // Skip stdlib internal structs
-        if (struct_ref->name.find("__") == 0) continue;
-        // Skip instantiated generic structs with <T> in name (keep concrete ones like Wrapper<int>)
-        // Actually, keep them - they're the ones we want
+        if (should_skip_struct(struct_ref)) continue;
         
         output << "// === " << struct_ref->name << " ===\n";
         output << generate_opcode_constant(struct_ref);
