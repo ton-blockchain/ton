@@ -110,11 +110,12 @@ inline TsTypeInfo get_ts_type_info(TypePtr type, const std::string& field_name =
     // Handle address type
     if (auto* addr = type->try_as<TypeDataAddress>()) {
         info.needs_import_address = true;
-        if (addr->get_type_id() == TypeData::type_id_address_any) {
+        if (addr->is_any()) {
             info.ts_type = "Address | ExternalAddress | null";
             info.load_expr = "slice.loadAddressAny()";
             info.store_expr = "builder.storeAddress(src." + field_name + ")";
         } else {
+            // addr->is_internal() — standard address
             info.ts_type = "Address";
             info.load_expr = "slice.loadAddress()";
             info.store_expr = "builder.storeAddress(src." + field_name + ")";
@@ -168,9 +169,21 @@ inline TsTypeInfo get_ts_type_info(TypePtr type, const std::string& field_name =
         return info;
     }
     
-    // Handle struct types
+    // Handle struct types (including Cell<T> which is a generic struct instantiation)
     if (auto* struct_type = type->try_as<TypeDataStruct>()) {
         StructPtr struct_ref = struct_type->struct_ref;
+        
+        // Check if this is Cell<T> — a typed reference
+        if (struct_ref->is_instantiation_of_generic_struct() && 
+            struct_ref->base_struct_ref != nullptr && 
+            struct_ref->base_struct_ref->name == "Cell") {
+            info.ts_type = "Cell";
+            info.needs_import_cell = true;
+            info.load_expr = "slice.loadRef()";
+            info.store_expr = "builder.storeRef(src." + field_name + ")";
+            return info;
+        }
+        
         info.ts_type = struct_ref->name;
         info.load_expr = "load" + struct_ref->name + "(slice)";
         info.store_expr = "store" + struct_ref->name + "(src." + field_name + ")(builder)";
