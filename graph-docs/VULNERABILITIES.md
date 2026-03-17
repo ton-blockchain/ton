@@ -15,13 +15,7 @@
 
 **Сценарий:** `ConsensusHarness --scenario equivocation`
 
-**Детектирование (Cypher):**
-```cypher
-MATCH (v:Validator)-[:notarize {slot: $slot}]->(c1:Candidate),
-      (v)-[:notarize {slot: $slot}]->(c2:Candidate)
-WHERE c1.candidateId <> c2.candidateId
-RETURN v, c1, c2
-```
+**Детектирование (Cypher):** [CYPHER_QUERIES.md#equivocation](CYPHER_QUERIES.md#equivocation)
 
 **Классификация контеста:** Consensus implementation bug — safety violation.
 
@@ -34,13 +28,7 @@ RETURN v, c1, c2
 
 **Сценарий:** `ConsensusHarness --scenario message_withholding`
 
-**Детектирование (Cypher):**
-```cypher
-// Слоты без NotarizeCert — только SkipEvent
-MATCH (sk:SkipEvent)
-WHERE NOT (:Cert {slot: sk.slot, sessionId: sk.sessionId})
-RETURN sk.slot ORDER BY sk.slot
-```
+**Детектирование (Cypher):** [CYPHER_QUERIES.md#withholding](CYPHER_QUERIES.md#withholding)
 
 **Классификация контеста:** Consensus bug — liveness violation.
 
@@ -53,13 +41,7 @@ RETURN sk.slot ORDER BY sk.slot
 
 **Сценарий:** `ConsensusHarness --scenario byzantine_leader`
 
-**Детектирование (Cypher):**
-```cypher
-MATCH (v:Validator)-[:propose]->(c1:Candidate),
-      (v)-[:propose]->(c2:Candidate)
-WHERE c1.slot = c2.slot AND c1.candidateId <> c2.candidateId
-RETURN v, c1, c2
-```
+**Детектирование (Cypher):** [CYPHER_QUERIES.md#byzantine-leader](CYPHER_QUERIES.md#byzantine-leader)
 
 **Классификация контеста:** Consensus bug — safety + liveness violation.
 
@@ -70,12 +52,7 @@ RETURN v, c1, c2
 **Описание:** Два валидатора финализируют разные блоки в одном `slot` — нарушение safety.
 Возникает при Byzantine quorum или ошибке в логике сертификации.
 
-**Детектирование (Cypher):**
-```cypher
-MATCH (b1:Block {slot: $slot}), (b2:Block {slot: $slot})
-WHERE b1.candidateId <> b2.candidateId
-RETURN b1, b2
-```
+**Детектирование (Cypher):** [CYPHER_QUERIES.md#dual-cert](CYPHER_QUERIES.md#dual-cert)
 
 **Классификация контеста:** Consensus bug — critical safety violation.
 
@@ -86,14 +63,7 @@ RETURN b1, b2
 **Описание:** Валидатор «забывает» ранее выданный `NotarizeVote` (локed кандидат)
 и голосует за другой кандидат в том же `slot`. Аналог surround vote в Ethereum.
 
-**Детектирование (Cypher):**
-```cypher
-// Validator голосовал notarize за cand_A, потом за cand_B в том же slot
-MATCH (v:Validator)-[n1:notarize]->(c1:Candidate),
-      (v)-[n2:notarize]->(c2:Candidate)
-WHERE n1.slot = n2.slot AND c1 <> c2 AND n1.tsMs < n2.tsMs
-RETURN v, c1, c2, n1.tsMs AS first_vote, n2.tsMs AS second_vote
-```
+**Детектирование (Cypher):** [CYPHER_QUERIES.md#amnesia](CYPHER_QUERIES.md#amnesia)
 
 **Классификация контеста:** Consensus bug — safety violation (lock bypass).
 
@@ -104,13 +74,7 @@ RETURN v, c1, c2, n1.tsMs AS first_vote, n2.tsMs AS second_vote
 **Описание:** `NotarizeVote` доставляется до `Propose` в одном `slot`.
 Если реализация не защищена от out-of-order, возможна некорректная обработка.
 
-**Детектирование (Cypher):**
-```cypher
-MATCH (v:Validator)-[p:propose]->(c:Candidate),
-      (v2:Validator)-[n:notarize]->(c)
-WHERE n.tsMs < p.tsMs
-RETURN c.slot, p.tsMs AS propose_ts, n.tsMs AS vote_ts
-```
+**Детектирование (Cypher):** [CYPHER_QUERIES.md#out-of-order](CYPHER_QUERIES.md#out-of-order)
 
 **Классификация контеста:** Consensus bug — liveness / incorrect state handling.
 

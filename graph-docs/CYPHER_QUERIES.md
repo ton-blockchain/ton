@@ -153,6 +153,45 @@ ORDER BY slot
 
 ---
 
+## #amnesia — Amnesia (post-crash equivocation): повторный vote после перезапуска
+
+Валидатор проголосовал за `c2` позже чем за `c1` в том же `slot` — признак того, что WAL не сохранил первый голос до краша.
+
+```cypher
+MATCH (v:Validator)-[n1:notarize]->(c1:Candidate),
+      (v)-[n2:notarize]->(c2:Candidate)
+WHERE n1.slot = n2.slot
+  AND c1 <> c2
+  AND n1.tsMs < n2.tsMs
+RETURN
+  v.validatorIdx AS validator,
+  n1.slot        AS slot,
+  c1.candidateId AS first,
+  c2.candidateId AS second,
+  n1.tsMs        AS ts1,
+  n2.tsMs        AS ts2
+ORDER BY slot
+```
+
+---
+
+## #out-of-order — Out-of-order: notarize раньше propose
+
+Голос `notarize` зафиксирован раньше, чем `propose` от лидера — признак некорректной буферизации или message reordering.
+
+```cypher
+MATCH (v:Validator)-[p:propose]->(c:Candidate),
+      (v2:Validator)-[n:notarize]->(c)
+WHERE n.tsMs < p.tsMs
+RETURN
+  c.slot    AS slot,
+  p.tsMs    AS proposeTs,
+  n.tsMs    AS notarizeTs
+ORDER BY slot
+```
+
+---
+
 ## #byzantine-leader — Byzantine leader: разные кандидаты разным валидаторам в одном slot
 
 ```cypher
