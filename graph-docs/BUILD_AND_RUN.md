@@ -64,11 +64,57 @@ node simulation/relay.mjs
 
 ---
 
-## Отладка сборки (Windows, PowerShell)
+## Известные проблемы сборки Windows (MSVC)
+
+### C1128 — `number of sections exceeds object file format limit`
+
+Затронутые файлы: `tl/generate/auto/tl/ton_api.cpp`, `validator/manager.cpp` (и другие крупные TU).
+
+```
+error C1128: число секций превышает предел формата объектного файла:
+             компилировать с /bigobj
+```
+
+**Причина:** автогенерированные TL-файлы и `manager.cpp` слишком велики для MSVC без `/bigobj`.
+**Не наш код** — ошибка существовала до инструментации GraphLogger.
+**Обходной путь:** добавить `/bigobj` в CMakeLists для затронутых таргетов (`tl_api`, `validator`).
+
+> Пока `/bigobj` не добавлен — `cmake --build ... --target validator` завершается с ошибкой.
+> Это **не мешает** проверить компиляцию отдельных файлов (см. ниже).
+
+---
+
+### Изолированная проверка одного .cpp (pool.cpp / consensus.cpp)
+
+Работает через MSBuild с `SelectedFiles` — минует проблемные TU:
 
 ```powershell
-# Найти ошибки компиляции
-cmake --build build --target simulation 2>&1 | Select-String "error:"
+& "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\amd64\MSBuild.exe" `
+  "C:\GitHub\tonGraph\build\validator\validator.vcxproj" `
+  /t:ClCompile `
+  /p:Configuration=Debug `
+  /p:Platform=x64 `
+  "/p:SelectedFiles=consensus\simplex\pool.cpp" `
+  /v:n
+```
+
+Если компиляция успешна — появится:
+```
+build\validator\validator.dir\Debug\pool.obj
+```
+
+Можно указать несколько файлов через `;`:
+```
+"/p:SelectedFiles=consensus\simplex\pool.cpp;../simulation/GraphLogger.cpp"
+```
+
+---
+
+### Отладка сборки (общее)
+
+```powershell
+# Найти только error-строки
+cmake --build build --target simulation 2>&1 | Select-String " error "
 
 # Проверить, что бинарь создан
 Test-Path build/simulation/ConsensusHarness.exe
