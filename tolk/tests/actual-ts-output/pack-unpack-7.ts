@@ -24,7 +24,7 @@ export interface StorWithStr {
 
 export function loadStorWithStr(slice: Slice): StorWithStr {
     const a = slice.loadInt(32);
-    const str = slice.clone();
+    const str = /* Note: uses custom serialization (TelegramString.unpackFromSlice) */ slice.clone();
     const b = slice.loadInt(32);
     return {
         a,
@@ -36,7 +36,7 @@ export function loadStorWithStr(slice: Slice): StorWithStr {
 export function storeStorWithStr(src: StorWithStr): (builder: Builder) => void {
     return (builder: Builder) => {
         builder.storeInt(src.a, 32);
-        builder.storeSlice(src.str);
+        /* Note: uses custom serialization (TelegramString.packToBuilder) */ builder.storeSlice(src.str);
         builder.storeInt(src.b, 32);
     };
 }
@@ -48,7 +48,7 @@ export interface PointWithCustomInt {
 }
 
 export function loadPointWithCustomInt(slice: Slice): PointWithCustomInt {
-    const a = slice.loadIntBig(257);
+    const a = /* Note: uses custom serialization (Custom8.unpackFromSlice) */ slice.loadIntBig(257);
     const b = slice.loadInt(8);
     return {
         a,
@@ -58,7 +58,7 @@ export function loadPointWithCustomInt(slice: Slice): PointWithCustomInt {
 
 export function storePointWithCustomInt(src: PointWithCustomInt): (builder: Builder) => void {
     return (builder: Builder) => {
-        builder.storeInt(src.a, 257);
+        /* Note: uses custom serialization (Custom8.packToBuilder) */ builder.storeInt(src.a, 257);
         builder.storeInt(src.b, 8);
     };
 }
@@ -71,7 +71,7 @@ export interface WithMyBorder {
 
 export function loadWithMyBorder(slice: Slice): WithMyBorder {
     const a = slice.loadInt(8);
-    const b = slice.loadIntBig(257);
+    const b = /* Note: uses custom serialization (MyBorderedInt.unpackFromSlice) */ slice.loadIntBig(257);
     return {
         a,
         b,
@@ -81,20 +81,20 @@ export function loadWithMyBorder(slice: Slice): WithMyBorder {
 export function storeWithMyBorder(src: WithMyBorder): (builder: Builder) => void {
     return (builder: Builder) => {
         builder.storeInt(src.a, 8);
-        builder.storeInt(src.b, 257);
+        /* Note: uses custom serialization (MyBorderedInt.packToBuilder) */ builder.storeInt(src.b, 257);
     };
 }
 
 // === WithFakeWriter ===
 export interface WithFakeWriter {
     a: number;
-    fake: unknown /* () */;
+    fake: [];
     b: number;
 }
 
 export function loadWithFakeWriter(slice: Slice): WithFakeWriter {
     const a = slice.loadInt(8);
-    const fake = /* unknown type */;
+    const fake = [];
     const b = slice.loadInt(8);
     return {
         a,
@@ -106,7 +106,7 @@ export function loadWithFakeWriter(slice: Slice): WithFakeWriter {
 export function storeWithFakeWriter(src: WithFakeWriter): (builder: Builder) => void {
     return (builder: Builder) => {
         builder.storeInt(src.a, 8);
-        /* unknown type */;
+        /* Note: uses custom serialization (MyCustomNothing.packToBuilder) */ (() => { const t = src.fake; })();
         builder.storeInt(src.b, 8);
     };
 }
@@ -114,13 +114,13 @@ export function storeWithFakeWriter(src: WithFakeWriter): (builder: Builder) => 
 // === WithGlobalModifier ===
 export interface WithGlobalModifier {
     a: number;
-    g: unknown /* () */;
+    g: [];
     n: number;
 }
 
 export function loadWithGlobalModifier(slice: Slice): WithGlobalModifier {
     const a = slice.loadInt(8);
-    const g = /* unknown type */;
+    const g = /* Note: uses custom serialization (MagicGlobalModifier.unpackFromSlice) */ [];
     const n = slice.loadInt(8);
     return {
         a,
@@ -132,7 +132,7 @@ export function loadWithGlobalModifier(slice: Slice): WithGlobalModifier {
 export function storeWithGlobalModifier(src: WithGlobalModifier): (builder: Builder) => void {
     return (builder: Builder) => {
         builder.storeInt(src.a, 8);
-        /* unknown type */;
+        /* Note: uses custom serialization (MagicGlobalModifier.packToBuilder) */ (() => { const t = src.g; })();
         builder.storeInt(src.n, 8);
     };
 }
@@ -143,7 +143,7 @@ export interface HasOnlyWithUnpack {
 }
 
 export function loadHasOnlyWithUnpack(slice: Slice): HasOnlyWithUnpack {
-    const wu = slice.loadInt(8);
+    const wu = /* Note: uses custom serialization (OnlyWithUnpack.unpackFromSlice) */ slice.loadInt(8);
     return {
         wu,
     };

@@ -55,7 +55,7 @@ make tolk -j$(nproc)
 
 ### Enums
 - Simple enums with explicit values → TypeScript `enum` with numeric values
-- Enum fields in structs → proper load/store with backing type cast
+- Enum fields in structs → proper load/store with calculated bit width via `calculate_intN_to_serialize_enum`
 - `enum E: int8 { ... }` → loads/stores with the specified backing type
 
 ### Opcodes
@@ -69,74 +69,66 @@ make tolk -j$(nproc)
 - `address?` → `Address | null` with `loadMaybeAddress`/`storeAddress`
 - `cell?` → `Cell | null` with `loadMaybeRef`/`storeMaybeRef`
 
+### ✅ Union Type Load/Store — FIXED
+Union types generate proper load/store functions:
+
+- **Case A: Manual opcodes** — All variants have `struct(0xABCD)`. Uses `preloadUint(prefix_len)` to check opcodes, dispatches to variant load functions. Store uses `$$type` discriminator.
+- **Case B: Auto-generated prefix tree** — No manual opcodes. Uses `auto_generate_opcodes_for_union()` to calculate bit prefixes. For `A|B|C`: `00+A | 01+B | 10+C`. For `A|B|null`: `0` for null, `1+prefix+data` for others.
+- Store uses TypeScript type guards (`$$type`, `typeof`, `instanceof`, `Buffer.isBuffer`) to dispatch.
+
+### ✅ Complex Nullable Load/Store — FIXED
+Nullable struct types (`StructType?` where struct width > 1) now generate:
+- Load: `slice.loadBit() ? loadStructType(slice) : null`
+- Store: `src.field !== null ? (builder.storeBit(true), storeStructType(src.field)(builder)) : builder.storeBit(false)`
+
+### ✅ Tuple/Tensor Types — FIXED
+Tensor types `(T1, T2, ...)` map to TypeScript tuples:
+- Type: `[number, bigint]` for `(int32, int64)`
+- Load: `[slice.loadInt(32), slice.loadUintBig(64)]`
+- Store: sequential stores from tuple elements `t[0]`, `t[1]`, etc.
+- Handles nested nullable elements inside tensors
+
+### ✅ Map Serialization — FIXED
+`map<K, V>` now generates proper Dictionary serialization:
+- Key mapping: `intN`/`uintN` → `Dictionary.Keys.Int(N)`/`Dictionary.Keys.Uint(N)`, `address` → `Dictionary.Keys.Address()`
+- Value mapping: for struct values, generates inline `serialize`/`parse` using load/store functions
+- For primitive values, generates inline serializers
+
+### ✅ Custom Pack/Unpack Detection — FIXED
+Type aliases with custom `.packToBuilder()`/`.unpackFromSlice()` methods are detected before alias unwrapping:
+- Generates a warning comment: `/* Note: uses custom serialization (TypeName.unpackFromSlice) */`
+- Falls through to underlying type for the actual load/store expression
+- Detection uses `get_custom_pack_unpack_function()` from pack-unpack-serializers
+
+### ✅ Void/Unit Type Fields — FIXED
+- `void` type → `void` in TypeScript
+- Empty tensor `()` → `[]` (empty tuple)
+- Void-typed fields are **skipped** in interfaces and load/store functions (they carry no data)
+- Custom-serialized void aliases still appear with their custom serialization comment
+
 ### Import Generation
 - Only imports what's needed (`Address`, `Cell`, `Dictionary`, `BitString`)
 - Always imports `Builder` and `Slice`
 
 ### Stdlib Filtering
-- ✅ Fixed: stdlib types (`contract`, `blockchain`, `PackOptions`, `UnpackOptions`, `ContractState`, etc.) are now excluded
-- ✅ Fixed: Generic stdlib instantiations (`Cell<T>`, `MapLookupResult<T>`) are excluded
+- ✅ stdlib types (`contract`, `blockchain`, `PackOptions`, `UnpackOptions`, `ContractState`, etc.) are excluded
+- ✅ Generic stdlib instantiations (`Cell<T>`, `MapLookupResult<T>`) are excluded
 
 ---
 
-## Known Limitations (Placeholders in Output)
+## Remaining Limitations
 
-### 1. Union Type Load/Store — Priority: HIGH
-**Status:** Placeholder comments (`/* union load - check opcodes */`)
+### 1. Builder Type — Cannot Load
+`builder` fields in structs generate `/* cannot load builder */` — this is inherent to TVM; builders cannot be loaded from slices.
 
-Union types like `int8 | int256`, `Cell<TwoInts32AndCoins> | Cell<JustInt32>`, `coins | uint64` generate correct TypeScript type annotations but lack load/store implementations.
+### 2. Struct-Typed Dictionary Keys
+`map<StructType, V>` generates `/* struct key type: Name — use custom Dictionary.Keys */`. Struct-typed keys require custom key serialization which can't be auto-generated trivially.
 
-**What's needed:**
-- For opcode-discriminated unions: generate `switch` on opcode prefix
-- For auto-prefixed unions (2-bit, 3-bit tags): generate bit-prefix matching
-- For `Either<L, R>` pattern: generate 1-bit tag check
+### 3. Ambiguous Enum Union Type Guards
+When a union contains multiple enum types (e.g., `EFits8Bits | EStartFromM2`), both type guards resolve to `typeof x === 'number'`. The first branch always wins, which matches the encoding order. This is correct behavior but means TypeScript can't distinguish at runtime.
 
-**Affected structs across test files:** `IntAndEitherInt8Or256`, `MsgSinglePrefix48`, `IntAndEither32OrRef64`, `IntAndEither8OrMaybe256`, `IntAndEitherMaybe8Or256`, `IntAndMaybeMaybe8`, `SomeBytesFields.f4`, `IntAndRestEitherCellOrRefCell.rest`, `DifferentMix3.bod`, `WithNullableMaps.m4`, `WithEnumsUnion.u`
-
-### 2. Complex Nullable Load/Store — Priority: MEDIUM
-**Status:** Placeholder comments (`/* complex nullable: T | null */`)
-
-Nullable types where the inner type is a struct (not a primitive) don't have load/store implementations.
-
-**What's needed:**
-- For `StructType?`: generate 1-bit flag + struct load/store
-- For `(int32, int64)?`: handle tuple nullables (requires tuple support first)
-
-**Affected:** `DifferentIntsWithMaybe.jmiMaybe`, `DifferentMix1.ja2m`, `DifferentMix3.tim`, `DifferentMix3.pairm`
-
-### 3. Tuple Types — Priority: MEDIUM
-**Status:** Maps to `unknown /* (int32, int64) */`
-
-Tensor/tuple types `(T1, T2, ...)` are not yet mapped to TypeScript types.
-
-**Possible approaches:**
-- Map to TypeScript tuples: `[number, bigint]`
-- Generate inline load/store for each element
-- Handle nested tuples recursively
-
-**Affected:** `DifferentMix3.pairm`, `WithMaps.m2` (key type `JustInt32`, value type `(int8, int8)`)
-
-### 4. Custom Pack/Unpack (Type Aliases with Methods) — Priority: LOW
-**Status:** Falls through to underlying type, ignoring custom pack/unpack methods
-
-Types like `TelegramString`, `Custom8`, `MyBorderedInt`, `UnsafeColor` that define `.packToBuilder()` and `.unpackFromSlice()` are treated as their underlying type.
-
-**What's needed:** Detect when a type alias has custom pack/unpack methods and either:
-- Generate a note that custom serialization is used
-- Skip these fields with a comment
-- Or implement some form of custom function references
-
-### 5. Map Serialization — Priority: LOW
-**Status:** Dict type annotation works, but load/store are placeholder-quality
-
-`map<K, V>` generates `Dictionary<TsK, TsV>` but the load/store use generic placeholders that don't specify key/value serializers.
-
-**What's needed:** Generate proper `Dictionary.Keys.*` and `Dictionary.Values.*` specifications.
-
-### 6. Void/Unit Type Fields — Priority: LOW  
-**Status:** Maps to `unknown /* () */`
-
-Fields with type `()` (void/unit) like `MyCustomNothing`, `MagicGlobalModifier` are shown as unknown. These are used for side-effect-only custom serialization.
+### 4. Version String
+Uses hardcoded "1.2" instead of actual compiler version.
 
 ---
 
@@ -172,27 +164,16 @@ The type mapping in `ts-type-mapping.h` uses `try_as<>()` pattern matching on `T
 - A store expression (writing to Builder)
 - Import flags (which @ton/core types are needed)
 
+### Union Implementation
+Uses `auto_generate_opcodes_for_union()` from pack-unpack-serializers to get the same opcode/prefix scheme the compiler uses internally. Two codepaths:
+- **Manual opcodes**: Uses `preloadUint` + opcode comparison, stores with `$$type` guard
+- **Auto-prefix tree**: Uses calculated prefix bits (`ceil(log2(n))`) with null handling
+
 ### Stdlib Filtering
-Uses `SrcFile::is_stdlib_file` to detect stdlib types. Both direct stdlib types and generic instantiations of stdlib types (e.g., `Cell<T>`, `MapLookupResult<T>`) are filtered.
+Uses `SrcFile::is_stdlib_file` to detect stdlib types. Both direct stdlib types and generic instantiations of stdlib types are filtered.
 
 ### Design Alignment with TON Ecosystem
 - Output follows `@ton/core` conventions
 - Load/store function naming matches `tlb-codegen` patterns
 - Opcode handling uses `$$type` discriminator (Tact convention)
 - `loadX`/`storeX` function pair pattern
-
----
-
-## Next Steps (Priority Order)
-
-1. **Union load/store** — The biggest gap. Need to examine how Tolk resolves union type tags at the AST level and generate corresponding TypeScript switch/if chains.
-
-2. **Complex nullable load/store** — Once unions work, complex nullables (which are internally `T | null` unions) should follow naturally.
-
-3. **Tuple type support** — Map `(T1, T2)` to TypeScript tuples `[ts_T1, ts_T2]` with sequential load/store.
-
-4. **Map key/value serializers** — Use `Dictionary.Keys.Int(bits)` / `Dictionary.Values.BigInt(bits)` etc.
-
-5. **Type alias custom serialization** — Detect and handle custom pack/unpack methods.
-
-6. **Version string** — Use actual compiler version instead of hardcoded "1.2".

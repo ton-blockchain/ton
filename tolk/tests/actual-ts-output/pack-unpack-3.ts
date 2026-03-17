@@ -50,7 +50,12 @@ export function loadMsgSinglePrefix48(slice: Slice): MsgSinglePrefix48 {
     if (slice.loadUint(48) !== 0x876543211234) {
         throw new Error('Invalid opcode for MsgSinglePrefix48');
     }
-    const amount = /* union load - check opcodes */;
+    const amount = (() => {
+        const tag = slice.loadUint(1);
+        if (tag === 0) return slice.loadCoins();
+        if (tag === 1) return slice.loadUintBig(64);
+        throw new Error('Unknown union tag');
+    })();
     return {
         $$type: 'MsgSinglePrefix48',
         amount,
@@ -60,7 +65,11 @@ export function loadMsgSinglePrefix48(slice: Slice): MsgSinglePrefix48 {
 export function storeMsgSinglePrefix48(src: MsgSinglePrefix48): (builder: Builder) => void {
     return (builder: Builder) => {
         builder.storeUint(0x876543211234, 48);
-        /* union store - switch on $$type */;
+        (() => {
+            if (typeof src.amount === 'bigint' || typeof src.amount === 'number') { builder.storeUint(0, 1); builder.storeCoins(src.amount); }
+            else if (typeof src.amount === 'bigint' || typeof src.amount === 'number') { builder.storeUint(1, 1); builder.storeUint(src.amount, 64); }
+            else throw new Error('Unknown union variant');
+        })();
     };
 }
 
@@ -258,7 +267,12 @@ export function loadSayHiAndGoodbye(slice: Slice): SayHiAndGoodbye {
         throw new Error('Invalid opcode for SayHiAndGoodbye');
     }
     const dest_addr = slice.loadMaybeAddress();
-    const body = /* union load - check opcodes */;
+    const body = (() => {
+        const prefix = slice.preloadUint(3);
+        if (prefix === 0x1) return loadBodyPayload1(slice);
+        if (prefix === 0x1) return loadBodyPayload2(slice);
+        throw new Error('Unknown union variant');
+    })();
     return {
         $$type: 'SayHiAndGoodbye',
         dest_addr,
@@ -270,7 +284,11 @@ export function storeSayHiAndGoodbye(src: SayHiAndGoodbye): (builder: Builder) =
     return (builder: Builder) => {
         builder.storeUint(0x89, 8);
         builder.storeAddress(src.dest_addr);
-        /* union store - switch on $$type */;
+        (() => {
+            if (src.body.$$type === 'BodyPayload1') storeBodyPayload1(src.body as BodyPayload1)(builder);
+            else if (src.body.$$type === 'BodyPayload2') storeBodyPayload2(src.body as BodyPayload2)(builder);
+            else throw new Error('Unknown union variant');
+        })();
     };
 }
 
@@ -343,7 +361,7 @@ export const TransferParams2Opcode = 0x9;
 
 export interface TransferParams2 {
     readonly $$type: 'TransferParams2';
-    intVector: unknown /* (int32, coins?, uint64) */;
+    intVector: [number, bigint | null, bigint];
     needs_more: Cell;
 }
 
@@ -351,7 +369,7 @@ export function loadTransferParams2(slice: Slice): TransferParams2 {
     if (slice.loadUint(4) !== 0x9) {
         throw new Error('Invalid opcode for TransferParams2');
     }
-    const intVector = /* unknown type */;
+    const intVector = [slice.loadInt(32), slice.loadBit() ? slice.loadCoins() : null, slice.loadUintBig(64)];
     const needs_more = slice.loadRef();
     return {
         $$type: 'TransferParams2',
@@ -363,7 +381,7 @@ export function loadTransferParams2(slice: Slice): TransferParams2 {
 export function storeTransferParams2(src: TransferParams2): (builder: Builder) => void {
     return (builder: Builder) => {
         builder.storeUint(0x9, 4);
-        /* unknown type */;
+        (() => { const t = src.intVector; builder.storeInt(t[0], 32); t[1] !== null ? (builder.storeBit(true), builder.storeCoins(t[1])) : builder.storeBit(false); builder.storeUint(t[2], 64); })();
         builder.storeRef(src.needs_more);
     };
 }
@@ -380,7 +398,12 @@ export function loadMsgTransfer(slice: Slice): MsgTransfer {
     if (slice.loadUint(32) !== 0xfb3701ff) {
         throw new Error('Invalid opcode for MsgTransfer');
     }
-    const params = /* union load - check opcodes */;
+    const params = (() => {
+        const tag = slice.loadUint(1);
+        if (tag === 0) return loadEitherLeft<TransferParams>(slice);
+        if (tag === 1) return loadEitherRight<Cell<TransferParams>>(slice);
+        throw new Error('Unknown union tag');
+    })();
     return {
         $$type: 'MsgTransfer',
         params,
@@ -390,7 +413,11 @@ export function loadMsgTransfer(slice: Slice): MsgTransfer {
 export function storeMsgTransfer(src: MsgTransfer): (builder: Builder) => void {
     return (builder: Builder) => {
         builder.storeUint(0xfb3701ff, 32);
-        /* union store - switch on $$type */;
+        (() => {
+            if ('EitherLeft<TransferParams>' in src.params) { builder.storeUint(0, 1); storeEitherLeft<TransferParams>(src.params)(builder); }
+            else if ('EitherRight<Cell<TransferParams>>' in src.params) { builder.storeUint(1, 1); storeEitherRight<Cell<TransferParams>>(src.params)(builder); }
+            else throw new Error('Unknown union variant');
+        })();
     };
 }
 
@@ -400,7 +427,12 @@ export interface EitherLeft<TransferParams> {
 }
 
 export function loadEitherLeft<TransferParams>(slice: Slice): EitherLeft<TransferParams> {
-    const value = /* union load - check opcodes */;
+    const value = (() => {
+        const prefix = slice.preloadUint(12);
+        if (prefix === 0x794) return loadTransferParams1(slice);
+        if (prefix === 0x9) return loadTransferParams2(slice);
+        throw new Error('Unknown union variant');
+    })();
     return {
         value,
     };
@@ -408,7 +440,11 @@ export function loadEitherLeft<TransferParams>(slice: Slice): EitherLeft<Transfe
 
 export function storeEitherLeft<TransferParams>(src: EitherLeft<TransferParams>): (builder: Builder) => void {
     return (builder: Builder) => {
-        /* union store - switch on $$type */;
+        (() => {
+            if (src.value.$$type === 'TransferParams1') storeTransferParams1(src.value as TransferParams1)(builder);
+            else if (src.value.$$type === 'TransferParams2') storeTransferParams2(src.value as TransferParams2)(builder);
+            else throw new Error('Unknown union variant');
+        })();
     };
 }
 

@@ -96,7 +96,12 @@ export function loadTest3_1(slice: Slice): Test3_1 {
     const f1 = loadJustInt32(slice);
     const f2 = loadJustMaybeInt32(slice);
     const f3 = loadJustMaybeInt32(slice);
-    const f4 = /* union load - check opcodes */;
+    const f4 = (() => {
+        const tag = slice.loadUint(1);
+        if (tag === 0) return loadJustInt32(slice);
+        if (tag === 1) return slice.loadUintBig(100);
+        throw new Error('Unknown union tag');
+    })();
     return {
         f1,
         f2,
@@ -110,7 +115,11 @@ export function storeTest3_1(src: Test3_1): (builder: Builder) => void {
         storeJustInt32(src.f1)(builder);
         storeJustMaybeInt32(src.f2)(builder);
         storeJustMaybeInt32(src.f3)(builder);
-        /* union store - switch on $$type */;
+        (() => {
+            if ('JustInt32' in src.f4) { builder.storeUint(0, 1); storeJustInt32(src.f4)(builder); }
+            else if (typeof src.f4 === 'bigint' || typeof src.f4 === 'number') { builder.storeUint(1, 1); builder.storeUint(src.f4, 100); }
+            else throw new Error('Unknown union variant');
+        })();
     };
 }
 
@@ -123,8 +132,8 @@ export interface Test3_2 {
 
 export function loadTest3_2(slice: Slice): Test3_2 {
     const f1 = loadTest3_1(slice);
-    const f2 = /* complex nullable: Test3_1 | null */;
-    const f3 = /* complex nullable: Test3_1 | null */;
+    const f2 = slice.loadBit() ? loadTest3_1(slice) : null;
+    const f3 = slice.loadBit() ? loadTest3_1(slice) : null;
     return {
         f1,
         f2,
@@ -135,8 +144,8 @@ export function loadTest3_2(slice: Slice): Test3_2 {
 export function storeTest3_2(src: Test3_2): (builder: Builder) => void {
     return (builder: Builder) => {
         storeTest3_1(src.f1)(builder);
-        /* complex nullable store */;
-        /* complex nullable store */;
+        src.f2 !== null ? (builder.storeBit(true), storeTest3_1(src.f2)(builder)) : builder.storeBit(false);
+        src.f3 !== null ? (builder.storeBit(true), storeTest3_1(src.f3)(builder)) : builder.storeBit(false);
     };
 }
 
@@ -186,11 +195,11 @@ export function storeTest4_2(src: Test4_2): (builder: Builder) => void {
 
 // === Test4_3 ===
 export interface Test4_3 {
-    f: unknown /* (Test4_1, Test4_2) */;
+    f: [Test4_1, Test4_2];
 }
 
 export function loadTest4_3(slice: Slice): Test4_3 {
-    const f = /* unknown type */;
+    const f = [loadTest4_1(slice), loadTest4_2(slice)];
     return {
         f,
     };
@@ -198,7 +207,7 @@ export function loadTest4_3(slice: Slice): Test4_3 {
 
 export function storeTest4_3(src: Test4_3): (builder: Builder) => void {
     return (builder: Builder) => {
-        /* unknown type */;
+        (() => { const t = src.f; storeTest4_1(t[0])(builder); storeTest4_2(t[1])(builder); })();
     };
 }
 
@@ -279,10 +288,30 @@ export interface Test5_3 {
 }
 
 export function loadTest5_3(slice: Slice): Test5_3 {
-    const f1 = /* union load - check opcodes */;
-    const f2 = /* union load - check opcodes */;
-    const f3 = /* union load - check opcodes */;
-    const f4 = /* union load - check opcodes */;
+    const f1 = (() => {
+        const tag = slice.loadUint(1);
+        if (tag === 0) return slice.loadInt(8);
+        if (tag === 1) return loadCell<int8>(slice);
+        throw new Error('Unknown union tag');
+    })();
+    const f2 = (() => {
+        const tag = slice.loadUint(1);
+        if (tag === 0) return slice.loadBuffer(2);
+        if (tag === 1) return loadCell<int16>(slice);
+        throw new Error('Unknown union tag');
+    })();
+    const f3 = (() => {
+        const tag = slice.loadUint(1);
+        if (tag === 0) return loadCell<int8>(slice);
+        if (tag === 1) return slice.loadRef();
+        throw new Error('Unknown union tag');
+    })();
+    const f4 = (() => {
+        const tag = slice.loadUint(1);
+        if (tag === 0) return loadCell<coins>(slice);
+        if (tag === 1) return slice.loadCoins();
+        throw new Error('Unknown union tag');
+    })();
     return {
         f1,
         f2,
@@ -293,10 +322,26 @@ export function loadTest5_3(slice: Slice): Test5_3 {
 
 export function storeTest5_3(src: Test5_3): (builder: Builder) => void {
     return (builder: Builder) => {
-        /* union store - switch on $$type */;
-        /* union store - switch on $$type */;
-        /* union store - switch on $$type */;
-        /* union store - switch on $$type */;
+        (() => {
+            if (typeof src.f1 === 'bigint' || typeof src.f1 === 'number') { builder.storeUint(0, 1); builder.storeInt(src.f1, 8); }
+            else if ('Cell<int8>' in src.f1) { builder.storeUint(1, 1); storeCell<int8>(src.f1)(builder); }
+            else throw new Error('Unknown union variant');
+        })();
+        (() => {
+            if (Buffer.isBuffer(src.f2) && src.f2.length === 2) { builder.storeUint(0, 1); builder.storeBuffer(src.f2); }
+            else if ('Cell<int16>' in src.f2) { builder.storeUint(1, 1); storeCell<int16>(src.f2)(builder); }
+            else throw new Error('Unknown union variant');
+        })();
+        (() => {
+            if ('Cell<int8>' in src.f3) { builder.storeUint(0, 1); storeCell<int8>(src.f3)(builder); }
+            else if (src.f3 instanceof Cell) { builder.storeUint(1, 1); builder.storeRef(src.f3); }
+            else throw new Error('Unknown union variant');
+        })();
+        (() => {
+            if ('Cell<coins>' in src.f4) { builder.storeUint(0, 1); storeCell<coins>(src.f4)(builder); }
+            else if (typeof src.f4 === 'bigint' || typeof src.f4 === 'number') { builder.storeUint(1, 1); builder.storeCoins(src.f4); }
+            else throw new Error('Unknown union variant');
+        })();
     };
 }
 
@@ -476,11 +521,11 @@ export function storeCellInner8_1(src: CellInner8_1): (builder: Builder) => void
 
 // === Inner8_2 ===
 export interface Inner8_2 {
-    t: unknown /* (bits32, int1, coins?) */;
+    t: [Buffer, number, bigint | null];
 }
 
 export function loadInner8_2(slice: Slice): Inner8_2 {
-    const t = /* unknown type */;
+    const t = [slice.loadBuffer(4), slice.loadInt(1), slice.loadBit() ? slice.loadCoins() : null];
     return {
         t,
     };
@@ -488,7 +533,7 @@ export function loadInner8_2(slice: Slice): Inner8_2 {
 
 export function storeInner8_2(src: Inner8_2): (builder: Builder) => void {
     return (builder: Builder) => {
-        /* unknown type */;
+        (() => { const t = src.t; builder.storeBuffer(t[0]); builder.storeInt(t[1], 1); t[2] !== null ? (builder.storeBit(true), builder.storeCoins(t[2])) : builder.storeBit(false); })();
     };
 }
 
@@ -505,8 +550,13 @@ export function loadTest8(slice: Slice): Test8 {
     const f1 = loadInner8_1(slice);
     const f2 = loadInner8_2(slice);
     const f3 = slice.loadBit() ? loadInner8_1(slice) : null;
-    const f4 = /* complex nullable: Inner8_2 | null */;
-    const f5 = /* union load - check opcodes */;
+    const f4 = slice.loadBit() ? loadInner8_2(slice) : null;
+    const f5 = (() => {
+        const prefix = slice.preloadUint(8);
+        if (prefix === 0x10) return loadInner8_1(slice);
+        if (prefix === 0x1) return loadCellInner8_1(slice);
+        throw new Error('Unknown union variant');
+    })();
     return {
         f1,
         f2,
@@ -521,8 +571,12 @@ export function storeTest8(src: Test8): (builder: Builder) => void {
         storeInner8_1(src.f1)(builder);
         storeInner8_2(src.f2)(builder);
         src.f3 !== null ? (builder.storeBit(true), storeInner8_1(src.f3)(builder)) : builder.storeBit(false);
-        /* complex nullable store */;
-        /* union store - switch on $$type */;
+        src.f4 !== null ? (builder.storeBit(true), storeInner8_2(src.f4)(builder)) : builder.storeBit(false);
+        (() => {
+            if (src.f5.$$type === 'Inner8_1') storeInner8_1(src.f5 as Inner8_1)(builder);
+            else if (src.f5.$$type === 'CellInner8_1') storeCellInner8_1(src.f5 as CellInner8_1)(builder);
+            else throw new Error('Unknown union variant');
+        })();
     };
 }
 

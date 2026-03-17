@@ -109,6 +109,10 @@ static std::string generate_struct_interface(StructPtr struct_ref) {
         StructFieldPtr field = struct_ref->get_field(i);
         if (field->is_private) continue;
         
+        TypePtr field_type = field->declared_type->unwrap_alias();
+        // Skip void fields — they carry no data
+        if (field_type->try_as<TypeDataVoid>()) continue;
+        
         TsTypeInfo type_info = get_ts_type_info(field->declared_type);
         
         // Add readonly for readonly fields

@@ -98,7 +98,12 @@ export interface WithEnumsUnion {
 }
 
 export function loadWithEnumsUnion(slice: Slice): WithEnumsUnion {
-    const u = /* union load - check opcodes */;
+    const u = (() => {
+        const tag = slice.loadUint(1);
+        if (tag === 0) return slice.loadUint(8) as EFits8Bits;
+        if (tag === 1) return slice.loadInt(3) as EStartFromM2;
+        throw new Error('Unknown union tag');
+    })();
     return {
         u,
     };
@@ -106,7 +111,11 @@ export function loadWithEnumsUnion(slice: Slice): WithEnumsUnion {
 
 export function storeWithEnumsUnion(src: WithEnumsUnion): (builder: Builder) => void {
     return (builder: Builder) => {
-        /* union store - switch on $$type */;
+        (() => {
+            if (typeof src.u === 'number' /* EFits8Bits */) { builder.storeUint(0, 1); builder.storeUint(src.u, 8); }
+            else if (typeof src.u === 'number' /* EStartFromM2 */) { builder.storeUint(1, 1); builder.storeInt(src.u, 3); }
+            else throw new Error('Unknown union variant');
+        })();
     };
 }
 
