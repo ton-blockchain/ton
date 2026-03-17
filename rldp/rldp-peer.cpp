@@ -148,8 +148,8 @@ void RldpTransferReceiverImpl::receive_part(fec::FecType fec_type, td::uint32 pa
                                           << " data_size=" << data.data.size() << " part=" << part_));
         return;
       }
-      data_.as_slice().remove_prefix(td::narrow_cast<std::size_t>(offset_)).copy_from(data.data.as_slice());
       offset_ += data.data.size();
+      data_parts_.push_back(std::move(data.data));
       auto obj = create_tl_object<ton_api::rldp_complete>(transfer_id_, part_);
       td::actor::send_closure(adnl_, &adnl::Adnl::send_message, local_id_, peer_id_, serialize_tl_object(obj, true));
       part_++;
@@ -177,7 +177,18 @@ void RldpTransferReceiverImpl::abort(td::Status reason) {
 }
 
 void RldpTransferReceiverImpl::finish() {
-  promise_.set_value(data_.clone());
+  if (data_parts_.size() == 1) {
+    promise_.set_value(data_parts_[0].clone());
+  } else {
+    td::BufferSlice data(total_size_);
+    td::MutableSlice s = data.as_slice();
+    for (const auto& part : data_parts_) {
+      s.copy_from(part);
+      s.remove_prefix(part.size());
+    }
+    CHECK(s.empty());
+    promise_.set_value(std::move(data));
+  }
   stop();
 }
 
