@@ -42,6 +42,7 @@ struct TsTypeInfo {
     bool needs_import_address = false;
     bool needs_import_cell = false;
     bool needs_import_dictionary = false;
+    bool needs_import_bitstring = false;
 };
 
 // Get TypeScript type info for a Tolk type
@@ -50,6 +51,14 @@ inline TsTypeInfo get_ts_type_info(TypePtr type, const std::string& field_name =
     
     // Unwrap aliases
     type = type->unwrap_alias();
+    
+    // Handle plain int type (257-bit TVM integer)
+    if (type->try_as<TypeDataInt>()) {
+        info.ts_type = "bigint";
+        info.load_expr = "slice.loadIntBig(257)";
+        info.store_expr = "builder.storeInt(src." + field_name + ", 257)";
+        return info;
+    }
     
     // Handle intN types
     if (auto* int_n = type->try_as<TypeDataIntN>()) {
@@ -150,19 +159,24 @@ inline TsTypeInfo get_ts_type_info(TypePtr type, const std::string& field_name =
     
     // Handle bitsN/bytesN types
     if (auto* bits_n = type->try_as<TypeDataBitsN>()) {
-        info.ts_type = "Buffer";
         int width = bits_n->n_width;
         if (bits_n->is_bits) {
             // bitsN - width is in bits
             if (width % 8 == 0) {
+                // Byte-aligned: use Buffer
+                info.ts_type = "Buffer";
                 info.load_expr = "slice.loadBuffer(" + std::to_string(width / 8) + ")";
                 info.store_expr = "builder.storeBuffer(src." + field_name + ")";
             } else {
+                // Non-byte-aligned: use BitString
+                info.ts_type = "BitString";
+                info.needs_import_bitstring = true;
                 info.load_expr = "slice.loadBits(" + std::to_string(width) + ")";
                 info.store_expr = "builder.storeBits(src." + field_name + ")";
             }
         } else {
-            // bytesN - width is in bytes
+            // bytesN - width is in bytes, always use Buffer
+            info.ts_type = "Buffer";
             info.load_expr = "slice.loadBuffer(" + std::to_string(width) + ")";
             info.store_expr = "builder.storeBuffer(src." + field_name + ")";
         }

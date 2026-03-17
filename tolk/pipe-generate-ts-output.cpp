@@ -57,7 +57,8 @@ namespace tolk {
 static void collect_imports(StructPtr struct_ref, 
                            bool& need_address, 
                            bool& need_cell,
-                           bool& need_dictionary) {
+                           bool& need_dictionary,
+                           bool& need_bitstring) {
     for (int i = 0; i < struct_ref->get_num_fields(); i++) {
         StructFieldPtr field = struct_ref->get_field(i);
         if (field->is_private) continue;
@@ -66,6 +67,7 @@ static void collect_imports(StructPtr struct_ref,
         need_address |= info.needs_import_address;
         need_cell |= info.needs_import_cell;
         need_dictionary |= info.needs_import_dictionary;
+        need_bitstring |= info.needs_import_bitstring;
     }
 }
 
@@ -167,6 +169,7 @@ std::string generate_typescript_output() {
     bool need_address = false;
     bool need_cell = true;  // Always need Cell for Cell<T>
     bool need_dictionary = false;
+    bool need_bitstring = false;
     
     // First pass: collect import requirements
     for (StructPtr struct_ref : G.all_structs) {
@@ -175,7 +178,7 @@ std::string generate_typescript_output() {
         // Skip stdlib internal structs
         if (struct_ref->name.find("__") == 0) continue;
         
-        collect_imports(struct_ref, need_address, need_cell, need_dictionary);
+        collect_imports(struct_ref, need_address, need_cell, need_dictionary, need_bitstring);
     }
     
     // Generate imports header
@@ -190,6 +193,7 @@ std::string generate_typescript_output() {
     if (need_cell) output << ", Cell";
     if (need_address) output << ", Address, ExternalAddress";
     if (need_dictionary) output << ", Dictionary";
+    if (need_bitstring) output << ", BitString";
     output << " } from '@ton/core';\n\n";
     
     // Generate enums first (structs may reference them)
@@ -235,7 +239,7 @@ void pipeline_generate_ts_output() {
     G_settings.generated_typescript_code = ts_code;
     
     if (!G_settings.typescript_output_filename.empty()) {
-        // Write to file
+        // -t<file>: Write TypeScript to specified file
         std::ofstream out(G_settings.typescript_output_filename);
         if (out.is_open()) {
             out << ts_code;
@@ -244,9 +248,13 @@ void pipeline_generate_ts_output() {
             std::cerr << "Warning: could not write TypeScript output to " 
                       << G_settings.typescript_output_filename << std::endl;
         }
+    } else {
+        // -T flag: Output TypeScript to stdout after a separator
+        // (Fift output already went to stdout or -o file)
+        std::cout << "\n// ===== TYPESCRIPT OUTPUT =====\n\n";
+        std::cout << ts_code;
     }
-    // For WASM, the code is retrieved via G_settings.generated_typescript_code
-    // For CLI without -t, we could output to stdout but that would mix with Fift
+    // For WASM, the code is also available via G_settings.generated_typescript_code
 }
 
 }  // namespace tolk
