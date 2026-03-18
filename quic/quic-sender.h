@@ -59,10 +59,12 @@ class QuicSender : public adnl::AdnlSenderEx, public virtual metrics::AsyncColle
   struct Connection {
     bool init_started = false;
     bool is_ready = false;
+    bool is_outbound = false;
     QuicConnectionId cid{};
     AdnlPath path{};
     td::actor::ActorId<QuicServer> server;
     std::vector<td::Promise<td::Unit>> waiting_ready{};
+    std::optional<td::Status> init_error{};
     std::unordered_map<QuicStreamID, td::Promise<td::BufferSlice>> responses{};
 
     ~Connection();
@@ -98,8 +100,12 @@ class QuicSender : public adnl::AdnlSenderEx, public virtual metrics::AsyncColle
   td::actor::Task<std::shared_ptr<Connection>> find_or_create_connection(AdnlPath path);
   td::actor::Task<td::Unit> init_connection(AdnlPath path, std::shared_ptr<Connection> connection);
   td::actor::Task<td::Unit> init_connection_inner(AdnlPath path, std::shared_ptr<Connection> conn);
+  void finish_connection_init(const std::shared_ptr<Connection>& connection, td::Result<td::Unit> result);
 
   void init_stream_mtu(QuicConnectionId cid, QuicStreamID sid);
+  td::Result<td::Unit> on_connected_inner(td::actor::ActorId<QuicServer> server, QuicConnectionId cid,
+                                          adnl::AdnlNodeIdShort local_id, td::SecureString peer_public_key,
+                                          bool is_outbound, std::shared_ptr<Connection>& connection);
 
   void on_connected(td::actor::ActorId<QuicServer> server, QuicConnectionId cid, adnl::AdnlNodeIdShort local_id,
                     td::SecureString peer_public_key, bool is_outbound);

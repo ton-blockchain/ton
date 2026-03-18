@@ -158,6 +158,23 @@ class NeverRespondCallback : public ton::adnl::Adnl::Callback {
   }
 };
 
+class StaticResponseCallback : public ton::adnl::Adnl::Callback {
+ public:
+  explicit StaticResponseCallback(std::string response) : response_(std::move(response)) {
+  }
+
+  void receive_message(ton::adnl::AdnlNodeIdShort, ton::adnl::AdnlNodeIdShort, td::BufferSlice) override {
+  }
+
+  void receive_query(ton::adnl::AdnlNodeIdShort, ton::adnl::AdnlNodeIdShort, td::BufferSlice,
+                     td::Promise<td::BufferSlice> promise) override {
+    promise.set_value(td::BufferSlice(td::Slice(response_)));
+  }
+
+ private:
+  std::string response_;
+};
+
 struct TestNode {
   ton::adnl::AdnlNodeIdShort id;
   ton::PrivateKey key;
@@ -261,6 +278,11 @@ class TestRunner : public td::actor::Actor {
                             std::make_unique<NeverRespondCallback>());
   }
 
+  void set_static_response(TestNode& node, std::string prefix, std::string response) {
+    td::actor::send_closure(node.adnl, &ton::adnl::Adnl::subscribe, node.id, std::move(prefix),
+                            std::make_unique<StaticResponseCallback>(std::move(response)));
+  }
+
   td::actor::Task<td::BufferSlice> send_never_respond_query(TestNode& from, TestNode& to, td::Slice data,
                                                             double timeout, td::uint64 max_answer_size) {
     td::BufferSlice query(1 + data.size());
@@ -304,6 +326,18 @@ class TestRunner : public td::actor::Actor {
 
     auto [future, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
     td::actor::send_closure(from.quic_sender, &ton::quic::QuicSender::send_query_ex, from.id, to.id, std::string("S"),
+                            std::move(promise), td::Timestamp::in(timeout), std::move(query), max_answer_size);
+    co_return co_await std::move(future);
+  }
+
+  td::actor::Task<td::BufferSlice> send_prefixed_query_ex(TestNode& from, TestNode& to, td::Slice prefix,
+                                                          td::Slice data, double timeout, td::uint64 max_answer_size) {
+    td::BufferSlice query(prefix.size() + data.size());
+    query.as_slice().substr(0, prefix.size()).copy_from(prefix);
+    query.as_slice().substr(prefix.size()).copy_from(data);
+
+    auto [future, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
+    td::actor::send_closure(from.quic_sender, &ton::quic::QuicSender::send_query_ex, from.id, to.id, prefix.str(),
                             std::move(promise), td::Timestamp::in(timeout), std::move(query), max_answer_size);
     co_return co_await std::move(future);
   }
@@ -730,6 +764,43 @@ TEST(QuicSender, WrongPublicKey) {
     ASSERT_TRUE(result.is_error());
 
     co_await td::actor::coro_sleep(td::Timestamp::in(1));
+
+    co_return td::Unit{};
+  });
+}
+
+TEST(QuicSender, TlsKeyMismatchDoesNotPoisonOutboundPath) {
+  run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    auto a = co_await t.create_node("poison-a", next_port());
+    auto b = co_await t.create_node("poison-b", next_port());
+    auto c = co_await t.create_node("poison-c", next_port());
+
+    t.set_static_response(b, "P", "victim");
+    t.set_static_response(c, "P", "attacker");
+
+    auto wrong_addr_list = make_addr_list(c.ip, c.port);
+    td::actor::send_closure(a.adnl, &ton::adnl::Adnl::add_peer, a.id,
+                            ton::adnl::AdnlNodeIdFull{b.key.compute_public_key()}, wrong_addr_list);
+    t.add_peer(b, a);
+    t.add_peer(c, a);
+
+    auto mismatch = co_await t.send_prefixed_query_ex(a, b, "P", "first", 5.0, 1024).wrap();
+    ASSERT_TRUE(mismatch.is_error());
+
+    // Allow on_closed to remove the mismatched outbound connection before retrying.
+    co_await td::actor::coro_sleep(td::Timestamp::in(1));
+
+    auto mismatch_again = co_await t.send_prefixed_query_ex(a, b, "P", "first", 5.0, 1024).wrap();
+    ASSERT_TRUE(mismatch_again.is_error());
+
+    auto correct_addr_list = make_addr_list(b.ip, b.port);
+    correct_addr_list.set_version(wrong_addr_list.version() + 1);
+    td::actor::send_closure(a.adnl, &ton::adnl::Adnl::add_peer, a.id,
+                            ton::adnl::AdnlNodeIdFull{b.key.compute_public_key()}, correct_addr_list);
+    co_await td::actor::ask(a.adnl, &ton::adnl::Adnl::get_peer_node, a.id, b.id);
+
+    auto response = co_await t.send_prefixed_query_ex(a, b, "P", "second", 5.0, 1024);
+    ASSERT_EQ(response.as_slice(), td::Slice("victim"));
 
     co_return td::Unit{};
   });
