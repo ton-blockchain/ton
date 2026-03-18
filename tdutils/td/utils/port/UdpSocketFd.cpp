@@ -473,7 +473,7 @@ class UdpSocketReceiveHelper {
 
 class UdpSocketSendHelper {
  public:
-  void to_native(const UdpSocketFd::OutboundMessage &message, struct msghdr &message_header) {
+  void to_native(const UdpSocketFd::OutboundMessage &message, struct msghdr &message_header, bool &is_gso) {
     CHECK(message.to != nullptr && message.to->is_valid());
     message_header.msg_name = const_cast<struct sockaddr *>(message.to->get_sockaddr());
     message_header.msg_namelen = narrow_cast<socklen_t>(message.to->get_sockaddr_len());
@@ -484,7 +484,8 @@ class UdpSocketSendHelper {
     message_header.msg_flags = 0;
 
 #if TD_LINUX && defined(UDP_SEGMENT)
-    if (message.gso_size > 0 && message.data.size() > message.gso_size) {
+    is_gso = message.gso_size > 0 && message.data.size() > message.gso_size;
+    if (is_gso) {
       // Set up control message for GSO (UDP_SEGMENT)
       control_buf_.fill(0);
       message_header.msg_control = control_buf_.data();
@@ -501,6 +502,7 @@ class UdpSocketSendHelper {
       message_header.msg_controllen = 0;
     }
 #else
+    is_gso = false;
     message_header.msg_control = nullptr;
     message_header.msg_controllen = 0;
 #endif
@@ -609,7 +611,8 @@ class UdpSocketFdImpl {
     is_sent = false;
     struct msghdr message_header;
     detail::UdpSocketSendHelper helper;
-    helper.to_native(message, message_header);
+    bool is_gso = false;
+    helper.to_native(message, message_header, is_gso);
 
     auto native_fd = get_native_fd().socket();
     auto sendmsg_res = detail::skip_eintr([&] { return sendmsg(native_fd, &message_header, 0); });
@@ -618,9 +621,9 @@ class UdpSocketFdImpl {
       is_sent = true;
       return Status::OK();
     }
-    return process_sendmsg_error(sendmsg_errno, is_sent);
+    return process_sendmsg_error(sendmsg_errno, is_sent, is_gso);
   }
-  Status process_sendmsg_error(int sendmsg_errno, bool &is_sent) {
+  Status process_sendmsg_error(int sendmsg_errno, bool &is_sent, bool is_gso) {
     if (sendmsg_errno == EAGAIN
 #if EAGAIN != EWOULDBLOCK
         || sendmsg_errno == EWOULDBLOCK
@@ -656,6 +659,16 @@ class UdpSocketFdImpl {
 #endif
         return error;
 
+      case EINVAL:
+        if (is_gso) {
+          // Older Linux kernels may report an oversized UDP_SEGMENT send as EINVAL instead of the
+          // EMSGSIZE that plain UDP would return after PMTU shrinks. Drop the packet like other
+          // path-MTU send errors instead of aborting the process.
+          LOG(WARNING) << "Silently drop GSO packet :( " << error;
+          is_sent = true;
+          return error;
+        }
+        [[fallthrough]];
       case EBADF:         // impossible
       case ENOTSOCK:      // impossible
       case EPIPE:         // impossible for udp
@@ -667,7 +680,6 @@ class UdpSocketFdImpl {
       case EOPNOTSUPP:
       case ENOTDIR:
       case EFAULT:
-      case EINVAL:
       case EAFNOSUPPORT:
         LOG(FATAL) << error;
         UNREACHABLE();
@@ -721,8 +733,11 @@ class UdpSocketFdImpl {
     struct std::array<detail::UdpSocketSendHelper, 16> helpers;
     struct std::array<struct mmsghdr, 16> headers;
     size_t to_send = min(messages.size(), headers.size());
+    bool has_gso = false;
     for (size_t i = 0; i < to_send; i++) {
-      helpers[i].to_native(messages[i], headers[i].msg_hdr);
+      bool is_gso = false;
+      helpers[i].to_native(messages[i], headers[i].msg_hdr, is_gso);
+      has_gso = has_gso || is_gso;
       headers[i].msg_len = 0;
     }
 
@@ -736,7 +751,7 @@ class UdpSocketFdImpl {
     }
 
     bool is_sent = false;
-    auto status = process_sendmsg_error(sendmmsg_errno, is_sent);
+    auto status = process_sendmsg_error(sendmmsg_errno, is_sent, has_gso);
     cnt = is_sent;
     return status;
   }
