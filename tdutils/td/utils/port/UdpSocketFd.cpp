@@ -515,6 +515,99 @@ class UdpSocketSendHelper {
 #endif
 };
 
+void dump_outbound_message(StringBuilder &sb, const UdpSocketFd::OutboundMessage &message, size_t index) {
+  sb << "msg #" << index << ":";
+  sb << " ip=";
+  if (message.to != nullptr) {
+    sb << message.to->get_ip_str() << ":" << message.to->get_port();
+  } else {
+    sb << "null";
+  }
+  sb << " data_size=" << message.data.size();
+  sb << " gso_size=" << message.gso_size;
+  sb << "\n";
+}
+
+void dump_msghdr(StringBuilder &sb, const struct msghdr &header, size_t index, size_t msg_len) {
+  sb << "header #" << index << ":";
+  sb << " msg_len=" << msg_len;
+  sb << " msg_namelen=" << header.msg_namelen;
+  sb << " msg_iovlen=" << header.msg_iovlen;
+  sb << " msg_controllen=" << header.msg_controllen;
+  sb << " msg_flags=" << header.msg_flags;
+  sb << "\n";
+  auto iov_len = narrow_cast<size_t>(header.msg_iovlen);
+  for (size_t i = 0; i < iov_len; ++i) {
+    auto &iov = header.msg_iov[i];
+    sb << "  iov #" << i << ":";
+    sb << " iov_len=" << iov.iov_len;
+    sb << "\n";
+  }
+  if (header.msg_namelen > 0) {
+    sb << "  msg_name = " << buffer_to_hex(Slice(static_cast<const char *>(header.msg_name), header.msg_namelen))
+       << "\n";
+  }
+  if (header.msg_controllen > 0) {
+    sb << "  msg_control = "
+       << buffer_to_hex(Slice(static_cast<const char *>(header.msg_control), header.msg_controllen)) << "\n";
+  }
+}
+
+bool is_fatal_sendmsg_error(int sendmsg_errno, bool is_gso) {
+  switch (sendmsg_errno) {
+    case EINVAL:
+      return !is_gso;
+    case EBADF:
+    case ENOTSOCK:
+    case EPIPE:
+    case ECONNRESET:
+    case EDESTADDRREQ:
+    case ENOTCONN:
+    case EINTR:
+    case EISCONN:
+    case EOPNOTSUPP:
+    case ENOTDIR:
+    case EFAULT:
+    case EAFNOSUPPORT:
+      return true;
+    default:
+      return false;
+  }
+}
+
+void log_sendmsg_fatal(int native_fd, int sendmsg_errno, const UdpSocketFd::OutboundMessage &message,
+                       const struct msghdr &header) {
+  FLOG(ERROR) {
+    sb << "------------------------------------------\n";
+    sb << "SENDMSG FATAL errno=" << sendmsg_errno << ":\n";
+    dump_outbound_message(sb, message, 0);
+    sb << "sendmsg params:\n";
+    sb << "native_fd = " << native_fd << "\n";
+    dump_msghdr(sb, header, 0, 0);
+    sb << "------------------------------------------\n";
+  };
+}
+
+#if TD_HAS_MMSG
+void log_sendmmsg_fatal(int native_fd, int sendmsg_errno, Span<UdpSocketFd::OutboundMessage> messages,
+                        const std::array<struct mmsghdr, 16> &headers, size_t to_send) {
+  FLOG(ERROR) {
+    sb << "------------------------------------------\n";
+    sb << "SENDMMSG FATAL errno=" << sendmsg_errno << ":\n";
+    for (size_t i = 0; i < to_send; ++i) {
+      dump_outbound_message(sb, messages[i], i);
+    }
+    sb << "sendmmsg params:\n";
+    sb << "native_fd = " << native_fd << "\n";
+    sb << "to_send = " << to_send << "\n";
+    for (size_t i = 0; i < to_send; ++i) {
+      dump_msghdr(sb, headers[i].msg_hdr, i, headers[i].msg_len);
+    }
+    sb << "------------------------------------------\n";
+  };
+}
+#endif
+
 class UdpSocketFdImpl {
  public:
   explicit UdpSocketFdImpl(NativeFd fd) : info_(std::move(fd)) {
@@ -620,6 +713,9 @@ class UdpSocketFdImpl {
     if (sendmsg_res >= 0) {
       is_sent = true;
       return Status::OK();
+    }
+    if (is_fatal_sendmsg_error(sendmsg_errno, is_gso)) {
+      log_sendmsg_fatal(native_fd, sendmsg_errno, message, message_header);
     }
     return process_sendmsg_error(sendmsg_errno, is_sent, is_gso);
   }
@@ -740,7 +836,6 @@ class UdpSocketFdImpl {
       has_gso = has_gso || is_gso;
       headers[i].msg_len = 0;
     }
-
     auto native_fd = get_native_fd().socket();
     auto sendmmsg_res =
         detail::skip_eintr([&] { return sendmmsg(native_fd, headers.data(), narrow_cast<unsigned int>(to_send), 0); });
@@ -751,6 +846,9 @@ class UdpSocketFdImpl {
     }
 
     bool is_sent = false;
+    if (is_fatal_sendmsg_error(sendmmsg_errno, has_gso)) {
+      log_sendmmsg_fatal(native_fd, sendmmsg_errno, messages, headers, to_send);
+    }
     auto status = process_sendmsg_error(sendmmsg_errno, is_sent, has_gso);
     cnt = is_sent;
     return status;
