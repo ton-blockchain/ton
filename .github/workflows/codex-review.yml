@@ -47,6 +47,11 @@ jobs:
             ${{ github.event.pull_request.base.ref }} \
             +refs/pull/${{ github.event.pull_request.number }}/head
 
+      - name: Relax AppArmor for bwrap
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0    
+
       - name: Run Codex
         id: run_codex
         uses: openai/codex-action@02e7b2943818fbac9f077c3d1249a198ab358352 # v1.2
