@@ -34,7 +34,7 @@ QuicServer::QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, t
     : fd_(std::move(fd))
     , alpn_(std::move(alpn))
     , server_key_(std::move(server_key))
-    , gso_enabled_(options.enable_gso && td::UdpSocketFd::is_gso_supported())
+    , gso_enabled_(false) // options.enable_gso && td::UdpSocketFd::is_gso_supported())
     , cc_algo_(options.cc_algo)
     , flood_control_(options.flood_control)
     , callback_(std::move(callback)) {
