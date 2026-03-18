@@ -61,7 +61,7 @@ ton::adnl::AdnlAddressList make_addr_list(td::Slice ip_str, int port) {
   td::IPAddress ip;
   ip.init_host_port(PSTRING() << ip_str << ":" << port).ensure();
   ton::adnl::AdnlAddressList list;
-  list.add_udp_address(ip).ensure();
+  list.add_udp_adnl_address(ip).ensure();
   list.set_version(static_cast<td::int32>(td::Clocks::system()));
   list.set_reinit_date(ton::adnl::Adnl::adnl_start_time());
   return list;

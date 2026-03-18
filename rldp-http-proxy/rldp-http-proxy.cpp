@@ -998,9 +998,7 @@ class RldpHttpProxy : public td::actor::Actor {
 
       ton::adnl::AdnlAddressList addr_list;
       if (!is_client_) {
-        ton::adnl::AdnlAddress x = ton::adnl::AdnlAddressImpl::create(
-            ton::create_tl_object<ton::ton_api::adnl_address_udp>(addr_.get_ipv4(), addr_.get_port()));
-        addr_list.add_addr(std::move(x));
+        addr_list.add_udp_adnl_address(addr_).ensure();
       }
       addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
       addr_list.set_reinit_date(ton::adnl::Adnl::adnl_start_time());

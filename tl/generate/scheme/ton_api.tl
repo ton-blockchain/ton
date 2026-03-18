@@ -70,6 +70,8 @@ adnl.address.udp6 ip:int128 port:int = adnl.Address;
 adnl.address.tunnel to:int256 pubkey:PublicKey = adnl.Address;
 adnl.address.reverse = adnl.Address;
 
+adnl.address.quic ip:int port:int = adnl.Address;
+
 adnl.addressList addrs:(vector adnl.Address) version:int reinit_date:int priority:int expire_at:int = adnl.AddressList;
 
 adnl.node id:PublicKey addr_list:adnl.addressList = adnl.Node;
@@ -671,6 +673,7 @@ engine.adnl id:int256 category:int = engine.Adnl;
 engine.addr ip:int port:int categories:(vector int) priority_categories:(vector int) = engine.Addr;
 engine.addrProxy in_ip:int in_port:int out_ip:int out_port:int
           proxy_type:adnl.Proxy categories:(vector int) priority_categories:(vector int) = engine.Addr;
+engine.quicAddr ip:int port:int categories:(vector int) priority_categories:(vector int) = engine.Addr;
 engine.dht id:int256 = engine.Dht;
 engine.validatorTempKey key:int256 expire_at:int = engine.ValidatorTempKey;
 engine.validatorAdnlAddress id:int256 expire_at:int = engine.ValidatorAdnlAddress;
@@ -824,6 +827,9 @@ engine.validator.addListeningPort ip:int port:int categories:(vector int) priori
 engine.validator.addProxy in_ip:int in_port:int out_ip:int out_port:int proxy:adnl.Proxy categories:(vector int) priority_categories:(vector int) = engine.validator.Success;
 engine.validator.delListeningPort ip:int port:int categories:(vector int) priority_categories:(vector int) = engine.validator.Success;
 engine.validator.delProxy out_ip:int out_port:int categories:(vector int) priority_categories:(vector int) = engine.validator.Success;
+
+engine.validator.addQuicAddr ip:int port:int categories:(vector int) priority_categories:(vector int) = engine.validator.Success;
+engine.validator.delQuicAddr ip:int port:int categories:(vector int) priority_categories:(vector int) = engine.validator.Success;
 
 engine.validator.sign key_hash:int256 data:bytes = engine.validator.Signature;
 engine.validator.exportAllPrivateKeys encryption_key:PublicKey = engine.validator.ExportedPrivateKeys;

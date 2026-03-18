@@ -169,7 +169,7 @@ class StorageDaemon : public td::actor::Actor {
 
     adnl::AdnlAddressList addr_list;
     if (!client_mode_) {
-      addr_list.add_udp_address(ip_addr_).ensure();
+      addr_list.add_udp_adnl_address(ip_addr_).ensure();
     }
     addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
     addr_list.set_reinit_date(adnl::Adnl::adnl_start_time());

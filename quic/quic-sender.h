@@ -112,6 +112,8 @@ class QuicSender : public adnl::AdnlSenderEx, public virtual metrics::AsyncColle
   td::actor::Task<> on_inbound_query(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
                                      td::BufferSlice query);
   void on_answer(Connection& connection, QuicStreamID stream_id, ton_api::quic_answer& answer);
+
+  static td::Result<td::IPAddress> get_ip_address(const adnl::AdnlNode& node);
 };
 
 }  // namespace ton::quic
