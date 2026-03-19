@@ -375,15 +375,7 @@ td::optional<ton::NewConsensusConfig> Config::get_new_consensus_config(ton::Work
     return {};
   }
   auto consensus_config = get_consensus_config();
-  gen::NewConsensusConfig::Record_null_consensus_config r1;
-  if (gen::unpack_cell(c2, r1)) {
-    return ton::NewConsensusConfig{.target_rate_ms = r1.target_rate_ms,
-                                   .max_block_size = consensus_config.max_block_size,
-                                   .max_collated_data_size = consensus_config.max_collated_data_size,
-                                   .use_quic = r1.use_quic,
-                                   .consensus = ton::NewConsensusConfig::NullConsensus{}};
-  }
-  gen::NewConsensusConfig::Record_simplex_config r2;
+  gen::NewConsensusConfig::Record r2;
   if (gen::unpack_cell(c2, r2)) {
     return ton::NewConsensusConfig{
         .target_rate_ms = r2.target_rate_ms,

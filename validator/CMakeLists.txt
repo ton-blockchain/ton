@@ -107,7 +107,6 @@ set(VALIDATOR_SOURCE
   manager-init.cpp
   manager.cpp
 
-  consensus/null/consensus.cpp
   consensus/simplex/bus.cpp
   consensus/simplex/candidate-resolver.cpp
   consensus/simplex/certificate.cpp

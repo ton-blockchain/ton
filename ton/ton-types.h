@@ -539,13 +539,12 @@ struct NewConsensusConfig {
   td::uint32 max_collated_data_size = (4 << 20);
   bool use_quic = false;
 
-  struct NullConsensus {};
   struct Simplex {
     td::uint32 slots_per_leader_window = 4;
     td::uint32 first_block_timeout_ms = 1000;
     td::uint32 max_leader_window_desync = 2;
   };
-  td::Variant<NullConsensus, Simplex> consensus = NullConsensus{};
+  Simplex consensus;
 };
 
 struct PersistentStateDescription : public td::CntObject {

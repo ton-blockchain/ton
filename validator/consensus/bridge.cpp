@@ -6,7 +6,6 @@
 
 #include "td/db/RocksDb.h"
 #include "td/utils/port/path.h"
-#include "validator/consensus/null/bus.h"
 #include "validator/consensus/simplex/bus.h"
 #include "validator/fabric.h"
 #include "validator/validator-group.hpp"
@@ -211,18 +210,9 @@ class BridgeImpl final : public IValidatorGroup {
                                                                  params_.collation_manager, params_.validator_set,
                                                                  params_.validator_opts);
 
-    bool is_simplex = params_.config.consensus.has<NewConsensusConfig::Simplex>();
-    std::shared_ptr<Bus> bus;
-
-    if (is_simplex) {
-      auto simplex_bus = std::make_shared<simplex::Bus>();
-
-      simplex_bus->simplex_config = params_.config.consensus.get<NewConsensusConfig::Simplex>();
-
-      bus = simplex_bus;
-    } else {
-      bus = std::make_shared<null::Bus>();
-    }
+    auto simplex_bus = std::make_shared<simplex::Bus>();
+    simplex_bus->simplex_config = params_.config.consensus;
+    std::shared_ptr<Bus> bus = simplex_bus;
 
     bus->shard = params_.shard;
     bus->manager = manager_facade_.get();
@@ -278,24 +268,14 @@ class BridgeImpl final : public IValidatorGroup {
     PrivateOverlay::register_in(runtime);
     TraceCollector::register_in(runtime);
 
-    if (is_simplex) {
-      auto simplex_bus = std::static_pointer_cast<simplex::Bus>(bus);
+    simplex::CandidateResolver::register_in(runtime);
+    simplex::Consensus::register_in(runtime);
+    simplex::Db::register_in(runtime);
+    simplex::Pool::register_in(runtime);
+    simplex::StateResolver::register_in(runtime);
+    simplex::MetricCollector::register_in(runtime);
 
-      simplex::CandidateResolver::register_in(runtime);
-      simplex::Consensus::register_in(runtime);
-      simplex::Db::register_in(runtime);
-      simplex::Pool::register_in(runtime);
-      simplex::StateResolver::register_in(runtime);
-      simplex::MetricCollector::register_in(runtime);
-
-      bus_ = runtime.start(simplex_bus, params_.name);
-    } else {
-      auto null_bus = std::static_pointer_cast<null::Bus>(bus);
-
-      null::Consensus::register_in(runtime);
-
-      bus_ = runtime.start(null_bus, params_.name);
-    }
+    bus_ = runtime.start(simplex_bus, params_.name);
   }
 
  private:
