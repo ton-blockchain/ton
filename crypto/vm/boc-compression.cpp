@@ -399,7 +399,7 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
       }
 
       unsigned delta = rank[boc_graph[node][j]] - i - 2;  // Always >= 0 because of above check
-      unsigned remaining_nodes = node_count - i - 3;  // Always > 0 because of above node count check
+      unsigned remaining_nodes = node_count - i - 3;      // Always > 0 because of above node count check
       unsigned required_bits = 32u - td::count_leading_zeroes32(remaining_nodes);
 
       if (required_bits < 8 - (result.size() + 1) % 8 + 1) {
@@ -509,7 +509,8 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
 
   // Read decompressed size
   constexpr unsigned kSizeBits = kDecompressedSizeBytes * 8;
-  unsigned decompressed_size = td::narrow_cast<unsigned>(td::BitSlice(compressed.ubegin(), kSizeBits).bits().get_uint(kSizeBits));
+  unsigned decompressed_size =
+      td::narrow_cast<unsigned>(td::BitSlice(compressed.ubegin(), kSizeBits).bits().get_uint(kSizeBits));
   compressed.remove_prefix(kDecompressedSizeBytes);
   if (decompressed_size > max_decompressed_size) {
     return td::Status::Error("BOC decompression failed: invalid decompressed size");
@@ -524,8 +525,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
   }
 
   // Initialize bit reader
-  td::BitSlice bit_reader(serialized.as_slice().ubegin(),
-                          td::narrow_cast<unsigned>(serialized.as_slice().size() * 8));
+  td::BitSlice bit_reader(serialized.as_slice().ubegin(), td::narrow_cast<unsigned>(serialized.as_slice().size() * 8));
   unsigned orig_size = bit_reader.size();
 
   // Read root count
