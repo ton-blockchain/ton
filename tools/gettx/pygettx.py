@@ -8,7 +8,12 @@ from TON validator databases using the FFI wrapper (libgettx.so).
 import ctypes
 import json
 import pathlib
-from typing import Optional, Dict, Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import types
+
+JsonDict = dict[str, Any]  # type: ignore
 
 
 class GetTxError(Exception):
@@ -19,7 +24,13 @@ class GetTxError(Exception):
 class GetTxClient:
     """Wrapper using FFI to call libgettx.so shared library"""
 
-    def __init__(self, lib_path: Optional[str] = None):
+    _lib: ctypes.CDLL
+    _handle: ctypes.c_void_p | None
+    _db_path: str | None
+    _include_deleted: bool
+    _GetTxResult: type[ctypes.Structure]
+
+    def __init__(self, lib_path: str | None = None):
         """
         Initialize the FFI client
 
@@ -31,11 +42,11 @@ class GetTxClient:
 
         self._lib = ctypes.CDLL(lib_path)
         self._handle = None
-        self._db_path: Optional[str] = None
+        self._db_path = None
         self._include_deleted = False
 
         # Define result structure
-        class GetTxResult(ctypes.Structure):
+        class GetTxResult(ctypes.Structure):  # type: ignore
             _fields_ = [
                 ("json_data", ctypes.c_char_p),
                 ("error_code", ctypes.c_int),
@@ -98,9 +109,9 @@ class GetTxClient:
 
         raise FileNotFoundError(
             "Cannot find libgettx.so shared library. "
-            "Please build it first or specify lib_path.\n"
-            "Build with: cd build && cmake --build . --target gettx\n"
-            "Then look for: build/tools/gettx/libgettx.so"
+            + "Please build it first or specify lib_path.\n"
+            + "Build with: cd build && cmake --build . --target gettx\n"
+            + "Then look for: build/tools/gettx/libgettx.so"
         )
 
     def open(self, db_path: str, include_deleted: bool = False) -> None:
@@ -131,7 +142,12 @@ class GetTxClient:
     def __enter__(self):
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: types.TracebackType | None,
+    ) -> None:
         self.close()
 
     def get_transactions(
@@ -141,7 +157,7 @@ class GetTxClient:
         logical_time: int,
         tx_hash: str,
         count: int = 10
-    ) -> Dict[str, Any]:
+    ) -> JsonDict:
         """
         Lookup transactions from the database using FFI
 
@@ -175,7 +191,7 @@ class GetTxClient:
         if self._handle is None:
             raise GetTxError("Database not opened. Call open() first.")
 
-        result = self._lib.gettx_lookup(
+        result: Any = self._lib.gettx_lookup(  # type: ignore
             self._handle,
             workchain,
             address.encode('utf-8'),
@@ -185,24 +201,24 @@ class GetTxClient:
         )
 
         try:
-            if result.error_code != 0:
+            if result.error_code != 0:  # type: ignore
                 error_msg = result.error_msg.decode('utf-8') if result.error_msg else "Unknown error"
                 raise GetTxError(f"gettx_lookup failed (code {result.error_code}): {error_msg}")
 
-            if not result.json_data:
+            if not result.json_data:  # type: ignore
                 raise GetTxError("gettx_lookup returned empty data")
 
-            data = json.loads(result.json_data.decode('utf-8'))
-            return data
+            data = json.loads(result.json_data.decode('utf-8'))  # type: ignore
+            return data  # type: ignore
 
         finally:
             # Always free the result
-            self._lib.gettx_free_result(ctypes.byref(result))
+            self._lib.gettx_free_result(ctypes.byref(result))  # type: ignore
 
     def get_block_transactions(
         self,
         mc_seqno: int
-    ) -> Dict[str, Any]:
+    ) -> JsonDict:
         """
         Get all transactions from a masterchain block by seqno using FFI
 
@@ -225,29 +241,29 @@ class GetTxClient:
         if self._handle is None:
             raise GetTxError("Database not opened. Call open() first.")
 
-        result = self._lib.gettx_lookup_block(
+        result: Any = self._lib.gettx_lookup_block(  # type: ignore
             self._handle,
             mc_seqno
         )
 
         try:
-            if result.error_code != 0:
+            if result.error_code != 0:  # type: ignore
                 error_msg = result.error_msg.decode('utf-8') if result.error_msg else "Unknown error"
                 raise GetTxError(f"gettx_lookup_block failed (code {result.error_code}): {error_msg}")
 
-            if not result.json_data:
+            if not result.json_data:  # type: ignore
                 raise GetTxError("gettx_lookup_block returned empty data")
 
-            data = json.loads(result.json_data.decode('utf-8'))
-            return data
+            data = json.loads(result.json_data.decode('utf-8'))  # type: ignore
+            return data  # type: ignore
 
         finally:
             # Always free the result
-            self._lib.gettx_free_result(ctypes.byref(result))
+            self._lib.gettx_free_result(ctypes.byref(result))  # type: ignore
 
 
 # Global client instance
-_client_instance: Optional[GetTxClient] = None
+_client_instance: GetTxClient | None = None
 
 
 def get_transactions(
@@ -258,7 +274,7 @@ def get_transactions(
     tx_hash: str,
     count: int = 10,
     include_deleted: bool = False
-) -> Dict[str, Any]:
+) -> JsonDict:
     """
     Convenience function to lookup transactions by address/LT without managing the client explicitly
 
@@ -299,7 +315,7 @@ def get_block_transactions(
     db_path: str,
     mc_seqno: int,
     include_deleted: bool = False
-) -> Dict[str, Any]:
+) -> JsonDict:
     """
     Convenience function to get all transactions from a masterchain block by seqno
 
@@ -336,12 +352,12 @@ if __name__ == "__main__":
 
     if len(sys.argv) < 2:
         print(f"Usage: {sys.argv[0]} <command> [args...]")
-        print(f"Commands:")
-        print(f"  tx <db_path> <workchain> <address> <lt> <hash> [count]")
-        print(f"      Lookup transactions by address and logical time")
-        print(f"  block <db_path> <mc_seqno>")
-        print(f"      Get all transactions from a masterchain block by seqno")
-        print(f"\nExamples:")
+        print("Commands:")
+        print("  tx <db_path> <workchain> <address> <lt> <hash> [count]")
+        print("      Lookup transactions by address and logical time")
+        print("  block <db_path> <mc_seqno>")
+        print("      Get all transactions from a masterchain block by seqno")
+        print("\nExamples:")
         print(f"  {sys.argv[0]} tx /var/ton/db -1 Ef80UXx731GHxVr0-LYf3DIViMerdo3uJLAG3ykQZFjXz2kW 2000001 69XTCXdLrEOtYJB76hrAi5rx2fJ80kFl8MwefrLjNYU= 1")
         print(f"  {sys.argv[0]} block /var/ton/db 2")
         sys.exit(1)
@@ -379,7 +395,7 @@ if __name__ == "__main__":
 
         else:
             print(f"Error: Unknown command '{command}'")
-            print(f"Valid commands: tx, block")
+            print("Valid commands: tx, block")
             sys.exit(1)
 
     except GetTxError as e:

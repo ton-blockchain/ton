@@ -3,14 +3,13 @@
 Tests for pygettx Python bindings using FFI wrapper
 """
 
-import json
-import sys
 import os
+import sys
 
 # Add parent directory to path to import pygettx
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import pygettx
+from tools.gettx import pygettx  # type: ignore[import-not-found]
 
 
 def test_tx_subcommand():
@@ -41,7 +40,7 @@ def test_tx_subcommand():
         assert "utime" in tx, "Missing 'utime' key"
         assert "block" in tx, "Missing 'block' key"
 
-        print(f"✓ Transaction lookup successful!")
+        print("✓ Transaction lookup successful!")
         print(f"  Account: {tx['transaction_id']['account']}")
         print(f"  LT: {tx['transaction_id']['lt']}")
         print(f"  Hash: {tx['transaction_id']['hash']}")
@@ -83,7 +82,7 @@ def test_block_subcommand():
         assert len(result["transactions"]) == 11, f"Expected exactly 11 transactions, got {len(result['transactions'])}"
         assert result["total_transactions"] == 11, f"Expected total_transactions=11, got {result['total_transactions']}"
 
-        print(f"✓ Block lookup successful!")
+        print("✓ Block lookup successful!")
         print(f"  MC Seqno: {result['mc_seqno']}")
         print(f"  MC Block ID: {result['mc_block_id']}")
         print(f"  Shard Count: {result['shard_count']}")
