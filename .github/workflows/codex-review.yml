@@ -45,7 +45,7 @@ jobs:
         run: |
           git fetch --no-tags origin \
             ${{ github.event.pull_request.base.ref }} \
-            +refs/pull/${{ github.event.pull_request.number }}/head 
+            +refs/pull/${{ github.event.pull_request.number }}/head
 
       - name: Run Codex
         id: run_codex
