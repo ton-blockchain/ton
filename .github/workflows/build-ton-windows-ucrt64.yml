@@ -45,3 +45,4 @@ jobs:
         with:
           name: ton-msys2-ucrt64
           path: artifacts
+          retention-days: 14
