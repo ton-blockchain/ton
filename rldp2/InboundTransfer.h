@@ -35,21 +35,22 @@ struct InboundTransfer {
     size_t offset;
   };
 
-  explicit InboundTransfer(size_t total_size) : data_(total_size) {
+  explicit InboundTransfer(size_t total_size) : total_size_(total_size) {
   }
 
   size_t total_size() const;
   std::map<td::uint32, Part> &parts();
   bool is_part_completed(td::uint32 part_i);
-  td::Result<Part *> get_part(td::uint32 part_i, const ton::fec::FecType &fec_type);
-  void finish_part(td::uint32 part_i, td::Slice data);
+  td::Result<Part *> get_part(td::uint32 part_i, const fec::FecType &fec_type);
+  void finish_part(td::uint32 part_i, td::BufferSlice data);
   td::optional<td::Result<td::BufferSlice>> try_finish();
 
  private:
   std::map<td::uint32, Part> parts_;
   td::uint32 next_part_{0};
   size_t offset_{0};
-  td::BufferSlice data_;
+  size_t total_size_;
+  std::vector<td::BufferSlice> data_parts_;
 };
 }  // namespace rldp2
 }  // namespace ton

@@ -450,16 +450,6 @@ struct OutMsgQueueProofBroadcast : public td::CntObject {
 };
 
 struct BlockCandidate {
-  BlockCandidate(Ed25519_PublicKey pubkey, BlockIdExt id, FileHash collated_file_hash, td::BufferSlice data,
-                 td::BufferSlice collated_data,
-                 std::vector<td::Ref<OutMsgQueueProofBroadcast>> out_msg_queue_broadcasts = {})
-      : pubkey(pubkey)
-      , id(id)
-      , collated_file_hash(collated_file_hash)
-      , data(std::move(data))
-      , collated_data(std::move(collated_data))
-      , out_msg_queue_proof_broadcasts(std::move(out_msg_queue_broadcasts)) {
-  }
   Ed25519_PublicKey pubkey;
   BlockIdExt id;
   FileHash collated_file_hash;
@@ -467,7 +457,7 @@ struct BlockCandidate {
   td::BufferSlice collated_data;
 
   // used only locally
-  std::vector<td::Ref<OutMsgQueueProofBroadcast>> out_msg_queue_proof_broadcasts;
+  std::vector<td::Ref<OutMsgQueueProofBroadcast>> out_msg_queue_proof_broadcasts = {};
 
   BlockCandidate clone() const {
     return BlockCandidate{
@@ -549,13 +539,12 @@ struct NewConsensusConfig {
   td::uint32 max_collated_data_size = (4 << 20);
   bool use_quic = false;
 
-  struct NullConsensus {};
   struct Simplex {
     td::uint32 slots_per_leader_window = 4;
     td::uint32 first_block_timeout_ms = 1000;
     td::uint32 max_leader_window_desync = 2;
   };
-  td::Variant<NullConsensus, Simplex> consensus = NullConsensus{};
+  Simplex consensus;
 };
 
 struct PersistentStateDescription : public td::CntObject {

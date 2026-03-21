@@ -39,7 +39,7 @@ class SplitStateDeserializer {
     CHECK(split_depth <= 63 && shard_prefix_length < static_cast<int>(split_depth));
 
     try {
-      TRY_RESULT(header, vm::MerkleProof::try_virtualize(wrapped_header));
+      TRY_RESULT(header, vm::MerkleProof::virtualize(wrapped_header));
 
       if (RootHash{header->get_hash().bits()} != root_hash) {
         return td::Status::Error("Hash mismatch in split state header");
@@ -86,33 +86,42 @@ class SplitStateDeserializer {
       }
 
       return parts;
+    } catch (const vm::VmError &e) {
+      return e.as_status();
     } catch (const vm::VmVirtError &) {
       return td::Status::Error("Insufficient number of cells in split state header");
     }
   }
 
   td::Ref<vm::Cell> merge(const std::vector<td::Ref<vm::Cell>> &parts) {
-    vm::AugmentedDictionary accounts{256, block::tlb::aug_ShardAccounts};
-    for (const auto &part_root : parts) {
-      vm::AugmentedDictionary part{
-          vm::load_cell_slice_ref(part_root),
-          256,
-          block::tlb::aug_ShardAccounts,
-          false,
-      };
-      bool rc = accounts.combine_with(part);
-      LOG_CHECK(rc) << "Split state parts have been validated but merging them still resulted in a conflict";
+    try {
+      vm::AugmentedDictionary accounts{256, block::tlb::aug_ShardAccounts};
+      for (const auto &part_root : parts) {
+        vm::AugmentedDictionary part{
+            vm::load_cell_slice_ref(part_root),
+            256,
+            block::tlb::aug_ShardAccounts,
+            false,
+        };
+        bool rc = accounts.combine_with(part);
+        LOG_CHECK(rc) << "Split state parts have been validated but merging them still resulted in a conflict";
+      }
+
+      CHECK(accounts.is_valid());
+
+      shard_state_.accounts = accounts.get_wrapped_dict_root();
+
+      vm::CellBuilder cb;
+      block::gen::t_ShardStateUnsplit.pack(cb, shard_state_);
+      auto state_root = cb.finalize();
+      CHECK(!state_root->is_virtualized());
+      return state_root;
+    } catch (const vm::VmError &e) {
+      LOG(FATAL) << "Unexpected VmError: " << e.as_status();
+    } catch (const vm::VmVirtError &) {
+      LOG(FATAL) << "Unexpected VmVirtError";
     }
-
-    CHECK(accounts.is_valid());
-
-    shard_state_.accounts = accounts.get_wrapped_dict_root();
-
-    vm::CellBuilder cb;
-    block::gen::t_ShardStateUnsplit.pack(cb, shard_state_);
-    auto state_root = cb.finalize();
-    CHECK(!state_root->is_virtualized());
-    return state_root;
+    UNREACHABLE();
   }
 
  private:

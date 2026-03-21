@@ -110,10 +110,7 @@ td::Status MerkleTree::add_proof(td::Ref<vm::Cell> proof) {
   if (root_proof_.is_null()) {
     root_proof_ = std::move(proof);
   } else {
-    auto combined = vm::MerkleProof::combine_fast(root_proof_, std::move(proof));
-    if (combined.is_null()) {
-      return td::Status::Error("Can't combine proofs");
-    }
+    TRY_RESULT(combined, vm::MerkleProof::combine_fast(root_proof_, std::move(proof)));
     root_proof_ = std::move(combined);
   }
   return td::Status::OK();
@@ -173,12 +170,10 @@ td::Result<td::Ref<vm::Cell>> MerkleTree::gen_proof(size_t l, size_t r) const {
     return td::Status::Error("Got no proofs yet");
   }
   auto usage_tree = std::make_shared<vm::CellUsageTree>();
-  auto root_raw = vm::MerkleProof::virtualize(root_proof_);
+  TRY_RESULT(root_raw, vm::MerkleProof::virtualize(root_proof_));
   auto usage_cell = vm::UsageCell::create(root_raw, usage_tree->root_ptr());
   TRY_STATUS(TRY_VM(do_gen_proof(std::move(usage_cell), 0, n_ - 1, l, r)));
-  auto res = vm::MerkleProof::generate(root_raw, usage_tree.get());
-  CHECK(res.not_null());
-  return res;
+  return vm::MerkleProof::generate(root_raw, usage_tree.get());
 }
 
 static void do_gen_proof(td::Ref<vm::Cell> node, td::Ref<vm::Cell> node_raw, size_t depth_limit) {
@@ -201,11 +196,10 @@ td::Ref<vm::Cell> MerkleTree::get_root(size_t depth_limit) const {
     return root_proof_;
   }
   auto usage_tree = std::make_shared<vm::CellUsageTree>();
-  auto root_raw = vm::MerkleProof::virtualize(root_proof_);
+  auto root_raw = vm::MerkleProof::virtualize(root_proof_).ensure().move_as_ok();
   auto usage_cell = vm::UsageCell::create(root_raw, usage_tree->root_ptr());
   do_gen_proof(std::move(usage_cell), unpack_proof(root_proof_).move_as_ok(), depth_limit);
-  auto res = vm::MerkleProof::generate(root_raw, usage_tree.get());
-  CHECK(res.not_null());
+  auto res = vm::MerkleProof::generate(root_raw, usage_tree.get()).ensure().move_as_ok();
   return res;
 }
 

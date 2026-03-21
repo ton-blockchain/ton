@@ -810,9 +810,17 @@ int exec_pow2(VmState* st, bool quiet) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute POW2";
   stack.check_underflow(1);
-  int x = stack.pop_smallint_range(1023);
-  td::RefInt256 r{true};
-  r.unique_write().set_pow2(x);
+  long long x = stack.pop_long();
+  if ((st->get_global_version() < 13 || !quiet) && (x < 0 || x > 1023)) {
+    throw VmError{Excno::range_chk};
+  }
+  td::RefInt256 r;
+  if (st->get_global_version() >= 13 && (x < 0 || x > 1023)) {
+    r = td::nan_refint();
+  } else {
+    r = td::RefInt256{true};
+    r.unique_write().set_pow2((int)x);
+  }
   stack.push_int_quiet(std::move(r), quiet);
   return 0;
 }

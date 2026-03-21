@@ -42,8 +42,6 @@
 
 namespace ton {
 
-int collator_settings = 0;
-
 namespace validator {
 using td::Ref;
 using namespace std::literals::string_literals;
@@ -417,7 +415,7 @@ void Collator::check_pending() {
       if (!try_collate()) {
         fatal_error("cannot create new block");
       }
-    } catch (vm::VmError vme) {
+    } catch (vm::VmError& vme) {
       fatal_error(td::Status::Error(PSLICE() << vme.get_msg()));
     }
   }
@@ -2335,8 +2333,6 @@ bool Collator::init_value_create() {
  * Performs the collation of the new block.
  */
 bool Collator::do_collate() {
-  // After do_collate started it will not be interrupted by timeout
-  alarm_timestamp() = td::Timestamp::never();
   auto token = perf_log_.start_action("do_collate");
   td::Status status = td::Status::Error("some error");
   SCOPE_EXIT {
@@ -3886,7 +3882,7 @@ bool Collator::enqueue_transit_message(Ref<vm::Cell> msg, Ref<vm::Cell> old_msg_
     LOG(DEBUG) << "inserting into outbound queue message with (lt,key)=(" << start_lt << "," << key.to_hex() << ")";
     ok = out_msg_queue_->set_builder(key.bits(), 352, cb, vm::Dictionary::SetMode::Add);
     ++out_msg_queue_size_;
-  } catch (vm::VmError) {
+  } catch (vm::VmError&) {
     ok = false;
   }
   if (!ok) {
@@ -3910,7 +3906,7 @@ bool Collator::delete_out_msg_queue_msg(td::ConstBitPtr key) {
     queue_rec = out_msg_queue_->lookup_delete(key, 352);
     CHECK(out_msg_queue_size_ > 0);
     --out_msg_queue_size_;
-  } catch (vm::VmError err) {
+  } catch (vm::VmError& err) {
     LOG(ERROR) << "error deleting from out_msg_queue dictionary: " << err.get_msg();
   }
   if (queue_rec.is_null()) {
@@ -4630,7 +4626,7 @@ bool Collator::insert_in_msg(Ref<vm::Cell> in_msg) {
   bool ok;
   try {
     ok = in_msg_dict->set(msg->get_hash().bits(), 256, cs, vm::Dictionary::SetMode::Add);
-  } catch (vm::VmError) {
+  } catch (vm::VmError&) {
     LOG(ERROR) << "cannot add an InMsg into InMsgDescr dictionary!";
     ok = false;
   }
@@ -4684,7 +4680,7 @@ bool Collator::insert_out_msg(Ref<vm::Cell> out_msg) {
 bool Collator::insert_out_msg(Ref<vm::Cell> out_msg, td::ConstBitPtr msg_hash) {
   bool ok;
   try {
-    ok = out_msg_dict->set(msg_hash, 256, load_cell_slice(std::move(out_msg)), vm::Dictionary::SetMode::Add);
+    ok = out_msg_dict->set(msg_hash, 256, load_cell_slice(out_msg), vm::Dictionary::SetMode::Add);
   } catch (vm::VmError&) {
     ok = false;
   }
@@ -4792,7 +4788,7 @@ bool Collator::enqueue_message(block::NewOutMsg msg, td::RefInt256 fwd_fees_rema
                << ")";
     ok = out_msg_queue_->set_builder(key.bits(), 352, cb, vm::Dictionary::SetMode::Add);
     ++out_msg_queue_size_;
-  } catch (vm::VmError) {
+  } catch (vm::VmError&) {
     ok = false;
   }
   if (!ok) {
@@ -5403,7 +5399,7 @@ bool Collator::try_fetch_new_config(const ton::StdSmcAddress& cfg_addr, Ref<vm::
  *
  * @returns The weight of the history.
  */
-static int history_weight(td::uint64 history) {
+int Collator::history_weight(td::uint64 history) {
   return td::count_bits64(history & 0xffff) * 3 + td::count_bits64(history & 0xffff0000) * 2 +
          td::count_bits64(history & 0xffff00000000) - (3 + 2 + 1) * 16 * 2 / 3;
 }
@@ -5455,15 +5451,6 @@ bool Collator::check_block_overload() {
     overload_history_ |= 1;
     LOG(INFO) << "setting overload history because out_msg_queue reached force split limit (" << out_msg_queue_size_
               << " >= " << FORCE_SPLIT_QUEUE_SIZE << ")";
-  }
-  if (collator_settings & 1) {
-    LOG(INFO) << "want_split manually set";
-    want_split_ = true;
-    return true;
-  } else if (collator_settings & 2) {
-    LOG(INFO) << "want_merge manually set";
-    want_merge_ = true;
-    return true;
   }
   char buffer[17];
   if (history_weight(overload_history_) >= 0) {
@@ -5788,10 +5775,11 @@ bool Collator::create_shard_state() {
     CHECK(block::tlb::t_ShardState.validate_ref(1000000, state_root));
   }
   LOG(INFO) << "creating Merkle update for the ShardState";
-  state_update = vm::MerkleUpdate::generate(prev_state_root_, state_root, state_usage_tree_.get());
-  if (state_update.is_null()) {
+  auto r_state_update = vm::MerkleUpdate::generate(prev_state_root_, state_root, state_usage_tree_.get());
+  if (r_state_update.is_error()) {
     return fatal_error("cannot create Merkle update for ShardState");
   }
+  state_update = r_state_update.move_as_ok();
   if (verbosity > 2) {
     FLOG(INFO) {
       sb << "Merkle Update for ShardState: ";
@@ -6279,11 +6267,12 @@ bool Collator::create_collated_data() {
     }
 
     state_usage_tree_->set_use_mark_for_is_loaded(false);
-    Ref<vm::Cell> state_proof = vm::MerkleProof::generate(
+    auto r_state_proof = vm::MerkleProof::generate(
         prev_state_root_, [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
-    if (state_proof.is_null()) {
+    if (r_state_proof.is_error()) {
       return fatal_error("cannot generate Merkle proof for previous state");
     }
+    auto state_proof = r_state_proof.move_as_ok();
     if (after_merge_) {
       bool special;
       auto cs = vm::load_cell_slice_special(state_proof, special);
@@ -6300,17 +6289,19 @@ bool Collator::create_collated_data() {
   }
   // 4. Proofs for message queues
   for (vm::MerkleProofBuilder& mpb : neighbor_proof_builders_) {
-    Ref<vm::Cell> proof = vm::MerkleProof::generate(
+    auto r_proof = vm::MerkleProof::generate(
         mpb.original_root(), [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
-    if (proof.is_null()) {
+    if (r_proof.is_error()) {
       return fatal_error("cannot generate Merkle proof for neighbor");
     }
+    auto proof = r_proof.move_as_ok();
     auto it = proofs.emplace(mpb.root()->get_hash().bits(), proof);
     if (!it.second) {
-      it.first->second = vm::MerkleProof::combine(it.first->second, std::move(proof));
-      if (it.first->second.is_null()) {
+      auto r_combine = vm::MerkleProof::combine(it.first->second, std::move(proof));
+      if (r_combine.is_error()) {
         return fatal_error("cannot combine merkle proofs");
       }
+      it.first->second = r_combine.move_as_ok();
     }
   }
 
@@ -6323,11 +6314,12 @@ bool Collator::create_collated_data() {
     if (!dict.add_to_collated_data) {
       continue;
     }
-    Ref<vm::Cell> proof = vm::MerkleProof::generate(
+    auto r_proof = vm::MerkleProof::generate(
         dict.mpb.original_root(), [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
-    if (proof.is_null()) {
+    if (r_proof.is_error()) {
       return fatal_error("cannot generate Merkle proof for neighbor");
     }
+    auto proof = r_proof.move_as_ok();
     // account_storage_dict_proof#37c1e3fc proof:^Cell = AccountStorageDictProof;
     collated_roots_.push_back(vm::CellBuilder()
                                   .store_long(block::gen::AccountStorageDictProof::cons_tag[0], 32)
@@ -6405,8 +6397,7 @@ bool Collator::create_block_candidate() {
   if (need_out_msg_queue_broadcasts) {
     // we can't generate two proofs at the same time for the same root (it is not currently supported by cells)
     // so we have can't reuse new state and have to regenerate it with merkle update
-    auto new_state = vm::MerkleUpdate::apply(prev_state_root_pure_, state_update);
-    CHECK(new_state.not_null());
+    auto new_state = vm::MerkleUpdate::apply(prev_state_root_pure_, state_update).ensure().move_as_ok();
     CHECK(new_state->get_hash() == state_root->get_hash());
     CHECK(shard_conf_);
     auto neighbor_list = shard_conf_->get_neighbor_shard_hash_ids(shard_);
@@ -6458,7 +6449,7 @@ bool Collator::create_block_candidate() {
     auto token = perf_log_.start_action("set_block_candidate");
     td::actor::send_closure_later(manager, &ValidatorManager::set_block_candidate, block_candidate->id,
                                   block_candidate->clone(), params_.validator_set->get_catchain_seqno(),
-                                  params_.validator_set->get_validator_set_hash(),
+                                  params_.validator_set->get_validator_set_hash(), false,
                                   [self = get_self(), token = std::move(token)](td::Result<td::Unit> saved) mutable {
                                     LOG(DEBUG) << "got answer to set_block_candidate";
                                     td::actor::send_closure_later(std::move(self), &Collator::return_block_candidate,

@@ -11,9 +11,6 @@ src:*/validator/full-node-fast-sync-overlays.cpp
 [return-type]
 src:*/tl/generate/tl_writer_hpp.cpp
 
-[deprecated-declarations]
-src:*/third-party/rocksdb/db/memtable.cc
-
 [implicit-int-conversion]
 src:*/crypto/vm/boc-compression.cpp
 src:*/crypto/vm/boc.cpp
@@ -41,9 +38,6 @@ src:*/validator-session/candidate-serializer.cpp
 src:*/validator/db/package.cpp
 src:*/validator/db/permanent-celldb/permanent-celldb-utils.cpp
 src:*/validator/full-node-fast-sync-overlays.cpp
-
-[nontrivial-memcall]
-src:*/third-party/rocksdb/port/mmap.cc
 
 [unused-const-variable]
 src:*/catchain/catchain-receiver.cpp

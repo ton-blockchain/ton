@@ -236,6 +236,14 @@ void LastBlock::on_init_block_proof(
   }
   auto chain = r_chain.move_as_ok();
   CHECK(chain);
+  if (chain->complete && chain->to != to) {
+    check_init_block_state_ = QueryState::Empty;
+    on_sync_error(TonlibError::ValidateBlockProof().move_as_error_suffix(
+        PSLICE() << "complete block proof chain ends at " << chain->to.to_str() << " instead of requested "
+                 << to.to_str() << " (during check init block)"));
+    sync_loop();
+    return;
+  }
   update_state(*chain);
   if (chain->complete) {
     VLOG(last_block) << "check_init_block: done\n" << check_init_block_stats_;

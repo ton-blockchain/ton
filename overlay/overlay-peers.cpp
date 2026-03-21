@@ -418,7 +418,7 @@ void OverlayImpl::receive_pong(adnl::AdnlNodeIdShort peer, double elapsed) {
   on_ping_result(peer, true, elapsed);
 }
 
-void OverlayImpl::update_neighbours(td::uint32 nodes_to_change) {
+void OverlayImpl::update_neighbours(td::uint32 nodes_to_change, bool allow_delete) {
   if (peer_list_.peers_.size() == 0) {
     return;
   }
@@ -433,7 +433,7 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change) {
       continue;
     }
 
-    if (overlay_type_ != OverlayType::FixedMemberList &&
+    if (allow_delete && overlay_type_ != OverlayType::FixedMemberList &&
         X->get_version() <= td::Clocks::system() - Overlays::overlay_peer_ttl()) {
       if (X->is_permanent_member()) {
         del_from_neighbour_list(X);
@@ -444,7 +444,7 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change) {
       continue;
     }
 
-    if (overlay_type_ == OverlayType::CertificatedMembers && !X->is_permanent_member() &&
+    if (allow_delete && overlay_type_ == OverlayType::CertificatedMembers && !X->is_permanent_member() &&
         X->certificate()->is_expired()) {
       auto id = X->get_id();
       del_peer(id);
@@ -503,7 +503,7 @@ OverlayPeer *OverlayImpl::get_random_peer(bool only_alive) {
     }
     res = P;
   }
-  update_neighbours(0);
+  update_neighbours(0, false);
   return res;
 }
 

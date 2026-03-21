@@ -382,7 +382,7 @@ void CollatorNode::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data
     td::Promise<td::Unit> P =
         new_promise.wrap([block = block.clone()](td::Unit&&) mutable -> BlockCandidate { return std::move(block); });
     td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, block.id, std::move(block), cc_seqno,
-                            val_set_hash, std::move(P));
+                            val_set_hash, false, std::move(P));
   };
   if (!shard.is_valid_ext()) {
     new_promise.set_error(td::Status::Error(PSTRING() << "invalid shard " << shard.to_str()));
@@ -462,7 +462,8 @@ td::Status CollatorNode::check_mc_config() {
     if (idx < 0) {
       return true;
     }
-    if (!block::gen::ConfigParam{idx}.validate_ref(1024, std::move(param))) {
+    unsigned cfg_idx = static_cast<unsigned>(idx);
+    if (!block::gen::ConfigParam{cfg_idx}.validate_ref(1024, std::move(param))) {
       S = td::Status::Error(PSTRING() << "unknown ConfigParam " << idx);
       return false;
     }

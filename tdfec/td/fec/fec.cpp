@@ -144,7 +144,7 @@ Result<DataWithEncoder> RaptorQDecoder::try_decode(bool need_encoder) {
 }
 
 Status RaptorQDecoder::add_symbol(Symbol symbol) {
-  return decoder_->add_symbol({symbol.id, symbol.data.as_slice()});
+  return decoder_->add_symbol(std::move(symbol));
 }
 RaptorQDecoder::RaptorQDecoder(std::unique_ptr<raptorq::Decoder> decoder) : decoder_(std::move(decoder)) {
 }

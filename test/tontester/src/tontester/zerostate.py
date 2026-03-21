@@ -14,11 +14,6 @@ def _shard_json_repr(shard: int):
 
 
 @dataclass
-class NullConsensusConfig:
-    target_block_rate_ms: int = 1000
-
-
-@dataclass
 class SimplexConsensusConfig:
     target_block_rate_ms: int = 1000
     slots_per_leader_window: int = 4
@@ -34,9 +29,9 @@ class NetworkConfig:
     shard_validators: int = 1
     block_limit_mul: int = 1
     mc_valgroup_lifetime: int = 250
-    mc_consensus: SimplexConsensusConfig | NullConsensusConfig | None = None
+    mc_consensus: SimplexConsensusConfig | None = None
     shard_valgroup_lifetime: int = 250
-    shard_consensus: SimplexConsensusConfig | NullConsensusConfig | None = None
+    shard_consensus: SimplexConsensusConfig | None = None
 
 
 @dataclass
@@ -332,10 +327,6 @@ def create_zerostate(
                 )
             )
             new_consensus_config += f"{params} make-simplex-params\n"
-        elif isinstance(consensus_config, NullConsensusConfig):
-            new_consensus_config += (
-                f"{consensus_config.target_block_rate_ms} make-null-consensus-params\n"
-            )
         else:
             new_consensus_config += "null\n"
 

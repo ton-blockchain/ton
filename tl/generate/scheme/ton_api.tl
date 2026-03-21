@@ -70,6 +70,8 @@ adnl.address.udp6 ip:int128 port:int = adnl.Address;
 adnl.address.tunnel to:int256 pubkey:PublicKey = adnl.Address;
 adnl.address.reverse = adnl.Address;
 
+adnl.address.quic ip:int port:int = adnl.Address;
+
 adnl.addressList addrs:(vector adnl.Address) version:int reinit_date:int priority:int expire_at:int = adnl.AddressList;
 
 adnl.node id:PublicKey addr_list:adnl.addressList = adnl.Node;
@@ -161,7 +163,7 @@ adnl.stats.localIdPackets ts_start:double ts_end:double
     decrypted_packets:(vector adnl.stats.ipPackets) dropped_packets:(vector adnl.stats.ipPackets) = adnl.stats.LocalIdPackets;
 adnl.stats.localId short_id:int256
     current_decrypt:(vector adnl.stats.ipPackets)
-    packets_recent:adnl.stats.localIdPackets packets_total:adnl.stats.localIdPackets
+    packets_recent:adnl.stats.localIdPackets
     peers:(vector adnl.stats.peerPair) = adnl.stats.LocalId;
 adnl.stats timestamp:double local_ids:(vector adnl.stats.localId) = adnl.Stats;
 
@@ -525,8 +527,6 @@ tonNode.slave.sendExtMessage message:tonNode.externalMessage = tonNode.Success;
 
 tonNode.query = Object;
 
-tonNode.requestFastSyncOverlayMemberCertificate sign_by:int256 adnl_id:int256 slot:int = overlay.MemberCertificate;
-
 ---types---
 
 // bit 0 - started
@@ -673,6 +673,7 @@ engine.adnl id:int256 category:int = engine.Adnl;
 engine.addr ip:int port:int categories:(vector int) priority_categories:(vector int) = engine.Addr;
 engine.addrProxy in_ip:int in_port:int out_ip:int out_port:int
           proxy_type:adnl.Proxy categories:(vector int) priority_categories:(vector int) = engine.Addr;
+engine.quicAddr ip:int port:int categories:(vector int) priority_categories:(vector int) = engine.Addr;
 engine.dht id:int256 = engine.Dht;
 engine.validatorTempKey key:int256 expire_at:int = engine.ValidatorTempKey;
 engine.validatorAdnlAddress id:int256 expire_at:int = engine.ValidatorAdnlAddress;
@@ -826,6 +827,9 @@ engine.validator.addListeningPort ip:int port:int categories:(vector int) priori
 engine.validator.addProxy in_ip:int in_port:int out_ip:int out_port:int proxy:adnl.Proxy categories:(vector int) priority_categories:(vector int) = engine.validator.Success;
 engine.validator.delListeningPort ip:int port:int categories:(vector int) priority_categories:(vector int) = engine.validator.Success;
 engine.validator.delProxy out_ip:int out_port:int categories:(vector int) priority_categories:(vector int) = engine.validator.Success;
+
+engine.validator.addQuicAddr ip:int port:int categories:(vector int) priority_categories:(vector int) = engine.validator.Success;
+engine.validator.delQuicAddr ip:int port:int categories:(vector int) priority_categories:(vector int) = engine.validator.Success;
 
 engine.validator.sign key_hash:int256 data:bytes = engine.validator.Signature;
 engine.validator.exportAllPrivateKeys encryption_key:PublicKey = engine.validator.ExportedPrivateKeys;
@@ -1188,9 +1192,6 @@ consensus.empty slot:int parent:consensus.CandidateId block:tonNode.blockIdExt s
 
 consensus.requestError = consensus.RequestError;
 
-consensus.null.signature slot:int signature:bytes = consensus.null.Message;
-consensus.null.handshake = consensus.null.Message;
-
 consensus.simplex.notarizeVote id:consensus.CandidateId = consensus.simplex.UnsignedVote;
 consensus.simplex.finalizeVote id:consensus.CandidateId = consensus.simplex.UnsignedVote;
 consensus.simplex.skipVote slot:int = consensus.simplex.UnsignedVote;
@@ -1203,13 +1204,16 @@ consensus.simplex.certificate vote:consensus.simplex.UnsignedVote signatures:con
 consensus.simplex.candidateAndCert candidate:bytes notar:bytes = consensus.simplex.CandidateAndCert;
 
 consensus.simplex.db.key.vote vote_hash:int256 = consensus.simplex.db.key.Vote;
-consensus.simplex.db.vote data:bytes node_idx:int = consensus.simplex.db.Vote;
+consensus.simplex.db.ourVote vote:consensus.simplex.UnsignedVote seqno:long = consensus.simplex.db.Vote;
+consensus.simplex.db.cert cert:consensus.simplex.Certificate = consensus.simplex.db.Vote;
 
 consensus.simplex.db.key.poolState = consensus.simplex.db.key.PoolState;
 consensus.simplex.db.poolState first_nonannounced_window:int = consensus.simplex.db.PoolState;
 
 consensus.simplex.db.key.finalizedBlock candidateId:consensus.candidateId = consensus.simplex.db.key.FinalizedBlock;
 consensus.simplex.db.finalizedBlock block_id:tonNode.blockIdExt parent:consensus.CandidateParent is_final:Bool = consensus.simplex.db.FinalizedBlock;
+
+consensus.simplex.db.key.candidate candidateId:consensus.candidateId = consensus.simplex.db.key.Candidate;
 
 consensus.simplex.db.key.candidateResolver.candidateInfo candidateId:consensus.candidateId = consensus.simplex.db.key.candidateResolver.CandidateInfo;
 consensus.simplex.db.candidateResolver.candidateInfo leader_id:int candidate_hash_data:consensus.CandidateHashData signature:bytes = consensus.simplex.db.candidateResolver.CandidateInfo;

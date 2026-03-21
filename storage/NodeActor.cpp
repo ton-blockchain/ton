@@ -693,8 +693,8 @@ void NodeActor::got_torrent_info_str(td::BufferSlice data) {
     return;
   }
   TorrentInfo info;
-  vm::CellSlice cs = vm::load_cell_slice(r_info_cell.move_as_ok());
-  if (!info.unpack(cs)) {
+  vm::CellSlice cs = vm::load_cell_slice_quiet(r_info_cell.move_as_ok());
+  if (!cs.is_valid() || !info.unpack(cs)) {
     return;
   }
   info.init_cell();

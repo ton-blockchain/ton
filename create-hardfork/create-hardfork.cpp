@@ -47,7 +47,6 @@
 #include "ton/ton-types.h"
 #include "validator-session/validator-session.h"
 #include "validator/fabric.h"
-#include "validator/impl/collator.h"
 #include "validator/manager-hardfork.h"
 
 #if TD_DARWIN || TD_LINUX
@@ -107,9 +106,6 @@ class HardforkCreator : public td::actor::Actor {
   void set_top_descr_prefix(std::string tdescr_pfx) {
     tdescr_pfx_ = tdescr_pfx;
     tdescr_save_ = true;
-  }
-  void set_collator_flags(int flags) {
-    ton::collator_settings |= flags;
   }
   void start_up() override {
   }

@@ -58,7 +58,7 @@ async def test_init_success(
     )
     mock_tonlib.engine_console_is_error.assert_called_once_with(MOCK_CONSOLE_PTR)
 
-    await client.aclose()
+    client.close()
 
     mock_tonlib.engine_console_destroy.assert_called_once_with(MOCK_CONSOLE_PTR)
 
@@ -84,7 +84,7 @@ async def test_init_error(
 async def test_context_manager(
     mock_tonlib: Mock, mock_event_loop: Mock, config: ton_api.EngineConsoleClient_config
 ):
-    async with EngineConsoleClient(mock_tonlib, mock_event_loop, config):
+    with EngineConsoleClient(mock_tonlib, mock_event_loop, config):
         pass
 
     mock_tonlib.engine_console_destroy.assert_called_once_with(MOCK_CONSOLE_PTR)
@@ -96,8 +96,8 @@ async def test_aclose_idempotent(
 ):
     client = EngineConsoleClient(mock_tonlib, mock_event_loop, config)
 
-    await client.aclose()
-    await client.aclose()
+    client.close()
+    client.close()
 
     mock_tonlib.engine_console_destroy.assert_called_once()
 
@@ -110,7 +110,7 @@ async def test_request_synchronous(
     response_data = {"@type": "engine.validator.success", "data": "test"}
     mock_tonlib.response_get_response = Mock(return_value=json.dumps(response_data).encode())
 
-    async with EngineConsoleClient(mock_tonlib, mock_event_loop, config) as client:
+    with EngineConsoleClient(mock_tonlib, mock_event_loop, config) as client:
         request = ton_api.Engine_validator_getConfigRequest()
         result = await client.request(request)
 
@@ -137,7 +137,7 @@ async def test_request_asynchronous(
     future.set_result(None)
     mock_event_loop.create_awaitable_future = Mock(return_value=(MOCK_CONTINUATION_ID, future))
 
-    async with EngineConsoleClient(mock_tonlib, mock_event_loop, config) as client:
+    with EngineConsoleClient(mock_tonlib, mock_event_loop, config) as client:
         request = ton_api.Engine_validator_getConfigRequest()
         result = await client.request(request)
 
@@ -158,7 +158,7 @@ async def test_request_local_error(
     mock_tonlib.response_get_error_code = Mock(return_value=404)
     mock_tonlib.response_get_error_message = Mock(return_value=b"Not found")
 
-    async with EngineConsoleClient(mock_tonlib, mock_event_loop, config) as client:
+    with EngineConsoleClient(mock_tonlib, mock_event_loop, config) as client:
         request = ton_api.Engine_validator_getConfigRequest()
 
         with pytest.raises(LocalError, match="Not found") as exc_info:
@@ -182,7 +182,7 @@ async def test_request_remote_error(
     }
     mock_tonlib.response_get_response = Mock(return_value=json.dumps(error_response).encode())
 
-    async with EngineConsoleClient(mock_tonlib, mock_event_loop, config) as client:
+    with EngineConsoleClient(mock_tonlib, mock_event_loop, config) as client:
         request = ton_api.Engine_validator_getConfigRequest()
 
         with pytest.raises(RemoteError, match="Invalid query") as exc_info:

@@ -353,6 +353,9 @@ class VmState final : public VmStateInterface {
   int get_global_version() const override {
     return global_version;
   }
+  bool is_actual_tvm() const override {
+    return true;
+  }
   int call(Ref<Continuation> cont);
   int call(Ref<Continuation> cont, int pass_args, int ret_args = -1);
   int jump(Ref<Continuation> cont);

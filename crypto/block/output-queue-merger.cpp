@@ -168,7 +168,9 @@ OutputQueueMerger::OutputQueueMerger(ton::ShardIdFull queue_for, std::vector<Out
   std::make_heap(heap.begin(), heap.end(), MsgKeyValue::greater);
   eof = heap.empty();
   if (!eof) {
-    load();
+    if (!load()) {
+      eof = true;
+    }
   }
 }
 

@@ -3118,14 +3118,14 @@ bool AugmentedDictionary::set_ref(td::ConstBitPtr key, int key_len, Ref<Cell> va
   if (value_ref.not_null()) {
     CellBuilder cb;
     cb.store_ref(std::move(value_ref));
-    return set(key, key_len, load_cell_slice(cb.finalize()));
+    return set(key, key_len, load_cell_slice(cb.finalize()), mode);
   } else {
     return false;
   }
 }
 
 bool AugmentedDictionary::set_builder(td::ConstBitPtr key, int key_len, const CellBuilder& value, SetMode mode) {
-  return set(key, key_len, load_cell_slice(value.finalize_copy()));
+  return set(key, key_len, load_cell_slice(value.finalize_copy()), mode);
 }
 
 bool AugmentedDictionary::check_for_each_extra(const foreach_extra_func_t& foreach_extra_func, bool invert_first) {

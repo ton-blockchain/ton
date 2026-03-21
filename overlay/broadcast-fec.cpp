@@ -140,7 +140,7 @@ class BroadcastFec : public td::ListNode {
   }
 
   bool received_part(td::uint32 seqno) const {
-    if (seqno + 64 < next_seqno_) {
+    if (next_seqno_ >= 64 && seqno < next_seqno_ - 64) {
       return true;
     }
     if (seqno >= next_seqno_) {
@@ -482,6 +482,9 @@ td::Status BroadcastsFec::process_broadcast(OverlayImpl *overlay, adnl::AdnlNode
   PublicKey source(broadcast->src_);
   auto part_data_hash = sha256_bits256(broadcast->data_.as_slice());
   TRY_RESULT(fec_type, fec::FecType::create(std::move(broadcast->fec_)));
+  if (fec_type.size() != (td::uint32)broadcast->data_size_) {
+    return td::Status::Error("data size mismatch");
+  }
   auto broadcast_hash = compute_broadcast_id(source.compute_short_id(), fec_type, broadcast->data_hash_,
                                              broadcast->data_size_, broadcast->flags_);
   auto part_hash = compute_broadcast_part_id(broadcast_hash, part_data_hash, broadcast->seqno_);

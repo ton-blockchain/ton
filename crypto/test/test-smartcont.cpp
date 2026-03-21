@@ -510,7 +510,8 @@ void do_test_wallet(int revision) {
   //TODO: make wallet work (or not) with now == valid_until
   auto ans = iwallet.write().send_external_message(send_gifts, ton::SmartContract::Args().set_now(valid_until - 1));
   CHECK(ans.success);
-  CHECK((int)gifts.size() <= ans.output_actions_count(ans.actions));
+  const size_t out_actions = static_cast<size_t>(ans.output_actions_count(ans.actions));
+  CHECK(gifts.size() <= out_actions);
   check_wallet_state(iwallet, 2, 123, public_key);
 }
 

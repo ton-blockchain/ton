@@ -97,16 +97,14 @@ td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candi
 
 td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice collated_data, std::string called_from,
                                                     td::Bits256 root_hash) {
-  vm::BagOfCells boc1, boc2;
+  vm::BagOfCells boc1;
   TRY_STATUS(boc1.deserialize(block));
   if (boc1.get_root_count() != 1) {
     return td::Status::Error("block candidate should have exactly one root");
   }
   std::vector<td::Ref<vm::Cell>> roots = {boc1.get_root_cell()};
-  TRY_STATUS(boc2.deserialize(collated_data));
-  for (int i = 0; i < boc2.get_root_count(); ++i) {
-    roots.push_back(boc2.get_root_cell(i));
-  }
+  TRY_RESULT(collated_roots, vm::std_boc_deserialize_multi(collated_data));
+  roots.insert(roots.end(), collated_roots.begin(), collated_roots.end());
   auto t_compression_start = td::Time::now();
   TRY_RESULT(compressed, vm::boc_compress(roots, vm::CompressionAlgorithm::ImprovedStructureLZ4));
   TRY_RESULT(algorithm_name, vm::boc_get_algorithm_name(compressed));

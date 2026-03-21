@@ -1,3 +1,15 @@
+# 2026.02-1 Update
+
+Multiple stability fixes
+
+Besides the work of the core team, this update also includes contributions from
+- Vahagn @vah13
+- InfiniteSec team [https://x.com/infsec_io](https://x.com/infsec_io)
+- Christos from [Cantina and Spearbit](https://cantina.xyz)
+- [@killme8848](https://t.me/killme8848)
+- [Tonred team](https://github.com/tonred)
+- [ret2happy](https://x.com/ret2happy)
+
 ## 2026.02 Update
 
 1. Preparation for upcoming network speed up: disabled by default but ready to deploy new broadcast and consensus

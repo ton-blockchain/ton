@@ -195,10 +195,7 @@ td::Result<std::shared_ptr<StaticBagOfCellsDb>> StaticBagOfCellsDbBaseline::crea
 
 td::Result<std::shared_ptr<StaticBagOfCellsDb>> StaticBagOfCellsDbBaseline::create(td::Slice data) {
   BagOfCells boc;
-  TRY_RESULT(x, boc.deserialize(data));
-  if (x <= 0) {
-    return td::Status::Error("failed to deserialize");
-  }
+  TRY_STATUS(boc.deserialize(data));
   std::vector<Ref<Cell>> roots(boc.get_root_count());
   for (int i = 0; i < boc.get_root_count(); i++) {
     roots[i] = boc.get_root_cell(i);
@@ -278,7 +275,7 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
   }
   template <class T>
   T check_result(T&& to_check) {
-    CHECK(status_.is_ok());
+    CHECK(!has_error_.load());
     if (to_check.is_error()) {
       std::lock_guard<std::mutex> guard(status_mutex_);
       has_error_.store(true);

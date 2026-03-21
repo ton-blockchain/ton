@@ -223,11 +223,20 @@ tonlib_api::object_ptr<tonlib_api::internal_transactionId> to_transaction_id(con
                                                                      info.last_trans_hash.as_slice().str());
 }
 
-std::string to_bytes(td::Ref<vm::Cell> cell) {
+td::Result<std::string> to_bytes(td::Ref<vm::Cell> cell) {
   if (cell.is_null()) {
     return "";
   }
-  return vm::std_boc_serialize(cell, vm::BagOfCells::Mode::WithCRC32C).move_as_ok().as_slice().str();
+  if (cell->is_virtualized()) {
+    return td::Status::Error("cannot serialize virtualized cell");
+  }
+  TRY_RESULT(boc, vm::std_boc_serialize(cell, vm::BagOfCells::Mode::WithCRC32C));
+  return boc.as_slice().str();
+}
+
+td::Result<tonlib_api::object_ptr<tonlib_api::tvm_cell>> to_tonlib_tvm_cell(td::Ref<vm::Cell> cell) {
+  TRY_RESULT(bytes, to_bytes(std::move(cell)));
+  return tonlib_api::make_object<tonlib_api::tvm_cell>(std::move(bytes));
 }
 
 td::Result<std::vector<tonlib_api::object_ptr<tonlib_api::extraCurrency>>> parse_extra_currencies_or_throw(
@@ -386,11 +395,11 @@ class AccountState {
     auto state = get_smc_state();
     std::string code;
     if (state.code.not_null()) {
-      code = to_bytes(state.code);
+      TRY_RESULT_ASSIGN(code, to_bytes(state.code));
     }
     std::string data;
     if (state.data.not_null()) {
-      data = to_bytes(state.data);
+      TRY_RESULT_ASSIGN(data, to_bytes(state.data));
     }
     return tonlib_api::make_object<tonlib_api::raw_accountState>(std::move(code), std::move(data), raw().frozen_hash);
   }
@@ -399,11 +408,11 @@ class AccountState {
     auto state = get_smc_state();
     std::string code;
     if (state.code.not_null()) {
-      code = to_bytes(state.code);
+      TRY_RESULT_ASSIGN(code, to_bytes(state.code));
     }
     std::string data;
     if (state.data.not_null()) {
-      data = to_bytes(state.data);
+      TRY_RESULT_ASSIGN(data, to_bytes(state.data));
     }
     TRY_RESULT(extra_currencies, parse_extra_currencies(get_extra_currencies()));
     return tonlib_api::make_object<tonlib_api::raw_fullAccountState>(
@@ -557,7 +566,7 @@ class AccountState {
                     .store_bits(raw_.info.last_trans_hash.as_bitslice())
                     .store_long(raw_.info.last_trans_lt)
                     .finalize();
-    return tonlib_api::make_object<tonlib_api::tvm_cell>(to_bytes(cell));
+    return to_tonlib_tvm_cell(cell);
   }
 
   td::Result<td::Ref<vm::CellSlice>> to_shardAccountCellSlice() const {
@@ -1133,13 +1142,13 @@ class Query {
 
  private:
   Raw raw_;
-  static int output_actions_count(td::Ref<vm::Cell> list) {
+  static unsigned output_actions_count(td::Ref<vm::Cell> list) {
     int i = -1;
     do {
       ++i;
       list = load_cell_slice(std::move(list)).prefetch_ref();
     } while (list.not_null());
-    return i;
+    return static_cast<unsigned>(i);
   }
 };
 
@@ -1713,7 +1722,12 @@ class GetShardBlockProof : public td::actor::Actor {
           abort(TonlibError::InvalidBagOfCells("proof"));
           return;
         }
-        auto block_root = vm::MerkleProof::virtualize(R.move_as_ok());
+        auto r_block_root = vm::MerkleProof::virtualize(R.move_as_ok());
+        if (r_block_root.is_error()) {
+          abort(r_block_root.move_as_error());
+          return;
+        }
+        auto block_root = r_block_root.move_as_ok();
         if (cur_id.root_hash != block_root->get_hash().bits()) {
           abort(td::Status::Error("invalid block hash in proof"));
           return;
@@ -1872,14 +1886,12 @@ class GetOutMsgQueueSizes : public td::actor::Actor {
         if (roots.size() != 2) {
           return td::Status::Error("expected 2 roots in proof");
         }
-        auto state_root = vm::MerkleProof::virtualize(std::move(roots[1]));
-        if (state_root.is_null()) {
-          return td::Status::Error("state proof is invalid");
-        }
+        TRY_RESULT(state_root, vm::MerkleProof::virtualize(std::move(roots[1])));
         ton::Bits256 state_hash = state_root->get_hash().bits();
-        TRY_STATUS_PREFIX(block::check_block_header_proof(vm::MerkleProof::virtualize(std::move(roots[0])), blocks_[i],
-                                                          &state_hash, true, nullptr, nullptr),
-                          "error in block header proof: ");
+        TRY_RESULT(virt_root, vm::MerkleProof::virtualize(std::move(roots[0])));
+        TRY_STATUS_PREFIX(
+            block::check_block_header_proof(std::move(virt_root), blocks_[i], &state_hash, true, nullptr, nullptr),
+            "error in block header proof: ");
 
         block::gen::ShardStateUnsplit::Record sstate;
         block::gen::OutMsgQueueInfo::Record out_msg_queue_info;
@@ -1960,6 +1972,9 @@ auto to_tonlib_api(const ton::lite_api::liteServer_transactionId& txid) -> tonli
 td::Status check_block_transactions_proof(lite_api_ptr<ton::lite_api::liteServer_blockTransactions>& bTxes,
                                           int32_t mode, ton::LogicalTime start_lt, td::Bits256 start_addr,
                                           td::Bits256 root_hash, int req_count);
+td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_lookupBlockResult>& result, int mode,
+                                    ton::BlockId blkid, ton::BlockIdExt client_mc_blkid, td::uint64 lt,
+                                    td::uint32 utime);
 
 class RunEmulator : public TonlibQueryActor {
  public:
@@ -1997,56 +2012,82 @@ class RunEmulator : public TonlibQueryActor {
 
   void get_block_id(td::Promise<FullBlockId>&& promise) {
     auto shard_id = ton::shard_prefix(request_.address.addr, 60);
-    auto query = ton::lite_api::liteServer_lookupBlock(
-        0b111111010, ton::create_tl_lite_block_id_simple({request_.address.workchain, shard_id, 0}), request_.lt, 0);
-    client_.send_query(
-        std::move(query),
-        promise.wrap([shard_id](td::Result<tonlib_api::object_ptr<ton::lite_api::liteServer_blockHeader>> header_r)
-                         -> td::Result<FullBlockId> {
-          TRY_RESULT(header, std::move(header_r));
-          ton::BlockIdExt block_id = ton::create_block_id(header->id_);
-          TRY_RESULT(root, vm::std_boc_deserialize(std::move(header->header_proof_)));
-
-          try {
-            auto virt_root = vm::MerkleProof::virtualize(root);
-            if (virt_root.is_null()) {
-              return td::Status::Error("block header proof is not a valid Merkle proof");
+    auto blkid = ton::BlockId(request_.address.workchain, shard_id, 0);
+    auto mode = 0b111111010;
+    auto lt = static_cast<td::uint64>(request_.lt);
+    client_.with_last_block([self = this, promise = std::move(promise), shard_id, blkid, mode,
+                             lt](td::Result<LastBlockState> r_last_block) mutable {
+      if (r_last_block.is_error()) {
+        promise.set_error(r_last_block.move_as_error());
+        return;
+      }
+      auto trusted_mc_block_id = r_last_block.move_as_ok().last_block_id;
+      auto query = ton::lite_api::liteServer_lookupBlockWithProof(
+          mode, ton::create_tl_lite_block_id_simple(blkid), ton::create_tl_lite_block_id(trusted_mc_block_id), lt, 0);
+      self->client_.send_query(
+          std::move(query),
+          [self, promise = std::move(promise), shard_id, blkid, mode, lt, trusted_mc_block_id](
+              td::Result<tonlib_api::object_ptr<ton::lite_api::liteServer_lookupBlockResult>> lookup_result_r) mutable {
+            if (lookup_result_r.is_error()) {
+              promise.set_error(lookup_result_r.move_as_error());
+              return;
             }
-
-            if (ton::RootHash{virt_root->get_hash().bits()} != block_id.root_hash) {
-              return td::Status::Error("block header has incorrect root hash");
+            auto lookup_result = lookup_result_r.move_as_ok();
+            auto check_status = check_lookup_block_proof(lookup_result, mode, blkid, trusted_mc_block_id, lt, 0);
+            if (check_status.is_error()) {
+              promise.set_error(std::move(check_status));
+              return;
             }
+            auto block_id = ton::create_block_id(lookup_result->id_);
+            self->client_.send_query(
+                ton::lite_api::liteServer_getBlockHeader(ton::create_tl_lite_block_id(block_id), 0xffff),
+                promise.wrap([shard_id, block_id](
+                                 td::Result<tonlib_api::object_ptr<ton::lite_api::liteServer_blockHeader>> header_r)
+                                 -> td::Result<FullBlockId> {
+                  TRY_RESULT(header, std::move(header_r));
+                  if (block_id != ton::create_block_id(header->id_)) {
+                    return td::Status::Error("liteserver returned mismatched block header");
+                  }
+                  TRY_RESULT(root, vm::std_boc_deserialize(std::move(header->header_proof_)));
 
-            std::vector<ton::BlockIdExt> prev_blocks;
-            ton::BlockIdExt mc_block_id;
-            bool after_split;
-            td::Status status =
-                block::unpack_block_prev_blk_ext(virt_root, block_id, prev_blocks, mc_block_id, after_split);
-            if (status.is_error()) {
-              return status.move_as_error();
-            }
+                  try {
+                    TRY_RESULT(virt_root, vm::MerkleProof::virtualize(root));
+                    if (ton::RootHash{virt_root->get_hash().bits()} != block_id.root_hash) {
+                      return td::Status::Error("block header has incorrect root hash");
+                    }
 
-            ton::BlockIdExt prev_block;
-            if (prev_blocks.size() == 1 || ton::shard_is_ancestor(prev_blocks[0].id.shard, shard_id)) {
-              prev_block = std::move(prev_blocks[0]);
-            } else {
-              prev_block = std::move(prev_blocks[1]);
-            }
+                    std::vector<ton::BlockIdExt> prev_blocks;
+                    ton::BlockIdExt mc_block_id;
+                    bool after_split;
+                    td::Status status =
+                        block::unpack_block_prev_blk_ext(virt_root, block_id, prev_blocks, mc_block_id, after_split);
+                    if (status.is_error()) {
+                      return status.move_as_error();
+                    }
 
-            block::gen::Block::Record block;
-            block::gen::BlockExtra::Record extra;
-            if (!tlb::unpack_cell(virt_root, block) || !tlb::unpack_cell(block.extra, extra)) {
-              return td::Status::Error("cannot unpack block header");
-            }
+                    ton::BlockIdExt prev_block;
+                    if (prev_blocks.size() == 1 || ton::shard_is_ancestor(prev_blocks[0].id.shard, shard_id)) {
+                      prev_block = std::move(prev_blocks[0]);
+                    } else {
+                      prev_block = std::move(prev_blocks[1]);
+                    }
 
-            return FullBlockId{std::move(block_id), std::move(mc_block_id), std::move(prev_block),
-                               std::move(extra.rand_seed)};
-          } catch (vm::VmError& err) {
-            return err.as_status("error processing header");
-          } catch (vm::VmVirtError& err) {
-            return err.as_status("error processing header");
-          }
-        }));
+                    block::gen::Block::Record block;
+                    block::gen::BlockExtra::Record extra;
+                    if (!tlb::unpack_cell(virt_root, block) || !tlb::unpack_cell(block.extra, extra)) {
+                      return td::Status::Error("cannot unpack block header");
+                    }
+
+                    return FullBlockId{std::move(block_id), std::move(mc_block_id), std::move(prev_block),
+                                       std::move(extra.rand_seed)};
+                  } catch (vm::VmError& err) {
+                    return err.as_status("error processing header");
+                  } catch (vm::VmVirtError& err) {
+                    return err.as_status("error processing header");
+                  }
+                }));
+          });
+    });
   }
 
   void get_mc_state_root(td::Promise<td::Ref<vm::Cell>>&& promise) {
@@ -2263,7 +2304,7 @@ class RunEmulator : public TonlibQueryActor {
         raw.info.gen_utime = account.now_;
 
         if (account.status == block::Account::acc_frozen) {
-          raw.frozen_hash = (char*)account.state_hash.data();
+          raw.frozen_hash = std::string((char*)account.state_hash.data(), 32);
         }
 
         promise_.set_value(td::make_unique<AccountState>(address, std::move(raw), 0));
@@ -3210,7 +3251,8 @@ struct ToRawTransactions {
     }
 
     auto get_data = [body = std::move(body), body_cell = std::move(body_cell),
-                     init_state_cell = std::move(init_state_cell), this](td::Slice salt) mutable {
+                     init_state_cell = std::move(init_state_cell), this](
+                        td::Slice salt) mutable -> td::Result<tonlib_api::object_ptr<tonlib_api::msg_Data>> {
       tonlib_api::object_ptr<tonlib_api::msg_Data> data;
       if (try_decode_messages_ && body->size() >= 32) {
         auto type = static_cast<td::uint32>(body.write().fetch_long(32));
@@ -3242,8 +3284,9 @@ struct ToRawTransactions {
         }
       }
       if (!data) {
-        data = tonlib_api::make_object<tonlib_api::msg_dataRaw>(to_bytes(std::move(body_cell)),
-                                                                to_bytes(std::move(init_state_cell)));
+        TRY_RESULT(body_boc, to_bytes(std::move(body_cell)));
+        TRY_RESULT(init_state_boc, to_bytes(std::move(init_state_cell)));
+        data = tonlib_api::make_object<tonlib_api::msg_dataRaw>(std::move(body_boc), std::move(init_state_boc));
       }
       return data;
     };
@@ -3264,12 +3307,13 @@ struct ToRawTransactions {
         TRY_RESULT(src, to_std_address(msg_info.src));
         TRY_RESULT(dest, to_std_address(msg_info.dest));
         TRY_RESULT(fwd_fee, to_balance(msg_info.fwd_fee));
+        TRY_RESULT(data, get_data(src));
         auto created_lt = static_cast<td::int64>(msg_info.created_lt);
 
         return tonlib_api::make_object<tonlib_api::raw_message>(
             msg_hash, tonlib_api::make_object<tonlib_api::accountAddress>(src),
             tonlib_api::make_object<tonlib_api::accountAddress>(std::move(dest)), balance, std::move(extra_currencies),
-            fwd_fee, /* ihr_fee = */ 0, created_lt, std::move(body_hash), get_data(src));
+            fwd_fee, /* ihr_fee = */ 0, created_lt, std::move(body_hash), std::move(data));
       }
       case block::gen::CommonMsgInfo::ext_in_msg_info: {
         block::gen::CommonMsgInfo::Record_ext_in_msg_info msg_info;
@@ -3277,11 +3321,11 @@ struct ToRawTransactions {
           return td::Status::Error("Failed to unpack CommonMsgInfo::ext_in_msg_info");
         }
         TRY_RESULT(dest, to_std_address(msg_info.dest));
+        TRY_RESULT(data, get_data(""));
         return tonlib_api::make_object<tonlib_api::raw_message>(
             msg_hash, tonlib_api::make_object<tonlib_api::accountAddress>(),
             tonlib_api::make_object<tonlib_api::accountAddress>(std::move(dest)), 0,
-            std::vector<tonlib_api::object_ptr<tonlib_api::extraCurrency>>{}, 0, 0, 0, std::move(body_hash),
-            get_data(""));
+            std::vector<tonlib_api::object_ptr<tonlib_api::extraCurrency>>{}, 0, 0, 0, std::move(body_hash), std::move(data));
       }
       case block::gen::CommonMsgInfo::ext_out_msg_info: {
         block::gen::CommonMsgInfo::Record_ext_out_msg_info msg_info;
@@ -3289,12 +3333,13 @@ struct ToRawTransactions {
           return td::Status::Error("Failed to unpack CommonMsgInfo::ext_out_msg_info");
         }
         TRY_RESULT(src, to_std_address(msg_info.src));
+        TRY_RESULT(data, get_data(src));
         auto created_lt = static_cast<td::int64>(msg_info.created_lt);
         return tonlib_api::make_object<tonlib_api::raw_message>(
             msg_hash, tonlib_api::make_object<tonlib_api::accountAddress>(src),
             tonlib_api::make_object<tonlib_api::accountAddress>(), 0,
             std::vector<tonlib_api::object_ptr<tonlib_api::extraCurrency>>{}, 0, 0, created_lt, std::move(body_hash),
-            get_data(src));
+            std::move(data));
       }
     }
 
@@ -3315,7 +3360,8 @@ struct ToRawTransactions {
     td::int64 storage_fee = 0;
     td::string address;
     if (info.transaction.not_null()) {
-      data = to_bytes(info.transaction);
+      TRY_RESULT(transaction_boc, to_bytes(info.transaction));
+      data = std::move(transaction_boc);
       block::gen::Transaction::Record trans;
       if (!tlb::unpack_cell(info.transaction, trans)) {
         return td::Status::Error("Failed to unpack Transaction");
@@ -3388,7 +3434,7 @@ struct ToRawTransactions {
     td::int64 storage_fee = 0;
     td::string address;
     if (info.transaction.not_null()) {
-      data = to_bytes(info.transaction);
+      TRY_RESULT_ASSIGN(data, to_bytes(info.transaction));
       block::gen::Transaction::Record trans;
       if (!tlb::unpack_cell(info.transaction, trans)) {
         return td::Status::Error("Failed to unpack Transaction");
@@ -3517,6 +3563,9 @@ td::Status TonlibClient::do_request(const tonlib_api::raw_sendMessageReturnHash&
 
 td::Status TonlibClient::do_request(const tonlib_api::raw_createAndSendMessage& request,
                                     td::Promise<object_ptr<tonlib_api::ok>>&& promise) {
+  if (!request.destination_) {
+    return TonlibError::EmptyField("destination");
+  }
   td::Ref<vm::Cell> init_state;
   if (!request.initial_account_state_.empty()) {
     TRY_RESULT_PREFIX(new_init_state, vm::std_boc_deserialize(request.initial_account_state_),
@@ -4373,9 +4422,11 @@ td::Result<tonlib_api::object_ptr<tonlib_api::query_info>> TonlibClient::get_que
   if (it == queries_.end()) {
     return TonlibError::InvalidQueryId();
   }
+  TRY_RESULT(message_body, to_bytes(it->second->get_message_body()));
+  TRY_RESULT(init_state, to_bytes(it->second->get_init_state()));
   return tonlib_api::make_object<tonlib_api::query_info>(
       id, it->second->get_valid_until(), it->second->get_body_hash().as_slice().str(),
-      to_bytes(it->second->get_message_body()), to_bytes(it->second->get_init_state()));
+      std::move(message_body), std::move(init_state));
 }
 
 void TonlibClient::finish_create_query(td::Result<td::unique_ptr<Query>> r_query,
@@ -4610,7 +4661,7 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_getCode& request,
   }
   auto& acc = it->second;
   auto code = acc->get_smc_state().code;
-  promise.set_value(tonlib_api::make_object<tonlib_api::tvm_cell>(to_bytes(code)));
+  promise.set_result(to_tonlib_tvm_cell(code));
   return td::Status::OK();
 }
 
@@ -4622,7 +4673,7 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_getData& request,
   }
   auto& acc = it->second;
   auto data = acc->get_smc_state().data;
-  promise.set_value(tonlib_api::make_object<tonlib_api::tvm_cell>(to_bytes(data)));
+  promise.set_result(to_tonlib_tvm_cell(data));
   return td::Status::OK();
 }
 
@@ -4634,7 +4685,7 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_getState& request,
   }
   auto& acc = it->second;
   auto data = acc->get_raw_state();
-  promise.set_value(tonlib_api::make_object<tonlib_api::tvm_cell>(to_bytes(data)));
+  promise.set_result(to_tonlib_tvm_cell(data));
   return td::Status::OK();
 }
 
@@ -4672,12 +4723,15 @@ auto to_tonlib_api(const vm::StackEntry& entry, int& limit)
     case vm::StackEntry::Type::t_int:
       return tonlib_api::make_object<tonlib_api::tvm_stackEntryNumber>(
           tonlib_api::make_object<tonlib_api::tvm_numberDecimal>(dec_string(entry.as_int())));
-    case vm::StackEntry::Type::t_slice:
-      return tonlib_api::make_object<tonlib_api::tvm_stackEntrySlice>(tonlib_api::make_object<tonlib_api::tvm_slice>(
-          to_bytes(vm::CellBuilder().append_cellslice(entry.as_slice()).finalize())));
-    case vm::StackEntry::Type::t_cell:
-      return tonlib_api::make_object<tonlib_api::tvm_stackEntryCell>(
-          tonlib_api::make_object<tonlib_api::tvm_cell>(to_bytes(entry.as_cell())));
+    case vm::StackEntry::Type::t_slice: {
+      TRY_RESULT(bytes, to_bytes(vm::CellBuilder().append_cellslice(entry.as_slice()).finalize()));
+      return tonlib_api::make_object<tonlib_api::tvm_stackEntrySlice>(
+          tonlib_api::make_object<tonlib_api::tvm_slice>(std::move(bytes)));
+    }
+    case vm::StackEntry::Type::t_cell: {
+      TRY_RESULT(cell, to_tonlib_tvm_cell(entry.as_cell()));
+      return tonlib_api::make_object<tonlib_api::tvm_stackEntryCell>(std::move(cell));
+    }
     case vm::StackEntry::Type::t_null:
     case vm::StackEntry::Type::t_tuple: {
       std::vector<tonlib_api::object_ptr<tonlib_api::tvm_StackEntry>> elements;
@@ -4725,31 +4779,54 @@ td::Result<vm::StackEntry> from_tonlib_api(tonlib_api::tvm_StackEntry& entry) {
       td::overloaded(
           [&](tonlib_api::tvm_stackEntryUnsupported& cell) { return td::Status::Error("Unsuppored stack entry"); },
           [&](tonlib_api::tvm_stackEntrySlice& cell) -> td::Result<vm::StackEntry> {
+            if (!cell.slice_) {
+              return TonlibError::EmptyField("slice");
+            }
             TRY_RESULT(res, vm::std_boc_deserialize(cell.slice_->bytes_));
-            auto slice = vm::load_cell_slice_ref(std::move(res));
-            return vm::StackEntry{std::move(slice)};
+            return TRY_VM([&]() -> td::Result<vm::StackEntry> {
+              auto slice = vm::load_cell_slice_ref(std::move(res));
+              return vm::StackEntry{std::move(slice)};
+            }());
           },
           [&](tonlib_api::tvm_stackEntryCell& cell) -> td::Result<vm::StackEntry> {
+            if (!cell.cell_) {
+              return TonlibError::EmptyField("cell");
+            }
             TRY_RESULT(res, vm::std_boc_deserialize(cell.cell_->bytes_));
             return vm::StackEntry{std::move(res)};
           },
           [&](tonlib_api::tvm_stackEntryTuple& tuple) -> td::Result<vm::StackEntry> {
+            if (!tuple.tuple_) {
+              return TonlibError::EmptyField("tuple");
+            }
             std::vector<vm::StackEntry> elements;
             for (auto& element : tuple.tuple_->elements_) {
+              if (!element) {
+                return TonlibError::EmptyField("tuple.elements");
+              }
               TRY_RESULT(new_element, from_tonlib_api(*element));
               elements.push_back(std::move(new_element));
             }
             return td::Ref<vm::Tuple>(true, std::move(elements));
           },
-          [&](tonlib_api::tvm_stackEntryList& tuple) -> td::Result<vm::StackEntry> {
+          [&](tonlib_api::tvm_stackEntryList& list) -> td::Result<vm::StackEntry> {
+            if (!list.list_) {
+              return TonlibError::EmptyField("list");
+            }
             vm::StackEntry tail;
-            for (auto& element : td::reversed(tuple.list_->elements_)) {
+            for (auto& element : td::reversed(list.list_->elements_)) {
+              if (!element) {
+                return TonlibError::EmptyField("list.elements");
+              }
               TRY_RESULT(new_element, from_tonlib_api(*element));
               tail = vm::make_tuple_ref(std::move(new_element), std::move(tail));
             }
             return tail;
           },
           [&](tonlib_api::tvm_stackEntryNumber& number) -> td::Result<vm::StackEntry> {
+            if (!number.number_) {
+              return TonlibError::EmptyField("number");
+            }
             auto& dec = *number.number_;
             auto num = td::dec_string_to_int256(dec.number_);
             if (num.is_null()) {
@@ -4922,6 +4999,9 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_getLibrariesExt& reque
                                     td::Promise<object_ptr<tonlib_api::smc_libraryResultExt>>&& promise) {
   std::set<td::Bits256> request_libs;
   for (auto& x : request.list_) {
+    if (!x) {
+      return TonlibError::EmptyField("list");
+    }
     td::Status status = td::Status::OK();
     downcast_call(*x, td::overloaded([&](tonlib_api::smc_libraryQueryExt_one& one) { request_libs.insert(one.hash_); },
                                      [&](tonlib_api::smc_libraryQueryExt_scanBoc& scan) {
@@ -4990,6 +5070,9 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_runGetMethod& request,
   if (it == smcs_.end()) {
     return TonlibError::InvalidSmcId();
   }
+  if (!request.method_) {
+    return TonlibError::EmptyField("method");
+  }
 
   td::Ref<ton::SmartContract> smc(true, it->second->get_smc_state());
   ton::SmartContract::Args args;
@@ -4999,6 +5082,9 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_runGetMethod& request,
   td::Ref<vm::Stack> stack(true);
   td::Status status;
   for (auto& entry : request.stack_) {
+    if (!entry) {
+      return TonlibError::EmptyField("stack");
+    }
     TRY_RESULT(e, from_tonlib_api(*entry));
     stack.write().push(std::move(e));
   }
@@ -5289,13 +5375,15 @@ td::Status TonlibClient::do_request(tonlib_api::pchan_packPromise& request,
   if (!request.promise_) {
     return TonlibError::EmptyField("promise");
   }
-  promise.set_value(tonlib_api::make_object<tonlib_api::data>(
-      td::SecureString(to_bytes(ton::pchan::SignedPromiseBuilder()
-                                    .promise_A(request.promise_->promise_A_)
-                                    .promise_B(request.promise_->promise_B_)
-                                    .channel_id(request.promise_->channel_id_)
-                                    .signature(td::SecureString(request.promise_->signature_))
-                                    .finalize()))));
+  promise.set_result([&]() -> td::Result<object_ptr<tonlib_api::data>> {
+    TRY_RESULT(bytes, to_bytes(ton::pchan::SignedPromiseBuilder()
+                                   .promise_A(request.promise_->promise_A_)
+                                   .promise_B(request.promise_->promise_B_)
+                                   .channel_id(request.promise_->channel_id_)
+                                   .signature(td::SecureString(request.promise_->signature_))
+                                   .finalize()));
+    return tonlib_api::make_object<tonlib_api::data>(td::SecureString(std::move(bytes)));
+  }());
   return td::Status::OK();
 }
 
@@ -5480,6 +5568,9 @@ td::Status TonlibClient::do_request(const tonlib_api::onLiteServerQueryError& re
   if (((request.id_ ^ config_generation_) & 0xffff) != 0) {
     return TonlibError::InvalidQueryId();
   }
+  if (!request.error_) {
+    return TonlibError::EmptyField("error");
+  }
   send_closure(ext_client_outbound_, &ExtClientOutbound::on_query_result, request.id_ >> 16,
                td::Status::Error(request.error_->code_, request.error_->message_)
                    .move_as_error_prefix(TonlibError::LiteServerNetwork()),
@@ -5572,10 +5663,10 @@ tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(
     return status_to_tonlib_api(TonlibError::EmptyField("data"));
   }
   if (!request.data_->data_) {
-    TonlibError::EmptyField("data.data");
+    return status_to_tonlib_api(TonlibError::EmptyField("data.data"));
   }
   if (!request.data_->source_) {
-    TonlibError::EmptyField("data.source");
+    return status_to_tonlib_api(TonlibError::EmptyField("data.source"));
   }
   using ReturnType = tonlib_api::object_ptr<tonlib_api::msg_Data>;
   return downcast_call2<ReturnType>(
@@ -5668,6 +5759,9 @@ td::Status TonlibClient::do_request(tonlib_api::withBlock& request,
   if (!request.id_) {
     return TonlibError::EmptyField("id");
   }
+  if (!request.function_) {
+    return TonlibError::EmptyField("function");
+  }
   TRY_RESULT(root_hash, to_bits256(request.id_->root_hash_, "root_hash"));
   TRY_RESULT(file_hash, to_bits256(request.id_->file_hash_, "file_hash"));
   ton::BlockIdExt block_id(request.id_->workchain_, request.id_->shard_, request.id_->seqno_, root_hash, file_hash);
@@ -5719,9 +5813,9 @@ void TonlibClient::get_config_param(int32_t param, int32_t mode, ton::BlockIdExt
         if (config.is_error()) {
           return config.move_as_error_prefix(TonlibError::ValidateConfig());
         }
+        auto config_ptr = config.move_as_ok();
         tonlib_api::configInfo config_result;
-        config_result.config_ =
-            tonlib_api::make_object<tonlib_api::tvm_cell>(to_bytes(config.move_as_ok()->get_config_param(param)));
+        TRY_RESULT_PREFIX_ASSIGN(config_result.config_, to_tonlib_tvm_cell(config_ptr->get_config_param(param)), TonlibError::ValidateConfig());
         return tonlib_api::make_object<tonlib_api::configInfo>(std::move(config_result));
       }));
 }
@@ -5757,8 +5851,8 @@ void TonlibClient::get_config_all(int32_t mode, ton::BlockIdExt block,
                          return config.move_as_error_prefix(TonlibError::ValidateConfig());
                        }
                        tonlib_api::configInfo config_result;
-                       config_result.config_ = tonlib_api::make_object<tonlib_api::tvm_cell>(
-                           to_bytes(config.move_as_ok()->get_root_cell()));
+                       TRY_RESULT_PREFIX_ASSIGN(config_result.config_, to_tonlib_tvm_cell(config.move_as_ok()->get_root_cell()),
+                                                TonlibError::ValidateConfig());
                        return tonlib_api::make_object<tonlib_api::configInfo>(std::move(config_result));
                      }));
 }
@@ -5793,6 +5887,9 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getMasterchainInfo&
 
 td::Status TonlibClient::do_request(const tonlib_api::blocks_getShards& request,
                                     td::Promise<object_ptr<tonlib_api::blocks_shards>>&& promise) {
+  if (!request.id_) {
+    return TonlibError::EmptyField("id");
+  }
   TRY_RESULT(block, to_lite_api(*request.id_))
   TRY_RESULT(req_blk_id, to_block_id(*request.id_));
   client_.send_query(
@@ -5817,10 +5914,7 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getShards& request,
           return data_cell.move_as_error_prefix("Couldn't deserialize shards data: ");
         }
         try {
-          auto virt_root = vm::MerkleProof::virtualize(proof_cell.move_as_ok());
-          if (virt_root.is_null()) {
-            return td::Status::Error("Virt root is null");
-          }
+          TRY_RESULT(virt_root, vm::MerkleProof::virtualize(proof_cell.move_as_ok()));
           if (ton::RootHash{virt_root->get_hash().bits()} != blk_id.root_hash) {
             return td::Status::Error("Block shards merkle proof has incorrect root hash");
           }
@@ -5833,7 +5927,12 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getShards& request,
             return td::Status::Error("cannot unpack block extra of block " + blk_id.to_str());
           }
           auto data_csr = vm::load_cell_slice_ref(data_cell.move_as_ok());
-          if (data_csr->prefetch_ref()->get_hash() != mc_extra.shard_hashes->prefetch_ref()->get_hash()) {
+          auto data_ref = data_csr->prefetch_ref();
+          auto proof_ref = mc_extra.shard_hashes->prefetch_ref();
+          if (data_ref.is_null() || proof_ref.is_null()) {
+              return td::Status::Error("Block shards data or proof missing root reference");
+          }
+          if (data_ref->get_hash() != proof_ref->get_hash()) {
             return td::Status::Error("Block shards data and proof hashes don't match");
           }
 
@@ -5867,6 +5966,9 @@ td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_looku
 
 td::Status TonlibClient::do_request(const tonlib_api::blocks_lookupBlock& request,
                                     td::Promise<object_ptr<tonlib_api::ton_blockIdExt>>&& promise) {
+  if (!request.id_) {
+    return TonlibError::EmptyField("id");
+  }
   auto lite_block = ton::lite_api::make_object<ton::lite_api::tonNode_blockId>(
       (*request.id_).workchain_, (*request.id_).shard_, (*request.id_).seqno_);
   auto blkid = ton::BlockId(request.id_->workchain_, request.id_->shard_, request.id_->seqno_);
@@ -5919,12 +6021,11 @@ td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_looku
     try {
       for (auto& link : result->shard_links_) {
         ton::BlockIdExt prev_id = create_block_id(link->id_);
-        td::BufferSlice proof = std::move(link->proof_);
-        auto R = vm::std_boc_deserialize(proof);
+        auto R = vm::std_boc_deserialize(link->proof_.as_slice());
         if (R.is_error()) {
           return TonlibError::InvalidBagOfCells("proof");
         }
-        auto block_root = vm::MerkleProof::virtualize(R.move_as_ok());
+        TRY_RESULT(block_root, vm::MerkleProof::virtualize(R.move_as_ok()));
         if (cur_id.root_hash != block_root->get_hash().bits()) {
           return td::Status::Error("invalid block hash in proof");
         }
@@ -5964,14 +6065,11 @@ td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_looku
       return td::Status::Error("response block has incorrect workchain/shard");
     }
 
-    auto header_r = vm::std_boc_deserialize(std::move(result->header_));
+    auto header_r = vm::std_boc_deserialize(result->header_.as_slice());
     if (header_r.is_error()) {
       return TonlibError::InvalidBagOfCells("header");
     }
-    auto header_root = vm::MerkleProof::virtualize(header_r.move_as_ok());
-    if (header_root.is_null()) {
-      return td::Status::Error("header_root is null");
-    }
+    TRY_RESULT(header_root, vm::MerkleProof::virtualize(header_r.move_as_ok()));
     if (cur_id.root_hash != header_root->get_hash().bits()) {
       return td::Status::Error("invalid header hash in proof");
     }
@@ -5998,15 +6096,12 @@ td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_looku
         return td::Status::Error("invalid seqno in proof");
       }
     } else if (mode & 6) {
-      auto prev_header_r = vm::std_boc_deserialize(std::move(result->prev_header_));
+      auto prev_header_r = vm::std_boc_deserialize(result->prev_header_.as_slice());
       if (prev_header_r.is_error()) {
         return TonlibError::InvalidBagOfCells("prev_headers");
       }
       auto prev_header = prev_header_r.move_as_ok();
-      auto prev_root = vm::MerkleProof::virtualize(prev_header);
-      if (prev_root.is_null()) {
-        return td::Status::Error("prev_root is null");
-      }
+      TRY_RESULT(prev_root, vm::MerkleProof::virtualize(prev_header));
 
       bool prev_valid = false;
       int prev_idx = -1;
@@ -6071,7 +6166,7 @@ td::Status check_block_transactions_proof(lite_api_ptr<ton::lite_api::liteServer
 
   try {
     TRY_RESULT(proof_cell, vm::std_boc_deserialize(std::move(bTxes->proof_)));
-    auto virt_root = vm::MerkleProof::virtualize(proof_cell);
+    TRY_RESULT(virt_root, vm::MerkleProof::virtualize(proof_cell));
 
     if (root_hash != virt_root->get_hash().bits()) {
       return td::Status::Error("Invalid block proof root hash");
@@ -6146,6 +6241,9 @@ td::Status check_block_transactions_proof(lite_api_ptr<ton::lite_api::liteServer
 
 td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactions& request,
                                     td::Promise<object_ptr<tonlib_api::blocks_transactions>>&& promise) {
+  if (!request.id_) {
+    return TonlibError::EmptyField("id");
+  }
   TRY_RESULT(block, to_lite_api(*request.id_))
   auto root_hash = block->root_hash_;
   bool check_proof = request.mode_ & ton::lite_api::liteServer_listBlockTransactions::WANT_PROOF_MASK;
@@ -6190,6 +6288,9 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactions& re
 
 td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactionsExt& request,
                                     td::Promise<object_ptr<tonlib_api::blocks_transactionsExt>>&& promise) {
+  if (!request.id_) {
+    return TonlibError::EmptyField("id");
+  }
   TRY_RESULT(block, to_lite_api(*request.id_))
   bool check_proof = request.mode_ & ton::lite_api::liteServer_listBlockTransactionsExt::WANT_PROOF_MASK;
   bool reverse_mode = request.mode_ & ton::lite_api::liteServer_listBlockTransactionsExt::REVERSE_ORDER_MASK;
@@ -6252,6 +6353,9 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactionsExt&
 
 td::Status TonlibClient::do_request(const tonlib_api::blocks_getBlockHeader& request,
                                     td::Promise<object_ptr<tonlib_api::blocks_header>>&& promise) {
+  if (!request.id_) {
+    return TonlibError::EmptyField("id");
+  }
   TRY_RESULT(lite_block, to_lite_api(*request.id_))
   TRY_RESULT(req_blk_id, to_block_id(*request.id_));
   client_.send_query(ton::lite_api::liteServer_getBlockHeader(std::move(lite_block), 0xffff),
@@ -6267,52 +6371,47 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getBlockHeader& req
                        } else {
                          auto root = R.move_as_ok();
                          try {
-                           auto virt_root = vm::MerkleProof::virtualize(root);
-                           if (virt_root.is_null()) {
-                             return td::Status::Error("Virt root is null");
+                           TRY_RESULT(virt_root, vm::MerkleProof::virtualize(root));
+                           if (ton::RootHash{virt_root->get_hash().bits()} != blk_id.root_hash) {
+                             return td::Status::Error("Block header merkle proof has incorrect root hash");
+                           }
+                           std::vector<ton::BlockIdExt> prev;
+                           ton::BlockIdExt mc_blkid;
+                           bool after_split;
+                           auto res = block::unpack_block_prev_blk_ext(virt_root, blk_id, prev, mc_blkid, after_split);
+                           if (res.is_error()) {
+                             return td::Status::Error("Unpack failed");
                            } else {
-                             if (ton::RootHash{virt_root->get_hash().bits()} != blk_id.root_hash) {
-                               return td::Status::Error("Block header merkle proof has incorrect root hash");
-                             }
-                             std::vector<ton::BlockIdExt> prev;
-                             ton::BlockIdExt mc_blkid;
-                             bool after_split;
-                             auto res =
-                                 block::unpack_block_prev_blk_ext(virt_root, blk_id, prev, mc_blkid, after_split);
-                             if (res.is_error()) {
+                             block::gen::Block::Record blk;
+                             block::gen::BlockInfo::Record info;
+                             if (!(tlb::unpack_cell(virt_root, blk) && tlb::unpack_cell(blk.info, info))) {
                                return td::Status::Error("Unpack failed");
                              } else {
-                               block::gen::Block::Record blk;
-                               block::gen::BlockInfo::Record info;
-                               if (!(tlb::unpack_cell(virt_root, blk) && tlb::unpack_cell(blk.info, info))) {
-                                 return td::Status::Error("Unpack failed");
-                               } else {
-                                 tonlib_api::blocks_header header;
-                                 header.id_ = to_tonlib_api(blk_id);
-                                 header.global_id_ = blk.global_id;
-                                 header.version_ = info.version;
-                                 header.flags_ = info.flags;
-                                 header.after_merge_ = info.after_merge;
-                                 header.after_split_ = info.after_split;
-                                 header.before_split_ = info.before_split;
-                                 header.want_merge_ = info.want_merge;
-                                 header.want_split_ = info.want_split;
-                                 header.validator_list_hash_short_ = info.gen_validator_list_hash_short;
-                                 header.catchain_seqno_ = info.gen_catchain_seqno;
-                                 header.min_ref_mc_seqno_ = info.min_ref_mc_seqno;
-                                 header.start_lt_ = info.start_lt;
-                                 header.end_lt_ = info.end_lt;
-                                 header.gen_utime_ = info.gen_utime;
-                                 header.is_key_block_ = info.key_block;
-                                 header.vert_seqno_ = info.vert_seq_no;
-                                 if (!info.not_master) {
-                                   header.prev_key_block_seqno_ = info.prev_key_block_seqno;
-                                 }
-                                 for (auto& id : prev) {
-                                   header.prev_blocks_.push_back(to_tonlib_api(id));
-                                 }
-                                 return tonlib_api::make_object<tonlib_api::blocks_header>(std::move(header));
+                               tonlib_api::blocks_header header;
+                               header.id_ = to_tonlib_api(blk_id);
+                               header.global_id_ = blk.global_id;
+                               header.version_ = info.version;
+                               header.flags_ = info.flags;
+                               header.after_merge_ = info.after_merge;
+                               header.after_split_ = info.after_split;
+                               header.before_split_ = info.before_split;
+                               header.want_merge_ = info.want_merge;
+                               header.want_split_ = info.want_split;
+                               header.validator_list_hash_short_ = info.gen_validator_list_hash_short;
+                               header.catchain_seqno_ = info.gen_catchain_seqno;
+                               header.min_ref_mc_seqno_ = info.min_ref_mc_seqno;
+                               header.start_lt_ = info.start_lt;
+                               header.end_lt_ = info.end_lt;
+                               header.gen_utime_ = info.gen_utime;
+                               header.is_key_block_ = info.key_block;
+                               header.vert_seqno_ = info.vert_seq_no;
+                               if (!info.not_master) {
+                                 header.prev_key_block_seqno_ = info.prev_key_block_seqno;
                                }
+                               for (auto& id : prev) {
+                                 header.prev_blocks_.push_back(to_tonlib_api(id));
+                               }
+                               return tonlib_api::make_object<tonlib_api::blocks_header>(std::move(header));
                              }
                            }
                          } catch (vm::VmError& err) {
@@ -6338,9 +6437,15 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getMasterchainBlock
 
 td::Status TonlibClient::do_request(const tonlib_api::blocks_getShardBlockProof& request,
                                     td::Promise<object_ptr<tonlib_api::blocks_shardBlockProof>>&& promise) {
+  if (!request.id_) {
+    return TonlibError::EmptyField("id");
+  }
   TRY_RESULT(id, to_block_id(*request.id_));
   ton::BlockIdExt from;
   if (request.mode_ & 1) {
+    if (!request.from_) {
+      return TonlibError::EmptyField("from");
+    }
     TRY_RESULT_ASSIGN(from, to_block_id(*request.from_));
   }
   auto actor_id = actor_id_++;

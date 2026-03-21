@@ -104,6 +104,10 @@ void AdnlPeerPairImpl::discover() {
     auto k = kv.move_as_ok();
     auto pub = AdnlNodeIdFull{k.key().public_key()};
     CHECK(pub.compute_short_id() == peer_id);
+    if (!pub.pubkey().is_ed25519()) {
+      td::actor::send_closure(SelfId, &AdnlPeerPairImpl::got_data_from_dht, td::Status::Error("bad public key"));
+      return;
+    }
 
     auto addr_list = fetch_tl_object<ton_api::adnl_addressList>(k.value().clone(), true);
     if (addr_list.is_error()) {
@@ -152,7 +156,7 @@ void AdnlPeerPairImpl::receive_packet_checked(AdnlPacket packet) {
       auto addr_list = packet.addr_list();
       if (packet.remote_addr().is_valid() && addr_list.size() == 0) {
         VLOG(ADNL_DEBUG) << "adding implicit address " << packet.remote_addr();
-        addr_list.add_udp_address(packet.remote_addr());
+        addr_list.add_udp_adnl_address(packet.remote_addr());
       }
       update_addr_list(std::move(addr_list));
     }
@@ -203,7 +207,7 @@ void AdnlPeerPairImpl::receive_packet_checked(AdnlPacket packet) {
     auto addr_list = packet.addr_list();
     if (packet.remote_addr().is_valid() && addr_list.size() == 0) {
       VLOG(ADNL_DEBUG) << "adding implicit address " << packet.remote_addr();
-      addr_list.add_udp_address(packet.remote_addr());
+      addr_list.add_udp_adnl_address(packet.remote_addr());
     }
     update_addr_list(std::move(addr_list));
   }
@@ -707,7 +711,7 @@ void AdnlPeerPairImpl::reinit(td::int32 date) {
     huge_message_hash_.set_zero();
     huge_message_.clear();
 
-    channel_.release();
+    channel_.reset();
 
     reinit_date_ = date;
   }
@@ -789,7 +793,7 @@ void AdnlPeerPairImpl::update_addr_list(AdnlAddressList addr_list) {
 
   VLOG(ADNL_INFO) << this << ": updating addr list to version " << addr_list.version() << " size=" << addr_list.size();
 
-  const auto addrs = addr_list.addrs();
+  const auto addrs = addr_list.adnl_addrs();
   has_reverse_addr_ = addr_list.has_reverse();
   if (has_reverse_addr_ && addrs.empty()) {
     return;
@@ -799,9 +803,6 @@ void AdnlPeerPairImpl::update_addr_list(AdnlAddressList addr_list) {
 
   size_t idx = 0;
   for (const auto &addr : addrs) {
-    if (addr->is_reverse()) {
-      continue;
-    }
     if ((mode_ & static_cast<td::uint32>(AdnlLocalIdMode::direct_only)) && !addr->is_public()) {
       continue;
     }
@@ -859,7 +860,7 @@ void AdnlPeerPairImpl::get_stats(bool all, td::Promise<tl_object_ptr<ton_api::ad
   auto stats = create_tl_object<ton_api::adnl_stats_peerPair>();
   stats->local_id_ = local_id_.bits256_value();
   stats->peer_id_ = peer_id_short_.bits256_value();
-  for (const AdnlAddress &addr : addr_list_.addrs()) {
+  for (const AdnlAddress &addr : addr_list_.adnl_addrs()) {
     ton_api::downcast_call(*addr->tl(), td::overloaded(
                                             [&](const ton_api::adnl_address_udp &obj) {
                                               stats->ip_str_ = PSTRING() << td::IPAddress::ipv4_to_str(obj.ip_) << ":"

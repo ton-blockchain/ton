@@ -6,12 +6,9 @@
 
 #include "td/db/RocksDb.h"
 #include "td/utils/port/path.h"
-#include "validator/consensus/null/bus.h"
 #include "validator/consensus/simplex/bus.h"
 #include "validator/fabric.h"
 #include "validator/validator-group.hpp"
-
-#include "runtime.h"
 
 namespace ton::validator {
 
@@ -79,17 +76,10 @@ class ManagerFacadeImpl : public ManagerFacade {
     co_return co_await td::actor::ask(manager_, &ValidatorManager::wait_block_data_short, block_id, 0, timeout);
   }
 
-  td::actor::Task<BlockCandidate> load_block_candidate(PublicKey source, BlockIdExt block_id,
-                                                       FileHash collated_data_hash) override {
-    co_return co_await td::actor::ask(manager_, &ValidatorManager::get_block_candidate_from_db, source, block_id,
-                                      collated_data_hash);
-  }
-
-  td::actor::Task<> store_block_candidate(BlockCandidate candidate) override {
-    candidate.out_msg_queue_proof_broadcasts = {};
-    BlockIdExt block_id = candidate.id;
-    co_return co_await td::actor::ask(manager_, &ValidatorManager::set_block_candidate, block_id, std::move(candidate),
-                                      validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash());
+  void cache_block_candidate(BlockCandidate candidate) override {
+    td::actor::send_closure(manager_, &ValidatorManager::set_block_candidate, candidate.id, std::move(candidate),
+                            validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
+                            /*cache_only=*/true, [](td::Result<>) {});
   }
 
   void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data, int mode) override {
@@ -141,7 +131,11 @@ class DbImpl : public Db {
     return result;
   }
   td::actor::Task<> set(td::BufferSlice key, td::BufferSlice value) override {
-    co_return co_await writer_.set(std::move(key), std::move(value));
+    auto result = co_await writer_.set(std::move(key), std::move(value)).wrap();
+    if (result.is_error() && result.error().code() != ErrorCode::cancelled) {
+      result.ensure();
+    }
+    co_return std::move(result);
   }
 
  private:
@@ -216,18 +210,9 @@ class BridgeImpl final : public IValidatorGroup {
                                                                  params_.collation_manager, params_.validator_set,
                                                                  params_.validator_opts);
 
-    bool is_simplex = params_.config.consensus.has<NewConsensusConfig::Simplex>();
-    std::shared_ptr<Bus> bus;
-
-    if (is_simplex) {
-      auto simplex_bus = std::make_shared<simplex::Bus>();
-
-      simplex_bus->simplex_config = params_.config.consensus.get<NewConsensusConfig::Simplex>();
-
-      bus = simplex_bus;
-    } else {
-      bus = std::make_shared<null::Bus>();
-    }
+    auto simplex_bus = std::make_shared<simplex::Bus>();
+    simplex_bus->simplex_config = params_.config.consensus;
+    std::shared_ptr<Bus> bus = simplex_bus;
 
     bus->shard = params_.shard;
     bus->manager = manager_facade_.get();
@@ -276,31 +261,21 @@ class BridgeImpl final : public IValidatorGroup {
     stop_waiter_ = std::move(stop_waiter);
     bus->stop_promise = std::move(stop_promise);
 
-    runtime::Runtime runtime;
+    td::actor::Runtime runtime;
     BlockAccepter::register_in(runtime);
     BlockProducer::register_in(runtime);
     BlockValidator::register_in(runtime);
     PrivateOverlay::register_in(runtime);
     TraceCollector::register_in(runtime);
 
-    if (is_simplex) {
-      auto simplex_bus = std::static_pointer_cast<simplex::Bus>(bus);
-      simplex_bus->load_bootstrap_state();
+    simplex::CandidateResolver::register_in(runtime);
+    simplex::Consensus::register_in(runtime);
+    simplex::Db::register_in(runtime);
+    simplex::Pool::register_in(runtime);
+    simplex::StateResolver::register_in(runtime);
+    simplex::MetricCollector::register_in(runtime);
 
-      simplex::CandidateResolver::register_in(runtime);
-      simplex::Consensus::register_in(runtime);
-      simplex::Pool::register_in(runtime);
-      simplex::StateResolver::register_in(runtime);
-      simplex::MetricCollector::register_in(runtime);
-
-      bus_ = runtime.start(simplex_bus, params_.name);
-    } else {
-      auto null_bus = std::static_pointer_cast<null::Bus>(bus);
-
-      null::Consensus::register_in(runtime);
-
-      bus_ = runtime.start(null_bus, params_.name);
-    }
+    bus_ = runtime.start(simplex_bus, params_.name);
   }
 
  private:

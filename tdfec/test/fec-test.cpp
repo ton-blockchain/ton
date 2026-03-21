@@ -113,13 +113,13 @@ TEST(Fec, RaptorQFirstSymbols) {
   encoder->precalc();
   for (td::uint32 i = 0; i < 2; i++) {
     encoder->gen_symbol(i + (1 << 21), symbol);
-    decoder->add_symbol({i + (1 << 21), td::Slice(symbol)});
+    decoder->add_symbol({i + (1 << 21), td::BufferSlice(symbol)});
   }
 
   for (td::uint32 i = 0; i < parameters.symbols_count; i++) {
     td::uint32 id = i;
     encoder->gen_symbol(id, symbol);
-    decoder->add_symbol({id, td::Slice(symbol)});
+    decoder->add_symbol({id, td::BufferSlice(symbol)});
     if (decoder->may_try_decode()) {
       auto r = decoder->try_decode(true);
       if (r.is_ok()) {
@@ -153,9 +153,9 @@ TEST(Fec, RaptorQRandomSymbols) {
   auto decoder = td::raptorq::Decoder::create(parameters).move_as_ok();
   std::string symbol(parameters.symbol_size, '\0');
   for (size_t i = 0; i < parameters.symbols_count + 10; i++) {
-    auto id = td::Random::fast_uint32();
+    auto id = td::Random::fast_uint32() % (1u << 24);
     encoder->gen_symbol(id, symbol);
-    decoder->add_symbol({id, td::Slice(symbol)});
+    decoder->add_symbol({id, td::BufferSlice(symbol)});
     if (decoder->may_try_decode()) {
       auto r = decoder->try_decode(false);
       if (r.is_ok()) {

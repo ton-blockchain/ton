@@ -55,9 +55,12 @@ class LastConfig : public td::actor::Actor {
   std::vector<td::int32> params_{4, 18, 20, 21, 24, 25};
 
   void with_last_block(td::Result<LastBlockState> r_last_block);
-  void on_config(td::Result<ton::ton_api::object_ptr<ton::lite_api::liteServer_configInfo>> r_config);
-  td::Status process_config(td::Result<ton::ton_api::object_ptr<ton::lite_api::liteServer_configInfo>> r_config);
-  td::Status process_config_proof(ton::ton_api::object_ptr<ton::lite_api::liteServer_configInfo> config);
+  void on_config(ton::BlockIdExt requested_block_id,
+                 td::Result<ton::ton_api::object_ptr<ton::lite_api::liteServer_configInfo>> r_config);
+  td::Status process_config(const ton::BlockIdExt& requested_block_id,
+                            td::Result<ton::ton_api::object_ptr<ton::lite_api::liteServer_configInfo>> r_config);
+  td::Status process_config_proof(const ton::BlockIdExt& requested_block_id,
+                                  ton::ton_api::object_ptr<ton::lite_api::liteServer_configInfo> config);
 
   void on_ok();
   void on_error(td::Status status);
