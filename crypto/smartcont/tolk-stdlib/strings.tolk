@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 1.2
+tolk 1.3
 
 /**
     A string is a language primitive — a cell containing snake-formatted text data.
