@@ -287,8 +287,7 @@ static void compilation_failed_with_fatal(const std::string& message) {
   std::cerr << "fatal: " << message << std::endl;
 }
 
-static void compilation_succeed_output_fift(std::ostream& fif_os, const std::string& fift_code) {
-  fif_os << fift_code;
+static void compilation_succeed_after_output_done() {
   if (G_settings.show_errors_as_json) {
     std::cerr << R"({"status":"ok"})";
   }
@@ -342,15 +341,6 @@ int main(int argc, char* const argv[]) {
     }
   }
 
-  std::ofstream fif_out_file;
-  if (!G_settings.output_filename.empty()) {    // if not set, fif code will be output to std::cout
-    fif_out_file.open(G_settings.output_filename);
-    if (!fif_out_file.is_open()) {
-      std::cerr << "Failed to create output file " << G_settings.output_filename << std::endl;
-      return 2;
-    }
-  }
-
   // locate tolk-stdlib/ based on env or default system paths
   if (const char* env_var = getenv("TOLK_STDLIB")) {
     std::string stdlib_filename = static_cast<std::string>(env_var) + "/common.tolk";
@@ -390,6 +380,26 @@ int main(int argc, char* const argv[]) {
     return 2;
   }
 
-  compilation_succeed_output_fift(fif_out_file.is_open() ? fif_out_file : std::cout, result.fift_code);
+  // for IDE in background: no codegen, do not create or truncate output files
+  if (G_settings.check_only_no_output) {
+    compilation_succeed_after_output_done();
+    return 0;
+  }
+
+  // if output filename is empty, no files are written (only Fift code is written into stdout)
+  if (G_settings.output_filename.empty()) {
+    std::cout << result.fift_code;
+    compilation_succeed_after_output_done();
+    return 0;
+  }
+
+  std::ofstream fif_out_file(G_settings.output_filename);
+  if (!fif_out_file.is_open()) {
+    std::cerr << "Failed to create output file " << G_settings.output_filename << std::endl;
+    return 2;
+  }
+  fif_out_file << result.fift_code;
+
+  compilation_succeed_after_output_done();
   return 0;
 }
