@@ -3,7 +3,6 @@ src:*/crypto/block/precompiled-smc/PrecompiledSmartContract.cpp
 src:*/crypto/test/test-db.cpp
 src:*/crypto/test/test-smartcont.cpp
 src:*/crypto/tl/tlbc-gen-cpp.cpp
-src:*/crypto/vm/boc-compression.cpp
 src:*/crypto/vm/large-boc-serializer.cpp
 src:*/tdactor/td/actor/ActorStats.cpp
 src:*/validator/full-node-fast-sync-overlays.cpp
@@ -12,7 +11,6 @@ src:*/validator/full-node-fast-sync-overlays.cpp
 src:*/tl/generate/tl_writer_hpp.cpp
 
 [implicit-int-conversion]
-src:*/crypto/vm/boc-compression.cpp
 src:*/crypto/vm/boc.cpp
 
 [implicit-int-float-conversion]
@@ -20,7 +18,6 @@ src:*/third-party/rocksdb/include/rocksdb/utilities/table_properties_collectors.
 
 [shorten-64-to-32]
 src:*/crypto/parser/lexer.cpp
-src:*/crypto/vm/boc-compression.cpp
 src:*/crypto/vm/dict.cpp
 src:*/lite-client/lite-client.cpp
 src:*/tl/generate/auto/tl/tonlib_api.h
@@ -30,7 +27,6 @@ src:*/validator-session/validator-session.cpp
 
 [sign-compare]
 src:*/crypto/block/transaction.cpp
-src:*/crypto/vm/boc-compression.cpp
 src:*/crypto/vm/dict.cpp
 src:*/lite-client/lite-client.cpp
 src:*/tonlib/tonlib/TonlibClient.cpp
