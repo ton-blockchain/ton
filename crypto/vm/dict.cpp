@@ -1811,9 +1811,10 @@ static Ref<Cell> dict_build(td::Span<std::pair<td::ConstBitPtr, Ref<CellBuilder>
     }
     return cb.finalize();
   }
-  size_t common_prefix_len;
+  size_t common_prefix_len_s;
   td::bitstring::bits_memcmp(values.front().first + prefix_len, values.back().first + prefix_len,
-                             total_key_len - prefix_len, &common_prefix_len);
+                             total_key_len - prefix_len, &common_prefix_len_s);
+  int common_prefix_len = static_cast<int>(common_prefix_len_s);
   CHECK(prefix_len + common_prefix_len < total_key_len);
   size_t idx = 0;
   while (values[idx].first[prefix_len + common_prefix_len] == 0) {
@@ -1843,9 +1844,10 @@ Ref<Cell> Dictionary::dict_multiset(Ref<Cell> dict1, td::Span<std::pair<td::Cons
     assert(!skip1);
     return dict1;
   }
-  size_t common_prefix_len;
+  size_t common_prefix_len_s;
   td::bitstring::bits_memcmp(values2.front().first + prefix_len, values2.back().first + prefix_len,
-                             total_key_len - prefix_len, &common_prefix_len);
+                             total_key_len - prefix_len, &common_prefix_len_s);
+  int common_prefix_len = static_cast<int>(common_prefix_len_s);
   assert(prefix_len + common_prefix_len < total_key_len || values2.size() == 1);
   // both dictionaries non-empty
   // skip1: remove that much first bits from all keys in dictionary dict1 (its keys are actually n + skip1 bits long)

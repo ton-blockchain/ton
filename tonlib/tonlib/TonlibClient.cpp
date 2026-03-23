@@ -1911,7 +1911,7 @@ class GetOutMsgQueueSizes : public td::actor::Actor {
           return td::Status::Error("no out_msg_queue_size in shard state");
         }
         td::uint64 size = size_slice.prefetch_ulong(48);
-        if (size != f->size_) {
+        if (static_cast<std::int64_t>(size) != f->size_) {
           return td::Status::Error("queue size mismatch");
         }
         return td::Status::OK();

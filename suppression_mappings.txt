@@ -12,13 +12,3 @@ src:*/tl/generate/auto/tl/tonlib_api.h
 src:*/tl/tl/TlObject.h
 src:*/tonlib/tonlib/TonlibClient.cpp
 src:*/validator-session/validator-session.cpp
-
-[sign-compare]
-src:*/crypto/block/transaction.cpp
-src:*/crypto/vm/dict.cpp
-src:*/lite-client/lite-client.cpp
-src:*/tonlib/tonlib/TonlibClient.cpp
-src:*/validator-session/candidate-serializer.cpp
-src:*/validator/db/package.cpp
-src:*/validator/db/permanent-celldb/permanent-celldb-utils.cpp
-src:*/validator/full-node-fast-sync-overlays.cpp

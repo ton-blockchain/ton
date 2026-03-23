@@ -30,7 +30,7 @@ td::Status Package::truncate(td::uint64 size) {
   TRY_RESULT(current_size, fd_.get_size());
 
   // Only truncate if the size actually differs to avoid updating mtime unnecessarily
-  if (current_size != target_size) {
+  if (current_size != static_cast<td::int64>(target_size)) {
     TRY_STATUS(fd_.seek(target_size));
     return fd_.truncate_to_current_position(target_size);
   }

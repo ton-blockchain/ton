@@ -84,7 +84,7 @@ td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candi
               },
               [&](ton_api::validatorSession_compressedCandidateV2& c) {
                 res = [&]() -> td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> {
-                  if (c.data_.size() > max_decompressed_data_size) {
+                  if (static_cast<int>(c.data_.size()) > max_decompressed_data_size) {
                     return td::Status::Error("Compressed data is too big");
                   }
                   TRY_RESULT(p, decompress_candidate_data(c.data_, true, 0, max_decompressed_data_size,
