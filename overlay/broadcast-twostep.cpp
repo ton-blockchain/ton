@@ -90,6 +90,7 @@ struct BroadcastTwostep : td::ListNode {
   td::uint32 date;
   std::unique_ptr<td::raptorq::Decoder> decoder;
   bool delivered = false;
+  bool rebroadcasted_part = false;
   std::set<td::uint32> seen_parts = {};
   BroadcastTwostepDebugInfo debug;
 };
@@ -406,9 +407,10 @@ td::actor::Task<> BroadcastsTwostep::process_broadcast(OverlayImpl *overlay, adn
     VLOG(TWOSTEP_INFO) << "twostep START receiver " << *it->second << " from=" << src_peer_id;
   }
   auto bcast = it->second.get();
-  bool will_rebroadcast = src_peer_id == bcast_src_adnl_id;
+  bool will_rebroadcast = src_peer_id == bcast_src_adnl_id && !bcast->rebroadcasted_part;
   if (will_rebroadcast) {
     rebroadcast(overlay, bcast_src_adnl_id, serialize_tl_object(broadcast, true));
+    bcast->rebroadcasted_part = true;
   }
   if (bcast->delivered) {
     co_return {};
