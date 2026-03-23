@@ -27,6 +27,11 @@ namespace ton {
 
 namespace adnl {
 
+static td::IPAddress remove_port(td::IPAddress addr) {
+  addr.set_port(0);
+  return addr;
+}
+
 AdnlNodeIdFull AdnlLocalId::get_id() const {
   return id_;
 }
@@ -41,7 +46,7 @@ AdnlAddressList AdnlLocalId::get_addr_list() const {
 }
 
 void AdnlLocalId::receive(td::IPAddress addr, td::BufferSlice data) {
-  InboundRateLimiter &rate_limiter = inbound_rate_limiter_[addr];
+  InboundRateLimiter &rate_limiter = inbound_rate_limiter_[remove_port(addr)];
   if (!cleanup_rate_limiter_at_) {
     alarm_timestamp().relax(cleanup_rate_limiter_at_ = td::Timestamp::in(1.0));
   }
@@ -66,7 +71,7 @@ void AdnlLocalId::receive(td::IPAddress addr, td::BufferSlice data) {
 }
 
 void AdnlLocalId::decrypt_packet_done(td::IPAddress addr) {
-  auto it = inbound_rate_limiter_.find(addr);
+  auto it = inbound_rate_limiter_.find(remove_port(addr));
   CHECK(it != inbound_rate_limiter_.end());
   --it->second.currently_decrypting_packets;
   add_decrypted_packet_stats(addr);
@@ -335,7 +340,7 @@ void AdnlLocalId::get_stats(bool all, td::Promise<tl_object_ptr<ton_api::adnl_st
   for (auto &[ip, x] : inbound_rate_limiter_) {
     if (x.currently_decrypting_packets != 0) {
       stats->current_decrypt_.push_back(create_tl_object<ton_api::adnl_stats_ipPackets>(
-          ip.is_valid() ? PSTRING() << ip.get_ip_str() << ":" << ip.get_port() : "", x.currently_decrypting_packets));
+          ip.is_valid() ? ip.get_ip_str().str() : "", x.currently_decrypting_packets));
     }
   }
   prepare_packet_stats();
@@ -345,12 +350,12 @@ void AdnlLocalId::get_stats(bool all, td::Promise<tl_object_ptr<ton_api::adnl_st
 
 void AdnlLocalId::add_decrypted_packet_stats(td::IPAddress addr) {
   prepare_packet_stats();
-  packet_stats_cur_.decrypted_packets[addr].inc();
+  packet_stats_cur_.decrypted_packets[remove_port(addr)].inc();
 }
 
 void AdnlLocalId::add_dropped_packet_stats(td::IPAddress addr) {
   prepare_packet_stats();
-  packet_stats_cur_.dropped_packets[addr].inc();
+  packet_stats_cur_.dropped_packets[remove_port(addr)].inc();
 }
 
 void AdnlLocalId::prepare_packet_stats() {
