@@ -144,7 +144,7 @@ void BroadcastsTwostep::send(OverlayImpl *overlay, PublicKeyHash send_as, td::Bu
     CHECK(part_size < data_size);
     broadcast_id = get_tl_object_sha_bits256(create_tl_object<ton_api::overlay_broadcastTwostep_id>(
         flags, date, send_as.bits256_value(), overlay->local_id().bits256_value(), data_hash,
-        static_cast<std::int32_t>(part_size), extra.clone()));
+        static_cast<td::int32>(data_size), static_cast<td::int32>(part_size), extra.clone()));
     VLOG(TWOSTEP_INFO) << "twostep START sender broadcast_id=" << broadcast_id.to_hex()
                        << " data_hash=" << data_hash.to_hex() << " data_size=" << data_size
                        << " recipients=" << other_nodes.size() << " mode=FEC";
@@ -164,7 +164,7 @@ void BroadcastsTwostep::send(OverlayImpl *overlay, PublicKeyHash send_as, td::Bu
         continue;
       }
       td::BufferSlice to_sign = create_serialize_tl_object<ton_api::overlay_broadcastTwostepFec_toSign>(
-          broadcast_id, static_cast<std::int32_t>(data_size), static_cast<std::int32_t>(seqno), part.clone());
+          broadcast_id, static_cast<std::int32_t>(seqno), part.clone());
       BroadcastTwostepDataFec passdata{
           .broadcast_id = broadcast_id,
           .flags = flags,
@@ -187,7 +187,7 @@ void BroadcastsTwostep::send(OverlayImpl *overlay, PublicKeyHash send_as, td::Bu
   } else {
     broadcast_id = get_tl_object_sha_bits256(create_tl_object<ton_api::overlay_broadcastTwostep_id>(
         flags, date, send_as.bits256_value(), overlay->local_id().bits256_value(), data_hash,
-        static_cast<std::int32_t>(data_size), extra.clone()));
+        static_cast<std::int32_t>(data_size), static_cast<std::int32_t>(data_size), extra.clone()));
     VLOG(TWOSTEP_INFO) << "twostep START sender broadcast_id=" << broadcast_id.to_hex()
                        << " data_hash=" << data_hash.to_hex() << " data_size=" << data_size
                        << " recipients=" << other_nodes.size() << " mode=simple";
@@ -308,7 +308,8 @@ td::actor::Task<> BroadcastsTwostep::process_broadcast(
   td::Bits256 data_hash = sha256_bits256(broadcast->data_.as_slice());
   td::Bits256 broadcast_id = get_tl_object_sha_bits256(create_tl_object<ton_api::overlay_broadcastTwostep_id>(
       broadcast->flags_, broadcast->date_, src_keyhash.bits256_value(), bcast_src_adnl_id.bits256_value(), data_hash,
-      static_cast<std::int32_t>(broadcast->data_.size()), broadcast->extra_.clone()));
+      static_cast<std::int32_t>(broadcast->data_.size()), static_cast<std::int32_t>(broadcast->data_.size()),
+      broadcast->extra_.clone()));
   if (overlay->is_delivered(broadcast_id)) {
     VLOG(TWOSTEP_DEBUG) << "twostep DUPLICATE receiver broadcast_id=" << broadcast_id.to_hex();
     co_return td::Status::Error(ErrorCode::notready, "duplicate broadcast");
@@ -358,7 +359,7 @@ td::actor::Task<> BroadcastsTwostep::process_broadcast(OverlayImpl *overlay, adn
 
   td::Bits256 broadcast_id = get_tl_object_sha_bits256(create_tl_object<ton_api::overlay_broadcastTwostep_id>(
       broadcast->flags_, broadcast->date_, src_keyhash.bits256_value(), bcast_src_adnl_id.bits256_value(),
-      broadcast->data_hash_, static_cast<td::int32>(part_size), broadcast->extra_.clone()));
+      broadcast->data_hash_, broadcast->data_size_, static_cast<td::int32>(part_size), broadcast->extra_.clone()));
   auto it = broadcasts_.find(broadcast_id);
   if (overlay->is_delivered(broadcast_id) || (it != broadcasts_.end() && it->second->seen_parts.contains(seqno))) {
     VLOG(TWOSTEP_DEBUG) << "twostep DUPLICATE receiver broadcast_id=" << broadcast_id.to_hex() << " seqno=" << seqno;
@@ -366,7 +367,7 @@ td::actor::Task<> BroadcastsTwostep::process_broadcast(OverlayImpl *overlay, adn
   }
 
   td::BufferSlice to_sign = create_serialize_tl_object<ton_api::overlay_broadcastTwostepFec_toSign>(
-      broadcast_id, broadcast->data_size_, seqno, broadcast->part_.clone());
+      broadcast_id, seqno, broadcast->part_.clone());
   auto check_result =
       co_await check_signature_and_certificate(overlay, src_key, src_keyhash, to_sign, broadcast->signature_,
                                                broadcast->certificate_, static_cast<td::uint32>(data_size));

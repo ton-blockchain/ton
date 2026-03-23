@@ -272,9 +272,9 @@ overlay.broadcastNotFound = overlay.Broadcast;
 
 overlay.broadcastTwostepSimple flags:int date:int src:PublicKey src_adnl_id:int256 certificate:overlay.Certificate data:bytes extra:bytes signature:bytes = overlay.Broadcast;
 overlay.broadcastTwostepFec flags:int date:int src:PublicKey src_adnl_id:int256 certificate:overlay.Certificate data_hash:int256 data_size:int seqno:int part:bytes extra:bytes signature:bytes = overlay.Broadcast;
-overlay.broadcastTwostep.id flags:int date:int src:int256 src_adnl_id:int256 data_hash:int256 part_size:int extra:bytes = overlay.broadcastTwostep.Id;
+overlay.broadcastTwostep.id flags:int date:int src:int256 src_adnl_id:int256 data_hash:int256 data_size:int part_size:int extra:bytes = overlay.broadcastTwostep.Id;
 overlay.broadcastTwostepSimple.toSign id:int256 data:bytes = overlay.broadcastTwostepSimple.ToSign;
-overlay.broadcastTwostepFec.toSign id:int256 data_size:int seqno:int part:bytes = overlay.broadcastTwostepFec.ToSign;
+overlay.broadcastTwostepFec.toSign id:int256 seqno:int part:bytes = overlay.broadcastTwostepFec.ToSign;
 
 ---functions---
 
