@@ -22,7 +22,3 @@ src:*/validator-session/candidate-serializer.cpp
 src:*/validator/db/package.cpp
 src:*/validator/db/permanent-celldb/permanent-celldb-utils.cpp
 src:*/validator/full-node-fast-sync-overlays.cpp
-
-[unused-const-variable]
-src:*/catchain/catchain-receiver.cpp
-src:*/crypto/block/block-parse.cpp
