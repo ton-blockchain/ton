@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Callable, ClassVar, Generic, Protocol, TypeVar
+from typing import Callable, ClassVar, Protocol
 
 from pytoniq_core import (
     Address,
@@ -39,11 +39,8 @@ class ContractBlueprint[T](Protocol):
     def materialize(self, provider: Provider) -> T: ...
 
 
-S = TypeVar("S", bound=ContractState)
-
-
 @dataclass
-class ContractView(Generic[S], ABC):
+class ContractView[S: ContractState](ABC):
     provider: Provider
     address: Address
 
@@ -68,7 +65,7 @@ class ContractView(Generic[S], ABC):
         return await self.provider.send_external(MessageAny(info=info, init=state_init, body=body))
 
 
-class Blueprint(Generic[S], ABC):
+class Blueprint[S: ContractState](ABC):
     CODE_BOC: ClassVar[Cell]
 
     def __init__(self, workchain: int, data_init: S):
