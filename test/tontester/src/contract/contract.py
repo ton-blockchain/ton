@@ -21,7 +21,6 @@ class Provider(Protocol):
     @property
     def latest_state_reader(self) -> "StateReader": ...
 
-    # Waits until external is either accepted and finalized or rejected by a synchronized node.
     async def send_external(self, message: MessageAny) -> None: ...
 
 

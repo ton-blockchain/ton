@@ -1,7 +1,11 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+import nacl.signing
+from pytoniq_core import Address
+
 from tonapi import ton_api
+from contract import Provider, WalletV1
 
 from .install import Install, run_fift
 from .key import Key
@@ -50,6 +54,8 @@ class WorkchainState:
 class Zerostate:
     masterchain: WorkchainState
     shardchain: WorkchainState
+    main_wallet_key: nacl.signing.SigningKey
+    main_wallet_address: Address
 
     def as_block(self):
         return ton_api.TonNode_blockIdExt(
@@ -62,6 +68,9 @@ class Zerostate:
 
     def as_validator_config(self):
         return ton_api.Validator_config_global(zero_state=self.as_block())
+
+    def main_wallet(self, provider: Provider) -> WalletV1:
+        return WalletV1(provider, self.main_wallet_address, self.main_wallet_key)
 
 
 _TEMPLATE = """
@@ -114,7 +123,7 @@ config.workchains!
 }}>c
 // code
 <b 0 32 u,
-   "main-wallet.pk" load-generate-keypair drop
+   "{wallet_name}.pk" load-generate-keypair drop
    B,
 b> // data
 Libs{{
@@ -130,7 +139,7 @@ register_smc
 dup make_special dup constant smc1_addr
 Masterchain over
 2dup ."wallet address = " .addr cr 2dup 6 .Addr cr
-"main-wallet.addr" save-address-verbose
+"{wallet_name}.addr" save-address-verbose
 
 // SmartContract #3
 PROGRAM{{
@@ -339,6 +348,8 @@ def create_zerostate(
         else:
             new_consensus_config += "null\n"
 
+    main_wallet_name = "main-wallet"
+
     run_fift(
         install,
         _TEMPLATE.format(
@@ -352,9 +363,15 @@ def create_zerostate(
             mc_valgroup_lifetime=config.mc_valgroup_lifetime,
             shard_valgroup_lifetime=config.shard_valgroup_lifetime,
             new_consensus_config=new_consensus_config,
+            wallet_name=main_wallet_name,
         ),
         state_dir,
     )
+
+    pk = (state_dir / f"{main_wallet_name}.pk").read_bytes()
+    addr_file = (state_dir / f"{main_wallet_name}.addr").read_bytes()
+    addr_hash = addr_file[:32]
+    addr_wc = int.from_bytes(addr_file[32:36], "big", signed=True)
 
     return Zerostate(
         masterchain=WorkchainState(
@@ -367,4 +384,6 @@ def create_zerostate(
             file_hash=(state_dir / "basestate0.fhash").read_bytes(),
             root_hash=(state_dir / "basestate0.rhash").read_bytes(),
         ),
+        main_wallet_key=nacl.signing.SigningKey(pk),
+        main_wallet_address=Address((addr_wc, addr_hash)),
     )

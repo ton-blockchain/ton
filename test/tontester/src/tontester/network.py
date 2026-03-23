@@ -248,6 +248,11 @@ class Network:
         self.__zerostate: Zerostate | None = None
 
     @property
+    def zerostate(self) -> Zerostate:
+        assert self.__zerostate is not None
+        return self.__zerostate
+
+    @property
     def config(self):
         assert self._status < _Status.ZEROSTATE_GENERATED
         return self.__network_config

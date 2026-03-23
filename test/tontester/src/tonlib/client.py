@@ -1,13 +1,34 @@
 import asyncio
 import logging
 import traceback
+from typing import Callable
 
+from pytoniq_core import Address, Cell, MessageAny
 from tonapi import ton_api, tonlib_api
 
 from .tonlib_cdll import TonlibCDLL
 from .tonlibjson import TonLib
 
 logger = logging.getLogger(__name__)
+
+
+class TonlibStateReader:
+    def __init__(self, client: "TonlibClient"):
+        self._client = client
+        self._cache: dict[tuple[int, int, int, Address], Cell] = {}
+
+    async def _get_data(self, address: Address) -> Cell:
+        state = await self._client.raw_get_account_state(address.to_str())
+        block_id = state.block_id
+        assert block_id is not None
+        key = (block_id.workchain, block_id.shard, block_id.seqno, address)
+        if key not in self._cache:
+            self._cache[key] = Cell.one_from_boc(state.data)
+        return self._cache[key]
+
+    async def fetch[T](self, address: Address, parser: Callable[[Cell], T]) -> T:
+        data = await self._get_data(address)
+        return parser(data)
 
 
 class TonlibClient:
@@ -72,6 +93,13 @@ class TonlibClient:
         assert self._tonlib_wrapper is not None
         request = tonlib_api.Blocks_getMasterchainInfoRequest()
         return request.parse_result(await self._tonlib_wrapper.execute(request))
+
+    @property
+    def latest_state_reader(self) -> TonlibStateReader:
+        return TonlibStateReader(self)
+
+    async def send_external(self, message: MessageAny) -> None:
+        await self.raw_send_message(message.serialize().to_boc())
 
     async def raw_send_message(self, serialized_boc: bytes) -> tonlib_api.TypeOk:
         assert self._tonlib_wrapper is not None
