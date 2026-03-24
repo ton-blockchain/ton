@@ -9,6 +9,7 @@
 #include <tuple>
 #include <variant>
 
+#include "adnl/adnl-node-id.hpp"
 #include "td/actor/ActorOwn.h"
 #include "td/actor/core/Actor.h"
 #include "td/utils/Heap.h"
@@ -60,6 +61,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     virtual td::Timestamp next_alarm() const {
       return td::Timestamp::never();
     }
+    virtual void set_peer_mtu_callback(std::function<td::uint64(adnl::AdnlNodeIdShort)> f) = 0;
     virtual ~Callback() = default;
   };
 
@@ -77,17 +79,20 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void close(QuicConnectionId cid);
   void log_stats(std::string reason = "stats");
 
+  void set_default_mtu(td::uint64 mtu);
+  void set_peer_mtu(adnl::AdnlNodeIdShort peer_id, td::uint64 mtu);
+
   constexpr static size_t DEFAULT_FLOOD_CONTROL = 10;
 
-  QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::BufferSlice alpn,
+  QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::uint64 defaukt_mtu, td::BufferSlice alpn,
              std::unique_ptr<Callback> callback, Options options);
 
   static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, td::Ed25519::PrivateKey server_key,
-                                                            std::unique_ptr<Callback> callback, td::Slice alpn = "ton",
-                                                            td::Slice bind_host = "0.0.0.0");
+                                                            std::unique_ptr<Callback> callback, td::uint64 default_mtu,
+                                                            td::Slice alpn = "ton", td::Slice bind_host = "0.0.0.0");
   static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, td::Ed25519::PrivateKey server_key,
-                                                            std::unique_ptr<Callback> callback, td::Slice alpn,
-                                                            td::Slice bind_host, Options options);
+                                                            std::unique_ptr<Callback> callback, td::uint64 default_mtu,
+                                                            td::Slice alpn, td::Slice bind_host, Options options);
 
   struct Stats {
     struct Entry {
@@ -227,6 +232,9 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   };
   UdpStats ingress_stats_;
   UdpStats egress_stats_;
+
+  td::uint64 default_mtu_ = 0;
+  std::map<adnl::AdnlNodeIdShort, td::uint64> peers_mtu_;
 };
 
 }  // namespace ton::quic

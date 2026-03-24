@@ -9,13 +9,15 @@
 namespace ton::quic {
 
 td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, td::Ed25519::PrivateKey server_key,
-                                                               std::unique_ptr<Callback> callback, td::Slice alpn,
+                                                               std::unique_ptr<Callback> callback,
+                                                               td::uint64 default_mtu, td::Slice alpn,
                                                                td::Slice bind_host) {
-  return create(port, std::move(server_key), std::move(callback), alpn, bind_host, Options{});
+  return create(port, std::move(server_key), std::move(callback), default_mtu, alpn, bind_host, Options{});
 }
 
 td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, td::Ed25519::PrivateKey server_key,
-                                                               std::unique_ptr<Callback> callback, td::Slice alpn,
+                                                               std::unique_ptr<Callback> callback,
+                                                               td::uint64 default_mtu, td::Slice alpn,
                                                                td::Slice bind_host, Options options) {
   CHECK(callback);
   td::IPAddress local_addr;
@@ -25,19 +27,28 @@ td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, td::Ed2
 
   auto name = PSTRING() << "QUIC:" << local_addr;
   return td::actor::create_actor<QuicServer>(td::actor::ActorOptions().with_name(name).with_poll(true), std::move(fd),
-                                             std::move(server_key), td::BufferSlice(alpn), std::move(callback),
-                                             options);
+                                             std::move(server_key), default_mtu, td::BufferSlice(alpn),
+                                             std::move(callback), options);
 }
 
-QuicServer::QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::BufferSlice alpn,
-                       std::unique_ptr<Callback> callback, Options options)
+QuicServer::QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::uint64 default_mtu,
+                       td::BufferSlice alpn, std::unique_ptr<Callback> callback, Options options)
     : fd_(std::move(fd))
     , alpn_(std::move(alpn))
     , server_key_(std::move(server_key))
     , gso_enabled_(options.enable_gso && td::UdpSocketFd::is_gso_supported())
     , cc_algo_(options.cc_algo)
     , flood_control_(options.flood_control)
-    , callback_(std::move(callback)) {
+    , callback_(std::move(callback))
+    , default_mtu_(default_mtu) {
+  callback_->set_peer_mtu_callback([this](adnl::AdnlNodeIdShort peer_id) {
+    td::uint64 mtu = default_mtu_;
+    auto it = peers_mtu_.find(peer_id);
+    if (it != peers_mtu_.end()) {
+      mtu = std::max(mtu, it->second);
+    }
+    return mtu;
+  });
   if (options.enable_gro) {
     auto gro_status = fd_.enable_gro();
     if (gro_status.is_ok()) {
@@ -310,6 +321,18 @@ void QuicServer::log_stats(std::string reason) {
   }
   for (auto &[cid, state] : connections_) {
     log_conn_stats(*state, reason.c_str());
+  }
+}
+
+void QuicServer::set_default_mtu(td::uint64 mtu) {
+  default_mtu_ = mtu;
+}
+
+void QuicServer::set_peer_mtu(adnl::AdnlNodeIdShort peer_id, td::uint64 mtu) {
+  if (mtu == 0) {
+    peers_mtu_.erase(peer_id);
+  } else {
+    peers_mtu_[peer_id] = mtu;
   }
 }
 

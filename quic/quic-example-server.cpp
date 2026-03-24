@@ -39,6 +39,9 @@ class QuicHttpServer : public td::actor::Actor {
     void on_stream_closed(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid) override {
     }
 
+    void set_peer_mtu_callback(std::function<td::uint64(ton::adnl::AdnlNodeIdShort)> f) override {
+    }
+
    private:
     td::actor::ActorId<QuicHttpServer> server_;
   };
@@ -56,7 +59,7 @@ class QuicHttpServer : public td::actor::Actor {
     auto public_key_b64 = td::base64_encode(public_key_r.ok().as_octet_string().as_slice());
 
     auto cb = std::make_unique<ServerCallback>(actor_id(this));
-    auto R = ton::quic::QuicServer::create(port_, std::move(server_key_), std::move(cb), alpn_.as_slice(),
+    auto R = ton::quic::QuicServer::create(port_, std::move(server_key_), std::move(cb), 1 << 20, alpn_.as_slice(),
                                            bind_host_.as_slice());
     if (R.is_error()) {
       LOG(ERROR) << "failed to start QUIC server: " << R.error();

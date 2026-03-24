@@ -48,6 +48,10 @@ class AdnlSenderEx : public AdnlSenderInterface {
 
   td::uint64 get_peer_mtu(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id);
 
+  td::uint64 get_peer_mtu_inner(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id);
+  std::vector<std::pair<AdnlNodeIdShort, td::uint64>> get_local_id_peers_mtu(AdnlNodeIdShort local_id);
+  td::uint64 get_local_id_mtu(AdnlNodeIdShort local_id);
+
  private:
   td::uint64 default_mtu_ = Adnl::get_mtu();
 

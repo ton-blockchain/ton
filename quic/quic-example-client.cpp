@@ -42,6 +42,9 @@ class QuicTester : public td::actor::Actor {
     void on_stream_closed(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid) override {
     }
 
+    void set_peer_mtu_callback(std::function<td::uint64(ton::adnl::AdnlNodeIdShort)> f) override {
+    }
+
    private:
     td::actor::ActorId<QuicTester> tester_;
   };
@@ -58,8 +61,8 @@ class QuicTester : public td::actor::Actor {
     }
 
     auto cb = std::make_unique<Callback>(actor_id(this));
-    auto R =
-        ton::quic::QuicServer::create(local_port_, std::move(client_key_), std::move(cb), alpn_.as_slice(), "0.0.0.0");
+    auto R = ton::quic::QuicServer::create(local_port_, std::move(client_key_), std::move(cb), 1 << 20,
+                                           alpn_.as_slice(), "0.0.0.0");
     if (R.is_error()) {
       LOG(ERROR) << "failed to start local QUIC client: " << R.error();
       std::exit(1);

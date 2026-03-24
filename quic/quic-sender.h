@@ -102,13 +102,12 @@ class QuicSender : public adnl::AdnlSenderEx, public virtual metrics::AsyncColle
   td::actor::Task<td::Unit> init_connection_inner(AdnlPath path, std::shared_ptr<Connection> conn);
   void finish_connection_init(const std::shared_ptr<Connection>& connection, td::Result<td::Unit> result);
 
-  void init_stream_mtu(QuicConnectionId cid, QuicStreamID sid);
   td::Result<td::Unit> on_connected_inner(td::actor::ActorId<QuicServer> server, QuicConnectionId cid,
-                                          adnl::AdnlNodeIdShort local_id, td::SecureString peer_public_key,
+                                          adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id,
                                           bool is_outbound, std::shared_ptr<Connection>& connection);
 
   void on_connected(td::actor::ActorId<QuicServer> server, QuicConnectionId cid, adnl::AdnlNodeIdShort local_id,
-                    td::SecureString peer_public_key, bool is_outbound);
+                    adnl::AdnlNodeIdShort peer_id, bool is_outbound);
   void on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id, td::Result<td::BufferSlice> data);
   void on_stream_closed(QuicConnectionId cid, QuicStreamID stream_id);
   void on_closed(QuicConnectionId cid);
