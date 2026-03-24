@@ -1,2 +1,0 @@
-[implicit-int-float-conversion]
-src:*/third-party/rocksdb/include/rocksdb/utilities/table_properties_collectors.h

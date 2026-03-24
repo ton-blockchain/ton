@@ -22,12 +22,17 @@
 #include <numeric>
 #include <openssl/sha.h>
 #include <optional>
-#include <rocksdb/compaction_filter.h>
-#include <rocksdb/db.h>
-#include <rocksdb/merge_operator.h>
 #include <set>
 #include <thread>
 #include <variant>
+
+// FIXME: Remove once RocksDB stops triggering this warning.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wimplicit-int-float-conversion"
+#include "rocksdb/compaction_filter.h"
+#include "rocksdb/db.h"
+#include "rocksdb/merge_operator.h"
+#pragma GCC diagnostic pop
 
 #include "common/AtomicRef.h"
 #include "openssl/digest.hpp"
