@@ -50,7 +50,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   };
   class Callback {
    public:
-    virtual void on_connected(QuicConnectionId cid, td::SecureString peer_public_key, bool is_outbound) = 0;
+    virtual td::Status on_connected(QuicConnectionId cid, td::SecureString peer_public_key, bool is_outbound) = 0;
     virtual td::Status on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) = 0;
     virtual void on_closed(QuicConnectionId cid) = 0;
     virtual void on_stream_closed(QuicConnectionId cid, QuicStreamID sid) = 0;
@@ -71,7 +71,6 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
 
   td::Result<QuicStreamID> send_stream(QuicConnectionId cid, std::variant<QuicStreamID, StreamOptions> stream,
                                        td::BufferSlice data, bool is_end);
-  void change_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options);
 
   td::Result<QuicConnectionId> connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key, td::Slice alpn);
 
@@ -85,14 +84,16 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   constexpr static size_t DEFAULT_FLOOD_CONTROL = 10;
 
   QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::uint64 defaukt_mtu, td::BufferSlice alpn,
-             std::unique_ptr<Callback> callback, Options options);
+             std::unique_ptr<Callback> callback, Options options,
+             std::map<adnl::AdnlNodeIdShort, td::uint64> peers_mtu = {});
 
   static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, td::Ed25519::PrivateKey server_key,
                                                             std::unique_ptr<Callback> callback, td::uint64 default_mtu,
                                                             td::Slice alpn = "ton", td::Slice bind_host = "0.0.0.0");
   static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, td::Ed25519::PrivateKey server_key,
                                                             std::unique_ptr<Callback> callback, td::uint64 default_mtu,
-                                                            td::Slice alpn, td::Slice bind_host, Options options);
+                                                            td::Slice alpn, td::Slice bind_host, Options options,
+                                                            std::map<adnl::AdnlNodeIdShort, td::uint64> peers_mtu = {});
 
   struct Stats {
     struct Entry {

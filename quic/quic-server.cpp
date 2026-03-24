@@ -12,13 +12,14 @@ td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, td::Ed2
                                                                std::unique_ptr<Callback> callback,
                                                                td::uint64 default_mtu, td::Slice alpn,
                                                                td::Slice bind_host) {
-  return create(port, std::move(server_key), std::move(callback), default_mtu, alpn, bind_host, Options{});
+  return create(port, std::move(server_key), std::move(callback), default_mtu, alpn, bind_host, Options{}, {});
 }
 
 td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, td::Ed25519::PrivateKey server_key,
                                                                std::unique_ptr<Callback> callback,
                                                                td::uint64 default_mtu, td::Slice alpn,
-                                                               td::Slice bind_host, Options options) {
+                                                               td::Slice bind_host, Options options,
+                                                               std::map<adnl::AdnlNodeIdShort, td::uint64> peers_mtu) {
   CHECK(callback);
   td::IPAddress local_addr;
   TRY_STATUS(local_addr.init_host_port(bind_host.str(), port));
@@ -28,11 +29,12 @@ td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, td::Ed2
   auto name = PSTRING() << "QUIC:" << local_addr;
   return td::actor::create_actor<QuicServer>(td::actor::ActorOptions().with_name(name).with_poll(true), std::move(fd),
                                              std::move(server_key), default_mtu, td::BufferSlice(alpn),
-                                             std::move(callback), options);
+                                             std::move(callback), options, std::move(peers_mtu));
 }
 
 QuicServer::QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::uint64 default_mtu,
-                       td::BufferSlice alpn, std::unique_ptr<Callback> callback, Options options)
+                       td::BufferSlice alpn, std::unique_ptr<Callback> callback, Options options,
+                       std::map<adnl::AdnlNodeIdShort, td::uint64> peers_mtu)
     : fd_(std::move(fd))
     , alpn_(std::move(alpn))
     , server_key_(std::move(server_key))
@@ -40,7 +42,8 @@ QuicServer::QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, t
     , cc_algo_(options.cc_algo)
     , flood_control_(options.flood_control)
     , callback_(std::move(callback))
-    , default_mtu_(default_mtu) {
+    , default_mtu_(default_mtu)
+    , peers_mtu_(std::move(peers_mtu)) {
   callback_->set_peer_mtu_callback([this](adnl::AdnlNodeIdShort peer_id) {
     td::uint64 mtu = default_mtu_;
     auto it = peers_mtu_.find(peer_id);
@@ -381,7 +384,11 @@ class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
   }
 
   void on_handshake_completed(HandshakeCompletedEvent event) override {
-    callback_.on_connected(cid_, std::move(event.peer_public_key), is_outbound_);
+    auto status = callback_.on_connected(cid_, std::move(event.peer_public_key), is_outbound_);
+    if (status.is_error()) {
+      LOG(WARNING) << "on_connected failed for " << cid_ << ": " << status;
+      server_.to_erase_connections_.push_back(cid_);
+    }
   }
 
   td::Status on_stream_data(StreamDataEvent event) override {
@@ -746,10 +753,6 @@ td::Result<QuicStreamID> QuicServer::send_stream(QuicConnectionId cid, std::vari
   TRY_STATUS(state->impl().buffer_stream(sid, std::move(data), is_end));
   on_connection_updated(*state);
   return sid;
-}
-
-void QuicServer::change_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options) {
-  callback_->set_stream_options(cid, sid, options);
 }
 
 }  // namespace ton::quic

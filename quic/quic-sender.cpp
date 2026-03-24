@@ -28,17 +28,13 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
       : local_id_(local_id), sender_(sender) {
   }
 
-  void on_connected(QuicConnectionId cid, td::SecureString peer_public_key, bool is_outbound) override {
+  td::Status on_connected(QuicConnectionId cid, td::SecureString peer_public_key, bool is_outbound) override {
     auto server = td::actor::actor_dynamic_cast<QuicServer>(td::actor::actor_id());
     CHECK(!server.empty());
-    auto r_peer_id = parse_peer_id(peer_public_key);
-    if (r_peer_id.is_error()) {
-      LOG(WARNING) << "Failed to init connection " << cid << ": " << r_peer_id.error();
-      return;
-    }
-    connections_[cid].peer_id = r_peer_id.ok();
-    td::actor::send_closure(sender_, &QuicSender::on_connected, server, cid, local_id_, r_peer_id.move_as_ok(),
-                            is_outbound);
+    TRY_RESULT(peer_id, parse_peer_id(peer_public_key));
+    connections_[cid].peer_id = peer_id;
+    td::actor::send_closure(sender_, &QuicSender::on_connected, server, cid, local_id_, peer_id, is_outbound);
+    return td::Status::OK();
   }
 
   td::Status on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) override {
@@ -430,12 +426,14 @@ td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) 
     co_return td::Unit{};  // already added
   }
 
-  auto server = co_await QuicServer::create(port, td::Ed25519::PrivateKey(local_keys_.at(local_id).as_octet_string()),
-                                            std::make_unique<ServerCallback>(local_id, actor_id(this)),
-                                            get_local_id_mtu(local_id), "ton", "0.0.0.0", server_options_);
+  std::map<adnl::AdnlNodeIdShort, td::uint64> peers_mtu;
   for (const auto &[peer_id, mtu] : get_local_id_peers_mtu(local_id)) {
-    td::actor::send_closure(server, &QuicServer::set_peer_mtu, peer_id, mtu);
+    peers_mtu[peer_id] = mtu;
   }
+  auto server =
+      co_await QuicServer::create(port, td::Ed25519::PrivateKey(local_keys_.at(local_id).as_octet_string()),
+                                  std::make_unique<ServerCallback>(local_id, actor_id(this)),
+                                  get_local_id_mtu(local_id), "ton", "0.0.0.0", server_options_, std::move(peers_mtu));
   servers_[local_id] = std::move(server);
 
   co_return td::Unit{};
@@ -546,7 +544,6 @@ td::Result<td::Unit> QuicSender::on_connected_inner(td::actor::ActorId<QuicServe
   LOG(ERROR) << "Create inbound " << path;
   if (auto old_it = inbound_.find(path); old_it != inbound_.end()) {
     auto old_conn = old_it->second;
-    by_cid_.erase(old_conn->cid);
     td::actor::send_closure(old_conn->server, &QuicServer::close, old_conn->cid);
     inbound_.erase(old_it);
   }
@@ -565,17 +562,18 @@ void QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicConnect
                               adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, bool is_outbound) {
   std::shared_ptr<Connection> connection;
   auto result = on_connected_inner(server, cid, local_id, peer_id, is_outbound, connection);
-  if (!connection) {
-    return;
-  }
 
   if (result.is_error()) {
-    LOG(WARNING) << "Failed to init connection: " << connection->path << " " << result.error();
-    connection->init_error = result.move_as_error();
+    // the connection will be empty if an error happened during inbound connection initialization
+    if (connection) {
+      LOG(WARNING) << "Failed to init connection: " << connection->path << " " << result.error();
+      connection->init_error = result.move_as_error();
+    }
     td::actor::send_closure(server, &QuicServer::close, cid);
     return;
   }
 
+  CHECK(connection);
   connection->is_ready = true;
   finish_connection_init(connection, td::Unit{});
 }

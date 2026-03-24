@@ -15,11 +15,12 @@ class QuicTester : public td::actor::Actor {
     explicit Callback(td::actor::ActorId<QuicTester> tester) : tester_(std::move(tester)) {
     }
 
-    void on_connected(ton::quic::QuicConnectionId cid, td::SecureString public_key, bool is_outbound) override {
+    td::Status on_connected(ton::quic::QuicConnectionId cid, td::SecureString public_key, bool is_outbound) override {
       auto public_key_b64 = td::base64_encode(public_key.as_slice());
       LOG(INFO) << "connected";
       LOG(INFO) << "server public key: " << public_key_b64;
       td::actor::send_closure(tester_, &QuicTester::on_connected, cid);
+      return td::Status::OK();
     }
 
     td::Status on_stream(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid, td::BufferSlice data,

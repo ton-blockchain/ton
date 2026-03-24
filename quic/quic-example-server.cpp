@@ -19,8 +19,9 @@ class QuicHttpServer : public td::actor::Actor {
     explicit ServerCallback(td::actor::ActorId<QuicHttpServer> server) : server_(std::move(server)) {
     }
 
-    void on_connected(ton::quic::QuicConnectionId cid, td::SecureString public_key, bool is_outbound) override {
+    td::Status on_connected(ton::quic::QuicConnectionId cid, td::SecureString public_key, bool is_outbound) override {
       td::actor::send_closure(server_, &QuicHttpServer::on_connected, cid, std::move(public_key));
+      return td::Status::OK();
     }
 
     td::Status on_stream(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid, td::BufferSlice data,
