@@ -20,7 +20,12 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
   void start_up() {
-    target_rate_ = owning_bus()->config.target_rate_ms / 1000.;
+    target_rate_ = owning_bus()->config.noncritical_params.target_rate;
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const NoncriticalParamsUpdated> event) {
+    target_rate_ = event->params.target_rate;
   }
 
   template <>
@@ -170,7 +175,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
 
   BlockSeqno last_consensus_finalized_seqno_ = 0;
   BlockSeqno last_mc_finalized_seqno_ = 0;
-  double target_rate_;
+  std::chrono::milliseconds target_rate_;
 };
 
 }  // namespace

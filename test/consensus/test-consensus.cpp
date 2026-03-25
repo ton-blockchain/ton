@@ -680,11 +680,11 @@ class TestConsensus : public td::actor::Actor {
     bus->total_weight = total_weight_;
     bus->local_id = validators_[node_idx];
     bus->config = NewConsensusConfig{
-        .target_rate_ms = TARGET_RATE_MS,
         .max_block_size = 1 << 20,
         .max_collated_data_size = 1 << 20,
-        .consensus = NewConsensusConfig::Simplex{.slots_per_leader_window = SLOTS_PER_LEADER_WINDOW}};
-    bus->simplex_config = bus->config.consensus;
+        .slots_per_leader_window = SLOTS_PER_LEADER_WINDOW,
+        .noncritical_params = {.target_rate{TARGET_RATE_MS}},
+    };
     bus->session_id = SESSION_ID;
     bus->cc_seqno = CC_SEQNO;
     bus->validator_set_hash = validator_set_->get_validator_set_hash();

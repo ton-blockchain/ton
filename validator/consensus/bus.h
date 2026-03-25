@@ -134,6 +134,12 @@ struct TraceEvent {
   std::string contents_to_string() const;
 };
 
+struct NoncriticalParamsUpdated {
+  NewConsensusConfig::NoncriticalParams params;
+
+  std::string contents_to_string() const;
+};
+
 class Db {
  public:
   virtual ~Db() = default;
@@ -148,10 +154,10 @@ class Db {
 
 class Bus : public td::actor::Bus {
  public:
-  using Events =
-      td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, CandidateGenerated, CandidateReceived,
-                   ValidationRequest, IncomingProtocolMessage, OutgoingProtocolMessage, IncomingOverlayRequest,
-                   OutgoingOverlayRequest, BlockFinalizedInMasterchain, MisbehaviorReport, TraceEvent>;
+  using Events = td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, CandidateGenerated,
+                              CandidateReceived, ValidationRequest, IncomingProtocolMessage, OutgoingProtocolMessage,
+                              IncomingOverlayRequest, OutgoingOverlayRequest, BlockFinalizedInMasterchain,
+                              MisbehaviorReport, TraceEvent, NoncriticalParamsUpdated>;
 
   Bus() = default;
   ~Bus() override {

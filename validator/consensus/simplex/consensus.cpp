@@ -37,11 +37,9 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
 
     auto& bus = *owning_bus();
 
-    slots_per_leader_window_ = bus.simplex_config.slots_per_leader_window;
-    max_leader_window_desync_ = bus.simplex_config.max_leader_window_desync;
-    target_rate_s_ = bus.config.target_rate_ms / 1000.;
-    default_first_block_timeout_s_ = bus.simplex_config.first_block_timeout_ms / 1000.;
-    first_block_timeout_s_ = default_first_block_timeout_s_;
+    slots_per_leader_window_ = bus.config.slots_per_leader_window;
+    params_ = bus.config.noncritical_params;
+    first_block_timeout_ = params_.first_block_timeout;
     state_.emplace(State({}));
 
     for (const auto& vote : bus.bootstrap_votes) {
@@ -98,6 +96,11 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
   }
 
   template <>
+  void handle(BusHandle, std::shared_ptr<const NoncriticalParamsUpdated> event) {
+    params_ = event->params;
+  }
+
+  template <>
   void handle(BusHandle, std::shared_ptr<const FinalizationObserved> event) {
     state_->notify_finalized(event->id.slot);
   }
@@ -114,10 +117,10 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     current_window_ = new_window;
 
     if (previous_window_had_skip_) {
-      first_block_timeout_s_ =
-          std::min(first_block_timeout_s_ * bus.first_block_timeout_multipler, bus.first_block_max_timeout_s);
+      first_block_timeout_ = std::min<std::chrono::duration<double>>(
+          first_block_timeout_ * params_.first_block_timeout_multiplier, params_.first_block_timeout_cap);
     } else {
-      first_block_timeout_s_ = default_first_block_timeout_s_;
+      first_block_timeout_ = params_.first_block_timeout;
     }
 
     td::uint32 offset = event->start_slot % slots_per_leader_window_;
@@ -131,8 +134,8 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
 
     if (timeout_slot_ <= event->start_slot) {
       timeout_slot_ = event->start_slot + 1;
-      timeout_base_ = td::Timestamp::in(first_block_timeout_s_);
-      alarm_timestamp() = td::Timestamp::in(target_rate_s_, timeout_base_);
+      timeout_base_ = td::Timestamp::in(first_block_timeout_);
+      alarm_timestamp() = td::Timestamp::in(params_.target_rate, timeout_base_);
     }
   }
 
@@ -154,7 +157,7 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
   template <>
   void handle(BusHandle, std::shared_ptr<const CandidateReceived> event) {
     td::uint32 slot_idx = event->candidate->id.slot;
-    td::uint32 first_too_new_slot = (current_window_ + max_leader_window_desync_ + 1) * slots_per_leader_window_;
+    td::uint32 first_too_new_slot = (current_window_ + params_.max_leader_window_desync + 1) * slots_per_leader_window_;
     if (slot_idx >= first_too_new_slot) {
       LOG(WARNING) << "Dropping too new candidate from " << event->candidate->leader << " : slot=" << slot_idx
                    << ", current_window=" << current_window_ * slots_per_leader_window_;
@@ -194,8 +197,8 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     auto parent = co_await owning_bus().publish<ResolveState>(base);
     td::Timestamp start_time = td::Timestamp::now();
     if (parent.gen_utime_exact.has_value()) {
-      start_time = std::max(start_time, td::Timestamp::at_unix(*parent.gen_utime_exact + target_rate_s_));
-      start_time = std::min(start_time, td::Timestamp::in(target_rate_s_));
+      start_time = std::max(start_time, td::Timestamp::at_unix(*parent.gen_utime_exact) + params_.target_rate);
+      start_time = std::min(start_time, td::Timestamp::in(params_.target_rate));
     }
 
     if (current_window_ != start_slot / slots_per_leader_window_) {
@@ -257,7 +260,7 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
       // NotarCert of the previous slot but in case we missed the certificate let's give the
       // certificate as much time as protocol allows to arrive.
       alarm_timestamp() = td::Timestamp::in(
-          (timeout_slot_ - current_window_ * slots_per_leader_window_) * target_rate_s_, timeout_base_);
+          (timeout_slot_ - current_window_ * slots_per_leader_window_) * params_.target_rate, timeout_base_);
     }
 
     slot->state->notar_cert = event->id;
@@ -275,12 +278,11 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
   }
 
   td::uint32 slots_per_leader_window_;
-  td::uint32 max_leader_window_desync_;
+  NewConsensusConfig::NoncriticalParams params_;
+
   td::Timestamp timeout_base_;
   td::uint32 timeout_slot_ = 0;  // By alarm_timestamp(), slots < timeout_slot_ should be notarized.
-  double target_rate_s_;
-  double default_first_block_timeout_s_;
-  double first_block_timeout_s_;
+  std::chrono::duration<double> first_block_timeout_;
   bool previous_window_had_skip_ = false;
   std::optional<State> state_;
   td::uint32 current_window_ = 0;

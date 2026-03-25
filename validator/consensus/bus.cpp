@@ -132,4 +132,14 @@ std::string TraceEvent::contents_to_string() const {
   return PSTRING() << "{event=" << event->to_string() << "}";
 }
 
+std::string NoncriticalParamsUpdated::contents_to_string() const {
+  td::StringBuilder sb;
+#define APPEND_PARAM(_, name, value) sb << #name << "=" << params.name << ", ";
+#define APPEND_DURATION(_, name, value) sb << #name << "=" << params.name.count() << "ms, ";
+  ENUMERATE_NONCRITICAL_PARAMS(APPEND_PARAM, APPEND_PARAM, APPEND_DURATION)
+#undef APPEND_PARAM
+#undef APPEND_DURATION
+  return PSTRING() << "{params={" << td::Slice{sb.as_cslice()}.remove_suffix(2) << "}}";
+}
+
 }  // namespace ton::validator::consensus

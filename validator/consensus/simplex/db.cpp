@@ -93,7 +93,7 @@ class DbImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<B
 
   template <>
   td::actor::Task<> process(BusHandle, std::shared_ptr<LeaderWindowObserved> event) {
-    auto window = event->start_slot / owning_bus()->simplex_config.slots_per_leader_window;
+    auto window = event->start_slot / owning_bus()->config.slots_per_leader_window;
     CHECK(first_nonannounced_window_ <= window);
     first_nonannounced_window_ = window + 1;
 

@@ -304,8 +304,8 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
   void start_up() override {
     auto &bus = *owning_bus();
 
-    slots_per_leader_window_ = bus.simplex_config.slots_per_leader_window;
-    max_leader_window_desync_ = bus.simplex_config.max_leader_window_desync;
+    slots_per_leader_window_ = bus.config.slots_per_leader_window;
+    params_ = bus.config.noncritical_params;
 
     weight_threshold_ = (bus.total_weight * 2) / 3 + 1;
 
@@ -351,11 +351,16 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
   }
 
   template <>
+  void handle(BusHandle, std::shared_ptr<const NoncriticalParamsUpdated> event) {
+    params_ = event->params;
+  }
+
+  template <>
   void handle(BusHandle, std::shared_ptr<const Start>) {
     auto &bus = *owning_bus();
-    owning_bus().publish<TraceEvent>(consensus::stats::Id::create(
-        bus.shard, bus.cc_seqno, bus.local_id.idx.value(), bus.validator_set.size(), bus.local_id.weight,
-        bus.total_weight, bus.simplex_config.slots_per_leader_window));
+    owning_bus().publish<TraceEvent>(
+        consensus::stats::Id::create(bus.shard, bus.cc_seqno, bus.local_id.idx.value(), bus.validator_set.size(),
+                                     bus.local_id.weight, bus.total_weight, bus.config.slots_per_leader_window));
 
     reschedule_standstill_resolution();
     is_started_ = true;
@@ -366,7 +371,7 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
   void handle(BusHandle, std::shared_ptr<const IncomingProtocolMessage> message) {
     auto &bus = *owning_bus();
     td::uint32 first_too_new_slot =
-        (now_ / slots_per_leader_window_ + max_leader_window_desync_ + 1) * slots_per_leader_window_;
+        (now_ / slots_per_leader_window_ + params_.max_leader_window_desync + 1) * slots_per_leader_window_;
 
     auto maybe_tl_vote = fetch_tl_object<tl::vote>(message->message.data, true);
     if (maybe_tl_vote.is_ok()) {
@@ -504,7 +509,7 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
 
  private:
   void reschedule_standstill_resolution() {
-    alarm_timestamp() = td::Timestamp::in(owning_bus()->standstill_timeout_s);
+    alarm_timestamp() = td::Timestamp::in(params_.standstill_timeout);
   }
 
   // ===== Vote handling =====
@@ -818,7 +823,8 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
   }
 
   td::uint32 slots_per_leader_window_;
-  td::uint32 max_leader_window_desync_;
+  NewConsensusConfig::NoncriticalParams params_;
+
   ValidatorWeight weight_threshold_ = 0;
   std::optional<State> state_;
 

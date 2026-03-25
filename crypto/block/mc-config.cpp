@@ -361,6 +361,28 @@ ton::ValidatorSessionConfig Config::get_consensus_config() const {
   return c;
 }
 
+namespace {
+
+template <typename Base, td::uint32(Base::* where)>
+void store_uint32(Base& base, td::uint32 value) {
+  base.*where = value;
+}
+
+template <typename Base, std::chrono::milliseconds(Base::* where)>
+void store_milliseconds(Base& base, td::uint32 value) {
+  base.*where = std::chrono::milliseconds{value};
+}
+
+template <typename Base, double(Base::* where)>
+void store_double(Base& base, td::uint32 value) {
+  float fvalue;
+  static_assert(sizeof(float) == sizeof(td::uint32));
+  memcpy(&fvalue, &value, sizeof(float));
+  base.*where = fvalue;
+}
+
+}  // namespace
+
 td::optional<ton::NewConsensusConfig> Config::get_new_consensus_config(ton::WorkchainId wc) const {
   auto c1 = get_config_param(30);
   if (c1.is_null()) {
@@ -375,17 +397,54 @@ td::optional<ton::NewConsensusConfig> Config::get_new_consensus_config(ton::Work
     return {};
   }
   auto consensus_config = get_consensus_config();
-  gen::NewConsensusConfig::Record r2;
-  if (gen::unpack_cell(c2, r2)) {
+
+  if (gen::NewConsensusConfig::Record_simplex_config v1; gen::unpack_cell(c2, v1)) {
     return ton::NewConsensusConfig{
-        .target_rate_ms = r2.target_rate_ms,
         .max_block_size = consensus_config.max_block_size,
         .max_collated_data_size = consensus_config.max_collated_data_size,
-        .use_quic = r2.use_quic,
-        .consensus = ton::NewConsensusConfig::Simplex{.slots_per_leader_window = r2.slots_per_leader_window,
-                                                      .first_block_timeout_ms = r2.first_block_timeout_ms,
-                                                      .max_leader_window_desync = r2.max_leader_window_desync}};
+
+        .use_quic = v1.use_quic,
+        .slots_per_leader_window = v1.slots_per_leader_window,
+
+        .noncritical_params =
+            {
+                .target_rate{v1.target_rate_ms},
+                .first_block_timeout{v1.first_block_timeout_ms},
+                .max_leader_window_desync = v1.max_leader_window_desync,
+            },
+    };
+  } else if (gen::NewConsensusConfig::Record_simplex_config_v2 v2; gen::unpack_cell(c2, v2)) {
+    ton::NewConsensusConfig config{
+        .max_block_size = consensus_config.max_block_size,
+        .max_collated_data_size = consensus_config.max_collated_data_size,
+
+        .use_quic = v2.use_quic,
+        .slots_per_leader_window = v2.slots_per_leader_window,
+    };
+
+    using NoncriticalParams = ton::NewConsensusConfig::NoncriticalParams;
+
+    static constexpr auto mapping = std::to_array({
+#define READ_UINT32(idx, name, _) std::pair{idx, &store_uint32<NoncriticalParams, &NoncriticalParams::name>},
+#define READ_DOUBLE(idx, name, _) std::pair{idx, &store_double<NoncriticalParams, &NoncriticalParams::name>},
+#define READ_DURATION(idx, name, _) std::pair{idx, &store_milliseconds<NoncriticalParams, &NoncriticalParams::name>},
+        ENUMERATE_NONCRITICAL_PARAMS(READ_UINT32, READ_DOUBLE, READ_DURATION)
+#undef READ_UINT32
+#undef READ_DOUBLE
+#undef READ_DURATION
+    });
+
+    vm::DictionaryFixed params{v2.noncritical_params, 8};
+    for (const auto& [key, store_func] : mapping) {
+      if (auto param = params.lookup(td::BitArray<8>(key)); param.not_null()) {
+        auto val = td::narrow_cast<td::uint32>(param->prefetch_ulong(32));
+        store_func(config.noncritical_params, val);
+      }
+    }
+
+    return config;
   }
+
   return {};
 }
 

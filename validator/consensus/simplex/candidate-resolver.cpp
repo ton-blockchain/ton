@@ -108,6 +108,7 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
   void start_up() override {
+    params_ = owning_bus()->config.noncritical_params;
     load_from_db();
   }
 
@@ -125,6 +126,11 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
   template <>
   void handle(BusHandle, std::shared_ptr<const StopRequested>) {
     stop();
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const NoncriticalParamsUpdated> event) {
+    params_ = event->params;
   }
 
   template <>
@@ -205,6 +211,7 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
     std::vector<td::Promise<td::Unit>> store_awaiters;
   };
 
+  NewConsensusConfig::NoncriticalParams params_;
   std::map<CandidateId, CandidateState> state_;
 
   void load_from_db() {
@@ -291,7 +298,7 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
       co_return {};
     }
 
-    double timeout_s = bus.candidate_resolve_initial_timeout_s;
+    std::chrono::duration<double> timeout = params_.candidate_resolve_timeout;
 
     while (!state.candidate_and_cert.is_complete()) {
       auto request_tl = state.candidate_and_cert.make_request(id);
@@ -303,9 +310,9 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
       }
       PeerValidatorId peer{peer_idx};
 
-      auto timeout = td::Timestamp::in(timeout_s);
-      auto maybe_response =
-          co_await owning_bus().publish<OutgoingOverlayRequest>(peer, timeout, std::move(request)).wrap();
+      auto maybe_response = co_await owning_bus()
+                                .publish<OutgoingOverlayRequest>(peer, td::Timestamp::in(timeout), std::move(request))
+                                .wrap();
 
       if (maybe_response.is_ok()) {
         auto response = maybe_response.move_as_ok();
@@ -318,7 +325,8 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
         }
       }
 
-      timeout_s = std::min(timeout_s * bus.candidate_resolve_timeout_multiplier, bus.candidate_resolve_max_timeout_s);
+      timeout = std::min<std::chrono::duration<double>>(timeout * params_.candidate_resolve_timeout_multiplier,
+                                                        params_.candidate_resolve_timeout_cap);
     }
 
     co_return {};
