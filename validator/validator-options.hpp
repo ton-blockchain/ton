@@ -183,8 +183,12 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
     return db_event_fifo_path_;
   }
   NewConsensusConfig::NoncriticalParams get_noncritical_params(
-      ShardIdFull /*shard*/, td::uint32 /*cc_seqno*/,
-      const NewConsensusConfig::NoncriticalParams& config) const override {
+      ShardIdFull shard, td::uint32 cc_seqno, const NewConsensusConfig::NoncriticalParams& config) const override {
+    for (auto& o : noncritical_params_overrides_) {
+      if (cc_seqno >= o.from_seqno && cc_seqno <= o.to_seqno && shard_is_ancestor(o.shard, shard)) {
+        return o.apply(config);
+      }
+    }
     return config;
   }
 
@@ -318,6 +322,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_db_event_fifo_path(std::string value) override {
     db_event_fifo_path_ = std::move(value);
   }
+  void set_noncritical_params_overrides(std::vector<NoncriticalParamsOverride> value) override {
+    noncritical_params_overrides_ = std::move(value);
+  }
 
   ValidatorManagerOptionsImpl* make_copy() const override {
     return new ValidatorManagerOptionsImpl(*this);
@@ -379,6 +386,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   td::Ref<ShardBlockVerifierConfig> shard_block_verifier_config_{true};
   bool parallel_validation = false;
   std::string db_event_fifo_path_;
+  std::vector<NoncriticalParamsOverride> noncritical_params_overrides_;
 };
 
 }  // namespace validator
