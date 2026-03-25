@@ -567,3 +567,51 @@ TEST(Runtime, UnregisteredChildBus) {
 
 }  // namespace
 }  // namespace td::actor::test_unregistered_buses
+
+namespace td::actor::test_actor_constructor {
+namespace {
+
+struct RootBus : Bus {
+  ~RootBus() {
+    td::actor::SchedulerContext::get().stop();
+  }
+
+  struct Dummy {};
+
+  using Events = td::TypeList<Dummy>;
+
+  std::string hello;
+};
+
+bool g_good = false;
+
+class RootActor : public SpawnsWith<RootBus>, public ConnectsTo<RootBus> {
+ public:
+  TON_RUNTIME_DEFINE_EVENT_HANDLER();
+
+  RootActor(RootBus& bus) {
+    bus.hello = "world";
+  }
+
+  void start_up() {
+    if (owning_bus()->hello == "world") {
+      g_good = true;
+    }
+    stop();
+  }
+};
+
+TEST(Runtime, ActorCanTakeBusInConstructor) {
+  td::actor::Scheduler scheduler({1});
+
+  Runtime runtime;
+  runtime.register_actor<RootActor>("RootActor");
+
+  scheduler.run_in_context([&] { runtime.start(std::make_shared<RootBus>()); });
+  scheduler.run();
+
+  EXPECT(g_good);
+}
+
+}  // namespace
+}  // namespace td::actor::test_actor_constructor

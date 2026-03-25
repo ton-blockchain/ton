@@ -16,13 +16,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include <block-auto.h>
-#include <rocksdb/merge_operator.h>
+
+// FIXME: Remove once RocksDB stops triggering this warning.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wimplicit-int-float-conversion"
+#include "rocksdb/merge_operator.h"
+#include "rocksdb/utilities/optimistic_transaction_db.h"
+#pragma GCC diagnostic pop
 
 #include "block/block-auto.h"
 #include "common/delay.h"
 #include "permanent-celldb/permanent-celldb-utils.h"
-#include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "td/actor/MultiPromise.h"
 #include "td/db/RocksDb.h"
 #include "ton/ton-io.hpp"

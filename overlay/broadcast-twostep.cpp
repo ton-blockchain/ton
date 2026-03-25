@@ -378,7 +378,7 @@ td::Status BroadcastsTwostep::process_broadcast(OverlayImpl *overlay, adnl::Adnl
   }
   auto bcast = it->second.get();
   bcast->debug.chunk_senders.insert(src_peer_id);
-  TRY_STATUS(bcast->decoder->add_symbol({static_cast<std::uint32_t>(broadcast->seqno_), broadcast->part_.as_slice()}));
+  TRY_STATUS(bcast->decoder->add_symbol({static_cast<std::uint32_t>(broadcast->seqno_), std::move(broadcast->part_)}));
   bcast->debug.symbols_received++;
   VLOG(TWOSTEP_INFO) << "twostep RECV_CHUNK receiver " << *bcast << " seqno=" << broadcast->seqno_
                      << " from=" << src_peer_id << " will_rebroadcast=" << will_rebroadcast;

@@ -19,6 +19,7 @@
 #pragma once
 #include <set>
 
+#include "td/fec/fec.h"
 #include "td/fec/raptorq/Encoder.h"
 #include "td/fec/raptorq/Solver.h"
 
@@ -30,7 +31,7 @@ class Decoder {
   static Result<std::unique_ptr<Decoder>> create(Encoder::Parameters p);
   Decoder(const Rfc::Parameters &p, size_t symbol_size, size_t data_size);
 
-  Status add_symbol(SymbolRef symbol);
+  Status add_symbol(fec::Symbol symbol);
 
   struct DataWithEncoder {
     BufferSlice data;
@@ -44,27 +45,18 @@ class Decoder {
   size_t symbol_size_;
 
   bool may_decode_{false};
-  vector<bool> mask_;
-  size_t mask_size_{0};
-  BufferSlice data_;
+  std::vector<fec::Symbol> symbols_;
+  vector<bool> small_symbols_mask_;
+  size_t small_symbols_count_{0};
+  std::set<uint32> big_symbols_set_;
   size_t data_size_;
+  optional<BufferSlice> result_;
 
-  bool flush_symbols_{false};
-  bool slow_path_{false};
-  size_t slow_symbols_;
-  BufferSlice buffer_;
-  std::vector<SymbolRef> symbols_;
-  std::set<uint32> slow_symbols_set_;
-  std::string zero_symbol_;
+  bool made_symbol_refs_{false};
+  std::vector<SymbolRef> symbol_refs_;
+  BufferSlice zero_symbol_;
 
-  void add_small_symbol(SymbolRef symbol);
-  void add_big_symbol(SymbolRef symbol);
-
-  void update_may_decode();
-
-  void on_first_slow_path();
-
-  void flush_symbols();
+  void make_symbol_refs();
 };
 
 }  // namespace raptorq

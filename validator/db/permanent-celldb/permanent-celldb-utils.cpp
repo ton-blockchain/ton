@@ -58,7 +58,8 @@ void calculate_permanent_celldb_update(const std::map<BlockIdExt, td::Ref<BlockD
         }
         vis |= (1 << merkle_depth);
         vm::CellSlice cs{vm::NoVm(), cell};
-        if (cs.special_type() == vm::CellTraits::SpecialType::PrunnedBranch && cell->get_level() == merkle_depth + 1) {
+        if (cs.special_type() == vm::CellTraits::SpecialType::PrunnedBranch &&
+            cell->get_level() == static_cast<td::uint32>(merkle_depth + 1)) {
           return;
         }
         update.to_store.emplace_back(

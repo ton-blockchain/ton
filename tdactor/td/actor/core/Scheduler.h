@@ -182,7 +182,7 @@ struct SchedulerGroupInfo {
 class Scheduler {
  public:
   static constexpr int32 max_thread_count() {
-    return 256;
+    return MAX_THREADS;
   }
 
   static int32 get_thread_id() {

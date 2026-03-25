@@ -22,12 +22,17 @@
 #include <numeric>
 #include <openssl/sha.h>
 #include <optional>
-#include <rocksdb/compaction_filter.h>
-#include <rocksdb/db.h>
-#include <rocksdb/merge_operator.h>
 #include <set>
 #include <thread>
 #include <variant>
+
+// FIXME: Remove once RocksDB stops triggering this warning.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wimplicit-int-float-conversion"
+#include "rocksdb/compaction_filter.h"
+#include "rocksdb/db.h"
+#include "rocksdb/merge_operator.h"
+#pragma GCC diagnostic pop
 
 #include "common/AtomicRef.h"
 #include "openssl/digest.hpp"
@@ -890,6 +895,26 @@ TEST(TonDb, BocFuzz) {
           .move_as_ok())
       .ensure_error();
 }
+
+TEST(TonDb, BocDeserializeTruncated) {
+  td::Random::Xorshift128plus rnd{123};
+  auto serialized = serialize_boc(gen_random_cell(8, rnd), 31);
+  CHECK(serialized.size() > 1);
+
+  auto truncated = td::Slice{serialized}.substr(0, serialized.size() - 1);
+
+  // Truncated data deserialization causes error
+  vm::BagOfCells boc;
+  boc.deserialize(truncated).ensure_error();
+  vm::std_boc_deserialize(truncated).ensure_error();
+  vm::std_boc_deserialize_multi(truncated).ensure_error();
+
+  // Empty data deserializes into empty vector of roots
+  td::BufferSlice empty;
+  auto empty_roots = vm::std_boc_deserialize_multi(empty.as_slice()).move_as_ok();
+  CHECK(empty_roots.empty());
+}
+
 void test_parse_prefix(td::Slice boc) {
   for (size_t i = 0; i <= boc.size(); i++) {
     auto prefix = boc.substr(0, i);
@@ -2096,12 +2121,10 @@ TEST(TonDb, DynamicBocIncSimple) {
       return;
     }
     //LOG(ERROR) << "POP ROOT";
-    auto begin_stats = kv->get_usage_stats();
     auto cell = db->load_cell(queue.pop().as_slice()).move_as_ok();
     db->dec(cell);
     vm::CellStorer cell_storer(*kv);
     db->commit(cell_storer);
-    auto end_stats = kv->get_usage_stats();
     db->set_loader(std::make_unique<vm::CellLoader>(kv));
     //LOG(ERROR) << end_stats - begin_stats;
     //LOG(ERROR) << "CELLS IN DB: " << kv->count("").move_as_ok();

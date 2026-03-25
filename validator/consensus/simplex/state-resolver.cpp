@@ -40,6 +40,20 @@ class StateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     LOG(INFO) << "Loaded " << data.size() << " finalized blocks from DB";
   }
 
+  void tear_down() override {
+    genesis_promise_.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
+    for (auto& [_, s] : state_cache_) {
+      for (auto& p : s.promises) {
+        p.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
+      }
+    }
+    for (auto& [_, s] : finalized_blocks_) {
+      for (auto& p : s.waiters) {
+        p.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
+      }
+    }
+  }
+
   template <>
   void handle(BusHandle, std::shared_ptr<const Start> event) {
     genesis_promise_.set_value(std::move(event));

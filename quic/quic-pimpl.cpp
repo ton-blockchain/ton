@@ -154,7 +154,9 @@ void QuicConnectionPImpl::setup_settings_and_params(ngtcp2_settings& settings, n
   settings.max_stream_window = options.max_stream_window;
 
   static constexpr ngtcp2_cc_algo CC_ALGO_MAP[] = {NGTCP2_CC_ALGO_CUBIC, NGTCP2_CC_ALGO_RENO, NGTCP2_CC_ALGO_BBR};
-  settings.cc_algo = CC_ALGO_MAP[static_cast<int>(options.cc_algo)];
+  auto cc_alg_id = static_cast<size_t>(options.cc_algo);
+  CHECK(cc_alg_id < std::size(CC_ALGO_MAP));
+  settings.cc_algo = CC_ALGO_MAP[cc_alg_id];
 
   ngtcp2_transport_params_default(&params);
   params.max_idle_timeout = options.idle_timeout;

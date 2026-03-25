@@ -14,7 +14,7 @@ from typing import Literal, final, override
 from tonapi import ton_api
 
 from tl import TLObject
-from tonlib import EngineConsoleClient, TonlibCDLL, TonlibClient, TonlibError, TonlibEventLoop
+from tonlib import EngineConsoleClient, TonlibClient, TonlibError, TonlibEventLoop
 
 from .install import Install
 from .key import Key
@@ -243,13 +243,18 @@ class Network:
         self._node_idx = 0
         self._status = _Status.INITED
 
-        self._tonlib = TonlibCDLL(install.tonlibjson)
+        self._tonlib = install.tonlibjson
         self._event_loop = TonlibEventLoop(self._tonlib, event_loop)
 
         self.__nodes: list[Network.Node] = []
         self.__full_nodes: list[FullNode] = []
         self.__network_config: NetworkConfig = NetworkConfig()
         self.__zerostate: Zerostate | None = None
+
+    @property
+    def zerostate(self) -> Zerostate:
+        assert self.__zerostate is not None
+        return self.__zerostate
 
     @property
     def config(self):
@@ -303,7 +308,7 @@ class Network:
         for node in self.__nodes:
             await node.stop()
 
-        await self._event_loop.aclose()
+        self._event_loop.close()
 
     async def __aenter__(self):
         return self
@@ -346,6 +351,25 @@ class Network:
                 break
             else:
                 await asyncio.sleep(0.2)
+
+    async def wait_block(self, workchain: int, shard: int, seqno: int):
+        client = await self.__full_nodes[0].tonlib_client()
+
+        while True:
+            try:
+                return await client.lookup_block(workchain=workchain, shard=shard, seqno=seqno)
+            except TonlibError as e:
+                try:
+                    if e.result.code == 500 and (
+                        "LITE_SERVER_UNKNOWN:" in e.result.message
+                        or "LITE_SERVER_NOTREADY:" in e.result.message
+                    ):
+                        await asyncio.sleep(0.2)
+                        continue
+                except Exception:
+                    pass
+                raise
+
 
 
 def _ip_to_tl(ip: IPv4Address) -> int:
@@ -547,12 +571,7 @@ class FullNode(Network.Node):
         if self._client:
             return self._client
 
-        self._client = TonlibClient(
-            ls_index=0,
-            config=self._liteserver_config,
-            cdll_path=self._install.tonlibjson,
-            verbosity_level=3,
-        )
+        self._client = TonlibClient(self._liteserver_config, self._tonlib)
         await self._client.init()
 
         return self._client
@@ -612,7 +631,7 @@ class FullNode(Network.Node):
         if self._client:
             await self._client.aclose()
         if self._engine_console:
-            await self._engine_console.aclose()
+            self._engine_console.close()
         if self._blockchain_explorer:
             _ = self._blockchain_explorer.cancel()
             try:

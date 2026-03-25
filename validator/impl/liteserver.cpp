@@ -1330,8 +1330,11 @@ void LiteQuery::finish_getAccountState(td::BufferSlice shard_proof) {
       return;
     }
     auto rconfig = config.move_as_ok();
-    acc_state_promise_.set_value(
-        std::make_tuple(std::move(acc_csr), sstate.gen_utime, sstate.gen_lt, std::move(rconfig)));
+    if (acc_state_promise_) {
+      acc_state_promise_.set_value(
+          std::make_tuple(std::move(acc_csr), sstate.gen_utime, sstate.gen_lt, std::move(rconfig)));
+      stop();
+    }
     return;
   }
 
@@ -3372,7 +3375,7 @@ void LiteQuery::continue_getOutMsgQueueSizes(td::optional<ShardIdFull> shard, Re
                             [promise = ig.get_promise(), res, i, id = blocks[i]](td::Result<td::uint64> R) mutable {
                               TRY_RESULT_PROMISE(promise, value, std::move(R));
                               res->at(i) = create_tl_object<lite_api::liteServer_outMsgQueueSize>(
-                                  create_tl_lite_block_id(id), value);
+                                  create_tl_lite_block_id(id), static_cast<td::uint32>(value));
                               promise.set_value(td::Unit());
                             });
   }

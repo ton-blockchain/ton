@@ -1885,7 +1885,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
       return true;
     }
     if (cfg.disable_anycast && acc_status == Account::acc_uninit &&
-        new_fixed_prefix_length > cfg.size_limits.max_acc_fixed_prefix_length) {
+        new_fixed_prefix_length > static_cast<int>(cfg.size_limits.max_acc_fixed_prefix_length)) {
       LOG(DEBUG) << "cannot init account state: too big fixed prefix length (" << new_fixed_prefix_length << ", max "
                  << cfg.size_limits.max_acc_fixed_prefix_length << ")";
       cp.skip_reason = ComputePhase::sk_bad_state;

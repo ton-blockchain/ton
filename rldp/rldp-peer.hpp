@@ -88,7 +88,6 @@ class RldpTransferReceiverImpl : public RldpTransferReceiver {
                     td::BufferSlice data) override;
   void alarm() override;
   void start_up() override {
-    data_ = td::BufferSlice(td::narrow_cast<size_t>(total_size_));
     alarm_timestamp() = timeout_;
   }
 
@@ -119,7 +118,7 @@ class RldpTransferReceiverImpl : public RldpTransferReceiver {
   td::uint32 part_ = 0;
   td::uint32 cnt_ = 0;
   td::uint32 max_seqno_ = 0;
-  td::BufferSlice data_;
+  std::vector<td::BufferSlice> data_parts_;
 
   std::unique_ptr<td::fec::Decoder> decoder_;
 

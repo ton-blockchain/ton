@@ -90,6 +90,7 @@ struct Config {
   std::map<ton::PublicKeyHash, td::uint32> keys_refcnt;
   td::uint16 out_port;
   std::map<Addr, AddrCats> addrs;
+  std::map<Addr, AddrCats> quic_addrs;
   std::map<ton::PublicKeyHash, AdnlCategory> adnl_ids;
   std::set<ton::PublicKeyHash> dht_ids;
   std::map<ton::PublicKeyHash, Validator> validators;
@@ -118,6 +119,8 @@ struct Config {
   td::Result<bool> config_add_network_addr(td::IPAddress in_addr, td::IPAddress out_addr,
                                            std::shared_ptr<ton::adnl::AdnlProxy> proxy, std::vector<AdnlCategory> cats,
                                            std::vector<AdnlCategory> prio_cats);
+  td::Result<bool> config_add_quic_addr(td::IPAddress ip, std::vector<AdnlCategory> cats,
+                                        std::vector<AdnlCategory> prio_cats);
   td::Result<bool> config_add_adnl_addr(ton::PublicKeyHash addr, AdnlCategory cat);
   td::Result<bool> config_add_dht_node(ton::PublicKeyHash id);
   td::Result<bool> config_add_validator_permanent_key(ton::PublicKeyHash id, ton::UnixTime election_date,
@@ -140,6 +143,8 @@ struct Config {
   td::Result<bool> config_add_gc(ton::PublicKeyHash key);
   td::Result<bool> config_del_network_addr(td::IPAddress addr, std::vector<AdnlCategory> cats,
                                            std::vector<AdnlCategory> prio_cats);
+  td::Result<bool> config_del_quic_addr(td::IPAddress ip, std::vector<AdnlCategory> cats,
+                                        std::vector<AdnlCategory> prio_cats);
   td::Result<bool> config_del_adnl_addr(ton::PublicKeyHash addr);
   td::Result<bool> config_del_dht_node(ton::PublicKeyHash id);
   td::Result<bool> config_del_validator_permanent_key(ton::PublicKeyHash id);
@@ -445,6 +450,7 @@ class ValidatorEngine : public td::actor::Actor {
 
   void start_adnl();
   void add_addr(const Config::Addr &addr, const Config::AddrCats &cats);
+  void add_quic_addr(const Config::Addr &addr, const Config::AddrCats &cats);
   void add_adnl(ton::PublicKeyHash id, AdnlCategory cat);
   void started_adnl();
 
@@ -516,6 +522,10 @@ class ValidatorEngine : public td::actor::Actor {
                      std::vector<AdnlCategory> prio_cats, td::Promise<td::Unit> promise);
   void try_del_proxy(td::uint32 ip, td::int32 port, std::vector<AdnlCategory> cats, std::vector<AdnlCategory> prio_cats,
                      td::Promise<td::Unit> promise);
+  void try_add_quic_addr(td::uint32 ip, td::int32 port, std::vector<AdnlCategory> cats,
+                         std::vector<AdnlCategory> prio_cats, td::Promise<td::Unit> promise);
+  void try_del_quic_addr(td::uint32 ip, td::int32 port, std::vector<AdnlCategory> cats,
+                         std::vector<AdnlCategory> prio_cats, td::Promise<td::Unit> promise);
 
   void register_fast_sync_certificate_callback();
   void try_import_fast_sync_member_certificate(ton::adnl::AdnlNodeIdShort id,
@@ -596,6 +606,10 @@ class ValidatorEngine : public td::actor::Actor {
                          td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_delProxy &query, td::BufferSlice data, ton::PublicKeyHash src,
                          td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_addQuicAddr &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_delQuicAddr &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_getConfig &query, td::BufferSlice data, ton::PublicKeyHash src,
                          td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_sign &query, td::BufferSlice data, ton::PublicKeyHash src,

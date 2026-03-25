@@ -1,53 +1,60 @@
 import asyncio
 import logging
 import traceback
-from pathlib import Path
+from typing import Callable, final
 
+from pytoniq_core import Address, Cell, MessageAny
 from tonapi import ton_api, tonlib_api
 
+from .tonlib_cdll import TonlibCDLL
 from .tonlibjson import TonLib
 
 logger = logging.getLogger(__name__)
 
 
+@final
+class TonlibStateReader:
+    def __init__(self, client: "TonlibClient"):
+        self._client = client
+        self._cache: dict[tuple[int, int, int, Address], Cell] = {}
+
+    async def _get_data(self, address: Address) -> Cell:
+        state = await self._client.raw_get_account_state(address)
+        block_id = state.block_id
+        assert block_id is not None
+        key = (block_id.workchain, block_id.shard, block_id.seqno, address)
+        if key not in self._cache:
+            self._cache[key] = Cell.one_from_boc(state.data)
+        return self._cache[key]
+
+    async def fetch[T](self, address: Address, parser: Callable[[Cell], T]) -> T:
+        data = await self._get_data(address)
+        return parser(data)
+
+
 class TonlibClient:
     def __init__(
         self,
-        ls_index: int,
         config: ton_api.Liteclient_config_global,
-        cdll_path: Path,
+        tonlib: TonlibCDLL,
         loop: asyncio.AbstractEventLoop | None = None,
-        verbosity_level: int = 0,
     ):
-        self.ls_index: int = ls_index
         self._config: ton_api.Liteclient_config_global = config
-        self._cdll_path: Path = cdll_path
+        self._tonlib: TonlibCDLL = tonlib
         self._loop: asyncio.AbstractEventLoop | None = loop
-        self._verbosity_level: int = verbosity_level
         self._tonlib_wrapper: TonLib | None = None
-
-    @property
-    def local_config(self) -> ton_api.Liteclient_config_global:
-        local = ton_api.Liteclient_config_global.from_json(self._config.to_json())
-        local.liteservers = [local.liteservers[self.ls_index]]
-        return local
 
     async def init(self) -> None:
         if self._tonlib_wrapper:
             logger.warning("init is already done")
             return
         event_loop = self._loop or asyncio.get_running_loop()
-        self._tonlib_wrapper = TonLib(
-            event_loop,
-            self.ls_index,
-            self._cdll_path,
-            self._verbosity_level,
-        )
+        self._tonlib_wrapper = TonLib(event_loop, self._tonlib)
 
         request = tonlib_api.InitRequest(
             options=tonlib_api.Options(
                 config=tonlib_api.Config(
-                    config=self.local_config.to_json(),
+                    config=self._config.to_json(),
                     blockchain_name="",
                     use_callbacks_for_network=False,
                     ignore_cache=False,
@@ -57,8 +64,6 @@ class TonlibClient:
         )
 
         _ = await self._tonlib_wrapper.execute(request)
-
-        logger.info(f"TonLib #{self.ls_index:03d} inited successfully")
 
     async def aclose(self):
         if self._tonlib_wrapper is not None:
@@ -90,6 +95,13 @@ class TonlibClient:
         request = tonlib_api.Blocks_getMasterchainInfoRequest()
         return request.parse_result(await self._tonlib_wrapper.execute(request))
 
+    @property
+    def latest_state_reader(self) -> TonlibStateReader:
+        return TonlibStateReader(self)
+
+    async def send_external(self, message: MessageAny) -> None:
+        _ = await self.raw_send_message(message.serialize().to_boc())
+
     async def raw_send_message(self, serialized_boc: bytes) -> tonlib_api.TypeOk:
         assert self._tonlib_wrapper is not None
         request = tonlib_api.Raw_sendMessageRequest(body=serialized_boc)
@@ -101,27 +113,53 @@ class TonlibClient:
         return request.parse_result(await self._tonlib_wrapper.execute(request))
 
     async def raw_get_transactions(
-        self, account_address: str, from_transaction_lt: int, from_transaction_hash: bytes
+        self, account_address: Address, from_transaction_id: tonlib_api.Internal_transactionId
     ) -> tonlib_api.Raw_transactions:
         assert self._tonlib_wrapper is not None
-        # FIXME: Replace these with proper classes for TransactionId and Address.
-        assert len(account_address) == 48, "account address must be serialized"
-        assert len(from_transaction_hash) == 32
         request = tonlib_api.Raw_getTransactionsRequest(
-            account_address=tonlib_api.AccountAddress(account_address),
-            from_transaction_id=tonlib_api.Internal_transactionId(
-                lt=from_transaction_lt,
-                hash=from_transaction_hash,
+            account_address=tonlib_api.AccountAddress(
+                account_address.to_str(is_user_friendly=True)
             ),
+            from_transaction_id=from_transaction_id,
         )
         return request.parse_result(await self._tonlib_wrapper.execute(request))
 
-    async def raw_get_account_state(self, account_address: str) -> tonlib_api.Raw_fullAccountState:
+    async def raw_get_account_state(
+        self, account_address: Address
+    ) -> tonlib_api.Raw_fullAccountState:
         assert self._tonlib_wrapper is not None
-        # FIXME: Replace these with proper class for Address.
-        assert len(account_address) == 48, "account address must be serialized"
         request = tonlib_api.Raw_getAccountStateRequest(
-            account_address=tonlib_api.AccountAddress(account_address)
+            account_address=tonlib_api.AccountAddress(account_address.to_str(is_user_friendly=True))
+        )
+        return request.parse_result(await self._tonlib_wrapper.execute(request))
+
+
+    async def lookup_block(
+        self,
+        workchain: int,
+        shard: int,
+        seqno: int | None = None,
+        lt: int | None = None,
+        utime: int | None = None,
+    ):
+        assert self._tonlib_wrapper is not None
+        assert seqno is not None or lt is not None or utime is not None
+        mode = 0
+        if seqno is not None:
+            mode += 1
+        if lt is not None:
+            mode += 2
+        if utime is not None:
+            mode += 4
+        request = tonlib_api.Blocks_lookupBlockRequest(
+            mode=mode,
+            id=tonlib_api.Ton_blockId(
+                workchain=workchain,
+                shard=shard,
+                seqno=seqno or 0,
+            ),
+            lt=lt or 0,
+            utime=utime or 0,
         )
         return request.parse_result(await self._tonlib_wrapper.execute(request))
 

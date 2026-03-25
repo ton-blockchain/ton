@@ -84,7 +84,7 @@ td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candi
               },
               [&](ton_api::validatorSession_compressedCandidateV2& c) {
                 res = [&]() -> td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> {
-                  if (c.data_.size() > max_decompressed_data_size) {
+                  if (static_cast<int>(c.data_.size()) > max_decompressed_data_size) {
                     return td::Status::Error("Compressed data is too big");
                   }
                   TRY_RESULT(p, decompress_candidate_data(c.data_, true, 0, max_decompressed_data_size,
@@ -98,16 +98,14 @@ td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candi
 
 td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice collated_data, size_t& decompressed_size,
                                                     std::string called_from, td::Bits256 root_hash) {
-  vm::BagOfCells boc1, boc2;
+  vm::BagOfCells boc1;
   TRY_STATUS(boc1.deserialize(block));
   if (boc1.get_root_count() != 1) {
     return td::Status::Error("block candidate should have exactly one root");
   }
   std::vector<td::Ref<vm::Cell>> roots = {boc1.get_root_cell()};
-  TRY_STATUS(boc2.deserialize(collated_data));
-  for (int i = 0; i < boc2.get_root_count(); ++i) {
-    roots.push_back(boc2.get_root_cell(i));
-  }
+  TRY_RESULT(collated_roots, vm::std_boc_deserialize_multi(collated_data));
+  roots.insert(roots.end(), collated_roots.begin(), collated_roots.end());
   auto t_compression_start = td::Time::now();
   TRY_RESULT(data, vm::std_boc_serialize_multi(std::move(roots), 2));
   decompressed_size = data.size();

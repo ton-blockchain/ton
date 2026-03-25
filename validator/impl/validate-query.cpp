@@ -460,7 +460,7 @@ void ValidateQuery::load_prev_states() {
  * @returns True if the block candidate was successfully unpacked, false otherwise.
  */
 bool ValidateQuery::unpack_block_candidate() {
-  vm::BagOfCells boc1, boc2;
+  vm::BagOfCells boc1;
   // 1. deserialize block itself
   FileHash fhash = block::compute_file_hash(block_candidate.data);
   if (fhash != id_.file_hash) {
@@ -497,15 +497,11 @@ bool ValidateQuery::unpack_block_candidate() {
   }
   // ...
   // 8. deserialize collated data
-  auto res2 = boc2.deserialize(block_candidate.collated_data);
+  auto res2 = vm::std_boc_deserialize_multi(block_candidate.collated_data);
   if (res2.is_error()) {
     return reject_query("cannot deserialize collated data", res2.move_as_error());
   }
-  int n = boc2.get_root_count();
-  REJECT_UNLESS(n >= 0);
-  for (int i = 0; i < n; i++) {
-    collated_roots_.emplace_back(boc2.get_root_cell(i));
-  }
+  collated_roots_ = res2.move_as_ok();
   // 9. extract/classify collated data
   return extract_collated_data();
 }
@@ -7548,7 +7544,8 @@ bool ValidateQuery::save_candidate() {
       });
 
   td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, id_, block_candidate.clone(),
-                          validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(), std::move(P));
+                          validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(), false,
+                          std::move(P));
   return true;
 }
 

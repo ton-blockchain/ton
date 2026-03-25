@@ -1157,7 +1157,6 @@ void do_dns_test(CheckedDns&& dns) {
       actions.clear();
     }
     auto name = gen_name();
-    auto category = td::Bits256::zero();
     dns.resolve(name, intToCat(rnd.fast(0, 5)));
   }
 };

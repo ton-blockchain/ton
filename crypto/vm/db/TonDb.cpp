@@ -117,10 +117,9 @@ void SmartContractDbImpl::sync_root_with_db() {
     } else {
       std::string boc_serialized;
       kv_->get("boc", boc_serialized);
-      BagOfCells boc;
-      //TODO: check error
-      boc.deserialize(boc_serialized);
-      db_root_ = boc.get_root_cell();
+      auto r_root = std_boc_deserialize(boc_serialized);
+      CHECK(r_root.is_ok());
+      db_root_ = r_root.move_as_ok();
     }
     CHECK(db_root_->get_hash().as_slice() == root_hash);
     new_root_ = db_root_;
