@@ -301,6 +301,8 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
     std::chrono::duration<double> timeout = params_.candidate_resolve_timeout;
 
     while (!state.candidate_and_cert.is_complete()) {
+      auto cooldown_wait = td::Timestamp::in(params_.candidate_resolve_cooldown);
+
       auto request_tl = state.candidate_and_cert.make_request(id);
       ProtocolMessage request{serialize_tl_object(request_tl, true)};
 
@@ -327,6 +329,10 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
 
       timeout = std::min<std::chrono::duration<double>>(timeout * params_.candidate_resolve_timeout_multiplier,
                                                         params_.candidate_resolve_timeout_cap);
+      // Prevent spamming requests in case of synchronous errors.
+      if (!state.candidate_and_cert.is_complete()) {
+        co_await td::actor::coro_sleep(cooldown_wait);
+      }
     }
 
     co_return {};
