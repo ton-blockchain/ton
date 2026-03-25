@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+import nacl.signing
+from contract import Provider, WalletV1
+from pytoniq_core import Address
 from tonapi import ton_api
 
 from .install import Install, run_fift
@@ -45,6 +48,8 @@ class WorkchainState:
 class Zerostate:
     masterchain: WorkchainState
     shardchain: WorkchainState
+    main_wallet_key: nacl.signing.SigningKey
+    main_wallet_address: Address
 
     def as_block(self):
         return ton_api.TonNode_blockIdExt(
@@ -57,6 +62,9 @@ class Zerostate:
 
     def as_validator_config(self):
         return ton_api.Validator_config_global(zero_state=self.as_block())
+
+    def main_wallet(self, provider: Provider) -> WalletV1:
+        return WalletV1(provider, self.main_wallet_address, self.main_wallet_key)
 
 
 _TEMPLATE = """
@@ -347,6 +355,11 @@ def create_zerostate(
         state_dir,
     )
 
+    pk = (state_dir / "main-wallet.pk").read_bytes()
+    addr_file = (state_dir / "main-wallet.addr").read_bytes()
+    addr_hash = addr_file[:32]
+    addr_wc = int.from_bytes(addr_file[32:36], "big", signed=True)
+
     return Zerostate(
         masterchain=WorkchainState(
             file=state_dir / "zerostate.boc",
@@ -358,4 +371,6 @@ def create_zerostate(
             file_hash=(state_dir / "basestate0.fhash").read_bytes(),
             root_hash=(state_dir / "basestate0.rhash").read_bytes(),
         ),
+        main_wallet_key=nacl.signing.SigningKey(pk),
+        main_wallet_address=Address((addr_wc, addr_hash)),
     )

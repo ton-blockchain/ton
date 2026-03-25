@@ -248,6 +248,11 @@ class Network:
         self.__zerostate: Zerostate | None = None
 
     @property
+    def zerostate(self) -> Zerostate:
+        assert self.__zerostate is not None
+        return self.__zerostate
+
+    @property
     def config(self):
         assert self._status < _Status.ZEROSTATE_GENERATED
         return self.__network_config
@@ -339,6 +344,25 @@ class Network:
                 break
             else:
                 await asyncio.sleep(0.2)
+
+    async def wait_block(self, workchain: int, shard: int, seqno: int):
+        client = await self.__full_nodes[0].tonlib_client()
+
+        while True:
+            try:
+                return await client.lookup_block(workchain=workchain, shard=shard, seqno=seqno)
+            except TonlibError as e:
+                try:
+                    if e.result.code == 500 and (
+                        "LITE_SERVER_UNKNOWN:" in e.result.message
+                        or "LITE_SERVER_NOTREADY:" in e.result.message
+                    ):
+                        await asyncio.sleep(0.2)
+                        continue
+                except Exception:
+                    pass
+                raise
+
 
 
 def _ip_to_tl(ip: IPv4Address) -> int:
