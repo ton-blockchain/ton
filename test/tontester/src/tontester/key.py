@@ -36,5 +36,9 @@ class Key:
         _ = file.write_bytes(b"\x17\x23\x68\x49" + self.private_key.key)
         return file
 
+    def write_pub_key_file(self, path: Path) -> Path:
+        _ = path.write_bytes(b"\xc6\xb4\x13\x48" + self.public_key.key)
+        return path
+
     def id(self):
         return self.short_key.id

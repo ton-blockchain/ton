@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import shlex
 import signal
 import subprocess
 import types
@@ -451,7 +452,8 @@ class FullNode(Network.Node):
         self._validator_key, _ = self._new_key()
         self._liteserver_key, _ = self._new_key()
         self._engine_console_server_key, _ = self._new_key()
-        self._engine_console_client_key, _ = self._new_key()
+        self._engine_console_client_key, self._engine_console_client_key_file = self._new_key()
+        self._engine_console_server_pub_file = None
 
         self._local_config = ton_api.Engine_validator_config(
             addrs=[
@@ -589,6 +591,26 @@ class FullNode(Network.Node):
                 ),
             )
         return self._engine_console
+
+    @property
+    def engine_console_cmd(self) -> str:
+        if self._engine_console_server_pub_file is None:
+            self._engine_console_server_pub_file = (
+                self._engine_console_server_key.write_pub_key_file(
+                    self._directory / "engine_console_server.pub"
+                )
+            )
+        return shlex.join(
+            [
+                str(self._install.validator_engine_console_exe),
+                "-a",
+                self._engine_console_addr.address,
+                "-k",
+                str(self._engine_console_client_key_file),
+                "-p",
+                str(self._engine_console_server_pub_file),
+            ]
+        )
 
     def enable_blockchain_explorer(self):
         if self._blockchain_explorer is not None:

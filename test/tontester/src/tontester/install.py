@@ -46,6 +46,10 @@ class Install:
         return self.build_dir / "dht-server/dht-server"
 
     @property
+    def validator_engine_console_exe(self):
+        return self.build_dir / "validator-engine-console/validator-engine-console"
+
+    @property
     def blockchain_explorer_exe(self):
         return self.build_dir / "blockchain-explorer/blockchain-explorer"
 
