@@ -56,11 +56,13 @@ class Network:
             name: str,
             install: Install | None = None,
             env: dict[str, str] | None = None,
+            threads: int | None = None,
         ):
             self._network: Network = network
             self.name: str = name
             self._install_override: Install | None = install
             self._extra_env: dict[str, str] = dict(env or {})
+            self._threads: int | None = threads
 
             self._directory: Path = self._network._directory / (
                 "node" + str(self._network._node_idx)
@@ -163,6 +165,8 @@ class Network:
                 ".",
                 *additional_args,
             ]
+            if self._threads is not None:
+                cmd_flags += ["--threads", str(self._threads)]
 
             match debug:
                 case None:
@@ -257,10 +261,10 @@ class Network:
         assert self._status < _Status.ZEROSTATE_GENERATED
         return self.__network_config
 
-    def create_dht_node(self) -> "DHTNode":
+    def create_dht_node(self, threads: int | None = None) -> "DHTNode":
         assert self._status < _Status.CLOSED
 
-        node = DHTNode(self, f"dht-{len(self.__nodes)}")
+        node = DHTNode(self, f"dht-{len(self.__nodes)}", threads=threads)
         self.__nodes.append(node)
         return node
 
@@ -268,10 +272,13 @@ class Network:
         self,
         install: Install | None = None,
         env: dict[str, str] | None = None,
+        threads: int | None = None,
     ) -> "FullNode":
         assert self._status < _Status.CLOSED
 
-        node = FullNode(self, f"node-{len(self.__nodes)}", install=install, env=env)
+        node = FullNode(
+            self, f"node-{len(self.__nodes)}", install=install, env=env, threads=threads
+        )
         self.__nodes.append(node)
         self.__full_nodes.append(node)
         return node
@@ -374,8 +381,8 @@ def _ip_to_tl(ip: IPv4Address) -> int:
 
 @final
 class DHTNode(Network.Node):
-    def __init__(self, network: "Network", name: str):
-        super().__init__(network, name)
+    def __init__(self, network: "Network", name: str, threads: int | None = None):
+        super().__init__(network, name, threads=threads)
 
         self._addr = self._new_network_address()
 
@@ -430,8 +437,9 @@ class FullNode(Network.Node):
         name: str,
         install: Install | None = None,
         env: dict[str, str] | None = None,
+        threads: int | None = None,
     ):
-        super().__init__(network, name, install=install, env=env)
+        super().__init__(network, name, install=install, env=env, threads=threads)
 
         KEY_EXPIRATION = (1 << 31) - 1
 

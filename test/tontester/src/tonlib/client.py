@@ -163,3 +163,49 @@ class TonlibClient:
         )
         return request.parse_result(await self._tonlib_wrapper.execute(request))
 
+    async def get_shards(self, block_id: tonlib_api.Ton_blockIdExt) -> tonlib_api.Blocks_shards:
+        assert self._tonlib_wrapper is not None
+        request = tonlib_api.Blocks_getShardsRequest(id=block_id)
+        return request.parse_result(await self._tonlib_wrapper.execute(request))
+
+    async def get_block_header(
+        self, block_id: tonlib_api.Ton_blockIdExt
+    ) -> tonlib_api.Blocks_header:
+        assert self._tonlib_wrapper is not None
+        request = tonlib_api.Blocks_getBlockHeaderRequest(id=block_id)
+        return request.parse_result(await self._tonlib_wrapper.execute(request))
+
+    async def raw_get_block_transactions(
+        self,
+        block_id: tonlib_api.Ton_blockIdExt,
+        count: int,
+        after: tonlib_api.Blocks_accountTransactionId | None = None,
+    ) -> tonlib_api.Blocks_transactions:
+        assert self._tonlib_wrapper is not None
+        mode = 7
+        if after is not None:
+            mode += 128
+        request = tonlib_api.Blocks_getTransactionsRequest(
+            id=block_id,
+            mode=mode,
+            count=count,
+            after=after,
+        )
+        return request.parse_result(await self._tonlib_wrapper.execute(request))
+
+    async def get_block_transactions(
+        self,
+        block_id: tonlib_api.Ton_blockIdExt,
+    ) -> list[tonlib_api.Blocks_shortTxId]:
+        result: list[tonlib_api.Blocks_shortTxId] = []
+        after = None
+        while True:
+            batch = await self.raw_get_block_transactions(block_id, 256, after)
+            result.extend(batch.transactions)
+            if not batch.incomplete:
+                break
+            after = tonlib_api.Blocks_accountTransactionId(
+                account=batch.transactions[-1].account,
+                lt=batch.transactions[-1].lt,
+            )
+        return result
