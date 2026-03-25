@@ -17,23 +17,22 @@
 #include "ast.h"
 #include "ast-visitor.h"
 #include "compilation-errors.h"
+#include "smart-casts-cfg.h"
 #include "type-system.h"
 
 /*
  *   This pipe checks lvalue/rvalue for validity.
  *   It happens after type inferring (after methods binding) and after lvalue/rvalue are refined based on fun_ref.
  *
- *   Example: `f() = 4`, `f()` was earlier marked as lvalue, it's incorrect.
- *   Example: `f(mutate 5)`, `5` was marked also, it's incorrect.
+ *   Lvalue can only arise from three sources:
+ *     1) LHS of assignment: `lhs = rhs`, `lhs += rhs`
+ *     2) `mutate` argument: `f(mutate lhs)`
+ *     3) `mutate self` method: `lhs.mutatingMethod()`
+ *   For each source, is_valid_lvalue_path(lhs) is checked.
+ *   Additionally, readonly fields and immutable variables are checked.
  */
 
 namespace tolk {
-
-static Error err_cannot_be_used_as_lvalue(const std::string& details) {
-  // example: `f() = 32`
-  // example: `loadUint(c.beginParse(), 32)` (since `loadUint()` mutates the first argument)
-  return err("{} can not be used as lvalue", details);
-}
 
 static Error err_modifying_immutable_variable(LocalVarPtr var_ref) {
   if (var_ref->param_idx == 0 && var_ref->name == "self") {
@@ -87,137 +86,79 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
     }
   }
 
-  void visit(V<ast_braced_expression> v) override {
-    if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("braced expression").collect(v, cur_f);
+  // for `v.field = rhs`, only `v.field` has is_lvalue=true, `v` itself is rvalue;
+  // so visit(ast_reference) won't analyze `v`;
+  // we need to manually walk the lvalue path `v.field` to find root references
+  // to fire an error if `v` is immutable
+  void check_lvalue_path_references(AnyExprV v) const {
+    if (auto as_ref = v->try_as<ast_reference>()) {
+      on_reference_used_as_lvalue(as_ref->sym, v->range);
+    } else if (auto as_dot = v->try_as<ast_dot_access>()) {
+      check_lvalue_path_references(as_dot->get_obj());
+    } else if (auto as_nn = v->try_as<ast_not_null_operator>()) {
+      check_lvalue_path_references(as_nn->get_expr());
+    } else if (auto as_tensor = v->try_as<ast_tensor>()) {
+      for (int i = 0; i < as_tensor->size(); ++i) {
+        check_lvalue_path_references(as_tensor->get_item(i));
+      }
+    } else if (auto as_sq = v->try_as<ast_square_brackets>()) {
+      for (int i = 0; i < as_sq->size(); ++i) {
+        check_lvalue_path_references(as_sq->get_item(i));
+      }
     }
-    parent::visit(v);
+  }
+
+  // analyze `v.field` as lvalue (`v.field = rhs` / `mutate v.field` / `v.field.mutatingMethod`)
+  void check_lvalue_dot_chain(V<ast_dot_access> v) const {
+    // fire if `field` is readonly
+    AnyExprV leftmost_obj = v;
+    while (true) {
+      if (auto as_dot = leftmost_obj->try_as<ast_dot_access>()) {
+        if (as_dot->is_target_struct_field()) {
+          StructFieldPtr field_ref = std::get<StructFieldPtr>(as_dot->target);
+          const TypeDataStruct* obj_type = as_dot->get_obj()->inferred_type->unwrap_alias()->try_as<TypeDataStruct>();
+          tolk_assert(obj_type);
+          if (field_ref->is_readonly) {
+            err_modifying_readonly_field(obj_type->struct_ref, field_ref).collect(as_dot, cur_f);
+          }
+        }
+        leftmost_obj = as_dot->get_obj();
+      } else if (auto as_nn = leftmost_obj->try_as<ast_not_null_operator>()) {
+        leftmost_obj = as_nn->get_expr();
+      } else {
+        break;
+      }
+    }
+    // fire if `v` is immutable (declared as `val`, not `var`)
+    check_lvalue_path_references(leftmost_obj);
   }
 
   void visit(V<ast_assign> v) override {
-    if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("assignment").collect(v, cur_f);
+    AnyExprV lhs = v->get_lhs();
+    tolk_assert(lhs->is_lvalue);
+
+    // allow `v.field = rhs`, but not `v.method().field = rhs`
+    if (!is_valid_lvalue_path(lhs)) {
+      err("can not assign to a temporary expression").collect(lhs, cur_f);
     }
     parent::visit(v);
   }
 
   void visit(V<ast_set_assign> v) override {
-    if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("assignment").collect(v, cur_f);
+    AnyExprV lhs = v->get_lhs();
+    tolk_assert(lhs->is_lvalue);
+
+    // allow `v.field += rhs`, but not `v.method().field += rhs`
+    if (!is_valid_lvalue_path(lhs)) {
+      err("can not assign to a temporary expression").collect(lhs, cur_f);
     }
     parent::visit(v);
-  }
-
-  void visit(V<ast_binary_operator> v) override {
-    if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("operator " + static_cast<std::string>(v->operator_name)).collect(v, cur_f);
-    }
-    parent::visit(v);
-  }
-
-  void visit(V<ast_unary_operator> v) override {
-    if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("operator " + static_cast<std::string>(v->operator_name)).collect(v, cur_f);
-    }
-    parent::visit(v);
-  }
-
-  void visit(V<ast_ternary_operator> v) override {
-    if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("operator ?:").collect(v, cur_f);
-    }
-    parent::visit(v);
-  }
-
-  void visit(V<ast_null_coalesce_operator> v) override {
-    if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("operator ??").collect(v, cur_f);
-    }
-    parent::visit(v);
-  }
-
-  void visit(V<ast_cast_as_operator> v) override {
-    if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("operator `as`").collect(v, cur_f);
-    }
-    parent::visit(v->get_expr());
-  }
-
-  void visit(V<ast_is_type_operator> v) override {
-    if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue(v->is_negated ? "operator !is" : "operator is").collect(v, cur_f);
-    }
-    parent::visit(v->get_expr());
-  }
-
-  void visit(V<ast_not_null_operator> v) override {
-    if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("operator `!`").collect(v, cur_f);
-    }
-    parent::visit(v->get_expr());
-  }
-
-  void visit(V<ast_lazy_operator> v) override {
-    if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("lazy expression").collect(v, cur_f);
-    }
-    parent::visit(v->get_expr());
-  }
-
-  void visit(V<ast_int_const> v) override {
-    if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("literal").collect(v, cur_f);
-    }
-  }
-
-  void visit(V<ast_string_const> v) override {
-    if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("literal").collect(v, cur_f);
-    }
-  }
-
-  void visit(V<ast_bool_const> v) override {
-    if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("literal").collect(v, cur_f);
-    }
-  }
-
-  void visit(V<ast_null_keyword> v) override {
-    if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("literal").collect(v, cur_f);
-    }
   }
 
   void visit(V<ast_dot_access> v) override {
-    // check for `immutableVal.field = rhs` or any other mutation of an immutable tensor/tuple/object
-    // don't allow cheating like `((immutableVal!)).field = rhs`
-    // same here: check for `obj.readonlyField = rhs` or any other mutation of a readonly field
+    // dig into `v.field` if it's assigned/mutated
     if (v->is_lvalue) {
-      AnyExprV leftmost_obj = v;
-      while (true) {
-        if (auto as_dot = leftmost_obj->try_as<ast_dot_access>()) {
-          if (as_dot->is_target_struct_field()) {
-            StructFieldPtr field_ref = std::get<StructFieldPtr>(as_dot->target);
-            const TypeDataStruct* obj_type = as_dot->get_obj()->inferred_type->unwrap_alias()->try_as<TypeDataStruct>();
-            tolk_assert(obj_type);
-            if (field_ref->is_readonly) {
-              err_modifying_readonly_field(obj_type->struct_ref, field_ref).collect(as_dot, cur_f);
-            }
-          }
-
-          leftmost_obj = as_dot->get_obj();
-        } else if (auto as_cast = leftmost_obj->try_as<ast_cast_as_operator>()) {
-          leftmost_obj = as_cast->get_expr();
-        } else if (auto as_nn = leftmost_obj->try_as<ast_not_null_operator>()) {
-          leftmost_obj = as_nn->get_expr();
-        } else {
-          break;
-        }
-      }
-
-      if (auto leftmost_ref = leftmost_obj->try_as<ast_reference>()) {
-        on_reference_used_as_lvalue(leftmost_ref->sym, leftmost_obj->range);
-      }
+      check_lvalue_dot_chain(v);
     }
 
     // a reference to a method used as rvalue, like `var v = t.tupleAt`
@@ -229,31 +170,35 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
   }
 
   void visit(V<ast_function_call> v) override {
-    if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("function call").collect(v, cur_f);
-    }
     if (!v->fun_maybe) {
       parent::visit(v->get_callee());
     }
-    // for `f()` don't visit ast_reference `f`, to detect `f` usage as non-call, like `var cb = f`
-    // same for `obj.method()`, don't visit ast_reference method, visit only obj
-    if (AnyExprV self_obj = v->get_self_obj()) {
+
+    // allow `v.increment()`, but not `v.id().increment()`
+    // (but still allow `beginCell().storeUint()`, because `beginCell()` is NOT marked lvalue previously)
+    AnyExprV self_obj = v->get_self_obj();
+    if (v->fun_maybe && v->fun_maybe->does_mutate_self() && self_obj && self_obj->is_lvalue) {
+      if (!is_valid_lvalue_path(self_obj)) {
+        err("can not mutate a temporary expression").collect(self_obj, cur_f);
+      }
+    }
+    if (self_obj) {
       parent::visit(self_obj);
     }
 
+    // allow `f(mutate v)`, but not `f(mutate v.id())`
     for (int i = 0; i < v->get_num_args(); ++i) {
-      parent::visit(v->get_arg(i));
+      auto ith_arg = v->get_arg(i);
+      if (ith_arg->passed_as_mutate && !is_valid_lvalue_path(ith_arg->get_expr())) {
+        err("can not mutate a temporary expression").collect(ith_arg, cur_f);
+      }
+      parent::visit(ith_arg);
     }
-  }
-
-  void visit(V<ast_match_expression> v) override {
-    if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("`match` expression").collect(v, cur_f);
-    }
-    parent::visit(v);
   }
 
   void visit(V<ast_reference> v) override {
+    // is_lvalue is true for `v = rhs` or `(v, w) = rhs`, but NOT for `v` inside `v.field = rhs`
+    // (the latter is handled by check_lvalue_path_references above)
     if (v->is_lvalue) {
       on_reference_used_as_lvalue(v->sym, v->range);
     }
@@ -262,13 +207,6 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
     if (FunctionPtr fun_ref = v->sym->try_as<FunctionPtr>(); fun_ref && v->is_rvalue) {
       validate_function_used_as_noncall(cur_f, v, fun_ref);
     }
-  }
-
-  void visit(V<ast_lambda_fun> v) override {
-    if (v->is_lvalue) {
-      err_cannot_be_used_as_lvalue("lambda").collect(v, cur_f);
-    }
-    // we don't traverse body: just detect `fun(){} = rhs`
   }
 
   void visit(V<ast_underscore> v) override {

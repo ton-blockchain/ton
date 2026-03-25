@@ -47,9 +47,13 @@ namespace tolk {
 static Error err_undefined_symbol(V<ast_identifier> v) {
   if (v->name == "self") {
     return err("using `self` in a non-member function (it does not accept the first `self` parameter)");
-  } else {
-    return err("undefined symbol `{}`", v->name);
   }
+  for (const auto& [skipped_name, skipped_file] : G.skipped_imported_getters) {
+    if (skipped_name == v->name) {
+      return err("`{}` is a contract getter in `{}` and is not accessible when imported\n""hint: extract shared logic into a regular function", v->name, skipped_file->extract_short_name());
+    }
+  }
+  return err("undefined symbol `{}`", v->name);
 }
 
 static Error err_type_used_as_symbol(V<ast_identifier> v) {
@@ -296,7 +300,7 @@ public:
 
 void pipeline_resolve_identifiers_and_assign_symbols() {
   AssignSymInsideFunctionVisitor visitor;
-  for (const SrcFile* file : G.all_src_files) {
+  for (SrcFilePtr file : G.all_src_files) {
     for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
       if (auto v_fun = v->try_as<ast_function_declaration>()) {
         // v_fun->fun_ref may be nullptr if it's `get fun` implicitly imported and ignored because of `contract`

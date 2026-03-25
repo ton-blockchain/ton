@@ -35,7 +35,6 @@ set(TOLK_SOURCE
         pipe-ast-to-legacy.cpp
         pipe-find-unused-symbols.cpp
         pipe-generate-fif-output.cpp
-        pipe-generate-source-map.cpp
         pipe-collect-abi.cpp
         type-system.cpp
         type-transition.cpp
@@ -43,6 +42,7 @@ set(TOLK_SOURCE
         generics-helpers.cpp
         lazy-helpers.cpp
         overload-resolution.cpp
+        source-maps.cpp
         abscode.cpp
         analyzer.cpp
         asmops.cpp
@@ -51,7 +51,6 @@ set(TOLK_SOURCE
         optimize.cpp
         pretty-print.cpp
         codegen.cpp
-        debug-info.cpp
         tolk.cpp
 )
 

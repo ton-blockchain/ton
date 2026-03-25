@@ -102,6 +102,11 @@ static ShapeScore calculate_shape_score(TypePtr t) {
     return {ShapeKind::Instantiated, 1 + d};
   }
 
+  if (const auto* t_array = t->try_as<TypeDataArray>()) {
+    int d = calculate_shape_score(t_array->innerT).depth;
+    return {ShapeKind::Instantiated, 1 + d};
+  }
+
   if (const auto* t_alias = t->try_as<TypeDataAlias>()) {
     return calculate_shape_score(t_alias->underlying_type);
   }

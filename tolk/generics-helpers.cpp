@@ -142,7 +142,7 @@ GenericSubstitutionsDeducing::GenericSubstitutionsDeducing(const GenericsDeclara
 void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, TypePtr arg_type) {
   // all Ts deduced up to this point are apriori
   param_type = replace_genericT_with_deduced(param_type, &deducedTs);
-  if (!param_type->has_genericT_inside()) {
+  if (!param_type->has_genericT_inside() || arg_type == TypeDataNotInferred::create()) {
     return;
   }
 
@@ -264,6 +264,12 @@ void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, T
       for (int i = 0; i < p_instAl->size(); ++i) {
         consider_next_condition(p_instAl->type_arguments[i], a_alias->alias_ref->substitutedTs->typeT_at(i));
       }
+    } else {
+      // `arg: WrapperAlias<T>` called as `f(someWrapperInt)` => T is int
+      // `arg: ArrayAlias<ArrayAlias<T>>` called as `f([[1],[2]])` => T is int
+      GenericsSubstitutions cur_sub(p_instAl->alias_ref->genericTs, p_instAl->type_arguments);
+      TypePtr underlying_replaced = replace_genericT_with_deduced(p_instAl->alias_ref->underlying_type, &cur_sub);
+      consider_next_condition(underlying_replaced, arg_type);
     }
   } else if (const auto* p_map = param_type->try_as<TypeDataMapKV>()) {
     // `arg: map<K, V>` called as `f(someMapInt32Slice)` => K = int32, V = slice

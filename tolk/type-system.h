@@ -56,6 +56,7 @@ protected:
     type_id_address_int = 8,
     type_id_address_any = 9,
     type_id_void = 10,
+    type_id_unknown = 11,
     type_id_coins = 17,
     type_id_string = 18,
     type_id_never = 19,
@@ -725,11 +726,12 @@ class TypeDataUnknown final : public TypeData {
 public:
   static TypePtr create() { return singleton; }
 
-  int get_type_id() const override;
+  int get_type_id() const override { return type_id_unknown; }
   std::string as_human_readable() const override { return "unknown"; }
   void as_abi_json(std::string& out) const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  bool can_hold_tvm_null_instead() const override;
 };
 
 /*

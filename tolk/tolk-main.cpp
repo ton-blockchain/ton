@@ -43,25 +43,27 @@
 using namespace tolk;
 
 enum LongOnlyOptions {
-  OPT_BOC_OUTPUT = 256,
-  OPT_ABI_OUTPUT,
-  OPT_PATH_MAPPING,
+  OPT_PATH_MAPPING = 256,
   OPT_NO_STACK_COMMENTS,
   OPT_NO_LINE_COMMENTS,
+  OPT_NO_CONTRACT_ABI,
+  OPT_NO_SOURCE_MAPS,
   OPT_JSON_ERRORS,
   OPT_CHECK_ONLY,
+  OPT_ALLOW_NO_ENTRYPOINT,
 };
 
 static struct option long_options[] = {
   {"output", required_argument, nullptr, 'o'},
-  {"abi-output", required_argument, nullptr, OPT_ABI_OUTPUT},
-  {"boc-output", required_argument, nullptr, OPT_BOC_OUTPUT},
   {"opt-level", required_argument, nullptr, 'O'},
   {"path-mapping", required_argument, nullptr, OPT_PATH_MAPPING},
   {"no-stack-comments", no_argument, nullptr, OPT_NO_STACK_COMMENTS},
   {"no-line-comments", no_argument, nullptr, OPT_NO_LINE_COMMENTS},
+  {"no-contract-abi", no_argument, nullptr, OPT_NO_CONTRACT_ABI},
+  {"no-source-maps", no_argument, nullptr, OPT_NO_SOURCE_MAPS},
   {"json-errors", no_argument, nullptr, OPT_JSON_ERRORS},
   {"check-only", no_argument, nullptr, OPT_CHECK_ONLY},
+  {"allow-no-entrypoint", no_argument, nullptr, OPT_ALLOW_NO_ENTRYPOINT},
   {"verbose", no_argument, nullptr, 'e'},
   {"version", no_argument, nullptr, 'V'},
   {"help", no_argument, nullptr, 'h'},
@@ -74,10 +76,7 @@ void usage(const char* progname) {
             "\tGenerates Fift TVM assembler code from a .tolk file\n"
          "-o, --output <fif-filename>\n"
             "\tWrite generated code into specified .fif file instead of stdout\n"
-         "--boc-output <boc-filename>\n"
-            "\tGenerate Fift instructions to save TVM bytecode into .boc file\n"
-         "--abi-output <json-filename>\n"
-            "\tWrite contract ABI into specified .json file\n"
+            "\tOther artifacts use the same basename: for 'out.fif', also emit 'out.abi.json', etc.\n"
          "-O, --opt-level <level>\n"
             "\tSet optimization level (2 by default)\n"
          "--path-mapping <mapping>\n"
@@ -86,10 +85,14 @@ void usage(const char* progname) {
             "\tDon't include stack layout comments into Fift output\n"
          "--no-line-comments\n"
             "\tDon't include original lines from Tolk src into Fift output\n"
+         "--no-source-maps\n"
+            "\tDon't output source maps artifact and debug marks to Fift code\n"
          "--json-errors\n"
             "\tShow compilation errors in JSON (not human-readable) format\n"
          "--check-only\n"
             "\tCheck sources for errors without generating code (for IDE in background)\n"
+         "--allow-no-entrypoint\n"
+            "\tDo not require main/onInternalMessage (e.g. to compile only get-methods)\n"
          "-e, --verbose\n"
             "\tIncrease verbosity level (extra output into stderr)\n"
          "-v, --version\n"
@@ -189,7 +192,7 @@ static std::string auto_discover_stdlib_folder() {
   return {};
 }
 
-td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind kind, const char* query) {
+td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind kind, const char* query, void* callback_payload) {
   switch (kind) {
     case CompilerSettings::FsReadCallbackKind::Realpath: {
       std::string path;
@@ -197,18 +200,22 @@ td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind ki
         path = G_settings.stdlib_folder + static_cast<std::string>(query + 7);
       } else if (query[0] == '@') {
         const char* slash = strchr(query, '/');
-        if (slash != nullptr) {
-          std::string_view at_prefix(query, slash);
-          std::string_view abs_folder = G_settings.get_path_mapping(at_prefix);
-          if (abs_folder.empty()) {
-            return td::Status::Error("path mapping " + std::string{at_prefix} + " was not registered");
-          }
-          path = std::string(abs_folder) + slash;
-        } else {
-          path = query;
+        if (slash == nullptr || slash[1] == '\0') {
+          return td::Status::Error("import path with @ prefix must specify a file, e.g. @third_party/math-utils");
         }
+        std::string_view at_prefix(query, slash);
+        std::string_view abs_folder = G_settings.get_path_mapping(at_prefix);
+        if (abs_folder.empty()) {
+          return td::Status::Error("path mapping " + std::string{at_prefix} + " was not registered");
+        }
+        path = std::string(abs_folder) + slash;
       } else {
         path = query;
+      }
+
+      // reject `import "some/dir/"`, do not try to load "some/dir/.tolk"
+      if (path.back() == '/' || path.back() == '\\') {
+        return td::Status::Error("import path must specify a file, not a directory");
       }
 
       if (strncmp(path.c_str() + path.size() - 5, ".tolk", 5) != 0) {
@@ -234,6 +241,9 @@ td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind ki
       std::string str;
       str.resize(file_size);
       FILE* f = fopen(query, "rb");
+      if (!f) {
+        return td::Status::Error(std::string{"cannot open file "} + query);
+      }
       fread(str.data(), file_size, 1, f);
       fclose(f);
       return std::move(str);
@@ -242,6 +252,9 @@ td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind ki
       return td::Status::Error("unknown query kind");
     }
   }
+
+  // callback_payload is not used in CLI mode, it's for library mode, see tolk-wasm.cpp
+  static_cast<void>(callback_payload);
 }
 
 GNU_ATTRIBUTE_NOINLINE
@@ -277,8 +290,7 @@ static void compilation_failed_with_fatal(const std::string& message) {
   std::cerr << "fatal: " << message << std::endl;
 }
 
-static void compilation_succeed_output_fift(std::ostream& fif_os, const std::string& fift_code) {
-  fif_os << fift_code;
+static void compilation_succeed_after_output_done() {
   if (G_settings.show_errors_as_json) {
     std::cerr << R"({"status":"ok"})";
   }
@@ -290,12 +302,6 @@ int main(int argc, char* const argv[]) {
     switch (i) {
       case 'o':
         G_settings.output_filename = optarg;
-        break;
-      case OPT_BOC_OUTPUT:
-        G_settings.boc_output_filename = optarg;
-        break;
-      case OPT_ABI_OUTPUT:
-        G_settings.abi_json_output_filename = optarg;
         break;
       case 'O':
         G_settings.optimization_level = std::max(0, atoi(optarg));
@@ -311,11 +317,20 @@ int main(int argc, char* const argv[]) {
       case OPT_NO_LINE_COMMENTS:
         G_settings.tolk_src_as_line_comments = false;
         break;
+      case OPT_NO_CONTRACT_ABI:
+        G_settings.emit_contract_abi = false;
+        break;
+      case OPT_NO_SOURCE_MAPS:
+        G_settings.emit_source_maps = false;
+        break;
       case OPT_JSON_ERRORS:
         G_settings.show_errors_as_json = true;
         break;
       case OPT_CHECK_ONLY:
         G_settings.check_only_no_output = true;
+        break;
+      case OPT_ALLOW_NO_ENTRYPOINT:
+        G_settings.allow_no_entrypoint = true;
         break;
       case 'e':
         G_settings.verbosity++;
@@ -329,15 +344,6 @@ int main(int argc, char* const argv[]) {
       case 'h':
       default:
         usage(argv[0]);
-    }
-  }
-
-  std::ofstream fif_out_file;
-  if (!G_settings.output_filename.empty()) {    // if not set, fif code will be output to std::cout
-    fif_out_file.open(G_settings.output_filename);
-    if (!fif_out_file.is_open()) {
-      std::cerr << "Failed to create output file " << G_settings.output_filename << std::endl;
-      return 2;
     }
   }
 
@@ -370,8 +376,7 @@ int main(int argc, char* const argv[]) {
 
   G_settings.read_callback = fs_read_callback;
 
-  std::ofstream source_map_out;
-  TolkCompilationResult result = tolk_proceed(argv[optind], source_map_out);
+  TolkCompilationResult result = tolk_proceed(argv[optind]);
   if (!result.fatal_msg.empty()) {
     compilation_failed_with_fatal(result.fatal_msg);
     return 2;
@@ -381,6 +386,58 @@ int main(int argc, char* const argv[]) {
     return 2;
   }
 
-  compilation_succeed_output_fift(fif_out_file.is_open() ? fif_out_file : std::cout, result.fift_code);
+  // for IDE in background: no codegen, do not create or truncate output files
+  if (G_settings.check_only_no_output) {
+    compilation_succeed_after_output_done();
+    return 0;
+  }
+
+  // if output filename is empty, no files are written (only Fift code is written into stdout)
+  if (G_settings.output_filename.empty()) {
+    std::cout << result.fift_code;
+    compilation_succeed_after_output_done();
+    return 0;
+  }
+
+  std::ofstream fif_out_file(G_settings.output_filename);
+  if (!fif_out_file.is_open()) {
+    std::cerr << "Failed to create output file " << G_settings.output_filename << std::endl;
+    return 2;
+  }
+
+  // for "out.fif", calculate "out.abi.json", "out.boc64.txt", etc.
+  size_t len = G_settings.output_filename.size();
+  std::string out_basename = G_settings.output_filename.substr(0, G_settings.output_filename.ends_with(".fif") ? len - 4 : len);
+  if (out_basename.find_first_of("\"\n") != std::string::npos) {
+    std::cerr << "prohibited symbol in output filename" << std::endl;
+    return 2;
+  }
+
+  fif_out_file << result.fift_code;
+  if (G_settings.emit_source_maps) {
+    fif_out_file << "boc>B \"" << out_basename << ".debugMarks.boc\" B>file\n";
+    // todo need to save boc without source maps? need to disable it?
+    fif_out_file << "dup boc>B \"" << out_basename << ".compiled.boc\" B>file\n";
+  }
+
+  if (G_settings.emit_contract_abi) {
+    std::ofstream abi_out_file(out_basename + ".abi.json");
+    if (!abi_out_file.is_open()) {
+      std::cerr << "Failed to create output file " << out_basename << ".abi.json" << std::endl;
+      return 2;
+    }
+    abi_out_file << result.abi_json;
+  }
+
+  if (G_settings.emit_source_maps) {
+    std::ofstream source_maps_out_file(out_basename + ".sourceMaps.json");
+    if (!source_maps_out_file.is_open()) {
+      std::cerr << "Failed to create output file " << out_basename << ".sourceMaps.json" << std::endl;
+      return 2;
+    }
+    source_maps_out_file << result.sm_json;
+  }
+
+  compilation_succeed_after_output_done();
   return 0;
 }

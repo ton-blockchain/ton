@@ -184,10 +184,15 @@ void ContractABI::register_get_method(FunctionPtr fun_ref) {
   parameters.reserve(fun_ref->get_num_params());
   for (int i = 0; i < fun_ref->get_num_params(); ++i) {
     const LocalVarData& param_ref = fun_ref->get_param(i);
+    std::optional<ConstValExpression> default_value;
+    if (param_ref.default_value) {
+      default_value = eval_expression_if_const_or_fire(param_ref.default_value);
+    }
     parameters.emplace_back(ABIFunctionParameter{
       .name = param_ref.name,
       .ty = param_ref.declared_type,
       .description = doc.find_param_description(param_ref.name),
+      .defaultValue = std::move(default_value),
     });
     register_used_type(param_ref.declared_type);
   }
@@ -367,6 +372,10 @@ static void to_json(JsonPrettyOutput& out, const ConstValExpression& v) {
   } else if (const auto* h = std::get_if<ConstValShapedTuple>(&v)) {
     out.key_value("kind", "shapedTuple");
     out.key_value("items", h->items);
+  } else if (const auto* o = std::get_if<ConstValObject>(&v)) {
+    out.key_value("kind", "object");
+    out.key_value("structName", o->struct_ref->name);
+    out.key_value("fields", o->fields);
   } else if (const auto* c = std::get_if<ConstValCastToType>(&v)) {
     out.key_value("kind", "castTo");
     out.key_value("inner", c->inner.front());
@@ -569,7 +578,9 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
       if (!p.description.empty()) {
         json.key_value("description", p.description);
       }
-      // todo default value
+      if (p.defaultValue.has_value()) {
+        json.key_value("defaultValue", p.defaultValue.value());
+      }
       json.end_object();
     }
     json.end_array();

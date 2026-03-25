@@ -28,6 +28,7 @@ struct ABIFunctionParameter {
   std::string_view name;
   TypePtr ty;
   std::string description;
+  std::optional<ConstValExpression> defaultValue;
 };
 
 struct ABIGetMethod {

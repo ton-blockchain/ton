@@ -90,6 +90,13 @@ std::string debug_print(EnumDefPtr sym) {
   return "enum " + sym->name;
 }
 
+std::string debug_print(const OpList* list) {
+  if (list->empty()) {
+    return "empty";
+  }
+  return "size=" + std::to_string(list->size());
+}
+
 std::string debug_print(const Op* op) {
   std::ostringstream os;
 
@@ -235,7 +242,7 @@ std::string debug_print(const AsmOp* op) {
 std::string debug_print(const AsmOpList* op_list) {
   int n_stmt = 0;
   for (const AsmOp& cur : op_list->list_) {
-    n_stmt += !cur.is_comment();
+    n_stmt += !cur.is_debug_mark();
   }
 
   return "n_stmt=" + std::to_string(n_stmt);

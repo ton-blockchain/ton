@@ -32,6 +32,7 @@
 #include "json-output.h"
 #include "fift/utils.h"
 #include "td/utils/Status.h"
+#include <mutex>
 #include <sstream>
 
 using namespace tolk;
@@ -76,7 +77,9 @@ static td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(entrypoint_filename, td::get_json_object_string_field(config, "entrypointFileName", false));
   TRY_RESULT(show_errors_as_json, td::get_json_object_bool_field(config, "jsonErrors", true, false));
   TRY_RESULT(check_only_no_output, td::get_json_object_bool_field(config, "checkOnly", true, false));
+  TRY_RESULT(allow_no_entrypoint, td::get_json_object_bool_field(config, "allowNoEntrypoint", true, false));
   // note that `pathMappings` are handled on a client-side (in tolk-js) only
+  // contract ABI and source maps are always emitted (default to true in G_settings)
 
   G_settings.verbosity = 0;
   G_settings.optimization_level = std::max(0, opt_level);
@@ -84,13 +87,13 @@ static td::Result<std::string> compile_internal(char *config_json) {
   G_settings.tolk_src_as_line_comments = src_line_comments;
   G_settings.show_errors_as_json = show_errors_as_json;
   G_settings.check_only_no_output = check_only_no_output;
-  G_settings.collect_source_map = collect_source_map;
+  G_settings.emit_source_maps = collect_source_map;
+  G_settings.allow_no_entrypoint = allow_no_entrypoint;
 
-  std::ostringstream errs, abis, source_map_out;
+  std::ostringstream errs, source_map_out;
   std::streambuf* old_err = std::cerr.rdbuf(errs.rdbuf());
-  G.abi_json_str = &abis;
 
-  TolkCompilationResult result = tolk_proceed(entrypoint_filename, source_map_out);
+  TolkCompilationResult result = tolk_proceed(entrypoint_filename);
   if (!result.fatal_msg.empty()) {
     std::cerr.rdbuf(old_err);
     // no location or errors in json, just a message "fatal", something unexpected happened
@@ -127,7 +130,7 @@ static td::Result<std::string> compile_internal(char *config_json) {
   std::cerr.rdbuf(old_err);
 
   auto load_file_data = [](const std::string path) -> td::Result<std::string> {
-    return G_settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, path.c_str());
+    return G_settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, path.c_str(), G_settings.callback_payload);
   };
 
   TRY_RESULT(fift_res, fift::compile_asm_program_with_custom_loader(std::move(result.fift_code), load_file_data, "@fiftlib", collect_source_map));
@@ -139,14 +142,11 @@ static td::Result<std::string> compile_internal(char *config_json) {
   json.key_value("fiftCode", fift_res.fiftCode);
   json.key_value("codeBoc64", JsonPrettyOutput::Unescaped{fift_res.codeBoc64});
   json.key_value("codeHashHex", JsonPrettyOutput::Unescaped{fift_res.codeHashHex});
-  json.key_value("debugMarkBase64", fift_res.debugMarkBase64);
-  json.key_value("abiJson", JsonPrettyOutput::Unquoted{abis.str()});
+  json.key_value("debugMarkBase64", JsonPrettyOutput::Unescaped{fift_res.debugMarkBase64});
+  json.key_value("abiJson", JsonPrettyOutput::Unquoted{result.abi_json});
+  json.key_value("sourceMapsJson", JsonPrettyOutput::Unquoted{result.sm_json});
   json.key_value("tolkVersion", JsonPrettyOutput::Unescaped{TOLK_VERSION});
   json.key_value("stderr", errs.str());
-
-  if (const auto source_map = source_map_out.str(); !source_map.empty()) {
-    json.key_value("sourceMap", JsonPrettyOutput::Unquoted{source_map});
-  }
 
   json.end_object();
 
@@ -156,14 +156,15 @@ static td::Result<std::string> compile_internal(char *config_json) {
 /// Callback used to retrieve file contents from a "not file system". See tolk-js for implementation.
 /// The callback must fill either destContents or destError.
 /// The implementor must use malloc() for them and use free() after tolk_compile returns.
-typedef void (*WasmFsReadCallback)(int kind, char const* data, char** destContents, char** destError);
+/// callback_payload is an opaque pointer passed through from tolk_compile(), for caller-side identification.
+typedef void (*WasmFsReadCallback)(int kind, char const* data, char** destContents, char** destError, void* callback_payload);
 
 static CompilerSettings::FsReadCallback wrap_wasm_read_callback(WasmFsReadCallback _readCallback) {
-  return [_readCallback](CompilerSettings::FsReadCallbackKind kind, char const* data) -> td::Result<std::string> {
+  return [_readCallback](CompilerSettings::FsReadCallbackKind kind, char const* data, void* callback_payload) -> td::Result<std::string> {
     char* destContents = nullptr;
     char* destError = nullptr;
     if (_readCallback) {
-      _readCallback(static_cast<int>(kind), data, &destContents, &destError);
+      _readCallback(static_cast<int>(kind), data, &destContents, &destError, callback_payload);
     }
     if (destContents) {
       return destContents;
@@ -188,8 +189,9 @@ const char* tolk_version() {
   return strdup(result_json_str.str().c_str());
 }
 
-const char *tolk_compile(char *config_json, WasmFsReadCallback callback) {
+const char *tolk_compile(char *config_json, WasmFsReadCallback callback, void* callback_payload) {
   G_settings.read_callback = wrap_wasm_read_callback(callback);
+  G_settings.callback_payload = callback_payload;
 
   td::Result<std::string> res = compile_internal(config_json);
 

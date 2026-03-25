@@ -36,24 +36,25 @@ struct CompilerPathMapping {
 struct CompilerSettings {
   enum class FsReadCallbackKind { Realpath, ReadFile };
 
-  using FsReadCallback = std::function<td::Result<std::string>(FsReadCallbackKind, const char*)>;
+  using FsReadCallback = std::function<td::Result<std::string>(FsReadCallbackKind, const char*, void* callback_payload)>;
 
   int verbosity = 0;
   int optimization_level = 2;
   bool stack_layout_comments = true;
   bool tolk_src_as_line_comments = true;
+  bool emit_contract_abi = true;
+  bool emit_source_maps = true;
   bool show_errors_as_json = false;
   bool check_only_no_output = false;
-  bool collect_source_map = false;
+  bool allow_no_entrypoint = false;
 
-  std::string output_filename;
-  std::string boc_output_filename;
-  std::string abi_json_output_filename;
+  std::string output_filename;  // "out.fif"; other outputs are "out.abi.json", "out.boc64.txt", etc.
   std::string stdlib_folder;    // path to tolk-stdlib/; note: from tolk-js it's empty! tolk-js reads files via js callback
 
   std::vector<CompilerPathMapping> path_mappings;    // "@third_party" to "/absolute/folder"
 
   FsReadCallback read_callback;
+  void* callback_payload = nullptr;
 
   bool parse_path_mapping_cmd_arg(const std::string& cmd_arg);
   std::string_view get_path_mapping(std::string_view at_prefix) const;

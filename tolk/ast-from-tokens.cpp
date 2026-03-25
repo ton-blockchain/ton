@@ -164,6 +164,9 @@ static std::string parse_tok_string_const(std::string_view text, SrcRange cur_ra
   // trim surrounding quotes
   int trim_n = text.starts_with(R"(""")") ? 3 : 1;    // multi-line literal: 3 quotes outside
   text = text.substr(trim_n, text.size() - 2 * trim_n);
+  if (text.size() >= 32768) {
+    err("too long string literal").fire(cur_range);
+  }
   // unescape contents within
   std::string unescaped;
   unescaped.reserve(text.size());
@@ -181,7 +184,6 @@ static std::string parse_tok_string_const(std::string_view text, SrcRange cur_ra
       case 'n':  unescaped += '\n'; break;
       case 'r':  unescaped += '\r'; break;
       case 't':  unescaped += '\t'; break;
-      case '0':  unescaped += '\0'; break;
       case '\\': unescaped += '\\'; break;
       case '\'': unescaped += '\''; break;
       case '"':  unescaped += '"';  break;
@@ -387,7 +389,7 @@ static V<ast_annotation> parse_annotation(Lexer& lex) {
       }
       break;
     case AnnotationKind::overflow1023_policy:
-    case AnnotationKind::on_bounced_policy: 
+    case AnnotationKind::on_bounced_policy:
       if (!v_arg || v_arg->size() != 1 || v_arg->get_item(0)->kind != ast_string_const) {
         err("expecting `(\"policy_name\")` after {}", name).fire(range);
       }
@@ -1074,9 +1076,9 @@ static AnyExprV parse_expr100(Lexer& lex) {
       lex.check(tok_clpar, "`)`");
       range.end(lex.cur_range());
       lex.next();
-      if (items.size() == 1) {      // we can reach here for 1 element with trailing comma: `(item, )`
-        return items[0];            // then just return item, not a 1-element tensor,
-      }                             // since 1-element tensors won't be type compatible with item's type
+      if (items.size() == 1) {
+        return create_parenthesized_expression(range, items[0]);  // treat `(item,)` like `(item)`
+      }
       return createV<ast_tensor>(range, std::move(items));
     }
     case tok_opbracket: {           // `[1, 2]` (not `array<int> [1, 2]`)
@@ -2045,7 +2047,7 @@ static AnyV parse_import_directive(Lexer& lex) {
   auto v_str = parse_expr100(lex)->as<ast_string_const>();
   std::string_view rel_filename = v_str->str_val;
   if (rel_filename.empty()) {
-    lex.error("imported file name is an empty string");
+    err("imported file name is an empty string").fire(v_str);
   }
   range.end(v_str->range);
   return createV<ast_import_directive>(range, v_str);
@@ -2057,7 +2059,7 @@ static AnyV parse_import_directive(Lexer& lex) {
 //    (the main, exported, function)
 //
 
-AnyV parse_src_file_to_ast(const SrcFile* file) {
+AnyV parse_src_file_to_ast(SrcFilePtr file) {
   std::vector<AnyV> toplevel_declarations;
   AnnotationsAbove annotations;   // collected above the next declaration and flushed after creating it
   Lexer lex(file);

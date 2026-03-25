@@ -17,8 +17,8 @@
 #pragma once
 
 #include "src-file.h"
-#include "source_map.h"
 #include "symtable.h"
+#include "source-maps.h"
 #include <unordered_map>
 
 namespace tolk {
@@ -35,17 +35,18 @@ struct CompilerState {
   std::vector<FunctionPtr> all_builtins;        // all built-in functions
   std::vector<FunctionPtr> all_functions;       // all user-defined (not built-in) global-scope functions, with generic instantiations, with lambdas
   std::vector<FunctionPtr> all_methods;         // all user-defined and built-in extension methods for arbitrary types (receivers)
-  std::vector<FunctionPtr> all_contract_getters;
   std::vector<GlobalVarPtr> all_global_vars;
   std::vector<GlobalConstPtr> all_constants;
   std::vector<StructPtr> all_structs;
   std::vector<EnumDefPtr> all_enums;
   AllRegisteredSrcFiles all_src_files;
 
-  std::vector<SourceMapEntry> source_map;
+  // when importing a file with `contract` directive, its `get fun` are not imported, not registered in symtable;
+  // remember their names separately to show a reasonable error on calling, instead of just "undefined symbol"
+  std::vector<std::pair<std::string_view, SrcFilePtr>> skipped_imported_getters;
 
   ErrorCollector* error_collector = nullptr;  // when set, errors can be collected instead of thrown
-  std::ostringstream* abi_json_str = nullptr;
+  SourceMapCollecting source_map;
 
   int last_type_id = 128;                            // below 128 reserved for built-in types
   std::unordered_map<TypePtr, int> map_type_to_id;   // for assign_type_id() in type-system.cpp
@@ -60,9 +61,11 @@ struct TolkCompilationResult {
   std::vector<ThrownParseError> errors;
   std::string fatal_msg;      // some Fatal happened, it has no location and can't be pretty formatted
   std::string fift_code;      // fift code exists only if no compilation errors
+  std::string abi_json;       // ABI JSON exists only if no compilation errors
+  std::string sm_json;        // source maps emitted by the compiler (to be merged with debug marks dict emitted by Fift)
 };
 
 // starts all the compilation pipeline, called from tolk-main and tolk-wasm
-TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename, std::ostream& source_map_out);
+TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename);
 
 }  // namespace tolk

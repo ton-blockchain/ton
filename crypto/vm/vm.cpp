@@ -16,15 +16,16 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "vm/dispatch.h"
+#include <sodium.h>
+
 #include "vm/continuation.h"
 #include "vm/dict.h"
+#include "vm/dispatch.h"
 #include "vm/log.h"
 #include "vm/vm.h"
+
 #include "cp0.h"
 #include "memo.h"
-
-#include <sodium.h>
 
 namespace vm {
 
@@ -380,7 +381,10 @@ Ref<OrdCont> VmState::extract_cc(int save_cr, int stack_copy, int cc_args) {
   return cc;
 }
 
-int VmState::throw_exception(int excno) {
+int VmState::throw_exception(int excno, bool add_vm_log) {
+  if (add_vm_log) {   // it's true for THROW / THROWIFNOT / etc. (exceptions from contract's code)
+    VM_LOG(this) << "handling exception code " << excno << ": " << "custom THROW";
+  }
   Stack& stack_ref = get_stack();
   stack_ref.clear();
   stack_ref.push_smallint(0);
@@ -391,6 +395,7 @@ int VmState::throw_exception(int excno) {
 }
 
 int VmState::throw_exception(int excno, StackEntry&& arg) {
+  VM_LOG(this) << "handling exception code " << excno << ": " << "custom THROW";
   Stack& stack_ref = get_stack();
   stack_ref.clear();
   stack_ref.push(std::move(arg));
@@ -450,9 +455,12 @@ int VmState::step() {
   }
   ++steps;
   if (code->size()) {
-    VM_LOG_MASK(this, vm::VmLog::ExecLocation) << "code cell hash: " << code->get_base_cell()->get_hash().to_hex() << " offset: " << code->cur_pos();
+    VM_LOG_MASK(this, vm::VmLog::ExecLocation)
+        << "code cell hash: " << code->get_base_cell()->get_hash().to_hex() << " offset: " << code->cur_pos();
     return dispatch->dispatch(this, code.write());
   } else if (code->size_refs()) {
+    VM_LOG_MASK(this, vm::VmLog::ExecLocation)
+        << "code cell hash: " << code->get_base_cell()->get_hash().to_hex() << " offset: " << code->cur_pos();
     VM_LOG(this) << "execute implicit JMPREF";
     auto ref_cell = code->prefetch_ref();
     VM_LOG_MASK(this, vm::VmLog::ExecLocation) << "code cell hash: " << ref_cell->get_hash().to_hex() << " offset: 0";
@@ -460,6 +468,8 @@ int VmState::step() {
     Ref<Continuation> cont = Ref<OrdCont>{true, load_cell_slice_ref(std::move(ref_cell)), get_cp()};
     return jump(std::move(cont));
   } else {
+    VM_LOG_MASK(this, vm::VmLog::ExecLocation)
+        << "code cell hash: " << code->get_base_cell()->get_hash().to_hex() << " offset: " << code->cur_pos();
     VM_LOG(this) << "execute implicit RET";
     consume_gas_chk(implicit_ret_gas_price);
     return ret();
@@ -528,7 +538,7 @@ int VmState::run_step() {
     VM_LOG(this) << "handling exception code " << vme.get_errno() << ": " << vme.get_msg();
     try {
       ++steps;
-      res = throw_exception(vme.get_errno());
+      res = throw_exception(vme.get_errno(), false);    // no VM_LOG: just done above
     } catch (const VmError& vme2) {
       VM_LOG(this) << "exception " << vme2.get_errno() << " while handling exception: " << vme.get_msg();
       res = ~vme2.get_errno();
@@ -577,7 +587,7 @@ int VmState::run() {
         restore_parent_vm(~res);
       }
       res = run_inner();
-    } catch (VmNoGas &vmoog) {
+    } catch (VmNoGas& vmoog) {
       ++steps;
       VM_LOG(this) << "unhandled out-of-gas exception: gas consumed=" << gas.gas_consumed()
                    << ", limit=" << gas.gas_limit;

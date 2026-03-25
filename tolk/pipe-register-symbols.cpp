@@ -271,11 +271,6 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
     f_sym->tvm_method_id = v->tvm_method_id;
   } else if (v->flags & FunctionData::flagContractGetter) {
     f_sym->tvm_method_id = calculate_tvm_method_id_by_func_name(f_identifier);
-    for (FunctionPtr other : G.all_contract_getters) {
-      if (other->tvm_method_id == f_sym->tvm_method_id) {
-        err("GET methods hash collision: `{}` and `{}` produce the same hash. Consider renaming one of these functions.", other, f_sym).fire(v);
-      }
-    }
   } else if (v->flags & FunctionData::flagIsEntrypoint) {
     f_sym->tvm_method_id = calculate_tvm_method_id_for_entrypoint(f_identifier);
   }
@@ -290,30 +285,32 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
     G.all_methods.push_back(f_sym);
   }
   G.all_functions.push_back(f_sym);
-  if (f_sym->is_contract_getter()) {
-    G.all_contract_getters.push_back(f_sym);
-  }
   v->mutate()->assign_fun_ref(f_sym);
   return f_sym;
 }
 
-static void iterate_through_file_symbols(const SrcFile* file, bool is_imported, std::unordered_set<const SrcFile*>& seen) {
+static void iterate_through_file_symbols(SrcFilePtr file, bool is_imported, std::unordered_set<SrcFilePtr>& seen) {
   if (!seen.insert(file).second) {
     return;
   }
   tolk_assert(file && file->ast);
 
+  // first pass: detect `contract XXX { ... }` anywhere in a file, before processing all declarations
+  for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
+    if (v->kind == ast_contract_directive) {
+      tolk_assert(!file->has_contract_directive());
+      file->mutate()->assign_contract_directive(parse_contract_directive(v));
+      break;
+    }
+  }
+
+  // second pass: register all declarations in symtable (functions, structs, etc.)
   for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
     switch (v->kind) {
       case ast_import_directive:
         // on `import "another-file.tolk"`, register symbols from that file at first
         iterate_through_file_symbols(v->as<ast_import_directive>()->file, true, seen);
         break;
-      case ast_contract_directive:
-        tolk_assert(!file->has_contract_directive());
-        file->mutate()->assign_contract_directive(parse_contract_directive(v));
-        break;
-
       case ast_constant_declaration:
         register_constant(v->as<ast_constant_declaration>());
         break;
@@ -332,18 +329,20 @@ static void iterate_through_file_symbols(const SrcFile* file, bool is_imported, 
       case ast_function_declaration: {
         auto v_fun = v->as<ast_function_declaration>();
         bool is_entrypoint = v_fun->flags & FunctionData::flagIsEntrypoint;    // fun main / onInternalMessage / onBouncedMessage
-        bool is_get_method = v_fun->flags & FunctionData::flagContractGetter;  // get fun xxx
+        bool is_get_method = v_fun->flags & FunctionData::flagContractGetter;  // get fun seqno
         if (is_entrypoint || is_get_method) {
-          // when importing a file with `contract`, its onInternalMessage and getters are not imported
-          // it allows having multiple contracts and importing one another, "seeing" only declarations
-          // it also allows writing external scripts: `import "contract"` + `fun main` doesn't conflict
+          // when importing a file with `contract`, its onInternalMessage and getters are not imported;
+          // it allows having multiple contracts importing one another, "seeing" only declarations;
+          // it also allows writing external scripts: `import "contract"` + `fun main` don't conflict
           if (is_imported && file->has_contract_directive()) {
+            // remember `get fun seqno()` on import "wallet" for error messages if used incorrectly
+            G.skipped_imported_getters.emplace_back(v_fun->get_identifier()->name, file);
             break;    // v_fun->fun_ref is left nullptr in AST
           }
           // if the main input file has `contract`, it should contain all getters within,
-          // we do not allow `import "something"` having `get fun` inside
-          // we force all getters to be visible at a glance, in the main file
-          const SrcFile* entrypoint_file = G.all_src_files.get_entrypoint_file();
+          // we do not allow `import "something"` having `get fun` inside;
+          // we force the convention: all getters to be visible at a glance, in the main file
+          SrcFilePtr entrypoint_file = G.all_src_files.get_entrypoint_file();
           if (entrypoint_file->has_contract_directive() && file != entrypoint_file) {
             err("all contract entrypoints must be placed in the contract file `{}`\n""hint: keep `onInternalMessage` and `get fun` just below `contract`, not in other files", entrypoint_file->extract_short_name()).fire(v_fun->get_identifier());
           }
@@ -358,7 +357,7 @@ static void iterate_through_file_symbols(const SrcFile* file, bool is_imported, 
 }
 
 void pipeline_register_global_symbols() {
-  std::unordered_set<const SrcFile*> seen;
+  std::unordered_set<SrcFilePtr> seen;
   iterate_through_file_symbols(G.all_src_files.get_stdlib_common_file(), false, seen);
   iterate_through_file_symbols(G.all_src_files.get_entrypoint_file(), false, seen);
 }

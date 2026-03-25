@@ -26,16 +26,18 @@ namespace tolk {
 using namespace std::literals::string_literals;
 
 // given func_type = `(slice, int) -> slice` and func flags, create SymLocalVarOrParameter
-// currently (see at the bottom) parameters of built-in functions are unnamed:
-// built-in functions are created using a resulting type
-static std::vector<LocalVarData> define_builtin_parameters(const std::vector<TypePtr>& params_types, int func_flags) {
+// param_names is optional: when provided, parameters get names (used for "big" built-in functions, so that
+// their arguments appear in debug info / source maps); when empty, parameters remain unnamed
+static std::vector<LocalVarData> define_builtin_parameters(const std::vector<TypePtr>& params_types, int func_flags,
+                                                           const std::vector<std::string>& param_names = {}) {
   // `loadInt()`, `storeInt()`: they accept `self` and mutate it; no other options available in built-ins for now
   bool is_mutate_self = func_flags & FunctionData::flagHasMutateParams;
   std::vector<LocalVarData> parameters;
   parameters.reserve(params_types.size());
 
   for (int i = 0; i < static_cast<int>(params_types.size()); ++i) {
-    LocalVarData p_sym("", {}, params_types[i], nullptr, (i == 0 && is_mutate_self) * LocalVarData::flagMutateParameter, i);
+    std::string pname = (i < static_cast<int>(param_names.size())) ? param_names[i] : "";
+    LocalVarData p_sym(std::move(pname), {}, params_types[i], nullptr, (i == 0 && is_mutate_self) * LocalVarData::flagMutateParameter, i);
     parameters.push_back(std::move(p_sym));
   }
 
@@ -48,8 +50,9 @@ static void define_builtin_func(const std::string& name, const std::vector<TypeP
   G.all_builtins.push_back(f_sym);
 }
 
-static void define_builtin_func(const std::string& name, const std::vector<TypePtr>& params_types, TypePtr return_type, const GenericsDeclaration* genericTs, const std::function<FunctionBodyBuiltinGenerateOps::GenerateOpsImpl>& func, int flags) {
-  auto* f_sym = new FunctionData(name, {}, "", nullptr, return_type, define_builtin_parameters(params_types, flags), flags, FunctionInlineMode::notCalculated, genericTs, nullptr, {}, new FunctionBodyBuiltinGenerateOps(func), nullptr);
+static void define_builtin_func(const std::string& name, const std::vector<TypePtr>& params_types, TypePtr return_type, const GenericsDeclaration* genericTs, const std::function<FunctionBodyBuiltinGenerateOps::GenerateOpsImpl>& func, int flags,
+                                const std::vector<std::string>& param_names = {}) {
+  auto* f_sym = new FunctionData(name, {}, "", nullptr, return_type, define_builtin_parameters(params_types, flags, param_names), flags, FunctionInlineMode::notCalculated, genericTs, nullptr, {}, new FunctionBodyBuiltinGenerateOps(func), nullptr);
   G.symtable.add_function(f_sym);
   G.all_builtins.push_back(f_sym);
 }
@@ -65,9 +68,10 @@ static void define_builtin_method(const std::string& name, TypePtr receiver_type
   G.all_methods.push_back(f_sym);
 }
 
-void define_builtin_method(const std::string& name, TypePtr receiver_type, const std::vector<TypePtr>& params_types, TypePtr return_type, const GenericsDeclaration* genericTs, const std::function<FunctionBodyBuiltinGenerateOps::GenerateOpsImpl>& func, int flags) {
+void define_builtin_method(const std::string& name, TypePtr receiver_type, const std::vector<TypePtr>& params_types, TypePtr return_type, const GenericsDeclaration* genericTs, const std::function<FunctionBodyBuiltinGenerateOps::GenerateOpsImpl>& func, int flags,
+                           const std::vector<std::string>& param_names = {}) {
   std::string method_name = name.substr(name.find('.') + 1);
-  auto* f_sym = new FunctionData(name, {}, std::move(method_name), receiver_type, return_type, define_builtin_parameters(params_types, flags), flags, FunctionInlineMode::notCalculated, genericTs, nullptr, {}, new FunctionBodyBuiltinGenerateOps(func), nullptr);
+  auto* f_sym = new FunctionData(name, {}, std::move(method_name), receiver_type, return_type, define_builtin_parameters(params_types, flags, param_names), flags, FunctionInlineMode::notCalculated, genericTs, nullptr, {}, new FunctionBodyBuiltinGenerateOps(func), nullptr);
   G.symtable.add_function(f_sym);
   G.all_builtins.push_back(f_sym);
   G.all_methods.push_back(f_sym);
@@ -1428,7 +1432,6 @@ GenerateOpsImpl generate_T_forceLoadLazyObject;
 GenerateOpsImpl generate_slice_skipAny;
 GenerateOpsImpl generate_reflect_estimateSerializationOf;
 GenerateOpsImpl generate_reflect_serializationPrefixOf;
-GenerateOpsImpl generate_reflect_serializationPrefixLenOf;
 
 GenerateOpsImpl generate_createMessage;
 GenerateOpsImpl generate_createExternalLogMessage;
@@ -1629,10 +1632,10 @@ void define_builtins() {
                                 0);
   define_builtin_func("__InMessage.originalForwardFee", ParamsInt2, Int, nullptr,
                                 compile_calc_InMessage_originalForwardFee,
-                                0);
+                                FunctionData::flagMarkedAsPure);
   define_builtin_func("__InMessage.getInMsgParam", ParamsInt1, Int, nullptr,
                                 compile_calc_InMessage_getInMsgParam,
-                                0);
+                                FunctionData::flagMarkedAsPure);
   define_builtin_method("builder.__storeVarInt", Builder, {Builder, Int, Int, Bool}, Unit, nullptr,
                                 compile_store_varint,   // not exposed to stdlib, used in auto-serialization
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf);
@@ -1642,7 +1645,7 @@ void define_builtins() {
                                 {}, {1, 0});
   define_builtin_func("__condsel", ParamsInt3, Int, nullptr,
                               compile_ternary_as_condsel,
-                                0);
+                                FunctionData::flagMarkedAsPure);
 
   // compile-time only functions, evaluated essentially at compile-time, no runtime implementation
   // they are placed in stdlib and marked as `builtin`
@@ -1777,10 +1780,12 @@ void define_builtins() {
                                 FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf);
   define_builtin_method("address.buildSameAddressInAnotherShard", Address, {Address, AddressShardingOptions}, Builder, nullptr,
                                 generate_address_buildInAnotherShard,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf,
+                                {"self", "options"});
   define_builtin_method("address.calculateSameAddressInAnotherShard", Address, {Address, AddressShardingOptions}, Address, nullptr,
                                 generate_address_calculateInAnotherShard,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf,
+                                {"self", "options"});
   define_builtin_method("debug.print", debug, {typeT}, Unit, declGenericT,
                                 compile_debug_print_to_string,
                                 FunctionData::flagAllowAnyWidthT);
@@ -1805,13 +1810,10 @@ void define_builtins() {
   define_builtin_method("reflect.stackSizeOfObject", reflect, {typeT}, Int, declGenericT,
                                 compile_reflect_stackSizeOfObject,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("reflect.serializationPrefixOf", reflect, {}, Int, declGenericT,
+  define_builtin_method("reflect.serializationPrefixOf", reflect, {}, TypeDataTensor::create({Int, Int}), declGenericT,
                                 generate_reflect_serializationPrefixOf,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("reflect.serializationPrefixLenOf", reflect, {}, Int, declGenericT,
-                                generate_reflect_serializationPrefixLenOf,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("reflect.estimateSerializationOf", typeT, {}, TypeDataTensor::create({TypeDataInt::create(), TypeDataInt::create(), TypeDataInt::create(), TypeDataInt::create()}), declGenericT,
+  define_builtin_method("reflect.estimateSerializationOf", typeT, {}, TypeDataTensor::create({Int, Int, Int, Int}), declGenericT,
                                 generate_reflect_estimateSerializationOf,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("reflect.sourceLocation", reflect, {}, SourceLocation, nullptr,
@@ -1825,28 +1827,36 @@ void define_builtins() {
   // they work with structs (or, more low-level, with arbitrary types)
   define_builtin_method("T.toCell", typeT, {typeT, PackOptions}, CellT, declReceiverT,
                                 generate_T_toCell,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                {"self", "options"});
   define_builtin_method("T.fromCell", typeT, {TypeDataCell::create(), UnpackOptions}, typeT, declReceiverT,
                                 generate_T_fromCell,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT,
+                                {"packedCell", "options"});
   define_builtin_method("T.fromSlice", typeT, {Slice, UnpackOptions}, typeT, declReceiverT,
                                 generate_T_fromSlice,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT,
+                                {"rawSlice", "options"});
   define_builtin_method("T.forceLoadLazyObject", typeT, {typeT}, Slice, declReceiverT,
                                 generate_T_forceLoadLazyObject,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                {"self"});
   define_builtin_method("Cell<T>.load", CellT, {CellT, UnpackOptions}, typeT, declReceiverT,
                                 generate_T_fromCell,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                {"self", "options"});
   define_builtin_method("slice.loadAny", Slice, {Slice, UnpackOptions}, typeT, declGenericT,
                                 generate_slice_loadAny,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
+                                {"self", "options"});
   define_builtin_method("slice.skipAny", Slice, {Slice, UnpackOptions}, Slice, declGenericT,
                                 generate_slice_skipAny,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
+                                {"self", "options"});
   define_builtin_method("builder.storeAny", Builder, {Builder, typeT, PackOptions}, Builder, declGenericT,
                                 generate_builder_storeAny,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
+                                {"self", "v", "options"});
   define_builtin_method("T.toTuple", typeT, {typeT}, TypeDataArray::create(TypeDataUnknown::create()), declReceiverT,
                                 compile_T_to_tuple,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
@@ -1856,19 +1866,24 @@ void define_builtins() {
 
   define_builtin_func("createMessage", {CreateMessageOptions}, OutMessage, declTBody,
                                 generate_createMessage,
-                                FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT,
+                                {"options"});
   define_builtin_func("createExternalLogMessage", {CreateExternalLogMessageOptions}, OutMessage, declTBody,
                                 generate_createExternalLogMessage,
-                                FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT,
+                                {"options"});
   define_builtin_method("AutoDeployAddress.buildAddress", AutoDeployAddress, {AutoDeployAddress}, Builder, nullptr,
                                 generate_AutoDeployAddress_buildAddress,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf,
+                                {"self"});
   define_builtin_method("AutoDeployAddress.calculateAddress", AutoDeployAddress, {AutoDeployAddress}, Address, nullptr,
                                 generate_AutoDeployAddress_calculateAddress,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf,
+                                {"self"});
   define_builtin_method("AutoDeployAddress.addressMatches", AutoDeployAddress, {AutoDeployAddress, Address}, Bool, nullptr,
                                 generate_AutoDeployAddress_addressMatches,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf,
+                                {"self", "addr"});
 
   // functions not presented in stdlib at all
   // used in tolk-tester to check/expose internal compiler state
@@ -1902,61 +1917,80 @@ void define_builtins() {
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("map<K,V>.exists", MapKV, {MapKV, TKey}, TypeDataBool::create(), declReceiverMapKV,
                                 generate_mapKV_exists,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                {"self", "key"});
   define_builtin_method("map<K,V>.get", MapKV, {MapKV, TKey}, LookupResultT, declReceiverMapKV,
                                 generate_mapKV_get,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                {"self", "key"});
   define_builtin_method("map<K,V>.mustGet", MapKV, {MapKV, TKey, TypeDataInt::create()}, TValue, declReceiverMapKV,
                                 generate_mapKV_mustGet,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                {"self", "key", "throwIfNotFound"});
   define_builtin_method("map<K,V>.set", MapKV, {MapKV, TKey, TValue}, TypeDataVoid::create(), declReceiverMapKV,
                                 generate_mapKV_set,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT | FunctionData::flagReturnsSelf);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT | FunctionData::flagReturnsSelf,
+                                {"self", "key", "value"});
   define_builtin_method("map<K,V>.setAndGetPrevious", MapKV, {MapKV, TKey, TValue}, LookupResultT, declReceiverMapKV,
                                 generate_mapKV_setGet,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
+                                {"self", "key", "value"});
   define_builtin_method("map<K,V>.replaceIfExists", MapKV, {MapKV, TKey, TValue}, TypeDataBool::create(), declReceiverMapKV,
                                 generate_mapKV_replace,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
+                                {"self", "key", "value"});
   define_builtin_method("map<K,V>.replaceAndGetPrevious", MapKV, {MapKV, TKey, TValue}, LookupResultT, declReceiverMapKV,
                                 generate_mapKV_replaceGet,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
+                                {"self", "key", "value"});
   define_builtin_method("map<K,V>.addIfNotExists", MapKV, {MapKV, TKey, TValue}, TypeDataBool::create(), declReceiverMapKV,
                                 generate_mapKV_add,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
+                                {"self", "key", "value"});
   define_builtin_method("map<K,V>.addOrGetExisting", MapKV, {MapKV, TKey, TValue}, LookupResultT, declReceiverMapKV,
                                 generate_mapKV_addGet,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
+                                {"self", "key", "value"});
   define_builtin_method("map<K,V>.delete", MapKV, {MapKV, TKey}, TypeDataBool::create(), declReceiverMapKV,
                                 generate_mapKV_del,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
+                                {"self", "key"});
   define_builtin_method("map<K,V>.deleteAndGetDeleted", MapKV, {MapKV, TKey}, LookupResultT, declReceiverMapKV,
                                 generate_mapKV_delGet,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
+                                {"self", "key"});
   define_builtin_method("map<K,V>.findFirst", MapKV, {MapKV}, EntryKV, declReceiverMapKV,
                                 generate_mapKV_findFirst,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                {"self"});
   define_builtin_method("map<K,V>.findLast", MapKV, {MapKV}, EntryKV, declReceiverMapKV,
                                 generate_mapKV_findLast,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                {"self"});
   define_builtin_method("map<K,V>.findKeyGreater", MapKV, {MapKV, TKey}, EntryKV, declReceiverMapKV,
                                 generate_mapKV_findKeyGreater,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                {"self", "pivotKey"});
   define_builtin_method("map<K,V>.findKeyGreaterOrEqual", MapKV, {MapKV, TKey}, EntryKV, declReceiverMapKV,
                                 generate_mapKV_findKeyGreaterOrEqual,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                {"self", "pivotKey"});
   define_builtin_method("map<K,V>.findKeyLess", MapKV, {MapKV, TKey}, EntryKV, declReceiverMapKV,
                                 generate_mapKV_findKeyLess,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                {"self", "pivotKey"});
   define_builtin_method("map<K,V>.findKeyLessOrEqual", MapKV, {MapKV, TKey}, EntryKV, declReceiverMapKV,
                                 generate_mapKV_findKeyLessOrEqual,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                {"self", "pivotKey"});
   define_builtin_method("map<K,V>.iterateNext", MapKV, {MapKV, EntryKV}, EntryKV, declReceiverMapKV,
                                 generate_mapKV_iterateNext,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                {"self", "current"});
   define_builtin_method("map<K,V>.iteratePrev", MapKV, {MapKV, EntryKV}, EntryKV, declReceiverMapKV,
                                 generate_mapKV_iteratePrev,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                {"self", "current"});
 
   // low-level functions that actually emit TVM assembly, they work on a "dict" level
   TypePtr PlainDict = TypeDataCell::create();
@@ -1966,35 +2000,35 @@ void define_builtins() {
   TypePtr LookupSliceFound = TypeDataTensor::create({TypeDataSlice::create(), TypeDataInt::create()});
 
   define_builtin_func("__dict.get", {KeySliceOrInt, PlainDict, TypeDataInt::create()}, LookupSliceFound, nullptr,
-                                  compile_dict_get, 0);
+                                  compile_dict_get, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.getMin", {PlainDict}, TypeDataTensor::create({ValueSlice, KeySliceOrInt, ValueFound}), nullptr,
-                                  compile_dict_getMin, 0);
+                                  compile_dict_getMin, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.getMax", {PlainDict}, TypeDataTensor::create({ValueSlice, KeySliceOrInt, ValueFound}), nullptr,
-                                  compile_dict_getMax, 0);
+                                  compile_dict_getMax, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.getNext", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_getNext, 0);
+                                  compile_dict_getNext, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.getNextEq", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_getNextEq, 0);
+                                  compile_dict_getNextEq, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.getPrev", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_getPrev, 0);
+                                  compile_dict_getPrev, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.getPrevEq", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_getPrevEq, 0);
+                                  compile_dict_getPrevEq, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.set", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, PlainDict, nullptr,
-                                  compile_dict_set, 0);
+                                  compile_dict_set, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.setGet", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, LookupSliceFound}), nullptr,
-                                  compile_dict_setGet, 0);
+                                  compile_dict_setGet, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.replace", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_replace, 0);
+                                  compile_dict_replace, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.replaceGet", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, LookupSliceFound}), nullptr,
-                                  compile_dict_replaceGet, 0);
+                                  compile_dict_replaceGet, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.add", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_add, 0);
+                                  compile_dict_add, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.addGet", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, LookupSliceFound}), nullptr,
-                                  compile_dict_addGet, 0);
+                                  compile_dict_addGet, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.del", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_del, 0);
+                                  compile_dict_del, FunctionData::flagMarkedAsPure);
   define_builtin_func("__dict.delGet", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, LookupSliceFound}), nullptr,
-                                  compile_dict_delGet, 0);
+                                  compile_dict_delGet, FunctionData::flagMarkedAsPure);
 }
 
 // there are some built-in functions that operate on types declared in stdlib (like Cell<T>)
@@ -2018,7 +2052,6 @@ void patch_builtins_after_stdlib_loaded() {
     lookup_function("reflect.stackSizeOf")->mutate()->receiver_type = reflect;
     lookup_function("reflect.stackSizeOfObject")->mutate()->receiver_type = reflect;
     lookup_function("reflect.serializationPrefixOf")->mutate()->receiver_type = reflect;
-    lookup_function("reflect.serializationPrefixLenOf")->mutate()->receiver_type = reflect;
     lookup_function("reflect.estimateSerializationOf")->mutate()->receiver_type = reflect;
 
     StructPtr struct_ref_SourceLocation = lookup_global_symbol("SourceLocation")->try_as<StructPtr>();

@@ -44,7 +44,7 @@ void lexer_init();
 void clear_computed_constants_cache();
 
 
-TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename, std::ostream& source_map_out) {
+TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
   // one-time global initialization (thread-safe, shared across all threads):
   // type system singletons and lexer trie are immutable after creation
   static std::once_flag init_flag;
@@ -53,6 +53,8 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename, std::
     lexer_init();
   });
 
+  // reset per-compilation mutable state to allow successive compilation within each thread
+  G = CompilerState{};
   clear_computed_constants_cache();
   define_builtins();    // add built-in functions into G.symtable
 
@@ -86,6 +88,8 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename, std::
         .errors = error_collector.flush(),
         .fatal_msg = "",
         .fift_code = "",
+        .abi_json = "",
+        .sm_json = "",
       };
     }
     // output warnings to console, if any collected
@@ -108,6 +112,8 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename, std::
         .errors = {},
         .fatal_msg = "",
         .fift_code = "",
+        .abi_json = "",
+        .sm_json = "",
       };
     }
 
@@ -117,15 +123,18 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename, std::
 
     std::ostringstream os_fif;
     pipeline_generate_fif_output(os_fif);
-    pipeline_generate_source_map(source_map_out);
-    pipeline_collect_abi_output_to_json_file();
+    std::ostringstream os_abi;
+    pipeline_collect_abi_output(os_abi);
+    std::ostringstream os_sm;
+    pipeline_collect_source_maps_output(os_sm);
 
     return TolkCompilationResult{
       .errors = {},
       .fatal_msg = "",
       .fift_code = os_fif.str(),
+      .abi_json = os_abi.str(),
+      .sm_json = os_sm.str(),
     };
-
   } catch (const ThrownParseError& error) {
     // append `err("...").fire()` to earlier `err("...").collect()`
     error_collector.add(error);
@@ -133,6 +142,8 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename, std::
       .errors = error_collector.flush(),
       .fatal_msg = "",
       .fift_code = "",
+      .abi_json = "",
+      .sm_json = "",
     };
 
   } catch (const Fatal& fatal) {
@@ -140,6 +151,8 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename, std::
       .errors = {},
       .fatal_msg = fatal.message,
       .fift_code = "",
+      .abi_json = "",
+      .sm_json = "",
     };
 
   } catch (const UnexpectedASTNodeKind& error) {
@@ -147,6 +160,8 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename, std::
       .errors = {},
       .fatal_msg = error.message,
       .fift_code = "",
+      .abi_json = "",
+      .sm_json = "",
     };
   }
 }

@@ -102,7 +102,6 @@ enum class PrefixReadMode {
 struct LazyMatchOptions {
   struct MatchBlock {
     TypePtr arm_variant;          // left of `V => ...`; nullptr for `else => ...`
-    AnyV arm_variant_node;        // left of `V => ...` as node for debug info; nullptr for `else => ...`
     AnyExprV v_body;              // right of `V => ...`
     TypePtr block_expr_type;      // for match expression, if `V => expr`, it's expr's inferred_type
   };
@@ -111,6 +110,7 @@ struct LazyMatchOptions {
   bool is_statement;              // it's `match` statement, not expression, so it does not return any result
   bool add_return_to_all_arms;    // it's the last statement in a function, add "return" to its cases for better Fift code
   std::vector<MatchBlock> match_blocks;
+  LocalVarPtr lazy_var_ref = nullptr; // for emitting MARK_SMART_CAST at the start of each arm
 
   const MatchBlock* find_match_block(TypePtr variant) const;
   void save_match_result_on_arm_end(CodeBlob& code, AnyV origin, const MatchBlock* arm_block, std::vector<var_idx_t>&& ir_arm_result, const std::vector<var_idx_t>& ir_match_expr_result) const;

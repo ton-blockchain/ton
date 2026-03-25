@@ -20,13 +20,13 @@
 
 #include "common/refcnt.hpp"
 #include "td/utils/HashMap.h"
-#include "vm/cellslice.h"
-#include "vm/stack.hpp"
-#include "vm/vmstate.h"
-#include "vm/log.h"
-#include "vm/continuation.h"
 #include "td/utils/HashSet.h"
 #include "td/utils/optional.h"
+#include "vm/cellslice.h"
+#include "vm/continuation.h"
+#include "vm/log.h"
+#include "vm/stack.hpp"
+#include "vm/vmstate.h"
 
 namespace vm {
 
@@ -397,7 +397,7 @@ class VmState final : public VmStateInterface {
   int until(Ref<Continuation> body, Ref<Continuation> after);
   int loop_while(Ref<Continuation> cond, Ref<Continuation> body, Ref<Continuation> after);
   int throw_exception(int excno, StackEntry&& arg);
-  int throw_exception(int excno);
+  int throw_exception(int excno, bool add_vm_log = true);
   Ref<OrdCont> extract_cc(int save_cr = 1, int stack_copy = -1, int cc_args = -1);
   Ref<Continuation> c1_envelope(Ref<Continuation> cont, bool save = true);
   Ref<Continuation> c1_envelope_if(bool cond, Ref<Continuation> cont, bool save = true) {

@@ -101,11 +101,16 @@ std::string SinkExpression::to_string() const {
   TypePtr cur_type = var_ref->declared_type;
   while (cur_path != 0) {
     result += ".";
-    if (const TypeDataStruct* t_struct = cur_type->try_as<TypeDataStruct>()) {
-      StructFieldPtr field_ref = t_struct->struct_ref->get_field((cur_path & 0xFF) - 1);
-      result += field_ref->name;
-      cur_type = field_ref->declared_type;
-    } else {
+    bool formatted = false;
+    try {
+      if (const TypeDataStruct* t_struct = cur_type->try_as<TypeDataStruct>()) {
+        StructFieldPtr field_ref = t_struct->struct_ref->get_field((cur_path & 0xFF) - 1);
+        result += field_ref->name;
+        cur_type = field_ref->declared_type;
+        formatted = true;
+      }
+    } catch (...) {}
+    if (!formatted) {
       result += std::to_string((cur_path & 0xFF) - 1);
     }
     cur_path >>= 8;
@@ -171,6 +176,10 @@ static TypePtr calculate_type_lca(TypePtr a, TypePtr b, bool* became_union = nul
     return TypeDataNotInferred::create();
   }
 
+  if (a == TypeDataUnknown::create() || b == TypeDataUnknown::create()) {
+    return TypeDataUnknown::create();
+  }
+
   if (a == TypeDataNever::create()) {
     return b;
   }
@@ -183,10 +192,6 @@ static TypePtr calculate_type_lca(TypePtr a, TypePtr b, bool* became_union = nul
   }
   if (b == TypeDataNullLiteral::create()) {
     return TypeDataUnion::create_nullable(a);
-  }
-
-  if (a == TypeDataUnknown::create() || b == TypeDataUnknown::create()) {
-    return TypeDataUnknown::create();
   }
 
   const auto* tensor1 = a->try_as<TypeDataTensor>();
@@ -251,9 +256,19 @@ BoolState calculate_bool_lca(BoolState a, BoolState b) {
   return transformations[static_cast<int>(a)][static_cast<int>(b)];
 }
 
+// example for a ternary operator: `var v = cond ? someSlice : someCell` (no hint) will give a compilation error,
+// but `var v: HINT = <same>` is okay, if hint is valid;
+// for instance, `var v: int = cond ? someInt32 : someInt64` is ok: no unification
+TypeInferringUnifyStrategy::TypeInferringUnifyStrategy(TypePtr hint) {
+  bool is_valid_hint = hint != nullptr && hint != TypeDataNotInferred::create() && hint != TypeDataUnknown::create() && !hint->has_genericT_inside();
+  if (is_valid_hint) {
+    dest_hint = hint;
+  }
+}
+
 // see comments above TypeInferringUnifyStrategy
 // this function calculates lca or currently stored result and next
-void TypeInferringUnifyStrategy::unify_with(TypePtr next, TypePtr dest_hint) {
+void TypeInferringUnifyStrategy::unify_with(TypePtr next) {
   // example: `var r = ... ? int8 : int16`, will be inferred as `int8 | int16` (via unification)
   // but `var r: int = ... ? int8 : int16`, will be inferred as `int` (it's dest_hint)
   if (dest_hint) {
@@ -428,15 +443,12 @@ TypePtr calculate_type_subtract_rhs_type(TypePtr type, TypePtr subtract_type) {
 // example: `x.1.2` is { var_ref: x, index_path: 2<<8 + 3 }
 // example: `x!.1!.2!` is the same
 // not SinkExpressions: `globalVar` / `f()` / `obj.method().1`
-SinkExpression extract_sink_expression_from_vertex(AnyExprV v, bool allow_global_vars) {
+SinkExpression extract_sink_expression_from_vertex(AnyExprV v) {
   v = unwrap_not_null_operator(v);
 
   if (auto as_ref = v->try_as<ast_reference>()) {
     if (LocalVarPtr var_ref = as_ref->sym->try_as<LocalVarPtr>()) {
       return SinkExpression(var_ref);
-    }
-    if (GlobalVarPtr glob_ref = as_ref->sym->try_as<GlobalVarPtr>(); glob_ref && allow_global_vars) {
-      return SinkExpression(reinterpret_cast<LocalVarPtr>(glob_ref));
     }
   }
 
@@ -454,18 +466,19 @@ SinkExpression extract_sink_expression_from_vertex(AnyExprV v, bool allow_global
         break;
       }
     }
-    if (auto as_ref = unwrap_not_null_operator(cur_dot->get_obj())->try_as<ast_reference>()) {
-      if (LocalVarPtr var_ref = as_ref->sym->try_as<LocalVarPtr>(); var_ref && index_path) {
-        return SinkExpression(var_ref, index_path);
-      }
-      if (GlobalVarPtr glob_ref = as_ref->sym->try_as<GlobalVarPtr>(); glob_ref && index_path && allow_global_vars) {
-        return SinkExpression(reinterpret_cast<LocalVarPtr>(glob_ref), index_path);
+    if (index_path) {     // `(x = rhs).field` is the same sink as `x.field`
+      if (SinkExpression inner = extract_sink_expression_from_vertex(cur_dot->get_obj())) {
+        int inner_n_bits = 0;
+        for (uint64_t tmp = inner.index_path; tmp; tmp >>= 8) {
+          inner_n_bits += 8;
+        }
+        return SinkExpression(inner.var_ref, (index_path << inner_n_bits) | inner.index_path);
       }
     }
   }
 
   if (auto as_assign = v->try_as<ast_assign>()) {
-    return extract_sink_expression_from_vertex(as_assign->get_lhs(), allow_global_vars);
+    return extract_sink_expression_from_vertex(as_assign->get_lhs());
   }
 
   if (auto as_decl = v->try_as<ast_local_vars_declaration>()) {
@@ -478,6 +491,81 @@ SinkExpression extract_sink_expression_from_vertex(AnyExprV v, bool allow_global
   return {};
 }
 
+// is_valid_lvalue_path checks whether an expression is a valid target for writing (assignment / mutate).
+// Its main property: "safe to be re-evaluated" while transforming AST to IR.
+// Valid: `v` / `v.field` / `v.0!.nested` / `(a, b)`
+//        (all can be used as `lvalue = rhs` / `f(mutate lvalue)` / `lvalue.mutatingMethod()`)
+// Invalid: `v.id().field` / `(v = rhs).field` / `Point{x,y}.x`
+//        (none can be used as lvalue, for example `Point{x,y}.x = 100` is denied)
+//
+// It's conceptually similar to extract_sink_expression_from_vertex, but NOT the same:
+// - "sink" is ONE local variable or field, used for smart casts and cfg
+// - "lvalue path" may contain MANY targets (each is sink) (both `a` and `b` for `(a,b) = (1,2)`)
+// When `out_sinks` is provided, collects SinkExpression for each "leaf" variable/field being mutated.
+bool is_valid_lvalue_path(AnyExprV v, std::vector<SinkExpression>* out_sinks, bool inside_dot_obj) {
+  if (auto as_ref = v->try_as<ast_reference>()) {
+    if (out_sinks) {
+      if (LocalVarPtr var_ref = as_ref->sym->try_as<LocalVarPtr>()) {
+        out_sinks->emplace_back(var_ref);
+      } else if (GlobalVarPtr glob_ref = as_ref->sym->try_as<GlobalVarPtr>()) {
+        out_sinks->emplace_back(reinterpret_cast<LocalVarPtr>(glob_ref));
+      }
+    }
+    return true;
+  }
+  if (v->try_as<ast_underscore>()) {
+    return true;
+  }
+  if (auto as_decl = v->try_as<ast_local_vars_declaration>()) {
+    return is_valid_lvalue_path(as_decl->get_expr(), out_sinks);
+  }
+  if (auto decl_var = v->try_as<ast_local_var_lhs>()) {
+    if (out_sinks) {
+      out_sinks->emplace_back(decl_var->var_ref);
+    }
+    return true;
+  }
+  if (auto as_nn = v->try_as<ast_not_null_operator>()) {
+    return inside_dot_obj && is_valid_lvalue_path(as_nn->get_expr(), out_sinks, inside_dot_obj);
+  }
+  if (auto as_dot = v->try_as<ast_dot_access>();
+           as_dot && (as_dot->is_target_indexed_access() || as_dot->is_target_struct_field())) {
+    int index_at = as_dot->is_target_indexed_access()
+        ? std::get<int>(as_dot->target)
+        : std::get<StructFieldPtr>(as_dot->target)->field_idx;
+    // for `(a, b).0`, resolve `a`; for `tensorVar.0`, resolve `tensorVar` (just continue forward)
+    if (as_dot->is_target_indexed_access()) {
+      AnyExprV obj = unwrap_not_null_operator(as_dot->get_obj());
+      if (auto as_tensor = obj->try_as<ast_tensor>()) {
+        return is_valid_lvalue_path(as_tensor->get_item(index_at), out_sinks);
+      }
+    }
+    std::vector<SinkExpression> inner_sinks;
+    bool inner_valid = is_valid_lvalue_path(as_dot->get_obj(), &inner_sinks, true);
+    if (out_sinks) {
+      for (SinkExpression s : inner_sinks) {
+        out_sinks->push_back(s.get_child_s_expr(index_at));
+      }
+    }
+    return inner_valid;
+  }
+  if (auto as_tensor = v->try_as<ast_tensor>()) {
+    bool all_valid = true;
+    for (int i = 0; i < as_tensor->size(); ++i) {
+      all_valid &= is_valid_lvalue_path(as_tensor->get_item(i), out_sinks);
+    }
+    return all_valid;
+  }
+  if (auto as_square = v->try_as<ast_square_brackets>()) {
+    bool all_valid = true;
+    for (int i = 0; i < as_square->size(); ++i) {
+      all_valid &= is_valid_lvalue_path(as_square->get_item(i), out_sinks);
+    }
+    return all_valid;
+  }
+  return false;
+}
+
 // given `lhs = rhs`, calculate "original" type of `lhs`
 // example: `var x: int? = ...; if (x != null) { x (here) = null; }`
 // "(here)" x is `int` (smart cast), but originally declared as `int?`
@@ -486,6 +574,12 @@ TypePtr calc_declared_type_before_smart_cast(AnyExprV v) {
   if (auto as_ref = v->try_as<ast_reference>()) {
     if (LocalVarPtr var_ref = as_ref->sym->try_as<LocalVarPtr>()) {
       return var_ref->declared_type;
+    }
+  }
+
+  if (auto as_call = v->try_as<ast_function_call>()) {
+    if (as_call->fun_maybe && as_call->fun_maybe->does_return_self() && as_call->get_self_obj()) {
+      return calc_declared_type_before_smart_cast(as_call->get_self_obj());
     }
   }
 

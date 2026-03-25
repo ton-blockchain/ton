@@ -253,14 +253,17 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, const std::stri
       show_var_list(os, left, vars);
       os << " := " << str_const << std::endl;
       break;
-    case _DebugInfo:
-      os << indent << dis << "DEBUGINFO ";
-      os << source_map_entry_idx << std::endl;
-      break;
     case _SnakeStringConst:
       os << indent << dis << "SNAKE_STR ";
       show_var_list(os, left, vars);
       os << " := " << str_const << std::endl;
+      break;
+    case _DebugMark:
+      if (false) {    // don't pollute IR code in console with debug marks (they will overwhelm IR list)
+        os << indent << dis;
+        AsmOp::DebugMark(debug_mark).out(os);
+        os << std::endl;
+      }
       break;
     case _Import:
       os << indent << dis << "IMPORT ";
@@ -287,48 +290,48 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, const std::stri
       os << indent << dis << "REPEAT ";
       show_var_list(os, left, vars);
       os << ' ';
-      show_block(os, block0.get(), vars, indent, mode);
+      block0.show(os, vars, indent, mode);
       os << std::endl;
       break;
     case _If:
       os << indent << dis << "IF ";
       show_var_list(os, left, vars);
       os << ' ';
-      show_block(os, block0.get(), vars, indent, mode);
+      block0.show(os, vars, indent, mode);
       os << " ELSE ";
-      show_block(os, block1.get(), vars, indent, mode);
+      block1.show(os, vars, indent, mode);
       os << std::endl;
       break;
     case _While:
       os << indent << dis << "WHILE ";
       show_var_list(os, left, vars);
       os << ' ';
-      show_block(os, block0.get(), vars, indent, mode);
+      block0.show(os, vars, indent, mode);
       os << " DO ";
-      show_block(os, block1.get(), vars, indent, mode);
+      block1.show(os, vars, indent, mode);
       os << std::endl;
       break;
     case _Until:
       os << indent << dis << "UNTIL ";
       show_var_list(os, left, vars);
       os << ' ';
-      show_block(os, block0.get(), vars, indent, mode);
+      block0.show(os, vars, indent, mode);
       os << std::endl;
       break;
     case _Again:
       os << indent << dis << "AGAIN ";
       show_var_list(os, left, vars);
       os << ' ';
-      show_block(os, block0.get(), vars, indent, mode);
+      block0.show(os, vars, indent, mode);
+      os << std::endl;
+      break;
+    case _TryCatch:
+      os << indent << dis << "TRYCATCH ";
+      show_var_list(os, left, vars);
       os << std::endl;
       break;
     default:
-      os << indent << dis << "<???" << cl << "> ";
-      show_var_list(os, left, vars);
-      os << " -- ";
-      show_var_list(os, right, vars);
-      os << std::endl;
-      break;
+      tolk_assert(false);
   }
 }
 
@@ -367,10 +370,10 @@ void Op::show_var_list(std::ostream& os, const std::vector<VarDescr>& list, cons
   }
 }
 
-void Op::show_block(std::ostream& os, const Op* block, const std::vector<TmpVar>& vars, const std::string& indent, int mode) {
+void OpList::show(std::ostream& os, const std::vector<TmpVar>& vars, const std::string& indent, int mode) const {
   os << "{" << std::endl;
   std::string sub_indent = indent + "  ";
-  for (const Op* op = block; op; op = op->next.get()) {
+  for (const auto& op : list) {
     op->show(os, vars, sub_indent, mode);
   }
   os << indent << "}";
@@ -390,7 +393,7 @@ void CodeBlob::print(std::ostream& os, int flags) const {
     }
   }
   os << "------- BEGIN --------\n";
-  for (const Op* op = ops.get(); op; op = op->next.get()) {
+  for (const auto& op : ops) {
     op->show(os, vars, "", flags);
   }
   os << "-------- END ---------\n\n";
@@ -445,7 +448,7 @@ var_idx_t CodeBlob::create_int(AnyV origin, int64_t value, const char* purpose) 
 #endif
   var_idx_t ir_int = var_cnt;
   var_cnt++;
-  emplace_back(origin, Op::_IntConst, std::vector{ir_int}, td::make_refint(value));
+  add_int_const(origin, {ir_int}, td::make_refint(value));
   return ir_int;
 }
 

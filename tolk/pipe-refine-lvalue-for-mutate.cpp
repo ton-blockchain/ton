@@ -17,6 +17,7 @@
 #include "ast.h"
 #include "ast-visitor.h"
 #include "compilation-errors.h"
+#include "type-system.h"
 
 /*
  *   This pipe refines rvalue/lvalue and checks `mutate` arguments validity.
@@ -35,13 +36,19 @@ namespace tolk {
 
 static Error err_invalid_mutate_arg_passed(FunctionPtr fun_ref, const LocalVarData& p_sym, bool arg_passed_as_mutate, AnyV arg_expr) {
   std::string arg_str(arg_expr->kind == ast_reference ? arg_expr->as<ast_reference>()->get_name() : "obj");
+  std::string param_name(p_sym.name);
+
+  // built-in functions don't have parameter names, let it be `slice` / `builder` / etc.
+  if (param_name.empty()) {
+    param_name = p_sym.declared_type->as_human_readable();
+  }
 
   if (p_sym.is_mutate_parameter() && !arg_passed_as_mutate) {
     // called `mutating_function(arg)`; suggest: `mutate arg`
-    return err("function `{}` mutates parameter `{}`\nyou need to specify `mutate` when passing an argument, like `mutate {}`", fun_ref, p_sym.name, arg_str);
+    return err("function `{}` mutates parameter `{}`\nyou need to specify `mutate` when passing an argument, like `mutate {}`", fun_ref, param_name, arg_str);
   } else {
     // called `usual_function(mutate arg)`
-    return err("incorrect `mutate`, since `{}` does not mutate this parameter", fun_ref);
+    return err("incorrect `mutate`, since `{}` does not mutate parameter `{}`", fun_ref, param_name);
   }
 }
 
@@ -71,9 +78,18 @@ class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBod
       // for `b.storeInt()`, `b` should become lvalue, since `storeInt` is a method mutating self
       // but: `beginCell().storeInt()`, then `beginCell()` is not lvalue
       // (it will be extracted as tmp var when transforming AST to IR)
-      bool will_be_extracted_as_tmp_var = v->get_self_obj()->kind == ast_function_call;
+      bool will_be_extracted_as_tmp_var = v->get_self_obj()->kind == ast_function_call
+              // and allow `StringBuilder{}.append()`,
+              // but deny non-empty literals like `Point{x,y}.assign()` to avoid slots aliasing
+              || (v->get_self_obj()->kind == ast_object_literal && v->get_self_obj()->as<ast_object_literal>()->get_body()->empty());
+      // also deny `b.id().storeInt()` and `beginCell().id().storeInt()` — chained methods are not temporary, they return `self`
+      if (auto inner = v->get_self_obj()->try_as<ast_function_call>();
+          inner && inner->fun_maybe &&
+          inner->fun_maybe->does_return_self() && !inner->fun_maybe->does_mutate_self()) {
+        // marking `b.id()` as lvalue will fire "can not mutate a temporary expression" later, it's the goal
+        will_be_extracted_as_tmp_var = false;
+      }
       if (!will_be_extracted_as_tmp_var) {
-        // marking obj as lvalue will ensure in a later pass that it's valid, not `(v as int).method()`
         mark_lvalue_AnyV(v->get_self_obj());
       }
     }

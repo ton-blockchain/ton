@@ -23,8 +23,6 @@
 #include "contract-directive.h"
 #include "generics-helpers.h"
 
-#include <fstream>
-
 namespace tolk {
 
 class CollectAbiFromBodyVisitor final : public ASTVisitorFunctionBody {
@@ -154,14 +152,10 @@ static void populate_abi_from_contract_directive(ContractABI* abi, const Contrac
   }
 }
 
-void pipeline_collect_abi_output_to_json_file() {
-  if (G_settings.abi_json_output_filename.empty() && G.abi_json_str == nullptr) {
-    return;
-  }
-
+void pipeline_collect_abi_output(std::ostream& os) {
   ContractABI abi;
 
-  const SrcFile* entrypoint_file = G.all_src_files.get_entrypoint_file();
+  SrcFilePtr entrypoint_file = G.all_src_files.get_entrypoint_file();
   if (entrypoint_file->has_contract_directive()) {
     populate_abi_from_contract_directive(&abi, entrypoint_file->contract_directive);
   }
@@ -176,12 +170,7 @@ void pipeline_collect_abi_output_to_json_file() {
     }
   }
 
-  if (G.abi_json_str) {
-    abi.to_pretty_json(*G.abi_json_str);
-  } else {
-    std::ofstream abi_json_file(G_settings.abi_json_output_filename);
-    abi.to_pretty_json(abi_json_file);
-  }
+  abi.to_pretty_json(os);
 }
 
 } // namespace tolk

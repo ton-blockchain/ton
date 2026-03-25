@@ -210,6 +210,8 @@ struct ChunkString final : ChunkLexerBase {
         case '\\':
           lex->skip_chars(2); // will be unescaped when constructing AST
           break;
+        case '\0':
+          lex->error("NUL byte inside string literal");
         case '\n':
         case '\r':
           lex->error("string pasts end of line");
@@ -247,6 +249,8 @@ struct ChunkMultilineString final : ChunkLexerBase {
         case '\\':
           lex->skip_chars(2); // will be unescaped when constructing AST
           break;
+        case '\0':
+          lex->error("NUL byte inside string literal");
         default:
           lex->skip_chars(1);
       }
@@ -262,7 +266,7 @@ struct ChunkMultilineString final : ChunkLexerBase {
 };
 
 // An annotation for a function (in the future, for vars also):
-// @inline, @abi.minimalMsgValue and others
+// @inline, @test.tags and others
 struct ChunkAnnotation final : ChunkLexerBase {
   bool parse(Lexer* lex) const override {
     const char* str_begin = lex->c_str();
@@ -598,7 +602,7 @@ LexingTrie TolkLanguageGrammar::trie;
 // (`start`, `cur` and `end`, as well as every Token str_val, points inside file->text).
 //
 
-Lexer::Lexer(const SrcFile* file)
+Lexer::Lexer(SrcFilePtr file)
   : file_id(file->file_id)
   , p_start(file->text.data())
   , p_end(p_start + file->text.size())

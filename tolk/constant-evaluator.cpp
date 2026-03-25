@@ -265,12 +265,14 @@ static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_funct
 
   // string methods: "hello".crc32(), "hello".sha256(), etc.
   // copy-paste from `stringCrc32()` and similar (below), which are deprecated and will be deleted soon
-  if (v->get_num_args() == 0 && receiver == TypeDataString::create()) {
+  if (receiver == TypeDataString::create()) {
     f_name = v->fun_maybe->method_name;
 
-    AnyExprV self_obj = v->get_self_obj();
+    // support both `"abc".crc32()` and `string.crc32("abc")`
+    tolk_assert(v->get_num_args() == !v->dot_obj_is_self);
+    AnyExprV self_obj = v->dot_obj_is_self ? v->get_self_obj() : v->get_arg(0)->get_expr();
     std::string str;
-    if (!self_obj || !extract_string_literal_from_v(self_obj, str)) {
+    if (!extract_string_literal_from_v(self_obj, str)) {
       err_const_string_required(f_name).fire(v);
     }
 
@@ -299,12 +301,9 @@ static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_funct
       return ConstValSlice{static_cast<std::string>(str)};
     }
     if (f_name == "toBase256") {
-      if (str.empty()) {
-        err_const_string_required(f_name).fire(v);
-      }
       td::RefInt256 intval = td::hex_string_to_int256(td::hex_encode(td::Slice(str.data(), str.size())));
-      if (intval.is_null() || !intval->is_valid()) {
-        err("too long integer ascii-constant").fire(self_obj);
+      if (intval.is_null() || !intval->signed_fits_bits(257)) {
+        err("invalid or too long integer ascii-constant").fire(self_obj);
       }
       return ConstValInt{std::move(intval)};
     }
@@ -370,12 +369,9 @@ static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_funct
   }
 
   if (f_name == "stringToBase256") {      // previously, postfix "..."u
-    if (str.empty()) {
-      err_const_string_required(f_name, "some_str").fire(v);
-    }
     td::RefInt256 intval = td::hex_string_to_int256(td::hex_encode(td::Slice(str.data(), str.size())));
-    if (intval.is_null() || !intval->is_valid()) {
-      err("too long integer ascii-constant").fire(v_arg);
+    if (intval.is_null() || !intval->signed_fits_bits(257)) {
+      err("invalid or too long integer ascii-constant").fire(v_arg);
     }
     return ConstValInt{std::move(intval)};
   }
@@ -515,7 +511,7 @@ class ConstExpressionEvaluator {
       }
     }
     if (v->is_target_struct_field()) {      // constObj.field
-      ConstValExpression lhs = eval_any_v_or_fire(v->get_obj());
+      ConstValExpression lhs = unwrap_const_cast(eval_any_v_or_fire(v->get_obj()));
       if (ConstValObject* lhs_obj = std::get_if<ConstValObject>(&lhs)) {
         StructFieldPtr field = std::get<StructFieldPtr>(v->target);
         return lhs_obj->fields[field->field_idx];
@@ -622,6 +618,16 @@ ConstValExpression eval_and_cache_const_init_val(GlobalConstPtr const_ref) {
 
   // constants initializers are not recursive (checked at inferring), so no stack guards here
   ConstValExpression v = ConstExpressionEvaluator::eval_any_v_or_fire(const_ref->init_value);
+  // for `const A: coins = 10` or `const A: lisp_list<int> = []` insert a cast for correctness
+  if (TypePtr cast_to = const_ref->declared_type) {
+    // but don't insert for obvious `const A: coins = ton("1")` or `const A: int = 1`
+    const ConstValCastToType* already_cast = std::get_if<ConstValCastToType>(&v);
+    const ConstValInt* already_int = std::get_if<ConstValInt>(&v);
+    bool insert_cast = already_cast ? !already_cast->cast_to->equal_to(cast_to) : already_int ? cast_to != TypeDataInt::create() : true;
+    if (insert_cast) {
+      v = create_const_cast(std::move(v), cast_to);
+    }
+  }
   computed_constants_cache[const_ref] = v;
   return v;
 }

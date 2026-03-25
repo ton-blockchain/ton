@@ -120,7 +120,7 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
       return rvect;
     }
     std::vector ir_to_tuple = code.create_tmp_var(TypeDataUnknown::create(), origin, "(to-unknown)");
-    code.emplace_back(origin, Op::_Tuple, ir_to_tuple, std::move(rvect));
+    code.add_to_tuple(origin, ir_to_tuple, std::move(rvect));
     return ir_to_tuple;
   }
 
@@ -132,7 +132,7 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
       return rvect;
     }
     std::vector ir_from_tuple = code.create_tmp_var(dest_type, origin, "(from-unknown)");
-    code.emplace_back(origin, Op::_UnTuple, ir_from_tuple, std::move(rvect));
+    code.add_un_tuple(origin, ir_from_tuple, std::move(rvect));
     return ir_from_tuple;
   }
 
@@ -160,7 +160,7 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
     rvect.reserve(dest_slots);      // keep rvect[0], it's already null
     for (int i = 1; i < dest_slots - 1; ++i) {
       std::vector ith_null = code.create_tmp_var(TypeDataNullLiteral::create(), origin, "(null-literal)");
-      code.emplace_back(origin, Op::_Call, ith_null, std::vector<var_idx_t>{}, null_sym);
+      code.add_call(origin, ith_null, {}, null_sym);
       rvect.push_back(ith_null[0]);
     }
     rvect.push_back(code.create_int(origin, 0, "(UTag)"));
@@ -205,7 +205,7 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
     tolk_assert(from_union->has_null() && from_slots == 1);
     FunctionPtr null_sym = lookup_function("__null");
     std::vector new_rvect = code.create_tmp_var(TypeDataNullLiteral::create(), origin, "(null-literal)");
-    code.emplace_back(origin, Op::_Call, new_rvect, std::vector<var_idx_t>{}, null_sym);
+    code.add_call(origin, new_rvect, {}, null_sym);
     return new_rvect;
   }
 
@@ -236,20 +236,20 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
     std::vector<var_idx_t> new_rvect(dest_slots);
     for (int i = 0; i < dest_slots - 2; ++i) {    // N-1 nulls
       std::vector ith_null = code.create_tmp_var(TypeDataNullLiteral::create(), origin, "(null-literal)");
-      code.emplace_back(origin, Op::_Call, ith_null, std::vector<var_idx_t>{}, null_sym);
+      code.add_call(origin, ith_null, {}, null_sym);
       new_rvect[i] = ith_null[0];
     }
     new_rvect[dest_slots - 2] = rvect[0];   // value
     new_rvect[dest_slots - 1] = code.create_tmp_var(TypeDataInt::create(), origin, "(UTag)")[0];
 
     std::vector ir_eq_null = code.create_tmp_var(TypeDataBool::create(), origin, "(value-is-null)");
-    code.emplace_back(origin, Op::_Call, ir_eq_null, rvect, lookup_function("__isNull"));
-    Op& if_op = code.emplace_back(origin, Op::_If, ir_eq_null);
+    code.add_call(origin, ir_eq_null, rvect, lookup_function("__isNull"));
+    Op& if_op = code.add_if_else(origin, ir_eq_null);
     code.push_set_cur(if_op.block0);
-    code.emplace_back(origin, Op::_IntConst, std::vector{new_rvect[dest_slots - 1]}, td::make_refint(0));
+    code.add_int_const(origin, {new_rvect[dest_slots - 1]}, td::make_refint(0));
     code.close_pop_cur(origin);
     code.push_set_cur(if_op.block1);
-    code.emplace_back(origin, Op::_IntConst, std::vector{new_rvect[dest_slots - 1]}, td::make_refint(from_union->or_null->get_type_id()));
+    code.add_int_const(origin, {new_rvect[dest_slots - 1]}, td::make_refint(from_union->or_null->get_type_id()));
     code.close_pop_cur(origin);
     return new_rvect;
   }
@@ -267,7 +267,7 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
       FunctionPtr null_sym = lookup_function("__null");
       std::vector ith_null = code.create_tmp_var(TypeDataNullLiteral::create(), origin, "(UVar.null)");
       prepend_nulls.push_back(ith_null[0]);
-      code.emplace_back(origin, Op::_Call, std::move(ith_null), std::vector<var_idx_t>{}, null_sym);
+      code.add_call(origin, std::move(ith_null), {}, null_sym);
     }
     rvect.insert(rvect.begin(), prepend_nulls.begin(), prepend_nulls.end());
     return rvect;
@@ -315,12 +315,12 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
       FunctionPtr null_sym = lookup_function("__null");
       std::vector ith_null = code.create_tmp_var(TypeDataNullLiteral::create(), origin, "(UVar.null)");
       prepend_nulls.push_back(ith_null[0]);
-      code.emplace_back(origin, Op::_Call, std::move(ith_null), std::vector<var_idx_t>{}, null_sym);
+      code.add_call(origin, std::move(ith_null), {}, null_sym);
     }
     rvect.insert(rvect.begin(), prepend_nulls.begin(), prepend_nulls.end());
 
     std::vector ir_last_utag = code.create_tmp_var(TypeDataInt::create(), origin, "(UTag)");
-    code.emplace_back(origin, Op::_IntConst, ir_last_utag, td::make_refint(dest_subtype->get_type_id()));
+    code.add_int_const(origin, ir_last_utag, td::make_refint(dest_subtype->get_type_id()));
     rvect.push_back(ir_last_utag[0]);
     return rvect;
   }
@@ -397,20 +397,20 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
     var_idx_t ir_one = code.create_int(origin, 1, "(one)");
     std::vector ir_loop_i = {code.create_int(origin, 0, "(loop-i)")};
     std::vector ir_result_arr = code.create_tmp_var(TypeDataArray::create(TypeDataUnknown::create()), origin, "(target-array)");
-    code.emplace_back(origin, Op::_Tuple, ir_result_arr, std::vector<var_idx_t>{});
+    code.add_to_tuple(origin, ir_result_arr, {});
     std::vector ir_orig_size = code.create_tmp_var(TypeDataInt::create(), origin, "(orig-tuple-size)");
-    code.emplace_back(origin, Op::_Call, ir_orig_size, rvect, lookup_function("array<T>.size"));
-    Op& repeat_op = code.emplace_back(origin, Op::_Repeat, ir_orig_size);
+    code.add_call(origin, ir_orig_size, rvect, lookup_function("array<T>.size"));
+    Op& repeat_op = code.add_repeat_loop(origin, ir_orig_size);
     code.push_set_cur(repeat_op.block0);
     std::vector ir_ith_elem = code.create_tmp_var(from_array->innerT, origin, "(ith-orig-elem)");
-    code.emplace_back(origin, Op::_Call, ir_ith_elem, std::vector{rvect[0], ir_loop_i[0]}, lookup_function("array<T>.get"));
+    code.add_call(origin, ir_ith_elem, {rvect[0], ir_loop_i[0]}, lookup_function("array<T>.get"));
     ir_ith_elem = transition_rvect_to_runtime_type(std::move(ir_ith_elem), code, from_array->innerT, dest_array->innerT, origin);
     std::vector<var_idx_t> ir_args_push;
     ir_args_push.reserve(1 + ir_ith_elem.size());
     ir_args_push.push_back(ir_result_arr[0]);
     ir_args_push.insert(ir_args_push.end(), ir_ith_elem.begin(), ir_ith_elem.end());
-    code.emplace_back(origin, Op::_Call, ir_result_arr, std::move(ir_args_push), lookup_function("array<T>.push"));
-    code.emplace_back(origin, Op::_Call, ir_loop_i, std::vector{ir_loop_i[0], ir_one}, lookup_function("_+_"));
+    code.add_call(origin, ir_result_arr, std::move(ir_args_push), lookup_function("array<T>.push"));
+    code.add_call(origin, ir_loop_i, {ir_loop_i[0], ir_one}, lookup_function("_+_"));
     code.close_pop_cur(origin);
     return ir_result_arr;
   }
@@ -429,16 +429,16 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
     }
 
     std::vector ir_un_tuple = code.create_tmp_var(TypeDataTensor::create(std::vector(shape_size, TypeDataUnknown::create())), origin, "(unpack-shape)");
-    code.emplace_back(origin, Op::_UnTuple, ir_un_tuple, std::move(rvect));
+    code.add_un_tuple(origin, ir_un_tuple, std::move(rvect));
     std::vector ir_result_arr = code.create_tmp_var(TypeDataArray::create(TypeDataUnknown::create()), origin, "(target-array)");
-    code.emplace_back(origin, Op::_Tuple, ir_result_arr, std::vector<var_idx_t>{});
+    code.add_to_tuple(origin, ir_result_arr, {});
     for (int i = 0; i < shape_size; ++i) {
       std::vector ir_ith_elem = { ir_un_tuple[i] };
       ir_ith_elem = transition_rvect_to_runtime_type(std::move(ir_ith_elem), code, TypeDataUnknown::create(), from_shaped->items[i], origin);
       ir_ith_elem = transition_rvect_to_runtime_type(std::move(ir_ith_elem), code, from_shaped->items[i], dest_array->innerT, origin);
       std::vector<var_idx_t> ir_args_push = std::move(ir_ith_elem);
       ir_args_push.insert(ir_args_push.begin(), ir_result_arr[0]);
-      code.emplace_back(origin, Op::_Call, ir_result_arr, std::move(ir_args_push), lookup_function("array<T>.push"));
+      code.add_call(origin, ir_result_arr, std::move(ir_args_push), lookup_function("array<T>.push"));
     }
     return ir_result_arr;
   }
@@ -459,16 +459,16 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
     }
 
     std::vector ir_un_tuple = code.create_tmp_var(TypeDataTensor::create(std::vector(shape_size, TypeDataUnknown::create())), origin, "(unpack-shape)");
-    code.emplace_back(origin, Op::_UnTuple, ir_un_tuple, std::move(rvect));
+    code.add_un_tuple(origin, ir_un_tuple, std::move(rvect));
     std::vector ir_result_arr = code.create_tmp_var(TypeDataArray::create(TypeDataUnknown::create()), origin, "(target-shape)");
-    code.emplace_back(origin, Op::_Tuple, ir_result_arr, std::vector<var_idx_t>{});
+    code.add_to_tuple(origin, ir_result_arr, {});
     for (int i = 0; i < shape_size; ++i) {
       std::vector ir_ith_elem = { ir_un_tuple[i] };
       ir_ith_elem = transition_rvect_to_runtime_type(std::move(ir_ith_elem), code, TypeDataUnknown::create(), from_shaped->items[i], origin);
       ir_ith_elem = transition_rvect_to_runtime_type(std::move(ir_ith_elem), code, from_shaped->items[i], dest_shaped->items[i], origin);
       std::vector<var_idx_t> ir_args_push = std::move(ir_ith_elem);
       ir_args_push.insert(ir_args_push.begin(), ir_result_arr[0]);
-      code.emplace_back(origin, Op::_Call, ir_result_arr, std::move(ir_args_push), lookup_function("array<T>.push"));
+      code.add_call(origin, ir_result_arr, std::move(ir_args_push), lookup_function("array<T>.push"));
     }
     return ir_result_arr;
   }
@@ -479,7 +479,7 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
   if (from_shaped && dest_mapKV) {
     tolk_assert(from_shaped->size() == 0 && rvect.size() == 1);
     std::vector ir_result_map = code.create_tmp_var(TypeDataNullLiteral::create(), origin, "(map)");
-    code.emplace_back(origin, Op::_Call, ir_result_map, std::vector<var_idx_t>{}, lookup_function("createEmptyMap"));
+    code.add_call(origin, ir_result_map, {}, lookup_function("createEmptyMap"));
     return ir_result_map;
   }
 
@@ -491,9 +491,9 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
   if (from_shaped && dest_struct && dest_struct->struct_ref->is_instantiation_of_LispListT()) {
     TypePtr list_T = dest_struct->struct_ref->substitutedTs->typeT_at(0);
     std::vector ir_un_tuple = code.create_tmp_var(TypeDataTensor::create(std::vector(from_shaped->size(), TypeDataUnknown::create())), origin, "(unpack-shape)");
-    code.emplace_back(origin, Op::_UnTuple, ir_un_tuple, std::move(rvect));
+    code.add_un_tuple(origin, ir_un_tuple, std::move(rvect));
     std::vector ir_result_list = code.create_tmp_var(TypeDataNullLiteral::create(), origin, "(lisp-list)");
-    code.emplace_back(origin, Op::_Call, ir_result_list, std::vector<var_idx_t>{}, lookup_function("__null"));
+    code.add_call(origin, ir_result_list, {}, lookup_function("__null"));
     for (int i = from_shaped->size() - 1; i >= 0; --i) {
       std::vector ir_ith_elem = { ir_un_tuple[i] };
       ir_ith_elem = transition_rvect_to_runtime_type(std::move(ir_ith_elem), code, TypeDataUnknown::create(), from_shaped->items[i], origin);
@@ -501,7 +501,7 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
       ir_ith_elem = transition_rvect_to_runtime_type(std::move(ir_ith_elem), code, list_T, TypeDataUnknown::create(), origin);
       std::vector<var_idx_t> ir_args_tuple = std::move(ir_ith_elem);
       ir_args_tuple.push_back(ir_result_list[0]);
-      code.emplace_back(origin, Op::_Tuple, ir_result_list, std::move(ir_args_tuple));
+      code.add_to_tuple(origin, ir_result_list, std::move(ir_args_tuple));
     }
     return ir_result_list;
   }

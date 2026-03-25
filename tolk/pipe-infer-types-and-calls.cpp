@@ -133,7 +133,14 @@ static Error err_method_or_field_not_found(TypePtr receiver_type, std::string_vi
     return err("field `{}` doesn't exist in type `{}`", field_name, receiver_type);
   } 
   if (std::vector<FunctionPtr> other = lookup_methods_with_name(field_name); !other.empty()) {
-    return err("method `{}` not found for type `{}`\n(but it exists for type `{}`)", field_name, receiver_type, other.front()->receiver_type);
+    std::string candidate_receivers;
+    for (FunctionPtr m : other) {
+      if (!candidate_receivers.empty()) candidate_receivers += ", ";
+      candidate_receivers += "`";
+      candidate_receivers += m->receiver_type->as_human_readable();
+      candidate_receivers += "`";
+    }
+    return err("method `{}` not found for type `{}`\n(but it exists for {} {})", field_name, receiver_type, other.size() == 1 ? "type" : "types", candidate_receivers);
   }
   if (const Symbol* sym = lookup_global_symbol(field_name); sym && sym->try_as<FunctionPtr>()) {
     return err("method `{}` not found, but there is a global function named `{}`\n(a function should be called `foo(arg)`, not `arg.foo()`)", field_name, field_name);
@@ -709,16 +716,13 @@ class InferTypesAndCallsAndFieldsVisitor final {
       return after_false;
     }
 
-    TypeInferringUnifyStrategy branches_unifier;
-    branches_unifier.unify_with(v->get_when_true()->inferred_type, hint);
-    branches_unifier.unify_with(v->get_when_false()->inferred_type, hint);
-    if (branches_unifier.is_union_of_different_types()) {
+    TypeInferringUnifyStrategy branches_unifier(hint);
+    branches_unifier.unify_with(v->get_when_true()->inferred_type);
+    branches_unifier.unify_with(v->get_when_false()->inferred_type);
+    if (branches_unifier.became_union_without_hint()) {
       // `... ? intVar : sliceVar` results in `int | slice`, probably it's not what the user expected
-      // example: `var v = ternary`, show an inference error
-      // do NOT show an error for `var v: T = ternary` (T is hint); it will be checked by type checker later
-      if (hint == nullptr || hint == TypeDataNotInferred::create() || hint->has_genericT_inside()) {
-        err("types of ternary branches are incompatible: `{}` and `{}`\n""hint: maybe, you should use `<some_expr> as <type>` to make them identical", v->get_when_true()->inferred_type, v->get_when_false()->inferred_type).fire(v, cur_f);
-      }
+      // but do NOT show an error for `var v: T = ternary` (T is hint); it will be checked by type checker later
+      err("types of ternary branches are incompatible: `{}` and `{}`\n""hint: maybe, you should use `<some_expr> as <type>` to make them identical", v->get_when_true()->inferred_type, v->get_when_false()->inferred_type).fire(v, cur_f);
     }
     assign_inferred_type(v, branches_unifier.get_result());
 
@@ -731,32 +735,40 @@ class InferTypesAndCallsAndFieldsVisitor final {
   ExprFlow infer_null_coalesce_operator(V<ast_null_coalesce_operator> v, FlowContext&& flow, bool used_as_condition, TypePtr hint) {
     flow = infer_any_expr(v->get_lhs(), std::move(flow), false, hint).out_flow;
 
+    TypePtr lhs_type = v->get_lhs()->inferred_type;
+    TypePtr without_null_type = calculate_type_subtract_rhs_type(lhs_type, TypeDataNullLiteral::create());
+
     FlowContext rhs_flow = flow.clone();
-    if (SinkExpression s_expr = extract_sink_expression_from_vertex(v->get_lhs())) {
-      rhs_flow.register_known_type(s_expr, TypeDataNullLiteral::create());
+    if (lhs_type == TypeDataNullLiteral::create()) {
+      // `null ?? rhs` — lhs is always null, rhs is always executed, the non-null branch is unreachable
+      flow.mark_unreachable(UnreachableKind::CantHappen);
+    } else if (without_null_type == TypeDataNever::create()) {
+      // `1 ?? rhs` — lhs can never be null, rhs is never executed
+      rhs_flow.mark_unreachable(UnreachableKind::CantHappen);
+    } else {
+      // regular situation: in the lhs branch, lhs was non-null; calculate rhs branch with lhs=null
+      if (SinkExpression s_expr = extract_sink_expression_from_vertex(v->get_lhs())) {
+        flow.register_known_type(s_expr, without_null_type);
+        rhs_flow.register_known_type(s_expr, TypeDataNullLiteral::create());
+      }
     }
     rhs_flow = infer_any_expr(v->get_rhs(), std::move(rhs_flow), false, hint).out_flow;
 
-    TypePtr lhs_type = v->get_lhs()->inferred_type;
-    TypePtr without_null_type = calculate_type_subtract_rhs_type(lhs_type, TypeDataNullLiteral::create());
     if (lhs_type == TypeDataNullLiteral::create()) {
       // `null ?? rhs` — lhs is always null, rhs is always executed
       assign_inferred_type(v, v->get_rhs());
     } else if (without_null_type == TypeDataNever::create()) {
       // `1 ?? rhs` — lhs can never be null, rhs is never executed
-      rhs_flow.mark_unreachable(UnreachableKind::CantHappen);
       assign_inferred_type(v, v->get_lhs());
     } else {
       // regular situation: `lhs ?? rhs`, will generate a runtime branch
-      TypeInferringUnifyStrategy branches_unifier;
-      branches_unifier.unify_with(without_null_type, hint);
-      branches_unifier.unify_with(v->get_rhs()->inferred_type, hint);
-      if (branches_unifier.is_union_of_different_types()) {
+      TypeInferringUnifyStrategy branches_unifier(hint);
+      branches_unifier.unify_with(without_null_type);
+      branches_unifier.unify_with(v->get_rhs()->inferred_type);
+      if (branches_unifier.became_union_without_hint()) {
         // `nullableSlice ?? 0` results in `slice | int`, probably it's not what the user expected
         // but do NOT show an error for `var v: T = ...` (T is hint); it will be checked by type checker later
-        if (hint == nullptr || hint == TypeDataUnknown::create() || hint->has_genericT_inside()) {
-          err("type of operator `??` is `{}`; probably, it's not what you expected\n""assign it to a variable `var v: <type> = ... ?? ...` manually", branches_unifier.get_result()).fire(v, cur_f);
-        }
+        err("type of operator `??` is `{}`; probably, it's not what you expected\n""assign it to a variable `var v: <type> = ... ?? ...` manually", branches_unifier.get_result()).fire(v, cur_f);
       }
       assign_inferred_type(v, branches_unifier.get_result());
     }
@@ -809,7 +821,6 @@ class InferTypesAndCallsAndFieldsVisitor final {
       err_cannot_deduce_genericT(rhs_type).fire(v->type_node, cur_f);
     }
 
-    rhs_type = rhs_type->unwrap_alias();
     TypePtr expr_type = v->get_expr()->inferred_type;
     TypePtr non_rhs_type = calculate_type_subtract_rhs_type(expr_type, rhs_type);
     if (expr_type->equal_to(rhs_type)) {                          // `expr is <type>` is always true
@@ -1112,6 +1123,12 @@ class InferTypesAndCallsAndFieldsVisitor final {
       err_method_or_field_not_found(dot_obj->inferred_type, field_name, out_f_called != nullptr, false).fire(v_ident, cur_f);
     }
 
+    // for methods (which are extension functions), `import` must exist, same as for regular functions/types
+    bool allow_no_import = fun_ref->is_builtin() || fun_ref->ident_anchor->range.is_file_id_same_or_stdlib_common(v->range);
+    if (!allow_no_import) {
+      fun_ref->check_import_exists_when_used_from(cur_f, v_ident);
+    }
+
     // if `fun T.copy(self)` and reference `int.copy` — all generic parameters are determined by the receiver, we know it
     if (fun_ref->is_generic_function() && fun_ref->genericTs->size() == fun_ref->genericTs->n_from_receiver) {
       tolk_assert(substitutedTs.typeT_at(0) != nullptr);
@@ -1370,11 +1387,11 @@ class InferTypesAndCallsAndFieldsVisitor final {
       // - `[1,2,3]` is `array<int>`
       // - `[1, null]` is `array<int?>`
       // - `[1, "aba"]` is `array<int | string>`, and fire
-      TypeInferringUnifyStrategy unifier;
+      TypeInferringUnifyStrategy unifier(nullptr);
       for (int i = 0; i < v->size(); ++i) {
         unifier.unify_with(types_list[i]);
       }
-      if (unifier.is_union_of_different_types()) {
+      if (unifier.became_union_without_hint()) {
         err("type of `[...]` is `array<{}>`; probably, it's not what you expected\n""specify the array's type manually\n""example:\n""> var x = array<unknown> [...]", unifier.get_result()).fire(v, cur_f);
       }
       assign_inferred_type(v, TypeDataArray::create(unifier.get_result()));
@@ -1392,7 +1409,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     flow = infer_any_expr(v->get_subject(), std::move(flow), false).out_flow;
     SinkExpression s_expr = extract_sink_expression_from_vertex(v->get_subject());
     TypePtr subject_type = v->get_subject()->inferred_type;
-    TypeInferringUnifyStrategy branches_unifier;
+    TypeInferringUnifyStrategy branches_unifier(hint);
     FlowContext arms_entry_facts = flow.clone();
     FlowContext match_out_flow;
     bool has_type_arm = false;
@@ -1431,7 +1448,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
       arm_flow = infer_any_expr(v_arm->get_body(), std::move(arm_flow), false, hint).out_flow;
       match_out_flow = i == 0 ? std::move(arm_flow) : FlowContext::merge_flow(std::move(match_out_flow), std::move(arm_flow));
-      branches_unifier.unify_with(v_arm->get_body()->inferred_type, hint);
+      branches_unifier.unify_with(v_arm->get_body()->inferred_type);
     }
     if (v->get_arms_count() == 0) {
       match_out_flow = std::move(arms_entry_facts);
@@ -1461,11 +1478,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
       if (v->get_arms_count() == 0) {     // still allow empty `match` statements, for probable codegen
         err("empty `match` can't be used as expression").fire(v->keyword_range(), cur_f);
       }
-      if (branches_unifier.is_union_of_different_types()) {
+      if (branches_unifier.became_union_without_hint()) {
         // same as in ternary: `match (...) { t1 => someSlice, t2 => someInt }` is `int|slice`, probably unexpected
-        if (hint == nullptr || hint == TypeDataNotInferred::create() || hint->has_genericT_inside()) {
-          err("type of `match` was inferred as `{}`; probably, it's not what you expected\nassign it to a variable `var v: <type> = match (...) { ... }` manually", branches_unifier.get_result()).fire(v->keyword_range(), cur_f);
-        }
+        err("type of `match` was inferred as `{}`; probably, it's not what you expected\nassign it to a variable `var v: <type> = match (...) { ... }` manually", branches_unifier.get_result()).fire(v->keyword_range(), cur_f);
       }
       assign_inferred_type(v, branches_unifier.get_result());
     }
@@ -1786,7 +1801,7 @@ public:
       }
 
       if (!fun_ref->declared_return_type) {
-        TypeInferringUnifyStrategy return_unifier;
+        TypeInferringUnifyStrategy return_unifier(nullptr);
         if (fun_ref->does_return_self()) {
           return_unifier.unify_with(fun_ref->parameters[0].declared_type);
         }
@@ -1813,7 +1828,7 @@ public:
             }
           }
         }
-        if (return_unifier.is_union_of_different_types()) {
+        if (return_unifier.became_union_without_hint()) {
           // `return intVar` + `return sliceVar` results in `int | slice`, probably unexpected
           err("function `{}` calculated return type is `{}`; probably, it's not what you expected\ndeclare `fun (...): <return_type>` manually", fun_ref, inferred_return_type).fire(v_function->get_identifier(), fun_ref);
         }

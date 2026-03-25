@@ -34,7 +34,7 @@ struct SrcFile {
   };
 
   struct ImportDirective {
-    const SrcFile* imported_file;
+    SrcFilePtr imported_file;
   };
 
   int file_id;                          // an incremental counter through all parsed files
@@ -68,20 +68,21 @@ struct SrcFile {
 };
 
 class AllRegisteredSrcFiles {
-  std::vector<const SrcFile*> all_src_files;
+  std::vector<SrcFilePtr> all_src_files;
   int last_parsed_file_id = -1;
 
 public:
-  const SrcFile* get_file(int file_id) const { return all_src_files.at(file_id); }
-  const SrcFile* find_file(const std::string& realpath) const;
-  const SrcFile* get_stdlib_common_file() const { return all_src_files.at(0); }
-  const SrcFile* get_entrypoint_file() const { return all_src_files.at(1); }
+  SrcFilePtr get_file(int file_id) const { return all_src_files.at(file_id); }
+  SrcFilePtr find_file(const std::string& realpath) const;
+  SrcFilePtr get_stdlib_common_file() const { return all_src_files.at(0); }
+  SrcFilePtr get_entrypoint_file() const { return all_src_files.at(1); }
 
-  const SrcFile* locate_and_register_source_file(const std::string& filename, AnyV v_import_filename);
+  SrcFilePtr locate_and_register_source_file(const std::string& filename, AnyV v_import_filename);
   SrcFile* get_next_unparsed_file();
 
   auto begin() const { return all_src_files.begin(); }
   auto end() const { return all_src_files.end(); }
+  auto size() const { return all_src_files.size(); }
 };
 
 // SrcRange is a "substring" in some loaded .tolk source SrcFile.
@@ -123,6 +124,10 @@ public:
     return SrcRange(file_id, start_offset, start_offset + len);
   }
 
+  static SrcRange span_at_end(SrcRange end, int len) {
+    return SrcRange(end.file_id, end.end_offset - len, end.end_offset);
+  }
+
   static SrcRange unclosed_range(int file_id, int start_offset) {
     return SrcRange(file_id, start_offset, 0);    // in dev mode, there is `assert` that range is closed before used
   }
@@ -141,15 +146,7 @@ public:
     return file_id == 0 || file_id == other.file_id;
   }
 
-  int get_start_offset() const {
-    return start_offset;
-  }
-
-  int get_end_offset() const {
-    return end_offset;
-  }
-
-  const SrcFile* get_src_file() const;
+  SrcFilePtr get_src_file() const;
   std::string stringify_start_location(bool output_char_no) const;
 
   void output_underlined(std::ostream& os) const;

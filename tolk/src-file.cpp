@@ -26,9 +26,9 @@ namespace tolk {
 
 static_assert(sizeof(SrcRange) == 12);
 
-const SrcFile* AllRegisteredSrcFiles::find_file(const std::string& realpath) const {
+SrcFilePtr AllRegisteredSrcFiles::find_file(const std::string& realpath) const {
   // files with the same realpath are considered equal
-  for (const SrcFile* file : all_src_files) {
+  for (SrcFilePtr file : all_src_files) {
     if (file->realpath == realpath) {
       return file;
     }
@@ -36,10 +36,10 @@ const SrcFile* AllRegisteredSrcFiles::find_file(const std::string& realpath) con
   return nullptr;
 }
 
-const SrcFile* AllRegisteredSrcFiles::locate_and_register_source_file(const std::string& filename, AnyV v_import_filename) {
+SrcFilePtr AllRegisteredSrcFiles::locate_and_register_source_file(const std::string& filename, AnyV v_import_filename) {
   bool is_stdlib = filename.size() > 8 && filename.starts_with("@stdlib/");
 
-  td::Result<std::string> path = G_settings.read_callback(CompilerSettings::FsReadCallbackKind::Realpath, filename.c_str());
+  td::Result<std::string> path = G_settings.read_callback(CompilerSettings::FsReadCallbackKind::Realpath, filename.c_str(), G_settings.callback_payload);
   if (path.is_error()) {
     if (v_import_filename) {
       err("Failed to import: {}", path.move_as_error().message().str()).fire(v_import_filename);
@@ -48,11 +48,11 @@ const SrcFile* AllRegisteredSrcFiles::locate_and_register_source_file(const std:
   }
 
   std::string realpath = path.move_as_ok();
-  if (const SrcFile* file = find_file(realpath)) {
+  if (SrcFilePtr file = find_file(realpath)) {
     return file;
   }
 
-  td::Result<std::string> text = G_settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, realpath.c_str());
+  td::Result<std::string> text = G_settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, realpath.c_str(), G_settings.callback_payload);
   if (text.is_error()) {
     if (v_import_filename) {
       err("Failed to import: {}", text.move_as_error().message().str()).fire(v_import_filename);
@@ -82,7 +82,7 @@ void SrcFile::assign_contract_directive(ContractDirective* contract_directive) {
 }
 
 bool SrcFile::is_offset_valid(int offset) const {
-  return offset >= 0 && offset < static_cast<int>(text.size());
+  return offset >= 0 && offset <= static_cast<int>(text.size());
 }
 
 SrcFile::SrcPosition SrcFile::convert_offset(int offset) const {
@@ -141,15 +141,12 @@ std::string SrcFile::extract_dirname() const {
   return realpath.substr(0, last_slash + 1);
 }
 
-const SrcFile* SrcRange::get_src_file() const {
-  if (file_id == -1) {
-    return nullptr;
-  }
+SrcFilePtr SrcRange::get_src_file() const {
   return G.all_src_files.get_file(file_id);
 }
 
 std::string SrcRange::stringify_start_location(bool output_char_no) const {
-  const SrcFile* src_file = get_src_file();
+  SrcFilePtr src_file = get_src_file();
   if (!src_file || !src_file->is_offset_valid(start_offset)) {
     return "unknown-location";
   }
@@ -167,7 +164,7 @@ std::string SrcRange::stringify_start_location(bool output_char_no) const {
 
 
 SrcRange::DecodedRange SrcRange::decode_offsets() const {
-  const SrcFile* src_file = get_src_file();
+  SrcFilePtr src_file = get_src_file();
   tolk_assert(src_file && src_file->is_offset_valid(start_offset));
 
   SrcFile::SrcPosition pos_s = src_file->convert_offset(start_offset);
@@ -185,7 +182,7 @@ SrcRange::DecodedRange SrcRange::decode_offsets() const {
 }
 
 void SrcRange::output_underlined(std::ostream& os) const {
-  const SrcFile* src_file = get_src_file();
+  SrcFilePtr src_file = get_src_file();
   if (!src_file || !src_file->is_offset_valid(end_offset) || !is_valid()) {
     return;
   }

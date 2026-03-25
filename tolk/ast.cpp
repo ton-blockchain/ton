@@ -76,7 +76,7 @@ AnnotationKind Vertex<ast_annotation>::parse_kind(std::string_view name) {
   }
 
   // no special treating, allow with or without arguments, don't analyze
-  if (name == "@custom" || name == "@test" || name == "@deprecated") {
+  if (name == "@custom" || name.starts_with("@custom.") || name == "@test" || name.starts_with("@test.") || name == "@deprecated") {
     return AnnotationKind::custom;
   }
   return AnnotationKind::unknown;
@@ -230,7 +230,7 @@ void Vertex<ast_local_var_lhs>::assign_var_ref(LocalVarPtr var_ref) {
   this->var_ref = var_ref;
 }
 
-void Vertex<ast_import_directive>::assign_src_file(const SrcFile* file) {
+void Vertex<ast_import_directive>::assign_src_file(SrcFilePtr file) {
   this->file = file;
 }
 

@@ -393,10 +393,6 @@ int TypeDataMapKV::get_type_id() const {
   return TypeIdCalculation::assign_type_id(this);
 }
 
-int TypeDataUnknown::get_type_id() const {
-  tolk_assert(false);    // unknown can not be inside a union
-}
-
 int TypeDataNotInferred::get_type_id() const {
   tolk_assert(false);    // "not inferred" is an intermediate state only
 }
@@ -738,6 +734,12 @@ void TypeDataUnion::as_abi_json(std::string& out) const {
   if (or_null) {
     out += R"({"kind":"nullable","inner":)";
     out += or_null;
+    if (!has_genericT_inside() && !is_primitive_nullable()) {
+      out += R"(,"stackTypeId":)";
+      out += std::to_string(or_null->get_type_id());
+      out += R"(,"stackWidth":)";
+      out += std::to_string(get_width_on_stack());
+    }
     out += '}';
     return;
   }
@@ -759,13 +761,20 @@ void TypeDataUnion::as_abi_json(std::string& out) const {
     if (tree_auto_generated) {
       out += R"(,"isPrefixImplicit":true)";
     }
-    if (!variants[i]->has_genericT_inside()) {
+    if (!has_genericT_inside()) {
       out += R"(,"stackTypeId":)";
       out += std::to_string(variants[i]->get_type_id());
+      out += R"(,"stackWidth":)";
+      out += std::to_string(variants[i]->get_width_on_stack());
     }
     out += '}';
   }
-  out += "]}";
+  out += ']';
+  if (!has_genericT_inside()) {
+    out += R"(,"stackWidth":)";
+    out += std::to_string(get_width_on_stack());
+  }
+  out += '}';
 }
 
 void TypeDataMapKV::as_abi_json(std::string& out) const {
@@ -1530,6 +1539,10 @@ bool TypeDataUnion::can_hold_tvm_null_instead() const {
 
 bool TypeDataMapKV::can_hold_tvm_null_instead() const {
   return false;   // map is an optional cell, so `map?` requires a nullable presence slot
+}
+
+bool TypeDataUnknown::can_hold_tvm_null_instead() const {
+  return false;
 }
 
 bool TypeDataNever::can_hold_tvm_null_instead() const {

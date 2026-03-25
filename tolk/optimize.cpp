@@ -32,7 +32,7 @@ void Optimizer::unpack() {
     if (cur->is_very_custom()) {
       break;
     }
-    if (cur->is_comment()) {
+    if (cur->is_debug_mark()) {
       continue;
     }
     op_[i++] = cur;
@@ -52,10 +52,14 @@ void Optimizer::apply() {
   // asm_code = [ ... "a b", "2DUP", "a b a b" ... ]
   // (the forwarding comment "a b a b" remains the layout after Q operations, since the replacement is identical,
   //  but if Q>1, we have no stack info between them)
+  std::vector<AsmOp> reappend_debug_marks;
   int delete_count = 0;
   for (int i = 0, end_offset = start_offset; i < p_; ++i) {
     tolk_assert(end_offset < static_cast<int>(asm_code.size()));
-    while (asm_code[end_offset].is_comment()) {
+    while (asm_code[end_offset].is_debug_mark()) {
+      if (!std::holds_alternative<DebugMarkCurrentStack>(asm_code[end_offset].debug_mark)) {
+        reappend_debug_marks.push_back(asm_code[end_offset]);
+      }
       delete_count++;
       end_offset++;
     }
@@ -65,6 +69,7 @@ void Optimizer::apply() {
 
   asm_code.erase(asm_code.begin() + start_offset, asm_code.begin() + start_offset + delete_count);
   asm_code.insert(asm_code.begin() + start_offset, oq_, oq_ + insert_count);
+  asm_code.insert(asm_code.begin() + start_offset + insert_count, reappend_debug_marks.begin(), reappend_debug_marks.end());
 
   unpack();
 }
@@ -1150,7 +1155,7 @@ static std::vector<AsmOp> optimize_code_head(std::vector<AsmOp>&& asm_code, int 
 
 static std::vector<AsmOp> optimize_asm_code(std::vector<AsmOp>&& asm_code, int mode, bool& any_changed) {
   for (int i = 0; i < static_cast<int>(asm_code.size()); ++i) {
-    if (!asm_code[i].is_comment()) {
+    if (!asm_code[i].is_debug_mark()) {
       asm_code = optimize_code_head(std::move(asm_code), i, mode, any_changed);
     }
   }
