@@ -66,7 +66,8 @@ template <ValidVote T>
 tl::VoteSignatureSetRef Certificate<T>::to_tl_vote_signature_set() const {
   std::vector<tl::VoteSignatureRef> tl_sigs;
   for (const auto& [validator, signature] : signatures) {
-    tl_sigs.push_back(create_tl_object<tl::voteSignature>(validator.value(), signature.clone()));
+    auto idx = static_cast<td::uint32>(validator.value());
+    tl_sigs.push_back(create_tl_object<tl::voteSignature>(idx, signature.clone()));
   }
   return create_tl_object<tl::voteSignatureSet>(std::move(tl_sigs));
 }

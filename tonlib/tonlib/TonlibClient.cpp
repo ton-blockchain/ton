@@ -1911,7 +1911,7 @@ class GetOutMsgQueueSizes : public td::actor::Actor {
           return td::Status::Error("no out_msg_queue_size in shard state");
         }
         td::uint64 size = size_slice.prefetch_ulong(48);
-        if (size != f->size_) {
+        if (static_cast<std::int64_t>(size) != f->size_) {
           return td::Status::Error("queue size mismatch");
         }
         return td::Status::OK();
@@ -1941,8 +1941,8 @@ class GetOutMsgQueueSizes : public td::actor::Actor {
     if (--pending_ == 0) {
       std::vector<tonlib_api::object_ptr<tonlib_api::blocks_outMsgQueueSize>> shards;
       for (size_t i = 0; i < blocks_.size(); ++i) {
-        shards.push_back(
-            tonlib_api::make_object<tonlib_api::blocks_outMsgQueueSize>(to_tonlib_api(blocks_[i]), sizes_[i]));
+        shards.push_back(tonlib_api::make_object<tonlib_api::blocks_outMsgQueueSize>(
+            to_tonlib_api(blocks_[i]), static_cast<td::uint32>(sizes_[i])));
       }
       promise_.set_result(
           tonlib_api::make_object<tonlib_api::blocks_outMsgQueueSizes>(std::move(shards), ext_msg_queue_size_limit_));
@@ -6110,7 +6110,7 @@ td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_looku
       for (size_t i = 0; i < prev.size(); i++) {
         if (prev[i].root_hash == prev_root->get_hash().bits()) {
           prev_valid = true;
-          prev_idx = i;
+          prev_idx = static_cast<int>(i);
         }
       }
       if (!prev_valid) {

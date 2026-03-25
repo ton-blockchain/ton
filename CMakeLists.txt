@@ -108,10 +108,6 @@ if ((ARCHITECTURE MATCHES "arm64") AND (CMAKE_SYSTEM_NAME STREQUAL "Darwin") AND
 endif()
 #END M1 support
 
-if (CLANG AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "20")
-  add_compile_options(--warning-suppression-mappings=${CMAKE_CURRENT_SOURCE_DIR}/suppression_mappings.txt)
-endif()
-
 option(TON_WERROR_BUILD "Use -Werror" OFF)
 
 # If we want to check -Werror build in CI, we want to use it for third party projects as well but we

@@ -514,7 +514,7 @@ void FullNodeFastSyncOverlays::update_overlays(
   for (const auto &desc : state->get_shards()) {
     ShardIdFull shard = desc->shard();
     td::uint32 monitor_min_split = state->monitor_min_split_depth(shard.workchain);
-    if (shard.pfx_len() > monitor_min_split) {
+    if (shard.pfx_len() > static_cast<int>(monitor_min_split)) {
       shard = shard_prefix(shard, monitor_min_split);
     }
     all_shards.insert(shard);

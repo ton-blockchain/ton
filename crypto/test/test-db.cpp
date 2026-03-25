@@ -22,12 +22,17 @@
 #include <numeric>
 #include <openssl/sha.h>
 #include <optional>
-#include <rocksdb/compaction_filter.h>
-#include <rocksdb/db.h>
-#include <rocksdb/merge_operator.h>
 #include <set>
 #include <thread>
 #include <variant>
+
+// FIXME: Remove once RocksDB stops triggering this warning.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wimplicit-int-float-conversion"
+#include "rocksdb/compaction_filter.h"
+#include "rocksdb/db.h"
+#include "rocksdb/merge_operator.h"
+#pragma GCC diagnostic pop
 
 #include "common/AtomicRef.h"
 #include "openssl/digest.hpp"
@@ -2116,12 +2121,10 @@ TEST(TonDb, DynamicBocIncSimple) {
       return;
     }
     //LOG(ERROR) << "POP ROOT";
-    auto begin_stats = kv->get_usage_stats();
     auto cell = db->load_cell(queue.pop().as_slice()).move_as_ok();
     db->dec(cell);
     vm::CellStorer cell_storer(*kv);
     db->commit(cell_storer);
-    auto end_stats = kv->get_usage_stats();
     db->set_loader(std::make_unique<vm::CellLoader>(kv));
     //LOG(ERROR) << end_stats - begin_stats;
     //LOG(ERROR) << "CELLS IN DB: " << kv->count("").move_as_ok();

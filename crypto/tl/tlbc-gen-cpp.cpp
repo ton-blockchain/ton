@@ -1049,7 +1049,7 @@ bool CppTypeCode::generate_get_tag_pfx_distinguisher(std::ostream& os, std::stri
   }
   int d = trie->compute_useful_depth();
   bool is_pfx_determ = !trie->find_conflict_path();
-  assert(is_pfx_determ);
+  CHECK(is_pfx_determ);
   if (!in_block) {
     os << " {";
   }
@@ -2173,7 +2173,7 @@ bool CppTypeCode::output_print_simple_field(std::ostream& os, const Field& field
   switch (cvt) {
     case ct_bitstring:
     case ct_bits:
-      assert(!(sz.max_size() & 0xff));
+      CHECK(!(sz.max_size() & 0xff));
       os << "pp.fetch_bits_field(cs, ";
       output_cpp_sizeof_expr(os, expr, 0);
       if (!field_name.empty()) {
@@ -2186,7 +2186,7 @@ bool CppTypeCode::output_print_simple_field(std::ostream& os, const Field& field
     case ct_uint32:
     case ct_int64:
     case ct_uint64:
-      assert(i && l <= 64);
+      CHECK(i && l <= 64);
       os << "pp.fetch_" << (i > 0 ? "u" : "") << "int_field(cs, ";
       output_cpp_sizeof_expr(os, expr, 0);
       if (!field_name.empty()) {
@@ -2195,7 +2195,7 @@ bool CppTypeCode::output_print_simple_field(std::ostream& os, const Field& field
       os << ")";
       return true;
     case ct_integer:
-      assert(i);
+      CHECK(i);
       os << "pp.fetch_" << (i > 0 ? "u" : "") << "int256_field(cs, ";
       output_cpp_sizeof_expr(os, expr, 0);
       if (!field_name.empty()) {
@@ -2871,7 +2871,6 @@ void CppTypeCode::ConsRecord::declare_record(std::ostream& os, std::string nl, i
   os << nl << "  typedef " << cpp_type.cpp_type_class_name << " type_class;\n";
   CppIdentSet rec_cpp_ids;
   recover_idents(rec_cpp_ids);
-  std::size_t n = cpp_fields.size();
   for (const ConsField& fi : cpp_fields) {
     os << nl << "  ";
     fi.print_type(os);
