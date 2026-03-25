@@ -192,7 +192,7 @@ class BridgeImpl final : public IValidatorGroup {
     td::actor::send_closure(manager_facade_, &ManagerFacadeImpl::update_collator_options, opts);
 
     auto new_noncritical_params =
-        opts->get_noncritical_params(bus_->shard, bus_->cc_seqno, bus_->config.noncritical_params);
+        opts->get_noncritical_params(bus_->shard, bus_->cc_seqno, params_.config.noncritical_params);
     if (current_noncritical_params_ != new_noncritical_params) {
       bus_.publish<NoncriticalParamsUpdated>(new_noncritical_params);
       current_noncritical_params_ = new_noncritical_params;
@@ -255,7 +255,7 @@ class BridgeImpl final : public IValidatorGroup {
     bus->validator_set_hash = params_.validator_set->get_validator_set_hash();
     CHECK(found);
 
-    bus->config = std::move(params_.config);
+    bus->config = params_.config;
     bus->config.noncritical_params =
         params_.validator_opts->get_noncritical_params(bus->shard, bus->cc_seqno, bus->config.noncritical_params);
     current_noncritical_params_ = bus->config.noncritical_params;

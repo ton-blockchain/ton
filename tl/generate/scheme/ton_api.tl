@@ -1237,5 +1237,37 @@ consensus.stats.events id:int256 events:(vector consensus.stats.timestampedEvent
 consensus.simplex.stats.voted vote:consensus.simplex.UnsignedVote = consensus.stats.Event;
 consensus.simplex.stats.certObserved vote:consensus.simplex.UnsignedVote = consensus.stats.Event;
 
+consensus.simplex.noncriticalParams
+    flags:#
+    target_rate_ms:flags.0?int
+    first_block_timeout_ms:flags.1?int
+    first_block_timeout_multiplier:flags.2?double
+    first_block_timeout_cap_ms:flags.3?int
+    candidate_resolve_timeout_ms:flags.4?int
+    candidate_resolve_timeout_multiplier:flags.5?double
+    candidate_resolve_timeout_cap_ms:flags.6?int
+    candidate_resolve_cooldown_ms:flags.7?int
+    standstill_timeout_ms:flags.8?int
+    standstill_max_egress_bytes_per_s:flags.9?int
+    max_leader_window_desync:flags.10?int
+    bad_signature_ban_duration_ms:flags.11?int
+    candidate_resolve_rate_limit:flags.12?int
+    = consensus.NoncriticalParams;
+
+consensus.noncriticalParamsOverride
+    workchain:int
+    shard:long
+    from_seqno:int
+    to_seqno:int
+    override:consensus.NoncriticalParams
+    = consensus.NoncriticalParamsOverride;
+
+consensus.noncriticalParamsOverrideList
+    overrides:(vector consensus.noncriticalParamsOverride)
+    = consensus.NoncriticalParamsOverrideList;
+
 ---functions---
 consensus.simplex.requestCandidate id:consensus.CandidateId want_candidate:Bool want_notar:Bool = consensus.simplex.CandidateAndCert;
+
+engine.validator.setConsensusNoncriticalParamsOverrides overrides:consensus.noncriticalParamsOverrideList = engine.validator.Success;
+engine.validator.getConsensusNoncriticalParamsOverrides = consensus.NoncriticalParamsOverrideList;
