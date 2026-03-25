@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Callable, ClassVar, Protocol
 
 from pytoniq_core import (
@@ -13,8 +14,12 @@ from pytoniq_core import (
 )
 
 
-def ton(amount: float) -> CurrencyCollection:
-    return CurrencyCollection(grams=int(amount * 10**9))
+def ton(amount: int | float | str | Decimal) -> CurrencyCollection:
+    decimal_amount = amount if isinstance(amount, Decimal) else Decimal(str(amount))
+    nano = decimal_amount * Decimal("1000000000")
+    if nano != nano.to_integral_value():
+        raise ValueError(f"TON amount must resolve to a whole number of nanotons: {amount!r}")
+    return CurrencyCollection(grams=int(nano))
 
 
 class Provider(Protocol):
