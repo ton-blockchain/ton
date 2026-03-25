@@ -782,6 +782,7 @@ _ ConsensusConfig = ConfigParam 29;
 simplex_config#21 flags:(## 7) use_quic:Bool
   target_rate_ms:uint32 slots_per_leader_window:uint32
   first_block_timeout_ms:uint32 max_leader_window_desync:uint32 = NewConsensusConfig;
+simplex_config_v2#22 flags:(## 7) use_quic:Bool slots_per_leader_window:uint32 noncritical_params:(HashmapE 8 uint32) = NewConsensusConfig;
 new_consensus_config_all#10 mc:(Maybe ^NewConsensusConfig) shard:(Maybe ^NewConsensusConfig) = NewConsensusConfigAll;
 _ NewConsensusConfigAll = ConfigParam 30;
 

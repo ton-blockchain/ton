@@ -187,6 +187,13 @@ class BridgeImpl final : public IValidatorGroup {
       LOG(WARNING) << "Accelerator is not consistently supported with simplex consensus";
     }
     td::actor::send_closure(manager_facade_, &ManagerFacadeImpl::update_collator_options, opts);
+
+    auto new_noncritical_params =
+        opts->get_noncritical_params(bus_->shard, bus_->cc_seqno, bus_->config.noncritical_params);
+    if (current_noncritical_params_ != new_noncritical_params) {
+      bus_.publish<NoncriticalParamsUpdated>(new_noncritical_params);
+      current_noncritical_params_ = new_noncritical_params;
+    }
   }
 
   virtual void get_validator_group_info_for_litequery(
@@ -210,9 +217,7 @@ class BridgeImpl final : public IValidatorGroup {
                                                                  params_.collation_manager, params_.validator_set,
                                                                  params_.validator_opts);
 
-    auto simplex_bus = std::make_shared<simplex::Bus>();
-    simplex_bus->simplex_config = params_.config.consensus;
-    std::shared_ptr<Bus> bus = simplex_bus;
+    auto bus = std::make_shared<simplex::Bus>();
 
     bus->shard = params_.shard;
     bus->manager = manager_facade_.get();
@@ -248,6 +253,9 @@ class BridgeImpl final : public IValidatorGroup {
     CHECK(found);
 
     bus->config = std::move(params_.config);
+    bus->config.noncritical_params =
+        params_.validator_opts->get_noncritical_params(bus->shard, bus->cc_seqno, bus->config.noncritical_params);
+    current_noncritical_params_ = bus->config.noncritical_params;
 
     bus->session_id = params_.session_id;
     bus->overlays = params_.overlays;
@@ -275,7 +283,7 @@ class BridgeImpl final : public IValidatorGroup {
     simplex::StateResolver::register_in(runtime);
     simplex::MetricCollector::register_in(runtime);
 
-    bus_ = runtime.start(simplex_bus, params_.name);
+    bus_ = runtime.start(bus, params_.name);
   }
 
  private:
@@ -318,6 +326,8 @@ class BridgeImpl final : public IValidatorGroup {
   td::optional<td::actor::StartedTask<>> stop_waiter_;
 
   std::shared_ptr<Start> start_event_;
+
+  NewConsensusConfig::NoncriticalParams current_noncritical_params_;
 
   std::string db_path() const {
     return PSTRING() << params_.db_root << "/consensus/consensus." << params_.shard.workchain << "."

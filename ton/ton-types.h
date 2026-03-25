@@ -18,6 +18,7 @@
 */
 #pragma once
 
+#include <chrono>
 #include <cinttypes>
 
 #include "crypto/common/bitstring.h"
@@ -534,17 +535,42 @@ struct ValidatorSessionConfig {
 };
 
 struct NewConsensusConfig {
-  td::uint32 target_rate_ms = 1000;
   td::uint32 max_block_size = (4 << 20);
   td::uint32 max_collated_data_size = (4 << 20);
-  bool use_quic = false;
 
-  struct Simplex {
-    td::uint32 slots_per_leader_window = 4;
-    td::uint32 first_block_timeout_ms = 1000;
-    td::uint32 max_leader_window_desync = 2;
+  bool use_quic = false;
+  td::uint32 slots_per_leader_window = 4;
+
+  // clang-format off
+#define ENUMERATE_NONCRITICAL_PARAMS(uint32_fn, double_fn, duration_fn) \
+  duration_fn(0, target_rate, 2'400)                                    \
+  duration_fn(1, first_block_timeout, 1'000)                            \
+  double_fn(2, first_block_timeout_multiplier, 1.2)                     \
+  duration_fn(3, first_block_timeout_cap, 100'000)                      \
+  duration_fn(4, candidate_resolve_timeout, 1'000)                      \
+  double_fn(5, candidate_resolve_timeout_multiplier, 1.2)               \
+  duration_fn(6, candidate_resolve_timeout_cap, 10'000)                 \
+  duration_fn(7, candidate_resolve_cooldown, 10)                        \
+  duration_fn(8, standstill_timeout, 10'000)                            \
+  uint32_fn(9, standstill_max_egress_bytes_per_s, 50 << 17)             \
+  uint32_fn(10, max_leader_window_desync, 250)                          \
+  duration_fn(11, bad_signature_ban_duration, 5'000)                    \
+  uint32_fn(12, candidate_resolve_rate_limit, 10)
+  // clang-format on
+
+  struct NoncriticalParams {
+#define DEFINE_UINT32_FIELD(_, name, value) td::uint32 name = value;
+#define DEFINE_DOUBLE_FIELD(_, name, value) double name = value;
+#define DEFINE_DURATION_FIELD(_, name, value) std::chrono::milliseconds name{value};
+    ENUMERATE_NONCRITICAL_PARAMS(DEFINE_UINT32_FIELD, DEFINE_DOUBLE_FIELD, DEFINE_DURATION_FIELD)
+#undef DEFINE_UINT32_FIELD
+#undef DEFINE_DOUBLE_FIELD
+#undef DEFINE_DURATION_FIELD
+
+    bool operator==(const NoncriticalParams&) const = default;
   };
-  Simplex consensus;
+
+  NoncriticalParams noncritical_params = {};
 };
 
 struct PersistentStateDescription : public td::CntObject {

@@ -182,6 +182,11 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   std::string get_db_event_fifo_path() const override {
     return db_event_fifo_path_;
   }
+  NewConsensusConfig::NoncriticalParams get_noncritical_params(
+      ShardIdFull /*shard*/, td::uint32 /*cc_seqno*/,
+      const NewConsensusConfig::NoncriticalParams& config) const override {
+    return config;
+  }
 
   void set_zero_block_id(BlockIdExt block_id) override {
     zero_block_id_ = block_id;

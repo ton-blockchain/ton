@@ -155,6 +155,8 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual bool check_collator_node_whitelist(adnl::AdnlNodeIdShort id) const = 0;
   virtual td::Ref<ShardBlockVerifierConfig> get_shard_block_verifier_config() const = 0;
   virtual std::string get_db_event_fifo_path() const = 0;
+  virtual NewConsensusConfig::NoncriticalParams get_noncritical_params(
+      ShardIdFull shard, td::uint32 cc_seqno, const NewConsensusConfig::NoncriticalParams& config) const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
