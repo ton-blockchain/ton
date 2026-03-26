@@ -5,6 +5,7 @@
  */
 
 #include "td/utils/Random.h"
+#include "validator/rate-limiter.h"
 
 #include "bus.h"
 
@@ -130,6 +131,9 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
 
   template <>
   void handle(BusHandle, std::shared_ptr<const NoncriticalParamsUpdated> event) {
+    if (params_.candidate_resolve_rate_limit != event->params.candidate_resolve_rate_limit) {
+      rate_limiter_.clear();
+    }
     params_ = event->params;
   }
 
@@ -137,6 +141,8 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
   td::actor::Task<ProtocolMessage> process(BusHandle, std::shared_ptr<IncomingOverlayRequest> event) {
     auto request = co_await fetch_tl_object<tl::requestCandidate>(event->request.data, true);
     auto id = CandidateId::from_tl(request->id_);
+
+    co_await check_rate_limit(event->source);
 
     auto it = state_.find(id);
     if (it == state_.end()) {
@@ -213,6 +219,21 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
 
   NewConsensusConfig::NoncriticalParams params_;
   std::map<CandidateId, CandidateState> state_;
+  std::map<PeerValidatorId, fullnode::LimiterWindow> rate_limiter_;
+
+  td::Status check_rate_limit(PeerValidatorId src) {
+    if (!rate_limiter_.contains(src)) {
+      rate_limiter_[src] = fullnode::LimiterWindow{.size = 1.0, .limit = params_.candidate_resolve_rate_limit};
+    }
+    auto &window = rate_limiter_[src];
+    auto now = td::Timestamp::now();
+    if (!window.check(now)) {
+      return td::Status::Error(ErrorCode::failure, "too many requests");
+    }
+    window.insert(now);
+
+    return td::Status::OK();
+  }
 
   void load_from_db() {
     auto &bus = *owning_bus();
