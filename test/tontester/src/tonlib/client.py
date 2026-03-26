@@ -133,7 +133,6 @@ class TonlibClient:
         )
         return request.parse_result(await self._tonlib_wrapper.execute(request))
 
-
     async def lookup_block(
         self,
         workchain: int,

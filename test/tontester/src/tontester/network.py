@@ -372,7 +372,6 @@ class Network:
                 raise
 
 
-
 def _ip_to_tl(ip: IPv4Address) -> int:
     result = int(ip)
     if result >= 2**31:
