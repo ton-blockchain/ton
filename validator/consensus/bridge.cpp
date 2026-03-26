@@ -137,6 +137,9 @@ class DbImpl : public Db {
     }
     co_return std::move(result);
   }
+  td::actor::Task<> close() override {
+    co_return co_await writer_.close();
+  }
 
  private:
   td::KeyValueAsync<td::BufferSlice, td::BufferSlice> writer_;
@@ -283,10 +286,17 @@ class BridgeImpl final : public IValidatorGroup {
     if (bus_) {
       LOG(INFO) << "Destroying validator group";
       bus_.publish<StopRequested>();
+      co_await bus_->db->close();
       bus_ = {};
       co_await std::move(stop_waiter_.value());
       LOG(INFO) << "Consensus bus stopped";
+      auto S = td::RocksDb::destroy(db_path() + "/db/");
       td::rmrf(db_path()).ignore();
+      if (S.is_ok()) {
+        LOG(INFO) << "Deleting consensus DB : done";
+      } else {
+        LOG(ERROR) << "Deleting consensus DB " << db_path() << " : " << S;
+      }
     }
     stop();
     co_return td::Unit{};
