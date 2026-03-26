@@ -19,6 +19,7 @@
 #pragma once
 
 #include <atomic>
+#include <charconv>
 #include <functional>
 #include <optional>
 #include <sstream>
@@ -192,6 +193,13 @@ inline vector<string> rand_split(Slice str) {
 namespace detail {
 
 std::optional<std::string> stringify(const auto &value) {
+  if constexpr (std::is_floating_point_v<std::remove_cvref_t<decltype(value)>>) {
+    char buffer[64];
+    auto [ptr, ec] = std::to_chars(buffer, buffer + sizeof(buffer), value);
+    if (ec == std::errc()) {
+      return std::string(buffer, ptr);
+    }
+  }
   if constexpr (requires(std::ostringstream builder) { builder << value; }) {
     std::ostringstream builder;
     builder << value;
