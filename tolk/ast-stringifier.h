@@ -39,18 +39,17 @@ class ASTStringifier final : public ASTVisitor {
     {ast_type_leaf_text, "ast_type_leaf_text"},
     {ast_type_question_nullable, "ast_type_question_nullable"},
     {ast_type_parenthesis_tensor, "ast_type_parenthesis_tensor"},
-    {ast_type_bracket_tuple, "ast_type_bracket_tuple"},
+    {ast_type_brackets_shape, "ast_type_brackets_shape"},
     {ast_type_arrow_callable, "ast_type_arrow_callable"},
     {ast_type_vertical_bar_union, "ast_type_vertical_bar_union"},
     {ast_type_triangle_args, "ast_type_triangle_args"},
     // expressions
     {ast_empty_expression, "ast_empty_expression"},
-    {ast_parenthesized_expression, "ast_parenthesized_expression"},
     {ast_braced_expression, "ast_braced_expression"},
     {ast_braced_yield_result, "ast_braced_yield_result"},
     {ast_artificial_aux_vertex, "ast_artificial_aux_vertex"},
     {ast_tensor, "ast_tensor"},
-    {ast_bracket_tuple, "ast_bracket_tuple"},
+    {ast_square_brackets, "ast_square_brackets"},
     {ast_reference, "ast_reference"},
     {ast_local_var_lhs, "ast_local_var_lhs"},
     {ast_local_vars_declaration, "ast_local_vars_declaration"},
@@ -68,6 +67,7 @@ class ASTStringifier final : public ASTVisitor {
     {ast_unary_operator, "ast_unary_operator"},
     {ast_binary_operator, "ast_binary_operator"},
     {ast_ternary_operator, "ast_ternary_operator"},
+    {ast_null_coalesce_operator, "ast_null_coalesce_operator"},
     {ast_cast_as_operator, "ast_cast_as_operator"},
     {ast_is_type_operator, "ast_is_type_operator"},
     {ast_not_null_operator, "ast_not_null_operator"},
@@ -311,18 +311,17 @@ public:
       case ast_type_leaf_text:                return handle_vertex(v->as<ast_type_leaf_text>());
       case ast_type_question_nullable:        return handle_vertex(v->as<ast_type_question_nullable>());
       case ast_type_parenthesis_tensor:       return handle_vertex(v->as<ast_type_parenthesis_tensor>());
-      case ast_type_bracket_tuple:            return handle_vertex(v->as<ast_type_bracket_tuple>());
+      case ast_type_brackets_shape:           return handle_vertex(v->as<ast_type_brackets_shape>());
       case ast_type_arrow_callable:           return handle_vertex(v->as<ast_type_arrow_callable>());
       case ast_type_vertical_bar_union:       return handle_vertex(v->as<ast_type_vertical_bar_union>());
       case ast_type_triangle_args:            return handle_vertex(v->as<ast_type_triangle_args>());
       // expressions
       case ast_empty_expression:              return handle_vertex(v->as<ast_empty_expression>());
-      case ast_parenthesized_expression:      return handle_vertex(v->as<ast_parenthesized_expression>());
       case ast_braced_expression:             return handle_vertex(v->as<ast_braced_expression>());
       case ast_braced_yield_result:           return handle_vertex(v->as<ast_braced_yield_result>());
       case ast_artificial_aux_vertex:         return handle_vertex(v->as<ast_artificial_aux_vertex>());
       case ast_tensor:                        return handle_vertex(v->as<ast_tensor>());
-      case ast_bracket_tuple:                 return handle_vertex(v->as<ast_bracket_tuple>());
+      case ast_square_brackets:               return handle_vertex(v->as<ast_square_brackets>());
       case ast_reference:                     return handle_vertex(v->as<ast_reference>());
       case ast_local_var_lhs:                 return handle_vertex(v->as<ast_local_var_lhs>());
       case ast_local_vars_declaration:        return handle_vertex(v->as<ast_local_vars_declaration>());
@@ -340,6 +339,7 @@ public:
       case ast_unary_operator:                return handle_vertex(v->as<ast_unary_operator>());
       case ast_binary_operator:               return handle_vertex(v->as<ast_binary_operator>());
       case ast_ternary_operator:              return handle_vertex(v->as<ast_ternary_operator>());
+      case ast_null_coalesce_operator:        return handle_vertex(v->as<ast_null_coalesce_operator>());
       case ast_cast_as_operator:              return handle_vertex(v->as<ast_cast_as_operator>());
       case ast_is_type_operator:              return handle_vertex(v->as<ast_is_type_operator>());
       case ast_not_null_operator:             return handle_vertex(v->as<ast_not_null_operator>());

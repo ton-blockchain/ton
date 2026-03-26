@@ -26,7 +26,11 @@ struct WithVoid<T = void> {
     f2: T;
 }
 
-fun eqVoid<T = void>(o: WithVoid<T>) { return o; }
+fun eqVoid<T = void,>(o: WithVoid<T>) { return o; }
+
+fun alwaysVoid(w: WithVoid) {
+    __expect_type(w.f2, "void");
+}
 
 struct MyInit<TInit> {
     value: coins;
@@ -72,14 +76,20 @@ fun MultipleWithDefaults<T1, T2>.getT(self) {
 }
 
 fun MultipleWithDefaults<T1, T2, T3, T4>.method1<U1 = int>(self) {
-    return [self.t!.2, null as U1?]
+    return [self.t!.2, null] as [T3, U1?]
 }
 
-fun MultipleWithDefaults<T1, T2, T3, T4>.method2<U1, U2 = int>(self) {
-    return [self.t!.3, null as U1?, null as U2?]
+fun MultipleWithDefaults<T1, T2, T3, T4>.method2<U1, U2 = int>(self): [T4, U1?, U2?] {
+    return [self.t!.3, null, null]
 }
 
 type ParametrizedInt<T1, T2 = slice> = int
+
+type AllDefaultsAlias<T = builder,> = T
+
+fun AllDefaultsAlias.inferNoT(self) {
+    __expect_type(self, "AllDefaultsAlias<builder>");
+}
 
 @noinline
 fun mySend<TBody = void, TInit = void>(p: Parameters<TBody, TInit>): int {
@@ -104,7 +114,7 @@ fun test1() {
     eqUnusedU(beginCell());
 
     __expect_type(dup(null, null), "(null, null)");
-    __expect_type(dup(createEmptyTuple(), 6), "(tuple, int)");
+    __expect_type(dup(createEmptyTuple(), 6), "(array<unknown>, int)");
 }
 
 fun test2() {
@@ -128,7 +138,8 @@ fun test3() {
     __expect_type(eqVoid({f1:10,f2:20}), "WithVoid<int>");
     __expect_type(eqVoid({f1:10,f2:null}), "WithVoid<null>");
 
-    var a: WithVoid<void> = {f1:10};
+    var a: WithVoid = {f1:10};
+    alwaysVoid(a);
     return (a, WithVoid{f1:20}, eqVoid({f1:30}), 777, eqVoid({f1:40,f2:40}));
 }
 
@@ -143,6 +154,9 @@ fun test4() {
     __expect_type(WithDef1{body: null}.body, "null");
     __expect_type(WithDef1{body: 123}.body, "int?");
 
+    var wdn: WithDef1 = {};
+    __expect_type(wdn, "WithDef1<null>");
+
     return (getBodyOf({body: null}), getBodyOf({}), WithDef1{});
 }
 
@@ -154,7 +168,7 @@ fun test5() {
     __expect_type(Parameters { bounce: false, body: beginCell(), init: { value: 123, data: 123 } }, "Parameters<builder, int>");
 
     __expect_type(createParameters(true, null, null), "Parameters<null, null>");
-    __expect_type(createParameters(true, beginCell(), "123"), "Parameters<builder, slice>");
+    __expect_type(createParameters(true, beginCell(), "123"), "Parameters<builder, string>");
 
     __expect_type(createParameters(true, null, null).body, "null");
     __expect_type(createParameters(true, 123, null).body, "int");
@@ -182,6 +196,10 @@ fun test7() {
     __expect_type(Parameters{ bounce: false, body: 123 }.genericIntVoid<builder, cell>(), "(cell?, builder?)");
     __expect_type(Parameters{ bounce: false }.body, "void");
     Parameters{ bounce: false }.body.assertIsVoid();
+
+    __expect_type(Container1<Parameters> { item: { bounce: false } }, "Container1<Parameters<void, void>>");
+    __expect_type(Container1<Parameters<void, int>> { item: { bounce: false } }, "Container1<Parameters<void, int>>");
+    __expect_type(Container1<Parameters<void, AllDefaultsAlias>> { item: { bounce: false } }, "Container1<Parameters<void, AllDefaultsAlias<builder>>>");
 
     var v1 = mySend({ bounce: true });
     var v2 = mySend({ bounce: false, body: 123, init: beginCell() });
@@ -217,16 +235,16 @@ fun main() {
     __expect_type(cb2, "() -> [int, cell, int, builder]?");
     __expect_type(cb3, "() -> [int, cell, slice, builder]?");
     __expect_type(cb4, "() -> [int, cell, slice, tuple]?");
-
-    var o2 = MultipleWithDefaults<int, cell>{};
-    var o3 = MultipleWithDefaults<int, cell, slice>{};
+    
+    var o2 = MultipleWithDefaults<int, cell>{}; 
+    var o3 = MultipleWithDefaults<int, cell, slice>{}; 
     var o4 = MultipleWithDefaults<int, cell, slice?, tuple>{};
     __expect_type(o2.t, "[int, cell, int?, builder]?");
     __expect_type(o3.t, "[int, cell, slice, builder]?");
     __expect_type(o4.t, "[int, cell, slice?, tuple]?");
-
+    
     __expect_type(o2.getT(), "[int, cell, int?, builder]?");
-
+    
     __expect_type(o4.method1(), "[slice?, int?]");
     __expect_type(o4.method1<Container1<never>>(), "[slice?, Container1<never>?]");
     __expect_type(o4.method2<cell>(), "[tuple, cell?, int?]");
@@ -236,6 +254,9 @@ fun main() {
 
     __expect_type(12 as ParametrizedInt<builder>, "ParametrizedInt<builder, slice>");
     __expect_type(12 as ParametrizedInt<builder, cell>, "ParametrizedInt<builder, cell>");
+
+    var de: (AllDefaultsAlias, AllDefaultsAlias<cell>) = (beginCell(), createEmptyCell());
+    __expect_type(de.0, "AllDefaultsAlias<builder>");
 }
 
 /**

@@ -40,6 +40,6 @@ struct MethodCallCandidate {
 };
 
 
-std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_receiver, std::string_view called_name);
+std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_receiver, std::string_view called_name, bool skip_instantiations);
 
 } // namespace tolk

@@ -1,3 +1,10 @@
+struct Point { x: int; y: int }
+
+fun increment(mutate i: int) {
+    i += 1;
+    return i;
+}
+
 @noinline
 fun int.incChained(mutate self): self {
     self = self + 1;
@@ -185,7 +192,7 @@ fun tuple.myTuplePush<T>(mutate self, value: T): self {
 }
 
 fun tuple.myTupleAt<T>(self, idx: int): T {
-    return self.get(idx);
+    return self.get(idx) as T;
 }
 
 global tup111: tuple;
@@ -197,6 +204,13 @@ fun testForallFunctionsWithSelf(): (int, int, tuple) {
     t.myTuplePush(10);
     tup111.myTuplePush(1).myTuplePush(2).myTuplePush(3);
     return (t.myTupleAt(0), tup111.myTupleAt(tup111.size() - 1), tup111);
+}
+
+global idCalled: tuple;
+
+fun T.id(self): self {
+    idCalled.push(true);
+    return self;
 }
 
 

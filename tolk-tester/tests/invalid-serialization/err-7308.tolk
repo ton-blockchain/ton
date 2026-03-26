@@ -4,7 +4,7 @@ struct (0x03) C { }
 type MyInput = A | B | C;
 
 fun f() {
-    var msg = lazy MyInput.fromSlice("");
+    var msg = lazy MyInput.fromSlice(createEmptySlice());
     match (msg) {
         A => {}
         B => {}

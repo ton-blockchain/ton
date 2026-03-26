@@ -460,6 +460,19 @@ struct WithAnyAddress {
     a7: Cell<any_address?>?
 }
 
+struct WithArrays {
+    a1: array<int8>
+    a2: array<Cell<int8>>
+    a3: array<RemainingBitsAndRefs>
+    after: bool = true
+}
+
+struct WithStrings {
+    s1: string
+    s2: string?
+    arrs: array<string> = [],
+}
+
 
 // ---------------------------------------------
 
@@ -474,15 +487,15 @@ fun `test JustInt32_1`() {
 
 @method_id(201)
 fun `test JustInt32`() {
-    run<JustInt32>({ value: 255}, stringHexToSlice("000000FF"));
-    var s = stringHexToSlice("0000007b000001c8");
+    run<JustInt32>({ value: 255}, "000000FF".hexToSlice());
+    var s = "0000007b000001c8".hexToSlice();
     return (s.loadAny<JustInt32>(), s.loadAny<JustInt32>());
 }
 
 @method_id(202)
 fun test_JustMaybeInt32() {
-    run<JustMaybeInt32>({ value: 255 }, stringHexToSlice("8000007FC_"));
-    run<JustMaybeInt32>({ value: null }, stringHexToSlice("4_"));
+    run<JustMaybeInt32>({ value: 255 }, "8000007FC_".hexToSlice());
+    run<JustMaybeInt32>({ value: null }, "4_".hexToSlice());
     return true;
 }
 
@@ -625,9 +638,9 @@ fun test_IntAndRestEitherCellOrRefCell() {
 fun test_DifferentMaybeRefs() {
     run<DifferentMaybeRefs>({ op: 123, ref1m: null, ref2m: null, ref3: generateCell_44_with_ref45(), ref4m32: null, query_id: 456}, stringHexToSlice("0000007B00000000000000391_").appendRef(stringHexToSlice("0000002C").appendRef(stringHexToSlice("0000002D"))));
     run<DifferentMaybeRefs>({ op: 123, ref1m: generateCell_44_with_ref45(), ref2m: null, ref3: generateCell_44_with_ref45(), ref4m32: JustInt32{value: 999}.toCell(), query_id: 456}, stringHexToSlice("0000007BA0000000000000391_").appendRef(stringHexToSlice("0000002C").appendRef(stringHexToSlice("0000002D"))).appendRef(stringHexToSlice("0000002C").appendRef(stringHexToSlice("0000002D"))).appendRef(stringHexToSlice("000003E7")));
-    run<DifferentMaybeRefs>({ op: 123, ref1m: null, ref2m: beginCell().endCell(), ref3: generateCell_44_with_ref45(), ref4m32: JustInt32{value: 998}.toCell(), query_id: 456}, stringHexToSlice("0000007B60000000000000391_").appendRef("").appendRef(stringHexToSlice("0000002C").appendRef(stringHexToSlice("0000002D"))).appendRef(stringHexToSlice("000003E6")));
-    run<DifferentMaybeRefs>({ op: 123, ref1m: generateCell_44_with_ref45(), ref2m: generateCell_44_with_ref45(), ref3: beginCell().endCell(), ref4m32: null, query_id: 456}, stringHexToSlice("0000007BC0000000000000391_").appendRef(stringHexToSlice("0000002C").appendRef(stringHexToSlice("0000002D"))).appendRef(stringHexToSlice("0000002C").appendRef(stringHexToSlice("0000002D"))).appendRef(""));
-    run<DifferentMaybeRefs>({ op: 123, ref1m: generateCell_44_with_ref45(), ref2m: beginCell().endCell(), ref3: generateCell_44_with_ref45(), ref4m32: JustInt32{value: 997}.toCell(), query_id: 456}, stringHexToSlice("0000007BE0000000000000391_").appendRef(stringHexToSlice("0000002C").appendRef(stringHexToSlice("0000002D"))).appendRef("").appendRef(stringHexToSlice("0000002C").appendRef(stringHexToSlice("0000002D"))).appendRef(stringHexToSlice("000003E5")));
+    run<DifferentMaybeRefs>({ op: 123, ref1m: null, ref2m: beginCell().endCell(), ref3: generateCell_44_with_ref45(), ref4m32: JustInt32{value: 998}.toCell(), query_id: 456}, stringHexToSlice("0000007B60000000000000391_").appendRef(createEmptySlice()).appendRef(stringHexToSlice("0000002C").appendRef(stringHexToSlice("0000002D"))).appendRef(stringHexToSlice("000003E6")));
+    run<DifferentMaybeRefs>({ op: 123, ref1m: generateCell_44_with_ref45(), ref2m: generateCell_44_with_ref45(), ref3: beginCell().endCell(), ref4m32: null, query_id: 456}, stringHexToSlice("0000007BC0000000000000391_").appendRef(stringHexToSlice("0000002C").appendRef(stringHexToSlice("0000002D"))).appendRef(stringHexToSlice("0000002C").appendRef(stringHexToSlice("0000002D"))).appendRef(createEmptySlice()));
+    run<DifferentMaybeRefs>({ op: 123, ref1m: generateCell_44_with_ref45(), ref2m: beginCell().endCell(), ref3: generateCell_44_with_ref45(), ref4m32: JustInt32{value: 997}.toCell(), query_id: 456}, stringHexToSlice("0000007BE0000000000000391_").appendRef(stringHexToSlice("0000002C").appendRef(stringHexToSlice("0000002D"))).appendRef("".beginParse()).appendRef(stringHexToSlice("0000002C").appendRef(stringHexToSlice("0000002D"))).appendRef(stringHexToSlice("000003E5")));
     return true;
 }
 
@@ -776,7 +789,7 @@ fun test_serializeMaps() {
         m1: map<int8, RemainingBitsAndRefs>,
         m2: map<JustInt32, (int8, int8)>,
     ) = (createEmptyMap(), createEmptyMap());
-    m1.set(1, "");
+    m1.set(1, createEmptySlice());
     m1.set(2, stringHexToSlice("01").appendRef(stringHexToSlice("02")));
     m2.set({value: 3}, (3, 30));
     m2.set({value: 4}, (4, 40));
@@ -792,7 +805,7 @@ fun test_serializeMaps() {
     }
     return (w.m1.isEmpty(), w.m2.isEmpty(), d3.isFound, d3.loadValue(), kl);
 }
-
+    
 @method_id(231)
 fun test_nullableMaps() {
     var o: WithNullableMaps = {
@@ -908,7 +921,34 @@ fun test_WithAnyAddress() {
         a6: createAddressNone().toCell(),
         a7: null,
     }, stringHexToSlice("2084_").appendRef(stringHexToSlice("2_")));
+    
+    return true;
+}
 
+@method_id(236)
+fun test_WithArrays() {
+    run(WithArrays{
+        a1: [1],
+        a2: [(1 as int8).toCell()],
+        a3: [beginCell().storeUint(1, 32).toSlice()],
+    }, stringHexToSlice("0180C07").appendRef(stringHexToSlice("00C_")).appendRef(stringHexToSlice("4_").appendRef(stringHexToSlice("01"))).appendRef(stringHexToSlice("00000000C_")));
+    run(WithArrays{
+        a1: [],
+        a2: [],
+        a3: [beginCell().storeRef(createEmptyCell()).toSlice()],
+    }, stringHexToSlice("0000007").appendRef(stringHexToSlice("4_").appendRef("".literalSlice())));
+    return true;
+}
+
+@method_id(237)
+fun test_WithStrings() {
+    run(WithStrings{
+        s1: "one",
+        s2: "two",
+        arrs: ["1", "2", "3", "4", "5"],
+    }, "82E_".hexToSlice().appendRef("6F6E65".hexToSlice()).appendRef("74776F".hexToSlice()).appendRef(
+        "C_".hexToSlice().appendRef("4_".hexToSlice().appendRef("33".hexToSlice()).appendRef("34".hexToSlice()).appendRef("35".hexToSlice())).appendRef("31".hexToSlice()).appendRef("32".hexToSlice())
+    ));
     return true;
 }
 
@@ -959,4 +999,6 @@ fun main() {
 @testcase | 233 | | -1
 @testcase | 234 | | -1
 @testcase | 235 | | -1
+@testcase | 236 | | -1
+@testcase | 237 | | -1
  */

@@ -63,9 +63,9 @@ fun main() {
 """
   demo_fields_def() PROC:<{   	//  x
     // 13: f1: x + C_20
-    20 ADDCONST             	//  '6
+    20 ADDCONST             	//  '2
     // 4: f2: int = 10
-    10 PUSHINT              	//  '6 '7=10
+    10 PUSHINT              	//  '2 '3=10
     // 14: f3: 100
     100 PUSHINT              	//  w.f1 w.f2=10 w.f3=100
     // 17: return (w.f4 + 5, w.f3, w.f2, w.f1)
@@ -89,7 +89,7 @@ fun main() {
 
 @fif_codegen
 """
-  call_some_calc() PROC:<{      //
+  call_some_calc() PROC:<{      // 
     // 48: return some_calc(-10)
     -10 PUSHINT                 //  '0=-10
     // 31: calcAbs: bool = true

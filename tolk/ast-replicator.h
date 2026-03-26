@@ -59,8 +59,8 @@ class ASTReplicator final {
   static V<ast_type_parenthesis_tensor> clone(V<ast_type_parenthesis_tensor> v) {
     return createV<ast_type_parenthesis_tensor>(v->range, clone(v->get_items()));
   }
-  static V<ast_type_bracket_tuple> clone(V<ast_type_bracket_tuple> v) {
-    return createV<ast_type_bracket_tuple>(v->range, clone(v->get_items()));
+  static V<ast_type_brackets_shape> clone(V<ast_type_brackets_shape> v) {
+    return createV<ast_type_brackets_shape>(v->range, clone(v->get_items()));
   }
   static V<ast_type_arrow_callable> clone(V<ast_type_arrow_callable> v) {
     return createV<ast_type_arrow_callable>(v->range, clone(v->get_params_and_return()));
@@ -77,9 +77,6 @@ class ASTReplicator final {
   static V<ast_empty_expression> clone(V<ast_empty_expression> v) {
     return createV<ast_empty_expression>(v->range);
   }
-  static V<ast_parenthesized_expression> clone(V<ast_parenthesized_expression> v) {
-    return createV<ast_parenthesized_expression>(v->range, clone(v->get_expr()));
-  }
   static V<ast_braced_expression> clone(V<ast_braced_expression> v) {
     return createV<ast_braced_expression>(v->range, clone(v->get_block_statement()));
   }
@@ -92,14 +89,14 @@ class ASTReplicator final {
   static V<ast_tensor> clone(V<ast_tensor> v) {
     return createV<ast_tensor>(v->range, clone(v->get_items()));
   }
-  static V<ast_bracket_tuple> clone(V<ast_bracket_tuple> v) {
-    return createV<ast_bracket_tuple>(v->range, clone(v->get_items()));
+  static V<ast_square_brackets> clone(V<ast_square_brackets> v) {
+    return createV<ast_square_brackets>(v->range, clone(v->get_items()), clone(v->type_node));
   }
   static V<ast_reference> clone(V<ast_reference> v) {
     return createV<ast_reference>(v->range, clone(v->get_identifier()), v->has_instantiationTs() ? clone(v->get_instantiationTs()) : nullptr);
   }
   static V<ast_local_var_lhs> clone(V<ast_local_var_lhs> v) {
-    return createV<ast_local_var_lhs>(v->range, clone(v->get_identifier()), clone(v->type_node), v->is_immutable, v->is_lateinit, v->marked_as_redef);
+    return createV<ast_local_var_lhs>(v->range, clone(v->get_identifier()), clone(v->type_node), v->is_immutable, v->is_lateinit);
   }
   static V<ast_local_vars_declaration> clone(V<ast_local_vars_declaration> v) {
     return createV<ast_local_vars_declaration>(v->range, clone(v->get_expr()));
@@ -145,6 +142,9 @@ class ASTReplicator final {
   }
   static V<ast_ternary_operator> clone(V<ast_ternary_operator> v) {
     return createV<ast_ternary_operator>(v->range, clone(v->get_cond()), clone(v->get_when_true()), clone(v->get_when_false()));
+  }
+  static V<ast_null_coalesce_operator> clone(V<ast_null_coalesce_operator> v) {
+    return createV<ast_null_coalesce_operator>(v->range, clone(v->get_lhs()), clone(v->get_rhs()));
   }
   static V<ast_cast_as_operator> clone(V<ast_cast_as_operator> v) {
     return createV<ast_cast_as_operator>(v->range, clone(v->get_expr()), clone(v->type_node));
@@ -279,12 +279,11 @@ class ASTReplicator final {
   static AnyExprV clone(AnyExprV v) {
     switch (v->kind) {
       case ast_empty_expression:                return clone(v->as<ast_empty_expression>());
-      case ast_parenthesized_expression:        return clone(v->as<ast_parenthesized_expression>());
       case ast_braced_expression:               return clone(v->as<ast_braced_expression>());
       case ast_braced_yield_result:             return clone(v->as<ast_braced_yield_result>());
       case ast_artificial_aux_vertex:           return clone(v->as<ast_artificial_aux_vertex>());
       case ast_tensor:                          return clone(v->as<ast_tensor>());
-      case ast_bracket_tuple:                   return clone(v->as<ast_bracket_tuple>());
+      case ast_square_brackets:                 return clone(v->as<ast_square_brackets>());
       case ast_reference:                       return clone(v->as<ast_reference>());
       case ast_local_var_lhs:                   return clone(v->as<ast_local_var_lhs>());
       case ast_local_vars_declaration:          return clone(v->as<ast_local_vars_declaration>());
@@ -302,6 +301,7 @@ class ASTReplicator final {
       case ast_unary_operator:                  return clone(v->as<ast_unary_operator>());
       case ast_binary_operator:                 return clone(v->as<ast_binary_operator>());
       case ast_ternary_operator:                return clone(v->as<ast_ternary_operator>());
+      case ast_null_coalesce_operator:          return clone(v->as<ast_null_coalesce_operator>());
       case ast_cast_as_operator:                return clone(v->as<ast_cast_as_operator>());
       case ast_is_type_operator:                return clone(v->as<ast_is_type_operator>());
       case ast_not_null_operator:               return clone(v->as<ast_not_null_operator>());
@@ -325,7 +325,7 @@ class ASTReplicator final {
       case ast_type_leaf_text:                  return clone(v->as<ast_type_leaf_text>());
       case ast_type_question_nullable:          return clone(v->as<ast_type_question_nullable>());
       case ast_type_parenthesis_tensor:         return clone(v->as<ast_type_parenthesis_tensor>());
-      case ast_type_bracket_tuple:              return clone(v->as<ast_type_bracket_tuple>());
+      case ast_type_brackets_shape:             return clone(v->as<ast_type_brackets_shape>());
       case ast_type_arrow_callable:             return clone(v->as<ast_type_arrow_callable>());
       case ast_type_vertical_bar_union:         return clone(v->as<ast_type_vertical_bar_union>());
       case ast_type_triangle_args:              return clone(v->as<ast_type_triangle_args>());
@@ -375,7 +375,7 @@ public:
 
   // convert a lambda expression `fun(params) { ... }` into a full function declaration
   // (the instantiated function will be added to G.all_functions and exist as a standalone function)
-  static V<ast_function_declaration> clone_lambda_as_standalone(V<ast_lambda_fun> v_lambda) {
+  static V<ast_function_declaration> clone_lambda_as_standalone(V<ast_lambda_fun> v_lambda) {      
     return createV<ast_function_declaration>(
       v_lambda->range,
       createV<ast_identifier>(v_lambda->keyword_range(), "lambda"),   // it's not a real name, for AST only

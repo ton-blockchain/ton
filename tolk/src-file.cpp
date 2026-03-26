@@ -17,6 +17,7 @@
 #include "src-file.h"
 #include "compilation-errors.h"
 #include "compiler-state.h"
+#include "compiler-settings.h"
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -38,7 +39,7 @@ const SrcFile* AllRegisteredSrcFiles::find_file(const std::string& realpath) con
 const SrcFile* AllRegisteredSrcFiles::locate_and_register_source_file(const std::string& filename, AnyV v_import_filename) {
   bool is_stdlib = filename.size() > 8 && filename.starts_with("@stdlib/");
 
-  td::Result<std::string> path = G.settings.read_callback(CompilerSettings::FsReadCallbackKind::Realpath, filename.c_str());
+  td::Result<std::string> path = G_settings.read_callback(CompilerSettings::FsReadCallbackKind::Realpath, filename.c_str(), G_settings.callback_payload);
   if (path.is_error()) {
     if (v_import_filename) {
       err("Failed to import: {}", path.move_as_error().message().str()).fire(v_import_filename);
@@ -51,7 +52,7 @@ const SrcFile* AllRegisteredSrcFiles::locate_and_register_source_file(const std:
     return file;
   }
 
-  td::Result<std::string> text = G.settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, realpath.c_str());
+  td::Result<std::string> text = G_settings.read_callback(CompilerSettings::FsReadCallbackKind::ReadFile, realpath.c_str(), G_settings.callback_payload);
   if (text.is_error()) {
     if (v_import_filename) {
       err("Failed to import: {}", text.move_as_error().message().str()).fire(v_import_filename);
@@ -61,7 +62,7 @@ const SrcFile* AllRegisteredSrcFiles::locate_and_register_source_file(const std:
 
   int file_id = static_cast<int>(all_src_files.size());   // SrcFile::file_id is the index in all files
   SrcFile* created = new SrcFile(file_id, is_stdlib, std::move(realpath), text.move_as_ok());
-  if (G.is_verbosity(1)) {
+  if (G_settings.verbosity >= 1) {
     std::cerr << "register file_id " << created->file_id << " " << created->realpath << std::endl;
   }
   all_src_files.push_back(created);
@@ -140,60 +141,6 @@ const SrcFile* SrcRange::get_src_file() const {
   return G.all_src_files.get_file(file_id);
 }
 
-
-// --------------------------------------------
-//    stringify ranges and locations,
-//    output to Fift as comment
-
-static void output_line_to_fif(std::ostream& os, int indent, std::string_view line_str, int line_no, bool dots = false) {
-  // trim some characters from start and end to see `else if (x)` not `} else if (x) {`
-  std::string_view s = line_str;
-  int b = 0, e = static_cast<int>(s.size() - 1);
-  while (std::isspace(s[b]) || s[b] == '}') {
-    if (b < e) b++;
-    else break;
-  }
-  while (std::isspace(s[e]) || s[e] == '{' || s[e] == ';' || s[e] == ',') {
-    if (e > b) e--;
-    else break;
-  }
-
-  if (b < e) {
-    for (int i = 0; i < indent * 2; ++i) {
-      os << ' ';
-    }
-    os << "// " << (dots ? "..." : "") << line_no << ": " << s.substr(b, e - b + 1) << std::endl;
-  }
-}
-
-// when generating Fift output, every block of asm instructions originated from the same Tolk line,
-// is preceded by an original line as a comment
-void SrcRange::output_first_line_to_fif(std::ostream& os, int indent) const {
-  // avoid duplicating one line multiple times in fift output
-  static int last_start_offset = 0, last_start_line_no = 0;
-  static int last_end_offset = 0, last_end_line_no = 0;
-
-  bool just_printed_start_line = false;
-  if (start_offset != last_start_offset) {
-    SrcFile::SrcPosition pos = G.all_src_files.get_file(file_id)->convert_offset(start_offset);
-    if (pos.line_no != last_start_line_no) {
-      output_line_to_fif(os, indent, pos.line_str, pos.line_no);
-      just_printed_start_line = true;
-    }
-    last_start_offset = last_end_offset = start_offset;
-    last_start_line_no = last_end_line_no = pos.line_no;
-  }
-  if (end_offset > last_end_offset) {
-    SrcFile::SrcPosition pos = G.all_src_files.get_file(file_id)->convert_offset(end_offset);
-    if (pos.line_no > last_end_line_no) {
-      std::string_view line_str = pos.line_str.substr(0, end_offset - pos.line_offset);
-      output_line_to_fif(os, indent, line_str, pos.line_no, just_printed_start_line);
-    }
-    last_end_offset = end_offset;
-    last_end_line_no = pos.line_no;
-  }
-}
-
 std::string SrcRange::stringify_start_location(bool output_char_no) const {
   const SrcFile* src_file = get_src_file();
   if (!src_file || !src_file->is_offset_valid(start_offset)) {
@@ -211,6 +158,24 @@ std::string SrcRange::stringify_start_location(bool output_char_no) const {
   return s;
 }
 
+
+SrcRange::DecodedRange SrcRange::decode_offsets() const {
+  const SrcFile* src_file = get_src_file();
+  tolk_assert(src_file && src_file->is_offset_valid(start_offset));
+
+  SrcFile::SrcPosition pos_s = src_file->convert_offset(start_offset);
+  SrcFile::SrcPosition pos_e = src_file->convert_offset(end_offset);
+  return {
+    .file_id = file_id,
+    .start_line_no = pos_s.line_no,
+    .start_char_no = pos_s.char_no,
+    .end_line_no = pos_e.line_no,
+    .end_char_no = pos_e.char_no,
+    .start_line_str = pos_s.line_str,
+    .end_line_str = pos_e.line_str,
+    .text_inside = std::string_view(src_file->text).substr(start_offset, end_offset - start_offset)
+  };
+}
 
 void SrcRange::output_underlined(std::ostream& os) const {
   const SrcFile* src_file = get_src_file();

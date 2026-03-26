@@ -208,7 +208,7 @@ fun test20() {
     var t = (getNullableInt(), getNullableInt());
     if (t.0 != null && t.1 != null) {
         __expect_type(t.0, "int");
-        __expect_type(t.1, "int");
+        __expect_type(((t)).1, "int");
         return t.0 + t.1;
     }
     t.0 = 10;
@@ -242,13 +242,6 @@ fun test22() {
     return t.0 + t.1.0 + t.1.1;
 }
 
-@method_id(123)
-fun test23() {
-    var (x: int?, y: int?, z: int?) = (getNullableInt(), getNullableInt(), getNullableInt());
-    ((x = 1, 0).0, (y = 2, 1).0) = (3, z = 4);
-    return x + y + z;
-}
-
 @method_id(124)
 fun test24(x: int?) {
     if (x == null) {
@@ -273,28 +266,30 @@ fun test25() {
 }
 
 fun test26() {
-    var x = [getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(),
+    var x: [int?,int?,int?,int?,int?,int?,int?,int?,int?,int?] = [
+        getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(),
         getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt()];
     if (~(x.0 = rand())) { return; }
     if ((x.1 = rand()) < (x.2 = rand())) { return; }
-    else if (!(x.2 <=> (x.3 = rand()))) { return; }
+    else if (!(x.2 <=> ((x).3 = rand()))) { return; }
     x.5 = (x.4 = rand()) ? (x.6 = rand()) : (x.6 = rand());
     if ((x.7 = rand()) as int) { return; }
     if (((((x.8 = rand()) != null)))) { return; }
-    if ([x.1, (x.9 = rand())!].1) { return; }
+    if (([x.1, (x.9 = rand())!] as [unknown, int]).1) { return; }
     val result = x.0+x.1+x.2+x.3+x.4+x.5+x.6+x.7+x.8+x.9;
 }
 
 fun test27() {
     var (x, _) = ([getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(),
-        getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt()], []);
+        getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt()]
+        as [int?,int?,int?,int?,int?,int?,int?,int?,int?,int?], []);
     +(x.0 = rand());
-    x.0 += [((x.1 = rand()) < (x.2 = rand() + x.1)) as int].0;
+    x.0 += ([((x.1 = rand()) < (x.2 = rand() + x.1)) as int] as [int]).0;
     !(x.2 <=> (x.3 = rand() + x.2));
     x.5 = (x.4 = rand()) ? (x.6 = rand()) : (x.6 = rand());
     (x.7 = rand()) as int;
     (((((x.8 = rand()) != null))));
-    [x.1, (x.9 = rand())!].1;
+    ([x.1, (x.9 = rand())!] as [unknown, unknown]).1;
     return x.0+x.1+x.2+x.3+x.4+x.5+x.6+x.7+x.8+x.9;
 }
 
@@ -306,8 +301,7 @@ fun test28() {
 
 fun test29() {
     var x = (getNullableInt(), getNullableInt(), getNullableInt(), getNullableInt());
-    __expect_type([x.0 = rand(), ((x.0 += (x.1 = rand()) as int)), !(x.1 <=> (x.2 = rand() + x.0)) == null, (x.3 = rand()) ? x.3 : (!x.3) as int],
-                  "[int, int, bool, int]");
+    [x.0 = rand(), ((x.0 += (x.1 = rand()) as int)), !(x.1 <=> (x.2 = rand() + x.0)) == null, (x.3 = rand()) ? x.3 : (!x.3) as int] as array<unknown>;
 }
 
 @method_id(130)
@@ -321,10 +315,10 @@ fun test30(initial5: bool) {
                 t.1.1.0 = 4;
             }
             __expect_type(t.1.1.0, "int");
-            __expect_type(t.1.1.1, "int?");
+            __expect_type((((t).1).1).1, "int?");
             __expect_type(t.1.0, "int?");
-            t.1.1.1 = 3;
-            t.1.0 = 2;
+            ((t.1).1).1 = 3;
+            (t.1).0 = 2;
             __expect_type(t.1.1.1, "int");
             __expect_type(t.1.0, "int");
         }
@@ -408,17 +402,17 @@ fun test38() {
         if (y == null) { return -1; }
         return x + y;
     }
-    var t: (int?, slice?) = (null, null);
+    var t: (int?, string?) = (null, null);
     if (!false) { t.0 = 1; }
-    if (true) { t.1 = beginCell().endCell().beginParse(); }
+    if (true) { t.1 = "abcd"; }
     __expect_type(t.0, "int");
-    __expect_type(t.1, "slice");
-    t.0 + t.1.loadInt(32);
+    __expect_type(t.1, "string");
+    t.0 + t.1.beginParse().loadUint(1);
     assignNull2(mutate t.0, mutate t.1);
     __expect_type(t.0, "int?");
-    __expect_type(t.1, "slice?");
-    t.0 != null && t.1 != null ? t.0 + t.1.loadInt(32) : -1;
-    return t.0 != null && t.1 != null ? t.0 + t.1.loadInt(32) : -1;
+    __expect_type(t.1, "string?");
+    t.0 != null && t.1 != null ? t.0 + t.1.beginParse().loadUint(1) : -1;
+    return t.0 != null && t.1 != null ? t.0 + t.1.beginParse().loadUint(1) : -1;
 }
 
 @method_id(139)
@@ -511,17 +505,6 @@ fun test47() {
     __expect_type(t2, "null");
     var result = (t1, t2);        // proven to be always null, inferred (null, null), 2 slots on a stack
     return (result, 100, result.1, 100, t2 as (int, int)?);
-}
-
-fun test48() {
-    var t1: int? = getNullableInt();
-    if (t1 != null) {
-        var (t1 redef, t2) = (10, 5);
-        return t1 + t2;
-        var t2 redef = getNullableInt()!;
-        return t1 + t2;
-    }
-    return -1;
 }
 
 fun test49(x: int?) {
@@ -729,21 +712,21 @@ fun test64(d: dict, b: BalanceDict) {
     }
     __expect_type(d, "dict");
     __expect_type(d.myDepth(), "int3");
-
+    
     match (b) {
         null => { __expect_type(b.myDepth(), "int4") }
         cell => { __expect_type(b.myDepth(), "int1") }
     }
     __expect_type(b, "BalanceDict");
     __expect_type(b.myDepth(), "int3");
-
+    
     if (d == null) { return; }
     if (b != null) { return; }
 
     __expect_type(d.myDepth(), "int1");
     __expect_type(b.myDepth(), "int4");
-
-    if ([0].0) {
+    
+    if (([0] as [int]).0) {
         (b, d) = (createEmptyCell(), null)
     }
     __expect_type(b, "BalanceDict");
@@ -775,18 +758,36 @@ fun test65(w: WithDict, t: (dict, BalanceDict)) {
     __expect_type(t.1, "BalanceDict");
 }
 
+@method_id(166)
+fun test66() {
+    var sh: [int, array<int>, Point?] | slice = [1, [2, 3], null];
+    __expect_type(sh, "[int, array<int>, Point?]");
+    return (sh.1.size(), sh !is slice);
+}
+
+fun test77(p: (int?, int?)?) {
+    if ((p = p!).0 != null) {
+        __expect_type(p.0, "int");
+        __expect_type(p.1, "int?");
+        if ((p = p).1 != null) {
+            __expect_type(p.0, "int?");
+            __expect_type(p.1, "int");
+            p.0! + p.1;
+        }
+    }
+}
+
 
 fun main(x: int?): int {
     // mark used to codegen them
     test55;
-
+    
     return x == null ? -1 : x;
 }
 
 /**
 @testcase | 0   | 1     | 1
 @testcase | 111 |       | 10
-@testcase | 123 |       | 7
 @testcase | 124 | 4     | 6
 @testcase | 124 | null  | 15
 @testcase | 130 | -1    | 20
@@ -806,10 +807,9 @@ fun main(x: int?): int {
 @testcase | 160 |       | 101 109
 @testcase | 161 | 9 9   | (null) (null) 0 (null) (null)
 @testcase | 161 | 19 0  | 19 0 typeid-4 19 0
+@testcase | 166 |       | 2 -1
 
 @stderr warning: expression of type `int` can never be `null`, this condition is always true
-@stderr warning: unreachable code
-@stderr var t2 redef = getNullableInt()!;
 
 @fif_codegen        eq55<int?>() PROC:<{
 @fif_codegen_avoid  eq55<int>() PROC:<{

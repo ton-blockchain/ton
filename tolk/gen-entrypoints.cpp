@@ -46,13 +46,6 @@ static bool is_modern_onInternalMessage(FunctionPtr f_onInternalMessage) {
 }
 
 std::vector<var_idx_t> AuxData_OnInternalMessage_getField::generate_get_InMessage_field(CodeBlob& code, AnyV origin) const {
-  if (field_name == "body") {           // take `in.body` from a stack
-    return f_onInternalMessage->find_param("in.body")->ir_idx;
-  }
-  if (field_name == "bouncedBody") {    // we're in onBouncedMessage()
-    return f_onInternalMessage->find_param("in.body")->ir_idx;
-  }
-
   int idx = -1;
   if      (field_name == "isBounced")          idx = 1;
   else if (field_name == "senderAddress")      idx = 2;
@@ -61,13 +54,13 @@ std::vector<var_idx_t> AuxData_OnInternalMessage_getField::generate_get_InMessag
   else if (field_name == "createdAt")          idx = 5;
   else if (field_name == "valueCoins")         idx = 7;
   else if (field_name == "valueExtra")         idx = 8;
-  tolk_assert(idx != -1);
+  tolk_assert(idx != -1);     // `in.body` and `in.bouncedBody` are regular parameters, not aux vertices
 
-  std::vector ir_msgparam = code.create_tmp_var(TypeDataInt::create(), origin, field_name.data());
-  code.emplace_back(origin, Op::_Call, ir_msgparam, std::vector{code.create_int(origin, idx, "(param-idx)")}, lookup_function("__InMessage.getInMsgParam"));
+  std::vector ir_msgparam = code.create_tmp_var(TypeDataInt::create(), origin, "(inmsg-field)");
+  code.add_call(origin, ir_msgparam, {code.create_int(origin, idx, "(param-idx)")}, lookup_function("__InMessage.getInMsgParam"));
 
   if (field_name == "originalForwardFee") {
-    code.emplace_back(origin, Op::_Call, ir_msgparam, std::vector{ir_msgparam[0], code.create_int(origin, 0, "(basechain)")}, lookup_function("__InMessage.originalForwardFee"));
+    code.add_call(origin, ir_msgparam, {ir_msgparam[0], code.create_int(origin, 0, "(basechain)")}, lookup_function("__InMessage.originalForwardFee"));
   }
 
   return ir_msgparam;
@@ -92,17 +85,16 @@ void handle_onInternalMessage_codegen_start(FunctionPtr f_onInternalMessage, con
   if (f_onBouncedMessage) {
     // generate: `if (isBounced) { onBouncedMessage(); return; }
     tolk_assert(f_onBouncedMessage->inferred_return_type->get_width_on_stack() == 0);
-    Op& if_isBounced = code.emplace_back(origin, Op::_If, ir_isBounced);
+    Op& if_isBounced = code.add_if_else(origin, ir_isBounced);
     {
       code.push_set_cur(if_isBounced.block0);
       std::vector ir_bodySlice(rvect_params.end() - 1, rvect_params.end());
       if (f_onBouncedMessage->is_inlined_in_place()) {
         gen_inline_fun_call_in_place(code, TypeDataVoid::create(), origin, f_onBouncedMessage, nullptr, true, {ir_bodySlice});
       } else {
-        Op& op_call = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, ir_bodySlice, f_onBouncedMessage);
-        op_call.set_impure_flag();
+        code.add_call(origin, {}, ir_bodySlice, f_onBouncedMessage);
       }
-      code.emplace_back(origin, Op::_Return, std::vector<var_idx_t>{});
+      code.add_return(origin, {});
       code.close_pop_cur(origin);
     }
     {
@@ -112,8 +104,7 @@ void handle_onInternalMessage_codegen_start(FunctionPtr f_onInternalMessage, con
   } else {
     // generate: `if (isBounced) throw 0`
     std::vector args = { code.create_int(origin, 0, "(exit-0)"), ir_isBounced[0] };
-    Op& op_throw0if = code.emplace_back(origin, Op::_Call, std::vector<var_idx_t>{}, std::move(args), lookup_function("__throw_if"));
-    op_throw0if.set_impure_flag();
+    code.add_call(origin, {}, std::move(args), lookup_function("__throw_if"));
   }
 }
 
