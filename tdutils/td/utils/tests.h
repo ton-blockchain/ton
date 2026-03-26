@@ -20,6 +20,7 @@
 
 #include <atomic>
 #include <charconv>
+#include <cmath>
 #include <functional>
 #include <optional>
 #include <sstream>
@@ -235,6 +236,23 @@ std::optional<std::string> check_eq(const auto &a_value, const auto &b_value, co
   return builder.str();
 }
 
+std::optional<std::string> check_approx(const std::floating_point auto &a_value,
+                                        const std::floating_point auto &b_value, const char *a_expr,
+                                        const char *b_expr) {
+  if (std::isfinite(a_value) && std::isfinite(b_value)) {
+    if (std::abs(a_value - b_value) <= 1e-6 * std::max<double>({std::abs(a_value), std::abs(b_value), 1})) {
+      return std::nullopt;
+    }
+  }
+
+  std::ostringstream builder;
+  builder << "Expectation failed: " << a_expr << " is not approximately equal to " << b_expr;
+  if (auto a_str = stringify(a_value), b_str = stringify(b_value); a_str.has_value() && b_str.has_value()) {
+    builder << " (" << *a_str << " != " << *b_str << ")";
+  }
+  return builder.str();
+}
+
 }  // namespace detail
 
 }  // namespace td
@@ -274,6 +292,14 @@ std::optional<std::string> check_eq(const auto &a_value, const auto &b_value, co
       LOG(ERROR) << *error_message;                                  \
       ::td::TestContext::get()->register_test_failure();             \
     }                                                                \
+  } while (0)
+
+#define EXPECT_APPROX(a, b)                                              \
+  do {                                                                   \
+    if (auto error_message = ::td::detail::check_approx(a, b, #a, #b)) { \
+      LOG(ERROR) << *error_message;                                      \
+      ::td::TestContext::get()->register_test_failure();                 \
+    }                                                                    \
   } while (0)
 
 #define REGRESSION_VERIFY(data) ::td::TestContext::get()->verify(data).ensure()
