@@ -337,12 +337,17 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
 
       handle_our_vote(vote, /*tolerate_conflicts=*/true, /*suppress_vote_broadcast=*/true).start().detach();
     }
+
+    std::tie(standstill_resolution_awaiter_, standstill_resolution_notification_) =
+        td::actor::StartedTask<>::make_bridge();
+    standstill_resolution_task().start().detach();
   }
 
   void tear_down() override {
     for (auto &r : requests_) {
       r.promise.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
     }
+    standstill_resolution_notification_.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
   }
 
   template <>
@@ -458,10 +463,8 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
 
     td::StringBuilder sb;
 
-    std::vector<ProtocolMessage> messages;
     if (last_final_cert_.has_value()) {
       sb << "Last final cert is for " << (*last_final_cert_)->vote.id << "\n";
-      messages.push_back((*last_final_cert_)->serialize());
     }
 
     for (td::uint32 i = begin; i < end; ++i) {
@@ -470,7 +473,7 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
 
       sb << i << ": ";
       for (size_t j = 0; j < bus.validator_set.size(); ++j) {
-        auto &voting_state = slot->state->votes[j];
+        auto &voting_state = state->votes[j];
         if (voting_state.is_finalized()) {
           sb << 'F';
         } else if (voting_state.is_notarized() && voting_state.is_skipped()) {
@@ -493,23 +496,86 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
         sb << " final";
       }
       sb << "\n";
-
-      state->certs.serialize_to(messages);
-      state->votes[bus.local_id.idx.value()].serialize_to(messages, state->certs);
     }
 
     LOG(WARNING) << "Standstill detected. Current pool state: " << sb.as_cslice();
 
-    for (auto &vote : messages) {
-      owning_bus().publish<OutgoingProtocolMessage>(std::nullopt, std::move(vote));
-    }
-
+    standstill_resolution_notification_.set_value({});
     reschedule_standstill_resolution();
   }
 
  private:
+  // ===== Standstill resolution =====
   void reschedule_standstill_resolution() {
     alarm_timestamp() = td::Timestamp::in(params_.standstill_timeout);
+  }
+
+  td::actor::Task<> standstill_resolution_task() {
+    auto &bus = *owning_bus();
+
+    // At time `now`, we are allowed to send
+    // `egress_quota + (now - quota_time) * max_egress_bytes_per_s` bytes.
+    double egress_quota;
+    td::Timestamp quota_time;
+
+    auto send = [&](ProtocolMessage message) -> td::actor::Task<> {
+      auto max_bytes_per_s = params_.standstill_max_egress_bytes_per_s;
+
+      double msg_size = static_cast<double>(message.data.size() * bus.validator_set.size());
+      if (egress_quota < msg_size) {
+        double delay = (msg_size - egress_quota) / max_bytes_per_s;
+        auto ts = td::Timestamp::in(delay, quota_time);
+        if (!ts.is_in_past()) {
+          co_await td::actor::coro_sleep(ts);
+        }
+
+        auto now = td::Timestamp::now();
+        egress_quota = std::min<double>(egress_quota + (now - quota_time) * max_bytes_per_s, max_bytes_per_s);
+        quota_time = now;
+      }
+      egress_quota -= msg_size;
+
+      owning_bus().publish<OutgoingProtocolMessage>(std::nullopt, std::move(message));
+      co_return {};
+    };
+
+    while (true) {
+      co_await std::move(standstill_resolution_awaiter_);
+      std::tie(standstill_resolution_awaiter_, standstill_resolution_notification_) =
+          td::actor::StartedTask<>::make_bridge();
+
+      auto last_final_cert_copy = last_final_cert_;
+
+      // Mostly clear quota so that we don't burst a lot of messages immediately after resolution
+      // was requested.
+      egress_quota = 0;
+      quota_time = td::Timestamp::now() + std::chrono::milliseconds(-10);
+
+      LOG(WARNING) << "Standstill resolution broadcast started";
+
+      if (last_final_cert_copy.has_value()) {
+        co_await send((*last_final_cert_copy)->serialize());
+      }
+
+      auto [begin, end] = state_->tracked_slots_interval();
+      for (td::uint32 i = begin; i < end && last_final_cert_ == last_final_cert_copy; ++i) {
+        auto &state = state_->slot_at(i)->state;
+
+        std::vector<ProtocolMessage> messages;
+        state->certs.serialize_to(messages);
+        state->votes[bus.local_id.idx.value()].serialize_to(messages, state->certs);
+
+        for (auto &message : messages) {
+          co_await send(std::move(message));
+        }
+
+        auto [begin_new, end_new] = state_->tracked_slots_interval();
+        CHECK(begin == begin_new || last_final_cert_ != last_final_cert_copy);
+        std::tie(begin, end) = {begin_new, end_new};
+      }
+
+      LOG(WARNING) << "Standstill resolution broadcast stopped";
+    }
   }
 
   // ===== Vote handling =====
@@ -839,6 +905,9 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
   ParentId last_finalized_block_;
   std::optional<FinalCertRef> last_final_cert_;
   td::uint32 first_nonfinalized_slot_ = 0;
+
+  td::Promise<> standstill_resolution_notification_;
+  td::actor::StartedTask<> standstill_resolution_awaiter_;
 
   std::vector<Request> requests_;
 };
