@@ -231,6 +231,7 @@ std::string TD_TL_writer_hpp::gen_additional_proxy_function_begin(const std::str
            "switch (obj.get_id()) {";
   }
   assert(false);
+  return "";
 }
 
 std::string TD_TL_writer_hpp::gen_additional_proxy_function_case(const std::string &function_name,
@@ -261,6 +262,7 @@ std::string TD_TL_writer_hpp::gen_additional_proxy_function_case(const std::stri
            "      return true;\n";
   }
   assert(false);
+  return "";
 }
 
 std::string TD_TL_writer_hpp::gen_additional_proxy_function_end(const std::string &function_name,
