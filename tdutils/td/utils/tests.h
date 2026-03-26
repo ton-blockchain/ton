@@ -218,7 +218,11 @@ inline std::optional<std::string> check(bool condition, const char *msg) {
   return PSTRING() << "Expectation failed: " << msg << "!";
 }
 
-std::optional<std::string> check_eq(const auto &a_value, const auto &b_value, const char *a_expr, const char *b_expr) {
+std::optional<std::string> check_eq(const auto &a_value, const auto &b_value, const char *a_expr, const char *b_expr)
+  requires requires {
+    { a_value == b_value } -> std::same_as<bool>;
+  }
+{
   if (a_value == b_value) {
     return std::nullopt;
   }
