@@ -116,6 +116,9 @@ td::Result<FecType> FecType::create(tl_object_ptr<ton_api::fec_Type> obj) {
   if (symbol_size > 1 << 11) {
     return td::Status::Error("invalid fec type: symbol_size is too big");
   }
+  if (data_size > symbol_size * (1ull << 24)) {
+    return td::Status::Error("invalid fec type: too many symbols");
+  }
   if (symbols_count != (data_size + symbol_size - 1) / symbol_size) {
     return td::Status::Error("invalid fec type: wrong symbols_count");
   }

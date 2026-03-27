@@ -119,7 +119,7 @@ void BroadcastSimple::run_continue(OverlayImpl *overlay) {
     td::actor::send_closure(manager, &OverlayManager::send_message, n, overlay->local_id(), overlay->overlay_id(),
                             B.clone());
   }
-  overlay->deliver_broadcast(source_.compute_short_id(), data_.clone());
+  overlay->deliver_broadcast(source_.compute_short_id(), data_.clone(), {});
 }
 
 td::BufferSlice BroadcastSimple::serialize() {

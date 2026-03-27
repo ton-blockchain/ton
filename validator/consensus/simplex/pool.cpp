@@ -538,6 +538,22 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
     reschedule_standstill_resolution();
   }
 
+  // FIXME: This should probably live in another actor.
+  template <>
+  td::actor::Task<> process(BusHandle, std::shared_ptr<PrecheckCandidateBroadcast> query) {
+    if (query->slot < first_nonfinalized_slot_) {
+      co_return td::Status::Error("Slot is already finalized");
+    }
+    if (query->slot > now_ + params_.max_leader_window_desync * slots_per_leader_window_) {
+      co_return td::Status::Error("Slot is too far in the future");
+    }
+    auto [it, inserted] = seen_broadcasts_.emplace(query->slot, query->broadcast_id);
+    if (!inserted && it->second != query->broadcast_id) {
+      co_return td::Status::Error("Duplicate broadcast");
+    }
+    co_return {};
+  }
+
  private:
   // ===== Standstill resolution =====
   void reschedule_standstill_resolution() {
@@ -965,6 +981,8 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
   std::map<PeerValidatorId, td::Timestamp> bad_signature_bans_;
 
   std::vector<Request> requests_;
+
+  std::map<td::uint32, td::Bits256> seen_broadcasts_;
 };
 
 }  // namespace

@@ -142,4 +142,8 @@ std::string NoncriticalParamsUpdated::contents_to_string() const {
   return PSTRING() << "{params={" << td::Slice{sb.as_cslice()}.remove_suffix(2) << "}}";
 }
 
+std::string PrecheckCandidateBroadcast::contents_to_string() const {
+  return PSTRING() << "{slot=" << slot << ", broadcast_id=" << broadcast_id << "}";
+}
+
 }  // namespace ton::validator::consensus

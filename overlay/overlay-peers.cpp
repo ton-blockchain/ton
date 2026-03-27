@@ -553,6 +553,10 @@ bool OverlayImpl::is_persistent_node(const adnl::AdnlNodeIdShort &id) {
   return P->is_permanent_member();
 }
 
+size_t OverlayImpl::persistent_node_count() {
+  return peer_list_.persistent_node_count_;
+}
+
 bool OverlayImpl::is_valid_peer(const adnl::AdnlNodeIdShort &src,
                                 const ton_api::overlay_MemberCertificate *certificate) {
   if (overlay_type_ == OverlayType::Public) {
@@ -719,6 +723,7 @@ void OverlayImpl::update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids
       peer_list_.peers_.insert(std::move(id), std::move(peer));
     }
   }
+  peer_list_.persistent_node_count_ = ids.size();
 
   update_member_certificate(std::move(cert));
   update_neighbours(0);
