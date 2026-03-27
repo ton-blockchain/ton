@@ -292,7 +292,7 @@ static td::actor::Task<> check_and_deliver(OverlayImpl *overlay, PublicKeyHash s
                                            td::BufferSlice data, td::BufferSlice extra) {
   if (check_result != BroadcastCheckResult::Allowed) {
     auto [task, promise] = td::actor::StartedTask<>::make_bridge();
-    overlay->check_broadcast(src, std::move(data), std::move(promise));
+    overlay->check_broadcast(src, data.clone(), std::move(promise));
     co_await std::move(task);
   }
   overlay->deliver_broadcast(src, std::move(data), std::move(extra));
@@ -407,6 +407,7 @@ td::actor::Task<> BroadcastsTwostep::process_broadcast(OverlayImpl *overlay, adn
     VLOG(TWOSTEP_INFO) << "twostep START receiver " << *it->second << " from=" << src_peer_id;
   }
   auto bcast = it->second.get();
+  bcast->seen_parts.insert(seqno);
   bool will_rebroadcast = src_peer_id == bcast_src_adnl_id && !bcast->rebroadcasted_part;
   if (will_rebroadcast) {
     rebroadcast(overlay, bcast_src_adnl_id, serialize_tl_object(broadcast, true));
