@@ -487,6 +487,9 @@ class TestDbImpl : public consensus::Db {
     db_->map[std::move(key)] = std::move(value);
     co_return {};
   }
+  td::actor::Task<> close() override {
+    co_return {};
+  }
 
  private:
   std::map<td::BufferSlice, td::BufferSlice> snapshot_;

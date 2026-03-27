@@ -137,6 +137,9 @@ class DbImpl : public Db {
     }
     co_return std::move(result);
   }
+  td::actor::Task<> close() override {
+    co_return co_await writer_.close();
+  }
 
  private:
   td::KeyValueAsync<td::BufferSlice, td::BufferSlice> writer_;
@@ -189,7 +192,7 @@ class BridgeImpl final : public IValidatorGroup {
     td::actor::send_closure(manager_facade_, &ManagerFacadeImpl::update_collator_options, opts);
 
     auto new_noncritical_params =
-        opts->get_noncritical_params(bus_->shard, bus_->cc_seqno, bus_->config.noncritical_params);
+        opts->get_noncritical_params(bus_->shard, bus_->cc_seqno, params_.config.noncritical_params);
     if (current_noncritical_params_ != new_noncritical_params) {
       bus_.publish<NoncriticalParamsUpdated>(new_noncritical_params);
       current_noncritical_params_ = new_noncritical_params;
@@ -252,7 +255,7 @@ class BridgeImpl final : public IValidatorGroup {
     bus->validator_set_hash = params_.validator_set->get_validator_set_hash();
     CHECK(found);
 
-    bus->config = std::move(params_.config);
+    bus->config = params_.config;
     bus->config.noncritical_params =
         params_.validator_opts->get_noncritical_params(bus->shard, bus->cc_seqno, bus->config.noncritical_params);
     current_noncritical_params_ = bus->config.noncritical_params;
@@ -291,10 +294,17 @@ class BridgeImpl final : public IValidatorGroup {
     if (bus_) {
       LOG(INFO) << "Destroying validator group";
       bus_.publish<StopRequested>();
+      co_await bus_->db->close();
       bus_ = {};
       co_await std::move(stop_waiter_.value());
       LOG(INFO) << "Consensus bus stopped";
+      auto S = td::RocksDb::destroy(db_path() + "/db/");
       td::rmrf(db_path()).ignore();
+      if (S.is_ok()) {
+        LOG(INFO) << "Deleting consensus DB : done";
+      } else {
+        LOG(ERROR) << "Deleting consensus DB " << db_path() << " : " << S;
+      }
     }
     stop();
     co_return td::Unit{};

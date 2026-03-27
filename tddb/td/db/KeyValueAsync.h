@@ -45,6 +45,8 @@ class KeyValueAsync {
   actor::Task<> set(KeyT key, ValueT value, double sync_delay = 0) const;
   actor::Task<> erase(KeyT key, double sync_delay = 0) const;
 
+  actor::Task<> close() const;
+
   KeyValueAsync();
   KeyValueAsync(KeyValueAsync &&);
   KeyValueAsync &operator=(KeyValueAsync &&);
@@ -61,6 +63,10 @@ class KeyValueActor : public actor::Actor {
   }
 
   void get(KeyT key, Promise<typename KeyValueAsync<KeyT, ValueT>::GetResult> promise) {
+    if (!key_value_) {
+      promise.set_error(Status::Error(/* cancelled */ 653, "db is closed"));
+      return;
+    }
     std::string value;
     auto r_status = key_value_->get(as_slice(key), value);
     if (r_status.is_error()) {
@@ -75,14 +81,31 @@ class KeyValueActor : public actor::Actor {
     promise.set_value(std::move(result));
   }
   void set(KeyT key, ValueT value, double sync_delay, Promise<Unit> promise) {
+    if (!key_value_) {
+      promise.set_error(Status::Error(/* cancelled */ 653, "db is closed"));
+      return;
+    }
     TRY_STATUS_PROMISE(promise, schedule_sync(sync_delay));
     TRY_STATUS_PROMISE(promise, key_value_->set(as_slice(key), as_slice(value)));
     pending_promises_.push_back(std::move(promise));
   }
   void erase(KeyT key, double sync_delay, Promise<Unit> promise) {
+    if (!key_value_) {
+      promise.set_error(Status::Error(/* cancelled */ 653, "db is closed"));
+      return;
+    }
     TRY_STATUS_PROMISE(promise, schedule_sync(sync_delay));
     TRY_STATUS_PROMISE(promise, key_value_->erase(as_slice(key)));
     pending_promises_.push_back(std::move(promise));
+  }
+  void close(Promise<Unit> promise) {
+    if (!key_value_) {
+      promise.set_value(Unit{});
+      return;
+    }
+    sync();
+    key_value_ = {};
+    promise.set_value(Unit{});
   }
 
  private:
@@ -172,6 +195,11 @@ actor::Task<> KeyValueAsync<KeyT, ValueT>::set(KeyT key, ValueT value, double sy
 template <class KeyT, class ValueT>
 actor::Task<> KeyValueAsync<KeyT, ValueT>::erase(KeyT key, double sync_delay) const {
   co_return co_await actor::ask(actor_, &ActorType::erase, std::move(key), sync_delay);
+}
+
+template <class KeyT, class ValueT>
+actor::Task<> KeyValueAsync<KeyT, ValueT>::close() const {
+  co_return co_await actor::ask(actor_, &ActorType::close);
 }
 
 }  // namespace td

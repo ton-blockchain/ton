@@ -158,6 +158,7 @@ class Db {
   virtual std::optional<td::BufferSlice> get(td::Slice key) const = 0;
   virtual std::vector<std::pair<td::BufferSlice, td::BufferSlice>> get_by_prefix(td::uint32 prefix) const = 0;
   virtual td::actor::Task<> set(td::BufferSlice key, td::BufferSlice value) = 0;
+  virtual td::actor::Task<> close() = 0;
 };
 
 class Bus : public td::actor::Bus {
@@ -169,6 +170,7 @@ class Bus : public td::actor::Bus {
 
   Bus() = default;
   ~Bus() override {
+    db = {};
     stop_promise.set_value(td::Unit());
   }
 
