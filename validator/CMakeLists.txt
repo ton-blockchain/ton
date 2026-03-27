@@ -77,34 +77,22 @@ set(VALIDATOR_HEADERS
   validator.h
 )
 set(VALIDATOR_SOURCE
-  apply-block.cpp
-  block-handle.cpp
   collation-manager.cpp
   collator-node/collator-node.cpp
   collator-node/collator-node-session.cpp
   collator-node/utils.cpp
+  downloaders/wait-block-data.cpp
   get-next-key-blocks.cpp
   import-db-slice.cpp
   import-db-slice-local.cpp
-  shard-client.cpp
   state-serializer.cpp
   token-manager.cpp
   validate-broadcast.cpp
-  validator-full-id.cpp
-  validator-group.cpp
-  validator-options.cpp
-  queue-size-counter.cpp
   validator-telemetry.cpp
   storage-stat-cache.cpp
   shard-block-verifier.cpp
   shard-block-retainer.cpp
 
-  downloaders/wait-block-data.cpp
-  downloaders/wait-block-state.cpp
-  downloaders/wait-block-state-merge.cpp
-  downloaders/download-state.cpp
-
-  manager-init.cpp
   manager.cpp
 
   consensus/simplex/bus.cpp
@@ -133,38 +121,12 @@ set(VALIDATOR_SOURCE
 )
 
 set(DISK_VALIDATOR_SOURCE
-  apply-block.cpp
-  block-handle.cpp
-  shard-client.cpp
-  validator-full-id.cpp
-  validator-group.cpp
-  validator-options.cpp
-  queue-size-counter.cpp
-
   downloaders/wait-block-data-disk.cpp
-  downloaders/wait-block-state.cpp
-  downloaders/wait-block-state-merge.cpp
-  downloaders/download-state.cpp
-
-  manager-init.cpp
   manager-disk.cpp
 )
 
 set(HARDFORK_VALIDATOR_SOURCE
-  apply-block.cpp
-  block-handle.cpp
-  shard-client.cpp
-  validator-full-id.cpp
-  validator-group.cpp
-  validator-options.cpp
-  queue-size-counter.cpp
-
   downloaders/wait-block-data-disk.cpp
-  downloaders/wait-block-state.cpp
-  downloaders/wait-block-state-merge.cpp
-  downloaders/download-state.cpp
-
-  manager-init.cpp
   manager-hardfork.cpp
 )
 
@@ -200,6 +162,21 @@ set(FULL_NODE_SOURCE
 add_library(validator-db OBJECT ${VALIDATOR_DB_SOURCE})
 target_include_directories(validator-db PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_link_libraries(validator-db PUBLIC tdactor adnl rldp tl_api dht tdfec overlay catchain validatorsession ton_db)
+
+add_library(validator-common OBJECT
+  downloaders/download-state.cpp
+  downloaders/wait-block-state-merge.cpp
+  downloaders/wait-block-state.cpp
+  apply-block.cpp
+  block-handle.cpp
+  manager-init.cpp
+  queue-size-counter.cpp
+  shard-client.cpp
+  validator-full-id.cpp
+  validator-group.cpp
+  validator-options.cpp
+)
+target_link_libraries(validator-common PUBLIC validator-db)
 
 add_library(validator STATIC ${VALIDATOR_SOURCE})
 add_library(validator-disk STATIC ${DISK_VALIDATOR_SOURCE})
@@ -249,10 +226,10 @@ target_include_directories(full-node PUBLIC
   ${OPENSSL_INCLUDE_DIR}
   )
 
-target_link_libraries(validator PRIVATE validator-db)
+target_link_libraries(validator PRIVATE validator-common validator-db)
 
-target_link_libraries(validator-disk PRIVATE validator-db)
+target_link_libraries(validator-disk PRIVATE validator-common validator-db)
 
-target_link_libraries(validator-hardfork PRIVATE validator-db)
+target_link_libraries(validator-hardfork PRIVATE validator-common validator-db)
 
 target_link_libraries(full-node PRIVATE tdactor adnl rldp rldp2 tl_api dht tdfec overlay catchain validatorsession ton_db)
