@@ -755,9 +755,7 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
     auto slot = state_->slot_at(id.slot);
 
     if (auto notarized_block = slot->state->notarized_block()) {
-      if (notarized_block == id) {
-        return resolve_with(td::Status::Error("Notarization cert for the candidate already exists"));
-      } else {
+      if (notarized_block != id) {
         return resolve_with(ConflictingCandidateAndCertificate::create(/* candidate, notarization_cert(slot) */));
       }
     }
