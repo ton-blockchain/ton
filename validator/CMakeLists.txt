@@ -226,7 +226,7 @@ target_include_directories(full-node PUBLIC
   ${OPENSSL_INCLUDE_DIR}
   )
 
-target_link_libraries(validator PRIVATE validator-common validator-db)
+target_link_libraries(validator PRIVATE validator-common validator-db ton_validator)
 
 target_link_libraries(validator-disk PRIVATE validator-common validator-db)
 
