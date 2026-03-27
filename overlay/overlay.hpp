@@ -232,9 +232,10 @@ class OverlayImpl : public Overlay {
   void register_delivered_broadcast(const BroadcastHash &hash);
   bool is_delivered(const BroadcastHash &hash);
   void check_broadcast(PublicKeyHash src, td::BufferSlice data, td::Promise<td::Unit> promise);
-  void precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra,
+  void precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra, bool signature_checked,
                           td::Promise<td::Unit> promise);
-  td::actor::Task<> precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra);
+  td::actor::Task<> precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra,
+                                       bool signature_checked);
 
   void broadcast_simple_signed(std::unique_ptr<BroadcastSimple> &&bcast,
                                td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);

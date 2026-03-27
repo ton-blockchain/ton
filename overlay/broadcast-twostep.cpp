@@ -264,22 +264,25 @@ void BroadcastsTwostep::signed_fec(OverlayImpl *overlay, BroadcastTwostepDataFec
                           overlay->overlay_id(), std::move(broadcast), sender_);
 }
 
-static td::Result<BroadcastCheckResult> check_signature_and_certificate(
-    OverlayImpl *overlay, adnl::AdnlNodeIdShort sender, const PublicKey &src_key, const PublicKeyHash &src_keyhash,
-    const td::BufferSlice &to_sign, const td::BufferSlice &signature,
-    const tl_object_ptr<ton_api::overlay_Certificate> &certificate, td::uint32 data_size) {
-  TRY_RESULT(encryptor, overlay->get_encryptor(src_key));
+static td::Result<BroadcastCheckResult> check_source(OverlayImpl *overlay, const PublicKeyHash &src_keyhash,
+                                                     const tl_object_ptr<ton_api::overlay_Certificate> &certificate,
+                                                     td::uint32 data_size) {
   TRY_RESULT(cert, Certificate::create(certificate));
   auto r = overlay->check_source_eligible(src_keyhash, cert.get(), data_size, true);
   if (r == BroadcastCheckResult::Forbidden) {
     return td::Status::Error(ErrorCode::error, "broadcast is forbidden");
   }
+  return r;
+}
+
+static td::Status check_signature(OverlayImpl *overlay, adnl::AdnlNodeIdShort sender, const PublicKey &src_key,
+                                  const td::BufferSlice &to_sign, const td::BufferSlice &signature) {
+  TRY_RESULT(encryptor, overlay->get_encryptor(src_key));
   auto S = encryptor->check_signature(to_sign.as_slice(), signature.as_slice());
   if (S.is_error()) {
     overlay->ban_peer(sender, td::Timestamp::in(5.0)).start().detach();
-    return S;
   }
-  return r;
+  return S;
 }
 
 void BroadcastsTwostep::rebroadcast(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &bcast_src_adnl_id,
@@ -323,12 +326,15 @@ td::actor::Task<> BroadcastsTwostep::process_broadcast(
   VLOG(TWOSTEP_INFO) << "twostep RECV_SIMPLE receiver broadcast_id=" << broadcast_id.to_hex()
                      << " data_hash=" << data_hash.to_hex() << " data_size=" << broadcast->data_.size()
                      << " from=" << src_peer_id << " will_rebroadcast=" << will_rebroadcast;
+
   td::BufferSlice to_sign = create_serialize_tl_object<ton_api::overlay_broadcastTwostepSimple_toSign>(
       broadcast_id, broadcast->data_.clone());
-  auto check_result = co_await check_signature_and_certificate(overlay, src_peer_id, src_key, src_keyhash, to_sign,
-                                                               broadcast->signature_, broadcast->certificate_,
-                                                               static_cast<td::uint32>(broadcast->data_.size()));
-  co_await overlay->precheck_broadcast(src_keyhash, broadcast_id, broadcast->extra_.clone())
+  auto check_result = co_await check_source(overlay, src_keyhash, broadcast->certificate_,
+                                            static_cast<td::uint32>(broadcast->data_.size()));
+  co_await overlay->precheck_broadcast(src_keyhash, broadcast_id, broadcast->extra_.clone(), false)
+      .trace("precheck broadcast");
+  co_await check_signature(overlay, src_peer_id, src_key, to_sign, broadcast->signature_);
+  co_await overlay->precheck_broadcast(src_keyhash, broadcast_id, broadcast->extra_.clone(), true)
       .trace("precheck broadcast");
   // utime and is_delivered could change during precheck_broadcast
   co_await overlay->check_date(broadcast->date_);
@@ -373,14 +379,18 @@ td::actor::Task<> BroadcastsTwostep::process_broadcast(OverlayImpl *overlay, adn
 
   td::BufferSlice to_sign = create_serialize_tl_object<ton_api::overlay_broadcastTwostepFec_toSign>(
       broadcast_id, seqno, broadcast->part_.clone());
-  auto check_result = co_await check_signature_and_certificate(overlay, src_peer_id, src_key, src_keyhash, to_sign,
-                                                               broadcast->signature_, broadcast->certificate_,
-                                                               static_cast<td::uint32>(data_size));
+  auto check_result = co_await check_source(overlay, src_keyhash, broadcast->certificate_,
+                                            static_cast<td::uint32>(data_size));
   if (it == broadcasts_.end()) {
-    co_await overlay->precheck_broadcast(src_keyhash, broadcast_id, broadcast->extra_.clone())
+    co_await overlay->precheck_broadcast(src_keyhash, broadcast_id, broadcast->extra_.clone(), false)
         .trace("precheck broadcast");
-    it = broadcasts_.find(broadcast_id);
+  }
+  co_await check_signature(overlay, src_peer_id, src_key, to_sign, broadcast->signature_);
+  if (it == broadcasts_.end()) {
+    co_await overlay->precheck_broadcast(src_keyhash, broadcast_id, broadcast->extra_.clone(), true)
+        .trace("precheck broadcast");
     // utime, is_delivered and broadcasts_ could change during precheck_broadcast
+    it = broadcasts_.find(broadcast_id);
     co_await overlay->check_date(date);
     if (overlay->is_delivered(broadcast_id) || (it != broadcasts_.end() && it->second->seen_parts.contains(seqno))) {
       VLOG(TWOSTEP_DEBUG) << "twostep DUPLICATE receiver broadcast_id=" << broadcast_id.to_hex() << " seqno=" << seqno;

@@ -547,9 +547,16 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
     if (query->slot > now_ + params_.max_leader_window_desync * slots_per_leader_window_) {
       co_return td::Status::Error("Slot is too far in the future");
     }
-    auto [it, inserted] = seen_broadcasts_.emplace(query->slot, query->broadcast_id);
-    if (!inserted && it->second != query->broadcast_id) {
-      co_return td::Status::Error("Duplicate broadcast");
+    if (query->signature_checked) {
+      auto [it, inserted] = seen_broadcasts_.emplace(query->slot, query->broadcast_id);
+      if (!inserted && it->second != query->broadcast_id) {
+        co_return td::Status::Error("Duplicate broadcast");
+      }
+    } else {
+      auto it = seen_broadcasts_.find(query->slot);
+      if (it != seen_broadcasts_.end() && it->second != query->broadcast_id) {
+        co_return td::Status::Error("Duplicate broadcast");
+      }
     }
     co_return {};
   }

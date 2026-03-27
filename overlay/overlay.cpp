@@ -690,13 +690,16 @@ void OverlayImpl::check_broadcast(PublicKeyHash src, td::BufferSlice data, td::P
 }
 
 void OverlayImpl::precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra,
-                                     td::Promise<td::Unit> promise) {
-  callback_->precheck_broadcast(src, overlay_id_, broadcast_id, std::move(extra), std::move(promise));
+                                     bool signature_checked, td::Promise<td::Unit> promise) {
+  callback_->precheck_broadcast(src, overlay_id_, broadcast_id, std::move(extra), signature_checked,
+                                std::move(promise));
 }
 
-td::actor::Task<> OverlayImpl::precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra) {
+td::actor::Task<> OverlayImpl::precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra,
+                                                  bool signature_checked) {
   auto [task, promise] = td::actor::StartedTask<>::make_bridge();
-  callback_->precheck_broadcast(src, overlay_id_, broadcast_id, std::move(extra), std::move(promise));
+  callback_->precheck_broadcast(src, overlay_id_, broadcast_id, std::move(extra), signature_checked,
+                                std::move(promise));
   co_await std::move(task);
   co_return {};
 }

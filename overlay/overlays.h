@@ -308,7 +308,7 @@ class Overlays : public td::actor::Actor {
       promise.set_value(td::Unit());
     }
     virtual void precheck_broadcast(PublicKeyHash src, OverlayIdShort overlay_id, td::Bits256 broadcast_id,
-                                    td::BufferSlice extra, td::Promise<> promise) {
+                                    td::BufferSlice extra, bool signature_checked, td::Promise<> promise) {
       promise.set_value(td::Unit());
     }
     virtual void get_stats_extra(td::Promise<std::string> promise) {
