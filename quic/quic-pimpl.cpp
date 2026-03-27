@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstring>
 #include <limits>
 #include <openssl/ssl.h>
@@ -161,9 +162,9 @@ void QuicConnectionPImpl::setup_settings_and_params(ngtcp2_settings& settings, n
   ngtcp2_transport_params_default(&params);
   params.max_idle_timeout = options.idle_timeout;
   params.initial_max_streams_bidi = options.max_streams_bidi;
-  params.initial_max_stream_data_bidi_remote = options.max_stream_window;
-  params.initial_max_stream_data_bidi_local = options.max_stream_window;
-  params.initial_max_data = options.max_window;
+  params.initial_max_stream_data_bidi_remote = options.initial_max_stream_data_bidi_remote;
+  params.initial_max_stream_data_bidi_local = options.initial_max_stream_data_bidi_local;
+  params.initial_max_data = options.initial_max_data;
 }
 
 void QuicConnectionPImpl::setup_ngtcp2_callbacks(ngtcp2_callbacks& callbacks, bool is_client) {
@@ -519,6 +520,14 @@ td::Result<QuicConnectionPImpl::InitialCidState> QuicConnectionPImpl::take_initi
 
 void QuicConnectionPImpl::shutdown_stream(QuicStreamID sid) {
   ngtcp2_conn_shutdown_stream(conn(), 0, sid, 1);
+}
+
+void QuicConnectionPImpl::set_stream_receive_credit_from_max_size(QuicStreamID sid, td::uint64 max_size) {
+  td::uint64 target_credit =
+      std::clamp<td::uint64>(max_size, options_.initial_max_stream_data_bidi_local, options_.max_stream_window);
+  if (target_credit > options_.initial_max_stream_data_bidi_local) {
+    ngtcp2_conn_extend_max_stream_offset(conn(), sid, target_credit - options_.initial_max_stream_data_bidi_local);
+  }
 }
 
 td::Result<QuicStreamID> QuicConnectionPImpl::open_stream() {

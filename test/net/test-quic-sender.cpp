@@ -20,6 +20,7 @@
 #include "adnl/adnl-network-manager.h"
 #include "adnl/adnl-peer-table.h"
 #include "adnl/adnl.h"
+#include "auto/tl/ton_api.hpp"
 #include "keyring/keyring.h"
 #include "keys/keys.hpp"
 #include "quic/quic-sender.h"
@@ -32,6 +33,7 @@
 #include "td/utils/port/path.h"
 #include "td/utils/port/signals.h"
 #include "td/utils/tests.h"
+#include "tl-utils/common-utils.hpp"
 
 namespace {
 
@@ -971,6 +973,50 @@ TEST(QuicSender, ResponseSizeLimitDoesNotWaitForTimeout) {
 
     ASSERT_TRUE(result->has_value());
     LOG(INFO) << "ResponseSizeLimitDoesNotWaitForTimeout result: "
+              << (result->value().is_ok() ? "OK (unexpected)" : result->value().error().to_string());
+    ASSERT_TRUE(result->value().is_error());
+    ASSERT_TRUE(result->value().error().message().str().find("timeout") == std::string::npos);
+
+    auto resp2 = co_await t.send_query(a, b, "after");
+    ASSERT_EQ(resp2.as_slice(), td::Slice("Qafter"));
+    co_return td::Unit{};
+  });
+}
+
+TEST(QuicSender, ResponseSizeLimitByOneDoesNotWaitForTimeout) {
+  run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    auto a = co_await t.create_node("lim-plus-one-a", next_port());
+    auto b = co_await t.create_node("lim-plus-one-b", next_port());
+    td::actor::send_closure(a.quic_sender, &ton::quic::QuicSender::set_default_mtu, 1 << 20);
+    td::actor::send_closure(b.quic_sender, &ton::quic::QuicSender::set_default_mtu, 1 << 20);
+
+    t.add_peer(a, b);
+    t.add_peer(b, a);
+
+    auto resp1 = co_await t.send_query(a, b, "normal");
+    ASSERT_EQ(resp1.as_slice(), td::Slice("Qnormal"));
+
+    // Keep the response large enough to exercise the limit-by-one failure on a multi-packet answer.
+    std::string data(300 << 10, 'X');
+    td::BufferSlice answer_data(1 + data.size());
+    answer_data.as_slice()[0] = 'Q';
+    answer_data.as_slice().substr(1).copy_from(data);
+    auto wire_answer = ton::create_serialize_tl_object<ton::ton_api::quic_answer>(answer_data.clone());
+    auto max_answer_size = static_cast<td::uint64>(wire_answer.size() - 1);
+
+    auto result = std::make_shared<std::optional<td::Result<td::BufferSlice>>>();
+    td::BufferSlice query(1 + data.size());
+    query.as_slice()[0] = 'Q';
+    query.as_slice().substr(1).copy_from(data);
+    td::actor::send_closure(
+        a.quic_sender, &ton::quic::QuicSender::send_query_ex, a.id, b.id, std::string("Q"),
+        td::make_promise([result](td::Result<td::BufferSlice> r) mutable { *result = std::move(r); }),
+        td::Timestamp::in(20.0), std::move(query), max_answer_size);
+
+    co_await td::actor::coro_sleep(td::Timestamp::in(3.0));
+
+    ASSERT_TRUE(result->has_value());
+    LOG(INFO) << "ResponseSizeLimitByOneDoesNotWaitForTimeout result: "
               << (result->value().is_ok() ? "OK (unexpected)" : result->value().error().to_string());
     ASSERT_TRUE(result->value().is_error());
     ASSERT_TRUE(result->value().error().message().str().find("timeout") == std::string::npos);

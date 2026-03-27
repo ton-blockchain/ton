@@ -747,7 +747,11 @@ td::Result<QuicStreamID> QuicServer::send_stream(QuicConnectionId cid, std::vari
     sid = *existing;
   } else {
     TRY_RESULT_ASSIGN(sid, state->impl().open_stream());
-    callback_->set_stream_options(cid, sid, std::get<StreamOptions>(stream));
+    auto &options = std::get<StreamOptions>(stream);
+    callback_->set_stream_options(cid, sid, options);
+    if (options.max_size.has_value()) {
+      state->impl().set_stream_receive_credit_from_max_size(sid, *options.max_size);
+    }
   }
 
   TRY_STATUS(state->impl().buffer_stream(sid, std::move(data), is_end));
