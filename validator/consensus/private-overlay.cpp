@@ -170,9 +170,11 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
       return;
     }
 
+    auto parsed_extra = fetch_tl_object<ton_api::consensus_broadcastExtra>(extra, true).move_as_ok();
+
     auto& bus = *owning_bus();
     auto peer = short_id_to_peer_.at(src);
-    auto maybe_candidate = Candidate::deserialize(std::move(data), bus, peer.idx);
+    auto maybe_candidate = Candidate::deserialize(std::move(data), bus, peer.idx, parsed_extra->slot_);
 
     if (maybe_candidate.is_error()) {
       // FIXME: If we actually collected signed broadcast parts, we could have produced a
@@ -185,7 +187,19 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
   }
 
   td::actor::Task<> precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra) {
-    co_return {};
+    auto parsed_extra = fetch_tl_object<ton_api::consensus_broadcastExtra>(extra, true);
+    if (parsed_extra.is_error()) {
+      co_return parsed_extra.move_as_error_prefix("Precheck failed: Failed to parse broadcast extra: ");
+    }
+
+    auto& bus = *owning_bus();
+    auto peer = short_id_to_peer_.at(src).idx;
+    td::uint32 slot = parsed_extra.move_as_ok()->slot_;
+    if (peer != bus.collator_schedule->expected_collator_for(slot)) {
+      co_return td::Status::Error("Precheck failed: Broadcast is not from the expected collator");
+    }
+
+    co_return co_await owning_bus().publish<PrecheckCandidateBroadcast>(slot, broadcast_id).trace("Precheck failed");
   }
 
   void on_query(adnl::AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
