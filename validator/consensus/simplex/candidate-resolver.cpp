@@ -5,6 +5,7 @@
  */
 
 #include "td/utils/Random.h"
+#include "validator/rate-limiter.h"
 
 #include "bus.h"
 
@@ -108,6 +109,7 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
   void start_up() override {
+    params_ = owning_bus()->config.noncritical_params;
     load_from_db();
   }
 
@@ -128,9 +130,19 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
   }
 
   template <>
+  void handle(BusHandle, std::shared_ptr<const NoncriticalParamsUpdated> event) {
+    if (params_.candidate_resolve_rate_limit != event->params.candidate_resolve_rate_limit) {
+      rate_limiter_.clear();
+    }
+    params_ = event->params;
+  }
+
+  template <>
   td::actor::Task<ProtocolMessage> process(BusHandle, std::shared_ptr<IncomingOverlayRequest> event) {
     auto request = co_await fetch_tl_object<tl::requestCandidate>(event->request.data, true);
     auto id = CandidateId::from_tl(request->id_);
+
+    co_await check_rate_limit(event->source);
 
     auto it = state_.find(id);
     if (it == state_.end()) {
@@ -205,7 +217,23 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
     std::vector<td::Promise<td::Unit>> store_awaiters;
   };
 
+  NewConsensusConfig::NoncriticalParams params_;
   std::map<CandidateId, CandidateState> state_;
+  std::map<PeerValidatorId, fullnode::LimiterWindow> rate_limiter_;
+
+  td::Status check_rate_limit(PeerValidatorId src) {
+    if (!rate_limiter_.contains(src)) {
+      rate_limiter_[src] = fullnode::LimiterWindow{.size = 1.0, .limit = params_.candidate_resolve_rate_limit};
+    }
+    auto &window = rate_limiter_[src];
+    auto now = td::Timestamp::now();
+    if (!window.check(now)) {
+      return td::Status::Error(ErrorCode::failure, "too many requests");
+    }
+    window.insert(now);
+
+    return td::Status::OK();
+  }
 
   void load_from_db() {
     auto &bus = *owning_bus();
@@ -291,9 +319,11 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
       co_return {};
     }
 
-    double timeout_s = bus.candidate_resolve_initial_timeout_s;
+    std::chrono::duration<double> timeout = params_.candidate_resolve_timeout;
 
     while (!state.candidate_and_cert.is_complete()) {
+      auto cooldown_wait = td::Timestamp::in(params_.candidate_resolve_cooldown);
+
       auto request_tl = state.candidate_and_cert.make_request(id);
       ProtocolMessage request{serialize_tl_object(request_tl, true)};
 
@@ -303,9 +333,9 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
       }
       PeerValidatorId peer{peer_idx};
 
-      auto timeout = td::Timestamp::in(timeout_s);
-      auto maybe_response =
-          co_await owning_bus().publish<OutgoingOverlayRequest>(peer, timeout, std::move(request)).wrap();
+      auto maybe_response = co_await owning_bus()
+                                .publish<OutgoingOverlayRequest>(peer, td::Timestamp::in(timeout), std::move(request))
+                                .wrap();
 
       if (maybe_response.is_ok()) {
         auto response = maybe_response.move_as_ok();
@@ -318,7 +348,12 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
         }
       }
 
-      timeout_s = std::min(timeout_s * bus.candidate_resolve_timeout_multiplier, bus.candidate_resolve_max_timeout_s);
+      timeout = std::min<std::chrono::duration<double>>(timeout * params_.candidate_resolve_timeout_multiplier,
+                                                        params_.candidate_resolve_timeout_cap);
+      // Prevent spamming requests in case of synchronous errors.
+      if (!state.candidate_and_cert.is_complete()) {
+        co_await td::actor::coro_sleep(cooldown_wait);
+      }
     }
 
     co_return {};

@@ -3,4 +3,4 @@ target_link_libraries(td-test-main PRIVATE tdutils)
 
 add_subdirectory(tdactor)
 add_subdirectory(tonlib)
-add_subdirectory(consensus)
+add_subdirectory(validator)

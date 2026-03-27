@@ -1830,3 +1830,44 @@ class ShowShardBlockVerifierConfigQuery : public Query {
     return get_name();
   }
 };
+
+class SetConsensusNoncriticalParamsOverridesQuery : public Query {
+ public:
+  SetConsensusNoncriticalParamsOverridesQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "set-consensus-noncritical-params-overrides";
+  }
+  static std::string get_help() {
+    return "set-consensus-noncritical-params-overrides <filename>\tset noncritical params overrides from file";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+};
+
+class GetConsensusNoncriticalParamsOverridesQuery : public Query {
+ public:
+  GetConsensusNoncriticalParamsOverridesQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "get-consensus-noncritical-params-overrides";
+  }
+  static std::string get_help() {
+    return "get-consensus-noncritical-params-overrides\tshow current noncritical params overrides";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};

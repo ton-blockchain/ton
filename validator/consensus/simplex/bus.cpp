@@ -86,7 +86,7 @@ class SimplexCollatorSchedule : public CollatorSchedule {
 
 void Bus::populate_collator_schedule() {
   auto validators = static_cast<td::uint32>(validator_set.size());
-  collator_schedule = td::make_ref<SimplexCollatorSchedule>(simplex_config.slots_per_leader_window, validators);
+  collator_schedule = td::make_ref<SimplexCollatorSchedule>(config.slots_per_leader_window, validators);
 }
 
 }  // namespace ton::validator::consensus::simplex

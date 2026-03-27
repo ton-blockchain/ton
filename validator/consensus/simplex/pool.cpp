@@ -122,6 +122,19 @@ class Tsentrizbirkom {
     std::optional<MisbehaviorRef> misbehavior;
   };
 
+  bool wants(const Vote &vote) const {
+    return std::visit(
+        [&]<typename T>(const T &) {
+          auto tuple = std::tie(notarize_, skip_, finalize_);
+          const auto &stored_vote = std::get<const std::optional<Proven<T>> &>(tuple);
+          if (!stored_vote.has_value()) {
+            return true;
+          }
+          return false;
+        },
+        vote.vote);
+  }
+
   AddVoteResult add_vote(Proven<NotarizeVote> vote) {
     if (notarize_.has_value()) {
       if (notarize_->vote != vote.vote) {
@@ -304,8 +317,8 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
   void start_up() override {
     auto &bus = *owning_bus();
 
-    slots_per_leader_window_ = bus.simplex_config.slots_per_leader_window;
-    max_leader_window_desync_ = bus.simplex_config.max_leader_window_desync;
+    slots_per_leader_window_ = bus.config.slots_per_leader_window;
+    params_ = bus.config.noncritical_params;
 
     weight_threshold_ = (bus.total_weight * 2) / 3 + 1;
 
@@ -337,12 +350,17 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
 
       handle_our_vote(vote, /*tolerate_conflicts=*/true, /*suppress_vote_broadcast=*/true).start().detach();
     }
+
+    std::tie(standstill_resolution_awaiter_, standstill_resolution_notification_) =
+        td::actor::StartedTask<>::make_bridge();
+    standstill_resolution_task().start().detach();
   }
 
   void tear_down() override {
     for (auto &r : requests_) {
       r.promise.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
     }
+    standstill_resolution_notification_.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
   }
 
   template <>
@@ -351,11 +369,16 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
   }
 
   template <>
+  void handle(BusHandle, std::shared_ptr<const NoncriticalParamsUpdated> event) {
+    params_ = event->params;
+  }
+
+  template <>
   void handle(BusHandle, std::shared_ptr<const Start>) {
     auto &bus = *owning_bus();
-    owning_bus().publish<TraceEvent>(consensus::stats::Id::create(
-        bus.shard, bus.cc_seqno, bus.local_id.idx.value(), bus.validator_set.size(), bus.local_id.weight,
-        bus.total_weight, bus.simplex_config.slots_per_leader_window));
+    owning_bus().publish<TraceEvent>(
+        consensus::stats::Id::create(bus.shard, bus.cc_seqno, bus.local_id.idx.value(), bus.validator_set.size(),
+                                     bus.local_id.weight, bus.total_weight, bus.config.slots_per_leader_window));
 
     reschedule_standstill_resolution();
     is_started_ = true;
@@ -364,25 +387,45 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
 
   template <>
   void handle(BusHandle, std::shared_ptr<const IncomingProtocolMessage> message) {
+    if (is_banned(message->source)) {
+      LOG(WARNING) << "Dropping message from temporarily banned misbehaving " << message->source;
+      return;
+    }
+
     auto &bus = *owning_bus();
     td::uint32 first_too_new_slot =
-        (now_ / slots_per_leader_window_ + max_leader_window_desync_ + 1) * slots_per_leader_window_;
+        (now_ / slots_per_leader_window_ + params_.max_leader_window_desync + 1) * slots_per_leader_window_;
 
     auto maybe_tl_vote = fetch_tl_object<tl::vote>(message->message.data, true);
     if (maybe_tl_vote.is_ok()) {
       auto tl_vote = maybe_tl_vote.move_as_ok();
-      auto maybe_vote = Signed<Vote>::from_tl(std::move(*tl_vote), message->source, bus);
-      if (maybe_vote.is_error()) {
-        LOG(WARNING) << "Dropping bad vote from " << message->source << " : " << maybe_vote.move_as_error();
-        return;
-      }
-      auto vote = maybe_vote.move_as_ok();
-      if (vote.vote.referenced_slot() >= first_too_new_slot) {
-        LOG(WARNING) << "Dropping too new vote from " << message->source << " : slot=" << vote.vote.referenced_slot()
+
+      auto unsigned_vote = Vote::from_tl(*tl_vote->vote_);
+      auto referenced_slot = unsigned_vote.referenced_slot();
+
+      if (referenced_slot >= first_too_new_slot) {
+        LOG(WARNING) << "Dropping too new vote from " << message->source << " : slot=" << referenced_slot
                      << ", current_slot=" << now_;
         return;
       }
+      if (referenced_slot < first_nonfinalized_slot_) {
+        return;
+      }
 
+      auto slot = state_->slot_at(referenced_slot);
+      CHECK(slot.has_value());
+      if (!slot->state->votes[message->source.value()].wants(unsigned_vote)) {
+        return;
+      }
+
+      auto maybe_vote = Signed<Vote>::from_tl(std::move(*tl_vote), message->source, bus);
+      if (maybe_vote.is_error()) {
+        LOG(WARNING) << "Dropping bad vote from " << message->source << " : " << maybe_vote.move_as_error();
+        ban(message->source);
+        return;
+      }
+
+      auto vote = maybe_vote.move_as_ok();
       handle_vote(message->source.get_using(bus), std::move(vote));
     }
 
@@ -409,6 +452,7 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
       if (maybe_certificate.is_error()) {
         LOG(WARNING) << "Dropping bad certificate from " << message->source << " : "
                      << maybe_certificate.move_as_error();
+        ban(message->source);
         return;
       }
 
@@ -420,7 +464,7 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
         }
       }
 
-      handle_certificate(maybe_certificate.move_as_ok()).start().detach();
+      handle_certificate(maybe_certificate.move_as_ok());
     }
   }
 
@@ -453,10 +497,8 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
 
     td::StringBuilder sb;
 
-    std::vector<ProtocolMessage> messages;
     if (last_final_cert_.has_value()) {
       sb << "Last final cert is for " << (*last_final_cert_)->vote.id << "\n";
-      messages.push_back((*last_final_cert_)->serialize());
     }
 
     for (td::uint32 i = begin; i < end; ++i) {
@@ -465,7 +507,7 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
 
       sb << i << ": ";
       for (size_t j = 0; j < bus.validator_set.size(); ++j) {
-        auto &voting_state = slot->state->votes[j];
+        auto &voting_state = state->votes[j];
         if (voting_state.is_finalized()) {
           sb << 'F';
         } else if (voting_state.is_notarized() && voting_state.is_skipped()) {
@@ -488,23 +530,86 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
         sb << " final";
       }
       sb << "\n";
-
-      state->certs.serialize_to(messages);
-      state->votes[bus.local_id.idx.value()].serialize_to(messages, state->certs);
     }
 
     LOG(WARNING) << "Standstill detected. Current pool state: " << sb.as_cslice();
 
-    for (auto &vote : messages) {
-      owning_bus().publish<OutgoingProtocolMessage>(std::nullopt, std::move(vote));
-    }
-
+    standstill_resolution_notification_.set_value({});
     reschedule_standstill_resolution();
   }
 
  private:
+  // ===== Standstill resolution =====
   void reschedule_standstill_resolution() {
-    alarm_timestamp() = td::Timestamp::in(owning_bus()->standstill_timeout_s);
+    alarm_timestamp() = td::Timestamp::in(params_.standstill_timeout);
+  }
+
+  td::actor::Task<> standstill_resolution_task() {
+    auto &bus = *owning_bus();
+
+    // At time `now`, we are allowed to send
+    // `egress_quota + (now - quota_time) * max_egress_bytes_per_s` bytes.
+    double egress_quota;
+    td::Timestamp quota_time;
+
+    auto send = [&](ProtocolMessage message) -> td::actor::Task<> {
+      auto max_bytes_per_s = params_.standstill_max_egress_bytes_per_s;
+
+      double msg_size = static_cast<double>(message.data.size() * bus.validator_set.size());
+      if (egress_quota < msg_size) {
+        double delay = (msg_size - egress_quota) / max_bytes_per_s;
+        auto ts = td::Timestamp::in(delay, quota_time);
+        if (!ts.is_in_past()) {
+          co_await td::actor::coro_sleep(ts);
+        }
+
+        auto now = td::Timestamp::now();
+        egress_quota = std::min<double>(egress_quota + (now - quota_time) * max_bytes_per_s, max_bytes_per_s);
+        quota_time = now;
+      }
+      egress_quota -= msg_size;
+
+      owning_bus().publish<OutgoingProtocolMessage>(std::nullopt, std::move(message));
+      co_return {};
+    };
+
+    while (true) {
+      co_await std::move(standstill_resolution_awaiter_);
+      std::tie(standstill_resolution_awaiter_, standstill_resolution_notification_) =
+          td::actor::StartedTask<>::make_bridge();
+
+      auto last_final_cert_copy = last_final_cert_;
+
+      // Mostly clear quota so that we don't burst a lot of messages immediately after resolution
+      // was requested.
+      egress_quota = 0;
+      quota_time = td::Timestamp::now() + std::chrono::milliseconds(-10);
+
+      LOG(WARNING) << "Standstill resolution broadcast started";
+
+      if (last_final_cert_copy.has_value()) {
+        co_await send((*last_final_cert_copy)->serialize());
+      }
+
+      auto [begin, end] = state_->tracked_slots_interval();
+      for (td::uint32 i = begin; i < end && last_final_cert_ == last_final_cert_copy; ++i) {
+        auto &state = state_->slot_at(i)->state;
+
+        std::vector<ProtocolMessage> messages;
+        state->certs.serialize_to(messages);
+        state->votes[bus.local_id.idx.value()].serialize_to(messages, state->certs);
+
+        for (auto &message : messages) {
+          co_await send(std::move(message));
+        }
+
+        auto [begin_new, end_new] = state_->tracked_slots_interval();
+        CHECK(begin == begin_new || last_final_cert_ != last_final_cert_copy);
+        std::tie(begin, end) = {begin_new, end_new};
+      }
+
+      LOG(WARNING) << "Standstill resolution broadcast stopped";
+    }
   }
 
   // ===== Vote handling =====
@@ -552,21 +657,21 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
   void handle_typed_vote(const PeerValidator &validator, Signed<NotarizeVote> vote, State::SlotRef &slot) {
     auto new_weight = (slot.state->notarize_weight[vote.vote.id] += validator.weight);
     if (!slot.state->will_be_notarized() && new_weight >= weight_threshold_) {
-      handle_certificate(slot.state->create_cert(vote.vote)).start().detach();
+      handle_certificate(slot.state->create_cert(vote.vote));
     }
   }
 
   void handle_typed_vote(const PeerValidator &validator, Signed<SkipVote> vote, State::SlotRef &slot) {
     auto new_weight = (slot.state->skip_weight += validator.weight);
     if (!slot.state->will_be_skipped() && new_weight >= weight_threshold_) {
-      handle_certificate(slot.state->create_cert(vote.vote)).start().detach();
+      handle_certificate(slot.state->create_cert(vote.vote));
     }
   }
 
   void handle_typed_vote(const PeerValidator &validator, Signed<FinalizeVote> vote, State::SlotRef &slot) {
     auto new_weight = (slot.state->finalize_weight[vote.vote.id] += validator.weight);
     if (!slot.state->will_be_finalized() && new_weight >= weight_threshold_) {
-      handle_certificate(slot.state->create_cert(vote.vote)).start().detach();
+      handle_certificate(slot.state->create_cert(vote.vote));
     }
   }
 
@@ -650,9 +755,7 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
     auto slot = state_->slot_at(id.slot);
 
     if (auto notarized_block = slot->state->notarized_block()) {
-      if (notarized_block == id) {
-        return resolve_with(td::Status::Error("Notarization cert for the candidate already exists"));
-      } else {
+      if (notarized_block != id) {
         return resolve_with(ConflictingCandidateAndCertificate::create(/* candidate, notarization_cert(slot) */));
       }
     }
@@ -713,16 +816,20 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
   }
 
   // ===== Certificate handling =====
-  td::actor::Task<> handle_certificate(CertificateRef<Vote> cert) {
+  void handle_certificate(CertificateRef<Vote> cert) {
     auto slot = state_->slot_at(cert->vote.referenced_slot());
     if (!slot.has_value() || !slot->state->certs.needs(cert->vote)) {
-      co_return {};
+      return;
     }
     slot->state->certs.remember_prospective(cert->vote);
 
+    handle_prospective_certificate(std::move(cert)).start().detach();
+  }
+
+  td::actor::Task<> handle_prospective_certificate(CertificateRef<Vote> cert) {
     co_await owning_bus().publish<SaveCertificate>(cert);
 
-    slot = state_->slot_at(cert->vote.referenced_slot());
+    auto slot = state_->slot_at(cert->vote.referenced_slot());
     if (!slot.has_value()) {
       co_return {};
     }
@@ -817,8 +924,26 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
     }
   }
 
+  // ===== Bad signature bans =====
+  void ban(PeerValidatorId peer) {
+    bad_signature_bans_[peer] = td::Timestamp::in(params_.bad_signature_ban_duration);
+  }
+
+  bool is_banned(PeerValidatorId peer) {
+    auto it = bad_signature_bans_.find(peer);
+    if (it == bad_signature_bans_.end()) {
+      return false;
+    }
+    if (it->second.is_in_past()) {
+      bad_signature_bans_.erase(it);
+      return false;
+    }
+    return true;
+  }
+
   td::uint32 slots_per_leader_window_;
-  td::uint32 max_leader_window_desync_;
+  NewConsensusConfig::NoncriticalParams params_;
+
   ValidatorWeight weight_threshold_ = 0;
   std::optional<State> state_;
 
@@ -833,6 +958,11 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
   ParentId last_finalized_block_;
   std::optional<FinalCertRef> last_final_cert_;
   td::uint32 first_nonfinalized_slot_ = 0;
+
+  td::Promise<> standstill_resolution_notification_;
+  td::actor::StartedTask<> standstill_resolution_awaiter_;
+
+  std::map<PeerValidatorId, td::Timestamp> bad_signature_bans_;
 
   std::vector<Request> requests_;
 };

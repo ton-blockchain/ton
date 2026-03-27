@@ -2043,3 +2043,46 @@ td::Status ShowShardBlockVerifierConfigQuery::receive(td::BufferSlice data) {
   }
   return td::Status::OK();
 }
+
+td::Status SetConsensusNoncriticalParamsOverridesQuery::run() {
+  TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status SetConsensusNoncriticalParamsOverridesQuery::send() {
+  TRY_RESULT(data, td::read_file(file_name_));
+  TRY_RESULT(json, td::json_decode(data.as_slice()));
+  auto list = ton::create_tl_object<ton::ton_api::consensus_noncriticalParamsOverrideList>();
+  TRY_STATUS(ton::ton_api::from_json(*list, json.get_object()));
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_setConsensusNoncriticalParamsOverrides>(
+      std::move(list));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status SetConsensusNoncriticalParamsOverridesQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}
+
+td::Status GetConsensusNoncriticalParamsOverridesQuery::run() {
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status GetConsensusNoncriticalParamsOverridesQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getConsensusNoncriticalParamsOverrides>();
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status GetConsensusNoncriticalParamsOverridesQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(result,
+                    ton::fetch_tl_object<ton::ton_api::consensus_noncriticalParamsOverrideList>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << td::json_encode<std::string>(td::ToJson(*result), true) << "\n";
+  return td::Status::OK();
+}

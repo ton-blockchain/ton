@@ -86,3 +86,15 @@ class EngineConsoleClient:
     async def get_actor_stats(self) -> str:
         query = ton_api.Engine_validator_getActorTextStatsRequest()
         return query.parse_result(await self.request(query)).data
+
+    async def get_consensus_noncritical_params_overrides(
+        self,
+    ) -> ton_api.Consensus_noncriticalParamsOverrideList:
+        query = ton_api.Engine_validator_getConsensusNoncriticalParamsOverridesRequest()
+        return query.parse_result(await self.request(query))
+
+    async def set_consensus_noncritical_params_overrides(
+        self, overrides: ton_api.Consensus_noncriticalParamsOverrideList
+    ) -> None:
+        query = ton_api.Engine_validator_setConsensusNoncriticalParamsOverridesRequest(overrides)
+        _ = await self.request(query)

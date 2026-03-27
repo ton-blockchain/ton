@@ -202,6 +202,7 @@ class ValidatorEngine : public td::actor::Actor {
   ton::tl_object_ptr<ton::ton_api::engine_validator_customOverlaysConfig> custom_overlays_config_;
   ton::tl_object_ptr<ton::ton_api::engine_validator_collatorsList> collators_list_;
   ton::tl_object_ptr<ton::ton_api::engine_validator_shardBlockVerifierConfig> shard_block_verifier_config_;
+  ton::tl_object_ptr<ton::ton_api::consensus_noncriticalParamsOverrideList> noncritical_params_overrides_;
 
   std::set<ton::PublicKeyHash> running_gc_;
 
@@ -445,6 +446,7 @@ class ValidatorEngine : public td::actor::Actor {
   void set_shard_check_function();
   void load_collators_list();
   void load_shard_block_verifier_config();
+  void load_noncritical_params_overrides();
 
   void start();
 
@@ -549,6 +551,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   std::string shard_block_verifier_config_file() const {
     return db_root_ + "/shard-block-verifier-config.json";
+  }
+  std::string noncritical_params_overrides_file() const {
+    return db_root_ + "/noncritical-params-overrides.json";
   }
 
   void load_custom_overlays_config();
@@ -693,6 +698,13 @@ class ValidatorEngine : public td::actor::Actor {
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_showShardBlockVerifierConfig &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_setConsensusNoncriticalParamsOverrides &query,
+                         td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                         td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_getConsensusNoncriticalParamsOverrides &query,
+                         td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                         td::Promise<td::BufferSlice> promise);
+
   template <class T>
   void run_control_query(T &query, td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
                          td::Promise<td::BufferSlice> promise) {
