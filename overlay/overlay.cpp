@@ -176,6 +176,11 @@ void OverlayImpl::receive_query(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_api
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, "overlay is not public"));
     return;
   }
+  if (banned_peers_.contains(src)) {
+    VLOG(OVERLAY_NOTICE) << this << ": received query from banned peer " << src;
+    promise.set_error(td::Status::Error(ErrorCode::protoviolation, "peer is banned"));
+    return;
+  }
 
   auto R = fetch_tl_object<ton_api::Function>(data.clone(), true);
 
@@ -273,6 +278,10 @@ void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_a
                                   td::BufferSlice data) {
   if (!is_valid_peer(src, extra ? extra->certificate_.get() : nullptr)) {
     VLOG(OVERLAY_WARNING) << this << ": received message in private overlay from unknown source " << src;
+    return;
+  }
+  if (banned_peers_.contains(src)) {
+    VLOG(OVERLAY_NOTICE) << this << ": received message from banned peer " << src;
     return;
   }
 
@@ -759,6 +768,16 @@ bool OverlayImpl::has_valid_broadcast_certificate(const PublicKeyHash &source, s
   auto it = certs_.find(source);
   return check_source_eligible(source, it == certs_.end() ? nullptr : it->second.get(), (td::uint32)size, is_fec) !=
          BroadcastCheckResult::Forbidden;
+}
+
+td::actor::Task<> OverlayImpl::ban_peer(adnl::AdnlNodeIdShort peer_id, td::Timestamp unban_at) {
+  ++banned_peers_[peer_id];
+  VLOG(OVERLAY_NOTICE) << this << ": ban peer " << peer_id << " for " << unban_at.in() << " s";
+  co_await td::actor::coro_sleep(unban_at);
+  if (--banned_peers_[peer_id] == 0) {
+    banned_peers_.erase(peer_id);
+  }
+  co_return {};
 }
 
 void TrafficStats::add_packet(td::uint64 size, bool in) {

@@ -325,6 +325,8 @@ class OverlayImpl : public Overlay {
     del_peer(peer_id);
   }
 
+  td::actor::Task<> ban_peer(adnl::AdnlNodeIdShort peer_id, td::Timestamp unban_at);
+
  private:
   template <class T>
   void process_query(adnl::AdnlNodeIdShort src, T &query, td::Promise<td::BufferSlice> promise) {
@@ -487,6 +489,8 @@ class OverlayImpl : public Overlay {
   std::map<PublicKeyHash, std::unique_ptr<CachedCertificate>> checked_certificates_cache_;
   td::ListNode checked_certificates_cache_lru_;
   size_t max_checked_certificates_cache_size_ = 1000;
+
+  std::map<adnl::AdnlNodeIdShort, size_t> banned_peers_;
 };
 
 }  // namespace overlay
