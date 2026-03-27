@@ -43,7 +43,7 @@ async def main():
         actor_stats = await nodes[0].engine_console.get_actor_stats()
         assert "= ACTORS STATS =" in actor_stats and "= PERF COUNTERS =" in actor_stats
 
-        _ = await network.wait_block(workchain=0, shard=-2**63, seqno=1)
+        _ = await network.wait_block(workchain=0, shard=-(2**63), seqno=1)
 
         client = await nodes[0].tonlib_client()
         main_wallet = network.zerostate.main_wallet(client)
