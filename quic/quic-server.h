@@ -47,7 +47,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     bool enable_mmsg = true;
     CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
     std::optional<size_t> flood_control = DEFAULT_FLOOD_CONTROL;
-    std::optional<size_t> max_streams_bidi;
+    std::optional<size_t> max_streams_bidi = std::nullopt;
   };
   class Callback {
    public:
