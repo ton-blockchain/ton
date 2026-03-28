@@ -100,6 +100,8 @@ zlib_static_lib="$(find_first_existing "${zlib_candidates[@]}" || true)"
 
 cmake -GNinja -DTON_USE_JEMALLOC=ON .. \
 -DCMAKE_BUILD_TYPE=Release \
+-DPORTABLE=1 \
+-DTON_ARCH= \
 -DOPENSSL_ROOT_DIR=$opensslPath \
 -DOPENSSL_INCLUDE_DIR=$opensslPath/include \
 -DOPENSSL_CRYPTO_LIBRARY=$opensslPath/libcrypto.so \
