@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstring>
 #include <limits>
 #include <openssl/ssl.h>
@@ -28,6 +29,15 @@ static td::Timestamp from_ngtcp2_tstamp(ngtcp2_tstamp ns) {
     return td::Timestamp::never();
   }
   return td::Timestamp::at(static_cast<double>(ns) * 1e-9);
+}
+
+static void apply_platform_pmtu_policy(ngtcp2_settings& settings) {
+  if (td::UdpSocketFd::has_pmtudisc_probe()) {
+    return;
+  }
+  // Without socket-level PMTU probe mode, stay at QUIC's safe minimum and avoid PMTUD growth.
+  settings.max_tx_udp_payload_size = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
+  settings.no_pmtud = 1;
 }
 
 td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_client(
@@ -157,13 +167,14 @@ void QuicConnectionPImpl::setup_settings_and_params(ngtcp2_settings& settings, n
   auto cc_alg_id = static_cast<size_t>(options.cc_algo);
   CHECK(cc_alg_id < std::size(CC_ALGO_MAP));
   settings.cc_algo = CC_ALGO_MAP[cc_alg_id];
+  apply_platform_pmtu_policy(settings);
 
   ngtcp2_transport_params_default(&params);
   params.max_idle_timeout = options.idle_timeout;
   params.initial_max_streams_bidi = options.max_streams_bidi;
-  params.initial_max_stream_data_bidi_remote = options.max_stream_window;
-  params.initial_max_stream_data_bidi_local = options.max_stream_window;
-  params.initial_max_data = options.max_window;
+  params.initial_max_stream_data_bidi_remote = options.initial_max_stream_data_bidi_remote;
+  params.initial_max_stream_data_bidi_local = options.initial_max_stream_data_bidi_local;
+  params.initial_max_data = options.initial_max_data;
 }
 
 void QuicConnectionPImpl::setup_ngtcp2_callbacks(ngtcp2_callbacks& callbacks, bool is_client) {
@@ -521,6 +532,14 @@ void QuicConnectionPImpl::shutdown_stream(QuicStreamID sid) {
   ngtcp2_conn_shutdown_stream(conn(), 0, sid, 1);
 }
 
+void QuicConnectionPImpl::set_stream_receive_credit_from_max_size(QuicStreamID sid, td::uint64 max_size) {
+  td::uint64 target_credit =
+      std::clamp<td::uint64>(max_size, options_.initial_max_stream_data_bidi_local, options_.max_stream_window);
+  if (target_credit > options_.initial_max_stream_data_bidi_local) {
+    ngtcp2_conn_extend_max_stream_offset(conn(), sid, target_credit - options_.initial_max_stream_data_bidi_local);
+  }
+}
+
 td::Result<QuicStreamID> QuicConnectionPImpl::open_stream() {
   QuicStreamID sid;
 
@@ -668,7 +687,9 @@ int QuicConnectionPImpl::on_acked_stream_data_offset(int64_t stream_id, uint64_t
 
 int QuicConnectionPImpl::on_stream_close(int64_t stream_id) {
   streams_.erase(stream_id);
-  ngtcp2_conn_extend_max_streams_bidi(conn(), 1);
+  if (ngtcp2_is_bidi_stream(stream_id) && !ngtcp2_conn_is_local_stream(conn(), stream_id)) {
+    ngtcp2_conn_extend_max_streams_bidi(conn(), 1);
+  }
   callback_->on_stream_closed(stream_id);
   return 0;
 }

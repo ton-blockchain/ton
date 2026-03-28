@@ -9,6 +9,7 @@
 #include <tuple>
 #include <variant>
 
+#include "adnl/adnl-node-id.hpp"
 #include "td/actor/ActorOwn.h"
 #include "td/actor/core/Actor.h"
 #include "td/utils/Heap.h"
@@ -46,10 +47,11 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     bool enable_mmsg = true;
     CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
     std::optional<size_t> flood_control = DEFAULT_FLOOD_CONTROL;
+    std::optional<size_t> max_streams_bidi = std::nullopt;
   };
   class Callback {
    public:
-    virtual void on_connected(QuicConnectionId cid, td::SecureString peer_public_key, bool is_outbound) = 0;
+    virtual td::Status on_connected(QuicConnectionId cid, td::SecureString peer_public_key, bool is_outbound) = 0;
     virtual td::Status on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) = 0;
     virtual void on_closed(QuicConnectionId cid) = 0;
     virtual void on_stream_closed(QuicConnectionId cid, QuicStreamID sid) = 0;
@@ -60,6 +62,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     virtual td::Timestamp next_alarm() const {
       return td::Timestamp::never();
     }
+    virtual void set_peer_mtu_callback(std::function<td::uint64(adnl::AdnlNodeIdShort)> f) = 0;
     virtual ~Callback() = default;
   };
 
@@ -69,7 +72,6 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
 
   td::Result<QuicStreamID> send_stream(QuicConnectionId cid, std::variant<QuicStreamID, StreamOptions> stream,
                                        td::BufferSlice data, bool is_end);
-  void change_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options);
 
   td::Result<QuicConnectionId> connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key, td::Slice alpn);
 
@@ -77,17 +79,22 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void close(QuicConnectionId cid);
   void log_stats(std::string reason = "stats");
 
+  void set_default_mtu(td::uint64 mtu);
+  void set_peer_mtu(adnl::AdnlNodeIdShort peer_id, td::uint64 mtu);
+
   constexpr static size_t DEFAULT_FLOOD_CONTROL = 10;
 
-  QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::BufferSlice alpn,
-             std::unique_ptr<Callback> callback, Options options);
+  QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::uint64 defaukt_mtu, td::BufferSlice alpn,
+             std::unique_ptr<Callback> callback, Options options,
+             std::map<adnl::AdnlNodeIdShort, td::uint64> peers_mtu = {});
 
   static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, td::Ed25519::PrivateKey server_key,
-                                                            std::unique_ptr<Callback> callback, td::Slice alpn = "ton",
-                                                            td::Slice bind_host = "0.0.0.0");
+                                                            std::unique_ptr<Callback> callback, td::uint64 default_mtu,
+                                                            td::Slice alpn = "ton", td::Slice bind_host = "0.0.0.0");
   static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, td::Ed25519::PrivateKey server_key,
-                                                            std::unique_ptr<Callback> callback, td::Slice alpn,
-                                                            td::Slice bind_host, Options options);
+                                                            std::unique_ptr<Callback> callback, td::uint64 default_mtu,
+                                                            td::Slice alpn, td::Slice bind_host, Options options,
+                                                            std::map<adnl::AdnlNodeIdShort, td::uint64> peers_mtu = {});
 
   struct Stats {
     struct Entry {
@@ -191,6 +198,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   bool gro_enabled_{false};
   CongestionControlAlgo cc_algo_{CongestionControlAlgo::Cubic};
   std::optional<size_t> flood_control_;
+  std::optional<size_t> max_streams_bidi_;
   std::unordered_map<std::string, size_t> flood_map_;
 
   std::unique_ptr<Callback> callback_;
@@ -227,6 +235,9 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   };
   UdpStats ingress_stats_;
   UdpStats egress_stats_;
+
+  td::uint64 default_mtu_ = 0;
+  std::map<adnl::AdnlNodeIdShort, td::uint64> peers_mtu_;
 };
 
 }  // namespace ton::quic

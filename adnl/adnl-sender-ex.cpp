@@ -76,4 +76,34 @@ td::uint64 AdnlSenderEx::get_peer_mtu(AdnlNodeIdShort local_id, AdnlNodeIdShort 
   return mtu;
 }
 
+td::uint64 AdnlSenderEx::get_peer_mtu_inner(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id) {
+  auto it = mtu_local_ids_.find(local_id);
+  if (it == mtu_local_ids_.end()) {
+    return 0;
+  }
+  auto it2 = it->second.mtu_peers.find(peer_id);
+  return it2 == it->second.mtu_peers.end() ? 0 : *it2->second.rbegin();
+}
+
+std::vector<std::pair<AdnlNodeIdShort, td::uint64>> AdnlSenderEx::get_local_id_peers_mtu(AdnlNodeIdShort local_id) {
+  std::vector<std::pair<AdnlNodeIdShort, td::uint64>> result;
+  auto it = mtu_local_ids_.find(local_id);
+  if (it != mtu_local_ids_.end()) {
+    result.reserve(it->second.mtu_peers.size());
+    for (auto& [peer_id, mtu] : it->second.mtu_peers) {
+      result.emplace_back(peer_id, *mtu.rbegin());
+    }
+  }
+  return result;
+}
+
+td::uint64 AdnlSenderEx::get_local_id_mtu(AdnlNodeIdShort local_id) {
+  td::uint64 mtu = default_mtu_;
+  auto it = mtu_local_ids_.find(local_id);
+  if (it != mtu_local_ids_.end()) {
+    mtu = std::max(mtu, it->second.mtu);
+  }
+  return mtu;
+}
+
 }  // namespace ton::adnl

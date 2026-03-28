@@ -12,6 +12,7 @@
 #include "ngtcp2/ngtcp2_crypto.h"
 #include "ngtcp2/ngtcp2_crypto_ossl.h"
 #include "td/utils/Time.h"
+#include "td/utils/port/UdpSocketFd.h"
 
 #include "openssl-utils.h"
 #include "quic-common.h"
@@ -19,13 +20,19 @@
 namespace ton::quic {
 
 struct QuicConnectionOptions {
+  static constexpr size_t DEFAULT_INITIAL_MAX_DATA = 4 << 20;
   static constexpr size_t DEFAULT_MAX_WINDOW = 24 << 20;
+  static constexpr size_t DEFAULT_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL = 4 << 20;
+  static constexpr size_t DEFAULT_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE = 256 << 10;
   static constexpr size_t DEFAULT_MAX_STREAM_WINDOW = 6 << 20;
   static constexpr size_t DEFAULT_MAX_STREAMS_BIDI = 1024;
   static constexpr ngtcp2_duration DEFAULT_IDLE_TIMEOUT = 15 * NGTCP2_SECONDS;
   static constexpr ngtcp2_duration DEFAULT_KEEP_ALIVE_TIMEOUT = 5 * NGTCP2_SECONDS;
 
+  size_t initial_max_data = DEFAULT_INITIAL_MAX_DATA;
   size_t max_window = DEFAULT_MAX_WINDOW;
+  size_t initial_max_stream_data_bidi_local = DEFAULT_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL;
+  size_t initial_max_stream_data_bidi_remote = DEFAULT_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE;
   size_t max_stream_window = DEFAULT_MAX_STREAM_WINDOW;
   size_t max_streams_bidi = DEFAULT_MAX_STREAMS_BIDI;
   ngtcp2_duration idle_timeout = DEFAULT_IDLE_TIMEOUT;
@@ -130,6 +137,7 @@ struct QuicConnectionPImpl {
   [[nodiscard]] td::Result<InitialCidState> take_initial_cid_state();
 
   void shutdown_stream(QuicStreamID sid);
+  void set_stream_receive_credit_from_max_size(QuicStreamID sid, td::uint64 max_size);
 
   [[nodiscard]] td::Result<QuicStreamID> open_stream();
   [[nodiscard]] td::Status buffer_stream(QuicStreamID sid, td::BufferSlice data, bool fin);

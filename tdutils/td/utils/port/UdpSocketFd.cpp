@@ -921,6 +921,15 @@ UdpSocketFd::UdpSocketFd() = default;
 UdpSocketFd::UdpSocketFd(UdpSocketFd &&) = default;
 UdpSocketFd &UdpSocketFd::operator=(UdpSocketFd &&) = default;
 UdpSocketFd::~UdpSocketFd() = default;
+
+bool UdpSocketFd::has_pmtudisc_probe() {
+#if defined(IP_PMTUDISC_PROBE)
+  return true;
+#else
+  return false;
+#endif
+}
+
 PollableFdInfo &UdpSocketFd::get_poll_info() {
   return impl_->get_poll_info();
 }
@@ -929,13 +938,23 @@ const PollableFdInfo &UdpSocketFd::get_poll_info() const {
 }
 
 Result<UdpSocketFd> UdpSocketFd::open(const IPAddress &address) {
-  NativeFd native_fd{socket(address.get_address_family(), SOCK_DGRAM, IPPROTO_UDP)};
+  int family = address.get_address_family();
+  NativeFd native_fd{socket(family, SOCK_DGRAM, IPPROTO_UDP)};
   if (!native_fd) {
     return OS_SOCKET_ERROR("Failed to create a socket");
   }
   TRY_STATUS(native_fd.set_is_blocking_unsafe(false));
 
   auto sock = native_fd.socket();
+  // Ignore cached PMTU reductions when probe mode is available and let QUIC shape the datagram size itself.
+#if defined(IP_PMTUDISC_PROBE)
+  int mode = IP_PMTUDISC_PROBE;
+  if (family == AF_INET) {
+    setsockopt(sock, IPPROTO_IP, IP_MTU_DISCOVER, &mode, sizeof(mode));
+  } else if (family == AF_INET6) {
+    setsockopt(sock, IPPROTO_IPV6, IPV6_MTU_DISCOVER, &mode, sizeof(mode));
+  }
+#endif
 #if TD_PORT_POSIX
   int flags = 1;
 #elif TD_PORT_WINDOWS
