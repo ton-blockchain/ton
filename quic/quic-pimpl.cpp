@@ -31,6 +31,15 @@ static td::Timestamp from_ngtcp2_tstamp(ngtcp2_tstamp ns) {
   return td::Timestamp::at(static_cast<double>(ns) * 1e-9);
 }
 
+static void apply_platform_pmtu_policy(ngtcp2_settings& settings) {
+  if (td::UdpSocketFd::has_pmtudisc_probe()) {
+    return;
+  }
+  // Without socket-level PMTU probe mode, stay at QUIC's safe minimum and avoid PMTUD growth.
+  settings.max_tx_udp_payload_size = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
+  settings.no_pmtud = 1;
+}
+
 td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_client(
     const td::IPAddress& local_address, const td::IPAddress& remote_address, const td::Ed25519::PrivateKey& client_key,
     td::Slice alpn, std::unique_ptr<Callback> callback, QuicConnectionOptions options) {
@@ -158,6 +167,7 @@ void QuicConnectionPImpl::setup_settings_and_params(ngtcp2_settings& settings, n
   auto cc_alg_id = static_cast<size_t>(options.cc_algo);
   CHECK(cc_alg_id < std::size(CC_ALGO_MAP));
   settings.cc_algo = CC_ALGO_MAP[cc_alg_id];
+  apply_platform_pmtu_policy(settings);
 
   ngtcp2_transport_params_default(&params);
   params.max_idle_timeout = options.idle_timeout;

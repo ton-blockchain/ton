@@ -12,6 +12,7 @@
 #include "ngtcp2/ngtcp2_crypto.h"
 #include "ngtcp2/ngtcp2_crypto_ossl.h"
 #include "td/utils/Time.h"
+#include "td/utils/port/UdpSocketFd.h"
 
 #include "openssl-utils.h"
 #include "quic-common.h"
