@@ -15,7 +15,9 @@
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include <atomic>
+#include <mutex>
 #include <optional>
+#include <unordered_set>
 
 #include "adnl/adnl-network-manager.h"
 #include "adnl/adnl-peer-table.h"
@@ -24,6 +26,7 @@
 #include "keyring/keyring.h"
 #include "keys/keys.hpp"
 #include "quic/quic-sender.h"
+#include "quic/quic-server.h"
 #include "td/actor/coro_task.h"
 #include "td/actor/coro_utils.h"
 #include "td/utils/OptionParser.h"
@@ -351,6 +354,16 @@ class TestRunner : public td::actor::Actor {
     td::actor::send_closure(from.quic_sender, &ton::quic::QuicSender::send_message, from.id, to.id, std::move(msg));
   }
 
+  template <class Predicate>
+  td::actor::Task<td::Unit> wait_until(Predicate&& predicate, double timeout) {
+    auto deadline = td::Timestamp::in(timeout);
+    while (!predicate()) {
+      ASSERT_TRUE(!deadline.is_in_past());
+      co_await td::actor::yield_on_current();
+    }
+    co_return td::Unit{};
+  }
+
  private:
   std::string db_root_;
   double timeout_;
@@ -368,6 +381,278 @@ void run_test(TestRunner::TestFunc test) {
   scheduler.run();
 
   td::rmrf(db_root).ignore();
+}
+
+td::Ed25519::PrivateKey make_quic_key(int seed) {
+  td::Bits256 hash;
+  auto seed_str = std::to_string(seed);
+  td::sha256(td::Slice(seed_str), hash.as_slice());
+  return td::Ed25519::PrivateKey(td::SecureString(hash.as_slice()));
+}
+
+td::Ed25519::PrivateKey clone_quic_key(const td::Ed25519::PrivateKey& key) {
+  return td::Ed25519::PrivateKey(key.as_octet_string());
+}
+
+ton::quic::QuicServer::Options small_stream_limit_options(size_t max_streams_bidi) {
+  ton::quic::QuicServer::Options options;
+  options.enable_gso = false;
+  options.enable_gro = false;
+  options.enable_mmsg = false;
+  options.flood_control.reset();
+  options.max_streams_bidi = max_streams_bidi;
+  return options;
+}
+
+struct RawQuicEndpointState {
+  void remember_connection(ton::quic::QuicConnectionId cid, bool is_outbound) {
+    std::lock_guard guard(mutex);
+    if (is_outbound) {
+      outbound_cid = cid;
+    } else {
+      inbound_cid = cid;
+    }
+  }
+
+  void remember_local_stream(ton::quic::QuicStreamID sid) {
+    std::lock_guard guard(mutex);
+    locally_opened_streams.insert(sid);
+  }
+
+  bool is_local_stream(ton::quic::QuicStreamID sid) const {
+    std::lock_guard guard(mutex);
+    return locally_opened_streams.contains(sid);
+  }
+
+  void remember_closed_stream(ton::quic::QuicStreamID sid) {
+    std::lock_guard guard(mutex);
+    auto was_local = locally_opened_streams.erase(sid) > 0;
+    closed_streams.insert(sid);
+    closed_stream_count++;
+    if (was_local) {
+      local_closed_stream_count++;
+    }
+  }
+
+  bool has_closed_stream(ton::quic::QuicStreamID sid) const {
+    std::lock_guard guard(mutex);
+    return closed_streams.contains(sid);
+  }
+
+  size_t get_local_closed_stream_count() const {
+    std::lock_guard guard(mutex);
+    return local_closed_stream_count;
+  }
+
+  std::optional<ton::quic::QuicConnectionId> get_outbound_cid() const {
+    std::lock_guard guard(mutex);
+    return outbound_cid;
+  }
+
+  std::optional<ton::quic::QuicConnectionId> get_inbound_cid() const {
+    std::lock_guard guard(mutex);
+    return inbound_cid;
+  }
+
+  mutable std::mutex mutex;
+  std::optional<ton::quic::QuicConnectionId> outbound_cid;
+  std::optional<ton::quic::QuicConnectionId> inbound_cid;
+  std::unordered_set<ton::quic::QuicStreamID> locally_opened_streams;
+  std::unordered_set<ton::quic::QuicStreamID> closed_streams;
+  size_t closed_stream_count = 0;
+  size_t local_closed_stream_count = 0;
+};
+
+class RawQuicCallback final : public ton::quic::QuicServer::Callback {
+ public:
+  explicit RawQuicCallback(std::shared_ptr<RawQuicEndpointState> state) : state_(std::move(state)) {
+  }
+
+  void set_server(td::actor::ActorId<ton::quic::QuicServer> server) {
+    server_ = server;
+  }
+
+  td::Status on_connected(ton::quic::QuicConnectionId cid, td::SecureString, bool is_outbound) override {
+    state_->remember_connection(cid, is_outbound);
+    return td::Status::OK();
+  }
+
+  td::Status on_stream(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid, td::BufferSlice,
+                       bool is_end) override {
+    if (is_end && !state_->is_local_stream(sid)) {
+      td::actor::send_closure(server_, &ton::quic::QuicServer::send_stream_end, cid, sid);
+    }
+    return td::Status::OK();
+  }
+
+  void on_closed(ton::quic::QuicConnectionId) override {
+  }
+
+  void on_stream_closed(ton::quic::QuicConnectionId, ton::quic::QuicStreamID sid) override {
+    state_->remember_closed_stream(sid);
+  }
+
+  void set_peer_mtu_callback(std::function<td::uint64(ton::adnl::AdnlNodeIdShort)>) override {
+  }
+
+ private:
+  td::actor::ActorId<ton::quic::QuicServer> server_;
+  std::shared_ptr<RawQuicEndpointState> state_;
+};
+
+struct RawQuicEndpoint {
+  int port;
+  td::Ed25519::PrivateKey key;
+  td::actor::ActorOwn<ton::quic::QuicServer> server;
+  std::shared_ptr<RawQuicEndpointState> state;
+};
+
+class RawQuicTestRunner final : public td::actor::Actor {
+ public:
+  using TestFunc = std::function<td::actor::Task<td::Unit>(RawQuicTestRunner&)>;
+
+  RawQuicTestRunner(double timeout, TestFunc test) : timeout_(timeout), test_(std::move(test)) {
+  }
+
+  void start_up() override {
+    alarm_timestamp() = td::Timestamp::in(timeout_);
+    [this]() -> td::actor::Task<td::Unit> {
+      (co_await test_(*this).wrap()).ensure();
+      co_await td::actor::Yield{};
+      td::actor::SchedulerContext::get().stop();
+      co_return td::Unit{};
+    }()
+                    .start_immediate()
+                    .detach("raw quic test");
+  }
+
+  void alarm() override {
+    LOG(FATAL) << "Test timeout after " << timeout_ << "s";
+  }
+
+  td::actor::Task<RawQuicEndpoint> create_endpoint(ton::quic::QuicServer::Options options) {
+    auto port = next_port();
+    auto key = make_quic_key(port);
+    auto state = std::make_shared<RawQuicEndpointState>();
+
+    auto callback = std::make_unique<RawQuicCallback>(state);
+    auto* callback_ptr = callback.get();
+    auto server_result = ton::quic::QuicServer::create(port, clone_quic_key(key), std::move(callback), 4096, "ton",
+                                                       "127.0.0.1", options);
+    ASSERT_TRUE(server_result.is_ok());
+    auto server = server_result.move_as_ok();
+    callback_ptr->set_server(server.get());
+
+    co_await td::actor::Yield{};
+    co_return RawQuicEndpoint{port, std::move(key), std::move(server), std::move(state)};
+  }
+
+  td::actor::Task<std::pair<ton::quic::QuicConnectionId, ton::quic::QuicConnectionId>> connect(
+      RawQuicEndpoint& client, RawQuicEndpoint& server) {
+    auto outbound_cid_result =
+        co_await td::actor::ask(client.server, &ton::quic::QuicServer::connect, td::Slice("127.0.0.1"), server.port,
+                                clone_quic_key(client.key), td::Slice("ton"))
+            .wrap();
+    LOG_CHECK(outbound_cid_result.is_ok()) << "connect failed: " << outbound_cid_result.error();
+    auto outbound_cid = outbound_cid_result.move_as_ok();
+
+    co_await wait_until(
+        [&] { return client.state->get_outbound_cid().has_value() && server.state->get_inbound_cid().has_value(); },
+        5.0);
+    co_await td::actor::coro_sleep(td::Timestamp::in(0.05));
+
+    ASSERT_EQ(client.state->get_outbound_cid().value(), outbound_cid);
+    co_return std::pair{outbound_cid, server.state->get_inbound_cid().value()};
+  }
+
+  td::actor::Task<ton::quic::QuicStreamID> open_stream_with_retry(RawQuicEndpoint& endpoint,
+                                                                  ton::quic::QuicConnectionId cid,
+                                                                  double timeout = 5.0) {
+    auto deadline = td::Timestamp::in(timeout);
+    while (true) {
+      auto sid_result =
+          co_await td::actor::ask(endpoint.server, &ton::quic::QuicServer::open_stream, cid, ton::quic::StreamOptions{})
+              .wrap();
+      if (sid_result.is_ok()) {
+        auto sid = sid_result.move_as_ok();
+        endpoint.state->remember_local_stream(sid);
+        co_return sid;
+      }
+
+      auto error = sid_result.error().to_string();
+      LOG_CHECK(error.find("-206") != std::string::npos) << "open_stream failed for " << cid << ": " << error;
+      LOG_CHECK(!deadline.is_in_past()) << "timed out waiting for stream credit on " << cid;
+      co_await td::actor::coro_sleep(td::Timestamp::in(0.001));
+    }
+  }
+
+  td::actor::Task<ton::quic::QuicStreamID> send_and_fin_stream(RawQuicEndpoint& endpoint,
+                                                               ton::quic::QuicConnectionId cid, char byte) {
+    auto sid = co_await open_stream_with_retry(endpoint, cid);
+
+    td::BufferSlice data(1);
+    data.as_slice()[0] = byte;
+
+    auto sent_sid_result =
+        co_await td::actor::ask(endpoint.server, &ton::quic::QuicServer::send_stream, cid, sid, std::move(data), false)
+            .wrap();
+    LOG_CHECK(sent_sid_result.is_ok()) << "send_stream(data) failed for sid=" << sid << ": " << sent_sid_result.error();
+    auto sent_sid = sent_sid_result.move_as_ok();
+    ASSERT_EQ(sent_sid, sid);
+
+    auto fin_sid_result =
+        co_await td::actor::ask(endpoint.server, &ton::quic::QuicServer::send_stream, cid, sid, td::BufferSlice{}, true)
+            .wrap();
+    LOG_CHECK(fin_sid_result.is_ok()) << "send_stream(fin) failed for sid=" << sid << ": " << fin_sid_result.error();
+    auto fin_sid = fin_sid_result.move_as_ok();
+    ASSERT_EQ(fin_sid, sid);
+    co_return sid;
+  }
+
+  td::actor::Task<size_t> open_streams_until_blocked(RawQuicEndpoint& endpoint, ton::quic::QuicConnectionId cid,
+                                                     size_t max_attempts) {
+    size_t opened = 0;
+    for (size_t i = 0; i < max_attempts; i++) {
+      auto sid_result =
+          co_await td::actor::ask(endpoint.server, &ton::quic::QuicServer::open_stream, cid, ton::quic::StreamOptions{})
+              .wrap();
+      if (sid_result.is_error()) {
+        break;
+      }
+      auto sid = sid_result.move_as_ok();
+      endpoint.state->remember_local_stream(sid);
+      opened++;
+    }
+    co_return opened;
+  }
+
+  td::actor::Task<td::Unit> wait_for_stream_close(const RawQuicEndpoint& endpoint, ton::quic::QuicStreamID sid,
+                                                  double timeout = 5.0) {
+    co_await wait_until([&] { return endpoint.state->has_closed_stream(sid); }, timeout);
+    co_return td::Unit{};
+  }
+
+ private:
+  template <class Predicate>
+  td::actor::Task<td::Unit> wait_until(Predicate&& predicate, double timeout) {
+    auto deadline = td::Timestamp::in(timeout);
+    while (!predicate()) {
+      ASSERT_TRUE(!deadline.is_in_past());
+      co_await td::actor::yield_on_current();
+    }
+    co_return td::Unit{};
+  }
+
+  double timeout_;
+  TestFunc test_;
+};
+
+void run_raw_quic_test(RawQuicTestRunner::TestFunc test) {
+  td::actor::Scheduler scheduler({g_config.threads});
+  scheduler.run_in_context([&] {
+    td::actor::create_actor<RawQuicTestRunner>("raw quic test", g_config.timeout, std::move(test)).release();
+  });
+  scheduler.run();
 }
 
 }  // namespace
@@ -651,6 +936,68 @@ TEST(QuicSender, ManyStreams) {
 
     ASSERT_EQ(errors, 0);
 
+    co_return td::Unit{};
+  });
+}
+
+TEST(QuicSender, MoreThan1024SequentialQueries) {
+  run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    constexpr size_t query_count = 1280;
+
+    auto a = co_await t.create_node("seq-a", next_port());
+    auto b = co_await t.create_node("seq-b", next_port());
+
+    t.add_peer(a, b);
+    t.add_peer(b, a);
+
+    for (size_t i = 0; i < query_count; i++) {
+      auto query = "seq-" + std::to_string(i);
+      auto expected = "Q" + query;
+      auto response = co_await t.send_query(a, b, query);
+      ASSERT_EQ(response.as_slice(), td::Slice(expected));
+    }
+
+    co_return td::Unit{};
+  });
+}
+
+TEST(QuicStreamLimits, LocalStreamCloseDoesNotExtendPeerCredit) {
+  run_raw_quic_test([](RawQuicTestRunner& t) -> td::actor::Task<td::Unit> {
+    auto options = small_stream_limit_options(1);
+    auto client = co_await t.create_endpoint(options);
+    auto server = co_await t.create_endpoint(options);
+    auto [client_cid, server_cid] = co_await t.connect(client, server);
+
+    for (size_t i = 0; i < 4; i++) {
+      auto sid = co_await t.send_and_fin_stream(client, client_cid, static_cast<char>('a' + i));
+      co_await t.wait_for_stream_close(client, sid);
+      co_await td::actor::coro_sleep(td::Timestamp::in(0.05));
+    }
+
+    co_await td::actor::coro_sleep(td::Timestamp::in(0.1));
+
+    auto opened = co_await t.open_streams_until_blocked(server, server_cid, 4);
+    ASSERT_EQ(opened, static_cast<size_t>(1));
+    co_return td::Unit{};
+  });
+}
+
+TEST(QuicStreamLimits, MoreThan1024SequentialStreamsWorkWithSmallLimit) {
+  run_raw_quic_test([](RawQuicTestRunner& t) -> td::actor::Task<td::Unit> {
+    constexpr size_t stream_count = 1280;
+
+    auto options = small_stream_limit_options(1);
+    auto client = co_await t.create_endpoint(options);
+    auto server = co_await t.create_endpoint(options);
+    auto [client_cid, server_cid] = co_await t.connect(client, server);
+    static_cast<void>(server_cid);
+
+    for (size_t i = 0; i < stream_count; i++) {
+      auto sid = co_await t.send_and_fin_stream(client, client_cid, static_cast<char>('A' + (i % 26)));
+      co_await t.wait_for_stream_close(client, sid);
+    }
+
+    ASSERT_EQ(client.state->get_local_closed_stream_count(), stream_count);
     co_return td::Unit{};
   });
 }
@@ -969,7 +1316,7 @@ TEST(QuicSender, ResponseSizeLimitDoesNotWaitForTimeout) {
         td::make_promise([result](td::Result<td::BufferSlice> r) mutable { *result = std::move(r); }),
         td::Timestamp::in(20.0), std::move(query), 2000);
 
-    co_await td::actor::coro_sleep(td::Timestamp::in(3.0));
+    co_await t.wait_until([result] { return result->has_value(); }, 3.0);
 
     ASSERT_TRUE(result->has_value());
     LOG(INFO) << "ResponseSizeLimitDoesNotWaitForTimeout result: "
@@ -1013,7 +1360,7 @@ TEST(QuicSender, ResponseSizeLimitByOneDoesNotWaitForTimeout) {
         td::make_promise([result](td::Result<td::BufferSlice> r) mutable { *result = std::move(r); }),
         td::Timestamp::in(20.0), std::move(query), max_answer_size);
 
-    co_await td::actor::coro_sleep(td::Timestamp::in(3.0));
+    co_await t.wait_until([result] { return result->has_value(); }, 3.0);
 
     ASSERT_TRUE(result->has_value());
     LOG(INFO) << "ResponseSizeLimitByOneDoesNotWaitForTimeout result: "

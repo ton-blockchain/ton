@@ -41,6 +41,7 @@ QuicServer::QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, t
     , gso_enabled_(options.enable_gso && td::UdpSocketFd::is_gso_supported())
     , cc_algo_(options.cc_algo)
     , flood_control_(options.flood_control)
+    , max_streams_bidi_(options.max_streams_bidi)
     , callback_(std::move(callback))
     , default_mtu_(default_mtu)
     , peers_mtu_(std::move(peers_mtu)) {
@@ -437,6 +438,9 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
 
   QuicConnectionOptions conn_options;
   conn_options.cc_algo = cc_algo_;
+  if (max_streams_bidi_.has_value()) {
+    conn_options.max_streams_bidi = *max_streams_bidi_;
+  }
   auto pimpl_callback = std::make_unique<PImplCallback>(*this, false);
   TRY_RESULT(p_impl, QuicConnectionPImpl::create_server(local_address, msg_in.address, server_key_, alpn_.as_slice(),
                                                         vc, std::move(pimpl_callback), conn_options));
@@ -462,6 +466,9 @@ td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::E
 
   QuicConnectionOptions conn_options;
   conn_options.cc_algo = cc_algo_;
+  if (max_streams_bidi_.has_value()) {
+    conn_options.max_streams_bidi = *max_streams_bidi_;
+  }
   auto pimpl_callback = std::make_unique<PImplCallback>(*this, true);
   TRY_RESULT(p_impl, QuicConnectionPImpl::create_client(local_address, remote_address, std::move(client_key), alpn,
                                                         std::move(pimpl_callback), conn_options));

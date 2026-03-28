@@ -47,6 +47,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     bool enable_mmsg = true;
     CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
     std::optional<size_t> flood_control = DEFAULT_FLOOD_CONTROL;
+    std::optional<size_t> max_streams_bidi;
   };
   class Callback {
    public:
@@ -197,6 +198,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   bool gro_enabled_{false};
   CongestionControlAlgo cc_algo_{CongestionControlAlgo::Cubic};
   std::optional<size_t> flood_control_;
+  std::optional<size_t> max_streams_bidi_;
   std::unordered_map<std::string, size_t> flood_map_;
 
   std::unique_ptr<Callback> callback_;
