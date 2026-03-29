@@ -745,6 +745,11 @@ class TestConsensus : public td::actor::Actor {
     size_t kill_node_idx = 0, kill_inst_idx = 0;
     int cnt = 0;
     for (size_t node_idx = 0; node_idx < N_NODES; ++node_idx) {
+      // Skip double-nodes: after restart, the new instance votes differently from
+      // its still-running twin -> CHECK "We produced conflicting votes!" (pool.cpp:532)
+      if (nodes_[node_idx].instances.size() > 1) {
+        continue;
+      }
       if (GREMLIN_KILLS_LEADER &&
           (!last_accepted_block_leader_idx_ || last_accepted_block_leader_idx_.value() != node_idx)) {
         continue;
@@ -824,7 +829,7 @@ class TestConsensus : public td::actor::Actor {
     LOG(WARNING) << "TEST FINISHED";
     std::vector<td::actor::Task<>> tasks;
     for (size_t idx = 0; idx < N_NODES; ++idx) {
-      for (size_t i = 0; i < nodes_[i].instances.size(); ++i) {
+      for (size_t i = 0; i < nodes_[idx].instances.size(); ++i) {
         tasks.push_back(stop_instance(idx, i));
       }
     }
