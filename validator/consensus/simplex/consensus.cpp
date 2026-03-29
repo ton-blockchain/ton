@@ -232,6 +232,7 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     }
     co_await std::move(store_candidate);
 
+    if (slot.state->voted_skip) co_return {};
     slot.state->voted_notar = candidate->id;
 
     owning_bus().publish<BroadcastVote>(NotarizeVote{candidate->id}).start().detach();
