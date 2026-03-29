@@ -720,7 +720,7 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
     }
     while (true) {
       auto slot = state_->slot_at(now_);
-      if (slot->state->is_notarized() || slot->state->is_skipped()) {
+      if (slot->state->will_be_notarized() || slot->state->will_be_skipped()) {
         ++now_;
       } else {
         break;
