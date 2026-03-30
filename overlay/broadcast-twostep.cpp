@@ -321,6 +321,7 @@ td::actor::Task<> BroadcastsTwostep::process_broadcast(
                      << " from=" << src_peer_id << " will_rebroadcast=" << will_rebroadcast;
   td::BufferSlice to_sign = create_serialize_tl_object<ton_api::overlay_broadcastTwostepSimple_toSign>(
       broadcast_id, broadcast->data_.clone());
+  TD_PERF_COUNTER(check_signature_overlay_broadcast_twostep_simple);
   auto check_result = co_await check_signature_and_certificate(overlay, src_key, src_keyhash, to_sign,
                                                                broadcast->signature_, broadcast->certificate_,
                                                                static_cast<td::uint32>(broadcast->data_.size()));
@@ -369,6 +370,7 @@ td::actor::Task<> BroadcastsTwostep::process_broadcast(OverlayImpl *overlay, adn
 
   td::BufferSlice to_sign = create_serialize_tl_object<ton_api::overlay_broadcastTwostepFec_toSign>(
       broadcast_id, seqno, broadcast->part_.clone());
+  TD_PERF_COUNTER(check_signature_overlay_broadcast_twostep_fec);
   auto check_result =
       co_await check_signature_and_certificate(overlay, src_key, src_keyhash, to_sign, broadcast->signature_,
                                                broadcast->certificate_, static_cast<td::uint32>(data_size));

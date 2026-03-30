@@ -23,6 +23,7 @@ td::StringBuilder& operator<<(td::StringBuilder& stream, const PeerValidatorId& 
 }
 
 bool PeerValidator::check_signature(ValidatorSessionId session, td::Slice data, td::Slice signature) const {
+  TD_PERF_COUNTER(check_signature_consensus);
   auto signed_data = create_serialize_tl_object<tl::dataToSign>(session, td::BufferSlice(data));
   return key.create_encryptor().move_as_ok()->check_signature(signed_data, signature).is_ok();
 }
