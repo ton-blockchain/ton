@@ -42,6 +42,8 @@ QuicServer::QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, t
     , cc_algo_(options.cc_algo)
     , flood_control_(options.flood_control)
     , max_streams_bidi_(options.max_streams_bidi)
+    , conn_rate_limit_capacity_(options.conn_rate_limit_capacity)
+    , conn_rate_limit_period_(options.conn_rate_limit_period)
     , callback_(std::move(callback))
     , default_mtu_(default_mtu)
     , peers_mtu_(std::move(peers_mtu)) {
@@ -306,6 +308,18 @@ void QuicServer::handle_timeouts() {
   for (auto &e : shutdown.entries) {
     shutdown_stream(e.cid, e.sid);
   }
+
+  if (cleanup_conn_rate_limiters_at_ && cleanup_conn_rate_limiters_at_.is_in_past()) {
+    td::PerfWarningTimer w("cleanup_conn_rate_limiters", 0.1);
+    for (auto it = conn_rate_limiters_.begin(); it != conn_rate_limiters_.end();) {
+      if (it->second.last_take_at() < td::Timestamp::in(-it->second.period())) {
+        it = conn_rate_limiters_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    cleanup_conn_rate_limiters_at_ = conn_rate_limiters_.empty() ? td::Timestamp::never() : td::Timestamp::in(10.0);
+  }
 }
 
 void QuicServer::erase_pending_connections() {
@@ -431,6 +445,15 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
   auto flood_addr = msg_in.address.get_ip_host();
   if (flood_control_.has_value() && flood_map_.contains(flood_addr) && flood_map_.at(flood_addr) >= *flood_control_) {
     return td::Status::Error("flood control overflow");
+  }
+  if (conn_rate_limit_capacity_ > 0) {
+    auto [it, _] = conn_rate_limiters_.try_emplace(flood_addr, conn_rate_limit_capacity_, conn_rate_limit_period_);
+    if (!it->second.take()) {
+      return td::Status::Error("connection rate limit exceeded");
+    }
+    if (!cleanup_conn_rate_limiters_at_) {
+      cleanup_conn_rate_limiters_at_ = td::Timestamp::in(10.0);
+    }
   }
 
   // Create new connection to handle unknown inbound message
@@ -727,6 +750,7 @@ void QuicServer::update_alarm() {
     alarm_ts = td::Timestamp::at(timeout_heap_.top_key());
   }
   alarm_ts.relax(callback_->next_alarm());
+  alarm_ts.relax(cleanup_conn_rate_limiters_at_);
   alarm_timestamp() = alarm_ts;
 }
 

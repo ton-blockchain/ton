@@ -10,6 +10,7 @@
 #include <variant>
 
 #include "adnl/adnl-node-id.hpp"
+#include "adnl/utils.hpp"
 #include "td/actor/ActorOwn.h"
 #include "td/actor/core/Actor.h"
 #include "td/utils/Heap.h"
@@ -48,6 +49,8 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
     std::optional<size_t> flood_control = DEFAULT_FLOOD_CONTROL;
     std::optional<size_t> max_streams_bidi = std::nullopt;
+    td::uint32 conn_rate_limit_capacity = 10;
+    double conn_rate_limit_period = 2.0;
   };
   class Callback {
    public:
@@ -200,6 +203,11 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   std::optional<size_t> flood_control_;
   std::optional<size_t> max_streams_bidi_;
   std::unordered_map<std::string, size_t> flood_map_;
+
+  td::uint32 conn_rate_limit_capacity_{10};
+  double conn_rate_limit_period_{2.0};
+  std::unordered_map<std::string, adnl::RateLimiter> conn_rate_limiters_;
+  td::Timestamp cleanup_conn_rate_limiters_at_ = td::Timestamp::never();
 
   std::unique_ptr<Callback> callback_;
   td::actor::ActorId<QuicServer> self_id_;
