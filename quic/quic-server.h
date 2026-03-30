@@ -197,15 +197,10 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   td::UdpSocketFd fd_;
   td::BufferSlice alpn_;
   td::Ed25519::PrivateKey server_key_;
+  Options options_;
   bool gso_enabled_{true};
   bool gro_enabled_{false};
-  CongestionControlAlgo cc_algo_{CongestionControlAlgo::Cubic};
-  std::optional<size_t> flood_control_;
-  std::optional<size_t> max_streams_bidi_;
   std::unordered_map<std::string, size_t> flood_map_;
-
-  td::uint32 conn_rate_limit_capacity_{10};
-  double conn_rate_limit_period_{2.0};
   std::unordered_map<std::string, adnl::RateLimiter> conn_rate_limiters_;
   td::Timestamp cleanup_conn_rate_limiters_at_ = td::Timestamp::never();
 
