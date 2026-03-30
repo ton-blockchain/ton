@@ -58,7 +58,7 @@ jobs:
 #          ctest -C Release --output-on-failure -E "test-bigint" --timeout 1800
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@master
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: ton-x86-64-windows
           path: artifacts

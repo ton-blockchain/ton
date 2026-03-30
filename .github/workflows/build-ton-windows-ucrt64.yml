@@ -41,7 +41,7 @@ jobs:
           ./build-ucrt64.sh -a
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@master
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: ton-msys2-ucrt64
           path: artifacts
