@@ -272,11 +272,7 @@ class ValidatorEngine : public td::actor::Actor {
                                                                   .public_broadcast_speed_multiplier_ = 3.33,
                                                                   .private_broadcast_speed_multiplier_ = 3.33,
                                                                   .fast_sync_broadcast_speed_multiplier_ = 3.33,
-                                                                  .initial_sync_delay_ = 60.0,
-                                                                  .ratelimit_window_size_ = 0,
-                                                                  .ratelimit_global_ = 0,
-                                                                  .ratelimit_heavy_ = 0,
-                                                                  .ratelimit_medium_ = 0};
+                                                                  .initial_sync_delay_ = 60.0};
 
   std::set<ton::CatchainSeqno> unsafe_catchains_;
   std::map<ton::BlockSeqno, std::pair<ton::CatchainSeqno, td::uint32>> unsafe_catchain_rotations_;

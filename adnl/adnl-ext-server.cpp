@@ -96,6 +96,9 @@ td::Status AdnlInboundConnection::process_custom_packet(td::BufferSlice &data, b
         return td::Status::Error(ErrorCode::protoviolation, "duplicate authenticate");
       }
       auto f = F.move_as_ok();
+      if (f->nonce_.size() == 0 || f->nonce_.size() > 512) {
+        return td::Status::Error(ErrorCode::protoviolation, "bad nonce size");
+      }
       nonce_ = td::SecureString{f->nonce_.size() + 256};
       nonce_.as_mutable_slice().truncate(f->nonce_.size()).copy_from(f->nonce_.as_slice());
       td::Random::secure_bytes(nonce_.as_mutable_slice().remove_prefix(f->nonce_.size()));

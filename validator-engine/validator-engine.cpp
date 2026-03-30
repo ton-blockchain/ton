@@ -5836,14 +5836,14 @@ int main(int argc, char *argv[]) {
         return td::Status::OK();
       });
   p.add_checked_option(
-      0, "fullnode-ratelimit-global", "ratelimit for all kind of requests (in counts per window)",
+      0, "fullnode-ratelimit-global", "ratelimit for all kind of requests (in request-cost units per window)",
       [&](td::Slice s) -> td::Status {
         TRY_RESULT(v, td::to_integer_safe<size_t>(s));
         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_ratelimit_global, v); });
         return td::Status::OK();
       });
   p.add_checked_option(
-      0, "fullnode-ratelimit-heavy", "ratelimit for heavy requests (in counts per window)",
+      0, "fullnode-ratelimit-heavy", "ratelimit for heavy requests (in 2 MiB request-cost units per window)",
       [&](td::Slice s) -> td::Status {
         TRY_RESULT(v, td::to_integer_safe<size_t>(s));
         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_ratelimit_heavy, v); });
