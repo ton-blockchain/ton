@@ -110,8 +110,13 @@ class StateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     co_return co_await std::move(task);
   }
 
+  bool is_finalized(CandidateId id) {
+    auto it = finalized_blocks_.find(id);
+    return it != finalized_blocks_.end() && it->second.done;
+  }
+
   td::actor::Task<ResolvedState> resolve_state_inner(ParentId id) {
-    if (!id.has_value() || finalized_blocks_.contains(*id)) {
+    if (!id.has_value() || is_finalized(*id)) {
       std::vector<BlockIdExt> block;
       auto genesis = co_await genesis_.get();
       std::optional<double> gen_utime_exact;
