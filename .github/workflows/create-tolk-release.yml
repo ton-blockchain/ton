@@ -99,7 +99,7 @@ jobs:
       # win
 
       - name: Upload Windows 2019 single artifact - tolk
-        uses: svenstaro/upload-release-action@v2
+        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-x86-64-windows/tolk.exe
@@ -109,7 +109,7 @@ jobs:
       # mac x86-64
 
       - name: Upload Mac x86-64 single artifact - tolk
-        uses: svenstaro/upload-release-action@v2
+        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-x86_64-macos/tolk
@@ -119,7 +119,7 @@ jobs:
       # mac arm64
 
       - name: Upload Mac arm64 single artifact - tolk
-        uses: svenstaro/upload-release-action@v2
+        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-arm64-macos/tolk
@@ -129,7 +129,7 @@ jobs:
       # linux x86-64
 
       - name: Upload Linux x86-64 single artifact - tolk
-        uses: svenstaro/upload-release-action@v2
+        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-x86_64-linux/tolk
@@ -139,7 +139,7 @@ jobs:
       # linux arm64
 
       - name: Upload Linux arm64 single artifact - tolk
-        uses: svenstaro/upload-release-action@v2
+        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-arm64-linux/tolk
@@ -147,7 +147,7 @@ jobs:
           tag: ${{ inputs.tag }}
 
       - name: Upload WASM artifacts
-        uses: svenstaro/upload-release-action@v2
+        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-wasm.zip
