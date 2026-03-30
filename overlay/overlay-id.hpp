@@ -26,6 +26,7 @@
 #include "keys/encryptor.h"
 #include "overlay/overlays.h"
 #include "td/utils/SharedSlice.h"
+#include "td/utils/ThreadSafeCounter.h"
 #include "td/utils/buffer.h"
 #include "td/utils/overloaded.h"
 #include "td/utils/port/StdStreams.h"
