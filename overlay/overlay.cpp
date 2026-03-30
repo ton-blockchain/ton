@@ -515,6 +515,7 @@ void OverlayImpl::send_broadcast(PublicKeyHash send_as, td::uint32 flags, td::Bu
     VLOG(OVERLAY_WARNING) << "broadcast source certificate is invalid";
     return;
   }
+  flags &= ~Overlays::BroadcastFlagNoTwostep();
   broadcasts_simple_.send(this, send_as, std::move(data), flags);
 }
 
@@ -529,7 +530,9 @@ void OverlayImpl::send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td
     VLOG(OVERLAY_WARNING) << "broadcast source certificate is invalid";
     return;
   }
-  if (opts_.send_twostep_broadcast_) {
+  bool no_twostep = flags & Overlays::BroadcastFlagNoTwostep();
+  flags &= ~Overlays::BroadcastFlagNoTwostep();
+  if (opts_.send_twostep_broadcast_ && !no_twostep) {
     broadcasts_twostep_.send(this, send_as, std::move(data), std::move(extra), flags);
   } else {
     if (!extra.empty()) {
