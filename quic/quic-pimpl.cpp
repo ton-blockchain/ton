@@ -646,7 +646,6 @@ int QuicConnectionPImpl::on_recv_stream_data(uint32_t flags, int64_t stream_id, 
   Callback::StreamDataEvent event{
       .sid = stream_id, .data = td::BufferSlice{data}, .fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0};
 
-  ngtcp2_conn_extend_max_stream_offset(conn(), stream_id, data.size());
   ngtcp2_conn_extend_max_offset(conn(), data.size());
 
   auto status = callback_->on_stream_data(std::move(event));
@@ -654,6 +653,8 @@ int QuicConnectionPImpl::on_recv_stream_data(uint32_t flags, int64_t stream_id, 
     shutdown_stream(stream_id);
     return 0;
   }
+
+  ngtcp2_conn_extend_max_stream_offset(conn(), stream_id, data.size());
 
   // bidi stream initiated by other party
   if (ngtcp2_is_bidi_stream(stream_id) && !ngtcp2_conn_is_local_stream(conn(), stream_id)) {
