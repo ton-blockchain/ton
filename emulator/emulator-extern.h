@@ -446,6 +446,15 @@ EMULATOR_EXPORT const char *tvm_emulator_sbs_get_control_register(void *tvm_emul
 EMULATOR_EXPORT const char *tvm_emulator_sbs_get_code_pos(void *tvm_emulator);
 
 /**
+ * @brief Run an arbitrary TVM continuation (VmCont)
+ * @param tvm_emulator Pointer to TVM emulator
+ * @param continuation_boc Base64 encoded BoC serialized VmCont
+ * @param stack_boc Base64 encoded BoC serialized stack (VmStack)
+ * @return Json object with the same format as tvm_emulator_run_get_method
+ */
+EMULATOR_EXPORT const char *tvm_emulator_run_continuation(void *tvm_emulator, const char *continuation_boc, const char *stack_boc);
+
+/**
  * @brief Optimized version of "run get method" with all passed parameters in a single call
  * @param len Length of params_boc buffer
  * @param params_boc BoC serialized parameters, scheme: request$_ code:^Cell data:^Cell stack:^VmStack params:^[c7:^VmStack libs:^Cell] method_id:(## 32)

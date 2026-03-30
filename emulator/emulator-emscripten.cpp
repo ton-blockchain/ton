@@ -423,6 +423,10 @@ const char *run_get_method(void* tvm, const char *params, const char* stack, con
     return output;
 }
 
+const char *run_continuation(void *tvm, const char *continuation_boc, const char *stack_boc) {
+  return tvm_emulator_run_continuation(tvm, continuation_boc, stack_boc);
+}
+
 const char *version() {
   return emulator_version();
 }

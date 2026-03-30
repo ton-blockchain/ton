@@ -8,6 +8,7 @@
 #include "transaction-emulator.h"
 #include "tvm-emulator.hpp"
 #include "crypto/vm/stack.hpp"
+#include "crypto/vm/continuation.h"
 #include "crypto/vm/memo.h"
 #include "git.h"
 
@@ -955,6 +956,30 @@ const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const
 const char *tvm_emulator_sbs_get_method_result(void *tvm_emulator) {
   const auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
   const auto result = emulator->sbs_result();
+  return tvm_emulator_get_method_result(result);
+}
+
+const char *tvm_emulator_run_continuation(void *tvm_emulator, const char *continuation_boc, const char *stack_boc) {
+  auto cont_cell = boc_b64_to_cell(continuation_boc);
+  if (cont_cell.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Couldn't deserialize continuation cell: " << cont_cell.move_as_error().to_string());
+  }
+
+  vm::FakeVmStateLimits fstate(1000);
+  vm::VmStateInterface::Guard guard(&fstate);
+
+  td::Ref<vm::Continuation> cont;
+  if (!vm::Continuation::deserialize_to(cont_cell.move_as_ok(), cont, 0)) {
+    ERROR_RESPONSE("Couldn't deserialize continuation");
+  }
+
+  td::Ref<vm::Stack> stack;
+  if (const char *error = tvm_emulator_run_get_method_prepare(stack_boc, stack)) {
+    return error;
+  }
+
+  auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  auto result = emulator->run_continuation(std::move(cont), std::move(stack));
   return tvm_emulator_get_method_result(result);
 }
 

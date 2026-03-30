@@ -1,5 +1,7 @@
 #pragma once
 #include "smc-envelope/SmartContract.h"
+#include "vm/continuation.h"
+#include "vm/excno.hpp"
 
 namespace emulator {
 class TvmEmulator {
@@ -100,6 +102,39 @@ public:
                                    .set_method_id(method_id)
                                    .set_ext_methods(ext_methods)
                                    .set_missing_library_handler(missing_library_handler));
+  }
+
+  Answer run_continuation(td::Ref<vm::Continuation> cont, td::Ref<vm::Stack> stack) {
+    vm::init_vm(args_.debug_enabled).ensure();
+    vm::DictionaryBase::get_empty_dictionary();
+
+    logger = std::make_unique<ton::SmartContract::Logger>();
+    logger->clear();
+
+    auto gas = args_.limits ? args_.limits.unwrap() : vm::GasLimits{1000000, 1000000};
+
+    vm::VmLog log{logger.get(), td::LogOptions(VERBOSITY_NAME(DEBUG), true, false)};
+
+    auto state = smc_.get_state();
+    int global_version = args_.config ? args_.config.value()->get_global_version() : ton::SUPPORTED_VERSION;
+
+    // Use contract code so c3 (method dictionary) is available for CALLDICT.
+    auto vm_state = vm::VmState(state.code, global_version, std::move(stack), gas, 1,
+                                state.data, log);
+    vm_state.ext_methods = ext_methods;
+    vm_state.missing_library_handler = missing_library_handler;
+
+    // Jump to the continuation
+    vm_state.jump(std::move(cont));
+
+    try {
+      vm_state.run();
+    } catch (...) {
+      // VM execution failed
+    }
+
+    vm = std::make_unique<vm::VmState>(std::move(vm_state));
+    return sbs_result();
   }
 
   Answer send_external_message(td::Ref<vm::Cell> message_body) {
