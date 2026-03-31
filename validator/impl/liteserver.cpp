@@ -398,9 +398,9 @@ void LiteQuery::perform_getBlockHeader(BlockIdExt blkid, int mode) {
                           });
 }
 
-static bool visit(Ref<vm::Cell> cell, td::HashSet<vm::CellHash> *visited = nullptr);
+static bool visit(Ref<vm::Cell> cell, td::HashSet<vm::CellHash>* visited = nullptr);
 
-static bool visit(const vm::CellSlice& cs, td::HashSet<vm::CellHash> *visited = nullptr) {
+static bool visit(const vm::CellSlice& cs, td::HashSet<vm::CellHash>* visited = nullptr) {
   auto cnt = cs.size_refs();
   bool res = true;
   for (unsigned i = 0; i < cnt; i++) {
@@ -409,7 +409,7 @@ static bool visit(const vm::CellSlice& cs, td::HashSet<vm::CellHash> *visited = 
   return res;
 }
 
-static bool visit(Ref<vm::Cell> cell, td::HashSet<vm::CellHash> *visited) {
+static bool visit(Ref<vm::Cell> cell, td::HashSet<vm::CellHash>* visited) {
   if (cell.is_null()) {
     return true;
   }
@@ -420,7 +420,7 @@ static bool visit(Ref<vm::Cell> cell, td::HashSet<vm::CellHash> *visited) {
   return visit(cs, visited);
 }
 
-static bool visit(Ref<vm::CellSlice> cs_ref, td::HashSet<vm::CellHash> *visited = nullptr) {
+static bool visit(Ref<vm::CellSlice> cs_ref, td::HashSet<vm::CellHash>* visited = nullptr) {
   return cs_ref.is_null() || visit(*cs_ref, visited);
 }
 
