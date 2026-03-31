@@ -316,6 +316,7 @@ td::Status BroadcastFecPart::run_checks(OverlayImpl *overlay, BroadcastFec *bcas
     TRY_STATUS(bcast->is_eligible_sender(source_));
   }
   TRY_RESULT(encryptor, overlay->get_encryptor(source_));
+  TD_PERF_COUNTER(check_signature_overlay_broadcast_fec);
   TRY_STATUS(encryptor->check_signature(to_sign().as_slice(), signature_.as_slice()));
   return td::Status::OK();
 }

@@ -719,6 +719,7 @@ BroadcastCheckResult Certificate::check(PublicKeyHash node, OverlayIdShort overl
     }
     auto E = R1.move_as_ok();
     auto B = to_sign(overlay_id, node);
+    TD_PERF_COUNTER(check_signature_overlay_certificate);
     if (E->check_signature(B.as_slice(), signature_.as_slice()).is_error()) {
       return BroadcastCheckResult::Forbidden;
     }

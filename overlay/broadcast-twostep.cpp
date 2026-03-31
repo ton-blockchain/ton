@@ -333,7 +333,10 @@ td::actor::Task<> BroadcastsTwostep::process_broadcast(
                                             static_cast<td::uint32>(broadcast->data_.size()));
   co_await overlay->precheck_broadcast(src_keyhash, broadcast_id, broadcast->extra_.clone(), false)
       .trace("precheck broadcast");
-  co_await check_signature(overlay, src_peer_id, src_key, to_sign, broadcast->signature_);
+  {
+    TD_PERF_COUNTER(check_signature_overlay_broadcast_twostep_simple);
+    co_await check_signature(overlay, src_peer_id, src_key, to_sign, broadcast->signature_);
+  }
   co_await overlay->precheck_broadcast(src_keyhash, broadcast_id, broadcast->extra_.clone(), true)
       .trace("precheck broadcast");
   // utime and is_delivered could change during precheck_broadcast
@@ -385,7 +388,10 @@ td::actor::Task<> BroadcastsTwostep::process_broadcast(OverlayImpl *overlay, adn
     co_await overlay->precheck_broadcast(src_keyhash, broadcast_id, broadcast->extra_.clone(), false)
         .trace("precheck broadcast");
   }
-  co_await check_signature(overlay, src_peer_id, src_key, to_sign, broadcast->signature_);
+  {
+    TD_PERF_COUNTER(check_signature_overlay_broadcast_twostep_fec);
+    co_await check_signature(overlay, src_peer_id, src_key, to_sign, broadcast->signature_);
+  }
   if (it == broadcasts_.end()) {
     co_await overlay->precheck_broadcast(src_keyhash, broadcast_id, broadcast->extra_.clone(), true)
         .trace("precheck broadcast");

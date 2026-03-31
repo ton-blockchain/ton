@@ -51,6 +51,29 @@ namespace fullnode {
 namespace {
 
 constexpr const char *k_called_from_public = "public";
+constexpr td::uint32 k_heavy_request_cost_unit = 1 << 21;
+
+size_t heavy_request_cost(td::uint64 requested_max_size) {
+  size_t cost = static_cast<size_t>((requested_max_size + k_heavy_request_cost_unit - 1) / k_heavy_request_cost_unit);
+  return cost == 0 ? 1 : cost;
+}
+
+size_t request_cost_for_limiter(ton_api::Function &function) {
+  size_t cost = 1;
+  ton_api::downcast_call(
+      function, td::overloaded(
+                    [&](const ton_api::tonNode_getArchiveSlice &query) {
+                      cost = heavy_request_cost(query.max_size_ > 0 ? static_cast<td::uint64>(query.max_size_) : 0);
+                    },
+                    [&](const ton_api::tonNode_downloadPersistentStateSliceV2 &query) {
+                      cost = heavy_request_cost(query.max_size_ > 0 ? static_cast<td::uint64>(query.max_size_) : 0);
+                    },
+                    [&](const ton_api::tonNode_downloadZeroState &) {
+                      cost = heavy_request_cost(FullNode::max_zerostate_size());
+                    },
+                    [&](const auto &) {}));
+  return cost;
+}
 
 }  // namespace
 
@@ -721,7 +744,7 @@ void FullNodeShardImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice
     return;
   }
   auto fun_ptr = B.move_as_ok();
-  if (!limiter_->check_in(fun_ptr->get_id())) {
+  if (!limiter_->check_in(fun_ptr->get_id(), request_cost_for_limiter(*fun_ptr))) {
     promise.set_error(td::Status::Error(ErrorCode::failure, "too many requests"));
     return;
   }
