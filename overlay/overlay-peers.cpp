@@ -140,10 +140,12 @@ td::Status OverlayImpl::validate_peer_certificate(const adnl::AdnlNodeIdShort &n
     return R.move_as_error_prefix("failed to check member certificate: failed to create encryptor: ");
   }
   auto enc = R.move_as_ok();
-  TD_PERF_COUNTER(check_signature_overlay_member_certificate);
-  auto S = enc->check_signature(cert.to_sign_data(node).as_slice(), cert.signature());
-  if (S.is_error()) {
-    return S.move_as_error_prefix("failed to check member certificate: bad signature: ");
+  {
+    TD_PERF_COUNTER(check_signature_overlay_member_certificate);
+    auto S = enc->check_signature(cert.to_sign_data(node).as_slice(), cert.signature());
+    if (S.is_error()) {
+      return S.move_as_error_prefix("failed to check member certificate: bad signature: ");
+    }
   }
   if (it->second.size() <= (size_t)cert.slot()) {
     it->second.resize((size_t)cert.slot() + 1);
