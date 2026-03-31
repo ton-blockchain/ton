@@ -8,6 +8,7 @@
 #include "transaction-emulator.h"
 #include "tvm-emulator.hpp"
 #include "crypto/vm/stack.hpp"
+#include "crypto/vm/dispatch.h"
 #include "crypto/vm/continuation.h"
 #include "crypto/vm/memo.h"
 #include "git.h"
@@ -426,6 +427,25 @@ const char *emulator_vm_get_code_pos(const vm::VmState &vm) {
   return strdup(res.c_str());
 }
 
+const char *emulator_vm_get_current_instr(const vm::VmState &vm) {
+  const auto code = vm.get_code();
+  if (code.is_null()) {
+    return strdup("unknown");
+  }
+
+  if (code->size()) {
+    const auto dispatch = vm::DispatchTable::get_table(vm.get_cp());
+    if (!dispatch) {
+      return strdup("unknown");
+    }
+    auto code_slice = code->clone();
+    const auto instr = dispatch->dump_instr(code_slice);
+    return strdup(instr.c_str());
+  }
+
+  return strdup(code->size_refs() ? "implicit JMPREF" : "implicit RET");
+}
+
 // -------------------- TRANSACTIONS -------------------------
 
 const char *transaction_emulator_sbs_get_stack(void *tvm_emulator) {
@@ -450,6 +470,12 @@ const char *transaction_emulator_sbs_get_code_pos(void *tvm_emulator) {
   const auto emulator = static_cast<emulator::TransactionEmulator *>(tvm_emulator);
   const auto &vm = emulator->get_vm();
   return emulator_vm_get_code_pos(vm);
+}
+
+const char *transaction_emulator_sbs_get_current_instr(void *tvm_emulator) {
+  const auto emulator = static_cast<emulator::TransactionEmulator *>(tvm_emulator);
+  const auto &vm = emulator->get_vm();
+  return emulator_vm_get_current_instr(vm);
 }
 
 const char *transaction_emulator_emulate_tick_tock_transaction(void *transaction_emulator, const char *shard_account_boc, bool is_tock) {
@@ -881,6 +907,12 @@ const char* tvm_emulator_sbs_get_code_pos(void *tvm_emulator) {
   const auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
   const auto& vm = emulator->get_vm();
   return emulator_vm_get_code_pos(vm);
+}
+
+const char* tvm_emulator_sbs_get_current_instr(void *tvm_emulator) {
+  const auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  const auto& vm = emulator->get_vm();
+  return emulator_vm_get_current_instr(vm);
 }
 
 // -------------------------- RUN GET METHODS --------------------------

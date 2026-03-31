@@ -238,6 +238,13 @@ EMULATOR_EXPORT const char *transaction_emulator_sbs_get_control_register(void *
 EMULATOR_EXPORT const char *transaction_emulator_sbs_get_code_pos(void *tvm_emulator);
 
 /**
+ * @brief Get current instruction for the current step of a <b>transaction emulation</b>
+ * @param tvm_emulator Pointer to <code>TransactionEmulator</code> object
+ * @return Human-readable TVM instruction dump for the current code position
+ */
+EMULATOR_EXPORT const char *transaction_emulator_sbs_get_current_instr(void *tvm_emulator);
+
+/**
  * @brief Emulate tick tock transaction
  * @param transaction_emulator Pointer to TransactionEmulator object
  * @param shard_account_boc Base64 encoded BoC serialized ShardAccount of special account
@@ -444,6 +451,13 @@ EMULATOR_EXPORT const char *tvm_emulator_sbs_get_control_register(void *tvm_emul
  * @return String in <code>"cell_hash_hex:offset"</code> format
  */
 EMULATOR_EXPORT const char *tvm_emulator_sbs_get_code_pos(void *tvm_emulator);
+
+/**
+ * @brief Get current instruction for the current step of a <b>get method emulation</b>
+ * @param tvm_emulator Pointer to <code>TvmEmulator</code> object
+ * @return Human-readable TVM instruction dump for the current code position
+ */
+EMULATOR_EXPORT const char *tvm_emulator_sbs_get_current_instr(void *tvm_emulator);
 
 /**
  * @brief Run an arbitrary TVM continuation (VmCont)

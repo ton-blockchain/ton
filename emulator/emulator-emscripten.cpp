@@ -243,6 +243,10 @@ const char *em_sbs_code_pos(void *em) {
   return transaction_emulator_sbs_get_code_pos(em);
 }
 
+const char *em_sbs_current_instr(void *em) {
+  return transaction_emulator_sbs_get_current_instr(em);
+}
+
 const char* em_sbs_result(void *em) {
   return transaction_emulator_sbs_result(em);
 }
@@ -360,6 +364,10 @@ const char *sbs_get_c7(void *tvm) {
 
 const char* sbs_get_code_pos(void *tvm) {
   return tvm_emulator_sbs_get_code_pos(tvm);
+}
+
+const char* sbs_get_current_instr(void *tvm) {
+  return tvm_emulator_sbs_get_current_instr(tvm);
 }
 
 const char* sbs_get_method_result(void *tvm) {
