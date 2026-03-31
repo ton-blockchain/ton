@@ -9,6 +9,11 @@ dependencies = [
     "types-gdb>=16.3.0.20250920",
 ]
 
+[project.optional-dependencies]
+consensus_explorer = [
+    "tontester[consensus_explorer]",
+]
+
 [dependency-groups]
 dev = [
     "basedpyright>=1.32.1",
