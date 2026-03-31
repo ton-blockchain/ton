@@ -476,6 +476,7 @@ class OverlayImpl : public Overlay {
 
   OverlayOptions opts_;
   adnl::PeersMtuGuard peers_mtu_guard_;
+  adnl::Adnl::ProtectedPeersGuard protected_peers_guard_;
 
   struct CachedCertificate : td::ListNode {
     CachedCertificate(PublicKeyHash source, td::Bits256 cert_hash) : source(source), cert_hash(cert_hash) {

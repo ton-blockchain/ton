@@ -135,6 +135,31 @@ class Adnl : public AdnlSenderInterface {
   }
 
   static td::int32 adnl_start_time();
+
+ protected:
+  virtual void add_protected_peers(AdnlNodeIdShort local_id, std::vector<AdnlNodeIdShort> peer_ids) = 0;
+  virtual void remove_protected_peers(AdnlNodeIdShort local_id, std::vector<AdnlNodeIdShort> peer_ids) = 0;
+
+ public:
+  // Protected peers are peers that cannot be GCd
+  class ProtectedPeersGuard {
+  public:
+    ProtectedPeersGuard() = default;
+    ProtectedPeersGuard(td::actor::ActorId<Adnl> adnl, AdnlNodeIdShort local_id,
+                  std::vector<AdnlNodeIdShort> peer_ids);
+    ProtectedPeersGuard(const ProtectedPeersGuard&) = delete;
+    ProtectedPeersGuard(ProtectedPeersGuard&& other) noexcept;
+    ~ProtectedPeersGuard();
+    ProtectedPeersGuard& operator=(const ProtectedPeersGuard& other) = delete;
+    ProtectedPeersGuard& operator=(ProtectedPeersGuard&& other) noexcept;
+
+   private:
+    td::actor::ActorId<Adnl> adnl_;
+    AdnlNodeIdShort local_id_;
+    std::vector<AdnlNodeIdShort> peer_ids_;
+
+    void reset();
+  };
 };
 
 }  // namespace adnl
