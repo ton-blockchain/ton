@@ -33,6 +33,7 @@ set(TOLK_SOURCE
         pipe-ast-to-legacy.cpp
         pipe-find-unused-symbols.cpp
         pipe-generate-fif-output.cpp
+        pipe-generate-ts-output.cpp
         type-system.cpp
         type-transition.cpp
         smart-casts-cfg.cpp

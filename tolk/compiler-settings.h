@@ -50,6 +50,11 @@ struct CompilerSettings {
   std::string boc_output_filename;
   std::string stdlib_folder;    // path to tolk-stdlib/; note: from tolk-js it's empty! tolk-js reads files via js callback
 
+  // TypeScript codegen options
+  bool emit_typescript = false;
+  std::string typescript_output_filename;   // if empty, output to stdout
+  std::string generated_typescript_code;    // populated by pipeline_generate_ts_output for WASM
+
   std::vector<CompilerPathMapping> path_mappings;    // "@third_party" to "/absolute/folder"
 
   FsReadCallback read_callback;
