@@ -382,6 +382,10 @@ void pipeline_generate_fif_output(std::ostream& os) {
     }
   }
 
+  if (!has_main_procedure && G_settings.allow_no_entrypoint) {
+    os << "DECLPROC main // fake main\n";
+  }
+
   if (!has_main_procedure && !G_settings.allow_no_entrypoint) {
     throw Fatal("the contract has no entrypoint; forgot `fun onInternalMessage(...)`?");
   }
@@ -404,6 +408,10 @@ void pipeline_generate_fif_output(std::ostream& os) {
     }
 
     os << "  " << "DECLGLOBVAR " << CodeBlob::fift_name(var_ref) << "\n";
+  }
+
+  if (!has_main_procedure && G_settings.allow_no_entrypoint) {
+    os << "main PROC:<{ }>\n";
   }
 
   for (FunctionPtr fun_ref : G.all_functions) {
