@@ -491,7 +491,7 @@ class OverlayImpl : public Overlay {
   td::ListNode checked_certificates_cache_lru_;
   size_t max_checked_certificates_cache_size_ = 1000;
 
-  std::map<adnl::AdnlNodeIdShort, size_t> banned_peers_;
+  std::set<adnl::AdnlNodeIdShort> banned_peers_;
 };
 
 }  // namespace overlay

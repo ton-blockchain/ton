@@ -777,12 +777,12 @@ bool OverlayImpl::has_valid_broadcast_certificate(const PublicKeyHash &source, s
 }
 
 td::actor::Task<> OverlayImpl::ban_peer(adnl::AdnlNodeIdShort peer_id, td::Timestamp unban_at) {
-  ++banned_peers_[peer_id];
+  if (!banned_peers_.insert(peer_id).second) {
+    co_return {};
+  }
   VLOG(OVERLAY_NOTICE) << this << ": ban peer " << peer_id << " for " << unban_at.in() << " s";
   co_await td::actor::coro_sleep(unban_at);
-  if (--banned_peers_[peer_id] == 0) {
-    banned_peers_.erase(peer_id);
-  }
+  banned_peers_.erase(peer_id);
   co_return {};
 }
 
