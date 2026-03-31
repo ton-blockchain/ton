@@ -280,6 +280,7 @@ struct OverlayOptions {
 
   td::actor::ActorId<adnl::AdnlSenderEx> twostep_broadcast_sender_ = {};
   bool send_twostep_broadcast_ = false;
+  bool allow_old_broadcasts_ = true;  // non-twostep broadcasts
 };
 
 struct OverlayManagerBufferLimits {
@@ -298,8 +299,16 @@ class Overlays : public td::actor::Actor {
     }
     virtual void receive_broadcast(PublicKeyHash src, OverlayIdShort overlay_id, td::BufferSlice data) {
     }
+    virtual void receive_broadcast_with_extra(PublicKeyHash src, OverlayIdShort overlay_id, td::BufferSlice data,
+                                              td::BufferSlice extra) {
+      receive_broadcast(src, overlay_id, std::move(data));
+    }
     virtual void check_broadcast(PublicKeyHash src, OverlayIdShort overlay_id, td::BufferSlice data,
                                  td::Promise<td::Unit> promise) {
+      promise.set_value(td::Unit());
+    }
+    virtual void precheck_broadcast(PublicKeyHash src, OverlayIdShort overlay_id, td::Bits256 broadcast_id,
+                                    td::BufferSlice extra, td::Promise<> promise) {
       promise.set_value(td::Unit());
     }
     virtual void get_stats_extra(td::Promise<std::string> promise) {
@@ -320,6 +329,9 @@ class Overlays : public td::actor::Actor {
 
   static constexpr td::uint32 BroadcastFlagAnySender() {
     return 1;
+  }
+  static constexpr td::uint32 BroadcastFlagNoTwostep() {
+    return 256;
   }
 
   static constexpr td::uint32 overlay_peer_ttl() {
@@ -376,6 +388,9 @@ class Overlays : public td::actor::Actor {
   virtual void send_broadcast_fec(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, td::BufferSlice object) = 0;
   virtual void send_broadcast_fec_ex(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, PublicKeyHash send_as,
                                      td::uint32 flags, td::BufferSlice object) = 0;
+  virtual void send_broadcast_fec_with_extra(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
+                                             PublicKeyHash send_as, td::uint32 flags, td::BufferSlice object,
+                                             td::BufferSlice extra) = 0;
 
   virtual void set_privacy_rules(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                  OverlayPrivacyRules rules) = 0;

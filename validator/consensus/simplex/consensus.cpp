@@ -26,7 +26,7 @@ struct SlotState {
   bool voted_final = false;
 };
 
-class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
+class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
   using State = ConsensusState<SlotState, td::Unit>;
 
  public:
@@ -37,27 +37,44 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
     auto& bus = *owning_bus();
 
-    slots_per_leader_window_ = bus.simplex_config.slots_per_leader_window;
-    max_leader_window_desync_ = bus.simplex_config.max_leader_window_desync;
-    target_rate_s_ = bus.config.target_rate_ms / 1000.;
-    default_first_block_timeout_s_ = bus.simplex_config.first_block_timeout_ms / 1000.;
-    first_block_timeout_s_ = default_first_block_timeout_s_;
+    slots_per_leader_window_ = bus.config.slots_per_leader_window;
+    params_ = bus.config.noncritical_params;
+    first_block_timeout_ = params_.first_block_timeout;
     state_.emplace(State({}));
 
     for (const auto& vote : bus.bootstrap_votes) {
-      if (vote.validator != bus.local_id.idx) {
-        continue;
-      }
-
-      auto slot = state_->slot_at(vote.vote.referenced_slot());
+      auto slot = state_->slot_at(vote.referenced_slot());
       if (!slot.has_value()) {
         continue;
       }
 
-      auto notar_fn = [&](const NotarizeVote& notar_vote) { slot->state->voted_notar = notar_vote.id; };
-      auto final_fn = [&](const FinalizeVote& final_vote) { slot->state->voted_final = true; };
-      auto skip_fn = [&](const SkipVote& skip_vote) { slot->state->voted_skip = true; };
-      std::visit(td::overloaded(notar_fn, final_fn, skip_fn), vote.vote.vote);
+      auto notar_fn = [&](const NotarizeVote& notar_vote) {
+        if (slot->state->voted_notar.has_value() && slot->state->voted_notar != notar_vote.id) {
+          // Note that a bug might have caused conflicting votes to be casted. In this case, Pool
+          // will crash but not before database durably stores the votes, so in bootstrap_votes we
+          // might observe conflicts. In such a case, at least let's not corrupt local per-slot
+          // invariants.
+          LOG(WARNING) << "Dropping corrupted " << notar_vote;
+          return;
+        }
+        slot->state->voted_notar = notar_vote.id;
+      };
+      auto final_fn = [&](const FinalizeVote& final_vote) {
+        if (slot->state->voted_skip ||
+            (slot->state->voted_notar.has_value() && slot->state->voted_notar != final_vote.id)) {
+          LOG(WARNING) << "Dropping corrupted " << final_vote;
+          return;
+        }
+        slot->state->voted_final = true;
+      };
+      auto skip_fn = [&](const SkipVote& skip_vote) {
+        if (slot->state->voted_final) {
+          LOG(WARNING) << "Dropping corrupted " << skip_vote;
+          return;
+        }
+        slot->state->voted_skip = true;
+      };
+      std::visit(td::overloaded(notar_fn, final_fn, skip_fn), vote.vote);
     }
 
     if (auto window = bus.first_nonannounced_window) {
@@ -67,7 +84,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
         auto slot = state_->slot_at(i);
         if (slot.has_value() && !slot->state->voted_final) {
           slot->state->voted_skip = true;
-          owning_bus().publish<BroadcastVote>(SkipVote{i});
+          owning_bus().publish<BroadcastVote>(SkipVote{i}).start().detach();
         }
       }
     }
@@ -76,6 +93,11 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   template <>
   void handle(BusHandle, std::shared_ptr<const StopRequested>) {
     stop();
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const NoncriticalParamsUpdated> event) {
+    params_ = event->params;
   }
 
   template <>
@@ -92,12 +114,13 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   void handle(BusHandle, std::shared_ptr<const LeaderWindowObserved> event) {
     auto& bus = *owning_bus();
     td::uint32 new_window = event->start_slot / slots_per_leader_window_;
+    current_window_ = new_window;
 
     if (previous_window_had_skip_) {
-      first_block_timeout_s_ =
-          std::min(first_block_timeout_s_ * bus.first_block_timeout_multipler, bus.first_block_max_timeout_s);
+      first_block_timeout_ = std::min<std::chrono::duration<double>>(
+          first_block_timeout_ * params_.first_block_timeout_multiplier, params_.first_block_timeout_cap);
     } else {
-      first_block_timeout_s_ = default_first_block_timeout_s_;
+      first_block_timeout_ = params_.first_block_timeout;
     }
 
     td::uint32 offset = event->start_slot % slots_per_leader_window_;
@@ -108,12 +131,11 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
         start_generation(event->base, event->start_slot).start().detach();
       }
     }
-    current_window_ = new_window;
 
     if (timeout_slot_ <= event->start_slot) {
       timeout_slot_ = event->start_slot + 1;
-      timeout_base_ = td::Timestamp::in(first_block_timeout_s_);
-      alarm_timestamp() = td::Timestamp::in(target_rate_s_, timeout_base_);
+      timeout_base_ = td::Timestamp::in(first_block_timeout_);
+      alarm_timestamp() = td::Timestamp::in(params_.target_rate, timeout_base_);
     }
   }
 
@@ -124,7 +146,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     for (td::uint32 i = range_start; i < window_end; ++i) {
       auto slot = state_->slot_at(i);
       if (slot && !slot->state->voted_final) {
-        owning_bus().publish<BroadcastVote>(SkipVote{i});
+        owning_bus().publish<BroadcastVote>(SkipVote{i}).start().detach();
         slot->state->voted_skip = true;
         previous_window_had_skip_ = true;
       }
@@ -135,7 +157,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
   template <>
   void handle(BusHandle, std::shared_ptr<const CandidateReceived> event) {
     td::uint32 slot_idx = event->candidate->id.slot;
-    td::uint32 first_too_new_slot = (current_window_ + max_leader_window_desync_ + 1) * slots_per_leader_window_;
+    td::uint32 first_too_new_slot = (current_window_ + params_.max_leader_window_desync + 1) * slots_per_leader_window_;
     if (slot_idx >= first_too_new_slot) {
       LOG(WARNING) << "Dropping too new candidate from " << event->candidate->leader << " : slot=" << slot_idx
                    << ", current_window=" << current_window_ * slots_per_leader_window_;
@@ -175,9 +197,14 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     auto parent = co_await owning_bus().publish<ResolveState>(base);
     td::Timestamp start_time = td::Timestamp::now();
     if (parent.gen_utime_exact.has_value()) {
-      start_time = std::max(start_time, td::Timestamp::at_unix(*parent.gen_utime_exact + target_rate_s_));
-      start_time = std::min(start_time, td::Timestamp::in(target_rate_s_));
+      start_time = std::max(start_time, td::Timestamp::at_unix(*parent.gen_utime_exact) + params_.target_rate);
+      start_time = std::min(start_time, td::Timestamp::in(params_.target_rate));
     }
+
+    if (current_window_ != start_slot / slots_per_leader_window_) {
+      co_return {};
+    }
+
     owning_bus().publish<OurLeaderWindowStarted>(base, parent.state, start_slot, start_slot + slots_per_leader_window_,
                                                  start_time);
     co_return {};
@@ -207,7 +234,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
     slot.state->voted_notar = candidate->id;
 
-    owning_bus().publish<BroadcastVote>(NotarizeVote{candidate->id});
+    owning_bus().publish<BroadcastVote>(NotarizeVote{candidate->id}).start().detach();
     try_vote_final(slot);  // If we've observed NotarCert already, it might be possible to vote final.
     co_return {};
   }
@@ -217,8 +244,6 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     if (!slot.has_value()) {
       co_return {};
     }
-
-    co_await owning_bus().publish<WaitNotarCertStored>(event->id);
 
     if (timeout_slot_ <= event->id.slot + 1) {
       if ((event->id.slot + 1) % slots_per_leader_window_ == 0) {
@@ -235,7 +260,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
       // NotarCert of the previous slot but in case we missed the certificate let's give the
       // certificate as much time as protocol allows to arrive.
       alarm_timestamp() = td::Timestamp::in(
-          (timeout_slot_ - current_window_ * slots_per_leader_window_) * target_rate_s_, timeout_base_);
+          (timeout_slot_ - current_window_ * slots_per_leader_window_) * params_.target_rate, timeout_base_);
     }
 
     slot->state->notar_cert = event->id;
@@ -247,18 +272,17 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
     CHECK(slot.state->voted_notar || slot.state->notar_cert);
 
     if (!slot.state->voted_skip && !slot.state->voted_final && slot.state->voted_notar == slot.state->notar_cert) {
-      owning_bus().publish<BroadcastVote>(FinalizeVote{*slot.state->voted_notar});
+      owning_bus().publish<BroadcastVote>(FinalizeVote{*slot.state->voted_notar}).start().detach();
       slot.state->voted_final = true;
     }
   }
 
   td::uint32 slots_per_leader_window_;
-  td::uint32 max_leader_window_desync_;
+  NewConsensusConfig::NoncriticalParams params_;
+
   td::Timestamp timeout_base_;
   td::uint32 timeout_slot_ = 0;  // By alarm_timestamp(), slots < timeout_slot_ should be notarized.
-  double target_rate_s_;
-  double default_first_block_timeout_s_;
-  double first_block_timeout_s_;
+  std::chrono::duration<double> first_block_timeout_;
   bool previous_window_had_skip_ = false;
   std::optional<State> state_;
   td::uint32 current_window_ = 0;
@@ -266,7 +290,7 @@ class ConsensusImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsT
 
 }  // namespace
 
-void Consensus::register_in(runtime::Runtime& runtime) {
+void Consensus::register_in(td::actor::Runtime& runtime) {
   runtime.register_actor<ConsensusImpl>("SimplexConsensus");
 }
 

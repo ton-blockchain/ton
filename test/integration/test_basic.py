@@ -3,6 +3,7 @@ import logging
 import shutil
 from pathlib import Path
 
+from contract import WalletV1Blueprint, ton
 from tontester.install import Install
 from tontester.network import FullNode, Network
 
@@ -14,6 +15,7 @@ async def main():
     working_dir.mkdir(exist_ok=True)
 
     install = Install(repo_root / "build", repo_root)
+    install.tonlibjson.client_set_verbosity_level(3)
 
     logging.basicConfig(
         level=logging.INFO,
@@ -40,6 +42,25 @@ async def main():
 
         actor_stats = await nodes[0].engine_console.get_actor_stats()
         assert "= ACTORS STATS =" in actor_stats and "= PERF COUNTERS =" in actor_stats
+
+        _ = await network.wait_block(workchain=0, shard=-(2**63), seqno=1)
+
+        client = await nodes[0].tonlib_client()
+        main_wallet = network.zerostate.main_wallet(client)
+
+        new_wallet = await main_wallet.deploy(WalletV1Blueprint(workchain=0), ton(1))
+
+        async def balance_changed():
+            while True:
+                state = await client.raw_get_account_state(new_wallet.address)
+                if state.balance > 0:
+                    break
+                await asyncio.sleep(0.5)
+
+        await asyncio.wait_for(balance_changed(), timeout=10)
+
+        wallet_state = await main_wallet.current
+        assert wallet_state.seqno == 1
 
 
 if __name__ == "__main__":

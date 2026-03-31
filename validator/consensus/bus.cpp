@@ -71,10 +71,6 @@ std::string OurLeaderWindowStarted::contents_to_string() const {
                    << ", end_slot=" << end_slot << ", start_time=" << start_time.at_unix() << "}";
 }
 
-std::string OurLeaderWindowAborted::contents_to_string() const {
-  return PSTRING() << "{start_slot=" << start_slot << "}";
-}
-
 std::string CandidateGenerated::contents_to_string() const {
   return PSTRING() << "{candidate=" << candidate_to_string(candidate)
                    << ", collator_id=" << (collator_id.has_value() ? (PSTRING() << *collator_id) : "none") << "}";
@@ -134,6 +130,20 @@ std::string MisbehaviorReport::contents_to_string() const {
 
 std::string TraceEvent::contents_to_string() const {
   return PSTRING() << "{event=" << event->to_string() << "}";
+}
+
+std::string NoncriticalParamsUpdated::contents_to_string() const {
+  td::StringBuilder sb;
+#define APPEND_PARAM(_, name, value) sb << #name << "=" << params.name << ", ";
+#define APPEND_DURATION(_, name, value) sb << #name << "=" << params.name.count() << "ms, ";
+  ENUMERATE_NONCRITICAL_PARAMS(APPEND_PARAM, APPEND_PARAM, APPEND_DURATION)
+#undef APPEND_PARAM
+#undef APPEND_DURATION
+  return PSTRING() << "{params={" << td::Slice{sb.as_cslice()}.remove_suffix(2) << "}}";
+}
+
+std::string PrecheckCandidateBroadcast::contents_to_string() const {
+  return PSTRING() << "{slot=" << slot << ", broadcast_id=" << broadcast_id << "}";
 }
 
 }  // namespace ton::validator::consensus

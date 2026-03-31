@@ -18,7 +18,8 @@ std::unique_ptr<Id> Id::create(ShardIdFull shard, td::uint32 cc_seqno, size_t id
 }
 
 tl::EventRef Id::to_tl() const {
-  return create_tl_object<tl::id>(workchain_, shard_, cc_seqno_, idx_, total_validators_, weight_, total_weight_,
+  return create_tl_object<tl::id>(workchain_, shard_, cc_seqno_, static_cast<int>(idx_),
+                                  static_cast<int>(total_validators_), weight_, total_weight_,
                                   slots_per_leader_window_);
 }
 

@@ -180,7 +180,8 @@ class OverlayImpl : public Overlay {
                      td::BufferSlice data, td::Promise<td::BufferSlice> promise) override;
   void send_message_to_neighbours(td::BufferSlice data) override;
   void send_broadcast(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) override;
-  void send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) override;
+  void send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
+                          td::BufferSlice extra) override;
   void receive_nodes_from_db(tl_object_ptr<ton_api::overlay_nodes> nodes) override;
   void receive_nodes_from_db_v2(tl_object_ptr<ton_api::overlay_nodesV2> nodes) override;
 
@@ -227,10 +228,13 @@ class OverlayImpl : public Overlay {
   BroadcastCheckResult check_source_eligible(const PublicKeyHash &source, const Certificate *cert, td::uint32 size,
                                              bool is_fec);
 
-  void deliver_broadcast(PublicKeyHash source, td::BufferSlice data);
+  void deliver_broadcast(PublicKeyHash source, td::BufferSlice data, td::BufferSlice extra);
   void register_delivered_broadcast(const BroadcastHash &hash);
   bool is_delivered(const BroadcastHash &hash);
   void check_broadcast(PublicKeyHash src, td::BufferSlice data, td::Promise<td::Unit> promise);
+  void precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra,
+                          td::Promise<td::Unit> promise);
+  td::actor::Task<> precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra);
 
   void broadcast_simple_signed(std::unique_ptr<BroadcastSimple> &&bcast,
                                td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
@@ -246,7 +250,6 @@ class OverlayImpl : public Overlay {
                                        td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
   void broadcast_twostep_signed_fec(BroadcastTwostepDataFec &&data,
                                     td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
-  void broadcast_twostep_checked(PublicKeyHash &&src, td::BufferSlice &&data, td::Result<td::Unit> &&R);
 
   void update_peer_err_ctr(adnl::AdnlNodeIdShort peer_id, bool is_fec);
   std::vector<adnl::AdnlNodeIdShort> get_neighbours(td::uint32 max_size = 0) const;
@@ -283,6 +286,7 @@ class OverlayImpl : public Overlay {
 
   bool is_valid_peer(const adnl::AdnlNodeIdShort &id, const ton_api::overlay_MemberCertificate *certificate);
   bool is_persistent_node(const adnl::AdnlNodeIdShort &id);
+  size_t persistent_node_count();
   void iterate_all_peers(std::function<void(const adnl::AdnlNodeIdShort &key, OverlayPeer &peer)> cb);
 
   td::uint32 max_bcasts() const {
@@ -338,19 +342,23 @@ class OverlayImpl : public Overlay {
                      td::Promise<td::BufferSlice> promise);
   //void process_query(adnl::AdnlNodeIdShort src, adnl::AdnlQueryId query_id, ton_api::overlay_customQuery &query);
 
-  td::Status process_broadcast(adnl::AdnlNodeIdShort message_from, tl_object_ptr<ton_api::overlay_broadcast> bcast);
-  td::Status process_broadcast(adnl::AdnlNodeIdShort message_from, tl_object_ptr<ton_api::overlay_broadcastFec> bcast);
-  td::Status process_broadcast(adnl::AdnlNodeIdShort message_from,
-                               tl_object_ptr<ton_api::overlay_broadcastFecShort> bcast);
-  td::Status process_broadcast(adnl::AdnlNodeIdShort message_from,
-                               tl_object_ptr<ton_api::overlay_broadcastNotFound> bcast);
-  td::Status process_broadcast(adnl::AdnlNodeIdShort message_from, tl_object_ptr<ton_api::overlay_fec_received> msg);
-  td::Status process_broadcast(adnl::AdnlNodeIdShort message_from, tl_object_ptr<ton_api::overlay_fec_completed> msg);
-  td::Status process_broadcast(adnl::AdnlNodeIdShort message_from, tl_object_ptr<ton_api::overlay_unicast> msg);
-  td::Status process_broadcast(adnl::AdnlNodeIdShort message_from,
-                               tl_object_ptr<ton_api::overlay_broadcastTwostepSimple> bcast);
-  td::Status process_broadcast(adnl::AdnlNodeIdShort message_from,
-                               tl_object_ptr<ton_api::overlay_broadcastTwostepFec> bcast);
+  td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                      tl_object_ptr<ton_api::overlay_broadcast> bcast);
+  td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                      tl_object_ptr<ton_api::overlay_broadcastFec> bcast);
+  td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                      tl_object_ptr<ton_api::overlay_broadcastFecShort> bcast);
+  td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                      tl_object_ptr<ton_api::overlay_broadcastNotFound> bcast);
+  td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                      tl_object_ptr<ton_api::overlay_fec_received> msg);
+  td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                      tl_object_ptr<ton_api::overlay_fec_completed> msg);
+  td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from, tl_object_ptr<ton_api::overlay_unicast> msg);
+  td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                      tl_object_ptr<ton_api::overlay_broadcastTwostepSimple> bcast);
+  td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                      tl_object_ptr<ton_api::overlay_broadcastTwostepFec> bcast);
 
   td::Status validate_peer_certificate(const adnl::AdnlNodeIdShort &node, const OverlayMemberCertificate &cert);
   td::Status validate_peer_certificate(const adnl::AdnlNodeIdShort &node, const OverlayMemberCertificate *cert);
@@ -457,6 +465,7 @@ class OverlayImpl : public Overlay {
     std::set<adnl::AdnlNodeIdShort> bad_peers_;
     adnl::AdnlNodeIdShort next_bad_peer_ = adnl::AdnlNodeIdShort::zero();
     td::DecTree<adnl::AdnlNodeIdShort, OverlayPeer> peers_;
+    size_t persistent_node_count_ = 0;
     std::vector<adnl::AdnlNodeIdShort> neighbours_;
 
     td::Timestamp local_cert_is_valid_until_;

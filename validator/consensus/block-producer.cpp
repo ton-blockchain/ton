@@ -15,12 +15,17 @@ namespace ton::validator::consensus {
 
 namespace {
 
-class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
+class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
   void start_up() {
-    target_rate_ = owning_bus()->config.target_rate_ms / 1000.;
+    target_rate_ = owning_bus()->config.noncritical_params.target_rate;
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const NoncriticalParamsUpdated> event) {
+    target_rate_ = event->params.target_rate;
   }
 
   template <>
@@ -46,17 +51,11 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
 
   template <>
   void handle(BusHandle, std::shared_ptr<const OurLeaderWindowStarted> event) {
+    CHECK(current_leader_window_ < event->start_slot);
+
     current_leader_window_ = event->start_slot;
     cancellation_source_ = td::CancellationTokenSource();
     generate_candidates(event).start().detach();
-  }
-
-  template <>
-  void handle(BusHandle, std::shared_ptr<const OurLeaderWindowAborted> event) {
-    // Sanity check: consensus and us should agree on the start slot.
-    CHECK(current_leader_window_ == event->start_slot);
-    current_leader_window_ = std::nullopt;
-    cancellation_source_ = td::CancellationTokenSource();
   }
 
   template <>
@@ -132,6 +131,7 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
         };
         auto block_candidate = co_await td::actor::ask(bus.manager, &ManagerFacade::collate_block, std::move(params),
                                                        cancellation_source_.get_cancellation_token());
+        td::actor::send_closure(bus.manager, &ManagerFacade::cache_block_candidate, block_candidate.candidate.clone());
 
         state = state->apply(block_candidate.candidate);
 
@@ -163,6 +163,10 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
       target_time = td::Timestamp::in(target_rate_, target_time);
     }
 
+    if (current_leader_window_ == window) {
+      current_leader_window_ = std::nullopt;
+    }
+
     co_return {};
   }
 
@@ -171,12 +175,12 @@ class BlockProducerImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
 
   BlockSeqno last_consensus_finalized_seqno_ = 0;
   BlockSeqno last_mc_finalized_seqno_ = 0;
-  double target_rate_;
+  std::chrono::milliseconds target_rate_;
 };
 
 }  // namespace
 
-void BlockProducer::register_in(runtime::Runtime& runtime) {
+void BlockProducer::register_in(td::actor::Runtime& runtime) {
   runtime.register_actor<BlockProducerImpl>("BlockProducer");
 }
 

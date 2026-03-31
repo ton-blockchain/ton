@@ -1387,7 +1387,7 @@ void interpret_boc_deserialize(vm::Stack& stack) {
   if (res.is_error()) {
     throw IntError{(PSLICE() << "cannot deserialize bag-of-cells " << res.error()).c_str()};
   }
-  if (res.ok() <= 0 || boc.get_root_cell().is_null()) {
+  if (boc.get_root_cell().is_null()) {
     throw IntError{"cannot deserialize bag-of-cells "};
   }
   stack.push_cell(boc.get_root_cell());

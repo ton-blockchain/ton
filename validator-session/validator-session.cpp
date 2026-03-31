@@ -595,7 +595,7 @@ void ValidatorSessionImpl::generated_block(td::uint32 round, GeneratedCandidate 
   SentCandidateStats &send_stats = send_candidate_broadcast(round, c.candidate);
   if (stat) {
     stat->serialize_time = send_stats.serialize_time;
-    stat->serialized_size = send_stats.serialized_size;
+    stat->serialized_size = static_cast<td::int32>(send_stats.serialized_size);
   }
 
   blocks_[block_id] = create_tl_object<ton_api::validatorSession_candidate>(
@@ -1195,7 +1195,7 @@ void ValidatorSessionImpl::get_end_stats(td::Promise<EndValidatorGroupStats> pro
   EndValidatorGroupStats stats{.session_id = unique_hash_, .timestamp = td::Clocks::system(), .self = local_id()};
   stats.nodes.resize(description().get_total_nodes());
   for (size_t i = 0; i < stats.nodes.size(); ++i) {
-    stats.nodes[i].id = description().get_source_id(i);
+    stats.nodes[i].id = description().get_source_id(static_cast<td::uint32>(i));
   }
   td::actor::send_closure(catchain_, &catchain::CatChain::get_source_heights,
                           [promise = std::move(promise),
@@ -1305,7 +1305,7 @@ void ValidatorSessionImpl::stats_init() {
 }
 
 void ValidatorSessionImpl::stats_add_round() {
-  td::uint32 round = cur_stats_.first_round + cur_stats_.rounds.size();
+  td::uint32 round = cur_stats_.first_round + static_cast<td::uint32>(cur_stats_.rounds.size());
   cur_stats_.rounds.emplace_back();
   auto &stat = cur_stats_.rounds.back();
   stat.producers.resize(description().get_max_priority() + 1);
@@ -1503,8 +1503,9 @@ td::Bits256 ValidatorSessionOptions::get_hash() const {
   } else {
     return create_hash_tl_object<ton_api::validatorSession_configVersionedV2>(
         create_tl_object<ton_api::validatorSession_catchainOptions>(
-            catchain_opts.idle_timeout, catchain_opts.max_deps, catchain_opts.max_serialized_block_size,
-            catchain_opts.block_hash_covers_data, catchain_opts.max_block_height_coeff, catchain_opts.debug_disable_db),
+            catchain_opts.idle_timeout, catchain_opts.max_deps,
+            static_cast<td::uint32>(catchain_opts.max_serialized_block_size), catchain_opts.block_hash_covers_data,
+            static_cast<td::uint32>(catchain_opts.max_block_height_coeff), catchain_opts.debug_disable_db),
         round_candidates, next_candidate_delay, round_attempt_duration, max_round_attempts, max_block_size,
         max_collated_data_size, proto_version);
   }

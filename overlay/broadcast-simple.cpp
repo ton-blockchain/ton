@@ -89,6 +89,7 @@ td::Status BroadcastSimple::run(OverlayImpl *overlay) {
   }
   is_valid_ = r == BroadcastCheckResult::Allowed;
   TRY_RESULT(encryptor, overlay->get_encryptor(source_));
+  TD_PERF_COUNTER(check_signature_overlay_broadcast_simple);
   TRY_STATUS(encryptor->check_signature(to_sign().as_slice(), signature_.as_slice()));
   if (!is_valid_) {
     auto P = td::PromiseCreator::lambda(
@@ -119,7 +120,7 @@ void BroadcastSimple::run_continue(OverlayImpl *overlay) {
     td::actor::send_closure(manager, &OverlayManager::send_message, n, overlay->local_id(), overlay->overlay_id(),
                             B.clone());
   }
-  overlay->deliver_broadcast(source_.compute_short_id(), data_.clone());
+  overlay->deliver_broadcast(source_.compute_short_id(), data_.clone(), {});
 }
 
 td::BufferSlice BroadcastSimple::serialize() {

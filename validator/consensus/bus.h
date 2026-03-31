@@ -11,12 +11,12 @@
 #include "overlay/overlays.h"
 #include "quic/quic-sender.h"
 #include "rldp2/rldp.h"
+#include "td/actor/BusRuntime.h"
 #include "td/db/KeyValueAsync.h"
 #include "ton/ton-types.h"
 
 #include "chain-state.h"
 #include "manager-facade.h"
-#include "runtime.h"
 #include "types.h"
 
 namespace ton::validator::consensus {
@@ -46,12 +46,6 @@ struct OurLeaderWindowStarted {
   td::uint32 start_slot;
   td::uint32 end_slot;
   td::Timestamp start_time;
-
-  std::string contents_to_string() const;
-};
-
-struct OurLeaderWindowAborted {
-  td::uint32 start_slot;
 
   std::string contents_to_string() const;
 };
@@ -140,6 +134,21 @@ struct TraceEvent {
   std::string contents_to_string() const;
 };
 
+struct NoncriticalParamsUpdated {
+  NewConsensusConfig::NoncriticalParams params;
+
+  std::string contents_to_string() const;
+};
+
+struct PrecheckCandidateBroadcast {
+  using ReturnType = td::Unit;
+
+  td::uint32 slot;
+  td::Bits256 broadcast_id;
+
+  std::string contents_to_string() const;
+};
+
 class Db {
  public:
   virtual ~Db() = default;
@@ -149,17 +158,19 @@ class Db {
   virtual std::optional<td::BufferSlice> get(td::Slice key) const = 0;
   virtual std::vector<std::pair<td::BufferSlice, td::BufferSlice>> get_by_prefix(td::uint32 prefix) const = 0;
   virtual td::actor::Task<> set(td::BufferSlice key, td::BufferSlice value) = 0;
+  virtual td::actor::Task<> close() = 0;
 };
 
-class Bus : public runtime::Bus {
+class Bus : public td::actor::Bus {
  public:
-  using Events = td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, OurLeaderWindowAborted,
-                              CandidateGenerated, CandidateReceived, ValidationRequest, IncomingProtocolMessage,
-                              OutgoingProtocolMessage, IncomingOverlayRequest, OutgoingOverlayRequest,
-                              BlockFinalizedInMasterchain, MisbehaviorReport, TraceEvent>;
+  using Events = td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, CandidateGenerated,
+                              CandidateReceived, ValidationRequest, IncomingProtocolMessage, OutgoingProtocolMessage,
+                              IncomingOverlayRequest, OutgoingOverlayRequest, BlockFinalizedInMasterchain,
+                              MisbehaviorReport, TraceEvent, NoncriticalParamsUpdated, PrecheckCandidateBroadcast>;
 
   Bus() = default;
   ~Bus() override {
+    db = {};
     stop_promise.set_value(td::Unit());
   }
 
@@ -189,26 +200,26 @@ class Bus : public runtime::Bus {
   td::Promise<td::Unit> stop_promise;
 };
 
-using BusHandle = runtime::BusHandle<Bus>;
+using BusHandle = td::actor::BusHandle<Bus>;
 
 struct BlockAccepter {
-  static void register_in(runtime::Runtime&);
+  static void register_in(td::actor::Runtime&);
 };
 
 struct BlockProducer {
-  static void register_in(runtime::Runtime&);
+  static void register_in(td::actor::Runtime&);
 };
 
 struct BlockValidator {
-  static void register_in(runtime::Runtime&);
+  static void register_in(td::actor::Runtime&);
 };
 
 struct PrivateOverlay {
-  static void register_in(runtime::Runtime&);
+  static void register_in(td::actor::Runtime&);
 };
 
 struct TraceCollector {
-  static void register_in(runtime::Runtime&);
+  static void register_in(td::actor::Runtime&);
 };
 
 }  // namespace ton::validator::consensus

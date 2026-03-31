@@ -215,7 +215,7 @@ class FullNodeShardImpl : public FullNodeShard {
                                   td::Promise<td::Unit> promise) override;
 
   void sign_new_certificate(PublicKeyHash sign_by);
-  void signed_new_certificate(ton::overlay::Certificate cert);
+  void signed_new_certificate(overlay::Certificate cert, PublicKeyHash local_id);
 
   void ping_neighbours();
   void reload_neighbours();

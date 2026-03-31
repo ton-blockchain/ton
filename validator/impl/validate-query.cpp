@@ -460,7 +460,7 @@ void ValidateQuery::load_prev_states() {
  * @returns True if the block candidate was successfully unpacked, false otherwise.
  */
 bool ValidateQuery::unpack_block_candidate() {
-  vm::BagOfCells boc1, boc2;
+  vm::BagOfCells boc1;
   // 1. deserialize block itself
   FileHash fhash = block::compute_file_hash(block_candidate.data);
   if (fhash != id_.file_hash) {
@@ -497,15 +497,11 @@ bool ValidateQuery::unpack_block_candidate() {
   }
   // ...
   // 8. deserialize collated data
-  auto res2 = boc2.deserialize(block_candidate.collated_data);
+  auto res2 = vm::std_boc_deserialize_multi(block_candidate.collated_data);
   if (res2.is_error()) {
     return reject_query("cannot deserialize collated data", res2.move_as_error());
   }
-  int n = boc2.get_root_count();
-  REJECT_UNLESS(n >= 0);
-  for (int i = 0; i < n; i++) {
-    collated_roots_.emplace_back(boc2.get_root_cell(i));
-  }
+  collated_roots_ = res2.move_as_ok();
   // 9. extract/classify collated data
   return extract_collated_data();
 }
@@ -677,7 +673,7 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     if (!ins.second) {
       return reject_query("Merkle proof with duplicate virtual root hash "s + virt_hash.to_hex());
     }
-    full_collated_data_ = true;
+    // full_collated_data_ = true;
     return true;
   }
   if (block::gen::t_TopBlockDescrSet.has_valid_tag(cs)) {
@@ -707,7 +703,7 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     if (!virt_account_storage_dicts_.emplace(virt_root->get_hash().bits(), virt_root).second) {
       return reject_query("duplicate AccountStorageDictProof");
     }
-    full_collated_data_ = true;
+    // full_collated_data_ = true;
     return true;
   }
   if (block::gen::t_ConsensusExtraData.has_valid_tag(cs)) {
@@ -1722,66 +1718,73 @@ bool ValidateQuery::request_neighbor_queues() {
  * @param res The obtained outbound queue.
  */
 void ValidateQuery::got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> res, td::PerfLogAction token) {
-  token.finish(res);
-  --pending;
-  if (res.is_error()) {
-    fatal_error(res.move_as_error());
-    return;
-  }
-  Ref<MessageQueue> outq_descr = res.move_as_ok();
-  block::McShardDescr& descr = neighbors_.at(i);
-  LOG(WARNING) << "obtained outbound queue for neighbor #" << i << " : " << descr.shard().to_str();
-  if (outq_descr->get_block_id() != descr.blk_) {
-    LOG(DEBUG) << "outq_descr->id = " << outq_descr->get_block_id().to_str() << " ; descr.id = " << descr.blk_.to_str();
-    fatal_error(
-        -667, "invalid outbound queue information returned for "s + descr.shard().to_str() + " : id or hash mismatch");
-    return;
-  }
-  if (outq_descr->root_cell().is_null()) {
-    fatal_error("no OutMsgQueueInfo in queue info in a neighbor state");
-    return;
-  }
-  block::gen::OutMsgQueueInfo::Record qinfo;
-  if (!tlb::unpack_cell(outq_descr->root_cell(), qinfo)) {
-    fatal_error("cannot unpack neighbor output queue info");
-    return;
-  }
-  descr.set_queue_root(qinfo.out_queue->prefetch_ref(0));
-  // TODO: comment the next two lines in the future when the output queues become huge
-  // (do this carefully)
-  if (debug_checks_) {
-    REJECT_UNLESS_VOID(block::gen::t_OutMsgQueueInfo.validate_ref(1000000, outq_descr->root_cell()));
-    REJECT_UNLESS_VOID(block::tlb::t_OutMsgQueueInfo.validate_ref(1000000, outq_descr->root_cell()));
-  }
-  // unpack ProcessedUpto
-  LOG(DEBUG) << "unpacking ProcessedUpto of neighbor " << descr.blk_.to_str();
-  if (verbosity >= 2) {
-    FLOG(INFO) {
-      block::gen::t_ProcessedInfo.print(sb, qinfo.proc_info);
-      qinfo.proc_info->print_rec(sb);
-    };
-  }
-  descr.processed_upto = block::MsgProcessedUptoCollection::unpack(descr.shard(), qinfo.proc_info);
-  if (!descr.processed_upto) {
-    fatal_error("cannot unpack ProcessedUpto in neighbor output queue info for neighbor "s + descr.blk_.to_str());
-    return;
-  }
-  outq_descr.clear();
-  do {
-    // require masterchain blocks referred to in ProcessedUpto
-    // TODO: perform this only if there are messages for this shard in our output queue
-    // .. (have to check the above condition and perform a `break` here) ..
-    // ..
-    for (const auto& entry : descr.processed_upto->list) {
-      Ref<MasterchainStateQ> state;
-      if (!request_aux_mc_state(entry.mc_seqno, state)) {
-        return;
-      }
+  try {
+    token.finish(res);
+    --pending;
+    if (res.is_error()) {
+      fatal_error(res.move_as_error());
+      return;
     }
-  } while (false);
-  if (!pending) {
-    LOG(INFO) << "all neighbor output queues fetched";
-    try_validate();
+    Ref<MessageQueue> outq_descr = res.move_as_ok();
+    block::McShardDescr& descr = neighbors_.at(i);
+    LOG(WARNING) << "obtained outbound queue for neighbor #" << i << " : " << descr.shard().to_str();
+    if (outq_descr->get_block_id() != descr.blk_) {
+      LOG(DEBUG) << "outq_descr->id = " << outq_descr->get_block_id().to_str()
+                 << " ; descr.id = " << descr.blk_.to_str();
+      fatal_error(-667, "invalid outbound queue information returned for "s + descr.shard().to_str() +
+                            " : id or hash mismatch");
+      return;
+    }
+    if (outq_descr->root_cell().is_null()) {
+      fatal_error("no OutMsgQueueInfo in queue info in a neighbor state");
+      return;
+    }
+    block::gen::OutMsgQueueInfo::Record qinfo;
+    if (!tlb::unpack_cell(outq_descr->root_cell(), qinfo)) {
+      fatal_error("cannot unpack neighbor output queue info");
+      return;
+    }
+    descr.set_queue_root(qinfo.out_queue->prefetch_ref(0));
+    // TODO: comment the next two lines in the future when the output queues become huge
+    // (do this carefully)
+    if (debug_checks_) {
+      REJECT_UNLESS_VOID(block::gen::t_OutMsgQueueInfo.validate_ref(1000000, outq_descr->root_cell()));
+      REJECT_UNLESS_VOID(block::tlb::t_OutMsgQueueInfo.validate_ref(1000000, outq_descr->root_cell()));
+    }
+    // unpack ProcessedUpto
+    LOG(DEBUG) << "unpacking ProcessedUpto of neighbor " << descr.blk_.to_str();
+    if (verbosity >= 2) {
+      FLOG(INFO) {
+        block::gen::t_ProcessedInfo.print(sb, qinfo.proc_info);
+        qinfo.proc_info->print_rec(sb);
+      };
+    }
+    descr.processed_upto = block::MsgProcessedUptoCollection::unpack(descr.shard(), qinfo.proc_info);
+    if (!descr.processed_upto) {
+      fatal_error("cannot unpack ProcessedUpto in neighbor output queue info for neighbor "s + descr.blk_.to_str());
+      return;
+    }
+    outq_descr.clear();
+    do {
+      // require masterchain blocks referred to in ProcessedUpto
+      // TODO: perform this only if there are messages for this shard in our output queue
+      // .. (have to check the above condition and perform a `break` here) ..
+      // ..
+      for (const auto& entry : descr.processed_upto->list) {
+        Ref<MasterchainStateQ> state;
+        if (!request_aux_mc_state(entry.mc_seqno, state)) {
+          return;
+        }
+      }
+    } while (false);
+    if (!pending) {
+      LOG(INFO) << "all neighbor output queues fetched";
+      try_validate();
+    }
+  } catch (vm::VmError& err) {
+    fatal_error(err.get_msg(), -666);
+  } catch (vm::VmVirtError& err) {
+    reject_query(err.get_msg());
   }
 }
 
@@ -7548,7 +7551,8 @@ bool ValidateQuery::save_candidate() {
       });
 
   td::actor::send_closure(manager, &ValidatorManager::set_block_candidate, id_, block_candidate.clone(),
-                          validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(), std::move(P));
+                          validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(), false,
+                          std::move(P));
   return true;
 }
 

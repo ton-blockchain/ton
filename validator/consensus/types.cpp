@@ -23,6 +23,7 @@ td::StringBuilder& operator<<(td::StringBuilder& stream, const PeerValidatorId& 
 }
 
 bool PeerValidator::check_signature(ValidatorSessionId session, td::Slice data, td::Slice signature) const {
+  TD_PERF_COUNTER(check_signature_consensus);
   auto signed_data = create_serialize_tl_object<tl::dataToSign>(session, td::BufferSlice(data));
   return key.create_encryptor().move_as_ok()->check_signature(signed_data, signature).is_ok();
 }
@@ -103,7 +104,8 @@ tl::CandidateHashDataRef CandidateHashData::to_tl() const {
   return std::visit(td::overloaded(empty_fn, full_fn), candidate);
 }
 
-td::Result<CandidateRef> Candidate::deserialize(td::Slice data, const Bus& bus, std::optional<PeerValidatorId> src) {
+td::Result<CandidateRef> Candidate::deserialize(td::Slice data, const Bus& bus, std::optional<PeerValidatorId> src,
+                                                std::optional<td::uint32> expected_slot) {
   TRY_RESULT(broadcast, fetch_tl_object<tl::CandidateData>(data, true));
 
   struct ExtractedData {
@@ -117,6 +119,9 @@ td::Result<CandidateRef> Candidate::deserialize(td::Slice data, const Bus& bus, 
 
   PeerValidator leader;
   auto set_check_leader = [&](td::uint32 slot) -> td::Status {
+    if (expected_slot.has_value() && expected_slot != slot) {
+      return td::Status::Error("Candidate broadcast has unexpected slot");
+    }
     leader = bus.collator_schedule->expected_collator_for(slot).get_using(bus);
     if (leader.idx != src.value_or(leader.idx)) {
       return td::Status::Error("Candidate broadcast source does not match expected leader");

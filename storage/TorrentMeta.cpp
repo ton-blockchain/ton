@@ -120,8 +120,8 @@ void TorrentMeta::parse(ParserT &parser) {
     root_proof = r_root_proof.move_as_ok();
   }
 
-  auto cs = vm::load_cell_slice(r_info_cell.move_as_ok());
-  if (!info.unpack(cs)) {
+  auto cs = vm::load_cell_slice_quiet(r_info_cell.move_as_ok());
+  if (!cs.is_valid() || !info.unpack(cs)) {
     parser.set_error("Failed to parse TorrentInfo");
     return;
   }

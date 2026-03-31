@@ -859,6 +859,30 @@ class AddNetworkProxyAddressQuery : public Query {
   std::vector<td::int32> prio_cats_;
 };
 
+class AddQuicAddressQuery : public Query {
+ public:
+  AddQuicAddressQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "add-quic-addr";
+  }
+  static std::string get_help() {
+    return "add-quic-addr <ip> {cats...} {priocats...}\tadds quic ip address to address list";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  td::IPAddress addr_;
+  std::vector<td::int32> cats_;
+  std::vector<td::int32> prio_cats_;
+};
+
 class CreateElectionBidQuery : public Query {
  public:
   CreateElectionBidQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
@@ -1801,6 +1825,47 @@ class ShowShardBlockVerifierConfigQuery : public Query {
   }
   static std::string get_help() {
     return "show-shard-block-verifier-config\tshow config of shard block verifier";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};
+
+class SetConsensusNoncriticalParamsOverridesQuery : public Query {
+ public:
+  SetConsensusNoncriticalParamsOverridesQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "set-consensus-noncritical-params-overrides";
+  }
+  static std::string get_help() {
+    return "set-consensus-noncritical-params-overrides <filename>\tset noncritical params overrides from file";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+};
+
+class GetConsensusNoncriticalParamsOverridesQuery : public Query {
+ public:
+  GetConsensusNoncriticalParamsOverridesQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "get-consensus-noncritical-params-overrides";
+  }
+  static std::string get_help() {
+    return "get-consensus-noncritical-params-overrides\tshow current noncritical params overrides";
   }
   std::string name() const override {
     return get_name();

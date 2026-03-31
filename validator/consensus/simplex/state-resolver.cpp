@@ -21,7 +21,7 @@ using db_key_finalizedBlockRef = tl_object_ptr<db_key_finalizedBlock>;
 
 namespace {
 
-class StateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
+class StateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
   using ResolvedState = ResolveState::Result;
 
  public:
@@ -38,6 +38,20 @@ class StateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
       finalized_blocks_[CandidateId::from_tl(key->candidateId_)].done = true;
     }
     LOG(INFO) << "Loaded " << data.size() << " finalized blocks from DB";
+  }
+
+  void tear_down() override {
+    genesis_promise_.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
+    for (auto& [_, s] : state_cache_) {
+      for (auto& p : s.promises) {
+        p.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
+      }
+    }
+    for (auto& [_, s] : finalized_blocks_) {
+      for (auto& p : s.waiters) {
+        p.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
+      }
+    }
   }
 
   template <>
@@ -96,8 +110,13 @@ class StateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
     co_return co_await std::move(task);
   }
 
+  bool is_finalized(CandidateId id) {
+    auto it = finalized_blocks_.find(id);
+    return it != finalized_blocks_.end() && it->second.done;
+  }
+
   td::actor::Task<ResolvedState> resolve_state_inner(ParentId id) {
-    if (!id.has_value() || finalized_blocks_.contains(*id)) {
+    if (!id.has_value() || is_finalized(*id)) {
       std::vector<BlockIdExt> block;
       auto genesis = co_await genesis_.get();
       std::optional<double> gen_utime_exact;
@@ -204,7 +223,7 @@ class StateResolverImpl : public runtime::SpawnsWith<Bus>, public runtime::Conne
 
 }  // namespace
 
-void StateResolver::register_in(runtime::Runtime& runtime) {
+void StateResolver::register_in(td::actor::Runtime& runtime) {
   runtime.register_actor<StateResolverImpl>("StateResolver");
 }
 

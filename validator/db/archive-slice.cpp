@@ -682,7 +682,7 @@ void ArchiveSlice::get_slice(td::uint64 archive_id, td::uint64 offset, td::uint3
       promise.set_error(td::Status::Error(ErrorCode::notready, "no such package"));
       return;
     }
-    p = &packages_[value];
+    p = packages_[value].get();
   } else {
     TRY_RESULT_PROMISE_ASSIGN(promise, p, choose_package(value, ShardIdFull{masterchainId}, false));
   }
@@ -850,7 +850,7 @@ void ArchiveSlice::get_temp_max_seqnos(td::Promise<std::map<ShardIdFull, BlockSe
                              return td::Status::OK();
                            });
     for (auto &pack : packages_) {
-      pack.package->iterate([this](std::string name, td::BufferSlice, td::uint64) -> bool {
+      pack->package->iterate([this](std::string name, td::BufferSlice, td::uint64) -> bool {
         auto F = FileReference::create(name);
         if (F.is_ok()) {
           update_temp_max_seqno(F.ok_ref());
@@ -912,6 +912,13 @@ void ArchiveSlice::begin_async_query_impl() {
 void ArchiveSlice::end_async_query() {
   CHECK(active_queries_ > 0);
   --active_queries_;
+  if (active_queries_ == 0) {
+    auto waiters = std::move(query_finish_waiters_);
+    query_finish_waiters_.clear();
+    for (auto &p : waiters) {
+      p.set_value({});
+    }
+  }
   if (active_queries_ == 0 && status_ == st_want_close) {
     do_close();
   }
@@ -972,7 +979,7 @@ void ArchiveSlice::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
   ig.add_promise(std::move(promise));
 
   for (auto &p : packages_) {
-    td::actor::send_closure(p.writer, &PackageWriter::set_async_mode, mode, ig.get_promise());
+    td::actor::send_closure(p->writer, &PackageWriter::set_async_mode, mode, ig.get_promise());
   }
 }
 
@@ -994,7 +1001,7 @@ ArchiveSlice::ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool tem
 td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(BlockSeqno masterchain_seqno,
                                                                      ShardIdFull shard_prefix, bool force) {
   if (temp_ || key_blocks_only_ || !sliced_mode_) {
-    return &packages_[0];
+    return packages_[0].get();
   }
   if (masterchain_seqno < archive_id_) {
     return td::Status::Error(ErrorCode::notready, "too small masterchain seqno");
@@ -1022,9 +1029,9 @@ td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(BlockSeqno 
     }
     commit_transaction_now();
     add_package(masterchain_seqno, shard_prefix, 0, default_package_version());
-    return &packages_[v];
+    return packages_[v].get();
   } else {
-    return &packages_[it->second];
+    return packages_[it->second].get();
   }
 }
 
@@ -1065,7 +1072,8 @@ void ArchiveSlice::add_package(td::uint32 seqno, ShardIdFull shard_prefix, td::u
   auto idx = td::narrow_cast<td::uint32>(packages_.size());
   id_to_package_[{seqno, shard_prefix}] = idx;
   if (finalized_) {
-    packages_.emplace_back(nullptr, td::actor::ActorOwn<PackageWriter>(), seqno, shard_prefix, path, idx, version);
+    packages_.push_back(std::make_unique<PackageInfo>(nullptr, td::actor::ActorOwn<PackageWriter>(), seqno,
+                                                      shard_prefix, path, idx, version));
     return;
   }
   auto pack = std::make_shared<Package>(R.move_as_ok());
@@ -1074,7 +1082,8 @@ void ArchiveSlice::add_package(td::uint32 seqno, ShardIdFull shard_prefix, td::u
   }
   auto writer = td::actor::create_actor<PackageWriter>(PSTRING() << "writer." << td::PathView(path).file_name(), pack,
                                                        async_mode_, statistics_.pack_statistics);
-  packages_.emplace_back(std::move(pack), std::move(writer), seqno, shard_prefix, path, idx, version);
+  packages_.push_back(
+      std::make_unique<PackageInfo>(std::move(pack), std::move(writer), seqno, shard_prefix, path, idx, version));
 }
 
 namespace {
@@ -1102,7 +1111,7 @@ void ArchiveSlice::destroy(td::Promise<td::Unit> promise) {
   destroyed_ = true;
 
   for (auto &p : packages_) {
-    td::unlink(p.path).ensure();
+    td::unlink(p->path).ensure();
   }
   if (statistics_.pack_statistics) {
     statistics_.pack_statistics->record_close(packages_.size());
@@ -1244,12 +1253,22 @@ void ArchiveSlice::truncate_shard(BlockSeqno masterchain_seqno, ShardIdFull shar
   }
 }
 
-void ArchiveSlice::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle, td::Promise<td::Unit> promise) {
+void ArchiveSlice::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) {
   if (temp_ || archive_id_ > masterchain_seqno) {
     destroy(std::move(promise));
     return;
   }
   before_query();
+  if (active_queries_ > 0) {
+    LOG(INFO) << "TRUNCATE: wait for queries to finish";
+    query_finish_waiters_.push_back(
+        [this, masterchain_seqno, handle, promise = std::move(promise)](td::Result<> R) mutable {
+          if (R.is_ok()) {
+            truncate(masterchain_seqno, handle, std::move(promise));
+          }
+        });
+    return;
+  }
   LOG(INFO) << "TRUNCATE: slice " << archive_id_ << " maxseqno= " << max_masterchain_seqno()
             << " truncate_upto=" << masterchain_seqno;
   if (max_masterchain_seqno() <= masterchain_seqno) {
@@ -1309,21 +1328,21 @@ void ArchiveSlice::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle, td::
         PSTRING() << "writer." << td::PathView(package->path).file_name(), new_package, async_mode_);
   }
 
-  std::vector<PackageInfo> new_packages_info;
+  std::vector<std::unique_ptr<PackageInfo>> new_packages_info;
 
   if (!sliced_mode_) {
-    kv_->set("status", td::to_string(packages_.at(0).package->size())).ensure();
+    kv_->set("status", td::to_string(packages_.at(0)->package->size())).ensure();
   } else {
-    for (PackageInfo &package : packages_) {
-      if (package.seqno <= masterchain_seqno) {
+    for (auto &package : packages_) {
+      if (package->seqno <= masterchain_seqno) {
         new_packages_info.push_back(std::move(package));
       } else {
-        td::unlink(package.path).ensure();
+        td::unlink(package->path).ensure();
       }
     }
     id_to_package_.clear();
     for (td::uint32 i = 0; i < new_packages_info.size(); ++i) {
-      PackageInfo &package = new_packages_info[i];
+      PackageInfo &package = *new_packages_info[i];
       package.idx = i;
       kv_->set(PSTRING() << "status." << i, td::to_string(package.package->size())).ensure();
       kv_->set(PSTRING() << "version." << i, td::to_string(package.version)).ensure();

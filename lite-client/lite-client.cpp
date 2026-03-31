@@ -423,7 +423,7 @@ void TestNode::got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt
   td::TerminalIO::out() << "latest masterchain block known to server is " << blkid.to_str();
   if (created > 0) {
     auto time = now();
-    if (time >= created) {
+    if (time >= static_cast<ton::UnixTime>(created)) {
       td::TerminalIO::out() << " created at " << created << " (" << time - created << " seconds ago)\n";
     } else {
       td::TerminalIO::out() << " created at " << created << " (" << created - time << " seconds in the future)\n";
@@ -3917,7 +3917,7 @@ void TestNode::continue_check_validator_load4(std::unique_ptr<TestNode::Validato
       return;
     }
     mtc_shard_share.resize(count);
-    for (size_t i = 0; i < count; ++i) {
+    for (int i = 0; i < count; ++i) {
       mtc_shard_share[i] = mtc[i];
     }
   }
