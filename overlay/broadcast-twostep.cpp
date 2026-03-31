@@ -382,8 +382,8 @@ td::actor::Task<> BroadcastsTwostep::process_broadcast(OverlayImpl *overlay, adn
 
   td::BufferSlice to_sign = create_serialize_tl_object<ton_api::overlay_broadcastTwostepFec_toSign>(
       broadcast_id, seqno, broadcast->part_.clone());
-  auto check_result = co_await check_source(overlay, src_keyhash, broadcast->certificate_,
-                                            static_cast<td::uint32>(data_size));
+  auto check_result =
+      co_await check_source(overlay, src_keyhash, broadcast->certificate_, static_cast<td::uint32>(data_size));
   if (it == broadcasts_.end()) {
     co_await overlay->precheck_broadcast(src_keyhash, broadcast_id, broadcast->extra_.clone(), false)
         .trace("precheck broadcast");
