@@ -36,3 +36,4 @@ jobs:
         name: ton-ccpcheck-report
         path: output
         retention-days: 14
+        if-no-files-found: error

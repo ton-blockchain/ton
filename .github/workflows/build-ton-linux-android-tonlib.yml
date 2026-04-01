@@ -58,3 +58,4 @@ jobs:
         name: ton-android-tonlib
         path: artifacts
         retention-days: 14
+        if-no-files-found: error

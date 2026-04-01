@@ -56,3 +56,4 @@ jobs:
         name: ton-wasm
         path: artifacts
         retention-days: 14
+        if-no-files-found: error
