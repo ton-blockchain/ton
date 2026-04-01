@@ -566,7 +566,7 @@ void AdnlPeerTableImpl::get_stats(bool all, td::Promise<tl_object_ptr<ton_api::a
 }
 
 void AdnlPeerTableImpl::set_peer_pair_idle(AdnlNodeIdShort l_id, AdnlNodeIdShort p_id, bool value) {
-  if (PeerPair* peer_pair = get_peer_pair_if_exists(p_id, l_id)) {
+  if (PeerPair *peer_pair = get_peer_pair_if_exists(p_id, l_id)) {
     set_peer_pair_idle(l_id, p_id, *peer_pair, value);
   }
 }
@@ -610,10 +610,10 @@ void AdnlPeerTableImpl::gc_peer_pairs(AdnlNodeIdShort local_id, LocalIdInfo &loc
 void AdnlPeerTableImpl::add_protected_peers(AdnlNodeIdShort local_id, std::vector<AdnlNodeIdShort> peer_ids) {
   auto it = local_ids_.find(local_id);
   LOG_CHECK(it != local_ids_.end()) << local_id;
-  LocalIdInfo& local_id_info = it->second;
+  LocalIdInfo &local_id_info = it->second;
   for (const AdnlNodeIdShort &peer_id : peer_ids) {
     if (local_id_info.protected_peers[peer_id]++ == 0) {
-      if (PeerPair* peer_pair = get_peer_pair_if_exists(peer_id, local_id)) {
+      if (PeerPair *peer_pair = get_peer_pair_if_exists(peer_id, local_id)) {
         if (peer_pair->marked_idle_at) {
           local_id_info.peers_gc_order.erase({peer_pair->marked_idle_at, peer_id});
         }
@@ -625,13 +625,13 @@ void AdnlPeerTableImpl::add_protected_peers(AdnlNodeIdShort local_id, std::vecto
 void AdnlPeerTableImpl::remove_protected_peers(AdnlNodeIdShort local_id, std::vector<AdnlNodeIdShort> peer_ids) {
   auto it = local_ids_.find(local_id);
   LOG_CHECK(it != local_ids_.end()) << local_id;
-  LocalIdInfo& local_id_info = it->second;
+  LocalIdInfo &local_id_info = it->second;
   for (const AdnlNodeIdShort &peer_id : peer_ids) {
     auto it2 = local_id_info.protected_peers.find(peer_id);
     CHECK(it2 != local_id_info.protected_peers.end());
     if (--it2->second == 0) {
       local_id_info.protected_peers.erase(it2);
-      if (PeerPair* peer_pair = get_peer_pair_if_exists(peer_id, local_id)) {
+      if (PeerPair *peer_pair = get_peer_pair_if_exists(peer_id, local_id)) {
         if (peer_pair->marked_idle_at) {
           local_id_info.peers_gc_order.insert({peer_pair->marked_idle_at, peer_id});
         }

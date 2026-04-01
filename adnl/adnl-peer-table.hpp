@@ -137,7 +137,7 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
     td::uint32 mode;
 
     std::set<std::pair<td::Timestamp, AdnlNodeIdShort>> peers_gc_order = {};
-    std::map<AdnlNodeIdShort, size_t> protected_peers;
+    std::map<AdnlNodeIdShort, size_t> protected_peers = {};
   };
 
   td::actor::ActorId<keyring::Keyring> keyring_;
@@ -157,12 +157,12 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   AdnlNodeIdShort proxy_addr_;
 
   void set_peer_pair_idle(AdnlNodeIdShort l_id, AdnlNodeIdShort p_id, PeerPair &peer_pair, bool value);
-  void gc_peer_pairs(AdnlNodeIdShort local_id, LocalIdInfo& local_id_info);
+  void gc_peer_pairs(AdnlNodeIdShort local_id, LocalIdInfo &local_id_info);
 
   static void update_id(PeerInfo &peer_info, AdnlNodeIdFull &&peer_id);
   td::actor::ActorOwn<AdnlPeerPair> &get_peer_pair(AdnlNodeIdShort peer_id, PeerInfo &peer_info,
                                                    AdnlNodeIdShort local_id, LocalIdInfo &local_id_info);
-  PeerPair* get_peer_pair_if_exists(AdnlNodeIdShort peer_id, AdnlNodeIdShort local_id);
+  PeerPair *get_peer_pair_if_exists(AdnlNodeIdShort peer_id, AdnlNodeIdShort local_id);
   static void get_stats_peer(AdnlNodeIdShort peer_id, PeerInfo &peer_info, bool all,
                              td::Promise<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> promise);
 
