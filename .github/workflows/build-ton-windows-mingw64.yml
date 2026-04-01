@@ -36,12 +36,13 @@ jobs:
       - name: Run Build Script
         run: |
           echo "Running in MSYS2 MINGW64 environment!"
-          cp assembly/msys2/build-mingw64-clang21.sh .
-          chmod +x build-mingw64-clang21.sh
-          ./build-mingw64-clang21.sh -a
+          cp assembly/msys2/build-mingw64.sh .
+          chmod +x build-mingw64.sh
+          ./build-mingw64.sh -a
 
       - name: Upload artifacts
         uses: actions/upload-artifact@master
         with:
           name: ton-msys2-mingw64
           path: artifacts
+          retention-days: 14

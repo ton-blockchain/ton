@@ -17,7 +17,7 @@
 #include "ast.h"
 #include "tolk.h"
 #include "compilation-errors.h"
-#include "compiler-state.h"
+#include "compiler-settings.h"
 #include "type-system.h"
 
 namespace tolk {
@@ -30,25 +30,31 @@ static bool does_function_always_throw(FunctionPtr fun_ref) {
 }
 
 /*
- *
+ *  
  *   ANALYZE AND PREPROCESS ABSTRACT CODE
- *
+ * 
  */
 
+// Backward dataflow analysis: computes var_info for every Op in the code tree.
+// After this pass, each op's var_info describes which variables are alive (needed) right before that op.
+// The terminal Nop's var_info becomes the "exit" info of the block.
 bool CodeBlob::compute_used_code_vars() {
   VarDescrList empty_var_info;
-  return compute_used_code_vars(ops, empty_var_info, true);
+  // pass edit=true: ops whose results are entirely unused get disabled
+  return ops.compute_used_code_vars(empty_var_info, true);
 }
 
-bool CodeBlob::compute_used_code_vars(std::unique_ptr<Op>& ops_ptr, const VarDescrList& var_info, bool edit) const {
-  tolk_assert(ops_ptr);
-  if (!ops_ptr->next) {
-    tolk_assert(ops_ptr->cl == Op::_Nop);
-    return ops_ptr->set_var_info(var_info);
+bool OpList::compute_used_code_vars(const VarDescrList& var_info, bool edit) {
+  // the last element is always a trailing _Nop that receives the outgoing var_info
+  tolk_assert(!empty() && back()->cl == Op::_Nop);
+
+  bool changed = back()->set_var_info(var_info);
+  for (int i = static_cast<int>(size()) - 2; i >= 0; --i) {
+    const VarDescrList& next_var_info = list[i + 1]->var_info;
+    // bitwise | is used to execute both left and right parts
+    changed = static_cast<int>(changed) | static_cast<int>(list[i]->compute_used_vars(edit, next_var_info));
   }
-  // here and below, bitwise | (not logical ||) are used to execute both left and right parts
-  return static_cast<int>(compute_used_code_vars(ops_ptr->next, var_info, edit)) |
-         static_cast<int>(ops_ptr->compute_used_vars(*this, edit));
+  return changed;
 }
 
 bool operator==(const VarDescrList& x, const VarDescrList& y) {
@@ -286,10 +292,13 @@ VarDescrList& VarDescrList::import_values(const VarDescrList& values) {
   return *this;
 }
 
-bool Op::std_compute_used_vars(bool disabled) {
+// Standard backward propagation of used variables through `left = OP right`:
+// starts from next_var_info (what's needed after this op), removes left (defined here), adds right (consumed here).
+// Returns true if this op's var_info changed (meaning the backward pass needs to continue).
+bool Op::std_compute_used_vars(const VarDescrList& next_var_info, bool disabled) {
   // left = OP right
   // var_info := (var_info - left) + right
-  VarDescrList new_var_info{next->var_info};
+  VarDescrList new_var_info{next_var_info};
   new_var_info -= left;
   new_var_info.clear_last();
   if (args.size() == right.size() && !disabled) {
@@ -302,15 +311,16 @@ bool Op::std_compute_used_vars(bool disabled) {
   return set_var_info(std::move(new_var_info));
 }
 
-bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
-  tolk_assert(next);
-  const VarDescrList& next_var_info = next->var_info;
-  if (cl == _Nop) {
-    return set_var_info_except(next_var_info, left);
-  }
+// Backward dataflow analysis for a single op: computes which variables are needed before this op,
+// given which are needed after it (next_var_info). When edit=true, may disable ops whose results are unused.
+// Returns true if this op's var_info changed.
+bool Op::compute_used_vars(bool edit, const VarDescrList& next_var_info) {
   switch (cl) {
+    case _Nop:
+      return set_var_info_except(next_var_info, left);
     case _IntConst:
     case _SliceConst:
+    case _SnakeStringConst:
     case _GlobVar:
     case _Call:
     case _CallInd:
@@ -322,10 +332,10 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
         if (edit) {
           set_disabled();
         }
-        return std_compute_used_vars(true);
+        return std_compute_used_vars(next_var_info, true);
       }
       if (cl == _Call && does_function_always_throw(f_sym)) {
-        VarDescrList new_var_info;    // empty, not next->var_info
+        VarDescrList new_var_info;    // empty, not next_var_info
         if (args.size() == right.size()) {
           for (const VarDescr& arg : args) {
             new_var_info.add_var(arg.idx, arg.is_unused());
@@ -335,14 +345,14 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
         }
         return set_var_info(std::move(new_var_info));
       }
-      return std_compute_used_vars();
+      return std_compute_used_vars(next_var_info);
     }
     case _SetGlob: {
       // GLOB = right
       if (right.empty() && edit) {
         set_disabled();
       }
-      return std_compute_used_vars(right.empty());
+      return std_compute_used_vars(next_var_info, right.empty());
     }
     case _Let: {
       // left = right
@@ -394,15 +404,13 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
     }
     case _If: {
       // if (left) then block0 else block1
-      //  VarDescrList nx_var_info = next_var_info;
-      //  nx_var_info.clear_last();
-      code.compute_used_code_vars(block0, next_var_info, edit);
+      block0.compute_used_code_vars(next_var_info, edit);
       VarDescrList merge_info;
-      if (block1) {
-        code.compute_used_code_vars(block1, next_var_info, edit);
-        merge_info = block0->var_info + block1->var_info;
+      if (!block1.empty()) {
+        block1.compute_used_code_vars(next_var_info, edit);
+        merge_info = block0.entry_var_info() + block1.entry_var_info();
       } else {
-        merge_info = block0->var_info + next_var_info;
+        merge_info = block0.entry_var_info() + next_var_info;
       }
       merge_info.clear_last();
       merge_info += left;
@@ -416,10 +424,10 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
       do {
         VarDescrList after_cond{new_var_info};
         after_cond += left;
-        code.compute_used_code_vars(block0, after_cond, changes);
-        code.compute_used_code_vars(block1, block0->var_info, changes);
+        block0.compute_used_code_vars(after_cond, changes);
+        block1.compute_used_code_vars(block0.entry_var_info(), changes);
         std::size_t n = new_var_info.size();
-        new_var_info += block1->var_info;
+        new_var_info += block1.entry_var_info();
         new_var_info.clear_last();
         if (changes) {
           break;
@@ -427,24 +435,24 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
         changes = (new_var_info.size() == n);
       } while (changes <= edit);
       new_var_info += left;
-      code.compute_used_code_vars(block0, new_var_info, edit);
-      return set_var_info(block0->var_info);
+      block0.compute_used_code_vars(new_var_info, edit);
+      return set_var_info(block0.entry_var_info());
     }
     case _Until: {
       // until (block0 || left);
       // .. { block0 left } block0 left next
       VarDescrList after_cond_first{next_var_info};
       after_cond_first += left;
-      code.compute_used_code_vars(block0, after_cond_first, false);
-      VarDescrList new_var_info{block0->var_info};
+      block0.compute_used_code_vars(after_cond_first, false);
+      VarDescrList new_var_info{block0.entry_var_info()};
       bool changes = false;
       do {
         VarDescrList after_cond{new_var_info};
         after_cond += next_var_info;
         after_cond += left;
-        code.compute_used_code_vars(block0, after_cond, changes);
+        block0.compute_used_code_vars(after_cond, changes);
         std::size_t n = new_var_info.size();
-        new_var_info += block0->var_info;
+        new_var_info += block0.entry_var_info();
         new_var_info.clear_last();
         if (changes) {
           break;
@@ -459,9 +467,9 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
       VarDescrList new_var_info{next_var_info};
       bool changes = false;
       do {
-        code.compute_used_code_vars(block0, new_var_info, changes);
+        block0.compute_used_code_vars(new_var_info, changes);
         std::size_t n = new_var_info.size();
-        new_var_info += block0->var_info;
+        new_var_info += block0.entry_var_info();
         new_var_info.clear_last();
         if (changes) {
           break;
@@ -482,9 +490,9 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
       VarDescrList new_var_info;
       bool changes = false;
       do {
-        code.compute_used_code_vars(block0, new_var_info, changes);
+        block0.compute_used_code_vars(new_var_info, changes);
         std::size_t n = new_var_info.size();
-        new_var_info += block0->var_info;
+        new_var_info += block0.entry_var_info();
         new_var_info.clear_last();
         if (changes) {
           break;
@@ -494,9 +502,9 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
       return set_var_info(std::move(new_var_info));
     }
     case _TryCatch: {
-      code.compute_used_code_vars(block0, next_var_info, edit);
-      code.compute_used_code_vars(block1, next_var_info, edit);
-      VarDescrList merge_info = block0->var_info + block1->var_info + next_var_info;
+      block0.compute_used_code_vars(next_var_info, edit);
+      block1.compute_used_code_vars(next_var_info, edit);
+      VarDescrList merge_info = block0.entry_var_info() + block1.entry_var_info() + next_var_info;
       merge_info -= left;
       merge_info.clear_last();
       return set_var_info(std::move(merge_info));
@@ -506,157 +514,201 @@ bool Op::compute_used_vars(const CodeBlob& code, bool edit) {
   }
 }
 
-bool prune_unreachable(std::unique_ptr<Op>& ops) {
-  if (!ops) {
-    return true;
-  }
-  Op& op = *ops;
-  if (op.cl == Op::_Nop) {
-    if (op.next) {
-      ops = std::move(op.next);
-      return prune_unreachable(ops);
-    }
-    return true;
-  }
-  bool reach;
-  switch (op.cl) {
-    case Op::_IntConst:
-    case Op::_SliceConst:
-    case Op::_GlobVar:
-    case Op::_SetGlob:
-    case Op::_CallInd:
-    case Op::_Tuple:
-    case Op::_UnTuple:
-    case Op::_Import:
-    case Op::_Let:
-      reach = true;
-      break;
-    case Op::_Return:
-      reach = false;
-      break;
-    case Op::_Call:
-      reach = !does_function_always_throw(op.f_sym);
-      break;
-    case Op::_If: {
-      // if left then block0 else block1; ...
-      VarDescr* c_var = op.var_info[op.left[0]];
-      if (c_var && c_var->always_true()) {
-        op.block0->last().next = std::move(op.next);
-        ops = std::move(op.block0);
-        return prune_unreachable(ops);
-      } else if (c_var && c_var->always_false()) {
-        op.block1->last().next = std::move(op.next);
-        ops = std::move(op.block1);
-        return prune_unreachable(ops);
-      } else {
-        reach = static_cast<int>(prune_unreachable(op.block0)) | static_cast<int>(prune_unreachable(op.block1));
-      }
-      break;
-    }
-    case Op::_While: {
-      // while (block0 || left) block1;
-      if (!prune_unreachable(op.block0)) {
-        // computation of block0 never returns
-        ops = std::move(op.block0);
-        return prune_unreachable(ops);
-      }
-      VarDescr* c_var = op.block0->last().var_info[op.left[0]];
-      if (c_var && c_var->always_false()) {
-        // block1 never executed
-        op.block0->last().next = std::move(op.next);
-        ops = std::move(op.block0);
-        return prune_unreachable(ops);
-      } else if (c_var && c_var->always_true()) {
-        if (!prune_unreachable(op.block1)) {
-          // block1 never returns
-          op.block0->last().next = std::move(op.block1);
-          ops = std::move(op.block0);
-          return false;
-        }
-        // infinite loop
-        op.cl = Op::_Again;
-        op.block0->last().next = std::move(op.block1);
-        op.left.clear();
-        reach = false;
-      } else {
-        if (!prune_unreachable(op.block1)) {
-          // block1 never returns, while equivalent to block0 ; if left then block1 else next
-          op.cl = Op::_If;
-          std::unique_ptr<Op> new_op = std::move(op.block0);
-          op.block0 = std::move(op.block1);
-          op.block1 = std::make_unique<Op>(op.next->origin, Op::_Nop);
-          new_op->last().next = std::move(ops);
-          ops = std::move(new_op);
-        }
-        reach = true;  // block1 may be never executed
-      }
-      break;
-    }
-    case Op::_Repeat: {
-      // repeat (left) block0
-      VarDescr* c_var = op.var_info[op.left[0]];
-      if (c_var && c_var->always_nonpos()) {
-        // loop never executed
-        ops = std::move(op.next);
-        return prune_unreachable(ops);
-      }
-      if (c_var && c_var->always_pos()) {
-        if (!prune_unreachable(op.block0)) {
-          // block0 executed at least once, and it never returns
-          // replace code with block0
-          ops = std::move(op.block0);
-          return false;
-        }
-      } else {
-        prune_unreachable(op.block0);
-      }
-      reach = true;
-      break;
-    }
-    case Op::_Until:
-    case Op::_Again: {
-      // do block0 until left; ...
-      if (!prune_unreachable(op.block0)) {
-        // block0 never returns, replace loop by block0
-        ops = std::move(op.block0);
-        return false;
-      }
-      reach = (op.cl != Op::_Again);
-      break;
-    }
-    case Op::_TryCatch: {
-      reach = static_cast<int>(prune_unreachable(op.block0)) | static_cast<int>(prune_unreachable(op.block1));
-      break;
-    }
-    default:
-      err("unknown operation in prune_unreachable()").fire(op.origin);
-  }
-  if (reach) {
-    return prune_unreachable(op.next);
-  } else {
-    while (op.next->next) {
-      op.next = std::move(op.next->next);
-    }
-    return false;
+// helper: inline block's ops (excluding trailing Nop) into `result`
+static void inline_block_content(OpList& result, OpList& block) {
+  for (size_t j = 0; j < block.size() - 1; j++) {
+    result.push_back(std::move(block[j]));
   }
 }
 
+// helper: merge two blocks into one (first content + second content + trailing Nop)
+static OpList merge_blocks(OpList& first, OpList& second) {
+  OpList merged;
+  inline_block_content(merged, first);
+  for (auto& o : second) {
+    merged.push_back(std::move(o));
+  }
+  return merged;
+}
+
+// returns true if the op list reaches its end (code is reachable at the bottom)
+bool OpList::prune_unreachable() {
+  OpList& ops = *this;
+  OpList result;
+
+  for (size_t i = 0; i < ops.size(); i++) {
+    Op& op = *ops[i];
+
+    bool reach;
+    switch (op.cl) {
+      case Op::_Nop:
+        // skip non-terminal Nops; keep terminal Nop (last element)
+        if (i == ops.size() - 1) {
+          result.push_back(std::move(ops[i]));
+        }
+        continue;
+      case Op::_IntConst:
+      case Op::_SliceConst:
+      case Op::_SnakeStringConst:
+      case Op::_GlobVar:
+      case Op::_SetGlob:
+      case Op::_CallInd:
+      case Op::_Tuple:
+      case Op::_UnTuple:
+      case Op::_Import:
+      case Op::_Let:
+        reach = true;
+        break;
+      case Op::_Return:
+        reach = false;
+        break;
+      case Op::_Call:
+        reach = !does_function_always_throw(op.f_sym);
+        break;
+      case Op::_If: {
+        // if left then block0 else block1; ...
+        VarDescr* c_var = op.var_info[op.left[0]];
+        if (c_var && c_var->always_true()) {
+          // condition always true: inline block0, discard block1
+          bool block_reaches = op.block0.prune_unreachable();
+          inline_block_content(result, op.block0);
+          if (!block_reaches) {
+            result.push_back(make_terminal_nop(op.origin));
+            ops = std::move(result);
+            return false;
+          }
+          continue;  // remaining ops processed in next iterations
+        }
+        if (c_var && c_var->always_false()) {
+          // condition always false: inline block1, discard block0
+          bool block_reaches = op.block1.prune_unreachable();
+          inline_block_content(result, op.block1);
+          if (!block_reaches) {
+            result.push_back(make_terminal_nop(op.origin));
+            ops = std::move(result);
+            return false;
+          }
+          continue;
+        }
+        reach = static_cast<int>(op.block0.prune_unreachable()) | static_cast<int>(op.block1.prune_unreachable());
+        break;
+      }
+      case Op::_While: {
+        // while (block0 || left) block1;
+        if (!op.block0.prune_unreachable()) {
+          // block0 (condition computation) never returns — inline block0
+          inline_block_content(result, op.block0);
+          result.push_back(make_terminal_nop(op.origin));
+          ops = std::move(result);
+          return false;
+        }
+        const VarDescr* c_var = op.block0.exit_var_info()[op.left[0]];
+        if (c_var && c_var->always_false()) {
+          // condition always false — loop body never executed, inline block0 (condition part)
+          inline_block_content(result, op.block0);
+          continue;  // remaining ops processed in next iterations
+        }
+        if (c_var && c_var->always_true()) {
+          if (!op.block1.prune_unreachable()) {
+            // block1 never returns — combine block0+block1, unreachable
+            for (auto& o : merge_blocks(op.block0, op.block1)) {
+              result.push_back(std::move(o));
+            }
+            ops = std::move(result);
+            return false;
+          }
+          // infinite loop: transform while → again, merge block0+block1 into block0
+          op.cl = Op::_Again;
+          op.block0 = merge_blocks(op.block0, op.block1);
+          op.block1.clear();
+          op.left.clear();
+          reach = false;
+        } else {
+          if (!op.block1.prune_unreachable()) {
+            // block1 never returns
+            // transform: while(block0; cond) block1; next → block0_content; if(cond) block1 else {}; next
+            inline_block_content(result, op.block0);
+            op.cl = Op::_If;
+            op.block0 = std::move(op.block1);   // if-then = old while-body
+            op.block1.clear();
+            op.block1.push_back(make_terminal_nop(op.origin));  // else = empty
+          }
+          // keep the (possibly transformed) op
+          reach = true;
+        }
+        break;
+      }
+      case Op::_Repeat: {
+        // repeat (left) block0
+        VarDescr* c_var = op.var_info[op.left[0]];
+        if (c_var && c_var->always_nonpos()) {
+          // loop never executed — skip the repeat op
+          continue;
+        }
+        if (c_var && c_var->always_pos()) {
+          if (!op.block0.prune_unreachable()) {
+            // block0 executed at least once, and it never returns
+            inline_block_content(result, op.block0);
+            result.push_back(make_terminal_nop(op.origin));
+            ops = std::move(result);
+            return false;
+          }
+        } else {
+          op.block0.prune_unreachable();
+        }
+        reach = true;
+        break;
+      }
+      case Op::_Until:
+      case Op::_Again: {
+        // do block0 until left; ...
+        if (!op.block0.prune_unreachable()) {
+          // block0 never returns, replace loop by block0
+          inline_block_content(result, op.block0);
+          result.push_back(make_terminal_nop(op.origin));
+          ops = std::move(result);
+          return false;
+        }
+        reach = (op.cl != Op::_Again);
+        break;
+      }
+      case Op::_TryCatch: {
+        reach = static_cast<int>(op.block0.prune_unreachable()) | static_cast<int>(op.block1.prune_unreachable());
+        break;
+      }
+      default:
+        err("unknown operation in prune_unreachable()").fire(op.origin);
+    }
+
+    result.push_back(std::move(ops[i]));
+    if (!reach) {
+      // remaining ops are unreachable, append terminal Nop
+      result.push_back(make_terminal_nop(op.origin));
+      ops = std::move(result);
+      return false;
+    }
+  }
+
+  ops = std::move(result);
+  return true;
+}
+
 void CodeBlob::prune_unreachable_code() {
-  if (prune_unreachable(ops)) {
+  if (ops.prune_unreachable()) {
     err("control reaches end of function (stack is malformed, a compiler bug)").fire(fun_ref->ident_anchor, fun_ref);
   }
 }
 
 void CodeBlob::fwd_analyze() {
   VarDescrList values;
-  tolk_assert(ops && ops->cl == Op::_Import);
-  for (var_idx_t i : ops->left) {
+  tolk_assert(!ops.empty() && ops.front()->cl == Op::_Import);
+  for (var_idx_t i : ops.front()->left) {
     values += i;
     if (vars[i].v_type == TypeDataInt::create()) {
       values[i]->val |= VarDescr::_Int;
     }
   }
-  ops->fwd_analyze(values);
+  ops.fwd_analyze(values);
 }
 
 void Op::prepare_args(VarDescrList values) {
@@ -688,6 +740,19 @@ void Op::maybe_swap_builtin_args_to_compile() {
   }
 }
 
+// Forward dataflow analysis over an entire OpList: sequentially propagates known values
+// (constants, types) through each op.
+// Returns the resulting values at the end of the block.
+VarDescrList OpList::fwd_analyze(VarDescrList values) const {
+  for (auto& op_ptr : list) {
+    values = op_ptr->fwd_analyze(std::move(values));
+  }
+  return values;
+}
+
+// Forward dataflow analysis for a single op: imports incoming values into var_info,
+// then updates them with new values produced by this op (constants, call results, etc.).
+// Returns the updated values to be passed to the next op.
 VarDescrList Op::fwd_analyze(VarDescrList values) {
   var_info.import_values(values);
   switch (cl) {
@@ -702,6 +767,10 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
       break;
     }
     case _SliceConst: {
+      values.add_newval(left[0]).set_const(str_const);
+      break;
+    }
+    case _SnakeStringConst: {
       values.add_newval(left[0]).set_const(str_const);
       break;
     }
@@ -753,7 +822,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
       tolk_assert(left.size() == right.size());
       for (std::size_t i = 0; i < right.size(); i++) {
         const VarDescr* ov = values[right[i]];
-        if (!ov && G.is_verbosity(5)) {
+        if (!ov && G_settings.verbosity >= 5) {
           std::cerr << "FATAL: error in assignment at right component #" << i << " (no value for _" << right[i] << ")"
                     << std::endl;
           for (auto x : left) {
@@ -778,21 +847,21 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
       break;
     }
     case _If: {
-      VarDescrList val1 = block0->fwd_analyze(values);
-      VarDescrList val2 = block1 ? block1->fwd_analyze(std::move(values)) : std::move(values);
+      VarDescrList val1 = block0.fwd_analyze( values);
+      VarDescrList val2 = !block1.empty() ? block1.fwd_analyze( std::move(values)) : std::move(values);
       values = val1 | val2;
       break;
     }
     case _Repeat: {
       bool atl1 = (values[left[0]] && values[left[0]]->always_pos());
-      VarDescrList next_values = block0->fwd_analyze(values);
+      VarDescrList next_values = block0.fwd_analyze( values);
       while (true) {
         VarDescrList new_values = values | next_values;
         if (same_values(new_values, values)) {
           break;
         }
         values = std::move(new_values);
-        next_values = block0->fwd_analyze(values);
+        next_values = block0.fwd_analyze( values);
       }
       if (atl1) {
         values = std::move(next_values);
@@ -801,14 +870,14 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
     }
     case _While: {
       auto values0 = values;
-      values = block0->fwd_analyze(values);
+      values = block0.fwd_analyze(values);
       if (values[left[0]] && values[left[0]]->always_false()) {
         // block1 never executed
-        block1->fwd_analyze(values);
+        block1.fwd_analyze(values);
         break;
       }
       while (true) {
-        VarDescrList next_values = values | block0->fwd_analyze(values0 | block1->fwd_analyze(values));
+        VarDescrList next_values = values | block0.fwd_analyze( values0 | block1.fwd_analyze( values));
         if (same_values(next_values, values)) {
           break;
         }
@@ -819,29 +888,25 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
     case _Until:
     case _Again: {
       while (true) {
-        VarDescrList next_values = values | block0->fwd_analyze(values);
+        VarDescrList next_values = values | block0.fwd_analyze(values);
         if (same_values(next_values, values)) {
           break;
         }
         values = std::move(next_values);
       }
-      values = block0->fwd_analyze(values);
+      values = block0.fwd_analyze(values);
       break;
     }
     case _TryCatch: {
-      VarDescrList val1 = block0->fwd_analyze(values);
-      VarDescrList val2 = block1->fwd_analyze(std::move(values));
+      VarDescrList val1 = block0.fwd_analyze(values);
+      VarDescrList val2 = block1.fwd_analyze(std::move(values));
       values = val1 | val2;
       break;
     }
     default:
       err("unknown operation in fwd_analyze()").fire(origin);
   }
-  if (next) {
-    return next->fwd_analyze(std::move(values));
-  } else {
-    return values;
-  }
+  return values;
 }
 
 void Op::set_disabled(bool flag) {
@@ -870,74 +935,114 @@ void Op::set_arg_order_already_equals_asm_flag() {
   flags |= _ArgOrderAlreadyEqualsAsm;
 }
 
-bool Op::mark_noreturn() {
-  switch (cl) {
-    case _Nop:
-      if (!next) {
-        return set_noreturn(false);
-      }
-      // fallthrough
-    case _Import:
-    case _IntConst:
-    case _SliceConst:
-    case _Let:
-    case _Tuple:
-    case _UnTuple:
-    case _SetGlob:
-    case _GlobVar:
-    case _CallInd:
-      return set_noreturn(next->mark_noreturn());
-    case _Return:
-      return set_noreturn();
-    case _Call:
-      return set_noreturn(next->mark_noreturn() || does_function_always_throw(f_sym));
-    case _If: {
-      // this very-not-beautiful code does the following:
-      // replace `if (cond) { return; } else { block1; } next;` with `if (cond) { return; } block1; next`
-      // purpose: to make code like `if (...) { ... return; } else if (...) { ... return; } ...` act like without else
-      // similarly, `match (...) { v1 => { ... return; } ...}` is internally transformed to IF-ELSE
-      // (that's why such transformation is done at IR level, not in AST)
-      // without these code (without else removed), extra RETALT instructions are inserted, not necessary actually
-      // implementation is UGLY, because currently there is no way to perform IR replacements
-      // in the future, anyway, IR implementation should be rewritten, for easier traversing and replacement
-      // btw, now it doesn't work with `if (!...)` (v->is_ifnot), else "keyword" is not removed
-      if (block0->mark_noreturn() && !block1->is_empty()) {
-        VarDescrList block1_var_info = block1->var_info;  // important to keep it
-        Op* last_in_block1 = block1.get();
-        while (last_in_block1->next->cl != Op::_Nop) {    // find the tail of a forward list of Ops
-          last_in_block1 = last_in_block1->next.get();
+// Two-phase mark_noreturn for OpList:
+// Phase 1 (forward): recursively process blocks, perform _If restructuring
+//   (move else-branch into continuation when if-branch always returns)
+// Phase 2 (backward): compute noreturn flags knowing the continuation's noreturn status
+bool OpList::mark_noreturn() {
+  OpList& ops = *this;
+  // Phase 1: forward pass — process sub-blocks and restructure _If
+  for (size_t i = 0; i < ops.size(); i++) {
+    Op& op = *ops[i];
+    switch (op.cl) {
+      case Op::_If: {
+        op.block0.mark_noreturn();
+        // replace `if (cond) { return; } else { block1; } next;` with `if (cond) { return; } block1; next`
+        // purpose: avoid unnecessary RETALT instructions in generated code
+        bool block1_nontrivial = !op.block1.is_empty_block();
+        if (op.block0.is_noreturn() && block1_nontrivial) {
+          VarDescrList block1_var_info = op.block1.entry_var_info();  // important to keep it
+          // take block1's content (minus trailing Nop), insert into parent after this _If op
+          size_t block1_content_count = op.block1.size() - 1;  // minus trailing Nop
+          size_t insert_pos = i + 1;
+          for (size_t j = 0; j < block1_content_count; j++) {
+            ops.insert(ops.begin() + static_cast<long>(insert_pos + j), std::move(op.block1[j]));
+          }
+          // reset block1 to just a Nop
+          op.block1.clear();
+          op.block1.push_back(make_terminal_nop(op.origin));
+          op.block1.set_entry_var_info(std::move(block1_var_info));
+          // newly inserted ops will be processed in subsequent iterations of this loop
+        } else {
+          op.block1.mark_noreturn();
         }
-        last_in_block1->next = std::move(next);
-        next = std::move(block1);
-        block1 = std::make_unique<Op>(origin, Op::_Nop);
-        block1->var_info = std::move(block1_var_info);
-      } else {
-        block1->mark_noreturn();
+        break;
       }
-      bool next_noreturn = next->mark_noreturn();
-      return set_noreturn((block0->noreturn() && block1->noreturn()) || next_noreturn);
+      case Op::_TryCatch:
+        op.block0.mark_noreturn();
+        if (!op.block1.empty()) {
+          op.block1.mark_noreturn();
+        }
+        break;
+      case Op::_Again:
+      case Op::_Until:
+      case Op::_Repeat:
+        op.block0.mark_noreturn();
+        break;
+      case Op::_While:
+        op.block0.mark_noreturn();
+        op.block1.mark_noreturn();
+        break;
+      default:
+        break;
     }
-    case _TryCatch:
-      // note, that & | (not && ||) here and below is mandatory to invoke both left and right calls
-      return set_noreturn((static_cast<int>(block0->mark_noreturn()) & static_cast<int>(block1 && block1->mark_noreturn())) | static_cast<int>(next->mark_noreturn()));
-    case _Again:
-      block0->mark_noreturn();
-      return set_noreturn();
-    case _Until:
-      return set_noreturn(static_cast<int>(block0->mark_noreturn()) | static_cast<int>(next->mark_noreturn()));
-    case _While:
-      block1->mark_noreturn();
-      return set_noreturn(static_cast<int>(block0->mark_noreturn()) | static_cast<int>(next->mark_noreturn()));
-    case _Repeat:
-      block0->mark_noreturn();
-      return set_noreturn(next->mark_noreturn());
-    default:
-      err("unknown operation in mark_noreturn()").fire(origin);
   }
+
+  // Phase 2: backward pass — compute noreturn flags
+  for (int i = static_cast<int>(ops.size()) - 1; i >= 0; i--) {
+    Op& op = *ops[i];
+    bool next_noreturn = (i < static_cast<int>(ops.size()) - 1) ? ops[i + 1]->noreturn() : false;
+
+    switch (op.cl) {
+      case Op::_Nop:
+        op.set_noreturn(false);
+        break;
+      case Op::_Import:
+      case Op::_IntConst:
+      case Op::_SliceConst:
+      case Op::_SnakeStringConst:
+      case Op::_Let:
+      case Op::_Tuple:
+      case Op::_UnTuple:
+      case Op::_SetGlob:
+      case Op::_GlobVar:
+      case Op::_CallInd:
+        op.set_noreturn(next_noreturn);
+        break;
+      case Op::_Return:
+        op.set_noreturn();
+        break;
+      case Op::_Call:
+        op.set_noreturn(next_noreturn || does_function_always_throw(op.f_sym));
+        break;
+      case Op::_If:
+        op.set_noreturn((op.block0.is_noreturn() && op.block1.is_noreturn()) || next_noreturn);
+        break;
+      case Op::_TryCatch:
+        op.set_noreturn((op.block0.is_noreturn() && op.block1.is_noreturn()) || next_noreturn);
+        break;
+      case Op::_Again:
+        op.set_noreturn();  // infinite loop = always noreturn
+        break;
+      case Op::_Until:
+        op.set_noreturn(op.block0.is_noreturn() || next_noreturn);
+        break;
+      case Op::_While:
+        op.set_noreturn(op.block0.is_noreturn() || next_noreturn);
+        break;
+      case Op::_Repeat:
+        op.set_noreturn(next_noreturn);
+        break;
+      default:
+        err("unknown operation in mark_noreturn()").fire(op.origin);
+    }
+  }
+
+  return ops.empty() ? false : ops.front()->noreturn();
 }
 
 void CodeBlob::mark_noreturn() {
-  ops->mark_noreturn();
+  ops.mark_noreturn();
 }
 
 }  // namespace tolk

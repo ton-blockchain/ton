@@ -60,8 +60,11 @@ static Error err_type_used_as_symbol(V<ast_identifier> v) {
   }
 }
 
+GNU_ATTRIBUTE_NOINLINE
 static Error err_using_self_not_in_method(FunctionPtr cur_f) {
-  if (cur_f->is_static_method()) {
+  if (!cur_f) {
+    return err("using `self` outside a function");
+  } else if (cur_f->is_static_method()) {
     return err("using `self` in a static method");
   } else {
     return err("using `self` in a regular function (not a method)");
@@ -127,20 +130,8 @@ class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
   }
 
   void visit(V<ast_local_var_lhs> v) override {
-    if (v->marked_as_redef) {
-      const Symbol* sym = current_scope.lookup_symbol(v->get_name());
-      if (sym == nullptr) {
-        err("`redef` for unknown variable").fire(v, cur_f);
-      }
-      LocalVarPtr var_ref = sym->try_as<LocalVarPtr>();
-      if (!var_ref) {
-        err("`redef` for unknown variable").fire(v, cur_f);
-      }
-      v->mutate()->assign_var_ref(var_ref);
-    } else {
-      LocalVarPtr var_ref = create_local_var_sym(v->get_name(), v, v->type_node, v->is_immutable, v->is_lateinit);
-      v->mutate()->assign_var_ref(var_ref);
-    }
+    LocalVarPtr var_ref = create_local_var_sym(v->get_name(), v, v->type_node, v->is_immutable, v->is_lateinit);
+    v->mutate()->assign_var_ref(var_ref);
   }
 
   void visit(V<ast_assign> v) override {
@@ -289,7 +280,7 @@ public:
   }
 
   void start_visiting_enum_members(EnumDefPtr enum_ref) {
-    // member `Red = Another.Blue`, resolve `Another`
+    // member `Red = Another.Blue`, resolve `Another` 
     for (EnumMemberPtr member_ref : enum_ref->members) {
       if (member_ref->has_init_value()) {
         parent::visit(member_ref->init_value);

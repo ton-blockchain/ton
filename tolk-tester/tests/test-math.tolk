@@ -273,11 +273,11 @@ fun expm1_f257(x: int): int {
 /// fixed248 exp(fixed248 x)
 @pure
 @inline_ref
-fun fixed248_exp(x: int): int {
+fun fixed248_exp(x_: int): int {
     var (l2c, l2d) = log2_xconst_f256();
     // divide x by log(2) and convert to fixed257
     // (int q, x) = muldivmodr(x, 256, l2c);  // unfortunately, no such built-in
-    var (q: int, x redef) = lshiftdivmodr(x, l2c, 8);
+    var (q: int, x) = lshiftdivmodr(x_, l2c, 8);
     x = 2 * x - mulDivRound(q, l2d, 1 << 127);
     var y: int = expm1_f257(x);
     // result is (1 + y) * (2^q) --> ((1 << 257) + y) >> (9 - q)
@@ -289,9 +289,9 @@ fun fixed248_exp(x: int): int {
 /// fixed248 exp2(fixed248 x)
 @pure
 @inline_ref
-fun fixed248_exp2(x: int): int {
+fun fixed248_exp2(x_: int): int {
     // (int q, x) = divmodr(x, 1 << 248);   // no such built-in
-    var (q: int, x redef) = rshiftr248mod(x);
+    var (q: int, x) = rshiftr248mod(x_);
     x = mulDivRound(x, log2_const_f256(), 1 << 247);
     var y: int = expm1_f257(x);
     return (y ~>> (9 - q)) - (-1 << (248 + q));
@@ -383,10 +383,10 @@ fun sincosn_f256(x: int, xe: int): (int, int) {
     // now a/c = cos(q*theta), b/c = sin(q*theta) exactly(!)
     // compute (a+b*I)*(1-co+si*I)/c
     // (b, a) = (lshift256divr(b, c), lshift256divr(a, c));
-    var (b redef, br: int) = lshift256divmodr(b, c);  br = mulDivRound(br, 128, c);
-    var (a redef, ar: int) = lshift256divmodr(a, c);  ar = mulDivRound(ar, 128, c);
-    return (sign(x) * (((mulrshiftr256(b, co) - br) ~/ 16 - mulrshiftr256(a, si)) ~/ 8 - b),
-    a - ((mulrshiftr256(a, co) - ar) ~/ 16 + mulrshiftr256(b, si)) ~/ 8);
+    var (newB, br: int) = lshift256divmodr(b, c);  br = mulDivRound(br, 128, c);
+    var (newA, ar: int) = lshift256divmodr(a, c);  ar = mulDivRound(ar, 128, c);
+    return (sign(x) * (((mulrshiftr256(newB, co) - br) ~/ 16 - mulrshiftr256(newA, si)) ~/ 8 - newB),
+    newA - ((mulrshiftr256(newA, co) - ar) ~/ 16 + mulrshiftr256(newB, si)) ~/ 8);
 }
 
 /// compute (sin(x),1-cos(x)) in fixed256 for |x| < 16*atan(1/16) = 0.9987
@@ -422,10 +422,10 @@ fun tan_aux_f256(x: int): (int, int) {
 /// (fixed248, fixed248) sincos(fixed248 x);
 @pure
 @inline_ref
-fun fixed248_sincos(x: int): (int, int) {
+fun fixed248_sincos(x_: int): (int, int) {
     var (Pic, Pid) = Pi_xconst_f254();
     // (int q, x) = muldivmodr(x, 128, Pic);  // no muldivmodr() builtin
-    var (q: int, x redef) = lshift7divmodr(x, Pic);  // reduce mod Pi/2
+    var (q: int, x) = lshift7divmodr(x_, Pic);  // reduce mod Pi/2
     x = 2 * x - mulDivRound(q, Pid, 1 << 127);
     var (si: int, co: int) = sincosm1_f256(x);   // doesn't make sense to use more accurate sincosn_f256()
     co = (1 << 248) - (co ~>> 9);
@@ -459,10 +459,10 @@ fun fixed248_cos(x: int): int {
 /// however, the relative accuracy is approximately 2^-247 in all cases, which is good enough for arguments given up to 2^-249
 @pure
 @inline_ref
-fun fixed248_tan(x: int): int {
+fun fixed248_tan(x_: int): int {
     var (Pic, Pid) = Pi_xconst_f254();
     // (int q, x) = muldivmodr(x, 128, Pic);  // no muldivmodr() builtin
-    var (q: int, x redef) = lshift7divmodr(x, Pic);  // reduce mod Pi/2
+    var (q: int, x) = lshift7divmodr(x_, Pic);  // reduce mod Pi/2
     x = 2 * x - mulDivRound(q, Pid, 1 << 127);
     var (a, b) = tan_aux_f256(x);  // now a/b = tan(x')
     if (q & 1) {
@@ -474,9 +474,9 @@ fun fixed248_tan(x: int): int {
 /// fixed248 cot(fixed248 x);
 @pure
 @inline_ref
-fun fixed248_cot(x: int): int {
+fun fixed248_cot(x_: int): int {
     var (Pic, Pid) = Pi_xconst_f254();
-    var (q: int, x redef) = lshift7divmodr(x, Pic);  // reduce mod Pi/2
+    var (q: int, x) = lshift7divmodr(x_, Pic);  // reduce mod Pi/2
     x = 2 * x - mulDivRound(q, Pid, 1 << 127);
     var (b, a) = tan_aux_f256(x);  // now b/a = tan(x')
     if (q & 1) {
@@ -1019,7 +1019,7 @@ fun test_nrand(n: int): tuple {
   repeat (n) {
     var x: int = fixed248_nrand();
     var bucket: int = (abs(x) >> 243);   // 255 buckets starting from x=0, each 1/32 wide
-    var at_bucket: int = t.get(bucket);
+    var at_bucket: int = t.get(bucket) as int;
     t.tset(bucket, at_bucket + 1);
   }
   return t;

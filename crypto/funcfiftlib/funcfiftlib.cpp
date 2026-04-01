@@ -64,12 +64,13 @@ td::Result<std::string> compile_internal(char* config_json) {
     return td::Status::Error("FunC compilation error: " + errs.str());
   }
 
-  TRY_RESULT(fift_res, fift::compile_asm_program(outs.str(), "/fiftlib/"));
+  std::string fift_code = outs.str();
+  TRY_RESULT(fift_res, fift::compile_asm_program(fift_code, "/fiftlib/"));
 
   td::JsonBuilder result_json;
   auto obj = result_json.enter_object();
   obj("status", "ok");
-  obj("fiftCode", std::move(fift_res.fiftCode));
+  obj("fiftCode", std::move(fift_code));
   obj("codeBoc", std::move(fift_res.codeBoc64));
   obj("codeHashHex", std::move(fift_res.codeHashHex));
   obj.leave();

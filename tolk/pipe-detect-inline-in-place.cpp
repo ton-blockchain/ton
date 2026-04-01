@@ -48,10 +48,6 @@
 
 namespace tolk {
 
-// to calculate recursions, at first we populate the call graph
-// (purpose: functions in recursive call chains can't be inlined)
-static std::unordered_map<FunctionPtr, std::vector<FunctionPtr>> call_graph;
-
 static bool is_called_implicitly_by_compiler(FunctionPtr f) {
   if (f->name == "onBouncedMessage") {
     return true;
@@ -114,12 +110,10 @@ struct StateWhileTraversingFunction {
 class DetectIfToInlineFunctionInPlaceVisitor final : public ASTVisitorFunctionBody {
   StateWhileTraversingFunction cur_state{nullptr};
   int block_depth = 0;
-  std::vector<V<ast_function_call>> collected_expect_inline;    // `__expect_inline()` compiler assertions
 
   void visit(V<ast_function_call> v) override {
-    if (v->fun_maybe && v->fun_maybe->is_builtin() && v->fun_maybe->name == "__expect_inline") {
-      collected_expect_inline.push_back(v);
-    } else {
+    bool is_compiler_expect = v->fun_maybe && v->fun_maybe->is_builtin() && v->fun_maybe->name.starts_with("__expect");
+    if (!is_compiler_expect) {    // don't treat `__expect_inline` and `__expect_type` as function calls
       cur_state.n_function_calls++;
     }
     parent::visit(v);
@@ -216,7 +210,6 @@ public:
 
   void on_enter_function(V<ast_function_declaration> v_function) override {
     cur_state = StateWhileTraversingFunction(cur_f);
-    collected_expect_inline.clear();
   }
 
   void on_exit_function(V<ast_function_declaration> v_function) override {
@@ -229,15 +222,6 @@ public:
     } else {
       // a function is not marked `@inline` / `@inline_ref` / etc., so automatically decide
       will_inline = !prevented_anyway && cur_state.should_auto_inline_if_not_prevented();
-    }
-
-    // handle `__expect_inline(true)` (assertions inside compiler tests)
-    for (auto v_expect : collected_expect_inline) {
-      tolk_assert(v_expect->get_num_args() == 1 && v_expect->get_arg(0)->get_expr()->kind == ast_bool_const);
-      bool expected = v_expect->get_arg(0)->get_expr()->as<ast_bool_const>()->bool_val;
-      if (expected != will_inline) {
-        err("__expect_inline failed").fire(v_expect, cur_f);
-      }
     }
 
     // okay, this function will be inlined, mark the flag
@@ -266,6 +250,9 @@ class CallGraphBuilderVisitor final : public ASTVisitorFunctionBody {
   }
 
 public:
+  // populated while visiting: maps [ fun_ref -> list of functions it calls ]
+  std::unordered_map<FunctionPtr, std::vector<FunctionPtr>> call_graph;
+
   bool should_visit_function(FunctionPtr fun_ref) override {
     // don't include asm functions, we don't need them in calculations
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
@@ -278,7 +265,9 @@ public:
 
 static void detect_recursive_functions() {
   // 1) build call_graph (and calculate n_times_called also)
-  visit_ast_of_all_functions<CallGraphBuilderVisitor>();
+  CallGraphBuilderVisitor visitor;
+  visit_ast_of_all_functions(visitor);
+  std::unordered_map<FunctionPtr, std::vector<FunctionPtr>> call_graph = std::move(visitor.call_graph);
 
   // 2) using call_graph, detect cycles (the smallest, non-optimized algorithm, okay for our needs)
   for (const auto& it : call_graph) {
@@ -301,10 +290,33 @@ static void detect_recursive_functions() {
   }
 }
 
+// Check __expect_inline() calls, used in compiler tests as assertions.
+class CheckExpectInlineAssertionsVisitor final : public ASTVisitorFunctionBody {
+
+  void visit(V<ast_function_call> v) override {
+    if (v->fun_maybe && v->fun_maybe->is_builtin() && v->fun_maybe->name == "__expect_inline") {
+      tolk_assert(v->get_num_args() == 1 && v->get_arg(0)->get_expr()->kind == ast_bool_const);
+      bool expected = v->get_arg(0)->get_expr()->as<ast_bool_const>()->bool_val;
+      bool actual = cur_f->is_inlined_in_place();
+      if (expected != actual) {
+        err("__expect_inline failed").fire(v, cur_f);
+      }
+    }
+    parent::visit(v);
+  }
+
+public:
+  bool should_visit_function(FunctionPtr fun_ref) override {
+    return fun_ref->is_code_function() && !fun_ref->is_generic_function();
+  }
+};
+
 void pipeline_detect_inline_in_place() {
   detect_recursive_functions();
-  visit_ast_of_all_functions<DetectIfToInlineFunctionInPlaceVisitor>();
-  call_graph.clear();
+  DetectIfToInlineFunctionInPlaceVisitor visitor;
+  visit_ast_of_all_functions(visitor);
+  CheckExpectInlineAssertionsVisitor checker;
+  visit_ast_of_all_functions(checker);
 }
 
 } // namespace tolk

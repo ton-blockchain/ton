@@ -3,7 +3,7 @@ struct B { b1: int7; b2: int8; b3: int8; }
 type AOrB = A | B;
 
 fun main() {
-    var m = lazy AOrB.fromSlice("");
+    var m = lazy AOrB.fromSlice(createEmptySlice());
     match (m) {
         A => {
             __expect_lazy("[m] skip (int7) load a2");

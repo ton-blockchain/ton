@@ -297,7 +297,7 @@ struct ExprUsagesWhileCollecting {
   }
 
   void on_used_reassigned_type() {
-    used_reassigned_type++;
+    used_reassigned_type++;    
   }
 
   bool is_self_or_field_used_for_reading() const {
@@ -389,11 +389,9 @@ struct ExprUsagesWhileCollecting {
       LazyStructLoadInfo::ActionWithField action;
       std::string_view field_name;
       TypePtr field_type;
-      PackSize pack_size;
 
       FutureField(LazyStructLoadInfo::ActionWithField action, std::string_view field_name, TypePtr field_type)
-        : action(action), field_name(field_name), field_type(field_type)
-        , pack_size(estimate_serialization_size(field_type)) {}
+        : action(action), field_name(field_name), field_type(field_type) {}
     };
 
     std::vector<FutureField> future_fields;
@@ -418,7 +416,7 @@ struct ExprUsagesWhileCollecting {
       bool used_anyhow_but_match = field_usages.is_self_or_field_used_for_reading() || field_usages.is_self_or_child_used_for_writing() || field_usages.is_self_or_field_used_for_toCell();
 
       if (need_immutable_tail && field_idx == last_modified_field_idx + 1) {
-        future_fields.emplace_back(LazyStructLoadInfo::SaveImmutableTail, "(tail)", TypeDataSlice::create());
+        future_fields.emplace_back(LazyStructLoadInfo::SaveImmutableTail, "`tail`", TypeDataSlice::create());
       }
 
       if (field_usages.used_for_matching == 1 && !used_anyhow_but_match && !object_used_as_a_whole && !used_for_toCell && !is_variant_of_union && field_idx == struct_ref->get_num_fields() - 1 &&
@@ -450,7 +448,7 @@ struct ExprUsagesWhileCollecting {
       if (skip_size.min_bits == skip_size.max_bits && skip_size.max_refs == 0 && !skip_size.skipping_is_dangerous) {
         skip_type = TypeDataBitsN::create(skip_size.max_bits, true);
       }
-      future_fields.emplace_back(LazyStructLoadInfo::SkipField, "(gap)", skip_type);
+      future_fields.emplace_back(LazyStructLoadInfo::SkipField, "`gap`", skip_type);
     }
 
     // if we need tail, we should load all fields before it (even if they aren't used)
@@ -468,10 +466,10 @@ struct ExprUsagesWhileCollecting {
     // example: `skip bits8; load ref` - `load ref`, because to reach a ref, no need to skip preceding bits;
     for (size_t i = future_fields.size(); i-- > 0; ) {
       if (FutureField f = future_fields[i]; f.action == LazyStructLoadInfo::SkipField) {
-        PackSize s_cur = f.pack_size;
+        PackSize s_cur = estimate_serialization_size(f.field_type);
         PackSize s_after(0);
         for (size_t j = i + 1; j < future_fields.size(); ++j) {
-          s_after = EstimateContext::sum(s_after, future_fields[j].pack_size);
+          s_after = EstimateContext::sum(s_after, estimate_serialization_size(future_fields[j].field_type));
         }
         bool ignore = (s_after.max_bits == 0 && s_after.max_refs == 0)  // nothing is loaded after — no need to skip cur
                    || (s_after.max_bits == 0 && s_cur.max_refs == 0)    // no reach ref, no need to skip bits
@@ -602,7 +600,7 @@ struct LazyVarInFunction {
   }
 };
 
-static std::unordered_map<FunctionPtr, std::vector<LazyVarInFunction>> functions_with_lazy_vars;
+static thread_local std::unordered_map<FunctionPtr, std::vector<LazyVarInFunction>> functions_with_lazy_vars;
 
 
 static ExprUsagesWhileCollecting collect_expr_usages_in_block(std::string name_for_debugging, SinkExpression s_expr, TypePtr expr_type, V<ast_block_statement> v_block);
@@ -625,14 +623,16 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
       if (!is_subj_of_dot) {
         lazy_expr->on_used_rw(v->is_lvalue);
       }
-      if (!v->is_lvalue && !lazy_expr->expr_type->equal_to(v->inferred_type)) {
+      if (v->is_rvalue && !lazy_expr->expr_type->equal_to(v->inferred_type)) {
         lazy_expr->on_used_reassigned_type();     // e.g. in `A => ...` variable was reassigned and now is `B`
       }
     }
   }
 
   void visit(V<ast_dot_access> v) override {
-    if (extract_sink_expression_from_vertex(v) == s_expr) {
+    SinkExpression dot_s_expr = extract_sink_expression_from_vertex(v);
+    bool check_for_child = lazy_expr->fields.empty();   // treat accessing `obj.tensor.0` is like `obj.tensor`
+    if (dot_s_expr == s_expr || (check_for_child && dot_s_expr.is_child_of(s_expr))) {
       bool is_subj_of_dot = parent_dot && parent_dot->is_target_struct_field() && parent_dot->get_obj() == v;
       if (!is_subj_of_dot) {
         lazy_expr->on_used_rw(v->is_lvalue);
@@ -652,6 +652,10 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
         // handle built-in functions specially
         if (fun_ref->is_builtin() && fun_ref->base_fun_ref->name == "T.toCell") {
           lazy_expr->on_used_toCell();
+          if (dot_obj->kind == ast_assign) {
+            parent::visit(v->get_callee());
+          }
+          parent::visit(v->get_arg_list());
           return;
         }
 
@@ -660,7 +664,7 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
           lazy_expr->on_used_reassigned_type();
         }
         // for `obj.f.method()`, mark lazy_expr=obj.f "used" anyway
-        if (s_expr.index_path) {
+        if (s_expr.index_path) {    
           lazy_expr->on_used_rw(false);
         }
         // if we have `st.save()` / `p.getX()` / `obj.f.method()`, which will be inlined when transforming to IR,
@@ -670,6 +674,7 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
           ExprUsagesWhileCollecting inner_usages = collect_expr_usages_in_block(lazy_expr->name_str + "(=self)", SinkExpression(&fun_ref->parameters[0]), lazy_expr->expr_type, v_body_block);
           inner_usages.treat_match_like_read();   // nested lazy match in inlined functions doesn't work, it's not wrapped into aux vertex
           lazy_expr->merge_with_sub_block(inner_usages);
+          parent::visit(v->get_arg_list());
           return;
         }
       }
@@ -730,6 +735,12 @@ public:
       for (int field_idx = 0; field_idx < out->struct_ref->get_num_fields(); ++field_idx) {
         collect_usages_in_expression(&out->fields[field_idx], s_expr.get_child_s_expr(field_idx), v_expr);
         out->total_usages_with_fields += out->fields[field_idx].total_usages_with_fields;
+      }
+    }
+    if (out->variants.size() > 1 && s_expr.index_path) {    // in case `obj.field` is a union
+      for (int variant_idx = 0; variant_idx < static_cast<int>(out->variants.size()); ++variant_idx) {
+        collect_usages_in_expression(&out->variants[variant_idx], s_expr, v_expr);
+        out->total_usages_with_fields += out->variants[variant_idx].total_usages_with_fields;
       }
     }
   }
@@ -851,13 +862,11 @@ class CollectAllLazyObjectsAndFieldsVisitor final : public ASTVisitorFunctionBod
 
       if (auto lhs_var_decl = v->get_lhs()->try_as<ast_local_vars_declaration>()) {
         auto lhs_var = lhs_var_decl->get_expr()->try_as<ast_local_var_lhs>();
-        if (!lhs_var->marked_as_redef) {
-          // collect usages of a lazy var inside the same block statement where it's declared
-          LocalVarPtr var_ref = lhs_var->var_ref;
-          ExprUsagesWhileCollecting var_usages = collect_expr_usages_in_block(var_ref->name, SinkExpression(var_ref), var_ref->declared_type, parent_block);
-          LazyVarInFunction lazy_var(cur_f, var_ref, rhs_lazy, std::move(var_usages));
-          functions_with_lazy_vars[cur_f].emplace_back(std::move(lazy_var));
-        }
+        // collect usages of a lazy var inside the same block statement where it's declared
+        LocalVarPtr var_ref = lhs_var->var_ref;
+        ExprUsagesWhileCollecting var_usages = collect_expr_usages_in_block(var_ref->name, SinkExpression(var_ref), var_ref->declared_type, parent_block);
+        LazyVarInFunction lazy_var(cur_f, var_ref, rhs_lazy, std::move(var_usages));
+        functions_with_lazy_vars[cur_f].emplace_back(std::move(lazy_var));
       }
     }
 
@@ -964,8 +973,11 @@ class CheckExpectLazyAssertionsVisitor final : public ASTVisitorFunctionBody {
     std::string result = "[" + aux_load->var_ref->name + "] ";
     for (int i = 0; i < struct_ref->get_num_fields(); ++i) {
       std::string field_name = struct_ref->get_field(i)->name;
-      if (field_name == "(gap)") {
+      if (field_name == "`gap`") {
         field_name = "(" + struct_ref->get_field(i)->declared_type->as_human_readable() + ")";
+      }
+      if (field_name == "`tail`") {
+        field_name = "(tail)";
       }
       std::string_view action = action_to_str[load_info.ith_field_action[i]];
       if (action != last_action) {
@@ -1017,9 +1029,12 @@ public:
 };
 
 void pipeline_lazy_load_insertions() {
-  visit_ast_of_all_functions<CollectAllLazyObjectsAndFieldsVisitor>();
-  replace_ast_of_all_functions<LazyLoadInsertionsReplacer>();
-  visit_ast_of_all_functions<CheckExpectLazyAssertionsVisitor>();
+  CollectAllLazyObjectsAndFieldsVisitor collector;
+  visit_ast_of_all_functions(collector);
+  LazyLoadInsertionsReplacer replacer;
+  replace_ast_of_all_functions(replacer);
+  CheckExpectLazyAssertionsVisitor checker;
+  visit_ast_of_all_functions(checker);
   functions_with_lazy_vars.clear();
 }
 

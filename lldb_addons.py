@@ -48,6 +48,7 @@ def print_ast_vertex(valobj, internal_dict, options):
 def __lldb_init_module(debugger, _):
     types_with_debug_print = [
         'tolk::Op',
+        'tolk::OpList',
         'tolk::TypeData',
         'tolk::VarDescr',
         'tolk::TmpVar',

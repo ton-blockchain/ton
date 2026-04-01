@@ -29,9 +29,6 @@
  * It's tricky to implement whether replacing is safe.
  * For example, safe: `a > 0 && a < 10` / `a != 3 && a != 5`
  * For example, unsafe: `cached && calc()` / `a > 0 && log(a)` / `b != 0 && a / b > 1` / `i >= 0 && arr[idx]` / `f != null && close(f)`
- *
- *   Also, all parenthesized `((expr))` are replaced with `expr`, it's a constant transformation.
- * (not to handle parenthesized later in tricky assignments, etc.)
  */
 
 namespace tolk {
@@ -135,16 +132,14 @@ class OptimizerBooleanExpressionsReplacer final : public ASTReplacerInFunctionBo
     return v;
   }
 
-  AnyExprV replace(V<ast_parenthesized_expression> v) override {
-    AnyExprV inner = parent::replace(v->get_expr());
-    if (v->is_lvalue) {
-      inner->mutate()->assign_lvalue_true();
-    }
-    return inner;
-  }
-
   AnyV replace(V<ast_if_statement> v) override {
     parent::replace(v);
+
+    // don't deal with always true/false conditions, they will anyway be erased at compile-time later;
+    // because below, we swap v->is_ifnot and is_negated flags, it's hard to keep them in sync
+    if (v->get_cond()->is_always_true || v->get_cond()->is_always_false) {
+      return v;
+    }
 
     // here we optimize common conditions to generate IFNOT instead of IF;
     // obviously, this should be done later, around peephole optimizer,
@@ -184,7 +179,8 @@ public:
 };
 
 void pipeline_optimize_boolean_expressions() {
-  replace_ast_of_all_functions<OptimizerBooleanExpressionsReplacer>();
+  OptimizerBooleanExpressionsReplacer replacer;
+  replace_ast_of_all_functions(replacer);
 }
 
 } // namespace tolk

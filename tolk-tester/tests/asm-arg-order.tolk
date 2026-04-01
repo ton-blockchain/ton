@@ -21,6 +21,9 @@ asm (y z self -> 0) "3 TUPLE";
 fun asm_func_4(a: int, b: (int, (int, int)), c: int): tuple
 asm (b a c -> 0) "5 TUPLE";
 
+fun add_swapped(a: int, b: int): int
+    asm (b a) "ADD"
+
 @pure
 fun tuple.asm_func_modify(mutate self, b: int, c: int): void
 asm (c b self) "SWAP TPUSH SWAP TPUSH";
@@ -190,6 +193,41 @@ fun test34() {
     return asmAPlus1TimesB(cs.loadUint(8), cs.loadUint(8));
 }
 
+fun inc_identity_order(a: int, mutate b: int, c: int): int asm (a b c)
+    "SWAP"             // a c b
+    "1 PUSHINT ADD"    // a c b+1
+    "NIP"              // a b+1
+    "NIP"              // b+1
+    "DUP"              // b+1 b+1
+
+fun inc_with_arg_order(a: int, mutate b: int, c: int): int asm (c a b)
+    "1 PUSHINT ADD"     // c a b+1
+    "NIP"               // a b+1
+    "NIP"               // b+1
+    "DUP"               // b+1 b+1
+
+@method_id(35)
+fun test35() {
+    var (t1, t2) = (10, 10);
+    var r1 = inc_identity_order(111, mutate t1, 222);
+    var r2 = inc_with_arg_order(111, mutate t2, 222);
+    var tensor: (int, int, int) = (5, 6, 7);
+    var shaped: [int, int, int] = [5, 6, 7];
+    inc_identity_order(111, mutate tensor.0, 222);
+    inc_identity_order(111, mutate tensor.2, 222);
+    inc_identity_order(111, mutate shaped.0, 222);
+    inc_identity_order(111, mutate shaped.2, 222);
+    return (t1, t2, r1, r2, tensor, shaped);
+}
+
+@method_id(36)
+fun test36(k: int): int {
+    return add_swapped(
+        match (k) { 7 => return 1, else => 5 },
+        match (k) { 7 => return 2, else => 6 },
+    );
+}
+
 
 fun main() {
 }
@@ -216,6 +254,9 @@ fun main() {
 @testcase | 32 |    | 30
 @testcase | 33 | 0  | 22 930 480 56
 @testcase | 34 |    | 30
+@testcase | 35 |    | 11 11 11 11 6 6 8 [ 6 6 8 ]
+@testcase | 36 | 7  | 1
+@testcase | 36 | 9  | 11
 
 @fif_codegen
 """
@@ -275,5 +316,5 @@ fun main() {
   }>
 """
 
-@code_hash 38717859169035491454494966803813683158800226121601078320213761069394202390827
+@code_hash 98112237312599117361360505207413290833928615253348061305894339367683016107491
 */

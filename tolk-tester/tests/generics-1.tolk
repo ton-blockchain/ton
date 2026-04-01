@@ -36,31 +36,32 @@ fun test102(): (int, int, int, [int, int], Wrapper< Wrapper<int8> >) {
     var _: int = getTwo();
     var b = getTwo() as int;
     var c: int = 1 ? getTwo() : getTwo();
-    var c redef = getTwo();
     var d: int = match (1 as int|slice|builder) { int => getTwo(), slice => getTwo(), builder => getTwo() };
     var ab_tens = (0, (1, 2));
     ab_tens.0 = getTwo();
     ab_tens.1.1 = getTwo();
-    var ab_tup = [0, [1, 2]];
+    var ab_tup: [int, [int, int]] = [0, [1, 2]];
     ab_tup.0 = getTwo();
     ab_tup.1.1 = getTwo();
     var ab_tens_al: Tensor2Int = (getTwo(), getTwo());
     var cint: Wrapper<int> = { value: getTwo() };
     var cuni: Wrapper<int> | Err<int> = Wrapper { value: getTwo() };
     cuni = Err { errPayload: getTwo() };
-    return (eq1<int>(a), eq2<int>(b), takeInt(getTwo()), [getTwo(), ab_tens.1.1], eq1({ value: { value: getTwo() } } as Wrapper< Wrapper<int8> >));
+    var tensNul: (int, int)? = (getTwo(), getTwo());
+    var tensOrS: (int8, int8) | slice | builder = (getTwo(), getTwo());
+    __expect_type(tensOrS, "(int8, int8)");     // smart cast
+    return (eq1<int>(tensOrS.0), eq2<int>(b), takeInt(getTwo()), [getTwo(), ab_tens.1.1], eq1({ value: { value: getTwo() } } as Wrapper< Wrapper<int8> >));
 }
 
 @method_id(103)
-fun test103(first: int): (int, int, int) {
+fun test103(first: int): (unknown, int, int) {
     var t = createEmptyTuple();
     var cs = beginCell().storeInt(100, 32).endCell().beginParse();
     t.push(first);
     t.push(2);
     t.push(cs);
-    cs = t.get(2);
     cs = t.get(2) as slice;
-    return (t.get(0), cs.loadInt(32), t.get<slice>(2).loadInt(32));
+    return (t.get(0), cs.loadInt(32), eq2(t.get(2) as slice).loadInt(32));
 }
 
 fun manyEq<T1, T2, T3>(a: T1, b: T2, c: T3): [T1, T2, T3] {
@@ -107,10 +108,10 @@ fun test106() {
     ];
 }
 
-fun X.callTupleFirst<Y>(self): Y { return self.first(); }
-fun callTupleFirst<X, Y>(t: X): Y { return t.first(); }
+fun X.callTupleFirst<Y>(self): Y { return self.first() as int; }
+fun callTupleFirst<X, Y>(t: X): Y { return t.first() as int; }
 fun T.callTuplePush<V>(mutate self, v1: V, v2: V): self { self.push(v1); tuplePush(mutate self, v2); return self; }
-fun getTupleLastInt(t: tuple) { return t.last<int>(); }
+fun getTupleLastInt(t: tuple) { return t.last() as int; }
 fun getTupleSize(t: MTuple) { return t.size(); }
 fun callAnyFn<TObj, TResult>(f: (TObj) -> TResult, arg: TObj) { return f(arg); }
 fun callAnyFn2<TCallback>(f: TCallback, arg: tuple) { return f(arg); }
@@ -209,10 +210,40 @@ fun test113(a: int | slice) {
     );
 }
 
+@method_id(114)
+fun test114(): [[int], tuple] {
+    var kust: int | slice = (null as slice?) ?? getTwo();
+    var t1: [int] = [0];
+    t1.0 = getTwo();   // ok
+    t1.0 += match (kust) { int => kust - 2, slice => throw 123 };
+    var t2 = createEmptyTuple();
+    t2.push(0);
+    t2.set(getTwo(), 0);
+    return [t1, t2];
+}
+
+@method_id(115)
+fun test115() {
+    var arr: array<int> = [getTwo(), getTwo()];
+    var sh: [int8, int16 | slice] = [getTwo(), getTwo()];
+    return (arr.get(0), sh.1 is int16 && sh.1 == 2);
+}
+
+fun returnTOfShape<T>(sh: [int, T]) {
+    return sh.1
+}
+
+fun returnTOfArray<T>(arr: array<T>) {
+    return arr.get(0)
+}
+
 
 fun main(x: int): (int, [Tup2Int]) {
     __expect_type(test110, "() -> (Tensor2Int, Tensor2Int)");
     __expect_type(eq2(10 as Color), "Color");
+
+    __expect_type(returnTOfShape([1, ""]), "string");
+    __expect_type(returnTOfArray([1, 234]), "int");
 
     try { if(x) { throw (1, x); } }
     catch (excNo, arg) { return (arg as int, [[eq2(arg as int), getTwo()]]); }
@@ -235,11 +266,13 @@ fun main(x: int): (int, [Tup2Int]) {
 @testcase | 112 | 5 1 | 5 1 0
 @testcase | 112 | 0 0 | 0 0 -1
 @testcase | 113 | 5 1 | 5 1 -100 (null) 5 1 -100 9 -100 (null) -100 (null) 5 1 -100 (null) (null) (null) 0
+@testcase | 114 |     | [ [ 2 ] [ 2 ] ]
+@testcase | 115 |     | 2 -1
 
 @fif_codegen DECLPROC eq1<int>()
-@fif_codegen DECLPROC eq1<tuple>()
+@fif_codegen DECLPROC eq1<array<unknown>>()
 @fif_codegen DECLPROC eq1<(int,int)>()
-@fif_codegen DECLPROC eq1<[int,int]>()
+@fif_codegen DECLPROC eq1<array<int>>()
 @fif_codegen DECLPROC eq1<MInt?>()
 @fif_codegen DECLPROC eq1<int|slice|null>()
 @fif_codegen DECLPROC eq1<Wrapper<Wrapper<int8>>>()

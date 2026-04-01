@@ -32,7 +32,7 @@ void Symbol::check_import_exists_when_used_from(FunctionPtr cur_f, AnyV usage) c
     has_import |= import.imported_file == declared_in;
   }
   if (!has_import) {
-    err("Using a non-imported symbol `{}`\n""hint: forgot to import \"{}\"?", name, declared_in->extract_short_name()).fire(usage, cur_f);
+    err("Using a non-imported symbol `{}`\n""hint: forgot to import \"{}\"?", name, declared_in->extract_short_name()).collect(usage, cur_f);
   }
 }
 

@@ -36,7 +36,6 @@ enum TokenType {
   tok_const,
   tok_var,
   tok_val,
-  tok_redef,
   tok_mutate,
   tok_self,
 
@@ -126,6 +125,7 @@ enum TokenType {
   tok_double_arrow,
   tok_as,
   tok_is,
+  tok_double_question,
 
   tok_tolk,
   tok_semver,
@@ -159,7 +159,7 @@ class Lexer {
   int cur_token_offset = 0;
 
   void update_location() {
-    cur_token_offset = static_cast<int>(p_next - p_start);
+    cur_token_offset = static_cast<int>(p_next - p_start); 
   }
 
 public:
@@ -235,7 +235,5 @@ public:
   GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
   void error(const std::string& err_msg) const;
 };
-
-void lexer_init();
 
 }  // namespace tolk

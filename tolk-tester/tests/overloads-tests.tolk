@@ -39,12 +39,12 @@ fun test1() {
 
 fun T.doSome2(self): int { return 0 }
 fun int8.doSome2(self): cell { return createEmptyCell() }
-fun int16.doSome2(self): slice { return "" }
+fun int16.doSome2(self) { return "" }
 
 fun test2() {
     __expect_type(5.doSome2(), "int");
     __expect_type((5 as int8).doSome2(), "cell");
-    __expect_type(((5 as int8) as int16).doSome2(), "slice");
+    __expect_type(((5 as int8) as int16).doSome2(), "string");
     __expect_type((5 as int?).doSome2(), "int");
     __expect_type(5.doSome2().doSome2(), "int");
     __expect_type((1, 2).doSome2(), "int");
@@ -65,12 +65,12 @@ fun test3() {
     __expect_type(MyPair<never, (slice,slice)>{}.mapFn(), "int4");
 }
 
-fun (int|slice).unionMix(self): slice { return "" }
+fun (int|slice).unionMix(self): slice { return createEmptySlice() }
 fun int.unionMix(self): bool { return true }
 
 fun test4() {
     __expect_type((5 as int).unionMix(), "bool");
-    __expect_type(("".unionMix()), "slice");
+    __expect_type((createEmptySlice().unionMix()), "slice");
     __expect_type(((5 as int|slice).unionMix()), "slice");
 }
 
@@ -186,20 +186,20 @@ fun T.p(self): int3 { return 0 }
 fun test11() {
     __expect_type((5, "").p(), "int1");
     __expect_type((5 as int8, "").p(), "int8");
-    __expect_type(("", "").p(), "slice");
+    __expect_type(("", "").p(), "string");
     __expect_type((1, 2, 3).p(), "int3");
 }
 
-fun Wrapper<T|slice>.w(self): int1 { return 0 }
+fun Wrapper<T|string>.w(self): int1 { return 0 }
 fun Wrapper<T>.w(self): int2 { return 0 }
 
 fun test12() {
-    __expect_type(Wrapper<int|slice>{item:0}.w(), "int1");
-    __expect_type(Wrapper<PointAlias|slice>{item:""}.w(), "int1");
+    __expect_type(Wrapper<int|string>{item:0}.w(), "int1");
+    __expect_type(Wrapper<PointAlias|string>{item:""}.w(), "int1");
     __expect_type(Wrapper<Wrapper<int>>{item:{item:0}}.w(), "int2");
-    // here the compiler finds T=slice resulting in Wrapper<slice|slice> (it's correct)
+    // here the compiler finds T=string resulting in Wrapper<string|string> (it's correct)
     // and chooses (1) due to a deeper shape
-    __expect_type(Wrapper<slice>{item:""}.w(), "int1");
+    __expect_type(Wrapper{item:""}.w(), "int1");
 }
 
 type MyCell<T> = cell
@@ -263,7 +263,7 @@ type MMap8Of32 = map<int8, MMap32>
 fun test14(
     m1: map<int8, map<int16, int32>>, m2: map<int8, map<MInt16ov, MInt16ov>>,
     m3: map<int8, map<Point, slice>>, m4: map<int8, MMap32>, m5: MMap8Of32,
-    m6: map<int8, map<int8,int8>?>,
+    m6: map<int8, map<int8,int8>?>, 
     m7: map<int8, bool|cell>, m8: map<MInt16, ()|cell|Point>,
     m9: map<address, address>,
 ) {
@@ -277,6 +277,36 @@ fun test14(
     __expect_type(m8.mySize(), "int2");
     __expect_type(m9.mySize(), "int1");
 }
+
+type ArrAlias<T> = array<T>
+type ArrArrInt8 = array<array<int8>>
+
+fun ArrAlias<T>.mySize(self): int1 { return self.size() }
+fun array<array<T>>.mySize(self): int2 { return self.size() }
+fun array<array<int8>>.mySize(self): int3 { return self.size() }
+
+fun test15(
+    arrInt: array<int>,
+    arrArrInt: array<array<int>>,
+    arrArrArrInt: array<array<array<int>>>,
+    tup: array<unknown>,
+    aliasInt: ArrAlias<int>,
+    aliasArrInt: ArrAlias<array<int>>,
+    arrArrInt8_1: array<array<int8>>,
+    arrArrInt8_2: ArrAlias<array<int8>>,
+    arrArrInt8_3: ArrAlias<ArrAlias<int8>>,
+) {
+    __expect_type(arrInt.mySize(), "int1");
+    __expect_type(arrArrInt.mySize(), "int2");
+    __expect_type(arrArrArrInt.mySize(), "int2");
+    __expect_type(tup.mySize(), "int1");
+    __expect_type(aliasInt.mySize(), "int1");
+    __expect_type(aliasArrInt.mySize(), "int2");
+    __expect_type(arrArrInt8_1.mySize(), "int3");
+    __expect_type(arrArrInt8_2.mySize(), "int3");
+    __expect_type(arrArrInt8_3.mySize(), "int3");
+}
+
 
 fun main() {
     // besides these positive tests, there are many negative resulting in "ambiguous call"

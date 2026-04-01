@@ -173,6 +173,9 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
     }
     fields.emplace_back(new StructFieldData(std::move(field_name), v_ident, i, v_field->is_private, v_field->is_readonly, v_field->type_node, v_field->default_value));
   }
+  if (fields.size() >= 64) {
+    err("too big struct (64 or more fields)").fire(v->get_identifier());
+  }
 
   PackOpcode opcode(0, 0);
   if (v->has_opcode()) {
@@ -267,11 +270,6 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
     f_sym->tvm_method_id = v->tvm_method_id;
   } else if (v->flags & FunctionData::flagContractGetter) {
     f_sym->tvm_method_id = calculate_tvm_method_id_by_func_name(f_identifier);
-    for (FunctionPtr other : G.all_contract_getters) {
-      if (other->tvm_method_id == f_sym->tvm_method_id) {
-        err("GET methods hash collision: `{}` and `{}` produce the same hash. Consider renaming one of these functions.", other, f_sym).fire(v);
-      }
-    }
   } else if (v->flags & FunctionData::flagIsEntrypoint) {
     f_sym->tvm_method_id = calculate_tvm_method_id_for_entrypoint(f_identifier);
   }
@@ -282,19 +280,15 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
 
   if (!f_sym->receiver_type_node) {
     G.symtable.add_function(f_sym);
-  } else if (!substitutedTs) {
+  } else {
     G.all_methods.push_back(f_sym);
   }
   G.all_functions.push_back(f_sym);
-  if (f_sym->is_contract_getter()) {
-    G.all_contract_getters.push_back(f_sym);
-  }
   v->mutate()->assign_fun_ref(f_sym);
   return f_sym;
 }
 
-static void iterate_through_file_symbols(const SrcFile* file) {
-  static std::unordered_set<const SrcFile*> seen;
+static void iterate_through_file_symbols(const SrcFile* file, std::unordered_set<const SrcFile*>& seen) {
   if (!seen.insert(file).second) {
     return;
   }
@@ -304,8 +298,7 @@ static void iterate_through_file_symbols(const SrcFile* file) {
     switch (v->kind) {
       case ast_import_directive:
         // on `import "another-file.tolk"`, register symbols from that file at first
-        // (for instance, it can calculate constants, which are used in init_val of constants in current file below import)
-        iterate_through_file_symbols(v->as<ast_import_directive>()->file);
+        iterate_through_file_symbols(v->as<ast_import_directive>()->file, seen);
         break;
 
       case ast_constant_declaration:
@@ -333,9 +326,9 @@ static void iterate_through_file_symbols(const SrcFile* file) {
 }
 
 void pipeline_register_global_symbols() {
-  for (const SrcFile* file : G.all_src_files) {
-    iterate_through_file_symbols(file);
-  }
+  std::unordered_set<const SrcFile*> seen;
+  iterate_through_file_symbols(G.all_src_files.get_stdlib_common_file(), seen);
+  iterate_through_file_symbols(G.all_src_files.get_entrypoint_file(), seen);
 }
 
 FunctionPtr pipeline_register_instantiated_generic_function(FunctionPtr base_fun_ref, AnyV cloned_v, std::string&& name, const GenericsSubstitutions* substitutedTs) {

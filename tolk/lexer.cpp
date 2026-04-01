@@ -168,20 +168,34 @@ struct ChunkMultilineComment final : ChunkLexerBase {
 };
 
 // A string, starting from "
-// Note, that there are no escape symbols inside: the purpose of strings in Tolk just doesn't need it.
 // In FunC, a string might have ended with a modifier like `"..."c`
-// It's not valid in Tolk, valid is `stringCrc32("...")`
+// It's not valid in Tolk, valid is `"...".crc32()` (just methods for `string`)
 struct ChunkString final : ChunkLexerBase {
   bool parse(Lexer* lex) const override {
     const char* str_begin = lex->c_str();
     lex->skip_chars(1);
-    while (!lex->is_eof() && lex->char_at() != '"' && lex->char_at() != '\n') {
-      lex->skip_chars(1);
+    bool end_found = false;
+    while (!lex->is_eof() && !end_found) {
+      switch (lex->char_at()) {
+        case '"':
+          lex->skip_chars(1);
+          end_found = true;
+          break;
+        case '\\':
+          lex->skip_chars(2); // will be unescaped when constructing AST
+          break;
+        case '\0':
+          lex->error("NUL byte inside string literal");
+        case '\n':
+        case '\r':
+          lex->error("string pasts end of line");
+        default:
+          lex->skip_chars(1);
+      }
     }
-    if (lex->char_at() != '"') {
-      lex->error("string extends past end of line");
+    if (!end_found) {
+      lex->error("string pasts end of line");
     }
-    lex->skip_chars(1);
 
     std::string_view str_val(str_begin, lex->c_str() - str_begin);    // with surrounding quotes
     lex->add_token(tok_string_const, str_val);
@@ -196,16 +210,28 @@ struct ChunkMultilineString final : ChunkLexerBase {
   bool parse(Lexer* lex) const override {
     const char* str_begin = lex->c_str();
     lex->skip_chars(3);
-    while (!lex->is_eof()) {
-      if (lex->char_at() == '"' && lex->char_at(1) == '"' && lex->char_at(2) == '"') {
-        break;
+    bool end_found = false;
+    while (!lex->is_eof() && !end_found) {
+      switch (lex->char_at()) {
+        case '"':
+          lex->skip_chars(1);
+          if (lex->char_at() == '"' && lex->char_at(1) == '"') {
+            lex->skip_chars(2);
+            end_found = true;
+          }
+          break;
+        case '\\':
+          lex->skip_chars(2); // will be unescaped when constructing AST
+          break;
+        case '\0':
+          lex->error("NUL byte inside string literal");
+        default:
+          lex->skip_chars(1);
       }
-      lex->skip_chars(1);
     }
-    if (lex->is_eof()) {
-      lex->error("string extends past end of file");
+    if (!end_found) {
+      lex->error("string pasts past end of file");
     }
-    lex->skip_chars(3);
 
     std::string_view str_val(str_begin, lex->c_str() - str_begin);    // with surrounding quotes
     lex->add_token(tok_string_const, str_val);
@@ -214,12 +240,12 @@ struct ChunkMultilineString final : ChunkLexerBase {
 };
 
 // An annotation for a function (in the future, for vars also):
-// @inline and others
+// @inline, @test.tags and others
 struct ChunkAnnotation final : ChunkLexerBase {
   bool parse(Lexer* lex) const override {
     const char* str_begin = lex->c_str();
     lex->skip_chars(1);
-    while (std::isalnum(lex->char_at()) || lex->char_at() == '_') {
+    while (std::isalnum(lex->char_at()) || lex->char_at() == '_' || lex->char_at() == '.') {
       lex->skip_chars(1);
     }
 
@@ -361,7 +387,6 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
         if (str == "const") return tok_const;
         if (str == "false") return tok_false;
         if (str == "match") return tok_match;
-        if (str == "redef") return tok_redef;
         if (str == "while") return tok_while;
         if (str == "break") return tok_break;
         if (str == "throw") return tok_throw;
@@ -525,6 +550,7 @@ struct TolkLanguageGrammar {
     register_token("=>", 2, tok_double_arrow);
     register_token("++", 2, tok_double_plus);
     register_token("--", 2, tok_double_minus);
+    register_token("??", 2, tok_double_question);
     register_token("<=>", 3, tok_spaceship);
     register_token("~>>", 3, tok_rshiftR);
     register_token("^>>", 3, tok_rshiftC);

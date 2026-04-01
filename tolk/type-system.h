@@ -56,7 +56,9 @@ protected:
     type_id_address_int = 8,
     type_id_address_any = 9,
     type_id_void = 10,
+    type_id_unknown = 11,
     type_id_coins = 17,
+    type_id_string = 18,
     type_id_never = 19,
     type_id_int8 = 42,
     type_id_int16 = 44,
@@ -65,7 +67,7 @@ protected:
     type_id_int128 = 50,
     type_id_int256 = 52,
   };
-
+  
   enum flag_mask {
     flag_contains_genericT_inside = 1 << 2,
     flag_contains_type_alias_inside = 1 << 3,
@@ -240,26 +242,6 @@ public:
 };
 
 /*
- * `tuple` is TypeDataTuple, representation of TVM tuple.
- * Note, that it's UNTYPED tuple. It occupies 1 stack slot in TVM. Its elements are any TVM values at runtime,
- * so getting its element results in TypeDataUnknown (which must be assigned/cast explicitly).
- */
-class TypeDataTuple final : public TypeData {
-  TypeDataTuple() : TypeData(0) {}
-
-  static TypePtr singleton;
-  friend void type_system_init();
-
-public:
-  static TypePtr create() { return singleton; }
-
-  int get_type_id() const override { return type_id_tuple; }
-  std::string as_human_readable() const override { return "tuple"; }
-  bool can_rhs_be_assigned(TypePtr rhs) const override;
-  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
-};
-
-/*
  * `continuation` is TypeDataContinuation, representation of TVM continuation.
  * It's like "untyped callable", not compatible with other types.
  */
@@ -274,6 +256,26 @@ public:
 
   int get_type_id() const override { return type_id_continuation; }
   std::string as_human_readable() const override { return "continuation"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `string` is TypeDataString — a cell containing snake-formatted text data.
+ * Snake format: data bytes in cell, if more data needed — ref to next cell.
+ * At TVM level, string is a cell (1 stack slot).
+ */
+class TypeDataString final : public TypeData {
+  TypeDataString() : TypeData(0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  int get_type_id() const override { return type_id_string; }
+  std::string as_human_readable() const override { return "string"; }
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
 };
@@ -306,6 +308,54 @@ public:
   std::string as_human_readable() const override;
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `array<unknown>`, `array<int>`, etc. TypeDataArray, internally represented as a TVM tuple.
+ * It can contain from 0 to 255 elements and occupies 1 stack slot in TVM regardless of its size.
+ * If T is complex (not 1-slot), it's automatically converted to/from a sub-tuple on write/read. 
+ */
+class TypeDataArray final : public TypeData {
+  TypeDataArray(int children_flags, TypePtr innerT)
+    : TypeData(children_flags)
+    , innerT(innerT) {}
+
+public:
+  TypePtr innerT;
+
+  static TypePtr create(TypePtr innerT);
+
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
+  bool equal_to(TypePtr rhs) const override;
+};
+
+/*
+ * `[int, slice]` is TypeDataShapedTuple, a TVM 'tuple' under the hood, contained in 1 stack slot.
+ * Unlike TypeDataArray (unknown elements count), its inner structure is known, it has no `push` and other methods.
+ * Note, that an expression `[1, 2]` is `[int, int]`, but being assigned to a variable, replaced with `array<int>`.
+ */
+class TypeDataShapedTuple final : public TypeData {
+  TypeDataShapedTuple(int children_flags, std::vector<TypePtr>&& items)
+    : TypeData(children_flags)
+    , items(std::move(items)) {}
+
+public:
+  std::vector<TypePtr> items;
+
+  int size() const { return static_cast<int>(items.size()); }
+
+  static TypePtr create(std::vector<TypePtr>&& items);
+
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
+  bool equal_to(TypePtr rhs) const override;
 };
 
 /*
@@ -487,31 +537,6 @@ public:
 };
 
 /*
- * `[int, slice]` is TypeDataBrackets, a TVM 'tuple' under the hood, contained in 1 stack slot.
- * Unlike TypeDataTuple (untyped tuples), it has a predefined inner structure and can be assigned as
- * `var [i, cs] = [0, ""]`  (where i and cs become two separate variables on a stack, int and slice).
- */
-class TypeDataBrackets final : public TypeData {
-  TypeDataBrackets(int children_flags, std::vector<TypePtr>&& items)
-    : TypeData(children_flags)
-    , items(std::move(items)) {}
-
-public:
-  const std::vector<TypePtr> items;
-
-  static TypePtr create(std::vector<TypePtr>&& items);
-
-  int size() const { return static_cast<int>(items.size()); }
-
-  int get_type_id() const override;
-  std::string as_human_readable() const override;
-  bool can_rhs_be_assigned(TypePtr rhs) const override;
-  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
-  TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
-  bool equal_to(TypePtr rhs) const override;
-};
-
-/*
  * `int8`, `int32`, `uint1`, `uint257`, `varint16` are TypeDataIntN. At TVM level, it's just int.
  * The purpose of intN is to be used in struct fields, describing the way of serialization (n bits).
  * A field `value: int32` has the TYPE `int32`, so being assigned to a variable, that variable is also `int32`.
@@ -614,7 +639,7 @@ public:
   // true : `int?`, `slice?`, `StructWith1IntField?`
   // false: `(int, int)?`, `ComplexStruct?`, `()?`
   bool is_primitive_nullable() const {
-    return !has_genericT_inside() && get_width_on_stack() == 1 && or_null != nullptr && or_null->get_width_on_stack() == 1;
+    return get_width_on_stack() == 1 && or_null != nullptr && or_null->get_width_on_stack() == 1;
   }
   bool has_null() const {
     return or_null != nullptr || has_variant_equal_to(TypeDataNullLiteral::create());
@@ -650,7 +675,7 @@ class TypeDataMapKV final : public TypeData {
 public:
   TypePtr TKey;
   TypePtr TValue;
-
+  
   static TypePtr create(TypePtr TKey, TypePtr TValue);
 
   int get_type_id() const override;
@@ -677,8 +702,30 @@ class TypeDataUnknown final : public TypeData {
 public:
   static TypePtr create() { return singleton; }
 
-  int get_type_id() const override;
+  int get_type_id() const override { return type_id_unknown; }
   std::string as_human_readable() const override { return "unknown"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  bool can_hold_tvm_null_instead() const override;
+};
+
+/*
+ * `undefined`, or `not inferred`, is a special type for variables that are in the process of inferring.
+ * For example, `var x: int;` (lateinit), before assigned, it "not inferred" in cfg.
+ * For example, `var x = 4` — a hint for rhs (calculated from rhs) will be "not inferred".
+ * For example, `var (a, b, c) = (1, 2)`, `c` will be left "not inferred" and fired at type checking.
+ */
+class TypeDataNotInferred final : public TypeData {
+  TypeDataNotInferred() : TypeData(0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  int get_type_id() const override;
+  std::string as_human_readable() const override { return "undefined"; }
   bool can_rhs_be_assigned(TypePtr rhs) const override;
   bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
 };
@@ -729,9 +776,5 @@ public:
   bool can_hold_tvm_null_instead() const override;
 };
 
-
-// --------------------------------------------
-
-void type_system_init();
 
 } // namespace tolk

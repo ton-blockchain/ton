@@ -150,13 +150,12 @@ fun test9() {
     var t = createEmptyTuple();
     t.push(fun() { return fun(x: int) { return x + 3 } }());
     t.push(fun() {});
-    t.1 = fun() { g103 -= 500; };
+    t.set(fun() { g103 -= 500; }, 1);
 
-    var t2 = [1, fun() {}];
-    __expect_type(t2, "[int, () -> void]");
+    var t2 = [1, fun() {}] as [int16, () -> void];
     t2.1 = fun() { g103 -= 500; };
 
-    return (t.get<() -> void>(1)(), t2.1(), g103, t.get<(int) -> int>(0)(t2.0 += 4));
+    return ((t.get(1) as () -> void)(), t2.1(), g103, (t.get(0) as unknown as (int) -> int)(t2.0 += 4));
 }
 
 @method_id(110)
@@ -179,13 +178,46 @@ fun test11(v: bool) {
     var nullable_cb = v ? null : fun(x: int) { return x * 2 };
     var union_int: int | (int -> int) = v ? v as int : fun(x: int) { return x * 2 };
     var union_cn: (()->int) | (int->int) = v ? fun() { return 500 } : fun(x : int) { return x * 2 };
-
+    
     return (
         nullable_cb != null ? nullable_cb(10) : null,
         (union_int is int) ? union_int : union_int(10),
         (union_int is int -> int) ? union_int(10) : union_int,
         (union_cn is () -> int) ? union_cn() : union_cn(10),
     )
+}
+
+@method_id(112)
+fun test12(useCb: bool) {
+    var f1: ((int) -> int) | slice = fun(a) {
+        __expect_type(a, "int");
+        return a * 2
+    };
+    __expect_type(f1, "(int) -> int");
+    var f2: bool | (WithCb -> int) = !useCb ? useCb : fun(a) {
+        __expect_type(a, "WithCb");
+        __expect_type(a.cb, "(int, int) -> int");
+        return a.cb(5, 10)
+    };
+    __expect_type(f2, "bool | ((WithCb) -> int)");
+    return (
+        f1(10),
+        (f2 is bool) ? f2 as int : f2({cb: fun(a, b) {
+            __expect_type(a, "int");
+            return a * b;
+        }}),
+    )
+}
+
+@method_id(113)
+fun test13(f1null: bool) {
+    var a = [] as array<(int -> int)?>;
+    a.push(f1null ? null : fun(a) {
+        __expect_type(a, "int");
+        return a * 2;
+    });
+    a.push(null);
+    return (a.get(0) ?? a.get(1) ?? fun(a: int) { return a * 10 })(6);
 }
 
 fun main() {
@@ -199,13 +231,17 @@ fun main() {
 @testcase | 101 |        | 10 30 0 30
 @testcase | 102 | 10 -20 | -20 -10 0 30
 @testcase | 103 |        | 16 2550 8 9 1
-@testcase | 104 |        | 30
-@testcase | 105 |        | 30 30
-@testcase | 106 |        | 5 10 123 500
-@testcase | 107 |        | -1
-@testcase | 108 |        | -1 -1 123 typeid-1
-@testcase | 109 |        | -1000 8
-@testcase | 110 |        | 20 400 60
+@testcase | 104 |        | 30 
+@testcase | 105 |        | 30 30 
+@testcase | 106 |        | 5 10 123 500 
+@testcase | 107 |        | -1 
+@testcase | 108 |        | -1 -1 123 typeid-1 
+@testcase | 109 |        | -1000 8 
+@testcase | 110 |        | 20 400 60 
 @testcase | 111 | -1     | (null) -1 -1 500
 @testcase | 111 | 0      | 20 20 20 20
+@testcase | 112 | -1     | 20 50
+@testcase | 112 | 0      | 20 0
+@testcase | 113 | -1     | 60
+@testcase | 113 | 0      | 12
 */
