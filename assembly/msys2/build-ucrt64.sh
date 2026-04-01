@@ -45,12 +45,6 @@ PACMAN_PKGS=(
 pacman -Syu --noconfirm
 pacman -S --needed --noconfirm "${PACMAN_PKGS[@]}"
 
-if ! clang++ --version | grep -q "clang version 21"; then
-  echo "Error: clang 21 not found in PATH. Check your MSYS2 packages." >&2
-  clang++ --version >&2
-  exit 1
-fi
-
 if [ ! -f "$ROOT_DIR/third-party/zlib/configure" ]; then
   echo "Initializing zlib submodule..."
   git -C "$ROOT_DIR" submodule update --init --recursive third-party/zlib

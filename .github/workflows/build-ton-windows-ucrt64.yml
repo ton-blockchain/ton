@@ -36,9 +36,9 @@ jobs:
       - name: Run Build Script
         run: |
           echo "Running in MSYS2 UCRT64 environment!"
-          cp assembly/msys2/build-ucrt64-clang21.sh .
-          chmod +x build-ucrt64-clang21.sh
-          ./build-ucrt64-clang21.sh -a
+          cp assembly/msys2/build-ucrt64.sh .
+          chmod +x build-ucrt64.sh
+          ./build-ucrt64.sh -a
 
       - name: Upload artifacts
         uses: actions/upload-artifact@master
