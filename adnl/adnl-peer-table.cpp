@@ -577,7 +577,9 @@ void AdnlPeerTableImpl::set_peer_pair_idle(AdnlNodeIdShort l_id, AdnlNodeIdShort
     return;
   }
   auto l_it = local_ids_.find(l_id);
-  LOG_CHECK(l_it != local_ids_.end()) << l_id;
+  if (l_it == local_ids_.end()) {
+    return;
+  }
   LocalIdInfo &local_id = l_it->second;
   if (peer_pair.marked_idle_at) {
     local_id.peers_gc_order.erase({peer_pair.marked_idle_at, p_id});
@@ -624,12 +626,13 @@ void AdnlPeerTableImpl::add_protected_peers(AdnlNodeIdShort local_id, std::vecto
 
 void AdnlPeerTableImpl::remove_protected_peers(AdnlNodeIdShort local_id, std::vector<AdnlNodeIdShort> peer_ids) {
   auto it = local_ids_.find(local_id);
-  LOG_CHECK(it != local_ids_.end()) << local_id;
+  if (it == local_ids_.end()) {
+    return;
+  }
   LocalIdInfo &local_id_info = it->second;
   for (const AdnlNodeIdShort &peer_id : peer_ids) {
     auto it2 = local_id_info.protected_peers.find(peer_id);
-    CHECK(it2 != local_id_info.protected_peers.end());
-    if (--it2->second == 0) {
+    if (it2 != local_id_info.protected_peers.end() && --it2->second == 0) {
       local_id_info.protected_peers.erase(it2);
       if (PeerPair *peer_pair = get_peer_pair_if_exists(peer_id, local_id)) {
         if (peer_pair->marked_idle_at) {
