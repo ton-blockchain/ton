@@ -45,7 +45,7 @@ jobs:
           fi
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           platforms: linux/arm64
           push: true
@@ -87,7 +87,7 @@ jobs:
           fi
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           platforms: linux/amd64
           push: true
