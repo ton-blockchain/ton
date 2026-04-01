@@ -293,6 +293,7 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, std::string pfx
     os << " ]\n";
   }
   std::string dis = disabled() ? "<disabled> " : "";
+  if (replaced()) dis = "<replaced> "; // not just disabled
   if (noreturn()) {
     dis += "<noret> ";
   }
@@ -452,6 +453,9 @@ void Op::show_var_list(std::ostream& os, const std::vector<VarDescr>& list, cons
       }
       if (list[i].is_unused()) {
         os << '?';
+      }
+      if (list[i].is_replaced()) {
+        os << "#";
       }
       os << vars.at(list[i].idx) << ':';
       list[i].show_value(os);
