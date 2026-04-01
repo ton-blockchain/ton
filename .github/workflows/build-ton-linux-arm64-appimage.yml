@@ -60,7 +60,7 @@ jobs:
         ccache -sp
 
     - name: Save cache TON
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: ~/.ccache
         key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
