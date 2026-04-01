@@ -14,7 +14,6 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "tolk.h"
 #include "ast.h"
 #include "ast-aux-data.h"
 #include "ast-replacer.h"
@@ -23,20 +22,21 @@
 /*
  *   This pipe analyzes the body of
  *   > fun onInternalMessage(in: InMessage)
- *   and replaces `in.senderAddress` / etc. with aux AST vertices (handled specially at IR generation).
+ *   and transforms accesses to `in.xxx` fields.
  *
  *   This function is transformed to
  *   > fun onInternalMessage(in.body)
  *   so,
- *   - accessing `in.body` actually will take an element from a stack
+ *   - accessing `in.body` with directly reference the parameter on a stack.
  *   - accessing `in.senderAddress` will emit `INMSG_SRC` TVM instruction.
  */
 
 namespace tolk {
 
-// handle all functions having a prototype `fun f(var: InMessage)` (for testing purposes)
+// detect `onInternalMessage` with a single parameter
+// (there are other valid forms accepting raw slices, they are not transformed)
 static bool is_onInternalMessage(FunctionPtr fun_ref) {
-  if (fun_ref->is_entrypoint() || fun_ref->has_tvm_method_id()) {
+  if (fun_ref->is_entrypoint() && (fun_ref->name == "main" || fun_ref->name == "onInternalMessage")) {
     if (fun_ref->get_num_params() == 1) {
       const auto* t_param = fun_ref->get_param(0).declared_type->try_as<TypeDataStruct>();
       return t_param && t_param->struct_ref->name == "InMessage";
@@ -53,6 +53,7 @@ static bool is_onBouncedMessage(FunctionPtr fun_ref) {
 
 class TransformOnInternalMessageReplacer final : public ASTReplacerInFunctionBody {
   LocalVarPtr param_ref = nullptr;         // `in` for `fun onInternalMessage(in: InMessage)`
+  std::string orig_in_name;                // "in" (saved, since `param_ref` is a dangling pointer)
 
   static void validate_onBouncedMessage(FunctionPtr f) {
     if (f->inferred_return_type != TypeDataVoid::create() && f->inferred_return_type != TypeDataNever::create()) {
@@ -70,18 +71,28 @@ class TransformOnInternalMessageReplacer final : public ASTReplacerInFunctionBod
   AnyExprV replace(V<ast_reference> v) override {
     // don't allow `var v = in` or passing `in` to another function (only `in.someField` is allowed)
     if (v->sym == param_ref) {
-      err("using `{}` as an object is prohibited, because `InMessage` is a built-in struct, its fields are mapped to TVM instructions\n""hint: use `{}.senderAddress` and other fields directly", param_ref->name, param_ref->name).fire(v, cur_f);
+      err("using `{}` as an object is prohibited, because `InMessage` is a built-in struct, its fields are mapped to TVM instructions\n""hint: use `{}.senderAddress` and other fields directly", orig_in_name, orig_in_name).fire(v, cur_f);
     }
     return parent::replace(v);
   }
 
   AnyExprV replace(V<ast_dot_access> v) override {
-    // replace `in.senderAddress` / `in.valueCoins` with an aux vertex
     if (v->get_obj()->kind == ast_reference && v->get_obj()->as<ast_reference>()->sym == param_ref && v->is_target_struct_field()) {
-      if (v->is_lvalue && v->get_field_name() != "body" && v->get_field_name() != "bouncedBody") {
+      // replace `in.body` with a reference to a parameter, `slice` on a stack
+      if (v->get_field_name() == "body" || v->get_field_name() == "bouncedBody") {
+        auto v_body_name = createV<ast_identifier>(v->range, "in.body");
+        auto v_body_param = createV<ast_reference>(v->range, v_body_name, nullptr);
+        v_body_param->mutate()->assign_sym(&cur_f->parameters[0]);
+        v_body_param->mutate()->assign_inferred_type(TypeDataSlice::create());
+        return v_body_param;
+      }
+
+      // don't allow to modify `in.valueCoins` and other
+      if (v->is_lvalue) {
         err("modifying an immutable variable\n""hint: fields of InMessage can be used for reading only").fire(v, cur_f);
       }
 
+      // replace `in.senderAddress` / `in.valueCoins` with an aux vertex
       ASTAuxData* aux_getField = new AuxData_OnInternalMessage_getField(cur_f, v->get_field_name());
       return createV<ast_artificial_aux_vertex>(v, aux_getField, v->inferred_type);
     }
@@ -98,18 +109,18 @@ public:
     if (cur_f->name == "onBouncedMessage") {
       validate_onBouncedMessage(cur_f);
     }
-    param_ref = &cur_f->parameters[0];
-  }
+    param_ref = &cur_f->parameters[0];      // it's `in`, we'll replace references to it
+    orig_in_name = param_ref->name;
 
-  void on_exit_function(V<ast_function_declaration> v_function) override {
-    std::vector<LocalVarData> new_parameters;
-    new_parameters.emplace_back("in.body", cur_f->ident_anchor, TypeDataSlice::create(), nullptr, 0, 0);
-    cur_f->mutate()->parameters = std::move(new_parameters);
+    cur_f->mutate()->parameters = {
+      LocalVarData("in.body", cur_f->ident_anchor, TypeDataSlice::create(), nullptr, 0, 0),
+    };
   }
 };
 
 void pipeline_transform_onInternalMessage() {
-  replace_ast_of_all_functions<TransformOnInternalMessageReplacer>();
+  TransformOnInternalMessageReplacer replacer;
+  replace_ast_of_all_functions(replacer);
 }
 
 } // namespace tolk

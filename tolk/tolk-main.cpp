@@ -23,9 +23,9 @@
     exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 */
-#include "tolk.h"
 #include "tolk-version.h"
 #include "compiler-state.h"
+#include "compiler-settings.h"
 #include "td/utils/port/path.h"
 #include <getopt.h>
 #include <fstream>
@@ -38,21 +38,64 @@
 #include <unistd.h>
 #endif
 #include "git.h"
+#include "json-output.h"
 
 using namespace tolk;
+
+enum LongOnlyOptions {
+  OPT_BOC_OUTPUT = 256,
+  OPT_PATH_MAPPING,
+  OPT_NO_STACK_COMMENTS,
+  OPT_NO_LINE_COMMENTS,
+  OPT_JSON_ERRORS,
+  OPT_CHECK_ONLY,
+  OPT_ALLOW_NO_ENTRYPOINT,
+};
+
+static struct option long_options[] = {
+  {"output", required_argument, nullptr, 'o'},
+  {"boc-output", required_argument, nullptr, OPT_BOC_OUTPUT},
+  {"opt-level", required_argument, nullptr, 'O'},
+  {"path-mapping", required_argument, nullptr, OPT_PATH_MAPPING},
+  {"no-stack-comments", no_argument, nullptr, OPT_NO_STACK_COMMENTS},
+  {"no-line-comments", no_argument, nullptr, OPT_NO_LINE_COMMENTS},
+  {"json-errors", no_argument, nullptr, OPT_JSON_ERRORS},
+  {"check-only", no_argument, nullptr, OPT_CHECK_ONLY},
+  {"allow-no-entrypoint", no_argument, nullptr, OPT_ALLOW_NO_ENTRYPOINT},
+  {"verbose", no_argument, nullptr, 'e'},
+  {"version", no_argument, nullptr, 'V'},
+  {"help", no_argument, nullptr, 'h'},
+  {nullptr, 0, nullptr, 0}
+};
 
 void usage(const char* progname) {
   std::cerr
       << "usage: " << progname << " [options] <filename.tolk>\n"
-         "\tGenerates Fift TVM assembler code from a .tolk file\n"
-         "-o<fif-filename>\tWrites generated code into specified .fif file instead of stdout\n"
-         "-b<boc-filename>\tGenerate Fift instructions to save TVM bytecode into .boc file\n"
-         "-O<level>\tSets optimization level (2 by default)\n"
-         "-x<option-names>\tEnables experimental options, comma-separated\n"
-         "-S\tDon't include stack layout comments into Fift output\n"
-         "-L\tDon't include original lines from Tolk src into Fift output\n"
-         "-e\tIncreases verbosity level (extra output into stderr)\n"
-         "-v\tOutput version of Tolk and exit\n";
+            "\tGenerates Fift TVM assembler code from a .tolk file\n"
+         "-o, --output <fif-filename>\n"
+            "\tWrite generated code into specified .fif file instead of stdout\n"
+         "--boc-output <boc-filename>\n"
+            "\tGenerate Fift instructions to save TVM bytecode into .boc file\n"
+         "-O, --opt-level <level>\n"
+            "\tSet optimization level (2 by default)\n"
+         "--path-mapping <mapping>\n"
+            "\tRegister @name -> path mapping (e.g. @mylib=/path/to/lib)\n"
+         "--no-stack-comments\n"
+            "\tDon't include stack layout comments into Fift output\n"
+         "--no-line-comments\n"
+            "\tDon't include original lines from Tolk src into Fift output\n"
+         "--json-errors\n"
+            "\tShow compilation errors in JSON (not human-readable) format\n"
+         "--check-only\n"
+            "\tCheck sources for errors without generating code (for IDE in background)\n"
+         "--allow-no-entrypoint\n"
+            "\tDo not require main/onInternalMessage (e.g. to compile only get-methods)\n"
+         "-e, --verbose\n"
+            "\tIncrease verbosity level (extra output into stderr)\n"
+         "-v, --version\n"
+            "\tOutput version of Tolk and exit\n"
+         "-h, --help\n"
+            "\tShow this help message\n";
   std::exit(2);
 }
 
@@ -146,13 +189,31 @@ static std::string auto_discover_stdlib_folder() {
   return {};
 }
 
-td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind kind, const char* query) {
+td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind kind, const char* query, void* callback_payload) {
   switch (kind) {
     case CompilerSettings::FsReadCallbackKind::Realpath: {
-      bool is_stdlib = query[0] == '@' && strlen(query) > 8 && !strncmp(query, "@stdlib/", 8);
-      std::string path = is_stdlib
-            ? G.settings.stdlib_folder + static_cast<std::string>(query + 7)
-            : static_cast<std::string>(query);
+      std::string path;
+      if (query[0] == '@' && strlen(query) > 8 && !strncmp(query, "@stdlib/", 8)) {
+        path = G_settings.stdlib_folder + static_cast<std::string>(query + 7);
+      } else if (query[0] == '@') {
+        const char* slash = strchr(query, '/');
+        if (slash == nullptr || slash[1] == '\0') {
+          return td::Status::Error("import path with @ prefix must specify a file, e.g. @third_party/math-utils");
+        }
+        std::string_view at_prefix(query, slash);
+        std::string_view abs_folder = G_settings.get_path_mapping(at_prefix);
+        if (abs_folder.empty()) {
+          return td::Status::Error("path mapping " + std::string{at_prefix} + " was not registered");
+        }
+        path = std::string(abs_folder) + slash;
+      } else {
+        path = query;
+      }
+
+      // reject `import "some/dir/"`, do not try to load "some/dir/.tolk"
+      if (path.back() == '/' || path.back() == '\\') {
+        return td::Status::Error("import path must specify a file, not a directory");
+      }
 
       if (strncmp(path.c_str() + path.size() - 5, ".tolk", 5) != 0) {
         path += ".tolk";
@@ -161,8 +222,9 @@ td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind ki
       if (res_realpath.is_error()) {
         // note, that for non-existing files, `realpath()` on Linux/Mac returns an error,
         // whereas on Windows, it returns okay, but fails after, on reading, with a message "cannot open file"
-        return td::Status::Error(std::string{"cannot find file "} + query);
+        return td::Status::Error("cannot find file \"" + path + "\"");
       }
+      // files with the same realpath are considered equal (imported only once)
       return res_realpath;
     }
     case CompilerSettings::FsReadCallbackKind::ReadFile: {
@@ -176,6 +238,9 @@ td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind ki
       std::string str;
       str.resize(file_size);
       FILE* f = fopen(query, "rb");
+      if (!f) {
+        return td::Status::Error(std::string{"cannot open file "} + query);
+      }
       fread(str.data(), file_size, 1, f);
       fclose(f);
       return std::move(str);
@@ -184,57 +249,88 @@ td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind ki
       return td::Status::Error("unknown query kind");
     }
   }
+
+  // callback_payload is not used in CLI mode, it's for library mode, see tolk-wasm.cpp
+  static_cast<void>(callback_payload);
 }
 
-class StdCoutRedirectToFile {
-  std::unique_ptr<std::fstream> output_file;
-  std::streambuf* backup_sbuf = nullptr;
+GNU_ATTRIBUTE_NOINLINE
+static void compilation_failed_output_errors(const std::vector<ThrownParseError>& errors) {
+  constexpr int JSON_ERROR_LIMIT = 50;
+  constexpr int CONSOLE_ERROR_LIMIT = 20;
+  int shown = 0;
 
-public:
-  explicit StdCoutRedirectToFile(const std::string& output_filename) {
-    if (!output_filename.empty()) {
-      output_file = std::make_unique<std::fstream>(output_filename, std::fstream::trunc | std::fstream::out);
-      if (output_file->is_open()) {
-        backup_sbuf = std::cout.rdbuf(output_file->rdbuf());
-      }
+  if (G_settings.show_errors_as_json) {
+    JsonPrettyOutput json(std::cerr);
+    json.start_object();
+    json.key_value("status", "error");
+    json.start_array("errors");
+    for (const ThrownParseError& error : errors) {
+      if (shown >= JSON_ERROR_LIMIT) break;
+      error.output_to_json(json);
+      shown++;
+    }
+    json.end_array();
+    json.end_object();
+
+  } else {
+    for (const ThrownParseError& error : errors) {
+      if (shown >= CONSOLE_ERROR_LIMIT) break;
+      if (shown++) std::cerr << std::endl;  // separator between errors
+      error.output_to_console(std::cerr);
     }
   }
+}
 
-  ~StdCoutRedirectToFile() {
-    if (backup_sbuf) {
-      std::cout.rdbuf(backup_sbuf);
-    }
+static void compilation_failed_with_fatal(const std::string& message) {
+  // no location, no pretty header, no json output, just "fatal", something unexpected happened
+  std::cerr << "fatal: " << message << std::endl;
+}
+
+static void compilation_succeed_after_output_done() {
+  if (G_settings.show_errors_as_json) {
+    std::cerr << R"({"status":"ok"})";
   }
-
-  bool is_failed() const { return output_file && !output_file->is_open(); }
-};
+}
 
 int main(int argc, char* const argv[]) {
   int i;
-  while ((i = getopt(argc, argv, "o:b:O:x:SLevh")) != -1) {
+  while ((i = getopt_long(argc, argv, "o:O:evVh", long_options, nullptr)) != -1) {
     switch (i) {
       case 'o':
-        G.settings.output_filename = optarg;
+        G_settings.output_filename = optarg;
         break;
-      case 'b':
-        G.settings.boc_output_filename = optarg;
+      case OPT_BOC_OUTPUT:
+        G_settings.boc_output_filename = optarg;
         break;
       case 'O':
-        G.settings.optimization_level = std::max(0, atoi(optarg));
+        G_settings.optimization_level = std::max(0, atoi(optarg));
         break;
-      case 'x':
-        G.settings.parse_experimental_options_cmd_arg(optarg);
+      case OPT_PATH_MAPPING:
+        if (!G_settings.parse_path_mapping_cmd_arg(optarg)) {
+          return 2;   // the error was printed to std::cerr
+        }
         break;
-      case 'S':
-        G.settings.stack_layout_comments = false;
+      case OPT_NO_STACK_COMMENTS:
+        G_settings.stack_layout_comments = false;
         break;
-      case 'L':
-        G.settings.tolk_src_as_line_comments = false;
+      case OPT_NO_LINE_COMMENTS:
+        G_settings.tolk_src_as_line_comments = false;
+        break;
+      case OPT_JSON_ERRORS:
+        G_settings.show_errors_as_json = true;
+        break;
+      case OPT_CHECK_ONLY:
+        G_settings.check_only_no_output = true;
+        break;
+      case OPT_ALLOW_NO_ENTRYPOINT:
+        G_settings.allow_no_entrypoint = true;
         break;
       case 'e':
-        G.settings.verbosity++;
+        G_settings.verbosity++;
         break;
       case 'v':
+      case 'V':
         std::cout << "Tolk compiler v" << TOLK_VERSION << std::endl;
         std::cout << "Build commit: " << GitMetadata::CommitSHA1() << std::endl;
         std::cout << "Build date: " << GitMetadata::CommitDate() << std::endl;
@@ -245,12 +341,6 @@ int main(int argc, char* const argv[]) {
     }
   }
 
-  StdCoutRedirectToFile redirect_cout(G.settings.output_filename);
-  if (redirect_cout.is_failed()) {
-    std::cerr << "Failed to create output file " << G.settings.output_filename << std::endl;
-    return 2;
-  }
-
   // locate tolk-stdlib/ based on env or default system paths
   if (const char* env_var = getenv("TOLK_STDLIB")) {
     std::string stdlib_filename = static_cast<std::string>(env_var) + "/common.tolk";
@@ -259,18 +349,18 @@ int main(int argc, char* const argv[]) {
       std::cerr << "Environment variable TOLK_STDLIB is invalid: " << res.move_as_error().message().c_str() << std::endl;
       return 2;
     }
-    G.settings.stdlib_folder = env_var;
+    G_settings.stdlib_folder = env_var;
   } else {
-    G.settings.stdlib_folder = auto_discover_stdlib_folder();
+    G_settings.stdlib_folder = auto_discover_stdlib_folder();
   }
-  if (G.settings.stdlib_folder.empty()) {
+  if (G_settings.stdlib_folder.empty()) {
     std::cerr << "Failed to discover Tolk stdlib.\n"
                  "Probably, you have a non-standard Tolk installation.\n"
                  "Please, provide env variable TOLK_STDLIB referencing to tolk-stdlib/ folder.\n";
     return 2;
   }
-  if (G.is_verbosity(2)) {
-    std::cerr << "stdlib folder: " << G.settings.stdlib_folder << std::endl;
+  if (G_settings.verbosity >= 2) {
+    std::cerr << "stdlib folder: " << G_settings.stdlib_folder << std::endl;
   }
 
   if (optind != argc - 1) {
@@ -278,8 +368,38 @@ int main(int argc, char* const argv[]) {
     return 2;
   }
 
-  G.settings.read_callback = fs_read_callback;
+  G_settings.read_callback = fs_read_callback;
 
-  int exit_code = tolk_proceed(argv[optind]);
-  return exit_code;
+  TolkCompilationResult result = tolk_proceed(argv[optind]);
+  if (!result.fatal_msg.empty()) {
+    compilation_failed_with_fatal(result.fatal_msg);
+    return 2;
+  }
+  if (!result.errors.empty()) {
+    compilation_failed_output_errors(result.errors);
+    return 2;
+  }
+
+  // for IDE in background: no codegen, do not create or truncate output files
+  if (G_settings.check_only_no_output) {
+    compilation_succeed_after_output_done();
+    return 0;
+  }
+
+  // if output filename is empty, no files are written (only Fift code is written into stdout)
+  if (G_settings.output_filename.empty()) {
+    std::cout << result.fift_code;
+    compilation_succeed_after_output_done();
+    return 0;
+  }
+
+  std::ofstream fif_out_file(G_settings.output_filename);
+  if (!fif_out_file.is_open()) {
+    std::cerr << "Failed to create output file " << G_settings.output_filename << std::endl;
+    return 2;
+  }
+  fif_out_file << result.fift_code;
+
+  compilation_succeed_after_output_done();
+  return 0;
 }

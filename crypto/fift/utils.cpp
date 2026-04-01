@@ -228,7 +228,7 @@ td::Result<td::Ref<vm::Cell>> compile_asm(td::Slice asm_code) {
   return vm::std_boc_deserialize(std::move(boc.data));
 }
 
-td::Result<CompiledProgramOutput> compile_asm_program(std::string&& program_code, const std::string& fift_dir) {
+td::Result<CompiledProgramOutput> compile_asm_program(const std::string& program_code, const std::string& fift_dir) {
   std::string main_fif;
   main_fif.reserve(program_code.size() + 100);
   main_fif.append(program_code.data(), program_code.size());
@@ -244,7 +244,34 @@ td::Result<CompiledProgramOutput> compile_asm_program(std::string&& program_code
   TRY_RESULT(hex, res.read_file("hex"));
 
   return CompiledProgramOutput{
-      std::move(program_code),
+      std::move(boc.data),
+      std::move(hex.data),
+  };
+}
+
+td::Result<CompiledProgramOutput> compile_asm_program(const std::string& program_code, std::string&& fift_fif,
+                                                      std::string&& asm_fif) {
+  std::string main_fif;
+  main_fif.reserve(program_code.size() + 100);
+  main_fif.append(program_code.data(), program_code.size());
+  main_fif.append(R"( dup hashB B>X      $>B "hex" B>file)");  // write codeHashHex to a file
+  main_fif.append(R"(     boc>B B>base64 $>B "boc" B>file)");  // write codeBoc64 to a file
+
+  auto loader = std::make_unique<MemoryFileLoader>();
+  loader->add_file("/main.fif", std::move(main_fif));
+  loader->add_file("/Fift.fif", std::move(fift_fif));
+  loader->add_file("/Asm.fif", std::move(asm_fif));
+
+  SourceLookup source_lookup(std::move(loader));
+  source_lookup.add_include_path("/");
+
+  std::stringstream fift_output_stream;
+  TRY_RESULT(res, run_fift(std::move(source_lookup), &fift_output_stream));
+  TRY_RESULT(boc, res.read_file("boc"));
+  TRY_RESULT(hex, res.read_file("hex"));
+
+  // compiled Fift program_code = "PROGRAM{ ... }" into TVM bytecode (BoC, bag-of-cells)
+  return CompiledProgramOutput{
       std::move(boc.data),
       std::move(hex.data),
   };

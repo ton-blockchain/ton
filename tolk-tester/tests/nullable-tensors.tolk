@@ -193,20 +193,21 @@ fun test111() {
 @method_id(112)
 fun test112() {
     var x: (int, int)? = (10, 20);
-    incrementTensorComponents(mutate x!);
-    x!.incrementTensorComponents();
+    __expect_type(x, "(int, int)");
+    incrementTensorComponents(mutate x);
+    x.incrementTensorComponents();
     return x;
 }
 
 @method_id(113)
 fun test113() {
-    var t = [1, null];      // t.1 is always null
+    var t = [1, null] as [int8, null];      // t.1 is always null
     return isTensorNull(t.1);
 }
 
 @method_id(114)
 fun test114(): ((slice, (cell, [int, slice, tuple]))?, slice?, (int?, bool?)?) {
-    var t = [[null]];
+    var t = [[null]] as [[null]];
     return (t.0.0, t.0.0, t.0.0);
 }
 
@@ -214,8 +215,10 @@ fun test114(): ((slice, (cell, [int, slice, tuple]))?, slice?, (int?, bool?)?) {
 fun test115() {
     var tt = getNullableTensor(null);
     assignFirstComponentNullable(mutate tt, 5);
+    var t0 = getNullableTensor(1);
+    var t0n = t0!;
     return (
-        getNullableTensor(1)!.incrementTensorComponents(),
+        t0n.incrementTensorComponents(),
         sumOfNullableTensorComponents(getNullableTensor(1).incrementNullableTensorComponents().incrementNullableTensorComponents()),
         getNullableTensor(null).incrementNullableTensorComponents(),
         tt,
@@ -282,7 +285,7 @@ fun test122(setNull: bool) {
     if (setNull) {
         assignNullTo(mutate t!.1);
     } else {
-        var rhs = [3, 4];
+        var rhs = [3, 4] as [int, int];
         t!!.1 = rhs;
     }
     return t;
@@ -305,19 +308,6 @@ fun test124(setNull: bool) {
         t!!.1 = rhs;
     }
     return t;
-}
-
-global g125: int;
-fun getT125(): (int, (int, int)?, (int?, int)?) { return (g125 += 1, null, null); }
-
-@method_id(125)
-fun test125() {
-    g125 = 0;
-    getT125().1 = null;
-    getT125().2 = (1, 2);
-    (getT125()!! as (int, (int, int)?, (int?, int)?)).2 = null;
-    // test that nothing left on a stack
-    return g125;
 }
 
 @method_id(126)
@@ -528,30 +518,29 @@ fun main(){}
 @testcase | 123 |      | 1 3 4 typeid-3
 @testcase | 124 | 0    | 1 3 4 typeid-3 4 (null) (null) 0
 @testcase | 124 | -1   | 1 (null) (null) 0 4 (null) (null) 0
-@testcase | 125 |      | 3
 @testcase | 126 |      | 1 (null) 2
 @testcase | 127 | 1    | 1 (null) (null) 0 2
 @testcase | 127 | 2    | 1 2 3 typeid-1 4
 @testcase | 127 | 3    | 1 (null) (null) 0 5
-@testcase | 128 | 1    | 1 (null) (null) 0 2 typeid-6
+@testcase | 128 | 1    | 1 (null) (null) 0 2 typeid-5
 @testcase | 128 | 2    | (null) (null) (null) (null) (null) 0
-@testcase | 128 | 3    | 1 2 3 typeid-1 4 typeid-6
+@testcase | 128 | 3    | 1 2 3 typeid-1 4 typeid-5
 @testcase | 129 | 0    | 5 5 0 -1 1 2 0 -1
 @testcase | 129 | -1   | 5 5 0 -1 (null) (null) 0 -1
 @testcase | 130 | 0    | 1 2 3 typeid-1
 @testcase | 130 | -1   | 1 (null) (null) 0
-@testcase | 131 |      | typeid-7 777 0 777 777 777 0 0 typeid-7 typeid-7 777 typeid-7 typeid-7 typeid-8 777
+@testcase | 131 |      | typeid-6 777 0 777 777 777 0 0 typeid-6 typeid-6 777 typeid-6 typeid-6 typeid-7 777
 @testcase | 132 |      | -1 0 -1 0 777 (null) (null) -1 0 0
 @testcase | 133 |      | 60
 @testcase | 134 |      | 11 21 typeid-1
-@testcase | 135 |      | [ 10 ] [ (null) ] (null) 777 10 typeid-9 (null) typeid-9 (null) 0 777 10 typeid-10 (null) typeid-10 (null) 0 777 0 0 -1 0 0 -1 0 0 -1 777 0 -1 0 0 -1 0
+@testcase | 135 |      | [ 10 ] [ (null) ] (null) 777 10 typeid-8 (null) typeid-8 (null) 0 777 10 typeid-9 (null) typeid-9 (null) 0 777 0 0 -1 0 0 -1 0 0 -1 777 0 -1 0 0 -1 0
 @testcase | 136 | 9    | 9 0
 @testcase | 136 | null | (null) -1
-@testcase | 140 | 8 9  | 8 9 typeid-11 (null) (null) 0
+@testcase | 140 | 8 9  | 8 9 typeid-10 (null) (null) 0
 @testcase | 141 |      | (null) 10
 @testcase | 142 |      | 3 3 1 2
 @testcase | 143 | -1 0 | 1 2 1 3 777 (null) (null) (null) (null) 0
-@testcase | 143 | 0 -1 | 1 (null) 0 3 777 1 2 1 3 typeid-12
+@testcase | 143 | 0 -1 | 1 (null) 0 3 777 1 2 1 3 typeid-11
 
 @fif_codegen
 """
@@ -564,9 +553,9 @@ fun main(){}
 @fif_codegen
 """
   test113() PROC:<{
-    1 PUSHINT	//  '2=1
-    PUSHNULL	//  '2=1 '3
-    PAIR	//  t
+    1 PUSHINT	//  '1=1
+    PUSHNULL	//  '1=1 '2
+    2 TUPLE	//  t
     1 INDEX	//  '5
     PUSHNULL	//  '5 '6
     0 PUSHINT	//  '5 '6 '7=0

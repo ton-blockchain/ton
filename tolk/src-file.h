@@ -65,12 +65,15 @@ class AllRegisteredSrcFiles {
 public:
   const SrcFile* get_file(int file_id) const { return all_src_files.at(file_id); }
   const SrcFile* find_file(const std::string& realpath) const;
+  const SrcFile* get_stdlib_common_file() const { return all_src_files.at(0); }
+  const SrcFile* get_entrypoint_file() const { return all_src_files.at(1); }
 
   const SrcFile* locate_and_register_source_file(const std::string& filename, AnyV v_import_filename);
   SrcFile* get_next_unparsed_file();
 
   auto begin() const { return all_src_files.begin(); }
   auto end() const { return all_src_files.end(); }
+  auto size() const { return all_src_files.size(); }
 };
 
 // SrcRange is a "substring" in some loaded .tolk source SrcFile.
@@ -95,11 +98,11 @@ public:
   static SrcRange overlap(SrcRange start, SrcRange end) {
     return SrcRange(start.file_id, start.start_offset, end.end_offset);
   }
-
+  
   static SrcRange empty_at_start(SrcRange range) {
     return SrcRange(range.file_id, range.start_offset, range.start_offset);
   }
-
+  
   static SrcRange empty_at_end(SrcRange range) {
     return SrcRange(range.file_id, range.end_offset, range.end_offset);
   }
@@ -133,8 +136,20 @@ public:
   const SrcFile* get_src_file() const;
   std::string stringify_start_location(bool output_char_no) const;
 
-  void output_first_line_to_fif(std::ostream& os, int indent) const;
   void output_underlined(std::ostream& os) const;
+
+
+  struct DecodedRange {
+    int file_id;
+    int start_line_no;
+    int start_char_no;
+    int end_line_no;
+    int end_char_no;
+    std::string_view start_line_str;
+    std::string_view end_line_str;
+    std::string_view text_inside;
+  };
+  DecodedRange decode_offsets() const;
 };
 
 }  // namespace tolk

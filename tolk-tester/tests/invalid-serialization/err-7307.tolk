@@ -3,7 +3,7 @@ struct Counter7Decrement { byValue: int7 }
 type MsgEitherCounter = Counter7Increment | Counter7Decrement;
 
 fun f() {
-    var msg = lazy MsgEitherCounter.fromSlice("");  // neg10
+    var msg = lazy MsgEitherCounter.fromSlice(createEmptySlice());
     match (msg) {
         Counter7Increment => 1 as int32,
         Counter7Decrement => 2 as int32,

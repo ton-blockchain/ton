@@ -24,9 +24,10 @@
 
 namespace tolk {
 
-// make an error on overflow 1023 bits
+// make an error on overflow 1023 bits or 4 cells
 static Error err_theoretical_overflow_1023(StructPtr struct_ref, PackSize size) {
-  return err("struct `{}` can exceed 1023 bits in serialization (estimated size: {}..{} bits)\n\n"
+  bool exceeds_in_bits = size.max_bits > 1023;
+  return err("struct `{}` can exceed {} {} in serialization (estimated size: {}..{} {})\n\n"
                   "1) either suppress it by adding an annotation:\n"
                   ">     @overflow1023_policy(\"suppress\")\n"
                   ">     struct {} {\n"
@@ -38,18 +39,24 @@ static Error err_theoretical_overflow_1023(StructPtr struct_ref, PackSize size) 
                   ">         ...\n"
                   ">         more: Cell<ExtraFields>;\n"
                   ">     }\n",
-                  struct_ref, size.min_bits, size.max_bits, struct_ref->name, struct_ref->name);
+                  struct_ref,
+                  exceeds_in_bits ? 1023 : 4,
+                  exceeds_in_bits ? "bits" : "refs",
+                  exceeds_in_bits ? size.min_bits : size.min_refs,
+                  exceeds_in_bits ? size.max_bits : size.max_refs,
+                  exceeds_in_bits ? "bits" : "refs",
+                  struct_ref, struct_ref);
 }
 
 GNU_ATTRIBUTE_NOINLINE
 static void check_map_TKey_TValue(SrcRange range, TypePtr TKey, TypePtr TValue) {
   std::string because_msg;
   if (!check_mapKV_TKey_is_valid(TKey, because_msg)) {
-    err("invalid `map`: type `{}` can not be used as a key\n{}", TKey, because_msg).fire(range);
-  }
+    err("invalid `map`: type `{}` can not be used as a key\n{}", TKey, because_msg).collect(range);
+  } 
   if (!check_mapKV_TValue_is_valid(TValue, because_msg)) {
-    err("invalid `map`: type `{}` can not be used as a value\n{}", TValue, because_msg).fire(range);
-  }
+    err("invalid `map`: type `{}` can not be used as a value\n{}", TValue, because_msg).collect(range);
+  } 
 }
 
 GNU_ATTRIBUTE_NOINLINE
@@ -57,9 +64,6 @@ static void check_mapKV_inside_type(SrcRange range, TypePtr any_type) {
   any_type->replace_children_custom([range](TypePtr child) {
     if (const TypeDataMapKV* t_map = child->try_as<TypeDataMapKV>()) {
       check_map_TKey_TValue(range, t_map->TKey, t_map->TValue);
-    }
-    if (const TypeDataAlias* t_alias = child->try_as<TypeDataAlias>()) {
-      check_mapKV_inside_type(range, t_alias->underlying_type);
     }
     return child;
   });
@@ -74,7 +78,7 @@ static void check_mapKV_inside_type(AnyTypeV type_node) {
 // given `enum Role: int8` check colon type (not struct/slice etc.)
 static void check_enum_colon_type_to_be_intN(AnyTypeV colon_type_node) {
   if (!colon_type_node->resolved_type->try_as<TypeDataIntN>() && !colon_type_node->resolved_type->try_as<TypeDataCoins>()) {
-    err("serialization type of `enum` must be intN: `int8` / `uint32` / etc.").fire(colon_type_node);
+    err("serialization type of `enum` must be intN: `int8` / `uint32` / etc.").collect(colon_type_node);
   }
 }
 
@@ -88,20 +92,22 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
       for (TypePtr variant : s_union->variants) {
         check_type_fits_cell_or_has_policy(variant);
       }
+    } else if (const TypeDataArray* s_array = serialized_type->unwrap_alias()->try_as<TypeDataArray>()) {
+      check_type_fits_cell_or_has_policy(s_array->innerT);
     }
   }
 
   static void check_struct_fits_cell_or_has_policy(const TypeDataStruct* t_struct) {
     StructPtr struct_ref = t_struct->struct_ref;
-    bool avoid_check = struct_ref->is_instantiation_of_generic_struct() && struct_ref->base_struct_ref->name == "UnsafeBodyNoRef";
+    bool avoid_check = struct_ref->is_instantiation_of_UnsafeBodyNoRef();
     if (avoid_check) {
       return;
     }
 
     PackSize size = estimate_serialization_size(t_struct);
-    if (size.max_bits > 1023 && !size.is_unpredictable_infinity()) {
+    if ((size.max_bits > 1023 || size.max_refs > 4) && !size.is_unpredictable_infinity()) {
       if (struct_ref->overflow1023_policy == StructData::Overflow1023Policy::not_specified) {
-        err_theoretical_overflow_1023(struct_ref, size).fire(struct_ref->ident_anchor);
+        err_theoretical_overflow_1023(struct_ref, size).collect(struct_ref->ident_anchor);
       }
     }
     // don't check Cell<T> fields for overflow of T: it would be checked on load() or other interaction with T
@@ -114,35 +120,47 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
     if (!fun_ref || !fun_ref->is_builtin() || !fun_ref->is_instantiation_of_generic_function()) {
       return;
     }
-    std::string_view f_name = fun_ref->base_fun_ref->name;
 
-    if (f_name == "createEmptyMap") {
+    if (fun_ref->base_fun_ref->name == "createEmptyMap" || fun_ref->base_fun_ref->name == "createMapFromLowLevelDict") {
       check_map_TKey_TValue(v->range, fun_ref->substitutedTs->typeT_at(0), fun_ref->substitutedTs->typeT_at(1));
       return;
     }
-
+    
     TypePtr serialized_type = nullptr;
     bool is_pack = false;
-    if (f_name == "Cell<T>.load" || f_name == "T.fromSlice" || f_name == "T.fromCell" || f_name == "T.toCell" ||
-        f_name == "T.loadAny" || f_name == "slice.skipAny" || f_name == "slice.loadAny" || f_name == "builder.storeAny" || f_name == "T.estimatePackSize" ||
-        f_name == "createMessage" || f_name == "createExternalLogMessage") {
-      serialized_type = fun_ref->substitutedTs->typeT_at(0);
-      is_pack = f_name == "T.toCell" || f_name == "builder.storeAny" || f_name == "T.estimatePackSize" || f_name == "createMessage" || f_name == "createExternalLogMessage";
-    } else {
-      return;   // not a serialization function
+    if (!is_serialization_builtin_function(fun_ref, &serialized_type, &is_pack)) {
+      return;
     }
 
     std::string because_msg;
-    if (!check_struct_can_be_packed_or_unpacked(serialized_type, is_pack, because_msg)) {
+    if (!check_struct_can_be_packed_or_unpacked(serialized_type, is_pack, &because_msg)) {
       std::string via_name = fun_ref->is_method() ? fun_ref->method_name : fun_ref->base_fun_ref->name;
-      err("auto-serialization via {}() is not available for type `{}`\n{}", via_name, serialized_type, because_msg).fire(v, cur_f);
+      err("auto-serialization via {}() is not available for type `{}`\n{}", via_name, serialized_type, because_msg).collect(v, cur_f);
+      return;  // don't check overflow if serialization is not available
     }
 
-    check_type_fits_cell_or_has_policy(serialized_type);
+    if (!fun_ref->name.starts_with("reflect.")) {
+      check_type_fits_cell_or_has_policy(serialized_type);
+    }
   }
 
   void visit(V<ast_local_var_lhs> v) override {
     check_mapKV_inside_type(v->type_node);
+  }
+
+  void visit(V<ast_is_type_operator> v) override {
+    check_mapKV_inside_type(v->type_node);
+    parent::visit(v);
+  }
+
+  void visit(V<ast_cast_as_operator> v) override {
+    check_mapKV_inside_type(v->type_node);
+    parent::visit(v);
+  }
+
+  void visit(V<ast_square_brackets> v) override {
+    check_mapKV_inside_type(v->type_node);
+    parent::visit(v);
   }
 
 public:
@@ -158,7 +176,8 @@ public:
 };
 
 void pipeline_check_serialized_fields() {
-  visit_ast_of_all_functions<CheckSerializedFieldsAndTypesVisitor>();
+  CheckSerializedFieldsAndTypesVisitor visitor;
+  visit_ast_of_all_functions(visitor);
 
   for (StructPtr struct_ref : get_all_declared_structs()) {
     for (StructFieldPtr field_ref : struct_ref->fields) {

@@ -21,43 +21,30 @@
 namespace tolk {
 
 /*
- *
+ * 
  *   ABSTRACT CODE
- *
+ * 
  */
 
-void TmpVar::show_as_stack_comment(std::ostream& os) const {
-  if (!name.empty()) {
-    os << name;
-  } else {
-    os << '\'' << ir_idx;
-  }
-#ifdef TOLK_DEBUG
-  // uncomment for detailed stack output, like `'15(binary-op) '16(glob-var)`
-  // if (desc) os << desc;
-#endif
-}
-
-void TmpVar::show(std::ostream& os) const {
-  os << '\'' << ir_idx;   // vars are printed out as `'1 '2` (in stack comments, debug info, etc.)
-  if (!name.empty()) {
-    os << '_' << name;
-  }
-#ifdef TOLK_DEBUG
-  if (purpose) {
-    os << ' ' << purpose;    // "purpose" of implicitly created tmp var, like `'15 (binary-op) '16 (glob-var)`
-  }
-#endif
-}
-
 std::ostream& operator<<(std::ostream& os, const TmpVar& var) {
-  var.show(os);
+  os << '\'' << var.ir_idx;   // vars are printed out as `'1 '2` (in stack comments, debug info, etc.)
+  if (!var.name.empty()) {
+    os << '_' << var.name;
+  }
+#ifdef TOLK_DEBUG
+  if (var.purpose) {
+    os << ' ' << var.purpose;    // "purpose" of implicitly created tmp var, like `'15 (binary-op) '16 (glob-var)`
+  }
+#endif
   return os;
 }
 
 void VarDescr::show_value(std::ostream& os) const {
   if (val & _Int) {
     os << 'i';
+  }
+  if (val & _Const) {
+    os << 'c';
   }
   if (val & _Zero) {
     os << '0';
@@ -70,6 +57,12 @@ void VarDescr::show_value(std::ostream& os) const {
   }
   if (val & _Neg) {
     os << '<';
+  }
+  if (val & _Bool) {
+    os << 'B';
+  }
+  if (val & _Bit) {
+    os << 'b';
   }
   if (val & _Even) {
     os << 'E';
@@ -111,16 +104,22 @@ void VarDescr::set_const(td::RefInt256 value) {
   if (!int_const->signed_fits_bits(257)) {
     int_const.write().invalidate();
   }
-  val = _Int;
+  val = _Const | _Int;
   int s = sgn(int_const);
   if (s < -1) {
     val |= _Nan | _NonZero;
   } else if (s < 0) {
     val |= _NonZero | _Neg | _Finite;
+    if (*int_const == -1) {
+      val |= _Bool;
+    }
   } else if (s > 0) {
     val |= _NonZero | _Pos | _Finite;
-  } else {
-    val |= _Zero | _Neg | _Pos | _Finite;
+  } else if (!s) {
+    //if (*int_const == 1) {
+    //  val |= _Bit;
+    //}
+    val |= _Zero | _Neg | _Pos | _Finite | _Bool | _Bit;
   }
   if (val & _Finite) {
     val |= int_const->get_bit(0) ? _Odd : _Even;
@@ -129,39 +128,39 @@ void VarDescr::set_const(td::RefInt256 value) {
 
 void VarDescr::set_const(const std::string&) {
   int_const.clear();
-  val = 0;
+  val = _Const;
 }
 
 void VarDescr::operator|=(const VarDescr& y) {
-  if (is_int_const()) {
-    bool y_same = y.is_int_const() && *int_const == *y.int_const;
-    if (!y_same) {
-      int_const.clear();
-    }
-  }
   val &= y.val;
+  if (is_int_const() && y.is_int_const() && cmp(int_const, y.int_const) != 0) {
+    val &= ~_Const;
+  }
+  if (!(val & _Const)) {
+    int_const.clear();
+  }
 }
 
 void VarDescr::operator&=(const VarDescr& y) {
-  if (y.is_int_const()) {
+  val |= y.val;
+  if (y.int_const.not_null() && int_const.is_null()) {
     int_const = y.int_const;
   }
-  val |= y.val;
 }
 
 void VarDescr::set_value(const VarDescr& y) {
-  int_const = y.int_const;
   val = y.val;
+  int_const = y.int_const;
 }
 
 void VarDescr::set_value(VarDescr&& y) {
-  int_const = std::move(y.int_const);
   val = y.val;
+  int_const = std::move(y.int_const);
 }
 
 void VarDescr::clear_value() {
-  int_const.clear();
   val = 0;
+  int_const.clear();
 }
 
 void VarDescrList::show(std::ostream& os) const {
@@ -254,6 +253,11 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, const std::stri
       show_var_list(os, left, vars);
       os << " := " << str_const << std::endl;
       break;
+    case _SnakeStringConst:
+      os << indent << dis << "SNAKE_STR ";
+      show_var_list(os, left, vars);
+      os << " := " << str_const << std::endl;
+      break;
     case _Import:
       os << indent << dis << "IMPORT ";
       show_var_list(os, left, vars);
@@ -279,39 +283,39 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, const std::stri
       os << indent << dis << "REPEAT ";
       show_var_list(os, left, vars);
       os << ' ';
-      show_block(os, block0.get(), vars, indent, mode);
+      block0.show(os, vars, indent, mode);
       os << std::endl;
       break;
     case _If:
       os << indent << dis << "IF ";
       show_var_list(os, left, vars);
       os << ' ';
-      show_block(os, block0.get(), vars, indent, mode);
+      block0.show(os, vars, indent, mode);
       os << " ELSE ";
-      show_block(os, block1.get(), vars, indent, mode);
+      block1.show(os, vars, indent, mode);
       os << std::endl;
       break;
     case _While:
       os << indent << dis << "WHILE ";
       show_var_list(os, left, vars);
       os << ' ';
-      show_block(os, block0.get(), vars, indent, mode);
+      block0.show(os, vars, indent, mode);
       os << " DO ";
-      show_block(os, block1.get(), vars, indent, mode);
+      block1.show(os, vars, indent, mode);
       os << std::endl;
       break;
     case _Until:
       os << indent << dis << "UNTIL ";
       show_var_list(os, left, vars);
       os << ' ';
-      show_block(os, block0.get(), vars, indent, mode);
+      block0.show(os, vars, indent, mode);
       os << std::endl;
       break;
     case _Again:
       os << indent << dis << "AGAIN ";
       show_var_list(os, left, vars);
       os << ' ';
-      show_block(os, block0.get(), vars, indent, mode);
+      block0.show(os, vars, indent, mode);
       os << std::endl;
       break;
     default:
@@ -359,11 +363,11 @@ void Op::show_var_list(std::ostream& os, const std::vector<VarDescr>& list, cons
   }
 }
 
-void Op::show_block(std::ostream& os, const Op* block, const std::vector<TmpVar>& vars, const std::string& indent, int mode) {
+void OpList::show(std::ostream& os, const std::vector<TmpVar>& vars, const std::string& indent, int mode) const {
   os << "{" << std::endl;
   std::string sub_indent = indent + "  ";
-  for (const Op& op : block) {
-    op.show(os, vars, sub_indent, mode);
+  for (const auto& op : list) {
+    op->show(os, vars, sub_indent, mode);
   }
   os << indent << "}";
 }
@@ -377,14 +381,13 @@ std::ostream& operator<<(std::ostream& os, const CodeBlob& code) {
 void CodeBlob::print(std::ostream& os, int flags) const {
   os << "CODE BLOB: " << var_cnt << " variables, " << in_var_cnt << " input\n";
   if ((flags & 8) != 0) {
-    for (const auto& var : vars) {
-      var.show(os);
-      os << " : " << var.v_type->as_human_readable() << std::endl;
+    for (const TmpVar& var : vars) {
+      os << var << " : " << var.v_type->as_human_readable() << std::endl;
     }
   }
   os << "------- BEGIN --------\n";
   for (const auto& op : ops) {
-    op.show(os, vars, "", flags);
+    op->show(os, vars, "", flags);
   }
   os << "-------- END ---------\n\n";
 }
@@ -438,7 +441,7 @@ var_idx_t CodeBlob::create_int(AnyV origin, int64_t value, const char* purpose) 
 #endif
   var_idx_t ir_int = var_cnt;
   var_cnt++;
-  emplace_back(origin, Op::_IntConst, std::vector{ir_int}, td::make_refint(value));
+  add_int_const(origin, {ir_int}, td::make_refint(value));
   return ir_int;
 }
 

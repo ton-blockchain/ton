@@ -1,6 +1,13 @@
+import "@stdlib/reflection"
+
 type Tup2Int = [int, MInt];
 type Tensor2Int = (int, MInt);
 type MInt = int;
+
+struct Point {
+    x: int
+    y: int
+}
 
 @pure
 fun tuplePush<T>(mutate t: tuple, value: T): void
@@ -46,10 +53,10 @@ global gTens: (int, int)
 
 @method_id(100)
 fun testCodegenSimple() {
-    var t1 = [1];
+    var t1 = [1] as [int];
     t1.0 = 2;
     debug.printString("");
-    var t2 = [[1]];
+    var t2 = [[1]] as [[int]];
     t2.0.0 = 2;
     debug.printString("");
     gTup = [1];
@@ -63,7 +70,7 @@ fun testCodegenSimple() {
 
 @method_id(101)
 fun test101() {
-    var t = (1, (2, 3), [4, 5, [6, 7]], 8);
+    var t = (1, (2, 3), [4, 5, [6, 7]] as [int, int, [int, int]], 8);
     (t.0, t.1.0, t.2.0) = (2, 3, 5);
     t.3.increment();
     t.2.1 += (t.1.1 += 1) - t.1.1 + 1;
@@ -98,7 +105,7 @@ global t104: [[int, int]];
 
 @method_id(104)
 fun test104() {
-    var m = [[5, 5]];
+    var m = [[5, 5]] as [[coins, coins]];
     (m.0.0, m.0.1) = (10, 20);
     t104 = [[5, 5]];
     (t104.0.0, t104.0.1) = (10, 20);
@@ -106,19 +113,19 @@ fun test104() {
 }
 
 @method_id(105)
-fun test105(x: int, y: int): (tuple, int, (int?, int), int, int) {
+fun test105(x: int, y: int): (tuple, unknown, (int?, int), int, int) {
     var ab = (createEmptyTuple(), (x as int?, y), tuple.size);
     ab.0.push(1);
     tuplePush(mutate ab.0, 2);
     ab.1.0 = null;
     ab.1.1 += 10;
     var cb = ab.2;
-    return (ab.0, ab.0.1, ab.1, cb(ab.0), ab.2(ab.0));
+    return (ab.0, ab.0.get(1), ab.1, cb(ab.0), ab.2(ab.0));
 }
 
 @method_id(106)
 fun test106(x: int, y: int) {
-    var ab = [createEmptyTuple(), [x as int?, y], tuple.size];
+    var ab = [createEmptyTuple(), [x as int?, y], tuple.size] as [array<unknown>, [int?, int], array<unknown> -> int];
     ab.0.push(1);
     tuplePush(mutate ab.0, 2);
     ab.1.0 = null;
@@ -132,7 +139,7 @@ fun test107() {
     var ab = createEmptyTuple();
     ab.push(1);
     ab.push(beginCell().storeInt(1, 32));
-    return (ab.0 as int, getBuilderBitsCount(ab.1));
+    return (ab.get(0), getBuilderBitsCount(ab.get(1) as builder));
 }
 
 global t108: [int, [int, [int]]];
@@ -141,7 +148,7 @@ global t108: [int, [int, [int]]];
 fun test108(last: int) {
     t108 = [1, [2, [last]]];
     t108.1.1.0.increment();
-    var t = [1, [2, [last]]];
+    var t: [int, [int, [int]]] = [1, [2, [last]]];
     t.1.1.0.increment();
     return (t108, t);
 }
@@ -153,7 +160,7 @@ fun test109(x: (int, int)): (int, int, int, int, int, int, int) {
 
 @method_id(110)
 fun test110(f: int, s: int) {
-    var x = [f, s];
+    var x = [f, s] as [int, int];
     return (x, x.1, x.1.plus(x.1 / 20), x.1, x.1 = x.1 * 2, x.1, x.1 += 1, x.1, x);
 }
 
@@ -170,7 +177,7 @@ global yy: [int, int];
 @method_id(112)
 fun test112(f: int, s: int) {
     yy = [f, s];
-    return (yy, yy.1, yy.1.plus(yy.1 / 20), eq(yy.1 += (yy.1 *= 0)), yy.1 = yy.1 * 2, yy.1, yy.1 += 1, yy.1, yy);
+    return (yy, yy.1, yy.1.plus(yy.1 / 20), eq(yy.1 += (yy.0 *= 0)), yy.1 = yy.1 * 2, yy.1, yy.1 += 1, yy.1, yy);
 }
 
 @pure
@@ -179,15 +186,9 @@ fun getConstTuple(): Tup2Int {
     return [1,2];
 }
 
-@noinline
-fun testCodegenNoPureIndexedAccess() {
-    (getConstTuple().1, getConstTuple().0) = (3, 4);
-    return 0;
-}
-
 @method_id(113)
 fun test113() {
-    var x = [[1, 2]];
+    var x = [[1, 2]] as [[int,uint256]];
     return (x, x.0, plus(mutate x.0.0, 10), x.0, x, x.0 = [10, 20], x);
 }
 
@@ -199,7 +200,7 @@ fun test114(f: int, s: int) {
 
 @method_id(115)
 fun test115() {
-    var y = [[[[true]]]];
+    var y: [[[[bool]]]] = [[[[true]]]];
     return (y, ((((y).0).0).0).0 = !y.0.0.0.0, y.0);
 }
 
@@ -208,7 +209,7 @@ fun test116() {
     var t = createEmptyTuple();
     t.push(1);
     try {
-        return t.100500 as int;
+        return t.get(100500) as int;
     } catch(excNo) {
         return excNo;
     }
@@ -219,7 +220,7 @@ fun test117() {
     var t = createEmptyTuple();
     t.push(1);
     try {
-        return (t.0 as tuple).0 as MInt;
+        return (t.get(0) as array<int8>).get(0) as MInt;
     } catch(excNo) {
         return excNo;
     }
@@ -237,22 +238,15 @@ fun testCodegenIndexPostfix2(x: (int, (int, int), int)) {
     return (y.2, y.0, y.1.1);
 }
 
-fun getT() { return (1, 2); }
-
-@method_id(120)
-fun test120() {
-    return (getT().0 = 3, getT().0 = sizeof(getT()) * 2, [getT().0 = 5, getT().0 = 6]);
-}
+global t121: (int, int);
 
 @method_id(121)
-fun test121(zero: int) {
-    var t = createEmptyTuple();
-    t.push(-100);
-    t.set(0, zero);
-    (t.0 as int).increment();
-    (((t.0) as int) as int).increment();
-    increment(mutate t.0 as int);
-    return t;
+fun test121() {
+    t121 = (0, 0);
+    t121.0 = t121.1 = 1;
+    var tup = [[0, 0]] as [[int,int]];
+    tup.0.0 = tup.0.1 = 2;
+    return (t121, tup);
 }
 
 fun (T1, T2).isFirstComponentGt0(self): bool {
@@ -278,8 +272,34 @@ fun test123() {
     return t;
 }
 
+
+@method_id(124)
+fun test124(zero: int) {
+    var t = createEmptyTuple();
+    t.push(-100);
+    t.set(0, zero);
+    return t;
+}
+
+@method_id(125)
+fun test125() {
+    var t: [Point] = [{x: 1, y: 2}];
+    t.0.x = 123;
+    return t;
+}
+
+global g126: [Point];
+
+@method_id(126)
+fun test126() {
+    var t: [Point] = g126 = [{x: 1, y: 2}];
+    (t.0.x, g126.0.x, t.0.y, g126.0.y) = (3,3,4,4);
+    increment2(mutate t.0.x, mutate t.0.y);
+    increment2(mutate g126.0.x, mutate g126.0.y);
+    return (t.0, g126, g126.0);
+}
+
 fun main(){
-    testCodegenNoPureIndexedAccess();
 }
 
 
@@ -303,71 +323,65 @@ fun main(){
 @testcase | 117 |       | 7
 @testcase | 118 | 1 2   | 2 1
 @testcase | 119 | 1 2 3 4 | 4 1 3
-@testcase | 120 |       | 3 4 [ 5 6 ]
-@testcase | 121 | 0     | [ 3 ]
+@testcase | 121 |       | 1 1 [ [ 2 2 ] ]
 @testcase | 122 | 1 2   | -1 -1 0 -1 -1 0
 @testcase | 123 |       | [ [ 100 100 ] ]
+@testcase | 124 | 0     | [ 0 ]
+@testcase | 125 |       | [ [ 123 2 ] ]
+@testcase | 126 |       | 4 5 [ [ 4 5 ] ] 4 5
 
 @fif_codegen
 """
   testCodegenSimple() PROC:<{
-    1 PUSHINT	    //  '2=1
-    SINGLE	        //  t1
-    2 PUSHINT	    //  t1 '3=2
-    0 SETINDEX	    //  t1
-    x{} PUSHSLICE	//  t1 '6
-    STRDUMP DROP
-    1 PUSHINT	//  t1 '10=1
-    SINGLE	    //  t1 '9
-    SINGLE	    //  t1 t2
-    2 PUSHINT	//  t1 t2 '11=2
-    OVER	    //  t1 t2 '11=2 t2
-    0 INDEX	    //  t1 t2 '11=2 '14
-    SWAP	    //  t1 t2 '14 '11=2
-    0 SETINDEX	//  t1 t2 '14
-    0 SETINDEX	//  t1 t2
-    x{} PUSHSLICE	//  t1 t2 '17
-    STRDUMP DROP
-    1 PUSHINT	//  t1 t2 '20=1
-    SINGLE	    //  t1 t2 '18
-    $gTup SETGLOB
-    2 PUSHINT	    //  t1 t2 '21=2
-    $gTup GETGLOB	//  t1 t2 '21=2 g_gTup
-    SWAP	        //  t1 t2 g_gTup '21=2
-    0 SETINDEX	    //  t1 t2 g_gTup
-    $gTup SETGLOB
-    x{} PUSHSLICE	//  t1 t2 '25
-    STRDUMP DROP
-    1 PUSHINT	//  t1 t2 '28=1
-    2 PUSHINT	//  t1 t2 '26=1 '27=2
-    PAIR
-    $gTens SETGLOB
-    4 PUSHINT	//  t1 t2 g_gTens.1=4
+    1 PUSHINT                   //  '1=1
+    1 TUPLE                     //  t1
+    2 PUSHINT                   //  t1 '7=2
+    0 SETINDEX                  //  t1
+    x{} PUSHSLICE
+    STRDUMP DROP                //  t1
+    1 PUSHINT                   //  t1 '11=1
+    1 TUPLE                     //  t1 '10
+    1 TUPLE                     //  t1 t2
+    2 PUSHINT                   //  t1 t2 '17=2
+    OVER                        //  t1 t2 '17=2 t2
+    0 INDEX                     //  t1 t2 '21=2 '19
+    SWAP                        //  t1 t2 '19 '21=2
+    0 SETINDEX                  //  t1 t2 '23
+    0 SETINDEX                  //  t1 t2
+    x{} PUSHSLICE
+    STRDUMP DROP                //  t1 t2
+    1 PUSHINT                   //  t1 t2 '26=1
+    1 TUPLE                     //  t1 t2 g_gTup
+    $gTup SETGLOB               //  t1 t2
+    2 PUSHINT                   //  t1 t2 '31=2
+    $gTup GETGLOB               //  t1 t2 '34=2 g_gTup
+    SWAP                        //  t1 t2 g_gTup '34=2
+    0 SETINDEX                  //  t1 t2 g_gTup
+    $gTup SETGLOB               //  t1 t2
+    x{} PUSHSLICE
+    STRDUMP DROP                //  t1 t2
+    1 PUSHINT                   //  t1 t2 '36=1
+    2 PUSHINT                   //  t1 t2 g_gTens.0=1 g_gTens.1=2
+    2 TUPLE
+    $gTens SETGLOB              //  t1 t2
+    4 PUSHINT                   //  t1 t2 g_gTens.1=4
     $gTens GETGLOB
-    UNPAIR	    //  t1 t2 g_gTens.1=4 g_gTens.0 g_gTens.1
-    DROP	    //  t1 t2 g_gTens.1=4 g_gTens.0
-    SWAP	    //  t1 t2 g_gTens.0 g_gTens.1=4
-    PAIR
-    $gTens SETGLOB
-    x{} PUSHSLICE	//  t1 t2 '36
-    STRDUMP DROP
-    $gTup GETGLOB	//  t1 t2 g_gTup
+    2 UNTUPLE                   //  t1 t2 g_gTens.1=4 g_gTens.0 g_gTens.1
+    DROP                        //  t1 t2 g_gTens.1=4 g_gTens.0
+    SWAP                        //  t1 t2 g_gTens.0 g_gTens.1=4
+    2 TUPLE
+    $gTens SETGLOB              //  t1 t2
+    x{} PUSHSLICE
+    STRDUMP DROP                //  t1 t2
+    $gTup GETGLOB               //  t1 t2 g_gTup
     $gTens GETGLOB
-    UNPAIR	    //  t1 t2 g_gTup g_gTens.0 g_gTens.1
-  }>
-"""
-
-@fif_codegen
-"""
-  testCodegenNoPureIndexedAccess() PROC:<{
-    0 PUSHINT  // '8=0
+    2 UNTUPLE                   //  t1 t2 g_gTup g_gTens.0 g_gTens.1
   }>
 """
 
 @fif_codegen
 """
   testCodegenIndexPostfix1() PROC:<{   //  x.0 x.1
-    //  ab.1 ab.0
     SWAP	//  ab.0 ab.1
   }>
 """
@@ -377,6 +391,21 @@ fun main(){
   testCodegenIndexPostfix2() PROC:<{   //  x.0 x.1.0 x.1.1 x.2
     s2 POP	//  y.0 y.2 y.1.1
     s1 s2 XCHG	//  y.2 y.0 y.1.1
+  }>
+"""
+
+@fif_codegen
+"""
+  test125() PROC:<{
+    1 PUSHINT
+    2 PUSHINT
+    2 TUPLE
+    1 TUPLE
+    123 PUSHINT
+    OVER
+    0 INDEX 2 UNTUPLE
+    NIP
+    2 TUPLE 0 SETINDEX
   }>
 """
  */

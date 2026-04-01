@@ -28,7 +28,7 @@ using namespace tolk;
  * Every function should be named `debug_print` and accept a single const-ref argument.
  * The rest will work automatically.
  * No changes for "prettified" classes are required: these functions are fully standalone.
- *
+ * 
  * NOTE! When adding a new function, its argument type should be listed in lldb_addons.py.
  *
  * See .lldbinit and lldb_addons.py.
@@ -90,6 +90,13 @@ std::string debug_print(EnumDefPtr sym) {
   return "enum " + sym->name;
 }
 
+std::string debug_print(const OpList* list) {
+  if (list->empty()) {
+    return "empty";
+  }
+  return "size=" + std::to_string(list->size());
+}
+
 std::string debug_print(const Op* op) {
   std::ostringstream os;
 
@@ -104,6 +111,7 @@ std::string debug_print(const Op* op) {
       }
       break;
     case Op::_SliceConst:
+    case Op::_SnakeStringConst:
       os << " \'" << op->left[0] << " = " << op->str_const;
       break;
     case Op::_Call:
@@ -232,33 +240,25 @@ std::string debug_print(const AsmOp* op) {
 }
 
 std::string debug_print(const AsmOpList* op_list) {
-  int n_stmt = 0, n_comments = 0;
+  int n_stmt = 0;
   for (const AsmOp& cur : op_list->list_) {
-    if (cur.is_comment()) {
-      n_comments++;
-    } else {
-      n_stmt++;
-    }
+    n_stmt += !cur.is_comment();
   }
 
-  std::ostringstream os;
-
-  os << "n_stmt=" << n_stmt << ", "
-     << "n_comments=" << n_comments;
-  return os.str();
+  return "n_stmt=" + std::to_string(n_stmt);
 }
 
 std::string debug_print(const Stack* stack) {
   std::ostringstream os;
-
+  
   if (stack->s.empty()) {
     os << "(empty) ";
   } else {
     os << stack->s.size() << ": ";
-    for (const auto &[var_idx, const_idx] : stack->s) {
-      if (var_idx != -1) {
-        const TmpVar& v = stack->o.var_names_->at(var_idx);
-        os << '\'' << v.ir_idx;
+    for (auto [var_idx, const_idx] : stack->s) {
+      os << '\'' << var_idx;
+      if (var_idx >= 0) {
+        const TmpVar& v = stack->named_vars.at(var_idx);
         if (!v.name.empty()) {
           os << ' ' << v.name;
         }
@@ -267,15 +267,12 @@ std::string debug_print(const Stack* stack) {
         }
       }
       if (const_idx != -1) {
-        os << '=' << stack->o.constants_[const_idx]->to_dec_string();
+        os << '=' << stack->unique_constants[const_idx]->to_dec_string();
       }
       os << ' ';
     }
   }
 
-  if (!(stack->mode & Stack::_Shown)) {
-    os << " !_Shown";
-  }
   return os.str();
 }
 

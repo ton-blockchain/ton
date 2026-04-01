@@ -9,7 +9,7 @@ struct WithC {
 }
 
 fun main() {
-    WithC.fromSlice("");
+    WithC.fromSlice(createEmptySlice());
 }
 
 /**

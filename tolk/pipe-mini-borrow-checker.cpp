@@ -36,34 +36,19 @@
  * But for example, mutating `d.nested.field` while mutating `d.nested` or `d` itself, is an error:
  *   > d.mutatingMethod(d.nested.field = 10)    // error, can not borrow `d.nested.field`, because `d` already borrowed
  *   > p.x += (p.mut().x = 5)                   // error, can not borrow `p`, because `p.x` already borrowed
- * To support fields and independency check, we use SinkExpression — the same struct that is used for smart casts.
- * Both variables `v` and fields `obj.f1.f2` are sink expressions. They can be extracted from vertices and compared.
- *   Note, that operators `as` and `!` are not valid sink expressions. As a consequence, `!` can be used to overcome
- * compiler checks here: `items.add(items!.remove())` becomes okay.
  *
- *   In order to prevent `x += ([x] = rhs).0`, we need to carefully dig into lhs of assignment. Traversing top-down,
- * we can't just mark "we are inside lhs of assignment" and treat all references as mutated there, because
- * `getObj(x).field` is a valid lhs, where `x` is not mutated.
+ *   To track which variables/fields are being mutated, we use is_valid_lvalue_path() with sink collection:
+ * it traverses the lvalue path and collects SinkExpression for each "leaf" variable being mutated.
+ * For tensors like `(a, b)`, both `a` and `b` are collected. For `(a, b).0`, only `a` is collected.
  */
 
 namespace tolk {
 
 struct BorrowedVarOrField {
-  SinkExpression s_expr;
-  FunctionPtr by_function;
-
-  std::string stringify_by_function() const {
-    if (by_function != nullptr) {
-      return by_function->as_human_readable();
-    }
-    // only operators `+=` and similar may borrow a variable except a mutating function
-    return "assignment operator";
-  }
+  SinkExpression s_expr;        // `v` / `v.field` / `v.0.nested`
+  FunctionPtr by_function;      // exists for `f(mutate v)`, nullptr for `v = rhs`
 };
 
-// A context holding currently borrowed expressions.
-// When entering a function or lhs of assignment, mutated expressions are added here.
-// Therefore, while traversing top-down, other attempts to add the same expression will result in an error.
 class BorrowedForWriteCtx {
   std::forward_list<BorrowedVarOrField> expressions;
   std::forward_list<std::forward_list<BorrowedVarOrField>::iterator> frame_heads;
@@ -87,14 +72,24 @@ public:
 
   void borrow_or_fire_if_twice(FunctionPtr cur_f, SinkExpression s_expr, AnyExprV where, FunctionPtr by_function) {
     for (const BorrowedVarOrField& existing : expressions) {
+      std::string by_str = existing.by_function ? existing.by_function->as_human_readable() : "assignment operator";
       if (existing.s_expr == s_expr) {
-        err("can not borrow `{}` for mutation once again, it is already being mutated by `{}`\n""hint: split a complex expression into several simple ones", s_expr.to_string(), existing.stringify_by_function()).fire(where, cur_f);
+        err("can not borrow `{}` for mutation once again, it is already being mutated by `{}`\n""hint: split a complex expression into several simple ones", s_expr.to_string(), by_str).collect(where, cur_f);
       }
       if (existing.s_expr.is_child_of(s_expr) || s_expr.is_child_of(existing.s_expr)) {
-        err("can not borrow `{}` for mutation, because `{}` is already being mutated by `{}`\n""hint: split a complex expression into several simple ones", s_expr.to_string(), existing.s_expr.to_string(), existing.stringify_by_function()).fire(where, cur_f);
+        err("can not borrow `{}` for mutation, because `{}` is already being mutated by `{}`\n""hint: split a complex expression into several simple ones", s_expr.to_string(), existing.s_expr.to_string(), by_str).collect(where, cur_f);
       }
     }
     expressions.emplace_front(BorrowedVarOrField{s_expr, by_function});
+  }
+
+  void borrow_all_from_lvalue(FunctionPtr cur_f, AnyExprV lhs, FunctionPtr called_f) {
+    // for `v = rhs`, sinks = [v]; for `(a, b.field) = rhs`, sinks = [a, b.field]
+    std::vector<SinkExpression> sinks;
+    is_valid_lvalue_path(lhs, &sinks);    // not assert, it may be false (an error is already collected)
+    for (const SinkExpression& s : sinks) {
+      borrow_or_fire_if_twice(cur_f, s, lhs, called_f);
+    }
   }
 };
 
@@ -103,7 +98,7 @@ class CheckMutationNotHappensTwiceVisitor final : public ASTVisitorFunctionBody 
 
   void visit(V<ast_function_call> v) override {
     FunctionPtr fun_ref = v->fun_maybe;
-    if (!fun_ref) {       // a "call" to a variable, it can't be mutating
+    if (!fun_ref) {
       parent::visit(v);
       return;
     }
@@ -112,24 +107,18 @@ class CheckMutationNotHappensTwiceVisitor final : public ASTVisitorFunctionBody 
 
     int delta_self = v->get_self_obj() != nullptr;
 
-    // obj.mutatingMethod() — borrow obj while calculating all arguments
-    if (v->dot_obj_is_self) {
+    if (delta_self) {
       AnyExprV self_obj = v->get_self_obj();
       parent::visit(self_obj);
       if (fun_ref->does_mutate_self()) {
-        if (SinkExpression s_expr = extract_sink_expression_from_vertex(self_obj)) {
-          borrow_ctx.borrow_or_fire_if_twice(cur_f, s_expr, self_obj, fun_ref);
-        }
+        borrow_ctx.borrow_all_from_lvalue(cur_f, self_obj, fun_ref);
       }
     }
-    // f(mutate x) — borrow x while calculating rest arguments
     for (int i = 0; i < v->get_num_args(); ++i) {
       AnyExprV ith_arg = v->get_arg(i)->get_expr();
       parent::visit(ith_arg);
       if (fun_ref->parameters[delta_self + i].is_mutate_parameter()) {
-        if (SinkExpression s_expr = extract_sink_expression_from_vertex(ith_arg)) {
-          borrow_ctx.borrow_or_fire_if_twice(cur_f, s_expr, ith_arg, fun_ref);
-        }
+        borrow_ctx.borrow_all_from_lvalue(cur_f, ith_arg, fun_ref);
       }
     }
 
@@ -137,52 +126,17 @@ class CheckMutationNotHappensTwiceVisitor final : public ASTVisitorFunctionBody 
   }
 
   void visit(V<ast_assign> v) override {
-    // recursively analyze assignment lhs to find not only `x = rhs`, but also `(([_, x], _)) = rhs`
-    // note, that rhs CAN mutate x, because assignment is happening only after evaluating it
-    // (unlike `x += rhs`, which can't mutate x)
-    process_assignment_lhs(v->get_lhs());
+    borrow_ctx.push_frame();
+    borrow_ctx.borrow_all_from_lvalue(cur_f, v->get_lhs(), nullptr);
+    borrow_ctx.pop_frame();
     parent::visit(v->get_rhs());
   }
 
   void visit(V<ast_set_assign> v) override {
-    // unlike assignment `x = rhs`, operators `+=` and similar don't allow tensors and similar
     borrow_ctx.push_frame();
-    if (SinkExpression lhs_s_expr = extract_sink_expression_from_vertex(v->get_lhs())) {
-      borrow_ctx.borrow_or_fire_if_twice(cur_f, lhs_s_expr, v->get_lhs(), nullptr);
-    }
-
-    // borrow lhs while calculating rhs, because `x += rhs` is actually `x = x + rhs`
-    // (rhs can't mutate x, it's copied before evaluating rhs)
+    borrow_ctx.borrow_all_from_lvalue(cur_f, v->get_lhs(), nullptr);
     parent::visit(v);
     borrow_ctx.pop_frame();
-  }
-
-  void process_assignment_lhs(AnyExprV lhs) {
-    // we are not interested in `var x = rhs`, only in assigning to existing `x = rhs`
-    if (auto lhs_tensor = lhs->try_as<ast_tensor>()) {
-      for (int i = 0; i < lhs_tensor->size(); ++i) {
-        process_assignment_lhs(lhs_tensor->get_item(i));
-      }
-      return;
-    }
-    if (auto lhs_tuple = lhs->try_as<ast_bracket_tuple>()) {
-      for (int i = 0; i < lhs_tuple->size(); ++i) {
-        process_assignment_lhs(lhs_tuple->get_item(i));
-      }
-      return;
-    }
-
-    // note, that for `x = rhs` we ALLOW rhs to mutate x, because assignment happens after evaluating rhs;
-    // for example, `b = b.storeInt()` is common and correct;
-    // what we do here is checking that assignment is allowed in this exact place, it's not already borrowed:
-    // `point.mutate(..., point.x = 10)`   // can't borrow `point.x`, because `point` is already being mutated
-    if (SinkExpression lhs_s_expr = extract_sink_expression_from_vertex(lhs)) {
-      borrow_ctx.push_frame();
-      borrow_ctx.borrow_or_fire_if_twice(cur_f, lhs_s_expr, lhs, nullptr);
-      borrow_ctx.pop_frame();
-    }
-
-    parent::visit(lhs);
   }
 
 public:
@@ -196,7 +150,8 @@ public:
 };
 
 void pipeline_mini_borrow_checker_for_mutate() {
-  visit_ast_of_all_functions<CheckMutationNotHappensTwiceVisitor>();
+  CheckMutationNotHappensTwiceVisitor visitor;
+  visit_ast_of_all_functions(visitor);
 }
 
 } // namespace tolk

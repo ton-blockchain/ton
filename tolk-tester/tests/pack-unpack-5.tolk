@@ -1,3 +1,5 @@
+import "@stdlib/reflection"
+
 struct JustInt32 {
     value: int32;
 }
@@ -10,9 +12,16 @@ struct JustMaybeInt32 {
     value: MaybeInt32;
 }
 
+struct Point {
+    x: int8
+    y: int8
+}
+
+struct (0x1234) EmptyOpcode16
+
 fun T.estimate(): [int, int, int, int] {
     // convert a tensor to a tuple for better output readability
-    val (minBits, maxBits, minRefs, maxRefs) = T.estimatePackSize();
+    val (minBits, maxBits, minRefs, maxRefs) = reflect.estimateSerializationOf<T>();
     return [minBits, maxBits, minRefs, maxRefs];
 }
 
@@ -131,7 +140,7 @@ type Test7_or = | Test7_1 | Test7_2 | Test7_3
 
 @method_id(107)
 fun test7() {
-    assert((Test7_1{} as Test7_or).toCell().beginParse().remainingBitsCount() == Test7_or.estimatePackSize().0, 400);
+    assert((Test7_1{} as Test7_or).toCell().beginParse().remainingBitsCount() == reflect.estimateSerializationOf<Test7_or>().0, 400);
     return (Test7_1.estimate(), Test7_or.estimate());
 }
 
@@ -201,8 +210,7 @@ fun test11() {
 
 @method_id(120)
 fun test20() {
-    return (Test7_1 .getDeclaredPackPrefixLen(), Test7_1 .getDeclaredPackPrefix(),
-        CellInner8_1.getDeclaredPackPrefixLen(), CellInner8_1.getDeclaredPackPrefix());
+    return (reflect.serializationPrefixOf<Test7_1>(), reflect.serializationPrefixOf<CellInner8_1>());
 }
 
 enum Color { Red, Green, Blue }
@@ -216,8 +224,8 @@ type EUint123Alias = EUint123
 @method_id(121)
 fun test21() {
     return (
-        Color.estimate(), EInt9.estimate(), EUint6.estimate(),
-        EUint1.estimate(), EInt1.estimate(), EInt1.estimate(),
+        Color.estimate(), EInt9.estimate(), EUint6.estimate(), 
+        EUint1.estimate(), EInt1.estimate(), EInt1.estimate(), 
         EUint123.estimate(), EUint123Alias.estimate(),
     )
 }
@@ -238,8 +246,36 @@ fun test22() {
     )
 }
 
+@method_id(123)
+fun test23() {
+    return (
+        array<int8>.estimate(),
+        array<array<RemainingBitsAndRefs>>.estimate(),
+    )
+}
+
+type EmptyShape = []
+type MyShape1 = [int32?, Point, EmptyShape, EmptyOpcode16, Cell<[]>?, int8]
+
+@method_id(124)
+fun test24() {
+    return (
+        MyShape1.estimate(),
+        EmptyShape.estimate(),
+    )
+}
+
+@method_id(125)
+fun test25() {
+    return (
+        string.estimate(),
+        Cell<string>.estimate(),
+        array<string>.estimate(),
+    )
+}
+
 fun main() {
-    __expect_type(int8.estimatePackSize(), "(int, int, int, int)");
+    __expect_type(reflect.estimateSerializationOf<int8>(), "(int, int, int, int)");
 }
 
 /**
@@ -248,13 +284,16 @@ fun main() {
 @testcase | 103 | | [ 67 199 0 0 ] [ 69 599 0 0 ]
 @testcase | 104 | | [ 534 534 0 0 ] [ 4 534 0 0 ] [ 538 1068 0 0 ]
 @testcase | 105 | | [ 2 2 2 4 ] [ 5 9999 0 9 ] [ 4 152 1 4 ]
-@testcase | 106 | | [ 64 64 0 0 ] [ 5 37 1 1 ] [ 5 65 0 1 ]
+@testcase | 106 | | [ 64 64 0 0 ] [ 5 37 1 1 ] [ 5 64 0 1 ]
 @testcase | 107 | | [ 16 16 0 0 ] [ 16 16 0 0 ]
-@testcase | 108 | | [ 10 531 0 0 ] [ 34 158 0 0 ] [ 47 1911 0 1 ]
+@testcase | 108 | | [ 10 530 0 0 ] [ 34 158 0 0 ] [ 47 1908 0 1 ]
 @testcase | 109 | | [ 34 130 0 0 ] [ 33 159 0 0 ] [ 4 8 0 0 ] [ 1 7 0 0 ]
 @testcase | 110 | | [ 32 9999 0 4 ] [ 33 9999 0 8 ]
 @testcase | 111 | | [ 1023 1023 0 1 ] [ 0 0 2 2 ]
-@testcase | 120 | | 16 4128 1 1
-@testcase | 121 | | [ 2 2 0 0 ] [ 9 9 0 0 ] [ 6 6 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 123 123 0 0 ] [ 123 123 0 0 ]
-@testcase | 122 | | [ 267 267 0 0 ] [ 2 267 0 0 ] [ 267 267 0 0 ] [ 1 268 0 0 ] [ 267 267 0 0 ] [ 2 267 0 0 ] [ 2 523 0 0 ] [ 1 524 0 0 ]
+@testcase | 120 | | 4128 16 1 1
+@testcase | 121 | | [ 2 2 0 0 ] [ 9 9 0 0 ] [ 6 6 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 1 1 0 0 ] [ 123 123 0 0 ] [ 123 123 0 0 ] 
+@testcase | 122 | | [ 267 267 0 0 ] [ 2 267 0 0 ] [ 267 267 0 0 ] [ 1 268 0 0 ] [ 267 267 0 0 ] [ 2 267 0 0 ] [ 2 522 0 0 ] [ 1 523 0 0 ]
+@testcase | 123 | | [ 9 9 0 1 ] [ 9 9 0 1 ]
+@testcase | 124 | | [ 42 74 0 1 ] [ 0 0 0 0 ]
+@testcase | 125 | | [ 0 0 1 1 ] [ 0 0 1 1 ] [ 9 9 0 1 ]
  */

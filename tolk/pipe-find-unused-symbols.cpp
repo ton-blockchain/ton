@@ -34,35 +34,30 @@
 
 namespace tolk {
 
-static void mark_function_used_dfs(const std::unique_ptr<Op>& op);
-
 static void mark_function_used(FunctionPtr fun_ref) {
   if (!fun_ref->is_code_function() || fun_ref->is_really_used() || fun_ref->is_inlined_in_place()) { // already handled
     return;
   }
 
   fun_ref->mutate()->assign_is_really_used();
-  mark_function_used_dfs(std::get<FunctionBodyCode*>(fun_ref->body)->code->ops);
+  std::get<FunctionBodyCode*>(fun_ref->body)->code->ops.mark_function_used_dfs();
 }
 
 static void mark_global_var_used(GlobalVarPtr glob_ref) {
   glob_ref->mutate()->assign_is_really_used();
 }
 
-static void mark_function_used_dfs(const std::unique_ptr<Op>& op) {
-  if (!op) {
-    return;
+void OpList::mark_function_used_dfs() const {
+  for (const auto& op : list) {
+    if (op->f_sym) {  // for Op::_Call
+      mark_function_used(op->f_sym);
+    }
+    if (op->g_sym) {  // for Op::_GlobVar
+      mark_global_var_used(op->g_sym);
+    }
+    op->block0.mark_function_used_dfs();
+    op->block1.mark_function_used_dfs();
   }
-
-  if (op->f_sym) {  // for Op::_Call
-    mark_function_used(op->f_sym);
-  }
-  if (op->g_sym) {  // for Op::_GlobVar
-    mark_global_var_used(op->g_sym);
-  }
-  mark_function_used_dfs(op->next);
-  mark_function_used_dfs(op->block0);
-  mark_function_used_dfs(op->block1);
 }
 
 void pipeline_find_unused_symbols() {

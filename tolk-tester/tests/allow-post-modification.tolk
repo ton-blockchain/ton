@@ -97,14 +97,16 @@ fun test_if_else(x: int): (int, int, int, int, int) {
 
 @method_id(21)
 fun test_assign_with_inner(x: int) {
-    var result = (x, x += 10, [x, x += 20, eq(x -= 50), x], eq2((x, x *= eq(x! /= 2))));
+    var cp = x;
+    var result = (x, x += 10, [x, x += 20, eq(x -= 50), x], eq2((x, x *= eq(cp /= 2))));
     return result;
 }
 
 @method_id(22)
 fun test_assign_with_mutate(x: int) {
-    var (result, _) = ((x, mul2(mutate x, (x as int) += 5), x.`~inc`(mul2(mutate x!, x)), x), 0);
-    return result;
+    var cp = x;
+    var (result, _) = ((x, mul2(mutate x, x + 5), x.`~inc`(mul2(mutate cp, x)), x), 0);
+    return (result, cp);
 }
 
 @method_id(23)
@@ -126,8 +128,41 @@ struct Point1D {
 
 @method_id(25)
 fun test_with_single_slot_struct(x: Point1D) {
-    var result = (x, x.c += 10, [x, x.c += 20, eq(x.c -= 50), x.c], eq2((x.c, x.c *= eq(x.c! /= 2))));
+    var result = (x, x.c += 10, [x, x.c += 20, eq(x.c -= 50), x.c] as array<unknown>, eq2((x.c, x.c *= eq(x.c / 2))));
     return result;
+}
+
+@method_id(26)
+fun test_load_slice() {
+    var s = stringHexToSlice("0000006f000000de");        // 111 and 222
+    var tensor = (s, s.loadAny<int32>(), s);
+    return (tensor.0.remainingBitsCount(), tensor.0.loadUint(32), tensor.1, tensor.2.remainingBitsCount());
+}
+
+@method_id(27)
+fun test_skip_in_slice() {
+    var s = stringHexToSlice("0000006f000000de");        // 111 and 222
+    var tensor = (s, s.skipAny<int32>(), s, s.skipBits(31), s);
+    return (tensor.0.remainingBitsCount(), tensor.1.remainingBitsCount(), tensor.2.remainingBitsCount(), tensor.4.remainingBitsCount());
+}
+
+@method_id(28)
+fun test_store_builder() {
+    var b = beginCell();
+    var tensor = (b, b.storeAny<int32>(5), b);
+    return (tensor.0.bitsCount(), tensor.1.bitsCount(), tensor.2.bitsCount());
+}
+
+@method_id(29)
+fun test_create_array() {
+    var x = 1;
+    return [ x, x += 2, x, eq(mul2(mutate x, 5)), x];
+}
+
+@method_id(30)
+fun test_create_list(): lisp_list<int> {
+    var x = 1;
+    return [ x, x += 2, x, eq(mul2(mutate x, 5)), x];
 }
 
 fun main() {
@@ -146,11 +181,16 @@ fun main() {
 @testcase | 19 | 100 | 100 100 50 105 210 210 211 211 0
 @testcase | 20 | 80  | 80 89 1 8 8
 @testcase | 20 | 9   | 9 -40 -10 -1 13
-@testcase | 21 | 100 | 100 110 [ 110 130 80 80 ] 80 3200
-@testcase | 22 | 100 | 100 210 4200 630
+@testcase | 21 | 100 | 100 110 [ 110 130 80 80 ] 80 4000
+@testcase | 22 | 100 | 100 210 4200 630 420
 @testcase | 23 | 1 1 | 1 1 20 30 20 60 -400 -3600 -20 -60 -400 -3600
 @testcase | 24 | 1 1 | 1 1 20 30 20 60 -400 -3600 -20 -60 -400 -3600
 @testcase | 25 | 100 | 100 110 [ 110 130 80 80 ] 80 3200
+@testcase | 26 |     | 64 111 111 32
+@testcase | 27 |     | 64 32 32 1
+@testcase | 28 |     | 0 32 32
+@testcase | 29 |     | [ 1 3 3 10 10 ]
+@testcase | 30 |     | [ 1 [ 3 [ 3 [ 10 [ 10 (null) ] ] ] ] ]
 
 @fif_codegen
 """
@@ -164,5 +204,5 @@ fun main() {
   test_assign_tensor_global() PROC:<{   // x.0 x.1
 """
 
-@code_hash 77620375659834063567341916666636335765114427483375544778177892407598637223147
+@code_hash 111667756568862912577641874227144621753163521614440586561560498476829147651751
 */

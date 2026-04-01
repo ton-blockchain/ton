@@ -17,6 +17,18 @@
 #include "compilation-errors.h"
 #include "ast.h"
 #include "type-system.h"
+#include "compiler-state.h"
+#include "json-output.h"
+
+/**
+ *   There are two ways to generate a compilation error:
+ *  1) err("...").fire() — throw an error immediately and interrupt compilation, it's [[noreturn]]
+ *  2) err("...").collect() — store errors in a buffer, all collected will be thrown before AST->IR stage
+ *
+ *   Be very careful of using collect()! Bulk errors are tricky. Double-check that no forward logic
+ * relies on this. For example, collecting errors in a type checker (after type inferring) is safe,
+ * but when resolving symbols, if a symbol not found, we can do only fire() — otherwise, nullptr is left.
+ */
 
 namespace tolk {
 
@@ -27,7 +39,7 @@ static std::string str_in_function(FunctionPtr f) {
   if (f->is_lambda()) {
     return "in lambda " + str_in_function(f->base_fun_ref);
   }
-  return "in function `" + f->as_human_readable() + "`";
+  return "in function `" + f->as_human_readable() + "`"; 
 }
 
 void on_assertion_failed(const char *description, const char *file_name, int line_number) {
@@ -40,41 +52,6 @@ void on_assertion_failed(const char *description, const char *file_name, int lin
 #endif
 #endif
   throw Fatal(std::move(message));
-}
-
-GNU_ATTRIBUTE_NOINLINE
-static void output_compiler_message(
-  std::ostream& os,
-  bool is_warning,
-  std::string_view in_function,
-  SrcRange range,
-  std::string_view message
-  ) {
-  std::string loc_text = range.stringify_start_location(true);
-  os << loc_text << ": " << (is_warning ? "warning: " : "error: ");
-
-  if (message.find('\n') == std::string::npos) {
-    // just print a single-line message after "error:"
-    os << message << std::endl;
-  } else {
-    // print "location: line1 \n (spaces) line2 \n ..."
-    std::string loc_spaces(std::min(static_cast<int>(loc_text.size()), 9), ' ');
-    size_t start = 0, end;
-    while ((end = message.find('\n', start)) != std::string::npos) {
-      if (start > 0) {
-        os << loc_spaces << "  ";
-      }
-      os << message.substr(start, end - start) << std::endl;
-      start = end + 1;
-    }
-    if (start < message.size()) {
-      os << loc_spaces << "  " << message.substr(start) << std::endl;
-    }
-  }
-  if (!in_function.empty()) {
-    os << std::endl << "    // " << in_function << std::endl;
-  }
-  range.output_underlined(os);
 }
 
 void ErrorBuilder::push(const char* v) {
@@ -157,24 +134,93 @@ Error ErrorBuilder::build() const {
   return Error(std::move(replaced));
 }
 
+bool ErrorCollector::empty() const {
+  for (const ThrownParseError& err : errors) {
+    if (!err.is_warning) {
+      return false;
+    }
+  }
+  return true;
+}
+
+
 void Error::fire(AnyV at, FunctionPtr in_function) const {
-  throw ThrownParseError(str_in_function(in_function), at->range, message);
+  throw ThrownParseError(str_in_function(in_function), at->range, message);  
 }
 
 void Error::fire(SrcRange range, FunctionPtr in_function) const {
-  throw ThrownParseError(str_in_function(in_function), range, message);
+  throw ThrownParseError(str_in_function(in_function), range, message);  
 }
 
 void Error::warning(AnyV at, FunctionPtr in_function) const {
-  output_compiler_message(std::cerr, true, str_in_function(in_function), at->range, message);
+  tolk_assert(G.error_collector);
+  G.error_collector->add(ThrownParseError(str_in_function(in_function), at->range, message, true));
 }
 
 void Error::warning(SrcRange range, FunctionPtr in_function) const {
-  output_compiler_message(std::cerr, true, str_in_function(in_function), range, message);
+  tolk_assert(G.error_collector);
+  G.error_collector->add(ThrownParseError(str_in_function(in_function), range, message, true));
 }
 
-void ThrownParseError::output_compilation_error(std::ostream& os) const {
-  output_compiler_message(os, false, in_function, range, message);
+void Error::collect(AnyV at, FunctionPtr in_function) const {
+  tolk_assert(G.error_collector);
+  G.error_collector->add(ThrownParseError(str_in_function(in_function), at->range, message));
+}
+
+void Error::collect(SrcRange range, FunctionPtr in_function) const {
+  tolk_assert(G.error_collector);
+  G.error_collector->add(ThrownParseError(str_in_function(in_function), range, message));
+}
+
+void ThrownParseError::output_to_console(std::ostream& os) const {
+  std::string loc_text = range.stringify_start_location(true);
+  os << loc_text << ": " << (is_warning ? "warning: " : "error: ");
+
+  if (message.find('\n') == std::string::npos) {
+    // just print a single-line message after "error:"
+    os << message << std::endl;
+  } else {
+    // print "location: line1 \n (spaces) line2 \n ..."
+    std::string loc_spaces(std::min(static_cast<int>(loc_text.size()), 9), ' ');
+    size_t start = 0, end;
+    while ((end = message.find('\n', start)) != std::string::npos) {
+      if (start > 0) {
+        os << loc_spaces << "  ";
+      }
+      os << message.substr(start, end - start) << std::endl;
+      start = end + 1;
+    }
+    if (start < message.size()) {
+      os << loc_spaces << "  " << message.substr(start) << std::endl;
+    }
+  }
+  if (!in_function.empty()) {
+    os << std::endl << "    // " << in_function << std::endl;
+  }
+  range.output_underlined(os);
+}
+
+void ThrownParseError::output_to_json(JsonPrettyOutput& json) const {
+  json.start_object();
+  json.key_value("message", message);
+  if (is_warning) {
+    json.key_value("is_warning", true);
+  }
+  if (!in_function.empty()) {
+    json.key_value("in_function", in_function);
+  }
+  if (range.is_valid()) {
+    SrcRange::DecodedRange r = range.decode_offsets();
+    json.start_object("range");
+    json.key_value("file_name", range.get_src_file()->realpath);
+    json.key_value("start_line_no", r.start_line_no);
+    json.key_value("start_char_no", r.start_char_no);
+    json.key_value("end_line_no", r.end_line_no);
+    json.key_value("end_char_no", r.end_char_no);
+    json.key_value("text_inside", r.text_inside);
+    json.end_object();
+  }
+  json.end_object();
 }
 
 } // namespace tolk

@@ -35,7 +35,7 @@ class ConstantExpressionsChecker final : public ASTVisitorFunctionBody {
     // check `ton("0.05")` and others for correctness (not `ton(local_var)`, etc.)
     if (v->fun_maybe && v->fun_maybe->is_compile_time_const_val()) {
       // on invalid usage, this call will fire
-      eval_call_to_compile_time_function(v);
+      eval_expression_if_const_or_fire(v);
       // note that in AST tree, it's still left as `ton("0.05")`, `stringCrc32("...")`, etc.
       // later, when transforming to IR, such compile-time functions are handled specially
     }
@@ -82,7 +82,7 @@ void pipeline_check_constant_expressions() {
       }
     }
   }
-
+  
   // assign `enum` members values (either auto-compute sequentially or use manual initializers)
   for (EnumDefPtr enum_ref : get_all_declared_enums()) {
     std::vector<td::RefInt256> values = calculate_enum_members_with_values(enum_ref);
@@ -91,7 +91,8 @@ void pipeline_check_constant_expressions() {
     }
   }
 
-  visit_ast_of_all_functions<ConstantExpressionsChecker>();
+  ConstantExpressionsChecker visitor;
+  visit_ast_of_all_functions(visitor);
 }
 
 } // namespace tolk

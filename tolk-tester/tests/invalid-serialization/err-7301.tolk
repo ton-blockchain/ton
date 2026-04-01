@@ -1,7 +1,7 @@
 type Int32Or64 = int32 | int64;
 
 fun f() {
-    val o = lazy Int32Or64.fromSlice("");
+    val o = lazy Int32Or64.fromSlice(createEmptySlice());
     match (o) {
         int32 => return o + 1,
         int64 => throw o,
