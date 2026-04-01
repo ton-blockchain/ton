@@ -134,6 +134,11 @@ class VmState final : public VmStateInterface {
    */
   int exit_code{0};
 
+  /**
+   * Set only when execution terminates in the default exception handler.
+   */
+  td::optional<int> uncaught_exception_code;
+
  public:
   ExtMethods ext_methods;
   MissingLibraryHandler missing_library_handler;
@@ -283,6 +288,12 @@ class VmState final : public VmStateInterface {
   int run();
   td::optional<int> debug_step();
   int get_exit_code() const;
+  td::optional<int> get_uncaught_exception_code() const {
+    return uncaught_exception_code;
+  }
+  void set_uncaught_exception_code(int excno) {
+    uncaught_exception_code = excno;
+  }
   Stack& get_stack() {
     return stack.write();
   }

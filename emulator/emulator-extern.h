@@ -245,6 +245,13 @@ EMULATOR_EXPORT const char *transaction_emulator_sbs_get_code_pos(void *tvm_emul
 EMULATOR_EXPORT const char *transaction_emulator_sbs_get_current_instr(void *tvm_emulator);
 
 /**
+ * @brief Get the uncaught exception code that terminated the SBS transaction execution
+ * @param tvm_emulator Pointer to <code>TransactionEmulator</code> object
+ * @return Exception code, or <code>-1</code> if the VM did not terminate with an uncaught exception
+ */
+EMULATOR_EXPORT int transaction_emulator_sbs_get_uncaught_exception_code(void *tvm_emulator);
+
+/**
  * @brief Emulate tick tock transaction
  * @param transaction_emulator Pointer to TransactionEmulator object
  * @param shard_account_boc Base64 encoded BoC serialized ShardAccount of special account
@@ -458,6 +465,13 @@ EMULATOR_EXPORT const char *tvm_emulator_sbs_get_code_pos(void *tvm_emulator);
  * @return Human-readable TVM instruction dump for the current code position
  */
 EMULATOR_EXPORT const char *tvm_emulator_sbs_get_current_instr(void *tvm_emulator);
+
+/**
+ * @brief Get the uncaught exception code that terminated the SBS get-method execution
+ * @param tvm_emulator Pointer to <code>TvmEmulator</code> object
+ * @return Exception code, or <code>-1</code> if the VM did not terminate with an uncaught exception
+ */
+EMULATOR_EXPORT int tvm_emulator_sbs_get_uncaught_exception_code(void *tvm_emulator);
 
 /**
  * @brief Run an arbitrary TVM continuation (VmCont)

@@ -478,6 +478,13 @@ const char *transaction_emulator_sbs_get_current_instr(void *tvm_emulator) {
   return emulator_vm_get_current_instr(vm);
 }
 
+int transaction_emulator_sbs_get_uncaught_exception_code(void *tvm_emulator) {
+  const auto emulator = static_cast<emulator::TransactionEmulator *>(tvm_emulator);
+  const auto &vm = emulator->get_vm();
+  const auto code = vm.get_uncaught_exception_code();
+  return code ? code.value() : -1;
+}
+
 const char *transaction_emulator_emulate_tick_tock_transaction(void *transaction_emulator, const char *shard_account_boc, bool is_tock) {
   auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
 
@@ -913,6 +920,13 @@ const char* tvm_emulator_sbs_get_current_instr(void *tvm_emulator) {
   const auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
   const auto& vm = emulator->get_vm();
   return emulator_vm_get_current_instr(vm);
+}
+
+int tvm_emulator_sbs_get_uncaught_exception_code(void *tvm_emulator) {
+  const auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  const auto& vm = emulator->get_vm();
+  const auto code = vm.get_uncaught_exception_code();
+  return code ? code.value() : -1;
 }
 
 // -------------------------- RUN GET METHODS --------------------------
