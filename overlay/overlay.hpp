@@ -232,9 +232,10 @@ class OverlayImpl : public Overlay {
   void register_delivered_broadcast(const BroadcastHash &hash);
   bool is_delivered(const BroadcastHash &hash);
   void check_broadcast(PublicKeyHash src, td::BufferSlice data, td::Promise<td::Unit> promise);
-  void precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra,
+  void precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra, bool signature_checked,
                           td::Promise<td::Unit> promise);
-  td::actor::Task<> precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra);
+  td::actor::Task<> precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra,
+                                       bool signature_checked);
 
   void broadcast_simple_signed(std::unique_ptr<BroadcastSimple> &&bcast,
                                td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
@@ -324,6 +325,8 @@ class OverlayImpl : public Overlay {
   void forget_peer(adnl::AdnlNodeIdShort peer_id) override {
     del_peer(peer_id);
   }
+
+  td::actor::Task<> ban_peer(adnl::AdnlNodeIdShort peer_id, td::Timestamp unban_at);
 
  private:
   template <class T>
@@ -487,6 +490,8 @@ class OverlayImpl : public Overlay {
   std::map<PublicKeyHash, std::unique_ptr<CachedCertificate>> checked_certificates_cache_;
   td::ListNode checked_certificates_cache_lru_;
   size_t max_checked_certificates_cache_size_ = 1000;
+
+  std::set<adnl::AdnlNodeIdShort> banned_peers_;
 };
 
 }  // namespace overlay

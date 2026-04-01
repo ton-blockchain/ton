@@ -145,6 +145,7 @@ struct PrecheckCandidateBroadcast {
 
   td::uint32 slot;
   td::Bits256 broadcast_id;
+  bool signature_checked;
 
   std::string contents_to_string() const;
 };
