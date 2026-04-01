@@ -35,3 +35,4 @@ jobs:
       with:
         name: ton-ccpcheck-report
         path: output
+        retention-days: 14
