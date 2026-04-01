@@ -89,8 +89,10 @@ td::Status BroadcastSimple::run(OverlayImpl *overlay) {
   }
   is_valid_ = r == BroadcastCheckResult::Allowed;
   TRY_RESULT(encryptor, overlay->get_encryptor(source_));
-  TD_PERF_COUNTER(check_signature_overlay_broadcast_simple);
-  TRY_STATUS(encryptor->check_signature(to_sign().as_slice(), signature_.as_slice()));
+  {
+    TD_PERF_COUNTER(check_signature_overlay_broadcast_simple);
+    TRY_STATUS(encryptor->check_signature(to_sign().as_slice(), signature_.as_slice()));
+  }
   if (!is_valid_) {
     auto P = td::PromiseCreator::lambda(
         [overlay = actor_id(overlay), hash = broadcast_hash_](td::Result<td::Unit> R) mutable {
