@@ -1273,3 +1273,4 @@ consensus.simplex.requestCandidate id:consensus.CandidateId want_candidate:Bool 
 
 engine.validator.setConsensusNoncriticalParamsOverrides overrides:consensus.noncriticalParamsOverrideList = engine.validator.Success;
 engine.validator.getConsensusNoncriticalParamsOverrides = consensus.NoncriticalParamsOverrideList;
+engine.validator.getConsensusNoncriticalParams workchain:int = engine.validator.JsonConfig;

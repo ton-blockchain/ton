@@ -100,6 +100,142 @@ td::Status ShardBlockVerifierConfig::unpack(const ton_api::engine_validator_shar
   return td::Status::OK();
 }
 
+td::Status NoncriticalParamsOverride::validate_user_input(const Params& params) {
+  auto validate_duration_range = [](td::Slice name, const auto& value, td::int64 min_value_ms,
+                                    td::optional<td::int64> max_value_ms = {}) -> td::Status {
+    auto ms = value.count();
+    if (ms < min_value_ms) {
+      return td::Status::Error(PSTRING() << name << " must be at least " << min_value_ms << "ms, got " << ms
+                                         << "ms");
+    }
+    if (max_value_ms && ms > *max_value_ms) {
+      return td::Status::Error(PSTRING() << name << " must not exceed " << *max_value_ms << "ms, got " << ms
+                                         << "ms");
+    }
+    return td::Status::OK();
+  };
+
+  if (params.target_rate.has_value()) {
+    TRY_STATUS(validate_duration_range("target_rate_ms", *params.target_rate, MIN_TARGET_RATE_MS, MAX_TARGET_RATE_MS));
+  }
+  if (params.first_block_timeout.has_value()) {
+    TRY_STATUS(validate_duration_range("first_block_timeout_ms", *params.first_block_timeout, 1));
+  }
+  if (params.first_block_timeout_multiplier.has_value() && *params.first_block_timeout_multiplier <= 1.0) {
+    return td::Status::Error(PSTRING() << "first_block_timeout_multiplier must be greater than 1, got "
+                                       << *params.first_block_timeout_multiplier);
+  }
+  if (params.first_block_timeout_cap.has_value()) {
+    TRY_STATUS(validate_duration_range("first_block_timeout_cap_ms", *params.first_block_timeout_cap, 1,
+                                       MAX_FIRST_BLOCK_TIMEOUT_CAP_MS));
+  }
+  if (params.candidate_resolve_timeout.has_value()) {
+    TRY_STATUS(validate_duration_range("candidate_resolve_timeout_ms", *params.candidate_resolve_timeout, 1));
+  }
+  if (params.candidate_resolve_timeout_multiplier.has_value() && *params.candidate_resolve_timeout_multiplier <= 1.0) {
+    return td::Status::Error(PSTRING() << "candidate_resolve_timeout_multiplier must be greater than 1, got "
+                                       << *params.candidate_resolve_timeout_multiplier);
+  }
+  if (params.candidate_resolve_timeout_cap.has_value()) {
+    TRY_STATUS(validate_duration_range("candidate_resolve_timeout_cap_ms", *params.candidate_resolve_timeout_cap, 1));
+  }
+  if (params.candidate_resolve_cooldown.has_value()) {
+    TRY_STATUS(validate_duration_range("candidate_resolve_cooldown_ms", *params.candidate_resolve_cooldown, 1));
+  }
+  if (params.standstill_timeout.has_value()) {
+    TRY_STATUS(validate_duration_range("standstill_timeout_ms", *params.standstill_timeout, 1));
+  }
+  if (params.standstill_max_egress_bytes_per_s.has_value() && *params.standstill_max_egress_bytes_per_s == 0) {
+    return td::Status::Error("standstill_max_egress_bytes_per_s must be positive");
+  }
+  if (params.bad_signature_ban_duration.has_value()) {
+    TRY_STATUS(validate_duration_range("bad_signature_ban_duration_ms", *params.bad_signature_ban_duration, 1));
+  }
+  if (params.candidate_resolve_rate_limit.has_value() && *params.candidate_resolve_rate_limit == 0) {
+    return td::Status::Error("candidate_resolve_rate_limit must be positive");
+  }
+
+  if (params.first_block_timeout.has_value() && params.first_block_timeout_cap.has_value() &&
+      *params.first_block_timeout_cap < *params.first_block_timeout) {
+    return td::Status::Error(PSTRING() << "first_block_timeout_cap_ms must be at least first_block_timeout_ms ("
+                                       << params.first_block_timeout->count() << "), got "
+                                       << params.first_block_timeout_cap->count());
+  }
+  if (params.candidate_resolve_timeout.has_value() && params.candidate_resolve_timeout_cap.has_value() &&
+      *params.candidate_resolve_timeout_cap < *params.candidate_resolve_timeout) {
+    return td::Status::Error(PSTRING() << "candidate_resolve_timeout_cap_ms must be at least "
+                                          "candidate_resolve_timeout_ms ("
+                                       << params.candidate_resolve_timeout->count() << "), got "
+                                       << params.candidate_resolve_timeout_cap->count());
+  }
+  if (params.first_block_timeout.has_value() && params.candidate_resolve_timeout.has_value() &&
+      *params.first_block_timeout < *params.candidate_resolve_timeout) {
+    return td::Status::Error(PSTRING() << "first_block_timeout_ms must be at least "
+                                          "candidate_resolve_timeout_ms ("
+                                       << params.candidate_resolve_timeout->count() << "), got "
+                                       << params.first_block_timeout->count());
+  }
+  if (params.standstill_timeout.has_value() && params.candidate_resolve_timeout_cap.has_value() &&
+      *params.standstill_timeout < *params.candidate_resolve_timeout_cap) {
+    return td::Status::Error(PSTRING() << "standstill_timeout_ms must be at least "
+                                          "candidate_resolve_timeout_cap_ms ("
+                                       << params.candidate_resolve_timeout_cap->count() << "), got "
+                                       << params.standstill_timeout->count());
+  }
+
+  return td::Status::OK();
+}
+
+td::Status NoncriticalParamsOverride::validate_against_config(const NewConsensusConfig& config) const {
+  TRY_STATUS(validate_user_input(params));
+
+  auto effective = apply(config.noncritical_params);
+
+  if (params.target_rate.has_value() || params.first_block_timeout.has_value()) {
+    auto max_first_block_timeout_ms =
+        static_cast<td::uint64>(effective.target_rate.count()) * config.slots_per_leader_window;
+    if (static_cast<td::uint64>(effective.first_block_timeout.count()) > max_first_block_timeout_ms) {
+      return td::Status::Error(PSTRING() << "first_block_timeout_ms must not exceed target_rate_ms * "
+                                            "slots_per_leader_window ("
+                                         << max_first_block_timeout_ms << "), got "
+                                         << effective.first_block_timeout.count());
+    }
+  }
+
+  if ((params.first_block_timeout.has_value() || params.candidate_resolve_timeout.has_value()) &&
+      effective.first_block_timeout < effective.candidate_resolve_timeout) {
+    return td::Status::Error(PSTRING() << "first_block_timeout_ms must be at least "
+                                          "candidate_resolve_timeout_ms ("
+                                       << effective.candidate_resolve_timeout.count() << "), got "
+                                       << effective.first_block_timeout.count());
+  }
+
+  if ((params.first_block_timeout.has_value() || params.first_block_timeout_cap.has_value()) &&
+      effective.first_block_timeout_cap < effective.first_block_timeout) {
+    return td::Status::Error(PSTRING() << "first_block_timeout_cap_ms must be at least first_block_timeout_ms ("
+                                       << effective.first_block_timeout.count() << "), got "
+                                       << effective.first_block_timeout_cap.count());
+  }
+
+  if ((params.candidate_resolve_timeout.has_value() || params.candidate_resolve_timeout_cap.has_value()) &&
+      effective.candidate_resolve_timeout_cap < effective.candidate_resolve_timeout) {
+    return td::Status::Error(PSTRING() << "candidate_resolve_timeout_cap_ms must be at least "
+                                          "candidate_resolve_timeout_ms ("
+                                       << effective.candidate_resolve_timeout.count() << "), got "
+                                       << effective.candidate_resolve_timeout_cap.count());
+  }
+
+  if ((params.standstill_timeout.has_value() || params.candidate_resolve_timeout_cap.has_value()) &&
+      effective.standstill_timeout < effective.candidate_resolve_timeout_cap) {
+    return td::Status::Error(PSTRING() << "standstill_timeout_ms must be at least "
+                                          "candidate_resolve_timeout_cap_ms ("
+                                       << effective.candidate_resolve_timeout_cap.count() << "), got "
+                                       << effective.standstill_timeout.count());
+  }
+
+  return td::Status::OK();
+}
+
 td::Ref<ValidatorManagerOptions> ValidatorManagerOptions::create(BlockIdExt zero_block_id, BlockIdExt init_block_id,
                                                                  bool allow_blockchain_init, double sync_blocks_before,
                                                                  double block_ttl, double state_ttl, double archive_ttl,

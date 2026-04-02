@@ -40,6 +40,7 @@
 #include "td/actor/MultiPromise.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/actor/actor.h"
+#include "td/utils/JsonBuilder.h"
 #include "td/utils/OptionParser.h"
 #include "td/utils/Random.h"
 #include "td/utils/Status.h"
@@ -1814,12 +1815,16 @@ void ValidatorEngine::load_shard_block_verifier_config() {
   }
 }
 
-static ton::validator::NoncriticalParamsOverride convert_override(
+static td::Result<ton::validator::NoncriticalParamsOverride> convert_override(
     const ton::ton_api::consensus_noncriticalParamsOverride &tl) {
   ton::validator::NoncriticalParamsOverride result;
   result.shard = ton::ShardIdFull{tl.workchain_, static_cast<ton::ShardId>(tl.shard_)};
   result.from_seqno = tl.from_seqno_;
   result.to_seqno = tl.to_seqno_;
+  if (result.from_seqno > result.to_seqno) {
+    return td::Status::Error(PSTRING() << "invalid noncritical params override range: from_seqno="
+                                       << result.from_seqno << " is greater than to_seqno=" << result.to_seqno);
+  }
   auto &p = *tl.override_;
   auto flags = p.flags_;
 #define CONVERT_UINT32(idx, name, default_value) \
@@ -1838,17 +1843,127 @@ static ton::validator::NoncriticalParamsOverride convert_override(
 #undef CONVERT_UINT32
 #undef CONVERT_DOUBLE
 #undef CONVERT_DURATION
+  TRY_STATUS(ton::validator::NoncriticalParamsOverride::validate_user_input(result.params));
   return result;
 }
 
-static std::vector<ton::validator::NoncriticalParamsOverride> convert_overrides(
+static td::Result<std::vector<ton::validator::NoncriticalParamsOverride>> convert_overrides(
     const ton::ton_api::consensus_noncriticalParamsOverrideList &tl) {
   std::vector<ton::validator::NoncriticalParamsOverride> result;
   result.reserve(tl.overrides_.size());
   for (auto &o : tl.overrides_) {
-    result.push_back(convert_override(*o));
+    TRY_RESULT(override, convert_override(*o));
+    result.push_back(std::move(override));
   }
   return result;
+}
+
+static td::optional<ton::validator::NoncriticalParamsOverride> find_noncritical_params_override(
+    const std::vector<ton::validator::NoncriticalParamsOverride>& overrides, ton::ShardIdFull shard,
+    td::uint32 cc_seqno) {
+  for (const auto& override : overrides) {
+    if (override.matches(shard, cc_seqno)) {
+      return override;
+    }
+  }
+  return {};
+}
+
+template <class T>
+static bool noncritical_param_is_set(const T&) {
+  return true;
+}
+
+template <class T>
+static bool noncritical_param_is_set(const std::optional<T>& value) {
+  return value.has_value();
+}
+
+template <class T>
+static const T& get_noncritical_param_value(const T& value) {
+  return value;
+}
+
+template <class T>
+static const T& get_noncritical_param_value(const std::optional<T>& value) {
+  return *value;
+}
+
+template <class Params>
+static ton::tl_object_ptr<ton::ton_api::consensus_simplex_noncriticalParams> convert_noncritical_params_to_tl_impl(
+    const Params& params) {
+  auto result = ton::create_tl_object<ton::ton_api::consensus_simplex_noncriticalParams>();
+  result->flags_ = 0;
+#define STORE_UINT32(idx, name, default_value)                                \
+  if (noncritical_param_is_set(params.name)) {                                \
+    result->flags_ |= (1 << idx);                                             \
+    result->name##_ = td::narrow_cast<td::int32>(get_noncritical_param_value(params.name)); \
+  }
+#define STORE_DOUBLE(idx, name, default_value)              \
+  if (noncritical_param_is_set(params.name)) {              \
+    result->flags_ |= (1 << idx);                           \
+    result->name##_ = get_noncritical_param_value(params.name); \
+  }
+#define STORE_DURATION(idx, name, default_value)                                  \
+  if (noncritical_param_is_set(params.name)) {                                    \
+    result->flags_ |= (1 << idx);                                                 \
+    result->name##_ms_ = td::narrow_cast<td::int32>(get_noncritical_param_value(params.name).count()); \
+  }
+  ENUMERATE_NONCRITICAL_PARAMS(STORE_UINT32, STORE_DOUBLE, STORE_DURATION)
+#undef STORE_UINT32
+#undef STORE_DOUBLE
+#undef STORE_DURATION
+  return result;
+}
+
+static ton::tl_object_ptr<ton::ton_api::consensus_simplex_noncriticalParams> convert_noncritical_params_to_tl(
+    const ton::NewConsensusConfig::NoncriticalParams &params) {
+  return convert_noncritical_params_to_tl_impl(params);
+}
+
+static ton::tl_object_ptr<ton::ton_api::consensus_simplex_noncriticalParams> convert_noncritical_params_to_tl(
+    const ton::validator::NoncriticalParamsOverride::Params &params) {
+  return convert_noncritical_params_to_tl_impl(params);
+}
+
+static std::string build_noncritical_params_status_json(
+    ton::WorkchainId workchain, td::uint32 top_masterchain_seqno, ton::CatchainSeqno cc_seqno,
+    const ton::NewConsensusConfig &config, const ton::NewConsensusConfig::NoncriticalParams &effective,
+    td::optional<ton::validator::NoncriticalParamsOverride> matched_override) {
+  auto config_tl = convert_noncritical_params_to_tl(config.noncritical_params);
+  auto effective_tl = convert_noncritical_params_to_tl(effective);
+  auto matched_override_applied = false;
+  td::optional<std::string> matched_override_error;
+  ton::tl_object_ptr<ton::ton_api::consensus_simplex_noncriticalParams> matched_override_tl;
+  if (matched_override) {
+    auto status = matched_override.value().validate_against_config(config);
+    matched_override_applied = status.is_ok();
+    if (status.is_error()) {
+      matched_override_error = status.message().str();
+    }
+    matched_override_tl = convert_noncritical_params_to_tl(matched_override.value().params);
+  }
+  return td::json_encode<std::string>(
+      td::json_object([&](auto &obj) {
+        obj("top_masterchain_seqno", td::JsonInt(td::narrow_cast<td::int32>(top_masterchain_seqno)));
+        obj("workchain", workchain);
+        obj("cc_seqno", td::JsonInt(td::narrow_cast<td::int32>(cc_seqno)));
+        obj("slots_per_leader_window", td::JsonInt(td::narrow_cast<td::int32>(config.slots_per_leader_window)));
+        obj("config", td::ToJson(*config_tl));
+        obj("effective", td::ToJson(*effective_tl));
+        obj("matched_override_present", td::JsonBool(static_cast<bool>(matched_override)));
+        obj("matched_override_applied", td::JsonBool(matched_override_applied));
+        if (matched_override) {
+          obj("matched_override_shard", matched_override.value().shard.to_str());
+          obj("matched_override_from_seqno", td::JsonInt(td::narrow_cast<td::int32>(matched_override.value().from_seqno)));
+          obj("matched_override_to_seqno", td::JsonInt(td::narrow_cast<td::int32>(matched_override.value().to_seqno)));
+          obj("matched_override", td::ToJson(*matched_override_tl));
+          if (matched_override_error) {
+            obj("matched_override_error", *matched_override_error);
+          }
+        }
+      }),
+      true);
 }
 
 void ValidatorEngine::load_noncritical_params_overrides() {
@@ -1871,7 +1986,13 @@ void ValidatorEngine::load_noncritical_params_overrides() {
     noncritical_params_overrides_ = {};
     return;
   }
-  validator_options_.write().set_noncritical_params_overrides(convert_overrides(*noncritical_params_overrides_));
+  auto overrides_R = convert_overrides(*noncritical_params_overrides_);
+  if (overrides_R.is_error()) {
+    LOG(ERROR) << "Invalid noncritical params overrides: " << overrides_R.move_as_error();
+    noncritical_params_overrides_ = {};
+    return;
+  }
+  validator_options_.write().set_noncritical_params_overrides(overrides_R.move_as_ok());
 }
 
 void ValidatorEngine::load_empty_local_config(td::Promise<> promise) {
@@ -5288,6 +5409,11 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setConsen
     promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
     return;
   }
+  auto overrides_R = convert_overrides(*query.overrides_);
+  if (overrides_R.is_error()) {
+    promise.set_value(create_control_query_error(overrides_R.move_as_error()));
+    return;
+  }
   auto s = td::json_encode<std::string>(td::ToJson(*query.overrides_), true);
   auto S = td::write_file(noncritical_params_overrides_file(), s);
   if (S.is_error()) {
@@ -5295,7 +5421,7 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setConsen
     return;
   }
   noncritical_params_overrides_ = std::move(query.overrides_);
-  validator_options_.write().set_noncritical_params_overrides(convert_overrides(*noncritical_params_overrides_));
+  validator_options_.write().set_noncritical_params_overrides(overrides_R.move_as_ok());
   td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::update_options,
                           validator_options_);
   promise.set_value(ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
@@ -5318,6 +5444,74 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getConsen
     promise.set_value(
         ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::consensus_noncriticalParamsOverrideList>(), true));
   }
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getConsensusNoncriticalParams &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (validator_manager_.empty()) {
+    promise.set_value(
+        create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "validator manager not started")));
+    return;
+  }
+
+  ton::ShardIdFull shard{query.workchain_, ton::shardIdAll};
+  if (!shard.is_valid_ext()) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "invalid workchain")));
+    return;
+  }
+
+  auto opts = validator_options_;
+  auto workchain = query.workchain_;
+  td::optional<std::vector<ton::validator::NoncriticalParamsOverride>> parsed_overrides;
+  if (noncritical_params_overrides_) {
+    auto overrides_R = convert_overrides(*noncritical_params_overrides_);
+    if (overrides_R.is_error()) {
+      promise.set_value(create_control_query_error(overrides_R.move_as_error()));
+      return;
+    }
+    parsed_overrides = overrides_R.move_as_ok();
+  }
+  auto P = td::PromiseCreator::lambda(
+      [promise = std::move(promise), workchain, shard, opts = std::move(opts),
+       parsed_overrides = std::move(parsed_overrides)](
+          td::Result<td::Ref<ton::validator::MasterchainState>> R) mutable {
+        if (R.is_error()) {
+          promise.set_value(ValidatorEngine::create_control_query_error(R.move_as_error()));
+          return;
+        }
+
+        auto state = R.move_as_ok();
+        auto config = state->get_new_consensus_config(shard.workchain);
+        if (!config) {
+          promise.set_value(ValidatorEngine::create_control_query_error(
+              td::Status::Error(PSTRING() << "new consensus config is not set for workchain " << shard.workchain)));
+          return;
+        }
+
+        auto cc_seqno = state->get_shard_cc_seqno(shard);
+        if (cc_seqno == std::numeric_limits<ton::CatchainSeqno>::max()) {
+          promise.set_value(ValidatorEngine::create_control_query_error(
+              td::Status::Error(PSTRING() << "cannot determine catchain seqno for shard " << shard.to_str())));
+          return;
+        }
+
+        td::optional<ton::validator::NoncriticalParamsOverride> matched_override;
+        if (parsed_overrides) {
+          matched_override = find_noncritical_params_override(*parsed_overrides, shard, cc_seqno);
+        }
+        auto effective = opts->get_noncritical_params(shard, cc_seqno, *config);
+        auto json = build_noncritical_params_status_json(workchain, state->get_seqno(), cc_seqno, *config, effective,
+                                                         std::move(matched_override));
+        promise.set_value(
+            ton::create_serialize_tl_object<ton::ton_api::engine_validator_jsonConfig>(std::move(json)));
+      });
+  td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::get_top_masterchain_state,
+                          std::move(P));
 }
 
 void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src,

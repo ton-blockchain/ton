@@ -2086,3 +2086,26 @@ td::Status GetConsensusNoncriticalParamsOverridesQuery::receive(td::BufferSlice 
   td::TerminalIO::out() << td::json_encode<std::string>(td::ToJson(*result), true) << "\n";
   return td::Status::OK();
 }
+
+td::Status GetConsensusNoncriticalParamsQuery::run() {
+  TRY_RESULT_ASSIGN(workchain_, tokenizer_.get_token<ton::WorkchainId>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status GetConsensusNoncriticalParamsQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getConsensusNoncriticalParams>(
+      workchain_);
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status GetConsensusNoncriticalParamsQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(result, ton::fetch_tl_object<ton::ton_api::engine_validator_jsonConfig>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << result->data_;
+  if (result->data_.empty() || result->data_.back() != '\n') {
+    td::TerminalIO::out() << "\n";
+  }
+  return td::Status::OK();
+}

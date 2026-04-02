@@ -1871,3 +1871,25 @@ class GetConsensusNoncriticalParamsOverridesQuery : public Query {
     return get_name();
   }
 };
+
+class GetConsensusNoncriticalParamsQuery : public Query {
+ public:
+  GetConsensusNoncriticalParamsQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "get-consensus-noncritical-params";
+  }
+  static std::string get_help() {
+    return "get-consensus-noncritical-params <workchain>\tshow config and effective noncritical params for workchain";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  ton::WorkchainId workchain_;
+};

@@ -36,6 +36,7 @@
 #include "td/actor/actor.h"
 #include "td/actor/coro_task.h"
 #include "td/actor/coro_utils.h"
+#include "td/utils/Status.h"
 #include "ton/ton-types.h"
 
 #include "types.h"
@@ -106,6 +107,10 @@ struct ShardBlockVerifierConfig : public td::CntObject {
 };
 
 struct NoncriticalParamsOverride {
+  static constexpr td::uint32 MIN_TARGET_RATE_MS = 300;
+  static constexpr td::uint32 MAX_TARGET_RATE_MS = 2'400;
+  static constexpr td::uint32 MAX_FIRST_BLOCK_TIMEOUT_CAP_MS = 100'000;
+
   ShardIdFull shard;
   td::uint32 from_seqno = 0;
   td::uint32 to_seqno = 0;
@@ -122,6 +127,12 @@ struct NoncriticalParamsOverride {
 
   Params params;
 
+  bool matches(ShardIdFull target_shard, td::uint32 cc_seqno) const {
+    return cc_seqno >= from_seqno && cc_seqno <= to_seqno && shard_is_ancestor(shard, target_shard);
+  }
+
+  static td::Status validate_user_input(const Params& params);
+
   NewConsensusConfig::NoncriticalParams apply(const NewConsensusConfig::NoncriticalParams& base) const {
     auto result = base;
 #define APPLY_FIELD(_, name, value) \
@@ -132,6 +143,8 @@ struct NoncriticalParamsOverride {
 #undef APPLY_FIELD
     return result;
   }
+
+  td::Status validate_against_config(const NewConsensusConfig& config) const;
 };
 
 struct ValidatorManagerOptions : public td::CntObject {
@@ -185,7 +198,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual td::Ref<ShardBlockVerifierConfig> get_shard_block_verifier_config() const = 0;
   virtual std::string get_db_event_fifo_path() const = 0;
   virtual NewConsensusConfig::NoncriticalParams get_noncritical_params(
-      ShardIdFull shard, td::uint32 cc_seqno, const NewConsensusConfig::NoncriticalParams& config) const = 0;
+      ShardIdFull shard, td::uint32 cc_seqno, const NewConsensusConfig& config) const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;

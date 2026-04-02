@@ -18,6 +18,7 @@
 */
 #pragma once
 
+#include "common/errorlog.h"
 #include "validator/validator.h"
 
 namespace ton {
@@ -183,13 +184,19 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
     return db_event_fifo_path_;
   }
   NewConsensusConfig::NoncriticalParams get_noncritical_params(
-      ShardIdFull shard, td::uint32 cc_seqno, const NewConsensusConfig::NoncriticalParams& config) const override {
-    for (auto& o : noncritical_params_overrides_) {
-      if (cc_seqno >= o.from_seqno && cc_seqno <= o.to_seqno && shard_is_ancestor(o.shard, shard)) {
-        return o.apply(config);
+      ShardIdFull shard, td::uint32 cc_seqno, const NewConsensusConfig& config) const override {
+    for (const auto& o : noncritical_params_overrides_) {
+      if (o.matches(shard, cc_seqno)) {
+        auto status = o.validate_against_config(config);
+        if (status.is_error()) {
+          LOG(ERROR) << "Ignoring invalid simplex noncritical params override for shard " << shard.to_str()
+                     << " at catchain seqno " << cc_seqno << ": " << status;
+          return config.noncritical_params;
+        }
+        return o.apply(config.noncritical_params);
       }
     }
-    return config;
+    return config.noncritical_params;
   }
 
   void set_zero_block_id(BlockIdExt block_id) override {

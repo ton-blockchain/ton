@@ -178,6 +178,7 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<ShowShardBlockVerifierConfigQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<SetConsensusNoncriticalParamsOverridesQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<GetConsensusNoncriticalParamsOverridesQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<GetConsensusNoncriticalParamsQuery>>());
 }
 
 bool ValidatorEngineConsole::envelope_send_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise) {
