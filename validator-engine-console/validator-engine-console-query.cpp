@@ -678,6 +678,28 @@ td::Status AddNetworkAddressQuery::receive(td::BufferSlice data) {
   return td::Status::OK();
 }
 
+td::Status DelNetworkAddressQuery::run() {
+  TRY_RESULT_ASSIGN(addr_, tokenizer_.get_token<td::IPAddress>());
+  TRY_RESULT_ASSIGN(cats_, tokenizer_.get_token_vector<td::int32>());
+  TRY_RESULT_ASSIGN(prio_cats_, tokenizer_.get_token_vector<td::int32>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status DelNetworkAddressQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_delListeningPort>(
+      static_cast<td::int32>(addr_.get_ipv4()), addr_.get_port(), std::move(cats_), std::move(prio_cats_));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status DelNetworkAddressQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}
+
 td::Status AddNetworkProxyAddressQuery::run() {
   TRY_RESULT_ASSIGN(in_addr_, tokenizer_.get_token<td::IPAddress>());
   TRY_RESULT_ASSIGN(out_addr_, tokenizer_.get_token<td::IPAddress>());
@@ -721,6 +743,28 @@ td::Status AddQuicAddressQuery::send() {
 }
 
 td::Status AddQuicAddressQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}
+
+td::Status DelQuicAddressQuery::run() {
+  TRY_RESULT_ASSIGN(addr_, tokenizer_.get_token<td::IPAddress>());
+  TRY_RESULT_ASSIGN(cats_, tokenizer_.get_token_vector<td::int32>());
+  TRY_RESULT_ASSIGN(prio_cats_, tokenizer_.get_token_vector<td::int32>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status DelQuicAddressQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_delQuicAddr>(
+      static_cast<td::int32>(addr_.get_ipv4()), addr_.get_port(), std::move(cats_), std::move(prio_cats_));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status DelQuicAddressQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
                     "received incorrect answer: ");
   td::TerminalIO::out() << "success\n";
