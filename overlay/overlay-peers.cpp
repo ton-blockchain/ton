@@ -103,7 +103,7 @@ void OverlayImpl::del_some_peers() {
 }
 
 td::Status OverlayImpl::validate_peer_certificate(const adnl::AdnlNodeIdShort &node,
-                                                  const OverlayMemberCertificate &cert) {
+                                                  const OverlayMemberCertificate &cert, bool received_from_node) {
   if (cert.empty()) {
     if (is_persistent_node(node) || overlay_type_ == OverlayType::Public) {
       return td::Status::OK();
@@ -117,7 +117,8 @@ td::Status OverlayImpl::validate_peer_certificate(const adnl::AdnlNodeIdShort &n
     return td::Status::Error(ErrorCode::timeout, "member certificate has invalid slot");
   }
   const auto &issued_by = cert.issued_by();
-  auto it = peer_list_.root_public_keys_.find(issued_by.compute_short_id());
+  auto issued_by_short = issued_by.compute_short_id();
+  auto it = peer_list_.root_public_keys_.find(issued_by_short);
   if (it == peer_list_.root_public_keys_.end()) {
     return td::Status::Error(ErrorCode::protoviolation, "member certificate is signed by unknown public key");
   }
@@ -126,26 +127,29 @@ td::Status OverlayImpl::validate_peer_certificate(const adnl::AdnlNodeIdShort &n
     if (cert.expire_at() < el.expire_at) {
       return td::Status::Error(ErrorCode::protoviolation,
                                "member certificate rejected, because we know of newer certificate at the same slot");
-    } else if (cert.expire_at() == el.expire_at) {
+    }
+    if (cert.expire_at() == el.expire_at) {
       if (node < el.node) {
         return td::Status::Error(ErrorCode::protoviolation,
                                  "member certificate rejected, because we know of newer certificate at the same slot");
-      } else if (el.node == node) {
-        // we could return OK here, but we must make sure, that the unchecked signature will not be used for updating PeerNode.
       }
     }
   }
-  auto R = get_encryptor(issued_by);
-  if (R.is_error()) {
-    return R.move_as_error_prefix("failed to check member certificate: failed to create encryptor: ");
-  }
-  auto enc = R.move_as_ok();
-  {
-    TD_PERF_COUNTER(check_signature_overlay_member_certificate);
-    auto S = enc->check_signature(cert.to_sign_data(node).as_slice(), cert.signature());
-    if (S.is_error()) {
-      return S.move_as_error_prefix("failed to check member certificate: bad signature: ");
+
+  auto &limiter = authorized_key_limiters_[issued_by_short];
+  std::pair cache_key{node, get_tl_object_sha_bits256(cert.tl())};
+  bool cached = limiter.checked_member_certificates_lru_.contains(cache_key);
+  if (!cached) {
+    td::Timestamp now = td::Timestamp::now();
+    if (!limiter.certificate_check_rate_limiter_.check(now)) {
+      return td::Status::Error("member certificate rejected: rate limit exceeded");
     }
+    TD_PERF_COUNTER(check_signature_overlay_member_certificate);
+    TRY_STATUS_PREFIX(check_signature_from_peer(issued_by, cert.to_sign_data(node), cert.signature(),
+                                                received_from_node ? node : adnl::AdnlNodeIdShort::zero()),
+                      "failed to check member certificate: bad signature: ");
+    limiter.certificate_check_rate_limiter_.insert(now);
+    limiter.checked_member_certificates_lru_.put(cache_key, td::Unit{});
   }
   if (it->second.size() <= (size_t)cert.slot()) {
     it->second.resize((size_t)cert.slot() + 1);
@@ -172,7 +176,12 @@ td::Status OverlayImpl::validate_peer_certificate(const adnl::AdnlNodeIdShort &n
   return validate_peer_certificate(node, *cert);
 }
 
-void OverlayImpl::add_peer(OverlayNode node) {
+void OverlayImpl::add_peer(OverlayNode node, bool received_from_peer) {
+  td::Timestamp now = td::Timestamp::now();
+  if (received_from_peer && !receive_peers_rate_limiter_.check(now)) {
+    VLOG(OVERLAY_DEBUG) << this << ": dropping new peer: rate limit exceeded";
+    return;
+  }
   CHECK(overlay_type_ != OverlayType::FixedMemberList);
   if (node.overlay_id() != overlay_id_) {
     VLOG(OVERLAY_WARNING) << this << ": received node with bad overlay";
@@ -190,6 +199,9 @@ void OverlayImpl::add_peer(OverlayNode node) {
     return;
   }
 
+  if (received_from_peer) {
+    receive_peers_rate_limiter_.insert(now);
+  }
   auto S = node.check_signature();
   if (S.is_error()) {
     VLOG(OVERLAY_WARNING) << this << ": bad signature: " << S;
@@ -227,26 +239,26 @@ void OverlayImpl::add_peer(OverlayNode node) {
   }
 }
 
-void OverlayImpl::add_peers(std::vector<OverlayNode> peers) {
+void OverlayImpl::add_peers(std::vector<OverlayNode> peers, bool received_from_peer) {
   for (auto &node : peers) {
-    add_peer(std::move(node));
+    add_peer(std::move(node), received_from_peer);
   }
 }
 
-void OverlayImpl::add_peers(const tl_object_ptr<ton_api::overlay_nodes> &nodes) {
+void OverlayImpl::add_peers(const tl_object_ptr<ton_api::overlay_nodes> &nodes, bool received_from_peer) {
   for (auto &n : nodes->nodes_) {
     auto N = OverlayNode::create(n);
     if (N.is_ok()) {
-      add_peer(N.move_as_ok());
+      add_peer(N.move_as_ok(), received_from_peer);
     }
   }
 }
 
-void OverlayImpl::add_peers(const tl_object_ptr<ton_api::overlay_nodesV2> &nodes) {
+void OverlayImpl::add_peers(const tl_object_ptr<ton_api::overlay_nodesV2> &nodes, bool received_from_peer) {
   for (auto &n : nodes->nodes_) {
     auto N = OverlayNode::create(n);
     if (N.is_ok()) {
-      add_peer(N.move_as_ok());
+      add_peer(N.move_as_ok(), received_from_peer);
     }
   }
 }
@@ -283,7 +295,7 @@ void OverlayImpl::receive_random_peers(adnl::AdnlNodeIdShort src, td::Result<td:
     return;
   }
 
-  add_peers(R2.move_as_ok());
+  add_peers(R2.move_as_ok(), true);
 }
 
 void OverlayImpl::receive_random_peers_v2(adnl::AdnlNodeIdShort src, td::Result<td::BufferSlice> R, double elapsed) {
@@ -300,7 +312,7 @@ void OverlayImpl::receive_random_peers_v2(adnl::AdnlNodeIdShort src, td::Result<
     return;
   }
 
-  add_peers(R2.move_as_ok());
+  add_peers(R2.move_as_ok(), true);
 }
 
 void OverlayImpl::send_random_peers_cont(adnl::AdnlNodeIdShort src, OverlayNode node,
@@ -560,8 +572,8 @@ size_t OverlayImpl::persistent_node_count() {
   return peer_list_.persistent_node_count_;
 }
 
-bool OverlayImpl::is_valid_peer(const adnl::AdnlNodeIdShort &src,
-                                const ton_api::overlay_MemberCertificate *certificate) {
+bool OverlayImpl::check_src_peer(const adnl::AdnlNodeIdShort &src,
+                                 const ton_api::overlay_MemberCertificate *certificate) {
   if (overlay_type_ == OverlayType::Public) {
     on_ping_result(src, true);
     return true;
@@ -579,7 +591,7 @@ bool OverlayImpl::is_valid_peer(const adnl::AdnlNodeIdShort &src,
       }
     }
 
-    auto S = validate_peer_certificate(src, cert);
+    auto S = validate_peer_certificate(src, cert, true);
     if (S.is_error()) {
       VLOG(OVERLAY_WARNING) << "adnl=" << src << ": certificate is invalid: " << S;
       return false;
@@ -730,6 +742,7 @@ void OverlayImpl::update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids
 
   update_member_certificate(std::move(cert));
   update_neighbours(0);
+  cleanup_authorized_key_limiters();
 }
 
 void OverlayImpl::update_member_certificate(OverlayMemberCertificate cert) {

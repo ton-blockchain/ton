@@ -378,9 +378,12 @@ void FullNodeFastSyncOverlay::init() {
 
   td::actor::send_closure(adnl_sender_, &adnl::AdnlSenderEx::add_id, local_id_);
 
-  overlay::OverlayPrivacyRules rules{overlay::Overlays::max_fec_broadcast_size(),
-                                     overlay::CertificateFlags::AllowFec | overlay::CertificateFlags::Trusted,
-                                     {}};
+  std::map<PublicKeyHash, td::uint32> authorized_keys;
+  // FIXME: allow broadcasts from non-validators when needed
+  for (auto id : current_validators_adnl_) {
+    authorized_keys[id.pubkey_hash()] = overlay::Overlays::max_fec_broadcast_size();
+  }
+  overlay::OverlayPrivacyRules rules{0, 0, std::move(authorized_keys)};
   std::string scope = PSTRING() << R"({ "type": "fast-sync", "shard_id": )" << shard_.shard
                                 << ", \"workchain_id\": " << shard_.workchain << " }";
   overlay::OverlayOptions options;

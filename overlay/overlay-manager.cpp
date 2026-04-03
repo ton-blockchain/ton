@@ -581,6 +581,17 @@ void OverlayManager::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validat
     }
     void decr_pending() {
       if (!--pending_) {
+        std::sort(res_.begin(), res_.end(),
+                  [](const tl_object_ptr<ton_api::engine_validator_overlayStats> &a,
+                     const tl_object_ptr<ton_api::engine_validator_overlayStats> &b) {
+                    if (a->scope_ != b->scope_) {
+                      return a->scope_ < b->scope_;
+                    }
+                    if (a->overlay_id_ != b->overlay_id_) {
+                      return a->overlay_id_ < b->overlay_id_;
+                    }
+                    return a->adnl_id_ < b->adnl_id_;
+                  });
         promise_.set_result(create_tl_object<ton_api::engine_validator_overlaysStats>(std::move(res_)));
         stop();
       }
@@ -679,6 +690,10 @@ const PublicKeyHash Certificate::issuer_hash() const {
 }
 const PublicKey &Certificate::issuer() const {
   return issued_by_.get<PublicKey>();
+}
+
+const td::SharedSlice &Certificate::signature() const {
+  return signature_;
 }
 
 td::Result<std::shared_ptr<Certificate>> Certificate::create(const tl_object_ptr<ton_api::overlay_Certificate> &cert) {

@@ -219,11 +219,11 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
 
   NewConsensusConfig::NoncriticalParams params_;
   std::map<CandidateId, CandidateState> state_;
-  std::map<PeerValidatorId, fullnode::LimiterWindow> rate_limiter_;
+  std::map<PeerValidatorId, td::RateLimiterWindow> rate_limiter_;
 
   td::Status check_rate_limit(PeerValidatorId src) {
     if (!rate_limiter_.contains(src)) {
-      rate_limiter_[src] = fullnode::LimiterWindow{.size = 1.0, .limit = params_.candidate_resolve_rate_limit};
+      rate_limiter_[src] = td::RateLimiterWindow{1.0, params_.candidate_resolve_rate_limit};
     }
     auto &window = rate_limiter_[src];
     auto now = td::Timestamp::now();

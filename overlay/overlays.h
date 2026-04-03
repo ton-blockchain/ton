@@ -129,12 +129,25 @@ class OverlayPrivacyRules {
     }
   }
 
+  bool is_authorized_key(PublicKeyHash hash) const {
+    return authorized_keys_.contains(hash);
+  }
+
   td::uint32 max_broadcast_size() const {
     td::uint32 size = max_unath_size_;
     for (const auto &[_, x] : authorized_keys_) {
       size = std::max(size, x);
     }
     return size;
+  }
+
+  std::vector<PublicKeyHash> get_authorized_keys() const {
+    std::vector<PublicKeyHash> keys;
+    keys.reserve(authorized_keys_.size());
+    for (const auto &[key, _] : authorized_keys_) {
+      keys.push_back(key);
+    }
+    return keys;
   }
 
  private:
@@ -160,6 +173,7 @@ class Certificate {
   tl_object_ptr<ton_api::overlay_Certificate> tl() const;
   const PublicKey &issuer() const;
   const PublicKeyHash issuer_hash() const;
+  const td::SharedSlice &signature() const;
 
   static td::Result<std::shared_ptr<Certificate>> create(const tl_object_ptr<ton_api::overlay_Certificate> &cert);
   static tl_object_ptr<ton_api::overlay_Certificate> empty_tl();
