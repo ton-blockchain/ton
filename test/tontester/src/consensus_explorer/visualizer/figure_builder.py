@@ -244,19 +244,46 @@ class DetailFigureBuilder:
                 )
             )
 
+    @staticmethod
+    def _format_time_stats(entries: list[tuple[str, float]]) -> str:
+        regular: list[tuple[str, float]] = []
+        wt_real: dict[str, float] = {}
+        wt_cpu: dict[str, float] = {}
+        for name, value in entries:
+            if name.startswith("wt_real:"):
+                wt_real[name[8:]] = value
+            elif name.startswith("wt_cpu:"):
+                wt_cpu[name[7:]] = value
+            else:
+                regular.append((name, value))
+
+        parts = "<br>time_stats:"
+        for name, value in regular:
+            parts += f"<br>  {name}: {value * 1000:.3f} ms"
+
+        all_keys = list(dict.fromkeys(list(wt_real) + list(wt_cpu)))
+        if all_keys:
+            parts += "<br>work_time (real/cpu):"
+            for key in all_keys:
+                real = wt_real.get(key)
+                cpu = wt_cpu.get(key)
+                if real is not None and cpu is not None:
+                    parts += f"<br>  {key}: {real * 1000:.3f}/{cpu * 1000:.3f} ms"
+                elif real is not None:
+                    parts += f"<br>  {key}: {real * 1000:.3f}/- ms"
+                else:
+                    assert cpu is not None
+                    parts += f"<br>  {key}: -/{cpu * 1000:.3f} ms"
+
+        return parts
+
     def _event_hover_text(self, label: str, validator: int | str | None) -> str:
         if label == "collation" and self._slot.time_stats:
-            return "<br>time_stats:" + "".join(
-                f"<br>  {name}: {duration * 1000:.3f} ms"
-                for name, duration in self._slot.time_stats
-            )
+            return self._format_time_stats(self._slot.time_stats)
         if label == "block_validation" and self._slot.validation_time_stats and validator is not None:
             v_ts = self._slot.validation_time_stats.get(validator)
             if v_ts:
-                return "<br>time_stats:" + "".join(
-                    f"<br>  {name}: {duration * 1000:.3f} ms"
-                    for name, duration in v_ts
-                )
+                return self._format_time_stats(v_ts)
         return ""
 
     def _add_validator_events(self, events: list[EventData]) -> None:

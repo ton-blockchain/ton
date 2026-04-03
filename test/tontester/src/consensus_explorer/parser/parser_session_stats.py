@@ -81,6 +81,18 @@ def _parse_time_stats(time_stats: str) -> list[tuple[str, float]]:
     return [(m.group(1), float(m.group(2))) for m in re.finditer(pattern, time_stats)]
 
 
+def _parse_kv_stats(stats: str, prefix: str) -> list[tuple[str, float]]:
+    result: list[tuple[str, float]] = []
+    for part in stats.split():
+        if "=" in part:
+            k, v = part.split("=", 1)
+            try:
+                result.append((f"{prefix}{k}", float(v)))
+            except ValueError:
+                pass
+    return result
+
+
 @final
 class ParserSessionStats(GroupParser):
     def __init__(
@@ -593,25 +605,48 @@ class ParserSessionStats(GroupParser):
                         elif line.startswith('{"@type":"validatorStats.collatedBlock"'):
                             try:
                                 collated = ValidatorStats_collatedBlock.from_json(line)
-                                if collated.block_id is not None and collated.time_stats:
+                                if collated.block_id is not None:
                                     block_id_str = format_block_id(collated.block_id)
-                                    time_stats_by_block[block_id_str] = _parse_time_stats(
-                                        collated.time_stats
+                                    time_stats_by_block[block_id_str] = (
+                                        [
+                                            ("total_time", collated.total_time),
+                                            ("work_time", collated.work_time),
+                                            ("cpu_work_time", collated.cpu_work_time),
+                                        ]
+                                        + _parse_time_stats(collated.time_stats)
+                                        + _parse_kv_stats(
+                                            collated.work_time_real_stats, "wt_real:"
+                                        )
+                                        + _parse_kv_stats(
+                                            collated.work_time_cpu_stats, "wt_cpu:"
+                                        )
                                     )
                             except Exception:
                                 pass
                         elif line.startswith('{"@type":"validatorStats.validatedBlock"'):
                             try:
                                 validated = ValidatorStats_validatedBlock.from_json(line)
-                                if validated.block_id is not None and validated.time_stats:
+                                if validated.block_id is not None:
                                     block_id_str = format_block_id(validated.block_id)
                                     key = (
                                         block_id_str,
                                         validated.block_id.workchain,
                                         validated.block_id.shard,
                                     )
-                                    validation_ts_raw[key] = _parse_time_stats(
-                                        validated.time_stats
+                                    validation_ts_raw[key] = (
+                                        [
+                                            ("total_time", validated.total_time),
+                                            ("work_time", validated.work_time),
+                                            ("actual_time", validated.actual_time),
+                                            ("cpu_work_time", validated.cpu_work_time),
+                                        ]
+                                        + _parse_time_stats(validated.time_stats)
+                                        + _parse_kv_stats(
+                                            validated.work_time_real_stats, "wt_real:"
+                                        )
+                                        + _parse_kv_stats(
+                                            validated.work_time_cpu_stats, "wt_cpu:"
+                                        )
                                     )
                             except Exception:
                                 pass
