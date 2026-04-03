@@ -33,6 +33,7 @@ class ExtMessageQ : public ExtMessage {
   AccountIdPrefixFull addr_prefix_;
   td::BufferSlice data_;
   Hash hash_;
+  Hash hash_norm_;
   ton::WorkchainId wc_;
   ton::StdSmcAddress addr_;
 
@@ -49,6 +50,9 @@ class ExtMessageQ : public ExtMessage {
   Hash hash() const override {
     return hash_;
   }
+  Hash hash_norm() const override {
+    return hash_norm_;
+  }
   ton::WorkchainId wc() const override {
     return wc_;
   }
@@ -58,7 +62,7 @@ class ExtMessageQ : public ExtMessage {
   }
 
   ExtMessageQ(td::BufferSlice data, td::Ref<vm::Cell> root, AccountIdPrefixFull shard, ton::WorkchainId wc,
-              ton::StdSmcAddress addr, Hash hash);
+              ton::StdSmcAddress addr, Hash hash, Hash hash_norm);
   static td::Result<td::Ref<ExtMessageQ>> create_ext_message(td::BufferSlice data,
                                                              block::SizeLimitsConfig::ExtMsgLimits limits);
   static td::Status run_message_on_account(ton::WorkchainId wc, block::Account* acc, UnixTime utime, LogicalTime lt,

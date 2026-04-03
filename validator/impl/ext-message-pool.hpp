@@ -16,6 +16,8 @@
 */
 #pragma once
 
+#include <set>
+
 #include "interfaces/validator-manager.h"
 #include "td/actor/coro_utils.h"
 
@@ -63,9 +65,13 @@ class ExtMessagePool : public td::actor::Actor {
       }
       return hash < msg.hash;
     }
+    bool operator==(const MessageId &msg) const {
+      return !(*this < msg) && !(msg < *this);
+    }
   };
   struct MempoolMsg {
     td::Ref<ExtMessage> message;
+    ExtMessage::Hash hash_norm;
     td::uint32 generation = 0;
     bool active = true;
     td::Timestamp reactivate_at;
@@ -97,7 +103,7 @@ class ExtMessagePool : public td::actor::Actor {
     bool expired() const {
       return delete_at.is_in_past();
     }
-    explicit MempoolMsg(td::Ref<ExtMessage> msg) : message(std::move(msg)) {
+    explicit MempoolMsg(td::Ref<ExtMessage> msg) : message(std::move(msg)), hash_norm(message->hash_norm()) {
       delete_at = td::Timestamp::in(600);
     }
   };
@@ -109,15 +115,21 @@ class ExtMessagePool : public td::actor::Actor {
   struct ExtMessages {
     std::map<MessageId, std::unique_ptr<MempoolMsg>> ext_messages_;
     std::map<std::pair<WorkchainId, StdSmcAddress>, std::map<ExtMessage::Hash, MessageId>> ext_addr_messages_;
-    void erase(const MessageId &id) {
-      auto it = ext_messages_.find(id);
-      CHECK(it != ext_messages_.end());
-      ext_addr_messages_[it->second->address()].erase(id.hash);
-      ext_messages_.erase(it);
+  };
+  struct NormalizedMessageId {
+    int priority;
+    MessageId id;
+
+    bool operator<(const NormalizedMessageId &msg) const {
+      if (priority != msg.priority) {
+        return priority < msg.priority;
+      }
+      return id < msg.id;
     }
   };
   std::map<int, ExtMessages> ext_msgs_;                                        // priority -> messages
-  std::map<ExtMessage::Hash, std::pair<int, MessageId>> ext_messages_hashes_;  // hash -> priority
+  std::map<ExtMessage::Hash, std::pair<int, MessageId>> ext_messages_hashes_;   // raw hash -> priority
+  std::map<ExtMessage::Hash, std::set<NormalizedMessageId>> ext_messages_hashes_norm_;
 
   struct CheckedExtMsgCounter {
     std::map<std::pair<WorkchainId, StdSmcAddress>, size_t> counter_cur_, counter_prev_;
@@ -133,6 +145,7 @@ class ExtMessagePool : public td::actor::Actor {
   td::Timestamp cleanup_mempool_at_ = td::Timestamp::now();
 
   void add_message_to_mempool(td::Ref<ExtMessage> message, int priority, td::optional<td::uint32> msg_seqno);
+  bool erase_message(int priority, const MessageId &id);
 
   struct WalletMessageInfo {
     td::uint32 valid_until;

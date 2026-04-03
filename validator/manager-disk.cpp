@@ -579,7 +579,7 @@ void ValidatorManagerImpl::complete_external_messages(std::vector<ExtMessage::Ha
                                                       std::vector<ExtMessage::Hash> to_delete) {
 }
 
-void ValidatorManagerImpl::cleanup_applied_external_messages(td::Ref<BlockData> block) {
+void ValidatorManagerImpl::cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) {
 }
 
 void ValidatorManagerImpl::complete_ihr_messages(std::vector<IhrMessage::Hash> to_delay,

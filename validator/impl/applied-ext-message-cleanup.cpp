@@ -91,7 +91,29 @@ td::Result<std::vector<ExtMessage::Hash>> get_applied_external_messages_hashes(t
 
 }  // namespace
 
-void AppliedExtMessageCleanupActor::cleanup_applied_block(td::Ref<BlockData> block) {
+void AppliedExtMessageCleanupActor::got_block_data(BlockIdExt block_id, td::Result<td::Ref<BlockData>> block) {
+  if (block.is_error()) {
+    LOG(WARNING) << "failed to load block data for applied external cleanup of block " << block_id.to_str() << " : "
+                 << block.move_as_error();
+    return;
+  }
+  cleanup_applied_block(BlockHandle{}, block.move_as_ok());
+}
+
+void AppliedExtMessageCleanupActor::cleanup_applied_block(BlockHandle handle, td::Ref<BlockData> block) {
+  if (block.is_null()) {
+    if (!handle) {
+      return;
+    }
+    auto block_id = handle->id();
+    auto P = td::PromiseCreator::lambda(
+        [SelfId = actor_id(this), block_id](td::Result<td::Ref<BlockData>> R) mutable {
+          td::actor::send_closure(SelfId, &AppliedExtMessageCleanupActor::got_block_data, block_id, std::move(R));
+        });
+    td::actor::send_closure(manager_, &ValidatorManager::get_block_data_from_db, handle, std::move(P));
+    return;
+  }
+
   auto hashes = get_applied_external_messages_hashes(block);
   if (hashes.is_error()) {
     LOG(WARNING) << "failed to cleanup applied externals for block "

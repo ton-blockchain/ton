@@ -1137,12 +1137,12 @@ void ValidatorManagerImpl::complete_external_messages(std::vector<ExtMessage::Ha
                           std::move(to_delete));
 }
 
-void ValidatorManagerImpl::cleanup_applied_external_messages(td::Ref<BlockData> block) {
-  if (applied_ext_message_cleanup_actor_.empty() || block.is_null()) {
+void ValidatorManagerImpl::cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) {
+  if (applied_ext_message_cleanup_actor_.empty() || !handle) {
     return;
   }
   td::actor::send_closure(applied_ext_message_cleanup_actor_, &AppliedExtMessageCleanupActor::cleanup_applied_block,
-                          std::move(block));
+                          std::move(handle), std::move(block));
 }
 
 void ValidatorManagerImpl::complete_ihr_messages(std::vector<IhrMessage::Hash> to_delay,
@@ -1937,7 +1937,8 @@ void ValidatorManagerImpl::start_up() {
   storage_stat_cache_ = td::actor::create_actor<StorageStatCache>("storagestatcache");
   ext_message_pool_ = td::actor::create_actor<ExtMessagePool>("extmessages", opts_, actor_id(this));
   applied_ext_message_cleanup_actor_ =
-      td::actor::create_actor<AppliedExtMessageCleanupActor>("extmessagecleanup", ext_message_pool_.get());
+      td::actor::create_actor<AppliedExtMessageCleanupActor>("extmessagecleanup", ext_message_pool_.get(),
+                                                             actor_id(this));
   td::mkdir(db_root_ + "/tmp/").ensure();
   td::mkdir(db_root_ + "/catchains/").ensure();
 

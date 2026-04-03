@@ -33,11 +33,12 @@ namespace validator {
 using td::Ref;
 
 ExtMessageQ::ExtMessageQ(td::BufferSlice data, td::Ref<vm::Cell> root, AccountIdPrefixFull addr_prefix,
-                         ton::WorkchainId wc, ton::StdSmcAddress addr, Hash hash)
+                         ton::WorkchainId wc, ton::StdSmcAddress addr, Hash hash, Hash hash_norm)
     : root_(std::move(root))
     , addr_prefix_(addr_prefix)
     , data_(std::move(data))
     , hash_(hash)
+    , hash_norm_(hash_norm)
     , wc_(wc)
     , addr_(addr) {
 }
@@ -102,6 +103,7 @@ td::Result<Ref<ExtMessageQ>> ExtMessageQ::create_ext_message(td::BufferSlice dat
   if (cs.prefetch_ulong(2) != 2) {  // ext_in_msg_info$10
     return td::Status::Error("external message must begin with ext_in_msg_info$10");
   }
+  ton::Bits256 hash{ext_msg->get_hash().bits()};
   if (!block::gen::t_Message_Any.validate_ref(128, ext_msg)) {
     return td::Status::Error("external message is not a (Message Any) according to automated checks");
   }
@@ -123,7 +125,7 @@ td::Result<Ref<ExtMessageQ>> ExtMessageQ::create_ext_message(td::BufferSlice dat
   }
 
   TRY_RESULT(hash_norm, get_ext_in_msg_hash_norm(ext_msg));
-  return Ref<ExtMessageQ>{true, std::move(data), std::move(ext_msg), dest_prefix, wc, addr, hash_norm};
+  return Ref<ExtMessageQ>{true, std::move(data), std::move(ext_msg), dest_prefix, wc, addr, hash, hash_norm};
 }
 
 td::Status ExtMessageQ::run_message_on_account(ton::WorkchainId wc, block::Account* acc, UnixTime utime, LogicalTime lt,
