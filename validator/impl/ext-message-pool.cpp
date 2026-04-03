@@ -147,10 +147,27 @@ void ExtMessagePool::complete_external_messages(std::vector<ExtMessage::Hash> to
   }
 }
 
+void ExtMessagePool::erase_external_messages(std::vector<ExtMessage::Hash> to_delete) {
+  applied_ext_msgs_delete_requests_ += to_delete.size();
+  for (auto &hash : to_delete) {
+    auto it = ext_messages_hashes_.find(hash);
+    if (it != ext_messages_hashes_.end()) {
+      int priority = it->second.first;
+      auto msg_id = it->second.second;
+      ext_msgs_[priority].erase(msg_id);
+      ext_messages_hashes_.erase(it);
+      ++applied_ext_msgs_deleted_;
+    }
+  }
+}
+
 std::vector<std::pair<std::string, std::string>> ExtMessagePool::prepare_stats() {
   std::vector<std::pair<std::string, std::string>> vec;
   vec.emplace_back("total.ext_msg_check",
                    PSTRING() << "ok:" << total_check_ext_messages_ok_ << " error:" << total_check_ext_messages_error_);
+  vec.emplace_back("total.ext_msg_applied_cleanup",
+                   PSTRING() << "requested:" << applied_ext_msgs_delete_requests_
+                             << " deleted:" << applied_ext_msgs_deleted_);
   return vec;
 }
 

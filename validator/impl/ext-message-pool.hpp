@@ -37,6 +37,7 @@ class ExtMessagePool : public td::actor::Actor {
   std::vector<std::pair<td::Ref<ExtMessage>, int>> get_external_messages_for_collator(ShardIdFull shard);
   void cleanup_external_messages(ShardIdFull shard);
   void complete_external_messages(std::vector<ExtMessage::Hash> to_delay, std::vector<ExtMessage::Hash> to_delete);
+  void erase_external_messages(std::vector<ExtMessage::Hash> to_delete);
 
   void update_last_masterchain_state(td::Ref<MasterchainState> state) {
     last_masterchain_state_ = std::move(state);
@@ -127,6 +128,7 @@ class ExtMessagePool : public td::actor::Actor {
     void before_query();
   } checked_ext_msg_counter_;
   td::uint64 total_check_ext_messages_ok_{0}, total_check_ext_messages_error_{0};
+  td::uint64 applied_ext_msgs_delete_requests_{0}, applied_ext_msgs_deleted_{0};
 
   td::Timestamp cleanup_mempool_at_ = td::Timestamp::now();
 
