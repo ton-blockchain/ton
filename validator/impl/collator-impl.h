@@ -193,13 +193,17 @@ class Collator final : public td::actor::Actor {
   Ref<vm::Cell> new_block;
   block::ValueFlow value_flow_{block::ValueFlow::SetZero()};
   std::unique_ptr<vm::AugmentedDictionary> fees_import_dict_;
-  std::map<ton::Bits256, int> ext_msg_map;
+
+  std::set<td::Bits256> registered_ext_msgs_;
   struct ExtMsg {
     Ref<vm::Cell> cell;
     ExtMessage::Hash hash;
     int priority;
   };
-  std::vector<ExtMsg> ext_msg_list_;
+  std::queue<ExtMsg> ext_msg_queue_;
+  td::CancellationTokenSource ext_msg_cancellation_;
+  td::Promise<td::Unit> ext_msg_waiter_;
+
   std::priority_queue<NewOutMsg, std::vector<NewOutMsg>, std::greater<NewOutMsg>> new_msgs;
   std::pair<ton::LogicalTime, ton::Bits256> last_proc_int_msg_, first_unproc_int_msg_;
   block::tlb::Aug_InMsgDescr aug_InMsgDescr{0};
@@ -300,7 +304,9 @@ class Collator final : public td::actor::Actor {
   bool init_value_create();
   bool try_collate();
   bool do_preinit();
-  bool do_collate();
+
+  td::actor::Task<> do_collate();
+  td::actor::Task<> do_collate_inner();
   bool create_special_transactions();
   bool create_special_transaction(block::CurrencyCollection amount, Ref<vm::Cell> dest_addr_cell,
                                   Ref<vm::Cell>& in_msg);
@@ -341,16 +347,18 @@ class Collator final : public td::actor::Actor {
   bool is_our_address(const ton::StdSmcAddress& addr) const;
   void after_get_external_messages(td::Result<std::vector<std::pair<Ref<ExtMessage>, int>>> res,
                                    td::PerfLogAction token);
-  td::Result<bool> register_external_message_cell(Ref<vm::Cell> ext_msg, const ExtMessage::Hash& ext_hash,
-                                                  int priority);
-  // td::Result<bool> register_external_message(td::Slice ext_msg_boc);
+  td::Status register_external_message(Ref<ExtMessage> ext_msg, int priority);
+  void got_new_external_message(Ref<ExtMessage> ext_msg, int priority);
+  td::actor::Task<> wait_for_external_message(td::Timestamp timeout);
+
   void register_new_msg(block::NewOutMsg msg);
   void register_new_msgs(block::transaction::Transaction& trans, td::optional<block::MsgMetadata> msg_metadata);
-  bool process_new_messages(bool enqueue_only = false);
+  bool process_new_messages(bool& enqueue_only);
   int process_one_new_message(block::NewOutMsg msg, bool enqueue_only = false, Ref<vm::Cell>* is_special = nullptr);
   bool process_inbound_internal_messages();
   bool precheck_inbound_message(Ref<vm::CellSlice> msg, ton::LogicalTime lt);
   bool process_inbound_message(Ref<vm::CellSlice> msg, ton::LogicalTime lt, td::ConstBitPtr key, int src_nb_idx);
+  td::actor::Task<> process_external_and_new_messages();
   bool process_inbound_external_messages();
   int process_external_message(Ref<vm::Cell> msg);
   bool process_dispatch_queue();

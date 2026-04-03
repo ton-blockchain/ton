@@ -117,6 +117,7 @@ class Timestamp {
 
   friend bool operator==(Timestamp a, Timestamp b);
   friend Timestamp &operator+=(Timestamp &a, double b);
+  friend Timestamp &operator-=(Timestamp &a, double b);
 
  private:
   double at_{0};
@@ -134,8 +135,27 @@ inline Timestamp &operator+=(Timestamp &a, double b) {
   return a;
 }
 
+inline Timestamp &operator-=(Timestamp &a, double b) {
+  a.at_ -= b;
+  return a;
+}
+
+inline Timestamp operator+(Timestamp a, double b) {
+  a += b;
+  return a;
+}
+
+inline Timestamp operator-(Timestamp a, double b) {
+  a -= b;
+  return a;
+}
+
 inline Timestamp operator+(Timestamp a, std::chrono::duration<double> b) {
   return Timestamp::at(a.at() + b.count());
+}
+
+inline Timestamp operator-(Timestamp a, std::chrono::duration<double> b) {
+  return Timestamp::at(a.at() - b.count());
 }
 
 inline double operator-(const Timestamp &a, const Timestamp &b) {
