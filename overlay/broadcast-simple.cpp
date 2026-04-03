@@ -83,16 +83,17 @@ class BroadcastSimple : public td::ListNode {
 };
 
 td::Status BroadcastSimple::run(OverlayImpl *overlay) {
-  auto r = overlay->check_source_eligible(source_, cert_.get(), static_cast<td::uint32>(data_.size()), false);
+  auto r =
+      overlay->check_source_eligible(source_, cert_.get(), static_cast<td::uint32>(data_.size()), false, src_peer_id_);
   if (r == BroadcastCheckResult::Forbidden) {
     return td::Status::Error(ErrorCode::error, "broadcast is forbidden");
   }
   is_valid_ = r == BroadcastCheckResult::Allowed;
-  TRY_RESULT(encryptor, overlay->get_encryptor(source_));
   {
     TD_PERF_COUNTER(check_signature_overlay_broadcast_simple);
-    TRY_STATUS(encryptor->check_signature(to_sign().as_slice(), signature_.as_slice()));
+    TRY_STATUS(overlay->check_signature_from_peer(source_, to_sign().as_slice(), signature_.as_slice(), src_peer_id_));
   }
+  overlay->get_broadcasts_limiter(source_.compute_short_id(), cert_.get()).register_broadcast(data_.size());
   if (!is_valid_) {
     auto P = td::PromiseCreator::lambda(
         [overlay = actor_id(overlay), hash = broadcast_hash_](td::Result<td::Unit> R) mutable {
@@ -122,6 +123,8 @@ void BroadcastSimple::run_continue(OverlayImpl *overlay) {
     td::actor::send_closure(manager, &OverlayManager::send_message, n, overlay->local_id(), overlay->overlay_id(),
                             B.clone());
   }
+  overlay->get_broadcasts_limiter(source_.compute_short_id(), cert_.get())
+      .register_out_traffic(B.size() * nodes.size());
   overlay->deliver_broadcast(source_.compute_short_id(), data_.clone(), {});
 }
 

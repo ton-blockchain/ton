@@ -240,6 +240,7 @@ set(TDUTILS_SOURCE
   td/utils/PathView.h
   td/utils/queue.h
   td/utils/Random.h
+  td/utils/RateLimiterWindow.h
   td/utils/ScopeGuard.h
   td/utils/SharedObjectPool.h
   td/utils/SharedSlice.h

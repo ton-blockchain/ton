@@ -66,7 +66,8 @@ class BroadcastsTwostep {
   std::map<Overlay::BroadcastHash, std::unique_ptr<BroadcastTwostep>> broadcasts_;
   td::ListNode lru_;
 
-  void rebroadcast(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &bcast_src_adnl_id, const td::BufferSlice &data);
+  td::uint64 rebroadcast(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &bcast_src_adnl_id,
+                         const td::BufferSlice &data);
 };
 }  // namespace overlay
 
