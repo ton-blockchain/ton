@@ -31,6 +31,7 @@ from tonapi.ton_api import (
     Consensus_stats_validationStarted,
     TonNode_blockIdExt,
     TypeConsensus_stats_Event,
+    ValidatorStats_collatedBlock
 )
 
 from ..models import ConsensusData, EventData, GroupData, GroupInfo, SlotData, UnnamedGroupInfo
@@ -74,6 +75,11 @@ def format_block_id(id_: TonNode_blockIdExt):
     return f"({id_.workchain},{_shard_to_hex(id_.shard)},{id_.seqno}):{id_.root_hash.hex().upper()}:{id_.file_hash.hex().upper()}"
 
 
+def _parse_time_stats(time_stats: str) -> list[tuple[str, float]]:
+    pattern = r'\{(.+?):\d+\.\d+->\d+\.\d+\((\d+\.\d+)\)\}'
+    return [(m.group(1), float(m.group(2))) for m in re.finditer(pattern, time_stats)]
+
+
 @final
 class ParserSessionStats(GroupParser):
     def __init__(
@@ -98,6 +104,7 @@ class ParserSessionStats(GroupParser):
 
         self.with_cache = with_cache
         self._raw_events: dict[Path, dict[bytes, list[Consensus_stats_timestampedEvent]]] = {}
+        self._raw_time_stats: dict[Path, dict[str, list[tuple[str, float]]]] = {}
         self._cache_result: ConsensusData | None = None
         self._cache_lines: dict[Path, int] = {}
         self._cache_mtime: dict[Path, float] = {}
@@ -538,30 +545,40 @@ class ParserSessionStats(GroupParser):
             return self._cache_result
 
         merged: dict[str, dict[bytes, list[Consensus_stats_timestampedEvent]]] = {}
+        all_time_stats: dict[str, list[tuple[str, float]]] = {}
 
         for log_file in self._logs_path:
             hostname = self._extract_hostname(log_file)
             try:
                 with open_stats_file(log_file) as f:
                     events_by_groups: dict[bytes, list[Consensus_stats_timestampedEvent]] = {}
+                    time_stats_by_block: dict[str, list[tuple[str, float]]] = {}
                     start_line = 0
                     if self.with_cache and log_file in self._cache_lines:
                         start_line = self._cache_lines[log_file]
                     current_line = start_line
                     for line in islice(f, start_line, None):
                         current_line += 1
-                        if not line.startswith('{"@type":"consensus.stats.events"'):
-                            continue
+                        if line.startswith('{"@type":"consensus.stats.events"'):
+                            events = Consensus_stats_events.from_json(line)
 
-                        events = Consensus_stats_events.from_json(line)
+                            if (
+                                self._target_group_hash is not None
+                                and events.id != self._target_group_hash
+                            ):
+                                continue
 
-                        if (
-                            self._target_group_hash is not None
-                            and events.id != self._target_group_hash
-                        ):
-                            continue
-
-                        events_by_groups.setdefault(events.id, []).extend(events.events)
+                            events_by_groups.setdefault(events.id, []).extend(events.events)
+                        elif line.startswith('{"@type":"validatorStats.collatedBlock"'):
+                            try:
+                                collated = ValidatorStats_collatedBlock.from_json(line)
+                                if collated.block_id is not None and collated.time_stats:
+                                    block_id_str = format_block_id(collated.block_id)
+                                    time_stats_by_block[block_id_str] = _parse_time_stats(
+                                        collated.time_stats
+                                    )
+                            except Exception:
+                                pass
 
                     if self.with_cache:
                         self._cache_lines[log_file] = current_line
@@ -572,7 +589,12 @@ class ParserSessionStats(GroupParser):
                             for k in set(old_events) | set(events_by_groups)
                         }
                         self._raw_events[log_file] = events_by_groups
+                        # merge old time_stats with new ones
+                        old_time_stats = self._raw_time_stats.get(log_file, {})
+                        time_stats_by_block = {**old_time_stats, **time_stats_by_block}
+                        self._raw_time_stats[log_file] = time_stats_by_block
 
+                    all_time_stats.update(time_stats_by_block)
                     host_groups = merged.setdefault(hostname, {})
                     for group_hash, group_events in events_by_groups.items():
                         host_groups.setdefault(group_hash, []).extend(group_events)
@@ -594,6 +616,10 @@ class ParserSessionStats(GroupParser):
 
         self._infer_slot_phases()
         self._infer_slot_events()
+
+        for slot_data in self._slots.values():
+            if slot_data.block_id_ext and slot_data.block_id_ext in all_time_stats:
+                slot_data.time_stats = all_time_stats[slot_data.block_id_ext]
 
         result = ConsensusData(
             groups=list(groups.values()), slots=list(self._slots.values()), events=self._events
