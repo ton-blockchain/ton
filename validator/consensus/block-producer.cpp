@@ -92,12 +92,12 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     td::actor::SharedFuture<GeneratedCandidate> block_generation;
 
     td::Timestamp start_time = event->start_time;
-    double target_rate = bus.config.target_rate_ms / 1000.0;
-    double hard_timeout = std::max(target_rate * 3.0, 5.0);
-    double start_collate_before = bus.shard.is_masterchain() ? 0.0 : target_rate;
+    std::chrono::milliseconds hard_timeout = std::max(target_rate_ * 3, std::chrono::milliseconds(5000));
+    std::chrono::milliseconds start_collate_before =
+        bus.shard.is_masterchain() ? std::chrono::milliseconds(0) : target_rate_;
 
     for (td::uint32 slot = event->start_slot; current_leader_window_ == window && slot < event->end_slot; ++slot) {
-      td::Timestamp slot_start = start_time + target_rate * (slot - event->start_slot);
+      td::Timestamp slot_start = start_time + target_rate_ * (slot - event->start_slot);
       co_await td::actor::coro_sleep(slot_start - start_collate_before);
       if (current_leader_window_ != window) {
         break;
@@ -118,7 +118,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
             .is_new_consensus = true,
         };
         if (bus.shard.is_masterchain()) {
-          params.soft_timeout = slot_start + target_rate;
+          params.soft_timeout = slot_start + target_rate_;
         } else {
           params.soft_timeout = slot_start;
           params.wait_externals_until = slot_start;
@@ -132,7 +132,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
       std::optional<GeneratedCandidate> generated_candidate;
       if (block_generation_active) {
         auto r_candidate =
-            co_await td::actor::await_with_timeout(block_generation.get(), slot_start + target_rate).wrap();
+            co_await td::actor::await_with_timeout(block_generation.get(), slot_start + target_rate_).wrap();
         if (r_candidate.is_error() && is_first_block) {
           // The first block in the session cannot be empty
           LOG(WARNING) << "Generating the first block: "
@@ -144,7 +144,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
           if (r_candidate.error().code() == td::actor::AWAIT_TIMEOUT_CODE) {
             start_time = td::Timestamp::now();
           } else {
-            start_time = td::Timestamp::in(target_rate / 2.0);
+            start_time = td::Timestamp::in(target_rate_ / 2);
             block_generation_active = false;
           }
           continue;
@@ -175,7 +175,8 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
       std::variant<BlockIdExt, BlockCandidate> block;
       std::optional<adnl::AdnlNodeIdShort> collator;
       if (generated_candidate.has_value()) {
-        td::actor::send_closure(bus.manager, &ManagerFacade::cache_block_candidate, generated_candidate->clone());
+        td::actor::send_closure(bus.manager, &ManagerFacade::cache_block_candidate,
+                                generated_candidate->candidate.clone());
         state = state->apply(generated_candidate->candidate);
         block = std::move(generated_candidate->candidate);
         if (!generated_candidate->collator_node_id.is_zero()) {

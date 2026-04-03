@@ -154,6 +154,10 @@ inline Timestamp operator+(Timestamp a, std::chrono::duration<double> b) {
   return Timestamp::at(a.at() + b.count());
 }
 
+inline Timestamp operator-(Timestamp a, std::chrono::duration<double> b) {
+  return Timestamp::at(a.at() - b.count());
+}
+
 inline double operator-(const Timestamp &a, const Timestamp &b) {
   return a.at() - b.at();
 }
