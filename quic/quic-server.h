@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <deque>
 #include <map>
 #include <memory>
@@ -20,8 +21,13 @@
 
 #include "Ed25519.h"
 #include "quic-common.h"
+#include "quic-connection-rate-limiters.h"
 
 namespace ton::quic {
+struct QuicConnectionOptions;
+struct ServerInitialInfo;
+struct VersionCid;
+
 struct QuicConnectionPImpl;
 
 struct StreamOptions {
@@ -49,8 +55,11 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
     std::optional<size_t> flood_control = DEFAULT_FLOOD_CONTROL;
     std::optional<size_t> max_streams_bidi = std::nullopt;
-    td::uint32 conn_rate_limit_capacity = 10;
-    double conn_rate_limit_period = 2.0;
+    td::uint32 new_connection_rate_limit_capacity = 10;
+    double new_connection_rate_limit_period = 0.2;
+    td::uint32 global_new_connection_rate_limit_capacity = 100000;
+    double global_new_connection_rate_limit_period = 0.00001;
+    bool stateless_retry = true;
   };
   class Callback {
    public:
@@ -79,7 +88,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   td::Result<QuicConnectionId> connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key, td::Slice alpn);
 
   void shutdown_stream(QuicConnectionId cid, QuicStreamID sid);
-  void close(QuicConnectionId cid);
+  void on_connection_closed(QuicConnectionId cid);
   void log_stats(std::string reason = "stats");
 
   void set_default_mtu(td::uint64 mtu);
@@ -181,7 +190,12 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
                                                                   std::optional<QuicConnectionId> bootstrap_routed_cid);
   void on_local_cid_issued(const QuicConnectionId &primary_cid, const QuicConnectionId &cid);
   void on_local_cid_retired(const QuicConnectionId &primary_cid, const QuicConnectionId &cid);
-  bool is_first_packet_for_new_connection(td::Slice datagram) const;
+  td::Result<std::optional<ServerInitialInfo>> prepare_server_initial_info(const VersionCid &initial_packet,
+                                                                           const td::IPAddress &remote_address);
+  td::Result<QuicConnectionId> verify_retry_token(const VersionCid &packet, const td::IPAddress &remote_address) const;
+  td::Status send_stateless_datagram(td::Slice packet_kind, const td::IPAddress &remote_address, td::Slice data);
+  td::Status send_retry(const VersionCid &packet, const td::IPAddress &remote_address);
+  td::Status send_invalid_token_connection_close(const VersionCid &packet, const td::IPAddress &remote_address);
 
   void update_alarm();
   void drain_ingress();
@@ -191,18 +205,23 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
 
   std::shared_ptr<ConnectionState> find_connection(const QuicConnectionId &cid);
   td::Result<std::shared_ptr<ConnectionState>> get_or_create_connection(const UdpMessageBuffer &msg_in);
+  td::Status ensure_flood_allowed(const std::string &flood_addr);
+  void flood_on_inbound_connection_created(const std::string &flood_addr);
+  void flood_on_inbound_connection_closed(const std::string &flood_addr);
+  QuicConnectionOptions build_connection_options() const;
   bool handle_expiry(ConnectionState &state);
   void log_conn_stats(ConnectionState &state, const char *reason);
 
   td::UdpSocketFd fd_;
   td::BufferSlice alpn_;
   td::Ed25519::PrivateKey server_key_;
+  std::array<td::uint8, 32> retry_secret_{};
   Options options_;
+  QuicConnectionRateLimiters conn_rate_limiters_;
+  adnl::RateLimiter global_conn_rate_limiter_;
   bool gso_enabled_{true};
   bool gro_enabled_{false};
   std::unordered_map<std::string, size_t> flood_map_;
-  std::unordered_map<std::string, adnl::RateLimiter> conn_rate_limiters_;
-  td::Timestamp cleanup_conn_rate_limiters_at_ = td::Timestamp::never();
 
   std::unique_ptr<Callback> callback_;
   td::actor::ActorId<QuicServer> self_id_;

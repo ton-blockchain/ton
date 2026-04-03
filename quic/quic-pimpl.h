@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <deque>
 #include <openssl/ssl.h>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -57,6 +58,7 @@ struct VersionCid {
   td::uint32 version{};
   QuicConnectionId dcid{};
   QuicConnectionId scid{};
+  std::string token{};
 
   static td::Result<VersionCid> from_datagram(td::Slice datagram) {
     if (datagram.size() == 0) {
@@ -69,10 +71,43 @@ struct VersionCid {
     if (rv != 0) {
       return td::Status::Error("failed to decode version_cid");
     }
-    TRY_RESULT(scid, QuicConnectionId::from_raw(vc.scid, vc.scidlen));
-    TRY_RESULT(dcid, QuicConnectionId::from_raw(vc.dcid, vc.dcidlen));
-    return VersionCid{.version = vc.version, .dcid = dcid, .scid = scid};
+    return from_parts(vc.version, vc.dcid, vc.dcidlen, vc.scid, vc.scidlen);
   }
+
+  static td::Result<VersionCid> from_initial_datagram(td::Slice datagram) {
+    if (datagram.empty()) {
+      return td::Status::Error("empty datagram");
+    }
+
+    ngtcp2_pkt_hd hd;
+    int rv = ngtcp2_accept(&hd, reinterpret_cast<const uint8_t*>(datagram.data()), datagram.size());
+    if (rv != 0) {
+      return td::Status::Error("packet is not acceptable as an initial packet");
+    }
+    if (hd.type != NGTCP2_PKT_INITIAL) {
+      return td::Status::Error("first packet is not an initial packet");
+    }
+
+    td::Slice token;
+    if (hd.token != nullptr && hd.tokenlen > 0) {
+      token = td::Slice(reinterpret_cast<const char*>(hd.token), hd.tokenlen);
+    }
+    return from_parts(hd.version, hd.dcid.data, hd.dcid.datalen, hd.scid.data, hd.scid.datalen, token);
+  }
+
+ private:
+  static td::Result<VersionCid> from_parts(td::uint32 version, const uint8_t* dcid_data, size_t dcid_size,
+                                           const uint8_t* scid_data, size_t scid_size, td::Slice token = {}) {
+    TRY_RESULT(scid, QuicConnectionId::from_raw(scid_data, scid_size));
+    TRY_RESULT(dcid, QuicConnectionId::from_raw(dcid_data, dcid_size));
+    return VersionCid{.version = version, .dcid = dcid, .scid = scid, .token = token.str()};
+  }
+};
+
+struct ServerInitialInfo {
+  VersionCid packet;
+  QuicConnectionId original_dcid{};
+  std::optional<QuicConnectionId> retry_scid;
 };
 
 struct QuicConnectionPImpl {
@@ -124,7 +159,7 @@ struct QuicConnectionPImpl {
 
   [[nodiscard]] static td::Result<std::unique_ptr<QuicConnectionPImpl>> create_server(
       const td::IPAddress& local_address, const td::IPAddress& remote_address,
-      const td::Ed25519::PrivateKey& server_key, td::Slice alpn, const VersionCid& vc,
+      const td::Ed25519::PrivateKey& server_key, td::Slice alpn, const ServerInitialInfo& initial,
       std::unique_ptr<Callback> callback, QuicConnectionOptions options = {});
 
   [[nodiscard]] td::Status produce_egress(UdpMessageBuffer& msg_out, bool use_gso, size_t max_packets);
@@ -201,7 +236,7 @@ struct QuicConnectionPImpl {
   [[nodiscard]] td::Status init_tls_server_rpk(const td::Ed25519::PrivateKey& server_key, td::Slice alpn);
 
   [[nodiscard]] td::Status init_quic_client();
-  [[nodiscard]] td::Status init_quic_server(const VersionCid& vc);
+  [[nodiscard]] td::Status init_quic_server(const ServerInitialInfo& initial);
   void finish_quic_init(const QuicConnectionId& scid);
 
   [[nodiscard]] td::SecureString extract_peer_ed25519_key() const;
