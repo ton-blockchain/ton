@@ -49,7 +49,7 @@ jobs:
 
       - name: Run Codex
         id: run_codex
-        uses: openai/codex-action@02e7b2943818fbac9f077c3d1249a198ab358352 # v1.2
+        uses: openai/codex-action@v1.6
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt: |

@@ -333,7 +333,7 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
       if (in_part->decoder->may_try_decode()) {
         auto r_data = in_part->decoder->try_decode(false);
         if (r_data.is_ok()) {
-          inbound.finish_part(part.part_, r_data.move_as_ok().data);
+          inbound.finish_part(part.part_, std::move(r_data.move_as_ok().data));
         }
       }
     }

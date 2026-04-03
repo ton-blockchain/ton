@@ -245,10 +245,11 @@ void FullNodeFastSyncOverlay::send_shard_block_info(BlockIdExt block_id, Catchai
       create_tl_object<ton_api::tonNode_newShardBlock>(create_tl_block_id(block_id), cc_seqno, std::move(data)));
   if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
     td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_ex, local_id_, overlay_id_,
-                            local_id_.pubkey_hash(), 0, std::move(B));
+                            local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagNoTwostep(), std::move(B));
   } else {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
-                            local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), std::move(B));
+    td::actor::send_closure(
+        overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_, local_id_.pubkey_hash(),
+        overlay::Overlays::BroadcastFlagAnySender() | overlay::Overlays::BroadcastFlagNoTwostep(), std::move(B));
   }
 }
 
@@ -514,7 +515,7 @@ void FullNodeFastSyncOverlays::update_overlays(
   for (const auto &desc : state->get_shards()) {
     ShardIdFull shard = desc->shard();
     td::uint32 monitor_min_split = state->monitor_min_split_depth(shard.workchain);
-    if (shard.pfx_len() > monitor_min_split) {
+    if (shard.pfx_len() > static_cast<int>(monitor_min_split)) {
       shard = shard_prefix(shard, monitor_min_split);
     }
     all_shards.insert(shard);

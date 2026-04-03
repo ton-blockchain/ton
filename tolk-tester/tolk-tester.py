@@ -264,7 +264,7 @@ class TolkTestFile:
         self.input_output: List[TolkTestCaseInputOutput] = []
         self.fif_codegen: List[TolkTestCaseFifCodegen] = []
         self.expected_hash: TolkTestCaseExpectedHash | None = None
-        self.experimental_options: str | None = None
+        self.more_cmd_line_options: List[str] = []
         self.enable_tolk_lines_comments = False
         self.pivot_typeid = 128
 
@@ -275,6 +275,11 @@ class TolkTestFile:
 
         while self.line_idx < len(lines):
             line = lines[self.line_idx]
+            # support both "@tag" and "// @tag" syntax
+            if line.startswith("// @") and not line.startswith("// @testcase"):
+                line = line[3:]
+                lines[self.line_idx] = line
+
             if line.startswith("@testcase"):
                 s = [x.strip() for x in line.split("|")]
                 if len(s) != 4:
@@ -282,6 +287,8 @@ class TolkTestFile:
                 self.input_output.append(TolkTestCaseInputOutput(s[1], s[2], s[3]))
             elif line.startswith("@compilation_should_fail"):
                 self.compilation_should_fail = True
+            elif line.startswith("@stderr_avoid"):
+                self.stderr_includes.append(TolkTestCaseStderr(self.parse_string_value(lines), True))
             elif line.startswith("@stderr"):
                 self.stderr_includes.append(TolkTestCaseStderr(self.parse_string_value(lines), False))
             elif line.startswith("@fif_codegen_avoid"):
@@ -292,8 +299,8 @@ class TolkTestFile:
                 self.fif_codegen.append(TolkTestCaseFifCodegen(self.parse_string_value(lines), False))
             elif line.startswith("@code_hash"):
                 self.expected_hash = TolkTestCaseExpectedHash(self.parse_string_value(lines, False)[0])
-            elif line.startswith("@experimental_options"):
-                self.experimental_options = line[22:]
+            elif line.startswith("@path_mapping"):
+                self.more_cmd_line_options += ["--path-mapping", line[14:].replace('{DIR}', os.path.dirname(self.tolk_filename))]
             self.line_idx = self.line_idx + 1
 
         if len(self.input_output) == 0 and not self.compilation_should_fail:
@@ -332,11 +339,9 @@ class TolkTestFile:
         return self.artifacts_folder + "/runner.fif"
 
     def run_and_check(self):
-        cmd_args = [TOLK_EXECUTABLE, "-o", self.get_compiled_fif_filename()]
-        if self.experimental_options:
-            cmd_args = cmd_args + ["-x", self.experimental_options]
+        cmd_args = [TOLK_EXECUTABLE, "-o", self.get_compiled_fif_filename()] + self.more_cmd_line_options
         if not self.enable_tolk_lines_comments:
-            cmd_args = cmd_args + ["-L"]
+            cmd_args = cmd_args + ["--no-line-comments"]
         res = subprocess.run(cmd_args + [self.tolk_filename], capture_output=True, timeout=10)
         exit_code = res.returncode
         stderr = str(res.stderr, "utf-8")

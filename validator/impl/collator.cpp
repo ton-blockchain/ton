@@ -6529,7 +6529,7 @@ bool Collator::create_block_candidate() {
     auto token = perf_log_.start_action("set_block_candidate");
     td::actor::send_closure_later(manager, &ValidatorManager::set_block_candidate, block_candidate->id,
                                   block_candidate->clone(), params_.validator_set->get_catchain_seqno(),
-                                  params_.validator_set->get_validator_set_hash(),
+                                  params_.validator_set->get_validator_set_hash(), false,
                                   [self = get_self(), token = std::move(token)](td::Result<td::Unit> saved) mutable {
                                     LOG(DEBUG) << "got answer to set_block_candidate";
                                     td::actor::send_closure_later(std::move(self), &Collator::return_block_candidate,

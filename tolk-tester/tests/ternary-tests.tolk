@@ -173,6 +173,12 @@ fun test305(y: bool) {
     return y ? Point.create0().y : 5;
 }
 
+@method_id(306)
+fun test306(cond: bool) {
+    var t = null as [int, int]?;
+    return cond ? t!.0 : 112;   // `t!.0` is not trivial because it's a shape, not a tensor
+}
+
 
 fun main() {}
 
@@ -216,6 +222,7 @@ fun main() {}
 @testcase | 304 | 0       | 5
 @testcase | 305 | 0       | 5
 @testcase | 305 | 0       | 5
+@testcase | 306 | 0       | 112
 
 @fif_codegen
 """
@@ -255,7 +262,7 @@ fun main() {}
 @fif_codegen
 """
   test105() PROC:<{             //  getX
-    10 PUSHINT                  //  getX '3=10
+    10 PUSHINT                  //  getX '1=10
     20 PUSHINT                  //  getX p.x=10 p.y=20
     CONDSEL                     //  '5
   }>
@@ -315,21 +322,20 @@ fun main() {}
 
 @fif_codegen
 """
-  test201() PROC:<{
-    // '2
+  test201() PROC:<{     // x
   }>
 """
 
 @fif_codegen
 """
-  test202() PROC:<{
+  test202() PROC:<{     // x
   }>
 """
 
 @fif_codegen
 """
   test203() PROC:<{
-    200 PUSHINT
+    200 PUSHINT         // '2
   }>
 """
 

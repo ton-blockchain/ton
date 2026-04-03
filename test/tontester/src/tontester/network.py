@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import shlex
 import signal
 import subprocess
 import types
@@ -14,7 +15,7 @@ from typing import Literal, final, override
 from tonapi import ton_api
 
 from tl import TLObject
-from tonlib import EngineConsoleClient, TonlibCDLL, TonlibClient, TonlibError, TonlibEventLoop
+from tonlib import EngineConsoleClient, TonlibClient, TonlibError, TonlibEventLoop
 
 from .install import Install
 from .key import Key
@@ -56,11 +57,13 @@ class Network:
             name: str,
             install: Install | None = None,
             env: dict[str, str] | None = None,
+            threads: int | None = None,
         ):
             self._network: Network = network
             self.name: str = name
             self._install_override: Install | None = install
             self._extra_env: dict[str, str] = dict(env or {})
+            self._threads: int | None = threads
 
             self._directory: Path = self._network._directory / (
                 "node" + str(self._network._node_idx)
@@ -163,6 +166,8 @@ class Network:
                 ".",
                 *additional_args,
             ]
+            if self._threads is not None:
+                cmd_flags += ["--threads", str(self._threads)]
 
             match debug:
                 case None:
@@ -239,7 +244,7 @@ class Network:
         self._node_idx = 0
         self._status = _Status.INITED
 
-        self._tonlib = TonlibCDLL(install.tonlibjson)
+        self._tonlib = install.tonlibjson
         self._event_loop = TonlibEventLoop(self._tonlib, event_loop)
 
         self.__nodes: list[Network.Node] = []
@@ -248,14 +253,19 @@ class Network:
         self.__zerostate: Zerostate | None = None
 
     @property
+    def zerostate(self) -> Zerostate:
+        assert self.__zerostate is not None
+        return self.__zerostate
+
+    @property
     def config(self):
         assert self._status < _Status.ZEROSTATE_GENERATED
         return self.__network_config
 
-    def create_dht_node(self) -> "DHTNode":
+    def create_dht_node(self, threads: int | None = None) -> "DHTNode":
         assert self._status < _Status.CLOSED
 
-        node = DHTNode(self, f"dht-{len(self.__nodes)}")
+        node = DHTNode(self, f"dht-{len(self.__nodes)}", threads=threads)
         self.__nodes.append(node)
         return node
 
@@ -263,10 +273,13 @@ class Network:
         self,
         install: Install | None = None,
         env: dict[str, str] | None = None,
+        threads: int | None = None,
     ) -> "FullNode":
         assert self._status < _Status.CLOSED
 
-        node = FullNode(self, f"node-{len(self.__nodes)}", install=install, env=env)
+        node = FullNode(
+            self, f"node-{len(self.__nodes)}", install=install, env=env, threads=threads
+        )
         self.__nodes.append(node)
         self.__full_nodes.append(node)
         return node
@@ -296,7 +309,7 @@ class Network:
         for node in self.__nodes:
             await node.stop()
 
-        await self._event_loop.aclose()
+        self._event_loop.close()
 
     async def __aenter__(self):
         return self
@@ -340,6 +353,24 @@ class Network:
             else:
                 await asyncio.sleep(0.2)
 
+    async def wait_block(self, workchain: int, shard: int, seqno: int):
+        client = await self.__full_nodes[0].tonlib_client()
+
+        while True:
+            try:
+                return await client.lookup_block(workchain=workchain, shard=shard, seqno=seqno)
+            except TonlibError as e:
+                try:
+                    if e.result.code == 500 and (
+                        "LITE_SERVER_UNKNOWN:" in e.result.message
+                        or "LITE_SERVER_NOTREADY:" in e.result.message
+                    ):
+                        await asyncio.sleep(0.2)
+                        continue
+                except Exception:
+                    pass
+                raise
+
 
 def _ip_to_tl(ip: IPv4Address) -> int:
     result = int(ip)
@@ -350,8 +381,8 @@ def _ip_to_tl(ip: IPv4Address) -> int:
 
 @final
 class DHTNode(Network.Node):
-    def __init__(self, network: "Network", name: str):
-        super().__init__(network, name)
+    def __init__(self, network: "Network", name: str, threads: int | None = None):
+        super().__init__(network, name, threads=threads)
 
         self._addr = self._new_network_address()
 
@@ -406,8 +437,9 @@ class FullNode(Network.Node):
         name: str,
         install: Install | None = None,
         env: dict[str, str] | None = None,
+        threads: int | None = None,
     ):
-        super().__init__(network, name, install=install, env=env)
+        super().__init__(network, name, install=install, env=env, threads=threads)
 
         KEY_EXPIRATION = (1 << 31) - 1
 
@@ -419,7 +451,8 @@ class FullNode(Network.Node):
         self._validator_key, _ = self._new_key()
         self._liteserver_key, _ = self._new_key()
         self._engine_console_server_key, _ = self._new_key()
-        self._engine_console_client_key, _ = self._new_key()
+        self._engine_console_client_key, self._engine_console_client_key_file = self._new_key()
+        self._engine_console_server_pub_file = None
 
         self._local_config = ton_api.Engine_validator_config(
             addrs=[
@@ -539,12 +572,7 @@ class FullNode(Network.Node):
         if self._client:
             return self._client
 
-        self._client = TonlibClient(
-            ls_index=0,
-            config=self._liteserver_config,
-            cdll_path=self._install.tonlibjson,
-            verbosity_level=3,
-        )
+        self._client = TonlibClient(self._liteserver_config, self._tonlib)
         await self._client.init()
 
         return self._client
@@ -562,6 +590,26 @@ class FullNode(Network.Node):
                 ),
             )
         return self._engine_console
+
+    @property
+    def engine_console_cmd(self) -> str:
+        if self._engine_console_server_pub_file is None:
+            self._engine_console_server_pub_file = (
+                self._engine_console_server_key.write_pub_key_file(
+                    self._directory / "engine_console_server.pub"
+                )
+            )
+        return shlex.join(
+            [
+                str(self._install.validator_engine_console_exe),
+                "-a",
+                self._engine_console_addr.address,
+                "-k",
+                str(self._engine_console_client_key_file),
+                "-p",
+                str(self._engine_console_server_pub_file),
+            ]
+        )
 
     def enable_blockchain_explorer(self):
         if self._blockchain_explorer is not None:
@@ -604,7 +652,7 @@ class FullNode(Network.Node):
         if self._client:
             await self._client.aclose()
         if self._engine_console:
-            await self._engine_console.aclose()
+            self._engine_console.close()
         if self._blockchain_explorer:
             _ = self._blockchain_explorer.cancel()
             try:

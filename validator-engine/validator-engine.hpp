@@ -90,6 +90,7 @@ struct Config {
   std::map<ton::PublicKeyHash, td::uint32> keys_refcnt;
   td::uint16 out_port;
   std::map<Addr, AddrCats> addrs;
+  std::map<Addr, AddrCats> quic_addrs;
   std::map<ton::PublicKeyHash, AdnlCategory> adnl_ids;
   std::set<ton::PublicKeyHash> dht_ids;
   std::map<ton::PublicKeyHash, Validator> validators;
@@ -118,6 +119,8 @@ struct Config {
   td::Result<bool> config_add_network_addr(td::IPAddress in_addr, td::IPAddress out_addr,
                                            std::shared_ptr<ton::adnl::AdnlProxy> proxy, std::vector<AdnlCategory> cats,
                                            std::vector<AdnlCategory> prio_cats);
+  td::Result<bool> config_add_quic_addr(td::IPAddress ip, std::vector<AdnlCategory> cats,
+                                        std::vector<AdnlCategory> prio_cats);
   td::Result<bool> config_add_adnl_addr(ton::PublicKeyHash addr, AdnlCategory cat);
   td::Result<bool> config_add_dht_node(ton::PublicKeyHash id);
   td::Result<bool> config_add_validator_permanent_key(ton::PublicKeyHash id, ton::UnixTime election_date,
@@ -140,6 +143,8 @@ struct Config {
   td::Result<bool> config_add_gc(ton::PublicKeyHash key);
   td::Result<bool> config_del_network_addr(td::IPAddress addr, std::vector<AdnlCategory> cats,
                                            std::vector<AdnlCategory> prio_cats);
+  td::Result<bool> config_del_quic_addr(td::IPAddress ip, std::vector<AdnlCategory> cats,
+                                        std::vector<AdnlCategory> prio_cats);
   td::Result<bool> config_del_adnl_addr(ton::PublicKeyHash addr);
   td::Result<bool> config_del_dht_node(ton::PublicKeyHash id);
   td::Result<bool> config_del_validator_permanent_key(ton::PublicKeyHash id);
@@ -197,6 +202,7 @@ class ValidatorEngine : public td::actor::Actor {
   ton::tl_object_ptr<ton::ton_api::engine_validator_customOverlaysConfig> custom_overlays_config_;
   ton::tl_object_ptr<ton::ton_api::engine_validator_collatorsList> collators_list_;
   ton::tl_object_ptr<ton::ton_api::engine_validator_shardBlockVerifierConfig> shard_block_verifier_config_;
+  ton::tl_object_ptr<ton::ton_api::consensus_noncriticalParamsOverrideList> noncritical_params_overrides_;
 
   std::set<ton::PublicKeyHash> running_gc_;
 
@@ -266,11 +272,7 @@ class ValidatorEngine : public td::actor::Actor {
                                                                   .public_broadcast_speed_multiplier_ = 3.33,
                                                                   .private_broadcast_speed_multiplier_ = 3.33,
                                                                   .fast_sync_broadcast_speed_multiplier_ = 3.33,
-                                                                  .initial_sync_delay_ = 60.0,
-                                                                  .ratelimit_window_size_ = 0,
-                                                                  .ratelimit_global_ = 0,
-                                                                  .ratelimit_heavy_ = 0,
-                                                                  .ratelimit_medium_ = 0};
+                                                                  .initial_sync_delay_ = 60.0};
 
   std::set<ton::CatchainSeqno> unsafe_catchains_;
   std::map<ton::BlockSeqno, std::pair<ton::CatchainSeqno, td::uint32>> unsafe_catchain_rotations_;
@@ -440,11 +442,13 @@ class ValidatorEngine : public td::actor::Actor {
   void set_shard_check_function();
   void load_collators_list();
   void load_shard_block_verifier_config();
+  void load_noncritical_params_overrides();
 
   void start();
 
   void start_adnl();
   void add_addr(const Config::Addr &addr, const Config::AddrCats &cats);
+  void add_quic_addr(const Config::Addr &addr, const Config::AddrCats &cats);
   void add_adnl(ton::PublicKeyHash id, AdnlCategory cat);
   void started_adnl();
 
@@ -516,6 +520,10 @@ class ValidatorEngine : public td::actor::Actor {
                      std::vector<AdnlCategory> prio_cats, td::Promise<td::Unit> promise);
   void try_del_proxy(td::uint32 ip, td::int32 port, std::vector<AdnlCategory> cats, std::vector<AdnlCategory> prio_cats,
                      td::Promise<td::Unit> promise);
+  void try_add_quic_addr(td::uint32 ip, td::int32 port, std::vector<AdnlCategory> cats,
+                         std::vector<AdnlCategory> prio_cats, td::Promise<td::Unit> promise);
+  void try_del_quic_addr(td::uint32 ip, td::int32 port, std::vector<AdnlCategory> cats,
+                         std::vector<AdnlCategory> prio_cats, td::Promise<td::Unit> promise);
 
   void register_fast_sync_certificate_callback();
   void try_import_fast_sync_member_certificate(ton::adnl::AdnlNodeIdShort id,
@@ -539,6 +547,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   std::string shard_block_verifier_config_file() const {
     return db_root_ + "/shard-block-verifier-config.json";
+  }
+  std::string noncritical_params_overrides_file() const {
+    return db_root_ + "/noncritical-params-overrides.json";
   }
 
   void load_custom_overlays_config();
@@ -596,6 +607,10 @@ class ValidatorEngine : public td::actor::Actor {
                          td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_delProxy &query, td::BufferSlice data, ton::PublicKeyHash src,
                          td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_addQuicAddr &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_delQuicAddr &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_getConfig &query, td::BufferSlice data, ton::PublicKeyHash src,
                          td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_sign &query, td::BufferSlice data, ton::PublicKeyHash src,
@@ -679,6 +694,13 @@ class ValidatorEngine : public td::actor::Actor {
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_showShardBlockVerifierConfig &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_setConsensusNoncriticalParamsOverrides &query,
+                         td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                         td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_getConsensusNoncriticalParamsOverrides &query,
+                         td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                         td::Promise<td::BufferSlice> promise);
+
   template <class T>
   void run_control_query(T &query, td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
                          td::Promise<td::BufferSlice> promise) {

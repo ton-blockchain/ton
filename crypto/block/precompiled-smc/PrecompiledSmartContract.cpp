@@ -150,7 +150,7 @@ std::unique_ptr<PrecompiledSmartContract> get_implementation(td::Bits256 code_ha
     return nullptr;
   }
   static std::map<td::Bits256, std::unique_ptr<PrecompiledSmartContract> (*)()> map = []() {
-    auto from_hex = [](td::Slice s) -> td::Bits256 {
+    [[maybe_unused]] auto from_hex = [](td::Slice s) -> td::Bits256 {
       td::Bits256 x;
       CHECK(x.from_hex(s) == 256);
       return x;

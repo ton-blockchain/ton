@@ -25,10 +25,13 @@ namespace tolk {
 struct ConstValInt;
 struct ConstValBool;
 struct ConstValSlice;
+struct ConstValString;
 struct ConstValAddress;
-struct ConstValTensor;
-struct ConstValObject;
 struct ConstValNullLiteral;
+struct ConstValTensor;
+struct ConstValShapedTuple;
+struct ConstValObject;
+struct ConstValCastToType;
 
 // `const a = 2 + 3` is okay, but `const a = foo()` is not;
 // "okay" means "a constant expression", which can be evaluated at compile-time;
@@ -41,10 +44,13 @@ typedef std::variant<
   ConstValInt,
   ConstValBool,
   ConstValSlice,
+  ConstValString,
   ConstValAddress,
+  ConstValNullLiteral,
   ConstValTensor,
+  ConstValShapedTuple,
   ConstValObject,
-  ConstValNullLiteral
+  ConstValCastToType
 > ConstValExpression;
 
 struct ConstValInt {
@@ -59,29 +65,40 @@ struct ConstValSlice {
   std::string str_hex;
 };
 
+struct ConstValString {
+  std::string str_val;
+};
+
 struct ConstValAddress {
   std::string std_addr_hex;
-};
-
-struct ConstValTensor {
-  std::vector<AnyExprV> items;
-};
-
-struct ConstValObject {
-  StructPtr struct_ref;
-  std::vector<std::pair<StructFieldPtr, AnyExprV>> fields;
 };
 
 struct ConstValNullLiteral {
 };
 
-ConstValExpression eval_constant_expression_or_fire(AnyExprV v_expr);
+struct ConstValTensor {
+  std::vector<ConstValExpression> items;
+};
+
+struct ConstValShapedTuple {
+  std::vector<ConstValExpression> items;
+};
+
+struct ConstValObject {
+  StructPtr struct_ref;
+  std::vector<ConstValExpression> fields;   // i-th value for i-th field of a struct
+};
+
+struct ConstValCastToType {
+  std::vector<ConstValExpression> inner;    // size = 1, to place an item onto the heap
+  TypePtr cast_to;
+};
+
 ConstValExpression eval_and_cache_const_init_val(GlobalConstPtr const_ref);
-ConstValExpression eval_call_to_compile_time_function(AnyExprV v_call);
+ConstValExpression eval_expression_if_const_or_fire(AnyExprV v);
 
 std::vector<td::RefInt256> calculate_enum_members_with_values(EnumDefPtr enum_ref);
 
 void check_expression_is_constant_or_fire(AnyExprV v_expr);
-std::string eval_string_const_standalone(AnyExprV v_string);
 
 } // namespace tolk

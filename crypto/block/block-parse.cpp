@@ -1334,7 +1334,6 @@ bool TrComputeInternal1::validate_skip(int* ops, vm::CellSlice& cs, bool weak) c
                                                                 // vm_final_state_hash:uint256
 }
 
-const TrComputeInternal1 t_TrComputeInternal1;
 const RefTo<TrComputeInternal1> t_Ref_TrComputeInternal1;
 const ComputeSkipReason t_ComputeSkipReason;
 

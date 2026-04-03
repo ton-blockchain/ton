@@ -102,7 +102,7 @@ fun main(c: cell) {
     c as Cell<Point>;
     (c as Cell<Point>) as cell;
     (c as Cell<Point?>) as cell?;
-    __expect_type((c as Cell<Point?>?)!, "Cell<Point?>");
+    __expect_type((c as Cell<Point?> as Cell<Point?>?)!, "Cell<Point?>");
     c = c as Cell<Point>;           // Cell<T> implicitly converts to cell
 }
 
@@ -122,10 +122,10 @@ fun main(c: cell) {
 @fif_codegen
 """
   test3() PROC:<{
-    x{0000000a00000014} PUSHSLICE  //  s
+    x{0000000a00000014} PUSHSLICE  //  '15
     64 LDU
     NIP                         //  s
-    SBITS                       //  '17
+    SBITS                       //  '18
   }>
 """
 

@@ -29,6 +29,8 @@ namespace tolk {
 GNU_ATTRIBUTE_COLD GNU_ATTRIBUTE_NORETURN
 void on_assertion_failed(const char *description, const char *file_name, int line_number);
 
+class JsonPrettyOutput;   // forward declaration
+
 class [[nodiscard]] Error {
   std::string message;
 
@@ -43,6 +45,9 @@ public:
 
   void warning(AnyV at, FunctionPtr in_function = nullptr) const;
   void warning(SrcRange range, FunctionPtr in_function = nullptr) const;
+
+  void collect(AnyV at, FunctionPtr in_function = nullptr) const;
+  void collect(SrcRange range, FunctionPtr in_function = nullptr) const;
 };
 
 class ErrorBuilder {
@@ -104,14 +109,16 @@ struct ThrownParseError final : std::exception {
   std::string in_function;
   SrcRange range;
   std::string message;
+  bool is_warning = false;
 
-  ThrownParseError(std::string in_function, SrcRange range, std::string message)
-    : in_function(std::move(in_function)), range(range), message(std::move(message)) {}
+  ThrownParseError(std::string in_function, SrcRange range, std::string message, bool is_warning = false)
+    : in_function(std::move(in_function)), range(range), message(std::move(message)), is_warning(is_warning) {}
 
   const char* what() const noexcept override {
     return message.c_str();
   }
-  void output_compilation_error(std::ostream& os) const;
+  void output_to_console(std::ostream& os) const;
+  void output_to_json(JsonPrettyOutput& json) const;
 };
 
 struct UnexpectedASTNodeKind final : std::exception {
@@ -122,6 +129,21 @@ struct UnexpectedASTNodeKind final : std::exception {
 
   const char* what() const noexcept override {
     return message.c_str();
+  }
+};
+
+class ErrorCollector {
+  std::vector<ThrownParseError> errors;
+
+public:
+  void add(ThrownParseError err) {
+    errors.push_back(std::move(err));
+  }
+
+  bool empty() const;
+
+  std::vector<ThrownParseError>&& flush() {
+    return std::move(errors);
   }
 };
 

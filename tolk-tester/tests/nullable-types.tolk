@@ -9,6 +9,11 @@ fun eq<T>(x: T) { return x }
 fun unwrap<T>(x: T?): T { return x!; }
 fun intOr0(x: int?): int { return null == x ? 0 : x!; }
 
+struct Point {
+    x: int
+    y: int
+}
+
 @pure
 fun storeInt(mutate b: builder, x: int, len: int): void
     asm(x b len) "STIX";
@@ -53,35 +58,30 @@ fun test104(x: MIntN) {
 @method_id(105)
 fun test105() {
     var xy: (int?, MIntN) = (5, null);
-    var ab = [1 ? [xy.0, xy.1] : null];
+    var ab = [1 ? [xy.0, xy.1] : null] as [[int?, int?]?];
     ab.0!.0 = intOr0(ab.0!.0);
     ab.0!.1 = intOr0(ab.0!.1);
     return ab.0!.0! + ab.0!.1!;
 }
 
-global gTup106: tuple?;
-global gInt106: MIntN;
-
 @method_id(106)
 fun test106() {
-    gInt106 = 0;
-    gInt106! += 5;
     var int106: int? = 0;
-    var gTup106 = createEmptyTuple();
-    gTup106!.push(createEmptyTuple());
-    (gTup106!.0 as tuple?)!.push(0 as int?);
-    tuplePush(mutate gTup106!, gInt106);
-    tuplePush(mutate gTup106!.0, int106! += 1);
+    var gTup106 = [createEmptyTuple()] as [tuple]?;
+    tuple.push(mutate gTup106!.0, 0 as int?);
+    tuplePush(mutate gTup106!.0, int106 += 1);
     return (gTup106 == null, null != gTup106, gTup106, gTup106!.0 as tuple?);
 }
 
 @method_id(107)
 fun test107() {
-    var b: builder? = beginCell();
-    b!.storeInt(1, 32).storeInt(2, 32);
-    b = b!.storeInt(3, 32);
-    storeInt(mutate b!, 4, 32);
-    (b! as builder).storeInt(5, 32);
+    var b = beginCell() as builder?;
+    if (b != null) {
+        b.storeInt(1, 32).storeInt(2, 32);
+        b = b.storeInt(3, 32);
+        storeInt(mutate b, 4, 32);
+        builder.storeInt(mutate b, 5, 32);
+    }
     return b!.bitsCount();
 }
 
@@ -99,6 +99,17 @@ fun test109() {
     return ([a, b] = [3, 4], a, b);
 }
 
+@method_id(110)
+fun test110() {
+    var t : (int, Point?) = (0, {x: 10, y: 20});
+    t.1!.y += 30;
+    __expect_type(t.1, "Point?");
+    // this modifies `t.1`, not it's too hard for smart casts to follow, so `t.1` is left nullable
+    (t.1, 0).0 = {x: 100, y: 200};
+    __expect_type(t.1, "Point?");
+    return (t.1 == null, t.1);
+}
+
 fun main(x: int?, y: MIntN) {
     __expect_type(x! == y!, "bool");
     __expect_type(5 != y!, "bool");
@@ -114,8 +125,9 @@ fun main(x: int?, y: MIntN) {
 @testcase | 103 | 10  | -1 0 10
 @testcase | 104 | 8   | -90 (null)
 @testcase | 105 |     | 5
-@testcase | 106 |     | 0 -1 [ [ 0 1 ] 5 ] [ 0 1 ]
+@testcase | 106 |     | 0 -1 [ [ 0 1 ] ] [ 0 1 ]
 @testcase | 107 |     | 160
 @testcase | 108 |     | 4
 @testcase | 109 |     | [ 3 4 ] 3 4
+@testcase | 110 |     | 0 100 200 typeid-1
  */

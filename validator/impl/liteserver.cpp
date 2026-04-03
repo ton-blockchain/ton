@@ -398,27 +398,30 @@ void LiteQuery::perform_getBlockHeader(BlockIdExt blkid, int mode) {
                           });
 }
 
-static bool visit(Ref<vm::Cell> cell);
+static bool visit(Ref<vm::Cell> cell, td::HashSet<vm::CellHash>* visited = nullptr);
 
-static bool visit(const vm::CellSlice& cs) {
+static bool visit(const vm::CellSlice& cs, td::HashSet<vm::CellHash>* visited = nullptr) {
   auto cnt = cs.size_refs();
   bool res = true;
   for (unsigned i = 0; i < cnt; i++) {
-    res &= visit(cs.prefetch_ref(i));
+    res &= visit(cs.prefetch_ref(i), visited);
   }
   return res;
 }
 
-static bool visit(Ref<vm::Cell> cell) {
+static bool visit(Ref<vm::Cell> cell, td::HashSet<vm::CellHash>* visited) {
   if (cell.is_null()) {
     return true;
   }
+  if (visited && !visited->insert(cell->get_hash()).second) {
+    return true;
+  }
   vm::CellSlice cs{vm::NoVm{}, std::move(cell)};
-  return visit(cs);
+  return visit(cs, visited);
 }
 
-static bool visit(Ref<vm::CellSlice> cs_ref) {
-  return cs_ref.is_null() || visit(*cs_ref);
+static bool visit(Ref<vm::CellSlice> cs_ref, td::HashSet<vm::CellHash>* visited = nullptr) {
+  return cs_ref.is_null() || visit(*cs_ref, visited);
 }
 
 void LiteQuery::continue_getBlockHeader(BlockIdExt blkid, int mode, Ref<ton::validator::BlockData> block) {
@@ -1330,8 +1333,11 @@ void LiteQuery::finish_getAccountState(td::BufferSlice shard_proof) {
       return;
     }
     auto rconfig = config.move_as_ok();
-    acc_state_promise_.set_value(
-        std::make_tuple(std::move(acc_csr), sstate.gen_utime, sstate.gen_lt, std::move(rconfig)));
+    if (acc_state_promise_) {
+      acc_state_promise_.set_value(
+          std::make_tuple(std::move(acc_csr), sstate.gen_utime, sstate.gen_lt, std::move(rconfig)));
+      stop();
+    }
     return;
   }
 
@@ -1920,15 +1926,18 @@ void LiteQuery::continue_getConfigParams(int mode, std::vector<int> param_list) 
     return;
   }
   try {
+    td::HashSet<vm::CellHash> visited;
     if (mode & 0x20000) {
-      visit(cfg->get_root_cell());
+      visit(cfg->get_root_cell(), &visited);
     } else if (mode & 0x10000) {
+      std::sort(param_list.begin(), param_list.end());
+      param_list.erase(std::unique(param_list.begin(), param_list.end()), param_list.end());
       for (int i : param_list) {
-        visit(cfg->get_config_param(i));
+        visit(cfg->get_config_param(i), &visited);
       }
     }
     if (!keyblk && mode & block::ConfigInfo::needPrevBlocks) {
-      ((block::ConfigInfo*)cfg.get())->get_prev_blocks_info();
+      ((block::ConfigInfo*)cfg.get())->get_prev_blocks_info().ignore();
     }
   } catch (vm::VmError& err) {
     fatal_error("error while traversing required configuration parameters: "s + err.get_msg());
@@ -3372,7 +3381,7 @@ void LiteQuery::continue_getOutMsgQueueSizes(td::optional<ShardIdFull> shard, Re
                             [promise = ig.get_promise(), res, i, id = blocks[i]](td::Result<td::uint64> R) mutable {
                               TRY_RESULT_PROMISE(promise, value, std::move(R));
                               res->at(i) = create_tl_object<lite_api::liteServer_outMsgQueueSize>(
-                                  create_tl_lite_block_id(id), value);
+                                  create_tl_lite_block_id(id), static_cast<td::uint32>(value));
                               promise.set_value(td::Unit());
                             });
   }

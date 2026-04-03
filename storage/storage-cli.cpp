@@ -174,9 +174,7 @@ class StorageCli : public td::actor::Actor {
     std::map<td::uint32, ton::adnl::AdnlAddressList> addr_lists_;
     for (auto cat : cats) {
       CHECK(cat >= 0);
-      ton::adnl::AdnlAddress x = ton::adnl::AdnlAddressImpl::create(
-          ton::create_tl_object<ton::ton_api::adnl_address_udp>(options_.addr.get_ipv4(), options_.addr.get_port()));
-      addr_lists_[cat].add_addr(std::move(x));
+      addr_lists_[cat].add_udp_adnl_address(options_.addr);
       addr_lists_[cat].set_version(ts);
       addr_lists_[cat].set_reinit_date(ton::adnl::Adnl::adnl_start_time());
     }

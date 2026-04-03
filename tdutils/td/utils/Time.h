@@ -18,6 +18,8 @@
 */
 #pragma once
 
+#include <chrono>
+
 #include "td/utils/common.h"
 #include "td/utils/port/Clocks.h"
 
@@ -72,6 +74,10 @@ class Timestamp {
   }
   static Timestamp at_unix(double timeout) {
     return Timestamp{timeout - Clocks::system() + Time::now()};
+  }
+
+  static Timestamp in(std::chrono::duration<double> timeout, td::Timestamp now = td::Timestamp::now_cached()) {
+    return Timestamp{now.at() + timeout.count()};
   }
 
   static Timestamp in(double timeout, td::Timestamp now = td::Timestamp::now_cached()) {
@@ -142,6 +148,10 @@ inline Timestamp operator+(Timestamp a, double b) {
 inline Timestamp operator-(Timestamp a, double b) {
   a -= b;
   return a;
+}
+
+inline Timestamp operator+(Timestamp a, std::chrono::duration<double> b) {
+  return Timestamp::at(a.at() + b.count());
 }
 
 inline double operator-(const Timestamp &a, const Timestamp &b) {

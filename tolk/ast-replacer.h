@@ -95,12 +95,11 @@ protected:
 
   // expressions
   virtual AnyExprV replace(V<ast_empty_expression> v)          { return replace_children(v); }
-  virtual AnyExprV replace(V<ast_parenthesized_expression> v)  { return replace_children(v); }
   virtual AnyExprV replace(V<ast_braced_expression> v)         { return replace_children(v); }
   virtual AnyExprV replace(V<ast_braced_yield_result> v)       { return replace_children(v); }
   virtual AnyExprV replace(V<ast_artificial_aux_vertex> v)     { return replace_children(v); }
   virtual AnyExprV replace(V<ast_tensor> v)                    { return replace_children(v); }
-  virtual AnyExprV replace(V<ast_bracket_tuple> v)             { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_square_brackets> v)           { return replace_children(v); }
   virtual AnyExprV replace(V<ast_reference> v)                 { return replace_children(v); }
   virtual AnyExprV replace(V<ast_local_var_lhs> v)             { return replace_children(v); }
   virtual AnyExprV replace(V<ast_local_vars_declaration> v)    { return replace_children(v); }
@@ -118,6 +117,7 @@ protected:
   virtual AnyExprV replace(V<ast_unary_operator> v)            { return replace_children(v); }
   virtual AnyExprV replace(V<ast_binary_operator> v)           { return replace_children(v); }
   virtual AnyExprV replace(V<ast_ternary_operator> v)          { return replace_children(v); }
+  virtual AnyExprV replace(V<ast_null_coalesce_operator> v)    { return replace_children(v); }
   virtual AnyExprV replace(V<ast_cast_as_operator> v)          { return replace_children(v); }
   virtual AnyExprV replace(V<ast_is_type_operator> v)          { return replace_children(v); }
   virtual AnyExprV replace(V<ast_not_null_operator> v)         { return replace_children(v); }
@@ -143,12 +143,11 @@ protected:
   AnyExprV replace(AnyExprV v) final {
     switch (v->kind) {
       case ast_empty_expression:                return replace(v->as<ast_empty_expression>());
-      case ast_parenthesized_expression:        return replace(v->as<ast_parenthesized_expression>());
       case ast_braced_expression:               return replace(v->as<ast_braced_expression>());
       case ast_braced_yield_result:             return replace(v->as<ast_braced_yield_result>());
       case ast_artificial_aux_vertex:           return replace(v->as<ast_artificial_aux_vertex>());
       case ast_tensor:                          return replace(v->as<ast_tensor>());
-      case ast_bracket_tuple:                   return replace(v->as<ast_bracket_tuple>());
+      case ast_square_brackets:                 return replace(v->as<ast_square_brackets>());
       case ast_reference:                       return replace(v->as<ast_reference>());
       case ast_local_var_lhs:                   return replace(v->as<ast_local_var_lhs>());
       case ast_local_vars_declaration:          return replace(v->as<ast_local_vars_declaration>());
@@ -166,6 +165,7 @@ protected:
       case ast_unary_operator:                  return replace(v->as<ast_unary_operator>());
       case ast_binary_operator:                 return replace(v->as<ast_binary_operator>());
       case ast_ternary_operator:                return replace(v->as<ast_ternary_operator>());
+      case ast_null_coalesce_operator:          return replace(v->as<ast_null_coalesce_operator>());
       case ast_cast_as_operator:                return replace(v->as<ast_cast_as_operator>());
       case ast_is_type_operator:                return replace(v->as<ast_is_type_operator>());
       case ast_not_null_operator:               return replace(v->as<ast_not_null_operator>());
@@ -228,11 +228,10 @@ const std::vector<StructPtr>& get_all_declared_structs();
 const std::vector<EnumDefPtr>& get_all_declared_enums();
 
 template<class BodyReplacerT>
-void replace_ast_of_all_functions() {
-  BodyReplacerT visitor;
+void replace_ast_of_all_functions(BodyReplacerT& replacer) {
   for (FunctionPtr fun_ref : get_all_not_builtin_functions()) {
-    if (visitor.should_visit_function(fun_ref)) {
-      visitor.start_replacing_in_function(fun_ref, fun_ref->ast_root->as<ast_function_declaration>());
+    if (replacer.should_visit_function(fun_ref)) {
+      replacer.start_replacing_in_function(fun_ref, fun_ref->ast_root->as<ast_function_declaration>());
     }
   }
 }

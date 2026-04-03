@@ -289,7 +289,7 @@ void OverlayManager::receive_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeId
     VLOG(OVERLAY_NOTICE) << this << ": message to localid is not in overlay " << overlay_id << "@" << dst;
 
     if (buffer_limits_.max_packets != 0 && buffer_limits_.max_data_size >= data.size()) {
-      while (buffered_requests_.total_packets > buffer_limits_.max_packets ||
+      while (buffered_requests_.total_packets >= buffer_limits_.max_packets ||
              buffered_requests_.total_data_size + data.size() > buffer_limits_.max_data_size) {
         buffered_requests_.evict_oldest();
       }
@@ -336,7 +336,7 @@ void OverlayManager::receive_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdSh
     VLOG(OVERLAY_NOTICE) << this << ": query to localid not in overlay " << overlay_id << "@" << dst << " from " << src;
 
     if (buffer_limits_.max_packets != 0 && buffer_limits_.max_data_size >= data.size()) {
-      while (buffered_requests_.total_packets > buffer_limits_.max_packets ||
+      while (buffered_requests_.total_packets >= buffer_limits_.max_packets ||
              buffered_requests_.total_data_size + data.size() > buffer_limits_.max_data_size) {
         buffered_requests_.evict_oldest();
       }
@@ -448,17 +448,24 @@ void OverlayManager::send_broadcast_ex(adnl::AdnlNodeIdShort local_id, OverlayId
 
 void OverlayManager::send_broadcast_fec(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                         td::BufferSlice object) {
-  send_broadcast_fec_ex(local_id, overlay_id, local_id.pubkey_hash(), 0, std::move(object));
+  send_broadcast_fec_with_extra(local_id, overlay_id, local_id.pubkey_hash(), 0, std::move(object), {});
 }
 
 void OverlayManager::send_broadcast_fec_ex(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                            PublicKeyHash send_as, td::uint32 flags, td::BufferSlice object) {
+  send_broadcast_fec_with_extra(local_id, overlay_id, send_as, flags, std::move(object), {});
+}
+
+void OverlayManager::send_broadcast_fec_with_extra(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
+                                                   PublicKeyHash send_as, td::uint32 flags, td::BufferSlice object,
+                                                   td::BufferSlice extra) {
   CHECK(object.size() <= Overlays::max_fec_broadcast_size());
   auto it = overlays_.find(local_id);
   if (it != overlays_.end()) {
     auto it2 = it->second.find(overlay_id);
     if (it2 != it->second.end()) {
-      td::actor::send_closure(it2->second.overlay, &Overlay::send_broadcast_fec, send_as, flags, std::move(object));
+      td::actor::send_closure(it2->second.overlay, &Overlay::send_broadcast_fec, send_as, flags, std::move(object),
+                              std::move(extra));
     }
   }
 }
@@ -712,6 +719,7 @@ BroadcastCheckResult Certificate::check(PublicKeyHash node, OverlayIdShort overl
     }
     auto E = R1.move_as_ok();
     auto B = to_sign(overlay_id, node);
+    TD_PERF_COUNTER(check_signature_overlay_certificate);
     if (E->check_signature(B.as_slice(), signature_.as_slice()).is_error()) {
       return BroadcastCheckResult::Forbidden;
     }

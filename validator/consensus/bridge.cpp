@@ -6,7 +6,6 @@
 
 #include "td/db/RocksDb.h"
 #include "td/utils/port/path.h"
-#include "validator/consensus/null/bus.h"
 #include "validator/consensus/simplex/bus.h"
 #include "validator/fabric.h"
 #include "validator/validator-group.hpp"
@@ -77,17 +76,10 @@ class ManagerFacadeImpl : public ManagerFacade {
     co_return co_await td::actor::ask(manager_, &ValidatorManager::wait_block_data_short, block_id, 0, timeout);
   }
 
-  td::actor::Task<BlockCandidate> load_block_candidate(PublicKey source, BlockIdExt block_id,
-                                                       FileHash collated_data_hash) override {
-    co_return co_await td::actor::ask(manager_, &ValidatorManager::get_block_candidate_from_db, source, block_id,
-                                      collated_data_hash);
-  }
-
-  td::actor::Task<> store_block_candidate(BlockCandidate candidate) override {
-    candidate.out_msg_queue_proof_broadcasts = {};
-    BlockIdExt block_id = candidate.id;
-    co_return co_await td::actor::ask(manager_, &ValidatorManager::set_block_candidate, block_id, std::move(candidate),
-                                      validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash());
+  void cache_block_candidate(BlockCandidate candidate) override {
+    td::actor::send_closure(manager_, &ValidatorManager::set_block_candidate, candidate.id, std::move(candidate),
+                            validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
+                            /*cache_only=*/true, [](td::Result<>) {});
   }
 
   void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data, int mode) override {
@@ -139,7 +131,14 @@ class DbImpl : public Db {
     return result;
   }
   td::actor::Task<> set(td::BufferSlice key, td::BufferSlice value) override {
-    co_return co_await writer_.set(std::move(key), std::move(value));
+    auto result = co_await writer_.set(std::move(key), std::move(value)).wrap();
+    if (result.is_error() && result.error().code() != ErrorCode::cancelled) {
+      result.ensure();
+    }
+    co_return std::move(result);
+  }
+  td::actor::Task<> close() override {
+    co_return co_await writer_.close();
   }
 
  private:
@@ -191,6 +190,13 @@ class BridgeImpl final : public IValidatorGroup {
       LOG(WARNING) << "Accelerator is not consistently supported with simplex consensus";
     }
     td::actor::send_closure(manager_facade_, &ManagerFacadeImpl::update_collator_options, opts);
+
+    auto new_noncritical_params =
+        opts->get_noncritical_params(bus_->shard, bus_->cc_seqno, params_.config.noncritical_params);
+    if (current_noncritical_params_ != new_noncritical_params) {
+      bus_.publish<NoncriticalParamsUpdated>(new_noncritical_params);
+      current_noncritical_params_ = new_noncritical_params;
+    }
   }
 
   virtual void get_validator_group_info_for_litequery(
@@ -214,18 +220,7 @@ class BridgeImpl final : public IValidatorGroup {
                                                                  params_.collation_manager, params_.validator_set,
                                                                  params_.validator_opts);
 
-    bool is_simplex = params_.config.consensus.has<NewConsensusConfig::Simplex>();
-    std::shared_ptr<Bus> bus;
-
-    if (is_simplex) {
-      auto simplex_bus = std::make_shared<simplex::Bus>();
-
-      simplex_bus->simplex_config = params_.config.consensus.get<NewConsensusConfig::Simplex>();
-
-      bus = simplex_bus;
-    } else {
-      bus = std::make_shared<null::Bus>();
-    }
+    auto bus = std::make_shared<simplex::Bus>();
 
     bus->shard = params_.shard;
     bus->manager = manager_facade_.get();
@@ -260,7 +255,10 @@ class BridgeImpl final : public IValidatorGroup {
     bus->validator_set_hash = params_.validator_set->get_validator_set_hash();
     CHECK(found);
 
-    bus->config = std::move(params_.config);
+    bus->config = params_.config;
+    bus->config.noncritical_params =
+        params_.validator_opts->get_noncritical_params(bus->shard, bus->cc_seqno, bus->config.noncritical_params);
+    current_noncritical_params_ = bus->config.noncritical_params;
 
     bus->session_id = params_.session_id;
     bus->overlays = params_.overlays;
@@ -281,24 +279,14 @@ class BridgeImpl final : public IValidatorGroup {
     PrivateOverlay::register_in(runtime);
     TraceCollector::register_in(runtime);
 
-    if (is_simplex) {
-      auto simplex_bus = std::static_pointer_cast<simplex::Bus>(bus);
-      simplex_bus->load_bootstrap_state();
+    simplex::CandidateResolver::register_in(runtime);
+    simplex::Consensus::register_in(runtime);
+    simplex::Db::register_in(runtime);
+    simplex::Pool::register_in(runtime);
+    simplex::StateResolver::register_in(runtime);
+    simplex::MetricCollector::register_in(runtime);
 
-      simplex::CandidateResolver::register_in(runtime);
-      simplex::Consensus::register_in(runtime);
-      simplex::Pool::register_in(runtime);
-      simplex::StateResolver::register_in(runtime);
-      simplex::MetricCollector::register_in(runtime);
-
-      bus_ = runtime.start(simplex_bus, params_.name);
-    } else {
-      auto null_bus = std::static_pointer_cast<null::Bus>(bus);
-
-      null::Consensus::register_in(runtime);
-
-      bus_ = runtime.start(null_bus, params_.name);
-    }
+    bus_ = runtime.start(bus, params_.name);
   }
 
  private:
@@ -306,10 +294,17 @@ class BridgeImpl final : public IValidatorGroup {
     if (bus_) {
       LOG(INFO) << "Destroying validator group";
       bus_.publish<StopRequested>();
+      co_await bus_->db->close();
       bus_ = {};
       co_await std::move(stop_waiter_.value());
       LOG(INFO) << "Consensus bus stopped";
+      auto S = td::RocksDb::destroy(db_path() + "/db/");
       td::rmrf(db_path()).ignore();
+      if (S.is_ok()) {
+        LOG(INFO) << "Deleting consensus DB : done";
+      } else {
+        LOG(ERROR) << "Deleting consensus DB " << db_path() << " : " << S;
+      }
     }
     stop();
     co_return td::Unit{};
@@ -341,6 +336,8 @@ class BridgeImpl final : public IValidatorGroup {
   td::optional<td::actor::StartedTask<>> stop_waiter_;
 
   std::shared_ptr<Start> start_event_;
+
+  NewConsensusConfig::NoncriticalParams current_noncritical_params_;
 
   std::string db_path() const {
     return PSTRING() << params_.db_root << "/consensus/consensus." << params_.shard.workchain << "."

@@ -134,6 +134,22 @@ struct TraceEvent {
   std::string contents_to_string() const;
 };
 
+struct NoncriticalParamsUpdated {
+  NewConsensusConfig::NoncriticalParams params;
+
+  std::string contents_to_string() const;
+};
+
+struct PrecheckCandidateBroadcast {
+  using ReturnType = td::Unit;
+
+  td::uint32 slot;
+  td::Bits256 broadcast_id;
+  bool signature_checked;
+
+  std::string contents_to_string() const;
+};
+
 class Db {
  public:
   virtual ~Db() = default;
@@ -143,17 +159,19 @@ class Db {
   virtual std::optional<td::BufferSlice> get(td::Slice key) const = 0;
   virtual std::vector<std::pair<td::BufferSlice, td::BufferSlice>> get_by_prefix(td::uint32 prefix) const = 0;
   virtual td::actor::Task<> set(td::BufferSlice key, td::BufferSlice value) = 0;
+  virtual td::actor::Task<> close() = 0;
 };
 
 class Bus : public td::actor::Bus {
  public:
-  using Events =
-      td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, CandidateGenerated, CandidateReceived,
-                   ValidationRequest, IncomingProtocolMessage, OutgoingProtocolMessage, IncomingOverlayRequest,
-                   OutgoingOverlayRequest, BlockFinalizedInMasterchain, MisbehaviorReport, TraceEvent>;
+  using Events = td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, CandidateGenerated,
+                              CandidateReceived, ValidationRequest, IncomingProtocolMessage, OutgoingProtocolMessage,
+                              IncomingOverlayRequest, OutgoingOverlayRequest, BlockFinalizedInMasterchain,
+                              MisbehaviorReport, TraceEvent, NoncriticalParamsUpdated, PrecheckCandidateBroadcast>;
 
   Bus() = default;
   ~Bus() override {
+    db = {};
     stop_promise.set_value(td::Unit());
   }
 

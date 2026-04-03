@@ -171,13 +171,13 @@ fun test13() {
     var ex2 = 0;
 
     // will throw (the compiler generates "else" implicitly for enums)
-    try { ex1 = mapRole(invalidAsmRole()); }
+    try { ex1 = mapRole(invalidAsmRole()); }        
     catch (ex) { ex1 = ex }
 
     // will not throw (the compiler compiles "match" for bool as true => else =>)
     try { ex2 = mapBool(invalidAsmBool()); }
     catch (ex) { ex2 = ex }
-
+    
     return (ex1, ex2);
 }
 
@@ -210,6 +210,21 @@ fun test15(useNone: bool) {
     }
     return createAddressNone() == addr ? null : 100;
 }
+
+@method_id(116)
+fun test16(x: int) {
+    var result = 0;
+    match (x) {
+        1 => assert (x < 2) throw 123,
+        2 => while (x > 0) { result += x; x -= 1; }
+        3 => do { result += x; x -= 1 } while (x > 0)
+        4 => if (x == 4) { result = 5; } else { throw 123 }
+        5 => throw 5
+        6 => return 123
+    }
+    return result;
+}
+
 
 
 
@@ -258,6 +273,10 @@ fun main() {
 @testcase | 114 | 8        | 30
 @testcase | 115 | 0        | 1
 @testcase | 115 | -1       | (null)
+@testcase | 116 | 2        | 3
+@testcase | 116 | 3        | 6
+@testcase | 116 | 4        | 5
+@testcase | 116 | 6        | 123
 
 @fif_codegen
 """
@@ -296,12 +315,12 @@ fun main() {
 """
   test3() PROC:<{       //  init
     DUP                 // init init
-    isGt10() CALLDICT   // init '2
-    -1 EQINT	        // init '5
+    isGt10() CALLDICT   // init '1
+    -1 EQINT	        // init '4
     IF:<{	            // init
-      10 PUSHINT	    // init '3=10
+      10 PUSHINT	    // init '2=10
     }>ELSE<{	        // init
-      20 PUSHINT	    // init '3=20
+      20 PUSHINT	    // init '2=20
     }>	                // init r1
 """
 
@@ -344,9 +363,9 @@ fun main() {
 @fif_codegen
 """
       1 EQINT                   //  '6
-      IFNOTJMP:<{               //
+      IFNOTJMP:<{               // 
         5 THROW
-      }>                        //
+      }>                        // 
       200 PUSHINT               //  '1=200
 """
 

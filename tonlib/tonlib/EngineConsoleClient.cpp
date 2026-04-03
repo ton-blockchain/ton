@@ -8,6 +8,8 @@ namespace tonlib {
 bool is_engine_console_query(const ton::tl_object_ptr<ton::ton_api::Function>& function) {
   switch (function->get_id()) {
     case ton::ton_api::engine_validator_getActorTextStats::ID:
+    case ton::ton_api::engine_validator_getConsensusNoncriticalParamsOverrides::ID:
+    case ton::ton_api::engine_validator_setConsensusNoncriticalParamsOverrides::ID:
       return true;
     default:
       return false;

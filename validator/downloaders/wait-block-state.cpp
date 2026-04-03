@@ -70,7 +70,7 @@ void WaitBlockState::start_up() {
 }
 
 void WaitBlockState::start() {
-  if (reading_from_db_) {
+  if (reading_from_db_ || force_reading_from_db_) {
     return;
   }
   bool inited_proof = handle_->id().is_masterchain() ? handle_->inited_proof() : handle_->inited_proof_link();
@@ -83,7 +83,7 @@ void WaitBlockState::start() {
       if (R.is_error()) {
         td::actor::send_closure(SelfId, &WaitBlockState::abort_query, R.move_as_error_prefix("db error: "));
       } else {
-        td::actor::send_closure(SelfId, &WaitBlockState::got_state_from_db, R.move_as_ok());
+        td::actor::send_closure(SelfId, &WaitBlockState::got_state_from_db, R.move_as_ok(), false);
       }
     });
     td::actor::send_closure(manager_, &ValidatorManager::get_shard_state_from_db, handle_, std::move(P));
@@ -227,7 +227,7 @@ void WaitBlockState::got_prev_state(td::Ref<ShardState> state) {
 }
 
 void WaitBlockState::got_proof_link(td::BufferSlice data) {
-  if (!waiting_proof_link_) {
+  if (!waiting_proof_link_ || force_reading_from_db_) {
     return;
   }
   auto R = create_proof_link(handle_->id(), std::move(data));
@@ -251,7 +251,7 @@ void WaitBlockState::got_proof_link(td::BufferSlice data) {
 }
 
 void WaitBlockState::got_proof(td::BufferSlice data) {
-  if (!waiting_proof_) {
+  if (!waiting_proof_ || force_reading_from_db_) {
     return;
   }
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
@@ -315,7 +315,10 @@ void WaitBlockState::written_state(td::Ref<ShardState> upd_state) {
   finish_query();
 }
 
-void WaitBlockState::got_state_from_db(td::Ref<ShardState> state) {
+void WaitBlockState::got_state_from_db(td::Ref<ShardState> state, bool force_reading) {
+  if (force_reading_from_db_ && !force_reading) {
+    return;
+  }
   prev_state_ = state;
   if (!handle_->received_state()) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
@@ -341,28 +344,32 @@ void WaitBlockState::got_state_from_static_file(td::Ref<ShardState> state, td::B
   auto P =
       td::PromiseCreator::lambda([SelfId = actor_id(this), state = std::move(state)](td::Result<td::Unit> R) mutable {
         R.ensure();
-        td::actor::send_closure(SelfId, &WaitBlockState::got_state_from_db, std::move(state));
+        td::actor::send_closure(SelfId, &WaitBlockState::got_state_from_db, std::move(state), false);
       });
   td::actor::send_closure(manager_, &ValidatorManager::store_zero_state_file, handle_->id(), std::move(data),
                           std::move(P));
 }
 
 void WaitBlockState::force_read_from_db() {
-  if (!handle_ || reading_from_db_) {
+  if (!handle_ || reading_from_db_ || force_reading_from_db_) {
     return;
   }
+  force_reading_from_db_ = true;
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
     if (R.is_error()) {
       td::actor::send_closure(SelfId, &WaitBlockState::abort_query, R.move_as_error_prefix("db get error: "));
     } else {
-      td::actor::send_closure(SelfId, &WaitBlockState::got_state_from_db, R.move_as_ok());
+      td::actor::send_closure(SelfId, &WaitBlockState::got_state_from_db, R.move_as_ok(), true);
     }
   });
   td::actor::send_closure(manager_, &ValidatorManager::get_shard_state_from_db, handle_, std::move(P));
 }
 
 void WaitBlockState::got_state_from_net(td::BufferSlice data) {
+  if (force_reading_from_db_) {
+    return;
+  }
   auto r_root = vm::std_boc_deserialize(data);
   if (r_root.is_error()) {
     LOG(WARNING) << "received bad state from net: " << r_root.move_as_error();

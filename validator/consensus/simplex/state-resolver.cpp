@@ -40,6 +40,20 @@ class StateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     LOG(INFO) << "Loaded " << data.size() << " finalized blocks from DB";
   }
 
+  void tear_down() override {
+    genesis_promise_.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
+    for (auto& [_, s] : state_cache_) {
+      for (auto& p : s.promises) {
+        p.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
+      }
+    }
+    for (auto& [_, s] : finalized_blocks_) {
+      for (auto& p : s.waiters) {
+        p.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
+      }
+    }
+  }
+
   template <>
   void handle(BusHandle, std::shared_ptr<const Start> event) {
     genesis_promise_.set_value(std::move(event));
@@ -96,8 +110,13 @@ class StateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     co_return co_await std::move(task);
   }
 
+  bool is_finalized(CandidateId id) {
+    auto it = finalized_blocks_.find(id);
+    return it != finalized_blocks_.end() && it->second.done;
+  }
+
   td::actor::Task<ResolvedState> resolve_state_inner(ParentId id) {
-    if (!id.has_value() || finalized_blocks_.contains(*id)) {
+    if (!id.has_value() || is_finalized(*id)) {
       std::vector<BlockIdExt> block;
       auto genesis = co_await genesis_.get();
       std::optional<double> gen_utime_exact;

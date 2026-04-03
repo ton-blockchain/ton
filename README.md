@@ -112,18 +112,18 @@ Open an elevated (Run as Administrator) `x86-64 Native Tools Command Prompt for 
 ### MSYS2 MinGW64 (x86-64)
 Execute from MinGW64 shell
 ```bash
-  cp assembly/msys2/build-mingw64-clang21.sh .
-  chmod +x build-mingw64-clang21.sh
-  ./build-mingw64-clang21.sh -a
+  cp assembly/msys2/build-mingw64.sh .
+  chmod +x build-mingw64.sh
+  ./build-mingw64.sh -a
 ```
 As a result, you will get fully statically compiled TON windows binaries.
 
 ### MSYS2 UCRT64 (x86-64)
 Execute from ucrt64 shell
 ```bash
-  cp assembly/msys2/build-ucrt64-clang21.sh .
-  chmod +x build-ucrt64-clang21.sh
-  ./build-ucrt64-clang21.sh -a
+  cp assembly/msys2/build-ucrt64.sh .
+  chmod +x build-ucrt64.sh
+  ./build-ucrt64.sh -a
 ```
 As a result, you will get fully statically compiled TON windows binaries.
 

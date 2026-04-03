@@ -68,3 +68,4 @@ jobs:
         with:
           name: ton-arm64-macos
           path: artifacts
+          retention-days: 14

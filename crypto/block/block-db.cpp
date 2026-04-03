@@ -141,7 +141,7 @@ td::Status ZerostateInfo::base_check() {
   }
   vm::BagOfCells boc;
   auto res = boc.deserialize(data);
-  if (!res.is_ok() || boc.get_root_count() != 1) {
+  if (res.is_error() || boc.get_root_count() != 1) {
     return td::Status::Error("zerostate is not a valid bag of cells");  // not a valid bag-of-Cells
   }
   data_hash = boc.get_root_cell()->get_hash().bits();

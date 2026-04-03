@@ -1,3 +1,8 @@
+fun increment(mutate x: int): int {
+    x += 1;
+    return x;
+}
+
 @noinline
 fun incrementInPlace(mutate x: int, byValue: int): void {
     x = x + byValue;
@@ -34,6 +39,10 @@ fun A.assign(mutate self, obj: A) {
 fun A.assignWith(mutate self, mutate obj: A) {
     self = obj;
     obj.f2 = 0;
+}
+
+struct OnlyNullableTensor {
+    t: (int, int)?;
 }
 
 
@@ -99,7 +108,7 @@ fun slice.load_decimal_symbol(mutate self): int {
 
 @method_id(104)
 fun testSlices2() {
-    var cs = "123";
+    var cs = "123".beginParse();
     return (cs.load_decimal_symbol(), cs.load_decimal_symbol(), cs.load_decimal_symbol());
 }
 
@@ -324,16 +333,6 @@ fun testExplicitReturn() {
 fun int.add(mutate self, dx: int) { self += dx }
 fun int.del(mutate self) { self = 0; return self }
 
-@method_id(116)
-fun testUB() {
-    var x = 100;
-    var y = 100;
-    // x.add(x.del()) is disallowed by the borrow checker, but `!` operator allows bypassing
-    x.add(x!.del());
-    y.add(int.del(mutate y!));
-    return (x, y);
-}
-
 @method_id(117)
 fun testReceiverAndNot() {
     var (a1: A, a2: A) = ({ f1: 10, f2: 20 }, { f1: 30, f2: 40 });
@@ -342,6 +341,72 @@ fun testReceiverAndNot() {
     a1.assignWith(mutate a2);
     A.assignWith(mutate a2, mutate a1);
     return (a1, a2);
+}
+
+global g120: OnlyNullableTensor;
+
+fun setFirstOfTensor(mutate x: (int, int)) {
+    x.0 = 1;
+}
+
+@method_id(120)
+fun testMutateNotNullGlobal(setNull: bool) {
+    g120 = { t: setNull ? null : (10, 20) };
+    if (g120.t != null) {
+        var tmp = g120.t!;
+        setFirstOfTensor(mutate tmp);       // can't `mutate g120.t!` (invalid lvalue), use a tmp var
+        g120.t = tmp;
+    }
+    return g120
+}
+
+struct Box123 { v: int }
+
+fun Box123.id(self): self { return self }
+fun Box123.inc(mutate self): self { self.v += 1; return self; }
+fun Box123.addMut(mutate self, mutate x: int) { self.v += x; }
+
+fun Box123.doubleMutWithArgOrder(mutate self, mutate x: int): void asm (x self)
+    "DROP"
+    "DROP"
+    "111 PUSHINT"   // new self.v
+    "222 PUSHINT"   // new x
+
+@method_id(128)
+fun test128() {
+    var a1: Box123 = { v: 1 };
+    var b1: Box123 = { v: 2 };
+    a1.doubleMutWithArgOrder(mutate b1.v);
+    return (a1, b1);
+}
+
+struct UA { x: int }
+struct UB { y: int }
+type UnionAB = UA | UB;
+
+fun UnionAB.id(self): self { return self; }
+
+@method_id(133)
+fun test133(): int {
+    var sh: [UnionAB] = [UB { y: 7 }];
+    if (sh.0 is UB) {       // return-self wrapper in narrowed union branch
+        var copy: UnionAB = sh.0.id();
+        if (copy is UB) { return copy.y; }
+    }
+    return -1;
+}
+
+fun replaceCell(mutate cArg: cell): cell { cArg = createEmptyCell(); return cArg }
+fun replaceInt(mutate iArg: int): int { iArg = 0; return iArg }
+
+@method_id(135)
+fun test135() {
+    var i = 1;
+    var c = beginCell().storeUint(1, 32).endCell();
+    return (
+        i == replaceInt(mutate i),
+        c == replaceCell(mutate c),
+    )
 }
 
 
@@ -366,8 +431,12 @@ fun main(){
 @testcase | 113 |    | 320
 @testcase | 114 |    | 1 2 4
 @testcase | 115 |    | 13 2
-@testcase | 116 |    | 100 100
 @testcase | 117 |    | 30 0 30 40
+@testcase | 120 | 0  | 1 20 typeid-1
+@testcase | 120 | -1 | (null) (null) 0
+@testcase | 128 |    | 111 222
+@testcase | 133 |    | 7
+@testcase | 135 |    | 0 0
 
 @fif_codegen
 """
@@ -382,7 +451,7 @@ fun main(){
     ...
     incrementTwoInPlace() CALLDICT        //  x y sum1
     -ROT
-    10 PUSHINT  //  sum1 x y '11=10
+    10 PUSHINT  //  sum1 x y '9=10
     int.incrementTwoInPlace() CALLDICT        //  sum1 x y sum2
     s1 s3 s0 XCHG3       //  x y sum1 sum2
   }>
@@ -391,15 +460,15 @@ fun main(){
 @fif_codegen
 """
  load_next() PROC:<{  //  cs
-    32 LDI      //  '4 cs
-    SWAP        //  cs '4
+    32 LDI      //  '3 cs
+    SWAP        //  cs '3
   }>
 """
 
 @fif_codegen
 """
   testStoreUintPureUnusedResult() PROC:<{
-    0 PUSHINT	//  '11=0
+    0 PUSHINT	//  '10=0
   }>
 """
 
@@ -409,14 +478,14 @@ fun main(){
     NEWC	//  b
     STIX	//  '2
     DROP	//
-    0 PUSHINT	//  '11=0
+    0 PUSHINT	//  '10=0
   }>
 """
 
 @fif_codegen
 """
   testReceiverAndNot() PROC:<{  //
-    30 PUSHINT                  //  '6=30
+    30 PUSHINT                  //  '2=30
     40 PUSHINT                  //  obj.f1=30 obj.f2=40
     OVER
     0 PUSHINT                   //  a1.f1=30 a2.f2=40 a2.f1=30 a1.f2=0

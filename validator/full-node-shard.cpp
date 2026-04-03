@@ -51,6 +51,29 @@ namespace fullnode {
 namespace {
 
 constexpr const char *k_called_from_public = "public";
+constexpr td::uint32 k_heavy_request_cost_unit = 1 << 21;
+
+size_t heavy_request_cost(td::uint64 requested_max_size) {
+  size_t cost = static_cast<size_t>((requested_max_size + k_heavy_request_cost_unit - 1) / k_heavy_request_cost_unit);
+  return cost == 0 ? 1 : cost;
+}
+
+size_t request_cost_for_limiter(ton_api::Function &function) {
+  size_t cost = 1;
+  ton_api::downcast_call(
+      function, td::overloaded(
+                    [&](const ton_api::tonNode_getArchiveSlice &query) {
+                      cost = heavy_request_cost(query.max_size_ > 0 ? static_cast<td::uint64>(query.max_size_) : 0);
+                    },
+                    [&](const ton_api::tonNode_downloadPersistentStateSliceV2 &query) {
+                      cost = heavy_request_cost(query.max_size_ > 0 ? static_cast<td::uint64>(query.max_size_) : 0);
+                    },
+                    [&](const ton_api::tonNode_downloadZeroState &) {
+                      cost = heavy_request_cost(FullNode::max_zerostate_size());
+                    },
+                    [&](const auto &) {}));
+  return cost;
+}
 
 }  // namespace
 
@@ -157,6 +180,7 @@ void FullNodeShardImpl::update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promis
   adnl_id_ = adnl_id;
   local_id_ = adnl_id_.pubkey_hash();
   create_overlay();
+  promise.set_value(td::Unit{});
 }
 
 void FullNodeShardImpl::set_active(bool active) {
@@ -720,7 +744,7 @@ void FullNodeShardImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice
     return;
   }
   auto fun_ptr = B.move_as_ok();
-  if (!limiter_->check_in(fun_ptr->get_id())) {
+  if (!limiter_->check_in(fun_ptr->get_id(), request_cost_for_limiter(*fun_ptr))) {
     promise.set_error(td::Status::Error(ErrorCode::failure, "too many requests"));
     return;
   }
@@ -1169,23 +1193,26 @@ void FullNodeShardImpl::sign_new_certificate(PublicKeyHash sign_by) {
       overlay::CertificateFlags::Trusted | overlay::CertificateFlags::AllowFec, td::BufferSlice{}};
   auto to_sign = cert.to_sign(overlay_id_, local_id_);
 
-  auto P = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), cert = std::move(cert)](td::Result<std::pair<td::BufferSlice, PublicKey>> R) mutable {
-        if (R.is_error()) {
-          // ignore
-          VLOG(FULL_NODE_WARNING) << "failed to create certificate: failed to sign: " << R.move_as_error();
-        } else {
-          auto p = R.move_as_ok();
-          cert.set_signature(std::move(p.first));
-          cert.set_issuer(p.second);
-          td::actor::send_closure(SelfId, &FullNodeShardImpl::signed_new_certificate, std::move(cert));
-        }
-      });
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), cert = std::move(cert), local_id = local_id_](
+                                          td::Result<std::pair<td::BufferSlice, PublicKey>> R) mutable {
+    if (R.is_error()) {
+      // ignore
+      VLOG(FULL_NODE_WARNING) << "failed to create certificate: failed to sign: " << R.move_as_error();
+    } else {
+      auto p = R.move_as_ok();
+      cert.set_signature(std::move(p.first));
+      cert.set_issuer(p.second);
+      td::actor::send_closure(SelfId, &FullNodeShardImpl::signed_new_certificate, std::move(cert), local_id);
+    }
+  });
   td::actor::send_closure(keyring_, &ton::keyring::Keyring::sign_add_get_public_key, sign_by, std::move(to_sign),
                           std::move(P));
 }
 
-void FullNodeShardImpl::signed_new_certificate(ton::overlay::Certificate cert) {
+void FullNodeShardImpl::signed_new_certificate(overlay::Certificate cert, PublicKeyHash local_id) {
+  if (local_id != local_id_) {
+    return;
+  }
   LOG(WARNING) << "updated certificate";
   cert_ = std::make_shared<overlay::Certificate>(std::move(cert));
   td::actor::send_closure(overlays_, &overlay::Overlays::update_certificate, adnl_id_, overlay_id_, local_id_, cert_);

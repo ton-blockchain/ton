@@ -560,8 +560,13 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
   template <typename A, typename B>
   std::unique_ptr<BusListeningActor> create_actor_instance(std::shared_ptr<BusTreeNode> node) {
     auto installer = std::make_shared<ListenerInstallerImpl<A>>();
-    auto instance = std::make_unique<A>();
     auto bus = std::static_pointer_cast<B>(node->bus);
+    std::unique_ptr<A> instance;
+    if constexpr (std::constructible_from<A>) {
+      instance = std::make_unique<A>();
+    } else {
+      instance = std::make_unique<A>(*bus);
+    }
     auto bus_impl = std::static_pointer_cast<BusImpl<B>>(node->bus_impl);
     instance->owning_bus_ = BusHandle<B>({}, std::move(node), bus, bus_impl);
     instance->installer_ = installer;

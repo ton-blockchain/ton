@@ -34,6 +34,10 @@ struct PackSize {
     return max_bits >= 9999;
   }
 
+  bool is_zero() const {
+    return max_bits == 0 && max_refs == 0;
+  }
+
   explicit PackSize(int exact_bits)
     : min_bits(exact_bits), max_bits(exact_bits), min_refs(0), max_refs(0) {
   }
@@ -63,14 +67,16 @@ class PackContext {
   mutable PrefixWriteMode prefix_mode = PrefixWriteMode::WritePrefixOfStruct;
 
 public:
+  const std::vector<var_idx_t> ir_options;    // struct PackOptions from stdlib
   const std::vector<var_idx_t> ir_builder;
   const var_idx_t ir_builder0;
-  const var_idx_t option_skipBitsNValidation;
 
-  PackContext(CodeBlob& code, AnyV origin, std::vector<var_idx_t> ir_builder, const std::vector<var_idx_t>& ir_options);
+  PackContext(CodeBlob& code, AnyV origin, std::vector<var_idx_t> ir_builder, std::vector<var_idx_t> ir_options);
 
   PrefixWriteMode get_prefix_mode() const { return prefix_mode; }
 
+  var_idx_t option_skipBitsNValidation() const { return ir_options[0]; }
+  
   void storeInt(var_idx_t ir_idx, int len) const;
   void storeUint(var_idx_t ir_idx, int len) const;
   void storeUint_var(var_idx_t ir_idx, var_idx_t ir_len) const;
@@ -118,20 +124,26 @@ class UnpackContext {
   mutable PrefixReadMode prefix_mode = PrefixReadMode::LoadAndCheck;
 
 public:
+  const std::vector<var_idx_t> ir_options;    // struct UnpackOptions from stdlib
   const std::vector<var_idx_t> ir_slice;
   const var_idx_t ir_slice0;
-  const var_idx_t option_assertEndAfterReading;
-  const var_idx_t option_throwIfOpcodeDoesNotMatch;
 
-  UnpackContext(CodeBlob& code, AnyV origin, std::vector<var_idx_t> ir_slice, const std::vector<var_idx_t>& ir_options);
+  UnpackContext(CodeBlob& code, AnyV origin, std::vector<var_idx_t> ir_slice, std::vector<var_idx_t> ir_options);
 
   PrefixReadMode get_prefix_mode() const { return prefix_mode; }
 
+  var_idx_t option_assertEndAfterReading() const { return ir_options[0]; }
+  var_idx_t option_throwIfOpcodeDoesNotMatch() const { return ir_options[1]; }
+
   std::vector<var_idx_t> loadInt(int len, const char* debug_desc) const;
   std::vector<var_idx_t> loadUint(int len, const char* debug_desc) const;
+  std::vector<var_idx_t> loadRef(const char* debug_desc) const;
+  std::vector<var_idx_t> loadMaybeRef(const char* debug_desc) const;
   void loadAndCheckOpcode(PackOpcode opcode) const;
   void skipBits(int len) const;
   void skipBits_var(var_idx_t ir_len) const;
+  void skipRef() const;
+  void skipMaybeRef() const;
   void assertEndIfOption() const;
   void throwInvalidOpcode() const;
 
@@ -163,9 +175,18 @@ public:
   PackSize estimate_any(TypePtr any_type, PrefixEstimateMode prefix_mode = PrefixEstimateMode::IncludePrefixOfStruct) const;
 };
 
+struct CustomPackUnpackF {
+  FunctionPtr f_pack;
+  FunctionPtr f_unpack;
+
+  explicit operator bool() const { return f_pack != nullptr || f_unpack != nullptr; }
+};
+
+
+struct MethodCallCandidate;
 
 bool is_type_cellT(TypePtr any_type);
-void get_custom_pack_unpack_function(TypePtr receiver_type, FunctionPtr& f_pack, FunctionPtr& f_unpack);
+CustomPackUnpackF get_custom_pack_unpack_function(TypePtr receiver_type, std::vector<MethodCallCandidate>* out_candidates = nullptr);
 std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std::string& because_msg);
 TypePtr calculate_intN_to_serialize_enum(EnumDefPtr enum_ref);
 

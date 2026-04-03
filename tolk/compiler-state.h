@@ -18,97 +18,46 @@
 
 #include "src-file.h"
 #include "symtable.h"
-#include "td/utils/Status.h"
-#include <functional>
-#include <set>
-#include <string>
+#include <unordered_map>
 
 namespace tolk {
 
-// with cmd option -x, the user can pass experimental options to use
-class ExperimentalOption {
-  friend struct CompilerSettings;
-
-  const std::string_view name;
-  bool enabled = false;
-  const char* deprecated_from_v = nullptr;  // when an option becomes deprecated (after the next compiler release),
-  const char* deprecated_reason = nullptr;  // but the user still passes it, we'll warn to stderr
-
-public:
-  explicit ExperimentalOption(std::string_view name) : name(name) {}
-
-  void mark_deprecated(const char* deprecated_from_v, const char* deprecated_reason);
-
-  explicit operator bool() const { return enabled; }
-};
-
-// CompilerSettings contains settings that can be passed via cmd line or (partially) wasm envelope.
-// They are filled once at start and are immutable since the compilation started.
-struct CompilerSettings {
-  enum class FsReadCallbackKind { Realpath, ReadFile };
-
-  using FsReadCallback = std::function<td::Result<std::string>(FsReadCallbackKind, const char*)>;
-
-  int verbosity = 0;
-  int optimization_level = 2;
-  bool stack_layout_comments = true;
-  bool tolk_src_as_line_comments = true;
-
-  std::string output_filename;
-  std::string boc_output_filename;
-  std::string stdlib_folder;    // path to tolk-stdlib/; note: from tolk-js it's empty! tolk-js reads files via js callback
-
-  FsReadCallback read_callback;
-
-  // ExperimentalOption some_option{"some-option"};
-
-  void enable_experimental_option(std::string_view name);
-  void parse_experimental_options_cmd_arg(const std::string& cmd_arg);
-};
-
-// AST nodes contain std::string_view referencing to contents of .tolk files (kept in memory after reading).
-// It's more than enough, except a situation when we create new AST nodes inside the compiler
-// and want some "persistent place" for std::string_view to point to.
-// This class copies strings to heap, so that they remain valid after closing scope.
-class PersistentHeapAllocator {
-  struct ChunkInHeap {
-    const char* allocated;
-    std::unique_ptr<ChunkInHeap> next;
-
-    ChunkInHeap(const char* allocated, std::unique_ptr<ChunkInHeap>&& next)
-      : allocated(allocated), next(std::move(next)) {}
-  };
-
-  std::unique_ptr<ChunkInHeap> head = nullptr;
-
-public:
-  std::string_view copy_string_to_persistent_memory(std::string_view str_in_tmp_memory);
-  void clear();
-};
+class ErrorCollector;  // forward declaration
 
 // CompilerState contains a mutable state that is changed while the compilation is going on.
-// It's a "global state" of all compilation.
-// Historically, in FunC, this global state was spread along many global C++ variables.
-// Now, no global C++ variables except `CompilerState G` are present.
+// It's reset at the start of each tolk_proceed() call.
+// Note: objects allocated with `new` during previous compilations (SrcFile, Symbol, etc.)
+// are intentionally leaked — proper lifetime management (memory arena) is a separate future task.
 struct CompilerState {
-  CompilerSettings settings;
-
   GlobalSymbolTable symtable;
-  PersistentHeapAllocator persistent_mem;
 
   std::vector<FunctionPtr> all_builtins;        // all built-in functions
   std::vector<FunctionPtr> all_functions;       // all user-defined (not built-in) global-scope functions, with generic instantiations, with lambdas
   std::vector<FunctionPtr> all_methods;         // all user-defined and built-in extension methods for arbitrary types (receivers)
-  std::vector<FunctionPtr> all_contract_getters;
   std::vector<GlobalVarPtr> all_global_vars;
   std::vector<GlobalConstPtr> all_constants;
   std::vector<StructPtr> all_structs;
   std::vector<EnumDefPtr> all_enums;
   AllRegisteredSrcFiles all_src_files;
 
-  bool is_verbosity(int gt_eq) const { return settings.verbosity >= gt_eq; }
+  ErrorCollector* error_collector = nullptr;  // when set, errors can be collected instead of thrown
+
+  int last_type_id = 128;                            // below 128 reserved for built-in types
+  std::unordered_map<TypePtr, int> map_type_to_id;   // for assign_type_id() in type-system.cpp
 };
 
-extern CompilerState G;
+// G is the per-compilation mutable state, reset before each compilation pipeline
+extern thread_local CompilerState G;
+
+struct ThrownParseError;
+
+struct TolkCompilationResult {
+  std::vector<ThrownParseError> errors;
+  std::string fatal_msg;      // some Fatal happened, it has no location and can't be pretty formatted
+  std::string fift_code;      // fift code exists only if no compilation errors
+};
+
+// starts all the compilation pipeline, called from tolk-main and tolk-wasm
+TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename);
 
 }  // namespace tolk
