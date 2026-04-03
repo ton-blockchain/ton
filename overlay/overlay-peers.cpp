@@ -690,6 +690,7 @@ size_t OverlayImpl::neighbours_cnt() const {
 
 void OverlayImpl::update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids,
                                           std::vector<PublicKeyHash> root_public_keys, OverlayMemberCertificate cert) {
+  protected_peers_guard_ = adnl::Adnl::ProtectedPeersGuard{adnl_, local_id_, ids};
   auto expected_size = (td::uint32)(ids.size() + root_public_keys.size() * opts_.max_slaves_in_semiprivate_overlay_);
   opts_.max_peers_ = std::max(opts_.max_peers_, expected_size);
   std::sort(ids.begin(), ids.end());

@@ -61,6 +61,7 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
                    td::uint32 local_mode, td::actor::ActorId<AdnlLocalId> local_actor,
                    td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id);
   void start_up() override;
+  void tear_down() override;
   void alarm() override;
 
   void discover();
@@ -80,8 +81,6 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
 
   void get_peer_node(td::Promise<AdnlNode> promise) override;
 
-  void discover_query_result(td::Result<dht::DhtValue> B, bool dummy);
-
   void update_dht_node(td::actor::ActorId<dht::Dht> dht_node) override {
     dht_node_ = dht_node;
   }
@@ -95,8 +94,6 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   void got_data_from_db(td::Result<AdnlDbItem> R);
   void got_data_from_static_nodes(td::Result<AdnlNode> R);
   void got_data_from_dht(td::Result<AdnlNode> R);
-
-  //void conn_ready(AdnlConnectionIdShort id, td::Result<td::actor::ActorOwn<AdnlNetworkConnection>> R);
 
   void process_message(const adnlmessage::AdnlMessageCreateChannel &message);
   void process_message(const adnlmessage::AdnlMessageConfirmChannel &message);
@@ -268,6 +265,9 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   td::Timestamp try_reinit_at_ = td::Timestamp::never();
   td::Timestamp drop_addr_list_at_ = td::Timestamp::never();
 
+  td::Timestamp mark_idle_at_ = td::Timestamp::never();
+  bool idle_mark_ = false;
+
   bool has_reverse_addr_ = false;
   td::Timestamp request_reverse_ping_after_ = td::Timestamp::now();
   bool request_reverse_ping_active_ = false;
@@ -285,6 +285,10 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   void add_packet_stats(td::uint64 bytes, bool in, bool channel);
   void add_expired_msg_stats(td::uint64 bytes);
   void prepare_packet_stats();
+  void set_idle_mark(bool value);
+
+  static constexpr double IDLE_REINIT_TIMEOUT = 120.0;
+  static constexpr double MARK_IDLE_TIMEOUT = 130.0;
 };
 
 }  // namespace adnl
