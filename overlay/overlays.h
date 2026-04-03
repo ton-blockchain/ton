@@ -280,6 +280,7 @@ class OverlayMemberCertificate {
 };
 
 struct OverlayOptions {
+  std::string name_ = "";
   bool announce_self_ = true;
   bool frequent_dht_lookup_ = false;
   td::uint32 local_overlay_member_flags_ = 0;

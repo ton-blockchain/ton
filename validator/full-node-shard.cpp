@@ -128,6 +128,7 @@ void FullNodeShardImpl::create_overlay() {
     td::actor::ActorId<FullNodeShardImpl> node_;
   };
   overlay::OverlayOptions opts;
+  opts.name_ = "shard" + shard_.to_str();
   opts.announce_self_ = active_;
   opts.broadcast_speed_multiplier_ = opts_.public_broadcast_speed_multiplier_;
   td::actor::send_closure(overlays_, &overlay::Overlays::create_public_overlay_ex, adnl_id_, overlay_id_full_.clone(),

@@ -387,6 +387,7 @@ void FullNodeFastSyncOverlay::init() {
   std::string scope = PSTRING() << R"({ "type": "fast-sync", "shard_id": )" << shard_.shard
                                 << ", \"workchain_id\": " << shard_.workchain << " }";
   overlay::OverlayOptions options;
+  options.name_ = "fast-sync" + shard_.to_str();
   if (!shard_.is_masterchain()) {
     options.default_permanent_members_flags_ = overlay::OverlayMemberFlags::DoNotReceiveBroadcasts;
   }

@@ -37,8 +37,11 @@ namespace overlay {
 
 const OverlayMemberCertificate OverlayNode::empty_certificate_{};
 
-static std::string overlay_actor_name(const OverlayIdFull &overlay_id) {
-  return PSTRING() << "overlay." << overlay_id.compute_short_id().bits256_value().to_hex().substr(0, 4);
+static std::string overlay_actor_name(const OverlayIdFull &overlay_id, const OverlayOptions& opts) {
+  if (opts.name_.empty()) {
+    return PSTRING() << "overlay." << overlay_id.compute_short_id().bits256_value().to_hex().substr(0, 4);
+  }
+  return PSTRING() << "overlay." << opts.name_;
 }
 
 td::actor::ActorOwn<Overlay> Overlay::create_public(td::actor::ActorId<keyring::Keyring> keyring,
@@ -48,10 +51,11 @@ td::actor::ActorOwn<Overlay> Overlay::create_public(td::actor::ActorId<keyring::
                                                     adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                                                     std::unique_ptr<Overlays::Callback> callback,
                                                     OverlayPrivacyRules rules, td::string scope, OverlayOptions opts) {
+  std::string actor_name = overlay_actor_name(overlay_id, opts);
   return td::actor::create_actor<OverlayImpl>(
-      overlay_actor_name(overlay_id), keyring, adnl, manager, dht_node, local_id, std::move(overlay_id),
-      OverlayType::Public, std::vector<adnl::AdnlNodeIdShort>(), std::vector<PublicKeyHash>(),
-      OverlayMemberCertificate{}, std::move(callback), std::move(rules), std::move(scope), std::move(opts));
+      std::move(actor_name), keyring, adnl, manager, dht_node, local_id, std::move(overlay_id), OverlayType::Public,
+      std::vector<adnl::AdnlNodeIdShort>(), std::vector<PublicKeyHash>(), OverlayMemberCertificate{},
+      std::move(callback), std::move(rules), std::move(scope), std::move(opts));
 }
 
 td::actor::ActorOwn<Overlay> Overlay::create_private(
@@ -59,10 +63,11 @@ td::actor::ActorOwn<Overlay> Overlay::create_private(
     td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node, adnl::AdnlNodeIdShort local_id,
     OverlayIdFull overlay_id, std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Overlays::Callback> callback,
     OverlayPrivacyRules rules, std::string scope, OverlayOptions opts) {
-  return td::actor::create_actor<OverlayImpl>(
-      overlay_actor_name(overlay_id), keyring, adnl, manager, dht_node, local_id, std::move(overlay_id),
-      OverlayType::FixedMemberList, std::move(nodes), std::vector<PublicKeyHash>(), OverlayMemberCertificate{},
-      std::move(callback), std::move(rules), std::move(scope), std::move(opts));
+  std::string actor_name = overlay_actor_name(overlay_id, opts);
+  return td::actor::create_actor<OverlayImpl>(std::move(actor_name), keyring, adnl, manager, dht_node, local_id,
+                                              std::move(overlay_id), OverlayType::FixedMemberList, std::move(nodes),
+                                              std::vector<PublicKeyHash>(), OverlayMemberCertificate{},
+                                              std::move(callback), std::move(rules), std::move(scope), std::move(opts));
 }
 
 td::actor::ActorOwn<Overlay> Overlay::create_semiprivate(
@@ -71,10 +76,11 @@ td::actor::ActorOwn<Overlay> Overlay::create_semiprivate(
     OverlayIdFull overlay_id, std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
     OverlayMemberCertificate cert, std::unique_ptr<Overlays::Callback> callback, OverlayPrivacyRules rules,
     std::string scope, OverlayOptions opts) {
-  return td::actor::create_actor<OverlayImpl>(overlay_actor_name(overlay_id), keyring, adnl, manager, dht_node,
-                                              local_id, std::move(overlay_id), OverlayType::CertificatedMembers,
-                                              std::move(nodes), std::move(root_public_keys), std::move(cert),
-                                              std::move(callback), std::move(rules), std::move(scope), std::move(opts));
+  std::string actor_name = overlay_actor_name(overlay_id, opts);
+  return td::actor::create_actor<OverlayImpl>(std::move(actor_name), keyring, adnl, manager, dht_node, local_id,
+                                              std::move(overlay_id), OverlayType::CertificatedMembers, std::move(nodes),
+                                              std::move(root_public_keys), std::move(cert), std::move(callback),
+                                              std::move(rules), std::move(scope), std::move(opts));
 }
 
 OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
