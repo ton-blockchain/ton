@@ -244,6 +244,21 @@ class DetailFigureBuilder:
                 )
             )
 
+    def _event_hover_text(self, label: str, validator: int | str | None) -> str:
+        if label == "collation" and self._slot.time_stats:
+            return "<br>time_stats:" + "".join(
+                f"<br>  {name}: {duration * 1000:.3f} ms"
+                for name, duration in self._slot.time_stats
+            )
+        if label == "block_validation" and self._slot.validation_time_stats and validator is not None:
+            v_ts = self._slot.validation_time_stats.get(validator)
+            if v_ts:
+                return "<br>time_stats:" + "".join(
+                    f"<br>  {name}: {duration * 1000:.3f} ms"
+                    for name, duration in v_ts
+                )
+        return ""
+
     def _add_validator_events(self, events: list[EventData]) -> None:
         events_by_label = DataFilter.group_events_by_label(events)
 
@@ -269,17 +284,11 @@ class DetailFigureBuilder:
                         e.kind,
                         e.t1_ms - e.t_ms if e.t1_ms else 0,
                         b,
+                        self._event_hover_text(label, e.validator),
                     ]
                     for e, b in zip(label_events, base)
                 ],
             )
-
-            hover_extra = ""
-            if label == "collation" and self._slot.time_stats:
-                hover_extra = "<br>time_stats:" + "".join(
-                    f"<br>  {name}: {duration * 1000:.3f} ms"
-                    for name, duration in self._slot.time_stats
-                )
 
             if label_events[0].t1_ms:  # event has end time
                 _ = self._fig.add_trace(  # pyright: ignore[reportUnknownMemberType]
@@ -298,7 +307,7 @@ class DetailFigureBuilder:
                                 if self._time_mode == "abs"
                                 else "start=%{base}ms<br>"
                             )
-                            + f"dt=%{{customdata[5]:.3f}}ms{hover_extra}<extra></extra>"
+                            + "dt=%{customdata[5]:.3f}ms%{customdata[7]}<extra></extra>"
                         ),
                         **kwargs,
                     )
@@ -319,9 +328,9 @@ class DetailFigureBuilder:
                             f"valgroup={self._valgroup_id}<br>slot={self._slot.slot}<br>"
                             + f"validator=%{{customdata[2]}}<br>event={label} (kind=%{{customdata[4]}})<br>"
                             + (
-                                "t=%{customdata[6]|%H:%M:%S.%f}<br><extra></extra>"
+                                "t=%{customdata[6]|%H:%M:%S.%f}%{customdata[7]}<br><extra></extra>"
                                 if self._time_mode == "abs"
-                                else "t=%{x}ms<br><extra></extra>"
+                                else "t=%{x}ms%{customdata[7]}<br><extra></extra>"
                             )
                         ),
                         **kwargs,

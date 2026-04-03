@@ -31,7 +31,8 @@ from tonapi.ton_api import (
     Consensus_stats_validationStarted,
     TonNode_blockIdExt,
     TypeConsensus_stats_Event,
-    ValidatorStats_collatedBlock
+    ValidatorStats_collatedBlock,
+    ValidatorStats_validatedBlock,
 )
 
 from ..models import ConsensusData, EventData, GroupData, GroupInfo, SlotData, UnnamedGroupInfo
@@ -105,6 +106,9 @@ class ParserSessionStats(GroupParser):
         self.with_cache = with_cache
         self._raw_events: dict[Path, dict[bytes, list[Consensus_stats_timestampedEvent]]] = {}
         self._raw_time_stats: dict[Path, dict[str, list[tuple[str, float]]]] = {}
+        self._raw_validation_time_stats: dict[
+            Path, dict[tuple[str, int, int], list[tuple[str, float]]]
+        ] = {}
         self._cache_result: ConsensusData | None = None
         self._cache_lines: dict[Path, int] = {}
         self._cache_mtime: dict[Path, float] = {}
@@ -467,6 +471,16 @@ class ParserSessionStats(GroupParser):
                 return vote.t_ms
         return None
 
+    @staticmethod
+    def _extract_v_id(
+        events: list[Consensus_stats_timestampedEvent],
+    ) -> tuple[int, int, int] | None:
+        """Returns (v_id, workchain, shard) or None."""
+        for e in events:
+            if isinstance(e.event, Consensus_stats_id):
+                return (e.event.idx, e.event.workchain, e.event.shard)
+        return None
+
     def _process_group_events(
         self,
         group_id: bytes,
@@ -546,6 +560,10 @@ class ParserSessionStats(GroupParser):
 
         merged: dict[str, dict[bytes, list[Consensus_stats_timestampedEvent]]] = {}
         all_time_stats: dict[str, list[tuple[str, float]]] = {}
+        # hostname -> { (block_id_str, workchain, shard): time_stats }
+        host_validation_ts: dict[
+            str, dict[tuple[str, int, int], list[tuple[str, float]]]
+        ] = {}
 
         for log_file in self._logs_path:
             hostname = self._extract_hostname(log_file)
@@ -553,6 +571,9 @@ class ParserSessionStats(GroupParser):
                 with open_stats_file(log_file) as f:
                     events_by_groups: dict[bytes, list[Consensus_stats_timestampedEvent]] = {}
                     time_stats_by_block: dict[str, list[tuple[str, float]]] = {}
+                    validation_ts_raw: dict[
+                        tuple[str, int, int], list[tuple[str, float]]
+                    ] = {}
                     start_line = 0
                     if self.with_cache and log_file in self._cache_lines:
                         start_line = self._cache_lines[log_file]
@@ -579,6 +600,21 @@ class ParserSessionStats(GroupParser):
                                     )
                             except Exception:
                                 pass
+                        elif line.startswith('{"@type":"validatorStats.validatedBlock"'):
+                            try:
+                                validated = ValidatorStats_validatedBlock.from_json(line)
+                                if validated.block_id is not None and validated.time_stats:
+                                    block_id_str = format_block_id(validated.block_id)
+                                    key = (
+                                        block_id_str,
+                                        validated.block_id.workchain,
+                                        validated.block_id.shard,
+                                    )
+                                    validation_ts_raw[key] = _parse_time_stats(
+                                        validated.time_stats
+                                    )
+                            except Exception:
+                                pass
 
                     if self.with_cache:
                         self._cache_lines[log_file] = current_line
@@ -593,8 +629,14 @@ class ParserSessionStats(GroupParser):
                         old_time_stats = self._raw_time_stats.get(log_file, {})
                         time_stats_by_block = {**old_time_stats, **time_stats_by_block}
                         self._raw_time_stats[log_file] = time_stats_by_block
+                        # merge old validation time_stats with new ones
+                        old_val_ts = self._raw_validation_time_stats.get(log_file, {})
+                        validation_ts_raw = {**old_val_ts, **validation_ts_raw}
+                        self._raw_validation_time_stats[log_file] = validation_ts_raw
 
                     all_time_stats.update(time_stats_by_block)
+                    host_val = host_validation_ts.setdefault(hostname, {})
+                    host_val.update(validation_ts_raw)
                     host_groups = merged.setdefault(hostname, {})
                     for group_hash, group_events in events_by_groups.items():
                         host_groups.setdefault(group_hash, []).extend(group_events)
@@ -602,9 +644,10 @@ class ParserSessionStats(GroupParser):
                 logging.warning(f"Failed to read log file {log_file}", stack_info=True)
 
         groups: dict[bytes, GroupData] = {}
+        all_validation_time_stats: dict[str, dict[int, list[tuple[str, float]]]] = {}
 
-        for host_groups in merged.values():
-            for group_id, events in host_groups.items():
+        for hostname, hostname_groups in merged.items():
+            for group_id, events in hostname_groups.items():
                 group_info = self._process_group_events(group_id, events)
                 if group_id not in groups:
                     groups[group_id] = group_info
@@ -614,12 +657,24 @@ class ParserSessionStats(GroupParser):
                     ):
                         groups[group_id] = group_info
 
+                # map validation time_stats using v_id from consensus events
+                v_id_info = self._extract_v_id(events)
+                if v_id_info and hostname in host_validation_ts:
+                    v_id, wc, shard = v_id_info
+                    for (bid, blk_wc, blk_shard), ts in host_validation_ts[hostname].items():
+                        if blk_wc == wc and blk_shard == shard:
+                            all_validation_time_stats.setdefault(bid, {})[v_id] = ts
+
         self._infer_slot_phases()
         self._infer_slot_events()
 
         for slot_data in self._slots.values():
             if slot_data.block_id_ext and slot_data.block_id_ext in all_time_stats:
                 slot_data.time_stats = all_time_stats[slot_data.block_id_ext]
+            if slot_data.block_id_ext and slot_data.block_id_ext in all_validation_time_stats:
+                slot_data.validation_time_stats = all_validation_time_stats[
+                    slot_data.block_id_ext
+                ]
 
         result = ConsensusData(
             groups=list(groups.values()), slots=list(self._slots.values()), events=self._events
