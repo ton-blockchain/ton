@@ -38,10 +38,8 @@ QuicServer::QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, t
     : fd_(std::move(fd))
     , alpn_(std::move(alpn))
     , server_key_(std::move(server_key))
+    , options_(options)
     , gso_enabled_(options.enable_gso && td::UdpSocketFd::is_gso_supported())
-    , cc_algo_(options.cc_algo)
-    , flood_control_(options.flood_control)
-    , max_streams_bidi_(options.max_streams_bidi)
     , callback_(std::move(callback))
     , default_mtu_(default_mtu)
     , peers_mtu_(std::move(peers_mtu)) {
@@ -67,7 +65,7 @@ QuicServer::QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, t
     fd_.enable_mmsg();
   }
   LOG(INFO) << "UDP allowed: GRO=" << (gro_enabled_ ? "on" : "off") << " GSO=" << (gso_enabled_ ? "on" : "off")
-            << " MMSG=" << (fd_.is_mmsg_enabled() ? "on" : "off") << " CC=" << cc_algo_;
+            << " MMSG=" << (fd_.is_mmsg_enabled() ? "on" : "off") << " CC=" << options_.cc_algo;
 
   const size_t ingress_buf_size = gro_enabled_ ? kMaxDatagram : DEFAULT_MTU * kMaxBurst;
   ingress_buffers_.resize(kIngressBatch * ingress_buf_size);
@@ -279,7 +277,7 @@ void QuicServer::close(QuicConnectionId cid) {
   if (state->in_heap()) {
     timeout_heap_.erase(state.get());
   }
-  if (flood_control_.has_value()) {
+  if (options_.flood_control.has_value()) {
     auto flood_addr = state->remote_address.get_ip_host();
     if (flood_map_.contains(flood_addr) && --flood_map_.at(flood_addr) == 0) {
       flood_map_.erase(flood_addr);
@@ -305,6 +303,18 @@ void QuicServer::handle_timeouts() {
   callback_->loop(td::Timestamp::now(), shutdown);
   for (auto &e : shutdown.entries) {
     shutdown_stream(e.cid, e.sid);
+  }
+
+  if (cleanup_conn_rate_limiters_at_ && cleanup_conn_rate_limiters_at_.is_in_past()) {
+    td::PerfWarningTimer w("cleanup_conn_rate_limiters", 0.1);
+    for (auto it = conn_rate_limiters_.begin(); it != conn_rate_limiters_.end();) {
+      if (it->second.last_take_at() < td::Timestamp::in(-it->second.period())) {
+        it = conn_rate_limiters_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    cleanup_conn_rate_limiters_at_ = conn_rate_limiters_.empty() ? td::Timestamp::never() : td::Timestamp::in(10.0);
   }
 }
 
@@ -429,24 +439,35 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
   }
 
   auto flood_addr = msg_in.address.get_ip_host();
-  if (flood_control_.has_value() && flood_map_.contains(flood_addr) && flood_map_.at(flood_addr) >= *flood_control_) {
+  if (options_.flood_control.has_value() && flood_map_.contains(flood_addr) &&
+      flood_map_.at(flood_addr) >= *options_.flood_control) {
     return td::Status::Error("flood control overflow");
+  }
+  if (options_.conn_rate_limit_capacity > 0) {
+    auto [it, _] =
+        conn_rate_limiters_.try_emplace(flood_addr, options_.conn_rate_limit_capacity, options_.conn_rate_limit_period);
+    if (!it->second.take()) {
+      return td::Status::Error("connection rate limit exceeded");
+    }
+    if (!cleanup_conn_rate_limiters_at_) {
+      cleanup_conn_rate_limiters_at_ = td::Timestamp::in(10.0);
+    }
   }
 
   // Create new connection to handle unknown inbound message
   TRY_RESULT(local_address, fd_.get_local_address());
 
   QuicConnectionOptions conn_options;
-  conn_options.cc_algo = cc_algo_;
-  if (max_streams_bidi_.has_value()) {
-    conn_options.max_streams_bidi = *max_streams_bidi_;
+  conn_options.cc_algo = options_.cc_algo;
+  if (options_.max_streams_bidi.has_value()) {
+    conn_options.max_streams_bidi = *options_.max_streams_bidi;
   }
   auto pimpl_callback = std::make_unique<PImplCallback>(*this, false);
   TRY_RESULT(p_impl, QuicConnectionPImpl::create_server(local_address, msg_in.address, server_key_, alpn_.as_slice(),
                                                         vc, std::move(pimpl_callback), conn_options));
   TRY_RESULT(state, install_connection(std::move(p_impl), msg_in.address, false, vc.dcid));
 
-  if (flood_control_.has_value()) {
+  if (options_.flood_control.has_value()) {
     flood_map_[flood_addr]++;
   }
 
@@ -460,21 +481,22 @@ td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::E
   TRY_RESULT(local_address, fd_.get_local_address());  // TODO: we may avoid system call here
 
   auto flood_addr = remote_address.get_ip_host();
-  if (flood_control_.has_value() && flood_map_.contains(flood_addr) && flood_map_.at(flood_addr) >= *flood_control_) {
+  if (options_.flood_control.has_value() && flood_map_.contains(flood_addr) &&
+      flood_map_.at(flood_addr) >= *options_.flood_control) {
     return td::Status::Error("flood control overflow");
   }
 
   QuicConnectionOptions conn_options;
-  conn_options.cc_algo = cc_algo_;
-  if (max_streams_bidi_.has_value()) {
-    conn_options.max_streams_bidi = *max_streams_bidi_;
+  conn_options.cc_algo = options_.cc_algo;
+  if (options_.max_streams_bidi.has_value()) {
+    conn_options.max_streams_bidi = *options_.max_streams_bidi;
   }
   auto pimpl_callback = std::make_unique<PImplCallback>(*this, true);
   TRY_RESULT(p_impl, QuicConnectionPImpl::create_client(local_address, remote_address, std::move(client_key), alpn,
                                                         std::move(pimpl_callback), conn_options));
   TRY_RESULT(state, install_connection(std::move(p_impl), remote_address, true, std::nullopt));
 
-  if (flood_control_.has_value()) {
+  if (options_.flood_control.has_value()) {
     flood_map_[flood_addr]++;
   }
 
@@ -727,6 +749,7 @@ void QuicServer::update_alarm() {
     alarm_ts = td::Timestamp::at(timeout_heap_.top_key());
   }
   alarm_ts.relax(callback_->next_alarm());
+  alarm_ts.relax(cleanup_conn_rate_limiters_at_);
   alarm_timestamp() = alarm_ts;
 }
 
