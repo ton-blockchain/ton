@@ -222,6 +222,13 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
 
     auto parent = co_await owning_bus().publish<ResolveState>(candidate->parent_id);
 
+    if (!candidate->is_empty() && parent.gen_utime_exact.has_value()) {
+      auto earliest = td::Timestamp::at_unix(*parent.gen_utime_exact) + params_.min_block_interval;
+      if (!earliest.is_in_past()) {
+        co_await td::actor::coro_sleep(earliest);
+      }
+    }
+
     auto validation_result = co_await owning_bus().publish<ValidationRequest>(parent.state, candidate);
 
     if (validation_result.has<CandidateReject>()) {
