@@ -62,7 +62,7 @@ class WalletV1(WalletV1View):
 
     async def deploy[T](
         self,
-        blueprint: "ContractBlueprint[T]",
+        blueprint: ContractBlueprint[T],
         amount: CurrencyCollection,
         seqno: int | None = None,
     ) -> T:

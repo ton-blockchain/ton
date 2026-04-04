@@ -60,7 +60,7 @@ class FileIndex:
     def install_callback(self, callback: FileIndexCallback) -> None:
         self._callback = callback
 
-    def __enter__(self) -> "FileIndex":
+    def __enter__(self) -> FileIndex:
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
         return self
