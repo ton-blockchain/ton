@@ -6,7 +6,7 @@ dependencies = [
     "dash",
     "plotly",
     "pytoniq-core",
-    "watchfiles>=1.1.1",
+    "watchfiles",
 ]
 
 [project.scripts]
