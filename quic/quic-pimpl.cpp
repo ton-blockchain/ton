@@ -56,12 +56,13 @@ td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_cli
 
 td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_server(
     const td::IPAddress& local_address, const td::IPAddress& remote_address, const td::Ed25519::PrivateKey& server_key,
-    td::Slice alpn, const VersionCid& vc, std::unique_ptr<Callback> callback, QuicConnectionOptions options) {
+    td::Slice alpn, const ServerInitialInfo& initial, std::unique_ptr<Callback> callback,
+    QuicConnectionOptions options) {
   auto p_impl =
       std::make_unique<QuicConnectionPImpl>(PrivateTag{}, local_address, remote_address, std::move(callback), options);
 
   TRY_STATUS(p_impl->init_tls_server_rpk(server_key, alpn));
-  TRY_STATUS(p_impl->init_quic_server(vc));
+  TRY_STATUS(p_impl->init_quic_server(initial));
 
   p_impl->callback_->set_connection_id(p_impl->primary_scid_);
 
@@ -237,7 +238,7 @@ td::Status QuicConnectionPImpl::init_quic_client() {
   return td::Status::OK();
 }
 
-td::Status QuicConnectionPImpl::init_quic_server(const VersionCid& vc) {
+td::Status QuicConnectionPImpl::init_quic_server(const ServerInitialInfo& initial) {
   ngtcp2_callbacks callbacks{};
   setup_ngtcp2_callbacks(callbacks, false);
 
@@ -246,17 +247,21 @@ td::Status QuicConnectionPImpl::init_quic_server(const VersionCid& vc) {
   setup_settings_and_params(settings, params, options_);
 
   params.original_dcid_present = 1;
-  params.original_dcid = QuicConnectionIdAccess::to_ngtcp2(vc.dcid);
+  params.original_dcid = QuicConnectionIdAccess::to_ngtcp2(initial.original_dcid);
+  if (initial.retry_scid.has_value()) {
+    params.retry_scid_present = 1;
+    params.retry_scid = QuicConnectionIdAccess::to_ngtcp2(*initial.retry_scid);
+  }
 
-  auto client_scid = QuicConnectionIdAccess::to_ngtcp2(vc.scid);
+  auto client_scid = QuicConnectionIdAccess::to_ngtcp2(initial.packet.scid);
   auto server_scid = QuicConnectionId::random();
   auto server_scid_raw = QuicConnectionIdAccess::to_ngtcp2(server_scid);
 
   ngtcp2_path path = make_path();
 
   ngtcp2_conn* new_conn = nullptr;
-  int rv = ngtcp2_conn_server_new(&new_conn, &client_scid, &server_scid_raw, &path, vc.version, &callbacks, &settings,
-                                  &params, nullptr, this);
+  int rv = ngtcp2_conn_server_new(&new_conn, &client_scid, &server_scid_raw, &path, initial.packet.version, &callbacks,
+                                  &settings, &params, nullptr, this);
   if (rv != 0) {
     return td::Status::Error(PSTRING() << "ngtcp2_conn_server_new failed: " << rv);
   }

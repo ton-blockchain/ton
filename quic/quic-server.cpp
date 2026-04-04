@@ -1,4 +1,5 @@
 #include <atomic>
+#include <chrono>
 
 #include "td/actor/actor.h"
 #include "td/utils/Timer.h"
@@ -7,6 +8,18 @@
 #include "quic-server.h"
 
 namespace ton::quic {
+
+namespace {
+
+constexpr ngtcp2_duration RETRY_TOKEN_TIMEOUT = 10 * NGTCP2_SECONDS;
+
+ngtcp2_tstamp retry_token_now() {
+  return static_cast<ngtcp2_tstamp>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch())
+          .count());
+}
+
+}  // namespace
 
 td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, td::Ed25519::PrivateKey server_key,
                                                                std::unique_ptr<Callback> callback,
@@ -39,10 +52,14 @@ QuicServer::QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, t
     , alpn_(std::move(alpn))
     , server_key_(std::move(server_key))
     , options_(options)
+    , conn_rate_limiters_(options.new_connection_rate_limit_capacity, options.new_connection_rate_limit_period)
+    , global_conn_rate_limiter_(options.global_new_connection_rate_limit_capacity,
+                                options.global_new_connection_rate_limit_period)
     , gso_enabled_(options.enable_gso && td::UdpSocketFd::is_gso_supported())
     , callback_(std::move(callback))
     , default_mtu_(default_mtu)
     , peers_mtu_(std::move(peers_mtu)) {
+  td::Random::secure_bytes(td::MutableSlice(retry_secret_.data(), retry_secret_.size()));
   callback_->set_peer_mtu_callback([this](adnl::AdnlNodeIdShort peer_id) {
     td::uint64 mtu = default_mtu_;
     auto it = peers_mtu_.find(peer_id);
@@ -65,7 +82,8 @@ QuicServer::QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, t
     fd_.enable_mmsg();
   }
   LOG(INFO) << "UDP allowed: GRO=" << (gro_enabled_ ? "on" : "off") << " GSO=" << (gso_enabled_ ? "on" : "off")
-            << " MMSG=" << (fd_.is_mmsg_enabled() ? "on" : "off") << " CC=" << options_.cc_algo;
+            << " MMSG=" << (fd_.is_mmsg_enabled() ? "on" : "off") << " CC=" << options_.cc_algo
+            << " Retry=" << (options_.stateless_retry ? "on" : "off");
 
   const size_t ingress_buf_size = gro_enabled_ ? kMaxDatagram : DEFAULT_MTU * kMaxBurst;
   ingress_buffers_.resize(kIngressBatch * ingress_buf_size);
@@ -192,6 +210,49 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::install_con
   return state;
 }
 
+td::Status QuicServer::ensure_flood_allowed(const std::string &flood_addr) {
+  if (!options_.flood_control.has_value()) {
+    return td::Status::OK();
+  }
+  if (auto it = flood_map_.find(flood_addr); it != flood_map_.end() && it->second >= *options_.flood_control) {
+    return td::Status::Error("flood control overflow");
+  }
+  TRY_STATUS(conn_rate_limiters_.take_new_connection(flood_addr));
+  if (!global_conn_rate_limiter_.take()) {
+    return td::Status::Error("global new connection rate limit exceeded");
+  }
+  return td::Status::OK();
+}
+
+void QuicServer::flood_on_inbound_connection_created(const std::string &flood_addr) {
+  if (!options_.flood_control.has_value()) {
+    return;
+  }
+  flood_map_[flood_addr]++;
+}
+
+void QuicServer::flood_on_inbound_connection_closed(const std::string &flood_addr) {
+  if (!options_.flood_control.has_value()) {
+    return;
+  }
+  auto it = flood_map_.find(flood_addr);
+  if (it == flood_map_.end()) {
+    return;
+  }
+  if (--it->second == 0) {
+    flood_map_.erase(it);
+  }
+}
+
+QuicConnectionOptions QuicServer::build_connection_options() const {
+  QuicConnectionOptions conn_options;
+  conn_options.cc_algo = options_.cc_algo;
+  if (options_.max_streams_bidi.has_value()) {
+    conn_options.max_streams_bidi = *options_.max_streams_bidi;
+  }
+  return conn_options;
+}
+
 void QuicServer::on_local_cid_issued(const QuicConnectionId &primary_cid, const QuicConnectionId &cid) {
   bind_cid(primary_cid, cid);
 }
@@ -200,12 +261,121 @@ void QuicServer::on_local_cid_retired(const QuicConnectionId &primary_cid, const
   unbind_cid(primary_cid, cid);
 }
 
-bool QuicServer::is_first_packet_for_new_connection(td::Slice datagram) const {
-  if (datagram.empty()) {
-    return false;
+td::Result<std::optional<ServerInitialInfo>> QuicServer::prepare_server_initial_info(
+    const VersionCid &initial_packet, const td::IPAddress &remote_address) {
+  ServerInitialInfo initial_info{
+      .packet = initial_packet,
+      .original_dcid = initial_packet.dcid,
+      .retry_scid = std::nullopt,
+  };
+
+  if (!options_.stateless_retry) {
+    return std::optional<ServerInitialInfo>(std::move(initial_info));
   }
-  ngtcp2_pkt_hd hd;
-  return ngtcp2_accept(&hd, reinterpret_cast<const uint8_t *>(datagram.data()), datagram.size()) == 0;
+
+  if (initial_packet.token.empty()) {
+    TRY_STATUS(send_retry(initial_packet, remote_address));
+    return std::optional<ServerInitialInfo>{};
+  }
+
+  auto original_dcid = verify_retry_token(initial_packet, remote_address);
+  if (original_dcid.is_error()) {
+    LOG(DEBUG) << "invalid Retry token from " << remote_address << ": " << original_dcid.error();
+    TRY_STATUS(send_invalid_token_connection_close(initial_packet, remote_address));
+    return std::optional<ServerInitialInfo>{};
+  }
+
+  initial_info.original_dcid = original_dcid.move_as_ok();
+  initial_info.retry_scid = initial_packet.dcid;
+  return std::optional<ServerInitialInfo>(std::move(initial_info));
+}
+
+td::Result<QuicConnectionId> QuicServer::verify_retry_token(const VersionCid &packet,
+                                                            const td::IPAddress &remote_address) const {
+  CHECK(!packet.token.empty());
+
+  auto packet_dcid = QuicConnectionIdAccess::to_ngtcp2(packet.dcid);
+  ngtcp2_cid original_dcid{};
+  int rv = ngtcp2_crypto_verify_retry_token2(
+      &original_dcid, reinterpret_cast<const uint8_t *>(packet.token.data()), packet.token.size(), retry_secret_.data(),
+      retry_secret_.size(), packet.version, reinterpret_cast<const ngtcp2_sockaddr *>(remote_address.get_sockaddr()),
+      static_cast<ngtcp2_socklen>(remote_address.get_sockaddr_len()), &packet_dcid, RETRY_TOKEN_TIMEOUT,
+      retry_token_now());
+  switch (rv) {
+    case 0:
+      return QuicConnectionIdAccess::from_ngtcp2(original_dcid);
+    case NGTCP2_CRYPTO_ERR_VERIFY_TOKEN:
+      return td::Status::Error("retry token verification failed");
+    case NGTCP2_CRYPTO_ERR_UNREADABLE_TOKEN:
+      return td::Status::Error("retry token is unreadable");
+    default:
+      return td::Status::Error(PSTRING() << "retry token validation failed: " << rv);
+  }
+}
+
+td::Status QuicServer::send_stateless_datagram(td::Slice packet_kind, const td::IPAddress &remote_address,
+                                               td::Slice data) {
+  td::UdpSocketFd::OutboundMessage message{.to = &remote_address, .data = data, .gso_size = 0};
+  bool is_sent = false;
+  auto status = fd_.send_message(message, is_sent);
+  egress_stats_.syscalls++;
+  if (is_sent) {
+    egress_stats_.packets++;
+    egress_stats_.bytes += data.size();
+  }
+  if (status.is_error()) {
+    return status;
+  }
+  if (!is_sent) {
+    LOG(DEBUG) << "dropping stateless " << packet_kind << " to " << remote_address << ": send_message blocked";
+    return td::Status::OK();
+  }
+  return td::Status::OK();
+}
+
+td::Status QuicServer::send_retry(const VersionCid &packet, const td::IPAddress &remote_address) {
+  auto client_scid = QuicConnectionIdAccess::to_ngtcp2(packet.scid);
+  auto original_dcid = QuicConnectionIdAccess::to_ngtcp2(packet.dcid);
+  auto retry_scid = QuicConnectionIdAccess::to_ngtcp2(QuicConnectionId::random());
+
+  std::array<uint8_t, NGTCP2_CRYPTO_MAX_RETRY_TOKENLEN2> token;
+  auto tokenlen = ngtcp2_crypto_generate_retry_token2(
+      token.data(), retry_secret_.data(), retry_secret_.size(), packet.version,
+      reinterpret_cast<const ngtcp2_sockaddr *>(remote_address.get_sockaddr()),
+      static_cast<ngtcp2_socklen>(remote_address.get_sockaddr_len()), &retry_scid, &original_dcid, retry_token_now());
+  if (tokenlen < 0) {
+    return td::Status::Error("failed to generate retry token");
+  }
+
+  std::array<uint8_t, NGTCP2_MAX_UDP_PAYLOAD_SIZE> datagram;
+  auto datagram_size = ngtcp2_crypto_write_retry(datagram.data(), datagram.size(), packet.version, &client_scid,
+                                                 &retry_scid, &original_dcid, token.data(), tokenlen);
+  if (datagram_size < 0) {
+    return td::Status::Error("failed to write retry packet");
+  }
+
+  LOG(DEBUG) << "sending Retry to " << remote_address << " for original dcid=" << packet.dcid;
+  return send_stateless_datagram(
+      "Retry", remote_address,
+      td::Slice(reinterpret_cast<const char *>(datagram.data()), static_cast<size_t>(datagram_size)));
+}
+
+td::Status QuicServer::send_invalid_token_connection_close(const VersionCid &packet,
+                                                           const td::IPAddress &remote_address) {
+  auto client_scid = QuicConnectionIdAccess::to_ngtcp2(packet.scid);
+  auto original_dcid = QuicConnectionIdAccess::to_ngtcp2(packet.dcid);
+
+  std::array<uint8_t, NGTCP2_MAX_UDP_PAYLOAD_SIZE> datagram;
+  auto datagram_size = ngtcp2_crypto_write_connection_close(
+      datagram.data(), datagram.size(), packet.version, &client_scid, &original_dcid, NGTCP2_INVALID_TOKEN, nullptr, 0);
+  if (datagram_size < 0) {
+    return td::Status::Error("failed to write stateless connection close");
+  }
+
+  LOG(DEBUG) << "sending invalid-token connection close to " << remote_address;
+  return send_stateless_datagram(
+      "invalid-token connection close", remote_address,
+      td::Slice(reinterpret_cast<const char *>(datagram.data()), static_cast<size_t>(datagram_size)));
 }
 
 std::shared_ptr<QuicServer::ConnectionState> QuicServer::find_connection(const QuicConnectionId &cid) {
@@ -265,7 +435,7 @@ void QuicServer::collect_stats(td::Promise<Stats> P) {
   return P.set_value(std::move(stats));
 }
 
-void QuicServer::close(QuicConnectionId cid) {
+void QuicServer::on_connection_closed(QuicConnectionId cid) {
   auto it = connections_.find(cid);
   if (it == connections_.end()) {
     LOG(WARNING) << "Can't find connection for closing " << cid;
@@ -277,11 +447,8 @@ void QuicServer::close(QuicConnectionId cid) {
   if (state->in_heap()) {
     timeout_heap_.erase(state.get());
   }
-  if (options_.flood_control.has_value()) {
-    auto flood_addr = state->remote_address.get_ip_host();
-    if (flood_map_.contains(flood_addr) && --flood_map_.at(flood_addr) == 0) {
-      flood_map_.erase(flood_addr);
-    }
+  if (!state->is_outbound) {
+    flood_on_inbound_connection_closed(state->remote_address.get_ip_host());
   }
   connections_.erase(it);
   callback_->on_closed(cid);
@@ -305,22 +472,15 @@ void QuicServer::handle_timeouts() {
     shutdown_stream(e.cid, e.sid);
   }
 
-  if (cleanup_conn_rate_limiters_at_ && cleanup_conn_rate_limiters_at_.is_in_past()) {
+  {
     td::PerfWarningTimer w("cleanup_conn_rate_limiters", 0.1);
-    for (auto it = conn_rate_limiters_.begin(); it != conn_rate_limiters_.end();) {
-      if (it->second.last_take_at() < td::Timestamp::in(-it->second.period())) {
-        it = conn_rate_limiters_.erase(it);
-      } else {
-        ++it;
-      }
-    }
-    cleanup_conn_rate_limiters_at_ = conn_rate_limiters_.empty() ? td::Timestamp::never() : td::Timestamp::in(10.0);
+    conn_rate_limiters_.cleanup();
   }
 }
 
 void QuicServer::erase_pending_connections() {
   for (auto cid : to_erase_connections_) {
-    close(cid);
+    on_connection_closed(cid);
   }
   to_erase_connections_.clear();
 }
@@ -434,42 +594,26 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
     return connection;
   }
 
-  if (!is_first_packet_for_new_connection(td::Slice(msg_in.storage))) {
-    return td::Status::Error("unknown cid for non-initial packet");
-  }
+  TRY_RESULT(initial_packet, VersionCid::from_initial_datagram(td::Slice(msg_in.storage)));
 
   auto flood_addr = msg_in.address.get_ip_host();
-  if (options_.flood_control.has_value() && flood_map_.contains(flood_addr) &&
-      flood_map_.at(flood_addr) >= *options_.flood_control) {
-    return td::Status::Error("flood control overflow");
-  }
-  if (options_.conn_rate_limit_capacity > 0) {
-    auto [it, _] =
-        conn_rate_limiters_.try_emplace(flood_addr, options_.conn_rate_limit_capacity, options_.conn_rate_limit_period);
-    if (!it->second.take()) {
-      return td::Status::Error("connection rate limit exceeded");
-    }
-    if (!cleanup_conn_rate_limiters_at_) {
-      cleanup_conn_rate_limiters_at_ = td::Timestamp::in(10.0);
-    }
+  TRY_STATUS(ensure_flood_allowed(flood_addr));
+
+  TRY_RESULT(initial_info, prepare_server_initial_info(initial_packet, msg_in.address));
+  if (!initial_info.has_value()) {
+    return std::shared_ptr<ConnectionState>{};
   }
 
   // Create new connection to handle unknown inbound message
   TRY_RESULT(local_address, fd_.get_local_address());
 
-  QuicConnectionOptions conn_options;
-  conn_options.cc_algo = options_.cc_algo;
-  if (options_.max_streams_bidi.has_value()) {
-    conn_options.max_streams_bidi = *options_.max_streams_bidi;
-  }
+  auto conn_options = build_connection_options();
   auto pimpl_callback = std::make_unique<PImplCallback>(*this, false);
   TRY_RESULT(p_impl, QuicConnectionPImpl::create_server(local_address, msg_in.address, server_key_, alpn_.as_slice(),
-                                                        vc, std::move(pimpl_callback), conn_options));
-  TRY_RESULT(state, install_connection(std::move(p_impl), msg_in.address, false, vc.dcid));
+                                                        *initial_info, std::move(pimpl_callback), conn_options));
+  TRY_RESULT(state, install_connection(std::move(p_impl), msg_in.address, false, initial_packet.dcid));
 
-  if (options_.flood_control.has_value()) {
-    flood_map_[flood_addr]++;
-  }
+  flood_on_inbound_connection_created(flood_addr);
 
   return state;
 }
@@ -480,25 +624,13 @@ td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::E
   TRY_STATUS(remote_address.init_host_port(host.str(), port));
   TRY_RESULT(local_address, fd_.get_local_address());  // TODO: we may avoid system call here
 
-  auto flood_addr = remote_address.get_ip_host();
-  if (options_.flood_control.has_value() && flood_map_.contains(flood_addr) &&
-      flood_map_.at(flood_addr) >= *options_.flood_control) {
-    return td::Status::Error("flood control overflow");
-  }
+  // Do not check flood here, because connect is initiated by us
 
-  QuicConnectionOptions conn_options;
-  conn_options.cc_algo = options_.cc_algo;
-  if (options_.max_streams_bidi.has_value()) {
-    conn_options.max_streams_bidi = *options_.max_streams_bidi;
-  }
+  auto conn_options = build_connection_options();
   auto pimpl_callback = std::make_unique<PImplCallback>(*this, true);
   TRY_RESULT(p_impl, QuicConnectionPImpl::create_client(local_address, remote_address, std::move(client_key), alpn,
                                                         std::move(pimpl_callback), conn_options));
   TRY_RESULT(state, install_connection(std::move(p_impl), remote_address, true, std::nullopt));
-
-  if (options_.flood_control.has_value()) {
-    flood_map_[flood_addr]++;
-  }
 
   on_connection_updated(*state);
   return QuicConnectionId(state->cid);
@@ -579,9 +711,12 @@ void QuicServer::drain_ingress() {
           return;
         }
         auto state = R.move_as_ok();
+        if (!state) {
+          return;
+        }
         if (auto handle_status = state->impl().handle_ingress(packet); handle_status.is_error()) {
           LOG(WARNING) << "failed to handle ingress from " << *state << ":  " << handle_status;
-          close(state->cid);
+          on_connection_closed(state->cid);  // TODO: probably we have to tell here to quic that connection is closed
           return;
         }
         on_connection_updated(*state);
@@ -749,7 +884,7 @@ void QuicServer::update_alarm() {
     alarm_ts = td::Timestamp::at(timeout_heap_.top_key());
   }
   alarm_ts.relax(callback_->next_alarm());
-  alarm_ts.relax(cleanup_conn_rate_limiters_at_);
+  alarm_ts.relax(conn_rate_limiters_.next_cleanup_at());
   alarm_timestamp() = alarm_ts;
 }
 
