@@ -22,6 +22,7 @@
 #include "adnl/adnl-network-manager.h"
 #include "adnl/adnl-peer-table.h"
 #include "adnl/adnl.h"
+#include "adnl/utils.hpp"
 #include "auto/tl/ton_api.hpp"
 #include "keyring/keyring.h"
 #include "keys/keys.hpp"
@@ -31,6 +32,7 @@
 #include "td/actor/coro_utils.h"
 #include "td/utils/OptionParser.h"
 #include "td/utils/Random.h"
+#include "td/utils/Time.h"
 #include "td/utils/crypto.h"
 #include "td/utils/format.h"
 #include "td/utils/port/path.h"
@@ -70,6 +72,13 @@ ton::adnl::AdnlAddressList make_addr_list(td::Slice ip_str, int port) {
   list.set_version(static_cast<td::int32>(td::Clocks::system()));
   list.set_reinit_date(ton::adnl::Adnl::adnl_start_time());
   return list;
+}
+
+ton::quic::QuicServer::Options quic_test_options() {
+  ton::quic::QuicServer::Options options;
+  options.flood_control.reset();
+  options.new_connection_rate_limit_capacity = 0;
+  return options;
 }
 
 class EchoCallback : public ton::adnl::Adnl::Callback {
@@ -259,7 +268,8 @@ class TestRunner : public td::actor::Actor {
                             std::make_unique<EchoCallback>(node.received_messages));
 
     node.quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
-        "quic-" + name, td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(node.adnl.get()), node.keyring.get());
+        "quic-" + name, td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(node.adnl.get()), node.keyring.get(),
+        quic_test_options());
 
     td::actor::send_closure(node.quic_sender, &ton::quic::QuicSender::add_id, node.id);
 
@@ -395,11 +405,10 @@ td::Ed25519::PrivateKey clone_quic_key(const td::Ed25519::PrivateKey& key) {
 }
 
 ton::quic::QuicServer::Options small_stream_limit_options(size_t max_streams_bidi) {
-  ton::quic::QuicServer::Options options;
+  auto options = quic_test_options();
   options.enable_gso = false;
   options.enable_gro = false;
   options.enable_mmsg = false;
-  options.flood_control.reset();
   options.max_streams_bidi = max_streams_bidi;
   return options;
 }
@@ -653,6 +662,14 @@ void run_raw_quic_test(RawQuicTestRunner::TestFunc test) {
     td::actor::create_actor<RawQuicTestRunner>("raw quic test", g_config.timeout, std::move(test)).release();
   });
   scheduler.run();
+}
+
+void jump_time_to(double at, double epsilon = 0.00) {
+  td::Time::jump_in_future(at + epsilon);
+}
+
+void jump_time_by(double dt) {
+  jump_time_to(td::Time::now() + dt);
 }
 
 }  // namespace
@@ -1722,6 +1739,45 @@ TEST(QuicFairness, ManyConnectionsNoStarvation) {
 
     co_return td::Unit{};
   });
+}
+
+TEST(QuicRateLimiter, BurstAndRefillSemantics) {
+  ton::adnl::RateLimiter limiter(3, 1.0);
+
+  auto expect_take = [&](bool expected) { ASSERT_EQ(limiter.take(), expected); };
+
+  expect_take(true);
+  expect_take(true);
+  expect_take(true);
+  expect_take(false);
+
+  jump_time_to(limiter.ready_at().at());
+  expect_take(true);
+  expect_take(false);
+
+  jump_time_by(2.0);
+  expect_take(true);
+  expect_take(true);
+  expect_take(false);
+
+  jump_time_by(10.0);
+  expect_take(true);
+  expect_take(true);
+  expect_take(true);
+  expect_take(false);
+}
+
+TEST(QuicRateLimiter, CapacityOneDoesNotAllowExtraBurst) {
+  ton::adnl::RateLimiter limiter(1, 1.0);
+
+  auto expect_take = [&](bool expected) { ASSERT_EQ(limiter.take(), expected); };
+
+  expect_take(true);
+  expect_take(false);
+
+  jump_time_by(1.0);
+  expect_take(true);
+  expect_take(false);
 }
 
 int main(int argc, char* argv[]) {
