@@ -540,16 +540,16 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "pytest", specifier = ">=9.0.1" },
+    { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "tontester", editable = "test/tontester" },
-    { name = "types-gdb", specifier = ">=16.3.0.20250920" },
+    { name = "types-gdb" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "basedpyright", specifier = ">=1.32.1" },
-    { name = "ruff", specifier = ">=0.14.2" },
+    { name = "basedpyright" },
+    { name = "ruff" },
 ]
 
 [[package]]
@@ -568,7 +568,7 @@ requires-dist = [
     { name = "dash" },
     { name = "plotly" },
     { name = "pytoniq-core" },
-    { name = "watchfiles", specifier = ">=1.1.1" },
+    { name = "watchfiles" },
 ]
 
 [[package]]
