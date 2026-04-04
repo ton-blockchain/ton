@@ -11,8 +11,8 @@ type JSONSerializable = (
     | float
     | str
     | bytes
-    | Sequence["JSONSerializable"]
-    | Mapping[str, "JSONSerializable"]
+    | Sequence[JSONSerializable]
+    | Mapping[str, JSONSerializable]
 )
 
 

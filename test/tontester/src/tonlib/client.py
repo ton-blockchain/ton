@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 @final
 class TonlibStateReader:
-    def __init__(self, client: "TonlibClient"):
+    def __init__(self, client: TonlibClient):
         self._client = client
         self._cache: dict[tuple[int, int, int, Address], Cell] = {}
 
