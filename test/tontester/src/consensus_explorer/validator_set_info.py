@@ -54,7 +54,7 @@ class ValidatorSetInfoProvider:
         try:
             raw_json = names_path.read_text(encoding="utf-8")
             parsed = cast(dict[str, str], json.loads(raw_json))
-        except (OSError, json.JSONDecodeError):
+        except OSError, json.JSONDecodeError:
             return {}
 
         return parsed
@@ -127,7 +127,7 @@ class ValidatorSetInfoProvider:
         if values:
             try:
                 return int(values[0])
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 pass
 
         match = re.search(r"(?:^|[?&])seqno=(\d+)", href)

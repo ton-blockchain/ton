@@ -110,7 +110,7 @@ class FileIndex:
                                 group_start_est=min_ts,
                             )
                         )
-        except (OSError, gzip.BadGzipFile):
+        except OSError, gzip.BadGzipFile:
             pass
         return groups
 
