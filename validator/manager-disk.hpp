@@ -214,6 +214,7 @@ class ValidatorManagerImpl : public ValidatorManager {
                                      td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) override;
   void complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
                                   std::vector<ExtMessage::Hash> to_delete) override;
+  void cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) override;
   void complete_ihr_messages(std::vector<IhrMessage::Hash> to_delay, std::vector<IhrMessage::Hash> to_delete) override;
 
   //void set_first_block(ZeroStateIdExt state, BlockIdExt block, td::Promise<td::Unit> promise) override;
