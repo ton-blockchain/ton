@@ -53,7 +53,7 @@ class Network:
     class Node(ABC):
         def __init__(
             self,
-            network: "Network",
+            network: Network,
             name: str,
             install: Install | None = None,
             env: dict[str, str] | None = None,
@@ -73,7 +73,7 @@ class Network:
             self._keyring: Path = self._directory / "keyring"
             self._keyring.mkdir(parents=True)
 
-            self._static_nodes: list["DHTNode"] = []
+            self._static_nodes: list[DHTNode] = []
 
             self.__process: asyncio.subprocess.Process | None = None
             self.__process_watcher: asyncio.Task[None] | None = None
@@ -203,7 +203,7 @@ class Network:
                 self.__process.stderr,
             )
 
-        def announce_to(self, dht: "DHTNode"):
+        def announce_to(self, dht: DHTNode):
             self._static_nodes.append(dht)
 
         @abstractmethod
@@ -262,7 +262,7 @@ class Network:
         assert self._status < _Status.ZEROSTATE_GENERATED
         return self.__network_config
 
-    def create_dht_node(self, threads: int | None = None) -> "DHTNode":
+    def create_dht_node(self, threads: int | None = None) -> DHTNode:
         assert self._status < _Status.CLOSED
 
         node = DHTNode(self, f"dht-{len(self.__nodes)}", threads=threads)
@@ -274,7 +274,7 @@ class Network:
         install: Install | None = None,
         env: dict[str, str] | None = None,
         threads: int | None = None,
-    ) -> "FullNode":
+    ) -> FullNode:
         assert self._status < _Status.CLOSED
 
         node = FullNode(

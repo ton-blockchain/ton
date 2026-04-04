@@ -14,7 +14,7 @@ class Key:
     short_key: ton_api.Adnl_id_short
 
     @staticmethod
-    def new(install: Install) -> "Key":
+    def new(install: Install) -> Key:
         result = subprocess.run(
             (install.key_helper_exe, "-m", "id"),
             check=True,
