@@ -24,6 +24,7 @@
 #include "block/signature-set.h"
 #include "crypto/vm/db/DynamicBagOfCellsDb.h"
 #include "impl/out-msg-queue-proof.hpp"
+#include "td/actor/BackpressureQueue.h"
 #include "validator-session/validator-session-types.h"
 #include "validator/validator.h"
 
@@ -264,9 +265,11 @@ struct CollatorNodeResponseStats {
   }
 };
 
+using ExtMsgQueue = td::actor::BackpressureQueue<std::pair<td::Ref<ExtMessage>, int>>;
+
 struct ExtMsgCallback {
   ShardIdFull shard;
-  std::function<void(td::Ref<ExtMessage>, int)> callback;
+  ExtMsgQueue queue;
   td::CancellationToken cancellation_token;
   td::Timestamp timeout;
 };
@@ -330,8 +333,7 @@ class ValidatorManager : public ValidatorManagerInterface {
                                         td::Promise<td::Ref<MessageQueue>> promise) = 0;
   virtual void wait_block_message_queue_short(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                               td::Promise<td::Ref<MessageQueue>> promise) = 0;
-  virtual void get_external_messages(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback,
-                                     td::Promise<std::vector<std::pair<td::Ref<ExtMessage>, int>>> promise) = 0;
+  virtual void get_external_messages(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) = 0;
   virtual void get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) = 0;
   virtual void get_shard_blocks_for_collator(BlockIdExt masterchain_block_id,
                                              td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) = 0;

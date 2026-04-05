@@ -36,8 +36,7 @@ class ExtMessagePool : public td::actor::Actor {
     td::actor::StartedTask<> wait_allow_broadcast;
   };
   td::actor::Task<CheckResult> check_add_external_message(td::BufferSlice data, int priority, bool add_to_mempool);
-  std::vector<std::pair<td::Ref<ExtMessage>, int>> get_external_messages_for_collator(
-      ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback = nullptr);
+  void install_collator_queue(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback);
   void cleanup_external_messages(ShardIdFull shard);
   void complete_external_messages(std::vector<ExtMessage::Hash> to_delay, std::vector<ExtMessage::Hash> to_delete);
   void erase_external_messages(std::vector<ExtMessage::Hash> to_delete);

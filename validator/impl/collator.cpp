@@ -237,29 +237,16 @@ void Collator::start_up() {
   if (params_.is_hardfork) {
     LOG(WARNING) << "generating a hardfork block";
   }
-  // 3. load external messages
+  // 3. install external message queue
   if (!params_.is_hardfork) {
-    LOG(DEBUG) << "sending get_external_messages() query to Manager";
-    ++pending;
-    std::unique_ptr<ExtMsgCallback> callback;
-    if (params_.wait_externals_until) {
-      callback = std::make_unique<ExtMsgCallback>();
-      callback->shard = shard_;
-      callback->cancellation_token = ext_msg_cancellation_.get_cancellation_token();
-      callback->timeout = params_.wait_externals_until;
-      callback->callback = [SelfId = actor_id(this)](td::Ref<ExtMessage> ext_msg, int priority) {
-        td::actor::send_closure(SelfId, &Collator::got_new_external_message, std::move(ext_msg), priority);
-      };
-    }
-    auto token = perf_log_.start_action("get_external_messages");
-    td::actor::send_closure_later(
-        manager, &ValidatorManager::get_external_messages, shard_, std::move(callback),
-        [self = get_self(),
-         token = std::move(token)](td::Result<std::vector<std::pair<Ref<ExtMessage>, int>>> res) mutable -> void {
-          LOG(DEBUG) << "got answer to get_external_messages() query";
-          td::actor::send_closure_later(std::move(self), &Collator::after_get_external_messages, std::move(res),
-                                        std::move(token));
-        });
+    LOG(DEBUG) << "installing external message queue";
+    ext_msg_queue_ = ExtMsgQueue("ext_msg_queue", 500);
+    auto callback = std::make_unique<ExtMsgCallback>();
+    callback->shard = shard_;
+    callback->cancellation_token = ext_msg_cancellation_.get_cancellation_token();
+    callback->timeout = params_.wait_externals_until ? params_.wait_externals_until : td::Timestamp::in(0);
+    callback->queue = ext_msg_queue_;
+    td::actor::send_closure_later(manager, &ValidatorManager::get_external_messages, shard_, std::move(callback));
   }
   if (is_masterchain() && !params_.is_hardfork) {
     // 4. load shard block info messages
@@ -4272,9 +4259,11 @@ td::actor::Task<> Collator::process_external_and_new_messages() {
   while (true) {
     // 5. import inbound external messages (if space&gas left)
     LOG(INFO) << "process inbound external messages";
-    if (!process_inbound_external_messages()) {
+    timer_guard.reset();
+    if (!co_await process_inbound_external_messages()) {
       co_return td::Status::Error("cannot process inbound external messages");
     }
+    timer_guard = WorkTimerGuard(work_timer_);
     // 6. process newly-generated messages (if space&gas left)
     //    (if we were unable to process all inbound messages, all new messages must be queued)
     LOG(INFO) << "process newly-generated messages";
@@ -4311,20 +4300,20 @@ td::actor::Task<> Collator::process_external_and_new_messages() {
  *
  * @returns True if the processing was successful, false otherwise.
  */
-bool Collator::process_inbound_external_messages() {
+td::actor::Task<bool> Collator::process_inbound_external_messages() {
   SCOPE_EXIT {
     stats_.load_fraction_externals = block_limit_status_->load_fraction(block::ParamLimits::cl_soft);
   };
   if (skip_extmsg_) {
     LOG(INFO) << "skipping processing of inbound external messages";
-    return true;
+    co_return true;
   }
   if (params_.attempt_idx >= 2) {
-    LOG(INFO) << "Attempt #" << params_.attempt_idx << ": skip external messages";
-    return true;
+    LOG(INFO) << "Attempt #" << params_.attempt_idx << ": skip external messages (attempt >= 2)";
+    co_return true;
   }
   bool full = !block_limit_status_->fits(block::ParamLimits::cl_soft);
-  while (!ext_msg_queue_.empty()) {
+  while (true) {
     if (full) {
       LOG(INFO) << "BLOCK FULL, stop processing external messages";
       stats_.limits_log += PSTRING() << "INBOUND_EXT_MESSAGES: "
@@ -4337,14 +4326,31 @@ bool Collator::process_inbound_external_messages() {
       break;
     }
     if (!check_cancelled()) {
-      return false;
+      co_return false;
     }
-    auto ext_msg_struct = std::move(ext_msg_queue_.front());
-    ext_msg_queue_.pop();
-    if (out_msg_queue_size_ > SKIP_EXTERNALS_QUEUE_SIZE && ext_msg_struct.priority < HIGH_PRIORITY_EXTERNAL) {
+    std::pair<td::Ref<ExtMessage>, int> item;
+    if (pending_ext_msg_) {
+      item = std::move(*pending_ext_msg_);
+      pending_ext_msg_.reset();
+    } else {
+      auto maybe = co_await ext_msg_queue_.try_pop().wrap();
+      if (maybe.is_error()) {
+        break;  // queue empty or closed
+      }
+      item = maybe.move_as_ok();
+    }
+    WorkTimerGuard timer_guard(work_timer_);
+    auto [ext_msg_ref, priority] = std::move(item);
+    ++stats_.ext_msgs_total;
+    if (register_external_message(ext_msg_ref, priority).is_error()) {
+      ++stats_.ext_msgs_filtered;
+      bad_ext_msgs_.emplace_back(ext_msg_ref->hash());
       continue;
     }
-    auto ext_msg = ext_msg_struct.cell;
+    if (out_msg_queue_size_ > SKIP_EXTERNALS_QUEUE_SIZE && priority < HIGH_PRIORITY_EXTERNAL) {
+      continue;
+    }
+    auto ext_msg = ext_msg_ref->root_cell();
     ton::Bits256 hash{ext_msg->get_hash().bits()};
     int r = process_external_message(std::move(ext_msg));
     if (r > 0) {
@@ -4353,18 +4359,18 @@ bool Collator::process_inbound_external_messages() {
       ++stats_.ext_msgs_rejected;
     }
     if (r < 0) {
-      bad_ext_msgs_.emplace_back(ext_msg_struct.hash);
-      return false;
+      bad_ext_msgs_.emplace_back(ext_msg_ref->hash());
+      co_return false;
     }
     if (r == 0) {
-      delay_ext_msgs_.emplace_back(ext_msg_struct.hash);
+      delay_ext_msgs_.emplace_back(ext_msg_ref->hash());
     }
     if (r > 0) {
       full = !block_limit_status_->fits(block::ParamLimits::cl_soft);
       block_limit_class_ = std::max(block_limit_class_, block_limit_status_->classify());
     }
   }
-  return true;
+  co_return true;
 }
 
 /**
@@ -6635,79 +6641,19 @@ td::Status Collator::register_external_message(Ref<ExtMessage> ext_msg, int prio
     };
   }
   registered_ext_msgs_.insert(hash);
-  ext_msg_queue_.push({ext_msg_cell, ext_msg->hash(), priority});
   return td::Status::OK();
 }
 
 /**
- * Callback for external messages that appear in mempool after get_external_messages is called.
- *
- * @param ext_msg External message.
- * @param priority Priority of the message.
- */
-void Collator::got_new_external_message(Ref<ExtMessage> ext_msg, int priority) {
-  if (!params_.wait_externals_until || params_.wait_externals_until.is_in_past()) {
-    return;
-  }
-  if (registered_ext_msgs_.contains(ext_msg->hash())) {
-    return;
-  }
-  ++stats_.ext_msgs_total;
-  auto S = register_external_message(ext_msg, priority);
-  if (S.is_error()) {
-    LOG(INFO) << "Dropping new external message: " << S;
-    ++stats_.ext_msgs_filtered;
-    bad_ext_msgs_.emplace_back(ext_msg->hash());
-    return;
-  }
-  LOG(INFO) << "Got new external message hash=" << ext_msg->hash().to_hex();
-  if (!ext_msg_queue_.empty() && ext_msg_waiter_) {
-    ext_msg_waiter_.set_value(td::Unit{});
-  }
-}
-
-/**
- * Wait until ext_msg_queue_ is not empty, or timeout is reached
- *
- * @param timeout Timeout for waiting.
+ * Wait for an external message from the backpressure queue, or timeout.
  */
 td::actor::Task<> Collator::wait_for_external_message(td::Timestamp timeout) {
-  if (!ext_msg_queue_.empty()) {
-    co_return {};
+  auto result = co_await td::actor::await_with_timeout(ext_msg_queue_.pop(), timeout).wrap();
+  if (result.is_error()) {
+    co_return result.move_as_error();
   }
-  CHECK(!ext_msg_waiter_);
-  auto [task, promise] = td::actor::StartedTask<>::make_bridge();
-  ext_msg_waiter_ = std::move(promise);
-  auto result = co_await td::actor::await_with_timeout(std::move(task), timeout).wrap();
-  ext_msg_waiter_ = {};
-  co_return result;
-}
-
-/**
- * Callback function called after retrieving external messages.
- *
- * @param res The result of the external message retrieval operation.
- */
-void Collator::after_get_external_messages(td::Result<std::vector<std::pair<Ref<ExtMessage>, int>>> res,
-                                           td::PerfLogAction token) {
-  // res: pair {ext msg, priority}
-  --pending;
-  token.finish(res);
-  if (res.is_error()) {
-    fatal_error(res.move_as_error());
-    return;
-  }
-  auto vect = res.move_as_ok();
-  for (auto& p : vect) {
-    ++stats_.ext_msgs_total;
-    if (register_external_message(p.first, p.second).is_error()) {
-      ++stats_.ext_msgs_filtered;
-      bad_ext_msgs_.emplace_back(p.first->hash());
-    }
-  }
-  LOG(WARNING) << "got " << vect.size() << " external messages from mempool, " << bad_ext_msgs_.size()
-               << " bad messages";
-  check_pending();
+  pending_ext_msg_ = result.move_as_ok();
+  co_return {};
 }
 
 /**

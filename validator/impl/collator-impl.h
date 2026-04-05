@@ -119,6 +119,12 @@ class Collator final : public td::actor::Actor {
   void start_up() override;
   void load_prev_states_blocks();
   void alarm() override;
+
+  void tear_down() override {
+    ext_msg_cancellation_.cancel();
+    ext_msg_queue_.close();
+  }
+
   int verbosity{3 * 0};
   int verify{1};
   bool full_collated_data_ = false;
@@ -195,14 +201,9 @@ class Collator final : public td::actor::Actor {
   std::unique_ptr<vm::AugmentedDictionary> fees_import_dict_;
 
   std::set<td::Bits256> registered_ext_msgs_;
-  struct ExtMsg {
-    Ref<vm::Cell> cell;
-    ExtMessage::Hash hash;
-    int priority;
-  };
-  std::queue<ExtMsg> ext_msg_queue_;
+  ExtMsgQueue ext_msg_queue_;
+  std::optional<std::pair<td::Ref<ExtMessage>, int>> pending_ext_msg_;
   td::CancellationTokenSource ext_msg_cancellation_;
-  td::Promise<td::Unit> ext_msg_waiter_;
 
   std::priority_queue<NewOutMsg, std::vector<NewOutMsg>, std::greater<NewOutMsg>> new_msgs;
   std::pair<ton::LogicalTime, ton::Bits256> last_proc_int_msg_, first_unproc_int_msg_;
@@ -345,10 +346,7 @@ class Collator final : public td::actor::Actor {
   bool is_our_address(Ref<vm::CellSlice> addr_ref) const;
   bool is_our_address(ton::AccountIdPrefixFull addr_prefix) const;
   bool is_our_address(const ton::StdSmcAddress& addr) const;
-  void after_get_external_messages(td::Result<std::vector<std::pair<Ref<ExtMessage>, int>>> res,
-                                   td::PerfLogAction token);
   td::Status register_external_message(Ref<ExtMessage> ext_msg, int priority);
-  void got_new_external_message(Ref<ExtMessage> ext_msg, int priority);
   td::actor::Task<> wait_for_external_message(td::Timestamp timeout);
 
   void register_new_msg(block::NewOutMsg msg);
@@ -359,7 +357,7 @@ class Collator final : public td::actor::Actor {
   bool precheck_inbound_message(Ref<vm::CellSlice> msg, ton::LogicalTime lt);
   bool process_inbound_message(Ref<vm::CellSlice> msg, ton::LogicalTime lt, td::ConstBitPtr key, int src_nb_idx);
   td::actor::Task<> process_external_and_new_messages();
-  bool process_inbound_external_messages();
+  td::actor::Task<bool> process_inbound_external_messages();
   int process_external_message(Ref<vm::Cell> msg);
   bool process_dispatch_queue();
   bool process_deferred_message(Ref<vm::CellSlice> enq_msg, StdSmcAddress src_addr, LogicalTime lt,
