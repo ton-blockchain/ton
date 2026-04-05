@@ -742,33 +742,41 @@ class TestConsensus : public td::actor::Actor {
     if (finishing_) {
       co_return {};
     }
-    size_t kill_node_idx = 0, kill_inst_idx = 0;
+    size_t kill_node_idx = 0;
     int cnt = 0;
     for (size_t node_idx = 0; node_idx < N_NODES; ++node_idx) {
       if (GREMLIN_KILLS_LEADER &&
           (!last_accepted_block_leader_idx_ || last_accepted_block_leader_idx_.value() != node_idx)) {
         continue;
       }
-      for (size_t inst_idx = 0; inst_idx < nodes_[node_idx].instances.size(); ++inst_idx) {
-        if (nodes_[node_idx].instances[inst_idx].status == Instance::Running) {
-          ++cnt;
-          if (td::Random::fast(1, cnt) == 1) {
-            kill_node_idx = node_idx;
-            kill_inst_idx = inst_idx;
-          }
+      bool has_running = false;
+      for (auto &inst : nodes_[node_idx].instances) {
+        if (inst.status == Instance::Running) {
+          has_running = true;
+          break;
+        }
+      }
+      if (has_running) {
+        ++cnt;
+        if (td::Random::fast(1, cnt) == 1) {
+          kill_node_idx = node_idx;
         }
       }
     }
     if (cnt == 0) {
       co_return {};
     }
-    co_await stop_instance(kill_node_idx, kill_inst_idx);
+    for (size_t i = 0; i < nodes_[kill_node_idx].instances.size(); ++i) {
+      co_await stop_instance(kill_node_idx, i);
+    }
     co_await td::actor::coro_sleep(
         td::Timestamp::in(td::Random::fast(GREMLIN_DOWNTIME.first, GREMLIN_DOWNTIME.second)));
     if (finishing_) {
       co_return {};
     }
-    start_instance(kill_node_idx, kill_inst_idx);
+    for (size_t i = 0; i < nodes_[kill_node_idx].instances.size(); ++i) {
+      start_instance(kill_node_idx, i);
+    }
     co_return {};
   }
 
