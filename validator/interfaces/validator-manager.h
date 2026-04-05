@@ -204,11 +204,37 @@ struct ValidationStats {
     td::RealCpuTimer::Time trx_tvm;
     td::RealCpuTimer::Time trx_storage_stat;
     td::RealCpuTimer::Time trx_other;
+    td::RealCpuTimer::Time unpack_state;
+    td::RealCpuTimer::Time validate_block_tlb;
+    td::RealCpuTimer::Time precheck_account_updates;
+    td::RealCpuTimer::Time precheck_account_transactions;
+    td::RealCpuTimer::Time precheck_msg_queue;
+    td::RealCpuTimer::Time unpack_dispatch_queue;
+    td::RealCpuTimer::Time check_in_msg_descr;
+    td::RealCpuTimer::Time check_out_msg_descr;
+    td::RealCpuTimer::Time check_dispatch_queue;
+    td::RealCpuTimer::Time check_processed_upto;
+    td::RealCpuTimer::Time check_in_queue;
+    td::RealCpuTimer::Time check_transactions;
+    td::RealCpuTimer::Time check_new_state;
 
     std::string to_str(bool is_cpu) const {
       return PSTRING() << "total=" << total.get(is_cpu) << " trx_tvm=" << trx_tvm.get(is_cpu)
                        << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
-                       << " trx_other=" << trx_other.get(is_cpu);
+                       << " trx_other=" << trx_other.get(is_cpu)
+                       << " unpack_state=" << unpack_state.get(is_cpu)
+                       << " validate_block_tlb=" << validate_block_tlb.get(is_cpu)
+                       << " precheck_account_updates=" << precheck_account_updates.get(is_cpu)
+                       << " precheck_account_transactions=" << precheck_account_transactions.get(is_cpu)
+                       << " precheck_msg_queue=" << precheck_msg_queue.get(is_cpu)
+                       << " unpack_dispatch_queue=" << unpack_dispatch_queue.get(is_cpu)
+                       << " check_in_msg_descr=" << check_in_msg_descr.get(is_cpu)
+                       << " check_out_msg_descr=" << check_out_msg_descr.get(is_cpu)
+                       << " check_dispatch_queue=" << check_dispatch_queue.get(is_cpu)
+                       << " check_processed_upto=" << check_processed_upto.get(is_cpu)
+                       << " check_in_queue=" << check_in_queue.get(is_cpu)
+                       << " check_transactions=" << check_transactions.get(is_cpu)
+                       << " check_new_state=" << check_new_state.get(is_cpu);
     }
   };
   WorkTimeStats work_time;
