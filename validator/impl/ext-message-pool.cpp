@@ -49,79 +49,71 @@ td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_add_external_
   co_return result.move_as_ok();
 }
 
-std::vector<std::pair<td::Ref<ExtMessage>, int>> ExtMessagePool::get_external_messages_for_collator(
-    ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) {
-  td::Timer t;
-  size_t processed = 0, deleted = 0;
-  std::vector<std::pair<td::Ref<ExtMessage>, int>> res;
-  MessageId left{AccountIdPrefixFull{shard.workchain, shard.shard & (shard.shard - 1)}, Bits256::zero()};
-  size_t total_msgs = 0;
-  td::Random::Fast rnd;
-  for (auto iter = ext_msgs_.rbegin(); iter != ext_msgs_.rend(); ++iter) {
-    std::vector<std::pair<td::Ref<ExtMessage>, int>> cur_res;
-    int priority = iter->first;
-    auto &msgs = iter->second;
-    auto it = msgs.ext_messages_.lower_bound(left);
-    while (it != msgs.ext_messages_.end()) {
-      auto s = it->first;
-      if (!shard_contains(shard, s.dst)) {
+void ExtMessagePool::install_collator_queue(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) {
+  // Spawn a coroutine that pushes existing messages into the queue with backpressure
+  auto push_existing = [](ExtMessagePool *self, ShardIdFull shard, ExtMsgQueue queue,
+                          td::CancellationToken token) -> td::actor::Task<> {
+    td::Timer t;
+    size_t pushed = 0;
+    MessageId left{AccountIdPrefixFull{shard.workchain, shard.shard & (shard.shard - 1)}, Bits256::zero()};
+    td::Random::Fast rnd;
+    for (auto iter = self->ext_msgs_.rbegin(); iter != self->ext_msgs_.rend(); ++iter) {
+      if (token.check().is_error()) {
         break;
       }
-      ++processed;
+      std::vector<std::pair<td::Ref<ExtMessage>, int>> cur_batch;
+      int priority = iter->first;
+      auto &msgs = iter->second;
+      auto it = msgs.ext_messages_.lower_bound(left);
+      while (it != msgs.ext_messages_.end()) {
+        if (!shard_contains(shard, it->first.dst)) {
+          break;
+        }
+        if (!it->second->expired() && it->second->is_active()) {
+          cur_batch.emplace_back(it->second->message, priority);
+        }
+        ++it;
+      }
+      td::random_shuffle(td::as_mutable_span(cur_batch), rnd);
+      for (auto &item : cur_batch) {
+        if (token.check().is_error()) {
+          break;
+        }
+        auto ok = co_await queue.push(std::move(item));
+        if (!ok) {
+          break;
+        }
+        ++pushed;
+      }
+    }
+    LOG(WARNING) << "install_collator_queue: pushed " << pushed << " existing messages to shard " << shard.to_str()
+                 << " in " << t.elapsed() << "s";
+    co_return {};
+  };
+  push_existing(this, shard, callback->queue, callback->cancellation_token).start().detach();
+
+  alarm_timestamp().relax(callback->timeout);
+  callbacks_.push_back(std::move(callback));
+}
+
+void ExtMessagePool::cleanup_external_messages(ShardIdFull shard) {
+  // Clean up expired messages in the shard
+  MessageId left{AccountIdPrefixFull{shard.workchain, shard.shard & (shard.shard - 1)}, Bits256::zero()};
+  for (auto &[priority, msgs] : ext_msgs_) {
+    auto it = msgs.ext_messages_.lower_bound(left);
+    while (it != msgs.ext_messages_.end()) {
+      if (!shard_contains(shard, it->first.dst)) {
+        break;
+      }
       if (it->second->expired()) {
         auto id = it->first;
         ++it;
         erase_message(priority, id);
-        ++deleted;
-        continue;
+      } else {
+        ++it;
       }
-      if (it->second->is_active()) {
-        cur_res.emplace_back(it->second->message, priority);
-      }
-      ++it;
-    }
-    td::random_shuffle(td::as_mutable_span(cur_res), rnd);
-    res.insert(res.end(), cur_res.begin(), cur_res.end());
-    total_msgs += msgs.ext_messages_.size();
-  }
-
-  // Sort messages to each account by msg_seqno, if present
-  std::map<std::pair<WorkchainId, StdSmcAddress>, std::vector<std::pair<td::uint32, size_t>>> wallet_msg_idxs_;
-  for (size_t i = 0; i < res.size(); ++i) {
-    auto &[message, priority] = res[i];
-    MessageId id{res[i].first->shard(), res[i].first->hash()};
-    auto msg_seqno = ext_msgs_[priority].ext_messages_[id]->msg_seqno;
-    if (msg_seqno) {
-      wallet_msg_idxs_[{message->wc(), message->addr()}].emplace_back(msg_seqno.value(), i);
     }
   }
-  for (auto &[_, idxs] : wallet_msg_idxs_) {
-    auto sorted_idxs = idxs;
-    std::sort(sorted_idxs.begin(), sorted_idxs.end());
-    std::vector<std::pair<td::Ref<ExtMessage>, int>> new_res;
-    new_res.reserve(idxs.size());
-    for (auto [_, i] : sorted_idxs) {
-      new_res.push_back(res[i]);
-    }
-    for (size_t j = 0; j < new_res.size(); ++j) {
-      res[idxs[j].second] = new_res[j];
-    }
-  }
-
-  if (!res.empty() || deleted > 0) {
-    LOG(WARNING) << "get_external_messages to shard " << shard.to_str() << " : time=" << t.elapsed()
-                 << " result_size=" << res.size() << " processed=" << processed << " expired=" << deleted
-                 << " total_size=" << total_msgs;
-  }
-  if (callback) {
-    alarm_timestamp().relax(callback->timeout);
-    callbacks_.push_back(std::move(callback));
-  }
-  return res;
-}
-
-void ExtMessagePool::cleanup_external_messages(ShardIdFull shard) {
-  get_external_messages_for_collator(shard);
 }
 
 void ExtMessagePool::complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
@@ -256,7 +248,7 @@ void ExtMessagePool::add_message_to_mempool(td::Ref<ExtMessage> message, int pri
       return true;
     }
     if (shard_contains(callback->shard, message->shard())) {
-      callback->callback(message, priority);
+      callback->queue.try_push(std::make_pair(message, priority)).detach();
     }
     return false;
   });

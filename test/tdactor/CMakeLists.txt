@@ -27,3 +27,13 @@ target_link_libraries(test-test-scheduler PRIVATE
 )
 
 ton_test(test-test-scheduler)
+
+add_executable(test-backpressure-queue test-backpressure-queue.cpp)
+
+target_link_libraries(test-backpressure-queue PRIVATE
+    tdutils
+    tdactor
+    td-test-main
+)
+
+ton_test(test-backpressure-queue)
