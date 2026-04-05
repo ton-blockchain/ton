@@ -23,11 +23,13 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
 
   void start_up() {
     target_rate_ = owning_bus()->config.noncritical_params.target_rate;
+    no_empty_blocks_on_error_timeout_ = owning_bus()->config.noncritical_params.no_empty_blocks_on_error_timeout;
   }
 
   template <>
   void handle(BusHandle, std::shared_ptr<const NoncriticalParamsUpdated> event) {
     target_rate_ = event->params.target_rate;
+    no_empty_blocks_on_error_timeout_ = event->params.no_empty_blocks_on_error_timeout;
   }
 
   template <>
@@ -35,6 +37,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     td::uint32 seqno = event->state->next_seqno() - 1;
     last_mc_finalized_seqno_ = std::max(last_mc_finalized_seqno_, seqno);
     last_consensus_finalized_seqno_ = std::max(last_consensus_finalized_seqno_, seqno);
+    last_consensus_finalized_at_ = td::Timestamp::now();
   }
 
   template <>
@@ -48,6 +51,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
   void handle(BusHandle, std::shared_ptr<const FinalizeBlock> event) {
     if (event->signatures->is_final()) {
       last_consensus_finalized_seqno_ = std::max(last_consensus_finalized_seqno_, event->candidate->block_id().seqno());
+      last_consensus_finalized_at_ = td::Timestamp::now();
     }
   }
 
@@ -91,13 +95,12 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     bool block_generation_active = false;
     td::actor::SharedFuture<GeneratedCandidate> block_generation;
 
-    td::Timestamp start_time = event->start_time;
-    std::chrono::milliseconds hard_timeout = std::max(target_rate_ * 3, std::chrono::milliseconds(5000));
+    std::chrono::milliseconds hard_timeout = std::max(target_rate_ * 3, std::chrono::milliseconds(60'000));
     std::chrono::milliseconds start_collate_before =
         bus.shard.is_masterchain() ? std::chrono::milliseconds(0) : target_rate_;
+    td::Timestamp slot_start = event->start_time;
 
     for (td::uint32 slot = event->start_slot; current_leader_window_ == window && slot < event->end_slot; ++slot) {
-      td::Timestamp slot_start = start_time + target_rate_ * (slot - event->start_slot);
       co_await td::actor::coro_sleep(slot_start - start_collate_before);
       if (current_leader_window_ != window) {
         break;
@@ -133,20 +136,22 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
       if (block_generation_active) {
         auto r_candidate =
             co_await td::actor::await_with_timeout(block_generation.get(), slot_start + target_rate_).wrap();
-        if (r_candidate.is_error() && is_first_block) {
-          // The first block in the session cannot be empty
+        // The first block in the session cannot be empty
+        bool allow_empty =
+            !is_first_block && !(last_consensus_finalized_at_ + no_empty_blocks_on_error_timeout_).is_in_past();
+        if (r_candidate.is_error() && !allow_empty) {
           LOG(WARNING) << "Generating the first block: "
                        << (r_candidate.error().code() == td::actor::AWAIT_TIMEOUT_CODE
                                ? "takes too long"
                                : r_candidate.error().to_string())
-                       << ", don't generate empty block";
+                       << ", don't generate empty block "
+                       << (is_first_block ? "(first block)" : "(no finalized blocks for too long)");
           --slot;
-          if (r_candidate.error().code() == td::actor::AWAIT_TIMEOUT_CODE) {
-            start_time = td::Timestamp::now();
-          } else {
-            start_time = td::Timestamp::in(target_rate_ / 2);
+          if (r_candidate.error().code() != td::actor::AWAIT_TIMEOUT_CODE) {
             block_generation_active = false;
+            co_await td::actor::coro_sleep(td::Timestamp::in(0.1));
           }
+          slot_start = std::max(slot_start, td::Timestamp::now());
           continue;
         }
         if (r_candidate.is_ok()) {
@@ -204,6 +209,8 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
       owning_bus().publish<CandidateReceived>(candidate);
       owning_bus().publish<TraceEvent>(stats::CandidateReceived::create(candidate, true));
       parent = id;
+
+      slot_start += target_rate_;
     }
 
     if (current_leader_window_ == window) {
@@ -219,6 +226,9 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
   BlockSeqno last_consensus_finalized_seqno_ = 0;
   BlockSeqno last_mc_finalized_seqno_ = 0;
   std::chrono::milliseconds target_rate_;
+
+  std::chrono::milliseconds no_empty_blocks_on_error_timeout_;
+  td::Timestamp last_consensus_finalized_at_;
 };
 
 }  // namespace
