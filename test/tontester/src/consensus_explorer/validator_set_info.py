@@ -19,7 +19,7 @@ class ValidatorSetInfoProvider:
     _MASTERCHAIN_WORKCHAIN = -1
     _MASTERCHAIN_SHARD_HEX = "8000000000000000"
     _VALGROUP_RE = re.compile(r"^(?P<workchain>-?\d+),(?P<shard>[0-9a-fA-F]+)\.(?P<cc_seqno>\d+)$")
-    _ROW_RE = re.compile(r"^\s*(\d+)\s+\S+\s+([0-9a-fA-F]{64})\s+\d+\s*$")
+    _ROW_RE = re.compile(r"^\s*(\d+)\s+(\S+)\s+([0-9a-fA-F]{64})\s+\d+\s*$")
 
     def __init__(
         self,
@@ -181,12 +181,12 @@ class ValidatorSetInfoProvider:
         return output
 
     @classmethod
-    def _parse_validator_rows(cls, output: str) -> list[tuple[int, str]]:
-        rows: list[tuple[int, str]] = []
+    def _parse_validator_rows(cls, output: str) -> list[tuple[int, str, str]]:
+        rows: list[tuple[int, str, str]] = []
         for line in output.splitlines():
             match = cls._ROW_RE.match(line)
             if match is not None:
-                rows.append((int(match.group(1)), match.group(2)))
+                rows.append((int(match.group(1)), match.group(2), match.group(3)))
                 continue
         return rows
 
@@ -195,9 +195,9 @@ class ValidatorSetInfoProvider:
         if not rows:
             raise RuntimeError("failed to parse validator rows from show-validator-set output")
 
-        table_lines = ["idx | adnl | name"]
-        for idx, adnl in rows:
-            table_lines.append(f"{idx} | {adnl} | {self._validator_names.get(adnl, '')}")
+        table_lines = ["idx | adnl | pub_key_hash | name"]
+        for idx, pub_key_hash, adnl in rows:
+            table_lines.append(f"{idx} | {adnl} | {pub_key_hash} | {self._validator_names.get(adnl, '')}")
         return "\n".join(table_lines)
 
     def _fetch_validator_set_info(

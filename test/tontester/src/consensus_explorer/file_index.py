@@ -1,5 +1,6 @@
 import gzip
 import json
+import logging
 import sqlite3
 import threading
 from pathlib import Path
@@ -8,8 +9,12 @@ from typing import Protocol, TypedDict, cast, final
 from tonapi.ton_api import Consensus_stats_events, Consensus_stats_id
 from watchfiles._rust_notify import RustNotify
 
+from tl import ModelError
+
 from .models import GroupData, GroupInfo, UnnamedGroupInfo
 from .parser.parser_session_stats import open_stats_file
+
+logger = logging.getLogger(__name__)
 
 
 class FileIndexCallback(Protocol):
@@ -84,7 +89,8 @@ class FileIndex:
                         continue
                     try:
                         parsed = Consensus_stats_events.from_json(line)
-                    except json.decoder.JSONDecodeError:
+                    except (json.decoder.JSONDecodeError, ModelError) as exc:
+                        logger.debug("Failed to parse consensus stats line in %s: %s", path, exc)
                         continue
                     valgroup_hash = parsed.id
                     found_id = False
@@ -110,20 +116,25 @@ class FileIndex:
                                 group_start_est=min_ts,
                             )
                         )
-        except (OSError, gzip.BadGzipFile):
-            pass
+        except (OSError, gzip.BadGzipFile) as exc:
+            logger.warning("Failed to scan file for groups %s: %s", path, exc)
         return groups
 
     def _index_file(
         self, path: Path, conn: sqlite3.Connection, file_idx: int, file_count: int
     ) -> set[bytes]:
-        if not path.exists():
-            return set()
-
         path = path.resolve()
         file_name = str(path)
 
-        mtime = path.stat().st_mtime
+        if path.exists() and not path.is_file():
+            logger.info("Skipping non-file path in stats dir %s", path)
+            return self._remove_file(path, conn)
+
+        try:
+            mtime = path.stat().st_mtime
+        except FileNotFoundError as exc:
+            logger.info("File disappeared before indexing %s: %s", path, exc)
+            return self._remove_file(path, conn)
 
         class FileRow(TypedDict):
             file_id: int
@@ -213,6 +224,7 @@ class FileIndex:
         return changed_hashes
 
     def _remove_file(self, path: Path, conn: sqlite3.Connection) -> set[bytes]:
+        print(f"Removing file {path}", flush=True)
         path = path.resolve()
         file_name = str(path)
         cursor = conn.cursor()
@@ -265,7 +277,11 @@ class FileIndex:
             print("Initial indexing complete, watching for changes", flush=True)
 
             while not self._stop_event.is_set():
-                result = notify.watch(100, 50, 60_000, self._stop_event)
+                try:
+                    result = notify.watch(100, 50, 60_000, self._stop_event)
+                except Exception as exc:
+                    logger.exception("File index watcher failed: %s", exc)
+                    continue
                 if isinstance(result, str):
                     if result in ("stop", "signal"):
                         break
@@ -274,14 +290,23 @@ class FileIndex:
                 changed_hashes: set[bytes] = set()
                 for i, (change_type, path_str) in enumerate(result):
                     path = Path(path_str)
-                    if change_type in (1, 2):
-                        changed_hashes |= self._index_file(path, conn, i, len(result))
-                    elif change_type == 3:
-                        changed_hashes |= self._remove_file(path, conn)
+                    try:
+                        if change_type in (1, 2):
+                            changed_hashes |= self._index_file(path, conn, i, len(result))
+                        elif change_type == 3:
+                            changed_hashes |= self._remove_file(path, conn)
+                    except Exception as exc:
+                        logger.exception(
+                            "Failed to process file change %s for %s: %s",
+                            change_type,
+                            path,
+                            exc,
+                        )
 
                 if changed_hashes and self._callback is not None:
                     self._callback.on_files_changed(changed_hashes)
         finally:
+            notify.close()
             conn.close()
 
     def _initial_scan(self, conn: sqlite3.Connection) -> None:
@@ -296,11 +321,24 @@ class FileIndex:
         changed_hashes: set[bytes] = set()
         paths = list(self._stats_dir.iterdir())
         for i, path in enumerate(paths):
+            if not path.is_file():
+                logger.info("Skipping non-file path during initial scan %s", path)
+                continue
             disk_files.add(str(path.resolve()))
-            changed_hashes |= self._index_file(path, conn, i, len(paths))
+            try:
+                changed_hashes |= self._index_file(path, conn, i, len(paths))
+            except Exception as exc:
+                logger.exception("Failed to index file during initial scan %s: %s", path, exc)
 
         for file_name in db_files - disk_files:
-            changed_hashes |= self._remove_file(Path(file_name), conn)
+            try:
+                changed_hashes |= self._remove_file(Path(file_name), conn)
+            except Exception as exc:
+                logger.exception(
+                    "Failed to remove stale file during initial scan %s: %s",
+                    file_name,
+                    exc,
+                )
 
         if changed_hashes and self._callback is not None:
             self._callback.on_files_changed(changed_hashes)

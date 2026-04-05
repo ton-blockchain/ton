@@ -7,7 +7,7 @@ import plotly.graph_objects as go  # pyright: ignore[reportMissingTypeStubs]
 from dash import Dash, Input, NoUpdate, Output, State, callback_context, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 
-from ..models import ConsensusData, GroupData, SlotData
+from ..models import ConsensusData, GroupData, GroupInfo, SlotData, UnnamedGroupInfo
 from ..parser import GroupParser
 from ..validator_set_info import ValidatorSetInfoProvider
 from .figure_builder import FigureBuilder
@@ -31,9 +31,10 @@ class DashApp:
 
     def _load_group(self, group: str) -> None:
         with self._update_lock:
-            if self._current_group != group or self._builder is None:
+            data = self._parser.parse_group(group)
+            if self._current_group != group or self._builder is None or data is not self._data:
                 self._current_group = group
-                self._data = self._parser.parse_group(group)
+                self._data = data
                 self._builder = FigureBuilder(self._data)
 
     @classmethod
@@ -89,7 +90,21 @@ class DashApp:
         valgroups = self._parser.list_groups()
         if time_from is not None or time_until is not None:
             valgroups = self._filter_groups_by_time(valgroups, time_from, time_until)
-        valgroups_names = sorted([g.valgroup_name for g in valgroups])
+
+        def _group_sort_key(group: GroupData) -> tuple[int, int, int, int, str]:
+            if isinstance(group, UnnamedGroupInfo):
+                return 0, 0, 0, 0, group.valgroup_name
+
+            assert isinstance(group, GroupInfo)
+            return (
+                1,
+                group.workchain,
+                group.catchain_seqno,
+                group.shard,
+                group.valgroup_name,
+            )
+
+        valgroups_names = [g.valgroup_name for g in sorted(valgroups, key=_group_sort_key)]
         options = [{"label": g, "value": g} for g in valgroups_names]
 
         url_params = self._parse_url_params(href)
@@ -168,6 +183,17 @@ class DashApp:
 
         self._load_group(group)
         assert self._data is not None
+        group_info = next((g for g in self._data.groups if g.valgroup_name == group), None)
+        group_start_est = "n/a"
+        if group_info is not None:
+            group_start_est = str(group_info.group_start_est)
+            try:
+                group_start_est = (
+                    f"{group_info.group_start_est} "
+                    f"({datetime.fromtimestamp(group_info.group_start_est, timezone.utc).isoformat()})"
+                )
+            except Exception:
+                pass
 
         group_events = [e for e in self._data.events if e.valgroup_id == group]
         group_slots = {s.slot: s for s in self._data.slots if s.valgroup_id == group}
@@ -220,6 +246,7 @@ class DashApp:
         return "\n".join(
             [
                 f"valgroup = {group}",
+                f"group start estimate = {group_start_est}",
                 f"slots with skip_observed ({len(skip_slots)}) = {skip_slots}",
                 f"slots with empty blocks ({len(empty_block_slots)}) = {empty_block_slots}",
                 "delta between minimum candidate_received for neighboring finalized blocks:",
