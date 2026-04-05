@@ -140,6 +140,14 @@ inline Timestamp &operator-=(Timestamp &a, double b) {
   return a;
 }
 
+inline Timestamp &operator+=(Timestamp &a, std::chrono::duration<double> b) {
+  return a += b.count();
+}
+
+inline Timestamp &operator-=(Timestamp &a, std::chrono::duration<double> b) {
+  return a -= b.count();
+}
+
 inline Timestamp operator+(Timestamp a, double b) {
   a += b;
   return a;
