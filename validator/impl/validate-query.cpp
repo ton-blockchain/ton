@@ -7406,32 +7406,38 @@ bool ValidateQuery::try_validate() {
   try {
     if (stage_ == 0) {
       LOG(WARNING) << "try_validate stage 0";
-      if (!compute_prev_state()) {
-        return fatal_error(-666, "cannot compute previous state");
-      }
-      if (!compute_next_state()) {
-        return reject_query("cannot compute next state");
-      }
-      if (!request_neighbor_queues()) {
-        return fatal_error("cannot request neighbor output queues");
-      }
-      if (!unpack_prev_state()) {
-        return fatal_error("cannot unpack previous state");
-      }
-      if (!unpack_next_state()) {
-        return fatal_error("cannot unpack previous state");
-      }
-      if (is_masterchain() && !check_shard_layout()) {
-        return fatal_error("new shard layout is invalid");
-      }
-      if (!check_cur_validator_set()) {
-        return fatal_error("current validator set is not entitled to generate this block");
-      }
-      if (!check_utime_lt()) {
-        return reject_query("creation utime/lt of the new block is invalid");
-      }
-      if (!prepare_out_msg_queue_size()) {
-        return reject_query("cannot request out msg queue size");
+      {
+        td::RealCpuTimer timer;
+        SCOPE_EXIT {
+          stats_.work_time.unpack_state += timer.elapsed_both();
+        };
+        if (!compute_prev_state()) {
+          return fatal_error(-666, "cannot compute previous state");
+        }
+        if (!compute_next_state()) {
+          return reject_query("cannot compute next state");
+        }
+        if (!request_neighbor_queues()) {
+          return fatal_error("cannot request neighbor output queues");
+        }
+        if (!unpack_prev_state()) {
+          return fatal_error("cannot unpack previous state");
+        }
+        if (!unpack_next_state()) {
+          return fatal_error("cannot unpack previous state");
+        }
+        if (is_masterchain() && !check_shard_layout()) {
+          return fatal_error("new shard layout is invalid");
+        }
+        if (!check_cur_validator_set()) {
+          return fatal_error("current validator set is not entitled to generate this block");
+        }
+        if (!check_utime_lt()) {
+          return reject_query("creation utime/lt of the new block is invalid");
+        }
+        if (!prepare_out_msg_queue_size()) {
+          return reject_query("cannot request out msg queue size");
+        }
       }
       stage_ = 1;
       if (pending) {
@@ -7441,50 +7447,116 @@ bool ValidateQuery::try_validate() {
     if (stage_ == 1) {
       LOG(WARNING) << "try_validate stage 1";
       LOG(INFO) << "running automated validity checks for block candidate " << id_.to_str();
-      if (!block::gen::t_Block.validate_ref(10000000, block_root_)) {
-        return reject_query("block "s + id_.to_str() + " failed to pass automated validity checks");
+      {
+        td::RealCpuTimer timer;
+        SCOPE_EXIT {
+          stats_.work_time.validate_block_tlb += timer.elapsed_both();
+        };
+        if (!block::gen::t_Block.validate_ref(10000000, block_root_)) {
+          return reject_query("block "s + id_.to_str() + " failed to pass automated validity checks");
+        }
+        if (!fix_all_processed_upto()) {
+          return fatal_error("cannot adjust all ProcessedUpto of neighbor and previous blocks");
+        }
+        if (!add_trivial_neighbor()) {
+          return fatal_error("cannot add previous block as a trivial neighbor");
+        }
+        if (!unpack_block_data()) {
+          return reject_query("cannot unpack block data");
+        }
       }
-      if (!fix_all_processed_upto()) {
-        return fatal_error("cannot adjust all ProcessedUpto of neighbor and previous blocks");
+      {
+        td::RealCpuTimer timer;
+        SCOPE_EXIT {
+          stats_.work_time.precheck_account_updates += timer.elapsed_both();
+        };
+        if (!precheck_account_updates()) {
+          return reject_query("invalid AccountState update");
+        }
       }
-      if (!add_trivial_neighbor()) {
-        return fatal_error("cannot add previous block as a trivial neighbor");
+      {
+        td::RealCpuTimer timer;
+        SCOPE_EXIT {
+          stats_.work_time.precheck_account_transactions += timer.elapsed_both();
+        };
+        if (!precheck_account_transactions()) {
+          return reject_query("invalid collection of account transactions in ShardAccountBlocks");
+        }
       }
-      if (!unpack_block_data()) {
-        return reject_query("cannot unpack block data");
+      {
+        td::RealCpuTimer timer;
+        SCOPE_EXIT {
+          stats_.work_time.precheck_msg_queue += timer.elapsed_both();
+        };
+        if (!precheck_message_queue_update()) {
+          return reject_query("invalid OutMsgQueue update");
+        }
       }
-      if (!precheck_account_updates()) {
-        return reject_query("invalid AccountState update");
+      {
+        td::RealCpuTimer timer;
+        SCOPE_EXIT {
+          stats_.work_time.unpack_dispatch_queue += timer.elapsed_both();
+        };
+        if (!unpack_dispatch_queue_update()) {
+          return reject_query("invalid DispatchQueue update");
+        }
       }
-      if (!precheck_account_transactions()) {
-        return reject_query("invalid collection of account transactions in ShardAccountBlocks");
+      {
+        td::RealCpuTimer timer;
+        SCOPE_EXIT {
+          stats_.work_time.check_in_msg_descr += timer.elapsed_both();
+        };
+        if (!check_in_msg_descr()) {
+          return reject_query("invalid InMsgDescr");
+        }
       }
-      if (!precheck_message_queue_update()) {
-        return reject_query("invalid OutMsgQueue update");
+      {
+        td::RealCpuTimer timer;
+        SCOPE_EXIT {
+          stats_.work_time.check_out_msg_descr += timer.elapsed_both();
+        };
+        if (!check_out_msg_descr()) {
+          return reject_query("invalid OutMsgDescr");
+        }
       }
-      if (!unpack_dispatch_queue_update()) {
-        return reject_query("invalid DispatchQueue update");
+      {
+        td::RealCpuTimer timer;
+        SCOPE_EXIT {
+          stats_.work_time.check_dispatch_queue += timer.elapsed_both();
+        };
+        if (!check_dispatch_queue_update()) {
+          return reject_query("invalid OutMsgDescr");
+        }
       }
-      if (!check_in_msg_descr()) {
-        return reject_query("invalid InMsgDescr");
+      {
+        td::RealCpuTimer timer;
+        SCOPE_EXIT {
+          stats_.work_time.check_processed_upto += timer.elapsed_both();
+        };
+        if (!check_processed_upto()) {
+          return reject_query("invalid ProcessedInfo");
+        }
       }
-      if (!check_out_msg_descr()) {
-        return reject_query("invalid OutMsgDescr");
+      {
+        td::RealCpuTimer timer;
+        SCOPE_EXIT {
+          stats_.work_time.check_in_queue += timer.elapsed_both();
+        };
+        if (!check_in_queue()) {
+          return reject_query("cannot check inbound message queues");
+        }
+        if (after_merge_ && !check_delivered_dequeued()) {
+          return reject_query("cannot check delivery status of all outbound messages");
+        }
       }
-      if (!check_dispatch_queue_update()) {
-        return reject_query("invalid OutMsgDescr");
-      }
-      if (!check_processed_upto()) {
-        return reject_query("invalid ProcessedInfo");
-      }
-      if (!check_in_queue()) {
-        return reject_query("cannot check inbound message queues");
-      }
-      if (after_merge_ && !check_delivered_dequeued()) {
-        return reject_query("cannot check delivery status of all outbound messages");
-      }
-      if (!check_transactions()) {
-        return reject_query("invalid collection of account transactions in ShardAccountBlocks");
+      {
+        td::RealCpuTimer timer;
+        SCOPE_EXIT {
+          stats_.work_time.check_transactions += timer.elapsed_both();
+        };
+        if (!check_transactions()) {
+          return reject_query("invalid collection of account transactions in ShardAccountBlocks");
+        }
       }
       stage_ = 2;
       if (parallel_accounts_validation_) {
@@ -7493,6 +7565,10 @@ bool ValidateQuery::try_validate() {
     }
     if (stage_ == 2) {
       LOG(WARNING) << "try_validate stage 2";
+      td::RealCpuTimer timer;
+      SCOPE_EXIT {
+        stats_.work_time.check_new_state += timer.elapsed_both();
+      };
       if (!check_all_ticktock_processed()) {
         return reject_query("not all tick-tock transactions have been run for special accounts");
       }
