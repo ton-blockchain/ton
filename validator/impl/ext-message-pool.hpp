@@ -20,6 +20,7 @@
 
 #include "interfaces/validator-manager.h"
 #include "td/actor/coro_utils.h"
+#include "td/utils/PersistentTreap.h"
 
 #include "external-message.hpp"
 
@@ -113,7 +114,7 @@ class ExtMessagePool : public td::actor::Actor {
   td::Ref<MasterchainState> last_masterchain_state_;
 
   struct ExtMessages {
-    std::map<MessageId, std::unique_ptr<MempoolMsg>> ext_messages_;
+    td::PersistentTreap<MessageId, std::shared_ptr<MempoolMsg>> ext_messages_;
     std::map<std::pair<WorkchainId, StdSmcAddress>, std::map<ExtMessage::Hash, MessageId>> ext_addr_messages_;
   };
   struct NormalizedMessageId {
