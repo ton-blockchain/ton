@@ -2436,6 +2436,7 @@ td::actor::Task<> Collator::do_collate_inner() {
   // 5-6. import inbound external messages and process newly created messages (if space&gas left)
   co_await process_external_and_new_messages();
   timer_guard = WorkTimerGuard(work_timer_);
+  auto post_ext_token = perf_log_.start_action("post_ext_processing");
   if (before_split_) {
     // 7. split prepare / split install
     LOG(DEBUG) << "create split prepare/install transactions (NOT IMPLEMENTED YET)";
@@ -2495,6 +2496,7 @@ td::actor::Task<> Collator::do_collate_inner() {
   if (!create_block_candidate()) {
     co_return td::Status::Error("cannot serialize a new Block candidate");
   }
+  post_ext_token.finish(td::Result<td::Unit>(td::Unit()));
   co_return {};
 }
 
