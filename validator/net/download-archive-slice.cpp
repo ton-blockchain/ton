@@ -204,7 +204,7 @@ void DownloadArchiveSlice::got_archive_slice(td::BufferSlice data) {
   }
 
   if (data.size() < slice_size()) {
-    LOG(INFO) << "finished downloading arcrive slice #" << masterchain_seqno_ << " " << shard_prefix_.to_str()
+    LOG(INFO) << "finished downloading archive slice #" << masterchain_seqno_ << " " << shard_prefix_.to_str()
               << ": total=" << offset_;
     finish_query();
   } else {
