@@ -63,17 +63,19 @@ Task<T> await_with_timeout(StartedTask<T> task, Timestamp timeout) {
   auto promise_ptr = std::make_shared<Promise<T>>(std::move(promise));
   if (timeout) {
     auto worker_timeout = [](Timestamp timeout, std::shared_ptr<Promise<T>> promise_ptr) -> Task<> {
+      co_await td::actor::detach_from_actor();
       co_await coro_sleep(timeout);
       promise_ptr->set_error(Status::Error(AWAIT_TIMEOUT_CODE, "await timeout"));
       co_return {};
     };
-    worker_timeout(timeout, promise_ptr).start().detach();
+    worker_timeout(timeout, promise_ptr).start().detach_silent();
   }
   auto worker_wait = [](StartedTask<T> task, std::shared_ptr<Promise<T>> promise_ptr) -> Task<> {
+    co_await td::actor::detach_from_actor();
     promise_ptr->set_result(co_await std::move(task).wrap());
     co_return {};
   };
-  worker_wait(std::move(task), std::move(promise_ptr)).start().detach();
+  worker_wait(std::move(task), std::move(promise_ptr)).start().detach_silent();
   co_return co_await std::move(task_result);
 }
 
