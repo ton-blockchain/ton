@@ -89,12 +89,7 @@ void ExtMessagePool::install_collator_queue(ShardIdFull shard, std::unique_ptr<E
         if (msg->expired() || !msg->is_active()) {
           continue;
         }
-        bool ok;
-        if (sync_only) {
-          ok = co_await queue.try_push(std::make_pair(msg->message, priority));
-        } else {
-          ok = co_await queue.push(std::make_pair(msg->message, priority));
-        }
+        bool ok = co_await queue.push(std::make_pair(msg->message, priority));
         if (!ok) {
           co_return {};
         }
