@@ -642,6 +642,8 @@ void FullNodeFastSyncOverlays::update_overlays(
             PSTRING() << "FastSyncOv" << shard.to_str(), local_id, shard, zero_state_file_hash, root_public_keys_,
             current_validators_adnl_, overlays_info.current_certificate_, receive_broadcasts, send_twostep_broadcasts,
             broadcast_speed_multiplier, keyring, adnl, adnl_sender, overlays, validator_manager, full_node);
+        // Enable quic server even if use_quic is not set
+        td::actor::send_closure(quic, &quic::QuicSender::add_id, local_id);
       } else {
         td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_params, receive_broadcasts,
                                 send_twostep_broadcasts, adnl_sender);

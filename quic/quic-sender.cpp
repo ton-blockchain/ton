@@ -422,7 +422,7 @@ td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) 
   local_keys_.emplace(local_id, td::Ed25519::PrivateKey(ed25519_key.as_octet_string()));
 
   if (servers_.find(local_id) != servers_.end()) {
-    LOG(INFO) << "Local id has already been added: " << local_id;
+    LOG(DEBUG) << "Local id has already been added: " << local_id;
     co_return td::Unit{};  // already added
   }
 
