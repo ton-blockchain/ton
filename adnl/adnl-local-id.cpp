@@ -287,8 +287,7 @@ void AdnlLocalId::alarm() {
   if ((cleanup_rate_limiter_at_ && cleanup_rate_limiter_at_.is_in_past())) {
     for (auto it = inbound_rate_limiter_.begin(); it != inbound_rate_limiter_.end();) {
       auto &limiter = it->second;
-      if (limiter.currently_decrypting_packets == 0 &&
-          limiter.rate_limiter.last_take_at() < td::Timestamp::in(-limiter.rate_limiter.period()) &&
+      if (limiter.currently_decrypting_packets == 0 && limiter.rate_limiter.is_full() &&
           limiter.recent_inbound_peers.empty()) {
         it = inbound_rate_limiter_.erase(it);
       } else {

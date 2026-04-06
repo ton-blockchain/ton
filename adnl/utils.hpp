@@ -48,7 +48,6 @@ class RateLimiter {
 
   bool take() {
     const auto now = td::Timestamp::now();
-    last_take_at_ = now;
     auto min_ready_at = now.at() - emission_interval_;
     if (ready_at_ < min_ready_at) {
       ready_at_ = min_ready_at;
@@ -68,8 +67,8 @@ class RateLimiter {
     return now;
   }
 
-  td::Timestamp last_take_at() const {
-    return last_take_at_;
+  bool is_full() const {
+    return ready_at_ < td::Timestamp::now().at() - emission_interval_;
   }
 
   double period() const {
@@ -86,7 +85,6 @@ class RateLimiter {
   double period_;
   double emission_interval_;
   double ready_at_;
-  td::Timestamp last_take_at_ = td::Timestamp::now();
 };
 
 }  // namespace adnl
