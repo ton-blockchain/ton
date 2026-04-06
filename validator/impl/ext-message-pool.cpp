@@ -14,6 +14,8 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
+#include <algorithm>
+
 #include "td/utils/Random.h"
 
 #include "ext-message-pool.hpp"
@@ -22,6 +24,49 @@
 #include "transaction.h"
 
 namespace ton::validator {
+class ExtMsgSnapshotImpl final : public ExtMsgSnapshot {
+ public:
+  using Treap = td::PersistentTreap<ExtMessagePool::MessageId, std::shared_ptr<ExtMessagePool::MempoolMsg>>;
+
+  std::map<int, Treap, std::greater<int>> buckets_;
+
+  bool empty() const override {
+    return buckets_.empty();
+  }
+
+  void push(std::shared_ptr<ExtMsgItem> message, int priority) override {
+    auto msg = std::static_pointer_cast<ExtMessagePool::MempoolMsg>(std::move(message));
+    ExtMessagePool::MessageId id{msg->message->shard(), msg->message->hash()};
+    auto &treap = buckets_[priority];
+    treap = treap.insert(id, std::move(msg));
+  }
+
+  std::optional<std::pair<std::shared_ptr<ExtMsgItem>, int>> try_pop() override {
+    if (empty()) {
+      return std::nullopt;
+    }
+    auto it = buckets_.begin();
+    auto &[priority, treap] = *it;
+    size_t idx = td::Random::fast_uint32() % treap.size();
+    auto [key, message] = treap.at(idx);
+    treap = treap.erase_at(idx);
+    if (treap.empty()) {
+      buckets_.erase(it);
+    }
+    return std::make_pair(std::static_pointer_cast<ExtMsgItem>(std::move(message)), priority);
+  }
+};
+
+std::unique_ptr<ExtMsgSnapshot> create_ext_msg_snapshot() {
+  return std::make_unique<ExtMsgSnapshotImpl>();
+}
+
+std::shared_ptr<ExtMsgItem> create_ext_msg_item(td::Ref<ExtMessage> message) {
+  auto msg = std::make_shared<ExtMessagePool::MempoolMsg>(std::move(message));
+  msg->delete_at = td::Timestamp::never();
+  return msg;
+}
+
 td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_add_external_message(td::BufferSlice data,
                                                                                         int priority,
                                                                                         bool add_to_mempool) {
@@ -54,49 +99,20 @@ void ExtMessagePool::install_collator_queue(ShardIdFull shard, std::unique_ptr<E
   td::uint64 lo_prefix = shard.shard & (shard.shard - 1);
   td::uint64 hi_prefix_plus1 = (shard.shard | (shard.shard - 1)) + 1;  // may overflow to 0
   MessageId shard_lo{AccountIdPrefixFull{shard.workchain, lo_prefix}, Bits256::zero()};
-  MessageId shard_hi{AccountIdPrefixFull{hi_prefix_plus1 == 0 ? shard.workchain + 1 : shard.workchain,
-                                         hi_prefix_plus1},
+  MessageId shard_hi{AccountIdPrefixFull{hi_prefix_plus1 == 0 ? shard.workchain + 1 : shard.workchain, hi_prefix_plus1},
                      Bits256::zero()};
 
   // Take O(log n) shard slices from each priority level
-  using Treap = td::PersistentTreap<MessageId, std::shared_ptr<MempoolMsg>>;
-  using Snapshot = std::vector<std::pair<int, Treap>>;
-  Snapshot snapshot;
+  auto snapshot = std::make_unique<ExtMsgSnapshotImpl>();
   for (auto it = ext_msgs_.rbegin(); it != ext_msgs_.rend(); ++it) {
     auto [_, in_shard, __] = it->second.ext_messages_.split_range(shard_lo, shard_hi);
     if (!in_shard.empty()) {
-      snapshot.emplace_back(it->first, std::move(in_shard));
+      snapshot->buckets_.emplace(it->first, std::move(in_shard));
     }
   }
-
-  // Spawn a coroutine that drains the shard slices randomly into the queue
-  auto push_existing = [](ExtMsgQueue queue, td::CancellationToken token, ShardIdFull shard,
-                          Snapshot snapshot) -> td::actor::Task<> {
-    td::Timer t;
-    size_t pushed = 0;
-    for (auto &[priority, treap] : snapshot) {
-      while (!treap.empty()) {
-        if (token.check().is_error()) {
-          co_return {};
-        }
-        size_t idx = td::Random::fast_uint32() % treap.size();
-        auto [key, msg] = treap.at(idx);
-        treap = treap.erase_at(idx);  // local snapshot only
-        if (msg->expired() || !msg->is_active()) {
-          continue;
-        }
-        auto ok = co_await queue.push(std::make_pair(msg->message, priority));
-        if (!ok) {
-          co_return {};
-        }
-        ++pushed;
-      }
-    }
-    LOG(WARNING) << "install_collator_queue: pushed " << pushed << " existing messages to shard " << shard.to_str()
-                 << " in " << t.elapsed() << "s";
-    co_return {};
-  };
-  push_existing(callback->queue, callback->cancellation_token, shard, std::move(snapshot)).start().detach();
+  if (callback->on_snapshot) {
+    callback->on_snapshot(std::move(snapshot));
+  }
 
   alarm_timestamp().relax(callback->timeout);
   callbacks_.push_back(std::move(callback));
@@ -221,6 +237,7 @@ void ExtMessagePool::add_message_to_mempool(td::Ref<ExtMessage> message, int pri
   }
   auto msg = std::make_shared<MempoolMsg>(message);
   msg->msg_seqno = msg_seqno;
+  auto msg_ref = msg;
   MessageId id{message->shard(), message->hash()};
   auto address = msg->address();
   auto it = msgs.ext_addr_messages_.find(address);
@@ -249,8 +266,8 @@ void ExtMessagePool::add_message_to_mempool(td::Ref<ExtMessage> message, int pri
     if (callback->cancellation_token.check().is_error()) {
       return true;
     }
-    if (shard_contains(callback->shard, message->shard())) {
-      callback->queue.try_push(std::make_pair(message, priority)).detach();
+    if (shard_contains(callback->shard, message->shard()) && callback->on_message) {
+      callback->on_message(std::static_pointer_cast<ExtMsgItem>(msg_ref), priority);
     }
     return false;
   });

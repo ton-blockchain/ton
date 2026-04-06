@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cassert>
 #include <ctime>
+#include <utility>
 
 #include "adnl/utils.hpp"
 #include "block/block-auto.h"
@@ -240,12 +241,17 @@ void Collator::start_up() {
   // 3. install external message queue
   if (!params_.is_hardfork) {
     LOG(DEBUG) << "installing external message queue";
-    ext_msg_queue_ = ExtMsgQueue("ext_msg_queue", 500);
     auto callback = std::make_unique<ExtMsgCallback>();
     callback->shard = shard_;
     callback->cancellation_token = ext_msg_cancellation_.get_cancellation_token();
     callback->timeout = params_.wait_externals_until ? params_.wait_externals_until : td::Timestamp::in(0);
-    callback->queue = ext_msg_queue_;
+    auto self = get_self();
+    callback->on_snapshot = [self](std::unique_ptr<ExtMsgSnapshot> snapshot) mutable {
+      td::actor::send_closure(self, &Collator::install_ext_msg_snapshot, std::move(snapshot));
+    };
+    callback->on_message = [self](std::shared_ptr<ExtMsgItem> message, int priority) mutable {
+      td::actor::send_closure(self, &Collator::on_ext_message, std::move(message), priority);
+    };
     td::actor::send_closure_later(manager, &ValidatorManager::get_external_messages, shard_, std::move(callback));
   }
   if (is_masterchain() && !params_.is_hardfork) {
@@ -4330,19 +4336,16 @@ td::actor::Task<bool> Collator::process_inbound_external_messages() {
     if (!check_cancelled()) {
       co_return false;
     }
-    std::pair<td::Ref<ExtMessage>, int> item;
-    if (pending_ext_msg_) {
-      item = std::move(*pending_ext_msg_);
-      pending_ext_msg_.reset();
-    } else {
-      auto maybe = co_await ext_msg_queue_.try_pop().wrap();
-      if (maybe.is_error()) {
-        break;  // queue empty or closed
-      }
-      item = maybe.move_as_ok();
+    auto item = ext_msg_snapshot_ ? ext_msg_snapshot_->try_pop() : std::nullopt;
+    if (!item) {
+      break;
     }
     WorkTimerGuard timer_guard(work_timer_);
-    auto [ext_msg_ref, priority] = std::move(item);
+    auto [ext_msg_item, priority] = std::move(*item);
+    if (ext_msg_item->expired() || !ext_msg_item->is_active()) {
+      continue;
+    }
+    auto ext_msg_ref = ext_msg_item->get_message();
     ++stats_.ext_msgs_total;
     if (register_external_message(ext_msg_ref, priority).is_error()) {
       ++stats_.ext_msgs_filtered;
@@ -6647,15 +6650,46 @@ td::Status Collator::register_external_message(Ref<ExtMessage> ext_msg, int prio
 }
 
 /**
- * Wait for an external message from the backpressure queue, or timeout.
+ * Wait for an external message, or timeout.
  */
 td::actor::Task<> Collator::wait_for_external_message(td::Timestamp timeout) {
-  auto result = co_await td::actor::await_with_timeout(ext_msg_queue_.pop(), timeout).wrap();
+  if (ext_msg_snapshot_ && !ext_msg_snapshot_->empty()) {
+    co_return {};
+  }
+  CHECK(!ext_msg_waker_);
+  auto [task, promise] = td::actor::StartedTask<td::Unit>::make_bridge();
+  ext_msg_waker_ = std::move(promise);
+  auto result = co_await td::actor::await_with_timeout(std::move(task), timeout).wrap();
+  ext_msg_waker_.reset();
   if (result.is_error()) {
     co_return result.move_as_error();
   }
-  pending_ext_msg_ = result.move_as_ok();
   co_return {};
+}
+
+void Collator::wake_ext_msg_waker() {
+  if (!ext_msg_waker_) {
+    return;
+  }
+  ext_msg_waker_->set_value(td::Unit{});
+  ext_msg_waker_.reset();
+}
+
+void Collator::install_ext_msg_snapshot(std::unique_ptr<ExtMsgSnapshot> snapshot) {
+  CHECK(!ext_msg_snapshot_ || ext_msg_snapshot_->empty());
+  ext_msg_snapshot_ = std::move(snapshot);
+  wake_ext_msg_waker();
+}
+
+void Collator::on_ext_message(std::shared_ptr<ExtMsgItem> message, int priority) {
+  if (!shard_contains(shard_, message->get_message()->shard())) {
+    return;
+  }
+  if (!ext_msg_snapshot_) {
+    ext_msg_snapshot_ = create_ext_msg_snapshot();
+  }
+  ext_msg_snapshot_->push(std::move(message), priority);
+  wake_ext_msg_waker();
 }
 
 /**

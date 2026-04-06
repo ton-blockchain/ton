@@ -542,11 +542,13 @@ void ValidatorManagerImpl::wait_block_message_queue_short(BlockIdExt block_id, t
   get_block_handle(block_id, true, std::move(P));
 }
 
-void ValidatorManagerImpl::get_external_messages(
-    ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) {
-  if (callback) {
+void ValidatorManagerImpl::get_external_messages(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) {
+  if (callback && callback->on_snapshot) {
+    callback->on_snapshot(create_ext_msg_snapshot());
+  }
+  if (callback && callback->on_message) {
     for (const auto &x : ext_messages_) {
-      callback->queue.try_push(std::make_pair(x, 0)).detach();
+      callback->on_message(create_ext_msg_item(x), 0);
     }
   }
 }

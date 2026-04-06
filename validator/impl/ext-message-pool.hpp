@@ -16,6 +16,8 @@
 */
 #pragma once
 
+#include <atomic>
+#include <map>
 #include <set>
 
 #include "interfaces/validator-manager.h"
@@ -53,6 +55,9 @@ class ExtMessagePool : public td::actor::Actor {
   void alarm() override;
 
  private:
+  friend class ExtMsgSnapshotImpl;
+  friend std::shared_ptr<ExtMsgItem> create_ext_msg_item(td::Ref<ExtMessage> message);
+
   struct MessageId {
     AccountIdPrefixFull dst;
     ExtMessage::Hash hash;
@@ -70,21 +75,24 @@ class ExtMessagePool : public td::actor::Actor {
       return !(*this < msg) && !(msg < *this);
     }
   };
-  struct MempoolMsg {
+  struct MempoolMsg final : ExtMsgItem {
     td::Ref<ExtMessage> message;
     ExtMessage::Hash hash_norm;
     td::uint32 generation = 0;
-    bool active = true;
-    td::Timestamp reactivate_at;
+    std::atomic<bool> active{true};
+    std::atomic<double> reactivate_at{0};
     td::Timestamp delete_at;
     td::optional<td::uint32> msg_seqno;
 
     auto address() const {
       return std::make_pair(message->wc(), message->addr());
     }
-    bool is_active() {
+    td::Ref<ExtMessage> get_message() const override {
+      return message;
+    }
+    bool is_active() override {
       if (!active) {
-        if (reactivate_at.is_in_past()) {
+        if (td::Timestamp::at(reactivate_at).is_in_past()) {
           active = true;
           generation++;
         }
@@ -98,10 +106,10 @@ class ExtMessagePool : public td::actor::Actor {
       if (!active) {
         return;
       }
+      reactivate_at = td::Timestamp::in(generation * 5.0).at();
       active = false;
-      reactivate_at = td::Timestamp::in(generation * 5.0);
     }
-    bool expired() const {
+    bool expired() const override {
       return delete_at.is_in_past();
     }
     explicit MempoolMsg(td::Ref<ExtMessage> msg) : message(std::move(msg)), hash_norm(message->hash_norm()) {
@@ -129,7 +137,7 @@ class ExtMessagePool : public td::actor::Actor {
     }
   };
   std::map<int, ExtMessages> ext_msgs_;                                        // priority -> messages
-  std::map<ExtMessage::Hash, std::pair<int, MessageId>> ext_messages_hashes_;   // raw hash -> priority
+  std::map<ExtMessage::Hash, std::pair<int, MessageId>> ext_messages_hashes_;  // raw hash -> priority
   std::map<ExtMessage::Hash, std::set<NormalizedMessageId>> ext_messages_hashes_norm_;
 
   struct CheckedExtMsgCounter {
