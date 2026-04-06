@@ -555,7 +555,8 @@ struct NewConsensusConfig {
   uint32_fn(9, standstill_max_egress_bytes_per_s, 50 << 17)             \
   uint32_fn(10, max_leader_window_desync, 250)                          \
   duration_fn(11, bad_signature_ban_duration, 5'000)                    \
-  uint32_fn(12, candidate_resolve_rate_limit, 10)
+  uint32_fn(12, candidate_resolve_rate_limit, 10)                       \
+  duration_fn(13, min_block_interval, 0)
   // clang-format on
 
   struct NoncriticalParams {
