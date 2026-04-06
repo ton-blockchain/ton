@@ -37,7 +37,7 @@ namespace overlay {
 
 const OverlayMemberCertificate OverlayNode::empty_certificate_{};
 
-static std::string overlay_actor_name(const OverlayIdFull &overlay_id, const OverlayOptions& opts) {
+static std::string overlay_actor_name(const OverlayIdFull &overlay_id, const OverlayOptions &opts) {
   if (opts.name_.empty()) {
     return PSTRING() << "overlay." << overlay_id.compute_short_id().bits256_value().to_hex().substr(0, 4);
   }

@@ -542,14 +542,12 @@ void ValidatorManagerImpl::wait_block_message_queue_short(BlockIdExt block_id, t
   get_block_handle(block_id, true, std::move(P));
 }
 
-void ValidatorManagerImpl::get_external_messages(
-    ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback,
-    td::Promise<std::vector<std::pair<td::Ref<ExtMessage>, int>>> promise) {
-  std::vector<std::pair<td::Ref<ExtMessage>, int>> res;
-  for (const auto &x : ext_messages_) {
-    res.emplace_back(x, 0);
+void ValidatorManagerImpl::get_external_messages(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) {
+  if (callback) {
+    for (const auto &x : ext_messages_) {
+      callback->queue.try_push(std::make_pair(x, 0)).detach();
+    }
   }
-  promise.set_result(std::move(res));
 }
 
 void ValidatorManagerImpl::get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) {

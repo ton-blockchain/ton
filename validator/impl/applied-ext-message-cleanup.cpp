@@ -15,15 +15,15 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "applied-ext-message-cleanup.hpp"
-
 #include <algorithm>
 
 #include "block/block-auto.h"
 #include "block/block-parse.h"
-#include "external-message.hpp"
 #include "ton/ton-io.hpp"
 #include "vm/dict.h"
+
+#include "applied-ext-message-cleanup.hpp"
+#include "external-message.hpp"
 
 namespace ton::validator {
 
@@ -106,10 +106,9 @@ void AppliedExtMessageCleanupActor::cleanup_applied_block(BlockHandle handle, td
       return;
     }
     auto block_id = handle->id();
-    auto P = td::PromiseCreator::lambda(
-        [SelfId = actor_id(this), block_id](td::Result<td::Ref<BlockData>> R) mutable {
-          td::actor::send_closure(SelfId, &AppliedExtMessageCleanupActor::got_block_data, block_id, std::move(R));
-        });
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), block_id](td::Result<td::Ref<BlockData>> R) mutable {
+      td::actor::send_closure(SelfId, &AppliedExtMessageCleanupActor::got_block_data, block_id, std::move(R));
+    });
     td::actor::send_closure(manager_, &ValidatorManager::get_block_data_from_db, handle, std::move(P));
     return;
   }

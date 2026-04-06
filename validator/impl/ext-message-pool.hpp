@@ -20,6 +20,7 @@
 
 #include "interfaces/validator-manager.h"
 #include "td/actor/coro_utils.h"
+#include "td/utils/PersistentTreap.h"
 
 #include "external-message.hpp"
 
@@ -36,8 +37,7 @@ class ExtMessagePool : public td::actor::Actor {
     td::actor::StartedTask<> wait_allow_broadcast;
   };
   td::actor::Task<CheckResult> check_add_external_message(td::BufferSlice data, int priority, bool add_to_mempool);
-  std::vector<std::pair<td::Ref<ExtMessage>, int>> get_external_messages_for_collator(
-      ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback = nullptr);
+  void install_collator_queue(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback);
   void cleanup_external_messages(ShardIdFull shard);
   void complete_external_messages(std::vector<ExtMessage::Hash> to_delay, std::vector<ExtMessage::Hash> to_delete);
   void erase_external_messages(std::vector<ExtMessage::Hash> to_delete);
@@ -114,7 +114,7 @@ class ExtMessagePool : public td::actor::Actor {
   td::Ref<MasterchainState> last_masterchain_state_;
 
   struct ExtMessages {
-    std::map<MessageId, std::unique_ptr<MempoolMsg>> ext_messages_;
+    td::PersistentTreap<MessageId, std::shared_ptr<MempoolMsg>> ext_messages_;
     std::map<std::pair<WorkchainId, StdSmcAddress>, std::map<ExtMessage::Hash, MessageId>> ext_addr_messages_;
   };
   struct NormalizedMessageId {
@@ -129,7 +129,7 @@ class ExtMessagePool : public td::actor::Actor {
     }
   };
   std::map<int, ExtMessages> ext_msgs_;                                        // priority -> messages
-  std::map<ExtMessage::Hash, std::pair<int, MessageId>> ext_messages_hashes_;   // raw hash -> priority
+  std::map<ExtMessage::Hash, std::pair<int, MessageId>> ext_messages_hashes_;  // raw hash -> priority
   std::map<ExtMessage::Hash, std::set<NormalizedMessageId>> ext_messages_hashes_norm_;
 
   struct CheckedExtMsgCounter {

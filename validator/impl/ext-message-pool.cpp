@@ -49,79 +49,72 @@ td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_add_external_
   co_return result.move_as_ok();
 }
 
-std::vector<std::pair<td::Ref<ExtMessage>, int>> ExtMessagePool::get_external_messages_for_collator(
-    ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) {
-  td::Timer t;
-  size_t processed = 0, deleted = 0;
-  std::vector<std::pair<td::Ref<ExtMessage>, int>> res;
-  MessageId left{AccountIdPrefixFull{shard.workchain, shard.shard & (shard.shard - 1)}, Bits256::zero()};
-  size_t total_msgs = 0;
-  td::Random::Fast rnd;
-  for (auto iter = ext_msgs_.rbegin(); iter != ext_msgs_.rend(); ++iter) {
-    std::vector<std::pair<td::Ref<ExtMessage>, int>> cur_res;
-    int priority = iter->first;
-    auto &msgs = iter->second;
-    auto it = msgs.ext_messages_.lower_bound(left);
-    while (it != msgs.ext_messages_.end()) {
-      auto s = it->first;
-      if (!shard_contains(shard, s.dst)) {
-        break;
-      }
-      ++processed;
-      if (it->second->expired()) {
-        auto id = it->first;
-        ++it;
-        erase_message(priority, id);
-        ++deleted;
-        continue;
-      }
-      if (it->second->is_active()) {
-        cur_res.emplace_back(it->second->message, priority);
-      }
-      ++it;
-    }
-    td::random_shuffle(td::as_mutable_span(cur_res), rnd);
-    res.insert(res.end(), cur_res.begin(), cur_res.end());
-    total_msgs += msgs.ext_messages_.size();
-  }
+void ExtMessagePool::install_collator_queue(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) {
+  // Compute shard key range [lo, hi) for splitting
+  td::uint64 lo_prefix = shard.shard & (shard.shard - 1);
+  td::uint64 hi_prefix_plus1 = (shard.shard | (shard.shard - 1)) + 1;  // may overflow to 0
+  MessageId shard_lo{AccountIdPrefixFull{shard.workchain, lo_prefix}, Bits256::zero()};
+  MessageId shard_hi{AccountIdPrefixFull{hi_prefix_plus1 == 0 ? shard.workchain + 1 : shard.workchain, hi_prefix_plus1},
+                     Bits256::zero()};
 
-  // Sort messages to each account by msg_seqno, if present
-  std::map<std::pair<WorkchainId, StdSmcAddress>, std::vector<std::pair<td::uint32, size_t>>> wallet_msg_idxs_;
-  for (size_t i = 0; i < res.size(); ++i) {
-    auto &[message, priority] = res[i];
-    MessageId id{res[i].first->shard(), res[i].first->hash()};
-    auto msg_seqno = ext_msgs_[priority].ext_messages_[id]->msg_seqno;
-    if (msg_seqno) {
-      wallet_msg_idxs_[{message->wc(), message->addr()}].emplace_back(msg_seqno.value(), i);
-    }
-  }
-  for (auto &[_, idxs] : wallet_msg_idxs_) {
-    auto sorted_idxs = idxs;
-    std::sort(sorted_idxs.begin(), sorted_idxs.end());
-    std::vector<std::pair<td::Ref<ExtMessage>, int>> new_res;
-    new_res.reserve(idxs.size());
-    for (auto [_, i] : sorted_idxs) {
-      new_res.push_back(res[i]);
-    }
-    for (size_t j = 0; j < new_res.size(); ++j) {
-      res[idxs[j].second] = new_res[j];
+  // Take O(log n) shard slices from each priority level
+  using Treap = td::PersistentTreap<MessageId, std::shared_ptr<MempoolMsg>>;
+  using Snapshot = std::vector<std::pair<int, Treap>>;
+  Snapshot snapshot;
+  for (auto it = ext_msgs_.rbegin(); it != ext_msgs_.rend(); ++it) {
+    auto [_, in_shard, __] = it->second.ext_messages_.split_range(shard_lo, shard_hi);
+    if (!in_shard.empty()) {
+      snapshot.emplace_back(it->first, std::move(in_shard));
     }
   }
 
-  if (!res.empty() || deleted > 0) {
-    LOG(WARNING) << "get_external_messages to shard " << shard.to_str() << " : time=" << t.elapsed()
-                 << " result_size=" << res.size() << " processed=" << processed << " expired=" << deleted
-                 << " total_size=" << total_msgs;
-  }
-  if (callback) {
-    alarm_timestamp().relax(callback->timeout);
-    callbacks_.push_back(std::move(callback));
-  }
-  return res;
+  // Spawn a coroutine that drains the shard slices randomly into the queue
+  auto push_existing = [](ExtMsgQueue queue, td::CancellationToken token, ShardIdFull shard,
+                          Snapshot snapshot) -> td::actor::Task<> {
+    td::Timer t;
+    size_t pushed = 0;
+    for (auto &[priority, treap] : snapshot) {
+      while (!treap.empty()) {
+        if (token.check().is_error()) {
+          co_return {};
+        }
+        size_t idx = td::Random::fast_uint32() % treap.size();
+        auto [key, msg] = treap.at(idx);
+        treap = treap.erase_at(idx);  // local snapshot only
+        if (msg->expired() || !msg->is_active()) {
+          continue;
+        }
+        auto ok = co_await queue.push(std::make_pair(msg->message, priority));
+        if (!ok) {
+          co_return {};
+        }
+        ++pushed;
+      }
+    }
+    LOG(WARNING) << "install_collator_queue: pushed " << pushed << " existing messages to shard " << shard.to_str()
+                 << " in " << t.elapsed() << "s";
+    co_return {};
+  };
+  push_existing(callback->queue, callback->cancellation_token, shard, std::move(snapshot)).start().detach();
+
+  alarm_timestamp().relax(callback->timeout);
+  callbacks_.push_back(std::move(callback));
 }
 
 void ExtMessagePool::cleanup_external_messages(ShardIdFull shard) {
-  get_external_messages_for_collator(shard);
+  // Clean up expired messages
+  for (auto &[priority, msgs] : ext_msgs_) {
+    std::vector<MessageId> to_erase;
+    for (size_t i = 0; i < msgs.ext_messages_.size(); i++) {
+      auto [key, msg] = msgs.ext_messages_.at(i);
+      if (shard_contains(shard, key.dst) && msg->expired()) {
+        to_erase.push_back(key);
+      }
+    }
+    for (auto &id : to_erase) {
+      erase_message(priority, id);
+    }
+  }
 }
 
 void ExtMessagePool::complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
@@ -138,9 +131,9 @@ void ExtMessagePool::complete_external_messages(std::vector<ExtMessage::Hash> to
       int priority = it->second.first;
       auto msg_id = it->second.second;
       auto &msgs = ext_msgs_[priority];
-      auto it2 = msgs.ext_messages_.find(msg_id);
-      if (msgs.ext_messages_.size() < SOFT_MEMPOOL_LIMIT && it2->second->can_postpone()) {
-        it2->second->postpone();
+      auto msg_opt = msgs.ext_messages_.find(msg_id);
+      if (msg_opt && msgs.ext_messages_.size() < SOFT_MEMPOOL_LIMIT && msg_opt.value()->can_postpone()) {
+        msg_opt.value()->postpone();
       } else {
         erase_message(priority, msg_id);
       }
@@ -169,15 +162,15 @@ bool ExtMessagePool::erase_message(int priority, const MessageId &id) {
     return false;
   }
   auto &msgs = it_priority->second;
-  auto it = msgs.ext_messages_.find(id);
-  if (it == msgs.ext_messages_.end()) {
+  auto msg_opt = msgs.ext_messages_.find(id);
+  if (!msg_opt) {
     return false;
   }
 
-  auto address = it->second->address();
-  auto hash_norm = it->second->hash_norm;
+  auto address = msg_opt.value()->address();
+  auto hash_norm = msg_opt.value()->hash_norm;
   msgs.ext_addr_messages_[address].erase(id.hash);
-  msgs.ext_messages_.erase(it);
+  msgs.ext_messages_ = msgs.ext_messages_.erase(id);
   ext_messages_hashes_.erase(id.hash);
 
   auto it_norm = ext_messages_hashes_norm_.find(hash_norm);
@@ -194,9 +187,8 @@ std::vector<std::pair<std::string, std::string>> ExtMessagePool::prepare_stats()
   std::vector<std::pair<std::string, std::string>> vec;
   vec.emplace_back("total.ext_msg_check",
                    PSTRING() << "ok:" << total_check_ext_messages_ok_ << " error:" << total_check_ext_messages_error_);
-  vec.emplace_back("total.ext_msg_applied_cleanup",
-                   PSTRING() << "requested:" << applied_ext_msgs_delete_requests_
-                             << " deleted:" << applied_ext_msgs_deleted_);
+  vec.emplace_back("total.ext_msg_applied_cleanup", PSTRING() << "requested:" << applied_ext_msgs_delete_requests_
+                                                              << " deleted:" << applied_ext_msgs_deleted_);
   return vec;
 }
 
@@ -226,7 +218,7 @@ void ExtMessagePool::add_message_to_mempool(td::Ref<ExtMessage> message, int pri
               << " to mempool: mempool is full (limit=" << opts_->max_mempool_num() << ")";
     return;
   }
-  auto msg = std::make_unique<MempoolMsg>(message);
+  auto msg = std::make_shared<MempoolMsg>(message);
   msg->msg_seqno = msg_seqno;
   MessageId id{message->shard(), message->hash()};
   auto address = msg->address();
@@ -246,17 +238,18 @@ void ExtMessagePool::add_message_to_mempool(td::Ref<ExtMessage> message, int pri
     }
     erase_message(old_priority, id);
   }
-  msgs.ext_messages_.emplace(id, std::move(msg));
+  auto hash_norm = msg->hash_norm;
+  msgs.ext_messages_ = msgs.ext_messages_.insert(id, std::move(msg));
   msgs.ext_addr_messages_[address].emplace(id.hash, id);
   ext_messages_hashes_[id.hash] = {priority, id};
-  ext_messages_hashes_norm_[msgs.ext_messages_[id]->hash_norm].insert(NormalizedMessageId{priority, id});
+  ext_messages_hashes_norm_[hash_norm].insert(NormalizedMessageId{priority, id});
   LOG(INFO) << "adding message addr=" << wc << ":" << addr.to_hex() << " prio=" << priority << " to mempool";
   std::erase_if(callbacks_, [&](const std::unique_ptr<ExtMsgCallback> &callback) -> bool {
     if (callback->cancellation_token.check().is_error()) {
       return true;
     }
     if (shard_contains(callback->shard, message->shard())) {
-      callback->callback(message, priority);
+      callback->queue.try_push(std::make_pair(message, priority)).detach();
     }
     return false;
   });
