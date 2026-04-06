@@ -5527,7 +5527,7 @@ bool Collator::check_block_overload() {
     double total_time = td::Timestamp::now() - collator_started_at_;
     LOG(INFO) << "Check block overload timers: wait_externals=" << wait_externals_total_time_
               << " do_collate=" << do_collate_time << " total=" << total_time;
-    if (wait_externals_total_time_ < total_time * 0.2 && do_collate_time > total_time * 0.6) {
+    if (total_time > 0.1 && wait_externals_total_time_ < total_time * 0.2 && do_collate_time > total_time * 0.6) {
       too_long_collation = true;
     }
   }
