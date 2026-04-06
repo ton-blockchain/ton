@@ -2376,6 +2376,7 @@ td::actor::Task<> Collator::do_collate() {
 }
 
 td::actor::Task<> Collator::do_collate_inner() {
+  do_collate_started_at_ = td::Timestamp::now();
   WorkTimerGuard timer_guard(work_timer_);
   LOG(WARNING) << "do_collate() : start";
   if (!fetch_config_params()) {
@@ -4287,7 +4288,9 @@ td::actor::Task<> Collator::process_external_and_new_messages() {
     }
     timer_guard.reset();
     LOG(INFO) << "Waiting for new external messages (" << params_.wait_externals_until.in() << "s)";
+    td::Timer wait_timer;
     auto S = co_await wait_for_external_message(params_.wait_externals_until).wrap();
+    wait_externals_total_time_ += wait_timer.elapsed();
     timer_guard = WorkTimerGuard(work_timer_);
     if (S.is_error()) {
       LOG(INFO) << "No new external messages appeared before timeout";
@@ -4337,12 +4340,14 @@ td::actor::Task<bool> Collator::process_inbound_external_messages() {
       pending_ext_msg_.reset();
     } else {
       td::Result<std::pair<td::Ref<ExtMessage>, int>> maybe;
+      td::Timer wait_timer;
       if (params_.wait_externals_until) {
         maybe = co_await ext_msg_queue_.try_pop().wrap();
       } else {
         // In this case queue is closed after pushing the first batch of messages
         maybe = co_await ext_msg_queue_.pop().wrap();
       }
+      wait_externals_total_time_ += wait_timer.elapsed();
       if (maybe.is_error()) {
         break;  // queue empty or closed
       }
@@ -5515,10 +5520,24 @@ bool Collator::check_block_overload() {
             << " size_estimate=" << block_size_estimate_
             << " collated_size_estimate=" << block_limit_status_->collated_data_size_estimate;
   block_limit_class_ = std::max(block_limit_class_, block_limit_status_->classify());
-  if (block_limit_class_ >= block::ParamLimits::cl_soft || dispatch_queue_total_limit_reached_) {
+
+  bool too_long_collation = false;
+  if (params_.wait_externals_until) {
+    double do_collate_time = td::Timestamp::now() - do_collate_started_at_;
+    double total_time = td::Timestamp::now() - collator_started_at_;
+    LOG(INFO) << "Check block overload timers: wait_externals=" << wait_externals_total_time_
+              << " do_collate=" << do_collate_time << " total=" << total_time;
+    if (total_time > 0.1 && wait_externals_total_time_ < total_time * 0.2 && do_collate_time > total_time * 0.6) {
+      too_long_collation = true;
+    }
+  }
+
+  if (block_limit_class_ >= block::ParamLimits::cl_soft || dispatch_queue_total_limit_reached_ || too_long_collation) {
     std::string message = "block is overloaded ";
     if (block_limit_class_ >= block::ParamLimits::cl_soft) {
       message += PSTRING() << "(category " << block_limit_class_ << ")";
+    } else if (too_long_collation) {
+      message += PSTRING() << "(collation takes too long)";
     } else {
       message += "(long dispatch queue processing)";
     }
