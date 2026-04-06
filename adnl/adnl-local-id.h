@@ -22,8 +22,7 @@
 
 #include "auto/tl/ton_api.h"
 #include "dht/dht.h"
-#include "keys/encryptor.h"
-#include "td/actor/actor.h"
+#include "td/actor/coro_utils.h"
 #include "td/utils/BufferedUdp.h"
 
 #include "adnl-peer-table.h"
@@ -48,13 +47,11 @@ class AdnlLocalId : public td::actor::Actor {
     publish_address_list();
   }
 
-  void decrypt(td::BufferSlice data, td::Promise<AdnlPacket> promise);
-  void decrypt_continue(td::BufferSlice data, td::Promise<AdnlPacket> promise);
   void decrypt_message(td::BufferSlice data, td::Promise<td::BufferSlice> promise);
   void deliver(AdnlNodeIdShort src, td::BufferSlice data);
   void deliver_query(AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
   void receive(td::IPAddress addr, td::BufferSlice data);
-  void decrypt_packet_done(td::IPAddress addr);
+  td::actor::Task<> receive_coro(td::IPAddress addr, td::BufferSlice data);
 
   void subscribe(std::string prefix, std::unique_ptr<AdnlPeerTable::Callback> callback);
   void unsubscribe(std::string prefix);
@@ -106,6 +103,7 @@ class AdnlLocalId : public td::actor::Actor {
   struct InboundRateLimiter {
     RateLimiter rate_limiter = RateLimiter(75, 0.33);
     td::uint64 currently_decrypting_packets = 0;
+    std::set<AdnlNodeIdShort> recent_inbound_peers;
   };
   std::map<td::IPAddress, InboundRateLimiter> inbound_rate_limiter_;
   struct PacketStats {
@@ -133,6 +131,10 @@ class AdnlLocalId : public td::actor::Actor {
 
   td::Timestamp publish_address_list_at_ = td::Timestamp::now();
   td::Timestamp cleanup_rate_limiter_at_ = td::Timestamp::never();
+  td::Timestamp cleanup_recent_inbound_peers_at_ = td::Timestamp::never();
+
+  static constexpr size_t UNIQUE_PEERS_PER_IP_LIMIT = 60;
+  static constexpr double UNIQUE_PEERS_PER_IP_WINDOW = 60.0;
 };
 
 inline td::StringBuilder &operator<<(td::StringBuilder &sb, const AdnlLocalId::PrintId &id) {
