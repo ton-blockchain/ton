@@ -87,6 +87,9 @@ class Collator final : public td::actor::Actor {
   ton::BlockSeqno prev_key_block_seqno_{0};
   int step{0};
   int pending{0};
+  td::Timestamp collator_started_at_ = td::Timestamp::now();
+  td::Timestamp do_collate_started_at_;
+  double wait_externals_total_time_ = 0.0;
   static constexpr int max_ihr_msg_size = 65535;   // 64k
   static constexpr int max_ext_msg_size = 65535;   // 64k
   static constexpr int max_blk_sign_size = 65535;  // 64k
