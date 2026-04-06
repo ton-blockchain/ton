@@ -377,8 +377,7 @@ void ValidatorManagerImpl::wait_block_message_queue_short(BlockIdExt block_id, t
   get_block_handle(block_id, true, std::move(P));
 }
 
-void ValidatorManagerImpl::get_external_messages(
-    ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) {
+void ValidatorManagerImpl::get_external_messages(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) {
   if (callback) {
     for (const auto &x : ext_messages_) {
       callback->queue.try_push(std::make_pair(x, 0)).detach();

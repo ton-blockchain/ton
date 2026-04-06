@@ -221,8 +221,7 @@ struct ValidationStats {
 
     std::string to_str(bool is_cpu) const {
       return PSTRING() << "total=" << total.get(is_cpu) << " trx_tvm=" << trx_tvm.get(is_cpu)
-                       << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
-                       << " trx_other=" << trx_other.get(is_cpu)
+                       << " trx_storage_stat=" << trx_storage_stat.get(is_cpu) << " trx_other=" << trx_other.get(is_cpu)
                        << " unpack_state=" << unpack_state.get(is_cpu)
                        << " validate_block_tlb=" << validate_block_tlb.get(is_cpu)
                        << " precheck_account_updates=" << precheck_account_updates.get(is_cpu)

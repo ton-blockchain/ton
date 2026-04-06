@@ -116,8 +116,7 @@ class PersistentTreap {
   std::tuple<PersistentTreap, PersistentTreap, PersistentTreap> split_range(const K& lo, const K& hi) const {
     auto [below, ge_lo] = split(root_, lo);
     auto [in_range, ge_hi] = split(ge_lo, hi);
-    return {PersistentTreap(std::move(below)), PersistentTreap(std::move(in_range)),
-            PersistentTreap(std::move(ge_hi))};
+    return {PersistentTreap(std::move(below)), PersistentTreap(std::move(in_range)), PersistentTreap(std::move(ge_hi))};
   }
 
   // O(log n). Insert or update.

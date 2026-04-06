@@ -26,6 +26,7 @@
 #include "downloaders/wait-block-data.hpp"
 #include "downloaders/wait-block-state-merge.hpp"
 #include "downloaders/wait-block-state.hpp"
+#include "impl/applied-ext-message-cleanup.hpp"
 #include "interfaces/validator-full-id.h"
 #include "td/actor/MultiPromise.h"
 #include "td/actor/coro_utils.h"
@@ -46,7 +47,6 @@
 #include "get-next-key-blocks.h"
 #include "import-db-slice-local.hpp"
 #include "import-db-slice.hpp"
-#include "impl/applied-ext-message-cleanup.hpp"
 #include "manager.h"
 #include "manager.hpp"
 #include "state-serializer.hpp"
@@ -1934,9 +1934,8 @@ void ValidatorManagerImpl::start_up() {
   token_manager_ = td::actor::create_actor<TokenManager>("tokenmanager");
   storage_stat_cache_ = td::actor::create_actor<StorageStatCache>("storagestatcache");
   ext_message_pool_ = td::actor::create_actor<ExtMessagePool>("extmessages", opts_, actor_id(this));
-  applied_ext_message_cleanup_actor_ =
-      td::actor::create_actor<AppliedExtMessageCleanupActor>("extmessagecleanup", ext_message_pool_.get(),
-                                                             actor_id(this));
+  applied_ext_message_cleanup_actor_ = td::actor::create_actor<AppliedExtMessageCleanupActor>(
+      "extmessagecleanup", ext_message_pool_.get(), actor_id(this));
   td::mkdir(db_root_ + "/tmp/").ensure();
   td::mkdir(db_root_ + "/catchains/").ensure();
 

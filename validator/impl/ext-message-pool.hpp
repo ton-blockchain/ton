@@ -129,7 +129,7 @@ class ExtMessagePool : public td::actor::Actor {
     }
   };
   std::map<int, ExtMessages> ext_msgs_;                                        // priority -> messages
-  std::map<ExtMessage::Hash, std::pair<int, MessageId>> ext_messages_hashes_;   // raw hash -> priority
+  std::map<ExtMessage::Hash, std::pair<int, MessageId>> ext_messages_hashes_;  // raw hash -> priority
   std::map<ExtMessage::Hash, std::set<NormalizedMessageId>> ext_messages_hashes_norm_;
 
   struct CheckedExtMsgCounter {

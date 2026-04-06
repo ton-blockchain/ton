@@ -16,9 +16,10 @@
 */
 #pragma once
 
-#include "ext-message-pool.hpp"
 #include "interfaces/validator-manager.h"
 #include "td/actor/actor.h"
+
+#include "ext-message-pool.hpp"
 
 namespace ton::validator {
 

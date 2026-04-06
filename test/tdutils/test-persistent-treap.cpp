@@ -1,11 +1,11 @@
-#include "td/utils/PersistentTreap.h"
-#include "td/utils/Random.h"
-#include "td/utils/tests.h"
-
 #include <algorithm>
 #include <map>
 #include <set>
 #include <vector>
+
+#include "td/utils/PersistentTreap.h"
+#include "td/utils/Random.h"
+#include "td/utils/tests.h"
 
 namespace td {
 namespace {
@@ -359,8 +359,8 @@ TEST(PersistentTreap, StressRandomOps) {
         LOG_CHECK(*tv == *rv) << "find(" << key << "): ref=" << *rv << " treap=" << *tv;
       }
     }
-    LOG_CHECK(treap.size() == ref.size()) << "op " << op << " action " << action
-                                          << ": treap size=" << treap.size() << " ref size=" << ref.size();
+    LOG_CHECK(treap.size() == ref.size())
+        << "op " << op << " action " << action << ": treap size=" << treap.size() << " ref size=" << ref.size();
   }
 }
 
@@ -435,8 +435,8 @@ TEST(PersistentTreap, StressRandomDrain) {
     LOG_CHECK(tk == rk) << "drain at(" << idx << "): treap=" << tk << " ref=" << rk;
     treap = treap.erase_at(idx);
     ref = ref.erase_at(idx);
-    LOG_CHECK(treap.size() == ref.size()) << "after erase_at(" << idx << "): treap=" << treap.size()
-                                          << " ref=" << ref.size();
+    LOG_CHECK(treap.size() == ref.size())
+        << "after erase_at(" << idx << "): treap=" << treap.size() << " ref=" << ref.size();
   }
 }
 

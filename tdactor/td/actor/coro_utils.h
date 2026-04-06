@@ -403,7 +403,7 @@ inline StartedTask<td::Unit> coro_sleep(td::Timestamp t) {
 inline Status&& co_try_inner(Status&& value) {
   return std::move(value);
 }
-template<typename T>
+template <typename T>
 Result<T>&& co_try_inner(Result<T>&& value) {
   return std::move(value);
 }
