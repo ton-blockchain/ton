@@ -69,8 +69,13 @@ void ExtMessagePool::install_collator_queue(ShardIdFull shard, std::unique_ptr<E
   }
 
   // Spawn a coroutine that drains the shard slices randomly into the queue
-  auto push_existing = [](ExtMsgQueue queue, td::CancellationToken token, ShardIdFull shard,
-                          Snapshot snapshot) -> td::actor::Task<> {
+  auto push_existing = [](ExtMsgQueue queue, td::CancellationToken token, ShardIdFull shard, Snapshot snapshot,
+                          bool sync_only) -> td::actor::Task<> {
+    SCOPE_EXIT {
+      if (sync_only) {
+        queue.close();
+      }
+    };
     td::Timer t;
     size_t pushed = 0;
     for (auto &[priority, treap] : snapshot) {
@@ -84,7 +89,12 @@ void ExtMessagePool::install_collator_queue(ShardIdFull shard, std::unique_ptr<E
         if (msg->expired() || !msg->is_active()) {
           continue;
         }
-        auto ok = co_await queue.push(std::make_pair(msg->message, priority));
+        bool ok;
+        if (sync_only) {
+          ok = co_await queue.try_push(std::make_pair(msg->message, priority));
+        } else {
+          ok = co_await queue.push(std::make_pair(msg->message, priority));
+        }
         if (!ok) {
           co_return {};
         }
@@ -95,10 +105,14 @@ void ExtMessagePool::install_collator_queue(ShardIdFull shard, std::unique_ptr<E
                  << " in " << t.elapsed() << "s";
     co_return {};
   };
-  push_existing(callback->queue, callback->cancellation_token, shard, std::move(snapshot)).start().detach();
+  push_existing(callback->queue, callback->cancellation_token, shard, std::move(snapshot), callback->sync_only)
+      .start()
+      .detach();
 
-  alarm_timestamp().relax(callback->timeout);
-  callbacks_.push_back(std::move(callback));
+  if (!callback->sync_only) {
+    alarm_timestamp().relax(callback->timeout);
+    callbacks_.push_back(std::move(callback));
+  }
 }
 
 void ExtMessagePool::cleanup_external_messages(ShardIdFull shard) {

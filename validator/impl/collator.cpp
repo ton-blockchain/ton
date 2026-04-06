@@ -244,7 +244,8 @@ void Collator::start_up() {
     auto callback = std::make_unique<ExtMsgCallback>();
     callback->shard = shard_;
     callback->cancellation_token = ext_msg_cancellation_.get_cancellation_token();
-    callback->timeout = params_.wait_externals_until ? params_.wait_externals_until : td::Timestamp::in(0);
+    callback->timeout = params_.wait_externals_until ? params_.wait_externals_until : td::Timestamp::now();
+    callback->sync_only = !params_.wait_externals_until;
     callback->queue = ext_msg_queue_;
     td::actor::send_closure_later(manager, &ValidatorManager::get_external_messages, shard_, std::move(callback));
   }
@@ -4335,7 +4336,13 @@ td::actor::Task<bool> Collator::process_inbound_external_messages() {
       item = std::move(*pending_ext_msg_);
       pending_ext_msg_.reset();
     } else {
-      auto maybe = co_await ext_msg_queue_.try_pop().wrap();
+      td::Result<std::pair<td::Ref<ExtMessage>, int>> maybe;
+      if (params_.wait_externals_until) {
+        maybe = co_await ext_msg_queue_.try_pop().wrap();
+      } else {
+        // In this case queue is closed after pushing the first batch of messages
+        maybe = co_await ext_msg_queue_.pop().wrap();
+      }
       if (maybe.is_error()) {
         break;  // queue empty or closed
       }
