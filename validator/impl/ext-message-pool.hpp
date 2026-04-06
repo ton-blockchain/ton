@@ -16,11 +16,11 @@
 */
 #pragma once
 
+#include <map>
 #include <set>
 
 #include "interfaces/validator-manager.h"
 #include "td/actor/coro_utils.h"
-#include "td/utils/PersistentTreap.h"
 
 #include "external-message.hpp"
 
@@ -29,7 +29,7 @@ namespace ton::validator {
 class ExtMessagePool : public td::actor::Actor {
  public:
   ExtMessagePool(td::Ref<ValidatorManagerOptions> opts, td::actor::ActorId<ValidatorManager> manager)
-      : opts_(opts), manager_(manager) {
+      : opts_(opts), manager_(manager), ext_msgs_(create_ext_msg_snapshot()) {
   }
 
   struct CheckResult {
@@ -53,26 +53,10 @@ class ExtMessagePool : public td::actor::Actor {
   void alarm() override;
 
  private:
-  struct MessageId {
-    AccountIdPrefixFull dst;
-    ExtMessage::Hash hash;
-
-    bool operator<(const MessageId &msg) const {
-      if (dst < msg.dst) {
-        return true;
-      }
-      if (msg.dst < dst) {
-        return false;
-      }
-      return hash < msg.hash;
-    }
-    bool operator==(const MessageId &msg) const {
-      return !(*this < msg) && !(msg < *this);
-    }
-  };
   struct MempoolMsg {
     td::Ref<ExtMessage> message;
     ExtMessage::Hash hash_norm;
+    int priority;
     td::uint32 generation = 0;
     bool active = true;
     td::Timestamp reactivate_at;
@@ -82,29 +66,29 @@ class ExtMessagePool : public td::actor::Actor {
     auto address() const {
       return std::make_pair(message->wc(), message->addr());
     }
-    bool is_active() {
-      if (!active) {
-        if (reactivate_at.is_in_past()) {
-          active = true;
-          generation++;
-        }
-      }
-      return active;
-    }
     bool can_postpone() const {
       return generation <= 2;
+    }
+    bool try_reactivate() {
+      if (active || !reactivate_at.is_in_past()) {
+        return false;
+      }
+      active = true;
+      ++generation;
+      return true;
     }
     void postpone() {
       if (!active) {
         return;
       }
-      active = false;
       reactivate_at = td::Timestamp::in(generation * 5.0);
+      active = false;
     }
     bool expired() const {
       return delete_at.is_in_past();
     }
-    explicit MempoolMsg(td::Ref<ExtMessage> msg) : message(std::move(msg)), hash_norm(message->hash_norm()) {
+    MempoolMsg(td::Ref<ExtMessage> msg, int priority)
+        : message(std::move(msg)), hash_norm(message->hash_norm()), priority(priority) {
       delete_at = td::Timestamp::in(600);
     }
   };
@@ -113,24 +97,12 @@ class ExtMessagePool : public td::actor::Actor {
   td::actor::ActorId<ValidatorManager> manager_;
   td::Ref<MasterchainState> last_masterchain_state_;
 
-  struct ExtMessages {
-    td::PersistentTreap<MessageId, std::shared_ptr<MempoolMsg>> ext_messages_;
-    std::map<std::pair<WorkchainId, StdSmcAddress>, std::map<ExtMessage::Hash, MessageId>> ext_addr_messages_;
-  };
-  struct NormalizedMessageId {
-    int priority;
-    MessageId id;
-
-    bool operator<(const NormalizedMessageId &msg) const {
-      if (priority != msg.priority) {
-        return priority < msg.priority;
-      }
-      return id < msg.id;
-    }
-  };
-  std::map<int, ExtMessages> ext_msgs_;                                        // priority -> messages
-  std::map<ExtMessage::Hash, std::pair<int, MessageId>> ext_messages_hashes_;   // raw hash -> priority
-  std::map<ExtMessage::Hash, std::set<NormalizedMessageId>> ext_messages_hashes_norm_;
+  std::unique_ptr<ExtMsgSnapshot> ext_msgs_;
+  std::map<ExtMessage::Hash, MempoolMsg> ext_msgs_info_;
+  std::map<ExtMessage::Hash, std::set<ExtMessage::Hash>> ext_messages_hashes_norm_;  // normalized hash -> raw hashes
+  std::map<int, size_t> ext_msgs_total_;
+  std::map<int, std::map<std::pair<WorkchainId, StdSmcAddress>, std::set<ExtMessage::Hash>>> ext_addr_messages_;
+  std::multimap<td::Timestamp, ExtMessage::Hash> reactivate_queue_;
 
   struct CheckedExtMsgCounter {
     std::map<std::pair<WorkchainId, StdSmcAddress>, size_t> counter_cur_, counter_prev_;
@@ -146,7 +118,9 @@ class ExtMessagePool : public td::actor::Actor {
   td::Timestamp cleanup_mempool_at_ = td::Timestamp::now();
 
   void add_message_to_mempool(td::Ref<ExtMessage> message, int priority, td::optional<td::uint32> msg_seqno);
-  bool erase_message(int priority, const MessageId &id);
+  bool erase_message(ExtMessage::Hash hash);
+  void notify_callbacks_add(td::Ref<ExtMessage> message, int priority);
+  void reactivate_due();
 
   struct WalletMessageInfo {
     td::uint32 valid_until;

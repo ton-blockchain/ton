@@ -18,13 +18,15 @@
 */
 #pragma once
 
+#include <functional>
+#include <memory>
+#include <optional>
 #include <ton/ton-tl.hpp>
 
 #include "auto/tl/lite_api.h"
 #include "block/signature-set.h"
 #include "crypto/vm/db/DynamicBagOfCellsDb.h"
 #include "impl/out-msg-queue-proof.hpp"
-#include "td/actor/BackpressureQueue.h"
 #include "validator-session/validator-session-types.h"
 #include "validator/validator.h"
 
@@ -221,8 +223,7 @@ struct ValidationStats {
 
     std::string to_str(bool is_cpu) const {
       return PSTRING() << "total=" << total.get(is_cpu) << " trx_tvm=" << trx_tvm.get(is_cpu)
-                       << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
-                       << " trx_other=" << trx_other.get(is_cpu)
+                       << " trx_storage_stat=" << trx_storage_stat.get(is_cpu) << " trx_other=" << trx_other.get(is_cpu)
                        << " unpack_state=" << unpack_state.get(is_cpu)
                        << " validate_block_tlb=" << validate_block_tlb.get(is_cpu)
                        << " precheck_account_updates=" << precheck_account_updates.get(is_cpu)
@@ -265,11 +266,21 @@ struct CollatorNodeResponseStats {
   }
 };
 
-using ExtMsgQueue = td::actor::BackpressureQueue<std::pair<td::Ref<ExtMessage>, int>>;
+struct ExtMsgSnapshot {
+  virtual ~ExtMsgSnapshot() = default;
+  virtual bool empty() const = 0;
+  virtual void push(td::Ref<ExtMessage> message, int priority) = 0;
+  virtual std::optional<std::pair<td::Ref<ExtMessage>, int>> try_pop() = 0;
+  virtual void erase(td::Ref<ExtMessage> message, int priority) = 0;
+  virtual std::unique_ptr<ExtMsgSnapshot> slice(ShardIdFull shard) const = 0;
+};
+
+std::unique_ptr<ExtMsgSnapshot> create_ext_msg_snapshot();
 
 struct ExtMsgCallback {
   ShardIdFull shard;
-  ExtMsgQueue queue;
+  std::function<void(std::unique_ptr<ExtMsgSnapshot>)> on_snapshot;
+  std::function<void(td::Ref<ExtMessage>, int)> on_message;
   td::CancellationToken cancellation_token;
   td::Timestamp timeout;
 };

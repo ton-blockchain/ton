@@ -122,7 +122,10 @@ class Collator final : public td::actor::Actor {
 
   void tear_down() override {
     ext_msg_cancellation_.cancel();
-    ext_msg_queue_.close();
+    if (ext_msg_waker_) {
+      ext_msg_waker_->set_error(td::Status::Error("cancelled"));
+      ext_msg_waker_.reset();
+    }
   }
 
   int verbosity{3 * 0};
@@ -201,8 +204,8 @@ class Collator final : public td::actor::Actor {
   std::unique_ptr<vm::AugmentedDictionary> fees_import_dict_;
 
   std::set<td::Bits256> registered_ext_msgs_;
-  ExtMsgQueue ext_msg_queue_;
-  std::optional<std::pair<td::Ref<ExtMessage>, int>> pending_ext_msg_;
+  std::unique_ptr<ExtMsgSnapshot> ext_msg_snapshot_;
+  std::optional<td::actor::StartedTask<td::Unit>::ExternalPromise> ext_msg_waker_;
   td::CancellationTokenSource ext_msg_cancellation_;
 
   std::priority_queue<NewOutMsg, std::vector<NewOutMsg>, std::greater<NewOutMsg>> new_msgs;
@@ -348,6 +351,9 @@ class Collator final : public td::actor::Actor {
   bool is_our_address(const ton::StdSmcAddress& addr) const;
   td::Status register_external_message(Ref<ExtMessage> ext_msg, int priority);
   td::actor::Task<> wait_for_external_message(td::Timestamp timeout);
+  void install_ext_msg_snapshot(std::unique_ptr<ExtMsgSnapshot> snapshot);
+  void wake_ext_msg_waker();
+  void on_ext_message(td::Ref<ExtMessage> message, int priority);
 
   void register_new_msg(block::NewOutMsg msg);
   void register_new_msgs(block::transaction::Transaction& trans, td::optional<block::MsgMetadata> msg_metadata);
