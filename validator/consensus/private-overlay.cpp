@@ -57,6 +57,7 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     overlay_id_ = overlay_full_id.compute_short_id();
 
     overlay::OverlayOptions options;
+    options.name_ = PSTRING() << "valgroup" << bus.shard.to_str() << "." << bus.cc_seqno;
     options.broadcast_speed_multiplier_ = bus.validator_opts->get_catchain_broadcast_speed_multiplier();
     options.private_ping_peers_ = true;
     options.twostep_broadcast_sender_ = adnl_sender_;

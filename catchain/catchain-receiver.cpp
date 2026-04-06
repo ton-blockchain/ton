@@ -522,6 +522,7 @@ void CatChainReceiverImpl::start_up() {
     root_keys.emplace(get_source(i)->get_hash(), OVERLAY_MAX_ALLOWED_PACKET_SIZE);
   }
   overlay::OverlayOptions overlay_options;
+  overlay_options.name_ = "catchain." + incarnation_.to_hex().substr(0, 4);
   overlay_options.broadcast_speed_multiplier_ = opts_.broadcast_speed_multiplier;
   overlay_options.private_ping_peers_ = true;
   overlay_options.twostep_broadcast_sender_ = adnl_sender_;

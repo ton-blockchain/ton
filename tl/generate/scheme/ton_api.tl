@@ -773,9 +773,13 @@ engine.validator.overlayStatsNode adnl_id:int256 ip_addr:string is_neighbour:Boo
     traffic:engine.validator.overlayStatsTraffic traffic_responses:engine.validator.overlayStatsTraffic
     last_ping_at:double last_ping_time:double = engine.validator.OverlayStatsNode;
 
+engine.validator.overlayStatsBroadcasts source:int256 ts_start:double ts_end:double
+    count:long total_size:long total_out_traffic:long = engine.validator.OverlayStatsBroadcasts;
+
 engine.validator.overlayStats overlay_id:int256 overlay_id_full:PublicKey adnl_id:int256 scope:string
     nodes:(vector engine.validator.overlayStatsNode) stats:(vector engine.validator.oneStat)
     total_traffic:engine.validator.overlayStatsTraffic total_traffic_responses:engine.validator.overlayStatsTraffic
+    broadcasts:(vector engine.validator.overlayStatsBroadcasts)
     extra:string = engine.validator.OverlayStats;
 engine.validator.overlaysStats overlays:(vector engine.validator.overlayStats) = engine.validator.OverlaysStats;
 

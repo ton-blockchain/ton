@@ -327,6 +327,7 @@ void FullNodeCustomOverlay::init() {
   }
   overlay::OverlayPrivacyRules rules{overlay::Overlays::max_fec_broadcast_size(), 0, std::move(authorized_keys)};
   overlay::OverlayOptions overlay_options;
+  overlay_options.name_ = "custom." + name_;
   overlay_options.broadcast_speed_multiplier_ = opts_.private_broadcast_speed_multiplier_;
   overlay_options.send_twostep_broadcast_ = true;
   overlay_options.twostep_broadcast_sender_ = rldp2_;
