@@ -62,6 +62,7 @@ class ApplyBlock : public td::actor::Actor {
 
   void start_up() override;
   void got_block_handle(BlockHandle handle);
+  void got_block_data(td::Ref<BlockData> block);
   void written_block_data();
   void got_prev_state(td::Ref<ShardState> state);
   void got_cur_state(td::Ref<ShardState> state);
@@ -69,6 +70,8 @@ class ApplyBlock : public td::actor::Actor {
   void written_next();
   void applied_prev();
   void applied_set();
+  void cleanup_and_finish();
+  void schedule_external_messages_cleanup();
 
  private:
   BlockIdExt id_;

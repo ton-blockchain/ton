@@ -131,7 +131,7 @@ void ApplyBlock::got_block_handle(BlockHandle handle) {
         td::actor::send_closure(SelfId, &ApplyBlock::abort_query, R.move_as_error());
       } else {
         CHECK(handle->received());
-        td::actor::send_closure(SelfId, &ApplyBlock::written_block_data);
+        td::actor::send_closure(SelfId, &ApplyBlock::got_block_data, R.move_as_ok());
       }
     });
 
@@ -139,6 +139,11 @@ void ApplyBlock::got_block_handle(BlockHandle handle) {
     td::actor::send_closure(manager_, &ValidatorManager::wait_block_data, handle_, apply_block_priority(), timeout_,
                             std::move(P));
   }
+}
+
+void ApplyBlock::got_block_data(td::Ref<BlockData> block) {
+  block_ = std::move(block);
+  written_block_data();
 }
 
 void ApplyBlock::written_block_data() {
@@ -279,14 +284,23 @@ void ApplyBlock::applied_set() {
       if (R.is_error()) {
         td::actor::send_closure(SelfId, &ApplyBlock::abort_query, R.move_as_error());
       } else {
-        td::actor::send_closure(SelfId, &ApplyBlock::finish_query);
+        td::actor::send_closure(SelfId, &ApplyBlock::cleanup_and_finish);
       }
     });
     VLOG(VALIDATOR_DEBUG) << "flush handle";
     handle_->flush(manager_, handle_, std::move(P));
   } else {
-    finish_query();
+    cleanup_and_finish();
   }
+}
+
+void ApplyBlock::schedule_external_messages_cleanup() {
+  td::actor::send_closure(manager_, &ValidatorManager::cleanup_applied_external_messages, handle_, block_);
+}
+
+void ApplyBlock::cleanup_and_finish() {
+  schedule_external_messages_cleanup();
+  finish_query();
 }
 
 }  // namespace validator

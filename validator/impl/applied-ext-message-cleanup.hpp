@@ -13,33 +13,28 @@
 
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
-
-    Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
-#include "crypto/common/refcnt.hpp"
-#include "crypto/vm/cells.h"
-#include "ton/ton-types.h"
+#include "ext-message-pool.hpp"
+#include "interfaces/validator-manager.h"
+#include "td/actor/actor.h"
 
-namespace ton {
+namespace ton::validator {
 
-namespace validator {
-
-class ExtMessage : public td::CntObject {
+class AppliedExtMessageCleanupActor : public td::actor::Actor {
  public:
-  using Hash = Bits256;
+  explicit AppliedExtMessageCleanupActor(td::actor::ActorId<ExtMessagePool> ext_message_pool,
+                                         td::actor::ActorId<ValidatorManager> manager)
+      : ext_message_pool_(ext_message_pool), manager_(manager) {
+  }
 
-  virtual ~ExtMessage() = default;
-  virtual AccountIdPrefixFull shard() const = 0;
-  virtual td::BufferSlice serialize() const = 0;
-  virtual td::Ref<vm::Cell> root_cell() const = 0;
-  virtual Hash hash() const = 0;
-  virtual Hash hash_norm() const = 0;
-  virtual ton::WorkchainId wc() const = 0;
-  virtual ton::StdSmcAddress addr() const = 0;
+  void cleanup_applied_block(BlockHandle handle, td::Ref<BlockData> block);
+  void got_block_data(BlockIdExt block_id, td::Result<td::Ref<BlockData>> block);
+
+ private:
+  td::actor::ActorId<ExtMessagePool> ext_message_pool_;
+  td::actor::ActorId<ValidatorManager> manager_;
 };
 
-}  // namespace validator
-
-}  // namespace ton
+}  // namespace ton::validator

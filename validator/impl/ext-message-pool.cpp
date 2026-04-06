@@ -69,9 +69,9 @@ std::vector<std::pair<td::Ref<ExtMessage>, int>> ExtMessagePool::get_external_me
       }
       ++processed;
       if (it->second->expired()) {
-        msgs.ext_addr_messages_[it->second->address()].erase(it->first.hash);
-        ext_messages_hashes_.erase(it->first.hash);
-        it = msgs.ext_messages_.erase(it);
+        auto id = it->first;
+        ++it;
+        erase_message(priority, id);
         ++deleted;
         continue;
       }
@@ -129,10 +129,7 @@ void ExtMessagePool::complete_external_messages(std::vector<ExtMessage::Hash> to
   for (auto &hash : to_delete) {
     auto it = ext_messages_hashes_.find(hash);
     if (it != ext_messages_hashes_.end()) {
-      int priority = it->second.first;
-      auto msg_id = it->second.second;
-      ext_msgs_[priority].erase(msg_id);
-      ext_messages_hashes_.erase(it);
+      erase_message(it->second.first, it->second.second);
     }
   }
   for (auto &hash : to_delay) {
@@ -145,17 +142,61 @@ void ExtMessagePool::complete_external_messages(std::vector<ExtMessage::Hash> to
       if (msgs.ext_messages_.size() < SOFT_MEMPOOL_LIMIT && it2->second->can_postpone()) {
         it2->second->postpone();
       } else {
-        msgs.erase(msg_id);
-        ext_messages_hashes_.erase(it);
+        erase_message(priority, msg_id);
       }
     }
   }
+}
+
+void ExtMessagePool::erase_external_messages(std::vector<ExtMessage::Hash> to_delete) {
+  applied_ext_msgs_delete_requests_ += to_delete.size();
+  for (auto &hash : to_delete) {
+    auto it = ext_messages_hashes_norm_.find(hash);
+    if (it != ext_messages_hashes_norm_.end()) {
+      auto ids = it->second;
+      for (const auto &message_id : ids) {
+        if (erase_message(message_id.priority, message_id.id)) {
+          ++applied_ext_msgs_deleted_;
+        }
+      }
+    }
+  }
+}
+
+bool ExtMessagePool::erase_message(int priority, const MessageId &id) {
+  auto it_priority = ext_msgs_.find(priority);
+  if (it_priority == ext_msgs_.end()) {
+    return false;
+  }
+  auto &msgs = it_priority->second;
+  auto it = msgs.ext_messages_.find(id);
+  if (it == msgs.ext_messages_.end()) {
+    return false;
+  }
+
+  auto address = it->second->address();
+  auto hash_norm = it->second->hash_norm;
+  msgs.ext_addr_messages_[address].erase(id.hash);
+  msgs.ext_messages_.erase(it);
+  ext_messages_hashes_.erase(id.hash);
+
+  auto it_norm = ext_messages_hashes_norm_.find(hash_norm);
+  if (it_norm != ext_messages_hashes_norm_.end()) {
+    it_norm->second.erase(NormalizedMessageId{priority, id});
+    if (it_norm->second.empty()) {
+      ext_messages_hashes_norm_.erase(it_norm);
+    }
+  }
+  return true;
 }
 
 std::vector<std::pair<std::string, std::string>> ExtMessagePool::prepare_stats() {
   std::vector<std::pair<std::string, std::string>> vec;
   vec.emplace_back("total.ext_msg_check",
                    PSTRING() << "ok:" << total_check_ext_messages_ok_ << " error:" << total_check_ext_messages_error_);
+  vec.emplace_back("total.ext_msg_applied_cleanup",
+                   PSTRING() << "requested:" << applied_ext_msgs_delete_requests_
+                             << " deleted:" << applied_ext_msgs_deleted_);
   return vec;
 }
 
@@ -203,11 +244,12 @@ void ExtMessagePool::add_message_to_mempool(td::Ref<ExtMessage> message, int pri
                 << " to mempool: already exists";
       return;
     }
-    ext_msgs_[old_priority].erase(id);
+    erase_message(old_priority, id);
   }
   msgs.ext_messages_.emplace(id, std::move(msg));
   msgs.ext_addr_messages_[address].emplace(id.hash, id);
   ext_messages_hashes_[id.hash] = {priority, id};
+  ext_messages_hashes_norm_[msgs.ext_messages_[id]->hash_norm].insert(NormalizedMessageId{priority, id});
   LOG(INFO) << "adding message addr=" << wc << ":" << addr.to_hex() << " prio=" << priority << " to mempool";
   std::erase_if(callbacks_, [&](const std::unique_ptr<ExtMsgCallback> &callback) -> bool {
     if (callback->cancellation_token.check().is_error()) {
