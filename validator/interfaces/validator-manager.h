@@ -271,6 +271,7 @@ struct ExtMsgCallback {
   ExtMsgQueue queue;
   td::CancellationToken cancellation_token;
   td::Timestamp timeout;
+  bool sync_only = false;
 };
 
 using ValidateCandidateResult = td::Variant<CandidateAccept, CandidateReject>;

@@ -544,9 +544,15 @@ void ValidatorManagerImpl::wait_block_message_queue_short(BlockIdExt block_id, t
 
 void ValidatorManagerImpl::get_external_messages(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) {
   if (callback) {
-    for (const auto &x : ext_messages_) {
-      callback->queue.try_push(std::make_pair(x, 0)).detach();
-    }
+    auto task = [](std::vector<td::Ref<ExtMessage>> messages,
+                   std::unique_ptr<ExtMsgCallback> callback) -> td::actor::Task<> {
+      for (const auto &x : messages) {
+        co_await callback->queue.try_push(std::make_pair(x, 0));
+      }
+      callback->queue.close();
+      co_return {};
+    };
+    task(ext_messages_, std::move(callback)).start().detach();
   }
 }
 
