@@ -14,8 +14,7 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include <algorithm>
-
+#include "td/utils/PersistentTreap.h"
 #include "td/utils/Random.h"
 
 #include "ext-message-pool.hpp"
@@ -26,45 +25,72 @@
 namespace ton::validator {
 class ExtMsgSnapshotImpl final : public ExtMsgSnapshot {
  public:
-  using Treap = td::PersistentTreap<ExtMessagePool::MessageId, std::shared_ptr<ExtMessagePool::MempoolMsg>>;
-
-  std::map<int, Treap, std::greater<int>> buckets_;
+  struct MessageId {
+    AccountIdPrefixFull dst;
+    ExtMessage::Hash hash;
+    bool operator<(const MessageId &o) const {
+      return dst < o.dst ? true : o.dst < dst ? false : hash < o.hash;
+    }
+  };
+  using Treap = td::PersistentTreap<MessageId, td::Ref<ExtMessage>>;
 
   bool empty() const override {
     return buckets_.empty();
   }
 
-  void push(std::shared_ptr<ExtMsgItem> message, int priority) override {
-    auto msg = std::static_pointer_cast<ExtMessagePool::MempoolMsg>(std::move(message));
-    ExtMessagePool::MessageId id{msg->message->shard(), msg->message->hash()};
+  void push(td::Ref<ExtMessage> message, int priority) override {
     auto &treap = buckets_[priority];
-    treap = treap.insert(id, std::move(msg));
+    treap = treap.insert({message->shard(), message->hash()}, std::move(message));
   }
 
-  std::optional<std::pair<std::shared_ptr<ExtMsgItem>, int>> try_pop() override {
+  std::optional<std::pair<td::Ref<ExtMessage>, int>> try_pop() override {
     if (empty()) {
       return std::nullopt;
     }
     auto it = buckets_.begin();
     auto &[priority, treap] = *it;
-    size_t idx = td::Random::fast_uint32() % treap.size();
-    auto [key, message] = treap.at(idx);
-    treap = treap.erase_at(idx);
+    auto [key, message] = treap.at(td::Random::fast_uint32() % treap.size());
+    treap = treap.erase(key);
     if (treap.empty()) {
       buckets_.erase(it);
     }
-    return std::make_pair(std::static_pointer_cast<ExtMsgItem>(std::move(message)), priority);
+    return std::make_pair(std::move(message), priority);
   }
+
+  void erase(td::Ref<ExtMessage> message, int priority) override {
+    MessageId id{message->shard(), message->hash()};
+    auto it = buckets_.find(priority);
+    if (it == buckets_.end() || !it->second.find(id)) {
+      return;
+    }
+    it->second = it->second.erase(id);
+    if (it->second.empty()) {
+      buckets_.erase(it);
+    }
+  }
+
+  std::unique_ptr<ExtMsgSnapshot> slice(ShardIdFull shard) const override {
+    td::uint64 lo = shard.shard & (shard.shard - 1);
+    td::uint64 hi = (shard.shard | (shard.shard - 1)) + 1;
+    MessageId shard_lo{AccountIdPrefixFull{shard.workchain, lo}, Bits256::zero()};
+    MessageId shard_hi{AccountIdPrefixFull{hi == 0 ? shard.workchain + 1 : shard.workchain, hi}, Bits256::zero()};
+
+    auto snapshot = std::make_unique<ExtMsgSnapshotImpl>();
+    for (const auto &[priority, messages] : buckets_) {
+      auto [_, in_shard, __] = messages.split_range(shard_lo, shard_hi);
+      if (!in_shard.empty()) {
+        snapshot->buckets_.emplace(priority, std::move(in_shard));
+      }
+    }
+    return snapshot;
+  }
+
+ private:
+  std::map<int, Treap, std::greater<int>> buckets_;
 };
 
 std::unique_ptr<ExtMsgSnapshot> create_ext_msg_snapshot() {
   return std::make_unique<ExtMsgSnapshotImpl>();
-}
-
-std::shared_ptr<ExtMsgItem> create_ext_msg_item(td::Ref<ExtMessage> message) {
-  auto msg = std::make_shared<ExtMessagePool::MempoolMsg>(std::move(message));
-  msg->delete_at = td::Timestamp::never();
-  return msg;
 }
 
 td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_add_external_message(td::BufferSlice data,
@@ -95,23 +121,9 @@ td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_add_external_
 }
 
 void ExtMessagePool::install_collator_queue(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) {
-  // Compute shard key range [lo, hi) for splitting
-  td::uint64 lo_prefix = shard.shard & (shard.shard - 1);
-  td::uint64 hi_prefix_plus1 = (shard.shard | (shard.shard - 1)) + 1;  // may overflow to 0
-  MessageId shard_lo{AccountIdPrefixFull{shard.workchain, lo_prefix}, Bits256::zero()};
-  MessageId shard_hi{AccountIdPrefixFull{hi_prefix_plus1 == 0 ? shard.workchain + 1 : shard.workchain, hi_prefix_plus1},
-                     Bits256::zero()};
-
-  // Take O(log n) shard slices from each priority level
-  auto snapshot = std::make_unique<ExtMsgSnapshotImpl>();
-  for (auto it = ext_msgs_.rbegin(); it != ext_msgs_.rend(); ++it) {
-    auto [_, in_shard, __] = it->second.ext_messages_.split_range(shard_lo, shard_hi);
-    if (!in_shard.empty()) {
-      snapshot->buckets_.emplace(it->first, std::move(in_shard));
-    }
-  }
+  reactivate_due();
   if (callback->on_snapshot) {
-    callback->on_snapshot(std::move(snapshot));
+    callback->on_snapshot(ext_msgs_->slice(shard));
   }
 
   alarm_timestamp().relax(callback->timeout);
@@ -119,43 +131,38 @@ void ExtMessagePool::install_collator_queue(ShardIdFull shard, std::unique_ptr<E
 }
 
 void ExtMessagePool::cleanup_external_messages(ShardIdFull shard) {
-  // Clean up expired messages
-  for (auto &[priority, msgs] : ext_msgs_) {
-    std::vector<MessageId> to_erase;
-    for (size_t i = 0; i < msgs.ext_messages_.size(); i++) {
-      auto [key, msg] = msgs.ext_messages_.at(i);
-      if (shard_contains(shard, key.dst) && msg->expired()) {
-        to_erase.push_back(key);
-      }
+  std::vector<ExtMessage::Hash> to_erase;
+  for (const auto &[hash, msg] : ext_msgs_info_) {
+    if (shard_contains(shard, msg.message->shard()) && msg.expired()) {
+      to_erase.push_back(hash);
     }
-    for (auto &id : to_erase) {
-      erase_message(priority, id);
-    }
+  }
+  for (auto &hash : to_erase) {
+    erase_message(hash);
   }
 }
 
 void ExtMessagePool::complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
                                                 std::vector<ExtMessage::Hash> to_delete) {
   for (auto &hash : to_delete) {
-    auto it = ext_messages_hashes_.find(hash);
-    if (it != ext_messages_hashes_.end()) {
-      erase_message(it->second.first, it->second.second);
-    }
+    erase_message(hash);
   }
   for (auto &hash : to_delay) {
-    auto it = ext_messages_hashes_.find(hash);
-    if (it != ext_messages_hashes_.end()) {
-      int priority = it->second.first;
-      auto msg_id = it->second.second;
-      auto &msgs = ext_msgs_[priority];
-      auto msg_opt = msgs.ext_messages_.find(msg_id);
-      if (msg_opt && msgs.ext_messages_.size() < SOFT_MEMPOOL_LIMIT && msg_opt.value()->can_postpone()) {
-        msg_opt.value()->postpone();
-      } else {
-        erase_message(priority, msg_id);
-      }
+    auto it = ext_msgs_info_.find(hash);
+    if (it == ext_msgs_info_.end()) {
+      continue;
+    }
+    auto &msg = it->second;
+    if (ext_msgs_total_[msg.priority] < SOFT_MEMPOOL_LIMIT && msg.can_postpone()) {
+      msg.postpone();
+      ext_msgs_->erase(msg.message, msg.priority);
+      reactivate_queue_.emplace(msg.reactivate_at, hash);
+      alarm_timestamp().relax(msg.reactivate_at);
+    } else {
+      erase_message(hash);
     }
   }
+  reactivate_due();
 }
 
 void ExtMessagePool::erase_external_messages(std::vector<ExtMessage::Hash> to_delete) {
@@ -163,9 +170,9 @@ void ExtMessagePool::erase_external_messages(std::vector<ExtMessage::Hash> to_de
   for (auto &hash : to_delete) {
     auto it = ext_messages_hashes_norm_.find(hash);
     if (it != ext_messages_hashes_norm_.end()) {
-      auto ids = it->second;
-      for (const auto &message_id : ids) {
-        if (erase_message(message_id.priority, message_id.id)) {
+      auto raw_hashes = it->second;
+      for (const auto &raw_hash : raw_hashes) {
+        if (erase_message(raw_hash)) {
           ++applied_ext_msgs_deleted_;
         }
       }
@@ -173,31 +180,77 @@ void ExtMessagePool::erase_external_messages(std::vector<ExtMessage::Hash> to_de
   }
 }
 
-bool ExtMessagePool::erase_message(int priority, const MessageId &id) {
-  auto it_priority = ext_msgs_.find(priority);
-  if (it_priority == ext_msgs_.end()) {
+bool ExtMessagePool::erase_message(ExtMessage::Hash hash) {
+  auto it = ext_msgs_info_.find(hash);
+  if (it == ext_msgs_info_.end()) {
     return false;
   }
-  auto &msgs = it_priority->second;
-  auto msg_opt = msgs.ext_messages_.find(id);
-  if (!msg_opt) {
-    return false;
+  auto message = it->second.message;
+  auto priority = it->second.priority;
+  auto address = it->second.address();
+  auto hash_norm = it->second.hash_norm;
+  ext_msgs_info_.erase(it);
+
+  ext_msgs_->erase(message, priority);
+  auto it_priority = ext_addr_messages_.find(priority);
+  CHECK(it_priority != ext_addr_messages_.end());
+  auto it_addr = it_priority->second.find(address);
+  CHECK(it_addr != it_priority->second.end());
+  CHECK(it_addr->second.erase(hash));
+  if (it_addr->second.empty()) {
+    it_priority->second.erase(it_addr);
+    if (it_priority->second.empty()) {
+      ext_addr_messages_.erase(it_priority);
+    }
   }
-
-  auto address = msg_opt.value()->address();
-  auto hash_norm = msg_opt.value()->hash_norm;
-  msgs.ext_addr_messages_[address].erase(id.hash);
-  msgs.ext_messages_ = msgs.ext_messages_.erase(id);
-  ext_messages_hashes_.erase(id.hash);
-
-  auto it_norm = ext_messages_hashes_norm_.find(hash_norm);
-  if (it_norm != ext_messages_hashes_norm_.end()) {
-    it_norm->second.erase(NormalizedMessageId{priority, id});
+  if (auto it_norm = ext_messages_hashes_norm_.find(hash_norm); it_norm != ext_messages_hashes_norm_.end()) {
+    it_norm->second.erase(hash);
     if (it_norm->second.empty()) {
       ext_messages_hashes_norm_.erase(it_norm);
     }
   }
+  CHECK(ext_msgs_total_[priority] > 0);
+  if (--ext_msgs_total_[priority] == 0) {
+    ext_msgs_total_.erase(priority);
+  }
   return true;
+}
+
+void ExtMessagePool::notify_callbacks_add(td::Ref<ExtMessage> message, int priority) {
+  std::erase_if(callbacks_, [&](const std::unique_ptr<ExtMsgCallback> &callback) -> bool {
+    if (callback->cancellation_token.check().is_error()) {
+      return true;
+    }
+    if (shard_contains(callback->shard, message->shard()) && callback->on_message) {
+      callback->on_message(message, priority);
+    }
+    return false;
+  });
+}
+
+void ExtMessagePool::reactivate_due() {
+  for (auto it = reactivate_queue_.begin(); it != reactivate_queue_.end();) {
+    if (!it->first.is_in_past()) {
+      alarm_timestamp().relax(it->first);
+      return;
+    }
+    auto hash = it->second;
+    it = reactivate_queue_.erase(it);
+    auto it_info = ext_msgs_info_.find(hash);
+    if (it_info == ext_msgs_info_.end()) {
+      continue;
+    }
+    auto &msg = it_info->second;
+    if (msg.expired()) {
+      erase_message(hash);
+      continue;
+    }
+    if (!msg.try_reactivate()) {
+      continue;
+    }
+    ext_msgs_->push(msg.message, msg.priority);
+    notify_callbacks_add(msg.message, msg.priority);
+  }
 }
 
 std::vector<std::pair<std::string, std::string>> ExtMessagePool::prepare_stats() {
@@ -210,6 +263,7 @@ std::vector<std::pair<std::string, std::string>> ExtMessagePool::prepare_stats()
 }
 
 void ExtMessagePool::alarm() {
+  reactivate_due();
   if (cleanup_mempool_at_.is_in_past()) {
     cleanup_external_messages(ShardIdFull{masterchainId, shardIdAll});
     cleanup_external_messages(ShardIdFull{basechainId, shardIdAll});
@@ -229,48 +283,43 @@ void ExtMessagePool::add_message_to_mempool(td::Ref<ExtMessage> message, int pri
                                             td::optional<td::uint32> msg_seqno) {
   WorkchainId wc = message->wc();
   StdSmcAddress addr = message->addr();
-  auto &msgs = ext_msgs_[priority];
-  if (msgs.ext_messages_.size() > opts_->max_mempool_num()) {
+  if (auto it_total = ext_msgs_total_.find(priority);
+      it_total != ext_msgs_total_.end() && it_total->second > opts_->max_mempool_num()) {
     LOG(INFO) << "cannot add message addr=" << wc << ":" << addr.to_hex() << " prio=" << priority
               << " to mempool: mempool is full (limit=" << opts_->max_mempool_num() << ")";
     return;
   }
-  auto msg = std::make_shared<MempoolMsg>(message);
-  msg->msg_seqno = msg_seqno;
-  auto msg_ref = msg;
-  MessageId id{message->shard(), message->hash()};
-  auto address = msg->address();
-  auto it = msgs.ext_addr_messages_.find(address);
-  if (it != msgs.ext_addr_messages_.end() && it->second.size() >= PER_ADDRESS_LIMIT) {
-    LOG(INFO) << "cannot add message addr=" << wc << ":" << addr.to_hex() << " prio=" << priority
-              << " to mempool: per address limit reached (limit=" << PER_ADDRESS_LIMIT << ")";
-    return;
+  auto address = std::make_pair(wc, addr);
+  auto it_priority = ext_addr_messages_.find(priority);
+  if (it_priority != ext_addr_messages_.end()) {
+    if (auto it_addr = it_priority->second.find(address);
+        it_addr != it_priority->second.end() && it_addr->second.size() >= PER_ADDRESS_LIMIT) {
+      LOG(INFO) << "cannot add message addr=" << wc << ":" << addr.to_hex() << " prio=" << priority
+                << " to mempool: per address limit reached (limit=" << PER_ADDRESS_LIMIT << ")";
+      return;
+    }
   }
-  auto it2 = ext_messages_hashes_.find(id.hash);
-  if (it2 != ext_messages_hashes_.end()) {
-    int old_priority = it2->second.first;
-    if (old_priority >= priority) {
+  auto hash = message->hash();
+  auto it2 = ext_msgs_info_.find(hash);
+  if (it2 != ext_msgs_info_.end()) {
+    if (it2->second.priority >= priority) {
       LOG(INFO) << "cannot add message addr=" << wc << ":" << addr.to_hex() << " prio=" << priority
                 << " to mempool: already exists";
       return;
     }
-    erase_message(old_priority, id);
+    erase_message(hash);
   }
-  auto hash_norm = msg->hash_norm;
-  msgs.ext_messages_ = msgs.ext_messages_.insert(id, std::move(msg));
-  msgs.ext_addr_messages_[address].emplace(id.hash, id);
-  ext_messages_hashes_[id.hash] = {priority, id};
-  ext_messages_hashes_norm_[hash_norm].insert(NormalizedMessageId{priority, id});
+  auto msg = MempoolMsg{message, priority};
+  msg.msg_seqno = msg_seqno;
+  auto hash_norm = msg.hash_norm;
+  CHECK(ext_msgs_info_.emplace(hash, std::move(msg)).second);
+  ext_msgs_->push(message, priority);
+  auto &addr_messages = ext_addr_messages_[priority][address];
+  addr_messages.insert(hash);
+  ++ext_msgs_total_[priority];
+  ext_messages_hashes_norm_[hash_norm].insert(hash);
   LOG(INFO) << "adding message addr=" << wc << ":" << addr.to_hex() << " prio=" << priority << " to mempool";
-  std::erase_if(callbacks_, [&](const std::unique_ptr<ExtMsgCallback> &callback) -> bool {
-    if (callback->cancellation_token.check().is_error()) {
-      return true;
-    }
-    if (shard_contains(callback->shard, message->shard()) && callback->on_message) {
-      callback->on_message(std::static_pointer_cast<ExtMsgItem>(msg_ref), priority);
-    }
-    return false;
-  });
+  notify_callbacks_add(message, priority);
 }
 
 td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_message(td::Ref<ExtMessage> message,

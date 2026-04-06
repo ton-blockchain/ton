@@ -266,28 +266,21 @@ struct CollatorNodeResponseStats {
   }
 };
 
-class ExtMessagePool;
-struct ExtMsgItem {
-  virtual ~ExtMsgItem() = default;
-  virtual td::Ref<ExtMessage> get_message() const = 0;
-  virtual bool expired() const = 0;
-  virtual bool is_active() = 0;
-};
-
 struct ExtMsgSnapshot {
   virtual ~ExtMsgSnapshot() = default;
   virtual bool empty() const = 0;
-  virtual void push(std::shared_ptr<ExtMsgItem> message, int priority) = 0;
-  virtual std::optional<std::pair<std::shared_ptr<ExtMsgItem>, int>> try_pop() = 0;
+  virtual void push(td::Ref<ExtMessage> message, int priority) = 0;
+  virtual std::optional<std::pair<td::Ref<ExtMessage>, int>> try_pop() = 0;
+  virtual void erase(td::Ref<ExtMessage> message, int priority) = 0;
+  virtual std::unique_ptr<ExtMsgSnapshot> slice(ShardIdFull shard) const = 0;
 };
 
 std::unique_ptr<ExtMsgSnapshot> create_ext_msg_snapshot();
-std::shared_ptr<ExtMsgItem> create_ext_msg_item(td::Ref<ExtMessage> message);
 
 struct ExtMsgCallback {
   ShardIdFull shard;
   std::function<void(std::unique_ptr<ExtMsgSnapshot>)> on_snapshot;
-  std::function<void(std::shared_ptr<ExtMsgItem>, int)> on_message;
+  std::function<void(td::Ref<ExtMessage>, int)> on_message;
   td::CancellationToken cancellation_token;
   td::Timestamp timeout;
 };

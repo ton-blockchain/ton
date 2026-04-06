@@ -353,7 +353,7 @@ class Collator final : public td::actor::Actor {
   td::actor::Task<> wait_for_external_message(td::Timestamp timeout);
   void install_ext_msg_snapshot(std::unique_ptr<ExtMsgSnapshot> snapshot);
   void wake_ext_msg_waker();
-  void on_ext_message(std::shared_ptr<ExtMsgItem> message, int priority);
+  void on_ext_message(td::Ref<ExtMessage> message, int priority);
 
   void register_new_msg(block::NewOutMsg msg);
   void register_new_msgs(block::transaction::Transaction& trans, td::optional<block::MsgMetadata> msg_metadata);

@@ -19,7 +19,6 @@
 #include <algorithm>
 #include <cassert>
 #include <ctime>
-#include <utility>
 
 #include "adnl/utils.hpp"
 #include "block/block-auto.h"
@@ -249,7 +248,7 @@ void Collator::start_up() {
     callback->on_snapshot = [self](std::unique_ptr<ExtMsgSnapshot> snapshot) mutable {
       td::actor::send_closure(self, &Collator::install_ext_msg_snapshot, std::move(snapshot));
     };
-    callback->on_message = [self](std::shared_ptr<ExtMsgItem> message, int priority) mutable {
+    callback->on_message = [self](td::Ref<ExtMessage> message, int priority) mutable {
       td::actor::send_closure(self, &Collator::on_ext_message, std::move(message), priority);
     };
     td::actor::send_closure_later(manager, &ValidatorManager::get_external_messages, shard_, std::move(callback));
@@ -4341,11 +4340,7 @@ td::actor::Task<bool> Collator::process_inbound_external_messages() {
       break;
     }
     WorkTimerGuard timer_guard(work_timer_);
-    auto [ext_msg_item, priority] = std::move(*item);
-    if (ext_msg_item->expired() || !ext_msg_item->is_active()) {
-      continue;
-    }
-    auto ext_msg_ref = ext_msg_item->get_message();
+    auto [ext_msg_ref, priority] = std::move(*item);
     ++stats_.ext_msgs_total;
     if (register_external_message(ext_msg_ref, priority).is_error()) {
       ++stats_.ext_msgs_filtered;
@@ -6681,8 +6676,8 @@ void Collator::install_ext_msg_snapshot(std::unique_ptr<ExtMsgSnapshot> snapshot
   wake_ext_msg_waker();
 }
 
-void Collator::on_ext_message(std::shared_ptr<ExtMsgItem> message, int priority) {
-  if (!shard_contains(shard_, message->get_message()->shard())) {
+void Collator::on_ext_message(td::Ref<ExtMessage> message, int priority) {
+  if (!shard_contains(shard_, message->shard())) {
     return;
   }
   if (!ext_msg_snapshot_) {

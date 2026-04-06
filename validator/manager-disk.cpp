@@ -548,7 +548,7 @@ void ValidatorManagerImpl::get_external_messages(ShardIdFull shard, std::unique_
   }
   if (callback && callback->on_message) {
     for (const auto &x : ext_messages_) {
-      callback->on_message(create_ext_msg_item(x), 0);
+      callback->on_message(x, 0);
     }
   }
 }
