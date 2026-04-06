@@ -33,8 +33,7 @@ class QuicConnectionRateLimiters {
     if (!(cleanup_at_ && cleanup_at_.is_in_past())) {
       return;
     }
-    td::table_remove_if(
-        limiters_, [](const auto &it) { return it.second.last_take_at() < td::Timestamp::in(-it.second.period()); });
+    td::table_remove_if(limiters_, [](const auto &it) { return it.second.is_full(); });
     cleanup_at_ = limiters_.empty() ? td::Timestamp::never() : td::Timestamp::in(10.0);
   }
 
