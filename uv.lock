@@ -606,6 +606,11 @@ dependencies = [
     { name = "types-gdb" },
 ]
 
+[package.optional-dependencies]
+consensus-explorer = [
+    { name = "tontester", extra = ["consensus-explorer"] },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "basedpyright" },
@@ -617,8 +622,10 @@ requires-dist = [
     { name = "pytest", specifier = ">=9.0.1" },
     { name = "pytest-asyncio" },
     { name = "tontester", editable = "test/tontester" },
+    { name = "tontester", extras = ["consensus-explorer"], marker = "extra == 'consensus-explorer'", editable = "test/tontester" },
     { name = "types-gdb", specifier = ">=16.3.0.20250920" },
 ]
+provides-extras = ["consensus-explorer"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -631,19 +638,24 @@ name = "tontester"
 version = "0.1.0"
 source = { editable = "test/tontester" }
 dependencies = [
+    { name = "pytoniq-core" },
+]
+
+[package.optional-dependencies]
+consensus-explorer = [
     { name = "dash" },
     { name = "plotly" },
-    { name = "pytoniq-core" },
     { name = "watchfiles" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "dash" },
-    { name = "plotly" },
+    { name = "dash", marker = "extra == 'consensus-explorer'" },
+    { name = "plotly", marker = "extra == 'consensus-explorer'" },
     { name = "pytoniq-core" },
-    { name = "watchfiles", specifier = ">=1.1.1" },
+    { name = "watchfiles", marker = "extra == 'consensus-explorer'", specifier = ">=1.1.1" },
 ]
+provides-extras = ["consensus-explorer"]
 
 [[package]]
 name = "types-gdb"
