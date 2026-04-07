@@ -555,6 +555,7 @@ add_subdirectory(crypto)
 add_subdirectory(lite-client)
 add_subdirectory(emulator)
 add_subdirectory(tolk)
+add_subdirectory(tools/gettx)
 
 #BEGIN tonlib
 add_subdirectory(tonlib)
