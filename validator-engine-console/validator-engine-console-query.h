@@ -832,6 +832,30 @@ class AddNetworkAddressQuery : public Query {
   std::vector<td::int32> prio_cats_;
 };
 
+class DelNetworkAddressQuery : public Query {
+ public:
+  DelNetworkAddressQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "del-addr";
+  }
+  static std::string get_help() {
+    return "del-addr <ip> {cats...} {priocats...}\tremoves ip address from address list";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  td::IPAddress addr_;
+  std::vector<td::int32> cats_;
+  std::vector<td::int32> prio_cats_;
+};
+
 class AddNetworkProxyAddressQuery : public Query {
  public:
   AddNetworkProxyAddressQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
@@ -872,6 +896,30 @@ class AddQuicAddressQuery : public Query {
   }
   static std::string get_help() {
     return "add-quic-addr <ip> {cats...} {priocats...}\tadds quic ip address to address list";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  td::IPAddress addr_;
+  std::vector<td::int32> cats_;
+  std::vector<td::int32> prio_cats_;
+};
+
+class DelQuicAddressQuery : public Query {
+ public:
+  DelQuicAddressQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "del-quic-addr";
+  }
+  static std::string get_help() {
+    return "del-quic-addr <ip> {cats...} {priocats...}\tremoves quic ip address from address list";
   }
   std::string name() const override {
     return get_name();

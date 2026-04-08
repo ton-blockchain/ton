@@ -773,9 +773,13 @@ engine.validator.overlayStatsNode adnl_id:int256 ip_addr:string is_neighbour:Boo
     traffic:engine.validator.overlayStatsTraffic traffic_responses:engine.validator.overlayStatsTraffic
     last_ping_at:double last_ping_time:double = engine.validator.OverlayStatsNode;
 
+engine.validator.overlayStatsBroadcasts source:int256 ts_start:double ts_end:double
+    count:long total_size:long total_out_traffic:long = engine.validator.OverlayStatsBroadcasts;
+
 engine.validator.overlayStats overlay_id:int256 overlay_id_full:PublicKey adnl_id:int256 scope:string
     nodes:(vector engine.validator.overlayStatsNode) stats:(vector engine.validator.oneStat)
     total_traffic:engine.validator.overlayStatsTraffic total_traffic_responses:engine.validator.overlayStatsTraffic
+    broadcasts:(vector engine.validator.overlayStatsBroadcasts)
     extra:string = engine.validator.OverlayStats;
 engine.validator.overlaysStats overlays:(vector engine.validator.overlayStats) = engine.validator.OverlaysStats;
 
@@ -1254,6 +1258,8 @@ consensus.simplex.noncriticalParams
     max_leader_window_desync:flags.10?int
     bad_signature_ban_duration_ms:flags.11?int
     candidate_resolve_rate_limit:flags.12?int
+    min_block_interval_ms:flags.13?int
+    no_empty_blocks_on_error_timeout_ms:flags.14?int
     = consensus.NoncriticalParams;
 
 consensus.noncriticalParamsOverride

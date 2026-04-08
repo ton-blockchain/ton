@@ -18,6 +18,7 @@
 */
 #include <atomic>
 #include <cmath>
+#include <mutex>
 
 #include "td/utils/Time.h"
 
@@ -28,8 +29,23 @@ bool operator==(Timestamp a, Timestamp b) {
 }
 namespace {
 std::atomic<double> time_diff;
-}
+
+bool freezes_allowed{false};
+std::mutex time_mutex;
+bool is_frozen{false};
+double frozen_time;
+double frozen_system;
+}  // namespace
+
 double Time::now() {
+  if (freezes_allowed) {
+    std::lock_guard lock(time_mutex);
+    if (is_frozen) {
+      return frozen_time;
+    }
+    return now_unadjusted() + time_diff;
+  }
+
   return now_unadjusted() + time_diff.load(std::memory_order_relaxed);
 }
 
@@ -37,7 +53,34 @@ double Time::now_unadjusted() {
   return Clocks::monotonic();
 }
 
+double Time::system_now() {
+  if (freezes_allowed) {
+    std::lock_guard lock(time_mutex);
+    if (is_frozen) {
+      return frozen_system;
+    }
+  }
+
+  return Clocks::system();
+}
+
 void Time::jump_in_future(double at) {
+  if (freezes_allowed) {
+    std::lock_guard lock(time_mutex);
+    if (is_frozen) {
+      if (at > frozen_time) {
+        frozen_system += at - frozen_time;
+        frozen_time = at;
+      }
+    } else {
+      time_diff = at - now_unadjusted();
+      if (time_diff < 0) {
+        time_diff = 0;
+      }
+    }
+    return;
+  }
+
   auto old_time_diff = time_diff.load();
 
   while (true) {
@@ -48,6 +91,27 @@ void Time::jump_in_future(double at) {
     if (time_diff.compare_exchange_strong(old_time_diff, old_time_diff + diff)) {
       return;
     }
+  }
+}
+
+void Time::allow_freezes() {
+  freezes_allowed = true;
+}
+
+void Time::freeze() {
+  CHECK(freezes_allowed);
+  std::lock_guard lock(time_mutex);
+  frozen_time = now_unadjusted() + time_diff.load(std::memory_order_relaxed);
+  frozen_system = Clocks::system();
+  is_frozen = true;
+}
+
+void Time::unfreeze() {
+  CHECK(freezes_allowed);
+  std::lock_guard lock(time_mutex);
+  if (is_frozen) {
+    time_diff.store(frozen_time - now_unadjusted(), std::memory_order_relaxed);
+    is_frozen = false;
   }
 }
 

@@ -87,6 +87,9 @@ class Collator final : public td::actor::Actor {
   ton::BlockSeqno prev_key_block_seqno_{0};
   int step{0};
   int pending{0};
+  td::Timestamp collator_started_at_ = td::Timestamp::now();
+  td::Timestamp do_collate_started_at_;
+  double wait_externals_total_time_ = 0.0;
   static constexpr int max_ihr_msg_size = 65535;   // 64k
   static constexpr int max_ext_msg_size = 65535;   // 64k
   static constexpr int max_blk_sign_size = 65535;  // 64k
@@ -119,6 +122,12 @@ class Collator final : public td::actor::Actor {
   void start_up() override;
   void load_prev_states_blocks();
   void alarm() override;
+
+  void tear_down() override {
+    ext_msg_cancellation_.cancel();
+    ext_msg_queue_.close();
+  }
+
   int verbosity{3 * 0};
   int verify{1};
   bool full_collated_data_ = false;
@@ -193,13 +202,12 @@ class Collator final : public td::actor::Actor {
   Ref<vm::Cell> new_block;
   block::ValueFlow value_flow_{block::ValueFlow::SetZero()};
   std::unique_ptr<vm::AugmentedDictionary> fees_import_dict_;
-  std::map<ton::Bits256, int> ext_msg_map;
-  struct ExtMsg {
-    Ref<vm::Cell> cell;
-    ExtMessage::Hash hash;
-    int priority;
-  };
-  std::vector<ExtMsg> ext_msg_list_;
+
+  std::set<td::Bits256> registered_ext_msgs_;
+  ExtMsgQueue ext_msg_queue_;
+  std::optional<std::pair<td::Ref<ExtMessage>, int>> pending_ext_msg_;
+  td::CancellationTokenSource ext_msg_cancellation_;
+
   std::priority_queue<NewOutMsg, std::vector<NewOutMsg>, std::greater<NewOutMsg>> new_msgs;
   std::pair<ton::LogicalTime, ton::Bits256> last_proc_int_msg_, first_unproc_int_msg_;
   block::tlb::Aug_InMsgDescr aug_InMsgDescr{0};
@@ -300,7 +308,9 @@ class Collator final : public td::actor::Actor {
   bool init_value_create();
   bool try_collate();
   bool do_preinit();
-  bool do_collate();
+
+  td::actor::Task<> do_collate();
+  td::actor::Task<> do_collate_inner();
   bool create_special_transactions();
   bool create_special_transaction(block::CurrencyCollection amount, Ref<vm::Cell> dest_addr_cell,
                                   Ref<vm::Cell>& in_msg);
@@ -339,19 +349,18 @@ class Collator final : public td::actor::Actor {
   bool is_our_address(Ref<vm::CellSlice> addr_ref) const;
   bool is_our_address(ton::AccountIdPrefixFull addr_prefix) const;
   bool is_our_address(const ton::StdSmcAddress& addr) const;
-  void after_get_external_messages(td::Result<std::vector<std::pair<Ref<ExtMessage>, int>>> res,
-                                   td::PerfLogAction token);
-  td::Result<bool> register_external_message_cell(Ref<vm::Cell> ext_msg, const ExtMessage::Hash& ext_hash,
-                                                  int priority);
-  // td::Result<bool> register_external_message(td::Slice ext_msg_boc);
+  td::Status register_external_message(Ref<ExtMessage> ext_msg, int priority);
+  td::actor::Task<> wait_for_external_message(td::Timestamp timeout);
+
   void register_new_msg(block::NewOutMsg msg);
   void register_new_msgs(block::transaction::Transaction& trans, td::optional<block::MsgMetadata> msg_metadata);
-  bool process_new_messages(bool enqueue_only = false);
+  bool process_new_messages(bool& enqueue_only);
   int process_one_new_message(block::NewOutMsg msg, bool enqueue_only = false, Ref<vm::Cell>* is_special = nullptr);
   bool process_inbound_internal_messages();
   bool precheck_inbound_message(Ref<vm::CellSlice> msg, ton::LogicalTime lt);
   bool process_inbound_message(Ref<vm::CellSlice> msg, ton::LogicalTime lt, td::ConstBitPtr key, int src_nb_idx);
-  bool process_inbound_external_messages();
+  td::actor::Task<> process_external_and_new_messages();
+  td::actor::Task<bool> process_inbound_external_messages();
   int process_external_message(Ref<vm::Cell> msg);
   bool process_dispatch_queue();
   bool process_deferred_message(Ref<vm::CellSlice> enq_msg, StdSmcAddress src_addr, LogicalTime lt,

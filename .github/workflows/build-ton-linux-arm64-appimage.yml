@@ -94,3 +94,4 @@ jobs:
       with:
         name: ton-arm64-linux
         path: appimages/artifacts
+        retention-days: 14

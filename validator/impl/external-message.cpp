@@ -18,7 +18,6 @@
 */
 
 #include "block/block-auto.h"
-#include "block/block-db.h"
 #include "block/block-parse.h"
 #include "crypto/openssl/rand.hpp"
 #include "td/actor/actor.h"
@@ -34,9 +33,50 @@ namespace validator {
 using td::Ref;
 
 ExtMessageQ::ExtMessageQ(td::BufferSlice data, td::Ref<vm::Cell> root, AccountIdPrefixFull addr_prefix,
-                         ton::WorkchainId wc, ton::StdSmcAddress addr)
-    : root_(std::move(root)), addr_prefix_(addr_prefix), data_(std::move(data)), wc_(wc), addr_(addr) {
-  hash_ = block::compute_file_hash(data_);
+                         ton::WorkchainId wc, ton::StdSmcAddress addr, Hash hash, Hash hash_norm)
+    : root_(std::move(root))
+    , addr_prefix_(addr_prefix)
+    , data_(std::move(data))
+    , hash_(hash)
+    , hash_norm_(hash_norm)
+    , wc_(wc)
+    , addr_(addr) {
+}
+
+td::Result<td::Bits256> get_ext_in_msg_hash_norm(td::Ref<vm::Cell> ext_in_msg_cell) {
+  block::gen::Message::Record message;
+  if (!tlb::type_unpack_cell(ext_in_msg_cell, block::gen::t_Message_Any, message)) {
+    return td::Status::Error("Failed to unpack Message");
+  }
+  auto tag = block::gen::CommonMsgInfo().get_tag(*message.info);
+  if (tag != block::gen::CommonMsgInfo::ext_in_msg_info) {
+    return td::Status::Error("CommonMsgInfo tag is not ext_in_msg_info");
+  }
+  block::gen::CommonMsgInfo::Record_ext_in_msg_info msg_info;
+  if (!tlb::csr_unpack(message.info, msg_info)) {
+    return td::Status::Error("Failed to unpack CommonMsgInfo::ext_in_msg_info");
+  }
+
+  td::Ref<vm::Cell> body;
+  auto body_cs = message.body.write();
+  if (body_cs.fetch_ulong(1) == 1) {
+    body = body_cs.fetch_ref();
+  } else {
+    body = vm::CellBuilder().append_cellslice(body_cs).finalize();
+  }
+
+  vm::CellBuilder cb;
+  bool ok = cb.store_long_bool(2, 2) &&  // message$_ -> info:CommonMsgInfo -> ext_in_msg_info$10
+            cb.store_long_bool(0, 2) &&  // message$_ -> info:CommonMsgInfo -> src:MsgAddressExt -> addr_none$00
+            cb.append_cellslice_bool(msg_info.dest) &&  // message$_ -> info:CommonMsgInfo -> dest:MsgAddressInt
+            cb.store_long_bool(0, 4) &&                 // message$_ -> info:CommonMsgInfo -> import_fee:Grams -> 0
+            cb.store_long_bool(0, 1) &&  // message$_ -> init:(Maybe (Either StateInit ^StateInit)) -> nothing$0
+            cb.store_long_bool(1, 1) &&  // message$_ -> body:(Either X ^X) -> right$1
+            cb.store_ref_bool(body);
+  if (!ok) {
+    return td::Status::Error("Failed to build normalized message");
+  }
+  return cb.finalize()->get_hash().bits();
 }
 
 td::Result<Ref<ExtMessageQ>> ExtMessageQ::create_ext_message(td::BufferSlice data,
@@ -84,7 +124,8 @@ td::Result<Ref<ExtMessageQ>> ExtMessageQ::create_ext_message(td::BufferSlice dat
     return td::Status::Error(PSLICE() << "Can't parse destination address");
   }
 
-  return Ref<ExtMessageQ>{true, std::move(data), std::move(ext_msg), dest_prefix, wc, addr};
+  TRY_RESULT(hash_norm, get_ext_in_msg_hash_norm(ext_msg));
+  return Ref<ExtMessageQ>{true, std::move(data), std::move(ext_msg), dest_prefix, wc, addr, hash, hash_norm};
 }
 
 td::Status ExtMessageQ::run_message_on_account(ton::WorkchainId wc, block::Account* acc, UnixTime utime, LogicalTime lt,

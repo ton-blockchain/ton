@@ -422,7 +422,7 @@ td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) 
   local_keys_.emplace(local_id, td::Ed25519::PrivateKey(ed25519_key.as_octet_string()));
 
   if (servers_.find(local_id) != servers_.end()) {
-    LOG(INFO) << "Local id has already been added: " << local_id;
+    LOG(DEBUG) << "Local id has already been added: " << local_id;
     co_return td::Unit{};  // already added
   }
 
@@ -544,7 +544,7 @@ td::Result<td::Unit> QuicSender::on_connected_inner(td::actor::ActorId<QuicServe
   LOG(ERROR) << "Create inbound " << path;
   if (auto old_it = inbound_.find(path); old_it != inbound_.end()) {
     auto old_conn = old_it->second;
-    td::actor::send_closure(old_conn->server, &QuicServer::close, old_conn->cid);
+    td::actor::send_closure(old_conn->server, &QuicServer::on_connection_closed, old_conn->cid);
     inbound_.erase(old_it);
   }
   connection = std::make_shared<Connection>();
@@ -569,7 +569,7 @@ void QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicConnect
       LOG(WARNING) << "Failed to init connection: " << connection->path << " " << result.error();
       connection->init_error = result.move_as_error();
     }
-    td::actor::send_closure(server, &QuicServer::close, cid);
+    td::actor::send_closure(server, &QuicServer::on_connection_closed, cid);
     return;
   }
 

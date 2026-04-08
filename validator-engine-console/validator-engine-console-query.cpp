@@ -678,6 +678,28 @@ td::Status AddNetworkAddressQuery::receive(td::BufferSlice data) {
   return td::Status::OK();
 }
 
+td::Status DelNetworkAddressQuery::run() {
+  TRY_RESULT_ASSIGN(addr_, tokenizer_.get_token<td::IPAddress>());
+  TRY_RESULT_ASSIGN(cats_, tokenizer_.get_token_vector<td::int32>());
+  TRY_RESULT_ASSIGN(prio_cats_, tokenizer_.get_token_vector<td::int32>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status DelNetworkAddressQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_delListeningPort>(
+      static_cast<td::int32>(addr_.get_ipv4()), addr_.get_port(), std::move(cats_), std::move(prio_cats_));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status DelNetworkAddressQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}
+
 td::Status AddNetworkProxyAddressQuery::run() {
   TRY_RESULT_ASSIGN(in_addr_, tokenizer_.get_token<td::IPAddress>());
   TRY_RESULT_ASSIGN(out_addr_, tokenizer_.get_token<td::IPAddress>());
@@ -721,6 +743,28 @@ td::Status AddQuicAddressQuery::send() {
 }
 
 td::Status AddQuicAddressQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}
+
+td::Status DelQuicAddressQuery::run() {
+  TRY_RESULT_ASSIGN(addr_, tokenizer_.get_token<td::IPAddress>());
+  TRY_RESULT_ASSIGN(cats_, tokenizer_.get_token_vector<td::int32>());
+  TRY_RESULT_ASSIGN(prio_cats_, tokenizer_.get_token_vector<td::int32>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status DelQuicAddressQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_delQuicAddr>(
+      static_cast<td::int32>(addr_.get_ipv4()), addr_.get_port(), std::move(cats_), std::move(prio_cats_));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status DelQuicAddressQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
                     "received incorrect answer: ");
   td::TerminalIO::out() << "success\n";
@@ -953,14 +997,26 @@ td::Status GetOverlaysStatsQuery::receive(td::BufferSlice data) {
     for (auto &t : s->stats_) {
       sb << "    " << t->key_ << "\t" << t->value_ << "\n";
     }
+    sb << "  broadcasts:\n";
+    for (auto &t : s->broadcasts_) {
+      if (t->source_.is_zero()) {
+        sb << "    Unauthorized";
+      } else {
+        sb << "    " << t->source_;
+      }
+      sb << " : " << (int)t->ts_start_ << "-" << (int)t->ts_end_ << " : count=" << t->count_
+         << " total_size=" << t->total_size_ << " total_out_traffic=" << t->total_out_traffic_ << "\n";
+    }
     td::TerminalIO::output(sb.as_cslice());
   }
   return td::Status::OK();
 }
 
 td::Status GetOverlaysStatsJsonQuery::run() {
-  TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
-  TRY_STATUS(tokenizer_.check_endl());
+  if (!tokenizer_.endl()) {
+    TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
+    TRY_STATUS(tokenizer_.check_endl());
+  }
   return td::Status::OK();
 }
 
@@ -973,7 +1029,7 @@ td::Status GetOverlaysStatsJsonQuery::send() {
 td::Status GetOverlaysStatsJsonQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_overlaysStats>(data.as_slice(), true),
                     "received incorrect answer: ");
-  std::ofstream sb(file_name_);
+  td::StringBuilder sb;
 
   sb << "[\n";
   bool rtail = false;
@@ -1039,22 +1095,33 @@ td::Status GetOverlaysStatsJsonQuery::receive(td::BufferSlice data) {
       sb << "   \"" << t->key_ << "\": \"" << t->value_ << "\"";
     }
     sb << "\n  }";
-    if (!s->extra_.empty()) {
-      sb << ",\n  \"extra\": ";
-      for (char c : s->extra_) {
+    auto append_json = [&](const std::string &str) {
+      for (char c : str) {
         if (c == '\n') {
           sb << "\n  ";
         } else {
           sb << c;
         }
       }
+    };
+    if (!s->broadcasts_.empty()) {
+      sb << ",\n  \"broadcasts\": ";
+      append_json(td::json_encode<std::string>(td::ToJson(s->broadcasts_), true));
+    }
+    if (!s->extra_.empty()) {
+      sb << ",\n  \"extra\": ";
+      append_json(s->extra_);
     }
     sb << "\n}\n";
   }
   sb << "]\n";
-  sb << std::flush;
 
-  td::TerminalIO::output(std::string("wrote stats to " + file_name_ + "\n"));
+  if (file_name_.empty()) {
+    td::TerminalIO::out() << sb.as_cslice();
+  } else {
+    TRY_STATUS(td::write_file(file_name_, sb.as_cslice()));
+    td::TerminalIO::output(std::string("wrote stats to " + file_name_ + "\n"));
+  }
   return td::Status::OK();
 }
 

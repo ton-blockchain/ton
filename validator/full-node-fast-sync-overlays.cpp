@@ -377,13 +377,19 @@ void FullNodeFastSyncOverlay::init() {
   };
 
   td::actor::send_closure(adnl_sender_, &adnl::AdnlSenderEx::add_id, local_id_);
+  // Enable quic server even if use_quic is not set
+  td::actor::send_closure(quic_, &quic::QuicSender::add_id, local_id_);
 
-  overlay::OverlayPrivacyRules rules{overlay::Overlays::max_fec_broadcast_size(),
-                                     overlay::CertificateFlags::AllowFec | overlay::CertificateFlags::Trusted,
-                                     {}};
+  std::map<PublicKeyHash, td::uint32> authorized_keys;
+  // FIXME: allow broadcasts from non-validators when needed
+  for (auto id : current_validators_adnl_) {
+    authorized_keys[id.pubkey_hash()] = overlay::Overlays::max_fec_broadcast_size();
+  }
+  overlay::OverlayPrivacyRules rules{0, 0, std::move(authorized_keys)};
   std::string scope = PSTRING() << R"({ "type": "fast-sync", "shard_id": )" << shard_.shard
                                 << ", \"workchain_id\": " << shard_.workchain << " }";
   overlay::OverlayOptions options;
+  options.name_ = "fast-sync" + shard_.to_str();
   if (!shard_.is_masterchain()) {
     options.default_permanent_members_flags_ = overlay::OverlayMemberFlags::DoNotReceiveBroadcasts;
   }
@@ -637,7 +643,7 @@ void FullNodeFastSyncOverlays::update_overlays(
         overlay = td::actor::create_actor<FullNodeFastSyncOverlay>(
             PSTRING() << "FastSyncOv" << shard.to_str(), local_id, shard, zero_state_file_hash, root_public_keys_,
             current_validators_adnl_, overlays_info.current_certificate_, receive_broadcasts, send_twostep_broadcasts,
-            broadcast_speed_multiplier, keyring, adnl, adnl_sender, overlays, validator_manager, full_node);
+            broadcast_speed_multiplier, keyring, adnl, adnl_sender, quic, overlays, validator_manager, full_node);
       } else {
         td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_params, receive_broadcasts,
                                 send_twostep_broadcasts, adnl_sender);

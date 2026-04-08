@@ -26,6 +26,7 @@
 #include "downloaders/wait-block-data.hpp"
 #include "downloaders/wait-block-state-merge.hpp"
 #include "downloaders/wait-block-state.hpp"
+#include "impl/applied-ext-message-cleanup.hpp"
 #include "interfaces/validator-full-id.h"
 #include "td/actor/MultiPromise.h"
 #include "td/actor/coro_utils.h"
@@ -1109,10 +1110,8 @@ void ValidatorManagerImpl::wait_block_message_queue_short(BlockIdExt block_id, t
   get_block_handle(block_id, true, std::move(P));
 }
 
-void ValidatorManagerImpl::get_external_messages(
-    ShardIdFull shard, td::Promise<std::vector<std::pair<td::Ref<ExtMessage>, int>>> promise) {
-  td::actor::send_closure(ext_message_pool_, &ExtMessagePool::get_external_messages_for_collator, shard,
-                          std::move(promise));
+void ValidatorManagerImpl::get_external_messages(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) {
+  td::actor::send_closure(ext_message_pool_, &ExtMessagePool::install_collator_queue, shard, std::move(callback));
 }
 
 void ValidatorManagerImpl::get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) {
@@ -1134,6 +1133,14 @@ void ValidatorManagerImpl::complete_external_messages(std::vector<ExtMessage::Ha
                                                       std::vector<ExtMessage::Hash> to_delete) {
   td::actor::send_closure(ext_message_pool_, &ExtMessagePool::complete_external_messages, std::move(to_delay),
                           std::move(to_delete));
+}
+
+void ValidatorManagerImpl::cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) {
+  if (applied_ext_message_cleanup_actor_.empty() || !handle) {
+    return;
+  }
+  td::actor::send_closure(applied_ext_message_cleanup_actor_, &AppliedExtMessageCleanupActor::cleanup_applied_block,
+                          std::move(handle), std::move(block));
 }
 
 void ValidatorManagerImpl::complete_ihr_messages(std::vector<IhrMessage::Hash> to_delay,
@@ -1927,6 +1934,8 @@ void ValidatorManagerImpl::start_up() {
   token_manager_ = td::actor::create_actor<TokenManager>("tokenmanager");
   storage_stat_cache_ = td::actor::create_actor<StorageStatCache>("storagestatcache");
   ext_message_pool_ = td::actor::create_actor<ExtMessagePool>("extmessages", opts_, actor_id(this));
+  applied_ext_message_cleanup_actor_ = td::actor::create_actor<AppliedExtMessageCleanupActor>(
+      "extmessagecleanup", ext_message_pool_.get(), actor_id(this));
   td::mkdir(db_root_ + "/tmp/").ensure();
   td::mkdir(db_root_ + "/catchains/").ensure();
 

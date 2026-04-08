@@ -55,3 +55,4 @@ jobs:
       with:
         name: ton-wasm
         path: artifacts
+        retention-days: 14

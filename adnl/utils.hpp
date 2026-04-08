@@ -43,34 +43,32 @@ inline bool adnl_node_is_older(AdnlNode &a, AdnlNode &b) {
 class RateLimiter {
  public:
   explicit RateLimiter(td::uint32 capacity, double period)
-      : capacity_(capacity), period_(period), remaining_(capacity) {
+      : period_(period), emission_interval_(make_emission_interval(capacity, period)), ready_at_{-emission_interval_} {
   }
 
   bool take() {
-    last_take_at_ = td::Timestamp::now();
-    while (remaining_ < capacity_ && increment_at_.is_in_past()) {
-      ++remaining_;
-      increment_at_ += period_;
+    const auto now = td::Timestamp::now();
+    auto min_ready_at = now.at() - emission_interval_;
+    if (ready_at_ < min_ready_at) {
+      ready_at_ = min_ready_at;
     }
-    if (remaining_) {
-      --remaining_;
-      if (increment_at_.is_in_past()) {
-        increment_at_ = td::Timestamp::in(period_);
-      }
-      return true;
+    if (ready_at_ > now.at()) {
+      return false;
     }
-    return false;
+    ready_at_ += period_;
+    return true;
   }
 
   td::Timestamp ready_at() const {
-    if (remaining_) {
-      return td::Timestamp::now();
+    const auto now = td::Timestamp::now();
+    if (ready_at_ > now.at()) {
+      return td::Timestamp::at(ready_at_);
     }
-    return increment_at_;
+    return now;
   }
 
-  td::Timestamp last_take_at() const {
-    return last_take_at_;
+  bool is_full() const {
+    return ready_at_ < td::Timestamp::now().at() - emission_interval_;
   }
 
   double period() const {
@@ -78,11 +76,15 @@ class RateLimiter {
   }
 
  private:
-  td::uint32 capacity_;
+  static double make_emission_interval(td::uint32 capacity, double period) {
+    CHECK(capacity >= 1);
+    CHECK(period > 0.0);
+    return static_cast<double>(capacity - 1) * period;
+  }
+
   double period_;
-  td::uint32 remaining_;
-  td::Timestamp increment_at_ = td::Timestamp::never();
-  td::Timestamp last_take_at_ = td::Timestamp::now();
+  double emission_interval_;
+  double ready_at_;
 };
 
 }  // namespace adnl

@@ -57,6 +57,7 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     overlay_id_ = overlay_full_id.compute_short_id();
 
     overlay::OverlayOptions options;
+    options.name_ = PSTRING() << "valgroup" << bus.shard.to_str() << "." << bus.cc_seqno;
     options.broadcast_speed_multiplier_ = bus.validator_opts->get_catchain_broadcast_speed_multiplier();
     options.private_ping_peers_ = true;
     options.twostep_broadcast_sender_ = adnl_sender_;
@@ -143,9 +144,9 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
       }
 
       void precheck_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::Bits256 broadcast_id,
-                              td::BufferSlice extra, td::Promise<> promise) override {
+                              td::BufferSlice extra, bool signature_checked, td::Promise<> promise) override {
         td::actor::send_closure(owner_, &PrivateOverlayImpl::precheck_broadcast, src, broadcast_id, std::move(extra),
-                                std::move(promise));
+                                signature_checked, std::move(promise));
       }
 
       void check_broadcast(PublicKeyHash, overlay::OverlayIdShort, td::BufferSlice,
@@ -186,7 +187,8 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     owning_bus().publish<CandidateReceived>(maybe_candidate.move_as_ok());
   }
 
-  td::actor::Task<> precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra) {
+  td::actor::Task<> precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra,
+                                       bool signature_checked) {
     auto parsed_extra = fetch_tl_object<ton_api::consensus_broadcastExtra>(extra, true);
     if (parsed_extra.is_error()) {
       co_return parsed_extra.move_as_error_prefix("Precheck failed: Failed to parse broadcast extra: ");
@@ -199,7 +201,9 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
       co_return td::Status::Error("Precheck failed: Broadcast is not from the expected collator");
     }
 
-    co_return co_await owning_bus().publish<PrecheckCandidateBroadcast>(slot, broadcast_id).trace("Precheck failed");
+    co_return co_await owning_bus()
+        .publish<PrecheckCandidateBroadcast>(slot, broadcast_id, signature_checked)
+        .trace("Precheck failed");
   }
 
   void on_query(adnl::AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) {

@@ -27,6 +27,7 @@
 #include "block/mc-config.h"
 #include "block/validator-set.h"
 #include "crypto/openssl/rand.hpp"
+#include "td/actor/SharedFuture.h"
 #include "td/db/utils/BlobView.h"
 #include "td/utils/Random.h"
 #include "ton/ton-shard.h"
@@ -54,6 +55,36 @@ static constexpr td::uint32 SKIP_EXTERNALS_QUEUE_SIZE = 8000;
 static constexpr int HIGH_PRIORITY_EXTERNAL = 10;  // don't skip high priority externals when queue is big
 
 static constexpr int MAX_ATTEMPTS = 5;
+
+class WorkTimerGuard {
+ public:
+  WorkTimerGuard();
+  explicit WorkTimerGuard(td::RealCpuTimer& timer) : timer_(&timer) {
+    if (timer_) {
+      timer_->resume();
+    }
+  }
+  WorkTimerGuard(const WorkTimerGuard&) = delete;
+  WorkTimerGuard(WorkTimerGuard&&) = delete;
+  ~WorkTimerGuard() {
+    reset();
+  }
+
+  WorkTimerGuard& operator=(const WorkTimerGuard&) = delete;
+  WorkTimerGuard& operator=(WorkTimerGuard&& other) {
+    std::swap(timer_, other.timer_);
+    return *this;
+  }
+  void reset() {
+    if (timer_) {
+      timer_->pause();
+      timer_ = nullptr;
+    }
+  }
+
+ private:
+  td::RealCpuTimer* timer_ = nullptr;
+};
 
 /**
  * Constructs a Collator object.
@@ -83,10 +114,16 @@ Collator::Collator(CollateParams params, td::actor::ActorId<ValidatorManager> ma
   if (!params_.soft_timeout) {
     params_.soft_timeout = params_.hard_timeout;
   }
-  double t = params_.soft_timeout.in();
-  queue_cleanup_timeout_ = td::Timestamp::in(t * 0.25);
-  internal_msg_timeout_ = td::Timestamp::in(t * 0.5);
-  external_msg_timeout_ = td::Timestamp::in(t * 0.75);
+  if (params_.wait_externals_until) {
+    queue_cleanup_timeout_ = std::max(params_.wait_externals_until, params_.soft_timeout);
+    internal_msg_timeout_ = std::max(params_.wait_externals_until, params_.soft_timeout);
+    external_msg_timeout_ = std::max(params_.wait_externals_until, params_.soft_timeout);
+  } else {
+    double t = params_.soft_timeout.in();
+    queue_cleanup_timeout_ = td::Timestamp::in(t * 0.25);
+    internal_msg_timeout_ = td::Timestamp::in(t * 0.5);
+    external_msg_timeout_ = td::Timestamp::in(t * 0.75);
+  }
 }
 
 /**
@@ -200,19 +237,17 @@ void Collator::start_up() {
   if (params_.is_hardfork) {
     LOG(WARNING) << "generating a hardfork block";
   }
-  // 3. load external messages
+  // 3. install external message queue
   if (!params_.is_hardfork) {
-    LOG(DEBUG) << "sending get_external_messages() query to Manager";
-    ++pending;
-    auto token = perf_log_.start_action("get_external_messages");
-    td::actor::send_closure_later(
-        manager, &ValidatorManager::get_external_messages, shard_,
-        [self = get_self(),
-         token = std::move(token)](td::Result<std::vector<std::pair<Ref<ExtMessage>, int>>> res) mutable -> void {
-          LOG(DEBUG) << "got answer to get_external_messages() query";
-          td::actor::send_closure_later(std::move(self), &Collator::after_get_external_messages, std::move(res),
-                                        std::move(token));
-        });
+    LOG(DEBUG) << "installing external message queue";
+    ext_msg_queue_ = ExtMsgQueue("ext_msg_queue", 500);
+    auto callback = std::make_unique<ExtMsgCallback>();
+    callback->shard = shard_;
+    callback->cancellation_token = ext_msg_cancellation_.get_cancellation_token();
+    callback->timeout = params_.wait_externals_until ? params_.wait_externals_until : td::Timestamp::now();
+    callback->sync_only = !params_.wait_externals_until;
+    callback->queue = ext_msg_queue_;
+    td::actor::send_closure_later(manager, &ValidatorManager::get_external_messages, shard_, std::move(callback));
   }
   if (is_masterchain() && !params_.is_hardfork) {
     // 4. load shard block info messages
@@ -2016,10 +2051,7 @@ bool Collator::register_shard_block_creators(std::vector<td::Bits256> creator_li
  * @returns True if collation is successful, false otherwise.
  */
 bool Collator::try_collate() {
-  work_timer_.resume();
-  SCOPE_EXIT {
-    work_timer_.pause();
-  };
+  WorkTimerGuard timer_guard(work_timer_);
   if (!preinit_complete) {
     LOG(WARNING) << "running do_preinit()";
     if (!do_preinit()) {
@@ -2076,7 +2108,8 @@ bool Collator::try_collate() {
       return fatal_error(std::string{"Cannot adjust ProcessedUpto of neighbor "} + descr.blk_.to_str());
     }
   }
-  return do_collate();
+  do_collate().start().detach();
+  return true;
 }
 
 /**
@@ -2332,16 +2365,22 @@ bool Collator::init_value_create() {
 /**
  * Performs the collation of the new block.
  */
-bool Collator::do_collate() {
+td::actor::Task<> Collator::do_collate() {
   auto token = perf_log_.start_action("do_collate");
-  td::Status status = td::Status::Error("some error");
-  SCOPE_EXIT {
-    token.finish(status);
-  };
+  auto result = co_await do_collate_inner().wrap();
+  if (result.is_error()) {
+    fatal_error(result.error().clone());
+  }
+  token.finish(result.move_as_status());
+  co_return {};
+}
 
+td::actor::Task<> Collator::do_collate_inner() {
+  do_collate_started_at_ = td::Timestamp::now();
+  WorkTimerGuard timer_guard(work_timer_);
   LOG(WARNING) << "do_collate() : start";
   if (!fetch_config_params()) {
-    return fatal_error("cannot fetch required configuration parameters from masterchain state");
+    co_return td::Status::Error("cannot fetch required configuration parameters from masterchain state");
   }
   LOG(DEBUG) << "config parameters fetched, creating message dictionaries";
   aug_InMsgDescr.global_version = aug_OutMsgDescr.global_version = global_version_;
@@ -2355,34 +2394,34 @@ bool Collator::do_collate() {
   // NB: interchanged 1.2 and 1.1 (is this always correct?)
   // 1.1. re-adjust neighbors' out_msg_queues (for oneself)
   if (!add_trivial_neighbor()) {
-    return fatal_error("cannot add previous block as a trivial neighbor");
+    co_return td::Status::Error("cannot add previous block as a trivial neighbor");
   }
   // 1.2. delete delivered messages from output queue
   if (!out_msg_queue_cleanup()) {
-    return fatal_error("cannot scan OutMsgQueue and remove already delivered messages");
+    co_return td::Status::Error("cannot scan OutMsgQueue and remove already delivered messages");
   }
   // 1.3. create OutputQueueMerger from adjusted neighbors
   CHECK(!nb_out_msgs_);
   LOG(DEBUG) << "creating OutputQueueMerger";
   if (!create_output_queue_merger()) {
-    return fatal_error("cannot compute the value to be created / minted / recovered");
+    co_return td::Status::Error("cannot compute the value to be created / minted / recovered");
   }
   // 1.4. compute created / minted / recovered
   if (!init_value_create()) {
-    return fatal_error("cannot compute the value to be created / minted / recovered");
+    co_return td::Status::Error("cannot compute the value to be created / minted / recovered");
   }
   // 2-. take messages from dispatch queue
   LOG(INFO) << "process dispatch queue";
   if (!process_dispatch_queue()) {
-    return fatal_error("cannot process dispatch queue");
+    co_return td::Status::Error("cannot process dispatch queue");
   }
   // 2. tick transactions
   LOG(INFO) << "create tick transactions";
   if (!create_ticktock_transactions(2)) {
-    return fatal_error("cannot generate tick transactions");
+    co_return td::Status::Error("cannot generate tick transactions");
   }
   if (is_masterchain() && !create_special_transactions()) {
-    return fatal_error("cannot generate special transactions");
+    co_return td::Status::Error("cannot generate special transactions");
   }
   if (after_merge_) {
     // 3. merge prepare / merge install
@@ -2393,19 +2432,13 @@ bool Collator::do_collate() {
   // 4. import inbound internal messages, process or transit
   LOG(INFO) << "process inbound internal messages";
   if (!process_inbound_internal_messages()) {
-    return fatal_error("cannot process inbound internal messages");
+    co_return td::Status::Error("cannot process inbound internal messages");
   }
-  // 5. import inbound external messages (if space&gas left)
-  LOG(INFO) << "process inbound external messages";
-  if (!process_inbound_external_messages()) {
-    return fatal_error("cannot process inbound external messages");
-  }
-  // 6. process newly-generated messages (if space&gas left)
-  //    (if we were unable to process all inbound messages, all new messages must be queued)
-  LOG(INFO) << "process newly-generated messages";
-  if (!process_new_messages(!inbound_queues_empty_)) {
-    return fatal_error("cannot process newly-generated outbound messages");
-  }
+  timer_guard.reset();
+  // 5-6. import inbound external messages and process newly created messages (if space&gas left)
+  co_await process_external_and_new_messages();
+  timer_guard = WorkTimerGuard(work_timer_);
+  auto post_ext_token = perf_log_.start_action("post_ext_processing");
   if (before_split_) {
     // 7. split prepare / split install
     LOG(DEBUG) << "create split prepare/install transactions (NOT IMPLEMENTED YET)";
@@ -2415,57 +2448,58 @@ bool Collator::do_collate() {
   // 8. tock transactions
   LOG(INFO) << "create tock transactions";
   if (!create_ticktock_transactions(1)) {
-    return fatal_error("cannot generate tock transactions");
+    co_return td::Status::Error("cannot generate tock transactions");
   }
   // 9. process newly-generated messages (only by including them into output queue)
   LOG(INFO) << "enqueue newly-generated messages";
-  if (!process_new_messages(true)) {
-    return fatal_error("cannot process newly-generated outbound messages");
+  bool enqueue_only = true;
+  if (!process_new_messages(enqueue_only)) {
+    co_return td::Status::Error("cannot process newly-generated outbound messages");
   }
   // 10. check block overload/underload
   LOG(DEBUG) << "check block overload/underload";
   if (!check_block_overload()) {
-    return fatal_error("cannot check block overload/underload");
+    co_return td::Status::Error("cannot check block overload/underload");
   }
   // 11. update public libraries
   if (is_masterchain()) {
     LOG(DEBUG) << "update public libraries";
     if (!update_public_libraries()) {
-      return fatal_error("cannot update public libraries");
+      co_return td::Status::Error("cannot update public libraries");
     }
   }
   // serialize everything
   // A. serialize ShardAccountBlocks and new ShardAccounts
   LOG(DEBUG) << "serialize account states and blocks";
   if (!combine_account_transactions()) {
-    return fatal_error("cannot combine separate Account transactions into a new ShardAccountBlocks");
+    co_return td::Status::Error("cannot combine separate Account transactions into a new ShardAccountBlocks");
   }
   // B. serialize McStateExtra
   LOG(DEBUG) << "serialize McStateExtra";
   if (!create_mc_state_extra()) {
-    return fatal_error("cannot create new McStateExtra");
+    co_return td::Status::Error("cannot create new McStateExtra");
   }
   // C. serialize ShardState
   LOG(DEBUG) << "serialize ShardState";
   if (!create_shard_state()) {
-    return fatal_error("cannot create new ShardState");
+    co_return td::Status::Error("cannot create new ShardState");
   }
   // D. serialize Block
   LOG(DEBUG) << "serialize Block";
   if (!create_block()) {
-    return fatal_error("cannot create new Block");
+    co_return td::Status::Error("cannot create new Block");
   }
   // E. create collated data
   if (!create_collated_data()) {
-    return fatal_error("cannot create collated data for new Block candidate");
+    co_return td::Status::Error("cannot create collated data for new Block candidate");
   }
   // F. create a block candidate
   LOG(DEBUG) << "create a Block candidate";
   if (!create_block_candidate()) {
-    return fatal_error("cannot serialize a new Block candidate");
+    co_return td::Status::Error("cannot serialize a new Block candidate");
   }
-  status = td::Status::OK();
-  return true;
+  post_ext_token.finish(td::Result<td::Unit>(td::Unit()));
+  co_return {};
 }
 
 /**
@@ -4216,33 +4250,76 @@ bool Collator::process_inbound_internal_messages() {
 }
 
 /**
- * Processes inbound external messages.
- * Messages are processed until the soft limit is reached, medium timeout is reached or there are no more messages.
- *
- * @returns True if the processing was successful, false otherwise.
+ * Processes inbound external messages and new internal messages.
  */
-bool Collator::process_inbound_external_messages() {
-  SCOPE_EXIT {
-    stats_.load_fraction_externals = block_limit_status_->load_fraction(block::ParamLimits::cl_soft);
-  };
-  if (skip_extmsg_) {
-    LOG(INFO) << "skipping processing of inbound external messages";
-    return true;
-  }
-  if (params_.attempt_idx >= 2) {
-    LOG(INFO) << "Attempt #" << params_.attempt_idx << ": skip external messages";
-    return true;
-  }
+td::actor::Task<> Collator::process_external_and_new_messages() {
+  WorkTimerGuard timer_guard(work_timer_);
   if (out_msg_queue_size_ > SKIP_EXTERNALS_QUEUE_SIZE) {
     LOG(INFO) << "skipping processing of inbound external messages (except for high-priority) because out_msg_queue is "
                  "too big ("
               << out_msg_queue_size_ << " > " << SKIP_EXTERNALS_QUEUE_SIZE << ")";
   }
-  bool full = !block_limit_status_->fits(block::ParamLimits::cl_soft);
-  for (auto& ext_msg_struct : ext_msg_list_) {
-    if (out_msg_queue_size_ > SKIP_EXTERNALS_QUEUE_SIZE && ext_msg_struct.priority < HIGH_PRIORITY_EXTERNAL) {
-      continue;
+  bool enqueue_only = !inbound_queues_empty_;
+  while (true) {
+    // 5. import inbound external messages (if space&gas left)
+    LOG(INFO) << "process inbound external messages";
+    timer_guard.reset();
+    if (!co_await process_inbound_external_messages()) {
+      co_return td::Status::Error("cannot process inbound external messages");
     }
+    timer_guard = WorkTimerGuard(work_timer_);
+    // 6. process newly-generated messages (if space&gas left)
+    //    (if we were unable to process all inbound messages, all new messages must be queued)
+    LOG(INFO) << "process newly-generated messages";
+    if (!process_new_messages(enqueue_only)) {
+      co_return td::Status::Error("cannot process newly-generated outbound messages");
+    }
+    if (!params_.wait_externals_until || params_.wait_externals_until.is_in_past()) {
+      LOG(INFO) << "Don't wait for new external messages";
+      break;
+    }
+    if (skip_extmsg_ || params_.attempt_idx >= 2) {
+      LOG(INFO) << "Processing external messages is disabled, don't wait for new external messages";
+      break;
+    }
+    if (!block_limit_status_->fits(block::ParamLimits::cl_soft) || external_msg_timeout_.is_in_past()) {
+      LOG(INFO) << "MEDIUM LIMIT is reached, don't wait for new external messages";
+      break;
+    }
+    timer_guard.reset();
+    LOG(INFO) << "Waiting for new external messages (" << params_.wait_externals_until.in() << "s)";
+    td::Timer wait_timer;
+    auto S = co_await wait_for_external_message(params_.wait_externals_until).wrap();
+    wait_externals_total_time_ += wait_timer.elapsed();
+    timer_guard = WorkTimerGuard(work_timer_);
+    if (S.is_error()) {
+      LOG(INFO) << "No new external messages appeared before timeout";
+      break;
+    }
+  }
+  co_return {};
+}
+
+/**
+ * Processes inbound external messages.
+ * Messages are processed until the medium limit is reached, medium timeout is reached or there are no more messages.
+ *
+ * @returns True if the processing was successful, false otherwise.
+ */
+td::actor::Task<bool> Collator::process_inbound_external_messages() {
+  SCOPE_EXIT {
+    stats_.load_fraction_externals = block_limit_status_->load_fraction(block::ParamLimits::cl_soft);
+  };
+  if (skip_extmsg_) {
+    LOG(INFO) << "skipping processing of inbound external messages";
+    co_return true;
+  }
+  if (params_.attempt_idx >= 2) {
+    LOG(INFO) << "Attempt #" << params_.attempt_idx << ": skip external messages (attempt >= 2)";
+    co_return true;
+  }
+  bool full = !block_limit_status_->fits(block::ParamLimits::cl_soft);
+  while (true) {
     if (full) {
       LOG(INFO) << "BLOCK FULL, stop processing external messages";
       stats_.limits_log += PSTRING() << "INBOUND_EXT_MESSAGES: "
@@ -4255,9 +4332,39 @@ bool Collator::process_inbound_external_messages() {
       break;
     }
     if (!check_cancelled()) {
-      return false;
+      co_return false;
     }
-    auto ext_msg = ext_msg_struct.cell;
+    std::pair<td::Ref<ExtMessage>, int> item;
+    if (pending_ext_msg_) {
+      item = std::move(*pending_ext_msg_);
+      pending_ext_msg_.reset();
+    } else {
+      td::Result<std::pair<td::Ref<ExtMessage>, int>> maybe;
+      td::Timer wait_timer;
+      if (params_.wait_externals_until) {
+        maybe = co_await ext_msg_queue_.try_pop().wrap();
+      } else {
+        // In this case queue is closed after pushing the first batch of messages
+        maybe = co_await ext_msg_queue_.pop().wrap();
+      }
+      wait_externals_total_time_ += wait_timer.elapsed();
+      if (maybe.is_error()) {
+        break;  // queue empty or closed
+      }
+      item = maybe.move_as_ok();
+    }
+    WorkTimerGuard timer_guard(work_timer_);
+    auto [ext_msg_ref, priority] = std::move(item);
+    ++stats_.ext_msgs_total;
+    if (register_external_message(ext_msg_ref, priority).is_error()) {
+      ++stats_.ext_msgs_filtered;
+      bad_ext_msgs_.emplace_back(ext_msg_ref->hash());
+      continue;
+    }
+    if (out_msg_queue_size_ > SKIP_EXTERNALS_QUEUE_SIZE && priority < HIGH_PRIORITY_EXTERNAL) {
+      continue;
+    }
+    auto ext_msg = ext_msg_ref->root_cell();
     ton::Bits256 hash{ext_msg->get_hash().bits()};
     int r = process_external_message(std::move(ext_msg));
     if (r > 0) {
@@ -4266,24 +4373,18 @@ bool Collator::process_inbound_external_messages() {
       ++stats_.ext_msgs_rejected;
     }
     if (r < 0) {
-      bad_ext_msgs_.emplace_back(ext_msg_struct.hash);
-      return false;
+      bad_ext_msgs_.emplace_back(ext_msg_ref->hash());
+      co_return false;
     }
-    if (!r) {
-      delay_ext_msgs_.emplace_back(ext_msg_struct.hash);
+    if (r == 0) {
+      delay_ext_msgs_.emplace_back(ext_msg_ref->hash());
     }
     if (r > 0) {
       full = !block_limit_status_->fits(block::ParamLimits::cl_soft);
       block_limit_class_ = std::max(block_limit_class_, block_limit_status_->classify());
     }
-    auto it = ext_msg_map.find(hash);
-    CHECK(it != ext_msg_map.end());
-    it->second = (r >= 1 ? 3 : -2);  // processed or skipped
-    if (r >= 3) {
-      break;
-    }
   }
-  return true;
+  co_return true;
 }
 
 /**
@@ -4295,7 +4396,6 @@ bool Collator::process_inbound_external_messages() {
  *          -1 if a fatal error occurred.
  *           0 if the message is rejected.
  *           1 if the message was processed.
- *           3 if the message was processed and all future messages must be skipped (block overflown).
  */
 int Collator::process_external_message(Ref<vm::Cell> msg) {
   auto cs = load_cell_slice(msg);
@@ -4805,7 +4905,7 @@ bool Collator::enqueue_message(block::NewOutMsg msg, td::RefInt256 fwd_fees_rema
  *
  * @returns True if all new messages were processed successfully, false otherwise.
  */
-bool Collator::process_new_messages(bool enqueue_only) {
+bool Collator::process_new_messages(bool& enqueue_only) {
   SCOPE_EXIT {
     stats_.load_fraction_new_msgs = block_limit_status_->load_fraction(block::ParamLimits::cl_normal);
   };
@@ -5420,10 +5520,24 @@ bool Collator::check_block_overload() {
             << " size_estimate=" << block_size_estimate_
             << " collated_size_estimate=" << block_limit_status_->collated_data_size_estimate;
   block_limit_class_ = std::max(block_limit_class_, block_limit_status_->classify());
-  if (block_limit_class_ >= block::ParamLimits::cl_soft || dispatch_queue_total_limit_reached_) {
+
+  bool too_long_collation = false;
+  if (params_.wait_externals_until) {
+    double do_collate_time = td::Timestamp::now() - do_collate_started_at_;
+    double total_time = td::Timestamp::now() - collator_started_at_;
+    LOG(INFO) << "Check block overload timers: wait_externals=" << wait_externals_total_time_
+              << " do_collate=" << do_collate_time << " total=" << total_time;
+    if (total_time > 0.1 && wait_externals_total_time_ < total_time * 0.2 && do_collate_time > total_time * 0.6) {
+      too_long_collation = true;
+    }
+  }
+
+  if (block_limit_class_ >= block::ParamLimits::cl_soft || dispatch_queue_total_limit_reached_ || too_long_collation) {
     std::string message = "block is overloaded ";
     if (block_limit_class_ >= block::ParamLimits::cl_soft) {
       message += PSTRING() << "(category " << block_limit_class_ << ")";
+    } else if (too_long_collation) {
+      message += PSTRING() << "(collation takes too long)";
     } else {
       message += "(long dispatch queue processing)";
     }
@@ -6504,48 +6618,43 @@ void Collator::return_block_candidate(td::Result<td::Unit> saved, td::PerfLogAct
 /**
  * Registers an external message to the list of external messages in the Collator.
  *
- * @param ext_msg The reference to the external message cell.
- * @param ext_hash The hash of the external message.
+ * @param ext_msg External message.
+ * @param priority Priority of the message.
  *
  * @returns Result indicating the success or failure of the registration.
- *          - If the external message is invalid, returns an error.
- *          - If the external message has been previously rejected, returns an error
- *          - If the external message has been previously registered and accepted, returns false.
- *          - Otherwise returns true.
+ *          - If the external message is invalid or duplicate, returns an error.
+ *          - Otherwise returns OK.
  */
-td::Result<bool> Collator::register_external_message_cell(Ref<vm::Cell> ext_msg, const ExtMessage::Hash& ext_hash,
-                                                          int priority) {
-  if (ext_msg->get_level() != 0) {
+td::Status Collator::register_external_message(Ref<ExtMessage> ext_msg, int priority) {
+  Ref<vm::Cell> ext_msg_cell = ext_msg->root_cell();
+  if (ext_msg_cell.is_null()) {
+    return td::Status::Error("external message cell is null");
+  }
+  if (ext_msg_cell->get_level() != 0) {
     return td::Status::Error("external message must have zero level");
   }
-  vm::CellSlice cs{vm::NoVmOrd{}, ext_msg};
+  vm::CellSlice cs{vm::NoVmOrd{}, ext_msg_cell};
   if (cs.prefetch_ulong(2) != 2) {  // ext_in_msg_info$10
     return td::Status::Error("external message must begin with ext_in_msg_info$10");
   }
-  ton::Bits256 hash{ext_msg->get_hash().bits()};
-  auto it = ext_msg_map.find(hash);
-  if (it != ext_msg_map.end()) {
-    if (it->second > 0) {
-      // message registered before
-      return false;
-    } else {
-      return td::Status::Error("external message has been rejected before");
-    }
+  Bits256 hash{ext_msg_cell->get_hash().bits()};
+  if (registered_ext_msgs_.contains(hash)) {
+    return td::Status::Error("external message has been registered before");
   }
-  if (!block::gen::t_Message_Any.validate_ref(256, ext_msg)) {
+  if (!block::gen::t_Message_Any.validate_ref(256, ext_msg_cell)) {
     return td::Status::Error("external message is not a (Message Any) according to automated checks");
   }
-  if (!block::tlb::t_Message.validate_ref(256, ext_msg)) {
+  if (!block::tlb::t_Message.validate_ref(256, ext_msg_cell)) {
     return td::Status::Error("external message is not a (Message Any) according to hand-written checks");
   }
-  if (!block::tlb::validate_message_libs(ext_msg)) {
+  if (!block::tlb::validate_message_libs(ext_msg_cell)) {
     return td::Status::Error("external message has invalid libs in StateInit");
   }
   block::gen::CommonMsgInfo::Record_ext_in_msg_info info;
-  if (!tlb::unpack_cell_inexact(ext_msg, info)) {
+  if (!tlb::unpack_cell_inexact(ext_msg_cell, info)) {
     return td::Status::Error("cannot unpack external message header");
   }
-  auto dest_prefix = block::tlb::t_MsgAddressInt.get_prefix(info.dest);
+  auto dest_prefix = block::tlb::MsgAddressInt::get_prefix(info.dest);
   if (!dest_prefix.is_valid()) {
     return td::Status::Error("destination of an inbound external message is an invalid blockchain address");
   }
@@ -6556,49 +6665,23 @@ td::Result<bool> Collator::register_external_message_cell(Ref<vm::Cell> ext_msg,
   if (verbosity > 2) {
     FLOG(INFO) {
       sb << "registered external message: ";
-      block::gen::t_Message_Any.print_ref(sb, ext_msg);
+      block::gen::t_Message_Any.print_ref(sb, ext_msg_cell);
     };
   }
-  ext_msg_map.emplace(hash, 1);
-  ext_msg_list_.push_back({std::move(ext_msg), ext_hash, priority});
-  return true;
+  registered_ext_msgs_.insert(hash);
+  return td::Status::OK();
 }
 
 /**
- * Callback function called after retrieving external messages.
- *
- * @param res The result of the external message retrieval operation.
+ * Wait for an external message from the backpressure queue, or timeout.
  */
-void Collator::after_get_external_messages(td::Result<std::vector<std::pair<Ref<ExtMessage>, int>>> res,
-                                           td::PerfLogAction token) {
-  // res: pair {ext msg, priority}
-  --pending;
-  token.finish(res);
-  if (res.is_error()) {
-    fatal_error(res.move_as_error());
-    return;
+td::actor::Task<> Collator::wait_for_external_message(td::Timestamp timeout) {
+  auto result = co_await td::actor::await_with_timeout(ext_msg_queue_.pop(), timeout).wrap();
+  if (result.is_error()) {
+    co_return result.move_as_error();
   }
-  auto vect = res.move_as_ok();
-  for (auto& p : vect) {
-    ++stats_.ext_msgs_total;
-    auto& ext_msg = p.first;
-    int priority = p.second;
-    Ref<vm::Cell> ext_msg_cell = ext_msg->root_cell();
-    bool err = ext_msg_cell.is_null();
-    if (!err) {
-      auto reg_res = register_external_message_cell(std::move(ext_msg_cell), ext_msg->hash(), priority);
-      if (reg_res.is_error() || !reg_res.move_as_ok()) {
-        err = true;
-      }
-    }
-    if (err) {
-      ++stats_.ext_msgs_filtered;
-      bad_ext_msgs_.emplace_back(ext_msg->hash());
-    }
-  }
-  LOG(WARNING) << "got " << vect.size() << " external messages from mempool, " << bad_ext_msgs_.size()
-               << " bad messages";
-  check_pending();
+  pending_ext_msg_ = result.move_as_ok();
+  co_return {};
 }
 
 /**

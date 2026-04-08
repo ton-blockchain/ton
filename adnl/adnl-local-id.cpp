@@ -18,7 +18,6 @@
 */
 #include "keys/encryptor.h"
 #include "td/utils/Random.h"
-#include "td/utils/crypto.h"
 
 #include "adnl-local-id.h"
 #include "utils.hpp"
@@ -46,35 +45,54 @@ AdnlAddressList AdnlLocalId::get_addr_list() const {
 }
 
 void AdnlLocalId::receive(td::IPAddress addr, td::BufferSlice data) {
+  [](AdnlLocalId *self, td::IPAddress addr, td::BufferSlice data) -> td::actor::Task<> {
+    auto R = co_await self->receive_coro(addr, std::move(data)).wrap();
+    if (R.is_error()) {
+      VLOG(ADNL_NOTICE) << self << ": dropping IN message from " << addr << ": " << R.move_as_error();
+    }
+    co_return {};
+  }(this, std::move(addr), std::move(data))
+                                                                         .start()
+                                                                         .detach();
+}
+
+td::actor::Task<> AdnlLocalId::receive_coro(td::IPAddress addr, td::BufferSlice data) {
   InboundRateLimiter &rate_limiter = inbound_rate_limiter_[remove_port(addr)];
   if (!cleanup_rate_limiter_at_) {
     alarm_timestamp().relax(cleanup_rate_limiter_at_ = td::Timestamp::in(1.0));
   }
   if (!rate_limiter.rate_limiter.take()) {
-    VLOG(ADNL_NOTICE) << this << ": dropping IN message: rate limit exceeded";
     add_dropped_packet_stats(addr);
-    return;
+    co_return td::Status::Error("rate limit exceeded");
   }
   ++rate_limiter.currently_decrypting_packets;
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), peer_table = peer_table_, dst = short_id_, addr,
-                                       id = print_id(), size = data.size()](td::Result<AdnlPacket> R) {
-    td::actor::send_closure(SelfId, &AdnlLocalId::decrypt_packet_done, addr);
-    if (R.is_error()) {
-      VLOG(ADNL_WARNING) << id << ": dropping IN message: cannot decrypt: " << R.move_as_error();
-    } else {
-      auto packet = R.move_as_ok();
-      packet.set_remote_addr(addr);
-      td::actor::send_closure(peer_table, &AdnlPeerTable::receive_decrypted_packet, dst, std::move(packet), size);
-    }
-  });
-  decrypt(std::move(data), std::move(P));
-}
 
-void AdnlLocalId::decrypt_packet_done(td::IPAddress addr) {
-  auto it = inbound_rate_limiter_.find(remove_port(addr));
-  CHECK(it != inbound_rate_limiter_.end());
-  --it->second.currently_decrypting_packets;
+  size_t data_size = data.size();
+  auto r_decrypted_data =
+      co_await td::actor::ask(keyring_, &keyring::Keyring::decrypt_message, short_id_.pubkey_hash(), std::move(data))
+          .wrap();
+
+  // rate_limiter cannot be deleted from map while currently_decrypting_packets > 0
+  --rate_limiter.currently_decrypting_packets;
   add_decrypted_packet_stats(addr);
+
+  auto tl = co_await fetch_tl_object<ton_api::adnl_packetContents>(co_await std::move(r_decrypted_data), true);
+  auto packet = co_await AdnlPacket::create(std::move(tl));
+  packet.set_remote_addr(addr);
+  if (rate_limiter.recent_inbound_peers.size() >= UNIQUE_PEERS_PER_IP_LIMIT) {
+    if (!rate_limiter.recent_inbound_peers.contains(packet.from_short())) {
+      co_return td::Status::Error("too many unique peer ids from a single ip");
+    }
+  } else {
+    rate_limiter.recent_inbound_peers.insert(packet.from_short());
+    if (!cleanup_recent_inbound_peers_at_) {
+      alarm_timestamp().relax(cleanup_recent_inbound_peers_at_ = td::Timestamp::in(UNIQUE_PEERS_PER_IP_WINDOW));
+    }
+  }
+
+  td::actor::send_closure(peer_table_, &AdnlPeerTable::receive_decrypted_packet, short_id_, std::move(packet),
+                          data_size);
+  co_return {};
 }
 
 void AdnlLocalId::deliver(AdnlNodeIdShort src, td::BufferSlice data) {
@@ -238,34 +256,6 @@ void AdnlLocalId::decrypt_message(td::BufferSlice data, td::Promise<td::BufferSl
                           std::move(promise));
 }
 
-void AdnlLocalId::decrypt(td::BufferSlice data, td::Promise<AdnlPacket> promise) {
-  auto P = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), p = std::move(promise)](td::Result<td::BufferSlice> res) mutable {
-        if (res.is_error()) {
-          p.set_error(res.move_as_error());
-        } else {
-          td::actor::send_closure_later(SelfId, &AdnlLocalId::decrypt_continue, res.move_as_ok(), std::move(p));
-        }
-      });
-  td::actor::send_closure(keyring_, &keyring::Keyring::decrypt_message, short_id_.pubkey_hash(), std::move(data),
-                          std::move(P));
-}
-
-void AdnlLocalId::decrypt_continue(td::BufferSlice data, td::Promise<AdnlPacket> promise) {
-  auto R = fetch_tl_object<ton_api::adnl_packetContents>(std::move(data), true);
-  if (R.is_error()) {
-    promise.set_error(R.move_as_error());
-    return;
-  }
-
-  auto packetR = AdnlPacket::create(R.move_as_ok());
-  if (packetR.is_error()) {
-    promise.set_error(packetR.move_as_error());
-    return;
-  }
-  promise.set_value(packetR.move_as_ok());
-}
-
 void AdnlLocalId::sign_async(td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
   td::actor::send_closure(keyring_, &keyring::Keyring::sign_message, short_id_.pubkey_hash(), std::move(data),
                           std::move(promise));
@@ -288,11 +278,17 @@ void AdnlLocalId::alarm() {
         td::Timestamp::in(AdnlPeerTable::republish_addr_list_timeout() * td::Random::fast(1.0, 2.0));
   }
   alarm_timestamp().relax(publish_address_list_at_);
-  if (cleanup_rate_limiter_at_ && cleanup_rate_limiter_at_.is_in_past()) {
+  if (cleanup_recent_inbound_peers_at_ && cleanup_recent_inbound_peers_at_.is_in_past()) {
+    cleanup_recent_inbound_peers_at_ = td::Timestamp::never();
+    for (auto &[_, limiter] : inbound_rate_limiter_) {
+      limiter.recent_inbound_peers.clear();
+    }
+  }
+  if ((cleanup_rate_limiter_at_ && cleanup_rate_limiter_at_.is_in_past())) {
     for (auto it = inbound_rate_limiter_.begin(); it != inbound_rate_limiter_.end();) {
       auto &limiter = it->second;
-      if (limiter.currently_decrypting_packets == 0 &&
-          limiter.rate_limiter.last_take_at() < td::Timestamp::in(-limiter.rate_limiter.period())) {
+      if (limiter.currently_decrypting_packets == 0 && limiter.rate_limiter.is_full() &&
+          limiter.recent_inbound_peers.empty()) {
         it = inbound_rate_limiter_.erase(it);
       } else {
         ++it;
@@ -305,6 +301,7 @@ void AdnlLocalId::alarm() {
     }
   }
   alarm_timestamp().relax(cleanup_rate_limiter_at_);
+  alarm_timestamp().relax(cleanup_recent_inbound_peers_at_);
 }
 
 void AdnlLocalId::update_packet(AdnlPacket packet, bool update_id, bool sign, td::int32 update_addr_list_if,

@@ -46,6 +46,14 @@ class Time {
 
   // Used for testing. After jump_in_future(at) is called, now() >= at.
   static void jump_in_future(double at);
+
+  static void allow_freezes();  // must be sequenced before any now / jump_in_future call.
+
+  // Freeze time: now() returns a fixed value that only changes via jump_in_future.
+  static void freeze();
+  static void unfreeze();
+
+  static double system_now();
 };
 
 inline void relax_timeout_at(double *timeout, double new_timeout) {
@@ -73,7 +81,7 @@ class Timestamp {
     return Timestamp{timeout};
   }
   static Timestamp at_unix(double timeout) {
-    return Timestamp{timeout - Clocks::system() + Time::now()};
+    return Timestamp{timeout - Time::system_now() + Time::now()};
   }
 
   static Timestamp in(std::chrono::duration<double> timeout, td::Timestamp now = td::Timestamp::now_cached()) {
@@ -99,7 +107,7 @@ class Timestamp {
     return at_;
   }
   double at_unix() const {
-    return at_ + Clocks::system() - Time::now();
+    return at_ + Time::system_now() - Time::now();
   }
 
   double in() const {
@@ -117,6 +125,7 @@ class Timestamp {
 
   friend bool operator==(Timestamp a, Timestamp b);
   friend Timestamp &operator+=(Timestamp &a, double b);
+  friend Timestamp &operator-=(Timestamp &a, double b);
 
  private:
   double at_{0};
@@ -134,8 +143,35 @@ inline Timestamp &operator+=(Timestamp &a, double b) {
   return a;
 }
 
+inline Timestamp &operator-=(Timestamp &a, double b) {
+  a.at_ -= b;
+  return a;
+}
+
+inline Timestamp &operator+=(Timestamp &a, std::chrono::duration<double> b) {
+  return a += b.count();
+}
+
+inline Timestamp &operator-=(Timestamp &a, std::chrono::duration<double> b) {
+  return a -= b.count();
+}
+
+inline Timestamp operator+(Timestamp a, double b) {
+  a += b;
+  return a;
+}
+
+inline Timestamp operator-(Timestamp a, double b) {
+  a -= b;
+  return a;
+}
+
 inline Timestamp operator+(Timestamp a, std::chrono::duration<double> b) {
   return Timestamp::at(a.at() + b.count());
+}
+
+inline Timestamp operator-(Timestamp a, std::chrono::duration<double> b) {
+  return Timestamp::at(a.at() - b.count());
 }
 
 inline double operator-(const Timestamp &a, const Timestamp &b) {
@@ -144,12 +180,12 @@ inline double operator-(const Timestamp &a, const Timestamp &b) {
 
 template <class StorerT>
 void store(const Timestamp &timestamp, StorerT &storer) {
-  storer.store_binary(timestamp.at() - Time::now() + Clocks::system());
+  storer.store_binary(timestamp.at() - Time::now() + Time::system_now());
 }
 
 template <class ParserT>
 void parse(Timestamp &timestamp, ParserT &parser) {
-  timestamp = Timestamp::in(parser.fetch_double() - Clocks::system());
+  timestamp = Timestamp::in(parser.fetch_double() - Time::system_now());
 }
 
 }  // namespace td

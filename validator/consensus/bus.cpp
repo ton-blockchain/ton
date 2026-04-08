@@ -143,7 +143,8 @@ std::string NoncriticalParamsUpdated::contents_to_string() const {
 }
 
 std::string PrecheckCandidateBroadcast::contents_to_string() const {
-  return PSTRING() << "{slot=" << slot << ", broadcast_id=" << broadcast_id << "}";
+  return PSTRING() << "{slot=" << slot << ", broadcast_id=" << broadcast_id
+                   << ", signature_checked=" << signature_checked << "}";
 }
 
 }  // namespace ton::validator::consensus

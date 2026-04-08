@@ -92,6 +92,7 @@ set(VALIDATOR_SOURCE
   storage-stat-cache.cpp
   shard-block-verifier.cpp
   shard-block-retainer.cpp
+  impl/applied-ext-message-cleanup.cpp
 
   manager.cpp
 

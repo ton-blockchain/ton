@@ -24,6 +24,7 @@
 #include "block/signature-set.h"
 #include "crypto/vm/db/DynamicBagOfCellsDb.h"
 #include "impl/out-msg-queue-proof.hpp"
+#include "td/actor/BackpressureQueue.h"
 #include "validator-session/validator-session-types.h"
 #include "validator/validator.h"
 
@@ -204,11 +205,36 @@ struct ValidationStats {
     td::RealCpuTimer::Time trx_tvm;
     td::RealCpuTimer::Time trx_storage_stat;
     td::RealCpuTimer::Time trx_other;
+    td::RealCpuTimer::Time unpack_state;
+    td::RealCpuTimer::Time validate_block_tlb;
+    td::RealCpuTimer::Time precheck_account_updates;
+    td::RealCpuTimer::Time precheck_account_transactions;
+    td::RealCpuTimer::Time precheck_msg_queue;
+    td::RealCpuTimer::Time unpack_dispatch_queue;
+    td::RealCpuTimer::Time check_in_msg_descr;
+    td::RealCpuTimer::Time check_out_msg_descr;
+    td::RealCpuTimer::Time check_dispatch_queue;
+    td::RealCpuTimer::Time check_processed_upto;
+    td::RealCpuTimer::Time check_in_queue;
+    td::RealCpuTimer::Time check_transactions;
+    td::RealCpuTimer::Time check_new_state;
 
     std::string to_str(bool is_cpu) const {
       return PSTRING() << "total=" << total.get(is_cpu) << " trx_tvm=" << trx_tvm.get(is_cpu)
-                       << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
-                       << " trx_other=" << trx_other.get(is_cpu);
+                       << " trx_storage_stat=" << trx_storage_stat.get(is_cpu) << " trx_other=" << trx_other.get(is_cpu)
+                       << " unpack_state=" << unpack_state.get(is_cpu)
+                       << " validate_block_tlb=" << validate_block_tlb.get(is_cpu)
+                       << " precheck_account_updates=" << precheck_account_updates.get(is_cpu)
+                       << " precheck_account_transactions=" << precheck_account_transactions.get(is_cpu)
+                       << " precheck_msg_queue=" << precheck_msg_queue.get(is_cpu)
+                       << " unpack_dispatch_queue=" << unpack_dispatch_queue.get(is_cpu)
+                       << " check_in_msg_descr=" << check_in_msg_descr.get(is_cpu)
+                       << " check_out_msg_descr=" << check_out_msg_descr.get(is_cpu)
+                       << " check_dispatch_queue=" << check_dispatch_queue.get(is_cpu)
+                       << " check_processed_upto=" << check_processed_upto.get(is_cpu)
+                       << " check_in_queue=" << check_in_queue.get(is_cpu)
+                       << " check_transactions=" << check_transactions.get(is_cpu)
+                       << " check_new_state=" << check_new_state.get(is_cpu);
     }
   };
   WorkTimeStats work_time;
@@ -236,6 +262,16 @@ struct CollatorNodeResponseStats {
         create_tl_block_id(original_block_id), collated_data_hash);
     ;
   }
+};
+
+using ExtMsgQueue = td::actor::BackpressureQueue<std::pair<td::Ref<ExtMessage>, int>>;
+
+struct ExtMsgCallback {
+  ShardIdFull shard;
+  ExtMsgQueue queue;
+  td::CancellationToken cancellation_token;
+  td::Timestamp timeout;
+  bool sync_only = false;
 };
 
 using ValidateCandidateResult = td::Variant<CandidateAccept, CandidateReject>;
@@ -297,13 +333,13 @@ class ValidatorManager : public ValidatorManagerInterface {
                                         td::Promise<td::Ref<MessageQueue>> promise) = 0;
   virtual void wait_block_message_queue_short(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                               td::Promise<td::Ref<MessageQueue>> promise) = 0;
-  virtual void get_external_messages(ShardIdFull shard,
-                                     td::Promise<std::vector<std::pair<td::Ref<ExtMessage>, int>>> promise) = 0;
+  virtual void get_external_messages(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) = 0;
   virtual void get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) = 0;
   virtual void get_shard_blocks_for_collator(BlockIdExt masterchain_block_id,
                                              td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) = 0;
   virtual void complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
                                           std::vector<ExtMessage::Hash> to_delete) = 0;
+  virtual void cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) = 0;
   virtual void complete_ihr_messages(std::vector<IhrMessage::Hash> to_delay,
                                      std::vector<IhrMessage::Hash> to_delete) = 0;
 
