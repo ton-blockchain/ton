@@ -13,5 +13,6 @@ fun main(): int {
 
 /**
 @compilation_should_fail
-@stderr GET methods hash collision: `secret` and `balanced` produce the same hash
+@stderr GET methods hash collision: `secret` and `balanced` produce the same method_id=69469
+@stderr get fun balanced
 */

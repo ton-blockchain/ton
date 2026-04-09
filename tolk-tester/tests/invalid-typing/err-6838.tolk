@@ -4,5 +4,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr type `null` is not assignable to `(int, int)`
+@stderr can not convert `null` to `(int, int)`
  */

@@ -40,7 +40,7 @@ fun test2() {
 
     if (r is Ok<int>) { __expect_type(r, "Ok<int>"); }
     if (r is Ok) { __expect_type(r, "Ok<int>"); }
-    if (r is OkAlias<int>) { __expect_type(r, "Ok<int>"); }
+    if (r is OkAlias<int>) { __expect_type(r, "OkAlias<int>"); }
     if (r !is OkAlias<int>) { __expect_type(r, "Err<slice>"); }
     if (r is Ok<int> && r !is Err<slice> && r is Ok) { __expect_type(r, "Ok<int>"); }
 }

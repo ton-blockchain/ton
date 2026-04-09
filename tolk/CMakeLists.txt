@@ -5,6 +5,7 @@ set(TOLK_SOURCE
         compilation-errors.cpp
         compiler-state.cpp
         abi.cpp
+        type-export-json.cpp
         ast.cpp
         ast-from-tokens.cpp
         constant-evaluator.cpp
@@ -93,7 +94,10 @@ elseif(EMULATOR_STATIC)
   target_include_directories(tolkfiftlib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
   target_link_libraries(tolkfiftlib PUBLIC fift-lib git)
   if (APPLE)
-    set_target_properties(tolkfiftlib PROPERTIES LINK_FLAGS "-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/tolk_export_list")
+    target_link_options(tolkfiftlib PRIVATE
+            "LINKER:-exported_symbol,_tolk_compile"
+            "LINKER:-exported_symbol,_tolk_version"
+    )
   endif()
 endif ()
 

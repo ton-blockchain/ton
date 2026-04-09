@@ -261,6 +261,6 @@ struct Big {
 
 /**
 @compilation_should_fail
-@stderr too big struct (more than 254 fields)
+@stderr too big struct (64 or more fields)
 @stderr struct Big
  */

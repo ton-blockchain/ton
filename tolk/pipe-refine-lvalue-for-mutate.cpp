@@ -72,7 +72,6 @@ class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBod
     }
 
     int delta_self = v->get_self_obj() != nullptr;
-    tolk_assert(fun_ref->get_num_params() >= delta_self + v->get_num_args());
 
     if (delta_self && fun_ref->does_mutate_self()) {
       // for `b.storeInt()`, `b` should become lvalue, since `storeInt` is a method mutating self
@@ -94,7 +93,7 @@ class RefineLvalueForMutateArgumentsVisitor final : public ASTVisitorFunctionBod
       }
     }
 
-    for (int i = 0; i < v->get_num_args(); ++i) {
+    for (int i = 0; i < std::min(v->get_num_args(), fun_ref->get_num_params() - delta_self); ++i) {
       const LocalVarData& p_sym = fun_ref->parameters[delta_self + i];
       auto arg_i = v->get_arg(i);
       if (p_sym.is_mutate_parameter() != arg_i->passed_as_mutate) {

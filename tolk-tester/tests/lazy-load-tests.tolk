@@ -720,7 +720,7 @@ fun demo133() {
         __expect_lazy("[st] skip (bits321), load extensions");
         while (!false) {
             assert(st.extensions != null, 123);
-            return st.extensions.iDictGet(32, 8).0!.loadUint(8);
+            return st.extensions.iDictGet(32, 8).0!.preloadUint(8);
         }
     } else {
         throw 0;
@@ -1067,6 +1067,25 @@ fun demo160() {
     } catch (excno) {
         return excno;
     }
+}
+
+@method_id(161)
+fun demo161() {
+    var p = lazy Point.fromSlice("0102".hexToSlice());
+    __expect_lazy("[p] load x y");
+    var f = fun() {
+        return p.x;
+    };
+    return f();
+}
+
+@method_id(162)
+fun demo162(delta: int) {
+    var f = fun(more: int) {
+        var p = lazy Point.fromSlice("01".hexToSlice());
+        return p.x + delta + more;
+    };
+    return f(delta);
 }
 
 
@@ -1889,6 +1908,8 @@ fun main() {
 @testcase | 158 |                 | 2 10 255
 @testcase | 159 |                 | -1 -1 31 -1 31
 @testcase | 160 |                 | 777
+@testcase | 161 |                 | 1
+@testcase | 162 | 8               | 17
 
 @testcase | 200 |                 | 1
 @testcase | 201 |                 | 1 2 -1
@@ -2135,15 +2156,15 @@ fun main() {
 @fif_codegen
 """
   demo311() PROC:<{             //
-    777 PUSHINT                 //  '6=777
-    contract.getFakeData() CALLDICT       //  '7
+    777 PUSHINT                 //  '1=777
+    contract.getFakeData() CALLDICT       //  '2
     CTOS                        //  lazyS
     1 LDI                       //  '13 lazyS
     NIP                         //  lazyS
     320 PUSHINT                 //  lazyS '14=320
     PLDSLICEX                   //  '15
     PUSHNULL                    //  '15 st.extensions
-    NEWC
+    NEWC                        //  '15 st.extensions b
     b{0} STSLICECONST           //  '15 st.extensions b
     s1 s2 XCHG                  //  st.extensions '15 b
     STSLICE                     //  st.extensions b

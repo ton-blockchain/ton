@@ -35,3 +35,16 @@ fun smartCastedUnionStackLayout(v: slice | int | null) {
         wipe(mutate v);
     }
 }
+
+fun firstMutateSecondNot(x77: int, mutate y77: int) {
+}
+
+// @stderr incorrect `mutate`, since `firstMutateSecondNot` does not mutate parameter `x77`
+// @stderr function `firstMutateSecondNot` mutates parameter `y77`
+// @stderr you need to specify `mutate` when passing an argument, like `mutate b77`
+// @stderr function `slice.loadUint` mutates parameter `slice`
+// @stderr incorrect `mutate`, since `slice.loadUint` does not mutate parameter `int`
+fun invalidMutateArgumentPassed(a77: int, b77: int, p77: slice) {
+    firstMutateSecondNot(mutate a77, b77);
+    slice.loadUint(p77, mutate b77);
+}

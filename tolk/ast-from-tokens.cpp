@@ -137,24 +137,42 @@ static AnyExprV maybe_replace_eq_null_with_isNull_check(V<ast_binary_operator> v
   return createV<ast_is_type_operator>(v->range, v_nullable, rhs_null_type, v->tok == tok_neq);
 }
 
-// parse `123` / `0xFF` / `0b10001` to td::RefInt256
+// parse `123` / `1_000_000` / `0xFF` / `0xFF_FF_` / `0b10001` / `0b_0____1` to td::RefInt256
 static td::RefInt256 parse_tok_int_const(std::string_view text, SrcRange cur_range) {
   bool bin = text[0] == '0' && text[1] == 'b';
+  bool has_underscores = text.find('_') != std::string_view::npos;
   if (!bin) {
-    // this function parses decimal and hex numbers
-    td::RefInt256 intval = td::string_to_int256(static_cast<std::string>(text));
+    // parse decimal and hex numbers; lexer allows `1_000_000`, strip them to `1000000`
+    td::RefInt256 intval;
+    if (has_underscores) {
+      std::string cleaned;
+      cleaned.reserve(text.size());
+      for (char c : text) {
+        if (c != '_') {
+          cleaned += c;
+        }
+      }
+      intval = td::string_to_int256(td::Slice{cleaned});
+    } else {
+      intval = td::string_to_int256(td::Slice{text.data(), text.size()});
+    }
     if (intval.is_null() || !intval->signed_fits_bits(257)) {
       err("invalid integer constant").fire(cur_range);
     }
     return intval;
   }
+
   // parse a binary number; to make it simpler, don't allow too long numbers, it's impractical
-  if (text.size() < 3 || text.size() > 64 + 2) {
-    err("invalid binary integer").fire(cur_range);
-  }
   uint64_t result = 0;
+  int digit_count = 0;
   for (char c : text.substr(2)) { // skip "0b"
-    result = (result << 1) | static_cast<uint64_t>(c - '0');
+    if (c != '_') {
+      result = (result << 1) | static_cast<uint64_t>(c - '0');
+      digit_count++;
+    }
+  }
+  if (digit_count < 1 || digit_count > 64) {
+    err("invalid binary integer").fire(cur_range);
   }
   return td::make_refint(result);
 }

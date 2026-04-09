@@ -91,7 +91,7 @@ fun test102() {
     var numbers1 = [1, 2, 3, 4] as lisp_list<int>;
     assert (numbers1.serializeAsSeqInt8() == 0x01020304) throw 123;
 
-    var numbers2: lisp_list<int> = [];
+    var numbers2 = createEmptyList<int>();
     numbers2.prependHead(4);
     numbers2.prependHead(3);
     numbers2.prependHead(2);
@@ -127,7 +127,7 @@ fun test104() {
 @method_id(105)
 fun test105() {
     val second = address("EQBiMNL9qNWMAkJHuM0BFneYcuHL17kzS4pswpaEO-NGWrFG");
-    var l: lisp_list<address> = [];
+    var l: lisp_list<address> = createEmptyList();
     l.prependHead(address("0:ca6e321c7cce9ecedf0a8ca2492ec8592494aa5fb5ce0387dff96ef6af982a3e"));
     l.prependHead(second);
     return (
@@ -174,8 +174,8 @@ fun test108() {
     var l5 = [1, 2] as lisp_list<int>;
     var l6 = [1, 2] as lisp_list<int>;
     var l7 = [1, 2] as lisp_list<int>;
-    l1 = l2 = l3 = [];
-    (l4, l5) = ([], []);
+    (l1, l2, l3) = ([], [], []);
+    l4 = l5 = [];
     [l6, l7] = [[], []];
     return (l1, l2, l3, l4, l5, l6, l7);
 }
@@ -184,7 +184,7 @@ fun test108() {
 fun test109() {
     var n = [10] as lisp_list<int>;
     var nn = [[]] as [[]];
-    var eq = eq([n] = nn);
+    var eq = eq([n] = [[]]);
     return (n, eq);
 }
 
@@ -309,7 +309,7 @@ fun test118() {
 fun test119() {
     var l1: lisp_list<int?>;
     var l2: lisp_list<Point?>;
-    return (eq(l1 = l2 = []), l1, l2, l1.isEmpty());
+    return (eq(((l1, l2) = ([], [])).0), l1, l2, l1.isEmpty());
 }
 
 @method_id(120)
@@ -385,6 +385,24 @@ fun test123() {
     )
 }
 
+const list1: lisp_list<int> = []
+const list2: lisp_list<int> = [1, 2]
+const list1Unknown: unknown = list1
+const list2Unknown: unknown = list2
+
+@method_id(124)
+fun test124() {
+    __expect_type(list2, "lisp_list<int>");
+    return (
+        list1,
+        list2,
+        list1Unknown,
+        list2Unknown,
+        (list1 as unknown) == null,
+    )
+}
+
+
 
 fun main() {
     __expect_type([] as lisp_list<int8>, "lisp_list<int8>");
@@ -402,7 +420,7 @@ fun main() {
 @testcase | 106 |       | 7
 @testcase | 107 |       | 3 2 3 [ 1 2 3 ] [ 1 2 ]
 @testcase | 108 |       | (null) (null) (null) (null) (null) (null) (null)
-@testcase | 109 |       | (null) [ [] ]
+@testcase | 109 |       | (null) [ (null) ]
 @testcase | 110 |       | [ 3 2 1 ] [ 1 2 3 ]
 @testcase | 111 |       | 3 6 -1 [ 4 5 6 4 5 6 3 2 1 ] [ 2 3 ] [ 5 [ 6 (null) ] ] (null) -1
 @testcase | 112 |       | 3 21
@@ -413,9 +431,10 @@ fun main() {
 @testcase | 116 |       | [ 20 0 ] [ [ 10 -1 ] [ 20 0 ] ] [ [ 2 -1 ] [ [ 3 0 ] (null) ] ]
 @testcase | 117 |       | 100 200 [ [ 10 20 ] (null) ] (null) 20 -1
 @testcase | 118 |       | [ [ 10 70 130 ] [ (null) (null) 0 ] [ 10 20 130 ] ] 10 20 -1
-@testcase | 119 |       | [] (null) (null) -1
+@testcase | 119 |       | (null) (null) (null) -1
 @testcase | 120 |       | [ (null) 2 3 ] [ [ 10 20 130 ] [ (null) (null) 0 ] ] 10 20 130 -1 0 0
 @testcase | 121 |       | 41
 @testcase | 122 |       | -1
 @testcase | 123 |       | -1 100 200 100 -1
+@testcase | 124 |       | (null) [ 1 [ 2 (null) ] ] (null) [ 1 [ 2 (null) ] ] -1
  */

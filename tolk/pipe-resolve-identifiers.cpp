@@ -119,11 +119,31 @@ struct NameAndScopeResolver {
 
 class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
   NameAndScopeResolver current_scope;
+  
+  struct LambdaCaptureState {
+    std::vector<LocalVarPtr> captured_vars;
+    std::vector<LocalVarPtr> local_vars;
+  };
+  std::vector<LambdaCaptureState> lambda_stack;
 
   LocalVarPtr create_local_var_sym(std::string_view name, AnyV ident_anchor, AnyTypeV declared_type_node, bool immutable, bool lateinit) {
     LocalVarData* v_sym = new LocalVarData(static_cast<std::string>(name), ident_anchor, declared_type_node, nullptr, immutable * LocalVarData::flagImmutable + lateinit * LocalVarData::flagLateInit, -1);
     current_scope.add_local_var(v_sym);
+    if (!lambda_stack.empty()) {
+      lambda_stack.back().local_vars.push_back(v_sym);
+    }
     return v_sym;
+  }
+
+  void maybe_register_capture(LocalVarPtr var_ref) {
+    for (auto it = lambda_stack.rbegin(); it != lambda_stack.rend(); ++it) {
+      if (std::find(it->local_vars.begin(), it->local_vars.end(), var_ref) != it->local_vars.end()) {
+        break;
+      }
+      if (std::find(it->captured_vars.begin(), it->captured_vars.end(), var_ref) == it->captured_vars.end()) {
+        it->captured_vars.push_back(var_ref);
+      }
+    }
   }
 
   void process_catch_variable(AnyExprV catch_var) {
@@ -153,8 +173,15 @@ class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
     }
     v->mutate()->assign_sym(sym);
 
+    LocalVarPtr var_ref = sym->try_as<LocalVarPtr>();
+
+    // local variable inside a lambda is discoverable from parent's scope
+    if (var_ref && !lambda_stack.empty()) {
+      maybe_register_capture(var_ref);
+    }
+
     // for global functions, global vars and constants, `import` must exist
-    if (!sym->try_as<LocalVarPtr>()) {
+    if (!var_ref) {
       bool allow_no_import = sym->is_builtin() || sym->ident_anchor->range.is_file_id_same_or_stdlib_common(v->range);
       if (!allow_no_import) {
         sym->check_import_exists_when_used_from(cur_f, v);
@@ -252,12 +279,16 @@ class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
   }
 
   void visit(V<ast_lambda_fun> v) override {
-    // we are at `fun() { ... }` expression - a lambda (an anonymous functions);
-    // lambdas do not capture anything (neither manually nor automatically), they are not closures;
-    // moreover, ast_lambda_fun is a leaf, without direct children (since parameters/body are not expressions);
-    // we do not traverse body of a lambda here, because it would be traversed later,
-    // when a lambda is registered as a standalone function itself, and that function will travel the pipeline itself;
-    // hence, local symbols from a parent scope will not be available, as expected
+    lambda_stack.push_back(LambdaCaptureState{});
+    current_scope.open_scope();
+    for (int i = 0; i < v->get_num_params(); ++i) {
+      V<ast_parameter> v_param = v->get_param(i);
+      create_local_var_sym(v_param->get_name(), v_param->get_identifier(), v_param->type_node, false, false);
+    }
+    parent::visit(v->get_body());
+    current_scope.close_scope();
+    v->mutate()->assign_captured_vars(std::move(lambda_stack.back().captured_vars));
+    lambda_stack.pop_back();
   }
 
 public:
@@ -266,7 +297,7 @@ public:
   }
 
   void on_exit_function(V<ast_function_declaration> v_function) override {
-    tolk_assert(current_scope.scopes.empty());
+    tolk_assert(current_scope.scopes.empty() && lambda_stack.empty());
   }
 
   void start_visiting_constant(GlobalConstPtr const_ref) {

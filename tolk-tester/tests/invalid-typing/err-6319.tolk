@@ -17,6 +17,6 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr can not assign `array<array<int> | array<unknown>>` to variable of type `array<array<int>>`
-@stderr arrArrIntFail
+@stderr can not convert `array<unknown>` to `array<int>`
+@stderr fail here
  */

@@ -13,6 +13,7 @@ struct Pair<T1, T2> {
 type MyInt = int;
 type WrappedInt = Wrapper<int>;
 type WrapperAlias<T> = Wrapper<T>;
+type ArrayOfT<T> = array<T>;
 
 struct DeepNested<T> {
     wrapper: WrapperAlias<Wrapper<T>>;
@@ -557,6 +558,29 @@ fun test30() {
     Box.create(true) as Box<bool>;
 }
 
+fun WrapperAlias<T>.getValueOfAlias(self): T { return self.value }
+
+fun getValueOfAlias<T>(w: WrapperAlias<T>): T { return w.value }
+
+fun test31(w1: Wrapper<int>, w2: WrapperAlias<int>) {
+  __expect_type(getValueOfAlias(w1), "int");
+  __expect_type(getValueOfAlias(w2), "int");
+  __expect_type((w1).getValueOfAlias(), "int");
+  __expect_type((w2).getValueOfAlias(), "int");
+}
+
+fun calcSizeOfArray<T, U>(arr: ArrayOfT<T>, arrNested: ArrayOfT<ArrayOfT<U>>): [T, U] {
+    return [arr.first(), arrNested.first().first()]
+}
+
+@method_id(132)
+fun test32() {
+    var pair = calcSizeOfArray([(2, 3)], [[4 as int32], [5 as int32]]);
+    __expect_type(pair.0, "(int, int)");
+    __expect_type(pair.1, "int32");
+    return pair;
+}
+
 
 fun main(c: Wrapper<slice>, d: WrappedInt) {
     __expect_type(c, "Wrapper<slice>");
@@ -603,6 +627,7 @@ fun main(c: Wrapper<slice>, d: WrappedInt) {
 @testcase | 126 |         | 0 0 0 (null) 777 0 typeid-12 (null) typeid-12 (null) 0
 @testcase | 128 |         | 0 -1 0 -1 -1
 @testcase | 129 |         | -1 typeid-15 (null) typeid-16
+@testcase | 132 |         | [ [ 2 3 ] 4 ]
 
 
 @fif_codegen

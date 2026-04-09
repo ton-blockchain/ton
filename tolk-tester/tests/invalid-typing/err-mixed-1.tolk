@@ -31,7 +31,7 @@ fun errSemanticsValConst() {
     increment(mutate MY_CONST);
 }
 
-// @stderr literal can not be used as lvalue
+// @stderr can not mutate a temporary expression
 fun errSemanticsLiteral() {
     increment(mutate 30);
 }
@@ -118,4 +118,20 @@ fun f(v: UserId) {
     match (v) {
         OwnerId => {}
     }
+}
+
+// @stderr invalid `map`: type `slice` can not be used as a key
+// @stderr invalid `map`: type `int8?` can not be used as a key
+// @stderr because its binary size is not constant: it's 1..9 bits
+fun invalidMapKeyInsideCasts() {
+    0 as unknown as map<slice, string> as unknown;
+
+    var m = map<int8?, string> [];
+    m.set(null, "");
+    return m;
+}
+
+// @stderr too few arguments in call to `add1`, expected 1, have 0
+fun tooFewArguments() {
+    add1();
 }

@@ -23,5 +23,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr too big tensor (more than 254 elements)
+@stderr too big tensor (64 or more elements)
  */

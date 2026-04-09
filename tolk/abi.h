@@ -18,9 +18,8 @@
 #include <string>
 #include <vector>
 #include <optional>
-#include <unordered_set>
 #include "fwd-declarations.h"
-#include "constant-evaluator.h"
+#include "type-export-json.h"
 
 namespace tolk {
 
@@ -28,49 +27,49 @@ struct ABIFunctionParameter {
   std::string_view name;
   TypePtr ty;
   std::string description;
-  std::optional<ConstValExpression> defaultValue;
+  std::optional<ConstValExpression> default_value;
 };
 
 struct ABIGetMethod {
-  int tvmMethodId;
+  int tvm_method_id;
   std::string_view name;
   std::vector<ABIFunctionParameter> parameters;
-  TypePtr returnTy;
+  TypePtr return_ty;
   std::string description;
 };
 
 struct ABIInternalMessage {
-  TypePtr bodyTy;
+  TypePtr body_ty;
   std::string description;
-  std::optional<int64_t> minimalMsgValue;
-  std::optional<int64_t> preferredSendMode;
+  std::optional<int64_t> minimal_msg_value;
+  std::optional<int64_t> preferred_send_mode;
 };
 
 struct ABIExternalMessage {
-  TypePtr bodyTy;
+  TypePtr body_ty;
   std::string description;
 };
 
 struct ABIOutgoingMessage {
-  TypePtr bodyTy;
+  TypePtr body_ty;
   std::string description;
 };
 
 struct ABIStorage {
-  TypePtr storageTy = nullptr;
-  TypePtr storageAtDeploymentTy = nullptr;
+  TypePtr storage_ty = nullptr;
+  TypePtr storage_at_deployment_ty = nullptr;
 };
 
 enum class ABIThrownErrorKind {
-  plainInt,
+  plain_int,
   constant,
-  enumMember,
+  enum_member,
 };
 
 struct ABIThrownError {
   ABIThrownErrorKind kind;
   std::string name;           // empty / "CONST_NAME" / "EnumName.MemberName"
-  int errCode;
+  int err_code;
 };
 
 struct ABIConstant {
@@ -81,37 +80,33 @@ struct ABIConstant {
 
 
 struct ContractABI {
-  std::string_view contractName;
+  std::string_view contract_name;
   std::string_view author;
   std::string_view version;
   std::string_view description;
 
-  std::unordered_set<TypePtr> used_types;     // to collect unique declarations
-  std::vector<const Symbol*> used_symbols;    // structs, aliases, enums
+  JsonTypeExporter json_types;
 
   ABIStorage storage;
-  std::vector<ABIInternalMessage> incomingMessages;
-  std::vector<ABIExternalMessage> incomingExternal;
-  std::vector<ABIOutgoingMessage> outgoingMessages;
-  std::vector<ABIOutgoingMessage> emittedEvents;
-  std::vector<ABIGetMethod> getMethods;
-  std::vector<ABIThrownError> thrownErrors;
+  std::vector<ABIInternalMessage> incoming_messages;
+  std::vector<ABIExternalMessage> incoming_external;
+  std::vector<ABIOutgoingMessage> outgoing_messages;
+  std::vector<ABIOutgoingMessage> emitted_events;
+  std::vector<ABIGetMethod> get_methods;
+  std::vector<ABIThrownError> thrown_errors;
   std::vector<ABIConstant> constants;
 
-  std::string_view compilerName;
-  std::string_view compilerVersion;
-  // final ABI also contains `codeBoc64`, but it's filled by tolk-js, after calling Fift
+  std::string_view compiler_name;
+  std::string_view compiler_version;
 
   ContractABI();
 
-  void register_used_symbol(const Symbol* sym);
-  void register_used_type(TypePtr type);
-  void register_storage(TypePtr storageTy, TypePtr storageAtDeploymentTy);
+  void register_storage(TypePtr storage_ty, TypePtr storage_at_deployment_ty);
   void register_get_method(FunctionPtr fun_ref);
-  void register_incoming_message(TypePtr bodyTy);
-  void register_external_message(TypePtr bodyTy);
-  void register_outgoing_message(TypePtr bodyTy);
-  void register_emitted_event(TypePtr bodyTy);
+  void register_incoming_message(TypePtr body_ty);
+  void register_external_message(TypePtr body_ty);
+  void register_outgoing_message(TypePtr body_ty);
+  void register_emitted_event(TypePtr body_ty);
   void register_thrown_error(GlobalConstPtr const_ref);
   void register_thrown_error(EnumDefPtr enum_ref, EnumMemberPtr member_ref);
   void register_thrown_error(const td::RefInt256& err_code);

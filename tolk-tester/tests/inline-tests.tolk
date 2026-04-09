@@ -100,7 +100,6 @@ fun foo_big(x: int): int {
     return x;
 }
 
-@noinline
 fun foo_big_not_annotated_called_once(x: int): int {
     __expect_inline(true);     // called only once, inline
     x = x * 10 + 1; x = x * 10 + 1; x = x * 10 + 1; x = x * 10 + 1; x = x * 10 + 1; x = x * 10 + 1; x = x * 10 + 1;
@@ -188,7 +187,7 @@ fun builder.store32(mutate self, v: int32): self {
 }
 
 fun sum(a: int, b: int) {
-    __expect_inline(true);
+    __expect_inline(false);     // because it's never called
     return a + b;
 }
 
@@ -451,9 +450,9 @@ fun usedIn10ButDeclaredBelow(x: int) {
 @fif_codegen
 """
   test5() PROC:<{               //
-    c4 PUSH                     //  '7
+    c4 PUSH                     //  '4
     CTOS                        //  s
-    LDSTDADDR                   //  '11 s
+    LDSTDADDR                   //  '8 s
 """
 
 @fif_codegen
@@ -467,12 +466,12 @@ fun usedIn10ButDeclaredBelow(x: int) {
 @fif_codegen
 """
   test8() PROC:<{               //
-    NEWC
+    NEWC                        //  '5
     x{00000005} STSLICECONST    //  '3
     25 PUSHINT                  //  '3 '9
     SWAP                        //  x self
-    x{0000001900000019} STSLICECONST  //  x '15
-    SWAP                        //  '15 x
+    x{0000001900000019} STSLICECONST  //  x '3
+    SWAP                        //  '3 x
   }>
 """
 
@@ -505,9 +504,9 @@ fun usedIn10ButDeclaredBelow(x: int) {
 @fif_codegen
 """
   test10() PROC:<{
-    5 PUSHINT                   //  '3=5
-    DUP                         //  '3=5 y=5
-    NEWC
+    5 PUSHINT                   //  '0=5
+    DUP                         //  '0=5 y=5
+    NEWC                        //  '0=5 y=5 '10
     x{00000005} STSLICECONST    //  a=5 b=5 c
     BBITS                       //  a=5 b=5 '18
   }>

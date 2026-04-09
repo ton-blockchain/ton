@@ -323,6 +323,7 @@ bool Op::compute_used_vars(bool edit, const VarDescrList& next_var_info) {
     case _SliceConst:
     case _SnakeStringConst:
     case _GlobVar:
+    case _SetContArgs:
     case _Call:
     case _CallInd:
     case _Tuple:
@@ -553,6 +554,7 @@ bool OpList::prune_unreachable() {
       case Op::_SnakeStringConst:
       case Op::_GlobVar:
       case Op::_SetGlob:
+      case Op::_SetContArgs:
       case Op::_CallInd:
       case Op::_Tuple:
       case Op::_UnTuple:
@@ -812,6 +814,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
     case _Tuple:
     case _UnTuple:
     case _GlobVar:
+    case _SetContArgs:
     case _CallInd: {
       for (var_idx_t i : left) {
         values.add_newval(i);
@@ -1010,6 +1013,7 @@ bool OpList::mark_noreturn() {
       case Op::_UnTuple:
       case Op::_SetGlob:
       case Op::_GlobVar:
+      case Op::_SetContArgs:
       case Op::_CallInd:
         op.set_noreturn(next_noreturn);
         break;

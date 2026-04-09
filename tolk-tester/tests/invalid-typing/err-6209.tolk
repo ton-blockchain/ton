@@ -14,5 +14,5 @@ fun main(c: tuple, x: int, y: int) {
 
 /**
 @compilation_should_fail
-@stderr type `[Point?]` is not assignable to `c`
+@stderr can not convert `[Point?]` to `c`
  */

@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 1.2
+tolk 1.3
 
 /**
     A string is a language primitive — a cell containing snake-formatted text data.
@@ -171,5 +171,25 @@ fun StringBuilder.build(self): string {
     return tail as unknown as string;
 }
 
-// todo think about onchain/offchain/semichain prefixes (0x00, 0x01, 0x02)
-// do we need structures? or we need just to prepend those bytes before the rest snake?
+/// A string, which contents starts with 0x00/0x01 byte.
+/// By standard, offchain explorers/APIs may treat contents of a string based on 0xXX prefixes:
+/// - 0x00 + "str" — means "this is a regular snake-encoded string"
+/// - 0x01 + "str" — means "this is an off-chain content URL"
+/// Used in jettons and NFTs for responses from GET methods to comply with TEPs (token standards).
+type string_prefixed0x = string
+
+/// Given "str", prefix it with 0x00 byte.
+/// Logically it makes a string "\x00str"; physically, it's 0x00 + ref "str".
+/// See [string_prefixed0x].
+fun string.prefixWith00(self): string_prefixed0x {
+    val cell00 = beginCell().storeUint(0x00, 8).storeString(self).endCell();
+    return cell00 as unknown as string;
+}
+
+/// Given "str", prefix it with 0x01 byte.
+/// Logically it makes a string "\x01str"; physically, it's 0x01 + ref "str".
+/// See [string_prefixed0x].
+fun string.prefixWith01(self): string_prefixed0x {
+    val cell01 = beginCell().storeUint(0x01, 8).storeString(self).endCell();
+    return cell01 as unknown as string;
+}

@@ -28,10 +28,11 @@ fun test101(getK1: int, getK2: int, getK3: int) {
     var (old1: slice?, found1) = dict.uDictSetAndGet(32, getK1, beginCell().storeUint(2, 32).endCell().beginParse());
     var (old2: slice?, found2) = dict.uDictSetAndGet(32, getK2, beginCell().storeUint(3, 32).endCell().beginParse());
     var (cur3: slice?, found3) = dict.uDictGet(32, getK3);
+    old1 = old1!; old2 = old2!; cur3 = cur3!;
     return (
-        found1 ? old1!.loadUint(32) : -1,
-        found2 ? old2!.loadUint(32) : -1,
-        found3 ? cur3!.loadUint(32) : -1
+        found1 ? (old1, 0).0.loadUint(32) : -1,
+        found2 ? (old2, 0).0.loadUint(32) : -1,
+        found3 ? (cur3, 0).0.loadUint(32) : -1
     );
 }
 
@@ -47,7 +48,8 @@ fun test102() {
     while (!shouldBreak) {
         var (kDel, kVal, wasDel) = dict.iDictDeleteLastAndGet(32);
         if (wasDel) {
-            deleted.push([kDel, kVal!.loadInt(32)]);
+            kVal = kVal!;
+            deleted.push([kDel, (kVal, 0).0.loadInt(32)]);
         } else {
             shouldBreak = true;
         }
@@ -84,12 +86,13 @@ fun test104() {
     var (restK1, restV1, _) = dict.sDictDeleteLastAndGet(32);
     assert (restK!.bitsEqual(restK1!)) throw 123;
     assert (restV!.bitsEqual(restV1!)) throw 123;
+    old1 = old1!; old2 = old2!; restV = restV!; restK = restK!;
     return (
-        old1!.loadTwoDigitNumberFromSlice(),
-        old2!.loadTwoDigitNumberFromSlice(),
-        restV!.loadTwoDigitNumberFromSlice(),
-        restK!.loadTwoDigitNumberFromSlice(),
-        restK!.loadTwoDigitNumberFromSlice()
+        old1.loadTwoDigitNumberFromSlice(),
+        old2.loadTwoDigitNumberFromSlice(),
+        restV.loadTwoDigitNumberFromSlice(),
+        restK.loadTwoDigitNumberFromSlice(),
+        restK.loadTwoDigitNumberFromSlice()
     );
 }
 
@@ -101,7 +104,8 @@ fun test105(takeNext: bool) {
     var (next, data, found) = takeNext ? dict.uDictGetNext(32, -1) : dict.uDictGetPrev(32, 9);
     __expect_type(found, "bool");
     assert(found, 10);
-    return data!.loadUint(8);
+    data = data!;
+    return data.loadUint(8);
 }
 
 @method_id(106)

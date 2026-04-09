@@ -90,6 +90,32 @@ static void warning_condition_always_true_or_false(FunctionPtr cur_f, SrcRange k
   err("condition of {} is always {}", operator_name, cond->is_always_true).warning(keyword_range, cur_f);
 }
 
+// given fun `f` and a call `f(a,b,c)`, check that argument count is expected;
+// (parameters may have default values, so it's not as trivial as to compare params and args size)
+static void check_arguments_count_at_fun_call(FunctionPtr cur_f, V<ast_function_call> v, FunctionPtr called_f, AnyExprV self_obj) {
+  int delta_self = self_obj != nullptr;
+  int n_arguments = v->get_num_args() + delta_self;
+  int n_max_params = called_f->get_num_params();
+  int n_min_params = n_max_params;
+  while (n_min_params) {
+    const LocalVarData& param_i = called_f->get_param(n_min_params - 1);
+    // by analogy with `void` fields (that can be missed out of a literal), `void` parameters may be omitted
+    bool allow_missing = param_i.has_default_value() || param_i.declared_type == TypeDataVoid::create();
+    if (!allow_missing) {
+      break;
+    }
+    n_min_params--;
+  }
+
+  if (!called_f->does_accept_self() && self_obj) {   // static method `Point.create(...)` called as `p.create()`
+    err("method `{}` can not be called via dot\n(it's a static method, it does not accept `self`)", called_f).collect(v->get_callee(), cur_f);
+  } else if (n_max_params < n_arguments) {
+    err("too many arguments in call to `{}`, expected {}, have {}", called_f, n_max_params - delta_self, n_arguments - delta_self).collect(v->get_arg_list(), cur_f);
+  } else if (n_arguments < n_min_params) {
+    err("too few arguments in call to `{}`, expected {}, have {}", called_f, n_min_params - delta_self, n_arguments - delta_self).collect(v->get_arg_list(), cur_f);
+  }
+}
+
 // given `f(x: mutate int?)` and a call `f(expr)`, check that `int?` is assignable to expr_type
 // (for instance, can't call `f(mutate intVal)`, since f can potentially assign null to it)
 static void check_function_argument_mutate_back(FunctionPtr cur_f, TypePtr param_type, AnyExprV ith_arg, bool is_obj_of_dot_call) {
@@ -423,7 +449,11 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     AnyExprV self_obj = v->get_self_obj();
     int delta_self = self_obj != nullptr;
 
-    if (self_obj) {
+    // validate too many / too few arguments or calling static methods like `obj.f()`;
+    // note: for `f(too,many,arguments)` corresponding parameter doesn't exist, that's why guard referencing parameters[i]
+    check_arguments_count_at_fun_call(cur_f, v, fun_ref, self_obj);
+
+    if (self_obj && fun_ref->does_accept_self()) {
       const LocalVarData& param_0 = fun_ref->parameters[0];
       TypePtr param_type = param_0.declared_type;
       if (!param_type->can_rhs_be_assigned(self_obj->inferred_type)) {
@@ -433,7 +463,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
         check_function_argument_mutate_back(cur_f, param_type, self_obj, true);
       }
     }
-    for (int i = 0; i < v->get_num_args(); ++i) {
+    for (int i = 0; i < std::min(v->get_num_args(), fun_ref->get_num_params() - delta_self); ++i) {
       const LocalVarData& param_i = fun_ref->parameters[delta_self + i];
       // note: we take ast_argument, not get_expr() inside it, because for `f(mutate expr)`,
       // argument's type is before `mutate` (equal to `f(expr)`), and expr's is after `mutate`

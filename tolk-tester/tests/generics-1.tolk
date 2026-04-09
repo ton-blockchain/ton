@@ -229,10 +229,21 @@ fun test115() {
     return (arr.get(0), sh.1 is int16 && sh.1 == 2);
 }
 
+fun returnTOfShape<T>(sh: [int, T]) {
+    return sh.1
+}
+
+fun returnTOfArray<T>(arr: array<T>) {
+    return arr.get(0)
+}
+
 
 fun main(x: int): (int, [Tup2Int]) {
     __expect_type(test110, "() -> (Tensor2Int, Tensor2Int)");
     __expect_type(eq2(10 as Color), "Color");
+
+    __expect_type(returnTOfShape([1, ""]), "string");
+    __expect_type(returnTOfArray([1, 234]), "int");
 
     try { if(x) { throw (1, x); } }
     catch (excNo, arg) { return (arg as int, [[eq2(arg as int), getTwo()]]); }

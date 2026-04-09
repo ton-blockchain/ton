@@ -380,10 +380,22 @@ public:
   // convert a lambda expression `fun(params) { ... }` into a full function declaration
   // (the instantiated function will be added to G.all_functions and exist as a standalone function)
   static V<ast_function_declaration> clone_lambda_as_standalone(V<ast_lambda_fun> v_lambda) {      
+    // build the parameter list: captured vars (if any) prepended, then the original lambda params
+    std::vector<AnyV> new_params;
+    new_params.reserve(v_lambda->captured_vars.size() + v_lambda->get_param_list()->get_params().size());
+    for (LocalVarPtr captured_var_ref : v_lambda->captured_vars) {
+      SrcRange range = captured_var_ref->ident_anchor->range;
+      V<ast_identifier> v_ident = createV<ast_identifier>(range, captured_var_ref->name);
+      new_params.push_back(createV<ast_parameter>(range, v_ident, nullptr, nullptr, false));
+    }
+    for (AnyV orig_p : v_lambda->get_param_list()->get_params()) {
+      new_params.push_back(clone(orig_p));
+    }
+
     return createV<ast_function_declaration>(
       v_lambda->range,
       createV<ast_identifier>(v_lambda->keyword_range(), "lambda"),   // it's not a real name, for AST only
-      clone(v_lambda->get_param_list()),
+      createV<ast_parameter_list>(v_lambda->get_param_list()->range, std::move(new_params)),
       clone(v_lambda->get_body()),
       nullptr,
       clone(v_lambda->return_type_node),

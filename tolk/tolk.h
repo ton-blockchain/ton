@@ -283,6 +283,7 @@ struct Op {
     _IntConst,
     _GlobVar,
     _SetGlob,
+    _SetContArgs,
     _Import,
     _Return,
     _Tuple,
@@ -1015,14 +1016,21 @@ struct CodeBlob {
     op.right = std::move(src);
     op.g_sym = g;
     op.set_impure_flag();
+    op.debug_mark = DebugMarkSetGlob{g, op.right};
   }
-  void add_import_fun_params(AnyV origin, std::vector<var_idx_t> ir_params, FunctionPtr f_entered) {
+  void add_setcontargs(AnyV origin, std::vector<var_idx_t> dst, std::vector<var_idx_t> src) {
+    Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_SetContArgs, std::move(dst)));
+    op.right = std::move(src);
+  }
+  void add_import_fun_params(AnyV origin, std::vector<var_idx_t> ir_params, FunctionPtr f_entered, DebugMarkInfo mark_enter_fun) {
     Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_Import, std::move(ir_params)));
     op.f_sym = f_entered;
+    op.debug_mark = std::move(mark_enter_fun);
   }
   void add_return(AnyV origin, std::vector<var_idx_t> ir_return, FunctionPtr f_return_from) {
     Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_Return, std::move(ir_return)));
     op.f_sym = f_return_from;
+    op.debug_mark = create_mark_leave_fun(f_return_from, origin, op.left);
   }
   void add_to_tuple(AnyV origin, std::vector<var_idx_t> dst, std::vector<var_idx_t> src) {
     Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_Tuple, std::move(dst)));
@@ -1054,6 +1062,7 @@ struct CodeBlob {
   void add_extra_mark_location(SrcRange range) {
     add_debug_mark(DebugMarkLocation{range});
   }
+  static DebugMarkInfo create_mark_leave_fun(FunctionPtr fun_ref, AnyV origin, std::vector<var_idx_t> ir_return);
   std::vector<var_idx_t> create_var(TypePtr var_type, AnyV origin, std::string name);
   std::vector<var_idx_t> create_tmp_var(TypePtr var_type, AnyV origin, const char* purpose) {
     std::vector ir_idx = create_var(var_type, origin, {});

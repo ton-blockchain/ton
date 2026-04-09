@@ -250,6 +250,20 @@ fun test120(condition: bool) {
     )
 }
 
+@method_id(121)
+fun test121() {
+    var x = 1;
+    val c1 = true;
+    val c2 = true;
+    return (x, c1 && (x = 2), x, c2 && (x = 3), x);
+}
+
+@method_id(122)
+fun test122(cond: bool) {
+    var x = 1;
+    return (x, cond && (x = 2), x, cond && (x = 3), x);
+}
+
 
 fun main() {
 
@@ -302,6 +316,9 @@ fun main() {
 @testcase | 119 | -1     | 7 9 9
 @testcase | 120 | 0      | 7 7 101 102 7 7 102 102
 @testcase | 120 | -1     | 7 7 101 102 7 101 102 101
+@testcase | 121 |        | 1 -1 2 -1 3
+@testcase | 122 | -1     | 1 -1 2 -1 3
+@testcase | 122 | 0      | 1 0 1 0 1
 
 @fif_codegen
 """

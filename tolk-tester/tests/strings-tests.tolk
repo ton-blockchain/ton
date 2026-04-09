@@ -43,6 +43,7 @@ get fun string_maxihash(): int {
 }
 
 get fun string_crc32(): int {
+  assert (string.crc32("abc") == "abc".crc32()) throw 123;
   assert (stringCrc32("transfer(slice, int)") == "transfer(slice, int)".crc32()) throw 123;
   return stringCrc32(S_ALSO_TRANSFER);
 }
@@ -223,8 +224,8 @@ fun test10() {
 @method_id(111)
 fun test11() {
   return (
-    "a\n\t\\\"\r\0b".bytesToArray(),
-    """a\n\0"\"b""".bytesToArray(),
+    "a\n\t\\\"\rb".bytesToArray(),
+    """a\n"\"b""".bytesToArray(),
     "line1\nline2".calculateLength(),
     "say \"hello\"".calculateLength(),
     "привет".calculateLength(),
@@ -300,13 +301,6 @@ fun test14() {
   )
 }
 
-@method_id(115)
-fun test15() {
-  counter = 0;
-  val s = makeWrap().sb.append("a").append("b").build();
-  return (counter, s.equalTo("ab"));
-}
-
 @method_id(116)
 fun test16() {
   // all lhs of `crc16` are constant expressions, therefore it works
@@ -318,6 +312,48 @@ fun test16() {
     ([(), ABCD, ()] as [(), string, ()]).1.crc16(),
   )
 }
+
+@method_id(117)
+fun test17() {
+  return ("abcd".toBase256())
+}
+
+@method_id(118)
+fun test18() {
+  var c = beginCell().storeString("abcd").storeString("de").endCell();
+  var s = c.beginParse();
+  assert (s.remainingRefsCount() == 2) throw 123;
+  var w = Wrapper<(string, string)>.fromSlice(s);
+  var (s1, s2) = (s.loadString(), s.loadString());
+  s.assertEnd();
+  return (
+    w.sb.0.equalTo("abcd"), w.sb.0.equalTo(s1),
+    w.sb.1.equalTo("de"), w.sb.1.equalTo(s2),
+  )
+}
+
+@method_id(119)
+fun test19() {
+  val C9 = "9".literalSlice();
+  var (s9, s00_9, s01_9, s00_01_9) = (
+    "9".beginParse(),
+    "9".prefixWith00().beginParse(),
+    "9".prefixWith01().beginParse(),
+    "9".prefixWith00().prefixWith01().beginParse(),
+  );
+  return (
+    s9.bitsEqual(C9),
+    s00_9.bitsEqual(C9),
+    s00_9.bitsEqual("00".hexToSlice()),
+    s01_9.bitsEqual("01".hexToSlice()),
+    s00_9.loadRef().beginParse().bitsEqual(C9),
+    s00_01_9.loadRef().beginParse().loadRef().beginParse().bitsEqual(C9),
+    "9".prefixWith00().equalTo("9"),
+    "9".prefixWith00().equalTo("9".prefixWith00()),
+    "9".prefixWith00().equalTo("9".prefixWith01()),
+  )
+}
+
 
 /**
 @testcase | 0   |     | 0
@@ -332,16 +368,18 @@ fun test16() {
 @testcase | 108 | 0   | 8 4
 @testcase | 109 |     | [ 97 98 99 100 101 102 103 104 ]
 @testcase | 110 |     | 3 [ 48 49 50 ]
-@testcase | 111 |     | [ 97 10 9 92 34 13 0 98 ] [ 97 10 0 34 34 98 ] 11 11 12 4 9 -1 13
+@testcase | 111 |     | [ 97 10 9 92 34 13 98 ] [ 97 10 34 34 98 ] 11 11 12 4 9 -1 13
 @testcase | 112 |     | -1 -1 -1 -1 -1 31
 @testcase | 113 |     | 27
 @testcase | 114 |     | -1 0 0 0 -1 -1 0 -1 0 -1 0 -1 0 0 -1 -1 -1 0 0 -1 0 -1
-@testcase | 115 |     | 1 -1
 @testcase | 116 |     | 43062 43062 43062 43062 43062
+@testcase | 117 |     | 1633837924
+@testcase | 118 |     | -1 -1 -1 -1
+@testcase | 119 |     | -1 0 -1 -1 -1 -1 0 -1 0
 
 @fif_codegen
 """
-  test16 PROC:<{
+  test16() PROC:<{
     43062 PUSHINT
     s0 s0 s0 PUSH3
     DUP

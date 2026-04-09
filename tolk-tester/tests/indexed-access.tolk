@@ -186,15 +186,9 @@ fun getConstTuple(): Tup2Int {
     return [1,2];
 }
 
-@noinline
-fun testCodegenNoPureIndexedAccess() {
-    (getConstTuple().1, getConstTuple().0) = (3, 4);
-    return 0;
-}
-
 @method_id(113)
 fun test113() {
-    var x = [[1, 2]] as [[int8,uint256]];
+    var x = [[1, 2]] as [[int,uint256]];
     return (x, x.0, plus(mutate x.0.0, 10), x.0, x, x.0 = [10, 20], x);
 }
 
@@ -244,13 +238,6 @@ fun testCodegenIndexPostfix2(x: (int, (int, int), int)) {
     return (y.2, y.0, y.1.1);
 }
 
-fun getT() { return (1, 2); }
-
-@method_id(120)
-fun test120() {
-    return (getT().0 = 3, getT().0 = reflect.stackSizeOfObject(getT()) * 2, [getT().0 = 5, getT().0 = 6]);
-}
-
 global t121: (int, int);
 
 @method_id(121)
@@ -291,9 +278,6 @@ fun test124(zero: int) {
     var t = createEmptyTuple();
     t.push(-100);
     t.set(0, zero);
-    // these statements have no effect, as a mutating method is called not on a sink object
-    (t as unknown as [int]).0.increment();
-    increment(mutate (t as unknown as [int, int, int]).0);
     return t;
 }
 
@@ -316,7 +300,6 @@ fun test126() {
 }
 
 fun main(){
-    testCodegenNoPureIndexedAccess();
 }
 
 
@@ -340,7 +323,6 @@ fun main(){
 @testcase | 117 |       | 7
 @testcase | 118 | 1 2   | 2 1
 @testcase | 119 | 1 2 3 4 | 4 1 3
-@testcase | 120 |       | 3 4 [ 5 6 ]
 @testcase | 121 |       | 1 1 [ [ 2 2 ] ]
 @testcase | 122 | 1 2   | -1 -1 0 -1 -1 0
 @testcase | 123 |       | [ [ 100 100 ] ]
@@ -351,34 +333,34 @@ fun main(){
 @fif_codegen
 """
   testCodegenSimple() PROC:<{
-    1 PUSHINT                   //  '2=1
+    1 PUSHINT                   //  '1=1
     1 TUPLE                     //  t1
     2 PUSHINT                   //  t1 '7=2
     0 SETINDEX                  //  t1
     x{} PUSHSLICE
     STRDUMP DROP                //  t1
-    1 PUSHINT                   //  t1 '12=1
-    1 TUPLE                     //  t1 '11
+    1 PUSHINT                   //  t1 '11=1
+    1 TUPLE                     //  t1 '10
     1 TUPLE                     //  t1 t2
-    2 PUSHINT                   //  t1 t2 '16=2
-    OVER                        //  t1 t2 '16=2 t2
+    2 PUSHINT                   //  t1 t2 '17=2
+    OVER                        //  t1 t2 '17=2 t2
     0 INDEX                     //  t1 t2 '21=2 '19
     SWAP                        //  t1 t2 '19 '21=2
     0 SETINDEX                  //  t1 t2 '23
     0 SETINDEX                  //  t1 t2
     x{} PUSHSLICE
     STRDUMP DROP                //  t1 t2
-    1 PUSHINT                   //  t1 t2 '27=1
+    1 PUSHINT                   //  t1 t2 '26=1
     1 TUPLE                     //  t1 t2 g_gTup
     $gTup SETGLOB               //  t1 t2
-    2 PUSHINT                   //  t1 t2 '30=2
+    2 PUSHINT                   //  t1 t2 '31=2
     $gTup GETGLOB               //  t1 t2 '34=2 g_gTup
     SWAP                        //  t1 t2 g_gTup '34=2
     0 SETINDEX                  //  t1 t2 g_gTup
     $gTup SETGLOB               //  t1 t2
     x{} PUSHSLICE
     STRDUMP DROP                //  t1 t2
-    1 PUSHINT                   //  t1 t2 '38=1
+    1 PUSHINT                   //  t1 t2 '36=1
     2 PUSHINT                   //  t1 t2 g_gTens.0=1 g_gTens.1=2
     2 TUPLE
     $gTens SETGLOB              //  t1 t2
@@ -394,13 +376,6 @@ fun main(){
     $gTup GETGLOB               //  t1 t2 g_gTup
     $gTens GETGLOB
     2 UNTUPLE                   //  t1 t2 g_gTup g_gTens.0 g_gTens.1
-  }>
-"""
-
-@fif_codegen
-"""
-  testCodegenNoPureIndexedAccess() PROC:<{
-    0 PUSHINT  // '8=0
   }>
 """
 

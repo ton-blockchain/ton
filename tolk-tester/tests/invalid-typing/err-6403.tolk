@@ -12,8 +12,7 @@ fun testCantPassDifferentIntN(x: int8) {
 
 /**
 @compilation_should_fail
-@stderr can not pass `int8` to `uint8`
-@stderr assign0(mutate x);
+@stderr can not pass `int` to mutate `uint8`, because mutation is not type compatible
 @stderr can not pass `int8` to mutate `uint8`, because mutation is not type compatible
-@stderr operator `as` can not be used as lvalue
+@stderr can not mutate a temporary expression
  */

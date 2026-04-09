@@ -249,28 +249,6 @@ static void check_no_unexpected_type_arguments(FunctionPtr cur_f, V<ast_instanti
   }
 }
 
-// given fun `f` and a call `f(a,b,c)`, check that argument count is expected;
-// (parameters may have default values, so it's not as trivial as to compare params and args size)
-void check_arguments_count_at_fun_call(FunctionPtr cur_f, V<ast_function_call> v, FunctionPtr called_f, AnyExprV self_obj) {
-  int delta_self = self_obj != nullptr;
-  int n_arguments = v->get_num_args() + delta_self;
-  int n_max_params = called_f->get_num_params();
-  int n_min_params = n_max_params;
-  while (n_min_params && called_f->get_param(n_min_params - 1).has_default_value()) {
-    n_min_params--;
-  }
-
-  if (!called_f->does_accept_self() && self_obj) {   // static method `Point.create(...)` called as `p.create()`
-    err("method `{}` can not be called via dot\n(it's a static method, it does not accept `self`)", called_f).fire(v->get_callee(), cur_f);
-  }
-  if (n_max_params < n_arguments) {
-    err("too many arguments in call to `{}`, expected {}, have {}", called_f, n_max_params - delta_self, n_arguments - delta_self).fire(v->get_arg_list(), cur_f);
-  }
-  if (n_arguments < n_min_params) {
-    err("too few arguments in call to `{}`, expected {}, have {}", called_f, n_min_params - delta_self, n_arguments - delta_self).fire(v->get_arg_list(), cur_f);
-  }
-}
-
 /*
  * This class handles all types of AST vertices and traverses them, filling all AnyExprV::inferred_type.
  * Note, that it isn't derived from ASTVisitor, it has manual `switch` over all existing vertex types.
@@ -1207,9 +1185,8 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
     // so, we have a call `f(args)` or `obj.f(args)`, f is fun_ref (function / method) (code / asm / builtin)
     // we're going to iterate over passed arguments, and (if generic) infer substitutedTs
-    // at first, check argument count
+    // note that we do not validate arguments count here, validation is done at type checking
     int delta_self = self_obj != nullptr;
-    check_arguments_count_at_fun_call(cur_f, v, fun_ref, self_obj);
 
     // for every passed argument, we need to infer its type
     // for generic functions, we need to infer type arguments (substitutedTs) on the fly
@@ -1217,7 +1194,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     GenericSubstitutionsDeducing deducingTs(fun_ref);
 
     // for `obj.method()` obj is the first argument (passed to `self` parameter)
-    if (self_obj) {
+    if (self_obj && fun_ref->does_accept_self()) {
       const LocalVarData& param_0 = fun_ref->parameters[0];
       TypePtr param_type = param_0.declared_type;
       if (param_type->has_genericT_inside()) {
@@ -1239,9 +1216,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
     // loop over every argument, one by one, like control flow goes
     for (int i = 0; i < v->get_num_args(); ++i) {
-      const LocalVarData& param_i = fun_ref->parameters[delta_self + i];
+      LocalVarPtr param_ref = delta_self + i < fun_ref->get_num_params() ? &fun_ref->parameters[delta_self + i] : nullptr;
       AnyExprV arg_i = v->get_arg(i)->get_expr();
-      TypePtr param_type = param_i.declared_type;
+      TypePtr param_type = param_ref ? param_ref->declared_type : TypeDataUnknown::create();
       if (param_type->has_genericT_inside()) {    // `fun f<T>(a:T, b:T)` T was fixated on `a`, use it as hint for `b`
         param_type = deducingTs.replace_Ts_with_currently_deduced(param_type);
       }
@@ -1250,7 +1227,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         param_type = deducingTs.auto_deduce_from_argument(cur_f, arg_i->range, param_type, arg_i->inferred_type);
       }
       assign_inferred_type(v->get_arg(i), arg_i);  // arg itself is an expression
-      if (param_i.is_mutate_parameter()) {
+      if (param_ref && param_ref->is_mutate_parameter()) {
         if (SinkExpression s_expr = extract_sink_expression_from_vertex(arg_i)) {
           assign_inferred_type(arg_i, param_type);      // note that we unconditionally set cur type = param's type
           flow.register_known_type(s_expr, param_type); // (this mutate-back will be type checked in a later pass)
@@ -1613,13 +1590,20 @@ class InferTypesAndCallsAndFieldsVisitor final {
       return_type = h_callable->return_type;
     }
 
+    std::vector<TypePtr> full_params_types;
+    full_params_types.reserve(v->captured_vars.size() + params_types.size());
+    for (LocalVarPtr captured_var_ref : v->captured_vars) {
+      full_params_types.push_back(flow.smart_cast_or_original(SinkExpression(captured_var_ref), captured_var_ref->declared_type));
+    }
+    full_params_types.insert(full_params_types.end(), params_types.begin(), params_types.end());
+
     // instantiating lambdas is very similar to generic functions, also done at type inferring;
     tolk_assert(v->lambda_ref == nullptr);
-    FunctionPtr lambda_ref = instantiate_lambda_function(v, cur_f, params_types, return_type);
+    FunctionPtr lambda_ref = instantiate_lambda_function(v, cur_f, full_params_types, return_type);
 
     // lambda_ref already travelled the pipeline including type inferring
     v->mutate()->assign_lambda_ref(lambda_ref);
-    assign_inferred_type(v, lambda_ref->inferred_full_type);
+    assign_inferred_type(v, TypeDataFunCallable::create(std::move(params_types), lambda_ref->inferred_return_type));
     return ExprFlow(std::move(flow), used_as_condition);
   }
 

@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 1.2
+tolk 1.3
 
 enum ExoticCellType: int8 {
     Ordinary = -1

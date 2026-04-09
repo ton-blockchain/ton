@@ -383,7 +383,7 @@ fun test17() {
         o2.sopt,
         o2.sref.load().calculateLength(),
         o2.sarr.size(),
-        o2.sarr.last().hashIncludingSnakedData() & 0xFFFF,
+        o2.sarr.last().hash() & 0xFFFF,
     )
 }
 
@@ -422,6 +422,6 @@ fun main() {
 @testcase | 114 |     | 9
 @testcase | 115 |     | 0 9999 0 4
 @testcase | 116 |     | 2 [ 3 (null) ] [ 4 (null) ]
-@testcase | 117 |     | -1 (null) 0 5 37887
+@testcase | 117 |     | -1 (null) 0 5 18792
 @testcase | 118 |     | 3
  */

@@ -729,6 +729,14 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v);
   }
 
+  void visit(V<ast_lambda_fun> v) override {
+    for (LocalVarPtr captured_var_ref : v->captured_vars) {
+      if (SinkExpression(captured_var_ref) == s_expr) {
+        lazy_expr->on_used_rw(false);
+      }
+    }
+  }
+
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     tolk_assert(false);

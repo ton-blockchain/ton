@@ -242,13 +242,6 @@ fun test22() {
     return t.0 + t.1.0 + t.1.1;
 }
 
-@method_id(123)
-fun test23() {
-    var (x: int?, y: int?, z: int?) = (getNullableInt(), getNullableInt(), getNullableInt());
-    ((x = 1, 0).0, (y = 2, 1).0) = (3, z = 4);
-    return x + y + z;
-}
-
 @method_id(124)
 fun test24(x: int?) {
     if (x == null) {
@@ -772,6 +765,18 @@ fun test66() {
     return (sh.1.size(), sh !is slice);
 }
 
+fun test77(p: (int?, int?)?) {
+    if ((p = p!).0 != null) {
+        __expect_type(p.0, "int");
+        __expect_type(p.1, "int?");
+        if ((p = p).1 != null) {
+            __expect_type(p.0, "int?");
+            __expect_type(p.1, "int");
+            p.0! + p.1;
+        }
+    }
+}
+
 
 fun main(x: int?): int {
     // mark used to codegen them
@@ -783,7 +788,6 @@ fun main(x: int?): int {
 /**
 @testcase | 0   | 1     | 1
 @testcase | 111 |       | 10
-@testcase | 123 |       | 7
 @testcase | 124 | 4     | 6
 @testcase | 124 | null  | 15
 @testcase | 130 | -1    | 20

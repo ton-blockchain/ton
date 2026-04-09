@@ -278,6 +278,36 @@ fun test14(
     __expect_type(m9.mySize(), "int1");
 }
 
+type ArrAlias<T> = array<T>
+type ArrArrInt8 = array<array<int8>>
+
+fun ArrAlias<T>.mySize(self): int1 { return self.size() }
+fun array<array<T>>.mySize(self): int2 { return self.size() }
+fun array<array<int8>>.mySize(self): int3 { return self.size() }
+
+fun test15(
+    arrInt: array<int>,
+    arrArrInt: array<array<int>>,
+    arrArrArrInt: array<array<array<int>>>,
+    tup: array<unknown>,
+    aliasInt: ArrAlias<int>,
+    aliasArrInt: ArrAlias<array<int>>,
+    arrArrInt8_1: array<array<int8>>,
+    arrArrInt8_2: ArrAlias<array<int8>>,
+    arrArrInt8_3: ArrAlias<ArrAlias<int8>>,
+) {
+    __expect_type(arrInt.mySize(), "int1");
+    __expect_type(arrArrInt.mySize(), "int2");
+    __expect_type(arrArrArrInt.mySize(), "int2");
+    __expect_type(tup.mySize(), "int1");
+    __expect_type(aliasInt.mySize(), "int1");
+    __expect_type(aliasArrInt.mySize(), "int2");
+    __expect_type(arrArrInt8_1.mySize(), "int3");
+    __expect_type(arrArrInt8_2.mySize(), "int3");
+    __expect_type(arrArrInt8_3.mySize(), "int3");
+}
+
+
 fun main() {
     // besides these positive tests, there are many negative resulting in "ambiguous call"
     return 0

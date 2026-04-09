@@ -15,7 +15,6 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "tolk.h"
-#include "ast.h"    // todo included only to get origin->range, I don't like it
 #include "compilation-errors.h"
 #include "compiler-state.h"
 #include "type-system.h"
@@ -359,13 +358,7 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
     case _Nop:
       return true;
     case _Import:
-      stack.o << AsmOp::DebugMark(DebugMarkEnterFunction{
-        .fun_ref = f_sym,
-        .is_inlined = false,
-        .is_builtin = false,
-        .range = origin->range,
-        .ir_import = left,
-      });
+      stack.o << AsmOp::DebugMark(debug_mark);  // DebugMarkEnterFunction
       return true;
     case _DebugMark:
       tolk_assert(false && "_DebugMark should be handled in generate_code_all");
@@ -376,12 +369,7 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
         stack.o << AsmOp::Custom(origin, "RETALT");
         stack.o.retalt_inserted_ = true;
       }
-      stack.o << AsmOp::DebugMark( DebugMarkLeaveFunction{
-        .fun_ref = f_sym,
-        .ir_return = left,
-        // it's the location of `return` statement, or `}` for void functions
-        .range = f_sym->inferred_return_type == TypeDataVoid::create() ? SrcRange::span_at_end(f_sym->ast_root->range, 1) : origin->range,
-      });
+      stack.o << AsmOp::DebugMark(debug_mark);  // DebugMarkLeaveFunction
       return false;
     }
     case _IntConst: {
@@ -660,10 +648,7 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
       for (int i = 0; i < (int)right.size(); i++) {
         tolk_assert(stack.s[k + i].var_idx == right[i]);
       }
-      stack.o << AsmOp::DebugMark(DebugMarkSetGlob{
-        .glob_ref = g_sym,
-        .ir_slots = right,
-      });
+      stack.o << AsmOp::DebugMark(debug_mark);  // DebugMarkSetGlob
       if (right.size() > 1) {
         stack.o << AsmOp::Tuple(origin, (int)right.size());
       }
@@ -671,6 +656,34 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
         stack.o << AsmOp::Custom(origin, CodeBlob::fift_name(g_sym) + " SETGLOB", 1, 0);
       }
       stack.s.resize(k);
+      return true;
+    }
+    case _SetContArgs: {
+      // right = [captured_vals..., continuation], left = [result_continuation]
+      // rearrange stack so captured values and continuation are on top, then SETCONTARGS
+      if (disabled()) {
+        return true;
+      }
+      tolk_assert(right.size() >= 2 && left.size() == 1);
+      std::vector<bool> last;
+      last.reserve(right.size());
+      for (var_idx_t x : right) {
+        last.push_back(var_info[x] && var_info[x]->is_last());
+      }
+      stack.rearrange_top(right, std::move(last));
+      int k = (int)stack.depth() - (int)right.size();
+      tolk_assert(k >= 0);
+      stack.s.resize(k);
+
+      int r = (int)right.size() - 1;
+      if (r <= 15) {
+        stack.o << AsmOp::Custom(origin, std::to_string(r) + " -1 SETCONTARGS", r + 1, 1);
+      } else {
+        stack.o << AsmOp::Custom(origin, std::to_string(r) + " PUSHINT", 0, 1);
+        stack.o << AsmOp::Custom(origin, "-1 PUSHINT", 0, 1);
+        stack.o << AsmOp::Custom(origin, "SETCONTVARARGS", r + 3, 1);
+      }
+      stack.push_new_var(left[0]);
       return true;
     }
     case _If: {

@@ -22,6 +22,8 @@ struct Point {
     y: MInt
 }
 
+fun Point.id(self) { return self; }
+
 struct User {
     id: int
     name: string
@@ -271,7 +273,6 @@ fun test16(): WithTensorInside? {
     wt.otherCoords!.0 = 7;
     wt.otherTup.push(0);
     pushZero(mutate wt.otherTup);
-    ((wt.otherTup as unknown as [unknown, unknown]).1, (wt.otherTup as unknown as [unknown]).0) = (11, 10); // no effect, tmp rvalue
     return wt;
 }
 
@@ -312,7 +313,7 @@ fun test20(setNull: bool) {
     if (!setNull) {
         gPoint.x = gPointN!.y = 80;
     } else {
-        (gPoint as Point?)!.y += 5;     // has no effect, it operates on a tmp rvalue
+        // (gPoint as Point?)!.y += 5;     // now removed, not valid (earlier was no-effect)
     }
     return (gPoint, gPointN);
 }
@@ -661,22 +662,6 @@ fun test46() {
     return (t.size(), BigOnStackA.fromTuple(t).n3.toTuple());
 }
 
-global g147: int;
-
-@method_id(147)
-fun test47() {
-    g147 = 0;
-    var origY: int = 0;
-    Point{x: g147, y: origY}.x = 10;    // no effect
-    Point{x: g147, y: origY}.y = 20;    // no effect
-
-    val a: Point = { x: 1, y: 1 };
-    var b: Point = { x: 2, y: 2 };
-    (b = a).x = 7;      // b = a, but no slots overlapping
-
-    return (g147, origY, a, b);
-}
-
 @method_id(148)
 fun test48(forceNull: bool) {
     var tens: (int, Point) | int | null = forceNull ? null : (5,
@@ -765,7 +750,6 @@ type PointAlias = Point;
 @testcase | 144 |      | [ 10 20 0 ] [ 10 ] [ 0 0 ] 1 -1
 @testcase | 145 |      | [ 1 2 [ 3 4 ] 5 6 typeid-8 [ 10 20 [ -1 -2 ] (null) (null) 0 [] ] ]
 @testcase | 146 |      | 20 [ 11 12 13 14 15 ] 
-@testcase | 147 |      | 0 0 1 1 1 1
 @testcase | 148 | -1   | 0
 @testcase | 148 | 0    | 30
 @testcase | 149 |      | [ (null) ] [ [ (null) (null) 0 ] ] [ (null) ] [ [ (null) (null) 0 ] ] [ (null) (null) ]
@@ -806,7 +790,7 @@ type PointAlias = Point;
 @fif_codegen
 """
   test35() PROC:<{              //
-    getXPure() CALLDICT         //  '2
+    getXPure() CALLDICT         //  '0
     getYPure() CALLDICT         //  p.x p.y
   }>
 """
@@ -816,7 +800,7 @@ type PointAlias = Point;
   test36() PROC:<{              //
     0 TUPLE                     //  g_t_impure
     $t_impure SETGLOB           //
-    getYImpure() CALLDICT       //  '4
+    getYImpure() CALLDICT       //  '2
     getXImpure() CALLDICT       //  p.y p.x
     $t_impure GETGLOB           //  p.y p.x g_t_impure
     s1 s2 XCHG                  //  p.x p.y g_t_impure

@@ -24,7 +24,7 @@ get fun test_dict() {
     };
 
     items.addX(1, 2);
-    items.addY(((items!)!).removeX(1), true);
+    items.addY(items.removeX(1), true);
     assert(!items.mapX.findFirst().isFound) throw 501;
 }
 

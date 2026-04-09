@@ -282,7 +282,18 @@ struct ChunkAnnotation final : ChunkLexerBase {
 };
 
 // A number, may be a hex one.
+// Allowed underscore, like `1_000_000` / `0xFF_FF` / `123_` / `0b0_____1`.
 struct ChunkNumber final : ChunkLexerBase {
+  static bool is_digit(char c) {
+    return c >= '0' && c <= '9';
+  }
+
+  static bool is_digit(char c, bool bin) {
+    return bin
+      ? c == '0' || c == '1'
+      : (c >= '0' && c <= '9') || ((c | 0x20) >= 'a' && (c | 0x20) <= 'f');
+  }
+
   static bool parse_hex_or_bin(Lexer* lex, bool bin) {
     const char* str_begin = lex->c_str();
     lex->skip_chars(2);     // 0x / 0b
@@ -292,9 +303,7 @@ struct ChunkNumber final : ChunkLexerBase {
 
     while (!lex->is_eof()) {
       char c = lex->char_at();
-      bool ok = bin
-        ? c == '0' || c == '1'
-        : (c >= '0' && c <= '9') || ((c | 0x20) >= 'a' && (c | 0x20) <= 'f');
+      bool ok = is_digit(c, bin) || c == '_';
       if (!ok) {
         break;
       }
@@ -319,7 +328,8 @@ struct ChunkNumber final : ChunkLexerBase {
     const char* str_begin = lex->c_str();
     while (!lex->is_eof()) {
       char c = lex->char_at();
-      if (c < '0' || c > '9') {
+      bool ok = is_digit(c) || c == '_';
+      if (!ok) {
         break;
       }
       lex->skip_chars(1);

@@ -5,7 +5,6 @@ struct A {
 }
 
 fun main(a: A) {
-    a.kk = a.dd;        // ok
     a.kk = a.ss;        // ok
     a.ss = a.dd;        // err
 }

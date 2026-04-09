@@ -168,6 +168,8 @@ fun test102() {
             (1, 2) as unknown,
             (1, 2) as (int, int)? as unknown,
         ],
+        5 is unknown,
+        (5 as int?) !is unknown,
     )
 }
 
@@ -355,8 +357,8 @@ fun test116() {
     var a4: array<int?> = [];
     var a5: array<int | slice | null> = [];
 
-    a1 = a2 = [Point{}];
-    a3 = a4 = a5 = [null, null];
+    a2 = a1 = [Point{}];
+    (a3, a4, a5) = ([null, null], [null, null], [null, null]);
 
     return (a1, a2, a3, a4, a5);
 }
@@ -486,9 +488,6 @@ fun test124() {
     setPointYInUnion(mutate sh.2, 200);
     setPointYInUnion(mutate sh.3, 200);
 
-    (sh.3 as unknown as (int, int)).0 = -888;   // no effect, works on tmp rvalue
-    (sh.3 as unknown as Point).y = -888;        // same, no effect
-
     __expect_type(sh.4, "int | (int, int, int)");
     if (sh.4 is int) {
         sh.4 = (0, 0, sh.4);
@@ -540,7 +539,7 @@ fun test127() {
     arr.concatWith([4, 5]);
     arr.concatWith<int>([]);
     arr.concatWith([6 as int8, 7 as int8]);
-    arr.concatWith([8 as int64] as array<int32>);
+    arr.concatWith([8 as int32] as array<int32>);
     return arr;
 }
 
@@ -769,6 +768,25 @@ fun test146() {
     return test145((1, 2));
 }
 
+@method_id(147)
+fun test147(flag: bool) {
+    var src: Point? = flag ? Point { x: 8, y: 9 } : null;
+    return ([src].get(0) ?? null) as unknown;
+}
+
+@method_id(148)
+fun test148(flag: bool) {
+    var src: ()? = flag ? () : null;
+    var coalesced = through_unknown(src);
+    __expect_type(coalesced, "()?");
+    return coalesced == null;
+}
+
+
+fun through_unknown<T>(src: T?): T? {
+    var recovered = [src as unknown].get(0) as T?;
+    return ((recovered ?? null) as unknown) as T?;
+}
 
 fun inferArrayUnknown(): array<unknown> {
     if ([0].get(0)) {
@@ -783,7 +801,7 @@ fun main() {
 
 /**
 @testcase | 101 |    | 123 1 456 2 
-@testcase | 102 |    | [ 10 20 ] [ 10 20 129 ] 2 [ 5 1 ] 1 5 [ (null) 1 [] [ 1 ] [ 1 2 ] [ 1 2 130 ] ]
+@testcase | 102 |    | [ 10 20 ] [ 10 20 129 ] 2 [ 5 1 ] 1 5 [ (null) 1 [] [ 1 ] [ 1 2 ] [ 1 2 130 ] ] 0 -1
 @testcase | 103 |    | 1 [] [] 10 20 10 20 129 10 20 [ 10 20 ] 3
 @testcase | 104 |    | (null) 4
 @testcase | 105 |    | 100 50 100 20 100
@@ -832,16 +850,20 @@ fun main() {
 @testcase | 144 |    | [ [ 10 20 129 ] [ (null) (null) 0 ] ]
 @testcase | 145 | 1  | 0 0
 @testcase | 146 |    | 42 [ 1 2 ]
+@testcase | 147 | 0  | [ (null) (null) 0 ]
+@testcase | 147 | -1 | [ 8 9 129 ]
+@testcase | 148 | 0  | -1
+@testcase | 148 | -1 | 0
 
 @fif_codegen
 """
   test104() PROC:<{             // 
-    1 PUSHINT                   //  '2=1
-    2 PUSHINT                   //  '2=1 '3=2
-    PUSHNULL                    //  '2=1 '3=2 '4
-    3 PUSHINT                   //  '2=1 '3=2 '4 '5=3
-    PUSHNULL                    //  '2=1 '3=2 '4 '5=3 '6
-    4 PUSHINT                   //  '2=1 '3=2 '4 '5=3 '6 '7=4
+    1 PUSHINT                   //  '1=1
+    2 PUSHINT                   //  '1=1 '2=2
+    PUSHNULL                    //  '1=1 '2=2 '3
+    3 PUSHINT                   //  '1=1 '2=2 '3 '4=3
+    PUSHNULL                    //  '1=1 '2=2 '3 '4=3 '5
+    4 PUSHINT                   //  '1=1 '2=2 '3 '4=3 '5 '6=4
     6 TUPLE                     //  a
     DUP                         //  a a
     2 INDEX                     //  a '9
@@ -878,9 +900,9 @@ fun main() {
 @fif_codegen
 """
   test134() PROC:<{            	// 
-    1 PUSHINT               	//  '5=1
+    1 PUSHINT               	//  '4=1
     1 TUPLE                 	//  ai
-    1 PUSHINT               	//  ai '8=1
+    1 PUSHINT               	//  ai '7=1
     1 TUPLE                 	//  an t
     SWAP                    	//  t an
   }>

@@ -1,4 +1,8 @@
 
+struct JustIntOrNull {
+    v: int?
+}
+
 fun getIntOrDefault(v: int?, def: int) {
     __expect_type(v ?? def, "int");
     __expect_type(v ?? null, "int?");
@@ -24,6 +28,8 @@ fun alwaysThrow() {
 fun getIntAndThrow(): int {
     throw 123
 }
+
+fun acceptInt(v: int): int { return v; }
 
 
 fun main(x: int?) {
@@ -124,6 +130,56 @@ fun test7(i: int?, b: bool?) {
     return (i ?? b ?? ()) as bool | () | int8
 }
 
+@method_id(108)
+fun test8() {
+    var x: int = 1;
+    val y = x ?? (__expect_type(x, "int"), acceptInt(x)).1;
+    return (y, x);
+}
+
+@method_id(109)
+fun test9(v: int?) {
+    var root = JustIntOrNull { v };
+    val chosen = root.v ?? (root.v = 11);
+    __expect_type(root.v, "int");
+    return acceptInt(root.v) + chosen;
+}
+
+@noinline
+fun checkSC(s: slice?, c: cell?) {
+    var sOrC : slice | cell? = s ?? c ?? null;
+    return (sOrC is slice, sOrC is cell);
+}
+
+@method_id(110)
+fun test10() {
+    return (
+        checkSC(createEmptySlice(), createEmptyCell()),
+        checkSC(createEmptySlice(), null),
+        checkSC(null, createEmptyCell()),
+        checkSC(null, null),
+    )
+}
+
+struct Wrap<T = unknown> { u: T }
+
+@method_id(111)
+fun test11(caseId: int) {
+    var w: Wrap? = match (caseId) {
+        0 => null,
+        1 => ({ u: null }),
+        else => ({ u: 7 }),
+    };
+    var fb999 = Wrap { u: 999 as unknown };
+    var wOr999 = w ?? fb999;
+    __expect_type(wOr999, "Wrap<unknown>");
+    var ui: int? = wOr999.u as int?;
+    var is999 = ui != null && ui == 999;
+    return (w == null, ui == null, is999);
+}
+
+
+
 
 /**
 @testcase | 0   | 8         | -1 -1 8 46
@@ -140,4 +196,11 @@ fun test7(i: int?, b: bool?) {
 @testcase | 107 | 80 -1     | 80 42
 @testcase | 107 | null -1   | -1 2
 @testcase | 107 | null null | (null) typeid-2
+@testcase | 108 |           | 1 1
+@testcase | 109 | 8         | 16
+@testcase | 109 | null      | 22
+@testcase | 110 |           | -1 0 -1 0 0 -1 0 0
+@testcase | 111 | 0         | -1 0 -1
+@testcase | 111 | 1         | 0 -1 0
+@testcase | 111 | 2         | 0 0 0
  */

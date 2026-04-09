@@ -9,7 +9,7 @@ fun main() {
 /**
 @testcase | 0 | | 3
 
-@path_mapping @custom-folder={DIR}/imports
+@path_mapping @custom-folder={DIR}/imports//\
 
 @fif_codegen
 """

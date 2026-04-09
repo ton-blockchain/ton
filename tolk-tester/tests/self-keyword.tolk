@@ -213,24 +213,6 @@ fun T.id(self): self {
     return self;
 }
 
-@method_id(112)
-fun test112() {
-    idCalled = createEmptyTuple();
-    var a = 1;
-    var b = 2;
-
-    Point{ x: a, y: b }.id().x = 201;   // does not alias locals
-    (a, b).id().1 = 202;                // (a and b not changed)
-    increment(mutate (a, b).id().id().1);
-
-    val orig = 66;
-    var rx = increment(mutate Point{ x: orig, y: 10 }.x);
-    var ry = increment(mutate Point{ x: orig, y: 10 }.y);
-    ry += Point{ x: -8, y: orig }.y.incChained().id().incChained();
-
-    return (a, b, idCalled.size(), rx, ry, orig);
-}
-
 
 
 fun main() { }
@@ -255,7 +237,6 @@ fun main() { }
 @testcase | 109 | 102 | 102 2 1 2
 @testcase | 110 | 0   | 24 [ 2 13 ]
 @testcase | 111 |     | 10 3 [ 1 2 3 ]
-@testcase | 112 |     | 1 2 5 67 79 66
 
 @fif_codegen
 """
@@ -276,9 +257,9 @@ fun main() { }
 @fif_codegen
 """
   testIncChainedCodegen() PROC:<{   // x
-    int.incChained() CALLDICT	    //  '2
-    int.incChained2() CALLDICT	    //  '4
-    int.incChained3() CALLDICT	    //  '6
+    int.incChained() CALLDICT	    //  x
+    int.incChained2() CALLDICT	    //  x
+    int.incChained3() CALLDICT	    //  x
     int.incChained4() CALLDICT	    //  x
   }>
 """

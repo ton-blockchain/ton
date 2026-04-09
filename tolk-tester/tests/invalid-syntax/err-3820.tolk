@@ -4,5 +4,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr unknown escape sequence \k
+@stderr invalid escape sequence \k
  */

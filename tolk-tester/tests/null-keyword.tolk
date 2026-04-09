@@ -1,28 +1,3 @@
-import "@stdlib/lisp-lists"
-
-@method_id(101)
-fun test1() {
-    var numbers: tuple? = createEmptyList();
-    numbers = listPrepend(1, numbers);
-    numbers = listPrepend(2, numbers);
-    numbers = listPrepend(3, numbers);
-    numbers = listPrepend(4, numbers);
-    var (h: int, new_numbers) = listSplit(numbers!);
-    numbers = new_numbers!;
-    h += listGetHead(numbers);
-
-    _ = null;
-    (_, _) = (null, null);
-    var t = createEmptyTuple();
-    do {
-        var (num: int, new_numbers) = listSplit(numbers!);
-        numbers = new_numbers;
-        t.push(num);
-    } while (numbers != null);
-
-    return (h, numbers == null, t);
-}
-
 @method_id(102)
 fun test2(x: int?) {
     if (null != x) {
@@ -74,6 +49,22 @@ fun test8() {
     __expect_type(((null)) as (int, int)?, "(int, int)?");
 }
 
+struct WrappedUnknown {
+    u: unknown
+}
+
+@method_id(109)
+fun test9() {
+    var w = (
+        { u: 123 } as WrappedUnknown?,
+        { u: null } as WrappedUnknown?,
+        null as WrappedUnknown?,
+    );
+    __expect_type(w, "(WrappedUnknown?, WrappedUnknown?, WrappedUnknown?)");
+    return (w.0 == null, w.1 == null, w.2 == null, w.0!.u == null, w.1!.u == null, null as WrappedUnknown? as unknown)
+}
+
+
 fun main() {
     // the compiler optimizes this at compile-time
     var i: int? = null;
@@ -84,46 +75,13 @@ fun main() {
 }
 
 /**
-@testcase | 101 |      | 7 -1 [ 3 2 1 ]
 @testcase | 102 | 5    | (null)
 @testcase | 102 | null | -1
 @testcase | 103 | 5    | 5
 @testcase | 103 | 15   | -1
 @testcase | 104 |      | (null)
 @testcase | 107 |      | -11
-
-@fif_codegen
-"""
-  test1() PROC:<{
-    PUSHNULL	//  numbers
-    1 PUSHINT	//  numbers '2=1
-    SWAP	//  '2=1 numbers
-    CONS	//  numbers
-    2 PUSHINT	//  numbers '4=2
-    SWAP	//  '4=2 numbers
-    CONS	//  numbers
-    3 PUSHINT	//  numbers '6=3
-    SWAP	//  '6=3 numbers
-    CONS	//  numbers
-    4 PUSHINT	//  numbers '8=4
-    SWAP	//  '8=4 numbers
-    CONS	//  numbers
-    UNCONS	//  h numbers
-    DUP	//  h numbers numbers
-    CAR	//  h numbers '14
-"""
-
-@fif_codegen
-"""
-   UNTIL:<{                     //  numbers h t
-      s0 s2 XCHG                //  t h numbers
-      UNCONS                    //  t h num numbers
-      s3 s3 XCHG2               //  numbers h t num
-      TPUSH                     //  numbers h t
-      s2 PUSH                   //  numbers h t numbers
-      ISNULL                    //  numbers h t '30
-    }>                          //  numbers h t
-"""
+@testcase | 109 |      | 0 0 -1 0 -1 [ (null) 0 ]
 
 @fif_codegen
 """

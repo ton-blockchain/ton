@@ -3,7 +3,7 @@ import "@stdlib/strings"
 
 const CONST_LINE = reflect.sourceLocation().lineNo      // 4
 const CONST_CHAR = reflect.sourceLocation().charNo      // 20 (word `reflect`)
-const CONST_FILE = reflect.sourceLocation().fileName    // "reflect-tests.tolk"
+const CONST_FILE = reflect.sourceLocation().fileName    // full realpath
 
 const ALL_LOC = reflect.sourceLocation()        // { 8, 17 }
 const LINE_OF_ALL_LOC = ALL_LOC.lineNo          // 8
@@ -25,7 +25,7 @@ fun logOuter(x: int, loc: SourceLocation = reflect.sourceLocation()) {
 
 @method_id(101)
 fun locOfConst() {
-    return (CONST_LINE, CONST_CHAR, CONST_FILE.equalTo("reflect-tests.tolk"), ALL_LOC.charNo, LINE_OF_ALL_LOC);
+    return (CONST_LINE, CONST_CHAR, CONST_FILE.equalTo(reflect.sourceLocation().fileName), ALL_LOC.charNo, LINE_OF_ALL_LOC);
 }
 
 @method_id(102)
@@ -73,10 +73,61 @@ fun fieldsWithLoc() {
         f2: reflect.sourceLocation()
         // f1 and f3 will have lineNo and others from fields default (their location)
     };
-    return (wl.f1.lineNo, wl.f2.lineNo, wl.f3.first().lineNo,
-            reflect.sourceLocation().fileName.crc32())
+    return (wl.f1.lineNo, wl.f2.lineNo, wl.f3.first().lineNo)
 }
 
+const TO_STRING = reflect.sourceLocationAsString();      // "fileName:lineNo:charNo"
+
+fun logLocStr(locStr: string = reflect.sourceLocationAsString()) {
+    return locStr;
+}
+
+@method_id(107)
+fun asStringMethod() {
+    val s1 = logLocStr();       // "/full/path/reflect-tests.tolk:87:5"
+    val s2 = logLocStr();       // "/full/path/reflect-tests.tolk:88:5"
+    return (
+        s1.equalTo(s2),
+        TO_STRING.equalTo(s1),
+        s2.calculateLength() > 10,
+    );
+}
+
+struct WithOptSlice {
+    x: slice?
+    nn: int100
+}
+
+@method_id(110)
+fun estimateSerialization() {
+    return (
+        reflect.estimateSerializationOf<slice?>(),
+        reflect.estimateSerializationOf<WithOptSlice>(),
+    )
+}
+
+@noinline
+fun myFormat<T1 = void, T2 = void>(fmt: string, arg1: T1, arg2: T2) {
+    return (
+        reflect.typeNameOfObject(arg1),
+        reflect.typeNameOfObject(arg2),
+    )
+}
+
+@method_id(111)
+fun optionalVoidArgs() {
+    val f1 = myFormat("hello");
+    val f2 = myFormat("value is {}", 42);
+    val f3 = myFormat("pair is {} and {}", "str", beginCell());
+    return (
+        f1.0.equalTo("void"),
+        f1.1.equalTo("void"),
+        f2.0.equalTo("int"),
+        f2.1.equalTo("void"),
+        f3.0.equalTo("string"),
+        f3.1.equalTo("builder"),
+    )
+}
 
 fun main() {
     __expect_type(reflect.sourceLocation(), "SourceLocation");
@@ -88,5 +139,8 @@ fun main() {
 @testcase | 103 | | 2
 @testcase | 104 | | -1 17 43
 @testcase | 105 | | [ 123 [ 123 58 ] [ 8 59 ] 456 [ 456 60 ] ]
-@testcase | 106 | | 65 73 67 82044426
+@testcase | 106 | | 65 73 67
+@testcase | 107 | | 0 0 -1
+@testcase | 110 | | 1 9999 0 4 101 9999 0 4
+@testcase | 111 | | -1 -1 -1 -1 -1 -1
  */

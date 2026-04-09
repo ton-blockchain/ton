@@ -9,14 +9,6 @@ fun A.getA1(self) {
     return self.a1;
 }
 
-fun AOrB.doMatch(self) {
-    __expect_inline(true);
-    match (self) {
-        A => {}
-        B => {}
-    }
-}
-
 struct Fields9 {
     f1: uint8; f2: uint8; f3: uint8;
     f4: uint8; f5: uint8; f6: uint8;
@@ -740,6 +732,18 @@ fun algo55() {
     return p.toCell({
         skipBitsNValidation: p.sumOther(p) == 0,
     })
+}
+
+fun algo56() {
+    val p1 = lazy Point3d.fromSlice(S0);
+    __expect_lazy("[p1] load x y z");
+    return fun() {
+        val p2 = lazy Point3d.fromSlice(S0);
+        __expect_lazy("[p2] load x y z");
+        return fun() {
+            p1.x + p2.z
+        }
+    }
 }
 
 

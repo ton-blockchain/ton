@@ -57,6 +57,14 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
 
 static thread_local AnyV stmt_before_immediate_return = nullptr;
 
+DebugMarkInfo CodeBlob::create_mark_leave_fun(FunctionPtr fun_ref, AnyV origin, std::vector<var_idx_t> ir_return) {
+  // it's the location of `return` statement, or `}` for void functions
+  SrcRange range = fun_ref->inferred_return_type == TypeDataVoid::create()
+    ? SrcRange::span_at_end(fun_ref->ast_root->range, 1)
+    : origin->range;
+  return DebugMarkLeaveFunction{fun_ref, std::move(ir_return), range};
+}
+
 // The goal of VarsModificationWatcher is to detect such cases: `return (x, x += y, x)`.
 // Without any changes, ops will be { _Call '2 = +('0_x, '1_y); _Return '0_x, '2, '0_x } - incorrect.
 // Correct will be to introduce tmp var: { _Let '3 = '0_x; _Call '2 = ...; _Return '3, '2, '0_x }.
@@ -1441,8 +1449,12 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
   }
   for (int i = delta_self + v->get_num_args(); i < fun_ref->get_num_params(); ++i) {
     LocalVarPtr param_ref = &fun_ref->get_param(i);
-    tolk_assert(param_ref->has_default_value());
     AnyExprV dv = param_ref->default_value;
+    if (!dv) {
+      tolk_assert(param_ref->declared_type == TypeDataVoid::create());
+      dv = createV<ast_empty_expression>(call_origin->range);
+      dv->mutate()->assign_inferred_type(TypeDataVoid::create());
+    }
     if (auto dv_call = dv->try_as<ast_function_call>()) {
       // reflect.sourceLocation() as default — create a new AST vertex with range = call site
       if (dv_call->fun_maybe->name == "reflect.sourceLocation" || dv_call->fun_maybe->name == "reflect.sourceLocationAsString") {
@@ -1729,9 +1741,25 @@ static std::vector<var_idx_t> process_object_literal(V<ast_object_literal> v, Co
 
 static std::vector<var_idx_t> process_lambda_fun(V<ast_lambda_fun> v, CodeBlob& code, TypePtr target_type) {
   tolk_assert(v->lambda_ref);
-  std::vector rvect = code.create_tmp_var(v->lambda_ref->inferred_full_type, v, "(glob-var-lambda)");
-  code.add_read_glob_var(v, rvect, v->lambda_ref);
-  return transition_to_target_type(std::move(rvect), code, target_type, v);
+  // create the continuation referencing the lambda function
+  std::vector ir_cont = code.create_tmp_var(v->lambda_ref->inferred_full_type, v, "(glob-var-lambda)");
+  code.add_read_glob_var(v, ir_cont, v->lambda_ref);
+
+  // bind captured variables: right = [captured_ir_vars..., orig_cont], left = [result_cont]
+  if (!v->captured_vars.empty()) {
+    std::vector<var_idx_t> ir_right;
+    for (int i = 0; i < static_cast<int>(v->captured_vars.size()); ++i) {
+      LocalVarPtr outer_var = v->captured_vars[i];
+      TypePtr captured_type = v->lambda_ref->get_param(i).declared_type;
+      std::vector ir_captured = transition_to_target_type(std::vector(outer_var->ir_idx), code, outer_var->declared_type, captured_type, v);
+      ir_right.insert(ir_right.end(), ir_captured.begin(), ir_captured.end());
+    }
+
+    ir_right.push_back(ir_cont[0]);
+    code.add_setcontargs(v, ir_cont, std::move(ir_right));
+  }
+
+  return transition_to_target_type(std::move(ir_cont), code, target_type, v);
 }
 
 static std::vector<var_idx_t> process_int_const(V<ast_int_const> v, CodeBlob& code, TypePtr target_type) {
@@ -2200,7 +2228,13 @@ static void convert_function_body_to_CodeBlob(FunctionPtr fun_ref, FunctionBodyC
     rvect_import.insert(rvect_import.end(), ir_param.begin(), ir_param.end());
     param_i.mutate()->assign_ir_idx(std::move(ir_param));
   }
-  blob->add_import_fun_params(fun_ref->ident_anchor, rvect_import, fun_ref);
+  blob->add_import_fun_params(fun_ref->ident_anchor, rvect_import, fun_ref, DebugMarkEnterFunction{
+    .fun_ref = fun_ref,
+    .is_inlined = false,
+    .is_builtin = false,
+    .range = fun_ref->ident_anchor->range,
+    .ir_import = rvect_import,
+  });
   blob->in_var_cnt = blob->var_cnt;
   tolk_assert(blob->var_cnt == total_arg_width);
 

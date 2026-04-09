@@ -20,7 +20,7 @@ fun int.incSelfWithOther(mutate self, mutate other: int) {
 // @stderr hint: split a complex expression into several simple ones
 fun errCantBorrow1() {
     var x001 = 10;
-    x001.add(x001!.del());
+    x001.add(x001.del());
 }
 
 
@@ -80,7 +80,7 @@ fun errCantBorrowWithGlobal(d2: Demo) {
     d13.assignB(d2.a += d13.b);                       // ok
     d13.assignB(d2.c = d13.n1.n1);                    // ok
 
-    d13!.assignB(mutateDemoAndGetC(mutate d13));
+    d13.assignB(mutateDemoAndGetC(mutate d13));
 }
 
 // @stderr can not borrow `n73.0` for mutation, because `n73` is already being mutated by `assignment operator`
@@ -112,7 +112,7 @@ fun mutateOverlapping(mutate x: int, mutate p: (int, int)): void {
 fun errCantBorrowInsideTensor(): (int, int) {
     var a19 = 10;
     var b19 = 20;
-    mutateOverlapping(mutate a19, mutate (((a19, b19))!));
+    mutateOverlapping(mutate a19, mutate (((a19, b19))));
     return (a19, b19);
 }
 
@@ -125,7 +125,6 @@ fun errCantBorrowInSquareAssign(x89: int, y: int) {
     x89 += (y = x89);                                 // ok
     x89.add(([y] = [x89]).0);                     // ok
     x89.add(([y] = [x89]).0);                     // ok
-    x89.add(((eq((x89, 1).0 = x89 + 10), 1).0));  // ok
 
     x89.add(([y, x89] = [0, 0]).0);
 }
@@ -139,7 +138,6 @@ fun errCantBorrowInVeryComplex() {
     xy5.0 += (xy5.1 = xy5.0);                                  // ok
     xy5.0.add(([xy5.1] = [xy5.0]).0);                      // ok
     xy5.0.add(([xy5.1] = [xy5.0]).0);                      // ok
-    xy5.0.add(((eq((xy5.0, 1).0 = xy5.0 + 10), 1).0));     // ok
 
     var eqVoid = eq<void>;
     eqVoid(xy5.0.add(([xy5.1, (xy5.0.add(1), xy5.0).1] = [0, 0]).0));
@@ -154,11 +152,33 @@ struct Point {
 fun Point.copy(self) { return self }
 fun Point.mut(mutate self) { return self }
 
-// @stderr can not borrow `p03` for mutation, because `p03.x` is already being mutated by `assignment operator`
+// @stderr can not assign to a temporary expression
+// @stderr p03.mut().x
 fun cantBorrowAfterReturnMutateSelf(p03: Point) {
-    p03.x += (p03.copy().x = 5);        // ok
-    p03.x += (p03.copy().x += 5);       // ok
-
     p03.x += (p03.mut().x = 5);
 }
 
+struct JustX { x: int }
+
+fun JustX.id(self): self { return self; }
+fun JustX.bump(mutate self) { self.x += 1; }
+
+// @stderr can not mutate a temporary expression
+// @stderr (a19.0 = JustX{x: 10}).id()
+fun cantBorrowWithSelfFunction() {
+    var a19: [JustX] = [JustX { x: 0 }];
+    (a19.0 = JustX{x: 10}).id().bump();
+}
+
+global t107: (int, int);
+
+fun (int, int).increment(mutate self) {
+    self.0 += 1;
+    self.1 += 1;
+}
+
+// @stderr can not borrow `x33` for mutation once again, it is already being mutated by `(int,int).increment`
+fun errCantBorrowViaTensorIndex() {
+    var x33 = 0;
+    ((x33, x33).0, (x33, x33).1).increment();
+}

@@ -1050,7 +1050,7 @@ struct Vertex<ast_object_literal> final : ASTExprUnary {
 };
 
 template<>
-// ast_lambda_fun is an anonymous function (a lambda); no capturing allowed, so it's not a closure
+// ast_lambda_fun is an anonymous function (a lambda), optionally capturing outer locals by value
 // example: `var cb = fun(a: int) { return abs(a) }`, rhs is a lambda;
 // note that from the AST point of view, it's a LEAF: it's an expression, but parameters and body are not expressions;
 // hence, ASTVisitor does not traverse any lambda's body, scopes are not mixed, etc.;
@@ -1063,6 +1063,7 @@ private:
 public:
   AnyTypeV return_type_node;              // `fun(): <return_type> {}` or nullptr for `fun() {}`
   FunctionPtr lambda_ref = nullptr;       // filled in type-inferring (instantiating lambdas is similar to generic functions)
+  std::vector<LocalVarPtr> captured_vars; // filled in resolve-identifiers; outer-scope vars captured by this lambda
 
   int get_num_params()  const { return parameters->size(); }
   auto get_param_list() const { return parameters; }
@@ -1072,6 +1073,7 @@ public:
   
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_lambda_ref(FunctionPtr lambda_ref);
+  void assign_captured_vars(std::vector<LocalVarPtr>&& captured_vars);
 
   Vertex(SrcRange range, V<ast_parameter_list> parameters, V<ast_block_statement> body, AnyTypeV return_type_node)
     : ASTExprLeaf(ast_lambda_fun, range)

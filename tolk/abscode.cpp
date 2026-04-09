@@ -286,6 +286,13 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, const std::stri
       show_var_list(os, right, vars);
       os << std::endl;
       break;
+    case _SetContArgs:
+      os << indent << dis << "SETCONTARGS ";
+      show_var_list(os, left, vars);
+      os << " := ";
+      show_var_list(os, right, vars);
+      os << std::endl;
+      break;
     case _Repeat:
       os << indent << dis << "REPEAT ";
       show_var_list(os, left, vars);

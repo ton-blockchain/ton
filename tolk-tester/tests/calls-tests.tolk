@@ -248,6 +248,34 @@ fun test15() {
     )
 }
 
+@noinline fun take2voids(a: void, b: void) {
+    return 123
+}
+
+@method_id(116)
+fun test16() {
+    // by convention, if parameter is `void`, it can be omitted — exactly as for `void` fields in a struct
+    __expect_type(getAOrB<void>(), "void");
+    return (take2voids(), getAOrB<void>());
+}
+
+fun myFormat<T1 = void, T2 = void, T3 = void>(arg1: T1, arg2: T2, arg3: T3): (T1, T2, T3) {
+    return (arg1, arg2, arg3)
+}
+
+@method_id(117)
+fun test17() {
+    __expect_type(myFormat(), "(void, void, void)");
+    __expect_type(myFormat(123, "s"), "(int, string, void)");
+    __expect_type(myFormat((123, "s")), "((int, string), void, void)");
+    return (
+        myFormat(123),
+        myFormat(456, 789),
+        myFormat(3, false, (4, 3)),
+        myFormat(90).0 + 10,
+    )
+}
+
 fun main() {
     // mark used to codegen them
     cmp1; cmp2; cmp3; cmp4;
@@ -274,6 +302,8 @@ fun main() {
 @testcase | 114 | null -1   | -1 1
 @testcase | 114 | null null | 66 2
 @testcase | 115 |           | -1 -1 -1 0 0
+@testcase | 116 |           | 123
+@testcase | 117 |           | 123 456 789 3 0 4 3 100
 
 @fif_codegen
 """

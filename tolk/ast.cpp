@@ -222,6 +222,10 @@ void Vertex<ast_lambda_fun>::assign_lambda_ref(FunctionPtr lambda_ref) {
   this->lambda_ref = lambda_ref;
 }
 
+void Vertex<ast_lambda_fun>::assign_captured_vars(std::vector<LocalVarPtr>&& captured_vars) {
+  this->captured_vars = std::move(captured_vars);
+}
+
 void Vertex<ast_function_declaration>::assign_fun_ref(FunctionPtr fun_ref) {
   this->fun_ref = fun_ref;
 }

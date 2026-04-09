@@ -114,7 +114,7 @@ class CheckMutationNotHappensTwiceVisitor final : public ASTVisitorFunctionBody 
         borrow_ctx.borrow_all_from_lvalue(cur_f, self_obj, fun_ref);
       }
     }
-    for (int i = 0; i < v->get_num_args(); ++i) {
+    for (int i = 0; i < std::min(v->get_num_args(), fun_ref->get_num_params() - delta_self); ++i) {
       AnyExprV ith_arg = v->get_arg(i)->get_expr();
       parent::visit(ith_arg);
       if (fun_ref->parameters[delta_self + i].is_mutate_parameter()) {

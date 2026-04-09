@@ -123,7 +123,7 @@ static std::vector<TypePtr> ungroup_union_type(TypePtr specified_type) {
 }
 
 static void populate_abi_from_contract_directive(ContractABI* abi, const ContractDirective* d) {
-  abi->contractName   = d->contractName;
+  abi->contract_name  = d->contractName;
   abi->author         = d->author;
   abi->version        = d->version;
   abi->description    = d->description;
@@ -143,7 +143,7 @@ static void populate_abi_from_contract_directive(ContractABI* abi, const Contrac
   }
   if (d->forceAbiExport) {
     for (TypePtr t_export : ungroup_union_type(d->forceAbiExport->resolved_type)) {
-      abi->register_used_type(t_export);
+      abi->json_types.register_used_type(t_export);
     }
   }
 

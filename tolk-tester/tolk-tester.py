@@ -276,7 +276,7 @@ class TolkTestFile:
         while self.line_idx < len(lines):
             line = lines[self.line_idx]
             # support both "@tag" and "// @tag" syntax
-            if line.startswith("// @"):
+            if line.startswith("// @") and not line.startswith("// @testcase"):
                 line = line[3:]
                 lines[self.line_idx] = line
 
@@ -299,8 +299,6 @@ class TolkTestFile:
                 self.fif_codegen.append(TolkTestCaseFifCodegen(self.parse_string_value(lines), False))
             elif line.startswith("@code_hash"):
                 self.expected_hash = TolkTestCaseExpectedHash(self.parse_string_value(lines, False)[0])
-            elif line.startswith("@experimental_options"):
-                self.more_cmd_line_options += ["-x", line[22:]]
             elif line.startswith("@path_mapping"):
                 self.more_cmd_line_options += ["--path-mapping", line[14:].replace('{DIR}', os.path.dirname(self.tolk_filename))]
             self.line_idx = self.line_idx + 1
@@ -341,7 +339,9 @@ class TolkTestFile:
         return self.artifacts_folder + "/runner.fif"
 
     def run_and_check(self):
-        cmd_args = [TOLK_EXECUTABLE, "-o", self.get_compiled_fif_filename()] + self.more_cmd_line_options
+        cmd_args = ([TOLK_EXECUTABLE, "-o", self.get_compiled_fif_filename(),
+                     "--no-contract-abi", "--no-source-maps"]
+                    + self.more_cmd_line_options)
         if not self.enable_tolk_lines_comments:
             cmd_args = cmd_args + ["--no-line-comments"]
         res = subprocess.run(cmd_args + [self.tolk_filename], capture_output=True, timeout=10)
