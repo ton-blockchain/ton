@@ -17,6 +17,7 @@ struct BroadcastVote {
 
   Vote vote;
 
+  bool operator==(const BroadcastVote&) const = default;
   std::string contents_to_string() const;
 };
 
@@ -24,6 +25,7 @@ struct NotarizationObserved {
   CandidateId id;
   NotarCertRef certificate;
 
+  bool operator==(const NotarizationObserved&) const = default;
   std::string contents_to_string() const;
 };
 
@@ -31,6 +33,7 @@ struct FinalizationObserved {
   CandidateId id;
   FinalCertRef certificate;
 
+  bool operator==(const FinalizationObserved&) const = default;
   std::string contents_to_string() const;
 };
 
@@ -40,6 +43,7 @@ struct LeaderWindowObserved {
   td::uint32 start_slot;
   ParentId base;
 
+  bool operator==(const LeaderWindowObserved&) const = default;
   std::string contents_to_string() const;
 };
 
@@ -48,6 +52,7 @@ struct WaitForParent {
 
   CandidateRef candidate;
 
+  bool operator==(const WaitForParent&) const = default;
   std::string contents_to_string() const;
 };
 
@@ -61,6 +66,7 @@ struct ResolveCandidate {
 
   CandidateId id;
 
+  bool operator==(const ResolveCandidate&) const = default;
   std::string contents_to_string() const;
 };
 
@@ -68,6 +74,8 @@ struct StoreCandidate {
   using ReturnType = td::Unit;
 
   CandidateRef candidate;
+
+  bool operator==(const StoreCandidate&) const = default;
   std::string contents_to_string() const;
 };
 
@@ -81,6 +89,7 @@ struct ResolveState {
 
   ParentId id;
 
+  bool operator==(const ResolveState&) const = default;
   std::string contents_to_string() const;
   static std::string response_to_string(const ReturnType&);
 };
