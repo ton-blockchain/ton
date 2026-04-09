@@ -31,6 +31,7 @@ class Voted : public consensus::stats::CollectibleEvent<MetricCollector> {
   const Vote& vote() const {
     return vote_;
   }
+  bool operator==(const Voted&) const = default;
 
  private:
   Voted(Vote vote);
@@ -49,6 +50,7 @@ class CertObserved : public consensus::stats::CollectibleEvent<MetricCollector> 
   const Vote& vote() const {
     return vote_;
   }
+  bool operator==(const CertObserved&) const = default;
 
  private:
   CertObserved(Vote vote);
