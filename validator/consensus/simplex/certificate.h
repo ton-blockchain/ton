@@ -30,6 +30,7 @@ struct Certificate : td::CntObject {
   struct VoteSignature {
     PeerValidatorId validator;
     td::BufferSlice signature;
+    bool operator==(const VoteSignature&) const = default;
   };
 
   static td::Result<td::Ref<Certificate<T>>> from_tl(tl::voteSignatureSet&& set, T vote, const Bus& bus);
@@ -47,6 +48,7 @@ struct Certificate : td::CntObject {
   tl::VoteSignatureSetRef to_tl_vote_signature_set() const;
   tl::CertificateRef to_tl() const;
   td::BufferSlice serialize() const;
+  bool operator==(const Certificate&) const = default;
 
   auto consume_and_downcast(auto&& func) &&
     requires std::same_as<T, Vote>

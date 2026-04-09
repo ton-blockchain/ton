@@ -45,6 +45,8 @@ class Id : public Event {
   tl::EventRef to_tl() const override;
   std::string to_string() const override;
 
+  bool operator==(const Id&) const = default;
+
  private:
   Id(WorkchainId workchain, ShardId shard, td::uint32 cc_seqno, size_t idx, size_t total_validators,
      ValidatorWeight weight, ValidatorWeight total_weight, td::uint32 slots_per_leader_window);
@@ -70,6 +72,7 @@ class CollateStarted : public CollectibleEvent<MetricCollector> {
   td::uint32 target_slot() const {
     return target_slot_;
   }
+  bool operator==(const CollateStarted&) const = default;
 
  private:
   CollateStarted(td::uint32 target_slot);
@@ -91,6 +94,7 @@ class CollateFinished : public CollectibleEvent<MetricCollector> {
   CandidateId id() const {
     return id_;
   }
+  bool operator==(const CollateFinished&) const = default;
 
  private:
   CollateFinished(td::uint32 target_slot, CandidateId id);
@@ -109,6 +113,7 @@ class CollatedEmpty : public Event {
   CandidateId id() const {
     return id_;
   }
+  bool operator==(const CollatedEmpty&) const = default;
 
  private:
   CollatedEmpty(CandidateId id);
@@ -136,6 +141,7 @@ class CandidateReceived : public CollectibleEvent<MetricCollector> {
   bool is_collator() const {
     return is_collator_;
   }
+  bool operator==(const CandidateReceived&) const = default;
 
  private:
   CandidateReceived(CandidateId id, ParentId parent, std::optional<BlockIdExt> block, bool is_collator);
@@ -157,6 +163,7 @@ class ValidationStarted : public CollectibleEvent<MetricCollector> {
   CandidateId id() const {
     return id_;
   }
+  bool operator==(const ValidationStarted&) const = default;
 
  private:
   ValidationStarted(CandidateId id);
@@ -175,6 +182,7 @@ class ValidationFinished : public CollectibleEvent<MetricCollector> {
   CandidateId id() const {
     return id_;
   }
+  bool operator==(const ValidationFinished&) const = default;
 
  private:
   ValidationFinished(CandidateId id);
@@ -193,6 +201,7 @@ class BlockAccepted : public CollectibleEvent<MetricCollector> {
   CandidateId id() const {
     return id_;
   }
+  bool operator==(const BlockAccepted&) const = default;
 
  private:
   BlockAccepted(CandidateId id);
