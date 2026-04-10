@@ -17,13 +17,14 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include <functional>
+
+#include "vm/cellops.h"
+#include "vm/continuation.h"
 #include "vm/contops.h"
+#include "vm/excno.hpp"
 #include "vm/log.h"
 #include "vm/opctable.h"
 #include "vm/stack.hpp"
-#include "vm/continuation.h"
-#include "vm/cellops.h"
-#include "vm/excno.hpp"
 #include "vm/vm.h"
 
 using namespace std::literals::string_literals;
@@ -214,7 +215,7 @@ int exec_ret_data(VmState* st) {
 
 // Mode:
 // +1 = same_c3 (set c3 to code)
-// +2 = push_0 (push an implicit 0 before running the code)
+// +2 = push_0 (push an implicit 0 before running the code); only works with +1 enabled
 // +4 = load c4 (persistent data) from stack and return its final value
 // +8 = load gas limit from stack and return consumed gas
 // +16 = load c7 (smart-contract context)
@@ -260,11 +261,11 @@ int exec_runvm_common(VmState* st, unsigned mode) {
   gas_limit = std::min(gas_limit, st->get_gas_limits().gas_remaining);
   vm::GasLimits gas{gas_limit, gas_max};
 
-  VmStateInterface::Guard guard{nullptr}; // Don't consume gas for creating/loading cells during VM init
-  VmState new_state{std::move(code), std::move(new_stack),     gas,          (int)mode & 3, std::move(data),
-                    VmLog{},         std::vector<Ref<Cell>>{}, std::move(c7)};
+  VmStateInterface::Guard guard{nullptr};  // Don't consume gas for creating/loading cells during VM init
+  VmState new_state{
+      std::move(code), st->get_global_version(), std::move(new_stack), gas, (int)mode & 3, std::move(data),
+      VmLog{},         std::vector<Ref<Cell>>{}, std::move(c7)};
   new_state.set_chksig_always_succeed(st->get_chksig_always_succeed());
-  new_state.set_global_version(st->get_global_version());
   st->run_child_vm(std::move(new_state), with_data, mode & 32, mode & 8, mode & 128, ret_vals);
   return 0;
 }
@@ -301,21 +302,24 @@ void register_continuation_jump_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xdb39, 16, "RETVARARGS", exec_ret_varargs))
       .insert(OpcodeInstr::mksimple(0xdb3a, 16, "JMPXVARARGS", exec_jmpx_varargs))
       .insert(OpcodeInstr::mksimple(0xdb3b, 16, "CALLCCVARARGS", exec_callcc_varargs))
-      .insert(OpcodeInstr::mkext(0xdb3c, 16, 0, std::bind(dump_push_ref, _1, _2, _3, "CALLREF"),
-                                 std::bind(exec_do_with_ref, _1, _2, _4,
-                                           [](auto st, auto cont) { return st->call(std::move(cont)); }, "CALLREF"),
-                                 compute_len_push_ref))
-      .insert(OpcodeInstr::mkext(0xdb3d, 16, 0, std::bind(dump_push_ref, _1, _2, _3, "JMPREF"),
-                                 std::bind(exec_do_with_ref, _1, _2, _4,
-                                           [](auto st, auto cont) { return st->jump(std::move(cont)); }, "JMPREF"),
-                                 compute_len_push_ref))
+      .insert(OpcodeInstr::mkext(
+          0xdb3c, 16, 0, std::bind(dump_push_ref, _1, _2, _3, "CALLREF"),
+          std::bind(
+              exec_do_with_ref, _1, _2, _4, [](auto st, auto cont) { return st->call(std::move(cont)); }, "CALLREF"),
+          compute_len_push_ref))
+      .insert(OpcodeInstr::mkext(
+          0xdb3d, 16, 0, std::bind(dump_push_ref, _1, _2, _3, "JMPREF"),
+          std::bind(
+              exec_do_with_ref, _1, _2, _4, [](auto st, auto cont) { return st->jump(std::move(cont)); }, "JMPREF"),
+          compute_len_push_ref))
       .insert(OpcodeInstr::mkext(0xdb3e, 16, 0, std::bind(dump_push_ref, _1, _2, _3, "JMPREFDATA"),
-                                 std::bind(exec_do_with_ref, _1, _2, _4,
-                                           [](auto st, auto cont) {
-                                             st->push_code();
-                                             return st->jump(std::move(cont));
-                                           },
-                                           "JMPREFDATA"),
+                                 std::bind(
+                                     exec_do_with_ref, _1, _2, _4,
+                                     [](auto st, auto cont) {
+                                       st->push_code();
+                                       return st->jump(std::move(cont));
+                                     },
+                                     "JMPREFDATA"),
                                  compute_len_push_ref))
       .insert(OpcodeInstr::mksimple(0xdb3f, 16, "RETDATA", exec_ret_data))
       .insert(OpcodeInstr::mkfixed(0xdb4, 12, 12, dump_runvm, exec_runvm)->require_version(4))
@@ -565,40 +569,40 @@ void register_continuation_cond_loop_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xe1, 8, "IFNOTJMP", exec_ifnot_jmp))
       .insert(OpcodeInstr::mksimple(0xe2, 8, "IFELSE", exec_if_else))
       .insert(OpcodeInstr::mkext(0xe300, 16, 0, std::bind(dump_push_ref, _1, _2, _3, "IFREF"),
-                                 std::bind(exec_do_with_cell, _1, _2, _4,
-                                           [](auto st, auto cell) {
-                                             return st->get_stack().pop_bool()
-                                                        ? st->call(st->ref_to_cont(std::move(cell)))
-                                                        : 0;
-                                           },
-                                           "IFREF"),
+                                 std::bind(
+                                     exec_do_with_cell, _1, _2, _4,
+                                     [](auto st, auto cell) {
+                                       return st->get_stack().pop_bool() ? st->call(st->ref_to_cont(std::move(cell)))
+                                                                         : 0;
+                                     },
+                                     "IFREF"),
                                  compute_len_push_ref))
       .insert(OpcodeInstr::mkext(0xe301, 16, 0, std::bind(dump_push_ref, _1, _2, _3, "IFNOTREF"),
-                                 std::bind(exec_do_with_cell, _1, _2, _4,
-                                           [](auto st, auto cell) {
-                                             return st->get_stack().pop_bool()
-                                                        ? 0
-                                                        : st->call(st->ref_to_cont(std::move(cell)));
-                                           },
-                                           "IFNOTREF"),
+                                 std::bind(
+                                     exec_do_with_cell, _1, _2, _4,
+                                     [](auto st, auto cell) {
+                                       return st->get_stack().pop_bool() ? 0
+                                                                         : st->call(st->ref_to_cont(std::move(cell)));
+                                     },
+                                     "IFNOTREF"),
                                  compute_len_push_ref))
       .insert(OpcodeInstr::mkext(0xe302, 16, 0, std::bind(dump_push_ref, _1, _2, _3, "IFJMPREF"),
-                                 std::bind(exec_do_with_cell, _1, _2, _4,
-                                           [](auto st, auto cell) {
-                                             return st->get_stack().pop_bool()
-                                                        ? st->jump(st->ref_to_cont(std::move(cell)))
-                                                        : 0;
-                                           },
-                                           "IFJMPREF"),
+                                 std::bind(
+                                     exec_do_with_cell, _1, _2, _4,
+                                     [](auto st, auto cell) {
+                                       return st->get_stack().pop_bool() ? st->jump(st->ref_to_cont(std::move(cell)))
+                                                                         : 0;
+                                     },
+                                     "IFJMPREF"),
                                  compute_len_push_ref))
       .insert(OpcodeInstr::mkext(0xe303, 16, 0, std::bind(dump_push_ref, _1, _2, _3, "IFNOTJMPREF"),
-                                 std::bind(exec_do_with_cell, _1, _2, _4,
-                                           [](auto st, auto cell) {
-                                             return st->get_stack().pop_bool()
-                                                        ? 0
-                                                        : st->jump(st->ref_to_cont(std::move(cell)));
-                                           },
-                                           "IFNOTJMPREF"),
+                                 std::bind(
+                                     exec_do_with_cell, _1, _2, _4,
+                                     [](auto st, auto cell) {
+                                       return st->get_stack().pop_bool() ? 0
+                                                                         : st->jump(st->ref_to_cont(std::move(cell)));
+                                     },
+                                     "IFNOTJMPREF"),
                                  compute_len_push_ref))
       .insert(OpcodeInstr::mksimple(0xe304, 16, "CONDSEL", exec_condsel))
       .insert(OpcodeInstr::mksimple(0xe305, 16, "CONDSELCHK", exec_condsel_chk))
@@ -1072,7 +1076,8 @@ void register_continuation_change_ops(OpcodeTable& cp0) {
   cp0.insert(OpcodeInstr::mksimple(0xede0, 16, "PUSHCTRX", exec_push_ctr_var))
       .insert(OpcodeInstr::mksimple(0xede1, 16, "POPCTRX", exec_pop_ctr_var))
       .insert(OpcodeInstr::mksimple(0xede2, 16, "SETCONTCTRX", exec_setcont_ctr_var))
-      .insert(OpcodeInstr::mkfixed(0xede3, 16, 8, instr::dump_1c_l_add(1, "SETCONTCTRMANY "), exec_setcont_ctr_many)->require_version(9))
+      .insert(OpcodeInstr::mkfixed(0xede3, 16, 8, instr::dump_1c_l_add(1, "SETCONTCTRMANY "), exec_setcont_ctr_many)
+                  ->require_version(9))
       .insert(OpcodeInstr::mksimple(0xede4, 16, "SETCONTCTRMANYX", exec_setcont_ctr_many_var)->require_version(9))
       .insert(OpcodeInstr::mksimple(0xedf0, 16, "BOOLAND", std::bind(exec_compos, _1, 1, "BOOLAND")))
       .insert(OpcodeInstr::mksimple(0xedf1, 16, "BOOLOR", std::bind(exec_compos, _1, 2, "BOOLOR")))

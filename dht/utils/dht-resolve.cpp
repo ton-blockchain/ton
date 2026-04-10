@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,33 +14,33 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <iostream>
+
 #include "adnl/adnl-network-manager.h"
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
-#include "keys/encryptor.h"
-#include "td/utils/Time.h"
-#include "td/utils/format.h"
-#include "td/utils/OptionParser.h"
-#include "td/utils/filesystem.h"
-#include "dht/dht.hpp"
 #include "auto/tl/ton_api_json.h"
 #include "common/delay.h"
-#include "td/utils/Random.h"
-#include "terminal/terminal.h"
 #include "common/util.h"
-
-#include <iostream>
+#include "dht/dht.hpp"
+#include "keys/encryptor.h"
+#include "td/utils/OptionParser.h"
+#include "td/utils/Random.h"
+#include "td/utils/Time.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/format.h"
+#include "terminal/terminal.h"
 
 class Resolver : public td::actor::Actor {
  private:
@@ -57,10 +57,17 @@ class Resolver : public td::actor::Actor {
   td::uint16 port_;
   ton::dht::DhtKey key_;
   double timeout_;
+  std::string save_json_to_;
 
  public:
-  Resolver(std::string global_config, int server_idx, td::uint16 port, ton::dht::DhtKey key, double timeout)
-      : global_config_(global_config), server_idx_(server_idx), port_(port), key_(std::move(key)), timeout_(timeout) {
+  Resolver(std::string global_config, int server_idx, td::uint16 port, ton::dht::DhtKey key, double timeout,
+           std::string save_json_to)
+      : global_config_(global_config)
+      , server_idx_(server_idx)
+      , port_(port)
+      , key_(std::move(key))
+      , timeout_(timeout)
+      , save_json_to_(std::move(save_json_to)) {
   }
 
   void run() {
@@ -117,6 +124,12 @@ class Resolver : public td::actor::Actor {
     td::TerminalIO::out() << "KEY: " << td::base64_encode(ton::serialize_tl_object(r.key().public_key().tl(), true))
                           << "\n";
     td::TerminalIO::out() << "VALUE: " << td::base64_encode(r.value().as_slice()) << "\n";
+    if (!save_json_to_.empty()) {
+      auto obj = ton::fetch_tl_object<ton::ton_api::Object>(r.value().as_slice(), true).ensure().move_as_ok();
+      std::string s = td::json_encode<std::string>(td::ToJson(*obj), true);
+      td::write_file(save_json_to_, s).ensure();
+      LOG(INFO) << "Saved value to " << save_json_to_;
+    }
     std::exit(0);
   }
 
@@ -132,7 +145,7 @@ class Resolver : public td::actor::Actor {
     if (!conf.dht_) {
       return td::Status::Error(ton::ErrorCode::error, "does not contain [dht] section");
     }
-    ton::ton_api::dht_nodes* static_nodes = nullptr;
+    ton::ton_api::dht_nodes *static_nodes = nullptr;
     ton::ton_api::downcast_call(*conf.dht_, [&](auto &f) { static_nodes = f.static_nodes_.get(); });
     auto &nodes = static_nodes->nodes_;
     if (server_idx_ >= 0) {
@@ -149,7 +162,13 @@ class Resolver : public td::actor::Actor {
 };
 
 td::Result<td::Bits256> parse_bits256(td::Slice s) {
-  td::BufferSlice str = td::base64_decode(s, true);
+  if (s.size() == 64) {
+    td::Bits256 x;
+    if (x.from_hex(s) == 256) {
+      return x;
+    }
+  }
+  td::BufferSlice str = td::base64_decode_to_buffer_slice(s, true);
   if (str.size() != 32) {
     return td::Status::Error("Invalid bits256");
   }
@@ -166,6 +185,7 @@ int main(int argc, char *argv[]) {
   td::optional<std::string> key_name;
   td::uint32 key_idx = 0;
   double timeout = 5.0;
+  std::string save_json_to;
 
   td::OptionParser p;
   p.set_description("find value in dht by the given key (key-id, key-name, ket-idx)");
@@ -199,6 +219,7 @@ int main(int argc, char *argv[]) {
     return td::Status::OK();
   });
   p.add_option('t', "timeout", "set timeout (default: 5s)", [&](td::Slice arg) { timeout = td::to_double(arg); });
+  p.add_option('j', "save-json-to", "write value as json to file", [&](td::Slice arg) { save_json_to = arg.str(); });
 
   td::actor::Scheduler scheduler({2});
 
@@ -209,7 +230,7 @@ int main(int argc, char *argv[]) {
     LOG_IF(FATAL, !key_name) << "key-name is not set";
     x = td::actor::create_actor<Resolver>(
         "Resolver", global_config.value(), server_idx, port,
-        ton::dht::DhtKey{ton::PublicKeyHash(key_id.value()), key_name.value(), key_idx}, timeout);
+        ton::dht::DhtKey{ton::PublicKeyHash(key_id.value()), key_name.value(), key_idx}, timeout, save_json_to);
   });
   scheduler.run_in_context([&] { td::actor::send_closure(x, &Resolver::run); });
 

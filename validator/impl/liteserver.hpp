@@ -17,17 +17,18 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "ton/ton-types.h"
+#include "auto/tl/lite_api.h"
+#include "block/block-auto.h"
+#include "interfaces/block-handle.h"
+#include "interfaces/shard.h"
+#include "interfaces/validator-manager.h"
 #include "td/actor/actor.h"
 #include "td/utils/Time.h"
-#include "interfaces/block-handle.h"
-#include "interfaces/validator-manager.h"
-#include "interfaces/shard.h"
+#include "ton/ton-types.h"
+
 #include "block.hpp"
-#include "shard.hpp"
 #include "proof.hpp"
-#include "block/block-auto.h"
-#include "auto/tl/lite_api.h"
+#include "shard.hpp"
 
 namespace ton {
 
@@ -41,7 +42,8 @@ class LiteQuery : public td::actor::Actor {
   td::Timestamp timeout_;
   td::Promise<td::BufferSlice> promise_;
 
-  td::Promise<std::tuple<td::Ref<vm::CellSlice>,UnixTime,LogicalTime,std::unique_ptr<block::ConfigInfo>>> acc_state_promise_;
+  td::Promise<std::tuple<td::Ref<vm::CellSlice>, UnixTime, LogicalTime, std::unique_ptr<block::ConfigInfo>>>
+      acc_state_promise_;
 
   tl_object_ptr<ton::lite_api::Function> query_obj_;
   bool use_cache_{false};
@@ -73,8 +75,8 @@ class LiteQuery : public td::actor::Actor {
   td::BufferSlice lookup_prev_header_proof_;
 
  public:
+  constexpr static double default_timeout_msec = 4500;  // 4.5 seconds
   enum {
-    default_timeout_msec = 4500,      // 4.5 seconds
     max_transaction_count = 16,       // fetch at most 16 transactions in one query
     client_method_gas_limit = 300000  // gas limit for liteServer.runSmcMethod
   };
@@ -84,20 +86,22 @@ class LiteQuery : public td::actor::Actor {
   };  // version 1.1; +1 = build block proof chains, +2 = masterchainInfoExt, +4 = runSmcMethod
   LiteQuery(td::BufferSlice data, td::actor::ActorId<ton::validator::ValidatorManager> manager,
             td::actor::ActorId<LiteServerCache> cache, td::Promise<td::BufferSlice> promise);
-  LiteQuery(WorkchainId wc, StdSmcAddress  acc_addr, td::actor::ActorId<ton::validator::ValidatorManager> manager,
-            td::Promise<std::tuple<td::Ref<vm::CellSlice>,UnixTime,LogicalTime,std::unique_ptr<block::ConfigInfo>>> promise);
+  LiteQuery(WorkchainId wc, StdSmcAddress acc_addr, td::actor::ActorId<ton::validator::ValidatorManager> manager,
+            td::Promise<std::tuple<td::Ref<vm::CellSlice>, UnixTime, LogicalTime, std::unique_ptr<block::ConfigInfo>>>
+                promise);
   static void run_query(td::BufferSlice data, td::actor::ActorId<ton::validator::ValidatorManager> manager,
                         td::actor::ActorId<LiteServerCache> cache, td::Promise<td::BufferSlice> promise);
 
-  static void fetch_account_state(WorkchainId wc, StdSmcAddress  acc_addr, td::actor::ActorId<ton::validator::ValidatorManager> manager,
-                                  td::Promise<std::tuple<td::Ref<vm::CellSlice>,UnixTime,LogicalTime,std::unique_ptr<block::ConfigInfo>>> promise);
+  static void fetch_account_state(
+      WorkchainId wc, StdSmcAddress acc_addr, td::actor::ActorId<ton::validator::ValidatorManager> manager,
+      td::Promise<std::tuple<td::Ref<vm::CellSlice>, UnixTime, LogicalTime, std::unique_ptr<block::ConfigInfo>>>
+          promise);
 
  private:
   bool fatal_error(td::Status error);
   bool fatal_error(std::string err_msg, int err_code = -400);
   bool fatal_error(int err_code, std::string err_msg = "");
   void abort_query(td::Status reason);
-  void abort_query_ext(td::Status reason, std::string err_msg);
   bool finish_query(td::BufferSlice result, bool skip_cache_update = false);
   void alarm() override;
   void start_up() override;
@@ -143,11 +147,15 @@ class LiteQuery : public td::actor::Actor {
   void perform_getConfigParams(BlockIdExt blkid, int mode, std::vector<int> param_list = {});
   void continue_getConfigParams(int mode, std::vector<int> param_list);
   void perform_lookupBlock(BlockId blkid, int mode, LogicalTime lt, UnixTime utime);
-  void perform_lookupBlockWithProof(BlockId blkid, BlockIdExt client_mc_blkid, int mode, LogicalTime lt, UnixTime utime);
-  void continue_lookupBlockWithProof_getHeaderProof(Ref<ton::validator::BlockData> block, AccountIdPrefixFull req_prefix, BlockSeqno masterchain_ref_seqno);
+  void perform_lookupBlockWithProof(BlockId blkid, BlockIdExt client_mc_blkid, int mode, LogicalTime lt,
+                                    UnixTime utime);
+  void continue_lookupBlockWithProof_getHeaderProof(Ref<ton::validator::BlockData> block,
+                                                    AccountIdPrefixFull req_prefix, BlockSeqno masterchain_ref_seqno);
   void continue_lookupBlockWithProof_gotPrevBlockData(Ref<BlockData> prev_block, BlockSeqno masterchain_ref_seqno);
-  void continue_lookupBlockWithProof_buildProofLinks(td::Ref<BlockData> cur_block, std::vector<std::pair<BlockIdExt, td::Ref<vm::Cell>>> result);
-  void continue_lookupBlockWithProof_getClientMcBlockDataState(std::vector<std::pair<BlockIdExt, td::Ref<vm::Cell>>> links);
+  void continue_lookupBlockWithProof_buildProofLinks(td::Ref<BlockData> cur_block,
+                                                     std::vector<std::pair<BlockIdExt, td::Ref<vm::Cell>>> result);
+  void continue_lookupBlockWithProof_getClientMcBlockDataState(
+      std::vector<std::pair<BlockIdExt, td::Ref<vm::Cell>>> links);
   void continue_lookupBlockWithProof_getMcBlockPrev(std::vector<std::pair<BlockIdExt, td::Ref<vm::Cell>>> links);
   void perform_listBlockTransactions(BlockIdExt blkid, int mode, int count, Bits256 account, LogicalTime lt);
   void finish_listBlockTransactions(int mode, int count);
@@ -180,6 +188,7 @@ class LiteQuery : public td::actor::Actor {
 
   void perform_nonfinal_getCandidate(td::Bits256 source, BlockIdExt blkid, td::Bits256 collated_data_hash);
   void perform_nonfinal_getValidatorGroups(int mode, ShardIdFull shard);
+  void perform_nonfinal_getPendingShardBlocks(int mode, ShardIdFull shard);
 
   void load_prevKeyBlock(ton::BlockIdExt blkid, td::Promise<std::pair<BlockIdExt, Ref<BlockQ>>>);
   void continue_loadPrevKeyBlock(ton::BlockIdExt blkid, td::Result<std::pair<Ref<MasterchainState>, BlockIdExt>> res,
@@ -222,7 +231,7 @@ class LiteQuery : public td::actor::Actor {
   bool make_shard_info_proof(Ref<vm::Cell>& proof, Ref<block::McShardHash>& info, ShardIdFull shard, bool exact = true);
   bool make_shard_info_proof(Ref<vm::Cell>& proof, Ref<block::McShardHash>& info, AccountIdPrefixFull prefix);
   bool make_shard_info_proof(Ref<vm::Cell>& proof, BlockIdExt& blkid, AccountIdPrefixFull prefix);
-  bool make_ancestor_block_proof(Ref<vm::Cell>& proof, Ref<vm::Cell> state_root, const BlockIdExt& old_blkid);
+  bool make_ancestor_block_proof(Ref<vm::Cell>& proof, Ref<MasterchainState> mc_state, const BlockIdExt& old_blkid);
 };
 
 }  // namespace validator

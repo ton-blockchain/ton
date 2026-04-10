@@ -18,14 +18,15 @@
 */
 #pragma once
 
+#include <stats-provider.h>
+
+#include "interfaces/db.h"
+#include "interfaces/validator-manager.h"
 #include "td/actor/actor.h"
 #include "ton/ton-types.h"
 
-#include "interfaces/validator-manager.h"
-#include "interfaces/db.h"
-#include "shard-client.hpp"
-
 #include "manager-init.h"
+#include "shard-client.hpp"
 
 namespace ton {
 
@@ -42,7 +43,7 @@ class ValidatorManagerMasterchainReiniter : public td::actor::Actor {
   void start_up() override;
   void written_hardforks();
   void got_masterchain_handle(BlockHandle handle);
-  void download_proof_link();
+  void download_proof_link(bool try_local = true);
   void downloaded_proof_link(td::BufferSlice data);
   void downloaded_zero_state();
 
@@ -77,6 +78,8 @@ class ValidatorManagerMasterchainReiniter : public td::actor::Actor {
 
   td::uint32 pending_ = 0;
   td::actor::ActorOwn<ShardClient> client_;
+
+  ProcessStatus status_;
 };
 
 class ValidatorManagerMasterchainStarter : public td::actor::Actor {
@@ -88,46 +91,21 @@ class ValidatorManagerMasterchainStarter : public td::actor::Actor {
   }
 
   void start_up() override;
-  void got_init_block_id(BlockIdExt block_id);
-  void failed_to_get_init_block_id();
-  void got_init_block_handle(BlockHandle handle);
-  void got_init_block_state(td::Ref<MasterchainState> state);
-  void got_gc_block_id(BlockIdExt block_id);
-  void got_gc_block_handle(BlockHandle handle);
-  void got_gc_block_state(td::Ref<MasterchainState> state);
-  void got_key_block_handle(BlockHandle handle);
-  void got_shard_block_id(BlockIdExt block_id);
-  void got_hardforks(std::vector<BlockIdExt> hardforks);
-  void got_truncate_block_seqno(BlockSeqno seqno);
-  void got_truncate_block_id(BlockIdExt block_id);
-  void got_truncate_block_handle(BlockHandle handle);
-  void got_truncate_state(td::Ref<MasterchainState> state);
-  void truncated_db();
-  void got_prev_key_block_handle(BlockHandle handle);
-  void truncated();
-  void truncate_shard_next(BlockIdExt block_id, td::Promise<td::Unit> promise);
-  void truncated_next();
-  void written_next();
-  void start_shard_client();
-  void finish();
+  td::actor::Task<> run();
+  td::actor::Task<ValidatorManagerInitResult> run_inner();
+  td::actor::Task<> get_latest_applied_block();
+  td::actor::Task<> truncate(BlockSeqno truncate_seqno);
 
  private:
   td::Ref<ValidatorManagerOptions> opts_;
 
-  BlockIdExt block_id_;
   BlockHandle handle_;
   td::Ref<MasterchainState> state_;
-  BlockHandle gc_handle_;
-  td::Ref<MasterchainState> gc_state_;
-  BlockHandle last_key_block_handle_;
-  bool has_new_hardforks_{false};
 
   td::actor::ActorId<ValidatorManager> manager_;
   td::actor::ActorId<Db> db_;
 
   td::Promise<ValidatorManagerInitResult> promise_;
-
-  td::actor::ActorOwn<ShardClient> client_;
 };
 
 }  // namespace validator

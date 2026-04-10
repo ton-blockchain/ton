@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,29 +14,28 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <memory>
+#include <set>
+
 #include "adnl/adnl-network-manager.h"
 #include "adnl/adnl-test-loopback-implementation.h"
 #include "adnl/adnl.h"
 #include "dht/dht.h"
 #include "dht/dht.hpp"
-
-#include "td/utils/port/signals.h"
-#include "td/utils/port/path.h"
 #include "td/utils/Random.h"
-
-#include <memory>
-#include <set>
+#include "td/utils/port/path.h"
+#include "td/utils/port/signals.h"
 
 int main() {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
@@ -86,7 +85,7 @@ int main() {
         dht_configR.ensure();
         dht_config = dht_configR.move_as_ok();
       }
-      td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Unit) {});
+      td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Result<>) {});
       td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr,
                               static_cast<td::uint8>(0));
       td::actor::send_closure(network_manager, &ton::adnl::TestLoopbackNetworkManager::add_node_id, src, true, true);
@@ -184,17 +183,25 @@ int main() {
   }
 
   {
-    ton::dht::DhtKey dht_key{key_short_id, "test", 0};
+    // DhtUpdateRuleAnybody rejects Ed25519 keys (see DhtUpdateRuleAnybody::check_value),
+    // so use an "unenc" key type here.
+    td::BufferSlice x{64};
+    td::Random::secure_bytes(x.as_slice());
+    auto pk_anybody = ton::PrivateKey{ton::privkeys::Unenc{x.clone()}};
+    auto pub_anybody = pk_anybody.compute_public_key();
+    auto short_id_anybody = pub_anybody.compute_short_id();
+
+    ton::dht::DhtKey dht_key{short_id_anybody, "test", 0};
     auto dht_update_rule = ton::dht::DhtUpdateRuleAnybody::create().move_as_ok();
-    ton::dht::DhtKeyDescription dht_key_description{std::move(dht_key), key_pub, std::move(dht_update_rule),
+    ton::dht::DhtKeyDescription dht_key_description{std::move(dht_key), pub_anybody, std::move(dht_update_rule),
                                                     td::BufferSlice()};
-    dht_key_description.update_signature(key_dec->sign(dht_key_description.to_sign()).move_as_ok());
+    dht_key_description.check().ensure();
 
     auto ttl = static_cast<td::uint32>(td::Clocks::system() + 3600);
     ton::dht::DhtValue dht_value{dht_key_description.clone(), td::BufferSlice("value"), ttl, td::BufferSlice()};
     dht_value.check().ensure();
     CHECK(!dht_value.expired());
-    dht_value.update_signature(key_dec->sign(dht_value.to_sign()).move_as_ok());
+    dht_value.update_signature(td::BufferSlice("sig"));
     dht_value.check().ensure_error();
 
     dht_value = ton::dht::DhtValue{dht_key_description.clone(), td::BufferSlice(), ttl, td::BufferSlice()};
@@ -210,11 +217,17 @@ int main() {
   }
 
   {
-    ton::dht::DhtKey dht_key{key_short_id, "test", 0};
+    // DhtUpdateRuleOverlayNodes requires an overlay key type and empty keyDescription signature.
+    td::BufferSlice overlay_name{32};
+    td::Random::secure_bytes(overlay_name.as_slice());
+    auto overlay_pub = ton::PublicKey{ton::pubkeys::Overlay{overlay_name.clone()}};
+    auto overlay_short_id = overlay_pub.compute_short_id();
+
+    ton::dht::DhtKey dht_key{overlay_short_id, "test", 0};
     auto dht_update_rule = ton::dht::DhtUpdateRuleOverlayNodes::create().move_as_ok();
-    ton::dht::DhtKeyDescription dht_key_description{std::move(dht_key), key_pub, std::move(dht_update_rule),
+    ton::dht::DhtKeyDescription dht_key_description{std::move(dht_key), overlay_pub, std::move(dht_update_rule),
                                                     td::BufferSlice()};
-    dht_key_description.update_signature(key_dec->sign(dht_key_description.to_sign()).move_as_ok());
+    dht_key_description.check().ensure();
 
     auto ttl = static_cast<td::uint32>(td::Clocks::system() + 3600);
     ton::dht::DhtValue dht_value{dht_key_description.clone(), td::BufferSlice(""), ttl, td::BufferSlice()};
@@ -233,9 +246,10 @@ int main() {
       //overlay.node.toSign id:adnl.id.short overlay:int256 version:int = overlay.node.ToSign;
       //overlay.node id:PublicKey overlay:int256 version:int signature:bytes = overlay.Node;
       auto to_sign = ton::create_serialize_tl_object<ton::ton_api::overlay_node_toSign>(
-          ton::adnl::AdnlNodeIdShort{pub.compute_short_id()}.tl(), key_short_id.tl(), date);
+          ton::adnl::AdnlNodeIdShort{pub.compute_short_id()}.tl(), overlay_short_id.tl(), date);
       auto n = ton::create_tl_object<ton::ton_api::overlay_node>(
-          pub.tl(), key_short_id.tl(), date, pk.create_decryptor().move_as_ok()->sign(to_sign.as_slice()).move_as_ok());
+          pub.tl(), overlay_short_id.tl(), date,
+          pk.create_decryptor().move_as_ok()->sign(to_sign.as_slice()).move_as_ok());
       obj->nodes_.push_back(std::move(n));
       dht_value =
           ton::dht::DhtValue{dht_key_description.clone(), ton::serialize_tl_object(obj, true), ttl, td::BufferSlice()};
@@ -255,9 +269,9 @@ int main() {
     //overlay.node.toSign id:adnl.id.short overlay:int256 version:int = overlay.node.ToSign;
     //overlay.node id:PublicKey overlay:int256 version:int signature:bytes = overlay.Node;
     auto to_sign = ton::create_serialize_tl_object<ton::ton_api::overlay_node_toSign>(
-        ton::adnl::AdnlNodeIdShort{pub.compute_short_id()}.tl(), key_short_id.tl() ^ td::Bits256::ones(), date);
+        ton::adnl::AdnlNodeIdShort{pub.compute_short_id()}.tl(), overlay_short_id.tl() ^ td::Bits256::ones(), date);
     auto n = ton::create_tl_object<ton::ton_api::overlay_node>(
-        pub.tl(), key_short_id.tl() ^ td::Bits256::ones(), date,
+        pub.tl(), overlay_short_id.tl() ^ td::Bits256::ones(), date,
         pk.create_decryptor().move_as_ok()->sign(to_sign.as_slice()).move_as_ok());
     obj->nodes_.push_back(std::move(n));
     dht_value =
@@ -266,9 +280,10 @@ int main() {
 
     obj->nodes_.clear();
     to_sign = ton::create_serialize_tl_object<ton::ton_api::overlay_node_toSign>(
-        ton::adnl::AdnlNodeIdShort{pub.compute_short_id()}.tl(), key_short_id.tl(), date);
+        ton::adnl::AdnlNodeIdShort{pub.compute_short_id()}.tl(), overlay_short_id.tl(), date);
     n = ton::create_tl_object<ton::ton_api::overlay_node>(
-        pub.tl(), key_short_id.tl(), date, pk.create_decryptor().move_as_ok()->sign(to_sign.as_slice()).move_as_ok());
+        pub.tl(), overlay_short_id.tl(), date,
+        pk.create_decryptor().move_as_ok()->sign(to_sign.as_slice()).move_as_ok());
     obj->nodes_.push_back(std::move(n));
     dht_value =
         ton::dht::DhtValue{dht_key_description.clone(), ton::serialize_tl_object(obj, true), ttl, td::BufferSlice()};
@@ -277,7 +292,7 @@ int main() {
     obj->nodes_.clear();
     //to_sign = ton::create_serialize_tl_object<ton::ton_api::overlay_node_toSign>(
     //    ton::adnl::AdnlNodeIdShort{pub.compute_short_id()}.tl(), key_short_id.tl(), date);
-    n = ton::create_tl_object<ton::ton_api::overlay_node>(pub.tl(), key_short_id.tl(), date, td::BufferSlice{64});
+    n = ton::create_tl_object<ton::ton_api::overlay_node>(pub.tl(), overlay_short_id.tl(), date, td::BufferSlice{64});
     obj->nodes_.push_back(std::move(n));
     dht_value =
         ton::dht::DhtValue{dht_key_description.clone(), ton::serialize_tl_object(obj, true), ttl, td::BufferSlice()};
@@ -285,9 +300,10 @@ int main() {
 
     obj->nodes_.clear();
     to_sign = ton::create_serialize_tl_object<ton::ton_api::overlay_node_toSign>(
-        ton::adnl::AdnlNodeIdShort{pub.compute_short_id()}.tl(), key_short_id.tl(), date);
+        ton::adnl::AdnlNodeIdShort{pub.compute_short_id()}.tl(), overlay_short_id.tl(), date);
     n = ton::create_tl_object<ton::ton_api::overlay_node>(
-        pub.tl(), key_short_id.tl(), date, pk.create_decryptor().move_as_ok()->sign(to_sign.as_slice()).move_as_ok());
+        pub.tl(), overlay_short_id.tl(), date,
+        pk.create_decryptor().move_as_ok()->sign(to_sign.as_slice()).move_as_ok());
     obj->nodes_.push_back(std::move(n));
     dht_value =
         ton::dht::DhtValue{dht_key_description.clone(), ton::serialize_tl_object(obj, true), ttl, td::BufferSlice()};
@@ -303,11 +319,13 @@ int main() {
 
     obj->nodes_.clear();
     {
-      td::BufferSlice x{64};
+      td::BufferSlice x{32};
       td::Random::secure_bytes(x.as_slice());
-      auto pk2 = ton::PrivateKey{ton::privkeys::Unenc{x.clone()}};
+      auto pk2 = ton::PrivateKey{ton::privkeys::Ed25519{x.clone()}};
+      auto to_sign = ton::create_serialize_tl_object<ton::ton_api::overlay_node_toSign>(
+          ton::adnl::AdnlNodeIdShort{pk2.compute_short_id()}.tl(), overlay_short_id.tl(), date);
       n = ton::create_tl_object<ton::ton_api::overlay_node>(
-          pk2.compute_public_key().tl(), key_short_id.tl(), date,
+          pk2.compute_public_key().tl(), overlay_short_id.tl(), date,
           pk2.create_decryptor().move_as_ok()->sign(to_sign.as_slice()).move_as_ok());
       obj->nodes_.push_back(std::move(n));
     }
@@ -346,7 +364,7 @@ int main() {
     dht_value.update_signature(key_dec->sign(dht_value.to_sign()).move_as_ok());
 
     remaining++;
-    auto P = td::PromiseCreator::lambda([&](td::Result<td::Unit> R) {
+    auto P = td::PromiseCreator::lambda([&](td::Result<> R) {
       R.ensure();
       remaining--;
     });

@@ -16,13 +16,10 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "tonlib/tonlib_client_json.h"
-
-#include "tonlib/ClientJson.h"
-
 #include "td/utils/Slice.h"
-
+#include "tonlib/ClientJson.h"
 #include "tonlib/Logging.h"
+#include "tonlib/tonlib_client_json.h"
 
 extern "C" int tonlib_client_json_square(int x, const char *str) {
   return x * x;
@@ -60,4 +57,8 @@ const char *tonlib_client_json_execute(void *client, const char *request) {
   } else {
     return slice.c_str();
   }
+}
+
+void tonlib_client_json_cancel_requests(void *client) {
+  static_cast<tonlib::ClientJson *>(client)->cancel_requests();
 }

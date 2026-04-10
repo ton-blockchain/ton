@@ -17,12 +17,10 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/fec/fec.h"
-
-#include "td/fec/raptorq/Encoder.h"
-#include "td/fec/raptorq/Decoder.h"
-
-#include "td/fec/online/Encoder.h"
 #include "td/fec/online/Decoder.h"
+#include "td/fec/online/Encoder.h"
+#include "td/fec/raptorq/Decoder.h"
+#include "td/fec/raptorq/Encoder.h"
 
 namespace td {
 namespace fec {
@@ -51,7 +49,7 @@ RoundRobinEncoder::RoundRobinEncoder(BufferSlice data, size_t max_symbol_size)
   rounded_data_size_ = symbols_count_ * symbol_size_;
 }
 
-std::unique_ptr<RoundRobinDecoder> RoundRobinDecoder::create(RoundRobinEncoder::Parameters parameters) {
+Result<std::unique_ptr<RoundRobinDecoder>> RoundRobinDecoder::create(RoundRobinEncoder::Parameters parameters) {
   return std::make_unique<RoundRobinDecoder>(parameters);
 }
 bool RoundRobinDecoder::may_try_decode() const {
@@ -124,12 +122,13 @@ RaptorQEncoder::RaptorQEncoder(std::unique_ptr<raptorq::Encoder> encoder) : enco
 }
 RaptorQEncoder::~RaptorQEncoder() = default;
 
-std::unique_ptr<RaptorQDecoder> RaptorQDecoder::create(RaptorQEncoder::Parameters parameters) {
+Result<std::unique_ptr<RaptorQDecoder>> RaptorQDecoder::create(RaptorQEncoder::Parameters parameters) {
   raptorq::Encoder::Parameters p;
   p.symbol_size = parameters.symbol_size;
   p.data_size = parameters.data_size;
   p.symbols_count = parameters.symbols_count;
-  return std::make_unique<RaptorQDecoder>(raptorq::Decoder::create(p).move_as_ok());
+  TRY_RESULT(decoder, raptorq::Decoder::create(p));
+  return std::make_unique<RaptorQDecoder>(std::move(decoder));
 }
 
 bool RaptorQDecoder::may_try_decode() const {
@@ -145,7 +144,7 @@ Result<DataWithEncoder> RaptorQDecoder::try_decode(bool need_encoder) {
 }
 
 Status RaptorQDecoder::add_symbol(Symbol symbol) {
-  return decoder_->add_symbol({symbol.id, symbol.data.as_slice()});
+  return decoder_->add_symbol(std::move(symbol));
 }
 RaptorQDecoder::RaptorQDecoder(std::unique_ptr<raptorq::Decoder> decoder) : decoder_(std::move(decoder)) {
 }
@@ -176,12 +175,13 @@ OnlineEncoder::OnlineEncoder(std::unique_ptr<online_code::Encoder> encoder) : en
 }
 OnlineEncoder::~OnlineEncoder() = default;
 
-std::unique_ptr<OnlineDecoder> OnlineDecoder::create(OnlineEncoder::Parameters parameters) {
+Result<std::unique_ptr<OnlineDecoder>> OnlineDecoder::create(OnlineEncoder::Parameters parameters) {
   online_code::Encoder::Parameters p;
   p.symbol_size = parameters.symbol_size;
   p.data_size = parameters.data_size;
   p.symbols_count = parameters.symbols_count;
-  return std::make_unique<OnlineDecoder>(online_code::Decoder::create(p).move_as_ok(), parameters.symbol_size);
+  TRY_RESULT(decoder, online_code::Decoder::create(p));
+  return std::make_unique<OnlineDecoder>(std::move(decoder), parameters.symbol_size);
 }
 
 bool OnlineDecoder::may_try_decode() const {
@@ -197,7 +197,7 @@ Result<DataWithEncoder> OnlineDecoder::try_decode(bool need_encoder) {
   if (need_encoder) {
     encoder = RoundRobinEncoder::create(data.copy(), symbol_size_);
   }
-  return DataWithEncoder{std::move(data), nullptr};
+  return DataWithEncoder{std::move(data), std::move(encoder)};
 }
 
 Status OnlineDecoder::add_symbol(Symbol symbol) {

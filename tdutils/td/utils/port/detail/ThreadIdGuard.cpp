@@ -16,13 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/port/detail/ThreadIdGuard.h"
-
-#include "td/utils/common.h"
-#include "td/utils/port/thread_local.h"
-
 #include <mutex>
 #include <set>
+
+#include "td/utils/common.h"
+#include "td/utils/port/detail/ThreadIdGuard.h"
+#include "td/utils/port/thread_local.h"
 
 namespace td {
 namespace detail {
@@ -31,7 +30,9 @@ class ThreadIdManager {
   int32 register_thread() {
     std::lock_guard<std::mutex> guard(mutex_);
     if (unused_thread_ids_.empty()) {
-      return ++max_thread_id_;
+      ++max_thread_id_;
+      CHECK(max_thread_id_ < (int)MAX_THREADS);
+      return max_thread_id_;
     }
     auto it = unused_thread_ids_.begin();
     auto result = *it;

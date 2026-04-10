@@ -22,11 +22,11 @@
 
 #if TD_PORT_WINDOWS
 
-#include "td/utils/common.h"
+#include <string>
+
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
-
-#include <string>
+#include "td/utils/common.h"
 
 namespace td {
 

@@ -18,16 +18,16 @@
 */
 #pragma once
 
+#include <list>
 #include <map>
-
-#include "td/actor/actor.h"
-#include "td/db/KeyValueAsync.h"
 
 #include "adnl/adnl.h"
 #include "dht/dht.h"
+#include "td/actor/actor.h"
+#include "td/db/KeyValueAsync.h"
 
-#include "overlays.h"
 #include "overlay-id.hpp"
+#include "overlays.h"
 
 namespace ton {
 
@@ -44,7 +44,7 @@ class Overlay;
 class OverlayManager : public Overlays {
  public:
   OverlayManager(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                 td::actor::ActorId<dht::Dht> dht);
+                 td::actor::ActorId<dht::Dht> dht, OverlayManagerBufferLimits buffer_limits = {});
   void start_up() override;
   void save_to_db(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id, std::vector<OverlayNode> nodes);
 
@@ -57,9 +57,8 @@ class OverlayManager : public Overlays {
                                 OverlayOptions opts) override;
   void create_semiprivate_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                                   std::vector<adnl::AdnlNodeIdShort> nodes, std::vector<PublicKeyHash> root_public_keys,
-                                  OverlayMemberCertificate certificate,
-                                  std::unique_ptr<Callback> callback, OverlayPrivacyRules rules, td::string scope,
-                                  OverlayOptions opts) override;
+                                  OverlayMemberCertificate certificate, std::unique_ptr<Callback> callback,
+                                  OverlayPrivacyRules rules, td::string scope, OverlayOptions opts) override;
   void create_private_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                               std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Callback> callback,
                               OverlayPrivacyRules rules, std::string scope) override;
@@ -88,6 +87,8 @@ class OverlayManager : public Overlays {
   void send_broadcast_fec(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, td::BufferSlice object) override;
   void send_broadcast_fec_ex(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, PublicKeyHash send_as,
                              td::uint32 flags, td::BufferSlice object) override;
+  void send_broadcast_fec_with_extra(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, PublicKeyHash send_as,
+                                     td::uint32 flags, td::BufferSlice object, td::BufferSlice extra) override;
 
   void set_privacy_rules(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id, OverlayPrivacyRules rules) override;
   void update_certificate(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id, PublicKeyHash key,
@@ -123,6 +124,37 @@ class OverlayManager : public Overlays {
     OverlayMemberCertificate member_certificate;
   };
   std::map<adnl::AdnlNodeIdShort, std::map<OverlayIdShort, OverlayDescription>> overlays_;
+
+  struct BufferedRequest {
+    adnl::AdnlNodeIdShort src;
+    adnl::AdnlNodeIdShort dst;
+    OverlayIdShort overlay_id;
+    td::BufferSlice data;
+    std::optional<td::Promise<td::BufferSlice>> promise;
+    std::list<BufferedRequest>::iterator next_for_overlay;
+  };
+
+  struct OverlayBufferKey {
+    adnl::AdnlNodeIdShort local_id;
+    OverlayIdShort overlay_id;
+
+    std::strong_ordering operator<=>(const OverlayBufferKey &other) const = default;
+  };
+
+  struct RequestBuffer {
+    std::list<BufferedRequest> requests;
+    std::map<OverlayBufferKey, std::list<BufferedRequest>::iterator> overlay_heads;
+    td::uint32 total_packets = 0;
+    td::uint64 total_data_size = 0;
+
+    void evict_oldest();
+    void add_request(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, OverlayIdShort overlay_id,
+                     td::BufferSlice data, std::optional<td::Promise<td::BufferSlice>> promise);
+    std::vector<BufferedRequest> extract_for_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id);
+  };
+
+  RequestBuffer buffered_requests_;
+  OverlayManagerBufferLimits buffer_limits_;
 
   std::string db_root_;
 

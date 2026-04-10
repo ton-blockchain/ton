@@ -17,9 +17,9 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "SenderPackets.h"
-
 #include "td/utils/bits.h"
+
+#include "SenderPackets.h"
 
 namespace ton {
 namespace rldp2 {

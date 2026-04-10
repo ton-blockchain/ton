@@ -17,37 +17,34 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
+#include <iostream>
+#include <limits>
+#include <map>
+#include <set>
+
 #include "adnl/adnl.h"
+#include "auto/tl/ton_api_json.h"
 #include "common/bigint.hpp"
 #include "common/bitstring.h"
 #include "dht/dht.h"
 #include "keys/encryptor.h"
 #include "overlay/overlay.h"
-
+#include "td/actor/MultiPromise.h"
 #include "td/utils/JsonBuilder.h"
-#include "td/utils/port/signals.h"
-#include "td/utils/Parser.h"
-#include "td/utils/overloaded.h"
 #include "td/utils/OptionParser.h"
+#include "td/utils/Parser.h"
 #include "td/utils/PathView.h"
 #include "td/utils/Random.h"
-#include "td/utils/misc.h"
 #include "td/utils/filesystem.h"
+#include "td/utils/misc.h"
+#include "td/utils/overloaded.h"
 #include "td/utils/port/path.h"
-
-#include "td/actor/MultiPromise.h"
+#include "td/utils/port/signals.h"
 #include "terminal/terminal.h"
 
+#include "PeerManager.h"
 #include "Torrent.h"
 #include "TorrentCreator.h"
-#include "PeerManager.h"
-
-#include "auto/tl/ton_api_json.h"
-
-#include <iostream>
-#include <limits>
-#include <map>
-#include <set>
 #include "git.h"
 
 struct StorageCliOptions {
@@ -177,9 +174,7 @@ class StorageCli : public td::actor::Actor {
     std::map<td::uint32, ton::adnl::AdnlAddressList> addr_lists_;
     for (auto cat : cats) {
       CHECK(cat >= 0);
-      ton::adnl::AdnlAddress x = ton::adnl::AdnlAddressImpl::create(
-          ton::create_tl_object<ton::ton_api::adnl_address_udp>(options_.addr.get_ipv4(), options_.addr.get_port()));
-      addr_lists_[cat].add_addr(std::move(x));
+      addr_lists_[cat].add_udp_adnl_address(options_.addr);
       addr_lists_[cat].set_version(ts);
       addr_lists_[cat].set_reinit_date(ton::adnl::Adnl::adnl_start_time());
     }
@@ -462,7 +457,6 @@ class StorageCli : public td::actor::Actor {
                                                         std::move(callback), std::move(context), nullptr,
                                                         ton::SpeedLimiters{}, should_download);
     td::TerminalIO::out() << "Torrent #" << ptr->id << " started\n";
-    promise.release().release();
     if (promise) {
       promise.set_value(td::Unit());
     }
@@ -607,7 +601,7 @@ class StorageCli : public td::actor::Actor {
   }
 
   void tear_down() override {
-    td::actor::SchedulerContext::get()->stop();
+    td::actor::SchedulerContext::get().stop();
   }
 };
 

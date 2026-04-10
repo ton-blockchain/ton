@@ -18,11 +18,11 @@
 */
 #pragma once
 
+#include <string>
+
 #include "tl_config.h"
 #include "tl_outputer.h"
 #include "tl_writer.h"
-
-#include <string>
 
 namespace td {
 namespace tl {

@@ -23,10 +23,9 @@
 #include <string>
 #include <vector>
 
-#include "tl/TlObject.h"
-
-#include "td/utils/int_types.h"
 #include "crypto/common/bitstring.h"
+#include "td/utils/int_types.h"
+#include "tl/TlObject.h"
 
 namespace ton {
 
@@ -137,9 +136,12 @@ class TlFetchVector {
     if (p.get_left_len() < multiplicity) {
       p.set_error("Wrong vector length");
     } else {
-      v.reserve(multiplicity);
+      v.reserve(std::min<size_t>(multiplicity, p.get_left_len() / 4));
       for (std::uint32_t i = 0; i < multiplicity; i++) {
         v.push_back(Func::parse(p));
+        if (p.get_error()) {
+          return {};
+        }
       }
     }
     return v;

@@ -16,15 +16,14 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/tests.h"
-
-#include "td/utils/common.h"
-#include "td/utils/Heap.h"
-#include "td/utils/Random.h"
-
 #include <cstdio>
 #include <set>
 #include <utility>
+
+#include "td/utils/Heap.h"
+#include "td/utils/Random.h"
+#include "td/utils/common.h"
+#include "td/utils/tests.h"
 
 REGISTER_TESTS(heap)
 

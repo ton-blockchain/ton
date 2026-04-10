@@ -23,7 +23,7 @@
 }
 
 int lockup_lift_time(int stake_at, int stake_untill) {
-    
+
     ;; Resolve previous cycle parameters
     var (timeSince, timeUntil) = get_previous_cycle();
 

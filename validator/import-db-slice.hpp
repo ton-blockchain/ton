@@ -20,8 +20,8 @@
 
 #include "td/actor/actor.h"
 #include "td/utils/port/path.h"
-#include "validator/interfaces/validator-manager.h"
 #include "validator/db/package.hpp"
+#include "validator/interfaces/validator-manager.h"
 
 namespace ton {
 
@@ -44,7 +44,7 @@ class ArchiveImporter : public td::actor::Actor {
   void check_masterchain_block(BlockSeqno seqno);
   void checked_masterchain_proof(BlockHandle handle, td::Ref<BlockData> data);
   void applied_masterchain_block(BlockHandle handle);
-  void got_new_materchain_state(td::Ref<MasterchainState> state);
+  void got_new_masterchain_state(td::Ref<MasterchainState> state);
 
   void checked_all_masterchain_blocks();
   void download_shard_archives(td::Ref<MasterchainState> start_state);
@@ -91,6 +91,8 @@ class ArchiveImporter : public td::actor::Actor {
   bool imported_any_ = false;
   bool have_shard_blocks_ = false;
   std::vector<std::string> files_to_cleanup_;
+
+  td::PerfWarningTimer perf_timer_;
 };
 
 }  // namespace validator

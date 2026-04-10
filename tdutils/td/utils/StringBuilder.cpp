@@ -16,12 +16,6 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/StringBuilder.h"
-
-#include "td/utils/misc.h"
-#include "td/utils/port/thread_local.h"
-#include "td/utils/Slice.h"
-
 #include <cstdio>
 #include <cstring>
 #include <limits>
@@ -29,6 +23,11 @@
 #include <memory>
 #include <sstream>
 #include <utility>
+
+#include "td/utils/Slice.h"
+#include "td/utils/StringBuilder.h"
+#include "td/utils/misc.h"
+#include "td/utils/port/thread_local.h"
 
 namespace td {
 
@@ -221,6 +220,16 @@ StringBuilder &StringBuilder::operator<<(const void *ptr) {
   }
   current_ptr_ += std::snprintf(current_ptr_, RESERVED_SIZE, "%p", ptr);
   return *this;
+}
+
+StringBuilder &operator<<(StringBuilder &sb, Colored text) {
+  auto current_color = sb.current_color();
+  if (current_color != AnsiColor::Disallowed && current_color != text.color) {
+    sb << ansi_color_to_str(text.color) << text.text << ansi_color_to_str(current_color);
+  } else {
+    sb << text.text;
+  }
+  return sb;
 }
 
 }  // namespace td

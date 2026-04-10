@@ -18,8 +18,8 @@
 */
 #pragma once
 
-#include "td/actor/actor.h"
 #include "interfaces/validator-manager.h"
+#include "td/actor/actor.h"
 
 namespace ton {
 
@@ -48,8 +48,8 @@ class ApplyBlock : public td::actor::Actor {
       , timeout_(timeout)
       , promise_(std::move(promise))
       , perf_timer_("applyblock", 0.1, [manager](double duration) {
-          send_closure(manager, &ValidatorManager::add_perf_timer_stat, "applyblock", duration);
-        }) {
+        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "applyblock", duration);
+      }) {
   }
 
   static constexpr td::uint32 apply_block_priority() {
@@ -62,6 +62,7 @@ class ApplyBlock : public td::actor::Actor {
 
   void start_up() override;
   void got_block_handle(BlockHandle handle);
+  void got_block_data(td::Ref<BlockData> block);
   void written_block_data();
   void got_prev_state(td::Ref<ShardState> state);
   void got_cur_state(td::Ref<ShardState> state);
@@ -69,6 +70,8 @@ class ApplyBlock : public td::actor::Actor {
   void written_next();
   void applied_prev();
   void applied_set();
+  void cleanup_and_finish();
+  void schedule_external_messages_cleanup();
 
  private:
   BlockIdExt id_;

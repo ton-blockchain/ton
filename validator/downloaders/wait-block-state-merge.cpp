@@ -16,9 +16,10 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "ton/ton-io.hpp"
+
 #include "wait-block-state-merge.hpp"
 #include "wait-block-state.hpp"
-#include "ton/ton-io.hpp"
 
 namespace ton {
 
@@ -55,7 +56,7 @@ void WaitBlockStateMerge::start_up() {
     }
   });
 
-  td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short, left_, priority_, timeout_,
+  td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short, left_, priority_, timeout_, false,
                           std::move(P_l));
 
   auto P_r = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
@@ -66,7 +67,7 @@ void WaitBlockStateMerge::start_up() {
     }
   });
 
-  td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short, right_, priority_, timeout_,
+  td::actor::send_closure(manager_, &ValidatorManager::wait_block_state_short, right_, priority_, timeout_, false,
                           std::move(P_r));
 }
 

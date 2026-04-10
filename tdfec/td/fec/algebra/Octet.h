@@ -17,10 +17,10 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "td/utils/logging.h"
-
 #include <array>
 #include <iomanip>
+
+#include "td/utils/logging.h"
 
 namespace td {
 

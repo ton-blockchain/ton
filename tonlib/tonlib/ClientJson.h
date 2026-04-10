@@ -18,15 +18,14 @@
 */
 #pragma once
 
-#include "tonlib/Client.h"
-
-#include "td/utils/Slice.h"
-
 #include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <string>
 #include <unordered_map>
+
+#include "td/utils/Slice.h"
+#include "tonlib/Client.h"
 
 namespace tonlib {
 
@@ -37,6 +36,8 @@ class ClientJson final {
   td::CSlice receive(double timeout);
 
   static td::CSlice execute(td::Slice request);
+
+  void cancel_requests();
 
  private:
   Client client_;

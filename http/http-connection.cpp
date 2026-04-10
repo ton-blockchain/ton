@@ -120,6 +120,9 @@ void HttpConnection::write_payload(std::shared_ptr<HttpPayload> payload) {
    public:
     Cb(td::actor::ActorId<HttpConnection> conn, size_t watermark) : conn_(conn), watermark_(watermark) {
     }
+    void flush() override {
+      td::actor::send_closure(conn_, &HttpConnection::loop);
+    }
     void run(size_t ready_bytes) override {
       if (!reached_ && ready_bytes >= watermark_) {
         td::actor::send_closure(conn_, &HttpConnection::loop);
@@ -163,8 +166,17 @@ bool HttpConnection::continue_payload_write() {
       return wrote;
     }
     bool is_tunnel = writing_payload_->payload_type() == HttpPayload::PayloadType::pt_tunnel;
-    if (!is_tunnel && !writing_payload_->parse_completed() && writing_payload_->ready_bytes() < chunk_size()) {
-      return wrote;
+    if (!is_tunnel && !writing_payload_->parse_completed()) {
+      if (writing_payload_->is_flushing()) {
+        if (writing_payload_->ready_bytes() == 0) {
+          writing_payload_->set_flushed();
+          return wrote;
+        }
+      } else {
+        if (writing_payload_->ready_bytes() < chunk_size()) {
+          return wrote;
+        }
+      }
     }
     if (is_tunnel && writing_payload_->ready_bytes() == 0) {
       return wrote;

@@ -197,7 +197,7 @@ _ __gen_StateInit_get_code((cell, cell) v) inline {
 }
 
 (int, slice, slice, cell) __gen_JettonWalletData_to_external(((int, slice, slice, cell)) v) {
-    var (v'balance, v'owner, v'master, v'walletCode) = v; 
+    var (v'balance, v'owner, v'master, v'walletCode) = v;
     return (v'balance, v'owner, v'master, v'walletCode);
 }
 
@@ -287,7 +287,7 @@ cell $__gen_JettonDefaultWallet_init(cell sys', slice $master, slice $owner) {
     slice sc' = sys'.begin_parse();
     cell source = sc'~load_dict();
     cell contracts = new_dict();
-    
+
     ;; Contract Code: JettonDefaultWallet
     cell mine = __tact_dict_get_code(source, 55471);
     contracts = __tact_dict_set_code(contracts, 55471, mine);
@@ -376,7 +376,7 @@ _ $__gen_get_get_wallet_data() method_id(97026) {
 
 
 () recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
-    
+
     ;; Parse incoming message
     int op = 0;
     if (slice_bits(in_msg) >= 32) {
@@ -387,7 +387,7 @@ _ $__gen_get_get_wallet_data() method_id(97026) {
     var msg_bounced = ((msg_flags & 1) == 1 ? true : false);
     slice msg_sender_addr = cs~load_msg_addr();
     __tact_context = (msg_bounced, msg_sender_addr, msg_value, cs);
-    
+
     ;; Handle bounced messages
     if (msg_bounced) {
         var self = __gen_load_JettonDefaultWallet();
@@ -395,7 +395,7 @@ _ $__gen_get_get_wallet_data() method_id(97026) {
         __gen_store_JettonDefaultWallet(self);
         return ();
     }
-    
+
     ;; Receive TokenTransfer message
     if (op == 260734629) {
         var self = __gen_load_JettonDefaultWallet();
@@ -404,7 +404,7 @@ _ $__gen_get_get_wallet_data() method_id(97026) {
         __gen_store_JettonDefaultWallet(self);
         return ();
     }
-    
+
     ;; Receive TokenTransferInternal message
     if (op == 395134233) {
         var self = __gen_load_JettonDefaultWallet();
@@ -413,7 +413,7 @@ _ $__gen_get_get_wallet_data() method_id(97026) {
         __gen_store_JettonDefaultWallet(self);
         return ();
     }
-    
+
     ;; Receive TokenBurn message
     if (op == 1499400124) {
         var self = __gen_load_JettonDefaultWallet();
@@ -422,7 +422,7 @@ _ $__gen_get_get_wallet_data() method_id(97026) {
         __gen_store_JettonDefaultWallet(self);
         return ();
     }
-    
+
     throw(130);
 }
 

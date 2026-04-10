@@ -17,14 +17,14 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "InboundTransfer.h"
-
 #include "common/errorcode.h"
+
+#include "InboundTransfer.h"
 
 namespace ton {
 namespace rldp2 {
 size_t InboundTransfer::total_size() const {
-  return data_.size();
+  return total_size_;
 }
 
 std::map<td::uint32, InboundTransfer::Part> &InboundTransfer::parts() {
@@ -32,7 +32,7 @@ std::map<td::uint32, InboundTransfer::Part> &InboundTransfer::parts() {
 }
 
 bool InboundTransfer::is_part_completed(td::uint32 part_i) {
-  return parts_.count(part_i) == 0 && part_i < next_part_;
+  return !parts_.contains(part_i) && part_i < next_part_;
 }
 
 td::Result<InboundTransfer::Part *> InboundTransfer::get_part(td::uint32 part_i, const ton::fec::FecType &fec_type) {
@@ -51,24 +51,36 @@ td::Result<InboundTransfer::Part *> InboundTransfer::get_part(td::uint32 part_i,
                                          << " total_size=" << fec_type.size() << " part=" << part_i);
     }
 
-    auto decoder = fec_type.create_decoder().move_as_ok();
+    TRY_RESULT(decoder, fec_type.create_decoder());
     auto it = parts_.emplace(part_i, Part{std::move(decoder), RldpReceiver(RldpSender::Config()), offset});
+    data_parts_.emplace_back();
     next_part_++;
     return &it.first->second;
   }
   return nullptr;
 }
 
-void InboundTransfer::finish_part(td::uint32 part_i, td::Slice data) {
+void InboundTransfer::finish_part(td::uint32 part_i, td::BufferSlice data) {
   auto it = parts_.find(part_i);
   CHECK(it != parts_.end());
-  data_.as_slice().substr(it->second.offset).copy_from(data);
+  CHECK(part_i < data_parts_.size());
+  data_parts_[part_i] = std::move(data);
   parts_.erase(it);
 }
 
 td::optional<td::Result<td::BufferSlice>> InboundTransfer::try_finish() {
-  if (parts_.empty() && offset_ == data_.size()) {
-    return std::move(data_);
+  if (parts_.empty() && offset_ == total_size_) {
+    if (data_parts_.size() == 1) {
+      return data_parts_[0].clone();
+    }
+    td::BufferSlice data(total_size_);
+    td::MutableSlice s = data.as_slice();
+    for (const auto &part : data_parts_) {
+      s.copy_from(part);
+      s.remove_prefix(part.size());
+    }
+    CHECK(s.empty());
+    return data;
   }
   return {};
 }

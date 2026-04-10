@@ -1,0 +1,780 @@
+/*
+    This file is part of TON Blockchain Library.
+
+    TON Blockchain Library is free software: you can redistribute it and/or modify
+    it under the terms of the GNU Lesser General Public License as published by
+    the Free Software Foundation, either version 2 of the License, or
+    (at your option) any later version.
+
+    TON Blockchain Library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU Lesser General Public License for more details.
+
+    You should have received a copy of the GNU Lesser General Public License
+    along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
+*/
+#pragma once
+
+#include "fwd-declarations.h"
+#include <functional>
+#include <string>
+#include <vector>
+
+namespace tolk {
+
+/*
+ *   TypeData is both a user-given and an inferred type representation.
+ *   `int`, `cell`, `T`, `(int, [tuple])` are instances of TypeData.
+ *   Every unique TypeData is created only once, so for example TypeDataTensor::create(int, int)
+ * returns one and the same pointer always.
+ *
+ *   Type inferring creates TypeData for inferred expressions. All AST expression nodes have inferred_type.
+ * For example, `1 + 2`, both operands are TypeDataInt, its result is also TypeDataInt.
+ *   Type checking also uses TypeData. For example, `var i: slice = 1 + 2`, at first rhs (TypeDataInt) is inferred,
+ * then lhs (TypeDataSlice from declaration) is checked whether rhs can be assigned.
+ *   See can_rhs_be_assigned().
+ *
+ *   At the moment of parsing, types after colon `var v: (int, T)` are parsed to AST (AnyTypeV),
+ * and all symbols have been registered, AST representation resolved to TypeData, see pipe-resolve-types.cpp.
+ */
+class TypeData {
+  // bits of flag_mask, to store often-used properties and return them without tree traversing
+  const int flags;
+
+  friend class CalcChildrenFlags;
+
+protected:
+  enum builtin_type_id {
+    type_id_int = 1,
+    type_id_bool = 2,
+    type_id_cell = 3,
+    type_id_slice = 4,
+    type_id_builder = 5,
+    type_id_tuple = 6,
+    type_id_continuation = 7,
+    type_id_address_int = 8,
+    type_id_address_any = 9,
+    type_id_void = 10,
+    type_id_unknown = 11,
+    type_id_coins = 17,
+    type_id_string = 18,
+    type_id_never = 19,
+    type_id_int8 = 42,
+    type_id_int16 = 44,
+    type_id_int32 = 46,
+    type_id_int64 = 48,
+    type_id_int128 = 50,
+    type_id_int256 = 52,
+  };
+  
+  enum flag_mask {
+    flag_contains_genericT_inside = 1 << 2,
+    flag_contains_type_alias_inside = 1 << 3,
+    flag_contains_mapKV_inside = 1 << 4,
+  };
+
+  explicit TypeData(int flags_with_children)
+    : flags(flags_with_children) {
+  }
+
+  static TypePtr unwrap_alias_slow_path(TypePtr lhs);
+
+public:
+  virtual ~TypeData() = default;
+
+  template<class Derived>
+  const Derived* try_as() const {
+    return dynamic_cast<const Derived*>(this);
+  }
+
+  // how many slots on a stack this type occupies, e.g. `int`=1, `(int,int)`=2, `(int,int)?`=3
+  virtual int get_width_on_stack() const {
+    return 1;   // most types occupy 1 stack slot (int, cell, slice, etc.)
+  }
+
+  TypePtr unwrap_alias() const {
+    return has_type_alias_inside() ? unwrap_alias_slow_path(this) : this;
+  }
+
+  bool has_genericT_inside() const { return flags & flag_contains_genericT_inside; }
+  bool has_type_alias_inside() const { return flags & flag_contains_type_alias_inside; }
+  bool has_mapKV_inside() const { return flags & flag_contains_mapKV_inside; }
+
+  using ReplacerCallbackT = std::function<TypePtr(TypePtr child)>;
+
+  virtual int get_type_id() const = 0;
+  virtual std::string as_human_readable() const = 0;
+  virtual bool can_rhs_be_assigned(TypePtr rhs) const = 0;
+  virtual bool can_be_casted_with_as_operator(TypePtr cast_to) const = 0;
+
+  virtual bool can_hold_tvm_null_instead() const {
+    return true;
+  }
+
+  virtual bool equal_to(TypePtr rhs) const {
+    return this == rhs->unwrap_alias();
+  }
+
+  virtual TypePtr replace_children_custom(const ReplacerCallbackT& callback) const {
+    return callback(this);
+  }
+};
+
+/*
+ * `type AliasName = underlying_type` is an alias, which is fully interchangeable with its original type.
+ * It never occurs at runtime: at IR generation it's erased, replaced by an underlying type.
+ * But until IR generation, aliases exists, and `var t: MyTensor2 = (1,2)` is alias "MyTensor", not tensor (int,int).
+ * That's why lots of code comparing types use `type->unwrap_alias()` or `try_as<TypeDataAlias>`.
+ * Note, that generic aliases, when instantiated, are inserted into in symtable (like structs and functions),
+ * so for `WrapperAlias<T>` alias_ref points to a generic alias, and for `WrapperAlias<int>` to an instantiated one.
+ */
+class TypeDataAlias final : public TypeData {
+  explicit TypeDataAlias(int children_flags, AliasDefPtr alias_ref, TypePtr underlying_type)
+    : TypeData(children_flags | flag_contains_type_alias_inside)
+    , alias_ref(alias_ref)
+    , underlying_type(underlying_type) {}
+
+public:
+  const AliasDefPtr alias_ref;
+  const TypePtr underlying_type;
+
+  static TypePtr create(AliasDefPtr alias_ref);
+
+  int get_width_on_stack() const override;
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  bool can_hold_tvm_null_instead() const override;
+  bool equal_to(TypePtr rhs) const override;
+};
+
+/*
+ * `int` is TypeDataInt, representation of TVM int.
+ */
+class TypeDataInt final : public TypeData {
+  TypeDataInt() : TypeData(0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  int get_type_id() const override { return type_id_int; }
+  std::string as_human_readable() const override { return "int"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `bool` is TypeDataBool. TVM has no bool, only integers. Under the hood, -1 is true, 0 is false.
+ * From the type system point of view, int and bool are different, not-autocastable types.
+ */
+class TypeDataBool final : public TypeData {
+  TypeDataBool() : TypeData(0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  int get_type_id() const override { return type_id_bool; }
+  std::string as_human_readable() const override { return "bool"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `cell` is TypeDataCell, representation of TVM cell.
+ */
+class TypeDataCell final : public TypeData {
+  TypeDataCell() : TypeData(0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  int get_type_id() const override { return type_id_cell; }
+  std::string as_human_readable() const override { return "cell"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `slice` is TypeDataSlice, representation of TVM slice.
+ */
+class TypeDataSlice final : public TypeData {
+  TypeDataSlice() : TypeData(0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  int get_type_id() const override { return type_id_slice; }
+  std::string as_human_readable() const override { return "slice"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `builder` is TypeDataBuilder, representation of TVM builder.
+ */
+class TypeDataBuilder final : public TypeData {
+  TypeDataBuilder() : TypeData(0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  int get_type_id() const override { return type_id_builder; }
+  std::string as_human_readable() const override { return "builder"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `continuation` is TypeDataContinuation, representation of TVM continuation.
+ * It's like "untyped callable", not compatible with other types.
+ */
+class TypeDataContinuation final : public TypeData {
+  TypeDataContinuation() : TypeData(0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  int get_type_id() const override { return type_id_continuation; }
+  std::string as_human_readable() const override { return "continuation"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `string` is TypeDataString — a cell containing snake-formatted text data.
+ * Snake format: data bytes in cell, if more data needed — ref to next cell.
+ * At TVM level, string is a cell (1 stack slot).
+ */
+class TypeDataString final : public TypeData {
+  TypeDataString() : TypeData(0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  int get_type_id() const override { return type_id_string; }
+  std::string as_human_readable() const override { return "string"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `address` and `any_address` is TypeDataAddress — TVM slice under the hood.
+ * `address` means "internal" (267 bits: 100 + workchain + hash). When deserialized, automatically checked by TVM.
+ * `any_address` means internal/external/none.
+ * `address?` (nullable) is serialized NOT as Maybe, BUT as internal/none (267 or 2 bits).
+ */
+class TypeDataAddress final : public TypeData {
+  explicit TypeDataAddress(int kind)
+    : TypeData(0)
+    , kind(kind) {}
+
+  static TypePtr singleton_internal;    // address
+  static TypePtr singleton_any;         // any_address
+  friend void type_system_init();
+
+  int kind;
+
+public:
+  static TypePtr internal() { return singleton_internal; }
+  static TypePtr any() { return singleton_any; }
+
+  bool is_internal() const { return kind == 0; }
+  bool is_any() const { return kind == 1; }
+
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `array<unknown>`, `array<int>`, etc. TypeDataArray, internally represented as a TVM tuple.
+ * It can contain from 0 to 255 elements and occupies 1 stack slot in TVM regardless of its size.
+ * If T is complex (not 1-slot), it's automatically converted to/from a sub-tuple on write/read. 
+ */
+class TypeDataArray final : public TypeData {
+  TypeDataArray(int children_flags, TypePtr innerT)
+    : TypeData(children_flags)
+    , innerT(innerT) {}
+
+public:
+  TypePtr innerT;
+
+  static TypePtr create(TypePtr innerT);
+
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
+  bool equal_to(TypePtr rhs) const override;
+};
+
+/*
+ * `[int, slice]` is TypeDataShapedTuple, a TVM 'tuple' under the hood, contained in 1 stack slot.
+ * Unlike TypeDataArray (unknown elements count), its inner structure is known, it has no `push` and other methods.
+ * Note, that an expression `[1, 2]` is `[int, int]`, but being assigned to a variable, replaced with `array<int>`.
+ */
+class TypeDataShapedTuple final : public TypeData {
+  TypeDataShapedTuple(int children_flags, std::vector<TypePtr>&& items)
+    : TypeData(children_flags)
+    , items(std::move(items)) {}
+
+public:
+  std::vector<TypePtr> items;
+
+  int size() const { return static_cast<int>(items.size()); }
+
+  static TypePtr create(std::vector<TypePtr>&& items);
+
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
+  bool equal_to(TypePtr rhs) const override;
+};
+
+/*
+ * `null` has TypeDataNullLiteral type.
+ * It can be assigned only to nullable types (`int?`, etc.), to ensure null safety.
+ * Note, that `var i = null`, though valid (i would be constant null), fires an "always-null" compilation error
+ * (it's much better for user to see an error here than when he passes this variable somewhere).
+ */
+class TypeDataNullLiteral final : public TypeData {
+  TypeDataNullLiteral() : TypeData(0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  int get_type_id() const override { return 0; }
+  std::string as_human_readable() const override { return "null"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `fun(int, int) -> void` is TypeDataFunCallable, think of is as a typed continuation.
+ * A type of function `fun f(x: int) { return x; }` is actually `fun(int) -> int`.
+ * So, when assigning it to a variable `var cb = f`, this variable also has this type.
+ */
+class TypeDataFunCallable final : public TypeData {
+  TypeDataFunCallable(int children_flags, std::vector<TypePtr>&& params_types, TypePtr return_type)
+    : TypeData(children_flags)
+    , params_types(std::move(params_types))
+    , return_type(return_type) {}
+
+public:
+  const std::vector<TypePtr> params_types;
+  const TypePtr return_type;
+
+  static TypePtr create(std::vector<TypePtr>&& params_types, TypePtr return_type);
+
+  int params_size() const { return static_cast<int>(params_types.size()); }
+
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
+  bool equal_to(TypePtr rhs) const override;
+};
+
+/*
+ * `T` inside generic functions and structs is TypeDataGenericT.
+ * Example: `fun f<X,Y>(a: X, b: Y): [X, Y]` (here X and Y are).
+ * Example: `struct Wrapper<T> { value: T }` (type of field is generic T).
+ * On instantiation like `f(1,"")`, a new function `f<int,slice>` is created with type `fun(int,slice)->[int,slice]`.
+ */
+class TypeDataGenericT final : public TypeData {
+  explicit TypeDataGenericT(std::string&& nameT)
+    : TypeData(flag_contains_genericT_inside)
+    , nameT(std::move(nameT)) {}
+
+public:
+  const std::string nameT;
+
+  static TypePtr create(std::string&& nameT);
+
+  int get_width_on_stack() const override;
+  int get_type_id() const override;
+  std::string as_human_readable() const override { return nameT; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  bool equal_to(TypePtr rhs) const override;
+};
+
+/*
+ * `Wrapper<T>` when T is a generic (a struct is not ready to instantiate) is TypeDataGenericTypeWithTs.
+ * `Wrapper<int>` is NOT here, it's an instantiated struct. Here is only when type arguments contain generics.
+ * Example: `type WrapperAlias<T> = Wrapper<T>`, then `Wrapper<T>` (underlying type of alias) is here.
+ * Since structs and type aliases both can be generic, either struct_ref of alias_ref is filled.
+ */
+class TypeDataGenericTypeWithTs final : public TypeData {
+  TypeDataGenericTypeWithTs(int children_flags, StructPtr struct_ref, AliasDefPtr alias_ref, std::vector<TypePtr>&& type_arguments)
+    : TypeData(children_flags)
+    , struct_ref(struct_ref)
+    , alias_ref(alias_ref)
+    , type_arguments(std::move(type_arguments)) {}
+
+public:
+  const StructPtr struct_ref;                 // for `Wrapper<T>`, then alias_ref = nullptr
+  const AliasDefPtr alias_ref;                // for `PairAlias<int, T2>`, then struct_ref = nullptr
+  const std::vector<TypePtr> type_arguments;  // `<T>`, `<int, T2>`, at least one of them contains generic T
+
+  static TypePtr create(StructPtr struct_ref, AliasDefPtr alias_ref, std::vector<TypePtr>&& type_arguments);
+
+  int size() const { return static_cast<int>(type_arguments.size()); }
+
+  int get_width_on_stack() const override;
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
+  bool equal_to(TypePtr rhs) const override;
+};
+
+/*
+ * `A`, `User`, `SomeStruct`, `Wrapper<int>` is TypeDataStruct. At TVM level, structs are tensors.
+ * In the code, creating a struct is either `var v: A = { ... }` (by hint) or `var v = A { ... }`.
+ * Fields of a struct have their own types (accessed by struct_ref).
+ * Note, that instantiated structs like "Wrapper<int>" exist in symtable (like aliases and functions),
+ * so for `Wrapper<T>` struct_ref points to a generic struct, and for `Wrapper<int>` to an instantiated one.
+ */
+class TypeDataStruct final : public TypeData {
+  explicit TypeDataStruct(StructPtr struct_ref)
+    : TypeData(0)
+    , struct_ref(struct_ref) {}
+
+public:
+  StructPtr struct_ref;
+
+  static TypePtr create(StructPtr struct_ref);
+
+  int get_width_on_stack() const override;
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  bool can_hold_tvm_null_instead() const override;
+  bool equal_to(TypePtr rhs) const override;
+};
+
+/*
+ * `Color.Red`, `BounceMode.NoBounce` is TypeDataEnum. At TVM level, it's `int`.
+ * Its value is either assigned like `Red = 1` or auto-calculated.
+ */
+class TypeDataEnum final : public TypeData {
+  explicit TypeDataEnum(EnumDefPtr enum_ref)
+    : TypeData(0)
+    , enum_ref(enum_ref) {}
+
+public:
+  EnumDefPtr enum_ref;
+
+  static TypePtr create(EnumDefPtr enum_ref);
+
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  bool equal_to(TypePtr rhs) const override;
+};
+
+/*
+ * `(int, slice)` is TypeDataTensor of 2 elements. Tensor of N elements occupies N stack slots.
+ * Of course, there may be nested tensors, like `(int, (int, slice), cell)`.
+ * Arguments, variables, globals, return values, etc. can be tensors.
+ * A tensor can be empty.
+ */
+class TypeDataTensor final : public TypeData {
+  TypeDataTensor(int children_flags, std::vector<TypePtr>&& items)
+    : TypeData(children_flags)
+    , items(std::move(items)) {}
+
+public:
+  const std::vector<TypePtr> items;
+
+  static TypePtr create(std::vector<TypePtr>&& items);
+
+  int size() const { return static_cast<int>(items.size()); }
+
+  int get_width_on_stack() const override;
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
+  bool can_hold_tvm_null_instead() const override;
+  bool equal_to(TypePtr rhs) const override;
+};
+
+/*
+ * `int8`, `int32`, `uint1`, `uint257`, `varint16` are TypeDataIntN. At TVM level, it's just int.
+ * The purpose of intN is to be used in struct fields, describing the way of serialization (n bits).
+ * A field `value: int32` has the TYPE `int32`, so being assigned to a variable, that variable is also `int32`.
+ * intN is smoothly cast from/to plain int, mathematical operators on intN also "fall back" to general int.
+ */
+class TypeDataIntN final : public TypeData {
+  TypeDataIntN(int n_bits, bool is_unsigned, bool is_variadic)
+    : TypeData(0)
+    , n_bits(n_bits)
+    , is_unsigned(is_unsigned)
+    , is_variadic(is_variadic) {}
+
+public:
+  const int n_bits;
+  const bool is_unsigned;
+  const bool is_variadic;
+
+  static TypePtr create(int n_bits, bool is_unsigned, bool is_variadic);
+
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  bool equal_to(TypePtr rhs) const override;
+};
+
+/*
+ * `coins` is just integer at TVM level, but encoded as varint when serializing structures.
+ * Example: `var cost = ton("0.05")` has type `coins`.
+ */
+class TypeDataCoins final : public TypeData {
+  TypeDataCoins() : TypeData(0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  int get_type_id() const override { return type_id_coins; }
+  std::string as_human_readable() const override { return "coins"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `bits512`, `bytes8`, `bits9` are TypeDataBitsN. At TVM level, it's just slice.
+ * The purpose of bitsN is to be used in struct fields, describing the way of serialization (n bytes / n bits).
+ * In this essence, bitsN is very similar to intN.
+ * Note that unlike intN automatically cast to/from int, bitsN does NOT auto cast to slice (without `as`).
+ */
+class TypeDataBitsN final : public TypeData {
+  TypeDataBitsN(int n_width, bool is_bits)
+    : TypeData(0)
+    , n_width(n_width)
+    , is_bits(is_bits) {}
+
+public:
+  const int n_width;          // either in bits, or in bytes
+  const bool is_bits;
+
+  static TypePtr create(int n_width, bool is_bits);
+
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  bool equal_to(TypePtr rhs) const override;
+};
+
+/*
+ * `T1 | T2 | ...` is a union type. Unions are supported in Tolk, similar to TypeScript, stored like enums in Rust.
+ * `T | null` (denoted as `T?`) is also a union from a type system point of view.
+ * There is no TypeDataNullable, because mixing unions and nullables would result in a mess.
+ * At TVM level:
+ * - `T | null`, if T is 1 slot  (like `int | null`), then it's still 1 slot
+ * - `T | null`, if T is N slots (like `(int, int)?`), it's stored as N+1 slots (the last for type_id if T or 0 if null)
+ * - `T1 | T2 | ...` is a tagged union: occupy max(T_i)+1 slots (1 for type_id)
+ * When a union is created, variants are flattened, duplicates are removed: `int | UserId | IntOrSlice` = `int | slice`,
+ * duplicates are detected based on `equal_to()`, and a union can be tested on having `has_variant_equal_to()`.
+ */
+class TypeDataUnion final : public TypeData {
+  TypeDataUnion(int children_flags, TypePtr or_null, std::vector<TypePtr>&& variants)
+    : TypeData(children_flags)
+    , or_null(or_null)
+    , variants(std::move(variants)) {}
+
+  static void append_union_type_variant(TypePtr variant, std::vector<TypePtr>& out_unique_variants);
+
+public:
+  const TypePtr or_null;                  // if `T | null`, then T is here (variants = [T, null] then); otherwise, nullptr
+  const std::vector<TypePtr> variants;    // T_i, flattened, no duplicates; may include aliases, but not other unions
+
+  static TypePtr create(std::vector<TypePtr>&& variants);
+  static TypePtr create_nullable(TypePtr nullable) { return create({nullable, TypeDataNullLiteral::create()}); }
+
+  int size() const { return static_cast<int>(variants.size()); }
+
+  // "primitive nullable" is `T?` which holds TVM NULL in the same slot (it other words, has no UTag slot)
+  // true : `int?`, `slice?`, `StructWith1IntField?`
+  // false: `(int, int)?`, `ComplexStruct?`, `()?`
+  bool is_primitive_nullable() const {
+    return get_width_on_stack() == 1 && or_null != nullptr && or_null->get_width_on_stack() == 1;
+  }
+  bool has_null() const {
+    return or_null != nullptr || has_variant_equal_to(TypeDataNullLiteral::create());
+  }
+
+  TypePtr calculate_exact_variant_to_fit_rhs(TypePtr rhs_type) const;
+  bool has_variant_equal_to(TypePtr rhs_type) const;
+  bool has_all_variants_of(const TypeDataUnion* rhs_type) const;
+  int get_variant_idx(TypePtr lookup_variant) const;
+
+  int get_width_on_stack() const override;
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
+  bool can_hold_tvm_null_instead() const override;
+  bool equal_to(TypePtr rhs) const override;
+};
+
+/*
+ * `map<K, V>` is a built-in type, a high-level wrapper over TVM dictionaries.
+ * Internally, a map is just a nullable cell: null represents an empty dict, otherwise it points to a root cell.
+ * The compiler checks that key-value types are correct, generates optimal TVM instructions,
+ * auto-serialization of V and non-primitive K to slices, etc. Deeply integrated with stdlib.
+ */
+class TypeDataMapKV final : public TypeData {
+  TypeDataMapKV(int children_flags, TypePtr TKey, TypePtr TValue)
+    : TypeData(children_flags | flag_contains_mapKV_inside)
+    , TKey(TKey)
+    , TValue(TValue) {}
+
+public:
+  TypePtr TKey;
+  TypePtr TValue;
+  
+  static TypePtr create(TypePtr TKey, TypePtr TValue);
+
+  int get_type_id() const override;
+  std::string as_human_readable() const override;
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  TypePtr replace_children_custom(const ReplacerCallbackT& callback) const override;
+  bool can_hold_tvm_null_instead() const override;
+  bool equal_to(TypePtr rhs) const override;
+};
+
+/*
+ * `unknown` is a special type, which can appear in corner cases.
+ * The type of exception argument (which can hold any TVM value at runtime) is unknown.
+ * The type of `_` used as rvalue is unknown.
+ * The only thing available to do with unknown is to cast it: `catch (excNo, arg) { var i = arg as int; }`
+ */
+class TypeDataUnknown final : public TypeData {
+  TypeDataUnknown() : TypeData(0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  int get_type_id() const override { return type_id_unknown; }
+  std::string as_human_readable() const override { return "unknown"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  bool can_hold_tvm_null_instead() const override;
+};
+
+/*
+ * `undefined`, or `not inferred`, is a special type for variables that are in the process of inferring.
+ * For example, `var x: int;` (lateinit), before assigned, it "not inferred" in cfg.
+ * For example, `var x = 4` — a hint for rhs (calculated from rhs) will be "not inferred".
+ * For example, `var (a, b, c) = (1, 2)`, `c` will be left "not inferred" and fired at type checking.
+ */
+class TypeDataNotInferred final : public TypeData {
+  TypeDataNotInferred() : TypeData(0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  int get_type_id() const override;
+  std::string as_human_readable() const override { return "undefined"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+};
+
+/*
+ * `never` is a special type meaning "no value can be hold".
+ * Is may appear due to smart casts, for example `if (x == null && x != null)` makes x "never".
+ * Functions returning "never" assume to never exit, calling them interrupts control flow.
+ * Such variables can not be cast to any other types, all their usage will trigger type mismatch errors.
+ */
+class TypeDataNever final : public TypeData {
+  TypeDataNever() : TypeData(0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  int get_width_on_stack() const override;
+  int get_type_id() const override { return type_id_never; }
+  std::string as_human_readable() const override { return "never"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  bool can_hold_tvm_null_instead() const override;
+};
+
+/*
+ * `void` is TypeDataVoid.
+ * From the type system point of view, `void` functions return nothing.
+ * Empty tensor is not compatible with void, although at IR level they are similar, 0 stack slots.
+ * If a struct field is `void`, it can be missed out of an object literal, it makes `createMessage` without body work.
+ */
+class TypeDataVoid final : public TypeData {
+  TypeDataVoid() : TypeData(0) {}
+
+  static TypePtr singleton;
+  friend void type_system_init();
+
+public:
+  static TypePtr create() { return singleton; }
+
+  int get_width_on_stack() const override;
+  int get_type_id() const override { return type_id_void; }
+  std::string as_human_readable() const override { return "void"; }
+  bool can_rhs_be_assigned(TypePtr rhs) const override;
+  bool can_be_casted_with_as_operator(TypePtr cast_to) const override;
+  bool can_hold_tvm_null_instead() const override;
+};
+
+
+} // namespace tolk

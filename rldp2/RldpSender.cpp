@@ -17,13 +17,12 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "RldpSender.h"
-
-#include "RttStats.h"
-#include "LossStats.h"
-#include "BdwStats.h"
-
 #include "td/utils/misc.h"
+
+#include "BdwStats.h"
+#include "LossStats.h"
+#include "RldpSender.h"
+#include "RttStats.h"
 
 namespace ton {
 namespace rldp2 {

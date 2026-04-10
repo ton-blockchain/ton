@@ -45,7 +45,7 @@ const gas_consumption = 10000000; ;; 0.01 TON
   internal_transfer  query_id:uint64 amount:(VarUInteger 16) from:MsgAddress
                      response_address:MsgAddress
                      forward_ton_amount:(VarUInteger 16)
-                     forward_payload:(Either Cell ^Cell) 
+                     forward_payload:(Either Cell ^Cell)
                      = InternalMsgBody;
 -}
 
@@ -103,7 +103,7 @@ const gas_consumption = 10000000; ;; 0.01 TON
   internal_transfer  query_id:uint64 amount:(VarUInteger 16) from:MsgAddress
                      response_address:MsgAddress
                      forward_ton_amount:(VarUInteger 16)
-                     forward_payload:(Either Cell ^Cell) 
+                     forward_payload:(Either Cell ^Cell)
                      = InternalMsgBody;
 -}
 
@@ -223,7 +223,7 @@ const gas_consumption = 10000000; ;; 0.01 TON
   cs~load_coins(); ;; skip value
   cs~skip_bits(1); ;; skip extracurrency collection
   cs~load_coins(); ;; skip ihr_fee
-  int fwd_fee = muldiv(cs~load_coins(), 3, 2); ;; we use message fwd_fee for estimation of forward_payload costs 
+  int fwd_fee = muldiv(cs~load_coins(), 3, 2); ;; we use message fwd_fee for estimation of forward_payload costs
 
   int op = in_msg_body~load_uint(32);
 

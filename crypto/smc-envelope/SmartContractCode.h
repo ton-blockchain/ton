@@ -17,9 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "vm/cells.h"
-
 #include "td/utils/Span.h"
+#include "vm/cells.h"
 
 namespace ton {
 class SmartContractCode {

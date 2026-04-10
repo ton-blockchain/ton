@@ -17,15 +17,16 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include <functional>
+
+#include "common/bigint.hpp"
+#include "common/refint.h"
+#include "vm/dict.h"
+#include "vm/dictops.h"
+#include "vm/excno.hpp"
 #include "vm/log.h"
 #include "vm/opctable.h"
 #include "vm/stack.hpp"
-#include "vm/excno.hpp"
 #include "vm/vm.h"
-#include "common/bigint.hpp"
-#include "common/refint.h"
-#include "vm/dictops.h"
-#include "vm/dict.h"
 
 namespace vm {
 
@@ -566,7 +567,7 @@ int exec_dict_getnear(VmState* st, unsigned args) {
 int exec_pfx_dict_set(VmState* st, Dictionary::SetMode mode, const char* name) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute PFXDICT" << name;
-  stack.check_underflow(3);
+  stack.check_underflow(st->get_global_version() >= 9 ? 4 : 3);
   int n = stack.pop_smallint_range(PrefixDictionary::max_key_bits);
   PrefixDictionary dict{stack.pop_maybe_cell(), n};
   auto key_slice = stack.pop_cellslice();
@@ -580,7 +581,7 @@ int exec_pfx_dict_set(VmState* st, Dictionary::SetMode mode, const char* name) {
 int exec_pfx_dict_delete(VmState* st) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute PFXDICTDEL\n";
-  stack.check_underflow(2);
+  stack.check_underflow(st->get_global_version() >= 9 ? 3 : 2);
   int n = stack.pop_smallint_range(PrefixDictionary::max_key_bits);
   PrefixDictionary dict{stack.pop_maybe_cell(), n};
   auto key_slice = stack.pop_cellslice();

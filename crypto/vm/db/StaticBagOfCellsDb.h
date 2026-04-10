@@ -18,10 +18,9 @@
 */
 #pragma once
 
-#include "vm/cells.h"
 #include "td/db/utils/BlobView.h"
-
 #include "td/utils/Status.h"
+#include "vm/cells.h"
 
 namespace vm {
 class StaticBagOfCellsDb : public std::enable_shared_from_this<StaticBagOfCellsDb> {

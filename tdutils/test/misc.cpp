@@ -16,45 +16,45 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/as.h"
-#include "td/utils/base64.h"
-#include "td/utils/BigNum.h"
-#include "td/utils/bits.h"
-#include "td/utils/CancellationToken.h"
-#include "td/utils/common.h"
-#include "td/utils/Hash.h"
-#include "td/utils/HashMap.h"
-#include "td/utils/HashSet.h"
-#include "td/utils/HttpUrl.h"
-#include "td/utils/invoke.h"
-#include "td/utils/logging.h"
-#include "td/utils/misc.h"
-#include "td/utils/port/EventFd.h"
-#include "td/utils/port/FileFd.h"
-#include "td/utils/port/IPAddress.h"
-#include "td/utils/port/path.h"
-#include "td/utils/port/sleep.h"
-#include "td/utils/port/Stat.h"
-#include "td/utils/port/thread.h"
-#include "td/utils/port/uname.h"
-#include "td/utils/port/wstring_convert.h"
-#include "td/utils/Random.h"
-#include "td/utils/Slice.h"
-#include "td/utils/Status.h"
-#include "td/utils/StringBuilder.h"
-#include "td/utils/tests.h"
-#include "td/utils/Time.h"
-#include "td/utils/translit.h"
-#include "td/utils/uint128.h"
-#include "td/utils/unicode.h"
-#include "td/utils/utf8.h"
-
 #include <atomic>
 #include <clocale>
 #include <limits>
 #include <locale>
 #include <unordered_map>
 #include <utility>
+
+#include "td/utils/BigNum.h"
+#include "td/utils/CancellationToken.h"
+#include "td/utils/Hash.h"
+#include "td/utils/HashMap.h"
+#include "td/utils/HashSet.h"
+#include "td/utils/HttpUrl.h"
+#include "td/utils/Random.h"
+#include "td/utils/Slice.h"
+#include "td/utils/Status.h"
+#include "td/utils/StringBuilder.h"
+#include "td/utils/Time.h"
+#include "td/utils/as.h"
+#include "td/utils/base64.h"
+#include "td/utils/bits.h"
+#include "td/utils/common.h"
+#include "td/utils/invoke.h"
+#include "td/utils/logging.h"
+#include "td/utils/misc.h"
+#include "td/utils/port/EventFd.h"
+#include "td/utils/port/FileFd.h"
+#include "td/utils/port/IPAddress.h"
+#include "td/utils/port/Stat.h"
+#include "td/utils/port/path.h"
+#include "td/utils/port/sleep.h"
+#include "td/utils/port/thread.h"
+#include "td/utils/port/uname.h"
+#include "td/utils/port/wstring_convert.h"
+#include "td/utils/tests.h"
+#include "td/utils/translit.h"
+#include "td/utils/uint128.h"
+#include "td/utils/unicode.h"
+#include "td/utils/utf8.h"
 
 #if TD_HAVE_ABSL
 #include <absl/container/flat_hash_map.h>
@@ -73,14 +73,11 @@ TEST(Misc, update_atime_saves_mtime) {
   r_file.move_as_ok().close();
 
   auto info = stat(name).ok();
-  int32 tests_ok = 0;
   int32 tests_wa = 0;
   for (int i = 0; i < 10000; i++) {
     update_atime(name).ensure();
     auto new_info = stat(name).ok();
-    if (info.mtime_nsec_ == new_info.mtime_nsec_) {
-      tests_ok++;
-    } else {
+    if (info.mtime_nsec_ != new_info.mtime_nsec_) {
       tests_wa++;
       info.mtime_nsec_ = new_info.mtime_nsec_;
     }

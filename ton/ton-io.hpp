@@ -18,8 +18,9 @@
 */
 #pragma once
 
-#include "ton-types.h"
 #include "td/utils/base64.h"
+
+#include "ton-types.h"
 
 namespace td {
 

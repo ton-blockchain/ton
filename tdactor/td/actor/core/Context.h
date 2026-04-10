@@ -26,7 +26,11 @@ namespace core {
 template <class Impl>
 class Context {
  public:
-  static Impl *get() {
+  static Impl &get() {
+    CHECK(context_);
+    return *context_;
+  }
+  static Impl *get_ptr() {
     return context_;
   }
   class Guard {

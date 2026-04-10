@@ -18,17 +18,16 @@
 */
 #pragma once
 
-#include "td/tl/tl_config.h"
-
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
-#include <iostream>
+#include "td/tl/tl_config.h"
 
 namespace td {
 namespace tl {

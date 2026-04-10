@@ -22,12 +22,12 @@
 
 #ifdef TD_POLL_SELECT
 
+#include <sys/select.h>
+
 #include "td/utils/common.h"
-#include "td/utils/port/detail/PollableFd.h"
 #include "td/utils/port/PollBase.h"
 #include "td/utils/port/PollFlags.h"
-
-#include <sys/select.h>
+#include "td/utils/port/detail/PollableFd.h"
 
 namespace td {
 namespace detail {

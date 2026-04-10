@@ -16,99 +16,432 @@
 */
 #pragma once
 
-#include "src-file.h"
-#include "type-expr.h"
-#include <functional>
-#include <memory>
+#include "fwd-declarations.h"
+#include "crypto/common/refint.h"
+#include <unordered_map>
+#include <variant>
+#include <vector>
 
 namespace tolk {
 
-typedef int var_idx_t;
-typedef int sym_idx_t;
-
-enum class SymValKind { _Var, _Func, _GlobVar, _Const };
-
-struct SymValBase {
-  SymValKind kind;
-  int idx;
-  TypeExpr* sym_type;
-#ifdef TOLK_DEBUG
-  std::string sym_name; // seeing symbol name in debugger makes it much easier to delve into Tolk sources
-#endif
-
-  SymValBase(SymValKind kind, int idx, TypeExpr* sym_type) : kind(kind), idx(idx), sym_type(sym_type) {
-  }
-  virtual ~SymValBase() = default;
-
-  TypeExpr* get_type() const {
-    return sym_type;
-  }
-};
-
-
 struct Symbol {
-  std::string str;
-  sym_idx_t idx;
+  std::string name;
+  AnyV ident_anchor;    // "identifier node", e.g. for `struct Demo { ... }` will be `Demo`; nullptr for builtin
 
-  Symbol(std::string str, sym_idx_t idx) : str(std::move(str)), idx(idx) {}
-
-  static std::string unknown_symbol_name(sym_idx_t i);
-};
-
-class SymTable {
-public:
-  static constexpr int SIZE_PRIME = 100003;
-
-private:
-  sym_idx_t def_sym{0};
-  std::unique_ptr<Symbol> sym[SIZE_PRIME + 1];
-  sym_idx_t gen_lookup(std::string_view str, int mode = 0, sym_idx_t idx = 0);
-
-public:
-
-  static constexpr sym_idx_t not_found = 0;
-  sym_idx_t lookup(std::string_view str) {
-    return gen_lookup(str, 0);
+  Symbol(std::string name, AnyV ident_anchor)
+    : name(std::move(name))
+    , ident_anchor(ident_anchor) {
   }
-  sym_idx_t lookup_add(std::string_view str) {
-    return gen_lookup(str, 1);
-  }
-  Symbol* operator[](sym_idx_t i) const {
-    return sym[i].get();
-  }
-  std::string get_name(sym_idx_t i) const {
-    return sym[i] ? sym[i]->str : Symbol::unknown_symbol_name(i);
-  }
-};
 
-struct SymTableOverflow {
-  int sym_def;
-  explicit SymTableOverflow(int x) : sym_def(x) {
-  }
-};
+  virtual ~Symbol() = default;
 
-
-struct SymDef {
-  int level;
-  sym_idx_t sym_idx;
-  SymValBase* value;
-  SrcLocation loc;
+  template<class ConstTPtr>
+  ConstTPtr try_as() const {
 #ifdef TOLK_DEBUG
-  std::string sym_name;
+    assert(this != nullptr);
 #endif
-  SymDef(int lvl, sym_idx_t idx, SrcLocation _loc, SymValBase* val = nullptr)
-      : level(lvl), sym_idx(idx), value(val), loc(_loc) {
+    return dynamic_cast<ConstTPtr>(this);
   }
-  std::string name() const;
+
+  bool is_builtin() const { return ident_anchor == nullptr; }
+  void check_import_exists_when_used_from(FunctionPtr cur_f, AnyV usage) const;
 };
 
+struct LocalVarData final : Symbol {
+  enum {
+    flagMutateParameter = 1,    // parameter was declared with `mutate` keyword
+    flagImmutable = 2,          // variable was declared via `val` (not `var`)
+    flagLateInit = 4,           // variable was declared via `lateinit` (not assigned at declaration)
+    flagUsedAsLVal = 8,         // variable is assigned or in another way used as lvalue inside a function
+  };
 
-void open_scope(SrcLocation loc);
-void close_scope();
-SymDef* lookup_symbol(sym_idx_t idx);
+  AnyTypeV type_node;               // either at declaration `var x:int`, or if omitted, from assigned value `var x=2`
+  TypePtr declared_type = nullptr;  // = resolved type_node
+  AnyExprV default_value = nullptr; // for function parameters, if it has a default value
+  int flags;
+  int param_idx;                    // 0...N for function parameters, -1 for local vars
+  std::vector<int> ir_idx;
 
-SymDef* define_global_symbol(sym_idx_t name_idx, SrcLocation loc = {});
-SymDef* define_parameter(sym_idx_t name_idx, SrcLocation loc);
-SymDef* define_symbol(sym_idx_t name_idx, bool force_new, SrcLocation loc);
+  LocalVarData(std::string name, AnyV ident_anchor, AnyTypeV type_node, AnyExprV default_value, int flags, int param_idx)
+    : Symbol(std::move(name), ident_anchor)
+    , type_node(type_node)
+    , default_value(default_value)
+    , flags(flags)
+    , param_idx(param_idx) {
+  }
+  LocalVarData(std::string name, AnyV ident_anchor, TypePtr declared_type, AnyExprV default_value, int flags, int param_idx)
+    : Symbol(std::move(name), ident_anchor)
+    , type_node(nullptr)         // for built-in functions (their parameters)
+    , declared_type(declared_type)
+    , default_value(default_value)
+    , flags(flags)
+    , param_idx(param_idx) {
+  }
+
+  bool is_parameter() const { return param_idx >= 0; }
+
+  bool is_immutable() const { return flags & flagImmutable; }
+  bool is_lateinit() const { return flags & flagLateInit; }
+  bool is_mutate_parameter() const { return flags & flagMutateParameter; }
+  bool is_used_as_lval() const { return flags & flagUsedAsLVal; }
+  bool has_default_value() const { return default_value != nullptr; }
+
+  LocalVarData* mutate() const { return const_cast<LocalVarData*>(this); }
+  void assign_used_as_lval();
+  void assign_ir_idx(std::vector<int>&& ir_idx);
+  void assign_resolved_type(TypePtr declared_type);
+  void assign_inferred_type(TypePtr inferred_type);
+  void assign_default_value(AnyExprV default_value);
+};
+
+struct FunctionBodyCode;
+struct FunctionBodyAsm;
+struct FunctionBodyBuiltinAsmOp;
+struct FunctionBodyBuiltinGenerateOps;
+struct GenericsDeclaration;
+
+typedef std::variant<
+  FunctionBodyCode*,
+  FunctionBodyAsm*,
+  FunctionBodyBuiltinAsmOp*,
+  FunctionBodyBuiltinGenerateOps*
+> FunctionBody;
+
+struct FunctionData final : Symbol {
+  static constexpr int EMPTY_TVM_METHOD_ID = -10;
+
+  enum {
+    flagIsLambda = 2,           // it's an anonymous function (instantiated from a function expression, a lambda)
+    flagTypeInferringDone = 4,  // type inferring step of function's body (all AST nodes assigning v->inferred_type) is done
+    flagUsedAsNonCall = 8,      // used not only as `f()`, but as a 1-st class function (assigned to var, pushed to tuple, etc.)
+    flagMarkedAsPure = 16,      // declared as `pure`, can't call impure and access globals, unused invocations are optimized out
+    flagImplicitReturn = 32,    // control flow reaches end of function, so it needs implicit return at the end
+    flagContractGetter = 64,    // was declared via `get func(): T`, tvm_method_id is auto-assigned
+    flagIsEntrypoint = 128,    // it's `main` / `onExternalMessage` / etc.
+    flagHasMutateParams = 256,  // has parameters declared as `mutate`
+    flagAcceptsSelf = 512,      // is a member function (has `self` first parameter)
+    flagReturnsSelf = 1024,     // return type is `self` (returns the mutated 1st argument), calls can be chainable
+    flagReallyUsed = 2048,      // calculated via dfs from used functions; declared but unused functions are not codegenerated
+    flagCompileTimeVal = 4096,  // calculated only at compile-time for constant arguments: `ton("0.05")`, `"str".crc32()`, and others
+    flagAllowAnyWidthT = 16384, // for built-in generic functions that <T> is not restricted to be 1-slot type
+    flagManualOnBounce = 32768, // for onInternalMessage, don't insert "if (isBounced) return"
+  };
+
+  int tvm_method_id = EMPTY_TVM_METHOD_ID;
+  int flags;
+  FunctionInlineMode inline_mode;
+  int n_times_called = 0;                     // calculated while building call graph; 9999 for recursions
+
+  std::string method_name;                    // for `fun Container<T>.store<U>` here is "store"
+  AnyTypeV receiver_type_node;                // for `fun Container<T>.store<U>` here is `Container<T>`
+  TypePtr receiver_type = nullptr;            // = resolved receiver_type_node
+
+  std::vector<LocalVarData> parameters;
+  std::vector<int> arg_order, ret_order;
+  AnyTypeV return_type_node;                  // may be nullptr, meaning "auto infer"
+  TypePtr declared_return_type = nullptr;     // = resolved return_type_node
+  TypePtr inferred_return_type = nullptr;     // assigned on type inferring
+  TypePtr inferred_full_type = nullptr;       // assigned on type inferring, it's TypeDataFunCallable(params -> return)
+
+  const GenericsDeclaration* genericTs;
+  const GenericsSubstitutions* substitutedTs;
+  FunctionPtr base_fun_ref = nullptr;             // for `f<int>`, here is `f<T>`; for a lambda, a containing function
+  FunctionBody body;
+  AnyV ast_root;                                  // V<ast_function_declaration> for user-defined (not builtin)
+
+  FunctionData(std::string name, AnyV ident_anchor, std::string method_name, AnyTypeV receiver_type_node, AnyTypeV return_type_node, std::vector<LocalVarData> parameters, int initial_flags, FunctionInlineMode inline_mode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
+    : Symbol(std::move(name), ident_anchor)
+    , flags(initial_flags)
+    , inline_mode(inline_mode)
+    , method_name(std::move(method_name))
+    , receiver_type_node(receiver_type_node)
+    , parameters(std::move(parameters))
+    , return_type_node(return_type_node)
+    , genericTs(genericTs)
+    , substitutedTs(substitutedTs)
+    , body(body)
+    , ast_root(ast_root) {
+  }
+  FunctionData(std::string name, AnyV ident_anchor, std::string method_name, TypePtr receiver_type, TypePtr declared_return_type, std::vector<LocalVarData> parameters, int initial_flags, FunctionInlineMode inline_mode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
+    : Symbol(std::move(name), ident_anchor)
+    , flags(initial_flags)
+    , inline_mode(inline_mode)
+    , method_name(std::move(method_name))
+    , receiver_type_node(nullptr)
+    , receiver_type(receiver_type)
+    , parameters(std::move(parameters))
+    , return_type_node(nullptr)            // for built-in functions, defined in sources
+    , declared_return_type(declared_return_type)
+    , genericTs(genericTs)
+    , substitutedTs(substitutedTs)
+    , body(body)
+    , ast_root(ast_root) {
+  }
+
+  std::string as_human_readable() const;
+
+  const std::vector<int>* get_arg_order() const {
+    return arg_order.empty() ? nullptr : &arg_order;
+  }
+  const std::vector<int>* get_ret_order() const {
+    return ret_order.empty() ? nullptr : &ret_order;
+  }
+
+  int get_num_params() const { return static_cast<int>(parameters.size()); }
+  const LocalVarData& get_param(int idx) const { return parameters[idx]; }
+  LocalVarPtr find_param(std::string_view name) const;
+
+  bool is_code_function() const { return std::holds_alternative<FunctionBodyCode*>(body); }
+  bool is_asm_function() const { return std::holds_alternative<FunctionBodyAsm*>(body); }
+  bool is_method() const { return !method_name.empty(); }
+  bool is_static_method() const { return is_method() && !does_accept_self(); }
+
+  bool is_generic_function() const { return genericTs != nullptr; }
+  bool is_instantiation_of_generic_function() const { return substitutedTs != nullptr; }
+  bool is_lambda() const { return flags & flagIsLambda; }
+
+  bool is_inlined_in_place() const { return inline_mode == FunctionInlineMode::inlineInPlace; }
+  bool is_type_inferring_done() const { return flags & flagTypeInferringDone; }
+  bool is_used_as_noncall() const { return flags & flagUsedAsNonCall; }
+  bool is_marked_as_pure() const { return flags & flagMarkedAsPure; }
+  bool is_implicit_return() const { return flags & flagImplicitReturn; }
+  bool is_contract_getter() const { return flags & flagContractGetter; }
+  bool has_tvm_method_id() const { return tvm_method_id != EMPTY_TVM_METHOD_ID; }
+  bool is_entrypoint() const { return flags & flagIsEntrypoint; }
+  bool has_mutate_params() const { return flags & flagHasMutateParams; }
+  bool does_accept_self() const { return flags & flagAcceptsSelf; }
+  bool does_return_self() const { return flags & flagReturnsSelf; }
+  bool does_mutate_self() const { return (flags & flagAcceptsSelf) && parameters[0].is_mutate_parameter(); }
+  bool is_really_used() const { return flags & flagReallyUsed; }
+  bool is_compile_time_const_val() const { return flags & flagCompileTimeVal; }
+  bool is_compile_time_special_gen() const { return std::holds_alternative<FunctionBodyBuiltinGenerateOps*>(body); }
+  bool is_variadic_width_T_allowed() const { return flags & flagAllowAnyWidthT; }
+  bool is_manual_on_bounce() const { return flags & flagManualOnBounce; }
+
+  bool does_need_codegen() const;
+
+  FunctionData* mutate() const { return const_cast<FunctionData*>(this); }
+  void assign_resolved_receiver_type(TypePtr receiver_type, std::string&& name_prefix);
+  void assign_resolved_genericTs(const GenericsDeclaration* genericTs);
+  void assign_resolved_type(TypePtr declared_return_type);
+  void assign_inferred_type(TypePtr inferred_return_type, TypePtr inferred_full_type);
+  void assign_is_used_as_noncall();
+  void assign_is_implicit_return();
+  void assign_is_type_inferring_done();
+  void assign_is_really_used();
+  void assign_inline_mode_in_place();
+  void assign_arg_order(std::vector<int>&& arg_order);
+};
+
+struct GlobalVarData final : Symbol {
+  enum {
+    flagReallyUsed = 1,          // calculated via dfs from used functions; unused globals are not codegenerated
+  };
+
+  AnyTypeV type_node;                 // `global a: int;` always exists, declaring globals without type is prohibited
+  TypePtr declared_type = nullptr;    // = resolved type_node
+  int flags = 0;
+
+  GlobalVarData(std::string name, AnyV ident_anchor, AnyTypeV type_node)
+    : Symbol(std::move(name), ident_anchor)
+    , type_node(type_node) {
+  }
+
+  bool is_really_used() const { return flags & flagReallyUsed; }
+
+  GlobalVarData* mutate() const { return const_cast<GlobalVarData*>(this); }
+  void assign_resolved_type(TypePtr declared_type);
+  void assign_is_really_used();
+};
+
+struct GlobalConstData final : Symbol {
+  AnyTypeV type_node;                 // exists for `const op: int = rhs`, otherwise nullptr
+  TypePtr declared_type = nullptr;    // = resolved type_node
+  TypePtr inferred_type = nullptr;
+  AnyExprV init_value;
+
+  GlobalConstData(std::string name, AnyV ident_anchor, AnyTypeV type_node, AnyExprV init_value)
+    : Symbol(std::move(name), ident_anchor)
+    , type_node(type_node)
+    , init_value(init_value) {
+  }
+
+  GlobalConstData* mutate() const { return const_cast<GlobalConstData*>(this); }
+  void assign_resolved_type(TypePtr declared_type);
+  void assign_inferred_type(TypePtr inferred_type);
+  void assign_init_value(AnyExprV init_value);
+};
+
+struct AliasDefData final : Symbol {
+  AnyTypeV underlying_type_node;
+  TypePtr underlying_type = nullptr;    // = resolved underlying_type_node
+
+  const GenericsDeclaration* genericTs;
+  const GenericsSubstitutions* substitutedTs;
+  AliasDefPtr base_alias_ref = nullptr;           // for `Response<int>`, here is `Response<T>`
+  AnyV ast_root;                                  // V<ast_type_alias_declaration>
+
+  AliasDefData(std::string name, AnyV ident_anchor, AnyTypeV underlying_type_node, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
+    : Symbol(std::move(name), ident_anchor)
+    , underlying_type_node(underlying_type_node)
+    , genericTs(genericTs)
+    , substitutedTs(substitutedTs)
+    , ast_root(ast_root) {
+  }
+
+  std::string as_human_readable() const;
+
+  bool is_generic_alias() const { return genericTs != nullptr; }
+  bool is_instantiation_of_generic_alias() const { return substitutedTs != nullptr; }
+
+  AliasDefData* mutate() const { return const_cast<AliasDefData*>(this); }
+  void assign_resolved_genericTs(const GenericsDeclaration* genericTs);
+  void assign_resolved_type(TypePtr underlying_type);
+};
+
+struct StructFieldData final : Symbol {
+  int field_idx;
+  bool is_private;
+  bool is_readonly;
+  AnyTypeV type_node;
+  TypePtr declared_type = nullptr;      // = resolved type_node
+  AnyExprV default_value;               // nullptr if no default
+
+  bool has_default_value() const { return default_value != nullptr; }
+
+  StructFieldData* mutate() const { return const_cast<StructFieldData*>(this); }
+  void assign_resolved_type(TypePtr declared_type);
+  void assign_default_value(AnyExprV default_value);
+
+  StructFieldData(std::string name, AnyV ident_anchor, int field_idx, bool is_private, bool is_readonly, AnyTypeV type_node, AnyExprV default_value)
+    : Symbol(std::move(name), ident_anchor)
+    , field_idx(field_idx)
+    , is_private(is_private)
+    , is_readonly(is_readonly)
+    , type_node(type_node)
+    , default_value(default_value) {
+  }
+};
+
+struct StructData final : Symbol {
+  enum class Overflow1023Policy {     // annotation @overflow1023_policy above a struct
+    not_specified,
+    suppress,
+  };
+
+  struct PackOpcode {
+    int64_t pack_prefix;
+    int prefix_len;
+
+    PackOpcode(int64_t pack_prefix, int prefix_len)
+      : pack_prefix(pack_prefix), prefix_len(prefix_len) {}
+
+    bool exists() const { return prefix_len != 0; }
+
+    std::string format_as_slice() const;    // "x{...}" (or "b{...}")
+  };
+
+  std::vector<StructFieldPtr> fields;
+  PackOpcode opcode;
+  Overflow1023Policy overflow1023_policy;
+
+  const GenericsDeclaration* genericTs;
+  const GenericsSubstitutions* substitutedTs;
+  StructPtr base_struct_ref = nullptr;            // for `Container<int>`, here is `Container<T>`
+  AnyV ast_root;                                  // V<ast_struct_declaration>
+
+  int get_num_fields() const { return static_cast<int>(fields.size()); }
+  StructFieldPtr get_field(int i) const { return fields.at(i); }
+  StructFieldPtr find_field(std::string_view field_name) const;
+
+  bool is_generic_struct() const { return genericTs != nullptr; }
+  bool is_instantiation_of_generic_struct() const { return substitutedTs != nullptr; }
+  // some predefined structs from stdlib
+  bool is_instantiation_of_CellT() const           { return substitutedTs != nullptr && base_struct_ref->name == "Cell"; }
+  bool is_instantiation_of_LispListT() const       { return substitutedTs != nullptr && base_struct_ref->name == "lisp_list"; }
+  bool is_instantiation_of_UnsafeBodyNoRef() const { return substitutedTs != nullptr && base_struct_ref->name == "UnsafeBodyNoRef"; }
+
+  StructData* mutate() const { return const_cast<StructData*>(this); }
+  void assign_resolved_genericTs(const GenericsDeclaration* genericTs);
+
+  StructData(std::string name, AnyV ident_anchor, std::vector<StructFieldPtr>&& fields, PackOpcode opcode, Overflow1023Policy overflow1023_policy, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
+    : Symbol(std::move(name), ident_anchor)
+    , fields(std::move(fields))
+    , opcode(opcode)
+    , overflow1023_policy(overflow1023_policy)
+    , genericTs(genericTs)
+    , substitutedTs(substitutedTs)
+    , ast_root(ast_root) {
+  }
+
+  std::string as_human_readable() const;
+};
+
+struct EnumMemberData final : Symbol {
+  int member_idx;
+  AnyExprV init_value;                // nullptr if no init (`Red`, not `Red = 1`)
+  td::RefInt256 computed_value;       // auto-calculated or assigned from init if integer
+
+  bool has_init_value() const { return init_value != nullptr; }
+
+  EnumMemberData(std::string name, AnyV ident_anchor, int member_idx, AnyExprV init_value)
+    : Symbol(std::move(name), ident_anchor)
+    , member_idx(member_idx)
+    , init_value(init_value) {
+  }
+
+  EnumMemberData* mutate() const { return const_cast<EnumMemberData*>(this); }
+  void assign_init_value(AnyExprV init_value);
+  void assign_computed_value(td::RefInt256 computed_value);
+};
+
+struct EnumDefData final : Symbol {
+  AnyTypeV colon_type_node;             // nullptr if no serialization type after `:`
+  TypePtr colon_type = nullptr;         // = resolved colon_type_node
+  std::vector<EnumMemberPtr> members;
+
+  EnumMemberPtr find_member(std::string_view member_name) const;
+
+  EnumDefData(std::string name, AnyV ident_anchor, AnyTypeV colon_type_node, std::vector<EnumMemberPtr>&& members)
+    : Symbol(std::move(name), ident_anchor)
+    , colon_type_node(colon_type_node)
+    , members(std::move(members)) {
+  }
+
+  std::string as_human_readable() const;
+
+  EnumDefData* mutate() const { return const_cast<EnumDefData*>(this); }
+  void assign_resolved_colon_type(TypePtr colon_type);
+};
+
+struct TypeReferenceUsedAsSymbol final : Symbol {
+  TypePtr resolved_type;
+
+  TypeReferenceUsedAsSymbol(std::string name, AnyV ident_anchor, TypePtr resolved_type)
+    : Symbol(std::move(name), ident_anchor)
+    , resolved_type(resolved_type) {
+  }
+};
+
+class GlobalSymbolTable {
+  std::unordered_map<uint64_t, const Symbol*> entries;
+
+  static uint64_t key_hash(std::string_view name_key) {
+    return std::hash<std::string_view>{}(name_key);
+  }
+
+public:
+  void add_global_symbol(const Symbol* sym);
+  void add_function(FunctionPtr f_sym) { add_global_symbol(f_sym); }
+
+  const Symbol* lookup(std::string_view name) const {
+    const auto it = entries.find(key_hash(name));
+    return it == entries.end() ? nullptr : it->second;
+  }
+};
+
+const Symbol* lookup_global_symbol(std::string_view name);
+FunctionPtr lookup_function(std::string_view name);
+std::vector<FunctionPtr> lookup_methods_with_name(std::string_view name);
 
 }  // namespace tolk

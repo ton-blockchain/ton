@@ -18,14 +18,14 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-#include "td/utils/invoke.h"  // for tuple_for_each
-#include "td/utils/Slice.h"
-#include "td/utils/StringBuilder.h"
-
+#include <set>
 #include <tuple>
 #include <utility>
-#include <set>
+
+#include "td/utils/Slice.h"
+#include "td/utils/StringBuilder.h"
+#include "td/utils/common.h"
+#include "td/utils/invoke.h"  // for tuple_for_each
 
 namespace td {
 namespace format {
@@ -179,11 +179,12 @@ inline StringBuilder &operator<<(StringBuilder &logger, Time t) {
     double value;
   };
 
-  static constexpr NamedValue durations[] = {{"ns", 1e-9}, {"us", 1e-6}, {"ms", 1e-3}, {"s", 1}};
+  static constexpr NamedValue durations[] = {{"ns", 1e-9}, {"us", 1e-6}, {"ms", 1e-3},
+                                             {"s", 1},     {"h", 3600},  {"d", 86400}};
   static constexpr size_t durations_n = sizeof(durations) / sizeof(NamedValue);
 
   size_t i = 0;
-  while (i + 1 < durations_n && t.seconds_ > 10 * durations[i + 1].value) {
+  while (i + 1 < durations_n && std::abs(t.seconds_) > 10 * durations[i + 1].value) {
     i++;
   }
   logger << StringBuilder::FixedDouble(t.seconds_ / durations[i].value, 1) << durations[i].name;
@@ -314,7 +315,7 @@ StringBuilder &operator<<(StringBuilder &sb, const Concat<T> &concat) {
 }
 
 template <class... ArgsT>
-auto concat(const ArgsT &... args) {
+auto concat(const ArgsT &...args) {
   return Concat<decltype(std::tie(args...))>{std::tie(args...)};
 }
 
@@ -338,16 +339,16 @@ Lambda<LambdaT> lambda(const LambdaT &lambda) {
 
 using format::tag;
 
-template <class A, class B>
+template <Formattable A, Formattable B>
 StringBuilder &operator<<(StringBuilder &sb, const std::pair<A, B> &p) {
   return sb << "[" << p.first << ";" << p.second << "]";
 }
 
-template <class T>
+template <Formattable T>
 StringBuilder &operator<<(StringBuilder &stream, const vector<T> &vec) {
   return stream << format::as_array(vec);
 }
-template <class T>
+template <Formattable T>
 StringBuilder &operator<<(StringBuilder &stream, const std::set<T> &vec) {
   return stream << format::as_array(vec);
 }

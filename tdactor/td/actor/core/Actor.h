@@ -18,7 +18,6 @@
 */
 #pragma once
 #include "td/actor/core/ActorInfo.h"
-
 #include "td/utils/SharedObjectPool.h"
 
 namespace td {
@@ -71,23 +70,23 @@ class Actor {
 
   // Useful functions
   void yield() {  // send wakeup signal to itself
-    ActorExecuteContext::get()->set_yield();
+    ActorExecuteContext::get().set_yield();
   }
   void stop() {  // send Kill signal to itself
-    ActorExecuteContext::get()->set_stop();
+    ActorExecuteContext::get().set_stop();
   }
   Timestamp &alarm_timestamp() {
-    return ActorExecuteContext::get()->alarm_timestamp();
+    return ActorExecuteContext::get().alarm_timestamp();
   }
   Timestamp get_alarm_timestamp() {
-    return ActorExecuteContext::get()->get_alarm_timestamp();
+    return ActorExecuteContext::get().get_alarm_timestamp();
   }
 
   CSlice get_name() {
     return actor_info_ptr_->get_name();
   }
   uint64 get_link_token() {
-    return ActorExecuteContext::get()->get_link_token();
+    return ActorExecuteContext::get().get_link_token();
   }
 
   //set context that will be inherited by all childrens

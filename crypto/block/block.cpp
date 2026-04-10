@@ -16,18 +16,18 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/bits.h"
-#include "block/block.h"
 #include "block/block-auto.h"
 #include "block/block-parse.h"
+#include "block/block.h"
 #include "block/mc-config.h"
-#include "ton/ton-shard.h"
 #include "common/bigexp.h"
 #include "common/util.h"
-#include "td/utils/crypto.h"
-#include "td/utils/tl_storers.h"
-#include "td/utils/misc.h"
 #include "td/utils/Random.h"
+#include "td/utils/bits.h"
+#include "td/utils/crypto.h"
+#include "td/utils/misc.h"
+#include "td/utils/tl_storers.h"
+#include "ton/ton-shard.h"
 #include "vm/fmt.hpp"
 
 namespace block {
@@ -178,12 +178,12 @@ bool StdAddress::operator==(const StdAddress& other) const {
          testnet == other.testnet;
 }
 
-int parse_hex_digit(int c) {
+static int parse_hex_digit(int c) {
   if (c >= '0' && c <= '9') {
     return c - '0';
   }
   c |= 0x20;
-  if (c >= 'a' && c <= 'z') {
+  if (c >= 'a' && c <= 'f') {
     return c - 'a' + 10;
   }
   return -1;
@@ -360,7 +360,6 @@ MsgProcessedUptoCollection::MsgProcessedUptoCollection(ton::ShardIdFull _owner, 
     z.shard = key.get_uint(64);
     z.mc_seqno = (unsigned)((key + 64).get_uint(32));
     z.last_inmsg_lt = value.write().fetch_ulong(64);
-    // std::cerr << "ProcessedUpto shard " << std::hex << z.shard << std::dec << std::endl;
     return value.write().fetch_bits_to(z.last_inmsg_hash) && z.shard && ton::shard_contains(owner.shard, z.shard);
   });
 }
@@ -752,14 +751,13 @@ td::uint64 BlockLimitStatus::estimate_block_size(const vm::NewCellStorageStat::S
 }
 
 int BlockLimitStatus::classify() const {
-  return limits.classify(estimate_block_size(), gas_used, cur_lt, collated_data_stat.estimate_proof_size());
+  return limits.classify(estimate_block_size(), gas_used, cur_lt, collated_data_size_estimate);
 }
 
 bool BlockLimitStatus::fits(unsigned cls) const {
   return cls >= ParamLimits::limits_cnt ||
          (limits.gas.fits(cls, gas_used) && limits.lt_delta.fits(cls, cur_lt - limits.start_lt) &&
-          limits.bytes.fits(cls, estimate_block_size()) &&
-          limits.collated_data.fits(cls, collated_data_stat.estimate_proof_size()));
+          limits.bytes.fits(cls, estimate_block_size()) && limits.collated_data.fits(cls, collated_data_size_estimate));
 }
 
 bool BlockLimitStatus::would_fit(unsigned cls, ton::LogicalTime end_lt, td::uint64 more_gas,
@@ -767,7 +765,16 @@ bool BlockLimitStatus::would_fit(unsigned cls, ton::LogicalTime end_lt, td::uint
   return cls >= ParamLimits::limits_cnt || (limits.gas.fits(cls, gas_used + more_gas) &&
                                             limits.lt_delta.fits(cls, std::max(cur_lt, end_lt) - limits.start_lt) &&
                                             limits.bytes.fits(cls, estimate_block_size(extra)) &&
-                                            limits.collated_data.fits(cls, collated_data_stat.estimate_proof_size()));
+                                            limits.collated_data.fits(cls, collated_data_size_estimate));
+}
+
+double BlockLimitStatus::load_fraction(unsigned cls) const {
+  if (cls >= ParamLimits::limits_cnt) {
+    return 0.0;
+  }
+  return std::max({(double)estimate_block_size() / (double)limits.bytes.limit(cls),
+                   (double)gas_used / (double)limits.gas.limit(cls),
+                   (double)collated_data_size_estimate / (double)limits.collated_data.limit(cls)});
 }
 
 // SETS: account_dict, shard_libraries_, mc_state_extra
@@ -886,8 +893,10 @@ td::Status ShardState::unpack_out_msg_queue_info(Ref<vm::Cell> out_msg_queue_inf
   out_msg_queue_ =
       std::make_unique<vm::AugmentedDictionary>(std::move(qinfo.out_queue), 352, block::tlb::aug_OutMsgQueue);
   if (verbosity >= 3 * 1) {
-    LOG(DEBUG) << "unpacking ProcessedUpto of our previous block " << id_.to_str();
-    block::gen::t_ProcessedInfo.print(std::cerr, qinfo.proc_info);
+    FLOG(DEBUG) {
+      sb << "unpacking ProcessedUpto of our previous block " << id_.to_str();
+      block::gen::t_ProcessedInfo.print(sb, qinfo.proc_info);
+    };
   }
   if (!block::gen::t_ProcessedInfo.validate_csr(1024, qinfo.proc_info)) {
     return td::Status::Error(
@@ -1343,6 +1352,65 @@ CurrencyCollection CurrencyCollection::operator-(td::RefInt256 other_grams) cons
   }
 }
 
+bool CurrencyCollection::clamp(const CurrencyCollection& other) {
+  if (!is_valid() || !other.is_valid()) {
+    return invalidate();
+  }
+  grams = std::min(grams, other.grams);
+  vm::Dictionary dict1{extra, 32}, dict2(other.extra, 32);
+  bool ok = dict1.check_for_each([&](td::Ref<vm::CellSlice> cs1, td::ConstBitPtr key, int n) {
+    CHECK(n == 32);
+    td::Ref<vm::CellSlice> cs2 = dict2.lookup(key, 32);
+    td::RefInt256 val1 = tlb::t_VarUIntegerPos_32.as_integer(cs1);
+    if (val1.is_null()) {
+      return false;
+    }
+    td::RefInt256 val2 = cs2.is_null() ? td::zero_refint() : tlb::t_VarUIntegerPos_32.as_integer(cs2);
+    if (val2.is_null()) {
+      return false;
+    }
+    if (val1 > val2) {
+      if (val2->sgn() == 0) {
+        dict1.lookup_delete(key, 32);
+      } else {
+        dict1.set(key, 32, cs2);
+      }
+    }
+    return true;
+  });
+  extra = dict1.get_root_cell();
+  return ok || invalidate();
+}
+
+bool CurrencyCollection::check_extra_currency_limit(td::uint32 max_currencies) const {
+  td::uint32 count = 0;
+  return vm::Dictionary{extra, 32}.check_for_each([&](td::Ref<vm::CellSlice>, td::ConstBitPtr, int) {
+    ++count;
+    return count <= max_currencies;
+  });
+}
+
+bool CurrencyCollection::remove_zero_extra_currencies(Ref<vm::Cell>& root, td::uint32 max_currencies) {
+  td::uint32 count = 0;
+  vm::Dictionary dict{root, 32};
+  int res = dict.filter([&](const vm::CellSlice& cs, td::ConstBitPtr, int) -> int {
+    ++count;
+    if (count > max_currencies) {
+      return -1;
+    }
+    td::RefInt256 val = tlb::t_VarUInteger_32.as_integer(cs);
+    if (val.is_null()) {
+      return -1;
+    }
+    return val->sgn() > 0;
+  });
+  if (res < 0) {
+    return false;
+  }
+  root = dict.get_root_cell();
+  return true;
+}
+
 bool CurrencyCollection::operator==(const CurrencyCollection& other) const {
   return is_valid() && other.is_valid() && !td::cmp(grams, other.grams) &&
          (extra.not_null() == other.extra.not_null()) &&
@@ -1719,9 +1787,9 @@ void MtCarloComputeShare::gen_vset() {
 }
 
 /*
- * 
+ *
  *    Other block-related functions
- * 
+ *
  */
 
 bool store_UInt7(vm::CellBuilder& cb, unsigned long long value) {
@@ -1805,7 +1873,8 @@ bool check_one_config_param(Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key, td::
   } else if (idx < 0) {
     return true;
   }
-  bool ok = block::gen::ConfigParam{idx}.validate_ref(1024, std::move(cell));
+  unsigned cfg_idx = static_cast<unsigned>(idx);
+  bool ok = block::gen::ConfigParam{cfg_idx}.validate_ref(1024, std::move(cell));
   if (!ok) {
     LOG(ERROR) << "configuration parameter #" << idx << " is invalid";
   }
@@ -1961,9 +2030,9 @@ td::Status unpack_block_prev_blk_try(Ref<vm::Cell> block_root, const ton::BlockI
   try {
     return unpack_block_prev_blk_ext(std::move(block_root), id, prev, mc_blkid, after_split, fetch_blkid,
                                      ignore_root_hash);
-  } catch (vm::VmError err) {
+  } catch (vm::VmError& err) {
     return td::Status::Error(std::string{"error while processing Merkle proof: "} + err.get_msg());
-  } catch (vm::VmVirtError err) {
+  } catch (vm::VmVirtError& err) {
     return td::Status::Error(std::string{"error while processing Merkle proof: "} + err.get_msg());
   }
 }
@@ -2001,7 +2070,9 @@ td::Status unpack_block_prev_blk_ext(Ref<vm::Cell> block_root, const ton::BlockI
   block::gen::ExtBlkRef::Record prev1, prev2;
   if (info.after_merge) {
     auto cs = vm::load_cell_slice(std::move(info.prev_ref));
-    CHECK(cs.size_ext() == 0x20000);  // prev_blks_info$_ prev1:^ExtBlkRef prev2:^ExtBlkRef = BlkPrevInfo 1;
+    if (cs.size_ext() != 0x20000) {  // prev_blks_info$_ prev1:^ExtBlkRef prev2:^ExtBlkRef = BlkPrevInfo 1;
+      return td::Status::Error("invalid previous block references in block header");
+    }
     if (!(tlb::unpack_cell(cs.prefetch_ref(0), prev1) && tlb::unpack_cell(cs.prefetch_ref(1), prev2))) {
       return td::Status::Error("cannot unpack two previous block references from block header");
     }
@@ -2066,7 +2137,7 @@ td::Status check_block_header(Ref<vm::Cell> block_root, const ton::BlockIdExt& i
     return td::Status::Error("block has invalid not_master flag in its (Merkelized) header");
   }
   if (store_shard_hash_to) {
-    vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
+    vm::CellSlice upd_cs{vm::NoVm(), blk.state_update};
     if (!(upd_cs.is_special() && upd_cs.prefetch_long(8) == 4  // merkle update
           && upd_cs.size_ext() == 0x20228)) {
       return td::Status::Error("invalid Merkle update in block header");
@@ -2163,9 +2234,9 @@ td::Result<Ref<vm::Cell>> get_block_transaction_try(Ref<vm::Cell> block_root, to
                                                     const ton::StdSmcAddress& addr, ton::LogicalTime lt) {
   try {
     return get_block_transaction(std::move(block_root), workchain, addr, lt);
-  } catch (vm::VmError err) {
+  } catch (vm::VmError& err) {
     return td::Status::Error(std::string{"error while extracting transaction from block : "} + err.get_msg());
-  } catch (vm::VmVirtError err) {
+  } catch (vm::VmVirtError& err) {
     return td::Status::Error(std::string{"virtualization error while traversing transaction proof : "} + err.get_msg());
   }
 }
@@ -2314,9 +2385,10 @@ bool parse_hex_hash(const char* str, const char* end, td::Bits256& hash) {
     int c = *str++, x = c - '0';
     if (x < 0) {
       return false;
-    } else if (x > 10) {
+    }
+    if (x >= 10) {
       x = (c | 0x20) - ('a' - 10);
-      if (x < 10 || x > 16) {
+      if (x < 10 || x >= 16) {
         return false;
       }
     }
@@ -2492,6 +2564,5 @@ bool MsgMetadata::operator==(const MsgMetadata& other) const {
 bool MsgMetadata::operator!=(const MsgMetadata& other) const {
   return !(*this == other);
 }
-
 
 }  // namespace block

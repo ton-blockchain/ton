@@ -23,31 +23,32 @@
     exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 */
-#include "td/utils/filesystem.h"
-#include "td/actor/actor.h"
+#include "adnl/adnl.h"
+#include "auto/tl/lite_api.h"
+#include "auto/tl/ton_api.h"
+#include "auto/tl/ton_api_json.h"
+#include "lite-client/ext-client.h"
 #include "td/actor/MultiPromise.h"
+#include "td/actor/actor.h"
+#include "td/utils/FileLog.h"
 #include "td/utils/OptionParser.h"
+#include "td/utils/Random.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/port/IPAddress.h"
 #include "td/utils/port/path.h"
 #include "td/utils/port/signals.h"
-#include "td/utils/port/IPAddress.h"
-#include "td/utils/Random.h"
-#include "td/utils/FileLog.h"
-#include "git.h"
-#include "auto/tl/ton_api.h"
-#include "auto/tl/lite_api.h"
 #include "tl-utils/lite-utils.hpp"
-#include "auto/tl/ton_api_json.h"
-#include "adnl/adnl.h"
-#include "lite-client/ext-client.h"
+
+#include "git.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
 #endif
-#include "td/utils/overloaded.h"
-
+#include <auto/tl/lite_api.hpp>
 #include <iostream>
 #include <map>
-#include <auto/tl/lite_api.hpp>
+
+#include "td/utils/overloaded.h"
 #include "td/utils/tl_storers.h"
 
 using namespace ton;
@@ -184,7 +185,7 @@ class ProxyLiteserver : public td::actor::Actor {
 
     for (size_t i = 0; i < servers_.size(); ++i) {
       Server& server = servers_[i];
-      server.client = adnl::AdnlExtClient::create(server.config.adnl_id, server.config.addr,
+      server.client = adnl::AdnlExtClient::create(server.config.adnl_id, server.config.hostname,
                                                   std::make_unique<Callback>(actor_id(this), i));
       server.alive = false;
     }
@@ -197,7 +198,7 @@ class ProxyLiteserver : public td::actor::Actor {
     }
     server.alive = ready;
     LOG(WARNING) << (ready ? "Connected to" : "Disconnected from") << " server #" << idx << " ("
-                 << server.config.addr.get_ip_str() << ":" << server.config.addr.get_port() << ")";
+                 << server.config.hostname << ")";
   }
 
   void create_ext_server() {
@@ -295,8 +296,7 @@ class ProxyLiteserver : public td::actor::Actor {
     Server& server = servers_[server_idx];
     LOG(INFO) << "Sending query " << query_info.to_str()
               << (wait_mc_seqno_obj ? PSTRING() << " (wait seqno " << wait_mc_seqno_obj->seqno_ << ")" : "")
-              << ", size=" << data.size() << ", to server #" << server_idx << " (" << server.config.addr.get_ip_str()
-              << ":" << server.config.addr.get_port() << ")";
+              << ", size=" << data.size() << ", to server #" << server_idx << " (" << server.config.hostname << ")";
 
     BlockSeqno wait_mc_seqno = wait_mc_seqno_obj ? wait_mc_seqno_obj->seqno_ : 0;
     wait_mc_seqno = std::max(wait_mc_seqno, last_known_masterchain_seqno_);

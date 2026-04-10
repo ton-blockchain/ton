@@ -17,9 +17,9 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include "block/mc-config.h"
 #include "ton/ton-types.h"
 #include "vm/cells/CellSlice.h"
-#include "block/mc-config.h"
 
 namespace block {
 using td::Ref;

@@ -1,18 +1,20 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 set(TDNET_SOURCE
   td/net/FdListener.cpp
+  td/net/FramedPipe.cpp
+  td/net/Pipe.cpp
   td/net/TcpListener.cpp
   td/net/UdpServer.cpp
 
   td/net/FdListener.h
+  td/net/FramedPipe.h
+  td/net/Pipe.h
   td/net/TcpListener.h
   td/net/UdpServer.h
 )
 
 add_library(tdnet STATIC ${TDNET_SOURCE})
 target_include_directories(tdnet PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
-target_link_libraries(tdnet PUBLIC tdactor)
+target_link_libraries(tdnet PUBLIC tdactor tdutils)
 
 add_executable(tcp_ping_pong example/tcp_ping_pong.cpp)
 target_link_libraries(tcp_ping_pong PRIVATE tdactor tdnet)

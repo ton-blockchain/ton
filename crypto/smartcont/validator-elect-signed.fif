@@ -36,7 +36,7 @@ to_sign signature pubkey ed25519_chksign not abort"Ed25519 signature is invalid"
 ."Provided a valid Ed25519 signature " signature Bx. ." with validator public key " pubkey Bx. cr
 now dup constant query_id ."query_id set to " . cr
 
-<b x{4e73744b} s, query_id 64 u, pubkey B, elect_time 32 u, max_factor 32 u, adnl_addr 256 u, 
+<b x{4e73744b} s, query_id 64 u, pubkey B, elect_time 32 u, max_factor 32 u, adnl_addr 256 u,
   <b signature B, b> ref, b>
 cr ."Message body is " dup <s csr. cr
 

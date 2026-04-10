@@ -18,9 +18,9 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-
 #include <atomic>
+
+#include "td/utils/common.h"
 
 namespace td {
 //NB: holder of the queue holds all responsibility of freeing its nodes

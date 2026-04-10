@@ -1,6 +1,17 @@
 name: MacOS-15 TON build (shared, arm64)
 
-on: [push,workflow_dispatch,workflow_call]
+on:
+  pull_request:
+    branches: [master, testnet]
+    types: [opened, reopened, synchronize, ready_for_review]
+  push:
+    branches: [master, testnet]
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -8,9 +19,27 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
         with:
           submodules: 'recursive'
+
+      - name: Date Stamp
+        shell: bash
+        id: date-stamp
+        run: |
+          echo "timestamp=$(date -u "+%Y%m%d%H%M_%S")" >> "$GITHUB_OUTPUT"
+
+      - name: Create ~/.ccache
+        run: |
+          mkdir -p ~/.ccache
+
+      - name: Cache TON
+        id: cache-ton
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-${{ runner.arch }}-15-shared-ccache-${{ steps.date-stamp.outputs.timestamp }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-15-shared-ccache
 
       - name: Build TON
         run: |
@@ -18,10 +47,14 @@ jobs:
           git submodule update
           cp assembly/native/build-macos-shared.sh .
           chmod +x build-macos-shared.sh
-          ./build-macos-shared.sh -t -a
+          ./build-macos-shared.sh -t -c -o 16.0
+          ccache -sp
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@master
-        with:
-          name: ton-binaries-macos-15
-          path: artifacts
+      - name: Run Tests
+        run: |
+          cd build
+          ctest --output-on-failure --timeout 1800
+
+      - name: Run tonlib integration test
+        run: |
+          ./test/tonlib/integration/test_integration.sh

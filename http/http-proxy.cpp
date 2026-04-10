@@ -25,15 +25,15 @@
 
     Copyright 2019-2020 Telegram Systems LLP
 */
-#include "http/http-server.h"
-#include "http/http-client.h"
-
-#include "td/utils/port/signals.h"
-#include "td/utils/OptionParser.h"
-#include "td/utils/FileLog.h"
-
 #include <algorithm>
 #include <list>
+
+#include "http/http-client.h"
+#include "http/http-server.h"
+#include "td/utils/FileLog.h"
+#include "td/utils/OptionParser.h"
+#include "td/utils/port/signals.h"
+
 #include "git.h"
 
 #if TD_DARWIN || TD_LINUX
@@ -266,7 +266,8 @@ int main(int argc, char *argv[]) {
     SET_VERBOSITY_LEVEL(v);
   });
   p.add_option('V', "version", "shows http-proxy build version", [&]() {
-    std::cout << "http-proxy build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    std::cout << "http-proxy build information: [ Commit: " << GitMetadata::CommitSHA1()
+              << ", Date: " << GitMetadata::CommitDate() << "]\n";
     std::exit(0);
   });
   p.add_option('h', "help", "prints_help", [&]() {

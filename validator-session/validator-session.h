@@ -20,15 +20,12 @@
 
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
-#include "rldp/rldp.h"
-
+#include "auto/tl/lite_api.h"
+#include "catchain/catchain-types.h"
+#include "overlay/overlays.h"
 #include "ton/ton-types.h"
 
-#include "overlay/overlays.h"
-#include "catchain/catchain-types.h"
-
 #include "validator-session-types.h"
-#include "auto/tl/lite_api.h"
 
 namespace ton {
 
@@ -47,7 +44,7 @@ class ValidatorSession : public td::actor::Actor {
     bool is_ok() const {
       return ok_;
     }
-    td::uint32 ok_from() const {
+    double ok_from() const {
       return ok_from_;
     }
     std::string reason() const {
@@ -62,7 +59,7 @@ class ValidatorSession : public td::actor::Actor {
     void set_is_cached(bool value = true) {
       is_cached_ = value;
     }
-    CandidateDecision(td::uint32 ok_from) {
+    CandidateDecision(double ok_from) {
       ok_ = true;
       ok_from_ = ok_from;
     }
@@ -72,7 +69,7 @@ class ValidatorSession : public td::actor::Actor {
 
    private:
     bool ok_ = false;
-    td::uint32 ok_from_ = 0;
+    double ok_from_ = 0;
     std::string reason_;
     td::BufferSlice proof_;
     bool is_cached_ = false;
@@ -93,6 +90,15 @@ class ValidatorSession : public td::actor::Actor {
                                         ValidatorSessionFileHash file_hash,
                                         ValidatorSessionCollatedDataFileHash collated_data_file_hash,
                                         td::Promise<BlockCandidate> promise) = 0;
+    virtual void generate_block_optimistic(BlockSourceInfo source_info, td::BufferSlice prev_block,
+                                           RootHash prev_root_hash, FileHash prev_file_hash,
+                                           td::Promise<GeneratedCandidate> promise) {
+    }
+    virtual void on_optimistic_candidate(BlockSourceInfo source_info, ValidatorSessionRootHash root_hash,
+                                         td::BufferSlice data, td::BufferSlice collated_data, PublicKey prev_source,
+                                         ValidatorSessionRootHash prev_root_hash, td::BufferSlice prev_data,
+                                         td::BufferSlice prev_collated_data) {
+    }
     virtual ~Callback() = default;
   };
 
@@ -109,8 +115,8 @@ class ValidatorSession : public td::actor::Actor {
       catchain::CatChainSessionId session_id, ValidatorSessionOptions opts, PublicKeyHash local_id,
       std::vector<ValidatorSessionNode> nodes, std::unique_ptr<Callback> callback,
       td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-      td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
-      std::string db_suffix, bool allow_unsafe_self_blocks_resync);
+      td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender, td::actor::ActorId<overlay::Overlays> overlays,
+      std::string db_root, std::string db_suffix, bool allow_unsafe_self_blocks_resync);
   virtual ~ValidatorSession() = default;
 };
 

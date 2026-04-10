@@ -18,12 +18,11 @@
 */
 #pragma once
 
-#include "td/actor/core/Context.h"
-
-#include "td/utils/logging.h"
-#include "td/utils/Time.h"
-
 #include <limits>
+
+#include "td/actor/core/Context.h"
+#include "td/utils/Time.h"
+#include "td/utils/logging.h"
 
 namespace td {
 namespace actor {
@@ -43,6 +42,9 @@ class ActorExecuteContext : public Context<ActorExecuteContext> {
   Actor &actor() const {
     CHECK(actor_);
     return *actor_;
+  }
+  Actor *actor_ptr() const {
+    return actor_;
   }
   bool has_flags() const {
     return flags_ != 0;

@@ -17,9 +17,9 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "LoadSpeed.h"
-
 #include "td/utils/format.h"
+
+#include "LoadSpeed.h"
 
 namespace ton {
 void LoadSpeed::add(td::uint64 size, td::Timestamp now) {

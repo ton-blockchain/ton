@@ -15,10 +15,11 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "MicrochunkTree.h"
-#include "Torrent.h"
 #include "vm/cells/CellSlice.h"
 #include "vm/cells/MerkleProof.h"
+
+#include "MicrochunkTree.h"
+#include "Torrent.h"
 
 namespace ton {
 
@@ -91,8 +92,7 @@ void MicrochunkTree::Builder::add_microchunk(td::Slice s) {
 }
 
 MicrochunkTree::MicrochunkTree(td::Ref<vm::Cell> root_proof) : root_proof_(root_proof) {
-  td::Ref<vm::Cell> virt_root = vm::MerkleProof::virtualize(root_proof_, 1);
-  CHECK(!virt_root.is_null());
+  td::Ref<vm::Cell> virt_root = vm::MerkleProof::virtualize(root_proof_).ensure().move_as_ok();
   CHECK(virt_root->get_depth() <= 50);
   total_size_ = MICROCHUNK_SIZE << virt_root->get_depth();
   root_hash_ = virt_root->get_hash().bits();
@@ -188,7 +188,8 @@ td::Result<td::Ref<vm::Cell>> MicrochunkTree::get_proof(td::uint64 l, td::uint64
   if (!torrent.inited_info()) {
     return td::Status::Error("Torrent info is not ready");
   }
-  if (!torrent.get_info().piece_size % MICROCHUNK_SIZE != 0) {
+  // piece_size must be an exact multiple of MICROCHUNK_SIZE
+  if ((torrent.get_info().piece_size % MICROCHUNK_SIZE) != 0) {
     return td::Status::Error("Invalid piece size in torrent");
   }
   td::Ref<vm::Cell> root_raw = vm::CellSlice(vm::NoVm(), root_proof_).prefetch_ref();

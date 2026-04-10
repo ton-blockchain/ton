@@ -16,14 +16,14 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "CyclicBuffer.h"
-
-#include "td/utils/misc.h"
-#include "td/utils/Slice.h"
-
 #include <atomic>
 #include <limits>
 #include <memory>
+
+#include "td/utils/Slice.h"
+#include "td/utils/misc.h"
+
+#include "CyclicBuffer.h"
 
 namespace td {
 namespace detail {

@@ -17,33 +17,31 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "common/refcnt.hpp"
-#include "common/bitstring.h"
-#include "td/utils/HashSet.h"
+#include <iostream>
 
+#include "common/bitstring.h"
+#include "common/refcnt.hpp"
+#include "td/utils/HashSet.h"
+#include "td/utils/Status.h"
 #include "vm/cells/CellHash.h"
 #include "vm/cells/CellTraits.h"
 #include "vm/cells/CellUsageTree.h"
 #include "vm/cells/LevelMask.h"
-#include "vm/cells/VirtualizationParameters.h"
-
-#include "td/utils/Status.h"
-
-#include <iostream>
 
 namespace vm {
 using td::Ref;
 class DataCell;
 
+struct LoadedCell {
+  Ref<DataCell> data_cell;
+  td::uint32 effective_level;
+  CellUsageTree::NodePtr tree_node;  // TODO: inline_vector?
+};
+
 class Cell : public CellTraits {
  public:
   using LevelMask = detail::LevelMask;
-  using VirtualizationParameters = detail::VirtualizationParameters;
-  struct LoadedCell {
-    Ref<DataCell> data_cell;
-    VirtualizationParameters virt;
-    CellUsageTree::NodePtr tree_node;  // TODO: inline_vector?
-  };
+  using LoadedCell = vm::LoadedCell;
 
   using Hash = CellHash;
   static_assert(std::is_standard_layout<Hash>::value, "Cell::Hash is not a standard layout type");
@@ -55,9 +53,11 @@ class Cell : public CellTraits {
   }
 
   // load interface
+  virtual td::Status set_data_cell(Ref<DataCell>&& data_cell) const = 0;
   virtual td::Result<LoadedCell> load_cell() const = 0;
-  virtual Ref<Cell> virtualize(VirtualizationParameters virt) const;
-  virtual td::uint32 get_virtualization() const = 0;
+  virtual Ref<Cell> virtualize(td::uint32 effective_level) const;
+  // Cell is virtualized if its effective level is less than its actual level.
+  virtual bool is_virtualized() const = 0;
   virtual CellUsageTree::NodePtr get_tree_node() const = 0;
   virtual bool is_loaded() const = 0;
 

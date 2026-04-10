@@ -1,0 +1,39 @@
+add_executable(test-scheduler-stop test-scheduler-stop.cpp)
+
+target_link_libraries(test-scheduler-stop PRIVATE
+    tdutils
+    tdactor
+    td-test-main
+)
+
+ton_test(test-scheduler-stop)
+
+add_executable(test-runtime test-runtime.cpp)
+
+target_link_libraries(test-runtime PRIVATE
+    tdutils
+    tdactor
+    td-test-main
+)
+
+ton_test(test-runtime)
+
+add_executable(test-test-scheduler test-test-scheduler.cpp)
+
+target_link_libraries(test-test-scheduler PRIVATE
+    tdutils
+    tdactor
+    td-test-main
+)
+
+ton_test(test-test-scheduler)
+
+add_executable(test-backpressure-queue test-backpressure-queue.cpp)
+
+target_link_libraries(test-backpressure-queue PRIVATE
+    tdutils
+    tdactor
+    td-test-main
+)
+
+ton_test(test-backpressure-queue)

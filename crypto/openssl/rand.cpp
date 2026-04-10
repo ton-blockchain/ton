@@ -16,12 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "openssl/rand.hpp"
-
-#include "td/utils/common.h"
-
-#include <openssl/rand.h>
 #include <openssl/opensslv.h>
+#include <openssl/rand.h>
+
+#include "openssl/rand.hpp"
+#include "td/utils/common.h"
 
 namespace prng {
 int os_get_random_bytes(void *buf, int n);

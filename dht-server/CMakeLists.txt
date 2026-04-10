@@ -1,10 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
-
 set (DHT_SERVER_SOURCE
   dht-server.cpp
   dht-server.hpp

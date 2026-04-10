@@ -16,9 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/port/sleep.h"
-
 #include "td/utils/port/config.h"
+#include "td/utils/port/sleep.h"
 
 #if TD_PORT_POSIX
 #if _POSIX_C_SOURCE >= 199309L

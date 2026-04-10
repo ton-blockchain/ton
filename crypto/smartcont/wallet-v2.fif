@@ -54,10 +54,10 @@ def? body-boc-file { @' body-boc-file file>B B>boc } { comment simple-transfer-b
 constant body-cell
 
 ."Transferring " amount .GR+cc ."to account "
-dest_addr 2dup bounce 7 + .Addr ." = " .addr 
+dest_addr 2dup bounce 7 + .Addr ." = " .addr
 ."seqno=0x" seqno x. ."bounce=" bounce . cr
 ."Body of transfer message is " body-cell <s csr. cr
-  
+
 // create a message
 <b b{01} s, bounce 1 i, b{000} s, dest_addr Addr, amount Gram+cc, 0 9 64 32 + + u,
   body-cell <s 2dup 1 s-fits-with? not rot over 1 i, -rot { drop body-cell ref, } { s, } cond

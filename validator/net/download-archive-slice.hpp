@@ -18,11 +18,11 @@
 */
 #pragma once
 
+#include "adnl/adnl-ext-client.h"
 #include "overlay/overlays.h"
+#include "td/utils/port/FileFd.h"
 #include "ton/ton-types.h"
 #include "validator/validator.h"
-#include "adnl/adnl-ext-client.h"
-#include "td/utils/port/FileFd.h"
 
 namespace ton {
 
@@ -84,4 +84,3 @@ class DownloadArchiveSlice : public td::actor::Actor {
 }  // namespace validator
 
 }  // namespace ton
-

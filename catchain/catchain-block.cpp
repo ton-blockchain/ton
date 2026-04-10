@@ -32,9 +32,9 @@ std::unique_ptr<CatChainBlock> CatChainBlock::create(td::uint32 src, td::uint32 
 }
 
 CatChainBlockImpl::CatChainBlockImpl(td::uint32 src, td::uint32 fork, const PublicKeyHash &src_hash,
-                                     CatChainBlockHeight height, const CatChainBlockHash &hash,
-                                     td::SharedSlice payload, CatChainBlock *prev,
-                                     std::vector<CatChainBlock *> deps, std::vector<CatChainBlockHeight> vt)
+                                     CatChainBlockHeight height, const CatChainBlockHash &hash, td::SharedSlice payload,
+                                     CatChainBlock *prev, std::vector<CatChainBlock *> deps,
+                                     std::vector<CatChainBlockHeight> vt)
     : src_(src)
     , fork_(fork)
     , src_hash_(src_hash)

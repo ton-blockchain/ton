@@ -16,19 +16,16 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/tl_storers.h"
-#include "td/utils/crypto.h"
-#include "td/utils/tl_parsers.h"
-#include "td/utils/Random.h"
-
-#include "td/utils/format.h"
-
-#include "keys/encryptor.h"
-
 #include "auto/tl/ton_api.hpp"
+#include "keys/encryptor.h"
+#include "td/utils/Random.h"
+#include "td/utils/crypto.h"
+#include "td/utils/format.h"
+#include "td/utils/tl_parsers.h"
+#include "td/utils/tl_storers.h"
 
-#include "dht-remote-node.hpp"
 #include "dht-bucket.hpp"
+#include "dht-remote-node.hpp"
 #include "dht.hpp"
 
 //#include <algorithm>

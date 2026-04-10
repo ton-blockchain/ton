@@ -16,19 +16,19 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/logging.h"
-
-#include "ThreadSafeCounter.h"
-#include "td/utils/port/Clocks.h"
-#include "td/utils/port/StdStreams.h"
-#include "td/utils/port/thread_local.h"
-#include "td/utils/Slice.h"
-#include "td/utils/Time.h"
-#include "td/utils/date.h"
-
 #include <atomic>
 #include <cstdlib>
 #include <mutex>
+
+#include "td/utils/Slice.h"
+#include "td/utils/Time.h"
+#include "td/utils/date.h"
+#include "td/utils/logging.h"
+#include "td/utils/port/Clocks.h"
+#include "td/utils/port/StdStreams.h"
+#include "td/utils/port/thread_local.h"
+
+#include "ThreadSafeCounter.h"
 
 #if TD_ANDROID
 #include <android/log.h>
@@ -56,6 +56,16 @@ LogOptions log_options;
 
 TD_THREAD_LOCAL const char *Logger::tag_ = nullptr;
 TD_THREAD_LOCAL const char *Logger::tag2_ = nullptr;
+
+Logger::Logger(LogInterface &log, const LogOptions &options, int log_level)
+    : buffer_(StackAllocator::alloc(BUFFER_SIZE))
+    , log_(log)
+    , sb_(buffer_.as_slice())
+    , options_(options)
+    , log_level_(log_level)
+    , start_at_(Clocks::rdtsc()) {
+  sb_.current_color() = log_.color_for(log_level);
+}
 
 Logger::Logger(LogInterface &log, const LogOptions &options, int log_level, Slice file_name, int line_num,
                Slice comment)
@@ -176,9 +186,8 @@ void TsCerr::enterCritical() {
 void TsCerr::exitCritical() {
   lock_.clear(std::memory_order_release);
 }
-TsCerr::Lock TsCerr::lock_ = ATOMIC_FLAG_INIT;
 
-class DefaultLog : public LogInterface {
+class DefaultLog final : public LogInterface {
  public:
   void append(CSlice slice, int log_level) override {
 #if TD_ANDROID
@@ -236,23 +245,17 @@ class DefaultLog : public LogInterface {
         break;
     }
 #elif !TD_WINDOWS
-    Slice color;
-    switch (log_level) {
-      case VERBOSITY_NAME(FATAL):
-      case VERBOSITY_NAME(ERROR):
-        color = Slice(TC_RED);
-        break;
-      case VERBOSITY_NAME(WARNING):
-        color = Slice(TC_YELLOW);
-        break;
-      case VERBOSITY_NAME(INFO):
-        color = Slice(TC_CYAN);
-        break;
+#define DEFAULTLOG_UNIX_COMMON_CASE
+    td::Slice line = slice;
+    if (!line.empty() && line.back() == '\n') {
+      line = line.substr(0, line.size() - 1);
     }
-    if (!slice.empty() && slice.back() == '\n') {
-      TsCerr() << color << slice.substr(0, slice.size() - 1) << TC_EMPTY "\n";
+
+    auto color = color_for(log_level);
+    if (color != AnsiColor::Disallowed) {
+      TsCerr() << ansi_color_to_str(color) << line << ansi_color_to_str(AnsiColor::Empty) << "\n";
     } else {
-      TsCerr() << color << slice << TC_EMPTY;
+      TsCerr() << line << "\n";
     }
 #else
     // TODO: color
@@ -263,6 +266,25 @@ class DefaultLog : public LogInterface {
     }
   }
   void rotate() override {
+  }
+
+  AnsiColor color_for(int log_level) override {
+#ifdef DEFAULTLOG_UNIX_COMMON_CASE
+    switch (log_level) {
+      case VERBOSITY_NAME(FATAL):
+      case VERBOSITY_NAME(ERROR):
+        return AnsiColor::Red;
+      case VERBOSITY_NAME(WARNING):
+        return AnsiColor::Yellow;
+        break;
+      case VERBOSITY_NAME(INFO):
+        return AnsiColor::Cyan;
+      default:
+        return AnsiColor::Empty;
+    }
+#else
+    return AnsiColor::Disallowed;
+#endif
   }
 };
 static DefaultLog default_log;

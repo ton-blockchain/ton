@@ -15,15 +15,14 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "lexer.h"
-#include "compiler-state.h"
-#include "symtable.h"
-#include <cassert>
+#include "compilation-errors.h"
+#include <cstdint>
+#include <cstring>
 
 namespace tolk {
 
 // By 'chunk' in lexer I mean a token or a list of tokens parsed simultaneously.
 // E.g., when we meet "str", ChunkString is called, it emits tok_string.
-// E.g., when we meet "str"x, ChunkString emits not only tok_string, but tok_string_modifier.
 // E.g., when we meet //, ChunkInlineComment is called, it emits nothing (just skips a line).
 // We store all valid chunks lexers in a prefix tree (LexingTrie), see below.
 struct ChunkLexerBase {
@@ -75,7 +74,7 @@ public:
     }
 
 #ifdef TOLK_DEBUG
-    assert(!cur->val);
+    tolk_assert(!cur->val);
 #endif
     cur->val = val;
   }
@@ -169,29 +168,37 @@ struct ChunkMultilineComment final : ChunkLexerBase {
 };
 
 // A string, starting from "
-// Note, that there are no escape symbols inside: the purpose of strings in Tolk just doesn't need it.
-// After a closing quote, a string modifier may be present, like "Ef8zMzMzMzMzMzMzMzMzMzM0vF"a.
-// If present, it emits a separate tok_string_modifier.
+// In FunC, a string might have ended with a modifier like `"..."c`
+// It's not valid in Tolk, valid is `"...".crc32()` (just methods for `string`)
 struct ChunkString final : ChunkLexerBase {
   bool parse(Lexer* lex) const override {
     const char* str_begin = lex->c_str();
     lex->skip_chars(1);
-    while (!lex->is_eof() && lex->char_at() != '"' && lex->char_at() != '\n') {
-      lex->skip_chars(1);
+    bool end_found = false;
+    while (!lex->is_eof() && !end_found) {
+      switch (lex->char_at()) {
+        case '"':
+          lex->skip_chars(1);
+          end_found = true;
+          break;
+        case '\\':
+          lex->skip_chars(2); // will be unescaped when constructing AST
+          break;
+        case '\0':
+          lex->error("NUL byte inside string literal");
+        case '\n':
+        case '\r':
+          lex->error("string pasts end of line");
+        default:
+          lex->skip_chars(1);
+      }
     }
-    if (lex->char_at() != '"') {
-      lex->error("string extends past end of line");
+    if (!end_found) {
+      lex->error("string pasts end of line");
     }
 
-    std::string_view str_val(str_begin + 1, lex->c_str() - str_begin - 1);
-    lex->skip_chars(1);
+    std::string_view str_val(str_begin, lex->c_str() - str_begin);    // with surrounding quotes
     lex->add_token(tok_string_const, str_val);
-
-    if (std::isalpha(lex->char_at())) {
-      std::string_view modifier_val(lex->c_str(), 1);
-      lex->skip_chars(1);
-      lex->add_token(tok_string_modifier, modifier_val);
-    }
 
     return true;
   }
@@ -203,30 +210,42 @@ struct ChunkMultilineString final : ChunkLexerBase {
   bool parse(Lexer* lex) const override {
     const char* str_begin = lex->c_str();
     lex->skip_chars(3);
-    while (!lex->is_eof()) {
-      if (lex->char_at() == '"' && lex->char_at(1) == '"' && lex->char_at(2) == '"') {
-        break;
+    bool end_found = false;
+    while (!lex->is_eof() && !end_found) {
+      switch (lex->char_at()) {
+        case '"':
+          lex->skip_chars(1);
+          if (lex->char_at() == '"' && lex->char_at(1) == '"') {
+            lex->skip_chars(2);
+            end_found = true;
+          }
+          break;
+        case '\\':
+          lex->skip_chars(2); // will be unescaped when constructing AST
+          break;
+        case '\0':
+          lex->error("NUL byte inside string literal");
+        default:
+          lex->skip_chars(1);
       }
-      lex->skip_chars(1);
     }
-    if (lex->is_eof()) {
-      lex->error("string extends past end of file");
+    if (!end_found) {
+      lex->error("string pasts past end of file");
     }
 
-    std::string_view str_val(str_begin + 3, lex->c_str() - str_begin - 3);
-    lex->skip_chars(3);
+    std::string_view str_val(str_begin, lex->c_str() - str_begin);    // with surrounding quotes
     lex->add_token(tok_string_const, str_val);
     return true;
   }
 };
 
 // An annotation for a function (in the future, for vars also):
-// @inline and others
+// @inline, @test.tags and others
 struct ChunkAnnotation final : ChunkLexerBase {
   bool parse(Lexer* lex) const override {
     const char* str_begin = lex->c_str();
     lex->skip_chars(1);
-    while (std::isalnum(lex->char_at()) || lex->char_at() == '_') {
+    while (std::isalnum(lex->char_at()) || lex->char_at() == '_' || lex->char_at() == '.') {
       lex->skip_chars(1);
     }
 
@@ -238,27 +257,43 @@ struct ChunkAnnotation final : ChunkLexerBase {
 
 // A number, may be a hex one.
 struct ChunkNumber final : ChunkLexerBase {
-  bool parse(Lexer* lex) const override {
+  static bool parse_hex_or_bin(Lexer* lex, bool bin) {
     const char* str_begin = lex->c_str();
-    bool hex = false;
-    if (lex->char_at() == '0' && lex->char_at(1) == 'x') {
-      lex->skip_chars(2);
-      hex = true;
-    }
+    lex->skip_chars(2);     // 0x / 0b
     if (lex->is_eof()) {
       return false;
     }
+
     while (!lex->is_eof()) {
       char c = lex->char_at();
-      if (c >= '0' && c <= '9') {
-        lex->skip_chars(1);
-        continue;
-      }
-      if (!hex) {
+      bool ok = bin
+        ? c == '0' || c == '1'
+        : (c >= '0' && c <= '9') || ((c | 0x20) >= 'a' && (c | 0x20) <= 'f');
+      if (!ok) {
         break;
       }
-      c |= 0x20;
-      if (c < 'a' || c > 'f') {
+      lex->skip_chars(1);
+    }
+
+    std::string_view str_val(str_begin, lex->c_str() - str_begin);
+    lex->add_token(tok_int_const, str_val);
+    return true;
+  }
+
+  bool parse(Lexer* lex) const override {
+    if (lex->char_at() == '0') {
+      if (lex->char_at(1) == 'x') {
+        return parse_hex_or_bin(lex, false);
+      }
+      if (lex->char_at(1) == 'b') {
+        return parse_hex_or_bin(lex, true);
+      }
+    }
+
+    const char* str_begin = lex->c_str();
+    while (!lex->is_eof()) {
+      char c = lex->char_at();
+      if (c < '0' || c > '9') {
         break;
       }
       lex->skip_chars(1);
@@ -328,35 +363,30 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
       case 2:
         if (str == "do") return tok_do;
         if (str == "if") return tok_if;
+        if (str == "is") return tok_is;
+        if (str == "as") return tok_as;
         break;
       case 3:
-        if (str == "int") return tok_int;
         if (str == "var") return tok_var;
         if (str == "fun") return tok_fun;
         if (str == "asm") return tok_asm;
-        if (str == "get") return tok_get;
         if (str == "try") return tok_try;
         if (str == "val") return tok_val;
         break;
       case 4:
         if (str == "else") return tok_else;
         if (str == "true") return tok_true;
-        if (str == "cell") return tok_cell;
         if (str == "null") return tok_null;
-        if (str == "void") return tok_void;
-        if (str == "bool") return tok_bool;
-        if (str == "auto") return tok_auto;
         if (str == "self") return tok_self;
         if (str == "tolk") return tok_tolk;
         if (str == "type") return tok_type;
+        if (str == "lazy") return tok_lazy;
         if (str == "enum") return tok_enum;
         break;
       case 5:
-        if (str == "slice") return tok_slice;
-        if (str == "tuple") return tok_tuple;
         if (str == "const") return tok_const;
         if (str == "false") return tok_false;
-        if (str == "redef") return tok_redef;
+        if (str == "match") return tok_match;
         if (str == "while") return tok_while;
         if (str == "break") return tok_break;
         if (str == "throw") return tok_throw;
@@ -374,15 +404,13 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
         if (str == "export") return tok_export;
         break;
       case 7:
-        if (str == "builder") return tok_builder;
         if (str == "builtin") return tok_builtin;
+        if (str == "private") return tok_private;
         break;
       case 8:
+        if (str == "readonly") return tok_readonly;
         if (str == "continue") return tok_continue;
         if (str == "operator") return tok_operator;
-        break;
-      case 12:
-        if (str == "continuation") return tok_continuation;
         break;
       default:
         break;
@@ -406,7 +434,6 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
     if (TokenType kw_tok = maybe_keyword(str_val)) {
       lex->add_token(kw_tok, str_val);
     } else {
-      G.symbols.lookup_add(str_val);
       lex->add_token(tok_identifier, str_val);
     }
     return true;
@@ -421,9 +448,6 @@ struct ChunkIdentifierInBackticks final : ChunkLexerBase {
     const char* str_begin = lex->c_str();
     lex->skip_chars(1);
     while (!lex->is_eof() && lex->char_at() != '`' && lex->char_at() != '\n') {
-      if (std::isspace(lex->char_at())) { // probably, I'll remove this restriction after rewriting symtable and cur_sym_idx
-        lex->error("an identifier can't have a space in its name (even inside backticks)");
-      }
       lex->skip_chars(1);
     }
     if (lex->char_at() != '`') {
@@ -432,7 +456,6 @@ struct ChunkIdentifierInBackticks final : ChunkLexerBase {
 
     std::string_view str_val(str_begin + 1, lex->c_str() - str_begin - 1);
     lex->skip_chars(1);
-    G.symbols.lookup_add(str_val);
     lex->add_token(tok_identifier, str_val);
     return true;
   }
@@ -457,7 +480,7 @@ struct TolkLanguageGrammar {
       case tok_semver:
         return ChunkSpecialParsing::parse_semver(lex);
       default:
-        assert(false);
+        tolk_assert(false);
         return false;
     }
   }
@@ -524,6 +547,10 @@ struct TolkLanguageGrammar {
     register_token("|=", 2, tok_set_bitwise_or);
     register_token("^=", 2, tok_set_bitwise_xor);
     register_token("->", 2, tok_arrow);
+    register_token("=>", 2, tok_double_arrow);
+    register_token("++", 2, tok_double_plus);
+    register_token("--", 2, tok_double_minus);
+    register_token("??", 2, tok_double_question);
     register_token("<=>", 3, tok_spaceship);
     register_token("~>>", 3, tok_rshiftR);
     register_token("^>>", 3, tok_rshiftC);
@@ -549,11 +576,10 @@ LexingTrie TolkLanguageGrammar::trie;
 //
 
 Lexer::Lexer(const SrcFile* file)
-  : file(file)
+  : file_id(file->file_id)
   , p_start(file->text.data())
   , p_end(p_start + file->text.size())
-  , p_next(p_start)
-  , location(file) {
+  , p_next(p_start) {
   next();
 }
 
@@ -565,13 +591,13 @@ void Lexer::next() {
     }
   }
   if (is_eof()) {
-    add_token(tok_eof, file->text);
+    add_token(tok_eof, "");
   }
   cur_token = tokens_circularbuf[++cur_token_idx & 7];
 }
 
 void Lexer::next_special(TokenType parse_next_as, const char* str_expected) {
-  assert(cur_token_idx == last_token_idx);
+  tolk_assert(cur_token_idx == last_token_idx);
   skip_spaces();
   update_location();
   if (!TolkLanguageGrammar::parse_next_chunk_special(this, parse_next_as)) {
@@ -580,30 +606,34 @@ void Lexer::next_special(TokenType parse_next_as, const char* str_expected) {
   cur_token = tokens_circularbuf[++cur_token_idx & 7];
 }
 
+Lexer::SavedPositionForLookahead Lexer::save_parsing_position() const {
+  return {p_next, cur_token_idx,  cur_token_offset, cur_token};
+}
+
+void Lexer::restore_position(SavedPositionForLookahead saved) {
+  p_next = saved.p_next;
+  cur_token_idx = last_token_idx = saved.cur_token_idx;
+  cur_token_offset = saved.cur_token_offset;
+  cur_token = saved.cur_token;
+}
+
+void Lexer::hack_replace_rshift_with_one_triangle() {
+  // overcome the `>>` problem when parsing generics, leave only `>` here, see comments at usage
+  tolk_assert(cur_token.type == tok_rshift);
+  cur_token = Token(tok_gt, ">");
+  cur_token_offset++;
+}
+
 void Lexer::error(const std::string& err_msg) const {
-  throw ParseError(cur_location(), err_msg);
+  err("{}", err_msg).fire(cur_range());
 }
 
 void Lexer::unexpected(const char* str_expected) const {
-  throw ParseError(cur_location(), "expected " + std::string(str_expected) + ", got `" + std::string(cur_str()) + "`");
+  err("expected {}, got `{}`", str_expected, cur_str()).fire(cur_range());
 }
 
 void lexer_init() {
   TolkLanguageGrammar::init();
-}
-
-// todo #ifdef TOLK_PROFILING
-// As told above, `next()` produces tokens on demand, while AST is being generated.
-// Hence, it's difficult to measure Lexer performance separately.
-// This function can be called just to tick Lexer performance, it just scans all input files.
-// There is no sense to use it in production, but when refactoring and optimizing Lexer, it's useful.
-void lexer_measure_performance(const AllSrcFiles& files_to_just_parse) {
-  for (const SrcFile* file : files_to_just_parse) {
-    Lexer lex(file);
-    while (!lex.is_eof()) {
-      lex.next();
-    }
-  }
 }
 
 }  // namespace tolk

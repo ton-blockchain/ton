@@ -19,9 +19,9 @@
 
 #pragma once
 
-#include "LossSender.h"
-
 #include "td/utils/int_types.h"
+
+#include "LossSender.h"
 
 namespace ton {
 namespace rldp2 {

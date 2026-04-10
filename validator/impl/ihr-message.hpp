@@ -18,9 +18,9 @@
 */
 #pragma once
 
-#include "validator/interfaces/ihr-message.h"
-#include "auto/tl/ton_api.h"
 #include "adnl/utils.hpp"
+#include "auto/tl/ton_api.h"
+#include "validator/interfaces/ihr-message.h"
 
 namespace ton {
 

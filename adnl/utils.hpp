@@ -18,19 +18,19 @@
 */
 #pragma once
 
+#include "common/checksum.h"
+#include "common/errorcode.h"
+#include "common/status.h"
+#include "td/utils/base64.h"
 #include "td/utils/buffer.h"
-#include "td/utils/misc.h"
 #include "td/utils/crypto.h"
 #include "td/utils/format.h"
-#include "td/utils/base64.h"
+#include "td/utils/misc.h"
 #include "tl-utils/tl-utils.hpp"
 
-#include "common/errorcode.h"
-#include "common/checksum.h"
-#include "adnl-node-id.hpp"
-#include "common/status.h"
-#include "adnl-node.h"
 #include "adnl-address-list.hpp"
+#include "adnl-node-id.hpp"
+#include "adnl-node.h"
 
 namespace ton {
 
@@ -41,37 +41,50 @@ inline bool adnl_node_is_older(AdnlNode &a, AdnlNode &b) {
 }
 
 class RateLimiter {
-public:
-  explicit RateLimiter(td::uint32 capacity, double period) : capacity_(capacity), period_(period), remaining_(capacity) {
+ public:
+  explicit RateLimiter(td::uint32 capacity, double period)
+      : period_(period), emission_interval_(make_emission_interval(capacity, period)), ready_at_{-emission_interval_} {
   }
 
   bool take() {
-    while (remaining_ < capacity_ && increment_at_.is_in_past()) {
-      ++remaining_;
-      increment_at_ += period_;
+    const auto now = td::Timestamp::now();
+    auto min_ready_at = now.at() - emission_interval_;
+    if (ready_at_ < min_ready_at) {
+      ready_at_ = min_ready_at;
     }
-    if (remaining_) {
-      --remaining_;
-      if (increment_at_.is_in_past()) {
-        increment_at_ = td::Timestamp::in(period_);
-      }
-      return true;
+    if (ready_at_ > now.at()) {
+      return false;
     }
-    return false;
+    ready_at_ += period_;
+    return true;
   }
 
   td::Timestamp ready_at() const {
-    if (remaining_) {
-      return td::Timestamp::now();
+    const auto now = td::Timestamp::now();
+    if (ready_at_ > now.at()) {
+      return td::Timestamp::at(ready_at_);
     }
-    return increment_at_;
+    return now;
   }
 
-private:
-  td::uint32 capacity_;
+  bool is_full() const {
+    return ready_at_ < td::Timestamp::now().at() - emission_interval_;
+  }
+
+  double period() const {
+    return period_;
+  }
+
+ private:
+  static double make_emission_interval(td::uint32 capacity, double period) {
+    CHECK(capacity >= 1);
+    CHECK(period > 0.0);
+    return static_cast<double>(capacity - 1) * period;
+  }
+
   double period_;
-  td::uint32 remaining_;
-  td::Timestamp increment_at_ = td::Timestamp::never();
+  double emission_interval_;
+  double ready_at_;
 };
 
 }  // namespace adnl

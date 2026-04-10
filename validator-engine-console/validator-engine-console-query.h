@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,29 +14,28 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
 
+#include "keys/keys.hpp"
+#include "td/actor/actor.h"
+#include "td/utils/SharedSlice.h"
 #include "td/utils/Status.h"
+#include "td/utils/base64.h"
 #include "td/utils/buffer.h"
 #include "td/utils/misc.h"
-#include "td/utils/SharedSlice.h"
 #include "td/utils/port/IPAddress.h"
-#include "td/actor/actor.h"
 #include "ton/ton-types.h"
-
-#include "keys/keys.hpp"
-#include "td/utils/base64.h"
 
 class ValidatorEngineConsole;
 
@@ -833,6 +832,30 @@ class AddNetworkAddressQuery : public Query {
   std::vector<td::int32> prio_cats_;
 };
 
+class DelNetworkAddressQuery : public Query {
+ public:
+  DelNetworkAddressQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "del-addr";
+  }
+  static std::string get_help() {
+    return "del-addr <ip> {cats...} {priocats...}\tremoves ip address from address list";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  td::IPAddress addr_;
+  std::vector<td::int32> cats_;
+  std::vector<td::int32> prio_cats_;
+};
+
 class AddNetworkProxyAddressQuery : public Query {
  public:
   AddNetworkProxyAddressQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
@@ -856,6 +879,54 @@ class AddNetworkProxyAddressQuery : public Query {
   td::IPAddress out_addr_;
   td::Bits256 id_;
   td::BufferSlice shared_secret_;
+  std::vector<td::int32> cats_;
+  std::vector<td::int32> prio_cats_;
+};
+
+class AddQuicAddressQuery : public Query {
+ public:
+  AddQuicAddressQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "add-quic-addr";
+  }
+  static std::string get_help() {
+    return "add-quic-addr <ip> {cats...} {priocats...}\tadds quic ip address to address list";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  td::IPAddress addr_;
+  std::vector<td::int32> cats_;
+  std::vector<td::int32> prio_cats_;
+};
+
+class DelQuicAddressQuery : public Query {
+ public:
+  DelQuicAddressQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "del-quic-addr";
+  }
+  static std::string get_help() {
+    return "del-quic-addr <ip> {cats...} {priocats...}\tremoves quic ip address from address list";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  td::IPAddress addr_;
   std::vector<td::int32> cats_;
   std::vector<td::int32> prio_cats_;
 };
@@ -1746,4 +1817,105 @@ class DelFastSyncOverlayClientQuery : public Query {
 
  private:
   td::Bits256 adnl_id_;
+};
+
+class SetShardBlockVerifierConfigQuery : public Query {
+ public:
+  SetShardBlockVerifierConfigQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "set-shard-block-verifier-config";
+  }
+  static std::string get_help() {
+    return "set-shard-block-verifier-config <filename>\tset config for shard block verifier from file <filename>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+};
+
+class ClearShardBlockVerifierConfigQuery : public Query {
+ public:
+  ClearShardBlockVerifierConfigQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "clear-shard-block-verifier-config";
+  }
+  static std::string get_help() {
+    return "clear-shard-block-verifier-config <filename>\treset config for shard block verifier";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};
+
+class ShowShardBlockVerifierConfigQuery : public Query {
+ public:
+  ShowShardBlockVerifierConfigQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "show-shard-block-verifier-config";
+  }
+  static std::string get_help() {
+    return "show-shard-block-verifier-config\tshow config of shard block verifier";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};
+
+class SetConsensusNoncriticalParamsOverridesQuery : public Query {
+ public:
+  SetConsensusNoncriticalParamsOverridesQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "set-consensus-noncritical-params-overrides";
+  }
+  static std::string get_help() {
+    return "set-consensus-noncritical-params-overrides <filename>\tset noncritical params overrides from file";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+};
+
+class GetConsensusNoncriticalParamsOverridesQuery : public Query {
+ public:
+  GetConsensusNoncriticalParamsOverridesQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "get-consensus-noncritical-params-overrides";
+  }
+  static std::string get_help() {
+    return "get-consensus-noncritical-params-overrides\tshow current noncritical params overrides";
+  }
+  std::string name() const override {
+    return get_name();
+  }
 };

@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,41 +14,41 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+
+#include "adnl/adnl-test-loopback-implementation.h"
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
-#include "adnl/adnl-test-loopback-implementation.h"
+#include "catchain/catchain.h"
+#include "common/errorlog.h"
 #include "dht/dht.h"
 #include "overlay/overlays.h"
 #include "td/utils/OptionParser.h"
+#include "td/utils/Random.h"
 #include "td/utils/Time.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/format.h"
-#include "td/utils/port/path.h"
-#include "td/utils/Random.h"
-#include "td/utils/port/signals.h"
-#include "td/utils/port/FileFd.h"
 #include "td/utils/overloaded.h"
-#include "catchain/catchain.h"
-#include "common/errorlog.h"
+#include "td/utils/port/FileFd.h"
+#include "td/utils/port/path.h"
+#include "td/utils/port/signals.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
 #endif
 #include <iostream>
-#include <sstream>
-
 #include <set>
+#include <sstream>
 
 struct Node {
   ton::PublicKeyHash id;
@@ -131,7 +131,7 @@ class CatChainInst : public td::actor::Actor {
       nodes.push_back(ton::catchain::CatChainNode{n.adnl_id, n.id_full});
     }
     catchain_ =
-        ton::catchain::CatChain::create(make_callback(), opts, keyring_, adnl_, overlay_manager_, std::move(nodes),
+        ton::catchain::CatChain::create(make_callback(), opts, keyring_, adnl_, {}, overlay_manager_, std::move(nodes),
                                         nodes_[idx_].id, unique_hash_, std::string(""), "", false);
   }
 
@@ -185,7 +185,14 @@ class CatChainInst : public td::actor::Actor {
   }
 
   void create_fork() {
+    if (height_ == 0 || prev_values_.empty()) {
+      LOG(WARNING) << "Skipping fork, source_id=" << idx_ << ", no blocks yet";
+      return;
+    }
     auto height = height_ - 1;  //td::Random::fast(0, height_ - 1);
+    if (height >= prev_values_.size()) {
+      height = static_cast<td::uint32>(prev_values_.size() - 1);
+    }
     LOG(WARNING) << "Creating fork, source_id=" << idx_ << ", height=" << height;
 
     auto sum = prev_values_[height] + 1;
@@ -254,7 +261,7 @@ int main(int argc, char *argv[]) {
         auto pub1 = pk1.compute_public_key();
         n.adnl_id_full = ton::adnl::AdnlNodeIdFull{pub1};
         n.adnl_id = ton::adnl::AdnlNodeIdShort{pub1.compute_short_id()};
-        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Unit) {});
+        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Result<>) {});
         td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr,
                                 static_cast<td::uint8>(0));
         td::actor::send_closure(network_manager, &ton::adnl::TestLoopbackNetworkManager::add_node_id, n.adnl_id, true,
@@ -264,7 +271,7 @@ int main(int argc, char *argv[]) {
         auto pub2 = pk2.compute_public_key();
         n.id_full = pub2;
         n.id = pub2.compute_short_id();
-        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Unit) {});
+        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Result<>) {});
 
         LOG(DEBUG) << "created node " << n.adnl_id << " " << n.id;
       }

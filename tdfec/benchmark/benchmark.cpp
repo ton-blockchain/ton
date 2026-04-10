@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,28 +14,28 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/benchmark.h"
-#include "td/utils/format.h"
+#include <cstdio>
+
+#include "td/fec/algebra/GaussianElimination.h"
+#include "td/fec/algebra/Octet.h"
+#include "td/fec/algebra/Simd.h"
+#include "td/fec/fec.h"
 #include "td/utils/Random.h"
 #include "td/utils/Time.h"
+#include "td/utils/benchmark.h"
+#include "td/utils/format.h"
 #include "td/utils/tests.h"
-
-#include "td/fec/fec.h"
-#include "td/fec/algebra/Octet.h"
-#include "td/fec/algebra/GaussianElimination.h"
-#include "td/fec/algebra/Simd.h"
-#include <cstdio>
 
 template <class Simd, size_t size = 256>
 class Simd_gf256_from_gf2 : public td::Benchmark {
@@ -202,7 +202,7 @@ class FecBenchmark : public td::Benchmark {
 
       std::vector<td::fec::Symbol> symbols;
       auto parameters = encoder->get_parameters();
-      auto decoder = Decoder::create(parameters);
+      auto decoder = Decoder::create(parameters).move_as_ok();
 
       size_t sent_symbols = 0;
       for (td::uint32 j = 0; j < data_.size() / symbol_size_ * 20; j++) {
@@ -292,9 +292,7 @@ int main(void) {
   bench(FecBenchmark<td::fec::RaptorQEncoder, td::fec::RaptorQDecoder>(512, 20, "RaptorQ"));
 
   bench(FecBenchmark<td::fec::RaptorQEncoder, td::fec::RaptorQDecoder>(200, 1000, "RaptorQ"));
-  bench(FecBenchmark<td::fec::OnlineEncoder, td::fec::OnlineDecoder>(200, 1000, "Online"));
   for (int symbol_size = 32; symbol_size <= 8192; symbol_size *= 2) {
-    bench(FecBenchmark<td::fec::OnlineEncoder, td::fec::OnlineDecoder>(symbol_size, 50000, "Online"));
     bench(FecBenchmark<td::fec::RaptorQEncoder, td::fec::RaptorQDecoder>(symbol_size, 50000, "RaptorQ"));
   }
 

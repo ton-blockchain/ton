@@ -16,17 +16,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "shard.hpp"
-#include "message-queue.hpp"
-#include "validator-set.hpp"
-#include "vm/boc.h"
-#include "td/db/utils/BlobView.h"
-#include "vm/db/StaticBagOfCellsDb.h"
-#include "vm/cellslice.h"
-#include "vm/cells/MerkleUpdate.h"
-#include "block/block-parse.h"
 #include "block/block-auto.h"
+#include "block/block-parse.h"
+#include "td/db/utils/BlobView.h"
 #include "td/utils/filesystem.h"
+#include "vm/boc.h"
+#include "vm/cells/MerkleUpdate.h"
+#include "vm/cellslice.h"
+#include "vm/db/StaticBagOfCellsDb.h"
+
+#include "message-queue.hpp"
+#include "shard.hpp"
 
 #define LAZY_STATE_DESERIALIZE 1
 
@@ -178,7 +178,7 @@ td::Result<Ref<MessageQueue>> ShardStateQ::message_queue() const {
   return Ref<MessageQueue>(Ref<MessageQueueQ>{true, blkid, std::move(out_queue_info)});
 }
 
-td::Status ShardStateQ::apply_block(BlockIdExt newid, td::Ref<BlockData> block) {
+td::Status ShardStateQ::apply_block(BlockIdExt newid, td::Ref<BlockData> block, vm::StoreCellHint* hint) {
   if (block.is_null()) {
     return td::Status::Error(-666, "the block to be applied to a previous state is absent");
   }
@@ -202,10 +202,9 @@ td::Status ShardStateQ::apply_block(BlockIdExt newid, td::Ref<BlockData> block) 
     return td::Status::Error(-666, "invalid shardchain block header for block "s + block->block_id().id.to_str());
   }
   Ref<vm::Cell> update = cs.prefetch_ref(2);  // Merkle update
-  auto next_state_root = vm::MerkleUpdate::apply(root, update);
-  if (next_state_root.is_null()) {
-    return td::Status::Error("cannot apply Merkle update from block "s + block->block_id().id.to_str() +
-                             " to previous state");
+  TRY_RESULT(next_state_root, vm::MerkleUpdate::apply(root, update, hint));
+  if (hint != nullptr && fake_merge_) {
+    hint->prev_state_cells.erase(root->get_hash());
   }
   blkid = block->block_id();
   // boc.reset();  // keep old lazy static bag of cells in case undeserialized branches are inherited by the current state
@@ -376,9 +375,9 @@ td::Status MasterchainStateQ::mc_init() {
 
 td::Status MasterchainStateQ::mc_reinit() {
   auto res = block::ConfigInfo::extract_config(
-      root_cell(), block::ConfigInfo::needStateRoot | block::ConfigInfo::needValidatorSet |
-                       block::ConfigInfo::needShardHashes | block::ConfigInfo::needPrevBlocks |
-                       block::ConfigInfo::needWorkchainInfo);
+      root_cell(), blkid,
+      block::ConfigInfo::needStateRoot | block::ConfigInfo::needValidatorSet | block::ConfigInfo::needShardHashes |
+          block::ConfigInfo::needPrevBlocks | block::ConfigInfo::needWorkchainInfo);
   cur_validators_.reset();
   next_validators_.reset();
   if (res.is_error()) {
@@ -386,16 +385,12 @@ td::Status MasterchainStateQ::mc_reinit() {
   }
   config_ = res.move_as_ok();
   CHECK(config_);
-  CHECK(config_->set_block_id_ext(get_block_id()));
 
-  auto cv_root = config_->get_config_param(35, 34);
-  if (cv_root.not_null()) {
-    TRY_RESULT(validators, block::Config::unpack_validator_set(std::move(cv_root)));
-    cur_validators_ = std::move(validators);
-  }
+  cur_validators_ = config_->get_cur_validator_set();
+
   auto nv_root = config_->get_config_param(37, 36);
   if (nv_root.not_null()) {
-    TRY_RESULT(validators, block::Config::unpack_validator_set(std::move(nv_root)));
+    TRY_RESULT(validators, block::Config::unpack_validator_set(std::move(nv_root), true));
     next_validators_ = std::move(validators);
   }
 
@@ -403,8 +398,8 @@ td::Status MasterchainStateQ::mc_reinit() {
   return td::Status::OK();
 }
 
-td::Status MasterchainStateQ::apply_block(BlockIdExt id, td::Ref<BlockData> block) {
-  auto err = ShardStateQ::apply_block(id, block);
+td::Status MasterchainStateQ::apply_block(BlockIdExt id, td::Ref<BlockData> block, vm::StoreCellHint* hint) {
+  auto err = ShardStateQ::apply_block(id, block, hint);
   if (err.is_error()) {
     return err;
   }
@@ -424,8 +419,9 @@ td::Status MasterchainStateQ::prepare() {
   return mc_reinit();
 }
 
-Ref<ValidatorSet> MasterchainStateQ::compute_validator_set(ShardIdFull shard, const block::ValidatorSet& vset,
-                                                           UnixTime time, CatchainSeqno ccseqno) const {
+Ref<block::ValidatorSet> MasterchainStateQ::compute_validator_set(ShardIdFull shard,
+                                                                  const block::TotalValidatorSet& vset, UnixTime time,
+                                                                  CatchainSeqno ccseqno) const {
   if (!config_) {
     return {};
   }
@@ -434,10 +430,10 @@ Ref<ValidatorSet> MasterchainStateQ::compute_validator_set(ShardIdFull shard, co
   if (nodes.empty()) {
     return {};
   }
-  return Ref<ValidatorSetQ>{true, ccseqno, shard, std::move(nodes)};
+  return Ref<block::ValidatorSet>{true, ccseqno, shard, std::move(nodes)};
 }
 
-Ref<ValidatorSet> MasterchainStateQ::get_validator_set(ShardIdFull shard) const {
+Ref<block::ValidatorSet> MasterchainStateQ::get_validator_set(ShardIdFull shard) const {
   if (!config_ || !cur_validators_) {
     LOG(ERROR) << "MasterchainStateQ::get_validator_set() : no config or no cur_validators";
     return {};
@@ -445,7 +441,8 @@ Ref<ValidatorSet> MasterchainStateQ::get_validator_set(ShardIdFull shard) const 
   return compute_validator_set(shard, *cur_validators_, config_->utime, 0);
 }
 
-Ref<ValidatorSet> MasterchainStateQ::get_validator_set(ShardIdFull shard, UnixTime ts, CatchainSeqno cc_seqno) const {
+Ref<block::ValidatorSet> MasterchainStateQ::get_validator_set(ShardIdFull shard, UnixTime ts,
+                                                              CatchainSeqno cc_seqno) const {
   if (!config_ || !cur_validators_) {
     LOG(ERROR) << "MasterchainStateQ::get_validator_set() : no config or no cur_validators";
     return {};
@@ -454,11 +451,11 @@ Ref<ValidatorSet> MasterchainStateQ::get_validator_set(ShardIdFull shard, UnixTi
   if (nodes.empty()) {
     return {};
   }
-  return Ref<ValidatorSetQ>{true, cc_seqno, shard, std::move(nodes)};
+  return Ref<block::ValidatorSet>{true, cc_seqno, shard, std::move(nodes)};
 }
 
 // next = -1 -> prev, next = 0 -> cur
-Ref<ValidatorSet> MasterchainStateQ::get_total_validator_set(int next) const {
+Ref<block::ValidatorSet> MasterchainStateQ::get_total_validator_set(int next) const {
   if (!config_) {
     LOG(ERROR) << "MasterchainStateQ::get_total_validator_set() : no config";
     return {};
@@ -467,10 +464,10 @@ Ref<ValidatorSet> MasterchainStateQ::get_total_validator_set(int next) const {
   if (nodes.empty()) {
     return {};
   }
-  return Ref<ValidatorSetQ>{true, 0, ton::ShardIdFull{}, std::move(nodes)};
+  return Ref<block::ValidatorSet>{true, 0, ton::ShardIdFull{}, std::move(nodes)};
 }
 
-Ref<ValidatorSet> MasterchainStateQ::get_next_validator_set(ShardIdFull shard) const {
+Ref<block::ValidatorSet> MasterchainStateQ::get_next_validator_set(ShardIdFull shard) const {
   if (!config_ || !cur_validators_) {
     LOG(ERROR) << "MasterchainStateQ::get_next_validator_set() : no config or no cur_validators";
     return {};
@@ -501,11 +498,18 @@ std::vector<Ref<McShardHash>> MasterchainStateQ::get_shards() const {
   return v;
 }
 
-td::Ref<McShardHash> MasterchainStateQ::get_shard_from_config(ShardIdFull shard) const {
+td::Ref<McShardHash> MasterchainStateQ::get_shard_from_config(ShardIdFull shard, bool exact) const {
   if (!config_) {
     return {};
   }
-  return config_->get_shard_hash(shard);
+  return config_->get_shard_hash(shard, exact);
+}
+
+CatchainSeqno MasterchainStateQ::get_shard_cc_seqno(ShardIdFull shard) const {
+  if (!config_) {
+    return std::numeric_limits<CatchainSeqno>::max();
+  }
+  return config_->get_shard_cc_seqno(shard);
 }
 
 bool MasterchainStateQ::rotated_all_shards() const {
@@ -522,6 +526,14 @@ bool MasterchainStateQ::get_old_mc_block_id(ton::BlockSeqno seqno, ton::BlockIdE
 
 bool MasterchainStateQ::check_old_mc_block_id(const ton::BlockIdExt& blkid, bool strict) const {
   return config_ && config_->check_old_mc_block_id(blkid, strict);
+}
+
+td::uint32 MasterchainStateQ::persistent_state_split_depth(WorkchainId workchain_id) const {
+  if (!config_) {
+    return 0;
+  }
+  auto wc_info = config_->get_workchain_info(workchain_id);
+  return wc_info.not_null() ? wc_info->persistent_state_split_depth : 0;
 }
 
 td::uint32 MasterchainStateQ::monitor_min_split_depth(WorkchainId workchain_id) const {

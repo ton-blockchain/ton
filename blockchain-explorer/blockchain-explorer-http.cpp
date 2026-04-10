@@ -25,17 +25,18 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "blockchain-explorer-http.hpp"
-#include "block/block-db.h"
-#include "block/block.h"
-#include "block/block-parse.h"
 #include "block/block-auto.h"
+#include "block/block-db.h"
+#include "block/block-parse.h"
+#include "block/block.h"
+#include "block/mc-config.h"
+#include "td/utils/date.h"
+#include "ton/ton-shard.h"
 #include "vm/boc.h"
 #include "vm/cellops.h"
 #include "vm/cells/MerkleProof.h"
-#include "block/mc-config.h"
-#include "ton/ton-shard.h"
-#include "td/utils/date.h"
+
+#include "blockchain-explorer-http.hpp"
 
 bool local_scripts{false};
 
@@ -132,7 +133,7 @@ HttpAnswer& HttpAnswer::operator<<(MessageCell msg) {
             << "<tr><th>destination</th><td>" << AddressCell{info.dest} << "</td></tr>\n"
             << "<tr><th>lt</th><td>" << info.created_lt << "</td></tr>\n"
             << "<tr><th>time</th><td>" << info.created_at << " (" << time_to_human(info.created_at) << ")</td></tr>\n"
-            << "<tr><th>value</th><td>" << currency_collection.to_str()<< "</td></tr>\n";
+            << "<tr><th>value</th><td>" << currency_collection.to_str() << "</td></tr>\n";
       break;
     }
     default:
@@ -366,13 +367,13 @@ HttpAnswer& HttpAnswer::operator<<(AccountCell acc_c) {
   last_trans_hash.set_zero();
   block::CurrencyCollection balance = block::CurrencyCollection::zero();
   try {
-    auto state_root = vm::MerkleProof::virtualize(acc_c.q_roots[1], 1);
-    if (state_root.is_null()) {
+    auto state_root = vm::MerkleProof::virtualize(acc_c.q_roots[1]);
+    if (state_root.is_error()) {
       abort("account state proof is invalid");
       return *this;
     }
     block::gen::ShardStateUnsplit::Record sstate;
-    if (!(tlb::unpack_cell(std::move(state_root), sstate))) {
+    if (!(tlb::unpack_cell(state_root.move_as_ok(), sstate))) {
       abort("cannot unpack state header");
       return *this;
     }
@@ -416,10 +417,10 @@ HttpAnswer& HttpAnswer::operator<<(AccountCell acc_c) {
                       << acc_c.addr.addr.to_hex() << " must be empty, but it is not");
       return *this;
     }
-  } catch (vm::VmError err) {
+  } catch (vm::VmError& err) {
     abort(PSTRING() << "error while traversing account proof : " << err.get_msg());
     return *this;
-  } catch (vm::VmVirtError err) {
+  } catch (vm::VmVirtError& err) {
     abort(PSTRING() << "virtualization error while traversing account proof : " << err.get_msg());
     return *this;
   }
@@ -474,11 +475,12 @@ HttpAnswer& HttpAnswer::operator<<(BlockHeaderCell head_c) {
   vm::CellSlice cs{vm::NoVm(), head_c.root};
   auto block_id = head_c.block_id;
   try {
-    auto virt_root = vm::MerkleProof::virtualize(head_c.root, 1);
-    if (virt_root.is_null()) {
+    auto r_virt_root = vm::MerkleProof::virtualize(head_c.root);
+    if (r_virt_root.is_error()) {
       abort("invalid merkle proof");
       return *this;
     }
+    auto virt_root = r_virt_root.move_as_ok();
     ton::RootHash vhash{virt_root->get_hash().bits()};
     std::vector<ton::BlockIdExt> prev;
     ton::BlockIdExt mc_blkid;
@@ -535,10 +537,10 @@ HttpAnswer& HttpAnswer::operator<<(BlockHeaderCell head_c) {
     }
     *this << "<tr><th>masterchain block</th><td>" << mc_blkid << "</td></tr>\n"
           << "</table></div>";
-  } catch (vm::VmError err) {
+  } catch (vm::VmError& err) {
     abort(PSTRING() << "error processing header : " << err.get_msg());
     return *this;
-  } catch (vm::VmVirtError err) {
+  } catch (vm::VmVirtError& err) {
     abort(PSTRING() << "error processing header : " << err.get_msg());
     return *this;
   }

@@ -2,14 +2,23 @@
 
 with_tests=false
 with_artifacts=false
-OSX_TARGET=10.15
+with_ccache=false
 
+OSX_TARGET=11.0
 
-while getopts 'tao:' flag; do
+MACOS_MAJOR=0
+if [ "$(uname)" = "Darwin" ]; then
+  MACOS_MAJOR=$(sw_vers -productVersion | cut -d. -f1)
+  export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+  echo "Using SDKROOT=$SDKROOT"
+fi
+
+while getopts 'taco:' flag; do
   case "${flag}" in
     t) with_tests=true ;;
     a) with_artifacts=true ;;
     o) OSX_TARGET=${OPTARG} ;;
+    c) with_ccache=true ;;
     *) break
        ;;
   esac
@@ -19,61 +28,54 @@ if [ ! -d "build" ]; then
   mkdir build
   cd build
 else
-  cd build
+  cd build || exit
   rm -rf .ninja* CMakeCache.txt
 fi
 
 export NONINTERACTIVE=1
-brew install ninja libsodium libmicrohttpd pkg-config automake libtool autoconf gnutls
-brew install llvm@16
+brew install ninja pkg-config automake libtool autoconf gnutls
+export PATH=/usr/local/opt/ccache/libexec:$PATH
 
-if [ -f /opt/homebrew/opt/llvm@16/bin/clang ]; then
-  export CC=/opt/homebrew/opt/llvm@16/bin/clang
-  export CXX=/opt/homebrew/opt/llvm@16/bin/clang++
-else
-  export CC=/usr/local/opt/llvm@16/bin/clang
-  export CXX=/usr/local/opt/llvm@16/bin/clang++
-fi
-export CCACHE_DISABLE=1
-
-if [ ! -d "lz4" ]; then
-  git clone https://github.com/lz4/lz4
-  cd lz4
-  lz4Path=`pwd`
-  git checkout v1.9.4
-  make -j12
-  test $? -eq 0 || { echo "Can't compile lz4"; exit 1; }
-  cd ..
-else
-  lz4Path=$(pwd)/lz4
-  echo "Using compiled lz4"
+if [ "$(uname)" = "Darwin" ]; then
+  if [ "$MACOS_MAJOR" -ge 15 ]; then
+    echo "macOS $MACOS_MAJOR detected -> using AppleClang (Xcode toolchain), NOT llvm@21"
+    export CC="$(xcrun --find clang)"
+    export CXX="$(xcrun --find clang++)"
+  else
+    echo "macOS $MACOS_MAJOR detected -> using Homebrew llvm@21"
+    brew install llvm@21
+    export CC="$(brew --prefix llvm@21)"/bin/clang
+    export CXX="$(brew --prefix llvm@21)"/bin/clang++
+  fi
 fi
 
-brew unlink openssl@1.1
-brew install openssl@3
-brew unlink openssl@3 &&  brew link --overwrite openssl@3
+if [ "$with_ccache" = true ]; then
+  brew install ccache
+  mkdir -p ~/.ccache
+  export CCACHE_DIR=~/.ccache
+  ccache -M 0
+  test $? -eq 0 || { echo "ccache not installed"; exit 1; }
+else
+  export CCACHE_DISABLE=1
+fi
 
 cmake -GNinja -DCMAKE_BUILD_TYPE=Release .. \
--DCMAKE_CXX_FLAGS="-stdlib=libc++" \
--DLZ4_FOUND=1 \
--DLZ4_LIBRARIES=$lz4Path/lib/liblz4.a \
--DLZ4_INCLUDE_DIRS=$lz4Path/lib
+-DCMAKE_CXX_FLAGS="-nostdinc++ -isystem ${SDKROOT}/usr/include/c++/v1 -isystem ${SDKROOT}/usr/include" \
+-DCMAKE_SYSROOT="$(xcrun --show-sdk-path)" \
+-DCMAKE_INSTALL_PREFIX="$(pwd)/install"
 
 test $? -eq 0 || { echo "Can't configure ton"; exit 1; }
 
 if [ "$with_tests" = true ]; then
   ninja storage-daemon storage-daemon-cli blockchain-explorer   \
   tonlib tonlibjson tonlib-cli validator-engine func tolk fift \
-  lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server \
-  http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator \
-  test-ed25519 test-ed25519-crypto test-bigint test-vm test-fift test-cells test-smartcont \
-  test-net test-tdactor test-tdutils test-tonlib-offline test-adnl test-dht test-rldp \
-  test-rldp2 test-catchain test-fec test-tddb test-db test-validator-session-state test-emulator proxy-liteserver
+  lite-client validator-engine-console generate-random-id json2tlo dht-server dht-ping-servers dht-resolve \
+  http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator proxy-liteserver all-tests install
   test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 else
   ninja storage-daemon storage-daemon-cli blockchain-explorer   \
   tonlib tonlibjson tonlib-cli validator-engine func tolk fift \
-  lite-client pow-miner validator-engine-console generate-random-id json2tlo dht-server \
+  lite-client validator-engine-console generate-random-id json2tlo dht-server dht-ping-servers dht-resolve \
   http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator proxy-liteserver
   test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 fi
@@ -98,6 +100,8 @@ if [ "$with_artifacts" = true ]; then
   cp build/http/http-proxy artifacts/
   cp build/rldp-http-proxy/rldp-http-proxy artifacts/
   cp build/dht-server/dht-server artifacts/
+  cp build/dht/dht-ping-servers artifacts/
+  cp build/dht/dht-resolve artifacts/
   cp build/lite-client/lite-client artifacts/
   cp build/validator-engine/validator-engine artifacts/
   cp build/utils/generate-random-id artifacts/
@@ -110,8 +114,3 @@ if [ "$with_artifacts" = true ]; then
   chmod -R +x artifacts/*
 fi
 
-if [ "$with_tests" = true ]; then
-  cd build
-#  ctest --output-on-failure -E "test-catchain|test-actors"
-  ctest --output-on-failure --timeout 1800
-fi

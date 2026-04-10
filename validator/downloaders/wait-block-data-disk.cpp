@@ -16,10 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "wait-block-data-disk.hpp"
-#include "fabric.h"
 #include "adnl/utils.hpp"
 #include "ton/ton-io.hpp"
+
+#include "fabric.h"
+#include "wait-block-data-disk.hpp"
 
 namespace ton {
 
@@ -54,7 +55,8 @@ void WaitBlockDataDisk::start_up() {
 }
 
 void WaitBlockDataDisk::start() {
-  if (handle_->received() && (handle_->id().is_masterchain() ? handle_->inited_proof() : handle_->inited_proof_link())) {
+  if (handle_->received() &&
+      (handle_->id().is_masterchain() ? handle_->inited_proof() : handle_->inited_proof_link())) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<BlockData>> R) {
       if (R.is_error()) {
         td::actor::send_closure(SelfId, &WaitBlockDataDisk::abort_query, R.move_as_error_prefix("db error: "));

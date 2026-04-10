@@ -19,7 +19,6 @@
 #pragma once
 
 #include "td/actor/core/ActorExecuteContext.h"
-
 #include "td/utils/MpscLinkQueue.h"
 
 namespace td {

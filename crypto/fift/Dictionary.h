@@ -17,9 +17,10 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include "vm/box.hpp"
+
 #include "Continuation.h"
 #include "HashMap.h"
-#include "vm/box.hpp"
 
 namespace fift {
 using td::Ref;

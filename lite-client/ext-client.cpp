@@ -14,9 +14,10 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "ext-client.h"
 #include "td/utils/Random.h"
 #include "ton/ton-shard.h"
+
+#include "ext-client.h"
 
 namespace liteclient {
 
@@ -99,12 +100,12 @@ class ExtClientImpl : public ExtClient {
                                       promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
       if (R.is_error() &&
           (R.error().code() == ton::ErrorCode::timeout || R.error().code() == ton::ErrorCode::cancelled)) {
-        td::actor::send_closure(SelfId, &ExtClientImpl::on_server_error, server_idx);
+        td::actor::send_closure(SelfId, &ExtClientImpl::on_server_status, server_idx, false);
       }
       promise.set_result(std::move(R));
     };
     LOG(DEBUG) << "Sending query " << query_info.to_str() << " to server #" << server.idx << " ("
-               << server.config.addr.get_ip_str() << ":" << server.config.addr.get_port() << ")";
+               << server.config.hostname << ")";
     send_closure(server.client, &ton::adnl::AdnlExtClient::send_query, std::move(name), std::move(data), timeout,
                  std::move(P));
   }
@@ -163,18 +164,19 @@ class ExtClientImpl : public ExtClient {
       explicit Callback(td::actor::ActorId<ExtClientImpl> parent, size_t idx) : parent_(std::move(parent)), idx_(idx) {
       }
       void on_ready() override {
+        td::actor::send_closure(parent_, &ExtClientImpl::on_server_status, idx_, true);
       }
       void on_stop_ready() override {
-        td::actor::send_closure(parent_, &ExtClientImpl::on_server_error, idx_);
+        td::actor::send_closure(parent_, &ExtClientImpl::on_server_status, idx_, false);
       }
 
      private:
       td::actor::ActorId<ExtClientImpl> parent_;
       size_t idx_;
     };
-    LOG(INFO) << "Connecting to liteserver #" << server.idx << " (" << server.config.addr.get_ip_str() << ":"
-              << server.config.addr.get_port() << ") for query " << (query_info ? query_info->to_str() : "[none]");
-    server.client = ton::adnl::AdnlExtClient::create(server.config.adnl_id, server.config.addr,
+    LOG(INFO) << "Connecting to liteserver #" << server.idx << " (" << server.config.hostname << ") for query "
+              << (query_info ? query_info->to_str() : "[none]");
+    server.client = ton::adnl::AdnlExtClient::create(server.config.adnl_id, server.config.hostname,
                                                      std::make_unique<Callback>(actor_id(this), server_idx));
   }
 
@@ -199,19 +201,31 @@ class ExtClientImpl : public ExtClient {
       return;
     }
     for (Server& server : servers_) {
-      if (server.timeout && server.timeout.is_in_past()) {
-        LOG(INFO) << "Closing connection to liteserver #" << server.idx << " (" << server.config.addr.get_ip_str()
-                  << ":" << server.config.addr.get_port() << ")";
+      if (!server.timeout) {
+        continue;
+      }
+      if (server.timeout.is_in_past()) {
+        LOG(INFO) << "Closing connection to liteserver #" << server.idx << " (" << server.config.hostname << ")";
         server.client.reset();
         server.alive = false;
         server.ignore_until = {};
+        server.timeout = {};
+      } else {
+        alarm_timestamp().relax(server.timeout);
       }
     }
   }
 
-  void on_server_error(size_t idx) {
-    servers_[idx].alive = false;
-    servers_[idx].ignore_until = td::Timestamp::in(BAD_SERVER_TIMEOUT);
+  void on_server_status(size_t idx, bool ok) {
+    if (ok) {
+      if (connect_to_all_) {
+        servers_[idx].alive = true;
+        servers_[idx].ignore_until = td::Timestamp::never();
+      }
+    } else {
+      servers_[idx].alive = false;
+      servers_[idx].ignore_until = td::Timestamp::in(BAD_SERVER_TIMEOUT);
+    }
   }
 };
 

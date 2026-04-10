@@ -16,8 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "adnl-ext-server.hpp"
 #include "keys/encryptor.h"
+
+#include "adnl-ext-server.hpp"
 #include "utils.hpp"
 
 namespace ton {
@@ -31,7 +32,7 @@ td::Status AdnlInboundConnection::process_packet(td::BufferSlice data) {
       td::PromiseCreator::lambda([SelfId = actor_id(this), query_id = f->query_id_](td::Result<td::BufferSlice> R) {
         if (R.is_error()) {
           auto S = R.move_as_error();
-          LOG(WARNING) << "failed ext query: " << S;
+          LOG(INFO) << "failed ext query: " << S;
         } else {
           auto B = create_tl_object<ton_api::adnl_message_answer>(query_id, R.move_as_ok());
           td::actor::send_closure(SelfId, &AdnlInboundConnection::send, serialize_tl_object(B, true));
@@ -65,9 +66,10 @@ void AdnlInboundConnection::inited_crypto(td::Result<td::BufferSlice> R) {
     stop();
     return;
   }
-  auto S = init_crypto(R.move_as_ok().as_slice());
+  auto init_data = R.move_as_ok();
+  auto S = init_crypto(init_data.as_slice());
   if (S.is_error()) {
-    LOG(ERROR) << "failed to init crypto (2): " << R.move_as_error();
+    LOG(ERROR) << "failed to init crypto (2): " << S;
     stop();
     return;
   }
@@ -94,6 +96,9 @@ td::Status AdnlInboundConnection::process_custom_packet(td::BufferSlice &data, b
         return td::Status::Error(ErrorCode::protoviolation, "duplicate authenticate");
       }
       auto f = F.move_as_ok();
+      if (f->nonce_.size() == 0 || f->nonce_.size() > 512) {
+        return td::Status::Error(ErrorCode::protoviolation, "bad nonce size");
+      }
       nonce_ = td::SecureString{f->nonce_.size() + 256};
       nonce_.as_mutable_slice().truncate(f->nonce_.size()).copy_from(f->nonce_.as_slice());
       td::Random::secure_bytes(nonce_.as_mutable_slice().remove_prefix(f->nonce_.size()));

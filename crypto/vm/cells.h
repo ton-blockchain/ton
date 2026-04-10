@@ -60,4 +60,3 @@
 // cell_i.level_mask = <default>
 // cell_i.ref[j] = cell.ref[j]_(i+1)
 // cell_i.depth = max_j(1 + cell_i.ref[j].depth)
-

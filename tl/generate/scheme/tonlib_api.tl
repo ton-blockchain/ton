@@ -57,7 +57,7 @@ raw.message hash:bytes source:accountAddress destination:accountAddress value:in
 raw.transaction address:accountAddress utime:int53 data:bytes transaction_id:internal.transactionId fee:int64 storage_fee:int64 other_fee:int64 in_msg:raw.message out_msgs:vector<raw.message> = raw.Transaction;
 raw.transactions transactions:vector<raw.transaction> previous_transaction_id:internal.transactionId = raw.Transactions;
 
-raw.extMessageInfo hash:bytes = raw.ExtMessageInfo;
+raw.extMessageInfo hash:bytes hash_norm:bytes = raw.ExtMessageInfo;
 
 pchan.config alice_public_key:string alice_address:accountAddress bob_public_key:string bob_address:accountAddress init_timeout:int32 close_timeout:int32 channel_id:int64 = pchan.Config;
 
@@ -228,7 +228,11 @@ blocks.header id:ton.blockIdExt global_id:int32 version:int32 flags:# after_merg
 //blocks.shortData header:blocks.Header transactions:blocks.Header = blocks.BlockData;
 
 blocks.signature node_id_short:int256 signature:bytes = blocks.Signature;
+
 blocks.blockSignatures id:ton.blockIdExt signatures:(vector blocks.signature) = blocks.BlockSignatures;
+blocks.blockSignatures.simplex id:ton.blockIdExt signatures:(vector blocks.signature)
+    session_id:int256 slot:int32 candidate:bytes = blocks.BlockSignatures;
+
 blocks.shardBlockLink id:ton.blockIdExt proof:bytes = blocks.ShardBlockLink;
 blocks.blockLinkBack to_key_block:Bool from:ton.blockIdExt to:ton.blockIdExt dest_proof:bytes proof:bytes state_proof:bytes = blocks.BlockLinkBack;
 blocks.shardBlockProof from:ton.blockIdExt mc_id:ton.blockIdExt links:(vector blocks.shardBlockLink) mc_proof:(vector blocks.blockLinkBack) = blocks.ShardBlockProof;

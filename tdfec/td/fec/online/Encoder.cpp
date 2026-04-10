@@ -16,9 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/fec/online/Encoder.h"
-
 #include "td/fec/common/SymbolsView.h"
+#include "td/fec/online/Encoder.h"
 
 namespace td {
 namespace online_code {

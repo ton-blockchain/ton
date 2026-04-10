@@ -18,10 +18,10 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-
 #include <array>
 #include <iterator>
+
+#include "td/utils/common.h"
 
 namespace td {
 

@@ -16,9 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "tl_file_outputer.h"
-
 #include <cassert>
+
+#include "tl_file_outputer.h"
 
 namespace td {
 namespace tl {

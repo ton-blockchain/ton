@@ -16,15 +16,15 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "WalletV3.h"
-#include "GenericAccount.h"
-#include "SmartContractCode.h"
+#include <limits>
 
+#include "td/utils/base64.h"
 #include "vm/boc.h"
 #include "vm/cells/CellString.h"
-#include "td/utils/base64.h"
 
-#include <limits>
+#include "GenericAccount.h"
+#include "SmartContractCode.h"
+#include "WalletV3.h"
 
 namespace ton {
 td::Result<td::Ref<vm::Cell>> WalletV3::make_a_gift_message(const td::Ed25519::PrivateKey& private_key,

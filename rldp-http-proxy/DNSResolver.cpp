@@ -23,9 +23,10 @@
     exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 */
-#include "DNSResolver.h"
-#include "td/utils/overloaded.h"
 #include "common/delay.h"
+#include "td/utils/overloaded.h"
+
+#include "DNSResolver.h"
 
 static const double CACHE_TIMEOUT_HARD = 300.0;
 static const double CACHE_TIMEOUT_SOFT = 270.0;
@@ -78,19 +79,18 @@ void DNSResolver::resolve(std::string host, td::Promise<std::string> promise) {
     auto obj = R.move_as_ok();
     std::string result;
     if (!obj->entries_.empty()) {
-      tonlib_api::downcast_call(*obj->entries_[0]->entry_,
-                                td::overloaded(
-                                    [&](tonlib_api::dns_entryDataAdnlAddress &x) {
-                                      auto R = ton::adnl::AdnlNodeIdShort::parse(x.adnl_address_->adnl_address_);
-                                      if (R.is_ok()) {
-                                        ton::adnl::AdnlNodeIdShort id = R.move_as_ok();
-                                        result = id.serialize() + ".adnl";
-                                      }
-                                    },
-                                    [&](tonlib_api::dns_entryDataStorageAddress &x) {
-                                      result = td::to_lower(x.bag_id_.to_hex()) + ".bag";
-                                    },
-                                    [&](auto &x) {}));
+      tonlib_api::downcast_call(
+          *obj->entries_[0]->entry_,
+          td::overloaded(
+              [&](tonlib_api::dns_entryDataAdnlAddress &x) {
+                auto R = ton::adnl::AdnlNodeIdShort::parse(x.adnl_address_->adnl_address_);
+                if (R.is_ok()) {
+                  ton::adnl::AdnlNodeIdShort id = R.move_as_ok();
+                  result = id.serialize() + ".adnl";
+                }
+              },
+              [&](tonlib_api::dns_entryDataStorageAddress &x) { result = td::to_lower(x.bag_id_.to_hex()) + ".bag"; },
+              [&](auto &x) {}));
     }
     if (result.empty()) {
       if (promise) {

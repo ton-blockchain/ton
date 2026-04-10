@@ -16,23 +16,21 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "accept-block.hpp"
 #include "adnl/utils.hpp"
+#include "block/block-auto.h"
+#include "block/block-parse.h"
+#include "block/block.h"
 #include "interfaces/validator-manager.h"
-#include "ton/ton-tl.hpp"
 #include "ton/ton-io.hpp"
-
-#include "fabric.h"
-#include "top-shard-descr.hpp"
-
+#include "ton/ton-tl.hpp"
+#include "validator/invariants.hpp"
+#include "vm/boc.h"
 #include "vm/cells.h"
 #include "vm/cells/MerkleProof.h"
-#include "vm/boc.h"
-#include "block/block.h"
-#include "block/block-parse.h"
-#include "block/block-auto.h"
 
-#include "validator/invariants.hpp"
+#include "accept-block.hpp"
+#include "fabric.h"
+#include "top-shard-descr.hpp"
 
 namespace ton {
 
@@ -40,15 +38,14 @@ namespace validator {
 using namespace std::literals::string_literals;
 
 AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                                   td::Ref<ValidatorSet> validator_set, td::Ref<BlockSignatureSet> signatures,
-                                   td::Ref<BlockSignatureSet> approve_signatures, int send_broadcast_mode, bool apply,
+                                   td::Ref<block::ValidatorSet> validator_set,
+                                   td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode, bool apply,
                                    td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
     , prev_(std::move(prev))
     , validator_set_(std::move(validator_set))
     , signatures_(std::move(signatures))
-    , approve_signatures_(std::move(approve_signatures))
     , is_fake_(false)
     , is_fork_(false)
     , send_broadcast_mode_(send_broadcast_mode)
@@ -56,45 +53,47 @@ AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::
     , manager_(manager)
     , promise_(std::move(promise))
     , perf_timer_("acceptblock", 0.1, [manager](double duration) {
-        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "acceptblock", duration);
-      }) {
+      send_closure(manager, &ValidatorManager::add_perf_timer_stat, "acceptblock", duration);
+    }) {
   state_keep_old_hash_.clear();
   state_old_hash_.clear();
   state_hash_.clear();
-  CHECK(prev_.size() > 0);
 }
 
 AcceptBlockQuery::AcceptBlockQuery(AcceptBlockQuery::IsFake fake, BlockIdExt id, td::Ref<BlockData> data,
-                                   std::vector<BlockIdExt> prev, td::Ref<ValidatorSet> validator_set,
+                                   std::vector<BlockIdExt> prev, td::Ref<block::ValidatorSet> validator_set,
                                    td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
     , prev_(std::move(prev))
     , validator_set_(std::move(validator_set))
+    , signatures_(block::BlockSignatureSet::create_ordinary(std::vector<BlockSignature>{},
+                                                            validator_set_->get_catchain_seqno(),
+                                                            validator_set_->get_validator_set_hash()))
     , is_fake_(true)
     , is_fork_(false)
     , manager_(manager)
     , promise_(std::move(promise))
     , perf_timer_("acceptblock", 0.1, [manager](double duration) {
-        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "acceptblock", duration);
-      }) {
+      send_closure(manager, &ValidatorManager::add_perf_timer_stat, "acceptblock", duration);
+    }) {
   state_keep_old_hash_.clear();
   state_old_hash_.clear();
   state_hash_.clear();
-  CHECK(prev_.size() > 0);
 }
 
 AcceptBlockQuery::AcceptBlockQuery(ForceFork ffork, BlockIdExt id, td::Ref<BlockData> data,
                                    td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
+    , signatures_(block::BlockSignatureSet::create_ordinary(std::vector<BlockSignature>{}, 0, 0))
     , is_fake_(true)
     , is_fork_(true)
     , manager_(manager)
     , promise_(std::move(promise))
     , perf_timer_("acceptblock", 0.1, [manager](double duration) {
-        send_closure(manager, &ValidatorManager::add_perf_timer_stat, "acceptblock", duration);
-      }) {
+      send_closure(manager, &ValidatorManager::add_perf_timer_stat, "acceptblock", duration);
+    }) {
   state_keep_old_hash_.clear();
   state_old_hash_.clear();
   state_hash_.clear();
@@ -131,7 +130,7 @@ bool AcceptBlockQuery::precheck_header() {
   if (res.is_error()) {
     return fatal_error("invalid block header in AcceptBlock: "s + res.to_string());
   }
-  if (is_fork_) {
+  if (prev_.size() == 0) {
     prev_ = prev;
   } else if (prev_ != prev) {
     return fatal_error("invalid previous block reference(s) in block header");
@@ -200,7 +199,7 @@ bool AcceptBlockQuery::create_new_proof() {
     return fatal_error("non-masterchain block header of "s + id_.to_str() + " announces this block to be a key block");
   }
   // 3. check state update
-  vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
+  vm::CellSlice upd_cs{vm::NoVm(), blk.state_update};
   if (!(upd_cs.is_special() && upd_cs.prefetch_long(8) == 4  // merkle update
         && upd_cs.size_ext() == 0x20228)) {
     return fatal_error("invalid Merkle update in block");
@@ -224,10 +223,11 @@ bool AcceptBlockQuery::create_new_proof() {
     }
   }
   // 5. finish constructing Merkle proof from visited cells
-  auto proof = vm::MerkleProof::generate(block_root_, usage_tree.get());
-  if (proof.is_null()) {
+  auto r_proof = vm::MerkleProof::generate(block_root_, usage_tree.get());
+  if (r_proof.is_error()) {
     return fatal_error("cannot create proof");
   }
+  auto proof = r_proof.move_as_ok();
   proof_roots_.push_back(proof);
   // 6. extract some information from state update
   state_old_hash_ = upd_cs.prefetch_ref(0)->get_hash(0).bits();
@@ -246,9 +246,13 @@ bool AcceptBlockQuery::create_new_proof() {
     }
   }
   // 7. check signatures
-  td::Result<td::uint64> sign_chk;
   if (!is_fake_) {
-    sign_chk = validator_set_->check_signatures(id_.root_hash, id_.file_hash, signatures_);
+    td::Result<td::uint64> sign_chk;
+    if (signatures_->is_final()) {
+      sign_chk = signatures_->check_signatures(validator_set_, id_);
+    } else {
+      sign_chk = signatures_->check_approve_signatures(validator_set_, id_);
+    }
     if (sign_chk.is_error()) {
       auto err = sign_chk.move_as_error();
       VLOG(VALIDATOR_WARNING) << "signature check failed : " << err.to_string();
@@ -256,33 +260,30 @@ bool AcceptBlockQuery::create_new_proof() {
       return false;
     }
   }
-  // 8. serialize signatures
-  if (!is_fake_) {
-    vm::CellBuilder cb2;
-    Ref<vm::Cell> sign_cell;
-    if (!(cb2.store_long_bool(0x11, 8)  // block_signatures#11
-          && cb2.store_long_bool(validator_set_->get_validator_set_hash(),
-                                 32)  // validator_info$_ validator_set_hash_short:uint32
-          && cb2.store_long_bool(validator_set_->get_catchain_seqno(),
-                                 32)                         //   validator_set_ts:uint32 = ValidatorInfo
-          && cb2.store_long_bool(signatures_->size(), 32)    // sig_count:uint32
-          && cb2.store_long_bool(sign_chk.move_as_ok(), 64)  // sig_weight:uint32
-          && signatures_->serialize_to(sign_cell)            // (HashmapE 16 CryptoSignaturePair)
-          && cb2.store_maybe_ref(std::move(sign_cell)) && cb2.finalize_to(signatures_cell_))) {
-      return fatal_error("cannot serialize BlockSignatures for the newly-accepted block");
-    }
-  } else {  // FAKE
-    vm::CellBuilder cb2;
-    if (!(cb2.store_long_bool(0x11, 8)  // block_signatures#11
-          && cb2.store_long_bool(validator_set_.not_null() ? validator_set_->get_validator_set_hash() : 0,
-                                 32)  // validator_info$_ validator_set_hash_short:uint32
-          && cb2.store_long_bool(validator_set_.not_null() ? validator_set_->get_catchain_seqno() : 0,
-                                 32)     //   validator_set_ts:uint32 = ValidatorInfo
-          && cb2.store_long_bool(0, 32)  // sig_count:uint32
-          && cb2.store_long_bool(0, 64)  // sig_weight:uint32
-          && cb2.store_bool_bool(false)  // (HashmapE 16 CryptoSignaturePair)
-          && cb2.finalize_to(signatures_cell_))) {
-      return fatal_error("cannot serialize fake BlockSignatures for the newly-accepted block");
+  if (signatures_->is_final()) {
+    // 8. serialize signatures
+    if (!is_fake_) {
+      vm::CellBuilder cb2;
+      auto r_sign_cell = signatures_->serialize(validator_set_);
+      if (r_sign_cell.is_error()) {
+        abort_query(
+            r_sign_cell.move_as_error_prefix("cannot serialize BlockSignatures for the newly-accepted block: "));
+        return false;
+      }
+      signatures_cell_ = r_sign_cell.move_as_ok();
+    } else {  // FAKE
+      vm::CellBuilder cb2;
+      if (!(cb2.store_long_bool(0x11, 8)  // block_signatures#11
+            && cb2.store_long_bool(validator_set_.not_null() ? validator_set_->get_validator_set_hash() : 0,
+                                   32)  // validator_info$_ validator_set_hash_short:uint32
+            && cb2.store_long_bool(validator_set_.not_null() ? validator_set_->get_catchain_seqno() : 0,
+                                   32)     //   validator_set_ts:uint32
+            && cb2.store_long_bool(0, 32)  // sig_count:uint32
+            && cb2.store_long_bool(0, 64)  // sig_weight:uint32
+            && cb2.store_bool_bool(false)  // (HashmapE 16 CryptoSignaturePair)
+            && cb2.finalize_to(signatures_cell_))) {
+        return fatal_error("cannot serialize fake BlockSignatures for the newly-accepted block");
+      }
     }
   }
   Ref<vm::Cell> bs_cell;
@@ -310,8 +311,11 @@ bool AcceptBlockQuery::create_new_proof() {
   }
   // 10. check resulting object
   if (!block::gen::t_BlockProof.validate_ref(bs_cell)) {
-    block::gen::t_BlockProof.print_ref(std::cerr, bs_cell);
-    vm::load_cell_slice(bs_cell).print_rec(std::cerr);
+    FLOG(WARNING) {
+      sb << "BlockProof object just created failed to pass automated consistency checks: ";
+      block::gen::t_BlockProof.print_ref(sb, bs_cell);
+      vm::load_cell_slice(bs_cell).print_rec(sb);
+    };
     return fatal_error("BlockProof object just created failed to pass automated consistency checks");
   }
   // 11. create a proof object from this cell
@@ -347,6 +351,7 @@ bool AcceptBlockQuery::check_send_error(td::actor::ActorId<AcceptBlockQuery> Sel
 }
 
 void AcceptBlockQuery::finish_query() {
+  VLOG(VALIDATOR_DEBUG) << "finish_query()";
   if (apply_) {
     ValidatorInvariants::check_post_accept(handle_);
   }
@@ -373,16 +378,12 @@ void AcceptBlockQuery::start_up() {
     fatal_error("no real ValidatorSet passed to AcceptBlockQuery");
     return;
   }
-  if (!is_fake_ && signatures_.is_null()) {
-    fatal_error("no real SignatureSet passed to AcceptBlockQuery");
+  if (!is_fake_ && !signatures_->is_final() && is_masterchain()) {
+    fatal_error("no real SignatureSet passed to AcceptBlockQuery for masterchain");
     return;
   }
   if (!is_fake_ && is_fork_) {
     fatal_error("a non-fake AcceptBlockQuery for a forced fork block");
-    return;
-  }
-  if (!is_fork_ && !prev_.size()) {
-    fatal_error("no previous blocks passed to AcceptBlockQuery");
     return;
   }
   if (is_fork_ && !is_masterchain()) {
@@ -391,6 +392,10 @@ void AcceptBlockQuery::start_up() {
   }
   if (is_fork_ && data_.is_null()) {
     fatal_error("cannot accept a fork block without explicit data");
+    return;
+  }
+  if (data_.is_null() && prev_.empty()) {
+    fatal_error("no explicit data and prev blocks provided");
     return;
   }
   if (data_.not_null() && !precheck_header()) {
@@ -408,22 +413,26 @@ void AcceptBlockQuery::start_up() {
 void AcceptBlockQuery::got_block_handle(BlockHandle handle) {
   VLOG(VALIDATOR_DEBUG) << "got_block_handle()";
   handle_ = std::move(handle);
-  if (handle_->received() && handle_->received_state() && handle_->inited_signatures() &&
-      handle_->inited_split_after() && handle_->inited_merge_before() && handle_->inited_prev() &&
-      handle_->inited_logical_time() && handle_->inited_state_root_hash() &&
+  if (handle_->received() && handle_->received_state() &&
+      (handle_->inited_signatures() || !signatures_->is_final() || is_fork_) && handle_->inited_split_after() &&
+      handle_->inited_merge_before() && handle_->inited_prev() && handle_->inited_logical_time() &&
+      handle_->inited_state_root_hash() &&
       (is_masterchain() ? handle_->inited_proof() && handle_->is_applied() && handle_->inited_is_key_block()
-                        : handle_->inited_proof_link())) {
+                        : handle_->inited_proof_link()) &&
+      send_broadcast_mode_ == 0) {
     finish_query();
     return;
-                        }
+  }
   if (data_.is_null()) {
-    td::actor::send_closure(manager_, &ValidatorManager::get_candidate_data_by_block_id_from_db, id_, [SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
-      if (R.is_ok()) {
-        td::actor::send_closure(SelfId, &AcceptBlockQuery::got_block_candidate_data, R.move_as_ok());
-      } else {
-        td::actor::send_closure(SelfId, &AcceptBlockQuery::got_block_handle_cont);
-      }
-    });
+    td::actor::send_closure(manager_, &ValidatorManager::get_candidate_data_by_block_id_from_db, id_,
+                            [SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
+                              if (R.is_ok()) {
+                                td::actor::send_closure(SelfId, &AcceptBlockQuery::got_block_candidate_data,
+                                                        R.move_as_ok());
+                              } else {
+                                td::actor::send_closure(SelfId, &AcceptBlockQuery::got_block_handle_cont);
+                              }
+                            });
   } else {
     got_block_handle_cont();
   }
@@ -445,6 +454,7 @@ void AcceptBlockQuery::got_block_candidate_data(td::BufferSlice data) {
 }
 
 void AcceptBlockQuery::got_block_handle_cont() {
+  VLOG(VALIDATOR_DEBUG) << "got_block_handle_cont()";
   if (data_.not_null() && !handle_->received()) {
     td::actor::send_closure(
         manager_, &ValidatorManager::set_block_data, handle_, data_, [SelfId = actor_id(this)](td::Result<td::Unit> R) {
@@ -457,14 +467,11 @@ void AcceptBlockQuery::got_block_handle_cont() {
 
 void AcceptBlockQuery::written_block_data() {
   VLOG(VALIDATOR_DEBUG) << "written_block_data()";
-  if (handle_->inited_signatures()) {
+  if (handle_->inited_signatures() || !signatures_->is_final() || is_fork_) {
     written_block_signatures();
     return;
   }
-  if (is_fake_) {
-    signatures_ = Ref<BlockSignatureSetQ>(create_signature_set(std::vector<BlockSignature>{}));
-  }
-  td::actor::send_closure(manager_, &ValidatorManager::set_block_signatures, handle_, signatures_,
+  td::actor::send_closure(manager_, &ValidatorManager::set_block_signatures, handle_, signatures_, validator_set_,
                           [SelfId = actor_id(this)](td::Result<td::Unit> R) {
                             check_send_error(SelfId, R) ||
                                 td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::written_block_signatures);
@@ -491,6 +498,17 @@ void AcceptBlockQuery::written_block_signatures() {
 void AcceptBlockQuery::written_block_info() {
   VLOG(VALIDATOR_DEBUG) << "written block info";
   if (data_.not_null()) {
+    block_root_ = data_->root_cell();
+    if (block_root_.is_null()) {
+      fatal_error("block data does not contain a root cell");
+      return;
+    }
+    // generate proof
+    if (!create_new_proof()) {
+      fatal_error("cannot generate proof for block "s + id_.to_str());
+      return;
+    }
+    send_broadcasts();
     if (!apply_) {
       written_state({});
       return;
@@ -500,9 +518,11 @@ void AcceptBlockQuery::written_block_info() {
           td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::got_prev_state, R.move_as_ok());
     });
 
+    VLOG(VALIDATOR_DEBUG) << "wait_prev_block_state";
     td::actor::send_closure(manager_, &ValidatorManager::wait_prev_block_state, handle_, priority(), timeout_,
                             std::move(P));
   } else {
+    VLOG(VALIDATOR_DEBUG) << "wait_block_data";
     td::actor::send_closure(manager_, &ValidatorManager::wait_block_data, handle_, priority(), timeout_,
                             [SelfId = actor_id(this)](td::Result<td::Ref<BlockData>> R) {
                               check_send_error(SelfId, R) ||
@@ -540,7 +560,8 @@ void AcceptBlockQuery::got_prev_state(td::Ref<ShardState> state) {
 
   state_keep_old_hash_ = state_->root_hash();
 
-  auto err = state_.write().apply_block(id_, data_);
+  vm::StoreCellHint hint;
+  auto err = state_.write().apply_block(id_, data_, &hint);
   if (err.is_error()) {
     abort_query(std::move(err));
     return;
@@ -548,7 +569,7 @@ void AcceptBlockQuery::got_prev_state(td::Ref<ShardState> state) {
 
   handle_->set_split(state_->before_split());
 
-  td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, state_,
+  td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, state_, std::move(hint),
                           [SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
                             check_send_error(SelfId, R) ||
                                 td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::written_state, R.move_as_ok());
@@ -559,17 +580,6 @@ void AcceptBlockQuery::written_state(td::Ref<ShardState> upd_state) {
   VLOG(VALIDATOR_DEBUG) << "written state";
   CHECK(data_.not_null());
   state_ = std::move(upd_state);
-
-  block_root_ = data_->root_cell();
-  if (block_root_.is_null()) {
-    fatal_error("block data does not contain a root cell");
-    return;
-  }
-  // generate proof
-  if (!create_new_proof()) {
-    fatal_error("cannot generate proof for block "s + id_.to_str());
-    return;
-  }
 
   if (apply_ && state_keep_old_hash_ != state_old_hash_) {
     fatal_error(PSTRING() << "invalid previous state hash in newly-created proof: expected "
@@ -597,6 +607,10 @@ void AcceptBlockQuery::written_state(td::Ref<ShardState> upd_state) {
 
 void AcceptBlockQuery::written_block_proof() {
   VLOG(VALIDATOR_DEBUG) << "written_block_proof()";
+  if (!signatures_->is_final()) {
+    written_block_next();
+    return;
+  }
   if (!is_masterchain()) {
     td::actor::send_closure(manager_, &ValidatorManager::get_top_masterchain_state_block,
                             [SelfId = actor_id(this)](td::Result<std::pair<td::Ref<MasterchainState>, BlockIdExt>> R) {
@@ -623,7 +637,7 @@ void AcceptBlockQuery::got_last_mc_block(std::pair<td::Ref<MasterchainState>, Bl
     VLOG(VALIDATOR_DEBUG) << "shardchain block refers to newer masterchain block " << mc_blkid_.to_str()
                           << ", trying to obtain it";
     td::actor::send_closure_later(manager_, &ValidatorManager::wait_block_state_short, mc_blkid_, priority(), timeout_,
-                                  [SelfId = actor_id(this)](td::Result<Ref<ShardState>> R) {
+                                  false, [SelfId = actor_id(this)](td::Result<Ref<ShardState>> R) {
                                     check_send_error(SelfId, R) ||
                                         td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::got_mc_state,
                                                                      R.move_as_ok());
@@ -752,11 +766,12 @@ bool AcceptBlockQuery::unpack_proof_link(BlockIdExt id, Ref<ProofLink> proof_lin
     return fatal_error("block proof link is for another block: expected "s + id.to_str() + ", found " +
                        proof_blk_id.to_str());
   }
-  auto virt_root = vm::MerkleProof::virtualize(proof.root, 1);
-  if (virt_root.is_null()) {
+  auto r_virt_root = vm::MerkleProof::virtualize(proof.root);
+  if (r_virt_root.is_error()) {
     return fatal_error("block proof link for block "s + id.to_str() +
                        " does not contain a valid Merkle proof for the block header");
   }
+  auto virt_root = r_virt_root.move_as_ok();
   RootHash virt_hash{virt_root->get_hash().bits()};
   if (virt_hash != id.root_hash) {
     return fatal_error("block proof link for block "s + id.to_str() +
@@ -860,15 +875,12 @@ bool AcceptBlockQuery::create_top_shard_block_description() {
         && (root.is_null() || cb.store_ref_bool(std::move(root))) && cb.finalize_to(td_cell))) {
     return fatal_error("cannot serialize ShardTopBlockDescription for the newly-accepted block "s + id_.to_str());
   }
-  if (false) {
-    // debug output
-    std::cerr << "new ShardTopBlockDescription: ";
-    block::gen::t_TopBlockDescr.print_ref(std::cerr, td_cell);
-    vm::load_cell_slice(td_cell).print_rec(std::cerr);
-  }
   if (!block::gen::t_TopBlockDescr.validate_ref(td_cell)) {
-    block::gen::t_TopBlockDescr.print_ref(std::cerr, td_cell);
-    vm::load_cell_slice(td_cell).print_rec(std::cerr);
+    FLOG(WARNING) {
+      sb << "just created ShardTopBlockDescription is invalid: ";
+      block::gen::t_TopBlockDescr.print_ref(sb, td_cell);
+      vm::load_cell_slice(td_cell).print_rec(sb);
+    };
     return fatal_error("just created ShardTopBlockDescription for "s + id_.to_str() + " is invalid");
   }
   auto res = vm::std_boc_serialize(td_cell, 0);
@@ -888,7 +900,7 @@ void AcceptBlockQuery::create_topshard_blk_descr() {
     fatal_error("cannot generate top shard block description for "s + id_.to_str());
     return;
   }
-  CHECK(top_block_descr_data_.size());
+  CHECK(!top_block_descr_data_.empty());
   td::actor::create_actor<ValidateShardTopBlockDescr>(
       "topshardfetchchk", std::move(top_block_descr_data_), last_mc_id_, BlockHandle{}, last_mc_state_, manager_,
       timeout_, is_fake_,
@@ -935,22 +947,18 @@ void AcceptBlockQuery::written_block_info_2() {
 }
 
 void AcceptBlockQuery::applied() {
+  finish_query();
+}
+
+void AcceptBlockQuery::send_broadcasts() {
   if (send_broadcast_mode_ == 0) {
-    finish_query();
     return;
   }
+  VLOG(VALIDATOR_DEBUG) << "send_broadcasts mode=" << send_broadcast_mode_;
   BlockBroadcast b;
   b.data = data_->data();
   b.block_id = id_;
-  std::vector<BlockSignature> sigs;
-  if (!is_fake_) {
-    for (auto& v : signatures_->signatures()) {
-      sigs.emplace_back(BlockSignature{v.node, v.signature.clone()});
-    }
-  }
-  b.signatures = std::move(sigs);
-  b.catchain_seqno = validator_set_->get_catchain_seqno();
-  b.validator_set_hash = validator_set_->get_validator_set_hash();
+  b.sig_set = signatures_;
   if (is_masterchain()) {
     b.proof = proof_->data();
   } else {
@@ -960,7 +968,10 @@ void AcceptBlockQuery::applied() {
   // do not wait for answer
   td::actor::send_closure_later(manager_, &ValidatorManager::send_block_broadcast, std::move(b), send_broadcast_mode_);
 
-  finish_query();
+  // Do this for shard blocks later:
+  // td::actor::send_closure(manager_, &ValidatorManager::send_block_candidate_broadcast, id_,
+  //                         validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
+  //                         std::move(b.data), send_broadcast_mode_);
 }
 
 }  // namespace validator

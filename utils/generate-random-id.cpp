@@ -25,18 +25,20 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include <iostream>
 #include <iomanip>
+#include <iostream>
 #include <string>
+
 #include "adnl/utils.hpp"
 #include "auto/tl/ton_api.h"
 #include "auto/tl/ton_api_json.h"
-#include "tl/tl_json.h"
+#include "dht/dht-node.hpp"
+#include "keys/encryptor.h"
 #include "td/utils/OptionParser.h"
 #include "td/utils/filesystem.h"
-#include "keys/encryptor.h"
+#include "tl/tl_json.h"
+
 #include "git.h"
-#include "dht/dht-node.hpp"
 
 int main(int argc, char *argv[]) {
   ton::PrivateKey pk;
@@ -59,7 +61,8 @@ int main(int argc, char *argv[]) {
     std::exit(2);
   });
   p.add_option('V', "version", "shows generate-random-id build information", [&]() {
-    std::cout << "generate-random-id build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    std::cout << "generate-random-id build information: [ Commit: " << GitMetadata::CommitSHA1()
+              << ", Date: " << GitMetadata::CommitDate() << "]\n";
     std::exit(0);
   });
   p.add_option('n', "name", "path to save private keys to", [&](td::Slice arg) { name = arg.str(); });
@@ -79,6 +82,19 @@ int main(int argc, char *argv[]) {
 
     td::BufferSlice bs(key);
     TRY_RESULT_PREFIX(as_json_value, td::json_decode(bs.as_slice()), "bad addr list JSON: ");
+    ton::tl_object_ptr<ton::ton_api::adnl_addressList> addr_list_tl;
+    TRY_STATUS_PREFIX(td::from_json(addr_list_tl, std::move(as_json_value)), "bad addr list TL: ");
+    TRY_RESULT_PREFIX_ASSIGN(addr_list, ton::adnl::AdnlAddressList::create(addr_list_tl), "bad addr list: ");
+    return td::Status::OK();
+  });
+  p.add_checked_option('f', "path to file with addr-list", "addr list to sign", [&](td::Slice key) {
+    if (addr_list) {
+      return td::Status::Error("duplicate '-f' option");
+    }
+
+    td::BufferSlice bs(key);
+    TRY_RESULT_PREFIX(data, td::read_file(key.str()), "failed to read addr-list: ");
+    TRY_RESULT_PREFIX(as_json_value, td::json_decode(data.as_slice()), "bad addr list JSON: ");
     ton::tl_object_ptr<ton::ton_api::adnl_addressList> addr_list_tl;
     TRY_STATUS_PREFIX(td::from_json(addr_list_tl, std::move(as_json_value)), "bad addr list TL: ");
     TRY_RESULT_PREFIX_ASSIGN(addr_list, ton::adnl::AdnlAddressList::create(addr_list_tl), "bad addr list: ");

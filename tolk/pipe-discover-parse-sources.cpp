@@ -23,42 +23,49 @@
     exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 */
-#include "tolk.h"
 #include "ast.h"
-#include "ast-from-tokens.h"
+#include "compilation-errors.h"
 #include "compiler-state.h"
+#include "td/utils/PathView.h"
+
+/*
+ *   This is the starting point of compilation pipeline.
+ *   It parses Tolk files to AST, analyzes `import` statements and loads/parses imported files.
+ *
+ *   When it finishes, all files have been parsed to AST, and no more files will later be added.
+ *   If a parsing error happens (invalid syntax), an exception is thrown immediately from ast-from-tokens.cpp.
+ */
 
 namespace tolk {
 
-AllSrcFiles pipeline_discover_and_parse_sources(const std::string& stdlib_filename, const std::string& entrypoint_filename) {
-  G.all_src_files.locate_and_register_source_file(stdlib_filename, {});
-  G.all_src_files.locate_and_register_source_file(entrypoint_filename, {});
+AnyV parse_src_file_to_ast(const SrcFile* file);
+
+void pipeline_discover_and_parse_sources(const std::string& stdlib_filename, const std::string& entrypoint_filename) {
+  G.all_src_files.locate_and_register_source_file(stdlib_filename, nullptr);
+  G.all_src_files.locate_and_register_source_file(entrypoint_filename, nullptr);
+  if (G.all_src_files.size() == 1) {
+    throw Fatal("entrypoint file resolves to stdlib file");
+  }
 
   while (SrcFile* file = G.all_src_files.get_next_unparsed_file()) {
     tolk_assert(!file->ast);
 
     file->ast = parse_src_file_to_ast(file);
-    // file->ast->debug_print();
+    // if (!file->is_stdlib_file) file->ast->debug_print();
 
     for (AnyV v_toplevel : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
-      if (auto v_import = v_toplevel->try_as<ast_import_statement>()) {
+      if (auto v_import = v_toplevel->try_as<ast_import_directive>()) {
         std::string imported_str = v_import->get_file_name();
-        size_t cur_slash_pos = file->rel_filename.rfind('/');
-        std::string rel_filename = cur_slash_pos == std::string::npos || imported_str[0] == '@'
+        std::string rel_filename = imported_str[0] == '@' || td::PathView(td::Slice(imported_str)).is_absolute()
           ? std::move(imported_str)
-          : file->rel_filename.substr(0, cur_slash_pos + 1) + imported_str;
+          : file->extract_dirname() + imported_str;
 
-        SrcFile* imported = G.all_src_files.locate_and_register_source_file(rel_filename, v_import->loc);
-        file->imports.push_back(SrcFile::ImportStatement{imported});
-        v_import->mutate_set_src_file(imported);
+        const SrcFile* imported = G.all_src_files.locate_and_register_source_file(rel_filename, v_import->get_file_leaf());
+        file->imports.push_back(SrcFile::ImportDirective{imported});
+        v_import->mutate()->assign_src_file(imported);
       }
     }
   }
-
-  // todo #ifdef TOLK_PROFILING
-  // lexer_measure_performance(G.all_src_files.get_all_files());
-
-  return G.all_src_files.get_all_files();
 }
 
 } // namespace tolk

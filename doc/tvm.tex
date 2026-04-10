@@ -138,7 +138,7 @@ The following notation is used for bit strings (or {\em bitstrings\/})---i.e., f
 When the length of a bitstring is a multiple of four, we subdivide it into groups of four bits and represent each group by one of sixteen hexadecimal digits \texttt{0}--\texttt{9}, \texttt{A}--\texttt{F} in the usual manner: $\texttt{0}_{16}\leftrightarrow\texttt{0000}$, $\texttt{1}_{16}\leftrightarrow\texttt{0001}$, \dots, $\texttt{F}_{16}\leftrightarrow\texttt{1111}$. The resulting hexadecimal string is our equivalent representation for the original binary string.
 
 \nxsubpoint\emb{Bitstrings of lengths not divisible by four}
-If the length of a binary string is not divisible by four, we augment it by one \texttt{1} and several (maybe zero) \texttt{0}s at the end, so that its length becomes divisible by four, and then transform it into a string of hexadecimal digits as described above. To indicate that such a transformation has taken place, a special ``completion tag'' \texttt{\_} is added to the end of the hexadecimal string. The reverse transformation (applied if the completion tag is present) consists in first replacing each hexadecimal digit by four corresponding bits, and then removing all trailing zeroes (if any) and the last \texttt{1} immediately preceding them (if the resulting bitstring is non-empty at this point). 
+If the length of a binary string is not divisible by four, we augment it by one \texttt{1} and several (maybe zero) \texttt{0}s at the end, so that its length becomes divisible by four, and then transform it into a string of hexadecimal digits as described above. To indicate that such a transformation has taken place, a special ``completion tag'' \texttt{\_} is added to the end of the hexadecimal string. The reverse transformation (applied if the completion tag is present) consists in first replacing each hexadecimal digit by four corresponding bits, and then removing all trailing zeroes (if any) and the last \texttt{1} immediately preceding them (if the resulting bitstring is non-empty at this point).
 
 Notice that there are several admissible hexadecimal representations for the same bitstring. Among them, the shortest one is ``canonical''. It can be deterministically obtained by the above procedure.
 
@@ -416,7 +416,7 @@ When the reference counter of a TVM object becomes zero (for example, because th
 \nxsubpoint\label{sp:no.refs}\emb{Transparency of the implementation: Stack values are ``values'', not ``references''}
 Regardless of the implementation details just discussed, all stack values are really ``values'', not ``references'', from the perspective of the TVM programmer, similarly to the values of all types in functional programming languages. Any attempt to modify an existing object referred to from any other objects or stack locations will result in a transparent replacement of this object by its perfect copy before the modification is actually performed.
 
-In other words, the programmer should always act as if the objects themselves were directly manipulated by stack, arithmetic, and other data transformation primitives, and treat the previous discussion only as an explanation of the high efficiency of the stack manipulation primitives. 
+In other words, the programmer should always act as if the objects themselves were directly manipulated by stack, arithmetic, and other data transformation primitives, and treat the previous discussion only as an explanation of the high efficiency of the stack manipulation primitives.
 
 \nxsubpoint\label{sp:no.cyclic}\emb{Absence of circular references}
 One might attempt to create a circular reference between two cells, $A$ and $B$, as follows: first create $A$ and write some data into it; then create $B$ and write some data into it, along with a reference to previously constructed cell~$A$; finally, add a reference to $B$ into $A$. While it may seem that after this sequence of operations we obtain a cell $A$, which refers to $B$, which in turn refers to~$A$, this is not the case. In fact, we obtain a new cell $A'$, which contains a copy of the data originally stored into cell $A$ along with a reference to cell $B$, which contains a reference to (the original) cell~$A$.
@@ -425,9 +425,9 @@ In this way the transparent copy-on-write mechanism and the ``everything is a va
 
 \clearpage
 \mysection{Cells, memory, and persistent storage}
-This chapter briefly describes TVM cells, used to represent all data structures inside the TVM memory and its persistent storage, and the basic operations used to create cells, write (or serialize) data into them, and read (or deserialize) data from them.   
+This chapter briefly describes TVM cells, used to represent all data structures inside the TVM memory and its persistent storage, and the basic operations used to create cells, write (or serialize) data into them, and read (or deserialize) data from them.
 \mysubsection{Generalities on cells}
-This section presents a classification and general descriptions of cell types. 
+This section presents a classification and general descriptions of cell types.
 
 \nxsubpoint\emb{TVM memory and persistent storage consist of cells}
 Recall that the TVM memory and persistent storage consist of {\em (TVM) cells}. Each cell contains up to 1023 bits of data and up to four references to other cells.\footnote{From the perspective of low-level cell operations, these data bits and cell references are not intermixed. In other words, an (ordinary) cell essentially is a couple consisting of a list of up to 1023 bits and of a list of up to four cell references, without prescribing an order in which the references and the data bits should be deserialized, even though TL-B schemes appear to suggest such an order.} Circular references are forbidden and cannot be created by means of TVM (cf.~\ptref{sp:no.cyclic}). In this way, all cells kept in TVM memory and persistent storage constitute a directed acyclic graph (DAG).
@@ -605,14 +605,14 @@ The serialization of a hashmap into a tree of cells (or, more generally, into a 
 \begin{verbatim}
 bit#_ _:(## 1) = Bit;
 
-hm_edge#_ {n:#} {X:Type} {l:#} {m:#} label:(HmLabel ~l n) 
+hm_edge#_ {n:#} {X:Type} {l:#} {m:#} label:(HmLabel ~l n)
           {n = (~m) + l} node:(HashmapNode m X) = Hashmap n X;
 
 hmn_leaf#_ {X:Type} value:X = HashmapNode 0 X;
-hmn_fork#_ {n:#} {X:Type} left:^(Hashmap n X) 
+hmn_fork#_ {n:#} {X:Type} left:^(Hashmap n X)
            right:^(Hashmap n X) = HashmapNode (n + 1) X;
 
-hml_short$0 {m:#} {n:#} len:(Unary ~n) 
+hml_short$0 {m:#} {n:#} len:(Unary ~n)
             s:(n * Bit) = HmLabel ~n m;
 hml_long$10 {m:#} n:(#<= m) s:(n * Bit) = HmLabel ~n m;
 hml_same$11 {m:#} v:Bit n:(#<= m) = HmLabel ~n m;
@@ -686,22 +686,22 @@ The corresponding Patricia tree consists of a root $A$, two intermediate nodes $
 
 The corresponding value of type {\tt HashmapE 16 (\#\# 16)} may be written in human-readable form as:
 \begin{verbatim}
-(hme_root$1 
-  root:^(hm_edge label:(hml_same$11 v:0 n:8) node:(hm_fork 
-    left:^(hm_edge label:(hml_short$0 len:$110 s:$00) 
+(hme_root$1
+  root:^(hm_edge label:(hml_same$11 v:0 n:8) node:(hm_fork
+    left:^(hm_edge label:(hml_short$0 len:$110 s:$00)
       node:(hm_fork
-        left:^(hm_edge label:(hml_long$10 n:4 s:$1101) 
+        left:^(hm_edge label:(hml_long$10 n:4 s:$1101)
           node:(hm_leaf value:169))
-        right:^(hm_edge label:(hml_long$10 n:4 s:$0001) 
+        right:^(hm_edge label:(hml_long$10 n:4 s:$0001)
           node:(hm_leaf value:289))))
-    right:^(hm_edge label:(hml_long$10 n:7 s:$1101111) 
+    right:^(hm_edge label:(hml_long$10 n:7 s:$1101111)
       node:(hm_leaf value:57121)))))
 \end{verbatim}
 
 The serialization of this data structure into a tree of cells consists of six cells with the following binary data contained in them:
 \begin{verbatim}
 A := 1
-A.0 := 11 0 01000 
+A.0 := 11 0 01000
 A.0.0 := 0 110 00
 A.0.0.0 := 10 100 1101 0000000010101001
 A.0.0.1 := 10 100 0001 0000000100100001
@@ -773,21 +773,21 @@ TVM provides some support for dictionaries, or hashmaps, with variable-length ke
 \nxsubpoint\emb{Serialization of dictionaries with variable-length keys}
 The serialization of a {\em VarHashmap\/} into a tree of cells (or, more generally, into a {\em Slice\/}) is defined by a TL-B scheme, similar to that described in \ptref{sp:hm.tlb}:
 \begin{verbatim}
-vhm_edge#_ {n:#} {X:Type} {l:#} {m:#} label:(HmLabel ~l n) 
-           {n = (~m) + l} node:(VarHashmapNode m X) 
+vhm_edge#_ {n:#} {X:Type} {l:#} {m:#} label:(HmLabel ~l n)
+           {n = (~m) + l} node:(VarHashmapNode m X)
            = VarHashmap n X;
 vhmn_leaf$00 {n:#} {X:Type} value:X = VarHashmapNode n X;
-vhmn_fork$01 {n:#} {X:Type} left:^(VarHashmap n X) 
-             right:^(VarHashmap n X) value:(Maybe X) 
+vhmn_fork$01 {n:#} {X:Type} left:^(VarHashmap n X)
+             right:^(VarHashmap n X) value:(Maybe X)
              = VarHashmapNode (n + 1) X;
-vhmn_cont$1 {n:#} {X:Type} branch:bit child:^(VarHashmap n X) 
+vhmn_cont$1 {n:#} {X:Type} branch:bit child:^(VarHashmap n X)
             value:X = VarHashmapNode (n + 1) X;
 
 nothing$0 {X:Type} = Maybe X;
 just$1 {X:Type} value:X = Maybe X;
 
 vhme_empty$0 {n:#} {X:Type} = VarHashmapE n X;
-vhme_root$1 {n:#} {X:Type} root:^(VarHashmap n X) 
+vhme_root$1 {n:#} {X:Type} root:^(VarHashmap n X)
             = VarHashmapE n X;
 \end{verbatim}
 
@@ -796,16 +796,16 @@ One special case of a dictionary with variable-length keys is that of a {\em pre
 
 The serialization of a prefix code is defined by the following TL-B scheme:
 \begin{verbatim}
-phm_edge#_ {n:#} {X:Type} {l:#} {m:#} label:(HmLabel ~l n) 
-           {n = (~m) + l} node:(PfxHashmapNode m X) 
+phm_edge#_ {n:#} {X:Type} {l:#} {m:#} label:(HmLabel ~l n)
+           {n = (~m) + l} node:(PfxHashmapNode m X)
            = PfxHashmap n X;
 
 phmn_leaf$0 {n:#} {X:Type} value:X = PfxHashmapNode n X;
-phmn_fork$1 {n:#} {X:Type} left:^(PfxHashmap n X) 
+phmn_fork$1 {n:#} {X:Type} left:^(PfxHashmap n X)
             right:^(PfxHashmap n X) = PfxHashmapNode (n + 1) X;
 
 phme_empty$0 {n:#} {X:Type} = PfxHashmapE n X;
-phme_root$1 {n:#} {X:Type} root:^(PfxHashmap n X) 
+phme_root$1 {n:#} {X:Type} root:^(PfxHashmap n X)
             = PfxHashmapE n X;
 \end{verbatim}
 
@@ -874,7 +874,7 @@ Consider the \texttt{CALLX} or \texttt{EXECUTE} primitive, which takes a continu
 Apart from doing the stack manipulations described in \ptref{sp:jmp.sw} and \ptref{sp:jmp.sw.n} and setting the new control registers and codepage as described in \ptref{sp:jmp.sw.cp}, these primitives perform several additional steps:
 \begin{enumerate}
 \item After the top $n''$ values are removed from the current stack (cf.~\ptref{sp:jmp.sw.n}), the (usually empty) remainder is not discarded, but instead is stored in the (old) current continuation {\tt cc}.
-\item The old value of the special register {\tt c0} is saved into the (previously empty) savelist {\tt cc.save}. 
+\item The old value of the special register {\tt c0} is saved into the (previously empty) savelist {\tt cc.save}.
 \item The continuation {\tt cc} thus modified is not discarded, but instead is set as the new {\tt c0}, which performs the role of ``next continuation'' or ``return continuation'' for the subroutine being called.
 \item After that, the switching to $c$ continues as before. In particular, some control registers are restored from $c.{\tt save}$, potentially overwriting the value of {\tt c0} set in the previous step. (Therefore, a good optimization would be to check that $c0$ is present in $c.{\tt save}$ from the very beginning, and skip the three previous steps as useless in this case.)
 \end{enumerate}
@@ -950,7 +950,7 @@ For instance, {\tt EXECUTE} can be described as ${\tt cc}\leftarrow c\circ_0\tt{
 Finally, some ``experimental'' primitives also involve {\tt c1} and $\circ_1$. For example:
 \begin{itemize}
 \item {\tt RETALT} or {\tt RETFALSE} does ${\tt cc}\leftarrow{\tt c1}$.
-\item Conditional versions of {\tt RET} and {\tt RETALT} may also be useful: {\tt RETBOOL} takes an integer $x$ from the stack, and performs {\tt RETTRUE} if $x\neq0$, {\tt RETFALSE} otherwise. 
+\item Conditional versions of {\tt RET} and {\tt RETALT} may also be useful: {\tt RETBOOL} takes an integer $x$ from the stack, and performs {\tt RETTRUE} if $x\neq0$, {\tt RETFALSE} otherwise.
 \item {\tt INVERT} does ${\tt c0}\leftrightarrow{\tt c1}$; if the two continuations in {\tt c0} and {\tt c1} represent the two branches we should select depending on some boolean expression, {\tt INVERT} negates this expression on the outer level.
 \item {\tt INVERTCONT} does $c.{\tt c0}\leftrightarrow c.{\tt c1}$ to a continuation $c$ taken from the stack.
 \item Variants of {\tt ATEXIT} include {\tt ATEXITALT} (${\tt c1}\leftarrow c\circ_1{\tt c1}$) and {\tt SETEXITALT} (${\tt c1}\leftarrow (c\circ_0{\tt c0})\circ_1{\tt c1}$).
@@ -1254,7 +1254,7 @@ For similar reasons, we opted to use simple encodings for all instructions (cf.~
 This version of TVM also does not use context-dependent encodings (cf.~\ptref{sp:context.instr.enc}). They may be added at a later stage, if deemed useful.
 
 \nxsubpoint\emb{The list of all instructions}
-The list of all instructions available in codepage zero, along with their encodings and (in some cases) short descriptions, may be found in Appendix~\ptref{app:opcodes}. 
+The list of all instructions available in codepage zero, along with their encodings and (in some cases) short descriptions, may be found in Appendix~\ptref{app:opcodes}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
@@ -1387,10 +1387,10 @@ Parameters $i$, $j$, and $k$ of the following primitives all are 4-bit integers 
 
 When a {\em Tuple\/} $t$ contains elements $x_1$, \ldots, $x_n$ (in that order), we write $t=(x_1,\ldots,x_n)$; number $n\geq0$ is the {\em length\/} of {\em Tuple\/}~$t$. It is also denoted by $|t|$. {\em Tuple\/}s of length two are called {\em pairs}, and {\em Tuple\/}s of length three are {\em triples}.
 
-Lisp-style lists are represented with the aid of pairs, i.e., tuples consisting of exactly two elements. An empty list is represented by a {\em Null\/} value, and a non-empty list is represented by pair $(h,t)$, where $h$ is the first element of the list, and $t$ is its tail. 
+Lisp-style lists are represented with the aid of pairs, i.e., tuples consisting of exactly two elements. An empty list is represented by a {\em Null\/} value, and a non-empty list is represented by pair $(h,t)$, where $h$ is the first element of the list, and $t$ is its tail.
 
 \nxsubpoint\emb{{\em Null\/} primitives}\label{sp:null.ops}
-The following primitives work with (the only) value~$\bot$ of type {\em Null}, useful for representing empty lists, empty branches of binary trees, and absence of values in {\em Maybe $X$} types. An empty {\em Tuple\/} created by {\tt NIL} could have been used for the same purpose; however, {\em Null\/} is more efficient and costs less gas. 
+The following primitives work with (the only) value~$\bot$ of type {\em Null}, useful for representing empty lists, empty branches of binary trees, and absence of values in {\em Maybe $X$} types. An empty {\em Tuple\/} created by {\tt NIL} could have been used for the same purpose; however, {\em Null\/} is more efficient and costs less gas.
 \begin{itemize}
 \item {\tt 6D} --- {\tt NULL} or {\tt PUSHNULL} ( -- $\bot$), pushes the only value of type {\em Null}.
 \item {\tt 6E} --- {\tt ISNULL} ($x$ -- $?$), checks whether $x$ is a {\em Null}, and returns $-1$ or $0$ accordingly.
@@ -1575,7 +1575,7 @@ The most useful of these operations are {\tt DIV}, {\tt DIVMOD}, {\tt MOD}, {\tt
 \nxsubpoint\emb{Quiet arithmetic primitives}
 We opted to make all arithmetic operations ``non-quiet'' (signaling) by default, and create their quiet counterparts by means of a prefix. Such an encoding is definitely sub-optimal. It is not yet clear whether it should be done in this way, or in the opposite way by making all arithmetic operations quiet by default, or whether quiet and non-quiet operations should be given opcodes of equal length; this can only be settled by practice.
 \begin{itemize}
-\item {\tt B7xx} --- {\tt QUIET} prefix, transforming any arithmetic operation into its ``quiet'' variant, indicated by prefixing a {\tt Q} to its mnemonic. Such operations return {\tt NaN}s instead of throwing integer overflow exceptions if the results do not fit in {\it Integer\/}s, or if one of their arguments is a {\tt NaN}. Notice that this does not extend to shift amounts and other parameters that must be within a small range (e.g., 0--1023). Also notice that this does not disable type-checking exceptions if a value of a type other than {\it Integer\/} is supplied. 
+\item {\tt B7xx} --- {\tt QUIET} prefix, transforming any arithmetic operation into its ``quiet'' variant, indicated by prefixing a {\tt Q} to its mnemonic. Such operations return {\tt NaN}s instead of throwing integer overflow exceptions if the results do not fit in {\it Integer\/}s, or if one of their arguments is a {\tt NaN}. Notice that this does not extend to shift amounts and other parameters that must be within a small range (e.g., 0--1023). Also notice that this does not disable type-checking exceptions if a value of a type other than {\it Integer\/} is supplied.
 \item {\tt B7A0} --- {\tt QADD} ($x$ $y$ -- $x+y$), always works if $x$ and $y$ are {\it Integer\/}s, but returns a {\tt NaN} if the addition cannot be performed.
 \item {\tt B7A8} --- {\tt QMUL} ($x$ $y$ -- $xy$), returns the product of $x$ and $y$ if $-2^{256}\leq xy<2^{256}$. Otherwise returns a {\tt NaN}, even if $x=0$ and $y$ is a {\tt NaN}.
 \item {\tt B7A904} --- {\tt QDIV} ($x$ $y$ -- $\lfloor x/y\rfloor$), returns a {\tt NaN} if $y=0$, or if $y=-1$ and $x=-2^{256}$, or if either of $x$ or $y$ is a {\tt NaN}.
@@ -1788,21 +1788,21 @@ All these primitives first check whether there is enough space in the Builder, a
 \item {\tt D74B} --- {\tt SBITREFS} ($s$ -- $l$ $r$), returns both the number of data bits and the number of references in~$s$.
 \item {\tt D74E\_$n$} --- {\tt PLDREFIDX $n$} ($s$ -- $c$), returns the $n$-th cell reference of {\em Slice\/}~$s$, where $0\leq n\leq 3$.
 \item {\tt D74C} --- {\tt PLDREF} ($s$ -- $c$), preloads the first cell reference of a {\em Slice}.
-\item {\tt D750} --- {\tt LDILE4} ($s$ -- $x$ $s'$), loads a little-endian signed 32-bit integer. 
-\item {\tt D751} --- {\tt LDULE4} ($s$ -- $x$ $s'$), loads a little-endian unsigned 32-bit integer. 
-\item {\tt D752} --- {\tt LDILE8} ($s$ -- $x$ $s'$), loads a little-endian signed 64-bit integer. 
-\item {\tt D753} --- {\tt LDULE8} ($s$ -- $x$ $s'$), loads a little-endian unsigned 64-bit integer. 
-\item {\tt D754} --- {\tt PLDILE4} ($s$ -- $x$), preloads a little-endian signed 32-bit integer. 
-\item {\tt D755} --- {\tt PLDULE4} ($s$ -- $x$), preloads a little-endian unsigned 32-bit integer. 
-\item {\tt D756} --- {\tt PLDILE8} ($s$ -- $x$), preloads a little-endian signed 64-bit integer. 
-\item {\tt D757} --- {\tt PLDULE8} ($s$ -- $x$), preloads a little-endian unsigned 64-bit integer. 
-\item {\tt D758} --- {\tt LDILE4Q} ($s$ -- $x$ $s'$ $-1$ or $s$ $0$), quietly loads a little-endian signed 32-bit integer. 
-\item {\tt D759} --- {\tt LDULE4Q} ($s$ -- $x$ $s'$ $-1$ or $s$ $0$), quietly loads a little-endian unsigned 32-bit integer. 
-\item {\tt D75A} --- {\tt LDILE8Q} ($s$ -- $x$ $s'$ $-1$ or $s$ $0$), quietly loads a little-endian signed 64-bit integer. 
-\item {\tt D75B} --- {\tt LDULE8Q} ($s$ -- $x$ $s'$ $-1$ or $s$ $0$), quietly loads a little-endian unsigned 64-bit integer. 
-\item {\tt D75C} --- {\tt PLDILE4Q} ($s$ -- $x$ $-1$ or $0$), quietly preloads a little-endian signed 32-bit integer. 
-\item {\tt D75D} --- {\tt PLDULE4Q} ($s$ -- $x$ $-1$ or $0$), quietly preloads a little-endian unsigned 32-bit integer. 
-\item {\tt D75E} --- {\tt PLDILE8Q} ($s$ -- $x$ $-1$ or $0$), quietly preloads a little-endian signed 64-bit integer. 
+\item {\tt D750} --- {\tt LDILE4} ($s$ -- $x$ $s'$), loads a little-endian signed 32-bit integer.
+\item {\tt D751} --- {\tt LDULE4} ($s$ -- $x$ $s'$), loads a little-endian unsigned 32-bit integer.
+\item {\tt D752} --- {\tt LDILE8} ($s$ -- $x$ $s'$), loads a little-endian signed 64-bit integer.
+\item {\tt D753} --- {\tt LDULE8} ($s$ -- $x$ $s'$), loads a little-endian unsigned 64-bit integer.
+\item {\tt D754} --- {\tt PLDILE4} ($s$ -- $x$), preloads a little-endian signed 32-bit integer.
+\item {\tt D755} --- {\tt PLDULE4} ($s$ -- $x$), preloads a little-endian unsigned 32-bit integer.
+\item {\tt D756} --- {\tt PLDILE8} ($s$ -- $x$), preloads a little-endian signed 64-bit integer.
+\item {\tt D757} --- {\tt PLDULE8} ($s$ -- $x$), preloads a little-endian unsigned 64-bit integer.
+\item {\tt D758} --- {\tt LDILE4Q} ($s$ -- $x$ $s'$ $-1$ or $s$ $0$), quietly loads a little-endian signed 32-bit integer.
+\item {\tt D759} --- {\tt LDULE4Q} ($s$ -- $x$ $s'$ $-1$ or $s$ $0$), quietly loads a little-endian unsigned 32-bit integer.
+\item {\tt D75A} --- {\tt LDILE8Q} ($s$ -- $x$ $s'$ $-1$ or $s$ $0$), quietly loads a little-endian signed 64-bit integer.
+\item {\tt D75B} --- {\tt LDULE8Q} ($s$ -- $x$ $s'$ $-1$ or $s$ $0$), quietly loads a little-endian unsigned 64-bit integer.
+\item {\tt D75C} --- {\tt PLDILE4Q} ($s$ -- $x$ $-1$ or $0$), quietly preloads a little-endian signed 32-bit integer.
+\item {\tt D75D} --- {\tt PLDULE4Q} ($s$ -- $x$ $-1$ or $0$), quietly preloads a little-endian unsigned 32-bit integer.
+\item {\tt D75E} --- {\tt PLDILE8Q} ($s$ -- $x$ $-1$ or $0$), quietly preloads a little-endian signed 64-bit integer.
 \item {\tt D75F} --- {\tt PLDULE8Q} ($s$ -- $x$ $-1$ or $0$), quietly preloads a little-endian unsigned 64-bit integer.
 \item {\tt D760} --- {\tt LDZEROES} ($s$ -- $n$ $s'$), returns the count $n$ of leading zero bits in $s$, and removes these bits from $s$.
 \item {\tt D761} --- {\tt LDONES} ($s$ -- $n$ $s'$), returns the count $n$ of leading one bits in $s$, and removes these bits from $s$.
@@ -1868,7 +1868,7 @@ All these primitives first check whether there is enough space in the Builder, a
 Most of the loop primitives listed below are implemented with the aid of extraordinary continuations, such as {\tt ec\_until} (cf.~\ptref{sp:extraord.cont}), with the loop body and the original current continuation {\tt cc} stored as the arguments to this extraordinary continuation. Typically a suitable extraordinary continuation is constructed, and then saved into the loop body continuation savelist as {\tt c0}; after that, the modified loop body continuation is loaded into {\tt cc} and executed in the usual fashion. All of these loop primitives have {\tt *BRK} versions, adapted for breaking out of a loop; they additionally set {\tt c1} to the original current continuation (or original {\tt c0} for {\tt *ENDBRK} versions), and save the old {\tt c1} into the savelist of the original current continuation (or of the original {\tt c0} for {\tt *ENDBRK} versions).
 \begin{itemize}
 \item {\tt E4} --- {\tt REPEAT} ($n$ $c$ -- ), executes continuation $c$ $n$ times, if integer $n$ is non-negative. If $n\geq2^{31}$ or $n<-2^{31}$, generates a range check exception. Notice that a {\tt RET} inside the code of $c$ works as a {\tt continue}, not as a {\tt break}. One should use either alternative (experimental) loops or alternative {\tt RETALT} (along with a {\tt SETEXITALT} before the loop) to {\tt break} out of a loop.
-\item {\tt E5} --- {\tt REPEATEND} ($n$ -- ), similar to {\tt REPEAT}, but it is applied to the current continuation {\tt cc}. 
+\item {\tt E5} --- {\tt REPEATEND} ($n$ -- ), similar to {\tt REPEAT}, but it is applied to the current continuation {\tt cc}.
 \item {\tt E6} --- {\tt UNTIL} ($c$ -- ), executes continuation $c$, then pops an integer $x$ from the resulting stack. If $x$ is zero, performs another iteration of this loop. The actual implementation of this primitive involves an extraordinary continuation {\tt ec\_until} (cf.~\ptref{sp:extraord.cont}) with its arguments set to the body of the loop (continuation $c$) and the original current continuation {\tt cc}. This extraordinary continuation is then saved into the savelist of $c$ as $c.{\tt c0}$ and the modified $c$ is then executed. The other loop primitives are implemented similarly with the aid of suitable extraordinary continuations.
 \item {\tt E7} --- {\tt UNTILEND} ( -- ), similar to {\tt UNTIL}, but executes the current continuation {\tt cc} in a loop. When the loop exit condition is satisfied, performs a {\tt RET}.
 \item {\tt E8} --- {\tt WHILE} ($c'$ $c$ -- ), executes $c'$ and pops an integer $x$ from the resulting stack. If $x$ is zero, exists the loop and transfers control to the original {\tt cc}. If $x$ is non-zero, executes $c$, and then begins a new iteration.
@@ -1887,7 +1887,7 @@ Most of the loop primitives listed below are implemented with the aid of extraor
 
 \nxsubpoint\label{sp:cont.stk.manip}\emb{Manipulating the stack of continuations}
 \begin{itemize}
-\item {\tt EC$rn$} --- {\tt SETCONTARGS $r$,$n$} ($x_1$ $x_2$\dots$x_r$ $c$ -- $c'$), similar to {\tt SETCONTARGS $r$}, but sets $c.{\tt nargs}$ to the final size of the stack of $c'$ plus $n$. In other words, transforms $c$ into a {\em closure\/} or a {\em partially applied function}, with $0\leq n\leq 14$ arguments missing.  
+\item {\tt EC$rn$} --- {\tt SETCONTARGS $r$,$n$} ($x_1$ $x_2$\dots$x_r$ $c$ -- $c'$), similar to {\tt SETCONTARGS $r$}, but sets $c.{\tt nargs}$ to the final size of the stack of $c'$ plus $n$. In other words, transforms $c$ into a {\em closure\/} or a {\em partially applied function}, with $0\leq n\leq 14$ arguments missing.
 \item {\tt EC0$n$} --- {\tt SETNUMARGS $n$} or {\tt SETCONTARGS $0$,$n$} ($c$ -- $c'$), sets $c.{\tt nargs}$ to $n$ plus the current depth of $c$'s stack, where $0\leq n\leq 14$. If $c.{\tt nargs}$ is already set to a non-negative value, does nothing.
 \item {\tt EC$r$F} --- {\tt SETCONTARGS $r$} or {\tt SETCONTARGS $r$,$-1$} ($x_1$ $x_2$\dots$x_r$ $c$ -- $c'$), pushes $0\leq r\leq 15$ values $x_1\ldots x_r$ into the stack of (a copy of) the continuation~$c$, starting with $x_1$. If the final depth of $c$'s stack turns out to be greater than $c.{\tt nargs}$, a stack overflow exception is generated.
 \item {\tt ED0$p$} --- {\tt RETURNARGS $p$} ( -- ), leaves only the top $0\leq p\leq 15$ values in the current stack (somewhat similarly to {\tt ONLYTOPX}), with all the unused bottom values not discarded, but saved into continuation {\tt c0} in the same way as {\tt SETCONTARGS} does.
@@ -2223,7 +2223,7 @@ The following primitives read configuration data provided in the {\em Tuple\/} s
 \item {\tt F824} --- {\tt BLOCKLT} ( -- $x$), returns the starting logical time of the current block. Equivalent to {\tt GETPARAM 4}.
 \item {\tt F825} --- {\tt LTIME} ( -- $x$), returns the logical time of the current transaction. Equivalent to {\tt GETPARAM 5}.
 \item {\tt F826} --- {\tt RANDSEED} ( -- $x$), returns the current random seed as an unsigned 256-bit {\em Integer}. Equivalent to {\tt GETPARAM 6}.
-\item {\tt F827} --- {\tt BALANCE} ( -- $t$), returns the remaining balance of the smart contract as a {\em Tuple\/} consisting of an {\em Integer} (the remaining Gram balance in nanograms) and a {\em Maybe Cell} (a dictionary with 32-bit keys representing the balance of ``extra currencies''). Equivalent to {\tt GETPARAM 7}. Note that {\tt RAW} primitives such as {\tt SENDRAWMSG} do not update this field. 
+\item {\tt F827} --- {\tt BALANCE} ( -- $t$), returns the remaining balance of the smart contract as a {\em Tuple\/} consisting of an {\em Integer} (the remaining Gram balance in nanograms) and a {\em Maybe Cell} (a dictionary with 32-bit keys representing the balance of ``extra currencies''). Equivalent to {\tt GETPARAM 7}. Note that {\tt RAW} primitives such as {\tt SENDRAWMSG} do not update this field.
 \item {\tt F828} --- {\tt MYADDR} ( -- $s$), returns the internal address of the current smart contract as a {\em Slice\/} with a {\tt MsgAddressInt}. If necessary, it can be parsed further using primitives such as {\tt PARSESTDADDR} or {\tt REWRITESTDADDR}. Equivalent to {\tt GETPARAM 8}.
 \item {\tt F829} --- {\tt CONFIGROOT} ( -- $D$), returns the {\em Maybe Cell\/}~$D$ with the current global configuration dictionary. Equivalent to {\tt GETPARAM 9}.
 \item {\tt F830} --- {\tt CONFIGDICT} ( -- $D$ $32$), returns the global configuration dictionary along with its key length (32). Equivalent to {\tt CONFIGROOT}; {\tt PUSHINT 32}.
@@ -2246,8 +2246,8 @@ The ``global variables'' may be helpful in implementing some high-level smart-co
 \item {\tt F900} --- {\tt HASHCU} ($c$ -- $x$), computes the representation hash (cf.~\ptref{sp:repr.hash}) of a {\em Cell\/} $c$ and returns it as a 256-bit unsigned integer~$x$. Useful for signing and checking signatures of arbitrary entities represented by a tree of cells.
 \item {\tt F901} --- {\tt HASHSU} ($s$ -- $x$), computes the hash of a {\em Slice\/} $s$ and returns it as a 256-bit unsigned integer~$x$. The result is the same as if an ordinary cell containing only data and references from~$s$ had been created and its hash computed by {\tt HASHCU}.
 \item {\tt F902} --- {\tt SHA256U} ($s$ -- $x$), computes $\Sha$ of the data bits of~{\em Slice\/}~$s$. If the bit length of $s$ is not divisible by eight, throws a cell underflow exception. The hash value is returned as a 256-bit unsigned integer~$x$.
-\item {\tt F910} --- {\tt CHKSIGNU} ($h$ $s$ $k$ -- $?$), checks the Ed25519-signature $s$ of a hash $h$ (a 256-bit unsigned integer, usually computed as the hash of some data) using public key $k$ (also represented by a 256-bit unsigned integer). The signature $s$ must be a {\em Slice\/} containing at least 512 data bits; only the first 512 bits are used. The result is $-1$ if the signature is valid, $0$ otherwise. Notice that {\tt CHKSIGNU} is equivalent to {\tt ROT}; {\tt NEWB}; {\tt STU 256}; {\tt ENDB}; {\tt NEWC}; {\tt ROTREV}; {\tt CHKSIGNS}, i.e., to {\tt CHKSIGNS} with the first argument $d$ set to 256-bit {\em Slice} containing~$h$. Therefore, if $h$ is computed as the hash of some data, these data are hashed {\em twice}, the second hashing occurring inside {\tt CHKSIGNS}. 
-\item {\tt F911} --- {\tt CHKSIGNS} ($d$ $s$ $k$ -- $?$), checks whether $s$ is a valid Ed25519-signature of the data portion of {\em Slice\/}~$d$ using public key~$k$, similarly to {\tt CHKSIGNU}. If the bit length of {\em Slice\/}~$d$ is not divisible by eight, throws a cell underflow exception. The verification of Ed25519 signatures is the standard one, with $\Sha$ used to reduce $d$ to the 256-bit number that is actually signed. 
+\item {\tt F910} --- {\tt CHKSIGNU} ($h$ $s$ $k$ -- $?$), checks the Ed25519-signature $s$ of a hash $h$ (a 256-bit unsigned integer, usually computed as the hash of some data) using public key $k$ (also represented by a 256-bit unsigned integer). The signature $s$ must be a {\em Slice\/} containing at least 512 data bits; only the first 512 bits are used. The result is $-1$ if the signature is valid, $0$ otherwise. Notice that {\tt CHKSIGNU} is equivalent to {\tt ROT}; {\tt NEWB}; {\tt STU 256}; {\tt ENDB}; {\tt NEWC}; {\tt ROTREV}; {\tt CHKSIGNS}, i.e., to {\tt CHKSIGNS} with the first argument $d$ set to 256-bit {\em Slice} containing~$h$. Therefore, if $h$ is computed as the hash of some data, these data are hashed {\em twice}, the second hashing occurring inside {\tt CHKSIGNS}.
+\item {\tt F911} --- {\tt CHKSIGNS} ($d$ $s$ $k$ -- $?$), checks whether $s$ is a valid Ed25519-signature of the data portion of {\em Slice\/}~$d$ using public key~$k$, similarly to {\tt CHKSIGNU}. If the bit length of {\em Slice\/}~$d$ is not divisible by eight, throws a cell underflow exception. The verification of Ed25519 signatures is the standard one, with $\Sha$ used to reduce $d$ to the 256-bit number that is actually signed.
 \item {\tt F912}--{\tt F93F} --- Reserved for hashing and cryptography primitives.
 \end{itemize}
 
@@ -2277,19 +2277,19 @@ The ``global variables'' may be helpful in implementing some high-level smart-co
 The message and address manipulation primitives listed below serialize and deserialize values according to the following TL-B scheme (cf.~\ptref{sp:tlb.brief}):
 \begin{verbatim}
 addr_none$00 = MsgAddressExt;
-addr_extern$01 len:(## 9) external_address:(bits len) 
+addr_extern$01 len:(## 9) external_address:(bits len)
              = MsgAddressExt;
 anycast_info$_ depth:(#<= 30) { depth >= 1 }
    rewrite_pfx:(bits depth) = Anycast;
-addr_std$10 anycast:(Maybe Anycast) 
+addr_std$10 anycast:(Maybe Anycast)
    workchain_id:int8 address:bits256  = MsgAddressInt;
-addr_var$11 anycast:(Maybe Anycast) addr_len:(## 9) 
+addr_var$11 anycast:(Maybe Anycast) addr_len:(## 9)
    workchain_id:int32 address:(bits addr_len) = MsgAddressInt;
 _ _:MsgAddressInt = MsgAddress;
 _ _:MsgAddressExt = MsgAddress;
 
 int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
-  src:MsgAddress dest:MsgAddressInt 
+  src:MsgAddress dest:MsgAddressInt
   value:CurrencyCollection ihr_fee:Grams fwd_fee:Grams
   created_lt:uint64 created_at:uint32 = CommonMsgInfoRelaxed;
 ext_out_msg_info$11 src:MsgAddress dest:MsgAddressExt
@@ -2382,9 +2382,9 @@ vm_stk_tinyint#01 value:int64 = VmStackValue;
 vm_stk_int#0201_ value:int257 = VmStackValue;
 vm_stk_nan#02FF = VmStackValue;
 vm_stk_cell#03 cell:^Cell = VmStackValue;
-_ cell:^Cell st_bits:(## 10) end_bits:(## 10) 
-  { st_bits <= end_bits } 
-  st_ref:(#<= 4) end_ref:(#<= 4) 
+_ cell:^Cell st_bits:(## 10) end_bits:(## 10)
+  { st_bits <= end_bits }
+  st_ref:(#<= 4) end_ref:(#<= 4)
   { st_ref <= end_ref } = VmCellSlice;
 vm_stk_slice#04 _:VmCellSlice  = VmStackValue;
 vm_stk_builder#05 cell:^Cell = VmStackValue;
@@ -2396,7 +2396,7 @@ Of these, {\tt vm\_stk\_tinyint} is never used by TVM in codepage zero; it is us
 The TVM stack can be serialized as follows:
 \begin{verbatim}
 vm_stack#_ depth:(## 24) stack:(VmStackList depth) = VmStack;
-vm_stk_cons#_ {n:#} head:VmStackValue tail:^(VmStackList n) 
+vm_stk_cons#_ {n:#} head:VmStackValue tail:^(VmStackList n)
   = VmStackList (n + 1);
 vm_stk_nil#_ = VmStackList 0;
 \end{verbatim}
@@ -2410,7 +2410,7 @@ _ cregs:(HashmapE 4 VmStackValue) = VmSaveList;
 \nxsubpoint\emb{TVM gas limits}
 Gas limits in TVM can be serialized as follows:
 \begin{verbatim}
-gas_limits#_ remaining:int64 _:^[ 
+gas_limits#_ remaining:int64 _:^[
   max_limit:int64 cur_limit:int64 credit:int64 ]
   = VmGasLimits;
 \end{verbatim}
@@ -2426,13 +2426,13 @@ Continuations in TVM can be serialized as follows:
 \begin{verbatim}
 vmc_std$00 nargs:(## 22) stack:(Maybe VmStack) save:VmSaveList
    cp:int16 code:VmCellSlice = VmCont;
-vmc_envelope$01 nargs:(## 22) stack:(Maybe VmStack) 
+vmc_envelope$01 nargs:(## 22) stack:(Maybe VmStack)
    save:VmSaveList next:^VmCont = VmCont;
 vmc_quit$1000 exit_code:int32 = VmCont;
 vmc_quit_exc$1001 = VmCont;
 vmc_until$1010 body:^VmCont after:^VmCont = VmCont;
 vmc_again$1011 body:^VmCont = VmCont;
-vmc_while_cond$1100 cond:^VmCont body:^VmCont 
+vmc_while_cond$1100 cond:^VmCont body:^VmCont
    after:^VmCont = VmCont;
 vmc_while_body$1101 cond:^VmCont body:^VmCont
    after:^VmCont = VmCont;
@@ -2442,17 +2442,17 @@ vmc_pushint$1111 value:int32 next:^VmCont = VmCont;
 \nxsubpoint\emb{TVM state}
 The total state of TVM can be serialized as follows:
 \begin{verbatim}
-vms_init$00 cp:int16 step:int32 gas:GasLimits 
+vms_init$00 cp:int16 step:int32 gas:GasLimits
   stack:(Maybe VmStack) save:VmSaveList code:VmCellSlice
   lib:VmLibraries = VmState;
-vms_exception$01 cp:int16 step:int32 gas:GasLimits 
-  exc_no:int32 exc_arg:VmStackValue 
+vms_exception$01 cp:int16 step:int32 gas:GasLimits
+  exc_no:int32 exc_arg:VmStackValue
   save:VmSaveList lib:VmLibraries = VmState;
 vms_running$10 cp:int16 step:int32 gas:GasLimits stack:VmStack
   save:VmSaveList code:VmCellSlice lib:VmLibraries
   = VmState;
-vms_finished$11 cp:int16 step:int32 gas:GasLimits 
-  exit_code:int32 no_gas:Boolean stack:VmStack 
+vms_finished$11 cp:int16 step:int32 gas:GasLimits
+  exit_code:int32 no_gas:Boolean stack:VmStack
   save:VmSaveList lib:VmLibraries = VmState;
 \end{verbatim}
 When TVM is initialized, its state is described by a {\tt vms\_init}, usually with {\tt step} set to zero. The step function of TVM does nothing to a {\tt vms\_finished} state, and transforms all other states into {\tt vms\_running}, {\tt vms\_exception}, or {\tt vms\_finished}, with {\tt step} increased by one.
@@ -2529,7 +2529,7 @@ IDIV r0,r3,r6  // x := Dx/D
 IDIV r1,r1,r6  // y := Dy/D
 RET
 \end{verbatim}
-We have used 12 operations and at least 23 bytes (each operation uses $3\times 4=12$ bits to indicate the three registers involved, and at least 4 bits to indicate the operation performed; thus we need two or three bytes to encode each operation). A more realistic estimate would be 34 (three bytes for each arithmetic operation) or 31 bytes (two bytes for addition and subtraction, three bytes for multiplication and division). 
+We have used 12 operations and at least 23 bytes (each operation uses $3\times 4=12$ bits to indicate the three registers involved, and at least 4 bits to indicate the operation performed; thus we need two or three bytes to encode each operation). A more realistic estimate would be 34 (three bytes for each arithmetic operation) or 31 bytes (two bytes for addition and subtraction, three bytes for multiplication and division).
 
 \nxsubpoint\label{sp:cmp1.2addr}\emb{Two-address register machine}
 The machine code for a two-address register machine might look as follows:
@@ -2707,7 +2707,7 @@ The meaning of the columns in Table \ptref{tab:cmp1.code} is as follows:
 \hline
 &\multicolumn{3}{|c|}{Operations}&\multicolumn{3}{|c|}{Code bytes}&\multicolumn{3}{|c|}{Opcode space}\\
 Machine&data&arith&total&data&arith&total&data&arith&total\\
-\hline 
+\hline
 3-addr. (opt.)& 0 & 11 & 12 & 0 & 22 & 23 & 0/256 & 64/256 & 65/256 \\
 3-addr. (real.)& 0 & 11 & 12 & 0 & 30 & 31 & 0/256 & 34/256 & 35/256 \\
 \hline
@@ -2722,7 +2722,7 @@ stack (comp.)& 9 & 11 & 21 & 15 & 11 & 27 & 84/256 & 4/256 & 89/256 \\
 }
 \caption{A summary of machine code properties for hypothetical 3-address, 2-address, 1-address, and stack machines, generated for a sample leaf function (cf.~\ptref{sp:cmp1.source}). The two most important columns, reflecting {\bf code density} and {\bf extendability} to other operations, are marked by bold font. Smaller values are better in both of these columns.}\label{tab:cmp1.code}
 \end{table}
-  
+
 The ``code bytes'' column reflects the density of the code for the specific sample source. However, ``opcode space'' is also important, because it reflects the extendability of the achieved density to other classes of operations (e.g., if one were to complement arithmetic operations with string manipulation operations and so on). Here the ``arithmetic'' subcolumn is more important than the ``data'' subcolumn, because no further data manipulation operations would be required for such extensions.
 
 We see that the three-address register machine with the ``optimistic'' encoding, assuming two-byte encodings for all three-register arithmetic operations, achieves the best code density, requiring only 23 bytes. However, this comes at a price: each arithmetic operation consumes 1/16 of the opcode space, so the four operations already use a quarter of the opcode space. At most 11 other operations, arithmetic or not, might be added to this architecture while preserving such high code density. On the other hand, when we consider the ``realistic'' encoding for the three-address machine, using two-byte encodings only for the most frequently used addition/subtraction operations (and longer encodings for less frequently used multiplication/division operations, reflecting the fact that the possible extension operations would likely fall in this class), then the three-address machine ceases to offer such attractive code density.
@@ -2762,7 +2762,7 @@ In order to estimate the consequences of assuming $m=n=16$, we will assume that 
 \hline
 &&\multicolumn{3}{|c|}{Operations}&\multicolumn{3}{|c|}{Code bytes}&\multicolumn{3}{|c|}{Opcode space}\\
 Machine&$r$&data&arith&total&data&arith&total&data&arith&total\\
-\hline 
+\hline
 3-addr. (opt.)& 4 & 8 & 11 & 20 & 8 & 22 & 31 & 32/256 & 64/256 & 97/256 \\
 3-addr. (real.)& 4 & 8 & 11 & 20 & 8 & 30 & 39 & 32/256 & 34/256 & 67/256 \\
 \hline
@@ -2788,7 +2788,7 @@ The analysis of this case is similar to the previous one. The results are summar
 \hline
 &&\multicolumn{3}{|c|}{Operations}&\multicolumn{3}{|c|}{Code bytes}&\multicolumn{3}{|c|}{Opcode space}\\
 Machine&$r$&data&arith&total&data&arith&total&data&arith&total\\
-\hline 
+\hline
 3-addr. (opt.)& 0 & 0 & 11 & 12 & 0 & 22 & 23 & 32/256 & 64/256 & 97/256 \\
 3-addr. (real.)& 0 & 0 & 11 & 12 & 0 & 30 & 31 & 32/256 & 34/256 & 67/256 \\
 \hline
@@ -2821,7 +2821,7 @@ We can see that the performance of the various machines is much more balanced, w
 \hline
 &&\multicolumn{3}{|c|}{Operations}&\multicolumn{3}{|c|}{Code bytes}&\multicolumn{3}{|c|}{Opcode space}\\
 Machine&$r$&data&arith&total&data&arith&total&data&arith&total\\
-\hline 
+\hline
 3-addr.& 0 & 0 & 11 & 12 & 0 & 27.5 & 28.5 & 64/256 & 4/256 & 69/256 \\
 \hline
 2-addr. & 0 & 4 & 11 & 16 & 6 & 22 & 29 & 64/256 & 4/256 & 69/256 \\
@@ -3136,12 +3136,12 @@ Table \ptref{tab:cmp2.code} summarizes the properties of machine code correspond
 \hline
 &&\multicolumn{3}{|c|}{Operations}&\multicolumn{3}{|c|}{Code bytes}&\multicolumn{3}{|c|}{Opcode space}\\
 Machine&$m$&data&cont.&total&data&cont.&total&data&arith&total\\
-\hline 
-\tworow{3-addr.}& 0,8 & 29 & 12 & 41 & 42 & 34 & 76 & \tworow{35/256} & \tworow{34/256} & \tworow{72/256} \\ 
+\hline
+\tworow{3-addr.}& 0,8 & 29 & 12 & 41 & 42 & 34 & 76 & \tworow{35/256} & \tworow{34/256} & \tworow{72/256} \\
                 & 16 & 27 & 12 & 39 & 44 & 34 & 78 &&& \\
 \hline
-\tworow{2-addr.}& 0,8 & 29 & 12 & 41 & 42 & 34 & 76 & \tworow{37/256} & \tworow{4/256} & \tworow{44/256} \\ 
-               & 16 & 27 & 12 & 39 & 44 & 34 & 78 &&&\\ 
+\tworow{2-addr.}& 0,8 & 29 & 12 & 41 & 42 & 34 & 76 & \tworow{37/256} & \tworow{4/256} & \tworow{44/256} \\
+               & 16 & 27 & 12 & 39 & 44 & 34 & 78 &&&\\
 \hline
 \tworow{1-addr.}& 0,8 & 33 & 12 & 45 & 33 & 34 & 67 & \tworow{97/256} & \tworow{64/256} & \tworow{164/256} \\
                 & 16 & 28 & 12 & 40 & 39 & 34 & 73 &&& \\
@@ -3167,12 +3167,12 @@ Similarly to~\ptref{sp:cmp1.fair}, we may offer a fairer comparison of different
 \hline
 &&\multicolumn{3}{|c|}{Operations}&\multicolumn{3}{|c|}{Code bytes}&\multicolumn{3}{|c|}{Opcode space}\\
 Machine&$m$&data&cont.&total&data&cont.&total&data&arith&total\\
-\hline 
-\tworow{3-addr.}& 0,8 & 29 & 12 & 41 & 35.5 & 34 & 69.5 & \tworow{110/256} & \tworow{4/256} & \tworow{117/256} \\ 
+\hline
+\tworow{3-addr.}& 0,8 & 29 & 12 & 41 & 35.5 & 34 & 69.5 & \tworow{110/256} & \tworow{4/256} & \tworow{117/256} \\
                 & 16 & 27 & 12 & 39 & 35.5 & 34 & 69.5 &&& \\
 \hline
-\tworow{2-addr.}& 0,8 & 29 & 12 & 41 & 35.5 & 34 & 69.5 & \tworow{110/256} & \tworow{4/256} & \tworow{117/256} \\ 
-               & 16 & 27 & 12 & 39 & 35.5 & 34 & 69.5 &&&\\ 
+\tworow{2-addr.}& 0,8 & 29 & 12 & 41 & 35.5 & 34 & 69.5 & \tworow{110/256} & \tworow{4/256} & \tworow{117/256} \\
+               & 16 & 27 & 12 & 39 & 35.5 & 34 & 69.5 &&&\\
 \hline
 \tworow{1-addr.}& 0,8 & 33 & 12 & 45 & 33 & 34 & 67 & \tworow{112/256} & \tworow{4/256} & \tworow{119/256} \\
                 & 16 & 28 & 12 & 40 & 33.5 & 34 & 67.5 &&& \\

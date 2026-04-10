@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 add_executable(embed-provider-code smartcont/embed-provider-code.cpp)
 
 add_custom_command(
@@ -7,7 +5,7 @@ add_custom_command(
   COMMAND embed-provider-code smartcont/storage-provider-code.boc smartcont/provider-code.h
   COMMENT "Generate provider-code.h"
   DEPENDS embed-provider-code smartcont/storage-provider-code.boc
-  OUTPUT smartcont/provider-code.h
+  OUTPUT "${CMAKE_CURRENT_SOURCE_DIR}/smartcont/provider-code.h"
 )
 
 set(STORAGE_DAEMON_SOURCE

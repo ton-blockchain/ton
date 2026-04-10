@@ -16,14 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/port/signals.h"
-
-#include "td/utils/port/config.h"
-#include "td/utils/port/stacktrace.h"
-#include "td/utils/port/StdStreams.h"
-
 #include "td/utils/common.h"
 #include "td/utils/format.h"
+#include "td/utils/port/StdStreams.h"
+#include "td/utils/port/config.h"
+#include "td/utils/port/signals.h"
+#include "td/utils/port/stacktrace.h"
 
 #if TD_PORT_POSIX
 #include <signal.h>
@@ -317,14 +315,37 @@ static void block_stdin() {
 #endif
 }
 
-static void default_failure_signal_handler(int sig) {
+#if TD_PORT_POSIX
+[[maybe_unused]] static void init_alarm_signal() {
+  struct sigaction act;
+  act.sa_handler = [](int) {
+    signal_safe_write("Signal handler timeout\n");
+    block_stdin();
+    _Exit(EXIT_FAILURE);
+  };
+  sigemptyset(&act.sa_mask);
+  act.sa_flags = SA_RESETHAND | SA_ONSTACK;
+  sigaction(SIGALRM, &act, nullptr);
+  alarm(3);
+}
+#endif
+
+[[maybe_unused]] static void default_failure_signal_handler(int sig) {
+#if TD_PORT_POSIX
+  init_alarm_signal();
+#endif
+
   Stacktrace::init();
   signal_safe_write_signal_number(sig);
 
   Stacktrace::PrintOptions options;
   options.use_gdb = true;
+  options.use_libbacktrace = true;
   Stacktrace::print_to_stderr(options);
 
+#if TD_PORT_POSIX
+  alarm(0);
+#endif
   block_stdin();
   _Exit(EXIT_FAILURE);
 }
@@ -334,9 +355,11 @@ Status set_default_failure_signal_handler() {
   Stdin();  // init static variables before atexit
 #endif
   std::atexit(block_stdin);
+#ifndef TON_DISABLE_BACKTRACE
   TRY_STATUS(setup_signals_alt_stack());
   TRY_STATUS(set_signal_handler(SignalType::Abort, default_failure_signal_handler));
   TRY_STATUS(set_signal_handler(SignalType::Error, default_failure_signal_handler));
+#endif
   return Status::OK();
 }
 

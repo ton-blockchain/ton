@@ -18,10 +18,10 @@
 */
 #pragma once
 
-#include "SourceLookup.h"
-#include "Dictionary.h"
-
 #include "td/utils/Status.h"
+
+#include "Dictionary.h"
+#include "SourceLookup.h"
 
 namespace fift {
 struct IntCtx;

@@ -18,15 +18,16 @@
 */
 #pragma once
 
-#include "vm/cells/CellTraits.h"
+#include <functional>
 
 #include "td/utils/int_types.h"
 #include "td/utils/logging.h"
-#include <functional>
+#include "vm/cells/CellTraits.h"
 
 namespace vm {
 
 class DataCell;
+struct LoadedCell;
 
 class CellUsageTree : public std::enable_shared_from_this<CellUsageTree> {
  public:
@@ -42,7 +43,7 @@ class CellUsageTree : public std::enable_shared_from_this<CellUsageTree> {
       return node_id_ == 0 || tree_weak_.expired();
     }
 
-    bool on_load(const td::Ref<vm::DataCell>& cell) const;
+    bool on_load(const LoadedCell& loaded_cell) const;
     NodePtr create_child(unsigned ref_id) const;
     bool mark_path(CellUsageTree* master_tree) const;
     bool is_from_tree(const CellUsageTree* master_tree) const;
@@ -58,13 +59,20 @@ class CellUsageTree : public std::enable_shared_from_this<CellUsageTree> {
   bool has_mark(NodeId node_id) const;
   void set_mark(NodeId node_id, bool mark = true);
   void mark_path(NodeId node_id);
-  NodeId get_parent(NodeId node_id);
-  NodeId get_child(NodeId node_id, unsigned ref_id);
+  NodeId get_parent(NodeId node_id) const;
+  NodeId get_child(NodeId node_id, unsigned ref_id) const;
   void set_use_mark_for_is_loaded(bool use_mark = true);
   NodeId create_child(NodeId node_id, unsigned ref_id);
 
-  void set_cell_load_callback(std::function<void(const td::Ref<vm::DataCell>&)> f) {
+  void set_cell_load_callback(std::function<void(const LoadedCell&)> f) {
     cell_load_callback_ = std::move(f);
+  }
+  void set_ignore_loads(bool value) {
+    if (value) {
+      ++ignore_loads_;
+    } else {
+      --ignore_loads_;
+    }
   }
 
  private:
@@ -76,9 +84,10 @@ class CellUsageTree : public std::enable_shared_from_this<CellUsageTree> {
   };
   bool use_mark_{false};
   std::vector<Node> nodes_{2};
-  std::function<void(const td::Ref<vm::DataCell>&)> cell_load_callback_;
+  std::function<void(const LoadedCell&)> cell_load_callback_;
 
-  void on_load(NodeId node_id, const td::Ref<vm::DataCell>& cell);
+  void on_load(NodeId node_id, const LoadedCell& loaded_cell);
   NodeId create_node(NodeId parent);
+  int ignore_loads_ = 0;
 };
 }  // namespace vm

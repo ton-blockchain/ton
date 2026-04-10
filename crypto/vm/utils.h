@@ -17,9 +17,9 @@
     Copyright 2019-2020 Telegram Systems LLP
 */
 #pragma once
-#include "stack.hpp"
-
 #include <vector>
+
+#include "stack.hpp"
 
 namespace vm {
 

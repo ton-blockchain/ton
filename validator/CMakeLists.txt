@@ -1,9 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 #add_subdirectory(dummy0)
 add_subdirectory(impl)
 
@@ -16,6 +10,8 @@ set(VALIDATOR_DB_SOURCE
   db/archive-slice.hpp
   db/celldb.cpp
   db/celldb.hpp
+  db/permanent-celldb/permanent-celldb-utils.cpp
+  db/permanent-celldb/permanent-celldb-utils.h
   db/files-async.hpp
   db/fileref.hpp
   db/fileref.cpp
@@ -27,12 +23,15 @@ set(VALIDATOR_DB_SOURCE
   db/staticfilesdb.hpp
   db/db-utils.cpp
   db/db-utils.h
+  db/db-event-publisher.cpp
+  db/db-event-publisher.hpp
 
   db/package.hpp
   db/package.cpp
 )
 
 set(VALIDATOR_HEADERS
+  types.h
   block-handle.hpp
   get-next-key-blocks.h
 
@@ -49,18 +48,22 @@ set(VALIDATOR_HEADERS
   interfaces/out-msg-queue-proof.h
   interfaces/proof.h
   interfaces/shard.h
-  interfaces/signature-set.h
   interfaces/validator-full-id.h
   interfaces/validator-manager.h
-  interfaces/validator-set.h
   invariants.hpp
-  
+
   import-db-slice.hpp
+  import-db-slice-local.hpp
   queue-size-counter.hpp
   validator-telemetry.hpp
+  storage-stat-cache.hpp
+  shard-block-verifier.hpp
+  shard-block-retainer.hpp
 
   collation-manager.hpp
-  collator-node.hpp
+  collator-node/collator-node.hpp
+  collator-node/collator-node-session.hpp
+  collator-node/utils.hpp
   manager-disk.h
   manager-disk.hpp
   manager-init.h
@@ -74,73 +77,58 @@ set(VALIDATOR_HEADERS
   validator.h
 )
 set(VALIDATOR_SOURCE
-  apply-block.cpp
-  block-handle.cpp
   collation-manager.cpp
-  collator-node.cpp
+  collator-node/collator-node.cpp
+  collator-node/collator-node-session.cpp
+  collator-node/utils.cpp
+  downloaders/wait-block-data.cpp
   get-next-key-blocks.cpp
   import-db-slice.cpp
-  shard-client.cpp
+  import-db-slice-local.cpp
   state-serializer.cpp
   token-manager.cpp
   validate-broadcast.cpp
-  validator-full-id.cpp
-  validator-group.cpp
-  validator-options.cpp
-  queue-size-counter.cpp
   validator-telemetry.cpp
+  storage-stat-cache.cpp
+  shard-block-verifier.cpp
+  shard-block-retainer.cpp
+  impl/applied-ext-message-cleanup.cpp
 
-  downloaders/wait-block-data.cpp
-  downloaders/wait-block-state.cpp
-  downloaders/wait-block-state-merge.cpp
-  downloaders/download-state.cpp
-
-  manager-init.cpp
   manager.cpp
 
-  ${VALIDATOR_DB_SOURCE}
+  consensus/simplex/bus.cpp
+  consensus/simplex/candidate-resolver.cpp
+  consensus/simplex/certificate.cpp
+  consensus/simplex/consensus.cpp
+  consensus/simplex/db.cpp
+  consensus/simplex/metric-collector.cpp
+  consensus/simplex/pool.cpp
+  consensus/simplex/state-resolver.cpp
+  consensus/simplex/stats.cpp
+  consensus/simplex/votes.cpp
+  consensus/block-accepter.cpp
+  consensus/block-producer.cpp
+  consensus/block-validator.cpp
+  consensus/bridge.cpp
+  consensus/bus.cpp
+  consensus/chain-state.cpp
+  consensus/private-overlay.cpp
+  consensus/trace-collector.cpp
+  consensus/stats.cpp
+  consensus/types.cpp
+  consensus/utils.cpp
 
   ${VALIDATOR_HEADERS}
 )
 
 set(DISK_VALIDATOR_SOURCE
-  apply-block.cpp
-  block-handle.cpp
-  shard-client.cpp
-  validator-full-id.cpp
-  validator-group.cpp
-  validator-options.cpp
-  queue-size-counter.cpp
-
   downloaders/wait-block-data-disk.cpp
-  downloaders/wait-block-state.cpp
-  downloaders/wait-block-state-merge.cpp
-  downloaders/download-state.cpp
-
-  manager-init.cpp
   manager-disk.cpp
-
-  ${VALIDATOR_DB_SOURCE}
 )
 
 set(HARDFORK_VALIDATOR_SOURCE
-  apply-block.cpp
-  block-handle.cpp
-  shard-client.cpp
-  validator-full-id.cpp
-  validator-group.cpp
-  validator-options.cpp
-  queue-size-counter.cpp
-
   downloaders/wait-block-data-disk.cpp
-  downloaders/wait-block-state.cpp
-  downloaders/wait-block-state-merge.cpp
-  downloaders/download-state.cpp
-
-  manager-init.cpp
   manager-hardfork.cpp
-
-  ${VALIDATOR_DB_SOURCE}
 )
 
 set(FULL_NODE_SOURCE
@@ -153,21 +141,17 @@ set(FULL_NODE_SOURCE
   full-node-master.h
   full-node-master.hpp
   full-node-master.cpp
-  full-node-private-overlay.hpp
-  full-node-private-overlay.cpp
+  full-node-custom-overlays.hpp
+  full-node-custom-overlays.cpp
   full-node-serializer.hpp
   full-node-serializer.cpp
   full-node-fast-sync-overlays.hpp
   full-node-fast-sync-overlays.cpp
 
-  net/download-block.hpp
-  net/download-block.cpp
   net/download-block-new.hpp
   net/download-block-new.cpp
   net/download-archive-slice.hpp
   net/download-archive-slice.cpp
-  net/download-next-block.hpp
-  net/download-next-block.cpp
   net/download-state.hpp
   net/download-state.cpp
   net/download-proof.hpp
@@ -176,43 +160,77 @@ set(FULL_NODE_SOURCE
   net/get-next-key-blocks.cpp
 )
 
+add_library(validator-db OBJECT ${VALIDATOR_DB_SOURCE})
+target_include_directories(validator-db PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+target_link_libraries(validator-db PUBLIC tdactor adnl rldp tl_api dht tdfec overlay catchain validatorsession ton_db)
+
+add_library(validator-common OBJECT
+  downloaders/download-state.cpp
+  downloaders/wait-block-state-merge.cpp
+  downloaders/wait-block-state.cpp
+  apply-block.cpp
+  block-handle.cpp
+  manager-init.cpp
+  queue-size-counter.cpp
+  shard-client.cpp
+  validator-full-id.cpp
+  validator-group.cpp
+  validator-options.cpp
+)
+target_link_libraries(validator-common PUBLIC validator-db)
+
 add_library(validator STATIC ${VALIDATOR_SOURCE})
 add_library(validator-disk STATIC ${DISK_VALIDATOR_SOURCE})
 add_library(validator-hardfork STATIC ${HARDFORK_VALIDATOR_SOURCE})
 add_library(full-node STATIC ${FULL_NODE_SOURCE})
 
-target_include_directories(validator PUBLIC 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto 
+if (MSVC)
+  # Work around MSVC ICE in consensus/simplex/consensus.cpp by disabling optimizer passes for this TU.
+  # Newer MSVC (17.11 / 19.41+) ICEs with the old workaround, so only apply it to older toolsets.
+  if (MSVC_VERSION LESS 1941)
+    include(CheckCXXCompilerFlag)
+    check_cxx_compiler_flag("/d2ssaoptimizer-" TON_MSVC_HAS_D2SSAOPT)
+    set(TON_MSVC_CONSENSUS_OPTS "/Od" "/GL-")
+    if (TON_MSVC_HAS_D2SSAOPT)
+      list(APPEND TON_MSVC_CONSENSUS_OPTS "/d2ssaoptimizer-")
+    endif()
+    set_source_files_properties(consensus/simplex/consensus.cpp PROPERTIES
+      COMPILE_OPTIONS "${TON_MSVC_CONSENSUS_OPTS}")
+  endif()
+endif()
+
+target_include_directories(validator PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto
   ${OPENSSL_INCLUDE_DIR}
 )
 
-target_include_directories(validator-disk PUBLIC 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto 
+target_include_directories(validator-disk PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto
   ${OPENSSL_INCLUDE_DIR}
   )
 
-target_include_directories(validator-hardfork PUBLIC 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto 
+target_include_directories(validator-hardfork PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto
   ${OPENSSL_INCLUDE_DIR}
   )
 
-target_include_directories(full-node PUBLIC 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto 
+target_include_directories(full-node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto
   ${OPENSSL_INCLUDE_DIR}
   )
 
-target_link_libraries(validator PRIVATE tdactor adnl rldp tl_api dht tdfec overlay catchain validatorsession ton_db)
+target_link_libraries(validator PRIVATE validator-common validator-db ton_validator)
 
-target_link_libraries(validator-disk PRIVATE tdactor adnl rldp tl_api dht tdfec overlay catchain validatorsession ton_db)
+target_link_libraries(validator-disk PRIVATE validator-common validator-db)
 
-target_link_libraries(validator-hardfork PRIVATE tdactor adnl rldp tl_api dht tdfec overlay catchain validatorsession ton_db)
+target_link_libraries(validator-hardfork PRIVATE validator-common validator-db)
 
 target_link_libraries(full-node PRIVATE tdactor adnl rldp rldp2 tl_api dht tdfec overlay catchain validatorsession ton_db)

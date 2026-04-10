@@ -17,11 +17,12 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include <functional>
+
 #include "vm/debugops.h"
+#include "vm/excno.hpp"
 #include "vm/log.h"
 #include "vm/opctable.h"
 #include "vm/stack.hpp"
-#include "vm/excno.hpp"
 #include "vm/vm.h"
 
 namespace vm {
@@ -75,16 +76,20 @@ int exec_dump_stack(VmState* st) {
   }
   Stack& stack = st->get_stack();
   int d = stack.depth();
-  std::cerr << "#DEBUG#: stack(" << d << " values) : ";
+
+  std::ostringstream os;
+  os << "#DEBUG#: stack(" << d << " values) : ";
   if (d > 255) {
-    std::cerr << "... ";
+    os << "... ";
     d = 255;
   }
   for (int i = d; i > 0; i--) {
-    stack[i - 1].print_list(std::cerr);
-    std::cerr << ' ';
+    stack[i - 1].print_list(os);
+    os << ' ';
   }
-  std::cerr << std::endl;
+
+  VM_LOG(st) << os.str();
+
   return 0;
 }
 
@@ -96,11 +101,13 @@ int exec_dump_value(VmState* st, unsigned arg) {
   }
   Stack& stack = st->get_stack();
   if ((int)arg < stack.depth()) {
-    std::cerr << "#DEBUG#: s" << arg << " = ";
-    stack[arg].print_list(std::cerr);
-    std::cerr << std::endl;
+    std::ostringstream os;
+    os << "#DEBUG#: s" << arg << " = ";
+    stack[arg].print_list(os);
+
+    VM_LOG(st) << os.str();
   } else {
-    std::cerr << "#DEBUG#: s" << arg << " is absent" << std::endl;
+    VM_LOG(st) << "#DEBUG#: s" << arg << " is absent";
   }
   return 0;
 }
@@ -113,7 +120,7 @@ int exec_dump_string(VmState* st) {
 
   Stack& stack = st->get_stack();
 
-  if (stack.depth() > 0){
+  if (stack.depth() > 0) {
     auto cs = stack[0].as_slice();
 
     if (cs.not_null()) {  // wanted t_slice
@@ -126,17 +133,16 @@ int exec_dump_string(VmState* st) {
         cs.write().fetch_bytes(tmp, cnt);
         std::string s{tmp, tmp + cnt};
 
-        std::cerr << "#DEBUG#: " << s << std::endl;
-      }
-      else {
-        std::cerr << "#DEBUG#: slice contains not valid bits count" << std::endl;
+        VM_LOG(st) << "#DEBUG#: " << s;
+      } else {
+        VM_LOG(st) << "#DEBUG#: slice contains not valid bits count";
       }
 
     } else {
-      std::cerr << "#DEBUG#: is not a slice" << std::endl;
+      VM_LOG(st) << "#DEBUG#: is not a slice";
     }
   } else {
-    std::cerr << "#DEBUG#: s0 is absent" << std::endl;
+    VM_LOG(st) << "#DEBUG#: s0 is absent";
   }
 
   return 0;
@@ -151,7 +157,7 @@ void register_debug_ops(OpcodeTable& cp0) {
     // NB: all non-redefined opcodes in fe00..feff should be redirected to dummy debug definitions
     cp0.insert(OpcodeInstr::mksimple(0xfe00, 16, "DUMPSTK", exec_dump_stack))
         .insert(OpcodeInstr::mkfixedrange(0xfe01, 0xfe14, 16, 8, instr::dump_1c_and(0xff, "DEBUG "), exec_dummy_debug))
-        .insert(OpcodeInstr::mksimple(0xfe14, 16,"STRDUMP", exec_dump_string))
+        .insert(OpcodeInstr::mksimple(0xfe14, 16, "STRDUMP", exec_dump_string))
         .insert(OpcodeInstr::mkfixedrange(0xfe15, 0xfe20, 16, 8, instr::dump_1c_and(0xff, "DEBUG "), exec_dummy_debug))
         .insert(OpcodeInstr::mkfixed(0xfe2, 12, 4, instr::dump_1sr("DUMP"), exec_dump_value))
         .insert(OpcodeInstr::mkfixedrange(0xfe30, 0xfef0, 16, 8, instr::dump_1c_and(0xff, "DEBUG "), exec_dummy_debug))

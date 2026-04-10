@@ -16,10 +16,10 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "td/utils/misc.h"
+
 #include "BinlogReaderHelper.h"
 #include "BinlogReaderInterface.h"
-
-#include "td/utils/misc.h"
 
 namespace td {
 td::Status BinlogReaderHelper::parse(BinlogReaderInterface& reader, td::Slice data) {

@@ -18,11 +18,10 @@
 */
 #pragma once
 #include "td/db/KeyValue.h"
-#include "vm/db/DynamicBagOfCellsDb.h"
-#include "vm/cells.h"
-
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
+#include "vm/cells.h"
+#include "vm/db/DynamicBagOfCellsDb.h"
 
 namespace vm {
 using KeyValue = td::KeyValue;
@@ -49,8 +48,13 @@ class CellLoader {
   };
   CellLoader(std::shared_ptr<KeyValueReader> reader, std::function<void(const LoadResult &)> on_load_callback = {});
   td::Result<LoadResult> load(td::Slice hash, bool need_data, ExtCellCreator &ext_cell_creator);
+  td::Result<std::vector<LoadResult>> load_bulk(td::Span<td::Slice> hashes, bool need_data,
+                                                ExtCellCreator &ext_cell_creator);
   static td::Result<LoadResult> load(td::Slice hash, td::Slice value, bool need_data, ExtCellCreator &ext_cell_creator);
   td::Result<LoadResult> load_refcnt(td::Slice hash);  // This only loads refcnt_, cell_ == null
+  KeyValueReader &key_value_reader() const {
+    return *reader_;
+  }
 
  private:
   std::shared_ptr<KeyValueReader> reader_;
@@ -62,7 +66,28 @@ class CellStorer {
   CellStorer(KeyValue &kv);
   td::Status erase(td::Slice hash);
   td::Status set(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc);
-  static std::string serialize_value(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc);
+  td::Status merge(td::Slice hash, td::int32 refcnt_diff);
+
+  static void merge_value_and_refcnt_diff(std::string &value, td::Slice right);
+  static void merge_refcnt_diffs(std::string &left, td::Slice right);
+  static std::string serialize_refcnt_diffs(td::int32 refcnt_diff);
+
+  static std::string serialize_value(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc,
+                                     int max_level = vm::Cell::max_level);
+
+  struct Diff {
+    enum Type { Set, Erase, Merge } type{Set};
+    CellHash key;
+    std::string value{};
+  };
+  td::Status apply_diff(const Diff &diff);
+
+  struct MetaDiff {
+    enum Type { Set, Erase } type{Set};
+    std::string key;
+    std::string value{};
+  };
+  td::Status apply_meta_diff(const MetaDiff &diff);
 
  private:
   KeyValue &kv_;

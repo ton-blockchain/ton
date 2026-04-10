@@ -17,14 +17,14 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "vm/cells/Cell.h"
-#include "vm/cells/PrunnedCell.h"
-#include "common/AtomicRef.h"
-
 #include <mutex>
-#include "td/utils/port/thread_local.h"
+
+#include "common/AtomicRef.h"
 #include "td/utils/HazardPointers.h"
 #include "td/utils/optional.h"
+#include "td/utils/port/thread_local.h"
+#include "vm/cells/Cell.h"
+#include "vm/cells/PrunnedCell.h"
 
 namespace vm {
 
@@ -54,16 +54,20 @@ class ExtCell : public Cell {
 
   td::Result<LoadedCell> load_cell() const override {
     TRY_RESULT(data_cell, load_data_cell());
-    return LoadedCell{std::move(data_cell), {}, {}};
+    auto level = data_cell->get_level();
+    return LoadedCell{std::move(data_cell), level, {}};
   }
-  td::uint32 get_virtualization() const override {
-    return 0;
+  bool is_virtualized() const override {
+    return false;
   }
   CellUsageTree::NodePtr get_tree_node() const override {
     return {};
   }
   bool is_loaded() const override {
     return CellView(this)->is_loaded();
+  }
+  Ref<PrunnedCell<ExtraT>> get_prunned_cell() const {
+    return prunned_cell_.load();
   }
 
  private:
@@ -110,6 +114,23 @@ class ExtCell : public Cell {
 
   td::uint16 do_get_depth(td::uint32 level) const override {
     return CellView(this)->get_depth(level);
+  }
+
+  td::Status set_data_cell(Ref<DataCell>&& new_data_cell) const override {
+    auto prunned_cell = prunned_cell_.load();
+    if (prunned_cell.is_null()) {
+      auto old_data_cell = data_cell_.get_unsafe();
+      DCHECK(old_data_cell);
+      TRY_STATUS(old_data_cell->check_equals_unloaded(new_data_cell));
+      return td::Status::OK();
+    }
+
+    TRY_STATUS(prunned_cell->check_equals_unloaded(new_data_cell));
+    if (data_cell_.store_if_empty(new_data_cell)) {
+      prunned_cell_.store({});
+      get_thread_safe_counter_unloaded().add(-1);
+    }
+    return td::Status::OK();
   }
 
   td::Result<Ref<DataCell>> load_data_cell() const {

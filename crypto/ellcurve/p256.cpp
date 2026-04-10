@@ -15,12 +15,14 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "p256.h"
+#include <iostream>
+#include <openssl/ec.h>
+#include <openssl/evp.h>
+
 #include "td/utils/check.h"
 #include "td/utils/misc.h"
-#include <openssl/evp.h>
-#include <openssl/ec.h>
-#include <iostream>
+
+#include "p256.h"
 
 namespace td {
 
@@ -58,7 +60,7 @@ td::Status p256_check_signature(td::Slice data, td::Slice public_key, td::Slice 
   SCOPE_EXIT {
     EVP_MD_CTX_free(md_ctx);
   };
-  if (EVP_DigestVerifyInit(md_ctx, nullptr, nullptr, nullptr, pkey) <= 0) {
+  if (EVP_DigestVerifyInit(md_ctx, nullptr, EVP_sha256(), nullptr, pkey) <= 0) {
     return td::Status::Error("Can't init DigestVerify");
   }
   ECDSA_SIG* sig = ECDSA_SIG_new();
@@ -71,7 +73,10 @@ td::Status p256_check_signature(td::Slice data, td::Slice public_key, td::Slice 
   BIGNUM* r = BN_bin2bn(buf, 33, nullptr);
   std::copy(signature.ubegin() + 32, signature.ubegin() + 64, buf + 1);
   BIGNUM* s = BN_bin2bn(buf, 33, nullptr);
+  CHECK(r != nullptr && s != nullptr);
   if (ECDSA_SIG_set0(sig, r, s) != 1) {
+    BN_free(r);
+    BN_free(s);
     return td::Status::Error("Invalid signature");
   }
   unsigned char* signature_encoded = nullptr;

@@ -16,33 +16,34 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "Config.h"
 #include "adnl/adnl-node-id.hpp"
-#include "td/utils/JsonBuilder.h"
 #include "auto/tl/ton_api_json.h"
+#include "td/utils/JsonBuilder.h"
 #include "ton/ton-tl.hpp"
+
+#include "Config.h"
 
 namespace tonlib {
 td::Result<ton::BlockIdExt> parse_block_id_ext(td::JsonObject &obj) {
   ton::WorkchainId zero_workchain_id;
   {
-    TRY_RESULT(wc, td::get_json_object_int_field(obj, "workchain"));
+    TRY_RESULT(wc, obj.get_required_int_field("workchain"));
     zero_workchain_id = wc;
   }
   ton::ShardId zero_shard_id;  // uint64
   {
-    TRY_RESULT(shard_id, td::get_json_object_long_field(obj, "shard"));
+    TRY_RESULT(shard_id, obj.get_optional_long_field("shard"));
     zero_shard_id = static_cast<ton::ShardId>(shard_id);
   }
   ton::BlockSeqno zero_seqno;
   {
-    TRY_RESULT(seqno, td::get_json_object_int_field(obj, "seqno"));
+    TRY_RESULT(seqno, obj.get_required_int_field("seqno"));
     zero_seqno = seqno;
   }
 
   ton::RootHash zero_root_hash;
   {
-    TRY_RESULT(hash_b64, td::get_json_object_string_field(obj, "root_hash"));
+    TRY_RESULT(hash_b64, obj.get_required_string_field("root_hash"));
     TRY_RESULT(hash, td::base64_decode(hash_b64));
     if (hash.size() * 8 != ton::RootHash::size()) {
       return td::Status::Error("Invalid config (8)");
@@ -51,7 +52,7 @@ td::Result<ton::BlockIdExt> parse_block_id_ext(td::JsonObject &obj) {
   }
   ton::FileHash zero_file_hash;
   {
-    TRY_RESULT(hash_b64, td::get_json_object_string_field(obj, "file_hash"));
+    TRY_RESULT(hash_b64, obj.get_required_string_field("file_hash"));
     TRY_RESULT(hash, td::base64_decode(hash_b64));
     if (hash.size() * 8 != ton::FileHash::size()) {
       return td::Status::Error("Invalid config (9)");

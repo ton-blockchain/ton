@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+set -eo pipefail
+
+BASE="$1"
+OURS="$2"
+THEIRS="$3"
+FILE="$4"
+
+TMP=$(mktemp)
+TMP_BASE=$(mktemp)
+
+cp "$THEIRS" "$TMP"
+cp "$BASE" "$TMP_BASE"
+clang-format -i --assume-filename="$FILE" --style=file:.clang-format "$TMP"
+clang-format -i --assume-filename="$FILE" --style=file:.clang-format "$TMP_BASE"
+
+git merge-file "$OURS" "$TMP_BASE" "$TMP"
+
+rm "$TMP"
+rm "$TMP_BASE"

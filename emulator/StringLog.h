@@ -1,8 +1,9 @@
 #ifndef TON_STRINGLOG_H
 #define TON_STRINGLOG_H
 
-#include "td/utils/logging.h"
 #include <thread>
+
+#include "td/utils/logging.h"
 
 class StringLog : public td::LogInterface {
  public:

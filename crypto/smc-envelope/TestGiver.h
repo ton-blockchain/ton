@@ -17,10 +17,11 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "SmartContract.h"
-#include "smc-envelope/WalletInterface.h"
 #include "block/block.h"
+#include "smc-envelope/WalletInterface.h"
 #include "vm/cells/CellString.h"
+
+#include "SmartContract.h"
 namespace ton {
 class TestGiver : public SmartContract, public WalletInterface {
  public:

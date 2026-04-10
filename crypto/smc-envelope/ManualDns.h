@@ -17,18 +17,17 @@
     Copyright 2019-2020 Telegram Systems LLP
 */
 #pragma once
-#include "td/utils/Variant.h"
+#include <map>
+
+#include "common/checksum.h"
+#include "smc-envelope/SmartContract.h"
 #include "td/utils/Status.h"
+#include "td/utils/Variant.h"
 #include "vm/cells/Cell.h"
 #include "vm/cells/CellSlice.h"
 #include "vm/cells/CellString.h"
 
-#include "smc-envelope/SmartContract.h"
-
 #include "Ed25519.h"
-#include "common/checksum.h"
-
-#include <map>
 
 namespace ton {
 const td::Bits256 DNS_NEXT_RESOLVER_CATEGORY =
@@ -351,6 +350,7 @@ class ManualDns : public ton::SmartContract, public DnsInterface {
     return res;
   }
   td::Result<td::Ref<vm::Cell>> create_update_query(CombinedActions<Action>& combined) const;
+
  private:
   block::StdAddress address_;
 };

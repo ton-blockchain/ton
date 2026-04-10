@@ -16,15 +16,15 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/benchmark.h"
-#include "td/utils/ConcurrentHashTable.h"
-#include "td/utils/misc.h"
-#include "td/utils/port/thread.h"
-#include "td/utils/SpinLock.h"
-#include "td/utils/tests.h"
-
 #include <atomic>
 #include <mutex>
+
+#include "td/utils/ConcurrentHashTable.h"
+#include "td/utils/SpinLock.h"
+#include "td/utils/benchmark.h"
+#include "td/utils/misc.h"
+#include "td/utils/port/thread.h"
+#include "td/utils/tests.h"
 
 #if !TD_THREAD_UNSUPPORTED
 

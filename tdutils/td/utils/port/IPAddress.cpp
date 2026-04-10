@@ -18,15 +18,14 @@
 */
 #define _WINSOCK_DEPRECATED_NO_WARNINGS  // we need to use inet_addr instead of inet_pton
 
-#include "td/utils/port/IPAddress.h"
-
+#include "td/utils/ScopeGuard.h"
+#include "td/utils/Slice.h"
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
+#include "td/utils/port/IPAddress.h"
 #include "td/utils/port/SocketFd.h"
 #include "td/utils/port/thread_local.h"
-#include "td/utils/ScopeGuard.h"
-#include "td/utils/Slice.h"
 #include "td/utils/utf8.h"
 
 #if TD_WINDOWS
@@ -64,7 +63,7 @@ static void punycode(string &result, Slice part) {
   auto end = part.uend();
   while (begin != end) {
     uint32 code;
-    begin = next_utf8_unsafe(begin, &code, "punycode");
+    begin = next_utf8_unsafe(begin, &code);
     if (code <= 127u) {
       result += to_lower(static_cast<char>(code));
       processed++;
@@ -439,7 +438,7 @@ Status IPAddress::init_host_port(CSlice host, CSlice port, bool prefer_ipv6) {
   hints.ai_family = AF_UNSPEC;
   hints.ai_socktype = SOCK_STREAM;
   hints.ai_protocol = IPPROTO_TCP;
-  LOG(DEBUG + 10) << "Trying to init IP address of " << host << " with port " << port;
+  VLOG(fd) << "Trying to init IP address of " << host << " with port " << port;
   auto err = getaddrinfo(host.c_str(), port.c_str(), &hints, &info);
   if (err != 0) {
 #if TD_WINDOWS
@@ -504,7 +503,7 @@ Status IPAddress::init_sockaddr(sockaddr *addr, socklen_t len) {
   }
 
   is_valid_ = true;
-  LOG(DEBUG + 10) << "Have address " << get_ip_str() << " with port " << get_port();
+  VLOG(fd) << "Have address " << get_ip_str() << " with port " << get_port();
   return Status::OK();
 }
 

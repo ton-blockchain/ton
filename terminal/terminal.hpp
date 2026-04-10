@@ -18,17 +18,20 @@
 */
 #pragma once
 
-#include "terminal.h"
 #include <iostream>
+#include <queue>
+
 #include "td/utils/port/FileFd.h"
 #include "td/utils/port/StdStreams.h"
-#include <queue>
+
+#include "terminal.h"
 
 namespace td {
 
 class TerminalLogInterface : public LogInterface {
  public:
   void append(CSlice slice, int log_level) override;
+  AnsiColor color_for(int log_level) override;
 };
 
 class TerminalIOImpl : public TerminalIO, td::ObserverBase {

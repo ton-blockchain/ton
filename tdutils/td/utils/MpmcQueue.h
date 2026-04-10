@@ -23,14 +23,14 @@
 // To close queue, one should send as much sentinel elements as there are readers.
 // Once there are no readers and writers, one may easily destroy queue
 
-#include "td/utils/format.h"
-#include "td/utils/HazardPointers.h"
-#include "td/utils/logging.h"
-#include "td/utils/port/thread.h"
-#include "td/utils/ScopeGuard.h"
-
 #include <array>
 #include <atomic>
+
+#include "td/utils/HazardPointers.h"
+#include "td/utils/ScopeGuard.h"
+#include "td/utils/format.h"
+#include "td/utils/logging.h"
+#include "td/utils/port/thread.h"
 
 namespace td {
 
@@ -414,7 +414,9 @@ class MpmcQueue {
     while (true) {
       auto node = hazard_pointers_.protect(thread_id, 0, read_pos_);
       auto &block = node->block;
-      if (block.write_pos <= block.read_pos && node->next.load(std::memory_order_relaxed) == nullptr) {
+      auto read_pos = block.read_pos.load();
+      auto write_pos = block.write_pos.load();
+      if (write_pos <= read_pos && node->next.load(std::memory_order_relaxed) == nullptr) {
         return false;
       }
       auto pos = block.read_pos++;

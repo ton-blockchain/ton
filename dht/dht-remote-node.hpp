@@ -18,15 +18,13 @@
 */
 #pragma once
 
-#include "td/utils/int_types.h"
-#include "td/actor/actor.h"
-
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
+#include "auto/tl/ton_api.hpp"
+#include "td/actor/actor.h"
+#include "td/utils/int_types.h"
 
 #include "dht.hpp"
-
-#include "auto/tl/ton_api.hpp"
 
 namespace ton {
 

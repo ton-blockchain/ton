@@ -21,9 +21,9 @@
 namespace block {
 
 /*
- * 
- *  OUTPUT QUEUE MERGER 
- * 
+ *
+ *  OUTPUT QUEUE MERGER
+ *
  */
 
 bool OutputQueueMerger::MsgKeyValue::operator<(const MsgKeyValue& other) const {
@@ -138,7 +138,6 @@ void OutputQueueMerger::add_root(int src, Ref<vm::Cell> outmsg_root, td::int32 m
   if (outmsg_root.is_null()) {
     return;
   }
-  //block::gen::HashmapAug{352, block::gen::t_EnqueuedMsg, block::gen::t_uint64}.print_ref(std::cerr, outmsg_root);
   auto kv = std::make_unique<MsgKeyValue>(src, std::move(outmsg_root));
   if (kv->replace_by_prefix(common_pfx.cbits(), common_pfx_len)) {
     heap.push_back(std::move(kv));
@@ -169,7 +168,9 @@ OutputQueueMerger::OutputQueueMerger(ton::ShardIdFull queue_for, std::vector<Out
   std::make_heap(heap.begin(), heap.end(), MsgKeyValue::greater);
   eof = heap.empty();
   if (!eof) {
-    load();
+    if (!load()) {
+      eof = true;
+    }
   }
 }
 
@@ -215,7 +216,7 @@ bool OutputQueueMerger::load() {
   } while (!heap.empty() && heap[0]->lt <= lt);
   std::sort(msg_list.begin() + orig_size, msg_list.end(), MsgKeyValue::less);
   for (size_t i = orig_size; i < msg_list.size(); ++i) {
-    td::int32 &remaining = src_remaining_msgs_[msg_list[i]->source];
+    td::int32& remaining = src_remaining_msgs_[msg_list[i]->source];
     if (remaining != -1) {
       if (remaining == 0) {
         limit_exceeded = true;

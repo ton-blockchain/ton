@@ -1,6 +1,17 @@
 name: TON Static Code Analysis
 
-on: [push,workflow_dispatch,workflow_call]
+on:
+  pull_request:
+    branches: [master, testnet]
+    types: [opened, reopened, synchronize, ready_for_review]
+  push:
+    branches: [master, testnet]
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -8,8 +19,8 @@ jobs:
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v3
-      with:      
+      uses: actions/checkout@v6
+      with:
         submodules: 'recursive'
 
     - name: Run Cppcheck
@@ -24,3 +35,4 @@ jobs:
       with:
         name: ton-ccpcheck-report
         path: output
+        retention-days: 14

@@ -16,11 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "td/utils/PathView.h"
+
 #include "Fift.h"
 #include "IntCtx.h"
 #include "words.h"
-
-#include "td/utils/PathView.h"
 
 namespace fift {
 

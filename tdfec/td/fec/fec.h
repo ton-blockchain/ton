@@ -18,8 +18,8 @@
 */
 #pragma once
 
-#include "td/utils/buffer.h"
 #include "td/utils/Status.h"
+#include "td/utils/buffer.h"
 
 namespace td {
 namespace raptorq {
@@ -105,7 +105,7 @@ class RoundRobinEncoder : public Encoder {
 
 class RoundRobinDecoder : public Decoder {
  public:
-  static std::unique_ptr<RoundRobinDecoder> create(RoundRobinEncoder::Parameters parameters);
+  static Result<std::unique_ptr<RoundRobinDecoder>> create(RoundRobinEncoder::Parameters parameters);
   bool may_try_decode() const override;
   Result<DataWithEncoder> try_decode(bool need_encoder) override;
   Status add_symbol(Symbol symbol) override;
@@ -136,8 +136,8 @@ class RaptorQEncoder : public Encoder {
 
   Parameters get_parameters() const;
 
-  RaptorQEncoder(std::unique_ptr<raptorq::Encoder> encoder);
-  ~RaptorQEncoder();
+  explicit RaptorQEncoder(std::unique_ptr<raptorq::Encoder> encoder);
+  ~RaptorQEncoder() override;
 
  private:
   std::unique_ptr<raptorq::Encoder> encoder_;
@@ -145,16 +145,15 @@ class RaptorQEncoder : public Encoder {
 
 class RaptorQDecoder : public Decoder {
  public:
-  static std::unique_ptr<RaptorQDecoder> create(RaptorQEncoder::Parameters parameters);
+  static Result<std::unique_ptr<RaptorQDecoder>> create(RaptorQEncoder::Parameters parameters);
   bool may_try_decode() const override;
   Result<DataWithEncoder> try_decode(bool need_encoder) override;
   Status add_symbol(Symbol symbol) override;
-  RaptorQDecoder(std::unique_ptr<raptorq::Decoder> decoder);
-  ~RaptorQDecoder();
+  explicit RaptorQDecoder(std::unique_ptr<raptorq::Decoder> decoder);
+  ~RaptorQDecoder() override;
 
  private:
   std::unique_ptr<raptorq::Decoder> decoder_;
-  BufferSlice res_;
 };
 
 class OnlineEncoder : public Encoder {
@@ -180,7 +179,7 @@ class OnlineEncoder : public Encoder {
 
 class OnlineDecoder : public Decoder {
  public:
-  static std::unique_ptr<OnlineDecoder> create(OnlineEncoder::Parameters parameters);
+  static Result<std::unique_ptr<OnlineDecoder>> create(OnlineEncoder::Parameters parameters);
   bool may_try_decode() const override;
   Result<DataWithEncoder> try_decode(bool need_encoder) override;
   Status add_symbol(Symbol symbol) override;

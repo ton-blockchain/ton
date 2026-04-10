@@ -20,7 +20,6 @@
 
 #include "td/actor/actor.h"
 #include "td/utils/BufferedUdp.h"
-
 #include "td/utils/port/UdpSocketFd.h"
 
 namespace td {

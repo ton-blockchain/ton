@@ -14,12 +14,10 @@ $1 =: source
 $2 =: destination
 $3 =: name
 
-."Include source from " source type cr
 source include
 
 boc>B
-."Convert boc to base64" cr 
-B>base64 
+B>base64
 
 { char " chr tuck $+ $+ } : wrp
 wrp  // "<code>"
@@ -27,5 +25,4 @@ wrp  // "<code>"
 
 $>B
 
-."Store tvm code to " destination type cr
 destination B>file

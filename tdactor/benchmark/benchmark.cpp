@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,13 +14,13 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
@@ -42,25 +42,6 @@ extern "C" {
 #include <unistd.h>
 #endif
 
-#include "td/actor/core/ActorLocker.h"
-#include "td/actor/actor.h"
-
-#include "td/utils/benchmark.h"
-#include "td/utils/crypto.h"
-#include "td/utils/logging.h"
-#include "td/utils/misc.h"
-#include "td/utils/MpmcQueue.h"
-#include "td/utils/MpmcWaiter.h"
-#include "td/utils/port/thread.h"
-#include "td/utils/queue.h"
-#include "td/utils/Random.h"
-#include "td/utils/Slice.h"
-#include "td/utils/Status.h"
-#include "td/utils/StealingQueue.h"
-#include "td/utils/ThreadSafeCounter.h"
-#include "td/utils/UInt.h"
-#include "td/utils/VectorQueue.h"
-
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -69,6 +50,24 @@ extern "C" {
 #include <mutex>
 #include <queue>
 #include <string>
+
+#include "td/actor/actor.h"
+#include "td/actor/core/ActorLocker.h"
+#include "td/utils/MpmcQueue.h"
+#include "td/utils/MpmcWaiter.h"
+#include "td/utils/Random.h"
+#include "td/utils/Slice.h"
+#include "td/utils/Status.h"
+#include "td/utils/StealingQueue.h"
+#include "td/utils/ThreadSafeCounter.h"
+#include "td/utils/UInt.h"
+#include "td/utils/VectorQueue.h"
+#include "td/utils/benchmark.h"
+#include "td/utils/crypto.h"
+#include "td/utils/logging.h"
+#include "td/utils/misc.h"
+#include "td/utils/port/thread.h"
+#include "td/utils/queue.h"
 
 using td::int32;
 using td::uint32;
@@ -139,7 +138,7 @@ class BlockSha256Baseline {
   }
   static void calc_hash(Block &block) {
     for (auto &cell : block.cells) {
-      td::sha256(cell.data, as_slice(cell.hash));
+      td::sha256(cell.data, as_mutable_slice(cell.hash));
     }
   }
   static td::Status check(Block &block) {
@@ -163,7 +162,7 @@ class BlockSha256Baseline {
         }
         cell_ref.hash_slice.copy_from(as_slice(block.get_cell(cell_ref.cell_id).hash));
       }
-      td::sha256(cell.data, as_slice(cell.hash));
+      td::sha256(cell.data, as_mutable_slice(cell.hash));
     }
   }
 };
@@ -195,7 +194,7 @@ class BlockSha256Threads {
   }
   static void calc_hash(Block &block) {
     parallel_map(block.cells.begin(), block.cells.end(),
-                 [](Cell &cell) { td::sha256(cell.data, as_slice(cell.hash)); });
+                 [](Cell &cell) { td::sha256(cell.data, as_mutable_slice(cell.hash)); });
   }
   static td::Status check_refs(Block &block) {
     std::atomic<bool> mismatch{false};
@@ -255,7 +254,7 @@ class BlockSha256MpmcQueue {
       }));
     }
     for (auto &cell : block.cells) {
-      queue->push([&cell]() { td::sha256(cell.data, as_slice(cell.hash)); }, threads_count);
+      queue->push([&cell]() { td::sha256(cell.data, as_mutable_slice(cell.hash)); }, threads_count);
     }
     for (size_t thread_id = 0; thread_id < threads_count; thread_id++) {
       queue->push(nullptr, threads_count);
@@ -283,7 +282,7 @@ class BlockSha256MpmcQueueCellPtr {
           if (cell == &poison) {
             return;
           }
-          td::sha256(cell->data, as_slice(cell->hash));
+          td::sha256(cell->data, as_mutable_slice(cell->hash));
         }
       }));
     }
@@ -312,6 +311,10 @@ class ActorExecutorBenchmark : public td::Benchmark {
       void add_to_queue(ActorInfoPtr ptr, SchedulerId scheduler_id, bool need_poll) override {
         //queue.push_back(std::move(ptr));
         q.push(ptr, 0);
+      }
+      void add_token_to_cpu_queue(SchedulerToken token, SchedulerId scheduler_id) override {
+        SchedulerMessage::Raw *raw = reinterpret_cast<SchedulerMessage::Raw *>(token);
+        q.push(SchedulerMessage(SchedulerMessage::acquire_t{}, raw), 0);
       }
       void set_alarm_timestamp(const ActorInfoPtr &actor_info_ptr) override {
         UNREACHABLE();
@@ -375,7 +378,7 @@ class ActorExecutorBenchmark : public td::Benchmark {
     //{
     //ActorExecutor executor(*actor, dispatcher, ActorExecutor::Options());
     //executor.send(
-    //ActorMessageCreator::lambda([&] { static_cast<TestActor &>(ActorExecuteContext::get()->actor()).close(); }));
+    //ActorMessageCreator::lambda([&] { static_cast<TestActor &>(ActorExecuteContext::get().actor()).close(); }));
     //}
     dispatcher.queue.clear();
   }
@@ -432,7 +435,7 @@ class ActorSignalQuery : public td::Benchmark {
     Scheduler scheduler{{threads_count}};
 
     scheduler.run_in_context([&] {
-      auto watcher = td::create_shared_destructor([] { td::actor::SchedulerContext::get()->stop(); });
+      auto watcher = td::create_shared_destructor([] { td::actor::SchedulerContext::get().stop(); });
 
       create_actor<Master>(ActorOptions().with_name(PSLICE() << "Master"), watcher, n).release();
     });
@@ -489,7 +492,7 @@ class ActorQuery : public td::Benchmark {
     Scheduler scheduler({threads_count});
 
     scheduler.run_in_context([&] {
-      auto watcher = td::create_shared_destructor([] { td::actor::SchedulerContext::get()->stop(); });
+      auto watcher = td::create_shared_destructor([] { td::actor::SchedulerContext::get().stop(); });
 
       create_actor<Master>(ActorOptions().with_name(PSLICE() << "Master"), watcher, n).release();
     });
@@ -545,7 +548,7 @@ class ActorDummyQuery : public td::Benchmark {
     Scheduler scheduler({threads_count});
 
     scheduler.run_in_context([&] {
-      auto watcher = td::create_shared_destructor([] { td::actor::SchedulerContext::get()->stop(); });
+      auto watcher = td::create_shared_destructor([] { td::actor::SchedulerContext::get().stop(); });
 
       create_actor<Master>(ActorOptions().with_name(PSLICE() << "Master"), watcher, n).release();
     });
@@ -604,7 +607,7 @@ class ActorTaskQuery : public td::Benchmark {
     Scheduler scheduler({threads_count});
 
     scheduler.run_in_context([&] {
-      auto watcher = td::create_shared_destructor([] { td::actor::SchedulerContext::get()->stop(); });
+      auto watcher = td::create_shared_destructor([] { td::actor::SchedulerContext::get().stop(); });
 
       create_actor<Master>(ActorOptions().with_name(PSLICE() << "Master"), watcher, n).release();
     });
@@ -623,7 +626,7 @@ class BlockSha256Actors {
     Scheduler scheduler({threads_count});
 
     scheduler.run_in_context([&] {
-      auto watcher = td::create_shared_destructor([] { td::actor::SchedulerContext::get()->stop(); });
+      auto watcher = td::create_shared_destructor([] { td::actor::SchedulerContext::get().stop(); });
       class Worker : public td::actor::Actor {
        public:
         Worker(std::shared_ptr<td::Destructor> watcher, td::Promise<> promise)
@@ -641,7 +644,7 @@ class BlockSha256Actors {
 
       for (auto it = begin; it != end; it++) {
         create_actor<Worker>(ActorOptions().with_name(PSLICE() << "Worker#"), watcher,
-                             td::Promise<>([&, it](td::Unit) { f(*it); }))
+                             td::Promise<>([&, it](td::Result<>) { f(*it); }))
             .release();
       }
     });
@@ -649,7 +652,7 @@ class BlockSha256Actors {
   }
   static void calc_hash(Block &block) {
     parallel_map(block.cells.begin(), block.cells.end(),
-                 [](Cell &cell) { td::sha256(cell.data, as_slice(cell.hash)); });
+                 [](Cell &cell) { td::sha256(cell.data, as_mutable_slice(cell.hash)); });
   }
 };
 
@@ -1425,13 +1428,13 @@ class ChainedSpawn : public td::Benchmark {
     auto sch = td::thread([&] { scheduler.run(); });
 
     Sem sem;
-    scheduler.run_in_context_external([&] {
+    scheduler.run_in_context([&] {
       for (int i = 0; i < n; i++) {
         td::actor::create_actor<Task>(td::actor::ActorOptions().with_name("Task").with_poll(use_io_), 1000, &sem)
             .release();
         sem.wait();
       }
-      td::actor::SchedulerContext::get()->stop();
+      td::actor::SchedulerContext::get().stop();
     });
 
     sch.join();
@@ -1472,13 +1475,13 @@ class ChainedSpawnInplace : public td::Benchmark {
     auto sch = td::thread([&] { scheduler.run(); });
 
     Sem sem;
-    scheduler.run_in_context_external([&] {
+    scheduler.run_in_context([&] {
       for (int i = 0; i < n; i++) {
         td::actor::create_actor<Task>(td::actor::ActorOptions().with_name("Task").with_poll(use_io_), 1000, &sem)
             .release();
         sem.wait();
       }
-      td::actor::SchedulerContext::get()->stop();
+      td::actor::SchedulerContext::get().stop();
     });
 
     sch.join();
@@ -1523,7 +1526,7 @@ class PingPong : public td::Benchmark {
     auto sch = td::thread([&] { scheduler.run(); });
 
     Sem sem;
-    scheduler.run_in_context_external([&] {
+    scheduler.run_in_context([&] {
       for (int i = 0; i < n; i++) {
         auto a = td::actor::create_actor<Task>(td::actor::ActorOptions().with_name("Task").with_poll(use_io_), &sem)
                      .release();
@@ -1534,7 +1537,7 @@ class PingPong : public td::Benchmark {
         send_closure(a, &Task::ping, 1000);
         sem.wait(2);
       }
-      td::actor::SchedulerContext::get()->stop();
+      td::actor::SchedulerContext::get().stop();
     });
 
     sch.join();
@@ -1568,7 +1571,7 @@ class SpawnMany : public td::Benchmark {
     td::actor::Scheduler scheduler{{8}};
     Sem sem;
     auto sch = td::thread([&] { scheduler.run(); });
-    scheduler.run_in_context_external([&] {
+    scheduler.run_in_context([&] {
       for (int i = 0; i < n; i++) {
         int spawn_cnt = 10000;
         for (int j = 0; j < spawn_cnt; j++) {
@@ -1576,7 +1579,7 @@ class SpawnMany : public td::Benchmark {
         }
         sem.wait(spawn_cnt);
       }
-      td::actor::SchedulerContext::get()->stop();
+      td::actor::SchedulerContext::get().stop();
     });
     sch.join();
   }
@@ -1619,7 +1622,7 @@ class YieldMany : public td::Benchmark {
     auto sch = td::thread([&] { scheduler.run(); });
     unsigned tasks = tasks_per_cpu * cpu_n;
     Sem sem;
-    scheduler.run_in_context_external([&] {
+    scheduler.run_in_context([&] {
       for (int i = 0; i < n; i++) {
         for (unsigned j = 0; j < tasks; j++) {
           td::actor::create_actor<Task>(td::actor::ActorOptions().with_name("Task").with_poll(use_io_), num_yield, &sem)
@@ -1629,7 +1632,7 @@ class YieldMany : public td::Benchmark {
       }
     });
 
-    scheduler.run_in_context_external([&] { td::actor::SchedulerContext::get()->stop(); });
+    scheduler.run_in_context([&] { td::actor::SchedulerContext::get().stop(); });
     sch.join();
   }
 

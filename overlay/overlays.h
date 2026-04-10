@@ -18,18 +18,17 @@
 */
 #pragma once
 
+#include <map>
+
 #include "adnl/adnl-node-id.hpp"
-#include "adnl/adnl.h"
+#include "adnl/adnl-sender-ex.h"
 #include "auto/tl/ton_api.h"
 #include "dht/dht.h"
-
 #include "td/actor/PromiseFuture.h"
 #include "td/actor/actor.h"
 #include "td/utils/Status.h"
 #include "td/utils/buffer.h"
 #include "td/utils/common.h"
-
-#include <map>
 
 namespace ton {
 
@@ -130,6 +129,27 @@ class OverlayPrivacyRules {
     }
   }
 
+  bool is_authorized_key(PublicKeyHash hash) const {
+    return authorized_keys_.contains(hash);
+  }
+
+  td::uint32 max_broadcast_size() const {
+    td::uint32 size = max_unath_size_;
+    for (const auto &[_, x] : authorized_keys_) {
+      size = std::max(size, x);
+    }
+    return size;
+  }
+
+  std::vector<PublicKeyHash> get_authorized_keys() const {
+    std::vector<PublicKeyHash> keys;
+    keys.reserve(authorized_keys_.size());
+    for (const auto &[key, _] : authorized_keys_) {
+      keys.push_back(key);
+    }
+    return keys;
+  }
+
  private:
   td::uint32 max_unath_size_{0};
   td::uint32 flags_{0};
@@ -153,8 +173,9 @@ class Certificate {
   tl_object_ptr<ton_api::overlay_Certificate> tl() const;
   const PublicKey &issuer() const;
   const PublicKeyHash issuer_hash() const;
+  const td::SharedSlice &signature() const;
 
-  static td::Result<std::shared_ptr<Certificate>> create(tl_object_ptr<ton_api::overlay_Certificate> cert);
+  static td::Result<std::shared_ptr<Certificate>> create(const tl_object_ptr<ton_api::overlay_Certificate> &cert);
   static tl_object_ptr<ton_api::overlay_Certificate> empty_tl();
 
  private:
@@ -171,7 +192,7 @@ class OverlayMemberCertificate {
     expire_at_ = std::numeric_limits<td::int32>::max();
   }
   OverlayMemberCertificate(PublicKey signed_by, td::uint32 flags, td::int32 slot, td::int32 expire_at,
-                         td::BufferSlice signature)
+                           td::BufferSlice signature)
       : signed_by_(std::move(signed_by))
       , flags_(flags)
       , slot_(slot)
@@ -258,8 +279,8 @@ class OverlayMemberCertificate {
   td::SharedSlice signature_;
 };
 
-
 struct OverlayOptions {
+  std::string name_ = "";
   bool announce_self_ = true;
   bool frequent_dht_lookup_ = false;
   td::uint32 local_overlay_member_flags_ = 0;
@@ -269,18 +290,40 @@ struct OverlayOptions {
   td::uint32 nodes_to_send_ = 4;
   td::uint32 propagate_broadcast_to_ = 5;
   td::uint32 default_permanent_members_flags_ = 0;
+  double broadcast_speed_multiplier_ = 1.0;
+  bool private_ping_peers_ = false;
+
+  td::actor::ActorId<adnl::AdnlSenderEx> twostep_broadcast_sender_ = {};
+  bool send_twostep_broadcast_ = false;
+  bool allow_old_broadcasts_ = true;  // non-twostep broadcasts
+};
+
+struct OverlayManagerBufferLimits {
+  td::uint32 max_packets = 0;
+  td::uint64 max_data_size = 0;
 };
 
 class Overlays : public td::actor::Actor {
  public:
   class Callback {
    public:
-    virtual void receive_message(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, td::BufferSlice data) = 0;
+    virtual void receive_message(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, td::BufferSlice data) {
+    }
     virtual void receive_query(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, td::BufferSlice data,
-                               td::Promise<td::BufferSlice> promise) = 0;
-    virtual void receive_broadcast(PublicKeyHash src, OverlayIdShort overlay_id, td::BufferSlice data) = 0;
+                               td::Promise<td::BufferSlice> promise) {
+    }
+    virtual void receive_broadcast(PublicKeyHash src, OverlayIdShort overlay_id, td::BufferSlice data) {
+    }
+    virtual void receive_broadcast_with_extra(PublicKeyHash src, OverlayIdShort overlay_id, td::BufferSlice data,
+                                              td::BufferSlice extra) {
+      receive_broadcast(src, overlay_id, std::move(data));
+    }
     virtual void check_broadcast(PublicKeyHash src, OverlayIdShort overlay_id, td::BufferSlice data,
                                  td::Promise<td::Unit> promise) {
+      promise.set_value(td::Unit());
+    }
+    virtual void precheck_broadcast(PublicKeyHash src, OverlayIdShort overlay_id, td::Bits256 broadcast_id,
+                                    td::BufferSlice extra, bool signature_checked, td::Promise<> promise) {
       promise.set_value(td::Unit());
     }
     virtual void get_stats_extra(td::Promise<std::string> promise) {
@@ -302,13 +345,17 @@ class Overlays : public td::actor::Actor {
   static constexpr td::uint32 BroadcastFlagAnySender() {
     return 1;
   }
+  static constexpr td::uint32 BroadcastFlagNoTwostep() {
+    return 256;
+  }
 
   static constexpr td::uint32 overlay_peer_ttl() {
     return 600;
   }
 
   static td::actor::ActorOwn<Overlays> create(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-                                              td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht);
+                                              td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<dht::Dht> dht,
+                                              OverlayManagerBufferLimits buffer_limits = {});
 
   virtual void update_dht_node(td::actor::ActorId<dht::Dht> dht) = 0;
 
@@ -321,9 +368,8 @@ class Overlays : public td::actor::Actor {
   virtual void create_semiprivate_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                                           std::vector<adnl::AdnlNodeIdShort> nodes,
                                           std::vector<PublicKeyHash> root_public_keys,
-                                          OverlayMemberCertificate certificate,
-                                          std::unique_ptr<Callback> callback, OverlayPrivacyRules rules,
-                                          td::string scope, OverlayOptions opts) = 0;
+                                          OverlayMemberCertificate certificate, std::unique_ptr<Callback> callback,
+                                          OverlayPrivacyRules rules, td::string scope, OverlayOptions opts) = 0;
   virtual void create_private_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id,
                                       std::vector<adnl::AdnlNodeIdShort> nodes, std::unique_ptr<Callback> callback,
                                       OverlayPrivacyRules rules, std::string scope) = 0;
@@ -357,6 +403,9 @@ class Overlays : public td::actor::Actor {
   virtual void send_broadcast_fec(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, td::BufferSlice object) = 0;
   virtual void send_broadcast_fec_ex(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, PublicKeyHash send_as,
                                      td::uint32 flags, td::BufferSlice object) = 0;
+  virtual void send_broadcast_fec_with_extra(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
+                                             PublicKeyHash send_as, td::uint32 flags, td::BufferSlice object,
+                                             td::BufferSlice extra) = 0;
 
   virtual void set_privacy_rules(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                  OverlayPrivacyRules rules) = 0;

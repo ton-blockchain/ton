@@ -53,15 +53,15 @@ void delay_action(T promise, td::Timestamp timeout) {
 template <typename PromiseT, typename ValueT>
 class AsyncApply : public td::actor::Actor {
  public:
-  AsyncApply(PromiseT promise, ValueT value) : promise_(std::move(promise)), value_(std::move(value)){
+  AsyncApply(PromiseT promise, ValueT value) : promise_(std::move(promise)), value_(std::move(value)) {
   }
 
   void start_up() override {
-    promise_(std::move(value_));
+    promise_.set_result(std::move(value_));
     stop();
   }
 
-  static void create(td::Slice name, PromiseT promise, ValueT value ) {
+  static void create(td::Slice name, PromiseT promise, ValueT value) {
     td::actor::create_actor<AsyncApply>(PSLICE() << "async:" << name, std::move(promise), std::move(value)).release();
   }
 

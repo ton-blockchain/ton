@@ -19,12 +19,13 @@
 
 #pragma once
 
-#include "td/utils/optional.h"
+#include <map>
+
 #include "td/utils/Slice.h"
+#include "td/utils/optional.h"
 #include "vm/cells.h"
 
 #include "Bitset.h"
-#include <map>
 
 namespace ton {
 // merkle_node$_ {n:#} left:^(ton::MerkleTree n) right:^(ton::MerkleTree n) = ton::MerkleTree (n + 1);

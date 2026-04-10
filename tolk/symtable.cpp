@@ -15,155 +15,282 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "symtable.h"
+#include "ast.h"
+#include "compilation-errors.h"
 #include "compiler-state.h"
-#include <sstream>
-#include <cassert>
+#include "generics-helpers.h"
 
 namespace tolk {
 
-
-std::string Symbol::unknown_symbol_name(sym_idx_t i) {
-  if (!i) {
-    return "_";
-  } else {
-    std::ostringstream os;
-    os << "SYM#" << i;
-    return os.str();
+void Symbol::check_import_exists_when_used_from(FunctionPtr cur_f, AnyV usage) const {
+#ifdef TOLK_DEBUG
+  tolk_assert(ident_anchor != nullptr);
+#endif
+  const SrcFile* declared_in = ident_anchor->range.get_src_file();
+  bool has_import = false;
+  for (const SrcFile::ImportDirective& import : usage->range.get_src_file()->imports) {
+    has_import |= import.imported_file == declared_in;
+  }
+  if (!has_import) {
+    err("Using a non-imported symbol `{}`\n""hint: forgot to import \"{}\"?", name, declared_in->extract_short_name()).collect(usage, cur_f);
   }
 }
 
-sym_idx_t SymTable::gen_lookup(std::string_view str, int mode, sym_idx_t idx) {
-  unsigned long long h1 = 1, h2 = 1;
-  for (char c : str) {
-    h1 = ((h1 * 239) + (unsigned char)(c)) % SIZE_PRIME;
-    h2 = ((h2 * 17) + (unsigned char)(c)) % (SIZE_PRIME - 1);
+std::string FunctionData::as_human_readable() const {
+  if (!is_generic_function()) {
+    return name;  // if it's generic instantiation like `f<int>`, its name is "f<int>", not "f"
   }
-  ++h2;
-  ++h1;
-  while (true) {
-    if (sym[h1]) {
-      if (sym[h1]->str == str) {
-        return (mode & 2) ? not_found : sym_idx_t(h1);
-      }
-      h1 += h2;
-      if (h1 > SIZE_PRIME) {
-        h1 -= SIZE_PRIME;
-      }
-    } else {
-      if (!(mode & 1)) {
-        return not_found;
-      }
-      if (def_sym >= ((long long)SIZE_PRIME * 3) / 4) {
-        throw SymTableOverflow{def_sym};
-      }
-      sym[h1] = std::make_unique<Symbol>(static_cast<std::string>(str), idx <= 0 ? sym_idx_t(h1) : -idx);
-      ++def_sym;
-      return sym_idx_t(h1);
+  return name + genericTs->as_human_readable();
+}
+
+std::string AliasDefData::as_human_readable() const {
+  if (!is_generic_alias()) {
+    return name;
+  }
+  return name + genericTs->as_human_readable();
+}
+
+std::string StructData::as_human_readable() const {
+  if (!is_generic_struct()) {
+    return name;
+  }
+  return name + genericTs->as_human_readable();
+}
+
+std::string EnumDefData::as_human_readable() const {
+  return name;
+}
+
+LocalVarPtr FunctionData::find_param(std::string_view name) const {
+  for (const LocalVarData& param_data : parameters) {
+    if (param_data.name == name) {
+      return &param_data;
     }
-  }
-}
-
-std::string SymDef::name() const {
-  return G.symbols.get_name(sym_idx);
-}
-
-void open_scope(SrcLocation loc) {
-  ++G.scope_level;
-  G.scope_opened_at.push_back(loc);
-}
-
-void close_scope() {
-  if (!G.scope_level) {
-    throw Fatal{"cannot close the outer scope"};
-  }
-  while (!G.symbol_stack.empty() && G.symbol_stack.back().first == G.scope_level) {
-    SymDef old_def = G.symbol_stack.back().second;
-    auto idx = old_def.sym_idx;
-    G.symbol_stack.pop_back();
-    SymDef* cur_def = G.sym_def[idx];
-    assert(cur_def);
-    assert(cur_def->level == G.scope_level && cur_def->sym_idx == idx);
-    //std::cerr << "restoring local symbol `" << old_def.name << "` of level " << scope_level << " to its previous level " << old_def.level << std::endl;
-    if (cur_def->value) {
-      //std::cerr << "deleting value of symbol " << old_def.name << ":" << old_def.level << " at " << (const void*) it->second.value << std::endl;
-      delete cur_def->value;
-    }
-    if (!old_def.level && !old_def.value) {
-      delete cur_def;  // ??? keep the definition always?
-      G.sym_def[idx] = nullptr;
-    } else {
-      cur_def->value = old_def.value;
-      cur_def->level = old_def.level;
-    }
-    old_def.value = nullptr;
-  }
-  --G.scope_level;
-  G.scope_opened_at.pop_back();
-}
-
-SymDef* lookup_symbol(sym_idx_t idx) {
-  if (!idx) {
-    return nullptr;
-  }
-  if (G.sym_def[idx]) {
-    return G.sym_def[idx];
-  }
-  if (G.global_sym_def[idx]) {
-    return G.global_sym_def[idx];
   }
   return nullptr;
 }
 
-SymDef* define_global_symbol(sym_idx_t name_idx, SrcLocation loc) {
-  if (SymDef* found = G.global_sym_def[name_idx]) {
-    return found;   // found->value is filled; it means, that a symbol is redefined
+bool FunctionData::does_need_codegen() const {
+  // when a function is declared, but not referenced from code in any way, don't generate its body
+  if (!is_really_used()) {
+    return false;
   }
-
-  SymDef* registered = G.global_sym_def[name_idx] = new SymDef(0, name_idx, loc);
-#ifdef TOLK_DEBUG
-  registered->sym_name = registered->name();
-#endif
-  return registered;  // registered->value is nullptr; it means, it's just created
+  // functions with asm body don't need code generation
+  // (even if used as non-call: `var a = beginCell;` inserts TVM continuation inline)
+  if (is_asm_function() || is_builtin()) {
+    return false;
+  }
+  // when a function is referenced like `var a = some_fn;` (or in some other non-call way), its continuation should exist
+  if (is_used_as_noncall()) {
+    return true;
+  }
+  // generic functions also don't need code generation, only generic instantiations do
+  if (is_generic_function()) {
+    return false;
+  }
+  // if calls to this function were inlined in place, the function itself is omitted from fif
+  if (is_inlined_in_place()) {
+    return false;
+  }
+  // currently, there is no inlining, all functions are codegenerated
+  // (but actually, unused ones are later removed by Fift)
+  // in the future, we may want to implement a true AST inlining for "simple" functions
+  return true;
 }
 
-SymDef* define_parameter(sym_idx_t name_idx, SrcLocation loc) {
-  // note, that parameters (defined at function declaration) are not inserted into symtable
-  // their SymDef is registered to be inserted into SymValFunc::parameters
-  // (and later ->value is filled with SymValVariable)
-
-  SymDef* registered = new SymDef(0, name_idx, loc);
-#ifdef TOLK_DEBUG
-  registered->sym_name = registered->name();
-#endif
-  return registered;
+void FunctionData::assign_resolved_receiver_type(TypePtr receiver_type, std::string&& name_prefix) {
+  this->receiver_type = receiver_type;
+  if (!this->substitutedTs) {   // after receiver has been resolve, update name to "receiver.method"
+    name_prefix.erase(std::remove(name_prefix.begin(), name_prefix.end(), ' '), name_prefix.end());
+    this->name = name_prefix + "." + this->method_name;
+  }
 }
 
-SymDef* define_symbol(sym_idx_t name_idx, bool force_new, SrcLocation loc) {
-  if (!name_idx) {
-    return nullptr;
+void FunctionData::assign_resolved_genericTs(const GenericsDeclaration* genericTs) {
+  if (this->substitutedTs == nullptr) {
+    this->genericTs = genericTs;
   }
-  if (!G.scope_level) {
-    throw Fatal("unexpected scope_level = 0");
+}
+
+void FunctionData::assign_resolved_type(TypePtr declared_return_type) {
+  this->declared_return_type = declared_return_type;
+}
+
+void FunctionData::assign_inferred_type(TypePtr inferred_return_type, TypePtr inferred_full_type) {
+  this->inferred_return_type = inferred_return_type;
+  this->inferred_full_type = inferred_full_type;
+}
+
+void FunctionData::assign_is_used_as_noncall() {
+  this->flags |= flagUsedAsNonCall;
+}
+
+void FunctionData::assign_is_implicit_return() {
+  this->flags |= flagImplicitReturn;
+}
+
+void FunctionData::assign_is_type_inferring_done() {
+  this->flags |= flagTypeInferringDone;
+}
+
+void FunctionData::assign_is_really_used() {
+  this->flags |= flagReallyUsed;
+}
+
+void FunctionData::assign_inline_mode_in_place() {
+  this->inline_mode = FunctionInlineMode::inlineInPlace;
+}
+
+void FunctionData::assign_arg_order(std::vector<int>&& arg_order) {
+  this->arg_order = std::move(arg_order);
+}
+
+void GlobalVarData::assign_resolved_type(TypePtr declared_type) {
+  this->declared_type = declared_type;
+}
+
+void GlobalVarData::assign_is_really_used() {
+  this->flags |= flagReallyUsed;
+}
+
+void GlobalConstData::assign_resolved_type(TypePtr declared_type) {
+  this->declared_type = declared_type;
+}
+
+void GlobalConstData::assign_inferred_type(TypePtr inferred_type) {
+  this->inferred_type = inferred_type;
+}
+
+void GlobalConstData::assign_init_value(AnyExprV init_value) {
+  this->init_value = init_value;
+}
+
+void LocalVarData::assign_used_as_lval() {
+  this->flags |= flagUsedAsLVal;
+}
+
+void LocalVarData::assign_ir_idx(std::vector<int>&& ir_idx) {
+  this->ir_idx = std::move(ir_idx);
+}
+
+void LocalVarData::assign_resolved_type(TypePtr declared_type) {
+  this->declared_type = declared_type;
+}
+
+void LocalVarData::assign_inferred_type(TypePtr inferred_type) {
+  this->declared_type = inferred_type;
+}
+
+void LocalVarData::assign_default_value(AnyExprV default_value) {
+  this->default_value = default_value;
+}
+
+void AliasDefData::assign_resolved_genericTs(const GenericsDeclaration* genericTs) {
+  if (this->substitutedTs == nullptr) {
+    this->genericTs = genericTs;
   }
-  auto found = G.sym_def[name_idx];
-  if (found) {
-    if (found->level < G.scope_level) {
-      G.symbol_stack.emplace_back(G.scope_level, *found);
-      found->level = G.scope_level;
-    } else if (found->value && force_new) {
-      return nullptr;
+}
+
+void AliasDefData::assign_resolved_type(TypePtr underlying_type) {
+  this->underlying_type = underlying_type;
+}
+
+void EnumMemberData::assign_init_value(AnyExprV init_value) {
+  this->init_value = init_value;
+}
+
+void EnumMemberData::assign_computed_value(td::RefInt256 computed_value) {
+  this->computed_value = std::move(computed_value);
+}
+
+void StructFieldData::assign_resolved_type(TypePtr declared_type) {
+  this->declared_type = declared_type;
+}
+
+void StructFieldData::assign_default_value(AnyExprV default_value) {
+  this->default_value = default_value;
+}
+
+void StructData::assign_resolved_genericTs(const GenericsDeclaration* genericTs) {
+  if (this->substitutedTs == nullptr) {
+    this->genericTs = genericTs;
+  }
+}
+
+void EnumDefData::assign_resolved_colon_type(TypePtr colon_type) {
+  this->colon_type = colon_type;
+}
+
+StructFieldPtr StructData::find_field(std::string_view field_name) const {
+  for (StructFieldPtr field : fields) {
+    if (field->name == field_name) {
+      return field;
     }
-    found->value = nullptr;
-    found->loc = loc;
-    return found;
   }
-  found = G.sym_def[name_idx] = new SymDef(G.scope_level, name_idx, loc);
-  G.symbol_stack.emplace_back(G.scope_level, SymDef{0, name_idx, loc});
-#ifdef TOLK_DEBUG
-  found->sym_name = found->name();
-  G.symbol_stack.back().second.sym_name = found->name();
-#endif
-  return found;
+  return nullptr;
+}
+
+// formats opcode as "x{...}" or "b{...}"
+std::string StructData::PackOpcode::format_as_slice() const {
+  const int base = prefix_len % 4 == 0 ? 16 : 2;
+  const int s_len = base == 16 ? prefix_len / 4 : prefix_len;
+  const char* digits = "0123456789abcdef";
+
+  std::string result(s_len + 3, '0');
+  result[0] = base == 16 ? 'x' : 'b';
+  result[1] = '{';
+  result[s_len + 3 - 1] = '}';
+  int64_t opcode = pack_prefix;
+  for (int i = s_len - 1; i >= 0 && opcode != 0; --i) {
+    result[2 + i] = digits[opcode % base];
+    opcode /= base;
+  }
+  return result;
+}
+
+EnumMemberPtr EnumDefData::find_member(std::string_view member_name) const {
+  for (EnumMemberPtr member_ref : members) {
+    if (member_ref->name == member_name) {
+      return member_ref;
+    }
+  }
+  return nullptr;
+}
+
+static Error err_redefinition_of_symbol(const Symbol* previous) {
+  if (previous->is_builtin()) {
+    return err("redefinition of built-in symbol");
+  }
+  if (previous->ident_anchor->range.get_src_file()->is_stdlib_file) {
+    return err("redefinition of a symbol from stdlib");
+  }
+  return err("redefinition of symbol, previous was at: {}", previous->ident_anchor->range.stringify_start_location(false));
+}
+
+void GlobalSymbolTable::add_global_symbol(const Symbol* sym) {
+  auto key = key_hash(sym->name);
+  auto [it, inserted] = entries.emplace(key, sym);
+  if (!inserted) {
+    err_redefinition_of_symbol(it->second).fire(sym->ident_anchor);
+  }
+}
+
+const Symbol* lookup_global_symbol(std::string_view name) {
+  return G.symtable.lookup(name);
+}
+
+FunctionPtr lookup_function(std::string_view name) {
+  return G.symtable.lookup(name)->try_as<FunctionPtr>();
+}
+
+std::vector<FunctionPtr> lookup_methods_with_name(std::string_view name) {
+  std::vector<FunctionPtr> result;
+  for (FunctionPtr method_ref : G.all_methods) {
+    if (method_ref->method_name == name) {
+      result.push_back(method_ref);
+    }
+  }
+  return result;
 }
 
 }  // namespace tolk

@@ -18,16 +18,18 @@
 */
 #include "vm/cells/CellUsageTree.h"
 
+#include "DataCell.h"
+
 namespace vm {
 //
 // CellUsageTree::NodePtr
 //
-bool CellUsageTree::NodePtr::on_load(const td::Ref<vm::DataCell>& cell) const {
+bool CellUsageTree::NodePtr::on_load(const Cell::LoadedCell& loaded_cell) const {
   auto tree = tree_weak_.lock();
   if (!tree) {
     return false;
   }
-  tree->on_load(node_id_, cell);
+  tree->on_load(node_id_, loaded_cell);
   return true;
 }
 
@@ -98,11 +100,11 @@ void CellUsageTree::mark_path(NodeId node_id) {
   }
 }
 
-CellUsageTree::NodeId CellUsageTree::get_parent(NodeId node_id) {
+CellUsageTree::NodeId CellUsageTree::get_parent(NodeId node_id) const {
   return nodes_[node_id].parent;
 }
 
-CellUsageTree::NodeId CellUsageTree::get_child(NodeId node_id, unsigned ref_id) {
+CellUsageTree::NodeId CellUsageTree::get_child(NodeId node_id, unsigned ref_id) const {
   DCHECK(ref_id < CellTraits::max_refs);
   return nodes_[node_id].children[ref_id];
 }
@@ -111,13 +113,13 @@ void CellUsageTree::set_use_mark_for_is_loaded(bool use_mark) {
   use_mark_ = use_mark;
 }
 
-void CellUsageTree::on_load(NodeId node_id, const td::Ref<vm::DataCell>& cell) {
-  if (nodes_[node_id].is_loaded) {
+void CellUsageTree::on_load(NodeId node_id, const Cell::LoadedCell& loaded_cell) {
+  if (ignore_loads_ || nodes_[node_id].is_loaded) {
     return;
   }
   nodes_[node_id].is_loaded = true;
   if (cell_load_callback_) {
-    cell_load_callback_(cell);
+    cell_load_callback_(loaded_cell);
   }
 }
 

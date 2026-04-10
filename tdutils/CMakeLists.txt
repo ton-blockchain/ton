@@ -1,6 +1,7 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 option(TDUTILS_MIME_TYPE "Generate mime types conversion (gperf is required)" ON)
+option(TDUTILS_USE_LIBBACKTRACE "Use libbacktrace for better stack traces" ON)
+
+set(TD_HAVE_OPENSSL 1)
 
 if (WIN32)
   if (WINGETOPT_FOUND)
@@ -21,14 +22,6 @@ endif()
 if (ZLIB_FOUND)
   set(TD_HAVE_ZLIB 1)
   message(STATUS "Found ZLIB: ${ZLIB_INCLUDE_DIR} ${ZLIB_LIBRARIES}")
-
-  # OpenSSL internally depends on zlib
-  if (NOT OPENSSL_FOUND)
-    find_package(OpenSSL)
-  endif()
-  if (OPENSSL_FOUND)
-    set(TD_HAVE_OPENSSL 1)
-  endif()
 endif()
 
 if (CRC32C_FOUND)
@@ -37,6 +30,16 @@ endif()
 
 if (ABSL_FOUND)
   set(TD_HAVE_ABSL 1)
+endif()
+
+# libbacktrace support - check if target exists (built at higher level)
+if (TDUTILS_USE_LIBBACKTRACE)
+  if (TARGET libbacktrace AND NOT WIN32)
+    set(TD_HAVE_LIBBACKTRACE 1)
+    message(STATUS "Using libbacktrace for enhanced stack traces")
+  else()
+    message(STATUS "libbacktrace target not found, using basic backtrace")
+  endif()
 endif()
 
 configure_file(td/utils/config.h.in td/utils/config.h @ONLY)
@@ -100,6 +103,7 @@ set(TDUTILS_SOURCE
   td/utils/FileLog.cpp
   td/utils/filesystem.cpp
   td/utils/find_boundary.cpp
+  td/utils/FlatHashTable.cpp
   td/utils/Gzip.cpp
   td/utils/GzipByteFlow.cpp
   td/utils/Hints.cpp
@@ -216,6 +220,7 @@ set(TDUTILS_SOURCE
   td/utils/invoke.h
   td/utils/JsonBuilder.h
   td/utils/List.h
+  td/utils/LRUCache.h
   td/utils/logging.h
   td/utils/MemoryLog.h
   td/utils/misc.h
@@ -235,6 +240,7 @@ set(TDUTILS_SOURCE
   td/utils/PathView.h
   td/utils/queue.h
   td/utils/Random.h
+  td/utils/RateLimiterWindow.h
   td/utils/ScopeGuard.h
   td/utils/SharedObjectPool.h
   td/utils/SharedSlice.h
@@ -320,6 +326,10 @@ set(TDUTILS_TEST_SOURCE
   PARENT_SCOPE
 )
 
+if (NOT TON_PRINT_BACKTRACE_ON_CRASH)
+  set_source_files_properties(td/utils/port/signals.cpp PROPERTIES COMPILE_DEFINITIONS TON_DISABLE_BACKTRACE)
+endif()
+
 #RULES
 #LIBRARIES
 add_library(tdutils STATIC ${TDUTILS_SOURCE})
@@ -339,8 +349,20 @@ endif()
 target_include_directories(tdutils PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>)
 
 if (OPENSSL_FOUND)
-  target_link_libraries(tdutils PRIVATE ${OPENSSL_CRYPTO_LIBRARY} ${CMAKE_DL_LIBS} ${ZLIB_LIBRARIES})
+  if (MSVC)
+    if (OPENSSL_LIBRARIES)
+      target_link_libraries(tdutils PRIVATE ${OPENSSL_LIBRARIES} ${ZLIB_LIBRARIES})
+    else()
+      target_link_libraries(tdutils PRIVATE ${OPENSSL_CRYPTO_LIBRARY} ${CMAKE_DL_LIBS} ${ZLIB_LIBRARIES})
+    endif()
+  else()
+    target_link_libraries(tdutils PRIVATE ${OPENSSL_CRYPTO_LIBRARY} ${CMAKE_DL_LIBS} ${ZLIB_LIBRARIES})
+  endif()
   target_include_directories(tdutils SYSTEM PRIVATE ${OPENSSL_INCLUDE_DIR})
+  # Ensure OpenSSL is built before tdutils
+  if (TARGET OpenSSL)
+    add_dependencies(tdutils OpenSSL)
+  endif()
 endif()
 
 if (ZLIB_FOUND)
@@ -356,11 +378,18 @@ if (LZ4_FOUND)
   message(STATUS "Found LZ4 ${LZ4_LIBRARIES} ${LZ4_INCLUDE_DIRS}")
   target_link_libraries(tdutils PRIVATE ${LZ4_LIBRARIES})
   target_include_directories(tdutils SYSTEM PRIVATE ${LZ4_INCLUDE_DIRS})
-  target_link_directories(tdutils PUBLIC ${LZ4_LIBRARY_DIRS})
+  if (LZ4_LIBRARY_DIRS)
+    target_link_directories(tdutils PRIVATE ${LZ4_LIBRARY_DIRS})
+  endif()
 endif()
 
 if (ABSL_FOUND)
   target_link_libraries_system(tdutils absl::flat_hash_map absl::flat_hash_set absl::hash)
+endif()
+
+if (TD_HAVE_LIBBACKTRACE)
+  target_link_libraries(tdutils PRIVATE libbacktrace)
+  target_compile_definitions(tdutils PRIVATE TD_HAVE_LIBBACKTRACE=1)
 endif()
 
 if (WIN32 AND WINGETOPT_FOUND)

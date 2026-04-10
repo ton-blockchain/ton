@@ -18,20 +18,19 @@
 */
 #pragma once
 
-#include <vector>
 #include <map>
 #include <queue>
-
-#include "adnl-peer.h"
-#include "adnl-peer-table.h"
-#include "adnl-network-manager.h"
-#include "keys/encryptor.h"
-#include "adnl-channel.h"
-#include "adnl-query.h"
+#include <vector>
 
 #include "crypto/Ed25519.h"
+#include "keys/encryptor.h"
 #include "td/utils/DecTree.h"
 
+#include "adnl-channel.h"
+#include "adnl-network-manager.h"
+#include "adnl-peer-table.h"
+#include "adnl-peer.h"
+#include "adnl-query.h"
 #include "utils.hpp"
 
 namespace ton {
@@ -60,9 +59,9 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
 
   AdnlPeerPairImpl(td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<AdnlPeerTable> peer_table,
                    td::uint32 local_mode, td::actor::ActorId<AdnlLocalId> local_actor,
-                   td::actor::ActorId<AdnlPeer> peer, td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort local_id,
-                   AdnlNodeIdShort peer_id);
+                   td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id);
   void start_up() override;
+  void tear_down() override;
   void alarm() override;
 
   void discover();
@@ -80,7 +79,7 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
 
   void alarm_query(AdnlQueryId id) override;
 
-  void discover_query_result(td::Result<dht::DhtValue> B, bool dummy);
+  void get_peer_node(td::Promise<AdnlNode> promise) override;
 
   void update_dht_node(td::actor::ActorId<dht::Dht> dht_node) override {
     dht_node_ = dht_node;
@@ -95,8 +94,6 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   void got_data_from_db(td::Result<AdnlDbItem> R);
   void got_data_from_static_nodes(td::Result<AdnlNode> R);
   void got_data_from_dht(td::Result<AdnlNode> R);
-
-  //void conn_ready(AdnlConnectionIdShort id, td::Result<td::actor::ActorOwn<AdnlNetworkConnection>> R);
 
   void process_message(const adnlmessage::AdnlMessageCreateChannel &message);
   void process_message(const adnlmessage::AdnlMessageConfirmChannel &message);
@@ -205,11 +202,11 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   bool disable_dht_query_ = false;
   bool skip_init_packet_ = false;
   double message_in_queue_ttl_ = 10.0;
+  std::queue<std::pair<td::Promise<AdnlNode>, td::Timestamp>> peer_node_waiters_;
 
   td::actor::ActorId<AdnlNetworkManager> network_manager_;
   td::actor::ActorId<AdnlPeerTable> peer_table_;
   td::actor::ActorId<AdnlLocalId> local_actor_;
-  td::actor::ActorId<AdnlPeer> peer_;
   td::actor::ActorId<dht::Dht> dht_node_;
 
   td::uint32 priority_ = 0;
@@ -266,6 +263,10 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
 
   td::Timestamp last_received_packet_ = td::Timestamp::never();
   td::Timestamp try_reinit_at_ = td::Timestamp::never();
+  td::Timestamp drop_addr_list_at_ = td::Timestamp::never();
+
+  td::Timestamp mark_idle_at_ = td::Timestamp::never();
+  bool idle_mark_ = false;
 
   bool has_reverse_addr_ = false;
   td::Timestamp request_reverse_ping_after_ = td::Timestamp::now();
@@ -284,47 +285,10 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   void add_packet_stats(td::uint64 bytes, bool in, bool channel);
   void add_expired_msg_stats(td::uint64 bytes);
   void prepare_packet_stats();
-};
+  void set_idle_mark(bool value);
 
-class AdnlPeerImpl : public AdnlPeer {
- public:
-  void receive_packet(AdnlNodeIdShort dst, td::uint32 dst_mode, td::actor::ActorId<AdnlLocalId> dst_actor,
-                      AdnlPacket packet, td::uint64 serialized_size) override;
-  void send_messages(AdnlNodeIdShort src, td::uint32 src_mode, td::actor::ActorId<AdnlLocalId> src_actor,
-                     std::vector<OutboundAdnlMessage> messages) override;
-  void send_query(AdnlNodeIdShort src, td::uint32 src_mode, td::actor::ActorId<AdnlLocalId> src_actor, std::string name,
-                  td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice data,
-                  td::uint32 flags) override;
-
-  void del_local_id(AdnlNodeIdShort local_id) override;
-  void update_id(AdnlNodeIdFull id) override;
-  void update_addr_list(AdnlNodeIdShort local_id, td::uint32 local_mode, td::actor::ActorId<AdnlLocalId> local_actor,
-                        AdnlAddressList addr_list) override;
-  void update_dht_node(td::actor::ActorId<dht::Dht> dht_node) override;
-  void get_conn_ip_str(AdnlNodeIdShort l_id, td::Promise<td::string> promise) override;
-  void get_stats(bool all, td::Promise<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> promise) override;
-  //void check_signature(td::BufferSlice data, td::BufferSlice signature, td::Promise<td::Unit> promise) override;
-
-  AdnlPeerImpl(td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<AdnlPeerTable> peer_table,
-               td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort peer_id)
-      : peer_id_short_(peer_id), dht_node_(dht_node), peer_table_(peer_table), network_manager_(network_manager) {
-  }
-
-  struct PrintId {
-    AdnlNodeIdShort peer_id;
-  };
-
-  PrintId print_id() const {
-    return PrintId{peer_id_short_};
-  }
-
- private:
-  AdnlNodeIdShort peer_id_short_;
-  AdnlNodeIdFull peer_id_;
-  std::map<AdnlNodeIdShort, td::actor::ActorOwn<AdnlPeerPair>> peer_pairs_;
-  td::actor::ActorId<dht::Dht> dht_node_;
-  td::actor::ActorId<AdnlPeerTable> peer_table_;
-  td::actor::ActorId<AdnlNetworkManager> network_manager_;
+  static constexpr double IDLE_REINIT_TIMEOUT = 120.0;
+  static constexpr double MARK_IDLE_TIMEOUT = 130.0;
 };
 
 }  // namespace adnl
@@ -332,21 +296,6 @@ class AdnlPeerImpl : public AdnlPeer {
 }  // namespace ton
 
 namespace td {
-
-inline td::StringBuilder &operator<<(td::StringBuilder &sb, const ton::adnl::AdnlPeerImpl::PrintId &id) {
-  sb << "[peer " << id.peer_id << "]";
-  return sb;
-}
-
-inline td::StringBuilder &operator<<(td::StringBuilder &sb, const ton::adnl::AdnlPeerImpl &peer) {
-  sb << peer.print_id();
-  return sb;
-}
-
-inline td::StringBuilder &operator<<(td::StringBuilder &sb, const ton::adnl::AdnlPeerImpl *peer) {
-  sb << peer->print_id();
-  return sb;
-}
 
 inline td::StringBuilder &operator<<(td::StringBuilder &sb, const ton::adnl::AdnlPeerPairImpl::PrintId &id) {
   sb << "[peerpair " << id.peer_id << "-" << id.local_id << "]";

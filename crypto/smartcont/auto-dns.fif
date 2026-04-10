@@ -45,13 +45,13 @@ variable Values  dictnew Values !
 { over 0= abort"category cannot be zero"
   <b swap ref, swap Values @ 256 b>udict!+ not abort"duplicate category id"
   Values !
-} : register-value  
+} : register-value
 
 { @end? abort"category number expected" @next (number) 1 <> abort"category must be integer"
   dup 256 fits not abort"category does not fit into 256 bit integer"
   dup 0= abort"category must be non-zero"
 } : parse-cat-num
-{ @end? abort"smart contract address expected" 
+{ @end? abort"smart contract address expected"
   @next false parse-load-address drop
 } : cl-parse-smc-addr
 { @end? abort"adnl address expected"
@@ -91,7 +91,7 @@ parse-actions
 
 main-op ( _( `add 0x72656764 ) _( `update 0x75706464 ) _( `prolong 0x70726f6c ) )
 assq-val not abort"unknown main operation"
-=: op-id 
+=: op-id
 
 ."Automatic DNS smart contract address = " dest-addr 2dup .addr cr 6 .Addr cr
 

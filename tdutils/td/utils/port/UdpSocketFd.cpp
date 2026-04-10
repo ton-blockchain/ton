@@ -16,29 +16,30 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/port/UdpSocketFd.h"
-
+#include "td/utils/VectorQueue.h"
 #include "td/utils/common.h"
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
-#include "td/utils/port/detail/skip_eintr.h"
 #include "td/utils/port/PollFlags.h"
 #include "td/utils/port/SocketFd.h"
-#include "td/utils/VectorQueue.h"
+#include "td/utils/port/UdpSocketFd.h"
+#include "td/utils/port/detail/skip_eintr.h"
 
 #if TD_PORT_WINDOWS
-#include "td/utils/port/detail/Iocp.h"
 #include "td/utils/SpinLock.h"
+#include "td/utils/port/detail/Iocp.h"
 #endif
 
 #if TD_PORT_POSIX
-#include <cerrno>
-
 #include <arpa/inet.h>
+#include <cerrno>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#if TD_LINUX
+#include <netinet/udp.h>
+#endif
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -128,6 +129,12 @@ class UdpSocketFdImpl : private Iocp::Callback {
   const NativeFd &get_native_fd() const {
     return info_.native_fd();
   }
+  void set_mmsg_enabled(bool enabled) {
+    mmsg_enabled_ = enabled;
+  }
+  bool is_mmsg_enabled() const {
+    return mmsg_enabled_;
+  }
 
   void close() {
     notify_iocp_close();
@@ -165,6 +172,7 @@ class UdpSocketFdImpl : private Iocp::Callback {
 
  private:
   PollableFdInfo info_;
+  bool mmsg_enabled_{false};
   SpinLock lock_;
 
   std::atomic<int> refcnt_{1};
@@ -400,6 +408,7 @@ class UdpSocketReceiveHelper {
   }
 
   void from_native(struct msghdr &message_header, size_t message_size, UdpSocketFd::InboundMessage &message) {
+    message.gso_size = 0;
 #if TD_LINUX
     struct cmsghdr *cmsg;
     struct sock_extended_err *ee = nullptr;
@@ -408,6 +417,14 @@ class UdpSocketReceiveHelper {
         //auto *pi = reinterpret_cast<struct in_pktinfo *>(CMSG_DATA(cmsg));
       } else if (cmsg->cmsg_type == IPV6_PKTINFO && cmsg->cmsg_level == IPPROTO_IPV6) {
         //auto *pi = reinterpret_cast<struct in6_pktinfo *>(CMSG_DATA(cmsg));
+#if defined(UDP_GRO)
+      } else if (cmsg->cmsg_type == UDP_GRO && cmsg->cmsg_level == SOL_UDP) {
+        if (cmsg->cmsg_len >= CMSG_LEN(sizeof(uint16_t))) {
+          uint16_t gro = 0;
+          std::memcpy(&gro, CMSG_DATA(cmsg), sizeof(gro));
+          message.gso_size = gro;
+        }
+#endif
       } else if ((cmsg->cmsg_type == IP_RECVERR && cmsg->cmsg_level == IPPROTO_IP) ||
                  (cmsg->cmsg_type == IPV6_RECVERR && cmsg->cmsg_level == IPPROTO_IPV6)) {
         ee = reinterpret_cast<struct sock_extended_err *>(CMSG_DATA(cmsg));
@@ -456,7 +473,7 @@ class UdpSocketReceiveHelper {
 
 class UdpSocketSendHelper {
  public:
-  void to_native(const UdpSocketFd::OutboundMessage &message, struct msghdr &message_header) {
+  void to_native(const UdpSocketFd::OutboundMessage &message, struct msghdr &message_header, bool &is_gso) {
     CHECK(message.to != nullptr && message.to->is_valid());
     message_header.msg_name = const_cast<struct sockaddr *>(message.to->get_sockaddr());
     message_header.msg_namelen = narrow_cast<socklen_t>(message.to->get_sockaddr_len());
@@ -464,15 +481,132 @@ class UdpSocketSendHelper {
     io_vec_.iov_len = message.data.size();
     message_header.msg_iov = &io_vec_;
     message_header.msg_iovlen = 1;
-    //TODO
+    message_header.msg_flags = 0;
+
+#if TD_LINUX && defined(UDP_SEGMENT)
+    is_gso = message.gso_size > 0 && message.data.size() > message.gso_size;
+    if (is_gso) {
+      // Set up control message for GSO (UDP_SEGMENT)
+      control_buf_.fill(0);
+      message_header.msg_control = control_buf_.data();
+      message_header.msg_controllen = CMSG_SPACE(sizeof(uint16_t));
+
+      auto *cmsg = CMSG_FIRSTHDR(&message_header);
+      cmsg->cmsg_level = SOL_UDP;
+      cmsg->cmsg_type = UDP_SEGMENT;
+      cmsg->cmsg_len = CMSG_LEN(sizeof(uint16_t));
+      uint16_t seg = static_cast<uint16_t>(message.gso_size);
+      std::memcpy(CMSG_DATA(cmsg), &seg, sizeof(seg));
+    } else {
+      message_header.msg_control = nullptr;
+      message_header.msg_controllen = 0;
+    }
+#else
+    is_gso = false;
     message_header.msg_control = nullptr;
     message_header.msg_controllen = 0;
-    message_header.msg_flags = 0;
+#endif
   }
 
  private:
   struct iovec io_vec_;
+#if TD_LINUX && defined(UDP_SEGMENT)
+  std::array<char, CMSG_SPACE(sizeof(uint16_t))> control_buf_;
+#endif
 };
+
+void dump_outbound_message(StringBuilder &sb, const UdpSocketFd::OutboundMessage &message, size_t index) {
+  sb << "msg #" << index << ":";
+  sb << " ip=";
+  if (message.to != nullptr) {
+    sb << message.to->get_ip_str() << ":" << message.to->get_port();
+  } else {
+    sb << "null";
+  }
+  sb << " data_size=" << message.data.size();
+  sb << " gso_size=" << message.gso_size;
+  sb << "\n";
+}
+
+void dump_msghdr(StringBuilder &sb, const struct msghdr &header, size_t index, size_t msg_len) {
+  sb << "header #" << index << ":";
+  sb << " msg_len=" << msg_len;
+  sb << " msg_namelen=" << header.msg_namelen;
+  sb << " msg_iovlen=" << header.msg_iovlen;
+  sb << " msg_controllen=" << header.msg_controllen;
+  sb << " msg_flags=" << header.msg_flags;
+  sb << "\n";
+  auto iov_len = narrow_cast<size_t>(header.msg_iovlen);
+  for (size_t i = 0; i < iov_len; ++i) {
+    auto &iov = header.msg_iov[i];
+    sb << "  iov #" << i << ":";
+    sb << " iov_len=" << iov.iov_len;
+    sb << "\n";
+  }
+  if (header.msg_namelen > 0) {
+    sb << "  msg_name = " << buffer_to_hex(Slice(static_cast<const char *>(header.msg_name), header.msg_namelen))
+       << "\n";
+  }
+  if (header.msg_controllen > 0) {
+    sb << "  msg_control = "
+       << buffer_to_hex(Slice(static_cast<const char *>(header.msg_control), header.msg_controllen)) << "\n";
+  }
+}
+
+bool is_fatal_sendmsg_error(int sendmsg_errno, bool is_gso) {
+  switch (sendmsg_errno) {
+    case EINVAL:
+      return !is_gso;
+    case EBADF:
+    case ENOTSOCK:
+    case EPIPE:
+    case ECONNRESET:
+    case EDESTADDRREQ:
+    case ENOTCONN:
+    case EINTR:
+    case EISCONN:
+    case EOPNOTSUPP:
+    case ENOTDIR:
+    case EFAULT:
+    case EAFNOSUPPORT:
+      return true;
+    default:
+      return false;
+  }
+}
+
+void log_sendmsg_fatal(int native_fd, int sendmsg_errno, const UdpSocketFd::OutboundMessage &message,
+                       const struct msghdr &header) {
+  FLOG(ERROR) {
+    sb << "------------------------------------------\n";
+    sb << "SENDMSG FATAL errno=" << sendmsg_errno << ":\n";
+    dump_outbound_message(sb, message, 0);
+    sb << "sendmsg params:\n";
+    sb << "native_fd = " << native_fd << "\n";
+    dump_msghdr(sb, header, 0, 0);
+    sb << "------------------------------------------\n";
+  };
+}
+
+#if TD_HAS_MMSG
+void log_sendmmsg_fatal(int native_fd, int sendmsg_errno, Span<UdpSocketFd::OutboundMessage> messages,
+                        const std::array<struct mmsghdr, 16> &headers, size_t to_send) {
+  FLOG(ERROR) {
+    sb << "------------------------------------------\n";
+    sb << "SENDMMSG FATAL errno=" << sendmsg_errno << ":\n";
+    for (size_t i = 0; i < to_send; ++i) {
+      dump_outbound_message(sb, messages[i], i);
+    }
+    sb << "sendmmsg params:\n";
+    sb << "native_fd = " << native_fd << "\n";
+    sb << "to_send = " << to_send << "\n";
+    for (size_t i = 0; i < to_send; ++i) {
+      dump_msghdr(sb, headers[i].msg_hdr, i, headers[i].msg_len);
+    }
+    sb << "------------------------------------------\n";
+  };
+}
+#endif
 
 class UdpSocketFdImpl {
  public:
@@ -488,8 +622,14 @@ class UdpSocketFdImpl {
   const NativeFd &get_native_fd() const {
     return info_.native_fd();
   }
+  void set_mmsg_enabled(bool enabled) {
+    mmsg_enabled_ = enabled;
+  }
+  bool is_mmsg_enabled() const {
+    return mmsg_enabled_;
+  }
   Status get_pending_error() {
-    if (!get_poll_info().get_flags().has_pending_error()) {
+    if (!get_poll_info().get_flags_local().has_pending_error()) {
       return Status::OK();
     }
     TRY_STATUS(detail::get_socket_pending_error(get_native_fd()));
@@ -498,8 +638,9 @@ class UdpSocketFdImpl {
   }
   Status receive_message(UdpSocketFd::InboundMessage &message, bool &is_received) {
     is_received = false;
+    message.gso_size = 0;
     int flags = 0;
-    if (get_poll_info().get_flags().has_pending_error()) {
+    if (get_poll_info().get_flags_local().has_pending_error()) {
 #ifdef MSG_ERRQUEUE
       flags = MSG_ERRQUEUE;
 #else
@@ -563,7 +704,8 @@ class UdpSocketFdImpl {
     is_sent = false;
     struct msghdr message_header;
     detail::UdpSocketSendHelper helper;
-    helper.to_native(message, message_header);
+    bool is_gso = false;
+    helper.to_native(message, message_header, is_gso);
 
     auto native_fd = get_native_fd().socket();
     auto sendmsg_res = detail::skip_eintr([&] { return sendmsg(native_fd, &message_header, 0); });
@@ -572,9 +714,12 @@ class UdpSocketFdImpl {
       is_sent = true;
       return Status::OK();
     }
-    return process_sendmsg_error(sendmsg_errno, is_sent);
+    if (is_fatal_sendmsg_error(sendmsg_errno, is_gso)) {
+      log_sendmsg_fatal(native_fd, sendmsg_errno, message, message_header);
+    }
+    return process_sendmsg_error(sendmsg_errno, is_sent, is_gso);
   }
-  Status process_sendmsg_error(int sendmsg_errno, bool &is_sent) {
+  Status process_sendmsg_error(int sendmsg_errno, bool &is_sent, bool is_gso) {
     if (sendmsg_errno == EAGAIN
 #if EAGAIN != EWOULDBLOCK
         || sendmsg_errno == EWOULDBLOCK
@@ -610,6 +755,16 @@ class UdpSocketFdImpl {
 #endif
         return error;
 
+      case EINVAL:
+        if (is_gso) {
+          // Older Linux kernels may report an oversized UDP_SEGMENT send as EINVAL instead of the
+          // EMSGSIZE that plain UDP would return after PMTU shrinks. Drop the packet like other
+          // path-MTU send errors instead of aborting the process.
+          LOG(WARNING) << "Silently drop GSO packet :( " << error;
+          is_sent = true;
+          return error;
+        }
+        [[fallthrough]];
       case EBADF:         // impossible
       case ENOTSOCK:      // impossible
       case EPIPE:         // impossible for udp
@@ -621,7 +776,6 @@ class UdpSocketFdImpl {
       case EOPNOTSUPP:
       case ENOTDIR:
       case EFAULT:
-      case EINVAL:
       case EAFNOSUPPORT:
         LOG(FATAL) << error;
         UNREACHABLE();
@@ -631,31 +785,37 @@ class UdpSocketFdImpl {
 
   Status send_messages(Span<UdpSocketFd::OutboundMessage> messages, size_t &cnt) {
 #if TD_HAS_MMSG
-    return send_messages_fast(messages, cnt);
-#else
-    return send_messages_slow(messages, cnt);
+    if (mmsg_enabled_) {
+      return send_messages_fast(messages, cnt);
+    }
 #endif
+    return send_messages_slow(messages, cnt);
   }
 
   Status receive_messages(MutableSpan<UdpSocketFd::InboundMessage> messages, size_t &cnt) {
 #if TD_HAS_MMSG
-    return receive_messages_fast(messages, cnt);
-#else
-    return receive_messages_slow(messages, cnt);
+    if (mmsg_enabled_) {
+      return receive_messages_fast(messages, cnt);
+    }
 #endif
+    return receive_messages_slow(messages, cnt);
   }
 
  private:
   PollableFdInfo info_;
+  bool mmsg_enabled_{true};
 
   Status send_messages_slow(Span<UdpSocketFd::OutboundMessage> messages, size_t &cnt) {
     cnt = 0;
     for (auto &message : messages) {
       CHECK(!message.data.empty());
       bool is_sent;
-      auto error = send_message(message, is_sent);
+      auto status = send_message(message, is_sent);
       cnt += is_sent;
-      TRY_STATUS(std::move(error));
+      if (!is_sent) {
+        return status;
+      }
+      TRY_STATUS(std::move(status));
     }
     return Status::OK();
   }
@@ -669,11 +829,13 @@ class UdpSocketFdImpl {
     struct std::array<detail::UdpSocketSendHelper, 16> helpers;
     struct std::array<struct mmsghdr, 16> headers;
     size_t to_send = min(messages.size(), headers.size());
+    bool has_gso = false;
     for (size_t i = 0; i < to_send; i++) {
-      helpers[i].to_native(messages[i], headers[i].msg_hdr);
+      bool is_gso = false;
+      helpers[i].to_native(messages[i], headers[i].msg_hdr, is_gso);
+      has_gso = has_gso || is_gso;
       headers[i].msg_len = 0;
     }
-
     auto native_fd = get_native_fd().socket();
     auto sendmmsg_res =
         detail::skip_eintr([&] { return sendmmsg(native_fd, headers.data(), narrow_cast<unsigned int>(to_send), 0); });
@@ -684,15 +846,19 @@ class UdpSocketFdImpl {
     }
 
     bool is_sent = false;
-    auto status = process_sendmsg_error(sendmmsg_errno, is_sent);
+    if (is_fatal_sendmsg_error(sendmmsg_errno, has_gso)) {
+      log_sendmmsg_fatal(native_fd, sendmmsg_errno, messages, headers, to_send);
+    }
+    auto status = process_sendmsg_error(sendmmsg_errno, is_sent, has_gso);
     cnt = is_sent;
     return status;
   }
 #endif
   Status receive_messages_slow(MutableSpan<UdpSocketFd::InboundMessage> messages, size_t &cnt) {
     cnt = 0;
-    while (cnt < messages.size() && get_poll_info().get_flags().can_read()) {
+    while (cnt < messages.size() && get_poll_info().get_flags_local().can_read()) {
       auto &message = messages[cnt];
+      message.gso_size = 0;
       CHECK(!message.data.empty());
       bool is_received;
       auto error = receive_message(message, is_received);
@@ -706,7 +872,7 @@ class UdpSocketFdImpl {
   Status receive_messages_fast(MutableSpan<UdpSocketFd::InboundMessage> messages, size_t &cnt) {
     int flags = 0;
     cnt = 0;
-    if (get_poll_info().get_flags().has_pending_error()) {
+    if (get_poll_info().sync_with_poll().has_pending_error()) {
 #ifdef MSG_ERRQUEUE
       flags = MSG_ERRQUEUE;
 #else
@@ -721,6 +887,7 @@ class UdpSocketFdImpl {
     struct std::array<struct mmsghdr, 16> headers;
     size_t to_receive = min(messages.size(), headers.size());
     for (size_t i = 0; i < to_receive; i++) {
+      messages[i].gso_size = 0;
       helpers[i].to_native(messages[i], headers[i].msg_hdr);
       headers[i].msg_len = 0;
     }
@@ -754,6 +921,15 @@ UdpSocketFd::UdpSocketFd() = default;
 UdpSocketFd::UdpSocketFd(UdpSocketFd &&) = default;
 UdpSocketFd &UdpSocketFd::operator=(UdpSocketFd &&) = default;
 UdpSocketFd::~UdpSocketFd() = default;
+
+bool UdpSocketFd::has_pmtudisc_probe() {
+#if defined(IP_PMTUDISC_PROBE)
+  return true;
+#else
+  return false;
+#endif
+}
+
 PollableFdInfo &UdpSocketFd::get_poll_info() {
   return impl_->get_poll_info();
 }
@@ -762,13 +938,23 @@ const PollableFdInfo &UdpSocketFd::get_poll_info() const {
 }
 
 Result<UdpSocketFd> UdpSocketFd::open(const IPAddress &address) {
-  NativeFd native_fd{socket(address.get_address_family(), SOCK_DGRAM, IPPROTO_UDP)};
+  int family = address.get_address_family();
+  NativeFd native_fd{socket(family, SOCK_DGRAM, IPPROTO_UDP)};
   if (!native_fd) {
     return OS_SOCKET_ERROR("Failed to create a socket");
   }
   TRY_STATUS(native_fd.set_is_blocking_unsafe(false));
 
   auto sock = native_fd.socket();
+  // Ignore cached PMTU reductions when probe mode is available and let QUIC shape the datagram size itself.
+#if defined(IP_PMTUDISC_PROBE)
+  int mode = IP_PMTUDISC_PROBE;
+  if (family == AF_INET) {
+    setsockopt(sock, IPPROTO_IP, IP_MTU_DISCOVER, &mode, sizeof(mode));
+  } else if (family == AF_INET6) {
+    setsockopt(sock, IPPROTO_IPV6, IPV6_MTU_DISCOVER, &mode, sizeof(mode));
+  }
+#endif
 #if TD_PORT_POSIX
   int flags = 1;
 #elif TD_PORT_WINDOWS
@@ -799,6 +985,59 @@ bool UdpSocketFd::empty() const {
 
 const NativeFd &UdpSocketFd::get_native_fd() const {
   return get_poll_info().native_fd();
+}
+
+Result<IPAddress> UdpSocketFd::get_local_address() const {
+  IPAddress result;
+
+  sockaddr_storage addr{};
+  socklen_t len = sizeof addr;
+  auto sock = get_native_fd().socket();
+  if (getsockname(sock, reinterpret_cast<sockaddr *>(&addr), &len) != 0)
+    return Status::Error("getsockname failed");
+
+  TRY_STATUS(result.init_sockaddr(reinterpret_cast<sockaddr *>(&addr), len));
+  return result;
+}
+
+bool UdpSocketFd::is_gso_supported() {
+#if TD_LINUX && defined(UDP_SEGMENT)
+  return true;
+#else
+  return false;
+#endif
+}
+
+Status UdpSocketFd::enable_gro() {
+#if TD_LINUX && defined(UDP_GRO)
+  int gro = 1;
+  if (setsockopt(get_native_fd().socket(), SOL_UDP, UDP_GRO, &gro, sizeof(gro)) != 0) {
+    return Status::PosixError(errno, "setsockopt UDP_GRO failed");
+  }
+#else
+  return Status::Error("UDP_GRO not supported");
+#endif
+  return Status::OK();
+}
+
+void UdpSocketFd::enable_mmsg() {
+#if TD_HAS_MMSG
+  impl_->set_mmsg_enabled(true);
+#endif
+}
+
+void UdpSocketFd::disable_mmsg() {
+#if TD_HAS_MMSG
+  impl_->set_mmsg_enabled(false);
+#endif
+}
+
+bool UdpSocketFd::is_mmsg_enabled() const {
+#if TD_HAS_MMSG
+  return impl_->is_mmsg_enabled();
+#else
+  return false;
+#endif
 }
 
 #if TD_PORT_POSIX
@@ -841,22 +1080,34 @@ Result<uint32> UdpSocketFd::maximize_rcv_buffer(uint32 max) {
 }
 #endif
 
-#if TD_PORT_POSIX
 Status UdpSocketFd::send_message(const OutboundMessage &message, bool &is_sent) {
-  return impl_->send_message(message, is_sent);
-}
-Status UdpSocketFd::receive_message(InboundMessage &message, bool &is_received) {
-  return impl_->receive_message(message, is_received);
+  size_t count = 0;
+  auto status = send_messages({&message, 1}, count);
+  is_sent = count > 0;
+  return status;
 }
 
+Status UdpSocketFd::receive_message(InboundMessage &message, bool &is_received, std::vector<BufferSlice> &buf) {
+  size_t count = 0;
+  auto status = receive_messages({&message, 1}, count, buf);
+  is_received = count > 0;
+  return status;
+}
+
+#if TD_PORT_POSIX
 Status UdpSocketFd::send_messages(Span<OutboundMessage> messages, size_t &count) {
   return impl_->send_messages(messages, count);
 }
+
 Status UdpSocketFd::receive_messages(MutableSpan<InboundMessage> messages, size_t &count) {
   return impl_->receive_messages(messages, count);
 }
-#endif
-#if TD_PORT_WINDOWS
+
+Status UdpSocketFd::receive_messages(MutableSpan<InboundMessage> messages, size_t &count,
+                                     std::vector<BufferSlice> & /*buf*/) {
+  return receive_messages(messages, count);
+}
+#elif TD_PORT_WINDOWS
 Result<optional<UdpMessage>> UdpSocketFd::receive() {
   return impl_->receive();
 }
@@ -867,6 +1118,48 @@ void UdpSocketFd::send(UdpMessage message) {
 
 Status UdpSocketFd::flush_send() {
   return impl_->flush_send();
+}
+
+Status UdpSocketFd::send_messages(Span<OutboundMessage> messages, size_t &count) {
+  count = 0;
+  for (auto &message : messages) {
+    UdpMessage msg;
+    msg.address = *message.to;
+    msg.data = BufferSlice(message.data);
+    impl_->send(std::move(msg));
+    count++;
+  }
+  return impl_->flush_send();
+}
+
+Status UdpSocketFd::receive_messages(MutableSpan<InboundMessage> messages, size_t &count,
+                                     std::vector<BufferSlice> &buf) {
+  count = 0;
+  buf.clear();
+  while (count < messages.size()) {
+    auto r_msg = impl_->receive();
+    if (r_msg.is_error()) {
+      return r_msg.move_as_error();
+    }
+    auto msg_opt = r_msg.move_as_ok();
+    if (!msg_opt) {
+      break;
+    }
+    auto &msg = *msg_opt;
+    auto &out = messages[count];
+
+    buf.push_back(std::move(msg.data));
+    if (out.from) {
+      *out.from = msg.address;
+    }
+    if (out.error) {
+      *out.error = std::move(msg.error);
+    }
+    out.data = buf.back().as_slice();
+    out.gso_size = 0;
+    count++;
+  }
+  return Status::OK();
 }
 #endif
 

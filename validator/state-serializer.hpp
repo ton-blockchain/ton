@@ -18,14 +18,19 @@
 */
 #pragma once
 
-#include "interfaces/validator-manager.h"
-#include "interfaces/shard.h"
-
 #include <map>
+
+#include "interfaces/shard.h"
+#include "interfaces/validator-manager.h"
 
 namespace ton {
 
 namespace validator {
+
+struct SerializablePart {
+  PersistentStateType type;
+  td::Ref<vm::Cell> cell;
+};
 
 class AsyncStateSerializer : public td::actor::Actor {
  private:
@@ -35,6 +40,9 @@ class AsyncStateSerializer : public td::actor::Actor {
   BlockIdExt last_key_block_id_;
   UnixTime last_key_block_ts_ = 0;
   bool saved_to_db_ = true;
+
+  bool inited_block_id_ = false;
+  std::vector<td::Promise<td::Unit>> wait_init_block_id_;
 
   td::Ref<ValidatorManagerOptions> opts_;
   bool auto_disabled_ = false;
@@ -49,13 +57,19 @@ class AsyncStateSerializer : public td::actor::Actor {
   bool stored_persistent_state_description_ = false;
   bool have_masterchain_state_ = false;
 
-  std::vector<BlockIdExt> shards_;
+  struct ShardSerializationConfig {
+    BlockIdExt block_id;
+    td::uint32 split_depth;
+  };
+  std::vector<ShardSerializationConfig> shards_;
   struct PreviousStateCache {
     std::vector<std::pair<std::string, ShardIdFull>> state_files;
     std::shared_ptr<vm::CellHashSet> cache;
     std::vector<ShardIdFull> cur_shards;
 
-    void prepare_cache(ShardIdFull shard);
+    void prepare_cache(ShardIdFull shard, PersistentStateType type);
+    void add_new_cells(vm::CellDbReader& reader, const Ref<vm::Cell>& cell);
+    void cleanup_big_state_files(Ref<MasterchainState> mc_state);
   };
   std::shared_ptr<PreviousStateCache> previous_state_cache_;
 
@@ -90,10 +104,14 @@ class AsyncStateSerializer : public td::actor::Actor {
   void stored_masterchain_state();
   void got_shard_handle(BlockHandle handle);
   void got_shard_state(BlockHandle handle, td::Ref<ShardState> state, std::shared_ptr<vm::CellDbReader> cell_db_reader);
+  void write_shard_state(BlockHandle handle, ShardIdFull shard, std::shared_ptr<vm::CellDbReader> cell_db_reader,
+                         std::shared_ptr<std::vector<SerializablePart>> parts, size_t idx);
 
   void get_masterchain_seqno(td::Promise<BlockSeqno> promise) {
     promise.set_result(last_block_id_.id.seqno);
   }
+
+  void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise);
 
   void update_last_known_key_block_ts(UnixTime ts) {
     last_known_key_block_ts_ = std::max(last_known_key_block_ts_, ts);
@@ -111,6 +129,9 @@ class AsyncStateSerializer : public td::actor::Actor {
 
   void update_options(td::Ref<ValidatorManagerOptions> opts);
   void auto_disable_serializer(bool disabled);
+
+  std::string current_status_ = "pending";
+  td::Timestamp current_status_ts_ = td::Timestamp::never();
 };
 
 }  // namespace validator

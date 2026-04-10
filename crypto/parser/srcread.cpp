@@ -16,8 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "srcread.h"
 #include <algorithm>
+
+#include "srcread.h"
 
 namespace src {
 

@@ -16,21 +16,17 @@
 
     Copyright 2019-2020 Telegram Systems LLP
 */
-#include "ManualDns.h"
-
-#include "smc-envelope/SmartContractCode.h"
-
-#include "vm/dict.h"
-
-#include "td/utils/format.h"
-#include "td/utils/overloaded.h"
-#include "td/utils/Parser.h"
-#include "td/utils/Random.h"
-
 #include "block/block-auto.h"
 #include "block/block-parse.h"
-
 #include "common/util.h"
+#include "smc-envelope/SmartContractCode.h"
+#include "td/utils/Parser.h"
+#include "td/utils/Random.h"
+#include "td/utils/format.h"
+#include "td/utils/overloaded.h"
+#include "vm/dict.h"
+
+#include "ManualDns.h"
 
 namespace ton {
 td::StringBuilder& operator<<(td::StringBuilder& sb, const ManualDns::EntryData& data) {
@@ -162,9 +158,8 @@ SmartContract::Args DnsInterface::resolve_args_raw(td::Slice encoded_name, td::B
                                                    block::StdAddress address) {
   SmartContract::Args res;
   res.set_method_id("dnsresolve");
-  res.set_stack(
-      {vm::load_cell_slice_ref(vm::CellBuilder().store_bytes(encoded_name).finalize()),
-       td::bits_to_refint(category.cbits(), 256, false)});
+  res.set_stack({vm::load_cell_slice_ref(vm::CellBuilder().store_bytes(encoded_name).finalize()),
+                 td::bits_to_refint(category.cbits(), 256, false)});
   res.set_address(std::move(address));
   return res;
 }

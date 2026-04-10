@@ -15,10 +15,10 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "vm/cells.h"
-#include "ton/ton-types.h"
 #include "auto/tl/ton_api.h"
 #include "block/block.h"
+#include "ton/ton-types.h"
+#include "vm/cells.h"
 
 namespace ton {
 
@@ -26,17 +26,19 @@ namespace validator {
 using td::Ref;
 
 struct OutMsgQueueProof : public td::CntObject {
-  OutMsgQueueProof(BlockIdExt block_id, Ref<vm::Cell> state_root, Ref<vm::Cell> block_state_proof,
+  OutMsgQueueProof(BlockIdExt block_id, Ref<vm::Cell> state_root, Ref<vm::Cell> block_state_proof, bool is_local,
                    td::int32 msg_count = -1)
       : block_id_(block_id)
       , state_root_(std::move(state_root))
       , block_state_proof_(std::move(block_state_proof))
+      , is_local_(is_local)
       , msg_count_(msg_count) {
   }
 
   BlockIdExt block_id_;
   Ref<vm::Cell> state_root_;
   Ref<vm::Cell> block_state_proof_;
+  bool is_local_ = false;
   td::int32 msg_count_;  // -1 - no limit
 
   static td::Result<std::vector<td::Ref<OutMsgQueueProof>>> fetch(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,

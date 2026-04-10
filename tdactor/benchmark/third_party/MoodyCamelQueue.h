@@ -47,6 +47,7 @@
 
 #ifdef MCDBGQ_USE_RELACY
 #include "relacy/relacy_std.hpp"
+
 #include "relacy_shims.h"
 // We only use malloc/free anyway, and the delete macro messes up `= delete` method declarations.
 // We'll override the default trait malloc ourselves without a macro.
@@ -58,16 +59,16 @@
 #include <atomic>  // Requires C++11. Sorry VS2010.
 #include <cassert>
 #endif
+#include <algorithm>
+#include <array>
+#include <climits>  // for CHAR_BIT
 #include <cstddef>  // for max_align_t
 #include <cstdint>
 #include <cstdlib>
-#include <type_traits>
-#include <algorithm>
-#include <utility>
 #include <limits>
-#include <climits>  // for CHAR_BIT
-#include <array>
 #include <thread>  // partly for __WINPTHREADS_VERSION if on MinGW-w64 w/ POSIX threading
+#include <type_traits>
+#include <utility>
 
 // Platform-specific definitions of a numeric thread ID type and an invalid value
 namespace moodycamel {
@@ -76,7 +77,7 @@ template <typename thread_id_t>
 struct thread_id_converter {
   typedef thread_id_t thread_id_numeric_size_t;
   typedef thread_id_t thread_id_hash_t;
-  static thread_id_hash_t prehash(thread_id_t const& x) {
+  static thread_id_hash_t prehash(const thread_id_t& x) {
     return x;
   }
 };
@@ -518,14 +519,14 @@ static inline void swap_relaxed(std::atomic<T>& left, std::atomic<T>& right) {
 }
 
 template <typename T>
-static inline T const& nomove(T const& x) {
+static inline const T& nomove(const T& x) {
   return x;
 }
 
 template <bool Enable>
 struct nomove_if {
   template <typename T>
-  static inline T const& eval(T const& x) {
+  static inline const T& eval(const T& x) {
     return x;
   }
 };
@@ -587,8 +588,8 @@ class ThreadExitNotifier {
  private:
   ThreadExitNotifier() : tail(nullptr) {
   }
-  ThreadExitNotifier(ThreadExitNotifier const&) MOODYCAMEL_DELETE_FUNCTION;
-  ThreadExitNotifier& operator=(ThreadExitNotifier const&) MOODYCAMEL_DELETE_FUNCTION;
+  ThreadExitNotifier(const ThreadExitNotifier&) MOODYCAMEL_DELETE_FUNCTION;
+  ThreadExitNotifier& operator=(const ThreadExitNotifier&) MOODYCAMEL_DELETE_FUNCTION;
 
   ~ThreadExitNotifier() {
     // This thread is about to exit, let everyone know!
@@ -697,8 +698,8 @@ struct ProducerToken {
   }
 
   // Disable copying and assignment
-  ProducerToken(ProducerToken const&) MOODYCAMEL_DELETE_FUNCTION;
-  ProducerToken& operator=(ProducerToken const&) MOODYCAMEL_DELETE_FUNCTION;
+  ProducerToken(const ProducerToken&) MOODYCAMEL_DELETE_FUNCTION;
+  ProducerToken& operator=(const ProducerToken&) MOODYCAMEL_DELETE_FUNCTION;
 
  private:
   template <typename T, typename Traits>
@@ -737,8 +738,8 @@ struct ConsumerToken {
   }
 
   // Disable copying and assignment
-  ConsumerToken(ConsumerToken const&) MOODYCAMEL_DELETE_FUNCTION;
-  ConsumerToken& operator=(ConsumerToken const&) MOODYCAMEL_DELETE_FUNCTION;
+  ConsumerToken(const ConsumerToken&) MOODYCAMEL_DELETE_FUNCTION;
+  ConsumerToken& operator=(const ConsumerToken&) MOODYCAMEL_DELETE_FUNCTION;
 
  private:
   template <typename T, typename Traits>
@@ -908,8 +909,8 @@ class ConcurrentQueue {
   }
 
   // Disable copying and copy assignment
-  ConcurrentQueue(ConcurrentQueue const&) MOODYCAMEL_DELETE_FUNCTION;
-  ConcurrentQueue& operator=(ConcurrentQueue const&) MOODYCAMEL_DELETE_FUNCTION;
+  ConcurrentQueue(const ConcurrentQueue&) MOODYCAMEL_DELETE_FUNCTION;
+  ConcurrentQueue& operator=(const ConcurrentQueue&) MOODYCAMEL_DELETE_FUNCTION;
 
   // Moving is supported, but note that it is *not* a thread-safe operation.
   // Nobody can use the queue while it's being moved, and the memory effects
@@ -997,7 +998,7 @@ class ConcurrentQueue {
   // production is disabled because Traits::INITIAL_IMPLICIT_PRODUCER_HASH_SIZE is 0,
   // or Traits::MAX_SUBQUEUE_SIZE has been defined and would be surpassed).
   // Thread-safe.
-  inline bool enqueue(T const& item) {
+  inline bool enqueue(const T& item) {
     if (INITIAL_IMPLICIT_PRODUCER_HASH_SIZE == 0)
       return false;
     return inner_enqueue<CanAlloc>(item);
@@ -1018,7 +1019,7 @@ class ConcurrentQueue {
   // Allocates memory if required. Only fails if memory allocation fails (or
   // Traits::MAX_SUBQUEUE_SIZE has been defined and would be surpassed).
   // Thread-safe.
-  inline bool enqueue(producer_token_t const& token, T const& item) {
+  inline bool enqueue(const producer_token_t& token, const T& item) {
     return inner_enqueue<CanAlloc>(token, item);
   }
 
@@ -1026,7 +1027,7 @@ class ConcurrentQueue {
   // Allocates memory if required. Only fails if memory allocation fails (or
   // Traits::MAX_SUBQUEUE_SIZE has been defined and would be surpassed).
   // Thread-safe.
-  inline bool enqueue(producer_token_t const& token, T&& item) {
+  inline bool enqueue(const producer_token_t& token, T&& item) {
     return inner_enqueue<CanAlloc>(token, std::move(item));
   }
 
@@ -1050,7 +1051,7 @@ class ConcurrentQueue {
   // instead of copied.
   // Thread-safe.
   template <typename It>
-  bool enqueue_bulk(producer_token_t const& token, It itemFirst, size_t count) {
+  bool enqueue_bulk(const producer_token_t& token, It itemFirst, size_t count) {
     return inner_enqueue_bulk<CanAlloc>(token, itemFirst, count);
   }
 
@@ -1059,7 +1060,7 @@ class ConcurrentQueue {
   // production is disabled because Traits::INITIAL_IMPLICIT_PRODUCER_HASH_SIZE
   // is 0).
   // Thread-safe.
-  inline bool try_enqueue(T const& item) {
+  inline bool try_enqueue(const T& item) {
     if (INITIAL_IMPLICIT_PRODUCER_HASH_SIZE == 0)
       return false;
     return inner_enqueue<CannotAlloc>(item);
@@ -1079,14 +1080,14 @@ class ConcurrentQueue {
   // Enqueues a single item (by copying it) using an explicit producer token.
   // Does not allocate memory. Fails if not enough room to enqueue.
   // Thread-safe.
-  inline bool try_enqueue(producer_token_t const& token, T const& item) {
+  inline bool try_enqueue(const producer_token_t& token, const T& item) {
     return inner_enqueue<CannotAlloc>(token, item);
   }
 
   // Enqueues a single item (by moving it, if possible) using an explicit producer token.
   // Does not allocate memory. Fails if not enough room to enqueue.
   // Thread-safe.
-  inline bool try_enqueue(producer_token_t const& token, T&& item) {
+  inline bool try_enqueue(const producer_token_t& token, T&& item) {
     return inner_enqueue<CannotAlloc>(token, std::move(item));
   }
 
@@ -1110,7 +1111,7 @@ class ConcurrentQueue {
   // instead of copied.
   // Thread-safe.
   template <typename It>
-  bool try_enqueue_bulk(producer_token_t const& token, It itemFirst, size_t count) {
+  bool try_enqueue_bulk(const producer_token_t& token, It itemFirst, size_t count) {
     return inner_enqueue_bulk<CannotAlloc>(token, itemFirst, count);
   }
 
@@ -1291,7 +1292,7 @@ class ConcurrentQueue {
   // was checked (so, the queue is likely but not guaranteed to be empty).
   // Never allocates. Thread-safe.
   template <typename U>
-  inline bool try_dequeue_from_producer(producer_token_t const& producer, U& item) {
+  inline bool try_dequeue_from_producer(const producer_token_t& producer, U& item) {
     return static_cast<ExplicitProducer*>(producer.producer)->dequeue(item);
   }
 
@@ -1303,7 +1304,7 @@ class ConcurrentQueue {
   // was checked (so, the queue is likely but not guaranteed to be empty).
   // Never allocates. Thread-safe.
   template <typename It>
-  inline size_t try_dequeue_bulk_from_producer(producer_token_t const& producer, It itemFirst, size_t max) {
+  inline size_t try_dequeue_bulk_from_producer(const producer_token_t& producer, It itemFirst, size_t max) {
     return static_cast<ExplicitProducer*>(producer.producer)->dequeue_bulk(itemFirst, max);
   }
 
@@ -1348,7 +1349,7 @@ class ConcurrentQueue {
   ///////////////////////////////
 
   template <AllocationMode canAlloc, typename U>
-  inline bool inner_enqueue(producer_token_t const& token, U&& element) {
+  inline bool inner_enqueue(const producer_token_t& token, U&& element) {
     return static_cast<ExplicitProducer*>(token.producer)
         ->ConcurrentQueue::ExplicitProducer::template enqueue<canAlloc>(std::forward<U>(element));
   }
@@ -1362,7 +1363,7 @@ class ConcurrentQueue {
   }
 
   template <AllocationMode canAlloc, typename It>
-  inline bool inner_enqueue_bulk(producer_token_t const& token, It itemFirst, size_t count) {
+  inline bool inner_enqueue_bulk(const producer_token_t& token, It itemFirst, size_t count) {
     return static_cast<ExplicitProducer*>(token.producer)
         ->ConcurrentQueue::ExplicitProducer::template enqueue_bulk<canAlloc>(itemFirst, count);
   }
@@ -1441,8 +1442,8 @@ class ConcurrentQueue {
       details::swap_relaxed(freeListHead, other.freeListHead);
     }
 
-    FreeList(FreeList const&) MOODYCAMEL_DELETE_FUNCTION;
-    FreeList& operator=(FreeList const&) MOODYCAMEL_DELETE_FUNCTION;
+    FreeList(const FreeList&) MOODYCAMEL_DELETE_FUNCTION;
+    FreeList& operator=(const FreeList&) MOODYCAMEL_DELETE_FUNCTION;
 
     inline void add(N* node) {
 #ifdef MCDBGQ_NOLOCKFREE_FREELIST
@@ -1649,8 +1650,8 @@ class ConcurrentQueue {
       return static_cast<T*>(static_cast<void*>(elements)) +
              static_cast<size_t>(idx & static_cast<index_t>(BLOCK_SIZE - 1));
     }
-    inline T const* operator[](index_t idx) const MOODYCAMEL_NOEXCEPT {
-      return static_cast<T const*>(static_cast<void const*>(elements)) +
+    inline const T* operator[](index_t idx) const MOODYCAMEL_NOEXCEPT {
+      return static_cast<const T*>(static_cast<const void*>(elements)) +
              static_cast<size_t>(idx & static_cast<index_t>(BLOCK_SIZE - 1));
     }
 
@@ -1711,7 +1712,7 @@ class ConcurrentQueue {
         , parent(parent_) {
     }
 
-    virtual ~ProducerBase(){};
+    virtual ~ProducerBase() {};
 
     template <typename U>
     inline bool dequeue(U& element) {

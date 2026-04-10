@@ -1,6 +1,17 @@
 name: Emscripten TON build (wasm)
 
-on: [push,workflow_dispatch,workflow_call]
+on:
+  pull_request:
+    branches: [master, testnet]
+    types: [opened, reopened, synchronize, ready_for_review]
+  push:
+    branches: [master, testnet]
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -8,14 +19,28 @@ jobs:
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v6
       with:
         submodules: 'recursive'
 
     - name: Install system libraries
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev libjemalloc-dev
+        sudo apt-get install -y build-essential git cmake ninja-build libjemalloc-dev
+        mkdir -p 3pp_emscripten
+
+    - name: Install clang-21
+      run: |
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x llvm.sh
+        sudo ./llvm.sh 21 clang
+
+    - name: Cache 3pp Emscripten
+      id: cache-3pp-emscripten
+      uses: actions/cache@v4
+      with:
+        path: 3pp_emscripten
+        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-3pp_em-${{ hashFiles('**/assembly/wasm/fift-func-wasm-build-ubuntu.sh') }}
 
     - name: Build TON WASM artifacts
       run: |
@@ -28,5 +53,6 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@master
       with:
-        name: ton-wasm-binaries
+        name: ton-wasm
         path: artifacts
+        retention-days: 14

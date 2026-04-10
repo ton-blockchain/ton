@@ -15,18 +15,19 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
+#include <ostream>
+
+#include "block/block.h"
+#include "block/mc-config.h"
 #include "common/refcnt.hpp"
 #include "common/refint.h"
+#include "td/utils/bits.h"
+#include "tl/tlblib.hpp"
+#include "ton/ton-types.h"
+#include "vm/boc.h"
 #include "vm/cells.h"
 #include "vm/cellslice.h"
 #include "vm/dict.h"
-#include "vm/boc.h"
-#include <ostream>
-#include "tl/tlblib.hpp"
-#include "td/utils/bits.h"
-#include "ton/ton-types.h"
-#include "block/block.h"
-#include "block/mc-config.h"
 
 namespace block::precompiled {
 
@@ -77,7 +78,8 @@ class PrecompiledSmartContract {
   Result run(td::Ref<vm::CellSlice> my_address, ton::UnixTime now, ton::LogicalTime cur_lt, CurrencyCollection balance,
              td::Ref<vm::Cell> c4, vm::CellSlice msg_body, td::Ref<vm::Cell> msg, CurrencyCollection msg_balance,
              bool is_external, std::vector<td::Ref<vm::Cell>> libraries, int global_version, td::uint16 max_data_depth,
-             td::Ref<vm::Cell> my_code, td::Ref<vm::Tuple> unpacked_config, td::RefInt256 due_payment, td::uint64 precompiled_gas_usage);
+             td::Ref<vm::Cell> my_code, td::Ref<vm::Tuple> unpacked_config, td::RefInt256 due_payment,
+             td::uint64 precompiled_gas_usage);
 
   td::Ref<vm::Cell> get_c4() const {
     return c4_;

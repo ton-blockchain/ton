@@ -1,0 +1,81 @@
+name: Ubuntu TON build (arm64)
+
+on:
+  pull_request:
+    branches: [master, testnet]
+    types: [opened, reopened, synchronize, ready_for_review]
+  push:
+    branches: [master, testnet]
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04-arm, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v6
+      with:
+        submodules: 'recursive'
+
+    - name: Date Stamp
+      shell: bash
+      id: date-stamp
+      run: |
+        echo "timestamp=$(date -u "+%Y%m%d%H%M_%S")" >> "$GITHUB_OUTPUT"
+
+    - name: Install system libraries
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git cmake ninja-build libjemalloc-dev ccache
+        mkdir ~/.ccache
+
+    - if: matrix.os != 'ubuntu-24.04-arm'
+      run: |
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x llvm.sh
+        sudo ./llvm.sh 21 clang
+
+    - if: matrix.os == 'ubuntu-24.04-arm'
+      name: Install llvm-21
+      run: |
+        lsb_release -a
+        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+        echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+        sudo apt-get -y update
+        sudo apt-get install -y clang-21
+
+    - name: Cache TON test
+      id: cache-ton
+      uses: actions/cache@v4
+      with:
+        path: ~/.ccache
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-shared-ccache-${{ steps.date-stamp.outputs.timestamp }}
+        restore-keys: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-shared-ccache
+
+    - name: Build TON
+      run: |
+        git submodule sync --recursive
+        git submodule update
+        cp assembly/native/build-ubuntu-shared.sh .
+        chmod +x build-ubuntu-shared.sh
+        ./build-ubuntu-shared.sh -t -c
+        ccache -sp
+
+    - name: Run Tests
+      run: |
+        cd build
+        ctest --output-on-failure --timeout 1800
+
+    - name: Run tonlib integration test
+      run: |
+        ./test/tonlib/integration/test_integration.sh

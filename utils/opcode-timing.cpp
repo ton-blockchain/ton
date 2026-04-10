@@ -1,18 +1,18 @@
 #include <ctime>
 #include <iomanip>
 
-#include "vm/vm.h"
-#include "vm/cp0.h"
-#include "vm/dict.h"
-#include "fift/utils.h"
 #include "common/bigint.hpp"
-
-#include "td/utils/base64.h"
+#include "fift/utils.h"
 #include "td/utils/ScopeGuard.h"
 #include "td/utils/StringBuilder.h"
 #include "td/utils/Timer.h"
-#include "block.h"
+#include "td/utils/base64.h"
 #include "td/utils/filesystem.h"
+#include "vm/cp0.h"
+#include "vm/dict.h"
+#include "vm/vm.h"
+
+#include "block.h"
 #include "mc-config.h"
 
 td::Ref<vm::Tuple> c7;
@@ -135,8 +135,8 @@ runInfo time_run_vm(td::Slice command, td::Ref<vm::Stack> stack) {
   CHECK(stack.is_unique());
   try {
     vm::GasLimits gas_limit;
-    vm::VmState vm{vm::load_cell_slice_ref(cell), std::move(stack), gas_limit, 0, {}, vm::VmLog{}, {}, c7};
-    vm.set_global_version(ton::SUPPORTED_VERSION);
+    vm::VmState vm{
+        vm::load_cell_slice_ref(cell), ton::SUPPORTED_VERSION, std::move(stack), gas_limit, 0, {}, vm::VmLog{}, {}, c7};
     std::clock_t cStart = std::clock();
     int ret = ~vm.run();
     std::clock_t cEnd = std::clock();

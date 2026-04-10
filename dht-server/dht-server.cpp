@@ -25,29 +25,29 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "dht-server.hpp"
-
-#include "td/utils/filesystem.h"
+#include "memprof/memprof.h"
 #include "td/actor/MultiPromise.h"
-#include "td/utils/overloaded.h"
 #include "td/utils/OptionParser.h"
-#include "td/utils/port/path.h"
-#include "td/utils/port/user.h"
-#include "td/utils/port/signals.h"
+#include "td/utils/Random.h"
 #include "td/utils/ThreadSafeCounter.h"
 #include "td/utils/TsFileLog.h"
-#include "td/utils/Random.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/overloaded.h"
+#include "td/utils/port/path.h"
+#include "td/utils/port/signals.h"
+#include "td/utils/port/user.h"
 
-#include "memprof/memprof.h"
+#include "dht-server.hpp"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
 #endif
 #include <algorithm>
-#include <iostream>
-#include <sstream>
 #include <cstdlib>
+#include <iostream>
 #include <set>
+#include <sstream>
+
 #include "git.h"
 
 Config::Config() {
@@ -94,7 +94,8 @@ Config::Config(const ton::ton_api::engine_validator_config &config) {
                   priority_categories.push_back(td::narrow_cast<td::uint8>(cat));
                 }
               }
-            }));
+            },
+            [&](const auto &) { UNREACHABLE(); }));
 
     config_add_network_addr(in_ip, out_ip, std::move(proxy), categories, priority_categories).ensure();
   }
@@ -409,7 +410,7 @@ void DhtServer::deleted_key(ton::PublicKeyHash x) {
   auto R = config_.config_del_gc(x);
   R.ensure();
   if (R.move_as_ok()) {
-    write_config([](td::Unit) {});
+    write_config([](td::Result<>) {});
   }
 }
 
@@ -432,14 +433,6 @@ td::Status DhtServer::load_global_config() {
 
   TRY_RESULT_PREFIX(dht, ton::dht::Dht::create_global_config(std::move(conf.dht_)), "bad [dht] section: ");
   dht_config_ = std::move(dht);
-
-  if (!conf.validator_) {
-    return td::Status::Error(ton::ErrorCode::error, "does not contain [validator] section");
-  }
-
-  if (!conf.validator_->zero_state_) {
-    return td::Status::Error(ton::ErrorCode::error, "[validator] section does not contain [zero_state]");
-  }
 
   return td::Status::OK();
 }
@@ -486,7 +479,7 @@ void DhtServer::load_local_config(td::Promise<td::Unit> promise) {
   auto conf_data = conf_data_R.move_as_ok();
   auto conf_json_R = td::json_decode(conf_data.as_slice());
   if (conf_json_R.is_error()) {
-    promise.set_error(conf_data_R.move_as_error_prefix("failed to parse json: "));
+    promise.set_error(conf_json_R.move_as_error_prefix("failed to parse json: "));
     return;
   }
   auto conf_json = conf_json_R.move_as_ok();
@@ -600,7 +593,7 @@ void DhtServer::load_config(td::Promise<td::Unit> promise) {
   auto conf_data = conf_data_R.move_as_ok();
   auto conf_json_R = td::json_decode(conf_data.as_slice());
   if (conf_json_R.is_error()) {
-    promise.set_error(conf_data_R.move_as_error_prefix("failed to parse json: "));
+    promise.set_error(conf_json_R.move_as_error_prefix("failed to parse json: "));
     return;
   }
   auto conf_json = conf_json_R.move_as_ok();
@@ -696,17 +689,13 @@ void DhtServer::add_addr(const Config::Addr &addr, const Config::AddrCats &cats)
 
   for (auto cat : cats.cats) {
     CHECK(cat >= 0);
-    ton::adnl::AdnlAddress x = ton::adnl::AdnlAddressImpl::create(
-        ton::create_tl_object<ton::ton_api::adnl_address_udp>(cats.in_addr.get_ipv4(), cats.in_addr.get_port()));
-    addr_lists_[cat].add_addr(std::move(x));
+    addr_lists_[cat].add_udp_adnl_address(cats.in_addr).ensure();
     addr_lists_[cat].set_version(ts);
     addr_lists_[cat].set_reinit_date(ton::adnl::Adnl::adnl_start_time());
   }
   for (auto cat : cats.priority_cats) {
     CHECK(cat >= 0);
-    ton::adnl::AdnlAddress x = ton::adnl::AdnlAddressImpl::create(
-        ton::create_tl_object<ton::ton_api::adnl_address_udp>(cats.in_addr.get_ipv4(), cats.in_addr.get_port()));
-    prio_addr_lists_[cat].add_addr(std::move(x));
+    prio_addr_lists_[cat].add_udp_adnl_address(cats.in_addr).ensure();
     prio_addr_lists_[cat].set_version(ts);
     prio_addr_lists_[cat].set_reinit_date(ton::adnl::Adnl::adnl_start_time());
   }
@@ -1233,24 +1222,24 @@ int main(int argc, char *argv[]) {
     td::log_interface = logger_.get();
   });
   td::uint32 threads = 7;
-  p.add_checked_option(
-      't', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice arg) {
-        td::int32 v;
-        try {
-          v = std::stoi(arg.str());
-        } catch (...) {
-          return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: not a number");
-        }
-        if (v <= 0) {
-          return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: should be > 0");
-        }
-        if (v > 127) {
-          LOG(WARNING) << "`--threads " << v << "` is too big, effective value will be 127";
-          v = 127;
-        }
-        threads = v;
-        return td::Status::OK();
-      });
+  p.add_checked_option('t', "threads", PSTRING() << "number of threads (default=" << threads << ")",
+                       [&](td::Slice arg) {
+                         td::int32 v;
+                         try {
+                           v = std::stoi(arg.str());
+                         } catch (...) {
+                           return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: not a number");
+                         }
+                         if (v <= 0) {
+                           return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: should be > 0");
+                         }
+                         if (v > 127) {
+                           LOG(WARNING) << "`--threads " << v << "` is too big, effective value will be 127";
+                           v = 127;
+                         }
+                         threads = v;
+                         return td::Status::OK();
+                       });
   p.add_checked_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user.str()); });
   p.run(argc, argv).ensure();
 

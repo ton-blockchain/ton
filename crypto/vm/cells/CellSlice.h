@@ -32,7 +32,7 @@ struct NoVmOrd {};
 struct NoVmSpec {};
 
 class CellSlice : public td::CntObject {
-  Cell::VirtualizationParameters virt;
+  td::uint32 effective_level;
   Ref<DataCell> cell;
   CellUsageTree::NodePtr tree_node;
   unsigned bits_st, refs_st;
@@ -84,9 +84,6 @@ class CellSlice : public td::CntObject {
     return cell->special_type();
   }
   int child_merkle_depth(int merkle_depth) const {
-    if (merkle_depth == Cell::VirtualizationParameters::max_level()) {
-      return merkle_depth;
-    }
     if (cell->special_type() == Cell::SpecialType::MerkleProof ||
         cell->special_type() == Cell::SpecialType::MerkleUpdate) {
       merkle_depth++;
@@ -153,6 +150,7 @@ class CellSlice : public td::CntObject {
   bool prefetch_ulong_bool(unsigned bits, unsigned long long& res) const;
   bool fetch_bool_to(bool& res);
   bool fetch_bool_to(int& res);
+  bool fetch_bool_to(unsigned& res);
   bool fetch_bool_to(int& res, int mask);
   bool fetch_uint_to(unsigned bits, unsigned long long& res);
   bool fetch_uint_to(unsigned bits, long long& res);
@@ -190,6 +188,7 @@ class CellSlice : public td::CntObject {
   }
   bool fetch_maybe_ref(Ref<Cell>& ref);
   bool prefetch_maybe_ref(Ref<Cell>& ref) const;
+  std::vector<Ref<Cell>> prefetch_all_refs() const;
   td::BitSlice fetch_bits(unsigned bits);
   td::BitSlice prefetch_bits(unsigned bits) const;
   td::Ref<CellSlice> fetch_subslice(unsigned bits, unsigned refs = 0);
@@ -225,11 +224,9 @@ class CellSlice : public td::CntObject {
     return prefetch_bits(size());
   }
   bool begins_with(unsigned bits, unsigned long long value) const;
-  bool begins_with(unsigned long long value) const;
   bool begins_with_skip(unsigned bits, unsigned long long value) {
     return begins_with(bits, value) && advance(bits);
   }
-  bool begins_with_skip(unsigned long long value);
   bool only_first(unsigned bits, unsigned refs = 0);
   bool only_ext(unsigned size);
   bool skip_first(unsigned bits, unsigned refs = 0);
@@ -257,6 +254,7 @@ class CellSlice : public td::CntObject {
   void dump(std::ostream& os, int level = 0, bool endl = true) const;
   void dump_hex(std::ostream& os, int mode = 0, bool endl = false) const;
   bool print_rec(std::ostream& os, int indent = 0) const;
+  bool print_rec(td::StringBuilder& sb, int indent = 0) const;
   bool print_rec(std::ostream& os, int* limit, int indent = 0) const;
   bool print_rec(int limit, std::ostream& os, int indent = 0) const;
   void error() const {
@@ -287,9 +285,8 @@ class CellSlice : public td::CntObject {
   void init_bits_refs();
   void init_preload() const;
   void preload_at_least(unsigned req_bits) const;
-  Cell::VirtualizationParameters child_virt() const {
-    return Cell::VirtualizationParameters(static_cast<td::uint8>(child_merkle_depth(virt.get_level())),
-                                          virt.get_virtualization());
+  td::uint32 child_effective_level() const {
+    return child_merkle_depth(effective_level);
   }
 };
 
@@ -329,9 +326,13 @@ Ref<CellSlice>& operator>>(Ref<CellSlice>& cs_ref, const T& val) {
 
 // If can_be_special is not null, then it is allowed to load special cell
 // Flag whether loaded cell is actually special will be stored into can_be_special
+// Quiet functions can't throw VmError (but can throw VmVirtError) unless it happens during TVM execution
 CellSlice load_cell_slice(const Ref<Cell>& cell);
+CellSlice load_cell_slice_quiet(const Ref<Cell>& cell);
 Ref<CellSlice> load_cell_slice_ref(const Ref<Cell>& cell);
+Ref<CellSlice> load_cell_slice_ref_quiet(const Ref<Cell>& cell);
 CellSlice load_cell_slice_special(const Ref<Cell>& cell, bool& is_special);
+CellSlice load_cell_slice_special(const Ref<Cell>& cell);
 Ref<CellSlice> load_cell_slice_ref_special(const Ref<Cell>& cell, bool& is_special);
 void print_load_cell(std::ostream& os, Ref<Cell> cell, int indent = 0);
 

@@ -18,10 +18,12 @@
 */
 #pragma once
 
+#include <stats-provider.h>
+
+#include "adnl/adnl-ext-client.h"
 #include "overlay/overlays.h"
 #include "ton/ton-types.h"
 #include "validator/validator.h"
-#include "adnl/adnl-ext-client.h"
 
 namespace ton {
 
@@ -31,9 +33,10 @@ namespace fullnode {
 
 class DownloadState : public td::actor::Actor {
  public:
-  DownloadState(BlockIdExt block_id, BlockIdExt masterchain_block_id, adnl::AdnlNodeIdShort local_id,
-                overlay::OverlayIdShort overlay_id, adnl::AdnlNodeIdShort download_from, td::uint32 priority,
-                td::Timestamp timeout, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+  DownloadState(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
+                adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id, adnl::AdnlNodeIdShort download_from,
+                td::uint32 priority, td::Timestamp timeout,
+                td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                 td::actor::ActorId<adnl::AdnlSenderInterface> rldp, td::actor::ActorId<overlay::Overlays> overlays,
                 td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlExtClient> client,
                 td::Promise<td::BufferSlice> promise);
@@ -47,12 +50,17 @@ class DownloadState : public td::actor::Actor {
   void got_block_handle(BlockHandle handle);
   void got_node_to_download(adnl::AdnlNodeIdShort node);
   void got_block_state_description(td::BufferSlice data_description);
+  void got_state_size(td::BufferSlice size_or_not_found);
+  void request_total_size();
+  void got_total_size(td::uint64 size);
   void got_block_state_part(td::BufferSlice data, td::uint32 requested_size);
   void got_block_state(td::BufferSlice data);
 
  private:
   BlockIdExt block_id_;
   BlockIdExt masterchain_block_id_;
+  PersistentStateType type_;
+  ShardId effective_shard_;
   adnl::AdnlNodeIdShort local_id_;
   overlay::OverlayIdShort overlay_id_;
 
@@ -75,6 +83,9 @@ class DownloadState : public td::actor::Actor {
 
   td::uint64 prev_logged_sum_ = 0;
   td::Timer prev_logged_timer_;
+  td::uint64 total_size_ = 0;
+
+  ProcessStatus status_;
 };
 
 }  // namespace fullnode

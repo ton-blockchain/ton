@@ -15,14 +15,15 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "StorageProvider.h"
-#include "td/db/RocksDb.h"
-#include "td/utils/JsonBuilder.h"
 #include "auto/tl/ton_api_json.h"
-#include "td/utils/port/path.h"
 #include "block/block-auto.h"
 #include "common/delay.h"
 #include "td/actor/MultiPromise.h"
+#include "td/db/RocksDb.h"
+#include "td/utils/JsonBuilder.h"
+#include "td/utils/port/path.h"
+
+#include "StorageProvider.h"
 
 namespace ton {
 
@@ -257,12 +258,16 @@ void StorageProvider::process_transaction(tl_object_ptr<tonlib_api::raw_transact
       continue;
     }
     td::Ref<vm::Cell> body = r_body.move_as_ok();
-    vm::CellSlice cs = vm::load_cell_slice(body);
+    vm::CellSlice cs = vm::load_cell_slice_quiet(body);
+    if (!cs.is_valid()) {
+      LOG(ERROR) << "Invalid message body in tonlib response";
+      continue;
+    }
     if (cs.size() >= 32) {
       long long op_code = cs.prefetch_ulong(32);
       // const op::offer_storage_contract = 0x107c49ef; -- old versions
       // const op::deploy_storage_contract = 0xe4748df1; -- new versions
-      if((op_code == 0x107c49ef) || (op_code == 0xe4748df1)) {
+      if ((op_code == 0x107c49ef) || (op_code == 0xe4748df1)) {
         new_contract_address = message->destination_->account_address_;
       }
     }
@@ -467,7 +472,7 @@ void StorageProvider::after_contract_downloaded(ContractAddress address, td::Tim
   }
   auto& contract = it->second;
   td::actor::send_closure(storage_manager_, &StorageManager::set_active_upload, contract.torrent_hash, true,
-                          [SelfId = actor_id(this), address](td::Result<td::Unit> R) {
+                          [SelfId = actor_id(this)](td::Result<td::Unit> R) {
                             if (R.is_error()) {
                               LOG(ERROR) << "Set active upload: " << R.move_as_error();
                               return;

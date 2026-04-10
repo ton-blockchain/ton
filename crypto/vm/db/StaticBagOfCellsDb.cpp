@@ -16,20 +16,16 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "vm/db/StaticBagOfCellsDb.h"
+#include <limits>
 
-#include "vm/cells/CellWithStorage.h"
-#include "vm/boc.h"
-
-#include "vm/cells/ExtCell.h"
-
+#include "td/utils/ConcurrentHashTable.h"
 #include "td/utils/crypto.h"
 #include "td/utils/format.h"
 #include "td/utils/misc.h"
 #include "td/utils/port/RwMutex.h"
-#include "td/utils/ConcurrentHashTable.h"
-
-#include <limits>
+#include "vm/boc.h"
+#include "vm/cells/ExtCell.h"
+#include "vm/db/StaticBagOfCellsDb.h"
 
 namespace vm {
 //
@@ -40,14 +36,17 @@ class RootCell : public Cell {
   struct PrivateTag {};
 
  public:
+  td::Status set_data_cell(Ref<DataCell>&& data_cell) const override {
+    return cell_->set_data_cell(std::move(data_cell));
+  }
   td::Result<LoadedCell> load_cell() const override {
     return cell_->load_cell();
   }
-  Ref<Cell> virtualize(VirtualizationParameters virt) const override {
-    return cell_->virtualize(virt);
+  Ref<Cell> virtualize(td::uint32 effective_level) const override {
+    return cell_->virtualize(effective_level);
   }
-  td::uint32 get_virtualization() const override {
-    return cell_->get_virtualization();
+  bool is_virtualized() const override {
+    return cell_->is_virtualized();
   }
   CellUsageTree::NodePtr get_tree_node() const override {
     return cell_->get_tree_node();
@@ -94,11 +93,11 @@ class DataCellCacheNoop {
 class DataCellCacheMutex {
  public:
   Ref<DataCell> store(int idx, Ref<DataCell> cell) {
-    auto lock = cells_rw_mutex_.lock_write();
+    std::lock_guard lock(mutex_);
     return cells_.emplace(idx, std::move(cell)).first->second;
   }
   Ref<DataCell> load(int idx) {
-    auto lock = cells_rw_mutex_.lock_read();
+    std::lock_guard lock(mutex_);
     auto it = cells_.find(idx);
     if (it != cells_.end()) {
       return it->second;
@@ -106,12 +105,13 @@ class DataCellCacheMutex {
     return {};
   }
   void clear() {
-    auto guard = cells_rw_mutex_.lock_write();
+    std::lock_guard lock(mutex_);
     cells_.clear();
   }
 
  private:
-  td::RwMutex cells_rw_mutex_;
+  std::mutex mutex_;
+  // NB: in case of high contention, one should use multiple buckets with per bucket mutexes
   td::HashMap<int, Ref<DataCell>> cells_;
 };
 
@@ -195,10 +195,7 @@ td::Result<std::shared_ptr<StaticBagOfCellsDb>> StaticBagOfCellsDbBaseline::crea
 
 td::Result<std::shared_ptr<StaticBagOfCellsDb>> StaticBagOfCellsDbBaseline::create(td::Slice data) {
   BagOfCells boc;
-  TRY_RESULT(x, boc.deserialize(data));
-  if (x <= 0) {
-    return td::Status::Error("failed to deserialize");
-  }
+  TRY_STATUS(boc.deserialize(data));
   std::vector<Ref<Cell>> roots(boc.get_root_count());
   for (int i = 0; i < boc.get_root_count(); i++) {
     roots[i] = boc.get_root_cell(i);
@@ -246,7 +243,7 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
   BagOfCells::Info info_;
 
   std::mutex index_i_mutex_;
-  td::RwMutex index_data_rw_mutex_;
+  std::mutex index_mutex_;
   std::string index_data_;
   std::atomic<int> index_i_{0};
   size_t index_offset_{0};
@@ -278,7 +275,7 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
   }
   template <class T>
   T check_result(T&& to_check) {
-    CHECK(status_.is_ok());
+    CHECK(!has_error_.load());
     if (to_check.is_error()) {
       std::lock_guard<std::mutex> guard(status_mutex_);
       has_error_.store(true);
@@ -309,7 +306,9 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
       return 0;
     }
     td::Slice offset_view;
-    CHECK(info_.offset_byte_size <= 8);
+    if (info_.offset_byte_size > 8) {
+      return td::Status::Error(PSTRING() << "bag-of-cell error: invalid offset_byte_size " << info_.offset_byte_size);
+    }
     char arr[8];
     td::RwMutex::ReadLock guard;
     if (info_.has_index) {
@@ -317,23 +316,29 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
                                              info_.index_offset + (td::int64)idx * info_.offset_byte_size));
       offset_view = new_offset_view;
     } else {
-      guard = index_data_rw_mutex_.lock_read().move_as_ok();
+      std::lock_guard guard(index_mutex_);
       offset_view = td::Slice(index_data_).substr((td::int64)idx * info_.offset_byte_size, info_.offset_byte_size);
     }
 
-    CHECK(offset_view.size() == (size_t)info_.offset_byte_size);
+    if (offset_view.size() != (size_t)info_.offset_byte_size) {
+      return td::Status::Error(PSTRING() << "bag-of-cell error: invalid offset view size" << offset_view.size());
+    }
     return td::narrow_cast<std::size_t>(info_.read_offset(offset_view.ubegin()));
   }
 
   td::Result<td::int64> load_root_idx(int root_i) {
-    CHECK(root_i >= 0 && root_i < info_.root_count);
+    if (root_i < 0 || root_i >= info_.root_count) {
+      return td::Status::Error(PSTRING() << "bag-of-cell error: invalid root index " << root_i);
+    }
     if (!info_.has_roots) {
       return 0;
     }
     char arr[8];
     TRY_RESULT(idx_view, data_.view(td::MutableSlice(arr, info_.ref_byte_size),
                                     info_.roots_offset + (td::int64)root_i * info_.ref_byte_size));
-    CHECK(idx_view.size() == (size_t)info_.ref_byte_size);
+    if (idx_view.size() != (size_t)info_.ref_byte_size) {
+      return td::Status::Error(PSTRING() << "bag-of-cell error: invalid idx_view size" << idx_view.size());
+    }
     return info_.read_ref(idx_view.ubegin());
   }
 
@@ -343,8 +348,9 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
     bool should_cache;
   };
   td::Result<CellLocation> get_cell_location(int idx) {
-    CHECK(idx >= 0);
-    CHECK(idx < info_.cell_count);
+    if (idx < 0 || idx >= info_.cell_count) {
+      return td::Status::Error(PSTRING() << "bag-of-cell error: invalid cell index " << idx);
+    }
     TRY_STATUS(preload_index(idx));
     TRY_RESULT(from, load_idx_offset(idx - 1));
     TRY_RESULT(till, load_idx_offset(idx));
@@ -357,10 +363,17 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
       res.should_cache = res.end % 2 == 1;
       res.end /= 2;
     }
-    CHECK(std::numeric_limits<std::size_t>::max() - res.begin >= info_.data_offset);
-    CHECK(std::numeric_limits<std::size_t>::max() - res.end >= info_.data_offset);
+    if (std::numeric_limits<std::size_t>::max() - res.begin < info_.data_offset ||
+        std::numeric_limits<std::size_t>::max() - res.end < info_.data_offset) {
+      return td::Status::Error(PSTRING() << "bag-of-cell error: invalid cell location (1) " << res.begin << ":"
+                                         << res.end);
+    }
     res.begin += static_cast<std::size_t>(info_.data_offset);
     res.end += static_cast<std::size_t>(info_.data_offset);
+    if (res.begin > res.end) {
+      return td::Status::Error(PSTRING() << "bag-of-cell error: invalid cell location (2) " << res.begin << ":"
+                                         << res.end);
+    }
     return res;
   }
 
@@ -374,8 +387,8 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
     if (parse_res <= 0) {
       return td::Status::Error("bag-of-cell error: failed to read header");
     }
-    if (info_.total_size < data_.size()) {
-      return td::Status::Error("bag-of-cell error: not enough data");
+    if (info_.total_size != data_.size()) {
+      return td::Status::Error("bag-of-cell error: wrong data size");
     }
     if (options_.check_crc32c && info_.has_crc32c) {
       std::string buf(td::narrow_cast<std::size_t>(info_.total_size), '\0');
@@ -396,8 +409,6 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
     if (info_.has_index) {
       return td::Status::OK();
     }
-
-    CHECK(idx < info_.cell_count);
     if (index_i_.load(std::memory_order_relaxed) > idx) {
       return td::Status::OK();
     }
@@ -407,15 +418,20 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
     auto buf_slice = td::MutableSlice(buf.data(), buf.size());
     for (; index_i_ <= idx; index_i_++) {
       auto offset = td::narrow_cast<size_t>(info_.data_offset + index_offset_);
-      CHECK(data_.size() >= offset);
+      if (data_.size() < offset) {
+        return td::Status::Error(PSLICE() << "bag-of-cells error: invalid offset " << offset
+                                          << " (size=" << data_.size() << ")");
+      }
       TRY_RESULT(cell, data_.view(buf_slice.copy().truncate(data_.size() - offset), offset));
       CellSerializationInfo cell_info;
       TRY_STATUS(cell_info.init(cell, info_.ref_byte_size));
       index_offset_ += cell_info.end_offset;
-      LOG_CHECK((unsigned)info_.offset_byte_size <= 8) << info_.offset_byte_size;
+      if ((unsigned)info_.offset_byte_size > 8) {
+        return td::Status::Error(PSTRING() << "bag-of-cell error: invalid offset_byte_size " << info_.offset_byte_size);
+      }
       td::uint8 tmp[8];
       info_.write_offset(tmp, index_offset_);
-      auto guard = index_data_rw_mutex_.lock_write();
+      std::lock_guard guard(index_mutex_);
       index_data_.append(reinterpret_cast<const char*>(tmp), info_.offset_byte_size);
     }
     return td::Status::OK();
@@ -488,7 +504,10 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
                                                   bool should_cache) {
     deserialize_cell_cnt_.add(1);
     Ref<Cell> refs[4];
-    CHECK(cell_info.refs_cnt <= 4);
+    if (cell_info.refs_cnt > 4) {
+      return td::Status::Error(PSLICE() << "invalid bag-of-cells cell #" << idx << " has " << cell_info.refs_cnt
+                                        << " refs");
+    }
     auto* ref_ptr = cell_slice.ubegin() + cell_info.refs_offset;
     for (int k = 0; k < cell_info.refs_cnt; k++, ref_ptr += info_.ref_byte_size) {
       int ref_idx = td::narrow_cast<int>(info_.read_ref(ref_ptr));

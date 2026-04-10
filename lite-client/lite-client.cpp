@@ -25,41 +25,41 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "lite-client.h"
-
-#include "lite-client-common.h"
-
-#include "tl-utils/lite-utils.hpp"
-#include "auto/tl/ton_api_json.h"
 #include "auto/tl/lite_api.hpp"
-#include "td/utils/OptionParser.h"
-#include "td/utils/Time.h"
-#include "td/utils/filesystem.h"
-#include "td/utils/Random.h"
-#include "td/utils/crypto.h"
-#include "td/utils/port/signals.h"
-#include "td/utils/port/FileFd.h"
-#include "ton/lite-tl.hpp"
-#include "block/block-db.h"
-#include "block/block.h"
-#include "block/block-parse.h"
+#include "auto/tl/ton_api_json.h"
 #include "block/block-auto.h"
-#include "block/mc-config.h"
+#include "block/block-db.h"
+#include "block/block-parse.h"
+#include "block/block.h"
 #include "block/check-proof.h"
+#include "block/mc-config.h"
+#include "common/checksum.h"
+#include "crypto/common/util.h"
+#include "crypto/vm/utils.h"
+#include "td/utils/OptionParser.h"
+#include "td/utils/Random.h"
+#include "td/utils/Time.h"
+#include "td/utils/crypto.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/port/FileFd.h"
+#include "td/utils/port/signals.h"
+#include "tl-utils/lite-utils.hpp"
+#include "ton/lite-tl.hpp"
 #include "vm/boc.h"
 #include "vm/cellops.h"
 #include "vm/cells/MerkleProof.h"
-#include "vm/vm.h"
 #include "vm/cp0.h"
 #include "vm/memo.h"
-#include "crypto/vm/utils.h"
-#include "crypto/common/util.h"
-#include "common/checksum.h"
+#include "vm/vm.h"
+
+#include "lite-client-common.h"
+#include "lite-client.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
 #endif
 #include <iostream>
+
 #include "git.h"
 
 using namespace std::literals::string_literals;
@@ -108,7 +108,7 @@ void TestNode::run() {
     if (single_liteserver_idx_ != -1) {  // Use single liteserver from config
       CHECK(single_liteserver_idx_ >= 0 && (size_t)single_liteserver_idx_ < servers.size());
       td::TerminalIO::out() << "using liteserver #" << single_liteserver_idx_ << " with addr "
-                            << servers[single_liteserver_idx_].addr << "\n";
+                            << servers[single_liteserver_idx_].hostname << "\n";
       servers = {servers[single_liteserver_idx_]};
     }
   }
@@ -422,7 +422,12 @@ void TestNode::got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt
   }
   td::TerminalIO::out() << "latest masterchain block known to server is " << blkid.to_str();
   if (created > 0) {
-    td::TerminalIO::out() << " created at " << created << " (" << now() - created << " seconds ago)\n";
+    auto time = now();
+    if (time >= static_cast<ton::UnixTime>(created)) {
+      td::TerminalIO::out() << " created at " << created << " (" << time - created << " seconds ago)\n";
+    } else {
+      td::TerminalIO::out() << " created at " << created << " (" << created - time << " seconds in the future)\n";
+    }
   } else {
     td::TerminalIO::out() << "\n";
   }
@@ -1601,8 +1606,8 @@ void TestNode::send_compute_complaint_price_query(ton::StdSmcAddress elector_add
   params.emplace_back(td::make_refint(bits));
   params.emplace_back(td::make_refint(refs));
   params.emplace_back(td::make_refint(expires_in));
-  auto P = td::PromiseCreator::lambda(
-      [this, expires_in, bits, refs, chash, filename](td::Result<std::vector<vm::StackEntry>> R) {
+  auto P =
+      td::PromiseCreator::lambda([expires_in, bits, refs, chash, filename](td::Result<std::vector<vm::StackEntry>> R) {
         if (R.is_error()) {
           LOG(ERROR) << R.move_as_error();
           return;
@@ -1977,7 +1982,7 @@ void TestNode::dns_resolve_finish(ton::WorkchainId workchain, ton::StdSmcAddress
           block::tlb::t_MsgAddressInt.extract_std_address(std::move(nx_address), nx_wc, nx_addr))) {
       LOG(ERROR) << "cannot parse next resolver info for " << domain.substr(qdomain.size() - pos - 1);
       std::ostringstream out;
-      vm::load_cell_slice(value).print_rec(print_limit_, out);
+      vm::load_cell_slice_special(value).print_rec(print_limit_, out);
       td::TerminalIO::err() << out.str() << std::endl;
       return;
     }
@@ -2293,7 +2298,7 @@ void TestNode::run_smc_method(int mode, ton::BlockIdExt ref_blk, ton::BlockIdExt
     // auto log = create_vm_log(ctx.error_stream ? &ostream_logger : nullptr);
     vm::GasLimits gas{gas_limit};
     LOG(DEBUG) << "creating VM";
-    vm::VmState vm{code, std::move(stack), gas, 1, data, vm::VmLog()};
+    vm::VmState vm{code, ton::SUPPORTED_VERSION, std::move(stack), gas, 1, data, vm::VmLog()};
     vm.set_c7(liteclient::prepare_vm_c7(info.gen_utime, info.gen_lt, td::make_ref<vm::CellSlice>(acc.addr->clone()),
                                         balance));  // tuple with SmartContractInfo
     // vm.incr_stack_trace(1);    // enable stack dump after each step
@@ -2411,11 +2416,12 @@ void TestNode::got_one_transaction(ton::BlockIdExt req_blkid, ton::BlockIdExt bl
   }
   auto proof_root = P.move_as_ok();
   try {
-    auto block_root = vm::MerkleProof::virtualize(std::move(proof_root), 1);
-    if (block_root.is_null()) {
+    auto r_block_root = vm::MerkleProof::virtualize(std::move(proof_root));
+    if (r_block_root.is_error()) {
       LOG(ERROR) << "transaction block proof is invalid";
       return;
     }
+    auto block_root = r_block_root.move_as_ok();
     auto res1 = block::check_block_header_proof(block_root, blkid);
     if (res1.is_error()) {
       LOG(ERROR) << "error in transaction block header proof : " << res1.move_as_error().to_string();
@@ -2445,10 +2451,10 @@ void TestNode::got_one_transaction(ton::BlockIdExt req_blkid, ton::BlockIdExt bl
                  << " but received data has " << root->get_hash().bits().to_hex(256);
       return;
     }
-  } catch (vm::VmError err) {
+  } catch (vm::VmError& err) {
     LOG(ERROR) << "error while traversing block transaction proof : " << err.get_msg();
     return;
-  } catch (vm::VmVirtError err) {
+  } catch (vm::VmVirtError& err) {
     LOG(ERROR) << "virtualization error while traversing block transaction proof : " << err.get_msg();
     return;
   }
@@ -2861,12 +2867,7 @@ void TestNode::got_config_params(ton::BlockIdExt req_blkid, int mode, std::strin
           block::check_extract_state_proof(blkid, f->state_proof_.as_slice(), f->config_proof_.as_slice()),
           PSLICE() << "masterchain state proof for " << blkid.to_str() << " is invalid :");
     } else {
-      block = vm::MerkleProof::virtualize(config_proof, 1);
-      if (block.is_null()) {
-        promise.set_error(
-            td::Status::Error("cannot virtualize configuration proof constructed from key block "s + blkid.to_str()));
-        return;
-      }
+      TRY_RESULT_PROMISE_ASSIGN(promise, block, vm::MerkleProof::virtualize(config_proof));
       //TRY_STATUS_PROMISE_PREFIX(promise, block::check_block_header_proof(block, blkid),
       //                          PSLICE() << "incorrect header for key block " << blkid.to_str());
     }
@@ -2900,7 +2901,8 @@ void TestNode::got_config_params(ton::BlockIdExt req_blkid, int mode, std::strin
         } else {
           std::ostringstream os;
           if (i >= 0) {
-            block::gen::ConfigParam{i}.print_ref(print_limit_, os, value);
+            unsigned cfg_idx = static_cast<unsigned>(i);
+            block::gen::ConfigParam{cfg_idx}.print_ref(print_limit_, os, value);
             os << std::endl;
           }
           vm::load_cell_slice(value).print_rec(print_limit_, os);
@@ -2918,7 +2920,8 @@ void TestNode::got_config_params(ton::BlockIdExt req_blkid, int mode, std::strin
         } else {
           std::ostringstream os;
           if (i >= 0) {
-            block::gen::ConfigParam{i}.print_ref(print_limit_, os, value);
+            unsigned cfg_idx = static_cast<unsigned>(i);
+            block::gen::ConfigParam{cfg_idx}.print_ref(print_limit_, os, value);
             os << std::endl;
           }
           vm::load_cell_slice(value).print_rec(print_limit_, os);
@@ -3178,7 +3181,7 @@ void TestNode::got_state(ton::BlockIdExt blkid, ton::RootHash root_hash, ton::Fi
 }
 
 bool TestNode::get_show_block_header(ton::BlockIdExt blkid, int mode) {
-  return get_block_header(blkid, mode, [this, blkid](td::Result<BlockHdrInfo> R) {
+  return get_block_header(blkid, mode, [this](td::Result<BlockHdrInfo> R) {
     if (R.is_error()) {
       LOG(ERROR) << "unable to fetch block header: " << R.move_as_error();
     } else {
@@ -3247,12 +3250,7 @@ void TestNode::got_block_header_raw(td::BufferSlice res, td::Promise<TestNode::B
   bool ok = false;
   td::Status E;
   try {
-    auto virt_root = vm::MerkleProof::virtualize(root, 1);
-    if (virt_root.is_null()) {
-      promise.set_error(td::Status::Error(PSLICE() << "block header proof for block " << blk_id.to_str()
-                                                   << " is not a valid Merkle proof"));
-      return;
-    }
+    TRY_RESULT_PROMISE(promise, virt_root, vm::MerkleProof::virtualize(root));
     ok = true;
     promise.set_result(BlockHdrInfo{blk_id, std::move(root), std::move(virt_root), f->mode_});
     return;
@@ -3329,15 +3327,15 @@ void TestNode::got_block_header(ton::BlockIdExt blkid, td::BufferSlice data, int
   cs.print_rec(print_limit_, outp);
   td::TerminalIO::out() << outp.str();
   try {
-    auto virt_root = vm::MerkleProof::virtualize(root, 1);
-    if (virt_root.is_null()) {
+    auto r_virt_root = vm::MerkleProof::virtualize(root);
+    if (r_virt_root.is_error()) {
       LOG(ERROR) << " block header proof for block " << blkid.to_str() << " is not a valid Merkle proof";
       return;
     }
-    show_block_header(blkid, std::move(virt_root), mode);
-  } catch (vm::VmError err) {
+    show_block_header(blkid, r_virt_root.move_as_ok(), mode);
+  } catch (vm::VmError& err) {
     LOG(ERROR) << "error processing header for " << blkid.to_str() << " : " << err.get_msg();
-  } catch (vm::VmVirtError err) {
+  } catch (vm::VmVirtError& err) {
     LOG(ERROR) << "error processing header for " << blkid.to_str() << " : " << err.get_msg();
   }
   show_new_blkids();
@@ -3440,8 +3438,8 @@ bool TestNode::get_creator_stats(ton::BlockIdExt blkid, int mode, unsigned req_c
   auto& os = *osp;
   return get_creator_stats(
       blkid, mode, req_count, start_after, min_utime,
-      [min_utime, &os](const td::Bits256& key, const block::DiscountedCounter& mc_cnt,
-                       const block::DiscountedCounter& shard_cnt) -> bool {
+      [&os](const td::Bits256& key, const block::DiscountedCounter& mc_cnt,
+            const block::DiscountedCounter& shard_cnt) -> bool {
         os << key.to_hex() << " mc_cnt:" << mc_cnt << " shard_cnt:" << shard_cnt << std::endl;
         return true;
       },
@@ -3546,7 +3544,7 @@ void TestNode::got_creator_stats(ton::BlockIdExt req_blkid, ton::BlockIdExt blki
       status->data_proof = std::move(data_root);
     } else {
       TRY_RESULT_PROMISE_PREFIX(promise, data_proof2,
-                                vm::MerkleProof::combine_fast_status(status->data_proof, std::move(data_root)),
+                                vm::MerkleProof::combine_fast(status->data_proof, std::move(data_root)),
                                 "cannot combine Merkle proofs for creator data");
       status->data_proof = std::move(data_proof2);
     }
@@ -3634,12 +3632,14 @@ void TestNode::continue_check_validator_load(ton::BlockIdExt blkid1, Ref<vm::Cel
           return;
         }
         auto res = R.move_as_ok();
-        root1 = vm::MerkleProof::combine_fast(std::move(root1), std::move(res.first.state_proof));
-        root2 = vm::MerkleProof::combine_fast(std::move(root2), std::move(res.second.state_proof));
-        if (root1.is_null() || root2.is_null()) {
+        auto r_root1 = vm::MerkleProof::combine_fast(std::move(root1), std::move(res.first.state_proof));
+        auto r_root2 = vm::MerkleProof::combine_fast(std::move(root2), std::move(res.second.state_proof));
+        if (r_root1.is_error() || r_root2.is_error()) {
           LOG(ERROR) << "cannot merge block header proof with block state proof";
           return;
         }
+        root1 = r_root1.move_as_ok();
+        root2 = r_root2.move_as_ok();
         auto info1 = std::make_unique<ValidatorLoadInfo>(blkid1, std::move(root1), std::move(res.first.config_proof),
                                                          std::move(res.first.config));
         auto info2 = std::make_unique<ValidatorLoadInfo>(blkid2, std::move(root2), std::move(res.second.config_proof),
@@ -3707,8 +3707,8 @@ bool TestNode::load_creator_stats(std::unique_ptr<TestNode::ValidatorLoadInfo> l
   ton::UnixTime min_utime = info.valid_since - 1000;
   return get_creator_stats(
       info.blk_id, 1000, min_utime,
-      [min_utime, &info](const td::Bits256& key, const block::DiscountedCounter& mc_cnt,
-                         const block::DiscountedCounter& shard_cnt) -> bool {
+      [&info](const td::Bits256& key, const block::DiscountedCounter& mc_cnt,
+              const block::DiscountedCounter& shard_cnt) -> bool {
         info.store_record(key, mc_cnt, shard_cnt);
         return true;
       },
@@ -3721,9 +3721,12 @@ bool TestNode::load_creator_stats(std::unique_ptr<TestNode::ValidatorLoadInfo> l
           return;
         }
         // merge
-        load_to->state_proof =
-            vm::MerkleProof::combine_fast(std::move(load_to->state_proof), std::move(res->state_proof));
-        load_to->data_proof = vm::MerkleProof::combine_fast(std::move(load_to->data_proof), std::move(res->data_proof));
+        TRY_RESULT_PROMISE_ASSIGN(
+            promise, load_to->state_proof,
+            vm::MerkleProof::combine_fast(std::move(load_to->state_proof), std::move(res->state_proof)));
+        TRY_RESULT_PROMISE_ASSIGN(
+            promise, load_to->data_proof,
+            vm::MerkleProof::combine_fast(std::move(load_to->data_proof), std::move(res->data_proof)));
         promise.set_result(std::move(load_to));
       }));
 }
@@ -3808,23 +3811,23 @@ void TestNode::continue_check_validator_load3(std::unique_ptr<TestNode::Validato
   if (mode & 4) {
     ton::BlockSeqno start_seqno = info1->blk_id.seqno();
     ton::BlockSeqno end_seqno = info2->blk_id.seqno();
-    block::ValidatorSet validator_set = *info1->vset;
+    block::TotalValidatorSet validator_set = *info1->vset;
     if (info1->config->get_config_param(28)->get_hash() != info2->config->get_config_param(28)->get_hash()) {
       LOG(ERROR) << "Catchain validator config (28) changed between the first and the last block";
       return;
     }
     auto catchain_config = std::make_unique<block::CatchainValidatorsConfig>(
         block::Config::unpack_catchain_validators_config(info1->config->get_config_param(28)));
-    load_validator_shard_shares(
-        start_seqno, end_seqno, std::move(validator_set), std::move(catchain_config),
-        [=, this, info1 = std::move(info1),
-         info2 = std::move(info2)](td::Result<std::map<td::Bits256, td::uint64>> R) mutable {
-          if (R.is_error()) {
-            LOG(ERROR) << "failed to load validator shard shares: " << R.move_as_error();
-          } else {
-            continue_check_validator_load4(std::move(info1), std::move(info2), mode, file_pfx, R.move_as_ok());
-          }
-        });
+    load_validator_shard_shares(start_seqno, end_seqno, std::move(validator_set), std::move(catchain_config),
+                                [=, this, info1 = std::move(info1),
+                                 info2 = std::move(info2)](td::Result<std::map<td::Bits256, td::uint64>> R) mutable {
+                                  if (R.is_error()) {
+                                    LOG(ERROR) << "failed to load validator shard shares: " << R.move_as_error();
+                                  } else {
+                                    continue_check_validator_load4(std::move(info1), std::move(info2), mode, file_pfx,
+                                                                   R.move_as_ok());
+                                  }
+                                });
   } else {
     continue_check_validator_load4(std::move(info1), std::move(info2), mode, std::move(file_pfx), {});
   }
@@ -3914,7 +3917,7 @@ void TestNode::continue_check_validator_load4(std::unique_ptr<TestNode::Validato
       return;
     }
     mtc_shard_share.resize(count);
-    for (size_t i = 0; i < count; ++i) {
+    for (int i = 0; i < count; ++i) {
       mtc_shard_share[i] = mtc[i];
     }
   }
@@ -3976,7 +3979,7 @@ void TestNode::continue_check_validator_load4(std::unique_ptr<TestNode::Validato
 }
 
 void TestNode::load_validator_shard_shares(ton::BlockSeqno start_seqno, ton::BlockSeqno end_seqno,
-                                           block::ValidatorSet validator_set,
+                                           block::TotalValidatorSet validator_set,
                                            std::unique_ptr<block::CatchainValidatorsConfig> catchain_config,
                                            td::Promise<std::map<td::Bits256, td::uint64>> promise) {
   CHECK(start_seqno <= end_seqno);
@@ -4036,7 +4039,7 @@ void TestNode::load_validator_shard_shares_cont(std::shared_ptr<LoadValidatorSha
         ton::CatchainSeqno cc_seqno = shards1.get_shard_cc_seqno(shard);
         auto val_set =
             block::ConfigInfo::do_compute_validator_set(*state->catchain_config, shard, state->validator_set, cc_seqno);
-        for (const auto &val : val_set) {
+        for (const auto& val : val_set) {
           result[val.key.as_bits256()] += blocks_count;
         }
       };
@@ -4064,7 +4067,7 @@ void TestNode::load_validator_shard_shares_cont(std::shared_ptr<LoadValidatorSha
         }
       }
     }
-  } catch (vm::VmError &e) {
+  } catch (vm::VmError& e) {
     state->promise.set_error(e.as_status("cannot parse shard hashes: "));
     return;
   }
@@ -4079,7 +4082,7 @@ void TestNode::load_block_shard_configuration(ton::BlockSeqno seqno, td::Promise
         auto b = ton::serialize_tl_object(
             ton::create_tl_object<ton::lite_api::liteServer_getAllShardsInfo>(ton::create_tl_lite_block_id(res.blk_id)),
             true);
-        envelope_send_query(std::move(b), [this, promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+        envelope_send_query(std::move(b), [promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
           TRY_RESULT_PROMISE(promise, data, std::move(R));
           TRY_RESULT_PROMISE(promise, f, ton::fetch_tl_object<ton::lite_api::liteServer_allShardsInfo>(data, true));
           TRY_RESULT_PROMISE(promise, root, vm::std_boc_deserialize(f->data_));
@@ -4101,7 +4104,7 @@ bool compute_punishment_default(int interval, bool severe, td::RefInt256& fine, 
   fine = td::make_refint(101 * 1000000000LL);  // 101
   fine_part = 0;
 
-  return true; // todo: (tolya-yanot) temporary reduction of fine
+  return true;  // todo: (tolya-yanot) temporary reduction of fine
 
   if (severe) {
     fine = td::make_refint(2500 * 1000000000LL);  // GR$2500
@@ -4123,41 +4126,49 @@ bool compute_punishment_default(int interval, bool severe, td::RefInt256& fine, 
   return true;
 }
 
-bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned& fine_part, Ref<vm::Cell> punishment_params) {
-  if(punishment_params.is_null()) {
+bool compute_punishment(int interval, bool severe, td::RefInt256& fine, unsigned& fine_part,
+                        Ref<vm::Cell> punishment_params) {
+  if (punishment_params.is_null()) {
     return compute_punishment_default(interval, severe, fine, fine_part);
   }
   block::gen::MisbehaviourPunishmentConfig::Record rec;
   if (!tlb::unpack_cell(punishment_params, rec)) {
-      return false;
+    return false;
   }
 
-  if(interval <= rec.unpunishable_interval) {
-      return false;
+  if (interval <= rec.unpunishable_interval) {
+    return false;
   }
 
   fine = block::tlb::t_Grams.as_integer(rec.default_flat_fine);
   fine_part = rec.default_proportional_fine;
 
   if (severe) {
-    fine = fine * rec.severity_flat_mult; fine >>= 8;
-    fine_part = fine_part * rec.severity_proportional_mult; fine_part >>= 8;
+    fine = fine * rec.severity_flat_mult;
+    fine >>= 8;
+    fine_part = fine_part * rec.severity_proportional_mult;
+    fine_part >>= 8;
   }
 
   if (interval >= rec.long_interval) {
-    fine = fine * rec.long_flat_mult; fine >>= 8;
-    fine_part = fine_part * rec.long_proportional_mult; fine_part >>= 8;
+    fine = fine * rec.long_flat_mult;
+    fine >>= 8;
+    fine_part = fine_part * rec.long_proportional_mult;
+    fine_part >>= 8;
     return true;
   }
   if (interval >= rec.medium_interval) {
-    fine = fine * rec.medium_flat_mult; fine >>= 8;
-    fine_part = fine_part * rec.medium_proportional_mult; fine_part >>= 8;
+    fine = fine * rec.medium_flat_mult;
+    fine >>= 8;
+    fine_part = fine_part * rec.medium_proportional_mult;
+    fine_part >>= 8;
     return true;
   }
   return true;
 }
 
-bool check_punishment(int interval, bool severe, td::RefInt256 fine, unsigned fine_part, Ref<vm::Cell> punishment_params) {
+bool check_punishment(int interval, bool severe, td::RefInt256 fine, unsigned fine_part,
+                      Ref<vm::Cell> punishment_params) {
   td::RefInt256 computed_fine;
   unsigned computed_fine_part;
   return compute_punishment(interval, severe, computed_fine, computed_fine_part, punishment_params) &&
@@ -4193,7 +4204,7 @@ td::Status TestNode::write_val_create_proof(TestNode::ValidatorLoadInfo& info1, 
 
   int severity = (severe ? 2 : 1);
   td::RefInt256 fine = td::make_refint(101000000000);
-  unsigned fine_part = 0; // todo: (tolya-yanot) temporary reduction of fine  // 0xffffffff / 16;  // 1/16
+  unsigned fine_part = 0;  // todo: (tolya-yanot) temporary reduction of fine  // 0xffffffff / 16;  // 1/16
   if (!compute_punishment(interval, severe, fine, fine_part, punishment_params)) {
     return td::Status::Error("cannot compute adequate punishment");
   }
@@ -4236,13 +4247,11 @@ td::Status TestNode::write_val_create_proof(TestNode::ValidatorLoadInfo& info1, 
 }
 
 td::Status TestNode::ValidatorLoadInfo::check_header_proof(ton::UnixTime* save_utime, ton::LogicalTime* save_lt) const {
-  auto state_virt_root = vm::MerkleProof::virtualize(std::move(data_proof), 1);
-  if (state_virt_root.is_null()) {
-    return td::Status::Error("account state proof is invalid");
-  }
+  TRY_RESULT(state_virt_root, vm::MerkleProof::virtualize(std::move(data_proof)));
   td::Bits256 state_hash = state_virt_root->get_hash().bits();
-  TRY_STATUS(block::check_block_header_proof(vm::MerkleProof::virtualize(state_proof, 1), blk_id, &state_hash, true,
-                                             save_utime, save_lt));
+  TRY_RESULT(proof_virt_root, vm::MerkleProof::virtualize(state_proof));
+  TRY_STATUS(
+      block::check_block_header_proof(std::move(proof_virt_root), blk_id, &state_hash, true, save_utime, save_lt));
   return td::Status::OK();
 }
 
@@ -4271,10 +4280,7 @@ static bool visit(Ref<vm::CellSlice> cs_ref) {
 
 td::Result<Ref<vm::Cell>> TestNode::ValidatorLoadInfo::build_proof(int idx, td::Bits256* save_pubkey) const {
   try {
-    auto state_virt_root = vm::MerkleProof::virtualize(std::move(data_proof), 1);
-    if (state_virt_root.is_null()) {
-      return td::Status::Error("account state proof is invalid");
-    }
+    TRY_RESULT(state_virt_root, vm::MerkleProof::virtualize(std::move(data_proof)));
     vm::MerkleProofBuilder pb{std::move(state_virt_root)};
     TRY_RESULT(cfg, block::Config::extract_from_state(pb.root()));
     visit(cfg->get_config_param(28));
@@ -4508,7 +4514,8 @@ td::Status TestNode::continue_check_validator_load_proof(std::unique_ptr<Validat
     if (suggested_fine.is_null()) {
       return td::Status::Error("cannot parse suggested fine");
     }
-    if (!check_punishment(interval, severe, suggested_fine, rec.suggested_fine_part, info2->config->get_config_param(40))) {
+    if (!check_punishment(interval, severe, suggested_fine, rec.suggested_fine_part,
+                          info2->config->get_config_param(40))) {
       LOG(ERROR) << "proposed punishment (fine " << td::dec_string(suggested_fine)
                  << ", fine_part=" << (double)rec.suggested_fine_part / (1LL << 32) << " is too harsh";
       show_vote(root->get_hash().bits(), false);
@@ -4602,10 +4609,7 @@ td::Status TestNode::ValidatorLoadInfo::init_check_proofs() {
     if (lt != end_lt) {
       return td::Status::Error(PSLICE() << "incorrect block logical time: declared " << end_lt << ", actual " << lt);
     }
-    auto vstate = vm::MerkleProof::virtualize(data_proof, 1);
-    if (vstate.is_null()) {
-      return td::Status::Error(PSLICE() << "cannot virtualize state of block " << blk_id.to_str());
-    }
+    TRY_RESULT(vstate, vm::MerkleProof::virtualize(data_proof));
     TRY_RESULT_PREFIX_ASSIGN(config, block::Config::extract_from_state(vstate, 0), "cannot unpack configuration:");
     auto vset_root = config->get_config_param(34);
     if (vset_root.is_null()) {
@@ -4657,7 +4661,8 @@ int main(int argc, char* argv[]) {
     return (verbosity >= 0 && verbosity <= 9) ? td::Status::OK() : td::Status::Error("verbosity must be 0..9");
   });
   p.add_option('V', "version", "shows lite-client build information", [&]() {
-    std::cout << "lite-client build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    std::cout << "lite-client build information: [ Commit: " << GitMetadata::CommitSHA1()
+              << ", Date: " << GitMetadata::CommitDate() << "]\n";
 
     std::exit(0);
   });
