@@ -86,7 +86,7 @@ class BlockSignatureSetBase : public BlockSignatureSet {
 
   virtual td::Result<td::BufferSlice> to_sign(ton::BlockIdExt block_id) const = 0;
   virtual bool check_threshold(ton::ValidatorWeight sig_weight, ton::ValidatorWeight total_weight) const {
-    return sig_weight * 3 > total_weight * 2;
+    return ton::validator_weight_is_supermajority(sig_weight, total_weight);
   }
 
   size_t get_size() const override {
@@ -106,7 +106,9 @@ class BlockSignatureSetBase : public BlockSignatureSet {
       if (!validator) {
         return td::Status::Error(ton::ErrorCode::protoviolation, "unknown node");
       }
-      weight += validator->weight;
+      if (!ton::validator_weight_add(weight, validator->weight)) {
+        return td::Status::Error(ton::ErrorCode::protoviolation, "signature weight overflow");
+      }
     }
     return weight;
   }
@@ -149,7 +151,9 @@ class BlockSignatureSetBase : public BlockSignatureSet {
 
       auto E = ton::PublicKey{ton::pubkeys::Ed25519{validator->key}}.create_encryptor().move_as_ok();
       TRY_STATUS(E->check_signature(data, sig.signature.as_slice()));
-      weight += validator->weight;
+      if (!ton::validator_weight_add(weight, validator->weight)) {
+        return td::Status::Error(ton::ErrorCode::protoviolation, "signature weight overflow");
+      }
     }
 
     if (!check_threshold(weight, vset->get_total_weight())) {
