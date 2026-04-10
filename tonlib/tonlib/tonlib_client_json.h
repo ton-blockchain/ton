@@ -34,6 +34,8 @@ TONLIBJSON_EXPORT const char *tonlib_client_json_receive(void *client, double ti
 
 TONLIBJSON_EXPORT const char *tonlib_client_json_execute(void *client, const char *request);
 
+TONLIBJSON_EXPORT void tonlib_client_json_cancel_requests(void *client);
+
 TONLIBJSON_EXPORT void tonlib_client_json_destroy(void *client);
 
 #ifdef __cplusplus

@@ -1,37 +1,64 @@
-name: Ubuntu TON build (shared, x86-64)
+name: Ubuntu TON build (x86-64)
 
-on: [push,workflow_dispatch,workflow_call]
+on:
+  pull_request:
+    branches: [master, testnet]
+    types: [opened, reopened, synchronize, ready_for_review]
+  push:
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
+        os: [ubuntu-22.04, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v3
-      with:      
+      uses: actions/checkout@v6
+      with:
         submodules: 'recursive'
+
+    - name: Date Stamp
+      shell: bash
+      id: date-stamp
+      run: |
+        echo "timestamp=$(date -u "+%Y%m%d%H%M_%S")" >> "$GITHUB_OUTPUT"
 
     - name: Install system libraries
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev libjemalloc-dev
-
-    - if: matrix.os == 'ubuntu-20.04'
-      run: |
-        sudo apt install -y manpages-dev software-properties-common
-        sudo add-apt-repository ppa:ubuntu-toolchain-r/test
-        sudo apt update && sudo apt install gcc-11 g++-11
+        sudo apt-get install -y build-essential git cmake ninja-build libjemalloc-dev ccache
+        mkdir ~/.ccache
 
     - if: matrix.os != 'ubuntu-24.04'
       run: |
         wget https://apt.llvm.org/llvm.sh
         chmod +x llvm.sh
-        sudo ./llvm.sh 16 all
+        sudo ./llvm.sh 21 clang
+
+    - if: matrix.os == 'ubuntu-24.04'
+      name: Install llvm-21
+      run: |
+        lsb_release -a
+        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+        echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+        sudo apt -y update
+        sudo apt install -y clang-21
+
+    - name: Restore cache TON
+      uses: actions/cache@v4
+      with:
+        path: ~/.ccache
+        key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-shared-ccache-${{ steps.date-stamp.outputs.timestamp }}
+        restore-keys: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-shared-ccache
 
     - name: Build TON
       run: |
@@ -39,10 +66,31 @@ jobs:
         git submodule update
         cp assembly/native/build-ubuntu-shared.sh .
         chmod +x build-ubuntu-shared.sh
-        ./build-ubuntu-shared.sh -t -a
+        ./build-ubuntu-shared.sh -t -c
+        ccache -sp
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@master
-      with:
-        name: ton-binaries-${{ matrix.os }}
-        path: artifacts
+    - name: Run unit tests
+      run: |
+        cd build
+        ctest --output-on-failure --timeout 1800
+
+    - name: Prepare Python environment
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        uv sync --no-dev
+        uv run test/tontester/generate_tl.py
+
+    - name: Run tontester tests
+      run: |
+        uv run pytest
+
+    - name: Run integration tests
+      run: |
+        for script in test/integration/*.py; do
+          echo $script
+          uv run $script
+        done
+
+    - name: Run tonlib integration test
+      run: |
+        ./test/tonlib/integration/test_integration.sh

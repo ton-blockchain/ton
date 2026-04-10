@@ -16,8 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "LibRaptorQ.h"
 #include "RaptorQ/RaptorQ_v1_hdr.hpp"
+
+#include "LibRaptorQ.h"
 
 namespace RaptorQ = RaptorQ__v1;
 

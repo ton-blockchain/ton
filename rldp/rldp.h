@@ -18,22 +18,20 @@
 */
 #pragma once
 
-#include "adnl/adnl.h"
+#include "adnl/adnl-sender-ex.h"
 
 namespace ton {
 
 namespace rldp {
 
-class Rldp : public adnl::AdnlSenderInterface {
+class Rldp : public adnl::AdnlSenderEx {
  public:
-  virtual ~Rldp() = default;
-
-  virtual void add_id(adnl::AdnlNodeIdShort local_id) = 0;
+  Rldp() : AdnlSenderEx(adnl::Adnl::get_mtu()) {
+  }
+  ~Rldp() override = default;
 
   virtual void send_message_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::Timestamp timeout,
                                td::BufferSlice data) = 0;
-
-  virtual void set_default_mtu(td::uint64 mtu) = 0;
 
   static td::actor::ActorOwn<Rldp> create(td::actor::ActorId<adnl::Adnl> adnl);
 };

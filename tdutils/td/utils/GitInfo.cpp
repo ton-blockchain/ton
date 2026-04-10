@@ -16,9 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/GitInfo.h"
-
 #include "auto/git_info.h"
+#include "td/utils/GitInfo.h"
 
 namespace td {
 

@@ -17,8 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "td/actor/actor.h"
 #include "lite-client/ext-client.h"
+#include "td/actor/actor.h"
 
 namespace tonlib {
 class ExtClientOutbound : public liteclient::ExtClient {

@@ -22,14 +22,13 @@ char disable_linker_warning_about_empty_file_kqueue_cpp TD_UNUSED;
 
 #ifdef TD_POLL_KQUEUE
 
-#include "td/utils/logging.h"
-#include "td/utils/Status.h"
-
 #include <cerrno>
-#include <utility>
-
 #include <sys/time.h>
 #include <unistd.h>
+#include <utility>
+
+#include "td/utils/Status.h"
+#include "td/utils/logging.h"
 
 namespace td {
 namespace detail {

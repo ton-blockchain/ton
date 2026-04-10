@@ -24,7 +24,7 @@ using namespace std::literals::string_literals;
 /*
  *
  *   SYMBOL VALUES
- * 
+ *
  */
 
 int glob_func_cnt, undef_func_cnt, glob_var_cnt, const_cnt;
@@ -98,9 +98,9 @@ bool SymValAsmFunc::compile(AsmOpList& dest, std::vector<VarDescr>& out, std::ve
 }
 
 /*
- * 
+ *
  *   DEFINE BUILT-IN FUNCTIONS
- * 
+ *
  */
 
 int emulate_negate(int a) {
@@ -1004,7 +1004,7 @@ AsmOp compile_cond_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args
 
 AsmOp compile_throw_arg(std::vector<VarDescr>& res, std::vector<VarDescr>& args, const SrcLocation&) {
   func_assert(res.empty() && args.size() == 2);
-  VarDescr &x = args[1];
+  VarDescr& x = args[1];
   if (x.is_int_const() && x.int_const->unsigned_fits_bits(11)) {
     x.unused();
     return exec_arg_op("THROWARG", x.int_const, 1, 0);

@@ -18,11 +18,11 @@
 */
 #pragma once
 
-#include "tl_core.h"
-
 #include <cstdint>
 #include <string>
 #include <vector>
+
+#include "tl_core.h"
 
 namespace td {
 namespace tl {

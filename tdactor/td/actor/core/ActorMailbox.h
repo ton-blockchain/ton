@@ -24,6 +24,26 @@
 namespace td {
 namespace actor {
 namespace core {
+
+class ActorMailbox;
+
+namespace gdb {
+
+#ifdef TON_INSERT_GDB_HOOKS
+[[gnu::noinline]] inline auto hook_message_pushed_to_mailbox(ActorMailbox &mailbox, ActorMessage &message,
+                                                             auto &&continuation) {
+  asm volatile("" : : "r"(&message) : "memory");
+  asm volatile("" : : "r"(&mailbox) : "memory");
+  return continuation();
+}
+#else
+inline auto hook_message_pushed_to_mailbox(ActorMailbox &, ActorMessage &, auto &&continuation) {
+  return continuation();
+}
+#endif
+
+}  // namespace gdb
+
 class ActorMailbox {
  public:
   ActorMailbox() = default;
@@ -35,10 +55,10 @@ class ActorMailbox {
     clear();
   }
   void push(ActorMessage message) {
-    queue_.push(std::move(message));
+    gdb::hook_message_pushed_to_mailbox(*this, message, [&] { queue_.push(std::move(message)); });
   }
   void push_unsafe(ActorMessage message) {
-    queue_.push_unsafe(std::move(message));
+    gdb::hook_message_pushed_to_mailbox(*this, message, [&] { queue_.push_unsafe(std::move(message)); });
   }
 
   td::MpscLinkQueue<ActorMessage>::Reader &reader() {

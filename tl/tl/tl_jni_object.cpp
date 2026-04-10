@@ -16,14 +16,14 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "tl_jni_object.h"
+#include <memory>
 
+#include "td/utils/Slice.h"
 #include "td/utils/common.h"
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
-#include "td/utils/Slice.h"
 
-#include <memory>
+#include "tl_jni_object.h"
 
 namespace td {
 namespace jni {
@@ -115,8 +115,9 @@ static size_t get_utf8_from_utf16_length(const jchar *p, jsize len) {
   for (jsize i = 0; i < len; i++) {
     unsigned int cur = p[i];
     if ((cur & 0xF800) == 0xD800) {
+      ++i;
       if (i < len) {
-        unsigned int next = p[++i];
+        unsigned int next = p[i];
         if ((next & 0xFC00) == 0xDC00 && (cur & 0x400) == 0) {
           result += 4;
           continue;

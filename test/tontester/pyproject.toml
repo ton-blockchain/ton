@@ -1,0 +1,13 @@
+[project]
+name = "tontester"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "dash",
+    "plotly",
+    "pytoniq-core",
+    "watchfiles>=1.1.1",
+]
+
+[project.scripts]
+consensus_explorer = "consensus_explorer.explorer:_main"

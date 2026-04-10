@@ -1,15 +1,26 @@
 name: Windows TON build (portable, x86-64)
 
-on: [push,workflow_dispatch,workflow_call]
+on:
+  pull_request:
+    branches: [master, testnet]
+    types: [opened, reopened, synchronize, ready_for_review]
+  push:
+    branches: [master, testnet]
+  workflow_dispatch:
+  workflow_call:
 
 defaults:
   run:
     shell: cmd
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
 
-    runs-on: windows-2019
+    runs-on: windows-2022
 
     steps:
       - name: Get Current OS version
@@ -17,20 +28,38 @@ jobs:
           systeminfo | findstr /B /C:"OS Name" /C:"OS Version"
 
       - name: Check out current repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
         with:
           submodules: 'recursive'
+
+      - name: Create directories
+        run: |
+          mkdir third_libs
+
+      - name: Cache 3pp
+        id: cache-3pp
+        uses: actions/cache@v4
+        with:
+          path: third_libs
+          key: ${{ runner.os }}-${{ runner.arch }}-windows-2022-3pp-${{ hashFiles('**/assembly/native/build-windows-2022.bat') }}
 
       - name: Build TON
         run: |
           git submodule sync --recursive
           git submodule update
-          copy assembly\native\build-windows-github-2019.bat .
-          copy assembly\native\build-windows-2019.bat .
-          build-windows-github-2019.bat Enterprise
+          copy assembly\native\build-windows-github-2022.bat .
+          copy assembly\native\build-windows-2022.bat .
+          build-windows-github-2022.bat Enterprise
+          ccache -sp
+
+#      - name: Run Tests
+#        run: |
+#          cd build
+#          ctest -C Release --output-on-failure -E "test-bigint" --timeout 1800
 
       - name: Upload artifacts
         uses: actions/upload-artifact@master
         with:
-          name: ton-win-binaries
+          name: ton-x86-64-windows
           path: artifacts
+          retention-days: 14

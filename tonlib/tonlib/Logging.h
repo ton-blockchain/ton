@@ -19,10 +19,9 @@
 #pragma once
 
 #include "auto/tl/tonlib_api.h"
-
-#include "td/utils/common.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
+#include "td/utils/common.h"
 
 namespace tonlib {
 namespace tonlib_api = ton::tonlib_api;

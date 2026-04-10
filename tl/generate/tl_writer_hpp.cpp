@@ -16,11 +16,23 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "tl_writer_hpp.h"
-
 #include <cassert>
 
+#include "td/utils/port/platform.h"
+
+#include "tl_writer_hpp.h"
+
 namespace td {
+
+#if TD_MSVC
+[[noreturn]] void unreachable() {
+  __assume(0);
+}
+#else
+[[noreturn]] void unreachable() {
+  __builtin_unreachable();
+}
+#endif
 
 bool TD_TL_writer_hpp::is_documentation_generated() const {
   return true;
@@ -231,6 +243,7 @@ std::string TD_TL_writer_hpp::gen_additional_proxy_function_begin(const std::str
            "switch (obj.get_id()) {";
   }
   assert(false);
+  unreachable();
 }
 
 std::string TD_TL_writer_hpp::gen_additional_proxy_function_case(const std::string &function_name,
@@ -261,6 +274,7 @@ std::string TD_TL_writer_hpp::gen_additional_proxy_function_case(const std::stri
            "      return true;\n";
   }
   assert(false);
+  unreachable();
 }
 
 std::string TD_TL_writer_hpp::gen_additional_proxy_function_end(const std::string &function_name,

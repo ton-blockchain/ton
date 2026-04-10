@@ -17,16 +17,15 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "td/utils/TsFileLog.h"
-
-#include "td/utils/common.h"
-#include "td/utils/FileLog.h"
-#include "td/utils/logging.h"
-#include "td/utils/port/thread_local.h"
-#include "td/utils/Slice.h"
-
 #include <array>
 #include <limits>
+
+#include "td/utils/FileLog.h"
+#include "td/utils/Slice.h"
+#include "td/utils/TsFileLog.h"
+#include "td/utils/common.h"
+#include "td/utils/logging.h"
+#include "td/utils/port/thread_local.h"
 
 namespace td {
 namespace detail {
@@ -63,11 +62,10 @@ class TsFileLog : public LogInterface {
     std::atomic<bool> is_inited{false};
     int id;
   };
-  static constexpr int MAX_THREAD_ID = 128;
-  td::int64 rotate_threshold_;
+  int64 rotate_threshold_;
   bool redirect_stderr_;
   std::string path_;
-  std::array<Info, MAX_THREAD_ID> logs_;
+  std::array<Info, MAX_THREADS> logs_;
 
   LogInterface *get_current_logger() {
     auto *info = get_current_info();

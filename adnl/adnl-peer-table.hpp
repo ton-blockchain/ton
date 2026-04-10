@@ -21,16 +21,16 @@
 #include <map>
 #include <set>
 
+#include "keys/encryptor.h"
+
 #include "adnl-peer-table.h"
 #include "adnl-peer.h"
-#include "keys/encryptor.h"
 //#include "adnl-decryptor.h"
+#include "adnl-address-list.h"
+#include "adnl-ext-server.h"
 #include "adnl-local-id.h"
 #include "adnl-query.h"
 #include "utils.hpp"
-#include "adnl-static-nodes.h"
-#include "adnl-ext-server.h"
-#include "adnl-address-list.h"
 
 namespace ton {
 
@@ -72,6 +72,7 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   void register_network_manager(td::actor::ActorId<AdnlNetworkManager> network_manager) override;
   void get_addr_list(AdnlNodeIdShort id, td::Promise<AdnlAddressList> promise) override;
   void get_self_node(AdnlNodeIdShort id, td::Promise<AdnlNode> promise) override;
+  void get_peer_node(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id, td::Promise<AdnlNode> promise) override;
   void start_up() override;
   void register_channel(AdnlChannelIdShort id, AdnlNodeIdShort local_id,
                         td::actor::ActorId<AdnlChannel> channel) override;
@@ -86,15 +87,12 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   void get_addr_list_from_db(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id,
                              td::Promise<AdnlDbItem> promise) override;
 
-  void add_static_node(AdnlNode node) override {
-    CHECK(!static_nodes_manager_.empty());
-    td::actor::send_closure(static_nodes_manager_, &AdnlStaticNodesManager::add_node, std::move(node));
-  }
-  void del_static_node(AdnlNodeIdShort id) override {
-    td::actor::send_closure(static_nodes_manager_, &AdnlStaticNodesManager::del_node, id);
-  }
-  void get_static_node(AdnlNodeIdShort id, td::Promise<AdnlNode> promise) override {
-    td::actor::send_closure(static_nodes_manager_, &AdnlStaticNodesManager::get_node, id, std::move(promise));
+  td::Result<AdnlNode> get_static_node(AdnlNodeIdShort id) override {
+    auto it = static_nodes_.find(id);
+    if (it == static_nodes_.end()) {
+      return td::Status::Error(ErrorCode::notready, "static node not found");
+    }
+    return it->second;
   }
   void deliver(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data) override;
   void deliver_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data,
@@ -110,26 +108,45 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
 
   void get_stats(bool all, td::Promise<tl_object_ptr<ton_api::adnl_stats>> promise) override;
 
+  void set_peer_pair_idle(AdnlNodeIdShort l_id, AdnlNodeIdShort p_id, bool value) override;
+
   struct PrintId {};
   PrintId print_id() const {
     return PrintId{};
   }
 
+ protected:
+  void add_protected_peers(AdnlNodeIdShort local_id, std::vector<AdnlNodeIdShort> peer_ids) override;
+  void remove_protected_peers(AdnlNodeIdShort local_id, std::vector<AdnlNodeIdShort> peer_ids) override;
+
  private:
+  struct PeerPair {
+    td::actor::ActorOwn<AdnlPeerPair> actor;
+    bool idle = false;
+    td::Timestamp marked_idle_at = td::Timestamp::never();
+  };
+
+  struct PeerInfo {
+    AdnlNodeIdFull peer_id;
+    std::map<AdnlNodeIdShort, PeerPair> peers;
+  };
+
   struct LocalIdInfo {
     td::actor::ActorOwn<AdnlLocalId> local_id;
     td::uint8 cat;
     td::uint32 mode;
+
+    std::set<std::pair<td::Timestamp, AdnlNodeIdShort>> peers_gc_order = {};
+    std::map<AdnlNodeIdShort, size_t> protected_peers = {};
   };
+
   td::actor::ActorId<keyring::Keyring> keyring_;
 
   td::actor::ActorId<AdnlNetworkManager> network_manager_;
   td::actor::ActorId<dht::Dht> dht_node_;
-  td::actor::ActorOwn<AdnlStaticNodesManager> static_nodes_manager_;
+  std::map<AdnlNodeIdShort, AdnlNode> static_nodes_;
 
-  void deliver_one_message(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlMessage message);
-
-  std::map<AdnlNodeIdShort, td::actor::ActorOwn<AdnlPeer>> peers_;
+  std::map<AdnlNodeIdShort, PeerInfo> peers_;
   std::map<AdnlNodeIdShort, LocalIdInfo> local_ids_;
   std::map<AdnlChannelIdShort, std::pair<td::actor::ActorId<AdnlChannel>, td::uint8>> channels_;
 
@@ -138,8 +155,18 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   td::actor::ActorOwn<AdnlExtServer> ext_server_;
 
   AdnlNodeIdShort proxy_addr_;
-  //std::map<td::uint64, td::actor::ActorId<AdnlQuery>> out_queries_;
-  //td::uint64 last_query_id_ = 1;
+
+  void set_peer_pair_idle(AdnlNodeIdShort l_id, AdnlNodeIdShort p_id, PeerPair &peer_pair, bool value);
+  void gc_peer_pairs(AdnlNodeIdShort local_id, LocalIdInfo &local_id_info);
+
+  static void update_id(PeerInfo &peer_info, AdnlNodeIdFull &&peer_id);
+  td::actor::ActorOwn<AdnlPeerPair> &get_peer_pair(AdnlNodeIdShort peer_id, PeerInfo &peer_info,
+                                                   AdnlNodeIdShort local_id, LocalIdInfo &local_id_info);
+  PeerPair *get_peer_pair_if_exists(AdnlNodeIdShort peer_id, AdnlNodeIdShort local_id);
+  static void get_stats_peer(AdnlNodeIdShort peer_id, PeerInfo &peer_info, bool all,
+                             td::Promise<std::vector<tl_object_ptr<ton_api::adnl_stats_peerPair>>> promise);
+
+  static constexpr size_t MAX_IDLE_PEER_PAIRS = 2048;
 };
 
 inline td::StringBuilder &operator<<(td::StringBuilder &sb, const AdnlPeerTableImpl::PrintId &id) {

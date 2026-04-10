@@ -31,8 +31,8 @@
 #define _HAZARD_POINTERS_H_
 
 #include <atomic>
-#include <vector>
 #include <iostream>
+#include <vector>
 
 namespace ConcurrencyFreaks {
 template <typename T>

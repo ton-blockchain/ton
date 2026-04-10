@@ -17,11 +17,10 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "td/fec/online/Rfc.h"
-#include "td/fec/common/SymbolRef.h"
 #include "td/fec/algebra/BeliefPropagationDecoding.h"
-
+#include "td/fec/common/SymbolRef.h"
 #include "td/fec/online/Encoder.h"
+#include "td/fec/online/Rfc.h"
 
 namespace td {
 namespace online_code {

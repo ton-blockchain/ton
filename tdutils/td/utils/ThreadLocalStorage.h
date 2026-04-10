@@ -19,11 +19,11 @@
 
 #pragma once
 
-#include "td/utils/common.h"
-#include "td/utils/port/thread_local.h"
-
 #include <array>
 #include <atomic>
+
+#include "td/utils/common.h"
+#include "td/utils/port/thread_local.h"
 
 namespace td {
 template <class T>
@@ -53,9 +53,8 @@ class ThreadLocalStorage {
     T value{};
     char padding[TD_CONCURRENCY_PAD];
   };
-  static constexpr int32 MAX_THREAD_ID = 128;
-  std::atomic<int32> max_thread_id_{MAX_THREAD_ID};
-  std::array<Node, MAX_THREAD_ID> nodes_;
+  std::atomic<int32> max_thread_id_{MAX_THREADS};
+  std::array<Node, MAX_THREADS> nodes_;
 
   Node &thread_local_node() {
     auto thread_id = get_thread_id();

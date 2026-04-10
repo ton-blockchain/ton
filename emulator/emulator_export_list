@@ -17,6 +17,7 @@ _emulator_config_destroy
 _tvm_emulator_create
 _tvm_emulator_set_libraries
 _tvm_emulator_set_c7
+_tvm_emulator_set_extra_currencies
 _tvm_emulator_set_config_object
 _tvm_emulator_set_prev_blocks_info
 _tvm_emulator_set_gas_limit
@@ -26,4 +27,7 @@ _tvm_emulator_send_external_message
 _tvm_emulator_send_internal_message
 _tvm_emulator_destroy
 _tvm_emulator_emulate_run_method
+_tvm_emulator_emulate_run_method_detailed
+_run_method_detailed_result_destroy
+_string_destroy
 _emulator_version

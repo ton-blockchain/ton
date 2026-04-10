@@ -16,28 +16,26 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/actor/core/ActorLocker.h"
-#include "td/actor/actor.h"
-#include "td/actor/PromiseFuture.h"
-#include "td/actor/ActorStats.h"
-
-#include "td/utils/format.h"
-#include "td/utils/logging.h"
-#include "td/utils/misc.h"
-#include "td/utils/port/thread.h"
-#include "td/utils/port/thread.h"
-#include "td/utils/Random.h"
-#include "td/utils/Slice.h"
-#include "td/utils/StringBuilder.h"
-#include "td/utils/tests.h"
-#include "td/utils/Time.h"
-#include "td/utils/TimedStat.h"
-#include "td/utils/port/sleep.h"
-
 #include <array>
 #include <atomic>
 #include <deque>
 #include <memory>
+
+#include "td/actor/ActorStats.h"
+#include "td/actor/PromiseFuture.h"
+#include "td/actor/actor.h"
+#include "td/actor/core/ActorLocker.h"
+#include "td/utils/Random.h"
+#include "td/utils/Slice.h"
+#include "td/utils/StringBuilder.h"
+#include "td/utils/Time.h"
+#include "td/utils/TimedStat.h"
+#include "td/utils/format.h"
+#include "td/utils/logging.h"
+#include "td/utils/misc.h"
+#include "td/utils/port/sleep.h"
+#include "td/utils/port/thread.h"
+#include "td/utils/tests.h"
 
 TEST(Actor2, signals) {
   using td::actor::core::ActorSignals;
@@ -279,6 +277,9 @@ TEST(Actor2, executor_simple) {
     void add_to_queue(ActorInfoPtr ptr, SchedulerId scheduler_id, bool need_poll) override {
       queue.push_back(std::move(ptr));
     }
+    void add_token_to_cpu_queue(SchedulerToken token, SchedulerId scheduler_id) override {
+      UNREACHABLE();
+    }
     void set_alarm_timestamp(const ActorInfoPtr &actor_info_ptr) override {
       UNREACHABLE();
     }
@@ -326,7 +327,9 @@ TEST(Actor2, executor_simple) {
       LOG_CHECK(sb.as_cslice() == "") << sb.as_cslice();
     }
     CHECK(dispatcher.queue.size() == 1);
-    { ActorExecutor executor(*actor, dispatcher, ActorExecutor::Options().with_from_queue()); }
+    {
+      ActorExecutor executor(*actor, dispatcher, ActorExecutor::Options().with_from_queue());
+    }
     CHECK(dispatcher.queue.size() == 1);
     dispatcher.queue.clear();
     LOG_CHECK(sb.as_cslice() == "bigB") << sb.as_cslice();
@@ -334,7 +337,7 @@ TEST(Actor2, executor_simple) {
     {
       ActorExecutor executor(*actor, dispatcher, ActorExecutor::Options());
       executor.send(
-          ActorMessageCreator::lambda([&] { static_cast<TestActor &>(ActorExecuteContext::get()->actor()).close(); }));
+          ActorMessageCreator::lambda([&] { static_cast<TestActor &>(ActorExecuteContext::get().actor()).close(); }));
     }
     LOG_CHECK(sb.as_cslice() == "TearDown") << sb.as_cslice();
     sb.clear();
@@ -342,7 +345,7 @@ TEST(Actor2, executor_simple) {
     {
       ActorExecutor executor(*actor, dispatcher, ActorExecutor::Options());
       executor.send(
-          ActorMessageCreator::lambda([&] { static_cast<TestActor &>(ActorExecuteContext::get()->actor()).close(); }));
+          ActorMessageCreator::lambda([&] { static_cast<TestActor &>(ActorExecuteContext::get().actor()).close(); }));
     }
     CHECK(dispatcher.queue.empty());
     CHECK(sb.as_cslice() == "");
@@ -361,7 +364,7 @@ TEST(Actor2, executor_simple) {
       sb.clear();
       auto a_msg = ActorMessageCreator::lambda([&] {
         sb << "big pause";
-        ActorExecuteContext::get()->set_pause();
+        ActorExecuteContext::get().set_pause();
       });
       a_msg.set_big();
       executor.send(std::move(a_msg));
@@ -389,7 +392,7 @@ TEST(Actor2, executor_simple) {
     {
       ActorExecutor executor(*actor, dispatcher, ActorExecutor::Options());
       executor.send(
-          ActorMessageCreator::lambda([&] { static_cast<TestActor &>(ActorExecuteContext::get()->actor()).close(); }));
+          ActorMessageCreator::lambda([&] { static_cast<TestActor &>(ActorExecuteContext::get().actor()).close(); }));
     }
     LOG_CHECK(sb.as_cslice() == "TearDown") << sb.as_cslice();
     sb.clear();
@@ -418,14 +421,14 @@ class Master : public Actor {
   uint32 r = 1000;
   core::ActorInfoPtr worker;
   void start_up() override {
-    worker = detail::create_actor<Worker>(ActorOptions().with_name("Master"));
+    worker = detail::create_actor<Worker>(ActorOptions().with_name("Master"), std::make_unique<Worker>());
     loop();
   }
   void loop() override {
     l++;
     if (l == r) {
       if (!--global_cnt) {
-        SchedulerContext::get()->stop();
+        SchedulerContext::get().stop();
       }
       detail::send_closure(*worker, &Worker::close);
       stop();
@@ -451,7 +454,7 @@ TEST(Actor2, scheduler_simple) {
   scheduler.run_in_context([] {
     global_cnt = 1000;
     for (int i = 0; i < global_cnt; i++) {
-      detail::create_actor<Master>(ActorOptions().with_name("Master"));
+      detail::create_actor<Master>(ActorOptions().with_name("Master"), std::make_unique<Master>());
     }
   });
   while (scheduler.run(1000)) {
@@ -477,7 +480,7 @@ TEST(Actor2, actor_id_simple) {
       ~A() {
         sb << "~A";
         if (--global_cnt <= 0) {
-          SchedulerContext::get()->stop();
+          SchedulerContext::get().stop();
         }
       }
 
@@ -518,14 +521,14 @@ TEST(Actor2, actor_creation) {
       }
 
       void check() {
-        auto &context = *SchedulerContext::get();
+        auto &context = SchedulerContext::get();
         CHECK(context.has_poll());
         context.get_poll();
       }
 
       void tear_down() override {
         if (--global_cnt <= 0) {
-          SchedulerContext::get()->stop();
+          SchedulerContext::get().stop();
         }
       }
     };
@@ -537,14 +540,14 @@ TEST(Actor2, actor_creation) {
 
      private:
       void start_up() override {
-        auto &context = *SchedulerContext::get();
+        auto &context = SchedulerContext::get();
         CHECK(!context.has_poll());
         send_closure(a_, &A::f);
         stop();
       }
       void tear_down() override {
         if (--global_cnt <= 0) {
-          SchedulerContext::get()->stop();
+          SchedulerContext::get().stop();
         }
       }
       ActorId<A> a_;
@@ -564,7 +567,7 @@ TEST(Actor2, actor_timeout_simple) {
   sb.clear();
   scheduler.start();
 
-  auto watcher = td::create_shared_destructor([] { SchedulerContext::get()->stop(); });
+  auto watcher = td::create_shared_destructor([] { SchedulerContext::get().stop(); });
   scheduler.run_in_context([watcher = std::move(watcher)] {
     class A : public Actor {
      public:
@@ -609,7 +612,7 @@ TEST(Actor2, actor_timeout_simple2) {
   sb.clear();
   scheduler.start();
 
-  auto watcher = td::create_shared_destructor([] { SchedulerContext::get()->stop(); });
+  auto watcher = td::create_shared_destructor([] { SchedulerContext::get().stop(); });
   scheduler.run_in_context([watcher = std::move(watcher)] {
     class A : public Actor {
      public:
@@ -665,7 +668,7 @@ TEST(Actor2, actor_function_result) {
   sb.clear();
   scheduler.start();
 
-  auto watcher = td::create_shared_destructor([] { SchedulerContext::get()->stop(); });
+  auto watcher = td::create_shared_destructor([] { SchedulerContext::get().stop(); });
   scheduler.run_in_context([watcher = std::move(watcher)] {
     class B : public Actor {
      public:
@@ -673,7 +676,7 @@ TEST(Actor2, actor_function_result) {
         return x * x;
       }
       void query_async(uint32 x, td::Promise<uint32> promise) {
-        promise(x * x);
+        promise.set_value(x * x);
       }
     };
     class A : public Actor {
@@ -694,13 +697,13 @@ TEST(Actor2, actor_function_result) {
           LOG_IF(ERROR, y.is_error()) << y.error();
           send_closure(self, &A::on_result, 3, y.ok());
         });
-        send_closure(b_, &B::query_async, 2, [self = actor_id(this)](uint32 y) {
+        send_closure(b_, &B::query_async, 2, [self = actor_id(this)](td::Result<uint32> y) {
           CHECK(!self.empty());
-          send_closure(self, &A::on_result, 2, y);
+          send_closure(self, &A::on_result, 2, std::move(y));
         });
-        send_closure_later(b_, &B::query_async, 5, [self = actor_id(this)](uint32 y) {
+        send_closure_later(b_, &B::query_async, 5, [self = actor_id(this)](td::Result<uint32> y) {
           CHECK(!self.empty());
-          send_closure(self, &A::on_result, 5, y);
+          send_closure(self, &A::on_result, 5, std::move(y));
         });
         auto future = future_send_closure(b_, &B::query, 7);
         future.finish(td::promise_send_closure(actor_id(this), &A::on_result, 7));
@@ -729,7 +732,7 @@ TEST(Actor2, actor_ping_pong) {
   sb.clear();
   scheduler.start();
 
-  auto watcher = td::create_shared_destructor([] { SchedulerContext::get()->stop(); });
+  auto watcher = td::create_shared_destructor([] { SchedulerContext::get().stop(); });
   td::actor::set_debug(true);
   for (int i = 0; i < 2000; i++) {
     scheduler.run_in_context([watcher] {
@@ -825,7 +828,7 @@ TEST(Actor2, SchedulerZeroCpuThreads) {
   scheduler.run_in_context([] {
     class A : public Actor {
       void start_up() override {
-        SchedulerContext::get()->stop();
+        SchedulerContext::get().stop();
       }
     };
     create_actor<A>(ActorOptions().with_name("A").with_poll(false)).release();
@@ -838,16 +841,16 @@ TEST(Actor2, SchedulerTwo) {
     class B : public Actor {
      public:
       void start_up() override {
-        CHECK(SchedulerContext::get()->get_scheduler_id() == SchedulerId{1});
+        CHECK(SchedulerContext::get().get_scheduler_id() == SchedulerId{1});
       }
       void close() {
-        CHECK(SchedulerContext::get()->get_scheduler_id() == SchedulerId{1});
-        SchedulerContext::get()->stop();
+        CHECK(SchedulerContext::get().get_scheduler_id() == SchedulerId{1});
+        SchedulerContext::get().stop();
       }
     };
     class A : public Actor {
       void start_up() override {
-        CHECK(SchedulerContext::get()->get_scheduler_id() == SchedulerId{0});
+        CHECK(SchedulerContext::get().get_scheduler_id() == SchedulerId{0});
         auto id =
             create_actor<B>(ActorOptions().with_name("B").with_poll(false).on_scheduler(SchedulerId{1})).release();
         send_closure(id, &B::close);
@@ -864,7 +867,7 @@ TEST(Actor2, ActorIdDynamicCast) {
      public:
       void close() {
         CHECK(actor_id().actor_info_ptr() == get_actor_info_ptr());
-        SchedulerContext::get()->stop();
+        SchedulerContext::get().stop();
       }
     };
     auto actor_own_a = create_actor<A>(ActorOptions().with_name("A").with_poll(false));
@@ -898,7 +901,7 @@ TEST(Actor2, send_vs_close) {
   for (int it = 0; it < 100; it++) {
     Scheduler scheduler({8});
 
-    auto watcher = td::create_shared_destructor([] { SchedulerContext::get()->stop(); });
+    auto watcher = td::create_shared_destructor([] { SchedulerContext::get().stop(); });
     scheduler.run_in_context([watcher = std::move(watcher)] {
       class To : public Actor {
        public:
@@ -1032,7 +1035,7 @@ TEST(Actor2, send_vs_close2) {
   for (int it = 0; it < 100; it++) {
     Scheduler scheduler({8});
 
-    auto watcher = td::create_shared_destructor([] { SchedulerContext::get()->stop(); });
+    auto watcher = td::create_shared_destructor([] { SchedulerContext::get().stop(); });
     //std::shared_ptr<td::Destructor> watcher;
     scheduler.run_in_context([watcher = std::move(watcher)] {
       class To : public Actor {
@@ -1112,7 +1115,7 @@ TEST(Actor2, test_stats) {
   Scheduler scheduler({8});
   td::actor::set_debug(true);
 
-  auto watcher = td::create_shared_destructor([] { SchedulerContext::get()->stop(); });
+  auto watcher = td::create_shared_destructor([] { SchedulerContext::get().stop(); });
   scheduler.run_in_context([watcher = std::move(watcher)] {
     class SleepWorker : public Actor {
       void loop() override {
@@ -1142,7 +1145,8 @@ TEST(Actor2, test_stats) {
         td::actor::create_actor<QueueWorker>("queue_worker").release();
       }
       void alarm() override {
-        td::actor::send_closure(stats_, &ActorStats::prepare_stats, td::promise_send_closure(actor_id(this), &Master::on_stats));
+        td::actor::send_closure(stats_, &ActorStats::prepare_stats,
+                                td::promise_send_closure(actor_id(this), &Master::on_stats));
         alarm_timestamp() = td::Timestamp::in(5);
       }
       void on_stats(td::Result<std::string> r_stats) {
@@ -1155,7 +1159,7 @@ TEST(Actor2, test_stats) {
      private:
       std::shared_ptr<td::Destructor> watcher_;
       td::actor::ActorOwn<ActorStats> stats_;
-      int cnt_={2};
+      int cnt_ = {2};
     };
     td::actor::create_actor<Master>("Master", watcher).release();
   });

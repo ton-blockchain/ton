@@ -18,10 +18,10 @@
 */
 #pragma once
 
+#include <map>
+
 #include "dht-remote-node.hpp"
 #include "dht.hpp"
-
-#include <map>
 
 namespace ton {
 

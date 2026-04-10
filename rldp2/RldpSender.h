@@ -42,9 +42,11 @@ inline td::uint32 sub_or_zero(td::uint32 a, td::uint32 b) {
 class RldpSender {
  public:
   struct Config {
-    static constexpr double DEFAULT_MAX_ACK_DELAY = 0.01;
+    // ACK delay: 1ms for fast response
+    static constexpr double DEFAULT_MAX_ACK_DELAY = 0.001;
     static constexpr td::uint32 DEFAULT_PACKET_TRESHOLD = 3;
-    static constexpr double DEFAULT_INITIAL_RTT = 0.5;
+    // Initial RTT: 50ms - used by RldpConnection for initial estimates
+    static constexpr double DEFAULT_INITIAL_RTT = 0.05;
 
     double max_ack_delay{DEFAULT_MAX_ACK_DELAY};
     double ack_delay{DEFAULT_MAX_ACK_DELAY};

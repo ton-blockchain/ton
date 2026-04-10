@@ -18,13 +18,11 @@
 */
 #pragma once
 
+#include "adnl/adnl.h"
 #include "auto/tl/ton_api.h"
+#include "td/actor/actor.h"
 #include "td/utils/buffer.h"
 #include "td/utils/int_types.h"
-
-#include "td/actor/actor.h"
-
-#include "adnl/adnl.h"
 
 #include "overlay-manager.h"
 
@@ -63,7 +61,8 @@ class Overlay : public td::actor::Actor {
                              td::BufferSlice data, td::Promise<td::BufferSlice> promise) = 0;
   virtual void send_message_to_neighbours(td::BufferSlice data) = 0;
   virtual void send_broadcast(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) = 0;
-  virtual void send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) = 0;
+  virtual void send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
+                                  td::BufferSlice extra) = 0;
   virtual void print(td::StringBuilder &sb) = 0;
   virtual void get_overlay_random_peers(td::uint32 max_peers,
                                         td::Promise<std::vector<adnl::AdnlNodeIdShort>> promise) = 0;

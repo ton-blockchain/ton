@@ -16,15 +16,6 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "tl_generate.h"
-
-#include "tl_config.h"
-#include "tl_core.h"
-#include "tl_file_utils.h"
-#include "tl_outputer.h"
-#include "tl_string_outputer.h"
-#include "tl_writer.h"
-
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
@@ -32,6 +23,14 @@
 #include <set>
 #include <string>
 #include <vector>
+
+#include "tl_config.h"
+#include "tl_core.h"
+#include "tl_file_utils.h"
+#include "tl_generate.h"
+#include "tl_outputer.h"
+#include "tl_string_outputer.h"
+#include "tl_writer.h"
 
 namespace td {
 namespace tl {
@@ -415,7 +414,7 @@ void write_class(tl_outputer &out, const tl_type *t, const std::set<std::string>
     out.append(w.gen_class_end());
   }
 
-  int written_constructors = 0;
+  [[maybe_unused]] int written_constructors = 0;
   for (std::size_t i = 0; i < t->constructors_num; i++) {
     if (w.is_combinator_supported(t->constructors[i])) {
       if (optimize_one_constructor) {

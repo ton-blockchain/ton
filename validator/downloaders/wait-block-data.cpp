@@ -16,15 +16,15 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "wait-block-data.hpp"
-
-#include "block-parse.h"
-#include "block-auto.h"
-#include "fabric.h"
 #include "adnl/utils.hpp"
-#include "ton/ton-io.hpp"
 #include "common/delay.h"
+#include "ton/ton-io.hpp"
 #include "vm/cells/MerkleProof.h"
+
+#include "block-auto.h"
+#include "block-parse.h"
+#include "fabric.h"
+#include "wait-block-data.hpp"
 
 namespace ton {
 
@@ -108,15 +108,15 @@ void WaitBlockData::start() {
     td::actor::send_closure(manager_, &ValidatorManager::try_get_static_file, handle_->id().file_hash, std::move(P));
   } else if (try_get_candidate_ && !handle_->id().is_masterchain()) {
     try_get_candidate_ = false;
-    td::actor::send_closure(
-        manager_, &ValidatorManager::get_candidate_data_by_block_id_from_db, handle_->id(),
-        [SelfId = actor_id(this), id = handle_->id()](td::Result<td::BufferSlice> R) {
-          if (R.is_error()) {
-            td::actor::send_closure(SelfId, &WaitBlockData::start);
-          } else {
-            td::actor::send_closure(SelfId, &WaitBlockData::loaded_data, ReceivedBlock{id, R.move_as_ok()});
-          }
-        });
+    td::actor::send_closure(manager_, &ValidatorManager::get_candidate_data_by_block_id_from_db, handle_->id(),
+                            [SelfId = actor_id(this), id = handle_->id()](td::Result<td::BufferSlice> R) {
+                              if (R.is_error()) {
+                                td::actor::send_closure(SelfId, &WaitBlockData::start);
+                              } else {
+                                td::actor::send_closure(SelfId, &WaitBlockData::loaded_data,
+                                                        ReceivedBlock{id, R.move_as_ok()});
+                              }
+                            });
   } else {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<ReceivedBlock> R) {
       if (R.is_error()) {
@@ -187,6 +187,7 @@ void WaitBlockData::loaded_block_data(td::Ref<BlockData> block) {
                             });
     return;
   }
+  // After send_get_block_request, inited_proof() == true for masterchain (see DownloadBlockNew)
   checked_proof_link();
 }
 
@@ -269,9 +270,9 @@ td::Result<td::BufferSlice> WaitBlockData::generate_proof_link(BlockIdExt id, td
         (!info.not_master || tlb::unpack_cell(info.master_ref, mcref)))) {
     return td::Status::Error("cannot unpack block header");
   }
-  vm::CellSlice upd_cs{vm::NoVmSpec(), blk.state_update};
+  vm::CellSlice upd_cs{vm::NoVm(), blk.state_update};
 
-  auto proof = vm::MerkleProof::generate(block_root, usage_tree.get());
+  TRY_RESULT(proof, vm::MerkleProof::generate(block_root, usage_tree.get()));
   vm::CellBuilder cb;
   td::Ref<vm::Cell> bs_cell;
   if (!(cb.store_long_bool(0xc3, 8)               // block_proof#c3

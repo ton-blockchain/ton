@@ -16,9 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/fec/raptorq/Rfc.h"
-
 #include <array>
+
+#include "td/fec/raptorq/Rfc.h"
 
 namespace td {
 namespace raptorq {

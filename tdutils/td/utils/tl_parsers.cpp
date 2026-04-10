@@ -16,13 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/tl_parsers.h"
-
 #include "td/utils/misc.h"
+#include "td/utils/tl_parsers.h"
 
 namespace td {
 
-alignas(4) const unsigned char TlParser::empty_data[sizeof(UInt256)] = {};  // static zero-initialized
+alignas(4) const unsigned char TlParser::empty_data[sizeof(UInt512)] = {};  // static zero-initialized
 
 TlParser::TlParser(Slice slice) {
   data_len = left_len = slice.size();
@@ -33,7 +32,8 @@ TlParser::TlParser(Slice slice) {
     if (data_len <= small_data_array.size() * sizeof(int32)) {
       buf = &small_data_array[0];
     } else {
-      LOG(ERROR) << "Unexpected big unaligned data pointer of length " << slice.size() << " at " << slice.begin();
+      LOG(DEBUG) << "Unexpected big unaligned data pointer of length " << slice.size() << " at "
+                 << (const void *)slice.begin();
       data_buf = std::make_unique<int32[]>(1 + data_len / sizeof(int32));
       buf = data_buf.get();
     }

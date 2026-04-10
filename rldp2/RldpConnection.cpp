@@ -17,20 +17,17 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "RldpConnection.h"
-#include "rldp.hpp"
-
-#include "td/utils/overloaded.h"
-#include "td/utils/Random.h"
-#include "td/utils/tl_helpers.h"
-
-#include "tl-utils/tl-utils.hpp"
 #include "auto/tl/ton_api.h"
 #include "auto/tl/ton_api.hpp"
-
 #include "common/errorcode.h"
-
 #include "td/actor//actor.h"
+#include "td/utils/Random.h"
+#include "td/utils/overloaded.h"
+#include "td/utils/tl_helpers.h"
+#include "tl-utils/tl-utils.hpp"
+
+#include "RldpConnection.h"
+#include "rldp.hpp"
 
 namespace ton {
 namespace rldp2 {
@@ -105,8 +102,9 @@ void RldpConnection::set_receive_limits(TransferId transfer_id, td::Timestamp ti
 RldpConnection::RldpConnection() {
   bdw_stats_.on_update(td::Timestamp::now(), 0);
 
-  rtt_stats_.windowed_min_rtt = 0.5;
-  bdw_stats_.windowed_max_bdw = 10;
+  // Conservative initial estimates - BBR will ramp up based on measurements
+  rtt_stats_.windowed_min_rtt = RldpSender::Config::DEFAULT_INITIAL_RTT;
+  bdw_stats_.windowed_max_bdw = 100;
 }
 
 void RldpConnection::send(TransferId transfer_id, td::BufferSlice data, td::Timestamp timeout) {
@@ -124,6 +122,10 @@ void RldpConnection::send(TransferId transfer_id, td::BufferSlice data, td::Time
     limit.transfer_id = transfer_id;
     limit.max_size = 0;
     limit.is_inbound = false;
+    if (limits_set_.contains(limit)) {
+      VLOG(RLDP_WARNING) << "Dropping outbound transfer: duplicate transfer_id";
+      return;
+    }
     add_limit(timeout, limit);
   }
   outbound_transfers_.emplace(transfer_id, OutboundTransfer{std::move(data)});
@@ -273,12 +275,20 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
 
   auto r_total_size = td::narrow_cast_safe<std::size_t>(part.total_size_);
   if (r_total_size.is_error()) {
+    VLOG(RLDP_INFO) << "Drop bad rldp message: " << r_total_size.move_as_error();
     return;
   }
   auto r_fec_type = ton::fec::FecType::create(std::move(part.fec_type_));
   if (r_fec_type.is_error()) {
+    VLOG(RLDP_INFO) << "Drop bad rldp message: " << r_fec_type.move_as_error();
     return;
   }
+  auto r_seqno = td::narrow_cast_safe<td::uint32>(part.seqno_);
+  if (r_seqno.is_error()) {
+    VLOG(RLDP_INFO) << "Drop bad rldp message: " << r_seqno.move_as_error();
+    return;
+  }
+  td::uint32 seqno = r_seqno.move_as_ok();
 
   auto total_size = r_total_size.move_as_ok();
 
@@ -294,7 +304,7 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
     max_size = limit_it->max_size;
   }
   if (total_size > max_size) {
-    VLOG(RLDP_INFO) << "Drop too big rldp query " << part.total_size_ << " > " << max_size;
+    VLOG(RLDP_INFO) << "Drop too big rldp message: " << part.total_size_ << " > " << max_size;
     return;
   }
 
@@ -317,13 +327,13 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
       }
       return {};
     }
-    if (in_part->receiver.on_received(part.seqno_ + 1, td::Timestamp::now())) {
-      TRY_STATUS_PREFIX(in_part->decoder->add_symbol({static_cast<td::uint32>(part.seqno_), std::move(part.data_)}),
+    if (in_part->receiver.on_received(seqno + 1, td::Timestamp::now())) {
+      TRY_STATUS_PREFIX(in_part->decoder->add_symbol({seqno, std::move(part.data_)}),
                         td::Status::Error(ErrorCode::protoviolation, "invalid symbol"));
       if (in_part->decoder->may_try_decode()) {
         auto r_data = in_part->decoder->try_decode(false);
         if (r_data.is_ok()) {
-          inbound.finish_part(part.part_, r_data.move_as_ok().data);
+          inbound.finish_part(part.part_, std::move(r_data.move_as_ok().data));
         }
       }
     }

@@ -17,10 +17,10 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include <vector>
-#include <string>
 #include <memory>
 #include <ostream>
+#include <string>
+#include <vector>
 
 namespace tlbc {
 

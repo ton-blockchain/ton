@@ -16,11 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "validator-options.hpp"
+#include <ton/ton-tl.hpp>
 
 #include "ton/ton-shard.h"
 
-#include <ton/ton-tl.hpp>
+#include "validator-options.hpp"
 
 namespace ton {
 
@@ -63,21 +63,51 @@ td::Status CollatorsList::unpack(const ton_api::engine_validator_collatorsList& 
 
 CollatorsList CollatorsList::default_list() {
   CollatorsList list;
-  list.shards.push_back(
-      {.shard_id = ShardIdFull{basechainId, shardIdAll}, .select_mode = mode_random, .self_collate = true});
+  list.shards.push_back({
+      .shard_id = ShardIdFull{basechainId, shardIdAll},
+      .select_mode = mode_random,
+      .collators = {},
+      .self_collate = true,
+  });
   list.self_collate = true;
   return list;
 }
 
+td::Status ShardBlockVerifierConfig::unpack(const ton_api::engine_validator_shardBlockVerifierConfig& obj) {
+  shards.clear();
+  for (const auto& shard_obj : obj.shards_) {
+    Shard shard;
+    shard.shard_id = create_shard_id(shard_obj->shard_id_);
+    if (shard.shard_id.is_masterchain() || !shard.shard_id.is_valid_ext()) {
+      return td::Status::Error(PSTRING() << "invalid shard " << shard.shard_id.to_str());
+    }
+    std::set<adnl::AdnlNodeIdShort> trusted_nodes;
+    for (const td::Bits256& id : shard_obj->trusted_nodes_) {
+      adnl::AdnlNodeIdShort node_id{id};
+      if (!trusted_nodes.insert(node_id).second) {
+        return td::Status::Error(PSTRING() << "duplicate node " << node_id);
+      }
+      shard.trusted_nodes.push_back(node_id);
+    }
+    if (shard_obj->required_confirms_ < 0 || shard_obj->required_confirms_ > (int)shard.trusted_nodes.size()) {
+      return td::Status::Error(PSTRING() << "invalid required_confirms " << shard_obj->required_confirms_
+                                         << " for shard " << shard.shard_id.to_str()
+                                         << " (nodes: " << shard.trusted_nodes.size() << ")");
+    }
+    shard.required_confirms = shard_obj->required_confirms_;
+    shards.push_back(std::move(shard));
+  }
+  return td::Status::OK();
+}
+
 td::Ref<ValidatorManagerOptions> ValidatorManagerOptions::create(BlockIdExt zero_block_id, BlockIdExt init_block_id,
-                                                                 std::function<bool(ShardIdFull)> check_shard,
                                                                  bool allow_blockchain_init, double sync_blocks_before,
-                                                                 double block_ttl, double state_ttl,
-                                                                 double max_mempool_num, double archive_ttl,
-                                                                 double key_proof_ttl, bool initial_sync_disabled) {
-  return td::make_ref<ValidatorManagerOptionsImpl>(zero_block_id, init_block_id, std::move(check_shard),
-                                                   allow_blockchain_init, sync_blocks_before, block_ttl, state_ttl,
-                                                   max_mempool_num, archive_ttl, key_proof_ttl, initial_sync_disabled);
+                                                                 double block_ttl, double state_ttl, double archive_ttl,
+                                                                 double key_proof_ttl, size_t max_mempool_num,
+                                                                 bool initial_sync_disabled) {
+  return td::make_ref<ValidatorManagerOptionsImpl>(zero_block_id, init_block_id, allow_blockchain_init,
+                                                   sync_blocks_before, block_ttl, state_ttl, max_mempool_num,
+                                                   archive_ttl, key_proof_ttl, initial_sync_disabled);
 }
 
 }  // namespace validator

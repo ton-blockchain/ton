@@ -24,10 +24,10 @@
     from all source files in the program, then also delete it here.
 */
 #pragma once
-#include "td/actor/actor.h"
-#include "tonlib/tonlib/TonlibClientWrapper.h"
 #include "adnl/adnl.h"
 #include "td/actor/PromiseFuture.h"
+#include "td/actor/actor.h"
+#include "tonlib/tonlib/TonlibClientWrapper.h"
 
 class DNSResolver : public td::actor::Actor {
  public:

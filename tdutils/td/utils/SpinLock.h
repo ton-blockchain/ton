@@ -18,10 +18,10 @@
 */
 #pragma once
 
-#include "td/utils/port/thread.h"
-
 #include <atomic>
 #include <memory>
+
+#include "td/utils/port/thread.h"
 
 namespace td {
 
@@ -63,7 +63,8 @@ class SpinLock {
   }
 
  private:
-  std::atomic_flag flag_ = ATOMIC_FLAG_INIT;
+  std::atomic_flag flag_;
+
   void unlock() {
     flag_.clear(std::memory_order_release);
   }

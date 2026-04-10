@@ -17,10 +17,11 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "srcread.h"
 #include <array>
-#include <memory>
 #include <cstring>
+#include <memory>
+
+#include "srcread.h"
 
 namespace src {
 

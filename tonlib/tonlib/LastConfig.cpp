@@ -16,16 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "tonlib/LastConfig.h"
-
-#include "tonlib/utils.h"
-
-#include "ton/lite-tl.hpp"
+#include "block/block-auto.h"
 #include "block/check-proof.h"
 #include "block/mc-config.h"
-#include "block/block-auto.h"
-
 #include "lite-client/lite-client-common.h"
+#include "ton/lite-tl.hpp"
+#include "tonlib/LastConfig.h"
+#include "tonlib/utils.h"
 
 #include "LastBlock.h"
 
@@ -62,13 +59,16 @@ void LastConfig::with_last_block(td::Result<LastBlockState> r_last_block) {
   }
 
   auto last_block = r_last_block.move_as_ok();
-  client_.send_query(ton::lite_api::liteServer_getConfigAll(block::ConfigInfo::needPrevBlocks,
-                                                            create_tl_lite_block_id(last_block.last_block_id)),
-                     [this](auto r_config) { this->on_config(std::move(r_config)); });
+  auto requested_block_id = last_block.last_block_id;
+  client_.send_query(
+      ton::lite_api::liteServer_getConfigAll(block::ConfigInfo::needPrevBlocks,
+                                             create_tl_lite_block_id(requested_block_id)),
+      [this, requested_block_id](auto r_config) { this->on_config(requested_block_id, std::move(r_config)); });
 }
 
-void LastConfig::on_config(td::Result<ton::ton_api::object_ptr<ton::lite_api::liteServer_configInfo>> r_config) {
-  auto status = process_config(std::move(r_config));
+void LastConfig::on_config(ton::BlockIdExt requested_block_id,
+                           td::Result<ton::ton_api::object_ptr<ton::lite_api::liteServer_configInfo>> r_config) {
+  auto status = process_config(requested_block_id, std::move(r_config));
   if (status.is_ok()) {
     on_ok();
     get_config_state_ = QueryState::Done;
@@ -79,22 +79,30 @@ void LastConfig::on_config(td::Result<ton::ton_api::object_ptr<ton::lite_api::li
 }
 
 td::Status LastConfig::process_config(
+    const ton::BlockIdExt& requested_block_id,
     td::Result<ton::ton_api::object_ptr<ton::lite_api::liteServer_configInfo>> r_config) {
   TRY_RESULT(raw_config, std::move(r_config));
-  TRY_STATUS_PREFIX(TRY_VM(process_config_proof(std::move(raw_config))), TonlibError::ValidateConfig());
+  TRY_STATUS_PREFIX(TRY_VM(process_config_proof(requested_block_id, std::move(raw_config))),
+                    TonlibError::ValidateConfig());
   return td::Status::OK();
 }
 
-td::Status LastConfig::process_config_proof(ton::ton_api::object_ptr<ton::lite_api::liteServer_configInfo> raw_config) {
-  auto blkid = create_block_id(raw_config->id_);
-  if (!blkid.is_masterchain_ext()) {
-    return td::Status::Error(PSLICE() << "reference block " << blkid.to_str()
+td::Status LastConfig::process_config_proof(const ton::BlockIdExt& requested_block_id,
+                                            ton::ton_api::object_ptr<ton::lite_api::liteServer_configInfo> raw_config) {
+  if (!requested_block_id.is_masterchain_ext()) {
+    return td::Status::Error(PSLICE() << "reference block " << requested_block_id.to_str()
                                       << " for the configuration is not a valid masterchain block");
   }
-  TRY_RESULT(state, block::check_extract_state_proof(blkid, raw_config->state_proof_.as_slice(),
+  auto response_block_id = create_block_id(raw_config->id_);
+  if (response_block_id != requested_block_id) {
+    return td::Status::Error(PSLICE() << "unexpected block in configuration response: expected "
+                                      << requested_block_id.to_str() << ", got " << response_block_id.to_str());
+  }
+  TRY_RESULT(state, block::check_extract_state_proof(requested_block_id, raw_config->state_proof_.as_slice(),
                                                      raw_config->config_proof_.as_slice()));
   TRY_RESULT(config, block::ConfigInfo::extract_config(
-                         std::move(state), block::ConfigInfo::needPrevBlocks | block::ConfigInfo::needCapabilities));
+                         std::move(state), requested_block_id,
+                         block::ConfigInfo::needPrevBlocks | block::ConfigInfo::needCapabilities));
 
   for (auto i : params_) {
     VLOG(last_config) << "ConfigParam(" << i << ") = ";
@@ -104,7 +112,8 @@ td::Status LastConfig::process_config_proof(ton::ton_api::object_ptr<ton::lite_a
     } else {
       std::ostringstream os;
       if (i >= 0) {
-        block::gen::ConfigParam{i}.print_ref(os, value);
+        unsigned cfg_idx = static_cast<unsigned>(i);
+        block::gen::ConfigParam{cfg_idx}.print_ref(os, value);
         os << std::endl;
       }
       vm::load_cell_slice(value).print_rec(os);

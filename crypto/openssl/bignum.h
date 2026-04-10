@@ -18,10 +18,10 @@
 */
 #pragma once
 
-#include <string>
 #include <iostream>
-
 #include <openssl/bn.h>
+#include <string>
+
 #include "td/utils/bits.h"
 #include "td/utils/misc.h"
 
@@ -55,7 +55,7 @@ class BignumBitref {
   int n;
 
  public:
-  BignumBitref(BIGNUM* x, int _n) : ptr(x), n(_n){};
+  BignumBitref(BIGNUM* x, int _n) : ptr(x), n(_n) {};
   operator bool() const {
     return BN_is_bit_set(ptr, n);
   }

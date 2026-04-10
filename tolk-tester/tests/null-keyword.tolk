@@ -1,41 +1,22 @@
-import "@stdlib/lisp-lists"
-
-@method_id(101)
-fun test1() {
-    var numbers: tuple = createEmptyList();
-    numbers = listPrepend(1, numbers);
-    numbers = listPrepend(2, numbers);
-    numbers = listPrepend(3, numbers);
-    numbers = listPrepend(4, numbers);
-    var (h, numbers redef) = listSplit(numbers);
-    h += listGetHead(numbers);
-
-    var t = createEmptyTuple();
-    do {
-        var num = numbers.listNext();
-        t.tuplePush(num);
-    } while (numbers != null);
-
-    return (h, numbers == null, t);
-}
-
 @method_id(102)
-fun test2(x: int) {
+fun test2(x: int?) {
     if (null != x) {
-        var y: int = null;
+        var y: int? = null;
         if (y != null) { return 10; }
-        return y;
+        if (10 < 20) {   // always true at runtime (not at compile-time)
+            return y;
+        }
     }
     try {
-        return x + 10;  // will throw, since not a number
+        return x! + 10;  // will throw, since not a number
     } catch {
         return -1;
     }
     return 100;
 }
 
-fun myIsNull(x: int): int {
-    return x == null ? -1 : x;
+fun myIsNull(x: int?): int {
+    return x == null ? -1 : x!;
 }
 
 @method_id(103)
@@ -43,45 +24,50 @@ fun test3(x: int) {
     return myIsNull(x > 10 ? null : x);
 }
 
-fun getUntypedNull() {
-    var untyped = null;
-    if (true) {
-        return untyped;
-    }
-    return untyped;
-}
-
 @method_id(104)
-fun test4() {
-    var (_, (_, untyped)) = (3, (createEmptyTuple, null));
+fun test4(): null {
+    var (_, (_, untyped: null)) = (3, (createEmptyTuple, null));
     if (true) {
         return untyped;
     }
     return untyped;
-}
-
-@method_id(105)
-fun test5() {
-    var n = getUntypedNull();
-    return !(null == n) ? n.loadInt(32) : 100;
-}
-
-@method_id(106)
-fun test6(x: int) {
-    return x > null;  // this compiles (for now), but fails at runtime
 }
 
 @method_id(107)
 fun test7() {
-    var b = beginCell().storeMaybeRef(null);
-    var s = b.endCell().beginParse();
+    var b = beginCell().storeMaybeRef(null) as builder?;
+    var s = b!.endCell().beginParse();
     var c = s.loadMaybeRef();
-    return (null == c) * 10 + (b != null);
+    return (null == c) as int * 10 + (b != null) as int;
 }
 
+fun test8() {
+    __expect_type(null, "null");
+    __expect_type([[null]], "array<array<null>>");
+    __expect_type(null as tuple?, "tuple?");
+    __expect_type(null as [int]?, "[int]?");
+    __expect_type(((null)) as (int, int)?, "(int, int)?");
+}
+
+struct WrappedUnknown {
+    u: unknown
+}
+
+@method_id(109)
+fun test9() {
+    var w = (
+        { u: 123 } as WrappedUnknown?,
+        { u: null } as WrappedUnknown?,
+        null as WrappedUnknown?,
+    );
+    __expect_type(w, "(WrappedUnknown?, WrappedUnknown?, WrappedUnknown?)");
+    return (w.0 == null, w.1 == null, w.2 == null, w.0!.u == null, w.1!.u == null, null as WrappedUnknown? as unknown)
+}
+
+
 fun main() {
-    // now, the compiler doesn't optimize this at compile-time, fif codegen contains ifs
-    var i: int = null;
+    // the compiler optimizes this at compile-time
+    var i: int? = null;
     if (i == null) {
         return 1;
     }
@@ -89,70 +75,32 @@ fun main() {
 }
 
 /**
-@testcase | 101 |      | 7 -1 [ 3 2 1 ]
 @testcase | 102 | 5    | (null)
 @testcase | 102 | null | -1
 @testcase | 103 | 5    | 5
 @testcase | 103 | 15   | -1
 @testcase | 104 |      | (null)
-@testcase | 105 |      | 100
 @testcase | 107 |      | -11
-@fif_codegen
-"""
-  test1 PROC:<{
-    //
-    PUSHNULL	//  numbers
-    1 PUSHINT	//  numbers _2=1
-    SWAP	//  _2=1 numbers
-    CONS	//  numbers
-    2 PUSHINT	//  numbers _4=2
-    SWAP	//  _4=2 numbers
-    CONS	//  numbers
-    3 PUSHINT	//  numbers _6=3
-    SWAP	//  _6=3 numbers
-    CONS	//  numbers
-    4 PUSHINT	//  numbers _8=4
-    SWAP	//  _8=4 numbers
-    CONS	//  numbers
-    UNCONS	//  h numbers
-    DUP	//  h numbers numbers
-    CAR	//  h numbers _12
-"""
+@testcase | 109 |      | 0 0 -1 0 -1 [ (null) 0 ]
 
 @fif_codegen
 """
-  main PROC:<{
-    //
-    PUSHNULL	//  i
-    ISNULL	//  _2
-    IFJMP:<{	//
-      1 PUSHINT	//  _3=1
-    }>	//
-    10 PUSHINT	//  _4=10
+  main() PROC:<{
+    1 PUSHINT   // '3=1
   }>
 """
 
 @fif_codegen
 """
-  test6 PROC:<{
-    //  x
-    PUSHNULL	//  x _1
-    GREATER	//  _2
-  }>
-"""
-
-@fif_codegen
-"""
-  test7 PROC:<{
+  test7() PROC:<{
     ...
-    LDOPTREF	//  b _20 _19
-    DROP	    //  b c
-    ISNULL	    //  b _13
-    10 MULCONST	//  b _15
-    SWAP	    //  _15 b
-    ISNULL	    //  _15 _16
-    0 EQINT     // _15 _17
-    ADD	        //  _18
+    PLDOPTREF	//  b c
+    ISNULL	    //  b '10
+    10 MULCONST	//  b '12
+    SWAP	    //  '12 b
+    ISNULL	    //  '12 '13
+    NOT         //  '12 '13
+    ADD	        //  '14
   }>
 """
 */

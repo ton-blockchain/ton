@@ -16,14 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "SourceLookup.h"
-
-#include "td/utils/PathView.h"
-#include "td/utils/PathView.h"
-#include "td/utils/port/path.h"
-#include "td/utils/filesystem.h"
-
 #include <fstream>
+
+#include "td/utils/PathView.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/port/path.h"
+
+#include "SourceLookup.h"
 
 namespace fift {
 td::Result<FileLoader::File> OsFileLoader::read_file(td::CSlice filename) {

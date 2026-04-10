@@ -19,20 +19,19 @@
 
 #pragma once
 
+#include <set>
+
+#include "common/bitstring.h"
+#include "td/utils/Heap.h"
+#include "td/utils/VectorQueue.h"
+#include "td/utils/buffer.h"
+
 #include "Bbr.h"
 #include "InboundTransfer.h"
 #include "LossStats.h"
 #include "OutboundTransfer.h"
 #include "Pacer.h"
 #include "RttStats.h"
-
-#include "common/bitstring.h"
-
-#include "td/utils/buffer.h"
-#include "td/utils/Heap.h"
-#include "td/utils/VectorQueue.h"
-
-#include <set>
 
 namespace ton {
 namespace rldp2 {
@@ -65,8 +64,10 @@ class RldpConnection {
     return default_mtu_;
   }
 
+  static constexpr td::uint64 DEFAULT_MTU = 7680;
+
  private:
-  td::uint64 default_mtu_ = 7680;
+  td::uint64 default_mtu_ = DEFAULT_MTU;
 
   std::map<TransferId, OutboundTransfer> outbound_transfers_;
   td::uint32 in_flight_count_{0};
@@ -119,7 +120,7 @@ class RldpConnection {
     const RldpSender &sender;
     td::uint32 before_in_flight{sender.get_inflight_symbols_count()};
 
-    Guard(td::uint32 &in_flight_count, const RldpSender &sender) : in_flight_count(in_flight_count), sender(sender){};
+    Guard(td::uint32 &in_flight_count, const RldpSender &sender) : in_flight_count(in_flight_count), sender(sender) {};
     ~Guard() {
       in_flight_count -= before_in_flight;
       in_flight_count += sender.get_inflight_symbols_count();

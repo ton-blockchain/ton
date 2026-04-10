@@ -18,11 +18,11 @@
 */
 
 #pragma once
-#include "Torrent.h"
-
-#include "td/utils/optional.h"
-#include "td/utils/SharedSlice.h"
 #include "td/db/utils/BlobView.h"
+#include "td/utils/SharedSlice.h"
+#include "td/utils/optional.h"
+
+#include "Torrent.h"
 
 namespace ton {
 class Torrent::Creator {

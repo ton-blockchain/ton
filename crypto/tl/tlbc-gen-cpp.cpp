@@ -16,16 +16,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "tlbc-gen-cpp.h"
 #include "td/utils/bits.h"
 #include "td/utils/filesystem.h"
+
+#include "tlbc-gen-cpp.h"
 
 namespace tlbc {
 
 /*
- * 
+ *
  *   C++ CODE GENERATION
- * 
+ *
  */
 
 CppIdentSet global_cpp_ids;
@@ -217,7 +218,7 @@ unsigned long long CppTypeCode::compute_selector_mask() const {
 
 struct HexConstWriter {
   unsigned long long mask;
-  explicit HexConstWriter(unsigned long long _mask) : mask(_mask){};
+  explicit HexConstWriter(unsigned long long _mask) : mask(_mask) {};
   void write(std::ostream& os) const;
 };
 
@@ -242,12 +243,12 @@ cpp_val_type detect_cpp_type(const TypeExpr* expr) {
     return ct_cell;
   }
   if (expr->is_nat) {
-    return ct_int32;
+    return ct_uint32;
   }
   MinMaxSize sz = expr->compute_size();
   int l = sz.fixed_bit_size();
   if (expr->is_nat_subtype) {
-    return l == 1 ? ct_bool : ct_int32;
+    return l == 1 ? ct_bool : ct_uint32;
   }
   if (expr->tp == TypeExpr::te_CondType) {
     cpp_val_type subtype = detect_cpp_type(expr->args.at(1));
@@ -255,7 +256,8 @@ cpp_val_type detect_cpp_type(const TypeExpr* expr) {
         subtype == ct_enum) {
       return subtype;
     }
-    if ((subtype == ct_int32 || subtype == ct_int64) && expr->args[1]->is_integer() > 0) {
+    if ((subtype == ct_int32 || subtype == ct_uint32 || subtype == ct_int64 || subtype == ct_uint64) &&
+        expr->args[1]->is_integer() > 0) {
       return subtype;
     }
     return ct_slice;
@@ -488,7 +490,7 @@ void CppTypeCode::assign_record_cons_names() {
         record.cpp_fields.emplace_back(field, field_name, detect_field_cpp_type(field), sz.fixed_bit_size(), j, subrec);
       } else if (field.used && (add_type_members || field.type->is_nat_subtype)) {
         std::string field_name = rec_cpp_ids.new_ident(field.get_name());
-        record.cpp_fields.emplace_back(field, field_name, field.type->is_nat_subtype ? ct_int32 : ct_typeptr, -1, j,
+        record.cpp_fields.emplace_back(field, field_name, field.type->is_nat_subtype ? ct_uint32 : ct_typeptr, -1, j,
                                        nullptr, true);
       }
     }
@@ -562,10 +564,10 @@ void CppTypeCode::assign_class_field_names() {
         ++cn;
       }
       if (!neg) {
-        template_args += "int ";
-        constructor_args += "int ";
+        template_args += "unsigned ";
+        constructor_args += "unsigned ";
       } else {
-        skip_extra_args += ", int& ";
+        skip_extra_args += ", unsigned& ";
         skip_extra_args_pass += ", ";
       }
     } else {
@@ -922,7 +924,7 @@ void CppTypeCode::generate_get_tag_param1(std::ostream& os, std::string nl, cons
       match_param_pattern(os, nl, A, 8, "# > 1 && (# & 1)", param_names[0])) {
     return;
   }
-  os << nl << "// static inline size_t nat_abs(int x) { return (x > 1) * 2 + (x & 1); }";
+  os << nl << "// static inline size_t nat_abs(unsigned x) { return (x > 1) * 2 + (x & 1); }";
   os << nl << "static signed char ctab[4] = { ";
   for (int i = 0; i < 4; i++) {
     if (i > 0) {
@@ -941,7 +943,7 @@ void CppTypeCode::generate_get_tag_param2(std::ostream& os, std::string nl, cons
       os << ' ' << (int)A[i][j];
     }
   }
-  os << nl << "// static inline size_t nat_abs(int x) { return (x > 1) * 2 + (x & 1); }";
+  os << nl << "// static inline size_t nat_abs(unsigned x) { return (x > 1) * 2 + (x & 1); }";
   os << nl << "static signed char ctab[4][4] = { ";
   for (int i = 0; i < 16; i++) {
     if (i > 0) {
@@ -964,7 +966,7 @@ void CppTypeCode::generate_get_tag_param3(std::ostream& os, std::string nl, cons
       }
     }
   }
-  os << nl << "// static inline size_t nat_abs(int x) { return (x > 1) * 2 + (x & 1); }";
+  os << nl << "// static inline size_t nat_abs(unsigned x) { return (x > 1) * 2 + (x & 1); }";
   os << nl << "static signed char ctab[4][4][4] = { ";
   for (int i = 0; i < 64; i++) {
     if (i > 0) {
@@ -1047,7 +1049,7 @@ bool CppTypeCode::generate_get_tag_pfx_distinguisher(std::ostream& os, std::stri
   }
   int d = trie->compute_useful_depth();
   bool is_pfx_determ = !trie->find_conflict_path();
-  assert(is_pfx_determ);
+  CHECK(is_pfx_determ);
   if (!in_block) {
     os << " {";
   }
@@ -1197,7 +1199,7 @@ void CppTypeCode::generate_type_fields(std::ostream& os, int options) {
       if (st >= 0) {
         os << ";\n";
       }
-      os << (nst ? "  int " : "  const TLB ");
+      os << (nst ? "  unsigned " : "  const TLB ");
       st = nst;
     } else {
       os << ", ";
@@ -1229,7 +1231,7 @@ void CppTypeCode::generate_type_constructor(std::ostream& os, int options) {
     if (j++ > 0) {
       os << ", ";
     }
-    os << (type_param_is_nat[i] ? "int " : "const TLB& ");
+    os << (type_param_is_nat[i] ? "unsigned " : "const TLB& ");
     os << constr_arg_name(type_param_name[i]);
   }
   os << ")";
@@ -1662,7 +1664,7 @@ void CppTypeCode::add_compute_actions(const TypeExpr* expr, int i, std::string b
       i = expr->value;
       assert(!field_vars.at(i).empty());
       if (!field_var_set.at(i)) {
-        actions += Action{std::string{"("} + field_vars.at(i) + " = " + bind_to + ") >= 0"};
+        actions += Action{std::string{"(("} + field_vars.at(i) + " = " + bind_to + "), true)"};
         field_var_set[i] = true;
       } else {
         actions += Action{field_vars.at(i) + " == " + bind_to};
@@ -1777,7 +1779,7 @@ void CppTypeCode::add_remaining_param_constraints_check(const Constructor& const
       } else if (options & 2) {
         ss << "(" << type_param_name.at(j) << " = ";
         output_cpp_expr(ss, pexpr);
-        ss << ") >= 0";
+        ss << ", true)";
         actions += Action{std::move(ss), true};
       }
     }
@@ -1793,7 +1795,7 @@ void CppTypeCode::output_actions(std::ostream& os, std::string nl, int options) 
       os << " {";
     }
     if (tmp_vars.size()) {
-      os << nl << "int";
+      os << nl << "unsigned";
       int c = 0;
       for (auto t : tmp_vars) {
         if (c++) {
@@ -1840,7 +1842,7 @@ void CppTypeCode::compute_implicit_field(const Constructor& constr, const Field&
       if (!field_var_set.at(i) && pexpr->tp == TypeExpr::te_Param && pexpr->value == i) {
         std::ostringstream ss;
         if (field.type->is_nat_subtype) {
-          ss << "(" << field_vars[i] << " = " << type_param_name.at(j) << ") >= 0";
+          ss << "((" << field_vars[i] << " = " << type_param_name.at(j) << "), true)";
         } else {
           ss << "(" << field_vars[i] << " = &" << type_param_name.at(j) << ")";
         }
@@ -2074,7 +2076,7 @@ void CppTypeCode::generate_skip_field(const Constructor& constr, const Field& fi
     output_cpp_expr(ss, expr, 100);
     ss << '.';
   }
-  ss << "validate_skip_ref(ops, cs, weak)" << tail;
+  ss << "validate_skip_ref(ops, cs, " << (constr.is_special ? "true" : "weak") << ")" << tail;
   actions += Action{ss.str()};
 }
 
@@ -2171,7 +2173,7 @@ bool CppTypeCode::output_print_simple_field(std::ostream& os, const Field& field
   switch (cvt) {
     case ct_bitstring:
     case ct_bits:
-      assert(!(sz.max_size() & 0xff));
+      CHECK(!(sz.max_size() & 0xff));
       os << "pp.fetch_bits_field(cs, ";
       output_cpp_sizeof_expr(os, expr, 0);
       if (!field_name.empty()) {
@@ -2184,7 +2186,7 @@ bool CppTypeCode::output_print_simple_field(std::ostream& os, const Field& field
     case ct_uint32:
     case ct_int64:
     case ct_uint64:
-      assert(i && l <= 64);
+      CHECK(i && l <= 64);
       os << "pp.fetch_" << (i > 0 ? "u" : "") << "int_field(cs, ";
       output_cpp_sizeof_expr(os, expr, 0);
       if (!field_name.empty()) {
@@ -2193,7 +2195,7 @@ bool CppTypeCode::output_print_simple_field(std::ostream& os, const Field& field
       os << ")";
       return true;
     case ct_integer:
-      assert(i);
+      CHECK(i);
       os << "pp.fetch_" << (i > 0 ? "u" : "") << "int256_field(cs, ";
       output_cpp_sizeof_expr(os, expr, 0);
       if (!field_name.empty()) {
@@ -2219,7 +2221,7 @@ void CppTypeCode::generate_print_field(const Constructor& constr, const Field& f
     // an explicit field of type # or ##
     assert(expr->is_nat_subtype && "cannot use fields of non-`#` type");
     std::ostringstream ss;
-    ss << "pp.field_int(" << add_fetch_nat_field(constr, field, options);
+    ss << "pp.field_uint(" << add_fetch_nat_field(constr, field, options);
     if (field.name) {
       ss << ", \"" << field_name << '"';
     }
@@ -2439,7 +2441,7 @@ void CppTypeCode::generate_unpack_field(const CppTypeCode::ConsField& fi, const 
   // std::cerr << "field `" << field.get_name() << "` size is " << sz << "; fixed=" << sz.is_fixed() << "; any=" << any_bits << std::endl;
   if (field.used || expr->is_nat_subtype) {
     assert(expr->is_nat_subtype && "cannot use fields of non-`#` type");
-    assert(cvt == ct_int32 || cvt == ct_bool);
+    assert(cvt == ct_uint32 || cvt == ct_bool);
     add_fetch_nat_field(constr, field, options);
     return;
   }
@@ -2556,8 +2558,8 @@ void CppTypeCode::generate_unpack_method(std::ostream& os, CppTypeCode::ConsReco
   if (options & 16) {
     // cell unpack version
     os << "\n  if (cell_ref.is_null()) { return false; }"
-       << "\n  auto cs = load_cell_slice(std::move(cell_ref));"
-       << "\n  return " << (options & 1 ? "validate_" : "") << "unpack";
+       << "\n  auto cs = load_cell_slice_quiet(std::move(cell_ref));"
+       << "\n  return cs.is_valid() && " << (options & 1 ? "validate_" : "") << "unpack";
     if (!(options & 8)) {
       os << "(";
       if (options & 1) {
@@ -2674,7 +2676,7 @@ void CppTypeCode::generate_pack_field(const CppTypeCode::ConsField& fi, const Co
   // std::cerr << "field `" << field.get_name() << "` size is " << sz << "; fixed=" << sz.is_fixed() << "; any=" << any_bits << std::endl;
   if (field.used || expr->is_nat_subtype) {
     assert(expr->is_nat_subtype && "cannot use fields of non-`#` type");
-    assert(cvt == ct_int32 || cvt == ct_bool);
+    assert(cvt == ct_uint32 || cvt == ct_bool);
     add_store_nat_field(constr, field, options);
     return;
   }
@@ -2869,7 +2871,6 @@ void CppTypeCode::ConsRecord::declare_record(std::ostream& os, std::string nl, i
   os << nl << "  typedef " << cpp_type.cpp_type_class_name << " type_class;\n";
   CppIdentSet rec_cpp_ids;
   recover_idents(rec_cpp_ids);
-  std::size_t n = cpp_fields.size();
   for (const ConsField& fi : cpp_fields) {
     os << nl << "  ";
     fi.print_type(os);
@@ -2879,40 +2880,6 @@ void CppTypeCode::ConsRecord::declare_record(std::ostream& os, std::string nl, i
     }
     fi.field.type->show(os, &constr);
     os << std::endl;
-  }
-  if (n) {
-    os << nl << "  " << cpp_name << "() = default;\n";
-    std::vector<std::string> ctor_args;
-    os << nl << "  " << cpp_name << "(";
-    int i = 0, j = 0;
-    for (const ConsField& fi : cpp_fields) {
-      if (!fi.implicit) {
-        std::string arg = rec_cpp_ids.new_ident(std::string{"_"} + fi.name);
-        ctor_args.push_back(arg);
-        if (i++) {
-          os << ", ";
-        }
-        fi.print_type(os, true);
-        os << " " << arg;
-      }
-    }
-    os << ") : ";
-    i = 0;
-    for (const ConsField& fi : cpp_fields) {
-      if (i++) {
-        os << ", ";
-      }
-      os << fi.name << "(";
-      if (fi.implicit) {
-        os << (fi.ctype == ct_int32 ? "-1" : "nullptr");
-      } else if (fi.get_cvt().needs_move()) {
-        os << "std::move(" << ctor_args.at(j++) << ")";
-      } else {
-        os << ctor_args.at(j++);
-      }
-      os << ")";
-    }
-    os << " {}\n";
   }
   os << nl << "};\n";
   declared = true;

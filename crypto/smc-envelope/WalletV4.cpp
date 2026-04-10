@@ -14,15 +14,15 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "WalletV4.h"
-#include "GenericAccount.h"
-#include "SmartContractCode.h"
+#include <limits>
 
+#include "td/utils/base64.h"
 #include "vm/boc.h"
 #include "vm/cells/CellString.h"
-#include "td/utils/base64.h"
 
-#include <limits>
+#include "GenericAccount.h"
+#include "SmartContractCode.h"
+#include "WalletV4.h"
 
 namespace ton {
 td::Result<td::Ref<vm::Cell>> WalletV4::make_a_gift_message(const td::Ed25519::PrivateKey& private_key,

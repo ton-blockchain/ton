@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -17,19 +17,20 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "common/refcnt.hpp"
-#include "vm/db/StaticBagOfCellsDb.h"
-#include "vm/dict.h"
-#include "ton/ton-types.h"
-#include "ton/ton-shard.h"
-#include "common/bitstring.h"
-#include "block.h"
-
-#include <vector>
+#include <cstring>
 #include <limits>
 #include <map>
 #include <set>
-#include <cstring>
+#include <vector>
+
+#include "common/bitstring.h"
+#include "common/refcnt.hpp"
+#include "ton/ton-shard.h"
+#include "ton/ton-types.h"
+#include "vm/db/StaticBagOfCellsDb.h"
+#include "vm/dict.h"
+
+#include "block.h"
 
 namespace block {
 using td::Ref;
@@ -55,15 +56,15 @@ struct ValidatorDescr {
   }
 };
 
-struct ValidatorSet {
+struct TotalValidatorSet {
   unsigned utime_since;
   unsigned utime_until;
   int total;
   int main;
   td::uint64 total_weight;
   std::vector<ValidatorDescr> list;
-  ValidatorSet() = default;
-  ValidatorSet(unsigned _since, unsigned _until, int _total, int _main = 0)
+  TotalValidatorSet() = default;
+  TotalValidatorSet(unsigned _since, unsigned _until, int _total, int _main = 0)
       : utime_since(_since), utime_until(_until), total(_total), main(_main > 0 ? _main : _total), total_weight(0) {
   }
   const ValidatorDescr& operator[](unsigned i) const {
@@ -154,6 +155,10 @@ class McShardHashI : public td::CntObject {
   virtual ton::ShardIdFull shard() const = 0;
   virtual bool before_split() const = 0;
   virtual bool before_merge() const = 0;
+};
+
+struct StorageUsed {
+  td::uint64 cells = 0, bits = 0;
 };
 
 struct McShardHash : public McShardHashI {
@@ -336,8 +341,8 @@ struct StoragePrices {
       , mc_cell_price(_mc_cprice) {
   }
   static td::RefInt256 compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing,
-                                            const vm::CellStorageStat& storage_stat, ton::UnixTime last_paid,
-                                            bool is_special, bool is_masterchain);
+                                            const StorageUsed& storage_used, ton::UnixTime last_paid, bool is_special,
+                                            bool is_masterchain);
 };
 
 struct GasLimitsPrices {
@@ -394,9 +399,12 @@ struct SizeLimitsConfig {
   td::uint16 max_vm_data_depth = 512;
   ExtMsgLimits ext_msg_limits;
   td::uint32 max_acc_state_cells = 1 << 16;
-  td::uint32 max_acc_state_bits = (1 << 16) * 1023;
+  td::uint32 max_mc_acc_state_cells = 1 << 11;  // enabled in global version 12
   td::uint32 max_acc_public_libraries = 256;
   td::uint32 defer_out_queue_size_limit = 256;
+  td::uint32 max_msg_extra_currencies = 2;
+  td::uint32 max_acc_fixed_prefix_length = 8;
+  td::uint32 acc_state_cells_for_storage_dict = 26;
 };
 
 struct CatchainValidatorsConfig {
@@ -427,10 +435,12 @@ struct WorkchainInfo : public td::CntObject {
   int min_addr_len, max_addr_len, addr_len_step;
 
   // Default values are used when split_merge_timings is not set in config
-  unsigned split_merge_delay = 100;       // prepare (delay) split/merge for 100 seconds
-  unsigned split_merge_interval = 100;    // split/merge is enabled during 60 second interval
-  unsigned min_split_merge_interval = 30; // split/merge interval must be at least 30 seconds
-  unsigned max_split_merge_delay = 1000;  // end of split/merge interval must be at most 1000 seconds in the future
+  unsigned split_merge_delay = 100;        // prepare (delay) split/merge for 100 seconds
+  unsigned split_merge_interval = 100;     // split/merge is enabled during 60 second interval
+  unsigned min_split_merge_interval = 30;  // split/merge interval must be at least 30 seconds
+  unsigned max_split_merge_delay = 1000;   // end of split/merge interval must be at most 1000 seconds in the future
+
+  td::uint32 persistent_state_split_depth = 0;
 
   bool is_valid() const {
     return workchain != ton::workchainInvalid;
@@ -460,6 +470,7 @@ class ShardConfig {
       : shard_hashes_(std::move(shard_hashes)), mc_shard_hash_(std::move(mc_shard_hash)) {
     init();
   }
+  virtual ~ShardConfig() = default;
   ShardConfig& operator=(ShardConfig&& other) = default;
   bool is_valid() const {
     return valid_;
@@ -563,7 +574,7 @@ class Config {
   td::BitArray<256> config_addr;
   Ref<vm::Cell> config_root;
   std::unique_ptr<vm::Dictionary> config_dict;
-  std::unique_ptr<ValidatorSet> cur_validators_;
+  std::shared_ptr<TotalValidatorSet> cur_validators_;
   std::unique_ptr<vm::Dictionary> workchains_dict_;
   WorkchainSet workchains_;
   int version_{-1};
@@ -627,7 +638,8 @@ class Config {
   bool set_block_id_ext(const ton::BlockIdExt& block_id_ext);
   td::Result<std::vector<ton::StdSmcAddress>> get_special_smartcontracts(bool without_config = false) const;
   bool is_special_smartcontract(const ton::StdSmcAddress& addr) const;
-  static td::Result<std::unique_ptr<ValidatorSet>> unpack_validator_set(Ref<vm::Cell> valset_root);
+  static td::Result<std::shared_ptr<TotalValidatorSet>> unpack_validator_set(Ref<vm::Cell> valset_root,
+                                                                             bool use_cache = false);
   td::Result<std::vector<StoragePrices>> get_storage_prices() const;
   static td::Result<StoragePrices> do_get_one_storage_prices(vm::CellSlice cs);
   td::Result<GasLimitsPrices> get_gas_limits_prices(bool is_masterchain = false) const;
@@ -647,14 +659,15 @@ class Config {
   const WorkchainSet& get_workchain_list() const {
     return workchains_;
   }
-  const ValidatorSet* get_cur_validator_set() const {
-    return cur_validators_.get();
+  const std::shared_ptr<TotalValidatorSet>& get_cur_validator_set() const& {
+    return cur_validators_;
   }
   std::pair<ton::UnixTime, ton::UnixTime> get_validator_set_start_stop(int next = 0) const;
   ton::ValidatorSessionConfig get_consensus_config() const;
+  td::optional<ton::NewConsensusConfig> get_new_consensus_config(ton::WorkchainId wc) const;
   bool foreach_config_param(std::function<bool(int, Ref<vm::Cell>)> scan_func) const;
   Ref<WorkchainInfo> get_workchain_info(ton::WorkchainId workchain_id) const;
-  std::vector<ton::ValidatorDescr> compute_validator_set(ton::ShardIdFull shard, const block::ValidatorSet& vset,
+  std::vector<ton::ValidatorDescr> compute_validator_set(ton::ShardIdFull shard, const block::TotalValidatorSet& vset,
                                                          ton::UnixTime time, ton::CatchainSeqno cc_seqno) const;
   std::vector<ton::ValidatorDescr> compute_validator_set(ton::ShardIdFull shard, ton::UnixTime time,
                                                          ton::CatchainSeqno cc_seqno) const;
@@ -666,7 +679,8 @@ class Config {
   td::Ref<vm::Tuple> get_unpacked_config_tuple(ton::UnixTime now) const;
   PrecompiledContractsConfig get_precompiled_contracts_config() const;
   static std::vector<ton::ValidatorDescr> do_compute_validator_set(const CatchainValidatorsConfig& ccv_conf,
-                                                                   ton::ShardIdFull shard, const ValidatorSet& vset,
+                                                                   ton::ShardIdFull shard,
+                                                                   const TotalValidatorSet& vset,
                                                                    ton::CatchainSeqno cc_seqno);
 
   static td::Result<std::unique_ptr<Config>> unpack_config(Ref<vm::Cell> config_root,
@@ -683,6 +697,8 @@ class Config {
     config_addr.set_zero();
   }
   Config(Ref<vm::Cell> config_root, const td::Bits256& config_addr = td::Bits256::zero(), int _mode = 0);
+  Config(Config&&) = default;
+  virtual ~Config() = default;
   td::Status unpack_wrapped(Ref<vm::CellSlice> config_csr);
   td::Status unpack(Ref<vm::CellSlice> config_csr);
   td::Status unpack_wrapped();
@@ -761,15 +777,14 @@ class ConfigInfo : public Config, public ShardConfig {
   int get_smc_tick_tock(td::ConstBitPtr smc_addr) const;
   std::unique_ptr<vm::AugmentedDictionary> create_accounts_dict() const;
   const vm::AugmentedDictionary& get_accounts_dict() const;
-  std::vector<ton::ValidatorDescr> compute_validator_set_cc(ton::ShardIdFull shard, const block::ValidatorSet& vset,
-                                                            ton::UnixTime time,
+  std::vector<ton::ValidatorDescr> compute_validator_set_cc(ton::ShardIdFull shard,
+                                                            const block::TotalValidatorSet& vset, ton::UnixTime time,
                                                             ton::CatchainSeqno* cc_seqno_delta = nullptr) const;
   std::vector<ton::ValidatorDescr> compute_validator_set_cc(ton::ShardIdFull shard, ton::UnixTime time,
                                                             ton::CatchainSeqno* cc_seqno_delta = nullptr) const;
   td::Result<Ref<vm::Tuple>> get_prev_blocks_info() const;
-  static td::Result<std::unique_ptr<ConfigInfo>> extract_config(std::shared_ptr<vm::StaticBagOfCellsDb> static_boc,
-                                                                int mode = 0);
-  static td::Result<std::unique_ptr<ConfigInfo>> extract_config(Ref<vm::Cell> mc_state_root, int mode = 0);
+  static td::Result<std::unique_ptr<ConfigInfo>> extract_config(Ref<vm::Cell> mc_state_root,
+                                                                ton::BlockIdExt mc_block_id, int mode = 0);
 
  private:
   ConfigInfo(Ref<vm::Cell> mc_state_root, int _mode = 0);

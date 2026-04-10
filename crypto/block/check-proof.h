@@ -18,8 +18,8 @@
 */
 #pragma once
 
-#include "vm/cells.h"
 #include "block/block.h"
+#include "vm/cells.h"
 
 namespace block {
 using td::Ref;
@@ -34,9 +34,6 @@ td::Status check_account_proof(td::Slice proof, ton::BlockIdExt shard_blk, const
                                ton::LogicalTime* save_lt = nullptr);
 td::Result<td::Bits256> check_state_proof(ton::BlockIdExt blkid, td::Slice proof);
 td::Result<Ref<vm::Cell>> check_extract_state_proof(ton::BlockIdExt blkid, td::Slice proof, td::Slice data);
-
-td::Status check_block_signatures(const std::vector<ton::ValidatorDescr>& nodes,
-                                  const std::vector<ton::BlockSignature>& signatures, const ton::BlockIdExt& blkid);
 
 struct AccountState {
   ton::BlockIdExt blk;

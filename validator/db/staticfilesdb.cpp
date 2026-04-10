@@ -16,8 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "staticfilesdb.hpp"
 #include "files-async.hpp"
+#include "staticfilesdb.hpp"
 
 namespace ton {
 

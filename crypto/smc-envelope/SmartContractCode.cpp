@@ -16,12 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "SmartContractCode.h"
-
-#include "vm/boc.h"
 #include <map>
 
 #include "td/utils/base64.h"
+#include "vm/boc.h"
+
+#include "SmartContractCode.h"
 
 namespace ton {
 namespace {
@@ -38,13 +38,13 @@ const auto& get_map() {
     auto with_tvm_code = [&](auto name, td::Slice code_str) {
       map[name] = vm::std_boc_deserialize(td::base64_decode(code_str).move_as_ok()).move_as_ok();
     };
-#include "smartcont/auto/multisig-code.cpp"
-#include "smartcont/auto/wallet-code.cpp"
+#include "smartcont/auto/dns-manual-code.cpp"
 #include "smartcont/auto/highload-wallet-code.cpp"
 #include "smartcont/auto/highload-wallet-v2-code.cpp"
-#include "smartcont/auto/dns-manual-code.cpp"
+#include "smartcont/auto/multisig-code.cpp"
 #include "smartcont/auto/payment-channel-code.cpp"
 #include "smartcont/auto/restricted-wallet3-code.cpp"
+#include "smartcont/auto/wallet-code.cpp"
 
     with_tvm_code("highload-wallet-r1",
                   "te6ccgEBBgEAhgABFP8A9KQT9KDyyAsBAgEgAgMCAUgEBQC88oMI1xgg0x/TH9Mf+CMTu/Jj7UTQ0x/TH9P/"

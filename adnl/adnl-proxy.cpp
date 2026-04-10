@@ -25,24 +25,26 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/actor/actor.h"
-#include "td/utils/buffer.h"
-#include "td/utils/port/IPAddress.h"
-#include "td/net/UdpServer.h"
-#include "td/utils/port/signals.h"
-#include "td/utils/OptionParser.h"
-#include "td/utils/FileLog.h"
-#include "td/utils/port/path.h"
-#include "td/utils/port/user.h"
-#include "td/utils/filesystem.h"
-#include "td/utils/overloaded.h"
+#include <map>
+
+#include "auto/tl/ton_api_json.h"
 #include "common/checksum.h"
 #include "common/errorcode.h"
+#include "td/actor/actor.h"
+#include "td/net/UdpServer.h"
+#include "td/utils/FileLog.h"
+#include "td/utils/OptionParser.h"
+#include "td/utils/buffer.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/overloaded.h"
+#include "td/utils/port/IPAddress.h"
+#include "td/utils/port/path.h"
+#include "td/utils/port/signals.h"
+#include "td/utils/port/user.h"
 #include "tl-utils/tl-utils.hpp"
-#include "auto/tl/ton_api_json.h"
+
 #include "adnl-proxy-types.h"
 #include "adnl-received-mask.h"
-#include <map>
 #include "git.h"
 
 #if TD_DARWIN || TD_LINUX
@@ -158,6 +160,10 @@ void Receiver::receive_from_client(td::IPAddress addr, td::BufferSlice data) {
   }
 
   if ((f.flags & 6) == 6) {
+    if (f.seqno <= 0 || f.adnl_start_time < 0) {
+      LOG(INFO) << "proxy: dropping message from client: invalid start_time/seqno";
+      return;
+    }
     if (received_.packet_is_delivered(f.adnl_start_time, f.seqno)) {
       LOG(INFO) << "proxy: dropping message from client: duplicate packet (or old seqno/start_time)";
       return;
@@ -304,7 +310,8 @@ int main(int argc, char *argv[]) {
     SET_VERBOSITY_LEVEL(v);
   });
   p.add_option('V', "version", "shows adnl-proxy build information", [&]() {
-    std::cout << "adnl-proxy build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    std::cout << "adnl-proxy build information: [ Commit: " << GitMetadata::CommitSHA1()
+              << ", Date: " << GitMetadata::CommitDate() << "]\n";
     std::exit(0);
   });
   p.add_option('h', "help", "prints_help", [&]() {

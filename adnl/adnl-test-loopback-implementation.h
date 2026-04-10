@@ -18,10 +18,10 @@
 */
 #pragma once
 
+#include <set>
+
 #include "adnl/adnl.h"
 #include "td/utils/Random.h"
-
-#include <set>
 
 namespace ton {
 

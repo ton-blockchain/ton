@@ -17,8 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "td/actor/common.h"
 #include "td/actor/ActorId.h"
+#include "td/actor/common.h"
 
 namespace td {
 namespace actor {
@@ -76,9 +76,9 @@ class ActorOwn {
     return &id_;
   }
 
-  detail::ActorRef as_actor_ref() const {
+  detail::ActorTarget as_actor_ref() const {
     CHECK(!empty());
-    return detail::ActorRef(*id_.actor_info_ptr(), 0);
+    return detail::ActorTarget(*id_.actor_info_ptr(), 0);
   }
 
  private:

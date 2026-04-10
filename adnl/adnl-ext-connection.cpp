@@ -78,8 +78,11 @@ td::Status AdnlExtConnection::receive(td::ChainBufferReader &input, bool &exit_l
       td::MutableSlice e{reinterpret_cast<td::uint8 *>(&len_), 4};
       in_ctr_.encrypt(s, e);
       LOG(DEBUG) << "len=" << len_;
-      if (len_ > (1 << 24) || len_ < 32) {
-        return td::Status::Error("Too big packet");
+      // Packet layout after decrypt:
+      //   [32 bytes random prefix] [payload bytes (may be empty)] [32 bytes sha256]
+      // So minimal valid length is 64 bytes (keepalive has empty payload).
+      if (len_ > (1 << 24) || len_ < 64) {
+        return td::Status::Error(ErrorCode::protoviolation, PSTRING() << "bad packet size: size=" << len_);
       }
       read_len_ = true;
     }
@@ -161,6 +164,9 @@ td::Status AdnlExtConnection::init_crypto(td::Slice S) {
 
 td::Status AdnlExtConnection::receive_packet(td::BufferSlice data) {
   LOG(DEBUG) << "received packet of size " << data.size();
+  if (data.size() < 64) {
+    return td::Status::Error(ErrorCode::protoviolation, "too small packet");
+  }
   auto S = data.as_slice();
   S.truncate(data.size() - 32);
   auto D = data.as_slice();

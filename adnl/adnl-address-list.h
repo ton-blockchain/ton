@@ -18,8 +18,9 @@
 */
 #pragma once
 
-#include "adnl-network-manager.h"
 #include "crypto/common/refcnt.hpp"
+
+#include "adnl-network-manager.h"
 
 namespace ton {
 
@@ -39,11 +40,9 @@ class AdnlAddressImpl : public td::CntObject {
   virtual td::actor::ActorOwn<AdnlNetworkConnection> create_connection(
       td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
       std::unique_ptr<AdnlNetworkConnection::Callback> callback) const = 0;
-  virtual bool is_reverse() const {
-    return false;
+  virtual td::Result<td::IPAddress> to_ip_address() const {
+    return td::Status::Error("not an ip");
   }
-
-  static td::Ref<AdnlAddressImpl> create(const tl_object_ptr<ton_api::adnl_Address> &addr);
 };
 
 using AdnlAddress = td::Ref<AdnlAddressImpl>;
@@ -57,6 +56,7 @@ class AdnlAddressList {
   td::int32 priority_;
   td::int32 expire_at_;
   std::vector<AdnlAddress> addrs_;
+  std::vector<td::IPAddress> quic_addrs_;
   bool has_reverse_{false};
 
  public:
@@ -64,8 +64,11 @@ class AdnlAddressList {
     return 128;
   }
 
-  const auto &addrs() const {
+  const auto &adnl_addrs() const {
     return addrs_;
+  }
+  const auto &quic_addrs() const {
+    return quic_addrs_;
   }
   auto version() const {
     return version_;
@@ -91,10 +94,6 @@ class AdnlAddressList {
   bool empty() const {
     return version_ == -1;
   }
-  void add_addr(AdnlAddress addr) {
-    addrs_.push_back(addr);
-  }
-  void update(td::IPAddress addr);
   bool public_only() const;
   td::uint32 size() const {
     return td::narrow_cast<td::uint32>(addrs_.size());
@@ -105,7 +104,8 @@ class AdnlAddressList {
   }
 
   static td::Result<AdnlAddressList> create(const tl_object_ptr<ton_api::adnl_addressList> &addr_list);
-  td::Status add_udp_address(td::IPAddress addr);
+  td::Status add_udp_adnl_address(td::IPAddress addr);
+  td::Status add_quic_addr(td::IPAddress addr);
 
   void set_reverse(bool x = true) {
     has_reverse_ = x;

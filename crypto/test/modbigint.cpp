@@ -14,12 +14,12 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include <assert.h>
-#include <string.h>
 #include <array>
-#include <string>
+#include <assert.h>
 #include <iostream>
 #include <sstream>
+#include <string.h>
+#include <string>
 
 namespace modint {
 
@@ -180,7 +180,7 @@ struct MixedRadix {
 
   template <int M>
   const MixedRadix<M>& as_shorter() const {
-    static_assert(M <= N,"error");
+    static_assert(M <= N, "error");
     return *reinterpret_cast<const MixedRadix<M>*>(this);
   }
 
@@ -458,7 +458,7 @@ struct ModArray {
   }
   template <int M>
   ModArray(const ModArray<M>& other) {
-    static_assert(M >= N,"error");
+    static_assert(M >= N, "error");
     std::copy(other.a, other.a + N, a);
   }
   ModArray(const int* p) : a(p) {
@@ -787,7 +787,7 @@ struct ModArray {
 
   ModArray& operator/=(const ModArray& other) {
     if (!try_divide(other)) {
-      assert(false); // division by zero?
+      assert(false);  // division by zero?
     }
     return *this;
   }
@@ -819,7 +819,7 @@ struct ModArray {
 
   template <int M>
   const ModArray<M>& as_shorter() const {
-    static_assert(M <= N,"error");
+    static_assert(M <= N, "error");
     return *reinterpret_cast<const ModArray<M>*>(this);
   }
 
@@ -962,7 +962,7 @@ std::ostream& operator<<(std::ostream& os, MixedRadix<N>&& x) {
 template <int N>
 struct ArrayRawDumpRef {
   const std::array<int, N>& ref;
-  ArrayRawDumpRef(const std::array<int, N>& _ref) : ref(_ref){};
+  ArrayRawDumpRef(const std::array<int, N>& _ref) : ref(_ref) {};
 };
 
 template <int N>

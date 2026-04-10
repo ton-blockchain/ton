@@ -18,9 +18,9 @@
 */
 #pragma once
 
-#include "td/utils/int_types.h"
 #include "crypto/common/bitstring.h"
 #include "td/utils/crypto.h"
+#include "td/utils/int_types.h"
 
 namespace td {
 

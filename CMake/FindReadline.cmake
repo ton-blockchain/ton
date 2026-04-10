@@ -6,7 +6,12 @@ find_path(READLINE_INCLUDE_DIR readline/readline.h)
 if (APPLE)
   find_library(READLINE_LIBRARY readline /usr/local/opt/readline/lib /opt/local/lib /opt/lib /usr/local/lib /usr/lib NO_DEFAULT_PATH)
 endif()
-find_library(READLINE_LIBRARY readline)
+if (MINGW)
+  # Force static library for MinGW
+  find_library(READLINE_LIBRARY libreadline.a NAMES readline)
+else()
+  find_library(READLINE_LIBRARY readline)
+endif()
 
 if (READLINE_INCLUDE_DIR AND READLINE_LIBRARY AND NOT GNU_READLINE_FOUND)
   set(CMAKE_REQUIRED_INCLUDES "${READLINE_INCLUDE_DIR}")

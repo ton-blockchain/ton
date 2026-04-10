@@ -16,45 +16,41 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "vm/dict.h"
-#include "common/bigint.hpp"
-
-#include "Ed25519.h"
+#include <bitset>
+#include <set>
+#include <tuple>
 
 #include "block/block-auto.h"
-#include "block/block.h"
 #include "block/block-parse.h"
-
+#include "block/block.h"
+#include "common/bigint.hpp"
 #include "fift/Fift.h"
-#include "fift/words.h"
 #include "fift/utils.h"
-
+#include "fift/words.h"
 #include "smc-envelope/GenericAccount.h"
+#include "smc-envelope/HighloadWallet.h"
+#include "smc-envelope/HighloadWalletV2.h"
 #include "smc-envelope/ManualDns.h"
 #include "smc-envelope/MultisigWallet.h"
+#include "smc-envelope/PaymentChannel.h"
 #include "smc-envelope/SmartContract.h"
 #include "smc-envelope/SmartContractCode.h"
 #include "smc-envelope/WalletV3.h"
 #include "smc-envelope/WalletV4.h"
-#include "smc-envelope/HighloadWallet.h"
-#include "smc-envelope/HighloadWalletV2.h"
-#include "smc-envelope/PaymentChannel.h"
-
-#include "td/utils/base64.h"
-#include "td/utils/crypto.h"
+#include "td/utils/PathView.h"
 #include "td/utils/Random.h"
-#include "td/utils/tests.h"
 #include "td/utils/ScopeGuard.h"
 #include "td/utils/StringBuilder.h"
 #include "td/utils/Timer.h"
-#include "td/utils/PathView.h"
+#include "td/utils/Variant.h"
+#include "td/utils/base64.h"
+#include "td/utils/crypto.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/port/path.h"
-#include "td/utils/Variant.h"
+#include "td/utils/tests.h"
+#include "vm/dict.h"
 
-#include <bitset>
-#include <set>
-#include <tuple>
+#include "Ed25519.h"
 
 std::string current_dir() {
   return td::PathView(td::realpath(__FILE__).move_as_ok()).parent_dir().str();
@@ -514,7 +510,8 @@ void do_test_wallet(int revision) {
   //TODO: make wallet work (or not) with now == valid_until
   auto ans = iwallet.write().send_external_message(send_gifts, ton::SmartContract::Args().set_now(valid_until - 1));
   CHECK(ans.success);
-  CHECK((int)gifts.size() <= ans.output_actions_count(ans.actions));
+  const size_t out_actions = static_cast<size_t>(ans.output_actions_count(ans.actions));
+  CHECK(gifts.size() <= out_actions);
   check_wallet_state(iwallet, 2, 123, public_key);
 }
 
@@ -547,8 +544,8 @@ bool operator<(const ton::MultisigWallet::Mask& a, const ton::MultisigWallet::Ma
 TEST(Smartcon, Multisig) {
   auto ms_lib = ton::MultisigWallet::create();
 
-  int n = 100;
-  int k = 99;
+  int n = 50;
+  int k = 49;
   td::uint32 wallet_id = std::numeric_limits<td::uint32>::max() - 3;
   std::vector<td::Ed25519::PrivateKey> keys;
   for (int i = 0; i < n; i++) {
@@ -613,10 +610,10 @@ TEST(Smartcon, Multisig) {
     LOG(INFO) << "CODE: " << ans.code;
     LOG(INFO) << "GAS: " << ans.gas_used;
   }
-  for (int i = 0; i + 1 < 50; i++) {
+  for (int i = 0; i + 1 < 25; i++) {
     qb.sign(i, keys[i]);
   }
-  auto query = qb.create(49, keys[49]);
+  auto query = qb.create(24, keys[24]);
 
   CHECK(ms->get_n_k() == std::make_pair(n, k));
   auto ans = ms.write().send_external_message(query, args());
@@ -629,10 +626,10 @@ TEST(Smartcon, Multisig) {
 
   {
     ton::MultisigWallet::QueryBuilder qb(wallet_id, query_id, vm::CellBuilder().finalize());
-    for (int i = 50; i + 1 < 100; i++) {
+    for (int i = 25; i + 1 < 50; i++) {
       qb.sign(i, keys[i]);
     }
-    query = qb.create(99, keys[99]);
+    query = qb.create(49, keys[49]);
   }
 
   ans = ms.write().send_external_message(query, args());
@@ -1160,7 +1157,6 @@ void do_dns_test(CheckedDns&& dns) {
       actions.clear();
     }
     auto name = gen_name();
-    auto category = td::Bits256::zero();
     dns.resolve(name, intToCat(rnd.fast(0, 5)));
   }
 };

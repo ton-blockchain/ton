@@ -19,10 +19,10 @@
 
 #pragma once
 
+#include "td/utils/optional.h"
+
 #include "TorrentHeader.h"
 #include "TorrentInfo.h"
-
-#include "td/utils/optional.h"
 
 namespace ton {
 //

@@ -13,9 +13,9 @@ dup csr. constant mkdict(16,16).code
 { explode_dict(16,16).code runvmcode abort"cannot explode 16->16 dictionary" } : xdict(16,16)
 { xdict(16,16) ."{ " { swap . ."-> " . ."; " } swap times ."}" cr } : .dict(16,16)
 { xdict(16,16) { dup 0< not { ."+" } if ._ 64 + emit } swap times space } : .v
-169 13 
+169 13
 239 dup dup * swap
-289 17 
+289 17
 3
 mkdict(16,16) constant dict
 

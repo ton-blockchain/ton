@@ -17,7 +17,6 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/StackAllocator.h"
-
 #include "td/utils/port/thread_local.h"
 
 namespace td {

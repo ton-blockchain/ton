@@ -27,11 +27,15 @@
 
 #if __GNUC__
 #define GNU_ATTRIBUTE_COLD [[gnu::cold]]
+#define GNU_ATTRIBUTE_FLATTEN [[gnu::flatten]]
 #define GNU_ATTRIBUTE_NORETURN [[gnu::noreturn]]
+#define GNU_ATTRIBUTE_NOINLINE [[gnu::noinline]]
 #define GNU_ATTRIBUTE_ALWAYS_INLINE [[gnu::always_inline]]
 #else
 #define GNU_ATTRIBUTE_COLD
+#define GNU_ATTRIBUTE_FLATTEN
 #define GNU_ATTRIBUTE_NORETURN [[noreturn]]
+#define GNU_ATTRIBUTE_NOINLINE [[noinline]]
 #define GNU_ATTRIBUTE_ALWAYS_INLINE
 #endif
 

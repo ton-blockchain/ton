@@ -21,10 +21,10 @@
 namespace td {
 namespace raptorq {
 void RawEncoder::gen_symbol(uint32 id, MutableSlice to) const {
-  CHECK(to.size() == symbol_size());
+  CHECK(to.size() <= symbol_size());
   d_.set_zero();
   p_.encoding_row_for_each(p_.get_encoding_row(id), [&](auto row) { d_.row_add(0, C_.row(row)); });
-  to.copy_from(d_.row(0).truncate(symbol_size()));
+  to.copy_from(d_.row(0).truncate(to.size()));
 }
 }  // namespace raptorq
 }  // namespace td

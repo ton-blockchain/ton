@@ -18,9 +18,9 @@
 */
 #pragma once
 
-#include "td/utils/StringBuilder.h"
-
 #include <atomic>
+
+#include "td/utils/StringBuilder.h"
 
 namespace td {
 

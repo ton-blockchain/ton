@@ -18,10 +18,10 @@
 */
 #include <set>
 
+#include "auto/tl/ton_api.hpp"
+
 #include "catchain-received-block.hpp"
 #include "catchain-receiver-source.h"
-
-#include "auto/tl/ton_api.hpp"
 
 namespace ton {
 
@@ -52,7 +52,7 @@ void CatChainReceivedBlockImpl::initialize(tl_object_ptr<ton_api::catchain_block
     return;
   }
   for (CatChainReceivedBlockImpl *X : block_deps_) {
-    if (X->is_ill()) {
+    if (X->is_ill() || X->get_height() == 0) {
       set_ill();
       return;
     }

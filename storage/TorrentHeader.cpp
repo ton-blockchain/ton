@@ -17,9 +17,9 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "TorrentHeader.hpp"
-
 #include "td/utils/tl_helpers.h"
+
+#include "TorrentHeader.hpp"
 
 namespace ton {
 td::CSlice TorrentHeader::get_dir_name() const {

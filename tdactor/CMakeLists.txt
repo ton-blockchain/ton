@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 #SOURCE SETS
 set(TDACTOR_SOURCE
   td/actor/core/ActorExecutor.cpp
@@ -17,6 +15,7 @@ set(TDACTOR_SOURCE
   td/actor/ActorShared.h
   td/actor/ActorStats.h
   td/actor/common.h
+  td/actor/coro.h
   td/actor/PromiseFuture.h
   td/actor/MultiPromise.h
 
@@ -54,8 +53,12 @@ add_library(tdactor STATIC ${TDACTOR_SOURCE})
 target_include_directories(tdactor PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_link_libraries(tdactor PUBLIC tdutils)
 
+add_executable(tdactor-example-coroutines example/actor-example-coroutines.cpp)
+target_link_libraries(tdactor-example-coroutines PUBLIC tdactor tdnet)
+
 # BEGIN-INTERNAL
 add_subdirectory(benchmark)
+add_subdirectory(test)
 
 # END-INTERNAL
 install(TARGETS tdactor EXPORT TdTargets

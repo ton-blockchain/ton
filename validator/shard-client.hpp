@@ -18,8 +18,9 @@
 */
 #pragma once
 
-#include "interfaces/validator-manager.h"
 #include <set>
+
+#include "interfaces/validator-manager.h"
 
 namespace ton {
 
@@ -27,6 +28,11 @@ namespace validator {
 
 class ShardClient : public td::actor::Actor {
  private:
+  struct DownloadableShard {
+    BlockIdExt shard;
+    td::uint32 split_depth;
+  };
+
   td::Ref<ValidatorManagerOptions> opts_;
 
   BlockHandle masterchain_block_handle_;
@@ -64,7 +70,7 @@ class ShardClient : public td::actor::Actor {
 
   void start_up() override;
   void start_up_init_mode();
-  void download_shard_states(BlockIdExt masterchain_block_id, std::vector<BlockIdExt> shards, size_t idx);
+  void download_shard_states(BlockIdExt masterchain_block_id, std::vector<DownloadableShard> shards, size_t idx);
   void start();
   void got_state_from_db(BlockIdExt masterchain_block_id);
   void got_init_handle_from_db(BlockHandle handle);

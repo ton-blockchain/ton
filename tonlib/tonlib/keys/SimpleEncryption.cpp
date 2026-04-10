@@ -16,11 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "SimpleEncryption.h"
-
-#include "td/utils/misc.h"
 #include "td/utils/Random.h"
 #include "td/utils/SharedSlice.h"
+#include "td/utils/misc.h"
+
+#include "SimpleEncryption.h"
 
 namespace tonlib {
 td::AesCbcState SimpleEncryption::calc_aes_cbc_state_hash(td::Slice hash) {

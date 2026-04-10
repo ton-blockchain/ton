@@ -22,13 +22,12 @@ char disable_linker_warning_about_empty_file_bignum_cpp TD_UNUSED;
 
 #if TD_HAVE_OPENSSL
 
-#include "td/utils/logging.h"
-#include "td/utils/misc.h"
-
+#include <algorithm>
 #include <openssl/bn.h>
 #include <openssl/crypto.h>
 
-#include <algorithm>
+#include "td/utils/logging.h"
+#include "td/utils/misc.h"
 
 namespace td {
 
@@ -291,9 +290,12 @@ void BigNum::mod_mul(BigNum &r, BigNum &a, BigNum &b, const BigNum &m, BigNumCon
   LOG_IF(FATAL, result != 1);
 }
 
-void BigNum::mod_inverse(BigNum &r, BigNum &a, const BigNum &m, BigNumContext &context) {
+td::Status BigNum::mod_inverse(BigNum &r, BigNum &a, const BigNum &m, BigNumContext &context) {
   auto result = BN_mod_inverse(r.impl_->big_num, a.impl_->big_num, m.impl_->big_num, context.impl_->big_num_context);
-  LOG_IF(FATAL, result != r.impl_->big_num);
+  if (result != r.impl_->big_num) {
+    return td::Status::Error("Failed to compute modulo inverse");
+  }
+  return td::Status::OK();
 }
 
 void BigNum::div(BigNum *quotient, BigNum *remainder, const BigNum &dividend, const BigNum &divisor,

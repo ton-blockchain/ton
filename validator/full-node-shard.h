@@ -18,9 +18,11 @@
 */
 #pragma once
 
-#include "full-node.h"
-#include "validator/interfaces/block-handle.h"
 #include "adnl/adnl-ext-client.h"
+#include "validator/interfaces/block-handle.h"
+
+#include "full-node.h"
+#include "rate-limiter.h"
 
 namespace ton {
 
@@ -55,8 +57,9 @@ class FullNodeShard : public td::actor::Actor {
                               td::Promise<ReceivedBlock> promise) = 0;
   virtual void download_zero_state(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                    td::Promise<td::BufferSlice> promise) = 0;
-  virtual void download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, td::uint32 priority,
-                                         td::Timestamp timeout, td::Promise<td::BufferSlice> promise) = 0;
+  virtual void download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, PersistentStateType type,
+                                         td::uint32 priority, td::Timestamp timeout,
+                                         td::Promise<td::BufferSlice> promise) = 0;
 
   virtual void download_block_proof(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                     td::Promise<td::BufferSlice> promise) = 0;
@@ -76,8 +79,8 @@ class FullNodeShard : public td::actor::Actor {
 
   static td::actor::ActorOwn<FullNodeShard> create(
       ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
-      FullNodeConfig config, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-      td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
+      FullNodeOptions opts, std::shared_ptr<RateLimiter<>> limiter, td::actor::ActorId<keyring::Keyring> keyring,
+      td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
       td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
       td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node, bool active);
 };

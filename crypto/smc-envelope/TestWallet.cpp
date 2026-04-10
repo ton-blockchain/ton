@@ -15,13 +15,12 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 Copyright 2017-2020 Telegram Systems LLP
 */
-#include "TestWallet.h"
-#include "GenericAccount.h"
-
-#include "SmartContractCode.h"
-
-#include "vm/boc.h"
 #include "td/utils/base64.h"
+#include "vm/boc.h"
+
+#include "GenericAccount.h"
+#include "SmartContractCode.h"
+#include "TestWallet.h"
 
 namespace ton {
 td::Ref<vm::Cell> TestWallet::get_init_state(const td::Ed25519::PublicKey& public_key, td::int32 revision) noexcept {

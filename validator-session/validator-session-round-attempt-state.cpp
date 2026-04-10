@@ -16,11 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "validator-session-state.h"
-#include "td/utils/Random.h"
-#include "auto/tl/ton_api.hpp"
-
 #include <set>
+
+#include "auto/tl/ton_api.hpp"
+#include "td/utils/Random.h"
+
+#include "validator-session-state.h"
 
 namespace ton {
 
@@ -479,7 +480,6 @@ void ValidatorSessionRoundAttemptState::dump(ValidatorSessionDescription& desc, 
   sb << "\n";
   sb << "<<<<\n";
 }
-
 
 }  // namespace validatorsession
 

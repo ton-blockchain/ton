@@ -18,15 +18,11 @@
 */
 #pragma once
 
-#include "td/utils/int_types.h"
-
-#include "td/actor/PromiseFuture.h"
-
-#include "td/actor/actor.h"
-
 #include "adnl/adnl.h"
-
 #include "auto/tl/ton_api.hpp"
+#include "td/actor/PromiseFuture.h"
+#include "td/actor/actor.h"
+#include "td/utils/int_types.h"
 
 #include "dht-types.h"
 

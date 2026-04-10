@@ -16,16 +16,15 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/filesystem.h"
-
-#include "td/utils/buffer.h"
-#include "td/utils/logging.h"
-#include "td/utils/misc.h"
 #include "td/utils/PathView.h"
-#include "td/utils/port/FileFd.h"
-#include "td/utils/port/path.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
+#include "td/utils/buffer.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/logging.h"
+#include "td/utils/misc.h"
+#include "td/utils/port/FileFd.h"
+#include "td/utils/port/path.h"
 #include "td/utils/unicode.h"
 #include "td/utils/utf8.h"
 
@@ -162,7 +161,7 @@ static string clean_filename_part(Slice name, int max_length) {
   int size = 0;
   for (auto *it = name.ubegin(); it != name.uend() && size < max_length;) {
     uint32 code;
-    it = next_utf8_unsafe(it, &code, "clean_filename_part");
+    it = next_utf8_unsafe(it, &code);
     if (!is_ok(code)) {
       if (prepare_search_character(code) == 0) {
         continue;

@@ -16,15 +16,15 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/buffer.h"
 #include "td/utils/ByteFlow.h"
-#include "td/utils/common.h"
 #include "td/utils/Gzip.h"
 #include "td/utils/GzipByteFlow.h"
-#include "td/utils/logging.h"
 #include "td/utils/Status.h"
-#include "td/utils/tests.h"
 #include "td/utils/Time.h"
+#include "td/utils/buffer.h"
+#include "td/utils/common.h"
+#include "td/utils/logging.h"
+#include "td/utils/tests.h"
 
 static void encode_decode(td::string s) {
   auto r = td::gzencode(s, 2);

@@ -17,18 +17,21 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include <ostream>
+
 #include "common/refcnt.hpp"
+#include "td/utils/CancellationToken.h"
+#include "td/utils/StringBuilder.h"
+#include "td/utils/bits.h"
+#include "tl/tlblib.hpp"
+#include "ton/ton-types.h"
+#include "vm/boc.h"
 #include "vm/cells.h"
 #include "vm/cellslice.h"
 #include "vm/dict.h"
-#include "vm/boc.h"
 #include "vm/stack.hpp"
-#include <ostream>
-#include "tl/tlblib.hpp"
-#include "td/utils/bits.h"
-#include "td/utils/CancellationToken.h"
-#include "td/utils/StringBuilder.h"
-#include "ton/ton-types.h"
+
+#include "signature-set.h"
 
 namespace block {
 
@@ -219,7 +222,7 @@ static inline std::ostream& operator<<(std::ostream& os, const MsgProcessedUptoC
 struct ImportedMsgQueueLimits {
   // Default values
   td::uint32 max_bytes = 1 << 16;
-  td::uint32 max_msgs = 30;
+  td::uint32 max_msgs = 100;
   bool deserialize(vm::CellSlice& cs);
   ImportedMsgQueueLimits operator*(td::uint32 x) const {
     return {max_bytes * x, max_msgs * x};
@@ -241,6 +244,9 @@ struct ParamLimits {
   }
   td::uint32 hard() const {
     return limits_[3];
+  }
+  td::uint32 limit(unsigned cls) const {
+    return limits_[cls];
   }
   bool compute_medium_limit() {
     limits_[2] = soft() + ((hard() - soft()) >> 1);
@@ -280,7 +286,7 @@ struct BlockLimitStatus {
   td::uint64 gas_used{};
   vm::NewCellStorageStat st_stat;
   unsigned accounts{}, transactions{}, extra_out_msgs{};
-  vm::ProofStorageStat collated_data_stat;
+  td::uint64 collated_data_size_estimate = 0;
   unsigned public_library_diff{};
   BlockLimitStatus(const BlockLimits& limits_, ton::LogicalTime lt = 0)
       : limits(limits_), cur_lt(std::max(limits_.start_lt, lt)) {
@@ -292,13 +298,14 @@ struct BlockLimitStatus {
     gas_used = 0;
     extra_out_msgs = 0;
     public_library_diff = 0;
-    collated_data_stat = {};
+    collated_data_size_estimate = 0;
   }
   td::uint64 estimate_block_size(const vm::NewCellStorageStat::Stat* extra = nullptr) const;
   int classify() const;
   bool fits(unsigned cls) const;
   bool would_fit(unsigned cls, ton::LogicalTime end_lt, td::uint64 more_gas,
                  const vm::NewCellStorageStat::Stat* extra = nullptr) const;
+  double load_fraction(unsigned cls) const;
   bool add_cell(Ref<vm::Cell> cell) {
     st_stat.add_cell(std::move(cell));
     return true;
@@ -394,6 +401,9 @@ struct CurrencyCollection {
   CurrencyCollection operator-(const CurrencyCollection& other) const;
   CurrencyCollection operator-(CurrencyCollection&& other) const;
   CurrencyCollection operator-(td::RefInt256 other_grams) const;
+  bool clamp(const CurrencyCollection& other);
+  bool check_extra_currency_limit(td::uint32 max_currencies) const;
+  static bool remove_zero_extra_currencies(Ref<vm::Cell>& root, td::uint32 max_currencies);
   bool store(vm::CellBuilder& cb) const;
   bool store_or_zero(vm::CellBuilder& cb) const;
   bool fetch(vm::CellSlice& cs);
@@ -582,9 +592,7 @@ struct BlockProofLink {
   ton::BlockIdExt from, to;
   bool is_key{false}, is_fwd{false};
   Ref<vm::Cell> dest_proof, state_proof, proof;
-  ton::CatchainSeqno cc_seqno{0};
-  td::uint32 validator_set_hash{0};
-  std::vector<ton::BlockSignature> signatures;
+  Ref<BlockSignatureSet> sig_set;
   BlockProofLink(ton::BlockIdExt _from, ton::BlockIdExt _to, bool _iskey = false)
       : from(_from), to(_to), is_key(_iskey), is_fwd(to.seqno() > from.seqno()) {
   }

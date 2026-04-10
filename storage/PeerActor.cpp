@@ -17,15 +17,14 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "PeerActor.h"
 #include "auto/tl/ton_api.hpp"
-
-#include "tl-utils/tl-utils.hpp"
-
-#include "td/utils/overloaded.h"
-#include "td/utils/Random.h"
-#include "vm/boc.h"
 #include "common/delay.h"
+#include "td/utils/Random.h"
+#include "td/utils/overloaded.h"
+#include "tl-utils/tl-utils.hpp"
+#include "vm/boc.h"
+
+#include "PeerActor.h"
 
 namespace ton {
 
@@ -251,7 +250,7 @@ void PeerActor::loop_update_init() {
   }
   s = s.substr(peer_init_offset_, UPDATE_INIT_BLOCK_SIZE);
   auto query = create_update_query(ton::create_tl_object<ton::ton_api::storage_updateInit>(
-      td::BufferSlice(s), (int)peer_init_offset_, to_ton_api(node_state)));
+      td::BufferSlice(s), (int)peer_init_offset_ * 8, to_ton_api(node_state)));
 
   // take care about update_state_query initial state
   update_state_query_.state = node_state;
@@ -492,26 +491,26 @@ void PeerActor::process_update_peer_parts(const tl_object_ptr<ton_api::storage_U
       notify_node();
     }
   };
-  downcast_call(*update,
-                td::overloaded(
-                    [&](const ton::ton_api::storage_updateHavePieces &have_pieces) {
-                      LOG(DEBUG) << "Processing updateHavePieces query (" << have_pieces.piece_id_ << " pieces)";
-                      for (auto id : have_pieces.piece_id_) {
-                        add_piece(id);
-                      }
-                    },
-                    [&](const ton::ton_api::storage_updateState &state) {},
-                    [&](const ton::ton_api::storage_updateInit &init) {
-                      LOG(DEBUG) << "Processing updateInit query (offset=" << init.have_pieces_offset_ * 8 << ")";
-                      td::Bitset new_bitset;
-                      new_bitset.set_raw(init.have_pieces_.as_slice().str());
-                      size_t offset = init.have_pieces_offset_ * 8;
-                      for (auto size = new_bitset.size(), i = size_t(0); i < size; i++) {
-                        if (new_bitset.get(i)) {
-                          add_piece(static_cast<PartId>(offset + i));
-                        }
-                      }
-                    }));
+  downcast_call(*update, td::overloaded(
+                             [&](const ton::ton_api::storage_updateHavePieces &have_pieces) {
+                               LOG(DEBUG)
+                                   << "Processing updateHavePieces query (" << have_pieces.piece_id_ << " pieces)";
+                               for (auto id : have_pieces.piece_id_) {
+                                 add_piece(id);
+                               }
+                             },
+                             [&](const ton::ton_api::storage_updateState &state) {},
+                             [&](const ton::ton_api::storage_updateInit &init) {
+                               LOG(DEBUG) << "Processing updateInit query (offset=" << init.have_pieces_offset_ << ")";
+                               td::Bitset new_bitset;
+                               new_bitset.set_raw(init.have_pieces_.as_slice().str());
+                               size_t offset = init.have_pieces_offset_;
+                               for (auto size = new_bitset.size(), i = (size_t)0; i < size; i++) {
+                                 if (new_bitset.get(i)) {
+                                   add_piece(static_cast<PartId>(offset + i));
+                                 }
+                               }
+                             }));
   state_->peer_ready_parts_.add_elements(std::move(new_peer_ready_parts));
 }
 

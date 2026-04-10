@@ -17,11 +17,12 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include <type_traits>
+
 #include "common/refint.h"
+#include "vm/cellparse.hpp"
 #include "vm/cells.h"
 #include "vm/cellslice.h"
-#include "vm/cellparse.hpp"
-#include <type_traits>
 
 namespace vm {
 
@@ -370,9 +371,9 @@ Int<false, T> u64(T& val) {
 }
 
 /*
- * 
+ *
  *   non-integer types
- * 
+ *
  */
 
 // cr(Ref<Cell>& cell_ref) for (de)serializing cell references

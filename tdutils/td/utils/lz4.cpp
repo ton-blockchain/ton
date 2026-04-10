@@ -14,9 +14,10 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
+#include <lz4.h>
+
 #include "td/utils/buffer.h"
 #include "td/utils/misc.h"
-#include <lz4.h>
 
 namespace td {
 

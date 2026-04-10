@@ -1,0 +1,1001 @@
+/*
+ * Copyright (c) 2025-2026, TON CORE TECHNOLOGIES CO. L.L.C
+ *
+ * SPDX-License-Identifier: LGPL-2.0-or-later
+ */
+
+#include "td/actor/coro_utils.h"
+
+#include "bus.h"
+#include "misbehavior.h"
+#include "state.h"
+#include "stats.h"
+
+namespace ton::validator::consensus::simplex {
+
+namespace {
+
+template <typename T>
+struct Proven {
+  Proven(Signed<T> vote) : vote(vote.vote), proof(std::move(vote)) {
+  }
+
+  Proven(CertificateRef<T> cert) : vote(cert->vote), proof(std::move(cert)) {
+  }
+
+  td::BufferSlice serialize_as_proof() const {
+    auto vote_fn = [](const Signed<T> &vote) { return vote.serialize(); };
+    auto cert_fn = [](const CertificateRef<T> &cert) { return cert->serialize(); };
+    return std::visit(td::overloaded(vote_fn, cert_fn), proof);
+  }
+
+  const Signed<T> &as_signed_vote() const & {
+    CHECK(std::holds_alternative<Signed<T>>(proof));
+    return std::get<Signed<T>>(proof);
+  }
+
+  std::optional<typename Certificate<T>::VoteSignature> to_signature(const T &vote) const {
+    if (vote != this->vote) {
+      return std::nullopt;
+    }
+    auto &signed_vote = as_signed_vote();
+    return typename Certificate<T>::VoteSignature{
+        .validator = signed_vote.validator,
+        .signature = signed_vote.signature.clone(),
+    };
+  }
+
+  void serialize_to(std::vector<ProtocolMessage> &messages) const {
+    messages.push_back(as_signed_vote().serialize());
+  }
+
+  T vote;
+  std::variant<Signed<T>, CertificateRef<T>> proof;
+};
+
+struct CertificateBundle {
+  bool needs(const Vote &vote) const {
+    return std::visit(
+        [&]<typename T>(const T &v) {
+          auto tuple = std::tie(notar_, skip_, final_);
+          const auto &stored_cert = std::get<const CertAndFlag<T> &>(tuple);
+          return !stored_cert.cert.has_value() && !stored_cert.being_saved;
+        },
+        vote.vote);
+  }
+
+  void remember_prospective(const Vote &vote) {
+    std::visit(
+        [&]<typename T>(const T &v) {
+          auto tuple = std::tie(notar_, skip_, final_);
+          auto &stored_cert = std::get<CertAndFlag<T> &>(tuple);
+          CHECK(!stored_cert.cert.has_value() && !stored_cert.being_saved);
+          stored_cert.being_saved = true;
+        },
+        vote.vote);
+  }
+
+  template <typename T>
+  bool store(CertificateRef<T> cert) {
+    auto tuple = std::tie(notar_, skip_, final_);
+    auto &stored_cert = std::get<CertAndFlag<T> &>(tuple);
+    if (stored_cert.cert.has_value()) {
+      return false;
+    }
+    stored_cert.cert = std::move(cert);
+    return true;
+  }
+
+  void serialize_to(std::vector<ProtocolMessage> &messages) const {
+    if (notar_.cert.has_value()) {
+      messages.push_back((*notar_.cert)->serialize());
+    }
+    if (skip_.cert.has_value()) {
+      messages.push_back((*skip_.cert)->serialize());
+    }
+    if (final_.cert.has_value()) {
+      messages.push_back((*final_.cert)->serialize());
+    }
+  }
+
+  template <typename T>
+  struct CertAndFlag {
+    bool being_saved = false;
+    std::optional<CertificateRef<T>> cert;
+  };
+
+  CertAndFlag<NotarizeVote> notar_;
+  CertAndFlag<SkipVote> skip_;
+  CertAndFlag<FinalizeVote> final_;
+};
+
+class Tsentrizbirkom {
+ public:
+  struct AddVoteResult {
+    AddVoteResult(MisbehaviorRef misbehavior) : is_applied(false), misbehavior(misbehavior) {
+    }
+
+    AddVoteResult(bool is_applied) : is_applied(is_applied) {
+    }
+
+    bool is_applied;
+    std::optional<MisbehaviorRef> misbehavior;
+  };
+
+  bool wants(const Vote &vote) const {
+    return std::visit(
+        [&]<typename T>(const T &) {
+          auto tuple = std::tie(notarize_, skip_, finalize_);
+          const auto &stored_vote = std::get<const std::optional<Proven<T>> &>(tuple);
+          if (!stored_vote.has_value()) {
+            return true;
+          }
+          return false;
+        },
+        vote.vote);
+  }
+
+  AddVoteResult add_vote(Proven<NotarizeVote> vote) {
+    if (notarize_.has_value()) {
+      if (notarize_->vote != vote.vote) {
+        return ConflictingVotes::create(vote.serialize_as_proof(), notarize_->serialize_as_proof());
+      }
+      return false;
+    }
+
+    notarize_ = std::move(vote);
+
+    if (auto misbehavior = check_invariants()) {
+      notarize_ = std::nullopt;
+      return *misbehavior;
+    }
+    return true;
+  }
+
+  AddVoteResult add_vote(Proven<SkipVote> vote) {
+    if (skip_.has_value()) {
+      return false;
+    }
+
+    skip_ = std::move(vote);
+
+    if (auto misbehavior = check_invariants()) {
+      skip_ = std::nullopt;
+      return *misbehavior;
+    }
+    return true;
+  }
+
+  AddVoteResult add_vote(Proven<FinalizeVote> vote) {
+    if (finalize_.has_value()) {
+      if (finalize_->vote != vote.vote) {
+        return ConflictingVotes::create(vote.serialize_as_proof(), finalize_->serialize_as_proof());
+      }
+      return false;
+    }
+
+    finalize_ = std::move(vote);
+
+    if (auto misbehavior = check_invariants()) {
+      finalize_ = std::nullopt;
+      return *misbehavior;
+    }
+    return true;
+  }
+
+  bool is_notarized() const {
+    return notarize_.has_value();
+  }
+
+  bool is_skipped() const {
+    return skip_.has_value();
+  }
+
+  bool is_finalized() const {
+    return finalize_.has_value();
+  }
+
+  template <typename T>
+  std::optional<typename Certificate<T>::VoteSignature> to_signature(const T &vote) const {
+    auto tuple = std::tuple{&notarize_, &skip_, &finalize_};
+    const auto &stored_vote = *std::get<const std::optional<Proven<T>> *>(tuple);
+
+    if (stored_vote.has_value()) {
+      return stored_vote->to_signature(vote);
+    }
+    return std::nullopt;
+  }
+
+  void serialize_to(std::vector<ProtocolMessage> &messages, const CertificateBundle &bundle) const {
+    if (notarize_.has_value() && !bundle.notar_.cert.has_value()) {
+      notarize_->serialize_to(messages);
+    }
+    if (skip_.has_value() && !bundle.skip_.cert.has_value()) {
+      skip_->serialize_to(messages);
+    }
+    if (finalize_.has_value() && !bundle.final_.cert.has_value()) {
+      finalize_->serialize_to(messages);
+    }
+  }
+
+ private:
+  std::optional<MisbehaviorRef> check_invariants() const {
+    if (notarize_.has_value() && finalize_.has_value() && notarize_->vote.id != finalize_->vote.id) {
+      return ConflictingVotes::create(notarize_->serialize_as_proof(), finalize_->serialize_as_proof());
+    }
+    if (finalize_.has_value() && skip_.has_value()) {
+      return ConflictingVotes::create(finalize_->serialize_as_proof(), skip_->serialize_as_proof());
+    }
+    return std::nullopt;
+  }
+
+  std::optional<Proven<NotarizeVote>> notarize_;
+  std::optional<Proven<SkipVote>> skip_;
+  std::optional<Proven<FinalizeVote>> finalize_;
+};
+
+struct SlotState {
+  SlotState(const Bus &bus) : votes(bus.validator_set.size()) {
+  }
+
+  template <typename T>
+  CertificateRef<Vote> create_cert(const T &vote) const {
+    std::vector<typename Certificate<T>::VoteSignature> signatures;
+    for (const auto &voting_state : votes) {
+      if (auto notar_sig = voting_state.to_signature(vote)) {
+        signatures.emplace_back(std::move(*notar_sig));
+      }
+    }
+    return Certificate<T>{vote, std::move(signatures)}.consume_and_upcast();
+  }
+
+  bool is_notarized() const {
+    return certs.notar_.cert.has_value();
+  }
+
+  bool will_be_notarized() const {
+    return is_notarized() || certs.notar_.being_saved;
+  }
+
+  std::optional<CandidateId> notarized_block() const {
+    if (certs.notar_.cert.has_value()) {
+      return (*certs.notar_.cert)->vote.id;
+    }
+    if (certs.final_.cert.has_value()) {
+      return (*certs.final_.cert)->vote.id;
+    }
+    return std::nullopt;
+  }
+
+  bool is_skipped() const {
+    return certs.skip_.cert.has_value();
+  }
+
+  bool will_be_skipped() const {
+    return is_skipped() || certs.skip_.being_saved;
+  }
+
+  bool is_finalized() const {
+    return certs.final_.cert.has_value();
+  }
+
+  bool will_be_finalized() const {
+    return is_finalized() || certs.final_.being_saved;
+  }
+
+  void add_available_base(ParentId parent) {
+    // If we have multiple bases, choose one coming from the highest slot to maximize the chance of
+    // forward-progress.
+    if (!available_base.has_value() || parent >= *available_base) {
+      available_base = parent;
+    }
+  }
+
+  std::vector<Tsentrizbirkom> votes;
+  CertificateBundle certs;
+
+  ValidatorWeight skip_weight = 0;
+  std::map<CandidateId, ValidatorWeight> notarize_weight;
+  std::map<CandidateId, ValidatorWeight> finalize_weight;
+
+  std::optional<ParentId> available_base;
+};
+
+class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
+  using State = ConsensusState<SlotState, const Bus &>;
+
+  struct Request {
+    CandidateId id;
+    ParentId parent;
+    td::Promise<std::optional<MisbehaviorRef>> promise;
+    CandidateRef candidate_for_proof;
+  };
+
+ public:
+  TON_RUNTIME_DEFINE_EVENT_HANDLER();
+
+  void start_up() override {
+    auto &bus = *owning_bus();
+
+    slots_per_leader_window_ = bus.config.slots_per_leader_window;
+    params_ = bus.config.noncritical_params;
+
+    weight_threshold_ = (bus.total_weight * 2) / 3 + 1;
+
+    state_.emplace(State(bus));
+    state_->slot_at(0)->state->available_base = ParentId{};
+
+    LOG(INFO) << "Validator group started. We are " << bus.local_id << " with weight " << bus.local_id.weight
+              << " out of " << bus.total_weight;
+
+    first_nonannounced_window_ = bus.first_nonannounced_window;
+
+    for (auto cert : bus.bootstrap_certificates) {
+      auto slot = state_->slot_at(cert->vote.referenced_slot());
+      if (!slot.has_value()) {
+        continue;
+      }
+      std::move(cert.write()).consume_and_downcast([&](auto typed_cert) {
+        handle_saved_certificate(*slot, std::move(typed_cert));
+      });
+    }
+
+    suppress_certificate_broadcast_ = false;
+
+    for (const auto &vote : bus.bootstrap_votes) {
+      auto slot = state_->slot_at(vote.referenced_slot());
+      if (!slot.has_value()) {
+        continue;
+      }
+
+      handle_our_vote(vote, /*tolerate_conflicts=*/true, /*suppress_vote_broadcast=*/true).start().detach();
+    }
+
+    std::tie(standstill_resolution_awaiter_, standstill_resolution_notification_) =
+        td::actor::StartedTask<>::make_bridge();
+    standstill_resolution_task().start().detach();
+  }
+
+  void tear_down() override {
+    for (auto &r : requests_) {
+      r.promise.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
+    }
+    standstill_resolution_notification_.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const StopRequested>) {
+    stop();
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const NoncriticalParamsUpdated> event) {
+    params_ = event->params;
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const Start>) {
+    auto &bus = *owning_bus();
+    owning_bus().publish<TraceEvent>(
+        consensus::stats::Id::create(bus.shard, bus.cc_seqno, bus.local_id.idx.value(), bus.validator_set.size(),
+                                     bus.local_id.weight, bus.total_weight, bus.config.slots_per_leader_window));
+
+    reschedule_standstill_resolution();
+    is_started_ = true;
+    advance_present();
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const IncomingProtocolMessage> message) {
+    if (is_banned(message->source)) {
+      LOG(WARNING) << "Dropping message from temporarily banned misbehaving " << message->source;
+      return;
+    }
+
+    auto &bus = *owning_bus();
+    td::uint32 first_too_new_slot =
+        (now_ / slots_per_leader_window_ + params_.max_leader_window_desync + 1) * slots_per_leader_window_;
+
+    auto maybe_tl_vote = fetch_tl_object<tl::vote>(message->message.data, true);
+    if (maybe_tl_vote.is_ok()) {
+      auto tl_vote = maybe_tl_vote.move_as_ok();
+
+      auto unsigned_vote = Vote::from_tl(*tl_vote->vote_);
+      auto referenced_slot = unsigned_vote.referenced_slot();
+
+      if (referenced_slot >= first_too_new_slot) {
+        LOG(WARNING) << "Dropping too new vote from " << message->source << " : slot=" << referenced_slot
+                     << ", current_slot=" << now_;
+        return;
+      }
+      if (referenced_slot < first_nonfinalized_slot_) {
+        return;
+      }
+
+      auto slot = state_->slot_at(referenced_slot);
+      CHECK(slot.has_value());
+      if (!slot->state->votes[message->source.value()].wants(unsigned_vote)) {
+        return;
+      }
+
+      auto maybe_vote = Signed<Vote>::from_tl(std::move(*tl_vote), message->source, bus);
+      if (maybe_vote.is_error()) {
+        LOG(WARNING) << "Dropping bad vote from " << message->source << " : " << maybe_vote.move_as_error();
+        ban(message->source);
+        return;
+      }
+
+      auto vote = maybe_vote.move_as_ok();
+      handle_vote(message->source.get_using(bus), std::move(vote));
+    }
+
+    auto maybe_tl_certificate = fetch_tl_object<tl::certificate>(message->message.data, true);
+    if (maybe_tl_certificate.is_ok()) {
+      auto tl_certificate = maybe_tl_certificate.move_as_ok();
+      auto raw_vote = Vote::from_tl(*tl_certificate->vote_);
+
+      bool is_too_new = raw_vote.referenced_slot() >= first_too_new_slot;
+
+      std::optional<State::SlotRef> slot;
+
+      if (!is_too_new) {
+        slot = state_->slot_at(raw_vote.referenced_slot());
+        if (!slot.has_value()) {
+          return;
+        }
+        if (!slot->state->certs.needs(raw_vote)) {
+          return;
+        }
+      }
+
+      auto maybe_certificate = Certificate<Vote>::from_tl(std::move(*tl_certificate), bus);
+      if (maybe_certificate.is_error()) {
+        LOG(WARNING) << "Dropping bad certificate from " << message->source << " : "
+                     << maybe_certificate.move_as_error();
+        ban(message->source);
+        return;
+      }
+
+      if (is_too_new) {
+        slot = state_->slot_at(raw_vote.referenced_slot());
+        CHECK(slot.has_value());
+        if (!slot->state->certs.needs(raw_vote)) {
+          return;
+        }
+      }
+
+      handle_certificate(maybe_certificate.move_as_ok());
+    }
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const BroadcastVote> event) {
+    handle_our_vote(event->vote).start().detach();
+  }
+
+  template <>
+  td::actor::Task<std::optional<MisbehaviorRef>> process(BusHandle, std::shared_ptr<WaitForParent> request) {
+    const auto &candidate = request->candidate;
+    CHECK(!candidate->parent_id.has_value() || candidate->parent_id->slot < candidate->id.slot);
+
+    auto [bridge, promise] = td::actor::StartedTask<std::optional<MisbehaviorRef>>::make_bridge();
+    requests_.push_back(Request{
+        .id = candidate->id,
+        .parent = candidate->parent_id,
+        .promise = std::move(promise),
+        .candidate_for_proof = request->candidate,
+    });
+    if (maybe_resolve_request(requests_.back())) {
+      requests_.pop_back();
+    }
+    co_return co_await std::move(bridge);
+  }
+
+  void alarm() override {
+    auto &bus = *owning_bus();
+    auto [begin, end] = state_->tracked_slots_interval();
+
+    td::StringBuilder sb;
+
+    if (last_final_cert_.has_value()) {
+      sb << "Last final cert is for " << (*last_final_cert_)->vote.id << "\n";
+    }
+
+    for (td::uint32 i = begin; i < end; ++i) {
+      auto slot = state_->slot_at(i);
+      auto &state = slot->state;
+
+      sb << i << ": ";
+      for (size_t j = 0; j < bus.validator_set.size(); ++j) {
+        auto &voting_state = state->votes[j];
+        if (voting_state.is_finalized()) {
+          sb << 'F';
+        } else if (voting_state.is_notarized() && voting_state.is_skipped()) {
+          sb << 'I';
+        } else if (voting_state.is_notarized()) {
+          sb << 'N';
+        } else if (voting_state.is_skipped()) {
+          sb << 'S';
+        } else {
+          sb << '.';
+        }
+      }
+      if (state->is_notarized()) {
+        sb << " notar";
+      }
+      if (state->is_skipped()) {
+        sb << " skip";
+      }
+      if (state->is_finalized()) {
+        sb << " final";
+      }
+      sb << "\n";
+    }
+
+    LOG(WARNING) << "Standstill detected. Current pool state: " << sb.as_cslice();
+
+    standstill_resolution_notification_.set_value({});
+    reschedule_standstill_resolution();
+  }
+
+  // FIXME: This should probably live in another actor.
+  template <>
+  td::actor::Task<> process(BusHandle, std::shared_ptr<PrecheckCandidateBroadcast> query) {
+    if (query->slot < first_nonfinalized_slot_) {
+      co_return td::Status::Error("Slot is already finalized");
+    }
+    if (query->slot > now_ + params_.max_leader_window_desync * slots_per_leader_window_) {
+      co_return td::Status::Error("Slot is too far in the future");
+    }
+    if (query->signature_checked) {
+      auto [it, inserted] = seen_broadcasts_.emplace(query->slot, query->broadcast_id);
+      if (!inserted && it->second != query->broadcast_id) {
+        co_return td::Status::Error("Duplicate broadcast");
+      }
+    } else {
+      auto it = seen_broadcasts_.find(query->slot);
+      if (it != seen_broadcasts_.end() && it->second != query->broadcast_id) {
+        co_return td::Status::Error("Duplicate broadcast");
+      }
+    }
+    co_return {};
+  }
+
+ private:
+  // ===== Standstill resolution =====
+  void reschedule_standstill_resolution() {
+    alarm_timestamp() = td::Timestamp::in(params_.standstill_timeout);
+  }
+
+  td::actor::Task<> standstill_resolution_task() {
+    auto &bus = *owning_bus();
+
+    // At time `now`, we are allowed to send
+    // `egress_quota + (now - quota_time) * max_egress_bytes_per_s` bytes.
+    double egress_quota;
+    td::Timestamp quota_time;
+
+    auto send = [&](ProtocolMessage message) -> td::actor::Task<> {
+      auto max_bytes_per_s = params_.standstill_max_egress_bytes_per_s;
+
+      double msg_size = static_cast<double>(message.data.size() * bus.validator_set.size());
+      if (egress_quota < msg_size) {
+        double delay = (msg_size - egress_quota) / max_bytes_per_s;
+        auto ts = td::Timestamp::in(delay, quota_time);
+        if (!ts.is_in_past()) {
+          co_await td::actor::coro_sleep(ts);
+        }
+
+        auto now = td::Timestamp::now();
+        egress_quota = std::min<double>(egress_quota + (now - quota_time) * max_bytes_per_s, max_bytes_per_s);
+        quota_time = now;
+      }
+      egress_quota -= msg_size;
+
+      owning_bus().publish<OutgoingProtocolMessage>(std::nullopt, std::move(message));
+      co_return {};
+    };
+
+    while (true) {
+      co_await std::move(standstill_resolution_awaiter_);
+      std::tie(standstill_resolution_awaiter_, standstill_resolution_notification_) =
+          td::actor::StartedTask<>::make_bridge();
+
+      auto last_final_cert_copy = last_final_cert_;
+
+      // Mostly clear quota so that we don't burst a lot of messages immediately after resolution
+      // was requested.
+      egress_quota = 0;
+      quota_time = td::Timestamp::now() + std::chrono::milliseconds(-10);
+
+      LOG(WARNING) << "Standstill resolution broadcast started";
+
+      if (last_final_cert_copy.has_value()) {
+        co_await send((*last_final_cert_copy)->serialize());
+      }
+
+      auto [begin, end] = state_->tracked_slots_interval();
+      for (td::uint32 i = begin; i < end && last_final_cert_ == last_final_cert_copy; ++i) {
+        auto &state = state_->slot_at(i)->state;
+
+        std::vector<ProtocolMessage> messages;
+        state->certs.serialize_to(messages);
+        state->votes[bus.local_id.idx.value()].serialize_to(messages, state->certs);
+
+        for (auto &message : messages) {
+          co_await send(std::move(message));
+        }
+
+        auto [begin_new, end_new] = state_->tracked_slots_interval();
+        CHECK(begin == begin_new || last_final_cert_ != last_final_cert_copy);
+        std::tie(begin, end) = {begin_new, end_new};
+      }
+
+      LOG(WARNING) << "Standstill resolution broadcast stopped";
+    }
+  }
+
+  // ===== Vote handling =====
+  void publish_misbehavior(PeerValidatorId idx, MisbehaviorRef misbehavior) {
+    owning_bus().publish<MisbehaviorReport>(idx, misbehavior);
+  }
+
+  bool handle_vote(const PeerValidator &validator, Signed<Vote> vote, bool tolerate_conflicts = false) {
+    auto vote_fn = [&]<typename VoteT>(Signed<VoteT> vote) -> bool {
+      auto slot = state_->slot_at(vote.vote.referenced_slot());
+      if (!slot) {
+        if constexpr (std::same_as<VoteT, FinalizeVote> || std::same_as<VoteT, NotarizeVote>) {
+          if (vote.vote.id == last_finalized_block_) {
+            return false;
+          }
+        }
+
+        LOG(WARNING) << "Dropping " << vote.vote << " from " << validator << " which references a finalized slot";
+        return false;
+      }
+
+      auto add_result = slot->state->votes[validator.idx.value()].add_vote(std::move(vote));
+
+      if (auto misbehavior = add_result.misbehavior) {
+        LOG_CHECK(validator != owning_bus()->local_id || tolerate_conflicts)
+            << "We produced conflicting votes! Conflict occured for " << vote.vote;
+        // The following line cannot be simply
+        // `owning_bus().publish<MisbehaviorReport>(validator.idx, *misbehavior);` as this would
+        // _sometimes_ result in link errors (at least with clang-21 and libstdc++-15) because of a
+        // missing complete-object destructor. I think this is because we would somehow trigger
+        // https://github.com/llvm/llvm-project/issues/46044 .
+        publish_misbehavior(validator.idx, *misbehavior);
+        return false;
+      }
+
+      if (add_result.is_applied) {
+        handle_typed_vote(validator, std::move(vote), *slot);
+        return true;
+      }
+      return false;
+    };
+    return std::move(vote).consume_and_downcast(vote_fn);
+  }
+
+  void handle_typed_vote(const PeerValidator &validator, Signed<NotarizeVote> vote, State::SlotRef &slot) {
+    auto new_weight = (slot.state->notarize_weight[vote.vote.id] += validator.weight);
+    if (!slot.state->will_be_notarized() && new_weight >= weight_threshold_) {
+      handle_certificate(slot.state->create_cert(vote.vote));
+    }
+  }
+
+  void handle_typed_vote(const PeerValidator &validator, Signed<SkipVote> vote, State::SlotRef &slot) {
+    auto new_weight = (slot.state->skip_weight += validator.weight);
+    if (!slot.state->will_be_skipped() && new_weight >= weight_threshold_) {
+      handle_certificate(slot.state->create_cert(vote.vote));
+    }
+  }
+
+  void handle_typed_vote(const PeerValidator &validator, Signed<FinalizeVote> vote, State::SlotRef &slot) {
+    auto new_weight = (slot.state->finalize_weight[vote.vote.id] += validator.weight);
+    if (!slot.state->will_be_finalized() && new_weight >= weight_threshold_) {
+      handle_certificate(slot.state->create_cert(vote.vote));
+    }
+  }
+
+  td::actor::Task<> handle_our_vote(Vote vote, bool tolerate_conflicts = false, bool suppress_vote_broadcast = false) {
+    auto &bus = *owning_bus();
+
+    owning_bus().publish<TraceEvent>(stats::Voted::create(vote));
+
+    auto vote_to_sign = serialize_tl_object(vote.to_tl(), true);
+    auto data_to_sign = create_serialize_tl_object<consensus::tl::dataToSign>(bus.session_id, std::move(vote_to_sign));
+    auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id.short_id,
+                                             std::move(data_to_sign));
+
+    Signed<Vote> signed_vote{bus.local_id.idx, vote, std::move(signature)};
+    td::BufferSlice serialized = signed_vote.serialize();
+
+    if (handle_vote(bus.local_id, std::move(signed_vote), tolerate_conflicts)) {
+      if (!suppress_vote_broadcast) {
+        owning_bus().publish(std::make_shared<OutgoingProtocolMessage>(std::nullopt, std::move(serialized)));
+      }
+    }
+
+    co_return {};
+  }
+
+  // ===== Bookkeeping =====
+  void advance_present() {
+    if (!is_started_) {
+      return;
+    }
+    while (true) {
+      auto slot = state_->slot_at(now_);
+      if (slot->state->is_notarized() || slot->state->is_skipped()) {
+        ++now_;
+      } else {
+        break;
+      }
+    }
+    td::uint32 new_window = now_ / slots_per_leader_window_;
+    if (first_nonannounced_window_ > new_window) {
+      return;
+    }
+    first_nonannounced_window_ = new_window + 1;
+
+    ParentId base = {};
+    if (now_ != 0) {
+      auto maybe_base = state_->slot_at(now_)->state->available_base;
+      CHECK(maybe_base.has_value());
+      base = maybe_base.value();
+    }
+    owning_bus().publish<LeaderWindowObserved>(now_, base).start().detach();
+  }
+
+  State::SlotRef next_nonskipped_slot_after(int slot) {
+    auto next_slot = state_->slot_at(slot + 1);
+    if (next_slot->state->is_skipped()) {
+      next_slot = state_->slot_at(*skip_intervals_.lower_bound(slot + 1));
+    }
+    return *next_slot;
+  }
+
+  // ===== Request handling =====
+  bool maybe_resolve_request(Request &request_) {
+    auto resolve_with = [&](td::Result<std::optional<MisbehaviorRef>> result) {
+      request_.promise.set_result(std::move(result));
+      return true;
+    };
+
+    auto id = request_.id;
+    auto parent = request_.parent;
+    td::uint32 next_slot_after_parent = parent.has_value() ? parent->slot + 1 : 0;
+
+    if (id.slot < first_nonfinalized_slot_) {
+      return resolve_with(td::Status::Error("Candidate's slot is already finalized"));
+    }
+    if (next_slot_after_parent < first_nonfinalized_slot_) {
+      return resolve_with(ConflictingCandidateAndCertificate::create(
+          /* candidate, last_finalization_cert */));
+    }
+
+    auto slot = state_->slot_at(id.slot);
+
+    if (auto notarized_block = slot->state->notarized_block()) {
+      if (notarized_block != id) {
+        return resolve_with(ConflictingCandidateAndCertificate::create(/* candidate, notarization_cert(slot) */));
+      }
+    }
+
+    if (next_slot_after_parent == first_nonfinalized_slot_) {
+      if (last_finalized_block_ != parent) {
+        // Here, if `first_nonfinalized_slot_ == 0`, `!parent.has_value()`. But
+        // `first_nonfinalized_slot_ == 0` <=> `!last_finalized_block_.has_value()`, so
+        CHECK(first_nonfinalized_slot_ != 0);
+
+        return resolve_with(ConflictingCandidateAndCertificate::create(
+            /* candidate, notarization_cert(first_nonfinalized_slot_ - 1) */));
+      }
+    } else {
+      // Here, `next_slot_after_parent > first_nonfinalized_slot_ >= 0`, so
+      CHECK(parent.has_value());
+
+      auto parent_slot = state_->slot_at(parent->slot);
+      if (parent_slot->state->is_notarized()) {
+        if (parent_slot->state->notarized_block() != parent) {
+          return resolve_with(ConflictingCandidateAndCertificate::create(
+              /* candidate, notarization_cert(slot) */));
+        }
+      } else {
+        // Parent is not yet notarized, will try our luck later.
+        return false;
+      }
+    }
+
+    if (next_slot_after_parent == id.slot) {
+      return resolve_with(std::nullopt);
+    }
+
+    auto next_slot = state_->slot_at(next_slot_after_parent);
+    if (!next_slot->state->is_skipped()) {
+      // Too early, don't have enough skip certificates.
+      return false;
+    }
+
+    if (*skip_intervals_.lower_bound(next_slot_after_parent) >= id.slot) {
+      return resolve_with(std::nullopt);
+    }
+
+    return false;
+  }
+
+  void maybe_resolve_requests() {
+    for (size_t i = 0; i < requests_.size();) {
+      if (maybe_resolve_request(requests_[i])) {
+        if (i + 1 != requests_.size()) {
+          std::swap(requests_[i], requests_.back());
+        }
+        requests_.pop_back();
+      } else {
+        ++i;
+      }
+    }
+  }
+
+  // ===== Certificate handling =====
+  void handle_certificate(CertificateRef<Vote> cert) {
+    auto slot = state_->slot_at(cert->vote.referenced_slot());
+    if (!slot.has_value() || !slot->state->certs.needs(cert->vote)) {
+      return;
+    }
+    slot->state->certs.remember_prospective(cert->vote);
+
+    handle_prospective_certificate(std::move(cert)).start().detach();
+  }
+
+  td::actor::Task<> handle_prospective_certificate(CertificateRef<Vote> cert) {
+    co_await owning_bus().publish<SaveCertificate>(cert);
+
+    auto slot = state_->slot_at(cert->vote.referenced_slot());
+    if (!slot.has_value()) {
+      co_return {};
+    }
+
+    std::move(cert.write()).consume_and_downcast([&](auto cert) {
+      for (const auto &[idx, _] : cert->signatures) {
+        auto add_result = slot->state->votes[idx.value()].add_vote(cert);
+        if (auto misbehavior = add_result.misbehavior) {
+          owning_bus().publish<MisbehaviorReport>(idx, *misbehavior);
+        }
+      }
+      handle_saved_certificate(*slot, cert);
+    });
+    co_return {};
+  }
+
+  template <typename T>
+  void handle_saved_certificate(State::SlotRef &slot, CertificateRef<T> cert) {
+    bool rc = slot.state->certs.store(cert);
+    CHECK(rc);
+
+    std::string votes(owning_bus()->validator_set.size(), '.');
+    for (const auto &signature : cert->signatures) {
+      votes[signature.validator.value()] = 'V';
+    }
+
+    LOG(WARNING) << "Obtained certificate for " << cert->vote << ": " << votes;
+
+    if (!suppress_certificate_broadcast_) {
+      owning_bus().publish<OutgoingProtocolMessage>(std::nullopt, cert->serialize());
+      owning_bus().publish<TraceEvent>(stats::CertObserved::create(cert->vote));
+    }
+
+    handle_typed_saved_certificate(slot, cert);
+    maybe_resolve_requests();
+  }
+
+  void handle_typed_saved_certificate(State::SlotRef &slot, NotarCertRef cert) {
+    auto id = cert->vote.id;
+
+    owning_bus().publish<NotarizationObserved>(id, cert);
+
+    next_nonskipped_slot_after(id.slot).state->add_available_base(id);
+
+    advance_present();
+  }
+
+  void handle_typed_saved_certificate(State::SlotRef &slot, SkipCertRef cert) {
+    auto i = slot.i;
+
+    auto next_slot = next_nonskipped_slot_after(i);
+
+    skip_intervals_.erase(i);
+    if (next_slot.i == i + 1) {
+      skip_intervals_.insert(i + 1);
+    }
+
+    if (auto base = slot.state->available_base) {
+      next_slot.state->add_available_base(*base);
+    }
+
+    advance_present();
+  }
+
+  void handle_typed_saved_certificate(State::SlotRef &slot, FinalCertRef cert) {
+    auto id = cert->vote.id;
+
+    CHECK(!slot.state->is_skipped());
+    CHECK(slot.state->notarized_block().value_or(id) == id);
+    if (!slot.state->is_notarized()) {
+      next_nonskipped_slot_after(id.slot).state->add_available_base(id);
+    }
+
+    last_finalized_block_ = id;
+    last_final_cert_ = cert;
+    first_nonfinalized_slot_ = id.slot + 1;
+    owning_bus().publish<FinalizationObserved>(id, cert);
+
+    if (now_ <= id.slot) {
+      now_ = id.slot + 1;
+      advance_present();
+    }
+
+    while (!skip_intervals_.empty() && *skip_intervals_.begin() <= id.slot) {
+      skip_intervals_.erase(skip_intervals_.begin());
+    }
+
+    state_->notify_finalized(id.slot);
+
+    if (!suppress_certificate_broadcast_) {
+      reschedule_standstill_resolution();
+    }
+  }
+
+  // ===== Bad signature bans =====
+  void ban(PeerValidatorId peer) {
+    bad_signature_bans_[peer] = td::Timestamp::in(params_.bad_signature_ban_duration);
+  }
+
+  bool is_banned(PeerValidatorId peer) {
+    auto it = bad_signature_bans_.find(peer);
+    if (it == bad_signature_bans_.end()) {
+      return false;
+    }
+    if (it->second.is_in_past()) {
+      bad_signature_bans_.erase(it);
+      return false;
+    }
+    return true;
+  }
+
+  td::uint32 slots_per_leader_window_;
+  NewConsensusConfig::NoncriticalParams params_;
+
+  ValidatorWeight weight_threshold_ = 0;
+  std::optional<State> state_;
+
+  bool suppress_certificate_broadcast_ = true;
+  bool is_started_ = false;
+  td::uint32 now_ = 0;
+
+  std::set<td::uint32> skip_intervals_;
+
+  td::uint32 first_nonannounced_window_ = 0;
+
+  ParentId last_finalized_block_;
+  std::optional<FinalCertRef> last_final_cert_;
+  td::uint32 first_nonfinalized_slot_ = 0;
+
+  td::Promise<> standstill_resolution_notification_;
+  td::actor::StartedTask<> standstill_resolution_awaiter_;
+
+  std::map<PeerValidatorId, td::Timestamp> bad_signature_bans_;
+
+  std::vector<Request> requests_;
+
+  std::map<td::uint32, td::Bits256> seen_broadcasts_;
+};
+
+}  // namespace
+
+void Pool::register_in(td::actor::Runtime &runtime) {
+  runtime.register_actor<PoolImpl>("SimplexPool");
+}
+
+}  // namespace ton::validator::consensus::simplex

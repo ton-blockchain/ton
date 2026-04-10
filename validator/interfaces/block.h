@@ -17,8 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "vm/cells.h"
 #include "ton/ton-types.h"
+#include "vm/cells.h"
 
 namespace ton {
 

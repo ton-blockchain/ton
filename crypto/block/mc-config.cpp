@@ -14,36 +14,39 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "mc-config.h"
-#include "block/block.h"
-#include "block/block-parse.h"
+#include <algorithm>
+#include <mutex>
+#include <stack>
+
 #include "block/block-auto.h"
+#include "block/block-parse.h"
+#include "block/block.h"
 #include "common/bitstring.h"
-#include "vm/dict.h"
+#include "openssl/digest.hpp"
 #include "td/utils/bits.h"
 #include "td/utils/uint128.h"
-#include "ton/ton-types.h"
 #include "ton/ton-shard.h"
-#include "openssl/digest.hpp"
-#include <stack>
-#include <algorithm>
+#include "ton/ton-types.h"
+#include "vm/dict.h"
+
+#include "mc-config.h"
 
 namespace block {
 using namespace std::literals::string_literals;
 using td::Ref;
 
-#define DBG(__n) dbg(__n)&&
+#define DBG(__n) dbg(__n) &&
 #define DSTART int __dcnt = 0;
 #define DEB DBG(++__dcnt)
 
@@ -91,22 +94,16 @@ td::Result<std::unique_ptr<Config>> Config::extract_from_state(Ref<vm::Cell> mc_
   return unpack_config(std::move(extra.config), mode);
 }
 
-td::Result<std::unique_ptr<ConfigInfo>> ConfigInfo::extract_config(std::shared_ptr<vm::StaticBagOfCellsDb> static_boc,
-                                                                   int mode) {
-  TRY_RESULT(rc, static_boc->get_root_count());
-  if (rc != 1) {
-    return td::Status::Error(-668, "Masterchain state BoC is invalid");
-  }
-  TRY_RESULT(root, static_boc->get_root_cell(0));
-  return extract_config(std::move(root), mode);
-}
-
-td::Result<std::unique_ptr<ConfigInfo>> ConfigInfo::extract_config(Ref<vm::Cell> mc_state_root, int mode) {
+td::Result<std::unique_ptr<ConfigInfo>> ConfigInfo::extract_config(Ref<vm::Cell> mc_state_root,
+                                                                   ton::BlockIdExt mc_block_id, int mode) {
   if (mc_state_root.is_null()) {
     return td::Status::Error("configuration state root cell is null");
   }
   auto config = std::unique_ptr<ConfigInfo>{new ConfigInfo(std::move(mc_state_root), mode)};
   TRY_STATUS(config->unpack_wrapped());
+  if (!config->set_block_id_ext(mc_block_id)) {
+    return td::Status::Error("failed to set mc block id");
+  }
   return std::move(config);
 }
 
@@ -163,8 +160,11 @@ td::Status ConfigInfo::unpack() {
   }
   gen::McStateExtra::Record extra_info;
   if (!tlb::unpack_cell(state_extra_root_, extra_info)) {
-    vm::load_cell_slice(state_extra_root_).print_rec(std::cerr);
-    block::gen::t_McStateExtra.print_ref(std::cerr, state_extra_root_);
+    FLOG(WARNING) {
+      sb << "state extra information is invalid: ";
+      vm::load_cell_slice(state_extra_root_).print_rec(sb);
+      block::gen::t_McStateExtra.print_ref(sb, state_extra_root_);
+    };
     return td::Status::Error("state extra information is invalid");
   }
   gen::ValidatorInfo::Record validator_info;
@@ -221,7 +221,7 @@ td::Status ConfigInfo::unpack() {
 td::Status Config::unpack_wrapped(Ref<vm::CellSlice> config_csr) {
   try {
     return unpack(std::move(config_csr));
-  } catch (vm::VmError err) {
+  } catch (vm::VmError& err) {
     return td::Status::Error(PSLICE() << "error unpacking masterchain configuration: " << err.get_msg());
   }
 }
@@ -229,7 +229,7 @@ td::Status Config::unpack_wrapped(Ref<vm::CellSlice> config_csr) {
 td::Status Config::unpack_wrapped() {
   try {
     return unpack();
-  } catch (vm::VmError err) {
+  } catch (vm::VmError& err) {
     return td::Status::Error(PSLICE() << "error unpacking masterchain configuration: " << err.get_msg());
   }
 }
@@ -250,7 +250,7 @@ td::Status Config::unpack() {
   }
   config_dict = std::make_unique<vm::Dictionary>(config_root, 32);
   if (mode & needValidatorSet) {
-    auto vset_res = unpack_validator_set(get_config_param(35, 34));
+    auto vset_res = unpack_validator_set(get_config_param(35, 34), true);
     if (vset_res.is_error()) {
       return vset_res.move_as_error();
     }
@@ -338,6 +338,7 @@ ton::ValidatorSessionConfig Config::get_consensus_config() const {
       td::uint64 catchain_lifetime = std::max(catchain_config.mc_cc_lifetime, catchain_config.shard_cc_lifetime);
       c.catchain_opts.max_block_height_coeff = catchain_lifetime * max_blocks_coeff;
     }
+    c.use_quic = r.use_quic;
   };
   if (cc.not_null()) {
     block::gen::ConsensusConfig::Record_consensus_config_v4 r4;
@@ -358,6 +359,93 @@ ton::ValidatorSessionConfig Config::get_consensus_config() const {
     c.catchain_opts.block_hash_covers_data = true;
   }
   return c;
+}
+
+namespace {
+
+template <typename Base, td::uint32(Base::* where)>
+void store_uint32(Base& base, td::uint32 value) {
+  base.*where = value;
+}
+
+template <typename Base, std::chrono::milliseconds(Base::* where)>
+void store_milliseconds(Base& base, td::uint32 value) {
+  base.*where = std::chrono::milliseconds{value};
+}
+
+template <typename Base, double(Base::* where)>
+void store_double(Base& base, td::uint32 value) {
+  float fvalue;
+  static_assert(sizeof(float) == sizeof(td::uint32));
+  memcpy(&fvalue, &value, sizeof(float));
+  base.*where = fvalue;
+}
+
+}  // namespace
+
+td::optional<ton::NewConsensusConfig> Config::get_new_consensus_config(ton::WorkchainId wc) const {
+  auto c1 = get_config_param(30);
+  if (c1.is_null()) {
+    return {};
+  }
+  gen::NewConsensusConfigAll::Record rec;
+  if (!gen::unpack_cell(c1, rec)) {
+    return {};
+  }
+  auto c2 = (wc == ton::masterchainId ? rec.mc : rec.shard)->prefetch_ref();
+  if (c2.is_null()) {
+    return {};
+  }
+  auto consensus_config = get_consensus_config();
+
+  if (gen::NewConsensusConfig::Record_simplex_config v1; gen::unpack_cell(c2, v1)) {
+    return ton::NewConsensusConfig{
+        .max_block_size = consensus_config.max_block_size,
+        .max_collated_data_size = consensus_config.max_collated_data_size,
+
+        .use_quic = v1.use_quic,
+        .slots_per_leader_window = v1.slots_per_leader_window,
+
+        .noncritical_params =
+            {
+                .target_rate{v1.target_rate_ms},
+                .first_block_timeout{v1.first_block_timeout_ms},
+                .max_leader_window_desync = v1.max_leader_window_desync,
+            },
+    };
+  } else if (gen::NewConsensusConfig::Record_simplex_config_v2 v2; gen::unpack_cell(c2, v2)) {
+    ton::NewConsensusConfig config{
+        .max_block_size = consensus_config.max_block_size,
+        .max_collated_data_size = consensus_config.max_collated_data_size,
+
+        .use_quic = v2.use_quic,
+        .slots_per_leader_window = v2.slots_per_leader_window,
+    };
+
+    using NoncriticalParams = ton::NewConsensusConfig::NoncriticalParams;
+
+    static constexpr auto mapping = std::to_array({
+#define READ_UINT32(idx, name, _) std::pair{idx, &store_uint32<NoncriticalParams, &NoncriticalParams::name>},
+#define READ_DOUBLE(idx, name, _) std::pair{idx, &store_double<NoncriticalParams, &NoncriticalParams::name>},
+#define READ_DURATION(idx, name, _) std::pair{idx, &store_milliseconds<NoncriticalParams, &NoncriticalParams::name>},
+        ENUMERATE_NONCRITICAL_PARAMS(READ_UINT32, READ_DOUBLE, READ_DURATION)
+#undef READ_UINT32
+#undef READ_DOUBLE
+#undef READ_DURATION
+    });
+
+    vm::DictionaryFixed params{v2.noncritical_params, 8};
+    for (const auto& [key, store_func] : mapping) {
+      if (auto param = params.lookup(td::BitArray<8>(key)); param.not_null()) {
+        auto val = td::narrow_cast<td::uint32>(param->prefetch_ulong(32));
+        store_func(config.noncritical_params, val);
+      }
+    }
+
+    return config;
+  }
+
+  return {};
 }
 
 bool Config::foreach_config_param(std::function<bool(int, Ref<vm::Cell>)> scan_func) const {
@@ -483,15 +571,80 @@ td::Result<WorkchainSet> Config::unpack_workchain_list(Ref<vm::Cell> root) {
   return std::move(pair.first);
 }
 
-td::Result<std::unique_ptr<ValidatorSet>> Config::unpack_validator_set(Ref<vm::Cell> vset_root) {
+class ValidatorSetCache {
+ public:
+  ValidatorSetCache() {
+    cache_.reserve(MAX_CACHE_SIZE + 1);
+  }
+
+  std::shared_ptr<TotalValidatorSet> get(const vm::CellHash& hash) {
+    std::lock_guard lock{mutex_};
+    auto it = cache_.find(hash);
+    if (it == cache_.end()) {
+      return {};
+    }
+    auto entry = it->second.get();
+    entry->remove();
+    lru_.put(entry);
+    return entry->value;
+  }
+
+  void set(const vm::CellHash& hash, std::shared_ptr<TotalValidatorSet> vset) {
+    std::lock_guard lock{mutex_};
+    std::unique_ptr<CacheEntry>& entry = cache_[hash];
+    if (entry == nullptr) {
+      entry = std::make_unique<CacheEntry>(hash, std::move(vset));
+    } else {
+      entry->value = std::move(vset);
+      entry->remove();
+    }
+    lru_.put(entry.get());
+    if (cache_.size() > MAX_CACHE_SIZE) {
+      auto to_remove = (CacheEntry*)lru_.get();
+      CHECK(to_remove);
+      to_remove->remove();
+      cache_.erase(to_remove->key);
+    }
+  }
+
+ private:
+  std::mutex mutex_;
+
+  struct CacheEntry : td::ListNode {
+    explicit CacheEntry(vm::CellHash key, std::shared_ptr<TotalValidatorSet> value)
+        : key(key), value(std::move(value)) {
+    }
+    vm::CellHash key;
+    std::shared_ptr<TotalValidatorSet> value;
+  };
+  td::HashMap<vm::CellHash, std::unique_ptr<CacheEntry>> cache_;
+  td::ListNode lru_;
+
+  static constexpr size_t MAX_CACHE_SIZE = 100;
+};
+
+td::Result<std::shared_ptr<TotalValidatorSet>> Config::unpack_validator_set(Ref<vm::Cell> vset_root, bool use_cache) {
   if (vset_root.is_null()) {
     return td::Status::Error("validator set is absent");
   }
+  TRY_RESULT(loaded_root, vset_root->load_cell());
+  if (!loaded_root.tree_node.empty()) {
+    // Do not use cache during Merkle proof generation
+    use_cache = false;
+  }
+  static ValidatorSetCache cache;
+  if (use_cache) {
+    auto result = cache.get(vset_root->get_hash());
+    if (result) {
+      return result;
+    }
+  }
+
   gen::ValidatorSet::Record_validators_ext rec;
   Ref<vm::Cell> dict_root;
   if (!tlb::unpack_cell(vset_root, rec)) {
     gen::ValidatorSet::Record_validators rec0;
-    if (!tlb::unpack_cell(std::move(vset_root), rec0)) {
+    if (!tlb::unpack_cell(vset_root, rec0)) {
       return td::Status::Error("validator set is invalid");
     }
     rec.utime_since = rec0.utime_since;
@@ -508,42 +661,61 @@ td::Result<std::unique_ptr<ValidatorSet>> Config::unpack_validator_set(Ref<vm::C
   vm::Dictionary dict{std::move(dict_root), 16};
   td::BitArray<16> key_buffer;
   auto last = dict.get_minmax_key(key_buffer.bits(), 16, true);
-  if (last.is_null() || (int)key_buffer.to_ulong() != rec.total - 1) {
+  if (last.is_null() || key_buffer.to_ulong() + 1 != rec.total) {
     return td::Status::Error(
         "maximal index in a validator set dictionary must be one less than the total number of validators");
   }
-  auto ptr = std::make_unique<ValidatorSet>(rec.utime_since, rec.utime_until, rec.total, rec.main);
-  for (int i = 0; i < rec.total; i++) {
-    key_buffer.store_ulong(i);
-    auto descr_cs = dict.lookup(key_buffer.bits(), 16);
-    if (descr_cs.is_null()) {
-      return td::Status::Error("indices in a validator set dictionary must be integers 0..total-1");
-    }
+  auto ptr = std::make_shared<TotalValidatorSet>(rec.utime_since, rec.utime_until, rec.total, rec.main);
+
+  std::vector<bool> seen_keys(rec.total);
+  td::Status error;
+
+  auto validator_set_check_fn = [&](Ref<vm::CellSlice> descr_cs, td::ConstBitPtr key, int n) -> bool {
+    auto i = key.get_uint(n);
+    CHECK(i < rec.total && !seen_keys[i]);
+    seen_keys[i] = true;
+
     gen::ValidatorDescr::Record_validator_addr descr;
     if (!tlb::csr_unpack(descr_cs, descr)) {
       descr.adnl_addr.set_zero();
       if (!(gen::t_ValidatorDescr.unpack_validator(descr_cs.write(), descr.public_key, descr.weight) &&
             descr_cs->empty_ext())) {
-        return td::Status::Error(PSLICE() << "validator #" << i
-                                          << " has an invalid ValidatorDescr record in the validator set dictionary");
+        error = td::Status::Error(PSLICE() << "validator #" << i
+                                           << " has an invalid ValidatorDescr record in the validator set dictionary");
+        return false;
       }
     }
     gen::SigPubKey::Record sig_pubkey;
     if (!tlb::csr_unpack(std::move(descr.public_key), sig_pubkey)) {
-      return td::Status::Error(PSLICE() << "validator #" << i
-                                        << " has no public key or its public key is in unsupported format");
+      error = td::Status::Error(PSLICE() << "validator #" << i
+                                         << " has no public key or its public key is in unsupported format");
+      return false;
     }
     if (!descr.weight) {
-      return td::Status::Error(PSLICE() << "validator #" << i << " has zero weight");
+      error = td::Status::Error(PSLICE() << "validator #" << i << " has zero weight");
+      return false;
     }
     if (descr.weight > ~(ptr->total_weight)) {
-      return td::Status::Error("total weight of all validators in validator set exceeds 2^64");
+      error = td::Status::Error("total weight of all validators in validator set exceeds 2^64");
+      return false;
     }
     ptr->list.emplace_back(sig_pubkey.pubkey, descr.weight, ptr->total_weight, descr.adnl_addr);
     ptr->total_weight += descr.weight;
+    return true;
+  };
+
+  if (!dict.check_for_each(validator_set_check_fn)) {
+    CHECK(error.is_error());
+    return error;
+  }
+  if (std::find(seen_keys.begin(), seen_keys.end(), false) != seen_keys.end()) {
+    return td::Status::Error("indices in a validator set dictionary must be integers 0..total-1");
   }
   if (rec.total_weight && rec.total_weight != ptr->total_weight) {
     return td::Status::Error("validator set declares incorrect total weight");
+  }
+  if (use_cache) {
+    cache.set(vset_root->get_hash(), ptr);
   }
   return std::move(ptr);
 }
@@ -912,7 +1084,7 @@ Ref<McShardDescr> McShardDescr::from_block(Ref<vm::Cell> block_root, Ref<vm::Cel
     return {};
   }
   // TODO: use a suitable vm::MerkleUpdate method here
-  vm::CellSlice cs(vm::NoVmSpec(), rec.state_update);
+  vm::CellSlice cs(vm::NoVm(), rec.state_update);
   if (!cs.is_valid() || cs.special_type() != vm::Cell::SpecialType::MerkleUpdate) {
     LOG(ERROR) << "state update in a block is not a Merkle update";
     return {};
@@ -1067,7 +1239,6 @@ Ref<McShardHash> ShardConfig::get_shard_hash(ton::ShardIdFull id, bool exact) co
   ton::ShardIdFull true_id;
   vm::CellSlice cs;
   if (get_shard_hash_raw(cs, id, true_id, exact)) {
-    // block::gen::t_ShardDescr.print(std::cerr, vm::CellSlice{cs});
     return McShardHash::unpack(cs, true_id);
   } else {
     return {};
@@ -1204,7 +1375,7 @@ static int process_workchain_sibling_shard_hashes(Ref<vm::Cell>& branch, Ref<vm:
   int f = (int)cs.fetch_ulong(1);
   if (f == 1) {
     if ((shard.shard & 1) || cs.size_ext() != 0x20000) {
-      return false;
+      return -1;
     }
     auto left = cs.prefetch_ref(0), right = cs.prefetch_ref(1);
     auto orig_left = left;
@@ -1637,8 +1808,10 @@ bool ShardConfig::set_shard_info(ton::ShardIdFull shard, Ref<vm::Cell> value) {
   if (!gen::t_BinTree_ShardDescr.validate_ref(1024, value)) {
     LOG(ERROR) << "attempting to store an invalid (BinTree ShardDescr) at shard configuration position "
                << shard.to_str();
-    gen::t_BinTree_ShardDescr.print_ref(std::cerr, value);
-    vm::load_cell_slice(value).print_rec(std::cerr);
+    FLOG(WARNING) {
+      gen::t_BinTree_ShardDescr.print_ref(sb, value);
+      vm::load_cell_slice(value).print_rec(sb);
+    };
     return false;
   }
   auto root = shard_hashes_dict_->lookup_ref(td::BitArray<32>{shard.workchain});
@@ -1744,8 +1917,9 @@ ton::CatchainSeqno ConfigInfo::get_shard_cc_seqno(ton::ShardIdFull shard) const 
   return shard.is_masterchain() ? cc_seqno_ : ShardConfig::get_shard_cc_seqno(shard);
 }
 
-std::vector<ton::ValidatorDescr> Config::compute_validator_set(ton::ShardIdFull shard, const block::ValidatorSet& vset,
-                                                               ton::UnixTime time, ton::CatchainSeqno cc_seqno) const {
+std::vector<ton::ValidatorDescr> Config::compute_validator_set(ton::ShardIdFull shard,
+                                                               const block::TotalValidatorSet& vset, ton::UnixTime time,
+                                                               ton::CatchainSeqno cc_seqno) const {
   return do_compute_validator_set(get_catchain_validators_config(), shard, vset, cc_seqno);
 }
 
@@ -1760,7 +1934,7 @@ std::vector<ton::ValidatorDescr> Config::compute_validator_set(ton::ShardIdFull 
 }
 
 std::vector<ton::ValidatorDescr> ConfigInfo::compute_validator_set_cc(ton::ShardIdFull shard,
-                                                                      const block::ValidatorSet& vset,
+                                                                      const block::TotalValidatorSet& vset,
                                                                       ton::UnixTime time,
                                                                       ton::CatchainSeqno* cc_seqno_delta) const {
   if (cc_seqno_delta && (*cc_seqno_delta & -2)) {
@@ -1815,14 +1989,14 @@ inline bool operator<(td::uint64 pos, const ValidatorDescr& descr) {
   return pos < descr.cum_weight;
 }
 
-const ValidatorDescr& ValidatorSet::at_weight(td::uint64 weight_pos) const {
+const ValidatorDescr& TotalValidatorSet::at_weight(td::uint64 weight_pos) const {
   CHECK(weight_pos < total_weight);
   auto it = std::upper_bound(list.begin(), list.end(), weight_pos);
   CHECK(it != list.begin());
   return *--it;
 }
 
-std::vector<ton::ValidatorDescr> ValidatorSet::export_validator_set() const {
+std::vector<ton::ValidatorDescr> TotalValidatorSet::export_validator_set() const {
   std::vector<ton::ValidatorDescr> l;
   l.reserve(list.size());
   for (const auto& node : list) {
@@ -1831,7 +2005,7 @@ std::vector<ton::ValidatorDescr> ValidatorSet::export_validator_set() const {
   return l;
 }
 
-std::map<ton::Bits256, int> ValidatorSet::compute_validator_map() const {
+std::map<ton::Bits256, int> TotalValidatorSet::compute_validator_map() const {
   std::map<ton::Bits256, int> res;
   for (int i = 0; i < (int)list.size(); i++) {
     res.emplace(list[i].pubkey.as_bits256(), i);
@@ -1839,7 +2013,7 @@ std::map<ton::Bits256, int> ValidatorSet::compute_validator_map() const {
   return res;
 }
 
-std::vector<double> ValidatorSet::export_scaled_validator_weights() const {
+std::vector<double> TotalValidatorSet::export_scaled_validator_weights() const {
   std::vector<double> res;
   for (const auto& node : list) {
     res.push_back((double)node.weight / (double)total_weight);
@@ -1847,7 +2021,7 @@ std::vector<double> ValidatorSet::export_scaled_validator_weights() const {
   return res;
 }
 
-int ValidatorSet::lookup_public_key(td::ConstBitPtr pubkey) const {
+int TotalValidatorSet::lookup_public_key(td::ConstBitPtr pubkey) const {
   for (int i = 0; i < (int)list.size(); i++) {
     if (list[i].pubkey.as_bits256() == pubkey) {
       return i;
@@ -1857,7 +2031,7 @@ int ValidatorSet::lookup_public_key(td::ConstBitPtr pubkey) const {
 }
 
 std::vector<ton::ValidatorDescr> Config::do_compute_validator_set(const CatchainValidatorsConfig& ccv_conf,
-                                                                  ton::ShardIdFull shard, const ValidatorSet& vset,
+                                                                  ton::ShardIdFull shard, const TotalValidatorSet& vset,
                                                                   ton::CatchainSeqno cc_seqno) {
   // LOG(DEBUG) << "in Config::do_compute_validator_set() for " << shard.to_str() << " ; cc_seqno=" << cc_seqno;
   std::vector<ton::ValidatorDescr> nodes;
@@ -1952,10 +2126,13 @@ td::Result<SizeLimitsConfig> Config::do_get_size_limits_config(td::Ref<vm::CellS
 
   auto unpack_v2 = [&](auto& rec) {
     unpack_v1(rec);
-    limits.max_acc_state_bits = rec.max_acc_state_bits;
     limits.max_acc_state_cells = rec.max_acc_state_cells;
+    limits.max_mc_acc_state_cells = rec.max_mc_acc_state_cells;
     limits.max_acc_public_libraries = rec.max_acc_public_libraries;
     limits.defer_out_queue_size_limit = rec.defer_out_queue_size_limit;
+    limits.max_msg_extra_currencies = rec.max_msg_extra_currencies;
+    limits.max_acc_fixed_prefix_length = rec.max_acc_fixed_prefix_length;
+    limits.acc_state_cells_for_storage_dict = rec.acc_state_cells_for_storage_dict;
   };
   gen::SizeLimitsConfig::Record_size_limits_config rec_v1;
   gen::SizeLimitsConfig::Record_size_limits_config_v2 rec_v2;
@@ -2109,6 +2286,7 @@ bool WorkchainInfo::unpack(ton::WorkchainId wc, vm::CellSlice& cs) {
     split_merge_interval = rec.split_merge_interval;
     min_split_merge_interval = rec.min_split_merge_interval;
     max_split_merge_delay = rec.max_split_merge_delay;
+    persistent_state_split_depth = info.persistent_state_split_depth;
     return true;
   };
   block::gen::WorkchainDescr::Record_workchain info_v1;
@@ -2292,7 +2470,8 @@ Ref<vm::Cell> ConfigInfo::lookup_library(td::ConstBitPtr root_hash) const {
 td::Result<Ref<vm::Tuple>> ConfigInfo::get_prev_blocks_info() const {
   // [ wc:Integer shard:Integer seqno:Integer root_hash:Integer file_hash:Integer] = BlockId;
   // [ last_mc_blocks:[BlockId...]
-  //   prev_key_block:BlockId ] : PrevBlocksInfo
+  //   prev_key_block:BlockId
+  //   last_mc_blocks_100[BlockId...] ] : PrevBlocksInfo
   auto block_id_to_tuple = [](const ton::BlockIdExt& block_id) -> vm::Ref<vm::Tuple> {
     td::RefInt256 shard = td::make_refint(block_id.id.shard);
     if (shard->sgn() < 0) {
@@ -2302,25 +2481,44 @@ td::Result<Ref<vm::Tuple>> ConfigInfo::get_prev_blocks_info() const {
                               td::make_refint(block_id.id.seqno), td::bits_to_refint(block_id.root_hash.bits(), 256),
                               td::bits_to_refint(block_id.file_hash.bits(), 256));
   };
-  std::vector<vm::StackEntry> last_mc_blocks;
+  std::vector<vm::StackEntry> tuple;
 
+  std::vector<vm::StackEntry> last_mc_blocks;
   last_mc_blocks.push_back(block_id_to_tuple(block_id));
   for (ton::BlockSeqno seqno = block_id.id.seqno; seqno > 0 && last_mc_blocks.size() < 16;) {
     --seqno;
-    ton::BlockIdExt block_id;
-    if (!get_old_mc_block_id(seqno, block_id)) {
+    ton::BlockIdExt id;
+    if (!get_old_mc_block_id(seqno, id)) {
       return td::Status::Error("cannot fetch old mc block");
     }
-    last_mc_blocks.push_back(block_id_to_tuple(block_id));
+    last_mc_blocks.push_back(block_id_to_tuple(id));
   }
+  tuple.push_back(td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(last_mc_blocks)));
 
   ton::BlockIdExt last_key_block;
   ton::LogicalTime last_key_block_lt;
   if (!get_last_key_block(last_key_block, last_key_block_lt)) {
     return td::Status::Error("cannot fetch last key block");
   }
-  return vm::make_tuple_ref(td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(last_mc_blocks)),
-                            block_id_to_tuple(last_key_block));
+  tuple.push_back(block_id_to_tuple(last_key_block));
+
+  if (get_global_version() >= 9) {
+    std::vector<vm::StackEntry> last_mc_blocks_100;
+    for (ton::BlockSeqno seqno = block_id.id.seqno / 100 * 100; last_mc_blocks_100.size() < 16;) {
+      ton::BlockIdExt id;
+      if (!get_old_mc_block_id(seqno, id)) {
+        return td::Status::Error("cannot fetch old mc block");
+      }
+      last_mc_blocks_100.push_back(block_id_to_tuple(id));
+      if (seqno < 100) {
+        break;
+      }
+      seqno -= 100;
+    }
+    tuple.push_back(td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(last_mc_blocks_100)));
+  }
+
+  return td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
 }
 
 td::optional<PrecompiledContractsConfig::Contract> PrecompiledContractsConfig::get_contract(

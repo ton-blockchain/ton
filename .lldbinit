@@ -1,0 +1,6 @@
+# to make this (local) .lldbinit work, don't forget to add the following line to global ~/.lldbinit:
+# settings set target.load-cwd-lldbinit true
+
+command script import lldb_addons.py
+
+settings set target.process.thread.step-avoid-regexp tolk::ASTNodeBase::as<.+>|tolk::Vertex<.+>::get_.+|std::.+

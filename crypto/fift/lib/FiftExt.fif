@@ -1,7 +1,7 @@
-{ ?dup { 1+ { execute } { 0 swap } cond } 
+{ ?dup { 1+ { execute } { 0 swap } cond }
        { (number) ?dup 0= abort"-?" 'nop } cond
 } : (interpret-prepare)
-{ { include-depth 0= (seekeof?) not } { 
+{ { include-depth 0= (seekeof?) not } {
     (word-prefix-find) (interpret-prepare) (execute)
   } while
 } : interpret
@@ -10,7 +10,7 @@
   (}) swap execute
 } : begin-block
 { swap 0 'nop } : end-block
-{ { 1 'nop } `{ begin-block } 
+{ { 1 'nop } `{ begin-block }
 { { swap `{ eq? not abort"} without {" swap execute } end-block }
 :: } :: {
 
@@ -18,7 +18,7 @@
 { eq? not abort"unexpected" } : ?pairs
 { dup `if eq? swap `ifnot eq? over or not abort"without if{" } : if-ifnot?
 // cond then ? -- exec
-{ { ' if } { ' ifnot } cond rot ({) 0 rot (compile) -rot 1 swap (compile) (})  
+{ { ' if } { ' ifnot } cond rot ({) 0 rot (compile) -rot 1 swap (compile) (})
 } : (make-if)
 // cond then else -- exec
 { rot ({) 0 rot (compile) -rot 2 ' cond (compile) (})
@@ -29,7 +29,7 @@
 { { over `else eq? } {
     nip rot if-ifnot? ' swap ifnot (make-cond)
   } while
-  swap `noelse ?pairs 0 swap 
+  swap `noelse ?pairs 0 swap
 } : finish-else-chain
 { swap dup if-ifnot? drop `then {
     swap `then ?pairs
@@ -52,7 +52,7 @@
 } end-block-does :: }do{
 
 // repeat{ ... }until{ ... }
-{ swap ({) 0 rot (compile) 0 rot (compile) (}) 1 ' until does } : (make-until) 
+{ swap ({) 0 rot (compile) 0 rot (compile) (}) 1 ' until does } : (make-until)
 { `repeat begin-block } :: repeat{
 { swap `repeat eq? not abort"without repeat{" `until {
     swap `until ?pairs (make-until) 0 swap
@@ -61,7 +61,7 @@
 
 // def <name> { ... } instead of { ... } : <name>
 { bl word swap bl word "{" $cmp abort"{ expected" `def {
-    swap `def ?pairs -rot 3 ' (create) 
+    swap `def ?pairs -rot 3 ' (create)
   } `{ begin-block
 } : (def)
 { 0 (def) } :: def
@@ -77,10 +77,10 @@ def .sgn {
   if{ ?dup 0= }then{
     ."zero"
   }elseif{ 0> }then{
-    ."positive" 
+    ."positive"
   }else{
-    ."negative" 
-  } 
+    ."negative"
+  }
   cr
 }
 // equivalent to: { ?dup 0= { ."zero" } { 0> { ."positive" } { ."negative" } cond } cond cr } : .sgn

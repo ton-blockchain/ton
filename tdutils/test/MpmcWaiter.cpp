@@ -16,13 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <atomic>
+
 #include "td/utils/MpmcWaiter.h"
+#include "td/utils/Random.h"
 #include "td/utils/port/sleep.h"
 #include "td/utils/port/thread.h"
-#include "td/utils/Random.h"
 #include "td/utils/tests.h"
-
-#include <atomic>
 
 #if !TD_THREAD_UNSUPPORTED
 template <class W>

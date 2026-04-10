@@ -9,7 +9,7 @@
   <hr/>
 </div>
 
-## 
+##
 
 <p align="center">
   <a href="https://tonresear.ch">
@@ -47,9 +47,9 @@ Main TON monorepo, which includes the code of the node/validator, lite-client, t
 __The Open Network (TON)__ is a fast, secure, scalable blockchain focused on handling _millions of transactions per second_ (TPS) with the goal of reaching hundreds of millions of blockchain users.
 - To learn more about different aspects of TON blockchain and its underlying ecosystem check [documentation](https://ton.org/docs)
 - To run node, validator or lite-server check [Participate section](https://ton.org/docs/participate/nodes/run-node)
-- To develop decentralised apps check [Tutorials](https://ton.org/docs/develop/smart-contracts/), [FunC docs](https://ton.org/docs/develop/func/overview) and [DApp tutorials](https://ton.org/docs/develop/dapps/)
+- To develop decentralised apps check [Tutorials](https://docs.ton.org/v3/guidelines/smart-contracts/guidelines), [FunC docs](https://ton.org/docs/develop/func/overview) and [DApp tutorials](https://docs.ton.org/v3/guidelines/dapps/overview)
 - To work on TON check [wallets](https://ton.app/wallets), [explorers](https://ton.app/explorers), [DEXes](https://ton.app/dex) and [utilities](https://ton.app/utilities)
-- To interact with TON check [APIs](https://ton.org/docs/develop/dapps/apis/)
+- To interact with TON check [APIs](https://docs.ton.org/v3/guidelines/dapps/apis-sdks/overview)
 
 ## Updates flow
 
@@ -71,21 +71,21 @@ Usually, the response to your pull request will indicate which section it falls 
 
 ## Build TON blockchain
 
-### Ubuntu 20.4, 22.04 (x86-64, aarch64)
+### Ubuntu 22.04, 24.04 (x86-64, aarch64)
 Install additional system libraries
 ```bash
   sudo apt-get update
-  sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
-          
+  sudo apt-get install -y build-essential git cmake ninja-build
+
   wget https://apt.llvm.org/llvm.sh
   chmod +x llvm.sh
-  sudo ./llvm.sh 16 all
+  sudo ./llvm.sh 21 clang
 ```
 Compile TON binaries
 ```bash
   cp assembly/native/build-ubuntu-shared.sh .
   chmod +x build-ubuntu-shared.sh
-  ./build-ubuntu-shared.sh  
+  ./build-ubuntu-shared.sh
 ```
 
 ### MacOS 11, 12 (x86-64, aarch64)
@@ -99,25 +99,43 @@ Compile TON binaries
 You need to install `MS Visual Studio 2022` first.
 Go to https://www.visualstudio.com/downloads/ and download `MS Visual Studio 2022 Community`.
 
-Launch installer and select `Desktop development with C++`. 
+Launch installer and select `Desktop development with C++`.
 After installation, also make sure that `cmake` is globally available by adding
 `C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin` to the system `PATH` (adjust the path per your needs).
 
-Open an elevated (Run as Administrator) `x86-64 Native Tools Command Prompt for VS 2022`, go to the root folder and execute: 
+Open an elevated (Run as Administrator) `x86-64 Native Tools Command Prompt for VS 2022`, go to the root folder, and execute:
 ```bash
-  copy assembly\native\build-windows.bat .
-  build-windows.bat
+  copy assembly\native\build-windows-2022.bat .
+  build-windows-2022.bat
 ```
+
+### MSYS2 MinGW64 (x86-64)
+Execute from MinGW64 shell
+```bash
+  cp assembly/msys2/build-mingw64.sh .
+  chmod +x build-mingw64.sh
+  ./build-mingw64.sh -a
+```
+As a result, you will get fully statically compiled TON windows binaries.
+
+### MSYS2 UCRT64 (x86-64)
+Execute from ucrt64 shell
+```bash
+  cp assembly/msys2/build-ucrt64.sh .
+  chmod +x build-ucrt64.sh
+  ./build-ucrt64.sh -a
+```
+As a result, you will get fully statically compiled TON windows binaries.
 
 ### Building TON to WebAssembly
 Install additional system libraries on Ubuntu
 ```bash
   sudo apt-get update
-  sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev
-          
+  sudo apt-get install -y build-essential git cmake ninja-build
+
   wget https://apt.llvm.org/llvm.sh
   chmod +x llvm.sh
-  sudo ./llvm.sh 16 all
+  sudo ./llvm.sh 21 clang
 ```
 Compile TON binaries with emscripten
 ```bash
@@ -131,8 +149,7 @@ Install additional system libraries on Ubuntu
 ```bash
   sudo apt-get update
   sudo apt-get install -y build-essential git cmake ninja-build automake libtool texinfo autoconf libgflags-dev \
-  zlib1g-dev libssl-dev libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev \
-  libtool autoconf libsodium-dev libsecp256k1-dev
+  libreadline-dev pkg-config libgsl-dev python3 python3-dev libtool autoconf
 ```
 Compile TON tonlib library
 ```bash
@@ -141,18 +158,10 @@ Compile TON tonlib library
   ./build-android-tonlib.sh
 ```
 
-### Build TON portable binaries with Nix package manager
-You need to install Nix first.
-```bash
-   sh <(curl -L https://nixos.org/nix/install) --daemon
-```
-Then compile TON with Nix by executing below command from the root folder: 
-```bash
-  cp -r assembly/nix/* .
-  export NIX_PATH=nixpkgs=https://github.com/nixOS/nixpkgs/archive/23.05.tar.gz
-  nix-build linux-x86-64-static.nix
-```
-More examples for other platforms can be found under `assembly/nix`.  
+### TON portable binaries
+
+Linux portable binaries are wrapped into AppImages, at the same time MacOS portable binaries are statically linked executables.
+Linux and MacOS binaries are available for both x86-64 and arm64 architectures.
 
 ## Running tests
 

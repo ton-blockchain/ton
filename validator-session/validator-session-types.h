@@ -18,18 +18,19 @@
 */
 #pragma once
 
-#include "td/utils/int_types.h"
-#include "crypto/common/bitstring.h"
-#include "adnl/adnl-node-id.hpp"
-#include "ton/ton-types.h"
-
 #include <ton/ton-tl.hpp>
+
+#include "adnl/adnl-node-id.hpp"
+#include "crypto/common/bitstring.h"
+#include "td/utils/int_types.h"
+#include "ton/ton-types.h"
 
 namespace ton {
 
 namespace validatorsession {
 
 constexpr int VERBOSITY_NAME(VALIDATOR_SESSION_WARNING) = verbosity_WARNING;
+constexpr int VERBOSITY_NAME(VALIDATOR_SESSION_BENCHMARK) = verbosity_WARNING;
 constexpr int VERBOSITY_NAME(VALIDATOR_SESSION_NOTICE) = verbosity_DEBUG;
 constexpr int VERBOSITY_NAME(VALIDATOR_SESSION_INFO) = verbosity_DEBUG;
 constexpr int VERBOSITY_NAME(VALIDATOR_SESSION_DEBUG) = verbosity_DEBUG;
@@ -59,6 +60,7 @@ struct ValidatorSessionOptions {
   td::uint32 max_collated_data_size = 4 << 20;
 
   bool new_catchain_ids = false;
+  bool use_quic = false;
 
   td::uint32 proto_version = 0;
 
@@ -73,6 +75,7 @@ struct ValidatorSessionNode {
 
 struct ValidatorSessionStats {
   enum { status_none = 0, status_received = 1, status_rejected = 2, status_approved = 3 };
+  enum { recv_none = 0, recv_collated = 1, recv_broadcast = 2, recv_query = 3, recv_cached = 4, recv_startup = 5 };
 
   struct Producer {
     int block_status = status_none;
@@ -83,6 +86,7 @@ struct ValidatorSessionStats {
     bool is_accepted = false;
     bool is_ours = false;
     double got_block_at = -1.0;
+    int got_block_by = 0;
     double got_submit_at = -1.0;
     td::int32 gen_utime = -1;
     std::string comment;
@@ -143,7 +147,9 @@ struct ValidatorSessionStats {
         signers_str[i] = '0' + signers[i];
       }
       int flags =
-          (block_status != status_none ? ton_api::validatorStats_stats_producer::Flags::BLOCK_ID_MASK : 0) |
+          (block_status != status_none || !candidate_id.is_zero()
+               ? ton_api::validatorStats_stats_producer::Flags::BLOCK_ID_MASK
+               : 0) |
           (collated_at >= 0.0 ? ton_api::validatorStats_stats_producer::Flags::COLLATED_AT_MASK : 0) |
           (!collator_node_id.is_zero() ? ton_api::validatorStats_stats_producer::Flags::COLLATOR_NODE_ID_MASK : 0) |
           (validated_at >= 0.0 ? ton_api::validatorStats_stats_producer::Flags::VALIDATED_AT_MASK : 0) |
@@ -152,8 +158,8 @@ struct ValidatorSessionStats {
                : 0);
       return create_tl_object<ton_api::validatorStats_stats_producer>(
           flags, validator_id.bits256_value(), block_status, candidate_id, create_tl_block_id(block_id),
-          collated_data_hash, is_accepted, is_ours, got_block_at, got_submit_at, gen_utime, comment, collation_time,
-          collated_at, collation_cached, self_collated, collator_node_id, validation_time, validated_at,
+          collated_data_hash, is_accepted, is_ours, got_block_at, got_block_by, got_submit_at, gen_utime, comment,
+          collation_time, collated_at, collation_cached, self_collated, collator_node_id, validation_time, validated_at,
           validation_cached, approved_weight, approved_33pct_at, approved_66pct_at, std::move(approvers_str),
           signed_weight, signed_33pct_at, signed_66pct_at, std::move(signers_str), serialize_time, deserialize_time,
           serialized_size);
@@ -223,19 +229,24 @@ struct NewValidatorGroupStats {
   CatchainSeqno cc_seqno = 0;
   BlockSeqno last_key_block_seqno = 0;
   double started_at = -1.0;
+  std::vector<BlockIdExt> prev;
   td::uint32 self_idx = 0;
   PublicKeyHash self = PublicKeyHash::zero();
-  std::vector<Node> nodes;
+  std::vector<Node> nodes{};
 
   tl_object_ptr<ton_api::validatorStats_newValidatorGroup> tl() const {
+    std::vector<tl_object_ptr<ton_api::tonNode_blockIdExt>> prev_arr;
+    for (const auto &p : prev) {
+      prev_arr.push_back(create_tl_block_id(p));
+    }
     std::vector<tl_object_ptr<ton_api::validatorStats_newValidatorGroup_node>> nodes_arr;
     for (const auto &node : nodes) {
       nodes_arr.push_back(create_tl_object<ton_api::validatorStats_newValidatorGroup_node>(
           node.id.bits256_value(), node.pubkey.tl(), node.adnl_id.bits256_value(), node.weight));
     }
-    return create_tl_object<ton_api::validatorStats_newValidatorGroup>(session_id, create_tl_shard_id(shard), cc_seqno,
-                                                                       last_key_block_seqno, started_at, self_idx,
-                                                                       self.bits256_value(), std::move(nodes_arr));
+    return create_tl_object<ton_api::validatorStats_newValidatorGroup>(
+        session_id, create_tl_shard_id(shard), cc_seqno, last_key_block_seqno, started_at, std::move(prev_arr),
+        self_idx, self.bits256_value(), std::move(nodes_arr));
   }
 };
 
@@ -248,7 +259,7 @@ struct EndValidatorGroupStats {
   ValidatorSessionId session_id = ValidatorSessionId::zero();
   double timestamp = -1.0;
   PublicKeyHash self = PublicKeyHash::zero();
-  std::vector<Node> nodes;
+  std::vector<Node> nodes{};
 
   tl_object_ptr<ton_api::validatorStats_endValidatorGroup> tl() const {
     std::vector<tl_object_ptr<ton_api::validatorStats_endValidatorGroup_node>> nodes_arr;

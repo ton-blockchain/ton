@@ -16,12 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "validator-session-state.h"
-#include "td/utils/overloaded.h"
-#include "td/utils/Random.h"
-#include "auto/tl/ton_api.hpp"
-
 #include <set>
+
+#include "auto/tl/ton_api.hpp"
+#include "td/utils/Random.h"
+#include "td/utils/overloaded.h"
+
+#include "validator-session-state.h"
 
 namespace td {
 
@@ -310,7 +311,7 @@ const ValidatorSessionRoundState* ValidatorSessionRoundState::merge(ValidatorSes
   td::uint32 f_att[2] = {};
   td::uint32 f_cnt = 0;
 
-  for (td::uint32 i = att_vec->size(); i > 0; i--) {
+  for (td::uint32 i = att_vec ? att_vec->size() : 0; i > 0; i--) {
     auto b = att_vec->at(i - 1);
     if (f_cnt <= 1) {
       bool found;

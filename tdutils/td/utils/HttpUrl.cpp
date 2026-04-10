@@ -17,11 +17,10 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/HttpUrl.h"
-
+#include "td/utils/Parser.h"
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
-#include "td/utils/Parser.h"
 #include "td/utils/port/IPAddress.h"
 
 namespace td {

@@ -22,8 +22,8 @@
 #include "adnl/utils.hpp"
 #include "auto/tl/ton_api.h"
 
-#include "catchain-types.h"
 #include "catchain-receiver-interface.h"
+#include "catchain-types.h"
 
 namespace ton {
 
@@ -68,7 +68,7 @@ class CatChainReceiver : public CatChainReceiverInterface {
   virtual ~CatChainReceiver() = default;
 };
 
-td::uint64 get_max_block_height(const CatChainOptions& opts, size_t sources_cnt);
+td::uint64 get_max_block_height(const CatChainOptions &opts, size_t sources_cnt);
 
 }  // namespace catchain
 

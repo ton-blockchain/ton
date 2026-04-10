@@ -1,25 +1,51 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
 set(TOLK_SOURCE
         src-file.cpp
         lexer.cpp
         symtable.cpp
+        compilation-errors.cpp
         compiler-state.cpp
         ast.cpp
         ast-from-tokens.cpp
+        constant-evaluator.cpp
+		gen-entrypoints.cpp
+        pack-unpack-api.cpp
+        pack-unpack-serializers.cpp
+        send-message-api.cpp
+        maps-kv-api.cpp
         pipe-discover-parse-sources.cpp
         pipe-register-symbols.cpp
+        pipe-resolve-identifiers.cpp
+        pipe-resolve-types.cpp
+        pipe-calc-rvalue-lvalue.cpp
+        pipe-infer-types-and-calls.cpp
+        pipe-check-inferred-types.cpp
+        pipe-refine-lvalue-for-mutate.cpp
+        pipe-check-rvalue-lvalue.cpp
+        pipe-check-private-fields.cpp
+        pipe-check-pure-impure.cpp
+        pipe-check-const-expr.cpp
+        pipe-mini-borrow-checker.cpp
+        pipe-optimize-boolean-expr.cpp
+        pipe-detect-inline-in-place.cpp
+        pipe-check-serialized-fields.cpp
+        pipe-lazy-load-insertions.cpp
+        pipe-transform-on-message.cpp
         pipe-ast-to-legacy.cpp
         pipe-find-unused-symbols.cpp
         pipe-generate-fif-output.cpp
-        unify-types.cpp
+        type-system.cpp
+        type-transition.cpp
+        smart-casts-cfg.cpp
+        generics-helpers.cpp
+        lazy-helpers.cpp
+        overload-resolution.cpp
         abscode.cpp
-        gen-abscode.cpp
         analyzer.cpp
         asmops.cpp
         builtins.cpp
         stack-transform.cpp
         optimize.cpp
+        pretty-print.cpp
         codegen.cpp
         tolk.cpp
 )
@@ -40,22 +66,24 @@ if (USE_EMSCRIPTEN)
   target_include_directories(tolkfiftlib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
   target_link_libraries(tolkfiftlib PUBLIC fift-lib git)
   target_link_options(tolkfiftlib PRIVATE
-          -sEXPORTED_RUNTIME_METHODS=FS,ccall,cwrap,UTF8ToString,stringToUTF8,lengthBytesUTF8,addFunction,removeFunction,setValue
-          -sEXPORTED_FUNCTIONS=_tolk_compile,_version,_malloc,_free,_setThrew
+          -sEXPORTED_RUNTIME_METHODS=UTF8ToString,stringToUTF8,lengthBytesUTF8,addFunction,removeFunction,setValue
+          -sEXPORTED_FUNCTIONS=_tolk_compile,_tolk_version,_malloc,_free,_setThrew
           -sEXPORT_NAME=CompilerModule
-          -sERROR_ON_UNDEFINED_SYMBOLS=0
-          -sFILESYSTEM=1 -lnodefs.js
+          -sFILESYSTEM=0
           -Oz
           -sIGNORE_MISSING_MAIN=1
           -sAUTO_NATIVE_LIBRARIES=0
+          -sDYNAMIC_EXECUTION=0
           -sMODULARIZE=1
+          -sTOTAL_STACK=131072
           -sTOTAL_MEMORY=33554432
           -sALLOW_MEMORY_GROWTH=1
           -sALLOW_TABLE_GROWTH=1
-          --embed-file ${CMAKE_CURRENT_SOURCE_DIR}/../crypto/fift/lib@/fiftlib
+          -sENVIRONMENT=node,web
           -fexceptions
+          -flto
   )
-  target_compile_options(tolkfiftlib PRIVATE -fexceptions -fno-stack-protector)
+  target_compile_options(tolkfiftlib PRIVATE -fexceptions -fno-stack-protector -flto)
 endif ()
 
 install(TARGETS tolk RUNTIME DESTINATION bin)

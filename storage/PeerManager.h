@@ -15,9 +15,10 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include "overlay/overlay.h"
 #include "rldp2/rldp.h"
 #include "td/actor/actor.h"
-#include "overlay/overlay.h"
+
 #include "NodeActor.h"
 
 namespace ton_rldp = ton::rldp2;

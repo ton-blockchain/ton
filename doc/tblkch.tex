@@ -180,7 +180,7 @@ Apart from the {\em ordinary\/} cells (also called {\em simple\/} or {\em data\/
 Most cell operations do not observe any reference cells or other ``exotic'' kinds of cells; they see only data cells, with any reference cell transparently replaced by the cell referred to. For example, when the {\em transparent\/} cell hash $\Hash^\flat(c)$ is recursively computed, the hash of a reference cell is set to be equal to the hash of the cell referred to, not the hash of the standard representation of the reference cell.
 
 \nxsubpoint\emb{Transparent hash and representation hash of a cell}
-In this way, $\Sha^\flat(c)=\Hash^\flat(c)$ is the {\em transparent hash} of a cell $c$ (or the tree of cells rooted in $c$). 
+In this way, $\Sha^\flat(c)=\Hash^\flat(c)$ is the {\em transparent hash} of a cell $c$ (or the tree of cells rooted in $c$).
 
 However, sometimes we need to reason about the exact representation of a tree of cells present in a block. To this end, a {\em representation hash\/} $\Hash^\sharp(c)$ is defined, which is not transparent with respect to reference cells and other exotic types of cells. We often say that the representation hash of~$c$ is ``the'' hash of~$c$, because it is the most frequently used hash of a cell.
 
@@ -865,12 +865,12 @@ bit$_ _:(## 1) = Bit;
 The serialization of source and destination addresses is defined by the following TL-B scheme:
 \begin{verbatim}
 addr_none$00 = MsgAddressExt;
-addr_extern$01 len:(## 9) external_address:(len * Bit) 
+addr_extern$01 len:(## 9) external_address:(len * Bit)
              = MsgAddressExt;
 anycast_info$_ depth:(## 5) rewrite_pfx:(depth * Bit) = Anycast;
-addr_std$10 anycast:(Maybe Anycast) 
+addr_std$10 anycast:(Maybe Anycast)
    workchain_id:int8 address:uint256  = MsgAddressInt;
-addr_var$11 anycast:(Maybe Anycast) addr_len:(## 9) 
+addr_var$11 anycast:(Maybe Anycast) addr_len:(## 9)
    workchain_id:int32 address:(addr_len * Bit) = MsgAddressInt;
 _ MsgAddressInt = MsgAddress;
 _ MsgAddressExt = MsgAddress;
@@ -892,9 +892,9 @@ Amounts of Grams are expressed with the aid of two types representing variable-l
 \begin{verbatim}
 var_uint$_ {n:#} len:(#< n) value:(uint (len * 8))
          = VarUInteger n;
-var_int$_ {n:#} len:(#< n) value:(int (len * 8)) 
+var_int$_ {n:#} len:(#< n) value:(int (len * 8))
         = VarInteger n;
-nanograms$_ amount:(VarUInteger 16) = Grams;  
+nanograms$_ amount:(VarUInteger 16) = Grams;
 \end{verbatim}
 If one wants to represent $x$ nanograms, one selects an integer $\ell<16$ such that $x<2^{8\ell}$, and serializes first $\ell$ as an unsigned 4-bit integer, then $x$ itself as an unsigned $8\ell$-bit integer. Notice that four zero bits represent a zero amount of Grams.
 
@@ -905,9 +905,9 @@ Recall that the TON Blockchain allows its users to define arbitrary cryptocurren
 
 When some amounts of one or several such cryptocurrencies need to be represented, a dictionary (cf.~\cite[3.3]{TVM}) with 32-bit $\currencyid$s as keys and \texttt{VarUInteger 32} values is used:
 \begin{verbatim}
-extra_currencies$_ dict:(HashmapE 32 (VarUInteger 32)) 
+extra_currencies$_ dict:(HashmapE 32 (VarUInteger 32))
                  = ExtraCurrencyCollection;
-currencies$_ grams:Grams other:ExtraCurrencyCollection 
+currencies$_ grams:Grams other:ExtraCurrencyCollection
            = CurrencyCollection;
 \end{verbatim}
 The value attached to an internal message is represented by a value of the \texttt{CurrencyCollection} type, which may describe a certain (non-negative) amount of (nano)grams as well as some additional currencies, if needed. Notice that if no additional currencies are required, \texttt{other} reduces to just one zero bit.
@@ -916,10 +916,10 @@ The value attached to an internal message is represented by a value of the \text
 A message consists of its {\em header\/} followed by its {\em body}, or {\em payload}. The body is essentially arbitrary, to be interpreted by the destination smart contract. The message header is standard and is organized as follows:
 \begin{verbatim}
 int_msg_info$0 ihr_disabled:Bool bounce:Bool
-  src:MsgAddressInt dest:MsgAddressInt 
+  src:MsgAddressInt dest:MsgAddressInt
   value:CurrencyCollection ihr_fee:Grams fwd_fee:Grams
   created_lt:uint64 created_at:uint32 = CommonMsgInfo;
-ext_in_msg_info$10 src:MsgAddressExt dest:MsgAddressInt 
+ext_in_msg_info$10 src:MsgAddressExt dest:MsgAddressInt
   import_fee:Grams = CommonMsgInfo;
 ext_out_msg_info$11 src:MsgAddressInt dest:MsgAddressExt
   created_lt:uint64 created_at:uint32 = CommonMsgInfo;
@@ -970,14 +970,14 @@ Notice that {\em the source address and the logical creation time of an internal
 \nxsubpoint\label{sp:tl.msg.env}\emb{Enveloped messages}
 {\em Message envelopes\/} are used for attaching routing information, such as the current (transit) address and the next-hop address, to inbound, transit, and outbound messages (cf.~\ptref{sp:msg.env}). The message itself is kept in a separate cell and referred to from the message envelope by a cell reference.
 \begin{verbatim}
-interm_addr_regular$0 use_src_bits:(#<= 96) 
+interm_addr_regular$0 use_src_bits:(#<= 96)
   = IntermediateAddress;
-interm_addr_simple$10 workchain_id:int8 addr_pfx:(64 * Bit) 
+interm_addr_simple$10 workchain_id:int8 addr_pfx:(64 * Bit)
   = IntermediateAddress;
 interm_addr_ext$11 workchain_id:int32 addr_pfx:(64 * Bit)
   = IntermediateAddress;
-msg_envelope cur_addr:IntermediateAddress 
-  next_addr:IntermediateAddress fwd_fee_remaining:Grams 
+msg_envelope cur_addr:IntermediateAddress
+  next_addr:IntermediateAddress fwd_fee_remaining:Grams
   msg:^(Message Any) = MsgEnvelope;
 \end{verbatim}
 The \texttt{IntermediateAddress} type is used to describe the intermediate addresses of a message---that is, its current (or transit) address \texttt{cur\_addr}, and its next-hop address~\texttt{next\_addr}. The first constructor \texttt{interm\_addr\_regular} represents the intermediate address using the optimization described in~\ptref{sp:repr.interm.addr}, by storing the number of the first bits of the intermediate address that are the same as in the source address; the two other explicitly store the workchain identifier and the first 64 bits of the address inside that workchain (the remaining bits can be taken from the source address). The \texttt{fwd\_fee\_remaining} field is used to explicitly represent the maximum amount of message forwarding fees that can be deducted from the message value during the remaining HR steps; it cannot exceed the value of \texttt{fwd\_fee} indicated in the message itself.
@@ -1002,19 +1002,19 @@ Inbound messages may be classified as follows:
 \nxsubpoint\label{sp:in.msg.d}\emb{Descriptor of an inbound message}
 Each inbound message is described by an instance of the \texttt{InMsg} type, which has six constructors corresponding to the cases listed above in~\ptref{sp:inb.msg.classes}:
 \begin{verbatim}
-msg_import_ext$000 msg:^(Message Any) transaction:^Transaction 
+msg_import_ext$000 msg:^(Message Any) transaction:^Transaction
               = InMsg;
-msg_import_ihr$010 msg:^(Message Any) transaction:^Transaction 
+msg_import_ihr$010 msg:^(Message Any) transaction:^Transaction
     ihr_fee:Grams proof_created:^Cell = InMsg;
 msg_import_imm$011 in_msg:^MsgEnvelope
     transaction:^Transaction fwd_fee:Grams = InMsg;
-msg_import_fin$100 in_msg:^MsgEnvelope 
+msg_import_fin$100 in_msg:^MsgEnvelope
     transaction:^Transaction fwd_fee:Grams = InMsg;
-msg_import_tr$101  in_msg:^MsgEnvelope out_msg:^MsgEnvelope 
+msg_import_tr$101  in_msg:^MsgEnvelope out_msg:^MsgEnvelope
     transit_fee:Grams = InMsg;
-msg_discard_fin$110 in_msg:^MsgEnvelope transaction_id:uint64 
+msg_discard_fin$110 in_msg:^MsgEnvelope transaction_id:uint64
     fwd_fee:Grams = InMsg;
-msg_discard_tr$111 in_msg:^MsgEnvelope transaction_id:uint64 
+msg_discard_tr$111 in_msg:^MsgEnvelope transaction_id:uint64
     fwd_fee:Grams proof_delivered:^Cell = InMsg;
 \end{verbatim}
 Notice that the processing transaction is referred to in the first four constructors directly by a cell reference to \texttt{Transaction}, even though the logical time of the transaction \texttt{transaction\_lt:uint64} would suffice for this purpose. Internal consistency conditions ensure that the transaction referred to does belong to the destination smart contract indicated in the message, and that the inbound message processed by that transaction is indeed the one being described in this {\em InMsg\/} instance.
@@ -1051,16 +1051,16 @@ These augmentation values must satisfy certain {\em aggregation conditions}. Typ
 \nxsubpoint\label{sp:aug.hm.ser}\emb{Serialization of augmented hashmaps}
 The serialization of augmented hashmaps with $n$-bit keys, values of type $X$, and augmentation values of type $Y$ is given by the following TL-B scheme, which is an extension of the one provided in~\cite[3.3.3]{TVM}:
 \begin{verbatim}
-ahm_edge#_ {n:#} {X:Type} {Y:Type} {l:#} {m:#} 
-  label:(HmLabel ~l n) {n = (~m) + l} 
+ahm_edge#_ {n:#} {X:Type} {Y:Type} {l:#} {m:#}
+  label:(HmLabel ~l n) {n = (~m) + l}
   node:(HashmapAugNode m X Y) = HashmapAug n X Y;
-ahmn_leaf#_ {X:Type} {Y:Type} extra:Y value:X 
+ahmn_leaf#_ {X:Type} {Y:Type} extra:Y value:X
   = HashmapAugNode 0 X Y;
 ahmn_fork#_ {n:#} {X:Type} {Y:Type}
-    left:^(HashmapAug n X Y) right:^(HashmapAug n X Y) extra:Y 
+    left:^(HashmapAug n X Y) right:^(HashmapAug n X Y) extra:Y
   = HashmapAugNode (n + 1) X Y;
 
-ahme_empty$0 {n:#} {X:Type} {Y:Type} extra:Y 
+ahme_empty$0 {n:#} {X:Type} {Y:Type} extra:Y
           = HashmapAugE n X Y;
 ahme_root$1 {n:#} {X:Type} {Y:Type} root:^(HashmapAug n X Y)
   extra:Y = HashmapAugE n X Y;
@@ -1069,7 +1069,7 @@ ahme_root$1 {n:#} {X:Type} {Y:Type} root:^(HashmapAug n X Y)
 \nxsubpoint\label{sp:in.msg.augm}\emb{Augmentation of {\em InMsgDescr}}
 The collection of inbound message descriptors is augmented by a vector of two currency values, representing the imported value and the forwarding and transit fees collected from a message or a collection of messages:
 \begin{verbatim}
-import_fees$_ fees_collected:Grams 
+import_fees$_ fees_collected:Grams
   value_imported:CurrencyCollection = ImportFees;
 \end{verbatim}
 
@@ -1105,15 +1105,15 @@ Each outbound message is described by an instance of {\em OutMsg}:
 \begin{verbatim}
 msg_export_ext$000 msg:^(Message Any)
     transaction:^Transaction = OutMsg;
-msg_export_imm$010 out_msg:^MsgEnvelope 
+msg_export_imm$010 out_msg:^MsgEnvelope
     transaction:^Transaction reimport:^InMsg = OutMsg;
-msg_export_new$001 out_msg:^MsgEnvelope 
+msg_export_new$001 out_msg:^MsgEnvelope
     transaction:^Transaction = OutMsg;
-msg_export_tr$011  out_msg:^MsgEnvelope 
+msg_export_tr$011  out_msg:^MsgEnvelope
     imported:^InMsg = OutMsg;
-msg_export_deq$110 out_msg:^MsgEnvelope 
+msg_export_deq$110 out_msg:^MsgEnvelope
     import_block_lt:uint64 = OutMsg;
-msg_export_tr_req$111 out_msg:^MsgEnvelope 
+msg_export_tr_req$111 out_msg:^MsgEnvelope
     imported:^InMsg = OutMsg;
 \end{verbatim}
 The last two descriptions have the effect of removing (dequeueing) the message from {\em OutMsgQueue\/} instead of inserting it. The last one re-inserts the message into {\em OutMsgQueue\/} with a new envelope after performing the internal routing (cf.~\ptref{sp:hr.int.route}).
@@ -1189,8 +1189,8 @@ There are three kinds of accounts:
 \nxsubpoint\emb{Storage profile of an account}
 The {\em storage profile\/} of an account is a data structure describing the amount of persistent blockchain state storage used by that account. It describes the total amount of cells, data bits, and internal and external cell references used.
 \begin{verbatim}
-storage_used$_ cells:(VarUInteger 7) bits:(VarUInteger 7) 
-  ext_refs:(VarUInteger 7) int_refs:(VarUInteger 7) 
+storage_used$_ cells:(VarUInteger 7) bits:(VarUInteger 7)
+  ext_refs:(VarUInteger 7) int_refs:(VarUInteger 7)
   public_cells:(VarUInteger 7) = StorageUsed;
 \end{verbatim}
 The same type {\tt StorageUsed} may represent the storage profile of a message, as required, for instance, to compute {\tt fwd\_fee}, the total forwarding fee for Hypercube Routing. The storage profile of an account has some additional fields indicating the last time when the storage fees were exacted:
@@ -1208,7 +1208,7 @@ account$1 addr:MsgAddressInt storage_stat:StorageInfo
           storage:AccountStorage = Account;
 
 account_storage$_ last_trans_lt:uint64
-    balance:CurrencyCollection state:AccountState 
+    balance:CurrencyCollection state:AccountState
   = AccountStorage;
 
 account_uninit$00 = AccountState;
@@ -1372,7 +1372,7 @@ Any transaction contains the fields listed in~\ptref{sp:gen.comp.tr}. As a conse
 \begin{verbatim}
 transaction$_ account_addr:uint256 lt:uint64 outmsg_cnt:uint15
   orig_status:AccountStatus end_status:AccountStatus
-  in_msg:(Maybe ^(Message Any)) 
+  in_msg:(Maybe ^(Message Any))
   out_msgs:(HashmapE 15 ^(Message Any))
   total_fees:Grams state_update:^(MERKLE_UPDATE Account)
   description:^TransactionDescr = Transaction;
@@ -1450,7 +1450,7 @@ On the other hand, we want to minimize the size of each transaction, because we 
 \nxsubpoint\emb{Description of a storage phase}
 The storage phase is present in several kinds of transactions, so a common representation for this phase is used:
 \begin{verbatim}
-tr_phase_storage$_ storage_fees_collected:Grams 
+tr_phase_storage$_ storage_fees_collected:Grams
   storage_fees_due:(Maybe Grams)
   status_change:AccStatusChange
   = TrStoragePhase;
@@ -1473,7 +1473,7 @@ The computing phase consists in invoking TVM with correct inputs. On some occasi
 \begin{verbatim}
 tr_phase_compute_skipped$0 reason:ComputeSkipReason
   = TrComputePhase;
-tr_phase_compute_vm$1 success:Bool msg_state_used:Bool 
+tr_phase_compute_vm$1 success:Bool msg_state_used:Bool
   account_activated:Bool gas_fees:Grams
   _:^[ gas_used:(VarUInteger 7)
   gas_limit:(VarUInteger 7) gas_credit:(Maybe (VarUInteger 3))
@@ -1503,7 +1503,7 @@ If there is no reason to skip the computing phase, TVM is invoked and the result
 \item The {\tt gas\_fees} parameter reflects the total gas fees collected by the validators for executing this transaction. It must be equal to the product of {\tt gas\_used} and {\tt gas\_price} from the current block header.
 \item The {\tt gas\_limit} parameter reflects the gas limit for this instance of TVM. It equals the lesser of either the Grams credited in the credit phase from the value of the inbound message divided by the current gas price, or the global per-transaction gas limit.
 \item The {\tt gas\_credit} parameter may be non-zero only for external inbound messages. It is the lesser of either the amount of gas that can be paid from the account balance or the maximum gas credit.
-\item The {\tt exit\_code} and {\tt exit\_args} parameters represent the status values returned by TVM. 
+\item The {\tt exit\_code} and {\tt exit\_args} parameters represent the status values returned by TVM.
 \item The {\tt vm\_init\_state\_hash} and {\tt vm\_final\_state\_hash} parameters are the representation hashes of the original and resulting states of TVM, and {\tt vm\_steps} is the total number of steps performed by TVM (usually equal to two plus the number of instructions executed, including implicit {\tt RET}s).\footnote{Notice that this record does not represent a change in the state of the account, because the transaction may still be aborted during the action phase. In that case, the new persistent data indirectly referenced by {\tt vm\_final\_state\_hash} will be discarded.}
 \end{itemize}
 
@@ -1514,8 +1514,8 @@ tr_phase_action$_ success:Bool valid:Bool no_funds:Bool
   status_change:AccStatusChange
   total_fwd_fees:(Maybe Grams) total_action_fees:(Maybe Grams)
   result_code:int32 result_arg:(Maybe int32) tot_actions:int16
-  spec_actions:int16 msgs_created:int16 
-  action_list_hash:uint256 tot_msg_size:StorageUsed 
+  spec_actions:int16 msgs_created:int16
+  action_list_hash:uint256 tot_msg_size:StorageUsed
   = TrActionPhase;
 \end{verbatim}
 
@@ -1524,7 +1524,7 @@ tr_phase_action$_ success:Bool valid:Bool no_funds:Bool
 tr_phase_bounce_negfunds$00 = TrBouncePhase;
 tr_phase_bounce_nofunds$01 msg_size:StorageUsed
   req_fwd_fees:Grams = TrBouncePhase;
-tr_phase_bounce_ok$1 msg_size:StorageUsed 
+tr_phase_bounce_ok$1 msg_size:StorageUsed
   msg_fees:Grams fwd_fees:Grams = TrBouncePhase;
 \end{verbatim}
 
@@ -1687,9 +1687,9 @@ For processing merge install transactions (cf.~\ptref{sp:merge.trans}), the TVM 
 The smart-contract information structure {\em SmartContractInfo}, passed in the first component of the {\em Tuple\/} contained in control register {\tt c7}, is also a {\em Tuple} containing the following data:
 \begin{verbatim}
 [ magic:0x076ef1ea actions:Integer msgs_sent:Integer
-  unixtime:Integer block_lt:Integer trans_lt:Integer 
+  unixtime:Integer block_lt:Integer trans_lt:Integer
   rand_seed:Integer balance_remaining:[Integer (Maybe Cell)]
-  myself:MsgAddressInt global_config:(Maybe Cell) 
+  myself:MsgAddressInt global_config:(Maybe Cell)
 ] = SmartContractInfo;
 \end{verbatim}
 In other words, the first component of this tuple is an {\em Integer\/} {\tt magic\/} always equal to {\tt 0x076ef1ea}, the second component is an {\em Integer\/} {\tt actions}, originally initialized by zero, but incremented by one whenever an output action is installed by a non-{\tt RAW} output action primitive of the TVM, and so on. The remaining balance is represented by a pair, i.e., a two-component {\em Tuple}: the first component is the nanogram balance, and the second component is a dictionary with 32-bit keys representing all other currencies, if any (cf.~\ptref{sp:extra.curr}).
@@ -1755,10 +1755,10 @@ ext_blk_ref$_ start_lt:uint64 end_lt:uint64
 
 master_info$_ master:ExtBlkRef = BlkMasterInfo;
 
-shard_ident$00 shard_pfx_bits:(## 6) 
+shard_ident$00 shard_pfx_bits:(## 6)
   workchain_id:int32 shard_prefix:uint64 = ShardIdent;
 
-shard_state shard_id:ShardIdent 
+shard_state shard_id:ShardIdent
   out_msg_queue:OutMsgQueue
   total_balance:CurrencyCollection
   total_validator_fees:CurrencyCollection
@@ -1781,13 +1781,13 @@ Here {\tt publishers} is a hashmap with keys equal to the addresses of all accou
 \nxsubpoint\emb{TL-B scheme for an unsigned shardchain block}
 The precise format of an {\em unsigned\/} (cf.~\ptref{sp:val.sign}) shardchain block is given by the following TL-B scheme:
 \begin{verbatim}
-block_info version:uint32 
-  not_master:(## 1) 
+block_info version:uint32
+  not_master:(## 1)
   after_merge:(## 1) before_split:(## 1) flags:(## 13)
-  seq_no:# vert_seq_no:# 
+  seq_no:# vert_seq_no:#
   shard:ShardIdent gen_utime:uint32
   start_lt:uint64 end_lt:uint64
-  master_ref:not_master?^BlkMasterInfo 
+  master_ref:not_master?^BlkMasterInfo
   prev_ref:seq_no?^(BlkPrevInfo after_merge)
   prev_vert_ref:vert_seq_no?^(BlkPrevInfo 0)
   = BlockInfo;
@@ -1796,7 +1796,7 @@ prev_blk_info#_ {merged:#} prev:ExtBlkRef
   prev_alt:merged?ExtBlkRef = BlkPrevInfo merged;
 
 unsigned_block info:^BlockInfo value_flow:^ValueFlow
-  state_update:^(MERKLE_UPDATE ShardState) 
+  state_update:^(MERKLE_UPDATE ShardState)
   extra:^BlockExtra = Block;
 
 block_extra in_msg_descr:^InMsgDescr
@@ -1810,7 +1810,7 @@ The field {\tt custom} is usually present only in the masterchain and contains a
 \nxsubpoint\emb{Description of total value flow through a block}
 The total value flow through a block is serialized according to the following TL-B scheme:
 \begin{verbatim}
-value_flow _:^[ from_prev_blk:CurrencyCollection 
+value_flow _:^[ from_prev_blk:CurrencyCollection
   to_next_blk:CurrencyCollection
   imported:CurrencyCollection
   exported:CurrencyCollection ]
@@ -1824,9 +1824,9 @@ value_flow _:^[ from_prev_blk:CurrencyCollection
 Recall that \texttt{\_:\caret[}\dots\texttt{]} is a TL-B construction indicating that a group of fields has been moved into a separate cell. The last three fields may be non-zero only in masterchain blocks.
 
 \nxsubpoint\label{sp:signed.blk}\emb{Signed shardchain block}
-A signed shardchain block is just an unsigned block augmented by a collection of validator signatures: 
+A signed shardchain block is just an unsigned block augmented by a collection of validator signatures:
 \begin{verbatim}
-ed25519_signature#5 R:uint256 s:uint256 = CryptoSignature; 
+ed25519_signature#5 R:uint256 s:uint256 = CryptoSignature;
 
 signed_block block:^Block blk_serialize_hash:uint256
   signatures:(HashmapE 64 CryptoSignature)
@@ -1871,14 +1871,14 @@ In addition to the components listed in~\ptref{sp:shard.blk.comp}, each masterch
 {\em ShardHashes\/} is represented by a dictionary with 32-bit $\workchainid$s as keys, and ``shard binary trees'', represented by TL-B type {\em BinTree ShardDescr}, as values. Each leaf of this shard binary tree contains a value of type {\em ShardDescr}, which describes a single shard by indicating the sequence number {\tt seq\_no}, the logical time {\tt lt}, and the hash {\tt hash} of the latest (signed) block of the corresponding shardchain.
 \begin{verbatim}
 bt_leaf$0 {X:Type} leaf:X = BinTree X;
-bt_fork$1 {X:Type} left:^(BinTree X) right:^(BinTree X) 
+bt_fork$1 {X:Type} left:^(BinTree X) right:^(BinTree X)
           = BinTree X;
 
 fsm_none$0 = FutureSplitMerge;
 fsm_split$10 mc_seqno:uint32 = FutureSplitMerge;
 fsm_merge$11 mc_seqno:uint32 = FutureSplitMerge;
 
-shard_descr$_ seq_no:uint32 lt:uint64 hash:uint256 
+shard_descr$_ seq_no:uint32 lt:uint64 hash:uint256
   split_merge_at:FutureSplitMerge = ShardDescr;
 
 _ (HashmapE 32 ^(BinTree ShardDescr)) = ShardHashes;
@@ -1891,7 +1891,7 @@ Notice that the masterchain itself is omitted from {\em ShardHashes\/} (i.e., 32
 {\em ShardFees\/} is a masterchain structure used to reflect the total fees collected so far by the validators of a shardchain. The total fees reflected in this structure are accumulated in the masterchain by crediting them to a special account, whose address is a configurable parameter. Typically this account is the smart contract that computes and distributes the rewards to all validators.
 \begin{verbatim}
 bta_leaf$0 {X:Type} {Y:Type} leaf:X extra:Y = BinTreeAug X Y;
-bta_fork$1 {X:Type} {Y:Type} left:^(BinTreeAug X Y) 
+bta_fork$1 {X:Type} {Y:Type} left:^(BinTreeAug X Y)
            right:^(BinTreeAug X Y) extra:Y = BinTreeAug X Y;
 
 _ (HashmapAugE 32 ^(BinTreeAug True CurrencyCollection)
@@ -1902,7 +1902,7 @@ The structure of {\em ShardFees\/} is similar to that of {\em ShardHashes\/} (cf
 \nxsubpoint\emb{Description of {\em ConfigParams}}
 Recall that the {\em configurable parameters\/} or the {\em configuration dictionary\/} is a dictionary {\tt config} with 32-bit keys kept inside the first cell reference of the persistent data of the configuration smart contract $\gamma$ (cf.~\ptref{p:conf.params}). The address $\gamma$ of the configuration smart contract and a copy of the configuration dictionary are duplicated in fields {\tt config\_addr} and {\tt config} of a {\em ConfigParams\/} structure, explicitly included into masterchain state to facilitate access to the current values of the configurable parameters (cf.~\ptref{sp:conf.par.qa}):
 \begin{verbatim}
-_ config_addr:uint256 config:^(Hashmap 32 ^Cell) 
+_ config_addr:uint256 config:^(Hashmap 32 ^Cell)
   = ConfigParams;
 \end{verbatim}
 
@@ -2002,11 +2002,11 @@ In addition to the values listed in~\ptref{sp:boc.ser.class}, fixed by the choic
 \nxsubpoint\label{sp:boc.ser.sch}\emb{TL-B scheme for serializing bags of cells}
 Several TL-B constructors can be used to serialize bags of cells into octet (i.e., 8-bit byte) sequences. The only one that is currently used to serialize new bags of cell is
 \begin{verbatim}
-serialized_boc#b5ee9c72 has_idx:(## 1) has_crc32c:(## 1) 
+serialized_boc#b5ee9c72 has_idx:(## 1) has_crc32c:(## 1)
   has_cache_bits:(## 1) flags:(## 2) { flags = 0 }
   size:(## 3) { size <= 4 }
-  off_bytes:(## 8) { off_bytes <= 8 } 
-  cells:(##(size * 8)) 
+  off_bytes:(## 8) { off_bytes <= 8 }
+  cells:(##(size * 8))
   roots:(##(size * 8)) { roots >= 1 }
   absent:(##(size * 8)) { roots + absent <= cells }
   tot_cells_size:(##(off_bytes * 8))
@@ -2021,8 +2021,8 @@ Field {\tt cells} is $n$, {\tt roots} is $k$, {\tt absent} is $l$, and {\tt tot\
 Two older constructors are still supported in the bag-of-cells deserialization functions:
 \begin{verbatim}
 serialized_boc_idx#68ff65f3 size:(## 8) { size <= 4 }
-  off_bytes:(## 8) { off_bytes <= 8 } 
-  cells:(##(size * 8)) 
+  off_bytes:(## 8) { off_bytes <= 8 }
+  cells:(##(size * 8))
   roots:(##(size * 8)) { roots = 1 }
   absent:(##(size * 8)) { roots + absent <= cells }
   tot_cells_size:(##(off_bytes * 8))
@@ -2031,8 +2031,8 @@ serialized_boc_idx#68ff65f3 size:(## 8) { size <= 4 }
   = BagOfCells;
 
 serialized_boc_idx_crc32c#acc3a728 size:(## 8) { size <= 4 }
-  off_bytes:(## 8) { off_bytes <= 8 } 
-  cells:(##(size * 8)) 
+  off_bytes:(## 8) { off_bytes <= 8 }
+  cells:(##(size * 8))
   roots:(##(size * 8)) { roots = 1 }
   absent:(##(size * 8)) { roots + absent <= cells }
   tot_cells_size:(##(off_bytes * 8))
@@ -2051,7 +2051,7 @@ compiled_smart_contract
        compiler_version:(Maybe ^TinyString) ]
   = CompiledSmartContract;
 
-tiny_string#_ len:(#<= 126) str:(len * [ uint8 ]) = TinyString; 
+tiny_string#_ len:(#<= 126) str:(len * [ uint8 ]) = TinyString;
 \end{verbatim}
 Then a compiled smart contract may be represented by a value of type {\em CompiledSmartContract}, transformed into a tree of cells and then into a bag of cells, and then serialized using one of the constructors listed in~\ptref{sp:boc.ser.sch}. The resulting octet string may be then written into a file with suffix {\tt .tvc} (``TVM smart contract''), and this file may be used to distribute the compiled smart contract, download it into a wallet application for deploying into the TON Blockchain, and so on.
 
@@ -2172,10 +2172,10 @@ In order to define specific elliptic curve cryptography, one must fix
 a finite base field $\bbF_q$ (if $q=p$ is a prime, it is sufficient to fix prime~$p$), an elliptic curve $E/\bbF_q$ (usually represented by the coefficients of its Weierstrass form \eqref{eq:weier.form} or~\eqref{eq:gen.weier.form}), the base point $O$ (which usually is the point at infinity of an elliptic curve written in Weierstrass form), and the generator $G\in E(\bbF_q)$ (usually determined by its coordinates $(x,y)$ with respect to the equation of the elliptic curve) of a cyclic subgroup of large prime order~$\ell$. Prime number $\ell$ and the cofactor $c$ are usually also part of the elliptic cryptography data.
 
 \nxsubpoint\emb{Main operations of elliptic curve cryptography}
-Elliptic curve cryptography usually deals with a fixed cyclic subgroup $C$ of a large prime order $\ell$ inside the group of points of an elliptic curve $E$ over a finite field~$\bbF_q$. A generator $G$ of $C$ is usually fixed. It is usually assumed that, given a point $X$ of $C$, one cannot find its ``discrete logarithm base $G$'' (i.e., a residue $n$ modulo $\ell$ such that $X=[n]G$) faster than in $O(\sqrt\ell)$ operations. The most important operations used in elliptic curve cryptography are the addition of points from $C\subset E(\bbF_q)$ and the computation of their powers, or multiples. 
+Elliptic curve cryptography usually deals with a fixed cyclic subgroup $C$ of a large prime order $\ell$ inside the group of points of an elliptic curve $E$ over a finite field~$\bbF_q$. A generator $G$ of $C$ is usually fixed. It is usually assumed that, given a point $X$ of $C$, one cannot find its ``discrete logarithm base $G$'' (i.e., a residue $n$ modulo $\ell$ such that $X=[n]G$) faster than in $O(\sqrt\ell)$ operations. The most important operations used in elliptic curve cryptography are the addition of points from $C\subset E(\bbF_q)$ and the computation of their powers, or multiples.
 
 \nxsubpoint\emb{Private and public keys for elliptic curve cryptography}
-Usually a private key for elliptic curve cryptography described by the data listed in~\ptref{sp:ecc.data} is a ``random'' integer $0<a<\ell$, called the {\em secret exponent}, and the corresponding public key is the point $A:=[a]G$ (or just its $x$-coordinate $x_A$), suitably serialized. 
+Usually a private key for elliptic curve cryptography described by the data listed in~\ptref{sp:ecc.data} is a ``random'' integer $0<a<\ell$, called the {\em secret exponent}, and the corresponding public key is the point $A:=[a]G$ (or just its $x$-coordinate $x_A$), suitably serialized.
 
 \nxsubpoint\emb{Montgomery curves}
 Elliptic curves with the specific Weierstrass equation

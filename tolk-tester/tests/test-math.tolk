@@ -218,7 +218,7 @@ fun fixed248_log2_const(): int {
 @pure
 @inline
 fun Pi_const_f254(): int {
-    var (c: auto, _) = Pi_xconst_f254();
+    var (c, _) = Pi_xconst_f254();
     return c;
 }
 
@@ -273,11 +273,11 @@ fun expm1_f257(x: int): int {
 /// fixed248 exp(fixed248 x)
 @pure
 @inline_ref
-fun fixed248_exp(x: int): int {
+fun fixed248_exp(x_: int): int {
     var (l2c, l2d) = log2_xconst_f256();
     // divide x by log(2) and convert to fixed257
     // (int q, x) = muldivmodr(x, 256, l2c);  // unfortunately, no such built-in
-    var (q: int, x redef) = lshiftdivmodr(x, l2c, 8);
+    var (q: int, x) = lshiftdivmodr(x_, l2c, 8);
     x = 2 * x - mulDivRound(q, l2d, 1 << 127);
     var y: int = expm1_f257(x);
     // result is (1 + y) * (2^q) --> ((1 << 257) + y) >> (9 - q)
@@ -289,9 +289,9 @@ fun fixed248_exp(x: int): int {
 /// fixed248 exp2(fixed248 x)
 @pure
 @inline_ref
-fun fixed248_exp2(x: int): int {
+fun fixed248_exp2(x_: int): int {
     // (int q, x) = divmodr(x, 1 << 248);   // no such built-in
-    var (q: int, x redef) = rshiftr248mod(x);
+    var (q: int, x) = rshiftr248mod(x_);
     x = mulDivRound(x, log2_const_f256(), 1 << 247);
     var y: int = expm1_f257(x);
     return (y ~>> (9 - q)) - (-1 << (248 + q));
@@ -383,10 +383,10 @@ fun sincosn_f256(x: int, xe: int): (int, int) {
     // now a/c = cos(q*theta), b/c = sin(q*theta) exactly(!)
     // compute (a+b*I)*(1-co+si*I)/c
     // (b, a) = (lshift256divr(b, c), lshift256divr(a, c));
-    var (b redef, br: int) = lshift256divmodr(b, c);  br = mulDivRound(br, 128, c);
-    var (a redef, ar: int) = lshift256divmodr(a, c);  ar = mulDivRound(ar, 128, c);
-    return (sign(x) * (((mulrshiftr256(b, co) - br) ~/ 16 - mulrshiftr256(a, si)) ~/ 8 - b),
-    a - ((mulrshiftr256(a, co) - ar) ~/ 16 + mulrshiftr256(b, si)) ~/ 8);
+    var (newB, br: int) = lshift256divmodr(b, c);  br = mulDivRound(br, 128, c);
+    var (newA, ar: int) = lshift256divmodr(a, c);  ar = mulDivRound(ar, 128, c);
+    return (sign(x) * (((mulrshiftr256(newB, co) - br) ~/ 16 - mulrshiftr256(newA, si)) ~/ 8 - newB),
+    newA - ((mulrshiftr256(newA, co) - ar) ~/ 16 + mulrshiftr256(newB, si)) ~/ 8);
 }
 
 /// compute (sin(x),1-cos(x)) in fixed256 for |x| < 16*atan(1/16) = 0.9987
@@ -422,10 +422,10 @@ fun tan_aux_f256(x: int): (int, int) {
 /// (fixed248, fixed248) sincos(fixed248 x);
 @pure
 @inline_ref
-fun fixed248_sincos(x: int): (int, int) {
+fun fixed248_sincos(x_: int): (int, int) {
     var (Pic, Pid) = Pi_xconst_f254();
     // (int q, x) = muldivmodr(x, 128, Pic);  // no muldivmodr() builtin
-    var (q: int, x redef) = lshift7divmodr(x, Pic);  // reduce mod Pi/2
+    var (q: int, x) = lshift7divmodr(x_, Pic);  // reduce mod Pi/2
     x = 2 * x - mulDivRound(q, Pid, 1 << 127);
     var (si: int, co: int) = sincosm1_f256(x);   // doesn't make sense to use more accurate sincosn_f256()
     co = (1 << 248) - (co ~>> 9);
@@ -459,10 +459,10 @@ fun fixed248_cos(x: int): int {
 /// however, the relative accuracy is approximately 2^-247 in all cases, which is good enough for arguments given up to 2^-249
 @pure
 @inline_ref
-fun fixed248_tan(x: int): int {
+fun fixed248_tan(x_: int): int {
     var (Pic, Pid) = Pi_xconst_f254();
     // (int q, x) = muldivmodr(x, 128, Pic);  // no muldivmodr() builtin
-    var (q: int, x redef) = lshift7divmodr(x, Pic);  // reduce mod Pi/2
+    var (q: int, x) = lshift7divmodr(x_, Pic);  // reduce mod Pi/2
     x = 2 * x - mulDivRound(q, Pid, 1 << 127);
     var (a, b) = tan_aux_f256(x);  // now a/b = tan(x')
     if (q & 1) {
@@ -474,9 +474,9 @@ fun fixed248_tan(x: int): int {
 /// fixed248 cot(fixed248 x);
 @pure
 @inline_ref
-fun fixed248_cot(x: int): int {
+fun fixed248_cot(x_: int): int {
     var (Pic, Pid) = Pi_xconst_f254();
-    var (q: int, x redef) = lshift7divmodr(x, Pic);  // reduce mod Pi/2
+    var (q: int, x) = lshift7divmodr(x_, Pic);  // reduce mod Pi/2
     x = 2 * x - mulDivRound(q, Pid, 1 << 127);
     var (b, a) = tan_aux_f256(x);  // now b/a = tan(x')
     if (q & 1) {
@@ -661,7 +661,7 @@ fun fixed248_pow(x: int, y: int): int {
     return 1 << 248;   // x^0 = 1
     }
     if (x <= 0) {
-    var bad: int = (x | y) < 0;
+    var bad: int = ((x | y) < 0) as int;
     return 0 >> bad;          // 0^y = 0 if x=0 and y>=0; "out of range" exception otherwise
     }
     var (l, s) = log2_aux_f256(x);
@@ -677,7 +677,7 @@ fun fixed248_pow(x: int, y: int): int {
     // now log_2(x^y) = y*log_2(x) = q + ll, ss integer, ll fixed257, -1/2<=ll<1/2
     var sq: int = q + 248;
     if (sq <= 0) {
-    return -(sq == 0);   // underflow
+    return -((sq == 0) as int);   // underflow
     }
     y = expm1_f257(mulrshiftr256(ll, log2_const_f256()));
     return (y ~>> (9 - q)) - (-1 << sq);
@@ -921,7 +921,7 @@ fun nrand_f252(): int {
     var (x, s, t, A, B, r0) = (nan(), 29483 << 236, -3167 << 239, 12845, 16693, 9043);
     // 4/sqrt(e*Pi) = 1.369 loop iterations on average
     do {
-        var (u, v) = (random() / 16 + 1, mulDivRound(random() - (1 << 255), 7027, 1 << 16));   // fixed252; 7027=ceil(sqrt(8/e)*2^12)
+        var (u, v) = (random.uint256() / 16 + 1, mulDivRound(random.uint256() - (1 << 255), 7027, 1 << 16));   // fixed252; 7027=ceil(sqrt(8/e)*2^12)
         var va: int = abs(v);
         var (u1, v1) = (u - s, va - t);   // (u - 29483/2^16, abs(v) + 3167/2^13) as fixed252
         // Q := u1^2 + v1 * (A*v1 - B*u1) as fixed252 where A=12845/2^16, B=16693/2^16
@@ -952,7 +952,7 @@ fun nrand_f252(): int {
 fun nrand_fast_f252(): int {
     var t: int = -3 << 253;   // -6. as fixed252
     repeat (12) {
-        t += random() / 16;         // add together 12 uniformly random numbers
+        t += random.uint256() / 16;         // add together 12 uniformly random numbers
     }
     return t;
 }
@@ -961,7 +961,7 @@ fun nrand_fast_f252(): int {
 /// fixed248 random();
 @inline
 fun fixed248_random(): int {
-    return random() >> 8;
+    return random.uint256() >> 8;
 }
 
 /// random number with standard normal distribution
@@ -979,14 +979,14 @@ fun fixed248_nrand_fast(): int {
 }
 
 @pure
-fun tset<X>(mutate self: tuple, idx: int, value: X): void
+fun tuple.tset<X>(mutate self, idx: int, value: X): void
     asm(self value idx) "SETINDEXVAR";
 
 // computes 1-acos(x)/Pi by a very simple, extremely slow (~70k gas) and imprecise method
 // fixed256 acos_prepare_slow(fixed255 x);
 @inline
 fun acos_prepare_slow_f255(x: int): int {
-  x -= (x == 0);
+  x -= (x == 0) as int;
   var t: int = 1;
   repeat (255) {
     t = t * sign(x) * 2 + 1;    // decode Gray code (sign(x_0), sign(x_1), ...)
@@ -1014,12 +1014,13 @@ fun asin_slow_f255(x: int): int {
 fun test_nrand(n: int): tuple {
   var t: tuple = createEmptyTuple();
   repeat (255) {
-    t.tuplePush(0);
+    t.push(0);
   }
   repeat (n) {
     var x: int = fixed248_nrand();
     var bucket: int = (abs(x) >> 243);   // 255 buckets starting from x=0, each 1/32 wide
-    t.tset(bucket, t.tupleAt(bucket) + 1);
+    var at_bucket: int = t.get(bucket) as int;
+    t.tset(bucket, at_bucket + 1);
   }
   return t;
 }

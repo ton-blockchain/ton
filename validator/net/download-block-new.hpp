@@ -18,11 +18,11 @@
 */
 #pragma once
 
+#include "adnl/adnl-ext-client.h"
 #include "overlay/overlays.h"
+#include "rldp/rldp.h"
 #include "ton/ton-types.h"
 #include "validator/validator.h"
-#include "rldp/rldp.h"
-#include "adnl/adnl-ext-client.h"
 
 namespace ton {
 
@@ -53,6 +53,8 @@ class DownloadBlockNew : public td::actor::Actor {
   void got_node_to_download(adnl::AdnlNodeIdShort node);
   void got_data(td::BufferSlice data);
   void got_data_from_db(td::BufferSlice data);
+  void got_ready_to_deserialize(tl_object_ptr<ton_api::tonNode_DataFull> data_full,
+                                td::Ref<ShardState> state = td::Ref<ShardState>());
   void checked_block_proof();
 
  private:

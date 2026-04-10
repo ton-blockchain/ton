@@ -16,13 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "DecryptedKey.h"
-
+#include "td/utils/Random.h"
+#include "td/utils/crypto.h"
 #include "tonlib/keys/EncryptedKey.h"
 #include "tonlib/keys/SimpleEncryption.h"
 
-#include "td/utils/Random.h"
-#include "td/utils/crypto.h"
+#include "DecryptedKey.h"
 
 namespace tonlib {
 DecryptedKey::DecryptedKey(const Mnemonic &mnemonic)

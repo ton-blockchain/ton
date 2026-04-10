@@ -17,9 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "td/utils/misc.h"
-
 #include "td/fec/algebra/Octet.h"
+#include "td/utils/misc.h"
 
 #if __SSSE3__
 #define TD_SSE3 1

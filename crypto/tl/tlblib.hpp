@@ -17,10 +17,11 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include <functional>
 #include <iostream>
 #include <map>
+
 #include "vm/cellslice.h"
-#include <functional>
 
 namespace tlb {
 
@@ -246,7 +247,14 @@ class TLB {
   bool print(std::ostream& os, Ref<vm::CellSlice> cs_ref, int indent = 0, int rec_limit = 0) const {
     return print(os, *cs_ref, indent, rec_limit);
   }
+  bool print(td::StringBuilder& sb, Ref<vm::CellSlice> cs_ref, int indent = 0, int rec_limit = 0) const {
+    std::ostringstream ss;
+    auto result = print(ss, *cs_ref, indent, rec_limit);
+    sb << ss.str();
+    return result;
+  }
   bool print_ref(std::ostream& os, Ref<vm::Cell> cell_ref, int indent = 0, int rec_limit = 0) const;
+  bool print_ref(td::StringBuilder& sb, Ref<vm::Cell> cell_ref, int indent = 0, int rec_limit = 0) const;
   bool print_ref(int rec_limit, std::ostream& os, Ref<vm::Cell> cell_ref, int indent = 0) const {
     return print_ref(os, std::move(cell_ref), indent, rec_limit);
   }
@@ -256,8 +264,8 @@ class TLB {
     return cs_ref.not_null() ? as_string(*cs_ref, indent) : "<null>";
   }
   std::string as_string_ref(Ref<vm::Cell> cell_ref, int indent = 0) const;
-  static inline size_t nat_abs(int x) {
-    return (x > 1) * 2 + (x & 1);
+  static inline size_t nat_abs(unsigned x) {
+    return (x > 1u) * 2u + (x & 1u);
   }
 
  protected:
@@ -337,6 +345,10 @@ static inline bool add_r1(int& x, int y, int z) {
   return z >= y && (x = z - y) >= 0;
 }
 
+static inline bool add_r1(unsigned& x, unsigned y, unsigned z) {
+  return z >= y && (x = z - y) >= 0;
+}
+
 static inline bool add_r3(int& x, int y, int& z) {
   return (z = (x + y)) >= 0;
 }
@@ -346,6 +358,10 @@ static inline bool mul_chk(int x, int y, int z) {
 }
 
 static inline bool mul_r1(int& x, int y, int z) {
+  return y && !(z % y) && (x = z / y) >= 0;
+}
+
+static inline bool mul_r1(unsigned& x, unsigned y, unsigned z) {
   return y && !(z % y) && (x = z / y) >= 0;
 }
 
@@ -397,19 +413,19 @@ bool csr_unpack_safe(Ref<vm::CellSlice> csr, R& rec, Args&... args) {
 
 template <typename R, typename... Args>
 bool unpack_cell(Ref<vm::Cell> cell, R& rec, Args&... args) {
-  vm::CellSlice cs = vm::load_cell_slice(std::move(cell));
+  vm::CellSlice cs = vm::load_cell_slice_quiet(std::move(cell));
   return cs.is_valid() && (typename R::type_class{}).unpack(cs, rec, args...) && cs.empty_ext();
 }
 
 template <typename R, typename... Args>
 bool unpack_cell_inexact(Ref<vm::Cell> cell, R& rec, Args&... args) {
-  vm::CellSlice cs = vm::load_cell_slice(std::move(cell));
+  vm::CellSlice cs = vm::load_cell_slice_quiet(std::move(cell));
   return cs.is_valid() && (typename R::type_class{}).unpack(cs, rec, args...);
 }
 
 template <typename T, typename R, typename... Args>
 bool type_unpack_cell(Ref<vm::Cell> cell, const T& type, R& rec, Args&... args) {
-  vm::CellSlice cs = vm::load_cell_slice(std::move(cell));
+  vm::CellSlice cs = vm::load_cell_slice_quiet(std::move(cell));
   return cs.is_valid() && type.unpack(cs, rec, args...) && cs.empty_ext();
 }
 

@@ -16,13 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "Client.h"
-
-#include "tonlib/TonlibClient.h"
-#include "tonlib/TonlibCallback.h"
-
 #include "td/actor/actor.h"
 #include "td/utils/MpscPollableQueue.h"
+#include "tonlib/TonlibCallback.h"
+#include "tonlib/TonlibClient.h"
+
+#include "Client.h"
 
 int VERBOSITY_NAME(tonlib_requests) = VERBOSITY_NAME(DEBUG);
 
@@ -70,7 +69,7 @@ class Client::Impl final {
       return;
     }
 
-    scheduler_.run_in_context_external(
+    scheduler_.run_in_context(
         [&] { send_closure(tonlib_, &TonlibClient::request, request.id, std::move(request.function)); });
   }
 
@@ -86,19 +85,23 @@ class Client::Impl final {
     return response;
   }
 
+  void cancel_requests() {
+    scheduler_.run_in_context([&] { tonlib_.reset(); });
+  }
+
   Impl(const Impl&) = delete;
   Impl& operator=(const Impl&) = delete;
   Impl(Impl&&) = delete;
   Impl& operator=(Impl&&) = delete;
   ~Impl() {
     LOG(ERROR) << "~Impl";
-    scheduler_.run_in_context_external([&] { tonlib_.reset(); });
+    scheduler_.run_in_context([&] { tonlib_.reset(); });
     LOG(ERROR) << "Wait till closed";
     while (!is_closed_) {
       receive(10);
     }
     LOG(ERROR) << "Stop";
-    scheduler_.run_in_context_external([] { td::actor::SchedulerContext::get()->stop(); });
+    scheduler_.run_in_context([] { td::actor::SchedulerContext::get().stop(); });
     LOG(ERROR) << "join";
     scheduler_thread_.join();
     LOG(ERROR) << "join - done";
@@ -115,6 +118,9 @@ class Client::Impl final {
   td::actor::ActorOwn<TonlibClient> tonlib_;
 
   Client::Response receive_unlocked(double timeout) {
+    if (is_closed_) {
+      return {0, nullptr};
+    }
     if (output_queue_ready_cnt_ == 0) {
       output_queue_ready_cnt_ = output_queue_->reader_wait_nonblock();
     }
@@ -153,6 +159,10 @@ Client::Response Client::execute(Request&& request) {
   response.id = request.id;
   response.object = TonlibClient::static_request(std::move(request.function));
   return response;
+}
+
+void Client::cancel_requests() {
+  impl_->cancel_requests();
 }
 
 Client::~Client() = default;

@@ -1,9 +1,3 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
-
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
 set(TERMINAL_SOURCE
   terminal.cpp
 
@@ -12,13 +6,13 @@ set(TERMINAL_SOURCE
 )
 
 add_library(terminal STATIC ${TERMINAL_SOURCE})
-target_include_directories(terminal PUBLIC 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/.. 
+target_include_directories(terminal PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
   ${OPENSSL_INCLUDE_DIR}
 )
 target_link_libraries(terminal PRIVATE tdutils tdactor )
-  
+
 if (NOT READLINE_FOUND)
   find_package(Readline)
 endif()
