@@ -11,7 +11,6 @@
 
 #include "bus.h"
 #include "stats.h"
-#include "utils.h"
 
 namespace ton::validator::consensus {
 
