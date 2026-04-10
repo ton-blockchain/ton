@@ -23,7 +23,6 @@
 #include <vector>
 
 #include "adnl/adnl.h"
-#include "catchain/catchain-types.h"
 #include "dht/dht.h"
 #include "interfaces/block-handle.h"
 #include "interfaces/block.h"

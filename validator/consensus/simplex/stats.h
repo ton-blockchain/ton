@@ -88,8 +88,6 @@ class MetricCollector final : public consensus::stats::MetricCollector {
   void collect_cert_observed(const CertObserved& event);
 
  private:
-  void log_fake_catchain_stats(const Flow& flow);
-
   ValidatorSessionId session_id_;
   PublicKeyHash self_id_;
 

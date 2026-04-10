@@ -24,7 +24,6 @@
 #include "quic/quic-sender.h"
 #include "rldp/rldp.h"
 #include "rldp2/rldp.h"
-#include "validator-session/validator-session.h"
 
 #include "collation-manager.hpp"
 
@@ -36,16 +35,6 @@ class ValidatorManager;
 
 class IValidatorGroup : public td::actor::Actor {
  public:
-  static td::actor::ActorOwn<IValidatorGroup> create_catchain(
-      td::Slice name, ShardIdFull shard, PublicKeyHash local_id, ValidatorSessionId session_id,
-      td::Ref<block::ValidatorSet> validator_set, BlockSeqno last_key_block_seqno,
-      validatorsession::ValidatorSessionOptions config, td::actor::ActorId<keyring::Keyring> keyring,
-      td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender,
-      td::actor::ActorId<overlay::Overlays> overlays, std::string db_root,
-      td::actor::ActorId<ValidatorManager> validator_manager, td::actor::ActorId<CollationManager> collation_manager,
-      bool create_session, bool allow_unsafe_self_blocks_resync, td::Ref<ValidatorManagerOptions> opts,
-      bool monitoring_shard);
-
   static td::actor::ActorOwn<IValidatorGroup> create_bridge(
       td::Slice name, ShardIdFull shard, PublicKeyHash local_id, ValidatorSessionId session_id,
       td::Ref<block::ValidatorSet> validator_set, BlockSeqno last_key_block_seqno, NewConsensusConfig config,

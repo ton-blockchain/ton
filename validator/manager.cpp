@@ -2659,19 +2659,21 @@ td::actor::ActorOwn<IValidatorGroup> ValidatorManagerImpl::create_validator_grou
   CHECK(descr);
   auto adnl_id = adnl::AdnlNodeIdShort{
       descr->addr.is_zero() ? ValidatorFullId{descr->key}.compute_short_id().bits256_value() : descr->addr};
+
   auto new_consensus_config = last_masterchain_state_->get_new_consensus_config(shard.workchain);
-  if (new_consensus_config) {
-    auto config = new_consensus_config.value();
-    return IValidatorGroup::create_bridge(
-        PSTRING() << "valgroup" << shard.to_str(), shard, validator_id, session_id, validator_set, key_seqno, config,
-        keyring_, adnl_, config.use_quic ? td::actor::ActorId<adnl::AdnlSenderEx>{quic_} : rldp2_, overlays_, db_root_,
-        actor_id(this), get_collation_manager(adnl_id), init_session,
-        opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()), opts_,
-        opts_->need_monitor(shard, last_masterchain_state_));
+
+  if (!new_consensus_config) {
+    auto consensus_config = last_masterchain_state_->get_consensus_config();
+    new_consensus_config = NewConsensusConfig{
+        .max_block_size = consensus_config.max_block_size,
+        .max_collated_data_size = consensus_config.max_collated_data_size,
+    };
   }
-  return IValidatorGroup::create_catchain(
-      PSTRING() << "valgroup" << shard.to_str(), shard, validator_id, session_id, validator_set, key_seqno, opts,
-      keyring_, adnl_, opts.use_quic ? td::actor::ActorId<adnl::AdnlSenderEx>{quic_} : rldp2_, overlays_, db_root_,
+
+  auto config = new_consensus_config.value();
+  return IValidatorGroup::create_bridge(
+      PSTRING() << "valgroup" << shard.to_str(), shard, validator_id, session_id, validator_set, key_seqno, config,
+      keyring_, adnl_, config.use_quic ? td::actor::ActorId<adnl::AdnlSenderEx>{quic_} : rldp2_, overlays_, db_root_,
       actor_id(this), get_collation_manager(adnl_id), init_session,
       opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()), opts_,
       opts_->need_monitor(shard, last_masterchain_state_));
@@ -3198,19 +3200,6 @@ void ValidatorManagerImpl::wait_shard_client_state(BlockSeqno seqno, td::Timesta
   }
 
   shard_client_waiters_[seqno].waiting_.emplace_back(timeout, 0, std::move(promise));
-}
-
-void ValidatorManagerImpl::log_validator_session_stats(validatorsession::ValidatorSessionStats stats) {
-  stats.fix_block_ids();
-  write_session_stats(stats);
-}
-
-void ValidatorManagerImpl::log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) {
-  write_session_stats(stats);
-}
-
-void ValidatorManagerImpl::log_end_validator_group_stats(validatorsession::EndValidatorGroupStats stats) {
-  write_session_stats(stats);
 }
 
 void ValidatorManagerImpl::log_stats(std::string data) {
