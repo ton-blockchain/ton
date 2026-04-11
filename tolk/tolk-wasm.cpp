@@ -32,6 +32,7 @@
 #include "json-output.h"
 #include "fift/utils.h"
 #include "td/utils/Status.h"
+#include "vm/cp0.h"
 #include <mutex>
 #include <sstream>
 
@@ -201,6 +202,13 @@ const char* tolk_version() {
   json.key_value("tolkFiftLibCommitDate", JsonPrettyOutput::Unescaped{GitMetadata::CommitDate()});
   json.end_object();
   return strdup(result_json_str.str().c_str());
+}
+
+const char* tolk_prime_debug_cp0() {
+  if (!vm::init_op_cp0(true)) {
+    return strdup("failed to initialize cp0 with debug enabled");
+  }
+  return nullptr;
 }
 
 const char *tolk_compile(char *config_json, WasmFsReadCallback callback, void* callback_payload) {
