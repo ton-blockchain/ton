@@ -48,8 +48,6 @@ struct CollateParams {
   // If not empty, should be the same size as prev
   std::vector<Ref<BlockData>> prev_block_data = {};
   std::vector<Ref<vm::Cell>> prev_block_state_roots = {};
-
-  bool is_new_consensus = false;
 };
 
 struct ValidateParams {
@@ -63,7 +61,6 @@ struct ValidateParams {
   bool skip_store_candidate = false;
 
   bool parallel_validation = false;
-  bool is_new_consensus = false;
 
   // Optional - if empty, states are taken from manager
   // If not empty, should be the same size as prev

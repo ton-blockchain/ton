@@ -101,7 +101,6 @@ ValidateQuery::ValidateQuery(BlockCandidate candidate, ValidateParams params,
     , shard_pfx_len_(ton::shard_prefix_length(shard_))
     , preloaded_prev_block_state_roots_(std::move(params.prev_block_state_roots))
     , skip_store_candidate_(params.skip_store_candidate)
-    , is_new_consensus_(params.is_new_consensus)
     , perf_timer_("validateblock", 0.1, [manager](double duration) {
       send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
     }) {
@@ -712,9 +711,6 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     }
     if (now_ms_) {
       return reject_query("duplicate ConsensusExtraData");
-    }
-    if (!is_new_consensus_) {
-      return reject_query("unexpected ConsensusExtraData");
     }
     block::gen::ConsensusExtraData::Record rec;
     REJECT_UNLESS(block::gen::unpack(cs, rec));
@@ -2438,14 +2434,12 @@ bool ValidateQuery::check_utime_lt() {
     return reject_query(PSTRING() << "block increased logical time by " << end_lt_ - start_lt_
                                   << " which is larger than the hard limit " << block_limits_->lt_delta.hard());
   }
-  if (is_new_consensus_) {
-    if (!now_ms_) {
-      return reject_query("now_ms is not set");
-    }
-    if (now_ms_.value() / 1000 != now_) {
-      return reject_query(PSTRING() << "gen_utime is " << now_ << ", but gen_utime_ms in ConsensusExtraData is "
-                                    << now_ms_.value());
-    }
+  if (!now_ms_) {
+    return reject_query("now_ms is not set");
+  }
+  if (now_ms_.value() / 1000 != now_) {
+    return reject_query(PSTRING() << "gen_utime is " << now_ << ", but gen_utime_ms in ConsensusExtraData is "
+                                  << now_ms_.value());
   }
   return true;
 }

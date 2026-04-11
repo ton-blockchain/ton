@@ -117,7 +117,6 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
             .hard_timeout = slot_start + hard_timeout,
             .prev_block_data = state->block_data(),
             .prev_block_state_roots = state->state(),
-            .is_new_consensus = true,
         };
         if (bus.shard.is_masterchain()) {
           params.soft_timeout = slot_start + target_rate_;
