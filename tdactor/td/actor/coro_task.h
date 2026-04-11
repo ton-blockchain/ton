@@ -3,6 +3,7 @@
 #include <atomic>
 #include <coroutine>
 #include <memory>
+#include <source_location>
 #include <type_traits>
 #include <utility>
 
@@ -419,16 +420,19 @@ struct [[nodiscard]] StartedTask {
   ~StartedTask() noexcept {
     detach_silent();
   }
-  void detach(std::string description = "UnknownTask") && {
+  void detach(std::string description = "UnknownTask",
+              std::source_location location = std::source_location::current()) && {
     if (!h) {
       return;
     }
+    auto name = std::format("{} at {}:{}:{}", description, location.file_name(), location.line(), location.column());
     [](auto self, std::string description) -> Task<Unit> {
       co_await become_lightweight();
       auto r = co_await std::move(self).wrap();
-      LOG_IF(ERROR, r.is_error()) << "Detached task <" << description << "> failed: " << r.error();
+      LOG_IF(ERROR, r.is_error() && r.error().code() != 653)
+          << "Detached task <" << description << "> failed: " << r.error();
       co_return td::Unit{};
-    }(std::move(*this), std::move(description))
+    }(std::move(*this), std::move(name))
                                                   .start_immediate()
                                                   .detach_silent();
   }
