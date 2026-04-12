@@ -351,6 +351,9 @@ static void block_stdin() {
 }
 
 Status set_default_failure_signal_handler() {
+  if (getenv("TON_DISABLE_STACKTRACE")) {
+    return Status::OK();
+  }
 #if TD_PORT_POSIX
   Stdin();  // init static variables before atexit
 #endif
