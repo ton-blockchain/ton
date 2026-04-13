@@ -42,7 +42,7 @@ ValidatorSet::ValidatorSet(ton::CatchainSeqno cc_seqno, ton::ShardIdFull from, s
   ids_map_.reserve(ids_.size());
 
   for (std::size_t i = 0; i < ids_.size(); i++) {
-    total_weight_ += ids_[i].weight;
+    CHECK(ton::validator_weight_add(total_weight_, ids_[i].weight));
     ids_map_.emplace_back(ton::PublicKey{ton::pubkeys::Ed25519{ids_[i].key}}.compute_short_id().bits256_value(), i);
   }
 
