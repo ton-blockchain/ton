@@ -19,7 +19,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: 'recursive'
 
@@ -36,14 +36,14 @@ jobs:
 
       - name: Cache 3pp
         id: cache-3pp
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: 3pp
           key: ${{ runner.os }}-${{ runner.arch }}-15-3pp-${{ hashFiles('**/assembly/native/build-macos-portable.sh') }}
 
       - name: Cache TON test
         id: cache-ton
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.ccache
           key: ${{ runner.os }}-${{ runner.arch }}-15-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
@@ -64,8 +64,9 @@ jobs:
           ctest --output-on-failure --timeout 1800
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@master
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: ton-x86_64-macos
           path: artifacts
           retention-days: 14
+          if-no-files-found: error
