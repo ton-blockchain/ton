@@ -1,18 +1,18 @@
 [project]
 name = "ton"
 version = "0.1.0"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
-    "pytest>=9.0.1",
+    "pytest",
     "pytest-asyncio",
     "tontester",
-    "types-gdb>=16.3.0.20250920",
+    "types-gdb",
 ]
 
 [dependency-groups]
 dev = [
-    "basedpyright>=1.32.1",
-    "ruff>=0.14.2",
+    "basedpyright",
+    "ruff",
 ]
 
 [tool.uv.sources]

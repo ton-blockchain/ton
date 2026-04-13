@@ -60,7 +60,7 @@ class FileIndex:
     def install_callback(self, callback: FileIndexCallback) -> None:
         self._callback = callback
 
-    def __enter__(self) -> "FileIndex":
+    def __enter__(self) -> FileIndex:
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
         return self
@@ -110,7 +110,7 @@ class FileIndex:
                                 group_start_est=min_ts,
                             )
                         )
-        except (OSError, gzip.BadGzipFile):
+        except OSError, gzip.BadGzipFile:
             pass
         return groups
 
