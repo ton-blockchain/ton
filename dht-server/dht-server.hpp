@@ -25,6 +25,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#pragma once
+
 #include <map>
 #include <set>
 

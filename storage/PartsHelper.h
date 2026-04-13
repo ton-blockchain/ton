@@ -16,6 +16,7 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#pragma once
 
 #include "td/utils/Random.h"
 #include "td/utils/Status.h"

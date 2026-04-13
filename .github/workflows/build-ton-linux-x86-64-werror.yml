@@ -61,6 +61,13 @@ jobs:
           ':(exclude)tolk-tester/' \
           ':(exclude)third-party/'
 
+    - name: "Check #pragma once in headers"
+      run: |
+        ! git grep --cached -L '^#pragma once$' -- '*.h' '*.hpp' \
+          ':(exclude)third-party/' \
+          ':(exclude)tdactor/benchmark/third_party/' \
+          ':(exclude)tdutils/td/utils/date.h'
+
     - name: Check C++ formatting
       run: |
         # TODO: Run clang-format only on changed files.
