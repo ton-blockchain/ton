@@ -782,7 +782,7 @@ std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_
     code.add_debug_mark(DebugMarkLocalVar{
       .local_ref = &param_i,
       .ir_slots = param_i.ir_idx,
-      .is_lazy = lazy_receiver != nullptr && i == 0,
+      .ir_lazy_slice = (lazy_receiver && i == 0) ? lazy_receiver->ir_slice[0] : -1,
     });
   }
 
@@ -1174,6 +1174,7 @@ static std::vector<var_idx_t> process_lazy_operator(V<ast_lazy_operator> v, Code
   std::string_view f_name = called_f->base_fun_ref->name;
   std::vector ir_slice = code.create_var(TypeDataSlice::create(), v, "lazyS");
   bool has_passed_options = false;
+  size_t ops_before = code.cur_ops->size();
   if (f_name == "T.fromSlice") {
     std::vector passed_slice = pre_compile_expr(v_call->get_arg(0)->get_expr(), code);
     code.add_let(v, ir_slice, std::move(passed_slice));
@@ -1189,6 +1190,7 @@ static std::vector<var_idx_t> process_lazy_operator(V<ast_lazy_operator> v, Code
   } else {
     tolk_assert(false);
   }
+  override_origin_for_AsmOps(code, ops_before, v);
 
   // on `var p = lazy Point.fromSlice(s, options)`, save s and options (lazy_variable)
   AnyExprV v_options = has_passed_options ? v_call->get_arg(v_call->get_num_args() - 1)->get_expr() : called_f->parameters.back().default_value;
@@ -1791,10 +1793,11 @@ static std::vector<var_idx_t> process_null_keyword(V<ast_null_keyword> v, CodeBl
 static std::vector<var_idx_t> process_local_var(V<ast_local_var_lhs> v, CodeBlob& code, TypePtr target_type) {
   tolk_assert(v->var_ref->ir_idx.empty());
   v->var_ref->mutate()->assign_ir_idx(code.create_var(v->inferred_type, v, v->var_ref->name));
+  const LazyVariableLoadedState* lazy_for_mark = code.get_lazy_variable(v->var_ref);
   code.add_debug_mark(DebugMarkLocalVar{
     .local_ref = v->var_ref,
     .ir_slots = v->var_ref->ir_idx,
-    .is_lazy = code.get_lazy_variable(v->var_ref) != nullptr,   // `lazy` operator (rhs of assignment) already processed
+    .ir_lazy_slice = lazy_for_mark ? lazy_for_mark->ir_slice[0] : -1,
   });
   std::vector rvect = v->var_ref->ir_idx;
   return transition_to_target_type(std::move(rvect), code, target_type, v);

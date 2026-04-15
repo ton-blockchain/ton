@@ -192,8 +192,8 @@ void SourceMapCollecting::to_pretty_json(std::ostream& os) const {
       json.key_value("is_parameter", m_local->local_ref->is_parameter());
       json.key_value("ty_idx", total.json_types.get_type_idx(m_local->local_ref->declared_type));
       json.key_value("ir_slots", m_local->ir_slots);
-      if (m_local->is_lazy) {
-        json.key_value("is_lazy", true);
+      if (m_local->ir_lazy_slice != -1) {
+        json.key_value("ir_lazy_slice", m_local->ir_lazy_slice);
       }
     } else if (const DebugMarkScopeStart* m_scope = std::get_if<DebugMarkScopeStart>(&mark)) {
       json.key_value("kind", "scope_start");

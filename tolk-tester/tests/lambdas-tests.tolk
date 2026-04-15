@@ -344,13 +344,13 @@ fun main() {
 @testcase | 101 |        | 10 30 0 30
 @testcase | 102 | 10 -20 | -20 -10 0 30
 @testcase | 103 |        | 16 2550 8 9 1
-@testcase | 104 |        | 30
-@testcase | 105 |        | 30 30
-@testcase | 106 |        | 5 10 123 500
-@testcase | 107 |        | -1
-@testcase | 108 |        | -1 -1 123 typeid-1
-@testcase | 109 |        | -1000 8
-@testcase | 110 |        | 20 400 60
+@testcase | 104 |        | 30 
+@testcase | 105 |        | 30 30 
+@testcase | 106 |        | 5 10 123 500 
+@testcase | 107 |        | -1 
+@testcase | 108 |        | -1 -1 123 typeid-1 
+@testcase | 109 |        | -1000 8 
+@testcase | 110 |        | 20 400 60 
 @testcase | 111 | -1     | (null) -1 -1 500
 @testcase | 111 | 0      | 20 20 20 20
 @testcase | 112 | -1     | 20 50

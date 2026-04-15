@@ -698,7 +698,7 @@ struct random
 fun random.uint256(): uint256
     asm "RANDU256"
 
-/// Generates a new pseudo-random integer z in the range 0..limit−1 (or limit..−1, if upto < 0).
+/// Generates a new pseudo-random integer z in the range 0..limit−1 (or limit..−1, if limit < 0).
 /// More precisely, an unsigned random value x is generated as in random; then z := x * limit / 2^256 is computed.
 /// Ensure you've called [random.initialize] in advance to make it unpredictable!
 fun random.range(limit: int): int
@@ -1410,7 +1410,7 @@ fun slice.isEndOfBits(self): bool
 fun slice.isEndOfRefs(self): bool
     asm "SREMPTY"
 
-/// Checks whether data parts of two slices coinside.
+/// Checks whether data parts of two slices coincide.
 @pure
 fun slice.bitsEqual(self, b: slice): bool
     asm "SDEQ"
@@ -1534,7 +1534,7 @@ const RESERVE_MODE_EXACT_AMOUNT = 0
 const RESERVE_MODE_ALL_BUT_AMOUNT = 1
 /// +2: Actually set `min(amount, currentContractBalance)` (without this mode, if amount is greater, the action will fail)
 const RESERVE_MODE_AT_MOST = 2
-/// +4: [amount] is increased by the _original_ balance of the current account (before the compute phase).
+/// +4: `amount` is increased by the _original_ balance of the current account (before the compute phase).
 const RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE = 4
 /// +8: Actually sets `amount = -amount` before performing any further actions.
 const RESERVE_MODE_NEGATE_AMOUNT = 8
@@ -1561,7 +1561,7 @@ fun reserveExtraCurrenciesOnBalance(nanoTonCoins: coins, extraAmount: dict, rese
     ```
  */
 
-/// mode = 0 is used for ordinary messages; the gas fees are deducted from the senging amount; action phaes should NOT be ignored.
+/// mode = 0 is used for ordinary messages; the gas fees are deducted from the senging amount; action phases should NOT be ignored.
 const SEND_MODE_REGULAR = 0
 /// +1 means that the sender wants to pay transfer fees separately.
 const SEND_MODE_PAY_FEES_SEPARATELY = 1
@@ -1578,7 +1578,7 @@ const SEND_MODE_CARRY_ALL_BALANCE = 128
 /// do not create an action, only estimate fee. [TVM UPGRADE 2023-07](https://docs.ton.org/learn/tvm-instructions/tvm-upgrade-2023-07#sending-messages)
 const SEND_MODE_ESTIMATE_FEE_ONLY = 1024
 /// Other modes affect the fee calculation as follows:
-/// +64 substitutes the entire balance of the incoming message as an outcoming value (slightly inaccurate, gas expenses that cannot be estimated before the computation is completed are not taken into account).
+/// +64 substitutes the entire balance of the incoming message as an outgoing value (slightly inaccurate, gas expenses that cannot be estimated before the computation is completed are not taken into account).
 /// +128 substitutes the value of the entire balance of the contract before the start of the computation phase (slightly inaccurate, since gas expenses that cannot be estimated before the completion of the computation phase are not taken into account).
 
 /// `ExtraCurrenciesMap` represents a dictionary of "extra currencies" other than TON coin.
@@ -1935,7 +1935,7 @@ struct InMessageBounced {
     senderAddress: address          // an internal address from which the message was bounced
     valueCoins: coins               // ton amount attached to a message
     valueExtra: ExtraCurrenciesMap  // extra currencies attached to a message
-    originalForwardFee: coins       // comission that the sender has payed to send this message
+    originalForwardFee: coins       // comission that the sender has paid to send this message
     createdLt: uint64               // logical time when a message was created (and bounced)
     createdAt: uint32               // unixtime when a message was created (and bounced)
     bouncedBody: slice              // populated depending on `BounceMode` for `createMessage`

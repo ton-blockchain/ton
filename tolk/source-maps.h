@@ -55,7 +55,7 @@ struct DebugMarkLeaveFunction {
 struct DebugMarkLocalVar {
   LocalVarPtr local_ref;    // is_parameter, name, declared_type are taken from there
   std::vector<var_idx_t> ir_slots;
-  bool is_lazy = false;
+  var_idx_t ir_lazy_slice = -1;  // -1 is "not lazy"; otherwise, IR slot of the deserialized slice
 };
 
 struct DebugMarkScopeStart {
