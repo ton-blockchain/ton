@@ -85,10 +85,7 @@ void RldpTransferSenderImpl::send_one_part(td::uint32 seqno) {
   auto obj = create_tl_object<ton_api::rldp_messagePart>(transfer_id_, fec_type_.tl(), part_, data_.size(), seqno,
                                                          std::move(symbol.data));
   auto serialized = serialize_tl_object(obj, true);
-  if (metrics_) {
-    metrics_->parts_sent_to_adnl_part.fetch_add(1, std::memory_order_relaxed);
-    metrics_->bytes_sent_to_adnl_part.fetch_add(serialized.size(), std::memory_order_relaxed);
-  }
+  metrics_->sent_to_adnl_part.record(serialized.size());
   td::actor::send_closure(adnl_, &adnl::Adnl::send_message, local_id_, peer_id_, std::move(serialized));
 }
 
@@ -120,10 +117,7 @@ void RldpTransferReceiverImpl::receive_part(fec::FecType fec_type, td::uint32 pa
   if (part < part_) {
     auto obj = create_tl_object<ton_api::rldp_complete>(transfer_id_, part);
     auto serialized = serialize_tl_object(obj, true);
-    if (metrics_) {
-      metrics_->parts_sent_to_adnl_complete.fetch_add(1, std::memory_order_relaxed);
-      metrics_->bytes_sent_to_adnl_complete.fetch_add(serialized.size(), std::memory_order_relaxed);
-    }
+    metrics_->sent_to_adnl_complete.record(serialized.size());
     td::actor::send_closure(adnl_, &adnl::Adnl::send_message, local_id_, peer_id_, std::move(serialized));
     return;
   }
@@ -163,10 +157,7 @@ void RldpTransferReceiverImpl::receive_part(fec::FecType fec_type, td::uint32 pa
       data_parts_.push_back(std::move(data.data));
       auto obj = create_tl_object<ton_api::rldp_complete>(transfer_id_, part_);
       auto serialized = serialize_tl_object(obj, true);
-      if (metrics_) {
-        metrics_->parts_sent_to_adnl_complete.fetch_add(1, std::memory_order_relaxed);
-        metrics_->bytes_sent_to_adnl_complete.fetch_add(serialized.size(), std::memory_order_relaxed);
-      }
+      metrics_->sent_to_adnl_complete.record(serialized.size());
       td::actor::send_closure(adnl_, &adnl::Adnl::send_message, local_id_, peer_id_, std::move(serialized));
       part_++;
       cnt_ = 0;
@@ -182,10 +173,7 @@ void RldpTransferReceiverImpl::receive_part(fec::FecType fec_type, td::uint32 pa
   if (cnt_ >= 10) {
     auto obj = create_tl_object<ton_api::rldp_confirm>(transfer_id_, part_, max_seqno_);
     auto serialized = serialize_tl_object(obj, true);
-    if (metrics_) {
-      metrics_->parts_sent_to_adnl_confirm.fetch_add(1, std::memory_order_relaxed);
-      metrics_->bytes_sent_to_adnl_confirm.fetch_add(serialized.size(), std::memory_order_relaxed);
-    }
+    metrics_->sent_to_adnl_confirm.record(serialized.size());
     td::actor::send_closure(adnl_, &adnl::Adnl::send_message, local_id_, peer_id_, std::move(serialized));
     cnt_ = 0;
   }

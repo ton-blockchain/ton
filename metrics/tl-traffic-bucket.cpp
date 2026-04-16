@@ -24,9 +24,9 @@ void TlTrafficBucket::account_with_magic(td::int32 magic, td::uint64 size) {
   messages[magic]++;
 }
 
-std::vector<MetricFamily> render_tl_bucket(const std::string &base, const std::string &bucket_label_value,
-                                           const TlTrafficBucket &bucket, std::optional<std::string> bytes_help,
-                                           std::optional<std::string> messages_help, std::string bucket_label_key) {
+void render_tl_bucket(MetricSet &set, const std::string &base, const std::string &bucket_label_value,
+                      const TlTrafficBucket &bucket, std::optional<std::string> bytes_help,
+                      std::optional<std::string> messages_help, std::string bucket_label_key) {
   auto build = [&](std::string name_suffix, std::optional<std::string> help,
                    const std::map<td::int32, td::uint64> &counts, td::uint64 unknown_value) {
     MetricFamily fam{.name = base + name_suffix, .type = "counter", .help = std::move(help), .metrics = {}};
@@ -43,12 +43,10 @@ std::vector<MetricFamily> render_tl_bucket(const std::string &base, const std::s
       push(name == nullptr ? "unknown" : name, value);
     }
     push("unknown", unknown_value);
-    return fam;
+    set.families.push_back(std::move(fam));
   };
-  std::vector<MetricFamily> result;
-  result.push_back(build("_bytes_by_tl_total", std::move(bytes_help), bucket.bytes, bucket.unknown_bytes));
-  result.push_back(build("_messages_by_tl_total", std::move(messages_help), bucket.messages, bucket.unknown_messages));
-  return result;
+  build("_bytes_by_tl_total", std::move(bytes_help), bucket.bytes, bucket.unknown_bytes);
+  build("_messages_by_tl_total", std::move(messages_help), bucket.messages, bucket.unknown_messages);
 }
 
 }  // namespace ton::metrics

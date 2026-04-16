@@ -110,33 +110,35 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
 
   struct Stats {
     struct Entry {
-      size_t total_conns = 1;
+      // Leaf (per-conn) entries are constructed with `.total_conns = 1`; the aggregate summary
+      // and sender-side per-path snapshots default to 0 and absorb leaves via operator+.
+      size_t total_conns = 0;
       QuicConnectionStats impl_stats = {};
 
       Entry operator+(const Entry &other) const {
         Entry res = {.total_conns = total_conns + other.total_conns, .impl_stats = impl_stats + other.impl_stats};
-        res.impl_stats.mean_rtt = (static_cast<double>(total_conns) * impl_stats.mean_rtt +
-                                   static_cast<double>(other.total_conns) * other.impl_stats.mean_rtt) /
-                                  static_cast<double>(total_conns + other.total_conns);
+        if (res.total_conns == 0) {
+          return res;
+        }
+        auto w1 = static_cast<double>(total_conns), w2 = static_cast<double>(other.total_conns);
+        auto w = static_cast<double>(res.total_conns);
+        auto mix = [&](double a, double b) { return (w1 * a + w2 * b) / w; };
+        res.impl_stats.mean_rtt = mix(impl_stats.mean_rtt, other.impl_stats.mean_rtt);
+        res.impl_stats.min_rtt_s = mix(impl_stats.min_rtt_s, other.impl_stats.min_rtt_s);
+        res.impl_stats.latest_rtt_s = mix(impl_stats.latest_rtt_s, other.impl_stats.latest_rtt_s);
+        res.impl_stats.rttvar_s = mix(impl_stats.rttvar_s, other.impl_stats.rttvar_s);
         return res;
       }
 
       Entry operator-(const Entry &other) const {
-        Entry res = {.total_conns = total_conns - other.total_conns, .impl_stats = impl_stats - other.impl_stats};
-        res.impl_stats.mean_rtt = impl_stats.mean_rtt;
-        return res;
+        return {.total_conns = total_conns - other.total_conns, .impl_stats = impl_stats - other.impl_stats};
       }
 
     } summary = {};
     std::unordered_map<QuicConnectionId, Entry> per_conn = {};
 
     // Server-level UDP wire stats (single instance per QuicServer).
-    td::uint64 udp_ingress_bytes = 0;
-    td::uint64 udp_ingress_packets = 0;
-    td::uint64 udp_ingress_syscalls = 0;
-    td::uint64 udp_egress_bytes = 0;
-    td::uint64 udp_egress_packets = 0;
-    td::uint64 udp_egress_syscalls = 0;
+    UdpCounters udp = {};
   };
 
   void collect_stats(td::Promise<Stats> P);

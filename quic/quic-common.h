@@ -33,6 +33,10 @@ struct QuicConnectionStats {
   int64_t stream_bytes_buffered = 0;
   int64_t stream_bytes_received = 0;
 
+  // Summing QuicConnectionStats is only meaningful for the cumulative counters and the
+  // snapshot "current state" gauges (bytes_in_flight, cwnd, open_sids). RTT fields are
+  // per-connection observations and the outer Stats::Entry aggregator reweights them — here
+  // they are left at zero so nobody can accidentally surface a sum-of-RTTs as a metric.
   QuicConnectionStats operator+(const QuicConnectionStats& other) const {
     return {
         .bytes_rx = bytes_rx + other.bytes_rx,
@@ -48,14 +52,16 @@ struct QuicConnectionStats {
         .pkt_lost = pkt_lost + other.pkt_lost,
         .bytes_in_flight = bytes_in_flight + other.bytes_in_flight,
         .cwnd = cwnd + other.cwnd,
-        .min_rtt_s = min_rtt_s + other.min_rtt_s,
-        .latest_rtt_s = latest_rtt_s + other.latest_rtt_s,
-        .rttvar_s = rttvar_s + other.rttvar_s,
+        .min_rtt_s = 0,
+        .latest_rtt_s = 0,
+        .rttvar_s = 0,
         .stream_bytes_buffered = stream_bytes_buffered + other.stream_bytes_buffered,
         .stream_bytes_received = stream_bytes_received + other.stream_bytes_received,
     };
   }
 
+  // Subtraction is used for two-snapshot deltas over counters; RTT fields are gauges for
+  // which subtraction has no meaning, so they keep the later value.
   QuicConnectionStats operator-(const QuicConnectionStats& other) const {
     return {
         .bytes_rx = bytes_rx - other.bytes_rx,
@@ -65,18 +71,43 @@ struct QuicConnectionStats {
         .bytes_unsent = bytes_unsent - other.bytes_unsent,
         .total_sids = total_sids - other.total_sids,
         .open_sids = open_sids - other.open_sids,
-        .mean_rtt = 0,
+        .mean_rtt = mean_rtt,
         .pkt_sent = pkt_sent - other.pkt_sent,
         .pkt_recv = pkt_recv - other.pkt_recv,
         .pkt_lost = pkt_lost - other.pkt_lost,
         .bytes_in_flight = bytes_in_flight - other.bytes_in_flight,
         .cwnd = cwnd - other.cwnd,
-        .min_rtt_s = min_rtt_s - other.min_rtt_s,
-        .latest_rtt_s = latest_rtt_s - other.latest_rtt_s,
-        .rttvar_s = rttvar_s - other.rttvar_s,
+        .min_rtt_s = min_rtt_s,
+        .latest_rtt_s = latest_rtt_s,
+        .rttvar_s = rttvar_s,
         .stream_bytes_buffered = stream_bytes_buffered - other.stream_bytes_buffered,
         .stream_bytes_received = stream_bytes_received - other.stream_bytes_received,
     };
+  }
+};
+
+// Cumulative wire-level UDP counters for a single side (ingress or egress).
+struct UdpSideCounters {
+  td::uint64 bytes = 0;
+  td::uint64 packets = 0;
+  td::uint64 syscalls = 0;
+
+  UdpSideCounters& operator+=(const UdpSideCounters& o) {
+    bytes += o.bytes;
+    packets += o.packets;
+    syscalls += o.syscalls;
+    return *this;
+  }
+};
+
+struct UdpCounters {
+  UdpSideCounters ingress;
+  UdpSideCounters egress;
+
+  UdpCounters& operator+=(const UdpCounters& o) {
+    ingress += o.ingress;
+    egress += o.egress;
+    return *this;
   }
 };
 

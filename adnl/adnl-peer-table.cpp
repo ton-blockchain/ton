@@ -16,7 +16,6 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "absl/functional/internal/any_invocable.h"
 #include "metrics/metrics-types.h"
 #include "metrics/prometheus-exporter.h"
 #include "td/db/RocksDb.h"
@@ -675,83 +674,44 @@ void AdnlPeerTableImpl::remove_protected_peers(AdnlNodeIdShort local_id, std::ve
 }
 
 void AdnlPeerTableImpl::collect(metrics::MetricsPromise P) {
-  using metrics::MetricFamily;
-  using metrics::MetricSet;
-  MetricSet set;
-  auto labeled = [&](std::string name, std::string type, std::string label_key,
-                     std::vector<std::pair<std::string, td::uint64>> entries, std::optional<std::string> help = {}) {
-    metrics::MetricFamily fam{.name = std::move(name), .type = std::move(type), .help = std::move(help), .metrics = {}};
-    for (auto &[label, value] : entries) {
-      fam.metrics.push_back(metrics::Metric{
-          .suffix = "",
-          .label_set = metrics::LabelSet{.labels = {{label_key, label}}},
-          .samples = {metrics::Sample{.label_set = {}, .value = static_cast<double>(value)}},
-      });
-    }
-    set.families.push_back(std::move(fam));
-  };
-  labeled("app_send_bytes_total", "counter", "kind",
-          {
-              {"custom", m_.app_send_bytes_custom},
-              {"query", m_.app_send_bytes_query},
-              {"answer", m_.app_send_bytes_answer},
-          },
-          "Bytes the application asked ADNL to send (raw payload, by message kind).");
-  labeled("app_send_messages_total", "counter", "kind",
-          {
-              {"custom", m_.app_send_msgs_custom},
-              {"query", m_.app_send_msgs_query},
-              {"answer", m_.app_send_msgs_answer},
-          },
-          "Messages the application asked ADNL to send (by kind).");
-  labeled("app_send_dropped_total", "counter", "reason",
-          {
-              {"too_big", m_.app_send_drop_too_big},
-              {"unknown_src", m_.app_send_drop_unknown_src},
-          },
-          "Outbound application messages ADNL dropped before forwarding.");
-  labeled("app_deliver_bytes_total", "counter", "kind",
-          {
-              {"message", m_.app_deliver_bytes_message},
-              {"query", m_.app_deliver_bytes_query},
-          },
-          "Bytes ADNL delivered to the application (by kind).");
-  labeled("app_deliver_messages_total", "counter", "kind",
-          {
-              {"message", m_.app_deliver_msgs_message},
-              {"query", m_.app_deliver_msgs_query},
-          },
-          "Messages ADNL delivered to the application (by kind).");
-  set.families.push_back(MetricFamily::make_scalar("inbound_packets_total", "counter",
-                                                   static_cast<double>(m_.inbound_packets),
-                                                   "ADNL packets entering the peer table from the network manager."));
-  labeled("inbound_dropped_total", "counter", "reason",
-          {
-              {"too_short", m_.inbound_drop_too_short},
-              {"cat_mismatch", m_.inbound_drop_cat_mismatch},
-              {"unknown_dst", m_.inbound_drop_unknown_dst},
-          },
-          "ADNL inbound packets dropped before decryption.");
-  set.families.push_back(
-      MetricFamily::make_scalar("decrypt_packets_total", "counter", static_cast<double>(m_.decrypt_packets),
-                                "ADNL packets that completed decryption and reached the peer table."));
-  set.families.push_back(MetricFamily::make_scalar("decrypt_bytes_total", "counter",
-                                                   static_cast<double>(m_.decrypt_bytes),
-                                                   "Bytes accepted from the network after ADNL packet decryption."));
-  set.families.push_back(MetricFamily::make_scalar("local_ids", "gauge", static_cast<double>(local_ids_.size()),
-                                                   "Number of ADNL local ids currently registered."));
-  set.families.push_back(MetricFamily::make_scalar("peers", "gauge", static_cast<double>(peers_.size()),
-                                                   "Number of distinct remote peer ids tracked by ADNL."));
+  metrics::MetricSet set;
+  set.push_labeled_scalar(
+      "app_send_bytes_total", "counter", "kind",
+      {{"custom", m_.app_send_bytes_custom}, {"query", m_.app_send_bytes_query}, {"answer", m_.app_send_bytes_answer}},
+      "Bytes the application asked ADNL to send (raw payload, by message kind).");
+  set.push_labeled_scalar(
+      "app_send_messages_total", "counter", "kind",
+      {{"custom", m_.app_send_msgs_custom}, {"query", m_.app_send_msgs_query}, {"answer", m_.app_send_msgs_answer}},
+      "Messages the application asked ADNL to send (by kind).");
+  set.push_labeled_scalar("app_send_dropped_total", "counter", "reason",
+                          {{"too_big", m_.app_send_drop_too_big}, {"unknown_src", m_.app_send_drop_unknown_src}},
+                          "Outbound application messages ADNL dropped before forwarding.");
+  set.push_labeled_scalar("app_deliver_bytes_total", "counter", "kind",
+                          {{"message", m_.app_deliver_bytes_message}, {"query", m_.app_deliver_bytes_query}},
+                          "Bytes ADNL delivered to the application (by kind).");
+  set.push_labeled_scalar("app_deliver_messages_total", "counter", "kind",
+                          {{"message", m_.app_deliver_msgs_message}, {"query", m_.app_deliver_msgs_query}},
+                          "Messages ADNL delivered to the application (by kind).");
+  set.push_scalar("inbound_packets_total", "counter", m_.inbound_packets,
+                  "ADNL packets entering the peer table from the network manager.");
+  set.push_labeled_scalar("inbound_dropped_total", "counter", "reason",
+                          {{"too_short", m_.inbound_drop_too_short},
+                           {"cat_mismatch", m_.inbound_drop_cat_mismatch},
+                           {"unknown_dst", m_.inbound_drop_unknown_dst}},
+                          "ADNL inbound packets dropped before decryption.");
+  set.push_scalar("decrypt_packets_total", "counter", m_.decrypt_packets,
+                  "ADNL packets that completed decryption and reached the peer table.");
+  set.push_scalar("decrypt_bytes_total", "counter", m_.decrypt_bytes,
+                  "Bytes accepted from the network after ADNL packet decryption.");
+  set.push_scalar("local_ids", "gauge", local_ids_.size(), "Number of ADNL local ids currently registered.");
+  set.push_scalar("peers", "gauge", peers_.size(), "Number of distinct remote peer ids tracked by ADNL.");
   td::uint64 peer_pair_count = 0;
   for (auto &[_, peer_info] : peers_) {
     peer_pair_count += peer_info.peers.size();
   }
-  set.families.push_back(MetricFamily::make_scalar("peer_pairs", "gauge", static_cast<double>(peer_pair_count),
-                                                   "Number of (local_id, peer_id) ADNL peer pairs."));
-  set.families.push_back(MetricFamily::make_scalar("channels", "gauge", static_cast<double>(channels_.size()),
-                                                   "Number of registered ADNL channels."));
-  set.families.push_back(MetricFamily::make_scalar("static_nodes", "gauge", static_cast<double>(static_nodes_.size()),
-                                                   "Number of static ADNL nodes loaded from config."));
+  set.push_scalar("peer_pairs", "gauge", peer_pair_count, "Number of (local_id, peer_id) ADNL peer pairs.");
+  set.push_scalar("channels", "gauge", channels_.size(), "Number of registered ADNL channels.");
+  set.push_scalar("static_nodes", "gauge", static_nodes_.size(), "Number of static ADNL nodes loaded from config.");
   P.set_value(std::move(set).wrap("adnl"));
 }
 

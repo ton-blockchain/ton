@@ -289,65 +289,58 @@ void QuicSender::log_stats(std::string reason) {
   }
 }
 
-std::vector<metrics::MetricFamily> QuicSender::Stats::Entry::dump() const {
-  return {
-      metrics::MetricFamily::make_scalar("conns", "gauge", server_stats.total_conns),
-      metrics::MetricFamily::make_scalar("rx_bytes_total", "counter", server_stats.impl_stats.bytes_rx),
-      metrics::MetricFamily::make_scalar("tx_bytes_total", "counter", server_stats.impl_stats.bytes_tx),
-      metrics::MetricFamily::make_scalar("lost_bytes_total", "counter", server_stats.impl_stats.bytes_lost),
-      metrics::MetricFamily::make_scalar("unacked_bytes", "gauge", server_stats.impl_stats.bytes_unacked),
-      metrics::MetricFamily::make_scalar("unsent_bytes", "gauge", server_stats.impl_stats.bytes_unsent),
-      metrics::MetricFamily::make_scalar("open_sids", "gauge", server_stats.impl_stats.open_sids),
-      metrics::MetricFamily::make_scalar("mean_rtt", "gauge", server_stats.impl_stats.mean_rtt),
-      metrics::MetricFamily::make_scalar("pkt_sent_total", "counter", server_stats.impl_stats.pkt_sent),
-      metrics::MetricFamily::make_scalar("pkt_recv_total", "counter", server_stats.impl_stats.pkt_recv),
-      metrics::MetricFamily::make_scalar("pkt_lost_total", "counter", server_stats.impl_stats.pkt_lost),
-      metrics::MetricFamily::make_scalar("bytes_in_flight", "gauge", server_stats.impl_stats.bytes_in_flight),
-      metrics::MetricFamily::make_scalar("cwnd_bytes", "gauge", server_stats.impl_stats.cwnd),
-      metrics::MetricFamily::make_scalar("min_rtt_seconds", "gauge", server_stats.impl_stats.min_rtt_s),
-      metrics::MetricFamily::make_scalar("latest_rtt_seconds", "gauge", server_stats.impl_stats.latest_rtt_s),
-      metrics::MetricFamily::make_scalar("rttvar_seconds", "gauge", server_stats.impl_stats.rttvar_s),
-      metrics::MetricFamily::make_scalar(
-          "stream_bytes_buffered_total", "counter", server_stats.impl_stats.stream_bytes_buffered,
-          "Cumulative bytes the sender handed to ngtcp2 stream buffers (pre-QUIC-framing)."),
-      metrics::MetricFamily::make_scalar(
-          "stream_bytes_received_total", "counter", server_stats.impl_stats.stream_bytes_received,
-          "Cumulative bytes ngtcp2 yielded to the sender via stream-data callbacks (post-QUIC-framing)."),
-  };
+metrics::MetricSet QuicSender::Stats::Entry::dump() const {
+  const auto &s = server_stats.impl_stats;
+  metrics::MetricSet out;
+  out.push_scalar("conns", "gauge", server_stats.total_conns, "Active QUIC connections in this bucket.");
+  out.push_scalar("rx_bytes_total", "counter", s.bytes_rx, "Total wire bytes received by ngtcp2.");
+  out.push_scalar("tx_bytes_total", "counter", s.bytes_tx, "Total wire bytes emitted by ngtcp2.");
+  out.push_scalar("lost_bytes_total", "counter", s.bytes_lost,
+                  "QUIC packet bytes declared lost by the congestion controller.");
+  out.push_scalar("unacked_bytes", "gauge", s.bytes_unacked, "Bytes sent but not yet ACKed.");
+  out.push_scalar("unsent_bytes", "gauge", s.bytes_unsent, "Stream bytes buffered but not yet sent.");
+  out.push_scalar("open_sids", "gauge", s.open_sids, "Currently open QUIC stream ids.");
+  out.push_scalar("mean_rtt", "gauge", s.mean_rtt, "Smoothed RTT averaged across active paths (nanoseconds).");
+  out.push_scalar("pkt_sent_total", "counter", s.pkt_sent, "ngtcp2 packets sent.");
+  out.push_scalar("pkt_recv_total", "counter", s.pkt_recv, "ngtcp2 packets received.");
+  out.push_scalar("pkt_lost_total", "counter", s.pkt_lost, "ngtcp2 packets declared lost.");
+  out.push_scalar("bytes_in_flight", "gauge", s.bytes_in_flight, "Bytes in flight at snapshot time.");
+  out.push_scalar("cwnd_bytes", "gauge", s.cwnd, "Current congestion window.");
+  out.push_scalar("min_rtt_seconds", "gauge", s.min_rtt_s, "Minimum RTT observed on active path.");
+  out.push_scalar("latest_rtt_seconds", "gauge", s.latest_rtt_s, "Most recent RTT sample on active path.");
+  out.push_scalar("rttvar_seconds", "gauge", s.rttvar_s, "Current RTT variance estimate.");
+  out.push_scalar("stream_bytes_buffered_total", "counter", s.stream_bytes_buffered,
+                  "Cumulative bytes the sender handed to ngtcp2 stream buffers (pre-QUIC-framing).");
+  out.push_scalar("stream_bytes_received_total", "counter", s.stream_bytes_received,
+                  "Cumulative bytes ngtcp2 yielded to the sender via stream-data callbacks (post-QUIC-framing).");
+  return out;
 }
 
-std::vector<metrics::MetricFamily> QuicSender::Stats::dump() const {
-  auto summary_set = metrics::MetricSet{.families = summary.dump()};
-  auto whole_per_path_set = metrics::MetricSet{};
+metrics::MetricSet QuicSender::Stats::dump() const {
+  auto summary_set = summary.dump();
+  metrics::MetricSet whole_per_path_set;
   for (const auto &[path, entry] : per_path) {
-    auto path_set = metrics::MetricSet{.families = entry.dump()};
     auto src_v = PSTRING() << path.first, dst_v = PSTRING() << path.second;
     auto label_set = metrics::LabelSet{.labels = {{"src", src_v}, {"dst", dst_v}}};
-    whole_per_path_set = std::move(whole_per_path_set).join(std::move(path_set).label(label_set));
+    whole_per_path_set = std::move(whole_per_path_set).join(entry.dump().label(label_set));
   }
-  metrics::MetricSet udp_set{
-      .families = {
-          metrics::MetricFamily::make_scalar("ingress_bytes_total", "counter", static_cast<double>(udp_ingress_bytes),
-                                             "Total UDP bytes received on QUIC sockets (wire-level)."),
-          metrics::MetricFamily::make_scalar("ingress_packets_total", "counter",
-                                             static_cast<double>(udp_ingress_packets),
-                                             "Total UDP datagrams received on QUIC sockets."),
-          metrics::MetricFamily::make_scalar("ingress_syscalls_total", "counter",
-                                             static_cast<double>(udp_ingress_syscalls),
-                                             "recvmmsg/recvmsg syscalls on QUIC sockets."),
-          metrics::MetricFamily::make_scalar("egress_bytes_total", "counter", static_cast<double>(udp_egress_bytes),
-                                             "Total UDP bytes sent on QUIC sockets (wire-level)."),
-          metrics::MetricFamily::make_scalar("egress_packets_total", "counter", static_cast<double>(udp_egress_packets),
-                                             "Total UDP datagrams sent on QUIC sockets (post-GSO expansion)."),
-          metrics::MetricFamily::make_scalar("egress_syscalls_total", "counter",
-                                             static_cast<double>(udp_egress_syscalls),
-                                             "sendmmsg/sendmsg syscalls on QUIC sockets."),
-      }};
+  metrics::MetricSet udp_set;
+  udp_set.push_scalar("ingress_bytes_total", "counter", udp.ingress.bytes,
+                      "Total UDP bytes received on QUIC sockets (wire-level).");
+  udp_set.push_scalar("ingress_packets_total", "counter", udp.ingress.packets,
+                      "Total UDP datagrams received on QUIC sockets.");
+  udp_set.push_scalar("ingress_syscalls_total", "counter", udp.ingress.syscalls,
+                      "recvmmsg/recvmsg syscalls on QUIC sockets.");
+  udp_set.push_scalar("egress_bytes_total", "counter", udp.egress.bytes,
+                      "Total UDP bytes sent on QUIC sockets (wire-level).");
+  udp_set.push_scalar("egress_packets_total", "counter", udp.egress.packets,
+                      "Total UDP datagrams sent on QUIC sockets (post-GSO expansion).");
+  udp_set.push_scalar("egress_syscalls_total", "counter", udp.egress.syscalls,
+                      "sendmmsg/sendmsg syscalls on QUIC sockets.");
   return std::move(summary_set)
       .wrap("summary")
       .join(std::move(udp_set).wrap("udp"))
-      .join(std::move(whole_per_path_set).wrap("per_path"))
-      .families;
+      .join(std::move(whole_per_path_set).wrap("per_path"));
 }
 
 td::actor::Task<QuicSender::Stats> QuicSender::collect_stats() {
@@ -355,12 +348,7 @@ td::actor::Task<QuicSender::Stats> QuicSender::collect_stats() {
   for (auto &[_, server] : servers_) {
     auto serv_stats = co_await td::actor::ask(server, &QuicServer::collect_stats);
     stats.summary = stats.summary + Stats::Entry{.server_stats = serv_stats.summary};
-    stats.udp_ingress_bytes += serv_stats.udp_ingress_bytes;
-    stats.udp_ingress_packets += serv_stats.udp_ingress_packets;
-    stats.udp_ingress_syscalls += serv_stats.udp_ingress_syscalls;
-    stats.udp_egress_bytes += serv_stats.udp_egress_bytes;
-    stats.udp_egress_packets += serv_stats.udp_egress_packets;
-    stats.udp_egress_syscalls += serv_stats.udp_egress_syscalls;
+    stats.udp += serv_stats.udp;
     for (auto &[id, conn_stats] : serv_stats.per_conn) {
       if (!by_cid_.contains(id))
         continue;
@@ -372,71 +360,39 @@ td::actor::Task<QuicSender::Stats> QuicSender::collect_stats() {
 
 // TODO(avevad): remove obsolete Stats and collect metrics directly
 void QuicSender::collect(td::Promise<metrics::MetricSet> P) {
-  using metrics::MetricFamily;
-  using metrics::MetricSet;
   // Snapshot synchronously inside the actor before kicking off the (coroutine-driven) per-server
   // stats collection. After we co_await a server, app_metrics_ could mutate, so capture now.
-  auto labeled_counter = [](std::string name, std::vector<std::pair<std::string, td::uint64>> entries,
-                            std::optional<std::string> help = std::nullopt) {
-    MetricFamily fam{.name = std::move(name), .type = "counter", .help = std::move(help), .metrics = {}};
-    for (auto &[label, value] : entries) {
-      fam.metrics.push_back(metrics::Metric{
-          .suffix = "",
-          .label_set = metrics::LabelSet{.labels = {{"kind", label}}},
-          .samples = {metrics::Sample{.label_set = {}, .value = static_cast<double>(value)}},
-      });
-    }
-    return fam;
-  };
-  MetricSet app_set;
-  app_set.families.push_back(labeled_counter("app_send_bytes_total",
-                                             {
-                                                 {"message", app_metrics_.send_bytes_message},
-                                                 {"query", app_metrics_.send_bytes_query},
-                                             },
-                                             "Bytes the application asked QUIC to send (raw payload, by kind)."));
-  app_set.families.push_back(labeled_counter("app_send_messages_total",
-                                             {
-                                                 {"message", app_metrics_.send_msgs_message},
-                                                 {"query", app_metrics_.send_msgs_query},
-                                             },
-                                             "Messages the application asked QUIC to send."));
-  app_set.families.push_back(labeled_counter("app_deliver_bytes_total",
-                                             {
-                                                 {"message", app_metrics_.deliver_bytes_message},
-                                                 {"query", app_metrics_.deliver_bytes_query},
-                                                 {"answer", app_metrics_.deliver_bytes_answer},
-                                             },
-                                             "Bytes QUIC delivered to the application (raw payload, by kind)."));
-  app_set.families.push_back(labeled_counter("app_deliver_messages_total",
-                                             {
-                                                 {"message", app_metrics_.deliver_msgs_message},
-                                                 {"query", app_metrics_.deliver_msgs_query},
-                                                 {"answer", app_metrics_.deliver_msgs_answer},
-                                             },
-                                             "Messages QUIC delivered to the application."));
-  auto append_tl = [&](std::vector<MetricFamily> families) {
-    for (auto &fam : families) {
-      app_set.families.push_back(std::move(fam));
-    }
-  };
-  append_tl(metrics::render_tl_bucket("app_send", "message", app_send_by_tl_message_,
-                                      "Bytes the application sent via QUIC quic.message wrappers, by inner TL.",
-                                      "Messages the application sent via QUIC quic.message wrappers, by inner TL."));
-  append_tl(metrics::render_tl_bucket("app_send", "query", app_send_by_tl_query_));
-  append_tl(
-      metrics::render_tl_bucket("app_deliver", "message", app_deliver_by_tl_message_,
-                                "Bytes QUIC delivered to the application from quic.message wrappers, by inner TL.",
-                                "Messages QUIC delivered to the application from quic.message wrappers, by inner TL."));
-  append_tl(metrics::render_tl_bucket("app_deliver", "query", app_deliver_by_tl_query_));
-  append_tl(metrics::render_tl_bucket("app_deliver", "answer", app_deliver_by_tl_answer_));
+  metrics::MetricSet app_set;
+  app_set.push_labeled_scalar("app_send_bytes_total", "counter", "kind",
+                              {{"message", app_metrics_.send_message.bytes}, {"query", app_metrics_.send_query.bytes}},
+                              "Bytes the application asked QUIC to send (raw payload, by kind).");
+  app_set.push_labeled_scalar("app_send_messages_total", "counter", "kind",
+                              {{"message", app_metrics_.send_message.msgs}, {"query", app_metrics_.send_query.msgs}},
+                              "Messages the application asked QUIC to send.");
+  app_set.push_labeled_scalar("app_deliver_bytes_total", "counter", "kind",
+                              {{"message", app_metrics_.deliver_message.bytes},
+                               {"query", app_metrics_.deliver_query.bytes},
+                               {"answer", app_metrics_.deliver_answer.bytes}},
+                              "Bytes QUIC delivered to the application (raw payload, by kind).");
+  app_set.push_labeled_scalar("app_deliver_messages_total", "counter", "kind",
+                              {{"message", app_metrics_.deliver_message.msgs},
+                               {"query", app_metrics_.deliver_query.msgs},
+                               {"answer", app_metrics_.deliver_answer.msgs}},
+                              "Messages QUIC delivered to the application.");
+  metrics::render_tl_bucket(app_set, "app_send", "message", app_send_by_tl_message_,
+                            "Bytes the application sent via QUIC quic.message wrappers, by inner TL.",
+                            "Messages the application sent via QUIC quic.message wrappers, by inner TL.");
+  metrics::render_tl_bucket(app_set, "app_send", "query", app_send_by_tl_query_);
+  metrics::render_tl_bucket(app_set, "app_deliver", "message", app_deliver_by_tl_message_,
+                            "Bytes QUIC delivered to the application from quic.message wrappers, by inner TL.",
+                            "Messages QUIC delivered to the application from quic.message wrappers, by inner TL.");
+  metrics::render_tl_bucket(app_set, "app_deliver", "query", app_deliver_by_tl_query_);
+  metrics::render_tl_bucket(app_set, "app_deliver", "answer", app_deliver_by_tl_answer_);
 
-  td::actor::send_closure(
-      actor_id(this), &QuicSender::collect_stats,
-      td::make_promise([P = std::move(P), app_set = std::move(app_set)](td::Result<Stats> R) mutable {
-        auto stats_set = MetricSet{.families = R.move_as_ok().dump()};
-        P.set_value(std::move(stats_set).join(std::move(app_set)).wrap("quic"));
-      }));
+  td::actor::send_closure(actor_id(this), &QuicSender::collect_stats,
+                          [P = std::move(P), app_set = std::move(app_set)](td::Result<Stats> R) mutable {
+                            P.set_value(R.move_as_ok().dump().join(std::move(app_set)).wrap("quic"));
+                          });
 }
 
 void QuicSender::on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id,
@@ -482,8 +438,7 @@ td::actor::Task<td::Unit> QuicSender::send_message_coro(adnl::AdnlNodeIdShort sr
 
 td::actor::Task<td::Unit> QuicSender::send_message_coro_inner(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                                               td::BufferSlice data) {
-  app_metrics_.send_msgs_message++;
-  app_metrics_.send_bytes_message += data.size();
+  app_metrics_.send_message.record(data.size());
   app_send_by_tl_message_.account(data.as_slice());
   auto conn = co_await find_or_create_connection({src, dst});
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_message>(std::move(data));
@@ -495,8 +450,7 @@ td::actor::Task<td::Unit> QuicSender::send_message_coro_inner(adnl::AdnlNodeIdSh
 td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                                              std::string name, td::Timestamp timeout,
                                                              td::BufferSlice data, std::optional<td::uint64> limit) {
-  app_metrics_.send_msgs_query++;
-  app_metrics_.send_bytes_query += data.size();
+  app_metrics_.send_query.record(data.size());
   app_send_by_tl_query_.account(data.as_slice());
   auto conn = co_await find_or_create_connection({src, dst});
   auto query_size = data.size();
@@ -767,16 +721,14 @@ void QuicSender::on_closed(QuicConnectionId cid) {
 
 void QuicSender::on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
                             ton_api::quic_query &query) {
-  app_metrics_.deliver_msgs_query++;
-  app_metrics_.deliver_bytes_query += query.data_.size();
+  app_metrics_.deliver_query.record(query.data_.size());
   app_deliver_by_tl_query_.account(query.data_.as_slice());
   on_inbound_query(connection, stream_id, std::move(query.data_)).start_immediate().detach();
 }
 
 void QuicSender::on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
                             ton_api::quic_message &message) {
-  app_metrics_.deliver_msgs_message++;
-  app_metrics_.deliver_bytes_message += message.data_.size();
+  app_metrics_.deliver_message.record(message.data_.size());
   app_deliver_by_tl_message_.account(message.data_.as_slice());
   td::actor::send_closure(adnl_, &adnl::AdnlPeerTable::deliver, connection->path.second, connection->path.first,
                           std::move(message.data_));
@@ -801,8 +753,7 @@ void QuicSender::on_answer(Connection &connection, QuicStreamID stream_id, ton_a
     LOG(ERROR) << "Answer from unknown stream_id";
     return;
   }
-  app_metrics_.deliver_msgs_answer++;
-  app_metrics_.deliver_bytes_answer += answer.data_.size();
+  app_metrics_.deliver_answer.record(answer.data_.size());
   app_deliver_by_tl_answer_.account(answer.data_.as_slice());
   it->second.set_result(std::move(answer.data_));
   connection.responses.erase(it);
