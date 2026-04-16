@@ -21,11 +21,14 @@
 #include "adnl/utils.hpp"
 #include "auto/tl/ton_api.h"
 #include "auto/tl/ton_api.hpp"
+#include "metrics/metrics-types.h"
+#include "metrics/prometheus-exporter.h"
 #include "td/actor/actor.h"
 #include "td/actor/common.h"
 #include "td/db/RocksDb.h"
 #include "td/utils/Random.h"
 #include "td/utils/Status.h"
+#include "td/utils/as.h"
 #include "td/utils/buffer.h"
 #include "td/utils/overloaded.h"
 #include "td/utils/port/Poll.h"
@@ -410,6 +413,8 @@ void OverlayManager::send_message_via(adnl::AdnlNodeIdShort dst, adnl::AdnlNodeI
     if (it2 != it->second.end()) {
       td::actor::send_closure(it2->second.overlay, &Overlay::update_throughput_out_ctr, dst, object.size(), false,
                               false);
+      td::int32 magic = object.size() >= sizeof(td::int32) ? td::as<td::int32>(object.data()) : 0;
+      td::actor::send_closure(it2->second.overlay, &Overlay::note_outbound_message_tl, magic, object.size());
       if (!it2->second.member_certificate.empty()) {
         // do not send certificate here, we hope that all our neighbours already know of out certificate
         // we send it every second to some random nodes. Here we don't want to increase the size of the message
@@ -783,6 +788,219 @@ td::Status OverlayMemberCertificate::check_signature(const adnl::AdnlNodeIdShort
   TRY_RESULT(encryptor, signed_by_.create_encryptor());
   TRY_STATUS(encryptor->check_signature(data_to_sign.as_slice(), signature_.as_slice()));
   return td::Status::OK();
+}
+
+namespace {
+
+// scope is `{ "type": "shard", ... }`; pull the "type" out without dragging in a JSON parser.
+std::string extract_type(const std::string &scope) {
+  static const std::string key = "\"type\"";
+  auto k = scope.find(key);
+  if (k == std::string::npos) {
+    return "unknown";
+  }
+  auto colon = scope.find(':', k + key.size());
+  if (colon == std::string::npos) {
+    return "unknown";
+  }
+  auto start = scope.find('"', colon + 1);
+  if (start == std::string::npos) {
+    return "unknown";
+  }
+  auto end = scope.find('"', start + 1);
+  if (end == std::string::npos) {
+    return "unknown";
+  }
+  return scope.substr(start + 1, end - start - 1);
+}
+
+struct OverlayTypeAggregate {
+  td::uint64 traffic_out_bytes = 0;
+  td::uint64 traffic_in_bytes = 0;
+  td::uint64 traffic_out_packets = 0;
+  td::uint64 traffic_in_packets = 0;
+  td::uint64 responses_out_bytes = 0;
+  td::uint64 responses_in_bytes = 0;
+  td::uint64 responses_out_packets = 0;
+  td::uint64 responses_in_packets = 0;
+  td::uint64 broadcast_errors = 0;
+  td::uint64 fec_broadcast_errors = 0;
+  td::uint64 overlay_count = 0;
+  td::uint64 peers = 0;
+  td::uint64 alive_peers = 0;
+  td::uint64 neighbours = 0;
+  metrics::TlTrafficBucket messages_sent_by_tl;
+  metrics::TlTrafficBucket messages_received_by_tl;
+  metrics::TlTrafficBucket broadcasts_sent_by_tl;
+  metrics::TlTrafficBucket broadcasts_received_by_tl;
+};
+
+void merge_into(metrics::TlTrafficBucket &dst, const metrics::TlTrafficBucket &src) {
+  for (auto &[magic, value] : src.bytes) {
+    dst.bytes[magic] += value;
+  }
+  for (auto &[magic, value] : src.messages) {
+    dst.messages[magic] += value;
+  }
+  dst.unknown_bytes += src.unknown_bytes;
+  dst.unknown_messages += src.unknown_messages;
+}
+
+}  // namespace
+
+void OverlayManager::collect(metrics::MetricsPromise P) {
+  using metrics::MetricFamily;
+  using metrics::MetricSet;
+  // Async fan-out: ask every overlay for its accumulated stats, aggregate by overlay type, then
+  // emit a labeled MetricSet to the promise. One round-trip per overlay per scrape.
+  class Collector : public td::actor::Actor {
+   public:
+    explicit Collector(metrics::MetricsPromise promise) : promise_(std::move(promise)) {
+    }
+
+    void inc_pending() {
+      pending_++;
+    }
+    void on_snapshot(td::Result<Overlay::AccStatsSnapshot> r) {
+      if (r.is_ok()) {
+        auto snap = r.move_as_ok();
+        auto type = extract_type(snap.scope);
+        auto &agg = by_type_[type];
+        agg.overlay_count++;
+        agg.traffic_out_bytes += snap.traffic_out_bytes;
+        agg.traffic_in_bytes += snap.traffic_in_bytes;
+        agg.traffic_out_packets += snap.traffic_out_packets;
+        agg.traffic_in_packets += snap.traffic_in_packets;
+        agg.responses_out_bytes += snap.responses_out_bytes;
+        agg.responses_in_bytes += snap.responses_in_bytes;
+        agg.responses_out_packets += snap.responses_out_packets;
+        agg.responses_in_packets += snap.responses_in_packets;
+        agg.broadcast_errors += snap.broadcast_errors;
+        agg.fec_broadcast_errors += snap.fec_broadcast_errors;
+        agg.peers += snap.peers;
+        agg.alive_peers += snap.alive_peers;
+        agg.neighbours += snap.neighbours;
+        merge_into(agg.messages_sent_by_tl, snap.messages_sent_by_tl);
+        merge_into(agg.messages_received_by_tl, snap.messages_received_by_tl);
+        merge_into(agg.broadcasts_sent_by_tl, snap.broadcasts_sent_by_tl);
+        merge_into(agg.broadcasts_received_by_tl, snap.broadcasts_received_by_tl);
+      }
+      dec_pending();
+    }
+    void dec_pending() {
+      if (--pending_ != 0) {
+        return;
+      }
+      MetricSet set = build_set();
+      promise_.set_value(std::move(set).wrap("overlay"));
+      stop();
+    }
+
+   private:
+    metrics::MetricsPromise promise_;
+    size_t pending_{1};
+    std::map<std::string, OverlayTypeAggregate> by_type_;
+
+    MetricSet build_set() {
+      MetricSet set;
+      auto labeled = [&](std::string name, std::string type, std::optional<std::string> help, auto getter) {
+        MetricFamily fam{.name = std::move(name), .type = std::move(type), .help = std::move(help), .metrics = {}};
+        for (auto &[overlay_type, agg] : by_type_) {
+          fam.metrics.push_back(metrics::Metric{
+              .suffix = "",
+              .label_set = metrics::LabelSet{.labels = {{"type", overlay_type}}},
+              .samples = {metrics::Sample{.label_set = {}, .value = static_cast<double>(getter(agg))}},
+          });
+        }
+        set.families.push_back(std::move(fam));
+      };
+      auto labeled_dir = [&](std::string name, std::string type, std::optional<std::string> help, auto out_getter,
+                             auto in_getter) {
+        MetricFamily fam{.name = std::move(name), .type = std::move(type), .help = std::move(help), .metrics = {}};
+        for (auto &[overlay_type, agg] : by_type_) {
+          for (auto [direction, value] :
+               {std::pair{std::string("out"), out_getter(agg)}, std::pair{std::string("in"), in_getter(agg)}}) {
+            fam.metrics.push_back(metrics::Metric{
+                .suffix = "",
+                .label_set = metrics::LabelSet{.labels = {{"type", overlay_type}, {"direction", std::move(direction)}}},
+                .samples = {metrics::Sample{.label_set = {}, .value = static_cast<double>(value)}},
+            });
+          }
+        }
+        set.families.push_back(std::move(fam));
+      };
+      labeled_dir(
+          "traffic_bytes_total", "counter", "Bytes flowing through overlays (broadcasts + messages).",
+          [](auto &a) { return a.traffic_out_bytes; }, [](auto &a) { return a.traffic_in_bytes; });
+      labeled_dir(
+          "traffic_packets_total", "counter", "Packets flowing through overlays.",
+          [](auto &a) { return a.traffic_out_packets; }, [](auto &a) { return a.traffic_in_packets; });
+      labeled_dir(
+          "responses_bytes_total", "counter", "Bytes flowing through overlays attributable to query responses.",
+          [](auto &a) { return a.responses_out_bytes; }, [](auto &a) { return a.responses_in_bytes; });
+      labeled_dir(
+          "responses_packets_total", "counter", "Packets flowing through overlays attributable to responses.",
+          [](auto &a) { return a.responses_out_packets; }, [](auto &a) { return a.responses_in_packets; });
+      labeled("broadcast_errors_total", "counter", "Broadcast validation errors observed in overlays.",
+              [](auto &a) { return a.broadcast_errors; });
+      labeled("fec_broadcast_errors_total", "counter", "FEC broadcast validation errors observed in overlays.",
+              [](auto &a) { return a.fec_broadcast_errors; });
+      labeled("count", "gauge", "Number of registered overlays.", [](auto &a) { return a.overlay_count; });
+      labeled("peers", "gauge", "Sum of overlay peer counts.", [](auto &a) { return a.peers; });
+      labeled("alive_peers", "gauge", "Sum of alive peer counts.", [](auto &a) { return a.alive_peers; });
+      labeled("neighbours", "gauge", "Sum of selected neighbour counts.", [](auto &a) { return a.neighbours; });
+      // Per-(type, tl) breakdown for messages and broadcasts crossing the overlay boundary.
+      // Each call expands into bytes_by_tl_total + messages_by_tl_total families with labels
+      // {kind=type, tl=schema_name}. The label key "kind" here carries the overlay type.
+      auto append_tl = [&](std::string base, auto getter, std::optional<std::string> bytes_help,
+                           std::optional<std::string> messages_help) {
+        for (auto &[overlay_type, agg] : by_type_) {
+          auto fams = metrics::render_tl_bucket(base, overlay_type, getter(agg), bytes_help, messages_help, "type");
+          for (auto &fam : fams) {
+            set.families.push_back(std::move(fam));
+          }
+        }
+      };
+      append_tl(
+          "messages_sent", [](auto &a) -> auto & { return a.messages_sent_by_tl; },
+          "Bytes sent via overlay direct messages, by overlay type and inner TL.",
+          "Messages sent via overlay direct messages, by overlay type and inner TL.");
+      append_tl(
+          "messages_received", [](auto &a) -> auto & { return a.messages_received_by_tl; },
+          "Bytes received via overlay direct messages, by overlay type and inner TL.",
+          "Messages received via overlay direct messages, by overlay type and inner TL.");
+      append_tl(
+          "broadcasts_sent", [](auto &a) -> auto & { return a.broadcasts_sent_by_tl; },
+          "Bytes sent via overlay broadcasts, by overlay type and inner TL.",
+          "Broadcasts sent, by overlay type and inner TL.");
+      append_tl(
+          "broadcasts_received", [](auto &a) -> auto & { return a.broadcasts_received_by_tl; },
+          "Bytes received via overlay broadcasts, by overlay type and inner TL.",
+          "Broadcasts received, by overlay type and inner TL.");
+      return set;
+    }
+  };
+
+  auto collector = td::actor::create_actor<Collector>("overlaymetrics", std::move(P)).release();
+  for (auto &[local_id, by_oid] : overlays_) {
+    for (auto &[overlay_id, descr] : by_oid) {
+      td::actor::send_closure(collector, &Collector::inc_pending);
+      td::actor::send_closure(descr.overlay, &Overlay::get_acc_stats,
+                              [collector](td::Result<Overlay::AccStatsSnapshot> r) {
+                                td::actor::send_closure(collector, &Collector::on_snapshot, std::move(r));
+                              });
+    }
+  }
+  td::actor::send_closure(collector, &Collector::dec_pending);
+}
+
+void OverlayManager::register_metrics(td::actor::ActorId<Overlays> overlays,
+                                      td::actor::ActorId<PrometheusExporter> exporter) {
+  auto impl = td::actor::actor_dynamic_cast<OverlayManager>(overlays);
+  if (impl.empty()) {
+    return;
+  }
+  td::actor::send_closure(exporter, &PrometheusExporter::register_collector<OverlayManager>, impl);
 }
 
 }  // namespace overlay

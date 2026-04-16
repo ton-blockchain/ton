@@ -432,6 +432,12 @@ void QuicServer::collect_stats(td::Promise<Stats> P) {
     stats.summary = stats.summary + entry;
     stats.per_conn[id] = entry;
   }
+  stats.udp_ingress_bytes = ingress_stats_.bytes;
+  stats.udp_ingress_packets = ingress_stats_.packets;
+  stats.udp_ingress_syscalls = ingress_stats_.syscalls;
+  stats.udp_egress_bytes = egress_stats_.bytes;
+  stats.udp_egress_packets = egress_stats_.packets;
+  stats.udp_egress_syscalls = egress_stats_.syscalls;
   return P.set_value(std::move(stats));
 }
 

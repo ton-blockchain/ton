@@ -20,6 +20,7 @@
 
 #include <map>
 
+#include "metrics/metrics-collectors.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/actor/actor.h"
 #include "td/net/TcpListener.h"
@@ -39,8 +40,10 @@ namespace adnl {
 
 class AdnlPeerTable;
 
-class AdnlNetworkManagerImpl : public AdnlNetworkManager {
+class AdnlNetworkManagerImpl : public AdnlNetworkManager, public virtual metrics::AsyncCollector {
  public:
+  void collect(metrics::MetricsPromise P) override;
+
   struct OutDesc {
     td::uint16 port;
     td::IPAddress proxy_addr;
@@ -154,6 +157,30 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager {
 
   td::uint64 received_messages_ = 0;
   td::uint64 sent_messages_ = 0;
+
+  struct Metrics {
+    td::uint64 udp_ingress_bytes = 0;
+    td::uint64 udp_ingress_packets = 0;
+    td::uint64 udp_ingress_drop_no_callback = 0;
+    td::uint64 udp_ingress_drop_error = 0;
+    td::uint64 udp_ingress_drop_too_short = 0;
+    td::uint64 udp_ingress_drop_too_huge = 0;
+    td::uint64 udp_ingress_drop_bad_proxy_decrypt = 0;
+    td::uint64 udp_ingress_drop_bad_proxy_seqno = 0;
+    td::uint64 udp_ingress_drop_bad_proxy_time = 0;
+    td::uint64 udp_ingress_drop_bad_proxy_outflag = 0;
+    td::uint64 udp_ingress_drop_bad_control = 0;
+    td::uint64 udp_ingress_drop_no_in_desc = 0;
+    td::uint64 udp_ingress_proxy_control = 0;
+    td::uint64 udp_proxy_ingress_bytes = 0;
+    td::uint64 udp_egress_bytes = 0;
+    td::uint64 udp_egress_packets = 0;
+    td::uint64 udp_egress_drop_unknown_src = 0;
+    td::uint64 udp_egress_drop_no_route = 0;
+    td::uint64 udp_proxy_egress_bytes = 0;
+    td::uint64 udp_proxy_egress_packets = 0;
+  };
+  Metrics m_;
 
   std::vector<UdpSocketDesc> udp_sockets_;
   std::map<td::uint16, size_t> port_2_socket_;

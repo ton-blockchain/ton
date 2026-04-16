@@ -19,6 +19,19 @@ struct QuicConnectionStats {
   int64_t bytes_unacked = 0, bytes_unsent = 0;
   int64_t total_sids = 0, open_sids = 0;
   double mean_rtt = 0;
+  // Extended (per-conn snapshot, summed only by absolute counts):
+  int64_t pkt_sent = 0, pkt_recv = 0, pkt_lost = 0;
+  int64_t bytes_in_flight = 0;
+  int64_t cwnd = 0;
+  // RTT samples in seconds (per-conn snapshots; aggregated as a sum, not a useful average):
+  double min_rtt_s = 0;
+  double latest_rtt_s = 0;
+  double rttvar_s = 0;
+  // ngtcp2 stream-data boundary: bytes the application asked ngtcp2 to send on streams (cumulative
+  // input to buffer_stream) vs bytes ngtcp2 yielded back via stream-data callbacks. The diff
+  // between these and the bytes_tx/bytes_rx packet-level counters is QUIC framing overhead.
+  int64_t stream_bytes_buffered = 0;
+  int64_t stream_bytes_received = 0;
 
   QuicConnectionStats operator+(const QuicConnectionStats& other) const {
     return {
@@ -29,6 +42,17 @@ struct QuicConnectionStats {
         .bytes_unsent = bytes_unsent + other.bytes_unsent,
         .total_sids = total_sids + other.total_sids,
         .open_sids = open_sids + other.open_sids,
+        .mean_rtt = 0,
+        .pkt_sent = pkt_sent + other.pkt_sent,
+        .pkt_recv = pkt_recv + other.pkt_recv,
+        .pkt_lost = pkt_lost + other.pkt_lost,
+        .bytes_in_flight = bytes_in_flight + other.bytes_in_flight,
+        .cwnd = cwnd + other.cwnd,
+        .min_rtt_s = min_rtt_s + other.min_rtt_s,
+        .latest_rtt_s = latest_rtt_s + other.latest_rtt_s,
+        .rttvar_s = rttvar_s + other.rttvar_s,
+        .stream_bytes_buffered = stream_bytes_buffered + other.stream_bytes_buffered,
+        .stream_bytes_received = stream_bytes_received + other.stream_bytes_received,
     };
   }
 
@@ -41,6 +65,17 @@ struct QuicConnectionStats {
         .bytes_unsent = bytes_unsent - other.bytes_unsent,
         .total_sids = total_sids - other.total_sids,
         .open_sids = open_sids - other.open_sids,
+        .mean_rtt = 0,
+        .pkt_sent = pkt_sent - other.pkt_sent,
+        .pkt_recv = pkt_recv - other.pkt_recv,
+        .pkt_lost = pkt_lost - other.pkt_lost,
+        .bytes_in_flight = bytes_in_flight - other.bytes_in_flight,
+        .cwnd = cwnd - other.cwnd,
+        .min_rtt_s = min_rtt_s - other.min_rtt_s,
+        .latest_rtt_s = latest_rtt_s - other.latest_rtt_s,
+        .rttvar_s = rttvar_s - other.rttvar_s,
+        .stream_bytes_buffered = stream_bytes_buffered - other.stream_bytes_buffered,
+        .stream_bytes_received = stream_bytes_received - other.stream_bytes_received,
     };
   }
 };

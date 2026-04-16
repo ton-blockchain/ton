@@ -18,6 +18,7 @@
 */
 #pragma once
 
+#include <atomic>
 #include <map>
 
 #include "adnl/adnl-query.h"
@@ -36,6 +37,32 @@ constexpr int VERBOSITY_NAME(RLDP_DEBUG) = verbosity_DEBUG;
 constexpr int VERBOSITY_NAME(RLDP_EXTRA_DEBUG) = verbosity_DEBUG + 1;
 
 using TransferId = td::Bits256;
+
+struct Rldp2Metrics {
+  std::atomic<td::uint64> app_send_bytes_message{0};
+  std::atomic<td::uint64> app_send_msgs_message{0};
+  std::atomic<td::uint64> app_send_bytes_query{0};
+  std::atomic<td::uint64> app_send_msgs_query{0};
+  std::atomic<td::uint64> app_send_bytes_answer{0};
+  std::atomic<td::uint64> app_send_msgs_answer{0};
+  std::atomic<td::uint64> app_deliver_bytes_message{0};
+  std::atomic<td::uint64> app_deliver_msgs_message{0};
+  std::atomic<td::uint64> app_deliver_bytes_query{0};
+  std::atomic<td::uint64> app_deliver_msgs_query{0};
+  std::atomic<td::uint64> app_deliver_bytes_answer{0};
+  std::atomic<td::uint64> app_deliver_msgs_answer{0};
+
+  std::atomic<td::uint64> bytes_sent_to_adnl{0};
+  std::atomic<td::uint64> parts_sent_to_adnl{0};
+  std::atomic<td::uint64> bytes_received_from_adnl{0};
+  std::atomic<td::uint64> parts_received_from_adnl{0};
+
+  std::atomic<td::uint64> parse_errors{0};
+  std::atomic<td::uint64> transfers_received_ok{0};
+  std::atomic<td::uint64> transfers_received_err{0};
+  std::atomic<td::uint64> transfers_sent_ok{0};
+  std::atomic<td::uint64> transfers_sent_err{0};
+};
 
 class RldpImpl : public Rldp {
  public:

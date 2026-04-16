@@ -19,10 +19,13 @@
 #pragma once
 
 #include <map>
+#include <memory>
 #include <set>
 
 #include "adnl/adnl-peer-table.h"
 #include "adnl/adnl-query.h"
+#include "metrics/metrics-collectors.h"
+#include "metrics/tl-traffic-bucket.h"
 #include "td/utils/List.h"
 #include "tl-utils/tl-utils.hpp"
 
@@ -52,7 +55,7 @@ class RldpLru : public td::ListNode {
   TransferId transfer_id_;
 };
 
-class RldpIn : public RldpImpl {
+class RldpIn : public RldpImpl, public virtual metrics::AsyncCollector {
  public:
   static constexpr td::uint64 global_mtu() {
     return (1ull << 37);
@@ -60,6 +63,7 @@ class RldpIn : public RldpImpl {
   static constexpr td::uint32 lru_size() {
     return 128;
   }
+  void collect(metrics::MetricsPromise P) override;
   TransferId transfer(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::Timestamp timeout, td::BufferSlice data,
                       TransferId t = TransferId::zero());
   void transfer_completed(TransferId transfer_id) override;
@@ -125,6 +129,16 @@ class RldpIn : public RldpImpl {
   std::map<TransferId, td::uint64> max_size_;
 
   std::set<adnl::AdnlNodeIdShort> local_ids_;
+
+  std::shared_ptr<RldpMetrics> metrics_ = std::make_shared<RldpMetrics>();
+
+  // Per-TL-id traffic buckets, accessed only from this actor's thread.
+  metrics::TlTrafficBucket app_send_by_tl_message_;
+  metrics::TlTrafficBucket app_send_by_tl_query_;
+  metrics::TlTrafficBucket app_send_by_tl_answer_;
+  metrics::TlTrafficBucket app_deliver_by_tl_message_;
+  metrics::TlTrafficBucket app_deliver_by_tl_query_;
+  metrics::TlTrafficBucket app_deliver_by_tl_answer_;
 };
 
 }  // namespace rldp

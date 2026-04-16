@@ -20,6 +20,7 @@
 
 #include "adnl/adnl.h"
 #include "auto/tl/ton_api.h"
+#include "metrics/tl-traffic-bucket.h"
 #include "td/actor/actor.h"
 #include "td/utils/buffer.h"
 #include "td/utils/int_types.h"
@@ -71,6 +72,34 @@ class Overlay : public td::actor::Actor {
   virtual void receive_nodes_from_db(tl_object_ptr<ton_api::overlay_nodes> nodes) = 0;
   virtual void receive_nodes_from_db_v2(tl_object_ptr<ton_api::overlay_nodesV2> nodes) = 0;
   virtual void get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_overlayStats>> promise) = 0;
+
+  // Snapshot for the metrics layer: monotonic counters + per-overlay scalars + scope JSON.
+  // Returned synchronously into the promise; one round-trip per overlay per scrape.
+  struct AccStatsSnapshot {
+    std::string scope;  // raw JSON; the metrics layer extracts the "type" field.
+    td::uint64 traffic_out_bytes = 0;
+    td::uint64 traffic_in_bytes = 0;
+    td::uint64 traffic_out_packets = 0;
+    td::uint64 traffic_in_packets = 0;
+    td::uint64 responses_out_bytes = 0;
+    td::uint64 responses_in_bytes = 0;
+    td::uint64 responses_out_packets = 0;
+    td::uint64 responses_in_packets = 0;
+    td::uint64 broadcast_errors = 0;
+    td::uint64 fec_broadcast_errors = 0;
+    td::uint64 peers = 0;
+    td::uint64 alive_peers = 0;
+    td::uint64 neighbours = 0;
+    metrics::TlTrafficBucket messages_sent_by_tl;
+    metrics::TlTrafficBucket messages_received_by_tl;
+    metrics::TlTrafficBucket broadcasts_sent_by_tl;
+    metrics::TlTrafficBucket broadcasts_received_by_tl;
+  };
+  virtual void get_acc_stats(td::Promise<AccStatsSnapshot> promise) = 0;
+
+  // Cross-actor accounting hooks: the OverlayManager extracts the magic in its own actor and
+  // ships just the (magic, size) tuple to avoid copying the payload via send_closure.
+  virtual void note_outbound_message_tl(td::int32 magic, td::uint64 size) = 0;
   virtual void update_throughput_out_ctr(adnl::AdnlNodeIdShort peer_id, td::uint64 msg_size, bool is_query,
                                          bool is_response) = 0;
   virtual void update_throughput_in_ctr(adnl::AdnlNodeIdShort peer_id, td::uint64 msg_size, bool is_query,

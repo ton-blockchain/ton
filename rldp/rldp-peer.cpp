@@ -84,7 +84,12 @@ void RldpTransferSenderImpl::send_one_part(td::uint32 seqno) {
   auto symbol = encoder_->gen_symbol(seqno);
   auto obj = create_tl_object<ton_api::rldp_messagePart>(transfer_id_, fec_type_.tl(), part_, data_.size(), seqno,
                                                          std::move(symbol.data));
-  td::actor::send_closure(adnl_, &adnl::Adnl::send_message, local_id_, peer_id_, serialize_tl_object(obj, true));
+  auto serialized = serialize_tl_object(obj, true);
+  if (metrics_) {
+    metrics_->parts_sent_to_adnl_part.fetch_add(1, std::memory_order_relaxed);
+    metrics_->bytes_sent_to_adnl_part.fetch_add(serialized.size(), std::memory_order_relaxed);
+  }
+  td::actor::send_closure(adnl_, &adnl::Adnl::send_message, local_id_, peer_id_, std::move(serialized));
 }
 
 void RldpTransferSenderImpl::confirm(td::uint32 part, td::uint32 seqno) {
@@ -104,16 +109,22 @@ void RldpTransferSenderImpl::complete(td::uint32 part) {
 
 td::actor::ActorOwn<RldpTransferSender> RldpTransferSender::create(
     TransferId transfer_id, adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::BufferSlice data,
-    td::Timestamp timeout, td::actor::ActorId<RldpImpl> rldp, td::actor::ActorId<adnl::Adnl> adnl) {
+    td::Timestamp timeout, td::actor::ActorId<RldpImpl> rldp, td::actor::ActorId<adnl::Adnl> adnl,
+    std::shared_ptr<RldpMetrics> metrics) {
   return td::actor::create_actor<RldpTransferSenderImpl>("sender", transfer_id, local_id, peer_id, std::move(data),
-                                                         timeout, rldp, adnl);
+                                                         timeout, rldp, adnl, std::move(metrics));
 }
 
 void RldpTransferReceiverImpl::receive_part(fec::FecType fec_type, td::uint32 part, td::uint64 total_size,
                                             td::uint32 seqno, td::BufferSlice data) {
   if (part < part_) {
     auto obj = create_tl_object<ton_api::rldp_complete>(transfer_id_, part);
-    td::actor::send_closure(adnl_, &adnl::Adnl::send_message, local_id_, peer_id_, serialize_tl_object(obj, true));
+    auto serialized = serialize_tl_object(obj, true);
+    if (metrics_) {
+      metrics_->parts_sent_to_adnl_complete.fetch_add(1, std::memory_order_relaxed);
+      metrics_->bytes_sent_to_adnl_complete.fetch_add(serialized.size(), std::memory_order_relaxed);
+    }
+    td::actor::send_closure(adnl_, &adnl::Adnl::send_message, local_id_, peer_id_, std::move(serialized));
     return;
   }
   if (part > part_) {
@@ -151,7 +162,12 @@ void RldpTransferReceiverImpl::receive_part(fec::FecType fec_type, td::uint32 pa
       offset_ += data.data.size();
       data_parts_.push_back(std::move(data.data));
       auto obj = create_tl_object<ton_api::rldp_complete>(transfer_id_, part_);
-      td::actor::send_closure(adnl_, &adnl::Adnl::send_message, local_id_, peer_id_, serialize_tl_object(obj, true));
+      auto serialized = serialize_tl_object(obj, true);
+      if (metrics_) {
+        metrics_->parts_sent_to_adnl_complete.fetch_add(1, std::memory_order_relaxed);
+        metrics_->bytes_sent_to_adnl_complete.fetch_add(serialized.size(), std::memory_order_relaxed);
+      }
+      td::actor::send_closure(adnl_, &adnl::Adnl::send_message, local_id_, peer_id_, std::move(serialized));
       part_++;
       cnt_ = 0;
       max_seqno_ = 0;
@@ -165,7 +181,12 @@ void RldpTransferReceiverImpl::receive_part(fec::FecType fec_type, td::uint32 pa
 
   if (cnt_ >= 10) {
     auto obj = create_tl_object<ton_api::rldp_confirm>(transfer_id_, part_, max_seqno_);
-    td::actor::send_closure(adnl_, &adnl::Adnl::send_message, local_id_, peer_id_, serialize_tl_object(obj, true));
+    auto serialized = serialize_tl_object(obj, true);
+    if (metrics_) {
+      metrics_->parts_sent_to_adnl_confirm.fetch_add(1, std::memory_order_relaxed);
+      metrics_->bytes_sent_to_adnl_confirm.fetch_add(serialized.size(), std::memory_order_relaxed);
+    }
+    td::actor::send_closure(adnl_, &adnl::Adnl::send_message, local_id_, peer_id_, std::move(serialized));
     cnt_ = 0;
   }
 }
@@ -199,9 +220,9 @@ void RldpTransferReceiverImpl::alarm() {
 td::actor::ActorOwn<RldpTransferReceiver> RldpTransferReceiver::create(
     TransferId transfer_id, adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 total_size,
     td::Timestamp timeout, td::actor::ActorId<RldpImpl> rldp, td::actor::ActorId<adnl::Adnl> adnl,
-    td::Promise<td::BufferSlice> promise) {
+    td::Promise<td::BufferSlice> promise, std::shared_ptr<RldpMetrics> metrics) {
   return td::actor::create_actor<RldpTransferReceiverImpl>("receiver", transfer_id, local_id, peer_id, total_size,
-                                                           timeout, rldp, adnl, std::move(promise));
+                                                           timeout, rldp, adnl, std::move(promise), std::move(metrics));
 }
 
 }  // namespace rldp
