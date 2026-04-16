@@ -904,15 +904,12 @@ void OverlayManager::collect(metrics::MetricsPromise P) {
     MetricSet build_set() {
       MetricSet set;
       auto labeled = [&](std::string name, std::string type, std::optional<std::string> help, auto getter) {
-        MetricFamily fam{.name = std::move(name), .type = std::move(type), .help = std::move(help), .metrics = {}};
+        std::vector<std::pair<std::string, td::uint64>> entries;
+        entries.reserve(by_type_.size());
         for (auto &[overlay_type, agg] : by_type_) {
-          fam.metrics.push_back(metrics::Metric{
-              .suffix = "",
-              .label_set = metrics::LabelSet{.labels = {{"type", overlay_type}}},
-              .samples = {metrics::Sample{.label_set = {}, .value = static_cast<double>(getter(agg))}},
-          });
+          entries.emplace_back(overlay_type, getter(agg));
         }
-        set.families.push_back(std::move(fam));
+        set.push_labeled_scalar(std::move(name), std::move(type), "type", std::move(entries), std::move(help));
       };
       auto labeled_dir = [&](std::string name, std::string type, std::optional<std::string> help, auto out_getter,
                              auto in_getter) {
@@ -955,10 +952,7 @@ void OverlayManager::collect(metrics::MetricsPromise P) {
       auto append_tl = [&](std::string base, auto getter, std::optional<std::string> bytes_help,
                            std::optional<std::string> messages_help) {
         for (auto &[overlay_type, agg] : by_type_) {
-          auto fams = metrics::render_tl_bucket(base, overlay_type, getter(agg), bytes_help, messages_help, "type");
-          for (auto &fam : fams) {
-            set.families.push_back(std::move(fam));
-          }
+          metrics::render_tl_bucket(set, base, overlay_type, getter(agg), bytes_help, messages_help, "type");
         }
       };
       append_tl(

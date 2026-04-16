@@ -22,6 +22,7 @@
 #include <map>
 
 #include "adnl/adnl-query.h"
+#include "metrics/metrics-types.h"
 #include "tl-utils/tl-utils.hpp"
 
 #include "rldp-peer.h"
@@ -40,38 +41,19 @@ constexpr int VERBOSITY_NAME(RLDP_EXTRA_DEBUG) = verbosity_DEBUG + 1;
 using TransferId = td::Bits256;
 
 struct RldpMetrics {
-  std::atomic<td::uint64> app_send_bytes_message{0};
-  std::atomic<td::uint64> app_send_msgs_message{0};
-  std::atomic<td::uint64> app_send_bytes_query{0};
-  std::atomic<td::uint64> app_send_msgs_query{0};
-  std::atomic<td::uint64> app_send_bytes_answer{0};
-  std::atomic<td::uint64> app_send_msgs_answer{0};
-  std::atomic<td::uint64> app_deliver_bytes_message{0};
-  std::atomic<td::uint64> app_deliver_msgs_message{0};
-  std::atomic<td::uint64> app_deliver_bytes_query{0};
-  std::atomic<td::uint64> app_deliver_msgs_query{0};
-  std::atomic<td::uint64> app_deliver_bytes_answer{0};
-  std::atomic<td::uint64> app_deliver_msgs_answer{0};
+  using KC = metrics::AtomicKindCounter;
+  KC app_send_message, app_send_query, app_send_answer;
+  KC app_deliver_message, app_deliver_query, app_deliver_answer;
 
   std::atomic<td::uint64> transfers_started{0};
   std::atomic<td::uint64> transfers_completed_out{0};
-  std::atomic<td::uint64> transfers_failed_out{0};
   std::atomic<td::uint64> transfers_completed_in{0};
   std::atomic<td::uint64> transfers_failed_in{0};
 
-  std::atomic<td::uint64> bytes_sent_to_adnl_part{0};
-  std::atomic<td::uint64> bytes_sent_to_adnl_confirm{0};
-  std::atomic<td::uint64> bytes_sent_to_adnl_complete{0};
-  std::atomic<td::uint64> parts_sent_to_adnl_part{0};
-  std::atomic<td::uint64> parts_sent_to_adnl_confirm{0};
-  std::atomic<td::uint64> parts_sent_to_adnl_complete{0};
-
-  std::atomic<td::uint64> bytes_received_part{0};
-  std::atomic<td::uint64> bytes_received_confirm{0};
-  std::atomic<td::uint64> bytes_received_complete{0};
-  std::atomic<td::uint64> parts_received_part{0};
-  std::atomic<td::uint64> parts_received_confirm{0};
-  std::atomic<td::uint64> parts_received_complete{0};
+  // Messages and their serialized bytes handed to ADNL (post FEC encoding on send path).
+  KC sent_to_adnl_part, sent_to_adnl_confirm, sent_to_adnl_complete;
+  // Messages and their serialized bytes received from ADNL (pre FEC decoding on receive path).
+  KC received_part, received_confirm, received_complete;
 
   std::atomic<td::uint64> parse_errors_part{0};
   std::atomic<td::uint64> parse_errors_message{0};

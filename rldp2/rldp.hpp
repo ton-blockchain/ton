@@ -22,6 +22,7 @@
 #include <map>
 
 #include "adnl/adnl-query.h"
+#include "metrics/metrics-types.h"
 #include "tl-utils/tl-utils.hpp"
 
 #include "rldp.h"
@@ -39,23 +40,12 @@ constexpr int VERBOSITY_NAME(RLDP_EXTRA_DEBUG) = verbosity_DEBUG + 1;
 using TransferId = td::Bits256;
 
 struct Rldp2Metrics {
-  std::atomic<td::uint64> app_send_bytes_message{0};
-  std::atomic<td::uint64> app_send_msgs_message{0};
-  std::atomic<td::uint64> app_send_bytes_query{0};
-  std::atomic<td::uint64> app_send_msgs_query{0};
-  std::atomic<td::uint64> app_send_bytes_answer{0};
-  std::atomic<td::uint64> app_send_msgs_answer{0};
-  std::atomic<td::uint64> app_deliver_bytes_message{0};
-  std::atomic<td::uint64> app_deliver_msgs_message{0};
-  std::atomic<td::uint64> app_deliver_bytes_query{0};
-  std::atomic<td::uint64> app_deliver_msgs_query{0};
-  std::atomic<td::uint64> app_deliver_bytes_answer{0};
-  std::atomic<td::uint64> app_deliver_msgs_answer{0};
+  using KC = metrics::AtomicKindCounter;
+  KC app_send_message, app_send_query, app_send_answer;
+  KC app_deliver_message, app_deliver_query, app_deliver_answer;
 
-  std::atomic<td::uint64> bytes_sent_to_adnl{0};
-  std::atomic<td::uint64> parts_sent_to_adnl{0};
-  std::atomic<td::uint64> bytes_received_from_adnl{0};
-  std::atomic<td::uint64> parts_received_from_adnl{0};
+  KC sent_to_adnl;
+  KC received_from_adnl;
 
   std::atomic<td::uint64> parse_errors{0};
   std::atomic<td::uint64> transfers_received_ok{0};
