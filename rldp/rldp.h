@@ -22,6 +22,8 @@
 
 namespace ton {
 
+class PrometheusExporter;
+
 namespace rldp {
 
 class Rldp : public adnl::AdnlSenderEx {
@@ -34,6 +36,9 @@ class Rldp : public adnl::AdnlSenderEx {
                                td::BufferSlice data) = 0;
 
   static td::actor::ActorOwn<Rldp> create(td::actor::ActorId<adnl::Adnl> adnl);
+
+  // Register the metrics collector backed by this Rldp instance with the prometheus exporter.
+  static void register_metrics(td::actor::ActorId<Rldp> rldp, td::actor::ActorId<PrometheusExporter> exporter);
 };
 
 }  // namespace rldp

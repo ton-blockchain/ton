@@ -15,5 +15,5 @@ target_include_directories(rldp PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
   ${OPENSSL_INCLUDE_DIR}
 )
-target_link_libraries(rldp PRIVATE tdutils tdactor fec adnl tl_api)
+target_link_libraries(rldp PRIVATE tdutils tdactor fec adnl tl_api metrics)
 

@@ -221,6 +221,9 @@ struct QuicConnectionPImpl {
   bool local_cid_callbacks_enabled_{false};
 
   size_t sids_encountered = 0;
+  // Cumulative ngtcp2 stream-data boundary counters.
+  td::uint64 stream_bytes_buffered_ = 0;
+  td::uint64 stream_bytes_received_ = 0;
   std::unordered_map<QuicStreamID, OutboundStreamState> streams_;
   std::deque<QuicStreamID> ready_streams_;
   QuicStreamID write_sid_ = -1;

@@ -19,6 +19,7 @@
 #pragma once
 
 #include <map>
+#include <memory>
 
 #include "fec/fec.h"
 
@@ -51,14 +52,15 @@ class RldpTransferSenderImpl : public RldpTransferSender {
 
   RldpTransferSenderImpl(TransferId transfer_id, adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id,
                          td::BufferSlice data, td::Timestamp timeout, td::actor::ActorId<RldpImpl> rldp,
-                         td::actor::ActorId<adnl::Adnl> adnl)
+                         td::actor::ActorId<adnl::Adnl> adnl, std::shared_ptr<RldpMetrics> metrics)
       : transfer_id_(transfer_id)
       , local_id_(local_id)
       , peer_id_(peer_id)
       , data_(std::move(data))
       , timeout_(timeout)
       , rldp_(rldp)
-      , adnl_(adnl) {
+      , adnl_(adnl)
+      , metrics_(std::move(metrics)) {
   }
 
  private:
@@ -80,6 +82,7 @@ class RldpTransferSenderImpl : public RldpTransferSender {
   td::Timestamp timeout_;
   td::actor::ActorId<RldpImpl> rldp_;
   td::actor::ActorId<adnl::Adnl> adnl_;
+  std::shared_ptr<RldpMetrics> metrics_;
 };
 
 class RldpTransferReceiverImpl : public RldpTransferReceiver {
@@ -93,7 +96,8 @@ class RldpTransferReceiverImpl : public RldpTransferReceiver {
 
   RldpTransferReceiverImpl(TransferId transfer_id, adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id,
                            td::uint64 total_size, td::Timestamp timeout, td::actor::ActorId<RldpImpl> rldp,
-                           td::actor::ActorId<adnl::Adnl> adnl, td::Promise<td::BufferSlice> promise)
+                           td::actor::ActorId<adnl::Adnl> adnl, td::Promise<td::BufferSlice> promise,
+                           std::shared_ptr<RldpMetrics> metrics)
       : transfer_id_(transfer_id)
       , local_id_(local_id)
       , peer_id_(peer_id)
@@ -101,7 +105,8 @@ class RldpTransferReceiverImpl : public RldpTransferReceiver {
       , timeout_(timeout)
       , rldp_(rldp)
       , adnl_(adnl)
-      , promise_(std::move(promise)) {
+      , promise_(std::move(promise))
+      , metrics_(std::move(metrics)) {
   }
 
  private:
@@ -127,6 +132,7 @@ class RldpTransferReceiverImpl : public RldpTransferReceiver {
   td::actor::ActorId<adnl::Adnl> adnl_;
 
   td::Promise<td::BufferSlice> promise_;
+  std::shared_ptr<RldpMetrics> metrics_;
 };
 
 }  // namespace rldp

@@ -286,6 +286,7 @@ void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_a
   auto X = fetch_tl_object<ton_api::overlay_Broadcast>(data.clone(), true);
   if (X.is_error()) {
     VLOG(OVERLAY_DEBUG) << this << ": received custom message";
+    messages_received_by_tl_.account(data.as_slice());
     callback_->receive_message(src, overlay_id_, std::move(data));
     return;
   }
@@ -522,6 +523,7 @@ void OverlayImpl::send_broadcast(PublicKeyHash send_as, td::uint32 flags, td::Bu
     VLOG(OVERLAY_WARNING) << "broadcast source certificate is invalid";
     return;
   }
+  broadcasts_sent_by_tl_.account(data.as_slice());
   flags &= ~Overlays::BroadcastFlagNoTwostep();
   broadcasts_simple_.send(this, send_as, std::move(data), flags);
 }
@@ -537,6 +539,7 @@ void OverlayImpl::send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td
     VLOG(OVERLAY_WARNING) << "broadcast source certificate is invalid";
     return;
   }
+  broadcasts_sent_by_tl_.account(data.as_slice());
   bool no_twostep = flags & Overlays::BroadcastFlagNoTwostep();
   flags &= ~Overlays::BroadcastFlagNoTwostep();
   if (opts_.send_twostep_broadcast_ && !no_twostep) {
@@ -651,6 +654,7 @@ void OverlayImpl::broadcast_twostep_signed_fec(BroadcastTwostepDataFec &&data,
 }
 
 void OverlayImpl::deliver_broadcast(PublicKeyHash source, td::BufferSlice data, td::BufferSlice extra) {
+  broadcasts_received_by_tl_.account(data.as_slice());
   callback_->receive_broadcast_with_extra(source, overlay_id_, std::move(data), std::move(extra));
 }
 
@@ -777,6 +781,33 @@ void OverlayImpl::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_
     }
     promise.set_value(std::move(res));
   });
+}
+
+void OverlayImpl::get_acc_stats(td::Promise<AccStatsSnapshot> promise) {
+  AccStatsSnapshot snap;
+  snap.scope = scope_;
+  snap.traffic_out_bytes = total_traffic_acc.out_bytes;
+  snap.traffic_in_bytes = total_traffic_acc.in_bytes;
+  snap.traffic_out_packets = total_traffic_acc.out_packets;
+  snap.traffic_in_packets = total_traffic_acc.in_packets;
+  snap.responses_out_bytes = total_traffic_responses_acc.out_bytes;
+  snap.responses_in_bytes = total_traffic_responses_acc.in_bytes;
+  snap.responses_out_packets = total_traffic_responses_acc.out_packets;
+  snap.responses_in_packets = total_traffic_responses_acc.in_packets;
+  snap.broadcast_errors = broadcast_errors_acc_;
+  snap.fec_broadcast_errors = fec_broadcast_errors_acc_;
+  iterate_all_peers([&](const adnl::AdnlNodeIdShort &, const OverlayPeer &peer) {
+    snap.peers++;
+    if (peer.is_alive()) {
+      snap.alive_peers++;
+    }
+  });
+  snap.neighbours = neighbours_cnt();
+  snap.messages_sent_by_tl = messages_sent_by_tl_;
+  snap.messages_received_by_tl = messages_received_by_tl_;
+  snap.broadcasts_sent_by_tl = broadcasts_sent_by_tl_;
+  snap.broadcasts_received_by_tl = broadcasts_received_by_tl_;
+  promise.set_value(std::move(snap));
 }
 
 bool OverlayImpl::has_valid_broadcast_certificate(const PublicKeyHash &source, size_t size, bool is_fec) {

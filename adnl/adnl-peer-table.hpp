@@ -22,6 +22,7 @@
 #include <set>
 
 #include "keys/encryptor.h"
+#include "metrics/metrics-collectors.h"
 
 #include "adnl-peer-table.h"
 #include "adnl-peer.h"
@@ -36,9 +37,11 @@ namespace ton {
 
 namespace adnl {
 
-class AdnlPeerTableImpl : public AdnlPeerTable {
+class AdnlPeerTableImpl : public AdnlPeerTable, public virtual metrics::AsyncCollector {
  public:
   AdnlPeerTableImpl(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring);
+
+  void collect(metrics::MetricsPromise P) override;
 
   void add_peer(AdnlNodeIdShort local_id, AdnlNodeIdFull id, AdnlAddressList addr_list) override;
   void add_static_nodes_from_config(AdnlNodesList nodes) override;
@@ -51,10 +54,13 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   }
   void send_message_ex(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data, td::uint32 flags) override {
     if (data.size() > huge_packet_max_size()) {
+      m_.app_send_drop_too_big++;
       VLOG(ADNL_WARNING) << "dropping too big packet [" << src << "->" << dst << "]: size=" << data.size();
       VLOG(ADNL_WARNING) << "DUMP: " << td::buffer_to_hex(data.as_slice().truncate(128));
       return;
     }
+    m_.app_send_msgs_custom++;
+    m_.app_send_bytes_custom += data.size();
     send_message_in(src, dst, AdnlMessage{adnlmessage::AdnlMessageCustom{std::move(data)}}, flags);
   }
   void answer_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlQueryId query_id, td::BufferSlice data) override;
@@ -155,6 +161,28 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   td::actor::ActorOwn<AdnlExtServer> ext_server_;
 
   AdnlNodeIdShort proxy_addr_;
+
+  struct Metrics {
+    td::uint64 app_send_bytes_custom = 0;
+    td::uint64 app_send_msgs_custom = 0;
+    td::uint64 app_send_bytes_query = 0;
+    td::uint64 app_send_msgs_query = 0;
+    td::uint64 app_send_bytes_answer = 0;
+    td::uint64 app_send_msgs_answer = 0;
+    td::uint64 app_send_drop_too_big = 0;
+    td::uint64 app_send_drop_unknown_src = 0;
+    td::uint64 app_deliver_bytes_message = 0;
+    td::uint64 app_deliver_msgs_message = 0;
+    td::uint64 app_deliver_bytes_query = 0;
+    td::uint64 app_deliver_msgs_query = 0;
+    td::uint64 inbound_packets = 0;
+    td::uint64 inbound_drop_too_short = 0;
+    td::uint64 inbound_drop_cat_mismatch = 0;
+    td::uint64 inbound_drop_unknown_dst = 0;
+    td::uint64 decrypt_packets = 0;
+    td::uint64 decrypt_bytes = 0;
+  };
+  Metrics m_;
 
   void set_peer_pair_idle(AdnlNodeIdShort l_id, AdnlNodeIdShort p_id, PeerPair &peer_pair, bool value);
   void gc_peer_pairs(AdnlNodeIdShort local_id, LocalIdInfo &local_id_info);

@@ -129,6 +129,14 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
 
     } summary = {};
     std::unordered_map<QuicConnectionId, Entry> per_conn = {};
+
+    // Server-level UDP wire stats (single instance per QuicServer).
+    td::uint64 udp_ingress_bytes = 0;
+    td::uint64 udp_ingress_packets = 0;
+    td::uint64 udp_ingress_syscalls = 0;
+    td::uint64 udp_egress_bytes = 0;
+    td::uint64 udp_egress_packets = 0;
+    td::uint64 udp_egress_syscalls = 0;
   };
 
   void collect_stats(td::Promise<Stats> P);

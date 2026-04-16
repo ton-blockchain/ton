@@ -6,6 +6,7 @@
 #include "adnl/adnl-sender-ex.h"
 #include "keyring/keyring.h"
 #include "metrics/metrics-collectors.h"
+#include "metrics/tl-traffic-bucket.h"
 #include "td/actor/coro_task.h"
 
 #include "quic-server.h"
@@ -44,6 +45,14 @@ class QuicSender : public adnl::AdnlSenderEx, public virtual metrics::AsyncColle
       [[nodiscard]] std::vector<metrics::MetricFamily> dump() const;
     } summary = {};
     std::map<AdnlPath, Entry> per_path;
+
+    // Server-level UDP wire counters aggregated across all QuicServers.
+    td::uint64 udp_ingress_bytes = 0;
+    td::uint64 udp_ingress_packets = 0;
+    td::uint64 udp_ingress_syscalls = 0;
+    td::uint64 udp_egress_bytes = 0;
+    td::uint64 udp_egress_packets = 0;
+    td::uint64 udp_egress_syscalls = 0;
 
     [[nodiscard]] std::vector<metrics::MetricFamily> dump() const;
   };
@@ -84,6 +93,27 @@ class QuicSender : public adnl::AdnlSenderEx, public virtual metrics::AsyncColle
 
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<QuicServer>> servers_;
   std::map<adnl::AdnlNodeIdShort, td::Ed25519::PrivateKey> local_keys_;
+
+  // Application-level traffic counters (raw payload bytes, before TL wrapping).
+  // Accessed from within the QuicSender actor only.
+  struct AppMetrics {
+    td::uint64 send_bytes_message = 0;
+    td::uint64 send_msgs_message = 0;
+    td::uint64 send_bytes_query = 0;
+    td::uint64 send_msgs_query = 0;
+    td::uint64 deliver_bytes_message = 0;
+    td::uint64 deliver_msgs_message = 0;
+    td::uint64 deliver_bytes_query = 0;
+    td::uint64 deliver_msgs_query = 0;
+    td::uint64 deliver_bytes_answer = 0;
+    td::uint64 deliver_msgs_answer = 0;
+  };
+  AppMetrics app_metrics_;
+  metrics::TlTrafficBucket app_send_by_tl_message_;
+  metrics::TlTrafficBucket app_send_by_tl_query_;
+  metrics::TlTrafficBucket app_deliver_by_tl_message_;
+  metrics::TlTrafficBucket app_deliver_by_tl_query_;
+  metrics::TlTrafficBucket app_deliver_by_tl_answer_;
 
   void start_up() override;
 
