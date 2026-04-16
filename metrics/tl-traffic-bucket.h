@@ -13,18 +13,21 @@ namespace ton::metrics {
 
 // Per-TL-constructor traffic counter. Use one instance per (layer, kind) pair (e.g. rldp send/query/...).
 //
-// Magics that don't match a known TL constructor — including wire garbage and short payloads —
-// are funnelled into a single `unknown` bucket so cardinality stays bounded by the schema size.
+// Keys are TL constructor magics. Overlay wrappers (overlay.query / overlay.message and their
+// WithExtra variants) are transparently looked through: the inner object's magic is used so the
+// outer wrapper never collapses every query into a single "overlay.query" bucket. Unknown
+// magics — including wire garbage and short payloads — funnel into `unknown` so cardinality
+// stays bounded by the schema size.
 struct TlTrafficBucket {
-  // Indexed by TL constructor id. Only valid (schema-known) ids are inserted as keys here.
-  std::map<td::int32, td::uint64> bytes;
-  std::map<td::int32, td::uint64> messages;
+  struct Counter {
+    td::uint64 bytes = 0;
+    td::uint64 msgs = 0;
+  };
+  std::map<td::int32, Counter> by_magic;
+  Counter unknown;
 
-  // Single "unknown" bucket for wire payloads whose first 4 bytes don't match a known constructor.
-  td::uint64 unknown_bytes = 0;
-  td::uint64 unknown_messages = 0;
-
-  // Increment counters for `data` (a serialized TL object). `data` may be empty / shorter than 4.
+  // Increment counters for `data` (a serialized TL object). Handles overlay-wrapped queries and
+  // messages by decoding the inner magic; see class comment.
   void account(td::Slice data);
 
   // Same accounting as account() but with the magic already extracted.  Use this when the
