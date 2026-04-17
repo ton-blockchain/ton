@@ -49,6 +49,10 @@ struct Proven {
     messages.push_back(as_signed_vote().serialize());
   }
 
+  bool proven_with_cert() const {
+    return std::holds_alternative<CertificateRef<T>>(proof);
+  }
+
   T vote;
   std::variant<Signed<T>, CertificateRef<T>> proof;
 };
@@ -193,6 +197,20 @@ class Tsentrizbirkom {
 
   bool is_finalized() const {
     return finalize_.has_value();
+  }
+
+  td::uint32 state() const {
+    auto get_for = [](auto &what) {
+      td::uint32 value = 0;
+      if (what.has_value()) {
+        value = 1;
+        if (what->proven_with_cert()) {
+          value = 2;
+        }
+      }
+      return value;
+    };
+    return get_for(notarize_) + get_for(skip_) * 3 + get_for(finalize_) * 9;
   }
 
   template <typename T>
@@ -365,6 +383,37 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
 
   template <>
   void handle(BusHandle, std::shared_ptr<const StopRequested>) {
+    auto &bus = *owning_bus();
+    auto [_, end] = state_->tracked_slots_interval();
+
+    td::StringBuilder sb;
+
+    for (td::uint32 i = 0; i < end; ++i) {
+      auto slot = state_->get_slot(i);
+      if (!slot.has_value()) {
+        continue;
+      }
+      auto &state = slot->state;
+
+      sb << i << ": ";
+      for (size_t j = 0; j < bus.validator_set.size(); ++j) {
+        auto &voting_state = state->votes[j];
+        sb << voting_state.state() << ";";
+      }
+      if (state->is_notarized()) {
+        sb << " notar";
+      }
+      if (state->is_skipped()) {
+        sb << " skip";
+      }
+      if (state->is_finalized()) {
+        sb << " final";
+      }
+      sb << "\n";
+    }
+
+    LOG(WARNING) << "Group is shutting down. State:\n" << sb.as_cslice();
+
     stop();
   }
 
