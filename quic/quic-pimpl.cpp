@@ -457,7 +457,7 @@ ngtcp2_ssize QuicConnectionPImpl::write_pkt_cb(ngtcp2_conn* /*conn*/, ngtcp2_pat
 
 ngtcp2_ssize QuicConnectionPImpl::write_pkt_aggregate(ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest,
                                                       size_t destlen, ngtcp2_tstamp ts) {
-  return write_streams_to_packet(path, pi, dest, destlen, true, ts);
+  return write_streams_to_packet(path, pi, dest, destlen, false, ts);
 }
 
 td::Status QuicConnectionPImpl::produce_egress(UdpMessageBuffer& msg_out, bool use_gso, size_t max_packets) {
