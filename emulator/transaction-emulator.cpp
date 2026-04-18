@@ -38,7 +38,7 @@ td::Result<> TransactionEmulator::prepare_emulation(block::Account& account, ton
 
     compute_phase_cfg.libraries = std::make_unique<vm::Dictionary>(libraries_);
     compute_phase_cfg.ignore_chksig = ignore_chksig_;
-    compute_phase_cfg.with_vm_log = true;
+    compute_phase_cfg.with_vm_log = vm_log_verbosity_ >= 0;
     compute_phase_cfg.vm_log_verbosity = vm_log_verbosity_;
     compute_phase_cfg.ext_methods = ext_methods;
     compute_phase_cfg.missing_library_handler = missing_library_handler;

@@ -90,7 +90,7 @@ public:
   }
 
   Answer sbs_result() {
-    auto result = smc_.get_result(*vm, *logger);
+    auto result = smc_.get_result(*vm, logger.get());
     vm = nullptr;
     logger = nullptr;
     return result;
@@ -108,12 +108,16 @@ public:
     vm::init_vm(args_.debug_enabled).ensure();
     vm::DictionaryBase::get_empty_dictionary();
 
-    logger = std::make_unique<ton::SmartContract::Logger>();
-    logger->clear();
+    if (args_.vm_log_verbosity_level >= 0) {
+      logger = std::make_unique<ton::SmartContract::Logger>();
+      logger->clear();
+    } else {
+      logger.reset();
+    }
 
     auto gas = args_.limits ? args_.limits.unwrap() : vm::GasLimits{1000000, 1000000};
 
-    vm::VmLog log{logger.get(), td::LogOptions(VERBOSITY_NAME(DEBUG), true, false)};
+    auto log = vm::make_vm_log(logger.get(), args_.vm_log_verbosity_level);
 
     auto state = smc_.get_state();
     int global_version = args_.config ? args_.config.value()->get_global_version() : ton::SUPPORTED_VERSION;

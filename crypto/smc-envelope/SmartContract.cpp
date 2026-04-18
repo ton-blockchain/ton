@@ -239,19 +239,7 @@ vm::VmState init_vm(SmartContract::State state, td::Ref<vm::Stack> stack, td::Re
   vm::init_vm(debug_enabled).ensure();
   vm::DictionaryBase::get_empty_dictionary();
 
-  vm::VmLog log{logger, td::LogOptions(VERBOSITY_NAME(DEBUG), true, false)};
-  if (vm_log_verbosity > 1) {
-    log.log_mask |= vm::VmLog::ExecLocation;
-    if (vm_log_verbosity > 2) {
-      log.log_mask |= vm::VmLog::GasRemaining;
-      if (vm_log_verbosity > 3) {
-        log.log_mask |= vm::VmLog::DumpStack;
-        if (vm_log_verbosity > 4) {
-          log.log_mask |= vm::VmLog::DumpStackVerbose;
-        }
-      }
-    }
-  }
+  vm::VmLog log = vm::make_vm_log(logger, vm_log_verbosity);
 
   if (GET_VERBOSITY_LEVEL() >= VERBOSITY_NAME(DEBUG)) {
     std::ostringstream os;
@@ -317,8 +305,12 @@ int setup_vm(SmartContract::State state, td::Ref<vm::Stack> stack, td::Ref<vm::T
              std::shared_ptr<const block::Config> config, std::unique_ptr<vm::VmState>& vm,
              std::unique_ptr<SmartContract::Logger>& logger, const vm::ExtMethods& ext_methods,
              const vm::MissingLibraryHandler& missing_library_handler) {
-  logger = std::make_unique<SmartContract::Logger>();
-  logger->clear();
+  if (vm_log_verbosity >= 0) {
+    logger = std::make_unique<SmartContract::Logger>();
+    logger->clear();
+  } else {
+    logger.reset();
+  }
   auto vm_ = init_vm(state, stack, c7, gas, ignore_chksig, libraries, vm_log_verbosity, debug_enabled, config,
                      logger.get(), ext_methods, missing_library_handler);
   if (vm_.get_code().is_null() || stack.is_null()) {
@@ -461,8 +453,8 @@ SmartContract::Answer SmartContract::send_internal_message(td::Ref<vm::Cell> cel
       args.set_stack(prepare_vm_stack(td::make_refint(args.amount), vm::load_cell_slice_ref(cell), args, 0)).set_method_id(0));
 }
 
-SmartContract::Answer SmartContract::get_result(const vm::VmState& vm, const Logger& logger) const {
-  return get_vm_result(vm, state_, logger.res);
+SmartContract::Answer SmartContract::get_result(const vm::VmState& vm, const Logger* logger) const {
+  return get_vm_result(vm, state_, logger ? logger->res : std::string{});
 }
 
 td::optional<bool> SmartContract::debug_step(std::unique_ptr<vm::VmState>& vm, std::unique_ptr<Logger>& logger) {

@@ -1912,7 +1912,7 @@ std::optional<Transaction::PrepareComputePhaseResult> Transaction::prepare_compu
   LOG(DEBUG) << "creating VM";
 
   std::unique_ptr<StringLoggerTail> logger;
-  auto vm_log = vm::VmLog();
+  auto vm_log = vm::VmLog::Null();
   if (cfg.with_vm_log) {
     size_t log_max_size = 256;
     if (cfg.vm_log_verbosity > 4) {
@@ -1921,21 +1921,7 @@ std::optional<Transaction::PrepareComputePhaseResult> Transaction::prepare_compu
       log_max_size = 1 << 20;
     }
     logger = std::make_unique<StringLoggerTail>(log_max_size);
-    vm_log.log_interface = logger.get();
-    vm_log.log_options = td::LogOptions(VERBOSITY_NAME(DEBUG), true, false);
-    if (cfg.vm_log_verbosity > 1) {
-      vm_log.log_mask |= vm::VmLog::ExecLocation;
-      if (cfg.vm_log_verbosity > 2) {
-        vm_log.log_mask |= vm::VmLog::GasRemaining;
-        if (cfg.vm_log_verbosity > 3) {
-          vm_log.log_mask |= vm::VmLog::DumpStack;
-          if (cfg.vm_log_verbosity > 4) {
-            vm_log.log_mask |= vm::VmLog::DumpStackVerbose;
-            vm_log.log_mask |= vm::VmLog::DumpC5;
-          }
-        }
-      }
-    }
+    vm_log = vm::make_vm_log(logger.get(), cfg.vm_log_verbosity, true);
   }
   vm::VmState vm{new_code, cfg.global_version, std::move(stack), gas, 1, new_data, vm_log, compute_vm_libraries(cfg)};
   vm.ext_methods = cfg.ext_methods;

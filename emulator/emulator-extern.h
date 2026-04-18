@@ -10,8 +10,9 @@ extern "C" {
 /**
  * @brief Creates TransactionEmulator object
  * @param config_params_boc Base64 encoded BoC serialized Config dictionary (Hashmap 32 ^Cell)
- * @param vm_log_verbosity Verbosity level of VM log. 0 - log truncated to last 256 characters. 1 - unlimited length log.
- * 2 - for each command prints its cell hash and offset. 3 - for each command log prints all stack values.
+ * @param vm_log_verbosity Verbosity level of VM log. Negative values disable VM logging completely without building log
+ * messages. 0 - log truncated to last 256 characters. 1 - unlimited length log. 2 - for each command prints its cell
+ * hash and offset. 3 - for each command log prints all stack values.
  * @return Pointer to TransactionEmulator or nullptr in case of error
  */
 EMULATOR_EXPORT void *transaction_emulator_create(const char *config_params_boc, int vm_log_verbosity);
@@ -290,7 +291,8 @@ EMULATOR_EXPORT bool emulator_set_verbosity_level(int verbosity_level);
  * @brief Create TVM emulator
  * @param code_boc Base64 encoded BoC serialized smart contract code cell
  * @param data_boc Base64 encoded BoC serialized smart contract data cell
- * @param vm_log_verbosity Verbosity level of VM log
+ * @param vm_log_verbosity Verbosity level of VM log. Negative values disable VM logging completely without building log
+ * messages.
  * @return Pointer to TVM emulator object
  */
 EMULATOR_EXPORT void *tvm_emulator_create(const char *code_boc, const char *data_boc, int vm_log_verbosity);
