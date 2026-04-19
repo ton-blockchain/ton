@@ -81,6 +81,18 @@ ton::quic::QuicServer::Options quic_test_options() {
   return options;
 }
 
+ton::quic::QuicServer::Options flood_test_options(size_t flood_limit) {
+  auto options = quic_test_options();
+  options.flood_control = flood_limit;
+  return options;
+}
+
+td::IPAddress make_ip_address(td::Slice host, int port) {
+  td::IPAddress ip;
+  ip.init_host_port(PSTRING() << host << ":" << port).ensure();
+  return ip;
+}
+
 class EchoCallback : public ton::adnl::Adnl::Callback {
  public:
   std::shared_ptr<std::vector<td::BufferSlice>> received_messages;
@@ -414,6 +426,12 @@ ton::quic::QuicServer::Options small_stream_limit_options(size_t max_streams_bid
 }
 
 struct RawQuicEndpointState {
+  void clear_connection_tracking() {
+    std::lock_guard guard(mutex);
+    outbound_cid.reset();
+    inbound_cid.reset();
+  }
+
   void remember_connection(ton::quic::QuicConnectionId cid, bool is_outbound) {
     std::lock_guard guard(mutex);
     if (is_outbound) {
@@ -1778,6 +1796,100 @@ TEST(QuicRateLimiter, CapacityOneDoesNotAllowExtraBurst) {
   jump_time_by(1.0);
   expect_take(true);
   expect_take(false);
+}
+
+TEST(QuicFloodControl, Rfc1918Matcher) {
+  ASSERT_TRUE(ton::quic::is_private_rfc1918_ipv4(make_ip_address("10.1.2.3", 31000)));
+  ASSERT_TRUE(ton::quic::is_private_rfc1918_ipv4(make_ip_address("172.16.0.1", 31001)));
+  ASSERT_TRUE(ton::quic::is_private_rfc1918_ipv4(make_ip_address("172.31.255.254", 31002)));
+  ASSERT_TRUE(ton::quic::is_private_rfc1918_ipv4(make_ip_address("192.168.10.20", 31003)));
+
+  ASSERT_TRUE(!ton::quic::is_private_rfc1918_ipv4(make_ip_address("9.255.255.255", 31010)));
+  ASSERT_TRUE(!ton::quic::is_private_rfc1918_ipv4(make_ip_address("172.15.255.255", 31011)));
+  ASSERT_TRUE(!ton::quic::is_private_rfc1918_ipv4(make_ip_address("172.32.0.1", 31012)));
+  ASSERT_TRUE(!ton::quic::is_private_rfc1918_ipv4(make_ip_address("192.167.255.255", 31013)));
+  ASSERT_TRUE(!ton::quic::is_private_rfc1918_ipv4(make_ip_address("192.169.0.1", 31014)));
+  ASSERT_TRUE(!ton::quic::is_private_rfc1918_ipv4(make_ip_address("127.0.0.1", 31015)));
+  ASSERT_TRUE(!ton::quic::is_private_rfc1918_ipv4(make_ip_address("100.64.0.1", 31016)));
+}
+
+TEST(QuicFloodControl, ProtectedEndpointsBypassSharedIpFlood) {
+  run_raw_quic_test([](RawQuicTestRunner& t) -> td::actor::Task<td::Unit> {
+    auto server = co_await t.create_endpoint(flood_test_options(1));
+    auto client1 = co_await t.create_endpoint(quic_test_options());
+    auto client2 = co_await t.create_endpoint(quic_test_options());
+
+    td::actor::send_closure(server.server, &ton::quic::QuicServer::add_protected_flood_endpoint,
+                            make_ip_address("127.0.0.1", client1.port), size_t{1});
+    td::actor::send_closure(server.server, &ton::quic::QuicServer::add_protected_flood_endpoint,
+                            make_ip_address("127.0.0.1", client2.port), size_t{1});
+
+    co_await t.connect(client1, server);
+    co_await t.connect(client2, server);
+
+    auto stats = co_await td::actor::ask(server.server, &ton::quic::QuicServer::collect_stats);
+    ASSERT_EQ(stats.per_conn.size(), 2u);
+    co_return td::Unit{};
+  });
+}
+
+TEST(QuicFloodControl, SharedIpWithoutProtectionUsesSingleBucket) {
+  run_raw_quic_test([](RawQuicTestRunner& t) -> td::actor::Task<td::Unit> {
+    auto server = co_await t.create_endpoint(flood_test_options(1));
+    auto client1 = co_await t.create_endpoint(quic_test_options());
+    auto client2 = co_await t.create_endpoint(quic_test_options());
+
+    co_await t.connect(client1, server);
+
+    auto second_connect_result =
+        co_await td::actor::ask(client2.server, &ton::quic::QuicServer::connect, td::Slice("127.0.0.1"), server.port,
+                                clone_quic_key(client2.key), td::Slice("ton"))
+            .wrap();
+    ASSERT_TRUE(second_connect_result.is_ok());
+    co_await td::actor::coro_sleep(td::Timestamp::in(0.2));
+
+    auto stats = co_await td::actor::ask(server.server, &ton::quic::QuicServer::collect_stats);
+    ASSERT_EQ(stats.per_conn.size(), 1u);
+    ASSERT_TRUE(!client2.state->get_outbound_cid().has_value());
+    co_return td::Unit{};
+  });
+}
+
+TEST(QuicFloodControl, CloseUsesStoredAcceptedBucket) {
+  run_raw_quic_test([](RawQuicTestRunner& t) -> td::actor::Task<td::Unit> {
+    auto server = co_await t.create_endpoint(flood_test_options(1));
+    auto client = co_await t.create_endpoint(quic_test_options());
+
+    auto client_endpoint = make_ip_address("127.0.0.1", client.port);
+    td::actor::send_closure(server.server, &ton::quic::QuicServer::add_protected_flood_endpoint, client_endpoint,
+                            size_t{1});
+
+    auto [outbound_cid, inbound_cid] = co_await t.connect(client, server);
+    td::actor::send_closure(server.server, &ton::quic::QuicServer::remove_protected_flood_endpoint, client_endpoint,
+                            size_t{1});
+    td::actor::send_closure(client.server, &ton::quic::QuicServer::on_connection_closed, outbound_cid);
+    td::actor::send_closure(server.server, &ton::quic::QuicServer::on_connection_closed, inbound_cid);
+
+    auto deadline = td::Timestamp::in(2.0);
+    while (true) {
+      auto stats = co_await td::actor::ask(server.server, &ton::quic::QuicServer::collect_stats);
+      if (stats.per_conn.empty()) {
+        break;
+      }
+      ASSERT_TRUE(!deadline.is_in_past());
+      co_await td::actor::yield_on_current();
+    }
+
+    client.state->clear_connection_tracking();
+    server.state->clear_connection_tracking();
+    td::actor::send_closure(server.server, &ton::quic::QuicServer::add_protected_flood_endpoint, client_endpoint,
+                            size_t{1});
+
+    co_await t.connect(client, server);
+    auto stats = co_await td::actor::ask(server.server, &ton::quic::QuicServer::collect_stats);
+    ASSERT_EQ(stats.per_conn.size(), 1u);
+    co_return td::Unit{};
+  });
 }
 
 int main(int argc, char* argv[]) {

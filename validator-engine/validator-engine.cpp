@@ -5898,11 +5898,35 @@ int main(int argc, char *argv[]) {
       '\0', "quic-flood-control", "per-IP limit for QUIC connections (-1 to disable)", [&](td::Slice arg) {
         TRY_RESULT(l, td::to_integer_safe<int64_t>(arg));
         acts.push_back([&, l = l >= 0 ? std::optional<size_t>{l} : std::optional<size_t>{std::nullopt}] {
-          td::actor::send_closure(x, &ValidatorEngine::set_quic_options,
-                                  ton::quic::QuicServer::Options{.flood_control = l});
+          td::actor::send_closure(x, &ValidatorEngine::set_quic_flood_control, l);
         });
         return td::Status::OK();
       });
+  p.add_checked_option(
+      '\0', "quic-exempt-private-rfc1918-from-per-ip-flood",
+      "whether RFC1918 10/8, 172.16/12, 192.168/16 bypass per-IP QUIC flood limits (0 or 1)", [&](td::Slice arg) {
+        TRY_RESULT(enabled_i, td::to_integer_safe<int>(arg));
+        if (enabled_i != 0 && enabled_i != 1) {
+          return td::Status::Error("expected 0 or 1");
+        }
+        acts.push_back([&, enabled = static_cast<bool>(enabled_i)] {
+          td::actor::send_closure(x, &ValidatorEngine::set_quic_exempt_private_rfc1918_from_per_ip_flood, enabled);
+        });
+        return td::Status::OK();
+      });
+  p.add_checked_option('\0', "quic-protect-validator-endpoints-from-shared-ip-flood",
+                       "whether protected validator endpoints use separate ip:port QUIC flood buckets (0 or 1)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT(enabled_i, td::to_integer_safe<int>(arg));
+                         if (enabled_i != 0 && enabled_i != 1) {
+                           return td::Status::Error("expected 0 or 1");
+                         }
+                         acts.push_back([&, enabled = static_cast<bool>(enabled_i)] {
+                           td::actor::send_closure(
+                               x, &ValidatorEngine::set_quic_protect_validator_endpoints_from_shared_ip_flood, enabled);
+                         });
+                         return td::Status::OK();
+                       });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();
