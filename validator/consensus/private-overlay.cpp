@@ -48,9 +48,16 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
       overlay_nodes.push_back(peer.adnl_id);
       overlay_nodes_tl.push_back(peer.short_id.bits256_value());
       authorized_keys.emplace(peer.short_id, max_broadcast_size);
+      if (peer.adnl_id != local_id_.adnl_id) {
+        protected_peer_ids_.push_back(peer.adnl_id);
+      }
     }
 
     td::actor::send_closure(adnl_sender_, &adnl::AdnlSenderEx::add_id, local_id_.adnl_id);
+    if (!protected_peer_ids_.empty()) {
+      td::actor::send_closure(adnl_sender_, &adnl::AdnlSenderEx::add_protected_peers, local_id_.adnl_id,
+                              protected_peer_ids_);
+    }
 
     auto overlay_seed = create_tl_object<tl::overlayId>(bus.session_id, std::move(overlay_nodes_tl));
     auto overlay_full_id = overlay::OverlayIdFull{serialize_tl_object(overlay_seed, true)};
@@ -74,6 +81,10 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
   template <>
   void handle(BusHandle, std::shared_ptr<const StopRequested>) {
+    if (!protected_peer_ids_.empty()) {
+      td::actor::send_closure(adnl_sender_, &adnl::AdnlSenderEx::remove_protected_peers, local_id_.adnl_id,
+                              std::move(protected_peer_ids_));
+    }
     td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_.adnl_id, overlay_id_);
     stop();
   }
@@ -228,6 +239,7 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
   td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender_;
   overlay::OverlayIdShort overlay_id_;
   PeerValidator local_id_;
+  std::vector<adnl::AdnlNodeIdShort> protected_peer_ids_;
   std::map<adnl::AdnlNodeIdShort, PeerValidator> adnl_id_to_peer_;
   std::map<PublicKeyHash, PeerValidator> short_id_to_peer_;
 };
