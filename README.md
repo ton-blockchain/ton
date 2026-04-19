@@ -1,8 +1,8 @@
 <div align="center">
   <a href="https://ton.org">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://ton.org/download/ton_logo_dark_background.svg">
-      <img alt="TON logo" src="https://ton.org/download/ton_logo_light_background.svg">
+      <source media="(prefers-color-scheme: dark)" srcset="./assets/Logo_TON_color.svg">
+      <img alt="TON logo" src="./assets/Logo_TON_color.svg">
     </picture>
   </a>
   <h3>Reference implementation of TON Node and tools</h3>
