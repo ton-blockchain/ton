@@ -16,6 +16,8 @@
 
     Copyright 2020 Telegram Systems LLP
 */
+#pragma once
+
 namespace td {
 
 class LinearAllocator {

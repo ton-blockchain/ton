@@ -63,8 +63,8 @@ class FullNodeCustomOverlay : public td::actor::Actor {
 
   FullNodeCustomOverlay(adnl::AdnlNodeIdShort local_id, CustomOverlayParams params, FileHash zero_state_file_hash,
                         FullNodeOptions opts, td::actor::ActorId<keyring::Keyring> keyring,
-                        td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
-                        td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<overlay::Overlays> overlays,
+                        td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender,
+                        td::actor::ActorId<overlay::Overlays> overlays,
                         td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                         td::actor::ActorId<FullNode> full_node)
       : local_id_(local_id)
@@ -76,8 +76,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
       , opts_(opts)
       , keyring_(keyring)
       , adnl_(adnl)
-      , rldp_(rldp)
-      , rldp2_(rldp2)
+      , adnl_sender_(adnl_sender)
       , overlays_(overlays)
       , validator_manager_(validator_manager)
       , full_node_(full_node) {
@@ -94,8 +93,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<rldp::Rldp> rldp_;
-  td::actor::ActorId<rldp2::Rldp> rldp2_;
+  td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
   td::actor::ActorId<FullNode> full_node_;

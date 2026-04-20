@@ -114,7 +114,7 @@ class DashApp:
         if "slot" in params:
             try:
                 result["slot"] = int(params["slot"][0])
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 pass
         return result
 
