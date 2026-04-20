@@ -94,7 +94,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void set_default_mtu(td::uint64 mtu);
   void set_peer_mtu(adnl::AdnlNodeIdShort peer_id, td::uint64 mtu);
 
-  constexpr static size_t DEFAULT_FLOOD_CONTROL = 10;
+  constexpr static size_t DEFAULT_FLOOD_CONTROL = 1000;
 
   QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::uint64 defaukt_mtu, td::BufferSlice alpn,
              std::unique_ptr<Callback> callback, Options options,
