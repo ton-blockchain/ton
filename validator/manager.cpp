@@ -1710,10 +1710,11 @@ td::Ref<MasterchainState> ValidatorManagerImpl::do_get_last_liteserver_state() {
   if (last_liteserver_state_->get_seqno() == last_masterchain_state_->get_seqno()) {
     return last_liteserver_state_;
   }
-  // If liteserver seqno (i.e. shard client) lags then use last masterchain state for liteserver
+  // If liteserver seqno (i.e., shard client) lags then use last masterchain state for liteserver
   // Allowed lag depends on the block rate
   double time_per_block = double(last_masterchain_state_->get_unix_time() - last_liteserver_state_->get_unix_time()) /
                           double(last_masterchain_state_->get_seqno() - last_liteserver_state_->get_seqno());
+  time_per_block = std::max(time_per_block, 2.0);
   if (td::Clocks::system() - double(last_liteserver_state_->get_unix_time()) > std::min(time_per_block * 8, 180.0)) {
     last_liteserver_state_ = last_masterchain_state_;
   }
