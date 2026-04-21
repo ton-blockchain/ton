@@ -1,4 +1,5 @@
 #include <metrics/prometheus-exporter.h>
+#include <random>
 
 using namespace ton;
 
@@ -19,11 +20,12 @@ class ExampleActor : public td::actor::Actor, public virtual metrics::CollectorW
       "current_time_seconds",
       [] { return std::vector{metrics::Sample{.label_set = {}, .value = td::Timestamp::now().at_unix()}}; },
       "Number of seconds passed since January 1, 1970");
-  metrics::LambdaGauge::Ptr stack_gauge_ = metrics::LambdaGauge::make("current_stack_top_bytes", [] {
-    void* stack_top = &stack_top;
-    auto stack_top_addr = reinterpret_cast<uintptr_t>(stack_top);
-    return std::vector{metrics::Sample{.label_set = {}, .value = static_cast<double>(stack_top_addr)}};
+  metrics::LambdaGauge::Ptr stack_gauge_ = metrics::LambdaGauge::make("current_random_count", [this] {
+    return std::vector{metrics::Sample{.label_set = {}, .value = static_cast<double>(rng_())}};
   });
+
+  inline static std::random_device rd_ = {};
+  std::mt19937_64 rng_{rd_()};
 };
 
 int main() {
