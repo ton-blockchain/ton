@@ -52,7 +52,7 @@ class LRUCache {
     return cache_.size();
   }
   bool empty() const {
-    return !cache_.empty();
+    return cache_.empty();
   }
   void clear() {
     cache_.clear();
