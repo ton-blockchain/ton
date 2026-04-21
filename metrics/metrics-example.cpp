@@ -6,11 +6,14 @@ class ExampleActor : public td::actor::Actor, public virtual metrics::CollectorW
  public:
   ExampleActor() {
     add_collector(collector_.get());
+  }
+
+ private:
+  void start_up() override {
     td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, time_counter_);
     td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, stack_gauge_);
   }
 
- private:
   metrics::MultiCollector::Own collector_ = metrics::MultiCollector::create("example");
   metrics::LambdaCounter::Ptr time_counter_ = metrics::LambdaCounter::make(
       "current_time_seconds",

@@ -26,13 +26,14 @@ namespace http {
 HttpServer::HttpServer(td::IPAddress address, std::shared_ptr<Callback> callback)
     : address_(address), callback_(std::move(callback)) {
   add_collector(collector_.get());
+}
+
+void HttpServer::start_up() {
   td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, metrics_.connections);
   td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, metrics_.connections_total);
   td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, metrics_.requests_total);
   td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, metrics_.responses_total);
-}
 
-void HttpServer::start_up() {
   class Callback : public td::TcpListener::Callback {
    private:
     td::actor::ActorId<HttpServer> id_;

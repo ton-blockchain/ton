@@ -40,6 +40,8 @@ class PrometheusExporter final : public td::actor::Actor, public virtual metrics
 
   using CollectorLambda = std::function<void(metrics::MetricsPromise)>;
 
+  void start_up() override;
+
   void on_request(RequestPtr request, PayloadPtr payload, td::Promise<HttpReturn> promise);
 
   std::string prefix_;
