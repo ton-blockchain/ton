@@ -9,10 +9,6 @@ td::actor::ActorOwn<PrometheusExporter> PrometheusExporter::create(std::string p
   return td::actor::create_actor<PrometheusExporter>(PSTRING() << "PROM@" << prefix, std::move(prefix));
 }
 
-void PrometheusExporter::collect(metrics::MetricsPromise P) {
-  CollectorWrapper::collect(std::move(P));
-}
-
 PrometheusExporter::PrometheusExporter(std::string prefix) : prefix_(std::move(prefix)) {
   add_collector(collector_.get());
   td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, collectors_);

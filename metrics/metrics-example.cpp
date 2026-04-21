@@ -10,8 +10,6 @@ class ExampleActor : public td::actor::Actor, public virtual metrics::CollectorW
     td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, stack_gauge_);
   }
 
-  void collect(metrics::MetricsPromise P) override;
-
  private:
   metrics::MultiCollector::Own collector_ = metrics::MultiCollector::create("example");
   metrics::LambdaCounter::Ptr time_counter_ = metrics::LambdaCounter::make(
@@ -24,10 +22,6 @@ class ExampleActor : public td::actor::Actor, public virtual metrics::CollectorW
     return std::vector{metrics::Sample{.label_set = {}, .value = static_cast<double>(stack_top_addr)}};
   });
 };
-
-void ExampleActor::collect(metrics::MetricsPromise P) {
-  CollectorWrapper::collect(std::move(P));
-}
 
 int main() {
   SET_VERBOSITY_LEVEL(verbosity_INFO);

@@ -11,8 +11,6 @@ class PrometheusExporter final : public td::actor::Actor, public virtual metrics
  public:
   static td::actor::ActorOwn<PrometheusExporter> create(std::string prefix = "ton");
 
-  void collect(metrics::MetricsPromise P) override;
-
   template <std::derived_from<metrics::AsyncCollector> A>
   void register_collector(td::actor::ActorId<A> collector);
 
