@@ -242,7 +242,7 @@ void FullNodeShardImpl::get_next_block() {
       auto P = td::PromiseCreator::lambda([SelfId](td::Result<BlockHandle> R) {
         td::actor::send_closure(SelfId, &FullNodeShardImpl::got_next_block, std::move(R));
       });
-      td::actor::send_closure(validator_manager, &ValidatorManagerInterface::validate_block, R.move_as_ok(),
+      td::actor::send_closure(validator_manager, &ValidatorManagerInterface::got_next_masterchain_block, R.move_as_ok(),
                               std::move(P));
     } else {
       auto S = R.move_as_error();

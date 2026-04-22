@@ -305,7 +305,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void validate_block_proof_link(BlockIdExt block_id, td::BufferSlice proof, td::Promise<td::Unit> promise) = 0;
   virtual void validate_block_proof_rel(BlockIdExt block_id, BlockIdExt rel_block_id, td::BufferSlice proof,
                                         td::Promise<td::Unit> promise) = 0;
-  virtual void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) = 0;
+  virtual void got_next_masterchain_block(ReceivedBlock block, td::Promise<BlockHandle> promise) = 0;
   virtual td::actor::Task<> new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked,
                                                 BroadcastSource source) {
     co_return td::Status::Error("not implemented");

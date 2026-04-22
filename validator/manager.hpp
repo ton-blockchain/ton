@@ -315,7 +315,7 @@ class ValidatorManagerImpl : public ValidatorManager, public virtual metrics::Co
   void validate_block_proof_link(BlockIdExt block_id, td::BufferSlice proof, td::Promise<td::Unit> promise) override;
   void validate_block_proof_rel(BlockIdExt block_id, BlockIdExt rel_block_id, td::BufferSlice proof,
                                 td::Promise<td::Unit> promise) override;
-  void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override;
+  void got_next_masterchain_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override;
   td::actor::Task<> new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked,
                                         BroadcastSource source) override;
   void validate_block_broadcast_signatures(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override;
@@ -792,13 +792,6 @@ class ValidatorManagerImpl : public ValidatorManager, public virtual metrics::Co
     td::Timestamp received_at[N_TYPES];
     bool applied = false;
 
-    void update(Type type) {
-      td::Timestamp &ts = received_at[(int)type];
-      if (!ts) {
-        ts = td::Timestamp::now();
-      }
-    }
-
     Type get_earliest_type() const {
       Type result = unknown;
       td::Timestamp result_ts;
@@ -812,8 +805,15 @@ class ValidatorManagerImpl : public ValidatorManager, public virtual metrics::Co
     }
   };
   td::LRUCache<BlockIdExt, BlockReceiveStats> block_receive_stats_{1000};
-  size_t blocks_received_from_total_masterchain_[BlockReceiveStats::N_TYPES] = {};
-  size_t blocks_received_from_total_workchain_[BlockReceiveStats::N_TYPES] = {};
+
+  struct BlockReceiveTotalStats {
+    size_t first_received_from[BlockReceiveStats::N_TYPES] = {};
+    size_t received_from[BlockReceiveStats::N_TYPES] = {};
+    size_t applied = 0;
+  };
+  BlockReceiveTotalStats block_receive_total_stats_[2];  // 0 - basechain, 1 - masterchain
+
+  void update_block_receive_stats(BlockIdExt block_id, BlockReceiveStats::Type type);
 
  public:
   void collect(metrics::MetricsPromise P) override {

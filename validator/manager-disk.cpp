@@ -60,7 +60,7 @@ void ValidatorManagerImpl::validate_block_proof_link(BlockIdExt block_id, td::Bu
   UNREACHABLE();
 }
 
-void ValidatorManagerImpl::validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) {
+void ValidatorManagerImpl::got_next_masterchain_block(ReceivedBlock block, td::Promise<BlockHandle> promise) {
   UNREACHABLE();
 }
 
