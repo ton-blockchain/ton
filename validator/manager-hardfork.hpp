@@ -108,9 +108,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override {
     UNREACHABLE();
   }
-  void new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, td::Promise<td::Unit> promise) override {
-    UNREACHABLE();
-  }
   void wait_state_by_prev_blocks(BlockIdExt block_id, std::vector<BlockIdExt> prev_blocks,
                                  td::Promise<td::Ref<ShardState>> promise) override;
   void validate_block_broadcast_signatures(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override {
@@ -319,9 +316,6 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
 
-  void send_get_block_request(BlockIdExt id, td::uint32 priority, td::Promise<ReceivedBlock> promise) override {
-    UNREACHABLE();
-  }
   void send_get_zero_state_request(BlockIdExt id, td::uint32 priority, td::Promise<td::BufferSlice> promise) override {
     UNREACHABLE();
   }
