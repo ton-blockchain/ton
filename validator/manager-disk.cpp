@@ -64,11 +64,6 @@ void ValidatorManagerImpl::validate_block(ReceivedBlock block, td::Promise<Block
   UNREACHABLE();
 }
 
-void ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked,
-                                               td::Promise<td::Unit> promise) {
-  UNREACHABLE();
-}
-
 void ValidatorManagerImpl::validate_block_broadcast_signatures(BlockBroadcast broadcast,
                                                                td::Promise<td::Unit> promise) {
   UNREACHABLE();
@@ -960,11 +955,6 @@ void ValidatorManagerImpl::get_top_masterchain_state_block(
 void ValidatorManagerImpl::get_last_liteserver_state_block(
     td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) {
   return get_top_masterchain_state_block(std::move(promise));
-}
-
-void ValidatorManagerImpl::send_get_block_request(BlockIdExt id, td::uint32 priority,
-                                                  td::Promise<ReceivedBlock> promise) {
-  UNREACHABLE();
 }
 
 void ValidatorManagerImpl::send_get_zero_state_request(BlockIdExt id, td::uint32 priority,

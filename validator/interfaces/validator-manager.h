@@ -347,8 +347,12 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void set_next_block(BlockIdExt prev, BlockIdExt next, td::Promise<td::Unit> promise) = 0;
 
   virtual void new_block(BlockHandle handle, td::Ref<ShardState> state, td::Promise<td::Unit> promise) = 0;
+  virtual void on_block_accepted(BlockIdExt block_id) {
+  }
 
-  virtual void send_get_block_request(BlockIdExt id, td::uint32 priority, td::Promise<ReceivedBlock> promise) = 0;
+  virtual td::actor::Task<ReceivedBlock> send_get_block_request(BlockIdExt id, td::uint32 priority) {
+    co_return td::Status::Error("not implemented");
+  }
   virtual void send_get_zero_state_request(BlockIdExt id, td::uint32 priority,
                                            td::Promise<td::BufferSlice> promise) = 0;
   virtual void send_get_persistent_state_request(BlockIdExt id, BlockIdExt masterchain_block_id,
