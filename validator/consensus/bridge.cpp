@@ -81,7 +81,8 @@ class ManagerFacadeImpl : public ManagerFacade {
 
   void cache_block_candidate(BlockCandidate candidate) override {
     td::actor::send_closure(manager_, &ValidatorManager::new_block_candidate_broadcast, candidate.id,
-                            validator_set_->get_catchain_seqno(), candidate.data.clone(), [](td::Result<>) {});
+                            validator_set_->get_catchain_seqno(), candidate.data.clone(),
+                            BroadcastSource::consensus_overlay, [](td::Result<>) {});
   }
 
   void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data, int mode) override {
