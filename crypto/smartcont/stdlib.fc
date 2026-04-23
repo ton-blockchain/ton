@@ -439,7 +439,7 @@ builder store_ref(builder b, cell c) asm(c b) "STREF";
 
 
 ;;; Stores `slice` [s] into `builder` [b]
-builder store_slice(builder b, slice s) asm "STSLICER";
+builder store_slice(builder b, slice s) asm(s b) "STSLICE";
 
 ;;; Stores (serializes) an integer [x] in the range `0..2^120 − 1` into `builder` [b].
 ;;; The serialization of [x] consists of a 4-bit unsigned big-endian integer `l`,
