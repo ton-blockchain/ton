@@ -339,7 +339,7 @@ td::Status BroadcastFecPart::run(OverlayImpl *overlay, BroadcastFec &bcast) {
           signature_.clone()),
       create_serialize_tl_object<ton_api::overlay_broadcastFec>(
           source_.tl(), cert_ ? cert_->tl() : Certificate::empty_tl(), bcast.data_hash_, bcast.fec_type_.size(),
-          bcast.flags_, data_.clone(), seqno_, bcast.fec_type_.tl(), bcast.date_, signature_.clone())));
+          bcast.flags_, data_.clone(), seqno_, bcast.fec_type_.tl(), date_, signature_.clone())));
   if (!bcast.ready_) {
     auto R = bcast.finish();
     if (R.is_error()) {
