@@ -49,11 +49,11 @@ constexpr int VERBOSITY_NAME(TWOSTEP_INFO) = verbosity_DEBUG;
 constexpr int VERBOSITY_NAME(TWOSTEP_DEBUG) = verbosity_DEBUG;
 
 static constexpr size_t FEC_MIN_BYTES = 513;
-static constexpr size_t FEC_MIN_OTHER_NODES = 4;
+static constexpr size_t FEC_MIN_OTHER_NODES = 5;
 
 static constexpr size_t fec_k(size_t other_nodes) {
   LOG_CHECK(other_nodes > 2) << "other_nodes=" << other_nodes;
-  return (other_nodes * 2 - 2) / 3;
+  return (other_nodes - 1) / 2;
 }
 
 struct BroadcastTwostepDebugInfo {
