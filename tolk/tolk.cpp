@@ -116,9 +116,15 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
     pipeline_convert_ast_to_legacy_Expr_Op();
 
     pipeline_find_unused_symbols();
+<<<<<<< HEAD
+=======
+    pipeline_generate_fif_output_to_std_cout();
+    pipeline_generate_ts_output();  // TypeScript codegen if enabled
+>>>>>>> 2308f269 (feat(tolk): add TypeScript codegen for structs and enums)
 
     std::ostringstream os_fif;
     pipeline_generate_fif_output(os_fif);
+    pipeline_generate_ts_output();  // TypeScript codegen if enabled
 
     return TolkCompilationResult{
       .errors = {},
