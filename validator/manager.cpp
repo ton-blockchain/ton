@@ -1748,6 +1748,16 @@ void ValidatorManagerImpl::get_last_liteserver_state_block(
   }
 }
 
+void ValidatorManagerImpl::get_shard_client_state_block(
+    td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) {
+  if (shard_client_state_.is_null() || !shard_client_handle_) {
+    promise.set_error(td::Status::Error(ton::ErrorCode::notready, "shard client state is not ready"));
+  } else {
+    promise.set_result(
+        std::pair<td::Ref<MasterchainState>, BlockIdExt>{shard_client_state_, shard_client_handle_->id()});
+  }
+}
+
 void ValidatorManagerImpl::send_get_block_request(BlockIdExt id, td::uint32 priority,
                                                   td::Promise<ReceivedBlock> promise) {
   if (auto cached = cached_block_data_.get_if_exists(id, false)) {

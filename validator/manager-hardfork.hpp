@@ -318,6 +318,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_last_liteserver_state_block(td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) override {
     UNREACHABLE();
   }
+  void get_shard_client_state_block(td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) override {
+    UNREACHABLE();
+  }
 
   void send_get_block_request(BlockIdExt id, td::uint32 priority, td::Promise<ReceivedBlock> promise) override {
     UNREACHABLE();

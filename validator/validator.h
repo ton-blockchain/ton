@@ -319,6 +319,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
       td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) = 0;
   virtual void get_last_liteserver_state_block(
       td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) = 0;
+  virtual void get_shard_client_state_block(td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) = 0;
 
   virtual void get_block_data(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void check_zero_state_exists(BlockIdExt block_id, td::Promise<bool> promise) = 0;

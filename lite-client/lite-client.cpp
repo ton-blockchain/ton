@@ -357,7 +357,7 @@ void TestNode::set_mc_server_time(int server_utime) {
 }
 
 bool TestNode::get_server_mc_block_id() {
-  int mode = (mc_server_capabilities_ & 2) ? 0 : -1;
+  int mode = (mc_server_capabilities_ & masterchain_info_ext_capability) ? 0 : -1;
   if (mode < 0) {
     auto b = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getMasterchainInfo>(), true);
     return envelope_send_query(std::move(b), [Self = actor_id(this)](td::Result<td::BufferSlice> res) -> void {
@@ -399,6 +399,35 @@ bool TestNode::get_server_mc_block_id() {
       }
     });
   }
+}
+
+bool TestNode::get_server_shard_client_mc_block_id() {
+  if (mc_server_capabilities_ && !(mc_server_capabilities_ & masterchain_info_ext_capability)) {
+    return set_error("server does not support liteServer.getMasterchainInfoExt");
+  }
+  if (mc_server_capabilities_ && !(mc_server_capabilities_ & shard_client_state_masterchain_info_capability)) {
+    return set_error("server does not support shard client state masterchain info");
+  }
+  constexpr int mode = 1;
+  auto b = ton::serialize_tl_object(ton::create_tl_object<ton::lite_api::liteServer_getMasterchainInfoExt>(mode), true);
+  return envelope_send_query(std::move(b), [Self = actor_id(this)](td::Result<td::BufferSlice> res) -> void {
+    if (res.is_error()) {
+      LOG(ERROR) << "cannot get shard client state masterchain info from server";
+      return;
+    } else {
+      auto F = ton::fetch_tl_object<ton::lite_api::liteServer_masterchainInfoExt>(res.move_as_ok(), true);
+      if (F.is_error()) {
+        LOG(ERROR) << "cannot parse answer to liteServer.getMasterchainInfoExt";
+      } else {
+        auto f = F.move_as_ok();
+        auto blk_id = create_block_id(f->last_);
+        auto zstate_id = create_zero_state_id(f->init_);
+        LOG(INFO) << "last shard client state masterchain block is " << blk_id.to_str();
+        td::actor::send_closure_later(Self, &TestNode::got_server_shard_client_state_mc_block_id_ext, blk_id,
+                                      zstate_id, f->version_, f->capabilities_, f->last_utime_, f->now_);
+      }
+    }
+  });
 }
 
 void TestNode::got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid, int created) {
@@ -452,6 +481,60 @@ void TestNode::got_server_mc_block_id_ext(ton::BlockIdExt blkid, ton::ZeroStateI
                  << " seconds ago according to the local clock)";
   }
   got_server_mc_block_id(blkid, zstateid, last_utime);
+}
+
+void TestNode::got_server_shard_client_state_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid,
+                                                         int created) {
+  if (!zstate_id_.is_valid()) {
+    zstate_id_ = zstateid;
+    LOG(INFO) << "zerostate id set to " << zstate_id_.to_str();
+  } else if (zstate_id_ != zstateid) {
+    LOG(FATAL) << "fatal: masterchain zero state id suddenly changed: expected " << zstate_id_.to_str() << ", found "
+               << zstateid.to_str();
+    _exit(3);
+    return;
+  }
+  register_blkid(blkid);
+  register_blkid(ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, zstateid.root_hash, zstateid.file_hash});
+  if (!mc_last_id_.is_valid()) {
+    mc_last_id_ = blkid;
+    request_block(blkid);
+  } else if (mc_last_id_.id.seqno < blkid.id.seqno) {
+    mc_last_id_ = blkid;
+  }
+  td::TerminalIO::out() << "latest masterchain block in shard client state is " << blkid.to_str();
+  if (created > 0) {
+    auto time = now();
+    if (time >= static_cast<ton::UnixTime>(created)) {
+      td::TerminalIO::out() << " created at " << created << " (" << time - created << " seconds ago)\n";
+    } else {
+      td::TerminalIO::out() << " created at " << created << " (" << created - time << " seconds in the future)\n";
+    }
+  } else {
+    td::TerminalIO::out() << "\n";
+  }
+  show_new_blkids();
+}
+
+void TestNode::got_server_shard_client_state_mc_block_id_ext(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid,
+                                                             int version, long long capabilities, int last_utime,
+                                                             int server_now) {
+  set_mc_server_version(version, capabilities);
+  set_mc_server_time(server_now);
+  if (last_utime > server_now) {
+    LOG(WARNING) << "server claims that its shard client state masterchain block " << blkid.to_str()
+                 << " was created at " << last_utime << " (" << last_utime - server_now << " seconds in the future)";
+  } else if (last_utime < server_now - 60) {
+    LOG(WARNING) << "server shard client state appears to lag: its latest masterchain block is " << blkid.to_str()
+                 << " created at " << last_utime << " (" << server_now - last_utime
+                 << " seconds ago according to the server's clock)";
+  } else if (last_utime < mc_server_time_got_at_ - 60) {
+    LOG(WARNING) << "either the server shard client state lags, or the local clock is set incorrectly: the latest "
+                    "masterchain block in shard client state is "
+                 << blkid.to_str() << " created at " << last_utime << " (" << server_now - mc_server_time_got_at_
+                 << " seconds ago according to the local clock)";
+  }
+  got_server_shard_client_state_mc_block_id(blkid, zstateid, last_utime);
 }
 
 bool TestNode::request_block(ton::BlockIdExt blkid) {
@@ -907,6 +990,7 @@ bool TestNode::show_help(std::string command) {
          "time\tGet server time\n"
          "remote-version\tShows server time, version and capabilities\n"
          "last\tGet last block and state info from server\n"
+         "lastshardclient\tGet last masterchain block in shard client state\n"
          "sendfile <filename>\tLoad a serialized message from <filename> and send it to server\n"
          "status\tShow connection and local database status\n"
          "getaccount <addr> [<block-id-ext>]\tLoads the most recent state of specified account; <addr> is in "
@@ -997,6 +1081,8 @@ bool TestNode::do_parse_line() {
     return eoln() && get_server_version();
   } else if (word == "last") {
     return eoln() && get_server_mc_block_id();
+  } else if (word == "lastshardclient") {
+    return eoln() && get_server_shard_client_mc_block_id();
   } else if (word == "sendfile") {
     return !eoln() && set_error(send_ext_msg_from_filename(get_line_tail()));
   } else if (word == "getaccount" || word == "getaccountprunned") {
