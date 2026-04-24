@@ -3009,13 +3009,23 @@ void ValidatorEngine::register_shard_overlay_certificate_callback() {
   if (full_node_id_.is_zero()) {
     return;
   }
+  if (!accept_shard_overlay_certificates_from_any_validator_ && accept_shard_overlay_certificates_from_.empty()) {
+    return;
+  }
   class Callback : public ton::adnl::Adnl::Callback {
    public:
-    explicit Callback(td::actor::ActorId<ValidatorEngine> validator_engine)
-        : validator_engine_(std::move(validator_engine)) {
+    explicit Callback(td::actor::ActorId<ValidatorEngine> validator_engine, bool accept_from_any_validator,
+                      std::set<ton::adnl::AdnlNodeIdShort> accepted_sources)
+        : validator_engine_(std::move(validator_engine))
+        , accept_from_any_validator_(accept_from_any_validator)
+        , accepted_sources_(std::move(accepted_sources)) {
     }
     void receive_message(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst,
                          td::BufferSlice data) override {
+      if (!accept_from_any_validator_ && !accepted_sources_.contains(src)) {
+        LOG(DEBUG) << "shard overlay cert ignored from unconfigured source=" << src << " dst=" << dst;
+        return;
+      }
       auto R = ton::fetch_tl_object<ton::ton_api::engine_validator_importShardOverlayCertificate>(std::move(data), true);
       if (R.is_error()) {
         LOG(WARNING) << "shard overlay cert receive failed from=" << src << " dst=" << dst
@@ -3076,11 +3086,14 @@ void ValidatorEngine::register_shard_overlay_certificate_callback() {
 
    private:
     td::actor::ActorId<ValidatorEngine> validator_engine_;
+    bool accept_from_any_validator_;
+    std::set<ton::adnl::AdnlNodeIdShort> accepted_sources_;
   };
   td::actor::send_closure(
       adnl_.get(), &ton::adnl::Adnl::subscribe, full_node_id_,
       ton::adnl::Adnl::int_to_bytestring(ton::ton_api::engine_validator_importShardOverlayCertificate::ID),
-      std::make_unique<Callback>(actor_id(this)));
+      std::make_unique<Callback>(actor_id(this), accept_shard_overlay_certificates_from_any_validator_,
+                                 accept_shard_overlay_certificates_from_));
 }
 
 void ValidatorEngine::try_import_fast_sync_member_certificate(ton::adnl::AdnlNodeIdShort id,
@@ -3162,6 +3175,10 @@ void ValidatorEngine::try_import_shard_overlay_certificate(ton::adnl::AdnlNodeId
                                                            td::Promise<> promise) {
   if (!started_ || full_node_.empty()) {
     return promise.set_error(td::Status::Error("full node is not started"));
+  }
+  if (!accept_shard_overlay_certificates_from_any_validator_ &&
+      !accept_shard_overlay_certificates_from_.contains(src)) {
+    return promise.set_error(td::Status::Error(PSTRING() << "certificate source is not configured: " << src));
   }
   if (full_node_id_.is_zero()) {
     return promise.set_error(td::Status::Error("full node ADNL is not configured"));
@@ -6093,6 +6110,22 @@ int main(int argc, char *argv[]) {
                        [&](td::Slice s) -> td::Status {
                          TRY_RESULT(id, parse_adnl_id_hex(s));
                          acts.push_back([&x, id]() { td::actor::send_closure(x, &ValidatorEngine::add_auto_sign_adnl, id); });
+                         return td::Status::OK();
+                       });
+  p.add_checked_option('\0', "accept-certs-from",
+                       "accept shard overlay certificates from sender ADNL id (hex), or \"*\" for any validator issuer",
+                       [&](td::Slice s) -> td::Status {
+                         if (s == "*") {
+                           acts.push_back([&x]() {
+                             td::actor::send_closure(
+                                 x, &ValidatorEngine::accept_shard_overlay_certificates_from_any_validator);
+                           });
+                           return td::Status::OK();
+                         }
+                         TRY_RESULT(id, parse_adnl_id_hex(s));
+                         acts.push_back([&x, id]() {
+                           td::actor::send_closure(x, &ValidatorEngine::accept_shard_overlay_certificates_from, id);
+                         });
                          return td::Status::OK();
                        });
   p.add_checked_option(

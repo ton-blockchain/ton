@@ -215,6 +215,8 @@ class ValidatorEngine : public td::actor::Actor {
   td::Timestamp issue_fast_sync_overlay_certificates_at_ = td::Timestamp::now();
   td::Timestamp issue_shard_overlay_certificates_at_ = td::Timestamp::now();
   std::set<ton::adnl::AdnlNodeIdShort> auto_sign_adnls_;
+  bool accept_shard_overlay_certificates_from_any_validator_ = false;
+  std::set<ton::adnl::AdnlNodeIdShort> accept_shard_overlay_certificates_from_;
 
   td::Promise<ton::PublicKey> get_key_promise(td::MultiPromise::InitGuard &ig);
   void got_key(ton::PublicKey key);
@@ -432,6 +434,14 @@ class ValidatorEngine : public td::actor::Actor {
   void add_auto_sign_adnl(ton::adnl::AdnlNodeIdShort id) {
     LOG(INFO) << "configured auto-sign shard overlay certificates for adnl=" << id;
     auto_sign_adnls_.insert(id);
+  }
+  void accept_shard_overlay_certificates_from_any_validator() {
+    LOG(INFO) << "configured accepting shard overlay certificates from any validator";
+    accept_shard_overlay_certificates_from_any_validator_ = true;
+  }
+  void accept_shard_overlay_certificates_from(ton::adnl::AdnlNodeIdShort id) {
+    LOG(INFO) << "configured accepting shard overlay certificates from adnl=" << id;
+    accept_shard_overlay_certificates_from_.insert(id);
   }
   void set_quic_options(ton::quic::QuicServer::Options options) {
     quic_options_ = std::move(options);

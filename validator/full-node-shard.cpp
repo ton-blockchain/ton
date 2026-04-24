@@ -1300,7 +1300,8 @@ void FullNodeShardImpl::import_overlay_certificate(PublicKeyHash signed_key,
     return;
   }
   auto check = cert->check(signed_key, overlay_id_, static_cast<td::int32>(td::Clocks::system()),
-                           overlay::Overlays::max_fec_broadcast_size(), true);
+                           overlay::Overlays::max_fec_broadcast_size(), true,
+                           /* skip_check_signature = */ false);
   if (check != overlay::BroadcastCheckResult::Allowed) {
     promise.set_error(td::Status::Error("certificate is not valid for this shard overlay"));
     return;
