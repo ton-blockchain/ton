@@ -3175,8 +3175,19 @@ void ValidatorEngine::try_import_shard_overlay_certificate(ton::adnl::AdnlNodeId
   if (expire_at < td::Clocks::system() + 60) {
     return promise.set_error(td::Status::Error("certificate expires too soon"));
   }
+  auto issuer = certificate->issuer_hash();
+  bool issuer_is_validator = false;
+  for (const auto &val_set : {validator_set_, validator_set_prev_, validator_set_next_}) {
+    if (val_set.not_null() && val_set->is_validator(ton::NodeIdShort{issuer.bits256_value()})) {
+      issuer_is_validator = true;
+      break;
+    }
+  }
+  if (!issuer_is_validator) {
+    return promise.set_error(td::Status::Error(PSTRING() << "certificate issuer is not a validator: " << issuer));
+  }
   LOG(INFO) << "shard overlay cert import scheduled from=" << src << " shard=" << shard.to_str()
-            << " signed_key=" << signed_key << " issuer=" << certificate->issuer_hash() << " expire_at=" << expire_at;
+            << " signed_key=" << signed_key << " issuer=" << issuer << " expire_at=" << expire_at;
   td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::import_shard_overlay_certificate, shard,
                           signed_key, std::move(certificate), std::move(promise));
 }

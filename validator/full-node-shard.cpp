@@ -1244,8 +1244,9 @@ bool FullNodeShardImpl::has_valid_certificate_for_source(const PublicKeyHash &so
   if (!cert) {
     return false;
   }
-  return cert->check(source, overlay_id_, static_cast<td::int32>(td::Clocks::system()), payload_size, is_fec) !=
-         overlay::BroadcastCheckResult::Forbidden;
+  return cert->check(source, overlay_id_, static_cast<td::int32>(td::Clocks::system()), payload_size, is_fec) ==
+             overlay::BroadcastCheckResult::Allowed &&
+         rules_.is_authorized_key(cert->issuer_hash());
 }
 
 PublicKeyHash FullNodeShardImpl::choose_outbound_source(td::uint32 payload_size, bool is_fec) const {
@@ -1295,8 +1296,13 @@ void FullNodeShardImpl::import_overlay_certificate(PublicKeyHash signed_key,
   }
   auto check = cert->check(signed_key, overlay_id_, static_cast<td::int32>(td::Clocks::system()),
                            overlay::Overlays::max_fec_broadcast_size(), true);
-  if (check == overlay::BroadcastCheckResult::Forbidden) {
+  if (check != overlay::BroadcastCheckResult::Allowed) {
     promise.set_error(td::Status::Error("certificate is not valid for this shard overlay"));
+    return;
+  }
+  if (!rules_.is_authorized_key(cert->issuer_hash())) {
+    promise.set_error(td::Status::Error(PSTRING() << "certificate issuer is not authorized for this shard overlay: "
+                                                  << cert->issuer_hash()));
     return;
   }
   auto adnl_source = full_node_adnl_source();
