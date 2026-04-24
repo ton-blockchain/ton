@@ -218,8 +218,8 @@ class FullNodeShardImpl : public FullNodeShard {
   void signed_new_certificate(overlay::Certificate cert, PublicKeyHash local_id);
   PublicKeyHash choose_outbound_source(td::uint32 payload_size, bool is_fec) const;
   bool has_valid_certificate_for_source(const PublicKeyHash &source,
-                                        const std::shared_ptr<ton::overlay::Certificate> &cert,
-                                        td::uint32 payload_size, bool is_fec) const;
+                                        const std::shared_ptr<ton::overlay::Certificate> &cert, td::uint32 payload_size,
+                                        bool is_fec) const;
   PublicKeyHash full_node_adnl_source() const;
 
   void ping_neighbours();

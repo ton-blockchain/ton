@@ -27,6 +27,8 @@
 */
 #pragma once
 
+#include <set>
+
 #include "adnl/adnl-ext-client.h"
 #include "adnl/adnl-node-id.hpp"
 #include "adnl/adnl.h"
@@ -46,8 +48,6 @@
 #include "validator/validator.h"
 
 #include "overlays.h"
-
-#include <set>
 
 enum ValidatorEnginePermissions : td::uint32 { vep_default = 1, vep_modify = 2, vep_unsafe = 4 };
 
