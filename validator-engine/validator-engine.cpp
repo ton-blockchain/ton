@@ -89,6 +89,8 @@
 #include <jemalloc/jemalloc.h>
 #endif
 
+static constexpr size_t k_ed25519_signature_size = 64;
+
 static td::Result<ton::adnl::AdnlNodeIdShort> parse_adnl_id_hex(td::Slice value) {
   TRY_RESULT_PREFIX(decoded_id, td::hex_decode(value), "bad ADNL hex: ");
   if (decoded_id.size() != 32) {
@@ -3171,6 +3173,10 @@ void ValidatorEngine::try_import_shard_overlay_certificate(ton::adnl::AdnlNodeId
   }
   if (!certificate) {
     return promise.set_error(td::Status::Error("empty certificate"));
+  }
+  if (certificate->signature().size() != k_ed25519_signature_size) {
+    return promise.set_error(td::Status::Error(PSTRING() << "bad certificate signature size: "
+                                                         << certificate->signature().size()));
   }
   if (expire_at < td::Clocks::system() + 60) {
     return promise.set_error(td::Status::Error("certificate expires too soon"));

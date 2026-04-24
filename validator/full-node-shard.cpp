@@ -52,6 +52,7 @@ namespace {
 
 constexpr const char *k_called_from_public = "public";
 constexpr td::uint32 k_heavy_request_cost_unit = 1 << 21;
+constexpr size_t k_ed25519_signature_size = 64;
 
 size_t heavy_request_cost(td::uint64 requested_max_size) {
   size_t cost = static_cast<size_t>((requested_max_size + k_heavy_request_cost_unit - 1) / k_heavy_request_cost_unit);
@@ -1292,6 +1293,10 @@ void FullNodeShardImpl::import_overlay_certificate(PublicKeyHash signed_key,
                                                    td::Promise<td::Unit> promise) {
   if (!cert) {
     promise.set_error(td::Status::Error("empty certificate"));
+    return;
+  }
+  if (cert->signature().size() != k_ed25519_signature_size) {
+    promise.set_error(td::Status::Error(PSTRING() << "bad certificate signature size: " << cert->signature().size()));
     return;
   }
   auto check = cert->check(signed_key, overlay_id_, static_cast<td::int32>(td::Clocks::system()),
