@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import logging
 import os
 import shlex
@@ -90,10 +91,10 @@ class Network:
                 self._network._port,
             )
 
-        def _new_key(self) -> tuple[Key, Path]:
-            key = Key.new(self._install)
-            pk_file = key.add_to_keyring(self._keyring)
-            return (key, pk_file)
+        def _new_keyring_key(self) -> tuple[Key, Path]:
+            key = Key()
+            path = key.add_to_keyring(self._keyring)
+            return key, path
 
         def _ensure_no_zerostate_yet(self):
             assert self._network._status < _Status.ZEROSTATE_GENERATED
@@ -386,7 +387,7 @@ class DHTNode(Network.Node):
 
         self._addr = self._new_network_address()
 
-        key, pk_file = self._new_key()
+        key, pk_file = self._new_keyring_key()
 
         address_list_to_sign = ton_api.Adnl_addressList(
             addrs=[
@@ -416,8 +417,8 @@ class DHTNode(Network.Node):
                     categories=[0],
                 )
             ],
-            adnl=[ton_api.Engine_adnl(id=key.id(), category=0)],
-            dht=[ton_api.Engine_dht(id=key.id())],
+            adnl=[ton_api.Engine_adnl(id=key.id, category=0)],
+            dht=[ton_api.Engine_dht(id=key.id)],
         )
 
     @property
@@ -447,12 +448,11 @@ class FullNode(Network.Node):
         self._liteserver_addr = self._new_network_address()
         self._engine_console_addr = self._new_network_address()
 
-        self._fullnode_key, _ = self._new_key()
-        self._validator_key, _ = self._new_key()
-        self._liteserver_key, _ = self._new_key()
-        self._engine_console_server_key, _ = self._new_key()
-        self._engine_console_client_key, self._engine_console_client_key_file = self._new_key()
-        self._engine_console_server_pub_file = None
+        self._fullnode_key, _ = self._new_keyring_key()
+        self._validator_key, _ = self._new_keyring_key()
+        self._liteserver_key, _ = self._new_keyring_key()
+        self._engine_console_server_key, _ = self._new_keyring_key()
+        self._engine_console_client_key = Key()
 
         self._local_config = ton_api.Engine_validator_config(
             addrs=[
@@ -463,46 +463,46 @@ class FullNode(Network.Node):
                 )
             ],
             adnl=[
-                ton_api.Engine_adnl(id=self._fullnode_key.id(), category=0),
-                ton_api.Engine_adnl(id=self._validator_key.id(), category=0),
+                ton_api.Engine_adnl(id=self._fullnode_key.id, category=0),
+                ton_api.Engine_adnl(id=self._validator_key.id, category=0),
             ],
             dht=[
-                ton_api.Engine_dht(id=self._fullnode_key.id()),
+                ton_api.Engine_dht(id=self._fullnode_key.id),
             ],
             validators=[
                 ton_api.Engine_validator(
-                    id=self._validator_key.id(),
+                    id=self._validator_key.id,
                     temp_keys=[
                         ton_api.Engine_validatorTempKey(
-                            key=self._validator_key.id(),
+                            key=self._validator_key.id,
                             expire_at=KEY_EXPIRATION,
                         )
                     ],
                     adnl_addrs=[
                         ton_api.Engine_validatorAdnlAddress(
-                            id=self._validator_key.id(),
+                            id=self._validator_key.id,
                             expire_at=KEY_EXPIRATION,
                         )
                     ],
                     expire_at=KEY_EXPIRATION,
                 )
             ],
-            fullnode=self._fullnode_key.id(),
+            fullnode=self._fullnode_key.id,
             liteservers=[
                 ton_api.Engine_liteServer(
-                    id=self._liteserver_key.id(),
+                    id=self._liteserver_key.id,
                     # FIXME: IP?
                     port=self._liteserver_addr.port,
                 )
             ],
             control=[
                 ton_api.Engine_controlInterface(
-                    id=self._engine_console_server_key.id(),
+                    id=self._engine_console_server_key.id,
                     # FIXME: IP?
                     port=self._engine_console_addr.port,
                     allowed=[
                         ton_api.Engine_controlProcess(
-                            id=self._engine_console_client_key.id(),
+                            id=self._engine_console_client_key.id,
                             permissions=15,
                         )
                     ],
@@ -591,23 +591,22 @@ class FullNode(Network.Node):
             )
         return self._engine_console
 
-    @property
+    @functools.cached_property
     def engine_console_cmd(self) -> str:
-        if self._engine_console_server_pub_file is None:
-            self._engine_console_server_pub_file = (
-                self._engine_console_server_key.write_pub_key_file(
-                    self._directory / "engine_console_server.pub"
-                )
-            )
+        server_pub = self._directory / "engine_console_server.pub"
+        self._engine_console_server_key.write_pub_key_file(server_pub)
+        client_pk = self._directory / "engine_console_client.key"
+        self._engine_console_client_key.write_pk_key_file(client_pk)
+
         return shlex.join(
             [
                 str(self._install.validator_engine_console_exe),
                 "-a",
                 self._engine_console_addr.address,
                 "-k",
-                str(self._engine_console_client_key_file),
+                str(client_pk),
                 "-p",
-                str(self._engine_console_server_pub_file),
+                str(server_pub),
             ]
         )
 
