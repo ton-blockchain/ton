@@ -47,6 +47,8 @@
 
 #include "overlays.h"
 
+#include <set>
+
 enum ValidatorEnginePermissions : td::uint32 { vep_default = 1, vep_modify = 2, vep_unsafe = 4 };
 
 using AdnlCategory = td::uint8;
@@ -211,6 +213,8 @@ class ValidatorEngine : public td::actor::Actor {
   td::Ref<ton::validator::MasterchainState> state_;
   td::Ref<block::ValidatorSet> validator_set_, validator_set_prev_, validator_set_next_;
   td::Timestamp issue_fast_sync_overlay_certificates_at_ = td::Timestamp::now();
+  td::Timestamp issue_shard_overlay_certificates_at_ = td::Timestamp::now();
+  std::set<ton::adnl::AdnlNodeIdShort> auto_sign_adnls_;
 
   td::Promise<ton::PublicKey> get_key_promise(td::MultiPromise::InitGuard &ig);
   void got_key(ton::PublicKey key);
@@ -425,6 +429,10 @@ class ValidatorEngine : public td::actor::Actor {
   void set_ratelimit_medium(size_t count) {
     full_node_options_.ratelimit_medium_ = count;
   }
+  void add_auto_sign_adnl(ton::adnl::AdnlNodeIdShort id) {
+    LOG(INFO) << "configured auto-sign shard overlay certificates for adnl=" << id;
+    auto_sign_adnls_.insert(id);
+  }
   void set_quic_options(ton::quic::QuicServer::Options options) {
     quic_options_ = std::move(options);
   }
@@ -526,14 +534,21 @@ class ValidatorEngine : public td::actor::Actor {
                          std::vector<AdnlCategory> prio_cats, td::Promise<td::Unit> promise);
 
   void register_fast_sync_certificate_callback();
+  void register_shard_overlay_certificate_callback();
   void try_import_fast_sync_member_certificate(ton::adnl::AdnlNodeIdShort id,
                                                ton::overlay::OverlayMemberCertificate certificate,
                                                td::Promise<td::Unit> promise);
+  void try_import_shard_overlay_certificate(ton::adnl::AdnlNodeIdShort src, ton::ShardIdFull shard,
+                                            ton::PublicKeyHash signed_key, td::int32 expire_at,
+                                            std::shared_ptr<ton::overlay::Certificate> certificate,
+                                            td::Promise<td::Unit> promise);
 
   void issue_fast_sync_overlay_certificates();
   void issue_fast_sync_overlay_certificate(ton::PublicKeyHash issue_by, ton::adnl::AdnlNodeIdShort issue_to,
                                            td::uint32 flags, td::int32 slot, td::int32 expire_at,
                                            td::Promise<ton::overlay::OverlayMemberCertificate> promise);
+  void issue_shard_overlay_certificates();
+  std::vector<ton::ShardIdFull> get_shards_for_overlay_certificates();
   ton::PublicKeyHash find_local_validator_for_cert_issuing();
 
   std::string custom_overlays_config_file() const {
