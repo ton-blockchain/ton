@@ -7,6 +7,7 @@ import signal
 import subprocess
 import types
 from abc import ABC, abstractmethod
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import IntEnum, auto
 from ipaddress import IPv4Address
@@ -49,6 +50,40 @@ def _write_model(file: Path, model: TLObject):
 type DebugType = None | Literal["rr"]
 
 
+@dataclass(frozen=True)
+class StartOptions:
+    install: Install | None = None
+    debug: DebugType = None
+    env: Mapping[str, str] = types.MappingProxyType(
+        {}
+    )  # FIXME: Replace with frozendict once we are on Python 3.15
+    args: Sequence[str] = ()
+    threads: int = 0
+    verbosity: int = 3
+
+
+def _get_install_and_options(
+    options: StartOptions | None, install: Install, additional_args: list[str]
+) -> tuple[StartOptions, Install]:
+    if options is None:
+        options = StartOptions()
+
+    if options.install is not None:
+        install = options.install
+
+    return (
+        StartOptions(
+            install=install,
+            debug=options.debug,
+            env=options.env,
+            args=additional_args + list(options.args),
+            threads=options.threads,
+            verbosity=options.verbosity,
+        ),
+        install,
+    )
+
+
 @final
 class Network:
     class Node(ABC):
@@ -56,15 +91,9 @@ class Network:
             self,
             network: Network,
             name: str,
-            install: Install | None = None,
-            env: dict[str, str] | None = None,
-            threads: int | None = None,
         ):
             self._network: Network = network
             self.name: str = name
-            self._install_override: Install | None = install
-            self._extra_env: dict[str, str] = dict(env or {})
-            self._threads: int | None = threads
 
             self._directory: Path = self._network._directory / (
                 "node" + str(self._network._node_idx)
@@ -79,10 +108,6 @@ class Network:
             self.__process: asyncio.subprocess.Process | None = None
             self.__process_watcher: asyncio.Task[None] | None = None
             self.__log_streamer: LogStreamer | None = None
-
-        @property
-        def _install(self):
-            return self._install_override or self._network._install
 
         def _new_network_address(self) -> _IPv4AddressAndPort:
             self._network._port += 1
@@ -123,9 +148,7 @@ class Network:
             executable: Path,
             local_config: ton_api.Engine_validator_config,
             validator_config: ton_api.Validator_config_global | None,
-            additional_args: list[str],
-            *,
-            debug: DebugType = None,
+            start_options: StartOptions,
         ):
             async def process_watcher():
                 assert self.__process is not None
@@ -165,15 +188,17 @@ class Network:
                 local_config_file,
                 "--db",
                 ".",
-                *additional_args,
+                "-v" + str(start_options.verbosity),
             ]
-            if self._threads is not None:
-                cmd_flags += ["--threads", str(self._threads)]
+            if start_options.threads != 0:
+                cmd_flags += ["--threads", str(start_options.threads)]
+            cmd_flags += start_options.args
 
-            match debug:
+            process_env = os.environ.copy()
+            process_env.update(start_options.env)
+
+            match start_options.debug:
                 case None:
-                    process_env = os.environ.copy()
-                    process_env.update(self._extra_env)
                     self.__process = await asyncio.create_subprocess_exec(
                         executable,
                         *cmd_flags,
@@ -183,8 +208,6 @@ class Network:
                     )
                 case "rr":
                     l.info(f"Recording {self.name} with rr")
-                    process_env = os.environ.copy()
-                    process_env.update(self._extra_env)
                     self.__process = await asyncio.create_subprocess_exec(
                         "rr",
                         "record",
@@ -208,7 +231,7 @@ class Network:
             self._static_nodes.append(dht)
 
         @abstractmethod
-        async def run(self, *, debug: DebugType = None):
+        async def run(self, options: StartOptions | None = None):
             pass
 
         async def stop(self):
@@ -263,24 +286,21 @@ class Network:
         assert self._status < _Status.ZEROSTATE_GENERATED
         return self.__network_config
 
-    def create_dht_node(self, threads: int | None = None) -> DHTNode:
+    @property
+    def install(self):
+        return self._install
+
+    def create_dht_node(self) -> DHTNode:
         assert self._status < _Status.CLOSED
 
-        node = DHTNode(self, f"dht-{len(self.__nodes)}", threads=threads)
+        node = DHTNode(self, f"dht-{len(self.__nodes)}")
         self.__nodes.append(node)
         return node
 
-    def create_full_node(
-        self,
-        install: Install | None = None,
-        env: dict[str, str] | None = None,
-        threads: int | None = None,
-    ) -> FullNode:
+    def create_full_node(self) -> FullNode:
         assert self._status < _Status.CLOSED
 
-        node = FullNode(
-            self, f"node-{len(self.__nodes)}", install=install, env=env, threads=threads
-        )
+        node = FullNode(self, f"node-{len(self.__nodes)}")
         self.__nodes.append(node)
         self.__full_nodes.append(node)
         return node
@@ -382,8 +402,8 @@ def _ip_to_tl(ip: IPv4Address) -> int:
 
 @final
 class DHTNode(Network.Node):
-    def __init__(self, network: "Network", name: str, threads: int | None = None):
-        super().__init__(network, name, threads=threads)
+    def __init__(self, network: "Network", name: str):
+        super().__init__(network, name)
 
         self._addr = self._new_network_address()
 
@@ -396,7 +416,7 @@ class DHTNode(Network.Node):
         )
         signed_address = subprocess.run(
             (
-                self._install.key_helper_exe,
+                self._network.install.key_helper_exe,
                 "-m",
                 "dht",
                 "-k",
@@ -426,21 +446,20 @@ class DHTNode(Network.Node):
         return self._signed_address
 
     @override
-    async def run(self, *, debug: DebugType = None):
-        await self._run(self._install.dht_server_exe, self._local_config, None, [], debug=debug)
+    async def run(self, options: StartOptions | None = None):
+        options, install = _get_install_and_options(options, self._network.install, [])
+        await self._run(
+            install.dht_server_exe,
+            self._local_config,
+            None,
+            options,
+        )
 
 
 @final
 class FullNode(Network.Node):
-    def __init__(
-        self,
-        network: "Network",
-        name: str,
-        install: Install | None = None,
-        env: dict[str, str] | None = None,
-        threads: int | None = None,
-    ):
-        super().__init__(network, name, install=install, env=env, threads=threads)
+    def __init__(self, network: "Network", name: str):
+        super().__init__(network, name)
 
         KEY_EXPIRATION = (1 << 31) - 1
 
@@ -530,7 +549,7 @@ class FullNode(Network.Node):
         return self._validator_key
 
     @override
-    async def run(self, *, debug: DebugType = None):
+    async def run(self, options: StartOptions | None = None):
         zerostate = self._get_or_generate_zerostate()
 
         if not self._static_populated:
@@ -540,10 +559,9 @@ class FullNode(Network.Node):
                 (static_dir / state.file_hash.hex().upper()).symlink_to(state.file)
             self._static_populated = True
 
-        await self._run(
-            self._install.validator_engine_exe,
-            self._local_config,
-            zerostate.as_validator_config(),
+        options, install = _get_install_and_options(
+            options,
+            self._network.install,
             [
                 "--initial-sync-delay",
                 "5",
@@ -552,7 +570,13 @@ class FullNode(Network.Node):
                 "--quic-flood-control",
                 "-1",
             ],
-            debug=debug,
+        )
+
+        await self._run(
+            install.validator_engine_exe,
+            self._local_config,
+            zerostate.as_validator_config(),
+            options,
         )
 
     @property
@@ -600,7 +624,7 @@ class FullNode(Network.Node):
 
         return shlex.join(
             [
-                str(self._install.validator_engine_console_exe),
+                str(self._network.install.validator_engine_console_exe),
                 "-a",
                 self._engine_console_addr.address,
                 "-k",
@@ -620,7 +644,7 @@ class FullNode(Network.Node):
 
         async def explorer():
             cmd = [
-                str(self._install.blockchain_explorer_exe),
+                str(self._network.install.blockchain_explorer_exe),
                 "-C",
                 str(config_file),
                 # FIXME: IP?
