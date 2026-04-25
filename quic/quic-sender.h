@@ -42,7 +42,9 @@ class QuicSender : public adnl::AdnlSenderEx, public virtual metrics::AsyncColle
       }
 
       [[nodiscard]] std::vector<metrics::MetricFamily> dump() const;
-    } summary = {};
+    };
+
+    Entry summary = {.server_stats = {.total_conns = 0}};
     std::map<AdnlPath, Entry> per_path;
 
     [[nodiscard]] std::vector<metrics::MetricFamily> dump() const;
