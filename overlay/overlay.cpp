@@ -134,7 +134,7 @@ void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getR
   if (overlay_type_ != OverlayType::FixedMemberList) {
     VLOG(OVERLAY_DEBUG) << this << ": received " << query.peers_->nodes_.size() << " nodes from " << src
                         << " in getRandomPeers query";
-    add_peers(query.peers_, true);
+    add_peers(query.peers_, /* verified = */ false);
     send_random_peers(src, std::move(promise));
   } else {
     VLOG(OVERLAY_WARNING) << this << ": DROPPING getRandomPeers query from " << src << " in private overlay";
@@ -147,7 +147,7 @@ void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getR
   if (overlay_type_ != OverlayType::FixedMemberList) {
     VLOG(OVERLAY_DEBUG) << this << ": received " << query.peers_->nodes_.size() << " nodes from " << src
                         << " in getRandomPeers query";
-    add_peers(query.peers_, true);
+    add_peers(query.peers_, /* verified = */ false);
     send_random_peers_v2(src, std::move(promise));
   } else {
     VLOG(OVERLAY_WARNING) << this << ": DROPPING getRandomPeers query from " << src << " in private overlay";
@@ -381,6 +381,7 @@ void OverlayImpl::alarm() {
     } else {
       update_neighbours(0);
     }
+    process_pending_peers();
     alarm_timestamp() = td::Timestamp::in(1.0);
   } else {
     if (update_neighbours_at_.is_in_past()) {
@@ -441,7 +442,7 @@ void OverlayImpl::receive_dht_nodes(dht::DhtValue v) {
         nodes.emplace_back(N.move_as_ok());
       }
     }
-    add_peers(std::move(nodes));
+    add_peers(std::move(nodes), /* verified = */ false);
   } else {
     VLOG(OVERLAY_WARNING) << this << ": incorrect value in DHT for overlay nodes: " << R.move_as_error();
   }
