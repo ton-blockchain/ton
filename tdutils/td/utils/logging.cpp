@@ -129,8 +129,10 @@ Logger::~Logger() {
     }
     log_.append(slice, log_level_);
 
-    // put stats here to avoid conflict with PSTRING and PSLICE
-    TD_PERF_COUNTER_SINCE(logger, start_at_);
+    if (options_.add_info) {
+      // put stats here to avoid conflict with PSTRING and PSLICE
+      TD_PERF_COUNTER_SINCE(logger, start_at_);
+    }
   } else {
     log_.append(as_cslice(), log_level_);
   }

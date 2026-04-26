@@ -276,7 +276,6 @@ SmartContract::Answer get_vm_result(const vm::VmState& vm, SmartContract::State 
   res.gas_used = gas.gas_consumed();
   res.accepted = gas.gas_credit == 0;
   res.success = (res.accepted && vm.committed());
-  res.vm_log = logs;
   if (GET_VERBOSITY_LEVEL() >= VERBOSITY_NAME(DEBUG)) {
     LOG(DEBUG) << "VM log\n" << logs;
     std::ostringstream os;
@@ -286,6 +285,7 @@ SmartContract::Answer get_vm_result(const vm::VmState& vm, SmartContract::State 
     LOG(DEBUG) << "VM accepted: " << res.accepted;
     LOG(DEBUG) << "VM success: " << res.success;
   }
+  res.vm_log = std::move(logs);
   auto mlib = vm.get_missing_library();
   if (mlib) {
     LOG(DEBUG) << "Missing library: " << mlib.value().to_hex();
@@ -357,7 +357,7 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
     LOG(FATAL) << "catch unhandled exception";
   }
 
-  SmartContract::Answer res = get_vm_result(vm, state, logger.res);
+  SmartContract::Answer res = get_vm_result(vm, state, std::move(logger).extract_log());
   LOG_IF(ERROR, gas_credit != 0 && (res.accepted && !res.success) && !res.missing_library)
       << "Accepted but failed with code " << res.code << "\n"
       << res.gas_used << "\n";
@@ -454,7 +454,7 @@ SmartContract::Answer SmartContract::send_internal_message(td::Ref<vm::Cell> cel
 }
 
 SmartContract::Answer SmartContract::get_result(const vm::VmState& vm, const Logger* logger) const {
-  return get_vm_result(vm, state_, logger ? logger->res : std::string{});
+  return get_vm_result(vm, state_, logger ? logger->get_log() : std::string{});
 }
 
 td::optional<bool> SmartContract::debug_step(std::unique_ptr<vm::VmState>& vm, std::unique_ptr<Logger>& logger) {

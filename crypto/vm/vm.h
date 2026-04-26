@@ -113,6 +113,8 @@ class VmState final : public VmStateInterface {
   GasLimits gas;
   std::vector<Ref<Cell>> libraries;
   td::HashSet<CellHash> loaded_cells;
+  td::HashSet<CellHash> logged_cell_bocs;
+  std::string stack_dump_buffer;
   int stack_trace{0}, debug_off{0};
   bool chksig_always_succeed{false};
   bool stop_on_accept_message{false};
@@ -138,6 +140,9 @@ class VmState final : public VmStateInterface {
    * Set only when execution terminates in the default exception handler.
    */
   td::optional<int> uncaught_exception_code;
+
+  void register_stack_cell_bocs();
+  void register_stack_cell_boc(const StackEntry& entry);
 
  public:
   ExtMethods ext_methods;

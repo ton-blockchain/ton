@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 #include "emulator_export.h"
 
@@ -384,6 +385,35 @@ EMULATOR_EXPORT bool tvm_emulator_set_debug_enabled(void *tvm_emulator, bool deb
  * }
  */
 EMULATOR_EXPORT const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const char *stack_boc);
+
+typedef struct TvmEmulatorGetMethodResult {
+  void *owner;
+  const char *error;
+  size_t error_len;
+  const char *stack;
+  size_t stack_len;
+  const char *vm_log;
+  size_t vm_log_len;
+  const char *missing_library;
+  size_t missing_library_len;
+  uint64_t gas_used;
+  int32_t vm_exit_code;
+  uint8_t success;
+  uint8_t fail;
+} TvmEmulatorGetMethodResult;
+
+/**
+ * @brief Run get method and return result as an owned C struct.
+ *
+ * The returned pointer must be released with tvm_emulator_get_method_result_destroy().
+ * String fields are valid until destroy and are represented as pointer + length.
+ */
+EMULATOR_EXPORT TvmEmulatorGetMethodResult *tvm_emulator_run_get_method_struct(void *tvm_emulator, int method_id,
+                                                                               const char *stack_boc);
+
+EMULATOR_EXPORT TvmEmulatorGetMethodResult *tvm_emulator_get_method_result_error(const char *error, uint8_t fail);
+
+EMULATOR_EXPORT void tvm_emulator_get_method_result_destroy(TvmEmulatorGetMethodResult *result);
 
 /**
  * @brief Prepares get method for step by step emulation

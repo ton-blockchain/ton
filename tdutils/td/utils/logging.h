@@ -254,7 +254,7 @@ class Logger {
       , sb_(buffer_.as_slice())
       , options_(options)
       , log_level_(log_level)
-      , start_at_(Clocks::rdtsc()) {
+      , start_at_(options.add_info ? Clocks::rdtsc() : 0) {
   }
 
   Logger(LogInterface &log, const LogOptions &options, int log_level, Slice file_name, int line_num, Slice comment);

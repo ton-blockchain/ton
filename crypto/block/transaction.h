@@ -60,6 +60,17 @@ public:
    * @param slice The slice of data to be appended.
    */
   void append(td::CSlice slice) override {
+    auto size = slice.size();
+    while (size > 0 && slice.data()[size - 1] == '\n') {
+      --size;
+    }
+    append_raw(td::Slice(slice.data(), size));
+    const char newline = '\n';
+    append_raw(td::Slice(&newline, 1));
+  }
+
+private:
+  void append_raw(td::Slice slice) {
     if (slice.size() > buf.size()) {
       slice.remove_prefix(slice.size() - buf.size());
     }
@@ -75,6 +86,7 @@ public:
     }
   }
 
+public:
   /**
    * Retrieves the tail of the log.
    *

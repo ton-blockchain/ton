@@ -19,6 +19,7 @@
 #include <sodium.h>
 
 #include "vm/continuation.h"
+#include "vm/boc.h"
 #include "vm/dict.h"
 #include "vm/dispatch.h"
 #include "vm/log.h"
@@ -26,8 +27,31 @@
 
 #include "cp0.h"
 #include "memo.h"
+#include "td/utils/misc.h"
 
 namespace vm {
+
+static Ref<Cell> stack_entry_to_cell(const StackEntry& entry) {
+  switch (entry.type()) {
+    case StackEntry::t_cell:
+      return entry.as_cell();
+    case StackEntry::t_builder: {
+      auto cb = entry.as_builder();
+      return cb.not_null() ? cb.write().finalize_novm() : Ref<Cell>{};
+    }
+    case StackEntry::t_slice: {
+      auto cs = entry.as_slice();
+      if (cs.is_null()) {
+        return {};
+      }
+      CellBuilder cb;
+      cb.append_cellslice(cs);
+      return cb.finalize_novm();
+    }
+    default:
+      return {};
+  }
+}
 
 VmState::VmState() : cp(-1), dispatch(&dummy_dispatch_table), quit0(true, 0), quit1(true, 1) {
   ensure_throw(init_cp(0));
@@ -433,19 +457,42 @@ void VmState::change_gas_limit(long long new_limit) {
   gas.change_limit(new_limit);
 }
 
+void VmState::register_stack_cell_bocs() {
+  stack->for_each_scalar([this](const StackEntry& entry) { register_stack_cell_boc(entry); });
+}
+
+void VmState::register_stack_cell_boc(const StackEntry& entry) {
+  auto cell = stack_entry_to_cell(entry);
+  if (cell.is_null()) {
+    return;
+  }
+  auto hash = cell->get_hash();
+  if (!logged_cell_bocs.insert(hash).second) {
+    return;
+  }
+  auto hash_hex = hash.to_hex();
+  auto boc = std_boc_serialize(cell);
+  if (boc.is_ok()) {
+    VM_LOG(this) << "register new cell " << hash_hex << ": " << td::buffer_to_hex(boc.move_as_ok().as_slice());
+  } else {
+    VM_LOG(this) << "register new cell " << hash_hex << ": ???";
+  }
+}
+
 int VmState::step() {
   CHECK(code.not_null() && stack.not_null());
   if (log.log_mask & vm::VmLog::DumpStack) {
-    std::stringstream ss;
+    stack_dump_buffer.clear();
     int mode = 3;
-    if (log.log_mask & vm::VmLog::DumpStackVerbose) {
-      mode += 4;
-    }
     std::unique_ptr<VmStateInterface> tmp_ctx;
     // install temporary dummy vm state interface to prevent charging for cell load operations during dump
     VmStateInterface::Guard guard(tmp_ctx.get());
-    stack->dump(ss, mode);
-    VM_LOG(this) << "stack:" << ss.str();
+    if (log.log_mask & vm::VmLog::DumpStackVerbose) {
+      register_stack_cell_bocs();
+      mode |= 4 | 8;
+    }
+    stack->dump(stack_dump_buffer, mode);
+    VM_LOG(this) << "stack:" << stack_dump_buffer;
   }
   if (stack_trace) {
     std::unique_ptr<VmStateInterface> tmp_ctx;
@@ -597,11 +644,10 @@ int VmState::run() {
     }
     if (!parent) {
       if ((log.log_mask & VmLog::DumpC5) && cstate.committed) {
-        std::stringstream ss;
-        ss << "final c5: ";
-        StackEntry::maybe<Cell>(cstate.c5).dump(ss, true);
-        ss << "\n";
-        VM_LOG(this) << ss.str();
+        std::string final_c5 = "final c5: ";
+        StackEntry::maybe<Cell>(cstate.c5).dump(final_c5, true);
+        final_c5 += '\n';
+        VM_LOG(this) << final_c5;
       }
       exit_code = res;
       return res;
@@ -811,6 +857,7 @@ void VmState::run_child_vm(VmState&& new_state, bool return_data, bool return_ac
     new_state.gas = GasLimits{std::min(new_state.gas.gas_limit, gas.gas_remaining),
                               std::min(new_state.gas.gas_max, gas.gas_remaining)};
   }
+  new_state.logged_cell_bocs = std::move(logged_cell_bocs);
 
   auto new_parent = std::make_unique<ParentVmState>();
   new_parent->return_data = return_data;
@@ -830,6 +877,7 @@ void VmState::restore_parent_vm(int res) {
   *this = std::move(parent->state);
   log = std::move(child_state.log);
   libraries = std::move(child_state.libraries);
+  logged_cell_bocs = std::move(child_state.logged_cell_bocs);
   steps += child_state.steps;
   if (!parent->isolate_gas) {
     loaded_cells = std::move(child_state.loaded_cells);

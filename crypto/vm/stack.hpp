@@ -292,13 +292,16 @@ class StackEntry {
   }
   bool for_each_scalar(const std::function<bool(const StackEntry&)>& func) const;
   void for_each_scalar(const std::function<void(const StackEntry&)>& func) const;
-  void dump(std::ostream& os, bool verbose = false) const;
-  void print_list(std::ostream& os, bool verbose = false) const;
+  void dump(std::ostream& os, bool verbose = false, bool cell_hash_only = false) const;
+  void dump(std::string& out, bool verbose = false, bool cell_hash_only = false) const;
+  void print_list(std::ostream& os, bool verbose = false, bool cell_hash_only = false) const;
+  void print_list(std::string& out, bool verbose = false, bool cell_hash_only = false) const;
   std::string to_string() const;
   std::string to_lisp_string() const;
 
  private:
-  static void print_list_tail(std::ostream& os, const StackEntry* se);
+  static void print_list_tail(std::ostream& os, const StackEntry* se, bool verbose, bool cell_hash_only);
+  static void print_list_tail(std::string& out, const StackEntry* se, bool verbose, bool cell_hash_only);
 };
 
 inline void swap(StackEntry& se1, StackEntry& se2) {
@@ -560,6 +563,7 @@ class Stack : public td::CntObject {
   void for_each_scalar(const std::function<void(const StackEntry&)>& func) const;
   // mode: +1 = add eoln, +2 = Lisp-style lists, +4 = serialized bocs
   void dump(std::ostream& os, int mode = 1) const;
+  void dump(std::string& out, int mode = 1) const;
   bool serialize(vm::CellBuilder& cb, int mode = 0) const;
   bool deserialize(vm::CellSlice& cs, int mode = 0);
   static bool deserialize_to(vm::CellSlice& cs, Ref<Stack>& stack, int mode = 0);

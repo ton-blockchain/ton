@@ -13,6 +13,7 @@
 #include "crypto/vm/memo.h"
 #include "git.h"
 
+#include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -954,14 +955,78 @@ int tvm_emulator_sbs_get_uncaught_exception_code(void *tvm_emulator) {
 
 // -------------------------- RUN GET METHODS --------------------------
 
-const char *tvm_emulator_run_get_method_prepare(const char *stack_boc, td::Ref<vm::Stack> &stack) {
+namespace {
+struct TvmEmulatorGetMethodResultOwner {
+  TvmEmulatorGetMethodResult result{};
+  std::string error;
+  std::string stack;
+  std::string vm_log;
+  std::string missing_library;
+};
+
+void set_result_slice(const std::string &source, const char *&ptr, size_t &len) {
+  ptr = source.data();
+  len = source.size();
+}
+
+TvmEmulatorGetMethodResult *make_get_method_error(std::string error, bool fail = false) {
+  auto owner = std::make_unique<TvmEmulatorGetMethodResultOwner>();
+  owner->result.owner = owner.get();
+  owner->error = std::move(error);
+  set_result_slice(owner->error, owner->result.error, owner->result.error_len);
+  owner->result.success = 0;
+  owner->result.fail = fail ? 1 : 0;
+  return &owner.release()->result;
+}
+
+TvmEmulatorGetMethodResult *make_get_method_result(emulator::TvmEmulator::Answer result) {
+  vm::FakeVmStateLimits fstate(3500);  // limit recursive (de)serialization calls
+  vm::VmStateInterface::Guard guard(&fstate);
+
+  vm::CellBuilder stack_cb;
+  if (!result.stack->serialize(stack_cb)) {
+    return make_get_method_error("Couldn't serialize stack");
+  }
+  auto result_stack_boc = cell_to_boc_b64(stack_cb.finalize());
+  if (result_stack_boc.is_error()) {
+    return make_get_method_error(PSTRING() << "Couldn't serialize stack cell: "
+                                           << result_stack_boc.move_as_error().to_string());
+  }
+
+  auto owner = std::make_unique<TvmEmulatorGetMethodResultOwner>();
+  owner->result.owner = owner.get();
+  owner->result.success = 1;
+  owner->result.fail = 0;
+  owner->result.gas_used = result.gas_used;
+  owner->result.vm_exit_code = result.code;
+  owner->stack = result_stack_boc.move_as_ok();
+  owner->vm_log = std::move(result.vm_log);
+  set_result_slice(owner->stack, owner->result.stack, owner->result.stack_len);
+  set_result_slice(owner->vm_log, owner->result.vm_log, owner->result.vm_log_len);
+  if (result.missing_library) {
+    owner->missing_library = result.missing_library.value().to_hex();
+    set_result_slice(owner->missing_library, owner->result.missing_library, owner->result.missing_library_len);
+  }
+  return &owner.release()->result;
+}
+
+td::Status tvm_emulator_run_get_method_prepare_stack(const char *stack_boc, td::Ref<vm::Stack> &stack) {
   auto stack_cell = boc_b64_to_cell(stack_boc);
   if (stack_cell.is_error()) {
-    ERROR_RESPONSE(PSTRING() << "Couldn't deserialize stack cell: " << stack_cell.move_as_error().to_string());
+    return td::Status::Error(PSTRING() << "Couldn't deserialize stack cell: " << stack_cell.move_as_error().to_string());
   }
   auto stack_cs = vm::load_cell_slice(stack_cell.move_as_ok());
   if (!vm::Stack::deserialize_to(stack_cs, stack)) {
-     ERROR_RESPONSE(PSTRING() << "Couldn't deserialize stack");
+    return td::Status::Error("Couldn't deserialize stack");
+  }
+  return td::Status::OK();
+}
+}  // namespace
+
+const char *tvm_emulator_run_get_method_prepare(const char *stack_boc, td::Ref<vm::Stack> &stack) {
+  auto status = tvm_emulator_run_get_method_prepare_stack(stack_boc, stack);
+  if (status.is_error()) {
+    ERROR_RESPONSE(status.move_as_error().to_string());
   }
   return nullptr;
 }
@@ -981,7 +1046,7 @@ const char *tvm_emulator_sbs_run_get_method(void *tvm_emulator, int method_id, c
   return nullptr;
 }
 
-const char *tvm_emulator_get_method_result(emulator::TvmEmulator::Answer result) {
+const char *tvm_emulator_get_method_result(const emulator::TvmEmulator::Answer& result) {
   vm::FakeVmStateLimits fstate(3500);  // limit recursive (de)serialization calls
   vm::VmStateInterface::Guard guard(&fstate);
   
@@ -1020,6 +1085,28 @@ const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const
   auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
   auto result = emulator->run_get_method(method_id, stack);
   return tvm_emulator_get_method_result(result);
+}
+
+TvmEmulatorGetMethodResult *tvm_emulator_run_get_method_struct(void *tvm_emulator, int method_id, const char *stack_boc) {
+  td::Ref<vm::Stack> stack;
+  auto status = tvm_emulator_run_get_method_prepare_stack(stack_boc, stack);
+  if (status.is_error()) {
+    return make_get_method_error(status.move_as_error().to_string());
+  }
+
+  auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  auto result = emulator->run_get_method(method_id, stack);
+  return make_get_method_result(std::move(result));
+}
+
+TvmEmulatorGetMethodResult *tvm_emulator_get_method_result_error(const char *error, uint8_t fail) {
+  return make_get_method_error(error == nullptr ? std::string() : std::string(error), fail != 0);
+}
+
+void tvm_emulator_get_method_result_destroy(TvmEmulatorGetMethodResult *result) {
+  if (result != nullptr) {
+    delete static_cast<TvmEmulatorGetMethodResultOwner *>(result->owner);
+  }
 }
 
 const char *tvm_emulator_sbs_get_method_result(void *tvm_emulator) {

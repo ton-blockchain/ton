@@ -7,6 +7,7 @@
 #include "tvm-emulator.hpp"
 
 #include <iostream>
+#include <sstream>
 #include "crypto/common/bitstring.h"
 
 struct TransactionEmulationParams {
@@ -201,6 +202,30 @@ class ScopedLogCapture {
   bool capture_logs_;
   NoopLog noop_logger_;
   StringLog string_logger_;
+};
+
+class NullStreamBuf : public std::streambuf {
+ protected:
+  int overflow(int c) override {
+    return c;
+  }
+  std::streamsize xsputn(const char*, std::streamsize count) override {
+    return count;
+  }
+};
+
+class ScopedCerrDiscard {
+ public:
+  ScopedCerrDiscard() : old_err_(std::cerr.rdbuf(null_buf_.rdbuf())) {
+  }
+  ~ScopedCerrDiscard() {
+    std::cerr.rdbuf(old_err_);
+  }
+
+ private:
+  NullStreamBuf buf_;
+  std::ostream null_buf_{&buf_};
+  std::streambuf* old_err_;
 };
 
 extern "C" {
@@ -433,7 +458,6 @@ const char *run_get_method(void* tvm, const char *params, const char* stack, con
         (decoded_params.prev_blocks_info && !tvm_emulator_set_prev_blocks_info(tvm, decoded_params.prev_blocks_info.value().c_str())) ||
         (decoded_params.gas_limit > 0 && !tvm_emulator_set_gas_limit(tvm, decoded_params.gas_limit)) ||
         !tvm_emulator_set_debug_enabled(tvm, decoded_params.debug_enabled)) {
-        tvm_emulator_destroy(tvm);
         return strdup(R"({"fail":true,"message":"Can't set params"})");
     }
 
@@ -455,6 +479,29 @@ const char *run_get_method(void* tvm, const char *params, const char* stack, con
     free((void*) res);
 
     return output;
+}
+
+TvmEmulatorGetMethodResult *run_get_method_struct(void* tvm, const char *params, const char* stack, const char* config) {
+    ScopedCerrDiscard errs;
+
+    auto decoded_params_res = decode_get_method_params(params);
+    if (decoded_params_res.is_error()) {
+        return tvm_emulator_get_method_result_error("Can't decode params", 1);
+    }
+    auto decoded_params = decoded_params_res.move_as_ok();
+    ScopedLogCapture logger(decoded_params.verbosity >= 0);
+
+    if ((decoded_params.libs && !tvm_emulator_set_libraries(tvm, decoded_params.libs.value().c_str())) ||
+        !tvm_emulator_set_c7(tvm, decoded_params.address.c_str(), decoded_params.unixtime, decoded_params.balance,
+                             decoded_params.rand_seed_hex.c_str(), config) ||
+        (decoded_params.extra_currencies.size() > 0 && !tvm_emulator_set_extra_currencies(tvm, decoded_params.extra_currencies.c_str())) ||
+        (decoded_params.prev_blocks_info && !tvm_emulator_set_prev_blocks_info(tvm, decoded_params.prev_blocks_info.value().c_str())) ||
+        (decoded_params.gas_limit > 0 && !tvm_emulator_set_gas_limit(tvm, decoded_params.gas_limit)) ||
+        !tvm_emulator_set_debug_enabled(tvm, decoded_params.debug_enabled)) {
+        return tvm_emulator_get_method_result_error("Can't set params", 1);
+    }
+
+    return tvm_emulator_run_get_method_struct(tvm, decoded_params.method_id, stack);
 }
 
 const char *run_continuation(void *tvm, const char *continuation_boc, const char *stack_boc) {

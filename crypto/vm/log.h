@@ -46,7 +46,7 @@ inline VmLog make_vm_log(td::LogInterface *log_interface, int vm_log_verbosity, 
     return VmLog::Null();
   }
 
-  VmLog log{log_interface ? log_interface : td::log_interface, td::LogOptions(VERBOSITY_NAME(DEBUG), true, false)};
+  VmLog log{log_interface ? log_interface : td::log_interface, td::LogOptions(VERBOSITY_NAME(DEBUG), false, false)};
   if (vm_log_verbosity > 1) {
     log.log_mask |= VmLog::ExecLocation;
     if (vm_log_verbosity > 2) {
@@ -71,7 +71,7 @@ td::LogInterface &get_log_interface(State *st) {
 }
 
 template <class State>
-auto get_log_options(State *st) {
+const td::LogOptions& get_log_options(State *st) {
   return st ? st->get_log().log_options : ::td::log_options;
 }
 

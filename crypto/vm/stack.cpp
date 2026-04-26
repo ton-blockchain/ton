@@ -72,15 +72,15 @@ std::string str_to_hex(std::string data, std::string prefix) {
 }
 
 std::string StackEntry::to_string() const {
-  std::ostringstream os;
-  dump(os);
-  return std::move(os).str();
+  std::string out;
+  dump(out);
+  return out;
 }
 
 std::string StackEntry::to_lisp_string() const {
-  std::ostringstream os;
-  print_list(os);
-  return std::move(os).str();
+  std::string out;
+  print_list(out);
+  return out;
 }
 
 static std::string cell_to_hex(const td::Ref<vm::Cell> &cell) {
@@ -91,158 +91,236 @@ static std::string cell_to_hex(const td::Ref<vm::Cell> &cell) {
   return "???";
 }
 
-void StackEntry::dump(std::ostream& os, bool verbose) const {
+static void append_cell_hash_ref(std::string& out, char tag, const CellHash& hash) {
+  char buffer[2 + CellTraits::hash_bytes * 2 + 1];
+  buffer[0] = tag;
+  buffer[1] = '{';
+  hash.to_hex(buffer + 2);
+  buffer[sizeof(buffer) - 1] = '}';
+  out.append(buffer, sizeof(buffer));
+}
+
+static void append_cell_hash_ref(std::string& out, char tag0, char tag1, const CellHash& hash) {
+  char buffer[3 + CellTraits::hash_bytes * 2 + 1];
+  buffer[0] = tag0;
+  buffer[1] = tag1;
+  buffer[2] = '{';
+  hash.to_hex(buffer + 3);
+  buffer[sizeof(buffer) - 1] = '}';
+  out.append(buffer, sizeof(buffer));
+}
+
+static void append_int(std::string& out, td::RefInt256 value) {
+  if (value.is_null()) {
+    out.append("(null)", 6);
+  } else if (!value->is_valid()) {
+    out.append("NaN", 3);
+  } else if (value->signed_fits_bits(64)) {
+    out += std::to_string(value->to_long());
+  } else {
+    out += dec_string(std::move(value));
+  }
+}
+
+template <typename F>
+static void append_streamed(std::string& out, F&& func) {
+  std::ostringstream os;
+  func(os);
+  out += std::move(os).str();
+}
+
+void StackEntry::dump(std::ostream& os, bool verbose, bool cell_hash_only) const {
+  std::string out;
+  dump(out, verbose, cell_hash_only);
+  os.write(out.data(), out.size());
+}
+
+void StackEntry::dump(std::string& out, bool verbose, bool cell_hash_only) const {
   switch (tp) {
     case t_null:
-      os << "(null)";
+      out.append("(null)", 6);
       break;
     case t_int:
-      os << dec_string(as_int());
+      append_int(out, as_int());
       break;
     case t_cell:
       if (ref.not_null()) {
-        if (verbose) {
-          os << "C{" << cell_to_hex(as_cell()) << "}";
+        auto cell = as_cell();
+        if (cell_hash_only) {
+          append_cell_hash_ref(out, 'C', cell->get_hash());
+        } else if (verbose) {
+          out.append("C{", 2);
+          out += cell_to_hex(cell);
+          out += '}';
         } else {
-          os << "C{" << *as_cell() << "}";
+          append_cell_hash_ref(out, 'C', cell->get_hash());
         }
       } else {
-        os << "C{null}";
+        out.append("C{null}", 7);
       }
       break;
     case t_builder:
       if (ref.not_null()) {
-        if (verbose) {
-          Ref<CellBuilder> cb = as_builder();
-          os << "BC{" << cell_to_hex(cb.write().finalize_novm()) << "}";
+        Ref<CellBuilder> cb = as_builder();
+        if (cell_hash_only) {
+          append_cell_hash_ref(out, 'B', 'C', cb.write().finalize_novm()->get_hash());
+        } else if (verbose) {
+          out.append("BC{", 3);
+          out += cell_to_hex(cb.write().finalize_novm());
+          out += '}';
         } else {
-          os << "BC{" << *as_builder() << "}";
+          out.append("BC{", 3);
+          out += cb->to_hex();
+          out += '}';
         }
       } else {
-        os << "BC{null}";
+        out.append("BC{null}", 8);
       }
       break;
     case t_slice: {
       if (ref.not_null()) {
-        os << "CS{";
-        if (verbose) {
+        if (cell_hash_only) {
           CellBuilder cb;
           cb.append_cellslice(as_slice());
-          os << cell_to_hex(cb.finalize_novm());
+          append_cell_hash_ref(out, 'C', 'S', cb.finalize_novm()->get_hash());
+        } else if (verbose) {
+          out.append("CS{", 3);
+          CellBuilder cb;
+          cb.append_cellslice(as_slice());
+          out += cell_to_hex(cb.finalize_novm());
+          out += '}';
         } else {
-          static_cast<Ref<CellSlice>>(ref)->dump(os, 1, false);
+          out.append("CS{", 3);
+          append_streamed(out, [this](auto& os) { static_cast<Ref<CellSlice>>(ref)->dump(os, 1, false); });
+          out += '}';
         }
-        os << '}';
       } else {
-        os << "CS{null}";
+        out.append("CS{null}", 8);
       }
       break;
     }
     case t_string:
-      os << "\"" << as_string() << "\"";
+      out += '"';
+      if (auto str = as_string_ref(); str.not_null()) {
+        out += *str;
+      }
+      out += '"';
       break;
     case t_bytes:
-      os << "BYTES:" << str_to_hex(as_bytes());
+      out.append("BYTES:", 6);
+      out += str_to_hex(as_bytes());
       break;
     case t_box: {
-      os << "Box{" << (const void*)&*ref << "}";
+      append_streamed(out, [this](auto& os) { os << "Box{" << (const void*)&*ref << "}"; });
       break;
     }
     case t_atom:
-      os << as_atom();
+      append_streamed(out, [this](auto& os) { os << as_atom(); });
       break;
     case t_tuple: {
       const auto& tuple = *static_cast<Ref<Tuple>>(ref);
       auto n = tuple.size();
       if (!n) {
-        os << "[]";
+        out.append("[]", 2);
       } else if (n == 1) {
-        os << "[ ";
-        tuple[0].dump(os);
-        os << " ]";
+        out.append("[ ", 2);
+        tuple[0].dump(out, verbose, cell_hash_only);
+        out.append(" ]", 2);
       } else {
-        os << "[ ";
+        out.append("[ ", 2);
         for (const auto& entry : tuple) {
-          entry.dump(os);
-          os << ' ';
+          entry.dump(out, verbose, cell_hash_only);
+          out += ' ';
         }
-        os << ']';
+        out += ']';
       }
       break;
     }
     case t_object: {
-      os << "Object{" << (const void*)&*ref << "}";
+      append_streamed(out, [this](auto& os) { os << "Object{" << (const void*)&*ref << "}"; });
       break;
     }
     case t_vmcont: {
       if (ref.not_null()) {
         if (verbose) {
-          os << "Cont{" << *as_cont() << "}";
+          append_streamed(out, [this](auto& os) { os << "Cont{" << *as_cont() << "}"; });
         } else {
-          os << "Cont{" << as_cont()->type() << "}";
+          append_streamed(out, [this](auto& os) { os << "Cont{" << as_cont()->type() << "}"; });
         }
       } else {
-        os << "Cont{null}";
+        out.append("Cont{null}", 10);
       }
       break;
     }
     default:
-      os << "???";
+      out.append("???", 3);
   }
 }
 
-void StackEntry::print_list(std::ostream& os, bool verbose) const {
+void StackEntry::print_list(std::ostream& os, bool verbose, bool cell_hash_only) const {
+  std::string out;
+  print_list(out, verbose, cell_hash_only);
+  os.write(out.data(), out.size());
+}
+
+void StackEntry::print_list(std::string& out, bool verbose, bool cell_hash_only) const {
   switch (tp) {
     case t_null:
-      os << "()";
+      out.append("()", 2);
       break;
     case t_tuple: {
       const auto& tuple = *static_cast<Ref<Tuple>>(ref);
-      if (is_list()) {
-        os << '(';
-        tuple[0].print_list(os, verbose);
-        print_list_tail(os, &tuple[1]);
+      auto n = tuple.size();
+      if (n == 2 && is_list()) {
+        out += '(';
+        tuple[0].print_list(out, verbose, cell_hash_only);
+        print_list_tail(out, &tuple[1], verbose, cell_hash_only);
         break;
       }
-      auto n = tuple.size();
       if (!n) {
-        os << "[]";
+        out.append("[]", 2);
       } else if (n == 1) {
-        os << "[";
-        tuple[0].print_list(os, verbose);
-        os << "]";
+        out += '[';
+        tuple[0].print_list(out, verbose, cell_hash_only);
+        out += ']';
       } else {
-        os << "[";
+        out += '[';
         unsigned c = 0;
         for (const auto& entry : tuple) {
           if (c++) {
-            os << " ";
+            out += ' ';
           }
-          entry.print_list(os, verbose);
+          entry.print_list(out, verbose, cell_hash_only);
         }
-        os << ']';
+        out += ']';
       }
       break;
     }
     default:
-      dump(os, verbose);
+      dump(out, verbose, cell_hash_only);
   }
 }
 
-void StackEntry::print_list_tail(std::ostream& os, const StackEntry* se) {
+void StackEntry::print_list_tail(std::ostream& os, const StackEntry* se, bool verbose, bool cell_hash_only) {
+  std::string out;
+  print_list_tail(out, se, verbose, cell_hash_only);
+  os.write(out.data(), out.size());
+}
+
+void StackEntry::print_list_tail(std::string& out, const StackEntry* se, bool verbose, bool cell_hash_only) {
   Ref<Tuple> tuple;
   while (!se->empty()) {
     tuple = se->as_tuple_range(2, 2);
     if (tuple.is_null()) {
-      os << " . ";
-      se->print_list(os);
+      out.append(" . ", 3);
+      se->print_list(out, verbose, cell_hash_only);
       break;
     }
-    os << ' ';
-    tuple->at(0).print_list(os);
+    out += ' ';
+    tuple->at(0).print_list(out, verbose, cell_hash_only);
     se = &tuple->at(1);
   }
-  os << ')';
+  out += ')';
 }
 
 StackEntry StackEntry::make_list(std::vector<StackEntry>&& elems) {
@@ -721,21 +799,29 @@ Ref<Stack> Stack::split_top(unsigned top_cnt, unsigned drop_cnt) {
 }
 
 void Stack::dump(std::ostream& os, int mode) const {
-  os << " [ ";
+  std::string out;
+  dump(out, mode);
+  os.write(out.data(), out.size());
+}
+
+void Stack::dump(std::string& out, int mode) const {
+  out.append(" [ ", 3);
+  bool cell_hash_only = mode & 8;
+  out.reserve(out.size() + stack.size() * (cell_hash_only ? 72 : 24) + 4);
   if (mode & 2) {
     for (const auto& x : stack) {
-      x.print_list(os, mode & 4);
-      os << ' ';
+      x.print_list(out, mode & 4, cell_hash_only);
+      out += ' ';
     }
   } else {
     for (const auto& x : stack) {
-      x.dump(os, mode & 4);
-      os << ' ';
+      x.dump(out, mode & 4, cell_hash_only);
+      out += ' ';
     }
   }
-  os << "] ";
+  out.append("] ", 2);
   if (mode & 1) {
-    os << std::endl;
+    out += '\n';
   }
 }
 void Stack::push_cellslice(Ref<CellSlice> cs) {

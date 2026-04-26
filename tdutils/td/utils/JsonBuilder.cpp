@@ -120,7 +120,6 @@ StringBuilder &operator<<(StringBuilder &sb, const JsonString &val) {
   const char *s = val.str_.begin();
   const size_t len = val.str_.size();
 
-  // Минимальный reserve (дальше будет дорастать при необходимости)
   (void)sb.reserve(len + 2);
 
   sb << '"';
