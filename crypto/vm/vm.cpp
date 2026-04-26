@@ -208,7 +208,6 @@ int VmState::call(Ref<Continuation> cont, int pass_args, int ret_args) {
     // create return continuation using the remainder of current stack
     Ref<OrdCont> ret = Ref<OrdCont>{true, std::move(code), cp, std::move(stack), ret_args};
     ret.unique_write().get_cdata()->save.set_c0(std::move(old_c0));
-    Ref<OrdCont> ord_cont = static_cast<Ref<OrdCont>>(cont);
     set_stack(std::move(new_stk));
     cr.set_c0(std::move(ret));  // ??? if codepage of code in ord_cont is unknown, will end up with incorrect c0
     return jump_to(std::move(cont));
