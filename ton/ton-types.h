@@ -29,6 +29,7 @@
 #include "td/utils/buffer.h"
 #include "td/utils/misc.h"
 #include "td/utils/optional.h"
+#include "td/utils/uint128.h"
 
 namespace ton {
 
@@ -49,6 +50,28 @@ using ValidatorWeight = td::uint64;  // was td::uint32 before
 using CatchainSeqno = td::uint32;
 
 using ValidatorSessionId = td::Bits256;
+
+inline bool validator_weight_add(ValidatorWeight& total_weight, ValidatorWeight weight) {
+  if (weight > ~total_weight) {
+    return false;
+  }
+  total_weight += weight;
+  return true;
+}
+
+inline bool validator_weight_is_supermajority(ValidatorWeight signed_weight, ValidatorWeight total_weight) {
+  auto lhs = td::uint128::from_unsigned(signed_weight).mult(3);
+  auto rhs = td::uint128::from_unsigned(total_weight).mult(2);
+  return lhs.hi() > rhs.hi() || (lhs.hi() == rhs.hi() && lhs.lo() > rhs.lo());
+}
+
+inline ValidatorWeight validator_weight_supermajority_threshold(ValidatorWeight total_weight) {
+  return td::uint128::from_unsigned(total_weight)
+      .mult(2)
+      .div(td::uint128::from_unsigned(3))
+      .add(td::uint128::from_unsigned(1))
+      .lo();
+}
 
 constexpr WorkchainId masterchainId = -1, basechainId = 0, workchainInvalid = 0x80000000;
 constexpr ShardId shardIdAll = (1ULL << 63);

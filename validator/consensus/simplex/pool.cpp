@@ -320,7 +320,7 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
     slots_per_leader_window_ = bus.config.slots_per_leader_window;
     params_ = bus.config.noncritical_params;
 
-    weight_threshold_ = (bus.total_weight * 2) / 3 + 1;
+    weight_threshold_ = ton::validator_weight_supermajority_threshold(bus.total_weight);
 
     state_.emplace(State(bus));
     state_->slot_at(0)->state->available_base = ParentId{};
@@ -678,21 +678,24 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
   }
 
   void handle_typed_vote(const PeerValidator &validator, Signed<NotarizeVote> vote, State::SlotRef &slot) {
-    auto new_weight = (slot.state->notarize_weight[vote.vote.id] += validator.weight);
+    auto &new_weight = slot.state->notarize_weight[vote.vote.id];
+    CHECK(ton::validator_weight_add(new_weight, validator.weight));
     if (!slot.state->will_be_notarized() && new_weight >= weight_threshold_) {
       handle_certificate(slot.state->create_cert(vote.vote));
     }
   }
 
   void handle_typed_vote(const PeerValidator &validator, Signed<SkipVote> vote, State::SlotRef &slot) {
-    auto new_weight = (slot.state->skip_weight += validator.weight);
+    auto &new_weight = slot.state->skip_weight;
+    CHECK(ton::validator_weight_add(new_weight, validator.weight));
     if (!slot.state->will_be_skipped() && new_weight >= weight_threshold_) {
       handle_certificate(slot.state->create_cert(vote.vote));
     }
   }
 
   void handle_typed_vote(const PeerValidator &validator, Signed<FinalizeVote> vote, State::SlotRef &slot) {
-    auto new_weight = (slot.state->finalize_weight[vote.vote.id] += validator.weight);
+    auto &new_weight = slot.state->finalize_weight[vote.vote.id];
+    CHECK(ton::validator_weight_add(new_weight, validator.weight));
     if (!slot.state->will_be_finalized() && new_weight >= weight_threshold_) {
       handle_certificate(slot.state->create_cert(vote.vote));
     }

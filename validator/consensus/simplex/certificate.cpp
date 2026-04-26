@@ -31,10 +31,12 @@ td::Result<td::Ref<Certificate<T>>> Certificate<T>::from_tl(tl::voteSignatureSet
 
     auto validator = PeerValidatorId{who}.get_using(bus);
     signatures.emplace_back(VoteSignature{validator.idx, std::move(signature->signature_)});
-    voted_weight += validator.weight;
+    if (!ton::validator_weight_add(voted_weight, validator.weight)) {
+      return td::Status::Error("certificate weight overflow");
+    }
   }
 
-  if (voted_weight < (bus.total_weight * 2) / 3 + 1) {
+  if (voted_weight < ton::validator_weight_supermajority_threshold(bus.total_weight)) {
     return td::Status::Error("Not enough signatures in certificate");
   }
 
