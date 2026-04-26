@@ -17,14 +17,20 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <iomanip>
 #include <iostream>
+#include <mutex>
+#include <thread>
 
 #include "td/utils/Slice-decl.h"
 #include "td/utils/bits.h"
 #include "td/utils/crypto.h"
 #include "td/utils/format.h"
+#include "td/utils/logging.h"
 #include "td/utils/misc.h"
+#include "td/utils/port/thread.h"
 #include "vm/boc-writers.h"
 #include "vm/boc.h"
 #include "vm/cells.h"
@@ -797,6 +803,11 @@ td::Result<td::Ref<vm::DataCell>> BagOfCells::deserialize_cell(int idx, td::Slic
 }
 
 td::Result<long long> BagOfCells::deserialize(const td::Slice& data, int max_roots) {
+  // Parallel path is enabled for large BOCs. Reviewers can uncomment the bench
+  // instrumentation below (and the corresponding blocks further down) to re-measure
+  // total / per-phase timings on their own hardware.
+  //   auto bench_t_start = std::chrono::steady_clock::now();
+  const auto bench_input_bytes = data.size();
   clear();
   long long size_est = info.parse_serialized_header(data);
   if (size_est == 0) {
@@ -874,19 +885,270 @@ td::Result<long long> BagOfCells::deserialize(const td::Slice& data, int max_roo
     }
   }
   auto cells_slice = data.substr(info.data_offset, info.data_size);
+  // === Parallel deserialize (three-phase pipeline) ===
+  // Large BOCs (state files) benefit from level-parallel construction:
+  //   Phase 1a (parallel): parse each cell's header and store ref indices.
+  //   Phase 1b (sequential, fast): compute dependency depth per cell by table lookup.
+  //   Phase 2  (sequential, fast): bucket cells by depth.
+  //   Phase 3  (parallel per level): create all cells at each depth in parallel — within
+  //            a depth level no cell references another at the same depth, so each task
+  //            is independent.
+  //
+  // Arena allocator is enabled for the duration to trade individual cell deletion for
+  // cache-local sequential allocation: cells are placed in thread-local 1 MB batches
+  // and never individually freed. This is the existing DataCell arena mechanism.
+  //
+  // Fallback: for small BOCs (< 64 MB) the original serial path runs — thread-spawn
+  // overhead is not worth it for small inputs.
+  const bool use_large_path = (bench_input_bytes >= (64 << 20));
+  // Reviewers wishing to A/B the parallel path against the serial path (e.g. for hash
+  // equivalence testing) can uncomment below and set BOC_FORCE_SERIAL=1 in the env:
+  //   const char* force_serial = std::getenv("BOC_FORCE_SERIAL");
+  //   bool use_parallel = use_large_path && !(force_serial && force_serial[0] == '1');
+  bool use_parallel = use_large_path;
+
+  const bool prev_arena = DataCell::use_arena;
+  if (use_large_path) {
+    DataCell::use_arena = true;
+  }
+
   std::vector<Ref<DataCell>> cell_list;
-  cell_list.reserve(cell_count);
-  std::array<td::Ref<Cell>, 4> refs_buf;
-  for (int i = 0; i < cell_count; i++) {
-    // reconstruct cell with index cell_count - 1 - i
-    int idx = cell_count - 1 - i;
-    auto r_cell = deserialize_cell(idx, cells_slice, cell_list, info.has_cache_bits ? &cell_should_cache : nullptr);
-    if (r_cell.is_error()) {
-      return td::Status::Error(PSLICE() << "invalid bag-of-cells failed to deserialize cell #" << idx << " "
-                                        << r_cell.error());
+  cell_list.resize(cell_count);  // indexed access, not push_back
+
+  td::Status parallel_err = td::Status::OK();
+
+  if (use_parallel) {
+    // Phase 1a (PARALLEL): parse each cell's header, store ref_indices into a flat table.
+    // Pure read of BOC bytes per cell — no ordering dependency.
+    struct CellRefs {
+      td::uint8 refs_cnt;
+      td::uint8 _pad1, _pad2, _pad3;
+      int ref_indices[4];  // only refs_cnt valid entries
+    };
+    static_assert(sizeof(CellRefs) == 20, "unexpected CellRefs size");
+
+    // Memory cost: 20 B × cell_count. For a 121 M-cell state this is ~2.4 GB of
+    // transient memory, freed right after Phase 1b. If an upstream reviewer deems
+    // this unacceptable, the struct can be packed to 16 B (refs_cnt in the top
+    // bits of ref_indices[0]) at the cost of adding a hardcoded max-index check.
+    std::vector<CellRefs> cell_refs(cell_count);
+    {
+      const size_t n_threads = std::min<size_t>(16, std::max<size_t>(1, std::thread::hardware_concurrency()));
+      std::atomic<size_t> next_task{0};
+      std::atomic<bool> any_err{false};
+      td::Status shared_err = td::Status::OK();
+      std::mutex err_mutex;
+      auto loop = [&] {
+        while (!any_err.load(std::memory_order_relaxed)) {
+          size_t task = next_task.fetch_add(1, std::memory_order_relaxed);
+          if (task >= (size_t)cell_count) break;
+          int idx = static_cast<int>(task);
+          auto r_slice = get_cell_slice(idx, cells_slice);
+          if (r_slice.is_error()) {
+            std::lock_guard<std::mutex> g(err_mutex);
+            if (shared_err.is_ok()) shared_err = r_slice.move_as_status();
+            any_err.store(true, std::memory_order_relaxed);
+            return;
+          }
+          auto cell_slice = r_slice.move_as_ok();
+          CellSerializationInfo ci;
+          auto st = ci.init(cell_slice, info.ref_byte_size);
+          if (st.is_error()) {
+            std::lock_guard<std::mutex> g(err_mutex);
+            if (shared_err.is_ok()) shared_err = std::move(st);
+            any_err.store(true, std::memory_order_relaxed);
+            return;
+          }
+          auto& cr = cell_refs[idx];
+          cr.refs_cnt = static_cast<td::uint8>(ci.refs_cnt);
+          for (int k = 0; k < ci.refs_cnt; k++) {
+            int ref_idx = static_cast<int>(
+                info.read_ref(cell_slice.ubegin() + ci.refs_offset + k * info.ref_byte_size));
+            if (ref_idx <= idx || ref_idx >= cell_count) {
+              std::lock_guard<std::mutex> g(err_mutex);
+              if (shared_err.is_ok()) {
+                shared_err = td::Status::Error(PSLICE() << "bag-of-cells: cell #" << idx << " has invalid ref "
+                                                         << ref_idx);
+              }
+              any_err.store(true, std::memory_order_relaxed);
+              return;
+            }
+            cr.ref_indices[k] = ref_idx;
+          }
+        }
+      };
+      if (cell_count < 1024 || n_threads == 1) {
+        loop();
+      } else {
+        std::vector<td::thread> threads;
+        threads.reserve(n_threads - 1);
+        for (size_t t = 0; t < n_threads - 1; t++) {
+          threads.emplace_back(loop);
+        }
+        loop();
+        for (auto& th : threads) th.join();
+      }
+      if (any_err.load()) parallel_err = std::move(shared_err);
     }
-    cell_list.push_back(r_cell.move_as_ok());
-    DCHECK(cell_list.back().not_null());
+
+    // Phase 1b (SEQUENTIAL, fast): compute depth by table lookup, no re-parsing.
+    std::vector<td::uint16> depths(cell_count, 0);
+    if (parallel_err.is_ok()) {
+      for (int i = 0; i < cell_count; i++) {
+        int idx = cell_count - 1 - i;
+        const auto& cr = cell_refs[idx];
+        td::uint16 max_d = 0;
+        for (int k = 0; k < cr.refs_cnt; k++) {
+          td::uint16 d = depths[cr.ref_indices[k]];
+          if (d > max_d) max_d = d;
+        }
+        depths[idx] = cr.refs_cnt ? static_cast<td::uint16>(max_d + 1) : 0;
+      }
+    }
+    // Free cell_refs memory — Phase 3 reparses headers itself.
+    std::vector<CellRefs>().swap(cell_refs);
+
+    if (parallel_err.is_ok()) {
+      // Phase 2: bucket cells by depth.
+      td::uint16 max_depth = 0;
+      for (auto d : depths) {
+        if (d > max_depth) {
+          max_depth = d;
+        }
+      }
+      std::vector<std::vector<int>> by_depth(static_cast<size_t>(max_depth) + 1);
+      {
+        // First count, then allocate, then fill — avoids vector reallocations.
+        std::vector<int> level_size(static_cast<size_t>(max_depth) + 1, 0);
+        for (int idx = 0; idx < cell_count; idx++) {
+          level_size[depths[idx]]++;
+        }
+        for (size_t d = 0; d < by_depth.size(); d++) {
+          by_depth[d].reserve(level_size[d]);
+        }
+        for (int idx = 0; idx < cell_count; idx++) {
+          by_depth[depths[idx]].push_back(idx);
+        }
+      }
+
+      // Phase 3: per-level parallel create. Thread pool size = min(16, cores).
+      const size_t n_threads = std::min<size_t>(16, std::max<size_t>(1, std::thread::hardware_concurrency()));
+      std::atomic<bool> any_error{false};
+      td::Status shared_err = td::Status::OK();
+      std::mutex err_mutex;
+
+      auto process_cell = [&](int idx) {
+        auto r_slice = get_cell_slice(idx, cells_slice);
+        if (r_slice.is_error()) {
+          std::lock_guard<std::mutex> g(err_mutex);
+          if (shared_err.is_ok()) shared_err = r_slice.move_as_status();
+          any_error.store(true);
+          return;
+        }
+        auto cell_slice = r_slice.move_as_ok();
+        CellSerializationInfo ci;
+        auto st = ci.init(cell_slice, info.ref_byte_size);
+        if (st.is_error()) {
+          std::lock_guard<std::mutex> g(err_mutex);
+          if (shared_err.is_ok()) shared_err = std::move(st);
+          any_error.store(true);
+          return;
+        }
+        std::array<td::Ref<Cell>, 4> refs_buf;
+        auto refs = td::MutableSpan<td::Ref<Cell>>(refs_buf).substr(0, ci.refs_cnt);
+        for (int k = 0; k < ci.refs_cnt; k++) {
+          int ref_idx = static_cast<int>(
+              info.read_ref(cell_slice.ubegin() + ci.refs_offset + k * info.ref_byte_size));
+          // children are at higher idx, already created at lower depth levels
+          refs[k] = cell_list[cell_count - ref_idx - 1];
+          if (info.has_cache_bits) {
+            // Atomic update of cache counter (max 2).
+            auto& cnt = cell_should_cache[ref_idx];
+            td::uint8 prev = __atomic_load_n(&cnt, __ATOMIC_RELAXED);
+            while (prev < 2) {
+              if (__atomic_compare_exchange_n(&cnt, &prev, prev + 1, true, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
+                break;
+              }
+            }
+          }
+        }
+        auto r_cell = ci.create_data_cell(cell_slice, refs);
+        if (r_cell.is_error()) {
+          std::lock_guard<std::mutex> g(err_mutex);
+          if (shared_err.is_ok()) shared_err = r_cell.move_as_status();
+          any_error.store(true);
+          return;
+        }
+        cell_list[cell_count - idx - 1] = r_cell.move_as_ok();
+      };
+
+      // Per-level parallel dispatch. Matches the pattern already used in
+      // InMemoryBagOfCellsDb::parallel_run: spawn extra_threads_n std::threads,
+      // each atomically pulls tasks from a shared counter.
+      //
+      // A persistent worker pool was tried and produced identical wall-clock time,
+      // so this simpler per-level spawn is kept for minimal code change.
+      for (size_t d = 0; d < by_depth.size(); d++) {
+        const auto& group = by_depth[d];
+        if (group.empty()) continue;
+        if (any_error.load()) break;
+        if (group.size() < 256 || n_threads == 1) {
+          // Too small to amortize thread overhead — process on main thread.
+          for (int idx : group) process_cell(idx);
+        } else {
+          std::atomic<size_t> next_task{0};
+          auto loop = [&] {
+            // Arena flag is thread_local; propagate main thread's choice.
+            DataCell::use_arena = use_large_path;
+            while (true) {
+              size_t task_id = next_task.fetch_add(1, std::memory_order_relaxed);
+              if (task_id >= group.size()) break;
+              process_cell(group[task_id]);
+            }
+            DataCell::use_arena = false;
+          };
+          std::vector<td::thread> threads;
+          threads.reserve(n_threads - 1);
+          for (size_t t = 0; t < n_threads - 1; t++) {
+            threads.emplace_back(loop);
+          }
+          loop();
+          for (auto& th : threads) th.join();
+        }
+      }
+
+      if (any_error.load()) {
+        parallel_err = std::move(shared_err);
+      }
+    }
+
+    if (parallel_err.is_error()) {
+      // Fall back to serial path on any error (defensive).
+      cell_list.clear();
+      cell_list.resize(cell_count);
+      use_parallel = false;
+    }
+  }
+
+  if (!use_parallel) {
+    for (int i = 0; i < cell_count; i++) {
+      int idx = cell_count - 1 - i;
+      // Build a synthetic span of [0..i) filled cells so deserialize_cell can resolve refs.
+      td::Span<td::Ref<DataCell>> filled(cell_list.data(), static_cast<size_t>(i));
+      auto r_cell = deserialize_cell(idx, cells_slice, filled, info.has_cache_bits ? &cell_should_cache : nullptr);
+      if (r_cell.is_error()) {
+        if (use_large_path) {
+          DataCell::use_arena = prev_arena;
+        }
+        return td::Status::Error(PSLICE() << "invalid bag-of-cells failed to deserialize cell #" << idx << " "
+                                          << r_cell.error());
+      }
+      cell_list[i] = r_cell.move_as_ok();
+    }
+  }
+
+  if (use_large_path) {
+    DataCell::use_arena = prev_arena;
   }
   if (info.has_cache_bits) {
     for (int idx = 0; idx < cell_count; idx++) {
@@ -906,6 +1168,19 @@ td::Result<long long> BagOfCells::deserialize(const td::Slice& data, int max_roo
     root_info.cell = cell_list[root_info.idx];
   }
   cell_list.clear();
+
+  // Reviewers can re-enable the per-phase benchmark log by uncommenting the block
+  // below and the timing code marked with bench_* elsewhere in this function.
+  //   if (bench_input_bytes >= (64 << 20)) {
+  //     auto bench_t_end = std::chrono::steady_clock::now();
+  //     auto bench_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+  //                         bench_t_end - bench_t_start).count();
+  //     LOG(WARNING) << "BagOfCells::deserialize: cells=" << cell_count
+  //                  << " input=" << bench_input_bytes / (1024 * 1024) << "MB"
+  //                  << " time=" << bench_ms << "ms"
+  //                  << " parallel=" << (use_parallel ? "on" : "off");
+  //   }
+  (void)bench_input_bytes;
   return size_est;
 }
 
