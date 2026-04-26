@@ -446,6 +446,15 @@ class ValidatorEngine : public td::actor::Actor {
   void set_quic_options(ton::quic::QuicServer::Options options) {
     quic_options_ = std::move(options);
   }
+  void set_quic_flood_control(std::optional<size_t> value) {
+    quic_options_.flood_control = std::move(value);
+  }
+  void set_quic_exempt_private_rfc1918_from_per_ip_flood(bool value) {
+    quic_options_.exempt_private_rfc1918_from_per_ip_flood = value;
+  }
+  void set_quic_protect_validator_endpoints_from_shared_ip_flood(bool value) {
+    quic_options_.protect_validator_endpoints_from_shared_ip_flood = value;
+  }
 
   void start_up() override;
   ValidatorEngine() {

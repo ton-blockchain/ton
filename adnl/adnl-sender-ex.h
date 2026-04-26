@@ -27,6 +27,10 @@ class AdnlSenderEx : public AdnlSenderInterface {
   }
 
   virtual void add_id(AdnlNodeIdShort local_id) = 0;
+  virtual void add_protected_peers(AdnlNodeIdShort local_id, std::vector<AdnlNodeIdShort> peer_ids) {
+  }
+  virtual void remove_protected_peers(AdnlNodeIdShort local_id, std::vector<AdnlNodeIdShort> peer_ids) {
+  }
 
   // MTU for incoming messages in peer pair (local_id, peer_id) is max of:
   // - default mtu

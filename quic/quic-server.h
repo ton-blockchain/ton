@@ -30,6 +30,8 @@ struct VersionCid;
 
 struct QuicConnectionPImpl;
 
+bool is_private_rfc1918_ipv4(const td::IPAddress &address);
+
 struct StreamOptions {
   std::optional<td::uint64> max_size;
   td::Timestamp timeout = td::Timestamp::never();
@@ -60,6 +62,8 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     td::uint32 global_new_connection_rate_limit_capacity = 100000;
     double global_new_connection_rate_limit_period = 0.00001;
     bool stateless_retry = true;
+    bool exempt_private_rfc1918_from_per_ip_flood = true;
+    bool protect_validator_endpoints_from_shared_ip_flood = true;
   };
   class Callback {
    public:
@@ -93,6 +97,8 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
 
   void set_default_mtu(td::uint64 mtu);
   void set_peer_mtu(adnl::AdnlNodeIdShort peer_id, td::uint64 mtu);
+  void add_protected_flood_endpoint(td::IPAddress endpoint, size_t refs = 1);
+  void remove_protected_flood_endpoint(td::IPAddress endpoint, size_t refs = 1);
 
   constexpr static size_t DEFAULT_FLOOD_CONTROL = 1000;
 
@@ -168,6 +174,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     QuicConnectionId cid;
     std::optional<QuicConnectionId> bootstrap_routed_cid;
     std::set<QuicConnectionId> routed_cids;
+    std::optional<std::string> flood_bucket_key;
     bool is_outbound;
     bool in_active_queue = false;
     friend td::StringBuilder &operator<<(td::StringBuilder &sb, const ConnectionState &state) {
@@ -190,7 +197,8 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void unbind_all_cids(ConnectionState &state);
   td::Result<std::shared_ptr<ConnectionState>> install_connection(std::unique_ptr<QuicConnectionPImpl> p_impl,
                                                                   const td::IPAddress &remote_address, bool is_outbound,
-                                                                  std::optional<QuicConnectionId> bootstrap_routed_cid);
+                                                                  std::optional<QuicConnectionId> bootstrap_routed_cid,
+                                                                  std::optional<std::string> flood_bucket_key = {});
   void on_local_cid_issued(const QuicConnectionId &primary_cid, const QuicConnectionId &cid);
   void on_local_cid_retired(const QuicConnectionId &primary_cid, const QuicConnectionId &cid);
   td::Result<std::optional<ServerInitialInfo>> prepare_server_initial_info(const VersionCid &initial_packet,
@@ -208,9 +216,10 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
 
   std::shared_ptr<ConnectionState> find_connection(const QuicConnectionId &cid);
   td::Result<std::shared_ptr<ConnectionState>> get_or_create_connection(const UdpMessageBuffer &msg_in);
-  td::Status ensure_flood_allowed(const std::string &flood_addr);
-  void flood_on_inbound_connection_created(const std::string &flood_addr);
-  void flood_on_inbound_connection_closed(const std::string &flood_addr);
+  std::optional<std::string> classify_flood_bucket(const td::IPAddress &remote_address) const;
+  td::Status ensure_flood_allowed(const std::optional<std::string> &flood_bucket_key);
+  void flood_on_inbound_connection_created(const std::optional<std::string> &flood_bucket_key);
+  void flood_on_inbound_connection_closed(const std::optional<std::string> &flood_bucket_key);
   QuicConnectionOptions build_connection_options() const;
   bool handle_expiry(ConnectionState &state);
   void log_conn_stats(ConnectionState &state, const char *reason);
@@ -225,6 +234,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   bool gso_enabled_{true};
   bool gro_enabled_{false};
   std::unordered_map<std::string, size_t> flood_map_;
+  std::map<td::IPAddress, size_t> protected_flood_endpoints_;
 
   std::unique_ptr<Callback> callback_;
   td::actor::ActorId<QuicServer> self_id_;

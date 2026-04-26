@@ -13,6 +13,7 @@
 #include "ngtcp2/ngtcp2_crypto.h"
 #include "ngtcp2/ngtcp2_crypto_ossl.h"
 #include "td/utils/Time.h"
+#include "td/utils/format.h"
 #include "td/utils/port/UdpSocketFd.h"
 
 #include "openssl-utils.h"
@@ -79,13 +80,18 @@ struct VersionCid {
       return td::Status::Error("empty datagram");
     }
 
-    ngtcp2_pkt_hd hd;
+    ngtcp2_pkt_hd hd{};
     int rv = ngtcp2_accept(&hd, reinterpret_cast<const uint8_t*>(datagram.data()), datagram.size());
     if (rv != 0) {
-      return td::Status::Error("packet is not acceptable as an initial packet");
+      return build_not_acceptable_as_initial_error(datagram, rv);
     }
     if (hd.type != NGTCP2_PKT_INITIAL) {
-      return td::Status::Error("first packet is not an initial packet");
+      return td::Status::Error(
+          PSTRING() << "unknown CID packet rejected as new connection: reason=long_header_non_initial "
+                    << packet_diagnostic_prefix(datagram) << " pkt_type=" << packet_type_name(hd.type)
+                    << " version=" << td::format::as_hex(hd.version) << " dcid=" << cid_to_string(hd.dcid)
+                    << " dcid_len=" << hd.dcid.datalen << " scid=" << cid_to_string(hd.scid)
+                    << " scid_len=" << hd.scid.datalen << " token_len=" << hd.tokenlen);
     }
 
     td::Slice token;
@@ -96,6 +102,84 @@ struct VersionCid {
   }
 
  private:
+  static td::Status build_not_acceptable_as_initial_error(td::Slice datagram, int accept_rv) {
+    if (!has_long_header(datagram)) {
+      return td::Status::Error(
+          PSTRING() << "unknown CID packet rejected as new connection: reason=short_header_unknown_cid "
+                    << packet_diagnostic_prefix(datagram) << version_cid_diagnostic(datagram)
+                    << " accept_rv=" << accept_rv);
+    }
+
+    ngtcp2_pkt_hd hd{};
+    auto long_rv = ngtcp2_pkt_decode_hd_long(&hd, reinterpret_cast<const uint8_t*>(datagram.data()), datagram.size());
+    if (long_rv < 0) {
+      return td::Status::Error(
+          PSTRING() << "unknown CID packet rejected as new connection: reason=malformed_long_header "
+                    << packet_diagnostic_prefix(datagram) << version_cid_diagnostic(datagram)
+                    << " accept_rv=" << accept_rv << " long_decode_rv=" << long_rv);
+    }
+
+    const char* reason = hd.type == NGTCP2_PKT_INITIAL ? "initial_rejected_by_ngtcp2" : "long_header_non_initial";
+    return td::Status::Error(PSTRING() << "unknown CID packet rejected as new connection: reason=" << reason << ' '
+                                       << packet_diagnostic_prefix(datagram) << " pkt_type="
+                                       << packet_type_name(hd.type) << " version=" << td::format::as_hex(hd.version)
+                                       << " dcid=" << cid_to_string(hd.dcid) << " dcid_len=" << hd.dcid.datalen
+                                       << " scid=" << cid_to_string(hd.scid) << " scid_len=" << hd.scid.datalen
+                                       << " token_len=" << hd.tokenlen << " accept_rv=" << accept_rv);
+  }
+
+  static bool has_long_header(td::Slice datagram) {
+    CHECK(!datagram.empty());
+    return (static_cast<td::uint8>(datagram[0]) & 0x80u) != 0;
+  }
+
+  static std::string packet_diagnostic_prefix(td::Slice datagram) {
+    CHECK(!datagram.empty());
+    const auto first_byte = static_cast<td::uint8>(datagram[0]);
+    return PSTRING() << "size=" << datagram.size() << " first_byte=" << td::format::as_hex(first_byte)
+                     << " long_header=" << (has_long_header(datagram) ? "yes" : "no")
+                     << " fixed_bit=" << (((first_byte & 0x40u) != 0) ? "set" : "clear");
+  }
+
+  static std::string version_cid_diagnostic(td::Slice datagram) {
+    auto vc = from_datagram(datagram);
+    if (vc.is_error()) {
+      return PSTRING() << " version_cid_decode=" << vc.error();
+    }
+    return PSTRING() << " version=" << td::format::as_hex(vc.ok().version) << " dcid=" << vc.ok().dcid
+                     << " dcid_len=" << vc.ok().dcid.as_slice().size() << " scid=" << vc.ok().scid
+                     << " scid_len=" << vc.ok().scid.as_slice().size();
+  }
+
+  static std::string cid_to_string(const ngtcp2_cid& cid) {
+    auto parsed = QuicConnectionId::from_raw(cid.data, cid.datalen);
+    if (parsed.is_ok()) {
+      return PSTRING() << parsed.ok();
+    }
+    return PSTRING() << "<invalid:" << parsed.error() << '>';
+  }
+
+  static const char* packet_type_name(td::uint8 type) {
+    switch (type) {
+      case NGTCP2_PKT_VERSION_NEGOTIATION:
+        return "version_negotiation";
+      case NGTCP2_PKT_STATELESS_RESET:
+        return "stateless_reset";
+      case NGTCP2_PKT_INITIAL:
+        return "initial";
+      case NGTCP2_PKT_0RTT:
+        return "0rtt";
+      case NGTCP2_PKT_HANDSHAKE:
+        return "handshake";
+      case NGTCP2_PKT_RETRY:
+        return "retry";
+      case NGTCP2_PKT_1RTT:
+        return "1rtt";
+      default:
+        return "unknown";
+    }
+  }
+
   static td::Result<VersionCid> from_parts(td::uint32 version, const uint8_t* dcid_data, size_t dcid_size,
                                            const uint8_t* scid_data, size_t scid_size, td::Slice token = {}) {
     TRY_RESULT(scid, QuicConnectionId::from_raw(scid_data, scid_size));

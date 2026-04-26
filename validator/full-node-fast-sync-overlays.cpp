@@ -334,8 +334,14 @@ void FullNodeFastSyncOverlay::start_up() {
   b.as_slice().copy_from(as_slice(X));
   overlay_id_full_ = overlay::OverlayIdFull{std::move(b)};
   overlay_id_ = overlay_id_full_.compute_short_id();
+  alarm_timestamp() = td::Timestamp::never();
 
   try_init();
+}
+
+void FullNodeFastSyncOverlay::alarm() {
+  maybe_log_protected_peers("periodic", true);
+  alarm_timestamp() = next_protected_peers_log_at_;
 }
 
 void FullNodeFastSyncOverlay::try_init() {
@@ -379,6 +385,7 @@ void FullNodeFastSyncOverlay::init() {
   td::actor::send_closure(adnl_sender_, &adnl::AdnlSenderEx::add_id, local_id_);
   // Enable quic server even if use_quic is not set
   td::actor::send_closure(quic_, &quic::QuicSender::add_id, local_id_);
+  sync_protected_peers();
 
   std::map<PublicKeyHash, td::uint32> authorized_keys;
   // FIXME: allow broadcasts from non-validators when needed
@@ -421,6 +428,7 @@ void FullNodeFastSyncOverlay::init() {
 }
 
 void FullNodeFastSyncOverlay::tear_down() {
+  unregister_protected_peers();
   if (inited_) {
     td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_, overlay_id_);
   }
@@ -430,6 +438,7 @@ void FullNodeFastSyncOverlay::set_validators(std::vector<PublicKeyHash> root_pub
                                              std::vector<adnl::AdnlNodeIdShort> current_validators_adnl) {
   root_public_keys_ = std::move(root_public_keys);
   current_validators_adnl_ = std::move(current_validators_adnl);
+  sync_protected_peers();
   if (inited_) {
     td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_, overlay_id_);
     init();
@@ -453,10 +462,92 @@ void FullNodeFastSyncOverlay::set_params(bool receive_broadcasts, bool send_twos
   receive_broadcasts_ = receive_broadcasts;
   send_twostep_broadcasts_ = send_twostep_broadcasts;
   adnl_sender_ = adnl_sender;
+  sync_protected_peers();
   if (inited_) {
     td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_, overlay_id_);
     init();
   }
+}
+
+bool FullNodeFastSyncOverlay::uses_quic_sender() const {
+  return adnl_sender_ == td::actor::ActorId<adnl::AdnlSenderEx>{quic_};
+}
+
+std::vector<adnl::AdnlNodeIdShort> FullNodeFastSyncOverlay::get_desired_protected_peer_ids() const {
+  std::vector<adnl::AdnlNodeIdShort> result;
+  result.reserve(current_validators_adnl_.size());
+  for (const auto &peer_id : current_validators_adnl_) {
+    if (peer_id != local_id_) {
+      result.push_back(peer_id);
+    }
+  }
+  return result;
+}
+
+void FullNodeFastSyncOverlay::unregister_protected_peers() {
+  if (!protected_peers_sender_.empty() && !protected_peer_ids_.empty()) {
+    td::actor::send_closure(protected_peers_sender_, &adnl::AdnlSenderEx::remove_protected_peers, local_id_,
+                            std::move(protected_peer_ids_));
+  }
+  protected_peer_ids_.clear();
+  protected_peers_sender_ = {};
+  next_protected_peers_log_at_ = td::Timestamp::never();
+}
+
+void FullNodeFastSyncOverlay::sync_protected_peers() {
+  auto desired_peer_ids = get_desired_protected_peer_ids();
+  bool should_use_protection = uses_quic_sender() && !desired_peer_ids.empty();
+  bool changed = false;
+
+  if (!protected_peers_sender_.empty() &&
+      (!should_use_protection || protected_peers_sender_ != adnl_sender_ || protected_peer_ids_ != desired_peer_ids)) {
+    unregister_protected_peers();
+    changed = true;
+  }
+
+  if (should_use_protection && protected_peers_sender_.empty()) {
+    td::actor::send_closure(adnl_sender_, &adnl::AdnlSenderEx::add_protected_peers, local_id_, desired_peer_ids);
+    protected_peer_ids_ = std::move(desired_peer_ids);
+    protected_peers_sender_ = adnl_sender_;
+    changed = true;
+  }
+
+  if (changed) {
+    maybe_log_protected_peers("updated", true);
+  } else if (!protected_peer_ids_.empty()) {
+    next_protected_peers_log_at_ = td::Timestamp::in(PROTECTED_PEERS_LOG_PERIOD);
+    alarm_timestamp().relax(next_protected_peers_log_at_);
+  }
+}
+
+void FullNodeFastSyncOverlay::maybe_log_protected_peers(std::string reason, bool force) {
+  if (!force && (!next_protected_peers_log_at_ || !next_protected_peers_log_at_.is_in_past())) {
+    return;
+  }
+
+  if (protected_peer_ids_.empty()) {
+    next_protected_peers_log_at_ = td::Timestamp::never();
+    return;
+  }
+
+  td::StringBuilder sb;
+  size_t logged = 0;
+  for (const auto &peer_id : protected_peer_ids_) {
+    if (logged >= PROTECTED_PEERS_LOG_LIMIT) {
+      sb << ", ...";
+      break;
+    }
+    if (logged > 0) {
+      sb << ", ";
+    }
+    sb << peer_id;
+    logged++;
+  }
+
+  LOG(INFO) << "Fast sync QUIC flood protection reason=" << reason << " shard=" << shard_.to_str()
+            << " local_id=" << local_id_ << " protected_peers=" << protected_peer_ids_.size() << " peers=["
+            << sb.as_cslice() << "]";
+  next_protected_peers_log_at_ = td::Timestamp::in(PROTECTED_PEERS_LOG_PERIOD);
 }
 
 void FullNodeFastSyncOverlay::get_stats_extra(td::Promise<std::string> promise) {
