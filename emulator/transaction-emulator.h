@@ -117,6 +117,7 @@ public:
   void set_libs(vm::Dictionary &&libs);
   void set_debug_enabled(bool debug_enabled);
   void set_prev_blocks_info(td::Ref<vm::Tuple> prev_blocks_info);
+  bool should_capture_executor_logs() const;
 
 private:
   bool check_state_update(const block::Account& account, const block::gen::Transaction::Record& trans);

@@ -13,6 +13,10 @@
 #include "crypto/vm/memo.h"
 #include "git.h"
 
+#include <mutex>
+#include <string>
+#include <unordered_map>
+
 td::Result<td::Ref<vm::Cell>> boc_b64_to_cell(const char *boc) {
   TRY_RESULT_PREFIX(boc_decoded, td::base64_decode(td::Slice(boc)), "Can't decode base64 boc: ");
   return vm::std_boc_deserialize(boc_decoded);
@@ -84,14 +88,40 @@ td::Result<block::Config> decode_config(const char* config_boc) {
   return global_config;
 }
 
+namespace {
+std::mutex cached_configs_mutex;
+std::unordered_map<std::string, std::shared_ptr<block::Config>> cached_configs;
+
+td::Result<std::shared_ptr<block::Config>> decode_config_cached(const char *config_boc) {
+  std::string cache_key(config_boc);
+
+  {
+    std::lock_guard<std::mutex> lock(cached_configs_mutex);
+    auto it = cached_configs.find(cache_key);
+    if (it != cached_configs.end()) {
+      return it->second;
+    }
+  }
+
+  TRY_RESULT(config, decode_config(cache_key.c_str()));
+  auto cached_config = std::make_shared<block::Config>(std::move(config));
+
+  {
+    std::lock_guard<std::mutex> lock(cached_configs_mutex);
+    cached_configs[std::move(cache_key)] = cached_config;
+  }
+
+  return cached_config;
+}
+}  // namespace
+
 void *transaction_emulator_create(const char *config_params_boc, int vm_log_verbosity) {
-  auto global_config_res = decode_config(config_params_boc);
+  auto global_config_res = decode_config_cached(config_params_boc);
   if (global_config_res.is_error()) {
     LOG(ERROR) << global_config_res.move_as_error().message();
     return nullptr;
   }
-  auto global_config = std::make_shared<block::Config>(global_config_res.move_as_ok());
-  return new emulator::TransactionEmulator(std::move(global_config), vm_log_verbosity);
+  return new emulator::TransactionEmulator(global_config_res.move_as_ok(), vm_log_verbosity);
 }
 
 void *emulator_config_create(const char *config_params_boc) {
@@ -606,13 +636,13 @@ bool transaction_emulator_set_ignore_chksig(void *transaction_emulator, bool ign
 bool transaction_emulator_set_config(void *transaction_emulator, const char* config_boc) {
   auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
 
-  auto global_config_res = decode_config(config_boc);
+  auto global_config_res = decode_config_cached(config_boc);
   if (global_config_res.is_error()) {
     LOG(ERROR) << global_config_res.move_as_error().message();
     return false;
   }
 
-  emulator->set_config(std::make_shared<block::Config>(global_config_res.move_as_ok()));
+  emulator->set_config(global_config_res.move_as_ok());
 
   return true;
 }
@@ -652,6 +682,11 @@ bool transaction_emulator_set_debug_enabled(void *transaction_emulator, bool deb
   emulator->set_debug_enabled(debug_enabled);
 
   return true;
+}
+
+bool transaction_emulator_should_capture_executor_logs(void *transaction_emulator) {
+  auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
+  return emulator->should_capture_executor_logs();
 }
 
 bool transaction_emulator_set_prev_blocks_info(void *transaction_emulator, const char* info_boc) {
@@ -728,7 +763,7 @@ bool tvm_emulator_set_libraries(void *tvm_emulator, const char *libs_boc) {
 }
 
 struct C7Cache {
-  size_t hash;
+  std::string config_boc;
   std::shared_ptr<block::Config> global_config;
 };
 
@@ -744,30 +779,18 @@ bool tvm_emulator_set_c7(void *tvm_emulator, const char *address, uint32_t unixt
   
   std::shared_ptr<block::Config> global_config;
   if (config_boc != nullptr) {
-    auto config_slice = td::Slice(config_boc);
-    auto config_hash = std::hash<std::string_view>{}(
-        std::string_view(config_slice.data(), config_slice.size())
-    );
+    std::string current_config_boc(config_boc);
 
-    if (c7_cache.hash != config_hash) {
-      auto config_params_cell_res = boc_b64_to_cell(config_boc);
-      if (config_params_cell_res.is_error()) {
-        LOG(ERROR) << "Can't deserialize config params boc: " << config_params_cell_res.move_as_error();
+    if (c7_cache.config_boc != current_config_boc || !c7_cache.global_config) {
+      auto global_config_res = decode_config_cached(config_boc);
+      if (global_config_res.is_error()) {
+        LOG(ERROR) << global_config_res.move_as_error().message();
         return false;
       }
-      vm::Ref<vm::Cell> config_params_cell = config_params_cell_res.move_as_ok();
-
-      global_config = std::make_shared<block::Config>(
-        config_params_cell, td::Bits256::zero(),
-        block::Config::needWorkchainInfo | block::Config::needSpecialSmc | block::Config::needCapabilities);
-      auto unpack_res = global_config->unpack();
-      if (unpack_res.is_error()) {
-        LOG(ERROR) << "Can't unpack config params";
-        return false;
-      }
+      global_config = global_config_res.move_as_ok();
 
       c7_cache = {
-        .hash = config_hash,
+        .config_boc = std::move(current_config_boc),
         .global_config = global_config,
       };
     } else {

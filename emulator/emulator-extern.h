@@ -89,6 +89,13 @@ EMULATOR_EXPORT bool transaction_emulator_set_libs(void *transaction_emulator, c
 EMULATOR_EXPORT bool transaction_emulator_set_debug_enabled(void *transaction_emulator, bool debug_enabled);
 
 /**
+ * @brief Returns whether this emulator was configured to capture executor logs
+ * @param transaction_emulator Pointer to TransactionEmulator object
+ * @return true when executor logs should be collected for this emulator
+ */
+EMULATOR_EXPORT bool transaction_emulator_should_capture_executor_logs(void *transaction_emulator);
+
+/**
  * @brief Set tuple of previous blocks (13th element of c7)
  * @param transaction_emulator Pointer to TransactionEmulator object
  * @param info_boc Base64 encoded BoC serialized TVM tuple (VmStackValue).

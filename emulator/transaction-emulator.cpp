@@ -387,4 +387,8 @@ void TransactionEmulator::set_prev_blocks_info(td::Ref<vm::Tuple> prev_blocks_in
   prev_blocks_info_ = std::move(prev_blocks_info);
 }
 
+bool TransactionEmulator::should_capture_executor_logs() const {
+  return vm_log_verbosity_ >= 0;
+}
+
 } // namespace emulator
