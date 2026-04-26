@@ -82,8 +82,11 @@ class LiteQuery : public td::actor::Actor {
   };
   enum {
     ls_version = 0x101,
-    ls_capabilities = 7
-  };  // version 1.1; +1 = build block proof chains, +2 = masterchainInfoExt, +4 = runSmcMethod
+    ls_capabilities = 15
+  };  // version 1.1; +1 = build block proof chains, +2 = masterchainInfoExt, +4 = runSmcMethod, +8 = shard client state masterchainInfoExt
+  enum {
+    get_masterchain_info_ext_shard_client_state = 1
+  };
   LiteQuery(td::BufferSlice data, td::actor::ActorId<ton::validator::ValidatorManager> manager,
             td::actor::ActorId<LiteServerCache> cache, td::Promise<td::BufferSlice> promise);
   LiteQuery(WorkchainId wc, StdSmcAddress acc_addr, td::actor::ActorId<ton::validator::ValidatorManager> manager,

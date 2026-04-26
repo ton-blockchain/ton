@@ -5888,6 +5888,19 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getMasterchainInfo&
   return td::Status::OK();
 }
 
+td::Status TonlibClient::do_request(const tonlib_api::blocks_getMasterchainInfoExt& masterchain_info,
+                                    td::Promise<object_ptr<tonlib_api::blocks_masterchainInfoExt>>&& promise) {
+  client_.send_query(
+      ton::lite_api::liteServer_getMasterchainInfoExt(masterchain_info.mode_),
+      promise.wrap([](lite_api_ptr<ton::lite_api::liteServer_masterchainInfoExt>&& masterchain_info) {
+        return tonlib_api::make_object<tonlib_api::blocks_masterchainInfoExt>(
+            masterchain_info->mode_, masterchain_info->version_, masterchain_info->capabilities_,
+            to_tonlib_api(*masterchain_info->last_), masterchain_info->last_utime_, masterchain_info->now_,
+            masterchain_info->state_root_hash_.as_slice().str(), to_tonlib_api(*masterchain_info->init_));
+      }));
+  return td::Status::OK();
+}
+
 td::Status TonlibClient::do_request(const tonlib_api::blocks_getShards& request,
                                     td::Promise<object_ptr<tonlib_api::blocks_shards>>&& promise) {
   if (!request.id_) {

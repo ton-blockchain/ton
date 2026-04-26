@@ -962,6 +962,11 @@ void ValidatorManagerImpl::get_last_liteserver_state_block(
   return get_top_masterchain_state_block(std::move(promise));
 }
 
+void ValidatorManagerImpl::get_shard_client_state_block(
+    td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) {
+  return get_top_masterchain_state_block(std::move(promise));
+}
+
 void ValidatorManagerImpl::send_get_block_request(BlockIdExt id, td::uint32 priority,
                                                   td::Promise<ReceivedBlock> promise) {
   UNREACHABLE();

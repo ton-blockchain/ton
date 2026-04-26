@@ -379,6 +379,8 @@ class TonlibClient : public td::actor::Actor {
 
   td::Status do_request(const tonlib_api::blocks_getMasterchainInfo& masterchain_info,
                         td::Promise<object_ptr<tonlib_api::blocks_masterchainInfo>>&& promise);
+  td::Status do_request(const tonlib_api::blocks_getMasterchainInfoExt& masterchain_info,
+                        td::Promise<object_ptr<tonlib_api::blocks_masterchainInfoExt>>&& promise);
   td::Status do_request(const tonlib_api::blocks_getShards& request,
                         td::Promise<object_ptr<tonlib_api::blocks_shards>>&& promise);
   td::Status do_request(const tonlib_api::blocks_lookupBlock& block_header,
