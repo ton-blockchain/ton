@@ -165,7 +165,6 @@ class ValidateQuery : public td::actor::Actor {
   td::Bits256 created_by_;
   std::vector<Ref<vm::Cell>> preloaded_prev_block_state_roots_;
   bool skip_store_candidate_ = false;
-  bool is_new_consensus_ = false;
 
   Ref<vm::Cell> prev_state_root_;
   Ref<vm::Cell> state_root_;

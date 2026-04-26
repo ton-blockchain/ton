@@ -14,8 +14,10 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
+#include "auto/tl/ton_api.hpp"
 #include "td/utils/Time.h"
 #include "td/utils/lz4.h"
+#include "td/utils/overloaded.h"
 #include "tl-utils/tl-utils.hpp"
 #include "vm/boc-compression.h"
 #include "vm/boc.h"

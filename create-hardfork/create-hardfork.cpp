@@ -28,7 +28,6 @@
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
 #include "auto/tl/ton_api_json.h"
-#include "catchain/catchain.h"
 #include "common/errorlog.h"
 #include "crypto/block/block-db.h"
 #include "crypto/vm/vm.h"
@@ -45,7 +44,6 @@
 #include "ton/ton-io.hpp"
 #include "ton/ton-tl.hpp"
 #include "ton/ton-types.h"
-#include "validator-session/validator-session.h"
 #include "validator/fabric.h"
 #include "validator/manager-hardfork.h"
 

@@ -284,7 +284,6 @@ class BridgeImpl final : public IValidatorGroup {
     simplex::Db::register_in(runtime);
     simplex::Pool::register_in(runtime);
     simplex::StateResolver::register_in(runtime);
-    simplex::MetricCollector::register_in(runtime);
 
     bus_ = runtime.start(bus, params_.name);
   }

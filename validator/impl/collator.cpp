@@ -6360,8 +6360,8 @@ bool Collator::create_collated_data() {
       collated_roots_.push_back(std::move(cell));
     }
   }
-  // 1.2 store info for simplex consensus
-  if (params_.is_new_consensus) {
+  // 1.2 store ConsensusExtraData
+  {
     // consensus_extra_data#638eb292 flags:# gen_utime_ms:uint64 = ConsensusExtraData;
     auto cell = vm::CellBuilder{}.store_long(0x638eb292, 32).store_long(0, 32).store_long(now_ms_, 64).finalize_novm();
     collated_roots_.push_back(std::move(cell));
