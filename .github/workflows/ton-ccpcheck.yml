@@ -19,20 +19,21 @@ jobs:
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v6
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
         submodules: 'recursive'
 
     - name: Run Cppcheck
-      uses: Bedzior/run-cppcheck@master
+      uses: Bedzior/run-cppcheck@51eb317e7a1430757d150d2e0143b68fb7d8ac68 # v1.0.0
       with:
         enabled checks: all
         enable inconclusive: true
         generate report: true
 
     - name: Upload report
-      uses: actions/upload-artifact@master
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
       with:
         name: ton-ccpcheck-report
         path: output
         retention-days: 14
+        if-no-files-found: error
