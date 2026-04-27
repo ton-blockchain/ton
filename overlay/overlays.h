@@ -26,6 +26,7 @@
 #include "dht/dht.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/actor/actor.h"
+#include "td/utils/RateLimiterWindow.h"
 #include "td/utils/Status.h"
 #include "td/utils/buffer.h"
 #include "td/utils/common.h"
@@ -297,6 +298,11 @@ struct OverlayOptions {
   td::actor::ActorId<adnl::AdnlSenderEx> twostep_broadcast_sender_ = {};
   bool send_twostep_broadcast_ = false;
   bool allow_old_broadcasts_ = true;  // non-twostep broadcasts
+
+  td::RateLimiterWindow::Params auth_broadcast_rate_limit_ = {};
+  td::RateLimiterWindow::Params auth_broadcast_size_rate_limit_ = {};
+  td::RateLimiterWindow::Params unauth_broadcast_rate_limit_ = {};
+  td::RateLimiterWindow::Params unauth_broadcast_size_rate_limit_ = {};
 };
 
 struct OverlayManagerBufferLimits {

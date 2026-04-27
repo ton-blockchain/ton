@@ -127,6 +127,9 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
   }
 
   receive_peers_rate_limiter_ = td::RateLimiterWindow{10.0, 10 * opts_.nodes_to_send_ * 2 * 10};
+  unauthorized_broadcasts_limiter_.broadcast_rate_limiter_ = td::RateLimiterWindow{opts_.unauth_broadcast_rate_limit_};
+  unauthorized_broadcasts_limiter_.broadcast_size_rate_limiter_ =
+      td::RateLimiterWindow{opts_.unauth_broadcast_size_rate_limit_};
 }
 
 void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getRandomPeers &query,
@@ -292,9 +295,10 @@ void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_a
   auto Q = X.move_as_ok();
   ton_api::downcast_call(*Q, [self = this, &Q, &src](auto &object) {
     [](OverlayImpl *self, adnl::AdnlNodeIdShort src, auto obj) -> td::actor::Task<> {
+      auto id = obj->get_id();
       auto status = (co_await self->process_broadcast(src, std::move(obj)).wrap()).move_as_status();
       LOG_IF(WARNING, status.is_error() && status.code() != ErrorCode::notready)
-          << "Failed to process broadcast: " << status;
+          << "Failed to process broadcast (type=" << id << ") from " << src << ": " << status;
       co_return {};
     }(self, src, move_tl_object_as<std::remove_reference_t<decltype(object)>>(Q))
                                                                       .start()
@@ -575,6 +579,9 @@ BroadcastCheckResult OverlayImpl::check_source_eligible(const PublicKeyHash &sou
   if (!cert || r == BroadcastCheckResult::Allowed || overlay_type_ == OverlayType::FixedMemberList) {
     return r;
   }
+  if (!rules_.is_authorized_key(cert->issuer_hash())) {
+    return r;
+  }
   auto &limiter = authorized_key_limiters_[cert->issuer_hash()];
   td::Bits256 cert_hash = get_tl_object_sha_bits256(cert->tl());
   std::pair cache_key{source, cert_hash};
@@ -586,6 +593,7 @@ BroadcastCheckResult OverlayImpl::check_source_eligible(const PublicKeyHash &sou
     td::Timestamp now = td::Timestamp::now();
     if (!limiter.certificate_check_rate_limiter_.check(now)) {
       VLOG(OVERLAY_NOTICE) << "dropping certificate from " << cert->issuer_hash() << " : rate limit exceeded";
+      r2 = BroadcastCheckResult::Forbidden;
     } else {
       td::Status check_result;
       {
@@ -798,8 +806,7 @@ td::Status OverlayImpl::check_signature_from_peer(PublicKey key, td::Slice messa
   auto S = enc->check_signature(message, signature);
   if (S.is_error() && !message_from.is_zero()) {
     reject_signatures_from_.insert(message_from);
-    VLOG(OVERLAY_NOTICE) << this << ": ban signatures from peer " << message_from << " for "
-                         << REJECT_SIGNATURES_DURATION << " s";
+    LOG(WARNING) << "ban signatures from peer " << message_from << " for " << REJECT_SIGNATURES_DURATION << " s";
     auto task = [](OverlayImpl *self, adnl::AdnlNodeIdShort peer) -> td::actor::Task<> {
       co_await td::actor::coro_sleep(td::Timestamp::in(REJECT_SIGNATURES_DURATION));
       self->reject_signatures_from_.erase(peer);
@@ -825,7 +832,14 @@ BroadcastsLimiter &OverlayImpl::get_broadcasts_limiter(PublicKeyHash source, con
     source = certificate->issuer_hash();
   }
   if (rules_.is_authorized_key(source)) {
-    return authorized_key_limiters_[source].broadcasts_;
+    AuthorizedKeyLimiter &limiter = authorized_key_limiters_[source];
+    if (!limiter.broadcasts_inited_) {
+      limiter.broadcasts_.key = source;
+      limiter.broadcasts_.broadcast_rate_limiter_ = td::RateLimiterWindow{opts_.auth_broadcast_rate_limit_};
+      limiter.broadcasts_.broadcast_size_rate_limiter_ = td::RateLimiterWindow{opts_.auth_broadcast_size_rate_limit_};
+      limiter.broadcasts_inited_ = true;
+    }
+    return limiter.broadcasts_;
   }
   return unauthorized_broadcasts_limiter_;
 }
@@ -865,7 +879,33 @@ void BroadcastsLimiter::init_stats(double now) {
   stats_inited = true;
 }
 
+td::Status BroadcastsLimiter::precheck_new_broadcast(td::uint64 total_size) {
+  td::Timestamp now = td::Timestamp::now();
+  if (!broadcast_rate_limiter_.check(now)) {
+    return td::Status::Error(PSTRING() << "Broadcast rate limit for "
+                                       << (key.is_zero() ? "unauth" : key.bits256_value().to_hex()) << " exceeded ("
+                                       << broadcast_rate_limiter_.limit() << " per "
+                                       << td::format::as_time(broadcast_rate_limiter_.duration()) << ")");
+  }
+  if (!broadcast_size_rate_limiter_.check(now, total_size)) {
+    return td::Status::Error(PSTRING() << "Total broadcast size rate limit for "
+                                       << (key.is_zero() ? "unauth" : key.bits256_value().to_hex()) << " exceeded ("
+                                       << td::format::as_size(broadcast_size_rate_limiter_.limit()) << " per "
+                                       << td::format::as_time(broadcast_size_rate_limiter_.duration()) << ")");
+  }
+  return td::Status::OK();
+}
+
+td::Status BroadcastsLimiter::try_register_broadcast(td::uint64 total_size) {
+  TRY_STATUS(precheck_new_broadcast(total_size));
+  register_broadcast(total_size);
+  return td::Status::OK();
+}
+
 void BroadcastsLimiter::register_broadcast(td::uint64 total_size) {
+  td::Timestamp now = td::Timestamp::now();
+  broadcast_rate_limiter_.insert(now);
+  broadcast_size_rate_limiter_.insert(now, total_size);
   init_stats();
   ++stats_current.count;
   stats_current.total_size += total_size;

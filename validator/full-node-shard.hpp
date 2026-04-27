@@ -72,7 +72,7 @@ class FullNodeShardImpl : public FullNodeShard {
     return 3;
   }
   static constexpr td::uint32 proto_version_minor() {
-    return 0;
+    return 1;
   }
   static constexpr td::uint32 max_neighbours() {
     return 16;

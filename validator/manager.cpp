@@ -626,7 +626,8 @@ void ValidatorManagerImpl::preload_msg_queue_to_masterchain(td::Ref<ShardTopBloc
   }
   auto id = ShardTopBlockDescriptionId{desc->block_id().shard_full(), desc->catchain_seqno()};
   auto it = shard_blocks_.find(id);
-  if (it == shard_blocks_.end() || it->second.latest_desc->block_id() != desc->block_id()) {
+  if (it == shard_blocks_.end() ||
+      (it->second.ready_desc.not_null() && it->second.ready_desc->block_id().seqno() >= desc->block_id().seqno())) {
     promise.set_error(td::Status::Error("shard block description is outdated"));
     return;
   }
@@ -1642,53 +1643,47 @@ void ValidatorManagerImpl::get_block_handle(BlockIdExt id, bool force, td::Promi
       CHECK(handle->id() == id);
       promise.set_value(std::move(handle));
       return;
-    } else {
-      handles_.erase(it);
     }
+    handles_.erase(it);
   }
 
-  auto it2 = wait_block_handle_.find(id);
-  if (it2 != wait_block_handle_.end()) {
-    it2->second.waiting_.emplace_back(std::move(promise));
+  auto [it2, inserted] = wait_block_handle_.emplace(id, WaitBlockHandle{});
+  it2->second.waiting_.emplace_back(std::move(promise));
+  if (force) {
+    it2->second.force_ = true;
+  }
+  if (!inserted) {
     return;
   }
 
-  wait_block_handle_.emplace(id, WaitBlockHandle{});
-  wait_block_handle_[id].waiting_.emplace_back(std::move(promise));
-
-  auto P = td::PromiseCreator::lambda([id, force = true, SelfId = actor_id(this)](td::Result<BlockHandle> R) mutable {
-    BlockHandle handle;
-    if (R.is_error()) {
-      auto S = R.move_as_error();
-      if (S.code() == ErrorCode::notready && force) {
-        handle = create_empty_block_handle(id);
-      } else {
-        LOG(FATAL) << "db error: failed to get block " << id << ": " << S;
-        return;
-      }
-    } else {
-      handle = R.move_as_ok();
-    }
-    CHECK(handle);
-    CHECK(handle->id() == id);
-    td::actor::send_closure(SelfId, &ValidatorManagerImpl::register_block_handle, std::move(handle));
+  auto P = td::PromiseCreator::lambda([id, SelfId = actor_id(this)](td::Result<BlockHandle> R) mutable {
+    td::actor::send_closure(SelfId, &ValidatorManagerImpl::get_block_handle_cont, id, std::move(R));
   });
 
   td::actor::send_closure(db_, &Db::get_block_handle, id, std::move(P));
 }
 
-void ValidatorManagerImpl::register_block_handle(BlockHandle handle) {
-  CHECK(handles_.find(handle->id()) == handles_.end());
-  handles_.emplace(handle->id(), std::weak_ptr<BlockHandleInterface>(handle));
-  add_handle_to_lru(handle);
-  {
-    auto it = wait_block_handle_.find(handle->id());
-    CHECK(it != wait_block_handle_.end());
-    for (auto &p : it->second.waiting_) {
-      p.set_result(handle);
+void ValidatorManagerImpl::get_block_handle_cont(BlockIdExt id, td::Result<BlockHandle> R) {
+  auto it = wait_block_handle_.find(id);
+  CHECK(it != wait_block_handle_.end());
+  if (R.is_error()) {
+    if (R.error().code() != ErrorCode::notready) {
+      LOG(FATAL) << "db error: failed to get block " << id << ": " << R.error();
     }
-    wait_block_handle_.erase(it);
+    if (it->second.force_) {
+      R = create_empty_block_handle(id);
+    }
   }
+  if (R.is_ok()) {
+    CHECK(!handles_.contains(id));
+    CHECK(R.ok()->id() == id);
+    handles_.emplace(id, std::weak_ptr(R.ok()));
+    add_handle_to_lru(R.ok());
+  }
+  for (auto &p : it->second.waiting_) {
+    p.set_result(R.clone());
+  }
+  wait_block_handle_.erase(it);
 }
 
 void ValidatorManagerImpl::get_top_masterchain_state(td::Promise<td::Ref<MasterchainState>> promise) {
@@ -3657,10 +3652,10 @@ td::Ref<PersistentStateDescription> ValidatorManagerImpl::get_block_persistent_s
 
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(
     td::Ref<ValidatorManagerOptions> opts, std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
+    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp2,
     td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays) {
   return td::actor::create_actor<validator::ValidatorManagerImpl>("manager", std::move(opts), db_root, keyring, adnl,
-                                                                  rldp, rldp2, quic, overlays);
+                                                                  rldp2, quic, overlays);
 }
 
 void ValidatorManagerImpl::log_collate_query_stats(CollationStats stats) {

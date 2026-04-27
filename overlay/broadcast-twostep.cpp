@@ -328,6 +328,7 @@ td::actor::Task<> BroadcastsTwostep::process_broadcast(
   auto cert = CO_TRY(Certificate::create(broadcast->certificate_));
   auto check_result = CO_TRY(
       check_source(overlay, src_keyhash, cert.get(), static_cast<td::uint32>(broadcast->data_.size()), src_peer_id));
+  CO_TRY(overlay->get_broadcasts_limiter(src_keyhash, cert.get()).precheck_new_broadcast(broadcast->data_.size()));
   co_await overlay->precheck_broadcast(src_keyhash, broadcast_id, broadcast->extra_.clone(), false)
       .trace("precheck broadcast");
   {
@@ -342,7 +343,7 @@ td::actor::Task<> BroadcastsTwostep::process_broadcast(
     VLOG(TWOSTEP_DEBUG) << "twostep DUPLICATE receiver broadcast_id=" << broadcast_id.to_hex();
     co_return td::Status::Error(ErrorCode::notready, "duplicate broadcast");
   }
-  overlay->get_broadcasts_limiter(src_keyhash, cert.get()).register_broadcast(broadcast->data_.size());
+  CO_TRY(overlay->get_broadcasts_limiter(src_keyhash, cert.get()).try_register_broadcast(broadcast->data_.size()));
   if (will_rebroadcast) {
     td::uint64 total_size = rebroadcast(overlay, bcast_src_adnl_id, serialize_tl_object(broadcast, true));
     overlay->get_broadcasts_limiter(src_keyhash, cert.get()).register_out_traffic(total_size);
@@ -385,6 +386,7 @@ td::actor::Task<> BroadcastsTwostep::process_broadcast(OverlayImpl *overlay, adn
   auto check_result =
       CO_TRY(check_source(overlay, src_keyhash, cert.get(), static_cast<td::uint32>(data_size), src_peer_id));
   if (it == broadcasts_.end()) {
+    CO_TRY(overlay->get_broadcasts_limiter(src_keyhash, cert.get()).precheck_new_broadcast(data_size));
     co_await overlay->precheck_broadcast(src_keyhash, broadcast_id, broadcast->extra_.clone(), false)
         .trace("precheck broadcast");
   }
@@ -404,6 +406,7 @@ td::actor::Task<> BroadcastsTwostep::process_broadcast(OverlayImpl *overlay, adn
     }
   }
   if (it == broadcasts_.end()) {
+    CO_TRY(overlay->get_broadcasts_limiter(src_keyhash, cert.get()).try_register_broadcast(data_size));
     td::Result<std::unique_ptr<td::raptorq::Decoder>> R;
     if (part_size == 0 ||
         (R = td::raptorq::Decoder::create({(data_size + part_size - 1) / part_size, part_size, data_size}))
@@ -424,7 +427,6 @@ td::actor::Task<> BroadcastsTwostep::process_broadcast(OverlayImpl *overlay, adn
                                        .chunk_senders = {}}});
     lru_.put(bcast.get());
     it = broadcasts_.emplace(broadcast_id, std::move(bcast)).first;
-    overlay->get_broadcasts_limiter(src_keyhash, cert.get()).register_broadcast(data_size);
     VLOG(TWOSTEP_INFO) << "twostep START receiver " << *it->second << " from=" << src_peer_id;
   }
   auto bcast = it->second.get();

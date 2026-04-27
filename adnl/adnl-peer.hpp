@@ -195,11 +195,11 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   };
 
   // Messages waiting for connection or for nochannel rate limiter
-  std::queue<std::pair<OutboundAdnlMessage, td::Timestamp>> out_messages_queue_;
+  std::deque<std::pair<OutboundAdnlMessage, td::Timestamp>> out_messages_queue_;
   td::uint64 out_messages_queue_total_size_ = 0;
   RateLimiter nochannel_rate_limiter_ = RateLimiter(50, 0.5);  // max 50, period = 0.5s
   td::Timestamp retry_send_at_ = td::Timestamp::never();
-  bool disable_dht_query_ = false;
+  bool disable_dht_query_ = true;
   bool skip_init_packet_ = false;
   double message_in_queue_ttl_ = 10.0;
   std::queue<std::pair<td::Promise<AdnlNode>, td::Timestamp>> peer_node_waiters_;
@@ -258,7 +258,7 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   bool received_from_static_nodes_ = false;
   bool dht_query_active_ = false;
 
-  td::Timestamp next_dht_query_at_ = td::Timestamp::never();
+  td::Timestamp next_dht_query_at_ = td::Timestamp::now();
   td::Timestamp next_db_update_at_ = td::Timestamp::never();
 
   td::Timestamp last_received_packet_ = td::Timestamp::never();
@@ -289,6 +289,7 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
 
   static constexpr double IDLE_REINIT_TIMEOUT = 120.0;
   static constexpr double MARK_IDLE_TIMEOUT = 130.0;
+  static constexpr td::uint64 MAX_MESSAGE_QUEUE_TOTAL_SIZE = 10 << 20;
 };
 
 }  // namespace adnl
