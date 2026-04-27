@@ -100,6 +100,28 @@ MetricFamily MetricFamily::make_scalar(std::string name, std::string type, doubl
       .metrics = {Metric{.suffix = "", .label_set = {}, .samples = {Sample{.label_set = {}, .value = value}}}}};
 }
 
+MetricFamily MetricFamily::make_labeled_scalar(std::string name, std::string type, std::string label_key,
+                                               std::vector<std::pair<std::string, td::uint64>> entries,
+                                               std::optional<std::string> help) {
+  MetricFamily fam{.name = std::move(name), .type = std::move(type), .help = std::move(help), .metrics = {}};
+  fam.metrics.reserve(entries.size());
+  for (auto &[label, value] : entries) {
+    fam.metrics.push_back(Metric{
+        .suffix = "",
+        .label_set = LabelSet{.labels = {{label_key, std::move(label)}}},
+        .samples = {Sample{.label_set = {}, .value = static_cast<double>(value)}},
+    });
+  }
+  return fam;
+}
+
+void MetricSet::push_labeled_scalar(std::string name, std::string type, std::string label_key,
+                                    std::vector<std::pair<std::string, td::uint64>> entries,
+                                    std::optional<std::string> help) {
+  families.push_back(MetricFamily::make_labeled_scalar(std::move(name), std::move(type), std::move(label_key),
+                                                       std::move(entries), std::move(help)));
+}
+
 MetricSet MetricSet::join(MetricSet other) && {
   std::unordered_map<std::string, MetricFamily> all_families;
   for (auto &f : families) {

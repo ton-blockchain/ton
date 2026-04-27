@@ -45,11 +45,18 @@ class ConsensusState {
     };
   }
 
+  std::optional<SlotRef> get_slot(td::uint32 slot) {
+    if (auto it = slots_.find(slot); it != slots_.end()) {
+      return SlotRef{
+          .i = slot,
+          .state = it->second,
+      };
+    }
+    return std::nullopt;
+  }
+
   void notify_finalized(td::uint32 slot) {
     first_non_finalized_slot_ = std::max(first_non_finalized_slot_, slot + 1);
-    while (!slots_.empty() && slots_.begin()->first < first_non_finalized_slot_) {
-      slots_.erase(slots_.begin());
-    }
   }
 
   struct TrackedSlotsInterval {

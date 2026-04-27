@@ -18,6 +18,8 @@
 */
 #pragma once
 
+#include <memory>
+
 #include "adnl/adnl.h"
 #include "fec/fec.h"
 
@@ -26,6 +28,7 @@ namespace ton {
 namespace rldp {
 
 class RldpImpl;
+struct RldpMetrics;
 
 using TransferId = td::Bits256;
 
@@ -39,7 +42,8 @@ class RldpTransferSender : public td::actor::Actor {
   static td::actor::ActorOwn<RldpTransferSender> create(TransferId transfer_id, adnl::AdnlNodeIdShort local_id,
                                                         adnl::AdnlNodeIdShort peer_id, td::BufferSlice data,
                                                         td::Timestamp timeout, td::actor::ActorId<RldpImpl> rldp,
-                                                        td::actor::ActorId<adnl::Adnl> adnl);
+                                                        td::actor::ActorId<adnl::Adnl> adnl,
+                                                        std::shared_ptr<RldpMetrics> metrics);
 };
 
 class RldpTransferReceiver : public td::actor::Actor {
@@ -53,7 +57,8 @@ class RldpTransferReceiver : public td::actor::Actor {
                                                           adnl::AdnlNodeIdShort peer_id, td::uint64 total_size,
                                                           td::Timestamp timeout, td::actor::ActorId<RldpImpl> rldp,
                                                           td::actor::ActorId<adnl::Adnl> adnl,
-                                                          td::Promise<td::BufferSlice> promise);
+                                                          td::Promise<td::BufferSlice> promise,
+                                                          std::shared_ptr<RldpMetrics> metrics);
 };
 
 }  // namespace rldp

@@ -936,6 +936,7 @@ void AcceptBlockQuery::written_block_next() {
 
 void AcceptBlockQuery::written_block_info_2() {
   VLOG(VALIDATOR_DEBUG) << "written_block_info_2()";
+  td::actor::send_closure(manager_, &ValidatorManager::on_block_accepted, id_);
   if (handle_->id().is_masterchain()) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
       check_send_error(SelfId, R) || td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::applied);

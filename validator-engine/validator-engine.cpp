@@ -2218,6 +2218,8 @@ void ValidatorEngine::start_adnl() {
   adnl_network_manager_ = ton::adnl::AdnlNetworkManager::create(config_.out_port);
   adnl_ = ton::adnl::Adnl::create(db_root_, keyring_.get());
   td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_network_manager, adnl_network_manager_.get());
+  ton::adnl::AdnlNetworkManager::register_metrics(adnl_network_manager_.get(), exporter_.get());
+  ton::adnl::AdnlPeerTable::register_metrics(adnl_.get(), exporter_.get());
   reload_adnl_addrs();
   td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_static_nodes_from_config, std::move(adnl_static_nodes_));
   started_adnl();
@@ -2308,6 +2310,8 @@ void ValidatorEngine::started_dht() {
 void ValidatorEngine::start_rldp() {
   rldp_ = ton::rldp::Rldp::create(adnl_.get());
   rldp2_ = ton::rldp2::Rldp::create(adnl_.get());
+  ton::rldp::Rldp::register_metrics(rldp_.get(), exporter_.get());
+  ton::rldp2::Rldp::register_metrics(rldp2_.get(), exporter_.get());
   auto peer_table = td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl_.get());
   CHECK(!peer_table.empty());
   CHECK(!keyring_.empty());
@@ -2332,6 +2336,7 @@ void ValidatorEngine::start_overlays() {
     };
     overlay_manager_ = ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(),
                                                       dht_nodes_[default_dht_node_].get(), buffer_limits);
+    ton::overlay::OverlayManager::register_metrics(overlay_manager_.get(), exporter_.get());
   }
   started_overlays();
 }
@@ -2346,8 +2351,9 @@ void ValidatorEngine::start_validator() {
                                                           !state_serializer_disabled_flag_);
   load_collator_options();
 
-  validator_manager_ = ton::validator::ValidatorManagerFactory::create(
-      validator_options_, db_root_, keyring_.get(), adnl_.get(), rldp2_.get(), quic_.get(), overlay_manager_.get());
+  validator_manager_ = ton::validator::ValidatorManagerFactory::create(validator_options_, db_root_, keyring_.get(),
+                                                                       adnl_.get(), rldp2_.get(), quic_.get(),
+                                                                       overlay_manager_.get(), exporter_.get());
 
   for (auto &v : config_.validators) {
     td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_permanent_key, v.first,

@@ -72,6 +72,25 @@ struct TrafficStats {
   tl_object_ptr<ton_api::engine_validator_overlayStatsTraffic> tl() const;
 };
 
+// Same shape as TrafficStats but never reset; used as the source of monotonic Prometheus counters.
+// (TrafficStats above is repurposed by alarm() to hold a 50s rate, which is unsuitable for `rate()` queries.)
+struct AccTrafficStats {
+  td::uint64 out_bytes = 0;
+  td::uint64 in_bytes = 0;
+  td::uint64 out_packets = 0;
+  td::uint64 in_packets = 0;
+
+  void add_packet(td::uint64 size, bool in) {
+    if (in) {
+      in_bytes += size;
+      in_packets++;
+    } else {
+      out_bytes += size;
+      out_packets++;
+    }
+  }
+};
+
 class OverlayPeer {
  public:
   adnl::AdnlNodeIdShort get_id() const {
@@ -308,6 +327,10 @@ class OverlayImpl : public Overlay {
   td::Result<Encryptor *> get_encryptor(PublicKey source);
 
   void get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_overlayStats>> promise) override;
+  void get_acc_stats(td::Promise<AccStatsSnapshot> promise) override;
+  void note_outbound_message_tl(td::int32 magic, td::uint64 size) override {
+    messages_sent_by_tl_.account_with_magic(magic, size);
+  }
 
   void update_throughput_out_ctr(adnl::AdnlNodeIdShort peer_id, td::uint64 msg_size, bool is_query,
                                  bool is_response) override;
@@ -519,6 +542,14 @@ class OverlayImpl : public Overlay {
   } peer_list_;
   TrafficStats total_traffic, total_traffic_ctr;
   TrafficStats total_traffic_responses, total_traffic_responses_ctr;
+  AccTrafficStats total_traffic_acc;
+  AccTrafficStats total_traffic_responses_acc;
+  td::uint64 broadcast_errors_acc_ = 0;
+  td::uint64 fec_broadcast_errors_acc_ = 0;
+  metrics::TlTrafficBucket messages_sent_by_tl_;
+  metrics::TlTrafficBucket messages_received_by_tl_;
+  metrics::TlTrafficBucket broadcasts_sent_by_tl_;
+  metrics::TlTrafficBucket broadcasts_received_by_tl_;
 
   OverlayOptions opts_;
   adnl::PeersMtuGuard peers_mtu_guard_;

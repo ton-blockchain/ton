@@ -1780,6 +1780,125 @@ TEST(QuicRateLimiter, CapacityOneDoesNotAllowExtraBurst) {
   expect_take(false);
 }
 
+TEST(QuicNetworkOverhead, GsoBatchesPacketsOnLargeTraffic) {
+  if (!td::UdpSocketFd::is_gso_supported()) {
+    LOG(INFO) << "Skipping GsoBatchesPacketsOnLargeTraffic: GSO not supported on this host";
+    return;
+  }
+  run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    constexpr int kConcurrentQueries = 8;
+    constexpr size_t kQuerySize = 16 * 1024;
+
+    auto a = co_await t.create_node("gso-large-a", next_port());
+    auto b = co_await t.create_node("gso-large-b", next_port());
+    // Lift the per-stream receive limit above our query size. The default ADNL MTU is 1 KiB,
+    // which caps inbound streams on the peer and would reject anything larger.
+    td::actor::send_closure(a.quic_sender, &ton::quic::QuicSender::set_default_mtu, 2 * kQuerySize);
+    td::actor::send_closure(b.quic_sender, &ton::quic::QuicSender::set_default_mtu, 2 * kQuerySize);
+    t.add_peer(a, b);
+    t.add_peer(b, a);
+
+    // Warm up so handshake packets don't pollute the per-batch counts we assert on.
+    auto warm = co_await t.send_query(a, b, "warmup");
+    ASSERT_EQ(warm.as_slice(), td::Slice("Qwarmup"));
+
+    auto stats_before = co_await td::actor::ask(a.quic_sender, &ton::quic::QuicSender::collect_stats);
+    std::vector<td::actor::StartedTask<td::BufferSlice>> tasks;
+    for (int i = 0; i < kConcurrentQueries; i++) {
+      td::BufferSlice data(kQuerySize);
+      data.as_slice()[0] = 'Q';
+      td::Random::secure_bytes(data.as_slice().substr(1));
+
+      auto [future, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
+      td::actor::send_closure(a.quic_sender, &ton::quic::QuicSender::send_query, a.id, b.id, std::string("Q"),
+                              std::move(promise), td::Timestamp::in(30.0), std::move(data));
+      tasks.push_back(std::move(future));
+    }
+    for (auto& task : tasks) {
+      (co_await std::move(task).wrap()).ensure();
+    }
+
+    auto stats_after = co_await td::actor::ask(a.quic_sender, &ton::quic::QuicSender::collect_stats);
+
+    td::uint64 packets = stats_after.udp.egress.packets - stats_before.udp.egress.packets;
+    td::uint64 syscalls = stats_after.udp.egress.syscalls - stats_before.udp.egress.syscalls;
+    double packets_per_syscall = syscalls > 0 ? static_cast<double>(packets) / static_cast<double>(syscalls) : 0.0;
+
+    LOG(INFO) << "GSO large-traffic: udp_egress_packets=" << packets << " udp_egress_syscalls=" << syscalls
+              << " packets/syscall=" << packets_per_syscall;
+
+    ASSERT_TRUE(syscalls > 0);
+    // With a busy single outbound connection mmsg can only batch one message per syscall, so a
+    // packets/syscall ratio above 1.0 requires GSO to be actually coalescing packets.
+    ASSERT_TRUE(packets_per_syscall >= 2.0);
+
+    co_return td::Unit{};
+  });
+}
+
+TEST(QuicNetworkOverhead, UdpOverheadLowOnSmallTraffic) {
+  run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    auto a = co_await t.create_node("low-ovh-a", next_port());
+    auto b = co_await t.create_node("low-ovh-b", next_port());
+    t.add_peer(a, b);
+    t.add_peer(b, a);
+
+    // Drive the handshake to completion before snapshotting so we measure the steady-state
+    // overhead of small queries, not the one-off handshake cost.
+    auto warm = co_await t.send_query(a, b, "warmup");
+    ASSERT_EQ(warm.as_slice(), td::Slice("Qwarmup"));
+
+    auto stats_before = co_await td::actor::ask(a.quic_sender, &ton::quic::QuicSender::collect_stats);
+
+    constexpr int kQueries = 64;
+    constexpr size_t kPayload = 128;  // bytes of data; send_query prepends one 'Q' byte on top
+    td::uint64 app_bytes = 0;
+    for (int i = 0; i < kQueries; i++) {
+      td::BufferSlice data(kPayload);
+      td::Random::secure_bytes(data.as_slice());
+      auto resp = co_await t.send_query(a, b, data.as_slice());
+      ASSERT_EQ(resp.size(), kPayload + 1);
+      app_bytes += kPayload + 1;  // matches QuicSender::app_metrics_.send_bytes_query accounting
+    }
+
+    auto stats_after = co_await td::actor::ask(a.quic_sender, &ton::quic::QuicSender::collect_stats);
+
+    auto delta = stats_after.summary.server_stats.impl_stats - stats_before.summary.server_stats.impl_stats;
+    td::uint64 egress_bytes = stats_after.udp.egress.bytes - stats_before.udp.egress.bytes;
+    td::uint64 egress_packets = stats_after.udp.egress.packets - stats_before.udp.egress.packets;
+    td::int64 ngtcp2_tx_bytes = delta.bytes_tx;
+    td::int64 stream_bytes_tx = delta.stream_bytes_buffered;
+    td::int64 quic_pkts_sent = delta.pkt_sent;
+    double ratio = static_cast<double>(egress_bytes) / static_cast<double>(app_bytes);
+    double avg_packet_size =
+        egress_packets > 0 ? static_cast<double>(egress_bytes) / static_cast<double>(egress_packets) : 0.0;
+    double tl_overhead =
+        stream_bytes_tx > 0 ? static_cast<double>(stream_bytes_tx - static_cast<td::int64>(app_bytes)) : 0.0;
+    double quic_framing = ngtcp2_tx_bytes > 0 ? static_cast<double>(ngtcp2_tx_bytes - stream_bytes_tx) : 0.0;
+    double udp_layer =
+        ngtcp2_tx_bytes > 0 ? static_cast<double>(static_cast<td::int64>(egress_bytes) - ngtcp2_tx_bytes) : 0.0;
+
+    LOG(INFO) << "Small-traffic overhead: udp_egress_bytes=" << egress_bytes << " app_bytes=" << app_bytes
+              << " udp_egress_packets=" << egress_packets << " avg_packet_size=" << avg_packet_size
+              << " ratio=" << ratio;
+    LOG(INFO) << "Byte layering (A side): app=" << app_bytes << " stream_tx=" << stream_bytes_tx
+              << " ngtcp2_tx=" << ngtcp2_tx_bytes << " udp_tx=" << egress_bytes << " | tl_overhead=" << tl_overhead
+              << " quic_framing=" << quic_framing << " udp_layer=" << udp_layer;
+    LOG(INFO) << "Packet layering (A side): quic_pkts_sent=" << quic_pkts_sent << " udp_pkts=" << egress_packets
+              << " (data_pkts_est=" << quic_pkts_sent - (egress_packets - quic_pkts_sent) << " avg_bytes_per_quic_pkt="
+              << (quic_pkts_sent > 0 ? static_cast<double>(ngtcp2_tx_bytes) / static_cast<double>(quic_pkts_sent) : 0.0)
+              << ")";
+
+    // Hard upper bound: with natural-sized (non-padded) 1-RTT packets, outbound overhead per
+    // small query is roughly one data packet + one ACK packet, each ~50 B of QUIC framing on
+    // top of ~130 B of payload. Anything above ~5x indicates packets are being padded to the
+    // path MTU regardless of frame contents.
+    ASSERT_TRUE(ratio < 5.0);
+
+    co_return td::Unit{};
+  });
+}
+
 int main(int argc, char* argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
   td::set_default_failure_signal_handler().ensure();

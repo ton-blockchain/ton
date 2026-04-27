@@ -81,7 +81,7 @@ if (NOT TON_ONLY_TONLIB)
 add_library(adnl STATIC ${ADNL_SOURCE})
 
 target_include_directories(adnl PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(adnl PUBLIC tdactor ton_crypto tl_api tdnet tddb keys keyring )
+target_link_libraries(adnl PUBLIC tdactor ton_crypto tl_api tdnet tddb keys keyring metrics)
 
 add_executable(adnl-proxy ${ADNL_PROXY_SOURCE})
 target_include_directories(adnl-proxy PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)

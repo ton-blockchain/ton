@@ -5,6 +5,9 @@ set(TL_TON_API
   ${CMAKE_CURRENT_SOURCE_DIR}/auto/tl/ton_api.h
   ${CMAKE_CURRENT_SOURCE_DIR}/auto/tl/ton_api.hpp
 
+  ${CMAKE_CURRENT_SOURCE_DIR}/auto/tl/ton_api_id_names.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/auto/tl/ton_api_id_names.h
+
   ${CMAKE_CURRENT_SOURCE_DIR}/auto/tl/ton_api_json.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/auto/tl/ton_api_json.h
 )

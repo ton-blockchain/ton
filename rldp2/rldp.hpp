@@ -18,9 +18,11 @@
 */
 #pragma once
 
+#include <atomic>
 #include <map>
 
 #include "adnl/adnl-query.h"
+#include "metrics/metrics-types.h"
 #include "tl-utils/tl-utils.hpp"
 
 #include "rldp.h"
@@ -36,6 +38,21 @@ constexpr int VERBOSITY_NAME(RLDP_DEBUG) = verbosity_DEBUG;
 constexpr int VERBOSITY_NAME(RLDP_EXTRA_DEBUG) = verbosity_DEBUG + 1;
 
 using TransferId = td::Bits256;
+
+struct Rldp2Metrics {
+  using KC = metrics::AtomicKindCounter;
+  KC app_send_message, app_send_query, app_send_answer;
+  KC app_deliver_message, app_deliver_query, app_deliver_answer;
+
+  KC sent_to_adnl;
+  KC received_from_adnl;
+
+  std::atomic<td::uint64> parse_errors{0};
+  std::atomic<td::uint64> transfers_received_ok{0};
+  std::atomic<td::uint64> transfers_received_err{0};
+  std::atomic<td::uint64> transfers_sent_ok{0};
+  std::atomic<td::uint64> transfers_sent_err{0};
+};
 
 class RldpImpl : public Rldp {
  public:

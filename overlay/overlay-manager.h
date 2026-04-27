@@ -23,6 +23,7 @@
 
 #include "adnl/adnl.h"
 #include "dht/dht.h"
+#include "metrics/metrics-collectors.h"
 #include "td/actor/actor.h"
 #include "td/db/KeyValueAsync.h"
 
@@ -30,6 +31,8 @@
 #include "overlays.h"
 
 namespace ton {
+
+class PrometheusExporter;
 
 namespace overlay {
 
@@ -41,10 +44,13 @@ constexpr int VERBOSITY_NAME(OVERLAY_EXTRA_DEBUG) = verbosity_DEBUG + 10;
 
 class Overlay;
 
-class OverlayManager : public Overlays {
+class OverlayManager : public Overlays, public virtual metrics::AsyncCollector {
  public:
   OverlayManager(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                  td::actor::ActorId<dht::Dht> dht, OverlayManagerBufferLimits buffer_limits = {});
+
+  void collect(metrics::MetricsPromise P) override;
+  static void register_metrics(td::actor::ActorId<Overlays> overlays, td::actor::ActorId<PrometheusExporter> exporter);
   void start_up() override;
   void save_to_db(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id, std::vector<OverlayNode> nodes);
 

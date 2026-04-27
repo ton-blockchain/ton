@@ -566,6 +566,7 @@ td::Status QuicConnectionPImpl::buffer_stream(QuicStreamID sid, td::BufferSlice 
   if (st.fin_pending || st.fin_submitted) {
     return td::Status::Error("stream already closed");
   }
+  stream_bytes_buffered_ += data.size();
   st.writer_.append(std::move(data));
   st.reader_.sync_with_writer();
   st.pin_.sync_with_writer();
@@ -584,6 +585,7 @@ QuicConnectionStats QuicConnectionPImpl::get_stats() {
     bytes_unacked += stream.pin_.size();
     bytes_unsent += stream.reader_.size();
   }
+  constexpr double ns_to_s = 1e-9;
   return {
       .bytes_rx = static_cast<int64_t>(info.bytes_recv),
       .bytes_tx = static_cast<int64_t>(info.bytes_sent),
@@ -593,6 +595,16 @@ QuicConnectionStats QuicConnectionPImpl::get_stats() {
       .total_sids = static_cast<int64_t>(sids_encountered),
       .open_sids = static_cast<int64_t>(streams_.size()),
       .mean_rtt = static_cast<double>(info.smoothed_rtt),
+      .pkt_sent = static_cast<int64_t>(info.pkt_sent),
+      .pkt_recv = static_cast<int64_t>(info.pkt_recv),
+      .pkt_lost = static_cast<int64_t>(info.pkt_lost),
+      .bytes_in_flight = static_cast<int64_t>(info.bytes_in_flight),
+      .cwnd = static_cast<int64_t>(info.cwnd),
+      .min_rtt_s = static_cast<double>(info.min_rtt) * ns_to_s,
+      .latest_rtt_s = static_cast<double>(info.latest_rtt) * ns_to_s,
+      .rttvar_s = static_cast<double>(info.rttvar) * ns_to_s,
+      .stream_bytes_buffered = static_cast<int64_t>(stream_bytes_buffered_),
+      .stream_bytes_received = static_cast<int64_t>(stream_bytes_received_),
   };
 }
 
@@ -648,6 +660,7 @@ int QuicConnectionPImpl::on_handshake_completed() {
 }
 
 int QuicConnectionPImpl::on_recv_stream_data(uint32_t flags, int64_t stream_id, td::Slice data) {
+  stream_bytes_received_ += data.size();
   Callback::StreamDataEvent event{
       .sid = stream_id, .data = td::BufferSlice{data}, .fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0};
 
