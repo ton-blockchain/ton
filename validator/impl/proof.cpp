@@ -30,7 +30,7 @@ using td::Ref;
 using namespace std::literals::string_literals;
 
 td::Result<Ref<ProofLink>> ProofQ::export_as_proof_link() const {
-  TRY_RESULT(root, vm::std_boc_deserialize(data_));
+  TRY_RESULT(root, get_root_cell());
   block::gen::BlockProof::Record proof;
   if (!(tlb::unpack_cell(std::move(root), proof))) {
     return td::Status::Error("cannot unpack BlockProof");
@@ -48,7 +48,7 @@ td::Result<BlockSeqno> ProofLinkQ::prev_key_mc_seqno() const {
   //  return td::Status::Error(
   //      -668, "cannot compute previous key masterchain block from ProofLink of non-masterchain block "s + id_.to_str());
   //}
-  TRY_RESULT(virt, get_virtual_root(true));
+  TRY_RESULT(virt, get_virtual_root());
   try {
     block::gen::Block::Record blk;
     block::gen::BlockInfo::Record info;
@@ -69,10 +69,10 @@ td::Result<td::Ref<ConfigHolder>> ProofLinkQ::get_key_block_config() const {
     return td::Status::Error(
         -668, "cannot compute previous key masterchain block from ProofLink of non-masterchain block "s + id_.to_str());
   }
-  TRY_RESULT(virt, get_virtual_root(true));
+  TRY_RESULT(virt, get_virtual_root());
   try {
     TRY_RESULT(cfg, block::Config::extract_from_key_block(std::move(virt.root), block::Config::needValidatorSet));
-    return td::make_ref<ConfigHolderQ>(std::move(cfg), std::move(virt.boc));
+    return td::make_ref<ConfigHolderQ>(std::move(cfg));
   } catch (vm::VmError &) {
     return td::Status::Error(-668, "vm error while traversing masterchain block proof for "s + id_.to_str());
   } catch (vm::VmVirtError &) {
@@ -83,7 +83,7 @@ td::Result<td::Ref<ConfigHolder>> ProofLinkQ::get_key_block_config() const {
 
 td::Result<ProofLink::BasicHeaderInfo> ProofLinkQ::get_basic_header_info() const {
   BasicHeaderInfo res;
-  TRY_RESULT(virt, get_virtual_root(true));
+  TRY_RESULT(virt, get_virtual_root());
   try {
     block::gen::Block::Record blk;
     block::gen::BlockInfo::Record info;
@@ -104,31 +104,22 @@ td::Result<ProofLink::BasicHeaderInfo> ProofLinkQ::get_basic_header_info() const
   }
 }
 
-td::Result<ProofLinkQ::VirtualizedProof> ProofLinkQ::get_virtual_root(bool lazy) const {
+td::Result<td::Ref<vm::Cell>> ProofLinkQ::get_root_cell() const {
+  if (auto cell = root_.load(); cell.not_null()) {
+    return cell;
+  }
+  if (data_.empty()) {
+    return td::Status::Error(-668, "block proof is empty");
+  }
+  TRY_RESULT(cell, vm::std_boc_deserialize(data_));
+  auto cell2 = cell;
+  root_.store(std::move(cell));
+  return cell2;
+}
+
+td::Result<ProofLinkQ::VirtualizedProof> ProofLinkQ::get_virtual_root() const {
   try {
-    if (data_.empty()) {
-      return td::Status::Error(-668, "block proof is empty");
-    }
-    std::shared_ptr<vm::StaticBagOfCellsDb> boc;
-    Ref<vm::Cell> root;
-    if (lazy) {
-      vm::StaticBagOfCellsDbLazy::Options options;
-      options.check_crc32c = true;
-      auto res = vm::StaticBagOfCellsDbLazy::create(td::BufferSliceBlobView::create(data_.clone()), options);
-      if (res.is_error()) {
-        return res.move_as_error();
-      }
-      boc = res.move_as_ok();
-      TRY_RESULT(rc, boc->get_root_count());
-      if (rc != 1) {
-        return td::Status::Error(-668, "masterchain block proof BoC is invalid");
-      }
-      TRY_RESULT(t_root, boc->get_root_cell(0));
-      root = std::move(t_root);
-    } else {
-      TRY_RESULT(t_root, vm::std_boc_deserialize(data_.as_slice()));
-      root = std::move(t_root);
-    }
+    TRY_RESULT(root, get_root_cell());
     if (root.is_null()) {
       return td::Status::Error(-668, "cannot extract root cell out of a masterchain block proof BoC");
     }
@@ -147,17 +138,14 @@ td::Result<ProofLinkQ::VirtualizedProof> ProofLinkQ::get_virtual_root(bool lazy)
                                          " contains a Merkle proof with incorrect root hash: expected " +
                                          proof_blk_id.root_hash.to_hex() + ", found " + virt_hash.to_hex());
     }
-    return VirtualizedProof{std::move(virt_root), proof.signatures->prefetch_ref(), std::move(boc)};
+    return VirtualizedProof{std::move(virt_root), proof.signatures->prefetch_ref(), root};
   } catch (vm::VmError &) {
     return td::Status::Error(-668, "vm error while unpacking proof for "s + id_.to_str());
   }
 }
 
 td::Result<Ref<vm::Cell>> ProofQ::get_signatures_root() const {
-  if (data_.empty()) {
-    return td::Status::Error(-668, "block proof is empty");
-  }
-  TRY_RESULT(root, vm::std_boc_deserialize(data_.as_slice()));
+  TRY_RESULT(root, get_root_cell());
   block::gen::BlockProof::Record proof;
   BlockIdExt proof_blk_id;
   if (!(tlb::unpack_cell(root, proof) && block::tlb::t_BlockIdExt.unpack(proof.proof_for.write(), proof_blk_id))) {

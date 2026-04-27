@@ -737,32 +737,35 @@ void CellDbIn::alarm() {
 }
 
 void CellDbIn::gc(BlockIdExt block_id) {
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockHandle> R) {
-    R.ensure();
-    td::actor::send_closure(SelfId, &CellDbIn::gc_cont, R.move_as_ok());
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), block_id](td::Result<BlockHandle> R) {
+    td::actor::send_closure(SelfId, &CellDbIn::gc_cont, block_id, std::move(R));
   });
   td::actor::send_closure(root_db_, &RootDb::get_block_handle_external, block_id, false, std::move(P));
 }
 
-void CellDbIn::gc_cont(BlockHandle handle) {
-  if (!handle->inited_state_boc()) {
-    LOG(WARNING) << "inited_state_boc=false, but state in db. blockid=" << handle->id();
+void CellDbIn::gc_cont(BlockIdExt block_id, td::Result<BlockHandle> R) {
+  if (R.is_ok()) {
+    auto handle = R.move_as_ok();
+    if (!handle->inited_state_boc()) {
+      LOG(WARNING) << "inited_state_boc=false, but state in db. blockid=" << block_id.to_str();
+    }
+    handle->set_deleted_state_boc();
+    td::actor::send_closure(root_db_, &RootDb::store_block_handle, handle,
+                            [SelfId = actor_id(this), block_id](td::Result<td::Unit> R2) {
+                              R2.ensure();
+                              td::actor::send_closure(SelfId, &CellDbIn::gc_cont2, block_id);
+                            });
+  } else {
+    LOG(WARNING) << "handle not found, but state in db. blockid=" << block_id.to_str();
+    gc_cont2(block_id);
   }
-  handle->set_deleted_state_boc();
-
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Unit> R) {
-    R.ensure();
-    td::actor::send_closure(SelfId, &CellDbIn::gc_cont2, handle);
-  });
-
-  td::actor::send_closure(root_db_, &RootDb::store_block_handle, handle, std::move(P));
 }
 
-void CellDbIn::gc_cont2(BlockHandle handle) {
+void CellDbIn::gc_cont2(BlockIdExt block_id) {
   if (db_busy_) {
-    action_queue_.push_back([self = this, handle = std::move(handle)](td::Result<td::Unit> R) mutable {
+    action_queue_.push_back([self = this, block_id](td::Result<td::Unit> R) mutable {
       R.ensure();
-      self->gc_cont2(handle);
+      self->gc_cont2(block_id);
     });
     return;
   }
@@ -772,7 +775,7 @@ void CellDbIn::gc_cont2(BlockHandle handle) {
   td::PerfWarningTimer timer_all{"gccell_all", 0.05};
 
   td::PerfWarningTimer timer_get_keys{"gccell_get_keys", 0.05};
-  auto key_hash = get_key_hash(handle->id());
+  auto key_hash = get_key_hash(block_id);
   auto FR = get_block(key_hash);
   FR.ensure();
   auto F = FR.move_as_ok();
@@ -805,12 +808,12 @@ void CellDbIn::gc_cont2(BlockHandle handle) {
       async_executor, {},
       [this, SelfId = actor_id(this), timer_boc = std::move(timer_boc), F = std::move(F), key_hash, P = std::move(P),
        N = std::move(N), cell = std::move(cell), timer = std::move(timer), timer_all = std::move(timer_all),
-       handle](td::Result<td::Unit> R) mutable {
+       block_id](td::Result<td::Unit> R) mutable {
         R.ensure();
         td::actor::send_lambda_later(
             SelfId,
             [this, timer_boc = std::move(timer_boc), F = std::move(F), key_hash, P = std::move(P), N = std::move(N),
-             cell = std::move(cell), timer = std::move(timer), timer_all = std::move(timer_all), handle]() mutable {
+             cell = std::move(cell), timer = std::move(timer), timer_all = std::move(timer_all), block_id]() mutable {
               TD_PERF_COUNTER(celldb_gc_cell);
               vm::CellStorer stor{*cell_db_};
               timer_boc.reset();
@@ -821,8 +824,8 @@ void CellDbIn::gc_cont2(BlockHandle handle) {
               boc_->meta_erase(get_key(key_hash)).ensure();
               set_block(F.prev, std::move(P));
               set_block(F.next, std::move(N));
-              if (handle->id().is_masterchain()) {
-                last_deleted_mc_state_ = handle->id().seqno();
+              if (block_id.is_masterchain()) {
+                last_deleted_mc_state_ = block_id.seqno();
                 std::string key = "stats.last_deleted_mc_seqno", value = td::to_string(last_deleted_mc_state_);
                 boc_->meta_set(td::as_slice(key), td::as_slice(value));
               }
@@ -852,7 +855,7 @@ void CellDbIn::gc_cont2(BlockHandle handle) {
               if (!opts_->get_disable_rocksdb_stats()) {
                 cell_db_statistics_.gc_cell_time_.insert(timer.elapsed() * 1e6);
               }
-              LOG(DEBUG) << "Deleted state " << handle->id().to_str();
+              LOG(DEBUG) << "Deleted state " << block_id.to_str();
               timer_finish.reset();
               timer_all.reset();
               release_db();

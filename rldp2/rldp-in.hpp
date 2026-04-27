@@ -99,20 +99,26 @@ class RldpIn : public RldpImpl {
   void on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id,
                       td::optional<adnl::AdnlNodeIdShort> peer_id) override;
 
+  void alarm() override;
+
  private:
   std::unique_ptr<adnl::Adnl::Callback> make_adnl_callback();
 
   td::actor::ActorId<adnl::AdnlPeerTable> adnl_;
 
-  std::map<std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>, td::actor::ActorOwn<RldpConnectionActor>>
-      connections_;
+  struct Connection;
+  std::map<std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>, Connection> connections_;
+  std::set<std::tuple<td::Timestamp, adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>> timeout_set_;
 
   std::map<TransferId, td::Promise<td::BufferSlice>> queries_;
 
   std::set<adnl::AdnlNodeIdShort> local_ids_;
 
-  td::actor::ActorId<RldpConnectionActor> create_connection(adnl::AdnlNodeIdShort local_id,
-                                                            adnl::AdnlNodeIdShort peer_id, bool incoming);
+  td::actor::ActorId<RldpConnectionActor> get_or_create_connection(adnl::AdnlNodeIdShort local_id,
+                                                                   adnl::AdnlNodeIdShort peer_id, bool incoming,
+                                                                   td::Timestamp timeout = {});
+
+  static constexpr double CONNECTION_TIMEOUT = 120.0;
 };
 
 }  // namespace rldp2

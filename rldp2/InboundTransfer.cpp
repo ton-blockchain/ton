@@ -68,7 +68,7 @@ void InboundTransfer::finish_part(td::uint32 part_i, td::BufferSlice data) {
   parts_.erase(it);
 }
 
-td::optional<td::Result<td::BufferSlice>> InboundTransfer::try_finish() {
+td::optional<td::BufferSlice> InboundTransfer::try_finish() {
   if (parts_.empty() && offset_ == total_size_) {
     if (data_parts_.size() == 1) {
       return data_parts_[0].clone();

@@ -178,6 +178,7 @@ class MerkleProofCombineFast {
  private:
   Ref<Cell> a_;
   Ref<Cell> b_;
+  td::HashMap<std::tuple<Cell::Hash, Cell::Hash, td::uint32>, Ref<Cell>> visited_;
 
   Ref<Cell> merge(Ref<Cell> a, Ref<Cell> b, td::uint32 merkle_depth) {
     if (a->get_hash() == b->get_hash()) {
@@ -199,6 +200,10 @@ class MerkleProofCombineFast {
     if (csb.is_special() && csb.special_type() == vm::Cell::SpecialType::PrunnedBranch) {
       return a;
     }
+    std::tuple key{a->get_hash(), b->get_hash(), merkle_depth};
+    if (auto it = visited_.find(key); it != visited_.end()) {
+      return it->second;
+    }
 
     CHECK(csa.size_refs() != 0);
 
@@ -209,7 +214,7 @@ class MerkleProofCombineFast {
     for (unsigned i = 0; i < csa.size_refs(); i++) {
       cb.store_ref(merge(csa.prefetch_ref(i), csb.prefetch_ref(i), child_merkle_depth));
     }
-    return cb.finalize(csa.is_special());
+    return visited_[key] = cb.finalize(csa.is_special());
   }
 };
 

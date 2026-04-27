@@ -109,8 +109,8 @@ class CellDbIn : public CellDbBase {
   KeyHash get_empty_key_hash();
 
   void gc(BlockIdExt block_id);
-  void gc_cont(BlockHandle handle);
-  void gc_cont2(BlockHandle handle);
+  void gc_cont(BlockIdExt block_id, td::Result<BlockHandle> R);
+  void gc_cont2(BlockIdExt block_id);
   void skip_gc();
 
   void migrate_cells();

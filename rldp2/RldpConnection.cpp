@@ -319,12 +319,14 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
   }
 
   auto &inbound = it->second;
-  auto o_res = [&]() -> td::optional<td::Result<td::BufferSlice>> {
+  bool ignore = false;
+  auto res = [&]() -> td::Result<td::BufferSlice> {
     TRY_RESULT(in_part, inbound.get_part(part.part_, r_fec_type.move_as_ok()));
     if (!in_part) {
       if (inbound.is_part_completed(part.part_)) {
         send_packet(ton::create_serialize_tl_object<ton::ton_api::rldp2_complete>(transfer_id, part.part_));
       }
+      ignore = true;
       return {};
     }
     if (in_part->receiver.on_received(seqno + 1, td::Timestamp::now())) {
@@ -337,13 +339,18 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
         }
       }
     }
-    return inbound.try_finish();
+    auto result = inbound.try_finish();
+    if (result) {
+      return std::move(result.value());
+    }
+    ignore = true;
+    return {};
   }();
 
-  if (o_res) {
+  if (!ignore) {
     drop_limits(transfer_id);
     on_inbound_completed(transfer_id, td::Timestamp::now());
-    to_receive_.emplace_back(transfer_id, o_res.unwrap());
+    to_receive_.emplace_back(transfer_id, std::move(res));
   }
 }
 
