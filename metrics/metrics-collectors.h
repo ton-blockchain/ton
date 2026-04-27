@@ -30,14 +30,10 @@ class AsyncCollector {
 
 using AsyncCollectorClosure = std::function<void(MetricsPromise)>;
 
-// Actors with simple metrics collection should virtually inherit this instead.
-// Also, they **MUST** trivially override `collect` function, because send_closure implementation is not really handy
-// (otherwise `&A::collect` will have type `void (CollectorWrapper::*)(MetricsPromise)`, which is unrelated to
-//  `td::actor::Actor` -- so `send_closure`'s inference of member function class will fail).
 class CollectorWrapper : public AsyncCollector {
  public:
   CollectorWrapper() = default;
-  void collect(MetricsPromise P) override;
+  void collect(MetricsPromise P) final;
 
   template <typename A>
   void add_collector(td::actor::ActorId<A> collector);
@@ -163,8 +159,11 @@ class Labeled : public Instrument<Labeled<LabelType, InstrumentType>> {
 template <typename A>
 void CollectorWrapper::add_collector(td::actor::ActorId<A> collector) {
   CHECK(!collector.empty());
-  collector_closures_.push_back(
-      [collector](MetricsPromise P) { td::actor::send_closure(collector, &A::collect, std::move(P)); });
+  collector_closures_.push_back([collector](MetricsPromise P) mutable {
+    td::actor::send_lambda(collector, [P = std::move(P), &collector = collector.get_actor_unsafe()]() mutable {
+      collector.collect(std::move(P));
+    });
+  });
 }
 
 template <typename Derived>

@@ -142,7 +142,6 @@ void FullNodeImpl::update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td:
       td::actor::send_closure(s.second.actor, &FullNodeShard::update_adnl_id, adnl_id, ig.get_promise());
     }
   }
-  local_id_ = adnl_id_.pubkey_hash();
 
   for (auto &p : custom_overlays_) {
     update_custom_overlay(p.second);

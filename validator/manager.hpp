@@ -75,7 +75,7 @@ class BlockHandleLru : public td::ListNode {
   BlockHandle handle_;
 };
 
-class ValidatorManagerImpl : public ValidatorManager, public virtual metrics::CollectorWrapper {
+class ValidatorManagerImpl : public ValidatorManager, public virtual metrics::AsyncCollector {
  private:
   // WAITERS
   //

@@ -52,6 +52,7 @@ namespace {
 
 constexpr const char *k_called_from_public = "public";
 constexpr td::uint32 k_heavy_request_cost_unit = 1 << 21;
+constexpr size_t k_ed25519_signature_size = 64;
 
 size_t heavy_request_cost(td::uint64 requested_max_size) {
   size_t cost = static_cast<size_t>((requested_max_size + k_heavy_request_cost_unit - 1) / k_heavy_request_cost_unit);
@@ -142,6 +143,11 @@ void FullNodeShardImpl::create_overlay() {
   if (cert_) {
     td::actor::send_closure(overlays_, &overlay::Overlays::update_certificate, adnl_id_, overlay_id_, local_id_, cert_);
   }
+  auto adnl_source = full_node_adnl_source();
+  if (!adnl_source.is_zero() && adnl_source != local_id_ && adnl_source_cert_) {
+    td::actor::send_closure(overlays_, &overlay::Overlays::update_certificate, adnl_id_, overlay_id_, adnl_source,
+                            adnl_source_cert_);
+  }
 }
 
 void FullNodeShardImpl::check_broadcast(PublicKeyHash src, td::BufferSlice broadcast, td::Promise<td::Unit> promise) {
@@ -179,7 +185,7 @@ void FullNodeShardImpl::remove_neighbour(adnl::AdnlNodeIdShort id) {
 void FullNodeShardImpl::update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) {
   td::actor::send_closure(overlays_, &ton::overlay::Overlays::delete_overlay, adnl_id_, overlay_id_);
   adnl_id_ = adnl_id;
-  local_id_ = adnl_id_.pubkey_hash();
+  adnl_source_cert_.reset();
   create_overlay();
   promise.set_value(td::Unit{});
 }
@@ -923,11 +929,13 @@ void FullNodeShardImpl::send_ihr_message(td::BufferSlice data) {
   }
   auto B = create_serialize_tl_object<ton_api::tonNode_ihrMessageBroadcast>(
       create_tl_object<ton_api::tonNode_ihrMessage>(std::move(data)));
+  auto source = choose_outbound_source(static_cast<td::uint32>(B.size()),
+                                       B.size() > overlay::Overlays::max_simple_broadcast_size());
   if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_ex, adnl_id_, overlay_id_, local_id_, 0,
+    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_ex, adnl_id_, overlay_id_, source, 0,
                             std::move(B));
   } else {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, local_id_, 0,
+    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, source, 0,
                             std::move(B));
   }
 }
@@ -955,11 +963,13 @@ void FullNodeShardImpl::send_external_message(td::BufferSlice data) {
   my_ext_msg_broadcasts_.insert(hash);
   auto B = create_serialize_tl_object<ton_api::tonNode_externalMessageBroadcast>(
       create_tl_object<ton_api::tonNode_externalMessage>(std::move(data)));
+  auto source = choose_outbound_source(static_cast<td::uint32>(B.size()),
+                                       B.size() > overlay::Overlays::max_simple_broadcast_size());
   if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_ex, adnl_id_, overlay_id_, local_id_, 0,
+    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_ex, adnl_id_, overlay_id_, source, 0,
                             std::move(B));
   } else {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, local_id_, 0,
+    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, source, 0,
                             std::move(B));
   }
 }
@@ -972,11 +982,13 @@ void FullNodeShardImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno
   VLOG(FULL_NODE_DEBUG) << "Sending newShardBlockBroadcast: " << block_id.to_str();
   auto B = create_serialize_tl_object<ton_api::tonNode_newShardBlockBroadcast>(
       create_tl_object<ton_api::tonNode_newShardBlock>(create_tl_block_id(block_id), cc_seqno, std::move(data)));
+  auto source = choose_outbound_source(static_cast<td::uint32>(B.size()),
+                                       B.size() > overlay::Overlays::max_simple_broadcast_size());
   if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_ex, adnl_id_, overlay_id_, local_id_, 0,
+    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_ex, adnl_id_, overlay_id_, source, 0,
                             std::move(B));
   } else {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, local_id_,
+    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, source,
                             overlay::Overlays::BroadcastFlagAnySender(), std::move(B));
   }
 }
@@ -994,8 +1006,10 @@ void FullNodeShardImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno 
     return;
   }
   VLOG(FULL_NODE_DEBUG) << "Sending newBlockCandidate: " << block_id.to_str();
-  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, local_id_,
-                          overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
+  auto payload = B.move_as_ok();
+  auto source = choose_outbound_source(static_cast<td::uint32>(payload.size()), true);
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, source,
+                          overlay::Overlays::BroadcastFlagAnySender(), std::move(payload));
 }
 
 void FullNodeShardImpl::send_broadcast(BlockBroadcast broadcast) {
@@ -1009,8 +1023,10 @@ void FullNodeShardImpl::send_broadcast(BlockBroadcast broadcast) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
     return;
   }
-  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, local_id_,
-                          overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
+  auto payload = B.move_as_ok();
+  auto source = choose_outbound_source(static_cast<td::uint32>(payload.size()), true);
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, source,
+                          overlay::Overlays::BroadcastFlagAnySender(), std::move(payload));
 }
 
 void FullNodeShardImpl::download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
@@ -1221,6 +1237,30 @@ void FullNodeShardImpl::signed_new_certificate(overlay::Certificate cert, Public
   td::actor::send_closure(overlays_, &overlay::Overlays::update_certificate, adnl_id_, overlay_id_, local_id_, cert_);
 }
 
+PublicKeyHash FullNodeShardImpl::full_node_adnl_source() const {
+  return adnl_id_.is_zero() ? PublicKeyHash::zero() : adnl_id_.pubkey_hash();
+}
+
+bool FullNodeShardImpl::has_valid_certificate_for_source(const PublicKeyHash &source,
+                                                         const std::shared_ptr<ton::overlay::Certificate> &cert,
+                                                         td::uint32 payload_size, bool is_fec) const {
+  if (!cert) {
+    return false;
+  }
+  return cert->check(source, overlay_id_, static_cast<td::int32>(td::Clocks::system()), payload_size, is_fec) ==
+             overlay::BroadcastCheckResult::Allowed &&
+         rules_.is_authorized_key(cert->issuer_hash());
+}
+
+PublicKeyHash FullNodeShardImpl::choose_outbound_source(td::uint32 payload_size, bool is_fec) const {
+  auto adnl_source = full_node_adnl_source();
+  if (!adnl_source.is_zero() && adnl_source != local_id_ &&
+      has_valid_certificate_for_source(adnl_source, adnl_source_cert_, payload_size, is_fec)) {
+    return adnl_source;
+  }
+  return local_id_;
+}
+
 void FullNodeShardImpl::sign_overlay_certificate(PublicKeyHash signed_key, td::uint32 expire_at, td::uint32 max_size,
                                                  td::Promise<td::BufferSlice> promise) {
   auto sign_by = sign_cert_by_;
@@ -1253,6 +1293,39 @@ void FullNodeShardImpl::sign_overlay_certificate(PublicKeyHash signed_key, td::u
 void FullNodeShardImpl::import_overlay_certificate(PublicKeyHash signed_key,
                                                    std::shared_ptr<ton::overlay::Certificate> cert,
                                                    td::Promise<td::Unit> promise) {
+  if (!cert) {
+    promise.set_error(td::Status::Error("empty certificate"));
+    return;
+  }
+  if (cert->signature().size() != k_ed25519_signature_size) {
+    promise.set_error(td::Status::Error(PSTRING() << "bad certificate signature size: " << cert->signature().size()));
+    return;
+  }
+  auto check = cert->check(signed_key, overlay_id_, static_cast<td::int32>(td::Clocks::system()),
+                           overlay::Overlays::max_fec_broadcast_size(), true,
+                           /* skip_check_signature = */ false);
+  if (check != overlay::BroadcastCheckResult::Allowed) {
+    promise.set_error(td::Status::Error("certificate is not valid for this shard overlay"));
+    return;
+  }
+  if (!rules_.is_authorized_key(cert->issuer_hash())) {
+    promise.set_error(td::Status::Error(PSTRING() << "certificate issuer is not authorized for this shard overlay: "
+                                                  << cert->issuer_hash()));
+    return;
+  }
+  auto adnl_source = full_node_adnl_source();
+  bool usable_for_local_source = signed_key == local_id_;
+  bool usable_for_adnl_source = !adnl_source.is_zero() && signed_key == adnl_source;
+  LOG(INFO) << "shard overlay cert accepted shard=" << shard_.to_str() << " signed_key=" << signed_key
+            << " local_id=" << local_id_ << " adnl_source=" << adnl_source << " issuer=" << cert->issuer_hash()
+            << " usable_for_local_source=" << usable_for_local_source
+            << " usable_for_adnl_source=" << usable_for_adnl_source;
+  if (usable_for_local_source) {
+    cert_ = cert;
+  }
+  if (usable_for_adnl_source) {
+    adnl_source_cert_ = cert;
+  }
   td::actor::send_closure(overlays_, &ton::overlay::Overlays::update_certificate, adnl_id_, overlay_id_, signed_key,
                           cert);
   promise.set_value(td::Unit());

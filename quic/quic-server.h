@@ -134,7 +134,9 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
         return {.total_conns = total_conns - other.total_conns, .impl_stats = impl_stats - other.impl_stats};
       }
 
-    } summary = {};
+    };
+
+    Entry summary = {.total_conns = 0};
     std::unordered_map<QuicConnectionId, Entry> per_conn = {};
 
     // Server-level UDP wire stats (single instance per QuicServer).

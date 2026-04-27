@@ -43,7 +43,9 @@ class QuicSender : public adnl::AdnlSenderEx, public virtual metrics::AsyncColle
       }
 
       [[nodiscard]] metrics::MetricSet dump() const;
-    } summary = {};
+    };
+
+    Entry summary = {.server_stats = {.total_conns = 0}};
     std::map<AdnlPath, Entry> per_path;
 
     // Server-level UDP wire counters aggregated across all QuicServers.

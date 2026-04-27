@@ -176,9 +176,9 @@ td::Status OverlayImpl::validate_peer_certificate(const adnl::AdnlNodeIdShort &n
   return validate_peer_certificate(node, *cert);
 }
 
-void OverlayImpl::add_peer(OverlayNode node, bool received_from_peer) {
+void OverlayImpl::add_peer(OverlayNode node, bool verified, bool checked_signature) {
   td::Timestamp now = td::Timestamp::now();
-  if (received_from_peer && !receive_peers_rate_limiter_.check(now)) {
+  if (!verified && !receive_peers_rate_limiter_.check(now)) {
     VLOG(OVERLAY_DEBUG) << this << ": dropping new peer: rate limit exceeded";
     return;
   }
@@ -199,13 +199,15 @@ void OverlayImpl::add_peer(OverlayNode node, bool received_from_peer) {
     return;
   }
 
-  if (received_from_peer) {
+  if (!verified) {
     receive_peers_rate_limiter_.insert(now);
   }
-  auto S = node.check_signature();
-  if (S.is_error()) {
-    VLOG(OVERLAY_WARNING) << this << ": bad signature: " << S;
-    return;
+  if (!checked_signature) {
+    auto S = node.check_signature();
+    if (S.is_error()) {
+      VLOG(OVERLAY_WARNING) << this << ": bad signature: " << S;
+      return;
+    }
   }
 
   if (overlay_type_ == OverlayType::CertificatedMembers) {
@@ -223,10 +225,11 @@ void OverlayImpl::add_peer(OverlayNode node, bool received_from_peer) {
   if (V) {
     VLOG(OVERLAY_DEBUG) << this << ": updating peer " << id << " up to version " << node.version();
     V->update(std::move(node));
-  } else {
+  } else if (verified) {
     VLOG(OVERLAY_DEBUG) << this << ": adding peer " << id << " of version " << node.version();
     CHECK(overlay_type_ != OverlayType::CertificatedMembers || (node.certificate() && !node.certificate()->empty()));
     peer_list_.peers_.insert(id, OverlayPeer(std::move(node)));
+    peer_list_.pending_peers_.remove(id);
     del_some_peers();
     auto X = peer_list_.peers_.get(id);
     if (X != nullptr && !X->is_neighbour() && peer_list_.neighbours_.size() < max_neighbours() &&
@@ -236,29 +239,79 @@ void OverlayImpl::add_peer(OverlayNode node, bool received_from_peer) {
     }
 
     update_neighbours(0);
+  } else if (!processing_pending_peers_.contains(id)) {
+    VLOG(OVERLAY_DEBUG) << this << ": adding pending peer " << id << " of version " << node.version();
+    auto pending = peer_list_.pending_peers_.get(id);
+    if (pending) {
+      pending->update(std::move(node));
+    } else {
+      peer_list_.pending_peers_.insert(id, std::move(node));
+    }
+    while (peer_list_.pending_peers_.size() > opts_.max_pending_peers_) {
+      auto to_remove = peer_list_.pending_peers_.get_random();
+      CHECK(to_remove);
+      peer_list_.pending_peers_.remove(to_remove->adnl_id_short());
+    }
+    process_pending_peers();
   }
 }
 
-void OverlayImpl::add_peers(std::vector<OverlayNode> peers, bool received_from_peer) {
+void OverlayImpl::process_pending_peers() {
+  while (peer_list_.pending_peers_.size() > 0 && process_pending_peers_rate_limiter_.check(td::Timestamp::now())) {
+    OverlayNode node = std::move(*peer_list_.pending_peers_.get_random());
+    peer_list_.pending_peers_.remove(node.adnl_id_short());
+    if (node.version() + Overlays::overlay_peer_ttl() < td::Clocks::system()) {
+      VLOG(OVERLAY_INFO) << this << ": dropping pending node " << node.adnl_id_short() << " of too old version "
+                         << node.version();
+      continue;
+    }
+    process_pending_peers_rate_limiter_.insert(td::Timestamp::now());
+    processing_pending_peers_.insert(node.adnl_id_short());
+    process_pending_peer(std::move(node)).start().detach_silent();
+  }
+}
+
+td::actor::Task<> OverlayImpl::process_pending_peer(OverlayNode node) {
+  VLOG(OVERLAY_INFO) << this << ": trying to ping pending peer " << node.adnl_id_short();
+  for (size_t attempt = 0; attempt < 3; ++attempt) {
+    auto [task, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
+    td::actor::send_closure(manager_, &OverlayManager::send_query, node.adnl_id_short(), local_id_, overlay_id_,
+                            "overlay ping", std::move(promise), td::Timestamp::in(5.0),
+                            create_serialize_tl_object<ton_api::overlay_ping>());
+    auto result = co_await std::move(task).wrap();
+    if (result.is_ok() || peer_list_.peers_.exists(node.adnl_id_short())) {
+      VLOG(OVERLAY_INFO) << this << ": adding pending peer " << node.adnl_id_short();
+      processing_pending_peers_.erase(node.adnl_id_short());
+      add_peer(std::move(node), /* verified = */ true, /* checked_signature = */ true);
+      co_return {};
+    }
+  }
+  VLOG(OVERLAY_INFO) << this << ": dropping pending node " << node.adnl_id_short() << " - does not respond";
+  processing_pending_peers_.erase(node.adnl_id_short());
+  co_return {};
+}
+
+void OverlayImpl::add_peers(std::vector<OverlayNode> peers, bool verified, bool checked_signature) {
   for (auto &node : peers) {
-    add_peer(std::move(node), received_from_peer);
+    add_peer(std::move(node), verified, checked_signature);
   }
 }
 
-void OverlayImpl::add_peers(const tl_object_ptr<ton_api::overlay_nodes> &nodes, bool received_from_peer) {
+void OverlayImpl::add_peers(const tl_object_ptr<ton_api::overlay_nodes> &nodes, bool verified, bool checked_signature) {
   for (auto &n : nodes->nodes_) {
     auto N = OverlayNode::create(n);
     if (N.is_ok()) {
-      add_peer(N.move_as_ok(), received_from_peer);
+      add_peer(N.move_as_ok(), verified, checked_signature);
     }
   }
 }
 
-void OverlayImpl::add_peers(const tl_object_ptr<ton_api::overlay_nodesV2> &nodes, bool received_from_peer) {
+void OverlayImpl::add_peers(const tl_object_ptr<ton_api::overlay_nodesV2> &nodes, bool verified,
+                            bool checked_signature) {
   for (auto &n : nodes->nodes_) {
     auto N = OverlayNode::create(n);
     if (N.is_ok()) {
-      add_peer(N.move_as_ok(), received_from_peer);
+      add_peer(N.move_as_ok(), verified, checked_signature);
     }
   }
 }
@@ -277,6 +330,10 @@ void OverlayImpl::on_ping_result(adnl::AdnlNodeIdShort peer, bool success, doubl
       peer_list_.bad_peers_.erase(peer);
     } else {
       peer_list_.bad_peers_.insert(peer);
+      if (p->is_neighbour()) {
+        del_from_neighbour_list(p);
+        update_neighbours(0);
+      }
     }
   }
 }
@@ -295,7 +352,7 @@ void OverlayImpl::receive_random_peers(adnl::AdnlNodeIdShort src, td::Result<td:
     return;
   }
 
-  add_peers(R2.move_as_ok(), true);
+  add_peers(R2.move_as_ok(), /* verified = */ false);
 }
 
 void OverlayImpl::receive_random_peers_v2(adnl::AdnlNodeIdShort src, td::Result<td::BufferSlice> R, double elapsed) {
@@ -312,7 +369,7 @@ void OverlayImpl::receive_random_peers_v2(adnl::AdnlNodeIdShort src, td::Result<
     return;
   }
 
-  add_peers(R2.move_as_ok(), true);
+  add_peers(R2.move_as_ok(), /* verified = */ false);
 }
 
 void OverlayImpl::send_random_peers_cont(adnl::AdnlNodeIdShort src, OverlayNode node,
@@ -473,7 +530,7 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change, bool allow_delet
       continue;
     }
 
-    if (X->is_neighbour()) {
+    if (X->is_neighbour() || !X->is_alive()) {
       continue;
     }
 
@@ -481,7 +538,7 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change, bool allow_delet
       VLOG(OVERLAY_INFO) << this << ": adding new neighbour " << X->get_id();
       peer_list_.neighbours_.push_back(X->get_id());
       X->set_neighbour(true);
-    } else if (X->is_alive()) {
+    } else {
       CHECK(nodes_to_change > 0);
       auto i = td::Random::fast(0, static_cast<td::uint32>(peer_list_.neighbours_.size()) - 1);
       auto Y = peer_list_.peers_.get(peer_list_.neighbours_[i]);
@@ -550,13 +607,13 @@ void OverlayImpl::get_overlay_random_peers(td::uint32 max_peers,
 
 void OverlayImpl::receive_nodes_from_db(tl_object_ptr<ton_api::overlay_nodes> tl_nodes) {
   if (overlay_type_ != OverlayType::FixedMemberList) {
-    add_peers(tl_nodes);
+    add_peers(tl_nodes, /* verified = */ false);
   }
 }
 
 void OverlayImpl::receive_nodes_from_db_v2(tl_object_ptr<ton_api::overlay_nodesV2> tl_nodes) {
   if (overlay_type_ != OverlayType::FixedMemberList) {
-    add_peers(tl_nodes);
+    add_peers(tl_nodes, /* verified = */ false);
   }
 }
 

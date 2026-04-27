@@ -1,44 +1,42 @@
-import subprocess
-from dataclasses import dataclass
+import functools
+import hashlib
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from nacl.signing import SigningKey
 from tonapi import ton_api
 
-from .install import Install
+PUB_ED25519_PREFIX = b"\xc6\xb4\x13\x48"
+PK_ED25519_PREFIX = b"\x17\x23\x68\x49"
 
 
-@dataclass
+@dataclass(frozen=True)
 class Key:
-    private_key: ton_api.Pk_ed25519
-    public_key: ton_api.Pub_ed25519
-    short_key: ton_api.Adnl_id_short
+    key: SigningKey = field(default_factory=lambda: SigningKey.generate())
 
-    @staticmethod
-    def new(install: Install) -> Key:
-        result = subprocess.run(
-            (install.key_helper_exe, "-m", "id"),
-            check=True,
-            stdout=subprocess.PIPE,
-        ).stdout
+    @functools.cached_property
+    def private_key(self):
+        return ton_api.Pk_ed25519(key=self.key.encode())
 
-        parts = result.splitlines()
-        if len(parts) != 3:
-            raise ValueError("Invalid key generation output")
+    @functools.cached_property
+    def public_key(self):
+        return ton_api.Pub_ed25519(key=self.key.verify_key.encode())
 
-        return Key(
-            private_key=ton_api.Pk_ed25519.from_json(parts[0].decode()),
-            public_key=ton_api.Pub_ed25519.from_json(parts[1].decode()),
-            short_key=ton_api.Adnl_id_short.from_json(parts[2].decode()),
-        )
+    @functools.cached_property
+    def id(self):
+        return hashlib.sha256(PUB_ED25519_PREFIX + self.public_key.key).digest()
+
+    @property
+    def short_key(self):
+        return ton_api.Adnl_id_short(id=self.id)
+
+    def write_pub_key_file(self, path: Path):
+        _ = path.write_bytes(PUB_ED25519_PREFIX + self.public_key.key)
+
+    def write_pk_key_file(self, path: Path):
+        _ = path.write_bytes(PK_ED25519_PREFIX + self.private_key.key)
 
     def add_to_keyring(self, keyring: Path) -> Path:
-        file = keyring / self.short_key.id.hex().upper()
-        _ = file.write_bytes(b"\x17\x23\x68\x49" + self.private_key.key)
-        return file
-
-    def write_pub_key_file(self, path: Path) -> Path:
-        _ = path.write_bytes(b"\xc6\xb4\x13\x48" + self.public_key.key)
+        path = keyring / self.id.hex().upper()
+        self.write_pk_key_file(path)
         return path
-
-    def id(self):
-        return self.short_key.id
