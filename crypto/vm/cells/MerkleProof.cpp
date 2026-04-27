@@ -16,6 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <map>
+
 #include "td/utils/HashMap.h"
 #include "td/utils/HashSet.h"
 #include "td/utils/Status.h"
@@ -178,7 +180,11 @@ class MerkleProofCombineFast {
  private:
   Ref<Cell> a_;
   Ref<Cell> b_;
+#if TD_HAVE_ABSL
   td::HashMap<std::tuple<Cell::Hash, Cell::Hash, td::uint32>, Ref<Cell>> visited_;
+#else
+  std::map<std::tuple<Cell::Hash, Cell::Hash, td::uint32>, Ref<Cell>> visited_;
+#endif
 
   Ref<Cell> merge(Ref<Cell> a, Ref<Cell> b, td::uint32 merkle_depth) {
     if (a->get_hash() == b->get_hash()) {
