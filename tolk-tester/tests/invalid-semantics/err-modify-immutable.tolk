@@ -54,7 +54,7 @@ fun errAssignToValInArray() {
 // @stderr_avoid sl.loadRef
 fun errCallMutatingMethodOnVal(c: cell) {
     val sl: slice = c.beginParse();
-    if (1) {
+    if (true) {
         var sl: slice = c.beginParse();
         _ = sl.loadRef();       // this is ok, 'sl' is another variable
     }

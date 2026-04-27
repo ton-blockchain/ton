@@ -111,6 +111,13 @@ TypePtr TypeData::unwrap_alias_slow_path(TypePtr lhs) {
   return unwrapped;
 }
 
+bool TypeData::is_cell_or_CellT() const {
+  if (const TypeDataStruct* t_struct = this->try_as<TypeDataStruct>()) {
+    return t_struct->struct_ref->is_instantiation_of_CellT();
+  }
+  return this == TypeDataCell::create();
+}
+
 // having `type UserId = int` and `type OwnerId = int` (when their underlying types are equal),
 // make `UserId` and `OwnerId` NOT equal and NOT assignable (although they'll have the same type_id);
 // it allows overloading methods for these types independently, e.g.
@@ -123,7 +130,8 @@ static bool are_two_equal_type_aliases_different(const TypeDataAlias* t1, const 
     return false;
   }
   if (t1->alias_ref->is_instantiation_of_generic_alias() && t2->alias_ref->is_instantiation_of_generic_alias()) {
-    return !t1->alias_ref->substitutedTs->equal_to(t2->alias_ref->substitutedTs);
+    return t1->alias_ref->base_alias_ref != t2->alias_ref->base_alias_ref
+       || !t1->alias_ref->substitutedTs->equal_to(t2->alias_ref->substitutedTs);
   }
   // handle `type MInt2 = MInt1`, as well as `type BalanceList = dict`, then they are equal
   const TypeDataAlias* t_und1 = t1->underlying_type->try_as<TypeDataAlias>();
@@ -615,6 +623,9 @@ bool TypeDataInt::can_rhs_be_assigned(TypePtr rhs) const {
     return true;
   }
   if (rhs->try_as<TypeDataIntN>()) {
+    return true;
+  }
+  if (rhs->try_as<TypeDataEnum>()) {
     return true;
   }
   if (rhs == TypeDataCoins::create()) {
@@ -1203,7 +1214,7 @@ bool TypeDataMapKV::can_be_casted_with_as_operator(TypePtr cast_to) const {
 
 bool TypeDataUnknown::can_be_casted_with_as_operator(TypePtr cast_to) const {
   // anything be cast to `unknown` and back (if T occupies not 1 stack slot, it's converted into a tuple)
-  return true;
+  return cast_to != TypeDataNever::create();
 }
 
 bool TypeDataNotInferred::can_be_casted_with_as_operator(TypePtr cast_to) const {

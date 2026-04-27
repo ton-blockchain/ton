@@ -183,7 +183,7 @@ fun test11(v: bool) {
     var nullable_cb = v ? null : fun(x: int) { return x * 2 };
     var union_int: int | (int -> int) = v ? v as int : fun(x: int) { return x * 2 };
     var union_cn: (()->int) | (int->int) = v ? fun() { return 500 } : fun(x : int) { return x * 2 };
-
+    
     return (
         nullable_cb != null ? nullable_cb(10) : null,
         (union_int is int) ? union_int : union_int(10),
@@ -286,6 +286,15 @@ fun makeAdder(delta: int = 0): int -> int {
     };
 }
 
+fun genericLambdaReuseT<T>(value: T) {
+    return fun(another: T): T? {
+        val inner = fun(nested: T) {
+            return nested;
+        };
+        return inner(another)
+    }(value);
+}
+
 @method_id(119)
 fun test19() {
     var x = [(1, 2) as (int, int)?].first();
@@ -332,6 +341,13 @@ fun test22() {
     return args;
 }
 
+@method_id(123)
+fun test23() {
+    __expect_type(genericLambdaReuseT(123), "int?");
+    __expect_type(genericLambdaReuseT(true), "bool?");
+    return (genericLambdaReuseT(123), genericLambdaReuseT(true));
+}
+
 
 fun main() {
     __expect_type(fun() {}, "() -> void");
@@ -366,4 +382,5 @@ fun main() {
 @testcase | 120 | 5      | (null) 0 10 5 0
 @testcase | 121 |        | 50
 @testcase | 122 |        | 1 2 3
+@testcase | 123 |        | 123 -1
 */

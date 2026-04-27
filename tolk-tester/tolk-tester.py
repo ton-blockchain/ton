@@ -11,6 +11,7 @@
 
 import os
 import os.path
+import json
 import re
 import shutil
 import subprocess
@@ -31,7 +32,10 @@ def getenv(name, default=None):
 TOLK_EXECUTABLE = getenv("TOLK_EXECUTABLE", "tolk")
 FIFT_EXECUTABLE = getenv("FIFT_EXECUTABLE", "fift")
 FIFT_LIBS_FOLDER = getenv("FIFTPATH")  # this env is needed for fift to work properly
-TMP_DIR = tempfile.mkdtemp()
+ARTIFACTS_DIR = getenv("ARTIFACTS_DIR", "")
+ARTIFACTS_IS_TMPDIR = ARTIFACTS_DIR == ""
+if ARTIFACTS_IS_TMPDIR:
+    ARTIFACTS_DIR = tempfile.mkdtemp()
 
 
 class CmdLineOptions:
@@ -263,6 +267,7 @@ class TolkTestFile:
         self.stderr_includes: List[TolkTestCaseStderr] = []
         self.input_output: List[TolkTestCaseInputOutput] = []
         self.fif_codegen: List[TolkTestCaseFifCodegen] = []
+        self.abi_json: List[TolkTestCaseFifCodegen] = []
         self.expected_hash: TolkTestCaseExpectedHash | None = None
         self.more_cmd_line_options: List[str] = []
         self.enable_tolk_lines_comments = False
@@ -297,6 +302,10 @@ class TolkTestFile:
                 self.enable_tolk_lines_comments = True
             elif line.startswith("@fif_codegen"):
                 self.fif_codegen.append(TolkTestCaseFifCodegen(self.parse_string_value(lines), False))
+            elif line.startswith("@abi_json_avoid"):
+                self.abi_json.append(TolkTestCaseFifCodegen(self.parse_string_value(lines), True))
+            elif line.startswith("@abi_json"):
+                self.abi_json.append(TolkTestCaseFifCodegen(self.parse_string_value(lines), False))
             elif line.startswith("@code_hash"):
                 self.expected_hash = TolkTestCaseExpectedHash(self.parse_string_value(lines, False)[0])
             elif line.startswith("@path_mapping"):
@@ -335,13 +344,18 @@ class TolkTestFile:
     def get_compiled_fif_filename(self):
         return self.artifacts_folder + "/compiled.fif"
 
+    def get_compiled_abi_filename(self):
+        return self.artifacts_folder + "/compiled.abi.json"
+
     def get_runner_fif_filename(self):
         return self.artifacts_folder + "/runner.fif"
 
     def run_and_check(self):
         cmd_args = ([TOLK_EXECUTABLE, "-o", self.get_compiled_fif_filename(),
-                     "--no-contract-abi", "--no-source-maps"]
+                     "--no-source-maps"]
                     + self.more_cmd_line_options)
+        if not self.abi_json:
+            cmd_args += ["--no-contract-abi"]
         if not self.enable_tolk_lines_comments:
             cmd_args = cmd_args + ["--no-line-comments"]
         res = subprocess.run(cmd_args + [self.tolk_filename], capture_output=True, timeout=10)
@@ -395,10 +409,27 @@ class TolkTestFile:
             for fif_codegen in self.fif_codegen:
                 fif_codegen.check(fif_output)
 
+        if len(self.abi_json):
+            with open(self.get_compiled_abi_filename()) as fd:
+                abi_output = json.dumps(json.load(fd), indent=2).splitlines()
+            for abi_json in self.abi_json:
+                abi_json.check(abi_output)
+
         if self.expected_hash is not None:
             self.expected_hash.check(fif_code_hash)
 
         return gas_used
+
+
+def does_fif_differ(file1: List[str], file2: List[str]) -> bool:
+    if len(file1) != len(file2):
+        return True
+    for i in range(len(file1)):
+        cmd1, comment1 = TolkTestCaseFifCodegen.split_line_to_cmd_and_comment(file1[i])
+        cmd2, comment2 = TolkTestCaseFifCodegen.split_line_to_cmd_and_comment(file2[i])
+        if cmd1 != cmd2:
+            return True
+    return False
 
 
 def run_all_tests(tests: List[str]):
@@ -407,20 +438,35 @@ def run_all_tests(tests: List[str]):
         tolk_filename = tests[ti]
         print("Running test %d/%d: %s" % (ti + 1, len(tests), os.path.basename(tolk_filename)), file=sys.stderr)
 
-        artifacts_folder = os.path.join(TMP_DIR, tolk_filename)
+        artifacts_folder = os.path.join(ARTIFACTS_DIR, tolk_filename)
         testcase = TolkTestFile(tolk_filename, artifacts_folder)
         try:
+            compiled_fif_filename = testcase.get_compiled_fif_filename()
+            prev_fif_filename = compiled_fif_filename + ".prev"
+            prev_fif_exists = False
+
             if not os.path.exists(artifacts_folder):
                 os.makedirs(artifacts_folder)
+            elif os.path.exists(compiled_fif_filename):
+                shutil.copy2(compiled_fif_filename, prev_fif_filename)
+                prev_fif_exists = True
+
             testcase.parse_input_from_tolk_file()
             gas_used = testcase.run_and_check()
-            shutil.rmtree(artifacts_folder)
             total_gas_used += gas_used
+            if ARTIFACTS_IS_TMPDIR:
+                shutil.rmtree(artifacts_folder)
 
             if testcase.compilation_should_fail:
                 print("  OK, stderr match", file=sys.stderr)
             else:
+                fif_has_diff = False
+                if prev_fif_exists:
+                    with open(prev_fif_filename, 'r') as prev_file, open(compiled_fif_filename, 'r') as compiled_file:
+                        fif_has_diff = does_fif_differ(prev_file.readlines(), compiled_file.readlines())
                 print("  OK, %d cases" % (len(testcase.input_output)), file=sys.stderr)
+                if fif_has_diff:
+                    print("    FIF HAS DIFF in %s" % os.path.basename(tolk_filename), file=sys.stderr)
         except ParseInputError as e:
             print("  Error parsing input (cur line #%d):" % (testcase.line_idx + 1), e, file=sys.stderr)
             exit(2)

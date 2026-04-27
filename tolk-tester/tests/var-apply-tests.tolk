@@ -207,7 +207,7 @@ fun check_assoc_2(a: int, b: MInt, c: MIntN): bool {
 @method_id(112)
 fun testApplyGlobalVar(x: int, y: int, z: int): bool? {
   op = `_+_`;
-  if (0) { return null; }
+  if (false) { return null; }
   return check_assoc_2(x, y, z);
 }
 

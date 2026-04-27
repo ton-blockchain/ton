@@ -121,6 +121,9 @@ static AliasDefPtr register_type_alias(V<ast_type_alias_declaration> v, AliasDef
   if (name.empty()) {
     name = v_ident->name;
   }
+  if (name == "T") {
+    err("`T` is a reserved system name for generics").fire(v_ident);
+  }
   const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
   AliasDefData* a_sym = new AliasDefData(std::move(name), v_ident, v->underlying_type_node, genericTs, substitutedTs, v);
   a_sym->base_alias_ref = base_alias_ref;   // for `Response<int>`, here is `Response<T>`
@@ -172,7 +175,7 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
         err("redeclaration of field `{}`", field_name).fire(v_field);
       }
     }
-    fields.emplace_back(new StructFieldData(std::move(field_name), v_ident, i, v_field->is_private, v_field->is_readonly, v_field->type_node, v_field->default_value, DocCommentLines(v_field->doc_lines)));
+    fields.emplace_back(new StructFieldData(std::move(field_name), v_ident, i, v_field->is_private, v_field->is_readonly, v_field->type_node, v_field->abi_type_node, v_field->default_value, DocCommentLines(v_field->doc_lines)));
   }
   if (fields.size() >= 64) {
     err("too big struct (64 or more fields)").fire(v->get_identifier());
@@ -202,7 +205,7 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
     name = v_ident->name;
   }
   const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
-  StructData* s_sym = new StructData(std::move(name), v_ident, std::move(fields), opcode, v->overflow1023_policy, DocCommentLines(v->doc_lines), v->abi_minimalMsgValue, v->abi_preferredSendMode, genericTs, substitutedTs, v);
+  StructData* s_sym = new StructData(std::move(name), v_ident, std::move(fields), opcode, v->overflow1023_policy, DocCommentLines(v->doc_lines), genericTs, substitutedTs, v);
   s_sym->base_struct_ref = base_struct_ref;   // for `Container<int>`, here is `Container<T>`
 
   G.symtable.add_global_symbol(s_sym);

@@ -130,6 +130,13 @@ const shape1: [int, bool, int32] = [5, false, 7];
 const shape2: [int, (int, bool), Point?, Point?, ()] = [5, (6, true), {}, null, ()]
 const shape1_tens = (shape1.0, shape1.1);
 
+const nul_arr_i: array<int>? = [1]
+const nul_list_i: lisp_list<int>? = [1]
+const nul_list_i_n: lisp_list<int>? = null
+const coins_or_int8: coins | int8 = Wrapper { item: ton("0.05") }.item
+const arr_or_int: array<int> | int = []
+
+
 fun iget240(): MInt { return int240; }
 
 @pure
@@ -280,6 +287,19 @@ fun test22() {
     return (str1.beginParse().remainingBitsCount(), str3.remainingBitsCount());
 }
 
+@method_id(123)
+fun test123() {
+    return (nul_arr_i!, nul_list_i!, 777, nul_list_i_n)
+}
+
+@method_id(124)
+fun test124() {
+    return (
+        match (val ii = arr_or_int) { array<int> => ii.size(), int => ii },
+        match (val ii = coins_or_int8) { int8 => 0, coins => ii as int },
+    )
+}
+
 fun main() {
     var i1: int = iget1();
     var i2: int = iget2();
@@ -293,9 +313,9 @@ fun main() {
     var s2: slice = sget2();
     var s3: slice = newc().stslicer(str1.beginParse()).stslicer(str2r).endcs();
 
-    assert(sdeq(s1, newc().storeUint(str1int, 12 * nibbles).endcs())) throw int111;
-    assert(sdeq(s2, newc().storeUint(str2int, 6 * nibbles).endcs())) throw 112;
-    assert(sdeq(s3, newc().storeUint(0x636f6e737431AABBCC, 18 * nibbles).endcs())) throw 113;
+    assert(sdeq(s1, newc().storeUint(str1int, 12 * nibbles).endcs()) != 0) throw int111;
+    assert(sdeq(s2, newc().storeUint(str2int, 6 * nibbles).endcs()) != 0) throw 112;
+    assert(sdeq(s3, newc().storeUint(0x636f6e737431AABBCC, 18 * nibbles).endcs()) != 0) throw 113;
 
     var i4: int = iget240();
     assert(i4 == 240) throw ((104));
@@ -326,6 +346,8 @@ fun main() {
 @testcase | 120 |   | [ 5 0 7 ] [ 5 [ 6 -1 ] [ 10 20 typeid-3 ] [ (null) (null) 0 ] [] ] 5 0
 @testcase | 121 |   | (null) (null) 0 
 @testcase | 122 |   | 48 64
+@testcase | 123 |   | [ 1 ] [ 1 (null) ] 777 (null) 0
+@testcase | 124 |   | 0 50000000
 
-@code_hash 67723149647754803618590559478221789890530509010341373926517429131762844790728
+@code_hash 13955119615180376444461621475707027934285712205442831696761113625688315555670
 */

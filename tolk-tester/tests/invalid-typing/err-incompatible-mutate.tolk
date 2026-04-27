@@ -2,7 +2,7 @@
 // various tests when `f(mutate arg)` is incompatible
 
 fun incrementOrSetNull(mutate x: int?) {
-    if (random.uint256()) { x! += 1; }
+    if (random.uint256() != 0) { x! += 1; }
     else { x = null; }
 }
 

@@ -237,7 +237,7 @@ class ASTReplicator final {
     return createV<ast_parameter_list>(v->range, clone(v->get_params()));
   }
   static V<ast_struct_field> clone(V<ast_struct_field> v) {
-    return createV<ast_struct_field>(v->range, clone(v->get_identifier()), v->doc_lines, v->is_private, v->is_readonly, v->default_value ? clone(v->default_value) : nullptr, clone(v->type_node));
+    return createV<ast_struct_field>(v->range, clone(v->get_identifier()), v->doc_lines, v->is_private, v->is_readonly, v->default_value ? clone(v->default_value) : nullptr, clone(v->type_node), clone(v->abi_type_node));
   }
   static V<ast_struct_body> clone(V<ast_struct_body> v) {
     return createV<ast_struct_body>(v->range, clone(v->get_all_fields()));
@@ -359,8 +359,6 @@ public:
       new_name_ident,
       clone(v_orig->genericsT_list),
       v_orig->doc_lines,
-      v_orig->abi_minimalMsgValue ? clone(v_orig->abi_minimalMsgValue) : nullptr,
-      v_orig->abi_preferredSendMode ? clone(v_orig->abi_preferredSendMode) : nullptr,
       v_orig->overflow1023_policy,
       v_orig->has_opcode() ? static_cast<AnyExprV>(clone(v_orig->get_opcode())) : createV<ast_empty_expression>(v_orig->range),
       clone(v_orig->get_struct_body())

@@ -360,6 +360,34 @@ static AnyTypeV parse_type_from_tokens(Lexer& lex) {
 AnyExprV parse_expr(Lexer& lex);
 AnyV parse_statement(Lexer& lex);
 
+static AnyExprV parse_annotation_expr_arg(Lexer& lex, SrcRange& out_range) {
+  out_range = lex.range_start();
+  lex.expect(tok_oppar, "`(`");
+  std::vector<AnyExprV> args;
+  args.push_back(parse_expr(lex));
+  while (lex.tok() == tok_comma) {
+    lex.next();
+    if (lex.tok() == tok_clpar) {   // trailing comma
+      break;
+    }
+    args.push_back(parse_expr(lex));
+  }
+  lex.check(tok_clpar, "`)`");
+  out_range.end(lex.cur_range());
+  lex.next();
+  return args.size() == 1 ? args.front() : createV<ast_tensor>(out_range, std::move(args));
+}
+
+static AnyTypeV parse_annotation_type_arg(Lexer& lex, SrcRange& out_range) {
+  out_range = lex.range_start();
+  lex.expect(tok_oppar, "`(`");
+  AnyTypeV arg = parse_type_from_tokens(lex);
+  lex.check(tok_clpar, "`)`");
+  out_range.end(lex.cur_range());
+  lex.next();
+  return arg;
+}
+
 static V<ast_annotation> parse_annotation(Lexer& lex) {
   SrcRange range = lex.cur_range();
   lex.check(tok_annotation_at, "`@`");
@@ -367,24 +395,10 @@ static V<ast_annotation> parse_annotation(Lexer& lex) {
   AnnotationKind kind = Vertex<ast_annotation>::parse_kind(name);
   lex.next();
 
-  V<ast_tensor> v_arg = nullptr;
-  if (lex.tok() == tok_oppar) {
-    SrcRange range_args = lex.range_start();
-    lex.next();
-    std::vector<AnyExprV> args;
-    args.push_back(parse_expr(lex));
-    while (lex.tok() == tok_comma) {
-      lex.next();
-      if (lex.tok() == tok_clpar) {   // trailing comma
-        break;
-      }
-      args.push_back(parse_expr(lex));
-    }
-    lex.check(tok_clpar, "`)`");
-    range_args.end(lex.cur_range());
-    v_arg = createV<ast_tensor>(range_args, std::move(args));
-    lex.next();
-  }
+  SrcRange range_args = SrcRange::empty_at_end(range);
+  bool parse_as_type = kind == AnnotationKind::abi_clientType;
+  AnyExprV v_expr_arg = !parse_as_type && lex.tok() == tok_oppar ? parse_annotation_expr_arg(lex, range_args) : nullptr;
+  AnyTypeV v_type_arg =  parse_as_type && lex.tok() == tok_oppar ? parse_annotation_type_arg(lex, range_args) : nullptr;
 
   switch (kind) {
     case AnnotationKind::unknown:
@@ -393,38 +407,33 @@ static V<ast_annotation> parse_annotation(Lexer& lex) {
     case AnnotationKind::inline_ref:
     case AnnotationKind::noinline:
     case AnnotationKind::pure:
-      if (v_arg) {
+      if (v_expr_arg || v_type_arg) {
         err("arguments aren't allowed for {}", name).fire(range);
       }
-      v_arg = createV<ast_tensor>(range, {});
       break;
     case AnnotationKind::custom:
       // allowed with and without arguments; it's for IDE and tooling, not for the compiler
       break;
     case AnnotationKind::method_id:
-      if (!v_arg || v_arg->size() != 1 || v_arg->get_item(0)->kind != ast_int_const) {
+      if (!v_expr_arg || v_expr_arg->kind != ast_int_const) {
         err("expecting `(number)` after {}", name).fire(range);
       }
       break;
     case AnnotationKind::overflow1023_policy:
     case AnnotationKind::on_bounced_policy:
-      if (!v_arg || v_arg->size() != 1 || v_arg->get_item(0)->kind != ast_string_const) {
+      if (!v_expr_arg || v_expr_arg->kind != ast_string_const) {
         err("expecting `(\"policy_name\")` after {}", name).fire(range);
       }
       break;
-    case AnnotationKind::abi_minimalMsgValue:
-    case AnnotationKind::abi_preferredSendMode:
-      if (!v_arg || v_arg->size() != 1) {
-        err("expecting `(expression)` after {}", name).fire(range);
+    case AnnotationKind::abi_clientType:
+      if (!v_type_arg) {
+        err("expecting `(<type>)` after {}", name).fire(range);
       }
       break;
   }
 
-  if (v_arg == nullptr) {
-    v_arg = createV<ast_tensor>(SrcRange::empty_at_end(range), {});
-  }
-  range.end(v_arg->range);
-  return createV<ast_annotation>(range, name, kind, v_arg);
+  range.end(range_args);
+  return createV<ast_annotation>(range, name, kind, v_expr_arg, v_type_arg);
 }
 
 struct AnnotationsAbove {
@@ -457,8 +466,7 @@ struct AnnotationsAbove {
   void parse_and_append(Lexer& lex) {
     V<ast_annotation> v_annotation = parse_annotation(lex);
 
-    bool deny_duplicates = v_annotation->kind == AnnotationKind::abi_minimalMsgValue
-                        || v_annotation->kind == AnnotationKind::abi_preferredSendMode;
+    bool deny_duplicates = v_annotation->kind == AnnotationKind::abi_clientType;
     if (deny_duplicates) {
       for (V<ast_annotation> existing : above) {
         if (existing->kind == v_annotation->kind) {
@@ -1786,7 +1794,7 @@ static AnyV parse_function_declaration(Lexer& lex, AnnotationsAbove& annotations
         if (is_contract_getter || genericsT_list || receiver_type || is_entrypoint || n_mutate_params || accepts_self) {
           err("@method_id can be specified only for regular functions").fire(v_annotation);
         }
-        auto v_int = v_annotation->get_arg()->get_item(0)->as<ast_int_const>();
+        auto v_int = v_annotation->expr_arg->as<ast_int_const>();
         if (v_int->intval.is_null() || !v_int->intval->signed_fits_bits(32)) {
           err("invalid integer constant").fire(v_int);
         }
@@ -1794,7 +1802,7 @@ static AnyV parse_function_declaration(Lexer& lex, AnnotationsAbove& annotations
         break;
       }
       case AnnotationKind::on_bounced_policy: {
-        std::string_view str = v_annotation->get_arg()->get_item(0)->as<ast_string_const>()->str_val;
+        std::string_view str = v_annotation->expr_arg->as<ast_string_const>()->str_val;
         if (str == "manual") {
           flags |= FunctionData::flagManualOnBounce;
         } else {
@@ -1889,15 +1897,19 @@ static AnyV parse_struct_field(Lexer& lex) {
     range.end(default_value->range);
   }
 
+  AnyTypeV abi_type_node = nullptr;
   for (auto v_annotation : annotations.above) {
     switch (v_annotation->kind) {
+      case AnnotationKind::abi_clientType:
+        abi_type_node = v_annotation->type_arg;
+        break;
       default:
         err("this annotation is not applicable to a field").fire(v_annotation);
     }
   }
 
   DocCommentLines doc_lines = annotations.flush();
-  return createV<ast_struct_field>(range, v_ident, doc_lines, is_private, is_readonly, default_value, declared_type);
+  return createV<ast_struct_field>(range, v_ident, doc_lines, is_private, is_readonly, default_value, declared_type, abi_type_node);
 }
 
 static V<ast_struct_body> parse_struct_body(Lexer& lex, V<ast_identifier> name_ident) {
@@ -1950,19 +1962,11 @@ static AnyV parse_struct_declaration(Lexer& lex, AnnotationsAbove& annotations) 
     genericsT_list = parse_genericsT_list(lex);
   }
 
-  AnyExprV abi_minimalMsgValue = nullptr;
-  AnyExprV abi_preferredSendMode = nullptr;
   StructData::Overflow1023Policy overflow1023_policy = StructData::Overflow1023Policy::not_specified;
   for (auto v_annotation : annotations.above) {
     switch (v_annotation->kind) {
-      case AnnotationKind::abi_minimalMsgValue:
-        abi_minimalMsgValue = v_annotation->get_arg()->get_item(0);
-        break;
-      case AnnotationKind::abi_preferredSendMode:
-        abi_preferredSendMode = v_annotation->get_arg()->get_item(0);
-        break;
       case AnnotationKind::overflow1023_policy: {
-        std::string_view str = v_annotation->get_arg()->get_item(0)->as<ast_string_const>()->str_val;
+        std::string_view str = v_annotation->expr_arg->as<ast_string_const>()->str_val;
         if (str == "suppress") {
           overflow1023_policy = StructData::Overflow1023Policy::suppress;
         } else {
@@ -1978,7 +1982,7 @@ static AnyV parse_struct_declaration(Lexer& lex, AnnotationsAbove& annotations) 
   auto body = parse_struct_body(lex, v_ident);
   range.end(body->range);
   DocCommentLines doc_lines = annotations.flush();
-  return createV<ast_struct_declaration>(range, v_ident, genericsT_list, doc_lines, abi_minimalMsgValue, abi_preferredSendMode, overflow1023_policy, opcode, body);
+  return createV<ast_struct_declaration>(range, v_ident, genericsT_list, doc_lines, overflow1023_policy, opcode, body);
 }
 
 static AnyV parse_enum_member(Lexer& lex, DocCommentLines doc_lines) {
@@ -2148,6 +2152,10 @@ AnyV parse_src_file_to_ast(SrcFilePtr file) {
       default:
         lex.unexpected("top-level declaration");
     }
+  }
+
+  if (lex.tok() != tok_eof) {   // if some token exists in the end without line terminator
+    lex.unexpected("top-level declaration");
   }
 
   range.end(toplevel_declarations.empty() ? lex.cur_range() : toplevel_declarations.back()->range);

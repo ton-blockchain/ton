@@ -18,7 +18,6 @@ type bool = builtin
 /// `cell` is a data structure, which can hold of up to 1023 bits (not bytes!)
 /// and up to 4 references (refs) to other cells.
 /// Both contract code and contract state are represented by a tree of cells.
-/// [See docs](https://docs.ton.org/v3/documentation/data-formats/tlb/cell-boc)
 type cell = builtin
 
 /// `slice` is a "cell opened for reading".
@@ -43,7 +42,7 @@ type continuation = builtin
 /// When set to `null`, `address?` will be serialized as '00' ("none address"):
 /// '00' (two zero bits) is a standard representation of a "missing" ("none") address.
 /// At the TVM level, addresses are slices, so it's possible to  `someAddress as slice`.
-/// [See docs](https://docs.ton.org/learn/overviews/addresses#address-of-smart-contract)
+/// [See docs](https://docs.ton.org/foundations/addresses/overview)
 type address = builtin
 
 /// `any_address` represents an internal/external/none address.
@@ -51,7 +50,7 @@ type address = builtin
 /// If you wish to describe "internal or none address", use `address?` (nullable)
 /// instead of "any". That's why `any_address` is used in practice extremely rarely.
 /// At the TVM level, addresses are slices, so it's possible to  `anyAddress as slice`.
-/// [See docs](https://docs.ton.org/learn/overviews/addresses#address-of-smart-contract)
+/// [See docs](https://docs.ton.org/foundations/addresses/overview)
 type any_address = builtin
 
 /// `never` is a special type that represents computations that never complete normally.
@@ -187,6 +186,7 @@ type void = builtin
 /// ```
 /// Note, that `st = MyStorage.fromSlice(s)` does NOT deep-load any refs; `st.extra` is `Cell<T>`, not `T`;
 /// you should manually call `st.extra.load()` to get `T` (ExtraData in this example).
+/// Typed cells are comparable with `==` and `!=`, just like raw `cell`.
 struct Cell<T> {
     private readonly tvmCell: cell
 }
@@ -670,14 +670,14 @@ fun slice.bitsHash(self): uint256
 fun cell.hashEqual(self, another: cell): bool
     asm "HASHCU" "SWAP" "HASHCU" "EQUAL"
 
-/// Checks the Ed25519-`signature` of a `hash` (a 256-bit unsigned integer, usually computed as the hash of some data)
+/// Checks the Ed25519-`signature` of a `hash` (uint256, usually computed as the hash of some data)
 /// using `publicKey` (also represented by a 256-bit unsigned integer).
 /// The signature must contain at least 512 data bits; only the first 512 bits are used.
 /// Note that `CHKSIGNU` creates a 256-bit slice with the hash and calls `CHKSIGNS`.
 /// That is, if parameter `hash` is computed as the hash of some data, these data are hashed twice,
 /// the second hashing occurring inside `CHKSIGNS`.
 @pure
-fun isSignatureValid(hash: int, signature: slice, publicKey: int): bool
+fun isSignatureValid(hash: uint256, signature: slice, publicKey: uint256): bool
     asm "CHKSIGNU"
 
 /// Checks whether `signature` is a valid Ed25519-signature of the data portion of slice `data` using `publicKey`,
@@ -717,8 +717,9 @@ fun random.setSeed(seed: uint256): void
 fun random.initializeBy(mixSeedWith: uint256): void
     asm "ADDRAND"
 
-/// Initializes random seed with current time to make random generation unpredictable.
-/// Typically, you call this function once before calling [random.uint256] / [random.range].
+/// Mixes the random seed with this transaction's logical time ([blockchain.logicalTime], asm `LTIME`).
+/// LTIME is the network ordering value for this transaction (not unixtime).
+/// Typically, call once before [random.uint256] / [random.range].
 fun random.initialize(): void
     asm "LTIME" "ADDRAND"
 
@@ -1567,7 +1568,7 @@ const SEND_MODE_REGULAR = 0
 const SEND_MODE_PAY_FEES_SEPARATELY = 1
 /// +2 means that any errors arising while processing this message during the action phase should be ignored.
 const SEND_MODE_IGNORE_ERRORS = 2
-/// in the case of action fail - bounce transaction. No effect if SEND_MODE_IGNORE_ERRORS (+2) is used. [TVM UPGRADE 2023-07](https://docs.ton.org/learn/tvm-instructions/tvm-upgrade-2023-07#sending-messages)
+/// in the case of action fail - bounce transaction. No effect if SEND_MODE_IGNORE_ERRORS (+2) is used.
 const SEND_MODE_BOUNCE_ON_ACTION_FAIL = 16
 /// mode = 32 means that the current account must be destroyed if its resulting balance is zero.
 const SEND_MODE_DESTROY = 32
@@ -1575,7 +1576,7 @@ const SEND_MODE_DESTROY = 32
 const SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE = 64
 /// mode = 128 is used for messages that are to carry all the remaining balance of the current smart contract (instead of the value originally indicated in the message).
 const SEND_MODE_CARRY_ALL_BALANCE = 128
-/// do not create an action, only estimate fee. [TVM UPGRADE 2023-07](https://docs.ton.org/learn/tvm-instructions/tvm-upgrade-2023-07#sending-messages)
+/// do not create an action, only estimate fee.
 const SEND_MODE_ESTIMATE_FEE_ONLY = 1024
 /// Other modes affect the fee calculation as follows:
 /// +64 substitutes the entire balance of the incoming message as an outgoing value (slightly inaccurate, gas expenses that cannot be estimated before the computation is completed are not taken into account).

@@ -20,7 +20,7 @@ fun Point.create0(): Point {
 
 @method_id(101)
 fun test101(x: int) {
-    return (x ? 2 : 1, x == 5 ? TWO : 1);
+    return (x != 0 ? 2 : 1, x == 5 ? TWO : 1);
 }
 
 @method_id(102)
@@ -30,7 +30,7 @@ fun test102(x: int?) {
 
 @method_id(103)
 fun test103(x: bool) {
-    if (x ? -1 : +1) {
+    if ((x ? -1 : +1) != 0) {
         return x ? -2 : +2;
     }
     throw 123;
@@ -38,7 +38,7 @@ fun test103(x: bool) {
 
 @method_id(104)
 fun test104(x: (int, int)) {
-    return x.0 ? true : null;
+    return x.0 != 0 ? true : null;
 }
 
 @method_id(105)
@@ -61,7 +61,7 @@ fun test106() {
 
 @noinline
 fun helper107(t: (int, Point)) {
-    return t.0 ? t.0 : t.1.y;
+    return t.0 != 0 ? t.0 : t.1.y;
 }
 
 @method_id(107)
@@ -253,9 +253,16 @@ fun main() {}
 @fif_codegen
 """
   test103() PROC:<{
-    -2 PUSHINT
-    2 PUSHINT
+    DUP
+    -1 PUSHINT
+    1 PUSHINT
     CONDSEL
+    IFJMP:<{
+      -2 PUSHINT
+      2 PUSHINT
+      CONDSEL
+    }>
+    123 THROW
   }>
 """
 

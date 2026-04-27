@@ -1353,6 +1353,9 @@ static AsmOp compile_debug_print_to_string(std::vector<VarDescr>&, std::vector<V
 static AsmOp compile_T_to_tuple(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 1);
   int n_slots = static_cast<int>(args.size());
+  if (UNLIKELY(n_slots >= 255)) {
+    err("tuple overflow").fire(origin);
+  }
   std::string op_make_tuple = std::to_string(n_slots) + (n_slots > 15 ? " PUSHINT TUPLEVAR" : " TUPLE");  
   return exec_op(origin, op_make_tuple, n_slots, 1);
 }
@@ -1361,6 +1364,9 @@ static AsmOp compile_T_to_tuple(std::vector<VarDescr>& res, std::vector<VarDescr
 static AsmOp compile_T_from_tuple(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(args.size() == 1);
   int n_slots = static_cast<int>(res.size());
+  if (UNLIKELY(n_slots >= 255)) {
+    err("tuple overflow").fire(origin);
+  }
   std::string op_un_tuple = std::to_string(n_slots) + (n_slots > 15 ? " PUSHINT UNTUPLEVAR" : " UNTUPLE");  
   return exec_op(origin, op_un_tuple, 1, n_slots);
 }
@@ -2045,21 +2051,21 @@ void patch_builtins_after_stdlib_loaded() {
   lookup_function("debug.dumpStack")->mutate()->receiver_type = debug;
 
   const Symbol* sym_reflect = lookup_global_symbol("reflect");
-  if (sym_reflect) {   // if `@stdlib/reflect` was imported from somewhere (it couldn't be used without import)
-    TypePtr reflect = TypeDataStruct::create(sym_reflect->try_as<StructPtr>());
-    lookup_function("reflect.typeNameOf")->mutate()->receiver_type = reflect;
-    lookup_function("reflect.typeNameOfObject")->mutate()->receiver_type = reflect;
-    lookup_function("reflect.stackSizeOf")->mutate()->receiver_type = reflect;
-    lookup_function("reflect.stackSizeOfObject")->mutate()->receiver_type = reflect;
-    lookup_function("reflect.serializationPrefixOf")->mutate()->receiver_type = reflect;
-    lookup_function("reflect.estimateSerializationOf")->mutate()->receiver_type = reflect;
+  bool reflect_imported = sym_reflect && sym_reflect->ident_anchor->range.get_src_file()->is_stdlib_file;
+  TypePtr reflect = reflect_imported ? TypeDataStruct::create(sym_reflect->try_as<StructPtr>()) : TypeDataNever::create();
+  const Symbol* sym_SourceLocation = lookup_global_symbol("SourceLocation");
+  TypePtr SourceLocation = reflect_imported ? TypeDataStruct::create(sym_SourceLocation->try_as<StructPtr>()) : TypeDataNever::create();
 
-    StructPtr struct_ref_SourceLocation = lookup_global_symbol("SourceLocation")->try_as<StructPtr>();
-    TypePtr SourceLocation = TypeDataStruct::create(struct_ref_SourceLocation);
-    lookup_function("reflect.sourceLocation")->mutate()->declared_return_type = SourceLocation;
-    lookup_function("reflect.sourceLocation")->mutate()->receiver_type = reflect;
-    lookup_function("reflect.sourceLocationAsString")->mutate()->receiver_type = reflect;
-  }
+  lookup_function("reflect.typeNameOf")->mutate()->receiver_type = reflect;
+  lookup_function("reflect.typeNameOfObject")->mutate()->receiver_type = reflect;
+  lookup_function("reflect.stackSizeOf")->mutate()->receiver_type = reflect;
+  lookup_function("reflect.stackSizeOfObject")->mutate()->receiver_type = reflect;
+  lookup_function("reflect.serializationPrefixOf")->mutate()->receiver_type = reflect;
+  lookup_function("reflect.estimateSerializationOf")->mutate()->receiver_type = reflect;
+
+  lookup_function("reflect.sourceLocation")->mutate()->declared_return_type = SourceLocation;
+  lookup_function("reflect.sourceLocation")->mutate()->receiver_type = reflect;
+  lookup_function("reflect.sourceLocationAsString")->mutate()->receiver_type = reflect;
 
   StructPtr struct_ref_AddressShardingOptions = lookup_global_symbol("AddressShardingOptions")->try_as<StructPtr>();
   StructPtr struct_ref_AutoDeployAddress = lookup_global_symbol("AutoDeployAddress")->try_as<StructPtr>();

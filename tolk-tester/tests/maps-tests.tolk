@@ -40,6 +40,12 @@ enum HashMode: uint16 {
     TotalHash = 255,
 }
 
+enum SignedKey: int8 {
+    Neg = -1,
+    Zero = 0,
+    Pos = 1,
+}
+
 fun map<K, V>.calculateSize(self) {
     var size = 0;
     var r = self.findFirst();
@@ -48,6 +54,11 @@ fun map<K, V>.calculateSize(self) {
         r = self.iterateNext(r);
     }
     return size;
+}
+
+struct SSSet<T> {
+    // SSSet<T> is not initialized, check that generic T as a key does not trigger errors
+    private m: map<T, ()>
 }
 
 
@@ -611,6 +622,23 @@ fun test45() {
     )
 }
 
+@method_id(146)
+fun test46() {
+    var m: map<SignedKey, int8> = [];
+    m.set(SignedKey.Zero, 20);
+    m.set(SignedKey.Pos, 30);
+    m.set(SignedKey.Neg, 10);
+
+    var r = m.findFirst();
+    val a = r.getKey();
+    r = m.iterateNext(r);
+    val b = r.getKey();
+    r = m.iterateNext(r);
+    val c = r.getKey();
+    __expect_type(c, "SignedKey");
+    return (a, b, c);
+}
+
 
 fun main() {
     __expect_type(createEmptyMap<int8, (int32, int64)>, "() -> map<int8, (int32, int64)>");
@@ -663,6 +691,7 @@ fun main() {
 @testcase | 143 |            | [ 23 [ 24 (null) ] ] [ 5 (null) ] (null)
 @testcase | 144 |            | [ 1 2 3 4 5 6 7 ]
 @testcase | 145 |            | -1 1 8 1 3
+@testcase | 146 |            | -1 0 1
 
 @fif_codegen
 """

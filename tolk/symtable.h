@@ -202,6 +202,9 @@ struct FunctionData final : Symbol {
   bool is_method() const { return !method_name.empty(); }
   bool is_static_method() const { return is_method() && !does_accept_self(); }
 
+  bool is_packToBuilder() const { return method_name == "packToBuilder"; }
+  bool is_unpackFromSlice() const { return method_name == "unpackFromSlice"; }
+
   bool is_generic_function() const { return genericTs != nullptr; }
   bool is_instantiation_of_generic_function() const { return substitutedTs != nullptr; }
   bool is_lambda() const { return flags & flagIsLambda; }
@@ -313,6 +316,8 @@ struct StructFieldData final : Symbol {
   bool is_readonly;
   AnyTypeV type_node;
   TypePtr declared_type = nullptr;      // = resolved type_node
+  AnyTypeV abi_type_node = nullptr;     // @abi.clientType(<type>) if exists
+  TypePtr abi_client_type = nullptr;    // = resolved abi_type_node
   AnyExprV default_value;               // nullptr if no default
   DocCommentLines doc_lines;
 
@@ -320,14 +325,16 @@ struct StructFieldData final : Symbol {
 
   StructFieldData* mutate() const { return const_cast<StructFieldData*>(this); }
   void assign_resolved_type(TypePtr declared_type);
+  void assign_resolved_abi_type(TypePtr abi_client_type);
   void assign_default_value(AnyExprV default_value);
 
-  StructFieldData(std::string name, AnyV ident_anchor, int field_idx, bool is_private, bool is_readonly, AnyTypeV type_node, AnyExprV default_value, DocCommentLines doc_lines)
+  StructFieldData(std::string name, AnyV ident_anchor, int field_idx, bool is_private, bool is_readonly, AnyTypeV type_node, AnyTypeV abi_type_node, AnyExprV default_value, DocCommentLines doc_lines)
     : Symbol(std::move(name), ident_anchor)
     , field_idx(field_idx)
     , is_private(is_private)
     , is_readonly(is_readonly)
     , type_node(type_node)
+    , abi_type_node(abi_type_node)
     , default_value(default_value)
     , doc_lines(std::move(doc_lines)) {
   }
@@ -347,6 +354,7 @@ struct StructData final : Symbol {
       : pack_prefix(pack_prefix), prefix_len(prefix_len) {}
 
     bool exists() const { return prefix_len != 0; }
+    bool operator==(const PackOpcode& rhs) const { return pack_prefix == rhs.pack_prefix && prefix_len == rhs.prefix_len; }
 
     std::string format_as_string(bool as_fift_slice) const;  // "0x..." / "0b..." or "x{...}" / "b{...}"
   };
@@ -355,8 +363,6 @@ struct StructData final : Symbol {
   PackOpcode opcode;
   Overflow1023Policy overflow1023_policy;
   DocCommentLines doc_lines;
-  AnyExprV abi_minimalMsgValue = nullptr;    // from @abi.minimalMsgValue(expr)
-  AnyExprV abi_preferredSendMode = nullptr;  // from @abi.preferredSendMode(expr)
 
   const GenericsDeclaration* genericTs;
   const GenericsSubstitutions* substitutedTs;
@@ -377,14 +383,12 @@ struct StructData final : Symbol {
   StructData* mutate() const { return const_cast<StructData*>(this); }
   void assign_resolved_genericTs(const GenericsDeclaration* genericTs);
 
-  StructData(std::string name, AnyV ident_anchor, std::vector<StructFieldPtr>&& fields, PackOpcode opcode, Overflow1023Policy overflow1023_policy, DocCommentLines doc_lines, AnyExprV abi_minimalMsgValue, AnyExprV abi_preferredSendMode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
+  StructData(std::string name, AnyV ident_anchor, std::vector<StructFieldPtr>&& fields, PackOpcode opcode, Overflow1023Policy overflow1023_policy, DocCommentLines doc_lines, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
     : Symbol(std::move(name), ident_anchor)
     , fields(std::move(fields))
     , opcode(opcode)
     , overflow1023_policy(overflow1023_policy)
     , doc_lines(std::move(doc_lines))
-    , abi_minimalMsgValue(abi_minimalMsgValue)
-    , abi_preferredSendMode(abi_preferredSendMode)
     , genericTs(genericTs)
     , substitutedTs(substitutedTs)
     , ast_root(ast_root) {

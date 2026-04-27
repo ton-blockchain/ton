@@ -58,7 +58,7 @@ fun main(x: int?) {
     var iors: int | string = x ?? "asdf" ?? null;
     var i32or: int32 | int64 | null = ([x].get(0) as unknown as int32?) ?? 8 as int64;
 
-    if (0) {
+    if (false) {
         __expect_type(alwaysThrow() ?? 6, "never");
     }
     return (iors is int, i32or is int32, i32or);

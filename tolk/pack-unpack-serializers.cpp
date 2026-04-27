@@ -43,11 +43,25 @@ std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, Ty
 std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr original_type, TypePtr target_type, AnyV origin);
 std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, AnyV origin, FunctionPtr f_inlined, AnyExprV self_obj, bool is_before_immediate_return, const std::vector<std::vector<var_idx_t>>& vars_per_arg);
 
-bool is_type_cellT(TypePtr any_type) {
-  if (const TypeDataStruct* t_struct = any_type->try_as<TypeDataStruct>()) {
-    return t_struct->struct_ref->is_instantiation_of_CellT();
+static std::vector<MethodCallCandidate> filter_pack_candidates(TypePtr receiver_type, std::vector<MethodCallCandidate> candidates) {
+  if (candidates.size() < 2) {
+    return candidates;
   }
-  return false;
+
+  int min_generics = 100;
+  for (const MethodCallCandidate& c : candidates) {
+    int n_generics = c.is_generic() ? c.substitutedTs.size() : 0;
+    min_generics = std::min(min_generics, n_generics);
+  }
+
+  std::vector<MethodCallCandidate> filtered;
+  for (MethodCallCandidate c : candidates) {
+    int n_generics = c.is_generic() ? c.substitutedTs.size() : 0;
+    if (n_generics == min_generics && (n_generics != 0 || c.method_ref->receiver_type->equal_to(receiver_type))) {
+      filtered.emplace_back(std::move(c));
+    }
+  }
+  return filtered;
 }
 
 // Any type alias or struct can have custom pack/unpack functions declared:
@@ -63,26 +77,26 @@ CustomPackUnpackF get_custom_pack_unpack_function(TypePtr receiver_type, std::ve
   // for `fun SomeStruct<T>.packToBuilder`, so that it would be instantiated for T
   std::vector<MethodCallCandidate> c_pack = resolve_methods_for_call(receiver_type, "packToBuilder", false);
   std::vector<MethodCallCandidate> c_unpack = resolve_methods_for_call(receiver_type, "unpackFromSlice", false);
+
+  c_pack = filter_pack_candidates(receiver_type, c_pack);
+  if (c_pack.size() > 1) {
+    err("ambiguous method, both `{}` and `{}` are applicable", c_pack[0].method_ref, c_pack[1].method_ref).fire(c_pack[0].method_ref->ident_anchor);
+  }
+  if (!c_pack.empty()) {
+    f.f_pack = c_pack[0].method_ref;
+  }
+
+  c_unpack = filter_pack_candidates(receiver_type, c_unpack);
+  if (c_unpack.size() > 1) {
+    err("ambiguous method, both `{}` and `{}` are applicable", c_unpack[0].method_ref, c_unpack[1].method_ref).fire(c_unpack[0].method_ref->ident_anchor);
+  }
+  if (!c_unpack.empty()) {
+    f.f_unpack = c_unpack[0].method_ref;
+  }
+
   if (out_candidates) {
     out_candidates->insert(out_candidates->end(), c_pack.begin(), c_pack.end());
     out_candidates->insert(out_candidates->end(), c_unpack.begin(), c_unpack.end());
-  }
-
-  for (const MethodCallCandidate& c : c_pack) {
-    if (!c.is_generic() && c.method_ref->receiver_type->equal_to(receiver_type)) {
-      if (f.f_pack) {
-        err("ambiguous method, both `{}` and `{}` are applicable", f.f_pack, c.method_ref).fire(f.f_pack->ident_anchor);
-      }
-      f.f_pack = c.method_ref;
-    }
-  }
-  for (const MethodCallCandidate& c : c_unpack) {
-    if (!c.is_generic() && c.method_ref->receiver_type->equal_to(receiver_type)) {
-      if (f.f_unpack) {
-        err("ambiguous method, both `{}` and `{}` are applicable", f.f_unpack, c.method_ref).fire(f.f_unpack->ident_anchor);
-      }
-      f.f_unpack = c.method_ref;
-    }
   }
   return f;
 }
@@ -808,8 +822,10 @@ struct S_Either final : ISerializer {
     }
     tolk_assert(options.match_blocks.size() == 2);
     std::vector ir_result = code.create_tmp_var(options.match_expr_type, origin, "(match-expression)");
-    std::vector ir_is_right = ctx->loadUint(1, "(eitherBit)");
-    Op& if_op = code.add_if_else(origin, std::move(ir_is_right));
+    std::vector ir_prefix_eq = code.create_tmp_var(TypeDataInt::create(), origin, "(prefix-eq)");
+    std::vector args = { ctx->ir_slice0, code.create_int(origin, 1, "(pack-prefix)"), code.create_int(origin, 1, "(prefix-len)") };
+    code.add_call(origin, {ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), lookup_function("slice.tryStripPrefix"));
+    Op& if_op = code.add_if_else(origin, ir_prefix_eq);
     {
       code.push_set_cur(if_op.block0);
       const LazyMatchOptions::MatchBlock* m_block = options.find_match_block(t_right);
@@ -819,6 +835,7 @@ struct S_Either final : ISerializer {
     }
     {
       code.push_set_cur(if_op.block1);
+      ctx->loadAndCheckOpcode(PackOpcode(0, 1));
       const LazyMatchOptions::MatchBlock* m_block = options.find_match_block(t_left);
       std::vector ith_result = pre_compile_expr(m_block->v_body, code);
       options.save_match_result_on_arm_end(code, origin, m_block, std::move(ith_result), ir_result);
@@ -1451,6 +1468,24 @@ struct S_CustomReceiverForPackUnpack final : ISerializer {
 // but if some prefixes are specified, some not — it's an error
 //
 
+// Check opcodes within a union are not equal to each other, e.g.
+// > struct (0x1234) A
+// > struct (0x1234) B
+// If so, `because_msg` is filled and shown to a user.
+// Note that we do NOT check that prefixes form a valid prefix tree, because an invalid tree is okay in some cases.
+static void check_opcodes_are_not_equal(const TypeDataUnion* t_union, std::string& because_msg) {
+  for (int i = 0; i < t_union->size(); ++i) {
+    StructPtr lhs_struct = t_union->variants[i]->unwrap_alias()->try_as<TypeDataStruct>()->struct_ref;
+    for (int j = i + 1; j < t_union->size(); ++j) {
+      StructPtr rhs_struct = t_union->variants[j]->unwrap_alias()->try_as<TypeDataStruct>()->struct_ref;
+      if (lhs_struct->opcode == rhs_struct->opcode) {
+        because_msg = "because both structs `" + lhs_struct->as_human_readable() + "` and `" + rhs_struct->as_human_readable() + "` have serialization prefix " + lhs_struct->opcode.format_as_string(false);
+        return;
+      }
+    }
+  }
+}
+
 
 std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std::string& because_msg, bool& tree_auto_generated) {
   const TypeDataUnion* t_union = union_type->try_as<TypeDataUnion>();
@@ -1475,8 +1510,10 @@ std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std:
   }
 
   // `A | B | C`, all of them have opcodes — just use them;
-  // for instance, `A | B` is not either (0/1 + data), but uses manual opcodes
+  // for instance, `A | B` is not either (0/1 + data), but uses manual opcodes;
+  // they must still form a valid prefix tree
   if (n_have_opcode == t_union->size()) {
+    check_opcodes_are_not_equal(t_union, because_msg);
     for (TypePtr variant : t_union->variants) {
       result.push_back(variant->unwrap_alias()->try_as<TypeDataStruct>()->struct_ref->opcode);
     }
@@ -1598,7 +1635,7 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
   if (any_type == TypeDataBool::create()) {
     return std::make_unique<S_Bool>();
   }
-  if (any_type == TypeDataCell::create() || is_type_cellT(any_type)) {
+  if (any_type->is_cell_or_CellT()) {
     return std::make_unique<S_RawTVMcell>();
   }
   if (any_type == TypeDataBuilder::create()) {
@@ -1646,7 +1683,7 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
     // `T?` is always `(Maybe T)`, even if T has custom opcode (opcode will follow bit '1')
     if (t_union->or_null) {
       TypePtr or_null = t_union->or_null->unwrap_alias();
-      if (or_null == TypeDataCell::create() || is_type_cellT(or_null)) {
+      if (or_null->is_cell_or_CellT()) {
         return std::make_unique<S_RawTVMcellOrNull>();
       }
       if (or_null->try_as<TypeDataAddress>() && or_null->try_as<TypeDataAddress>()->is_internal()) {

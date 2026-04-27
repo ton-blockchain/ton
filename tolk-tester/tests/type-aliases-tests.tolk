@@ -31,20 +31,20 @@ fun test1(x: MInt): MVoid {
     __expect_type(~x, "int");
     __expect_type(x as int, "int");
     __expect_type(x as int8, "int8");
-    __expect_type(rand() ? x : y, "MInt");
+    __expect_type(rand() != 0 ? x : y, "MInt");
     __expect_type((x, 1, y), "(MInt, int, MInt)");
 
-    __expect_type(rand() ? (1, 2) : (1, 2) as Pair2_v1, "(int, int)");
-    __expect_type(rand() ? (1, 2) : (1, 2) as Pair2_v2, "(int, int)");
-    __expect_type(rand() ? (1, 2) as Pair2_v1 : (1, 2), "Pair2_v1");
-    __expect_type(rand() ? (1, 2) as Pair2_v2 : (1, 2) as Pair2_v2, "Pair2_v2");
+    __expect_type(rand() != 0 ? (1, 2) : (1, 2) as Pair2_v1, "(int, int)");
+    __expect_type(rand() != 0 ? (1, 2) : (1, 2) as Pair2_v2, "(int, int)");
+    __expect_type(rand() != 0 ? (1, 2) as Pair2_v1 : (1, 2), "Pair2_v1");
+    __expect_type(rand() != 0 ? (1, 2) as Pair2_v2 : (1, 2) as Pair2_v2, "Pair2_v2");
 
     // since `Pair2_v1` and `Pair2_v2` underlying type is equal, a union of them can't be created
     var d1 = (1, 2) as Pair2_v1 | Pair2_v2;
     var d2 = (1, 2) as Pair2_v2 | Pair2_v1;
     __expect_type(d1, "Pair2_v1");
     __expect_type(d2, "Pair2_v2");
-    __expect_type(rand() ? (1, 2) as Pair2_v1 : (1, 2) as Pair2_v2, "Pair2_v1");
+    __expect_type(rand() != 0 ? (1, 2) as Pair2_v1 : (1, 2) as Pair2_v2, "Pair2_v1");
 
     __expect_type(!x, "bool");
 
@@ -56,7 +56,7 @@ fun test1(x: MInt): MVoid {
     __expect_type(PointAlias2{x:0,y:0}, "Point");
     __expect_type(Point{x:0,y:0} as PointAlias, "PointAlias");
 
-    if (x) { return; }
+    if (x != 0) { return; }
 }
 
 fun test2() {
@@ -86,10 +86,10 @@ fun test4(x: MIntN, y: MIntN) {
     }
     __expect_type(x, "MIntN");
     __expect_type(x!, "MInt");
-    __expect_type(rand() ? x : y, "MIntN");
-    __expect_type(rand() ? x : 0, "MInt?");
-    __expect_type(rand() ? 0 : x, "int?");
-    __expect_type(rand() ? 0 : x!, "int");
+    __expect_type(rand() != 0 ? x : y, "MIntN");
+    __expect_type(rand() != 0 ? x : 0, "MInt?");
+    __expect_type(rand() != 0 ? 0 : x, "int?");
+    __expect_type(rand() != 0 ? 0 : x!, "int");
     return y!;
 }
 
@@ -321,7 +321,7 @@ fun test15() {
     var m: MInt1 = 10;
     var t: MInt2 = 20;
 
-    if (0) {
+    if (false) {
         i = m; i = t;
         m = i; m = t;
         t = i; t = m;

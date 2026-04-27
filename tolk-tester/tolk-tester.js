@@ -272,6 +272,8 @@ class TolkTestFile {
         this.input_output = []
         /** @type {TolkTestCaseFifCodegen[]} */
         this.fif_codegen = []
+        /** @type {TolkTestCaseFifCodegen[]} */
+        this.abi_json = []
         /** @type {TolkTestCaseExpectedHash | null} */
         this.expected_hash = null
         /** @type {Object} */
@@ -311,6 +313,10 @@ class TolkTestFile {
                 this.enable_tolk_lines_comments = true
             } else if (line.startsWith("@fif_codegen")) {
                 this.fif_codegen.push(new TolkTestCaseFifCodegen(this.parse_string_value(lines), false))
+            } else if (line.startsWith("@abi_json_avoid")) {
+                this.abi_json.push(new TolkTestCaseFifCodegen(this.parse_string_value(lines), true))
+            } else if (line.startsWith("@abi_json")) {
+                this.abi_json.push(new TolkTestCaseFifCodegen(this.parse_string_value(lines), false))
             } else if (line.startsWith("@code_hash")) {
                 this.expected_hash = new TolkTestCaseExpectedHash(this.parse_string_value(lines, false)[0])
             } else if (line.startsWith("@path_mapping")) {
@@ -367,6 +373,7 @@ class TolkTestFile {
         let exit_code = res.status === 'ok' ? 0 : 1
         let stderr = res.message || res.stderr
         let stdout = ''
+        let abiJson = res.abiJson
 
         if (exit_code === 0 && this.compilation_should_fail)
             throw new TolkCompilationSucceededError("compilation succeeded, but it should have failed")
@@ -414,6 +421,12 @@ class TolkTestFile {
             const fif_output = fs.readFileSync(this.get_compiled_fif_filename(), 'utf-8').split(/\r?\n/)
             for (let fif_codegen of this.fif_codegen)
                 fif_codegen.check(fif_output)
+        }
+
+        if (this.abi_json.length) {
+            const abi_output = JSON.stringify(abiJson, null, 2).split(/\r?\n/)
+            for (let abi_json of this.abi_json)
+                abi_json.check(abi_output)
         }
 
         if (this.expected_hash !== null)

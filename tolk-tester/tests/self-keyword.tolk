@@ -148,7 +148,7 @@ fun testNotMutatingChainableSelf(arg: int) {
 global onceFailed109: int;
 
 fun int.checkNotEqChainableMutateAnother(self, throwIfEq: int, mutate toInc: int): self {
-    if (onceFailed109) { return self; }
+    if (onceFailed109 != 0) { return self; }
     toInc += 1;
     try { return self.checkNotEqChainable(throwIfEq); }
     catch { onceFailed109 = 1; return self; }

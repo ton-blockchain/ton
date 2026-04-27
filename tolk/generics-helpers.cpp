@@ -58,6 +58,18 @@ static TypePtr replace_genericT_with_deduced(TypePtr orig, const GenericsSubstit
   });
 }
 
+// make an error for tricky cases when instantiation becomes infinite:
+// `struct A<T> { v: A<A<T>> }` and similar
+template<class T>
+static Error err_instantiate_recursive(T t_ref) {
+  return err("instantiation of `{}` exceeded depth limit; it's most likely caused by an infinitely growing type", t_ref);
+}
+
+// make error if smb defines const `F<int>` (in backticks), which conflicts with a generic instantiation
+static Error err_instantiated_name_conflict(std::string_view new_name) {
+  return err("generic instantiation `{}` conflicts with existing symbol", new_name);
+}
+
 GenericsSubstitutions::GenericsSubstitutions(const GenericsDeclaration* genericTs, const std::vector<TypePtr>& type_arguments)
   : genericTs(genericTs)
   , valuesTs(genericTs->size()) {
@@ -447,9 +459,10 @@ FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstituti
   }
   std::string new_name = generate_instantiated_name(fun_name, substitutedTs, false, fun_ref->genericTs->n_from_receiver);
   if (const Symbol* existing_sym = lookup_global_symbol(new_name)) {
-    FunctionPtr existing_ref = existing_sym->try_as<FunctionPtr>();
-    tolk_assert(existing_ref);
-    return existing_ref;
+    if (FunctionPtr f = existing_sym->try_as<FunctionPtr>(); f && f->base_fun_ref == fun_ref) {
+      return f;
+    }
+    err_instantiated_name_conflict(new_name).fire(existing_sym->ident_anchor);
   }
 
   // to store permanently, allocate an object in heap
@@ -481,8 +494,16 @@ FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstituti
   V<ast_function_declaration> orig_root = fun_ref->ast_root->as<ast_function_declaration>();
   V<ast_function_declaration> new_root = ASTReplicator::clone_function_ast(orig_root);
 
+  static thread_local int instantiation_depth = 0;
+  if (++instantiation_depth > 64) {
+    instantiation_depth = 0;
+    err_instantiate_recursive(fun_ref).fire(fun_ref->ident_anchor);
+  }
+
   FunctionPtr new_fun_ref = pipeline_register_instantiated_generic_function(fun_ref, new_root, std::move(new_name), allocatedTs);
   run_pipeline_for_cloned_function(new_fun_ref);
+
+  instantiation_depth--;
   return new_fun_ref;
 }
 
@@ -492,9 +513,10 @@ StructPtr instantiate_generic_struct(StructPtr struct_ref, GenericsSubstitutions
   // if `Wrapper<int>` was earlier instantiated, return it
   std::string new_name = generate_instantiated_name(struct_ref->name, substitutedTs, true);
   if (const Symbol* existing_sym = lookup_global_symbol(new_name)) {
-    StructPtr existing_ref = existing_sym->try_as<StructPtr>();
-    tolk_assert(existing_ref);
-    return existing_ref;
+    if (StructPtr s = existing_sym->try_as<StructPtr>(); s && s->base_struct_ref == struct_ref) {
+      return s;
+    }
+    err_instantiated_name_conflict(new_name).fire(struct_ref->ident_anchor);
   }
 
   const GenericsSubstitutions* allocatedTs = new GenericsSubstitutions(std::move(substitutedTs));
@@ -502,10 +524,19 @@ StructPtr instantiate_generic_struct(StructPtr struct_ref, GenericsSubstitutions
   V<ast_identifier> new_name_ident = createV<ast_identifier>(orig_root->get_identifier()->range, new_name);
   V<ast_struct_declaration> new_root = ASTReplicator::clone_struct_ast(orig_root, new_name_ident);
 
+  static thread_local int instantiation_depth = 0;
+  if (++instantiation_depth > 64) {
+    instantiation_depth = 0;
+    err_instantiate_recursive(struct_ref).fire(struct_ref->ident_anchor);
+  }
+
   StructPtr new_struct_ref = pipeline_register_instantiated_generic_struct(struct_ref, new_root, std::move(new_name), allocatedTs);
   tolk_assert(new_struct_ref);
   pipeline_resolve_identifiers_and_assign_symbols(new_struct_ref);
   pipeline_resolve_types_and_aliases(new_struct_ref);
+  pipeline_infer_types_and_calls_and_fields(new_struct_ref);
+
+  instantiation_depth--;
   return new_struct_ref;
 }
 
@@ -515,9 +546,10 @@ AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutio
   // if `Response<int>` was earlier instantiated, return it
   std::string new_name = generate_instantiated_name(alias_ref->name, substitutedTs, true);
   if (const Symbol* existing_sym = lookup_global_symbol(new_name)) {
-    AliasDefPtr existing_ref = existing_sym->try_as<AliasDefPtr>();
-    tolk_assert(existing_ref);
-    return existing_ref;
+    if (AliasDefPtr a = existing_sym->try_as<AliasDefPtr>(); a && a->base_alias_ref == alias_ref) {
+      return a;
+    }
+    err_instantiated_name_conflict(new_name).fire(alias_ref->ident_anchor);
   }
 
   const GenericsSubstitutions* allocatedTs = new GenericsSubstitutions(std::move(substitutedTs));
@@ -525,9 +557,17 @@ AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutio
   V<ast_identifier> new_name_ident = createV<ast_identifier>(orig_root->get_identifier()->range, new_name);
   V<ast_type_alias_declaration> new_root = ASTReplicator::clone_type_alias_ast(orig_root, new_name_ident);
 
+  static thread_local int instantiation_depth = 0;
+  if (++instantiation_depth > 64) {
+    instantiation_depth = 0;
+    err_instantiate_recursive(alias_ref).fire(alias_ref->ident_anchor);
+  }
+
   AliasDefPtr new_alias_ref = pipeline_register_instantiated_generic_alias(alias_ref, new_root, std::move(new_name), allocatedTs);
   tolk_assert(new_alias_ref);
   pipeline_resolve_types_and_aliases(new_alias_ref);
+
+  instantiation_depth--;
   return new_alias_ref;
 }
 

@@ -154,7 +154,7 @@ std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_recei
             viable.emplace_back(receiver, replaced, method_ref, deducingTs.flush());
           }
         } catch (...) {}
-      } else if (receiver->can_rhs_be_assigned(provided_receiver)) {
+      } else if (receiver->can_rhs_be_assigned(provided_receiver) && provided_receiver != TypeDataNever::create()) {
         viable.emplace_back(receiver, receiver, method_ref, GenericsSubstitutions(method_ref->genericTs));
       }
     }

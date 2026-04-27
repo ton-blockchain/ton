@@ -260,6 +260,13 @@ fun test14(x: InvertedColor) {
     return (InvertedColor.Red, InvertedColor.Green, InvertedColor.Blue, InvertedColor.OneTon, x == InvertedColor.Red);
 }
 
+@method_id(115)
+fun test15(): (int, int) {
+    var x: int = Color.Red;     // enums are assignable to int, which feels strange for Color,
+    __expect_type(x, "int");    // but reasonable for ExitCode
+    return (x, Color.Blue);
+}
+
 
 fun main(c: Color) {
     __expect_type(c, "Color");
@@ -294,6 +301,7 @@ fun main(c: Color) {
 @testcase | 113 | 10  | 258 0 
 @testcase | 113 | 50  | 0 0 
 @testcase | 114 | 2   | 2 1 0 1000000000 -1 
+@testcase | 115 |     | 0 2
 
 @fif_codegen
 """

@@ -159,7 +159,9 @@ void pipeline_collect_abi_output(std::ostream& os) {
   if (entrypoint_file->has_contract_directive()) {
     populate_abi_from_contract_directive(&abi, entrypoint_file->contract_directive);
   }
-  // todo if not, don't do anything?
+  if (const Symbol* f_main = lookup_global_symbol("main"); f_main && f_main->try_as<FunctionPtr>()) {
+    abi.register_get_method(f_main->try_as<FunctionPtr>());
+  }
 
   CollectAbiFromBodyVisitor visitor(&abi);
   visit_ast_of_all_functions(visitor);

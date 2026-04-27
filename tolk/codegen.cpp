@@ -29,7 +29,7 @@ static constexpr AnyV NULL_ORIGIN = nullptr;
 
 static void sanitize_fift_name(std::string &name) {
   if (name.find(' ') != std::string::npos) {
-    std::replace(name.begin(), name.end(), ' ', '-');
+    std::replace(name.begin(), name.end(), ' ', '`');
   }
 }
 
@@ -322,7 +322,9 @@ void Stack::apply_wrappers_if_retalt(AnyV origin, int callxargs_count) {
       if (callxargs_count <= 15) {
         o << AsmOp::Custom(origin, PSTRING() << callxargs_count << " -1 CALLXARGS");
       } else {
-        tolk_assert(callxargs_count <= 254);
+        if (callxargs_count >= 255) {
+          err("can not compile try/catch, doo deep stack").fire(origin);
+        }
         o << AsmOp::Custom(origin, PSTRING() << callxargs_count << " PUSHINT -1 PUSHINT CALLXVARARGS");
       }
     } else {
@@ -594,7 +596,9 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
         if (args <= 15 && ret <= 15) {
           stack.o << AsmOp::Custom(origin, PSTRING() << args << ' ' << ret << " CALLXARGS", args + 1, ret);
         } else {
-          tolk_assert(args <= 254 && ret <= 254);
+          if (args >= 255 || ret >= 255) {
+            err("can not compile try/catch, doo deep stack").fire(origin);
+          }
           stack.o << AsmOp::Const(origin, PSTRING() << args << " PUSHINT");
           stack.o << AsmOp::Const(origin, PSTRING() << ret << " PUSHINT");
           stack.o << AsmOp::Custom(origin, "CALLXVARARGS", args + 3, ret);
@@ -842,6 +846,13 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
     case _Until: {
       if (block0.is_noreturn()) {
         stack.o.retalt_ = true;
+      }
+      // for not initialized yet late-init variables defined inside the body: allocate stack slots
+      for (const VarDescr& vd : var_info.list) {
+        if (!vd.is_unused() && stack.find(vd.idx) < 0) {
+          stack.o << AsmOp::Const(origin, "PUSHNULL");
+          stack.push_new_var(vd.idx);
+        }
       }
       if (true || !next_is_terminal_nop) {
         stack.o << AsmOp::Custom(origin, "UNTIL:<{");

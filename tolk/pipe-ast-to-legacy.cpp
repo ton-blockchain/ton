@@ -388,12 +388,15 @@ const LazyVariableLoadedState* CodeBlob::get_lazy_variable(LocalVarPtr var_ref) 
   return nullptr;
 }
 
-// detect `st` by vertex "st"
+// detect `st` by vertex "st" or by an identity-preserving wrapper like `(st = st)`
 const LazyVariableLoadedState* CodeBlob::get_lazy_variable(AnyExprV v) const {
   if (auto as_ref = v->try_as<ast_reference>()) {
     if (LocalVarPtr var_ref = as_ref->sym->try_as<LocalVarPtr>()) {
       return get_lazy_variable(var_ref);
     }
+  }
+  if (auto as_assign = v->try_as<ast_assign>()) {
+    return get_lazy_variable(as_assign->get_lhs());
   }
   return nullptr;
 }
@@ -435,6 +438,39 @@ static bool is_ternary_arg_trivial_for_condsel(AnyExprV v, bool require_1slot = 
     return v_call->fun_maybe && v_call->fun_maybe->is_compile_time_const_val();
   }
   return false;
+}
+
+static bool is_zero_int_const(AnyExprV v) {
+  auto v_int = v->try_as<ast_int_const>();
+  return v_int && v_int->intval == 0;
+}
+
+// conditions are type-checked as bool-only: instead of `if (num)` we force `if (num != 0)`;
+// here we detect this pattern to avoid generating `0 NEQINT` asm instruction
+static AnyExprV maybe_strip_neq_0_from_condition(AnyExprV cond) {
+  if (auto v_binary = cond->try_as<ast_binary_operator>(); v_binary && v_binary->tok == tok_neq) {
+    if (is_zero_int_const(v_binary->get_rhs())) {
+      return v_binary->get_lhs();
+    }
+    if (is_zero_int_const(v_binary->get_lhs())) {
+      return v_binary->get_rhs();
+    }
+  }
+  return cond;
+}
+
+// choose a function for operator `==` or (the same) for `match` expression
+static FunctionPtr choose_eq_function_for_types(TypePtr lhs_type, TypePtr rhs_type) {
+  lhs_type = lhs_type->unwrap_alias();
+  rhs_type = rhs_type->unwrap_alias();
+
+  if (lhs_type->try_as<TypeDataAddress>() && rhs_type->try_as<TypeDataAddress>()) {
+    return lookup_function("slice.bitsEqual");
+  }
+  if (lhs_type->is_cell_or_CellT() && rhs_type->is_cell_or_CellT()) {
+    return lookup_function("cell.hashEqual");
+  }
+  return lookup_function("_==_");
 }
 
 // invoke the type transition of IR slots only if potentially needed to
@@ -736,6 +772,12 @@ static std::vector<var_idx_t> gen_compile_time_code_instead_of_fun_call(CodeBlob
 }
 
 std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, AnyV origin, FunctionPtr f_inlined, AnyExprV self_obj, bool is_before_immediate_return, const std::vector<std::vector<var_idx_t>>& vars_per_arg) {
+  static thread_local std::vector<FunctionPtr> called_stack;
+  if (std::find(called_stack.begin(), called_stack.end(), f_inlined) != called_stack.end()) {
+    std::string_view postfix = f_inlined->is_packToBuilder() || f_inlined->is_unpackFromSlice() ? " and leads to infinite serialization" : "";
+    err("function `{}` is recursive{}", f_inlined, postfix).fire(f_inlined->ident_anchor, f_inlined);
+  }
+
   tolk_assert(vars_per_arg.size() == f_inlined->parameters.size());
   std::vector<var_idx_t> ir_params;
   for (int i = 0; i < f_inlined->get_num_params(); ++i) {
@@ -762,6 +804,7 @@ std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_
   code.inline_rvect_out = &rvect_call;
   code.inlining_before_immediate_return = is_before_immediate_return;
   code.fun_ref = f_inlined;
+  called_stack.push_back(f_inlined);
   // specially handle `point.getX()` if point is a lazy var: to make `self.toCell()` work and `self.x` asserted;
   // (only methods preserve lazy, `getXOf(point)` does not, though theoretically can be done)
   const LazyVariableLoadedState* lazy_receiver = self_obj ? code.get_lazy_variable(self_obj) : nullptr;
@@ -809,6 +852,7 @@ std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_
   ClearStateAfterInlineInPlace visitor;
   visitor.start_visiting_function(f_inlined, v_ast_root);
 
+  called_stack.pop_back();
   code.fun_ref = backup_cur_fun;
   code.inline_rvect_out = backup_outer_inline;
   code.inline_return_stmt_out = backup_outer_return_stmt;
@@ -1034,19 +1078,16 @@ static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, 
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
   if (t == tok_eq || t == tok_neq) {
-    bool both_addr = v->get_lhs()->inferred_type->unwrap_alias()->try_as<TypeDataAddress>() && v->get_rhs()->inferred_type->unwrap_alias()->try_as<TypeDataAddress>();
-    bool both_cell = v->get_lhs()->inferred_type->unwrap_alias()->try_as<TypeDataCell>() && v->get_rhs()->inferred_type->unwrap_alias()->try_as<TypeDataCell>();
-    if (both_addr || both_cell) {
-      FunctionPtr f_eq = both_addr ? lookup_function("slice.bitsEqual") : lookup_function("cell.hashEqual");
-      std::vector args_vars = pre_compile_tensor(code, {v->get_lhs(), v->get_rhs()});
-      std::vector rvect = code.create_tmp_var(TypeDataBool::create(), v, "(eq-operator)");
-      code.add_call(v, rvect, {args_vars[0], args_vars[1]}, f_eq);
-      if (t == tok_neq) {
-        FunctionPtr not_sym = lookup_function("!b_");
-        code.add_call(v, rvect, rvect, not_sym);
-      }
-      return transition_to_target_type(std::move(rvect), code, target_type, v);
+    FunctionPtr f_eq = choose_eq_function_for_types(v->get_lhs()->inferred_type, v->get_rhs()->inferred_type);
+    tolk_assert(f_eq->name != "_==_");
+    std::vector args_vars = pre_compile_tensor(code, {v->get_lhs(), v->get_rhs()});
+    std::vector rvect = code.create_tmp_var(TypeDataBool::create(), v, "(eq-operator)");
+    code.add_call(v, rvect, {args_vars[0], args_vars[1]}, f_eq);
+    if (t == tok_neq) {
+      FunctionPtr not_sym = lookup_function("!b_");
+      code.add_call(v, rvect, rvect, not_sym);
     }
+    return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
 
   throw UnexpectedASTNodeKind(v, "process_binary_operator");
@@ -1060,7 +1101,8 @@ static std::vector<var_idx_t> process_unary_operator(V<ast_unary_operator> v, Co
 }
 
 static std::vector<var_idx_t> process_ternary_operator(V<ast_ternary_operator> v, CodeBlob& code, TypePtr target_type) {
-  std::vector ir_cond = pre_compile_expr(v->get_cond(), code, nullptr);
+  AnyExprV cond = maybe_strip_neq_0_from_condition(v->get_cond());
+  std::vector ir_cond = pre_compile_expr(cond, code, nullptr);
   tolk_assert(ir_cond.size() == 1);
   std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(ternary)");
 
@@ -1179,7 +1221,7 @@ static std::vector<var_idx_t> process_lazy_operator(V<ast_lazy_operator> v, Code
     std::vector passed_slice = pre_compile_expr(v_call->get_arg(0)->get_expr(), code);
     code.add_let(v, ir_slice, std::move(passed_slice));
     has_passed_options = v_call->get_num_args() == 2;
-  } else if (f_name == "T.fromCell") {
+  } else if (f_name == "T.fromCell" || (f_name == "Cell<T>.load" && !v_call->dot_obj_is_self)) {
     std::vector ir_cell = pre_compile_expr(v_call->get_arg(0)->get_expr(), code);
     code.add_call(v, ir_slice, ir_cell, lookup_function("cell.beginParse"));
     has_passed_options = v_call->get_num_args() == 2;
@@ -1245,12 +1287,6 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
     implicit_else_unreachable_throw = 5;    // "integer is out of range"
   }
 
-  // how to compare subject and branches for `match` expression, similar to operator `==` which can handle non-integers
-  FunctionPtr eq_fn = lookup_function("_==_");      // for int/bool/enum                                                                   
-  if (subject_type->unwrap_alias()->try_as<TypeDataAddress>()) {
-    eq_fn = lookup_function("slice.bitsEqual");
-  }
-
   // example 1 (exhaustive): `match (v) { int => ... slice => ... builder => ... }`
   // IF is int { ... } ELSE { IF is slice { ... } ELSE { ... } }
   // example 2 (exhaustive): `match (v) { -1 => ... 0 => ... else => ... }`
@@ -1277,7 +1313,8 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
         tolk_assert(ir_subj.size() == 1 && ith_ir_idx.size() == 1);
         override_origin_for_AsmOps(code, ops_before, match_origin);
         eq_ith_ir_idx = code.create_tmp_var(TypeDataBool::create(), match_origin, "(arm-cond-eq)");
-        code.add_call(match_origin, eq_ith_ir_idx, {ir_subj[0], ith_ir_idx[0]}, eq_fn);
+        FunctionPtr f_eq = choose_eq_function_for_types(subject_type, v_ith_arm->get_pattern_expr()->inferred_type);
+        code.add_call(match_origin, eq_ith_ir_idx, {ir_subj[0], ith_ir_idx[0]}, f_eq);
       }
       if_op = &code.add_if_else(match_origin, std::move(eq_ith_ir_idx));
       code.push_set_cur(if_op->block0);
@@ -1513,7 +1550,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
   // detect what a function really returns from the stack perspective;
   // for instance, `fun f(mutate x: int): slice` puts `(int, slice)` onto a stack
   TypePtr op_call_type = v->inferred_type;
-  if (v->get_self_obj() && fun_ref->does_return_self() && !fun_ref->does_mutate_self()) {
+  if (fun_ref->does_return_self() && !fun_ref->does_mutate_self()) {
     op_call_type = TypeDataVoid::create();    // `return self` actually puts nothing onto a stack
   }
   if (fun_ref->has_mutate_params()) {
@@ -1523,7 +1560,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
         types_list.push_back(fun_ref->parameters[i].declared_type);
       }
     }
-    bool self_already_added = v->get_self_obj() && fun_ref->does_return_self();
+    bool self_already_added = fun_ref->does_return_self();
     if (!self_already_added) {
       types_list.push_back(v->inferred_type);
     }
@@ -1572,11 +1609,11 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
 
   // `beginCell().storeUint()` / `sb.append()` / etc. — dot call for methods returning `self`
   TypePtr rvect_type = v->inferred_type;
-  if (v->get_self_obj() && fun_ref->does_return_self()) {
+  if (fun_ref->does_return_self()) {
     int orig_self_i = rev_arg_order.empty() ? 0 : rev_arg_order[0];
     rvect = vars_per_arg[orig_self_i];
     if (fun_ref->does_mutate_self()) {
-      if (obj_leftmost == nullptr && is_valid_lvalue_path(v->get_self_obj())) {
+      if (obj_leftmost == nullptr && v->get_self_obj() && is_valid_lvalue_path(v->get_self_obj())) {
         obj_leftmost = v->get_self_obj();
       }
       if (lval_ctx && obj_leftmost) {
@@ -1636,7 +1673,7 @@ static std::vector<var_idx_t> process_square_brackets(V<ast_square_brackets> v, 
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
-static std::vector<var_idx_t> process_object_literal_shuffled(V<ast_object_literal> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
+static std::vector<var_idx_t> process_object_literal_shuffled(V<ast_object_literal> v, CodeBlob& code, TypePtr target_type) {
   // creating an object like `Point { y: getY(), x: getX() }`, where fields order doesn't match declaration;
   // as opposed to a non-shuffled version `{x:..., y:...}`, we should at first evaluate fields as they created,
   // and then to place them in a correct order
@@ -1650,7 +1687,7 @@ static std::vector<var_idx_t> process_object_literal_shuffled(V<ast_object_liter
     tensor_items.push_back(v_field->get_init_val());
     target_types.push_back(field_ref->declared_type);
   }
-  std::vector literal_rvect = pre_compile_tensor(code, tensor_items, lval_ctx, target_types);
+  std::vector literal_rvect = pre_compile_tensor(code, tensor_items, nullptr, target_types);
 
   std::vector rvect = code.create_tmp_var(TypeDataStruct::create(v->struct_ref), v, "(object)");
   int stack_offset = 0;
@@ -1686,7 +1723,7 @@ static std::vector<var_idx_t> process_object_literal_shuffled(V<ast_object_liter
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
-static std::vector<var_idx_t> process_object_literal(V<ast_object_literal> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
+static std::vector<var_idx_t> process_object_literal(V<ast_object_literal> v, CodeBlob& code, TypePtr target_type) {
   // an object (an instance of a struct) is actually a tensor at low-level
   // for example, `struct User { id: int; name: slice; }` occupies 2 slots
   // fields of a tensor are placed in order of declaration (in a literal they might be shuffled)
@@ -1703,7 +1740,7 @@ static std::vector<var_idx_t> process_object_literal(V<ast_object_literal> v, Co
   // as passing of calling `f(x,y)` with asm arg_order, is it safe to avoid SWAP
   if (are_fields_shuffled && !CheckReorderingForAsmArgOrderIsSafeVisitor::is_safe_to_reorder(v->get_body())) {
     // okay, we have `{y: getY(), x: getX()}` / `{y: v += 1, x: v}`, evaluate them in created order
-    return process_object_literal_shuffled(v, code, target_type, lval_ctx);
+    return process_object_literal_shuffled(v, code, target_type);
   }
 
   std::vector<AnyExprV> tensor_items;
@@ -1737,7 +1774,7 @@ static std::vector<var_idx_t> process_object_literal(V<ast_object_literal> v, Co
     origin_marks.push_back(v_field_at_dot);
     origin_overrides.push_back(v_field_at_dot ? nullptr : v);
   }
-  std::vector rvect = pre_compile_tensor(code, tensor_items, lval_ctx, target_types, origin_marks, origin_overrides);
+  std::vector rvect = pre_compile_tensor(code, tensor_items, nullptr, target_types, origin_marks, origin_overrides);
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
@@ -1930,7 +1967,7 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr targ
     case ast_square_brackets:
       return process_square_brackets(v->as<ast_square_brackets>(), code, target_type, lval_ctx);
     case ast_object_literal:
-      return process_object_literal(v->as<ast_object_literal>(), code, target_type, lval_ctx);
+      return process_object_literal(v->as<ast_object_literal>(), code, target_type);
     case ast_lambda_fun:
       return process_lambda_fun(v->as<ast_lambda_fun>(), code, target_type);
     case ast_int_const:
@@ -1995,6 +2032,7 @@ static void process_block_statement(V<ast_block_statement> v, CodeBlob& code) {
 }
 
 static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) {
+  AnyExprV cond = maybe_strip_neq_0_from_condition(v->get_cond());
   bool excno_is_const = true;
   try { eval_expression_if_const_or_fire(v->get_thrown_code()); }
   catch (...) { excno_is_const = false; }
@@ -2002,7 +2040,7 @@ static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) 
   if (excno_is_const) {
     // all practical cases: `assert(cond) throw SOME_ERR_CODE`, it's safe to put it on a stack
     std::vector ir_thrown_code = pre_compile_expr(v->get_thrown_code(), code);
-    std::vector ir_cond = pre_compile_expr(v->get_cond(), code);
+    std::vector ir_cond = pre_compile_expr(cond, code);
     tolk_assert(ir_cond.size() == 1 && ir_thrown_code.size() == 1);
 
     std::vector args_throwifnot = { ir_thrown_code[0], ir_cond[0] };
@@ -2010,7 +2048,7 @@ static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) 
 
   } else {
     // weird case: `assert(cond) throw fn()`, fn may throw or produce side effects, call it if `!cond`
-    std::vector ir_cond = pre_compile_expr(v->get_cond(), code);
+    std::vector ir_cond = pre_compile_expr(cond, code);
     Op& if_op = code.add_if_else(v, ir_cond);
     code.push_set_cur(if_op.block0);
     code.close_pop_cur(v);
@@ -2064,7 +2102,8 @@ static void process_repeat_statement(V<ast_repeat_statement> v, CodeBlob& code) 
 
 static void process_if_statement(V<ast_if_statement> v, CodeBlob& code) {
   code.add_extra_mark_location(v->keyword_range());
-  std::vector ir_cond = pre_compile_expr(v->get_cond(), code, nullptr);
+  AnyExprV cond = maybe_strip_neq_0_from_condition(v->get_cond());
+  std::vector ir_cond = pre_compile_expr(cond, code, nullptr);
   tolk_assert(ir_cond.size() == 1);
 
   if (v->get_cond()->is_always_true) {
@@ -2100,14 +2139,14 @@ static void process_do_while_statement(V<ast_do_while_statement> v, CodeBlob& co
   code.push_set_cur(until_op.block0);
   process_any_statement(v->get_body(), code);
 
-  AnyExprV cond = v->get_cond();
+  AnyExprV cond = maybe_strip_neq_0_from_condition(v->get_cond());
   std::vector ir_cond = pre_compile_expr(cond, code, nullptr);
   tolk_assert(ir_cond.size() == 1);
 
   // in TVM, there is only "do until", but in Tolk, we want "do while"; so, negate the condition;
   // optimizations like `while (a > 0)` -> `until (!(a > 0))` -> `until (a < 1)` are implemented as peephole
   FunctionPtr f_not = cond->inferred_type->equal_to(TypeDataBool::create()) ? lookup_function("!b_") : lookup_function("!_");
-  std::vector ir_until = code.create_tmp_var(TypeDataInt::create(), cond, "(until-cond)");
+  std::vector ir_until = code.create_tmp_var(TypeDataBool::create(), cond, "(until-cond)");
   code.add_call(cond, ir_until, std::move(ir_cond), f_not);
   until_op.left = std::move(ir_until);
   code.close_pop_cur(v->get_body());
@@ -2117,7 +2156,7 @@ static void process_while_statement(V<ast_while_statement> v, CodeBlob& code) {
   code.add_extra_mark_location(v->keyword_range());
   Op& while_op = code.add_while_loop(v);
   code.push_set_cur(while_op.block0);
-  while_op.left = pre_compile_expr(v->get_cond(), code, nullptr);
+  while_op.left = pre_compile_expr(maybe_strip_neq_0_from_condition(v->get_cond()), code, nullptr);
   tolk_assert(while_op.left.size() == 1);
   code.close_pop_cur(v->get_body());
   code.push_set_cur(while_op.block1);

@@ -70,6 +70,7 @@ void pipeline_infer_types_and_calls_and_fields(FunctionPtr);
 StructPtr pipeline_register_instantiated_generic_struct(StructPtr base_struct_ref, AnyV cloned_v, std::string&& name, const GenericsSubstitutions* substitutedTs);
 void pipeline_resolve_identifiers_and_assign_symbols(StructPtr);
 void pipeline_resolve_types_and_aliases(StructPtr);
+void pipeline_infer_types_and_calls_and_fields(StructPtr);
 
 AliasDefPtr pipeline_register_instantiated_generic_alias(AliasDefPtr base_alias_ref, AnyV cloned_v, std::string&& name, const GenericsSubstitutions* substitutedTs);
 void pipeline_resolve_types_and_aliases(AliasDefPtr);

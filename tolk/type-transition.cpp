@@ -104,11 +104,23 @@ std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&&
     return rvect;
   }
 
-  // handle `never`
-  // it occurs in unreachable branches, for example `if (intVal == null) { return intVal; }`
-  // we can't do anything reasonable here, but (hopefully) execution will never reach this point, and stack won't be polluted
-  if (dest_type == TypeDataNever::create() || from_type == TypeDataNever::create()) {
-    return rvect;
+  // handle `never` to something
+  // have: [] (variable of type `never`, in unreachable branches of smart casts, for example)
+  // need: [null ... null] width of dest
+  if (from_type == TypeDataNever::create()) {
+    if (from_slots == dest_slots) {
+      return rvect;
+    }
+    std::vector ir_never = code.create_tmp_var(dest_type, origin, "(never)");
+    for (int i = 0; i < dest_slots; ++i) {
+      code.add_call(origin, {ir_never[i]}, {}, lookup_function("__null"));
+    }
+    return ir_never;
+  }
+
+  // handle something to `never` (unreachable assignment target)
+  if (dest_type == TypeDataNever::create()) {
+    return {};
   }
 
   // transform anything to `unknown`

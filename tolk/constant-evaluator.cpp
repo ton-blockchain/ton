@@ -184,7 +184,17 @@ static ConstValBool create_const_bool(bool bool_val) {
 }
 
 // a simple wrapper for ConstValCastToType constructor
-static ConstValCastToType create_const_cast(ConstValExpression&& inner, TypePtr cast_to) {
+static ConstValExpression create_const_cast(ConstValExpression&& inner, TypePtr cast_to) {
+  // don't insert a cast when it's not required actually
+  const ConstValCastToType* already_cast = std::get_if<ConstValCastToType>(&inner);
+  if (already_cast && already_cast->cast_to->equal_to(cast_to)) {
+    return inner;
+  }
+  const ConstValInt* already_int = std::get_if<ConstValInt>(&inner);
+  if (already_int && cast_to == TypeDataInt::create()) {
+    return inner;
+  }
+
   // to store ConstValExpression inside (recursively), we need to place it into the heap;
   // the best way I've found is to create std::vector with a single element (std::unique_ptr doesn't work)
   return ConstValCastToType{{std::move(inner)}, cast_to};
@@ -476,6 +486,9 @@ class ConstExpressionEvaluator {
     ConstValExpression val = eval_any_v_or_fire(v->get_expr());
 
     TypePtr cast_to = v->inferred_type;
+    if (cast_to == TypeDataUnknown::create()) {   // `unknown` is forbidden in constants
+      err("not a constant expression").fire(v);
+    }
     return create_const_cast(std::move(val), cast_to);
   }
 
@@ -616,18 +629,24 @@ ConstValExpression eval_and_cache_const_init_val(GlobalConstPtr const_ref) {
     return it->second;
   }
 
-  // constants initializers are not recursive (checked at inferring), so no stack guards here
+  // direct const-to-const cycles are detected at inferring, but more tricky cycles can survive until here
+  // (e.g. `struct S { x: int = C.x } const C: S = {}`)
+  static thread_local std::vector<GlobalConstPtr> called_stack;
+  bool contains = std::find(called_stack.begin(), called_stack.end(), const_ref) != called_stack.end();
+  if (contains) {
+    err("const `{}` appears, directly or indirectly, in its own initializer", const_ref).fire(const_ref->ident_anchor);
+  }
+  called_stack.push_back(const_ref);
+
   ConstValExpression v = ConstExpressionEvaluator::eval_any_v_or_fire(const_ref->init_value);
   // for `const A: coins = 10` or `const A: lisp_list<int> = []` insert a cast for correctness
   if (TypePtr cast_to = const_ref->declared_type) {
-    // but don't insert for obvious `const A: coins = ton("1")` or `const A: int = 1`
-    const ConstValCastToType* already_cast = std::get_if<ConstValCastToType>(&v);
-    const ConstValInt* already_int = std::get_if<ConstValInt>(&v);
-    bool insert_cast = already_cast ? !already_cast->cast_to->equal_to(cast_to) : already_int ? cast_to != TypeDataInt::create() : true;
-    if (insert_cast) {
-      v = create_const_cast(std::move(v), cast_to);
+    if (!const_ref->init_value->inferred_type->equal_to(const_ref->declared_type)) {
+      v = create_const_cast(std::move(v), const_ref->init_value->inferred_type);
     }
+    v = create_const_cast(std::move(v), cast_to);
   }
+  called_stack.pop_back();
   computed_constants_cache[const_ref] = v;
   return v;
 }

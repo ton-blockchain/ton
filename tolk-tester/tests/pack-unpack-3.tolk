@@ -13,7 +13,7 @@ fun slice.assertEqDeeply(self, rhs: slice): slice {
     var lhs = self;
     assert(lhs.bitsEqual(rhs), 400);
     assert(lhs.remainingRefsCount() == rhs.remainingRefsCount(), 400);
-    while (lhs.remainingRefsCount()) {
+    while (lhs.remainingRefsCount() != 0) {
         lhs.loadRef().beginParse().assertEqDeeply(rhs.loadRef().beginParse());
     }
     return self;

@@ -27,7 +27,7 @@ fun errBoolMulInt(c: cell) {
 // @stderr can not apply operator `~` to `bool`
 fun errBitwiseNotOnBool() {
     var eq = 1 == 0;
-    if (~eq) {
+    if ((~eq) != 0) {
         return 0;
     }
     return -1;

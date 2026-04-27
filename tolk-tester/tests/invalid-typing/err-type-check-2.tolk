@@ -84,7 +84,7 @@ fun incompatibleSquareList() {
 }
 
 fun autoGetIntOrNull() {
-    if (random.uint256()) { return 1; }
+    if (random.uint256() != 0) { return 1; }
     return null;
 }
 

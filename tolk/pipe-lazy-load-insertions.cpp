@@ -193,6 +193,9 @@ static void check_lazy_operator_used_correctly(FunctionPtr cur_f, V<ast_lazy_ope
 
   // it should be either a struct or a union of structs
   TypePtr expr_type = v->inferred_type;
+  if (get_custom_pack_unpack_function(expr_type) || expr_type->unwrap_alias()->is_cell_or_CellT()) {
+    err("`lazy` is not applicable to `{}`, because it overrides packToBuilder/unpackFromSlice", expr_type).fire(v->keyword_range(), cur_f);
+  }
   if (expr_type->unwrap_alias()->try_as<TypeDataStruct>()) {
     return;
   }
@@ -375,8 +378,6 @@ struct ExprUsagesWhileCollecting {
       {},
       nullptr,
       nullptr,
-      nullptr,
-      nullptr,
       struct_ref->ast_root
     );
     std::vector all_fields_load_actions(struct_ref->get_num_fields(), LazyStructLoadInfo::LoadField);
@@ -492,7 +493,7 @@ struct ExprUsagesWhileCollecting {
     for (int field_idx = 0; field_idx < static_cast<int>(future_fields.size()); ++field_idx) {
       FutureField f = future_fields[field_idx];
       AnyV v_ident = createV<ast_identifier>(SrcRange::undefined(), "");
-      StructFieldPtr created = new StructFieldData(static_cast<std::string>(f.field_name), v_ident, field_idx, false, false, nullptr, nullptr, {});
+      StructFieldPtr created = new StructFieldData(static_cast<std::string>(f.field_name), v_ident, field_idx, false, false, nullptr, nullptr, nullptr, {});
       created->mutate()->assign_resolved_type(f.field_type);
       hidden_fields.push_back(created);
       ith_field_action.push_back(f.action);
@@ -505,8 +506,6 @@ struct ExprUsagesWhileCollecting {
       is_variant_of_union ? StructData::PackOpcode(0, 0) : struct_ref->opcode,
       struct_ref->overflow1023_policy,
       {},
-      nullptr,
-      nullptr,
       nullptr,
       nullptr,
       struct_ref->ast_root
@@ -656,7 +655,7 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
       AnyExprV dot_obj = v->get_callee()->as<ast_dot_access>()->get_obj();
       if (extract_sink_expression_from_vertex(dot_obj) == s_expr) {
         // handle built-in functions specially
-        if (fun_ref->is_builtin() && fun_ref->base_fun_ref->name == "T.toCell") {
+        if (fun_ref->is_builtin() && fun_ref->is_instantiation_of_generic_function() && fun_ref->base_fun_ref->name == "T.toCell") {
           lazy_expr->on_used_toCell();
           if (dot_obj->kind == ast_assign) {
             parent::visit(v->get_callee());

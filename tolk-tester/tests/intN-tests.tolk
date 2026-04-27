@@ -13,26 +13,26 @@ const cost2 = ton("0.05") + ton("0.001");
 fun rand(): uint256 { return random.uint256(); }
 
 fun autoInferInt8(x: int8) {
-    if (rand()) { return x; }
-    else if (rand()) { return 0 as int8; }
-    else if (rand()) { return x!; }
+    if (rand() != 0) { return x; }
+    else if (rand() != 0) { return 0 as int8; }
+    else if (rand() != 0) { return x!; }
     else { return x += x; }
 }
 
 fun autoInferUInt16Opt(x: uint16) {
-    if (rand()) { return autoInferInt8(x as int8) as uint16; }
+    if (rand() != 0) { return autoInferInt8(x as int8) as uint16; }
     return null;
 }
 
 fun inferInt_v1(): int {
-    if (rand()) { return 0; }
-    else if (rand()) { return 0 as uint16; }
+    if (rand() != 0) { return 0; }
+    else if (rand() != 0) { return 0 as uint16; }
     else { return 0 as int8; }
 }
 
 fun inferInt_v2(): int {
-    if (rand()) { return 0 as uint1; }
-    else if (rand()) { return 0 as int123; }
+    if (rand() != 0) { return 0 as uint1; }
+    else if (rand() != 0) { return 0 as int123; }
     else { return 0 as int8; }
 }
 
@@ -124,8 +124,8 @@ fun test5() {
 
 fun test6() {
     var x: int11 = ~(0 as int22);
-    while (x) {}
-    return x ? x as int : 0;
+    while (x != 0) {}
+    return x != 0 ? x as int : 0;
 }
 
 fun test7() {
@@ -171,7 +171,7 @@ fun test9(c: coins, i: int8) {
     var new = amount * percent / 100;
     amount = new;
     __expect_type(amount, "coins");
-    if (!amount) { while (amount) { amount -= 1; } }
+    if (!amount) { while (amount != 0) { amount -= 1; } }
 
     takeAnyInt(amount);
     takeAnyInt(percent);

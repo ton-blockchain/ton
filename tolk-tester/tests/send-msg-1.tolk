@@ -60,6 +60,8 @@ struct(0x12345678) MyBody {
     queryId: uint64;
 }
 
+type MyBodyCell = Cell<MyBody>
+
 @noinline
 fun test1_manual() {
     return beginCell()
@@ -130,7 +132,7 @@ fun test3_manual() {
 @method_id(103)
 fun test3() {
     var b = createMessage({
-        body: MyBody{ queryId: 127493264572 }.toCell(),
+        body: MyBody{ queryId: 127493264572 }.toCell() as MyBodyCell,
         bounce: false,
         dest: address("1:527964d55cfa6eb731f4bfc07e9d025098097ef8505519e853986279bd8400d8"),
         value: 90,

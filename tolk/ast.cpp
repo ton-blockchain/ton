@@ -68,11 +68,8 @@ AnnotationKind Vertex<ast_annotation>::parse_kind(std::string_view name) {
   if (name == "@on_bounced_policy") {
     return AnnotationKind::on_bounced_policy;
   }
-  if (name == "@abi.minimalMsgValue") {
-    return AnnotationKind::abi_minimalMsgValue;
-  }
-  if (name == "@abi.preferredSendMode") {
-    return AnnotationKind::abi_preferredSendMode;
+  if (name == "@abi.clientType") {
+    return AnnotationKind::abi_clientType;
   }
 
   // no special treating, allow with or without arguments, don't analyze

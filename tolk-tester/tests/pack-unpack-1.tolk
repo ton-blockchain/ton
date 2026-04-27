@@ -19,7 +19,7 @@ fun test1(value: int) {
     var t2 = c.load();
     __expect_type(c, "Cell<JustInt32>");
     __expect_type(t2, "JustInt32");
-    if (0) {
+    if (false) {
         var rawCell: cell = c;           // Cell<Something> is assignable to raw cell
         contract.setData(t.toCell());    // (for this purpose, since we don't have overloads)
     }

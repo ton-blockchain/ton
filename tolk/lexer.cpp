@@ -486,7 +486,7 @@ struct ChunkIdentifierInBackticks final : ChunkLexerBase {
     while (!lex->is_eof() && lex->char_at() != '`' && lex->char_at() != '\n') {
       lex->skip_chars(1);
     }
-    if (lex->char_at() != '`') {
+    if (lex->char_at() != '`' || lex->c_str() == str_begin + 1) {
       lex->error("unclosed backtick `");
     }
 

@@ -80,7 +80,7 @@ static std::string get_abi_description(TypePtr ty) {
   return {};
 }
 
-static TypePtr normalize_createMessageTy(TypePtr body_ty) {
+static TypePtr normalize_createMessage_ty(TypePtr body_ty) {
   if (const TypeDataStruct* t_struct = body_ty->try_as<TypeDataStruct>()) {
     if (t_struct->struct_ref->is_instantiation_of_CellT() || t_struct->struct_ref->is_instantiation_of_UnsafeBodyNoRef()) {
       body_ty = t_struct->struct_ref->substitutedTs->typeT_at(0);
@@ -101,7 +101,7 @@ void ContractABI::register_storage(TypePtr storage_ty, TypePtr storage_at_deploy
 }
 
 void ContractABI::register_get_method(FunctionPtr fun_ref) {
-  tolk_assert(fun_ref->is_contract_getter());
+  tolk_assert(fun_ref->is_contract_getter() || fun_ref->name == "main");
   json_types.register_used_type(fun_ref->inferred_full_type);
 
   ParsedDocComment doc = parse_doc_comment(fun_ref->doc_lines);
@@ -134,32 +134,9 @@ void ContractABI::register_get_method(FunctionPtr fun_ref) {
 }
 
 void ContractABI::register_incoming_message(TypePtr body_ty) {
-  std::optional<int64_t> minimal_msg_value;
-  std::optional<int64_t> preferred_send_mode;
-  if (const TypeDataStruct* t_struct = body_ty->unwrap_alias()->try_as<TypeDataStruct>()) {
-    StructPtr struct_ref = t_struct->struct_ref;
-    if (struct_ref->abi_minimalMsgValue) {
-      ConstValExpression val = unwrap_ConstVal_casts(eval_expression_if_const_or_fire(struct_ref->abi_minimalMsgValue));
-      tolk_assert(std::holds_alternative<ConstValInt>(val));
-      ConstValInt val_int = std::get<ConstValInt>(val);
-      if (val_int.int_val->fits_bits(63)) {
-        minimal_msg_value = val_int.int_val->to_long();
-      }
-    }
-    if (struct_ref->abi_preferredSendMode) {
-      ConstValExpression val = unwrap_ConstVal_casts(eval_expression_if_const_or_fire(struct_ref->abi_preferredSendMode));
-      tolk_assert(std::holds_alternative<ConstValInt>(val));
-      ConstValInt val_int = std::get<ConstValInt>(val);
-      if (val_int.int_val->fits_bits(63)) {
-        preferred_send_mode = val_int.int_val->to_long();
-      }
-    }
-  }
   incoming_messages.emplace_back(ABIInternalMessage{
     .body_ty = body_ty,
     .description = get_abi_description(body_ty),
-    .minimal_msg_value = minimal_msg_value,
-    .preferred_send_mode = preferred_send_mode,
   });
   json_types.register_used_type(body_ty);
 }
@@ -173,7 +150,7 @@ void ContractABI::register_external_message(TypePtr body_ty) {
 }
 
 void ContractABI::register_outgoing_message(TypePtr body_ty) {
-  body_ty = normalize_createMessageTy(body_ty);
+  body_ty = normalize_createMessage_ty(body_ty);
 
   auto it = std::find_if(outgoing_messages.begin(), outgoing_messages.end(), [body_ty](const ABIOutgoingMessage& m) {
     return body_ty->equal_to(m.body_ty);
@@ -190,7 +167,7 @@ void ContractABI::register_outgoing_message(TypePtr body_ty) {
 }
 
 void ContractABI::register_emitted_event(TypePtr body_ty) {
-  body_ty = normalize_createMessageTy(body_ty);
+  body_ty = normalize_createMessage_ty(body_ty);
 
   auto it = std::find_if(emitted_events.begin(), emitted_events.end(), [body_ty](const ABIOutgoingMessage& m) {
     return body_ty->equal_to(m.body_ty);
@@ -210,20 +187,20 @@ void ContractABI::register_thrown_error(GlobalConstPtr const_ref) {
   ConstValExpression val = unwrap_ConstVal_casts(eval_and_cache_const_init_val(const_ref));
   tolk_assert(std::holds_alternative<ConstValInt>(val));
 
-  register_thrown_error(ABIThrownErrorKind::constant, std::get<ConstValInt>(val).int_val, const_ref->name);
+  register_thrown_error(ABIThrownErrorKind::constant, std::get<ConstValInt>(val).int_val, const_ref->name, get_abi_description(const_ref->doc_lines));
   json_types.register_used_type(const_ref->inferred_type);
 }
 
 void ContractABI::register_thrown_error(EnumDefPtr enum_ref, EnumMemberPtr member_ref) {
   std::string name = enum_ref->name + "." + member_ref->name;
-  register_thrown_error(ABIThrownErrorKind::enum_member, member_ref->computed_value, std::move(name));
+  register_thrown_error(ABIThrownErrorKind::enum_member, member_ref->computed_value, std::move(name), get_abi_description(member_ref->doc_lines));
 }
 
 void ContractABI::register_thrown_error(const td::RefInt256& err_code) {
-  register_thrown_error(ABIThrownErrorKind::plain_int, err_code, "");
+  register_thrown_error(ABIThrownErrorKind::plain_int, err_code, "", "");
 }
 
-void ContractABI::register_thrown_error(ABIThrownErrorKind kind, const td::RefInt256& error_code, std::string name) {
+void ContractABI::register_thrown_error(ABIThrownErrorKind kind, const td::RefInt256& error_code, std::string name, std::string description) {
   if (!error_code->fits_bits(31)) {
     return;
   }
@@ -239,6 +216,7 @@ void ContractABI::register_thrown_error(ABIThrownErrorKind kind, const td::RefIn
   thrown_errors.emplace_back(ABIThrownError{
     .kind = kind,
     .name = std::move(name),
+    .description = std::move(description),
     .err_code = err_code,
   });
 }
@@ -285,8 +263,11 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
     json.key_value("description", this->description);
   }
 
-  this->json_types.emit_declarations_json(json,
-    {.emit_default_values = true, .emit_descriptions = true});
+  this->json_types.emit_declarations_json(json,{
+    .emit_default_values = true,
+    .emit_descriptions = true,
+    .use_abi_client_types = true,
+  });
 
   json.start_object("storage");
   if (this->storage.storage_ty != nullptr) {
@@ -303,12 +284,6 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
     json.key_value("body_ty", m.body_ty);
     if (!m.description.empty()) {
       json.key_value("description", m.description);
-    }
-    if (m.minimal_msg_value.has_value()) {
-      json.key_value("minimal_msg_value", m.minimal_msg_value.value());
-    }
-    if (m.preferred_send_mode.has_value()) {
-      json.key_value("preferred_send_mode", m.preferred_send_mode.value());
     }
     json.end_object();
   }
@@ -384,6 +359,9 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
     json.key_value("kind", e.kind);
     if (!e.name.empty()) {
       json.key_value("name", e.name);
+    }
+    if (!e.description.empty()) {
+      json.key_value("description", e.description);
     }
     json.key_value("err_code", e.err_code);
     json.end_object();

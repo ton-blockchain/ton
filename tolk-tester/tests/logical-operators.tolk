@@ -157,7 +157,7 @@ fun get123(): int
 @method_id(114)
 fun test114() {
     val fals = (get123() < 0) as int;
-    return (fals ? -1 : fals) != 0;
+    return (fals != 0 ? -1 : fals) != 0;
 }
 
 @method_id(115)
@@ -201,13 +201,13 @@ fun test117(x: int) {
     catch (ex) { t.push(ex); }
     try { assert (!!(x != 100)) throw 104; }
     catch (ex) { t.push(ex); }
-    try { assert (x) throw 105; }
+    try { assert (x != 0) throw 105; }
     catch (ex) { t.push(ex); }
     try { assert (!x) throw 106; }
     catch (ex) { t.push(ex); }
-    try { assert (~x) throw 107; }
+    try { assert ((~x) != 0) throw 107; }
     catch (ex) { t.push(ex); }
-    try { assert (~(x + 1)) throw 108; }
+    try { assert ((~(x + 1)) != 0) throw 108; }
     catch (ex) { t.push(ex); }
 
     return t;
@@ -262,6 +262,20 @@ fun test121() {
 fun test122(cond: bool) {
     var x = 1;
     return (x, cond && (x = 2), x, cond && (x = 3), x);
+}
+
+@method_id(123)
+fun test123(x: int) {
+    var iterations = 0;
+    do {
+        iterations += 1;
+        if (x > 0) {
+            x -= 1;
+        } else if (x < 0) {
+            x += 1;
+        }
+    } while ((x <=> 0) != 0);
+    return iterations;
 }
 
 
@@ -319,6 +333,9 @@ fun main() {
 @testcase | 121 |        | 1 -1 2 -1 3
 @testcase | 122 | -1     | 1 -1 2 -1 3
 @testcase | 122 | 0      | 1 0 1 0 1
+@testcase | 123 | 5      | 5
+@testcase | 123 | 0      | 1
+@testcase | 123 | -5     | 5
 
 @fif_codegen
 """

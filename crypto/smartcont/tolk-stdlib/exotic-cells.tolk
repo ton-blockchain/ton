@@ -49,7 +49,7 @@ fun cell.loadSpecial(self): cell
 @pure
 fun cell.toLibraryReference(self): cell {
     return beginCell()
-        .storeInt(ExoticCellType.LibraryReference as int, 8)
+        .storeInt(ExoticCellType.LibraryReference, 8)
         .storeUint(self.hash(), 256)
         .endCellSpecial()
 }

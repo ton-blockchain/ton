@@ -50,7 +50,7 @@ fun log105(a: int, options: MyOptions = {}) {
     if (options.negate) {
         a = -a;
     }
-    if (options.mulBy) {
+    if (options.mulBy != 0) {
         a *= options.mulBy;
     }
     t105.push(a);
@@ -183,7 +183,7 @@ fun test11(a: int, b: int) {
 
 @noinline
 fun throwIfNotDivisibleBy3(len: int) {
-    if (len % 3) {
+    if (len % 3 != 0) {
         throw 123;
     }
     return 100;

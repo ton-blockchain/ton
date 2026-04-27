@@ -249,10 +249,10 @@ class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
     if (v == cur_f->ast_root->as<ast_function_declaration>()->get_body()) {
       for (int i = 0; i < cur_f->get_num_params(); ++i) {
         LocalVarPtr param_ref = &cur_f->parameters[i];
-        current_scope.add_local_var(param_ref);
         if (param_ref->has_default_value()) {
           parent::visit(param_ref->default_value);
         }
+        current_scope.add_local_var(param_ref);
       }
     }
 
@@ -263,8 +263,8 @@ class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
   void visit(V<ast_do_while_statement> v) override {
     current_scope.open_scope();
     parent::visit(v->get_body());
-    parent::visit(v->get_cond()); // in 'while' condition it's ok to use variables declared inside do
     current_scope.close_scope();
+    parent::visit(v->get_cond());
   }
 
   void visit(V<ast_try_catch_statement> v) override {
@@ -322,11 +322,6 @@ public:
       }
     }
   }
-
-  void visit_struct_abi_annotations(StructPtr struct_ref) {
-    if (struct_ref->abi_minimalMsgValue)    parent::visit(struct_ref->abi_minimalMsgValue);
-    if (struct_ref->abi_preferredSendMode)  parent::visit(struct_ref->abi_preferredSendMode);
-  }
 };
 
 void pipeline_resolve_identifiers_and_assign_symbols() {
@@ -346,7 +341,6 @@ void pipeline_resolve_identifiers_and_assign_symbols() {
       } else if (auto v_struct = v->try_as<ast_struct_declaration>()) {
         tolk_assert(v_struct->struct_ref);
         visitor.start_visiting_struct_fields(v_struct->struct_ref);
-        visitor.visit_struct_abi_annotations(v_struct->struct_ref);
 
       } else if (auto v_enum = v->try_as<ast_enum_declaration>()) {
         tolk_assert(v_enum->enum_ref);

@@ -283,7 +283,7 @@ fun testLoadIntForTemporaryObject() {
     return (
         beginCell().storeUint(1, 32).endCell().beginParse().loadUint(32),
         beginCell().storeUint(2, 32).endCell().beginParse().loadUint(32),
-        c0.beginParse().loadUint(32) ? alwaysThrows() : loadIntFromCell(c4, 32)
+        c0.beginParse().loadUint(32) != 0 ? alwaysThrows() : loadIntFromCell(c4, 32)
     );
 }
 

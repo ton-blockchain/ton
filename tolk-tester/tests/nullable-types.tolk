@@ -58,7 +58,7 @@ fun test104(x: MIntN) {
 @method_id(105)
 fun test105() {
     var xy: (int?, MIntN) = (5, null);
-    var ab = [1 ? [xy.0, xy.1] : null] as [[int?, int?]?];
+    var ab = [true ? [xy.0, xy.1] : null] as [[int?, int?]?];
     ab.0!.0 = intOr0(ab.0!.0);
     ab.0!.1 = intOr0(ab.0!.1);
     return ab.0!.0! + ab.0!.1!;

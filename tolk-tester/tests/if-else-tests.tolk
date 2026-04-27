@@ -70,7 +70,7 @@ fun doNothing(): void {}
 
 @method_id(107)
 fun test7() {
-    if (random.uint256()) { return doNothing() }
+    if (random.uint256() != 0) { return doNothing() }
     // here we test that no "missing return" error
 }
 
@@ -281,6 +281,14 @@ fun test16() {
     )
 }
 
+@method_id(117)
+fun test17(x: int) {
+    if (!(x != 0)) {
+        return 10;
+    }
+    return 20;
+}
+
 
 fun main() {
 
@@ -318,6 +326,8 @@ fun main() {
 @testcase | 114 |     | 1
 @testcase | 115 | 0   | 0
 @testcase | 116 |     | 1 0 1 2 0
+@testcase | 117 | 0   | 10
+@testcase | 117 | 5   | 20
 
 @fif_codegen
 """
@@ -503,6 +513,16 @@ fun main() {
   test15() PROC:<{
     DROP
     FALSE
+  }>
+"""
+
+@fif_codegen
+"""
+  test17() PROC:<{
+    IFNOTJMP:<{
+      10 PUSHINT
+    }>
+    20 PUSHINT
   }>
 """
 

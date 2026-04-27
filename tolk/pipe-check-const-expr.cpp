@@ -59,11 +59,6 @@ public:
   }
 };
 
-static void check_struct_abi_annotations(StructPtr struct_ref) {
-  if (struct_ref->abi_minimalMsgValue)    check_expression_is_constant_or_fire(struct_ref->abi_minimalMsgValue);
-  if (struct_ref->abi_preferredSendMode)  check_expression_is_constant_or_fire(struct_ref->abi_preferredSendMode);
-}
-
 void pipeline_check_constant_expressions() {
   // here (after type inferring) check that `const a = 2 + 3` is a valid constant expression
   // non-constant expressions like `const a = foo()` fire an error here
@@ -77,7 +72,6 @@ void pipeline_check_constant_expressions() {
         check_expression_is_constant_or_fire(field_ref->default_value);
       }
     }
-    check_struct_abi_annotations(struct_ref);
   }
   // and for default values of parameters
   for (FunctionPtr fun_ref : get_all_not_builtin_functions()) {

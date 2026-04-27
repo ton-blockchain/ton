@@ -23,6 +23,8 @@
 
 namespace tolk {
 
+static bool expect_integer(AnyExprV v_inferred);
+
 static std::string expression_as_string(AnyExprV v) {
   if (auto v_ref = v->try_as<ast_reference>()) {
     if (v_ref->sym->try_as<LocalVarPtr>() || v_ref->sym->try_as<GlobalVarPtr>()) {
@@ -79,6 +81,14 @@ static Error err_cannot_apply_operator(std::string_view operator_name, AnyExprV 
   const TypeDataUnion* rhs_nullable = rhs->inferred_type->unwrap_alias()->try_as<TypeDataUnion>();
   std::string hint = lhs_nullable || rhs_nullable ? "\n""hint: check on `null` first, or use unsafe operator `!`" : "";
   return err("can not apply operator `{}` to `{}` and `{}`{}", operator_name, lhs->inferred_type, rhs->inferred_type, hint);
+}
+
+// make an error on `if (someNumber)`, suggest `if (someNumber != 0)`
+static Error err_not_bool_as_condition(std::string_view keyword, AnyExprV cond) {
+  if (expect_integer(cond)) {
+    return err("can not use `{}` as a boolean condition\n""hint: use not `{} (someNumber)` but `{} (someNumber != 0)`", cond->inferred_type, keyword, keyword);
+  }
+  return err("can not use `{}` as a boolean condition", cond->inferred_type);
 }
 
 GNU_ATTRIBUTE_NOINLINE
@@ -163,6 +173,11 @@ static void handle_possible_compiler_internal_call(FunctionPtr cur_f, V<ast_func
   FunctionPtr fun_ref = v->fun_maybe;
   tolk_assert(fun_ref && fun_ref->is_builtin());
 
+  // prohibit calling built-ins `__dict.XXX`, `builder.__storeVarInt`, etc.
+  if (!fun_ref->name.starts_with("__expect")) {
+    err("internal compiler functions are not allowed to be called").fire(v, cur_f);
+  }
+
   if (fun_ref->is_instantiation_of_generic_function() && fun_ref->base_fun_ref->name == "__expect_type" && v->get_num_args() == 2) {
     // __expect_type(expr, "...") is a compiler built-in for testing, it's not indented to be called by users
     auto v_expected_str = v->get_arg(1)->get_expr()->try_as<ast_string_const>();
@@ -172,17 +187,6 @@ static void handle_possible_compiler_internal_call(FunctionPtr cur_f, V<ast_func
       err("__expect_type failed: expected `{}`, got `{}`", v_expected_str->str_val, expr_type).collect(v, cur_f);
     }
   }
-}
-
-// detect `if (x = 1)` having its condition to fire a warning;
-// note that `if ((x = f()) == null)` and other usages of assignment is rvalue is okay
-static bool is_assignment_inside_condition(AnyExprV cond) {
-  return cond->kind == ast_assign || cond->kind == ast_set_assign;
-}
-
-// make an error for `if (x = 1)`
-static Error err_assignment_inside_condition() {
-  return err("assignment inside condition, probably it's a misprint\n""hint: if it's intentional, extract assignment as a separate statement for clarity");
 }
 
 static bool expect_integer(TypePtr inferred_type) {
@@ -231,8 +235,8 @@ static bool check_eq_neq_operator(TypePtr lhs_type, TypePtr rhs_type, bool& not_
     not_integer_comparison = true;   // `address` can be compared with ==, but it's handled specially
     return true;
   }
-  if (lhs_type->unwrap_alias() == TypeDataCell::create() && rhs_type->unwrap_alias() == TypeDataCell::create()) {
-    not_integer_comparison = true;   // `cell` can be compared with ==, but it's handled specially (by hash)
+  if (lhs_type->unwrap_alias()->is_cell_or_CellT() && rhs_type->unwrap_alias()->is_cell_or_CellT()) {
+    not_integer_comparison = true;   // cells can be compared with ==, but it's handled specially (by hash)
     return true;
   }
 
@@ -477,7 +481,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       }
     }
 
-    if (fun_ref->is_builtin() && fun_ref->name[0] == '_') {
+    if (fun_ref->is_builtin() && fun_ref->name.find("__") != std::string::npos) {
       handle_possible_compiler_internal_call(cur_f, v);
     }
   }
@@ -536,6 +540,16 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       return;
     }
 
+    // `[v1, v2] = rhs` / `var [v1, v2] = rhs` (rhs may be `[1,2]` or `shapedTupleVar`)
+    if (auto lhs_shaped = lhs->try_as<ast_square_brackets>()) {
+      const TypeDataShapedTuple* rhs_type_shaped = rhs_type->unwrap_alias()->try_as<TypeDataShapedTuple>();
+      if (!rhs_type_shaped || lhs_shaped->size() != rhs_type_shaped->size()) {
+        err("can not assign `{}` to `[...]`", rhs_type).collect(err_loc, cur_f);
+        return;
+      }
+      // i-th component compatibility will be checked automatically below
+    }
+
     // here is `v = rhs` (just assignment, not `var v = rhs`) / `a.0 = rhs` / `getObj(z=f()).0 = rhs` etc.
     // types were already inferred, so just check their compatibility
     // for strange lhs like `f() = rhs` type checking will pass, but will fail lvalue check later
@@ -586,15 +600,12 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v);
 
     AnyExprV cond = v->get_cond();
-    if (!expect_integer(cond) && !expect_boolean(cond)) {
-      err("can not use `{}` as a boolean condition", cond->inferred_type).collect(cond, cur_f);
+    if (!expect_boolean(cond)) {
+      err_not_bool_as_condition("if", cond).collect(cond, cur_f);
     }
 
     if (cond->is_always_true || cond->is_always_false) {
       warning_condition_always_true_or_false(cur_f, cond->range, cond, "ternary operator");
-    }
-    if (is_assignment_inside_condition(cond)) {
-      err_assignment_inside_condition().warning(cond, cur_f);
     }
   }
 
@@ -797,15 +808,12 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v);
 
     AnyExprV cond = v->get_cond();
-    if (!expect_integer(cond) && !expect_boolean(cond)) {
-      err("can not use `{}` as a boolean condition", cond->inferred_type).collect(cond, cur_f);
+    if (!expect_boolean(cond)) {
+      err_not_bool_as_condition("if", cond).collect(cond, cur_f);
     }
 
     if (cond->is_always_true || cond->is_always_false) {
       warning_condition_always_true_or_false(cur_f, v->keyword_range(), cond, "`if`");
-    }
-    if (is_assignment_inside_condition(cond)) {
-      err_assignment_inside_condition().warning(cond, cur_f);
     }
   }
 
@@ -822,15 +830,12 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v);
 
     AnyExprV cond = v->get_cond();
-    if (!expect_integer(cond) && !expect_boolean(cond)) {
-      err("can not use `{}` as a boolean condition", cond->inferred_type).collect(cond, cur_f);
+    if (!expect_boolean(cond)) {
+      err_not_bool_as_condition("while", cond).collect(cond, cur_f);
     }
 
     if (cond->is_always_true || cond->is_always_false) {
       warning_condition_always_true_or_false(cur_f, v->keyword_range(), cond, "`while`");
-    }
-    if (is_assignment_inside_condition(cond)) {
-      err_assignment_inside_condition().warning(cond, cur_f);
     }
   }
 
@@ -838,15 +843,12 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v);
 
     AnyExprV cond = v->get_cond();
-    if (!expect_integer(cond) && !expect_boolean(cond)) {
-      err("can not use `{}` as a boolean condition", cond->inferred_type).collect(cond, cur_f);
+    if (!expect_boolean(cond)) {
+      err_not_bool_as_condition("while", cond).collect(cond, cur_f);
     }
 
     if (cond->is_always_true || cond->is_always_false) {
       warning_condition_always_true_or_false(cur_f, v->keyword_range(), cond, "`do while`");
-    }
-    if (is_assignment_inside_condition(cond)) {
-      err_assignment_inside_condition().warning(cond, cur_f);
     }
   }
 
@@ -865,8 +867,8 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v);
 
     AnyExprV cond = v->get_cond();
-    if (!expect_integer(cond) && !expect_boolean(cond)) {
-      err("can not use `{}` as a boolean condition", cond->inferred_type).collect(cond, cur_f);
+    if (!expect_boolean(cond)) {
+      err_not_bool_as_condition("assert", cond).collect(cond, cur_f);
     }
     if (!expect_thrown_code(v->get_thrown_code()->inferred_type)) {
       err("thrown excNo of `assert` must be an integer, got `{}`", v->get_thrown_code()->inferred_type).collect(v->get_thrown_code(), cur_f);
@@ -874,9 +876,6 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
 
     if (cond->is_always_true || cond->is_always_false) {
       warning_condition_always_true_or_false(cur_f, v->keyword_range(), cond, "`assert`");
-    }
-    if (is_assignment_inside_condition(cond)) {
-      err_assignment_inside_condition().warning(cond, cur_f);
     }
   }
 
@@ -917,10 +916,10 @@ public:
     }
 
     // methods with special names defined in user code that must have an exact prototype
-    if (cur_f->is_method() && cur_f->method_name == "packToBuilder") {
+    if (cur_f->is_packToBuilder()) {
       check_declared_packToBuilder(cur_f);
     }
-    if (cur_f->is_method() && cur_f->method_name == "unpackFromSlice") {
+    if (cur_f->is_unpackFromSlice()) {
       check_declared_unpackFromSlice(cur_f);
     }
   }
@@ -963,21 +962,6 @@ public:
       err("enum member is `{}`, not `int`\n""hint: all enums must be integers", m_type).collect(member_ref->init_value);
     }
   }
-
-  void visit_struct_abi_annotations(StructPtr struct_ref) {
-    if (struct_ref->abi_minimalMsgValue) {
-      parent::visit(struct_ref->abi_minimalMsgValue);
-      if (!expect_integer(struct_ref->abi_minimalMsgValue)) {
-        err("invalid type of `@abi.minimalMsgValue` property").collect(struct_ref->abi_minimalMsgValue);
-      }
-    }
-    if (struct_ref->abi_preferredSendMode) {
-      parent::visit(struct_ref->abi_preferredSendMode);
-      if (!expect_integer(struct_ref->abi_preferredSendMode)) {
-        err("invalid type of `@abi.preferredSendMode` property").collect(struct_ref->abi_preferredSendMode);
-      }
-    }
-  }
 };
 
 void pipeline_check_inferred_types() {
@@ -993,7 +977,6 @@ void pipeline_check_inferred_types() {
         visitor.start_visiting_field_default(field_ref);
       }
     }
-    visitor.visit_struct_abi_annotations(struct_ref);
   }
   for (EnumDefPtr enum_ref : get_all_declared_enums()) {
     for (EnumMemberPtr member_ref : enum_ref->members) {

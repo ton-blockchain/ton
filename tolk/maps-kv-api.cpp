@@ -59,8 +59,11 @@ static int is_TKey_TVM_int(TypePtr TKey) {
   if (const TypeDataAlias* t_alias = TKey->try_as<TypeDataAlias>()) {
     return is_TKey_TVM_int(t_alias->underlying_type);
   }
-  if (const TypeDataStruct* t_struct = TKey->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->get_num_fields() == 1) {
+  if (const TypeDataStruct* t_struct = TKey->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->get_num_fields() == 1 && !t_struct->struct_ref->opcode.exists()) {
     return is_TKey_TVM_int(t_struct->struct_ref->get_field(0)->declared_type);
+  }
+  if (const TypeDataEnum* t_enum = TKey->try_as<TypeDataEnum>()) {
+    return is_TKey_TVM_int(calculate_intN_to_serialize_enum(t_enum->enum_ref));
   }
   if (TKey == TypeDataBool::create()) {   // allow `bool` as a key with `DICTI` instructions
     return true;
@@ -76,8 +79,11 @@ static int is_TKey_TVM_uint(TypePtr TKey) {
   if (const TypeDataAlias* t_alias = TKey->try_as<TypeDataAlias>()) {
     return is_TKey_TVM_uint(t_alias->underlying_type);
   }
-  if (const TypeDataStruct* t_struct = TKey->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->get_num_fields() == 1) {
+  if (const TypeDataStruct* t_struct = TKey->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->get_num_fields() == 1 && !t_struct->struct_ref->opcode.exists()) {
     return is_TKey_TVM_uint(t_struct->struct_ref->get_field(0)->declared_type);
+  }
+  if (const TypeDataEnum* t_enum = TKey->try_as<TypeDataEnum>()) {
+    return is_TKey_TVM_uint(calculate_intN_to_serialize_enum(t_enum->enum_ref));
   }
   return 0;
 }
@@ -94,7 +100,7 @@ static int is_TKey_TVM_slice(TypePtr TKey) {
   if (const TypeDataAlias* t_alias = TKey->try_as<TypeDataAlias>()) {
     return is_TKey_TVM_slice(t_alias->underlying_type);
   }
-  if (const TypeDataStruct* t_struct = TKey->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->get_num_fields() == 1) {
+  if (const TypeDataStruct* t_struct = TKey->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->get_num_fields() == 1 && !t_struct->struct_ref->opcode.exists()) {
     return is_TKey_TVM_slice(t_struct->struct_ref->get_field(0)->declared_type);
   }
   return 0;
@@ -107,7 +113,7 @@ static bool is_TValue_raw_slice(TypePtr TValue) {
 
 // `map<K, Cell<T>>` can emit SETREF instructions
 static bool is_TValue_cell_or_CellT(TypePtr TValue) {
-  return TValue->unwrap_alias() == TypeDataCell::create() || is_type_cellT(TValue->unwrap_alias())
+  return TValue->unwrap_alias()->is_cell_or_CellT()
       || TValue->unwrap_alias() == TypeDataString::create();
 }
 

@@ -84,7 +84,7 @@ static TypePtr parse_bytesN_bitsN(std::string_view strN, bool is_bits) {
   int n;
   auto result = std::from_chars(strN.data(), strN.data() + strN.size(), n);
   bool parsed = result.ec == std::errc() && result.ptr == strN.data() + strN.size();
-  if (!parsed || n <= 0 || n > 1024) {
+  if (!parsed || n <= 0 || n > 1023) {
     return nullptr;   // `bytes9999`, maybe it's user-defined alias, let it be unresolved
   }
   return TypeDataBitsN::create(n, is_bits);
@@ -269,7 +269,13 @@ class TypeNodesVisitorResolver {
       if (!visited_aliases.contains(alias_ref)) {
         visit_symbol(alias_ref);
       }
-      if (alias_ref->is_generic_alias() && !allow_without_type_arguments) {
+      // check AST for genericsT_list, not is_generic_alias()
+      // because during mutual recursion in default type arguments, genericTs may not be assigned yet
+      bool has_generic_params = alias_ref->ast_root->as<ast_type_alias_declaration>()->genericsT_list != nullptr;
+      if (has_generic_params && !allow_without_type_arguments) {
+        if (!alias_ref->is_generic_alias()) {
+          err("type `{}` circularly references itself", alias_ref).fire(range, cur_f);
+        }
         if (alias_ref->genericTs->size_no_defaults() == 0) {    // `type U<T = int>`: use all defaults
           return instantiate_generic_type_or_fire(cur_f, range, TypeDataAlias::create(alias_ref), {});
         }
@@ -281,7 +287,12 @@ class TypeNodesVisitorResolver {
       if (!visited_structs.contains(struct_ref)) {
         visit_symbol(struct_ref);
       }
-      if (struct_ref->is_generic_struct() && !allow_without_type_arguments) {
+      // check AST for genericsT_list, not is_generic_struct(), see above
+      bool has_generic_params = struct_ref->ast_root->as<ast_struct_declaration>()->genericsT_list != nullptr;
+      if (has_generic_params && !allow_without_type_arguments) {
+        if (!struct_ref->is_generic_struct()) {
+          err("type `{}` circularly references itself", struct_ref).fire(range, cur_f);
+        }
         if (struct_ref->genericTs->size_no_defaults() == 0) {   // `struct Resp<T = cell>`: use all defaults
           return instantiate_generic_type_or_fire(cur_f, range, TypeDataStruct::create(struct_ref), {});
         }
@@ -406,13 +417,13 @@ public:
     if (contains) {
       err("type `{}` circularly references itself", alias_ref).fire(alias_ref->ident_anchor);
     }
+    called_stack.push_back(alias_ref);
 
     if (auto v_genericsT_list = alias_ref->ast_root->as<ast_type_alias_declaration>()->genericsT_list) {
       const GenericsDeclaration* genericTs = construct_genericTs(nullptr, v_genericsT_list);
       alias_ref->mutate()->assign_resolved_genericTs(genericTs);
     }
 
-    called_stack.push_back(alias_ref);
     TypeNodesVisitorResolver visitor(nullptr, alias_ref->genericTs, alias_ref->substitutedTs, false);
     TypePtr underlying_type = visitor.finalize_type_node(alias_ref->underlying_type_node);
     alias_ref->mutate()->assign_resolved_type(underlying_type);
@@ -433,6 +444,10 @@ public:
       StructFieldPtr field_ref = struct_ref->get_field(i);
       TypePtr declared_type = visitor.finalize_type_node(field_ref->type_node);
       field_ref->mutate()->assign_resolved_type(declared_type);
+      if (field_ref->abi_type_node) {
+        TypePtr abi_client_type = visitor.finalize_type_node(field_ref->abi_type_node);
+        field_ref->mutate()->assign_resolved_abi_type(abi_client_type);
+      }
     }
   }
 
@@ -609,7 +624,12 @@ public:
       cur_f->mutate()->assign_resolved_genericTs(genericTs);
     }
 
-    type_nodes_visitor = TypeNodesVisitorResolver(cur_f, cur_f->genericTs, cur_f->substitutedTs, false);
+    // allow `T` inside lambdas from a container function
+    FunctionPtr generic_ctx_f = cur_f;
+    while (generic_ctx_f->is_lambda() && generic_ctx_f->base_fun_ref) {
+      generic_ctx_f = generic_ctx_f->base_fun_ref;
+    }
+    type_nodes_visitor = TypeNodesVisitorResolver(cur_f, generic_ctx_f->genericTs, generic_ctx_f->substitutedTs, false);
 
     for (int i = 0; i < cur_f->get_num_params(); ++i) {
       LocalVarPtr param_ref = &cur_f->parameters[i];

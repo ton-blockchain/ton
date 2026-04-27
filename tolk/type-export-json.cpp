@@ -332,6 +332,9 @@ void JsonTypeExporter::register_used_type(TypePtr type) {
       if (!is_builtin_unexported_struct(symbol)) {
         for (StructFieldPtr field_ref : symbol->fields) {
           register_used_type(field_ref->declared_type);
+          if (field_ref->abi_client_type) {
+            register_used_type(field_ref->abi_client_type);
+          }
         }
         register_used_symbol(symbol);
       }
@@ -527,9 +530,10 @@ void JsonTypeExporter::emit_declarations_json(JsonPrettyOutput& json, const Emit
       }
       json.start_array("fields");
       for (StructFieldPtr field_ref : struct_ref->fields) {
+        TypePtr export_ty = opts.use_abi_client_types && field_ref->abi_client_type ? field_ref->abi_client_type : field_ref->declared_type;
         json.start_object();
         json.key_value("name", field_ref->name);
-        json.key_value("ty", field_ref->declared_type);
+        json.key_value("ty", export_ty);
         if (opts.emit_default_values && field_ref->default_value) {
           json.key_value("default_value", eval_field_default_value(field_ref));
         }

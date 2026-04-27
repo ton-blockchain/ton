@@ -35,7 +35,7 @@ fun test102(): (int, int, int, [int, int], Wrapper< Wrapper<int8> >) {
     var a: int = getTwo();
     var _: int = getTwo();
     var b = getTwo() as int;
-    var c: int = 1 ? getTwo() : getTwo();
+    var c: int = true ? getTwo() : getTwo();
     var d: int = match (1 as int|slice|builder) { int => getTwo(), slice => getTwo(), builder => getTwo() };
     var ab_tens = (0, (1, 2));
     ab_tens.0 = getTwo();
@@ -71,8 +71,8 @@ fun manyEq<T1, T2, T3>(a: T1, b: T2, c: T3): [T1, T2, T3] {
 @method_id(104)
 fun test104(f: int) {
     var result = (
-        manyEq(1 ? 1 : 1, f ? 0 : null, !f ? getTwo() as int : null),
-        manyEq(f ? null as int? : eq2(2), beginCell().storeBool(true).endCell().beginParse().loadBool(), eq4(f))
+        manyEq(true ? 1 : 1, f != 0 ? 0 : null, !f ? getTwo() as int : null),
+        manyEq(f != 0 ? null as int? : eq2(2), beginCell().storeBool(true).endCell().beginParse().loadBool(), eq4(f))
     );
     __expect_type(result, "([int, int?, int?], [int?, bool, int])");
     return result;
@@ -82,7 +82,7 @@ fun calcSum<X>(x: X, y: X) { return x! + y!; }
 
 @method_id(105)
 fun test105() {
-    if (0) { calcSum(((0 as int?)), null); }
+    if (false) { calcSum(((0 as int?)), null); }
     return (calcSum(1, 2));
 }
 
@@ -245,7 +245,7 @@ fun main(x: int): (int, [Tup2Int]) {
     __expect_type(returnTOfShape([1, ""]), "string");
     __expect_type(returnTOfArray([1, 234]), "int");
 
-    try { if(x) { throw (1, x); } }
+    try { if (x != 0) { throw (1, x); } }
     catch (excNo, arg) { return (arg as int, [[eq2(arg as int), getTwo()]]); }
     return (0, [[x, 1]]);
 }

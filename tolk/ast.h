@@ -151,8 +151,7 @@ enum class AnnotationKind {
   pure,
   overflow1023_policy,
   on_bounced_policy,
-  abi_minimalMsgValue,
-  abi_preferredSendMode,
+  abi_clientType,
   custom,
   unknown,
 };
@@ -1297,18 +1296,19 @@ struct Vertex<ast_instantiationT_list> final : ASTOtherVararg {
 template<>
 // ast_annotation is @annotation above a declaration
 // example: `@pure fun ...`
-struct Vertex<ast_annotation> final : ASTOtherVararg {
+struct Vertex<ast_annotation> final : ASTOtherLeaf {
   std::string_view name;
   AnnotationKind kind;
+  AnyExprV expr_arg;     // @method_id(123), etc.; ast_tensor for multi-args; nullptr for non-args like @noinline
+  AnyTypeV type_arg;     // exists for @abi.clientType(<type>), otherwise nullptr
 
-  auto get_arg() const { return children.at(0)->as<ast_tensor>(); }
   SrcRange keyword_range() const { return SrcRange::span(range, static_cast<int>(name.size())); }
 
   static AnnotationKind parse_kind(std::string_view name);
 
-  Vertex(SrcRange range, std::string_view name, AnnotationKind kind, V<ast_tensor> arg_probably_empty)
-    : ASTOtherVararg(ast_annotation, range, {arg_probably_empty})
-    , name(name), kind(kind) {}
+  Vertex(SrcRange range, std::string_view name, AnnotationKind kind, AnyExprV expr_arg, AnyTypeV type_arg)
+    : ASTOtherLeaf(ast_annotation, range)
+    , name(name), kind(kind), expr_arg(expr_arg), type_arg(type_arg) {}
 };
 
 template<>
@@ -1409,13 +1409,14 @@ struct Vertex<ast_struct_field> final : ASTOtherVararg {
   bool is_private;                // declared as `private field: int`
   bool is_readonly;               // declared as `readonly field: int`
   AnyTypeV type_node;             // always exists, typing struct fields is mandatory
+  AnyTypeV abi_type_node;         // exists for @abi.clientType(<type>)
   AnyExprV default_value;         // nullptr if no default
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
 
-  Vertex(SrcRange range, V<ast_identifier> name_identifier, DocCommentLines doc_lines, bool is_private, bool is_readonly, AnyExprV default_value, AnyTypeV type_node)
+  Vertex(SrcRange range, V<ast_identifier> name_identifier, DocCommentLines doc_lines, bool is_private, bool is_readonly, AnyExprV default_value, AnyTypeV type_node, AnyTypeV abi_type_node)
     : ASTOtherVararg(ast_struct_field, range, {name_identifier})
-    , doc_lines(std::move(doc_lines)), is_private(is_private), is_readonly(is_readonly), type_node(type_node), default_value(default_value) {}
+    , doc_lines(std::move(doc_lines)), is_private(is_private), is_readonly(is_readonly), type_node(type_node), abi_type_node(abi_type_node), default_value(default_value) {}
 };
 
 template<>
@@ -1439,8 +1440,6 @@ struct Vertex<ast_struct_declaration> final : ASTOtherVararg {
   StructPtr struct_ref = nullptr;           // filled after register
   V<ast_genericsT_list> genericsT_list;     // exists for `Wrapper<T>`; otherwise, nullptr
   DocCommentLines doc_lines;                // from /// doc-comments above declaration
-  AnyExprV abi_minimalMsgValue;             // from @abi.minimalMsgValue(expr)
-  AnyExprV abi_preferredSendMode;           // from @abi.preferredSendMode(expr)
   StructData::Overflow1023Policy overflow1023_policy;
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
@@ -1451,9 +1450,9 @@ struct Vertex<ast_struct_declaration> final : ASTOtherVararg {
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_struct_ref(StructPtr struct_ref);
 
-  Vertex(SrcRange range, V<ast_identifier> name_identifier, V<ast_genericsT_list> genericsT_list, DocCommentLines doc_lines, AnyExprV abi_minimalMsgValue, AnyExprV abi_preferredSendMode, StructData::Overflow1023Policy overflow1023_policy, AnyExprV opcode, V<ast_struct_body> struct_body)
+  Vertex(SrcRange range, V<ast_identifier> name_identifier, V<ast_genericsT_list> genericsT_list, DocCommentLines doc_lines, StructData::Overflow1023Policy overflow1023_policy, AnyExprV opcode, V<ast_struct_body> struct_body)
     : ASTOtherVararg(ast_struct_declaration, range, {name_identifier, opcode, struct_body})
-    , genericsT_list(genericsT_list), doc_lines(std::move(doc_lines)), abi_minimalMsgValue(abi_minimalMsgValue), abi_preferredSendMode(abi_preferredSendMode), overflow1023_policy(overflow1023_policy) {}
+    , genericsT_list(genericsT_list), doc_lines(std::move(doc_lines)), overflow1023_policy(overflow1023_policy) {}
 };
 
 template<>

@@ -850,6 +850,29 @@ fun test66(x: int) {
     return u is array<U>
 }
 
+fun (int8 | int16).unionId(self): self {
+    return self;
+}
+
+@method_id(167)
+fun test67(x: int8, y: int16) {
+    __expect_type(x.unionId(), "int8 | int16");
+    return (x.unionId(), y.unionId());
+}
+
+type BoolOrInt = bool | int1;
+
+@method_id(168)
+fun test68(): int {
+    var x: BoolOrInt = 1;
+    __expect_type(x, "int1");
+    do {
+        x += 1;
+    } while (x !is int1);
+    __expect_type(x, "int1");
+    return x;
+}
+
 
 fun main() {
     return 0;
@@ -930,6 +953,8 @@ fun main() {
 @testcase | 164 | 0         | 0 0 -1 0 0 [ 0 2 ]
 @testcase | 165 |           | 3
 @testcase | 166 | 0         | -1
+@testcase | 167 | 1 2       | 1 42 2 44
+@testcase | 168 |           | 2
 
 
 @fif_codegen

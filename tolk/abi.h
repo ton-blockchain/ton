@@ -41,8 +41,6 @@ struct ABIGetMethod {
 struct ABIInternalMessage {
   TypePtr body_ty;
   std::string description;
-  std::optional<int64_t> minimal_msg_value;
-  std::optional<int64_t> preferred_send_mode;
 };
 
 struct ABIExternalMessage {
@@ -69,6 +67,7 @@ enum class ABIThrownErrorKind {
 struct ABIThrownError {
   ABIThrownErrorKind kind;
   std::string name;           // empty / "CONST_NAME" / "EnumName.MemberName"
+  std::string description;    // from doc comment over a constant or enum member
   int err_code;
 };
 
@@ -110,7 +109,7 @@ struct ContractABI {
   void register_thrown_error(GlobalConstPtr const_ref);
   void register_thrown_error(EnumDefPtr enum_ref, EnumMemberPtr member_ref);
   void register_thrown_error(const td::RefInt256& err_code);
-  void register_thrown_error(ABIThrownErrorKind kind, const td::RefInt256& error_code, std::string name);
+  void register_thrown_error(ABIThrownErrorKind kind, const td::RefInt256& error_code, std::string name, std::string description);
   void register_constant(GlobalConstPtr const_ref);
 
   void to_pretty_json(std::ostream& os) const;

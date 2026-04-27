@@ -120,6 +120,8 @@ public:
   virtual TypePtr replace_children_custom(const ReplacerCallbackT& callback) const {
     return callback(this);
   }
+
+  bool is_cell_or_CellT() const;
 };
 
 /*
