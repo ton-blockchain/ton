@@ -190,10 +190,16 @@ struct BroadcastsLimiter {
 
     static constexpr double WINDOW = 60.0;
   };
+  PublicKeyHash key = PublicKeyHash::zero();
   Stats stats_prev, stats_current;
   bool stats_inited = false;
 
+  td::RateLimiterWindow broadcast_rate_limiter_;
+  td::RateLimiterWindow broadcast_size_rate_limiter_;
+
   void init_stats(double now = td::Clocks::system());
+  td::Status precheck_new_broadcast(td::uint64 total_size);
+  td::Status try_register_broadcast(td::uint64 total_size);
   void register_broadcast(td::uint64 total_size);
   void register_out_traffic(td::uint64 size);
   tl_object_ptr<ton_api::engine_validator_overlayStatsBroadcasts> tl(PublicKeyHash src,
@@ -205,6 +211,7 @@ struct AuthorizedKeyLimiter {
   td::LRUCache<std::pair<PublicKeyHash, td::Bits256>, td::Unit> checked_certificates_lru_{100};
   td::LRUCache<std::pair<adnl::AdnlNodeIdShort, td::Bits256>, td::Unit> checked_member_certificates_lru_{100};
   BroadcastsLimiter broadcasts_;
+  bool broadcasts_inited_ = false;
 };
 
 class OverlayImpl : public Overlay {

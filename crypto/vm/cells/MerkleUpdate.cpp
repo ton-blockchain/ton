@@ -42,9 +42,13 @@ class MerkleUpdateApply {
   using Key = std::pair<Cell::Hash, int>;
   td::HashMap<Cell::Hash, Ref<Cell>> known_cells_;
   td::HashMap<Key, Ref<Cell>> ready_cells_;
+  td::HashSet<Key> visited_from_;
   StoreCellHint *hint_ = nullptr;
 
   void dfs_both(Ref<Cell> original, Ref<Cell> update_from, int merkle_depth) {
+    if (!visited_from_.emplace(original->get_hash(), merkle_depth).second) {
+      return;
+    }
     CellSlice cs_update_from(NoVm(), update_from);
     known_cells_.emplace(original->get_hash(merkle_depth), original);
     if (cs_update_from.special_type() == Cell::SpecialType::PrunnedBranch) {
