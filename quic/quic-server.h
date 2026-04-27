@@ -133,7 +133,6 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
       Entry operator-(const Entry &other) const {
         return {.total_conns = total_conns - other.total_conns, .impl_stats = impl_stats - other.impl_stats};
       }
-
     };
 
     Entry summary = {.total_conns = 0};
