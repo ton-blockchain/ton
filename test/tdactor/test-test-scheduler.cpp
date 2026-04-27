@@ -359,5 +359,59 @@ TEST(TestScheduler, CleanupDrainsPendingAlarmsWithActor) {
   });
 }
 
+TEST(TestScheduler, CleanupDrainsCpuQueue) {
+  static bool started;
+  started = false;
+
+  struct MyActor : Actor {
+    void start_up() override {
+      started = true;
+    }
+  };
+
+  TestScheduler ts;
+  ts.run([]() -> Task<> {
+    create_actor<MyActor>("dummy").release();
+    co_return {};
+  });
+  EXPECT(started);
+}
+
+TEST(TestScheduler, CpuBeforeAlarms) {
+  static std::vector<int> events;
+  events.clear();
+
+  struct MyActor : Actor {
+    double timeout;
+    int event;
+
+    MyActor(double t, int e) : timeout(t), event(e) {
+    }
+
+    void start_up() override {
+      alarm_timestamp() = td::Timestamp::in(timeout);
+    }
+
+    void alarm() override {
+      events.push_back(event);
+      yield();
+    }
+
+    void wake_up() override {
+      events.push_back(event + 1);
+    }
+  };
+
+  TestScheduler ts;
+  ts.run([&]() -> Task<> {
+    create_actor<MyActor>("dummy1", 1, 0).release();
+    create_actor<MyActor>("dummy1", 2, 2).release();
+    co_await ts.wait_sync_work();
+    ts.advance_time(3);
+    co_return {};
+  });
+  EXPECT_EQ(events, (std::vector<int>{0, 1, 2, 3}));
+}
+
 }  // namespace
 }  // namespace td::actor
