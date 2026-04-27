@@ -24,12 +24,15 @@ namespace ton::validator::consensus {
 struct Start {
   ChainStateRef state;
 
+  bool operator==(const Start&) const = default;
   std::string contents_to_string() const;
 };
 
 using StartEvent = std::shared_ptr<const Start>;
 
-struct StopRequested {};
+struct StopRequested {
+  bool operator==(const StopRequested&) const = default;
+};
 
 struct FinalizeBlock {
   using ReturnType = td::Unit;
@@ -37,6 +40,7 @@ struct FinalizeBlock {
   CandidateRef candidate;
   td::Ref<block::BlockSignatureSet> signatures;
 
+  bool operator==(const FinalizeBlock&) const = default;
   std::string contents_to_string() const;
 };
 
@@ -47,6 +51,7 @@ struct OurLeaderWindowStarted {
   td::uint32 end_slot;
   td::Timestamp start_time;
 
+  bool operator==(const OurLeaderWindowStarted&) const = default;
   std::string contents_to_string() const;
 };
 
@@ -54,6 +59,7 @@ struct CandidateGenerated {
   CandidateRef candidate;
   std::optional<adnl::AdnlNodeIdShort> collator_id;
 
+  bool operator==(const CandidateGenerated&) const = default;
   std::string contents_to_string() const;
 };
 
@@ -61,6 +67,7 @@ struct CandidateGenerated {
 struct CandidateReceived {
   CandidateRef candidate;
 
+  bool operator==(const CandidateReceived&) const = default;
   std::string contents_to_string() const;
 };
 
@@ -70,6 +77,7 @@ struct ValidationRequest {
   ChainStateRef state;
   CandidateRef candidate;
 
+  bool operator==(const ValidationRequest&) const = default;
   std::string contents_to_string() const;
   static std::string response_to_string(const ReturnType&);
 };
@@ -80,6 +88,7 @@ struct IncomingProtocolMessage {
   PeerValidatorId source;
   ProtocolMessage message;
 
+  bool operator==(const IncomingProtocolMessage&) const = default;
   std::string contents_to_string() const;
 };
 
@@ -89,6 +98,7 @@ struct OutgoingProtocolMessage {
   std::optional<PeerValidatorId> recipient;
   ProtocolMessage message;
 
+  bool operator==(const OutgoingProtocolMessage&) const = default;
   std::string contents_to_string() const;
 };
 
@@ -99,6 +109,7 @@ struct IncomingOverlayRequest {
   PeerValidatorId source;
   ProtocolMessage request;
 
+  bool operator==(const IncomingOverlayRequest&) const = default;
   std::string contents_to_string() const;
   static std::string response_to_string(const ReturnType&);
 };
@@ -111,6 +122,7 @@ struct OutgoingOverlayRequest {
   td::Timestamp timeout;
   ProtocolMessage request;
 
+  bool operator==(const OutgoingOverlayRequest&) const = default;
   std::string contents_to_string() const;
   static std::string response_to_string(const ReturnType&);
 };
@@ -118,6 +130,7 @@ struct OutgoingOverlayRequest {
 struct BlockFinalizedInMasterchain {
   BlockIdExt block;
 
+  bool operator==(const BlockFinalizedInMasterchain&) const = default;
   std::string contents_to_string() const;
 };
 
@@ -125,6 +138,7 @@ struct MisbehaviorReport {
   PeerValidatorId id;
   MisbehaviorRef proof;
 
+  bool operator==(const MisbehaviorReport&) const = default;
   std::string contents_to_string() const;
 };
 

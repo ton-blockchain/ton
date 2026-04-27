@@ -59,7 +59,7 @@ class PeerValidatorId {
 
   const PeerValidator& get_using(const Bus& bus) const;
 
-  std::strong_ordering operator<=>(const PeerValidatorId& other) const = default;
+  std::strong_ordering operator<=>(const PeerValidatorId&) const = default;
 
  private:
   size_t idx_;
@@ -70,7 +70,7 @@ td::StringBuilder& operator<<(td::StringBuilder& stream, const PeerValidatorId& 
 struct PeerValidator {
   [[nodiscard]] bool check_signature(ValidatorSessionId session, td::Slice data, td::Slice signature) const;
 
-  bool operator==(const PeerValidator& other) const = default;
+  bool operator==(const PeerValidator&) const = default;
 
   PeerValidatorId idx;
   PublicKey key;
@@ -89,6 +89,8 @@ struct ProtocolMessage {
   ProtocolMessage(const tl_object_ptr<T>& object) : data(serialize_tl_object(object, true)) {
   }
 
+  bool operator==(const ProtocolMessage&) const = default;
+
   td::BufferSlice data;
 };
 
@@ -98,6 +100,7 @@ struct CandidateId {
   static std::optional<CandidateId> tl_to_parent_id(const tl::CandidateParentRef& tl_parent);
 
   tl::CandidateIdRef to_tl() const;
+  bool operator==(const CandidateId&) const = default;
   std::strong_ordering operator<=>(const CandidateId&) const = default;
 
   td::uint32 slot{0};
@@ -162,6 +165,7 @@ struct Candidate : td::CntObject {
   CandidateHashData hash_data() const;
   td::BufferSlice serialize() const;
   bool is_empty() const;
+  bool operator==(const Candidate&) const = default;
 
   CandidateId id;
   ParentId parent_id;
@@ -203,6 +207,8 @@ class Event {
     return ts_;
   }
 
+  bool operator==(const Event&) const = default;
+
  protected:
   double ts_;
 };
@@ -211,6 +217,7 @@ template <typename Collector>
 class CollectibleEvent : public Event {
  public:
   virtual void collect_to(Collector& collector) const = 0;
+  bool operator==(const CollectibleEvent&) const = default;
 };
 
 }  // namespace stats
