@@ -47,19 +47,7 @@ class RootDb;
 class CellDb;
 class CellDbAsyncExecutor;
 
-class CellDbBase : public td::actor::Actor {
- public:
-  void start_up() override;
-
- protected:
-  std::shared_ptr<vm::DynamicBagOfCellsDb::AsyncExecutor> async_executor;
-
- private:
-  void execute_sync(std::function<void()> f);
-  friend CellDbAsyncExecutor;
-};
-
-class CellDbIn : public CellDbBase {
+class CellDbIn : public td::actor::Actor {
  public:
   using KeyHash = td::Bits256;
 
@@ -121,6 +109,7 @@ class CellDbIn : public CellDbBase {
   std::string path_;
   td::Ref<ValidatorManagerOptions> opts_;
 
+  std::shared_ptr<vm::DynamicBagOfCellsDb::AsyncExecutor> async_executor_;
   std::shared_ptr<vm::DynamicBagOfCellsDb> boc_;
   std::shared_ptr<vm::KeyValue> cell_db_;
   std::shared_ptr<rocksdb::DB> rocks_db_;
@@ -193,7 +182,7 @@ class CellDbIn : public CellDbBase {
   };
 };
 
-class CellDb : public CellDbBase {
+class CellDb : public td::actor::Actor {
  public:
   void prepare_stats(td::Promise<std::vector<std::pair<std::string, std::string>>> promise);
   td::actor::Task<Ref<vm::DataCell>> load_cell(RootHash hash);
@@ -233,6 +222,7 @@ class CellDb : public CellDbBase {
 
   td::actor::ActorOwn<CellDbIn> cell_db_;
 
+  std::shared_ptr<vm::DynamicBagOfCellsDb::AsyncExecutor> async_executor_;
   std::unique_ptr<vm::DynamicBagOfCellsDb> boc_;
   std::shared_ptr<const vm::DynamicBagOfCellsDb> thread_safe_boc_;
   bool started_ = false;

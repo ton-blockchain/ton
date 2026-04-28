@@ -17,13 +17,6 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-// FIXME: Remove once RocksDB stops triggering this warning.
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wimplicit-int-float-conversion"
-#include "rocksdb/merge_operator.h"
-#include "rocksdb/utilities/optimistic_transaction_db.h"
-#pragma GCC diagnostic pop
-
 #include "block/block-auto.h"
 #include "common/delay.h"
 #include "permanent-celldb/permanent-celldb-utils.h"
@@ -39,82 +32,11 @@
 namespace ton {
 
 namespace validator {
-class CellDbAsyncExecutor : public vm::DynamicBagOfCellsDb::AsyncExecutor {
- public:
-  explicit CellDbAsyncExecutor(td::actor::ActorId<CellDbBase> cell_db) : cell_db_(std::move(cell_db)) {
-  }
-
-  void execute_async(std::function<void()> f) override {
-    class Runner : public td::actor::Actor {
-     public:
-      explicit Runner(std::function<void()> f) : f_(std::move(f)) {
-      }
-      void start_up() override {
-        f_();
-        stop();
-      }
-
-     private:
-      std::function<void()> f_;
-    };
-    td::actor::create_actor<Runner>("executeasync", std::move(f)).release();
-  }
-
-  void execute_sync(std::function<void()> f) override {
-    td::actor::send_closure(cell_db_, &CellDbBase::execute_sync, std::move(f));
-  }
-
- private:
-  td::actor::ActorId<CellDbBase> cell_db_;
-};
-
-void CellDbBase::start_up() {
-  async_executor = std::make_shared<CellDbAsyncExecutor>(actor_id(this));
-}
-
-void CellDbBase::execute_sync(std::function<void()> f) {
-  f();
-}
 
 CellDbIn::CellDbIn(td::actor::ActorId<RootDb> root_db, td::actor::ActorId<CellDb> parent, std::string path,
                    td::Ref<ValidatorManagerOptions> opts)
     : root_db_(root_db), parent_(parent), path_(std::move(path)), opts_(opts) {
 }
-
-struct MergeOperatorAddCellRefcnt : public rocksdb::MergeOperator {
-  const char* Name() const override {
-    return "MergeOperatorAddCellRefcnt";
-  }
-  static auto to_td(rocksdb::Slice value) -> td::Slice {
-    return td::Slice(value.data(), value.size());
-  }
-  bool FullMergeV2(const MergeOperationInput& merge_in, MergeOperationOutput* merge_out) const override {
-    CHECK(merge_in.existing_value);
-    auto& value = *merge_in.existing_value;
-    CHECK(merge_in.operand_list.size() >= 1);
-    td::Slice diff;
-    std::string diff_buf;
-    if (merge_in.operand_list.size() == 1) {
-      diff = to_td(merge_in.operand_list[0]);
-    } else {
-      diff_buf = merge_in.operand_list[0].ToString();
-      for (size_t i = 1; i < merge_in.operand_list.size(); ++i) {
-        vm::CellStorer::merge_refcnt_diffs(diff_buf, to_td(merge_in.operand_list[i]));
-      }
-      diff = diff_buf;
-    }
-
-    merge_out->new_value = value.ToString();
-    vm::CellStorer::merge_value_and_refcnt_diff(merge_out->new_value, diff);
-    return true;
-  }
-  bool PartialMerge(const rocksdb::Slice& /*key*/, const rocksdb::Slice& left, const rocksdb::Slice& right,
-                    std::string* new_value, rocksdb::Logger* logger) const override {
-    *new_value = left.ToString();
-    vm::CellStorer::merge_refcnt_diffs(*new_value, to_td(right));
-    return true;
-  }
-};
 
 void CellDbIn::validate_meta() {
   LOG(INFO) << "Validating metadata\n";
@@ -190,7 +112,7 @@ void CellDbIn::start_up() {
     }
   };
 
-  CellDbBase::start_up();
+  async_executor_ = std::make_shared<CellDbAsyncExecutor>(actor_id(this));
   td::RocksDbOptions db_options;
   if (!opts_->get_disable_rocksdb_stats()) {
     statistics_ = td::RocksDb::create_statistics();
@@ -412,7 +334,7 @@ void CellDbIn::store_cell(BlockIdExt block_id, td::Ref<vm::Cell> cell, vm::Store
   boc_->inc(cell);
   db_busy_ = true;
   boc_->prepare_commit_async(
-      async_executor, std::move(hint),
+      async_executor_, std::move(hint),
       [=, this, SelfId = actor_id(this), timer = std::move(timer), timer_prepare = td::Timer{},
        promise = std::move(promise), cell = std::move(cell)](td::Result<td::Unit> Res) mutable {
         Res.ensure();
@@ -571,7 +493,7 @@ void CellDbIn::store_block_state_permanent_bulk(std::vector<td::Ref<BlockData>> 
   }
   db_busy_ = true;
   calculate_permanent_celldb_update(
-      new_blocks, async_executor,
+      new_blocks, async_executor_,
       [this, SelfId = actor_id(this), timer = std::move(timer), timer_prepare = std::move(timer_prepare),
        promise = std::move(promise)](td::Result<std::vector<PermanentCellDbUpdate>> R) mutable {
         td::actor::send_lambda_later(
@@ -805,7 +727,7 @@ void CellDbIn::gc_cont2(BlockIdExt block_id) {
 
   db_busy_ = true;
   boc_->prepare_commit_async(
-      async_executor, {},
+      async_executor_, {},
       [this, SelfId = actor_id(this), timer_boc = std::move(timer_boc), F = std::move(F), key_hash, P = std::move(P),
        N = std::move(N), cell = std::move(cell), timer = std::move(timer), timer_all = std::move(timer_all),
        block_id](td::Result<td::Unit> R) mutable {
@@ -1032,7 +954,7 @@ td::actor::Task<Ref<vm::DataCell>> CellDb::load_cell(RootHash hash) {
     }
   }
   if (started_ && !thread_safe_boc_) {
-    auto result = co_await boc_->load_cell_async(hash.as_slice(), async_executor).wrap();
+    auto result = co_await boc_->load_cell_async(hash.as_slice(), async_executor_).wrap();
     if (result.is_ok()) {
       ++cell_db_statistics_.queries_load_ok_immediate_;
       co_await td::actor::detach_from_actor();
@@ -1072,7 +994,7 @@ void CellDb::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> p
 }
 
 void CellDb::start_up() {
-  CellDbBase::start_up();
+  async_executor_ = std::make_shared<CellDbAsyncExecutor>(actor_id(this));
   boc_ = vm::DynamicBagOfCellsDb::create();
   boc_->set_celldb_compress_depth(opts_->get_celldb_compress_depth());
   cell_db_ = td::actor::create_actor<CellDbIn>("celldbin", root_db_, actor_id(this), path_, opts_);
