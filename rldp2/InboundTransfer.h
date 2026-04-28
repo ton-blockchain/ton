@@ -43,7 +43,7 @@ struct InboundTransfer {
   bool is_part_completed(td::uint32 part_i);
   td::Result<Part *> get_part(td::uint32 part_i, const fec::FecType &fec_type);
   void finish_part(td::uint32 part_i, td::BufferSlice data);
-  td::optional<td::Result<td::BufferSlice>> try_finish();
+  td::optional<td::BufferSlice> try_finish();
 
  private:
   std::map<td::uint32, Part> parts_;

@@ -2240,7 +2240,7 @@ void LiteQuery::continue_lookupBlockWithProof_buildProofLinks(
     }
     block::ShardConfig shards(mc_extra.shard_hashes->prefetch_ref());
     ShardIdFull shard_id = blk_id_.shard_full();
-    shard_id.shard = (shard_id.shard & ~(1 << (63 - shard_id.pfx_len()))) | 1;
+    shard_id.shard = (shard_id.shard & ~(1ULL << (63 - shard_id.pfx_len()))) | 1;
     Ref<block::McShardHash> shard_hash = shards.get_shard_hash(shard_id, false);
     if (shard_hash.is_null()) {
       fatal_error("shard not found");
@@ -2918,14 +2918,13 @@ bool LiteQuery::construct_proof_link_forward_cont(ton::BlockIdExt cur, ton::Bloc
   try {
     Ref<vm::Cell> cur_root, next_root;
     // virtualize roots
-    ton::validator::ProofQ::VirtualizedProof virt1;
+    std::shared_ptr<vm::StaticBagOfCellsDb> boc;
     if (cur.seqno()) {
       auto vres1 = proof_link_->get_virtual_root();
       if (vres1.is_error()) {
         return fatal_error(vres1.move_as_error());
       }
-      virt1 = vres1.move_as_ok();
-      cur_root = virt1.root;
+      cur_root = vres1.ok().root;
     } else {
       // for zero state, lazily deserialize buffer_ instead
       vm::StaticBagOfCellsDbLazy::Options options;
@@ -2934,8 +2933,8 @@ bool LiteQuery::construct_proof_link_forward_cont(ton::BlockIdExt cur, ton::Bloc
       if (res.is_error()) {
         return fatal_error(res.move_as_error());
       }
-      virt1.boc = res.move_as_ok();
-      auto t_root = virt1.boc->get_root_cell(0);
+      boc = res.move_as_ok();
+      auto t_root = boc->get_root_cell(0);
       if (t_root.is_error()) {
         return fatal_error(t_root.move_as_error());
       }
@@ -3283,7 +3282,7 @@ void LiteQuery::continue_getShardBlockProof(Ref<BlockData> cur_block,
     }
     block::ShardConfig shards(mc_extra.shard_hashes->prefetch_ref());
     ShardIdFull shard_id = blk_id_.shard_full();
-    shard_id.shard = (shard_id.shard & ~(1 << (63 - shard_id.pfx_len()))) | 1;
+    shard_id.shard = (shard_id.shard & ~(1ULL << (63 - shard_id.pfx_len()))) | 1;
     Ref<block::McShardHash> shard_hash = shards.get_shard_hash(shard_id, false);
     if (shard_hash.is_null()) {
       fatal_error("shard not found");

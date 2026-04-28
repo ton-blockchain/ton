@@ -36,9 +36,9 @@ DownloadBlockNew::DownloadBlockNew(BlockIdExt block_id, adnl::AdnlNodeIdShort lo
                                    overlay::OverlayIdShort overlay_id, adnl::AdnlNodeIdShort download_from,
                                    td::uint32 priority, td::Timestamp timeout,
                                    td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                                   td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
-                                   td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlExtClient> client,
-                                   td::Promise<ReceivedBlock> promise)
+                                   td::actor::ActorId<adnl::AdnlSenderInterface> rldp,
+                                   td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<adnl::Adnl> adnl,
+                                   td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<ReceivedBlock> promise)
     : block_id_(block_id)
     , local_id_(local_id)
     , overlay_id_(overlay_id)
@@ -59,9 +59,9 @@ DownloadBlockNew::DownloadBlockNew(adnl::AdnlNodeIdShort local_id, overlay::Over
                                    BlockIdExt prev_id, adnl::AdnlNodeIdShort download_from, td::uint32 priority,
                                    td::Timestamp timeout,
                                    td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                                   td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
-                                   td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlExtClient> client,
-                                   td::Promise<ReceivedBlock> promise)
+                                   td::actor::ActorId<adnl::AdnlSenderInterface> rldp,
+                                   td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<adnl::Adnl> adnl,
+                                   td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<ReceivedBlock> promise)
     : local_id_(local_id)
     , overlay_id_(overlay_id)
     , prev_id_(prev_id)
@@ -246,6 +246,17 @@ void DownloadBlockNew::got_data(td::BufferSlice data) {
                     return;
                   }
                   auto prev_blocks = R_prev_blocks.move_as_ok();
+                  if (block_id_.is_valid()) {
+                    if (id != block_id_) {
+                      abort_query(td::Status::Error("block id mismatch"));
+                      return;
+                    }
+                  } else {
+                    if (prev_blocks != std::vector{prev_id_}) {
+                      abort_query(td::Status::Error("prev block id mismatch"));
+                      return;
+                    }
+                  }
                   auto P_state = td::PromiseCreator::lambda([SelfId = actor_id(this), data_full = std::move(f)](
                                                                 td::Result<td::Ref<ShardState>> R_state) mutable {
                     if (R_state.is_error()) {

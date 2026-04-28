@@ -1541,6 +1541,7 @@ void HttpRldpPayloadSender::start_up() {
       [SelfId = actor_id(this)](td::Result<RegisteredPayloadSenderGuard> R) {
         if (R.is_error()) {
           LOG(INFO) << "Failed to register request sender: " << R.move_as_error();
+          return;
         }
         td::actor::send_closure(SelfId, &HttpRldpPayloadSender::registered_sender, R.move_as_ok());
       });
@@ -1586,6 +1587,7 @@ void RldpTcpTunnel::start_up() {
       [SelfId = actor_id(this)](td::Result<RegisteredPayloadSenderGuard> R) {
         if (R.is_error()) {
           LOG(INFO) << "Failed to register request sender: " << R.move_as_error();
+          return;
         }
         td::actor::send_closure(SelfId, &RldpTcpTunnel::registered_sender, R.move_as_ok());
       });

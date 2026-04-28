@@ -74,8 +74,7 @@ class BroadcastFec : public td::ListNode {
       td::fec::Symbol s;
       s.id = seqno;
       s.data = std::move(data);
-
-      decoder_->add_symbol(std::move(s));
+      TRY_STATUS(decoder_->add_symbol(std::move(s)));
     }
     parts_[seqno] = std::pair<td::BufferSlice, td::BufferSlice>(std::move(serialized_fec_part_short),
                                                                 std::move(serialized_fec_part));
@@ -141,29 +140,11 @@ class BroadcastFec : public td::ListNode {
   }
 
   bool received_part(td::uint32 seqno) const {
-    if (next_seqno_ >= 64 && seqno < next_seqno_ - 64) {
-      return true;
-    }
-    if (seqno >= next_seqno_) {
-      return false;
-    }
-    return received_parts_ & (1ull << (next_seqno_ - seqno - 1));
+    return received_parts_.contains(seqno);
   }
 
   void add_received_part(td::uint32 seqno) {
-    CHECK(!received_part(seqno));
-    if (seqno < next_seqno_) {
-      received_parts_ |= (1ull << (next_seqno_ - seqno - 1));
-    } else {
-      auto old = next_seqno_;
-      next_seqno_ = seqno + 1;
-      if (next_seqno_ - old >= 64) {
-        received_parts_ = 1;
-      } else {
-        received_parts_ = received_parts_ << (next_seqno_ - old);
-        received_parts_ |= 1;
-      }
-    }
+    CHECK(received_parts_.insert(seqno).second);
   }
 
   void broadcast_checked(OverlayImpl *overlay, td::Result<td::Unit> R);
@@ -189,8 +170,7 @@ class BroadcastFec : public td::ListNode {
   std::unique_ptr<td::fec::Encoder> encoder_;
   std::set<adnl::AdnlNodeIdShort> received_neighbours_;
   std::set<adnl::AdnlNodeIdShort> completed_neighbours_;
-  td::uint32 next_seqno_ = 0;
-  td::uint64 received_parts_ = 0;
+  std::set<td::uint32> received_parts_;
   std::map<td::uint32, std::pair<td::BufferSlice, td::BufferSlice>> parts_;
   adnl::AdnlNodeIdShort src_peer_id_ = adnl::AdnlNodeIdShort::zero();
   td::BufferSlice data_;
@@ -329,9 +309,6 @@ td::Status BroadcastFecPart::run(OverlayImpl *overlay, BroadcastFec &bcast) {
   if (bcast.received_part(seqno_)) {
     return td::Status::Error(ErrorCode::notready, "duplicate part");
   }
-  bcast.add_received_part(seqno_);
-  bcast.set_src_peer_id(src_peer_id_);
-
   TRY_STATUS(bcast.add_part(
       seqno_, data_.clone(),
       create_serialize_tl_object<ton_api::overlay_broadcastFecShort>(
@@ -340,6 +317,8 @@ td::Status BroadcastFecPart::run(OverlayImpl *overlay, BroadcastFec &bcast) {
       create_serialize_tl_object<ton_api::overlay_broadcastFec>(
           source_.tl(), cert_ ? cert_->tl() : Certificate::empty_tl(), bcast.data_hash_, bcast.fec_type_.size(),
           bcast.flags_, data_.clone(), seqno_, bcast.fec_type_.tl(), date_, signature_.clone())));
+  bcast.add_received_part(seqno_);
+  bcast.set_src_peer_id(src_peer_id_);
   if (!bcast.ready_) {
     auto R = bcast.finish();
     if (R.is_error()) {
@@ -475,7 +454,7 @@ void BroadcastsFec::signed_(OverlayImpl *overlay, std::unique_ptr<BroadcastFecPa
   part->source_ = std::move(V.second);
   part->signature_ = std::move(V.first);
   part->cert_ = overlay->get_certificate(part->source_.compute_short_id());
-  td::Status S = process(overlay, *part);
+  td::Status S = process(overlay, *part, true);
   if (S.is_error() && S.code() != ErrorCode::notready) {
     LOG(WARNING) << "failed to process fec broadcast: " << S;
   }
@@ -502,7 +481,7 @@ td::Status BroadcastsFec::process_broadcast(OverlayImpl *overlay, adnl::AdnlNode
                         part_data_hash, std::move(broadcast->data_), static_cast<td::uint32>(broadcast->seqno_),
                         std::move(fec_type), static_cast<td::uint32>(broadcast->date_),
                         std::move(broadcast->signature_), false, src_peer_id);
-  TRY_STATUS(process(overlay, part));
+  TRY_STATUS(process(overlay, part, false));
   return td::Status::OK();
 }
 
@@ -557,17 +536,20 @@ void BroadcastsFec::gc(OverlayImpl *overlay) {
   }
 }
 
-td::Status BroadcastsFec::process(OverlayImpl *overlay, BroadcastFecPart &part) {
+td::Status BroadcastsFec::process(OverlayImpl *overlay, BroadcastFecPart &part, bool is_ours) {
   auto it = broadcasts_.find(part.broadcast_hash_);
   if (it == broadcasts_.end()) {
     if (overlay->is_delivered(part.broadcast_hash_)) {
       return td::Status::Error(ErrorCode::notready, "duplicate broadcast");
     }
+    BroadcastsLimiter &limiter = overlay->get_broadcasts_limiter(part.source_.compute_short_id(), part.cert_.get());
+    if (!is_ours) {
+      TRY_STATUS(limiter.precheck_new_broadcast(part.broadcast_size_));
+    }
     TRY_STATUS(part.run_checks(overlay, nullptr));
     auto bcast = std::make_unique<BroadcastFec>(part.broadcast_hash_, part.broadcast_data_hash_, part.flags_,
                                                 part.date_, part.source_, part.cert_, part.fec_type_);
-    overlay->get_broadcasts_limiter(part.source_.compute_short_id(), part.cert_.get())
-        .register_broadcast(part.broadcast_size_);
+    limiter.register_broadcast(part.broadcast_size_);
     TRY_STATUS(bcast->run_checks());
     TRY_STATUS(bcast->init_fec_type());
     lru_.put(bcast.get());

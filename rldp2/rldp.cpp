@@ -28,6 +28,11 @@ namespace ton {
 
 namespace rldp2 {
 
+struct RldpIn::Connection {
+  td::actor::ActorOwn<RldpConnectionActor> actor;
+  td::Timestamp remove_at;
+};
+
 class RldpConnectionActor : public td::actor::Actor, private ConnectionCallback {
  public:
   RldpConnectionActor(td::actor::ActorId<RldpIn> rldp, adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
@@ -94,7 +99,8 @@ void RldpIn::send_message_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort ds
   auto B = serialize_tl_object(create_tl_object<ton_api::rldp_message>(id, std::move(data)), true);
 
   auto transfer_id = get_random_transfer_id();
-  send_closure(create_connection(src, dst, false), &RldpConnectionActor::send, transfer_id, std::move(B), timeout);
+  send_closure(get_or_create_connection(src, dst, false, timeout), &RldpConnectionActor::send, transfer_id,
+               std::move(B), timeout);
 }
 
 void RldpIn::send_query_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, std::string name,
@@ -106,7 +112,7 @@ void RldpIn::send_query_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
   auto B = serialize_tl_object(create_tl_object<ton_api::rldp_query>(query_id, max_answer_size, date, std::move(data)),
                                true);
 
-  auto connection = create_connection(src, dst, false);
+  auto connection = get_or_create_connection(src, dst, false, timeout);
   auto transfer_id = get_random_transfer_id();
   auto response_transfer_id = get_responce_transfer_id(transfer_id);
   send_closure(connection, &RldpConnectionActor::set_receive_limits, response_transfer_id, timeout, max_answer_size);
@@ -119,22 +125,32 @@ void RldpIn::answer_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, 
                           adnl::AdnlQueryId query_id, TransferId transfer_id, td::BufferSlice data) {
   auto B = serialize_tl_object(create_tl_object<ton_api::rldp_answer>(query_id, std::move(data)), true);
 
-  send_closure(create_connection(src, dst, false), &RldpConnectionActor::send, transfer_id, std::move(B), timeout);
+  send_closure(get_or_create_connection(src, dst, false, timeout), &RldpConnectionActor::send, transfer_id,
+               std::move(B), timeout);
 }
 
 void RldpIn::receive_message_part(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, td::BufferSlice data) {
-  auto connection = create_connection(local_id, source, true);
+  auto connection = get_or_create_connection(local_id, source, true);
   if (connection.empty()) {
     return;
   }
   send_closure(connection, &RldpConnectionActor::receive_raw, std::move(data));
 }
 
-td::actor::ActorId<RldpConnectionActor> RldpIn::create_connection(adnl::AdnlNodeIdShort local_id,
-                                                                  adnl::AdnlNodeIdShort peer_id, bool incoming) {
+td::actor::ActorId<RldpConnectionActor> RldpIn::get_or_create_connection(adnl::AdnlNodeIdShort local_id,
+                                                                         adnl::AdnlNodeIdShort peer_id, bool incoming,
+                                                                         td::Timestamp timeout) {
+  if (!timeout) {
+    timeout = td::Timestamp::now();
+  }
+  timeout += CONNECTION_TIMEOUT;
   auto it = connections_.find(std::make_pair(local_id, peer_id));
   if (it != connections_.end()) {
-    return it->second.get();
+    timeout_set_.erase({it->second.remove_at, local_id, peer_id});
+    it->second.remove_at = std::max(it->second.remove_at, timeout);
+    timeout_set_.emplace(it->second.remove_at, local_id, peer_id);
+    alarm_timestamp().relax(timeout);
+    return it->second.actor.get();
   }
   td::uint64 mtu = get_peer_mtu(local_id, peer_id);
   if (mtu == 0 && incoming) {
@@ -145,7 +161,11 @@ td::actor::ActorId<RldpConnectionActor> RldpIn::create_connection(adnl::AdnlNode
       td::actor::create_actor<RldpConnectionActor>("RldpConnection", actor_id(this), local_id, peer_id, adnl_);
   td::actor::send_closure(connection, &RldpConnectionActor::set_default_mtu, mtu);
   auto res = connection.get();
-  connections_[std::make_pair(local_id, peer_id)] = std::move(connection);
+  connections_[std::make_pair(local_id, peer_id)] = {std::move(connection), timeout};
+  timeout_set_.emplace(timeout, local_id, peer_id);
+  alarm_timestamp().relax(timeout);
+  VLOG(RLDP_INFO) << "creating connection " << local_id << " , " << peer_id << " ("
+                  << (incoming ? "inbound" : "outbound") << ")";
   return res;
 }
 
@@ -242,7 +262,7 @@ void RldpIn::get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p
 void RldpIn::on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id, td::optional<adnl::AdnlNodeIdShort> peer_id) {
   auto update_mtu = [&](const auto &it) {
     auto &[p, connection] = *it;
-    td::actor::send_closure(connection, &RldpConnectionActor::set_default_mtu, get_peer_mtu(p.first, p.second));
+    td::actor::send_closure(connection.actor, &RldpConnectionActor::set_default_mtu, get_peer_mtu(p.first, p.second));
   };
   if (local_id && peer_id) {
     auto it = connections_.find({local_id.value(), peer_id.value()});
@@ -259,6 +279,20 @@ void RldpIn::on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id, td::op
     }
     update_mtu(it);
     ++it;
+  }
+}
+
+void RldpIn::alarm() {
+  for (auto it = timeout_set_.begin(); it != timeout_set_.end();) {
+    auto &[timeout, local_id, peer_id] = *it;
+    if (timeout.is_in_past()) {
+      VLOG(RLDP_INFO) << "removing old connection " << local_id << " , " << peer_id;
+      connections_.erase({local_id, peer_id});
+      it = timeout_set_.erase(it);
+    } else {
+      alarm_timestamp() = timeout;
+      break;
+    }
   }
 }
 

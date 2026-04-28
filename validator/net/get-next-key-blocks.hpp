@@ -20,7 +20,6 @@
 
 #include "adnl/adnl-ext-client.h"
 #include "overlay/overlays.h"
-#include "rldp/rldp.h"
 #include "ton/ton-types.h"
 #include "validator/validator.h"
 
@@ -35,7 +34,7 @@ class GetNextKeyBlocks : public td::actor::Actor {
   GetNextKeyBlocks(BlockIdExt block_id, td::uint32 limit, adnl::AdnlNodeIdShort local_id,
                    overlay::OverlayIdShort overlay_id, adnl::AdnlNodeIdShort download_from, td::uint32 priority,
                    td::Timestamp timeout, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                   td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
+                   td::actor::ActorId<adnl::AdnlSenderInterface> rldp, td::actor::ActorId<overlay::Overlays> overlays,
                    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlExtClient> client,
                    td::Promise<std::vector<BlockIdExt>> promise);
 
@@ -66,7 +65,7 @@ class GetNextKeyBlocks : public td::actor::Actor {
 
   td::Timestamp timeout_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
-  td::actor::ActorId<rldp::Rldp> rldp_;
+  td::actor::ActorId<adnl::AdnlSenderInterface> rldp_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<adnl::AdnlExtClient> client_;

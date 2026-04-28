@@ -203,7 +203,7 @@ void DhtQueryFindValue::on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeI
                   VLOG(DHT_WARNING) << this << ": received value for bad key on find value query from " << dst;
                   return;
                 }
-                if (!value.check_is_acceptable()) {
+                if (value.expired() || !value.check_is_acceptable()) {
                   send_get_nodes = true;
                   return;
                 }

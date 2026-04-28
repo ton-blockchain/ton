@@ -2530,6 +2530,36 @@ TEST(Cell, MerkleUpdateCombineArray) {
   validate(41);
 }
 
+TEST(Cell, MerkleDiamond) {
+  for (int depth = 0; depth <= 100; ++depth) {
+    auto cell = CellBuilder{}.store_long(0x12341234, 32).finalize_novm();
+    for (int i = 0; i < depth; ++i) {
+      cell = CellBuilder{}.store_ref(cell).store_ref(cell).finalize_novm();
+    }
+    auto cell2 = CellBuilder{}.store_long(0x11223344, 32).finalize_novm();
+    auto mu = CellBuilder::create_merkle_update(cell, cell2);
+    auto cell3 = MerkleUpdate::apply(cell, mu).ensure().move_as_ok();
+    CHECK(cell2->get_hash() == cell3->get_hash());
+  }
+  for (int depth = 0; depth <= 100; ++depth) {
+    auto child1 = CellBuilder{}.store_long(1, 32).finalize_novm();
+    auto child2 = CellBuilder{}.store_long(2, 32).finalize_novm();
+    auto cell1 =
+        CellBuilder{}.store_ref(CellBuilder::do_create_pruned_branch(child1, 1)).store_ref(child2).finalize_novm();
+    auto cell2 =
+        CellBuilder{}.store_ref(child1).store_ref(CellBuilder::do_create_pruned_branch(child2, 1)).finalize_novm();
+
+    for (int i = 0; i < depth; ++i) {
+      cell1 = CellBuilder{}.store_ref(cell1).store_ref(cell1).finalize_novm();
+      cell2 = CellBuilder{}.store_ref(cell2).store_ref(cell2).finalize_novm();
+    }
+    cell1 = CellBuilder::create_merkle_proof(cell1);
+    cell2 = CellBuilder::create_merkle_proof(cell2);
+    MerkleProof::combine(cell1, cell2).ensure();
+    MerkleProof::combine_fast(cell1, cell2).ensure();
+  }
+}
+
 }  // namespace vm
 
 class BenchBocSerializerImport : public td::Benchmark {

@@ -53,7 +53,7 @@ class BroadcastsFec {
   void gc(OverlayImpl *overlay);
 
  private:
-  td::Status process(OverlayImpl *overlay, BroadcastFecPart &part);
+  td::Status process(OverlayImpl *overlay, BroadcastFecPart &part, bool is_ours);
 
   std::map<Overlay::BroadcastHash, std::unique_ptr<BroadcastFec>> broadcasts_;
   td::ListNode lru_;

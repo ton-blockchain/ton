@@ -9,16 +9,8 @@ td::actor::ActorOwn<PrometheusExporter> PrometheusExporter::create(std::string p
   return td::actor::create_actor<PrometheusExporter>(PSTRING() << "PROM@" << prefix, std::move(prefix));
 }
 
-void PrometheusExporter::collect(metrics::MetricsPromise P) {
-  CollectorWrapper::collect(std::move(P));
-}
-
 PrometheusExporter::PrometheusExporter(std::string prefix) : prefix_(std::move(prefix)) {
   add_collector(collector_.get());
-  td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, collectors_);
-  td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, collections_total_);
-  td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, last_collection_duration_);
-  td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, last_collection_timestamp_);
 }
 
 PrometheusExporter::HttpCallback::HttpCallback(td::actor::ActorId<PrometheusExporter> exporter)
@@ -37,6 +29,13 @@ void PrometheusExporter::listen(td::IPAddress addr) {
   http_ = td::actor::create_actor<http::HttpServer>(PSTRING() << "HTTP@" << addr, addr, std::move(callback));
   td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_async_collector<http::HttpServer>,
                           http_.get());
+}
+
+void PrometheusExporter::start_up() {
+  td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, collectors_);
+  td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, collections_total_);
+  td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, last_collection_duration_);
+  td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, last_collection_timestamp_);
 }
 
 void PrometheusExporter::on_request(RequestPtr request, PayloadPtr, td::Promise<HttpReturn> promise) {

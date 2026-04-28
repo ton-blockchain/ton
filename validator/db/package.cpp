@@ -94,6 +94,10 @@ td::Result<std::pair<std::string, td::BufferSlice>> Package::read(td::uint64 off
     return td::Status::Error(ErrorCode::notready, "too short read (filename)");
   }
   offset += fname_size;
+  TRY_RESULT(file_size, fd_.get_size());
+  if ((td::uint64)file_size - offset < data_size) {
+    return td::Status::Error(ErrorCode::notready, "too big data size");
+  }
 
   td::BufferSlice data{data_size};
   TRY_RESULT(s3, fd_.pread(data.as_slice(), offset));
@@ -115,7 +119,9 @@ td::Result<td::uint64> Package::advance(td::uint64 offset) {
     return td::Status::Error(ErrorCode::notready, "bad entry magic");
   }
 
-  offset += 8 + (header[0] >> 16) + header[1];
+  offset += 8;
+  offset += (header[0] >> 16);
+  offset += header[1];
   if (offset > static_cast<td::uint64>(fd_.get_size().move_as_ok())) {
     return td::Status::Error(ErrorCode::notready, "truncated read");
   }

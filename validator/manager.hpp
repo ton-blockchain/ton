@@ -29,7 +29,6 @@
 #include "impl/ext-message-pool.hpp"
 #include "interfaces/db.h"
 #include "interfaces/validator-manager.h"
-#include "rldp/rldp.h"
 #include "rldp2/rldp.h"
 #include "td/actor/ActorStats.h"
 #include "td/actor/PromiseFuture.h"
@@ -164,6 +163,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   struct WaitBlockHandle {
     std::vector<td::Promise<BlockHandle>> waiting_;
+    bool force_ = false;
   };
   std::map<BlockIdExt, WaitBlockHandle> wait_block_handle_;
 
@@ -359,6 +359,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void run_ext_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) override;
 
   void get_block_handle(BlockIdExt id, bool force, td::Promise<BlockHandle> promise) override;
+  void get_block_handle_cont(BlockIdExt id, td::Result<BlockHandle> R);
 
   void set_block_state(BlockHandle handle, td::Ref<ShardState> state, vm::StoreCellHint hint,
                        td::Promise<td::Ref<ShardState>> promise) override;
@@ -516,8 +517,6 @@ class ValidatorManagerImpl : public ValidatorManager {
                                        td::Promise<td::Unit> promise);
   void set_shard_block_description_ready(td::Ref<ShardTopBlockDescription> desc);
 
-  void register_block_handle(BlockHandle handle);
-
   void finished_wait_state(BlockHandle handle, td::Result<td::Ref<ShardState>> R, bool preliminary);
   void finished_wait_data(BlockHandle handle, td::Result<td::Ref<BlockData>> R);
 
@@ -534,13 +533,12 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   ValidatorManagerImpl(td::Ref<ValidatorManagerOptions> opts, std::string db_root,
                        td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                       td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
-                       td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays)
+                       td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
+                       td::actor::ActorId<overlay::Overlays> overlays)
       : opts_(std::move(opts))
       , db_root_(db_root)
       , keyring_(keyring)
       , adnl_(adnl)
-      , rldp_(rldp)
       , rldp2_(rldp2)
       , quic_(quic)
       , overlays_(overlays) {
@@ -671,7 +669,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::string db_root_;
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<rldp::Rldp> rldp_;
   td::actor::ActorId<rldp2::Rldp> rldp2_;
   td::actor::ActorId<quic::QuicSender> quic_;
   td::actor::ActorId<overlay::Overlays> overlays_;

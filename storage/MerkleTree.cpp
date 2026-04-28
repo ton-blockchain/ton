@@ -67,9 +67,12 @@ MerkleTree::MerkleTree(std::vector<td::Bits256> hashes) : pieces_count_(hashes.s
   root_proof_ = vm::CellBuilder::create_merkle_proof(std::move(root));
 }
 
-static td::Status do_validate_proof(td::Ref<vm::Cell> node, size_t depth) {
+static td::Status do_validate_proof(td::Ref<vm::Cell> node, size_t depth, td::HashSet<vm::Cell::Hash> &visited) {
   if (node->get_depth(0) != depth) {
     return td::Status::Error("Depth mismatch");
+  }
+  if (!visited.insert(node->get_hash()).second) {
+    return td::Status::OK();
   }
   vm::CellSlice cs(vm::NoVm(), std::move(node));
   if (cs.is_special()) {
@@ -92,8 +95,8 @@ static td::Status do_validate_proof(td::Ref<vm::Cell> node, size_t depth) {
     if (cs.size_refs() != 2) {
       return td::Status::Error("Node in proof must have two refs");
     }
-    TRY_STATUS(do_validate_proof(cs.fetch_ref(), depth - 1));
-    TRY_STATUS(do_validate_proof(cs.fetch_ref(), depth - 1));
+    TRY_STATUS(do_validate_proof(cs.fetch_ref(), depth - 1, visited));
+    TRY_STATUS(do_validate_proof(cs.fetch_ref(), depth - 1, visited));
   }
   return td::Status::OK();
 }
@@ -106,7 +109,8 @@ td::Status MerkleTree::add_proof(td::Ref<vm::Cell> proof) {
   if (root_hash_ != proof_raw->get_hash(0).bits()) {
     return td::Status::Error("Root hash mismatch");
   }
-  TRY_STATUS(do_validate_proof(proof_raw, depth_));
+  td::HashSet<vm::Cell::Hash> visited;
+  TRY_STATUS(do_validate_proof(proof_raw, depth_, visited));
   if (root_proof_.is_null()) {
     root_proof_ = std::move(proof);
   } else {

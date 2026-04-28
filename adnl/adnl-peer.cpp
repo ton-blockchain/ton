@@ -44,9 +44,6 @@ void AdnlPeerPairImpl::start_up() {
   });
   td::actor::send_closure(peer_table_, &AdnlPeerTable::get_static_node, peer_id_short_, std::move(P2));
 
-  if (!dht_node_.empty()) {
-    discover();
-  }
   set_idle_mark(false);
 }
 
@@ -58,8 +55,8 @@ void AdnlPeerPairImpl::tear_down() {
 
 void AdnlPeerPairImpl::alarm() {
   if (!disable_dht_query_) {
-    disable_dht_query_ = true;
     if (next_dht_query_at_ && next_dht_query_at_.is_in_past()) {
+      disable_dht_query_ = true;
       next_dht_query_at_ = td::Timestamp::never();
       discover();
     }
@@ -102,8 +99,11 @@ void AdnlPeerPairImpl::alarm() {
 
 void AdnlPeerPairImpl::discover() {
   CHECK(!dht_query_active_);
-  CHECK(!dht_node_.empty());
   dht_query_active_ = true;
+  if (dht_node_.empty()) {
+    got_data_from_dht(td::Status::Error("no dht node"));
+    return;
+  }
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), id = print_id(),
                                        peer_id = peer_id_short_](td::Result<dht::DhtValue> kv) {
@@ -279,7 +279,7 @@ void AdnlPeerPairImpl::send_messages_from_queue() {
   while (!out_messages_queue_.empty() && out_messages_queue_.front().second.is_in_past()) {
     out_messages_queue_total_size_ -= out_messages_queue_.front().first.size();
     add_expired_msg_stats(out_messages_queue_.front().first.size());
-    out_messages_queue_.pop();
+    out_messages_queue_.pop_front();
     VLOG(ADNL_NOTICE) << this << ": dropping OUT message: message in queue expired";
   }
   if (out_messages_queue_.empty()) {
@@ -291,8 +291,8 @@ void AdnlPeerPairImpl::send_messages_from_queue() {
   if (connR.is_error()) {
     disable_dht_query_ = false;
     retry_send_at_.relax(td::Timestamp::in(message_in_queue_ttl_ - 1.0));
-    alarm_timestamp().relax(retry_send_at_);
     VLOG(ADNL_INFO) << this << ": delaying OUT messages: cannot get conn: " << connR.move_as_error();
+    alarm();
     return;
   }
   disable_dht_query_ = true;
@@ -346,7 +346,7 @@ void AdnlPeerPairImpl::send_messages_from_queue() {
       auto &M = out_messages_queue_.front().first;
       if (!is_direct && (M.flags() & Adnl::SendFlags::direct_only)) {
         out_messages_queue_total_size_ -= M.size();
-        out_messages_queue_.pop();
+        out_messages_queue_.pop_front();
         continue;
       }
       CHECK(M.size() <= get_mtu());
@@ -354,7 +354,7 @@ void AdnlPeerPairImpl::send_messages_from_queue() {
         s += M.size();
         out_messages_queue_total_size_ -= M.size();
         packet.add_message(M.release());
-        out_messages_queue_.pop();
+        out_messages_queue_.pop_front();
         skip_init_packet_ = false;
       } else {
         break;
@@ -435,9 +435,14 @@ void AdnlPeerPairImpl::send_messages(std::vector<OutboundAdnlMessage> messages) 
   }
   for (auto &m : new_vec) {
     out_messages_queue_total_size_ += m.size();
-    out_messages_queue_.emplace(std::move(m), td::Timestamp::in(message_in_queue_ttl_));
+    out_messages_queue_.emplace_back(std::move(m), td::Timestamp::in(message_in_queue_ttl_));
   }
   send_messages_from_queue();
+  while (out_messages_queue_total_size_ > MAX_MESSAGE_QUEUE_TOTAL_SIZE) {
+    out_messages_queue_total_size_ -= out_messages_queue_.back().first.size();
+    out_messages_queue_.pop_back();
+    VLOG(ADNL_NOTICE) << this << ": dropping OUT message: queue is too big";
+  }
 }
 
 void AdnlPeerPairImpl::send_packet_continue(AdnlPacket packet, td::actor::ActorId<AdnlNetworkConnection> conn,
@@ -515,7 +520,7 @@ void AdnlPeerPairImpl::get_peer_node(td::Promise<AdnlNode> promise) {
   }
   disable_dht_query_ = false;
   peer_node_waiters_.emplace(std::move(promise), td::Timestamp::in(10.0));
-  alarm_timestamp().relax(peer_node_waiters_.back().second);
+  alarm();
 }
 
 AdnlPeerPairImpl::AdnlPeerPairImpl(td::actor::ActorId<AdnlNetworkManager> network_manager,

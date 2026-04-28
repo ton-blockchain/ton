@@ -6,11 +6,13 @@
 
 namespace ton::metrics {
 
+namespace {
 std::string concat_names(std::string name1, std::string name2) {
   if (!name1.empty() && !name2.empty())
     return std::move(name1) + '_' + std::move(name2);
   return std::move(name1) + std::move(name2);
 }
+}  // namespace
 
 std::string Label::render() && {
   auto k = std::move(key), v = std::move(val);

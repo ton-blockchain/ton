@@ -11,8 +11,6 @@ class PrometheusExporter final : public td::actor::Actor, public virtual metrics
  public:
   static td::actor::ActorOwn<PrometheusExporter> create(std::string prefix = "ton");
 
-  void collect(metrics::MetricsPromise P) override;
-
   template <std::derived_from<metrics::AsyncCollector> A>
   void register_collector(td::actor::ActorId<A> collector);
 
@@ -41,6 +39,8 @@ class PrometheusExporter final : public td::actor::Actor, public virtual metrics
   friend HttpCallback;
 
   using CollectorLambda = std::function<void(metrics::MetricsPromise)>;
+
+  void start_up() override;
 
   void on_request(RequestPtr request, PayloadPtr payload, td::Promise<HttpReturn> promise);
 

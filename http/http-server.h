@@ -46,10 +46,6 @@ class HttpServer : public td::actor::Actor, public virtual metrics::CollectorWra
       : HttpServer(make_any_address(port), std::move(callback)) {
   }
 
-  void collect(metrics::MetricsPromise P) override {
-    CollectorWrapper::collect(std::move(P));
-  }
-
   void start_up() override;
   void accepted(td::SocketFd fd);
 

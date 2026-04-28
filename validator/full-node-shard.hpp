@@ -72,7 +72,7 @@ class FullNodeShardImpl : public FullNodeShard {
     return 3;
   }
   static constexpr td::uint32 proto_version_minor() {
-    return 0;
+    return 1;
   }
   static constexpr td::uint32 max_neighbours() {
     return 16;
@@ -216,6 +216,11 @@ class FullNodeShardImpl : public FullNodeShard {
 
   void sign_new_certificate(PublicKeyHash sign_by);
   void signed_new_certificate(overlay::Certificate cert, PublicKeyHash local_id);
+  PublicKeyHash choose_outbound_source(td::uint32 payload_size, bool is_fec) const;
+  bool has_valid_certificate_for_source(const PublicKeyHash &source,
+                                        const std::shared_ptr<ton::overlay::Certificate> &cert, td::uint32 payload_size,
+                                        bool is_fec) const;
+  PublicKeyHash full_node_adnl_source() const;
 
   void ping_neighbours();
   void reload_neighbours();
@@ -277,6 +282,7 @@ class FullNodeShardImpl : public FullNodeShard {
   td::Timestamp sync_completed_at_;
 
   std::shared_ptr<ton::overlay::Certificate> cert_;
+  std::shared_ptr<ton::overlay::Certificate> adnl_source_cert_;
   overlay::OverlayPrivacyRules rules_;
 
   std::map<adnl::AdnlNodeIdShort, Neighbour> neighbours_;
