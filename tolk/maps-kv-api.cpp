@@ -153,8 +153,9 @@ bool check_mapKV_TValue_is_valid(TypePtr TValue, std::string& because_msg) {
   if (is_TValue_raw_slice(TValue)) {
     return true;
   }
-  // or something that can be packed to/from slice
-  if (!check_struct_can_be_packed_or_unpacked(TValue, false, &because_msg)) {
+  // or something that can be packed to/from slice and unpacked back
+  if (!check_struct_can_be_packed_or_unpacked(TValue, true, &because_msg) ||
+      !check_struct_can_be_packed_or_unpacked(TValue, false, &because_msg)) {
     because_msg = "because it can not be serialized\n" + because_msg;
     return false;
   }

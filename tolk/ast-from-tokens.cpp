@@ -1674,7 +1674,11 @@ static AnyV parse_asm_func_body(Lexer& lex, V<ast_identifier> name_ident, V<ast_
   std::vector<AnyV> asm_commands;
   lex.check(tok_string_const, "\"ASM COMMAND\"");
   while (lex.tok() == tok_string_const) {
-    asm_commands.push_back(parse_expr100(lex));
+    auto v_asm_str = parse_expr100(lex)->as<ast_string_const>();
+    if (v_asm_str->str_val.empty()) {
+      err("invalid asm instruction").fire(v_asm_str);
+    }
+    asm_commands.push_back(v_asm_str);
   }
   range.end(asm_commands.back()->range);
   return createV<ast_asm_body>(range, std::move(arg_order), std::move(ret_order), std::move(asm_commands));

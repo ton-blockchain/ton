@@ -260,7 +260,11 @@ fun test16() {
 
 @method_id(117)
 fun test17() {
-    var x = 7;
+    var x: int;
+    match ([0].first()) {
+        0 => x = 7,
+        else => throw 123,
+    }
     var outer = fun(delta: int) {
         var y = delta * 2;
         return fun(z: int) {

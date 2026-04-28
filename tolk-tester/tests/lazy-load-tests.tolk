@@ -1736,7 +1736,7 @@ fun demo406(s: slice) {
             var sum = 2 + msg.f2;
             return sum;
         }
-        else => { __expect_type(msg, "never"); throw 9999; }
+        else => throw 9999
     }
     } catch(excno) { return excno }
 }

@@ -587,7 +587,7 @@ FunctionPtr instantiate_lambda_function(AnyV v_lambda, FunctionPtr parent_fun_re
 
   // parent_fun_ref always exists actually (and will be `lambda_ref->base_fun_ref`);
   // the only way it may be nullptr is when a lambda occurs as a constant value for example, which will fire an error later
-  std::string lambda_name = "lambda_in_" + (parent_fun_ref ? parent_fun_ref->name : "") + "@" + std::to_string(n_lambdas);
+  std::string lambda_name = "lambda_in_" + (parent_fun_ref ? parent_fun_ref->name : "") + "`" + std::to_string(n_lambdas);
   tolk_assert(!lookup_global_symbol(lambda_name));
 
   V<ast_function_declaration> lambda_root = ASTReplicator::clone_lambda_as_standalone(v);
@@ -610,24 +610,32 @@ FunctionPtr instantiate_lambda_function(AnyV v_lambda, FunctionPtr parent_fun_re
 
 // a function `myFunPTuplePush<T>(self, v: T) asm "TPUSH"` can't be called with T=Point (2 stack slots);
 // almost all asm/built-in generic functions expect one stack slot, but there are exceptions
-bool is_allowed_asm_generic_function_with_non1_width_T(FunctionPtr fun_ref, int idxT) {
+bool is_allowed_asm_generic_function_with_non1_width_T(FunctionPtr fun_ref, const GenericsSubstitutions& substitutedTs, int idxT) {
   // if a built-in function is marked with a special flag
   if (fun_ref->is_variadic_width_T_allowed()) {
     return true;
   }
 
-  // allow "Cell<T>.hash", "map<K, V>.isEmpty" and other methods that don't depend on internal structure
-  if (fun_ref->is_method() && idxT < fun_ref->genericTs->n_from_receiver) {
-    TypePtr receiver = fun_ref->receiver_type->unwrap_alias(); 
-    if (const auto* r_withTs = receiver->try_as<TypeDataGenericTypeWithTs>()) {
-      return r_withTs->struct_ref && r_withTs->struct_ref->name == "Cell";
-    }
-    if (receiver->try_as<TypeDataMapKV>()) {
-      return true;
-    }
+  // allow `fun Cell<T>.hash(self)` or `fun map<K,V>.isEmpty(self)` for any generics, because asm does not depend on T/K/V;
+  // more specifically: can we use T=Point? yes, if substituting T=Point and T=int gives equal stack width everywhere
+  GenericsSubstitutions probeTs(fun_ref->genericTs);
+  for (int i = 0; i < substitutedTs.size(); ++i) {
+    probeTs.set_typeT(substitutedTs.nameT_at(i), i == idxT ? TypeDataInt::create() : substitutedTs.typeT_at(i));
   }
 
-  return false;
+  auto width_differs = [&](TypePtr type) {
+    TypePtr actual = replace_genericT_with_deduced(type, &substitutedTs);
+    TypePtr probe = replace_genericT_with_deduced(type, &probeTs);
+    return actual->get_width_on_stack() != probe->get_width_on_stack();
+  };
+
+  bool any_p_differ = false;
+  for (const LocalVarData& param : fun_ref->parameters) {
+    any_p_differ |= width_differs(param.declared_type);
+  }
+  TypePtr return_type = fun_ref->does_return_self() ? fun_ref->get_param(0).declared_type : fun_ref->declared_return_type;
+
+  return !any_p_differ && !width_differs(return_type);
 }
 
 } // namespace tolk

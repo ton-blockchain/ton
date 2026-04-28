@@ -650,9 +650,16 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
         }
       }
 
+    } else if (const TypeDataShapedTuple* h_shaped = hint->try_as<TypeDataShapedTuple>()) {
+      // a shaped tuple `var f: [int, int] = [1, "aba"]` as inferred as `[int, string]`,
+      // this will automatically trigger an error if types are not assignable;
+      // here we check tricks with aliases, like `type One = [int]` and later (here) `One [1,2]` (length mismatch)
+      if (h_shaped->size() != v->size()) {
+        err("invalid `[...]` constructor for `{}`: expected {} items", h_shaped, h_shaped->size()).collect(v, cur_f);
+      }
+
     } else {
-      // a shaped tuple `var f: [int, int] = [1, "aba"]` as inferred as `[int, string]`
-      // and gives a type checker error automatically if not assignable
+      tolk_assert(false);
     }
 
     parent::visit(v);
@@ -898,7 +905,7 @@ public:
 
   void on_exit_function(V<ast_function_declaration> v_function) override {
     if (cur_f->is_implicit_return() && cur_f->declared_return_type) {
-      if (!cur_f->declared_return_type->can_rhs_be_assigned(TypeDataVoid::create()) || cur_f->does_return_self()) {
+      if (cur_f->declared_return_type != TypeDataVoid::create() || cur_f->does_return_self()) {
         err("missing return").collect(SrcRange::empty_at_end(v_function->get_body()->range), cur_f);
       }
     }

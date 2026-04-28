@@ -113,6 +113,15 @@ class TransformOnInternalMessageReplacer final : public ASTReplacerInFunctionBod
     return parent::replace(v);
   }
 
+  AnyExprV replace(V<ast_lambda_fun> v) override {
+    for (LocalVarPtr captured_var_ref : v->captured_vars) {
+      if (captured_var_ref == param_ref) {
+        err("capturing `InMessage` in a lambda is prohibited").fire(v, cur_f);
+      }
+    }
+    return parent::replace(v);
+  }
+
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return is_onInternalMessage(fun_ref) || is_onBouncedMessage(fun_ref) || is_onExternalMessage(fun_ref);

@@ -103,11 +103,4 @@ std::vector<td::RefInt256> calculate_enum_members_with_values(EnumDefPtr enum_re
 
 void check_expression_is_constant_or_fire(AnyExprV v_expr);
 
-inline ConstValExpression unwrap_ConstVal_casts(ConstValExpression v) {
-  while (std::holds_alternative<ConstValCastToType>(v)) {
-    v = std::get<ConstValCastToType>(v).inner.front();
-  }
-  return v;
-}
-
 } // namespace tolk

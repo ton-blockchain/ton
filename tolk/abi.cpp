@@ -184,8 +184,13 @@ void ContractABI::register_emitted_event(TypePtr body_ty) {
 }
 
 void ContractABI::register_thrown_error(GlobalConstPtr const_ref) {
-  ConstValExpression val = unwrap_ConstVal_casts(eval_and_cache_const_init_val(const_ref));
-  tolk_assert(std::holds_alternative<ConstValInt>(val));
+  ConstValExpression val = eval_and_cache_const_init_val(const_ref);
+  while (std::holds_alternative<ConstValCastToType>(val)) {     // unwrap `const A: int32 = 5`
+    val = std::get<ConstValCastToType>(val).inner.front();   // (it's "cast 5 to int32" in a const-expr tree)
+  }
+  if (!std::holds_alternative<ConstValInt>(val)) {
+    return;
+  }
 
   register_thrown_error(ABIThrownErrorKind::constant, std::get<ConstValInt>(val).int_val, const_ref->name, get_abi_description(const_ref->doc_lines));
   json_types.register_used_type(const_ref->inferred_type);

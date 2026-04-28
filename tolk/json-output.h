@@ -59,7 +59,7 @@ class JsonPrettyOutput {
       os << '\n';
     }
 
-    depth--;
+    depth = std::max(depth - 1, 0);
     cur_indent_spaces = cur_indent_spaces.substr(0, cur_indent_spaces.size() - 2);
     os << cur_indent_spaces << brace;   // `}` or `]`
   }

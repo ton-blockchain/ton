@@ -1384,7 +1384,6 @@ fun algo255() {
             __expect_lazy("[p] load x");
             return p.x;
         }
-        else => { __expect_type(p, "never"); throw 123 }
     }
 }
 

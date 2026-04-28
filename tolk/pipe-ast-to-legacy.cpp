@@ -493,7 +493,7 @@ std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect,
 }
 
 
-static std::vector<std::vector<var_idx_t>> pre_compile_tensor_inner(CodeBlob& code, const std::vector<AnyExprV>& args,
+static std::vector<std::vector<var_idx_t>> pre_compile_tensor_separate(CodeBlob& code, const std::vector<AnyExprV>& args,
                                           const std::vector<TypePtr>& target_types_for_arg,
                                           const std::vector<LValContext*>& lval_ctx_for_arg,
                                           const std::vector<AnyV>& origin_for_loc_marks,
@@ -621,6 +621,20 @@ static std::vector<std::vector<var_idx_t>> pre_compile_tensor_inner(CodeBlob& co
   return watched_vars.clear_and_stop_watching();
 }
 
+static std::vector<var_idx_t> pre_compile_tensor_merging(CodeBlob& code, const std::vector<AnyExprV>& args,
+                                          const std::vector<LValContext*>& lval_ctx_for_arg,
+                                          const std::vector<TypePtr>& target_types,
+                                          const std::vector<AnyV>& origin_for_loc_marks,
+                                          const std::vector<AnyV>& origin_overrides) {
+  std::vector<std::vector<var_idx_t>> res_lists = pre_compile_tensor_separate(code, args, target_types, lval_ctx_for_arg, origin_for_loc_marks, origin_overrides);
+  std::vector<var_idx_t> res;
+  for (const std::vector<var_idx_t>& list : res_lists) {
+    res.insert(res.end(), list.cbegin(), list.cend());
+  }
+
+  return res;
+}
+
 static std::vector<var_idx_t> pre_compile_tensor(CodeBlob& code, const std::vector<AnyExprV>& args,
                                           LValContext* lval_ctx = nullptr,
                                           std::vector<TypePtr> target_types = {},
@@ -633,13 +647,18 @@ static std::vector<var_idx_t> pre_compile_tensor(CodeBlob& code, const std::vect
     }
   }
   std::vector<LValContext*> lval_ctx_for_arg(args.size(), lval_ctx);
-  std::vector<std::vector<var_idx_t>> res_lists = pre_compile_tensor_inner(code, args, target_types, lval_ctx_for_arg, origin_for_loc_marks, origin_overrides);
-  std::vector<var_idx_t> res;
-  for (const std::vector<var_idx_t>& list : res_lists) {
-    res.insert(res.end(), list.cbegin(), list.cend());
-  }
+  return pre_compile_tensor_merging(code, args, lval_ctx_for_arg, std::move(target_types), origin_for_loc_marks, origin_overrides);
+}
 
-  return res;
+static std::vector<var_idx_t> pre_compile_tensor_with_lval_at(CodeBlob& code, V<ast_tensor> v, int index_at, LValContext* lval_ctx) {
+  std::vector<TypePtr> target_types;
+  target_types.reserve(v->size());
+  for (AnyExprV ith_item : v->get_items()) {
+    target_types.push_back(ith_item->inferred_type);
+  }
+  std::vector<LValContext*> lval_ctx_for_arg(v->size(), nullptr);
+  lval_ctx_for_arg[index_at] = lval_ctx;
+  return pre_compile_tensor_merging(code, v->get_items(), lval_ctx_for_arg, target_types, {}, {});
 }
 
 static std::vector<var_idx_t> pre_compile_let(CodeBlob& code, AnyExprV lhs, AnyExprV rhs) {
@@ -696,18 +715,17 @@ std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, Ty
     // `int` is `int` / `int` is `builder`, it's compile-time, either 0, or -1
     bool types_eq = expr_type->equal_to(cmp_type);
     code.add_int_const(origin, ir_result, td::make_refint(types_eq ? -1 : 0));
+  } else if (!lhs_union->has_variant_equal_to(cmp_type)) {
+    // at runtime, union tags store type_id, and aliases with the same underlying type share it;
+    // keep the lowering aligned with type-level `is`: distinct aliases are distinct variants
+    code.add_int_const(origin, ir_result, td::make_refint(0));
   } else if (lhs_union->is_primitive_nullable() && cmp_type == TypeDataNullLiteral::create()) {
     // `int?` is `null` for primitive 1-slot nullables, they hold either value of TVM NULL, no extra union tag slot
     code.add_call(origin, ir_result, expr_ir_idx, isnull_sym);
   } else if (lhs_union->is_primitive_nullable()) {
-    // `int?` is `int` (check for null actually) / `int?` is `builder` (compile-time false actually)
-    bool cant_happen = lhs_union->or_null->get_type_id() != cmp_type->get_type_id();
-    if (cant_happen) {
-      code.add_int_const(origin, ir_result, td::make_refint(0));
-    } else {
-      code.add_call(origin, ir_result, expr_ir_idx, isnull_sym);
-      code.add_call(origin, ir_result, ir_result, not_sym);
-    }
+    // `int?` is `int` (check for null and reverse)
+    code.add_call(origin, ir_result, expr_ir_idx, isnull_sym);
+    code.add_call(origin, ir_result, ir_result, not_sym);
   } else {
     // `int | slice` is `int`, check type id
     std::vector ir_typeid = code.create_tmp_var(TypeDataInt::create(), origin, "(type-id)");
@@ -1384,7 +1402,9 @@ static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& 
     // `tensorVar.0`
     if (const TypeDataTensor* t_tensor = obj_type->try_as<TypeDataTensor>()) {
       int index_at = std::get<int>(v->target);
-      std::vector lhs_vars = pre_compile_expr(v->get_obj(), code, nullptr, lval_ctx);
+      std::vector lhs_vars = lval_ctx && v->get_obj()->kind == ast_tensor     // `(a,b,c).0 = rhs`, only `a` with lval_ctx
+          ? pre_compile_tensor_with_lval_at(code, v->get_obj()->as<ast_tensor>(), index_at, lval_ctx)
+          : pre_compile_expr(v->get_obj(), code, nullptr, lval_ctx);
       // since a tensor of N elems are N vars on a stack actually, calculate offset
       int stack_width = t_tensor->items[index_at]->get_width_on_stack();
       int stack_offset = calc_offset_on_stack(t_tensor, index_at);
@@ -1545,7 +1565,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
 
   // function arguments are like a tensor
   // for instance, `f(x, x += 2, x)` requires inserting a tmp variable
-  std::vector vars_per_arg = pre_compile_tensor_inner(code, args, params_types, lval_ctx_for_arg, {}, origin_overrides);
+  std::vector vars_per_arg = pre_compile_tensor_separate(code, args, params_types, lval_ctx_for_arg, {}, origin_overrides);
 
   // detect what a function really returns from the stack perspective;
   // for instance, `fun f(mutate x: int): slice` puts `(int, slice)` onto a stack
@@ -1794,8 +1814,10 @@ static std::vector<var_idx_t> process_lambda_fun(V<ast_lambda_fun> v, CodeBlob& 
       ir_right.insert(ir_right.end(), ir_captured.begin(), ir_captured.end());
     }
 
-    ir_right.push_back(ir_cont[0]);
-    code.add_setcontargs(v, ir_cont, std::move(ir_right));
+    if (!ir_right.empty()) {
+      ir_right.push_back(ir_cont[0]);
+      code.add_setcontargs(v, ir_cont, std::move(ir_right));
+    }
   }
 
   return transition_to_target_type(std::move(ir_cont), code, target_type, v);

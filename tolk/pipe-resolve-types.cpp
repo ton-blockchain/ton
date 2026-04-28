@@ -750,6 +750,10 @@ class InfiniteStructSizeDetector {
   }
 
 public:
+  static void detect_and_fire_if_struct_is_infinite(StructPtr struct_ref) {
+    check_struct_for_infinite_size(struct_ref);
+  }
+
   static void detect_and_fire_if_any_struct_is_infinite() {
     for (auto [struct_ref, _] : visited_structs) {
       check_struct_for_infinite_size(struct_ref);
@@ -816,6 +820,7 @@ void pipeline_resolve_types_and_aliases(FunctionPtr fun_ref) {
 void pipeline_resolve_types_and_aliases(StructPtr struct_ref) {
   ResolveTypesInsideFunctionVisitor().start_visiting_struct_fields(struct_ref);
   TypeNodesVisitorResolver::visit_symbol(struct_ref);
+  InfiniteStructSizeDetector::detect_and_fire_if_struct_is_infinite(struct_ref);
 }
 
 void pipeline_resolve_types_and_aliases(AliasDefPtr alias_ref) {

@@ -279,7 +279,11 @@ static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_funct
     f_name = v->fun_maybe->method_name;
 
     // support both `"abc".crc32()` and `string.crc32("abc")`
-    tolk_assert(v->get_num_args() == !v->dot_obj_is_self);
+    int expected_args = !v->dot_obj_is_self;
+    if (v->get_num_args() != expected_args) {
+      // an error "too few arguments" has already been collected at type checker; the user will see it later
+      return ConstValNullLiteral{};
+    }
     AnyExprV self_obj = v->dot_obj_is_self ? v->get_self_obj() : v->get_arg(0)->get_expr();
     std::string str;
     if (!extract_string_literal_from_v(self_obj, str)) {
@@ -325,7 +329,9 @@ static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_funct
     }
   }
 
-  tolk_assert(v->get_num_args() == 1);    // checked by type inferring
+  if (v->get_num_args() != 1) {
+    return ConstValNullLiteral{};
+  }
   AnyExprV v_arg = v->get_arg(0)->get_expr();
 
   std::string str;
@@ -594,17 +600,20 @@ public:
       std::vector<ConstValExpression> fields;
       fields.reserve(struct_ref->get_num_fields());
       for (StructFieldPtr field_ref : struct_ref->fields) {   // in the declared order
-        AnyExprV v_init_val = field_ref->default_value;
+        AnyExprV v_init_val = nullptr;
         for (int i = 0; i < v_body->get_num_fields(); ++i) {
           if (v_body->get_field(i)->get_field_name() == field_ref->name) {
             v_init_val = v_body->get_field(i)->get_init_val();
             break;
           }
         }
-        if (!v_init_val) {    // type `void` and missing fields not supported
-          err("some fields of a struct are missing").fire(v);
+        if (v_init_val) {
+          fields.emplace_back(eval_any_v_or_fire(v_init_val));
+        } else if (field_ref->default_value) {
+          fields.emplace_back(eval_field_default_value(field_ref));
+        } else {    // type `void` and missing fields not supported
+          err("field `{}` of a struct is missing", field_ref).fire(v);
         }
-        fields.emplace_back(eval_any_v_or_fire(v_init_val));
       }
       return ConstValObject{struct_ref, std::move(fields)};
     }
@@ -653,7 +662,17 @@ ConstValExpression eval_and_cache_const_init_val(GlobalConstPtr const_ref) {
 
 ConstValExpression eval_field_default_value(StructFieldPtr field_ref) {
   tolk_assert(field_ref->default_value);
-  return ConstExpressionEvaluator::eval_any_v_or_fire(field_ref->default_value);
+
+  static thread_local std::vector<StructFieldPtr> called_stack;
+  bool contains = std::find(called_stack.begin(), called_stack.end(), field_ref) != called_stack.end();
+  if (contains) {
+    err("field `{}` default value circularly references itself", field_ref).fire(field_ref->ident_anchor);
+  }
+  called_stack.push_back(field_ref);
+
+  ConstValExpression def_val = ConstExpressionEvaluator::eval_any_v_or_fire(field_ref->default_value);
+  called_stack.pop_back();
+  return def_val;
 }
 
 std::vector<td::RefInt256> calculate_enum_members_with_values(EnumDefPtr enum_ref) {

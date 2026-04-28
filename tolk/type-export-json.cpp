@@ -534,7 +534,7 @@ void JsonTypeExporter::emit_declarations_json(JsonPrettyOutput& json, const Emit
         json.start_object();
         json.key_value("name", field_ref->name);
         json.key_value("ty", export_ty);
-        if (opts.emit_default_values && field_ref->default_value) {
+        if (opts.emit_default_values && field_ref->default_value && !field_ref->declared_type->has_genericT_inside()) {
           json.key_value("default_value", eval_field_default_value(field_ref));
         }
         if (opts.emit_descriptions && !field_ref->doc_lines.empty()) {

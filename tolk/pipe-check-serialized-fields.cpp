@@ -62,7 +62,9 @@ static void check_map_TKey_TValue(SrcRange range, TypePtr TKey, TypePtr TValue) 
 GNU_ATTRIBUTE_NOINLINE
 static void check_mapKV_inside_type(SrcRange range, TypePtr any_type) {
   any_type->replace_children_custom([range](TypePtr child) {
-    if (const TypeDataMapKV* t_map = child->try_as<TypeDataMapKV>(); t_map && !t_map->has_genericT_inside()) {
+    if (const TypeDataAlias* t_alias = child->try_as<TypeDataAlias>()) {
+      check_mapKV_inside_type(range, t_alias->underlying_type);
+    } else if (const TypeDataMapKV* t_map = child->try_as<TypeDataMapKV>(); t_map && !t_map->has_genericT_inside()) {
       check_map_TKey_TValue(range, t_map->TKey, t_map->TValue);
     }
     return child;
@@ -128,7 +130,7 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
     parent::visit(v);
 
     FunctionPtr fun_ref = v->fun_maybe;
-    if (fun_ref && fun_ref->receiver_type && !v->dot_obj_is_self) {
+    if (fun_ref && fun_ref->receiver_type) {
       check_mapKV_inside_type(v->range, fun_ref->receiver_type);
     }
     if (!fun_ref || !fun_ref->is_builtin() || !fun_ref->is_instantiation_of_generic_function()) {

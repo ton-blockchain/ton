@@ -905,7 +905,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // T for asm function must be a TVM primitive (width 1), otherwise, asm would act incorrectly
     if (fun_ref->is_asm_function() || fun_ref->is_builtin()) {
       for (int i = 0; i < substitutedTs.size(); ++i) {
-        if (substitutedTs.typeT_at(i)->get_width_on_stack() != 1 && !is_allowed_asm_generic_function_with_non1_width_T(fun_ref, i)) {
+        if (substitutedTs.typeT_at(i)->get_width_on_stack() != 1 && !is_allowed_asm_generic_function_with_non1_width_T(fun_ref, substitutedTs, i)) {
           err_calling_asm_function_with_non1_stack_width_arg(fun_ref, substitutedTs, i).fire(range, cur_f);
         }
       }
@@ -924,7 +924,8 @@ class InferTypesAndCallsAndFieldsVisitor final {
       tolk_assert(flow.smart_cast_exists(SinkExpression(var_ref)));   // all local vars are presented in flow
       TypePtr declared_or_smart_casted = flow.smart_cast_or_original(SinkExpression(var_ref), var_ref->declared_type);
       assign_inferred_type(v, declared_or_smart_casted);
-      if (var_ref->is_lateinit() && declared_or_smart_casted == TypeDataNotInferred::create() && v->is_rvalue) {
+      bool used_as_write = v->is_lvalue && !v->is_rvalue;
+      if (var_ref->is_lateinit() && declared_or_smart_casted == TypeDataNotInferred::create() && !used_as_write) {
         err_using_lateinit_variable_uninitialized(v->get_name()).fire(v, cur_f);
       }
       // it might be `local_var()` also, don't fill out_f_called, we have no fun_ref, it's a call of arbitrary expression
@@ -1589,7 +1590,11 @@ class InferTypesAndCallsAndFieldsVisitor final {
     std::vector<TypePtr> full_params_types;
     full_params_types.reserve(v->captured_vars.size() + params_types.size());
     for (LocalVarPtr captured_var_ref : v->captured_vars) {
-      full_params_types.push_back(flow.smart_cast_or_original(SinkExpression(captured_var_ref), captured_var_ref->declared_type));
+      TypePtr captured_type = flow.smart_cast_or_original(SinkExpression(captured_var_ref), captured_var_ref->declared_type);
+      if (captured_var_ref->is_lateinit() && captured_type == TypeDataNotInferred::create()) {
+        err_using_lateinit_variable_uninitialized(captured_var_ref->name).fire(v, cur_f);
+      }
+      full_params_types.push_back(captured_type);
     }
     full_params_types.insert(full_params_types.end(), params_types.begin(), params_types.end());
 

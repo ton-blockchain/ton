@@ -32,6 +32,16 @@ static bool is_type_UnsafeBodyNoRef_T(TypePtr bodyT) {
   return false;
 }
 
+static bool is_body_already_ref(TypePtr bodyT) {
+  if (get_custom_pack_unpack_function(bodyT)) {
+    return false;
+  }
+  if (const TypeDataAlias* t_alias = bodyT->try_as<TypeDataAlias>()) {
+    return is_body_already_ref(t_alias->underlying_type);
+  }
+  return bodyT->is_cell_or_CellT();
+}
+
 // calculate `addrHash &= mask` where mask = `(1 << (256 - SHARD_DEPTH)) - 1`
 static void append_bitwise_and_shard_mask(CodeBlob& code, AnyV origin, var_idx_t ir_addr_hash, var_idx_t ir_shard_depth) {
   var_idx_t ir_one = code.create_int(origin, 1, "(one)");
@@ -87,7 +97,7 @@ struct IR_AutoDeployAddress {
 
 // fun createMessage<TBody>(options: CreateMessageOptions<TBody>): OutMessage
 std::vector<var_idx_t> generate_createMessage(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& ir_options) {
-  TypePtr bodyT = called_f->substitutedTs->typeT_at(0)->unwrap_alias();
+  TypePtr bodyT = called_f->substitutedTs->typeT_at(0);
   StructPtr s_Options = lookup_global_symbol("CreateMessageOptions")->try_as<StructPtr>();
   StructPtr s_AutoDeployAddress = lookup_global_symbol("AutoDeployAddress")->try_as<StructPtr>();
 
@@ -132,7 +142,7 @@ std::vector<var_idx_t> generate_createMessage(FunctionPtr called_f, CodeBlob& co
   // if it's small (guaranteed to fit), store it inside the same builder, without creating a cell
   PackSize body_size = EstimateContext().estimate_any(bodyT);
   // if `body` is already `cell` / `Cell<T>`
-  bool body_already_ref = bodyT->is_cell_or_CellT();
+  bool body_already_ref = is_body_already_ref(bodyT);
   // if `body` is `UnsafeBodyNoRef<T>`
   bool body_force_no_ref = is_type_UnsafeBodyNoRef_T(bodyT);
   // max size of all fields before body = 522 (510 CommonMsgInfoRelaxed + 12 StateInit), so 500 bits will fit
@@ -409,7 +419,7 @@ std::vector<var_idx_t> generate_createMessage(FunctionPtr called_f, CodeBlob& co
 
 // fun createExternalLogMessage<TBody>(options: CreateExternalLogMessageOptions<TBody>): OutMessage
 std::vector<var_idx_t> generate_createExternalLogMessage(FunctionPtr called_f, CodeBlob& code, AnyV origin, const std::vector<std::vector<var_idx_t>>& args) {
-  TypePtr bodyT = called_f->substitutedTs->typeT_at(0)->unwrap_alias();
+  TypePtr bodyT = called_f->substitutedTs->typeT_at(0);
   StructPtr s_Options = lookup_global_symbol("CreateExternalLogMessageOptions")->try_as<StructPtr>();
   StructPtr s_ExtOutLogBucket = lookup_global_symbol("ExtOutLogBucket")->try_as<StructPtr>();
 
@@ -447,7 +457,7 @@ std::vector<var_idx_t> generate_createExternalLogMessage(FunctionPtr called_f, C
   // if it's small (guaranteed to fit), store it inside the same builder, without creating a cell
   PackSize body_size = EstimateContext().estimate_any(bodyT);
   // if `body` is already `cell` / `Cell<T>`
-  bool body_already_ref = bodyT->is_cell_or_CellT();
+  bool body_already_ref = is_body_already_ref(bodyT);
   // if `body` is `UnsafeBodyNoRef<T>`
   bool body_force_no_ref = is_type_UnsafeBodyNoRef_T(bodyT);
   // max size of all fields before body = 622 (621 CommonMsgInfoRelaxed + 1 StateInit), so 400 bits will fit
