@@ -386,6 +386,14 @@ void write_class(tl_outputer &out, const tl_type *t, const std::set<std::string>
 
       out.append(w.gen_fetch_switch_end());
       out.append(w.gen_fetch_function_end(false, -1, empty_vars, -1));
+
+      out.append(w.gen_nameof_function_begin(class_name));
+      for (std::size_t j = 0; j < t->constructors_num; j++) {
+        if (w.is_combinator_supported(t->constructors[j])) {
+          out.append(w.gen_nameof_case(t->constructors[j]));
+        }
+      }
+      out.append(w.gen_nameof_function_end(class_name));
     }
 
     std::vector<std::string> storers = w.get_storers();

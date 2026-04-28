@@ -307,6 +307,16 @@ std::string TD_TL_writer_h::gen_fetch_function_result_any_end(bool is_proxy) con
   return "";
 }
 
+std::string TD_TL_writer_h::gen_nameof_function_begin(const std::string &class_name) const {
+  std::string mapped_type = "int ";
+  std::string returned_type = "std::string ";
+  return "\n  " + returned_type + "nameof(" + mapped_type + "constructor);\n";
+}
+
+std::string TD_TL_writer_h::gen_nameof_function_end(const std::string &class_name) const {
+  return "";
+}
+
 std::string TD_TL_writer_h::gen_store_function_begin(const std::string &storer_name, const std::string &class_name,
                                                      int arity, std::vector<tl::var_description> &vars,
                                                      int storer_type) const {
@@ -333,6 +343,10 @@ std::string TD_TL_writer_h::gen_fetch_switch_case(const tl::tl_combinator *t, in
 }
 
 std::string TD_TL_writer_h::gen_fetch_switch_end() const {
+  return "";
+}
+
+std::string TD_TL_writer_h::gen_nameof_case(const tl::tl_combinator *t) const {
   return "";
 }
 

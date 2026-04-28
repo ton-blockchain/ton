@@ -38,6 +38,8 @@
 #include "td/actor/coro_utils.h"
 #include "ton/ton-types.h"
 
+#include "metrics/metrics-collectors.h"
+
 #include "types.h"
 
 namespace ton {
