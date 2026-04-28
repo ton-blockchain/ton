@@ -994,15 +994,6 @@ void OverlayManager::collect(metrics::MetricsPromise P) {
   td::actor::send_closure(collector, &Collector::dec_pending);
 }
 
-void OverlayManager::register_metrics(td::actor::ActorId<Overlays> overlays,
-                                      td::actor::ActorId<PrometheusExporter> exporter) {
-  auto impl = td::actor::actor_dynamic_cast<OverlayManager>(overlays);
-  if (impl.empty()) {
-    return;
-  }
-  td::actor::send_closure(exporter, &PrometheusExporter::register_collector<OverlayManager>, impl);
-}
-
 }  // namespace overlay
 
 }  // namespace ton

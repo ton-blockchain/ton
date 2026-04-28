@@ -451,14 +451,6 @@ td::actor::ActorOwn<Rldp> Rldp::create(td::actor::ActorId<adnl::Adnl> adnl) {
   return td::actor::create_actor<RldpIn>("rldp", td::actor::actor_dynamic_cast<adnl::AdnlPeerTable>(adnl));
 }
 
-void Rldp::register_metrics(td::actor::ActorId<Rldp> rldp, td::actor::ActorId<PrometheusExporter> exporter) {
-  auto impl = td::actor::actor_dynamic_cast<RldpIn>(rldp);
-  if (impl.empty()) {
-    return;
-  }
-  td::actor::send_closure(exporter, &PrometheusExporter::register_collector<RldpIn>, impl);
-}
-
 }  // namespace rldp2
 
 }  // namespace ton

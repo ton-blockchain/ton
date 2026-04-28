@@ -63,14 +63,14 @@ static void generate_cpp(const std::string &directory, const std::string &tl_nam
 
 int main() {
   generate_cpp("auto/tl", "ton_api", "std::string", "td::BufferSlice", "std::string", "td::BufferSlice",
-               {"\"tl/tl_object_parse.h\"", "\"tl/tl_object_store.h\"", "\"td/utils/int_types.h\"",
+               {"<optional>", "\"tl/tl_object_parse.h\"", "\"tl/tl_object_store.h\"", "\"td/utils/int_types.h\"",
                 "\"crypto/common/bitstring.h\""},
-               {"<string>", "\"td/utils/buffer.h\"", "\"crypto/common/bitstring.h\""});
+               {"<string>",  "<optional>", "\"td/utils/buffer.h\"", "\"crypto/common/bitstring.h\""});
 
   generate_cpp("auto/tl", "lite_api", "std::string", "td::BufferSlice", "std::string", "td::BufferSlice",
-               {"\"tl/tl_object_parse.h\"", "\"tl/tl_object_store.h\"", "\"td/utils/int_types.h\"",
+               {"<optional>", "\"tl/tl_object_parse.h\"", "\"tl/tl_object_store.h\"", "\"td/utils/int_types.h\"",
                 "\"crypto/common/bitstring.h\""},
-               {"<string>", "\"td/utils/buffer.h\"", "\"crypto/common/bitstring.h\""});
+               {"<string>", "<optional>", "\"td/utils/buffer.h\"", "\"crypto/common/bitstring.h\""});
   td::gen_json_converter(td::tl::read_tl_config_from_file("scheme/ton_api.tlo"), "auto/tl/ton_api_json", "ton_api",
                          td::tl::TL_writer::Mode::All);
 

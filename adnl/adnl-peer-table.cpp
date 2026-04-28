@@ -51,15 +51,6 @@ td::actor::ActorOwn<Adnl> Adnl::create(std::string db, td::actor::ActorId<keyrin
   return td::actor::ActorOwn<Adnl>(td::actor::create_actor<AdnlPeerTableImpl>("PeerTable", db, keyring));
 }
 
-void AdnlPeerTable::register_metrics(td::actor::ActorId<Adnl> peer_table,
-                                     td::actor::ActorId<PrometheusExporter> exporter) {
-  auto impl = td::actor::actor_dynamic_cast<AdnlPeerTableImpl>(peer_table);
-  if (impl.empty()) {
-    return;
-  }
-  td::actor::send_closure(exporter, &PrometheusExporter::register_collector<AdnlPeerTableImpl>, impl);
-}
-
 void AdnlPeerTableImpl::receive_packet(td::IPAddress addr, AdnlCategoryMask cat_mask, td::BufferSlice data) {
   m_.inbound_packets++;
   if (data.size() < 32) {

@@ -27,13 +27,13 @@
 #include "adnl-node-id.hpp"
 #include "adnl-proxy-types.h"
 
+#include "metrics/metrics-collectors.h"
+
 namespace td {
 class UdpServer;
 }
 
 namespace ton {
-
-class PrometheusExporter;
 
 namespace adnl {
 
@@ -56,7 +56,7 @@ class AdnlNetworkConnection : public td::actor::Actor {
   virtual ~AdnlNetworkConnection() = default;
 };
 
-class AdnlNetworkManager : public td::actor::Actor {
+class AdnlNetworkManager : public td::actor::Actor, public virtual metrics::AsyncCollector {
  public:
   //using ConnHandle = td::uint64;
   class Callback {
@@ -81,10 +81,6 @@ class AdnlNetworkManager : public td::actor::Actor {
   //virtual void send_answer_packet(AdnlNodeIdShort src_id, AdnlNodeIdShort dst_id, td::IPAddress dst_addr,
   //                             ConnHandle conn_handle, td::uint32 priority, td::BufferSlice data) = 0;
   virtual void set_local_id_category(AdnlNodeIdShort id, td::uint8 cat) = 0;
-
-  // Register the metrics collector backed by this network manager with the prometheus exporter.
-  static void register_metrics(td::actor::ActorId<AdnlNetworkManager> network_manager,
-                               td::actor::ActorId<PrometheusExporter> exporter);
 
   static constexpr td::uint32 get_mtu() {
     return 1440;

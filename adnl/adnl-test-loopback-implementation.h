@@ -67,6 +67,8 @@ class TestLoopbackNetworkManager : public ton::adnl::AdnlNetworkManager {
     }
   }
 
+  void collect(metrics::MetricsPromise P) override {}
+
   void set_loss_probability(double p) {
     CHECK(p >= 0 && p <= 1);
     loss_probability_ = p;

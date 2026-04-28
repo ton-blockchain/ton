@@ -584,14 +584,14 @@ std::string TD_TL_writer_cpp::gen_fetch_function_end(bool has_parent, int field_
 
 std::string TD_TL_writer_cpp::gen_nameof_function_begin(const std::string &class_name) const {
   std::string mapped_type = "int ";
-  std::string returned_type = "std::string ";
+  std::string returned_type = "std::optional<std::string> ";
   return "\n" + returned_type + class_name + "::nameof(" + mapped_type + "constructor) {\n" +
          "  switch (constructor) {\n";
 }
 
 std::string TD_TL_writer_cpp::gen_nameof_function_end(const std::string &class_name) const {
   return "  }\n"
-         "  return \"\";\n"
+         "  return std::nullopt;\n"
          "}\n";
 }
 

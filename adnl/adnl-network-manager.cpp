@@ -32,15 +32,6 @@ td::actor::ActorOwn<AdnlNetworkManager> AdnlNetworkManager::create(td::uint16 po
   return td::actor::create_actor<AdnlNetworkManagerImpl>("NetworkManager", port);
 }
 
-void AdnlNetworkManager::register_metrics(td::actor::ActorId<AdnlNetworkManager> network_manager,
-                                          td::actor::ActorId<PrometheusExporter> exporter) {
-  auto impl = td::actor::actor_dynamic_cast<AdnlNetworkManagerImpl>(network_manager);
-  if (impl.empty()) {
-    return;
-  }
-  td::actor::send_closure(exporter, &PrometheusExporter::register_collector<AdnlNetworkManagerImpl>, impl);
-}
-
 AdnlNetworkManagerImpl::OutDesc *AdnlNetworkManagerImpl::choose_out_iface(td::uint8 cat, td::uint32 priority) {
   auto it = out_desc_.upper_bound(priority);
   while (true) {

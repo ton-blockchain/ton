@@ -1,4 +1,4 @@
-#include "auto/tl/ton_api_id_names.h"
+#include "auto/tl/ton_api.h"
 #include "td/utils/as.h"
 
 #include "tl-traffic-bucket.h"
@@ -14,8 +14,16 @@ void TlTrafficBucket::account(td::Slice data) {
   account_with_magic(td::as<td::int32>(data.data()), data.size());
 }
 
+static std::optional<std::string> ton_api_id_name(int magic) {
+  auto result = ton::ton_api::Object::nameof(magic);
+  if (result == std::nullopt) {
+    result = ton::ton_api::Object::nameof(magic);
+  }
+  return result;
+}
+
 void TlTrafficBucket::account_with_magic(td::int32 magic, td::uint64 size) {
-  if (ton_api_id_name(magic) == nullptr) {
+  if (ton_api_id_name(magic) == std::nullopt) {
     unknown_bytes += size;
     unknown_messages++;
     return;
@@ -38,11 +46,10 @@ std::vector<MetricFamily> render_tl_bucket(const std::string &base, const std::s
       });
     };
     for (auto &[magic, value] : counts) {
-      const char *name = ton_api_id_name(magic);
-      // Should never be null because `account` filters unknowns into `unknown_*`.
-      push(name == nullptr ? "unknown" : name, value);
+      auto name = ton_api_id_name(magic);
+      push(name.value(), value);
     }
-    push("unknown", unknown_value);
+    push("<unknown>", unknown_value);
     return fam;
   };
   std::vector<MetricFamily> result;

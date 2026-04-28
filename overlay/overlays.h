@@ -310,7 +310,7 @@ struct OverlayManagerBufferLimits {
   td::uint64 max_data_size = 0;
 };
 
-class Overlays : public td::actor::Actor {
+class Overlays : public td::actor::Actor, public virtual metrics::AsyncCollector {
  public:
   class Callback {
    public:
