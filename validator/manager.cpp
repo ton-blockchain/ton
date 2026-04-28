@@ -1628,12 +1628,14 @@ void ValidatorManagerImpl::new_block_cont(BlockHandle handle, td::Ref<ShardState
   auto &receive_stats = block_receive_stats_.get(handle->id());
   if (!receive_stats.applied && started_) {
     receive_stats.applied = true;
-    auto &total_stats = block_receive_total_stats_[handle->id().is_masterchain()];
-    ++total_stats.applied;
-    ++total_stats.first_received_from[(int)receive_stats.get_earliest_type()];
+    auto wc_label = handle->id().is_masterchain() ? "-1" : "0";
+    new_total_->label(wc_label)->add(1);
+    first_received_from_total_->label(wc_label)
+        ->label(BlockReceiveStats::TYPE_NAMES[(int)receive_stats.get_earliest_type()])
+        ->add(1);
     for (size_t i = 0; i < BlockReceiveStats::N_TYPES; ++i) {
       if (receive_stats.received_at[i]) {
-        ++total_stats.received_from[i];
+        received_from_total_->label(wc_label)->label(BlockReceiveStats::TYPE_NAMES[i])->add(1);
       }
     }
   }
@@ -1964,8 +1966,9 @@ class StatsCallback final : public ton::stats::Callback {
 
 void ValidatorManagerImpl::start_up() {
   stats::install_callback(std::make_unique<StatsCallback>(actor_id(this)));
-  td::actor::send_closure(exporter_, &ton::PrometheusExporter::register_collector<ValidatorManagerImpl>,
-                          actor_id(this));
+  td::actor::send_closure(collector_, &metrics::MultiCollector::add_sync_collector, received_from_total_);
+  td::actor::send_closure(collector_, &metrics::MultiCollector::add_sync_collector, first_received_from_total_);
+  td::actor::send_closure(collector_, &metrics::MultiCollector::add_sync_collector, new_total_);
 
   db_ = create_db_actor(actor_id(this), db_root_, opts_);
   actor_stats_ = td::actor::create_actor<td::actor::ActorStats>("actor_stats");
@@ -3696,10 +3699,9 @@ td::Ref<PersistentStateDescription> ValidatorManagerImpl::get_block_persistent_s
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(
     td::Ref<ValidatorManagerOptions> opts, std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp2,
-    td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays,
-    td::actor::ActorId<PrometheusExporter> exporter) {
+    td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays) {
   return td::actor::create_actor<validator::ValidatorManagerImpl>("manager", std::move(opts), db_root, keyring, adnl,
-                                                                  rldp2, quic, overlays, exporter);
+                                                                  rldp2, quic, overlays);
 }
 
 void ValidatorManagerImpl::log_collate_query_stats(CollationStats stats) {
@@ -3846,40 +3848,8 @@ void ValidatorManagerImpl::update_block_receive_stats(BlockIdExt block_id, Block
   }
   stats.received_at[idx] = td::Timestamp::now();
   if (stats.applied) {
-    ++block_receive_total_stats_[block_id.is_masterchain()].received_from[idx];
+    new_total_->label(block_id.is_masterchain() ? "-1" : "0")->add(1);
   }
-}
-
-void ValidatorManagerImpl::collect_metrics(metrics::MetricsPromise P) {
-  static std::string TYPE_NAMES[] = {"block_broadcast_public",
-                                     "block_broadcast_fast_sync",
-                                     "block_broadcast_custom",
-                                     "block_download",
-                                     "candidate_broadcast_public",
-                                     "candidate_broadcast_fast_sync",
-                                     "candidate_broadcast_custom",
-                                     "candidate_stored",
-                                     "block_accepted",
-                                     "unknown"};
-  metrics::MetricSet whole_set;
-  for (WorkchainId mc = 0; mc <= 1; ++mc) {
-    auto &total_stats = block_receive_total_stats_[mc];
-    for (size_t i = 0; i < BlockReceiveStats::N_TYPES; ++i) {
-      auto set = metrics::MetricSet{
-          .families = {
-              metrics::MetricFamily::make_scalar("blocks_first_received_from_total", "counter",
-                                                 total_stats.first_received_from[i]),
-              metrics::MetricFamily::make_scalar("blocks_received_from_total", "counter", total_stats.received_from[i]),
-          }};
-      auto label_set = metrics::LabelSet{.labels = {{"wc", mc ? "-1" : "0"}, {"type", TYPE_NAMES[i]}}};
-      whole_set = std::move(whole_set).join(std::move(set).label(label_set));
-    }
-    auto set = metrics::MetricSet{
-        .families = {metrics::MetricFamily::make_scalar("blocks_new_total", "counter", total_stats.applied)}};
-    auto label_set = metrics::LabelSet{.labels = {{"wc", mc ? "-1" : "0"}}};
-    whole_set = std::move(whole_set).join(std::move(set).label(label_set));
-  }
-  P.set_value(std::move(whole_set));
 }
 
 }  // namespace validator

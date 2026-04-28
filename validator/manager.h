@@ -32,8 +32,7 @@ class ValidatorManagerFactory {
   static td::actor::ActorOwn<ValidatorManagerInterface> create(
       td::Ref<ValidatorManagerOptions> opts, std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
       td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp2,
-      td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays,
-      td::actor::ActorId<PrometheusExporter> exporter);
+      td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays);
 };
 
 }  // namespace validator

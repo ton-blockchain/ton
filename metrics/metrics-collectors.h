@@ -156,6 +156,16 @@ class Labeled : public Instrument<Labeled<LabelType, InstrumentType>> {
   std::mutex mutex_;
 };
 
+template <typename InstrumentType, typename LabelType0, typename... LabelTypes>
+class MultiLabeled : public Labeled<LabelType0, MultiLabeled<InstrumentType, LabelTypes...>> {
+  using Labeled<LabelType0, MultiLabeled<InstrumentType, LabelTypes...>>::Labeled;
+};
+
+template <typename InstrumentType, typename LabelType0>
+class MultiLabeled<InstrumentType, LabelType0> : public Labeled<LabelType0, InstrumentType> {
+  using Labeled<LabelType0, InstrumentType>::Labeled;
+};
+
 template <typename A>
 void CollectorWrapper::add_collector(td::actor::ActorId<A> collector) {
   CHECK(!collector.empty());

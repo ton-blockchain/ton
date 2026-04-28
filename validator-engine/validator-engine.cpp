@@ -84,6 +84,7 @@
 #include "block-auto.h"
 #include "block-parse.h"
 #include "git.h"
+#include "manager-disk.hpp"
 
 #if TON_USE_JEMALLOC
 #include <jemalloc/jemalloc.h>
@@ -2348,7 +2349,8 @@ void ValidatorEngine::start_validator() {
 
   validator_manager_ = ton::validator::ValidatorManagerFactory::create(validator_options_, db_root_, keyring_.get(),
                                                                        adnl_.get(), rldp2_.get(), quic_.get(),
-                                                                       overlay_manager_.get(), exporter_.get());
+                                                                       overlay_manager_.get());
+  td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::register_collector<ton::validator::ValidatorManagerInterface>, validator_manager_.get());
 
   for (auto &v : config_.validators) {
     td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_permanent_key, v.first,
