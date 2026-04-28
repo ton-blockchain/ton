@@ -5,7 +5,7 @@
  */
 
 #include "consensus/utils.h"
-#include "td/actor/SharedFuture.h"
+#include "td/actor/coro_primitives.h"
 #include "td/actor/coro_utils.h"
 
 #include "bus.h"

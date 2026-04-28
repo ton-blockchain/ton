@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include <queue>
+
 #include "td/actor/coro_task.h"
 #include "td/utils/CancellationToken.h"
 
@@ -83,5 +85,85 @@ template <typename T>
 Task<T> await_with_timeout(Task<T> task, Timestamp timeout) {
   co_return co_await await_with_timeout(std::move(task).start(), timeout);
 }
+
+class CoroMutex {
+ public:
+  class Lock {
+   public:
+    Lock(const Lock&) = delete;
+    Lock(Lock&& other) : mutex_(other.mutex_), token_(std::move(other.token_)) {
+      other.mutex_ = nullptr;
+    }
+    Lock& operator=(const Lock&) = delete;
+    Lock& operator=(Lock&& other) {
+      if (this == &other) {
+        return *this;
+      }
+      release();
+      mutex_ = other.mutex_;
+      token_ = std::move(other.token_);
+      other.mutex_ = nullptr;
+      return *this;
+    }
+    ~Lock() {
+      release();
+    }
+    void release() {
+      if (!mutex_ || token_) {
+        return;
+      }
+      CHECK(mutex_->taken_);
+      mutex_->taken_ = false;
+      if (!mutex_->queue_.empty()) {
+        auto promise = std::move(mutex_->queue_.front());
+        mutex_->queue_.pop();
+        promise.set_value(Unit{});
+      }
+      mutex_ = nullptr;
+      token_ = {};
+    }
+
+   private:
+    explicit Lock(CoroMutex* mutex, CancellationToken token) : mutex_(mutex), token_(std::move(token)) {
+    }
+
+    CoroMutex* mutex_;
+    CancellationToken token_;
+
+    friend CoroMutex;
+  };
+
+  ~CoroMutex() {
+    while (!queue_.empty()) {
+      queue_.front().set_error(Status::Error(653, "mutex is destroyed"));
+    }
+  }
+
+  Task<Lock> lock() {
+    if (taken_) {
+      auto [task, promise] = StartedTask<>::make_bridge();
+      queue_.push(std::move(promise));
+      co_await std::move(task);
+      CHECK(!taken_);
+    }
+    taken_ = true;
+    co_return Lock{this, cancellation_.get_cancellation_token()};
+  }
+  Result<Lock> try_lock() {
+    if (taken_) {
+      return Status::Error("mutex is taken");
+    }
+    taken_ = true;
+    return Lock{this, cancellation_.get_cancellation_token()};
+  }
+  bool taken() const {
+    return taken_;
+  }
+
+ private:
+  bool taken_ = false;
+  std::queue<Promise<>> queue_;
+  CancellationTokenSource cancellation_;
+};
 
 }  // namespace td::actor

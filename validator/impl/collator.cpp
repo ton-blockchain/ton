@@ -27,7 +27,7 @@
 #include "block/mc-config.h"
 #include "block/validator-set.h"
 #include "crypto/openssl/rand.hpp"
-#include "td/actor/SharedFuture.h"
+#include "td/actor/coro_primitives.h"
 #include "td/db/utils/BlobView.h"
 #include "td/utils/Random.h"
 #include "ton/ton-shard.h"

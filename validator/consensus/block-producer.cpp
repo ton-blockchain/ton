@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
-#include "td/actor/SharedFuture.h"
+#include "td/actor/coro_primitives.h"
 #include "td/actor/coro_task.h"
 #include "td/actor/coro_utils.h"
 #include "td/utils/CancellationToken.h"
