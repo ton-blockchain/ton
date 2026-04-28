@@ -587,7 +587,7 @@ bool Account::init_new(ton::UnixTime now) {
  *
  * @returns AccountStorage without extra currencies as CellSlice.
  */
-static td::Ref<vm::CellSlice> storage_without_extra_currencies(td::Ref<vm::CellSlice> storage_cs) {
+td::Ref<vm::CellSlice> Account::storage_without_extra_currencies(td::Ref<vm::CellSlice> storage_cs) {
   block::gen::AccountStorage::Record rec;
   if (!block::gen::csr_unpack(storage_cs, rec)) {
     LOG(ERROR) << "failed to unpack AccountStorage";
@@ -3581,12 +3581,12 @@ bool Transaction::compute_state(const SerializeConfig& cfg) {
   td::Ref<vm::CellSlice> old_storage_for_stat = account.storage;
   td::Ref<vm::CellSlice> new_storage_for_stat = new_storage;
   if (cfg.extra_currency_v2) {
-    new_storage_for_stat = storage_without_extra_currencies(new_storage);
+    new_storage_for_stat = Account::storage_without_extra_currencies(new_storage);
     if (new_storage_for_stat.is_null()) {
       return false;
     }
     if (old_storage_for_stat.not_null()) {
-      old_storage_for_stat = storage_without_extra_currencies(old_storage_for_stat);
+      old_storage_for_stat = Account::storage_without_extra_currencies(old_storage_for_stat);
       if (old_storage_for_stat.is_null()) {
         return false;
       }

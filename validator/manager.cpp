@@ -1928,7 +1928,6 @@ void ValidatorManagerImpl::start_up() {
   actor_stats_ = td::actor::create_actor<td::actor::ActorStats>("actor_stats");
   lite_server_cache_ = create_liteserver_cache_actor(actor_id(this), db_root_);
   token_manager_ = td::actor::create_actor<TokenManager>("tokenmanager");
-  storage_stat_cache_ = td::actor::create_actor<StorageStatCache>("storagestatcache");
   ext_message_pool_ = td::actor::create_actor<ExtMessagePool>("extmessages", opts_, actor_id(this));
   applied_ext_message_cleanup_actor_ = td::actor::create_actor<AppliedExtMessageCleanupActor>(
       "extmessagecleanup", ext_message_pool_.get(), actor_id(this));
@@ -2050,6 +2049,8 @@ void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
                             td::actor::send_closure(SelfId, &ValidatorManagerImpl::got_destroyed_validator_sessions,
                                                     R.move_as_ok());
                           });
+  storage_stat_manager_ =
+      td::actor::create_actor<StorageStatManager>("StorageStatManager", db_root_, opts_, actor_id(this));
 }
 
 void ValidatorManagerImpl::got_destroyed_validator_sessions(std::vector<ValidatorSessionId> sessions) {
@@ -2231,6 +2232,7 @@ void ValidatorManagerImpl::new_masterchain_block() {
     }
   }
 
+  resolve_shard_client_waiters();
   update_shard_overlays();
   update_shards();
   update_shard_blocks();
@@ -2717,8 +2719,15 @@ BlockHandle ValidatorManagerImpl::get_handle_from_lru(BlockIdExt id) {
 }
 
 void ValidatorManagerImpl::try_advance_gc_masterchain_block() {
-  if (gc_masterchain_handle_ && last_masterchain_seqno_ > 0 && !gc_advancing_ &&
-      gc_masterchain_handle_->inited_next_left() &&
+  if (!gc_masterchain_handle_ || last_masterchain_seqno_ == 0 || gc_advancing_) {
+    return;
+  }
+  if (opts_->get_storage_stat_db_enabled() &&
+      (!storage_stat_db_masterchain_seqno_ ||
+       storage_stat_db_masterchain_seqno_.value() <= gc_masterchain_handle_->id().seqno())) {
+    return;
+  }
+  if (gc_masterchain_handle_->inited_next_left() &&
       gc_masterchain_handle_->id().id.seqno < last_rotate_block_id_.id.seqno &&
       gc_masterchain_handle_->id().id.seqno < last_masterchain_state_->min_ref_masterchain_seqno() &&
       gc_masterchain_handle_->id().id.seqno + 1024 < last_masterchain_seqno_ &&
@@ -2824,19 +2833,15 @@ void ValidatorManagerImpl::update_shard_client_block_handle(BlockHandle handle, 
     td::actor::send_closure(c.second.actor, &CollatorNode::update_shard_client_handle, shard_client_handle_);
   }
   cleanup_nonfinal_groups();
-  shard_client_update(seqno);
+  min_confirmed_masterchain_seqno_ = std::max(min_confirmed_masterchain_seqno_, seqno);
+  resolve_shard_client_waiters();
   promise.set_value(td::Unit());
 }
 
-void ValidatorManagerImpl::shard_client_update(BlockSeqno seqno) {
-  if (min_confirmed_masterchain_seqno_ < seqno) {
-    min_confirmed_masterchain_seqno_ = seqno;
-  } else {
-    return;
-  }
+void ValidatorManagerImpl::resolve_shard_client_waiters() {
   while (shard_client_waiters_.size() > 0) {
     auto it = shard_client_waiters_.begin();
-    if (it->first > min_confirmed_masterchain_seqno_) {
+    if (it->first > std::min(min_confirmed_masterchain_seqno_, last_masterchain_seqno_)) {
       break;
     }
     for (auto &y : it->second.waiting_) {
@@ -3096,6 +3101,9 @@ void ValidatorManagerImpl::prepare_stats(td::Promise<std::vector<std::pair<std::
     vec.emplace_back("rotatemasterchainblock", last_rotate_block_id_.to_str());
     //vec.emplace_back("shardclientmasterchainseqno", td::to_string(min_confirmed_masterchain_seqno_));
   }
+  if (storage_stat_db_masterchain_seqno_) {
+    vec.emplace_back("storage_stat_db.current_seqno", td::to_string(storage_stat_db_masterchain_seqno_.value()));
+  }
 
   td::NamedThreadSafeCounter::get_default().for_each(
       [&](auto key, auto value) { vec.emplace_back("counter." + key, PSTRING() << value); });
@@ -3180,7 +3188,8 @@ void ValidatorManagerImpl::truncate(BlockSeqno seqno, ConstBlockHandle handle, t
 
 void ValidatorManagerImpl::wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout,
                                                    td::Promise<td::Unit> promise) {
-  if (seqno <= min_confirmed_masterchain_seqno_) {
+  BlockSeqno cur_seqno = std::min(min_confirmed_masterchain_seqno_, last_masterchain_seqno_);
+  if (seqno <= cur_seqno) {
     promise.set_value(td::Unit());
     return;
   }
@@ -3188,7 +3197,7 @@ void ValidatorManagerImpl::wait_shard_client_state(BlockSeqno seqno, td::Timesta
     promise.set_error(td::Status::Error(ErrorCode::timeout, "timeout"));
     return;
   }
-  if (seqno > min_confirmed_masterchain_seqno_ + 100) {
+  if (seqno > cur_seqno + 100) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "too big masterchain block seqno"));
     return;
   }

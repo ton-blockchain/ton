@@ -38,7 +38,7 @@
 #include "candidate-serializer.h"
 #include "collator-impl.h"
 #include "fabric.h"
-#include "storage-stat-cache.hpp"
+#include "storage-stat-manager.hpp"
 #include "top-shard-descr.hpp"
 
 namespace ton {
@@ -264,14 +264,14 @@ void Collator::start_up() {
   }
   // 5. get storage stat cache
   ++pending;
-  LOG(DEBUG) << "sending get_storage_stat_cache() query to Manager";
-  td::actor::send_closure_later(manager, &ValidatorManager::get_storage_stat_cache,
-                                [self = get_self(), token = perf_log_.start_action("get_storage_stat_cache")](
-                                    td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res) mutable {
-                                  LOG(DEBUG) << "got answer to get_storage_stat_cache() query";
+  LOG(DEBUG) << "sending get_storage_stat_loader() query to Manager";
+  td::actor::send_closure_later(manager, &ValidatorManager::get_storage_stat_loader,
+                                [self = get_self(), token = perf_log_.start_action("get_storage_stat_loader")](
+                                    td::Result<std::shared_ptr<StorageStatLoader>> res) mutable {
+                                  LOG(DEBUG) << "got answer to get_storage_stat_loader() query";
                                   td::actor::send_closure_later(std::move(self),
-                                                                &Collator::after_get_storage_stat_cache, std::move(res),
-                                                                std::move(token));
+                                                                &Collator::after_get_storage_stat_loader,
+                                                                std::move(res), std::move(token));
                                 });
   // 6. set timeout
   alarm_timestamp() = timeout_;
@@ -827,19 +827,19 @@ void Collator::after_get_shard_blocks(td::Result<std::vector<Ref<ShardTopBlockDe
 }
 
 /**
- * Callback function called after retrieving storage stat cache.
+ * Callback function called after retrieving storage stat loader.
  *
- * @param res The retrieved storage stat cache.
+ * @param res The retrieved storage stat loader.
  */
-void Collator::after_get_storage_stat_cache(td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res,
-                                            td::PerfLogAction token) {
+void Collator::after_get_storage_stat_loader(td::Result<std::shared_ptr<StorageStatLoader>> res,
+                                             td::PerfLogAction token) {
   --pending;
   token.finish(res);
   if (res.is_error()) {
-    LOG(INFO) << "after_get_storage_stat_cache : " << res.error();
+    LOG(INFO) << "after_get_storage_stat_loader : " << res.error();
   } else {
-    LOG(DEBUG) << "after_get_storage_stat_cache : OK";
-    storage_stat_cache_ = res.move_as_ok();
+    LOG(DEBUG) << "after_get_storage_stat_loader : OK";
+    storage_stat_loader_ = res.move_as_ok();
   }
   check_pending();
 }
@@ -2770,16 +2770,19 @@ bool Collator::init_account_storage_dict(block::Account& account) {
   SCOPE_EXIT {
     stats_.work_time.prelim_storage_stat = timer.elapsed_both();
   };
-  td::Ref<vm::Cell> cached_dict_root =
-      storage_stat_cache_ ? storage_stat_cache_(storage_dict_hash) : td::Ref<vm::Cell>{};
-  if (cached_dict_root.not_null()) {
-    CHECK(td::Bits256{cached_dict_root->get_hash().bits()} == storage_dict_hash);
+  td::Ref<vm::Cell> loaded_dict_root =
+      storage_stat_loader_
+          ? storage_stat_loader_->get_storage_dict(workchain(), account.addr, storage_dict_hash,
+                                                   block::Account::storage_without_extra_currencies(account.storage))
+          : td::Ref<vm::Cell>{};
+  if (loaded_dict_root.not_null()) {
+    CHECK(td::Bits256{loaded_dict_root->get_hash().bits()} == storage_dict_hash);
     LOG(DEBUG) << "Inited storage stat from cache for account " << account.addr.to_hex() << " ("
                << account.storage_used.cells << " cells)";
-    storage_stat_cache_update_.emplace_back(cached_dict_root, account.storage_used.cells);
+    storage_stat_cache_update_.emplace_back(loaded_dict_root, account.storage_used.cells);
     stats_.storage_stat_cache.hit_cnt++;
     stats_.storage_stat_cache.hit_cells += account.storage_used.cells;
-  } else if (account.storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS) {
+  } else if (account.storage_used.cells >= StorageStatManager::CACHE_MIN_ACCOUNT_CELLS) {
     stats_.storage_stat_cache.miss_cnt++;
     stats_.storage_stat_cache.miss_cells += account.storage_used.cells;
   } else {
@@ -2787,10 +2790,10 @@ bool Collator::init_account_storage_dict(block::Account& account) {
     stats_.storage_stat_cache.small_cells += account.storage_used.cells;
   }
   if (!full_collated_data_ || is_masterchain()) {
-    if (cached_dict_root.not_null()) {
-      auto S = account.init_account_storage_stat(cached_dict_root);
+    if (loaded_dict_root.not_null()) {
+      auto S = account.init_account_storage_stat(loaded_dict_root);
       if (S.is_error()) {
-        return fatal_error(S.move_as_error_prefix(PSTRING() << "failed to init storage stat from cache for account "
+        return fatal_error(S.move_as_error_prefix(PSTRING() << "failed to init storage stat for account "
                                                             << account.addr.to_hex() << ": "));
       }
     }
@@ -2801,8 +2804,8 @@ bool Collator::init_account_storage_dict(block::Account& account) {
   if (!dict.inited) {
     dict.inited = true;
     td::Ref<vm::Cell> dict_root;
-    if (cached_dict_root.not_null()) {
-      dict_root = cached_dict_root;
+    if (loaded_dict_root.not_null()) {
+      dict_root = loaded_dict_root;
     } else {
       // don't mark cells in account state as loaded during compute_account_storage_dict
       state_usage_tree_->set_ignore_loads(true);
@@ -2951,7 +2954,7 @@ bool Collator::process_account_storage_dict(block::Account& account) {
   };
   bool store_dict_to_cache = account.storage_dict_hash && account.account_storage_stat &&
                              account.account_storage_stat.value().is_dict_ready() &&
-                             account.storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS;
+                             account.storage_used.cells >= StorageStatManager::CACHE_MIN_ACCOUNT_CELLS;
   if (!account.orig_storage_dict_hash) {
     if (store_dict_to_cache) {
       td::Ref<vm::Cell> dict_root = account.account_storage_stat.value().get_dict_root().move_as_ok();

@@ -186,6 +186,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual std::string get_db_event_fifo_path() const = 0;
   virtual NewConsensusConfig::NoncriticalParams get_noncritical_params(
       ShardIdFull shard, td::uint32 cc_seqno, const NewConsensusConfig::NoncriticalParams& config) const = 0;
+  virtual bool get_storage_stat_db_enabled() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -229,6 +230,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_parallel_validation(bool value) = 0;
   virtual void set_db_event_fifo_path(std::string value) = 0;
   virtual void set_noncritical_params_overrides(std::vector<NoncriticalParamsOverride> value) = 0;
+  virtual void set_storage_stat_db_enabled(bool value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(BlockIdExt zero_block_id, BlockIdExt init_block_id,
                                                  bool allow_blockchain_init = false, double sync_blocks_before = 3600,

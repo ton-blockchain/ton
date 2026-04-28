@@ -34,7 +34,7 @@
 
 #include "collator-impl.h"
 #include "fabric.h"
-#include "storage-stat-cache.hpp"
+#include "storage-stat-manager.hpp"
 #include "top-shard-descr.hpp"
 #include "validate-query.hpp"
 
@@ -409,13 +409,13 @@ void ValidateQuery::start_up() {
   }
   // 5. get storage stat cache
   ++pending;
-  LOG(DEBUG) << "sending get_storage_stat_cache() query to Manager";
-  td::actor::send_closure_later(manager, &ValidatorManager::get_storage_stat_cache,
-                                [self = get_self(), token = perf_log_.start_action("get_storage_stat_cache")](
-                                    td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res) mutable {
-                                  LOG(DEBUG) << "got answer to get_storage_stat_cache() query";
+  LOG(DEBUG) << "sending get_storage_stat_loader() query to Manager";
+  td::actor::send_closure_later(manager, &ValidatorManager::get_storage_stat_loader,
+                                [self = get_self(), token = perf_log_.start_action("get_storage_stat_loader")](
+                                    td::Result<std::shared_ptr<StorageStatLoader>> res) mutable {
+                                  LOG(DEBUG) << "got answer to get_storage_stat_loader() query";
                                   td::actor::send_closure_later(std::move(self),
-                                                                &ValidateQuery::after_get_storage_stat_cache,
+                                                                &ValidateQuery::after_get_storage_stat_loader,
                                                                 std::move(res), std::move(token));
                                 });
   // ...
@@ -864,19 +864,19 @@ void ValidateQuery::got_mc_handle(td::Result<BlockHandle> res, td::PerfLogAction
 }
 
 /**
- * Callback function called after retrieving storage stat cache.
+ * Callback function called after retrieving storage stat loader.
  *
- * @param res The retrieved storage stat cache.
+ * @param res The retrieved storage stat loader.
  */
-void ValidateQuery::after_get_storage_stat_cache(td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res,
-                                                 td::PerfLogAction token) {
+void ValidateQuery::after_get_storage_stat_loader(td::Result<std::shared_ptr<StorageStatLoader>> res,
+                                                  td::PerfLogAction token) {
   token.finish(res);
   --pending;
   if (res.is_error()) {
-    LOG(INFO) << "after_get_storage_stat_cache : " << res.error();
+    LOG(INFO) << "after_get_storage_stat_loader : " << res.error();
   } else {
-    LOG(DEBUG) << "after_get_storage_stat_cache : OK";
-    storage_stat_cache_ = res.move_as_ok();
+    LOG(DEBUG) << "after_get_storage_stat_loader : OK";
+    storage_stat_loader_ = res.move_as_ok();
   }
   if (!pending) {
     if (!try_validate()) {
@@ -5503,6 +5503,10 @@ std::unique_ptr<block::Account> ValidateQuery::CheckAccountTxs::unpack_account(t
     return {};
   }
   if (new_acc->storage_dict_hash) {
+    td::RealCpuTimer timer;
+    SCOPE_EXIT {
+      ctx_.work_time.prelim_storage_stat = timer.elapsed_both();
+    };
     if (vq_.full_collated_data_ && !vq_.is_masterchain()) {
       auto it = vq_.virt_account_storage_dicts_.find(new_acc->storage_dict_hash.value());
       if (it != vq_.virt_account_storage_dicts_.end()) {
@@ -5515,8 +5519,10 @@ std::unique_ptr<block::Account> ValidateQuery::CheckAccountTxs::unpack_account(t
           return {};
         }
       }
-    } else if (vq_.storage_stat_cache_ && new_acc->storage_dict_hash) {
-      auto dict_root = vq_.storage_stat_cache_(new_acc->storage_dict_hash.value());
+    } else if (vq_.storage_stat_loader_ && new_acc->storage_dict_hash) {
+      auto dict_root = vq_.storage_stat_loader_->get_storage_dict(
+          new_acc->workchain, addr, new_acc->storage_dict_hash.value(),
+          block::Account::storage_without_extra_currencies(new_acc->storage));
       if (dict_root.not_null()) {
         auto S = new_acc->init_account_storage_stat(dict_root);
         if (S.is_error()) {
@@ -5530,7 +5536,7 @@ std::unique_ptr<block::Account> ValidateQuery::CheckAccountTxs::unpack_account(t
         ctx_.storage_stat_cache_update.emplace_back(dict_root, new_acc->storage_used.cells);
         vq_.stats_.storage_stat_cache.hit_cnt.fetch_add(1);
         vq_.stats_.storage_stat_cache.hit_cells.fetch_add(new_acc->storage_used.cells);
-      } else if (new_acc->storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS) {
+      } else if (new_acc->storage_used.cells >= StorageStatManager::CACHE_MIN_ACCOUNT_CELLS) {
         vq_.stats_.storage_stat_cache.miss_cnt.fetch_add(1);
         vq_.stats_.storage_stat_cache.miss_cells.fetch_add(new_acc->storage_used.cells);
       } else {
@@ -6164,7 +6170,7 @@ bool ValidateQuery::CheckAccountTxs::try_check() {
     }
     if ((!vq_.full_collated_data_ || vq_.is_masterchain()) && account.storage_dict_hash &&
         account.account_storage_stat && account.account_storage_stat.value().is_dict_ready() &&
-        account.storage_used.cells >= StorageStatCache::MIN_ACCOUNT_CELLS) {
+        account.storage_used.cells >= StorageStatManager::CACHE_MIN_ACCOUNT_CELLS) {
       ctx_.storage_stat_cache_update.emplace_back(account.account_storage_stat.value().get_dict_root().move_as_ok(),
                                                   account.storage_used.cells);
     }
@@ -6267,6 +6273,7 @@ void ValidateQuery::save_account_transactions_context(const StdSmcAddress& addre
     storage_stat_cache_update_.push_back(e);
   }
 
+  stats_.work_time.prelim_storage_stat += ctx.work_time.prelim_storage_stat;
   stats_.work_time.trx_tvm += ctx.work_time.trx_tvm;
   stats_.work_time.trx_storage_stat += ctx.work_time.trx_storage_stat;
   stats_.work_time.trx_other += ctx.work_time.trx_other;

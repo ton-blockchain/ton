@@ -191,6 +191,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
     }
     return config;
   }
+  bool get_storage_stat_db_enabled() const override {
+    return storage_stat_db_enabled_;
+  }
 
   void set_zero_block_id(BlockIdExt block_id) override {
     zero_block_id_ = block_id;
@@ -325,6 +328,9 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   void set_noncritical_params_overrides(std::vector<NoncriticalParamsOverride> value) override {
     noncritical_params_overrides_ = std::move(value);
   }
+  void set_storage_stat_db_enabled(bool value) override {
+    storage_stat_db_enabled_ = value;
+  }
 
   ValidatorManagerOptionsImpl* make_copy() const override {
     return new ValidatorManagerOptionsImpl(*this);
@@ -387,6 +393,7 @@ struct ValidatorManagerOptionsImpl : public ValidatorManagerOptions {
   bool parallel_validation = false;
   std::string db_event_fifo_path_;
   std::vector<NoncriticalParamsOverride> noncritical_params_overrides_;
+  bool storage_stat_db_enabled_ = false;
 };
 
 }  // namespace validator

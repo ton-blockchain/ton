@@ -60,6 +60,9 @@ struct CellHash {
   const std::array<td::uint8, CellTraits::hash_bytes>& as_array() const {
     return hash_;
   }
+  td::Bits256 bits256() const {
+    return td::Bits256{bits()};
+  }
 
   static CellHash from_slice(td::Slice slice) {
     CellHash res;

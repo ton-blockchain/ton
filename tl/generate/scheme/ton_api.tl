@@ -546,6 +546,11 @@ db.root.key.config = db.root.Key;
 db.celldb.value block_id:tonNode.blockIdExt prev:int256 next:int256 root_hash:int256 = db.celldb.Value;
 db.celldb.key.value hash:int256 = db.celldb.key.Value;
 
+db.storageStat.key.state = db.storageStat.key.State;
+db.storageStat.state flags:# mc_seqno:int processing_cur_addr:flags.0?int256 = db.storageStat.State;
+db.storageStat.key.accountInfo wc:int addr:int256 = db.storageStat.key.AccountInfo;
+db.storageStat.accountInfo dict_root_hash:int256 = db.storageStat.AccountInfo;
+
 db.block.info#4ac6e727 id:tonNode.blockIdExt flags:# prev_left:flags.1?tonNode.blockIdExt
                                             prev_right:flags.2?tonNode.blockIdExt
                                             next_left:flags.3?tonNode.blockIdExt

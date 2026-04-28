@@ -167,6 +167,11 @@ class DynamicBagOfCellsDb {
   }
   virtual void prepare_commit_async(std::shared_ptr<AsyncExecutor> executor, StoreCellHint hint,
                                     td::Promise<td::Unit> promise) = 0;
+  td::actor::Task<> prepare_commit_async(std::shared_ptr<AsyncExecutor> executor, StoreCellHint hint = {}) {
+    auto [task, promise] = td::actor::StartedTask<>::make_bridge();
+    prepare_commit_async(std::move(executor), std::move(hint), std::move(promise));
+    co_return co_await std::move(task);
+  }
 };
 
 }  // namespace vm

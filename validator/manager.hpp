@@ -45,7 +45,7 @@
 #include "shard-block-verifier.hpp"
 #include "shard-client.hpp"
 #include "state-serializer.hpp"
-#include "storage-stat-cache.hpp"
+#include "storage-stat-manager.hpp"
 #include "token-manager.h"
 #include "validator-group.hpp"
 
@@ -546,6 +546,13 @@ class ValidatorManagerImpl : public ValidatorManager {
 
  public:
   void allow_block_state_gc(BlockIdExt block_id, td::Promise<bool> promise) override;
+  void get_gc_masterchain_seqno(td::Promise<BlockSeqno> promise) override {
+    if (!gc_masterchain_handle_) {
+      promise.set_error(td::Status::Error(ErrorCode::notready, "not inited"));
+    } else {
+      promise.set_value(gc_masterchain_handle_->id().seqno());
+    }
+  }
   void archive(BlockHandle handle, td::Promise<td::Unit> promise) override {
     td::actor::send_closure(db_, &Db::archive, std::move(handle), std::move(promise));
   }
@@ -625,11 +632,20 @@ class ValidatorManagerImpl : public ValidatorManager {
     ++(success ? total_ls_queries_ok_ : total_ls_queries_error_)[lite_query_id];
   }
 
-  void get_storage_stat_cache(td::Promise<std::function<td::Ref<vm::Cell>(const td::Bits256 &)>> promise) override {
-    td::actor::send_closure(storage_stat_cache_, &StorageStatCache::get_cache, std::move(promise));
+  void get_storage_stat_loader(td::Promise<std::shared_ptr<StorageStatLoader>> promise) override {
+    if (storage_stat_manager_.empty()) {
+      promise.set_error(td::Status::Error(ErrorCode::notready, "not ready"));
+    } else {
+      td::actor::send_closure(storage_stat_manager_, &StorageStatManager::get_loader, std::move(promise));
+    }
   }
   void update_storage_stat_cache(std::vector<std::pair<td::Ref<vm::Cell>, td::uint32>> data) override {
-    td::actor::send_closure(storage_stat_cache_, &StorageStatCache::update, std::move(data));
+    if (!storage_stat_manager_.empty()) {
+      td::actor::send_closure(storage_stat_manager_, &StorageStatManager::update_cache, std::move(data));
+    }
+  }
+  void update_storage_stat_db_masterchain_seqno(BlockSeqno seqno) override {
+    storage_stat_db_masterchain_seqno_ = seqno;
   }
 
  private:
@@ -662,8 +678,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::actor::ActorOwn<ShardClient> shard_client_;
   BlockSeqno min_confirmed_masterchain_seqno_{0};
   BlockSeqno state_serializer_masterchain_seqno_{0};
+  td::optional<BlockSeqno> storage_stat_db_masterchain_seqno_;
 
-  void shard_client_update(BlockSeqno seqno);
+  void resolve_shard_client_waiters();
   void state_serializer_update(BlockSeqno seqno);
 
   std::string db_root_;
@@ -745,8 +762,6 @@ class ValidatorManagerImpl : public ValidatorManager {
            std::pair<std::string, std::function<void(td::Promise<std::vector<std::pair<std::string, std::string>>>)>>>
       stats_providers_;
 
-  td::actor::ActorOwn<StorageStatCache> storage_stat_cache_;
-
   template <typename T>
   void write_session_stats(const T &obj);
 
@@ -766,6 +781,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   bool is_valid_nonfinal_group(ShardIdFull shard, CatchainSeqno cc_seqno);
   void process_accepted_nonfinal_block(BlockIdExt block_id, CatchainSeqno cc_seqno);
   void cleanup_nonfinal_groups();
+
+  td::actor::ActorOwn<StorageStatManager> storage_stat_manager_;
 };
 
 }  // namespace validator

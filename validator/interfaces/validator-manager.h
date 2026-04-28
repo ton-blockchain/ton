@@ -202,6 +202,7 @@ struct ValidationStats {
 
   struct WorkTimeStats {
     td::RealCpuTimer::Time total;
+    td::RealCpuTimer::Time prelim_storage_stat;
     td::RealCpuTimer::Time trx_tvm;
     td::RealCpuTimer::Time trx_storage_stat;
     td::RealCpuTimer::Time trx_other;
@@ -220,9 +221,9 @@ struct ValidationStats {
     td::RealCpuTimer::Time check_new_state;
 
     std::string to_str(bool is_cpu) const {
-      return PSTRING() << "total=" << total.get(is_cpu) << " trx_tvm=" << trx_tvm.get(is_cpu)
-                       << " trx_storage_stat=" << trx_storage_stat.get(is_cpu) << " trx_other=" << trx_other.get(is_cpu)
-                       << " unpack_state=" << unpack_state.get(is_cpu)
+      return PSTRING() << "total=" << total.get(is_cpu) << " prelim_storage_stat=" << prelim_storage_stat.get(is_cpu)
+                       << " trx_tvm=" << trx_tvm.get(is_cpu) << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
+                       << " trx_other=" << trx_other.get(is_cpu) << " unpack_state=" << unpack_state.get(is_cpu)
                        << " validate_block_tlb=" << validate_block_tlb.get(is_cpu)
                        << " precheck_account_updates=" << precheck_account_updates.get(is_cpu)
                        << " precheck_account_transactions=" << precheck_account_transactions.get(is_cpu)
@@ -272,6 +273,13 @@ struct ExtMsgCallback {
   td::CancellationToken cancellation_token;
   td::Timestamp timeout;
   bool sync_only = false;
+};
+
+class StorageStatLoader {
+ public:
+  virtual ~StorageStatLoader() = default;
+  virtual td::Ref<vm::Cell> get_storage_dict(WorkchainId wc, StdSmcAddress addr, td::Bits256 dict_hash,
+                                             td::Ref<vm::CellSlice> storage) = 0;
 };
 
 using ValidateCandidateResult = td::Variant<CandidateAccept, CandidateReject>;
@@ -383,6 +391,9 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void try_get_static_file(FileHash file_hash, td::Promise<td::BufferSlice> promise) = 0;
 
   virtual void allow_block_state_gc(BlockIdExt block_id, td::Promise<bool> promise) = 0;
+  virtual void get_gc_masterchain_seqno(td::Promise<BlockSeqno> promise) {
+    promise.set_error(td::Status::Error("not implemented"));
+  }
 
   virtual void archive(BlockHandle handle, td::Promise<td::Unit> promise) = 0;
 
@@ -438,10 +449,13 @@ class ValidatorManager : public ValidatorManagerInterface {
 
   virtual void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) = 0;
 
-  virtual void get_storage_stat_cache(td::Promise<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> promise) {
+  virtual void get_storage_stat_loader(td::Promise<std::shared_ptr<StorageStatLoader>> promise) {
     promise.set_error(td::Status::Error("not implemented"));
   }
   virtual void update_storage_stat_cache(std::vector<std::pair<td::Ref<vm::Cell>, td::uint32>> data) {
+    // not implemented
+  }
+  virtual void update_storage_stat_db_masterchain_seqno(BlockSeqno seqno) {
     // not implemented
   }
 

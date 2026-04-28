@@ -327,6 +327,8 @@ struct Account {
   bool libraries_changed() const;
   bool create_account_block(vm::CellBuilder& cb);  // stores an AccountBlock with all transactions
 
+  static td::Ref<vm::CellSlice> storage_without_extra_currencies(td::Ref<vm::CellSlice> storage_cs);
+
  protected:
   friend struct transaction::Transaction;
   bool set_addr_rewrite_length(int new_length);

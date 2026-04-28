@@ -258,7 +258,7 @@ class Collator final : public td::actor::Actor {
   bool deferring_messages_enabled_ = false;
   bool store_out_msg_queue_size_ = false;
 
-  std::function<td::Ref<vm::Cell>(const td::Bits256&)> storage_stat_cache_;
+  std::shared_ptr<StorageStatLoader> storage_stat_loader_;
   std::vector<std::pair<td::Ref<vm::Cell>, td::uint32>> storage_stat_cache_update_;
 
   td::PerfWarningTimer perf_timer_;
@@ -284,8 +284,7 @@ class Collator final : public td::actor::Actor {
   void request_top_masterchain_state(BlockIdExt prev_mc_ref);
   void after_get_block_data(int idx, td::Result<Ref<BlockData>> res, td::PerfLogAction token);
   void after_get_shard_blocks(td::Result<std::vector<Ref<ShardTopBlockDescription>>> res, td::PerfLogAction token);
-  void after_get_storage_stat_cache(td::Result<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> res,
-                                    td::PerfLogAction token);
+  void after_get_storage_stat_loader(td::Result<std::shared_ptr<StorageStatLoader>> res, td::PerfLogAction token);
   bool preprocess_prev_mc_state();
   bool register_mc_state(Ref<MasterchainStateQ> other_mc_state);
   bool request_aux_mc_state(BlockSeqno seqno, Ref<MasterchainStateQ>& state);
