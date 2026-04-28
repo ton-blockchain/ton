@@ -10,10 +10,13 @@
 #include <vector>
 
 #include "adnl/adnl-node-id.hpp"
+#include "adnl/adnl-sender-ex.h"
 #include "adnl/adnl-test-network.h"
 #include "dht/dht.h"
+#include "keys/keys.hpp"
 #include "overlay/overlays.h"
 #include "td/actor/TestScheduler.h"
+#include "tl-utils/common-utils.hpp"
 #include "td/utils/tests.h"
 
 namespace ton::overlay::test {
@@ -121,6 +124,79 @@ class OverlayManagerHarness {
   std::vector<adnl::AdnlNodeIdShort> peers_;
 };
 
+class NoopAdnlSenderEx final : public adnl::AdnlSenderEx {
+ public:
+  void send_message(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort, td::BufferSlice) override {
+  }
+  void send_query(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort, std::string, td::Promise<td::BufferSlice> promise,
+                  td::Timestamp, td::BufferSlice) override {
+    promise.set_error(td::Status::Error("NoopAdnlSenderEx::send_query"));
+  }
+  void send_query_ex(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort, std::string,
+                     td::Promise<td::BufferSlice> promise, td::Timestamp, td::BufferSlice, td::uint64) override {
+    promise.set_error(td::Status::Error("NoopAdnlSenderEx::send_query_ex"));
+  }
+  void get_conn_ip_str(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort, td::Promise<td::string> promise) override {
+    promise.set_value("noop");
+  }
+  void add_id(adnl::AdnlNodeIdShort) override {
+  }
+
+ private:
+  void on_mtu_updated(td::optional<adnl::AdnlNodeIdShort>, td::optional<adnl::AdnlNodeIdShort>) override {
+  }
+};
+
+class BroadcastOnlyCallback final : public Overlays::Callback {
+ public:
+  void receive_broadcast(PublicKeyHash, OverlayIdShort, td::BufferSlice) override {
+  }
+};
+
+static OverlayIdFull make_overlay_id(td::Slice name) {
+  return OverlayIdFull{create_serialize_tl_object<ton_api::pub_overlay>(td::BufferSlice(name))};
+}
+
+static td::uint64 get_unauthorized_broadcast_count(
+    const tl_object_ptr<ton_api::engine_validator_overlaysStats>& stats, OverlayIdShort overlay_id,
+    adnl::AdnlNodeIdShort local_id) {
+  for (const auto& overlay_stats : stats->overlays_) {
+    if (overlay_stats->overlay_id_ != overlay_id.bits256_value() || overlay_stats->adnl_id_ != local_id.bits256_value()) {
+      continue;
+    }
+    for (const auto& broadcasts_stats : overlay_stats->broadcasts_) {
+      if (broadcasts_stats->source_.is_zero()) {
+        return broadcasts_stats->count_;
+      }
+    }
+  }
+  return 0;
+}
+
+static td::BufferSlice make_twostep_fec_broadcast(PrivateKey& src_key, adnl::AdnlNodeIdShort src_adnl_id,
+                                                  adnl::AdnlNodeIdShort bcast_src_adnl_id, td::uint32 date,
+                                                  td::uint32 seqno, td::uint32 data_size, td::uint32 part_size,
+                                                  td::Bits256 data_hash, td::BufferSlice extra) {
+  const td::uint32 flags = 0;
+  PublicKey src_public = src_key.compute_public_key();
+  PublicKeyHash src_keyhash = src_public.compute_short_id();
+  td::BufferSlice part(part_size);
+  td::Random::secure_bytes(part.as_slice());
+  td::Bits256 broadcast_id = get_tl_object_sha_bits256(create_tl_object<ton_api::overlay_broadcastTwostep_id>(
+      flags, date, src_keyhash.bits256_value(), bcast_src_adnl_id.bits256_value(), data_hash,
+      static_cast<td::int32>(data_size), static_cast<td::int32>(part_size), extra.clone()));
+
+  td::BufferSlice to_sign = create_serialize_tl_object<ton_api::overlay_broadcastTwostepFec_toSign>(
+      broadcast_id, static_cast<td::int32>(seqno), part.clone());
+  auto decryptor = src_key.create_decryptor().move_as_ok();
+  td::BufferSlice signature = decryptor->sign(to_sign.as_slice()).move_as_ok();
+
+  return create_serialize_tl_object<ton_api::overlay_broadcastTwostepFec>(
+      flags, date, src_public.tl(), src_adnl_id.bits256_value(), Certificate::empty_tl(), data_hash,
+      static_cast<td::int32>(data_size), static_cast<td::int32>(seqno), std::move(part), std::move(extra),
+      std::move(signature));
+}
+
 TEST(Overlays, BuffersUnknownOverlayPacketsUntilCreation) {
   // Covers tracker Kernel-31 commit a4c2dc4e2:
   // incoming messages and queries for an unknown overlay must be buffered and replayed
@@ -199,6 +275,88 @@ TEST(Overlays, EvictsOldestBufferedPacketsOnOverflow) {
     co_await ts.wait_sync_work();
     EXPECT_EQ(packets_b->messages, (std::vector<std::string>{"b-2", "b-3", "b-4", "b-5", "b-6", "b-7", "b-8", "b-9"}));
 
+    co_return {};
+  });
+}
+
+TEST(Overlays, TwostepFecEvictionMarksOldestAsDelivered) {
+  // Re-sending the oldest twostep-FEC packet after cache overflow must be treated as duplicate.
+  // We verify this through unauthorized broadcast stats:
+  // - 21 unique broadcasts increment count to 21
+  // - resending the evicted oldest one must NOT increment count to 22
+  td::actor::TestScheduler ts;
+  ts.run([&]() -> td::actor::Task<td::Unit> {
+    adnl::TestNetwork network("tmp-dir-test-overlay-twostep-gc");
+    auto& sender_node = network.add_node();
+    auto& receiver_node = network.add_node();
+    network.connect(sender_node, receiver_node);
+
+    std::vector<adnl::AdnlNodeIdShort> peers = {sender_node.adnl_short, receiver_node.adnl_short};
+
+    auto sender_manager = Overlays::create(sender_node.db_root, sender_node.keyring.get(), sender_node.adnl.get(),
+                                           td::actor::ActorId<dht::Dht>{});
+    auto receiver_manager = Overlays::create(receiver_node.db_root, receiver_node.keyring.get(), receiver_node.adnl.get(),
+                                             td::actor::ActorId<dht::Dht>{});
+    auto twostep_sender = td::actor::create_actor<NoopAdnlSenderEx>("twostep-noop-sender");
+
+    OverlayPrivacyRules rules(1 << 20, CertificateFlags::AllowFec | CertificateFlags::Trusted, {});
+
+    auto overlay_id_full = make_overlay_id("twostep-cache-cap-test");
+    auto overlay_id = overlay_id_full.compute_short_id();
+    td::actor::send_closure(sender_manager, &Overlays::create_private_overlay, sender_node.adnl_short, overlay_id_full.clone(),
+                            peers, std::make_unique<BroadcastOnlyCallback>(), rules, "");
+
+    OverlayOptions receiver_opts;
+    receiver_opts.twostep_broadcast_sender_ = twostep_sender.get();
+    td::actor::send_closure(receiver_manager, &Overlays::create_private_overlay_ex, receiver_node.adnl_short,
+                            overlay_id_full.clone(), peers, std::make_unique<BroadcastOnlyCallback>(), rules, "",
+                            receiver_opts);
+
+    co_await ts.wait_sync_work();
+
+    PrivateKey src_key{privkeys::Ed25519::random()};
+    td::Bits256 bcast_src_bits = td::Bits256::zero();
+    bcast_src_bits.as_slice().copy_from(td::Slice("twostep-gc-sender..............000001", 32));
+    adnl::AdnlNodeIdShort bcast_src_adnl_id{bcast_src_bits};
+    td::uint32 date = static_cast<td::uint32>(td::Clocks::system());
+
+    static constexpr td::uint32 data_size = 512;
+    static constexpr td::uint32 part_size = 128;
+    static constexpr td::uint32 seqno = 0;
+
+    std::vector<td::Bits256> data_hashes;
+    data_hashes.reserve(21);
+    for (size_t i = 0; i < 21; ++i) {
+      td::Bits256 data_hash = td::sha256_bits256(PSTRING() << "twostep-gc-data-" << i);
+      data_hashes.push_back(data_hash);
+      auto packet = make_twostep_fec_broadcast(src_key, sender_node.adnl_short, bcast_src_adnl_id, date, seqno, data_size,
+                                               part_size, data_hash, td::BufferSlice());
+      td::actor::send_closure(sender_manager, &Overlays::send_message, receiver_node.adnl_short, sender_node.adnl_short,
+                              overlay_id, std::move(packet));
+    }
+    co_await ts.wait_sync_work();
+
+    auto [stats_task_before, stats_promise_before] =
+        td::actor::StartedTask<tl_object_ptr<ton_api::engine_validator_overlaysStats>>::make_bridge();
+    td::actor::send_closure(receiver_manager, &Overlays::get_stats, std::move(stats_promise_before));
+    auto stats_before = co_await std::move(stats_task_before);
+    EXPECT_EQ(get_unauthorized_broadcast_count(stats_before, overlay_id, receiver_node.adnl_short), 21);
+
+    auto oldest_packet = make_twostep_fec_broadcast(src_key, sender_node.adnl_short, bcast_src_adnl_id, date, seqno, data_size,
+                                                    part_size, data_hashes.front(), td::BufferSlice());
+    td::actor::send_closure(sender_manager, &Overlays::send_message, receiver_node.adnl_short, sender_node.adnl_short,
+                            overlay_id, std::move(oldest_packet));
+    co_await ts.wait_sync_work();
+
+    auto [stats_task_after, stats_promise_after] =
+        td::actor::StartedTask<tl_object_ptr<ton_api::engine_validator_overlaysStats>>::make_bridge();
+    td::actor::send_closure(receiver_manager, &Overlays::get_stats, std::move(stats_promise_after));
+    auto stats_after = co_await std::move(stats_task_after);
+    EXPECT_EQ(get_unauthorized_broadcast_count(stats_after, overlay_id, receiver_node.adnl_short), 21);
+
+    twostep_sender.reset();
+    sender_manager.reset();
+    receiver_manager.reset();
     co_return {};
   });
 }
