@@ -60,6 +60,7 @@ class StartOptions:
     args: Sequence[str] = ()
     threads: int = 0
     verbosity: int = 3
+    console_verbosity: int = 3
 
 
 def _get_install_and_options(
@@ -79,6 +80,7 @@ def _get_install_and_options(
             args=additional_args + list(options.args),
             threads=options.threads,
             verbosity=options.verbosity,
+            console_verbosity=options.console_verbosity,
         ),
         install,
     )
@@ -225,6 +227,7 @@ class Network:
                 open(self.log_path, "wb"),
                 self.name,
                 self.__process.stderr,
+                start_options.console_verbosity,
             )
 
         def announce_to(self, dht: DHTNode):
