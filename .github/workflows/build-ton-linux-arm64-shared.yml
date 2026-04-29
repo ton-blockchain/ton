@@ -3,7 +3,7 @@ name: Ubuntu TON build (arm64)
 on:
   pull_request:
     branches: [master, testnet]
-    types: [opened, reopened, synchronize, ready_for_review]
+    types: [opened, reopened, synchronize]
   push:
     branches: [master, testnet]
   workflow_dispatch:
