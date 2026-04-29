@@ -330,64 +330,103 @@ std::unique_ptr<adnl::Adnl::Callback> RldpIn::make_adnl_callback() {
 }
 
 void RldpIn::collect(metrics::MetricsPromise P) {
-  metrics::MetricSet set;
-  auto load = [](const std::atomic<td::uint64> &a) { return a.load(std::memory_order_relaxed); };
-  const auto &m = *metrics_;
-  set.push_labeled_scalar("app_send_bytes_total", "counter", "kind",
-                          {{"message", m.app_send_message.bytes_load()},
-                           {"query", m.app_send_query.bytes_load()},
-                           {"answer", m.app_send_answer.bytes_load()}},
-                          "Bytes the application asked RLDP to send (raw payload, by kind).");
-  set.push_labeled_scalar("app_send_messages_total", "counter", "kind",
-                          {{"message", m.app_send_message.msgs_load()},
-                           {"query", m.app_send_query.msgs_load()},
-                           {"answer", m.app_send_answer.msgs_load()}},
-                          "Messages the application asked RLDP to send.");
-  set.push_labeled_scalar("app_deliver_bytes_total", "counter", "kind",
-                          {{"message", m.app_deliver_message.bytes_load()},
-                           {"query", m.app_deliver_query.bytes_load()},
-                           {"answer", m.app_deliver_answer.bytes_load()}},
-                          "Bytes RLDP delivered to the application.");
-  set.push_labeled_scalar("app_deliver_messages_total", "counter", "kind",
-                          {{"message", m.app_deliver_message.msgs_load()},
-                           {"query", m.app_deliver_query.msgs_load()},
-                           {"answer", m.app_deliver_answer.msgs_load()}},
-                          "Messages RLDP delivered to the application.");
-  set.push_scalar("transfers_started_total", "counter", load(metrics_->transfers_started),
-                  "RLDP outbound transfers initiated.");
-  set.push_labeled_scalar(
-      "transfers_completed_total", "counter", "direction",
-      {{"out", load(metrics_->transfers_completed_out)}, {"in", load(metrics_->transfers_completed_in)}},
-      "RLDP transfers that finished (out includes both success and timeout-completion).");
-  set.push_scalar("transfers_failed_in_total", "counter", load(metrics_->transfers_failed_in),
-                  "Inbound RLDP transfers that failed (timeout/abort before full reassembly).");
-  set.push_labeled_scalar("bytes_sent_to_adnl_total", "counter", "kind",
-                          {{"part", m.sent_to_adnl_part.bytes_load()},
-                           {"confirm", m.sent_to_adnl_confirm.bytes_load()},
-                           {"complete", m.sent_to_adnl_complete.bytes_load()}},
-                          "Serialized RLDP message bytes handed to ADNL (post FEC encoding).");
-  set.push_labeled_scalar("parts_sent_to_adnl_total", "counter", "kind",
-                          {{"part", m.sent_to_adnl_part.msgs_load()},
-                           {"confirm", m.sent_to_adnl_confirm.msgs_load()},
-                           {"complete", m.sent_to_adnl_complete.msgs_load()}},
-                          "RLDP messages handed to ADNL.");
-  set.push_labeled_scalar("bytes_received_total", "counter", "kind",
-                          {{"part", m.received_part.bytes_load()},
-                           {"confirm", m.received_confirm.bytes_load()},
-                           {"complete", m.received_complete.bytes_load()}},
-                          "Serialized RLDP message bytes received from ADNL (pre FEC decoding).");
-  set.push_labeled_scalar("parts_received_total", "counter", "kind",
-                          {{"part", m.received_part.msgs_load()},
-                           {"confirm", m.received_confirm.msgs_load()},
-                           {"complete", m.received_complete.msgs_load()}},
-                          "RLDP messages received from ADNL.");
-  set.push_labeled_scalar(
-      "parse_errors_total", "counter", "where",
-      {{"part", load(metrics_->parse_errors_part)}, {"message", load(metrics_->parse_errors_message)}},
-      "RLDP TL parse failures.");
-  set.push_scalar("outbound_transfers", "gauge", senders_.size(), "Active outbound RLDP transfers.");
-  set.push_scalar("inbound_transfers", "gauge", receivers_.size(), "Active inbound RLDP transfers.");
-  set.push_scalar("lru_size", "gauge", lru_size_, "Recent completed transfers in dedup LRU.");
+  using metrics::MetricFamily;
+  using metrics::MetricSet;
+  MetricSet set;
+  auto load = [](const std::atomic<td::uint64> &a) { return static_cast<double>(a.load(std::memory_order_relaxed)); };
+  auto labeled = [&](std::string name, std::string type, std::string label_key,
+                     std::vector<std::pair<std::string, double>> entries, std::optional<std::string> help = {}) {
+    metrics::MetricFamily fam{.name = std::move(name), .type = std::move(type), .help = std::move(help), .metrics = {}};
+    for (auto &[label, value] : entries) {
+      fam.metrics.push_back(metrics::Metric{
+          .suffix = "",
+          .label_set = metrics::LabelSet{.labels = {{label_key, label}}},
+          .samples = {metrics::Sample{.label_set = {}, .value = value}},
+      });
+    }
+    set.families.push_back(std::move(fam));
+  };
+  labeled("app_send_bytes_total", "counter", "kind",
+          {
+              {"message", load(metrics_->app_send_message.bytes)},
+              {"query", load(metrics_->app_send_query.bytes)},
+              {"answer", load(metrics_->app_send_answer.bytes)},
+          },
+          "Bytes the application asked RLDP to send (raw payload, by kind).");
+  labeled("app_send_messages_total", "counter", "kind",
+          {
+              {"message", load(metrics_->app_send_message.msgs)},
+              {"query", load(metrics_->app_send_query.msgs)},
+              {"answer", load(metrics_->app_send_answer.msgs)},
+          },
+          "Messages the application asked RLDP to send.");
+  labeled("app_deliver_bytes_total", "counter", "kind",
+          {
+              {"message", load(metrics_->app_deliver_message.bytes)},
+              {"query", load(metrics_->app_deliver_query.bytes)},
+              {"answer", load(metrics_->app_deliver_answer.bytes)},
+          },
+          "Bytes RLDP delivered to the application.");
+  labeled("app_deliver_messages_total", "counter", "kind",
+          {
+              {"message", load(metrics_->app_deliver_message.msgs)},
+              {"query", load(metrics_->app_deliver_query.msgs)},
+              {"answer", load(metrics_->app_deliver_answer.msgs)},
+          },
+          "Messages RLDP delivered to the application.");
+  set.families.push_back(MetricFamily::make_scalar(
+      "transfers_started_total", "counter", load(metrics_->transfers_started), "RLDP outbound transfers initiated."));
+  labeled("transfers_completed_total", "counter", "direction",
+          {
+              {"out", load(metrics_->transfers_completed_out)},
+              {"in", load(metrics_->transfers_completed_in)},
+          },
+          "RLDP transfers that finished (out includes both success and timeout-completion).");
+  labeled("transfers_failed_total", "counter", "direction",
+          {
+              {"in", load(metrics_->transfers_failed_in)},
+          },
+          "RLDP transfers that failed.");
+  labeled("bytes_sent_to_adnl_total", "counter", "kind",
+          {
+              {"part", load(metrics_->sent_to_adnl_part.bytes_load())},
+              {"confirm", load(metrics_->sent_to_adnl_confirm.bytes_load())},
+              {"complete", load(metrics_->sent_to_adnl_complete.bytes_load())},
+          },
+          "Serialized RLDP message bytes handed to ADNL (post FEC encoding).");
+  labeled("parts_sent_to_adnl_total", "counter", "kind",
+          {
+              {"part", load(metrics_->sent_to_adnl_part.msgs_load())},
+              {"confirm", load(metrics_->sent_to_adnl_confirm.msgs_load())},
+              {"complete", load(metrics_->sent_to_adnl_complete.msgs_load())},
+          },
+          "RLDP messages handed to ADNL.");
+  labeled("bytes_received_total", "counter", "kind",
+          {
+              {"part", load(metrics_->received_part.bytes_load())},
+              {"confirm", load(metrics_->received_confirm.bytes_load())},
+              {"complete", load(metrics_->received_complete.bytes_load())},
+          },
+          "Serialized RLDP message bytes received from ADNL (pre FEC decoding).");
+  labeled("parts_received_total", "counter", "kind",
+          {
+              {"part", load(metrics_->received_part.msgs_load())},
+              {"confirm", load(metrics_->received_confirm.msgs_load())},
+              {"complete", load(metrics_->received_complete.msgs_load())},
+          },
+          "RLDP messages received from ADNL.");
+  labeled("parse_errors_total", "counter", "where",
+          {
+              {"part", load(metrics_->parse_errors_part)},
+              {"message", load(metrics_->parse_errors_message)},
+          },
+          "RLDP TL parse failures.");
+  set.families.push_back(MetricFamily::make_scalar("outbound_transfers", "gauge", static_cast<double>(senders_.size()),
+                                                   "Active outbound RLDP transfers."));
+  set.families.push_back(MetricFamily::make_scalar("inbound_transfers", "gauge", static_cast<double>(receivers_.size()),
+                                                   "Active inbound RLDP transfers."));
+  set.families.push_back(MetricFamily::make_scalar("lru_size", "gauge", static_cast<double>(lru_size_),
+                                                   "Recent completed transfers in dedup LRU."));
 
   metrics::render_tl_bucket(set, "app_send", "message", app_send_by_tl_message_,
                             "Bytes the application sent via RLDP rldp.message wrappers, by inner TL.",

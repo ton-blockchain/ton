@@ -42,14 +42,14 @@ class QuicSender : public adnl::AdnlSenderEx, public virtual metrics::AsyncColle
         return {.server_stats = server_stats + other.server_stats};
       }
 
-      [[nodiscard]] metrics::MetricSet dump() const;
+      [[nodiscard]] std::vector<metrics::MetricFamily> dump() const;
     } summary = {};
     std::map<AdnlPath, Entry> per_path;
 
     // Server-level UDP wire counters aggregated across all QuicServers.
     UdpCounters udp = {};
 
-    [[nodiscard]] metrics::MetricSet dump() const;
+    [[nodiscard]] std::vector<metrics::MetricFamily> dump() const;
   };
 
   td::actor::Task<Stats> collect_stats();

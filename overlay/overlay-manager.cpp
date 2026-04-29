@@ -904,12 +904,15 @@ void OverlayManager::collect(metrics::MetricsPromise P) {
     MetricSet build_set() {
       MetricSet set;
       auto labeled = [&](std::string name, std::string type, std::optional<std::string> help, auto getter) {
-        std::vector<std::pair<std::string, td::uint64>> entries;
-        entries.reserve(by_type_.size());
+        MetricFamily fam{.name = std::move(name), .type = std::move(type), .help = std::move(help), .metrics = {}};
         for (auto &[overlay_type, agg] : by_type_) {
-          entries.emplace_back(overlay_type, getter(agg));
+          fam.metrics.push_back(metrics::Metric{
+              .suffix = "",
+              .label_set = metrics::LabelSet{.labels = {{"type", overlay_type}}},
+              .samples = {metrics::Sample{.label_set = {}, .value = static_cast<double>(getter(agg))}},
+          });
         }
-        set.push_labeled_scalar(std::move(name), std::move(type), "type", std::move(entries), std::move(help));
+        set.families.push_back(std::move(fam));
       };
       auto labeled_dir = [&](std::string name, std::string type, std::optional<std::string> help, auto out_getter,
                              auto in_getter) {

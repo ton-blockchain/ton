@@ -41,7 +41,24 @@ constexpr int VERBOSITY_NAME(RLDP_EXTRA_DEBUG) = verbosity_DEBUG + 1;
 using TransferId = td::Bits256;
 
 struct RldpMetrics {
-  using KC = metrics::AtomicKindCounter;
+  // Paired (bytes, messages) counter used by subsystems that aggregate across actor threads.
+  // One record() call does two relaxed atomic increments and is cheap in hot paths.
+  struct AtomicKindCounter {
+    std::atomic<td::uint64> bytes{0};
+    std::atomic<td::uint64> msgs{0};
+
+    void record(td::uint64 size) {
+      bytes.fetch_add(size, std::memory_order_relaxed);
+      msgs.fetch_add(1, std::memory_order_relaxed);
+    }
+    td::uint64 bytes_load() const {
+      return bytes.load(std::memory_order_relaxed);
+    }
+    td::uint64 msgs_load() const {
+      return msgs.load(std::memory_order_relaxed);
+    }
+  };
+  using KC = AtomicKindCounter;
   KC app_send_message, app_send_query, app_send_answer;
   KC app_deliver_message, app_deliver_query, app_deliver_answer;
 
