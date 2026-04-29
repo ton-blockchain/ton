@@ -7,9 +7,73 @@ namespace tonlib {
 
 bool is_engine_console_query(const ton::tl_object_ptr<ton::ton_api::Function>& function) {
   switch (function->get_id()) {
+    case ton::ton_api::engine_validator_addAdnlId::ID:
+    case ton::ton_api::engine_validator_addCollator::ID:
+    case ton::ton_api::engine_validator_addControlInterface::ID:
+    case ton::ton_api::engine_validator_addCustomOverlay::ID:
+    case ton::ton_api::engine_validator_addDhtId::ID:
+    case ton::ton_api::engine_validator_addFastSyncClient::ID:
+    case ton::ton_api::engine_validator_addListeningPort::ID:
+    case ton::ton_api::engine_validator_addLiteserver::ID:
+    case ton::ton_api::engine_validator_addProxy::ID:
+    case ton::ton_api::engine_validator_addQuicAddr::ID:
+    case ton::ton_api::engine_validator_addShard::ID:
+    case ton::ton_api::engine_validator_addValidatorAdnlAddress::ID:
+    case ton::ton_api::engine_validator_addValidatorPermanentKey::ID:
+    case ton::ton_api::engine_validator_addValidatorTempKey::ID:
+    case ton::ton_api::engine_validator_changeFullNodeAdnlAddress::ID:
+    case ton::ton_api::engine_validator_checkDhtServers::ID:
+    case ton::ton_api::engine_validator_clearCollatorsList::ID:
+    case ton::ton_api::engine_validator_collatorNodeSetWhitelistEnabled::ID:
+    case ton::ton_api::engine_validator_collatorNodeSetWhitelistedValidator::ID:
+    case ton::ton_api::engine_validator_createComplaintVote::ID:
+    case ton::ton_api::engine_validator_createElectionBid::ID:
+    case ton::ton_api::engine_validator_createProposalVote::ID:
+    case ton::ton_api::engine_validator_delAdnlId::ID:
+    case ton::ton_api::engine_validator_delCollator::ID:
+    case ton::ton_api::engine_validator_delCustomOverlay::ID:
+    case ton::ton_api::engine_validator_delDhtId::ID:
+    case ton::ton_api::engine_validator_delFastSyncClient::ID:
+    case ton::ton_api::engine_validator_delListeningPort::ID:
+    case ton::ton_api::engine_validator_delProxy::ID:
+    case ton::ton_api::engine_validator_delQuicAddr::ID:
+    case ton::ton_api::engine_validator_delShard::ID:
+    case ton::ton_api::engine_validator_delValidatorAdnlAddress::ID:
+    case ton::ton_api::engine_validator_delValidatorPermanentKey::ID:
+    case ton::ton_api::engine_validator_delValidatorTempKey::ID:
+    case ton::ton_api::engine_validator_exportAllPrivateKeys::ID:
+    case ton::ton_api::engine_validator_exportPrivateKey::ID:
+    case ton::ton_api::engine_validator_exportPublicKey::ID:
+    case ton::ton_api::engine_validator_generateKeyPair::ID:
     case ton::ton_api::engine_validator_getActorTextStats::ID:
+    case ton::ton_api::engine_validator_getAdnlStats::ID:
+    case ton::ton_api::engine_validator_getCollationManagerStats::ID:
+    case ton::ton_api::engine_validator_getCollatorOptionsJson::ID:
+    case ton::ton_api::engine_validator_getConfig::ID:
     case ton::ton_api::engine_validator_getConsensusNoncriticalParamsOverrides::ID:
+    case ton::ton_api::engine_validator_getOverlaysStats::ID:
+    case ton::ton_api::engine_validator_getPerfTimerStats::ID:
+    case ton::ton_api::engine_validator_getShardOutQueueSize::ID:
+    case ton::ton_api::engine_validator_getStats::ID:
+    case ton::ton_api::engine_validator_getTime::ID:
+    case ton::ton_api::engine_validator_importCertificate::ID:
+    case ton::ton_api::engine_validator_importFastSyncMemberCertificate::ID:
+    case ton::ton_api::engine_validator_importPrivateKey::ID:
+    case ton::ton_api::engine_validator_importShardOverlayCertificate::ID:
+    case ton::ton_api::engine_validator_setCollatorOptionsJson::ID:
+    case ton::ton_api::engine_validator_setCollatorsList::ID:
     case ton::ton_api::engine_validator_setConsensusNoncriticalParamsOverrides::ID:
+    case ton::ton_api::engine_validator_setExtMessagesBroadcastDisabled::ID:
+    case ton::ton_api::engine_validator_setShardBlockVerifierConfig::ID:
+    case ton::ton_api::engine_validator_setStateSerializerEnabled::ID:
+    case ton::ton_api::engine_validator_setVerbosity::ID:
+    case ton::ton_api::engine_validator_showCollatorNodeWhitelist::ID:
+    case ton::ton_api::engine_validator_showCollatorsList::ID:
+    case ton::ton_api::engine_validator_showCustomOverlays::ID:
+    case ton::ton_api::engine_validator_showShardBlockVerifierConfig::ID:
+    case ton::ton_api::engine_validator_sign::ID:
+    case ton::ton_api::engine_validator_signOverlayMemberCertificate::ID:
+    case ton::ton_api::engine_validator_signShardOverlayCertificate::ID:
       return true;
     default:
       return false;
