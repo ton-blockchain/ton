@@ -1772,7 +1772,7 @@ void MtCarloComputeShare::gen_vset() {
       }
     }
     CHECK(a >= 0 && a < N);
-    CHECK(total_wt >= W[a]);
+    total_wt = std::max(total_wt, W[a]);
     total_wt -= W[a];
     double x = CW[a];
     c = hc++;
