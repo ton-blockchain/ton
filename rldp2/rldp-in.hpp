@@ -21,11 +21,12 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <vector>
 
 #include "adnl/adnl-peer-table.h"
 #include "adnl/adnl-query.h"
+#include "metrics/app-traffic-metrics.h"
 #include "metrics/metrics-collectors.h"
-#include "metrics/tl-traffic-bucket.h"
 #include "td/utils/List.h"
 #include "tl-utils/tl-utils.hpp"
 
@@ -55,7 +56,7 @@ class RldpLru : public td::ListNode {
 };
 
 class RldpConnectionActor;
-class RldpIn : public RldpImpl, public virtual metrics::AsyncCollector {
+class RldpIn : public RldpImpl {
  public:
   static constexpr td::uint64 mtu() {
     return (1ull << 37);
@@ -64,7 +65,6 @@ class RldpIn : public RldpImpl, public virtual metrics::AsyncCollector {
     return 128;
   }
   void on_sent(TransferId transfer_id, td::Result<td::Unit> state);
-  void collect(metrics::MetricsPromise P) override;
 
   void send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) override;
   void send_message_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::Timestamp timeout,
@@ -100,6 +100,7 @@ class RldpIn : public RldpImpl, public virtual metrics::AsyncCollector {
   }
 
  protected:
+  void start_up() override;
   void on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id,
                       td::optional<adnl::AdnlNodeIdShort> peer_id) override;
 
@@ -118,14 +119,50 @@ class RldpIn : public RldpImpl, public virtual metrics::AsyncCollector {
 
   std::set<adnl::AdnlNodeIdShort> local_ids_;
 
-  std::shared_ptr<Rldp2Metrics> metrics_ = std::make_shared<Rldp2Metrics>();
+  metrics::MultiCollector::Own metrics_collector_ = metrics::MultiCollector::create("rldp2");
+  metrics::AppTrafficMetrics::Ptr app_metrics_ = metrics::AppTrafficMetrics::make();
+  metrics::AtomicCounter<td::uint64>::Ptr bytes_sent_to_adnl_ =
+      metrics::AtomicCounter<td::uint64>::make("bytes_sent_to_adnl_total", "RLDP2 serialized bytes handed to ADNL.");
+  metrics::AtomicCounter<td::uint64>::Ptr parts_sent_to_adnl_ =
+      metrics::AtomicCounter<td::uint64>::make("parts_sent_to_adnl_total", "RLDP2 messages handed to ADNL.");
+  metrics::AtomicCounter<td::uint64>::Ptr bytes_received_from_adnl_ = metrics::AtomicCounter<td::uint64>::make(
+      "bytes_received_from_adnl_total", "RLDP2 serialized bytes received from ADNL.");
+  metrics::AtomicCounter<td::uint64>::Ptr parts_received_from_adnl_ =
+      metrics::AtomicCounter<td::uint64>::make("parts_received_from_adnl_total", "RLDP2 messages received from ADNL.");
+  metrics::AtomicCounter<td::uint64>::Ptr parse_errors_ =
+      metrics::AtomicCounter<td::uint64>::make("parse_errors_total", "RLDP2 message TL parse failures.");
+  metrics::Labeled<std::string, metrics::AtomicCounter<td::uint64>>::Ptr transfers_received_ =
+      metrics::Labeled<std::string, metrics::AtomicCounter<td::uint64>>::make(
+          "result", "transfers_received_total", "Inbound RLDP2 transfers concluded (success or error).");
+  metrics::Labeled<std::string, metrics::AtomicCounter<td::uint64>>::Ptr transfers_sent_ =
+      metrics::Labeled<std::string, metrics::AtomicCounter<td::uint64>>::make(
+          "result", "transfers_sent_total", "Outbound RLDP2 transfers concluded (success or error).");
+  metrics::LambdaGauge::Ptr connections_active_ = metrics::LambdaGauge::make(
+      "connections_active",
+      [this] {
+        return std::vector<metrics::Sample>{
+            metrics::Sample{.label_set = {}, .value = static_cast<double>(connections_.size())}};
+      },
+      "Active RLDP2 connections.");
+  metrics::LambdaGauge::Ptr queries_pending_ = metrics::LambdaGauge::make(
+      "queries_pending",
+      [this] {
+        return std::vector<metrics::Sample>{
+            metrics::Sample{.label_set = {}, .value = static_cast<double>(queries_.size())}};
+      },
+      "Pending RLDP2 queries awaiting answers.");
 
-  metrics::TlTrafficBucket app_send_by_tl_message_;
-  metrics::TlTrafficBucket app_send_by_tl_query_;
-  metrics::TlTrafficBucket app_send_by_tl_answer_;
-  metrics::TlTrafficBucket app_deliver_by_tl_message_;
-  metrics::TlTrafficBucket app_deliver_by_tl_query_;
-  metrics::TlTrafficBucket app_deliver_by_tl_answer_;
+  std::shared_ptr<Rldp2Metrics> metrics_ = std::make_shared<Rldp2Metrics>(Rldp2Metrics{
+      .bytes_sent_to_adnl = bytes_sent_to_adnl_,
+      .parts_sent_to_adnl = parts_sent_to_adnl_,
+      .bytes_received_from_adnl = bytes_received_from_adnl_,
+      .parts_received_from_adnl = parts_received_from_adnl_,
+      .parse_errors = parse_errors_,
+      .transfers_received_ok = transfers_received_->label("ok"),
+      .transfers_received_err = transfers_received_->label("error"),
+      .transfers_sent_ok = transfers_sent_->label("ok"),
+      .transfers_sent_err = transfers_sent_->label("error"),
+  });
 
   td::actor::ActorId<RldpConnectionActor> get_or_create_connection(adnl::AdnlNodeIdShort local_id,
                                                                    adnl::AdnlNodeIdShort peer_id, bool incoming,

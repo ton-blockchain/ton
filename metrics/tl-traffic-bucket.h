@@ -4,10 +4,9 @@
 #include <string>
 #include <vector>
 
+#include "metrics-collectors.h"
 #include "td/utils/Slice.h"
 #include "td/utils/int_types.h"
-
-#include "metrics-types.h"
 
 namespace ton::metrics {
 
@@ -15,7 +14,11 @@ namespace ton::metrics {
 //
 // Magics that don't match a known TL constructor — including wire garbage and short payloads —
 // are funnelled into a single `unknown` bucket so cardinality stays bounded by the schema size.
-struct TlTrafficBucket {
+struct TlTrafficBucket : public Instrument<TlTrafficBucket> {
+  TlTrafficBucket() = default;
+  explicit TlTrafficBucket(std::string metric_name_base, std::optional<std::string> bytes_help = std::nullopt,
+                           std::optional<std::string> messages_help = std::nullopt);
+
   // Indexed by TL constructor id. Only valid (schema-known) ids are inserted as keys here.
   std::map<td::int32, td::uint64> bytes;
   std::map<td::int32, td::uint64> messages;
@@ -32,6 +35,13 @@ struct TlTrafficBucket {
   // (magic, size) through send_closure rather than copying the whole payload.  Pass magic == 0
   // (or any other unknown value) to force the unknown bucket.
   void account_with_magic(td::int32 magic, td::uint64 size);
+
+  MetricSet collect() override;
+
+ private:
+  std::string metric_name_base_;
+  std::optional<std::string> bytes_help_;
+  std::optional<std::string> messages_help_;
 };
 
 // Append two MetricFamily entries (`<base>_bytes_by_tl_total`, `<base>_messages_by_tl_total`)

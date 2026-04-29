@@ -1,7 +1,6 @@
 #include <utility>
 
 #include "auto/tl/ton_api.hpp"
-#include "metrics/tl-traffic-bucket.h"
 #include "td/actor/coro_utils.h"
 #include "td/utils/Heap.h"
 #include "td/utils/as.h"
@@ -367,56 +366,7 @@ td::actor::Task<QuicSender::Stats> QuicSender::collect_stats() {
 
 // TODO(avevad): remove obsolete Stats and collect metrics directly
 void QuicSender::collect(td::Promise<metrics::MetricSet> P) {
-  // Snapshot synchronously inside the actor before kicking off the (coroutine-driven) per-server
-  // stats collection. After we co_await a server, app_metrics_ could mutate, so capture now.
-  auto labeled_counter = [](std::string name, std::vector<std::pair<std::string, td::uint64>> entries,
-                            std::optional<std::string> help = std::nullopt) {
-    metrics::MetricFamily fam{.name = std::move(name), .type = "counter", .help = std::move(help), .metrics = {}};
-    for (auto &[label, value] : entries) {
-      fam.metrics.push_back(metrics::Metric{
-          .suffix = "",
-          .label_set = metrics::LabelSet{.labels = {{"kind", label}}},
-          .samples = {metrics::Sample{.label_set = {}, .value = static_cast<double>(value)}},
-      });
-    }
-    return fam;
-  };
-  metrics::MetricSet app_set;
-  app_set.families.push_back(labeled_counter("app_send_bytes_total",
-                                             {
-                                                 {"message", app_metrics_.send_message.bytes},
-                                                 {"query", app_metrics_.send_query.bytes},
-                                             },
-                                             "Bytes the application asked QUIC to send (raw payload, by kind)."));
-  app_set.families.push_back(labeled_counter("app_send_messages_total",
-                                             {
-                                                 {"message", app_metrics_.send_message.msgs},
-                                                 {"query", app_metrics_.send_query.msgs},
-                                             },
-                                             "Messages the application asked QUIC to send."));
-  app_set.families.push_back(labeled_counter("app_deliver_bytes_total",
-                                             {
-                                                 {"message", app_metrics_.deliver_message.bytes},
-                                                 {"query", app_metrics_.deliver_query.bytes},
-                                                 {"answer", app_metrics_.deliver_answer.bytes},
-                                             },
-                                             "Bytes QUIC delivered to the application (raw payload, by kind)."));
-  app_set.families.push_back(labeled_counter("app_deliver_messages_total",
-                                             {
-                                                 {"message", app_metrics_.deliver_message.msgs},
-                                                 {"query", app_metrics_.deliver_query.msgs},
-                                                 {"answer", app_metrics_.deliver_answer.msgs},
-                                             },
-                                             "Messages QUIC delivered to the application."));
-  metrics::render_tl_bucket(app_set, "app_send", "message", app_send_by_tl_message_,
-                            "Bytes the application sent via QUIC quic.message wrappers, by inner TL.",
-                            "Messages the application sent via QUIC quic.message wrappers, by inner TL.");
-  metrics::render_tl_bucket(app_set, "app_send", "query", app_send_by_tl_query_);
-  metrics::render_tl_bucket(app_set, "app_deliver", "message", app_deliver_by_tl_message_,
-                            "Bytes QUIC delivered to the application from quic.message wrappers, by inner TL.",
-                            "Messages QUIC delivered to the application from quic.message wrappers, by inner TL.");
-  metrics::render_tl_bucket(app_set, "app_deliver", "query", app_deliver_by_tl_query_);
-  metrics::render_tl_bucket(app_set, "app_deliver", "answer", app_deliver_by_tl_answer_);
+  auto app_set = app_metrics_->collect();
 
   td::actor::send_closure(
       actor_id(this), &QuicSender::collect_stats,
@@ -469,8 +419,7 @@ td::actor::Task<td::Unit> QuicSender::send_message_coro(adnl::AdnlNodeIdShort sr
 
 td::actor::Task<td::Unit> QuicSender::send_message_coro_inner(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                                               td::BufferSlice data) {
-  app_metrics_.send_message.record(data.size());
-  app_send_by_tl_message_.account(data.as_slice());
+  app_metrics_->record_send("message", data.as_slice());
   auto conn = co_await find_or_create_connection({src, dst});
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_message>(std::move(data));
   co_await td::actor::ask(conn->server, &QuicServer::send_stream, conn->cid, StreamOptions{get_peer_mtu(src, dst)},
@@ -481,8 +430,7 @@ td::actor::Task<td::Unit> QuicSender::send_message_coro_inner(adnl::AdnlNodeIdSh
 td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                                              std::string name, td::Timestamp timeout,
                                                              td::BufferSlice data, std::optional<td::uint64> limit) {
-  app_metrics_.send_query.record(data.size());
-  app_send_by_tl_query_.account(data.as_slice());
+  app_metrics_->record_send("query", data.as_slice());
   auto conn = co_await find_or_create_connection({src, dst});
   auto query_size = data.size();
   auto query_magic = get_magic(data);
@@ -752,15 +700,13 @@ void QuicSender::on_closed(QuicConnectionId cid) {
 
 void QuicSender::on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
                             ton_api::quic_query &query) {
-  app_metrics_.deliver_query.record(query.data_.size());
-  app_deliver_by_tl_query_.account(query.data_.as_slice());
+  app_metrics_->record_deliver("query", query.data_.as_slice());
   on_inbound_query(connection, stream_id, std::move(query.data_)).start_immediate().detach();
 }
 
 void QuicSender::on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
                             ton_api::quic_message &message) {
-  app_metrics_.deliver_message.record(message.data_.size());
-  app_deliver_by_tl_message_.account(message.data_.as_slice());
+  app_metrics_->record_deliver("message", message.data_.as_slice());
   td::actor::send_closure(adnl_, &adnl::AdnlPeerTable::deliver, connection->path.second, connection->path.first,
                           std::move(message.data_));
   // TODO: use unidirectional stream, so there will be no need to process result
@@ -784,8 +730,7 @@ void QuicSender::on_answer(Connection &connection, QuicStreamID stream_id, ton_a
     LOG(ERROR) << "Answer from unknown stream_id";
     return;
   }
-  app_metrics_.deliver_answer.record(answer.data_.size());
-  app_deliver_by_tl_answer_.account(answer.data_.as_slice());
+  app_metrics_->record_deliver("answer", answer.data_.as_slice());
   it->second.set_result(std::move(answer.data_));
   connection.responses.erase(it);
 }

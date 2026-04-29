@@ -2337,7 +2337,8 @@ void ValidatorEngine::start_overlays() {
     };
     overlay_manager_ = ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(),
                                                       dht_nodes_[default_dht_node_].get(), buffer_limits);
-    td::actor::send_closure(exporter_, &ton::PrometheusExporter::register_collector<ton::overlay::Overlays>, overlay_manager_.get());
+    td::actor::send_closure(exporter_, &ton::PrometheusExporter::register_collector<ton::overlay::Overlays>,
+                            overlay_manager_.get());
   }
   started_overlays();
 }

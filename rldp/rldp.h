@@ -24,7 +24,7 @@ namespace ton {
 
 namespace rldp {
 
-class Rldp : public adnl::AdnlSenderEx, public virtual metrics::AsyncCollector {
+class Rldp : public adnl::AdnlSenderEx, public virtual metrics::CollectorWrapper {
  public:
   Rldp() : AdnlSenderEx(adnl::Adnl::get_mtu()) {
   }

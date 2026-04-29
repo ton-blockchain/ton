@@ -16,8 +16,6 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "metrics/metrics-types.h"
-#include "metrics/prometheus-exporter.h"
 #include "td/db/RocksDb.h"
 #include "td/utils/Random.h"
 #include "td/utils/crypto.h"
@@ -51,9 +49,9 @@ td::actor::ActorOwn<Adnl> Adnl::create(std::string db, td::actor::ActorId<keyrin
 }
 
 void AdnlPeerTableImpl::receive_packet(td::IPAddress addr, AdnlCategoryMask cat_mask, td::BufferSlice data) {
-  m_.inbound_packets++;
+  inbound_packets_->add(1);
   if (data.size() < 32) {
-    m_.inbound_drop_too_short++;
+    inbound_drop_too_short_->add(1);
     VLOG(ADNL_WARNING) << this << ": dropping IN message [?->?]: message too short: len=" << data.size();
     return;
   }
@@ -64,7 +62,7 @@ void AdnlPeerTableImpl::receive_packet(td::IPAddress addr, AdnlCategoryMask cat_
   auto it = local_ids_.find(dst);
   if (it != local_ids_.end()) {
     if (!cat_mask.test(it->second.cat)) {
-      m_.inbound_drop_cat_mismatch++;
+      inbound_drop_cat_mismatch_->add(1);
       VLOG(ADNL_WARNING) << this << ": dropping IN message [?->" << dst << "]: category mismatch";
       return;
     }
@@ -76,7 +74,7 @@ void AdnlPeerTableImpl::receive_packet(td::IPAddress addr, AdnlCategoryMask cat_
   auto it2 = channels_.find(dst_chan_id);
   if (it2 != channels_.end()) {
     if (!cat_mask.test(it2->second.second)) {
-      m_.inbound_drop_cat_mismatch++;
+      inbound_drop_cat_mismatch_->add(1);
       VLOG(ADNL_WARNING) << this << ": dropping IN message to channel [?->" << dst << "]: category mismatch";
       return;
     }
@@ -84,7 +82,7 @@ void AdnlPeerTableImpl::receive_packet(td::IPAddress addr, AdnlCategoryMask cat_
     return;
   }
 
-  m_.inbound_drop_unknown_dst++;
+  inbound_drop_unknown_dst_->add(1);
   VLOG(ADNL_DEBUG) << this << ": dropping IN message [?->" << dst << "]: unknown dst " << dst
                    << " (len=" << (data.size() + 32) << ")";
 }
@@ -127,8 +125,8 @@ AdnlPeerTableImpl::PeerPair *AdnlPeerTableImpl::get_peer_pair_if_exists(AdnlNode
 }
 
 void AdnlPeerTableImpl::receive_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket packet, td::uint64 serialized_size) {
-  m_.decrypt_packets++;
-  m_.decrypt_bytes += serialized_size;
+  decrypt_packets_->add(1);
+  decrypt_bytes_->add(serialized_size);
   packet.run_basic_checks().ensure();
 
   if (!packet.inited_from_short()) {
@@ -195,7 +193,7 @@ void AdnlPeerTableImpl::send_message_in(AdnlNodeIdShort src, AdnlNodeIdShort dst
                                         td::uint32 flags) {
   auto it2 = local_ids_.find(src);
   if (it2 == local_ids_.end()) {
-    m_.app_send_drop_unknown_src++;
+    app_send_drop_unknown_src_->add(1);
     LOG(ERROR) << this << ": dropping OUT message [" << src << "->" << dst << "]: unknown src";
     return;
   }
@@ -210,20 +208,19 @@ void AdnlPeerTableImpl::send_message_in(AdnlNodeIdShort src, AdnlNodeIdShort dst
 void AdnlPeerTableImpl::answer_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlQueryId query_id,
                                      td::BufferSlice data) {
   if (data.size() > get_mtu()) {
-    m_.app_send_drop_too_big++;
+    app_send_drop_too_big_->add(1);
     LOG(ERROR) << this << ": dropping OUT message [" << src << "->" << dst
                << "]: message too big: size=" << data.size();
     return;
   }
-  m_.app_send_msgs_answer++;
-  m_.app_send_bytes_answer += data.size();
+  app_metrics_->record_send("answer", data.as_slice());
   send_message_in(src, dst, adnlmessage::AdnlMessageAnswer{query_id, std::move(data)}, 0);
 }
 
 void AdnlPeerTableImpl::send_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, std::string name,
                                    td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice data) {
   if (data.size() > huge_packet_max_size()) {
-    m_.app_send_drop_too_big++;
+    app_send_drop_too_big_->add(1);
     VLOG(ADNL_WARNING) << "dropping too big packet [" << src << "->" << dst << "]: size=" << data.size();
     VLOG(ADNL_WARNING) << "DUMP: " << td::buffer_to_hex(data.as_slice().truncate(128));
     return;
@@ -231,12 +228,11 @@ void AdnlPeerTableImpl::send_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, std
 
   auto it2 = local_ids_.find(src);
   if (it2 == local_ids_.end()) {
-    m_.app_send_drop_unknown_src++;
+    app_send_drop_unknown_src_->add(1);
     LOG(ERROR) << this << ": dropping OUT message [" << src << "->" << dst << "]: unknown src";
     return;
   }
-  m_.app_send_msgs_query++;
-  m_.app_send_bytes_query += data.size();
+  app_metrics_->record_send("query", data.as_slice());
   auto &peer_info = peers_[dst];
 
   td::actor::send_closure(get_peer_pair(dst, peer_info, src, it2->second), &AdnlPeerPair::send_query, name,
@@ -370,6 +366,18 @@ void AdnlPeerTableImpl::unregister_channel(AdnlChannelIdShort id) {
 }
 
 void AdnlPeerTableImpl::start_up() {
+  add_collector(metrics_collector_.get());
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector, app_metrics_);
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector, app_send_dropped_);
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector, inbound_packets_);
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector, inbound_dropped_);
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector, decrypt_packets_);
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector, decrypt_bytes_);
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector, local_ids_gauge_);
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector, peers_gauge_);
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector, peer_pairs_gauge_);
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector, channels_gauge_);
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector, static_nodes_gauge_);
 }
 
 void AdnlPeerTableImpl::write_new_addr_list_to_db(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id, AdnlDbItem node,
@@ -400,8 +408,7 @@ AdnlPeerTableImpl::AdnlPeerTableImpl(std::string db_root, td::actor::ActorId<key
 void AdnlPeerTableImpl::deliver(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data) {
   auto it = local_ids_.find(dst);
   if (it != local_ids_.end()) {
-    m_.app_deliver_msgs_message++;
-    m_.app_deliver_bytes_message += data.size();
+    app_metrics_->record_deliver("message", data.as_slice());
     td::actor::send_closure(it->second.local_id, &AdnlLocalId::deliver, src, std::move(data));
   }
 }
@@ -409,8 +416,7 @@ void AdnlPeerTableImpl::deliver_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, 
                                       td::Promise<td::BufferSlice> promise) {
   auto it = local_ids_.find(dst);
   if (it != local_ids_.end()) {
-    m_.app_deliver_msgs_query++;
-    m_.app_deliver_bytes_query += data.size();
+    app_metrics_->record_deliver("query", data.as_slice());
     td::actor::send_closure(it->second.local_id, &AdnlLocalId::deliver_query, src, std::move(data), std::move(promise));
   } else {
     LOG(WARNING) << "deliver query: unknown dst " << dst;
@@ -662,87 +668,6 @@ void AdnlPeerTableImpl::remove_protected_peers(AdnlNodeIdShort local_id, std::ve
     }
   }
   gc_peer_pairs(local_id, local_id_info);
-}
-
-void AdnlPeerTableImpl::collect(metrics::MetricsPromise P) {
-  using metrics::MetricFamily;
-  using metrics::MetricSet;
-  MetricSet set;
-  auto labeled = [&](std::string name, std::string type, std::string label_key,
-                     std::vector<std::pair<std::string, td::uint64>> entries, std::optional<std::string> help = {}) {
-    metrics::MetricFamily fam{.name = std::move(name), .type = std::move(type), .help = std::move(help), .metrics = {}};
-    for (auto &[label, value] : entries) {
-      fam.metrics.push_back(metrics::Metric{
-          .suffix = "",
-          .label_set = metrics::LabelSet{.labels = {{label_key, label}}},
-          .samples = {metrics::Sample{.label_set = {}, .value = static_cast<double>(value)}},
-      });
-    }
-    set.families.push_back(std::move(fam));
-  };
-  labeled("app_send_bytes_total", "counter", "kind",
-          {
-              {"custom", m_.app_send_bytes_custom},
-              {"query", m_.app_send_bytes_query},
-              {"answer", m_.app_send_bytes_answer},
-          },
-          "Bytes the application asked ADNL to send (raw payload, by message kind).");
-  labeled("app_send_messages_total", "counter", "kind",
-          {
-              {"custom", m_.app_send_msgs_custom},
-              {"query", m_.app_send_msgs_query},
-              {"answer", m_.app_send_msgs_answer},
-          },
-          "Messages the application asked ADNL to send (by kind).");
-  labeled("app_send_dropped_total", "counter", "reason",
-          {
-              {"too_big", m_.app_send_drop_too_big},
-              {"unknown_src", m_.app_send_drop_unknown_src},
-          },
-          "Outbound application messages ADNL dropped before forwarding.");
-  labeled("app_deliver_bytes_total", "counter", "kind",
-          {
-              {"message", m_.app_deliver_bytes_message},
-              {"query", m_.app_deliver_bytes_query},
-          },
-          "Bytes ADNL delivered to the application (by kind).");
-  labeled("app_deliver_messages_total", "counter", "kind",
-          {
-              {"message", m_.app_deliver_msgs_message},
-              {"query", m_.app_deliver_msgs_query},
-          },
-          "Messages ADNL delivered to the application (by kind).");
-  set.families.push_back(MetricFamily::make_scalar("inbound_packets_total", "counter",
-                                                   static_cast<double>(m_.inbound_packets),
-                                                   "ADNL packets entering the peer table from the network manager."));
-  labeled("inbound_dropped_total", "counter", "reason",
-          {
-              {"too_short", m_.inbound_drop_too_short},
-              {"cat_mismatch", m_.inbound_drop_cat_mismatch},
-              {"unknown_dst", m_.inbound_drop_unknown_dst},
-          },
-          "ADNL inbound packets dropped before decryption.");
-  set.families.push_back(
-      MetricFamily::make_scalar("decrypt_packets_total", "counter", static_cast<double>(m_.decrypt_packets),
-                                "ADNL packets that completed decryption and reached the peer table."));
-  set.families.push_back(MetricFamily::make_scalar("decrypt_bytes_total", "counter",
-                                                   static_cast<double>(m_.decrypt_bytes),
-                                                   "Bytes accepted from the network after ADNL packet decryption."));
-  set.families.push_back(MetricFamily::make_scalar("local_ids", "gauge", static_cast<double>(local_ids_.size()),
-                                                   "Number of ADNL local ids currently registered."));
-  set.families.push_back(MetricFamily::make_scalar("peers", "gauge", static_cast<double>(peers_.size()),
-                                                   "Number of distinct remote peer ids tracked by ADNL."));
-  td::uint64 peer_pair_count = 0;
-  for (auto &[_, peer_info] : peers_) {
-    peer_pair_count += peer_info.peers.size();
-  }
-  set.families.push_back(MetricFamily::make_scalar("peer_pairs", "gauge", static_cast<double>(peer_pair_count),
-                                                   "Number of (local_id, peer_id) ADNL peer pairs."));
-  set.families.push_back(MetricFamily::make_scalar("channels", "gauge", static_cast<double>(channels_.size()),
-                                                   "Number of registered ADNL channels."));
-  set.families.push_back(MetricFamily::make_scalar("static_nodes", "gauge", static_cast<double>(static_nodes_.size()),
-                                                   "Number of static ADNL nodes loaded from config."));
-  P.set_value(std::move(set).wrap("adnl"));
 }
 
 }  // namespace adnl

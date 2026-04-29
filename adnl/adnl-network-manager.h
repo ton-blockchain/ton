@@ -56,7 +56,7 @@ class AdnlNetworkConnection : public td::actor::Actor {
   virtual ~AdnlNetworkConnection() = default;
 };
 
-class AdnlNetworkManager : public td::actor::Actor, public virtual metrics::AsyncCollector {
+class AdnlNetworkManager : public td::actor::Actor, public virtual metrics::CollectorWrapper {
  public:
   //using ConnHandle = td::uint64;
   class Callback {

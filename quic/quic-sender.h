@@ -5,8 +5,8 @@
 #include "adnl/adnl-peer-table.h"
 #include "adnl/adnl-sender-ex.h"
 #include "keyring/keyring.h"
+#include "metrics/app-traffic-metrics.h"
 #include "metrics/metrics-collectors.h"
-#include "metrics/tl-traffic-bucket.h"
 #include "td/actor/coro_task.h"
 
 #include "quic-server.h"
@@ -89,26 +89,7 @@ class QuicSender : public adnl::AdnlSenderEx, public virtual metrics::AsyncColle
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<QuicServer>> servers_;
   std::map<adnl::AdnlNodeIdShort, td::Ed25519::PrivateKey> local_keys_;
 
-  // Application-level traffic counters (raw payload bytes, before TL wrapping).
-  // Accessed from within the QuicSender actor only.
-  struct KindCounter {
-    td::uint64 bytes = 0;
-    td::uint64 msgs = 0;
-    void record(td::uint64 size) {
-      bytes += size;
-      msgs++;
-    }
-  };
-  struct AppMetrics {
-    KindCounter send_message, send_query;
-    KindCounter deliver_message, deliver_query, deliver_answer;
-  };
-  AppMetrics app_metrics_;
-  metrics::TlTrafficBucket app_send_by_tl_message_;
-  metrics::TlTrafficBucket app_send_by_tl_query_;
-  metrics::TlTrafficBucket app_deliver_by_tl_message_;
-  metrics::TlTrafficBucket app_deliver_by_tl_query_;
-  metrics::TlTrafficBucket app_deliver_by_tl_answer_;
+  metrics::AppTrafficMetrics::Ptr app_metrics_ = metrics::AppTrafficMetrics::make();
 
   void start_up() override;
 

@@ -552,7 +552,22 @@ OverlayManager::OverlayManager(std::string db_root, td::actor::ActorId<keyring::
     : buffer_limits_(buffer_limits), db_root_(db_root), keyring_(keyring), adnl_(adnl), dht_node_(dht) {
 }
 
+class OverlayManager::MetricsCollector final : public td::actor::Actor {
+ public:
+  explicit MetricsCollector(td::actor::ActorId<OverlayManager> manager) : manager_(std::move(manager)) {
+  }
+
+  void collect(metrics::MetricsPromise P) {
+    td::actor::send_closure(manager_, &OverlayManager::collect_metrics, std::move(P));
+  }
+
+ private:
+  td::actor::ActorId<OverlayManager> manager_;
+};
+
 void OverlayManager::start_up() {
+  metrics_collector_ = td::actor::create_actor<MetricsCollector>("overlaymetricscollector", actor_id(this));
+  add_collector(metrics_collector_.get());
   if (!db_root_.empty()) {
     with_db_ = true;
     std::shared_ptr<td::KeyValue> kv =
@@ -848,7 +863,7 @@ void merge_into(metrics::TlTrafficBucket &dst, const metrics::TlTrafficBucket &s
 
 }  // namespace
 
-void OverlayManager::collect(metrics::MetricsPromise P) {
+void OverlayManager::collect_metrics(metrics::MetricsPromise P) {
   using metrics::MetricFamily;
   using metrics::MetricSet;
   // Async fan-out: ask every overlay for its accumulated stats, aggregate by overlay type, then

@@ -19,6 +19,7 @@
 #pragma once
 
 #include <map>
+#include <memory>
 
 #include "metrics/metrics-collectors.h"
 #include "td/actor/PromiseFuture.h"
@@ -40,10 +41,8 @@ namespace adnl {
 
 class AdnlPeerTable;
 
-class AdnlNetworkManagerImpl : public AdnlNetworkManager, public virtual metrics::AsyncCollector {
+class AdnlNetworkManagerImpl : public AdnlNetworkManager {
  public:
-  void collect(metrics::MetricsPromise P) override;
-
   struct OutDesc {
     td::uint16 port;
     td::IPAddress proxy_addr;
@@ -109,9 +108,7 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager, public virtual metrics
   }
 
   void alarm() override;
-  void start_up() override {
-    alarm_timestamp() = td::Timestamp::in(60.0);
-  }
+  void start_up() override;
 
   void add_in_addr(InDesc desc, size_t socket_idx) {
     for (size_t idx = 0; idx < in_desc_.size(); idx++) {
@@ -158,29 +155,50 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager, public virtual metrics
   td::uint64 received_messages_ = 0;
   td::uint64 sent_messages_ = 0;
 
-  struct Metrics {
-    td::uint64 udp_ingress_bytes = 0;
-    td::uint64 udp_ingress_packets = 0;
-    td::uint64 udp_ingress_drop_no_callback = 0;
-    td::uint64 udp_ingress_drop_error = 0;
-    td::uint64 udp_ingress_drop_too_short = 0;
-    td::uint64 udp_ingress_drop_too_huge = 0;
-    td::uint64 udp_ingress_drop_bad_proxy_decrypt = 0;
-    td::uint64 udp_ingress_drop_bad_proxy_seqno = 0;
-    td::uint64 udp_ingress_drop_bad_proxy_time = 0;
-    td::uint64 udp_ingress_drop_bad_proxy_outflag = 0;
-    td::uint64 udp_ingress_drop_bad_control = 0;
-    td::uint64 udp_ingress_drop_no_in_desc = 0;
-    td::uint64 udp_ingress_proxy_control = 0;
-    td::uint64 udp_proxy_ingress_bytes = 0;
-    td::uint64 udp_egress_bytes = 0;
-    td::uint64 udp_egress_packets = 0;
-    td::uint64 udp_egress_drop_unknown_src = 0;
-    td::uint64 udp_egress_drop_no_route = 0;
-    td::uint64 udp_proxy_egress_bytes = 0;
-    td::uint64 udp_proxy_egress_packets = 0;
-  };
-  Metrics m_;
+  using CounterPtr = std::shared_ptr<metrics::AtomicCounter<td::uint64>>;
+  metrics::MultiCollector::Own metrics_collector_ = metrics::MultiCollector::create("adnl_net");
+  metrics::Labeled<std::string, metrics::AtomicCounter<td::uint64>>::Ptr udp_ingress_drops_ =
+      metrics::Labeled<std::string, metrics::AtomicCounter<td::uint64>>::make(
+          "reason", "udp_ingress_drops_total", "UDP ingress packets dropped, by reason.");
+  metrics::Labeled<std::string, metrics::AtomicCounter<td::uint64>>::Ptr udp_egress_drops_ =
+      metrics::Labeled<std::string, metrics::AtomicCounter<td::uint64>>::make(
+          "reason", "udp_egress_drops_total", "ADNL outbound packets dropped, by reason.");
+  metrics::AtomicCounter<td::uint64>::Ptr udp_ingress_bytes_ = metrics::AtomicCounter<td::uint64>::make(
+      "udp_ingress_bytes_total", "Total UDP bytes received on ADNL sockets (wire-level).");
+  metrics::AtomicCounter<td::uint64>::Ptr udp_ingress_packets_ = metrics::AtomicCounter<td::uint64>::make(
+      "udp_ingress_packets_total", "Total UDP packets received on ADNL sockets.");
+  metrics::AtomicCounter<td::uint64>::Ptr udp_ingress_proxy_control_ =
+      metrics::AtomicCounter<td::uint64>::make("udp_ingress_proxy_control_total", "ADNL proxy control packets received.");
+  metrics::AtomicCounter<td::uint64>::Ptr udp_proxy_ingress_bytes_ = metrics::AtomicCounter<td::uint64>::make(
+      "udp_proxy_ingress_bytes_total", "Total payload bytes received via ADNL proxy (after decrypt).");
+  metrics::AtomicCounter<td::uint64>::Ptr udp_egress_bytes_ = metrics::AtomicCounter<td::uint64>::make(
+      "udp_egress_bytes_total", "Total UDP bytes sent on ADNL sockets (wire-level).");
+  metrics::AtomicCounter<td::uint64>::Ptr udp_egress_packets_ = metrics::AtomicCounter<td::uint64>::make(
+      "udp_egress_packets_total", "Total UDP packets sent on ADNL sockets.");
+  metrics::AtomicCounter<td::uint64>::Ptr udp_proxy_egress_bytes_ = metrics::AtomicCounter<td::uint64>::make(
+      "udp_proxy_egress_bytes_total", "Total inner payload bytes wrapped through ADNL proxy.");
+  metrics::AtomicCounter<td::uint64>::Ptr udp_proxy_egress_packets_ = metrics::AtomicCounter<td::uint64>::make(
+      "udp_proxy_egress_packets_total", "Total packets wrapped through ADNL proxy.");
+  metrics::LambdaGauge::Ptr listening_sockets_ = metrics::LambdaGauge::make(
+      "listening_sockets",
+      [this] {
+        return std::vector<metrics::Sample>{
+            metrics::Sample{.label_set = {}, .value = static_cast<double>(udp_sockets_.size())}};
+      },
+      "Number of UDP sockets owned by the ADNL network manager.");
+
+  CounterPtr udp_ingress_drop_no_callback_ = udp_ingress_drops_->label("no_callback");
+  CounterPtr udp_ingress_drop_error_ = udp_ingress_drops_->label("error");
+  CounterPtr udp_ingress_drop_too_short_ = udp_ingress_drops_->label("too_short");
+  CounterPtr udp_ingress_drop_too_huge_ = udp_ingress_drops_->label("too_huge");
+  CounterPtr udp_ingress_drop_bad_proxy_decrypt_ = udp_ingress_drops_->label("bad_proxy_decrypt");
+  CounterPtr udp_ingress_drop_bad_proxy_seqno_ = udp_ingress_drops_->label("bad_proxy_seqno");
+  CounterPtr udp_ingress_drop_bad_proxy_time_ = udp_ingress_drops_->label("bad_proxy_time");
+  CounterPtr udp_ingress_drop_bad_proxy_outflag_ = udp_ingress_drops_->label("bad_proxy_outflag");
+  CounterPtr udp_ingress_drop_bad_control_ = udp_ingress_drops_->label("bad_control");
+  CounterPtr udp_ingress_drop_no_in_desc_ = udp_ingress_drops_->label("no_in_desc");
+  CounterPtr udp_egress_drop_unknown_src_ = udp_egress_drops_->label("unknown_src");
+  CounterPtr udp_egress_drop_no_route_ = udp_egress_drops_->label("no_route");
 
   std::vector<UdpSocketDesc> udp_sockets_;
   std::map<td::uint16, size_t> port_2_socket_;

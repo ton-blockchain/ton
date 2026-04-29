@@ -18,11 +18,11 @@
 */
 #pragma once
 
-#include <atomic>
 #include <map>
+#include <memory>
 
 #include "adnl/adnl-query.h"
-#include "metrics/metrics-types.h"
+#include "metrics/metrics-collectors.h"
 #include "tl-utils/tl-utils.hpp"
 
 #include "rldp-peer.h"
@@ -41,39 +41,24 @@ constexpr int VERBOSITY_NAME(RLDP_EXTRA_DEBUG) = verbosity_DEBUG + 1;
 using TransferId = td::Bits256;
 
 struct RldpMetrics {
-  // Paired (bytes, messages) counter used by subsystems that aggregate across actor threads.
-  // One record() call does two relaxed atomic increments and is cheap in hot paths.
   struct AtomicKindCounter {
-    std::atomic<td::uint64> bytes{0};
-    std::atomic<td::uint64> msgs{0};
+    std::shared_ptr<metrics::AtomicCounter<td::uint64>> bytes;
+    std::shared_ptr<metrics::AtomicCounter<td::uint64>> msgs;
 
-    void record(td::uint64 size) {
-      bytes.fetch_add(size, std::memory_order_relaxed);
-      msgs.fetch_add(1, std::memory_order_relaxed);
-    }
-    td::uint64 bytes_load() const {
-      return bytes.load(std::memory_order_relaxed);
-    }
-    td::uint64 msgs_load() const {
-      return msgs.load(std::memory_order_relaxed);
+    void record(td::uint64 size) const {
+      bytes->add(size);
+      msgs->add(1);
     }
   };
-  using KC = AtomicKindCounter;
-  KC app_send_message, app_send_query, app_send_answer;
-  KC app_deliver_message, app_deliver_query, app_deliver_answer;
-
-  std::atomic<td::uint64> transfers_started{0};
-  std::atomic<td::uint64> transfers_completed_out{0};
-  std::atomic<td::uint64> transfers_completed_in{0};
-  std::atomic<td::uint64> transfers_failed_in{0};
-
-  // Messages and their serialized bytes handed to ADNL (post FEC encoding on send path).
-  KC sent_to_adnl_part, sent_to_adnl_confirm, sent_to_adnl_complete;
-  // Messages and their serialized bytes received from ADNL (pre FEC decoding on receive path).
-  KC received_part, received_confirm, received_complete;
-
-  std::atomic<td::uint64> parse_errors_part{0};
-  std::atomic<td::uint64> parse_errors_message{0};
+  using CounterPtr = std::shared_ptr<metrics::AtomicCounter<td::uint64>>;
+  AtomicKindCounter sent_to_adnl_part, sent_to_adnl_confirm, sent_to_adnl_complete;
+  AtomicKindCounter received_part, received_confirm, received_complete;
+  CounterPtr transfers_started;
+  CounterPtr transfers_completed_out;
+  CounterPtr transfers_completed_in;
+  CounterPtr transfers_failed_in;
+  CounterPtr parse_errors_part;
+  CounterPtr parse_errors_message;
 };
 
 class RldpImpl : public Rldp {

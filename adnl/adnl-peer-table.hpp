@@ -19,9 +19,12 @@
 #pragma once
 
 #include <map>
+#include <memory>
 #include <set>
+#include <vector>
 
 #include "keys/encryptor.h"
+#include "metrics/app-traffic-metrics.h"
 #include "metrics/metrics-collectors.h"
 
 #include "adnl-peer-table.h"
@@ -37,11 +40,9 @@ namespace ton {
 
 namespace adnl {
 
-class AdnlPeerTableImpl : public AdnlPeerTable, public virtual metrics::AsyncCollector {
+class AdnlPeerTableImpl : public AdnlPeerTable {
  public:
   AdnlPeerTableImpl(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring);
-
-  void collect(metrics::MetricsPromise P) override;
 
   void add_peer(AdnlNodeIdShort local_id, AdnlNodeIdFull id, AdnlAddressList addr_list) override;
   void add_static_nodes_from_config(AdnlNodesList nodes) override;
@@ -54,13 +55,12 @@ class AdnlPeerTableImpl : public AdnlPeerTable, public virtual metrics::AsyncCol
   }
   void send_message_ex(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data, td::uint32 flags) override {
     if (data.size() > huge_packet_max_size()) {
-      m_.app_send_drop_too_big++;
+      app_send_drop_too_big_->add(1);
       VLOG(ADNL_WARNING) << "dropping too big packet [" << src << "->" << dst << "]: size=" << data.size();
       VLOG(ADNL_WARNING) << "DUMP: " << td::buffer_to_hex(data.as_slice().truncate(128));
       return;
     }
-    m_.app_send_msgs_custom++;
-    m_.app_send_bytes_custom += data.size();
+    app_metrics_->record_send("custom", data.as_slice());
     send_message_in(src, dst, AdnlMessage{adnlmessage::AdnlMessageCustom{std::move(data)}}, flags);
   }
   void answer_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlQueryId query_id, td::BufferSlice data) override;
@@ -162,27 +162,65 @@ class AdnlPeerTableImpl : public AdnlPeerTable, public virtual metrics::AsyncCol
 
   AdnlNodeIdShort proxy_addr_;
 
-  struct Metrics {
-    td::uint64 app_send_bytes_custom = 0;
-    td::uint64 app_send_msgs_custom = 0;
-    td::uint64 app_send_bytes_query = 0;
-    td::uint64 app_send_msgs_query = 0;
-    td::uint64 app_send_bytes_answer = 0;
-    td::uint64 app_send_msgs_answer = 0;
-    td::uint64 app_send_drop_too_big = 0;
-    td::uint64 app_send_drop_unknown_src = 0;
-    td::uint64 app_deliver_bytes_message = 0;
-    td::uint64 app_deliver_msgs_message = 0;
-    td::uint64 app_deliver_bytes_query = 0;
-    td::uint64 app_deliver_msgs_query = 0;
-    td::uint64 inbound_packets = 0;
-    td::uint64 inbound_drop_too_short = 0;
-    td::uint64 inbound_drop_cat_mismatch = 0;
-    td::uint64 inbound_drop_unknown_dst = 0;
-    td::uint64 decrypt_packets = 0;
-    td::uint64 decrypt_bytes = 0;
-  };
-  Metrics m_;
+  using CounterPtr = std::shared_ptr<metrics::AtomicCounter<td::uint64>>;
+  metrics::MultiCollector::Own metrics_collector_ = metrics::MultiCollector::create("adnl");
+  metrics::AppTrafficMetrics::Ptr app_metrics_ = metrics::AppTrafficMetrics::make();
+  metrics::Labeled<std::string, metrics::AtomicCounter<td::uint64>>::Ptr app_send_dropped_ =
+      metrics::Labeled<std::string, metrics::AtomicCounter<td::uint64>>::make(
+          "reason", "app_send_dropped_total", "Outbound application messages ADNL dropped before forwarding.");
+  metrics::AtomicCounter<td::uint64>::Ptr inbound_packets_ = metrics::AtomicCounter<td::uint64>::make(
+      "inbound_packets_total", "ADNL packets entering the peer table from the network manager.");
+  metrics::Labeled<std::string, metrics::AtomicCounter<td::uint64>>::Ptr inbound_dropped_ =
+      metrics::Labeled<std::string, metrics::AtomicCounter<td::uint64>>::make(
+          "reason", "inbound_dropped_total", "ADNL inbound packets dropped before decryption.");
+  metrics::AtomicCounter<td::uint64>::Ptr decrypt_packets_ = metrics::AtomicCounter<td::uint64>::make(
+      "decrypt_packets_total", "ADNL packets that completed decryption and reached the peer table.");
+  metrics::AtomicCounter<td::uint64>::Ptr decrypt_bytes_ = metrics::AtomicCounter<td::uint64>::make(
+      "decrypt_bytes_total", "Bytes accepted from the network after ADNL packet decryption.");
+  metrics::LambdaGauge::Ptr local_ids_gauge_ = metrics::LambdaGauge::make(
+      "local_ids",
+      [this] {
+        return std::vector<metrics::Sample>{
+            metrics::Sample{.label_set = {}, .value = static_cast<double>(local_ids_.size())}};
+      },
+      "Number of ADNL local ids currently registered.");
+  metrics::LambdaGauge::Ptr peers_gauge_ = metrics::LambdaGauge::make(
+      "peers",
+      [this] {
+        return std::vector<metrics::Sample>{metrics::Sample{.label_set = {}, .value = static_cast<double>(peers_.size())}};
+      },
+      "Number of distinct remote peer ids tracked by ADNL.");
+  metrics::LambdaGauge::Ptr peer_pairs_gauge_ = metrics::LambdaGauge::make(
+      "peer_pairs",
+      [this] {
+        td::uint64 peer_pair_count = 0;
+        for (auto &[_, peer_info] : peers_) {
+          peer_pair_count += peer_info.peers.size();
+        }
+        return std::vector<metrics::Sample>{
+            metrics::Sample{.label_set = {}, .value = static_cast<double>(peer_pair_count)}};
+      },
+      "Number of (local_id, peer_id) ADNL peer pairs.");
+  metrics::LambdaGauge::Ptr channels_gauge_ = metrics::LambdaGauge::make(
+      "channels",
+      [this] {
+        return std::vector<metrics::Sample>{
+            metrics::Sample{.label_set = {}, .value = static_cast<double>(channels_.size())}};
+      },
+      "Number of registered ADNL channels.");
+  metrics::LambdaGauge::Ptr static_nodes_gauge_ = metrics::LambdaGauge::make(
+      "static_nodes",
+      [this] {
+        return std::vector<metrics::Sample>{
+            metrics::Sample{.label_set = {}, .value = static_cast<double>(static_nodes_.size())}};
+      },
+      "Number of static ADNL nodes loaded from config.");
+
+  CounterPtr app_send_drop_too_big_ = app_send_dropped_->label("too_big");
+  CounterPtr app_send_drop_unknown_src_ = app_send_dropped_->label("unknown_src");
+  CounterPtr inbound_drop_too_short_ = inbound_dropped_->label("too_short");
+  CounterPtr inbound_drop_cat_mismatch_ = inbound_dropped_->label("cat_mismatch");
+  CounterPtr inbound_drop_unknown_dst_ = inbound_dropped_->label("unknown_dst");
 
   void set_peer_pair_idle(AdnlNodeIdShort l_id, AdnlNodeIdShort p_id, PeerPair &peer_pair, bool value);
   void gc_peer_pairs(AdnlNodeIdShort local_id, LocalIdInfo &local_id_info);

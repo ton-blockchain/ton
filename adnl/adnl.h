@@ -63,7 +63,7 @@ class AdnlSenderInterface : public td::actor::Actor {
 
 class AdnlTunnel : public td::actor::Actor {};
 
-class Adnl : public AdnlSenderInterface, public virtual metrics::AsyncCollector {
+class Adnl : public AdnlSenderInterface, public virtual metrics::CollectorWrapper {
  public:
   class Callback {
    public:

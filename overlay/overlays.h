@@ -24,6 +24,7 @@
 #include "adnl/adnl-sender-ex.h"
 #include "auto/tl/ton_api.h"
 #include "dht/dht.h"
+#include "metrics/metrics-collectors.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/actor/actor.h"
 #include "td/utils/RateLimiterWindow.h"
@@ -310,7 +311,7 @@ struct OverlayManagerBufferLimits {
   td::uint64 max_data_size = 0;
 };
 
-class Overlays : public td::actor::Actor, public virtual metrics::AsyncCollector {
+class Overlays : public td::actor::Actor, public virtual metrics::CollectorWrapper {
  public:
   class Callback {
    public:
