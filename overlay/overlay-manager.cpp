@@ -836,13 +836,14 @@ struct OverlayTypeAggregate {
 };
 
 void merge_into(metrics::TlTrafficBucket &dst, const metrics::TlTrafficBucket &src) {
-  for (auto &[magic, counter] : src.by_magic) {
-    auto &d = dst.by_magic[magic];
-    d.bytes += counter.bytes;
-    d.msgs += counter.msgs;
+  for (auto &[magic, value] : src.bytes) {
+    dst.bytes[magic] += value;
   }
-  dst.unknown.bytes += src.unknown.bytes;
-  dst.unknown.msgs += src.unknown.msgs;
+  for (auto &[magic, value] : src.messages) {
+    dst.messages[magic] += value;
+  }
+  dst.unknown_bytes += src.unknown_bytes;
+  dst.unknown_messages += src.unknown_messages;
 }
 
 }  // namespace
