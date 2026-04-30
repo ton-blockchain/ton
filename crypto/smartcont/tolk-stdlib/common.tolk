@@ -739,14 +739,14 @@ fun random.initialize(): void
 /// otherwise the computation is aborted before visiting the `(maxCells + 1)`-st cell and
 /// a zero flag is returned to indicate failure.
 @pure
-fun cell.calculateSize(self, maxCells: int): (int, int, int, bool)
+fun cell.calculateSize(self, maxCells: int): (int?, int?, int?, bool)
     asm "CDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT"
 
 /// Similar to [cell.calculateSize], but accepting a slice instead of a cell.
 /// The returned value of `x` does not take into account the cell that contains the slice itself;
 /// however, its data bits and cell references are accounted for in `y` and `z`.
 @pure
-fun slice.calculateSize(self, maxCells: int): (int, int, int, bool)
+fun slice.calculateSize(self, maxCells: int): (int?, int?, int?, bool)
     asm "SDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT"
 
 /// A non-quiet version of [cell.calculateSize] that throws a cell overflow exception (`8`) on failure.

@@ -1388,7 +1388,7 @@ struct S_IntegerEnum final : ISerializer {
         code.add_call(origin, {}, std::move(args_throwif), lookup_function("__throw_if"));
       }
       td::RefInt256 max_value = enum_ref->members.back()->computed_value;
-      bool dont_check_max = intN != nullptr && intN->is_unsigned && max_value == (1ULL << intN->n_bits) - 1;
+      bool dont_check_max = intN != nullptr && intN->is_unsigned && intN->n_bits < 32 && max_value == (1ULL << intN->n_bits) - 1;
       if (!dont_check_max) {    // LDU can't load >= 1<<N
         std::vector ir_max_value = code.create_tmp_var(TypeDataInt::create(), origin, "(enum-max)");
         code.add_int_const(origin, ir_max_value, max_value);

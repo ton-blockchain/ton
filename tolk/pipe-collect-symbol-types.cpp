@@ -17,6 +17,7 @@
 #include "ast.h"
 #include "ast-visitor.h"
 #include "compiler-state.h"
+#include "contract-directive.h"
 #include "generics-helpers.h"
 #include "tolk.h"
 #include <algorithm>
@@ -100,6 +101,26 @@ public:
 
 void pipeline_collect_symbol_types() {
   G.symbol_types_pool.seed_primitive_types();
+
+  SrcFilePtr entrypoint_file = G.all_src_files.get_entrypoint_file();
+  if (entrypoint_file->has_contract_directive()) {
+    const ContractDirective* c = entrypoint_file->contract_directive;
+    if (c->incomingMessages) {
+      G.symbol_types_pool.register_used_type(c->incomingMessages->resolved_type);
+    }
+    if (c->incomingExternal) {
+      G.symbol_types_pool.register_used_type(c->incomingExternal->resolved_type);
+    }
+    if (c->storage) {
+      G.symbol_types_pool.register_used_type(c->storage->resolved_type);
+    }
+    if (c->storageAtDeployment) {
+      G.symbol_types_pool.register_used_type(c->storageAtDeployment->resolved_type);
+    }
+    if (c->forceAbiExport) {
+      G.symbol_types_pool.register_used_type(c->forceAbiExport->resolved_type);
+    }
+  }
 
   std::vector<FunctionPtr> functions_to_visit;
 

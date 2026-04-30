@@ -131,6 +131,7 @@ get fun currentCounter(): int32 {
     {
       "kind": "struct",
       "name": "ExtraPayload",
+      "overrides_client_type": true,
       "fields": [
         {
           "name": "note",

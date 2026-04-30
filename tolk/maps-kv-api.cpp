@@ -53,6 +53,9 @@ enum class DictValueKind {
 // map<int32, V> should use DICTI* instructions
 // note that `struct UserId { v: int32 }` also optimized, since it's just a signed int on a stack
 static int is_TKey_TVM_int(TypePtr TKey) {
+  if (get_custom_pack_unpack_function(TKey)) {
+    return 0;
+  }
   if (const TypeDataIntN* t_intN = TKey->try_as<TypeDataIntN>(); t_intN && !t_intN->is_variadic && !t_intN->is_unsigned) {
     return t_intN->n_bits;
   }
@@ -62,9 +65,6 @@ static int is_TKey_TVM_int(TypePtr TKey) {
   if (const TypeDataStruct* t_struct = TKey->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->get_num_fields() == 1 && !t_struct->struct_ref->opcode.exists()) {
     return is_TKey_TVM_int(t_struct->struct_ref->get_field(0)->declared_type);
   }
-  if (const TypeDataEnum* t_enum = TKey->try_as<TypeDataEnum>()) {
-    return is_TKey_TVM_int(calculate_intN_to_serialize_enum(t_enum->enum_ref));
-  }
   if (TKey == TypeDataBool::create()) {   // allow `bool` as a key with `DICTI` instructions
     return true;
   }
@@ -73,6 +73,9 @@ static int is_TKey_TVM_int(TypePtr TKey) {
 
 // map<uint32, V> should use DICTU* instructions
 static int is_TKey_TVM_uint(TypePtr TKey) {
+  if (get_custom_pack_unpack_function(TKey)) {
+    return 0;
+  }
   if (const TypeDataIntN* t_intN = TKey->try_as<TypeDataIntN>(); t_intN && !t_intN->is_variadic && t_intN->is_unsigned) {
     return t_intN->n_bits;
   }
@@ -82,15 +85,15 @@ static int is_TKey_TVM_uint(TypePtr TKey) {
   if (const TypeDataStruct* t_struct = TKey->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->get_num_fields() == 1 && !t_struct->struct_ref->opcode.exists()) {
     return is_TKey_TVM_uint(t_struct->struct_ref->get_field(0)->declared_type);
   }
-  if (const TypeDataEnum* t_enum = TKey->try_as<TypeDataEnum>()) {
-    return is_TKey_TVM_uint(calculate_intN_to_serialize_enum(t_enum->enum_ref));
-  }
   return 0;
 }
 
 // map<address, V> should use DICT* instructions
 // note that map<slice, V> is forbidden, since a raw slice doesn't define binary width
 static int is_TKey_TVM_slice(TypePtr TKey) {
+  if (get_custom_pack_unpack_function(TKey)) {
+    return 0;
+  }
   if (const TypeDataAddress* t_address = TKey->try_as<TypeDataAddress>()) {
     return t_address->is_internal() ? 3 + 8 + 256 : 0;
   }
@@ -108,11 +111,17 @@ static int is_TKey_TVM_slice(TypePtr TKey) {
 
 // we allow `map<K, slice>` and handle it separately, because we don't need to unpack it
 static bool is_TValue_raw_slice(TypePtr TValue) {
+  if (get_custom_pack_unpack_function(TValue)) {
+    return false;
+  }
   return TValue->unwrap_alias() == TypeDataSlice::create();
 }
 
 // `map<K, Cell<T>>` can emit SETREF instructions
 static bool is_TValue_cell_or_CellT(TypePtr TValue) {
+  if (get_custom_pack_unpack_function(TValue)) {
+    return false;
+  }
   return TValue->unwrap_alias()->is_cell_or_CellT()
       || TValue->unwrap_alias() == TypeDataString::create();
 }

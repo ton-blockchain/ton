@@ -259,7 +259,7 @@ void TypeDataUnion::as_abi_json(std::string& out) const {
     if (i != 0) out += ',';
     out += R"({"variant_ty":)";
     out += variants[i];
-    out += R"(,"prefix_str":")";
+    out += R"(,"prefix_str":")";            // todo not str but int64?
     out += opcodes[i].format_as_string(false);
     out += R"(","prefix_len":)";
     out += std::to_string(opcodes[i].prefix_len);
@@ -509,6 +509,16 @@ static void to_json(JsonPrettyOutput& out, SrcRange range) {
       << ']';
 }
 
+// if any field above a struct has `@abi.clientType`, we output a property in struct's declaration;
+// this means "a struct is binary-compatible, but not type-compatible"
+static bool does_any_field_override_client_type(StructPtr struct_ref) {
+  bool any_field = false;
+  for (StructFieldPtr field_ref : struct_ref->fields) {
+    any_field |= field_ref->abi_client_type != nullptr;
+  }
+  return any_field;
+}
+
 void JsonTypeExporter::emit_declarations_json(JsonPrettyOutput& json, const EmitOptions& opts) const {
   json.start_array("declarations");
   for (const Symbol* symbol : used_symbols) {
@@ -545,6 +555,9 @@ void JsonTypeExporter::emit_declarations_json(JsonPrettyOutput& json, const Emit
       json.end_array();
       if (CustomPackUnpackF f = get_custom_pack_unpack_function(TypeDataStruct::create(struct_ref))) {
         json.key_value("custom_pack_unpack", f);
+      }
+      if (opts.use_abi_client_types && does_any_field_override_client_type(struct_ref)) {
+        json.key_value("overrides_client_type", true);
       }
     } else if (AliasDefPtr alias_ref = symbol->try_as<AliasDefPtr>()) {
       json.key_value("kind", "alias");

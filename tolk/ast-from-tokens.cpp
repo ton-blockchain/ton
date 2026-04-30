@@ -1795,7 +1795,7 @@ static AnyV parse_function_declaration(Lexer& lex, AnnotationsAbove& annotations
         flags |= FunctionData::flagMarkedAsPure;
         break;
       case AnnotationKind::method_id: {
-        if (is_contract_getter || genericsT_list || receiver_type || is_entrypoint || n_mutate_params || accepts_self) {
+        if (is_contract_getter || genericsT_list || receiver_type || is_entrypoint || n_mutate_params || accepts_self || !is_code_function) {
           err("@method_id can be specified only for regular functions").fire(v_annotation);
         }
         auto v_int = v_annotation->expr_arg->as<ast_int_const>();
