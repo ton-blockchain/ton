@@ -144,7 +144,7 @@ void MetricCollector::collect_voted(const Voted& event) {
             return;
           }
           auto& flow = flows_[v.id];
-          double timestamp = event.ts();
+          auto timestamp = event.ts();
           if constexpr (std::is_same_v<T, NotarizeVote>) {
             flow.notarize_voted = timestamp;
           } else if constexpr (std::is_same_v<T, FinalizeVote>) {
@@ -165,7 +165,7 @@ void MetricCollector::collect_cert_observed(const CertObserved& event) {
             return;
           }
           auto& flow = flows_[v.id];
-          double timestamp = event.ts();
+          auto timestamp = event.ts();
           if constexpr (std::is_same_v<T, NotarizeVote>) {
             flow.notarize_cert_observed = timestamp;
           } else if constexpr (std::is_same_v<T, FinalizeVote>) {

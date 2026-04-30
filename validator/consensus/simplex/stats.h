@@ -58,16 +58,16 @@ class CertObserved : public consensus::stats::CollectibleEvent<MetricCollector> 
 };
 
 struct Flow {
-  std::optional<double> collate_started;
-  std::optional<double> collate_finished;
-  std::optional<double> candidate_received;
-  std::optional<double> validation_started;
-  std::optional<double> validation_finished;
-  std::optional<double> notarize_voted;
-  std::optional<double> notarize_cert_observed;
-  std::optional<double> finalize_voted;
-  std::optional<double> finalize_cert_observed;
-  std::optional<double> manager_accepted;
+  std::optional<td::UTCTime> collate_started;
+  std::optional<td::UTCTime> collate_finished;
+  std::optional<td::UTCTime> candidate_received;
+  std::optional<td::UTCTime> validation_started;
+  std::optional<td::UTCTime> validation_finished;
+  std::optional<td::UTCTime> notarize_voted;
+  std::optional<td::UTCTime> notarize_cert_observed;
+  std::optional<td::UTCTime> finalize_voted;
+  std::optional<td::UTCTime> finalize_cert_observed;
+  std::optional<td::UTCTime> manager_accepted;
   std::optional<BlockIdExt> block_id;
   bool is_collator = false;
 
@@ -93,7 +93,7 @@ class MetricCollector final : public consensus::stats::MetricCollector {
   PublicKeyHash self_id_;
 
   std::map<CandidateId, Flow> flows_;
-  std::map<td::uint32, double> collate_started_by_slot_;
+  std::map<td::uint32, td::UTCTime> collate_started_by_slot_;
   td::uint32 first_non_accepted_slot_ = 0;
 
   std::unique_ptr<ton::stats::Recorder> recorder_;
