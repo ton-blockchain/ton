@@ -75,7 +75,8 @@ jobs:
           ':(exclude)crypto/smartcont/tolk-stdlib/' \
           ':(exclude)tolk/' \
           ':(exclude)tolk-tester/' \
-          ':(exclude)third-party/')
+          ':(exclude)third-party/' \
+          ':(exclude)tdactor/benchmark/third_party' )
         git diff --exit-code
 
     - name: Prepare Python environment
