@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04]
+        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -44,7 +44,7 @@ jobs:
         chmod +x llvm.sh
         sudo ./llvm.sh 22 clang
 
-    - if: matrix.os == 'ubuntu-24.04'
+    - if: matrix.os == 'ubuntu-24.04' || matrix.os == 'ubuntu-26.04'
       name: Install llvm-22
       run: |
         lsb_release -a
