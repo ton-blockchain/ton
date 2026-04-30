@@ -38,7 +38,8 @@ class TraceCollectorImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
   template <>
   void handle(BusHandle, std::shared_ptr<const TraceEvent> event) {
-    events.push_back(create_tl_object<stats::tl::timestampedEvent>(event->event->ts(), event->event->to_tl()));
+    auto ts = std::chrono::duration<double>(event->event->ts().time_since_epoch()).count();
+    events.push_back(create_tl_object<stats::tl::timestampedEvent>(ts, event->event->to_tl()));
     alarm_timestamp().relax(td::Timestamp::in(5));
   }
 
