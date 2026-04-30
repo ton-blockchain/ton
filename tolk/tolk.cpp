@@ -89,7 +89,8 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
         .fatal_msg = "",
         .fift_code = "",
         .abi_json = "",
-        .sm_json = "",
+        .symbols_json = "",
+        .marks_json = "",
       };
     }
     // output warnings to console, if any collected
@@ -113,7 +114,8 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
         .fatal_msg = "",
         .fift_code = "",
         .abi_json = "",
-        .sm_json = "",
+        .symbols_json = "",
+        .marks_json = "",
       };
     }
 
@@ -121,19 +123,28 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
 
     pipeline_find_unused_symbols();
 
+    pipeline_collect_symbol_types();
+
     std::ostringstream os_fif;
     pipeline_generate_fif_output(os_fif);
     std::ostringstream os_abi;
     pipeline_collect_abi_output(os_abi);
-    std::ostringstream os_sm;
-    pipeline_collect_source_maps_output(os_sm);
+    std::ostringstream os_symbol_types;
+    if (G_settings.emit_symbol_types) {
+      pipeline_collect_symbol_types_output(os_symbol_types);
+    }
+    std::ostringstream os_debug_marks;
+    if (G_settings.emit_debug_marks) {
+      pipeline_collect_debug_marks_output(os_debug_marks);
+    }
 
     return TolkCompilationResult{
       .errors = {},
       .fatal_msg = "",
       .fift_code = os_fif.str(),
       .abi_json = os_abi.str(),
-      .sm_json = os_sm.str(),
+      .symbols_json = os_symbol_types.str(),
+      .marks_json = os_debug_marks.str(),
     };
   } catch (const ThrownParseError& error) {
     // append `err("...").fire()` to earlier `err("...").collect()`
@@ -143,7 +154,8 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
       .fatal_msg = "",
       .fift_code = "",
       .abi_json = "",
-      .sm_json = "",
+      .symbols_json = "",
+      .marks_json = "",
     };
 
   } catch (const Fatal& fatal) {
@@ -152,7 +164,8 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
       .fatal_msg = fatal.message,
       .fift_code = "",
       .abi_json = "",
-      .sm_json = "",
+      .symbols_json = "",
+      .marks_json = "",
     };
 
   } catch (const UnexpectedASTNodeKind& error) {
@@ -161,7 +174,8 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
       .fatal_msg = error.message,
       .fift_code = "",
       .abi_json = "",
-      .sm_json = "",
+      .symbols_json = "",
+      .marks_json = "",
     };
   }
 }

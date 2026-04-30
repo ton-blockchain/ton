@@ -579,6 +579,7 @@ function compileFile(mod, filename, withSrcLineComments, pathMappings) {
         optimizationLevel: 2,
         withStackComments: true,
         withSrcLineComments: withSrcLineComments,
+        withSymbolTypes: false,
         entrypointFileName: filename
     };
 

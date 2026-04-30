@@ -256,6 +256,13 @@ static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_funct
       return ConstValString{typeT->as_human_readable()};
     }
 
+    if (f_name == "typeAbiJsonOf" || f_name == "typeAbiJsonOfObject") {
+      TypePtr typeT = v->fun_maybe->substitutedTs->typeT_at(0);
+      std::string out;
+      typeT->as_abi_json(out);
+      return ConstValString{std::move(out)};
+    }
+
     if (f_name == "sourceLocation") {
       SrcRange::DecodedRange d = v->range.decode_offsets();
       StructPtr s_SourceLocation = v->fun_maybe->declared_return_type->try_as<TypeDataStruct>()->struct_ref;

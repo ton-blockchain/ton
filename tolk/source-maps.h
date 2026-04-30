@@ -20,6 +20,7 @@
 #include <vector>
 #include <variant>
 #include "src-file.h"
+#include "type-export-json.h"
 
 namespace tolk {
 
@@ -89,7 +90,29 @@ typedef std::variant<
   DebugMarkSetGlob
 > DebugMarkInfo;
 
-class SourceMapCollecting {
+// Collects shared files/types/functions declarations emitted as out.symbolTypes.json.
+// Debug marks reference this table by "ty_idx" indices.
+class SymbolTypesCollecting {
+  JsonTypeExporter json_types;
+  std::vector<SrcFilePtr> used_files;
+  std::vector<FunctionPtr> used_functions;
+  bool primitive_types_seeded = false;
+
+public:
+  void seed_primitive_types();
+  void register_used_file(SrcFilePtr file_ref);
+  void register_used_file(SrcRange range);
+  void register_used_function(FunctionPtr fun_ref);
+  void register_used_type(TypePtr type);
+
+  int get_fun_idx(FunctionPtr fun_ref) const;
+  int get_type_idx(TypePtr type) const;
+
+  void to_pretty_json(std::ostream& os) const;
+};
+
+// Collects MARK_* metadata emitted as out.debugMarks.json when debug marks are enabled.
+class DebugMarksCollecting {
   std::vector<DebugMarkInfo> debug_marks;
 
 public:
@@ -99,7 +122,7 @@ public:
     return mark_id;  // both in Fift and in JSON they start from 0
   }
 
-  void to_pretty_json(std::ostream& os) const;
+  void to_pretty_json(std::ostream& os, const SymbolTypesCollecting& symbol_types) const;
 };
 
 

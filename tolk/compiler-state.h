@@ -46,7 +46,8 @@ struct CompilerState {
   std::vector<std::pair<std::string_view, SrcFilePtr>> skipped_imported_getters;
 
   ErrorCollector* error_collector = nullptr;  // when set, errors can be collected instead of thrown
-  SourceMapCollecting source_map;
+  SymbolTypesCollecting symbol_types_pool;    // for out.symbolTypes.json
+  DebugMarksCollecting debug_marks;           // for out.debugMarks.json
 
   int last_type_id = 128;                            // below 128 reserved for built-in types
   std::unordered_map<TypePtr, int> map_type_to_id;   // for assign_type_id() in type-system.cpp
@@ -62,7 +63,8 @@ struct TolkCompilationResult {
   std::string fatal_msg;      // some Fatal happened, it has no location and can't be pretty formatted
   std::string fift_code;      // fift code exists only if no compilation errors
   std::string abi_json;       // ABI JSON exists only if no compilation errors
-  std::string sm_json;        // source maps emitted by the compiler (to be merged with debug marks dict emitted by Fift)
+  std::string symbols_json;   // out.symbolTypes.json, contains unique types and declarations
+  std::string marks_json;     // out.debugMarks.json, for debugger, contains props of every MARK_XXX in Fift
 };
 
 // starts all the compilation pipeline, called from tolk-main and tolk-wasm

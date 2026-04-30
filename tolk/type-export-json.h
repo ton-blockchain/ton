@@ -26,7 +26,7 @@
 namespace tolk {
 
 // JsonTypeExporter gathers unique types and declarations (structs, aliases, enums)
-// that are reachable from the compiled program. Used by both ABI and source maps output.
+// that are reachable from the compiled program. Used by ABI and symbol-types output.
 struct JsonTypeExporter {
   struct UniqueType {
     TypePtr t_ptr;

@@ -56,6 +56,7 @@ struct ABIOutgoingMessage {
 struct ABIStorage {
   TypePtr storage_ty = nullptr;
   TypePtr storage_at_deployment_ty = nullptr;
+  std::string description;    // from doc comment over a storage struct
 };
 
 enum class ABIThrownErrorKind {
@@ -93,7 +94,6 @@ struct ContractABI {
   std::vector<ABIOutgoingMessage> emitted_events;
   std::vector<ABIGetMethod> get_methods;
   std::vector<ABIThrownError> thrown_errors;
-  std::vector<ABIConstant> constants;
 
   std::string_view compiler_name;
   std::string_view compiler_version;
@@ -110,7 +110,6 @@ struct ContractABI {
   void register_thrown_error(EnumDefPtr enum_ref, EnumMemberPtr member_ref);
   void register_thrown_error(const td::RefInt256& err_code);
   void register_thrown_error(ABIThrownErrorKind kind, const td::RefInt256& error_code, std::string name, std::string description);
-  void register_constant(GlobalConstPtr const_ref);
 
   void to_pretty_json(std::ostream& os) const;
 };

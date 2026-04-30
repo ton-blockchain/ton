@@ -27,7 +27,7 @@ using namespace std::literals::string_literals;
 
 // given func_type = `(slice, int) -> slice` and func flags, create SymLocalVarOrParameter
 // param_names is optional: when provided, parameters get names (used for "big" built-in functions, so that
-// their arguments appear in debug info / source maps); when empty, parameters remain unnamed
+// their arguments appear in debug info / symbol types); when empty, parameters remain unnamed
 static std::vector<LocalVarData> define_builtin_parameters(const std::vector<TypePtr>& params_types, int func_flags,
                                                            const std::vector<std::string>& param_names = {}) {
   // `loadInt()`, `storeInt()`: they accept `self` and mutate it; no other options available in built-ins for now
@@ -1810,6 +1810,12 @@ void define_builtins() {
   define_builtin_method("reflect.typeNameOfObject", reflect, {typeT}, String, declGenericT,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("reflect.typeAbiJsonOf", reflect, {}, String, declGenericT,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
+  define_builtin_method("reflect.typeAbiJsonOfObject", reflect, {typeT}, String, declGenericT,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("reflect.stackSizeOf", reflect, {}, Int, declGenericT,
                                 generate_reflect_stackSizeOf,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
@@ -2058,6 +2064,8 @@ void patch_builtins_after_stdlib_loaded() {
 
   lookup_function("reflect.typeNameOf")->mutate()->receiver_type = reflect;
   lookup_function("reflect.typeNameOfObject")->mutate()->receiver_type = reflect;
+  lookup_function("reflect.typeAbiJsonOf")->mutate()->receiver_type = reflect;
+  lookup_function("reflect.typeAbiJsonOfObject")->mutate()->receiver_type = reflect;
   lookup_function("reflect.stackSizeOf")->mutate()->receiver_type = reflect;
   lookup_function("reflect.stackSizeOfObject")->mutate()->receiver_type = reflect;
   lookup_function("reflect.serializationPrefixOf")->mutate()->receiver_type = reflect;

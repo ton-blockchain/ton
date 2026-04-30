@@ -166,12 +166,6 @@ void pipeline_collect_abi_output(std::ostream& os) {
   CollectAbiFromBodyVisitor visitor(&abi);
   visit_ast_of_all_functions(visitor);
 
-  for (GlobalConstPtr const_ref : get_all_declared_constants()) {
-    if (!const_ref->ident_anchor->range.get_src_file()->is_stdlib_file) {
-      abi.register_constant(const_ref);
-    }
-  }
-
   abi.to_pretty_json(os);
 }
 

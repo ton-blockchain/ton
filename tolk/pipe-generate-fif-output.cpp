@@ -176,7 +176,7 @@ struct LineCommentsOutput {
   }
 };
 
-static void output_asm_code_for_fun(std::ostream& os, FunctionPtr fun_ref, std::vector<AsmOp>&& asm_code, bool print_stack_comments, bool print_line_comments, bool emit_source_maps) {
+static void output_asm_code_for_fun(std::ostream& os, FunctionPtr fun_ref, std::vector<AsmOp>&& asm_code, bool print_stack_comments, bool print_line_comments, bool emit_debug_marks) {
   tolk_assert(!asm_code.empty());
   const AsmOp& mark_enter = asm_code.front();
   tolk_assert(mark_enter.is_debug_mark() && std::holds_alternative<DebugMarkEnterFunction>(mark_enter.debug_mark));
@@ -193,7 +193,7 @@ static void output_asm_code_for_fun(std::ostream& os, FunctionPtr fun_ref, std::
   }
   std::string fun_fift_name = CodeBlob::fift_name(fun_ref);
   os << "  " << fun_fift_name << " " << modifier << ":<{";
-  if (print_stack_comments && !emit_source_maps) {
+  if (print_stack_comments && !emit_debug_marks) {
     size_t len = 2 + fun_fift_name.size() + 1 + std::strlen(modifier) + 3;
     while (len < 28) {      // align "// stack state"
       os << ' ';
@@ -213,7 +213,7 @@ static void output_asm_code_for_fun(std::ostream& os, FunctionPtr fun_ref, std::
 
   for (int i = 0; i < len; ++i) {
     AsmOp& op = asm_code[i];
-    if (op.is_debug_mark() && !emit_source_maps) {
+    if (op.is_debug_mark() && !emit_debug_marks) {
       continue;
     }
 
@@ -227,11 +227,11 @@ static void output_asm_code_for_fun(std::ostream& os, FunctionPtr fun_ref, std::
       line_output.output_first_line(os, indent, range);
     }
 
-    if (emit_source_maps && need_loc_mark) {
+    if (emit_debug_marks && need_loc_mark) {
       AsmOp op_mark = AsmOp::DebugMark(DebugMarkLocation{
         .range = range,
       });
-      op_mark.a = G.source_map.register_debug_mark(std::move(op_mark.debug_mark));
+      op_mark.a = G.debug_marks.register_debug_mark(std::move(op_mark.debug_mark));
       op_mark.output_to_fif(os, indent, print_stack_comments);
       if (print_stack_comments) {
         os << '`' << range << '`';
@@ -246,17 +246,17 @@ static void output_asm_code_for_fun(std::ostream& os, FunctionPtr fun_ref, std::
       }
     }
 
-    bool show_comment = print_stack_comments && (op.is_debug_mark() || (!emit_source_maps && fwd_stack_op));
+    bool show_comment = print_stack_comments && (op.is_debug_mark() || (!emit_debug_marks && fwd_stack_op));
     indent -= op.op.starts_with("}>");
-    if (op.is_debug_mark() && emit_source_maps) {
-      op.a = G.source_map.register_debug_mark(op.debug_mark);
+    if (op.is_debug_mark() && emit_debug_marks) {
+      op.a = G.debug_marks.register_debug_mark(op.debug_mark);
     }
     op.output_to_fif(os, indent, show_comment);
     indent += op.op.ends_with("<{");
 
     if (op.is_debug_mark() && show_comment) {
       os << CommentForDebugMarkInFif(var_names, op.debug_mark);
-    } else if (!emit_source_maps && show_comment) {
+    } else if (!emit_debug_marks && show_comment) {
       os << StackCommentInFif(fwd_stack_op->stack_slots, false);
     }
     os << std::endl;
@@ -325,7 +325,7 @@ static void generate_output_func(std::ostream& os, FunctionPtr fun_ref) {
     std::move(asm_code),
     G_settings.stack_layout_comments,
     G_settings.tolk_src_as_line_comments,
-    G_settings.emit_source_maps
+    G_settings.emit_debug_marks
   );
 
   if (G_settings.verbosity >= 2) {
@@ -421,7 +421,7 @@ void pipeline_generate_fif_output(std::ostream& os) {
     generate_output_func(os, fun_ref);
   }
 
-  if (G_settings.emit_source_maps) {
+  if (G_settings.emit_debug_marks) {
     os << "}END>cd\n";
     // after this, on a stack: BoC (TVM bytecode) + debug marks (dict)
   } else {

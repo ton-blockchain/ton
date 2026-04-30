@@ -27,7 +27,6 @@ struct ContractDirective {
   std::string author;
   std::string version;
   std::string description;
-  std::string symbolsNamespace;
 
   AnyTypeV incomingMessages = nullptr;
   AnyTypeV incomingExternal = nullptr;

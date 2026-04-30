@@ -153,7 +153,8 @@ get fun currentCounter(): int32 {
     "storage_at_deployment_ty": {
       "kind": "StructRef",
       "struct_name": "InitStorage"
-    }
+    },
+    "description": "Persistent contract data"
   },
 """
 

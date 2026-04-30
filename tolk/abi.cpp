@@ -92,6 +92,7 @@ static TypePtr normalize_createMessage_ty(TypePtr body_ty) {
 void ContractABI::register_storage(TypePtr storage_ty, TypePtr storage_at_deployment_ty) {
   if (storage_ty != nullptr && storage_ty != TypeDataNullLiteral::create()) {
     storage.storage_ty = storage_ty;
+    storage.description = get_abi_description(storage_ty);
     json_types.register_used_type(storage_ty);
   }
   if (storage_at_deployment_ty != nullptr && storage_at_deployment_ty != TypeDataNullLiteral::create()) {
@@ -226,14 +227,6 @@ void ContractABI::register_thrown_error(ABIThrownErrorKind kind, const td::RefIn
   });
 }
 
-void ContractABI::register_constant(GlobalConstPtr const_ref) {
-  constants.emplace_back(ABIConstant{
-    .name = const_ref->name,
-    .value = eval_and_cache_const_init_val(const_ref),
-    .description = get_abi_description(const_ref->doc_lines),
-  });
-}
-
 
 // --------------------------------------------
 //    output ABI to JSON
@@ -280,6 +273,9 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
   }
   if (this->storage.storage_at_deployment_ty != nullptr) {
     json.key_value("storage_at_deployment_ty", this->storage.storage_at_deployment_ty);
+  }
+  if (!this->storage.description.empty()) {
+    json.key_value("description", this->storage.description);
   }
   json.end_object();
 
@@ -369,18 +365,6 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
       json.key_value("description", e.description);
     }
     json.key_value("err_code", e.err_code);
-    json.end_object();
-  }
-  json.end_array();
-
-  json.start_array("constants");
-  for (const ABIConstant& c : this->constants) {
-    json.start_object();
-    json.key_value("name", c.name);
-    json.key_value("value", c.value);
-    if (!c.description.empty()) {
-      json.key_value("description", c.description);
-    }
     json.end_object();
   }
   json.end_array();

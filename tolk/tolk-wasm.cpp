@@ -71,13 +71,14 @@ static td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(opt_level, td::get_json_object_int_field(config, "optimizationLevel", true, 2));
   TRY_RESULT(stack_comments, td::get_json_object_bool_field(config, "withStackComments", true, false));
   TRY_RESULT(src_line_comments, td::get_json_object_bool_field(config, "withSrcLineComments", true, false));
-  TRY_RESULT(collect_source_map, td::get_json_object_bool_field(config, "collectSourceMap", true, false));
+  TRY_RESULT(emit_symbol_types, td::get_json_object_bool_field(config, "withSymbolTypes", true, true));
+  TRY_RESULT(emit_debug_marks, td::get_json_object_bool_field(config, "withDebugMarks", true, false));
   TRY_RESULT(entrypoint_filename, td::get_json_object_string_field(config, "entrypointFileName", false));
   TRY_RESULT(show_errors_as_json, td::get_json_object_bool_field(config, "jsonErrors", true, false));
   TRY_RESULT(check_only_no_output, td::get_json_object_bool_field(config, "checkOnly", true, false));
   TRY_RESULT(allow_no_entrypoint, td::get_json_object_bool_field(config, "allowNoEntrypoint", true, false));
   // note that `pathMappings` are handled on a client-side (in tolk-js) only
-  // contract ABI and source maps are always emitted (default to true in G_settings)
+  // contract ABI is always emitted (default to true in G_settings)
 
   G_settings.verbosity = 0;
   G_settings.optimization_level = std::max(0, opt_level);
@@ -85,7 +86,8 @@ static td::Result<std::string> compile_internal(char *config_json) {
   G_settings.tolk_src_as_line_comments = src_line_comments;
   G_settings.show_errors_as_json = show_errors_as_json;
   G_settings.check_only_no_output = check_only_no_output;
-  G_settings.emit_source_maps = collect_source_map;
+  G_settings.emit_symbol_types = emit_symbol_types;
+  G_settings.emit_debug_marks = emit_symbol_types && emit_debug_marks;
   G_settings.allow_no_entrypoint = allow_no_entrypoint;
 
   std::ostringstream errs;
@@ -137,7 +139,7 @@ static td::Result<std::string> compile_internal(char *config_json) {
   static std::mutex fift_mutex;
   std::lock_guard<std::mutex> fift_lock(fift_mutex);
 
-  td::Result<fift::CompiledProgramOutput> fift_result = fift::compile_asm_program(result.fift_code, std::move(fift_fif), std::move(asm_fif), G_settings.emit_source_maps);
+  td::Result<fift::CompiledProgramOutput> fift_result = fift::compile_asm_program(result.fift_code, std::move(fift_fif), std::move(asm_fif), G_settings.emit_debug_marks);
   if (fift_result.is_error()) {
     std::ostringstream result_json_str;
     JsonPrettyOutput json(result_json_str);
@@ -151,6 +153,9 @@ static td::Result<std::string> compile_internal(char *config_json) {
   }
   fift::CompiledProgramOutput fift_res = fift_result.move_as_ok();
 
+  std::string_view symbol_types_json = G_settings.emit_symbol_types ? std::string_view(result.symbols_json) : std::string_view("null");
+  std::string_view debug_marks_json = G_settings.emit_debug_marks ? std::string_view(result.marks_json) : std::string_view("null");
+
   std::ostringstream result_json_str;
   JsonPrettyOutput json(result_json_str);
   json.start_object();
@@ -158,9 +163,10 @@ static td::Result<std::string> compile_internal(char *config_json) {
   json.key_value("fiftCode", result.fift_code);
   json.key_value("codeBoc64", JsonPrettyOutput::Unescaped{fift_res.codeBoc64});
   json.key_value("codeHashHex", JsonPrettyOutput::Unescaped{fift_res.codeHashHex});
+  json.key_value("symbolTypesJson", JsonPrettyOutput::Unquoted{symbol_types_json});
+  json.key_value("debugMarksJson", JsonPrettyOutput::Unquoted{debug_marks_json});
   json.key_value("debugMarksBase64", JsonPrettyOutput::Unescaped{fift_res.debugMarksBase64});
   json.key_value("abiJson", JsonPrettyOutput::Unquoted{result.abi_json});
-  json.key_value("sourceMapsJson", JsonPrettyOutput::Unquoted{result.sm_json});
   json.key_value("tolkVersion", JsonPrettyOutput::Unescaped{TOLK_VERSION});
   json.key_value("stderr", errs.str());
   json.end_object();

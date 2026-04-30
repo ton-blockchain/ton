@@ -47,7 +47,8 @@ enum LongOnlyOptions {
   OPT_NO_STACK_COMMENTS,
   OPT_NO_LINE_COMMENTS,
   OPT_NO_CONTRACT_ABI,
-  OPT_NO_SOURCE_MAPS,
+  OPT_NO_SYMBOL_TYPES,
+  OPT_EMIT_DEBUG_MARKS,
   OPT_JSON_ERRORS,
   OPT_CHECK_ONLY,
   OPT_ALLOW_NO_ENTRYPOINT,
@@ -60,7 +61,8 @@ static struct option long_options[] = {
   {"no-stack-comments", no_argument, nullptr, OPT_NO_STACK_COMMENTS},
   {"no-line-comments", no_argument, nullptr, OPT_NO_LINE_COMMENTS},
   {"no-contract-abi", no_argument, nullptr, OPT_NO_CONTRACT_ABI},
-  {"no-source-maps", no_argument, nullptr, OPT_NO_SOURCE_MAPS},
+  {"no-symbol-types", no_argument, nullptr, OPT_NO_SYMBOL_TYPES},
+  {"emit-debug-marks", no_argument, nullptr, OPT_EMIT_DEBUG_MARKS},
   {"json-errors", no_argument, nullptr, OPT_JSON_ERRORS},
   {"check-only", no_argument, nullptr, OPT_CHECK_ONLY},
   {"allow-no-entrypoint", no_argument, nullptr, OPT_ALLOW_NO_ENTRYPOINT},
@@ -85,8 +87,10 @@ void usage(const char* progname) {
             "\tDon't include stack layout comments into Fift output\n"
          "--no-line-comments\n"
             "\tDon't include original lines from Tolk src into Fift output\n"
-         "--no-source-maps\n"
-            "\tDon't output source maps artifact and debug marks to Fift code\n"
+         "--no-symbol-types\n"
+            "\tDon't output symbol types JSON artifact\n"
+         "--emit-debug-marks\n"
+            "\tOutput debug marks JSON artifact and debug marks to Fift code\n"
          "--json-errors\n"
             "\tShow compilation errors in JSON (not human-readable) format\n"
          "--check-only\n"
@@ -320,8 +324,11 @@ int main(int argc, char* const argv[]) {
       case OPT_NO_CONTRACT_ABI:
         G_settings.emit_contract_abi = false;
         break;
-      case OPT_NO_SOURCE_MAPS:
-        G_settings.emit_source_maps = false;
+      case OPT_NO_SYMBOL_TYPES:
+        G_settings.emit_symbol_types = false;
+        break;
+      case OPT_EMIT_DEBUG_MARKS:
+        G_settings.emit_debug_marks = true;
         break;
       case OPT_JSON_ERRORS:
         G_settings.show_errors_as_json = true;
@@ -376,6 +383,11 @@ int main(int argc, char* const argv[]) {
 
   G_settings.read_callback = fs_read_callback;
 
+  if (G_settings.emit_debug_marks && !G_settings.emit_symbol_types) {
+    std::cerr << "--emit-debug-marks requires symbol types; remove --no-symbol-types" << std::endl;
+    return 2;
+  }
+
   TolkCompilationResult result = tolk_proceed(argv[optind]);
   if (!result.fatal_msg.empty()) {
     compilation_failed_with_fatal(result.fatal_msg);
@@ -414,9 +426,9 @@ int main(int argc, char* const argv[]) {
   }
 
   fif_out_file << result.fift_code;
-  if (G_settings.emit_source_maps) {
+  if (G_settings.emit_debug_marks) {
     fif_out_file << "boc>B \"" << out_basename << ".debugMarks.boc\" B>file\n";
-    // todo need to save boc without source maps? need to disable it?
+    // todo need to save boc without debug marks? need to disable it?
     fif_out_file << "dup boc>B \"" << out_basename << ".compiled.boc\" B>file\n";
   }
 
@@ -429,13 +441,22 @@ int main(int argc, char* const argv[]) {
     abi_out_file << result.abi_json;
   }
 
-  if (G_settings.emit_source_maps) {
-    std::ofstream source_maps_out_file(out_basename + ".sourceMaps.json");
-    if (!source_maps_out_file.is_open()) {
-      std::cerr << "Failed to create output file " << out_basename << ".sourceMaps.json" << std::endl;
+  if (G_settings.emit_symbol_types) {
+    std::ofstream symbol_types_out_file(out_basename + ".symbolTypes.json");
+    if (!symbol_types_out_file.is_open()) {
+      std::cerr << "Failed to create output file " << out_basename << ".symbolTypes.json" << std::endl;
       return 2;
     }
-    source_maps_out_file << result.sm_json;
+    symbol_types_out_file << result.symbols_json;
+  }
+
+  if (G_settings.emit_debug_marks) {
+    std::ofstream debug_marks_out_file(out_basename + ".debugMarks.json");
+    if (!debug_marks_out_file.is_open()) {
+      std::cerr << "Failed to create output file " << out_basename << ".debugMarks.json" << std::endl;
+      return 2;
+    }
+    debug_marks_out_file << result.marks_json;
   }
 
   compilation_succeed_after_output_done();

@@ -252,12 +252,12 @@ td::Result<CompiledProgramOutput> compile_asm_program(const std::string& program
 
 td::Result<CompiledProgramOutput> compile_asm_program(const std::string& program_code, std::string&& fift_fif,
                                                       std::string&& asm_fif,
-                                                      bool with_source_maps) {
+                                                      bool with_debug_marks) {
   std::string main_fif;
   main_fif.reserve(program_code.size() + 100);
   main_fif.append(program_code.data(), program_code.size());
-  if (with_source_maps) {
-    // then source maps dict is on top of the stack, save them into a memory file
+  if (with_debug_marks) {
+    // then debug marks dict is on top of the stack, save them into a memory file
     main_fif.append(R"(   boc>B B>base64 $>B "debugMarks" B>file)");
   }
   main_fif.append(R"( dup hashB B>X      $>B "hex" B>file)");  // write codeHashHex to a file
@@ -272,13 +272,12 @@ td::Result<CompiledProgramOutput> compile_asm_program(const std::string& program
   source_lookup.add_include_path("/");
 
   std::stringstream fift_output_stream;
-  // todo we really need to pass enable_debug=with_source_maps?
-  TRY_RESULT(res, run_fift(std::move(source_lookup), &fift_output_stream, true, with_source_maps));
+  TRY_RESULT(res, run_fift(std::move(source_lookup), &fift_output_stream));
   TRY_RESULT(boc, res.read_file("boc"));
   TRY_RESULT(hex, res.read_file("hex"));
 
   FileLoader::File marks;
-  if (with_source_maps) {
+  if (with_debug_marks) {
     TRY_RESULT(marks_, res.read_file("debugMarks"));
     marks = marks_;
   }

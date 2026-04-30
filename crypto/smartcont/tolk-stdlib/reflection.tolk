@@ -28,6 +28,16 @@ fun reflect.typeNameOf<T>(): string
 fun reflect.typeNameOfObject<T>(anyVariable: T): string
     builtin
 
+/// Get ABI-JSON type description of any T for compile-time reflection.
+@pure
+fun reflect.typeAbiJsonOf<T>(): string
+    builtin
+
+/// Get ABI-JSON type description of any object for compile-time reflection.
+@pure
+fun reflect.typeAbiJsonOfObject<T>(anyVariable: T): string
+    builtin
+
 /// Returns the number of stack slots a type T occupies.
 /// Example:
 /// ```

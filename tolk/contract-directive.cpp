@@ -66,7 +66,6 @@ ContractDirective* parse_contract_directive(AnyV v) {
     if      (prop == "author")                d->author               = expect_string(ith);
     else if (prop == "version")               d->version              = expect_string(ith);
     else if (prop == "description")           d->description          = expect_string(ith);
-    else if (prop == "symbolsNamespace")      d->symbolsNamespace     = expect_string(ith);
     else if (prop == "incomingMessages")      d->incomingMessages     = expect_type(ith);
     else if (prop == "incomingExternal")      d->incomingExternal     = expect_type(ith);
     else if (prop == "storage")               d->storage              = expect_type(ith);

@@ -45,5 +45,5 @@ td::Result<FiftOutput> mem_run_fift(SourceLookup source_lookup, std::vector<std:
 td::Result<td::Ref<vm::Cell>> compile_asm(td::Slice asm_code);
 td::Result<CompiledProgramOutput> compile_asm_program(const std::string& program_code, const std::string& fift_dir);
 td::Result<CompiledProgramOutput> compile_asm_program(const std::string& program_code, std::string&& fift_fif,
-                                                      std::string&& asm_fif, bool with_source_maps);
+                                                      std::string&& asm_fif, bool with_debug_marks);
 }  // namespace fift

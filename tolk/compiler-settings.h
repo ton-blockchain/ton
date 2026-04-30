@@ -43,7 +43,8 @@ struct CompilerSettings {
   bool stack_layout_comments = true;
   bool tolk_src_as_line_comments = true;
   bool emit_contract_abi = true;
-  bool emit_source_maps = true;
+  bool emit_symbol_types = true;
+  bool emit_debug_marks = false;
   bool show_errors_as_json = false;
   bool check_only_no_output = false;
   bool allow_no_entrypoint = false;

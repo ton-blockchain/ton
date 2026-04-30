@@ -35,6 +35,7 @@ set(TOLK_SOURCE
         pipe-transform-on-message.cpp
         pipe-ast-to-legacy.cpp
         pipe-find-unused-symbols.cpp
+        pipe-collect-symbol-types.cpp
         pipe-generate-fif-output.cpp
         pipe-collect-abi.cpp
         type-system.cpp
