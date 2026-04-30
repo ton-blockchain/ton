@@ -5,7 +5,6 @@
  */
 
 #include "stats.h"
-#include "validator-session-types.h"
 
 namespace ton::validator::consensus::simplex::stats {
 
@@ -119,7 +118,6 @@ void MetricCollector::collect_block_accepted(const consensus::stats::BlockAccept
   while (!flows_.empty()) {
     auto it = flows_.begin();
     if (it->first.slot < first_non_accepted_slot_) {
-      log_fake_catchain_stats(it->second);
       flows_.erase(it);
     } else {
       break;
@@ -176,56 +174,6 @@ void MetricCollector::collect_cert_observed(const CertObserved& event) {
         }
       },
       event.vote().vote);
-}
-
-namespace {
-
-validatorsession::ValidatorSessionStats::Producer flow_to_legacy_stats(const Flow& flow) {
-  return {
-      .block_status = validatorsession::ValidatorSessionStats::status_approved,
-      .block_id = *flow.block_id,
-      .is_accepted = true,
-      .is_ours = flow.is_collator,
-      .got_block_at = *flow.candidate_received,
-      .got_block_by = flow.is_collator ? validatorsession::ValidatorSessionStats::recv_collated
-                                       : validatorsession::ValidatorSessionStats::recv_broadcast,
-      .got_submit_at = flow.is_collator ? *flow.collate_started : *flow.candidate_received,
-      .comment = "",
-      .collation_time = flow.is_collator ? (*flow.collate_finished - *flow.collate_started) : -1.0,
-      .collated_at = flow.is_collator ? *flow.collate_finished : -1.0,
-      .self_collated = flow.is_collator,
-      .validation_time = *flow.validation_finished - *flow.validation_started,
-      .validated_at = *flow.validation_finished,
-      .approvers = {},
-      .signers = {},
-      .approved_33pct_at = *flow.validation_finished,
-      .approved_66pct_at = *flow.notarize_cert_observed,
-      .signed_33pct_at = *flow.finalize_cert_observed,
-      .signed_66pct_at = *flow.manager_accepted,
-  };
-}
-
-}  // namespace
-
-void MetricCollector::log_fake_catchain_stats(const Flow& flow) {
-  if (!flow.is_normal()) {
-    return;
-  }
-
-  validatorsession::ValidatorSessionStats stats;
-  stats.session_id = session_id_;
-  stats.self = self_id_;
-  stats.block_id = *flow.block_id;
-  stats.success = true;
-  stats.timestamp = *flow.finalize_voted;
-
-  validatorsession::ValidatorSessionStats::Round round;
-  round.started_at = *flow.candidate_received;
-  round.producers = {flow_to_legacy_stats(flow)};
-
-  stats.rounds.push_back(std::move(round));
-
-  recorder_->add(stats.tl());
 }
 
 }  // namespace ton::validator::consensus::simplex::stats
