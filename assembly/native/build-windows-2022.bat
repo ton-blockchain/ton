@@ -30,22 +30,20 @@ IF %errorlevel% NEQ 0 (
 )
 SET PATH=%PATH%;C:\Program Files\NASM
 
-if not exist "third_libs" (
-    mkdir "third_libs"
+where clang-cl
+IF %errorlevel% NEQ 0 (
+  echo clang-cl not found. Install LLVM toolset for Visual Studio 2022.
+  exit /b %errorlevel%
 )
-cd third_libs
 
-set third_libs=%cd%
-echo %third_libs%
-set "third_party=%ROOT_DIR%\third-party"
-
-cd ..
 echo Current dir %cd%
 
 mkdir build
 cd build
-cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
--DCCACHE_FOUND= ^
+cmake -GNinja -DCMAKE_BUILD_TYPE=Release ^
+-DCMAKE_C_COMPILER=clang-cl ^
+-DCMAKE_CXX_COMPILER=clang-cl ^
+-DCMAKE_LINKER=lld-link ^
 -DCMAKE_CXX_COMPILER_LAUNCHER= ^
 -DPORTABLE=1 ^
 -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj" ..
