@@ -34,19 +34,19 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y build-essential git cmake ninja-build libjemalloc-dev
 
-    - name: Install Clang 21
+    - name: Install Clang 22
       run: |
         wget https://apt.llvm.org/llvm.sh
         chmod +x llvm.sh
-        sudo ./llvm.sh 21 all
+        sudo ./llvm.sh 22 all
 
     # TODO: Preserve ccache cache between runs once we get rid of warning suppression mappings.
 
     - name: Build TON
       run: |
         cmake -S . -B build -G Ninja \
-          -DCMAKE_C_COMPILER=clang-21 \
-          -DCMAKE_CXX_COMPILER=clang++-21 \
+          -DCMAKE_C_COMPILER=clang-22 \
+          -DCMAKE_CXX_COMPILER=clang++-22 \
           -DCMAKE_BUILD_TYPE=Release \
           -DTON_USE_JEMALLOC=ON \
           -DTON_USE_LLD=On \
@@ -71,7 +71,7 @@ jobs:
     - name: Check C++ formatting
       run: |
         # TODO: Run clang-format only on changed files.
-        clang-format-21 -i $(git ls-files '*.h' '*.hpp' '*.cpp' \
+        clang-format-22 -i $(git ls-files '*.h' '*.hpp' '*.cpp' \
           ':(exclude)crypto/smartcont/tolk-stdlib/' \
           ':(exclude)tolk/' \
           ':(exclude)tolk-tester/' \
