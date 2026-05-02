@@ -26,6 +26,8 @@ async def main():
     async with Network(install, working_dir) as network:
         dht = network.create_dht_node()
 
+        network.config.shard_validators = 2
+
         nodes: list[FullNode] = []
         for _ in range(2):
             node = network.create_full_node()
