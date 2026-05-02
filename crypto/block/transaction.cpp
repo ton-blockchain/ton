@@ -2267,6 +2267,7 @@ int Transaction::try_action_set_code(vm::CellSlice& cs, ActionPhase& ap, const A
   if (!tlb::unpack_exact(cs, rec)) {
     return -1;
   }
+  LOG(DEBUG) << "process set code " << rec.new_code->get_hash().to_hex();
   ap.new_code = std::move(rec.new_code);
   ap.code_changed = true;
   ap.spec_actions++;
@@ -2291,6 +2292,7 @@ int Transaction::try_action_change_library(vm::CellSlice& cs, ActionPhase& ap, c
   if (!tlb::unpack_exact(cs, rec)) {
     return -1;
   }
+  int raw_mode = rec.mode;
   // mode: +0 = remove library, +1 = add private library, +2 = add public library, +16 - bounce on fail
   if (rec.mode & 16) {
     if (!cfg.bounce_on_fail_enabled) {
@@ -2304,11 +2306,14 @@ int Transaction::try_action_change_library(vm::CellSlice& cs, ActionPhase& ap, c
   }
   Ref<vm::Cell> lib_ref = rec.libref->prefetch_ref();
   ton::Bits256 hash;
+  bool lib_ref_is_cell = lib_ref.not_null();
   if (lib_ref.not_null()) {
     hash = lib_ref->get_hash().bits();
   } else {
     CHECK(rec.libref.write().fetch_ulong(1) == 0 && rec.libref.write().fetch_bits_to(hash));
   }
+  LOG(DEBUG) << "process change library with mode " << raw_mode << ", lib_hash=" << hash.to_hex()
+             << ", lib_ref=" << (lib_ref_is_cell ? "cell" : "hash");
   try {
     vm::Dictionary dict{new_library, 256};
     if (!rec.mode) {
